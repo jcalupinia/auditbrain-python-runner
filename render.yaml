@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: auditbrain-python-runner
+    env: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn app:app --host 0.0.0.0 --port 10000"
+    autoDeploy: true
+    envVars:
+      - key: DOCUMENT_SERVICE
+        value: "https://universal-creador-documentos.onrender.com"
+    description: "Servicio AuditBrain integrado con el motor de documentos corporativo de Audit Consulting IA Suite."
