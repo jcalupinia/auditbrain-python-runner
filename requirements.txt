@@ -8,7 +8,7 @@ requests==2.32.3
 
 # === Data Science / Machine Learning ===
 pandas==2.2.3
-numpy==1.26.4
+numpy==2.1.0
 scikit-learn==1.5.2
 statsmodels==0.14.3
 pyod==2.0.1
