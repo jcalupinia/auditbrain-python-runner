@@ -1,11 +1,11 @@
 fastapi
 uvicorn
 requests
+httpx
 pandas
 numpy
 scikit-learn
 statsmodels
-auditai
 pyod
 spacy
 pdfplumber
@@ -29,4 +29,3 @@ transformers
 pyautogui
 selenium
 gradio
-httpx
