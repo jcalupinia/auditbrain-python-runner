@@ -3,10 +3,12 @@ services:
     name: auditbrain-python-runner
     env: python
     plan: starter
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "uvicorn app:app --host 0.0.0.0 --port 10000"
+    pythonVersion: 3.12.3        # 👈 fuerza el uso de Python 3.12, evita error de 3.13
+    buildCommand: "pip install --upgrade pip && pip install -r requirements.txt"
+    startCommand: "uvicorn app:app --host 0.0.0.0 --port $PORT"
     autoDeploy: true
     envVars:
       - key: DOCUMENT_SERVICE
         value: "https://universal-creador-documentos.onrender.com"
-    description: "Servicio AuditBrain integrado con el motor de documentos corporativo de Audit Consulting IA Suite."
+    description: >
+      Servicio AuditBrain integrado con el motor de documentos corporativo de Audit Consulting IA Suite.
