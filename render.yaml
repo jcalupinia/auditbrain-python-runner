@@ -1,14 +1,14 @@
 services:
   - type: web
     name: auditbrain-python-runner
-    env: python
+    env: docker
     plan: starter
-    pythonVersion: 3.12.3        # 👈 fuerza el uso de Python 3.12, evita error de 3.13
-    buildCommand: "pip install --upgrade pip && pip install -r requirements.txt"
-    startCommand: "uvicorn app:app --host 0.0.0.0 --port $PORT"
     autoDeploy: true
+    buildCommand: ""
+    startCommand: ""
     envVars:
       - key: DOCUMENT_SERVICE
         value: "https://universal-creador-documentos.onrender.com"
     description: >
-      Servicio AuditBrain integrado con el motor de documentos corporativo de Audit Consulting IA Suite.
+      Servicio AuditBrain Python Runner 3.0 — Motor analítico y generador de entregables
+      integrado con el Universal Creador de Documentos del ecosistema Audit Consulting IA Suite.
