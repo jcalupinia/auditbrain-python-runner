@@ -1,14 +1,29 @@
 services:
   - type: web
     name: auditbrain-python-runner
-    env: docker
+    env: python
     plan: starter
+    buildCommand: |
+      pip install --upgrade pip setuptools wheel
+      pip install -r requirements.txt
+    startCommand: "uvicorn app:app --host 0.0.0.0 --port 10000"
+    pythonVersion: 3.12.3
     autoDeploy: true
-    buildCommand: ""
-    startCommand: ""
+
     envVars:
       - key: DOCUMENT_SERVICE
         value: "https://universal-creador-documentos.onrender.com"
+
+    healthCheckPath: "/"
+    healthCheckTimeout: 400
+    healthCheckInterval: 20
+
     description: >
-      Servicio AuditBrain Python Runner 3.0 — Motor analítico y generador de entregables
-      integrado con el Universal Creador de Documentos del ecosistema Audit Consulting IA Suite.
+      Servicio AuditBrain - Python Runner 3.0
+      Motor analítico, auditor, financiero, legal y de automatización de la IA Suite.
+      Integrado con el Universal Creador de Documentos para generar reportes automáticos
+      en Excel, PDF, Word, PowerPoint o CSV.
+
+    headers:
+      - key: "Cache-Control"
+        value: "no-store"
