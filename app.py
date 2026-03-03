@@ -112,6 +112,7 @@ async def run_python(request: Request):
                 format_type = format_aliases.get(format_type, format_type)
                 endpoint_format = "powerbi" if format_type == "csv" else format_type
                 endpoint = f"{document_service_base}/generate_{endpoint_format}"
+                pdf_fallback_payload = None
 
                 # ===========================
                 # 📊 Excel
@@ -237,13 +238,24 @@ async def run_python(request: Request):
                     }
 
                 # 🔗 Envío al servicio de documentos
-                doc_response = requests.post(endpoint, json=payload)
+                if format_type == "pdf":
+                    # Fallback para instancias sin WeasyPrint operativo.
+                    pdf_fallback_payload = {
+                        "titulo": execution_context.get("task_name", "Informe de Resultados"),
+                        "contenido": [json.dumps(result, indent=2)],
+                        "incluir_grafico": False
+                    }
+
+                doc_response = requests.post(endpoint, json=payload, timeout=90)
+                if doc_response.status_code != 200 and format_type == "pdf" and pdf_fallback_payload:
+                    doc_response = requests.post(endpoint, json=pdf_fallback_payload, timeout=90)
                 if doc_response.status_code == 200:
                     response_data["document_service"] = doc_response.json()
                 else:
                     response_data["document_service"] = {
                         "error": f"Fallo al generar documento ({doc_response.status_code})",
-                        "endpoint": endpoint
+                        "endpoint": endpoint,
+                        "details": (doc_response.text or "")[:500]
                     }
 
             except Exception as e:
