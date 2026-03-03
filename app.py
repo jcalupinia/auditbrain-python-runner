@@ -90,7 +90,16 @@ async def run_python(request: Request):
         # ==========================================================
         if send_to_doc and result:
             try:
-                format_type = output_expectations.get("format", "excel").lower()
+                format_type = output_expectations.get("format", "excel").lower().strip()
+                format_aliases = {
+                    "xlsx": "excel",
+                    "docx": "word",
+                    "pptx": "ppt",
+                    "power_bi": "powerbi",
+                    "bi": "powerbi",
+                    "zipfile": "zip"
+                }
+                format_type = format_aliases.get(format_type, format_type)
                 endpoint = f"{DOCUMENT_SERVICE}/generate_{format_type}"
 
                 # ===========================
@@ -138,7 +147,7 @@ async def run_python(request: Request):
                 # ===========================
                 # 🧠 PowerPoint
                 # ===========================
-                elif format_type == "pptx":
+                elif format_type == "ppt":
                     payload = {
                         "title": execution_context.get("task_name", "Presentación Ejecutiva"),
                         "subtitle": "Análisis generado automáticamente por AuditBrain",
@@ -163,6 +172,48 @@ async def run_python(request: Request):
                     payload = {
                         "headers": list(result.keys()),
                         "rows": [[str(v) for v in result.values()]]
+                    }
+
+                # ===========================
+                # 🎨 Canva
+                # ===========================
+                elif format_type == "canva":
+                    payload = {
+                        "title": execution_context.get("task_name", "Presentación Canva"),
+                        "subtitle": execution_context.get("module_area", "Resultados de análisis"),
+                        "sections": [
+                            {"type": "heading", "text": "Resumen"},
+                            {"type": "paragraph", "text": json.dumps(result, indent=2)}
+                        ]
+                    }
+
+                # ===========================
+                # 📊 Power BI
+                # ===========================
+                elif format_type == "powerbi":
+                    payload = {
+                        "dataset_name": execution_context.get("task_name", "Dataset AuditBrain"),
+                        "headers": list(result.keys()),
+                        "rows": [[v for v in result.values()]],
+                        "metadata": {
+                            "module_area": execution_context.get("module_area", "general"),
+                            "generated_at": datetime.datetime.utcnow().isoformat()
+                        }
+                    }
+
+                # ===========================
+                # 🗜 ZIP
+                # ===========================
+                elif format_type == "zip":
+                    payload = {
+                        "title": execution_context.get("task_name", "Paquete AuditBrain"),
+                        "files": [
+                            {
+                                "filename": "resultado.json",
+                                "content_type": "application/json",
+                                "content": json.dumps(result, indent=2)
+                            }
+                        ]
                     }
 
                 # ===========================
