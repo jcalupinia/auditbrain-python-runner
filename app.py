@@ -1,5 +1,7 @@
 from fastapi import FastAPI, Request
-import io, sys, traceback, json, requests, datetime
+import io, sys, traceback, json, requests, datetime, os
+
+APP_VERSION = "4.0.0"
 
 # ==========================================================
 # 🧠 AuditBrain: Motor Analítico del Ecosistema Audit Consulting IA Suite
@@ -12,13 +14,13 @@ app = FastAPI(
         "Ejecuta scripts Python dinámicos, genera entregables corporativos "
         "y se conecta al Universal Creador de Documentos."
     ),
-    version="3.0.0"
+    version=APP_VERSION
 )
 
 # ==========================================================
 # 🌐 Configuración Global de Servicios Externos
 # ==========================================================
-DOCUMENT_SERVICE = "https://universal-creador-documentos.onrender.com"
+DOCUMENT_SERVICE = os.getenv("DOCUMENT_SERVICE", "https://universal-creador-documentos.onrender.com").rstrip("/")
 
 # ==========================================================
 # 🩺 Ruta raíz para verificación (Render Health Check)
@@ -29,7 +31,7 @@ async def root():
     return {
         "status": "ok",
         "service": "AuditBrain Python Runner",
-        "version": "3.0.0",
+        "version": APP_VERSION,
         "message": "AuditBrain operativo y conectado al Universal Creador de Documentos 🚀",
         "timestamp": datetime.datetime.utcnow().isoformat()
     }
@@ -90,6 +92,14 @@ async def run_python(request: Request):
         # ==========================================================
         if send_to_doc and result:
             try:
+                document_service_base = DOCUMENT_SERVICE
+                if isinstance(document_service, dict):
+                    custom_document_service = str(document_service.get("endpoint", "")).strip()
+                    if custom_document_service:
+                        if not custom_document_service.startswith(("http://", "https://")):
+                            custom_document_service = f"https://{custom_document_service.lstrip('/')}"
+                        document_service_base = custom_document_service.rstrip("/")
+
                 format_type = output_expectations.get("format", "excel").lower().strip()
                 format_aliases = {
                     "xlsx": "excel",
@@ -100,7 +110,8 @@ async def run_python(request: Request):
                     "zipfile": "zip"
                 }
                 format_type = format_aliases.get(format_type, format_type)
-                endpoint = f"{DOCUMENT_SERVICE}/generate_{format_type}"
+                endpoint_format = "powerbi" if format_type == "csv" else format_type
+                endpoint = f"{document_service_base}/generate_{endpoint_format}"
 
                 # ===========================
                 # 📊 Excel
