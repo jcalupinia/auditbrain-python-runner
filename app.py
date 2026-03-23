@@ -1,10 +1,11 @@
-from fastapi import FastAPI, Request
-import io, sys, traceback, json, requests, datetime, os
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse
+import io, sys, traceback, json, requests, datetime, os, shutil, uuid
 
 APP_VERSION = "4.0.0"
 
 # ==========================================================
-# 🧠 AuditBrain: Motor Analítico del Ecosistema Audit Consulting IA Suite
+# AuditBrain: Motor Analítico del Ecosistema Audit Consulting IA Suite
 # ==========================================================
 app = FastAPI(
     title="AuditBrain - Python Runner",
@@ -18,12 +19,89 @@ app = FastAPI(
 )
 
 # ==========================================================
-# 🌐 Configuración Global de Servicios Externos
+# Configuración Global de Servicios Externos
 # ==========================================================
 DOCUMENT_SERVICE = os.getenv("DOCUMENT_SERVICE", "https://universal-creador-documentos.onrender.com").rstrip("/")
+RESULT_DIR = os.path.abspath("resultados")
+SCRIPT_WORKDIR = os.getcwd()
+PUBLISHABLE_EXTENSIONS = {
+    ".csv", ".doc", ".docx", ".html", ".json", ".pdf", ".png", ".ppt", ".pptx",
+    ".svg", ".txt", ".xls", ".xlsx", ".zip"
+}
+os.makedirs(RESULT_DIR, exist_ok=True)
+
+
+def _snapshot_publishable_files():
+    snapshots = {}
+    search_roots = [SCRIPT_WORKDIR]
+    if RESULT_DIR != SCRIPT_WORKDIR:
+        search_roots.append(RESULT_DIR)
+
+    for root in search_roots:
+        if not os.path.isdir(root):
+            continue
+        for entry in os.scandir(root):
+            if not entry.is_file():
+                continue
+            ext = os.path.splitext(entry.name)[1].lower()
+            if ext in PUBLISHABLE_EXTENSIONS:
+                snapshots[os.path.abspath(entry.path)] = entry.stat().st_mtime
+    return snapshots
+
+
+def _namespace_file_candidates(exec_namespace):
+    candidates = []
+    for value in exec_namespace.values():
+        if not isinstance(value, str):
+            continue
+        path = os.path.abspath(value)
+        ext = os.path.splitext(path)[1].lower()
+        if ext in PUBLISHABLE_EXTENSIONS and os.path.isfile(path):
+            candidates.append(path)
+    return candidates
+
+
+def _publish_generated_files(before_snapshot, exec_namespace, request):
+    after_snapshot = _snapshot_publishable_files()
+    generated_paths = []
+
+    for path, mtime in after_snapshot.items():
+        if path not in before_snapshot or before_snapshot[path] != mtime:
+            generated_paths.append(path)
+
+    for path in _namespace_file_candidates(exec_namespace):
+        if path not in generated_paths:
+            generated_paths.append(path)
+
+    published_files = []
+    seen_filenames = set()
+
+    for source_path in generated_paths:
+        filename = os.path.basename(source_path)
+        if not filename:
+            continue
+
+        target_name = filename
+        target_path = os.path.join(RESULT_DIR, target_name)
+        if os.path.abspath(source_path) != os.path.abspath(target_path):
+            stem, ext = os.path.splitext(filename)
+            target_name = f"{stem}_{uuid.uuid4().hex[:8]}{ext}"
+            target_path = os.path.join(RESULT_DIR, target_name)
+            shutil.copy2(source_path, target_path)
+
+        if target_name in seen_filenames:
+            continue
+
+        seen_filenames.add(target_name)
+        published_files.append({
+            "filename": target_name,
+            "url": f"{str(request.base_url).rstrip('/')}/resultados/{target_name}"
+        })
+
+    return published_files
 
 # ==========================================================
-# 🩺 Ruta raíz para verificación (Render Health Check)
+# Ruta raíz para verificación (Render Health Check)
 # ==========================================================
 @app.get("/")
 async def root():
@@ -37,8 +115,20 @@ async def root():
     }
 
 # ==========================================================
-# 🧩 Endpoint principal — ejecución de scripts y generación de entregables
+# Endpoint principal — ejecución de scripts y generación de entregables
 # ==========================================================
+@app.get("/resultados/{filename}")
+async def get_result_file(filename: str):
+    safe_name = os.path.basename(filename)
+    if safe_name != filename:
+        raise HTTPException(status_code=400, detail="Nombre de archivo invalido.")
+
+    file_path = os.path.join(RESULT_DIR, safe_name)
+    if not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="Archivo no encontrado.")
+
+    return FileResponse(file_path, filename=safe_name)
+
 @app.post("/run_python")
 async def run_python(request: Request):
     """
@@ -51,7 +141,7 @@ async def run_python(request: Request):
 
     try:
         # ----------------------------
-        # 🔹 Lectura del cuerpo JSON
+        # Lectura del cuerpo JSON
         # ----------------------------
         body = await request.json()
         code = body.get("script", "")
@@ -65,30 +155,34 @@ async def run_python(request: Request):
             return {"error": "No se recibió ningún script para ejecutar."}
 
         # ----------------------------
-        # 🔹 Preparación del entorno seguro de ejecución
+        # Preparación del entorno seguro de ejecución
         # ----------------------------
         stdout, stderr = io.StringIO(), io.StringIO()
+        before_snapshot = _snapshot_publishable_files()
         sys.stdout, sys.stderr = stdout, stderr
 
-        local_vars = {"inputs": inputs}
-        exec(code, {}, local_vars)
+        exec_namespace = {"__builtins__": __builtins__, "inputs": inputs}
+        exec(code, exec_namespace, exec_namespace)
 
         # Restaurar flujos estándar
         sys.stdout, sys.stderr = sys.__stdout__, sys.__stderr__
 
         # ----------------------------
-        # 🔹 Captura de resultados
+        # Captura de resultados
         # ----------------------------
-        result = local_vars.get("result", None)
+        result = exec_namespace.get("result", None)
         response_data = {
             "stdout": stdout.getvalue(),
             "stderr": stderr.getvalue(),
             "result": result,
             "execution_context": execution_context
         }
+        generated_files = _publish_generated_files(before_snapshot, exec_namespace, request)
+        if generated_files:
+            response_data["generated_files"] = generated_files
 
         # ==========================================================
-        # 📦 Generación de documentos con el servicio externo universal
+        # Generación de documentos con el servicio externo universal
         # ==========================================================
         if send_to_doc and result:
             try:
@@ -115,7 +209,7 @@ async def run_python(request: Request):
                 pdf_fallback_payload = None
 
                 # ===========================
-                # 📊 Excel
+                # Excel
                 # ===========================
                 if format_type == "excel":
                     payload = {
@@ -127,7 +221,7 @@ async def run_python(request: Request):
                     }
 
                 # ===========================
-                # 📄 PDF
+                # PDF
                 # ===========================
                 elif format_type == "pdf":
                     payload = {
@@ -140,7 +234,7 @@ async def run_python(request: Request):
                     }
 
                 # ===========================
-                # 🧾 Word
+                # Word
                 # ===========================
                 elif format_type == "word":
                     payload = {
@@ -157,7 +251,7 @@ async def run_python(request: Request):
                     }
 
                 # ===========================
-                # 🧠 PowerPoint
+                # PowerPoint
                 # ===========================
                 elif format_type == "ppt":
                     payload = {
@@ -178,7 +272,7 @@ async def run_python(request: Request):
                     }
 
                 # ===========================
-                # 📈 CSV
+                # CSV
                 # ===========================
                 elif format_type == "csv":
                     payload = {
@@ -187,7 +281,7 @@ async def run_python(request: Request):
                     }
 
                 # ===========================
-                # 🎨 Canva
+                # Canva
                 # ===========================
                 elif format_type == "canva":
                     payload = {
@@ -200,7 +294,7 @@ async def run_python(request: Request):
                     }
 
                 # ===========================
-                # 📊 Power BI
+                # Power BI
                 # ===========================
                 elif format_type == "powerbi":
                     payload = {
@@ -214,7 +308,7 @@ async def run_python(request: Request):
                     }
 
                 # ===========================
-                # 🗜 ZIP
+                # ZIP
                 # ===========================
                 elif format_type == "zip":
                     payload = {
@@ -229,7 +323,7 @@ async def run_python(request: Request):
                     }
 
                 # ===========================
-                # 📑 Default / Canva / JSON
+                # Default / Canva / JSON
                 # ===========================
                 else:
                     payload = {
@@ -262,7 +356,7 @@ async def run_python(request: Request):
                 response_data["document_service"] = {"error": str(e)}
 
         # ==========================================================
-        # ✅ Respuesta final al cliente
+        # Respuesta final al cliente
         # ==========================================================
         response_data["timestamp"] = datetime.datetime.utcnow().isoformat()
         response_data["service"] = "AuditBrain Python Runner"
