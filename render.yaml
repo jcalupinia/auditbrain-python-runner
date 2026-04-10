@@ -13,6 +13,12 @@ services:
     envVars:
       - key: DOCUMENT_SERVICE
         value: "https://universal-creador-documentos.onrender.com"
+      - key: EXECUTION_TIMEOUT_SECONDS
+        value: "300"
+      - key: EXECUTION_CONCURRENCY
+        value: "1"
+      - key: AUDITBRAIN_MAX_STREAM_CHARS
+        value: "200000"
 
     healthCheckPath: "/"
     healthCheckTimeout: 400
