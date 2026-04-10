@@ -1,6 +1,17 @@
+import asyncio
+import datetime
+import json
+import os
+import shutil
+import sys
+import tempfile
+import traceback
+import uuid
+from pathlib import Path
+
+import requests
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
-import io, sys, traceback, json, requests, datetime, os, shutil, uuid
 
 APP_VERSION = "4.0.0"
 
@@ -24,55 +35,20 @@ app = FastAPI(
 DOCUMENT_SERVICE = os.getenv("DOCUMENT_SERVICE", "https://universal-creador-documentos.onrender.com").rstrip("/")
 RESULT_DIR = os.path.abspath("resultados")
 SCRIPT_WORKDIR = os.getcwd()
+RUNNER_PATH = os.path.join(SCRIPT_WORKDIR, "auditbrain_exec_runner.py")
+PYTHON_EXECUTABLE = sys.executable
+EXECUTION_TIMEOUT_SECONDS = int(os.getenv("EXECUTION_TIMEOUT_SECONDS", "300"))
+EXECUTION_CONCURRENCY = max(1, int(os.getenv("EXECUTION_CONCURRENCY", "1")))
+MAX_STD_STREAM_CHARS = int(os.getenv("AUDITBRAIN_MAX_STREAM_CHARS", "200000"))
 PUBLISHABLE_EXTENSIONS = {
     ".csv", ".doc", ".docx", ".html", ".json", ".pdf", ".png", ".ppt", ".pptx",
     ".svg", ".txt", ".xls", ".xlsx", ".zip"
 }
+EXECUTION_SEMAPHORE = asyncio.Semaphore(EXECUTION_CONCURRENCY)
 os.makedirs(RESULT_DIR, exist_ok=True)
 
 
-def _snapshot_publishable_files():
-    snapshots = {}
-    search_roots = [SCRIPT_WORKDIR]
-    if RESULT_DIR != SCRIPT_WORKDIR:
-        search_roots.append(RESULT_DIR)
-
-    for root in search_roots:
-        if not os.path.isdir(root):
-            continue
-        for entry in os.scandir(root):
-            if not entry.is_file():
-                continue
-            ext = os.path.splitext(entry.name)[1].lower()
-            if ext in PUBLISHABLE_EXTENSIONS:
-                snapshots[os.path.abspath(entry.path)] = entry.stat().st_mtime
-    return snapshots
-
-
-def _namespace_file_candidates(exec_namespace):
-    candidates = []
-    for value in exec_namespace.values():
-        if not isinstance(value, str):
-            continue
-        path = os.path.abspath(value)
-        ext = os.path.splitext(path)[1].lower()
-        if ext in PUBLISHABLE_EXTENSIONS and os.path.isfile(path):
-            candidates.append(path)
-    return candidates
-
-
-def _publish_generated_files(before_snapshot, exec_namespace, request):
-    after_snapshot = _snapshot_publishable_files()
-    generated_paths = []
-
-    for path, mtime in after_snapshot.items():
-        if path not in before_snapshot or before_snapshot[path] != mtime:
-            generated_paths.append(path)
-
-    for path in _namespace_file_candidates(exec_namespace):
-        if path not in generated_paths:
-            generated_paths.append(path)
-
+def _publish_generated_files(generated_paths, request):
     published_files = []
     seen_filenames = set()
 
@@ -99,6 +75,72 @@ def _publish_generated_files(before_snapshot, exec_namespace, request):
         })
 
     return published_files
+
+
+def _truncate_stream(value):
+    if len(value) <= MAX_STD_STREAM_CHARS:
+        return value
+    return value[:MAX_STD_STREAM_CHARS] + "\n...[truncated]"
+
+
+async def _execute_script_subprocess(code, inputs):
+    job_dir = tempfile.mkdtemp(prefix="auditbrain_job_", dir=RESULT_DIR)
+    payload_path = os.path.join(job_dir, "payload.json")
+    output_path = os.path.join(job_dir, "output.json")
+    env = os.environ.copy()
+    env["PYTHONPATH"] = SCRIPT_WORKDIR + os.pathsep + env.get("PYTHONPATH", "")
+    env["AUDITBRAIN_MAX_STREAM_CHARS"] = str(MAX_STD_STREAM_CHARS)
+
+    with open(payload_path, "w", encoding="utf-8") as fh:
+        json.dump({"code": code, "inputs": inputs}, fh, ensure_ascii=False)
+
+    process = await asyncio.create_subprocess_exec(
+        PYTHON_EXECUTABLE,
+        RUNNER_PATH,
+        payload_path,
+        output_path,
+        cwd=job_dir,
+        env=env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    try:
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            process.communicate(),
+            timeout=EXECUTION_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        process.kill()
+        await process.communicate()
+        raise TimeoutError(
+            f"La ejecucion excedio el limite de {EXECUTION_TIMEOUT_SECONDS} segundos."
+        )
+
+    runner_stdout = stdout_bytes.decode("utf-8", errors="replace")
+    runner_stderr = stderr_bytes.decode("utf-8", errors="replace")
+
+    if not os.path.isfile(output_path):
+        raise RuntimeError(
+            "El runner no produjo salida utilizable."
+            + (f" STDERR: {runner_stderr[:500]}" if runner_stderr else "")
+        )
+
+    with open(output_path, "r", encoding="utf-8") as fh:
+        result_payload = json.load(fh)
+
+    if process.returncode != 0 and "error" not in result_payload:
+        result_payload["error"] = (
+            "La ejecucion del runner fallo."
+            + (f" STDERR: {runner_stderr[:500]}" if runner_stderr else "")
+        )
+
+    if runner_stdout:
+        result_payload["runner_stdout"] = _truncate_stream(runner_stdout)
+    if runner_stderr:
+        result_payload["runner_stderr"] = _truncate_stream(runner_stderr)
+    result_payload["job_dir"] = job_dir
+    return result_payload
 
 # ==========================================================
 # Ruta raíz para verificación (Render Health Check)
@@ -157,27 +199,31 @@ async def run_python(request: Request):
         # ----------------------------
         # Preparación del entorno seguro de ejecución
         # ----------------------------
-        stdout, stderr = io.StringIO(), io.StringIO()
-        before_snapshot = _snapshot_publishable_files()
-        sys.stdout, sys.stderr = stdout, stderr
+        async with EXECUTION_SEMAPHORE:
+            execution_output = await _execute_script_subprocess(code, inputs)
 
-        exec_namespace = {"__builtins__": __builtins__, "inputs": inputs}
-        exec(code, exec_namespace, exec_namespace)
+        if execution_output.get("error"):
+            return {
+                "error": execution_output.get("error"),
+                "stdout": execution_output.get("stdout", ""),
+                "stderr": execution_output.get("stderr", ""),
+                "traceback": execution_output.get("traceback"),
+                "service": "AuditBrain Python Runner"
+            }
 
         # Restaurar flujos estándar
-        sys.stdout, sys.stderr = sys.__stdout__, sys.__stderr__
 
         # ----------------------------
         # Captura de resultados
         # ----------------------------
-        result = exec_namespace.get("result", None)
+        result = execution_output.get("result", None)
         response_data = {
-            "stdout": stdout.getvalue(),
-            "stderr": stderr.getvalue(),
+            "stdout": execution_output.get("stdout", ""),
+            "stderr": execution_output.get("stderr", ""),
             "result": result,
             "execution_context": execution_context
         }
-        generated_files = _publish_generated_files(before_snapshot, exec_namespace, request)
+        generated_files = _publish_generated_files(execution_output.get("generated_paths", []), request)
         if generated_files:
             response_data["generated_files"] = generated_files
 
@@ -363,7 +409,6 @@ async def run_python(request: Request):
         return response_data
 
     except Exception as e:
-        sys.stdout, sys.stderr = sys.__stdout__, sys.__stderr__
         return {
             "error": str(e),
             "traceback": traceback.format_exc(),
