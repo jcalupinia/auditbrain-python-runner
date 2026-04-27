@@ -19,6 +19,10 @@ services:
         value: "1"
       - key: AUDITBRAIN_MAX_STREAM_CHARS
         value: "200000"
+      - key: AUDITBRAIN_RESPONSE_MODE
+        value: "compact"
+      - key: AUDITBRAIN_MAX_RESPONSE_TEXT_CHARS
+        value: "4000"
 
     healthCheckPath: "/"
     healthCheckTimeout: 400
