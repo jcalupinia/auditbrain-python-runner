@@ -40,6 +40,10 @@ PYTHON_EXECUTABLE = sys.executable
 EXECUTION_TIMEOUT_SECONDS = int(os.getenv("EXECUTION_TIMEOUT_SECONDS", "300"))
 EXECUTION_CONCURRENCY = max(1, int(os.getenv("EXECUTION_CONCURRENCY", "1")))
 MAX_STD_STREAM_CHARS = int(os.getenv("AUDITBRAIN_MAX_STREAM_CHARS", "200000"))
+DEFAULT_RESPONSE_MODE = os.getenv("AUDITBRAIN_RESPONSE_MODE", "compact").strip().lower() or "compact"
+MAX_RESPONSE_TEXT_CHARS = int(os.getenv("AUDITBRAIN_MAX_RESPONSE_TEXT_CHARS", "4000"))
+MAX_RESULT_ITEMS = int(os.getenv("AUDITBRAIN_MAX_RESULT_ITEMS", "20"))
+MAX_RESULT_DEPTH = int(os.getenv("AUDITBRAIN_MAX_RESULT_DEPTH", "3"))
 PUBLISHABLE_EXTENSIONS = {
     ".csv", ".doc", ".docx", ".html", ".json", ".pdf", ".png", ".ppt", ".pptx",
     ".svg", ".txt", ".xls", ".xlsx", ".zip"
@@ -81,6 +85,82 @@ def _truncate_stream(value):
     if len(value) <= MAX_STD_STREAM_CHARS:
         return value
     return value[:MAX_STD_STREAM_CHARS] + "\n...[truncated]"
+
+
+def _compact_text(value, max_chars=MAX_RESPONSE_TEXT_CHARS):
+    if not isinstance(value, str):
+        return value
+    if len(value) <= max_chars:
+        return value
+    return value[:max_chars] + "\n...[truncated]"
+
+
+def _compact_value(value, depth=0):
+    if value is None or isinstance(value, (int, float, bool)):
+        return value, False
+
+    if isinstance(value, str):
+        compacted = _compact_text(value)
+        return compacted, compacted != value
+
+    if depth >= MAX_RESULT_DEPTH:
+        return str(type(value).__name__), True
+
+    if isinstance(value, dict):
+        compacted = {}
+        truncated = False
+        items = list(value.items())
+        for key, item_value in items[:MAX_RESULT_ITEMS]:
+            compacted_value, item_truncated = _compact_value(item_value, depth + 1)
+            compacted[key] = compacted_value
+            truncated = truncated or item_truncated
+        if len(items) > MAX_RESULT_ITEMS:
+            compacted["_truncated_items"] = len(items) - MAX_RESULT_ITEMS
+            truncated = True
+        return compacted, truncated
+
+    if isinstance(value, (list, tuple)):
+        compacted = []
+        truncated = False
+        for item in list(value)[:MAX_RESULT_ITEMS]:
+            compacted_item, item_truncated = _compact_value(item, depth + 1)
+            compacted.append(compacted_item)
+            truncated = truncated or item_truncated
+        if len(value) > MAX_RESULT_ITEMS:
+            compacted.append(f"...[{len(value) - MAX_RESULT_ITEMS} more items]")
+            truncated = True
+        return compacted, truncated
+
+    return str(value), True
+
+
+def _build_result_summary(result):
+    if result is None:
+        return "Sin resultado estructurado."
+    if isinstance(result, dict):
+        keys = list(result.keys())
+        preview_keys = ", ".join(str(key) for key in keys[:5]) or "sin claves"
+        if len(keys) > 5:
+            preview_keys += f" (+{len(keys) - 5} mas)"
+        return f"Resultado tipo objeto con {len(keys)} claves: {preview_keys}."
+    if isinstance(result, list):
+        return f"Resultado tipo lista con {len(result)} elementos."
+    if isinstance(result, str):
+        return f"Resultado de texto con {len(result)} caracteres."
+    return f"Resultado tipo {type(result).__name__}."
+
+
+def _compact_document_service_payload(document_service_payload):
+    if not isinstance(document_service_payload, dict):
+        return document_service_payload
+
+    compacted = {}
+    for key in ("url", "status", "error", "endpoint", "details"):
+        if key in document_service_payload:
+            compacted[key] = _compact_text(str(document_service_payload[key]))
+    if not compacted:
+        compacted, _ = _compact_value(document_service_payload)
+    return compacted
 
 
 async def _execute_script_subprocess(code, inputs):
@@ -192,6 +272,11 @@ async def run_python(request: Request):
         output_expectations = body.get("output_expectations", {})
         document_service = body.get("document_service", {})
         send_to_doc = output_expectations.get("send_to_document_service", False)
+        response_mode = str(
+            body.get("response_mode")
+            or output_expectations.get("response_mode")
+            or DEFAULT_RESPONSE_MODE
+        ).strip().lower()
 
         if not code:
             return {"error": "No se recibió ningún script para ejecutar."}
@@ -217,12 +302,21 @@ async def run_python(request: Request):
         # Captura de resultados
         # ----------------------------
         result = execution_output.get("result", None)
+        compact_result, result_truncated = _compact_value(result)
+        result_summary = _build_result_summary(result)
         response_data = {
-            "stdout": execution_output.get("stdout", ""),
-            "stderr": execution_output.get("stderr", ""),
-            "result": result,
+            "stdout": _compact_text(execution_output.get("stdout", "")),
+            "stderr": _compact_text(execution_output.get("stderr", "")),
+            "result": result if response_mode == "full" else compact_result,
+            "result_summary": result_summary,
             "execution_context": execution_context
         }
+        if response_mode != "full" and result_truncated:
+            response_data["result_truncated"] = True
+        if not response_data["stdout"]:
+            response_data.pop("stdout")
+        if not response_data["stderr"]:
+            response_data.pop("stderr")
         generated_files = _publish_generated_files(execution_output.get("generated_paths", []), request)
         if generated_files:
             response_data["generated_files"] = generated_files
@@ -390,7 +484,12 @@ async def run_python(request: Request):
                 if doc_response.status_code != 200 and format_type == "pdf" and pdf_fallback_payload:
                     doc_response = requests.post(endpoint, json=pdf_fallback_payload, timeout=90)
                 if doc_response.status_code == 200:
-                    response_data["document_service"] = doc_response.json()
+                    document_service_payload = doc_response.json()
+                    response_data["document_service"] = (
+                        document_service_payload
+                        if response_mode == "full"
+                        else _compact_document_service_payload(document_service_payload)
+                    )
                 else:
                     response_data["document_service"] = {
                         "error": f"Fallo al generar documento ({doc_response.status_code})",
