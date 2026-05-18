@@ -10,8 +10,19 @@ import uuid
 from pathlib import Path
 
 import requests
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+
+# Auth mínima por API Key (plataforma v1). Import defensivo: si algo falla,
+# el servicio legacy NUNCA debe caer por culpa de la plataforma nueva.
+try:
+    from backend.app.security.api_key import require_api_key as _require_api_key
+except Exception:  # pragma: no cover
+
+    def _require_api_key():
+        return None
+
 
 APP_VERSION = "4.0.0"
 
@@ -28,6 +39,24 @@ app = FastAPI(
     ),
     version=APP_VERSION
 )
+
+# ==========================================================
+# CORS — hardening para clientes web (gated por entorno).
+# Si CORS_ALLOW_ORIGINS está vacío, NO se añade middleware: el
+# comportamiento es idéntico al actual (sin impacto en GPTs server-to-server).
+# Ejemplo: CORS_ALLOW_ORIGINS="https://app.midominio.com,https://midominio.com"
+# ==========================================================
+_cors_origins = [
+    o.strip() for o in os.getenv("CORS_ALLOW_ORIGINS", "").split(",") if o.strip()
+]
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # ==========================================================
 # Configuración Global de Servicios Externos
@@ -252,7 +281,7 @@ async def get_result_file(filename: str):
     return FileResponse(file_path, filename=safe_name)
 
 @app.post("/run_python")
-async def run_python(request: Request):
+async def run_python(request: Request, _auth: None = Depends(_require_api_key)):
     """
     Ejecuta un script Python recibido dinámicamente desde los GPTs del ecosistema:
     - Audit Advisor IA (consultoría financiera, riesgo, valoración, dashboards)
@@ -513,3 +542,20 @@ async def run_python(request: Request):
             "traceback": traceback.format_exc(),
             "service": "AuditBrain Python Runner"
         }
+
+
+# ==========================================================
+# Montaje aditivo de la Plataforma v1 (/api/v1/*)
+# Import defensivo: si la plataforma falla al cargar, el servicio legacy
+# sigue operando con normalidad.
+# ==========================================================
+try:
+    from backend.app.api import api_router
+
+    app.include_router(api_router)
+except Exception as _platform_exc:  # pragma: no cover
+    import logging
+
+    logging.getLogger("auditbrain").warning(
+        "Plataforma v1 no montada (legacy intacto): %s", _platform_exc
+    )
