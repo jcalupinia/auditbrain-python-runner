@@ -1,3 +1,9 @@
+# ==========================================================
+# render.yaml — PRODUCCIÓN (Fase Operativa AuditBrain)
+# Solo backend FastAPI. API Key OBLIGATORIA (sync:false => se define
+# en el dashboard de Render como secreto, NO se versiona aquí).
+# Sin frontend / Postgres / JWT (no existen en el repo).
+# ==========================================================
 services:
   - type: web
     name: auditbrain-python-runner
@@ -11,8 +17,11 @@ services:
     autoDeploy: true
 
     envVars:
+      # --- Servicio documental externo ---
       - key: DOCUMENT_SERVICE
         value: "https://universal-creador-documentos.onrender.com"
+
+      # --- Ejecución ---
       - key: EXECUTION_TIMEOUT_SECONDS
         value: "300"
       - key: EXECUTION_CONCURRENCY
@@ -24,15 +33,27 @@ services:
       - key: AUDITBRAIN_MAX_RESPONSE_TEXT_CHARS
         value: "4000"
 
+      # --- SEGURIDAD: API Key OBLIGATORIA en producción ---
+      # sync:false => valor secreto, se define manualmente en
+      # Render Dashboard > Environment. Sin esta clave el endpoint de
+      # ejecución de Python queda abierto a RCE (NO desplegar sin ella).
+      - key: AUDITBRAIN_API_KEY
+        sync: false
+
+      # --- CORS (opcional): dominios del frontend separados por coma.
+      # Vacío/no definido => CORS inerte (clientes server-to-server OK). ---
+      - key: CORS_ALLOW_ORIGINS
+        sync: false
+
     healthCheckPath: "/"
     healthCheckTimeout: 400
     healthCheckInterval: 20
 
     description: >
-      Servicio AuditBrain - Python Runner 3.0
-      Motor analítico, auditor, financiero, legal y de automatización de la IA Suite.
-      Integrado con el Universal Creador de Documentos para generar reportes automáticos
-      en Excel, PDF, Word, PowerPoint o CSV.
+      AuditBrain - Python Runner (Fase Operativa).
+      Backend FastAPI con API v1, Master Router y API Key obligatoria.
+      Integrado con el Universal Creador de Documentos para reportes
+      Excel/PDF/Word/PPTX/CSV vía servicio externo.
 
     headers:
       - key: "Cache-Control"

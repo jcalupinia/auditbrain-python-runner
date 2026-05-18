@@ -11,6 +11,7 @@ from pathlib import Path
 
 import requests
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 # Auth mínima por API Key (plataforma v1). Import defensivo: si algo falla,
@@ -38,6 +39,24 @@ app = FastAPI(
     ),
     version=APP_VERSION
 )
+
+# ==========================================================
+# CORS — hardening para clientes web (gated por entorno).
+# Si CORS_ALLOW_ORIGINS está vacío, NO se añade middleware: el
+# comportamiento es idéntico al actual (sin impacto en GPTs server-to-server).
+# Ejemplo: CORS_ALLOW_ORIGINS="https://app.midominio.com,https://midominio.com"
+# ==========================================================
+_cors_origins = [
+    o.strip() for o in os.getenv("CORS_ALLOW_ORIGINS", "").split(",") if o.strip()
+]
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # ==========================================================
 # Configuración Global de Servicios Externos
