@@ -79,6 +79,34 @@ export async function createUser(email, password, role) {
   );
 }
 
+// Genera un documento vía el endpoint existente /api/v1/documents/generate.
+// Solo JWT (Bearer); la API Key nunca se envía desde el navegador.
+export async function generateDocument({ format, title, content }) {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/documents/generate`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        result: { Titulo: title, Contenido: content },
+        output_expectations: { format },
+        execution_context: { task_name: title, module_area: "Documentos" },
+        document_service: {},
+      }),
+    })
+  );
+}
+
+// Busca una URL de descarga en la respuesta del servicio documental,
+// sin asumir una forma fija (puede variar según formato).
+export function findDownloadUrl(resp) {
+  const r = resp && resp.response;
+  if (!r || typeof r !== "object") return null;
+  for (const k of ["url", "download_url", "file_url", "link", "file", "path"]) {
+    if (typeof r[k] === "string" && /^https?:\/\//.test(r[k])) return r[k];
+  }
+  return null;
+}
+
 // Endpoint público existente (sin auth). Solo lectura para el dashboard.
 export async function health() {
   return parse(await fetch(`${API_BASE}/api/v1/health`));

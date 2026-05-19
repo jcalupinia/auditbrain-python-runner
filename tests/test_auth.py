@@ -114,3 +114,32 @@ def test_runner_allows_admin_jwt(client):
     )
     assert r.status_code == 200, r.text
     assert r.json()["result"] == 42
+
+
+class _FakeDocResp:
+    status_code = 200
+    text = ""
+
+    def json(self):
+        return {"url": "https://example.com/doc.pdf"}
+
+
+def test_documents_allows_normal_user(client, monkeypatch):
+    """El panel de Documentos es accesible para usuario normal (JWT),
+    no solo admin ni solo X-API-Key."""
+    from backend.app.document_services import universal_document_client
+
+    monkeypatch.setattr(
+        universal_document_client.requests,
+        "post",
+        lambda *a, **k: _FakeDocResp(),
+    )
+    email, pw = _mk(Role.user)
+    tok = _token(client, email, pw)
+    r = client.post(
+        "/api/v1/documents/generate",
+        headers={"Authorization": f"Bearer {tok}"},
+        json={"result": {"a": 1}, "output_expectations": {"format": "pdf"}},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "ok"
