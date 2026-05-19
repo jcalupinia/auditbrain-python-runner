@@ -12,49 +12,32 @@ services:
     buildCommand: |
       pip install --upgrade pip setuptools wheel
       pip install -r requirements.txt
-    startCommand: "uvicorn app:app --host 0.0.0.0 --port 10000"
-    pythonVersion: 3.12.3
+    startCommand: "uvicorn app:app --host 0.0.0.0 --port $PORT"
     autoDeploy: true
 
     envVars:
-      # --- Servicio documental externo ---
       - key: DOCUMENT_SERVICE
         value: "https://universal-creador-documentos.onrender.com"
 
-      # --- Ejecución ---
       - key: EXECUTION_TIMEOUT_SECONDS
         value: "300"
+
       - key: EXECUTION_CONCURRENCY
         value: "1"
+
       - key: AUDITBRAIN_MAX_STREAM_CHARS
         value: "200000"
+
       - key: AUDITBRAIN_RESPONSE_MODE
         value: "compact"
+
       - key: AUDITBRAIN_MAX_RESPONSE_TEXT_CHARS
         value: "4000"
 
-      # --- SEGURIDAD: API Key OBLIGATORIA en producción ---
-      # sync:false => valor secreto, se define manualmente en
-      # Render Dashboard > Environment. Sin esta clave el endpoint de
-      # ejecución de Python queda abierto a RCE (NO desplegar sin ella).
       - key: AUDITBRAIN_API_KEY
-        sync: false
+        sync: true
 
-      # --- CORS (opcional): dominios del frontend separados por coma.
-      # Vacío/no definido => CORS inerte (clientes server-to-server OK). ---
       - key: CORS_ALLOW_ORIGINS
         sync: false
 
     healthCheckPath: "/"
-    healthCheckTimeout: 400
-    healthCheckInterval: 20
-
-    description: >
-      AuditBrain - Python Runner (Fase Operativa).
-      Backend FastAPI con API v1, Master Router y API Key obligatoria.
-      Integrado con el Universal Creador de Documentos para reportes
-      Excel/PDF/Word/PPTX/CSV vía servicio externo.
-
-    headers:
-      - key: "Cache-Control"
-        value: "no-store"
