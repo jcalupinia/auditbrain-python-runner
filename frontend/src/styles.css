@@ -40,7 +40,7 @@ a:hover { text-decoration: underline; }
 }
 .login-aside { display: grid; place-items: center; padding: 40px; }
 .login-figure { width: 100%; max-width: 460px; aspect-ratio: 3/4; }
-.login-figure-img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: lighten; }
+.login-figure-img { width: 100%; height: 100%; object-fit: contain; }
 .figure-ph {
   width: 100%; height: 100%; border: 1px solid var(--line);
   border-radius: 20px; display: grid; place-content: center; text-align: center;
@@ -109,7 +109,7 @@ textarea {
   display: flex; align-items: center; padding: 0 20px;
 }
 .cc-corp { display: flex; align-items: center; gap: 11px; }
-.cc-corp-img { max-height: 56px; max-width: 210px; object-fit: contain; mix-blend-mode: lighten; }
+.cc-corp-img { max-height: 56px; max-width: 210px; object-fit: contain; }
 .cc-corp-txt {
   display: flex; flex-direction: column; line-height: 1.05;
   font-size: 12px; letter-spacing: 0.16em; color: var(--text-soft);
@@ -251,7 +251,7 @@ textarea {
   position: absolute; right: 8px; top: 150px; width: 320px;
   bottom: 120px; z-index: 1; pointer-events: none;
 }
-.cw-figure-img { width: 100%; height: 100%; object-fit: contain; object-position: bottom; mix-blend-mode: lighten; }
+.cw-figure-img { width: 100%; height: 100%; object-fit: contain; object-position: bottom; }
 .cw-figure .figure-ph { opacity: 0.85; }
 
 .panel {
