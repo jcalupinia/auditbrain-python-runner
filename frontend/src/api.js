@@ -202,6 +202,12 @@ export async function getConversation(conversationId) {
   );
 }
 
+export async function listModules() {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/modules`, { headers: authHeaders() })
+  );
+}
+
 export async function sendChatMessage(conversationId, content) {
   return parse(
     await fetch(

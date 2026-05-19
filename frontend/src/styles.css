@@ -284,6 +284,7 @@ textarea {
 .hero-txt h1 { margin: 0; font-size: 34px; font-weight: 700; letter-spacing: -0.6px; line-height: 1.18; }
 .hero-txt h1 span { color: var(--accent); }
 .hero-txt p { margin: 14px 0 0; color: var(--text-soft); font-size: 14px; }
+.hero-desc { max-width: 640px; font-size: 13px; line-height: 1.55; }
 .hero-wave {
   position: absolute; right: -40px; top: -60px; width: 460px; height: 320px;
   background:
@@ -379,6 +380,19 @@ textarea {
 .cw-msg-content {
   font-size: 13px; line-height: 1.55; white-space: pre-wrap; word-wrap: break-word;
 }
+
+.mod-actions {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.mod-action {
+  display: flex; align-items: center; gap: 10px; text-align: left;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; cursor: pointer; font: inherit; color: var(--text);
+  font-size: 12.5px; line-height: 1.4;
+}
+.mod-action:hover { border-color: var(--accent); }
+.mod-action-arrow { color: var(--accent); font-weight: 700; }
 .cw-soon-tag {
   font-family: var(--mono); font-size: 10px; color: var(--warn);
   border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);

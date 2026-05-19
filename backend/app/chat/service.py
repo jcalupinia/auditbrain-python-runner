@@ -83,7 +83,16 @@ def _system_prompt(module_code: str | None) -> str:
     )
     if not module_code:
         return base
-    return f"{base}\n\nMódulo activo: {module_code}. Adapta tono y profundidad al contexto del módulo."
+    from backend.app.modules.registry import get_module
+
+    m = get_module(module_code)
+    if not m:
+        return f"{base}\n\nMódulo activo: {module_code}."
+    return (
+        f"{base}\n\n"
+        f"Módulo activo: {m.code} · {m.label}.\n"
+        f"{m.system_prompt}"
+    )
 
 
 def add_user_message_and_respond(

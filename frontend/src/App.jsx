@@ -397,7 +397,7 @@ const AI_LINKS = [
   { name: "Gemini", href: "https://gemini.google.com" },
 ];
 
-function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin }) {
+function CognitiveWorkspace({ user, module, moduleInfo, ctx, goDocs, goRunner, isAdmin }) {
   const [tab, setTab] = useState("chat");
   const [chatText, setChatText] = useState("");
   const [chatNotice, setChatNotice] = useState("");
@@ -458,10 +458,32 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin }) {
         <div className="hero-txt">
           <h1>Hola <span>{name}</span>,</h1>
           <h1>bienvenido a <span>AuditBrain</span></h1>
-          <p>Plataforma operativa de inteligencia empresarial · módulo {module.id} · {module.label}.</p>
+          <p>
+            <b>{module.id} · {module.label}</b>
+            {moduleInfo?.tagline ? ` — ${moduleInfo.tagline}` : ""}
+          </p>
+          {moduleInfo?.description && (
+            <p className="hero-desc">{moduleInfo.description}</p>
+          )}
         </div>
         <div className="hero-wave" aria-hidden="true" />
       </div>
+
+      {moduleInfo && (moduleInfo.suggested_actions?.length || moduleInfo.kpi_hints?.length) ? (
+        <Panel
+          title={`${module.id} · acciones del módulo`}
+          meta={(moduleInfo.kpi_hints || []).slice(0, 4).join(" · ")}
+        >
+          <div className="mod-actions">
+            {(moduleInfo.suggested_actions || []).map((a) => (
+              <button key={a} className="mod-action" onClick={() => setChatText(a)}>
+                <span className="mod-action-arrow">›</span>
+                <span>{a}</span>
+              </button>
+            ))}
+          </div>
+        </Panel>
+      ) : null}
 
       <Panel
         title="Workspace cognitivo"
@@ -719,6 +741,7 @@ export default function App() {
   const [headerSearch, setHeaderSearch] = useState("");
   const [ctx, setCtx] = useState(null);
   const [wsOpen, setWsOpen] = useState(false);
+  const [modulesCatalog, setModulesCatalog] = useState([]);
 
   const loadMe = useCallback(async () => {
     if (!api.getToken()) { setUser(null); setLoading(false); return; }
@@ -735,12 +758,15 @@ export default function App() {
   useEffect(() => { loadMe(); }, [loadMe]);
 
   useEffect(() => {
-    if (!user) { setCtx(null); return; }
+    if (!user) { setCtx(null); setModulesCatalog([]); return; }
     let alive = true;
     api.health()
       .then((d) => alive && setHp({ state: "ok", data: d }))
       .catch(() => alive && setHp({ state: "bad", data: null }));
     loadContext();
+    api.listModules()
+      .then((m) => alive && setModulesCatalog(m))
+      .catch(() => alive && setModulesCatalog([]));
     return () => { alive = false; };
   }, [user, loadContext]);
 
@@ -779,17 +805,20 @@ export default function App() {
   function go(id) { setSection(id); setNavOpen(false); }
 
   function render() {
-    if (moduleActive)
+    if (moduleActive) {
+      const info = modulesCatalog.find((m) => m.code === moduleActive.id) || null;
       return (
         <CognitiveWorkspace
           user={user}
           module={moduleActive}
+          moduleInfo={info}
           ctx={ctx}
           isAdmin={isAdmin}
           goDocs={() => go("documents")}
           goRunner={() => go("runner")}
         />
       );
+    }
     switch (section) {
       case "runner": return isAdmin ? <Runner /> : <Dashboard user={user} health={hp} />;
       case "users": return isAdmin ? <Users /> : <Dashboard user={user} health={hp} />;

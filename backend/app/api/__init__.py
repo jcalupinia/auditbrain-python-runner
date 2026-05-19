@@ -11,6 +11,7 @@ from backend.app.auth import router as auth_router
 from backend.app.chat import router as chat_router
 from backend.app.context import router as context_router
 from backend.app.core.config import settings
+from backend.app.modules import router as modules_router
 
 api_router = APIRouter(prefix=settings.PLATFORM_API_PREFIX)
 api_router.include_router(health.router)
@@ -20,5 +21,6 @@ api_router.include_router(python.router)
 api_router.include_router(documents.router)
 api_router.include_router(context_router.router)
 api_router.include_router(chat_router.router)
+api_router.include_router(modules_router.router)
 
 __all__ = ["api_router"]
