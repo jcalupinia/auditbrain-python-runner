@@ -78,3 +78,12 @@ export async function createUser(email, password, role) {
     })
   );
 }
+
+// Endpoint público existente (sin auth). Solo lectura para el dashboard.
+export async function health() {
+  return parse(await fetch(`${API_BASE}/api/v1/health`));
+}
+
+export function getApiBase() {
+  return API_BASE;
+}
