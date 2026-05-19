@@ -72,3 +72,23 @@ services:
         sync: false
 
     healthCheckPath: "/"
+
+  # ==========================================================
+  # F2 Fase B: Frontend React (SPA estática). Solo JWT; la API Key
+  # NUNCA llega al navegador. Tras desplegar, añade la URL pública de
+  # este static site a CORS_ALLOW_ORIGINS del backend de arriba.
+  # ==========================================================
+  - type: web
+    name: auditbrain-frontend
+    env: static
+    buildCommand: cd frontend && npm ci && npm run build
+    staticPublishPath: frontend/dist
+    pullRequestPreviewsEnabled: false
+    autoDeploy: true
+    envVars:
+      - key: VITE_API_BASE
+        value: "https://auditbrain-python-runner.onrender.com"
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

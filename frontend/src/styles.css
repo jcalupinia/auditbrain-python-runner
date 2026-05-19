@@ -1,0 +1,36 @@
+:root {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  color: #1c2330;
+  background: #f3f5f8;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+.wrap { max-width: 760px; margin: 0 auto; padding: 24px; }
+.card {
+  background: #fff; border: 1px solid #e1e5ea; border-radius: 10px;
+  padding: 20px; margin-bottom: 18px;
+}
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 15px; margin: 0 0 12px; color: #44506a; }
+label { display: block; font-size: 13px; margin: 10px 0 4px; color: #44506a; }
+input, textarea, select {
+  width: 100%; padding: 9px 10px; border: 1px solid #cdd4dd;
+  border-radius: 7px; font: inherit;
+}
+textarea { min-height: 120px; font-family: ui-monospace, monospace; }
+button {
+  margin-top: 14px; padding: 9px 16px; border: 0; border-radius: 7px;
+  background: #2f6df0; color: #fff; font: inherit; cursor: pointer;
+}
+button:disabled { background: #9bb4e6; cursor: not-allowed; }
+.row { display: flex; justify-content: space-between; align-items: center; }
+.muted { color: #6b7689; font-size: 13px; }
+.err { color: #c0392b; font-size: 13px; margin-top: 10px; white-space: pre-wrap; }
+pre {
+  background: #0f1729; color: #d6e2ff; padding: 14px; border-radius: 8px;
+  overflow: auto; font-size: 13px;
+}
+.linkbtn {
+  background: none; color: #2f6df0; padding: 0; margin: 0;
+  text-decoration: underline;
+}
