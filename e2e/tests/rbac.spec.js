@@ -31,7 +31,7 @@ test.describe("Role-based navigation", () => {
     await login(page);
     await page.locator("nav.nav").getByRole("button", { name: "Python Runner" }).click();
     await expect(
-      page.getByRole("heading", { name: "Python Runner" })
+      page.getByRole("heading", { level: 1, name: "Python Runner" })
     ).toBeVisible();
     await page.getByRole("button", { name: "Ejecutar" }).click();
     await expect(page.locator("pre")).toContainText('"result": 4');

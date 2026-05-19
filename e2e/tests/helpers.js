@@ -110,6 +110,6 @@ export async function login(page, email = ADMIN_USER.email, password = "secret12
   await form.locator('input[type="password"]').fill(password);
   await form.getByRole("button", { name: "Entrar" }).click();
   await expect(
-    page.getByRole("heading", { name: "Dashboard" })
+    page.getByRole("heading", { level: 1, name: "Dashboard" })
   ).toBeVisible();
 }

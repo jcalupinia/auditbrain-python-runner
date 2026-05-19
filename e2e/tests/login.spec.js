@@ -15,7 +15,7 @@ test.describe("Authentication", () => {
     await mockApi(page, { user: ADMIN_USER });
     await login(page);
     await expect(
-      page.getByRole("heading", { name: "Dashboard" })
+      page.getByRole("heading", { level: 1, name: "Dashboard" })
     ).toBeVisible();
     await expect(page.getByText(ADMIN_USER.email).first()).toBeVisible();
   });

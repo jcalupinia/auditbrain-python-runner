@@ -14,7 +14,7 @@ test.describe("Documents panel", () => {
     await login(page, BASIC_USER.email);
     await page.locator("nav.nav").getByRole("button", { name: "Documentos" }).click();
     await expect(
-      page.getByRole("heading", { name: "Documentos" })
+      page.getByRole("heading", { level: 1, name: "Documentos" })
     ).toBeVisible();
 
     const card = page.locator(".card").first();
