@@ -9,11 +9,29 @@ legacy delegue aquí) está planificada en docs/MIGRATION_PLAN.md.
 import asyncio
 import json
 import os
+import signal
 import tempfile
 
 from backend.app.core.config import settings
+from backend.app.security import sandbox
 
 _EXECUTION_SEMAPHORE = asyncio.Semaphore(settings.EXECUTION_CONCURRENCY)
+
+
+def _kill_process_tree(process) -> None:
+    """Mata todo el grupo de procesos (no solo el runner).
+
+    Con ``start_new_session=True`` el hijo es líder de su grupo; matar el
+    grupo elimina también lo que el script haya forkeado (anti fork-bomb /
+    procesos huérfanos que sobrevivían al ``process.kill()`` anterior).
+    """
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
 
 
 def _truncate_stream(value: str) -> str:
@@ -83,13 +101,16 @@ def _build_result_summary(result) -> str:
 
 async def _execute_script_subprocess(code: str, inputs: dict) -> dict:
     os.makedirs(settings.RESULT_DIR, exist_ok=True)
+    sandbox.purge_old_jobs(settings.RESULT_DIR)
     job_dir = tempfile.mkdtemp(prefix="auditbrain_job_", dir=settings.RESULT_DIR)
     payload_path = os.path.join(job_dir, "payload.json")
     output_path = os.path.join(job_dir, "output.json")
 
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(settings.PROJECT_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
-    env["AUDITBRAIN_MAX_STREAM_CHARS"] = str(settings.MAX_STD_STREAM_CHARS)
+    # Entorno saneado: el subproceso NO recibe AUDITBRAIN_API_KEY ni
+    # secretos, ni la raíz del proyecto en PYTHONPATH (ver sandbox.py).
+    env = sandbox.build_child_env(
+        extra={"AUDITBRAIN_MAX_STREAM_CHARS": str(settings.MAX_STD_STREAM_CHARS)}
+    )
 
     with open(payload_path, "w", encoding="utf-8") as fh:
         json.dump({"code": code, "inputs": inputs}, fh, ensure_ascii=False)
@@ -103,6 +124,8 @@ async def _execute_script_subprocess(code: str, inputs: dict) -> dict:
         env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+        preexec_fn=sandbox.make_rlimit_preexec(),
     )
 
     try:
@@ -110,7 +133,7 @@ async def _execute_script_subprocess(code: str, inputs: dict) -> dict:
             process.communicate(), timeout=settings.EXECUTION_TIMEOUT_SECONDS
         )
     except asyncio.TimeoutError:
-        process.kill()
+        _kill_process_tree(process)
         await process.communicate()
         raise TimeoutError(
             f"La ejecucion excedio el limite de {settings.EXECUTION_TIMEOUT_SECONDS} segundos."
