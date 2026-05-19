@@ -3,6 +3,7 @@ import datetime
 import json
 import os
 import shutil
+import signal
 import sys
 import tempfile
 import traceback
@@ -22,6 +23,41 @@ except Exception:  # pragma: no cover
 
     def _require_api_key():
         return None
+
+
+# Sandbox Tier 0. Import defensivo, pero el fallback SIGUE saneando el
+# entorno (nunca se filtra la API Key aunque el módulo no cargue).
+try:
+    from backend.app.security import sandbox as _sandbox
+except Exception:  # pragma: no cover
+    import re as _re
+
+    class _sandbox:  # type: ignore
+        _SECRET = _re.compile(
+            r"(API[_-]?KEY|SECRET|TOKEN|PASSWORD|PASSWD|PRIVATE|CREDENTIAL)",
+            _re.IGNORECASE,
+        )
+
+        @staticmethod
+        def build_child_env(parent_env=None, extra=None):
+            src = dict(os.environ if parent_env is None else parent_env)
+            child = {
+                k: v
+                for k, v in src.items()
+                if k != "AUDITBRAIN_API_KEY" and not _sandbox._SECRET.search(k)
+            }
+            child.pop("PYTHONPATH", None)
+            if extra:
+                child.update(extra)
+            return child
+
+        @staticmethod
+        def make_rlimit_preexec():
+            return None
+
+        @staticmethod
+        def purge_old_jobs(base_dir, ttl_seconds=None):
+            return None
 
 
 APP_VERSION = "4.0.0"
@@ -192,13 +228,28 @@ def _compact_document_service_payload(document_service_payload):
     return compacted
 
 
+def _kill_process_tree(process):
+    """Mata todo el grupo de procesos del runner (no solo el runner)."""
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+
+
 async def _execute_script_subprocess(code, inputs):
+    _sandbox.purge_old_jobs(RESULT_DIR)
     job_dir = tempfile.mkdtemp(prefix="auditbrain_job_", dir=RESULT_DIR)
     payload_path = os.path.join(job_dir, "payload.json")
     output_path = os.path.join(job_dir, "output.json")
-    env = os.environ.copy()
-    env["PYTHONPATH"] = SCRIPT_WORKDIR + os.pathsep + env.get("PYTHONPATH", "")
-    env["AUDITBRAIN_MAX_STREAM_CHARS"] = str(MAX_STD_STREAM_CHARS)
+
+    # Entorno saneado: el subproceso NO recibe AUDITBRAIN_API_KEY ni
+    # secretos, ni la raíz del proyecto en PYTHONPATH (ver sandbox.py).
+    env = _sandbox.build_child_env(
+        extra={"AUDITBRAIN_MAX_STREAM_CHARS": str(MAX_STD_STREAM_CHARS)}
+    )
 
     with open(payload_path, "w", encoding="utf-8") as fh:
         json.dump({"code": code, "inputs": inputs}, fh, ensure_ascii=False)
@@ -212,6 +263,8 @@ async def _execute_script_subprocess(code, inputs):
         env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+        preexec_fn=_sandbox.make_rlimit_preexec(),
     )
 
     try:
@@ -220,7 +273,7 @@ async def _execute_script_subprocess(code, inputs):
             timeout=EXECUTION_TIMEOUT_SECONDS,
         )
     except asyncio.TimeoutError:
-        process.kill()
+        _kill_process_tree(process)
         await process.communicate()
         raise TimeoutError(
             f"La ejecucion excedio el limite de {EXECUTION_TIMEOUT_SECONDS} segundos."

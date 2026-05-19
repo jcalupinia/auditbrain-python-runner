@@ -52,6 +52,26 @@
 **Definir el secreto**: Dashboard → servicio → **Environment** →
 `AUDITBRAIN_API_KEY` = (tu valor) → Save → Deploy.
 
+### Sandbox Tier 0 (F1) — knobs opcionales
+
+El subproceso que ejecuta código de los GPTs ya **no recibe**
+`AUDITBRAIN_API_KEY` ni secretos (scrub automático, sin configurar nada).
+Los límites de recursos son **opt-in** (0 = sin límite) para no romper
+cargas pandas/numpy; actívalos según el tamaño de la instancia:
+
+| Variable | Default | Recomendado | Efecto |
+|---|---|---|---|
+| `AUDITBRAIN_RLIMIT_AS_MB` | 0 | ~70% de la RAM de la instancia | Memoria máx. del script (evita OOM del servicio) |
+| `AUDITBRAIN_RLIMIT_CPU_SECONDS` | 0 | ~`EXECUTION_TIMEOUT_SECONDS` | Segundos de CPU (corta bucles de cómputo) |
+| `AUDITBRAIN_RLIMIT_FSIZE_MB` | 0 | 100–200 | Tamaño máx. de archivo generado |
+| `AUDITBRAIN_RLIMIT_NPROC` | 0 | alto si se activa | Anti fork-bomb (ojo: cuenta procesos del uid) |
+| `AUDITBRAIN_RLIMIT_NOFILE` | 0 | 256 | Descriptores de archivo |
+| `AUDITBRAIN_JOB_TTL_SECONDS` | 3600 | 3600 | Antigüedad para purgar jobs viejos |
+| `AUDITBRAIN_SANDBOX_STRICT_ENV` | 0 | 1 (si los scripts no leen env) | Pasa allowlist mínima en vez de denylist |
+
+> Tier 0 es endurecimiento, **no** una frontera de aislamiento real
+> (eso es Tier 2: WASM/microVM, ver `docs/ROADMAP_FULLSTACK.md`).
+
 ## 3. Verificación post-deploy
 
 Sustituye `BASE` por la URL pública de Render y `KEY` por tu API key.
