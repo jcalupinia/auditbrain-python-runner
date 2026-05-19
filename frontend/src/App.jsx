@@ -47,7 +47,7 @@ function CorporateLogo() {
   return (
     <div className="cc-corp">
       <AssetImg
-        src="/assets/logo-acg.webp"
+        src="/assets/logo-auditconsulting-group.png"
         alt="Audit Consulting Group"
         className="cc-corp-img"
         fallback={
@@ -91,7 +91,7 @@ function Login({ onLogged }) {
       <div className="login-aside">
         <div className="login-figure">
           <AssetImg
-            src="/assets/ai-figure.webp"
+            src="/assets/ai-girl-with-logo.png"
             alt=""
             className="login-figure-img"
             fallback={<div className="figure-ph"><span>AUDIT</span><b>IA</b></div>}
@@ -414,7 +414,7 @@ function CognitiveWorkspace({ user, module, goDocs, goRunner, isAdmin }) {
 
       <div className="cw-figure" aria-hidden="true">
         <AssetImg
-          src="/assets/ai-figure.webp"
+          src="/assets/ai-girl-with-logo.png"
           alt=""
           className="cw-figure-img"
           fallback={<div className="figure-ph lg"><span>AUDIT</span><b>IA</b></div>}
