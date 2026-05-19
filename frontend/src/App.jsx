@@ -516,6 +516,128 @@ function CognitiveWorkspace({ user, module, goDocs, goRunner, isAdmin }) {
   );
 }
 
+/* ---------------- Workspaces (admin) — Fase 2 · M1 ---------------- */
+function Workspaces({ onContextChanged }) {
+  const [clients, setClients] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+  const [cName, setCName] = useState("");
+  const [cTax, setCTax] = useState("");
+  const [cSector, setCSector] = useState("");
+  const [pClient, setPClient] = useState("");
+  const [pName, setPName] = useState("");
+  const [pModule, setPModule] = useState("ADV");
+  const [pPeriod, setPPeriod] = useState("");
+
+  const reload = useCallback(async () => {
+    try {
+      setClients(await api.listClients());
+      setProjects(await api.listProjects());
+    } catch (e) { setErr(e.message); }
+  }, []);
+  useEffect(() => { reload(); }, [reload]);
+
+  async function submitClient(e) {
+    e.preventDefault(); setErr(""); setMsg(""); setBusy(true);
+    try {
+      const c = await api.createClient({
+        name: cName, tax_id: cTax || null, sector: cSector || null,
+      });
+      setMsg(`Cliente creado: ${c.name}`);
+      setCName(""); setCTax(""); setCSector("");
+      await reload();
+    } catch (e) { setErr(e.message); }
+    finally { setBusy(false); }
+  }
+  async function submitProject(e) {
+    e.preventDefault(); setErr(""); setMsg(""); setBusy(true);
+    try {
+      const p = await api.createProject({
+        client_id: Number(pClient),
+        name: pName,
+        module_code: pModule || null,
+        period_label: pPeriod || null,
+      });
+      setMsg(`Proyecto creado: ${p.name}`);
+      setPName(""); setPPeriod("");
+      await reload();
+      onContextChanged && onContextChanged();
+    } catch (e) { setErr(e.message); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <>
+      <ViewHead code="WKS" title="Workspaces"
+        sub="Gestión de clientes y proyectos de la organización." />
+      <Panel title="Clientes" meta={`${clients.length} registro(s)`}>
+        <form onSubmit={submitClient} className="row-form">
+          <input placeholder="Nombre del cliente" value={cName}
+            onChange={(e) => setCName(e.target.value)} required />
+          <input placeholder="ID fiscal (opcional)" value={cTax}
+            onChange={(e) => setCTax(e.target.value)} />
+          <input placeholder="Sector (opcional)" value={cSector}
+            onChange={(e) => setCSector(e.target.value)} />
+          <button className="btn primary" disabled={busy}>Añadir cliente</button>
+        </form>
+        {clients.length > 0 && (
+          <div className="table">
+            <div className="tr th"><span>Cliente</span><span>ID fiscal</span><span>Sector</span></div>
+            {clients.map((c) => (
+              <div className="tr" key={c.id}>
+                <span>{c.name}</span>
+                <span className="muted">{c.tax_id || "—"}</span>
+                <span className="muted">{c.sector || "—"}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
+      <Panel title="Proyectos" meta={`${projects.length} registro(s)`}>
+        <form onSubmit={submitProject} className="row-form">
+          <select value={pClient} onChange={(e) => setPClient(e.target.value)} required>
+            <option value="">— cliente —</option>
+            {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <input placeholder="Nombre del proyecto" value={pName}
+            onChange={(e) => setPName(e.target.value)} required />
+          <select value={pModule} onChange={(e) => setPModule(e.target.value)}>
+            {MODULES.map((m) => <option key={m.id} value={m.id}>{m.id} · {m.label}</option>)}
+          </select>
+          <input placeholder="Período (ej. Q1 2026)" value={pPeriod}
+            onChange={(e) => setPPeriod(e.target.value)} />
+          <button className="btn primary" disabled={busy || !clients.length}>
+            Añadir proyecto
+          </button>
+        </form>
+        {projects.length > 0 && (
+          <div className="table">
+            <div className="tr th">
+              <span>Proyecto</span><span>Cliente</span>
+              <span>Módulo</span><span>Período</span>
+            </div>
+            {projects.map((p) => {
+              const c = clients.find((x) => x.id === p.client_id);
+              return (
+                <div className="tr" key={p.id}>
+                  <span>{p.name}</span>
+                  <span className="muted">{c?.name || "—"}</span>
+                  <span className="muted">{p.module_code || "—"}</span>
+                  <span className="muted">{p.period_label || "—"}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {msg && <div className="ok-msg">{msg}</div>}
+        {err && <div className="err">{err}</div>}
+      </Panel>
+    </>
+  );
+}
+
 /* ---------------- Command Center Shell ---------------- */
 export default function App() {
   const [user, setUser] = useState(null);
@@ -525,6 +647,8 @@ export default function App() {
   const [theme, toggleTheme] = useTheme();
   const [hp, setHp] = useState({ state: "idle", data: null });
   const [headerSearch, setHeaderSearch] = useState("");
+  const [ctx, setCtx] = useState(null);
+  const [wsOpen, setWsOpen] = useState(false);
 
   const loadMe = useCallback(async () => {
     if (!api.getToken()) { setUser(null); setLoading(false); return; }
@@ -533,16 +657,33 @@ export default function App() {
     finally { setLoading(false); }
   }, []);
 
+  const loadContext = useCallback(async () => {
+    try { setCtx(await api.getMyContext()); }
+    catch { setCtx(null); }
+  }, []);
+
   useEffect(() => { loadMe(); }, [loadMe]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) { setCtx(null); return; }
     let alive = true;
     api.health()
       .then((d) => alive && setHp({ state: "ok", data: d }))
       .catch(() => alive && setHp({ state: "bad", data: null }));
+    loadContext();
     return () => { alive = false; };
-  }, [user]);
+  }, [user, loadContext]);
+
+  async function pickProject(pid) {
+    setWsOpen(false);
+    try {
+      const next = await api.setActiveProject(pid);
+      setCtx(next);
+      if (pid && next.active_project?.module_code) {
+        setSection(next.active_project.module_code);
+      }
+    } catch (e) { /* silencioso, ya vendrá un refresh */ }
+  }
 
   if (loading)
     return <div className="login-wrap"><span className="muted">Inicializando Command Center…</span></div>;
@@ -554,6 +695,7 @@ export default function App() {
     { id: "dashboard", code: "DSH", label: "Centro de Operaciones" },
     { id: "documents", code: "DOC", label: "Documentos" },
     { id: "runner", code: "RUN", label: "Motor de Ejecución", admin: true },
+    { id: "workspaces", code: "WKS", label: "Workspaces", admin: true },
     { id: "users", code: "USR", label: "Cuentas", admin: true },
     { id: "security", code: "SEC", label: "Seguridad" },
   ].filter((n) => !n.admin || isAdmin);
@@ -580,6 +722,10 @@ export default function App() {
     switch (section) {
       case "runner": return isAdmin ? <Runner /> : <Dashboard user={user} health={hp} />;
       case "users": return isAdmin ? <Users /> : <Dashboard user={user} health={hp} />;
+      case "workspaces":
+        return isAdmin
+          ? <Workspaces onContextChanged={loadContext} />
+          : <Dashboard user={user} health={hp} />;
       case "security": return <Security user={user} />;
       case "documents": return (
         <><ViewHead code="DOC" title="Generación Documental"
@@ -639,9 +785,52 @@ export default function App() {
           <b>COMMAND CENTER</b>
           <span>Centro de Inteligencia Empresarial</span>
         </div>
-        <div className="cc-ws">
-          <span className="cc-ws-l">Workspace</span>
-          <span className="cc-ws-v">{crumb.code} · {crumb.label}</span>
+        <div className={`cc-ws${wsOpen ? " open" : ""}`}>
+          <button
+            type="button"
+            className="cc-ws-btn"
+            onClick={() => setWsOpen((o) => !o)}
+            aria-haspopup="listbox"
+            aria-expanded={wsOpen}
+          >
+            <span className="cc-ws-l">Workspace</span>
+            <span className="cc-ws-v">
+              {ctx?.active_project
+                ? `${ctx.active_project.module_code || "—"} · ${ctx.active_project.name}`
+                : "Sin proyecto activo"}
+            </span>
+            <span className="cc-ws-chev">▾</span>
+          </button>
+          {wsOpen && (
+            <div className="cc-ws-pop" role="listbox">
+              <button
+                className={`cc-ws-opt${!ctx?.active_project ? " on" : ""}`}
+                onClick={() => pickProject(null)}
+              >
+                <b>Sin proyecto activo</b>
+                <span>Trabajar fuera de un proyecto</span>
+              </button>
+              {(ctx?.projects || []).map((p) => (
+                <button key={p.id}
+                  className={`cc-ws-opt${ctx?.active_project?.id === p.id ? " on" : ""}`}
+                  onClick={() => pickProject(p.id)}>
+                  <b>{p.name}</b>
+                  <span>{p.module_code || "—"} · {p.period_label || "sin período"}</span>
+                </button>
+              ))}
+              {(!ctx?.projects || ctx.projects.length === 0) && (
+                <div className="cc-ws-empty">
+                  No hay proyectos asignados.{" "}
+                  {isAdmin && (
+                    <button type="button" className="link"
+                      onClick={() => { setWsOpen(false); go("workspaces"); }}>
+                      Crear uno
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="cc-search">
           <input
@@ -677,12 +866,27 @@ export default function App() {
             <div className="cc-ctx-v">{user.email}</div>
             <div className="cc-ctx-k">Privilegio</div>
             <div className="cc-ctx-v"><span className={`cc-role ${user.role}`}>{user.role}</span></div>
+            <div className="cc-ctx-k">Organización</div>
+            <div className="cc-ctx-v">
+              {ctx?.organization?.name || <span className="dim">—</span>}
+            </div>
             <div className="cc-ctx-k">Nodo activo</div>
             <div className="cc-ctx-v">{crumb.code} · {crumb.label}</div>
             <div className="cc-ctx-k">Cliente</div>
-            <div className="cc-ctx-v dim">Sin cliente asignado</div>
+            <div className="cc-ctx-v">
+              {ctx?.active_client?.name
+                || <span className="dim">Sin cliente asignado</span>}
+            </div>
             <div className="cc-ctx-k">Proyecto</div>
-            <div className="cc-ctx-v dim">Sin proyecto activo</div>
+            <div className="cc-ctx-v">
+              {ctx?.active_project?.name
+                || <span className="dim">Sin proyecto activo</span>}
+            </div>
+            <div className="cc-ctx-k">Período</div>
+            <div className="cc-ctx-v">
+              {ctx?.active_project?.period_label
+                || <span className="dim">—</span>}
+            </div>
           </div>
           <div className="cc-ctx-card">
             <div className="cc-ctx-h2">Tips &amp; acciones</div>
