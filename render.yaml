@@ -9,6 +9,10 @@ services:
     name: auditbrain-python-runner
     env: python
     plan: starter
+    # Python 3.12.3 OBLIGATORIO: con el 3.14 por defecto de Render,
+    # pandas==2.1.4 / numpy==1.26.4 no tienen wheel y fallan al compilar
+    # (_PyLong_AsByteArray cambió en CPython 3.14). 3.12 usa wheels binarios.
+    pythonVersion: "3.12.3"
     # Producción usa requirements-prod.txt (liviano, sin OOM en starter).
     # requirements.txt legacy queda intacto para uso local/otros entornos.
     buildCommand: |
