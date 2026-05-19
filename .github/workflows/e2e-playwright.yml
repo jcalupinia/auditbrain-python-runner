@@ -48,10 +48,21 @@ jobs:
         working-directory: e2e
         run: npx playwright test
 
-      - name: Run functional + seed visual baselines (first run)
+      - name: Run functional tests (first run)
         if: steps.baseline.outputs.exists == 'false'
         working-directory: e2e
-        run: npx playwright test --update-snapshots
+        run: npx playwright test --project=functional
+
+      - name: Seed visual baselines (first run, non-blocking)
+        if: steps.baseline.outputs.exists == 'false'
+        continue-on-error: true
+        working-directory: e2e
+        run: >-
+          npx playwright test
+          --project=visual-desktop
+          --project=visual-tablet
+          --project=visual-mobile
+          --update-snapshots
 
       - name: Upload Playwright HTML report
         if: always()
