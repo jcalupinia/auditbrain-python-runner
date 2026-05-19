@@ -1,7 +1,7 @@
 // Cliente de la API AuditBrain. Solo JWT: la API Key NUNCA vive aquí.
 
 const API_BASE = (
-  import.meta.env.VITE_API_BASE || "https://auditbrain-python-runner.onrender.com"
+  import.meta.env.VITE_API_BASE ?? "https://auditbrain-python-runner.onrender.com"
 ).replace(/\/$/, "");
 
 const TOKEN_KEY = "ab_token";
