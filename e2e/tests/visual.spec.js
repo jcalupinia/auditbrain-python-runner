@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 import { mockApi, login, ADMIN_USER, BASIC_USER } from "./helpers.js";
 
 /**
