@@ -5,3 +5,5 @@ __pycache__/
 resultados/
 .venv/
 venv/
+*.db
+auditbrain.db

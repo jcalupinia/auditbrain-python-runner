@@ -1,9 +1,14 @@
 # ==========================================================
-# render.yaml — PRODUCCIÓN (Fase Operativa AuditBrain)
-# Solo backend FastAPI. API Key OBLIGATORIA (sync:false => se define
-# en el dashboard de Render como secreto, NO se versiona aquí).
-# Sin frontend / Postgres / JWT (no existen en el repo).
+# render.yaml — PRODUCCIÓN (AuditBrain)
+# Backend FastAPI + Postgres administrado (F2: auth multiusuario JWT).
+# Secretos con sync:false => se definen en el dashboard, no se versionan.
 # ==========================================================
+databases:
+  - name: auditbrain-db
+    plan: free
+    databaseName: auditbrain
+    user: auditbrain
+
 services:
   - type: web
     name: auditbrain-python-runner
@@ -44,6 +49,26 @@ services:
         sync: false
 
       - key: CORS_ALLOW_ORIGINS
+        sync: false
+
+      # --- F2: auth multiusuario (JWT + Postgres) ---
+      - key: DATABASE_URL
+        fromDatabase:
+          name: auditbrain-db
+          property: connectionString
+
+      - key: AUDITBRAIN_JWT_SECRET
+        sync: false
+
+      - key: AUDITBRAIN_JWT_EXPIRE_MINUTES
+        value: "60"
+
+      # Admin inicial (idempotente; se crea al primer arranque). Tras
+      # crear el admin puedes vaciar la contraseña del dashboard.
+      - key: AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL
+        sync: false
+
+      - key: AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD
         sync: false
 
     healthCheckPath: "/"
