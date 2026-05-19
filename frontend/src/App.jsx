@@ -440,8 +440,16 @@ function CognitiveWorkspace({ user, module, goDocs, goRunner, isAdmin }) {
             <Documents embedded />
           </div>
         ) : (
-          <div className="cw-grid">
-            <div className="cw-grid-l">
+          <div className="cw-stage">
+            <div className="cw-stage-girl" aria-hidden="true">
+              <AssetImg
+                src="/assets/ai-girl-holding.png"
+                alt=""
+                className="cw-stage-girl-img"
+                fallback={<div className="figure-ph lg"><span>AUDIT</span><b>IA</b></div>}
+              />
+            </div>
+            <div className="cw-stage-content">
               <form className="cw-prompt" onSubmit={submitChat}>
                 <div className="cw-prompt-q">¿En qué podemos ayudarte hoy?</div>
                 <textarea
@@ -474,14 +482,6 @@ function CognitiveWorkspace({ user, module, goDocs, goRunner, isAdmin }) {
                   ))}
                 </div>
               </div>
-            </div>
-            <div className="cw-grid-r" aria-hidden="true">
-              <AssetImg
-                src="/assets/ai-girl-with-logo.png"
-                alt=""
-                className="cw-figure-img"
-                fallback={<div className="figure-ph lg"><span>AUDIT</span><b>IA</b></div>}
-              />
             </div>
           </div>
         )}
