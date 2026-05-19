@@ -85,3 +85,28 @@ async def require_runner_access(
         return
     # auth_enabled False => modo legacy abierto (idéntico al actual).
     return
+
+
+async def require_user_access(
+    request: Request, db: Session = Depends(get_db)
+) -> None:
+    """Acceso para cualquier usuario autenticado (JWT, cualquier rol) o
+    X-API-Key (GPTs server-to-server) o modo legacy abierto. NO restringe
+    por rol: usado por endpoints disponibles a admin y user (p. ej.
+    generación de documentos). El runner sigue con require_runner_access.
+    """
+    authz = request.headers.get("Authorization", "")
+    if authz.lower().startswith("bearer "):
+        token = authz.split(" ", 1)[1].strip()
+        _user_from_token(token, db)  # valida JWT y usuario activo
+        return
+
+    if settings.auth_enabled:
+        if request.headers.get(settings.API_KEY_HEADER, "") != settings.API_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="API key inválida o ausente.",
+                headers={"WWW-Authenticate": settings.API_KEY_HEADER},
+            )
+        return
+    return

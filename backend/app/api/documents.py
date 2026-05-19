@@ -1,12 +1,17 @@
-"""Endpoint v1 para generar documentos vía el servicio externo."""
+"""Endpoint v1 para generar documentos vía el servicio externo.
+
+Acceso: cualquier usuario autenticado (JWT, admin o user) o X-API-Key
+(GPTs server-to-server). Ver require_user_access. El frontend usa JWT;
+la API Key nunca llega al navegador.
+"""
 
 from fastapi import APIRouter, Depends
 
 from backend.app.api.models import DocumentGenerateRequest
+from backend.app.auth.deps import require_user_access
 from backend.app.document_services import universal_document_client
-from backend.app.security.api_key import require_api_key
 
-router = APIRouter(tags=["documents"], dependencies=[Depends(require_api_key)])
+router = APIRouter(tags=["documents"], dependencies=[Depends(require_user_access)])
 
 
 @router.post("/documents/generate")
