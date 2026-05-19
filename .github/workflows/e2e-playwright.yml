@@ -31,9 +31,27 @@ jobs:
         working-directory: e2e
         run: npx playwright install --with-deps chromium
 
-      - name: Run Playwright tests
+      - name: Detect visual baselines
+        id: baseline
+        working-directory: e2e
+        run: |
+          if find screenshots/baseline -name '*.png' -print -quit | grep -q .; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Visual baselines present — running visual regression."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No visual baselines found. Seeding them this run; download the 'playwright-visual-baseline' artifact and commit screenshots/baseline/ to enable regression diffing."
+          fi
+
+      - name: Run functional + visual regression
+        if: steps.baseline.outputs.exists == 'true'
         working-directory: e2e
         run: npx playwright test
+
+      - name: Run functional + seed visual baselines (first run)
+        if: steps.baseline.outputs.exists == 'false'
+        working-directory: e2e
+        run: npx playwright test --update-snapshots
 
       - name: Upload Playwright HTML report
         if: always()
@@ -44,11 +62,29 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      - name: Upload Playwright test results (screenshots & videos)
+      - name: Upload test results (videos & traces)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-test-results
           path: e2e/test-results/
           retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Upload screenshots (actual captures)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-screenshots
+          path: e2e/screenshots/actual/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Upload visual baselines
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-visual-baseline
+          path: e2e/screenshots/baseline/
+          retention-days: 14
           if-no-files-found: ignore

@@ -3,3 +3,7 @@ test-results/
 playwright-report/
 blob-report/
 playwright/.cache/
+
+# Per-run captures (uploaded as CI artifacts, not committed).
+# Visual-regression baselines under screenshots/baseline/ ARE committed.
+screenshots/actual/
