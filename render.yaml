@@ -35,7 +35,7 @@ services:
         value: "4000"
 
       - key: AUDITBRAIN_API_KEY
-        sync: true
+        sync: false
 
       - key: CORS_ALLOW_ORIGINS
         sync: false
