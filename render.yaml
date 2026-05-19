@@ -9,9 +9,11 @@ services:
     name: auditbrain-python-runner
     env: python
     plan: starter
+    # Producción usa requirements-prod.txt (liviano, sin OOM en starter).
+    # requirements.txt legacy queda intacto para uso local/otros entornos.
     buildCommand: |
       pip install --upgrade pip setuptools wheel
-      pip install -r requirements.txt
+      pip install -r requirements-prod.txt
     startCommand: "uvicorn app:app --host 0.0.0.0 --port $PORT"
     autoDeploy: true
 

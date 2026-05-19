@@ -1,0 +1,35 @@
+# ==========================================================
+# requirements-prod.txt — PRODUCCIÓN (plan starter, sin OOM)
+# NO sustituye a requirements.txt (legacy intacto). Solo lo
+# necesario para arrancar/operar la API privada y ejecutar los
+# scripts de los GPTs sin el stack ML pesado.
+# Versiones fijadas idénticas a requirements.txt.
+# ==========================================================
+
+# --- Núcleo API (importado por app.py / backend/ + para servir) ---
+fastapi==0.115.0
+uvicorn==0.30.1
+pydantic==2.8.2
+typing_extensions==4.12.2
+requests==2.32.3
+
+# --- Datos / ofimática usados por los scripts de los GPTs en /run_python ---
+# (moderados, no causan OOM; doc-gen pesada se delega al servicio externo)
+pandas==2.1.4
+numpy==1.26.4
+openpyxl==3.1.5
+python-docx==1.1.2
+python-pptx==0.6.23
+lxml>=4.9.0
+
+# ==========================================================
+# EXCLUIDOS a propósito (causan OOM en starter / no usados al arrancar):
+#   torch, transformers, spacy, dask, great_expectations, tensorflow,
+#   scikit-learn, statsmodels, pyod, langchain, matplotlib, plotly,
+#   seaborn, pyarrow, duckdb, sqlalchemy, pyautogui, fuzzywuzzy,
+#   beautifulsoup4, docxtpl, fpdf, pdfplumber, Pillow, cython
+# Excluidos por no aplicar a este código:
+#   python-multipart (no hay uploads/Form/File), reportlab (no está
+#   en requirements.txt ni se importa)
+# Si un script de GPT necesita alguno de estos, evaluar caso a caso.
+# ==========================================================
