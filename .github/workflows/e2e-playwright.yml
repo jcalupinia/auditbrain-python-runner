@@ -36,17 +36,19 @@ jobs:
         run: npx playwright test
 
       - name: Upload Playwright HTML report
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
           path: e2e/playwright-report/
           retention-days: 7
+          if-no-files-found: ignore
 
       - name: Upload Playwright test results (screenshots & videos)
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-test-results
           path: e2e/test-results/
           retention-days: 7
+          if-no-files-found: ignore
