@@ -310,6 +310,110 @@ function GptIntegrations() {
   );
 }
 
+const DOC_FORMATS = [
+  { value: "pdf", label: "PDF" },
+  { value: "word", label: "Word (.docx)" },
+  { value: "excel", label: "Excel (.xlsx)" },
+  { value: "ppt", label: "PowerPoint (.pptx)" },
+];
+
+function Documents() {
+  const [format, setFormat] = useState("pdf");
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState(null);
+  const [err, setErr] = useState("");
+
+  async function submit(e) {
+    e.preventDefault();
+    setErr("");
+    setRes(null);
+    setBusy(true);
+    try {
+      const out = await api.generateDocument({ format, title, content });
+      if (out && out.status === "error") {
+        setErr(out.error || "El servicio documental devolvió un error.");
+      } else {
+        setRes(out);
+      }
+    } catch (e2) {
+      setErr(e2.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const url = res ? api.findDownloadUrl(res) : null;
+
+  return (
+    <>
+      <h1 className="page-title">Documentos</h1>
+      <p className="page-sub">
+        Generación de PDF, Word, Excel y PowerPoint vía el servicio documental
+        de AuditBrain.
+      </p>
+      <div className="notice">
+        Disponible para cualquier usuario autenticado. Se procesa server-side
+        con tu sesión JWT (la API Key nunca sale al navegador).
+      </div>
+      <div className="card" style={{ maxWidth: 620 }}>
+        <form onSubmit={submit}>
+          <label>Tipo de documento</label>
+          <select
+            value={format}
+            onChange={(e) => setFormat(e.target.value)}
+          >
+            {DOC_FORMATS.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+          <label>Título</label>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Informe trimestral"
+            required
+          />
+          <label>Contenido principal</label>
+          <textarea
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            placeholder="Texto principal del documento…"
+            style={{ minHeight: 160 }}
+            required
+          />
+          <button className="btn" disabled={busy}>
+            {busy ? "Generando…" : "Generar documento"}
+          </button>
+          {err && <div className="err">{err}</div>}
+        </form>
+      </div>
+
+      {res && (
+        <div className="card" style={{ marginTop: 16, maxWidth: 620 }}>
+          <h3>Documento generado</h3>
+          {url ? (
+            <p>
+              <a href={url} target="_blank" rel="noopener noreferrer">
+                ⇩ Descargar documento
+              </a>
+            </p>
+          ) : (
+            <div className="notice warn">
+              Documento generado pero el servicio no devolvió una URL de
+              descarga directa. Respuesta cruda abajo.
+            </div>
+          )}
+          <pre>{JSON.stringify(res.response ?? res, null, 2)}</pre>
+        </div>
+      )}
+    </>
+  );
+}
+
 function Placeholder({ title, sub, icon, text }) {
   return (
     <>
@@ -390,14 +494,7 @@ export default function App() {
       case "gpt":
         return <GptIntegrations />;
       case "documents":
-        return (
-          <Placeholder
-            title="Documentos"
-            sub="Generación documental desde la plataforma."
-            icon="▤"
-            text="Generación de Excel, Word, PDF y PPTX estará disponible desde este panel."
-          />
-        );
+        return <Documents />;
       case "logs":
         return (
           <Placeholder
