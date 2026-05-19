@@ -208,6 +208,37 @@ export async function listModules() {
   );
 }
 
+// ---------- Fase 2 · M4: agentes ----------
+
+export async function listAgents(moduleCode) {
+  const qs = moduleCode ? `?module=${encodeURIComponent(moduleCode)}` : "";
+  return parse(
+    await fetch(`${API_BASE}/api/v1/agents${qs}`, { headers: authHeaders() })
+  );
+}
+
+export async function runAgent(code, payload) {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/agents/${encodeURIComponent(code)}/runs`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+    })
+  );
+}
+
+export async function listRuns() {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/runs`, { headers: authHeaders() })
+  );
+}
+
+export async function getRun(runId) {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/runs/${runId}`, { headers: authHeaders() })
+  );
+}
+
 export async function sendChatMessage(conversationId, content) {
   return parse(
     await fetch(

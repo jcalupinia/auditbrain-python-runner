@@ -397,7 +397,7 @@ const AI_LINKS = [
   { name: "Gemini", href: "https://gemini.google.com" },
 ];
 
-function CognitiveWorkspace({ user, module, moduleInfo, ctx, goDocs, goRunner, isAdmin }) {
+function CognitiveWorkspace({ user, module, moduleInfo, ctx, goDocs, goRunner, goAgents, isAdmin }) {
   const [tab, setTab] = useState("chat");
   const [chatText, setChatText] = useState("");
   const [chatNotice, setChatNotice] = useState("");
@@ -587,24 +587,183 @@ function CognitiveWorkspace({ user, module, moduleInfo, ctx, goDocs, goRunner, i
           <button className="qa-item" onClick={goDocs}>
             <b>Generar reporte</b><span>Informe ejecutivo</span>
           </button>
+          <button className="qa-item" onClick={goAgents}>
+            <b>Ejecutar agente</b><span>Agentes especializados del módulo</span>
+          </button>
           {isAdmin ? (
             <button className="qa-item" onClick={goRunner}>
-              <b>Ejecutar proceso</b><span>Motor Python · Tier 0</span>
+              <b>Ejecutar script Python</b><span>Motor Python · Tier 0</span>
             </button>
           ) : (
             <button className="qa-item off" disabled>
-              <b>Ejecutar proceso</b><span>Solo admin</span>
+              <b>Ejecutar script Python</b><span>Solo admin</span>
             </button>
           )}
           <button className="qa-item off" disabled>
-            <b>Buscar en biblioteca</b><span>Fase 2</span>
+            <b>Buscar en biblioteca</b><span>Fase 2 · M7</span>
           </button>
           <button className="qa-item off" disabled>
-            <b>Crear workflow</b><span>Fase 2</span>
+            <b>Crear workflow</b><span>Fase 2 · M5</span>
           </button>
         </div>
       </Panel>
     </div>
+  );
+}
+
+/* ---------------- Agentes — Fase 2 · M4 ---------------- */
+function AgentRunForm({ agent, projectId, onDone }) {
+  const [values, setValues] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [run, setRun] = useState(null);
+  const [err, setErr] = useState("");
+
+  function setF(name, v) { setValues((s) => ({ ...s, [name]: v })); }
+
+  async function submit(e) {
+    e.preventDefault();
+    setErr(""); setBusy(true);
+    try {
+      const created = await api.runAgent(agent.code, {
+        project_id: projectId || null,
+        inputs: values,
+      });
+      setRun(created);
+      // Polling hasta que termine o falle (timeout 60s)
+      const t0 = Date.now();
+      while (Date.now() - t0 < 60000) {
+        await new Promise((r) => setTimeout(r, 1200));
+        const fresh = await api.getRun(created.id);
+        setRun(fresh);
+        if (fresh.status === "succeeded" || fresh.status === "failed") break;
+      }
+      onDone && onDone();
+    } catch (e2) { setErr(e2.message); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <Panel title={agent.label} meta={agent.module_code}>
+      <p className="muted" style={{ marginTop: 0 }}>{agent.description}</p>
+      <form onSubmit={submit}>
+        {agent.inputs.map((inp) => (
+          <div key={inp.name}>
+            <label>{inp.label}{inp.required ? " *" : ""}</label>
+            {inp.kind === "textarea" ? (
+              <textarea
+                value={values[inp.name] || ""} placeholder={inp.placeholder}
+                onChange={(e) => setF(inp.name, e.target.value)}
+                required={inp.required} style={{ minHeight: 110 }}
+              />
+            ) : inp.kind === "select" ? (
+              <select value={values[inp.name] || ""}
+                onChange={(e) => setF(inp.name, e.target.value)}
+                required={inp.required}>
+                <option value="">—</option>
+                {inp.options.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            ) : (
+              <input value={values[inp.name] || ""} placeholder={inp.placeholder}
+                onChange={(e) => setF(inp.name, e.target.value)}
+                required={inp.required} />
+            )}
+          </div>
+        ))}
+        <button className="btn primary" disabled={busy}>
+          {busy ? "Ejecutando…" : "Ejecutar agente"}
+        </button>
+        {err && <div className="err">{err}</div>}
+      </form>
+      {run && (
+        <div className="agent-run">
+          <div className="agent-run-h">
+            <span className={`tag ${run.status}`}>{run.status}</span>
+            <span className="muted">run #{run.id}</span>
+          </div>
+          {run.status === "succeeded" && (
+            <pre className="agent-out">{run.output}</pre>
+          )}
+          {run.status === "failed" && (
+            <div className="notice warn">{run.error || "Error sin detalle."}</div>
+          )}
+          {run.status === "running" || run.status === "queued" ? (
+            <div className="muted">Procesando…</div>
+          ) : null}
+          {run.model && (
+            <div className="muted mono" style={{ fontSize: 11, marginTop: 8 }}>
+              modelo: {run.model} · tokens in/out: {run.tokens_in ?? "—"} / {run.tokens_out ?? "—"}
+            </div>
+          )}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function Agents({ ctx }) {
+  const [moduleFilter, setModuleFilter] = useState(ctx?.active_project?.module_code || "");
+  const [agents, setAgents] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [runs, setRuns] = useState([]);
+
+  const reload = useCallback(async () => {
+    try {
+      const a = await api.listAgents(moduleFilter || null);
+      setAgents(a);
+      if (selected && !a.find((x) => x.code === selected.code)) setSelected(null);
+      setRuns(await api.listRuns());
+    } catch { /* ignorar */ }
+  }, [moduleFilter, selected]);
+  useEffect(() => { reload(); }, [reload]);
+
+  const projectId = ctx?.active_project?.id || null;
+
+  return (
+    <>
+      <ViewHead code="AGT" title="Agentes especializados"
+        sub="Ejecuta agentes con prompts y inputs estructurados; historial persistente." />
+      <Panel title="Catálogo" meta={agents.length + " agente(s)"}>
+        <div className="row-form" style={{ marginBottom: 16 }}>
+          <select value={moduleFilter} onChange={(e) => setModuleFilter(e.target.value)}>
+            <option value="">Todos los módulos</option>
+            {MODULES.map((m) => <option key={m.id} value={m.id}>{m.id} · {m.label}</option>)}
+          </select>
+        </div>
+        <div className="qa">
+          {agents.map((a) => (
+            <button key={a.code} className={`qa-item${selected?.code === a.code ? " on" : ""}`}
+              onClick={() => setSelected(a)}>
+              <b>{a.label}</b>
+              <span className="muted">{a.module_code} · {a.code}</span>
+            </button>
+          ))}
+          {agents.length === 0 && (
+            <div className="muted">No hay agentes para este módulo.</div>
+          )}
+        </div>
+      </Panel>
+      {selected && (
+        <AgentRunForm agent={selected} projectId={projectId} onDone={reload} />
+      )}
+      <Panel title="Mis ejecuciones recientes" meta={runs.length + " run(s)"}>
+        {runs.length === 0 && <div className="muted">Aún no has ejecutado ningún agente.</div>}
+        {runs.length > 0 && (
+          <div className="table">
+            <div className="tr th">
+              <span>Fecha</span><span>Agente</span><span>Estado</span><span>Modelo</span>
+            </div>
+            {runs.slice(0, 15).map((r) => (
+              <div className="tr" key={r.id}>
+                <span className="mono">{(r.created_at || "").replace("T", " ").slice(0, 16)}</span>
+                <span>{r.agent_code}</span>
+                <span><span className={`tag ${r.status}`}>{r.status}</span></span>
+                <span className="muted">{r.model || "—"}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
+    </>
   );
 }
 
@@ -790,6 +949,7 @@ export default function App() {
   const OPS = [
     { id: "dashboard", code: "DSH", label: "Centro de Operaciones" },
     { id: "documents", code: "DOC", label: "Documentos" },
+    { id: "agents", code: "AGT", label: "Agentes" },
     { id: "runner", code: "RUN", label: "Motor de Ejecución", admin: true },
     { id: "workspaces", code: "WKS", label: "Workspaces", admin: true },
     { id: "users", code: "USR", label: "Cuentas", admin: true },
@@ -816,6 +976,7 @@ export default function App() {
           isAdmin={isAdmin}
           goDocs={() => go("documents")}
           goRunner={() => go("runner")}
+          goAgents={() => go("agents")}
         />
       );
     }
@@ -826,6 +987,7 @@ export default function App() {
         return isAdmin
           ? <Workspaces onContextChanged={loadContext} />
           : <Dashboard user={user} health={hp} />;
+      case "agents": return <Agents ctx={ctx} />;
       case "security": return <Security user={user} />;
       case "documents": return (
         <><ViewHead code="DOC" title="Generación Documental"
