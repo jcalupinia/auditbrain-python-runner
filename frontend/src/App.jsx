@@ -399,8 +399,19 @@ const AI_LINKS = [
 
 function CognitiveWorkspace({ user, module, goDocs, goRunner, isAdmin }) {
   const [tab, setTab] = useState("chat");
+  const [chatText, setChatText] = useState("");
+  const [chatNotice, setChatNotice] = useState("");
   const first = (user.email || "Operador").split("@")[0].split(/[._-]/)[0];
   const name = first.charAt(0).toUpperCase() + first.slice(1);
+
+  function submitChat(e) {
+    e.preventDefault();
+    if (!chatText.trim()) return;
+    setChatNotice(
+      "La capa cognitiva multi-agente estará disponible en Fase 2. Tu mensaje se mantiene en local; mientras tanto puedes usar ChatGPT/Claude/Gemini abajo o generar un documento."
+    );
+  }
+
   return (
     <div className="cw">
       <div className="hero">
@@ -410,15 +421,6 @@ function CognitiveWorkspace({ user, module, goDocs, goRunner, isAdmin }) {
           <p>Plataforma operativa de inteligencia empresarial · módulo {module.id} · {module.label}.</p>
         </div>
         <div className="hero-wave" aria-hidden="true" />
-      </div>
-
-      <div className="cw-figure" aria-hidden="true">
-        <AssetImg
-          src="/assets/ai-girl-with-logo.png"
-          alt=""
-          className="cw-figure-img"
-          fallback={<div className="figure-ph lg"><span>AUDIT</span><b>IA</b></div>}
-        />
       </div>
 
       <Panel
@@ -438,31 +440,50 @@ function CognitiveWorkspace({ user, module, goDocs, goRunner, isAdmin }) {
             <Documents embedded />
           </div>
         ) : (
-          <>
-            <div className="cw-prompt">
-              <div className="cw-prompt-q">¿En qué podemos ayudarte hoy?</div>
-              <textarea
-                disabled
-                placeholder="Orquestación cognitiva multi-agente — disponible en Fase 2"
+          <div className="cw-grid">
+            <div className="cw-grid-l">
+              <form className="cw-prompt" onSubmit={submitChat}>
+                <div className="cw-prompt-q">¿En qué podemos ayudarte hoy?</div>
+                <textarea
+                  value={chatText}
+                  onChange={(e) => { setChatText(e.target.value); setChatNotice(""); }}
+                  placeholder="Escribe tu consulta… (la respuesta cognitiva llegará en Fase 2)"
+                />
+                <div className="cw-prompt-bar">
+                  <button type="button" className="link" onClick={goDocs}>
+                    ⌯ Adjuntar / generar documento
+                  </button>
+                  <div className="cw-prompt-actions">
+                    <span className="cw-soon-tag">Fase 2</span>
+                    <button type="submit" className="btn primary sm" disabled={!chatText.trim()}>
+                      Enviar
+                    </button>
+                  </div>
+                </div>
+                {chatNotice && <div className="notice warn cw-notice">{chatNotice}</div>}
+              </form>
+              <div className="cw-ext">
+                <div className="cw-ext-l">O continúa la conversación en:</div>
+                <div className="cw-ext-grid">
+                  {AI_LINKS.map((a) => (
+                    <a key={a.name} className="cw-ext-card" href={a.href}
+                      target="_blank" rel="noopener noreferrer">
+                      <b>{a.name}</b>
+                      <span>Abrir {a.name} →</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="cw-grid-r" aria-hidden="true">
+              <AssetImg
+                src="/assets/ai-girl-with-logo.png"
+                alt=""
+                className="cw-figure-img"
+                fallback={<div className="figure-ph lg"><span>AUDIT</span><b>IA</b></div>}
               />
-              <div className="cw-prompt-bar">
-                <button className="link" onClick={goDocs}>⌯ Adjuntar / generar documento</button>
-                <span className="cw-soon-tag">Fase 2</span>
-              </div>
             </div>
-            <div className="cw-ext">
-              <div className="cw-ext-l">O continúa la conversación en:</div>
-              <div className="cw-ext-grid">
-                {AI_LINKS.map((a) => (
-                  <a key={a.name} className="cw-ext-card" href={a.href}
-                    target="_blank" rel="noopener noreferrer">
-                    <b>{a.name}</b>
-                    <span>Abrir {a.name} →</span>
-                  </a>
-                ))}
-              </div>
-            </div>
-          </>
+          </div>
         )}
       </Panel>
 
@@ -503,6 +524,7 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false);
   const [theme, toggleTheme] = useTheme();
   const [hp, setHp] = useState({ state: "idle", data: null });
+  const [headerSearch, setHeaderSearch] = useState("");
 
   const loadMe = useCallback(async () => {
     if (!api.getToken()) { setUser(null); setLoading(false); return; }
@@ -621,8 +643,15 @@ export default function App() {
           <span className="cc-ws-l">Workspace</span>
           <span className="cc-ws-v">{crumb.code} · {crumb.label}</span>
         </div>
-        <div className="cc-search" aria-hidden="true">
-          <span>Buscar en AuditBrain…</span><kbd>⌘K</kbd>
+        <div className="cc-search">
+          <input
+            type="text"
+            value={headerSearch}
+            onChange={(e) => setHeaderSearch(e.target.value)}
+            placeholder="Buscar en AuditBrain… (indexación en Fase 2)"
+            aria-label="Buscar en AuditBrain"
+          />
+          <kbd>⌘K</kbd>
         </div>
         <div className="cc-head-r">
           <button className="cc-icon" onClick={toggleTheme} title="Tema">
