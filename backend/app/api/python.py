@@ -1,12 +1,16 @@
-"""Endpoint v1 para ejecutar código Python (protegido por API Key)."""
+"""Endpoint v1 para ejecutar código Python.
+
+Acceso: admin (JWT) o X-API-Key (GPTs server-to-server). Ver
+require_runner_access. El runner queda restringido al rol admin.
+"""
 
 from fastapi import APIRouter, Depends
 
 from backend.app.api.models import PythonRunRequest
-from backend.app.security.api_key import require_api_key
+from backend.app.auth.deps import require_runner_access
 from backend.app.services import python_runner_service
 
-router = APIRouter(tags=["python"], dependencies=[Depends(require_api_key)])
+router = APIRouter(tags=["python"], dependencies=[Depends(require_runner_access)])
 
 
 @router.post("/python/run")

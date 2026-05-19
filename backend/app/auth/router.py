@@ -1,0 +1,54 @@
+"""Endpoints de autenticación (/api/v1/auth/*)."""
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.orm import Session
+
+from backend.app.auth import service
+from backend.app.auth.deps import get_current_user, require_admin
+from backend.app.auth.jwt_tokens import create_access_token
+from backend.app.auth.models import User
+from backend.app.auth.schemas import Token, UserCreate, UserOut
+from backend.app.db.session import get_db
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.post("/login", response_model=Token)
+def login(
+    form: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
+    """Login OAuth2 password flow. ``username`` = email."""
+    user = service.authenticate_user(db, form.username, form.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Email o contraseña incorrectos.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token = create_access_token(subject=user.email, role=user.role.value)
+    return Token(access_token=token, role=user.role)
+
+
+@router.get("/me", response_model=UserOut)
+def me(current: User = Depends(get_current_user)):
+    return current
+
+
+@router.post(
+    "/users",
+    response_model=UserOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
+)
+def create_user_endpoint(payload: UserCreate, db: Session = Depends(get_db)):
+    """Alta de usuario. Solo admin (no hay self-registration abierto)."""
+    if service.get_user_by_email(db, payload.email):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Ya existe un usuario con ese email.",
+        )
+    return service.create_user(
+        db, email=payload.email, password=payload.password, role=payload.role
+    )

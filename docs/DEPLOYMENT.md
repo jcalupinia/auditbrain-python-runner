@@ -72,6 +72,27 @@ cargas pandas/numpy; actívalos según el tamaño de la instancia:
 > Tier 0 es endurecimiento, **no** una frontera de aislamiento real
 > (eso es Tier 2: WASM/microVM, ver `docs/ROADMAP_FULLSTACK.md`).
 
+### Auth multiusuario (F2) — JWT + PostgreSQL
+
+`render.yaml` provisiona un Postgres administrado (`auditbrain-db`) y
+`DATABASE_URL` se inyecta automáticamente. Variables a definir:
+
+| Variable | Origen | Obligatoria | Notas |
+|---|---|---|---|
+| `DATABASE_URL` | `fromDatabase` (auto) | Sí | Postgres administrado; sin definir nada |
+| `AUDITBRAIN_JWT_SECRET` | Dashboard (`sync:false`) | **SÍ** | Secreto de firma JWT; sin él se usa uno de dev INSEGURO |
+| `AUDITBRAIN_JWT_EXPIRE_MINUTES` | render.yaml | No | TTL del access token (def. 60) |
+| `AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL` | Dashboard (`sync:false`) | Recom. | Crea el admin inicial al primer arranque |
+| `AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD` | Dashboard (`sync:false`) | Recom. | Idem; vacíalo tras el primer deploy |
+
+Flujo: el frontend hace `POST /api/v1/auth/login` (form `username`=email,
+`password`) → recibe un JWT Bearer. El **runner queda restringido a rol
+`admin`**; los GPTs siguen usando `X-API-Key` server-a-servidor. La API
+Key **nunca** se expone al navegador.
+
+> Migraciones: el esquema inicial se crea con `create_all` al arrancar.
+> Alembic queda en el roadmap si el esquema evoluciona.
+
 ## 3. Verificación post-deploy
 
 Sustituye `BASE` por la URL pública de Render y `KEY` por tu API key.

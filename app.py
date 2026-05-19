@@ -606,6 +606,28 @@ try:
     from backend.app.api import api_router
 
     app.include_router(api_router)
+
+    @app.on_event("startup")
+    def _auditbrain_platform_startup():
+        """Crea tablas y el admin inicial (idempotente). Errores de BD
+        no tumban el servicio legacy."""
+        try:
+            from backend.app.auth.service import ensure_bootstrap_admin
+            from backend.app.db.session import SessionLocal, init_db
+
+            init_db()
+            db = SessionLocal()
+            try:
+                ensure_bootstrap_admin(db)
+            finally:
+                db.close()
+        except Exception as _db_exc:  # pragma: no cover
+            import logging
+
+            logging.getLogger("auditbrain").warning(
+                "Bootstrap de BD/admin omitido: %s", _db_exc
+            )
+
 except Exception as _platform_exc:  # pragma: no cover
     import logging
 
