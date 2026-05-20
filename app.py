@@ -613,12 +613,18 @@ try:
         no tumban el servicio legacy."""
         try:
             from backend.app.auth.service import ensure_bootstrap_admin
+            from backend.app.context.service import (
+                assign_legacy_users_to_default_org,
+                get_or_create_default_organization,
+            )
             from backend.app.db.session import SessionLocal, init_db
 
             init_db()
             db = SessionLocal()
             try:
                 ensure_bootstrap_admin(db)
+                get_or_create_default_organization(db)
+                assign_legacy_users_to_default_org(db)
             finally:
                 db.close()
         except Exception as _db_exc:  # pragma: no cover

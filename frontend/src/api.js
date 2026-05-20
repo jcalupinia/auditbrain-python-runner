@@ -115,3 +115,63 @@ export async function health() {
 export function getApiBase() {
   return API_BASE;
 }
+
+// ---------- Fase 2 · M1: contexto operativo ----------
+
+export async function getMyContext() {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/me/context`, { headers: authHeaders() })
+  );
+}
+
+export async function setActiveProject(projectId) {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/me/context`, {
+      method: "PUT",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ project_id: projectId }),
+    })
+  );
+}
+
+export async function listClients() {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/context/clients`, { headers: authHeaders() })
+  );
+}
+
+export async function createClient(payload) {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/context/clients`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+    })
+  );
+}
+
+export async function listProjects() {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/context/projects`, { headers: authHeaders() })
+  );
+}
+
+export async function createProject(payload) {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/context/projects`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+    })
+  );
+}
+
+export async function addProjectMember(projectId, payload) {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/context/projects/${projectId}/members`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+    })
+  );
+}
