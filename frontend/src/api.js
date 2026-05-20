@@ -27,6 +27,19 @@ async function parse(res) {
     data = text;
   }
   if (!res.ok) {
+    // Token JWT expirado/inválido a mitad de sesión: limpiar y volver al
+    // login automáticamente. Excepción: el propio endpoint de login también
+    // devuelve 401 con credenciales malas; ahí queremos que el formulario
+    // muestre el error sin recargar.
+    const reqUrl = res.url || "";
+    if (
+      res.status === 401 &&
+      getToken() &&
+      !reqUrl.endsWith("/api/v1/auth/login")
+    ) {
+      clearSession();
+      if (typeof window !== "undefined") window.location.reload();
+    }
     const detail =
       (data && data.detail) || res.statusText || `HTTP ${res.status}`;
     throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
