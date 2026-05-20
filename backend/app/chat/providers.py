@@ -71,28 +71,50 @@ def _max_tokens() -> int:
         return 1024
 
 
+def _providers_with_keys() -> list[str]:
+    """Lista de proveedores realmente configurados, en orden de preferencia.
+
+    Preferencia: el valor explícito de AUDITBRAIN_LLM_PROVIDER primero, y luego
+    el resto. Si no se fija nada, gemini > anthropic > openai (gemini primero
+    porque tiene cuota gratis y no quema saldo de pago accidentalmente).
+    """
+    have = {
+        "anthropic": bool(_anthropic_key()),
+        "openai": bool(_openai_key()),
+        "gemini": bool(_gemini_key()),
+    }
+    preferred = _provider()
+    if preferred == "google":
+        preferred = "gemini"
+    default_order = ["gemini", "anthropic", "openai"]
+    order: list[str] = []
+    if preferred in have and have[preferred]:
+        order.append(preferred)
+    for p in default_order:
+        if p not in order and have.get(p):
+            order.append(p)
+    return order
+
+
 def available_provider() -> str | None:
-    """Devuelve qué proveedor está disponible (o None si ninguno)."""
-    p = _provider()
-    if p == "anthropic" and _anthropic_key():
-        return "anthropic"
-    if p == "openai" and _openai_key():
-        return "openai"
-    if p in ("gemini", "google") and _gemini_key():
-        return "gemini"
-    # Fallback automático: cualquier otro que tenga clave.
-    if _anthropic_key():
-        return "anthropic"
-    if _openai_key():
-        return "openai"
-    if _gemini_key():
-        return "gemini"
-    return None
+    """Devuelve qué proveedor se intentará primero (o None si ninguno)."""
+    chain = _providers_with_keys()
+    return chain[0] if chain else None
 
 
 # ---------------------------------------------------------------------------
 # Cliente principal
 # ---------------------------------------------------------------------------
+
+def _dispatch(provider: str, messages: list[dict], system: str | None) -> LLMResponse:
+    if provider == "anthropic":
+        return _call_anthropic(messages, system)
+    if provider == "openai":
+        return _call_openai(messages, system)
+    if provider == "gemini":
+        return _call_gemini(messages, system)
+    raise ProviderUnavailable(f"Proveedor desconocido: {provider}")
+
 
 def chat_complete(
     messages: list[dict[str, str]],
@@ -100,20 +122,33 @@ def chat_complete(
 ) -> LLMResponse:
     """Envía una conversación al proveedor activo y devuelve la respuesta.
 
-    ``messages``: lista de {"role": "user"|"assistant", "content": str}.
-    ``system``: prompt del sistema (rol del agente).
+    Intenta el proveedor preferido y, si falla (sin saldo, modelo retirado,
+    timeout puntual, etc.), reintenta con el siguiente proveedor configurado.
+    Se prioriza la lista calculada en ``_providers_with_keys()``.
+
+    Si NINGÚN proveedor responde con éxito, propaga la última excepción para
+    que la UI muestre el error real al usuario (no se inventa respuesta).
     """
-    provider = available_provider()
-    if provider == "anthropic":
-        return _call_anthropic(messages, system)
-    if provider == "openai":
-        return _call_openai(messages, system)
-    if provider == "gemini":
-        return _call_gemini(messages, system)
-    raise ProviderUnavailable(
-        "No hay proveedor LLM configurado en el servidor. "
-        "Define ANTHROPIC_API_KEY, OPENAI_API_KEY o GEMINI_API_KEY en Render."
-    )
+    chain = _providers_with_keys()
+    if not chain:
+        raise ProviderUnavailable(
+            "No hay proveedor LLM configurado en el servidor. "
+            "Define ANTHROPIC_API_KEY, OPENAI_API_KEY o GEMINI_API_KEY en Render."
+        )
+    last_exc: ProviderUnavailable | None = None
+    for provider in chain:
+        try:
+            return _dispatch(provider, messages, system)
+        except ProviderUnavailable as exc:
+            last_exc = exc
+            import logging
+
+            logging.getLogger("auditbrain").warning(
+                "Proveedor %s falló (%s). Probando siguiente…", provider, exc
+            )
+            continue
+    assert last_exc is not None
+    raise last_exc
 
 
 def _http_post(url: str, headers: dict[str, str], payload: dict, timeout: int = 60) -> dict:
