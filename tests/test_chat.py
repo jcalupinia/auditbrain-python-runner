@@ -179,4 +179,43 @@ def test_conversation_with_inaccessible_project_rejected(client):
 def test_provider_availability_defaults_to_none(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     assert chat_providers.available_provider() is None
+
+
+def test_gemini_available_when_key_set(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    assert chat_providers.available_provider() == "gemini"
+
+
+def test_gemini_call_maps_payload_and_response(monkeypatch):
+    captured = {}
+
+    def fake_http_post(url, headers, payload, timeout=60):
+        captured["url"] = url
+        captured["payload"] = payload
+        return {
+            "candidates": [
+                {"content": {"role": "model", "parts": [{"text": "respuesta gemini"}]}}
+            ],
+            "usageMetadata": {"promptTokenCount": 11, "candidatesTokenCount": 22},
+        }
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("AUDITBRAIN_LLM_PROVIDER", "gemini")
+    monkeypatch.setattr(chat_providers, "_http_post", fake_http_post)
+
+    r = chat_providers.chat_complete(
+        messages=[{"role": "user", "content": "hola"}],
+        system="Eres AuditBrain IA.",
+    )
+    assert r.content == "respuesta gemini"
+    assert r.tokens_in == 11 and r.tokens_out == 22
+    # auth por query string, no header
+    assert "key=test-key" in captured["url"]
+    # rol del asistente sería "model" en Gemini; el system va aparte
+    assert captured["payload"]["system_instruction"]["parts"][0]["text"].startswith("Eres AuditBrain")
+    assert captured["payload"]["contents"][0]["role"] == "user"
