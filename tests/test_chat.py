@@ -191,6 +191,49 @@ def test_gemini_available_when_key_set(monkeypatch):
     assert chat_providers.available_provider() == "gemini"
 
 
+def test_failover_when_primary_provider_fails(monkeypatch):
+    """Si el preferido (Anthropic) revienta sin saldo, debe caer a Gemini
+    automáticamente sin que el usuario tenga que cambiar nada."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-key")
+    monkeypatch.setenv("GEMINI_API_KEY", "gem-key")
+    monkeypatch.setenv("AUDITBRAIN_LLM_PROVIDER", "anthropic")
+
+    def fail_anthropic(messages, system=None):
+        raise chat_providers.ProviderUnavailable(
+            "HTTP 400 del proveedor: credit_balance_too_low"
+        )
+
+    def ok_gemini(messages, system=None):
+        return chat_providers.LLMResponse(
+            content="respuesta de gemini", model="gemini-2.0-flash",
+            tokens_in=5, tokens_out=10,
+        )
+
+    monkeypatch.setattr(chat_providers, "_call_anthropic", fail_anthropic)
+    monkeypatch.setattr(chat_providers, "_call_gemini", ok_gemini)
+
+    r = chat_providers.chat_complete([{"role": "user", "content": "hola"}])
+    assert r.content == "respuesta de gemini"
+    assert r.model == "gemini-2.0-flash"
+
+
+def test_failover_propagates_last_error_when_all_fail(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-key")
+    monkeypatch.setenv("GEMINI_API_KEY", "gem-key")
+
+    def fail_any(messages, system=None):
+        raise chat_providers.ProviderUnavailable("nope")
+
+    monkeypatch.setattr(chat_providers, "_call_anthropic", fail_any)
+    monkeypatch.setattr(chat_providers, "_call_gemini", fail_any)
+
+    try:
+        chat_providers.chat_complete([{"role": "user", "content": "hola"}])
+        assert False, "debería haber lanzado ProviderUnavailable"
+    except chat_providers.ProviderUnavailable as exc:
+        assert "nope" in str(exc)
+
+
 def test_gemini_call_maps_payload_and_response(monkeypatch):
     captured = {}
 
