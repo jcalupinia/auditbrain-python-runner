@@ -43,12 +43,25 @@ def _openai_key() -> str:
     return os.getenv("OPENAI_API_KEY", "").strip()
 
 
+def _gemini_key() -> str:
+    # Soporta GEMINI_API_KEY (Google AI Studio) y GOOGLE_API_KEY como alias.
+    return (
+        os.getenv("GEMINI_API_KEY", "").strip()
+        or os.getenv("GOOGLE_API_KEY", "").strip()
+    )
+
+
 def _anthropic_model() -> str:
     return os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6").strip()
 
 
 def _openai_model() -> str:
     return os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
+
+
+def _gemini_model() -> str:
+    # Default a Gemini 2.0 Flash (cuota gratis muy generosa en AI Studio).
+    return os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
 
 
 def _max_tokens() -> int:
@@ -65,11 +78,15 @@ def available_provider() -> str | None:
         return "anthropic"
     if p == "openai" and _openai_key():
         return "openai"
-    # Fallback automático si el preferido no está pero el otro sí.
+    if p in ("gemini", "google") and _gemini_key():
+        return "gemini"
+    # Fallback automático: cualquier otro que tenga clave.
     if _anthropic_key():
         return "anthropic"
     if _openai_key():
         return "openai"
+    if _gemini_key():
+        return "gemini"
     return None
 
 
@@ -91,9 +108,11 @@ def chat_complete(
         return _call_anthropic(messages, system)
     if provider == "openai":
         return _call_openai(messages, system)
+    if provider == "gemini":
+        return _call_gemini(messages, system)
     raise ProviderUnavailable(
         "No hay proveedor LLM configurado en el servidor. "
-        "Define ANTHROPIC_API_KEY o OPENAI_API_KEY en Render."
+        "Define ANTHROPIC_API_KEY, OPENAI_API_KEY o GEMINI_API_KEY en Render."
     )
 
 
@@ -166,4 +185,48 @@ def _call_openai(messages: list[dict], system: str | None) -> LLMResponse:
         model=model,
         tokens_in=usage.get("prompt_tokens"),
         tokens_out=usage.get("completion_tokens"),
+    )
+
+
+def _call_gemini(messages: list[dict], system: str | None) -> LLMResponse:
+    """Llama a Google Gemini (AI Studio).
+
+    Diferencias con Anthropic/OpenAI:
+    - Auth por query string (?key=...), no por header.
+    - El rol del asistente se llama ``model``, no ``assistant``.
+    - El system prompt va aparte como ``system_instruction``.
+    """
+    model = _gemini_model()
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model}:generateContent?key={_gemini_key()}"
+    )
+    contents = []
+    for m in messages:
+        role = "model" if m.get("role") == "assistant" else "user"
+        contents.append({"role": role, "parts": [{"text": m.get("content", "")}]})
+
+    payload: dict = {
+        "contents": contents,
+        "generationConfig": {"maxOutputTokens": _max_tokens()},
+    }
+    if system:
+        payload["system_instruction"] = {"parts": [{"text": system}]}
+
+    data = _http_post(
+        url,
+        headers={"Content-Type": "application/json"},
+        payload=payload,
+    )
+    candidates = data.get("candidates") or []
+    text = ""
+    if candidates:
+        parts = (candidates[0].get("content") or {}).get("parts") or []
+        text = "".join(p.get("text", "") for p in parts).strip()
+    usage = data.get("usageMetadata") or {}
+    return LLMResponse(
+        content=text or "(respuesta vacía del proveedor)",
+        model=model,
+        tokens_in=usage.get("promptTokenCount"),
+        tokens_out=usage.get("candidatesTokenCount"),
     )
