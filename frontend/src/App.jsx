@@ -397,19 +397,59 @@ const AI_LINKS = [
   { name: "Gemini", href: "https://gemini.google.com" },
 ];
 
-function CognitiveWorkspace({ user, module, goDocs, goRunner, isAdmin }) {
+function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin }) {
   const [tab, setTab] = useState("chat");
   const [chatText, setChatText] = useState("");
   const [chatNotice, setChatNotice] = useState("");
+  const [conv, setConv] = useState(null);          // conversación activa
+  const [messages, setMessages] = useState([]);
+  const [sending, setSending] = useState(false);
   const first = (user.email || "Operador").split("@")[0].split(/[._-]/)[0];
   const name = first.charAt(0).toUpperCase() + first.slice(1);
 
-  function submitChat(e) {
+  // Reset chat al cambiar de módulo (cada módulo arranca su conversación).
+  useEffect(() => {
+    setConv(null);
+    setMessages([]);
+    setChatNotice("");
+    setChatText("");
+  }, [module.id]);
+
+  async function submitChat(e) {
     e.preventDefault();
-    if (!chatText.trim()) return;
-    setChatNotice(
-      "La capa cognitiva multi-agente estará disponible en Fase 2. Tu mensaje se mantiene en local; mientras tanto puedes usar ChatGPT/Claude/Gemini abajo o generar un documento."
-    );
+    const content = chatText.trim();
+    if (!content || sending) return;
+    setSending(true);
+    setChatNotice("");
+    try {
+      let activeConv = conv;
+      if (!activeConv) {
+        activeConv = await api.createConversation({
+          project_id: ctx?.active_project?.id ?? null,
+          module_code: module.id,
+        });
+        setConv(activeConv);
+      }
+      const turn = await api.sendChatMessage(activeConv.id, content);
+      setMessages((prev) => [
+        ...prev,
+        turn.user_message,
+        ...(turn.assistant_message ? [turn.assistant_message] : []),
+      ]);
+      setChatText("");
+      if (turn.provider_error) setChatNotice(turn.provider_error);
+    } catch (err) {
+      setChatNotice(err.message || "Error enviando el mensaje.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function newConversation() {
+    setConv(null);
+    setMessages([]);
+    setChatNotice("");
+    setChatText("");
   }
 
   return (
@@ -425,7 +465,7 @@ function CognitiveWorkspace({ user, module, goDocs, goRunner, isAdmin }) {
 
       <Panel
         title="Workspace cognitivo"
-        meta={`${module.id} · CAPA COGNITIVA · FASE 2`}
+        meta={`${module.id} · ${ctx?.active_project?.name || "sin proyecto"}`}
       >
         <div className="cw-tabs">
           {["chat", "análisis", "documentos", "notas"].map((t) => (
@@ -450,21 +490,51 @@ function CognitiveWorkspace({ user, module, goDocs, goRunner, isAdmin }) {
               />
             </div>
             <div className="cw-stage-content">
+              {messages.length > 0 && (
+                <div className="cw-thread">
+                  {messages.map((m) => (
+                    <div key={m.id} className={`cw-msg ${m.role}`}>
+                      <div className="cw-msg-role">{m.role === "user" ? name : "AuditBrain IA"}</div>
+                      <div className="cw-msg-content">{m.content}</div>
+                    </div>
+                  ))}
+                  {sending && (
+                    <div className="cw-msg assistant pending">
+                      <div className="cw-msg-role">AuditBrain IA</div>
+                      <div className="cw-msg-content muted">Pensando…</div>
+                    </div>
+                  )}
+                </div>
+              )}
               <form className="cw-prompt" onSubmit={submitChat}>
-                <div className="cw-prompt-q">¿En qué podemos ayudarte hoy?</div>
+                <div className="cw-prompt-q">
+                  {messages.length === 0 ? "¿En qué podemos ayudarte hoy?" : "Continúa la conversación…"}
+                </div>
                 <textarea
                   value={chatText}
-                  onChange={(e) => { setChatText(e.target.value); setChatNotice(""); }}
-                  placeholder="Escribe tu consulta… (la respuesta cognitiva llegará en Fase 2)"
+                  onChange={(e) => { setChatText(e.target.value); }}
+                  placeholder={
+                    tab === "chat"
+                      ? "Escribe tu consulta…"
+                      : `Modo ${tab} — todavía sin capa especializada (Fase 2 avanzada).`
+                  }
                 />
                 <div className="cw-prompt-bar">
                   <button type="button" className="link" onClick={goDocs}>
                     ⌯ Adjuntar / generar documento
                   </button>
                   <div className="cw-prompt-actions">
-                    <span className="cw-soon-tag">Fase 2</span>
-                    <button type="submit" className="btn primary sm" disabled={!chatText.trim()}>
-                      Enviar
+                    {messages.length > 0 && (
+                      <button type="button" className="link" onClick={newConversation}>
+                        Nueva conversación
+                      </button>
+                    )}
+                    <button
+                      type="submit"
+                      className="btn primary sm"
+                      disabled={!chatText.trim() || sending}
+                    >
+                      {sending ? "Enviando…" : "Enviar"}
                     </button>
                   </div>
                 </div>
@@ -714,6 +784,7 @@ export default function App() {
         <CognitiveWorkspace
           user={user}
           module={moduleActive}
+          ctx={ctx}
           isAdmin={isAdmin}
           goDocs={() => go("documents")}
           goRunner={() => go("runner")}

@@ -175,3 +175,42 @@ export async function addProjectMember(projectId, payload) {
     })
   );
 }
+
+// ---------- Fase 2 · M2: chat cognitivo ----------
+
+export async function listConversations() {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/chat/conversations`, { headers: authHeaders() })
+  );
+}
+
+export async function createConversation(payload = {}) {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/chat/conversations`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+    })
+  );
+}
+
+export async function getConversation(conversationId) {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/chat/conversations/${conversationId}`, {
+      headers: authHeaders(),
+    })
+  );
+}
+
+export async function sendChatMessage(conversationId, content) {
+  return parse(
+    await fetch(
+      `${API_BASE}/api/v1/chat/conversations/${conversationId}/messages`,
+      {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ content }),
+      }
+    )
+  );
+}
