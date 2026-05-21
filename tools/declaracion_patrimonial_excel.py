@@ -24,7 +24,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from openpyxl import Workbook
-from openpyxl.chart import BarChart, Reference
+from openpyxl.chart import BarChart, PieChart, Reference
+from openpyxl.chart.label import DataLabelList
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -690,40 +691,30 @@ def _build_dashboard(wb, data, infos, anio):
     _kpi_card(ws, 5, 6, 7, "PATRIMONIO NETO", f"=D{pneto}", PAT, PAT_L,
               "Var. proyectada", f"=G{pneto}")
 
-    # --- selector de tipo de grafico (la macro CambiarGrafico lo aplica) ---
-    ws.merge_cells("I3:L3")
-    sel = ws.cell(row=3, column=9, value="TIPO DE GRAFICO")
-    sel.font = Font(bold=True, size=10, color="FFFFFF")
-    sel.fill = PatternFill("solid", fgColor=NAVY_SOFT)
-    sel.alignment = Alignment(horizontal="left", vertical="center", indent=1)
-    ws.merge_cells("I4:J4")
-    op = ws.cell(row=4, column=9, value="Columnas")
-    op.font = FONT_BOLD
-    op.fill = PatternFill("solid", fgColor=EDIT)
-    op.alignment = CENTER
-    for c in (9, 10):
-        ws.cell(row=4, column=c).border = BORDE
-    dvg = DataValidation(
-        type="list",
-        formula1='"Columnas,Barras,Pastel,Anillo,Lineas,Area"',
-        allow_blank=True, showErrorMessage=False)
-    ws.add_data_validation(dvg)
-    dvg.add("I4")
-    for col in ("I", "J", "K", "L"):
-        ws.column_dimensions[col].width = 13
+    # --- grafico de barras: concentracion de los activos ---
+    barr = BarChart()
+    barr.type = "col"
+    barr.grouping = "clustered"
+    barr.title = f"Concentracion de activos: {anio} vs {anio + 1}"
+    barr.style = 10
+    barr.add_data(Reference(ws, min_col=4, max_col=5, min_row=act_first - 1,
+                            max_row=act_last), titles_from_data=True)
+    barr.set_categories(Reference(ws, min_col=2, min_row=act_first,
+                                  max_row=act_last))
+    barr.height, barr.width = 9.5, 19
+    ws.add_chart(barr, "I3")
 
-    # grafico comparativo (configurable con el selector + boton Aplicar)
-    graf = BarChart()
-    graf.type = "col"
-    graf.grouping = "clustered"
-    graf.title = f"Activos / Pasivos / Patrimonio: {anio} vs {anio + 1}"
-    graf.style = 10
-    graf.add_data(Reference(ws, min_col=4, max_col=5, min_row=cons_hdr,
-                            max_row=cons_last), titles_from_data=True)
-    graf.set_categories(Reference(ws, min_col=2, min_row=cons_first,
+    # --- grafico circular: composicion activos / pasivos / patrimonio ---
+    comp = PieChart()
+    comp.title = "Composicion: activos, pasivos y patrimonio"
+    comp.add_data(Reference(ws, min_col=4, min_row=cons_first,
+                            max_row=cons_last), titles_from_data=False)
+    comp.set_categories(Reference(ws, min_col=2, min_row=cons_first,
                                   max_row=cons_last))
-    graf.height, graf.width = 12, 20
-    ws.add_chart(graf, "I6")
+    comp.dataLabels = DataLabelList()
+    comp.dataLabels.showPercent = True
+    comp.height, comp.width = 9.5, 14
+    ws.add_chart(comp, "I23")
 
     nota = ws.cell(row=cons_last + 2, column=2,
                    value="Edite las columnas amarillas en las hojas de cada "
