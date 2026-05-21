@@ -24,8 +24,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from openpyxl import Workbook
-from openpyxl.chart import BarChart, PieChart, Reference
-from openpyxl.chart.label import DataLabelList
+from openpyxl.chart import BarChart, Reference
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -741,28 +740,41 @@ def _build_dashboard(wb, data, infos, anio):
     return {"pneto_row": pneto}
 
 
-def _build_justificacion(wb, data, anio, rangos):
+def _build_justificacion(wb, data, anio):
+    """Hoja Justificacion: lista de seleccion igual al formulario del SRI."""
     ws = wb.create_sheet("Justificacion")
     ws.sheet_view.showGridLines = False
     pat = data["patrimonio"]
     crec = pat["crecimientoPat"]
-    conceptos = data["justificacion"]
     es_inc = data["es_incremento"]
-    rango_cat = rangos["JUSTIF_INCREMENTO"]   # Tabla 14, siempre
-    palabra = "incremento" if es_inc else "decremento"
+    palabra = "Incremento" if es_inc else "Decremento"
+    presentes = {code for code, _lbl in data["justificacion"]}
 
-    _banner(ws, 7, "JUSTIFICACION DE LA VARIACION PATRIMONIAL",
-            f"Conceptos declarados en el XML  -  ejercicio {anio}  "
-            "(catalogo Tabla 14 del SRI)")
+    _banner(ws, 5, "JUSTIFICACION DE LA VARIACION PATRIMONIAL",
+            "Marque 'Si' los conceptos que justifican la variacion "
+            f"patrimonial  -  ejercicio {anio}")
 
-    sec = 10
-    _sec_header(ws, sec, f"DISTRIBUCION DEL {palabra.upper()} PATRIMONIAL",
-                NAVY_SOFT)
-    hdr = sec + 1
+    # linea informativa con el crecimiento / decremento
+    ws.merge_cells("B5:D5")
+    ci = ws.cell(row=5, column=2,
+                 value=f"{palabra} patrimonial declarado en el XML")
+    ci.font = FONT_BOLD
+    ci.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    cv = ws.cell(row=5, column=5, value=crec)
+    cv.font = FONT_BOLD
+    cv.number_format = MONEDA
+    cv.alignment = RIGHT
+    for c in range(2, 6):
+        ws.cell(row=5, column=c).fill = PatternFill("solid", fgColor=GRIS)
+        ws.cell(row=5, column=c).border = BORDE
+    ws.row_dimensions[5].height = 20
+
+    # cabecera de la tabla
+    hdr = 7
     ws.merge_cells(start_row=hdr, start_column=2, end_row=hdr, end_column=4)
-    for col, t in ((2, "Concepto declarado (Tabla del SRI)"),
-                   (5, "Monto asignado"), (6, "% del total")):
-        c = ws.cell(row=hdr, column=col, value=t)
+    for col, txt in ((2, "Concepto (Tabla 14 del SRI)"),
+                     (5, "Justifica la variacion")):
+        c = ws.cell(row=hdr, column=col, value=txt)
         c.font = FONT_HEADER
         c.fill = PatternFill("solid", fgColor=NAVY_SOFT)
         c.alignment = CENTER
@@ -770,113 +782,41 @@ def _build_justificacion(wb, data, anio, rangos):
     ws.row_dimensions[hdr].height = 26
 
     first = hdr + 1
-    n = max(len(conceptos), 1)
-    monto_ini = round(crec / n, 2) if conceptos else 0.0
-    etiquetas = [lbl for _, lbl in conceptos] or [""]
     r = first
-    for etiqueta in etiquetas:
+    for code in ("1", "2", "3", "4", "5", "6"):
         ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=4)
-        cc = ws.cell(row=r, column=2, value=etiqueta)
+        cc = ws.cell(row=r, column=2,
+                     value=_fmt(cat.JUSTIFICACION_INCREMENTO, code))
         cc.font = FONT_NORMAL
         cc.alignment = Alignment(horizontal="left", vertical="center", indent=1)
-        cm = ws.cell(row=r, column=5, value=monto_ini)
-        cm.number_format = MONEDA
-        cm.font = FONT_NORMAL
-        cm.alignment = RIGHT
+        cm = ws.cell(row=r, column=5,
+                     value="Si" if code in presentes else "No")
+        cm.font = FONT_BOLD
+        cm.alignment = CENTER
         cm.fill = PatternFill("solid", fgColor=EDIT)
-        for c in (cc, cm, ws.cell(row=r, column=6)):
-            c.border = BORDE
+        for col in range(2, 6):
+            ws.cell(row=r, column=col).border = BORDE
+        ws.row_dimensions[r].height = 22
         r += 1
     last = r - 1
-    total_row = r
-    for rr in range(first, last + 1):
-        cp = ws.cell(row=rr, column=6,
-                     value=f'=IF($E${total_row}=0,"",E{rr}/$E${total_row})')
-        cp.number_format = PORCENT
-        cp.font = FONT_NORMAL
-        cp.alignment = RIGHT
-        cp.border = BORDE
 
-    dv = DataValidation(type="list", formula1=rango_cat, allow_blank=True,
+    dv = DataValidation(type="list", formula1='"Si,No"', allow_blank=False,
                         showErrorMessage=False)
     ws.add_data_validation(dv)
-    dv.add(f"B{first}:B{last}")
+    dv.add(f"E{first}:E{last}")
 
-    ws.merge_cells(start_row=total_row, start_column=2, end_row=total_row,
-                   end_column=4)
-    tc = ws.cell(row=total_row, column=2, value="TOTAL JUSTIFICADO")
-    te = ws.cell(row=total_row, column=5, value=f"=SUM(E{first}:E{last})")
-    tp = ws.cell(row=total_row, column=6, value=f'=IF(E{total_row}=0,"",1)')
-    for c in (tc, te, tp):
-        c.font = Font(bold=True, color="FFFFFF")
-        c.fill = PatternFill("solid", fgColor=NAVY_SOFT)
-        c.border = BORDE
-    tc.alignment = Alignment(horizontal="left", vertical="center", indent=1)
-    te.number_format = MONEDA
-    te.alignment = RIGHT
-    tp.number_format = PORCENT
-    tp.alignment = RIGHT
-
-    crec_row = total_row + 1
-    dif_row = total_row + 2
-    for row, txt, val, fill in (
-        (crec_row, f"{palabra.capitalize()} patrimonial declarado (XML)",
-         crec, GRIS),
-        (dif_row, "Diferencia por justificar (debe ser $0.00)",
-         f"=E{crec_row}-E{total_row}", PAT_L),
-    ):
-        ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=4)
-        cc = ws.cell(row=row, column=2, value=txt)
-        cc.font = FONT_BOLD
-        cc.alignment = Alignment(horizontal="left", vertical="center", indent=1)
-        ce = ws.cell(row=row, column=5, value=val)
-        ce.font = FONT_BOLD
-        ce.number_format = MONEDA
-        ce.alignment = RIGHT
-        for col in range(2, 7):
-            cell = ws.cell(row=row, column=col)
-            cell.border = BORDE
-            cell.fill = PatternFill("solid", fgColor=fill)
-
-    _kpi_card(ws, 5, 2, 3, f"{palabra.upper()} PATRIMONIAL",
-              f"=E{crec_row}", PAT, PAT_L, f"Declarado en el XML {anio}")
-    _kpi_card(ws, 5, 4, 5, "TOTAL JUSTIFICADO", f"=E{total_row}", ACT, ACT_L,
-              "Suma de montos asignados")
-    _kpi_card(ws, 5, 6, 7, "DIFERENCIA", f"=E{dif_row}", PAS, PAS_L,
-              "Debe quedar en $0.00")
-
-    pie = PieChart()
-    pie.title = f"Distribucion del {palabra} patrimonial"
-    pie.add_data(Reference(ws, min_col=5, min_row=first, max_row=last),
-                 titles_from_data=False)
-    pie.set_categories(Reference(ws, min_col=2, min_row=first, max_row=last))
-    pie.dataLabels = DataLabelList()
-    pie.dataLabels.showPercent = True
-    pie.height, pie.width = 9, 15
-    ws.add_chart(pie, "I5")
-
-    bar = BarChart()
-    bar.type = "bar"
-    bar.title = "Monto asignado por concepto"
-    bar.style = 10
-    bar.add_data(Reference(ws, min_col=5, min_row=hdr, max_row=last),
-                 titles_from_data=True)
-    bar.set_categories(Reference(ws, min_col=2, min_row=first, max_row=last))
-    bar.height, bar.width = 8, 15
-    ws.add_chart(bar, "I23")
-
-    nota = ws.cell(row=dif_row + 2, column=2,
-                   value="Escoja el concepto en la lista desplegable (catalogo "
-                         "del SRI) y asigne el monto en la columna amarilla.")
+    nota = ws.cell(
+        row=last + 2, column=2,
+        value="Esta hoja reproduce la seccion Justificacion del formulario "
+              "del SRI. Marque 'Si' en los conceptos que apliquen; el "
+              "generador de XML los toma de aqui.")
     nota.font = Font(italic=True, size=9, color=GRIS_TXT)
 
     ws.column_dimensions["A"].width = 3
-    ws.column_dimensions["B"].width = 26
-    ws.column_dimensions["C"].width = 16
+    ws.column_dimensions["B"].width = 32
+    ws.column_dimensions["C"].width = 14
     ws.column_dimensions["D"].width = 14
-    ws.column_dimensions["E"].width = 18
-    ws.column_dimensions["F"].width = 14
-    ws.column_dimensions["G"].width = 3
+    ws.column_dimensions["E"].width = 22
 
 
 def _build_info(wb, data, anio, pneto_row):
@@ -1056,7 +996,7 @@ def build_workbook(data: dict, salida: Path):
         infos.append(_grupo_sheet(wb, modulo, anio, rows, rangos))
 
     dash = _build_dashboard(wb, data, infos, anio)
-    _build_justificacion(wb, data, anio, rangos)
+    _build_justificacion(wb, data, anio)
     _build_instrucciones(wb)
     _build_info(wb, data, anio, dash["pneto_row"])
     _build_mapa(wb)

@@ -85,14 +85,16 @@ def _datos_generales(wb):
 
 
 def _justificacion(wb):
+    """Codigos de justificacion marcados con 'Si' en la hoja Justificacion."""
     if "Justificacion" not in wb.sheetnames:
         return []
     ws = wb["Justificacion"]
     codigos = []
     for r in range(1, ws.max_row + 1):
         etiqueta = ws.cell(row=r, column=2).value
-        monto = ws.cell(row=r, column=5).value
-        if etiqueta and " - " in str(etiqueta) and _num(monto) > 0:
+        marca = ws.cell(row=r, column=5).value
+        if (etiqueta and " - " in str(etiqueta) and
+                str(marca).strip().lower() in ("si", "sí", "x", "true")):
             codigos.append(_code(etiqueta))
     return codigos
 

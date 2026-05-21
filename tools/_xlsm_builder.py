@@ -87,15 +87,13 @@ def build_dir_stream() -> bytes:
 
 
 def build_project_stream() -> str:
+    # Sin CMG/DPB/GC: el proyecto VBA queda desbloqueado y visible.
     return (
         'ID="{5DD90D76-4BC2-11D1-886E-00608CA94CF1}"\r\n'
         f'Module={MODULO}\r\n'
         'Name="VBAProject"\r\n'
         'HelpContextID="0"\r\n'
         'VersionCompatible32="393222000"\r\n'
-        'CMG="0000000000000000000000000000"\r\n'
-        'DPB="0000000000000000000000000000000000"\r\n'
-        'GC="000000000000000000000000"\r\n'
         '\r\n'
         '[Host Extender Info]\r\n'
         '&H00000001={3832D640-CF90-11CF-8E43-00A0C911005A};VBE;&H00000000\r\n'

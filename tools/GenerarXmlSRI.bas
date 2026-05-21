@@ -333,7 +333,9 @@ Private Function JustificacionXml() As String
     For r = 1 To 300
         Dim et As String: et = CStr(ws.Cells(r, 2).Value)
         If InStr(et, " - ") > 0 Then
-            If ValTexto(CStr(ws.Cells(r, 5).Value)) > 0 Then
+            Dim marca As String
+            marca = LCase$(Trim$(CStr(ws.Cells(r, 5).Value)))
+            If marca = "si" Or marca = "s" & Chr$(237) Or marca = "x" Then
                 s = s & "<detalleJustificacion>" & L
                 s = s & "    <justificVariacion>" & Codigo(et) & _
                     "</justificVariacion>" & L
