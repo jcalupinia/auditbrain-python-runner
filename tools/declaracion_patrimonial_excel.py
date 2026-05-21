@@ -844,50 +844,58 @@ def _build_justificacion(wb, data, anio):
 def _build_info(wb, data, anio, pneto_row):
     ws = wb.create_sheet("Datos del XML")
     ws.sheet_view.showGridLines = False
-    _banner(ws, 2, "DATOS GENERALES DE LA DECLARACION")
+    _banner(ws, 2, "DATOS GENERALES DE LA DECLARACION",
+            "Edite las celdas amarillas para reutilizar la plantilla con otra "
+            "persona; el XML se genera con estos datos")
     enc, pat = data["encabezado"], data["patrimonio"]
 
+    dv_dec = '"' + ",".join(_entries(cat.TIPO_DECLARACION)) + '"'
+    dv_idn = '"' + ",".join(_entries(cat.TIPO_IDENTIFICACION)) + '"'
+    dv_reg = '"' + ",".join(_entries(cat.REGULARIZACION_ACTIVOS)) + '"'
+
+    # cada fila: (etiqueta, valor, formato, editable, formula_lista|None)
     identificacion = [
-        ("Anio de la declaracion", enc["anio"], None),
-        ("Tipo de declaracion", enc["tipoDec"], None),
-        ("Tipo de identificacion", enc["tipoIdent"], None),
-        ("Numero de identificacion", enc["numIdent"], None),
-        ("Nombre del declarante", enc["nombre"], None),
+        ("Anio de la declaracion", enc["anio"], None, True, None),
+        ("Tipo de declaracion", enc["tipoDec"], None, True, dv_dec),
+        ("Tipo de identificacion", enc["tipoIdent"], None, True, dv_idn),
+        ("Numero de identificacion", enc["numIdent"], None, True, None),
+        ("Nombre del declarante", enc["nombre"], None, True, None),
+        ("Identificacion del conyuge", enc["tipoIdentCony"], None, True, dv_idn),
+        ("Numero ident. conyuge", enc["numIdentCony"], None, True, None),
+        ("Nombre del conyuge", enc["nombreCony"], None, True, None),
+        ("Regularizacion de activos", enc["regularizacion"], None, True, dv_reg),
     ]
-    if enc["numIdentCony"] or enc["nombreCony"]:
-        identificacion += [
-            ("Identificacion del conyuge", enc["tipoIdentCony"], None),
-            ("Numero ident. conyuge", enc["numIdentCony"], None),
-            ("Nombre del conyuge", enc["nombreCony"], None),
-        ]
-    if enc["regularizacion"]:
-        identificacion.append(
-            ("Regularizacion de activos", enc["regularizacion"], None))
-    identificacion.append(("Total creditos / cuentas por cobrar",
-                           enc["totalCreditos"], MONEDA))
-    if enc["totalDerechos"] is not None:
-        identificacion.append(("Total derechos", enc["totalDerechos"], MONEDA))
+    patrimonio_xml = [
+        ("Patrimonio total declarado", pat["totalDeclarado"], MONEDA, False,
+         None),
+        ("Atribuible a hijos no emancipados", pat["atribuibleHijos"], MONEDA,
+         True, None),
+        ("Patrimonio en la sociedad conyugal", pat["sociedadConyugal"], MONEDA,
+         True, None),
+        ("Patrimonio individual del declarante", pat["individual"], MONEDA,
+         True, None),
+        ("Patrimonio del anio anterior", pat["anioAnterior"], MONEDA, True,
+         None),
+        ("Crecimiento / decremento patrimonial", pat["crecimientoPat"], MONEDA,
+         False, None),
+    ]
+    patrimonio_neto = [
+        (f"Patrimonio neto {anio}", f"=Dashboard!D{pneto_row}", MONEDA, False,
+         None),
+        (f"Patrimonio neto {anio + 1} (proyectado)",
+         f"=Dashboard!E{pneto_row}", MONEDA, False, None),
+        ("Variacion proyectada", f"=Dashboard!F{pneto_row}", MONEDA, False,
+         None),
+        ("Variacion % proyectada", f"=Dashboard!G{pneto_row}", PORCENT, False,
+         None),
+    ]
 
     secciones = [
-        ("IDENTIFICACION", identificacion),
-        ("PATRIMONIO NETO (enlazado a la hoja Dashboard)", [
-            (f"Patrimonio neto {anio}", f"=Dashboard!D{pneto_row}", MONEDA),
-            (f"Patrimonio neto {anio + 1} (proyectado)",
-             f"=Dashboard!E{pneto_row}", MONEDA),
-            ("Variacion proyectada", f"=Dashboard!F{pneto_row}", MONEDA),
-            ("Variacion % proyectada", f"=Dashboard!G{pneto_row}", PORCENT),
-        ]),
-        ("PATRIMONIO DECLARADO EN EL XML", [
-            ("Patrimonio total declarado", pat["totalDeclarado"], MONEDA),
-            ("Atribuible a hijos no emancipados", pat["atribuibleHijos"],
-             MONEDA),
-            ("Patrimonio en la sociedad conyugal", pat["sociedadConyugal"],
-             MONEDA),
-            ("Patrimonio individual del declarante", pat["individual"], MONEDA),
-            ("Patrimonio del anio anterior", pat["anioAnterior"], MONEDA),
-            ("Crecimiento / decremento patrimonial", pat["crecimientoPat"],
-             MONEDA),
-        ]),
+        ("IDENTIFICACION DEL DECLARANTE Y CONYUGE  (editable)",
+         identificacion),
+        ("PATRIMONIO DECLARADO  (editable)", patrimonio_xml),
+        ("PATRIMONIO NETO  (calculado - enlazado al Dashboard)",
+         patrimonio_neto),
     ]
     r = 5
     for titulo, filas in secciones:
@@ -898,7 +906,7 @@ def _build_info(wb, data, anio, pneto_row):
         h.alignment = Alignment(horizontal="left", vertical="center", indent=1)
         ws.row_dimensions[r].height = 20
         r += 1
-        for nombre, valor, fmt in filas:
+        for nombre, valor, fmt, editable, dvf in filas:
             cc = ws.cell(row=r, column=1, value=nombre)
             cc.font = FONT_BOLD
             cc.alignment = LEFT
@@ -907,8 +915,15 @@ def _build_info(wb, data, anio, pneto_row):
             c.alignment = RIGHT
             if fmt:
                 c.number_format = fmt
+            if editable:
+                c.fill = PatternFill("solid", fgColor=EDIT)
             for col in (1, 2):
                 ws.cell(row=r, column=col).border = BORDE
+            if dvf:
+                dv = DataValidation(type="list", formula1=dvf,
+                                    allow_blank=True, showErrorMessage=False)
+                ws.add_data_validation(dv)
+                dv.add(f"B{r}")
             r += 1
         r += 1
 
@@ -921,12 +936,12 @@ def _build_info(wb, data, anio, pneto_row):
         r += 1
     r += 1
     ws.cell(row=r, column=1,
-            value="Catalogos del SRI integrados (Tablas 1-19 del archivo "
-                  "CATALOGO.xls). El XML se genera con generar_xml_sri.py."
-            ).font = Font(italic=True, size=9, color=GRIS_TXT)
+            value="Las celdas amarillas son editables; los totales de "
+                  "creditos y derechos se calculan automaticamente al generar "
+                  "el XML.").font = Font(italic=True, size=9, color=GRIS_TXT)
 
     ws.column_dimensions["A"].width = 42
-    ws.column_dimensions["B"].width = 34
+    ws.column_dimensions["B"].width = 40
 
 
 def _build_mapa(wb):
