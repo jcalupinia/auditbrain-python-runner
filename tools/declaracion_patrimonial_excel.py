@@ -2,16 +2,16 @@
 
 Lee un archivo XML de Declaracion Patrimonial y produce un libro .xlsx con
 formato premium que incluye:
-  - Una hoja por cada modulo de activo del formulario del SRI (8 modulos:
-    dinero, derechos representativos de capital, cuentas por cobrar, bienes
-    muebles, vehiculos, derechos, bienes inmuebles y otros activos) mas el
-    modulo de pasivos. Los modulos que no constan en el XML se generan como
+  - Una hoja por cada modulo de activo del formulario del SRI (8 modulos) mas
+    el modulo de pasivos. Los modulos que no constan en el XML se generan como
     plantilla en blanco, lista para llenar.
   - Columnas editables con variacion calculada por formula.
   - Listas desplegables con los catalogos oficiales del SRI.
   - Una hoja "Dashboard" ejecutiva con tarjetas KPI y el resumen separado en
     bloques de ACTIVOS, PASIVOS y PATRIMONIO NETO, con graficos.
   - Una hoja "Justificacion" con dashboard de la variacion patrimonial.
+
+Las etiquetas XML de los 9 modulos estan tomadas de XML reales del SRI.
 
 Uso:
     python tools/declaracion_patrimonial_excel.py ENTRADA.xml [SALIDA.xlsx]
@@ -67,8 +67,6 @@ PORCENT = '+0.0%;-0.0%;0.0%'
 
 N_BLANK = 8  # filas en blanco para modulos que no constan en el XML
 
-# --- Catalogos disponibles para listas desplegables --------------------------
-
 CATALOGOS = {
     "DINERO_EN": cat.DINERO_EN,
     "TIPO_INVERSION": cat.TIPO_INVERSION,
@@ -86,6 +84,7 @@ CATALOGOS = {
     "CANTON": cat.CANTON,
     "TIPO_ACREEDOR": cat.TIPO_ACREEDOR,
     "TIPO_IDENTIFICACION": cat.TIPO_IDENTIFICACION,
+    "REGULARIZACION": cat.REGULARIZACION_ACTIVOS,
     "JUSTIF_INCREMENTO": cat.JUSTIFICACION_INCREMENTO,
     "JUSTIF_DECREMENTO": cat.JUSTIFICACION_DECREMENTO,
 }
@@ -119,196 +118,207 @@ def _entries(catalogo):
             return (0, int(k))
         except ValueError:
             return (1, k)
-    return [f"{k} - {v}" for k, v in sorted(catalogo.items(), key=lambda kv: _key(kv[0]))]
-
-
-# --- Parseo de los modulos con datos en el XML -------------------------------
-
-def _rows_dinero(root):
-    out = []
-    for d in root.iter("detalleDinero"):
-        ext = _txt(d, "nombreIfiExterior")
-        ec = _txt(d, "ifiEcuador")
-        # Solo se conserva la institucion si su codigo consta en el catalogo
-        # del SRI; de lo contrario se deja en blanco para elegirla de la lista.
-        ifi = ext or (_fmt(cat.INSTITUCION_FINANCIERA, ec)
-                      if ec in cat.INSTITUCION_FINANCIERA else "")
-        out.append(([
-            _fmt(cat.DINERO_EN, _txt(d, "dineroEn")),
-            _fmt(cat.TIPO_INVERSION, _txt(d, "tipoInversion")),
-            _fmt(cat.UBICACION, _txt(d, "ubicacion")),
-            _fmt(cat.PAIS, _txt(d, "pais")),
-            ifi,
-            _txt(d, "tipoMoneda"),
-            _fmt(cat.PARTES_RELACIONADAS, _txt(d, "partesRelacionadas")),
-        ], _num(d, "saldo")))
-    return out
-
-
-def _rows_vehiculos(root):
-    out = []
-    for d in root.iter("detalleVehiculos"):
-        out.append(([
-            _fmt(cat.TIPO_VEHICULO, _txt(d, "tipoVehiculo")),
-            _txt(d, "placa"),
-            _fmt(cat.UBICACION, _txt(d, "ubicacion")),
-            _fmt(cat.PAIS, _txt(d, "pais")),
-        ], _num(d, "valor")))
-    return out
-
-
-def _rows_inmuebles(root):
-    out = []
-    for d in root.iter("detalleBienesInmuebles"):
-        out.append(([
-            _fmt(cat.TIPO_INMUEBLE, _txt(d, "tipoInmueble")),
-            _fmt(cat.UBICACION, _txt(d, "ubicacion")),
-            _fmt(cat.PAIS, _txt(d, "codPais")),
-            _fmt(cat.PROVINCIA, _txt(d, "provincia")),
-            _fmt(cat.CANTON, _txt(d, "canton")),
-            _txt(d, "fechaInscripcion"),
-            _txt(d, "claveCat"),
-        ], _num(d, "valor")))
-    return out
-
-
-def _rows_pasivo(root):
-    out = []
-    for d in root.iter("detallePasivo"):
-        out.append(([
-            _fmt(cat.TIPO_ACREEDOR, _txt(d, "tipoAcreedor")),
-            _fmt(cat.UBICACION, _txt(d, "domicilioAcreedor")),
-            _fmt(cat.PAIS, _txt(d, "paisAcreedor")),
-            _txt(d, "nombreAcreedor"),
-            _fmt(cat.TIPO_IDENTIFICACION, _txt(d, "tipoIdentificacionAcreedor")),
-            _txt(d, "numeroIdentificacionAcreedor"),
-            _txt(d, "numeroRegistroBancoCentral"),
-            _fmt(cat.PARTES_RELACIONADAS, _txt(d, "partesRelacionadas")),
-        ], _num(d, "valorDeuda")))
-    return out
+    return [f"{k} - {v}" for k, v in sorted(catalogo.items(),
+                                            key=lambda kv: _key(kv[0]))]
 
 
 # --- Definicion de los modulos del formulario --------------------------------
-# col = (encabezado, ancho, nombre_catalogo_o_None)
+# Cada columna: (encabezado, ancho, nombre_catalogo|None, etiqueta_xml, tipo)
+#   tipo: "cod" = columna codificada (catalogo) | "txt" = texto libre
+#         "val" = columna monetaria (va a las columnas Valor del Excel)
+# La columna "_ifi" (institucion financiera) se resuelve de forma especial.
+
+_REG = ("Regularizacion activos", 16, "REGULARIZACION",
+        "regularizacionActivos", "cod")
+_ADQ = ("Anio fiscal adquisicion", 15, None, "anioFiscalAdquisicion", "txt")
 
 MODULOS = [
     {
         "key": "dinero", "hoja": "Dinero", "seccion": "4.1.1",
         "titulo": "DINERO E INVERSIONES EN INSTITUCIONES FINANCIERAS",
-        "clase": "activo", "dash": "Dinero e inversiones", "parse": _rows_dinero,
+        "clase": "activo", "dash": "Dinero e inversiones",
+        "contenedor": "dinero", "detalle": "detalleDinero",
         "cols": [
-            ("Dinero en", 20, "DINERO_EN"),
-            ("Tipo de inversion", 28, "TIPO_INVERSION"),
-            ("Ubicacion", 16, "UBICACION"),
-            ("Pais", 20, "PAIS"),
-            ("Institucion financiera", 30, "INSTITUCION_FINANCIERA"),
-            ("Tipo de moneda", 14, None),
-            ("Partes relacionadas", 16, "PARTES_RELACIONADAS"),
+            ("Dinero en", 18, "DINERO_EN", "dineroEn", "cod"),
+            ("Tipo de inversion", 26, "TIPO_INVERSION", "tipoInversion", "cod"),
+            ("Ubicacion", 15, "UBICACION", "ubicacion", "cod"),
+            ("Pais", 18, "PAIS", "pais", "cod"),
+            ("Institucion financiera", 28, "INSTITUCION_FINANCIERA", "_ifi",
+             "cod"),
+            ("Tipo de moneda", 13, None, "tipoMoneda", "txt"),
+            (None, 16, None, "saldo", "val"),
+            ("Partes relacionadas", 15, "PARTES_RELACIONADAS",
+             "partesRelacionadas", "cod"),
+            _REG, _ADQ,
         ],
     },
     {
         "key": "drc", "hoja": "Derechos de Capital", "seccion": "4.1.2",
         "titulo": "INVERSIONES EN DERECHOS REPRESENTATIVOS DE CAPITAL",
         "clase": "activo", "dash": "Derechos representativos de capital",
-        "parse": None,
+        "contenedor": "inversiones", "detalle": "detalleInversiones",
         "cols": [
-            ("Tipo de inversion", 30, "TIPO_DRC"),
-            ("Ubicacion", 16, "UBICACION"),
-            ("Pais", 20, "PAIS"),
-            ("Empresa / Administradora / Fideicomiso", 32, None),
-            ("% de participacion", 14, None),
-            ("N. de acciones / participaciones", 18, None),
-            ("Partes relacionadas", 16, "PARTES_RELACIONADAS"),
+            ("Tipo de inversion", 30, "TIPO_DRC", "tipoInversion", "cod"),
+            ("Ubicacion", 15, "UBICACION", "ubicacion", "cod"),
+            (None, 16, None, "valor", "val"),
+            ("Pais", 18, "PAIS", "codpais", "cod"),
+            ("Empresa / Administradora / Fideicomiso", 30, None, "nombempresa",
+             "txt"),
+            ("% de participacion", 14, None, "porcentpart", "txt"),
+            ("N. de acciones / participaciones", 16, None, "numAcc", "txt"),
+            ("Partes relacionadas", 15, "PARTES_RELACIONADAS", "relacionadas",
+             "cod"),
+            _REG, _ADQ,
         ],
     },
     {
         "key": "cxc", "hoja": "Cuentas por Cobrar", "seccion": "4.1.3",
-        "titulo": "CUENTAS POR COBRAR",
-        "clase": "activo", "dash": "Cuentas por cobrar", "parse": None,
+        "titulo": "CREDITOS, DOCUMENTOS Y CUENTAS POR COBRAR",
+        "clase": "activo", "dash": "Cuentas por cobrar",
+        "contenedor": "ctasXCobrar", "detalle": "detalleCtasXCobrar",
         "cols": [
-            ("Nombre del deudor", 30, None),
-            ("Tipo de deudor", 18, "TIPO_PERSONA"),
-            ("N. de identificacion", 20, None),
-            ("Ubicacion", 16, "UBICACION"),
-            ("Pais", 20, "PAIS"),
-            ("Partes relacionadas", 16, "PARTES_RELACIONADAS"),
+            ("Nombre del deudor", 28, None, "nombreDeudor", "txt"),
+            ("Tipo de deudor", 16, "TIPO_PERSONA", "tipoDeudor", "cod"),
+            ("Tipo de identificacion", 18, "TIPO_IDENTIFICACION",
+             "tipoIdentificacion", "cod"),
+            ("N. de identificacion", 20, None, "numeroIdentificacion", "txt"),
+            ("Ubicacion", 15, "UBICACION", "ubicacion", "cod"),
+            ("Pais", 18, "PAIS", "pais", "cod"),
+            ("Partes relacionadas", 15, "PARTES_RELACIONADAS",
+             "partesRelacionadas", "cod"),
+            (None, 16, None, "saldo", "val"),
+            _REG, _ADQ,
         ],
     },
     {
         "key": "muebles", "hoja": "Bienes Muebles", "seccion": "4.1.4",
         "titulo": "BIENES MUEBLES",
-        "clase": "activo", "dash": "Bienes muebles", "parse": None,
+        "clase": "activo", "dash": "Bienes muebles",
+        "contenedor": "otrosBienes", "detalle": "detalleOtrosBienes",
         "cols": [
-            ("Tipo de bien", 36, "TIPO_BIEN_MUEBLE"),
-            ("Ubicacion", 16, "UBICACION"),
-            ("Pais", 20, "PAIS"),
-            ("Detalle / observacion", 30, None),
+            ("Tipo de bien", 36, "TIPO_BIEN_MUEBLE", "tipoBien", "cod"),
+            ("Ubicacion", 15, "UBICACION", "ubicacion", "cod"),
+            ("Pais", 18, "PAIS", "pais", "cod"),
+            (None, 16, None, "valor", "val"),
+            _REG, _ADQ,
         ],
     },
     {
         "key": "vehiculos", "hoja": "Vehiculos", "seccion": "4.1.5",
         "titulo": "VEHICULOS MOTORIZADOS TERRESTRES, NAVES Y AERONAVES",
         "clase": "activo", "dash": "Vehiculos, naves y aeronaves",
-        "parse": _rows_vehiculos,
+        "contenedor": "vehiculos", "detalle": "detalleVehiculos",
         "cols": [
-            ("Tipo de vehiculo", 28, "TIPO_VEHICULO"),
-            ("Registro / placa / chasis", 22, None),
-            ("Ubicacion", 16, "UBICACION"),
-            ("Pais", 20, "PAIS"),
+            ("Tipo de vehiculo", 26, "TIPO_VEHICULO", "tipoVehiculo", "cod"),
+            ("Registro / placa / chasis", 20, None, "placa", "txt"),
+            ("Ubicacion", 15, "UBICACION", "ubicacion", "cod"),
+            ("Pais", 18, "PAIS", "pais", "cod"),
+            (None, 16, None, "valor", "val"),
+            _REG, _ADQ,
         ],
     },
     {
         "key": "derechos", "hoja": "Derechos", "seccion": "4.1.6",
         "titulo": "DERECHOS (USUFRUCTO, USO, HABITACION, MARCAS, ETC.)",
         "clase": "activo", "dash": "Derechos (usufructo, uso, etc.)",
-        "parse": None,
+        "contenedor": "derechos", "detalle": "detalleDerechos",
         "cols": [
-            ("Tipo de derecho", 28, "TIPO_DERECHO"),
-            ("Ubicacion", 16, "UBICACION"),
-            ("Pais", 20, "PAIS"),
-            ("Detalle / observacion", 30, None),
+            ("Tipo de derecho", 28, "TIPO_DERECHO", "tipoDerecho", "cod"),
+            ("Ubicacion", 15, "UBICACION", "ubicacion", "cod"),
+            ("Pais", 18, "PAIS", "pais", "cod"),
+            (None, 16, None, "valor", "val"),
+            _REG, _ADQ,
         ],
     },
     {
         "key": "inmuebles", "hoja": "Bienes Inmuebles", "seccion": "4.1.7",
         "titulo": "BIENES INMUEBLES",
-        "clase": "activo", "dash": "Bienes inmuebles", "parse": _rows_inmuebles,
+        "clase": "activo", "dash": "Bienes inmuebles",
+        "contenedor": "bienesInmuebles", "detalle": "detalleBienesInmuebles",
         "cols": [
-            ("Tipo de inmueble", 20, "TIPO_INMUEBLE"),
-            ("Ubicacion", 16, "UBICACION"),
-            ("Pais", 18, "PAIS"),
-            ("Provincia", 22, "PROVINCIA"),
-            ("Canton", 22, "CANTON"),
-            ("Fecha de inscripcion", 16, None),
-            ("Clave catastral", 24, None),
+            ("Tipo de inmueble", 20, "TIPO_INMUEBLE", "tipoInmueble", "cod"),
+            ("Ubicacion", 15, "UBICACION", "ubicacion", "cod"),
+            ("Pais", 18, "PAIS", "codPais", "cod"),
+            ("Provincia", 22, "PROVINCIA", "provincia", "cod"),
+            ("Canton", 22, "CANTON", "canton", "cod"),
+            ("Fecha de inscripcion", 16, None, "fechaInscripcion", "txt"),
+            ("Clave catastral", 22, None, "claveCat", "txt"),
+            (None, 16, None, "valor", "val"),
+            _REG, _ADQ,
         ],
     },
     {
         "key": "otros", "hoja": "Otros Activos", "seccion": "4.1.8",
         "titulo": "OTROS ACTIVOS (CREDITOS TRIBUTARIOS Y OTROS)",
-        "clase": "activo", "dash": "Otros activos", "parse": None,
+        "clase": "activo", "dash": "Otros activos",
+        "contenedor": "otrosActivos", "detalle": "detalleOtrosActivos",
         "cols": [
-            ("Ubicacion", 18, "UBICACION"),
-            ("Pais", 22, "PAIS"),
-            ("Detalle / observacion", 36, None),
+            ("Ubicacion", 16, "UBICACION", "ubicacion", "cod"),
+            ("Pais", 20, "PAIS", "pais", "cod"),
+            ("Descripcion", 32, None, "descripcion", "txt"),
+            (None, 16, None, "valorTotal", "val"),
+            _REG, _ADQ,
         ],
     },
     {
         "key": "pasivo", "hoja": "Pasivos", "seccion": "4.2.1",
         "titulo": "DEUDAS CONTRAIDAS / PASIVOS",
-        "clase": "pasivo", "dash": "Deudas y obligaciones", "parse": _rows_pasivo,
+        "clase": "pasivo", "dash": "Deudas y obligaciones",
+        "contenedor": "pasivo", "detalle": "detallePasivo",
         "cols": [
-            ("Tipo de acreedor", 24, "TIPO_ACREEDOR"),
-            ("Domicilio del acreedor", 18, "UBICACION"),
-            ("Pais", 18, "PAIS"),
-            ("Nombre del acreedor", 28, None),
-            ("Tipo de identificacion", 18, "TIPO_IDENTIFICACION"),
-            ("N. de identificacion", 20, None),
-            ("N. registro Banco Central", 18, None),
-            ("Partes relacionadas", 16, "PARTES_RELACIONADAS"),
+            ("Tipo de acreedor", 22, "TIPO_ACREEDOR", "tipoAcreedor", "cod"),
+            ("Domicilio del acreedor", 18, "UBICACION", "domicilioAcreedor",
+             "cod"),
+            (None, 16, None, "valorDeuda", "val"),
+            ("Pais", 18, "PAIS", "paisAcreedor", "cod"),
+            ("Nombre del acreedor", 26, None, "nombreAcreedor", "txt"),
+            ("Tipo de identificacion", 18, "TIPO_IDENTIFICACION",
+             "tipoIdentificacionAcreedor", "cod"),
+            ("N. de identificacion", 20, None, "numeroIdentificacionAcreedor",
+             "txt"),
+            ("N. registro Banco Central", 18, None,
+             "numeroRegistroBancoCentral", "txt"),
+            ("Partes relacionadas", 15, "PARTES_RELACIONADAS",
+             "partesRelacionadas", "cod"),
         ],
     },
 ]
+
+# Orden en que los contenedores aparecen en el XML del SRI
+ORDEN_XML = ["dinero", "drc", "cxc", "vehiculos", "muebles", "inmuebles",
+             "pasivo", "otros", "derechos"]
+
+
+def desc_cols(modulo):
+    """Columnas descriptivas (todas menos la monetaria)."""
+    return [c for c in modulo["cols"] if c[4] != "val"]
+
+
+def valor_tag(modulo):
+    return next(c[3] for c in modulo["cols"] if c[4] == "val")
+
+
+def _parse_modulo(root, modulo):
+    """Lee las filas de detalle de un modulo desde el XML."""
+    rows = []
+    vtag = valor_tag(modulo)
+    for d in root.iter(modulo["detalle"]):
+        desc = []
+        for _h, _w, catname, xml_tag, tipo in modulo["cols"]:
+            if tipo == "val":
+                continue
+            if xml_tag == "_ifi":
+                ext = _txt(d, "nombreIfiExterior")
+                ec = _txt(d, "ifiEcuador")
+                desc.append(ext or (_fmt(cat.INSTITUCION_FINANCIERA, ec)
+                                    if ec in cat.INSTITUCION_FINANCIERA
+                                    else ""))
+            elif tipo == "cod" and catname:
+                desc.append(_fmt(CATALOGOS[catname], _txt(d, xml_tag)))
+            else:
+                desc.append(_txt(d, xml_tag))
+        rows.append((desc, _num(d, vtag)))
+    return rows
 
 
 def parse_xml(path: Path) -> dict:
@@ -321,10 +331,15 @@ def parse_xml(path: Path) -> dict:
         "tipoIdent": _fmt(cat.TIPO_IDENTIFICACION, _txt(root, "tipoIdent")),
         "numIdent": _txt(root, "numIdent"),
         "nombre": _txt(root, "nombre"),
-        "tipoIdentCony": _fmt(cat.TIPO_IDENTIFICACION, _txt(root, "tipoIdentCony")),
+        "tipoIdentCony": _fmt(cat.TIPO_IDENTIFICACION,
+                              _txt(root, "tipoIdentCony")),
         "numIdentCony": _txt(root, "numIdentCony"),
         "nombreCony": _txt(root, "nombreCony"),
+        "regularizacion": _fmt(cat.REGULARIZACION_ACTIVOS,
+                               _txt(root, "regularizacionActivos")),
         "totalCreditos": _num(root, "totalCreditos"),
+        "totalDerechos": (_num(root, "totalDerechos")
+                          if root.find("totalDerechos") is not None else None),
     }
 
     pat = root.find("patrimonio")
@@ -343,9 +358,7 @@ def parse_xml(path: Path) -> dict:
                _fmt(tabla_just, _txt(d, "justificVariacion")))
               for d in root.iter("detalleJustificacion")]
 
-    modulos = {}
-    for m in MODULOS:
-        modulos[m["key"]] = m["parse"](root) if m["parse"] else []
+    modulos = {m["key"]: _parse_modulo(root, m) for m in MODULOS}
 
     return {
         "encabezado": encabezado,
@@ -395,7 +408,7 @@ def _build_catalogos(wb):
 def _grupo_sheet(wb, modulo, anio, rows, rangos):
     ws = wb.create_sheet(modulo["hoja"])
     ws.sheet_view.showGridLines = False
-    cols = modulo["cols"]
+    cols = desc_cols(modulo)
     nd = len(cols)
     ncols = nd + 4
     plantilla = not rows
@@ -417,10 +430,8 @@ def _grupo_sheet(wb, modulo, anio, rows, rangos):
 
     col_25, col_26, col_var, col_pct = nd + 1, nd + 2, nd + 3, nd + 4
     L25, L26 = get_column_letter(col_25), get_column_letter(col_26)
-    Lv, Lp = get_column_letter(col_var), get_column_letter(col_pct)
 
     accent = ACT if modulo["clase"] == "activo" else PAS
-    light = ACT_L if modulo["clase"] == "activo" else PAS_L
 
     filas = rows if rows else [([""] * nd, 0.0) for _ in range(N_BLANK)]
     first = hdr + 1
@@ -472,8 +483,7 @@ def _grupo_sheet(wb, modulo, anio, rows, rangos):
     ws.row_dimensions[r].height = 22
     total_row = r
 
-    # listas desplegables por columna con catalogo
-    for j, (_, _, catname) in enumerate(cols, start=1):
+    for j, (_, _, catname, _, _) in enumerate(cols, start=1):
         if not catname:
             continue
         dv = DataValidation(type="list", formula1=rangos[catname],
@@ -482,8 +492,8 @@ def _grupo_sheet(wb, modulo, anio, rows, rangos):
         L = get_column_letter(j)
         dv.add(f"{L}{first}:{L}{last}")
 
-    for j, (_, ancho, _) in enumerate(cols, start=1):
-        ws.column_dimensions[get_column_letter(j)].width = ancho
+    for j, c in enumerate(cols, start=1):
+        ws.column_dimensions[get_column_letter(j)].width = c[1]
     for j in range(nd + 1, ncols + 1):
         ws.column_dimensions[get_column_letter(j)].width = 16
 
@@ -675,7 +685,6 @@ def _build_dashboard(wb, data, infos, anio):
               bold=True)
     cons_last = r
 
-    # tarjetas KPI
     _kpi_card(ws, 5, 2, 3, "TOTAL ACTIVOS", f"=D{tot_act}", ACT, ACT_L,
               "Var. proyectada", f"=G{tot_act}")
     _kpi_card(ws, 5, 4, 5, "TOTAL PASIVOS", f"=D{tot_pas}", PAS, PAS_L,
@@ -683,7 +692,6 @@ def _build_dashboard(wb, data, infos, anio):
     _kpi_card(ws, 5, 6, 7, "PATRIMONIO NETO", f"=D{pneto}", PAT, PAT_L,
               "Var. proyectada", f"=G{pneto}")
 
-    # graficos
     bar = BarChart()
     bar.type = "col"
     bar.grouping = "clustered"
@@ -877,18 +885,29 @@ def _build_info(wb, data, anio, pneto_row):
     _banner(ws, 2, "DATOS GENERALES DE LA DECLARACION")
     enc, pat = data["encabezado"], data["patrimonio"]
 
-    secciones = [
-        ("IDENTIFICACION", [
-            ("Anio de la declaracion", enc["anio"], None),
-            ("Tipo de declaracion", enc["tipoDec"], None),
-            ("Tipo de identificacion", enc["tipoIdent"], None),
-            ("Numero de identificacion", enc["numIdent"], None),
-            ("Nombre del declarante", enc["nombre"], None),
+    identificacion = [
+        ("Anio de la declaracion", enc["anio"], None),
+        ("Tipo de declaracion", enc["tipoDec"], None),
+        ("Tipo de identificacion", enc["tipoIdent"], None),
+        ("Numero de identificacion", enc["numIdent"], None),
+        ("Nombre del declarante", enc["nombre"], None),
+    ]
+    if enc["numIdentCony"] or enc["nombreCony"]:
+        identificacion += [
             ("Identificacion del conyuge", enc["tipoIdentCony"], None),
             ("Numero ident. conyuge", enc["numIdentCony"], None),
             ("Nombre del conyuge", enc["nombreCony"], None),
-            ("Total creditos", enc["totalCreditos"], MONEDA),
-        ]),
+        ]
+    if enc["regularizacion"]:
+        identificacion.append(
+            ("Regularizacion de activos", enc["regularizacion"], None))
+    identificacion.append(("Total creditos / cuentas por cobrar",
+                           enc["totalCreditos"], MONEDA))
+    if enc["totalDerechos"] is not None:
+        identificacion.append(("Total derechos", enc["totalDerechos"], MONEDA))
+
+    secciones = [
+        ("IDENTIFICACION", identificacion),
         ("PATRIMONIO NETO (enlazado a la hoja Dashboard)", [
             (f"Patrimonio neto {anio}", f"=Dashboard!D{pneto_row}", MONEDA),
             (f"Patrimonio neto {anio + 1} (proyectado)",
@@ -898,7 +917,8 @@ def _build_info(wb, data, anio, pneto_row):
         ]),
         ("PATRIMONIO DECLARADO EN EL XML", [
             ("Patrimonio total declarado", pat["totalDeclarado"], MONEDA),
-            ("Atribuible a hijos no emancipados", pat["atribuibleHijos"], MONEDA),
+            ("Atribuible a hijos no emancipados", pat["atribuibleHijos"],
+             MONEDA),
             ("Patrimonio en la sociedad conyugal", pat["sociedadConyugal"],
              MONEDA),
             ("Patrimonio individual del declarante", pat["individual"], MONEDA),
@@ -940,10 +960,10 @@ def _build_info(wb, data, anio, pneto_row):
     r += 1
     ws.cell(row=r, column=1,
             value="Catalogos del SRI integrados (Tablas 1-19 del archivo "
-                  "CATALOGO.xls).").font = Font(italic=True, size=9,
-                                                color=GRIS_TXT)
+                  "CATALOGO.xls). El XML se genera con generar_xml_sri.py."
+            ).font = Font(italic=True, size=9, color=GRIS_TXT)
 
-    ws.column_dimensions["A"].width = 40
+    ws.column_dimensions["A"].width = 42
     ws.column_dimensions["B"].width = 34
 
 
