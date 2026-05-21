@@ -2,10 +2,16 @@
 
 Lee un archivo XML de Declaracion Patrimonial y produce un libro .xlsx con
 formato premium que incluye:
-  - Una hoja por cada grupo de bienes (Dinero, Vehiculos, Bienes Inmuebles,
-    Pasivo) con columna editable para el anio siguiente y variaciones.
+  - Una hoja por cada modulo de activo del formulario del SRI (8 modulos:
+    dinero, derechos representativos de capital, cuentas por cobrar, bienes
+    muebles, vehiculos, derechos, bienes inmuebles y otros activos) mas el
+    modulo de pasivos. Los modulos que no constan en el XML se generan como
+    plantilla en blanco, lista para llenar.
+  - Columnas editables con variacion calculada por formula.
+  - Listas desplegables con los catalogos oficiales del SRI.
   - Una hoja "Dashboard" ejecutiva con tarjetas KPI y el resumen separado en
-    tres bloques: ACTIVOS, PASIVOS y PATRIMONIO NETO, con graficos.
+    bloques de ACTIVOS, PASIVOS y PATRIMONIO NETO, con graficos.
+  - Una hoja "Justificacion" con dashboard de la variacion patrimonial.
 
 Uso:
     python tools/declaracion_patrimonial_excel.py ENTRADA.xml [SALIDA.xlsx]
@@ -22,23 +28,27 @@ from openpyxl.chart import BarChart, PieChart, Reference
 from openpyxl.chart.label import DataLabelList
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import sri_catalogos as cat  # noqa: E402
 
 # --- Paleta ejecutiva --------------------------------------------------------
 
-NAVY = "10243E"          # banner principal
-NAVY_SOFT = "1F3B5C"     # encabezados de tabla
-GOLD = "C8A24B"          # linea de acento
-INK = "1A1A1A"           # texto de cifras
+NAVY = "10243E"
+NAVY_SOFT = "1F3B5C"
+GOLD = "C8A24B"
+INK = "1A1A1A"
 GRIS_TXT = "7A7A7A"
 
-ACT = "1E6B52"           # activos (verde)
+ACT = "1E6B52"
 ACT_L = "E6F0EB"
-PAS = "A23B3B"           # pasivos (rojo)
+PAS = "A23B3B"
 PAS_L = "F4E6E6"
-PAT = "20507D"           # patrimonio (azul)
+PAT = "20507D"
 PAT_L = "E2EAF2"
 
-EDIT = "FCEFC9"          # celdas editables
+EDIT = "FCEFC9"
 GRIS = "F3F4F6"
 
 FONT_NORMAL = Font(name="Calibri", size=11, color=INK)
@@ -55,46 +65,35 @@ RIGHT = Alignment(horizontal="right", vertical="center")
 MONEDA = '"$"#,##0.00'
 PORCENT = '+0.0%;-0.0%;0.0%'
 
-# --- Catalogos de codigos del SRI --------------------------------------------
-# Descripciones de referencia para hacer legible el XML. Verificar contra el
-# catalogo oficial del SRI si se requiere precision formal.
+N_BLANK = 8  # filas en blanco para modulos que no constan en el XML
 
-CAT_TIPO_DEC = {"SOC": "Sociedad conyugal", "IND": "Individual"}
-CAT_TIPO_IDENT = {"R": "RUC", "C": "Cedula", "P": "Pasaporte"}
-CAT_UBICACION = {"ECU": "Ecuador", "EXT": "Exterior"}
-CAT_DINERO_EN = {"IFI": "Institucion financiera", "CAJ": "Caja / efectivo"}
-CAT_TIPO_INVERSION = {
-    "1": "Cuenta de ahorros",
-    "2": "Cuenta corriente",
-    "3": "Inversion / poliza",
-    "4": "Deposito a plazo",
-}
-CAT_TIPO_VEHICULO = {
-    "1": "Vehiculo terrestre",
-    "2": "Aeronave",
-    "3": "Embarcacion",
-}
-CAT_TIPO_INMUEBLE = {
-    "1": "Edificacion / casa",
-    "2": "Departamento",
-    "3": "Terreno",
-}
-CAT_TIPO_ACREEDOR = {
-    "IFI": "Institucion financiera",
-    "PER": "Persona natural",
-    "EMP": "Empresa",
-}
-CAT_JUSTIFICACION = {
-    "1": "Ingresos por trabajo en relacion de dependencia",
-    "2": "Ingresos por actividad empresarial / profesional",
-    "3": "Rendimientos financieros",
-    "4": "Herencias, legados y donaciones",
-    "5": "Loterias, rifas y similares",
-    "6": "Otros ingresos / variaciones de mercado",
+# --- Catalogos disponibles para listas desplegables --------------------------
+
+CATALOGOS = {
+    "DINERO_EN": cat.DINERO_EN,
+    "TIPO_INVERSION": cat.TIPO_INVERSION,
+    "UBICACION": cat.UBICACION,
+    "PAIS": cat.PAIS,
+    "INSTITUCION_FINANCIERA": cat.INSTITUCION_FINANCIERA,
+    "PARTES_RELACIONADAS": cat.PARTES_RELACIONADAS,
+    "TIPO_DRC": cat.TIPO_DRC,
+    "TIPO_PERSONA": cat.TIPO_PERSONA,
+    "TIPO_BIEN_MUEBLE": cat.TIPO_BIEN_MUEBLE,
+    "TIPO_VEHICULO": cat.TIPO_VEHICULO,
+    "TIPO_DERECHO": cat.TIPO_DERECHO,
+    "TIPO_INMUEBLE": cat.TIPO_INMUEBLE,
+    "PROVINCIA": cat.PROVINCIA,
+    "CANTON": cat.CANTON,
+    "TIPO_ACREEDOR": cat.TIPO_ACREEDOR,
+    "TIPO_IDENTIFICACION": cat.TIPO_IDENTIFICACION,
+    "JUSTIF_INCREMENTO": cat.JUSTIFICACION_INCREMENTO,
+    "JUSTIF_DECREMENTO": cat.JUSTIFICACION_DECREMENTO,
 }
 
 
 def _txt(node, tag, default=""):
+    if node is None:
+        return default
     el = node.find(tag)
     return el.text.strip() if el is not None and el.text else default
 
@@ -106,12 +105,207 @@ def _num(node, tag, default=0.0):
         return default
 
 
-def _label(catalogo, code):
+def _fmt(catalogo, code):
     code = (code or "").strip()
-    return f"{code} - {catalogo[code]}" if code in catalogo else (code or "-")
+    if not code:
+        return ""
+    desc = catalogo.get(code)
+    return f"{code} - {desc}" if desc else code
 
 
-# --- Parseo del XML ----------------------------------------------------------
+def _entries(catalogo):
+    def _key(k):
+        try:
+            return (0, int(k))
+        except ValueError:
+            return (1, k)
+    return [f"{k} - {v}" for k, v in sorted(catalogo.items(), key=lambda kv: _key(kv[0]))]
+
+
+# --- Parseo de los modulos con datos en el XML -------------------------------
+
+def _rows_dinero(root):
+    out = []
+    for d in root.iter("detalleDinero"):
+        ifi = _txt(d, "nombreIfiExterior") or _fmt(cat.INSTITUCION_FINANCIERA,
+                                                   _txt(d, "ifiEcuador"))
+        out.append(([
+            _fmt(cat.DINERO_EN, _txt(d, "dineroEn")),
+            _fmt(cat.TIPO_INVERSION, _txt(d, "tipoInversion")),
+            _fmt(cat.UBICACION, _txt(d, "ubicacion")),
+            _fmt(cat.PAIS, _txt(d, "pais")),
+            ifi,
+            _txt(d, "tipoMoneda"),
+            _fmt(cat.PARTES_RELACIONADAS, _txt(d, "partesRelacionadas")),
+        ], _num(d, "saldo")))
+    return out
+
+
+def _rows_vehiculos(root):
+    out = []
+    for d in root.iter("detalleVehiculos"):
+        out.append(([
+            _fmt(cat.TIPO_VEHICULO, _txt(d, "tipoVehiculo")),
+            _txt(d, "placa"),
+            _fmt(cat.UBICACION, _txt(d, "ubicacion")),
+            _fmt(cat.PAIS, _txt(d, "pais")),
+        ], _num(d, "valor")))
+    return out
+
+
+def _rows_inmuebles(root):
+    out = []
+    for d in root.iter("detalleBienesInmuebles"):
+        out.append(([
+            _fmt(cat.TIPO_INMUEBLE, _txt(d, "tipoInmueble")),
+            _fmt(cat.UBICACION, _txt(d, "ubicacion")),
+            _fmt(cat.PAIS, _txt(d, "codPais")),
+            _fmt(cat.PROVINCIA, _txt(d, "provincia")),
+            _fmt(cat.CANTON, _txt(d, "canton")),
+            _txt(d, "fechaInscripcion"),
+            _txt(d, "claveCat"),
+        ], _num(d, "valor")))
+    return out
+
+
+def _rows_pasivo(root):
+    out = []
+    for d in root.iter("detallePasivo"):
+        out.append(([
+            _fmt(cat.TIPO_ACREEDOR, _txt(d, "tipoAcreedor")),
+            _fmt(cat.UBICACION, _txt(d, "domicilioAcreedor")),
+            _fmt(cat.PAIS, _txt(d, "paisAcreedor")),
+            _txt(d, "nombreAcreedor"),
+            _fmt(cat.TIPO_IDENTIFICACION, _txt(d, "tipoIdentificacionAcreedor")),
+            _txt(d, "numeroIdentificacionAcreedor"),
+            _txt(d, "numeroRegistroBancoCentral"),
+            _fmt(cat.PARTES_RELACIONADAS, _txt(d, "partesRelacionadas")),
+        ], _num(d, "valorDeuda")))
+    return out
+
+
+# --- Definicion de los modulos del formulario --------------------------------
+# col = (encabezado, ancho, nombre_catalogo_o_None)
+
+MODULOS = [
+    {
+        "key": "dinero", "hoja": "Dinero", "seccion": "4.1.1",
+        "titulo": "DINERO E INVERSIONES EN INSTITUCIONES FINANCIERAS",
+        "clase": "activo", "dash": "Dinero e inversiones", "parse": _rows_dinero,
+        "cols": [
+            ("Dinero en", 20, "DINERO_EN"),
+            ("Tipo de inversion", 28, "TIPO_INVERSION"),
+            ("Ubicacion", 16, "UBICACION"),
+            ("Pais", 20, "PAIS"),
+            ("Institucion financiera", 30, "INSTITUCION_FINANCIERA"),
+            ("Tipo de moneda", 14, None),
+            ("Partes relacionadas", 16, "PARTES_RELACIONADAS"),
+        ],
+    },
+    {
+        "key": "drc", "hoja": "Derechos de Capital", "seccion": "4.1.2",
+        "titulo": "INVERSIONES EN DERECHOS REPRESENTATIVOS DE CAPITAL",
+        "clase": "activo", "dash": "Derechos representativos de capital",
+        "parse": None,
+        "cols": [
+            ("Tipo de inversion", 30, "TIPO_DRC"),
+            ("Ubicacion", 16, "UBICACION"),
+            ("Pais", 20, "PAIS"),
+            ("Empresa / Administradora / Fideicomiso", 32, None),
+            ("% de participacion", 14, None),
+            ("N. de acciones / participaciones", 18, None),
+            ("Partes relacionadas", 16, "PARTES_RELACIONADAS"),
+        ],
+    },
+    {
+        "key": "cxc", "hoja": "Cuentas por Cobrar", "seccion": "4.1.3",
+        "titulo": "CUENTAS POR COBRAR",
+        "clase": "activo", "dash": "Cuentas por cobrar", "parse": None,
+        "cols": [
+            ("Nombre del deudor", 30, None),
+            ("Tipo de deudor", 18, "TIPO_PERSONA"),
+            ("N. de identificacion", 20, None),
+            ("Ubicacion", 16, "UBICACION"),
+            ("Pais", 20, "PAIS"),
+            ("Partes relacionadas", 16, "PARTES_RELACIONADAS"),
+        ],
+    },
+    {
+        "key": "muebles", "hoja": "Bienes Muebles", "seccion": "4.1.4",
+        "titulo": "BIENES MUEBLES",
+        "clase": "activo", "dash": "Bienes muebles", "parse": None,
+        "cols": [
+            ("Tipo de bien", 36, "TIPO_BIEN_MUEBLE"),
+            ("Ubicacion", 16, "UBICACION"),
+            ("Pais", 20, "PAIS"),
+            ("Detalle / observacion", 30, None),
+        ],
+    },
+    {
+        "key": "vehiculos", "hoja": "Vehiculos", "seccion": "4.1.5",
+        "titulo": "VEHICULOS MOTORIZADOS TERRESTRES, NAVES Y AERONAVES",
+        "clase": "activo", "dash": "Vehiculos, naves y aeronaves",
+        "parse": _rows_vehiculos,
+        "cols": [
+            ("Tipo de vehiculo", 28, "TIPO_VEHICULO"),
+            ("Registro / placa / chasis", 22, None),
+            ("Ubicacion", 16, "UBICACION"),
+            ("Pais", 20, "PAIS"),
+        ],
+    },
+    {
+        "key": "derechos", "hoja": "Derechos", "seccion": "4.1.6",
+        "titulo": "DERECHOS (USUFRUCTO, USO, HABITACION, MARCAS, ETC.)",
+        "clase": "activo", "dash": "Derechos (usufructo, uso, etc.)",
+        "parse": None,
+        "cols": [
+            ("Tipo de derecho", 28, "TIPO_DERECHO"),
+            ("Ubicacion", 16, "UBICACION"),
+            ("Pais", 20, "PAIS"),
+            ("Detalle / observacion", 30, None),
+        ],
+    },
+    {
+        "key": "inmuebles", "hoja": "Bienes Inmuebles", "seccion": "4.1.7",
+        "titulo": "BIENES INMUEBLES",
+        "clase": "activo", "dash": "Bienes inmuebles", "parse": _rows_inmuebles,
+        "cols": [
+            ("Tipo de inmueble", 20, "TIPO_INMUEBLE"),
+            ("Ubicacion", 16, "UBICACION"),
+            ("Pais", 18, "PAIS"),
+            ("Provincia", 22, "PROVINCIA"),
+            ("Canton", 22, "CANTON"),
+            ("Fecha de inscripcion", 16, None),
+            ("Clave catastral", 24, None),
+        ],
+    },
+    {
+        "key": "otros", "hoja": "Otros Activos", "seccion": "4.1.8",
+        "titulo": "OTROS ACTIVOS (CREDITOS TRIBUTARIOS Y OTROS)",
+        "clase": "activo", "dash": "Otros activos", "parse": None,
+        "cols": [
+            ("Ubicacion", 18, "UBICACION"),
+            ("Pais", 22, "PAIS"),
+            ("Detalle / observacion", 36, None),
+        ],
+    },
+    {
+        "key": "pasivo", "hoja": "Pasivos", "seccion": "4.2.1",
+        "titulo": "DEUDAS CONTRAIDAS / PASIVOS",
+        "clase": "pasivo", "dash": "Deudas y obligaciones", "parse": _rows_pasivo,
+        "cols": [
+            ("Tipo de acreedor", 24, "TIPO_ACREEDOR"),
+            ("Domicilio del acreedor", 18, "UBICACION"),
+            ("Pais", 18, "PAIS"),
+            ("Nombre del acreedor", 28, None),
+            ("Tipo de identificacion", 18, "TIPO_IDENTIFICACION"),
+            ("N. de identificacion", 20, None),
+            ("N. registro Banco Central", 18, None),
+            ("Partes relacionadas", 16, "PARTES_RELACIONADAS"),
+        ],
+    },
+]
+
 
 def parse_xml(path: Path) -> dict:
     root = ET.parse(path).getroot()
@@ -119,11 +313,11 @@ def parse_xml(path: Path) -> dict:
 
     encabezado = {
         "anio": anio,
-        "tipoDec": _label(CAT_TIPO_DEC, _txt(root, "tipoDec")),
-        "tipoIdent": _label(CAT_TIPO_IDENT, _txt(root, "tipoIdent")),
+        "tipoDec": _fmt(cat.TIPO_DECLARACION, _txt(root, "tipoDec")),
+        "tipoIdent": _fmt(cat.TIPO_IDENTIFICACION, _txt(root, "tipoIdent")),
         "numIdent": _txt(root, "numIdent"),
         "nombre": _txt(root, "nombre"),
-        "tipoIdentCony": _label(CAT_TIPO_IDENT, _txt(root, "tipoIdentCony")),
+        "tipoIdentCony": _fmt(cat.TIPO_IDENTIFICACION, _txt(root, "tipoIdentCony")),
         "numIdentCony": _txt(root, "numIdentCony"),
         "nombreCony": _txt(root, "nombreCony"),
         "totalCreditos": _num(root, "totalCreditos"),
@@ -138,68 +332,32 @@ def parse_xml(path: Path) -> dict:
         "anioAnterior": _num(pat, "anioAnterior"),
         "crecimientoPat": _num(pat, "crecimientoPat"),
     }
-    justif = []
-    for d in root.iter("detalleJustificacion"):
-        justif.append(_label(CAT_JUSTIFICACION, _txt(d, "justificVariacion")))
+    es_incremento = patrimonio["crecimientoPat"] >= 0
+    tabla_just = (cat.JUSTIFICACION_INCREMENTO if es_incremento
+                  else cat.JUSTIFICACION_DECREMENTO)
+    justif = [(_txt(d, "justificVariacion"),
+               _fmt(tabla_just, _txt(d, "justificVariacion")))
+              for d in root.iter("detalleJustificacion")]
 
-    dinero = []
-    for d in root.iter("detalleDinero"):
-        ifi = _txt(d, "nombreIfiExterior") or _txt(d, "ifiEcuador")
-        dinero.append({
-            "dineroEn": _label(CAT_DINERO_EN, _txt(d, "dineroEn")),
-            "tipoInversion": _label(CAT_TIPO_INVERSION, _txt(d, "tipoInversion")),
-            "ubicacion": _label(CAT_UBICACION, _txt(d, "ubicacion")),
-            "ifi": ifi,
-            "moneda": _txt(d, "tipoMoneda"),
-            "valor": _num(d, "saldo"),
-        })
-
-    vehiculos = []
-    for d in root.iter("detalleVehiculos"):
-        vehiculos.append({
-            "tipoVehiculo": _label(CAT_TIPO_VEHICULO, _txt(d, "tipoVehiculo")),
-            "placa": _txt(d, "placa"),
-            "ubicacion": _label(CAT_UBICACION, _txt(d, "ubicacion")),
-            "valor": _num(d, "valor"),
-        })
-
-    inmuebles = []
-    for d in root.iter("detalleBienesInmuebles"):
-        inmuebles.append({
-            "tipoInmueble": _label(CAT_TIPO_INMUEBLE, _txt(d, "tipoInmueble")),
-            "ubicacion": _label(CAT_UBICACION, _txt(d, "ubicacion")),
-            "claveCat": _txt(d, "claveCat"),
-            "fechaInscripcion": _txt(d, "fechaInscripcion"),
-            "valor": _num(d, "valor"),
-        })
-
-    pasivo = []
-    for d in root.iter("detallePasivo"):
-        pasivo.append({
-            "tipoAcreedor": _label(CAT_TIPO_ACREEDOR, _txt(d, "tipoAcreedor")),
-            "nombreAcreedor": _txt(d, "nombreAcreedor"),
-            "domicilio": _label(CAT_UBICACION, _txt(d, "domicilioAcreedor")),
-            "identAcreedor": _txt(d, "numeroIdentificacionAcreedor"),
-            "valor": _num(d, "valorDeuda"),
-        })
+    modulos = {}
+    for m in MODULOS:
+        modulos[m["key"]] = m["parse"](root) if m["parse"] else []
 
     return {
         "encabezado": encabezado,
         "patrimonio": patrimonio,
         "justificacion": justif,
-        "dinero": dinero,
-        "vehiculos": vehiculos,
-        "inmuebles": inmuebles,
-        "pasivo": pasivo,
+        "es_incremento": es_incremento,
+        "modulos": modulos,
     }
 
 
-# --- Hojas de grupo ----------------------------------------------------------
+# --- Helpers de formato ------------------------------------------------------
 
 def _banner(ws, ncols, titulo, subtitulo=""):
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
     c = ws.cell(row=1, column=1, value=titulo)
-    c.font = Font(name="Calibri", size=15, bold=True, color="FFFFFF")
+    c.font = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
     c.fill = PatternFill("solid", fgColor=NAVY)
     c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
     ws.row_dimensions[1].height = 30
@@ -208,38 +366,60 @@ def _banner(ws, ncols, titulo, subtitulo=""):
         s = ws.cell(row=2, column=1, value=subtitulo)
         s.font = Font(size=10, italic=True, color=GRIS_TXT)
         s.alignment = Alignment(horizontal="left", vertical="center", indent=1)
-    # linea de acento dorada
     ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=ncols)
     ws.cell(row=3, column=1).fill = PatternFill("solid", fgColor=GOLD)
     ws.row_dimensions[3].height = 5
 
 
-def _grupo_sheet(wb, nombre, titulo, anio, headers_desc, filas, accent, light):
-    ws = wb.create_sheet(nombre)
-    ws.sheet_view.showGridLines = False
-    ncols = len(headers_desc) + 4
-    _banner(ws, ncols, titulo, f"Declaracion {anio}  -  columna {anio + 1} editable")
+def _build_catalogos(wb):
+    """Hoja oculta con los catalogos del SRI; devuelve los rangos por nombre."""
+    ws = wb.create_sheet("Catalogos")
+    ws.sheet_state = "hidden"
+    rangos = {}
+    for ci, (nombre, dic) in enumerate(CATALOGOS.items(), start=1):
+        L = get_column_letter(ci)
+        ws.cell(row=1, column=ci, value=nombre).font = FONT_BOLD
+        entradas = _entries(dic)
+        for ri, e in enumerate(entradas, start=2):
+            ws.cell(row=ri, column=ci, value=e)
+        rangos[nombre] = f"Catalogos!${L}$2:${L}${1 + len(entradas)}"
+    return rangos
 
-    hdr_row = 5
-    headers = list(headers_desc) + [
-        f"Valor {anio}",
-        f"Valor {anio + 1}",
-        "Variacion",
-        "Variacion %",
-    ]
+
+# --- Hoja de modulo ----------------------------------------------------------
+
+def _grupo_sheet(wb, modulo, anio, rows, rangos):
+    ws = wb.create_sheet(modulo["hoja"])
+    ws.sheet_view.showGridLines = False
+    cols = modulo["cols"]
+    nd = len(cols)
+    ncols = nd + 4
+    plantilla = not rows
+    sub = f"Declaracion {anio}  -  columna {anio + 1} editable"
+    if plantilla:
+        sub += "   |   PLANTILLA EN BLANCO (este modulo no consta en el XML)"
+    _banner(ws, ncols, f"{modulo['seccion']}   {modulo['titulo']}", sub)
+
+    hdr = 5
+    headers = [c[0] for c in cols] + [
+        f"Valor {anio}", f"Valor {anio + 1}", "Variacion", "Variacion %"]
     for j, h in enumerate(headers, start=1):
-        c = ws.cell(row=hdr_row, column=j, value=h)
+        c = ws.cell(row=hdr, column=j, value=h)
         c.font = FONT_HEADER
         c.fill = PatternFill("solid", fgColor=NAVY_SOFT)
         c.alignment = CENTER
         c.border = BORDE
-    ws.row_dimensions[hdr_row].height = 30
+    ws.row_dimensions[hdr].height = 32
 
-    nd = len(headers_desc)
-    col_2025, col_2026, col_var, col_pct = nd + 1, nd + 2, nd + 3, nd + 4
-    L25, L26 = get_column_letter(col_2025), get_column_letter(col_2026)
+    col_25, col_26, col_var, col_pct = nd + 1, nd + 2, nd + 3, nd + 4
+    L25, L26 = get_column_letter(col_25), get_column_letter(col_26)
+    Lv, Lp = get_column_letter(col_var), get_column_letter(col_pct)
 
-    first = hdr_row + 1
+    accent = ACT if modulo["clase"] == "activo" else PAS
+    light = ACT_L if modulo["clase"] == "activo" else PAS_L
+
+    filas = rows if rows else [([""] * nd, 0.0) for _ in range(N_BLANK)]
+    first = hdr + 1
     r = first
     for idx, (descs, valor) in enumerate(filas):
         zebra = PatternFill("solid", fgColor=GRIS) if idx % 2 else None
@@ -250,8 +430,8 @@ def _grupo_sheet(wb, nombre, titulo, anio, headers_desc, filas, accent, light):
             c.border = BORDE
             if zebra:
                 c.fill = zebra
-        c25 = ws.cell(row=r, column=col_2025, value=valor)
-        c26 = ws.cell(row=r, column=col_2026, value=valor)
+        c25 = ws.cell(row=r, column=col_25, value=valor)
+        c26 = ws.cell(row=r, column=col_26, value=valor)
         cv = ws.cell(row=r, column=col_var, value=f"={L26}{r}-{L25}{r}")
         cp = ws.cell(row=r, column=col_pct,
                      value=f'=IF({L25}{r}=0,"",({L26}{r}-{L25}{r})/{L25}{r})')
@@ -260,51 +440,59 @@ def _grupo_sheet(wb, nombre, titulo, anio, headers_desc, filas, accent, light):
             c.font = FONT_NORMAL
             c.border = BORDE
             c.alignment = RIGHT
-        if zebra:
-            c25.fill = zebra
-            cv.fill = zebra
-            cp.fill = zebra
+            if zebra:
+                c.fill = zebra
+        if plantilla:
+            c25.fill = PatternFill("solid", fgColor=EDIT)
         c26.fill = PatternFill("solid", fgColor=EDIT)
         r += 1
-
     last = r - 1
+
     for j in range(1, nd + 1):
         cc = ws.cell(row=r, column=j, value="TOTAL" if j == 1 else None)
         cc.font = FONT_HEADER
         cc.fill = PatternFill("solid", fgColor=accent)
         cc.border = BORDE
         cc.alignment = LEFT
-    rng = (first, last) if last >= first else (first, first)
-    tot25 = ws.cell(row=r, column=col_2025,
-                    value=f"=SUM({L25}{rng[0]}:{L25}{rng[1]})")
-    tot26 = ws.cell(row=r, column=col_2026,
-                    value=f"=SUM({L26}{rng[0]}:{L26}{rng[1]})")
-    totv = ws.cell(row=r, column=col_var, value=f"={L26}{r}-{L25}{r}")
-    totp = ws.cell(row=r, column=col_pct,
-                   value=f'=IF({L25}{r}=0,"",({L26}{r}-{L25}{r})/{L25}{r})')
-    for c, fmt in ((tot25, MONEDA), (tot26, MONEDA), (totv, MONEDA), (totp, PORCENT)):
+    t25 = ws.cell(row=r, column=col_25, value=f"=SUM({L25}{first}:{L25}{last})")
+    t26 = ws.cell(row=r, column=col_26, value=f"=SUM({L26}{first}:{L26}{last})")
+    tv = ws.cell(row=r, column=col_var, value=f"={L26}{r}-{L25}{r}")
+    tp = ws.cell(row=r, column=col_pct,
+                 value=f'=IF({L25}{r}=0,"",({L26}{r}-{L25}{r})/{L25}{r})')
+    for c, fmt in ((t25, MONEDA), (t26, MONEDA), (tv, MONEDA), (tp, PORCENT)):
         c.number_format = fmt
         c.font = Font(bold=True, size=11, color="FFFFFF")
         c.fill = PatternFill("solid", fgColor=accent)
         c.border = BORDE
         c.alignment = RIGHT
     ws.row_dimensions[r].height = 22
+    total_row = r
 
-    for j in range(1, nd + 1):
-        ws.column_dimensions[get_column_letter(j)].width = 25
+    # listas desplegables por columna con catalogo
+    for j, (_, _, catname) in enumerate(cols, start=1):
+        if not catname:
+            continue
+        dv = DataValidation(type="list", formula1=rangos[catname],
+                            allow_blank=True, showErrorMessage=False)
+        ws.add_data_validation(dv)
+        L = get_column_letter(j)
+        dv.add(f"{L}{first}:{L}{last}")
+
+    for j, (_, ancho, _) in enumerate(cols, start=1):
+        ws.column_dimensions[get_column_letter(j)].width = ancho
     for j in range(nd + 1, ncols + 1):
-        ws.column_dimensions[get_column_letter(j)].width = 17
+        ws.column_dimensions[get_column_letter(j)].width = 16
 
     ws.freeze_panes = ws.cell(row=first, column=1)
-    return {"hoja": nombre, "total_row": r,
-            "L25": L25, "L26": L26,
-            "Lv": get_column_letter(col_var),
-            "Lp": get_column_letter(col_pct)}
+    return {"hoja": modulo["hoja"], "clase": modulo["clase"],
+            "dash": modulo["dash"], "total_row": total_row,
+            "L25": L25, "L26": L26}
 
 
 # --- Dashboard ---------------------------------------------------------------
 
-def _kpi_card(ws, r, c1, c2, label, value_formula, pct_formula, accent, light):
+def _kpi_card(ws, r, c1, c2, label, value, accent, light,
+              sub_label="", sub_value=None, sub_fmt=PORCENT):
     L1, L2 = get_column_letter(c1), get_column_letter(c2)
     ws.merge_cells(f"{L1}{r}:{L2}{r}")
     ws.cell(row=r, column=c1).fill = PatternFill("solid", fgColor=accent)
@@ -316,20 +504,20 @@ def _kpi_card(ws, r, c1, c2, label, value_formula, pct_formula, accent, light):
     lc.alignment = Alignment(horizontal="left", vertical="center", indent=1)
 
     ws.merge_cells(f"{L1}{r + 2}:{L2}{r + 2}")
-    vc = ws.cell(row=r + 2, column=c1, value=value_formula)
-    vc.font = Font(bold=True, size=18, color=INK)
+    vc = ws.cell(row=r + 2, column=c1, value=value)
+    vc.font = Font(bold=True, size=17, color=INK)
     vc.number_format = MONEDA
     vc.alignment = Alignment(horizontal="left", vertical="center", indent=1)
-    ws.row_dimensions[r + 2].height = 30
+    ws.row_dimensions[r + 2].height = 28
 
-    cap = ws.cell(row=r + 3, column=c1, value="Var. proyectada")
+    cap = ws.cell(row=r + 3, column=c1, value=sub_label)
     cap.font = Font(size=8, color=GRIS_TXT)
     cap.alignment = Alignment(horizontal="left", vertical="center", indent=1)
-    pc = ws.cell(row=r + 3, column=c2, value=pct_formula)
-    pc.font = Font(bold=True, size=10, color=accent)
-    pc.number_format = PORCENT
-    pc.alignment = Alignment(horizontal="right", vertical="center", indent=1)
-
+    if sub_value is not None:
+        pc = ws.cell(row=r + 3, column=c2, value=sub_value)
+        pc.font = Font(bold=True, size=10, color=accent)
+        pc.number_format = sub_fmt
+        pc.alignment = Alignment(horizontal="right", vertical="center", indent=1)
     for rr in range(r + 1, r + 4):
         for c in (c1, c2):
             ws.cell(row=rr, column=c).fill = PatternFill("solid", fgColor=light)
@@ -355,9 +543,8 @@ def _col_headers(ws, row, anio):
         c = ws.cell(row=row, column=j, value=t)
         c.font = FONT_HEADER
         c.fill = PatternFill("solid", fgColor=NAVY_SOFT)
-        c.alignment = CENTER if j > 3 else LEFT
-        if j == 2:
-            c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        c.alignment = CENTER if j > 3 else Alignment(
+            horizontal="left", vertical="center", indent=1)
         c.border = BORDE
     ws.row_dimensions[row].height = 24
 
@@ -366,8 +553,8 @@ def _data_row(ws, row, concepto, v2025, v2026, light, *, bold=False,
               total=False, accent=None):
     ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=3)
     cc = ws.cell(row=row, column=2, value=concepto)
-    fill = None
     txtcolor = "FFFFFF" if total else INK
+    fill = None
     if total:
         fill = PatternFill("solid", fgColor=accent)
     elif light:
@@ -388,188 +575,372 @@ def _data_row(ws, row, concepto, v2025, v2026, light, *, bold=False,
         c.border = BORDE
         if fill:
             c.fill = fill
-    ws.row_dimensions[row].height = 20 if not total else 22
+    ws.row_dimensions[row].height = 22 if total else 20
 
 
-def _build_dashboard(wb, data, grupos, anio):
+def _build_dashboard(wb, data, infos, anio):
     ws = wb.create_sheet("Dashboard")
     ws.sheet_view.showGridLines = False
-    enc = data["encabezado"]
-    pat = data["patrimonio"]
-
-    _banner(ws, 8,
-            "DECLARACION PATRIMONIAL  -  TABLERO EJECUTIVO",
+    enc, pat = data["encabezado"], data["patrimonio"]
+    _banner(ws, 8, "DECLARACION PATRIMONIAL  -  TABLERO EJECUTIVO",
             f"{enc['nombre']}   |   {enc['tipoIdent']}: {enc['numIdent']}   "
             f"|   {enc['tipoDec']}   |   Comparativo {anio} vs {anio + 1}")
 
-    g = {name: info for name, info in grupos}
+    activos = [i for i in infos if i["clase"] == "activo"]
+    pasivos = [i for i in infos if i["clase"] == "pasivo"]
 
-    def link(name, attr):
-        info = g[name]
-        return f"='{info['hoja']}'!{info[attr]}{info['total_row']}"
+    def link(info, L):
+        return f"='{info['hoja']}'!{info[L]}{info['total_row']}"
 
-    # --- Tarjetas KPI (rows 5-8): Activos / Pasivos / Patrimonio ---
-    _kpi_card(ws, 5, 2, 3, "TOTAL ACTIVOS", "=D17", "=G17", ACT, ACT_L)
-    _kpi_card(ws, 5, 4, 5, "TOTAL PASIVOS", "=D22", "=G22", PAS, PAS_L)
-    _kpi_card(ws, 5, 6, 7, "PATRIMONIO NETO", "=D28", "=G28", PAT, PAT_L)
+    r = 10
+    _sec_header(ws, r, "ACTIVOS", ACT)
+    r += 1
+    _col_headers(ws, r, anio)
+    r += 1
+    act_first = r
+    for info in activos:
+        _data_row(ws, r, info["dash"], link(info, "L25"), link(info, "L26"),
+                  ACT_L)
+        r += 1
+    act_last = r - 1
+    _data_row(ws, r, "TOTAL ACTIVOS", f"=SUM(D{act_first}:D{act_last})",
+              f"=SUM(E{act_first}:E{act_last})", None, total=True, accent=ACT)
+    tot_act = r
+    r += 2
 
-    # --- Seccion ACTIVOS (header 11, datos 13-15, total 16... ajustamos) ---
-    _sec_header(ws, 11, "ACTIVOS", ACT)
-    _col_headers(ws, 12, anio)
-    _data_row(ws, 13, "Dinero e inversiones",
-              link("Dinero", "L25"), link("Dinero", "L26"), ACT_L)
-    _data_row(ws, 14, "Vehiculos",
-              link("Vehiculos", "L25"), link("Vehiculos", "L26"), ACT_L)
-    _data_row(ws, 15, "Bienes inmuebles",
-              link("Bienes Inmuebles", "L25"),
-              link("Bienes Inmuebles", "L26"), ACT_L)
-    _data_row(ws, 16, "Total bruto de activos",
-              "=SUM(D13:D15)", "=SUM(E13:E15)", ACT_L)
-    _data_row(ws, 17, "TOTAL ACTIVOS", "=D16", "=E16", None,
-              total=True, accent=ACT)
+    _sec_header(ws, r, "PASIVOS", PAS)
+    r += 1
+    _col_headers(ws, r, anio)
+    r += 1
+    pas_first = r
+    for info in pasivos:
+        _data_row(ws, r, info["dash"], link(info, "L25"), link(info, "L26"),
+                  PAS_L)
+        r += 1
+    pas_last = r - 1
+    _data_row(ws, r, "TOTAL PASIVOS", f"=SUM(D{pas_first}:D{pas_last})",
+              f"=SUM(E{pas_first}:E{pas_last})", None, total=True, accent=PAS)
+    tot_pas = r
+    r += 2
 
-    # --- Seccion PASIVOS ---
-    _sec_header(ws, 19, "PASIVOS", PAS)
-    _col_headers(ws, 20, anio)
-    _data_row(ws, 21, "Deudas y obligaciones",
-              link("Pasivo", "L25"), link("Pasivo", "L26"), PAS_L)
-    _data_row(ws, 22, "TOTAL PASIVOS", "=D21", "=E21", None,
-              total=True, accent=PAS)
+    _sec_header(ws, r, "PATRIMONIO NETO", PAT)
+    r += 1
+    _col_headers(ws, r, anio)
+    r += 1
+    _data_row(ws, r, "(+) Total activos", f"=D{tot_act}", f"=E{tot_act}", PAT_L)
+    ra = r
+    r += 1
+    _data_row(ws, r, "(-) Total pasivos", f"=D{tot_pas}", f"=E{tot_pas}", PAT_L)
+    rp = r
+    r += 1
+    _data_row(ws, r, "(=) PATRIMONIO NETO", f"=D{ra}-D{rp}", f"=E{ra}-E{rp}",
+              None, total=True, accent=PAT)
+    pneto = r
+    r += 1
 
-    # --- Seccion PATRIMONIO NETO ---
-    _sec_header(ws, 24, "PATRIMONIO NETO", PAT)
-    _col_headers(ws, 25, anio)
-    _data_row(ws, 26, "(+) Total activos", "=D17", "=E17", PAT_L)
-    _data_row(ws, 27, "(-) Total pasivos", "=D22", "=E22", PAT_L)
-    _data_row(ws, 28, "(=) PATRIMONIO NETO", "=D26-D27", "=E26-E27", None,
-              total=True, accent=PAT)
-
-    # filas informativas (solo control, sin variacion)
-    for off, (txt, val) in enumerate([
+    for txt, val in [
         (f"Patrimonio declarado en el XML ({anio})", pat["totalDeclarado"]),
         ("Patrimonio neto del anio anterior", pat["anioAnterior"]),
-        ("Crecimiento patrimonial declarado (XML)", pat["crecimientoPat"]),
-    ]):
-        row = 29 + off
-        ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=3)
-        cc = ws.cell(row=row, column=2, value=txt)
+        ("Crecimiento / decremento patrimonial (XML)", pat["crecimientoPat"]),
+    ]:
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
+        cc = ws.cell(row=r, column=2, value=txt)
         cc.font = Font(size=9, italic=True, color=GRIS_TXT)
         cc.alignment = Alignment(horizontal="left", vertical="center", indent=1)
-        cv = ws.cell(row=row, column=4, value=val)
+        cv = ws.cell(row=r, column=4, value=val)
         cv.number_format = MONEDA
         cv.font = Font(size=9, italic=True, color=GRIS_TXT)
         cv.alignment = RIGHT
         for c in range(2, 8):
-            ws.cell(row=row, column=c).border = BORDE
-        ws.row_dimensions[row].height = 16
+            ws.cell(row=r, column=c).border = BORDE
+        ws.row_dimensions[r].height = 16
+        r += 1
+    r += 1
 
-    # --- Bloque consolidado para graficos ---
-    _sec_header(ws, 34, "CONSOLIDADO", NAVY_SOFT)
-    _col_headers(ws, 35, anio)
-    _data_row(ws, 36, "Activos", "=D17", "=E17", ACT_L, bold=True)
-    _data_row(ws, 37, "Pasivos", "=D22", "=E22", PAS_L, bold=True)
-    _data_row(ws, 38, "Patrimonio neto", "=D28", "=E28", PAT_L, bold=True)
+    _sec_header(ws, r, "CONSOLIDADO", NAVY_SOFT)
+    r += 1
+    cons_hdr = r
+    _col_headers(ws, r, anio)
+    r += 1
+    cons_first = r
+    _data_row(ws, r, "Activos", f"=D{tot_act}", f"=E{tot_act}", ACT_L, bold=True)
+    r += 1
+    _data_row(ws, r, "Pasivos", f"=D{tot_pas}", f"=E{tot_pas}", PAS_L, bold=True)
+    r += 1
+    _data_row(ws, r, "Patrimonio neto", f"=D{pneto}", f"=E{pneto}", PAT_L,
+              bold=True)
+    cons_last = r
 
-    # --- Graficos ---
+    # tarjetas KPI
+    _kpi_card(ws, 5, 2, 3, "TOTAL ACTIVOS", f"=D{tot_act}", ACT, ACT_L,
+              "Var. proyectada", f"=G{tot_act}")
+    _kpi_card(ws, 5, 4, 5, "TOTAL PASIVOS", f"=D{tot_pas}", PAS, PAS_L,
+              "Var. proyectada", f"=G{tot_pas}")
+    _kpi_card(ws, 5, 6, 7, "PATRIMONIO NETO", f"=D{pneto}", PAT, PAT_L,
+              "Var. proyectada", f"=G{pneto}")
+
+    # graficos
     bar = BarChart()
     bar.type = "col"
     bar.grouping = "clustered"
     bar.title = f"Activos / Pasivos / Patrimonio: {anio} vs {anio + 1}"
     bar.style = 10
-    bar.add_data(Reference(ws, min_col=4, max_col=5, min_row=35, max_row=38),
-                 titles_from_data=True)
-    bar.set_categories(Reference(ws, min_col=2, min_row=36, max_row=38))
+    bar.add_data(Reference(ws, min_col=4, max_col=5, min_row=cons_hdr,
+                           max_row=cons_last), titles_from_data=True)
+    bar.set_categories(Reference(ws, min_col=2, min_row=cons_first,
+                                 max_row=cons_last))
     bar.height, bar.width = 8.5, 15
     ws.add_chart(bar, "I5")
 
     pie = PieChart()
     pie.title = f"Composicion de activos {anio}"
-    pie.add_data(Reference(ws, min_col=4, min_row=13, max_row=15),
+    pie.add_data(Reference(ws, min_col=4, min_row=act_first, max_row=act_last),
                  titles_from_data=False)
-    pie.set_categories(Reference(ws, min_col=2, min_row=13, max_row=15))
+    pie.set_categories(Reference(ws, min_col=2, min_row=act_first,
+                                 max_row=act_last))
     pie.dataLabels = DataLabelList()
     pie.dataLabels.showPercent = True
-    pie.height, pie.width = 8.5, 14
+    pie.height, pie.width = 9, 14
     ws.add_chart(pie, "I22")
 
     barv = BarChart()
     barv.type = "col"
     barv.title = f"Variacion proyectada ({anio} -> {anio + 1})"
     barv.style = 12
-    barv.add_data(Reference(ws, min_col=6, max_col=6, min_row=35, max_row=38),
-                  titles_from_data=True)
-    barv.set_categories(Reference(ws, min_col=2, min_row=36, max_row=38))
+    barv.add_data(Reference(ws, min_col=6, max_col=6, min_row=cons_hdr,
+                            max_row=cons_last), titles_from_data=True)
+    barv.set_categories(Reference(ws, min_col=2, min_row=cons_first,
+                                  max_row=cons_last))
     barv.height, barv.width = 8.5, 15
-    ws.add_chart(barv, "I39")
+    ws.add_chart(barv, "I40")
 
-    # nota
-    nota = ws.cell(row=40, column=2,
-                   value="Edite la columna amarilla en las hojas de cada grupo; "
-                         "las tarjetas, secciones y graficos se recalculan solos.")
+    nota = ws.cell(row=cons_last + 2, column=2,
+                   value="Edite las columnas amarillas en las hojas de cada "
+                         "modulo; las tarjetas, secciones y graficos se "
+                         "recalculan solos.")
     nota.font = Font(italic=True, size=9, color=GRIS_TXT)
 
-    # anchos
     ws.column_dimensions["A"].width = 3
-    ws.column_dimensions["B"].width = 22
-    ws.column_dimensions["C"].width = 14
+    ws.column_dimensions["B"].width = 24
+    ws.column_dimensions["C"].width = 16
     for col in ("D", "E", "F", "G"):
         ws.column_dimensions[col].width = 16
     ws.column_dimensions["H"].width = 3
+    return {"pneto_row": pneto}
 
 
-def _build_info(wb, data, anio):
+def _build_justificacion(wb, data, anio, rangos):
+    ws = wb.create_sheet("Justificacion")
+    ws.sheet_view.showGridLines = False
+    pat = data["patrimonio"]
+    crec = pat["crecimientoPat"]
+    conceptos = data["justificacion"]
+    es_inc = data["es_incremento"]
+    rango_cat = rangos["JUSTIF_INCREMENTO" if es_inc else "JUSTIF_DECREMENTO"]
+    palabra = "incremento" if es_inc else "decremento"
+
+    _banner(ws, 7, "JUSTIFICACION DE LA VARIACION PATRIMONIAL",
+            f"Conceptos declarados en el XML  -  ejercicio {anio}  "
+            f"({'TABLA 14 - incremento' if es_inc else 'TABLA 17 - decremento'})")
+
+    sec = 10
+    _sec_header(ws, sec, f"DISTRIBUCION DEL {palabra.upper()} PATRIMONIAL",
+                NAVY_SOFT)
+    hdr = sec + 1
+    ws.merge_cells(start_row=hdr, start_column=2, end_row=hdr, end_column=4)
+    for col, t in ((2, "Concepto declarado (Tabla del SRI)"),
+                   (5, "Monto asignado"), (6, "% del total")):
+        c = ws.cell(row=hdr, column=col, value=t)
+        c.font = FONT_HEADER
+        c.fill = PatternFill("solid", fgColor=NAVY_SOFT)
+        c.alignment = CENTER
+        c.border = BORDE
+    ws.row_dimensions[hdr].height = 26
+
+    first = hdr + 1
+    n = max(len(conceptos), 1)
+    monto_ini = round(crec / n, 2) if conceptos else 0.0
+    etiquetas = [lbl for _, lbl in conceptos] or [""]
+    r = first
+    for etiqueta in etiquetas:
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=4)
+        cc = ws.cell(row=r, column=2, value=etiqueta)
+        cc.font = FONT_NORMAL
+        cc.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        cm = ws.cell(row=r, column=5, value=monto_ini)
+        cm.number_format = MONEDA
+        cm.font = FONT_NORMAL
+        cm.alignment = RIGHT
+        cm.fill = PatternFill("solid", fgColor=EDIT)
+        for c in (cc, cm, ws.cell(row=r, column=6)):
+            c.border = BORDE
+        r += 1
+    last = r - 1
+    total_row = r
+    for rr in range(first, last + 1):
+        cp = ws.cell(row=rr, column=6,
+                     value=f'=IF($E${total_row}=0,"",E{rr}/$E${total_row})')
+        cp.number_format = PORCENT
+        cp.font = FONT_NORMAL
+        cp.alignment = RIGHT
+        cp.border = BORDE
+
+    dv = DataValidation(type="list", formula1=rango_cat, allow_blank=True,
+                        showErrorMessage=False)
+    ws.add_data_validation(dv)
+    dv.add(f"B{first}:B{last}")
+
+    ws.merge_cells(start_row=total_row, start_column=2, end_row=total_row,
+                   end_column=4)
+    tc = ws.cell(row=total_row, column=2, value="TOTAL JUSTIFICADO")
+    te = ws.cell(row=total_row, column=5, value=f"=SUM(E{first}:E{last})")
+    tp = ws.cell(row=total_row, column=6, value=f'=IF(E{total_row}=0,"",1)')
+    for c in (tc, te, tp):
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor=NAVY_SOFT)
+        c.border = BORDE
+    tc.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    te.number_format = MONEDA
+    te.alignment = RIGHT
+    tp.number_format = PORCENT
+    tp.alignment = RIGHT
+
+    crec_row = total_row + 1
+    dif_row = total_row + 2
+    for row, txt, val, fill in (
+        (crec_row, f"{palabra.capitalize()} patrimonial declarado (XML)",
+         crec, GRIS),
+        (dif_row, "Diferencia por justificar (debe ser $0.00)",
+         f"=E{crec_row}-E{total_row}", PAT_L),
+    ):
+        ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=4)
+        cc = ws.cell(row=row, column=2, value=txt)
+        cc.font = FONT_BOLD
+        cc.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        ce = ws.cell(row=row, column=5, value=val)
+        ce.font = FONT_BOLD
+        ce.number_format = MONEDA
+        ce.alignment = RIGHT
+        for col in range(2, 7):
+            cell = ws.cell(row=row, column=col)
+            cell.border = BORDE
+            cell.fill = PatternFill("solid", fgColor=fill)
+
+    _kpi_card(ws, 5, 2, 3, f"{palabra.upper()} PATRIMONIAL",
+              f"=E{crec_row}", PAT, PAT_L, f"Declarado en el XML {anio}")
+    _kpi_card(ws, 5, 4, 5, "TOTAL JUSTIFICADO", f"=E{total_row}", ACT, ACT_L,
+              "Suma de montos asignados")
+    _kpi_card(ws, 5, 6, 7, "DIFERENCIA", f"=E{dif_row}", PAS, PAS_L,
+              "Debe quedar en $0.00")
+
+    pie = PieChart()
+    pie.title = f"Distribucion del {palabra} patrimonial"
+    pie.add_data(Reference(ws, min_col=5, min_row=first, max_row=last),
+                 titles_from_data=False)
+    pie.set_categories(Reference(ws, min_col=2, min_row=first, max_row=last))
+    pie.dataLabels = DataLabelList()
+    pie.dataLabels.showPercent = True
+    pie.height, pie.width = 9, 15
+    ws.add_chart(pie, "I5")
+
+    bar = BarChart()
+    bar.type = "bar"
+    bar.title = "Monto asignado por concepto"
+    bar.style = 10
+    bar.add_data(Reference(ws, min_col=5, min_row=hdr, max_row=last),
+                 titles_from_data=True)
+    bar.set_categories(Reference(ws, min_col=2, min_row=first, max_row=last))
+    bar.height, bar.width = 8, 15
+    ws.add_chart(bar, "I23")
+
+    nota = ws.cell(row=dif_row + 2, column=2,
+                   value="Escoja el concepto en la lista desplegable (catalogo "
+                         "del SRI) y asigne el monto en la columna amarilla.")
+    nota.font = Font(italic=True, size=9, color=GRIS_TXT)
+
+    ws.column_dimensions["A"].width = 3
+    ws.column_dimensions["B"].width = 26
+    ws.column_dimensions["C"].width = 16
+    ws.column_dimensions["D"].width = 14
+    ws.column_dimensions["E"].width = 18
+    ws.column_dimensions["F"].width = 14
+    ws.column_dimensions["G"].width = 3
+
+
+def _build_info(wb, data, anio, pneto_row):
     ws = wb.create_sheet("Datos del XML")
     ws.sheet_view.showGridLines = False
     _banner(ws, 2, "DATOS GENERALES DE LA DECLARACION")
-
     enc, pat = data["encabezado"], data["patrimonio"]
-    filas = [
-        ("Anio de la declaracion", enc["anio"]),
-        ("Tipo de declaracion", enc["tipoDec"]),
-        ("Tipo de identificacion", enc["tipoIdent"]),
-        ("Numero de identificacion", enc["numIdent"]),
-        ("Nombre del declarante", enc["nombre"]),
-        ("Identificacion del conyuge", enc["tipoIdentCony"]),
-        ("Numero ident. conyuge", enc["numIdentCony"]),
-        ("Nombre del conyuge", enc["nombreCony"]),
-        ("Total creditos", enc["totalCreditos"]),
-        ("", ""),
-        ("Patrimonio total declarado", pat["totalDeclarado"]),
-        ("Atribuible a hijos", pat["atribuibleHijos"]),
-        ("Sociedad conyugal", pat["sociedadConyugal"]),
-        ("Individual", pat["individual"]),
-        ("Patrimonio anio anterior", pat["anioAnterior"]),
-        ("Crecimiento patrimonial", pat["crecimientoPat"]),
+
+    secciones = [
+        ("IDENTIFICACION", [
+            ("Anio de la declaracion", enc["anio"], None),
+            ("Tipo de declaracion", enc["tipoDec"], None),
+            ("Tipo de identificacion", enc["tipoIdent"], None),
+            ("Numero de identificacion", enc["numIdent"], None),
+            ("Nombre del declarante", enc["nombre"], None),
+            ("Identificacion del conyuge", enc["tipoIdentCony"], None),
+            ("Numero ident. conyuge", enc["numIdentCony"], None),
+            ("Nombre del conyuge", enc["nombreCony"], None),
+            ("Total creditos", enc["totalCreditos"], MONEDA),
+        ]),
+        ("PATRIMONIO NETO (enlazado a la hoja Dashboard)", [
+            (f"Patrimonio neto {anio}", f"=Dashboard!D{pneto_row}", MONEDA),
+            (f"Patrimonio neto {anio + 1} (proyectado)",
+             f"=Dashboard!E{pneto_row}", MONEDA),
+            ("Variacion proyectada", f"=Dashboard!F{pneto_row}", MONEDA),
+            ("Variacion % proyectada", f"=Dashboard!G{pneto_row}", PORCENT),
+        ]),
+        ("PATRIMONIO DECLARADO EN EL XML", [
+            ("Patrimonio total declarado", pat["totalDeclarado"], MONEDA),
+            ("Atribuible a hijos no emancipados", pat["atribuibleHijos"], MONEDA),
+            ("Patrimonio en la sociedad conyugal", pat["sociedadConyugal"],
+             MONEDA),
+            ("Patrimonio individual del declarante", pat["individual"], MONEDA),
+            ("Patrimonio del anio anterior", pat["anioAnterior"], MONEDA),
+            ("Crecimiento / decremento patrimonial", pat["crecimientoPat"],
+             MONEDA),
+        ]),
     ]
     r = 5
-    for nombre, valor in filas:
-        cc = ws.cell(row=r, column=1, value=nombre)
-        cc.font = FONT_BOLD
-        c = ws.cell(row=r, column=2, value=valor)
-        if isinstance(valor, float):
-            c.number_format = MONEDA
-        c.font = FONT_NORMAL
-        if nombre:
+    for titulo, filas in secciones:
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
+        h = ws.cell(row=r, column=1, value=titulo)
+        h.font = Font(bold=True, size=11, color="FFFFFF")
+        h.fill = PatternFill("solid", fgColor=NAVY_SOFT)
+        h.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        ws.row_dimensions[r].height = 20
+        r += 1
+        for nombre, valor, fmt in filas:
+            cc = ws.cell(row=r, column=1, value=nombre)
+            cc.font = FONT_BOLD
+            cc.alignment = LEFT
+            c = ws.cell(row=r, column=2, value=valor)
+            c.font = FONT_NORMAL
+            c.alignment = RIGHT
+            if fmt:
+                c.number_format = fmt
             for col in (1, 2):
                 ws.cell(row=r, column=col).border = BORDE
+            r += 1
         r += 1
 
+    h = ws.cell(row=r, column=1,
+                value="Justificacion de la variacion (ver hoja Justificacion)")
+    h.font = Font(bold=True, size=11, color=NAVY)
     r += 1
-    h = ws.cell(row=r, column=1, value="Justificacion de la variacion patrimonial")
-    h.font = Font(bold=True, size=12, color=NAVY)
-    r += 1
-    for j in data["justificacion"]:
-        ws.cell(row=r, column=1, value="- " + j).font = FONT_NORMAL
+    for _, etiqueta in data["justificacion"]:
+        ws.cell(row=r, column=1, value="- " + etiqueta).font = FONT_NORMAL
         r += 1
-
     r += 1
     ws.cell(row=r, column=1,
-            value="Nota: las descripciones de codigos son de referencia; "
-                  "verificar contra el catalogo oficial del SRI.").font = Font(
-        italic=True, size=9, color=GRIS_TXT)
+            value="Catalogos del SRI integrados (Tablas 1-19 del archivo "
+                  "CATALOGO.xls).").font = Font(italic=True, size=9,
+                                                color=GRIS_TXT)
 
-    ws.column_dimensions["A"].width = 34
-    ws.column_dimensions["B"].width = 46
+    ws.column_dimensions["A"].width = 40
+    ws.column_dimensions["B"].width = 34
 
 
 def build_workbook(data: dict, salida: Path):
@@ -577,37 +948,20 @@ def build_workbook(data: dict, salida: Path):
     wb = Workbook()
     wb.remove(wb.active)
 
-    grupos = [
-        ("Dinero", _grupo_sheet(
-            wb, "Dinero", "DINERO E INVERSIONES", anio,
-            ["Ubicacion", "Tipo", "Institucion / detalle", "Moneda"],
-            [([d["dineroEn"] + " / " + d["ubicacion"], d["tipoInversion"],
-               d["ifi"], d["moneda"]], d["valor"]) for d in data["dinero"]],
-            ACT, ACT_L)),
-        ("Vehiculos", _grupo_sheet(
-            wb, "Vehiculos", "VEHICULOS", anio,
-            ["Tipo de vehiculo", "Placa", "Ubicacion"],
-            [([d["tipoVehiculo"], d["placa"], d["ubicacion"]], d["valor"])
-             for d in data["vehiculos"]],
-            ACT, ACT_L)),
-        ("Bienes Inmuebles", _grupo_sheet(
-            wb, "Bienes Inmuebles", "BIENES INMUEBLES", anio,
-            ["Tipo de inmueble", "Ubicacion", "Clave catastral", "Inscripcion"],
-            [([d["tipoInmueble"], d["ubicacion"], d["claveCat"],
-               d["fechaInscripcion"]], d["valor"]) for d in data["inmuebles"]],
-            ACT, ACT_L)),
-        ("Pasivo", _grupo_sheet(
-            wb, "Pasivo", "PASIVOS / DEUDAS", anio,
-            ["Tipo de acreedor", "Acreedor", "Domicilio", "Identificacion"],
-            [([d["tipoAcreedor"], d["nombreAcreedor"], d["domicilio"],
-               d["identAcreedor"]], d["valor"]) for d in data["pasivo"]],
-            PAS, PAS_L)),
-    ]
+    rangos = _build_catalogos(wb)
 
-    _build_dashboard(wb, data, grupos, anio)
-    _build_info(wb, data, anio)
+    infos = []
+    for modulo in MODULOS:
+        rows = data["modulos"][modulo["key"]]
+        infos.append(_grupo_sheet(wb, modulo, anio, rows, rangos))
 
-    wb.move_sheet("Dashboard", offset=-wb.sheetnames.index("Dashboard"))
+    dash = _build_dashboard(wb, data, infos, anio)
+    _build_justificacion(wb, data, anio, rangos)
+    _build_info(wb, data, anio, dash["pneto_row"])
+
+    orden = ["Dashboard"] + [m["hoja"] for m in MODULOS] + \
+            ["Justificacion", "Datos del XML", "Catalogos"]
+    wb._sheets.sort(key=lambda ws: orden.index(ws.title))
     wb.active = 0
 
     salida.parent.mkdir(parents=True, exist_ok=True)
