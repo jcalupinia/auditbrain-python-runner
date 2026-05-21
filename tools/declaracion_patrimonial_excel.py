@@ -127,8 +127,12 @@ def _entries(catalogo):
 def _rows_dinero(root):
     out = []
     for d in root.iter("detalleDinero"):
-        ifi = _txt(d, "nombreIfiExterior") or _fmt(cat.INSTITUCION_FINANCIERA,
-                                                   _txt(d, "ifiEcuador"))
+        ext = _txt(d, "nombreIfiExterior")
+        ec = _txt(d, "ifiEcuador")
+        # Solo se conserva la institucion si su codigo consta en el catalogo
+        # del SRI; de lo contrario se deja en blanco para elegirla de la lista.
+        ifi = ext or (_fmt(cat.INSTITUCION_FINANCIERA, ec)
+                      if ec in cat.INSTITUCION_FINANCIERA else "")
         out.append(([
             _fmt(cat.DINERO_EN, _txt(d, "dineroEn")),
             _fmt(cat.TIPO_INVERSION, _txt(d, "tipoInversion")),
