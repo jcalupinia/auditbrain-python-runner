@@ -160,8 +160,10 @@ Private Function ConstruirXml(anio As Long) As String
         s = s & "        <decrecimientoPat>" & Num2(-dif) & _
             "</decrecimientoPat>" & L
     End If
-    s = s & "    <justificacion>" & L & JustificacionXml() & _
-        "</justificacion></patrimonio>" & L
+    ' La justificacion solo aplica cuando hay crecimiento/decremento (SRI).
+    s = s & "    <justificacion>" & L
+    If Abs(dif) > 0.005 Then s = s & JustificacionXml()
+    s = s & "</justificacion></patrimonio>" & L
 
     ' contenedores en el orden del XML del SRI
     Dim ordenados() As String
