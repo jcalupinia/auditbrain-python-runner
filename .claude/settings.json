@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "extraKnownMarketplaces": {
+    "claude-plugins-official": {
+      "source": { "source": "github", "repo": "anthropics/claude-plugins-official" }
+    },
+    "superpowers-marketplace": {
+      "source": { "source": "github", "repo": "obra/superpowers-marketplace" }
+    },
+    "n8n-mcp-skills": {
+      "source": { "source": "github", "repo": "czlonkowski/n8n-skills" }
+    },
+    "365-skills": {
+      "source": { "source": "github", "repo": "Agents365-ai/365-skills" }
+    }
+  },
+  "enabledPlugins": {
+    "superpowers@superpowers-marketplace": true,
+    "feature-dev@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true,
+    "firecrawl@claude-plugins-official": true,
+    "playwright@claude-plugins-official": true,
+    "context7@claude-plugins-official": true,
+    "serena@claude-plugins-official": true,
+    "n8n-mcp-skills@n8n-mcp-skills": true,
+    "excalidraw@365-skills": true
+  }
+}
