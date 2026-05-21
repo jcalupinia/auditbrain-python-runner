@@ -316,7 +316,7 @@ DRAWING_XML = (
     '<xdr:row>4</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>'
     '<xdr:to><xdr:col>4</xdr:col><xdr:colOff>0</xdr:colOff>'
     '<xdr:row>6</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>'
-    '<xdr:sp macro="[0]!GenerarXmlSRI" textlink="">'
+    '<xdr:sp macro="GenerarXmlSRI" textlink="">'
     '<xdr:nvSpPr><xdr:cNvPr id="1" name="BotonGenerarXML"/>'
     '<xdr:cNvSpPr/></xdr:nvSpPr>'
     '<xdr:spPr>'
@@ -411,7 +411,70 @@ def construir_xlsm(xlsx_path: Path, xlsm_path: Path, bas_text: str):
     # 7. drawing con el boton
     items[drawing_part] = DRAWING_XML.encode("utf-8")
 
-    # 8. escribir el .xlsm
+    # 8. boton "Aplicar grafico" en el dibujo del Dashboard
+    _inyectar_boton_dashboard(items, wb, rels)
+
+    # 9. escribir el .xlsm
     with zipfile.ZipFile(xlsm_path, "w", zipfile.ZIP_DEFLATED) as zout:
         for nombre, datos in items.items():
             zout.writestr(nombre, datos)
+
+
+def _shape_aplicar(p: str) -> str:
+    """Forma 'APLICAR GRAFICO' con prefijo de namespace p ('' o 'xdr:')."""
+    return (
+        f'<{p}twoCellAnchor editAs="oneCell">'
+        f'<{p}from><{p}col>10</{p}col><{p}colOff>38100</{p}colOff>'
+        f'<{p}row>2</{p}row><{p}rowOff>9525</{p}rowOff></{p}from>'
+        f'<{p}to><{p}col>12</{p}col><{p}colOff>0</{p}colOff>'
+        f'<{p}row>4</{p}row><{p}rowOff>0</{p}rowOff></{p}to>'
+        f'<{p}sp macro="CambiarGrafico" textlink="">'
+        f'<{p}nvSpPr><{p}cNvPr id="1001" name="BotonAplicarGrafico"/>'
+        f'<{p}cNvSpPr/></{p}nvSpPr>'
+        f'<{p}spPr>'
+        '<a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></a:xfrm>'
+        '<a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom>'
+        '<a:solidFill><a:srgbClr val="20507D"/></a:solidFill>'
+        f'</{p}spPr>'
+        f'<{p}txBody><a:bodyPr anchor="ctr"/><a:lstStyle/>'
+        '<a:p><a:pPr algn="ctr"/><a:r>'
+        '<a:rPr lang="es-EC" sz="1000" b="1">'
+        '<a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:rPr>'
+        '<a:t>APLICAR GRAFICO</a:t></a:r></a:p>'
+        f'</{p}txBody></{p}sp><{p}clientData/>'
+        f'</{p}twoCellAnchor>'
+    )
+
+
+def _inyectar_boton_dashboard(items, wb_xml, rels):
+    """Agrega el boton 'Aplicar grafico' al dibujo existente del Dashboard."""
+    try:
+        tag = re.search(r'<sheet [^>]*name="Dashboard"[^>]*/>', wb_xml).group(0)
+        rid = re.search(r'r:id="([^"]+)"', tag).group(1)
+        rel = re.search(r'<Relationship [^>]*Id="' + rid + r'"[^>]*/>',
+                        rels).group(0)
+        target = re.search(r'Target="([^"]+)"', rel).group(1)
+        sheet = (target.lstrip("/") if target.startswith("/")
+                 else "xl/" + target)
+        dws = items[sheet].decode("utf-8")
+        m = re.search(r'<drawing [^>]*r:id="([^"]+)"', dws)
+        if not m:
+            return
+        wrid = m.group(1)
+        wrels = items["xl/worksheets/_rels/" +
+                      sheet.split("/")[-1] + ".rels"].decode("utf-8")
+        wrel = re.search(r'<Relationship [^>]*Id="' + wrid + r'"[^>]*/>',
+                         wrels).group(0)
+        dtarget = re.search(r'Target="([^"]+)"', wrel).group(1)
+        dpart = "xl/drawings/" + dtarget.split("/")[-1]
+        dxml = items[dpart].decode("utf-8")
+        if "BotonAplicarGrafico" in dxml:
+            return
+        if "</xdr:wsDr>" in dxml:
+            cierre, pref = "</xdr:wsDr>", "xdr:"
+        else:
+            cierre, pref = "</wsDr>", ""
+        dxml = dxml.replace(cierre, _shape_aplicar(pref) + cierre)
+        items[dpart] = dxml.encode("utf-8")
+    except Exception:  # noqa: BLE001
+        pass

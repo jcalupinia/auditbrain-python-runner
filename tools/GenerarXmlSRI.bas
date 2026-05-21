@@ -49,6 +49,35 @@ Fallo:
 End Sub
 
 
+' Cambia el tipo del primer grafico del Dashboard segun la celda I4.
+Public Sub CambiarGrafico()
+    On Error GoTo Fallo
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Sheets("Dashboard")
+    If ws.ChartObjects.Count = 0 Then
+        MsgBox "El Dashboard no tiene graficos.", vbExclamation
+        Exit Sub
+    End If
+    Dim ct As Long
+    Select Case LCase$(Trim$(CStr(ws.Range("I4").Value)))
+        Case "barras": ct = 57          ' xlBarClustered
+        Case "pastel": ct = 5           ' xlPie
+        Case "anillo": ct = -4120       ' xlDoughnut
+        Case "lineas": ct = 4           ' xlLine
+        Case "area": ct = 1             ' xlArea
+        Case Else: ct = 51              ' xlColumnClustered
+    End Select
+    Dim obj As ChartObject
+    For Each obj In ws.ChartObjects
+        obj.Chart.ChartType = ct
+    Next obj
+    Exit Sub
+Fallo:
+    MsgBox "No se pudo cambiar el grafico:" & vbCrLf & Err.Description, _
+           vbCritical
+End Sub
+
+
 Private Function RutaLibro() As String
     RutaLibro = ThisWorkbook.Path
     If RutaLibro <> "" Then RutaLibro = RutaLibro & Application.PathSeparator
