@@ -211,8 +211,8 @@ def generar_xml(libro: Path, anio: int) -> str:
         out.append(f"        <decrecimientoPat>{abs(diff):.2f}"
                     f"</decrecimientoPat>")
     out.append("    <justificacion>")
-    # La justificacion solo aplica cuando hay crecimiento/decremento (SRI).
-    if abs(diff) > 0.005:
+    # La justificacion solo aplica cuando hay CRECIMIENTO patrimonial (SRI).
+    if diff > 0.005:
         for cod in _justificacion(wb):
             out.append("<detalleJustificacion>")
             out.append(f"    <justificVariacion>{_esc(cod)}"
