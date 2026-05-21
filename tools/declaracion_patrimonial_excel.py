@@ -1003,30 +1003,28 @@ def _build_instrucciones(wb):
         for c in range(2, 5):
             ws.cell(row=r, column=c).border = BORDE
     ws.cell(row=7, column=2,
-            value="Dibuje el boton sobre este recuadro y asignele la macro "
-                  "GenerarXmlSRI").font = Font(italic=True, size=8,
-                                               color=GRIS_TXT)
+            value="En el archivo .xlsm el boton verde ya esta vinculado a la "
+                  "macro GenerarXmlSRI.").font = Font(italic=True, size=8,
+                                                      color=GRIS_TXT)
 
     pasos = [
-        ("CONFIGURACION POR UNICA VEZ (activa el boton)", True),
-        ("1. Abra el editor de macros con la tecla  Alt + F11.", False),
-        ("2. Menu Archivo > Importar archivo... y seleccione el archivo "
-         "GenerarXmlSRI.bas.", False),
-        ("3. Cierre el editor y guarde este libro como  'Libro de Excel "
-         "habilitado para macros (*.xlsm)'.", False),
-        ("4. Active la pestana Programador:  Archivo > Opciones > "
-         "Personalizar cinta de opciones > marque 'Programador'.", False),
-        ("5. Programador > Insertar > Boton (control de formulario) y "
-         "dibujelo sobre el recuadro verde de arriba.", False),
-        ("6. Cuando Excel lo solicite, asigne la macro  GenerarXmlSRI.", False),
-        ("", False),
-        ("USO DIARIO", True),
-        ("7. Llene las columnas amarillas de cada modulo y la hoja "
-         "Justificacion.", False),
-        ("8. Pulse el boton GENERAR XML, indique el anio y elija donde "
-         "guardar.", False),
-        ("9. El archivo .xml queda listo para subir al portal del SRI.",
+        ("COMO USAR ESTE ARCHIVO", True),
+        ("1. Al abrir el archivo .xlsm, pulse 'Habilitar contenido' en la "
+         "barra de seguridad de Excel.", False),
+        ("2. Llene las columnas amarillas de cada modulo (Dinero, Vehiculos, "
+         "etc.) y la hoja Justificacion.", False),
+        ("3. Pulse el boton verde GENERAR XML, indique el anio y elija donde "
+         "guardar el archivo.", False),
+        ("4. El archivo .xml queda listo para subir al portal del SRI.",
          False),
+        ("", False),
+        ("SI EXCEL BLOQUEA LAS MACROS", True),
+        ("- Cierre Excel. En el Explorador, clic derecho sobre el archivo > "
+         "Propiedades.", False),
+        ("- Al final de la pestana General marque 'Desbloquear' y pulse "
+         "Aceptar.", False),
+        ("- Vuelva a abrirlo y pulse 'Habilitar contenido'. Conserve siempre "
+         "la extension .xlsm.", False),
         ("", False),
         ("Alternativa sin macros:  ejecutar  "
          "python tools/generar_xml_sri.py  desde la terminal.", False),
@@ -1085,6 +1083,17 @@ def main(argv):
     data = parse_xml(entrada)
     build_workbook(data, salida)
     print(f"Excel generado: {salida}")
+
+    # Version .xlsm con la macro VBA y el boton embebidos
+    try:
+        from _xlsm_builder import construir_xlsm
+        bas = (Path(__file__).resolve().parent / "GenerarXmlSRI.bas")
+        if bas.exists():
+            xlsm = salida.with_suffix(".xlsm")
+            construir_xlsm(salida, xlsm, bas.read_text(encoding="utf-8"))
+            print(f"Excel con macro generado: {xlsm}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"Aviso: no se pudo generar el .xlsm ({exc})")
     return 0
 
 
