@@ -25,6 +25,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 from openpyxl.chart import BarChart, PieChart, Reference
+from openpyxl.chart.data_source import AxDataSource, StrRef
 from openpyxl.chart.label import DataLabelList
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
@@ -691,30 +692,38 @@ def _build_dashboard(wb, data, infos, anio):
     _kpi_card(ws, 5, 6, 7, "PATRIMONIO NETO", f"=D{pneto}", PAT, PAT_L,
               "Var. proyectada", f"=G{pneto}")
 
-    # --- grafico de barras: concentracion de los activos ---
+    # --- grafico de barras: concentracion de los 8 tipos de activo ---
+    cats_act = f"'Dashboard'!$B${act_first}:$B${act_last}"
     barr = BarChart()
     barr.type = "col"
-    barr.grouping = "clustered"
-    barr.title = f"Concentracion de activos: {anio} vs {anio + 1}"
+    barr.title = f"Concentracion de activos {anio} (por tipo)"
     barr.style = 10
-    barr.add_data(Reference(ws, min_col=4, max_col=5, min_row=act_first - 1,
+    barr.add_data(Reference(ws, min_col=4, min_row=act_first - 1,
                             max_row=act_last), titles_from_data=True)
-    barr.set_categories(Reference(ws, min_col=2, min_row=act_first,
-                                  max_row=act_last))
-    barr.height, barr.width = 9.5, 19
+    for s in barr.series:
+        s.cat = AxDataSource(strRef=StrRef(f=cats_act))
+    barr.dataLabels = DataLabelList()
+    barr.dataLabels.showVal = True
+    barr.legend = None
+    barr.height, barr.width = 10, 21
     ws.add_chart(barr, "I3")
 
     # --- grafico circular: composicion activos / pasivos / patrimonio ---
+    cats_cons = f"'Dashboard'!$B${cons_first}:$B${cons_last}"
     comp = PieChart()
     comp.title = "Composicion: activos, pasivos y patrimonio"
     comp.add_data(Reference(ws, min_col=4, min_row=cons_first,
                             max_row=cons_last), titles_from_data=False)
-    comp.set_categories(Reference(ws, min_col=2, min_row=cons_first,
-                                  max_row=cons_last))
+    for s in comp.series:
+        s.cat = AxDataSource(strRef=StrRef(f=cats_cons))
     comp.dataLabels = DataLabelList()
+    comp.dataLabels.showCatName = True
     comp.dataLabels.showPercent = True
-    comp.height, comp.width = 9.5, 14
-    ws.add_chart(comp, "I23")
+    comp.dataLabels.showVal = False
+    comp.dataLabels.showSerName = False
+    comp.dataLabels.showLegendKey = False
+    comp.height, comp.width = 10, 15
+    ws.add_chart(comp, "I24")
 
     nota = ws.cell(row=cons_last + 2, column=2,
                    value="Edite las columnas amarillas en las hojas de cada "
