@@ -499,6 +499,7 @@ def _grupo_sheet(wb, modulo, anio, rows, rangos):
 
     ws.freeze_panes = ws.cell(row=first, column=1)
     return {"hoja": modulo["hoja"], "clase": modulo["clase"],
+            "key": modulo["key"],
             "dash": modulo["dash"], "total_row": total_row,
             "L25": L25, "L26": L26}
 
@@ -692,20 +693,41 @@ def _build_dashboard(wb, data, infos, anio):
     _kpi_card(ws, 5, 6, 7, "PATRIMONIO NETO", f"=D{pneto}", PAT, PAT_L,
               "Var. proyectada", f"=G{pneto}")
 
-    # --- grafico de barras: concentracion de los 8 tipos de activo ---
-    cats_act = f"'Dashboard'!$B${act_first}:$B${act_last}"
+    # --- area auxiliar oculta: solo los activos que tienen valor ---
+    activos_con_valor = []
+    for i, info in enumerate(activos):
+        total = sum(v for _d, v in data["modulos"].get(info["key"], []))
+        if total > 0:
+            activos_con_valor.append((info["dash"], act_first + i))
+    if not activos_con_valor:
+        activos_con_valor = [(info["dash"], act_first + i)
+                             for i, info in enumerate(activos)]
+    h0 = 3
+    for k, (nombre, src) in enumerate(activos_con_valor):
+        ws.cell(row=h0 + k, column=27, value=nombre)
+        cvh = ws.cell(row=h0 + k, column=28, value=f"=D{src}")
+        cvh.number_format = MONEDA
+    h1 = h0 + len(activos_con_valor) - 1
+    ws.column_dimensions["AA"].hidden = True
+    ws.column_dimensions["AB"].hidden = True
+
+    # --- grafico de barras: concentracion de los activos con valor ---
     barr = BarChart()
     barr.type = "col"
-    barr.title = f"Concentracion de activos {anio} (por tipo)"
+    barr.title = f"Concentracion de activos {anio}"
     barr.style = 10
-    barr.add_data(Reference(ws, min_col=4, min_row=act_first - 1,
-                            max_row=act_last), titles_from_data=True)
+    barr.add_data(Reference(ws, min_col=28, min_row=h0, max_row=h1),
+                  titles_from_data=False)
     for s in barr.series:
-        s.cat = AxDataSource(strRef=StrRef(f=cats_act))
+        s.cat = AxDataSource(strRef=StrRef(f=f"'Dashboard'!$AA${h0}:$AA${h1}"))
     barr.dataLabels = DataLabelList()
     barr.dataLabels.showVal = True
+    barr.dataLabels.showCatName = False
+    barr.dataLabels.showSerName = False
+    barr.dataLabels.showLegendKey = False
+    barr.dataLabels.numFmt = '"$"#,##0'
     barr.legend = None
-    barr.height, barr.width = 10, 21
+    barr.height, barr.width = 10.5, 21
     ws.add_chart(barr, "I3")
 
     # --- grafico circular: composicion activos / pasivos / patrimonio ---
@@ -722,8 +744,8 @@ def _build_dashboard(wb, data, infos, anio):
     comp.dataLabels.showVal = False
     comp.dataLabels.showSerName = False
     comp.dataLabels.showLegendKey = False
-    comp.height, comp.width = 10, 15
-    ws.add_chart(comp, "I24")
+    comp.height, comp.width = 10.5, 16
+    ws.add_chart(comp, "I25")
 
     nota = ws.cell(row=cons_last + 2, column=2,
                    value="Edite las columnas amarillas en las hojas de cada "
