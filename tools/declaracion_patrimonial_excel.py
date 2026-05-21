@@ -352,10 +352,9 @@ def parse_xml(path: Path) -> dict:
         "crecimientoPat": _num(pat, "crecimientoPat"),
     }
     es_incremento = patrimonio["crecimientoPat"] >= 0
-    tabla_just = (cat.JUSTIFICACION_INCREMENTO if es_incremento
-                  else cat.JUSTIFICACION_DECREMENTO)
+    # La justificacion de la variacion patrimonial usa siempre la Tabla 14.
     justif = [(_txt(d, "justificVariacion"),
-               _fmt(tabla_just, _txt(d, "justificVariacion")))
+               _fmt(cat.JUSTIFICACION_INCREMENTO, _txt(d, "justificVariacion")))
               for d in root.iter("detalleJustificacion")]
 
     modulos = {m["key"]: _parse_modulo(root, m) for m in MODULOS}
@@ -749,12 +748,12 @@ def _build_justificacion(wb, data, anio, rangos):
     crec = pat["crecimientoPat"]
     conceptos = data["justificacion"]
     es_inc = data["es_incremento"]
-    rango_cat = rangos["JUSTIF_INCREMENTO" if es_inc else "JUSTIF_DECREMENTO"]
+    rango_cat = rangos["JUSTIF_INCREMENTO"]   # Tabla 14, siempre
     palabra = "incremento" if es_inc else "decremento"
 
     _banner(ws, 7, "JUSTIFICACION DE LA VARIACION PATRIMONIAL",
             f"Conceptos declarados en el XML  -  ejercicio {anio}  "
-            f"({'TABLA 14 - incremento' if es_inc else 'TABLA 17 - decremento'})")
+            "(catalogo Tabla 14 del SRI)")
 
     sec = 10
     _sec_header(ws, sec, f"DISTRIBUCION DEL {palabra.upper()} PATRIMONIAL",
