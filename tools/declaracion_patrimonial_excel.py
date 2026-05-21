@@ -967,6 +967,84 @@ def _build_info(wb, data, anio, pneto_row):
     ws.column_dimensions["B"].width = 34
 
 
+def _build_mapa(wb):
+    """Hoja oculta con el mapa de etiquetas XML; la usa la macro VBA."""
+    ws = wb.create_sheet("_Mapa")
+    ws.sheet_state = "hidden"
+    ws.append(["key", "hoja", "contenedor", "detalle", "clase", "ordenXml",
+               "tipo", "xmlTag", "descIndex"])
+    orden = {k: i for i, k in enumerate(ORDEN_XML)}
+    for m in MODULOS:
+        di = 0
+        for _h, _w, _cat, xml_tag, tipo in m["cols"]:
+            if tipo == "val":
+                idx = 0
+            else:
+                di += 1
+                idx = di
+            ws.append([m["key"], m["hoja"], m["contenedor"], m["detalle"],
+                       m["clase"], orden[m["key"]], tipo, xml_tag, idx])
+
+
+def _build_instrucciones(wb):
+    """Hoja visible con el boton para generar el XML y su configuracion."""
+    ws = wb.create_sheet("Generar XML")
+    ws.sheet_view.showGridLines = False
+    _banner(ws, 6, "GENERAR XML PARA EL SRI",
+            "Convierte este libro en el archivo XML de la Declaracion "
+            "Patrimonial, listo para subir al portal del SRI")
+
+    ws.merge_cells("B5:D6")
+    b = ws.cell(row=5, column=2, value="►   GENERAR XML")
+    b.font = Font(bold=True, size=14, color="FFFFFF")
+    b.fill = PatternFill("solid", fgColor=ACT)
+    b.alignment = CENTER
+    for r in (5, 6):
+        for c in range(2, 5):
+            ws.cell(row=r, column=c).border = BORDE
+    ws.cell(row=7, column=2,
+            value="Dibuje el boton sobre este recuadro y asignele la macro "
+                  "GenerarXmlSRI").font = Font(italic=True, size=8,
+                                               color=GRIS_TXT)
+
+    pasos = [
+        ("CONFIGURACION POR UNICA VEZ (activa el boton)", True),
+        ("1. Abra el editor de macros con la tecla  Alt + F11.", False),
+        ("2. Menu Archivo > Importar archivo... y seleccione el archivo "
+         "GenerarXmlSRI.bas.", False),
+        ("3. Cierre el editor y guarde este libro como  'Libro de Excel "
+         "habilitado para macros (*.xlsm)'.", False),
+        ("4. Active la pestana Programador:  Archivo > Opciones > "
+         "Personalizar cinta de opciones > marque 'Programador'.", False),
+        ("5. Programador > Insertar > Boton (control de formulario) y "
+         "dibujelo sobre el recuadro verde de arriba.", False),
+        ("6. Cuando Excel lo solicite, asigne la macro  GenerarXmlSRI.", False),
+        ("", False),
+        ("USO DIARIO", True),
+        ("7. Llene las columnas amarillas de cada modulo y la hoja "
+         "Justificacion.", False),
+        ("8. Pulse el boton GENERAR XML, indique el anio y elija donde "
+         "guardar.", False),
+        ("9. El archivo .xml queda listo para subir al portal del SRI.",
+         False),
+        ("", False),
+        ("Alternativa sin macros:  ejecutar  "
+         "python tools/generar_xml_sri.py  desde la terminal.", False),
+    ]
+    r = 9
+    for texto, encab in pasos:
+        c = ws.cell(row=r, column=2, value=texto)
+        if encab:
+            c.font = Font(bold=True, size=11, color=NAVY)
+        else:
+            c.font = FONT_NORMAL
+        r += 1
+
+    ws.column_dimensions["A"].width = 3
+    for col in ("B", "C", "D", "E"):
+        ws.column_dimensions[col].width = 22
+
+
 def build_workbook(data: dict, salida: Path):
     anio = data["encabezado"]["anio"] or 2025
     wb = Workbook()
@@ -981,10 +1059,13 @@ def build_workbook(data: dict, salida: Path):
 
     dash = _build_dashboard(wb, data, infos, anio)
     _build_justificacion(wb, data, anio, rangos)
+    _build_instrucciones(wb)
     _build_info(wb, data, anio, dash["pneto_row"])
+    _build_mapa(wb)
 
     orden = ["Dashboard"] + [m["hoja"] for m in MODULOS] + \
-            ["Justificacion", "Datos del XML", "Catalogos"]
+            ["Justificacion", "Generar XML", "Datos del XML", "_Mapa",
+             "Catalogos"]
     wb._sheets.sort(key=lambda ws: orden.index(ws.title))
     wb.active = 0
 
