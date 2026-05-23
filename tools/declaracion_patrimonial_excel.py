@@ -445,6 +445,10 @@ def _grupo_sheet(wb, modulo, anio, rows, rangos):
             c.border = BORDE
             if zebra:
                 c.fill = zebra
+            # Texto: evita que Excel convierta numeros largos a notacion
+            # cientifica (claveCat, numIdent, placa, etc.)
+            if cols[j - 1][4] == "txt":
+                c.number_format = "@"
         c25 = ws.cell(row=r, column=col_25, value=valor)
         c26 = ws.cell(row=r, column=col_26, value=valor)
         cv = ws.cell(row=r, column=col_var, value=f"={L26}{r}-{L25}{r}")

@@ -216,7 +216,13 @@ Private Function ModuloXml(key As String, mapa As Variant, anio As Long, _
                         "</" & etiqueta & ">" & L
                 Else
                     Dim celda As String
-                    celda = Trim$(CStr(ws.Cells(r, di).Value))
+                    ' Numeros largos en cels de texto: evitar notacion cientifica
+                    Dim rawv As Variant: rawv = ws.Cells(r, di).Value
+                    If tipo = "txt" And IsNumeric(rawv) Then
+                        celda = Format$(rawv, "0")
+                    Else
+                        celda = Trim$(CStr(rawv))
+                    End If
                     If etiqueta = "_ifi" Then
                         If celda <> "" Then
                             If IsNumeric(Codigo(celda)) Then

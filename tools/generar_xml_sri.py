@@ -121,6 +121,10 @@ def _detalle_xml(modulo, desc, valor):
             continue
         if crudo is None or str(crudo).strip() == "":
             continue
+        # Numeros largos (claveCat, identificaciones) llegan como float en
+        # notacion cientifica; convertirlos a entero plano.
+        if tipo == "txt" and isinstance(crudo, float) and crudo.is_integer():
+            crudo = int(crudo)
         val = _code(crudo) if tipo == "cod" else str(crudo).strip()
         lineas.append(f"    <{xml_tag}>{_esc(val)}</{xml_tag}>")
     lineas.append(f"</{modulo['detalle']}>")
