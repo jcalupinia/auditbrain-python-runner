@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="ISO-8859-1" standalone="yes"?>
+<decPat>
+    <anio>2026</anio>
+    <tipoDec>SOC</tipoDec>
+    <tipoIdent>R</tipoIdent>
+    <numIdent>1709164899001</numIdent>
+    <nombre>GONZALEZ NAVAS MARCO VINICIO</nombre>
+    <tipoIdentCony>C</tipoIdentCony>
+    <numIdentCony>1709784225</numIdentCony>
+    <nombreCony>HIDALGO LOZA ROSA CONSUELO</nombreCony>
+    <totalCreditos>0.00</totalCreditos>
+    <patrimonio>
+        <totalDeclarado>922116.23</totalDeclarado>
+        <atribuibleHijos>0.00</atribuibleHijos>
+        <sociedadConyugal>922116.23</sociedadConyugal>
+        <individual>0.00</individual>
+        <anioAnterior>883285.56</anioAnterior>
+        <crecimientoPat>38830.67</crecimientoPat>
+    <justificacion>
+<detalleJustificacion>
+    <justificVariacion>1</justificVariacion>
+</detalleJustificacion>
+<detalleJustificacion>
+    <justificVariacion>6</justificVariacion>
+</detalleJustificacion>
+</justificacion></patrimonio>
+<dinero>
+<detalleDinero>
+    <dineroEn>IFI</dineroEn>
+    <tipoInversion>3</tipoInversion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <ifiEcuador>1029</ifiEcuador>
+    <tipoMoneda>DOLARES</tipoMoneda>
+    <saldo>39.22</saldo>
+    <partesRelacionadas>2</partesRelacionadas>
+</detalleDinero>
+<detalleDinero>
+    <dineroEn>IFI</dineroEn>
+    <tipoInversion>4</tipoInversion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <ifiEcuador>1029</ifiEcuador>
+    <tipoMoneda>DOLARES</tipoMoneda>
+    <saldo>3134.09</saldo>
+    <partesRelacionadas>2</partesRelacionadas>
+</detalleDinero>
+<detalleDinero>
+    <dineroEn>IFI</dineroEn>
+    <tipoInversion>3</tipoInversion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <ifiEcuador>1418</ifiEcuador>
+    <tipoMoneda>DOLARES</tipoMoneda>
+    <saldo>45.00</saldo>
+    <partesRelacionadas>2</partesRelacionadas>
+</detalleDinero>
+<detalleDinero>
+    <dineroEn>IFI</dineroEn>
+    <tipoInversion>2</tipoInversion>
+    <ubicacion>EXT</ubicacion>
+    <pais>118</pais>
+    <nombreIfiExterior>BANCO PICHINCHA CA</nombreIfiExterior>
+    <tipoMoneda>DOLARES</tipoMoneda>
+    <saldo>211701.65</saldo>
+    <partesRelacionadas>2</partesRelacionadas>
+</detalleDinero>
+<detalleDinero>
+    <dineroEn>IFI</dineroEn>
+    <tipoInversion>5</tipoInversion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <ifiEcuador>1148</ifiEcuador>
+    <tipoMoneda>DOLARES</tipoMoneda>
+    <saldo>13314.33</saldo>
+    <partesRelacionadas>2</partesRelacionadas>
+</detalleDinero>
+</dinero>
+<vehiculos>
+<detalleVehiculos>
+    <tipoVehiculo>1</tipoVehiculo>
+    <placa>PBO7092</placa>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <valor>12000.00</valor>
+</detalleVehiculos>
+<detalleVehiculos>
+    <tipoVehiculo>1</tipoVehiculo>
+    <placa>PBF9690</placa>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <valor>20000.00</valor>
+</detalleVehiculos>
+<detalleVehiculos>
+    <tipoVehiculo>1</tipoVehiculo>
+    <placa>PFC8683</placa>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <valor>32000.00</valor>
+</detalleVehiculos>
+</vehiculos>
+<bienesInmuebles>
+<detalleBienesInmuebles>
+    <tipoInmueble>3</tipoInmueble>
+    <ubicacion>ECU</ubicacion>
+    <codPais>593</codPais>
+    <provincia>217</provincia>
+    <canton>21701</canton>
+    <fechaInscripcion>22/10/2008</fechaInscripcion>
+    <claveCat>1042203018</claveCat>
+    <valor>325258.80</valor>
+</detalleBienesInmuebles>
+<detalleBienesInmuebles>
+    <tipoInmueble>1</tipoInmueble>
+    <ubicacion>ECU</ubicacion>
+    <codPais>593</codPais>
+    <provincia>217</provincia>
+    <canton>21701</canton>
+    <fechaInscripcion>13/03/1997</fechaInscripcion>
+    <claveCat>1012020021000000000</claveCat>
+    <valor>202353.86</valor>
+</detalleBienesInmuebles>
+<detalleBienesInmuebles>
+    <tipoInmueble>1</tipoInmueble>
+    <ubicacion>ECU</ubicacion>
+    <codPais>593</codPais>
+    <provincia>217</provincia>
+    <canton>21701</canton>
+    <claveCat>1042203018</claveCat>
+    <valor>29131.43</valor>
+</detalleBienesInmuebles>
+<detalleBienesInmuebles>
+    <tipoInmueble>3</tipoInmueble>
+    <ubicacion>ECU</ubicacion>
+    <codPais>593</codPais>
+    <provincia>217</provincia>
+    <canton>21701</canton>
+    <claveCat>1012020021000000000</claveCat>
+    <valor>76097.82</valor>
+</detalleBienesInmuebles>
+</bienesInmuebles>
+<pasivo>
+<detallePasivo>
+    <tipoAcreedor>IFI</tipoAcreedor>
+    <domicilioAcreedor>ECU</domicilioAcreedor>
+    <valorDeuda>2959.97</valorDeuda>
+    <paisAcreedor>593</paisAcreedor>
+    <nombreAcreedor>BANCO DEL PICHINCHA</nombreAcreedor>
+    <tipoIdentificacionAcreedor>R</tipoIdentificacionAcreedor>
+    <numeroIdentificacionAcreedor>1790010937001</numeroIdentificacionAcreedor>
+    <partesRelacionadas>2</partesRelacionadas>
+</detallePasivo>
+</pasivo>
+</decPat>
