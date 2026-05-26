@@ -634,6 +634,23 @@ try:
                 "Bootstrap de BD/admin omitido: %s", _db_exc
             )
 
+    @app.on_event("startup")
+    async def _aud_of_cleanup_startup():
+        """Arranca el loop periódico de cleanup de jobs efímeros AUD/OF.
+        Defensivo: si falla la importación, el resto del servicio sigue."""
+        try:
+            import asyncio
+
+            from backend.app.aud.obligaciones_fiscales import cleanup as _aud_of_cleanup
+
+            asyncio.create_task(_aud_of_cleanup.cleanup_loop())
+        except Exception as _cleanup_exc:  # pragma: no cover
+            import logging
+
+            logging.getLogger("auditbrain").warning(
+                "AUD/OF cleanup loop no iniciado: %s", _cleanup_exc
+            )
+
 except Exception as _platform_exc:  # pragma: no cover
     import logging
 
