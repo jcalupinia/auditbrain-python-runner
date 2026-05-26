@@ -163,8 +163,10 @@ def generar_xml(libro: Path, anio: int) -> str:
     # filas de cada modulo
     filas = {k: _leer_modulo(wb, MOD[k], anio) for k in MOD}
 
+    # Solo se suman los valores positivos: el SRI no acepta saldos <= 0 en los
+    # detalles, y la suma debe cuadrar con los detalles emitidos en el XML.
     def total(key):
-        return round(sum(v for _d, v in filas[key]), 2)
+        return round(sum(v for _d, v in filas[key] if v > 0), 2)
 
     total_creditos = total("cxc")
     total_derechos = total("derechos")
@@ -179,9 +181,9 @@ def generar_xml(libro: Path, anio: int) -> str:
     anios_libro = {int(a) for a in _columnas_valor(ws_dinero) if a.isdigit()}
     if (anio - 1) in anios_libro:
         prev = {k: _leer_modulo(wb, MOD[k], anio - 1) for k in MOD}
-        act_prev = sum(round(sum(v for _d, v in prev[m["key"]]), 2)
+        act_prev = sum(round(sum(v for _d, v in prev[m["key"]] if v > 0), 2)
                        for m in MODULOS if m["clase"] == "activo")
-        pas_prev = sum(round(sum(v for _d, v in prev[m["key"]]), 2)
+        pas_prev = sum(round(sum(v for _d, v in prev[m["key"]] if v > 0), 2)
                        for m in MODULOS if m["clase"] == "pasivo")
         anio_anterior = round(act_prev - pas_prev, 2)
     else:

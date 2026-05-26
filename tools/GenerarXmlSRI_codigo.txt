@@ -202,7 +202,7 @@ Private Function ModuloXml(key As String, mapa As Variant, anio As Long, _
     Do While r < 5000
         If CStr(ws.Cells(r, 1).Value) = "TOTAL" Then Exit Do
         Dim valor As Double: valor = ValTexto(CStr(ws.Cells(r, colVal).Value))
-        total = total + valor
+        If valor > 0 Then total = total + valor    ' SRI: solo positivos
         If valor > 0 Then
             Dim det As String: det = "<" & detalle & ">" & L
             For i = 1 To n
@@ -303,7 +303,8 @@ Private Function SumaModulo(hoja As String, anio As Long) As Double
     r = 6
     Do While r < 5000
         If CStr(ws.Cells(r, 1).Value) = "TOTAL" Then Exit Do
-        t = t + ValTexto(CStr(ws.Cells(r, colVal).Value))
+        Dim vmod As Double: vmod = ValTexto(CStr(ws.Cells(r, colVal).Value))
+        If vmod > 0 Then t = t + vmod    ' SRI: solo valores positivos
         r = r + 1
     Loop
     SumaModulo = Redondear(t)
