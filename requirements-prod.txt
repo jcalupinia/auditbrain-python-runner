@@ -22,6 +22,10 @@ python-docx==1.1.2
 python-pptx==0.6.23
 lxml>=4.9.0
 
+# --- AUD Obligaciones Fiscales (M1+): extracción de PDFs SRI ---
+pdfplumber==0.11.5
+Pillow>=10.0.0
+
 # --- Auth multiusuario (F2): JWT + PostgreSQL + hashing ---
 sqlalchemy==2.0.36
 psycopg2-binary==2.9.9
@@ -35,9 +39,11 @@ email-validator==2.2.0
 #   torch, transformers, spacy, dask, great_expectations, tensorflow,
 #   scikit-learn, statsmodels, pyod, langchain, matplotlib, plotly,
 #   seaborn, pyarrow, duckdb, pyautogui, fuzzywuzzy, beautifulsoup4,
-#   docxtpl, fpdf, pdfplumber, Pillow, cython
+#   docxtpl, fpdf, cython
 #   (reportlab no está en requirements.txt ni se importa)
 # Nota: sqlalchemy y python-multipart, antes excluidos, ahora SÍ se
 # incluyen porque F2 añade auth multiusuario (login OAuth2 + Postgres).
-# Si un script de GPT necesita alguno de estos, evaluar caso a caso.
+# Nota: pdfplumber y Pillow, antes excluidos, ahora SÍ se incluyen porque
+# M1 de AUD Obligaciones Fiscales necesita extraer texto de PDFs SRI.
+# Si un script de GPT necesita alguno de los excluidos, evaluar caso a caso.
 # ==========================================================
