@@ -20,8 +20,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from declaracion_patrimonial_excel import (  # noqa: E402
     MODULOS, ORDEN_XML, desc_cols, valor_tag)
 
+import re  # noqa: E402
+
 ENCODING_XML = "ISO-8859-1"
 MOD = {m["key"]: m for m in MODULOS}
+
+# Etiquetas XML que deben limpiarse (SRI exige solo letras/digitos/espacios).
+_NAME_TAGS = {"nombre", "nombreCony", "nombreDeudor", "nombreAcreedor",
+              "nombreIfiExterior", "nombempresa", "descripcion"}
+_RX_NOM = re.compile(r"[^A-Za-z\xf1\xd10-9\s]+")
+
+
+def _saneo_nombre(s: str) -> str:
+    s = s.replace("&", " Y ")
+    s = _RX_NOM.sub(" ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
 
 def _code(v):
@@ -126,6 +140,8 @@ def _detalle_xml(modulo, desc, valor):
         if tipo == "txt" and isinstance(crudo, float) and crudo.is_integer():
             crudo = int(crudo)
         val = _code(crudo) if tipo == "cod" else str(crudo).strip()
+        if xml_tag in _NAME_TAGS:
+            val = _saneo_nombre(val)
         lineas.append(f"    <{xml_tag}>{_esc(val)}</{xml_tag}>")
     lineas.append(f"</{modulo['detalle']}>")
     return "\n".join(lineas)
@@ -138,10 +154,10 @@ def generar_xml(libro: Path, anio: int) -> str:
     tipo_dec = _code(dg.get("Tipo de declaracion"))
     tipo_ident = _code(dg.get("Tipo de identificacion"))
     num_ident = dg.get("Numero de identificacion") or ""
-    nombre = dg.get("Nombre del declarante") or ""
+    nombre = _saneo_nombre(str(dg.get("Nombre del declarante") or ""))
     tipo_ident_cony = _code(dg.get("Identificacion del conyuge"))
     num_ident_cony = dg.get("Numero ident. conyuge") or ""
-    nombre_cony = dg.get("Nombre del conyuge") or ""
+    nombre_cony = _saneo_nombre(str(dg.get("Nombre del conyuge") or ""))
     regularizacion = _code(dg.get("Regularizacion de activos"))
 
     # filas de cada modulo

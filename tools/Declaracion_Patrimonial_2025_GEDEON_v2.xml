@@ -1,0 +1,1487 @@
+<?xml version="1.0" encoding="ISO-8859-1" standalone="yes"?>
+<decPat>
+    <anio>2025</anio>
+    <tipoDec>SOC</tipoDec>
+    <tipoIdent>R</tipoIdent>
+    <numIdent>0201296480001</numIdent>
+    <nombre>GONZALEZ SOLANO GEDEON GUALBERTO</nombre>
+    <tipoIdentCony>C</tipoIdentCony>
+    <numIdentCony>0603399890</numIdentCony>
+    <nombreCony>ALVEAR OBANDO VERONICA PATRICIA</nombreCony>
+    <totalCreditos>254097.18</totalCreditos>
+    <patrimonio>
+        <totalDeclarado>1393338.78</totalDeclarado>
+        <atribuibleHijos>0.00</atribuibleHijos>
+        <sociedadConyugal>1393338.78</sociedadConyugal>
+        <individual>0.00</individual>
+        <anioAnterior>1249197.27</anioAnterior>
+        <crecimientoPat>144141.51</crecimientoPat>
+    <justificacion>
+<detalleJustificacion>
+    <justificVariacion>1</justificVariacion>
+</detalleJustificacion>
+<detalleJustificacion>
+    <justificVariacion>6</justificVariacion>
+</detalleJustificacion>
+</justificacion></patrimonio>
+<dinero>
+<detalleDinero>
+    <dineroEn>IFI</dineroEn>
+    <tipoInversion>4</tipoInversion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <ifiEcuador>1029</ifiEcuador>
+    <tipoMoneda>DOLARES</tipoMoneda>
+    <saldo>16096.93</saldo>
+    <partesRelacionadas>2</partesRelacionadas>
+</detalleDinero>
+<detalleDinero>
+    <dineroEn>IFI</dineroEn>
+    <tipoInversion>4</tipoInversion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <ifiEcuador>1028</ifiEcuador>
+    <tipoMoneda>DOLARES</tipoMoneda>
+    <saldo>187.78</saldo>
+    <partesRelacionadas>2</partesRelacionadas>
+</detalleDinero>
+<detalleDinero>
+    <dineroEn>IFI</dineroEn>
+    <tipoInversion>3</tipoInversion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <ifiEcuador>1029</ifiEcuador>
+    <tipoMoneda>DOLARES</tipoMoneda>
+    <saldo>1062.33</saldo>
+    <partesRelacionadas>2</partesRelacionadas>
+</detalleDinero>
+<detalleDinero>
+    <dineroEn>IFI</dineroEn>
+    <tipoInversion>3</tipoInversion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <ifiEcuador>1028</ifiEcuador>
+    <tipoMoneda>DOLARES</tipoMoneda>
+    <saldo>129291.29</saldo>
+    <partesRelacionadas>2</partesRelacionadas>
+</detalleDinero>
+<detalleDinero>
+    <dineroEn>EFE</dineroEn>
+    <tipoInversion>1</tipoInversion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <tipoMoneda>DOLARES</tipoMoneda>
+    <saldo>6301.44</saldo>
+    <partesRelacionadas>2</partesRelacionadas>
+</detalleDinero>
+</dinero>
+<ctasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>ACEROS Y MATERIALES PARA LA CONSTRUCCION ACIMCOECUADOR</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1791989937001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>11111.26</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>ACR PROYECTOS SA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1792192331001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>2702.01</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>ALMEIDA MORILLO ESTALIN FABIAN</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1001503364001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1247.75</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>ARTGLASS SA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>2390004276001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1204.75</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>BAGANT ECUATORIANA CIA LTDA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1790322491001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>7847.87</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>BECERRA ALMEIDA GLADYS VERONICA</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1711731685001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1230.82</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>CARROCERIAS METALICAS MONCAYO MONCAYO</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>2390050375001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>10060.03</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>CARROCERIASIMCE SAS</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1891812059001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1481.20</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>CEPEDA CIA LTDA</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1890152909001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>8329.34</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>CONSERDE MILLENIUM</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1791711238001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>4992.21</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>CORA REFRIGERACION CIA LTDA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1791904753001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1111.86</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>DEALERNEW SA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>0992527501001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>4354.71</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>DUCHI PILCO SEGUNDO VICENTE</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>0602948002001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>2776.68</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>EKRON CONSTRUCCIONES SA</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1791945395001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>4809.53</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>ER SERVEIS CIA LTDA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1704620713001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>2167.74</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>ESCOBAR TIRADO PIEDAD</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1000785921001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1062.51</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>FRANCO GRANDA DIMALVID</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1792541476001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>10693.63</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>AGUILERA TAPIA WALTER GERMAN</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>0500839543001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>2281.14</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>GRUPOMM REFRIGERACION</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1792621143001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1475.75</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>GUAMBA ROSAS GLADYS NARSIZA</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1713377271001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>2760.00</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>IMETAM SA</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1790589013001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1552.84</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>INGEVITRO INGENIERIA DEL VIDRIO</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1791399455001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>2069.81</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>JAVIER DIEZ COMUNICACION</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1792012058001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1005.89</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>MARROQUIN TORRES WILSON</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1709765042001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>5166.15</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>MAXILIFT</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1792350735001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>2993.09</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>MAYORGA NATA OSCAR</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1716647746001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1086.04</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>MAZON MOYOLEMA FLOR KARINA</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1719036426001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>7062.08</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>PAREJA PALACIOS LUIS</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1705042719001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>2445.45</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>PATRICIO CEPEDA CIA LTDA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1891733611001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>10381.33</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>PILLAPA TUZA JORGE</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1802211415001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>13976.98</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>PINTUCOLORS SAS</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>2390632412001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1003.37</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>PROFEMAC</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1792543894001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>7128.96</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>RAMIREZ JORGE PATRICIO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1801707041001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1440.72</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>RIVERA CACERES SAULO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>0600476469001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>3438.72</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>SAIGUA GUAMAN BENITO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1718267873001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>5958.17</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>SEDAMOS ESCOBAR GLORIA</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1102992813001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>2473.57</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>SEDEMI SERVICIOS DE MECANICA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1791734920001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>3146.51</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>SERVICIOS MANTENIMIENTO Y RECONSTRUCCION DE CARROCERIAS</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1790484009001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1305.00</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>TACO ALMACHI CHRISTIAN</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1719119511001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>3339.22</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>URBINA MONROY EDGAR ANDRES</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1716717218001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>3656.50</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>VALVERDE TOPON MARTHA</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1717333452001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1712.70</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>TACO ALMACHI CHRISTIAN ERNESTO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1719119511001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>3339.22</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>TALLER ARTESANAL ALUMCOL</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>2390015758001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>7672.74</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>TOCALEMA TENESACA WILSON</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1804816864001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1163.32</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>TRANS ESMERALDAS INTERNACIONAL TEISA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1790320359001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>5478.42</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>TRUJILLO CHACAN ISABEL</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1719422204001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>2452.12</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>TUGUMINAGO MAISINCHO JAVIER</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1715690234001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1599.95</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>URBINA MONROY EDGAR</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1716717218001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1841.63</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>VALVERDE TOPON MARTHA MARISOL</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1717333452001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1540.08</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>VELASCO CIFUENTES WILLIAM</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1003004163001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1833.84</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>YEPEZ DAZA CESAR ANDRES</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1001682036001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>3137.98</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>SERVICIO DE RENTAS INTERNAS</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1760013210001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>19189.82</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>AGUAYO SANCHEZ ALEXANDRA JAQUELINE</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1708610264001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>341.69</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>ALCIVAR CASTRO LUIS ALBERTO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1712666856001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>205.82</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>ALCIVAR CHAVEZ DEBIHD LUZ</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1708577067001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>356.52</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>APLIKA APLICADORES TECNICOS PARA LA CONSTRUCCION CIA LTDA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1791904451001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>22.33</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>ARROYO MENA SEBASTIAN ALEJANDRO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1716495948001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>660.33</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>AUTOMOTORES Y ANEXOS S A AYASA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1790014797001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1230.33</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>AYMESA S A</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1790023931001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>2184.09</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>BARRIONUEVO MARCO ANTONIO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1710843655001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>81.81</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>BAVARIANAUTO CIA LTDA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1792169801001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>551.53</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>BETANCOURT BASTIDAS EDUARDO ALBERTO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1001105814001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>344.65</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>CAZAR LASTRA WILMAN LAUREANO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1714159751001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>138.12</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>CEVALLOS PLAZA JULIO CESAR</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1310446404001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>359.43</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>CLIMAPOWER S A IMPORTADORA Y COMERCIALIZADORA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1792369436001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>426.82</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>CONSTRUBENTHO CONSTRUCCIONES S A</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1792474477001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>385.76</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>COOPERATIVA DE SERVICIOS DE MANTENIMIENTO MUNDO AUTOMOTRIZ Y MAQUINARIA COOPMUNAUTO</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1792832438001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>690.00</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>CRISTALES LAMINADOS Y TEMPERADOS CRILAMIT S A</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1790355969001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>48.93</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>CUÑAS PORTILLA MARGOTH BEATRIZ</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1714586722001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>143.82</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>DIAZ MAHECHA RENE</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1710679786001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>138.00</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>DIAZ MIÑO ORLANDO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1710581271001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>762.22</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>ECUATORIANA DE MATRICERIA ECUAMATRIZ CIA LTDA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1890108241001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>194.40</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>EDIFIKASOLUCION CIA LTDA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1891746853001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>358.87</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>EGAS CARRERA MARCO VINICIO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1707317184001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>356.43</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>ESTRUCTURAS DE ALUMINIO S A ESTRUSA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1790780880001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>3366.67</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>FACCIATA S A</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1792549353001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>591.81</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>FALCONECUADOR S A S</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1891811552001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>986.33</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>FARCONG SUMINISTROS CIA LTDA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1791710967001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>169.65</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>FREIRE QUIROZ XAVIER EMILIANO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1003341730001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>238.34</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>GALARZA YANSAPANTA NELSON ANIBAL</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1803056983001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>165.60</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>GRANDA PAILLACHO CARLOS DAVID</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1727440156001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>725.36</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>GUERRERO PORRAS TANIA INES</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1719450643001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>113.51</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>INDUMADERA CIA LTDA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1791935462001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>2894.55</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>INDUSTRIA METAL MECANICA MALIZA S A S</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1793197127001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>394.28</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>JACOME MONSERRAT</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1723014237001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>19.22</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>KUBIEC S A</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1791299035001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>542.99</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>LANDA LANDA ANGEL MARIA</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1802138691001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>562.12</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>LASSO BAEZ PAOLA VIVIANA</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1715062145001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>216.32</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>LOOR PONCE YAZMIN ANAHI</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>2350786014001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>468.60</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>LOPEZ NAVARRETE SARA DE LAS MERCEDES</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>915999858001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>662.40</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>LOPEZ SOTO MARIA ELIZABETH</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>401295977001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>641.60</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>MALDONADO MADERA CARMEN GUADALUPE</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1001870607001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>20.13</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>MARISPOLYMERS ECUADOR CIA LTDA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1793045162001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>94.30</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>MONTESDEOCA AVALOS CESAR PATRICIO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1709774697001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>225.27</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>MONTESDEOCA MORALES GEOVANNA CECILIA</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1712212826001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1.88</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>MOREIRA VERA JUAN CARLOS</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1709504219001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>10.01</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>NARANJO ALBUJA ANA MARIA</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1710238732001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>325.00</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>NARANJO ROSES ECUADOR S A</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1791766148001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>253.58</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>NOVACERO S A</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>0590038LAS001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>664.76</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>OROZCO MURILLO JEANETTE JESSENIA</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1803372224001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>2741.97</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>ORTEGA GOMEZ JIMY PATRICIO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1001635927001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>913.87</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>OÑATE QUISHPE MIRIAM YOLANDA</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1305586123001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>122.96</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>PAEZ BENITEZ DIEGO RAFAEL</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1716180177001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>136.62</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>PEÑA BURGOS OMAR ISRAEL</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>921680922001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1796.25</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>PILLAJO YAMBERLA LUIS AURELIO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1001650744001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>482.45</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>PIÑA CASTRO FLAVIO GONZALO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1712664216001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>513.23</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>PIÑA CASTRO SEGUNDO JOSE</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1716739014001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>518.61</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>PNF DISREPAR DISTRIBUIDORA DE REPUESTOS Y PARABRISAS S A S</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1793215612001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1120.80</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>PONCE ESCANTA MARIA CONSUELO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1704585858001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>218.12</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>QUILLIGANA SANCHEZ HERNAN HUGO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1500404759001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>261.27</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>REY ZAMBRANO OMAR LEONARDO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1714609540001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>114.48</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>SALGADO ZAPATA MYRIAM ELIZABETH</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1715740864001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>69.00</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>SERVICIOS Y MATERIALES DE CONSTRUCCION SEDIMACOM CIA LTDA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1792850207001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>544.67</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>SOLORZANO BRAVO ALEJANDRO ANDRES</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>2300441918001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>366.11</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>SOLUCIONES INDUSTRIALES METALMACHINE S C C</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1792432391001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>137.02</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>SOTO ERRAEZ JASMANI ALFREDO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>704206960001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>332.38</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>SUDAMERICANA DE BUSES Y CAMIONES SUDACAM CIA LTDA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1792380944001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>199.40</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>SUNTAXI RODRIGUEZ VICTORIA GRACIELA</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1717717571001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>1587.98</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>TABANGO ULCUANGO MARIA HORTENCIA</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1716460900001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>686.71</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>TIBANQUIZA TOAPANTA FABIOLA GUILLERMINA</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>603176454001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>435.78</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>TOPON TOPON SEGUNDO BELISARIO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1708361090001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>96.03</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>TORRES RODRIGUEZ JAIME RAMIRO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1801637255001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>179.95</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>VICENTE Y ARTURO IMPORTACIONES Y COMERCIO CIA LTDA</nombreDeudor>
+    <tipoDeudor>2</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1791397223001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>597.76</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>VILLEGAS CEVALLOS FERNANDO ALVARO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>1000944924001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>86.32</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>YANDUM PONCE JERMAN BAYARDO</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>400836417001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>134.56</saldo>
+</detalleCtasXCobrar>
+<detalleCtasXCobrar>
+    <nombreDeudor>ZAPATA BARAHONA CARMELINA HERLINDA</nombreDeudor>
+    <tipoDeudor>1</tipoDeudor>
+    <tipoIdentificacion>R</tipoIdentificacion>
+    <numeroIdentificacion>920180247001</numeroIdentificacion>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <partesRelacionadas>2</partesRelacionadas>
+    <saldo>163.94</saldo>
+</detalleCtasXCobrar>
+</ctasXCobrar>
+<vehiculos>
+<detalleVehiculos>
+    <tipoVehiculo>1</tipoVehiculo>
+    <placa>BBW0338</placa>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <valor>4550.00</valor>
+</detalleVehiculos>
+<detalleVehiculos>
+    <tipoVehiculo>1</tipoVehiculo>
+    <placa>PCT7157</placa>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <valor>4798.24</valor>
+</detalleVehiculos>
+<detalleVehiculos>
+    <tipoVehiculo>1</tipoVehiculo>
+    <placa>IC9061</placa>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <valor>440.00</valor>
+</detalleVehiculos>
+<detalleVehiculos>
+    <tipoVehiculo>1</tipoVehiculo>
+    <placa>TBA6487</placa>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <valor>10640.10</valor>
+</detalleVehiculos>
+<detalleVehiculos>
+    <tipoVehiculo>1</tipoVehiculo>
+    <placa>PCT1304</placa>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <valor>20250.00</valor>
+</detalleVehiculos>
+<detalleVehiculos>
+    <tipoVehiculo>1</tipoVehiculo>
+    <placa>PDP6212</placa>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <valor>15733.33</valor>
+</detalleVehiculos>
+<detalleVehiculos>
+    <tipoVehiculo>1</tipoVehiculo>
+    <placa>PDP5685</placa>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <valor>14751.92</valor>
+</detalleVehiculos>
+<detalleVehiculos>
+    <tipoVehiculo>1</tipoVehiculo>
+    <placa>IBC6684</placa>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <valor>33000.00</valor>
+</detalleVehiculos>
+<detalleVehiculos>
+    <tipoVehiculo>1</tipoVehiculo>
+    <placa>KE312H</placa>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <valor>35000.00</valor>
+</detalleVehiculos>
+</vehiculos>
+<otrosBienes>
+<detalleOtrosBienes>
+    <tipoBien>2</tipoBien>
+    <ubicacion>ECU</ubicacion>
+    <pais>593</pais>
+    <valor>208043.81</valor>
+</detalleOtrosBienes>
+</otrosBienes>
+<bienesInmuebles>
+<detalleBienesInmuebles>
+    <tipoInmueble>6</tipoInmueble>
+    <ubicacion>ECU</ubicacion>
+    <codPais>593</codPais>
+    <provincia>217</provincia>
+    <canton>21701</canton>
+    <fechaInscripcion>24/05/2016</fechaInscripcion>
+    <claveCat>1160204007</claveCat>
+    <valor>350000.00</valor>
+</detalleBienesInmuebles>
+<detalleBienesInmuebles>
+    <tipoInmueble>1</tipoInmueble>
+    <ubicacion>ECU</ubicacion>
+    <codPais>593</codPais>
+    <provincia>217</provincia>
+    <canton>21701</canton>
+    <fechaInscripcion>25/08/2016</fechaInscripcion>
+    <claveCat>1310112001</claveCat>
+    <valor>325000.00</valor>
+</detalleBienesInmuebles>
+</bienesInmuebles>
+<pasivo>
+<detallePasivo>
+    <tipoAcreedor>IFI</tipoAcreedor>
+    <domicilioAcreedor>ECU</domicilioAcreedor>
+    <valorDeuda>22093.72</valorDeuda>
+    <paisAcreedor>593</paisAcreedor>
+    <nombreAcreedor>BANCO DINERS CLUB DEL ECUADOR</nombreAcreedor>
+    <tipoIdentificacionAcreedor>R</tipoIdentificacionAcreedor>
+    <numeroIdentificacionAcreedor>1790283380001</numeroIdentificacionAcreedor>
+    <partesRelacionadas>2</partesRelacionadas>
+</detallePasivo>
+<detallePasivo>
+    <tipoAcreedor>IFI</tipoAcreedor>
+    <domicilioAcreedor>ECU</domicilioAcreedor>
+    <valorDeuda>1904.19</valorDeuda>
+    <paisAcreedor>593</paisAcreedor>
+    <nombreAcreedor>BANCO PICHINCHA</nombreAcreedor>
+    <tipoIdentificacionAcreedor>R</tipoIdentificacionAcreedor>
+    <numeroIdentificacionAcreedor>1790010937001</numeroIdentificacionAcreedor>
+    <partesRelacionadas>2</partesRelacionadas>
+</detallePasivo>
+<detallePasivo>
+    <tipoAcreedor>OTR</tipoAcreedor>
+    <domicilioAcreedor>ECU</domicilioAcreedor>
+    <valorDeuda>1963.99</valorDeuda>
+    <paisAcreedor>593</paisAcreedor>
+    <nombreAcreedor>SIKA ECUATORIANA SA</nombreAcreedor>
+    <tipoIdentificacionAcreedor>R</tipoIdentificacionAcreedor>
+    <numeroIdentificacionAcreedor>1790753573001</numeroIdentificacionAcreedor>
+    <partesRelacionadas>2</partesRelacionadas>
+</detallePasivo>
+<detallePasivo>
+    <tipoAcreedor>OTR</tipoAcreedor>
+    <domicilioAcreedor>ECU</domicilioAcreedor>
+    <valorDeuda>6925.06</valorDeuda>
+    <paisAcreedor>593</paisAcreedor>
+    <nombreAcreedor>SERVICIO DE RENTAS INTERNAS</nombreAcreedor>
+    <tipoIdentificacionAcreedor>R</tipoIdentificacionAcreedor>
+    <numeroIdentificacionAcreedor>1760013210001</numeroIdentificacionAcreedor>
+    <partesRelacionadas>2</partesRelacionadas>
+</detallePasivo>
+<detallePasivo>
+    <tipoAcreedor>IES</tipoAcreedor>
+    <domicilioAcreedor>ECU</domicilioAcreedor>
+    <valorDeuda>3018.61</valorDeuda>
+    <paisAcreedor>593</paisAcreedor>
+    <nombreAcreedor>INSTITUTO ECUATORIANO DE SEGURIDAD SOCIAL</nombreAcreedor>
+    <tipoIdentificacionAcreedor>R</tipoIdentificacionAcreedor>
+    <numeroIdentificacionAcreedor>1760004650001</numeroIdentificacionAcreedor>
+    <partesRelacionadas>2</partesRelacionadas>
+</detallePasivo>
+</pasivo>
+</decPat>

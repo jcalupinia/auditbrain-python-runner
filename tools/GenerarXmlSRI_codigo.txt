@@ -109,13 +109,13 @@ Private Function ConstruirXml(anio As Long) As String
     s = s & Linea("tipoDec", Codigo(DatoXml("Tipo de declaracion")))
     s = s & Linea("tipoIdent", Codigo(DatoXml("Tipo de identificacion")))
     s = s & Linea("numIdent", DatoXml("Numero de identificacion"))
-    s = s & Linea("nombre", DatoXml("Nombre del declarante"))
+    s = s & Linea("nombre", SaneoNombre(DatoXml("Nombre del declarante")))
 
     Dim nIdCony As String: nIdCony = DatoXml("Numero ident. conyuge")
     If nIdCony <> "" Then
         s = s & Linea("tipoIdentCony", Codigo(DatoXml("Identificacion del conyuge")))
         s = s & Linea("numIdentCony", nIdCony)
-        s = s & Linea("nombreCony", DatoXml("Nombre del conyuge"))
+        s = s & Linea("nombreCony", SaneoNombre(DatoXml("Nombre del conyuge")))
     End If
 
     Dim regul As String: regul = Codigo(DatoXml("Regularizacion de activos"))
@@ -239,6 +239,12 @@ Private Function ModuloXml(key As String, mapa As Variant, anio As Long, _
                         Else
                             valor2 = celda
                         End If
+                        Select Case etiqueta
+                            Case "nombreDeudor", "nombreAcreedor", _
+                                 "nombreIfiExterior", "nombempresa", _
+                                 "descripcion"
+                                valor2 = SaneoNombre(valor2)
+                        End Select
                         det = det & "    <" & etiqueta & ">" & Esc(valor2) & _
                             "</" & etiqueta & ">" & L
                     End If
@@ -447,6 +453,27 @@ Private Function ValTexto(v As Variant) As Double
     Else
         ValTexto = 0
     End If
+End Function
+
+
+' Limpia nombres dejando solo letras, digitos, espacios y enie (SRI).
+Private Function SaneoNombre(s As String) As String
+    Dim out As String, res As String, i As Long, c As String, k As Long
+    out = Replace(s, "&", " Y ")
+    For i = 1 To Len(out)
+        c = Mid$(out, i, 1)
+        k = AscW(c)
+        If (k >= 48 And k <= 57) Or (k >= 65 And k <= 90) Or _
+           (k >= 97 And k <= 122) Or k = 32 Or k = 241 Or k = 209 Then
+            res = res & c
+        Else
+            res = res & " "
+        End If
+    Next i
+    Do While InStr(res, "  ") > 0
+        res = Replace(res, "  ", " ")
+    Loop
+    SaneoNombre = Trim$(res)
 End Function
 
 
