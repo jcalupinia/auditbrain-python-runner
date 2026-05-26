@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import * as api from "./api.js";
+import ToolCatalog from "./aud/ToolCatalog.jsx";
 
 /* ---------------- Theme (oscuro premium fijo en el Command Center) ---------------- */
 const THEME_KEY = "ab_theme";
@@ -475,7 +476,11 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin }) {
           ))}
         </div>
 
-        {tab === "documentos" ? (
+        {tab === "análisis" && module.id === "AUD" ? (
+          <div className="cw-tool">
+            <ToolCatalog projectId={ctx?.active_project?.id} />
+          </div>
+        ) : tab === "documentos" ? (
           <div className="cw-docs">
             <Documents embedded />
           </div>

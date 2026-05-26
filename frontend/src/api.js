@@ -227,3 +227,73 @@ export async function sendChatMessage(conversationId, content) {
     )
   );
 }
+
+// ---------- AUD.IMPUESTOS.OBLIGACIONES_FISCALES (M1) ----------
+
+export async function createObligacionesFiscalesJob(form, files) {
+  const fd = new FormData();
+  Object.entries(form).forEach(([k, v]) => {
+    if (v !== null && v !== undefined && v !== "") fd.append(k, v);
+  });
+  (files.f103 || []).forEach((f) => fd.append("files_f103", f));
+  (files.f104 || []).forEach((f) => fd.append("files_f104", f));
+  (files.ats || []).forEach((f) => fd.append("files_ats", f));
+  if (files.mayor_compras) fd.append("mayor_compras", files.mayor_compras);
+  if (files.mayor_ventas) fd.append("mayor_ventas", files.mayor_ventas);
+  if (files.f101) fd.append("file_f101", files.f101);
+
+  const res = await fetch(
+    `${API_BASE}/api/v1/aud/obligaciones-fiscales/jobs`,
+    {
+      method: "POST",
+      headers: authHeaders(), // No Content-Type: el browser pone el boundary multipart
+      body: fd,
+    }
+  );
+  return parse(res);
+}
+
+export async function getObligacionesFiscalesJob(jobId) {
+  return parse(
+    await fetch(
+      `${API_BASE}/api/v1/aud/obligaciones-fiscales/jobs/${jobId}`,
+      { headers: authHeaders() }
+    )
+  );
+}
+
+export async function listObligacionesFiscalesJobs(projectId) {
+  return parse(
+    await fetch(
+      `${API_BASE}/api/v1/aud/obligaciones-fiscales/jobs?project_id=${projectId}`,
+      { headers: authHeaders() }
+    )
+  );
+}
+
+export async function downloadObligacionesFiscalesJob(jobId, suggestedFilename) {
+  // Descarga autenticada (JWT). Crea un blob URL temporal y dispara click.
+  const res = await fetch(
+    `${API_BASE}/api/v1/aud/obligaciones-fiscales/jobs/${jobId}/download`,
+    { headers: authHeaders() }
+  );
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      detail = body.detail || detail;
+    } catch {
+      /* sin body */
+    }
+    throw new Error(detail);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = suggestedFilename || `DM_Obligaciones_Fiscales_${jobId}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
