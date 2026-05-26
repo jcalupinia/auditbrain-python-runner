@@ -40,6 +40,28 @@ class Settings:
         os.getenv("AUDITBRAIN_MAX_RESPONSE_TEXT_CHARS", "4000")
     )
 
+    # --- AUD.IMPUESTOS.OBLIGACIONES_FISCALES (efímero) ---
+    AUD_OF_TMP_DIR: str = os.getenv(
+        "AUD_OF_TMP_DIR", "/tmp/auditbrain/obligaciones_fiscales"
+    )
+    AUD_OF_JOB_TTL_MINUTES: int = int(os.getenv("AUD_OF_JOB_TTL_MINUTES", "60"))
+    AUD_OF_POST_DOWNLOAD_TTL_MINUTES: int = int(
+        os.getenv("AUD_OF_POST_DOWNLOAD_TTL_MINUTES", "5")
+    )
+    AUD_OF_MAX_FILE_MB: int = int(os.getenv("AUD_OF_MAX_FILE_MB", "20"))
+    AUD_OF_MAX_TOTAL_MB: int = int(os.getenv("AUD_OF_MAX_TOTAL_MB", "100"))
+    AUD_OF_CLEANUP_INTERVAL_SECONDS: int = int(
+        os.getenv("AUD_OF_CLEANUP_INTERVAL_SECONDS", "300")
+    )
+
+    @property
+    def aud_of_tmp_dir_path(self):
+        from pathlib import Path
+
+        p = Path(self.AUD_OF_TMP_DIR)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
     # Auth mínima por API Key. Gated por entorno: si está vacío, la
     # autenticación queda DESACTIVADA (comportamiento legacy idéntico, los
     # GPTs existentes siguen funcionando sin cambios).
