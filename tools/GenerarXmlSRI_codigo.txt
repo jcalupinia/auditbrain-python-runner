@@ -473,7 +473,9 @@ Private Function SaneoNombre(s As String) As String
     Do While InStr(res, "  ") > 0
         res = Replace(res, "  ", " ")
     Loop
-    SaneoNombre = Trim$(res)
+    res = Trim$(res)
+    If Len(res) > 60 Then res = Left$(res, 60)    ' SRI: maximo 60 caracteres
+    SaneoNombre = res
 End Function
 
 

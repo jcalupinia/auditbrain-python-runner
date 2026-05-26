@@ -35,7 +35,7 @@ def _saneo_nombre(s: str) -> str:
     s = s.replace("&", " Y ")
     s = _RX_NOM.sub(" ", s)
     s = re.sub(r"\s+", " ", s).strip()
-    return s
+    return s[:60]   # SRI: maximo 60 caracteres
 
 
 def _code(v):
