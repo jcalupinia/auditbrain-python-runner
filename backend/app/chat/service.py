@@ -14,6 +14,7 @@ from backend.app.chat.providers import (
     ProviderUnavailable,
     chat_complete,
 )
+from backend.app.chat.skills_registry import build_system_prompt
 from backend.app.context.service import ensure_user_has_organization
 
 
@@ -75,25 +76,28 @@ def create_conversation(
     return conv
 
 
-def _system_prompt(module_code: str | None) -> str:
-    base = (
-        "Eres AuditBrain IA, un copiloto cognitivo para auditoría, consultoría "
-        "y gobierno corporativo. Eres preciso, conciso y profesional. Si una "
-        "pregunta requiere datos del cliente que no tienes, lo dices explícitamente."
-    )
-    if not module_code:
-        return base
-    return f"{base}\n\nMódulo activo: {module_code}. Adapta tono y profundidad al contexto del módulo."
+def _system_prompt(module_code: str | None, skill_id: str | None = None) -> str:
+    """Construye el system prompt usando el skills registry.
+
+    Si el módulo tiene una skill default mapeada, se aplica automáticamente.
+    Si el caller pasa skill_id explícito, ese prevalece sobre el default.
+    Si no hay skill ni módulo, se usa solo el prompt base de AuditBrain.
+    """
+    return build_system_prompt(module_code=module_code, skill_id=skill_id)
 
 
 def add_user_message_and_respond(
     db: Session,
     conversation: Conversation,
     user_content: str,
+    skill_id: str | None = None,
 ) -> tuple[Message, Message | None, str | None]:
     """Persiste el mensaje del usuario, llama al LLM, persiste respuesta.
 
     Retorna (mensaje_usuario, mensaje_assistant_o_None, error_string_o_None).
+
+    skill_id (opcional) permite forzar una skill específica del registry.
+    Si no se pasa, se usa la skill default del módulo de la conversación.
     """
     user_msg = Message(
         conversation_id=conversation.id,
@@ -114,7 +118,7 @@ def add_user_message_and_respond(
     try:
         llm: LLMResponse = chat_complete(
             messages=api_messages,
-            system=_system_prompt(conversation.module_code),
+            system=_system_prompt(conversation.module_code, skill_id),
         )
     except ProviderUnavailable as exc:
         # No fingir respuesta: dejar el mensaje del usuario persistido y
