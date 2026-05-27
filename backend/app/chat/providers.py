@@ -32,7 +32,10 @@ class LLMResponse:
 # ---------------------------------------------------------------------------
 
 def _provider() -> str:
-    return os.getenv("AUDITBRAIN_LLM_PROVIDER", "anthropic").strip().lower()
+    # Sin default: si el operador no fija una preferencia explícita, se aplica
+    # el orden free-first definido en _providers_with_keys() y no se quema
+    # saldo de pago por accidente cuando hay varias keys configuradas.
+    return os.getenv("AUDITBRAIN_LLM_PROVIDER", "").strip().lower()
 
 
 def _anthropic_key() -> str:
@@ -51,6 +54,14 @@ def _gemini_key() -> str:
     )
 
 
+def _groq_key() -> str:
+    return os.getenv("GROQ_API_KEY", "").strip()
+
+
+def _openrouter_key() -> str:
+    return os.getenv("OPENROUTER_API_KEY", "").strip()
+
+
 def _anthropic_model() -> str:
     return os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6").strip()
 
@@ -64,6 +75,18 @@ def _gemini_model() -> str:
     return os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
 
 
+def _groq_model() -> str:
+    # Llama 3.3 70B en Groq: rápido y dentro del tier gratis (~14k req/día).
+    return os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
+
+
+def _openrouter_model() -> str:
+    # Modelo :free de OpenRouter — sin coste, rate-limit por minuto.
+    return os.getenv(
+        "OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"
+    ).strip()
+
+
 def _max_tokens() -> int:
     try:
         return int(os.getenv("AUDITBRAIN_LLM_MAX_TOKENS", "1024"))
@@ -75,18 +98,21 @@ def _providers_with_keys() -> list[str]:
     """Lista de proveedores realmente configurados, en orden de preferencia.
 
     Preferencia: el valor explícito de AUDITBRAIN_LLM_PROVIDER primero, y luego
-    el resto. Si no se fija nada, gemini > anthropic > openai (gemini primero
-    porque tiene cuota gratis y no quema saldo de pago accidentalmente).
+    el resto. Sin override, los gratuitos van antes que los de pago para no
+    quemar saldo de pago accidentalmente:
+        gemini > groq > openrouter > anthropic > openai
     """
     have = {
         "anthropic": bool(_anthropic_key()),
         "openai": bool(_openai_key()),
         "gemini": bool(_gemini_key()),
+        "groq": bool(_groq_key()),
+        "openrouter": bool(_openrouter_key()),
     }
     preferred = _provider()
     if preferred == "google":
         preferred = "gemini"
-    default_order = ["gemini", "anthropic", "openai"]
+    default_order = ["gemini", "groq", "openrouter", "anthropic", "openai"]
     order: list[str] = []
     if preferred in have and have[preferred]:
         order.append(preferred)
@@ -113,6 +139,10 @@ def _dispatch(provider: str, messages: list[dict], system: str | None) -> LLMRes
         return _call_openai(messages, system)
     if provider == "gemini":
         return _call_gemini(messages, system)
+    if provider == "groq":
+        return _call_groq(messages, system)
+    if provider == "openrouter":
+        return _call_openrouter(messages, system)
     raise ProviderUnavailable(f"Proveedor desconocido: {provider}")
 
 
@@ -132,8 +162,9 @@ def chat_complete(
     chain = _providers_with_keys()
     if not chain:
         raise ProviderUnavailable(
-            "No hay proveedor LLM configurado en el servidor. "
-            "Define ANTHROPIC_API_KEY, OPENAI_API_KEY o GEMINI_API_KEY en Render."
+            "No hay proveedor LLM configurado en el servidor. Define una de: "
+            "GEMINI_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, "
+            "ANTHROPIC_API_KEY u OPENAI_API_KEY en Render."
         )
     last_exc: ProviderUnavailable | None = None
     for provider in chain:
@@ -197,18 +228,28 @@ def _call_anthropic(messages: list[dict], system: str | None) -> LLMResponse:
     )
 
 
-def _call_openai(messages: list[dict], system: str | None) -> LLMResponse:
-    model = _openai_model()
-    msgs = []
+def _call_openai_compatible(
+    url: str,
+    key: str,
+    model: str,
+    messages: list[dict],
+    system: str | None,
+    extra_headers: dict[str, str] | None = None,
+) -> LLMResponse:
+    """Backend común para OpenAI, Groq y OpenRouter (mismo wire format)."""
+    msgs: list[dict] = []
     if system:
         msgs.append({"role": "system", "content": system})
     msgs.extend(messages)
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
+    if extra_headers:
+        headers.update(extra_headers)
     data = _http_post(
-        "https://api.openai.com/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {_openai_key()}",
-            "Content-Type": "application/json",
-        },
+        url,
+        headers=headers,
         payload={"model": model, "messages": msgs, "max_tokens": _max_tokens()},
     )
     choice = (data.get("choices") or [{}])[0]
@@ -220,6 +261,44 @@ def _call_openai(messages: list[dict], system: str | None) -> LLMResponse:
         model=model,
         tokens_in=usage.get("prompt_tokens"),
         tokens_out=usage.get("completion_tokens"),
+    )
+
+
+def _call_openai(messages: list[dict], system: str | None) -> LLMResponse:
+    return _call_openai_compatible(
+        url="https://api.openai.com/v1/chat/completions",
+        key=_openai_key(),
+        model=_openai_model(),
+        messages=messages,
+        system=system,
+    )
+
+
+def _call_groq(messages: list[dict], system: str | None) -> LLMResponse:
+    return _call_openai_compatible(
+        url="https://api.groq.com/openai/v1/chat/completions",
+        key=_groq_key(),
+        model=_groq_model(),
+        messages=messages,
+        system=system,
+    )
+
+
+def _call_openrouter(messages: list[dict], system: str | None) -> LLMResponse:
+    # OpenRouter recomienda enviar HTTP-Referer y X-Title para atribución;
+    # opcionales, pero útiles para ver el tráfico en su dashboard.
+    referer = os.getenv("OPENROUTER_SITE_URL", "").strip()
+    title = os.getenv("OPENROUTER_APP_NAME", "AuditBrain").strip()
+    extra: dict[str, str] = {"X-Title": title}
+    if referer:
+        extra["HTTP-Referer"] = referer
+    return _call_openai_compatible(
+        url="https://openrouter.ai/api/v1/chat/completions",
+        key=_openrouter_key(),
+        model=_openrouter_model(),
+        messages=messages,
+        system=system,
+        extra_headers=extra,
     )
 
 
