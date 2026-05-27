@@ -3,6 +3,7 @@ import io
 import json
 import os
 import sys
+import traceback
 from pathlib import Path
 
 
@@ -88,13 +89,20 @@ def main():
             "generated_paths": generated_paths,
         })
     except Exception as exc:
+        # `traceback` se importa al inicio del archivo (no lazy con
+        # __import__) para que la diagnostica sobreviva a fallos de
+        # memoria del subprocess durante imports pesados (e.g. pandas
+        # bajo presión de rlimit).
         result_payload.update({
             "stdout": _truncate_stream(stdout_buffer.getvalue()),
             "stderr": _truncate_stream(stderr_buffer.getvalue()),
             "error": str(exc),
-            "traceback": _truncate_stream(__import__("traceback").format_exc()),
+            "traceback": _truncate_stream(traceback.format_exc()),
         })
 
+    # Escribir el output ANTES de cualquier operación adicional para
+    # que si el proceso muere después al menos el backend tenga el
+    # error capturado.
     output_path.write_text(json.dumps(result_payload, ensure_ascii=False), encoding="utf-8")
 
 

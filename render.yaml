@@ -48,13 +48,16 @@ services:
         value: "4000"
 
       # --- Sandbox Tier 0 — límites de recursos (anti-OOM) ---
-      # 380MB virtuales por job; con concurrency=1 => 380MB + ~100MB base
-      # = 480MB. Cabe en 512MB RAM del plan starter con margen.
-      # pandas al importarse usa ~150-200MB virtuales. 180MB era insuficiente
-      # y mataba el subprocess (Test 2 fallaba). 380MB le da aire para
-      # importar pandas + numpy + cargar DataFrames medianos.
+      # AUDITBRAIN_RLIMIT_AS_MB=0 -> sin límite de address space virtual.
+      # Pandas al importarse reserva ~400-500MB virtuales (NO físicos —
+      # son mmaps de shared libs + buffer pools internos de numpy).
+      # Limitar AS mata pandas en pleno import antes de que pueda
+      # usar siquiera RAM real. Sin límite AS, el OOM killer del kernel
+      # Linux es la red de seguridad real (mata el proceso solo si
+      # CONSUME demasiada RAM física). Combinado con CONCURRENCY=1,
+      # mantiene el plan starter estable.
       - key: AUDITBRAIN_RLIMIT_AS_MB
-        value: "380"
+        value: "0"
 
       - key: AUDITBRAIN_RLIMIT_CPU_SECONDS
         value: "580"
