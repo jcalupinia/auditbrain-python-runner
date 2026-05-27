@@ -85,6 +85,7 @@ async def create_job_endpoint(
     period_end: datetime.date | None = Form(None),
     prepared_by_name: str | None = Form(None),
     reviewed_by_name: str | None = Form(None),
+    firma_auditora: str | None = Form(None),
     files_f103: list[UploadFile] = File(default=[]),
     files_f104: list[UploadFile] = File(default=[]),
     files_ats: list[UploadFile] = File(default=[]),
@@ -101,12 +102,21 @@ async def create_job_endpoint(
     if not has_any:
         raise HTTPException(400, detail="Sube al menos 1 PDF F-103 o F-104.")
 
+    # Validar firma_auditora si viene
+    from backend.app.aud.obligaciones_fiscales.schemas import FIRMAS_VALIDAS
+    if firma_auditora and firma_auditora not in FIRMAS_VALIDAS:
+        raise HTTPException(
+            400,
+            detail=f"firma_auditora debe ser uno de: {sorted(FIRMAS_VALIDAS)}",
+        )
+
     try:
         job = service.create_job(
             db, user=current, project_id=project_id,
             cliente_name=cliente_name, period_label=period_label,
             period_start=period_start, period_end=period_end,
             prepared_by_name=prepared_by_name, reviewed_by_name=reviewed_by_name,
+            firma_auditora=firma_auditora,
         )
     except PermissionError as e:
         raise HTTPException(403, detail=str(e))

@@ -5,6 +5,9 @@ import datetime
 from pydantic import BaseModel
 
 
+FIRMAS_VALIDAS = {"audit_consulting", "partner_auditing"}
+
+
 class JobCreateForm(BaseModel):
     """Datos del form (no incluye archivos — esos van como UploadFile en multipart)."""
 
@@ -15,6 +18,7 @@ class JobCreateForm(BaseModel):
     period_end: datetime.date | None = None
     prepared_by_name: str | None = None
     reviewed_by_name: str | None = None
+    firma_auditora: str | None = None  # "audit_consulting" | "partner_auditing"
 
 
 class JobOut(BaseModel):
@@ -29,6 +33,7 @@ class JobOut(BaseModel):
     period_end: datetime.date | None
     prepared_by_name: str | None
     reviewed_by_name: str | None
+    firma_auditora: str | None
     error_message: str | None
     summary_json: dict | None
     created_at: datetime.datetime

@@ -19,6 +19,7 @@ export default function ObligacionesFiscalesTool({ projectId }) {
     period_end: "",
     prepared_by_name: "",
     reviewed_by_name: "",
+    firma_auditora: "audit_consulting", // default
   });
   const [files, setFiles] = useState({});
   const [job, setJob] = useState(null);
@@ -62,7 +63,15 @@ export default function ObligacionesFiscalesTool({ projectId }) {
         f101: files.f101?.[0],
       };
       const j = await api.createObligacionesFiscalesJob(
-        { project_id: projectId, ...form },
+        {
+          project_id: projectId,
+          cliente_name: form.cliente_name,
+          period_label: form.period_label,
+          period_end: form.period_end,
+          prepared_by_name: form.prepared_by_name,
+          reviewed_by_name: form.reviewed_by_name,
+          firma_auditora: form.firma_auditora,
+        },
         fileMap,
       );
       setJob(j);
@@ -98,6 +107,7 @@ export default function ObligacionesFiscalesTool({ projectId }) {
     setForm({
       cliente_name: "", period_label: "", period_end: "",
       prepared_by_name: "", reviewed_by_name: "",
+      firma_auditora: "audit_consulting",
     });
   }
 
@@ -166,6 +176,32 @@ export default function ObligacionesFiscalesTool({ projectId }) {
                 onChange={(e) => setForm({ ...form, reviewed_by_name: e.target.value })}
               />
             </label>
+          </div>
+
+          <div className="of-firma">
+            <div className="of-firma-label">{STRINGS.of_form_firma}*</div>
+            <div className="of-firma-options">
+              <label className="of-firma-opt">
+                <input
+                  type="radio"
+                  name="firma_auditora"
+                  value="audit_consulting"
+                  checked={form.firma_auditora === "audit_consulting"}
+                  onChange={(e) => setForm({ ...form, firma_auditora: e.target.value })}
+                />
+                <span>{STRINGS.of_firma_audit_consulting}</span>
+              </label>
+              <label className="of-firma-opt">
+                <input
+                  type="radio"
+                  name="firma_auditora"
+                  value="partner_auditing"
+                  checked={form.firma_auditora === "partner_auditing"}
+                  onChange={(e) => setForm({ ...form, firma_auditora: e.target.value })}
+                />
+                <span>{STRINGS.of_firma_partner_auditing}</span>
+              </label>
+            </div>
           </div>
 
           <div className="of-slots">

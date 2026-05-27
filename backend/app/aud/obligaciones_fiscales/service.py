@@ -33,6 +33,7 @@ def create_job(
     period_end: datetime.date | None = None,
     prepared_by_name: str | None = None,
     reviewed_by_name: str | None = None,
+    firma_auditora: str | None = None,
 ) -> ToolJob:
     _ensure_project_access(db, user, project_id)
     now = datetime.datetime.utcnow()
@@ -47,6 +48,7 @@ def create_job(
         period_end=period_end,
         prepared_by_name=prepared_by_name,
         reviewed_by_name=reviewed_by_name,
+        firma_auditora=firma_auditora,
         created_at=now,
         expires_at=now + datetime.timedelta(minutes=settings.AUD_OF_JOB_TTL_MINUTES),
     )

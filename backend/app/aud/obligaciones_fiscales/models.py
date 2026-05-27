@@ -39,6 +39,9 @@ class ToolJob(Base):
     period_end: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
     prepared_by_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     reviewed_by_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Firma auditora: 'audit_consulting' | 'partner_auditing'. Determina qué
+    # logo se inserta en cada cédula del Excel generado.
+    firma_auditora: Mapped[str | None] = mapped_column(String(32), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(

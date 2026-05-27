@@ -17,8 +17,37 @@ import io
 from pathlib import Path
 
 from openpyxl import load_workbook
+from openpyxl.drawing.image import Image as XLImage
 
 TEMPLATE_PATH = Path(__file__).parent / "templates" / "dm_obligaciones_fiscales.xlsx"
+ASSETS_DIR = Path(__file__).parent / "assets"
+
+LOGO_PATHS = {
+    "audit_consulting": ASSETS_DIR / "logo_audit_consulting.png",
+    "partner_auditing": ASSETS_DIR / "logo_partner_auditing.png",
+}
+
+# Celda ancla del logo (esquina superior derecha de cada cédula).
+# Dimensiones aproximadas en píxeles para que se vea balanceado.
+LOGO_ANCHOR = "F1"
+LOGO_WIDTH_PX = 140
+LOGO_HEIGHT_PX = 60
+
+# Hojas donde se inserta el logo. Todas las cédulas DM* (DM10 tiene layout
+# distinto, se evalúa después si el ancla F1 no funciona).
+LOGO_SHEETS = [
+    "DM  Programa de Auditoria",
+    "DM1 Cuestionario de Auditoria ",
+    "DM2 Cédula Sumaria",
+    "DM3 Revisión de saldos",
+    "DM4 Compras ",
+    "DM5 Ventas ",
+    "DM6 IVA",
+    "DM7 Retenciones x pagar",
+    "DM8 ATS",
+    "DM9 Límite costos y gastos",
+    "DM10 Hoja de hallazgos",
+]
 
 DM6_SHEET = "DM6 IVA"
 DM7_SHEET = "DM7 Retenciones x pagar"
@@ -84,10 +113,11 @@ def assemble(
     period_end: datetime.date | None,
     prepared_by_name: str | None,
     reviewed_by_name: str | None,
+    firma_auditora: str | None = None,
     dm6_data: dict,
     dm7_data: dict,
 ) -> bytes:
-    """Carga plantilla, escribe encabezados + DM6 + DM7, devuelve bytes."""
+    """Carga plantilla, escribe encabezados + DM6 + DM7 + logo, devuelve bytes."""
     wb = load_workbook(TEMPLATE_PATH)
 
     _write_headers(
@@ -97,6 +127,8 @@ def assemble(
         prepared_by_name=prepared_by_name,
         reviewed_by_name=reviewed_by_name,
     )
+
+    _insert_logo(wb, firma_auditora)
 
     if DM7_SHEET in wb.sheetnames:
         _populate_monthly_grid(
@@ -110,6 +142,34 @@ def assemble(
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def _insert_logo(wb, firma_auditora: str | None) -> None:
+    """Inserta el PNG del logo correspondiente en F1 de cada cédula.
+
+    Si firma_auditora es None o desconocida, o el archivo no existe,
+    no inserta nada (silencioso — el resto del Excel se genera igual).
+    """
+    if not firma_auditora:
+        return
+    path = LOGO_PATHS.get(firma_auditora)
+    if not path or not path.exists():
+        return
+    for sheet_name in LOGO_SHEETS:
+        if sheet_name not in wb.sheetnames:
+            continue
+        try:
+            # Nueva Image por hoja: openpyxl no permite la misma instancia
+            # en múltiples hojas.
+            img = XLImage(str(path))
+            img.width = LOGO_WIDTH_PX
+            img.height = LOGO_HEIGHT_PX
+            img.anchor = LOGO_ANCHOR
+            wb[sheet_name].add_image(img)
+        except Exception:
+            # Si openpyxl rechaza la imagen en una hoja específica, seguimos
+            # con las demás. No queremos que un logo malo tumbe el job.
+            pass
 
 
 def _write_headers(

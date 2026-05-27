@@ -45,6 +45,7 @@ def process_job(job_id: int) -> None:
             period_end=job.period_end,
             prepared_by_name=job.prepared_by_name,
             reviewed_by_name=job.reviewed_by_name,
+            firma_auditora=job.firma_auditora,
             dm6_data=dm6_result,
             dm7_data=dm7_result,
         )

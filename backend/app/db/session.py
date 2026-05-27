@@ -69,3 +69,10 @@ def init_db() -> None:
         with engine.begin() as conn:
             for stmt in alters:
                 conn.execute(text(stmt))
+
+    # Migración aditiva en ``tool_jobs``: firma_auditora añadido en M1+.
+    if "tool_jobs" in inspector.get_table_names():
+        existing_cols = {c["name"] for c in inspector.get_columns("tool_jobs")}
+        if "firma_auditora" not in existing_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE tool_jobs ADD COLUMN firma_auditora VARCHAR(32)"))
