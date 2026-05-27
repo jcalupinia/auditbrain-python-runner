@@ -31,11 +31,12 @@ services:
       - key: DOCUMENT_SERVICE
         value: "https://universal-creador-documentos.onrender.com"
 
+      # Ejecución — quick wins (timeout y concurrencia bajo control)
       - key: EXECUTION_TIMEOUT_SECONDS
-        value: "300"
+        value: "600"
 
       - key: EXECUTION_CONCURRENCY
-        value: "1"
+        value: "2"
 
       - key: AUDITBRAIN_MAX_STREAM_CHARS
         value: "200000"
@@ -46,11 +47,49 @@ services:
       - key: AUDITBRAIN_MAX_RESPONSE_TEXT_CHARS
         value: "4000"
 
+      # --- Sandbox Tier 0 — límites de recursos (anti-OOM) ---
+      # 180MB virtuales por job; con concurrency=2 => 360MB + ~100MB base.
+      # Cabe en 512MB RAM del plan starter. Si un job se pasa, el OS mata
+      # ese job sin tumbar el servicio.
+      - key: AUDITBRAIN_RLIMIT_AS_MB
+        value: "180"
+
+      - key: AUDITBRAIN_RLIMIT_CPU_SECONDS
+        value: "580"
+
+      - key: AUDITBRAIN_RLIMIT_FSIZE_MB
+        value: "100"
+
+      - key: AUDITBRAIN_RLIMIT_NOFILE
+        value: "256"
+
+      - key: AUDITBRAIN_SANDBOX_STRICT_ENV
+        value: "1"
+
+      - key: AUDITBRAIN_JOB_TTL_SECONDS
+        value: "3600"
+
       - key: AUDITBRAIN_API_KEY
         sync: false
 
       - key: CORS_ALLOW_ORIGINS
         sync: false
+
+      # --- Proveedores LLM (free-first con failover automático) ---
+      # Sin AUDITBRAIN_LLM_PROVIDER explícito, el orden es:
+      # gemini > groq > openrouter > anthropic > openai (gratis primero).
+      # Configurar las keys en el dashboard como secretos.
+      - key: GROQ_API_KEY
+        sync: false
+
+      - key: GEMINI_API_KEY
+        sync: false
+
+      - key: GROQ_MODEL
+        value: "llama-3.3-70b-versatile"
+
+      - key: GEMINI_MODEL
+        value: "gemini-2.0-flash"
 
       # --- F2: auth multiusuario (JWT + Postgres) ---
       - key: DATABASE_URL
