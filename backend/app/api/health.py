@@ -23,6 +23,22 @@ def _llm_providers() -> dict:
         return {"configured": [], "primary": None}
 
 
+def _ocr_status() -> dict:
+    """Estado del módulo OCR (Google Cloud Vision).
+
+    NO devuelve credenciales: solo si está disponible y qué motor usa.
+    Útil para que la UI muestre indicador y para validar el deploy.
+    """
+    try:
+        from backend.app.utils import ocr
+        return {
+            "available": ocr.is_available(),
+            "engine": "google-cloud-vision",
+        }
+    except Exception:  # pragma: no cover
+        return {"available": False, "engine": None}
+
+
 @router.get("/health")
 async def health():
     return {
@@ -31,5 +47,6 @@ async def health():
         "version": settings.APP_VERSION,
         "auth_enabled": settings.auth_enabled,
         "llm": _llm_providers(),
+        "ocr": _ocr_status(),
         "timestamp": datetime.datetime.utcnow().isoformat(),
     }
