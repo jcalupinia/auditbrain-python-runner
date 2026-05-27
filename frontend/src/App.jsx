@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
 import * as api from "./api.js";
-import ToolCatalog from "./aud/ToolCatalog.jsx";
 
 /* ---------------- Theme (oscuro premium fijo en el Command Center) ---------------- */
 const THEME_KEY = "ab_theme";
@@ -158,6 +157,115 @@ function Metric({ label, value, state }) {
       <div className="metric-v">
         {state && <span className={`dot ${state}`} />}
         {value}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Panel de Tokens IA (sidebar derecho) ----------------
+   Muestra el proveedor actual y enlaces directos a las páginas de
+   facturación de cada proveedor LLM soportado. */
+const LLM_PROVIDER_INFO = {
+  anthropic: {
+    label: "Anthropic · Claude",
+    free: false,
+    rechargeUrl: "https://console.anthropic.com/settings/billing",
+    note: "De pago · top-up desde $5",
+  },
+  openai: {
+    label: "OpenAI · GPT",
+    free: false,
+    rechargeUrl: "https://platform.openai.com/account/billing",
+    note: "De pago · top-up desde $5",
+  },
+  gemini: {
+    label: "Google · Gemini",
+    free: true,
+    rechargeUrl: "https://aistudio.google.com/apikey",
+    note: "Gratis · ~1M tokens/día",
+  },
+  groq: {
+    label: "Groq · Llama 3.3",
+    free: true,
+    rechargeUrl: "https://console.groq.com/keys",
+    note: "Gratis · ~14k req/día",
+  },
+  openrouter: {
+    label: "OpenRouter (multi)",
+    free: false,
+    rechargeUrl: "https://openrouter.ai/credits",
+    note: "Hub · todos los modelos · top-up desde $5",
+  },
+};
+
+function TokensPanel({ llm }) {
+  const primary = llm?.primary;
+  const configured = llm?.configured || [];
+  const primaryInfo = primary ? LLM_PROVIDER_INFO[primary] : null;
+
+  return (
+    <div className="cc-ctx-card">
+      <div className="cc-ctx-h2">💳 Tokens IA</div>
+      {primaryInfo ? (
+        <ul className="cc-tips">
+          <li>
+            <b>Proveedor activo</b>
+            <span>
+              {primaryInfo.label}
+              {primaryInfo.free ? " · gratis" : " · de pago"}
+            </span>
+          </li>
+          <li>
+            <b>Configurados</b>
+            <span>{configured.join(", ") || "ninguno"}</span>
+          </li>
+        </ul>
+      ) : (
+        <ul className="cc-tips">
+          <li>
+            <b>Sin proveedor IA</b>
+            <span>Configura una API key en Render.</span>
+          </li>
+        </ul>
+      )}
+      {primaryInfo && (
+        <a
+          href={primaryInfo.rechargeUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn primary block"
+          style={{ marginTop: 10, textAlign: "center", textDecoration: "none" }}
+        >
+          {primaryInfo.free ? "Gestionar key" : "💳 Recargar tokens"}
+        </a>
+      )}
+      <div
+        style={{
+          marginTop: 12,
+          paddingTop: 10,
+          borderTop: "1px solid var(--border, #334155)",
+          fontSize: 12,
+          color: "var(--muted, #94a3b8)",
+        }}
+      >
+        <div style={{ marginBottom: 6 }}>Otros proveedores:</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {Object.entries(LLM_PROVIDER_INFO)
+            .filter(([key]) => key !== primary)
+            .map(([key, info]) => (
+              <a
+                key={key}
+                href={info.rechargeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="link"
+                style={{ fontSize: 12 }}
+                title={info.note}
+              >
+                {info.label} {info.free ? "(gratis)" : "↗"}
+              </a>
+            ))}
+        </div>
       </div>
     </div>
   );
@@ -476,11 +584,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin }) {
           ))}
         </div>
 
-        {tab === "análisis" && module.id === "AUD" ? (
-          <div className="cw-tool">
-            <ToolCatalog projectId={ctx?.active_project?.id} />
-          </div>
-        ) : tab === "documentos" ? (
+        {tab === "documentos" ? (
           <div className="cw-docs">
             <Documents embedded />
           </div>
@@ -543,7 +647,24 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin }) {
                     </button>
                   </div>
                 </div>
-                {chatNotice && <div className="notice warn cw-notice">{chatNotice}</div>}
+                {chatNotice && (
+                  <div className="notice warn cw-notice">
+                    {chatNotice}
+                    {/(quota|429|exceeded|billing|credit|saldo)/i.test(chatNotice) && (
+                      <div style={{ marginTop: 8 }}>
+                        <a
+                          href="https://console.anthropic.com/settings/billing"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn primary sm"
+                          style={{ textDecoration: "none" }}
+                        >
+                          💳 Recargar tokens ahora
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                )}
               </form>
               <div className="cw-ext">
                 <div className="cw-ext-l">O continúa la conversación en:</div>
@@ -964,6 +1085,7 @@ export default function App() {
                 || <span className="dim">—</span>}
             </div>
           </div>
+          <TokensPanel llm={hp.data?.llm} />
           <div className="cc-ctx-card">
             <div className="cc-ctx-h2">Tips &amp; acciones</div>
             <ul className="cc-tips">
