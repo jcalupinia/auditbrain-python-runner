@@ -36,7 +36,7 @@ services:
         value: "600"
 
       - key: EXECUTION_CONCURRENCY
-        value: "2"
+        value: "1"
 
       - key: AUDITBRAIN_MAX_STREAM_CHARS
         value: "200000"
@@ -48,11 +48,13 @@ services:
         value: "4000"
 
       # --- Sandbox Tier 0 — límites de recursos (anti-OOM) ---
-      # 180MB virtuales por job; con concurrency=2 => 360MB + ~100MB base.
-      # Cabe en 512MB RAM del plan starter. Si un job se pasa, el OS mata
-      # ese job sin tumbar el servicio.
+      # 380MB virtuales por job; con concurrency=1 => 380MB + ~100MB base
+      # = 480MB. Cabe en 512MB RAM del plan starter con margen.
+      # pandas al importarse usa ~150-200MB virtuales. 180MB era insuficiente
+      # y mataba el subprocess (Test 2 fallaba). 380MB le da aire para
+      # importar pandas + numpy + cargar DataFrames medianos.
       - key: AUDITBRAIN_RLIMIT_AS_MB
-        value: "180"
+        value: "380"
 
       - key: AUDITBRAIN_RLIMIT_CPU_SECONDS
         value: "580"
