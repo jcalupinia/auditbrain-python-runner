@@ -43,16 +43,38 @@ DM7_COL_MAP = {
     13: "c727",  # M: 50%
 }
 
-# Hojas que muestran encabezado de cliente/período en celdas conocidas
-HEADER_SHEETS = [
-    "DM  Programa de Auditoria",
-    "DM1 Cuestionario de Auditoria ",
-    "DM4 Compras ",
-    "DM5 Ventas ",
-    DM6_SHEET,
-    DM7_SHEET,
-    "DM9 Límite costos y gastos",
-]
+# Mapeo de escritura del encabezado por campo del formulario.
+# Solo escribimos en SOURCE cells. Las demás hojas reciben el valor via
+# fórmulas cross-sheet ya existentes en la plantilla (ej. DM6!A5 lee de
+# DM3!A5 que lee de DM2!A5 ... que lee de DM Programa!A5).
+HEADER_WRITES = {
+    "cliente_name": [
+        ("DM  Programa de Auditoria",     "A5"),  # propaga a DM1..DM7 via formula
+        ("DM9 Límite costos y gastos",    "A5"),  # source propio
+        ("DM10 Hoja de hallazgos",        "B4"),  # source propio
+    ],
+    "period_end": [
+        ("DM  Programa de Auditoria",     "D5"),
+        ("DM9 Límite costos y gastos",    "D5"),
+        # DM10!D4 es formula -> DM8 ATS!D16:E16; no tocar
+    ],
+    "prepared_by_name": [
+        ("DM  Programa de Auditoria",     "A7"),  # propaga via formula chain
+        ("DM9 Límite costos y gastos",    "A7"),
+        ("DM10 Hoja de hallazgos",        "B5"),
+    ],
+    "reviewed_by_name": [
+        # Cada hoja tiene su SOURCE (cada cédula podría ser revisada por persona
+        # distinta, pero nuestro form recibe UN solo revisor, así que ponemos
+        # el mismo en todas las que tienen source).
+        ("DM  Programa de Auditoria",     "A9"),
+        ("DM1 Cuestionario de Auditoria ", "A9"),
+        ("DM2 Cédula Sumaria",            "A9"),
+        ("DM3 Revisión de saldos",        "A9"),
+        ("DM9 Límite costos y gastos",    "A9"),
+        ("DM10 Hoja de hallazgos",        "D5"),
+    ],
+}
 
 
 def assemble(
@@ -68,10 +90,13 @@ def assemble(
     """Carga plantilla, escribe encabezados + DM6 + DM7, devuelve bytes."""
     wb = load_workbook(TEMPLATE_PATH)
 
-    for name in HEADER_SHEETS:
-        if name in wb.sheetnames:
-            _write_header(wb[name], cliente_name, period_end,
-                          prepared_by_name, reviewed_by_name)
+    _write_headers(
+        wb,
+        cliente_name=cliente_name,
+        period_end=period_end,
+        prepared_by_name=prepared_by_name,
+        reviewed_by_name=reviewed_by_name,
+    )
 
     if DM7_SHEET in wb.sheetnames:
         _populate_monthly_grid(
@@ -87,24 +112,33 @@ def assemble(
     return buf.getvalue()
 
 
-def _write_header(
-    ws,
+def _write_headers(
+    wb,
+    *,
     cliente_name: str,
     period_end: datetime.date | None,
     prepared_by_name: str | None,
     reviewed_by_name: str | None,
 ) -> None:
-    """Escribe celdas comunes del encabezado de cada cédula."""
-    # La plantilla pone cliente en A5 ó B5 según la hoja. Probamos ambas
-    # — openpyxl no falla si la celda está vacía, simplemente la sobreescribe.
-    _try_write(ws, "A5", cliente_name)
-    _try_write(ws, "B5", cliente_name)
-    if period_end:
-        _try_write(ws, "D5", period_end)
-    if prepared_by_name:
-        _try_write(ws, "A7", prepared_by_name)
-    if reviewed_by_name:
-        _try_write(ws, "A9", reviewed_by_name)
+    """Escribe los campos del form en las SOURCE cells de cada hoja.
+
+    Las hojas que tienen fórmulas hacia las SOURCE reciben el valor
+    automáticamente al abrir el Excel — Excel recalcula las fórmulas.
+    """
+    field_values = {
+        "cliente_name": cliente_name,
+        "period_end": period_end,
+        "prepared_by_name": prepared_by_name,
+        "reviewed_by_name": reviewed_by_name,
+    }
+    for field, targets in HEADER_WRITES.items():
+        value = field_values.get(field)
+        if value is None or value == "":
+            continue
+        for sheet_name, coord in targets:
+            if sheet_name not in wb.sheetnames:
+                continue
+            _try_write(wb[sheet_name], coord, value)
 
 
 def _populate_monthly_grid(

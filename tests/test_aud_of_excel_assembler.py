@@ -102,3 +102,55 @@ def test_assemble_preserves_template_formulas_on_other_columns():
     v = dm6_ws["B20"].value
     assert v is not None
     assert isinstance(v, str) and v.startswith("=")
+
+
+def test_assemble_writes_client_to_source_cell_only():
+    """Cliente solo debe escribirse en DM Programa A5 (SOURCE).
+    DM6/DM7 A5 deben mantener su formula cross-sheet."""
+    out = excel_assembler.assemble(
+        cliente_name="EMPRESA NUEVA S.A.",
+        period_label="Ejercicio 2025",
+        period_end=datetime.date(2025, 12, 31),
+        prepared_by_name="ABC", reviewed_by_name="XYZ",
+        dm6_data=_empty_dm6(), dm7_data=_empty_dm7(),
+    )
+    wb = load_workbook(io.BytesIO(out))
+
+    # SOURCE escrito en DM Programa
+    assert wb["DM  Programa de Auditoria"]["A5"].value == "EMPRESA NUEVA S.A."
+    assert wb["DM  Programa de Auditoria"]["A7"].value == "ABC"
+    assert wb["DM  Programa de Auditoria"]["A9"].value == "XYZ"
+    d5 = wb["DM  Programa de Auditoria"]["D5"].value
+    # openpyxl convierte datetime.date a datetime.datetime al persistir
+    assert isinstance(d5, (datetime.date, datetime.datetime))
+    assert d5.year == 2025 and d5.month == 12 and d5.day == 31
+
+    # DM6/DM7 deben mantener fórmulas intactas (NO sobreescritas con el valor)
+    dm6_a5 = wb["DM6 IVA"]["A5"].value
+    assert isinstance(dm6_a5, str) and dm6_a5.startswith("="), \
+        f"DM6 A5 debería ser formula, es: {dm6_a5}"
+    dm7_a5 = wb["DM7 Retenciones x pagar"]["A5"].value
+    assert isinstance(dm7_a5, str) and dm7_a5.startswith("="), \
+        f"DM7 A5 debería ser formula, es: {dm7_a5}"
+
+    # DM9 tiene SOURCE propio — escrito directo
+    assert wb["DM9 Límite costos y gastos"]["A5"].value == "EMPRESA NUEVA S.A."
+
+    # DM10 cliente en B4 (al lado del label "Nombre del cliente:")
+    assert wb["DM10 Hoja de hallazgos"]["B4"].value == "EMPRESA NUEVA S.A."
+
+
+def test_assemble_with_empty_optional_fields_doesnt_break():
+    """Solo cliente y periodo son requeridos; preparado/revisado opcional."""
+    out = excel_assembler.assemble(
+        cliente_name="X",
+        period_label="2025",
+        period_end=None,
+        prepared_by_name=None,
+        reviewed_by_name=None,
+        dm6_data=_empty_dm6(), dm7_data=_empty_dm7(),
+    )
+    wb = load_workbook(io.BytesIO(out))
+    assert wb["DM  Programa de Auditoria"]["A5"].value == "X"
+    assert wb["DM  Programa de Auditoria"]["A7"].value is None
+    assert wb["DM  Programa de Auditoria"]["A9"].value is None
