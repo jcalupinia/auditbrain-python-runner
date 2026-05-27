@@ -102,6 +102,17 @@ services:
       - key: GOOGLE_APPLICATION_CREDENTIALS_JSON
         sync: false
 
+      # --- Canva via MCP — designs profesionales ---
+      # OAuth token de Canva para que Claude API (con MCP) pueda
+      # generar/editar/exportar designs en la cuenta del operador.
+      # Reutiliza ANTHROPIC_API_KEY ya configurada.
+      # Ver docs/CANVA_MCP_SETUP.md para obtener el token.
+      - key: CANVA_MCP_OAUTH_TOKEN
+        sync: false
+
+      - key: CANVA_MCP_URL
+        value: "https://mcp.canva.com/sse"
+
       # --- F2: auth multiusuario (JWT + Postgres) ---
       - key: DATABASE_URL
         fromDatabase:

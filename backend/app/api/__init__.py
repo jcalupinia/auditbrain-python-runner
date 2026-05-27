@@ -6,7 +6,7 @@ sin alterar su estructura.
 
 from fastapi import APIRouter
 
-from backend.app.api import documents, health, python, router as router_module
+from backend.app.api import canva, documents, health, python, router as router_module
 from backend.app.auth import router as auth_router
 from backend.app.aud.obligaciones_fiscales import router as aud_of_router
 from backend.app.chat import router as chat_router
@@ -22,5 +22,6 @@ api_router.include_router(documents.router)
 api_router.include_router(context_router.router)
 api_router.include_router(chat_router.router)
 api_router.include_router(aud_of_router.router)
+api_router.include_router(canva.router)
 
 __all__ = ["api_router"]

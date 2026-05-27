@@ -57,6 +57,7 @@ def _formats_status() -> dict:
         "pdf_ocr": False,
         "pbix": False,
         "qvd": False,
+        "canva_native": False,  # Canva via MCP
     }
     # OCR
     try:
@@ -78,7 +79,25 @@ def _formats_status() -> dict:
         formats["qvd"] = qlikview.is_available()
     except Exception:
         pass
+    # Canva via MCP
+    try:
+        from backend.app.utils import canva_mcp
+        formats["canva_native"] = canva_mcp.is_available()
+    except Exception:
+        pass
     return formats
+
+
+def _canva_status() -> dict:
+    """Estado del MCP de Canva (igual filosofía que _ocr_status)."""
+    try:
+        from backend.app.utils import canva_mcp
+        return {
+            "available": canva_mcp.is_available(),
+            "engine": "anthropic-mcp-canva",
+        }
+    except Exception:
+        return {"available": False, "engine": None}
 
 
 @router.get("/health")
@@ -90,6 +109,7 @@ async def health():
         "auth_enabled": settings.auth_enabled,
         "llm": _llm_providers(),
         "ocr": _ocr_status(),
+        "canva": _canva_status(),
         "formats": _formats_status(),
         "timestamp": datetime.datetime.utcnow().isoformat(),
     }

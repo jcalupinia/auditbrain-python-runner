@@ -42,6 +42,12 @@ google-cloud-vision==3.10.0
 pbixray==0.10.0
 PyQvd==2.3.2
 
+# --- Generación de designs Canva via MCP ---
+# SDK oficial de Anthropic. Soporta MCP servers en la Messages API
+# (necesario para que el backend invoque el MCP de Canva).
+# Configurar CANVA_MCP_OAUTH_TOKEN en Render. Ver docs/CANVA_MCP_SETUP.md.
+anthropic>=0.40.0
+
 # --- Auth multiusuario (F2): JWT + PostgreSQL + hashing ---
 sqlalchemy==2.0.36
 psycopg2-binary==2.9.9
