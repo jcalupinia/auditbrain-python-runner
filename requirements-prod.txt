@@ -37,7 +37,9 @@ google-cloud-vision==3.10.0
 # pbixray: parser open-source de Power BI .pbix (tablas, DAX, queries M).
 # PyQvd: lectura de QlikView .qvd (tablas QVD nativas).
 # Ambos pure Python — no requieren binarios nativos en Render.
-pbixray==0.3.4
+# Nota: pbixray salta de 0.3.3 a 0.4.0 (no existe 0.3.4). Usamos 0.10.0
+# que es la versión más reciente disponible en PyPI a 2026-05.
+pbixray==0.10.0
 PyQvd==2.3.2
 
 # --- Auth multiusuario (F2): JWT + PostgreSQL + hashing ---
