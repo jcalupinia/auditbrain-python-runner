@@ -427,6 +427,133 @@ SKILLS: dict[str, Skill] = {
             "Indica para cada acto qué slide(s) lo soportan y qué datos/visuales usar."
         ),
     ),
+
+    # -----------------------------------------------------------------------
+    # CYB · Cybersecurity & IT Audit
+    # -----------------------------------------------------------------------
+    "nist-csf-assessment": Skill(
+        id="nist-csf-assessment",
+        name="Evaluación NIST CSF",
+        description=(
+            "Evalúa la madurez de ciberseguridad de la organización contra "
+            "el marco NIST Cybersecurity Framework (IDENTIFY / PROTECT / "
+            "DETECT / RESPOND / RECOVER)."
+        ),
+        system_prompt=(
+            "Actúas como CISO advisor con experiencia en ISO 27001, NIST CSF "
+            "y NIA 315. Devuelve evaluación en Markdown con:\n"
+            "## Resumen ejecutivo (nivel global 1-5).\n"
+            "## Tabla de madurez por función NIST (IDENTIFY / PROTECT / "
+            "DETECT / RESPOND / RECOVER) con score 1-5 y justificación corta.\n"
+            "## Top 5 brechas críticas (riesgo · esfuerzo de remediación).\n"
+            "## Hoja de ruta priorizada a 90/180/365 días.\n"
+            "Distingue claramente riesgo aceptable, mitigable y transferible. "
+            "Si faltan datos del entorno, pídelos explícitamente."
+        ),
+    ),
+    "it-audit-control-matrix": Skill(
+        id="it-audit-control-matrix",
+        name="Matriz de Controles TI",
+        description=(
+            "Construye una matriz de controles de TI (ITGC + controles de "
+            "aplicación) con su prueba de diseño y de efectividad operativa."
+        ),
+        system_prompt=(
+            "Actúas como auditor de TI sénior. Devuelve en Markdown una tabla "
+            "con columnas: ID · Control · Tipo (ITGC/aplicación) · Riesgo "
+            "que mitiga · Prueba de diseño · Prueba de operatividad · "
+            "Frecuencia · Responsable. Cubre como mínimo: gestión de accesos, "
+            "gestión de cambios, gestión de incidentes, respaldos, segregación "
+            "de funciones. Marca controles compensatorios con [COMP]."
+        ),
+    ),
+    "incident-response-playbook": Skill(
+        id="incident-response-playbook",
+        name="Playbook de respuesta a incidentes",
+        description=(
+            "Genera un playbook ejecutable para un incidente de seguridad "
+            "(ransomware, fuga de datos, intrusión, DDoS)."
+        ),
+        system_prompt=(
+            "Actúas como líder de respuesta a incidentes. Devuelve playbook "
+            "en Markdown estructurado por fases NIST SP 800-61:\n"
+            "## 1. PREPARACIÓN (qué tener listo antes).\n"
+            "## 2. DETECCIÓN Y ANÁLISIS (indicadores, fuentes, triage).\n"
+            "## 3. CONTENCIÓN (acciones inmediatas a corto y mediano plazo).\n"
+            "## 4. ERRADICACIÓN.\n"
+            "## 5. RECUPERACIÓN.\n"
+            "## 6. LECCIONES APRENDIDAS.\n"
+            "Cada fase: pasos numerados, responsable, decisiones críticas. "
+            "Incluye al final un BLOQUE DE COMUNICACIÓN (cliente, regulador, "
+            "stakeholders internos) y obligaciones legales aplicables."
+        ),
+    ),
+
+    # -----------------------------------------------------------------------
+    # MKT · Marketing Intelligence
+    # -----------------------------------------------------------------------
+    "tam-sam-som-analysis": Skill(
+        id="tam-sam-som-analysis",
+        name="Análisis TAM/SAM/SOM",
+        description=(
+            "Estima el mercado total, servible y obtenible para un producto "
+            "o servicio, con metodología y supuestos transparentes."
+        ),
+        system_prompt=(
+            "Actúas como CMO advisor con experiencia en B2B y B2C. Devuelve "
+            "en Markdown:\n"
+            "## Definición del mercado (segmentos y geografía).\n"
+            "## Metodología (top-down vs bottom-up, qué fuentes usarías).\n"
+            "## TAM (mercado total) con cálculo y supuestos.\n"
+            "## SAM (servible) con criterios de exclusión.\n"
+            "## SOM (obtenible) realista a 1, 3 y 5 años.\n"
+            "## Limitaciones y sensibilidades.\n"
+            "Si te faltan datos (precio promedio, número de clientes objetivo, "
+            "frecuencia de compra…), pídelos. NO inventes cifras de mercado."
+        ),
+    ),
+    "marketing-funnel-diagnosis": Skill(
+        id="marketing-funnel-diagnosis",
+        name="Diagnóstico de embudo de marketing",
+        description=(
+            "Analiza un embudo de marketing/ventas (awareness → consideration "
+            "→ decision → retention) e identifica fugas y palancas."
+        ),
+        system_prompt=(
+            "Actúas como CMO advisor orientado a unit economics. Devuelve "
+            "en Markdown:\n"
+            "## Diagnóstico por etapa del embudo (visitas → leads → MQL → "
+            "SQL → cliente → recurrente). Para cada etapa: tasa de conversión "
+            "observada vs benchmark, fuga estimada en %.\n"
+            "## Cuello de botella principal y por qué.\n"
+            "## 3-5 palancas accionables priorizadas (impacto/esfuerzo).\n"
+            "## Métricas a vigilar (CAC, LTV, payback, churn).\n"
+            "Si el usuario no aporta números, pídelos. Sé brutalmente honesto "
+            "si el embudo no tiene datos suficientes para diagnosticar."
+        ),
+    ),
+    "icp-buyer-persona": Skill(
+        id="icp-buyer-persona",
+        name="ICP & Buyer Personas",
+        description=(
+            "Define el Ideal Customer Profile y 1-3 buyer personas concretas "
+            "para un producto/servicio."
+        ),
+        system_prompt=(
+            "Actúas como CMO advisor. Devuelve en Markdown:\n"
+            "## ICP (Ideal Customer Profile)\n"
+            "- Industria, tamaño, geografía, etapa, tecnología, ingresos, "
+            "presupuesto disponible.\n"
+            "- Trigger events que hacen que el ICP busque una solución como "
+            "la del producto.\n"
+            "- Anti-ICP (a quién NO vender).\n"
+            "## Buyer Personas (1-3)\n"
+            "Cada uno con: rol/título, antigüedad, día típico, pains, gains, "
+            "criterios de decisión, objeciones típicas, canales donde se "
+            "informa, frase tipo en su voz.\n"
+            "Si no se especifica producto/sector, pídelos."
+        ),
+    ),
 }
 
 
@@ -442,11 +569,12 @@ MODULE_SKILLS: dict[str, list[str]] = {
     "TAX": ["preliminary-tax-memo", "tax-compliance-checklist", "tax-regulatory-summary"],
     "LEG": ["executive-legal-summary", "contract-obligations", "critical-clause-analysis"],
     "FIN": ["monthly-cfo-report", "financial-variance-analysis", "financial-kpi-summary"],
+    "CYB": ["nist-csf-assessment", "it-audit-control-matrix", "incident-response-playbook"],
     "DATA": ["anomaly-detector", "data-cleaning-assistant"],
     "AUT": ["python-script-generator"],
     "GOV": ["risk-level-classifier", "decision-matrix"],
+    "MKT": ["tam-sam-som-analysis", "marketing-funnel-diagnosis", "icp-buyer-persona"],
     "CRE": ["report-to-slides", "boardroom-storyline"],
-    # CYB y MKT no tienen skills mapeadas en esta fase; usarán el prompt base.
 }
 
 
