@@ -25,6 +25,13 @@ lxml>=4.9.0
 # --- AUD Obligaciones Fiscales (M1+): extracción de PDFs SRI ---
 pdfplumber==0.11.5
 Pillow>=10.0.0
+pypdf==5.1.0
+
+# --- OCR para PDFs escaneados (Google Cloud Vision API) ---
+# Permite leer SRI antiguos, escrituras y contratos escaneados.
+# Free tier: 1000 págs/mes; luego $1.50 por 1000.
+# Configurar GOOGLE_APPLICATION_CREDENTIALS_JSON en Render.
+google-cloud-vision==3.10.0
 
 # --- Auth multiusuario (F2): JWT + PostgreSQL + hashing ---
 sqlalchemy==2.0.36

@@ -91,6 +91,12 @@ services:
       - key: GEMINI_MODEL
         value: "gemini-2.0-flash"
 
+      # --- OCR (Google Cloud Vision) — para PDFs escaneados ---
+      # Pegar el JSON COMPLETO del service account en una sola línea.
+      # Ver docs/OCR_SETUP_GOOGLE.md para crearlo.
+      - key: GOOGLE_APPLICATION_CREDENTIALS_JSON
+        sync: false
+
       # --- F2: auth multiusuario (JWT + Postgres) ---
       - key: DATABASE_URL
         fromDatabase:
