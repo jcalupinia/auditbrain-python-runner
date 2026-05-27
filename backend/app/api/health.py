@@ -39,6 +39,48 @@ def _ocr_status() -> dict:
         return {"available": False, "engine": None}
 
 
+def _formats_status() -> dict:
+    """Lista qué tipos de documentos puede procesar el backend.
+
+    Útil para que la UI muestre capacidades y para que los GPTs sepan
+    qué formatos pueden enviar.
+    """
+    formats: dict[str, bool] = {
+        "xlsx": True,        # openpyxl + pandas (siempre)
+        "docx": True,        # python-docx
+        "pptx": True,        # python-pptx
+        "pdf": True,         # pdfplumber (digital)
+        "xml": True,         # lxml
+        "csv": True,         # pandas
+        "json": True,        # stdlib
+        "image_ocr": False,  # se actualiza abajo
+        "pdf_ocr": False,
+        "pbix": False,
+        "qvd": False,
+    }
+    # OCR
+    try:
+        from backend.app.utils import ocr
+        if ocr.is_available():
+            formats["image_ocr"] = True
+            formats["pdf_ocr"] = True
+    except Exception:
+        pass
+    # Power BI .pbix nativo
+    try:
+        from backend.app.utils import pbix_native
+        formats["pbix"] = pbix_native.is_available()
+    except Exception:
+        pass
+    # QlikView .qvd
+    try:
+        from backend.app.utils import qlikview
+        formats["qvd"] = qlikview.is_available()
+    except Exception:
+        pass
+    return formats
+
+
 @router.get("/health")
 async def health():
     return {
@@ -48,5 +90,6 @@ async def health():
         "auth_enabled": settings.auth_enabled,
         "llm": _llm_providers(),
         "ocr": _ocr_status(),
+        "formats": _formats_status(),
         "timestamp": datetime.datetime.utcnow().isoformat(),
     }

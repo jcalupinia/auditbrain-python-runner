@@ -33,6 +33,13 @@ pypdf==5.1.0
 # Configurar GOOGLE_APPLICATION_CREDENTIALS_JSON en Render.
 google-cloud-vision==3.10.0
 
+# --- Lectura nativa de archivos BI propietarios ---
+# pbixray: parser open-source de Power BI .pbix (tablas, DAX, queries M).
+# PyQvd: lectura de QlikView .qvd (tablas QVD nativas).
+# Ambos pure Python — no requieren binarios nativos en Render.
+pbixray==0.3.4
+PyQvd==2.3.2
+
 # --- Auth multiusuario (F2): JWT + PostgreSQL + hashing ---
 sqlalchemy==2.0.36
 psycopg2-binary==2.9.9
