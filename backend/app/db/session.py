@@ -70,6 +70,19 @@ def init_db() -> None:
             for stmt in alters:
                 conn.execute(text(stmt))
 
+    # Portal cliente (M2): nuevas columnas en users
+    existing_cols = {c["name"] for c in inspector.get_columns("users")}
+    for col_def in [
+        ("client_id", "INTEGER"),
+        ("password_reset_required", "BOOLEAN DEFAULT 0 NOT NULL"),
+        ("current_session_id", "VARCHAR(64)"),
+        ("session_started_at", "DATETIME"),
+    ]:
+        col_name, col_type = col_def
+        if col_name not in existing_cols:
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"))
+
     # Migración aditiva en ``tool_jobs``: firma_auditora añadido en M1+.
     if "tool_jobs" in inspector.get_table_names():
         existing_cols = {c["name"] for c in inspector.get_columns("tool_jobs")}

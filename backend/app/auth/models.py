@@ -12,6 +12,7 @@ from backend.app.db.session import Base
 class Role(str, enum.Enum):
     admin = "admin"
     user = "user"
+    client = "client"  # Portal cliente externo
 
 
 class User(Base):
@@ -27,11 +28,20 @@ class User(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, default=datetime.datetime.utcnow, nullable=False
     )
-    # Contexto operativo (Fase 2 · M1). Nullable para no romper usuarios
-    # legacy; el bootstrap les asigna una organización por defecto.
     organization_id: Mapped[int | None] = mapped_column(
         ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True
     )
     active_project_id: Mapped[int | None] = mapped_column(
         ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
+    )
+    # Portal cliente (M2)
+    client_id: Mapped[int | None] = mapped_column(
+        ForeignKey("clients.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    password_reset_required: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    current_session_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    session_started_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime, nullable=True
     )
