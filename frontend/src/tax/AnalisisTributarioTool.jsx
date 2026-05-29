@@ -1,5 +1,10 @@
 import { useMemo, useState } from "react";
-import { extractTaxPlan, exportTaxPlan, downloadTaxPlantilla } from "../api.js";
+import {
+  extractTaxPlan,
+  exportTaxPlan,
+  downloadTaxPlantilla,
+  generarPresentacionTax,
+} from "../api.js";
 import TaxChart from "./TaxChart.jsx";
 import { fmt, f0, fX, fP, fD, m } from "./format.js";
 import {
@@ -155,6 +160,132 @@ export default function AnalisisTributarioTool({ projectId }) {
     }
   };
 
+  // ---- Presentación ejecutiva (Canva) ----
+  const [presOpen, setPresOpen] = useState(false);
+  const [presBusy, setPresBusy] = useState(false);
+  const [presResult, setPresResult] = useState(null);
+  const [presError, setPresError] = useState("");
+  const [brandKit, setBrandKit] = useState(
+    () => localStorage.getItem("ab_canva_brandkit") || "",
+  );
+
+  // Arma el contenido ejecutivo del deck con cifras en vivo.
+  const buildDeckContent = () => {
+    const pagoAct = R.reduce((a, r) => a + r.pago, 0);
+    const credIR = R.reduce((a, r) => a + r.cIR, 0);
+    const devol = R.reduce((a, r) => a + r.dev, 0);
+    const recuperable = credIR + devol;
+    const riesgo = R[R.length - 1].riesgo;
+    const totalPat = D.capital[2] + D.reservas[2] + D.ori[2] + D.resAcum[2];
+    const primero = computeModel(
+      D,
+      applyScenario("sin", D, CTRL, params),
+      params,
+    )[0];
+    const matriz = ["sin", "div", "cap", "mix"].map((s) => {
+      const rows = computeModel(D, applyScenario(s, D, CTRL, params), params);
+      const last = rows[rows.length - 1];
+      return {
+        escenario: SCENARIO_NAMES[s],
+        recomendado: s === scn,
+        pago: Math.round(rows.reduce((a, r) => a + r.pago, 0)),
+        credito_recuperable: Math.round(
+          rows.reduce((a, r) => a + r.cIR + r.dev, 0),
+        ),
+        costo_muerto: Math.round(last.riesgo),
+        patrimonio_2028: Math.round(last.patrimonio),
+      };
+    });
+    return {
+      empresa: params.empresa || "la Compañía",
+      ruc: params.ruc || "",
+      representante: params.repLegal || "",
+      fecha_analisis: fmtFecha(params.fechaAnalisis) || "",
+      fecha_corte: fmtFecha(params.fechaCorte) || "",
+      escenario_recomendado: SCENARIO_NAMES[scn],
+      moneda: "USD",
+      kpis: [
+        { label: "Utilidades no distribuidas", valor: fmt(D.resAcum[2]) },
+        { label: "Pago sin acción 2026–28", valor: fmt(scComp.sin) },
+        { label: `Pago — ${SCENARIO_NAMES[scn]}`, valor: fmt(pagoAct) },
+        { label: "Ahorro / diferimiento", valor: fmt(scComp.sin - pagoAct) },
+        { label: "Crédito recuperable", valor: fmt(recuperable) },
+        { label: "En riesgo (costo muerto)", valor: fmt(riesgo) },
+      ],
+      diagnostico_financiero: {
+        liquidez: fX(i2.liq),
+        endeudamiento: fP(i2.end),
+        roe: fP(i2.roe),
+        margen_neto: fP(i2.mn),
+        dias_inventario: fD(i2.dInv),
+        ciclo_efectivo: fD(cce(D, 2)),
+      },
+      diagnostico_tributario: {
+        base_anio1: fmt(primero.base),
+        tarifa: fP(primero.tar),
+        pago_anio1: fmt(primero.pago),
+        pago_horizonte: fmt(scComp.sin),
+      },
+      diagnostico_societario: {
+        capital: fmt(D.capital[2]),
+        reservas: fmt(D.reservas[2]),
+        resultados_acumulados: fmt(D.resAcum[2]),
+        patrimonio_total: fmt(totalPat),
+      },
+      alternativas: [
+        "No hacer nada (se paga el anticipo cada año)",
+        `Distribuir dividendos (retención ${params.retDiv}% recuperable)`,
+        "Capitalizar con sustancia antes del 31 de julio",
+        "Híbrido: distribución + capitalización",
+      ],
+      matriz_escenarios: matriz,
+      grafico_pago_por_escenario: {
+        labels: matriz.map((m) => m.escenario),
+        valores: matriz.map((m) => m.pago),
+      },
+      modelacion_2026_2028: {
+        anios: PROJ,
+        pago_a_cuenta: R.map((r) => Math.round(r.pago)),
+        credito_vs_ir: R.map((r) => Math.round(r.cIR)),
+        en_riesgo: R.map((r) => Math.round(r.enR)),
+        patrimonio: R.map((r) => Math.round(r.patrimonio)),
+      },
+      plan_accion: [
+        { accion: "Convocar Junta y aprobar la estrategia", responsable: "Representante legal", plazo: "Antes del 31 de julio" },
+        { accion: "Formalizar aumento de capital (acta, escritura, Registro Mercantil)", responsable: "Asesor legal", plazo: "Antes del 31 de julio" },
+        { accion: "Sustentar capitalización en activos productivos/empleo (no inventarios)", responsable: "Gerencia financiera", plazo: "Antes del corte" },
+        { accion: "Aplicar el crédito en retención de dividendos e IR", responsable: "Tributario", plazo: "En la declaración" },
+      ],
+      recomendacion:
+        `Bajo el escenario ${SCENARIO_NAMES[scn]}, el pago a cuenta 2026–2028 ` +
+        `baja a ${fmt(pagoAct)} frente a ${fmt(scComp.sin)} sin actuar, con ` +
+        `${fmt(recuperable)} recuperables. Perfeccionar la decisión antes del ` +
+        `31 de julio con sustancia económica. Para ${params.empresa || "la Compañía"} ` +
+        `evitar capitalizar vía inventarios.`,
+      nota: "Parámetros normativos editables, sujetos a validación humana y a criterios del SRI.",
+    };
+  };
+
+  const generarPresentacion = async () => {
+    setPresBusy(true);
+    setPresError("");
+    setPresResult(null);
+    try {
+      const bk = brandKit.trim();
+      if (bk) localStorage.setItem("ab_canva_brandkit", bk);
+      const r = await generarPresentacionTax({
+        content: buildDeckContent(),
+        brand_kit_id: bk || null,
+        slides: 11,
+      });
+      setPresResult(r);
+    } catch (e) {
+      setPresError(e.message);
+    } finally {
+      setPresBusy(false);
+    }
+  };
+
   if (!projectId) {
     return (
       <div className="notice warn">
@@ -201,6 +332,12 @@ export default function AnalisisTributarioTool({ projectId }) {
           <button className="tx-btn" onClick={exportExcel} disabled={busy}>
             {busy ? "Generando…" : "⬇ Excel"}
           </button>
+          <button
+            className="tx-btn gold"
+            onClick={() => setPresOpen(true)}
+          >
+            🎨 Presentación
+          </button>
           <button className="tx-btn" onClick={() => window.print()}>
             🖨 PDF
           </button>
@@ -229,6 +366,18 @@ export default function AnalisisTributarioTool({ projectId }) {
           kind={ingest}
           onClose={() => setIngest(null)}
           onExtracted={mergeExtract}
+        />
+      )}
+
+      {presOpen && (
+        <PresentacionPanel
+          brandKit={brandKit}
+          setBrandKit={setBrandKit}
+          busy={presBusy}
+          result={presResult}
+          error={presError}
+          onGenerate={generarPresentacion}
+          onClose={() => setPresOpen(false)}
         />
       )}
 
@@ -377,6 +526,102 @@ function IngestPanel({ kind, onClose, onExtracted }) {
             <div className="tx-muted small">
               Revisa y ajusta las celdas azules antes de usar las cifras.
             </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ====== panel de presentación ejecutiva (Canva) ====== */
+function PresentacionPanel({
+  brandKit,
+  setBrandKit,
+  busy,
+  result,
+  error,
+  onGenerate,
+  onClose,
+}) {
+  return (
+    <div className="tx-ingest no-print">
+      <div className="tx-ingest-h">
+        <h3>🎨 Presentación ejecutiva para gerencia / accionistas</h3>
+        <button className="tx-x" onClick={onClose}>
+          ✕
+        </button>
+      </div>
+      <p className="tx-muted">
+        Genera un deck premium (~11 slides) con gráficos, dashboard, matriz de
+        escenarios y narrativa de negocio, usando Canva. Entrega enlace editable
+        + PDF + PPTX. Puede tardar 1–2 minutos.
+      </p>
+      <div className="tx-field tx-field-l">
+        <label>
+          Brand Kit de Canva (ID){" "}
+          <span className="hint">opcional · da consistencia de marca</span>
+        </label>
+        <input
+          type="text"
+          value={brandKit}
+          placeholder="ej. BAFx... (déjalo vacío para estilo AuditBrain)"
+          onChange={(e) => setBrandKit(e.target.value)}
+        />
+      </div>
+      <div className="tx-ingest-actions">
+        <button className="tx-btn gold" onClick={onGenerate} disabled={busy}>
+          {busy ? "Generando presentación… (1–2 min)" : "✨ Generar presentación"}
+        </button>
+      </div>
+      {busy && (
+        <div className="tx-note n-info">
+          <span className="ic">⏳</span>
+          <div>
+            Orquestando Claude + Canva en el servidor. No cierres esta ventana.
+          </div>
+        </div>
+      )}
+      {error && (
+        <div className="tx-note n-warn">
+          <span className="ic">⚠</span>
+          <div>{error}</div>
+        </div>
+      )}
+      {result && (
+        <div className="tx-note n-ok">
+          <span className="ic">✓</span>
+          <div>
+            <b>{result.title || "Presentación generada"}</b>
+            {result.page_count ? ` · ${result.page_count} slides` : ""}
+            <div className="tx-preslinks">
+              {result.edit_url && (
+                <a href={result.edit_url} target="_blank" rel="noreferrer" className="tx-btn">
+                  ✏️ Editar en Canva
+                </a>
+              )}
+              {result.view_url && (
+                <a href={result.view_url} target="_blank" rel="noreferrer" className="tx-btn ghost">
+                  👁 Ver
+                </a>
+              )}
+              {result.exports?.pdf && (
+                <a href={result.exports.pdf} target="_blank" rel="noreferrer" className="tx-btn ghost">
+                  ⬇ PDF
+                </a>
+              )}
+              {result.exports?.pptx && (
+                <a href={result.exports.pptx} target="_blank" rel="noreferrer" className="tx-btn ghost">
+                  ⬇ PPTX
+                </a>
+              )}
+            </div>
+            {result.warnings?.length > 0 && (
+              <ul className="tx-warnlist">
+                {result.warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       )}

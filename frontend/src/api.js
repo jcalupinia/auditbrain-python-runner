@@ -196,6 +196,18 @@ export async function downloadTaxPlantilla() {
   );
 }
 
+// Genera una presentación ejecutiva (Canva via MCP) para gerencia/accionistas.
+// Puede tardar 1–2 minutos (orquesta Claude + Canva en el servidor).
+export async function generarPresentacionTax(payload) {
+  return parse(
+    await fetch(`${TAX_PU_BASE}/presentacion`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+    })
+  );
+}
+
 // ---------- Fase 2 · M1: contexto operativo ----------
 
 export async function getMyContext() {

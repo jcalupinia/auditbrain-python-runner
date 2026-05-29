@@ -22,7 +22,10 @@ from backend.app.tax.planificacion_utilidades.parsers import (
 from backend.app.tax.planificacion_utilidades.schemas import (
     ExportRequest,
     ExtractResponse,
+    PresentacionRequest,
+    PresentacionResponse,
 )
+from backend.app.utils import canva_mcp
 
 router = APIRouter(
     prefix="/tax/planificacion-utilidades",
@@ -93,4 +96,85 @@ def plantilla_endpoint(current: User = Depends(get_current_user)):
         headers={
             "Content-Disposition": 'attachment; filename="Balance_resumido_plantilla.xlsx"'
         },
+    )
+
+
+_DECK_INSTRUCTIONS = (
+    "Crea una PRESENTACIÓN EJECUTIVA PREMIUM en español para Gerencia General y "
+    "Accionistas sobre planificación del pago a cuenta de utilidades no "
+    "distribuidas (Ecuador). Audiencia no técnica: prioriza claridad y narrativa "
+    "de negocio sobre tecnicismos.\n"
+    "Estructura sugerida (~{slides} slides):\n"
+    "1) Portada (empresa, RUC, representante, fecha).\n"
+    "2) Resumen ejecutivo con los KPIs clave (números grandes y legibles).\n"
+    "3) El problema: por qué nace la obligación y cuánto cuesta no actuar.\n"
+    "4) Diagnóstico financiero (1 slide, con gráfico de indicadores).\n"
+    "5) Diagnóstico tributario y societario.\n"
+    "6) Las 4 alternativas antes del 31 de julio.\n"
+    "7) Matriz de decisión: tabla comparativa de los 4 escenarios (pago, crédito "
+    "recuperable, costo muerto, patrimonio) con gráfico de barras del pago por "
+    "escenario.\n"
+    "8) Recomendación y ahorro (destácalo visualmente).\n"
+    "9) Modelación 2026–2028 (gráfico de pago/crédito/riesgo por año).\n"
+    "10) Plan de acción con responsables y plazos.\n"
+    "11) Cierre/contacto.\n"
+    "Requisitos visuales: incluye GRÁFICOS (barras/líneas) y, donde aporte, un "
+    "mini-dashboard de KPIs; usa imágenes/íconos corporativos sobrios; storytelling "
+    "claro (problema → diagnóstico → escenarios → recomendación → plan). "
+    "Mantén consistencia de marca. Exporta en los formatos pedidos y devuelve el "
+    "JSON con design_id, edit_url, view_url, page_count y exports."
+)
+
+
+@router.post("/presentacion", response_model=PresentacionResponse)
+def presentacion_endpoint(
+    body: PresentacionRequest,
+    current: User = Depends(get_current_user),
+):
+    """Genera una presentación ejecutiva (Canva via MCP). Requiere JWT.
+
+    La API Key nunca se expone al navegador: este endpoint usa el token JWT del
+    usuario y orquesta Canva en el servidor.
+    """
+    emp = str(body.content.get("empresa", "la Compañía")) or "la Compañía"
+    topic = (
+        f"Planificación tributaria sobre utilidades no distribuidas — {emp}"
+    )
+    style = body.style or (
+        "Corporativo ejecutivo premium, sobrio y elegante. Paleta Deep Blue "
+        "#071B2F, Navy #0A2342 y Gold #C7A83C; tipografía limpia; mucho espacio "
+        "en blanco; jerarquía visual clara."
+    )
+    extra = _DECK_INSTRUCTIONS.format(slides=body.slides)
+    try:
+        result = canva_mcp.generate_design(
+            topic=topic,
+            design_type="presentation",
+            audience=body.audience,
+            style=style,
+            content=body.content,
+            brand_kit_id=body.brand_kit_id,
+            export_formats=body.export_formats,
+            extra_instructions=extra,
+        )
+    except canva_mcp.CanvaMCPUnavailable as exc:
+        raise HTTPException(
+            503,
+            detail=(
+                "Canva no está configurado en el servidor "
+                f"(falta token/credenciales). {exc}"
+            ),
+        ) from exc
+    except canva_mcp.CanvaMCPError as exc:
+        raise HTTPException(502, detail=f"Error generando la presentación: {exc}") from exc
+
+    return PresentacionResponse(
+        status="ok" if result.design_id else "partial",
+        design_id=result.design_id,
+        edit_url=result.edit_url,
+        view_url=result.view_url,
+        title=result.title,
+        page_count=result.page_count,
+        exports=result.exports,
+        warnings=result.warnings,
     )

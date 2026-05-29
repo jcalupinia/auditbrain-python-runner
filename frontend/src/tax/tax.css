@@ -183,6 +183,21 @@
   gap: 8px;
   margin: 6px 0 10px;
 }
+.tax-root .tx-btn.gold {
+  background: var(--gold, #c7a83c);
+  color: #1a1505;
+  border-color: var(--gold, #c7a83c);
+  font-weight: 700;
+}
+.tax-root .tx-preslinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.tax-root .tx-preslinks .tx-btn {
+  text-decoration: none;
+}
 .tax-root .tx-warnlist {
   margin: 6px 0 4px 16px;
   padding: 0;
