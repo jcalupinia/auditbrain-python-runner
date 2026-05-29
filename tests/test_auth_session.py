@@ -19,7 +19,7 @@ def test_client_role_jwt_rejected_by_get_current_user(client, db_session=None):
     """Defense-in-depth: a JWT minted for Role.client must NOT pass through
     the staff get_current_user dependency."""
     import uuid
-    from backend.app.auth.jwt_tokens import create_access_token
+    from backend.app.auth.jwt_tokens import create_access_token, decode_token
     from backend.app.auth.models import Role
     from backend.app.auth.service import create_user, get_user_by_email
     from backend.app.db.session import SessionLocal
@@ -41,3 +41,28 @@ def test_client_role_jwt_rejected_by_get_current_user(client, db_session=None):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 401
+
+
+def test_jwt_carries_sid_and_did():
+    from backend.app.auth.jwt_tokens import create_access_token, decode_token
+
+    token = create_access_token(
+        subject="cliente@example.com",
+        role="client",
+        extra_claims={"sid": "abc123", "did": "device-xyz"},
+    )
+    payload = decode_token(token)
+    assert payload["sub"] == "cliente@example.com"
+    assert payload["role"] == "client"
+    assert payload["sid"] == "abc123"
+    assert payload["did"] == "device-xyz"
+
+
+def test_jwt_backward_compatible_without_extra_claims():
+    from backend.app.auth.jwt_tokens import create_access_token, decode_token
+
+    # Old call signature still works for existing staff login
+    token = create_access_token(subject="admin@example.com", role="admin")
+    payload = decode_token(token)
+    assert payload["sub"] == "admin@example.com"
+    assert "sid" not in payload
