@@ -66,3 +66,60 @@ def test_jwt_backward_compatible_without_extra_claims():
     payload = decode_token(token)
     assert payload["sub"] == "admin@example.com"
     assert "sid" not in payload
+
+
+import pytest
+from backend.app.auth.service import (
+    start_new_session,
+    invalidate_session,
+    create_user,
+    get_user_by_email,
+)
+from backend.app.db.session import SessionLocal
+
+
+@pytest.fixture()
+def db_session():
+    db = SessionLocal()
+    yield db
+    db.close()
+
+
+def _unique_email(prefix: str) -> str:
+    import uuid as _uuid
+    return f"{prefix}-{_uuid.uuid4().hex[:8]}@x.com"
+
+
+def test_start_new_session_assigns_sid(db_session):
+    email = _unique_email("sess-start")
+    u = get_user_by_email(db_session, email) or create_user(
+        db_session, email=email, password="pwd123!", role=Role.client
+    )
+    sid = start_new_session(db_session, user=u)
+    db_session.refresh(u)
+    assert u.current_session_id == sid
+    assert u.session_started_at is not None
+    assert len(sid) == 36  # UUID4
+
+
+def test_second_session_replaces_first(db_session):
+    email = _unique_email("sess-replace")
+    u = get_user_by_email(db_session, email) or create_user(
+        db_session, email=email, password="pwd123!", role=Role.client
+    )
+    sid_a = start_new_session(db_session, user=u)
+    sid_b = start_new_session(db_session, user=u)
+    db_session.refresh(u)
+    assert sid_b != sid_a
+    assert u.current_session_id == sid_b
+
+
+def test_invalidate_session_clears_sid(db_session):
+    email = _unique_email("sess-invalidate")
+    u = get_user_by_email(db_session, email) or create_user(
+        db_session, email=email, password="pwd123!", role=Role.client
+    )
+    start_new_session(db_session, user=u)
+    invalidate_session(db_session, user=u)
+    db_session.refresh(u)
+    assert u.current_session_id is None
