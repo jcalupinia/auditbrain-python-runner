@@ -119,9 +119,9 @@ export const DEFAULT_CTRL = [
 // Parámetros editables (requieren validación humana — ver normativa).
 export const DEFAULT_PARAMS = {
   empresa: "SIGMANSERVICES S.A.", // razón social
-  ruc: "", // RUC del contribuyente
-  repLegal: "", // representante legal (para dirigir el informe)
-  fechaCorte: "", // fecha de corte del análisis (ISO yyyy-mm-dd)
+  ruc: "1791935438001", // RUC del contribuyente
+  repLegal: "Ing. Guillermo Cruz", // representante legal (para dirigir el informe)
+  fechaCorte: "2026-07-31", // fecha de corte del análisis (ISO yyyy-mm-dd)
   fechaAnalisis: "", // fecha del cálculo (ISO); vacío => fecha de hoy
   costoR: 60.6, // costo / ventas (%)
   gastoR: 34.6, // gastos op. / ventas (%)
