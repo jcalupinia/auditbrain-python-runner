@@ -45,3 +45,25 @@ class User(Base):
     session_started_at: Mapped[datetime.datetime | None] = mapped_column(
         DateTime, nullable=True
     )
+
+
+class ClientDevice(Base):
+    """Vinculación cliente-dispositivo (capa 2 de seguridad del portal)."""
+
+    __tablename__ = "client_devices"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    device_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    fingerprint_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    ip_first_seen: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    registered_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False)
+    last_seen_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False)
+    revoked_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
