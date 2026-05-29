@@ -108,7 +108,7 @@ def _sheet_datos(wb: Workbook, params: dict) -> dict:
         ("Costo / ventas (%)", "costoR", 60.6),
         ("Gastos op. / ventas (%)", "gastoR", 34.6),
         ("Tasa Impuesto a la Renta (%)", "irR", 25),
-        ("Retención dividendos (%)", "retDiv", 10),
+        ("Retención dividendos (%)", "retDiv", 12),
     ]:
         ws[f"A{pr}"] = label
         ws[f"B{pr}"] = _g(key, params.get(key, default))

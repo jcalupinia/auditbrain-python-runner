@@ -126,7 +126,7 @@ export const DEFAULT_PARAMS = {
   costoR: 60.6, // costo / ventas (%)
   gastoR: 34.6, // gastos op. / ventas (%)
   irR: 25, // tasa Impuesto a la Renta (%)
-  retDiv: 10, // retención impuesto único dividendos (%)
+  retDiv: 12, // retención impuesto único dividendos (%) — verificar normativa
 };
 
 export const EXAMPLE_PARAMS = { ...DEFAULT_PARAMS };

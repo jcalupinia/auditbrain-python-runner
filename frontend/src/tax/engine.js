@@ -87,7 +87,7 @@ export const cce = (D, c) => {
 };
 
 /* ===================== PROYECCIÓN ===================== */
-// params: { costoR, gastoR, irR, retDiv } en PORCENTAJE (ej. 60.6, 25, 10).
+// params: { costoR, gastoR, irR, retDiv } en PORCENTAJE (ej. 60.6, 25, 12).
 export function computeER(D, CTRL, params) {
   const cR = params.costoR / 100,
     gR = params.gastoR / 100,

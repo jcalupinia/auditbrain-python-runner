@@ -141,7 +141,7 @@ También hay **parámetros editables** (validar antes de usar):
 | Costo / ventas (%) | 60,6 % |
 | Gastos operativos / ventas (%) | 34,6 % |
 | Tasa de Impuesto a la Renta (%) | 25 % |
-| Retención de dividendos (%) | 10 % |
+| Retención de dividendos (%) | 12 % |
 
 > **Tip:** en vez de configurar las palancas manualmente, usa los **botones de
 > escenario** de la barra superior (Sin acción / Capitalización / Distribución /
