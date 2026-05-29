@@ -16,10 +16,15 @@ from backend.app.auth.models import ClientDevice, User
 from backend.app.auth.service import start_new_session, invalidate_session
 from backend.app.client_portal import service as cp_service
 from backend.app.client_portal.schemas import (
+    CategoryOut,
     ChangePasswordRequest,
+    ClientCatalogResponse,
     ClientLoginResponse,
     ClientMeResponse,
+    SlotOut,
+    ToolOut,
 )
+from backend.app.client_portal.tool_registry import CATEGORIES, list_enabled_tools
 from backend.app.db.session import get_db
 
 router = APIRouter(prefix="/client", tags=["client-portal"])
@@ -146,3 +151,36 @@ def logout(
 ):
     invalidate_session(db, user=user)
     return {"ok": True}
+
+
+@router.get("/catalog", response_model=ClientCatalogResponse)
+def get_catalog(
+    _: User = Depends(require_client_with_device),
+):
+    """Catálogo de herramientas habilitadas para el cliente.
+    Por ahora retorna TODAS las tools habilitadas. Filtrado por organización
+    es upgrade futuro (gating comercial).
+    """
+    tools_by_cat: dict[str, list] = {c["id"]: [] for c in CATEGORIES}
+    for t in list_enabled_tools():
+        if t.category not in tools_by_cat:
+            tools_by_cat[t.category] = []
+        slots_out = [
+            SlotOut(
+                name=name,
+                mimes_allowed=sorted(cfg.mimes_allowed),
+                required=cfg.required,
+                multi=cfg.multi,
+            )
+            for name, cfg in t.slots.items()
+        ]
+        tools_by_cat[t.category].append(ToolOut(
+            code=t.code, label=t.label, description=t.description,
+            category=t.category, slots=slots_out,
+        ))
+    return ClientCatalogResponse(
+        categories=[
+            CategoryOut(id=c["id"], label=c["label"], tools=tools_by_cat.get(c["id"], []))
+            for c in CATEGORIES
+        ]
+    )
