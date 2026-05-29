@@ -161,14 +161,8 @@ export default function AnalisisTributarioTool({ projectId }) {
     }
   };
 
-  // ---- Presentación ejecutiva (Canva) ----
-  const [presOpen, setPresOpen] = useState(false);
+  // ---- Presentación ejecutiva (.pptx) ----
   const [presBusy, setPresBusy] = useState(false);
-  const [presResult, setPresResult] = useState(null);
-  const [presError, setPresError] = useState("");
-  const [brandKit, setBrandKit] = useState(
-    () => localStorage.getItem("ab_canva_brandkit") || "",
-  );
 
   // Arma el contenido ejecutivo del deck con cifras en vivo.
   const buildDeckContent = () => {
@@ -272,19 +266,10 @@ export default function AnalisisTributarioTool({ projectId }) {
 
   const generarPresentacion = async () => {
     setPresBusy(true);
-    setPresError("");
-    setPresResult(null);
     try {
-      const bk = brandKit.trim();
-      if (bk) localStorage.setItem("ab_canva_brandkit", bk);
-      const r = await generarPresentacionTax({
-        content: buildDeckContent(),
-        brand_kit_id: bk || null,
-        slides: 11,
-      });
-      setPresResult(r);
+      await generarPresentacionTax({ content: buildDeckContent() });
     } catch (e) {
-      setPresError(e.message);
+      alert("Error al generar la presentación: " + e.message);
     } finally {
       setPresBusy(false);
     }
@@ -338,9 +323,10 @@ export default function AnalisisTributarioTool({ projectId }) {
           </button>
           <button
             className="tx-btn gold"
-            onClick={() => setPresOpen(true)}
+            onClick={generarPresentacion}
+            disabled={presBusy}
           >
-            🎨 Presentación
+            {presBusy ? "Generando…" : "🎨 Presentación"}
           </button>
           <button className="tx-btn" onClick={() => window.print()}>
             🖨 PDF
@@ -373,17 +359,6 @@ export default function AnalisisTributarioTool({ projectId }) {
         />
       )}
 
-      {presOpen && (
-        <PresentacionPanel
-          brandKit={brandKit}
-          setBrandKit={setBrandKit}
-          busy={presBusy}
-          result={presResult}
-          error={presError}
-          onGenerate={generarPresentacion}
-          onClose={() => setPresOpen(false)}
-        />
-      )}
 
       <div className="tx-content">
         {section === "datos" && <SecDatos params={params} setText={setText} />}
@@ -530,102 +505,6 @@ function IngestPanel({ kind, onClose, onExtracted }) {
             <div className="tx-muted small">
               Revisa y ajusta las celdas azules antes de usar las cifras.
             </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ====== panel de presentación ejecutiva (Canva) ====== */
-function PresentacionPanel({
-  brandKit,
-  setBrandKit,
-  busy,
-  result,
-  error,
-  onGenerate,
-  onClose,
-}) {
-  return (
-    <div className="tx-ingest no-print">
-      <div className="tx-ingest-h">
-        <h3>🎨 Presentación ejecutiva para gerencia / accionistas</h3>
-        <button className="tx-x" onClick={onClose}>
-          ✕
-        </button>
-      </div>
-      <p className="tx-muted">
-        Genera un deck premium (~11 slides) con gráficos, dashboard, matriz de
-        escenarios y narrativa de negocio, usando Canva. Entrega enlace editable
-        + PDF + PPTX. Puede tardar 1–2 minutos.
-      </p>
-      <div className="tx-field tx-field-l">
-        <label>
-          Brand Kit de Canva (ID){" "}
-          <span className="hint">opcional · da consistencia de marca</span>
-        </label>
-        <input
-          type="text"
-          value={brandKit}
-          placeholder="ej. BAFx... (déjalo vacío para estilo AuditBrain)"
-          onChange={(e) => setBrandKit(e.target.value)}
-        />
-      </div>
-      <div className="tx-ingest-actions">
-        <button className="tx-btn gold" onClick={onGenerate} disabled={busy}>
-          {busy ? "Generando presentación… (1–2 min)" : "✨ Generar presentación"}
-        </button>
-      </div>
-      {busy && (
-        <div className="tx-note n-info">
-          <span className="ic">⏳</span>
-          <div>
-            Orquestando Claude + Canva en el servidor. No cierres esta ventana.
-          </div>
-        </div>
-      )}
-      {error && (
-        <div className="tx-note n-warn">
-          <span className="ic">⚠</span>
-          <div>{error}</div>
-        </div>
-      )}
-      {result && (
-        <div className="tx-note n-ok">
-          <span className="ic">✓</span>
-          <div>
-            <b>{result.title || "Presentación generada"}</b>
-            {result.page_count ? ` · ${result.page_count} slides` : ""}
-            <div className="tx-preslinks">
-              {result.edit_url && (
-                <a href={result.edit_url} target="_blank" rel="noreferrer" className="tx-btn">
-                  ✏️ Editar en Canva
-                </a>
-              )}
-              {result.view_url && (
-                <a href={result.view_url} target="_blank" rel="noreferrer" className="tx-btn ghost">
-                  👁 Ver
-                </a>
-              )}
-              {result.exports?.pdf && (
-                <a href={result.exports.pdf} target="_blank" rel="noreferrer" className="tx-btn ghost">
-                  ⬇ PDF
-                </a>
-              )}
-              {result.exports?.pptx && (
-                <a href={result.exports.pptx} target="_blank" rel="noreferrer" className="tx-btn ghost">
-                  ⬇ PPTX
-                </a>
-              )}
-            </div>
-            {result.warnings?.length > 0 && (
-              <ul className="tx-warnlist">
-                {result.warnings.map((w, i) => (
-                  <li key={i}>{w}</li>
-                ))}
-              </ul>
-            )}
           </div>
         </div>
       )}
