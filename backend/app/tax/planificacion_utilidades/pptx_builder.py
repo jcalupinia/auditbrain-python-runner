@@ -32,7 +32,7 @@ LINE = RGBColor(0x21, 0x40, 0x66)
 GREEN = RGBColor(0x4C, 0xC2, 0x8A)
 RED = RGBColor(0xE0, 0x6A, 0x5C)
 BLUE = RGBColor(0x5B, 0x9B, 0xE0)
-FONT = "DM Sans"
+FONT = "Calibri"  # fuente segura del sistema (consistente en todo Windows/Office)
 
 W = Inches(13.333)
 H = Inches(7.5)
