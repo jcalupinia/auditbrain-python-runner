@@ -141,9 +141,11 @@ def presentacion_endpoint(
         f"Planificación tributaria sobre utilidades no distribuidas — {emp}"
     )
     style = body.style or (
-        "Corporativo ejecutivo premium, sobrio y elegante. Paleta Deep Blue "
-        "#071B2F, Navy #0A2342 y Gold #C7A83C; tipografía limpia; mucho espacio "
-        "en blanco; jerarquía visual clara."
+        "Estética AuditBrain aprobada (referencia PoC): tema OSCURO premium y "
+        "minimalista, tipografía DM Sans, texto claro sobre fondos oscuros, "
+        "KPIs con números grandes y legibles, mucho espacio en blanco, acentos "
+        "en Gold #C7A83C sobre Deep Blue #071B2F / Navy #0A2342. Look ejecutivo "
+        "de agencia, sobrio y elegante; jerarquía visual clara."
     )
     extra = _DECK_INSTRUCTIONS.format(slides=body.slides)
     try:
