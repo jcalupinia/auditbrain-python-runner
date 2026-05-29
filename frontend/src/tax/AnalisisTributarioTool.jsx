@@ -17,6 +17,7 @@ import {
   DEFAULT_PARAMS,
 } from "./seed.js";
 import {
+  tarifa,
   tAC,
   tActivo,
   tPC,
@@ -182,20 +183,22 @@ export default function AnalisisTributarioTool({ projectId }) {
       applyScenario("sin", D, CTRL, params),
       params,
     )[0];
-    const matriz = ["sin", "div", "cap", "mix"].map((s) => {
-      const rows = computeModel(D, applyScenario(s, D, CTRL, params), params);
-      const last = rows[rows.length - 1];
-      return {
-        escenario: SCENARIO_NAMES[s],
-        recomendado: s === scn,
-        pago: Math.round(rows.reduce((a, r) => a + r.pago, 0)),
-        credito_recuperable: Math.round(
-          rows.reduce((a, r) => a + r.cIR + r.dev, 0),
-        ),
-        costo_muerto: Math.round(last.riesgo),
-        patrimonio_2028: Math.round(last.patrimonio),
-      };
-    });
+    const esc = buildEscenarios(D, CTRL, params);
+    const matriz = esc.map((m) => ({
+      escenario: m.nombre,
+      recomendado: m.key === "e3",
+      pago_2026: Math.round(m.pago2026),
+      pago_2026_2028: Math.round(m.pago),
+      retencion_credito: Math.round(m.retencion),
+      costo_muerto: Math.round(m.muerto),
+      patrimonio_2028: Math.round(m.patrimonio),
+    }));
+    const hist = pagoHistorico(D, params).map((h) => ({
+      anio: h.anio,
+      base: Math.round(h.base),
+      pago: Math.round(h.pago),
+      estado: "Realizado",
+    }));
     return {
       empresa: params.empresa || "la Compañía",
       ruc: params.ruc || "",
@@ -238,10 +241,11 @@ export default function AnalisisTributarioTool({ projectId }) {
         "Capitalizar con sustancia antes del 31 de julio",
         "Híbrido: distribución + capitalización",
       ],
+      pago_historico: hist,
       matriz_escenarios: matriz,
       grafico_pago_por_escenario: {
         labels: matriz.map((m) => m.escenario),
-        valores: matriz.map((m) => m.pago),
+        valores: matriz.map((m) => m.pago_2026_2028),
       },
       modelacion_2026_2028: {
         anios: PROJ,
@@ -1499,6 +1503,50 @@ const INFORME_INDICE = [
   "Anexos",
 ];
 
+// Pago a cuenta histórico: base = utilidades retenidas del cierre del año
+// anterior. El régimen rige desde 2025 (primer pago: base = acumuladas 2024).
+function pagoHistorico(D, params) {
+  const baseProp = (anioIdx) => D.resAcum[anioIdx]; // acum. cierre anterior
+  const calc = (base) => ({ base, tar: tarifa(base), pago: base * tarifa(base) });
+  return [
+    { anio: ANIOS[2], ...calc(baseProp(1)) }, // pago 2025 ← acumuladas 2024
+  ];
+}
+
+// Cuatro escenarios comparativos con montos definidos. La decisión (dividendos /
+// capitalización) se aplica solo en el primer año proyectado (2026); el resto
+// del horizonte queda sin nuevas decisiones.
+function buildEscenarios(D, CTRL, params) {
+  const acum = D.resAcum[2]; // utilidades acumuladas al cierre 2025
+  const divObj = params.divObjetivo || 0;
+  const mk = (div, cap) =>
+    CTRL.map((c, i) => (i === 0 ? { g: c.g, div, cap } : { g: c.g, div: 0, cap: 0 }));
+  const defs = [
+    { key: "e1", nombre: "1 · Sin acción", div: 0, cap: 0 },
+    { key: "e2", nombre: `2 · Dividendos ${fmt(divObj)}`, div: divObj, cap: 0 },
+    {
+      key: "e3",
+      nombre: `3 · Dividendos ${fmt(divObj)} + capitaliza la diferencia`,
+      div: divObj,
+      cap: Math.max(0, acum - divObj),
+    },
+    { key: "e4", nombre: "4 · Capitaliza todo", div: 0, cap: acum },
+  ];
+  return defs.map((d) => {
+    const rows = computeModel(D, mk(d.div, d.cap), params);
+    const last = rows[rows.length - 1];
+    return {
+      ...d,
+      pago: rows.reduce((a, r) => a + r.pago, 0),
+      recuperable: rows.reduce((a, r) => a + r.cIR + r.dev, 0),
+      muerto: last.riesgo,
+      patrimonio: last.patrimonio,
+      retencion: d.div * ((params.retDiv || 0) / 100),
+      pago2026: rows[0].pago,
+    };
+  });
+}
+
 function SecInforme({ D, R, CTRL, i0, i1, i2, scComp, scn, params, sumK }) {
   const emp = (params.empresa || "").trim() || "la Compañía";
   const rep = (params.repLegal || "").trim();
@@ -1522,24 +1570,9 @@ function SecInforme({ D, R, CTRL, i0, i1, i2, scComp, scn, params, sumK }) {
   const riesgo = R[R.length - 1].riesgo;
   const dVtas = (i2.V - i1.V) / i1.V;
 
-  // Matriz de los 4 escenarios (recálculo en vivo).
-  const ESC_KEYS = ["sin", "div", "cap", "mix"];
-  const matriz = ESC_KEYS.map((s) => {
-    const ctrlS = applyScenario(s, D, CTRL, params);
-    const rows = computeModel(D, ctrlS, params);
-    const last = rows[rows.length - 1];
-    const pago = rows.reduce((a, r) => a + r.pago, 0);
-    const cIR = rows.reduce((a, r) => a + r.cIR, 0);
-    const dev = rows.reduce((a, r) => a + r.dev, 0);
-    return {
-      key: s,
-      nombre: SCENARIO_NAMES[s],
-      pago,
-      recuperable: cIR + dev,
-      muerto: last.riesgo,
-      patrimonio: last.patrimonio,
-    };
-  });
+  // Cuatro escenarios comparativos definidos + pago histórico (desde 2025).
+  const matriz = buildEscenarios(D, CTRL, params);
+  const historico = pagoHistorico(D, params);
 
   // Charts embebidos (dashboard ejecutivo).
   const moneyOpt = { ...BASE_OPT, scales: { y: Y_MONEY, x: { grid: { display: false } } } };
@@ -1742,14 +1775,38 @@ function SecInforme({ D, R, CTRL, i0, i1, i2, scComp, scn, params, sumK }) {
         {/* ===== 9. PAGO HISTÓRICO ===== */}
         <h4>9. Análisis del Pago Históricamente Realizado</h4>
         <p>
-          El régimen es de <b>reciente vigencia (septiembre de 2025)</b>, por lo
-          que no existe un historial de pagos previos del anticipo. La referencia
-          relevante es el <b>pago proyectado sin planificación</b>: de mantenerse
-          la inacción, el primer desembolso sería <b>{fmt(primerPagoSin.pago)}</b>{" "}
-          y se repetiría cada año, sin que su recuperación esté garantizada. Este
-          informe sustituye la ausencia de histórico por una proyección
-          prospectiva de la carga.
+          El pago a cuenta de cada año se determina sobre las{" "}
+          <b>utilidades retenidas del cierre del ejercicio anterior</b>. El primer
+          pago bajo el régimen corresponde a <b>2025</b> (calculado sobre las
+          utilidades acumuladas al cierre de 2024). A partir de ahí la obligación
+          es recurrente mientras se mantengan utilidades sin distribuir ni
+          capitalizar.
         </p>
+        <table className="rtbl">
+          <thead>
+            <tr><th>Año</th><th>Base (acum. cierre anterior)</th><th>Tarifa</th><th>Pago a cuenta</th><th>Estado</th></tr>
+          </thead>
+          <tbody>
+            {historico.map((h) => (
+              <tr key={h.anio}>
+                <td>{h.anio}</td>
+                <td>{fmt(h.base)}</td>
+                <td>{fP(h.tar)}</td>
+                <td>{fmt(h.pago)}</td>
+                <td>Realizado</td>
+              </tr>
+            ))}
+            {R.map((r, i) => (
+              <tr key={PROJ[i]}>
+                <td>{PROJ[i]}</td>
+                <td>{fmt(r.base)}</td>
+                <td>{fP(r.tar)}</td>
+                <td>{fmt(r.pago)}</td>
+                <td>Proyectado ({SCENARIO_NAMES[scn]})</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
 
         {/* ===== 10. ALTERNATIVAS ===== */}
         <h4>10. Identificación de Alternativas Previas al 31 de Julio</h4>
@@ -1775,22 +1832,28 @@ function SecInforme({ D, R, CTRL, i0, i1, i2, scComp, scn, params, sumK }) {
 
         {/* ===== 11. MATRIZ DE DECISIÓN ===== */}
         <h4>11. Matriz de Decisión Estratégica</h4>
+        <p>
+          Comparación de las cuatro decisiones (aplicadas en 2026, sobre la base
+          de las utilidades acumuladas al cierre 2025, {fmt(D.resAcum[2])}).
+        </p>
         <table className="rtbl">
           <thead>
             <tr>
               <th>Escenario</th>
-              <th>Pago a cuenta 2026–28</th>
-              <th>Crédito recuperable</th>
+              <th>Pago a cuenta 2026</th>
+              <th>Pago 2026–28</th>
+              <th>Retención div. (crédito)</th>
               <th>Costo muerto</th>
               <th>Patrimonio 2028</th>
             </tr>
           </thead>
           <tbody>
             {matriz.map((m) => (
-              <tr key={m.key} className={m.key === scn ? "ron" : ""}>
-                <td>{m.nombre}{m.key === scn ? " ◄" : ""}</td>
+              <tr key={m.key} className={m.key === "e3" ? "ron" : ""}>
+                <td>{m.nombre}{m.key === "e3" ? " ◄ sugerido" : ""}</td>
+                <td>{fmt(m.pago2026)}</td>
                 <td>{fmt(m.pago)}</td>
-                <td>{fmt(m.recuperable)}</td>
+                <td>{fmt(m.retencion)}</td>
                 <td>{fmt(m.muerto)}</td>
                 <td>{fmt(m.patrimonio)}</td>
               </tr>
@@ -1798,8 +1861,10 @@ function SecInforme({ D, R, CTRL, i0, i1, i2, scComp, scn, params, sumK }) {
           </tbody>
         </table>
         <p className="rnote">
-          ◄ escenario seleccionado. La matriz recalcula en vivo con los datos y
-          parámetros vigentes.
+          ◄ El escenario 3 (dividendos + capitalización de la diferencia) anula el
+          pago de 2026 y a la vez genera retención recuperable y liquidez para el
+          accionista. La capitalización debe respaldarse con sustancia económica
+          (activos productivos/empleo), no con inventarios.
         </p>
 
         {/* ===== 12. MODELACIÓN ===== */}

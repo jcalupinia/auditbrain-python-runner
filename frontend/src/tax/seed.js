@@ -127,6 +127,7 @@ export const DEFAULT_PARAMS = {
   gastoR: 34.6, // gastos op. / ventas (%)
   irR: 25, // tasa Impuesto a la Renta (%)
   retDiv: 12, // retención impuesto único dividendos (%) — verificar normativa
+  divObjetivo: 1500000, // monto de dividendos para los escenarios comparativos
 };
 
 export const EXAMPLE_PARAMS = { ...DEFAULT_PARAMS };
