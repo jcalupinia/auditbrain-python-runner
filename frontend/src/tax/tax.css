@@ -724,6 +724,52 @@
   font-size: 11px;
   color: var(--muted);
 }
+.tax-root .tx-report .rsub {
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--gold);
+  font-weight: 700;
+  margin-top: 4px;
+}
+.tax-root .tx-report table.rtbl {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0 6px;
+  font-size: 12px;
+}
+.tax-root .tx-report table.rtbl th {
+  background: var(--navy);
+  color: #fff;
+  text-align: left;
+  padding: 7px 9px;
+  font-weight: 700;
+}
+.tax-root .tx-report table.rtbl td {
+  border: 1px solid var(--line);
+  padding: 6px 9px;
+  color: #2c3a47;
+}
+.tax-root .tx-report table.rtbl td:not(:first-child) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.tax-root .tx-report table.rtbl tr:nth-child(even) td {
+  background: #f6f8fb;
+}
+.tax-root .tx-report table.rtbl tr.ron td {
+  background: #eaf5ec;
+  font-weight: 700;
+  color: var(--navy);
+}
+.tax-root .tx-report li.rwarn {
+  color: #7a1f1f;
+}
+.tax-root .tx-report .rnote {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 4px 0 8px;
+}
 .tax-root .conf {
   display: inline-block;
   background: var(--deep);

@@ -268,7 +268,18 @@ export default function AnalisisTributarioTool({ projectId }) {
           />
         )}
         {section === "informe" && (
-          <SecInforme D={D} R={R} i1={i1} i2={i2} scComp={scComp} scn={scn} params={params} />
+          <SecInforme
+            D={D}
+            R={R}
+            CTRL={CTRL}
+            i0={i0}
+            i1={i1}
+            i2={i2}
+            scComp={scComp}
+            scn={scn}
+            params={params}
+            sumK={sumK}
+          />
         )}
       </div>
     </div>
@@ -1224,7 +1235,26 @@ function SecDashboard({ D, R, scComp, scn, sumK, i0, i1, i2 }) {
 }
 
 /* ===================== ★ INFORME ===================== */
-function SecInforme({ D, R, i1, i2, scComp, scn, params }) {
+const INFORME_INDICE = [
+  "Resumen Ejecutivo",
+  "Antecedentes",
+  "Objetivo del Proyecto",
+  "Alcance",
+  "Marco Normativo",
+  "Diagnóstico Financiero",
+  "Diagnóstico Tributario",
+  "Diagnóstico Societario",
+  "Análisis del Pago Históricamente Realizado",
+  "Identificación de Alternativas Previas al 31 de Julio",
+  "Matriz de Decisión Estratégica",
+  "Modelación Financiera y Tributaria",
+  "Dashboard Ejecutivo",
+  "Plan de Acción",
+  "Conclusiones",
+  "Anexos",
+];
+
+function SecInforme({ D, R, CTRL, i0, i1, i2, scComp, scn, params, sumK }) {
   const emp = (params.empresa || "").trim() || "la Compañía";
   const rep = (params.repLegal || "").trim();
   const ruc = (params.ruc || "").trim();
@@ -1236,25 +1266,78 @@ function SecInforme({ D, R, i1, i2, scComp, scn, params }) {
       day: "numeric",
     });
   const fCorte = fmtFecha(params.fechaCorte);
+
+  // Escenario actual
   const pagoSin = scComp.sin;
   const pagoAct = R.reduce((a, r) => a + r.pago, 0);
   const credIR = R.reduce((a, r) => a + r.cIR, 0);
+  const devol = R.reduce((a, r) => a + r.dev, 0);
+  const recuperable = credIR + devol;
   const ahorro = pagoSin - pagoAct;
   const riesgo = R[R.length - 1].riesgo;
   const dVtas = (i2.V - i1.V) / i1.V;
+
+  // Matriz de los 4 escenarios (recálculo en vivo).
+  const ESC_KEYS = ["sin", "div", "cap", "mix"];
+  const matriz = ESC_KEYS.map((s) => {
+    const ctrlS = applyScenario(s, D, CTRL, params);
+    const rows = computeModel(D, ctrlS, params);
+    const last = rows[rows.length - 1];
+    const pago = rows.reduce((a, r) => a + r.pago, 0);
+    const cIR = rows.reduce((a, r) => a + r.cIR, 0);
+    const dev = rows.reduce((a, r) => a + r.dev, 0);
+    return {
+      key: s,
+      nombre: SCENARIO_NAMES[s],
+      pago,
+      recuperable: cIR + dev,
+      muerto: last.riesgo,
+      patrimonio: last.patrimonio,
+    };
+  });
+
+  // Charts embebidos (dashboard ejecutivo).
+  const moneyOpt = { ...BASE_OPT, scales: { y: Y_MONEY, x: { grid: { display: false } } } };
+  const cScn = {
+    labels: matriz.map((m) => m.nombre),
+    datasets: [
+      {
+        label: "Pago a cuenta 2026–2028",
+        data: matriz.map((m) => Math.round(m.pago)),
+        backgroundColor: ["#C0392B", "#1E5AA8", "#1E8449", "#C7A83C"],
+        borderRadius: 6,
+        maxBarThickness: 60,
+      },
+    ],
+  };
+  const cFlujo = {
+    labels: PROJ,
+    datasets: [
+      { label: "Pago a cuenta", data: R.map((r) => Math.round(r.pago)), backgroundColor: "#1E5AA8", borderRadius: 4 },
+      { label: "Crédito vs. IR", data: R.map((r) => Math.round(r.cIR)), backgroundColor: "#1E8449", borderRadius: 4 },
+      { label: "En riesgo", data: R.map((r) => Math.round(r.enR)), backgroundColor: "#C0392B", borderRadius: 4 },
+    ],
+  };
+
+  const totalPat = D.capital[2] + D.reservas[2] + D.ori[2] + D.resAcum[2];
+  const reservaMin = D.capital[2] * 0.5; // reserva legal hasta 50% del capital
+  const primerPagoSin = computeModel(
+    D,
+    applyScenario("sin", D, CTRL, params),
+    params,
+  )[0];
+
   return (
     <section>
       <div className="tx-report">
+        {/* ===== PORTADA ===== */}
         <div className="rcover">
-          <div className="rk">
-            AuditBrain · Executive Advisory · Tax Advisory
-          </div>
+          <div className="rk">AuditBrain · Executive Advisory · Tax Advisory</div>
           <h2>Planificación tributaria sobre utilidades no distribuidas</h2>
+          <div className="rsub">Informe ejecutivo para el accionista</div>
           <div className="remp">{emp}</div>
           {ruc && <div className="rdate">RUC: {ruc}</div>}
-          {rep && (
-            <div className="rdate">{rep} · Representante legal</div>
-          )}
+          {rep && <div className="rdate">{rep} · Representante legal</div>}
           <div className="rdate">
             Horizonte 2026–2028 · {fAnalisis}
             {fCorte && ` · Corte: ${fCorte}`}
@@ -1266,17 +1349,16 @@ function SecInforme({ D, R, i1, i2, scComp, scn, params }) {
           </div>
         </div>
 
-        <h4>Índice</h4>
+        {/* ===== ÍNDICE GENERAL ===== */}
+        <h4>Índice general</h4>
         <ol className="idx">
-          <li>Introducción</li>
-          <li>Alcance del servicio</li>
-          <li>Diagnóstico financiero</li>
-          <li>Estrategia tributaria</li>
-          <li>Soluciones y escenarios</li>
-          <li>Ahorro y recomendaciones</li>
+          {INFORME_INDICE.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
         </ol>
 
-        <h4>1. Introducción</h4>
+        {/* ===== 1. RESUMEN EJECUTIVO ===== */}
+        <h4>1. Resumen Ejecutivo</h4>
         {rep && (
           <p>
             Estimado(a) señor(a) <b>{rep}</b>, en su calidad de representante
@@ -1284,97 +1366,298 @@ function SecInforme({ D, R, i1, i2, scComp, scn, params }) {
           </p>
         )}
         <p>
+          {emp} mantiene utilidades acumuladas por <b>{fmt(D.resAcum[2])}</b>,
+          lo que la expone al pago a cuenta sobre utilidades no distribuidas. Sin
+          planificación, el desembolso acumulado 2026–2028 ascendería a{" "}
+          <b>{fmt(pagoSin)}</b>. Bajo el escenario <b>{SCENARIO_NAMES[scn]}</b>,
+          el pago se reduce a <b>{fmt(pagoAct)}</b>, con un ahorro/diferimiento
+          de <b>{fmt(ahorro)}</b> y <b>{fmt(recuperable)}</b> recuperables vía
+          crédito y devolución.
+        </p>
+        <div className="tx-kpis mb">
+          <Kpi l="Utilidades no distribuidas" c="b" v={fmt(D.resAcum[2])} d="Saldo 2025" />
+          <Kpi l="Pago sin acción 2026–28" c="r" v={fmt(pagoSin)} d="Si no se actúa" />
+          <Kpi l={`Pago — ${SCENARIO_NAMES[scn]}`} c="g" v={fmt(pagoAct)} d="Escenario actual" />
+          <Kpi l="Ahorro / diferimiento" c="g" v={fmt(ahorro)} d="vs. no actuar" />
+          <Kpi l="Crédito recuperable" c="b" v={fmt(recuperable)} d="IR + devolución" />
+          <Kpi l="En riesgo (costo muerto)" c="r" v={fmt(riesgo)} d="Por inacción" />
+        </div>
+
+        {/* ===== 2. ANTECEDENTES ===== */}
+        <h4>2. Antecedentes</h4>
+        <p>
           Desde septiembre de 2025 rige en Ecuador el{" "}
           <b>pago a cuenta sobre las utilidades no distribuidas</b>, un anticipo
           anual que grava a las sociedades que mantienen utilidades acumuladas
-          sin distribuir ni capitalizar al 31 de julio de cada año. {emp}{" "}
-          mantiene utilidades acumuladas por <b>{fmt(D.resAcum[2])}</b>, lo que
-          la expone a una obligación recurrente. El accionista busca no soportar
-          este desembolso de forma permanente; el presente análisis estructura,
-          con evidencia financiera y tributaria, cómo evitar legítimamente que
-          la obligación nazca o cómo convertir cada dólar pagado en crédito
-          plenamente recuperable.
+          sin distribuir ni capitalizar al 31 de julio de cada año. Las
+          utilidades acumuladas de {emp} han evolucionado de{" "}
+          <b>{fmt(D.resAcum[0])}</b> (2023) a <b>{fmt(D.resAcum[1])}</b> (2024) y{" "}
+          <b>{fmt(D.resAcum[2])}</b> (2025), tendencia creciente que incrementa la
+          exposición a la obligación de forma recurrente.
         </p>
 
-        <h4>2. Alcance del servicio</h4>
+        {/* ===== 3. OBJETIVO ===== */}
+        <h4>3. Objetivo del Proyecto</h4>
         <p>
-          El componente comprende: diagnóstico financiero 2023–2025,
-          determinación de la base y del pago a cuenta bajo la tarifa única
-          vigente, cálculo de la retención del impuesto único a los dividendos,
-          modelación del crédito tributario aplicable a la reducción del
-          Impuesto a la Renta, proyección de estados financieros 2026–2028 y
-          recomendaciones ejecutivas. La herramienta es reutilizable para
-          cualquier empresa del portafolio mediante la carga de sus estados
-          financieros.
+          Estructurar, con evidencia financiera y tributaria, cómo (i){" "}
+          <b>evitar legítimamente que la obligación nazca</b> y (ii){" "}
+          <b>convertir cada dólar pagado en crédito plenamente recuperable</b>,
+          cuantificando los escenarios de decisión disponibles antes del 31 de
+          julio y su impacto en caja, patrimonio y riesgo de costo muerto.
         </p>
 
-        <h4>3. Diagnóstico financiero</h4>
+        {/* ===== 4. ALCANCE ===== */}
+        <h4>4. Alcance</h4>
+        <p>
+          Comprende: diagnóstico financiero 2023–2025, determinación de la base y
+          del pago a cuenta bajo la tarifa única vigente, cálculo de la retención
+          del impuesto único a los dividendos, modelación del crédito tributario
+          aplicable a la reducción del Impuesto a la Renta, proyección de estados
+          financieros 2026–2028, matriz de decisión y plan de acción. La
+          herramienta es reutilizable para cualquier empresa mediante la carga de
+          sus estados financieros (Formulario 101 o balance resumido).
+        </p>
+
+        {/* ===== 5. MARCO NORMATIVO ===== */}
+        <h4>5. Marco Normativo</h4>
+        <ul>
+          <li>
+            <b>Naturaleza:</b> anticipo recuperable, no impuesto definitivo.
+          </li>
+          <li>
+            <b>Base:</b> utilidades acumuladas − dividendos − capitalización, con
+            corte al <b>31 de julio</b>.
+          </li>
+          <li>
+            <b>Tarifa:</b> única por tramo (no progresiva); se aplica a toda la
+            base según su magnitud (ver Anexo B).
+          </li>
+          <li>
+            <b>Crédito en cascada:</b> el pago se compensa contra la retención de
+            dividendos, luego contra el Impuesto a la Renta y el excedente se
+            solicita en devolución.
+          </li>
+          <li className="rwarn">
+            Parámetros normativos (tarifa, retención de dividendos {params.retDiv}
+            %, tasa IR {params.irR}%, reserva legal) <b>editables y sujetos a
+            validación humana</b> y a criterios administrativos del SRI.
+          </li>
+        </ul>
+
+        {/* ===== 6. DIAGNÓSTICO FINANCIERO ===== */}
+        <h4>6. Diagnóstico Financiero</h4>
         <p>
           En 2025 las ventas {dVtas < 0 ? "se contrajeron" : "crecieron"}{" "}
           <b>{fP(Math.abs(dVtas))}</b> y el ROE{" "}
-          {i2.roe < i1.roe ? "descendió" : "avanzó"} a <b>{fP(i2.roe)}</b>{" "}
-          (desde {fP(i1.roe)}). La compañía conserva liquidez sólida (
-          {fX(i2.liq)}) y bajo endeudamiento ({fP(i2.end)}), pero presenta
-          capital de trabajo inmovilizado: los días de inventario alcanzan{" "}
-          <b>{fD(i2.dInv)}</b> y el ciclo de conversión de efectivo{" "}
-          <b>{fD(cce(D, 2))}</b>. El balance es fuerte; el desafío es operativo y
-          de eficiencia.
+          {i2.roe < i1.roe ? "descendió" : "avanzó"} a <b>{fP(i2.roe)}</b> (desde{" "}
+          {fP(i1.roe)}). La compañía conserva liquidez sólida ({fX(i2.liq)}) y
+          bajo endeudamiento ({fP(i2.end)}), pero presenta capital de trabajo
+          inmovilizado: los días de inventario alcanzan <b>{fD(i2.dInv)}</b> y el
+          ciclo de conversión de efectivo <b>{fD(cce(D, 2))}</b>.
         </p>
+        <table className="rtbl">
+          <thead>
+            <tr><th>Indicador</th><th>2023</th><th>2024</th><th>2025</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Liquidez corriente</td><td>{fX(i0.liq)}</td><td>{fX(i1.liq)}</td><td>{fX(i2.liq)}</td></tr>
+            <tr><td>Endeudamiento</td><td>{fP(i0.end)}</td><td>{fP(i1.end)}</td><td>{fP(i2.end)}</td></tr>
+            <tr><td>Margen neto</td><td>{fP(i0.mn)}</td><td>{fP(i1.mn)}</td><td>{fP(i2.mn)}</td></tr>
+            <tr><td>ROE</td><td>{fP(i0.roe)}</td><td>{fP(i1.roe)}</td><td>{fP(i2.roe)}</td></tr>
+            <tr><td>Días de inventario</td><td>{fD(i0.dInv)}</td><td>{fD(i1.dInv)}</td><td>{fD(i2.dInv)}</td></tr>
+          </tbody>
+        </table>
 
-        <h4>4. Estrategia tributaria</h4>
+        {/* ===== 7. DIAGNÓSTICO TRIBUTARIO ===== */}
+        <h4>7. Diagnóstico Tributario</h4>
         <p>
-          La planificación no se orienta a “no pagar”, sino a (i){" "}
-          <b>evitar que la obligación nazca</b> mediante capitalización con
-          sustancia antes del 31 de julio, y (ii){" "}
-          <b>convertir el pago en crédito recuperable</b> contra la retención de
-          dividendos y el Impuesto a la Renta, evitando que se transforme en
-          costo muerto por inacción durante dos ejercicios. La combinación
-          recomendada equilibra liquidez del accionista (distribución parcial) y
-          fortalecimiento patrimonial (capitalización).
+          La base gravable del primer año (sin acción) es{" "}
+          <b>{fmt(primerPagoSin.base)}</b>, sujeta a una tarifa de{" "}
+          <b>{fP(primerPagoSin.tar)}</b>, generando un pago a cuenta de{" "}
+          <b>{fmt(primerPagoSin.pago)}</b>. De no mediar planificación, esta
+          obligación se repite cada ejercicio, totalizando <b>{fmt(pagoSin)}</b>{" "}
+          en el horizonte 2026–2028 y convirtiéndose en costo muerto si no se
+          recupera vía crédito.
         </p>
 
-        <h4>5. Soluciones y escenarios</h4>
+        {/* ===== 8. DIAGNÓSTICO SOCIETARIO ===== */}
+        <h4>8. Diagnóstico Societario</h4>
         <p>
-          Bajo el escenario <b>{SCENARIO_NAMES[scn]}</b>, el pago a cuenta
-          acumulado 2026–2028 es <b>{fmt(pagoAct)}</b>, frente a{" "}
-          <b>{fmt(pagoSin)}</b> sin planificación. Del anticipo,{" "}
-          <b>{fmt(credIR)}</b> se aplican como crédito que reduce directamente el
-          Impuesto a la Renta, y el resto se recupera por retención de
-          dividendos y devolución. El patrimonio proyectado al 2028 asciende a{" "}
-          <b>{fmt(R[R.length - 1].patrimonio)}</b>.
+          Estructura patrimonial al cierre 2025: capital{" "}
+          <b>{fmt(D.capital[2])}</b>, reservas <b>{fmt(D.reservas[2])}</b>, otros
+          resultados integrales <b>{fmt(D.ori[2])}</b> y resultados acumulados{" "}
+          <b>{fmt(D.resAcum[2])}</b>, para un patrimonio total de{" "}
+          <b>{fmt(totalPat)}</b>. El elevado peso de los resultados acumulados
+          frente al capital ofrece margen amplio para capitalizar o distribuir.
+          La reserva legal debe constituirse hasta el <b>50% del capital</b>{" "}
+          (referencia {fmt(reservaMin)}); el aumento de capital requiere
+          formalización societaria (Junta, escritura y Registro Mercantil).
         </p>
 
-        <h4>6. Ahorro y recomendaciones</h4>
+        {/* ===== 9. PAGO HISTÓRICO ===== */}
+        <h4>9. Análisis del Pago Históricamente Realizado</h4>
+        <p>
+          El régimen es de <b>reciente vigencia (septiembre de 2025)</b>, por lo
+          que no existe un historial de pagos previos del anticipo. La referencia
+          relevante es el <b>pago proyectado sin planificación</b>: de mantenerse
+          la inacción, el primer desembolso sería <b>{fmt(primerPagoSin.pago)}</b>{" "}
+          y se repetiría cada año, sin que su recuperación esté garantizada. Este
+          informe sustituye la ausencia de histórico por una proyección
+          prospectiva de la carga.
+        </p>
+
+        {/* ===== 10. ALTERNATIVAS ===== */}
+        <h4>10. Identificación de Alternativas Previas al 31 de Julio</h4>
         <ul>
           <li>
-            <b>Ahorro / diferimiento estimado:</b> {fmt(ahorro)} frente a no
-            actuar; crédito en riesgo bajo el escenario óptimo: {fmt(riesgo)}.
+            <b>No hacer nada:</b> se causa y paga el anticipo cada año; máximo
+            riesgo de costo muerto.
           </li>
           <li>
-            Perfeccionar la operación societaria (Junta, acta, aumento de
-            capital, Registro Mercantil) <b>antes del 31 de julio</b>.
+            <b>Distribuir dividendos:</b> reduce la base; genera retención del
+            impuesto único ({params.retDiv}%) que constituye crédito recuperable.
           </li>
           <li>
-            Respaldar la capitalización con{" "}
-            <b>activos productivos nuevos o empleo ≥5%</b>. Para {emp}, evitar la
-            vía inventarios: con {fD(i2.dInv)} de inventario y ventas a la baja,
-            agravaría la operación y es foco probable de fiscalización del SRI.
+            <b>Capitalizar con sustancia:</b> reduce la base hasta el tramo 0%;
+            la obligación no nace. Debe respaldarse en activos productivos o
+            empleo, no en inventarios.
           </li>
           <li>
-            Documentar el sustento (facturas, avalúo, kardex) y aplicar el
-            crédito en la retención de dividendos y el Impuesto a la Renta dentro
-            de los plazos.
-          </li>
-          <li>
-            <b>Revisión humana requerida:</b> tarifa, retención de dividendos,
-            reserva legal y tasa de IR deben validarse con un profesional
-            tributario y legal antes de ejecutar.
+            <b>Híbrido (distribución + capitalización):</b> equilibra liquidez del
+            accionista y fortalecimiento patrimonial.
           </li>
         </ul>
+
+        {/* ===== 11. MATRIZ DE DECISIÓN ===== */}
+        <h4>11. Matriz de Decisión Estratégica</h4>
+        <table className="rtbl">
+          <thead>
+            <tr>
+              <th>Escenario</th>
+              <th>Pago a cuenta 2026–28</th>
+              <th>Crédito recuperable</th>
+              <th>Costo muerto</th>
+              <th>Patrimonio 2028</th>
+            </tr>
+          </thead>
+          <tbody>
+            {matriz.map((m) => (
+              <tr key={m.key} className={m.key === scn ? "ron" : ""}>
+                <td>{m.nombre}{m.key === scn ? " ◄" : ""}</td>
+                <td>{fmt(m.pago)}</td>
+                <td>{fmt(m.recuperable)}</td>
+                <td>{fmt(m.muerto)}</td>
+                <td>{fmt(m.patrimonio)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="rnote">
+          ◄ escenario seleccionado. La matriz recalcula en vivo con los datos y
+          parámetros vigentes.
+        </p>
+
+        {/* ===== 12. MODELACIÓN ===== */}
+        <h4>12. Modelación Financiera y Tributaria</h4>
+        <table className="rtbl">
+          <thead>
+            <tr><th>Concepto</th>{PROJ.map((y) => <th key={y}>{y}</th>)}</tr>
+          </thead>
+          <tbody>
+            <tr><td>Ventas</td>{R.map((r, i) => <td key={i}>{fmt(r.ventas)}</td>)}</tr>
+            <tr><td>Utilidad neta</td>{R.map((r, i) => <td key={i}>{fmt(r.neta)}</td>)}</tr>
+            <tr><td>Base gravable</td>{R.map((r, i) => <td key={i}>{fmt(r.base)}</td>)}</tr>
+            <tr><td>Tarifa</td>{R.map((r, i) => <td key={i}>{fP(r.tar)}</td>)}</tr>
+            <tr><td>Pago a cuenta</td>{R.map((r, i) => <td key={i}>{fmt(r.pago)}</td>)}</tr>
+            <tr><td>Crédito vs. IR</td>{R.map((r, i) => <td key={i}>{fmt(r.cIR)}</td>)}</tr>
+            <tr><td>Patrimonio</td>{R.map((r, i) => <td key={i}>{fmt(r.patrimonio)}</td>)}</tr>
+          </tbody>
+        </table>
+
+        {/* ===== 13. DASHBOARD ===== */}
+        <h4>13. Dashboard Ejecutivo</h4>
+        <div className="tx-split">
+          <div className="tx-card">
+            <h3>Pago a cuenta por escenario</h3>
+            <TaxChart type="bar" data={cScn} options={{ ...moneyOpt, plugins: { legend: { display: false } } }} />
+          </div>
+          <div className="tx-card">
+            <h3>Pago, crédito y riesgo por año</h3>
+            <TaxChart type="bar" data={cFlujo} options={moneyOpt} />
+          </div>
+        </div>
+
+        {/* ===== 14. PLAN DE ACCIÓN ===== */}
+        <h4>14. Plan de Acción</h4>
+        <table className="rtbl">
+          <thead>
+            <tr><th>Acción</th><th>Responsable</th><th>Plazo</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Convocar Junta y aprobar la estrategia (distribución / capitalización)</td><td>Representante legal</td><td>Antes del 31 de julio</td></tr>
+            <tr><td>Formalizar aumento de capital (acta, escritura, Registro Mercantil)</td><td>Asesor legal / societario</td><td>Antes del 31 de julio</td></tr>
+            <tr><td>Sustentar la capitalización en activos productivos o empleo (no inventarios)</td><td>Gerencia financiera</td><td>Antes del corte</td></tr>
+            <tr><td>Documentar respaldo (facturas, avalúo, kardex, nómina)</td><td>Contabilidad</td><td>Permanente</td></tr>
+            <tr><td>Aplicar el crédito en retención de dividendos e Impuesto a la Renta</td><td>Tributario</td><td>En la declaración</td></tr>
+            <tr><td>Validar parámetros normativos con profesional tributario/legal</td><td>Asesor tributario</td><td>Previo a ejecutar</td></tr>
+          </tbody>
+        </table>
+
+        {/* ===== 15. CONCLUSIONES ===== */}
+        <h4>15. Conclusiones</h4>
+        <ul>
+          <li>
+            La inacción implica un pago recurrente de <b>{fmt(pagoSin)}</b> con
+            alto riesgo de costo muerto ({fmt(riesgo)}).
+          </li>
+          <li>
+            El escenario <b>{SCENARIO_NAMES[scn]}</b> reduce el pago a{" "}
+            <b>{fmt(pagoAct)}</b> y hace recuperable <b>{fmt(recuperable)}</b>,
+            fortaleciendo el patrimonio a <b>{fmt(R[R.length - 1].patrimonio)}</b>.
+          </li>
+          <li>
+            La decisión debe perfeccionarse <b>antes del 31 de julio</b> y
+            respaldarse con sustancia económica para resistir fiscalización.
+          </li>
+          <li className="rwarn">
+            Para {emp}: evitar la capitalización vía inventarios
+            ({fD(i2.dInv)} de inventario); preferir activos productivos/empleo.
+          </li>
+        </ul>
+
+        {/* ===== 16. ANEXOS ===== */}
+        <h4>16. Anexos</h4>
+        <p><b>Anexo A — Parámetros y supuestos</b></p>
+        <table className="rtbl">
+          <tbody>
+            <tr><td>Costo / ventas</td><td>{params.costoR}%</td></tr>
+            <tr><td>Gastos operativos / ventas</td><td>{params.gastoR}%</td></tr>
+            <tr><td>Tasa Impuesto a la Renta</td><td>{params.irR}%</td></tr>
+            <tr><td>Retención impuesto único dividendos</td><td>{params.retDiv}%</td></tr>
+          </tbody>
+        </table>
+        <p><b>Anexo B — Tramos de la tarifa única</b></p>
+        <table className="rtbl">
+          <thead><tr><th>Base hasta</th><th>Tarifa</th></tr></thead>
+          <tbody>
+            <tr><td>100.000</td><td>0,00%</td></tr>
+            <tr><td>1.000.000</td><td>0,75%</td></tr>
+            <tr><td>10.000.000</td><td>1,25%</td></tr>
+            <tr><td>100.000.000</td><td>1,75%</td></tr>
+            <tr><td>500.000.000</td><td>2,25%</td></tr>
+            <tr><td>+500.000.000</td><td>2,50%</td></tr>
+          </tbody>
+        </table>
+        <p className="rnote">
+          <b>Anexo C — Glosario:</b> Pago a cuenta = anticipo recuperable;
+          Base = utilidades acumuladas − dividendos − capitalización; Costo muerto
+          = pago no recuperado por inacción.
+        </p>
+
         <p className="rfoot">
           Documento generado por AuditBrain® Tax › Análisis. Proyección de
           planificación, no auditada. Régimen sujeto a criterios administrativos
-          del SRI.
+          del SRI. Las cifras normativas requieren validación profesional.
         </p>
       </div>
     </section>
