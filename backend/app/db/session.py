@@ -83,9 +83,15 @@ def init_db() -> None:
             with engine.begin() as conn:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"))
 
-    # Migración aditiva en ``tool_jobs``: firma_auditora añadido en M1+.
+    # Migración aditiva en ``tool_jobs``: firma_auditora (M1+), portal cliente (M2).
     if "tool_jobs" in inspector.get_table_names():
         existing_cols = {c["name"] for c in inspector.get_columns("tool_jobs")}
-        if "firma_auditora" not in existing_cols:
-            with engine.begin() as conn:
-                conn.execute(text("ALTER TABLE tool_jobs ADD COLUMN firma_auditora VARCHAR(32)"))
+        for col_def in [
+            ("firma_auditora", "VARCHAR(32)"),
+            ("initiated_from", "VARCHAR(16) DEFAULT 'staff' NOT NULL"),
+            ("notify_email", "VARCHAR(320)"),
+        ]:
+            col_name, col_type = col_def
+            if col_name not in existing_cols:
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE tool_jobs ADD COLUMN {col_name} {col_type}"))

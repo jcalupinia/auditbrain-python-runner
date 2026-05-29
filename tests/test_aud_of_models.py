@@ -35,3 +35,10 @@ def test_tool_jobs_indexes():
     indexes = insp.get_indexes("tool_jobs")
     indexed_cols = {col for idx in indexes for col in idx["column_names"]}
     assert "project_id" in indexed_cols
+
+
+def test_tool_job_has_new_portal_columns():
+    from backend.app.aud.obligaciones_fiscales.models import ToolJob
+    cols = {c.name for c in ToolJob.__table__.columns}
+    assert "initiated_from" in cols
+    assert "notify_email" in cols
