@@ -74,9 +74,9 @@ def init_db() -> None:
     existing_cols = {c["name"] for c in inspector.get_columns("users")}
     for col_def in [
         ("client_id", "INTEGER"),
-        ("password_reset_required", "BOOLEAN DEFAULT 0 NOT NULL"),
+        ("password_reset_required", "BOOLEAN DEFAULT FALSE NOT NULL"),
         ("current_session_id", "VARCHAR(64)"),
-        ("session_started_at", "DATETIME"),
+        ("session_started_at", "TIMESTAMP"),
     ]:
         col_name, col_type = col_def
         if col_name not in existing_cols:

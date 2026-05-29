@@ -42,6 +42,10 @@ def _user_from_token(token: str, db: Session) -> User:
     user = service.get_user_by_email(db, email)
     if not user or not user.is_active:
         raise _CRED_EXC
+    # Defense-in-depth: client-role JWTs must NEVER pass through staff dependencies.
+    # The portal cliente uses require_client_with_device which validates separately.
+    if user.role == Role.client:
+        raise _CRED_EXC
     return user
 
 
