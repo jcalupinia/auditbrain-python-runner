@@ -107,3 +107,47 @@ def test_login_with_wrong_credentials_returns_401(client, db_session, org_and_cl
         data={"username": "nobody@example.com", "password": "x"},
     )
     assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Task 10: Session uniqueness E2E test
+# ---------------------------------------------------------------------------
+
+
+def test_second_login_invalidates_first_session(client, db_session, org_and_client):
+    _, cli = org_and_client
+    email = _unique_email("dual")
+    user, temp_pwd = create_portal_user(db_session, client_id=cli.id, email=email)
+
+    r_a = client.post(
+        "/api/v1/client/auth/login",
+        data={"username": email, "password": temp_pwd},
+    )
+    assert r_a.status_code == 200, r_a.json()
+    token_a = r_a.json()["access_token"]
+
+    # Retrieve the device_id cookie set during the first login.
+    # TestClient may not auto-forward cookies on re-POST; pass it explicitly.
+    device_id_cookie = r_a.cookies.get("device_id")
+
+    # Second login from same device: must succeed using the existing device_id cookie.
+    r_b = client.post(
+        "/api/v1/client/auth/login",
+        data={"username": email, "password": temp_pwd},
+        cookies={"device_id": device_id_cookie} if device_id_cookie else {},
+    )
+    assert r_b.status_code == 200, r_b.json()
+    token_b = r_b.json()["access_token"]
+    assert token_a != token_b
+
+    # Token A must be invalidated: /me with token_a should return 401.
+    # Pass device_id so the request reaches the session-check layer.
+    r_check = client.get(
+        "/api/v1/client/auth/me",
+        headers={"Authorization": f"Bearer {token_a}"},
+        cookies={"device_id": device_id_cookie} if device_id_cookie else {},
+    )
+    assert r_check.status_code == 401
+    body = r_check.json()
+    if isinstance(body.get("detail"), dict):
+        assert body["detail"]["code"] == "session_invalidated"
