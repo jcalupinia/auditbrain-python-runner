@@ -33,7 +33,7 @@ def test_guard_rejects_when_role_is_not_client(client, client_user, db_session):
         "/api/v1/client/auth/me",
         headers={"Authorization": f"Bearer {token}"},
     )
-    assert r.status_code in (401, 403, 404)  # 404 before router is wired, 403 once it is
+    assert r.status_code in (401, 403)  # 403 because role=admin is rejected by require_client_with_device
 
 
 # ---------------------------------------------------------------------------
@@ -78,3 +78,32 @@ def test_authenticate_portal_user_with_wrong_password(db_session, org_and_client
     auth_result = authenticate_portal_user(db_session, email, temp_pwd)
     assert auth_result is not None
     assert auth_result.email == user.email
+
+
+# ---------------------------------------------------------------------------
+# Task 9: router endpoint tests
+# ---------------------------------------------------------------------------
+
+
+def test_first_login_returns_password_reset_required(client, db_session, org_and_client):
+    _, cli = org_and_client
+    email = _unique_email("first")
+    user, temp_pwd = create_portal_user(db_session, client_id=cli.id, email=email)
+    r = client.post(
+        "/api/v1/client/auth/login",
+        data={"username": email, "password": temp_pwd},
+    )
+    assert r.status_code == 200, r.json()
+    body = r.json()
+    assert body["password_reset_required"] is True
+    assert "access_token" in body
+    # device_id cookie should be set (via Set-Cookie header)
+    assert "device_id" in r.cookies or "device_id" in r.headers.get("set-cookie", "")
+
+
+def test_login_with_wrong_credentials_returns_401(client, db_session, org_and_client):
+    r = client.post(
+        "/api/v1/client/auth/login",
+        data={"username": "nobody@example.com", "password": "x"},
+    )
+    assert r.status_code == 401
