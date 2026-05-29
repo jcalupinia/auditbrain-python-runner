@@ -129,6 +129,73 @@ export function getApiBase() {
   return API_BASE;
 }
 
+// ---------- TAX.PLANIFICACION_UTILIDADES (ingesta + export Excel) ----------
+
+const TAX_PU_BASE = `${API_BASE}/api/v1/tax/planificacion-utilidades`;
+
+// Ingesta: sube F-101 (PDF) o balance resumido (.xlsx) y devuelve los datos
+// mapeados a los esquemas ESF/ER, params detectados y warnings.
+export async function extractTaxPlan(kind, file) {
+  const fd = new FormData();
+  fd.append("kind", kind);
+  fd.append("file", file);
+  return parse(
+    await fetch(`${TAX_PU_BASE}/extract`, {
+      method: "POST",
+      headers: authHeaders(), // browser fija el boundary multipart
+      body: fd,
+    })
+  );
+}
+
+// Descarga autenticada de un .xlsx (export o plantilla). Dispara el guardado.
+async function downloadXlsx(url, fetchOpts, filename) {
+  const res = await fetch(url, { ...fetchOpts, headers: authHeaders(fetchOpts.headers) });
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      detail = body.detail || detail;
+    } catch {
+      /* sin body */
+    }
+    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+  }
+  const blob = await res.blob();
+  const objUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(objUrl), 30000);
+}
+
+// Exporta el modelo actual a Excel con fórmulas nativas interactivas.
+export async function exportTaxPlan({ data, ctrl, params }) {
+  const empresa = (params && params.empresa) || "cliente";
+  const safe = String(empresa).replace(/[\s/]+/g, "_");
+  await downloadXlsx(
+    `${TAX_PU_BASE}/export`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data, ctrl, params }),
+    },
+    `Planificacion_Utilidades_${safe}.xlsx`
+  );
+}
+
+// Descarga la plantilla en blanco del balance resumido.
+export async function downloadTaxPlantilla() {
+  await downloadXlsx(
+    `${TAX_PU_BASE}/plantilla`,
+    { method: "GET" },
+    "Balance_resumido_plantilla.xlsx"
+  );
+}
+
 // ---------- Fase 2 · M1: contexto operativo ----------
 
 export async function getMyContext() {
