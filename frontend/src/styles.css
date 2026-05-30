@@ -316,12 +316,13 @@ textarea {
 }
 .cw-stage-girl {
   position: absolute;
-  right: -32px;
+  right: 6px;
   bottom: -10px;
-  width: 56%;
-  max-width: 560px;
-  min-width: 360px;
+  width: 38%;
+  max-width: 400px;
+  min-width: 240px;
   z-index: 1;
+  opacity: 0.92;
   pointer-events: none;
   display: flex;
   align-items: flex-end;
@@ -401,9 +402,10 @@ textarea {
 .cw-ext-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .cw-ext-card {
   border: 1px solid var(--line); border-radius: 12px; padding: 16px;
-  background: var(--panel-2); display: flex; flex-direction: column; gap: 22px;
+  background: var(--panel-2); display: flex; flex-direction: column; gap: 9px;
 }
 .cw-ext-card:hover { border-color: var(--accent); text-decoration: none; }
+.cw-ext-logo { width: 30px; height: 30px; display: block; margin-bottom: 4px; }
 .cw-ext-card b { font-size: 14px; color: var(--text); }
 .cw-ext-card span { font-size: 12px; color: var(--text-soft); }
 .cw-docs { padding: 16px 18px; }

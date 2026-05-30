@@ -509,9 +509,9 @@ const MODULES = [
 ];
 
 const AI_LINKS = [
-  { name: "ChatGPT", href: "https://chatgpt.com" },
-  { name: "Claude", href: "https://claude.ai" },
-  { name: "Gemini", href: "https://gemini.google.com" },
+  { name: "ChatGPT", href: "https://chatgpt.com", logo: "/assets/ai/chatgpt.svg" },
+  { name: "Claude", href: "https://claude.ai", logo: "/assets/ai/claude.svg" },
+  { name: "Gemini", href: "https://gemini.google.com", logo: "/assets/ai/gemini.svg" },
 ];
 
 function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin }) {
@@ -688,6 +688,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin }) {
                   {AI_LINKS.map((a) => (
                     <a key={a.name} className="cw-ext-card" href={a.href}
                       target="_blank" rel="noopener noreferrer">
+                      <img className="cw-ext-logo" src={a.logo} alt="" aria-hidden="true" />
                       <b>{a.name}</b>
                       <span>Abrir {a.name} →</span>
                     </a>
