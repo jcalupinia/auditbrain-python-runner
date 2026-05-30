@@ -7,6 +7,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sessionInvalidated, setSessionInvalidated] = useState(false);
+  const [deviceBlocked, setDeviceBlocked] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!api.getToken()) {
@@ -17,6 +18,7 @@ export function AuthProvider({ children }) {
       setUser(me);
     } catch (e) {
       if (e.code === "session_invalidated") setSessionInvalidated(true);
+      if (e.code === "device_unauthorized") setDeviceBlocked(true);
       setUser(null);
       api.setToken(null);
     } finally {
@@ -41,6 +43,7 @@ export function AuthProvider({ children }) {
     <AuthCtx.Provider value={{
       user, loading, login, logout, refresh,
       sessionInvalidated, clearSessionFlag: () => setSessionInvalidated(false),
+      deviceBlocked, clearDeviceBlockedFlag: () => setDeviceBlocked(false),
     }}>
       {children}
     </AuthCtx.Provider>
