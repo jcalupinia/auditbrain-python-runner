@@ -174,7 +174,7 @@ services:
   - type: web
     name: auditbrain-clientes
     env: static
-    buildCommand: cd frontend-shared && npm install && cd ../frontend-client && npm install && npm run build
+    buildCommand: cd frontend-shared && npm ci && cd ../frontend-client && npm ci && npm run build
     staticPublishPath: frontend-client/dist
     pullRequestPreviewsEnabled: false
     autoDeploy: true
