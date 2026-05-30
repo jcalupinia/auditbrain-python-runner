@@ -11,6 +11,7 @@ Compatible con python-pptx 0.6.23 (producción).
 from __future__ import annotations
 
 import io
+from pathlib import Path
 
 from pptx import Presentation
 from pptx.chart.data import CategoryChartData
@@ -36,6 +37,20 @@ FONT = "Calibri"  # fuente segura del sistema (consistente en todo Windows/Offic
 
 W = Inches(13.333)
 H = Inches(7.5)
+
+ASSETS = Path(__file__).parent / "assets"
+
+
+def _img_fit(name, w_px, h_px):
+    """Devuelve un BytesIO JPEG recortado (cover) al tamaño dado. None si falla."""
+    try:
+        from PIL import Image, ImageOps
+        im = Image.open(ASSETS / name).convert("RGB")
+        im = ImageOps.fit(im, (int(w_px), int(h_px)), Image.LANCZOS)
+        b = io.BytesIO(); im.save(b, format="JPEG", quality=85); b.seek(0)
+        return b
+    except Exception:
+        return None
 
 
 def build_deck(content: dict) -> bytes:
@@ -153,33 +168,44 @@ def _money(v):
 def _cover(prs, c):
     _blank(prs, DEEP)
     s = prs.slides[-1]
-    # motivo: bloque lateral dorado (no full-width)
-    side = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, Inches(0.28), H)
-    side.fill.solid(); side.fill.fore_color.rgb = GOLD
-    side.line.fill.background(); side.shadow.inherit = False
-    _txt(s, Inches(0.9), Inches(0.95), Inches(11.5), Inches(0.5),
-         "AUDITBRAIN  ·  EXECUTIVE ADVISORY  ·  TAX ADVISORY", 12, color=GOLD, bold=True)
-    _txt(s, Inches(0.85), Inches(2.3), Inches(11.6), Inches(2.2),
-         "Planificación tributaria\nsobre utilidades no distribuidas", 38, bold=True,
-         line_spacing=1.05)
-    _txt(s, Inches(0.9), Inches(4.85), Inches(11.5), Inches(0.6),
-         c.get("empresa", "la Compañía"), 24, color=GOLD, bold=True)
+    # half-bleed: foto de sala de juntas en la banda derecha
+    img_w = Inches(6.3)
+    band_x = W - img_w
+    buf = _img_fit("boardroom2.jpg", 960, 1125)
+    if buf is not None:
+        s.shapes.add_picture(buf, band_x, 0, width=img_w, height=H)
+        sep = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, band_x - Inches(0.06), 0,
+                                 Inches(0.12), H)
+        sep.fill.solid(); sep.fill.fore_color.rgb = GOLD
+        sep.line.fill.background(); sep.shadow.inherit = False
+        txt_w = band_x - Inches(1.4)
+    else:
+        side = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, Inches(0.28), H)
+        side.fill.solid(); side.fill.fore_color.rgb = GOLD
+        side.line.fill.background(); side.shadow.inherit = False
+        txt_w = Inches(11.5)
+    _txt(s, Inches(0.9), Inches(0.95), txt_w, Inches(0.5),
+         "AUDITBRAIN · EXECUTIVE ADVISORY", 12, color=GOLD, bold=True)
+    _txt(s, Inches(0.85), Inches(2.1), txt_w, Inches(2.6),
+         "Planificación tributaria sobre utilidades no distribuidas", 32, bold=True,
+         line_spacing=1.08)
+    _txt(s, Inches(0.9), Inches(4.75), txt_w, Inches(0.6),
+         c.get("empresa", "la Compañía"), 22, color=GOLD, bold=True)
     meta = []
     if c.get("ruc"):
         meta.append("RUC " + str(c["ruc"]))
     if c.get("representante"):
-        meta.append(str(c["representante"]) + "  ·  Representante legal")
+        meta.append(str(c["representante"]) + " · Representante legal")
     linea = "Horizonte 2026–2028"
     if c.get("fecha_analisis"):
-        linea += "   ·   " + str(c["fecha_analisis"])
+        linea += " · " + str(c["fecha_analisis"])
     if c.get("fecha_corte"):
-        linea += "   ·   Corte: " + str(c["fecha_corte"])
+        linea += " · Corte: " + str(c["fecha_corte"])
     meta.append(linea)
-    _txt(s, Inches(0.9), Inches(5.5), Inches(11.5), Inches(1.2),
-         "\n".join(meta), 14, color=ICE, line_spacing=1.3)
-    _txt(s, Inches(0.9), Inches(6.95), Inches(11.5), Inches(0.4),
-         "Confidencial · documento preliminar sujeto a revisión y aprobación", 10,
-         color=GREY, italic=True)
+    _txt(s, Inches(0.9), Inches(5.4), txt_w, Inches(1.3),
+         "\n".join(meta), 13, color=ICE, line_spacing=1.3)
+    _txt(s, Inches(0.9), Inches(6.95), txt_w, Inches(0.4),
+         "Confidencial · documento preliminar", 10, color=GREY, italic=True)
 
 
 def _resumen(prs, c):
