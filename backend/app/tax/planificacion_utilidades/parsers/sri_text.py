@@ -12,16 +12,43 @@ import re
 def find_casillero_value(text: str, casillero: str) -> float | None:
     """Valor decimal asociado a un casillero SRI.
 
-    Patrón: '<casillero>  <valor>' donde el valor puede traer separadores de
-    miles (1.234.567,89 o 1,234,567.89) o forma simple (1234.56). Devuelve la
-    primera coincidencia con valor numérico; None si no hay.
+    Robusto ante el ruido de columnas del PDF del SRI, que a veces extrae el
+    código pegado a una columna previa ('623.0 141578.45') o con un '0.00'
+    intermedio ('623 0.00 141578.45'). Estrategia: localizar la LÍNEA cuyo
+    código coincide y devolver el ÚLTIMO número con 2 decimales de esa línea
+    (la columna de valor). Si no, se cae a una búsqueda global tolerante.
     """
-    pattern = rf"(?<!\d){re.escape(casillero)}\s+(-?[\d.,]+\d)"
+    esc = re.escape(casillero)
+    # 1) Línea que termina en el valor, con el código (y posible ruido) antes.
+    line_pat = rf"(?<!\d){esc}(?:\.\d{{1,2}})?(?:\s+0\.00)*\s+(-?[\d.,]*\d\.\d{{2}})\s*$"
+    for ln in text.split("\n"):
+        m = re.search(line_pat, ln)
+        if m:
+            val = _to_float(m.group(1))
+            if val is not None:
+                return val
+    # 2) Fallback global tolerante (código seguido de un valor decimal).
+    pattern = rf"(?<!\d){esc}(?:\.\d{{1,2}})?\s+(-?[\d.,]+\d)"
     for raw in re.findall(pattern, text):
         val = _to_float(raw)
         if val is not None:
             return val
     return None
+
+
+def is_formato_declaracion(text: str) -> bool:
+    """True si el PDF es el formato vigente 'Declaración de Renta Sociedades'.
+
+    Señales: rótulo de la obligación, total de ingresos en casillero 4 dígitos
+    (6999) o el subtotal 'TOTAL PASIVO Y PATRIMONIO' (699), ausentes en el
+    formato legacy.
+    """
+    t = text.upper()
+    if "IMPUESTO A LA RENTA SOCIEDADES" in t or "RENTA SOCIEDADES" in t:
+        return True
+    if "TOTAL PASIVO Y PATRIMONIO" in t:
+        return True
+    return re.search(r"(?<!\d)6999\s+\d", text) is not None
 
 
 def _to_float(raw: str) -> float | None:

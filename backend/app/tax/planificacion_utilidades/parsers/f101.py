@@ -12,7 +12,10 @@ from io import BytesIO
 import pdfplumber
 
 from backend.app.tax.planificacion_utilidades import schema
-from backend.app.tax.planificacion_utilidades.mapping import F101_MAP
+from backend.app.tax.planificacion_utilidades.mapping import (
+    F101_MAP_DECLARACION,
+    F101_MAP_LEGACY,
+)
 from backend.app.tax.planificacion_utilidades.parsers import sri_text
 
 
@@ -41,18 +44,35 @@ def extract_f101(pdf_bytes: bytes) -> dict:
     anio = sri_text.find_anio(text)
     col = schema.ANIOS.index(anio) if anio in schema.ANIOS else len(schema.ANIOS) - 1
 
+    # Detecta el formato y elige el mapeo de casilleros correcto.
+    if sri_text.is_formato_declaracion(text):
+        f101_map = F101_MAP_DECLARACION
+        warnings.append(
+            "Formato detectado: 'Declaración de Renta Sociedades' (vigente). "
+            "Casilleros homologados al estado financiero resumido."
+        )
+    else:
+        f101_map = F101_MAP_LEGACY
+        warnings.append(
+            "Formato 101 no reconocido como el vigente; se usó el mapeo legacy. "
+            "Verifique las celdas azules con cuidado."
+        )
+
     casilleros_leidos: dict[str, float] = {}
     data: dict[str, list] = {k: [None, None, None] for k in schema.INPUT_KEYS}
     sin_dato: list[str] = []
 
-    for key, casilleros in F101_MAP.items():
+    for key, casilleros in f101_map.items():
         total = 0.0
         encontrado = False
         for cas in casilleros:
-            val = sri_text.find_casillero_value(text, cas)
+            # Prefijo "-" => el casillero RESTA (deterioros, depreciación, etc.).
+            resta = cas.startswith("-")
+            cas_num = cas[1:] if resta else cas
+            val = sri_text.find_casillero_value(text, cas_num)
             if val is not None:
-                casilleros_leidos[cas] = val
-                total += val
+                casilleros_leidos[cas_num] = val
+                total += -val if resta else val
                 encontrado = True
         if encontrado:
             data[key][col] = round(total, 2)
