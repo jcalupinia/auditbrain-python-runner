@@ -122,6 +122,16 @@ services:
       - key: AUDITBRAIN_JWT_SECRET
         sync: false
 
+      # --- Portal Cliente (M2): notificaciones por email Resend ---
+      - key: RESEND_API_KEY
+        sync: false
+
+      - key: RESEND_FROM_EMAIL
+        value: "no-reply@auditconsulting.com"
+
+      - key: CLIENT_PORTAL_URL
+        value: "https://auditbrain-clientes.onrender.com"
+
       - key: AUDITBRAIN_JWT_EXPIRE_MINUTES
         value: "60"
 
