@@ -30,6 +30,7 @@ from backend.app.client_portal.schemas import (
     SlotOut,
     ToolOut,
 )
+from backend.app.client_portal.rate_limit import check_and_record
 from backend.app.client_portal.tool_registry import CATEGORIES, get_tool, list_enabled_tools
 from backend.app.db.session import get_db
 
@@ -46,6 +47,15 @@ def client_login(
     device_id: str | None = Cookie(default=None, alias="device_id"),
     db: Session = Depends(get_db),
 ):
+    # Rate limit: 5 intentos / 15 min por IP+email
+    ip = request.client.host if request.client else "unknown"
+    rl_key = f"login:{ip}:{form.username.lower()}"
+    if not check_and_record(rl_key, max_hits=5, window_seconds=900):
+        raise HTTPException(
+            429,
+            detail="Demasiados intentos. Espere 15 minutos o contacte a soporte.",
+        )
+
     user = cp_service.authenticate_portal_user(db, form.username, form.password)
     if not user:
         raise HTTPException(
