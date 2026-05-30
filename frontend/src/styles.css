@@ -33,6 +33,7 @@ a:hover { text-decoration: underline; }
 
 /* ---------- Login ---------- */
 .login-wrap {
+  position: relative;
   min-height: 100vh; display: grid; grid-template-columns: 1fr 1fr;
   background:
     radial-gradient(900px 520px at 78% -10%, rgba(52,211,106,0.12), transparent 60%),
@@ -41,6 +42,17 @@ a:hover { text-decoration: underline; }
 .login-aside { display: grid; place-items: center; padding: 40px; }
 .login-figure { width: 100%; max-width: 460px; aspect-ratio: 3/4; }
 .login-figure-img { width: 100%; height: 100%; object-fit: contain; }
+/* Logo Audit Consulting: grande, centrado entre la figura y el formulario */
+.login-logo {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(32vw, 460px);
+  height: auto;
+  z-index: 3;
+  pointer-events: none;
+  filter: drop-shadow(0 8px 28px rgba(0, 0, 0, 0.55));
+}
 .figure-ph {
   width: 100%; height: 100%; border: 1px solid var(--line);
   border-radius: 20px; display: grid; place-content: center; text-align: center;
@@ -461,6 +473,7 @@ pre {
 @media (max-width: 880px) {
   .login-wrap { grid-template-columns: 1fr; }
   .login-aside { display: none; }
+  .login-logo { display: none; }
   .cc {
     grid-template-columns: 1fr;
     grid-template-rows: 64px 1fr 36px;

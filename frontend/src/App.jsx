@@ -93,13 +93,19 @@ function Login({ onLogged }) {
       <div className="login-aside">
         <div className="login-figure">
           <AssetImg
-            src="/assets/ai-girl-login.png"
+            src="/assets/ai-girl-figure.png"
             alt=""
             className="login-figure-img"
             fallback={<div className="figure-ph"><span>AUDIT</span><b>IA</b></div>}
           />
         </div>
       </div>
+      <AssetImg
+        src="/assets/logo-auditconsulting-group.png"
+        alt="Audit Consulting Group"
+        className="login-logo"
+        fallback={null}
+      />
       <form className="login-card" onSubmit={submit}>
         <div className="login-brand">
           <BrandMark size={38} />
