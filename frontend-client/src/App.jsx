@@ -1,8 +1,8 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./auth/AuthProvider.jsx";
+import Landing from "./landing/Landing.jsx";
 
 // Placeholders — implementadas en tareas posteriores
-function Landing() { return <div style={{padding:40}}>Landing (pendiente)</div>; }
 function Login() { return <div style={{padding:40}}>Login (pendiente)</div>; }
 function Catalog() { return <div style={{padding:40}}>Catálogo (pendiente)</div>; }
 
