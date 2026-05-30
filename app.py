@@ -80,7 +80,7 @@ app = FastAPI(
 # CORS — hardening para clientes web (gated por entorno).
 # Si CORS_ALLOW_ORIGINS está vacío, NO se añade middleware: el
 # comportamiento es idéntico al actual (sin impacto en GPTs server-to-server).
-# Ejemplo: CORS_ALLOW_ORIGINS="https://app.midominio.com,https://midominio.com"
+# Ejemplo: CORS_ALLOW_ORIGINS="https://auditbrain-app.onrender.com,https://auditbrain-clientes.onrender.com"
 # ==========================================================
 _cors_origins = [
     o.strip() for o in os.getenv("CORS_ALLOW_ORIGINS", "").split(",") if o.strip()
