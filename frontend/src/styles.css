@@ -47,7 +47,7 @@ a:hover { text-decoration: underline; }
   position: absolute;
   left: 50%; top: 50%;
   transform: translate(-50%, -50%);
-  width: min(32vw, 460px);
+  width: min(33vw, 540px);
   height: auto;
   z-index: 3;
   pointer-events: none;
