@@ -154,3 +154,24 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
+
+  # ==========================================================
+  # Portal Cliente (M2): static SPA separada para clientes externos.
+  # URL pública: https://auditbrain-clientes.onrender.com
+  # Comparte el mismo backend. CORS_ALLOW_ORIGINS del backend debe
+  # incluir esta URL después del primer deploy.
+  # ==========================================================
+  - type: web
+    name: auditbrain-clientes
+    env: static
+    buildCommand: cd frontend-shared && npm install && cd ../frontend-client && npm install && npm run build
+    staticPublishPath: frontend-client/dist
+    pullRequestPreviewsEnabled: false
+    autoDeploy: true
+    envVars:
+      - key: VITE_API_BASE
+        value: "https://auditbrain-python-runner.onrender.com"
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
