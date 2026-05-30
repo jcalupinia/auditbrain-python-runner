@@ -117,7 +117,7 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 
 export default function AnalisisTributarioTool({ projectId }) {
   // Arranque en blanco (sin datos de la empresa de ejemplo). El botón
-  // "Ejemplo" carga SIGMANSERVICES bajo demanda mediante loadExample().
+  // "Ejemplo" carga la empresa ficticia (EMPRESA IA S.A.) bajo demanda.
   const [D, setD] = useState(() => emptyData());
   const [CTRL, setCTRL] = useState(() => clone(DEFAULT_CTRL));
   const [scn, setScn] = useState("sin");

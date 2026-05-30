@@ -1,4 +1,4 @@
-// Esquemas de estados financieros, seed de ejemplo (SIGMANSERVICES) y
+// Esquemas de estados financieros, seed de ejemplo (EMPRESA IA S.A., ficticia) y
 // defaults. La estructura de filas define también el "formato del balance
 // resumido" que el parser (101 / plantilla) debe poblar.
 
@@ -66,7 +66,7 @@ export const INPUT_KEYS = [
 export const ANIOS = [2023, 2024, 2025];
 export const PROJ = [2026, 2027, 2028];
 
-// Seed de ejemplo: SIGMANSERVICES S.A. (2023, 2024, 2025).
+// Seed de ejemplo: EMPRESA IA S.A. (ficticia) (2023, 2024, 2025).
 export const EX = {
   efectivo: [448732, 343842, 478936],
   inversiones: [1501284, 1008598, 601284],
@@ -118,9 +118,9 @@ export const DEFAULT_CTRL = [
 
 // Parámetros editables (requieren validación humana — ver normativa).
 export const DEFAULT_PARAMS = {
-  empresa: "SIGMANSERVICES S.A.", // razón social
-  ruc: "1791935438001", // RUC del contribuyente
-  repLegal: "Ing. Guillermo Cruz", // representante legal (para dirigir el informe)
+  empresa: "EMPRESA IA S.A.", // razón social (ejemplo ficticio)
+  ruc: "1790000000001", // RUC del contribuyente (ficticio)
+  repLegal: "Ing. Juan Pérez", // representante legal (para dirigir el informe)
   fechaCorte: "2026-07-31", // fecha de corte del análisis (ISO yyyy-mm-dd)
   fechaAnalisis: "", // fecha del cálculo (ISO); vacío => fecha de hoy
   costoR: 60.6, // costo / ventas (%)
@@ -136,7 +136,7 @@ export const DEFAULT_PARAMS = {
   deprecPctPPE: 10, // depreciación anual (% de PP&E)
   capexPctVentas: 1, // CAPEX (% de ventas)
   // --- Sector (CIIU) para crecimiento sectorial cuando el histórico no crece ---
-  sector: "M", // sección CIIU (SIGMANSERVICE: M711 ingeniería)
+  sector: "M", // sección CIIU (ejemplo: M actividades profesionales y técnicas)
   tasaSectorial: 3.5, // crecimiento del sector (%) — referencial, editable
   actividadSRI: "", // actividad económica detectada por el SRI
 };
