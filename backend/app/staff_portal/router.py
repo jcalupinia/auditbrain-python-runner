@@ -68,11 +68,14 @@ def create_portal_user_endpoint(
     )
 
 
-@router.get("/{client_id}/portal-users", response_model=list[PortalUserOut])
+@router.get(
+    "/{client_id}/portal-users",
+    response_model=list[PortalUserOut],
+    dependencies=[Depends(require_admin)],
+)
 def list_portal_users_endpoint(
     client_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
 ):
     users = sp_service.list_portal_users(db, client_id=client_id)
     return [PortalUserOut(
@@ -96,11 +99,14 @@ def disable_portal_user_endpoint(
     return {"ok": True}
 
 
-@router.get("/{client_id}/portal-users/{user_id}/devices", response_model=list[DeviceOut])
+@router.get(
+    "/{client_id}/portal-users/{user_id}/devices",
+    response_model=list[DeviceOut],
+    dependencies=[Depends(require_admin)],
+)
 def list_devices_endpoint(
     client_id: int, user_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
 ):
     user = db.get(User, user_id)
     if user is None or user.client_id != client_id:

@@ -70,3 +70,19 @@ def test_user_role_cannot_create_portal_users(client, db_session, org_client):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 403
+
+
+def test_user_role_cannot_list_portal_users(client, db_session, org_client):
+    """Staff con rol=user no debe ver lista de portal users (info sensible)."""
+    import uuid
+    _, cli = org_client
+    email = f"staffuser-list-{uuid.uuid4().hex[:8]}@x.com"
+    u = get_user_by_email(db_session, email) or create_user(
+        db_session, email=email, password="x", role=Role.user
+    )
+    token = create_access_token(subject=u.email, role="user")
+    r = client.get(
+        f"/api/v1/staff/clients/{cli.id}/portal-users",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 403
