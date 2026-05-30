@@ -415,20 +415,34 @@ def _grafico_escenarios(prs, c):
                  labels, [("Pago a cuenta", vals)], colors=[RED, BLUE, GREEN, GOLD])
 
 
+def _side_image(slide, name, img_w, px_w=760):
+    """Inserta una imagen en banda derecha con separador dorado. Devuelve txt_w."""
+    band_x = W - img_w
+    buf = _img_fit(name, px_w, 1125)
+    if buf is None:
+        return Inches(11.5)
+    slide.shapes.add_picture(buf, band_x, 0, width=img_w, height=H)
+    sep = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, band_x - Inches(0.06), 0,
+                                 Inches(0.12), H)
+    sep.fill.solid(); sep.fill.fore_color.rgb = GOLD
+    sep.line.fill.background(); sep.shadow.inherit = False
+    return band_x - Inches(1.3)
+
+
 def _recomendacion(prs, c):
     _blank(prs, DEEP)
     s = prs.slides[-1]
+    txt_w = _side_image(s, "handshake.jpg", Inches(4.5), px_w=680)
     _title(s, 8, "Recomendación")
-    # callout grande del ahorro si está en kpis
     ahorro = next((k.get("valor") for k in c.get("kpis", []) if "horro" in k.get("label", "")), None)
     if ahorro:
-        _txt(s, Inches(0.9), Inches(1.9), Inches(11.5), Inches(1.3), ahorro, 60, bold=True, color=GOLD)
-        _txt(s, Inches(0.95), Inches(3.15), Inches(11.5), Inches(0.5),
-             "Ahorro / diferimiento estimado frente a no actuar", 14, color=ICE)
-    _card(s, Inches(0.9), Inches(3.9), Inches(11.5), Inches(2.2))
-    _txt(s, Inches(1.2), Inches(4.15), Inches(10.9), Inches(1.7),
-         c.get("recomendacion", ""), 16, color=WHITE, anchor=MSO_ANCHOR.MIDDLE, line_spacing=1.15)
-    _txt(s, Inches(0.9), Inches(6.4), Inches(11.5), Inches(0.7),
+        _txt(s, Inches(0.9), Inches(1.85), txt_w, Inches(1.2), ahorro, 54, bold=True, color=GOLD)
+        _txt(s, Inches(0.95), Inches(3.0), txt_w, Inches(0.5),
+             "Ahorro / diferimiento frente a no actuar", 13, color=ICE)
+    _card(s, Inches(0.9), Inches(3.65), txt_w, Inches(2.4))
+    _txt(s, Inches(1.15), Inches(3.9), txt_w - Inches(0.5), Inches(1.9),
+         c.get("recomendacion", ""), 15, color=WHITE, anchor=MSO_ANCHOR.MIDDLE, line_spacing=1.15)
+    _txt(s, Inches(0.9), Inches(6.35), txt_w, Inches(0.8),
          c.get("nota", ""), 10, color=GREY, italic=True)
 
 
@@ -460,13 +474,11 @@ def _plan(prs, c):
 def _cierre(prs, c):
     _blank(prs, DEEP)
     s = prs.slides[-1]
-    side = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, W - Inches(0.28), 0, Inches(0.28), H)
-    side.fill.solid(); side.fill.fore_color.rgb = GOLD
-    side.line.fill.background(); side.shadow.inherit = False
-    _txt(s, Inches(0.9), Inches(2.6), Inches(11.5), Inches(1.2), "Gracias", 54, bold=True, color=GOLD)
-    _txt(s, Inches(0.95), Inches(3.95), Inches(11.5), Inches(0.6),
+    txt_w = _side_image(s, "building.jpg", Inches(4.9), px_w=740)
+    _txt(s, Inches(0.9), Inches(2.5), txt_w, Inches(1.2), "Gracias", 54, bold=True, color=GOLD)
+    _txt(s, Inches(0.95), Inches(3.85), txt_w, Inches(0.6),
          c.get("empresa", ""), 22, bold=True)
-    _txt(s, Inches(0.95), Inches(4.7), Inches(11.5), Inches(1.4),
-         "AuditBrain®  ·  Tax › Análisis\nProyección de planificación, no auditada. "
+    _txt(s, Inches(0.95), Inches(4.6), txt_w, Inches(1.7),
+         "AuditBrain® · Tax › Análisis\nProyección de planificación, no auditada. "
          "Régimen sujeto a criterios administrativos del SRI.\nLas cifras normativas "
          "requieren validación profesional.", 12, color=ICE, line_spacing=1.3)
