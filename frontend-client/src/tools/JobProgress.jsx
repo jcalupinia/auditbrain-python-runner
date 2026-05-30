@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button, ProgressBar } from "@auditbrain/shared";
-import { getJob, downloadJobUrl } from "../api.js";
+import { getJob, downloadJob } from "../api.js";
 import { usePolling } from "../shared/usePolling.js";
 
 export default function JobProgress({ jobId, onClose }) {
@@ -34,9 +34,18 @@ export default function JobProgress({ jobId, onClose }) {
       <h2>Trabajo #{job.id}</h2>
       <ProgressBar value={s.pct} label={s.label} />
       {job.status === "done" && (
-        <a href={downloadJobUrl(job.id)} target="_blank" rel="noreferrer">
-          <Button style={{ marginTop: 16 }}>Descargar entregable</Button>
-        </a>
+        <Button
+          style={{ marginTop: 16 }}
+          onClick={async () => {
+            try {
+              await downloadJob(job.id);
+            } catch (e) {
+              setErr(e.message);
+            }
+          }}
+        >
+          Descargar entregable
+        </Button>
       )}
       {job.status === "error" && (
         <div style={{ color: "#c0392b", marginTop: 12, background: "#fdecea", padding: 12, borderRadius: 6 }}>

@@ -79,5 +79,32 @@ export const createJob = async (toolCode, fileMap) => {
   }
   return request(`/client/tools/${toolCode}/jobs`, { method: "POST", body: fd });
 };
-export const downloadJobUrl = (jobId) =>
-  `${BASE}/api/v1/client/tools/jobs/${jobId}/download`;
+export async function downloadJob(jobId, filename = null) {
+  const resp = await fetch(`${BASE}/api/v1/client/tools/jobs/${jobId}/download`, {
+    headers: _token ? { Authorization: `Bearer ${_token}` } : {},
+    credentials: "include",
+  });
+  if (!resp.ok) {
+    let detail = null;
+    try { detail = (await resp.json())?.detail; } catch {}
+    const msg = typeof detail === "string" ? detail
+              : detail?.message || `HTTP ${resp.status}`;
+    const err = new Error(msg);
+    err.status = resp.status;
+    err.code = detail?.code;
+    throw err;
+  }
+  const blob = await resp.blob();
+  // Try to read filename from Content-Disposition
+  const cd = resp.headers.get("content-disposition") || "";
+  const m = cd.match(/filename="?([^"]+)"?/);
+  const finalName = filename || (m ? m[1] : `job-${jobId}.bin`);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = finalName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
