@@ -27,7 +27,9 @@ def _secret() -> str:
     return secret
 
 
-def create_access_token(subject: str, role: str) -> str:
+def create_access_token(
+    subject: str, role: str, extra_claims: dict | None = None
+) -> str:
     now = datetime.datetime.utcnow()
     payload = {
         "sub": subject,
@@ -35,6 +37,8 @@ def create_access_token(subject: str, role: str) -> str:
         "iat": now,
         "exp": now + datetime.timedelta(minutes=_ACCESS_TTL_MIN),
     }
+    if extra_claims:
+        payload.update(extra_claims)
     return jwt.encode(payload, _secret(), algorithm=_ALGO)
 
 

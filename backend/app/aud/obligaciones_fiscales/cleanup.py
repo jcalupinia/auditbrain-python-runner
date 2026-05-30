@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 def cleanup_once() -> dict:
     """Una pasada de cleanup. Devuelve resumen de acciones."""
     now = datetime.datetime.utcnow()
-    summary = {"expired_jobs": 0, "post_download_cleanups": 0, "orphan_dirs": 0}
+    summary = {"expired_jobs": 0, "post_download_cleanups": 0, "orphan_dirs": 0, "zombie_jobs": 0}
 
     db = SessionLocal()
     try:
@@ -34,7 +34,7 @@ def cleanup_once() -> dict:
         expired = db.execute(
             select(ToolJob).where(
                 ToolJob.expires_at < now,
-                ToolJob.status.in_(["pending", "running", "done"]),
+                ToolJob.status.in_(["pending", "running", "processing", "done"]),
             )
         ).scalars().all()
         for j in expired:
@@ -57,6 +57,23 @@ def cleanup_once() -> dict:
         for j in downloaded_old:
             file_storage.delete_job_dir(j.id)
             summary["post_download_cleanups"] += 1
+
+        # 4. Zombie jobs: status 'processing' por > 30 min → error
+        zombie_threshold = now - datetime.timedelta(minutes=30)
+        zombies = db.execute(
+            select(ToolJob).where(
+                ToolJob.status == "processing",
+                ToolJob.created_at < zombie_threshold,
+            )
+        ).scalars().all()
+        for j in zombies:
+            j.status = "error"
+            j.error_message = (
+                "Tiempo de procesamiento excedido (zombie detectado por cleanup). "
+                "Reintenta el trabajo."
+            )
+            db.add(j)
+            summary["zombie_jobs"] += 1
 
         db.commit()
     finally:

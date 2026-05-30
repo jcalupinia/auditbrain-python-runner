@@ -122,6 +122,16 @@ services:
       - key: AUDITBRAIN_JWT_SECRET
         sync: false
 
+      # --- Portal Cliente (M2): notificaciones por email Resend ---
+      - key: RESEND_API_KEY
+        sync: false
+
+      - key: RESEND_FROM_EMAIL
+        value: "no-reply@auditconsulting.com"
+
+      - key: CLIENT_PORTAL_URL
+        value: "https://auditbrain-clientes.onrender.com"
+
       - key: AUDITBRAIN_JWT_EXPIRE_MINUTES
         value: "60"
 
@@ -145,6 +155,27 @@ services:
     env: static
     buildCommand: cd frontend && npm ci && npm run build
     staticPublishPath: frontend/dist
+    pullRequestPreviewsEnabled: false
+    autoDeploy: true
+    envVars:
+      - key: VITE_API_BASE
+        value: "https://auditbrain-python-runner.onrender.com"
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+  # ==========================================================
+  # Portal Cliente (M2): static SPA separada para clientes externos.
+  # URL pública: https://auditbrain-clientes.onrender.com
+  # Comparte el mismo backend. CORS_ALLOW_ORIGINS del backend debe
+  # incluir esta URL después del primer deploy.
+  # ==========================================================
+  - type: web
+    name: auditbrain-clientes
+    env: static
+    buildCommand: cd frontend-shared && npm ci && cd ../frontend-client && npm ci && npm run build
+    staticPublishPath: frontend-client/dist
     pullRequestPreviewsEnabled: false
     autoDeploy: true
     envVars:
