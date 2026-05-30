@@ -93,7 +93,7 @@ function Login({ onLogged }) {
       <div className="login-aside">
         <div className="login-figure">
           <AssetImg
-            src="/assets/ai-girl-with-logo.png"
+            src="/assets/ai-girl-login.png"
             alt=""
             className="login-figure-img"
             fallback={<div className="figure-ph"><span>AUDIT</span><b>IA</b></div>}
