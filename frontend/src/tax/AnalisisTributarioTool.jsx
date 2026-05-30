@@ -15,7 +15,23 @@ import {
   EX,
   DEFAULT_CTRL,
   DEFAULT_PARAMS,
+  emptyData,
 } from "./seed.js";
+
+// Parámetros en blanco (sin datos de la empresa de ejemplo). Mantiene las
+// tasas normativas por defecto; el resto vacío para una empresa nueva.
+const BLANK_PARAMS = {
+  empresa: "",
+  ruc: "",
+  repLegal: "",
+  fechaCorte: "",
+  fechaAnalisis: "",
+  costoR: 60.6,
+  gastoR: 34.6,
+  irR: 25,
+  retDiv: 12,
+  divObjetivo: 0,
+};
 import {
   tarifa,
   tAC,
@@ -128,6 +144,19 @@ export default function AnalisisTributarioTool({ projectId }) {
     setParams({ ...DEFAULT_PARAMS });
     setScn("mix");
     setCTRL(applyScenario("mix", EX, DEFAULT_CTRL, DEFAULT_PARAMS));
+  };
+
+  // Limpia TODO (cero datos de la empresa de ejemplo) para empezar con otra
+  // empresa: estados financieros en 0, cabecera vacía, palancas por defecto.
+  const limpiarTodo = () => {
+    if (!window.confirm("¿Limpiar todos los datos y empezar una empresa nueva?"))
+      return;
+    setD(emptyData());
+    setParams({ ...BLANK_PARAMS });
+    setScn("sin");
+    setCTRL(clone(DEFAULT_CTRL));
+    setIngest(null);
+    setSection("datos");
   };
 
   // Fusiona el resultado de la ingesta: solo valores no nulos sobre el estado.
@@ -330,6 +359,9 @@ export default function AnalisisTributarioTool({ projectId }) {
           </button>
           <button className="tx-btn" onClick={() => window.print()}>
             🖨 PDF
+          </button>
+          <button className="tx-btn" onClick={limpiarTodo}>
+            🗑 Limpiar
           </button>
           <button className="tx-btn light" onClick={loadExample}>
             ↺ Ejemplo
