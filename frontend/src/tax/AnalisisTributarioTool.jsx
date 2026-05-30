@@ -27,11 +27,19 @@ const BLANK_PARAMS = {
   repLegal: "",
   fechaCorte: "",
   fechaAnalisis: "",
-  costoR: 60.6,
-  gastoR: 34.6,
+  costoR: 0,
+  gastoR: 0,
   irR: 25,
   retDiv: 12,
   divObjetivo: 0,
+  // Supuestos de proyección (se re-derivan del histórico al cargar datos).
+  growth: 0,
+  growthRaw: 0,
+  diasCxC: 0,
+  diasInv: 0,
+  diasCxP: 0,
+  deprecPctPPE: 10,
+  capexPctVentas: 1,
   sector: "",
   tasaSectorial: 0,
   actividadSRI: "",
@@ -108,10 +116,12 @@ function calcLine(D, sp, c) {
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
 export default function AnalisisTributarioTool({ projectId }) {
-  const [D, setD] = useState(() => clone(EX));
+  // Arranque en blanco (sin datos de la empresa de ejemplo). El botón
+  // "Ejemplo" carga SIGMANSERVICES bajo demanda mediante loadExample().
+  const [D, setD] = useState(() => emptyData());
   const [CTRL, setCTRL] = useState(() => clone(DEFAULT_CTRL));
-  const [scn, setScn] = useState("mix");
-  const [params, setParams] = useState(() => ({ ...DEFAULT_PARAMS }));
+  const [scn, setScn] = useState("sin");
+  const [params, setParams] = useState(() => ({ ...BLANK_PARAMS }));
   const [section, setSection] = useState("datos");
   const [ingest, setIngest] = useState(null); // null | "f101" | "resumido"
 

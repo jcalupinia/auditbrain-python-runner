@@ -476,7 +476,9 @@ def _metodologia(prs, c):
     n = max(1, len(pasos))
     gap = Inches(0.12)
     total_h = Inches(5.0)
-    card_h = int((total_h - gap * (n - 1)) / n)
+    # Altura mínima de tarjeta para no producir cajas de texto de alto negativo
+    # si en el futuro se agregan más pasos a la metodología.
+    card_h = max(Inches(0.72), int((total_h - gap * (n - 1)) / n))
     for p in pasos:
         _card(s, x, y, w, card_h)
         titulo = str(p.get("titulo", "")).strip()
@@ -484,7 +486,8 @@ def _metodologia(prs, c):
         _txt(s, x + Inches(0.3), y + Inches(0.12), w - Inches(0.6), Inches(0.35),
              titulo, 13, bold=True, color=GOLD)
         _txt(s, x + Inches(0.3), y + Inches(0.5), w - Inches(0.6),
-             card_h - Inches(0.55), detalle, 10.5, color=ICE, line_spacing=1.05)
+             max(Inches(0.15), card_h - Inches(0.55)), detalle, 10.5,
+             color=ICE, line_spacing=1.05)
         y = y + card_h + gap
 
 
