@@ -312,6 +312,24 @@
   background: #fff;
 }
 
+/* ---------- legibilidad de TODOS los campos ----------
+   El shell del Command Center es oscuro (texto blanco); aquí forzamos texto
+   oscuro en cada input/textarea/select de la herramienta para que el texto
+   escrito se distinga sobre el fondo claro de los formularios. */
+.tax-root input,
+.tax-root textarea,
+.tax-root select {
+  color: var(--navy) !important;
+  -webkit-text-fill-color: var(--navy) !important;
+  caret-color: var(--navy);
+}
+.tax-root input::placeholder,
+.tax-root textarea::placeholder {
+  color: #94a3b8 !important;
+  -webkit-text-fill-color: #94a3b8 !important;
+  opacity: 1;
+}
+
 /* ---------- tables ---------- */
 .tax-root .tx-tbl {
   width: 100%;
