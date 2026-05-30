@@ -448,25 +448,34 @@ export default function AnalisisTributarioTool({ projectId }) {
 
 /* ============ panel de ingesta (carga 101 / balance resumido) ============ */
 function IngestPanel({ kind, onClose, onExtracted }) {
-  const [file, setFile] = useState(null);
+  const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
+  const [progreso, setProgreso] = useState("");
   const f101 = kind === "f101";
 
   const process = async () => {
-    if (!file) return;
+    if (!files.length) return;
     setBusy(true);
     setError("");
     setResult(null);
+    const anios = [];
+    const warnings = new Set();
     try {
-      const res = await extractTaxPlan(kind, file);
-      onExtracted?.(res);
-      setResult(res);
+      for (let i = 0; i < files.length; i++) {
+        setProgreso(`Procesando ${i + 1}/${files.length}: ${files[i].name}`);
+        const res = await extractTaxPlan(kind, files[i]);
+        onExtracted?.(res);
+        if (res.anio_detectado) anios.push(res.anio_detectado);
+        (res.warnings || []).forEach((w) => warnings.add(w));
+      }
+      setResult({ count: files.length, anios, warnings: [...warnings] });
     } catch (e) {
       setError(e.message);
     } finally {
       setBusy(false);
+      setProgreso("");
     }
   };
 
@@ -483,7 +492,7 @@ function IngestPanel({ kind, onClose, onExtracted }) {
       <div className="tx-ingest-h">
         <h3>
           {f101
-            ? "Cargar Formulario 101 (SRI)"
+            ? "Cargar Formulario(s) 101 (SRI)"
             : "Cargar balance resumido (informe auditoría externa)"}
         </h3>
         <button className="tx-x" onClick={onClose}>
@@ -492,7 +501,7 @@ function IngestPanel({ kind, onClose, onExtracted }) {
       </div>
       <p className="tx-muted">
         {f101
-          ? "Sube el PDF del Formulario 101. El sistema extraerá los casilleros y poblará el Estado de Situación Financiera y el Estado de Resultados."
+          ? "Sube uno o varios PDF del Formulario 101 (ej. 2023, 2024 y 2025). El sistema detecta el año de cada uno y puebla su columna en los estados financieros."
           : "Sube el balance resumido en la plantilla definida (.xlsx). Se mapeará a los mismos esquemas ESF / ER."}
       </p>
       {!f101 && (
@@ -502,19 +511,31 @@ function IngestPanel({ kind, onClose, onExtracted }) {
       )}
       <input
         type="file"
+        multiple={f101}
         accept={f101 ? "application/pdf" : ".xlsx,.xls"}
         onChange={(e) => {
-          setFile(e.target.files?.[0] || null);
+          setFiles([...(e.target.files || [])]);
           setResult(null);
           setError("");
         }}
       />
-      {file && <div className="tx-muted small">Seleccionado: {file.name}</div>}
+      {files.length > 0 && (
+        <div className="tx-muted small">
+          Seleccionado{files.length > 1 ? "s" : ""} ({files.length}):{" "}
+          {files.map((f) => f.name).join(", ")}
+        </div>
+      )}
       <div className="tx-ingest-actions">
-        <button className="tx-btn" onClick={process} disabled={!file || busy}>
-          {busy ? "Procesando…" : "Procesar y cargar"}
+        <button className="tx-btn" onClick={process} disabled={!files.length || busy}>
+          {busy ? "Procesando…" : `Procesar y cargar${files.length > 1 ? ` (${files.length})` : ""}`}
         </button>
       </div>
+      {busy && progreso && (
+        <div className="tx-note n-info">
+          <span className="ic">⏳</span>
+          <div>{progreso}</div>
+        </div>
+      )}
       {error && (
         <div className="tx-note n-warn">
           <span className="ic">⚠</span>
@@ -525,8 +546,11 @@ function IngestPanel({ kind, onClose, onExtracted }) {
         <div className="tx-note n-ok">
           <span className="ic">✓</span>
           <div>
-            Datos cargados en <b>Estados financieros</b>.
-            {result.anio_detectado ? ` Año detectado: ${result.anio_detectado}.` : ""}
+            <b>{result.count}</b> archivo{result.count > 1 ? "s" : ""} cargado
+            {result.count > 1 ? "s" : ""} en <b>Estados financieros</b>.
+            {result.anios.length > 0 && (
+              <> Años detectados: <b>{result.anios.join(", ")}</b>.</>
+            )}
             {result.warnings?.length > 0 && (
               <ul className="tx-warnlist">
                 {result.warnings.map((w, i) => (
@@ -535,7 +559,7 @@ function IngestPanel({ kind, onClose, onExtracted }) {
               </ul>
             )}
             <div className="tx-muted small">
-              Revisa y ajusta las celdas azules antes de usar las cifras.
+              Verifica que los años sean correctos y ajusta las celdas azules.
             </div>
           </div>
         </div>
