@@ -4,6 +4,7 @@ import {
   exportTaxPlan,
   downloadTaxPlantilla,
   generarPresentacionTax,
+  consultarSriRuc,
 } from "../api.js";
 import TaxChart from "./TaxChart.jsx";
 import { fmt, f0, fX, fP, fD, m } from "./format.js";
@@ -31,6 +32,9 @@ const BLANK_PARAMS = {
   irR: 25,
   retDiv: 12,
   divObjetivo: 0,
+  sector: "",
+  tasaSectorial: 0,
+  actividadSRI: "",
 };
 import {
   tarifa,
@@ -51,6 +55,10 @@ import {
   SCENARIO_NAMES,
   deriveAssumptions,
   projectFinancials,
+  SECTORES_CIIU,
+  sugerirSeccion,
+  sectorPorCod,
+  METODOLOGIA_PROYECCION,
 } from "./engine.js";
 import "./tax.css";
 
@@ -112,19 +120,25 @@ export default function AnalisisTributarioTool({ projectId }) {
   // los estados financieros; el usuario no los llena (editables como override).
   useEffect(() => {
     const A = deriveAssumptions(D);
-    setParams((prev) => ({
-      ...prev,
-      growth: A.growth,
-      costoR: A.costoR,
-      gastoR: A.gastoR,
-      diasCxC: A.diasCxC,
-      diasInv: A.diasInv,
-      diasCxP: A.diasCxP,
-      deprecPctPPE: A.deprecPctPPE,
-      capexPctVentas: A.capexPctVentas,
-    }));
+    setParams((prev) => {
+      // Crecimiento: histórico si crece; si no crece (≤0), tasa sectorial.
+      const sect = Number(prev.tasaSectorial) || 0;
+      const growth = A.growthRaw > 0 ? A.growth : sect > 0 ? sect : 0;
+      return {
+        ...prev,
+        growth,
+        growthRaw: A.growthRaw,
+        costoR: A.costoR,
+        gastoR: A.gastoR,
+        diasCxC: A.diasCxC,
+        diasInv: A.diasInv,
+        diasCxP: A.diasCxP,
+        deprecPctPPE: A.deprecPctPPE,
+        capexPctVentas: A.capexPctVentas,
+      };
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [D]);
+  }, [D, params.tasaSectorial]);
 
   // Derivados (recálculo en vivo).
   const R = useMemo(() => computeModel(D, CTRL, params), [D, CTRL, params]);
@@ -298,6 +312,21 @@ export default function AnalisisTributarioTool({ projectId }) {
         en_riesgo: R.map((r) => Math.round(r.enR)),
         patrimonio: R.map((r) => Math.round(r.patrimonio)),
       },
+      metodologia_proyeccion: {
+        intro:
+          "Modelo de tres estados (2026–2028) construido automáticamente a " +
+          "partir del histórico 2023–2025.",
+        fuente_crecimiento:
+          deriveAssumptions(D).growthRaw > 0
+            ? `Histórico real (${deriveAssumptions(D).growthRaw}% promedio anual).`
+            : `El histórico no crece; tasa sectorial referencial ${
+                Number(params.tasaSectorial) || 0
+              }%${params.sector ? ` (CIIU ${params.sector})` : ""}.`,
+        pasos: METODOLOGIA_PROYECCION.map((m) => ({
+          titulo: m.titulo,
+          detalle: m.detalle,
+        })),
+      },
       plan_accion: [
         { accion: "Convocar Junta y aprobar la estrategia", responsable: "Representante legal", plazo: "Antes del 31 de julio" },
         { accion: "Formalizar aumento de capital (acta, escritura, Registro Mercantil)", responsable: "Asesor legal", plazo: "Antes del 31 de julio" },
@@ -414,7 +443,9 @@ export default function AnalisisTributarioTool({ projectId }) {
 
 
       <div className="tx-content">
-        {section === "datos" && <SecDatos params={params} setText={setText} />}
+        {section === "datos" && (
+          <SecDatos params={params} setText={setText} setParam={setParam} />
+        )}
         {section === "legal" && <SecLegal />}
         {section === "eeff" && (
           <SecEeff D={D} setCell={setCell} />
@@ -604,7 +635,8 @@ function fmtFecha(iso) {
 }
 
 /* ===================== 0 · DATOS DEL CLIENTE ===================== */
-function SecDatos({ params, setText }) {
+function SecDatos({ params, setText, setParam }) {
+  const [sri, setSri] = useState({ loading: false, msg: "", err: "" });
   const F = [
     ["empresa", "Nombre / razón social", "text", "Nombre de la compañía"],
     ["ruc", "RUC", "text", "13 dígitos"],
@@ -612,6 +644,44 @@ function SecDatos({ params, setText }) {
     ["fechaCorte", "Fecha de corte", "date", "ej. 31 de julio"],
     ["fechaAnalisis", "Fecha del análisis", "date", "fecha del cálculo"],
   ];
+
+  async function consultarSri() {
+    const ruc = String(params.ruc || "").replace(/\D/g, "");
+    if (ruc.length !== 13) {
+      setSri({ loading: false, msg: "", err: "El RUC debe tener 13 dígitos." });
+      return;
+    }
+    setSri({ loading: true, msg: "", err: "" });
+    try {
+      const r = await consultarSriRuc(ruc);
+      if (r.razon_social) setText("empresa", r.razon_social);
+      const actividad = r.actividad || "";
+      setText("actividadSRI", actividad);
+      // Sugerir sección CIIU a partir de la actividad y fijar su tasa.
+      const cod = actividad ? sugerirSeccion(actividad) : "";
+      if (cod) {
+        setText("sector", cod);
+        const s = sectorPorCod(cod);
+        if (s) setParam("tasaSectorial", s.tasa);
+      }
+      setSri({
+        loading: false,
+        err: "",
+        msg: `SRI: ${r.razon_social || "(sin razón social)"}${
+          r.estado ? " · " + r.estado : ""
+        }`,
+      });
+    } catch (e) {
+      setSri({ loading: false, msg: "", err: e.message || "Error consultando el SRI." });
+    }
+  }
+
+  function onSectorChange(cod) {
+    setText("sector", cod);
+    const s = sectorPorCod(cod);
+    if (s) setParam("tasaSectorial", s.tasa);
+  }
+
   return (
     <section>
       <div className="tx-h1">Datos del cliente</div>
@@ -635,6 +705,72 @@ function SecDatos({ params, setText }) {
               />
             </div>
           ))}
+        </div>
+      </div>
+
+      <div className="tx-card">
+        <h3>Sector económico (CIIU) y crecimiento sectorial</h3>
+        <p className="tx-lead" style={{ marginTop: 0 }}>
+          Se usa <b>únicamente como respaldo</b>: si el histórico de ventas{" "}
+          <b>no crece</b> (variación ≤ 0), la proyección toma la tasa de
+          crecimiento del sector en lugar de un crecimiento nulo. Si el histórico
+          sí crece, prevalece el dato real de la empresa. Consulte el SRI por RUC
+          para autocompletar la razón social y sugerir la sección CIIU.
+        </p>
+        <div className="tx-actions">
+          <button
+            type="button"
+            className="tx-btn"
+            onClick={consultarSri}
+            disabled={sri.loading}
+          >
+            {sri.loading ? "Consultando…" : "Consultar SRI por RUC"}
+          </button>
+          {sri.msg && <span className="tx-ok-line">{sri.msg}</span>}
+          {sri.err && <span className="tx-warn-line">{sri.err}</span>}
+        </div>
+        <div className="tx-grid g3" style={{ marginTop: 12 }}>
+          <div className="tx-field tx-field-l">
+            <label>
+              Sección CIIU del sector{" "}
+              <span className="hint">determina la tasa referencial</span>
+            </label>
+            <select
+              value={params.sector || ""}
+              onChange={(e) => onSectorChange(e.target.value)}
+            >
+              <option value="">— Seleccione un sector —</option>
+              {SECTORES_CIIU.map((s) => (
+                <option key={s.cod} value={s.cod}>
+                  {s.cod} · {s.nombre}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="tx-field tx-field-l">
+            <label>
+              Crecimiento sectorial (%){" "}
+              <span className="hint">referencial, editable</span>
+            </label>
+            <input
+              type="number"
+              step="0.1"
+              value={params.tasaSectorial ?? 0}
+              onChange={(e) => setParam("tasaSectorial", e.target.value)}
+            />
+          </div>
+          <div className="tx-field tx-field-l">
+            <label>
+              Actividad económica (SRI){" "}
+              <span className="hint">solo informativa</span>
+            </label>
+            <input
+              type="text"
+              value={params.actividadSRI || ""}
+              onChange={(e) => setText("actividadSRI", e.target.value)}
+              placeholder="Se completa al consultar el SRI"
+            />
+          </div>
         </div>
       </div>
     </section>
@@ -1341,6 +1477,31 @@ function SecProyectado({ D, CTRL, params }) {
           Se recalculan solos al editar los estados financieros (celdas azules).
           Crecimiento con piso 0% (no se proyectan caídas indefinidas).
         </p>
+        <p className="tx-muted small">
+          <b>Fuente del crecimiento:</b>{" "}
+          {A.growthRaw > 0 ? (
+            <>histórico real de la empresa ({A.growthRaw}% promedio anual).</>
+          ) : (
+            <>
+              el histórico no crece ({A.growthRaw}%); se usa la tasa sectorial
+              referencial ({Number(params.tasaSectorial) || 0}%
+              {params.sector ? `, sección CIIU ${params.sector}` : ""}).
+            </>
+          )}
+        </p>
+      </div>
+
+      {/* ---- Metodología de proyección ---- */}
+      <div className="tx-card">
+        <h3>Metodología de la proyección</h3>
+        <div className="tx-legalgrid">
+          {METODOLOGIA_PROYECCION.map((m) => (
+            <div className="tx-lcard" key={m.titulo}>
+              <h5>{m.titulo}</h5>
+              <p>{m.detalle}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* ---- Estado de Resultados ---- */}
@@ -1892,6 +2053,26 @@ function SecInforme({ D, R, CTRL, i0, i1, i2, scComp, scn, params, sumK }) {
 
         {/* ===== 12. MODELACIÓN ===== */}
         <h4>12. Modelación Financiera y Tributaria</h4>
+        <p>
+          <b>Metodología de proyección de los tres estados financieros.</b> El
+          modelo 2026–2028 se construye de forma automática a partir del histórico
+          (2023–2025), aplicando la siguiente secuencia:
+        </p>
+        <ol className="rmet">
+          {METODOLOGIA_PROYECCION.map((m) => (
+            <li key={m.titulo}>
+              <b>{m.titulo.replace(/^\d+\s·\s/, "")}.</b> {m.detalle}
+            </li>
+          ))}
+        </ol>
+        <p>
+          El crecimiento de ventas se toma del histórico real de {emp} cuando es
+          positivo; si el histórico no crece, se emplea como respaldo la tasa de
+          crecimiento del sector (CIIU{params.sector ? ` ${params.sector}` : ""},{" "}
+          {Number(params.tasaSectorial) || 0}% referencial). La depreciación se
+          refleja únicamente en EBITDA, PP&E y flujo de caja, por lo que{" "}
+          <b>no altera la base del pago a cuenta</b>.
+        </p>
         <table className="rtbl">
           <thead>
             <tr><th>Concepto</th>{PROJ.map((y) => <th key={y}>{y}</th>)}</tr>

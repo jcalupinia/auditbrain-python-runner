@@ -68,6 +68,7 @@ def build_deck(content: dict) -> bytes:
     _grafico_escenarios(prs, c)
     _recomendacion(prs, c)
     _modelacion(prs, c)
+    _metodologia(prs, c)
     _plan(prs, c)
     _cierre(prs, c)
     buf = io.BytesIO()
@@ -460,10 +461,37 @@ def _modelacion(prs, c):
         ])
 
 
+def _metodologia(prs, c):
+    _blank(prs)
+    s = prs.slides[-1]
+    m = c.get("metodologia_proyeccion", {})
+    sub = m.get("fuente_crecimiento", "Proyección automática del histórico 2023–2025")
+    _title(s, 10, "Metodología de la Proyección", sub)
+    pasos = m.get("pasos", [])
+    if not pasos:
+        return
+    x = Inches(0.7)
+    w = Inches(11.9)
+    y = Inches(1.95)
+    n = max(1, len(pasos))
+    gap = Inches(0.12)
+    total_h = Inches(5.0)
+    card_h = int((total_h - gap * (n - 1)) / n)
+    for p in pasos:
+        _card(s, x, y, w, card_h)
+        titulo = str(p.get("titulo", "")).strip()
+        detalle = str(p.get("detalle", "")).strip()
+        _txt(s, x + Inches(0.3), y + Inches(0.12), w - Inches(0.6), Inches(0.35),
+             titulo, 13, bold=True, color=GOLD)
+        _txt(s, x + Inches(0.3), y + Inches(0.5), w - Inches(0.6),
+             card_h - Inches(0.55), detalle, 10.5, color=ICE, line_spacing=1.05)
+        y = y + card_h + gap
+
+
 def _plan(prs, c):
     _blank(prs)
     s = prs.slides[-1]
-    _title(s, 10, "Plan de Acción")
+    _title(s, 11, "Plan de Acción")
     headers = ["Acción", "Responsable", "Plazo"]
     rows = [[p.get("accion", ""), p.get("responsable", ""), p.get("plazo", "")]
             for p in c.get("plan_accion", [])]

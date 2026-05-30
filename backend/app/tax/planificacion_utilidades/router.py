@@ -20,10 +20,14 @@ from backend.app.tax.planificacion_utilidades.parsers import (
     f101,
 )
 from backend.app.tax.planificacion_utilidades import pptx_builder
+import json
+import urllib.request
+
 from backend.app.tax.planificacion_utilidades.schemas import (
     ExportRequest,
     ExtractResponse,
     PresentacionRequest,
+    SriRucResponse,
 )
 
 router = APIRouter(
@@ -83,6 +87,43 @@ def export_endpoint(
         BytesIO(xlsx),
         media_type=XLSX_MIME,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+_SRI_URL = (
+    "https://srienlinea.sri.gob.ec/sri-catastro-sujeto-servicio-internet/"
+    "rest/ConsolidadoContribuyente/obtenerPorNumerosRuc?ruc="
+)
+
+
+@router.get("/sri/{ruc}", response_model=SriRucResponse)
+def consultar_sri(ruc: str, current: User = Depends(get_current_user)):
+    """Consulta el SRI (oficial, sin captcha) y devuelve razón social + actividad.
+
+    Se usa para auto-poblar el cliente y sugerir el sector (CIIU) del que sale la
+    tasa de crecimiento sectorial cuando el histórico no crece.
+    """
+    digits = "".join(ch for ch in (ruc or "") if ch.isdigit())
+    if len(digits) != 13:
+        raise HTTPException(400, "RUC inválido (deben ser 13 dígitos).")
+    try:
+        req = urllib.request.Request(
+            _SRI_URL + digits, headers={"User-Agent": "Mozilla/5.0"}
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"No se pudo consultar el SRI: {exc}") from exc
+    if not data:
+        raise HTTPException(404, "RUC no encontrado en el SRI.")
+    c = data[0] if isinstance(data, list) else data
+    return SriRucResponse(
+        ruc=c.get("numeroRuc"),
+        razon_social=c.get("razonSocial"),
+        actividad=c.get("actividadEconomicaPrincipal"),
+        estado=c.get("estadoContribuyenteRuc"),
+        tipo=c.get("tipoContribuyente"),
+        regimen=c.get("regimen"),
     )
 
 

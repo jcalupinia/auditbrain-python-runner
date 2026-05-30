@@ -38,6 +38,17 @@ class ExportRequest(BaseModel):
     params: dict[str, str | float] = Field(default_factory=dict)
 
 
+class SriRucResponse(BaseModel):
+    """Datos del contribuyente devueltos por el SRI (consulta por RUC)."""
+
+    ruc: str | None = None
+    razon_social: str | None = None
+    actividad: str | None = None
+    estado: str | None = None
+    tipo: str | None = None
+    regimen: str | None = None
+
+
 class PresentacionRequest(BaseModel):
     """Genera una presentación ejecutiva (Canva via MCP) para gerencia/accionistas.
 

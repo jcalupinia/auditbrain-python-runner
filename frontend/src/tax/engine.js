@@ -237,19 +237,75 @@ export const SCENARIO_NAMES = {
 
 const _round1 = (x) => (isFinite(x) ? Math.round(x * 10) / 10 : 0);
 
+// Tasas de crecimiento por GRAN RAMA CIIU (referenciales, editables). Se usan
+// SOLO como crecimiento de ventas cuando el histórico de la empresa no crece.
+export const SECTORES_CIIU = [
+  { cod: "A", nombre: "Agricultura, ganadería, pesca", tasa: 2.5 },
+  { cod: "B", nombre: "Explotación de minas y canteras", tasa: 1.5 },
+  { cod: "C", nombre: "Industrias manufactureras", tasa: 2.5 },
+  { cod: "D", nombre: "Energía eléctrica y gas", tasa: 3.0 },
+  { cod: "E", nombre: "Agua, alcantarillado, desechos", tasa: 3.0 },
+  { cod: "F", nombre: "Construcción", tasa: 2.0 },
+  { cod: "G", nombre: "Comercio al por mayor y menor", tasa: 3.0 },
+  { cod: "H", nombre: "Transporte y almacenamiento", tasa: 3.0 },
+  { cod: "I", nombre: "Alojamiento y servicios de comida", tasa: 3.5 },
+  { cod: "J", nombre: "Información y comunicación", tasa: 4.0 },
+  { cod: "K", nombre: "Actividades financieras y de seguros", tasa: 3.5 },
+  { cod: "L", nombre: "Actividades inmobiliarias", tasa: 2.5 },
+  { cod: "M", nombre: "Actividades profesionales y técnicas", tasa: 3.5 },
+  { cod: "N", nombre: "Servicios administrativos y de apoyo", tasa: 3.0 },
+  { cod: "P", nombre: "Enseñanza", tasa: 3.0 },
+  { cod: "Q", nombre: "Salud y asistencia social", tasa: 4.0 },
+  { cod: "R", nombre: "Artes, entretenimiento y recreación", tasa: 3.0 },
+  { cod: "S", nombre: "Otras actividades de servicios", tasa: 2.5 },
+];
+
+// Sugiere la sección CIIU a partir de la descripción de actividad del SRI.
+export function sugerirSeccion(actividad) {
+  const t = (actividad || "").toUpperCase();
+  const reglas = [
+    [/INGENIER|CONSULTOR|ARQUITECT|JUR[IÍ]DIC|CONTABIL|CIENT[IÍ]FIC|PROFESIONAL/, "M"],
+    [/AGRIC|GANAD|PESCA|CULTIVO|AGROP|ACU[IÍ]COLA|SILVICULT/, "A"],
+    [/MINA|CANTERA|PETR[OÓ]LE|EXTRACC|HIDROCARBUR/, "B"],
+    [/ELECTRIC|ENERG[IÍ]A|GENERACI[OÓ]N|GAS NATURAL/, "D"],
+    [/AGUA|ALCANTAR|DESECHO|RESIDUO|SANEAM/, "E"],
+    [/CONSTRUC|OBRA CIVIL|EDIFIC|VIVIENDA/, "F"],
+    [/COMERCIO|VENTA AL|MAYORISTA|MINORISTA|DISTRIBUCI[OÓ]N/, "G"],
+    [/TRANSPORT|ALMACEN|LOG[IÍ]STIC|CARGA|COURIER/, "H"],
+    [/HOTEL|ALOJAM|RESTAURANT|COMIDA|CATERING|TUR[IÍ]STIC/, "I"],
+    [/SOFTWARE|TELECOM|INFORM[AÁ]TIC|COMUNICAC|EDICI[OÓ]N|PROGRAMAC/, "J"],
+    [/FINANC|BANCO|SEGURO|CR[EÉ]DITO|BURS[AÁ]TIL/, "K"],
+    [/INMOBILIAR|ALQUILER DE BIENES INMUEBLES/, "L"],
+    [/APOYO|ADMINISTRAT|LIMPIEZA|SEGURIDAD PRIVADA|AGENCIA DE/, "N"],
+    [/ENSE[NÑ]ANZA|EDUCAC|ACADEMIA|CAPACITAC/, "P"],
+    [/SALUD|M[EÉ]DIC|HOSPITAL|CL[IÍ]NIC|ODONTOL/, "Q"],
+    [/ARTE|ENTRETEN|RECREAC|DEPORT|CINE|TEATRO/, "R"],
+    [/FABRIC|MANUFACTUR|ELABORAC|PRODUCCI[OÓ]N DE|ENVASAD/, "C"],
+  ];
+  for (const [re, cod] of reglas) if (re.test(t)) return cod;
+  return "S";
+}
+
+// Devuelve {cod, nombre, tasa} de la sección, o el sector "S" por defecto.
+export function sectorPorCod(cod) {
+  return SECTORES_CIIU.find((s) => s.cod === cod) || SECTORES_CIIU[SECTORES_CIIU.length - 1];
+}
+
 // Supuestos operativos derivados del histórico (último año / variaciones).
 export function deriveAssumptions(D) {
   const v = D.ventas, c = D.costo, i = 2;
   const g1 = v[0] ? (v[1] - v[0]) / v[0] : 0;
   const g2 = v[1] ? (v[2] - v[1]) / v[1] : 0;
-  let growth = ((g1 + g2) / 2) * 100;
+  const growthRaw = _round1(((g1 + g2) / 2) * 100); // crecimiento histórico real
+  let growth = growthRaw;
   if (!isFinite(growth)) growth = 0;
-  growth = Math.max(0, _round1(growth)); // piso 0% (no proyectar caídas indefinidas)
+  growth = Math.max(0, growth); // piso 0% (no proyectar caídas indefinidas)
   const pct = (n, d) => (d ? (n / d) * 100 : 0);
   const dias = (n, d) => (d ? (n / d) * 365 : 0);
   const deprec = D.dna && D.dna[i] > 0 ? D.dna[i] : (D.ppe[i] || 0) * 0.1;
   return {
     growth,
+    growthRaw,
     costoR: _round1(pct(c[i], v[i])),
     gastoR: _round1(pct(D.gAdmin[i], v[i])),
     diasCxC: Math.round(dias(D.cxc[i], v[i])),
@@ -259,6 +315,49 @@ export function deriveAssumptions(D) {
     capexPctVentas: _round1(pct(deprec, v[i])),        // CAPEX de reposición (= deprec)
   };
 }
+
+// Metodología de proyección de los 3 estados (reutilizable: formulario,
+// informe gerencial y presentación). Pasos en el orden en que se ejecutan.
+export const METODOLOGIA_PROYECCION = [
+  {
+    titulo: "1 · Crecimiento de ventas",
+    detalle:
+      "Se calcula la variación histórica de ventas (promedio de las variaciones anuales). " +
+      "Si la empresa creció, se proyecta con esa tasa real. Si el histórico no crece " +
+      "(variación ≤ 0), se usa como respaldo la tasa de crecimiento del sector (CIIU) " +
+      "obtenido del RUC en el SRI; nunca se proyecta una caída indefinida.",
+  },
+  {
+    titulo: "2 · Estado de Resultados",
+    detalle:
+      "Sobre las ventas proyectadas se aplican los márgenes históricos: costo/ventas y " +
+      "gastos operativos/ventas. Se obtiene utilidad bruta, EBIT y, sumando la depreciación, " +
+      "el EBITDA. La depreciación afecta solo al EBITDA, al PP&E y al flujo de caja: no " +
+      "altera la utilidad neta ni, por tanto, la base del impuesto.",
+  },
+  {
+    titulo: "3 · Capital de trabajo",
+    detalle:
+      "Las cuentas por cobrar, el inventario y las cuentas por pagar se proyectan con los " +
+      "días históricos de cartera, inventario y proveedores aplicados a las ventas/costos " +
+      "proyectados (días × base / 365).",
+  },
+  {
+    titulo: "4 · Estado de Situación Financiera",
+    detalle:
+      "Se proyecta partida por partida: PP&E = PP&E anterior + CAPEX − depreciación; los " +
+      "resultados acumulados incorporan la utilidad del período menos dividendos/capitalización; " +
+      "las partidas no modeladas se mantienen constantes. El balance cuadra por construcción " +
+      "(el efectivo es la partida de cierre).",
+  },
+  {
+    titulo: "5 · Flujo de caja",
+    detalle:
+      "Se deriva por el método indirecto: utilidad neta + depreciación ± variación de capital " +
+      "de trabajo − CAPEX ± financiamiento. El efectivo final alimenta el ESF y garantiza la " +
+      "consistencia entre los tres estados.",
+  },
+];
 
 // Toma los supuestos desde params si el usuario los editó, si no usa los autos.
 function _assume(D, params) {

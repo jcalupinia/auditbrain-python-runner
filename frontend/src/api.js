@@ -196,6 +196,15 @@ export async function downloadTaxPlantilla() {
   );
 }
 
+// Consulta el SRI por RUC (oficial): razón social + actividad económica.
+export async function consultarSriRuc(ruc) {
+  return parse(
+    await fetch(`${TAX_PU_BASE}/sri/${encodeURIComponent(ruc)}`, {
+      headers: authHeaders(),
+    })
+  );
+}
+
 // Genera y descarga la presentación ejecutiva (.pptx) premium para
 // gerencia/accionistas. Se arma en el servidor con python-pptx.
 export async function generarPresentacionTax({ content }) {

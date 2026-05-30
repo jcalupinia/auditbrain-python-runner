@@ -135,6 +135,10 @@ export const DEFAULT_PARAMS = {
   diasCxP: 104, // días de proveedores
   deprecPctPPE: 10, // depreciación anual (% de PP&E)
   capexPctVentas: 1, // CAPEX (% de ventas)
+  // --- Sector (CIIU) para crecimiento sectorial cuando el histórico no crece ---
+  sector: "M", // sección CIIU (SIGMANSERVICE: M711 ingeniería)
+  tasaSectorial: 3.5, // crecimiento del sector (%) — referencial, editable
+  actividadSRI: "", // actividad económica detectada por el SRI
 };
 
 export const EXAMPLE_PARAMS = { ...DEFAULT_PARAMS };
