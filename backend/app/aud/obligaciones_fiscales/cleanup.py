@@ -34,7 +34,7 @@ def cleanup_once() -> dict:
         expired = db.execute(
             select(ToolJob).where(
                 ToolJob.expires_at < now,
-                ToolJob.status.in_(["pending", "running", "done"]),
+                ToolJob.status.in_(["pending", "running", "processing", "done"]),
             )
         ).scalars().all()
         for j in expired:
