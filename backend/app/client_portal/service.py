@@ -73,3 +73,80 @@ def change_password(
     user.password_reset_required = False
     db.add(user)
     db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Job management
+# ---------------------------------------------------------------------------
+
+import datetime  # noqa: E402
+
+from sqlalchemy import select  # noqa: E402
+
+from backend.app.aud.obligaciones_fiscales.models import ToolJob  # noqa: E402
+
+
+def create_client_job(
+    db: Session, *, user: User, tool_code: str
+) -> ToolJob:
+    """Crea ToolJob para un cliente. Verifica que no haya otro job activo."""
+    active = db.execute(
+        select(ToolJob).where(
+            ToolJob.user_id == user.id,
+            ToolJob.status.in_(["pending", "processing"]),
+        )
+    ).scalars().first()
+    if active:
+        raise PermissionError(
+            "Tiene otro trabajo en proceso. Espere a que termine."
+        )
+
+    now = datetime.datetime.utcnow()
+    project_id = _ensure_client_project(db, user=user)
+
+    job = ToolJob(
+        user_id=user.id,
+        project_id=project_id,
+        tool_code=tool_code,
+        status="pending",
+        cliente_name=str(user.client_id or user.email),
+        period_label=datetime.date.today().isoformat(),
+        created_at=now,
+        expires_at=now + datetime.timedelta(hours=24),
+        initiated_from="client",
+        notify_email=user.email,
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    return job
+
+
+def _ensure_client_project(db: Session, *, user: User) -> int:
+    """Devuelve project_id 'stub' para jobs del cliente. Crea uno si no existe."""
+    from backend.app.context.models import Project
+
+    if user.active_project_id:
+        return user.active_project_id
+    # Crear proyecto stub vinculado a su client_id
+    proj = Project(
+        organization_id=user.organization_id,
+        client_id=user.client_id,
+        name=f"PortalCliente-{user.email}",
+        module_code="CP",
+    )
+    db.add(proj)
+    db.commit()
+    db.refresh(proj)
+    user.active_project_id = proj.id
+    db.add(user)
+    db.commit()
+    return proj.id
+
+
+def get_client_job(db: Session, *, user: User, job_id: int) -> ToolJob:
+    """Obtiene job verificando ownership del cliente."""
+    job = db.get(ToolJob, job_id)
+    if not job or job.user_id != user.id:
+        raise PermissionError("Job no encontrado o sin acceso.")
+    return job
