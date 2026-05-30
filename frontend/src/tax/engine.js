@@ -91,12 +91,13 @@ export const cce = (D, c) => {
 export function computeER(D, CTRL, params) {
   const cR = params.costoR / 100,
     gR = params.gastoR / 100,
-    irR = params.irR / 100;
+    irR = params.irR / 100,
+    g = Number(params.growth) || 0; // crecimiento auto (mismo todos los años)
   let pv = D.ventas[2],
     po = D.otrosIng[2] + D.otrosIngFin[2],
     out = [];
-  CTRL.forEach((c) => {
-    const ventas = pv * (1 + c.g / 100),
+  CTRL.forEach(() => {
+    const ventas = pv * (1 + g / 100),
       otros = po,
       costo = ventas * cR,
       ubx = ventas + otros - costo,
@@ -152,7 +153,7 @@ export function computeModel(D, CTRL, params) {
     resAcum += e.neta - div - cap;
     capital += cap;
     patrimonio += e.neta - div;
-    pasivo *= 1 + CTRL[i].g / 100;
+    pasivo *= 1 + (Number(params.growth) || 0) / 100;
     riesgo += enR;
     rows.push({
       ...e,
@@ -226,3 +227,126 @@ export const SCENARIO_NAMES = {
   div: "Distribución",
   mix: "Mixto",
 };
+
+/* ===================== PROYECCIÓN FINANCIERA (3 ESTADOS) =====================
+   Deriva supuestos del histórico (automático) y proyecta ER + ESF + flujo de
+   caja. La UTILIDAD NETA se calcula igual que computeER (la depreciación NO se
+   resta dos veces: el % de gastos histórico ya la incluye), por lo que el
+   cálculo tributario del pago a cuenta NO cambia. La depreciación solo se usa
+   para EBITDA, el roll-forward de PP&E y el flujo de caja. */
+
+const _round1 = (x) => (isFinite(x) ? Math.round(x * 10) / 10 : 0);
+
+// Supuestos operativos derivados del histórico (último año / variaciones).
+export function deriveAssumptions(D) {
+  const v = D.ventas, c = D.costo, i = 2;
+  const g1 = v[0] ? (v[1] - v[0]) / v[0] : 0;
+  const g2 = v[1] ? (v[2] - v[1]) / v[1] : 0;
+  let growth = ((g1 + g2) / 2) * 100;
+  if (!isFinite(growth)) growth = 0;
+  growth = Math.max(0, _round1(growth)); // piso 0% (no proyectar caídas indefinidas)
+  const pct = (n, d) => (d ? (n / d) * 100 : 0);
+  const dias = (n, d) => (d ? (n / d) * 365 : 0);
+  const deprec = D.dna && D.dna[i] > 0 ? D.dna[i] : (D.ppe[i] || 0) * 0.1;
+  return {
+    growth,
+    costoR: _round1(pct(c[i], v[i])),
+    gastoR: _round1(pct(D.gAdmin[i], v[i])),
+    diasCxC: Math.round(dias(D.cxc[i], v[i])),
+    diasInv: Math.round(dias(D.inventario[i], c[i])),
+    diasCxP: Math.round(dias(D.cxp[i], c[i])),
+    deprecPctPPE: _round1(pct(deprec, D.ppe[i] || 1)), // depreciación anual sobre PP&E
+    capexPctVentas: _round1(pct(deprec, v[i])),        // CAPEX de reposición (= deprec)
+  };
+}
+
+// Toma los supuestos desde params si el usuario los editó, si no usa los autos.
+function _assume(D, params) {
+  const A = deriveAssumptions(D);
+  const k = [
+    "growth", "costoR", "gastoR", "diasCxC", "diasInv", "diasCxP",
+    "deprecPctPPE", "capexPctVentas",
+  ];
+  const out = { ...A };
+  k.forEach((key) => {
+    if (params && params[key] !== undefined && params[key] !== "" && params[key] !== null)
+      out[key] = Number(params[key]);
+  });
+  return out;
+}
+
+// Modelo de 3 estados proyectado (2026–2028). CTRL aporta solo div/cap.
+export function projectFinancials(D, CTRL, params) {
+  const A = _assume(D, params);
+  const irR = (params?.irR ?? 25) / 100;
+  const otros = D.otrosIng[2] + D.otrosIngFin[2];
+  // Rubros del balance NO modelados: se mantienen constantes (último año).
+  const inversiones = D.inversiones[2], cxcRel = D.cxcRel[2], impRec = D.impRec[2],
+    otrasCxc = D.otrasCxc[2], actImpDif = D.actImpDif[2], impPagar = D.impPagar[2],
+    benef = D.benef[2], anticipos = D.anticipos[2], provisiones = D.provisiones[2],
+    otrasCxp = D.otrasCxp[2], benefPost = D.benefPost[2], cxpRel = D.cxpRel[2],
+    pasImpDif = D.pasImpDif[2], reservas = D.reservas[2], ori = D.ori[2];
+
+  let ventasPrev = D.ventas[2], ppe = D.ppe[2], efectivo = D.efectivo[2];
+  let cxcPrev = D.cxc[2], invPrev = D.inventario[2], cxpPrev = D.cxp[2];
+  let resAcum = D.resAcum[2], capital = D.capital[2];
+
+  const rows = CTRL.map((ctrl) => {
+    const ventas = ventasPrev * (1 + A.growth / 100);
+    const costo = ventas * (A.costoR / 100);
+    const ub = ventas + otros - costo;
+    const gAdmin = ventas * (A.gastoR / 100);     // ya incluye depreciación
+    const ebit = ub - gAdmin;
+    const deprec = ppe * (A.deprecPctPPE / 100);  // estimación (para EBITDA/PP&E/flujo)
+    const ebitda = ebit + deprec;
+    const uai = ebit;                              // sin gastos financieros proyectados
+    const part = Math.max(0, uai) * 0.15;
+    const ir = Math.max(0, (uai - part) * irR);
+    const neta = uai - part - ir;                  // === computeER (sin doble deprec)
+
+    // Capital de trabajo por días
+    const cxc = (ventas / 365) * A.diasCxC;
+    const inv = (costo / 365) * A.diasInv;
+    const cxp = (costo / 365) * A.diasCxP;
+    const deltaWC = (cxc + inv - cxp) - (cxcPrev + invPrev - cxpPrev);
+
+    // CAPEX y PP&E
+    const capex = ventas * (A.capexPctVentas / 100);
+    const ppeNew = ppe + capex - deprec;
+
+    const div = ctrl.div || 0, cap = ctrl.cap || 0;
+
+    // Flujo de caja
+    const fco = neta + deprec - deltaWC;
+    const fci = -capex;
+    const fcf = -div; // capitalización no es salida de caja
+    const deltaCaja = fco + fci + fcf;
+    const efectivoNew = efectivo + deltaCaja;
+
+    // Patrimonio (roll-forward) y balance
+    const resAcumNew = resAcum + neta - div - cap;
+    const capitalNew = capital + cap;
+    const patrimonio = capitalNew + reservas + ori + resAcumNew;
+    const activoCte = efectivoNew + inversiones + cxc + cxcRel + impRec + otrasCxc + inv;
+    const activoNoCte = ppeNew + actImpDif;
+    const totalActivo = activoCte + activoNoCte;
+    const pasivoCte = cxp + impPagar + benef + anticipos + provisiones + otrasCxp;
+    const pasivoNoCte = benefPost + cxpRel + pasImpDif;
+    const totalPasivo = pasivoCte + pasivoNoCte;
+
+    const r = {
+      ventas, otros, costo, ub, gAdmin, deprec, ebit, ebitda, uai, part,
+      irCausado: ir, neta,
+      cxc, inv, cxp, deltaWC, capex, ppe: ppeNew, efectivo: efectivoNew,
+      fco, fci, fcf, deltaCaja, div, cap,
+      resAcum: resAcumNew, capital: capitalNew, reservas, ori, patrimonio,
+      activoCte, activoNoCte, totalActivo, pasivoCte, pasivoNoCte, totalPasivo,
+      totalPatPasivo: totalPasivo + patrimonio,
+      cuadre: totalActivo - (totalPasivo + patrimonio),
+    };
+    ventasPrev = ventas; ppe = ppeNew; cxcPrev = cxc; invPrev = inv; cxpPrev = cxp;
+    efectivo = efectivoNew; resAcum = resAcumNew; capital = capitalNew;
+    return r;
+  });
+  return { assumptions: A, rows };
+}

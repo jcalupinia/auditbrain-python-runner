@@ -207,6 +207,58 @@
 .tax-root .tx-warnlist li {
   margin: 2px 0;
 }
+/* ---------- estados proyectados (modelo 3 estados) ---------- */
+.tax-root .tx-supgrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin: 4px 0 10px;
+}
+.tax-root .tx-sup {
+  background: #f4f7fa;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.tax-root .tx-sup-v {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--navy);
+}
+.tax-root .tx-sup-l {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.tax-root .tx-ptbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.tax-root .tx-ptbl th {
+  background: var(--navy);
+  color: #fff;
+  text-align: right;
+  padding: 7px 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.tax-root .tx-ptbl th:first-child { text-align: left; }
+.tax-root .tx-ptbl td {
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+  color: #2c3a47;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.tax-root .tx-ptbl td:first-child { text-align: left; }
+.tax-root .tx-ptbl tr.sub td { font-weight: 700; background: #f4f7fa; }
+.tax-root .tx-ptbl tr.tot td { font-weight: 800; background: #eef3ee; color: var(--navy); }
+.tax-root .tx-ok-line { color: #1e8449; font-size: 12px; margin-top: 8px; font-weight: 600; }
+.tax-root .tx-warn-line { color: #c0392b; font-size: 12px; margin-top: 8px; font-weight: 600; }
+@media (max-width: 1000px) {
+  .tax-root .tx-supgrid { grid-template-columns: repeat(2, 1fr); }
+}
 
 /* ---------- layout ---------- */
 .tax-root .tx-h1 {

@@ -112,8 +112,8 @@ export function emptyData() {
 
 export const DEFAULT_CTRL = [
   { g: 0, div: 0, cap: 0 },
-  { g: 5, div: 0, cap: 0 },
-  { g: 5, div: 0, cap: 0 },
+  { g: 0, div: 0, cap: 0 },
+  { g: 0, div: 0, cap: 0 },
 ];
 
 // Parámetros editables (requieren validación humana — ver normativa).
@@ -128,6 +128,13 @@ export const DEFAULT_PARAMS = {
   irR: 25, // tasa Impuesto a la Renta (%)
   retDiv: 12, // retención impuesto único dividendos (%) — verificar normativa
   divObjetivo: 1500000, // monto de dividendos para los escenarios comparativos
+  // --- Supuestos de proyección (auto-derivados del histórico; editables) ---
+  growth: 0, // crecimiento de ventas (%/año)
+  diasCxC: 78, // días de cartera
+  diasInv: 224, // días de inventario
+  diasCxP: 104, // días de proveedores
+  deprecPctPPE: 10, // depreciación anual (% de PP&E)
+  capexPctVentas: 1, // CAPEX (% de ventas)
 };
 
 export const EXAMPLE_PARAMS = { ...DEFAULT_PARAMS };

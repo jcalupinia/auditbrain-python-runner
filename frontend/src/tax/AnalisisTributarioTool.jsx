@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   extractTaxPlan,
   exportTaxPlan,
@@ -49,6 +49,8 @@ import {
   scenarioCompare,
   applyScenario,
   SCENARIO_NAMES,
+  deriveAssumptions,
+  projectFinancials,
 } from "./engine.js";
 import "./tax.css";
 
@@ -104,6 +106,25 @@ export default function AnalisisTributarioTool({ projectId }) {
   const [params, setParams] = useState(() => ({ ...DEFAULT_PARAMS }));
   const [section, setSection] = useState("datos");
   const [ingest, setIngest] = useState(null); // null | "f101" | "resumido"
+
+  // Supuestos de proyección AUTO-derivados del histórico (crecimiento, márgenes,
+  // días de capital de trabajo, depreciación, CAPEX). Se recalculan al cambiar
+  // los estados financieros; el usuario no los llena (editables como override).
+  useEffect(() => {
+    const A = deriveAssumptions(D);
+    setParams((prev) => ({
+      ...prev,
+      growth: A.growth,
+      costoR: A.costoR,
+      gastoR: A.gastoR,
+      diasCxC: A.diasCxC,
+      diasInv: A.diasInv,
+      diasCxP: A.diasCxP,
+      deprecPctPPE: A.deprecPctPPE,
+      capexPctVentas: A.capexPctVentas,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [D]);
 
   // Derivados (recálculo en vivo).
   const R = useMemo(() => computeModel(D, CTRL, params), [D, CTRL, params]);
@@ -414,7 +435,9 @@ export default function AnalisisTributarioTool({ projectId }) {
         )}
         {section === "retenciones" && <SecRetenciones R={R} />}
         {section === "credito" && <SecCredito R={R} sumK={sumK} />}
-        {section === "proyectado" && <SecProyectado D={D} R={R} P={P} />}
+        {section === "proyectado" && (
+          <SecProyectado D={D} CTRL={CTRL} params={params} R={R} scn={scn} />
+        )}
         {section === "dashboard" && (
           <SecDashboard
             D={D}
@@ -990,7 +1013,6 @@ function SecImpuesto({ D, R, CTRL, params, setParam, setCtrlCell, sumK }) {
     ["retDiv", "Retención div. único (%)", "verificar"],
   ];
   const CTRL_ROWS = [
-    ["Crecimiento ventas (%)", "g", true],
     ["Dividendos (ene–jul)", "div", false],
     ["Capitalización (ene–jul)", "cap", false],
   ];
@@ -998,9 +1020,10 @@ function SecImpuesto({ D, R, CTRL, params, setParam, setCtrlCell, sumK }) {
     <section>
       <div className="tx-h1">Cálculo del impuesto — pago a cuenta</div>
       <p className="tx-lead">
-        Depuración de la base y aplicación de la tarifa única. Las palancas por
-        año (dividendos / capitalización antes del 31 de julio) gobiernan toda
-        la planificación.
+        Depuración de la base y aplicación de la tarifa única. El crecimiento de
+        ventas y los márgenes se derivan <b>automáticamente</b> del histórico
+        (crecimiento {params.growth || 0}%); tú solo decides los{" "}
+        <b>dividendos y la capitalización</b> por año (antes del 31 de julio).
       </p>
       <div className="tx-card">
         <h3>Palancas de planificación por año</h3>
@@ -1271,52 +1294,117 @@ function RowHP({ label, hist, proj, cls, neg }) {
   );
 }
 
-function SecProyectado({ D, R, P }) {
+function SecProyectado({ D, CTRL, params }) {
+  const { assumptions: A, rows } = projectFinancials(D, CTRL, params);
+  const cuadra = rows.every((r) => Math.abs(r.cuadre) < 1.5);
+  const sup = [
+    ["Crecimiento ventas", A.growth + "%"],
+    ["Costo / ventas", A.costoR + "%"],
+    ["Gastos op. / ventas", A.gastoR + "%"],
+    ["Días de cartera", A.diasCxC + " d"],
+    ["Días de inventario", A.diasInv + " d"],
+    ["Días de proveedores", A.diasCxP + " d"],
+    ["Depreciación (% PP&E)", A.deprecPctPPE + "%"],
+    ["CAPEX (% ventas)", A.capexPctVentas + "%"],
+  ];
+  const Col = ({ children }) => <th>{children}</th>;
+  const Row = ({ l, k, cls, fn }) => (
+    <tr className={cls || ""}>
+      <td>{l}</td>
+      {rows.map((r, i) => (
+        <td key={i}>{(fn || fmt)(r[k])}</td>
+      ))}
+    </tr>
+  );
   return (
     <section>
       <div className="tx-h1">Estados financieros proyectados 2026–2028</div>
       <p className="tx-lead">
-        Histórico 2023–2025 y proyección 2026–2028 (columnas{" "}
-        <span className="proj-txt">P</span>) bajo el escenario seleccionado. El
-        patrimonio rueda con las decisiones; la capitalización reclasifica
-        resultados acumulados a capital.
+        Proyección <b>automática</b>: las ventas crecen según el histórico, se
+        aplican los márgenes y días de capital de trabajo observados, y se
+        modelan CAPEX, depreciación y flujo de caja. Tú no llenas supuestos; solo
+        decides dividendos/capitalización en los escenarios.
       </p>
+
+      {/* ---- Supuestos auto ---- */}
       <div className="tx-card">
-        <h3>Estado de Resultados</h3>
+        <h3>Supuestos — derivados automáticamente del histórico</h3>
+        <div className="tx-supgrid">
+          {sup.map(([l, v]) => (
+            <div className="tx-sup" key={l}>
+              <div className="tx-sup-v">{v}</div>
+              <div className="tx-sup-l">{l}</div>
+            </div>
+          ))}
+        </div>
+        <p className="tx-muted small">
+          Se recalculan solos al editar los estados financieros (celdas azules).
+          Crecimiento con piso 0% (no se proyectan caídas indefinidas).
+        </p>
+      </div>
+
+      {/* ---- Estado de Resultados ---- */}
+      <div className="tx-card">
+        <h3>Estado de Resultados proyectado</h3>
         <div className="tx-scroll">
-          <table className="tx-tbl">
-            <YHead title="Estado de Resultados (USD)" />
+          <table className="tx-ptbl">
+            <thead><tr><Col>Concepto (USD)</Col>{PROJ.map((y) => <Col key={y}>{y}</Col>)}</tr></thead>
             <tbody>
-              <RowHP label="Ventas" hist={D.ventas} proj={P("ventas")} />
-              <RowHP label="(−) Costo" hist={D.costo} proj={P("costo")} neg />
-              <RowHP label="Utilidad bruta" hist={[0, 1, 2].map((c) => ub(D, c))} proj={P("ub")} cls="sub" />
-              <RowHP label="(−) Gastos operativos" hist={D.gAdmin} proj={P("gAdmin")} neg />
-              <RowHP label="Utilidad operativa" hist={[0, 1, 2].map((c) => ebit(D, c))} proj={P("ebit")} cls="sub" />
-              <RowHP label="Impuesto renta causado" hist={D.irCausado} proj={P("irCausado")} neg />
-              <RowHP label="(−) Crédito tributario aplicado" hist={[0, 0, 0]} proj={P("cIR")} cls="hl" neg />
-              <RowHP label="= Impuesto renta a pagar" hist={D.irCausado} proj={P("irAP")} cls="sub" neg />
-              <RowHP label="Utilidad neta" hist={[0, 1, 2].map((c) => neta(D, c))} proj={P("neta")} cls="tot" />
+              <Row l="Ventas" k="ventas" />
+              <Row l="(−) Costo de ventas" k="costo" />
+              <Row l="Utilidad bruta" k="ub" cls="sub" />
+              <Row l="(−) Gastos operativos" k="gAdmin" />
+              <Row l="EBITDA" k="ebitda" cls="sub" />
+              <Row l="(−) Depreciación" k="deprec" />
+              <Row l="EBIT (utilidad operativa)" k="ebit" cls="sub" />
+              <Row l="(−) Participación 15%" k="part" />
+              <Row l="(−) Impuesto a la renta" k="irCausado" />
+              <Row l="Utilidad neta" k="neta" cls="tot" />
             </tbody>
           </table>
         </div>
-        <p className="tx-legend">
-          Note la línea{" "}
-          <b className="amber">“(−) Crédito tributario aplicado”</b>: el anticipo
-          que reduce el IR a pagar.
+      </div>
+
+      {/* ---- Estado de Situación Financiera ---- */}
+      <div className="tx-card">
+        <h3>Estado de Situación Financiera proyectado</h3>
+        <div className="tx-scroll">
+          <table className="tx-ptbl">
+            <thead><tr><Col>Concepto (USD)</Col>{PROJ.map((y) => <Col key={y}>{y}</Col>)}</tr></thead>
+            <tbody>
+              <Row l="Efectivo" k="efectivo" />
+              <Row l="Cuentas por cobrar" k="cxc" />
+              <Row l="Inventario" k="inv" />
+              <Row l="Total activo corriente" k="activoCte" cls="sub" />
+              <Row l="Propiedad, planta y equipo" k="ppe" />
+              <Row l="TOTAL ACTIVO" k="totalActivo" cls="tot" />
+              <Row l="Cuentas por pagar" k="cxp" />
+              <Row l="TOTAL PASIVO" k="totalPasivo" cls="sub" />
+              <Row l="Capital" k="capital" />
+              <Row l="Resultados acumulados" k="resAcum" />
+              <Row l="TOTAL PATRIMONIO" k="patrimonio" cls="tot" />
+            </tbody>
+          </table>
+        </div>
+        <p className={cuadra ? "tx-ok-line" : "tx-warn-line"}>
+          {cuadra
+            ? "✓ El balance cuadra: Activo = Pasivo + Patrimonio en los tres años."
+            : "⚠ Revisar: el balance no cuadra perfectamente (faltan datos en el histórico)."}
         </p>
       </div>
+
+      {/* ---- Flujo de caja ---- */}
       <div className="tx-card">
-        <h3>Estado de Situación Financiera</h3>
+        <h3>Flujo de caja proyectado</h3>
         <div className="tx-scroll">
-          <table className="tx-tbl">
-            <YHead title="Estado de Situación (USD)" />
+          <table className="tx-ptbl">
+            <thead><tr><Col>Concepto (USD)</Col>{PROJ.map((y) => <Col key={y}>{y}</Col>)}</tr></thead>
             <tbody>
-              <RowHP label="Total activo" hist={[0, 1, 2].map((c) => tActivo(D, c))} proj={P("activo")} cls="sub" />
-              <RowHP label="Total pasivo" hist={[0, 1, 2].map((c) => tPasivo(D, c))} proj={P("pasivo")} cls="sub" />
-              <RowHP label="Capital social" hist={D.capital} proj={P("capital")} />
-              <RowHP label="Resultados acumulados" hist={D.resAcum} proj={P("resAcum")} />
-              <RowHP label="Total patrimonio" hist={[0, 1, 2].map((c) => tPat(D, c))} proj={P("patrimonio")} cls="tot" />
-              <RowHP label="Memo: crédito en riesgo acum." hist={[0, 0, 0]} proj={P("riesgo")} cls="hl" />
+              <Row l="Flujo operativo (FCO)" k="fco" cls="sub" />
+              <Row l="(−) CAPEX (inversión)" k="fci" />
+              <Row l="(−) Dividendos pagados" k="fcf" />
+              <Row l="= Variación de caja" k="deltaCaja" cls="sub" />
+              <Row l="Efectivo final" k="efectivo" cls="tot" />
             </tbody>
           </table>
         </div>
