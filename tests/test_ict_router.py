@@ -168,7 +168,7 @@ def test_upload_balance_excel_for_a1(client, logged_client, db_session):
 
     r2 = client.post(
         f"/api/v1/client/ict/sessions/{session_id}/anexos/A1/upload",
-        files={"file": ("balance.xlsx", buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        files={"files": ("balance.xlsx", buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         data={"slot_name": "balance"},
         headers=logged_client["headers"],
         cookies=logged_client["cookies"],
@@ -189,9 +189,66 @@ def test_upload_unsupported_slot_returns_400(client, logged_client):
     session_id = r.json()["id"]
     r2 = client.post(
         f"/api/v1/client/ict/sessions/{session_id}/anexos/A1/upload",
-        files={"file": ("x.txt", io.BytesIO(b"x"), "text/plain")},
+        files={"files": ("x.txt", io.BytesIO(b"x"), "text/plain")},
         data={"slot_name": "unsupported_slot"},
         headers=logged_client["headers"],
         cookies=logged_client["cookies"],
     )
     assert r2.status_code == 400
+
+
+def test_upload_multiple_f104_pdfs_in_one_call(client, logged_client):
+    """Multi-upload: subir 2 F-104 PDFs (de 2 meses distintos) en un solo POST."""
+    r = client.post(
+        "/api/v1/client/ict/sessions",
+        json={"ejercicio_fiscal": "2025", "ruc": "1234567890001", "razon_social": "X"},
+        headers=logged_client["headers"],
+        cookies=logged_client["cookies"],
+    )
+    assert r.status_code == 201, r.json()
+    session_id = r.json()["id"]
+
+    def make_fake_f104_pdf(month: int) -> bytes:
+        """PDF mínimo con texto que referencia un mes; pdfplumber puede no extraer datos,
+        pero el endpoint debe aceptar el multipart y responder 200."""
+        text = f"Mes: {month:02d} Ano: 2025  411  1000.50"
+        content = f"BT /F1 12 Tf 100 700 Td ({text}) Tj ET"
+        stream = content.encode()
+        return (
+            b"%PDF-1.4\n"
+            b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+            b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+            b"3 0 obj<</Type/Page/Parent 2 0 R/Resources<<>>/MediaBox[0 0 612 792]/Contents 4 0 R>>endobj\n"
+            b"4 0 obj<</Length " + str(len(stream)).encode() + b">>stream\n"
+            + stream
+            + b"\nendstream endobj\n"
+            b"xref\n0 5\n"
+            b"0000000000 65535 f \n"
+            b"0000000009 00000 n \n"
+            b"0000000058 00000 n \n"
+            b"0000000115 00000 n \n"
+            b"0000000210 00000 n \n"
+            b"trailer<</Size 5/Root 1 0 R>>\n"
+            b"startxref\n300\n%%EOF\n"
+        )
+
+    files_payload = [
+        ("files", (f"f104_{m:02d}.pdf", io.BytesIO(make_fake_f104_pdf(m)), "application/pdf"))
+        for m in [1, 2]
+    ]
+    r2 = client.post(
+        f"/api/v1/client/ict/sessions/{session_id}/anexos/A2/upload",
+        files=files_payload,
+        data={"slot_name": "f104"},
+        headers=logged_client["headers"],
+        cookies=logged_client["cookies"],
+    )
+    # El endpoint debe aceptar el payload multipart y responder 200
+    assert r2.status_code == 200, r2.json()
+    body = r2.json()
+    assert body["anexo_code"] == "A2"
+    # files_processed puede ser 0 si el parser no extrae datos del PDF mínimo, pero la
+    # respuesta debe tener la estructura correcta
+    assert "files_processed" in body
+    assert "per_file" in body
+    assert isinstance(body["per_file"], list)

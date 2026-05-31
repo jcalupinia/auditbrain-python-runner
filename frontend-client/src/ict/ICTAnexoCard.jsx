@@ -49,6 +49,7 @@ export default function ICTAnexoCard({ info, anexo, sessionId, onChanged }) {
                   slotName={slot.key}
                   onUploaded={onChanged}
                   hasFile={!!uploaded}
+                  multi={!!slot.multi}
                 />
               </div>
             );
