@@ -39,9 +39,20 @@ class SessionOut(BaseModel):
     anexos: list[AnexoOut] = []
 
 
+class FileResult(BaseModel):
+    filename: str
+    status: str  # "ok" | "warning" | "error"
+    periodo: str | None = None
+    casilleros_found: int | None = None
+    message: str | None = None
+    errores: list[str] = []
+
+
 class UploadResponse(BaseModel):
     anexo_code: str
     status: str
     warnings: list[str] = []
-    filename: str
-    size_bytes: int
+    filename: str          # nombre del primer archivo (backward compat)
+    size_bytes: int        # tamaño total acumulado
+    files_processed: int = 1
+    per_file: list[FileResult] = []

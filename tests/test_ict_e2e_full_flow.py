@@ -102,7 +102,7 @@ def test_full_ict_flow_create_upload_download(client, logged_client):
     r2 = client.post(
         f"/api/v1/client/ict/sessions/{session_id}/anexos/A1/upload",
         files={
-            "file": (
+            "files": (
                 "balance.xlsx",
                 io.BytesIO(balance_xlsx),
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
