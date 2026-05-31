@@ -159,6 +159,36 @@ def test_indice_recomputed_after_anexo_updated(db_session, client_user):
     assert indice.extracted_data["aplica"]["A2"] == "NO"
 
 
+def test_generate_excel_returns_bytes_with_all_sheets(db_session, client_user):
+    s = ict_service.create_session(
+        db_session, user=client_user, ejercicio_fiscal="2025",
+        ruc="1234567890001", razon_social="Test S.A.", numero_adhesivo="ABC-1",
+    )
+    ict_service.update_anexo_data(
+        db_session, session=s, anexo_code="A9",
+        extracted_data={
+            "f101": {"7001": 1000.0, "7010": 2000.0, "7013": 0.0, "7022": 0.0,
+                     "7025": 0.0, "7028": 0.0, "7031": 0.0, "7034": 0.0, "7037": 0.0},
+            "kardex_items": [],
+        },
+        warnings=[], uploaded_file_meta={"slot": "f101"},
+        new_status="ready",
+    )
+    ict_service.recompute_indice(db_session, session=s)
+    db_session.refresh(s)
+
+    excel_bytes = ict_service.generate_excel(db_session, session=s)
+    assert isinstance(excel_bytes, bytes)
+    assert len(excel_bytes) > 1000
+
+    import io
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), data_only=False)
+    assert "INVENTARIOS A9" in wb.sheetnames
+    ws = wb["INVENTARIOS A9"]
+    assert ws["C18"].value == 1000.0
+
+
 def test_save_uploaded_file_writes_to_tmp(tmp_path, monkeypatch):
     # Monkey-patch the OF tmp root to use a clean tmp_path
     from backend.app.aud.obligaciones_fiscales import file_storage as fs

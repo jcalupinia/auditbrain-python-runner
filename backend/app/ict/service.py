@@ -220,6 +220,46 @@ def recompute_indice(db: Session, *, session: ICTSession) -> ICTAnexo:
     return indice
 
 
+def generate_excel(db: Session, *, session: ICTSession) -> bytes:
+    """Generate the ICT Excel by loading template + applying all fillers."""
+    from io import BytesIO
+    from backend.app.ict.fillers.base import load_template
+    from backend.app.ict.fillers.indice import IndiceFiller
+    from backend.app.ict.fillers.a9_inventarios import A9Filler
+
+    wb = load_template()
+    session_data = {
+        "razon_social": session.razon_social,
+        "ruc": session.ruc,
+        "ejercicio_fiscal": session.ejercicio_fiscal,
+        "numero_adhesivo": session.numero_adhesivo or "",
+    }
+
+    filler_map = {
+        "INDICE": IndiceFiller(),
+        "A9": A9Filler(),
+        # A1 added in Phase 3
+        # A2-A8 added in later phases
+    }
+
+    for anexo in session.anexos:
+        filler = filler_map.get(anexo.anexo_code)
+        if filler is None:
+            continue
+        if anexo.status == "empty":
+            continue
+        try:
+            filler.fill(wb, session_data, anexo.extracted_data or {})
+        except Exception:
+            import logging
+            logging.exception("Filler %s failed for session %s", anexo.anexo_code, session.id)
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+
 def cleanup_ict_orphan_files(max_age_hours: int = 24) -> int:
     """Delete ICT files older than max_age_hours.
     The extracted_data in DB is preserved (only the raw files go).
