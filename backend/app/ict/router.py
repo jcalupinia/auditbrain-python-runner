@@ -12,6 +12,7 @@ from backend.app.ict.parsers.balance_excel import parse_balance
 from backend.app.ict.parsers.kardex_excel import parse_kardex
 from backend.app.ict.parsers.f104_pdf import parse_f104
 from backend.app.ict.parsers.facturacion_sri import parse_facturacion
+from backend.app.ict.parsers.mayor_excel import parse_mayor
 
 SLOT_PARSERS = {
     "f101": parse_f101,
@@ -19,12 +20,15 @@ SLOT_PARSERS = {
     "kardex": parse_kardex,
     "f104": parse_f104,
     "facturacion": parse_facturacion,
+    "mayor_exentos": parse_mayor,  # Libro Mayor de cuentas exentas (A4 Cuadro 1)
 }
 
 ANEXO_REQUIRED_SLOTS = {
     "A1": ["f101", "balance"],
     "A2": ["f104", "facturacion"],
     "A3": ["f101"],
+    "A4": ["f101"],          # mayor_exentos is optional (Cuadro 1 detail)
+    "A7": ["f101"],          # f101_multiyear + f108_multiyear are optional multi-year uploads
     "A9": ["f101"],
 }
 from sqlalchemy.orm import Session
@@ -221,6 +225,8 @@ async def upload_for_anexo_endpoint(
         extracted = {"f104_monthly": monthly}
     elif slot_name == "facturacion":
         extracted = {"facturacion": parsed}
+    elif slot_name == "mayor_exentos":
+        extracted = {"mayor_exentos": parsed.get("movimientos", [])}
     else:
         extracted = {slot_name: parsed}
 
