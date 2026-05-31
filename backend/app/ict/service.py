@@ -232,6 +232,7 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
     from backend.app.ict.fillers.a5_conciliacion_costos import A5Filler
     from backend.app.ict.fillers.a6_beneficios import A6Filler
     from backend.app.ict.fillers.a7_credito import A7Filler
+    from backend.app.ict.fillers.a8_comercio_exterior import A8Filler
     from backend.app.ict.fillers.a9_inventarios import A9Filler
 
     wb = load_template()
@@ -251,8 +252,8 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
         "A5": A5Filler(),
         "A6": A6Filler(),
         "A7": A7Filler(),
+        "A8": A8Filler(),
         "A9": A9Filler(),
-        # A8 added in later phase
     }
 
     for anexo in session.anexos:
@@ -297,6 +298,7 @@ def reset_anexo_slot(
         "mayor_no_deducibles": "mayor_no_deducibles",
         "f101_multiyear": "f101_multiyear",
         "f108_multiyear": "f108_multiyear",
+        "ats": "ats_pagos_exterior",
     }
     main_key = key_map.get(slot_name, slot_name)
     if main_key in extracted:

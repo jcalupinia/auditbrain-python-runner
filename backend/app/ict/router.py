@@ -13,6 +13,7 @@ from backend.app.ict.parsers.kardex_excel import parse_kardex
 from backend.app.ict.parsers.f104_pdf import parse_f104
 from backend.app.ict.parsers.facturacion_sri import parse_facturacion
 from backend.app.ict.parsers.mayor_excel import parse_mayor
+from backend.app.ict.parsers.ats_xml import parse_ats
 
 SLOT_PARSERS = {
     "f101": parse_f101,
@@ -22,6 +23,7 @@ SLOT_PARSERS = {
     "facturacion": parse_facturacion,
     "mayor_exentos": parse_mayor,          # Libro Mayor de cuentas exentas (A4 Cuadro 1)
     "mayor_no_deducibles": parse_mayor,    # Libro Mayor de cuentas no deducibles (A5 Cuadro A)
+    "ats": parse_ats,                      # ATS XML del SRI (A8 Comercio Exterior)
 }
 
 ANEXO_REQUIRED_SLOTS = {
@@ -32,6 +34,7 @@ ANEXO_REQUIRED_SLOTS = {
     "A5": ["f101", "mayor_no_deducibles"],  # mayor_no_deducibles required (Cuadro A detail)
     "A6": ["f101"],          # contratos_inversion + exoneraciones are optional manual data
     "A7": ["f101"],          # f101_multiyear + f108_multiyear are optional multi-year uploads
+    "A8": ["ats"],           # ATS XML del SRI (pagos al exterior)
     "A9": ["f101"],
 }
 from sqlalchemy.orm import Session
@@ -232,6 +235,8 @@ async def upload_for_anexo_endpoint(
         extracted = {"mayor_exentos": parsed.get("movimientos", [])}
     elif slot_name == "mayor_no_deducibles":
         extracted = {"mayor_no_deducibles": parsed.get("movimientos", [])}
+    elif slot_name == "ats":
+        extracted = {"ats_pagos_exterior": parsed.get("pagos_exterior", [])}
     else:
         extracted = {slot_name: parsed}
 
