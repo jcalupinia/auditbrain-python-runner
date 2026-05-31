@@ -120,6 +120,26 @@ def test_expire_session_marks_status(db_session, client_user):
     assert s.status == "expired"
 
 
+def test_update_anexo_data_persists(db_session, client_user):
+    s = ict_service.create_session(
+        db_session, user=client_user, ejercicio_fiscal="2025",
+        ruc="1234567890001", razon_social="X", numero_adhesivo=None,
+    )
+    ict_service.update_anexo_data(
+        db_session, session=s, anexo_code="A1",
+        extracted_data={"f101": {"311": 5000}, "balance": {"1.1.1.01.01": {"nombre": "Caja", "saldo": 5000}}},
+        warnings=["Casillero 312 no detectado"],
+        uploaded_file_meta={"slot": "f101", "filename": "test.pdf", "size": 1024},
+        new_status="partial",
+    )
+    db_session.refresh(s)
+    a1 = next(a for a in s.anexos if a.anexo_code == "A1")
+    assert a1.status == "partial"
+    assert a1.extracted_data["f101"]["311"] == 5000
+    assert "Casillero 312 no detectado" in a1.warnings
+    assert a1.uploaded_files["f101"]["filename"] == "test.pdf"
+
+
 def test_save_uploaded_file_writes_to_tmp(tmp_path, monkeypatch):
     # Monkey-patch the OF tmp root to use a clean tmp_path
     from backend.app.aud.obligaciones_fiscales import file_storage as fs

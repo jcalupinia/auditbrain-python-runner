@@ -153,3 +153,46 @@ def save_uploaded_file(
     target = slot_dir / safe_filename
     target.write_bytes(data)
     return target
+
+
+def update_anexo_data(
+    db: Session,
+    *,
+    session: ICTSession,
+    anexo_code: str,
+    extracted_data: dict,
+    warnings: list[str],
+    uploaded_file_meta: dict,
+    new_status: str,
+) -> ICTAnexo:
+    """Merge extracted data into the anexo, append warnings, set status.
+
+    extracted_data is MERGED (top-level keys overwrite). warnings is APPENDED.
+    uploaded_file_meta is keyed by slot_name and merged into uploaded_files.
+    """
+    anexo = next((a for a in session.anexos if a.anexo_code == anexo_code), None)
+    if anexo is None:
+        raise ValueError(f"Anexo {anexo_code} not in session")
+
+    existing_data = anexo.extracted_data or {}
+    merged = {**existing_data, **extracted_data}
+    anexo.extracted_data = merged
+
+    existing_warnings = anexo.warnings or []
+    anexo.warnings = existing_warnings + (warnings or [])
+
+    existing_files = anexo.uploaded_files or {}
+    slot = uploaded_file_meta.get("slot")
+    if slot:
+        existing_files[slot] = uploaded_file_meta
+    anexo.uploaded_files = existing_files
+
+    anexo.status = new_status
+    anexo.last_updated_at = _now()
+
+    touch_session(db, session=session)
+
+    db.add(anexo)
+    db.commit()
+    db.refresh(anexo)
+    return anexo
