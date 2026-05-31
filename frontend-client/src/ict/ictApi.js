@@ -56,9 +56,12 @@ export async function deleteSession(id) {
   return _request(`/client/ict/sessions/${id}`, { method: "DELETE" });
 }
 
-export async function uploadAnexoSlot(sessionId, anexoCode, slotName, file) {
+export async function uploadAnexoSlot(sessionId, anexoCode, slotName, fileOrFiles) {
   const fd = new FormData();
-  fd.append("file", file);
+  const files = Array.isArray(fileOrFiles) ? fileOrFiles : [fileOrFiles];
+  for (const f of files) {
+    fd.append("files", f);  // clave "files" coincide con list[UploadFile] en FastAPI
+  }
   fd.append("slot_name", slotName);
   return _request(`/client/ict/sessions/${sessionId}/anexos/${anexoCode}/upload`, {
     method: "POST",

@@ -27,7 +27,7 @@ const ANEXOS_INFO = [
     name: "A2 · Ingresos",
     desc: "Ordinarios + IVA vs Facturación + Conciliación",
     slots: [
-      { key: "f104",        label: "Formularios 104 (12 PDFs, sube uno a la vez)", required: true },
+      { key: "f104", label: "Formularios 104 (selecciona los 12 meses de una vez)", required: true, multi: true },
       { key: "facturacion", label: "Reporte Facturación SRI (Excel)",              required: true },
     ],
   },
