@@ -1,6 +1,8 @@
 """Lógica de usuarios: alta, autenticación y bootstrap del admin."""
 
+import datetime
 import os
+import uuid
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -36,6 +38,26 @@ def authenticate_user(db: Session, email: str, password: str) -> User | None:
     if not verify_password(password, user.hashed_password):
         return None
     return user
+
+
+def start_new_session(db: Session, *, user: User) -> str:
+    """Genera nuevo session_id, lo guarda en User, retorna el sid.
+    Invalida cualquier sesión anterior (last-login-wins).
+    """
+    sid = str(uuid.uuid4())
+    user.current_session_id = sid
+    user.session_started_at = datetime.datetime.utcnow()
+    db.add(user)
+    db.commit()
+    return sid
+
+
+def invalidate_session(db: Session, *, user: User) -> None:
+    """Limpia el session_id activo (logout o force-logout admin)."""
+    user.current_session_id = None
+    user.session_started_at = None
+    db.add(user)
+    db.commit()
 
 
 def ensure_bootstrap_admin(db: Session) -> None:

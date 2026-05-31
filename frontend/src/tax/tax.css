@@ -1,0 +1,892 @@
+/* Estilos premium del módulo TAX › Análisis, scoped bajo .tax-root.
+   Portado de app/index.html (AuditBrain_TaxAnalisis), prefijado tx- para
+   no colisionar con los estilos del shell ni del módulo AUD. */
+
+.tax-root {
+  --deep: #071b2f;
+  --navy: #0a2342;
+  --gold: #c7a83c;
+  --green: #a6c63f;
+  --dblue: #1e5aa8;
+  --paper: #f5f7fa;
+  --white: #fff;
+  --red: #c0392b;
+  --amber: #d68910;
+  --ok: #1e8449;
+  --line: #d5d8dc;
+  --ink: #1c2733;
+  --muted: #5b6b7a;
+  --proj: #fbf7ea;
+  color: var(--ink);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+/* ---------- topbar ---------- */
+.tax-root .tx-tb {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.tax-root .tx-empresa {
+  font-weight: 700;
+  color: var(--navy);
+  font-size: 15px;
+  border: none;
+  border-bottom: 2px solid var(--line);
+  padding: 4px 2px;
+  min-width: 260px;
+  background: transparent;
+}
+.tax-root .tx-empresa:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+.tax-root .tx-scbtns {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-left: auto;
+}
+.tax-root .tx-sclab {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.tax-root .tx-sep {
+  width: 1px;
+  height: 22px;
+  background: var(--line);
+  margin: 0 2px;
+}
+.tax-root .tx-sbtn {
+  font-weight: 600;
+  font-size: 11.5px;
+  border: 1px solid var(--line);
+  background: #fbfcfd;
+  color: var(--navy);
+  border-radius: 18px;
+  padding: 7px 13px;
+  cursor: pointer;
+}
+.tax-root .tx-sbtn.on {
+  background: var(--deep);
+  color: var(--gold);
+  border-color: var(--deep);
+}
+.tax-root .tx-btn {
+  font-weight: 600;
+  font-size: 12px;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 13px;
+  cursor: pointer;
+  background: var(--gold);
+  color: var(--deep);
+}
+.tax-root .tx-btn.light {
+  background: #eef2f6;
+  color: var(--navy);
+}
+.tax-root .tx-btn.ghost {
+  background: #fff;
+  color: var(--navy);
+  border: 1px solid var(--dblue);
+}
+
+/* ---------- nav pills ---------- */
+.tax-root .tx-nav {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.tax-root .tx-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--navy);
+  border-radius: 10px;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+.tax-root .tx-pill:hover {
+  border-color: var(--dblue);
+}
+.tax-root .tx-pill.on {
+  background: var(--deep);
+  color: var(--gold);
+  border-color: var(--deep);
+}
+.tax-root .tx-pn {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: rgba(10, 35, 66, 0.08);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+}
+.tax-root .tx-pill.on .tx-pn {
+  background: var(--gold);
+  color: var(--deep);
+}
+
+/* ---------- ingesta panel ---------- */
+.tax-root .tx-ingest {
+  background: #fff;
+  border: 1px solid var(--dblue);
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+.tax-root .tx-ingest-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tax-root .tx-ingest-h h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.tax-root .tx-x {
+  border: none;
+  background: #eef2f6;
+  border-radius: 7px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  color: var(--navy);
+}
+.tax-root .tx-ingest input[type="file"] {
+  margin: 8px 0;
+  font-size: 12px;
+}
+.tax-root .tx-ingest-actions {
+  display: flex;
+  gap: 8px;
+  margin: 6px 0 10px;
+}
+.tax-root .tx-btn.gold {
+  background: var(--gold, #c7a83c);
+  color: #1a1505;
+  border-color: var(--gold, #c7a83c);
+  font-weight: 700;
+}
+.tax-root .tx-preslinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.tax-root .tx-preslinks .tx-btn {
+  text-decoration: none;
+}
+.tax-root .tx-warnlist {
+  margin: 6px 0 4px 16px;
+  padding: 0;
+  font-size: 12px;
+  list-style: disc;
+}
+.tax-root .tx-warnlist li {
+  margin: 2px 0;
+}
+/* ---------- estados proyectados (modelo 3 estados) ---------- */
+.tax-root .tx-supgrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin: 4px 0 10px;
+}
+.tax-root .tx-sup {
+  background: #f4f7fa;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.tax-root .tx-sup-v {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--navy);
+}
+.tax-root .tx-sup-l {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.tax-root .tx-ptbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.tax-root .tx-ptbl th {
+  background: var(--navy);
+  color: #fff;
+  text-align: right;
+  padding: 7px 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.tax-root .tx-ptbl th:first-child { text-align: left; }
+.tax-root .tx-ptbl td {
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+  color: #2c3a47;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.tax-root .tx-ptbl td:first-child { text-align: left; }
+.tax-root .tx-ptbl tr.sub td { font-weight: 700; background: #f4f7fa; }
+.tax-root .tx-ptbl tr.tot td { font-weight: 800; background: #eef3ee; color: var(--navy); }
+.tax-root .tx-ok-line { color: #1e8449; font-size: 12px; margin-top: 8px; font-weight: 600; }
+.tax-root .tx-warn-line { color: #c0392b; font-size: 12px; margin-top: 8px; font-weight: 600; }
+.tax-root .tx-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.tax-root .tx-actions .tx-ok-line,
+.tax-root .tx-actions .tx-warn-line { margin-top: 0; }
+@media (max-width: 1000px) {
+  .tax-root .tx-supgrid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ---------- layout ---------- */
+.tax-root .tx-h1 {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--navy);
+}
+.tax-root .tx-lead {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 6px 0 18px;
+  max-width: 880px;
+}
+.tax-root .tx-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  padding: 20px;
+  margin-bottom: 18px;
+  box-shadow: 0 1px 3px rgba(7, 27, 47, 0.04);
+}
+.tax-root .tx-card h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tax-root .tx-card h3::before {
+  content: "";
+  width: 4px;
+  height: 16px;
+  background: var(--gold);
+  border-radius: 2px;
+}
+.tax-root .tx-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 900px) {
+  .tax-root .tx-split {
+    grid-template-columns: 1fr;
+  }
+}
+.tax-root .tx-grid {
+  display: grid;
+  gap: 12px;
+}
+.tax-root .tx-grid.g4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+.tax-root .tx-grid.g3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+@media (max-width: 1000px) {
+  .tax-root .tx-grid.g4,
+  .tax-root .tx-grid.g3 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.tax-root .tx-field-l input {
+  text-align: left;
+}
+.tax-root .mb {
+  margin-bottom: 18px;
+}
+.tax-root .mt {
+  margin-top: 6px;
+}
+
+/* ---------- fields ---------- */
+.tax-root .tx-field label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 4px;
+}
+.tax-root .tx-field .hint {
+  font-size: 9px;
+  color: #94a3b0;
+  font-weight: 400;
+  text-transform: none;
+}
+.tax-root .tx-field input {
+  width: 100%;
+  font-family: "Roboto", Arial, sans-serif;
+  font-size: 13px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 10px;
+  background: #fbfcfd;
+  text-align: right;
+}
+.tax-root .tx-field input:focus {
+  outline: none;
+  border-color: var(--dblue);
+  background: #fff;
+}
+
+/* ---------- legibilidad de TODOS los campos ----------
+   El shell del Command Center es oscuro (texto blanco); aquí forzamos texto
+   oscuro en cada input/textarea/select de la herramienta para que el texto
+   escrito se distinga sobre el fondo claro de los formularios. */
+.tax-root input,
+.tax-root textarea,
+.tax-root select {
+  color: var(--navy) !important;
+  -webkit-text-fill-color: var(--navy) !important;
+  caret-color: var(--navy);
+}
+.tax-root input::placeholder,
+.tax-root textarea::placeholder {
+  color: #94a3b8 !important;
+  -webkit-text-fill-color: #94a3b8 !important;
+  opacity: 1;
+}
+
+/* ---------- tables ---------- */
+.tax-root .tx-tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.tax-root .tx-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.tax-root .tx-tbl thead th {
+  background: var(--navy);
+  color: #fff;
+  font-weight: 600;
+  font-size: 10.5px;
+  padding: 9px 11px;
+  text-align: right;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.tax-root .tx-tbl thead th:first-child {
+  text-align: left;
+}
+.tax-root .tx-tbl thead th.proj {
+  background: #163a5f;
+  color: var(--gold);
+}
+.tax-root .tx-tbl tbody td {
+  padding: 7px 11px;
+  border-bottom: 1px solid #eef1f4;
+  font-family: "Roboto", Arial, sans-serif;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.tax-root .tx-tbl tbody td:first-child {
+  text-align: left;
+  font-family: inherit;
+}
+.tax-root .tx-tbl tbody td.proj {
+  background: var(--proj);
+}
+.tax-root .tx-tbl tbody tr.sub td {
+  background: #eef4fb;
+  font-weight: 700;
+  color: var(--navy);
+}
+.tax-root .tx-tbl tbody tr.sub td.proj {
+  background: #f3ecd4;
+}
+.tax-root .tx-tbl tbody tr.tot td {
+  background: var(--deep);
+  color: #fff;
+  font-weight: 700;
+}
+.tax-root .tx-tbl tbody tr.tot td:first-child {
+  color: var(--gold);
+}
+.tax-root .tx-tbl tbody tr.secrow td {
+  background: var(--deep);
+  color: var(--gold);
+  font-weight: 700;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.tax-root .tx-tbl tbody tr.hl td {
+  background: #fdf6ec;
+  font-weight: 700;
+  color: #7a5b16;
+}
+.tax-root .tx-cin {
+  width: 104px;
+  text-align: right;
+  font-family: "Roboto", Arial, sans-serif;
+  font-size: 12px;
+  border: 1px solid #e2e7ec;
+  border-radius: 6px;
+  padding: 5px 7px;
+  background: #fff;
+  color: #00f;
+  font-weight: 600;
+}
+.tax-root .tx-cin:focus {
+  outline: none;
+  border-color: var(--dblue);
+}
+
+/* ---------- kpis ---------- */
+.tax-root .tx-kpis {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+@media (max-width: 1100px) {
+  .tax-root .tx-kpis {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.tax-root .tx-kpi {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  border-top: 4px solid var(--gold);
+}
+.tax-root .tx-kpi.r {
+  border-top-color: var(--red);
+}
+.tax-root .tx-kpi.g {
+  border-top-color: var(--ok);
+}
+.tax-root .tx-kpi.b {
+  border-top-color: var(--dblue);
+}
+.tax-root .tx-kpi.a {
+  border-top-color: var(--amber);
+}
+.tax-root .tx-kpi .kl {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.tax-root .tx-kpi .kv {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--navy);
+  margin-top: 6px;
+}
+.tax-root .tx-kpi.r .kv {
+  color: var(--red);
+}
+.tax-root .tx-kpi.g .kv {
+  color: var(--ok);
+}
+.tax-root .tx-kpi.b .kv {
+  color: var(--dblue);
+}
+.tax-root .tx-kpi .kd {
+  font-size: 10px;
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+/* ---------- charts ---------- */
+.tax-root .tx-cwrap {
+  position: relative;
+}
+
+/* ---------- waterfall ---------- */
+.tax-root .tx-wf {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.tax-root .tx-wf-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 13px;
+  font-family: "Roboto", Arial, sans-serif;
+  font-size: 12.5px;
+  border-bottom: 1px solid #eef1f4;
+}
+.tax-root .tx-wf-row .wv {
+  font-weight: 600;
+}
+.tax-root .tx-wf-row.minus .wv {
+  color: var(--red);
+}
+.tax-root .tx-wf-row.plus .wv {
+  color: var(--dblue);
+}
+.tax-root .tx-wf-row.sub {
+  background: #eef4fb;
+}
+.tax-root .tx-wf-row.sub .wl,
+.tax-root .tx-wf-row.sub .wv {
+  font-weight: 800;
+  color: var(--navy);
+}
+.tax-root .tx-wf-row.base {
+  background: var(--deep);
+}
+.tax-root .tx-wf-row.base .wl {
+  color: var(--gold);
+  font-weight: 700;
+}
+.tax-root .tx-wf-row.base .wv {
+  color: #fff;
+  font-weight: 800;
+  font-size: 15px;
+}
+
+/* ---------- bracket table ---------- */
+.tax-root .tx-brk {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.tax-root .tx-brk td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #eef1f4;
+}
+.tax-root .tx-brk td.r {
+  text-align: right;
+}
+.tax-root .tx-brk tr.act td {
+  background: #fbf7ea;
+  font-weight: 800;
+  color: var(--navy);
+}
+.tax-root .tx-brk tr.act td:first-child::before {
+  content: "▶ ";
+  color: var(--gold);
+}
+
+/* ---------- dupont ---------- */
+.tax-root .tx-dupont {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.tax-root .tx-dp {
+  background: #f8fafb;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 14px;
+  text-align: center;
+  flex: 1;
+  min-width: 90px;
+}
+.tax-root .tx-dp.gold {
+  background: #fbf7ea;
+  border-color: var(--gold);
+}
+.tax-root .tx-dp .dpl {
+  font-size: 9.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.tax-root .tx-dp .dpv {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--navy);
+}
+.tax-root .tx-dp.gold .dpv {
+  color: var(--gold);
+}
+.tax-root .tx-op {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--gold);
+}
+
+/* ---------- notes / legend ---------- */
+.tax-root .tx-note {
+  border-radius: 10px;
+  padding: 13px 15px;
+  font-size: 12px;
+  margin-top: 12px;
+  border: 1px solid;
+  display: flex;
+  gap: 11px;
+}
+.tax-root .tx-note .ic {
+  font-size: 16px;
+  flex: none;
+}
+.tax-root .tx-note.n-warn {
+  background: #fdf6ec;
+  border-color: #f0d9a8;
+  color: #7a5b16;
+}
+.tax-root .tx-note.n-dang {
+  background: #fdecea;
+  border-color: #f0b5ad;
+  color: #8a2b1d;
+}
+.tax-root .tx-note.n-info {
+  background: #eef4fb;
+  border-color: #bcd3ee;
+  color: #23456e;
+}
+.tax-root .tx-note.n-ok {
+  background: #eafaf0;
+  border-color: #bfe6cd;
+  color: #1c6b3f;
+}
+.tax-root .tx-legend {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.tax-root .blue {
+  color: #00f;
+}
+.tax-root .amber {
+  color: #7a5b16;
+}
+.tax-root .proj-txt {
+  color: #a8862a;
+}
+.tax-root .tx-muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+.tax-root .tx-muted.small {
+  font-size: 11px;
+}
+
+/* ---------- legal grid ---------- */
+.tax-root .tx-legalgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 900px) {
+  .tax-root .tx-legalgrid {
+    grid-template-columns: 1fr;
+  }
+}
+.tax-root .tx-lcard {
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 16px;
+  background: #fbfcfd;
+}
+.tax-root .tx-lcard.danger {
+  border-color: #f0b5ad;
+  background: #fdf3f2;
+}
+.tax-root .tx-lcard h5 {
+  font-size: 12.5px;
+  color: var(--navy);
+  font-weight: 800;
+  margin-bottom: 7px;
+}
+.tax-root .tx-lcard h5.rd {
+  color: #a52f1f;
+}
+.tax-root .tx-lcard p,
+.tax-root .tx-lcard li {
+  font-size: 12px;
+  color: #3a4751;
+}
+.tax-root .tx-lcard ul {
+  margin-left: 16px;
+  margin-top: 5px;
+}
+
+/* ---------- report ---------- */
+.tax-root .tx-report {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  padding: 38px 46px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+.tax-root .tx-report .rcover {
+  text-align: center;
+  border-bottom: 3px solid var(--gold);
+  padding-bottom: 22px;
+  margin-bottom: 26px;
+}
+.tax-root .tx-report .rcover .rk {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--gold);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.tax-root .tx-report .rcover h2 {
+  font-size: 24px;
+  color: var(--navy);
+  font-weight: 800;
+  margin: 8px 0;
+}
+.tax-root .tx-report .remp {
+  font-size: 14px;
+  color: var(--navy);
+  font-weight: 700;
+}
+.tax-root .tx-report .rdate {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.tax-root .tx-report h4 {
+  font-size: 15px;
+  color: var(--navy);
+  font-weight: 800;
+  margin: 24px 0 8px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--line);
+}
+.tax-root .tx-report p {
+  font-size: 13px;
+  color: #2c3a47;
+  margin: 8px 0;
+  text-align: justify;
+}
+.tax-root .tx-report ul {
+  margin: 8px 0 8px 20px;
+  font-size: 13px;
+}
+.tax-root .tx-report li {
+  margin: 5px 0;
+}
+.tax-root .tx-report ol.idx {
+  margin: 6px 0 0 18px;
+  font-size: 13px;
+  color: var(--navy);
+  font-weight: 600;
+}
+.tax-root .tx-report ol.idx li {
+  margin: 4px 0;
+}
+.tax-root .tx-report ol.rmet {
+  margin: 8px 0 8px 18px;
+  font-size: 12.5px;
+  color: var(--navy);
+  line-height: 1.5;
+}
+.tax-root .tx-report ol.rmet li {
+  margin: 7px 0;
+}
+.tax-root .tx-report .rfoot {
+  margin-top: 16px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.tax-root .tx-report .rsub {
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--gold);
+  font-weight: 700;
+  margin-top: 4px;
+}
+.tax-root .tx-report table.rtbl {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0 6px;
+  font-size: 12px;
+}
+.tax-root .tx-report table.rtbl th {
+  background: var(--navy);
+  color: #fff;
+  text-align: left;
+  padding: 7px 9px;
+  font-weight: 700;
+}
+.tax-root .tx-report table.rtbl td {
+  border: 1px solid var(--line);
+  padding: 6px 9px;
+  color: #2c3a47;
+}
+.tax-root .tx-report table.rtbl td:not(:first-child) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.tax-root .tx-report table.rtbl tr:nth-child(even) td {
+  background: #f6f8fb;
+}
+.tax-root .tx-report table.rtbl tr.ron td {
+  background: #eaf5ec;
+  font-weight: 700;
+  color: var(--navy);
+}
+.tax-root .tx-report li.rwarn {
+  color: #7a1f1f;
+}
+.tax-root .tx-report .rnote {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 4px 0 8px;
+}
+.tax-root .conf {
+  display: inline-block;
+  background: var(--deep);
+  color: var(--gold);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  padding: 3px 10px;
+  border-radius: 5px;
+  text-transform: uppercase;
+}
+
+/* ---------- print ---------- */
+@media print {
+  .tax-root .no-print {
+    display: none !important;
+  }
+  .tax-root .tx-report {
+    border: none;
+    max-width: none;
+    padding: 0;
+  }
+}

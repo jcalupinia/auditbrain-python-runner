@@ -42,6 +42,11 @@ class ToolJob(Base):
     # Firma auditora: 'audit_consulting' | 'partner_auditing'. Determina qué
     # logo se inserta en cada cédula del Excel generado.
     firma_auditora: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Portal cliente (M2)
+    initiated_from: Mapped[str] = mapped_column(
+        String(16), default="staff", nullable=False
+    )
+    notify_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(

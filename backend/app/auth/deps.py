@@ -42,6 +42,10 @@ def _user_from_token(token: str, db: Session) -> User:
     user = service.get_user_by_email(db, email)
     if not user or not user.is_active:
         raise _CRED_EXC
+    # Defense-in-depth: client-role JWTs must NEVER pass through staff dependencies.
+    # The portal cliente uses require_client_with_device which validates separately.
+    if user.role == Role.client:
+        raise _CRED_EXC
     return user
 
 
@@ -110,3 +114,86 @@ async def require_user_access(
             )
         return
     return
+
+
+# ---------------------------------------------------------------------------
+# Portal Cliente: triple capa de seguridad
+# ---------------------------------------------------------------------------
+
+from fastapi import Cookie  # noqa: E402
+
+from backend.app.auth.device import compute_fingerprint_hash, validate_device  # noqa: E402
+
+CLIENT_SESSION_INVALIDATED_CODE = "session_invalidated"
+CLIENT_DEVICE_UNAUTHORIZED_CODE = "device_unauthorized"
+
+
+def require_client_with_device(
+    request: Request,
+    device_id: str | None = Cookie(default=None, alias="device_id"),
+    db: Session = Depends(get_db),
+) -> User:
+    """Triple validación para endpoints /client/*:
+    1. JWT firmado válido + rol == client
+    2. Cookie device_id presente, activa, fingerprint coincide
+    3. JWT.sid == User.current_session_id (sesión única)
+    """
+    authz = request.headers.get("Authorization", "")
+    if not authz.lower().startswith("bearer "):
+        raise HTTPException(401, detail="Falta token Bearer.")
+    token = authz.split(" ", 1)[1].strip()
+
+    try:
+        payload = decode_token(token)
+    except jwt.PyJWTError:
+        raise _CRED_EXC
+
+    email = payload.get("sub")
+    jwt_role = payload.get("role")
+    jwt_sid = payload.get("sid")
+
+    if jwt_role != Role.client.value:
+        raise HTTPException(403, detail="Acceso reservado a clientes.")
+
+    user = service.get_user_by_email(db, email)
+    if not user or not user.is_active or user.role != Role.client:
+        raise _CRED_EXC
+
+    # Layer 3: session uniqueness
+    if not jwt_sid or jwt_sid != user.current_session_id:
+        raise HTTPException(
+            401,
+            detail={
+                "code": CLIENT_SESSION_INVALIDATED_CODE,
+                "message": "Su sesión fue cerrada porque inició sesión desde otro lugar.",
+            },
+        )
+
+    # Layer 2: device binding
+    if not device_id:
+        raise HTTPException(
+            409,
+            detail={
+                "code": CLIENT_DEVICE_UNAUTHORIZED_CODE,
+                "message": "Falta cookie de dispositivo. Inicie sesión nuevamente.",
+            },
+        )
+
+    fingerprint = compute_fingerprint_hash(
+        user_agent=request.headers.get("user-agent", ""),
+        accept_language=request.headers.get("accept-language", ""),
+        accept_encoding=request.headers.get("accept-encoding", ""),
+    )
+    device = validate_device(
+        db, user=user, device_id=device_id, fingerprint_hash=fingerprint
+    )
+    if device is None:
+        raise HTTPException(
+            409,
+            detail={
+                "code": CLIENT_DEVICE_UNAUTHORIZED_CODE,
+                "message": "Este dispositivo no está autorizado. Solicite reseteo a soporte.",
+            },
+        )
+
+    return user
