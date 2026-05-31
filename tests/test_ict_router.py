@@ -105,6 +105,25 @@ def test_patch_session_updates_razon_social(client, logged_client):
     assert r2.json()["razon_social"] == "New Name"
 
 
+def test_download_returns_excel_for_existing_session(client, logged_client):
+    r = client.post(
+        "/api/v1/client/ict/sessions",
+        json={"ejercicio_fiscal": "2025", "ruc": "1234567890001", "razon_social": "X"},
+        headers=logged_client["headers"],
+        cookies=logged_client["cookies"],
+    )
+    assert r.status_code == 201, r.json()
+    session_id = r.json()["id"]
+
+    r2 = client.get(
+        f"/api/v1/client/ict/sessions/{session_id}/download",
+        headers=logged_client["headers"],
+        cookies=logged_client["cookies"],
+    )
+    assert r2.status_code == 200
+    assert len(r2.content) > 1000
+
+
 def test_delete_session_expires_it(client, logged_client):
     r = client.post(
         "/api/v1/client/ict/sessions",

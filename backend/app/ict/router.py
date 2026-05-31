@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from io import BytesIO
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from backend.app.auth.deps import require_client_with_device
@@ -105,6 +108,28 @@ def update_session_endpoint(
         numero_adhesivo=payload.numero_adhesivo,
     )
     return _session_to_out(updated)
+
+
+@router.get("/sessions/{session_id}/download")
+def download_excel_endpoint(
+    session_id: int,
+    user: User = Depends(require_client_with_device),
+    db: Session = Depends(get_db),
+):
+    try:
+        session = ict_service.get_session(db, session_id=session_id, user=user)
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+
+    excel_bytes = ict_service.generate_excel(db, session=session)
+    filename = f"ICT_{session.ejercicio_fiscal}_{session.ruc}.xlsx"
+    return StreamingResponse(
+        BytesIO(excel_bytes),
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.delete("/sessions/{session_id}", status_code=200)
