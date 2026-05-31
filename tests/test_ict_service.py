@@ -140,6 +140,25 @@ def test_update_anexo_data_persists(db_session, client_user):
     assert a1.uploaded_files["f101"]["filename"] == "test.pdf"
 
 
+def test_indice_recomputed_after_anexo_updated(db_session, client_user):
+    s = ict_service.create_session(
+        db_session, user=client_user, ejercicio_fiscal="2025",
+        ruc="1234567890001", razon_social="X", numero_adhesivo="ABC-1",
+    )
+    ict_service.update_anexo_data(
+        db_session, session=s, anexo_code="A1",
+        extracted_data={"f101": {"311": 100}},
+        warnings=[], uploaded_file_meta={"slot": "f101"},
+        new_status="ready",
+    )
+    ict_service.recompute_indice(db_session, session=s)
+    db_session.refresh(s)
+    indice = next(a for a in s.anexos if a.anexo_code == "INDICE")
+    assert indice.status == "ready"
+    assert indice.extracted_data["aplica"]["A1"] == "SI"
+    assert indice.extracted_data["aplica"]["A2"] == "NO"
+
+
 def test_save_uploaded_file_writes_to_tmp(tmp_path, monkeypatch):
     # Monkey-patch the OF tmp root to use a clean tmp_path
     from backend.app.aud.obligaciones_fiscales import file_storage as fs

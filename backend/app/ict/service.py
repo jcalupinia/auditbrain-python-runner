@@ -196,3 +196,25 @@ def update_anexo_data(
     db.commit()
     db.refresh(anexo)
     return anexo
+
+
+def recompute_indice(db: Session, *, session: ICTSession) -> ICTAnexo:
+    """Rebuild INDICE.extracted_data['aplica'] from other anexos' statuses.
+
+    Rule: SI if anexo.status in ('partial', 'ready'); NO otherwise.
+    INDICE itself is always 'ready' after recompute (it has no inputs).
+    """
+    aplica: dict[str, str] = {}
+    for a in session.anexos:
+        if a.anexo_code == "INDICE":
+            continue
+        aplica[a.anexo_code] = "SI" if a.status in ("partial", "ready") else "NO"
+
+    indice = next(a for a in session.anexos if a.anexo_code == "INDICE")
+    indice.extracted_data = {"aplica": aplica}
+    indice.status = "ready"
+    indice.last_updated_at = _now()
+    db.add(indice)
+    db.commit()
+    db.refresh(indice)
+    return indice
