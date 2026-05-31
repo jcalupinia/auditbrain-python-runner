@@ -123,3 +123,33 @@ def expire_session(db: Session, *, session: ICTSession) -> None:
     session.status = "expired"
     db.add(session)
     db.commit()
+
+
+from pathlib import Path
+from backend.app.aud.obligaciones_fiscales import file_storage
+
+
+def _ict_job_dir(session_id: int, anexo_code: str) -> Path:
+    """Returns the /tmp dir for an ICT anexo (under OF's tmp root for cleanup reuse)."""
+    of_dir = file_storage._root() / "ict" / f"{session_id}" / anexo_code
+    of_dir.mkdir(parents=True, exist_ok=True)
+    return of_dir
+
+
+def save_uploaded_file(
+    *,
+    session_id: int,
+    anexo_code: str,
+    slot_name: str,
+    filename: str,
+    data: bytes,
+) -> Path:
+    """Persist a raw uploaded file under /tmp/ict/<session>/<anexo>/<slot>/."""
+    import re
+    safe_filename = re.sub(r"[^a-zA-Z0-9._-]", "_", filename)[:200] or "file"
+    safe_slot = re.sub(r"[^a-zA-Z0-9._-]", "_", slot_name)[:64] or "slot"
+    slot_dir = _ict_job_dir(session_id, anexo_code) / safe_slot
+    slot_dir.mkdir(parents=True, exist_ok=True)
+    target = slot_dir / safe_filename
+    target.write_bytes(data)
+    return target

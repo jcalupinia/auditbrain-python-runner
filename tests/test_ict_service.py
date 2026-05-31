@@ -118,3 +118,18 @@ def test_expire_session_marks_status(db_session, client_user):
     ict_service.expire_session(db_session, session=s)
     db_session.refresh(s)
     assert s.status == "expired"
+
+
+def test_save_uploaded_file_writes_to_tmp(tmp_path, monkeypatch):
+    # Monkey-patch the OF tmp root to use a clean tmp_path
+    from backend.app.aud.obligaciones_fiscales import file_storage as fs
+    monkeypatch.setattr(fs, "_root", lambda: tmp_path)
+
+    saved = ict_service.save_uploaded_file(
+        session_id=999, anexo_code="A1", slot_name="f101",
+        filename="test/with/slashes.pdf", data=b"%PDF fake",
+    )
+    assert saved.exists()
+    assert saved.read_bytes() == b"%PDF fake"
+    # Ensure path safe: no slashes, etc.
+    assert "/" not in saved.name and "\\" not in saved.name
