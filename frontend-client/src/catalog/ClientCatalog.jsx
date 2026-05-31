@@ -38,7 +38,13 @@ export default function ClientCatalog() {
               <div style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
                 {cat.tools.map((t) => (
                   <button key={t.code}
-                    onClick={() => nav(`/tools/${t.code}`)}
+                    onClick={() => {
+                      if (t.code === "ICT_2025") {
+                        nav("/tools/ICT_2025");
+                      } else {
+                        nav(`/tools/${t.code}`);
+                      }
+                    }}
                     style={{ textAlign: "left", background: "#fff", padding: 20, borderRadius: 8, border: "1px solid #e0e6ed", cursor: "pointer" }}>
                     <strong>{t.label}</strong>
                     <p style={{ color: "#555", fontSize: 14 }}>{t.description}</p>
