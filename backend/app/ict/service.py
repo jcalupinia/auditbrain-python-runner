@@ -229,6 +229,8 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
     from backend.app.ict.fillers.a2_ingresos import A2Filler
     from backend.app.ict.fillers.a3_costos_gastos import A3Filler
     from backend.app.ict.fillers.a4_conciliacion_ingresos import A4Filler
+    from backend.app.ict.fillers.a5_conciliacion_costos import A5Filler
+    from backend.app.ict.fillers.a6_beneficios import A6Filler
     from backend.app.ict.fillers.a7_credito import A7Filler
     from backend.app.ict.fillers.a9_inventarios import A9Filler
 
@@ -246,9 +248,11 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
         "A2": A2Filler(),
         "A3": A3Filler(),
         "A4": A4Filler(),
+        "A5": A5Filler(),
+        "A6": A6Filler(),
         "A7": A7Filler(),
         "A9": A9Filler(),
-        # A5, A6, A8 added in later phases
+        # A8 added in later phase
     }
 
     for anexo in session.anexos:
@@ -290,6 +294,7 @@ def reset_anexo_slot(
         "f104": "f104_monthly",
         "facturacion": "facturacion",
         "mayor_exentos": "mayor_exentos",
+        "mayor_no_deducibles": "mayor_no_deducibles",
         "f101_multiyear": "f101_multiyear",
         "f108_multiyear": "f108_multiyear",
     }

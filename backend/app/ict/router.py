@@ -20,7 +20,8 @@ SLOT_PARSERS = {
     "kardex": parse_kardex,
     "f104": parse_f104,
     "facturacion": parse_facturacion,
-    "mayor_exentos": parse_mayor,  # Libro Mayor de cuentas exentas (A4 Cuadro 1)
+    "mayor_exentos": parse_mayor,          # Libro Mayor de cuentas exentas (A4 Cuadro 1)
+    "mayor_no_deducibles": parse_mayor,    # Libro Mayor de cuentas no deducibles (A5 Cuadro A)
 }
 
 ANEXO_REQUIRED_SLOTS = {
@@ -28,6 +29,8 @@ ANEXO_REQUIRED_SLOTS = {
     "A2": ["f104", "facturacion"],
     "A3": ["f101"],
     "A4": ["f101"],          # mayor_exentos is optional (Cuadro 1 detail)
+    "A5": ["f101", "mayor_no_deducibles"],  # mayor_no_deducibles required (Cuadro A detail)
+    "A6": ["f101"],          # contratos_inversion + exoneraciones are optional manual data
     "A7": ["f101"],          # f101_multiyear + f108_multiyear are optional multi-year uploads
     "A9": ["f101"],
 }
@@ -227,6 +230,8 @@ async def upload_for_anexo_endpoint(
         extracted = {"facturacion": parsed}
     elif slot_name == "mayor_exentos":
         extracted = {"mayor_exentos": parsed.get("movimientos", [])}
+    elif slot_name == "mayor_no_deducibles":
+        extracted = {"mayor_no_deducibles": parsed.get("movimientos", [])}
     else:
         extracted = {slot_name: parsed}
 
