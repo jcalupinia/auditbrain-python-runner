@@ -218,3 +218,34 @@ def recompute_indice(db: Session, *, session: ICTSession) -> ICTAnexo:
     db.commit()
     db.refresh(indice)
     return indice
+
+
+def cleanup_ict_orphan_files(max_age_hours: int = 24) -> int:
+    """Delete ICT files older than max_age_hours.
+    The extracted_data in DB is preserved (only the raw files go).
+    """
+    import time
+    from backend.app.aud.obligaciones_fiscales import file_storage as of_storage
+
+    root = of_storage._root() / "ict"
+    if not root.exists():
+        return 0
+    cutoff = time.time() - (max_age_hours * 3600)
+    deleted = 0
+    for session_dir in root.iterdir():
+        if not session_dir.is_dir():
+            continue
+        for anexo_dir in session_dir.iterdir():
+            if not anexo_dir.is_dir():
+                continue
+            for slot_dir in anexo_dir.iterdir():
+                if not slot_dir.is_dir():
+                    continue
+                for f in slot_dir.iterdir():
+                    if f.is_file() and f.stat().st_mtime < cutoff:
+                        try:
+                            f.unlink()
+                            deleted += 1
+                        except OSError:
+                            pass
+    return deleted

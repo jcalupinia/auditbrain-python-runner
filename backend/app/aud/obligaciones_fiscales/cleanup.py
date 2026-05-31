@@ -25,8 +25,10 @@ log = logging.getLogger(__name__)
 
 def cleanup_once() -> dict:
     """Una pasada de cleanup. Devuelve resumen de acciones."""
+    from backend.app.ict import service as ict_service
+
     now = datetime.datetime.utcnow()
-    summary = {"expired_jobs": 0, "post_download_cleanups": 0, "orphan_dirs": 0, "zombie_jobs": 0}
+    summary = {"expired_jobs": 0, "post_download_cleanups": 0, "orphan_dirs": 0, "zombie_jobs": 0, "ict_files_deleted": 0}
 
     db = SessionLocal()
     try:
@@ -89,6 +91,8 @@ def cleanup_once() -> dict:
             summary["orphan_dirs"] += 1
         except Exception:
             pass
+
+    summary["ict_files_deleted"] = ict_service.cleanup_ict_orphan_files(max_age_hours=24)
 
     return summary
 
