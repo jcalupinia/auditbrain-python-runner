@@ -1,0 +1,10 @@
+{
+  "name": "@auditbrain/shared",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.js",
+  "type": "module",
+  "peerDependencies": {
+    "react": "^18.3.1"
+  }
+}

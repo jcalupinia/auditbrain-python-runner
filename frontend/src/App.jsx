@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import * as api from "./api.js";
 import ToolCatalog from "./aud/ToolCatalog.jsx";
+import TaxCatalog from "./tax/TaxCatalog.jsx";
 
 /* ---------------- Theme (oscuro premium fijo en el Command Center) ---------------- */
 const THEME_KEY = "ab_theme";
@@ -92,13 +93,19 @@ function Login({ onLogged }) {
       <div className="login-aside">
         <div className="login-figure">
           <AssetImg
-            src="/assets/ai-girl-with-logo.png"
+            src="/assets/ai-girl-figure.png"
             alt=""
             className="login-figure-img"
             fallback={<div className="figure-ph"><span>AUDIT</span><b>IA</b></div>}
           />
         </div>
       </div>
+      <AssetImg
+        src="/assets/logo-auditconsulting-group.png"
+        alt="Audit Consulting Group"
+        className="login-logo"
+        fallback={null}
+      />
       <form className="login-card" onSubmit={submit}>
         <div className="login-brand">
           <BrandMark size={38} />
@@ -502,9 +509,9 @@ const MODULES = [
 ];
 
 const AI_LINKS = [
-  { name: "ChatGPT", href: "https://chatgpt.com" },
-  { name: "Claude", href: "https://claude.ai" },
-  { name: "Gemini", href: "https://gemini.google.com" },
+  { name: "ChatGPT", href: "https://chatgpt.com", logo: "/assets/ai/chatgpt.svg" },
+  { name: "Claude", href: "https://claude.ai", logo: "/assets/ai/claude.svg" },
+  { name: "Gemini", href: "https://gemini.google.com", logo: "/assets/ai/gemini.svg" },
 ];
 
 function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin }) {
@@ -588,6 +595,10 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin }) {
         {tab === "análisis" && module.id === "AUD" ? (
           <div className="cw-tool">
             <ToolCatalog projectId={ctx?.active_project?.id} />
+          </div>
+        ) : tab === "análisis" && module.id === "TAX" ? (
+          <div className="cw-tool">
+            <TaxCatalog projectId={ctx?.active_project?.id} />
           </div>
         ) : tab === "documentos" ? (
           <div className="cw-docs">
@@ -677,6 +688,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin }) {
                   {AI_LINKS.map((a) => (
                     <a key={a.name} className="cw-ext-card" href={a.href}
                       target="_blank" rel="noopener noreferrer">
+                      <img className="cw-ext-logo" src={a.logo} alt="" aria-hidden="true" />
                       <b>{a.name}</b>
                       <span>Abrir {a.name} →</span>
                     </a>

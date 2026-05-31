@@ -11,7 +11,12 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": {
-        target: "https://auditbrain-python-runner.onrender.com",
+        // Por defecto proxea al backend de Render. Para desarrollo contra un
+        // backend local, exporta VITE_PROXY_TARGET=http://127.0.0.1:8000 antes
+        // de `npm run dev` (sin tocar este archivo).
+        target:
+          process.env.VITE_PROXY_TARGET ||
+          "https://auditbrain-python-runner.onrender.com",
         changeOrigin: true,
         secure: true,
       },
