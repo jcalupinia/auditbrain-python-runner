@@ -225,6 +225,7 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
     from io import BytesIO
     from backend.app.ict.fillers.base import load_template
     from backend.app.ict.fillers.indice import IndiceFiller
+    from backend.app.ict.fillers.a1_mapeo import A1Filler
     from backend.app.ict.fillers.a9_inventarios import A9Filler
 
     wb = load_template()
@@ -237,8 +238,8 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
 
     filler_map = {
         "INDICE": IndiceFiller(),
+        "A1": A1Filler(),
         "A9": A9Filler(),
-        # A1 added in Phase 3
         # A2-A8 added in later phases
     }
 
