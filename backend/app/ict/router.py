@@ -4,8 +4,23 @@ from __future__ import annotations
 
 from io import BytesIO
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
+
+from backend.app.ict.parsers.f101_pdf import parse_f101
+from backend.app.ict.parsers.balance_excel import parse_balance
+from backend.app.ict.parsers.kardex_excel import parse_kardex
+
+SLOT_PARSERS = {
+    "f101": parse_f101,
+    "balance": parse_balance,
+    "kardex": parse_kardex,
+}
+
+ANEXO_REQUIRED_SLOTS = {
+    "A1": ["f101", "balance"],
+    "A9": ["f101"],
+}
 from sqlalchemy.orm import Session
 
 from backend.app.auth.deps import require_client_with_device
@@ -17,6 +32,7 @@ from backend.app.ict.schemas import (
     CreateSessionRequest,
     SessionOut,
     UpdateSessionRequest,
+    UploadResponse,
 )
 
 router = APIRouter(prefix="/client/ict", tags=["client-ict"])
@@ -129,6 +145,84 @@ def download_excel_endpoint(
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ),
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/anexos/{anexo_code}/upload",
+    response_model=UploadResponse,
+)
+async def upload_for_anexo_endpoint(
+    session_id: int,
+    anexo_code: str,
+    slot_name: str = Form(...),
+    file: UploadFile = File(...),
+    user: User = Depends(require_client_with_device),
+    db: Session = Depends(get_db),
+):
+    try:
+        session = ict_service.get_session(db, session_id=session_id, user=user)
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+
+    if session.status != "in_progress":
+        raise HTTPException(410, detail=f"Sesión está {session.status}")
+
+    parser = SLOT_PARSERS.get(slot_name)
+    if parser is None:
+        raise HTTPException(400, detail=f"Slot '{slot_name}' no soportado")
+
+    data = await file.read()
+    MAX_SIZE = 50 * 1024 * 1024
+    if len(data) > MAX_SIZE:
+        raise HTTPException(413, detail="Archivo excede 50 MB")
+
+    parsed = parser(data)
+    if parsed.get("errores"):
+        anexo = ict_service.update_anexo_data(
+            db, session=session, anexo_code=anexo_code,
+            extracted_data={}, warnings=parsed["errores"],
+            uploaded_file_meta={"slot": slot_name, "filename": file.filename, "size": len(data)},
+            new_status="error",
+        )
+        return UploadResponse(
+            anexo_code=anexo_code, status=anexo.status,
+            warnings=anexo.warnings or [],
+            filename=file.filename, size_bytes=len(data),
+        )
+
+    ict_service.save_uploaded_file(
+        session_id=session_id, anexo_code=anexo_code,
+        slot_name=slot_name, filename=file.filename, data=data,
+    )
+
+    if slot_name == "f101":
+        extracted = {"f101": parsed["casilleros"]}
+    elif slot_name == "balance":
+        extracted = {"balance": parsed["cuentas"]}
+    elif slot_name == "kardex":
+        extracted = {"kardex_items": parsed["items"]}
+    else:
+        extracted = {slot_name: parsed}
+
+    required = ANEXO_REQUIRED_SLOTS.get(anexo_code, [])
+    existing_anexo = next((a for a in session.anexos if a.anexo_code == anexo_code), None)
+    existing_files = (existing_anexo.uploaded_files if existing_anexo else None) or {}
+    new_files_keys = set(existing_files.keys()) | {slot_name}
+    new_status = "ready" if all(s in new_files_keys for s in required) else "partial"
+
+    anexo = ict_service.update_anexo_data(
+        db, session=session, anexo_code=anexo_code,
+        extracted_data=extracted, warnings=parsed.get("errores", []),
+        uploaded_file_meta={"slot": slot_name, "filename": file.filename, "size": len(data)},
+        new_status=new_status,
+    )
+    ict_service.recompute_indice(db, session=session)
+
+    return UploadResponse(
+        anexo_code=anexo_code, status=anexo.status,
+        warnings=anexo.warnings or [],
+        filename=file.filename, size_bytes=len(data),
     )
 
 
