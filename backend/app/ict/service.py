@@ -261,6 +261,34 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
     return buf.read()
 
 
+def reset_anexo_slot(
+    db: Session, *, session: ICTSession, anexo_code: str, slot_name: str
+) -> ICTAnexo:
+    """Remove a slot's data + metadata from an anexo, recalc status."""
+    anexo = next((a for a in session.anexos if a.anexo_code == anexo_code), None)
+    if anexo is None:
+        raise ValueError(f"Anexo {anexo_code} not found")
+
+    files = anexo.uploaded_files or {}
+    if slot_name in files:
+        del files[slot_name]
+    anexo.uploaded_files = files
+
+    extracted = anexo.extracted_data or {}
+    key_map = {"f101": "f101", "balance": "balance", "kardex": "kardex_items"}
+    main_key = key_map.get(slot_name, slot_name)
+    if main_key in extracted:
+        del extracted[main_key]
+    anexo.extracted_data = extracted
+
+    anexo.status = "empty" if not files else "partial"
+    anexo.last_updated_at = _now()
+    db.add(anexo)
+    db.commit()
+    db.refresh(anexo)
+    return anexo
+
+
 def cleanup_ict_orphan_files(max_age_hours: int = 24) -> int:
     """Delete ICT files older than max_age_hours.
     The extracted_data in DB is preserved (only the raw files go).

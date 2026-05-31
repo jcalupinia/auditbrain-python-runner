@@ -226,6 +226,31 @@ async def upload_for_anexo_endpoint(
     )
 
 
+@router.delete(
+    "/sessions/{session_id}/anexos/{anexo_code}/upload/{slot_name}",
+    status_code=200,
+)
+def reset_slot_endpoint(
+    session_id: int,
+    anexo_code: str,
+    slot_name: str,
+    user: User = Depends(require_client_with_device),
+    db: Session = Depends(get_db),
+):
+    try:
+        session = ict_service.get_session(db, session_id=session_id, user=user)
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    try:
+        anexo = ict_service.reset_anexo_slot(
+            db, session=session, anexo_code=anexo_code, slot_name=slot_name
+        )
+    except ValueError as e:
+        raise HTTPException(404, detail=str(e))
+    ict_service.recompute_indice(db, session=session)
+    return {"anexo_code": anexo_code, "status": anexo.status}
+
+
 @router.delete("/sessions/{session_id}", status_code=200)
 def delete_session_endpoint(
     session_id: int,
