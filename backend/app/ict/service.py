@@ -226,6 +226,8 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
     from backend.app.ict.fillers.base import load_template
     from backend.app.ict.fillers.indice import IndiceFiller
     from backend.app.ict.fillers.a1_mapeo import A1Filler
+    from backend.app.ict.fillers.a2_ingresos import A2Filler
+    from backend.app.ict.fillers.a3_costos_gastos import A3Filler
     from backend.app.ict.fillers.a9_inventarios import A9Filler
 
     wb = load_template()
@@ -239,8 +241,10 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
     filler_map = {
         "INDICE": IndiceFiller(),
         "A1": A1Filler(),
+        "A2": A2Filler(),
+        "A3": A3Filler(),
         "A9": A9Filler(),
-        # A2-A8 added in later phases
+        # A4-A8 added in later phases
     }
 
     for anexo in session.anexos:
@@ -275,7 +279,13 @@ def reset_anexo_slot(
     anexo.uploaded_files = files
 
     extracted = anexo.extracted_data or {}
-    key_map = {"f101": "f101", "balance": "balance", "kardex": "kardex_items"}
+    key_map = {
+        "f101": "f101",
+        "balance": "balance",
+        "kardex": "kardex_items",
+        "f104": "f104_monthly",
+        "facturacion": "facturacion",
+    }
     main_key = key_map.get(slot_name, slot_name)
     if main_key in extracted:
         del extracted[main_key]

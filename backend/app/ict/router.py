@@ -10,15 +10,21 @@ from fastapi.responses import StreamingResponse
 from backend.app.ict.parsers.f101_pdf import parse_f101
 from backend.app.ict.parsers.balance_excel import parse_balance
 from backend.app.ict.parsers.kardex_excel import parse_kardex
+from backend.app.ict.parsers.f104_pdf import parse_f104
+from backend.app.ict.parsers.facturacion_sri import parse_facturacion
 
 SLOT_PARSERS = {
     "f101": parse_f101,
     "balance": parse_balance,
     "kardex": parse_kardex,
+    "f104": parse_f104,
+    "facturacion": parse_facturacion,
 }
 
 ANEXO_REQUIRED_SLOTS = {
     "A1": ["f101", "balance"],
+    "A2": ["f104", "facturacion"],
+    "A3": ["f101"],
     "A9": ["f101"],
 }
 from sqlalchemy.orm import Session
@@ -202,6 +208,19 @@ async def upload_for_anexo_endpoint(
         extracted = {"balance": parsed["cuentas"]}
     elif slot_name == "kardex":
         extracted = {"kardex_items": parsed["items"]}
+    elif slot_name == "f104":
+        # F-104 uploads one month at a time; accumulate into f104_monthly dict
+        existing_anexo = next((a for a in session.anexos if a.anexo_code == anexo_code), None)
+        existing_data = (existing_anexo.extracted_data if existing_anexo else None) or {}
+        monthly: dict = dict(existing_data.get("f104_monthly") or {})
+        periodo = parsed.get("periodo") if parsed else None
+        if periodo:
+            # Key by the month portion: "01/2025" → "01"
+            mes_key = periodo.split("/")[0].strip() if "/" in str(periodo) else str(periodo).strip()
+            monthly[mes_key] = parsed
+        extracted = {"f104_monthly": monthly}
+    elif slot_name == "facturacion":
+        extracted = {"facturacion": parsed}
     else:
         extracted = {slot_name: parsed}
 
