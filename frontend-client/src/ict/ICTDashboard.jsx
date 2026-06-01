@@ -21,36 +21,36 @@ import PortalShell from "../shell/PortalShell.jsx";
    primero que lo requiere), y el shared_context del orquestador
    ya lo reutiliza en todos los demás anexos que lo necesitan.
    -------------------------------------------------------------- */
+// Cuatro documentos mínimos que cubren el 95-100% de los 10 anexos del ICT.
+// Análisis cruzado con declaraciones reales del SRI 2025 (PROPHAR).
+// Los detalles secundarios (Mayor Exentos/No Deducibles/Kardex/ATS/Facturación SRI)
+// se omiten para simplificar UX — el cliente sube 4 documentos en vez de 8.
 const GLOBAL_UPLOADS = [
-  { key: "f101",                label: "Formulario 101",     icon: "📄", anexo: "A1", multi: false,
-    usedIn: ["A1","A3","A4","A5","A6","A7","A9"] },
-  { key: "balance_mapeado",     label: "Balance Mapeado",    icon: "📊", anexo: "A1", multi: false,
-    usedIn: ["A1","A2","A3","A4","A5","A6","A7","A9"] },
-  { key: "f104",                label: "Formularios 104",    icon: "📑", anexo: "A2", multi: true,
-    usedIn: ["A2"] },
-  { key: "facturacion",         label: "Facturación SRI",    icon: "🧾", anexo: "A2", multi: false,
-    usedIn: ["A2"] },
-  { key: "mayor_exentos",       label: "Mayor Exentos",      icon: "📒", anexo: "A4", multi: false,
-    usedIn: ["A4"] },
-  { key: "mayor_no_deducibles", label: "Mayor No Deducibles",icon: "📕", anexo: "A5", multi: false,
-    usedIn: ["A5"] },
-  { key: "ats",                 label: "ATS XML",            icon: "📦", anexo: "A8", multi: false,
-    usedIn: ["A8"] },
-  { key: "kardex",              label: "Kardex (opcional)",  icon: "📦", anexo: "A9", multi: false,
-    usedIn: ["A9"] },
+  { key: "balance_mapeado",     label: "Balance Mapeado",  icon: "📊", anexo: "A1", multi: false,
+    usedIn: ["A1","A2","A3","A4","A5","A6","A7","A9"],
+    desc: "Excel con cuenta contable → casillero SRI → saldo 31 dic" },
+  { key: "f101",                label: "Formulario 101",   icon: "📄", anexo: "A1", multi: false,
+    usedIn: ["A1","A2","A3","A4","A5","A6","A7","A9"],
+    desc: "Declaración anual IR sociedades (PDF SRI)" },
+  { key: "f104",                label: "Formularios 104",  icon: "📑", anexo: "A2", multi: true,
+    usedIn: ["A2","A8"],
+    desc: "12 declaraciones mensuales IVA (PDF SRI)" },
+  { key: "f103",                label: "Formularios 103",  icon: "📋", anexo: "A8", multi: true,
+    usedIn: ["A3","A5","A7","A8"],
+    desc: "12 declaraciones mensuales Retenciones IR (PDF SRI)" },
 ];
 
 const ANEXOS_INFO = [
   { code: "INDICE", n: "0", name: "Índice",        desc: "Identificación + Aplica SI/NO por anexo", uploads: [] },
   { code: "A1",     n: "1", name: "A1 Mapeo",      desc: "Cruce casilleros F-101 con balance",       uploads: ["f101","balance_mapeado"] },
-  { code: "A2",     n: "2", name: "A2 Ingresos",   desc: "Ordinarios + IVA + Facturación",            uploads: ["f104","facturacion","balance_mapeado"] },
+  { code: "A2",     n: "2", name: "A2 Ingresos",   desc: "Ordinarios + conciliación IVA mensual",     uploads: ["f101","f104","balance_mapeado"] },
   { code: "A3",     n: "3", name: "A3 Costos",     desc: "9 bloques de deducibilidad",                uploads: ["f101","balance_mapeado"] },
-  { code: "A4",     n: "4", name: "A4 Concil.Ing", desc: "Exentos / no objeto / RIMPE",               uploads: ["f101","mayor_exentos","balance_mapeado"] },
-  { code: "A5",     n: "5", name: "A5 Concil.C/G", desc: "5 cuadros + prorrateo",                     uploads: ["f101","mayor_no_deducibles","balance_mapeado"] },
+  { code: "A4",     n: "4", name: "A4 Concil.Ing", desc: "Exentos / no objeto / RIMPE",               uploads: ["f101","balance_mapeado"] },
+  { code: "A5",     n: "5", name: "A5 Concil.C/G", desc: "5 cuadros + prorrateo + retenciones",       uploads: ["f101","f103","balance_mapeado"] },
   { code: "A6",     n: "6", name: "A6 Beneficios", desc: "Deducciones + contratos + exoneraciones",   uploads: ["f101","balance_mapeado"] },
-  { code: "A7",     n: "7", name: "A7 Crédito",    desc: "IR multi-año + ISD",                        uploads: ["f101","balance_mapeado"] },
-  { code: "A8",     n: "8", name: "A8 Com.Ext.",   desc: "Pagos al exterior (CDI / sin CDI)",         uploads: ["ats"] },
-  { code: "A9",     n: "9", name: "A9 Inventarios",desc: "9 casilleros + Kardex",                     uploads: ["f101","kardex","balance_mapeado"] },
+  { code: "A7",     n: "7", name: "A7 Crédito",    desc: "IR multi-año + retenciones efectuadas",     uploads: ["f101","f103"] },
+  { code: "A8",     n: "8", name: "A8 Com.Ext.",   desc: "Pagos al exterior con/sin CDI + paraísos",  uploads: ["f103","f104"] },
+  { code: "A9",     n: "9", name: "A9 Inventarios",desc: "9 casilleros + saldos por cuenta",          uploads: ["f101","balance_mapeado"] },
 ];
 
 const STATUS_DISPLAY = {

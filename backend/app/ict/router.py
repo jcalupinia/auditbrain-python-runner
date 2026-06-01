@@ -11,30 +11,38 @@ from backend.app.ict.parsers.f101_pdf import parse_f101
 from backend.app.ict.parsers.balance_mapeado_excel import parse_balance_mapeado
 from backend.app.ict.parsers.kardex_excel import parse_kardex
 from backend.app.ict.parsers.f104_pdf import parse_f104
+from backend.app.ict.parsers.f103_pdf import parse_f103
 from backend.app.ict.parsers.facturacion_sri import parse_facturacion
 from backend.app.ict.parsers.mayor_excel import parse_mayor
 from backend.app.ict.parsers.ats_xml import parse_ats
 
 SLOT_PARSERS = {
-    "f101": parse_f101,
-    "balance_mapeado": parse_balance_mapeado,  # Balance Mapeado con casillero SRI pre-asignado por cliente
-    "kardex": parse_kardex,
-    "f104": parse_f104,
-    "facturacion": parse_facturacion,
-    "mayor_exentos": parse_mayor,          # Libro Mayor de cuentas exentas (A4 Cuadro 1)
-    "mayor_no_deducibles": parse_mayor,    # Libro Mayor de cuentas no deducibles (A5 Cuadro A)
-    "ats": parse_ats,                      # ATS XML del SRI (A8 Comercio Exterior)
+    # ----- Documentos PRINCIPALES (visibles en la barra del portal cliente) -----
+    "f101": parse_f101,                     # Declaración anual IR Sociedades (1 PDF)
+    "balance_mapeado": parse_balance_mapeado,  # Balance Mapeado con casillero SRI (1 Excel)
+    "f104": parse_f104,                     # Declaraciones mensuales IVA (12 PDFs)
+    "f103": parse_f103,                     # Declaraciones mensuales Retenciones IR (12 PDFs)
+    # ----- Documentos OPCIONALES (ocultos en UI, soportados si se suben por flujo legacy) -----
+    "kardex": parse_kardex,                 # Detalle de inventarios (A9 Cuadro 2)
+    "facturacion": parse_facturacion,       # Reporte Facturación SRI (refuerzo A2)
+    "mayor_exentos": parse_mayor,           # Libro Mayor cuentas exentas (A4 Cuadro 1 detalle)
+    "mayor_no_deducibles": parse_mayor,     # Libro Mayor no deducibles (A5 Cuadro A detalle)
+    "ats": parse_ats,                       # ATS XML SRI (refuerzo A8 con detalle por proveedor)
 }
 
+# Cada anexo declara qué slots NECESITA para marcarse como "ready". El
+# orquestador (generate_excel) ya hace shared_context: si F-101 y Balance
+# se subieron a A1, otros anexos pueden leerlos. Los slots adicionales
+# (mayor, ats, kardex) aportan detalle pero no son críticos.
 ANEXO_REQUIRED_SLOTS = {
     "A1": ["f101", "balance_mapeado"],
-    "A2": ["f104", "facturacion"],
+    "A2": ["f101", "f104"],                # IVA anual via 12 F-104 + ingresos F-101
     "A3": ["f101"],
-    "A4": ["f101"],          # mayor_exentos is optional (Cuadro 1 detail)
-    "A5": ["f101", "mayor_no_deducibles"],  # mayor_no_deducibles required (Cuadro A detail)
-    "A6": ["f101"],          # contratos_inversion + exoneraciones are optional manual data
-    "A7": ["f101"],          # f101_multiyear + f108_multiyear are optional multi-year uploads
-    "A8": ["ats"],           # ATS XML del SRI (pagos al exterior)
+    "A4": ["f101"],
+    "A5": ["f101", "f103"],                # retenciones F-103 valida no deducibles
+    "A6": ["f101"],
+    "A7": ["f101", "f103"],                # retenciones efectuadas dan crédito tributario
+    "A8": ["f103"],                        # pagos exterior con/sin CDI + paraísos
     "A9": ["f101"],
 }
 from sqlalchemy.orm import Session
