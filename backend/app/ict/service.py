@@ -290,7 +290,7 @@ def reset_anexo_slot(
     extracted = anexo.extracted_data or {}
     key_map = {
         "f101": "f101",
-        "balance": "balance",
+        "balance_mapeado": "balance_mapeado",
         "kardex": "kardex_items",
         "f104": "f104_monthly",
         "facturacion": "facturacion",

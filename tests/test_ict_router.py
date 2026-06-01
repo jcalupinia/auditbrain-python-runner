@@ -148,7 +148,7 @@ def test_delete_session_expires_it(client, logged_client):
     assert r3.status_code == 404
 
 
-def test_upload_balance_excel_for_a1(client, logged_client, db_session):
+def test_upload_balance_mapeado_excel_for_a1(client, logged_client, db_session):
     r = client.post(
         "/api/v1/client/ict/sessions",
         json={"ejercicio_fiscal": "2025", "ruc": "1234567890001", "razon_social": "X"},
@@ -160,16 +160,18 @@ def test_upload_balance_excel_for_a1(client, logged_client, db_session):
     import openpyxl
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.append(["Código", "Nombre", "Saldo Final"])
-    ws.append(("1.1.01.01.01", "CAJA", 300.0))
+    # Balance Mapeado structure: headers at row 1 for test, with casillero SRI in col D
+    ws.append(["Cod.Cuenta.Contable", "Descripción Cuenta Contable", "CODIFO SUPER CIAS",
+               "Códigos SRI", "Saldos 31 DIC"])
+    ws.append(["5BS.11101.002", "CAJA CHICA", "1010101", "311", 300.0])
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
 
     r2 = client.post(
         f"/api/v1/client/ict/sessions/{session_id}/anexos/A1/upload",
-        files={"files": ("balance.xlsx", buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-        data={"slot_name": "balance"},
+        files={"files": ("balance_mapeado.xlsx", buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        data={"slot_name": "balance_mapeado"},
         headers=logged_client["headers"],
         cookies=logged_client["cookies"],
     )
