@@ -1,55 +1,56 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { getActiveSession, deleteSession, downloadExcel, createSession } from "./ictApi.js";
-import ICTUploader from "./ICTUploader.jsx";
+import { getActiveSession, deleteSession, downloadExcel, createSession, uploadAnexoSlot, resetSlot } from "./ictApi.js";
 import ICTEditContribuyenteModal from "./ICTEditContribuyenteModal.jsx";
 import PortalShell from "../shell/PortalShell.jsx";
 
 /* ============================================================
    Portal Cliente · Dashboard ICT 2025
-   Mismo lenguaje visual que la herramienta TAX del Command Center:
-   - Header de la herramienta con título + meta + acciones rápidas
-   - Barra de "scenarios" (vista actual, descargas, ejemplo)
-   - Grid numerado [0]-[9] con los 10 anexos
-   - Panel inferior con el detalle del anexo seleccionado
-     (uploads, estado, warnings)
+   Patrón visual idéntico a la herramienta TAX del Command Center:
+   - Barra superior con los uploads GLOBALES de la sesión
+     (F-101, Balance Mapeado, F-104, ATS, etc.) SIEMPRE visibles
+   - Barra de acciones generales (descargar, editar, cerrar)
+   - Grid numerado [0]-[9] de los 10 anexos como NAVEGACIÓN/ESTADO
+   - Panel inferior con el estado del anexo seleccionado
+     (warnings, advertencias, qué uploads usa)
    ============================================================ */
 
+/* --------------------------------------------------------------
+   Uploads globales: catálogo único de tipos de documento del ICT.
+   Cada upload se sube a su "anexo principal" en el backend (el
+   primero que lo requiere), y el shared_context del orquestador
+   ya lo reutiliza en todos los demás anexos que lo necesitan.
+   -------------------------------------------------------------- */
+const GLOBAL_UPLOADS = [
+  { key: "f101",                label: "Formulario 101",     icon: "📄", anexo: "A1", multi: false,
+    usedIn: ["A1","A3","A4","A5","A6","A7","A9"] },
+  { key: "balance_mapeado",     label: "Balance Mapeado",    icon: "📊", anexo: "A1", multi: false,
+    usedIn: ["A1","A2","A3","A4","A5","A6","A7","A9"] },
+  { key: "f104",                label: "Formularios 104",    icon: "📑", anexo: "A2", multi: true,
+    usedIn: ["A2"] },
+  { key: "facturacion",         label: "Facturación SRI",    icon: "🧾", anexo: "A2", multi: false,
+    usedIn: ["A2"] },
+  { key: "mayor_exentos",       label: "Mayor Exentos",      icon: "📒", anexo: "A4", multi: false,
+    usedIn: ["A4"] },
+  { key: "mayor_no_deducibles", label: "Mayor No Deducibles",icon: "📕", anexo: "A5", multi: false,
+    usedIn: ["A5"] },
+  { key: "ats",                 label: "ATS XML",            icon: "📦", anexo: "A8", multi: false,
+    usedIn: ["A8"] },
+  { key: "kardex",              label: "Kardex (opcional)",  icon: "📦", anexo: "A9", multi: false,
+    usedIn: ["A9"] },
+];
+
 const ANEXOS_INFO = [
-  { code: "INDICE", n: "0", name: "Índice",        desc: "Identificación + Aplica SI/NO por anexo", autoFill: true },
-  { code: "A1",     n: "1", name: "A1 Mapeo Decl.", desc: "Cruce casilleros F-101 con balance",
-    slots: [
-      { key: "f101",            label: "Formulario 101 (PDF)",                       required: true },
-      { key: "balance_mapeado", label: "Balance Mapeado (Excel — con códigos SRI)",  required: true },
-    ] },
-  { code: "A2",     n: "2", name: "A2 Ingresos",    desc: "Ordinarios + IVA vs Facturación + Conciliación",
-    slots: [
-      { key: "f104",        label: "Formularios 104 (12 meses, varios a la vez)", required: true, multi: true },
-      { key: "facturacion", label: "Reporte Facturación SRI (Excel)",             required: true },
-    ] },
-  { code: "A3",     n: "3", name: "A3 Costos y Gastos", desc: "9 bloques de deducibilidad",
-    slots: [{ key: "f101", label: "Formulario 101 (reutilizable)", required: true }] },
-  { code: "A4",     n: "4", name: "A4 Concil. Ingresos", desc: "Exentos / no objeto / RIMPE",
-    slots: [
-      { key: "f101",          label: "Formulario 101",                          required: true  },
-      { key: "mayor_exentos", label: "Libro Mayor cuentas exentas (Excel)",     required: false },
-    ] },
-  { code: "A5",     n: "5", name: "A5 Concil. C/G",  desc: "5 cuadros + prorrateo",
-    slots: [
-      { key: "f101",                label: "Formulario 101",                       required: true  },
-      { key: "mayor_no_deducibles", label: "Libro Mayor no deducibles (Excel)",    required: false },
-    ] },
-  { code: "A6",     n: "6", name: "A6 Beneficios",   desc: "Deducciones + contratos + exoneraciones",
-    slots: [{ key: "f101", label: "Formulario 101", required: true }] },
-  { code: "A7",     n: "7", name: "A7 Crédito Trib.", desc: "IR multi-año + ISD",
-    slots: [{ key: "f101", label: "Formulario 101", required: true }] },
-  { code: "A8",     n: "8", name: "A8 Com. Exterior", desc: "Pagos al exterior (CDI / sin CDI / reembolsos)",
-    slots: [{ key: "ats", label: "ATS XML (SRI)", required: true }] },
-  { code: "A9",     n: "9", name: "A9 Inventarios",   desc: "9 casilleros + Kardex",
-    slots: [
-      { key: "f101",   label: "Formulario 101",            required: true  },
-      { key: "kardex", label: "Kardex (Excel) opcional",   required: false },
-    ] },
+  { code: "INDICE", n: "0", name: "Índice",        desc: "Identificación + Aplica SI/NO por anexo", uploads: [] },
+  { code: "A1",     n: "1", name: "A1 Mapeo",      desc: "Cruce casilleros F-101 con balance",       uploads: ["f101","balance_mapeado"] },
+  { code: "A2",     n: "2", name: "A2 Ingresos",   desc: "Ordinarios + IVA + Facturación",            uploads: ["f104","facturacion","balance_mapeado"] },
+  { code: "A3",     n: "3", name: "A3 Costos",     desc: "9 bloques de deducibilidad",                uploads: ["f101","balance_mapeado"] },
+  { code: "A4",     n: "4", name: "A4 Concil.Ing", desc: "Exentos / no objeto / RIMPE",               uploads: ["f101","mayor_exentos","balance_mapeado"] },
+  { code: "A5",     n: "5", name: "A5 Concil.C/G", desc: "5 cuadros + prorrateo",                     uploads: ["f101","mayor_no_deducibles","balance_mapeado"] },
+  { code: "A6",     n: "6", name: "A6 Beneficios", desc: "Deducciones + contratos + exoneraciones",   uploads: ["f101","balance_mapeado"] },
+  { code: "A7",     n: "7", name: "A7 Crédito",    desc: "IR multi-año + ISD",                        uploads: ["f101","balance_mapeado"] },
+  { code: "A8",     n: "8", name: "A8 Com.Ext.",   desc: "Pagos al exterior (CDI / sin CDI)",         uploads: ["ats"] },
+  { code: "A9",     n: "9", name: "A9 Inventarios",desc: "9 casilleros + Kardex",                     uploads: ["f101","kardex","balance_mapeado"] },
 ];
 
 const STATUS_DISPLAY = {
@@ -66,6 +67,93 @@ function bytes(n) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/* ============================================================
+   Sub-componente: chip de upload global (botón en barra superior)
+   ============================================================ */
+function GlobalUploadChip({ upload, session, onChanged }) {
+  const inputRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+
+  // Estado del archivo: lo buscamos en el anexo principal del upload.
+  const anexo = (session.anexos || []).find((a) => a.anexo_code === upload.anexo);
+  const uploaded = anexo?.uploaded_files?.[upload.key];
+
+  async function handleFile(e) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setBusy(true);
+    try {
+      await uploadAnexoSlot(session.id, upload.anexo, upload.key, Array.from(files));
+      onChanged();
+    } catch (err) {
+      alert(`Error subiendo ${upload.label}: ${err.message}`);
+    } finally {
+      setBusy(false);
+      e.target.value = "";
+    }
+  }
+
+  async function handleReset(e) {
+    e.stopPropagation();
+    if (!confirm(`¿Eliminar ${upload.label}? Se recalcularán los anexos que lo usan.`)) return;
+    setBusy(true);
+    try {
+      await resetSlot(session.id, upload.anexo, upload.key);
+      onChanged();
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const cls = uploaded ? "pc-chip on" : "pc-chip";
+  const labelText = busy
+    ? "Subiendo..."
+    : uploaded
+      ? `✓ ${upload.label}`
+      : `↑ ${upload.label}`;
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        multiple={upload.multi}
+        style={{ display: "none" }}
+        onChange={handleFile}
+      />
+      <button
+        className={cls}
+        onClick={() => inputRef.current?.click()}
+        disabled={busy}
+        title={uploaded
+          ? `${uploaded.filename} · ${bytes(uploaded.size)} — clic para reemplazar`
+          : `Sube el ${upload.label} (usado en ${upload.usedIn.join(", ")})`
+        }
+      >
+        <span>{upload.icon}</span>
+        <span>{labelText}</span>
+        {upload.multi && <span style={{ fontSize: 9, opacity: 0.7 }}>multi</span>}
+        {uploaded && (
+          <span
+            onClick={handleReset}
+            style={{
+              marginLeft: 4, padding: "0 4px",
+              borderLeft: "1px solid rgba(0,0,0,0.2)",
+              fontSize: 11, fontWeight: 700,
+            }}
+            title="Eliminar archivo"
+          >×</span>
+        )}
+      </button>
+    </>
+  );
+}
+
+/* ============================================================
+   Dashboard principal
+   ============================================================ */
 export default function ICTDashboard() {
   const nav = useNavigate();
   const [session, setSession] = useState(undefined);
@@ -105,6 +193,13 @@ export default function ICTDashboard() {
   const totalAnexos = ANEXOS_INFO.length;
   const percent = Math.round((readyCount / totalAnexos) * 100);
 
+  // Cuántos uploads globales ya subieron
+  const uploadedKeys = new Set();
+  (session.anexos || []).forEach((a) => {
+    Object.keys(a.uploaded_files || {}).forEach((k) => uploadedKeys.add(k));
+  });
+  const uploadsDone = GLOBAL_UPLOADS.filter((u) => uploadedKeys.has(u.key)).length;
+
   async function handleDownload() {
     setDownloading(true);
     try {
@@ -125,7 +220,6 @@ export default function ICTDashboard() {
   const selAnexo = (session.anexos || []).find((a) => a.anexo_code === selected)
     || { anexo_code: selected, status: "empty", warnings: [], uploaded_files: {} };
 
-  // Contexto extra para el sidebar derecho
   const contextExtras = (
     <div className="pc-ctx-card">
       <div className="pc-ctx-h2">📋 Proyecto ICT activo</div>
@@ -139,9 +233,13 @@ export default function ICTDashboard() {
         <div className="pc-ctx-k">Adhesivo</div>
         <div className="pc-ctx-v">{session.numero_adhesivo}</div>
       </>}
-      <div className="pc-ctx-k">Progreso</div>
+      <div className="pc-ctx-k">Anexos</div>
       <div className="pc-ctx-v">
-        <b>{readyCount}/{totalAnexos}</b> anexos · {percent}%
+        <b>{readyCount}/{totalAnexos}</b> · {percent}%
+      </div>
+      <div className="pc-ctx-k">Documentos</div>
+      <div className="pc-ctx-v">
+        <b>{uploadsDone}/{GLOBAL_UPLOADS.length}</b> subidos
       </div>
     </div>
   );
@@ -154,7 +252,7 @@ export default function ICTDashboard() {
       activeNodeCode="ICT_2025"
       contextExtras={contextExtras}
     >
-      {/* ----- Panel maestro: barra de acciones tipo scenarios ----- */}
+      {/* ----- Panel maestro de la herramienta ICT ----- */}
       <section className="pc-panel">
         <header className="pc-panel-h">
           <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
@@ -162,7 +260,7 @@ export default function ICTDashboard() {
             <span className="pc-panel-t">Workspace de Cumplimiento Tributario</span>
           </div>
           <span className="pc-panel-m">
-            EJERCICIO {session.ejercicio_fiscal} · {readyCount}/{totalAnexos} ANEXOS
+            AF {session.ejercicio_fiscal} · {readyCount}/{totalAnexos} ANEXOS
           </span>
         </header>
         <div className="pc-panel-b">
@@ -175,7 +273,7 @@ export default function ICTDashboard() {
             ← Volver al catálogo
           </button>
 
-          {/* Barra de scenarios / acciones rápidas */}
+          {/* ===== BARRA 1: Datos del contribuyente ===== */}
           <div className="pc-scenarios">
             <span className="pc-scenarios-l">Contribuyente</span>
             <span className="pc-chip on" style={{ cursor: "default" }}>
@@ -185,11 +283,7 @@ export default function ICTDashboard() {
               ✏ Editar datos
             </button>
             <div style={{ flex: 1 }} />
-            <button
-              className="pc-chip accent"
-              onClick={handleDownload}
-              disabled={downloading}
-            >
+            <button className="pc-chip accent" onClick={handleDownload} disabled={downloading}>
               {downloading ? "⏳ Generando..." : "↓ Descargar Excel ICT"}
             </button>
             <button className="pc-chip danger" onClick={handleClose}>
@@ -197,14 +291,35 @@ export default function ICTDashboard() {
             </button>
           </div>
 
-          {/* Barra progreso visual */}
+          {/* ===== BARRA 2: SUBIR DOCUMENTOS (siempre visible) ===== */}
+          <div className="pc-scenarios" style={{
+            padding: "12px 14px",
+            background: "var(--panel-2)",
+            border: "1px solid var(--line)",
+            borderRadius: 10,
+            marginTop: 6,
+          }}>
+            <span className="pc-scenarios-l" style={{ color: "var(--accent)" }}>
+              📂 Subir documentos
+            </span>
+            {GLOBAL_UPLOADS.map((u) => (
+              <GlobalUploadChip
+                key={u.key}
+                upload={u}
+                session={session}
+                onChanged={refresh}
+              />
+            ))}
+          </div>
+
+          {/* Barra de progreso */}
           <div style={{
+            marginTop: 16,
             background: "var(--panel-2)",
             border: "1px solid var(--line)",
             borderRadius: 8,
             height: 8,
             overflow: "hidden",
-            marginBottom: 8,
           }}>
             <div style={{
               width: `${percent}%`,
@@ -213,12 +328,19 @@ export default function ICTDashboard() {
               transition: "width 0.3s",
             }} />
           </div>
-          <div style={{ fontSize: 11, color: "var(--text-soft)", letterSpacing: 0.1 }}>
-            <b style={{ color: "var(--accent)" }}>{readyCount}</b> de {totalAnexos} anexos completados · {percent}% del informe
+          <div style={{ fontSize: 11, color: "var(--text-soft)", marginTop: 6 }}>
+            <b style={{ color: "var(--accent)" }}>{readyCount}</b> de {totalAnexos} anexos completados ·
+            <b style={{ color: "var(--accent)", marginLeft: 6 }}>{uploadsDone}</b> de {GLOBAL_UPLOADS.length} documentos subidos
           </div>
 
-          {/* Grid numerado de anexos */}
-          <div className="pc-tiles" style={{ marginTop: 18 }}>
+          {/* ===== GRID DE ANEXOS (navegación / estado) ===== */}
+          <div style={{
+            marginTop: 18, marginBottom: 8,
+            fontSize: 11, color: "var(--text-soft)", letterSpacing: 0.06,
+          }}>
+            Click en un anexo para ver su estado y advertencias:
+          </div>
+          <div className="pc-tiles">
             {ANEXOS_INFO.map((info) => {
               const anexo = (session.anexos || []).find((a) => a.anexo_code === info.code);
               const st = STATUS_DISPLAY[anexo?.status || "empty"];
@@ -242,7 +364,7 @@ export default function ICTDashboard() {
         </div>
       </section>
 
-      {/* ----- Panel inferior: detalle del anexo seleccionado ----- */}
+      {/* ----- Panel inferior: estado del anexo seleccionado ----- */}
       <section className="pc-panel">
         <header className="pc-panel-h">
           <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
@@ -258,63 +380,44 @@ export default function ICTDashboard() {
             {selInfo.desc}
           </p>
 
-          {selInfo.autoFill && (
+          {/* Documentos que requiere este anexo (lectura, no acción) */}
+          {selInfo.uploads.length > 0 ? (
+            <div>
+              <div style={{ fontSize: 12, color: "var(--text-soft)", marginBottom: 8 }}>
+                📄 Documentos usados por este anexo (súbelos en la barra superior):
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {selInfo.uploads.map((upKey) => {
+                  const upMeta = GLOBAL_UPLOADS.find((g) => g.key === upKey);
+                  if (!upMeta) return null;
+                  const got = uploadedKeys.has(upKey);
+                  return (
+                    <span
+                      key={upKey}
+                      className={got ? "pc-chip on" : "pc-chip warn"}
+                      style={{ cursor: "default" }}
+                    >
+                      {got ? "✓" : "○"} {upMeta.label}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
             <div className="pc-tile" style={{ cursor: "default" }}>
               <span className="pc-tile-n dim">i</span>
               <div className="pc-tile-txt">
                 <span className="pc-tile-t">Llenado automático</span>
                 <span className="pc-tile-d">
-                  Este anexo se construye a partir de los datos del contribuyente y los demás anexos.
+                  Este anexo se construye a partir de los datos del contribuyente
+                  y los demás anexos. No necesitas subir nada aquí.
                 </span>
               </div>
             </div>
           )}
 
-          {selInfo.slots && selInfo.slots.map((slot) => {
-            const uploaded = selAnexo.uploaded_files?.[slot.key];
-            return (
-              <div key={slot.key} style={{
-                display: "grid",
-                gridTemplateColumns: "1fr auto",
-                gap: 12,
-                alignItems: "center",
-                padding: "14px 0",
-                borderTop: "1px solid var(--line-soft)",
-              }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>
-                    {slot.label}
-                    {slot.required && <span style={{ color: "var(--accent)", marginLeft: 6 }}>*</span>}
-                    {slot.multi && (
-                      <span className="pc-chip" style={{
-                        padding: "2px 8px", fontSize: 10, marginLeft: 8, cursor: "default",
-                      }}>multi</span>
-                    )}
-                  </div>
-                  {uploaded ? (
-                    <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 4 }}>
-                      ✓ {uploaded.filename} <span style={{ color: "var(--text-dim)" }}>({bytes(uploaded.size)})</span>
-                    </div>
-                  ) : (
-                    <div style={{ color: "var(--text-dim)", fontSize: 12, marginTop: 4 }}>
-                      Sin archivo subido
-                    </div>
-                  )}
-                </div>
-                <ICTUploader
-                  sessionId={session.id}
-                  anexoCode={selAnexo.anexo_code}
-                  slotName={slot.key}
-                  onUploaded={refresh}
-                  hasFile={!!uploaded}
-                  multi={!!slot.multi}
-                />
-              </div>
-            );
-          })}
-
           {selAnexo.warnings?.length > 0 && (
-            <details style={{ marginTop: 16 }}>
+            <details style={{ marginTop: 16 }} open>
               <summary style={{ cursor: "pointer", color: "var(--warn)", fontSize: 13 }}>
                 ⚠ {selAnexo.warnings.length} advertencia(s)
               </summary>
@@ -340,9 +443,7 @@ export default function ICTDashboard() {
 }
 
 /* ============================================================
-   Sub-componente: panel para crear sesión ICT cuando no existe.
-   Reutilizamos la lógica de ICTLanding pero envuelta en un
-   pc-panel oscuro para integrarse con el shell.
+   Panel para crear sesión ICT cuando no existe.
    ============================================================ */
 function ICTLandingPanel() {
   const nav = useNavigate();
@@ -365,7 +466,6 @@ function ICTLandingPanel() {
         ejercicio_fiscal: anio, ruc, razon_social: razon,
         numero_adhesivo: adhesivo || null,
       });
-      // tras crear, el refresh del padre lo detecta
       window.location.reload();
     } catch (e2) { setErr(e2.message); }
     finally { setBusy(false); }
