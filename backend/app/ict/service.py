@@ -221,7 +221,11 @@ def recompute_indice(db: Session, *, session: ICTSession) -> ICTAnexo:
 
 
 def generate_excel(db: Session, *, session: ICTSession) -> bytes:
-    """Generate the ICT Excel by loading template + applying all fillers."""
+    """Generate the ICT Excel by loading template + applying all fillers.
+
+    Builds a SHARED context across anexos: data uploaded for one anexo
+    (e.g. balance_mapeado in A1) is accessible to other anexos that need it.
+    """
     from io import BytesIO
     from backend.app.ict.fillers.base import load_template
     from backend.app.ict.fillers.indice import IndiceFiller
@@ -243,6 +247,19 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
         "numero_adhesivo": session.numero_adhesivo or "",
     }
 
+    # Build SHARED session context: merge extracted_data of ALL anexos
+    # so each filler can see data uploaded to other anexos.
+    # Strategy: keys that don't conflict (different anexos use different keys
+    # like "f101", "balance_mapeado", "f104_monthly", "ats_pagos_exterior", etc.)
+    # are merged as-is. If two anexos have the SAME key, the later anexo wins
+    # (in practice this only matters if the same slot is uploaded twice, which
+    # shouldn't happen in our flow).
+    shared_context: dict = {}
+    for a in session.anexos:
+        if a.extracted_data:
+            for k, v in a.extracted_data.items():
+                shared_context[k] = v  # last write wins (anexos iteration order)
+
     filler_map = {
         "INDICE": IndiceFiller(),
         "A1": A1Filler(),
@@ -263,7 +280,10 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
         if anexo.status == "empty":
             continue
         try:
-            filler.fill(wb, session_data, anexo.extracted_data or {})
+            # Each filler gets: own anexo_data MERGED with shared context.
+            # Own anexo_data takes precedence (last in **) for keys both have.
+            merged_data = {**shared_context, **(anexo.extracted_data or {})}
+            filler.fill(wb, session_data, merged_data)
         except Exception:
             import logging
             logging.exception("Filler %s failed for session %s", anexo.anexo_code, session.id)
