@@ -24,6 +24,7 @@ from backend.app.ict.cell_maps.a5 import (
     A5_HEADER_MAP,
     A5_SHEET,
 )
+from backend.app.ict.fillers.helpers import filter_balance_by_casilleros, get_casillero_value
 
 
 def _safe_set(ws, cell_addr: str, value) -> bool:
@@ -60,12 +61,25 @@ class A5Filler:
             if _safe_set(ws, cell_addr, session_data.get(key, "")):
                 filled += 1
 
-        f101: dict[str, float] = anexo_data.get("f101", {}) or {}
         mayor_nd: list[dict] = anexo_data.get("mayor_no_deducibles", []) or []
+        balance_mapeado: list[dict] = anexo_data.get("balance_mapeado", []) or []
 
-        # ── Cuadro A: Detalle gastos no deducibles (Libro Mayor) ─────────
+        # ── Cuadro A: Detalle gastos no deducibles ────────────────────────
+        # Source priority: mayor_no_deducibles (Libro Mayor) → balance_mapeado fallback
+        # Balance casilleros 806 (no ded locales) y 807 (no ded exterior)
         start_a, end_a = A5_CUADRO_A_RANGE
         max_rows_a = end_a - start_a + 1
+
+        if not mayor_nd and balance_mapeado:
+            balance_items = filter_balance_by_casilleros(balance_mapeado, {"806", "807"})
+            mayor_nd = [
+                {
+                    "codigo": item.get("codigo", ""),
+                    "nombre": item.get("descripcion", ""),
+                    "saldo": item.get("saldo", 0.0),
+                }
+                for item in balance_items
+            ]
 
         if mayor_nd:
             for i, mov in enumerate(mayor_nd[:max_rows_a]):
@@ -101,34 +115,40 @@ class A5Filler:
                 )
         else:
             warnings.append(
-                "A5: sin libro mayor de cuentas no deducibles (mayor_no_deducibles vacío). "
-                "Sube el Libro Mayor de gastos no deducibles para poblar el Cuadro A."
+                "A5: sin gastos no deducibles (mayor_no_deducibles y balance_mapeado 806/807 vacíos). "
+                "Sube el Libro Mayor o el Balance Mapeado para poblar el Cuadro A."
             )
 
         # ── Cuadro B: Prorrateo — base inputs (casilleros 6999 y 7999) ───
         # Template formula G42 calcula el % automáticamente (G33/G41).
         # Template formula G51 calcula el ajuste (G42*G50).
         # El filler solo escribe los totales declarados en filas ancla.
-        if f101:
-            for row, (source, casillero) in A5_CUADRO_B_MAP.items():
-                if source == "f101":
-                    val = f101.get(casillero)
-                    if val is not None and _safe_set(ws, f"G{row}", val):
-                        filled += 1
-        else:
+        # Usa get_casillero_value: F-101 primero, balance_mapeado fallback.
+        any_cuadro_b = False
+        for row, (source, casillero) in A5_CUADRO_B_MAP.items():
+            if source == "f101":
+                val = get_casillero_value(anexo_data, casillero)
+                if val is not None and _safe_set(ws, f"G{row}", val):
+                    filled += 1
+                    any_cuadro_b = True
+
+        if not any_cuadro_b:
             warnings.append(
-                "A5 Cuadro B: sin datos de F-101 (casilleros 6999, 7999 no cargados)"
+                "A5 Cuadro B: sin datos de casilleros 6999, 7999 "
+                "(no encontrados en F-101 ni Balance Mapeado)"
             )
 
         # ── Cuadro C: Participación trabajadores (casilleros 804, 805, 808) ─
+        # Usa get_casillero_value: F-101 primero, balance_mapeado fallback.
         for row, casillero in A5_CUADRO_C_MAP.items():
-            val = f101.get(casillero)
+            val = get_casillero_value(anexo_data, casillero)
             if val is not None and _safe_set(ws, f"H{row}", val):
                 filled += 1
 
         # ── Cuadro D: Conciliación gastos no deducibles ──────────────────
+        # Usa get_casillero_value: F-101 primero, balance_mapeado fallback.
         for row, casillero in A5_CUADRO_D_MAP.items():
-            val = f101.get(casillero)
+            val = get_casillero_value(anexo_data, casillero)
             if val is not None and _safe_set(ws, f"H{row}", val):
                 filled += 1
 
