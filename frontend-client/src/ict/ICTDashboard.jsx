@@ -211,7 +211,16 @@ export default function ICTDashboard() {
     }
   }
   async function handleClose() {
-    if (!confirm("¿Cerrar este proyecto ICT? Podrás crear uno nuevo, pero no recuperar este.")) return;
+    const msg =
+      "¿Encerar el proyecto y empezar uno nuevo?\n\n" +
+      "Esto borrará TODO:\n" +
+      `  • Contribuyente actual (${session.razon_social} · RUC ${session.ruc})\n` +
+      "  • Todos los archivos subidos (F-101, F-104, F-103, Balance)\n" +
+      "  • Datos extraídos de los 10 anexos\n" +
+      "  • Advertencias y validaciones\n\n" +
+      "Después podrás capturar un nuevo RUC y razón social desde cero.\n" +
+      "Esta acción NO se puede deshacer.";
+    if (!confirm(msg)) return;
     await deleteSession(session.id);
     setSession(null);
   }
@@ -286,8 +295,12 @@ export default function ICTDashboard() {
             <button className="pc-chip accent" onClick={handleDownload} disabled={downloading}>
               {downloading ? "⏳ Generando..." : "↓ Descargar Excel ICT"}
             </button>
-            <button className="pc-chip danger" onClick={handleClose}>
-              ✕ Cerrar proyecto
+            <button
+              className="pc-chip danger"
+              onClick={handleClose}
+              title="Borra TODO (contribuyente, archivos, anexos) y abre el formulario de nuevo proyecto"
+            >
+              🔄 Encerar / Nuevo proyecto
             </button>
           </div>
 

@@ -119,7 +119,43 @@ def update_session(
 
 
 def expire_session(db: Session, *, session: ICTSession) -> None:
-    """Mark session as expired (user-initiated close)."""
+    """Cierre/encerado de proyecto iniciado por el usuario.
+
+    Borra:
+      - El directorio de archivos físicos del proyecto en /tmp/ict/<session_id>/
+        (F-101, F-104, F-103, Balance, y cualquier output generado).
+      - La referencia ``uploaded_files`` de cada ICTAnexo (deja vacío).
+      - La data extraída (``extracted_data``) y advertencias (``warnings``).
+      - Marca status="expired" para que get_active_session no lo retorne.
+
+    Conserva el registro de ICTSession (con razón social, RUC, ejercicio)
+    en estado expired como histórico de auditoría; el cliente puede
+    crear inmediatamente un nuevo proyecto en blanco vía
+    create_session() porque get_active_session sólo devuelve los
+    in_progress.
+    """
+    import shutil
+    from pathlib import Path
+    from backend.app.aud.obligaciones_fiscales import file_storage as _fs
+
+    # 1) Borrar archivos físicos del disco
+    try:
+        ict_root = _fs._root() / "ict" / f"{session.id}"
+        if ict_root.exists():
+            shutil.rmtree(ict_root, ignore_errors=True)
+    except Exception:
+        # No bloqueamos el cierre si el FS falla; la DB sí queda consistente.
+        pass
+
+    # 2) Limpiar uploaded_files, extracted_data y warnings de cada anexo
+    for anexo in session.anexos:
+        anexo.uploaded_files = None
+        anexo.extracted_data = None
+        anexo.warnings = None
+        anexo.status = "empty"
+        db.add(anexo)
+
+    # 3) Marcar la sesión como expired
     session.status = "expired"
     db.add(session)
     db.commit()
