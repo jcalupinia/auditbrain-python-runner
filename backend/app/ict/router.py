@@ -46,6 +46,7 @@ from backend.app.ict import service as ict_service
 from backend.app.ict.schemas import (
     AnexoOut,
     CreateSessionRequest,
+    FileResult,
     SessionOut,
     UpdateSessionRequest,
     UploadResponse,
@@ -172,7 +173,7 @@ async def upload_for_anexo_endpoint(
     session_id: int,
     anexo_code: str,
     slot_name: str = Form(...),
-    file: UploadFile = File(...),
+    files: list[UploadFile] = File(...),  # lista; un solo archivo = lista de 1 (backward compat)
     user: User = Depends(require_client_with_device),
     db: Session = Depends(get_db),
 ):
@@ -188,59 +189,126 @@ async def upload_for_anexo_endpoint(
     if parser is None:
         raise HTTPException(400, detail=f"Slot '{slot_name}' no soportado")
 
-    data = await file.read()
     MAX_SIZE = 50 * 1024 * 1024
-    if len(data) > MAX_SIZE:
-        raise HTTPException(413, detail="Archivo excede 50 MB")
+    IS_MULTI = slot_name == "f104"  # solo f104 acumula por mes; el resto toma el primer archivo
 
-    parsed = parser(data)
-    if parsed.get("errores"):
-        anexo = ict_service.update_anexo_data(
-            db, session=session, anexo_code=anexo_code,
-            extracted_data={}, warnings=parsed["errores"],
-            uploaded_file_meta={"slot": slot_name, "filename": file.filename, "size": len(data)},
-            new_status="error",
+    # Para f104 necesitamos el estado previo al iniciar el loop
+    existing_anexo = next((a for a in session.anexos if a.anexo_code == anexo_code), None)
+    existing_data = (existing_anexo.extracted_data if existing_anexo else None) or {}
+    monthly: dict = dict(existing_data.get("f104_monthly") or {}) if IS_MULTI else {}
+
+    total_bytes = 0
+    warnings_acc: list[str] = []
+    per_file_results: list[FileResult] = []
+    last_extracted: dict = {}
+    last_filename: str = files[0].filename if files else "archivo"
+    last_size: int = 0
+
+    for upload in files:
+        data = await upload.read()
+        if len(data) > MAX_SIZE:
+            raise HTTPException(413, detail=f"Archivo {upload.filename} excede 50 MB")
+        total_bytes += len(data)
+
+        parsed = parser(data)
+
+        if parsed.get("errores"):
+            warnings_acc.extend([f"{upload.filename}: {e}" for e in parsed["errores"]])
+            per_file_results.append(FileResult(
+                filename=upload.filename,
+                status="error",
+                errores=parsed["errores"],
+            ))
+            # Para slots no-multi, un error en el único archivo es error total
+            if not IS_MULTI:
+                anexo = ict_service.update_anexo_data(
+                    db, session=session, anexo_code=anexo_code,
+                    extracted_data={}, warnings=parsed["errores"],
+                    uploaded_file_meta={"slot": slot_name, "filename": upload.filename, "size": len(data)},
+                    new_status="error",
+                )
+                return UploadResponse(
+                    anexo_code=anexo_code, status=anexo.status,
+                    warnings=anexo.warnings or [],
+                    filename=upload.filename, size_bytes=len(data),
+                    files_processed=0,
+                    per_file=per_file_results,
+                )
+            continue  # para f104: seguir con los demás aunque uno falle
+
+        ict_service.save_uploaded_file(
+            session_id=session_id, anexo_code=anexo_code,
+            slot_name=slot_name, filename=upload.filename, data=data,
         )
+
+        last_filename = upload.filename
+        last_size = len(data)
+
+        if IS_MULTI:
+            # f104: acumular por mes
+            periodo = parsed.get("periodo")
+            if periodo:
+                mes_key = periodo.split("/")[0].strip() if "/" in str(periodo) else str(periodo).strip()
+                monthly[mes_key] = parsed
+                per_file_results.append(FileResult(
+                    filename=upload.filename,
+                    status="ok",
+                    periodo=str(periodo),
+                    casilleros_found=len(parsed.get("casilleros", {})),
+                ))
+            else:
+                warnings_acc.append(f"{upload.filename}: no se detectó período")
+                per_file_results.append(FileResult(
+                    filename=upload.filename,
+                    status="warning",
+                    message="no se detectó período",
+                ))
+            last_extracted = {"f104_monthly": monthly}
+        else:
+            # Slots de un solo archivo: construir extracted y salir al terminar el primero
+            if slot_name == "f101":
+                last_extracted = {"f101": parsed["casilleros"]}
+            elif slot_name == "balance":
+                last_extracted = {"balance": parsed["cuentas"]}
+            elif slot_name == "kardex":
+                last_extracted = {"kardex_items": parsed["items"]}
+            elif slot_name == "facturacion":
+                last_extracted = {"facturacion": parsed}
+            elif slot_name == "mayor_exentos":
+                last_extracted = {"mayor_exentos": parsed.get("movimientos", [])}
+            elif slot_name == "mayor_no_deducibles":
+                last_extracted = {"mayor_no_deducibles": parsed.get("movimientos", [])}
+            elif slot_name == "ats":
+                last_extracted = {"ats_pagos_exterior": parsed.get("pagos_exterior", [])}
+            else:
+                last_extracted = {slot_name: parsed}
+            per_file_results.append(FileResult(filename=upload.filename, status="ok"))
+            break  # slots de un solo archivo: solo procesar el primero
+
+    # Si no se procesó ningún archivo con éxito
+    if not last_extracted and not IS_MULTI:
+        # Todos fallaron (solo llega aquí si hubo error y ya se retornó arriba)
         return UploadResponse(
-            anexo_code=anexo_code, status=anexo.status,
-            warnings=anexo.warnings or [],
-            filename=file.filename, size_bytes=len(data),
+            anexo_code=anexo_code, status="error",
+            warnings=warnings_acc,
+            filename=last_filename, size_bytes=total_bytes,
+            files_processed=0,
+            per_file=per_file_results,
         )
 
-    ict_service.save_uploaded_file(
-        session_id=session_id, anexo_code=anexo_code,
-        slot_name=slot_name, filename=file.filename, data=data,
-    )
-
-    if slot_name == "f101":
-        extracted = {"f101": parsed["casilleros"]}
-    elif slot_name == "balance":
-        extracted = {"balance": parsed["cuentas"]}
-    elif slot_name == "kardex":
-        extracted = {"kardex_items": parsed["items"]}
-    elif slot_name == "f104":
-        # F-104 uploads one month at a time; accumulate into f104_monthly dict
-        existing_anexo = next((a for a in session.anexos if a.anexo_code == anexo_code), None)
-        existing_data = (existing_anexo.extracted_data if existing_anexo else None) or {}
-        monthly: dict = dict(existing_data.get("f104_monthly") or {})
-        periodo = parsed.get("periodo") if parsed else None
-        if periodo:
-            # Key by the month portion: "01/2025" → "01"
-            mes_key = periodo.split("/")[0].strip() if "/" in str(periodo) else str(periodo).strip()
-            monthly[mes_key] = parsed
-        extracted = {"f104_monthly": monthly}
-    elif slot_name == "facturacion":
-        extracted = {"facturacion": parsed}
-    elif slot_name == "mayor_exentos":
-        extracted = {"mayor_exentos": parsed.get("movimientos", [])}
-    elif slot_name == "mayor_no_deducibles":
-        extracted = {"mayor_no_deducibles": parsed.get("movimientos", [])}
-    elif slot_name == "ats":
-        extracted = {"ats_pagos_exterior": parsed.get("pagos_exterior", [])}
+    if IS_MULTI:
+        last_extracted = {"f104_monthly": monthly}
+        # Nombre descriptivo para el meta: "f104_01.pdf" si 1, "3 archivos" si varios
+        ok_count = sum(1 for r in per_file_results if r.status == "ok")
+        meta_filename = last_filename if ok_count == 1 else f"{ok_count} archivos F-104"
+        meta_size = total_bytes
     else:
-        extracted = {slot_name: parsed}
+        meta_filename = last_filename
+        meta_size = last_size
 
+    # Calcular nuevo estado del anexo
     required = ANEXO_REQUIRED_SLOTS.get(anexo_code, [])
+    # Refrescar existing_anexo porque puede haber sido actualizado durante el loop
     existing_anexo = next((a for a in session.anexos if a.anexo_code == anexo_code), None)
     existing_files = (existing_anexo.uploaded_files if existing_anexo else None) or {}
     new_files_keys = set(existing_files.keys()) | {slot_name}
@@ -248,16 +316,23 @@ async def upload_for_anexo_endpoint(
 
     anexo = ict_service.update_anexo_data(
         db, session=session, anexo_code=anexo_code,
-        extracted_data=extracted, warnings=parsed.get("errores", []),
-        uploaded_file_meta={"slot": slot_name, "filename": file.filename, "size": len(data)},
+        extracted_data=last_extracted,
+        warnings=warnings_acc,
+        uploaded_file_meta={"slot": slot_name, "filename": meta_filename, "size": meta_size},
         new_status=new_status,
     )
     ict_service.recompute_indice(db, session=session)
 
+    files_ok = sum(1 for r in per_file_results if r.status == "ok")
+    first_filename = per_file_results[0].filename if per_file_results else last_filename
+
     return UploadResponse(
         anexo_code=anexo_code, status=anexo.status,
         warnings=anexo.warnings or [],
-        filename=file.filename, size_bytes=len(data),
+        filename=first_filename,
+        size_bytes=total_bytes,
+        files_processed=files_ok,
+        per_file=per_file_results,
     )
 
 
