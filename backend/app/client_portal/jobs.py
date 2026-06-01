@@ -36,6 +36,14 @@ def process_tool_job(job_id: int) -> None:
         _mark_error(job_id, f"Tool {tool_code} no registrada.")
         return
 
+    if tool.processor is None:
+        # Tool externa (p. ej. ICT_2025): tiene su propio flujo y nunca
+        # debería llegar al pipeline genérico. Marca el job en error
+        # explícito para diagnóstico, en lugar de un AttributeError.
+        log.error("process_tool_job: tool %s has no processor (external flow)", tool_code)
+        _mark_error(job_id, f"Tool {tool_code} usa flujo dedicado, no pipeline genérico.")
+        return
+
     try:
         tool.processor(job_id)
     except Exception as e:  # noqa: BLE001

@@ -41,6 +41,7 @@ class ToolOut(BaseModel):
 class CategoryOut(BaseModel):
     id: str
     label: str
+    description: str | None = None
     tools: list[ToolOut]
 
 

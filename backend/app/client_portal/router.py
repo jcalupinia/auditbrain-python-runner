@@ -337,7 +337,12 @@ def get_catalog(
         ))
     return ClientCatalogResponse(
         categories=[
-            CategoryOut(id=c["id"], label=c["label"], tools=tools_by_cat.get(c["id"], []))
+            CategoryOut(
+                id=c["id"],
+                label=c["label"],
+                description=c.get("description"),
+                tools=tools_by_cat.get(c["id"], []),
+            )
             for c in CATEGORIES
         ]
     )

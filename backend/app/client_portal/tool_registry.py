@@ -4,15 +4,17 @@ Cada tool declara:
 - code: string único (ej. "STUB_ECHO", "ICT_2025", "NIIF_9_ECL")
 - label, description, category (para el catálogo)
 - slots: dict de nombre → {mimes_allowed, required, multi}
-- processor: callable(job_id) -> None que el worker invoca
+- processor: callable(job_id) -> None que el worker invoca, o None para
+  herramientas con flujo propio (caso ICT_2025 que tiene su propio
+  router /client/ict/* y frontend dedicado en /tools/ICT_2025).
 
 Nuevas tools se añaden registrando aquí. El resto del pipeline es agnóstico.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Callable
+from dataclasses import dataclass
+from typing import Callable, Optional
 
 
 @dataclass(frozen=True)
@@ -29,7 +31,11 @@ class ToolConfig:
     description: str
     category: str
     slots: dict[str, SlotConfig]
-    processor: Callable[[int], None]
+    # Processor opcional: las tools "externas" (con dashboard propio como
+    # ICT_2025) no usan el pipeline genérico de jobs y no necesitan
+    # processor — el frontend navega a su ruta dedicada y la tool gestiona
+    # su propio ciclo de vida.
+    processor: Optional[Callable[[int], None]] = None
     enabled: bool = True
 
 
@@ -68,6 +74,26 @@ def _stub_echo_processor(job_id: int) -> None:
 
 
 TOOLS: dict[str, ToolConfig] = {
+    # =========================================================
+    # TRIBUTARIAS
+    # =========================================================
+    "ICT_2025": ToolConfig(
+        code="ICT_2025",
+        label="ICT 2025 · Informe de Cumplimiento Tributario",
+        description=(
+            "Genera los 10 anexos oficiales del Informe de Cumplimiento "
+            "Tributario para el SRI (INDICE + A1 a A9) a partir de F-101, "
+            "F-104, ATS y balance mapeado del cliente."
+        ),
+        category="TRIBUTARIAS",
+        slots={},  # vacío — gestiona sus propios uploads vía /client/ict/*
+        processor=None,  # flujo propio, no pipeline genérico
+        enabled=True,
+    ),
+
+    # =========================================================
+    # TESTING (oculto del catálogo público)
+    # =========================================================
     "STUB_ECHO": ToolConfig(
         code="STUB_ECHO",
         label="Stub Echo (testing)",
@@ -96,12 +122,30 @@ def list_enabled_tools() -> list[ToolConfig]:
     return [t for t in TOOLS.values() if t.enabled]
 
 
-# Categorías para el catálogo (más adelante, herramientas NIIF se añaden aquí)
+# Categorías visibles del catálogo. Orden = orden de presentación.
+# Las herramientas dentro de una categoría aún vacía aparecen como
+# "Próximamente" en el portal para señalar la hoja de ruta.
+# La categoría TESTING existe pero NO se incluye aquí para que no aparezca
+# en el catálogo del cliente final (sólo se usa en suites internas).
 CATEGORIES = [
-    {"id": "CUMPLIMIENTO_TRIBUTARIO", "label": "Cumplimiento Tributario"},
-    {"id": "NIIF_CXC", "label": "NIIF - Cuentas por Cobrar"},
-    {"id": "NIIF_INVENTARIOS", "label": "NIIF - Inventarios"},
-    {"id": "NIIF_ACTIVOS_FIJOS", "label": "NIIF - Activos Fijos"},
-    {"id": "NIIF_INGRESOS", "label": "NIIF - Ingresos"},
-    {"id": "TESTING", "label": "Pruebas (interno)"},
+    {
+        "id": "TRIBUTARIAS",
+        "label": "Herramientas Tributarias",
+        "description": "Cumplimiento fiscal, declaraciones SRI, anexos, conciliaciones.",
+    },
+    {
+        "id": "NIIF",
+        "label": "Herramientas NIIF",
+        "description": "Cuentas por cobrar, inventarios, activos fijos, ingresos.",
+    },
+    {
+        "id": "LABORALES",
+        "label": "Herramientas Laborales",
+        "description": "Nómina, IESS, décimos, utilidades, contratos.",
+    },
+    {
+        "id": "SOCIETARIAS",
+        "label": "Herramientas Societarias",
+        "description": "Superintendencia, juntas, actas, distribución de utilidades.",
+    },
 ]
