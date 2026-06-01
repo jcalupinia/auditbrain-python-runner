@@ -33,21 +33,29 @@ async function request(path, opts = {}) {
 }
 
 export async function login(email, password) {
-  const fd = new FormData();
-  fd.append("username", email);
-  fd.append("password", password);
+  // ATENCIÓN: usamos URLSearchParams (NO FormData) para que los caracteres
+  // especiales del email (en particular ``+`` en aliases tipo
+  // ``jcalupinia+cliente@dominio.ec``) se codifiquen como ``%2B`` y no
+  // como espacio. OAuth2PasswordRequestForm de FastAPI espera
+  // ``application/x-www-form-urlencoded`` y aplica decodificación URL
+  // estricta: el ``+`` literal se decodifica como espacio, lo que rompe
+  // el login para emails con alias y devuelve 401 "Credenciales incorrectas".
+  const body = new URLSearchParams();
+  body.append("username", email);
+  body.append("password", password);
   const r = await fetch(`${BASE}/api/v1/client/auth/login`, {
     method: "POST",
-    body: fd,
+    body,
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
     credentials: "include",
   });
-  const body = await r.json();
+  const respBody = await r.json();
   if (!r.ok) {
-    const err = new Error(body?.detail?.message || body?.detail || `HTTP ${r.status}`);
-    err.status = r.status; err.code = body?.detail?.code; throw err;
+    const err = new Error(respBody?.detail?.message || respBody?.detail || `HTTP ${r.status}`);
+    err.status = r.status; err.code = respBody?.detail?.code; throw err;
   }
-  setToken(body.access_token);
-  return body;
+  setToken(respBody.access_token);
+  return respBody;
 }
 
 export async function logout() {
