@@ -5,6 +5,7 @@ from __future__ import annotations
 from openpyxl import Workbook
 
 from backend.app.ict.cell_maps.a9 import A9_CASILLEROS, A9_HEADER_MAP, A9_SHEET
+from backend.app.ict.fillers.helpers import get_casillero_value
 
 
 class A9Filler:
@@ -24,16 +25,16 @@ class A9Filler:
             ws[cell_addr] = session_data.get(key, "")
             filled += 1
 
-        f101 = anexo_data.get("f101", {})
         kardex_items = anexo_data.get("kardex_items", [])
 
         for row_idx, casillero in A9_CASILLEROS.items():
-            valor = f101.get(casillero)
+            # Usa get_casillero_value: F-101 primero, balance_mapeado fallback
+            valor = get_casillero_value(anexo_data, casillero)
             if valor is not None:
                 ws[f"C{row_idx}"] = valor
                 filled += 1
             else:
-                warnings.append(f"Casillero F-101 {casillero} no detectado")
+                warnings.append(f"Casillero F-101 {casillero} no detectado en F-101 ni Balance Mapeado")
 
             # Best-effort: first kardex item (more sophisticated matching in future)
             if kardex_items:
