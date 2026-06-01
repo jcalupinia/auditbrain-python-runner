@@ -89,23 +89,27 @@ def client_login(
             )
 
     if device is None:
-        existing = db.execute(
+        # Multi-device: permitimos hasta MAX_DEVICES_PER_USER dispositivos
+        # activos por usuario (laptop + oficina + casa + incógnito ocasional).
+        # Mantiene la seguridad porque sigue requiriéndose password correcta
+        # para registrar un device nuevo; el JWT sigue siendo "sesión única"
+        # vía el sid claim (login nuevo invalida sesión anterior, aunque sean
+        # del mismo o de distinto device).
+        MAX_DEVICES_PER_USER = 5
+        active_devices = db.execute(
             select(ClientDevice).where(
                 ClientDevice.user_id == user.id,
                 ClientDevice.is_active.is_(True),
             )
-        ).scalars().first()
-        if existing:
-            raise HTTPException(
-                409,
-                detail={
-                    "code": "device_unauthorized",
-                    "message": (
-                        "Ya existe un dispositivo registrado para esta cuenta. "
-                        "Solicite reseteo a soporte si cambió de equipo."
-                    ),
-                },
-            )
+        ).scalars().all()
+
+        if len(active_devices) >= MAX_DEVICES_PER_USER:
+            # Revocar el device más antiguo para hacer espacio (FIFO).
+            # Alternativa: rechazar; preferimos rotación silenciosa para
+            # que el cliente no se vea bloqueado.
+            oldest = min(active_devices, key=lambda d: d.last_seen_at or d.registered_at)
+            device_mod.revoke_device(db, device=oldest, revoked_by_user_id=user.id)
+
         device = device_mod.register_device(
             db,
             user=user,
