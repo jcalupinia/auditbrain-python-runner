@@ -84,6 +84,29 @@ def init_db() -> None:
             with engine.begin() as conn:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"))
 
+    # Portal cliente (M2): ensanchar ``users.role`` para acomodar ``Role.client``
+    # (6 chars). SQLAlchemy ``Enum(..., native_enum=False)`` infiere el VARCHAR
+    # como max(len(value)); antes de añadir el rol ``client``, el max era
+    # ``admin``/``user`` => VARCHAR(5), y la inserción del primer cliente
+    # falla con ``StringDataRightTruncation`` en Postgres. SQLite no enforce
+    # length, así que sólo importa en producción. Idempotente: si la columna
+    # ya es VARCHAR(>=16) (o el dialecto no expone ``length``), no-op.
+    role_col = next(
+        (c for c in inspector.get_columns("users") if c["name"] == "role"), None
+    )
+    if role_col is not None:
+        col_type = role_col.get("type")
+        current_len = getattr(col_type, "length", None)
+        if current_len is not None and current_len < 16:
+            with engine.begin() as conn:
+                try:
+                    conn.execute(
+                        text("ALTER TABLE users ALTER COLUMN role TYPE VARCHAR(16)")
+                    )
+                except Exception:
+                    # SQLite no soporta ALTER COLUMN TYPE; se ignora.
+                    pass
+
     # Migración aditiva en ``tool_jobs``: firma_auditora (M1+), portal cliente (M2).
     if "tool_jobs" in inspector.get_table_names():
         existing_cols = {c["name"] for c in inspector.get_columns("tool_jobs")}
