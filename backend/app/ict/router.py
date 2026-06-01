@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from fastapi.responses import StreamingResponse
 
 from backend.app.ict.parsers.f101_pdf import parse_f101
-from backend.app.ict.parsers.balance_excel import parse_balance
+from backend.app.ict.parsers.balance_mapeado_excel import parse_balance_mapeado
 from backend.app.ict.parsers.kardex_excel import parse_kardex
 from backend.app.ict.parsers.f104_pdf import parse_f104
 from backend.app.ict.parsers.facturacion_sri import parse_facturacion
@@ -17,7 +17,7 @@ from backend.app.ict.parsers.ats_xml import parse_ats
 
 SLOT_PARSERS = {
     "f101": parse_f101,
-    "balance": parse_balance,
+    "balance_mapeado": parse_balance_mapeado,  # Balance Mapeado con casillero SRI pre-asignado por cliente
     "kardex": parse_kardex,
     "f104": parse_f104,
     "facturacion": parse_facturacion,
@@ -27,7 +27,7 @@ SLOT_PARSERS = {
 }
 
 ANEXO_REQUIRED_SLOTS = {
-    "A1": ["f101", "balance"],
+    "A1": ["f101", "balance_mapeado"],
     "A2": ["f104", "facturacion"],
     "A3": ["f101"],
     "A4": ["f101"],          # mayor_exentos is optional (Cuadro 1 detail)
@@ -268,8 +268,8 @@ async def upload_for_anexo_endpoint(
             # Slots de un solo archivo: construir extracted y salir al terminar el primero
             if slot_name == "f101":
                 last_extracted = {"f101": parsed["casilleros"]}
-            elif slot_name == "balance":
-                last_extracted = {"balance": parsed["cuentas"]}
+            elif slot_name == "balance_mapeado":
+                last_extracted = {"balance_mapeado": parsed.get("cuentas", [])}
             elif slot_name == "kardex":
                 last_extracted = {"kardex_items": parsed["items"]}
             elif slot_name == "facturacion":
