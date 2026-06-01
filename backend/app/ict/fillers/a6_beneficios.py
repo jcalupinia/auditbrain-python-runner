@@ -30,6 +30,7 @@ from backend.app.ict.cell_maps.a6 import (
     A6_HEADER_MAP,
     A6_SHEET,
 )
+from backend.app.ict.fillers.helpers import filter_balance_by_casilleros, get_casillero_value
 
 
 def _safe_set(ws, cell_addr: str, value) -> bool:
@@ -72,16 +73,29 @@ class A6Filler:
             if _safe_set(ws, cell_addr, session_data.get(key, "")):
                 filled += 1
 
-        f101: dict[str, float] = anexo_data.get("f101", {}) or {}
+        balance_mapeado: list[dict] = anexo_data.get("balance_mapeado", []) or []
 
         # ── Cuadro A: Deducciones adicionales — casillero 810 ───────────
-        casillero_810 = f101.get("810")
+        # Usa get_casillero_value: F-101 primero, balance_mapeado fallback.
+        casillero_810 = get_casillero_value(anexo_data, "810")
         if casillero_810 is not None:
             if _safe_set(ws, A6_CUADRO_A_CASILLERO_810_CELL, casillero_810):
                 filled += 1
 
         # Cuadro A detail rows: código, nombre, valor_libros
+        # Source priority: deducciones_detail → balance_mapeado casillero 810 items
         deducciones: list[dict] = anexo_data.get("deducciones_detail", []) or []
+        if not deducciones and balance_mapeado:
+            balance_items = filter_balance_by_casilleros(balance_mapeado, {"810"})
+            deducciones = [
+                {
+                    "codigo_cuenta": item.get("codigo", ""),
+                    "nombre_cuenta": item.get("descripcion", ""),
+                    "valor_libros": item.get("saldo", 0.0),
+                }
+                for item in balance_items
+            ]
+
         start_a, end_a = A6_CUADRO_A_RANGE
         max_rows_a = end_a - start_a + 1
 

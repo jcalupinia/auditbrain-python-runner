@@ -23,6 +23,7 @@ from backend.app.ict.cell_maps.a2 import (
     A2_HEADER_MAP,
     A2_SHEET,
 )
+from backend.app.ict.fillers.helpers import get_casillero_value
 
 
 def _safe_set(ws, cell_addr: str, value) -> bool:
@@ -59,11 +60,11 @@ class A2Filler:
             if _safe_set(ws, cell_addr, session_data.get(key, "")):
                 filled += 1
 
-        f101: dict[str, float] = anexo_data.get("f101", {})
         f104_monthly: dict[str, dict] = anexo_data.get("f104_monthly", {})
         facturacion: dict = anexo_data.get("facturacion", {})
 
         # ── Cuadro 1: Ingresos Ordinarios ────────────────────────────────
+        # Usa get_casillero_value: F-101 primero, balance_mapeado fallback
         for (concepto, col), casillero in A2_CUADRO1_CASILLERO_MAP.items():
             row = next(
                 (r for r, c in A2_CUADRO1_ROWS.items() if c == concepto), None
@@ -71,7 +72,7 @@ class A2Filler:
             if row is None:
                 warnings.append(f"A2 Cuadro1: concepto '{concepto}' no hallado en mapa de filas")
                 continue
-            val = f101.get(str(casillero))
+            val = get_casillero_value(anexo_data, str(casillero))
             if val is not None and val != 0:
                 if _safe_set(ws, f"{col}{row}", val):
                     filled += 1
@@ -80,7 +81,7 @@ class A2Filler:
                 if concepto in ("ventas_bienes", "ventas_servicios"):
                     warnings.append(
                         f"A2 Cuadro1: casillero {casillero} ({concepto} col {col}) "
-                        "no encontrado en F-101"
+                        "no encontrado en F-101 ni Balance Mapeado"
                     )
 
         # ── Cuadro 2: IVA vs Facturación ─────────────────────────────────
