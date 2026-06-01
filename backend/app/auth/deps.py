@@ -151,6 +151,7 @@ def require_client_with_device(
     email = payload.get("sub")
     jwt_role = payload.get("role")
     jwt_sid = payload.get("sid")
+    jwt_did = payload.get("did")
 
     if jwt_role != Role.client.value:
         raise HTTPException(403, detail="Acceso reservado a clientes.")
@@ -170,12 +171,22 @@ def require_client_with_device(
         )
 
     # Layer 2: device binding
-    if not device_id:
+    # Preferimos la cookie ``device_id`` (httponly, protección anti-XSS y
+    # anti-replay), pero los browsers modernos (Chrome incógnito + Privacy
+    # Sandbox) bloquean cookies cross-site aunque tengan
+    # ``SameSite=None; Secure`` cuando el frontend y backend viven en
+    # subdominios distintos bajo la Public Suffix List (caso *.onrender.com).
+    # Fallback: el ``did`` claim que ya viaja en el JWT permite validar el
+    # dispositivo aunque la cookie no llegue. El JWT está firmado, por lo
+    # que un atacante no puede forjar el ``did``. Sigue requiriéndose que
+    # el fingerprint del request coincida con el del registro persistido.
+    effective_device_id = device_id or jwt_did
+    if not effective_device_id:
         raise HTTPException(
             409,
             detail={
                 "code": CLIENT_DEVICE_UNAUTHORIZED_CODE,
-                "message": "Falta cookie de dispositivo. Inicie sesión nuevamente.",
+                "message": "Falta identificador de dispositivo. Inicie sesión nuevamente.",
             },
         )
 
@@ -185,7 +196,7 @@ def require_client_with_device(
         accept_encoding=request.headers.get("accept-encoding", ""),
     )
     device = validate_device(
-        db, user=user, device_id=device_id, fingerprint_hash=fingerprint
+        db, user=user, device_id=effective_device_id, fingerprint_hash=fingerprint
     )
     if device is None:
         raise HTTPException(
