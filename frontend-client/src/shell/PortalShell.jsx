@@ -27,6 +27,38 @@ function BrandMark({ size = 28 }) {
   );
 }
 
+/**
+ * Logo corporativo de Audit Consulting Group con fallback al BrandMark+texto
+ * cuando la imagen no carga (entornos sin la asset, vista previa rápida, etc.).
+ */
+function CorporateLogo() {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <>
+        <BrandMark size={30} />
+        <div className="pc-brand-txt">
+          <span>AUDIT CONSULTING</span>
+          <b>GROUP</b>
+        </div>
+      </>
+    );
+  }
+  return (
+    <img
+      src="/assets/logo-auditconsulting-group.png"
+      alt="Audit Consulting Group"
+      onError={() => setFailed(true)}
+      style={{
+        maxHeight: 44,
+        maxWidth: "100%",
+        objectFit: "contain",
+        filter: "drop-shadow(0 1px 4px rgba(0,0,0,0.4))",
+      }}
+    />
+  );
+}
+
 export default function PortalShell({
   title = "PORTAL CLIENTES",
   subtitle = "Workspace de Cumplimiento e Inteligencia",
@@ -67,13 +99,9 @@ export default function PortalShell({
     <div className={`pc${navOpen ? " nav-open" : ""}`}>
       {navOpen && <div className="pc-scrim" onClick={() => setNavOpen(false)} />}
 
-      {/* ----- Brand cell (esq sup izq) ----- */}
+      {/* ----- Brand cell (esq sup izq) — logo PNG real ----- */}
       <div className="pc-brand-cell">
-        <BrandMark size={30} />
-        <div className="pc-brand-txt">
-          <span>AUDIT CONSULTING</span>
-          <b>GROUP</b>
-        </div>
+        <CorporateLogo />
       </div>
 
       {/* ----- Sidebar izquierdo (módulos = categorías) ----- */}

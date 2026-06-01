@@ -41,11 +41,16 @@
 /* -------- Brand cell (esq sup izq) -------- */
 .pc-brand-cell {
   grid-area: brand;
-  display: flex; align-items: center; gap: 12px;
-  padding: 14px 18px;
+  display: flex; align-items: center; justify-content: center;
+  gap: 12px;
+  padding: 10px 14px;
+  min-height: 64px;
   border-right: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   background: var(--panel);
+}
+.pc-brand-cell img {
+  display: block;
 }
 .pc-brand-txt {
   display: flex; flex-direction: column; line-height: 1.15;
