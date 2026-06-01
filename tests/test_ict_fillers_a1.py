@@ -1,9 +1,9 @@
-"""Tests for A1 Mapeo filler with dynamic row insertion."""
+"""Tests for A1 Mapeo filler using Balance Mapeado (casillero pre-asignado)."""
 from backend.app.ict.fillers.base import load_template
 from backend.app.ict.fillers.a1_mapeo import A1Filler
 
 
-def test_a1_filler_writes_casillero_with_subaccounts():
+def test_a1_filler_writes_casillero_with_balance_mapeado_items():
     wb = load_template()
     filler = A1Filler()
     session_data = {
@@ -14,33 +14,45 @@ def test_a1_filler_writes_casillero_with_subaccounts():
     }
     anexo_data = {
         "f101": {"311": 5008023.09},
-        "balance": {
-            "1.1.01.01.01": {"nombre": "CAJA CHICA UIO", "saldo": 300.00},
-            "1.1.01.01.02": {"nombre": "CAJA CHICA SSFD", "saldo": 1000.00},
-            "1.1.01.02.01": {"nombre": "BANCO PICHINCHA", "saldo": 280330.14},
-        },
+        "balance_mapeado": [
+            {"casillero_sri": "311", "codigo": "5BS.11101.002", "descripcion": "CAJA CHICA UIO", "saldo": 300.00},
+            {"casillero_sri": "311", "codigo": "5BS.11102.001", "descripcion": "BANCO RUMINAHUI", "saldo": 529181.54},
+            {"casillero_sri": "315", "codigo": "5BS.11201.001", "descripcion": "CLIENTES NO RELACIONADOS", "saldo": 218548.45},
+        ],
     }
     result = filler.fill(wb, session_data, anexo_data)
     assert result["filled_cells"] > 0
 
     ws = wb["MAPEO DE LA DECLARACIÓN A1"]
-    found_row = None
+    found_311 = None
     for r in range(10, 30):
         if ws[f"A{r}"].value == "311":
-            found_row = r
+            found_311 = r
             break
-    assert found_row is not None, "Casillero 311 not written"
-    assert ws[f"D{found_row}"].value == "1.1.01.01.01"
-    assert ws[f"F{found_row}"].value == 300.00
+    assert found_311 is not None
+    assert ws[f"D{found_311}"].value == "5BS.11101.002"
+    assert ws[f"F{found_311}"].value == 300.00
 
 
-def test_a1_filler_warns_for_casillero_without_balance_match():
+def test_a1_filler_warns_when_casillero_has_no_balance_items():
     wb = load_template()
     filler = A1Filler()
-    session_data = {"razon_social": "X", "ruc": "1", "ejercicio_fiscal": "2025", "numero_adhesivo": ""}
-    anexo_data = {
-        "f101": {"311": 1000.0},
-        "balance": {},
+    sess = {"razon_social": "X", "ruc": "1", "ejercicio_fiscal": "2025", "numero_adhesivo": ""}
+    data = {"f101": {"311": 1000.0}, "balance_mapeado": []}
+    result = filler.fill(wb, sess, data)
+    assert any("balance mapeado" in w.lower() or "balance" in w.lower() for w in result["warnings"])
+
+
+def test_a1_filler_notes_extra_casilleros_not_in_a1():
+    wb = load_template()
+    filler = A1Filler()
+    sess = {"razon_social": "X", "ruc": "1", "ejercicio_fiscal": "2025", "numero_adhesivo": ""}
+    # 999 is not in A1_CASILLEROS_ORDERED
+    data = {
+        "f101": {},
+        "balance_mapeado": [
+            {"casillero_sri": "999", "codigo": "X", "descripcion": "Test", "saldo": 100.0},
+        ],
     }
-    result = filler.fill(wb, session_data, anexo_data)
-    assert any("subcuentas" in w.lower() or "balance" in w.lower() for w in result["warnings"])
+    result = filler.fill(wb, sess, data)
+    assert any("no se mapean" in w.lower() or "otros anexos" in w.lower() for w in result["warnings"])

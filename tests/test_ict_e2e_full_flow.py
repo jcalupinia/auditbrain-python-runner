@@ -62,10 +62,12 @@ def logged_client(client, db_session):
     }
 
 
-def _make_balance_xlsx(rows):
+def _make_balance_mapeado_xlsx(rows):
+    """Create a Balance Mapeado Excel with casillero SRI pre-assigned in column D."""
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.append(["Código", "Nombre", "Saldo Final"])
+    ws.append(["Cod.Cuenta.Contable", "Descripción Cuenta Contable", "CODIFO SUPER CIAS",
+               "Códigos SRI", "Saldos 31 DIC"])
     for r in rows:
         ws.append(r)
     buf = io.BytesIO()
@@ -75,7 +77,7 @@ def _make_balance_xlsx(rows):
 
 
 def test_full_ict_flow_create_upload_download(client, logged_client):
-    """Smoke test: create session, upload Balance to A1, download Excel, verify it parses."""
+    """Smoke test: create session, upload Balance Mapeado to A1, download Excel, verify it parses."""
     # Step 1: create session
     r = client.post(
         "/api/v1/client/ict/sessions",
@@ -94,21 +96,21 @@ def test_full_ict_flow_create_upload_download(client, logged_client):
     session_id = session["id"]
     assert session["razon_social"] == "Test S.A."
 
-    # Step 2: upload Balance to A1
-    balance_xlsx = _make_balance_xlsx([
-        ("1.1.01.01.01", "CAJA CHICA", 300.0),
-        ("1.1.01.02.01", "BANCO PICHINCHA", 50000.0),
+    # Step 2: upload Balance Mapeado to A1 (casillero SRI pre-asignado por cliente)
+    balance_xlsx = _make_balance_mapeado_xlsx([
+        ("5BS.11101.002", "CAJA CHICA", "1010101", "311", 300.0),
+        ("5BS.11102.001", "BANCO PICHINCHA", "1010103", "311", 50000.0),
     ])
     r2 = client.post(
         f"/api/v1/client/ict/sessions/{session_id}/anexos/A1/upload",
         files={
             "files": (
-                "balance.xlsx",
+                "balance_mapeado.xlsx",
                 io.BytesIO(balance_xlsx),
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
         },
-        data={"slot_name": "balance"},
+        data={"slot_name": "balance_mapeado"},
         headers=logged_client["headers"],
         cookies=logged_client["cookies"],
     )

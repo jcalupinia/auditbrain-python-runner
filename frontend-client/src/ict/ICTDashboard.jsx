@@ -18,8 +18,8 @@ const ANEXOS_INFO = [
     name: "A1 · Mapeo de la Declaración",
     desc: "Cruce casilleros F-101 con balance",
     slots: [
-      { key: "f101",    label: "Formulario 101 (PDF)",               required: true  },
-      { key: "balance", label: "Balance de Comprobación (Excel)",     required: true  },
+      { key: "f101",            label: "Formulario 101 (PDF)",                         required: true },
+      { key: "balance_mapeado", label: "Balance Mapeado (Excel — con códigos SRI)",    required: true },
     ],
   },
   {
