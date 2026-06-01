@@ -113,13 +113,24 @@ def client_login(
             user_agent=request.headers.get("user-agent"),
             ip=ip,
         )
+        # Cookie del dispositivo: cross-site obligatorio porque el backend
+        # (auditbrain-python-runner.onrender.com) y el portal cliente
+        # (auditbrain-clientes.onrender.com) viven bajo *.onrender.com, que
+        # está en la Public Suffix List y por tanto el navegador trata cada
+        # subdominio como un sitio distinto. ``samesite="strict"`` impide que
+        # la cookie viaje en cross-site fetch desde el portal, causando
+        # ``device_unauthorized`` en todas las llamadas siguientes y
+        # rompiendo el cambio de contraseña / ICT / etc. Solución: en
+        # producción ``samesite="none"`` + ``secure=True`` (httponly mantiene
+        # la cookie inaccesible a JS, y el modelo de seguridad descansa en
+        # la triple validación Bearer+sid+device, no en CSRF tradicional).
         response.set_cookie(
             key="device_id",
             value=device.device_id,
             max_age=60 * 60 * 24 * 365,
             httponly=True,
             secure=not _is_test,
-            samesite="lax" if _is_test else "strict",
+            samesite="lax" if _is_test else "none",
         )
 
     sid = start_new_session(db, user=user)

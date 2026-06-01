@@ -30,7 +30,18 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password) => {
     const r = await api.login(email, password);
-    await refresh();
+    // Si el usuario debe cambiar contraseña, NO llamamos a me() todavía:
+    // el endpoint requiere device validation y la cookie device_id recién
+    // seteada puede no haberse propagado, lo cual borraría el token (vía
+    // refresh() catch). Marcamos un usuario "parcial" sólo para que las
+    // pantallas protegidas detecten password_reset_required y redirijan
+    // a /change-password sin perder el token Bearer.
+    if (r.password_reset_required) {
+      setUser({ email, password_reset_required: true });
+      setLoading(false);
+    } else {
+      await refresh();
+    }
     return r;
   };
 
