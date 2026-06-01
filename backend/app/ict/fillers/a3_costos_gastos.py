@@ -23,6 +23,7 @@ from backend.app.ict.cell_maps.a3 import (
     A3_SHEET,
     MANUAL_PREFIX,
 )
+from backend.app.ict.fillers.helpers import get_casillero_value
 
 
 def _safe_set(ws, cell_addr: str, value) -> bool:
@@ -34,20 +35,22 @@ def _safe_set(ws, cell_addr: str, value) -> bool:
     return True
 
 
-def _resolve_casillero(casillero_key: str, f101: dict[str, float]) -> tuple[float | None, bool]:
-    """Resolve a casillero key to its numeric value from F-101.
+def _resolve_casillero(casillero_key: str, anexo_data: dict) -> tuple[float | None, bool]:
+    """Resolve a casillero key to its numeric value.
+
+    Tries F-101 first; falls back to aggregated balance_mapeado.
 
     Returns (value, found):
-        value — float sum (0.0 for missing individual parts)
-        found — True if at least one individual casillero was present in f101
+        value — float sum (0.0 for missing individual parts of compound casilleros)
+        found — True if at least one individual casillero was present
     """
     if casillero_key in A3_COMPOUND_CASILLEROS:
         parts = A3_COMPOUND_CASILLEROS[casillero_key]
-        found = any(str(p) in f101 for p in parts)
-        total = sum(f101.get(str(p), 0.0) for p in parts)
+        found = any(get_casillero_value(anexo_data, str(p)) is not None for p in parts)
+        total = sum(get_casillero_value(anexo_data, str(p), default=0.0) or 0.0 for p in parts)
         return total, found
     else:
-        val = f101.get(str(casillero_key))
+        val = get_casillero_value(anexo_data, str(casillero_key))
         return val, val is not None
 
 
@@ -74,8 +77,6 @@ class A3Filler:
             if _safe_set(ws, cell_addr, session_data.get(key, "")):
                 filled += 1
 
-        f101: dict[str, float] = anexo_data.get("f101", {})
-
         # ── Bloques ─────────────────────────────────────────────────────────
         for bloque_name, rows in A3_BLOQUES:
             for (row, casillero_key, col) in rows:
@@ -83,7 +84,7 @@ class A3Filler:
                 if casillero_key.startswith(MANUAL_PREFIX):
                     continue
 
-                val, found = _resolve_casillero(casillero_key, f101)
+                val, found = _resolve_casillero(casillero_key, anexo_data)
 
                 if not found:
                     warnings.append(

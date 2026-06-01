@@ -27,6 +27,7 @@ from backend.app.ict.cell_maps.a7 import (
     A7_MATRIZ_ISD,
     A7_SHEET,
 )
+from backend.app.ict.fillers.helpers import get_casillero_value
 
 # Formula columns that must NOT be overwritten
 _IR_FORMULA_COLS = {"H", "Q", "S"}
@@ -117,6 +118,12 @@ class A7Filler:
                         or year_data.get("850")
                         or year_data.get("851")
                     )
+                    # For the latest year, fall back to balance_mapeado casilleros 850/851
+                    if not val and year == max(A7_MATRIZ_IR["years"]):
+                        val = (
+                            get_casillero_value(anexo_data, "850")
+                            or get_casillero_value(anexo_data, "851")
+                        )
                 else:
                     val = year_data.get(col_key)
 
