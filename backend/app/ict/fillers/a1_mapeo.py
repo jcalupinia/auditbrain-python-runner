@@ -83,7 +83,8 @@ class A1Filler:
         "361": "ACT_CORR",      "449": "ACT_NO_CORR",
         "550": "PAS_CORR",      "589": "PAS_NO_CORR",
         "698": "PATRIMONIO",
-        "1005": "ING_ORD",      "6999": "INGRESOS",
+        "1005": "ING_ORD",      "1045": "ING_NO_OP",
+        "6999": "INGRESOS",
         "7991": "COSTOS_OP",    "7992": "GASTOS",
     }
     COMPOSITE_TOTALS = {
@@ -101,7 +102,8 @@ class A1Filler:
         "ACT_CORR":    "311",   "ACT_NO_CORR": "362",
         "PAS_CORR":    "511",   "PAS_NO_CORR": "555",   # 555 es el primero en cell_map
         "PATRIMONIO":  "601",
-        "ING_ORD":     "6001",  "INGRESOS":    "6001",
+        "ING_ORD":     "6001",  "ING_NO_OP":   "6033",
+        "INGRESOS":    "6001",
         "COSTOS_OP":   "7001",  "GASTOS":      "7173",
     }
 
@@ -350,6 +352,43 @@ class A1Filler:
                 f"{cuentas_huerfanas} cuentas NO mapean al A1 (se trasladan a "
                 f"A2-A9 vía shared_context): {sorted(extra_casilleros)[:10]}"
                 f"{'...' if len(extra_casilleros) > 10 else ''}"
+            )
+
+        # === REGLA RUNTIME: cada TOTAL DEBE tener fórmula en F y valor en C ===
+        # Si esta validación falla, significa que en algún punto el filler
+        # NO escribió la fórmula SUM en F<row_total> o no recibió el valor
+        # declarado en C, y la VERIFICACIÓN A1 saldrá con columnas vacías
+        # (el bug que reportó el usuario). Esto NO falla el job — sólo
+        # agrega warnings explícitos al output para que el auditor sepa.
+        # El test en tests/test_ict_a1_totales_regla.py es la guardia
+        # estática que evita la regresión en CI.
+        totales_sin_F = []
+        totales_sin_C = []
+        for grp in casillero_groups:
+            cas = grp["casillero"]
+            if not grp.get("is_total"):
+                continue
+            r = grp["row_start"]
+            f_val = ws[f"F{r}"].value
+            if not (isinstance(f_val, str) and f_val.startswith("=")):
+                totales_sin_F.append(f"cas {cas} (fila {r})")
+            c_val = ws[f"C{r}"].value
+            if c_val is None or c_val == "":
+                totales_sin_C.append(f"cas {cas} (fila {r})")
+
+        if totales_sin_F:
+            warnings.append(
+                f"⚠ REGLA TOTAL: {len(totales_sin_F)} casilleros TOTAL sin "
+                f"fórmula SUM en F (saldo contable): {totales_sin_F}. "
+                f"Revisar PRIMARY_TOTAL_BLOCKS y COMPOSITE_TOTALS en "
+                f"a1_mapeo.py."
+            )
+        if totales_sin_C:
+            warnings.append(
+                f"⚠ REGLA TOTAL: {len(totales_sin_C)} casilleros TOTAL sin "
+                f"valor en C (declarado F-101): {totales_sin_C}. "
+                f"El F-101 del cliente no declaró estos totales o el parser "
+                f"f101_pdf.py los está perdiendo."
             )
 
         # === Aplicar formato profesional al A1 ===
