@@ -160,58 +160,222 @@ def safe_set(
 
 
 def write_trace_sheet(workbook: Workbook) -> None:
-    """Añade una hoja '📋 Trazabilidad' al final del workbook con el log.
+    """Genera la hoja TRAZABILIDAD como dashboard interactivo.
 
-    Cada escritura exitosa aparece como una fila con: Anexo, Casillero SRI,
-    Hoja destino, Celda destino, Origen, Valor, Estado.
+    Diseño:
+      - Header con título y stats arriba
+      - KPI Cards con cifras clave (total escrituras, por anexo)
+      - Tabla principal con autofilter en cada columna
+      - Formato condicional: color de fondo distinto por anexo
+      - Iconos en columna Estado: ✓ escritura ok, ⚠ omitida por fórmula, ⛌ merged
+      - Freeze panes para mantener headers visibles
+      - Hipervínculos a la celda destino real para navegar rápido
 
-    Si el trace está vacío (p. ej. fillers que no usan safe_set) se crea
-    igualmente la hoja con encabezados y una nota explicativa.
+    Pensado para que el auditor pueda filtrar por anexo, por casillero,
+    por sheet o por estado y verificar el linaje origen→destino al instante.
     """
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+    from collections import Counter
+
     trace = get_trace()
 
-    # Evita duplicado si ya existe (regenerar limpio)
     SHEET_NAME = "TRAZABILIDAD"
     if SHEET_NAME in workbook.sheetnames:
         del workbook[SHEET_NAME]
-
     ws = workbook.create_sheet(SHEET_NAME)
 
-    # Header
-    headers = [
-        "Anexo", "Casillero SRI", "Hoja destino", "Celda destino",
-        "Origen", "Valor", "Estado",
-    ]
-    for col, h in enumerate(headers, start=1):
-        c = ws.cell(row=1, column=col, value=h)
-        c.font = c.font.copy(bold=True)
-
-    # Filas: solo escrituras EXITOSAS (las "written"). Las skipped sirven
-    # como meta-auditoría pero saturarían la hoja al cliente.
+    # ---- Stats globales ----
     written = [t for t in trace if t.get("status") == "written"]
-    for i, entry in enumerate(written, start=2):
-        ws.cell(row=i, column=1, value=entry.get("anexo", ""))
-        ws.cell(row=i, column=2, value=entry.get("casillero", ""))
-        ws.cell(row=i, column=3, value=entry.get("sheet", ""))
-        ws.cell(row=i, column=4, value=entry.get("cell", ""))
-        ws.cell(row=i, column=5, value=entry.get("origen", ""))
-        val = entry.get("valor", "")
-        # Excel acepta los tipos primitivos directamente
-        ws.cell(row=i, column=6, value=val if (isinstance(val, (int, float, str)) or val is None) else str(val))
-        ws.cell(row=i, column=7, value=entry.get("status", ""))
+    skipped_f = [t for t in trace if t.get("status") == "skipped_formula"]
+    skipped_m = [t for t in trace if t.get("status") == "skipped_merged"]
+    by_anexo = Counter(t.get("anexo", "—") for t in written)
 
-    # Ancho razonable para columnas (no perfecto pero útil)
-    widths = [10, 16, 32, 14, 50, 18, 16]
-    from openpyxl.utils import get_column_letter
-    for i, w in enumerate(widths, start=1):
-        ws.column_dimensions[get_column_letter(i)].width = w
+    # ---- Estilos ----
+    THIN = Side(border_style="thin", color="A0A0A0")
+    MEDIUM = Side(border_style="medium", color="2D5F8B")
+    BORDER_DATA = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
+    BORDER_KPI = Border(left=MEDIUM, right=MEDIUM, top=MEDIUM, bottom=MEDIUM)
+
+    FONT_TITLE = Font(name="Calibri", size=18, bold=True, color="FFFFFF")
+    FONT_KPI_LABEL = Font(name="Calibri", size=9, bold=True, color="5A6575")
+    FONT_KPI_VALUE = Font(name="Calibri", size=18, bold=True, color="2D5F8B")
+    FONT_HEADER = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+    FONT_DATA = Font(name="Calibri", size=9)
+    FONT_LEGEND = Font(name="Calibri", size=9, italic=True, color="5A6575")
+    FILL_TITLE = PatternFill("solid", fgColor="1F3A5F")
+    FILL_HEADER = PatternFill("solid", fgColor="4A7BA8")
+    FILL_KPI_BG = PatternFill("solid", fgColor="F4F7FB")
+
+    # Color por anexo (paleta tenue)
+    ANEXO_COLORS = {
+        "INDICE": "FFF9C4",  # amarillo claro
+        "A1":     "E1F5FE",  # azul claro
+        "A2":     "E8F5E9",  # verde claro
+        "A3":     "FCE4EC",  # rosa claro
+        "A4":     "F3E5F5",  # morado claro
+        "A5":     "FFF3E0",  # naranja claro
+        "A6":     "E0F2F1",  # turquesa claro
+        "A7":     "E8EAF6",  # índigo claro
+        "A8":     "FFEBEE",  # rojo claro
+        "A9":     "F1F8E9",  # lima claro
+    }
+
+    # ---- Título ----
+    ws.merge_cells("A1:G2")
+    tcell = ws.cell(1, 1, value="🔗 TRAZABILIDAD · Linaje origen → destino")
+    tcell.font = FONT_TITLE
+    tcell.fill = FILL_TITLE
+    tcell.alignment = Alignment(horizontal="left", vertical="center", indent=2)
+    ws.row_dimensions[1].height = 22
+    ws.row_dimensions[2].height = 22
+
+    # ---- KPI Cards (fila 4-6) ----
+    def kpi(row, col, label, value, color="default"):
+        ws.cell(row, col, value=label).font = FONT_KPI_LABEL
+        ws.cell(row, col).fill = FILL_KPI_BG
+        ws.cell(row, col).alignment = Alignment(horizontal="center", vertical="center")
+        ws.merge_cells(start_row=row, start_column=col, end_row=row, end_column=col+1)
+
+        v = ws.cell(row+1, col, value=value)
+        v.font = FONT_KPI_VALUE
+        v.fill = FILL_KPI_BG
+        v.alignment = Alignment(horizontal="center", vertical="center")
+        ws.merge_cells(start_row=row+1, start_column=col, end_row=row+2, end_column=col+1)
+
+        for r in (row, row+1, row+2):
+            for c in (col, col+1):
+                ws.cell(r, c).border = BORDER_KPI
+
+    kpi(4, 1, "ESCRITURAS EXITOSAS", f"{len(written):,}")
+    kpi(4, 3, "FÓRMULAS PROTEGIDAS", f"{len(skipped_f):,}")
+    kpi(4, 5, "CELDAS MERGED", f"{len(skipped_m):,}")
+
+    # ---- Stats por anexo (fila 8) ----
+    ws.cell(8, 1, value="Por anexo:").font = Font(name="Calibri", size=10, bold=True)
+    col_offset = 2
+    for anexo, count in sorted(by_anexo.items()):
+        c1 = ws.cell(8, col_offset, value=anexo)
+        c1.font = Font(name="Calibri", size=9, bold=True)
+        c1.alignment = Alignment(horizontal="center")
+        c1.fill = PatternFill("solid", fgColor=ANEXO_COLORS.get(anexo, "EEEEEE"))
+        c1.border = BORDER_DATA
+        c2 = ws.cell(9, col_offset, value=count)
+        c2.font = Font(name="Calibri", size=10, bold=True, color="2D5F8B")
+        c2.alignment = Alignment(horizontal="center")
+        c2.fill = PatternFill("solid", fgColor=ANEXO_COLORS.get(anexo, "EEEEEE"))
+        c2.border = BORDER_DATA
+        col_offset += 1
+
+    # ---- Leyenda ----
+    legend_row = 11
+    leg = ws.cell(legend_row, 1, value=(
+        "Leyenda: ✓ Escritura exitosa · ⚠ Omitida (era fórmula del template, se respetó) · "
+        "⛌ Omitida (era celda combinada) · Filtra por columna usando las flechitas del encabezado."
+    ))
+    leg.font = FONT_LEGEND
+    ws.merge_cells(start_row=legend_row, start_column=1, end_row=legend_row, end_column=7)
+
+    # ---- Tabla principal de escrituras (con autofilter) ----
+    table_start = 13
+    headers = ["Anexo", "Casillero", "Hoja", "Celda", "Valor escrito", "Origen", "Estado"]
+    for i, h in enumerate(headers, start=1):
+        c = ws.cell(table_start, i, value=h)
+        c.font = FONT_HEADER
+        c.fill = FILL_HEADER
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border = BORDER_DATA
+    ws.row_dimensions[table_start].height = 26
+
+    # Combinar TODAS las entradas (written + skipped) para auditoría completa
+    all_entries = sorted(trace, key=lambda x: (x.get("anexo", ""), x.get("sheet", ""), x.get("cell", "")))
+
+    STATUS_ICON = {
+        "written": "✓ OK",
+        "skipped_formula": "⚠ Fórmula respetada",
+        "skipped_merged": "⛌ Celda combinada",
+        "error": "✗ Error",
+    }
+
+    for i, entry in enumerate(all_entries, start=table_start + 1):
+        anexo = entry.get("anexo", "")
+        casillero = entry.get("casillero", "")
+        sheet = entry.get("sheet", "")
+        cell_addr = entry.get("cell", "")
+        valor = entry.get("valor", "")
+        origen = entry.get("origen", "")
+        status = entry.get("status", "")
+        status_disp = STATUS_ICON.get(status, status)
+
+        # Fila completa con fondo del color del anexo
+        fill_row = PatternFill("solid", fgColor=ANEXO_COLORS.get(anexo, "FFFFFF"))
+
+        # Anexo
+        c1 = ws.cell(i, 1, value=anexo)
+        c1.font = Font(name="Calibri", size=9, bold=True, color="2D5F8B")
+        c1.alignment = Alignment(horizontal="center", vertical="center")
+        # Casillero
+        c2 = ws.cell(i, 2, value=casillero)
+        c2.font = FONT_DATA
+        c2.alignment = Alignment(horizontal="center", vertical="center")
+        # Hoja
+        c3 = ws.cell(i, 3, value=sheet)
+        c3.font = FONT_DATA
+        c3.alignment = Alignment(horizontal="left", vertical="center")
+        # Celda destino con hipervínculo
+        c4 = ws.cell(i, 4, value=cell_addr)
+        c4.font = Font(name="Calibri", size=9, color="2D5F8B", underline="single")
+        c4.alignment = Alignment(horizontal="center", vertical="center")
+        try:
+            # Hipervínculo a la hoja+celda real del anexo
+            safe_sheet_ref = f"'{sheet}'!{cell_addr}" if " " in sheet else f"{sheet}!{cell_addr}"
+            c4.hyperlink = f"#{safe_sheet_ref}"
+        except Exception:
+            pass
+        # Valor
+        c5 = ws.cell(i, 5, value=valor if isinstance(valor, (int, float, str)) else str(valor))
+        c5.font = FONT_DATA
+        if isinstance(valor, (int, float)) and not isinstance(valor, bool):
+            c5.number_format = '#,##0.00;-#,##0.00;"—"'
+            c5.alignment = Alignment(horizontal="right", vertical="center")
+        else:
+            c5.alignment = Alignment(horizontal="left", vertical="center")
+        # Origen
+        c6 = ws.cell(i, 6, value=origen)
+        c6.font = FONT_DATA
+        c6.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        # Estado
+        c7 = ws.cell(i, 7, value=status_disp)
+        if status == "written":
+            c7.font = Font(name="Calibri", size=9, color="2E7D32", bold=True)
+        elif status == "skipped_formula":
+            c7.font = Font(name="Calibri", size=9, color="EF6C00")
+        elif status == "skipped_merged":
+            c7.font = Font(name="Calibri", size=9, color="757575")
+        else:
+            c7.font = Font(name="Calibri", size=9, color="C62828")
+        c7.alignment = Alignment(horizontal="center", vertical="center")
+
+        for c in range(1, 8):
+            ws.cell(i, c).fill = fill_row
+            ws.cell(i, c).border = BORDER_DATA
+
+    last_row = table_start + len(all_entries)
+    # AutoFilter
+    ws.auto_filter.ref = f"A{table_start}:G{last_row}"
+
+    # Anchos de columna
+    widths = {"A": 10, "B": 14, "C": 32, "D": 12, "E": 22, "F": 40, "G": 22}
+    for col, w in widths.items():
+        ws.column_dimensions[col].width = w
+
+    # Freeze panes: mantiene título + KPIs + headers visibles
+    ws.freeze_panes = f"A{table_start + 1}"
 
     # Si no hay nada, mensaje informativo
-    if not written:
-        ws.cell(row=2, column=1, value="(sin entradas)")
-        ws.cell(row=2, column=5,
-                value="Los fillers de este ICT no registraron trazabilidad detallada. "
-                      "Mejorar usando safe_set(... origen='...') en cada cell_map.")
+    if not all_entries:
+        ws.cell(row=table_start + 1, column=1,
+                value="(sin entradas — los fillers no registraron trazabilidad)")
 
 
 class Filler(Protocol):
