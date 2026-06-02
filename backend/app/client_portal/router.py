@@ -108,7 +108,10 @@ def client_login(
             # Alternativa: rechazar; preferimos rotación silenciosa para
             # que el cliente no se vea bloqueado.
             oldest = min(active_devices, key=lambda d: d.last_seen_at or d.registered_at)
-            device_mod.revoke_device(db, device=oldest, revoked_by_user_id=user.id)
+            # revoke_device usa kwarg ``revoked_by`` (objeto User), no
+            # ``revoked_by_user_id``. Pasar el id como kwarg incorrecto
+            # provocaba TypeError → HTTP 500 al sobrepasar el 5º dispositivo.
+            device_mod.revoke_device(db, device=oldest, revoked_by=user)
 
         device = device_mod.register_device(
             db,
