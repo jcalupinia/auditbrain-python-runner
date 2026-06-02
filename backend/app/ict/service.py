@@ -263,7 +263,7 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
     (e.g. balance_mapeado in A1) is accessible to other anexos that need it.
     """
     from io import BytesIO
-    from backend.app.ict.fillers.base import load_template
+    from backend.app.ict.fillers.base import load_template, reset_trace, write_trace_sheet
     from backend.app.ict.fillers.indice import IndiceFiller
     from backend.app.ict.fillers.a1_mapeo import A1Filler
     from backend.app.ict.fillers.a2_ingresos import A2Filler
@@ -274,6 +274,10 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
     from backend.app.ict.fillers.a7_credito import A7Filler
     from backend.app.ict.fillers.a8_comercio_exterior import A8Filler
     from backend.app.ict.fillers.a9_inventarios import A9Filler
+
+    # Inicia el trace log para esta generación. Cada safe_set() registrará
+    # su escritura en el log y al final se vierte en la hoja "Trazabilidad".
+    reset_trace()
 
     wb = load_template()
     session_data = {
@@ -323,6 +327,15 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
         except Exception:
             import logging
             logging.exception("Filler %s failed for session %s", anexo.anexo_code, session.id)
+
+    # Vuelca el trace log a una hoja "TRAZABILIDAD" al final del workbook.
+    # Permite al auditor cruzar cualquier celda llenada con su origen
+    # (F-101 página X, Balance Mapeado fila Y, F-103 mes ZZZZ-MM, etc).
+    try:
+        write_trace_sheet(wb)
+    except Exception:
+        import logging
+        logging.exception("write_trace_sheet falló para sesión %s", session.id)
 
     buf = BytesIO()
     wb.save(buf)

@@ -14,12 +14,11 @@ from backend.app.ict.cell_maps.a1 import (
 
 
 def _safe_set(ws, cell_addr: str, value) -> bool:
-    """Set a cell value, skipping if it's a MergedCell (which raises)."""
-    cell = ws[cell_addr]
-    if isinstance(cell, MergedCell):
-        return False
-    cell.value = value
-    return True
+    """Wrapper local: delega al central que protege MergedCells + fórmulas
+    y registra la escritura en el trace log para la hoja Trazabilidad."""
+    from backend.app.ict.fillers.base import safe_set
+    return safe_set(ws, cell_addr, value, anexo="A1",
+                    origen="A1 Mapeo (F-101 + Balance Mapeado)")
 
 
 class A1Filler:
@@ -81,13 +80,22 @@ class A1Filler:
             if _safe_set(ws, f"D{current_row}", first.get("codigo", "")): filled += 1
             if _safe_set(ws, f"E{current_row}", first.get("descripcion", "")): filled += 1
             if _safe_set(ws, f"F{current_row}", first.get("saldo", 0)): filled += 1
+            # Restaurar/garantizar la fórmula de Diferencia (col G = F - C)
+            # que el template oficial trae. Sin esto, el insert_rows posterior
+            # desplaza las fórmulas originales y las filas insertadas quedan
+            # sin la columna calculada. Lo hacemos a TODAS las filas para
+            # uniformidad — incluso las que originalmente ya tenían la fórmula.
+            _safe_set(ws, f"G{current_row}", f"=F{current_row}-C{current_row}")
 
             # Additional accounts: insert rows below the base
             for offset, item in enumerate(matching[1:], start=1):
                 ws.insert_rows(current_row + offset)
-                if _safe_set(ws, f"D{current_row + offset}", item.get("codigo", "")): filled += 1
-                if _safe_set(ws, f"E{current_row + offset}", item.get("descripcion", "")): filled += 1
-                if _safe_set(ws, f"F{current_row + offset}", item.get("saldo", 0)): filled += 1
+                row_n = current_row + offset
+                if _safe_set(ws, f"D{row_n}", item.get("codigo", "")): filled += 1
+                if _safe_set(ws, f"E{row_n}", item.get("descripcion", "")): filled += 1
+                if _safe_set(ws, f"F{row_n}", item.get("saldo", 0)): filled += 1
+                # Misma fórmula para las filas recién insertadas
+                _safe_set(ws, f"G{row_n}", f"=F{row_n}-C{row_n}")
 
             current_row += len(matching)
 

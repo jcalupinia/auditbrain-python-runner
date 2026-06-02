@@ -27,12 +27,10 @@ from backend.app.ict.fillers.helpers import get_casillero_value
 
 
 def _safe_set(ws, cell_addr: str, value) -> bool:
-    """Set cell value; silently skips MergedCells. Returns True if written."""
-    cell = ws[cell_addr]
-    if isinstance(cell, MergedCell):
-        return False
-    cell.value = value
-    return True
+    """Wrapper local: delega al central que protege fórmulas + registra trace."""
+    from backend.app.ict.fillers.base import safe_set
+    return safe_set(ws, cell_addr, value, anexo="A3",
+                    origen="A3 Costos y Gastos (F-101)")
 
 
 def _resolve_casillero(casillero_key: str, anexo_data: dict) -> tuple[float | None, bool]:

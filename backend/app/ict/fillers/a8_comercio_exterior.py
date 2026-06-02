@@ -36,12 +36,10 @@ from backend.app.ict.cell_maps.a8 import (
 
 
 def _safe_set(ws, cell_addr: str, value) -> bool:
-    """Set cell value; silently skips MergedCells. Returns True if written."""
-    cell = ws[cell_addr]
-    if isinstance(cell, MergedCell):
-        return False
-    cell.value = value
-    return True
+    """Wrapper local: delega al central que protege fórmulas + registra trace."""
+    from backend.app.ict.fillers.base import safe_set
+    return safe_set(ws, cell_addr, value, anexo="A8",
+                    origen="A8 Comercio Exterior (F-103)")
 
 
 def _classify_transaction(pago: dict) -> str:

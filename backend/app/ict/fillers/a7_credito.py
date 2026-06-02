@@ -35,12 +35,10 @@ _ISD_FORMULA_COLS = {"H", "N", "U"}
 
 
 def _safe_set(ws, cell_addr: str, value) -> bool:
-    """Set cell value; silently skips MergedCells. Returns True if written."""
-    cell = ws[cell_addr]
-    if isinstance(cell, MergedCell):
-        return False
-    cell.value = value
-    return True
+    """Wrapper local: delega al central que protege fórmulas + registra trace."""
+    from backend.app.ict.fillers.base import safe_set
+    return safe_set(ws, cell_addr, value, anexo="A7",
+                    origen="A7 Crédito Tributario (F-101 + F-103)")
 
 
 def _coerce_float(val) -> float | None:

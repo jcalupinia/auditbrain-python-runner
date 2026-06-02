@@ -28,12 +28,10 @@ from backend.app.ict.fillers.helpers import filter_balance_by_casilleros, get_ca
 
 
 def _safe_set(ws, cell_addr: str, value) -> bool:
-    """Set cell value; silently skips MergedCells. Returns True if written."""
-    cell = ws[cell_addr]
-    if isinstance(cell, MergedCell):
-        return False
-    cell.value = value
-    return True
+    """Wrapper local: delega al central que protege fórmulas + registra trace."""
+    from backend.app.ict.fillers.base import safe_set
+    return safe_set(ws, cell_addr, value, anexo="A5",
+                    origen="A5 Conciliación C/G (F-101 + F-103 + Balance)")
 
 
 class A5Filler:

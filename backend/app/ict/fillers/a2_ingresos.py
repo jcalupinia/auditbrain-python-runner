@@ -27,12 +27,10 @@ from backend.app.ict.fillers.helpers import get_casillero_value
 
 
 def _safe_set(ws, cell_addr: str, value) -> bool:
-    """Set cell value; silently skips MergedCells. Returns True if written."""
-    cell = ws[cell_addr]
-    if isinstance(cell, MergedCell):
-        return False
-    cell.value = value
-    return True
+    """Wrapper local: delega al central que protege fórmulas + registra trace."""
+    from backend.app.ict.fillers.base import safe_set
+    return safe_set(ws, cell_addr, value, anexo="A2",
+                    origen="A2 Ingresos (F-101 + F-104 mensuales)")
 
 
 class A2Filler:
