@@ -128,6 +128,31 @@ CLIENT_SESSION_INVALIDATED_CODE = "session_invalidated"
 CLIENT_DEVICE_UNAUTHORIZED_CODE = "device_unauthorized"
 
 
+def _device_check_enabled() -> bool:
+    """Toggle para desactivar la triple validación cliente durante pruebas.
+
+    Lectura PEREZOSA (cada request) — permite encender/apagar via env var
+    sin redeploy: basta con cambiar CLIENT_PORTAL_DEVICE_CHECK_ENABLED en
+    Render y restart del servicio. Default: True (seguridad ON).
+
+    Valores aceptados como False: "0", "false", "no", "off" (case-insensitive).
+    Cualquier otro valor → True.
+    """
+    import os
+    v = os.getenv("CLIENT_PORTAL_DEVICE_CHECK_ENABLED", "true").strip().lower()
+    return v not in {"0", "false", "no", "off"}
+
+
+def _session_check_enabled() -> bool:
+    """Igual que device check pero para la unicidad de sesión (sid).
+    Cuando está apagado, un cliente puede tener múltiples sesiones
+    simultáneas. Útil mientras se hace QA con varias pestañas/browsers.
+    """
+    import os
+    v = os.getenv("CLIENT_PORTAL_SESSION_CHECK_ENABLED", "true").strip().lower()
+    return v not in {"0", "false", "no", "off"}
+
+
 def require_client_with_device(
     request: Request,
     device_id: str | None = Cookie(default=None, alias="device_id"),
@@ -137,6 +162,10 @@ def require_client_with_device(
     1. JWT firmado válido + rol == client
     2. Cookie device_id presente, activa, fingerprint coincide
     3. JWT.sid == User.current_session_id (sesión única)
+
+    Las capas 2 y 3 se pueden desactivar individualmente vía env vars
+    CLIENT_PORTAL_DEVICE_CHECK_ENABLED y CLIENT_PORTAL_SESSION_CHECK_ENABLED
+    (útil durante QA / pruebas piloto). La capa 1 (JWT + rol) siempre activa.
     """
     authz = request.headers.get("Authorization", "")
     if not authz.lower().startswith("bearer "):
@@ -160,15 +189,20 @@ def require_client_with_device(
     if not user or not user.is_active or user.role != Role.client:
         raise _CRED_EXC
 
-    # Layer 3: session uniqueness
-    if not jwt_sid or jwt_sid != user.current_session_id:
-        raise HTTPException(
-            401,
-            detail={
-                "code": CLIENT_SESSION_INVALIDATED_CODE,
-                "message": "Su sesión fue cerrada porque inició sesión desde otro lugar.",
-            },
-        )
+    # Layer 3: session uniqueness (puede deshabilitarse via env)
+    if _session_check_enabled():
+        if not jwt_sid or jwt_sid != user.current_session_id:
+            raise HTTPException(
+                401,
+                detail={
+                    "code": CLIENT_SESSION_INVALIDATED_CODE,
+                    "message": "Su sesión fue cerrada porque inició sesión desde otro lugar.",
+                },
+            )
+
+    # Layer 2: device binding (puede deshabilitarse via env)
+    if not _device_check_enabled():
+        return user  # bypass — solo se exigió JWT + rol
 
     # Layer 2: device binding
     # Preferimos la cookie ``device_id`` (httponly, protección anti-XSS y

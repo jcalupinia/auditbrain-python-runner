@@ -71,8 +71,14 @@ def client_login(
     )
     ip = request.client.host if request.client else None
 
+    # Flag global: si está apagado, el login no exige device check estricto.
+    # Aún registramos UN device (el primero) para que el did del JWT tenga
+    # algún valor consistente, pero saltamos los chequeos 409.
+    import os as _os
+    device_check_on = _os.getenv("CLIENT_PORTAL_DEVICE_CHECK_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
+
     device = None
-    if device_id:
+    if device_id and device_check_on:
         device = device_mod.validate_device(
             db, user=user, device_id=device_id, fingerprint_hash=fingerprint
         )
@@ -87,6 +93,12 @@ def client_login(
                     ),
                 },
             )
+    elif device_id and not device_check_on:
+        # Check apagado: aceptar cualquier cookie sin validar. Si existe un
+        # device con ese id lo usamos; sino registramos uno nuevo abajo.
+        device = device_mod.validate_device(
+            db, user=user, device_id=device_id, fingerprint_hash=fingerprint
+        )
 
     if device is None:
         # Multi-device: permitimos hasta MAX_DEVICES_PER_USER dispositivos
@@ -95,7 +107,9 @@ def client_login(
         # para registrar un device nuevo; el JWT sigue siendo "sesión única"
         # vía el sid claim (login nuevo invalida sesión anterior, aunque sean
         # del mismo o de distinto device).
-        MAX_DEVICES_PER_USER = 5
+        # Si el check está apagado (modo QA), subimos el límite a 999 para
+        # nunca pegar contra él durante pruebas.
+        MAX_DEVICES_PER_USER = 5 if device_check_on else 999
         active_devices = db.execute(
             select(ClientDevice).where(
                 ClientDevice.user_id == user.id,

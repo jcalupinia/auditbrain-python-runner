@@ -135,6 +135,20 @@ services:
       - key: AUDITBRAIN_JWT_EXPIRE_MINUTES
         value: "60"
 
+      # ----- Portal Cliente — toggles de seguridad (modo QA / piloto) -----
+      # Mientras se hacen pruebas con clientes reales, apagamos la
+      # validación de DISPOSITIVO ÚNICO y SESIÓN ÚNICA para que el
+      # cliente pueda alternar browsers / incógnito / pestañas sin
+      # quedarse bloqueado.
+      # Cuando termine la fase de pruebas y se vaya a producción real,
+      # poner ambas a "true" (o eliminar las líneas) para reactivar la
+      # triple seguridad: JWT + sesión única + device binding.
+      - key: CLIENT_PORTAL_DEVICE_CHECK_ENABLED
+        value: "false"
+
+      - key: CLIENT_PORTAL_SESSION_CHECK_ENABLED
+        value: "false"
+
       # Admin inicial (idempotente; se crea al primer arranque). Tras
       # crear el admin puedes vaciar la contraseña del dashboard.
       - key: AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL
