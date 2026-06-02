@@ -151,6 +151,27 @@ def update_session_endpoint(
     return _session_to_out(updated)
 
 
+@router.post("/sessions/{session_id}/process", status_code=200)
+def process_session_endpoint(
+    session_id: int,
+    user: User = Depends(require_client_with_device),
+    db: Session = Depends(get_db),
+):
+    """Ejecuta el procesamiento completo de los 10 anexos.
+
+    Promueve los anexos con datos disponibles vía shared_context a
+    status="ready"/"partial", pre-genera el Excel ICT y lo cachea en disco
+    para descarga subsiguiente instantánea.
+
+    Devuelve JSON con resultado por anexo + bandera excel_ready.
+    """
+    try:
+        session = ict_service.get_session(db, session_id=session_id, user=user)
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    return ict_service.process_session(db, session=session)
+
+
 @router.get("/sessions/{session_id}/download")
 def download_excel_endpoint(
     session_id: int,
@@ -162,7 +183,15 @@ def download_excel_endpoint(
     except PermissionError as e:
         raise HTTPException(403, detail=str(e))
 
-    excel_bytes = ict_service.generate_excel(db, session=session)
+    # Si /process pre-generó el Excel, sírvelo del cache (instantáneo).
+    # Sino lo generamos al vuelo (modo legacy).
+    from backend.app.aud.obligaciones_fiscales import file_storage as _fs
+    cached_path = _fs._root() / "ict" / f"{session.id}" / "_output" / "ICT.xlsx"
+    if cached_path.exists():
+        excel_bytes = cached_path.read_bytes()
+    else:
+        excel_bytes = ict_service.generate_excel(db, session=session)
+
     filename = f"ICT_{session.ejercicio_fiscal}_{session.ruc}.xlsx"
     return StreamingResponse(
         BytesIO(excel_bytes),

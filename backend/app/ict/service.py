@@ -330,6 +330,103 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
     return buf.read()
 
 
+def process_session(db: Session, *, session: ICTSession) -> dict:
+    """Procesa la sesión ICT completa:
+
+    1. Recolecta todos los uploads disponibles a través del shared_context
+       (data subida a un anexo se ve desde cualquier otro).
+    2. Para cada anexo evalúa si tiene sus inputs necesarios (según
+       ANEXO_REQUIRED_SLOTS) y PROMUEVE su status a ready / partial / empty.
+    3. Pre-genera el Excel ICT y lo cachea en disco para que el GET de
+       descarga subsiguiente sea instantáneo.
+
+    Retorna un JSON con resultados por anexo + flag excel_ready, para que
+    el frontend pueda animar el progreso y luego ofrecer el botón de
+    descarga sólo cuando el archivo esté listo.
+    """
+    from time import perf_counter
+    from backend.app.ict.router import ANEXO_REQUIRED_SLOTS
+
+    start = perf_counter()
+
+    # 1) Recolectar slots subidos en toda la sesión (shared_context)
+    all_uploads: set[str] = set()
+    for a in session.anexos:
+        all_uploads.update((a.uploaded_files or {}).keys())
+
+    # 2) Recorrer los anexos en orden visual y actualizar status
+    ANEXO_ORDER = ["INDICE", "A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9"]
+    anexo_map = {a.anexo_code: a for a in session.anexos}
+
+    results = []
+    for code in ANEXO_ORDER:
+        anexo = anexo_map.get(code)
+        if anexo is None:
+            results.append({"anexo_code": code, "status": "missing", "warnings_count": 0})
+            continue
+
+        anexo_start = perf_counter()
+
+        if code == "INDICE":
+            # INDICE se auto-completa a partir de los datos del contribuyente
+            # y del estado de los demás anexos. Siempre lo marcamos ready.
+            anexo.status = "ready"
+        else:
+            required = ANEXO_REQUIRED_SLOTS.get(code, [])
+            if not required:
+                # Anexo sin requisitos formales: se promueve a partial.
+                if anexo.status == "empty":
+                    anexo.status = "partial"
+            else:
+                has_all = all(slot in all_uploads for slot in required)
+                has_some = any(slot in all_uploads for slot in required)
+                if has_all:
+                    anexo.status = "ready"
+                elif has_some:
+                    # No degradar si ya estaba ready por upload directo
+                    if anexo.status != "ready":
+                        anexo.status = "partial"
+
+        db.add(anexo)
+        anexo_ms = int((perf_counter() - anexo_start) * 1000)
+        results.append({
+            "anexo_code": code,
+            "status": anexo.status,
+            "warnings_count": len(anexo.warnings or []),
+            "ms": anexo_ms,
+        })
+
+    db.commit()
+
+    # 3) Recompute INDICE para reflejar los nuevos status
+    try:
+        recompute_indice(db, session=session)
+    except Exception:
+        pass
+
+    # 4) Pre-generar el Excel y dejarlo en disco para descarga rápida
+    excel_ready = False
+    try:
+        excel_bytes = generate_excel(db, session=session)
+        out_dir = _ict_job_dir(session.id, "_output")
+        out_path = out_dir / "ICT.xlsx"
+        out_path.write_bytes(excel_bytes)
+        excel_ready = True
+    except Exception:
+        import logging
+        logging.exception("Pre-generación Excel falló para sesión %s", session.id)
+
+    total_ms = int((perf_counter() - start) * 1000)
+    ready_count = sum(1 for r in results if r["status"] == "ready")
+    return {
+        "results": results,
+        "total_ms": total_ms,
+        "ready_count": ready_count,
+        "total_anexos": len(ANEXO_ORDER),
+        "excel_ready": excel_ready,
+    }
+
+
 def reset_anexo_slot(
     db: Session, *, session: ICTSession, anexo_code: str, slot_name: str
 ) -> ICTAnexo:

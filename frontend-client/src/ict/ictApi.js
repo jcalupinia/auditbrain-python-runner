@@ -76,6 +76,10 @@ export async function resetSlot(sessionId, anexoCode, slotName) {
   );
 }
 
+export async function processSession(sessionId) {
+  return _request(`/client/ict/sessions/${sessionId}/process`, { method: "POST" });
+}
+
 export async function downloadExcel(sessionId) {
   const token = api.getToken();
   const headers = {};

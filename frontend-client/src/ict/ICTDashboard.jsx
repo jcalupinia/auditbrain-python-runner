@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { getActiveSession, deleteSession, downloadExcel, createSession, uploadAnexoSlot, resetSlot } from "./ictApi.js";
+import { getActiveSession, deleteSession, downloadExcel, createSession, uploadAnexoSlot, resetSlot, processSession } from "./ictApi.js";
 import ICTEditContribuyenteModal from "./ICTEditContribuyenteModal.jsx";
 import PortalShell from "../shell/PortalShell.jsx";
 
@@ -159,7 +159,19 @@ export default function ICTDashboard() {
   const [session, setSession] = useState(undefined);
   const [editOpen, setEditOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [selected, setSelected] = useState("INDICE");
+  const [selected, setSelected] = useState("A1");
+  const detailRef = useRef(null);
+
+  // Flujo de procesamiento (modal con progreso animado)
+  const [procModalOpen, setProcModalOpen] = useState(false);
+  const [procStep, setProcStep] = useState(0);    // anexo actual 0..10
+  const [procResult, setProcResult] = useState(null);
+  const [procDone, setProcDone] = useState(false);
+  const [procError, setProcError] = useState(null);
+
+  useEffect(() => {
+    if (detailRef.current) detailRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [selected]);
 
   const refresh = useCallback(async () => {
     try {
@@ -209,6 +221,54 @@ export default function ICTDashboard() {
     } finally {
       setDownloading(false);
     }
+  }
+
+  // === Procesar: abre modal, anima los 10 anexos paso a paso, llama al
+  // backend en paralelo, muestra resultado y permite descargar al final.
+  async function handleProcess() {
+    setProcModalOpen(true);
+    setProcStep(0);
+    setProcResult(null);
+    setProcDone(false);
+    setProcError(null);
+
+    const ANEXO_COUNT = 10;
+    let backendDone = false;
+    let backendResp = null;
+    let backendErr = null;
+
+    // Disparamos el backend en paralelo con la animación
+    const backendPromise = processSession(session.id)
+      .then((r) => { backendResp = r; backendDone = true; })
+      .catch((e) => { backendErr = e; backendDone = true; });
+
+    // Animación: avanzamos un paso cada ~250ms hasta que el backend responde
+    // o lleguemos al último anexo (en cuyo caso esperamos al backend).
+    for (let i = 0; i < ANEXO_COUNT; i++) {
+      setProcStep(i + 1);
+      await new Promise((res) => setTimeout(res, 250));
+      if (backendDone && i >= 6) break; // si terminó rápido, avanza más rápido
+    }
+    await backendPromise;
+
+    if (backendErr) {
+      setProcError(backendErr.message || "Error procesando.");
+      setProcDone(true);
+      return;
+    }
+    setProcResult(backendResp);
+    setProcStep(ANEXO_COUNT);
+    setProcDone(true);
+    // Recargar la sesión para que los estados de los anexos reflejen lo nuevo
+    await refresh();
+  }
+
+  function closeProcModal() {
+    setProcModalOpen(false);
+    setProcStep(0);
+    setProcResult(null);
+    setProcDone(false);
+    setProcError(null);
   }
   async function handleClose() {
     const msg =
@@ -292,8 +352,26 @@ export default function ICTDashboard() {
               ✏ Editar datos
             </button>
             <div style={{ flex: 1 }} />
-            <button className="pc-chip accent" onClick={handleDownload} disabled={downloading}>
-              {downloading ? "⏳ Generando..." : "↓ Descargar Excel ICT"}
+            <button
+              className="pc-chip accent"
+              onClick={handleProcess}
+              disabled={procModalOpen || uploadsDone === 0}
+              title="Ejecuta los 10 fillers en secuencia, cruza datos entre anexos y deja el Excel listo para descarga"
+              style={{ fontWeight: 700 }}
+            >
+              ▶ Procesar
+            </button>
+            <button
+              className="pc-chip"
+              onClick={handleDownload}
+              disabled={downloading || readyCount === 0}
+              title={
+                readyCount === 0
+                  ? "Procesa primero para habilitar la descarga"
+                  : "Descarga el Excel ICT 2025 con los anexos generados"
+              }
+            >
+              {downloading ? "⏳ Descargando..." : "↓ Descargar Excel ICT"}
             </button>
             <button
               className="pc-chip danger"
@@ -345,6 +423,28 @@ export default function ICTDashboard() {
             <b style={{ color: "var(--accent)" }}>{readyCount}</b> de {totalAnexos} anexos completados ·
             <b style={{ color: "var(--accent)", marginLeft: 6 }}>{uploadsDone}</b> de {GLOBAL_UPLOADS.length} documentos subidos
           </div>
+
+          {uploadsDone >= 1 && readyCount < totalAnexos && (
+            <div style={{
+              marginTop: 14, padding: "12px 14px",
+              background: "var(--accent-dim)",
+              border: "1px solid rgba(52,211,106,0.45)",
+              borderRadius: 10, fontSize: 13,
+              display: "flex", alignItems: "center", gap: 12,
+            }}>
+              <span style={{ fontSize: 22 }}>✨</span>
+              <div>
+                <div style={{ color: "var(--accent)", fontWeight: 700 }}>
+                  Listo para procesar
+                </div>
+                <div style={{ color: "var(--text-soft)", fontSize: 12, marginTop: 2 }}>
+                  Tienes {uploadsDone} documento{uploadsDone === 1 ? "" : "s"} subido{uploadsDone === 1 ? "" : "s"}.
+                  Pulsa <b style={{ color: "var(--accent)" }}>▶ Procesar</b> arriba para que el sistema
+                  ejecute los 10 anexos y deje el Excel ICT listo para descarga.
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* ===== GRID DE ANEXOS (navegación / estado) ===== */}
           <div style={{
@@ -451,7 +551,208 @@ export default function ICTDashboard() {
         session={session}
         onSaved={refresh}
       />
+
+      <ICTProcessModal
+        open={procModalOpen}
+        step={procStep}
+        result={procResult}
+        done={procDone}
+        error={procError}
+        anexos={ANEXOS_INFO}
+        onClose={closeProcModal}
+        onDownload={handleDownload}
+        downloading={downloading}
+      />
     </PortalShell>
+  );
+}
+
+/* ============================================================
+   Modal de procesamiento — muestra animación de los 10 anexos
+   y, al terminar, panel verde de éxito con botón de descarga.
+   ============================================================ */
+function ICTProcessModal({
+  open, step, result, done, error, anexos, onClose, onDownload, downloading,
+}) {
+  if (!open) return null;
+
+  const successMap = {};
+  if (result?.results) {
+    for (const r of result.results) {
+      successMap[r.anexo_code] = r.status;
+    }
+  }
+
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, zIndex: 100,
+        background: "rgba(0,0,0,0.75)",
+        backdropFilter: "blur(6px)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: 20,
+      }}
+      onClick={done ? onClose : undefined}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--panel, #0a0e15)",
+          border: "1px solid var(--line, #1a2230)",
+          borderRadius: 14,
+          maxWidth: 640, width: "100%",
+          maxHeight: "85vh", overflow: "auto",
+          color: "var(--text, #e8edf4)",
+          fontFamily: "Inter, system-ui, sans-serif",
+        }}
+      >
+        {/* Header */}
+        <header style={{
+          padding: "18px 22px",
+          borderBottom: "1px solid var(--line-soft, #131a25)",
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 22 }}>
+              {error ? "❌" : done ? "✅" : "⚙️"}
+            </span>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>
+                {error
+                  ? "Error en el procesamiento"
+                  : done
+                    ? "Procesamiento completado"
+                    : "Procesando ICT 2025..."}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-soft, #8b97a8)", marginTop: 2 }}>
+                {error
+                  ? "Revisa el detalle abajo"
+                  : done
+                    ? `${result?.ready_count ?? 0}/${result?.total_anexos ?? 10} anexos listos en ${result?.total_ms ?? 0} ms`
+                    : "Llenando los 10 anexos del Informe de Cumplimiento Tributario..."}
+              </div>
+            </div>
+          </div>
+          {done && (
+            <button
+              onClick={onClose}
+              style={{
+                background: "transparent", color: "var(--text-soft)",
+                border: "1px solid var(--line)", padding: "6px 12px",
+                borderRadius: 6, cursor: "pointer", fontSize: 12,
+              }}
+            >
+              Cerrar
+            </button>
+          )}
+        </header>
+
+        {/* Lista de anexos con estado */}
+        <div style={{ padding: 18 }}>
+          {anexos.map((info, idx) => {
+            const isCurrent = !done && step === idx + 1;
+            const isProcessed = done || step > idx + 1 || step === idx + 1;
+            const finalStatus = successMap[info.code];
+            const showCheck = done && finalStatus && finalStatus !== "empty" && finalStatus !== "missing";
+            const showPending = done && (finalStatus === "empty" || finalStatus === "missing");
+
+            return (
+              <div
+                key={info.code}
+                style={{
+                  display: "flex", alignItems: "center", gap: 12,
+                  padding: "10px 12px",
+                  marginBottom: 6,
+                  background: isCurrent
+                    ? "rgba(52,211,106,0.10)"
+                    : (showCheck ? "rgba(52,211,106,0.04)" : "transparent"),
+                  border: isCurrent
+                    ? "1px solid rgba(52,211,106,0.45)"
+                    : (showCheck ? "1px solid rgba(52,211,106,0.20)" : "1px solid transparent"),
+                  borderRadius: 8,
+                  transition: "all 0.15s",
+                }}
+              >
+                <span style={{
+                  width: 30, height: 30, borderRadius: 8,
+                  background: showCheck ? "var(--accent, #34d36a)"
+                    : (showPending ? "var(--line)" : "var(--panel-2, #0d121b)"),
+                  color: showCheck ? "#04130b" : "var(--text-soft)",
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  fontWeight: 800, fontSize: 13, flexShrink: 0,
+                }}>
+                  {info.n}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{info.name}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-soft)" }}>{info.desc}</div>
+                </div>
+                <span style={{
+                  fontSize: 12, fontWeight: 600,
+                  color: isCurrent ? "var(--accent, #34d36a)"
+                    : showCheck ? "var(--accent, #34d36a)"
+                    : showPending ? "var(--warn, #e7b24a)"
+                    : "var(--text-dim, #5a6575)",
+                  letterSpacing: 0.05,
+                }}>
+                  {isCurrent && !done && "⏳ Procesando..."}
+                  {!isCurrent && !done && step > idx + 1 && "✓ Listo"}
+                  {!isCurrent && !done && step <= idx && "Esperando..."}
+                  {done && showCheck && (
+                    finalStatus === "ready" ? "✓ Completado"
+                    : finalStatus === "partial" ? "◐ Parcial"
+                    : "✓ Listo"
+                  )}
+                  {done && showPending && "○ Sin datos"}
+                </span>
+              </div>
+            );
+          })}
+
+          {error && (
+            <div style={{
+              marginTop: 12, padding: "12px 14px",
+              background: "rgba(255,93,93,0.08)",
+              border: "1px solid rgba(255,93,93,0.35)",
+              borderRadius: 10,
+              color: "var(--danger, #ff5d5d)", fontSize: 13,
+            }}>
+              {error}
+            </div>
+          )}
+        </div>
+
+        {/* Footer con descarga */}
+        {done && !error && (
+          <div style={{
+            padding: 22,
+            borderTop: "1px solid var(--line-soft, #131a25)",
+            background: "linear-gradient(180deg, transparent, rgba(52,211,106,0.05))",
+            textAlign: "center",
+          }}>
+            <div style={{ fontSize: 14, marginBottom: 14 }}>
+              📂 Tu Excel ICT 2025 está listo
+            </div>
+            <button
+              onClick={onDownload}
+              disabled={downloading || !result?.excel_ready}
+              style={{
+                padding: "12px 28px", fontSize: 14, fontWeight: 700,
+                background: "var(--accent, #34d36a)",
+                color: "#04130b",
+                border: "1px solid var(--accent, #34d36a)",
+                borderRadius: 10, cursor: "pointer",
+              }}
+            >
+              {downloading ? "⏳ Descargando..." : "↓ Descargar Excel ICT 2025"}
+            </button>
+            <div style={{ fontSize: 11, color: "var(--text-soft, #8b97a8)", marginTop: 10 }}>
+              Puedes seguir editando, subiendo más documentos y volver a procesar.
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
