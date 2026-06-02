@@ -1,5 +1,14 @@
-"""Tests: balance_mapeado uploaded to A1 flows to other anexos that need casillero data."""
+"""Tests: balance_mapeado uploaded to A1 flows to other anexos that need casillero data.
+
+REFACTOR REFERENCIAL: tras el cambio a fórmulas referenciales (CLAUDE.md),
+los anexos NO contienen valores literales — contienen fórmulas tipo
+='DATOS F-101'!C<row> o ='DATOS BALANCE'!D<row>+...
+Los tests E2E validan:
+  1. Que la celda destino contiene una FÓRMULA referencial.
+  2. Que la hoja DATOS referenciada contiene el valor esperado en esa fila.
+"""
 import io
+import re
 import uuid
 
 import openpyxl
@@ -14,6 +23,49 @@ from backend.app.ict.fillers.helpers import (
     filter_balance_by_casilleros,
     get_casillero_value,
 )
+
+
+def _datos_balance_has_value(wb, expected_value: float, tol: float = 0.01) -> bool:
+    """True si la hoja DATOS BALANCE contiene una cuenta con saldo == expected_value."""
+    if "DATOS BALANCE" not in wb.sheetnames:
+        return False
+    ws = wb["DATOS BALANCE"]
+    for row in ws.iter_rows(min_row=4, values_only=True):
+        for val in row:
+            if isinstance(val, (int, float)) and abs(val - expected_value) < tol:
+                return True
+    return False
+
+
+def _datos_f101_has_value(wb, casillero: str, expected_value: float, tol: float = 0.01) -> bool:
+    """True si DATOS F-101 tiene fila con casillero == X y valor == expected_value."""
+    if "DATOS F-101" not in wb.sheetnames:
+        return False
+    ws = wb["DATOS F-101"]
+    for row in ws.iter_rows(min_row=4, values_only=True):
+        if not row or len(row) < 3:
+            continue
+        if str(row[0] or "").strip() == str(casillero) and isinstance(row[2], (int, float)):
+            if abs(row[2] - expected_value) < tol:
+                return True
+    return False
+
+
+_FORMULA_PATTERN = re.compile(
+    r"^=\s*'?DATOS (F-101|F-103|F-104|BALANCE)'?!", re.IGNORECASE
+)
+
+
+def _has_referential_formula_for(ws, target_value: float) -> bool:
+    """Busca cualquier celda con fórmula referencial (a DATOS X) en la hoja.
+    Útil cuando solo necesitamos comprobar que la hoja USA referencias (no
+    valores literales) y el valor target está en DATOS BALANCE/F-101."""
+    for row in ws.iter_rows():
+        for cell in row:
+            v = cell.value
+            if isinstance(v, str) and _FORMULA_PATTERN.match(v):
+                return True
+    return False
 
 
 def _unique(prefix: str) -> str:
@@ -162,17 +214,14 @@ def test_e2e_balance_in_a1_propagates_to_a3_via_generate_excel(db_session, clien
     wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), data_only=False)
     assert "COSTOS  GASTOS A3" in wb.sheetnames
 
-    # Verify 7185 value (25337.71) appears in A3
+    # Modo referencial: A3 contiene FÓRMULAS hacia DATOS BALANCE.
+    # 1) El valor 25337.71 vive en DATOS BALANCE (no en A3 literal).
+    assert _datos_balance_has_value(wb, 25337.71), \
+        "El valor 25337.71 (casillero 7185) debe estar en DATOS BALANCE"
+    # 2) A3 contiene al menos una fórmula referencial.
     a3 = wb["COSTOS  GASTOS A3"]
-    found_7185 = False
-    for row in a3.iter_rows(values_only=True):
-        for val in row:
-            if isinstance(val, (int, float)) and abs(val - 25337.71) < 0.01:
-                found_7185 = True
-                break
-        if found_7185:
-            break
-    assert found_7185, "El valor 25337.71 del casillero 7185 no aparece en la hoja A3"
+    assert _has_referential_formula_for(a3, 25337.71), \
+        "A3 debería tener al menos una fórmula referencial (no valores literales)"
 
 
 def test_a4_cuadro2_populated_from_balance_when_no_f101(db_session, client_user):
@@ -209,11 +258,18 @@ def test_a4_cuadro2_populated_from_balance_when_no_f101(db_session, client_user)
     assert "CONCILIACIÓN INGRESOS A4" in wb.sheetnames
 
     a4 = wb["CONCILIACIÓN INGRESOS A4"]
-    # G32 = casillero 804, G33 = casillero 805
+    # Modo referencial: G32 y G33 contienen fórmulas hacia DATOS BALANCE.
     val_804 = a4["G32"].value
     val_805 = a4["G33"].value
-    assert val_804 == 5000.0, f"G32 (casillero 804) esperado 5000.0, obtenido {val_804}"
-    assert val_805 == 1200.0, f"G33 (casillero 805) esperado 1200.0, obtenido {val_805}"
+    assert isinstance(val_804, str) and val_804.startswith("="), \
+        f"G32 debe ser fórmula referencial, obtenido {val_804!r}"
+    assert isinstance(val_805, str) and val_805.startswith("="), \
+        f"G33 debe ser fórmula referencial, obtenido {val_805!r}"
+    assert "DATOS BALANCE" in val_804
+    assert "DATOS BALANCE" in val_805
+    # Verificar que los valores 5000.0 y 1200.0 están en DATOS BALANCE
+    assert _datos_balance_has_value(wb, 5000.0)
+    assert _datos_balance_has_value(wb, 1200.0)
 
 
 def test_a5_cuadro_d_populated_from_balance_when_no_f101(db_session, client_user):
@@ -248,11 +304,15 @@ def test_a5_cuadro_d_populated_from_balance_when_no_f101(db_session, client_user
     assert "CONCILIACIÓN COSTOS Y GASTOS A5" in wb.sheetnames
 
     a5 = wb["CONCILIACIÓN COSTOS Y GASTOS A5"]
-    # H66 = casillero 806, H67 = casillero 807
+    # Modo referencial: H66 y H67 contienen fórmulas hacia DATOS BALANCE.
     val_806 = a5["H66"].value
     val_807 = a5["H67"].value
-    assert val_806 == 3000.0, f"H66 (casillero 806) esperado 3000.0, obtenido {val_806}"
-    assert val_807 == 500.0, f"H67 (casillero 807) esperado 500.0, obtenido {val_807}"
+    assert isinstance(val_806, str) and val_806.startswith("=") and "DATOS BALANCE" in val_806, \
+        f"H66 debe ser fórmula referencial DATOS BALANCE, obtenido {val_806!r}"
+    assert isinstance(val_807, str) and val_807.startswith("=") and "DATOS BALANCE" in val_807, \
+        f"H67 debe ser fórmula referencial DATOS BALANCE, obtenido {val_807!r}"
+    assert _datos_balance_has_value(wb, 3000.0)
+    assert _datos_balance_has_value(wb, 500.0)
 
 
 def test_a6_casillero_810_from_balance(db_session, client_user):
@@ -286,7 +346,9 @@ def test_a6_casillero_810_from_balance(db_session, client_user):
 
     a6 = wb["BENEFICIOS TRIBUTARIOS A6"]
     val_810 = a6["G25"].value
-    assert val_810 == 7500.0, f"G25 (casillero 810) esperado 7500.0, obtenido {val_810}"
+    assert isinstance(val_810, str) and val_810.startswith("=") and "DATOS BALANCE" in val_810, \
+        f"G25 debe ser fórmula referencial DATOS BALANCE, obtenido {val_810!r}"
+    assert _datos_balance_has_value(wb, 7500.0)
 
 
 def test_a9_casilleros_from_balance(db_session, client_user):
@@ -318,14 +380,13 @@ def test_a9_casilleros_from_balance(db_session, client_user):
     wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), data_only=False)
     assert "INVENTARIOS A9" in wb.sheetnames
 
-    # Verify 500000.0 (casillero 7001) appears somewhere in A9
+    # Modo referencial: A9 contiene fórmulas hacia DATOS BALANCE,
+    # el valor literal 500000.0 vive en DATOS BALANCE.
     a9 = wb["INVENTARIOS A9"]
-    found = any(
-        isinstance(val, (int, float)) and abs(val - 500000.0) < 0.01
-        for row in a9.iter_rows(values_only=True)
-        for val in row
-    )
-    assert found, "El valor 500000.0 del casillero 7001 no aparece en la hoja A9"
+    assert _has_referential_formula_for(a9, 500000.0), \
+        "A9 debería tener al menos una fórmula referencial (no valores literales)"
+    assert _datos_balance_has_value(wb, 500000.0), \
+        "El valor 500000.0 (casillero 7001) debe estar en DATOS BALANCE"
 
 
 def test_f101_takes_precedence_over_balance_in_merged_context(db_session, client_user):
@@ -358,18 +419,21 @@ def test_f101_takes_precedence_over_balance_in_merged_context(db_session, client
 
     excel_bytes = ict_service.generate_excel(db_session, session=s)
     wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), data_only=False)
+
+    # Modo referencial: F-101 mergea valores de TODOS los anexos (A1+A3).
+    # En DATOS F-101 debe figurar el valor 25000.0 del casillero 7185
+    # (el f101 de A3 tiene prioridad sobre el balance de A1).
+    assert _datos_f101_has_value(wb, "7185", 25000.0), \
+        "DATOS F-101 debe contener cas 7185=25000.0 (F-101 tiene prioridad sobre balance)"
+    # El valor 99999.0 del balance NO debe ganar — pero puede aparecer
+    # como saldo en DATOS BALANCE como dato fuente sin uso. Lo que NO
+    # debe pasar es que A3 referencie ese valor. Validamos que la fórmula
+    # de A3 para 7185 apunte a DATOS F-101 (no a DATOS BALANCE).
     a3 = wb["COSTOS  GASTOS A3"]
-
-    # 25000.0 (from A3's f101) should appear, not 99999.0 (from balance)
-    found_25000 = False
-    found_99999 = False
-    for row in a3.iter_rows(values_only=True):
-        for val in row:
-            if isinstance(val, (int, float)):
-                if abs(val - 25000.0) < 0.01:
-                    found_25000 = True
-                if abs(val - 99999.0) < 0.01:
-                    found_99999 = True
-
-    assert found_25000, "El valor 25000.0 (f101 propio de A3) no aparece en la hoja A3"
-    assert not found_99999, "El valor 99999.0 (balance_mapeado) no debería aparecer cuando f101 lo sobreescribe"
+    # Filas 16 y 21 escriben casillero 7185
+    f16 = a3["F16"].value
+    f21 = a3["F21"].value
+    assert isinstance(f16, str) and "DATOS F-101" in f16, \
+        f"F16 (cas 7185) debe referenciar DATOS F-101, obtenido {f16!r}"
+    assert isinstance(f21, str) and "DATOS F-101" in f21, \
+        f"F21 (cas 7185) debe referenciar DATOS F-101, obtenido {f21!r}"

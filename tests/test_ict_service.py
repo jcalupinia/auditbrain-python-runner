@@ -186,7 +186,19 @@ def test_generate_excel_returns_bytes_with_all_sheets(db_session, client_user):
     wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), data_only=False)
     assert "INVENTARIOS A9" in wb.sheetnames
     ws = wb["INVENTARIOS A9"]
-    assert ws["C18"].value == 1000.0
+    # Refactor referencial: C18 contiene fórmula ='DATOS F-101'!C<row>
+    # (no valor literal). El valor 1000.0 vive en DATOS F-101.
+    c18 = ws["C18"].value
+    assert isinstance(c18, str) and c18.startswith("='DATOS F-101'!"), \
+        f"C18 debe ser fórmula referencial, obtenido {c18!r}"
+    assert "DATOS F-101" in wb.sheetnames
+    datos = wb["DATOS F-101"]
+    found = False
+    for row in datos.iter_rows(min_row=4, values_only=True):
+        if row and str(row[0]) == "7001" and row[2] == 1000.0:
+            found = True
+            break
+    assert found, "DATOS F-101 debe tener cas 7001 con valor 1000.0"
 
 
 def test_save_uploaded_file_writes_to_tmp(tmp_path, monkeypatch):

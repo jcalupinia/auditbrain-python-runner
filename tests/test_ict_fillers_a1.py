@@ -55,4 +55,10 @@ def test_a1_filler_notes_extra_casilleros_not_in_a1():
         ],
     }
     result = filler.fill(wb, sess, data)
-    assert any("no se mapean" in w.lower() or "otros anexos" in w.lower() for w in result["warnings"])
+    assert any(
+        "no mapean al a1" in w.lower()
+        or "no se mapean" in w.lower()
+        or "se trasladan a" in w.lower()
+        or "otros anexos" in w.lower()
+        for w in result["warnings"]
+    )

@@ -1,5 +1,18 @@
 """Filler for COMERCIO EXTERIOR A8 (3 tablas dinámicas).
 
+NOTA REFERENCIAL (CLAUDE.md):
+  Este anexo NO referencia hojas DATOS F-101/F-103/F-104 porque sus
+  campos provienen del XML del ATS (texto descriptivo: RFC, país,
+  comentario, etc.), no de valores numéricos de los formularios SRI.
+  La trazabilidad para A8 se da en la sección "ats_pagos_exterior" del
+  contexto y en la TRAZABILIDAD donde cada celda escrita registra
+  origen "A8 Comercio Exterior (ATS XML)".
+
+  Para CONTROL contra los casilleros 402-433 del F-103 (pagos al
+  exterior con/sin CDI), el auditor consulta directamente la hoja
+  'DATOS F-103' que está incluida en el workbook con todos los meses
+  parseados + total anual.
+
 Reads anexo_data["ats_pagos_exterior"] from ATS XML parser output.
 
 El parser ats_xml.py devuelve pagos con los campos:

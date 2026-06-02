@@ -98,6 +98,8 @@ def test_a2_filler_cuadro3_propagates_from_cuadro2():
     }
     result = filler.fill(wb, _session_data(), {"f104_monthly": f104_monthly})
     ws = wb["INGRESOS A2"]
-    # Cuadro 3 row 51 (ventas_locales_diff) col B should have 8000000
-    assert ws["B51"].value == 8000000.0
+    # Cuadro 3 row 51 (ventas_locales_diff) col B contiene la FÓRMULA que
+    # suma las columnas correspondientes del Cuadro 2 (fila 35).
+    # Refactor referencial (CLAUDE.md): B51 no se calcula, se referencia.
+    assert ws["B51"].value == "=B35+C35+D35-E35"
     assert result["filled_cells"] > 3
