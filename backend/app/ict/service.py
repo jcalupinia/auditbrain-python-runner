@@ -210,14 +210,25 @@ def update_anexo_data(
     if anexo is None:
         raise ValueError(f"Anexo {anexo_code} not in session")
 
+    # ATENCIÓN — SQLAlchemy con columnas JSON sólo detecta cambios por
+    # ASIGNACIÓN, no por mutación interna del dict/lista existente. Si
+    # hacemos ``anexo.uploaded_files[slot] = ...`` directamente sobre el
+    # dict ya cargado, la siguiente db.commit() NO persiste la mutación
+    # porque el atributo "no cambió" (misma referencia). Bug real
+    # observado en producción: subir un 2º upload al mismo anexo
+    # (p.ej. F-101 a A1 cuando ya tenía Balance Mapeado) devolvía
+    # 200 OK pero la DB conservaba solo el 1er upload.
+    #
+    # Fix: construir SIEMPRE un dict NUEVO con ``{**existing, slot: meta}``
+    # antes de asignar al campo, garantizando que SQLAlchemy lo detecte
+    # como un valor distinto.
     existing_data = anexo.extracted_data or {}
-    merged = {**existing_data, **extracted_data}
-    anexo.extracted_data = merged
+    anexo.extracted_data = {**existing_data, **extracted_data}
 
-    existing_warnings = anexo.warnings or []
-    anexo.warnings = existing_warnings + (warnings or [])
+    existing_warnings = list(anexo.warnings or [])
+    anexo.warnings = existing_warnings + list(warnings or [])
 
-    existing_files = anexo.uploaded_files or {}
+    existing_files = dict(anexo.uploaded_files or {})
     slot = uploaded_file_meta.get("slot")
     if slot:
         existing_files[slot] = uploaded_file_meta
