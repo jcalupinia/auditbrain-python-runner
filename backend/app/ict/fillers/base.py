@@ -69,6 +69,39 @@ def _record(anexo: str | None, casillero: str | None, sheet: str,
     })
 
 
+def safe_set_formula(
+    ws,
+    cell_addr: str,
+    formula: str,
+    *,
+    anexo: str | None = None,
+    casillero: str | None = None,
+    origen: str | None = None,
+) -> bool:
+    """Escribe una FÓRMULA en una celda, sobreescribiendo cualquier valor
+    o fórmula anterior. Úsalo cuando el filler intencionalmente está
+    actualizando una fórmula calculada (p. ej. ``=SUM(F13:F25)-C13`` que
+    reemplaza la fórmula vieja del template ``=F15-C13``).
+
+    NO usa el guard de protección de fórmulas porque la intención es
+    explícita. Sigue respetando MergedCells y registra la operación en
+    el trace log.
+    """
+    if not isinstance(formula, str) or not formula.startswith("="):
+        raise ValueError(f"safe_set_formula esperaba '=...' pero recibió: {formula!r}")
+    try:
+        cell = ws[cell_addr]
+    except Exception:
+        _record(anexo, casillero, ws.title, cell_addr, formula, origen, "error")
+        return False
+    if isinstance(cell, MergedCell):
+        _record(anexo, casillero, ws.title, cell_addr, formula, origen, "skipped_merged")
+        return False
+    cell.value = formula
+    _record(anexo, casillero, ws.title, cell_addr, formula, origen, "written")
+    return True
+
+
 def safe_set(
     ws,
     cell_addr: str,

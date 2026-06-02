@@ -339,6 +339,21 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
             import logging
             logging.exception("Filler %s failed for session %s", anexo.anexo_code, session.id)
 
+    # Hoja "VERIFICACIÓN A1" con conciliación F-101 vs Balance vs A1.
+    # Reporta cuántos casilleros y cuentas se trasladaron, cuáles
+    # quedaron fuera y por qué. Esencial para auditoría.
+    try:
+        from backend.app.ict.fillers.verification import build_verification_sheet
+        build_verification_sheet(
+            wb,
+            f101=shared_context.get("f101", {}) or {},
+            balance_mapeado=shared_context.get("balance_mapeado", []) or [],
+            session_data=session_data,
+        )
+    except Exception:
+        import logging
+        logging.exception("build_verification_sheet falló para sesión %s", session.id)
+
     # Vuelca el trace log a una hoja "TRAZABILIDAD" al final del workbook.
     # Permite al auditor cruzar cualquier celda llenada con su origen
     # (F-101 página X, Balance Mapeado fila Y, F-103 mes ZZZZ-MM, etc).
