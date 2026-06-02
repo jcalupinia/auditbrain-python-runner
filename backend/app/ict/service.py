@@ -356,6 +356,10 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
         "A9": A9Filler(),
     }
 
+    # Capturamos los warnings que devuelve cada filler para integrarlos
+    # luego en la hoja AUDITORÍA DE ANEXOS (análisis automático).
+    anexo_warnings_collected: dict[str, list[str]] = {}
+
     for anexo in session.anexos:
         filler = filler_map.get(anexo.anexo_code)
         if filler is None:
@@ -366,7 +370,11 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
             # Each filler gets: own anexo_data MERGED with shared context.
             # Own anexo_data takes precedence (last in **) for keys both have.
             merged_data = {**shared_context, **(anexo.extracted_data or {})}
-            filler.fill(wb, session_data, merged_data)
+            result = filler.fill(wb, session_data, merged_data)
+            if isinstance(result, dict):
+                w = result.get("warnings") or []
+                if w:
+                    anexo_warnings_collected[anexo.anexo_code] = w
         except Exception:
             import logging
             logging.exception("Filler %s failed for session %s", anexo.anexo_code, session.id)
@@ -389,6 +397,28 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
     except Exception:
         import logging
         logging.exception("build_verification_sheet falló para sesión %s", session.id)
+
+    # Hoja AUDITORÍA DE ANEXOS — dashboard ejecutivo con resumen, diferencias
+    # y explicación metodológica por cada anexo. Pensado para que un Lider
+    # Auditor abra una sola hoja y en 60 segundos entienda el estado del ICT.
+    try:
+        from backend.app.ict.fillers.auditoria_anexos import (
+            build_auditoria_anexos_sheet,
+        )
+        build_auditoria_anexos_sheet(
+            wb,
+            session_data=session_data,
+            f101=shared_context.get("f101", {}) or {},
+            f103_monthly=shared_context.get("f103_monthly", {}) or {},
+            f104_monthly=shared_context.get("f104_monthly", {}) or {},
+            balance_mapeado=shared_context.get("balance_mapeado", []) or [],
+            ats_pagos_exterior=shared_context.get("ats_pagos_exterior", []) or [],
+            kardex_items=shared_context.get("kardex_items", []) or [],
+            anexo_warnings=anexo_warnings_collected,
+        )
+    except Exception:
+        import logging
+        logging.exception("build_auditoria_anexos_sheet falló para sesión %s", session.id)
 
     # Vuelca el trace log a una hoja "TRAZABILIDAD" al final del workbook.
     # Permite al auditor cruzar cualquier celda llenada con su origen
