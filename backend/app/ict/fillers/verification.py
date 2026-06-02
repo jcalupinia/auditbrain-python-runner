@@ -170,39 +170,146 @@ def build_verification_sheet(
         row += 1
 
     # --------------------------------------------------------------------
-    # SECCIÓN 3 — Conciliación de totales por bloque
+    # SECCIÓN 3 — CUADRATURA por bloque del Estado de Situación Financiera
     # --------------------------------------------------------------------
-    _bold(ws.cell(row, 1, value="3. CONCILIACIÓN DE TOTALES F-101 vs BALANCE"))
+    _bold(ws.cell(row, 1, value="3. CUADRATURA — ESTADO DE SITUACIÓN FINANCIERA"))
     row += 1
-    _bold(ws.cell(row, 1, value="Concepto"))
-    _bold(ws.cell(row, 2, value="Casillero F-101"))
-    _bold(ws.cell(row, 3, value="Valor F-101"))
-    _bold(ws.cell(row, 4, value="Suma Balance"))
-    _bold(ws.cell(row, 5, value="Diferencia"))
+    headers = ["Bloque", "Casillero TOTAL", "Valor F-101", "Suma Balance Contable",
+               "Diferencia Balance-F101", "Estado"]
+    for i, h in enumerate(headers, start=1):
+        _bold(ws.cell(row, i, value=h))
     row += 1
 
-    # Totales clave a verificar
-    TOTALES_REFERENCIA = [
-        ("Total Activo", "499", _activos),
-        ("Total Pasivo", "599", _pasivos),
-        ("Total Patrimonio", "698", _patrimonio),
-        ("Total Pasivo + Patrimonio", "699", lambda by: _pasivos(by) + _patrimonio(by)),
-        ("Total Ingresos Ordinarios", "1005", _ingresos_ord),
+    # Cuadratura por bloque. Para cada uno: casillero TOTAL del F-101
+    # vs suma de saldos del balance en el rango correspondiente.
+    # take_abs=True para Pasivos y Patrimonio porque en el balance
+    # contable vienen con saldo NEGATIVO (naturaleza acreedora) pero
+    # F-101 los expresa en POSITIVO. Sin take_abs el signo invierte.
+    BLOQUES_EEFF = [
+        ("TOTAL ACTIVOS CORRIENTES",      "361", [(311, 360)],            False),
+        ("TOTAL ACTIVOS NO CORRIENTES",   "449", [(362, 449)],            False),
+        ("TOTAL DEL ACTIVO",              "499", [(311, 499)],            False),
+        ("TOTAL PASIVOS CORRIENTES",      "550", [(511, 549)],            True),
+        ("TOTAL PASIVOS NO CORRIENTES",   "589", [(553, 588)],            True),
+        ("TOTAL DEL PASIVO",              "599", [(511, 599)],            True),
+        ("TOTAL DEL PATRIMONIO",          "698", [(601, 697)],            True),
+        ("TOTAL PASIVO + PATRIMONIO",     "699", [(511, 599), (601, 697)], True),
     ]
-    for nombre, casillero, calc in TOTALES_REFERENCIA:
-        decl = f101.get(casillero)
-        bal = calc(by_cas)
-        diff = (bal or 0) - (decl or 0)
+    for nombre, cas, ranges, abs_flag in BLOQUES_EEFF:
+        decl = f101.get(cas) or 0
+        bal = _sum_balance_range(by_cas, ranges, take_abs=abs_flag)
+        diff = bal - decl
+        estado = "✓ CUADRA" if abs(diff) <= 0.5 else "✗ DIFIERE"
         ws.cell(row, 1, value=nombre)
-        ws.cell(row, 2, value=casillero)
+        ws.cell(row, 2, value=cas)
         ws.cell(row, 3, value=decl)
         ws.cell(row, 4, value=bal)
         ws.cell(row, 5, value=diff)
+        ws.cell(row, 6, value=estado)
         if abs(diff) > 0.5:
             _bold(ws.cell(row, 5))
+            _bold(ws.cell(row, 6))
         row += 1
+    row += 1
 
-    _set_widths(ws, [40, 16, 18, 18, 18])
+    # --------------------------------------------------------------------
+    # SECCIÓN 4 — ECUACIÓN CONTABLE FUNDAMENTAL
+    # --------------------------------------------------------------------
+    _bold(ws.cell(row, 1, value="4. ECUACIÓN CONTABLE — A = P + Patrimonio"))
+    row += 1
+    activo_f101 = f101.get("499") or 0
+    pasivo_patrim_f101 = (f101.get("599") or 0) + (f101.get("698") or 0)
+    cuadre_f101 = activo_f101 - pasivo_patrim_f101
+    ws.cell(row, 1, value="F-101 — Activo (cas 499)")
+    ws.cell(row, 3, value=activo_f101)
+    row += 1
+    ws.cell(row, 1, value="F-101 — Pasivo (cas 599) + Patrimonio (cas 698)")
+    ws.cell(row, 3, value=pasivo_patrim_f101)
+    row += 1
+    ws.cell(row, 1, value="Diferencia (debe ser 0)")
+    ws.cell(row, 3, value=cuadre_f101)
+    ws.cell(row, 4, value="✓ F-101 CUADRA" if abs(cuadre_f101) <= 0.5 else "✗ F-101 NO CUADRA")
+    if abs(cuadre_f101) > 0.5:
+        _bold(ws.cell(row, 3))
+        _bold(ws.cell(row, 4))
+    row += 2
+
+    activo_bal = _sum_balance_range(by_cas, [(311, 499)])
+    # Pasivo + Patrimonio: take_abs porque vienen negativos en el balance
+    pp_bal = _sum_balance_range(by_cas, [(511, 599), (601, 697)], take_abs=True)
+    cuadre_bal = activo_bal - pp_bal
+    ws.cell(row, 1, value="Balance Contable — Suma Activos (rango 311-499)")
+    ws.cell(row, 3, value=activo_bal)
+    row += 1
+    ws.cell(row, 1, value="Balance Contable — Suma Pasivo + Patrimonio (rango 511-697)")
+    ws.cell(row, 3, value=pp_bal)
+    row += 1
+    ws.cell(row, 1, value="Diferencia (debe ser 0)")
+    ws.cell(row, 3, value=cuadre_bal)
+    ws.cell(row, 4, value="✓ BALANCE CUADRA" if abs(cuadre_bal) <= 0.5 else "✗ BALANCE NO CUADRA")
+    if abs(cuadre_bal) > 0.5:
+        _bold(ws.cell(row, 3))
+        _bold(ws.cell(row, 4))
+    row += 2
+
+    # --------------------------------------------------------------------
+    # SECCIÓN 5 — CUADRATURA Estado de Resultados
+    # --------------------------------------------------------------------
+    _bold(ws.cell(row, 1, value="5. CUADRATURA — ESTADO DE RESULTADOS"))
+    row += 1
+    for i, h in enumerate(headers, start=1):
+        _bold(ws.cell(row, i, value=h))
+    row += 1
+
+    # Estado de Resultados: solo totales consolidados. La separación
+    # Costo vs Gasto por casillero individual (7991 vs 7992) NO se hace
+    # por rangos numéricos limpios — depende del cell_map por casillero.
+    # En su lugar mostramos solo INGRESOS, COSTOS+GASTOS consolidado y
+    # UTILIDAD, que son lo crítico para validar.
+    BLOQUES_RESULTADOS = [
+        ("TOTAL INGRESOS DE ACTIVIDADES ORDINARIAS", "1005", [(6001, 6018)], False),
+        ("TOTAL INGRESOS",                           "6999", [(6001, 6999)], False),
+        ("TOTAL COSTOS Y GASTOS",                    "7999", [(7001, 7999)], False),
+    ]
+    for nombre, cas, ranges, abs_flag in BLOQUES_RESULTADOS:
+        decl = f101.get(cas) or 0
+        bal = _sum_balance_range(by_cas, ranges, take_abs=abs_flag)
+        diff = bal - decl
+        estado = "✓ CUADRA" if abs(diff) <= 0.5 else "✗ DIFIERE"
+        ws.cell(row, 1, value=nombre)
+        ws.cell(row, 2, value=cas)
+        ws.cell(row, 3, value=decl)
+        ws.cell(row, 4, value=bal)
+        ws.cell(row, 5, value=diff)
+        ws.cell(row, 6, value=estado)
+        if abs(diff) > 0.5:
+            _bold(ws.cell(row, 5))
+            _bold(ws.cell(row, 6))
+        row += 1
+    row += 1
+
+    # Utilidad calculada
+    _bold(ws.cell(row, 1, value="UTILIDAD DEL EJERCICIO"))
+    row += 1
+    ingresos = f101.get("6999") or 0
+    cyg = f101.get("7999") or 0
+    util_calc = ingresos - cyg
+    util_decl = f101.get("801") or 0
+    ws.cell(row, 1, value="F-101: Ingresos (6999) - Costos y Gastos (7999)")
+    ws.cell(row, 3, value=util_calc)
+    row += 1
+    ws.cell(row, 1, value="F-101: Utilidad declarada (cas 801)")
+    ws.cell(row, 3, value=util_decl)
+    row += 1
+    ws.cell(row, 1, value="Diferencia (debe ser 0)")
+    diff_util = util_calc - util_decl
+    ws.cell(row, 3, value=diff_util)
+    ws.cell(row, 4, value="✓ UTILIDAD CUADRA" if abs(diff_util) <= 0.5 else "✗ REVISAR")
+    if abs(diff_util) > 0.5:
+        _bold(ws.cell(row, 3))
+        _bold(ws.cell(row, 4))
+
+    _set_widths(ws, [46, 14, 20, 22, 22, 22])
 
 
 # ----------------------------------------------------------------------
@@ -217,7 +324,19 @@ _PATRIMONIO_RANGES = [(601, 698)]
 _INGRESOS_ORD_RANGES = [(6001, 6018)]
 
 
-def _sum_balance_range(by_cas: dict[str, list[dict]], ranges: list[tuple[int, int]]) -> float:
+def _sum_balance_range(
+    by_cas: dict[str, list[dict]],
+    ranges: list[tuple[int, int]],
+    *,
+    take_abs: bool = False,
+) -> float:
+    """Suma saldos del balance cuyo casillero esté dentro de los rangos.
+
+    take_abs=True: convierte cada saldo a valor absoluto antes de sumar.
+    Útil para Pasivo y Patrimonio porque vienen NEGATIVOS en el balance
+    contable del cliente (naturaleza acreedora) pero F-101 los expresa en
+    POSITIVO. Sin take_abs el cuadre da signo invertido.
+    """
     total = 0.0
     for cas, items in by_cas.items():
         try:
@@ -227,7 +346,8 @@ def _sum_balance_range(by_cas: dict[str, list[dict]], ranges: list[tuple[int, in
         for lo, hi in ranges:
             if lo <= n <= hi:
                 for it in items:
-                    total += it.get("saldo") or 0
+                    val = it.get("saldo") or 0
+                    total += abs(val) if take_abs else val
                 break
     return total
 
