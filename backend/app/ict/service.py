@@ -311,6 +311,38 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
             for k, v in a.extracted_data.items():
                 shared_context[k] = v  # last write wins (anexos iteration order)
 
+    # === Construir hojas de DATOS FUENTE ANTES de los fillers ===
+    # Estas hojas son la fuente trazable de cada valor en los anexos.
+    # Los fillers (a1..a9) usan f101_lookup/balance_lookup/etc. para
+    # generar fórmulas como ='DATOS F-101'!C123 en lugar de valores literales.
+    # IMPORTANTE: deben crearse ANTES porque los fillers necesitan el
+    # mapeo casillero→row para sus fórmulas.
+    f101_lookup: dict[str, int] = {}
+    f103_lookup: dict = {}
+    f104_lookup: dict = {}
+    balance_lookup: list[int] = []
+    try:
+        from backend.app.ict.fillers.source_data_sheets import (
+            build_f101_sheet, build_f103_sheet, build_f104_sheet, build_balance_sheet,
+        )
+        from backend.app.ict.cell_maps.a1 import A1_CASILLEROS_ORDERED
+        casillero_names = dict(A1_CASILLEROS_ORDERED)
+        f101_lookup = build_f101_sheet(
+            wb, shared_context.get("f101", {}) or {}, casillero_names
+        )
+        f103_lookup = build_f103_sheet(wb, shared_context.get("f103_monthly", {}) or {})
+        f104_lookup = build_f104_sheet(wb, shared_context.get("f104_monthly", {}) or {})
+        balance_lookup = build_balance_sheet(wb, shared_context.get("balance_mapeado", []) or [])
+    except Exception:
+        import logging
+        logging.exception("build_*_sheet falló para sesión %s", session.id)
+
+    # Inyectar lookups en shared_context para que los fillers los puedan usar
+    shared_context["_f101_lookup"] = f101_lookup
+    shared_context["_f103_lookup"] = f103_lookup
+    shared_context["_f104_lookup"] = f104_lookup
+    shared_context["_balance_lookup"] = balance_lookup
+
     filler_map = {
         "INDICE": IndiceFiller(),
         "A1": A1Filler(),
@@ -344,11 +376,15 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
     # quedaron fuera y por qué. Esencial para auditoría.
     try:
         from backend.app.ict.fillers.verification import build_verification_sheet
+        from backend.app.ict.fillers.base import get_trace
         build_verification_sheet(
             wb,
             f101=shared_context.get("f101", {}) or {},
             balance_mapeado=shared_context.get("balance_mapeado", []) or [],
             session_data=session_data,
+            f103_monthly=shared_context.get("f103_monthly", {}) or {},
+            f104_monthly=shared_context.get("f104_monthly", {}) or {},
+            trace_log=get_trace(),
         )
     except Exception:
         import logging

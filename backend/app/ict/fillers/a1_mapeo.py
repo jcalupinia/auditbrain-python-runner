@@ -41,12 +41,15 @@ def _safe_set(ws, cell_addr: str, value) -> bool:
                     origen="A1 Mapeo (F-101 + Balance Mapeado)")
 
 
-def _safe_set_formula(ws, cell_addr: str, formula: str) -> bool:
+def _safe_set_formula(ws, cell_addr: str, formula: str, *, casillero: str | None = None) -> bool:
     """Wrapper local para fórmulas DELIBERADAS (sobreescribe fórmulas
-    viejas del template cuando es necesario, p. ej. =SUM(F13:F25)-C13)."""
+    viejas del template cuando es necesario, p. ej. =SUM(F13:F25)-C13).
+    El parámetro casillero opcional permite registrar el casillero referenciado
+    para la sección de COBERTURA del dashboard de VERIFICACIÓN."""
     from backend.app.ict.fillers.base import safe_set_formula
     return safe_set_formula(ws, cell_addr, formula, anexo="A1",
-                            origen="A1 Mapeo (fórmula calculada)")
+                            casillero=casillero,
+                            origen="A1 Mapeo (fórmula referencial)")
 
 
 class A1Filler:
@@ -121,12 +124,23 @@ class A1Filler:
         # balance_mapeado is a list of {casillero_sri, codigo, descripcion, saldo}
         balance_mapeado = anexo_data.get("balance_mapeado", [])
 
-        # Group balance items by casillero_sri
+        # Lookups a las hojas DATOS — permiten que C y F sean FÓRMULAS
+        # referenciales en vez de valores literales.
+        f101_lookup: dict[str, int] = anexo_data.get("_f101_lookup", {}) or {}
+        # balance_lookup[i] = row donde se escribió la cuenta i en DATOS BALANCE
+        balance_lookup: list[int] = anexo_data.get("_balance_lookup", []) or []
+
+        # Group balance items by casillero_sri + recordar su índice original
+        # para poder generar la fórmula =DATOS BALANCE!D<row> correcta.
         by_casillero: dict[str, list[dict]] = {}
-        for item in balance_mapeado:
+        for idx, item in enumerate(balance_mapeado):
             cas = str(item.get("casillero_sri", "")).strip()
             if cas:
-                by_casillero.setdefault(cas, []).append(item)
+                item_with_idx = dict(item)
+                item_with_idx["_source_row"] = (
+                    balance_lookup[idx] if idx < len(balance_lookup) else None
+                )
+                by_casillero.setdefault(cas, []).append(item_with_idx)
 
         # Tracking de grupos para formatting posterior
         casillero_groups: list[dict] = []
@@ -158,16 +172,32 @@ class A1Filler:
             if _safe_set(ws, f"B{current_row}", casillero_nombre):
                 filled += 1
 
-            # === C — Valor declarado (o fórmula si es TOTAL COMPUESTO) ===
+            # === C — Valor declarado (REFERENCIA a 'DATOS F-101' o fórmula compuesta) ===
             if is_total and casillero in self.COMPOSITE_TOTALS:
                 sub1, sub2 = self.COMPOSITE_TOTALS[casillero]
                 if sub1 in total_rows and sub2 in total_rows:
                     _safe_set_formula(ws, f"C{current_row}",
                                       f"=C{total_rows[sub1]}+C{total_rows[sub2]}")
                     filled += 1
+                elif casillero in f101_lookup:
+                    # Si no hay subtotales, referenciar DATOS F-101
+                    _safe_set_formula(
+                        ws, f"C{current_row}",
+                        f"='DATOS F-101'!C{f101_lookup[casillero]}",
+                    )
+                    filled += 1
                 elif valor_declarado is not None:
                     if _safe_set(ws, f"C{current_row}", valor_declarado): filled += 1
+            elif casillero in f101_lookup:
+                # Caso típico: referenciar la celda de DATOS F-101 → trazabilidad
+                _safe_set_formula(
+                    ws, f"C{current_row}",
+                    f"='DATOS F-101'!C{f101_lookup[casillero]}",
+                    casillero=casillero,
+                )
+                filled += 1
             elif valor_declarado is not None:
+                # Fallback: si el casillero no está en F-101 lookup (raro), escribir literal
                 if _safe_set(ws, f"C{current_row}", valor_declarado): filled += 1
             else:
                 if not is_total:
@@ -230,7 +260,16 @@ class A1Filler:
             first = matching[0]
             if _safe_set(ws, f"D{current_row}", first.get("codigo", "")): filled += 1
             if _safe_set(ws, f"E{current_row}", first.get("descripcion", "")): filled += 1
-            if _safe_set(ws, f"F{current_row}", first.get("saldo", 0)): filled += 1
+            # F = REFERENCIA a 'DATOS BALANCE'!D<row_idx> para que el auditor
+            # vea de qué cuenta exacta proviene el saldo. Fallback a literal si
+            # no hay lookup (caso edge).
+            src_row = first.get("_source_row")
+            if src_row:
+                _safe_set_formula(ws, f"F{current_row}",
+                                  f"='DATOS BALANCE'!D{src_row}")
+                filled += 1
+            elif _safe_set(ws, f"F{current_row}", first.get("saldo", 0)):
+                filled += 1
 
             # Fórmula G — metodología oficial 2024:
             #   N cuentas → "=SUM(F<row>:F<row+N-1>)-C<row>"
@@ -253,12 +292,19 @@ class A1Filler:
             # === Filas adicionales: cuentas extra del mismo casillero ===
             # Sólo D/E/F. NO se pone fórmula en G (queda en blanco) porque la
             # fórmula SUM de la primera fila YA suma todo este rango.
+            # F referencia 'DATOS BALANCE'!D<row_src> (trazabilidad).
             for offset, item in enumerate(matching[1:], start=1):
                 row_n = current_row + offset
                 ws.insert_rows(row_n)
                 if _safe_set(ws, f"D{row_n}", item.get("codigo", "")): filled += 1
                 if _safe_set(ws, f"E{row_n}", item.get("descripcion", "")): filled += 1
-                if _safe_set(ws, f"F{row_n}", item.get("saldo", 0)): filled += 1
+                src_row = item.get("_source_row")
+                if src_row:
+                    _safe_set_formula(ws, f"F{row_n}",
+                                      f"='DATOS BALANCE'!D{src_row}")
+                    filled += 1
+                elif _safe_set(ws, f"F{row_n}", item.get("saldo", 0)):
+                    filled += 1
 
             # Trackear grupo (N filas)
             casillero_groups.append({

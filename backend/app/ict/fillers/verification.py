@@ -114,6 +114,9 @@ def build_verification_sheet(
     f101: dict,
     balance_mapeado: list[dict],
     session_data: dict,
+    f103_monthly: dict | None = None,
+    f104_monthly: dict | None = None,
+    trace_log: list[dict] | None = None,
 ) -> None:
     if SHEET_NAME in workbook.sheetnames:
         del workbook[SHEET_NAME]
@@ -405,6 +408,101 @@ def build_verification_sheet(
                 else:
                     cell.alignment = ALIGN_LEFT
             row += 1
+
+    # ============================================================
+    # SECCIÓN 7 — COBERTURA DE CASILLEROS POR FORMULARIO
+    # ============================================================
+    # Reporta qué casilleros de F-101, F-103, F-104 NO fueron usados
+    # (no se generó ninguna fórmula que los referencie). Esto detecta
+    # datos del cliente que se PARSEAN pero quedan SIN llegar a los anexos.
+    row += 1
+    row = _section_header(ws, row,
+                          title="🔎 COBERTURA · Casilleros parseados vs referenciados")
+
+    # Set de casilleros que aparecen en el trace log (= fueron escritos)
+    trace_log = trace_log or []
+    casilleros_referenciados: set[str] = set()
+    for entry in trace_log:
+        cas = str(entry.get("casillero", "")).strip()
+        if cas:
+            casilleros_referenciados.add(cas)
+    # También agregar los casilleros que el A1 cubre por cell_map
+    # (aunque no aparezcan con casillero explícito en el trace)
+    casilleros_referenciados |= casilleros_a1_set
+
+    def _reportar_formulario(label: str, casilleros_disponibles: set[str], total_parseados: int):
+        nonlocal row
+        usados = sum(1 for c in casilleros_disponibles if c in casilleros_referenciados)
+        no_usados_con_valor = sorted(
+            [c for c in casilleros_disponibles if c not in casilleros_referenciados],
+            key=lambda x: int(x) if x.isdigit() else 9999,
+        )
+        # Header subtítulo
+        c = ws.cell(row, 1, value=label)
+        c.font = Font(name="Calibri", size=11, bold=True, color="2D5F8B")
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+        row += 1
+
+        ws.cell(row, 1, value="Casilleros parseados:").font = FONT_DATA
+        ws.cell(row, 2, value=total_parseados).font = FONT_DATA
+        ws.cell(row, 4, value="Casilleros usados en anexos:").font = FONT_DATA
+        c_used = ws.cell(row, 5, value=usados)
+        c_used.font = FONT_DATA_OK if usados > 0 else FONT_DATA
+        row += 1
+        ws.cell(row, 1, value="Casilleros con valor SIN usar:").font = FONT_DATA
+        c_un = ws.cell(row, 2, value=len(no_usados_con_valor))
+        c_un.font = FONT_DATA_BAD if len(no_usados_con_valor) > 0 else FONT_DATA_OK
+        row += 1
+
+        if no_usados_con_valor:
+            # Listar primeros 50
+            ws.cell(row, 1, value="Casilleros NO usados (primeros 50):").font = FONT_DATA
+            row += 1
+            for cas in no_usados_con_valor[:50]:
+                ws.cell(row, 1, value=cas).font = FONT_DATA
+                ws.cell(row, 1).alignment = ALIGN_CENTER
+                ws.cell(row, 2, value="(revisar si debe estar en algún anexo)").font = FONT_DATA
+                ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=6)
+                row += 1
+            if len(no_usados_con_valor) > 50:
+                ws.cell(row, 1, value=f"... y {len(no_usados_con_valor)-50} más").font = FONT_DATA
+                row += 1
+        else:
+            ok = ws.cell(row, 1, value="✓ Todos los casilleros parseados fueron referenciados en algún anexo")
+            ok.font = FONT_DATA_OK
+            ok.fill = FILL_OK
+            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+            row += 1
+        row += 1
+
+    # F-101
+    f101_caslleros_con_valor = {k for k, v in f101.items() if v not in (None, 0, 0.0)}
+    _reportar_formulario("📄 F-101 · Declaración Anual IR Sociedades",
+                          f101_caslleros_con_valor, len(f101))
+
+    # F-103
+    if f103_monthly:
+        all_f103: set[str] = set()
+        for periodo in f103_monthly:
+            casilleros = (f103_monthly[periodo].get("casilleros") if isinstance(f103_monthly.get(periodo), dict) else {}) or {}
+            for cas, val in casilleros.items():
+                if val not in (None, 0, 0.0):
+                    all_f103.add(cas)
+        _reportar_formulario("📋 F-103 · Retenciones IR mensuales",
+                              all_f103, len(all_f103))
+
+    # F-104
+    if f104_monthly:
+        all_f104: set[str] = set()
+        for periodo in f104_monthly:
+            d = f104_monthly.get(periodo) or {}
+            casilleros = d.get("casilleros") if isinstance(d, dict) else None
+            if casilleros:
+                for cas, val in casilleros.items():
+                    if val not in (None, 0, 0.0):
+                        all_f104.add(cas)
+        _reportar_formulario("📑 F-104 · IVA mensual",
+                              all_f104, len(all_f104))
 
     # ============================================================
     # FORMATO FINAL
