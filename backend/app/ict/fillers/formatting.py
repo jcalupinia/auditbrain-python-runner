@@ -92,7 +92,33 @@ def safe_apply_style(ws, row: int, col: int, *,
 
 
 def safe_merge(ws, range_str: str) -> None:
-    """Hace merge de un rango, manejando excepciones (ya merged, etc.)."""
+    """Hace merge de un rango, primero deshaciendo cualquier merge EXISTENTE
+    que se superponga. Sin esto, el template del SRI (que ya tiene merges
+    cortos como A13:A15) entra en conflicto con nuestros merges nuevos
+    (A13:A19) y Excel REPARA el archivo borrando combinaciones — el
+    cliente ve "Reparaciones en ICT.xlsx" al abrirlo y pierde el formato.
+    """
+    from openpyxl.utils.cell import range_boundaries
+
+    try:
+        min_col, min_row, max_col, max_row = range_boundaries(range_str)
+    except Exception:
+        return
+
+    # 1) Deshacer cualquier merge existente que toque este rango
+    overlapping = []
+    for m in list(ws.merged_cells.ranges):
+        # ¿Hay intersección entre m y nuestro rango?
+        if (m.min_row <= max_row and m.max_row >= min_row and
+            m.min_col <= max_col and m.max_col >= min_col):
+            overlapping.append(str(m))
+    for o in overlapping:
+        try:
+            ws.unmerge_cells(o)
+        except Exception:
+            pass
+
+    # 2) Aplicar el merge nuevo limpio
     try:
         ws.merge_cells(range_str)
     except Exception:
