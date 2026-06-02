@@ -196,7 +196,9 @@ def format_a1_sheet(
 
                 # Formato número para cols C, F, G
                 if c in (3, 6, 7):
-                    safe_apply_style(ws, r, c, number_format='#,##0.00;-#,##0.00;""')
+                    # Mostrar "0.00" cuando cuadra (no vacío) para que el auditor
+                    # vea explícitamente que la diferencia es 0.
+                    safe_apply_style(ws, r, c, number_format='#,##0.00;-#,##0.00;0.00')
 
         # Altura mínima de fila para que el wrap se vea bien
         for r in range(r_start, r_end + 1):

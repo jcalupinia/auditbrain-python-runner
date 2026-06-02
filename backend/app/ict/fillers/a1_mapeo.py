@@ -59,6 +59,49 @@ class A1Filler:
     TOTAL_CASILLEROS = {"361", "449", "499", "550", "589", "599", "698", "699",
                         "1005", "1045", "6999", "7991", "7992", "7999"}
 
+    # Casilleros que F-101 declara como (-) NEGATIVOS (deterioros, depreciaciones,
+    # pérdidas, inventarios finales). Sus saldos en el balance del cliente vienen
+    # con signo CONTABLE NEGATIVO mientras F-101 los expresa positivos. Para que
+    # la fórmula de diferencia dé 0 al cuadrar usamos ABS() sobre el sumatorio.
+    NEGATIVE_CASILLEROS = {
+        "314", "317", "324", "327", "329",  # deterioros cuentas por cobrar
+        "347",                                 # deterioro inventarios
+        "384", "385", "386",                  # depreciación acumulada PPE
+        "392", "393",                          # amortización acumulada intangibles
+        "602",                                 # capital no pagado
+        "612", "616",                          # pérdidas acumuladas / del ejercicio
+        "7010", "7022", "7028", "7034",       # inventarios finales (restan en CoGS)
+    }
+
+    # Mapping de TOTAL → identificador de bloque para que F<row_total> tenga
+    # fórmula SUM del rango del bloque que totaliza.
+    # PRIMARIOS suman cuentas individuales; COMPUESTOS suman sub-totales.
+    PRIMARY_TOTAL_BLOCKS = {
+        "361": "ACT_CORR",      "449": "ACT_NO_CORR",
+        "550": "PAS_CORR",      "589": "PAS_NO_CORR",
+        "698": "PATRIMONIO",
+        "1005": "ING_ORD",      "6999": "INGRESOS",
+        "7991": "COSTOS_OP",    "7992": "GASTOS",
+    }
+    COMPOSITE_TOTALS = {
+        # cas_total → (sub_total_1, sub_total_2)
+        "499": ("361", "449"),
+        "599": ("550", "589"),
+        "699": ("599", "698"),
+        "7999": ("7991", "7992"),
+    }
+    # En qué bloque empieza cada casillero PRIMARIO. Lookup directo por casillero
+    # del primer casillero del bloque para resetear block_start_row.
+    # IMPORTANTE: estos valores deben coincidir EXACTAMENTE con los primeros
+    # casilleros de cada bloque en A1_CASILLEROS_ORDERED.
+    BLOCK_FIRST_CAS = {
+        "ACT_CORR":    "311",   "ACT_NO_CORR": "362",
+        "PAS_CORR":    "511",   "PAS_NO_CORR": "555",   # 555 es el primero en cell_map
+        "PATRIMONIO":  "601",
+        "ING_ORD":     "6001",  "INGRESOS":    "6001",
+        "COSTOS_OP":   "7001",  "GASTOS":      "7173",
+    }
+
     def fill(
         self,
         workbook: Workbook,
@@ -89,28 +132,84 @@ class A1Filler:
         casillero_groups: list[dict] = []
         current_row = A1_FIRST_DATA_ROW
 
+        # Tracking de bloques para que los TOTALES tengan fórmulas =SUM correctas
+        # en la columna F (saldos contables), igualando lo que pasa en C (declarado).
+        # block_start_rows[bloque_id] = fila donde empieza el bloque
+        # total_rows[casillero_total] = fila donde se escribió ese TOTAL
+        block_start_rows: dict[str, int] = {}
+        total_rows: dict[str, int] = {}
+
         for casillero, casillero_nombre in A1_CASILLEROS_ORDERED:
             valor_declarado = f101.get(casillero)
             matching = by_casillero.get(casillero, [])
             n_accounts = len(matching)
             is_total = casillero in self.TOTAL_CASILLEROS
+            is_negative = casillero in self.NEGATIVE_CASILLEROS
             row_start = current_row
 
-            # === Casillero + nombre + valor declarado (cols A, B, C) ===
+            # Detectar inicio de bloque (primer casillero de cada bloque PRIMARIO)
+            for bloque_id, first_cas in self.BLOCK_FIRST_CAS.items():
+                if casillero == first_cas and bloque_id not in block_start_rows:
+                    block_start_rows[bloque_id] = current_row
+
+            # === Casillero + nombre (cols A, B) ===
             if _safe_set(ws, f"A{current_row}", casillero):
                 filled += 1
             if _safe_set(ws, f"B{current_row}", casillero_nombre):
                 filled += 1
-            if valor_declarado is not None:
-                if _safe_set(ws, f"C{current_row}", valor_declarado):
+
+            # === C — Valor declarado (o fórmula si es TOTAL COMPUESTO) ===
+            if is_total and casillero in self.COMPOSITE_TOTALS:
+                sub1, sub2 = self.COMPOSITE_TOTALS[casillero]
+                if sub1 in total_rows and sub2 in total_rows:
+                    _safe_set_formula(ws, f"C{current_row}",
+                                      f"=C{total_rows[sub1]}+C{total_rows[sub2]}")
                     filled += 1
+                elif valor_declarado is not None:
+                    if _safe_set(ws, f"C{current_row}", valor_declarado): filled += 1
+            elif valor_declarado is not None:
+                if _safe_set(ws, f"C{current_row}", valor_declarado): filled += 1
             else:
-                warnings.append(f"Casillero {casillero} no encontrado en F-101")
+                if not is_total:
+                    warnings.append(f"Casillero {casillero} no encontrado en F-101")
+
+            # === F (saldos contables) — fórmula SUM si es TOTAL ===
+            f_formula_for_total = None
+            if is_total:
+                if casillero in self.PRIMARY_TOTAL_BLOCKS:
+                    # TOTAL primario: suma del rango del bloque actual
+                    bloque_id = self.PRIMARY_TOTAL_BLOCKS[casillero]
+                    if bloque_id in block_start_rows:
+                        f_formula_for_total = (
+                            f"=SUM(F{block_start_rows[bloque_id]}:F{current_row-1})"
+                        )
+                        # Reset del bloque para que el siguiente bloque arranque limpio
+                        del block_start_rows[bloque_id]
+                elif casillero in self.COMPOSITE_TOTALS:
+                    # TOTAL compuesto: suma de los sub-totales previos
+                    sub1, sub2 = self.COMPOSITE_TOTALS[casillero]
+                    if sub1 in total_rows and sub2 in total_rows:
+                        f_formula_for_total = (
+                            f"=F{total_rows[sub1]}+F{total_rows[sub2]}"
+                        )
+
+                if f_formula_for_total:
+                    _safe_set_formula(ws, f"F{current_row}", f_formula_for_total)
+                    filled += 1
+                total_rows[casillero] = current_row
 
             if n_accounts == 0:
-                # Sin cuentas contables: fórmula G apunta a su propia fila.
-                _safe_set_formula(ws, f"G{current_row}", f"=F{current_row}-C{current_row}")
-                if valor_declarado is not None and valor_declarado != 0 and not is_total:
+                # Sin cuentas contables.
+                # Para TOTAL con fórmula F, su diferencia G = F - C automáticamente.
+                # Para casillero normal sin cuentas, G también es F - C (apunta a sí mismo).
+                # IMPORTANTE: NO usar ABS aquí para totales (sus saldos son sumas con signo)
+                if is_negative:
+                    _safe_set_formula(ws, f"G{current_row}", f"=ABS(F{current_row})-C{current_row}")
+                else:
+                    _safe_set_formula(ws, f"G{current_row}", f"=F{current_row}-C{current_row}")
+
+                if (not is_total and valor_declarado is not None and
+                    valor_declarado != 0):
                     warnings.append(
                         f"Casillero {casillero} ({casillero_nombre}): declarado "
                         f"{valor_declarado:,.2f} pero el Balance Mapeado no aporta "
@@ -136,11 +235,19 @@ class A1Filler:
             # Fórmula G — metodología oficial 2024:
             #   N cuentas → "=SUM(F<row>:F<row+N-1>)-C<row>"
             #   1 cuenta  → "=F<row>-C<row>"
+            # Si el casillero es NEGATIVO en F-101, envolvemos en ABS() para que
+            # los saldos negativos del balance den cuadre 0 contra el declarado positivo.
             if n_accounts > 1:
                 end_row = current_row + n_accounts - 1
-                formula = f"=SUM(F{current_row}:F{end_row})-C{current_row}"
+                if is_negative:
+                    formula = f"=ABS(SUM(F{current_row}:F{end_row}))-C{current_row}"
+                else:
+                    formula = f"=SUM(F{current_row}:F{end_row})-C{current_row}"
             else:
-                formula = f"=F{current_row}-C{current_row}"
+                if is_negative:
+                    formula = f"=ABS(F{current_row})-C{current_row}"
+                else:
+                    formula = f"=F{current_row}-C{current_row}"
             _safe_set_formula(ws, f"G{current_row}", formula)
 
             # === Filas adicionales: cuentas extra del mismo casillero ===
