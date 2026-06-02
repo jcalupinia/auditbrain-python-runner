@@ -115,6 +115,24 @@ class A1Filler:
         filled = 0
         warnings: list[str] = []
 
+        # ⚠ FIX BUG MERGED CELLS:
+        # El template del SRI tiene merged cells PRE-DEFINIDAS en el rango de
+        # datos (filas 13+) para algunos casilleros. Cuando el filler hace
+        # `ws.insert_rows()` para cuentas extra de un casillero con múltiples
+        # cuentas (ej. cas 311 con 7 bancos), todos los merges del template
+        # se DESPLAZAN hacia abajo. Esto causa que safe_set() omita silenciosa-
+        # mente la escritura de A/B/C en otros casilleros (cas 321, 322, 325,
+        # 327, etc.) porque la celda destino quedó dentro de un rango merged
+        # heredado del template. RESULTADO visible: el A1 muestra el número
+        # del casillero (A) pero el nombre (B) y el valor (C) vacíos.
+        #
+        # SOLUCIÓN: un-merge TODOS los rangos por debajo del header. El filler
+        # tendrá libertad total para escribir; el formatter al final crea las
+        # merges DESEADAS (A:A, C:C por grupo de casillero).
+        for mr in list(ws.merged_cells.ranges):
+            if mr.min_row >= A1_FIRST_DATA_ROW:
+                ws.unmerge_cells(str(mr))
+
         # Header
         for cell_addr, key in A1_HEADER_MAP.items():
             if _safe_set(ws, cell_addr, session_data.get(key, "")):

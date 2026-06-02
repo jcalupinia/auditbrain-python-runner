@@ -157,13 +157,20 @@ def build_verification_sheet(
     # ============================================================
     # SECCIÓN 1 — KPI Cards (4 tarjetas)
     # ============================================================
-    # Pre-calc para los KPIs
+    # Pre-calc para los KPIs.
+    # Prioridad para Pasivo+Patrimonio: usar cas 699 (TOTAL PASIVO Y PATRIMONIO)
+    # que el F-101 declara directamente; sólo caer a 599+698 si 699 no se
+    # parseó. Sin esta prioridad, cuando el parser falla en 599/698 el KPI
+    # mostraba la diferencia = activo total (~ 21M) en vez de 0.
     activo_f101 = f101.get("499") or 0
-    pp_f101 = (f101.get("599") or 0) + (f101.get("698") or 0)
-    cuadre_f101 = abs(activo_f101 - pp_f101)
+    if f101.get("699") not in (None, 0, 0.0):
+        pp_f101 = f101.get("699")
+    else:
+        pp_f101 = (f101.get("599") or 0) + (f101.get("698") or 0)
+    cuadre_f101 = round(abs(activo_f101 - pp_f101), 2)
     activo_bal = _sum_balance_range(by_cas, [(311, 499)])
     pp_bal = _sum_balance_range(by_cas, [(511, 599), (601, 697)], take_abs=True)
-    cuadre_bal = abs(activo_bal - pp_bal)
+    cuadre_bal = round(abs(activo_bal - pp_bal), 2)
 
     casilleros_with_value = sum(1 for k, v in f101.items() if v not in (None, 0, 0.0))
     casilleros_en_a1 = sum(1 for k in f101.keys() if k in casilleros_a1_set)
@@ -227,9 +234,9 @@ def build_verification_sheet(
         ("TOTAL PASIVO + PATRIMONIO",     "699", [(511, 599), (601, 697)], True),
     ]
     for nombre, cas, ranges, abs_flag in BLOQUES_EEFF:
-        decl = f101.get(cas) or 0
-        bal = _sum_balance_range(by_cas, ranges, take_abs=abs_flag)
-        diff = bal - decl
+        decl = round(f101.get(cas) or 0, 2)
+        bal = round(_sum_balance_range(by_cas, ranges, take_abs=abs_flag), 2)
+        diff = round(bal - decl, 2)
         estado = "✓ CUADRA" if abs(diff) <= 0.5 else "✗ DIFIERE"
 
         ws.cell(row, 1, value=nombre).font = FONT_DATA
@@ -277,9 +284,9 @@ def build_verification_sheet(
         ("TOTAL COSTOS Y GASTOS",                    "7999", [(7001, 7999)], False),
     ]
     for nombre, cas, ranges, abs_flag in BLOQUES_RESULTADOS:
-        decl = f101.get(cas) or 0
-        bal = _sum_balance_range(by_cas, ranges, take_abs=abs_flag)
-        diff = bal - decl
+        decl = round(f101.get(cas) or 0, 2)
+        bal = round(_sum_balance_range(by_cas, ranges, take_abs=abs_flag), 2)
+        diff = round(bal - decl, 2)
         estado = "✓ CUADRA" if abs(diff) <= 0.5 else "✗ DIFIERE"
 
         ws.cell(row, 1, value=nombre).font = FONT_DATA
@@ -313,11 +320,11 @@ def build_verification_sheet(
     # SECCIÓN 4 — Utilidad del ejercicio
     # ============================================================
     row = _section_header(ws, row, title="💰 UTILIDAD DEL EJERCICIO")
-    ingresos = f101.get("6999") or 0
-    cyg = f101.get("7999") or 0
-    util_calc = ingresos - cyg
-    util_decl = f101.get("801") or 0
-    diff_util = util_calc - util_decl
+    ingresos = round(f101.get("6999") or 0, 2)
+    cyg = round(f101.get("7999") or 0, 2)
+    util_calc = round(ingresos - cyg, 2)
+    util_decl = round(f101.get("801") or 0, 2)
+    diff_util = round(util_calc - util_decl, 2)
 
     util_rows = [
         ("F-101: Ingresos (6999) menos Costos y Gastos (7999)", util_calc),

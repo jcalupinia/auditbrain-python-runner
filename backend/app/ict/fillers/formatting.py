@@ -52,15 +52,18 @@ ALIGN_RIGHT = Alignment(horizontal="right", vertical="center")
 
 
 # ----- Anchos de columna estándar para A1 -----
+# Calibrados para que los nombres largos de cuentas contables ("Bco. Del
+# Pacífico Cta. 07565399") se vean sin truncar, y los valores numéricos
+# en formato #,##0.00 quepan sin overflow.
 A1_COLUMN_WIDTHS = {
-    "A": 12.0,   # Casillero
-    "B": 40.0,   # Nombre Casillero
-    "C": 16.0,   # Valor declarado
-    "D": 18.0,   # Código cuenta contable
-    "E": 38.0,   # Nombre cuenta contable
-    "F": 16.0,   # Saldo
-    "G": 16.0,   # Diferencia
-    "H": 24.0,   # Observaciones
+    "A": 10.0,   # Casillero (4 dígitos)
+    "B": 48.0,   # Nombre Casillero (largo: "OTRAS CUENTAS Y DOCUMENTOS POR COBRAR...")
+    "C": 18.0,   # Valor declarado (numérico)
+    "D": 22.0,   # Código cuenta contable (ej. "5BS.11201.001")
+    "E": 50.0,   # Nombre cuenta contable (largo)
+    "F": 18.0,   # Saldo (numérico)
+    "G": 18.0,   # Diferencia (numérico)
+    "H": 30.0,   # Observaciones (texto largo)
 }
 
 
@@ -200,10 +203,12 @@ def format_a1_sheet(
                     # vea explícitamente que la diferencia es 0.
                     safe_apply_style(ws, r, c, number_format='#,##0.00;-#,##0.00;0.00')
 
-        # Altura mínima de fila para que el wrap se vea bien
+        # Altura mínima de fila para que el wrap se vea bien.
+        # 22 da espacio para texto envuelto en B (nombre casillero) y E
+        # (nombre cuenta) que típicamente ocupan 2 líneas.
         for r in range(r_start, r_end + 1):
-            if ws.row_dimensions[r].height is None or ws.row_dimensions[r].height < 16:
-                ws.row_dimensions[r].height = 16
+            if ws.row_dimensions[r].height is None or ws.row_dimensions[r].height < 22:
+                ws.row_dimensions[r].height = 22
 
         # Separador visual: fila en blanco después del grupo (sólo si NO es TOTAL final)
         # Esto lo deja la lógica del filler (insertando fila en blanco entre bloques).

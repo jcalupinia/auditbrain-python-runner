@@ -9,9 +9,14 @@ from io import BytesIO
 
 import pdfplumber
 
-from backend.app.aud.obligaciones_fiscales.cedulas.base import (
+from backend.app.aud.obligaciones_fiscales.cedulas.base import find_periodo
+# Usamos la versión ROBUSTA de find_casillero_value que sabe lidiar con el
+# ruido de columnas del PDF SRI (líneas tipo "550 0.00 0.00 1234.56" donde
+# 1234.56 es la columna del año actual). La versión simple en cedulas/base.py
+# fallaba en los casilleros TOTAL (550, 589, 698) cuyas líneas tienen varios
+# 0.00 antes del valor real.
+from backend.app.tax.planificacion_utilidades.parsers.sri_text import (
     find_casillero_value,
-    find_periodo,
 )
 
 ALL_F101_CASILLEROS: list[str] = [
