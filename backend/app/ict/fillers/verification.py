@@ -234,16 +234,26 @@ def build_verification_sheet(
         ("TOTAL PASIVO + PATRIMONIO",     "699", [(511, 599), (601, 697)], True),
     ]
     for nombre, cas, ranges, abs_flag in BLOQUES_EEFF:
-        decl = round(f101.get(cas) or 0, 2)
+        # decl_raw es None si el F-101 NO declaró ese casillero (ej. cas
+        # 550/589/698 cuando el parser falló o el PDF no los tenía).
+        # Mostrarlo como "n/d" en lugar de 0 evita la confusión "diferencia
+        # = total balance" que sugiere bug cuando en realidad es ausencia
+        # de dato declarado.
+        decl_raw = f101.get(cas)
+        decl = round(decl_raw, 2) if decl_raw is not None else None
         bal = round(_sum_balance_range(by_cas, ranges, take_abs=abs_flag), 2)
-        diff = round(bal - decl, 2)
-        estado = "✓ CUADRA" if abs(diff) <= 0.5 else "✗ DIFIERE"
+        if decl is None:
+            diff = None
+            estado = "⚠ F-101 NO DECLARÓ"
+        else:
+            diff = round(bal - decl, 2)
+            estado = "✓ CUADRA" if abs(diff) <= 0.5 else "✗ DIFIERE"
 
         ws.cell(row, 1, value=nombre).font = FONT_DATA
         ws.cell(row, 2, value=cas).font = FONT_DATA
-        ws.cell(row, 3, value=decl).font = FONT_DATA
+        ws.cell(row, 3, value=decl if decl is not None else "n/d").font = FONT_DATA
         ws.cell(row, 4, value=bal).font = FONT_DATA
-        diff_cell = ws.cell(row, 5, value=diff)
+        diff_cell = ws.cell(row, 5, value=diff if diff is not None else "—")
         est_cell = ws.cell(row, 6, value=estado)
         if abs(diff) <= 0.5:
             diff_cell.font = FONT_DATA_OK
@@ -284,16 +294,21 @@ def build_verification_sheet(
         ("TOTAL COSTOS Y GASTOS",                    "7999", [(7001, 7999)], False),
     ]
     for nombre, cas, ranges, abs_flag in BLOQUES_RESULTADOS:
-        decl = round(f101.get(cas) or 0, 2)
+        decl_raw = f101.get(cas)
+        decl = round(decl_raw, 2) if decl_raw is not None else None
         bal = round(_sum_balance_range(by_cas, ranges, take_abs=abs_flag), 2)
-        diff = round(bal - decl, 2)
-        estado = "✓ CUADRA" if abs(diff) <= 0.5 else "✗ DIFIERE"
+        if decl is None:
+            diff = None
+            estado = "⚠ F-101 NO DECLARÓ"
+        else:
+            diff = round(bal - decl, 2)
+            estado = "✓ CUADRA" if abs(diff) <= 0.5 else "✗ DIFIERE"
 
         ws.cell(row, 1, value=nombre).font = FONT_DATA
         ws.cell(row, 2, value=cas).font = FONT_DATA
-        ws.cell(row, 3, value=decl).font = FONT_DATA
+        ws.cell(row, 3, value=decl if decl is not None else "n/d").font = FONT_DATA
         ws.cell(row, 4, value=bal).font = FONT_DATA
-        diff_cell = ws.cell(row, 5, value=diff)
+        diff_cell = ws.cell(row, 5, value=diff if diff is not None else "—")
         est_cell = ws.cell(row, 6, value=estado)
         if abs(diff) <= 0.5:
             diff_cell.font = FONT_DATA_OK
