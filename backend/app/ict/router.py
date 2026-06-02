@@ -164,12 +164,51 @@ def process_session_endpoint(
     para descarga subsiguiente instantánea.
 
     Devuelve JSON con resultado por anexo + bandera excel_ready.
+
+    NOTA: ANTES de procesar, re-parsea los archivos guardados con la
+    versión actual del parser. Esto garantiza que cuando se mejora un
+    parser (ej. más casilleros del F-101), las sesiones existentes se
+    benefician sin necesidad de re-subir archivos.
     """
     try:
         session = ict_service.get_session(db, session_id=session_id, user=user)
     except PermissionError as e:
         raise HTTPException(403, detail=str(e))
+    # Re-parsear primero — si el parser se actualizó desde la última
+    # vez que el cliente subió archivos, esto recupera los casilleros
+    # nuevos. Si no hay archivos guardados, no hace nada.
+    try:
+        ict_service.reparse_session_uploads(db, session=session)
+        # Refrescar la sesión por si reparse cambió relaciones
+        session = ict_service.get_session(db, session_id=session_id, user=user)
+    except Exception:
+        import logging
+        logging.exception("reparse_session_uploads falló para sesión %s, continúo con datos cacheados", session_id)
     return ict_service.process_session(db, session=session)
+
+
+@router.post("/sessions/{session_id}/reparse", status_code=200)
+def reparse_session_endpoint(
+    session_id: int,
+    user: User = Depends(require_client_with_device),
+    db: Session = Depends(get_db),
+):
+    """Re-parsea TODOS los archivos guardados de la sesión con la versión
+    actual del parser, sin que el cliente tenga que re-subirlos.
+
+    Útil después de un deploy que mejoró un parser (más casilleros,
+    regex más robusta, nuevos formatos soportados). El cliente ve
+    inmediatamente los datos nuevos en su próxima generación de Excel.
+
+    Devuelve {session_id, anexos: {code: {slot: {archivos, items}}}}.
+    """
+    try:
+        session = ict_service.get_session(db, session_id=session_id, user=user)
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    if session.status != "in_progress":
+        raise HTTPException(410, detail=f"Sesión está {session.status}")
+    return ict_service.reparse_session_uploads(db, session=session)
 
 
 @router.get("/sessions/{session_id}/download")

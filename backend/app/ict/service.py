@@ -191,6 +191,133 @@ def save_uploaded_file(
     return target
 
 
+def reparse_session_uploads(db: Session, *, session: ICTSession) -> dict:
+    """Re-parsea TODOS los archivos guardados en disco para esta sesión y
+    actualiza extracted_data en BD con la versión actual del parser.
+
+    Cuando deployamos un parser mejorado (más casilleros, regex más
+    robusto, etc.), los archivos ya subidos siguen con el extracted_data
+    parseado por la versión vieja. Esta función:
+
+      1. Recorre /tmp/ict/<session_id>/<anexo>/<slot>/*.pdf|.xlsx|.xml
+      2. Re-corre el parser correspondiente sobre cada archivo
+      3. Actualiza extracted_data del anexo con el resultado nuevo
+
+    Devuelve {anexo_code: {slot, archivos_re_parseados, casilleros_antes,
+    casilleros_despues}} para reportar al usuario qué cambió.
+    """
+    from backend.app.ict.router import SLOT_PARSERS
+
+    report: dict = {}
+    root = _ict_job_dir(session.id, "").parent  # /tmp/ict/<id>/
+    if not root.exists():
+        return {"error": "No hay archivos guardados para esta sesión",
+                "session_id": session.id}
+
+    for anexo in session.anexos:
+        anexo_dir = root / anexo.anexo_code
+        if not anexo_dir.exists():
+            continue
+        anexo_report: dict = {}
+        anexo_extracted_before = anexo.extracted_data or {}
+        new_extracted: dict = {}
+
+        # Recorrer slots dentro de la carpeta del anexo
+        for slot_dir in sorted(anexo_dir.iterdir()):
+            if not slot_dir.is_dir():
+                continue
+            slot_name = slot_dir.name
+            parser = SLOT_PARSERS.get(slot_name)
+            if parser is None:
+                continue
+
+            archivos_re = 0
+            casilleros_total = 0
+
+            if slot_name in ("f104", "f103"):
+                # Multi-mes: re-parsear cada archivo y acumular en monthly
+                monthly: dict = {}
+                for f in sorted(slot_dir.iterdir()):
+                    if not f.is_file():
+                        continue
+                    try:
+                        data = f.read_bytes()
+                        parsed = parser(data)
+                        periodo = parsed.get("periodo")
+                        if periodo:
+                            mes_key = str(periodo).split("/")[0].strip() \
+                                      if "/" in str(periodo) else str(periodo).strip()
+                            monthly[mes_key] = parsed
+                            archivos_re += 1
+                            casilleros_total += len(parsed.get("casilleros", {}))
+                    except Exception:
+                        import logging
+                        logging.exception("Re-parse failed for %s", f)
+                if monthly:
+                    key = "f104_monthly" if slot_name == "f104" else "f103_monthly"
+                    new_extracted[key] = monthly
+            else:
+                # Slot single-file: re-parsear el primer archivo
+                files = [f for f in slot_dir.iterdir() if f.is_file()]
+                if not files:
+                    continue
+                f = files[0]
+                try:
+                    data = f.read_bytes()
+                    parsed = parser(data)
+                    archivos_re = 1
+                    if slot_name == "f101":
+                        new_extracted["f101"] = parsed["casilleros"]
+                        casilleros_total = len(parsed.get("casilleros", {}))
+                    elif slot_name == "balance_mapeado":
+                        new_extracted["balance_mapeado"] = parsed.get("cuentas", [])
+                        casilleros_total = len(parsed.get("cuentas", []))
+                    elif slot_name == "kardex":
+                        new_extracted["kardex_items"] = parsed["items"]
+                        casilleros_total = len(parsed.get("items", []))
+                    elif slot_name == "facturacion":
+                        new_extracted["facturacion"] = parsed
+                    elif slot_name == "mayor_exentos":
+                        new_extracted["mayor_exentos"] = parsed.get("movimientos", [])
+                    elif slot_name == "mayor_no_deducibles":
+                        new_extracted["mayor_no_deducibles"] = parsed.get("movimientos", [])
+                    elif slot_name == "ats":
+                        new_extracted["ats_pagos_exterior"] = parsed.get("pagos_exterior", [])
+                    else:
+                        new_extracted[slot_name] = parsed
+                except Exception:
+                    import logging
+                    logging.exception("Re-parse failed for %s", f)
+
+            anexo_report[slot_name] = {
+                "archivos_re_parseados": archivos_re,
+                "items_total": casilleros_total,
+            }
+
+        if new_extracted:
+            # MERGE: preservar campos del extracted que NO vienen de archivos
+            # (ej. campos manuales como exoneraciones, contratos_inversion).
+            merged = dict(anexo_extracted_before)
+            merged.update(new_extracted)
+            # Asignación nueva para que SQLAlchemy detecte el cambio
+            anexo.extracted_data = merged
+            db.add(anexo)
+
+            anexo_report["_summary"] = {
+                "casilleros_antes": sum(len(v) if isinstance(v, (dict, list)) else 0
+                                        for v in anexo_extracted_before.values()),
+                "casilleros_despues": sum(len(v) if isinstance(v, (dict, list)) else 0
+                                          for v in merged.values()),
+            }
+
+        if anexo_report:
+            report[anexo.anexo_code] = anexo_report
+
+    db.commit()
+    db.refresh(session)
+    return {"session_id": session.id, "anexos": report}
+
+
 def update_anexo_data(
     db: Session,
     *,
