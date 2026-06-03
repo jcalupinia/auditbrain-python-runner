@@ -444,6 +444,21 @@ def build_verification_sheet(
             row += 1
 
     # ============================================================
+    # SECCIÓN 6.5 — 🔬 ARTEFACTO DIFERENCIAS POR REVISAR (cas por cas)
+    # ============================================================
+    # Análisis cell-by-cell de las diferencias entre F-101 declarado y
+    # Balance contable mapeado, categorizadas por causa probable para
+    # que el auditor sepa EXACTAMENTE qué revisar en cada caso.
+    row += 1
+    row = _build_diferencias_section(
+        ws, row,
+        f101=f101,
+        by_cas=by_cas,
+        casilleros_a1_names=casilleros_a1_names,
+        casilleros_a1_set=casilleros_a1_set,
+    )
+
+    # ============================================================
     # SECCIÓN 7 — COBERTURA DE CASILLEROS POR FORMULARIO
     # ============================================================
     # Reporta qué casilleros de F-101, F-103, F-104 NO fueron usados
@@ -547,6 +562,248 @@ def build_verification_sheet(
 
     # Freeze panes: dejar el título y el bloque KPI siempre visible
     ws.freeze_panes = "A7"
+
+
+# ----------------------------------------------------------------------
+# 🔬 Sección 6.5 — Artefacto Diferencias por revisar
+# ----------------------------------------------------------------------
+def _build_diferencias_section(
+    ws,
+    row: int,
+    *,
+    f101: dict,
+    by_cas: dict,
+    casilleros_a1_names: dict,
+    casilleros_a1_set: set,
+) -> int:
+    """Construye una tabla visual e interactiva con las diferencias del A1
+    categorizadas por causa probable.
+
+    Categorías:
+      🟥 FALTA EN BALANCE  — F-101 declara pero ninguna cuenta del balance
+                            tiene ese casillero (cliente debe revisar mapeo)
+      🟦 NO DECLARADO F-101 — Balance tiene cuentas pero F-101 reporta 0
+                            (cliente debe revisar declaración o re-mapear)
+      🟨 TOTAL AGREGADO    — Cas TOTAL del SRI (6152, 7991, 7992) sin contraparte
+                            1:1 en balance (informativo, no requiere acción)
+      🟧 SIGNOS DESFASADOS  — F y C tienen signos opuestos (raro, ya no debería
+                            ocurrir con la regla unificada)
+      🔴 DIFERENCIA REAL   — Ambos tienen valor pero la suma no cuadra
+
+    Cada fila tiene hyperlink al A1 para click-to-fix.
+    """
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    from backend.app.ict.fillers.a1_mapeo import A1Filler
+
+    NEG_SET = A1Filler.NEGATIVE_CASILLEROS
+    A1_SHEET_NAME = "MAPEO DE LA DECLARACIÓN A1"
+
+    # Para cada cas del A1, computar C esperado y F esperado (con signos)
+    def _signed_c(cas: str) -> float | None:
+        v = f101.get(cas)
+        if v is None:
+            return None
+        v = float(v)
+        return -abs(v) if cas in NEG_SET else v
+
+    def _signed_f(cas: str) -> float:
+        items = by_cas.get(cas, []) or []
+        total = sum(float(it.get("saldo") or 0) for it in items)
+        if cas in NEG_SET:
+            return -abs(total)
+        # Pasivos (511-599) y Patrimonio (601-698) → invertir
+        if cas.isdigit() and (511 <= int(cas) <= 599 or 601 <= int(cas) <= 698):
+            return -total
+        return total
+
+    # Sets para categorización
+    AGREGADOS = {"6152", "7991", "7992", "1005", "1045", "1100", "1101", "1102",
+                 "1103", "1104", "1105", "1106"}
+    TOTAL_CAS = A1Filler.TOTAL_CASILLEROS
+
+    diferencias: list[dict] = []
+    for cas in casilleros_a1_set:
+        c_val = _signed_c(cas)
+        f_val = _signed_f(cas)
+        # Calcular diff usando 0 cuando C es None
+        c_for_diff = c_val if c_val is not None else 0
+        diff = round(f_val - c_for_diff, 2)
+        if abs(diff) <= 0.5:
+            continue
+
+        # Categorizar
+        if c_val in (None, 0):
+            cat, color, accion = "🟦 NO DECLARADO F-101", "info", \
+                "El balance tiene saldo pero el F-101 reporta 0. Revisar declaración o re-mapeo de cuentas."
+        elif abs(f_val) < 0.5:
+            if cas in AGREGADOS or cas in TOTAL_CAS:
+                cat, color, accion = "🟨 TOTAL AGREGADO", "warn", \
+                    "Cas TOTAL/agregado del SRI sin contraparte 1:1 en balance. INFORMATIVO."
+            else:
+                cat, color, accion = "🟥 FALTA EN BALANCE", "bad", \
+                    "F-101 declara este cas pero ninguna cuenta del balance lo tiene. Revisar mapeo del balance."
+        elif c_for_diff != 0 and abs(c_for_diff + f_val) < 0.5:
+            cat, color, accion = "🟧 SIGNOS DESFASADOS", "bad", \
+                "F y C tienen signos opuestos (bug de signos)."
+        else:
+            cat, color, accion = "🔴 DIFERENCIA REAL", "bad", \
+                "Ambos tienen valor pero no cuadra. Revisar cuentas del balance asignadas a este casillero."
+
+        diferencias.append({
+            "cas": cas,
+            "nombre": casilleros_a1_names.get(cas, ""),
+            "c": round(c_for_diff, 2),
+            "f": round(f_val, 2),
+            "diff": diff,
+            "cat": cat,
+            "color": color,
+            "accion": accion,
+            "n_cuentas": len(by_cas.get(cas, []) or []),
+        })
+
+    # Header de sección
+    row = _section_header(ws, row,
+                          title=f"🔬 ARTEFACTO · DIFERENCIAS POR REVISAR ({len(diferencias)} casilleros)")
+
+    if not diferencias:
+        ok = ws.cell(row, 1, value="✅ Todos los casilleros del A1 cuadran (F = C). No hay diferencias por revisar.")
+        ok.font = Font(name="Calibri", size=11, bold=True, color="2E7D32")
+        ok.fill = FILL_OK
+        ok.alignment = Alignment(horizontal="left", vertical="center", indent=2)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+        ws.row_dimensions[row].height = 26
+        return row + 2
+
+    # KPIs de resumen por categoría
+    by_cat: dict[str, int] = {}
+    by_cat_sum: dict[str, float] = {}
+    for d in diferencias:
+        by_cat[d["cat"]] = by_cat.get(d["cat"], 0) + 1
+        by_cat_sum[d["cat"]] = by_cat_sum.get(d["cat"], 0) + abs(d["diff"])
+
+    FILL_BY_COLOR = {"info": PatternFill("solid", fgColor="E3F2FD"),
+                     "warn": FILL_WARN, "bad": FILL_BAD, "ok": FILL_OK}
+
+    # Mini resumen apilado: 1 fila por categoría (label en col A, valor en B-F)
+    cat_order = ["🔴 DIFERENCIA REAL", "🟧 SIGNOS DESFASADOS",
+                 "🟥 FALTA EN BALANCE", "🟦 NO DECLARADO F-101",
+                 "🟨 TOTAL AGREGADO"]
+    cat_color_map = {
+        "🟦 NO DECLARADO F-101": "info",
+        "🟥 FALTA EN BALANCE": "bad",
+        "🟨 TOTAL AGREGADO": "warn",
+        "🟧 SIGNOS DESFASADOS": "bad",
+        "🔴 DIFERENCIA REAL": "bad",
+    }
+    info_label_font = Font(name="Calibri", size=10, bold=True, color="1F3A5F")
+    info_value_font = Font(name="Calibri", size=11, bold=True, color="2D5F8B")
+    for cat in cat_order:
+        n = by_cat.get(cat, 0)
+        if n == 0:
+            continue
+        fill = FILL_BY_COLOR[cat_color_map[cat]]
+        # Col A: categoría
+        ca = ws.cell(row, 1, value=cat)
+        ca.font = info_label_font
+        ca.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        ca.fill = fill
+        ca.border = BORDER_DATA
+        # Col B-E (merged): cantidad + importe
+        cv = ws.cell(row, 2, value=f"{n} casilleros  ·  Total: ${by_cat_sum[cat]:,.2f}")
+        cv.font = info_value_font
+        cv.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        cv.fill = fill
+        ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=6)
+        for c in range(1, 7):
+            ws.cell(row, c).border = BORDER_DATA
+        row += 1
+    row += 1  # separador
+
+    # Tabla detallada con autofilter
+    headers = ["Cas", "Nombre del casillero", "C (F-101)", "F (Balance)",
+               "Diferencia", "Categoría / Acción recomendada"]
+    table_start_row = row
+    row = _table_header(ws, row, headers)
+
+    # Ordenar por categoría y luego por magnitud de diferencia
+    cat_priority = {"🔴 DIFERENCIA REAL": 1, "🟧 SIGNOS DESFASADOS": 2,
+                    "🟥 FALTA EN BALANCE": 3, "🟦 NO DECLARADO F-101": 4,
+                    "🟨 TOTAL AGREGADO": 5}
+    diferencias_sorted = sorted(diferencias,
+                                key=lambda d: (cat_priority.get(d["cat"], 9), -abs(d["diff"])))
+
+    for d in diferencias_sorted:
+        # Col A — cas con hyperlink al A1
+        c1 = ws.cell(row, 1, value=d["cas"])
+        c1.font = Font(name="Calibri", size=10, bold=True, color="2D5F8B", underline="single")
+        c1.alignment = ALIGN_CENTER
+        try:
+            c1.hyperlink = f"#'{A1_SHEET_NAME}'!A1"
+        except Exception:
+            pass
+
+        # Col B — nombre
+        ws.cell(row, 2, value=d["nombre"][:80]).font = FONT_DATA
+        ws.cell(row, 2).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+        # Col C — C (F-101)
+        cc = ws.cell(row, 3, value=d["c"])
+        cc.font = FONT_DATA
+        cc.number_format = '#,##0.00;-#,##0.00;"—"'
+        cc.alignment = ALIGN_RIGHT
+
+        # Col D — F (Balance)
+        cf = ws.cell(row, 4, value=d["f"])
+        cf.font = FONT_DATA
+        cf.number_format = '#,##0.00;-#,##0.00;"—"'
+        cf.alignment = ALIGN_RIGHT
+
+        # Col E — Diferencia
+        cd = ws.cell(row, 5, value=d["diff"])
+        color_font = FONT_DATA_BAD if d["color"] == "bad" else \
+                     Font(name="Calibri", size=10, color="E65100", bold=True) if d["color"] == "warn" else \
+                     Font(name="Calibri", size=10, color="0277BD", bold=True)
+        cd.font = color_font
+        cd.number_format = '#,##0.00;-#,##0.00;"—"'
+        cd.alignment = ALIGN_RIGHT
+
+        # Col F — Categoría + acción
+        cat_text = f"{d['cat']} — {d['accion']}"
+        cf2 = ws.cell(row, 6, value=cat_text)
+        cf2.font = FONT_DATA
+        cf2.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True, indent=1)
+        cf2.fill = FILL_BY_COLOR[d["color"]]
+
+        # Bordes
+        for c in range(1, 7):
+            ws.cell(row, c).border = BORDER_DATA
+
+        ws.row_dimensions[row].height = 30
+        row += 1
+
+    # AutoFilter sobre la tabla
+    try:
+        ws.auto_filter.ref = f"A{table_start_row}:F{row-1}"
+    except Exception:
+        pass
+
+    # Leyenda al final
+    row += 1
+    legend = ws.cell(row, 1, value=(
+        "💡 Cómo usar: filtrá la columna 'Categoría / Acción' para enfocarte en un tipo de error. "
+        "Las diferencias 🔴 son las más importantes — indican que el balance no cuadra con el F-101 declarado. "
+        "Las 🟨 TOTAL AGREGADO son normales (cas SRI sin contraparte contable directa). "
+        "Click en cualquier número de casillero (col A, en azul) para saltar al A1."
+    ))
+    legend.font = Font(name="Calibri", size=9, italic=True, color="5A6575")
+    legend.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True, indent=1)
+    legend.fill = PatternFill("solid", fgColor="F4F7FB")
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+    ws.row_dimensions[row].height = 40
+    row += 2
+
+    return row
 
 
 # ----------------------------------------------------------------------
