@@ -63,18 +63,43 @@ def _write_header(ws, row: int, headers: list[str]) -> None:
 
 
 # ---------------- F-101 ----------------
-def build_f101_sheet(wb: Workbook, f101: dict, casillero_names: dict[str, str]) -> dict[str, int]:
-    """Crea hoja DATOS F-101. Retorna lookup {casillero → row} para que
-    los fillers puedan generar fórmulas tipo ='DATOS F-101'!C<row>.
+def build_f101_sheet(
+    wb: Workbook,
+    f101: dict,
+    casillero_names: dict[str, str] | None = None,
+) -> dict[str, int]:
+    """Crea hoja DATOS F-101 con TODOS los casilleros canónicos del F-101 SRI.
+
+    REGLA del proyecto (CLAUDE.md / pedido del usuario):
+        "verificar que se trasladen TODOS los casilleros con sus códigos,
+        nombres, valores — no importa que estén en cero, con la finalidad
+        de que no haya saldos de líneas [vacías]"
+
+    Estrategia:
+      1. La lista CANÓNICA viene de backend/app/ict/catalogo_f101.py
+         (F101_CASILLERO_NAMES). El test estático garantiza que cubre
+         todos los casilleros del parser.
+      2. Para cada casillero de la lista canónica se escribe SIEMPRE:
+            · Columna A — número del casillero
+            · Columna B — nombre oficial SRI (NUNCA vacío)
+            · Columna C — valor declarado (0.00 si el PDF no lo trae)
+            · Columna D — observación (vacío para edición manual)
+      3. Si el F-101 trae casilleros EXTRAS no contemplados en el catálogo
+         (caso edge: PDF con formato no estándar), también se escriben al
+         final con el nombre del legacy lookup como fallback.
+      4. Runtime check: si algún casillero del PDF no tiene nombre en el
+         catálogo, se emite un warning vía logging (regla runtime).
 
     Args:
         f101: dict casillero_str → valor (extraído por parse_f101).
-        casillero_names: dict casillero_str → nombre del casillero
-            (típicamente de A1_CASILLEROS_ORDERED y ampliaciones).
+        casillero_names: legacy, opcional. Ya no se usa como fuente
+            primaria — solo fallback para casilleros extras del PDF.
 
     Returns:
         casillero_to_row: {"311": 4, "315": 5, ...} para usar en fórmulas.
     """
+    from backend.app.ict.catalogo_f101 import F101_CASILLERO_NAMES
+
     if SHEET_F101 in wb.sheetnames:
         del wb[SHEET_F101]
     ws = wb.create_sheet(SHEET_F101)
@@ -82,13 +107,34 @@ def build_f101_sheet(wb: Workbook, f101: dict, casillero_names: dict[str, str]) 
     _write_title(ws, "📄 DATOS F-101 · Declaración Anual del Impuesto a la Renta")
     _write_header(ws, 3, ["Casillero", "Nombre del Casillero", "Valor Declarado", "Observación"])
 
-    # Ordenar casilleros numéricamente
-    sorted_cas = sorted(f101.keys(), key=lambda x: int(x) if x.isdigit() else 99999)
+    # === REGLA: la lista canónica define qué casilleros aparecen ===
+    canonical_cas = sorted(
+        F101_CASILLERO_NAMES.keys(),
+        key=lambda x: int(x) if x.isdigit() else 99999,
+    )
+    # Detectar casilleros del PDF que NO están en el catálogo (caso edge).
+    legacy_names = casillero_names or {}
+    extras_in_pdf = sorted(
+        set(f101.keys()) - set(F101_CASILLERO_NAMES.keys()),
+        key=lambda x: int(x) if x.isdigit() else 99999,
+    )
+    if extras_in_pdf:
+        import logging
+        logging.warning(
+            "DATOS F-101: %d casilleros del PDF NO están en el catálogo canónico: %s. "
+            "Agregar a backend/app/ict/catalogo_f101.py para que tengan nombre.",
+            len(extras_in_pdf), extras_in_pdf[:20],
+        )
+
     casillero_to_row: dict[str, int] = {}
     row = 4
-    for cas in sorted_cas:
-        val = f101.get(cas)
-        nombre = casillero_names.get(cas, "")
+
+    # Paso 1: TODOS los casilleros canónicos (con valor 0.00 si el PDF no trae)
+    for cas in canonical_cas:
+        val = f101.get(cas, 0)
+        if val is None:
+            val = 0
+        nombre = F101_CASILLERO_NAMES[cas]
         ws.cell(row, 1, value=cas).font = FONT_DATA
         ws.cell(row, 1).alignment = Alignment(horizontal="center")
         ws.cell(row, 1).border = BORDER
@@ -102,6 +148,36 @@ def build_f101_sheet(wb: Workbook, f101: dict, casillero_names: dict[str, str]) 
         ws.cell(row, 4, value="").border = BORDER
         casillero_to_row[cas] = row
         row += 1
+
+    # Paso 2: extras del PDF que no estaban en el catálogo, al final
+    for cas in extras_in_pdf:
+        val = f101.get(cas) or 0
+        nombre = legacy_names.get(cas, "(no catalogado — actualizar catalogo_f101.py)")
+        ws.cell(row, 1, value=cas).font = FONT_DATA
+        ws.cell(row, 1).alignment = Alignment(horizontal="center")
+        ws.cell(row, 1).border = BORDER
+        ws.cell(row, 2, value=nombre).font = FONT_DATA
+        ws.cell(row, 2).border = BORDER
+        c_val = ws.cell(row, 3, value=val)
+        c_val.font = FONT_DATA
+        c_val.number_format = '#,##0.00;-#,##0.00;0.00'
+        c_val.alignment = Alignment(horizontal="right")
+        c_val.border = BORDER
+        ws.cell(row, 4, value="⚠ no catalogado").border = BORDER
+        casillero_to_row[cas] = row
+        row += 1
+
+    # === REGLA runtime: verificar que NO haya filas con nombre vacío ===
+    # Si algún row.B quedó vacío, es bug — emitir warning para alertar.
+    for r in range(4, row):
+        b_val = ws.cell(r, 2).value
+        if b_val is None or str(b_val).strip() == "":
+            cas_r = ws.cell(r, 1).value
+            import logging
+            logging.warning(
+                "DATOS F-101 fila %d (cas %s): NOMBRE VACÍO. Regresión de regla.",
+                r, cas_r,
+            )
 
     # Anchos
     widths = {"A": 14, "B": 60, "C": 18, "D": 32}
