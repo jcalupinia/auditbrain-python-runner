@@ -33,6 +33,31 @@ SHEET_F104 = "DATOS F-104"
 SHEET_BALANCE = "DATOS BALANCE"
 
 
+def _safe_text(s) -> str:
+    """Escapa el texto para que Excel NO lo interprete como fórmula.
+
+    Excel trata cualquier celda cuyo valor empiece con `=`, `+`, `-`, `@`
+    como una fórmula. Si el texto contiene paréntesis u operadores
+    desbalanceados (caso: nombre "(=) Rebaja del saldo..." que terminó
+    como "=) Rebaja..." después de limpieza), Excel lanza error de
+    parseo y al abrir el archivo aplica "reparación" eliminando la celda.
+
+    REGLA SUPREMA (CLAUDE.md): si genero un Excel, tiene que abrir SIN
+    el cuadro "Excel pudo abrir el archivo reparando o quitando contenido
+    que no se podía leer". Esta función evita ese caso.
+
+    Devuelve el texto prefijado con apóstrofo si empieza con un carácter
+    que Excel interpreta como fórmula. El apóstrofo es el escape estándar
+    de Excel para forzar texto literal (no se ve en la celda).
+    """
+    if s is None:
+        return ""
+    text = str(s)
+    if text and text[0] in ("=", "+", "-", "@"):
+        return "'" + text
+    return text
+
+
 # ---- Estilos compartidos ----
 THIN = Side(border_style="thin", color="A0A0A0")
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
@@ -138,7 +163,7 @@ def build_f101_sheet(
         ws.cell(row, 1, value=cas).font = FONT_DATA
         ws.cell(row, 1).alignment = Alignment(horizontal="center")
         ws.cell(row, 1).border = BORDER
-        ws.cell(row, 2, value=nombre).font = FONT_DATA
+        ws.cell(row, 2, value=_safe_text(nombre)).font = FONT_DATA
         ws.cell(row, 2).border = BORDER
         c_val = ws.cell(row, 3, value=val)
         c_val.font = FONT_DATA
@@ -156,7 +181,7 @@ def build_f101_sheet(
         ws.cell(row, 1, value=cas).font = FONT_DATA
         ws.cell(row, 1).alignment = Alignment(horizontal="center")
         ws.cell(row, 1).border = BORDER
-        ws.cell(row, 2, value=nombre).font = FONT_DATA
+        ws.cell(row, 2, value=_safe_text(nombre)).font = FONT_DATA
         ws.cell(row, 2).border = BORDER
         c_val = ws.cell(row, 3, value=val)
         c_val.font = FONT_DATA
@@ -262,7 +287,7 @@ def build_f103_sheet(wb: Workbook, f103_monthly: dict) -> dict[tuple[str, str], 
 
         # Columna B — nombre del catálogo (NUNCA vacío si está en canónicos)
         nombre = F103_CASILLERO_NAMES.get(cas, "(no catalogado — actualizar catalogo_f103.py)")
-        ws.cell(row, 2, value=nombre).font = FONT_DATA
+        ws.cell(row, 2, value=_safe_text(nombre)).font = FONT_DATA
         ws.cell(row, 2).border = BORDER
         ws.cell(row, 2).alignment = Alignment(horizontal="left", wrap_text=True)
 
@@ -383,7 +408,7 @@ def build_f104_sheet(wb: Workbook, f104_monthly: dict) -> dict[tuple[str, str], 
         ws.cell(row, 1).border = BORDER
 
         nombre = F104_CASILLERO_NAMES.get(cas, "(no catalogado — actualizar catalogo_f104.py)")
-        ws.cell(row, 2, value=nombre).font = FONT_DATA
+        ws.cell(row, 2, value=_safe_text(nombre)).font = FONT_DATA
         ws.cell(row, 2).border = BORDER
         ws.cell(row, 2).alignment = Alignment(horizontal="left", wrap_text=True)
 
