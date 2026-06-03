@@ -28,7 +28,8 @@ import PortalShell from "../shell/PortalShell.jsx";
 const GLOBAL_UPLOADS = [
   { key: "balance_mapeado",     label: "Balance Mapeado",  icon: "📊", anexo: "A1", multi: false,
     usedIn: ["A1","A2","A3","A4","A5","A6","A7","A9"],
-    desc: "Excel con cuenta contable → casillero SRI → saldo 31 dic" },
+    desc: "Excel con cuenta contable → casillero SRI → saldo 31 dic",
+    plantilla: "/plantillas/balance_mapeado_ICT_2025.xlsx" },
   { key: "f101",                label: "Formulario 101",   icon: "📄", anexo: "A1", multi: false,
     usedIn: ["A1","A2","A3","A4","A5","A6","A7","A9"],
     desc: "Declaración anual IR sociedades (PDF SRI)" },
@@ -147,6 +148,24 @@ function GlobalUploadChip({ upload, session, onChanged }) {
           >×</span>
         )}
       </button>
+      {upload.plantilla && (
+        <a
+          href={upload.plantilla}
+          download
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            fontSize: 11, padding: "4px 8px",
+            background: "rgba(74, 123, 168, 0.08)",
+            border: "1px solid rgba(74, 123, 168, 0.3)",
+            borderRadius: 6, color: "#2D5F8B",
+            textDecoration: "none", whiteSpace: "nowrap",
+            fontWeight: 600,
+          }}
+          title="Descargar Excel modelo con instrucciones y ejemplos"
+        >
+          📥 Plantilla
+        </a>
+      )}
     </>
   );
 }
