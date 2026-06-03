@@ -191,42 +191,87 @@ def build_f101_sheet(
 
 # ---------------- F-103 ----------------
 def build_f103_sheet(wb: Workbook, f103_monthly: dict) -> dict[tuple[str, str], str]:
-    """Crea hoja DATOS F-103. f103_monthly es {'YYYY-MM': {casilleros: {cas: val}}, ...}
+    """Crea hoja DATOS F-103 con TODOS los casilleros canónicos del F-103 SRI.
+
+    REGLA del proyecto (pedido del usuario):
+        "se trasladen TODOS los casilleros con sus códigos, nombres, valores,
+        no importa que estén en cero, con la finalidad de que no haya saldos
+        de líneas [vacías]"
+
+    Estrategia (igual que F-101):
+      · Lista canónica viene de catalogo_f103.py (F103_CASILLERO_NAMES).
+      · SIEMPRE escribe todos los casilleros canónicos, aunque tengan 0.
+      · Si el cliente no subió F-103, igual se muestra la matriz vacía
+        para que el auditor sepa qué iba a esperar.
+      · Casilleros extras del PDF que no están en el catálogo se agregan
+        al final con observación "⚠ no catalogado".
 
     Returns:
-        lookup: {(periodo, casillero) → "addr"} ej. ("2025-01", "302") → "C4"
-                para construir fórmulas ='DATOS F-103'!<addr>
+        lookup: {(periodo, casillero) → "addr"} ej. ("2025-01", "302") → "C5"
+                + lookup ("ANUAL", cas) → addr de la columna TOTAL ANUAL.
     """
+    from backend.app.ict.catalogo_f103 import F103_CASILLERO_NAMES
+
     if SHEET_F103 in wb.sheetnames:
         del wb[SHEET_F103]
     ws = wb.create_sheet(SHEET_F103)
 
     _write_title(ws, "📋 DATOS F-103 · Declaraciones Mensuales de Retenciones IR")
 
-    if not f103_monthly:
-        ws.cell(3, 1, value="(no se subieron declaraciones F-103)").font = FONT_DATA
-        ws.column_dimensions["A"].width = 50
-        return {}
+    # Meses presentes (si no hay datos, generar matriz vacía con 12 meses
+    # placeholder para visualizar la estructura completa).
+    meses = sorted(f103_monthly.keys()) if f103_monthly else [
+        f"2025-{m:02d}" for m in range(1, 13)
+    ]
 
-    # Pivot: filas = casilleros, cols = meses
-    meses = sorted(f103_monthly.keys())
-    all_casilleros: set[str] = set()
+    # Casilleros: todos los canónicos + extras del PDF
+    canonical_cas = list(F103_CASILLERO_NAMES.keys())
+    extras_pdf: set[str] = set()
     for periodo in meses:
-        all_casilleros.update((f103_monthly[periodo].get("casilleros") or {}).keys())
-    sorted_cas = sorted(all_casilleros, key=lambda x: int(x) if x.isdigit() else 99999)
+        if periodo not in f103_monthly:
+            continue
+        pdf_cas = set((f103_monthly[periodo].get("casilleros") or {}).keys())
+        extras_pdf.update(pdf_cas - set(F103_CASILLERO_NAMES.keys()))
+    extras_pdf_sorted = sorted(extras_pdf, key=lambda x: int(x) if x.isdigit() else 99999)
+    sorted_cas = sorted(canonical_cas, key=lambda x: int(x) if x.isdigit() else 99999) + extras_pdf_sorted
 
-    headers = ["Casillero"] + meses + ["TOTAL ANUAL"]
+    if extras_pdf:
+        import logging
+        logging.warning(
+            "DATOS F-103: %d casilleros del PDF NO están en catalogo_f103.py: %s",
+            len(extras_pdf), extras_pdf_sorted[:20],
+        )
+
+    # Header: Casillero | Nombre | mes1..mesN | TOTAL ANUAL
+    headers = ["Casillero", "Nombre del Casillero"] + list(meses) + ["TOTAL ANUAL"]
     _write_header(ws, 3, headers)
+
+    n_meses = len(meses)
+    first_data_col = 3                              # mes 1 = col C
+    last_data_col_idx = 2 + n_meses                 # último mes
+    total_col_idx = 3 + n_meses                     # columna TOTAL ANUAL
 
     lookup: dict[tuple[str, str], str] = {}
     row = 4
+
     for cas in sorted_cas:
+        # Columna A — casillero
         ws.cell(row, 1, value=cas).font = FONT_DATA
         ws.cell(row, 1).alignment = Alignment(horizontal="center")
         ws.cell(row, 1).border = BORDER
 
-        for j, periodo in enumerate(meses, start=2):
-            val = (f103_monthly[periodo].get("casilleros") or {}).get(cas, 0)
+        # Columna B — nombre del catálogo (NUNCA vacío si está en canónicos)
+        nombre = F103_CASILLERO_NAMES.get(cas, "(no catalogado — actualizar catalogo_f103.py)")
+        ws.cell(row, 2, value=nombre).font = FONT_DATA
+        ws.cell(row, 2).border = BORDER
+        ws.cell(row, 2).alignment = Alignment(horizontal="left", wrap_text=True)
+
+        # Columnas de cada mes — valor o 0 si no se declaró
+        for j, periodo in enumerate(meses, start=first_data_col):
+            mes_data = f103_monthly.get(periodo) or {}
+            val = (mes_data.get("casilleros") or {}).get(cas, 0)
+            if val is None:
+                val = 0
             c = ws.cell(row, j, value=val)
             c.font = FONT_DATA
             c.number_format = '#,##0.00;-#,##0.00;0.00'
@@ -234,70 +279,120 @@ def build_f103_sheet(wb: Workbook, f103_monthly: dict) -> dict[tuple[str, str], 
             c.border = BORDER
             lookup[(periodo, cas)] = f"{get_column_letter(j)}{row}"
 
-        # TOTAL ANUAL = SUM de los meses
-        last_col = get_column_letter(len(meses) + 1)
-        total_col = get_column_letter(len(meses) + 2)
-        c_total = ws.cell(row, len(meses) + 2,
-                          value=f"=SUM(B{row}:{last_col}{row})")
+        # Columna TOTAL ANUAL = SUM de los meses
+        first_col_letter = get_column_letter(first_data_col)
+        last_col_letter = get_column_letter(last_data_col_idx)
+        total_col_letter = get_column_letter(total_col_idx)
+        c_total = ws.cell(row, total_col_idx,
+                          value=f"=SUM({first_col_letter}{row}:{last_col_letter}{row})")
         c_total.font = Font(name="Calibri", size=9, bold=True)
         c_total.number_format = '#,##0.00;-#,##0.00;0.00'
         c_total.alignment = Alignment(horizontal="right")
         c_total.border = BORDER
-        # Lookup especial: "ANUAL" → celda total
-        lookup[("ANUAL", cas)] = f"{total_col}{row}"
+        lookup[("ANUAL", cas)] = f"{total_col_letter}{row}"
         row += 1
 
-    widths = {"A": 14}
-    for col_letter in [get_column_letter(i) for i in range(2, len(meses) + 3)]:
-        widths[col_letter] = 13
-    for col, w in widths.items():
-        ws.column_dimensions[col].width = w
-    ws.freeze_panes = "B4"
-    ws.auto_filter.ref = f"A3:{get_column_letter(len(meses)+2)}{row-1}"
+    # REGLA runtime: ninguna fila debe quedar sin nombre
+    for r in range(4, row):
+        b_val = ws.cell(r, 2).value
+        if b_val is None or str(b_val).strip() == "":
+            cas_r = ws.cell(r, 1).value
+            import logging
+            logging.warning(
+                "DATOS F-103 fila %d (cas %s): NOMBRE VACÍO. Regresión de regla.",
+                r, cas_r,
+            )
+
+    # Anchos: A=14 (cas), B=55 (nombre largo), meses=13, total=15
+    ws.column_dimensions["A"].width = 14
+    ws.column_dimensions["B"].width = 55
+    for j in range(first_data_col, last_data_col_idx + 1):
+        ws.column_dimensions[get_column_letter(j)].width = 13
+    ws.column_dimensions[get_column_letter(total_col_idx)].width = 15
+
+    ws.freeze_panes = "C4"
+    ws.auto_filter.ref = f"A3:{get_column_letter(total_col_idx)}{row-1}"
     return lookup
 
 
 # ---------------- F-104 ----------------
 def build_f104_sheet(wb: Workbook, f104_monthly: dict) -> dict[tuple[str, str], str]:
-    """Crea hoja DATOS F-104. f104_monthly es {'mm': {'casilleros': {cas:val}, ...}, ...}
+    """Crea hoja DATOS F-104 con TODOS los casilleros canónicos del F-104 SRI.
 
-    El parser de F-104 usa claves de mes que pueden venir como "01", "01/2025", etc.
-    Normalizamos a YYYY-MM mejor posible.
+    REGLA del proyecto (pedido del usuario):
+        "se trasladen TODOS los casilleros con sus códigos, nombres, valores,
+        no importa que estén en cero, con la finalidad de que no haya saldos
+        de líneas [vacías]"
+
+    Estrategia idéntica a F-103: catálogo canónico
+    (backend/app/ict/catalogo_f104.py) define las 22+ filas. Si el cliente
+    sube F-104 con valores 0 para ciertos casilleros, igual aparecen.
+    Si no sube F-104, se muestra matriz vacía con la estructura completa.
+
+    Returns:
+        lookup: {(periodo, casillero) → "addr"} + ("ANUAL", cas) → total.
     """
+    from backend.app.ict.catalogo_f104 import F104_CASILLERO_NAMES
+
     if SHEET_F104 in wb.sheetnames:
         del wb[SHEET_F104]
     ws = wb.create_sheet(SHEET_F104)
 
     _write_title(ws, "📑 DATOS F-104 · Declaraciones Mensuales de IVA")
 
-    if not f104_monthly:
-        ws.cell(3, 1, value="(no se subieron declaraciones F-104)").font = FONT_DATA
-        ws.column_dimensions["A"].width = 50
-        return {}
+    # Meses presentes (si no hay datos, 12 meses placeholder)
+    meses = sorted(f104_monthly.keys()) if f104_monthly else [
+        f"2025-{m:02d}" for m in range(1, 13)
+    ]
 
-    meses = sorted(f104_monthly.keys())
-    all_casilleros: set[str] = set()
-    for m in meses:
-        d = f104_monthly[m]
-        casilleros = d.get("casilleros") if isinstance(d, dict) else None
-        if casilleros:
-            all_casilleros.update(casilleros.keys())
-    sorted_cas = sorted(all_casilleros, key=lambda x: int(x) if x.isdigit() else 99999)
+    # Casilleros: todos los canónicos + extras del PDF
+    canonical_cas = list(F104_CASILLERO_NAMES.keys())
+    extras_pdf: set[str] = set()
+    for periodo in meses:
+        if periodo not in f104_monthly:
+            continue
+        d = f104_monthly.get(periodo) or {}
+        cas_dict = d.get("casilleros") if isinstance(d, dict) else None
+        if cas_dict:
+            extras_pdf.update(set(cas_dict.keys()) - set(F104_CASILLERO_NAMES.keys()))
+    extras_pdf_sorted = sorted(extras_pdf, key=lambda x: int(x) if x.isdigit() else 99999)
+    sorted_cas = sorted(canonical_cas, key=lambda x: int(x) if x.isdigit() else 99999) + extras_pdf_sorted
 
-    headers = ["Casillero"] + list(meses) + ["TOTAL ANUAL"]
+    if extras_pdf:
+        import logging
+        logging.warning(
+            "DATOS F-104: %d casilleros del PDF NO están en catalogo_f104.py: %s",
+            len(extras_pdf), extras_pdf_sorted[:20],
+        )
+
+    # Header: Casillero | Nombre | mes1..mesN | TOTAL ANUAL
+    headers = ["Casillero", "Nombre del Casillero"] + list(meses) + ["TOTAL ANUAL"]
     _write_header(ws, 3, headers)
+
+    n_meses = len(meses)
+    first_data_col = 3
+    last_data_col_idx = 2 + n_meses
+    total_col_idx = 3 + n_meses
 
     lookup: dict[tuple[str, str], str] = {}
     row = 4
+
     for cas in sorted_cas:
         ws.cell(row, 1, value=cas).font = FONT_DATA
         ws.cell(row, 1).alignment = Alignment(horizontal="center")
         ws.cell(row, 1).border = BORDER
 
-        for j, periodo in enumerate(meses, start=2):
+        nombre = F104_CASILLERO_NAMES.get(cas, "(no catalogado — actualizar catalogo_f104.py)")
+        ws.cell(row, 2, value=nombre).font = FONT_DATA
+        ws.cell(row, 2).border = BORDER
+        ws.cell(row, 2).alignment = Alignment(horizontal="left", wrap_text=True)
+
+        for j, periodo in enumerate(meses, start=first_data_col):
             d = f104_monthly.get(periodo) or {}
-            casilleros = d.get("casilleros") if isinstance(d, dict) else None
-            val = (casilleros or {}).get(cas, 0)
+            cas_dict = d.get("casilleros") if isinstance(d, dict) else None
+            val = (cas_dict or {}).get(cas, 0)
+            if val is None:
+                val = 0
             c = ws.cell(row, j, value=val)
             c.font = FONT_DATA
             c.number_format = '#,##0.00;-#,##0.00;0.00'
@@ -305,24 +400,38 @@ def build_f104_sheet(wb: Workbook, f104_monthly: dict) -> dict[tuple[str, str], 
             c.border = BORDER
             lookup[(periodo, cas)] = f"{get_column_letter(j)}{row}"
 
-        last_col = get_column_letter(len(meses) + 1)
-        total_col = get_column_letter(len(meses) + 2)
-        c_total = ws.cell(row, len(meses) + 2,
-                          value=f"=SUM(B{row}:{last_col}{row})")
+        first_col_letter = get_column_letter(first_data_col)
+        last_col_letter = get_column_letter(last_data_col_idx)
+        total_col_letter = get_column_letter(total_col_idx)
+        c_total = ws.cell(row, total_col_idx,
+                          value=f"=SUM({first_col_letter}{row}:{last_col_letter}{row})")
         c_total.font = Font(name="Calibri", size=9, bold=True)
         c_total.number_format = '#,##0.00;-#,##0.00;0.00'
         c_total.alignment = Alignment(horizontal="right")
         c_total.border = BORDER
-        lookup[("ANUAL", cas)] = f"{total_col}{row}"
+        lookup[("ANUAL", cas)] = f"{total_col_letter}{row}"
         row += 1
 
-    widths = {"A": 14}
-    for col_letter in [get_column_letter(i) for i in range(2, len(meses) + 3)]:
-        widths[col_letter] = 13
-    for col, w in widths.items():
-        ws.column_dimensions[col].width = w
-    ws.freeze_panes = "B4"
-    ws.auto_filter.ref = f"A3:{get_column_letter(len(meses)+2)}{row-1}"
+    # REGLA runtime: ninguna fila sin nombre
+    for r in range(4, row):
+        b_val = ws.cell(r, 2).value
+        if b_val is None or str(b_val).strip() == "":
+            cas_r = ws.cell(r, 1).value
+            import logging
+            logging.warning(
+                "DATOS F-104 fila %d (cas %s): NOMBRE VACÍO. Regresión de regla.",
+                r, cas_r,
+            )
+
+    # Anchos
+    ws.column_dimensions["A"].width = 14
+    ws.column_dimensions["B"].width = 55
+    for j in range(first_data_col, last_data_col_idx + 1):
+        ws.column_dimensions[get_column_letter(j)].width = 13
+    ws.column_dimensions[get_column_letter(total_col_idx)].width = 15
+
+    ws.freeze_panes = "C4"
+    ws.auto_filter.ref = f"A3:{get_column_letter(total_col_idx)}{row-1}"
     return lookup
 
 
