@@ -114,17 +114,29 @@ class A1Filler:
     # cuentas "(-)" del activo (deterioros, depreciaciones, amortizaciones).
     @classmethod
     def _needs_abs_normalization(cls, casillero: str) -> bool:
-        """True si el saldo del balance debe normalizarse a positivo para
-        coincidir con el signo del F-101."""
-        # Casilleros "(-)" del activo, patrimonio, inventarios finales:
-        # el F-101 los pone POSITIVOS aunque conceptualmente restan.
+        """[LEGACY] True si el saldo del balance debe normalizarse a positivo
+        para coincidir con el signo del F-101. Reemplazado por la regla
+        unificada de signos pero se mantiene por compatibilidad."""
         if casillero in cls.NEGATIVE_CASILLEROS:
             return True
         if not casillero.isdigit():
             return False
         num = int(casillero)
-        # Pasivos (todos los 511-599) y Patrimonio (601-698): el sistema
-        # contable del cliente puede traerlos negativos por convención.
+        if 511 <= num <= 599:
+            return True
+        if 601 <= num <= 698:
+            return True
+        return False
+
+    @classmethod
+    def _is_pasivo_o_patrimonio(cls, casillero: str) -> bool:
+        """True si el casillero pertenece al bloque PASIVOS (511-599) o
+        PATRIMONIO (601-698). REGLA: estos casilleros requieren INVERTIR
+        el signo del balance contable (créditos negativos → positivos en
+        el A1 para coincidir con la convención SRI del F-101)."""
+        if not casillero.isdigit():
+            return False
+        num = int(casillero)
         if 511 <= num <= 599:
             return True
         if 601 <= num <= 698:
@@ -264,26 +276,30 @@ class A1Filler:
             if _safe_set(ws, f"B{current_row}", casillero_nombre):
                 filled += 1
 
-            # === C — Valor declarado ===
-            # Para TOTALES PRIMARIOS: fórmula SUMA-CON-SIGNOS de los casilleros
-            # del bloque, en lugar de referencia directa al total declarado en
-            # F-101. Esto sirve como CONTROL del F-101: si la suma de los
-            # componentes ≠ total declarado, hay inconsistencia interna del F-101
-            # que el auditor debe revisar.
-            # Para TOTALES COMPUESTOS: suma de los sub-totales previos.
-            # Para CASILLEROS NORMALES: referencia a DATOS F-101.
-            if is_total and casillero in self.PRIMARY_TOTAL_BLOCKS:
-                bloque_id = self.PRIMARY_TOTAL_BLOCKS[casillero]
-                componentes = bloque_to_casilleros.get(bloque_id, [])
-                formula_c = self._build_signed_sum_formula(
-                    "C", componentes, casillero_to_row
-                )
-                if formula_c:
-                    _safe_set_formula(ws, f"C{current_row}", formula_c,
-                                      casillero=casillero)
-                    filled += 1
-                current_bloque_id = None  # cerrar bloque
-            elif is_total and casillero in self.COMPOSITE_TOTALS:
+            # === REGLA UNIFICADA DE SIGNOS (CLAUDE.md / regla del usuario) ===
+            # "Tienen que tener el mismo criterio entre los saldos de la
+            # declaración de impuesto a la renta y lo contable."
+            #
+            # Col C — Valor declarado (F-101):
+            #   · Cas normal             → '=DATOS F-101'!Cxxx  (positivo del PDF)
+            #   · Cas (-) NEGATIVO       → =-DATOS F-101!Cxxx   (invierte signo)
+            #     (el PDF SRI trae el deterioro/depreciación/pérdida en POSITIVO,
+            #     pero conceptualmente RESTA → mostrarlo en NEGATIVO en A1)
+            #
+            # Col F — Saldo contable (Balance del cliente):
+            #   · Activo normal          → '=DATOS BALANCE'!Dxxx (signo balance)
+            #   · Pasivo/Patrimonio      → =-DATOS BALANCE!Dxxx  (invierte signo)
+            #     (balance trae créditos negativos; F-101 los muestra positivos)
+            #   · Cas (-) del activo     → =-ABS(DATOS BALANCE!Dxxx) (siempre neg)
+            #     (deterioro/depreciación, ambos signos posibles en balance,
+            #     siempre debe quedar NEGATIVO para coincidir con C)
+            #   · Cas (-) del patrimonio (612 Pérdidas) → mismo: =-ABS(...)
+            #
+            # Resultado: C y F siempre con el MISMO SIGNO para cada casillero.
+            # Por eso los TOTALES son SUMA SIMPLE: =SUM(C13:C69) y =SUM(F13:F69).
+
+            # === C — Valor declarado del F-101 (con signo según nombre) ===
+            if is_total and casillero in self.COMPOSITE_TOTALS:
                 sub1, sub2 = self.COMPOSITE_TOTALS[casillero]
                 if sub1 in total_rows and sub2 in total_rows:
                     _safe_set_formula(ws, f"C{current_row}",
@@ -295,34 +311,46 @@ class A1Filler:
                         f"='DATOS F-101'!C{f101_lookup[casillero]}",
                     )
                     filled += 1
-                elif valor_declarado is not None:
-                    if _safe_set(ws, f"C{current_row}", valor_declarado): filled += 1
+            elif is_total and casillero in self.PRIMARY_TOTAL_BLOCKS:
+                # TOTAL primario: SUMA simple del bloque (los signos ya están
+                # aplicados en cada cas individual).
+                bloque_id = self.PRIMARY_TOTAL_BLOCKS[casillero]
+                first_row = block_start_rows.get(bloque_id)
+                if first_row:
+                    _safe_set_formula(
+                        ws, f"C{current_row}",
+                        f"=SUM(C{first_row}:C{current_row-1})",
+                        casillero=casillero,
+                    )
+                    filled += 1
+                current_bloque_id = None  # cerrar bloque
             elif casillero in f101_lookup:
-                # Caso típico: referenciar la celda de DATOS F-101 → trazabilidad
+                # Casillero normal: referencia con signo según nombre.
+                # is_negative → multiplicar por -1 (cuenta acumulada que resta).
+                base_ref = f"'DATOS F-101'!C{f101_lookup[casillero]}"
+                formula_c = f"=-{base_ref}" if is_negative else f"={base_ref}"
                 _safe_set_formula(
-                    ws, f"C{current_row}",
-                    f"='DATOS F-101'!C{f101_lookup[casillero]}",
+                    ws, f"C{current_row}", formula_c,
                     casillero=casillero,
                 )
                 filled += 1
             elif valor_declarado is not None:
-                # Fallback: si el casillero no está en F-101 lookup (raro), escribir literal
-                if _safe_set(ws, f"C{current_row}", valor_declarado): filled += 1
+                # Fallback: si el casillero no está en F-101 lookup
+                val_with_sign = -abs(float(valor_declarado)) if is_negative else valor_declarado
+                if _safe_set(ws, f"C{current_row}", val_with_sign): filled += 1
             else:
                 if not is_total:
                     warnings.append(f"Casillero {casillero} no encontrado en F-101")
 
-            # === F (saldos contables) — fórmula SUMA-CON-SIGNOS si es TOTAL ===
-            # Igual que C: el TOTAL F suma los componentes del bloque con signos
-            # correctos (resta las cuentas (-) acumuladas como deterioros).
+            # === F — Saldo contable del Balance (con signo unificado) ===
+            # Para TOTALES: SUMA simple, ya que los componentes tienen signo correcto.
             if is_total:
                 f_formula_for_total = None
                 if casillero in self.PRIMARY_TOTAL_BLOCKS:
                     bloque_id = self.PRIMARY_TOTAL_BLOCKS[casillero]
-                    componentes = bloque_to_casilleros.get(bloque_id, [])
-                    f_formula_for_total = self._build_signed_sum_formula(
-                        "F", componentes, casillero_to_row
-                    )
+                    first_row = block_start_rows.get(bloque_id)
+                    if first_row:
+                        f_formula_for_total = f"=SUM(F{first_row}:F{current_row-1})"
                     if bloque_id in block_start_rows:
                         del block_start_rows[bloque_id]
                 elif casillero in self.COMPOSITE_TOTALS:
@@ -339,13 +367,8 @@ class A1Filler:
 
             if n_accounts == 0:
                 # Sin cuentas contables.
-                # Para TOTAL con fórmula F, su diferencia G = F - C automáticamente.
-                # Para casillero normal sin cuentas, G también es F - C (apunta a sí mismo).
-                # IMPORTANTE: NO usar ABS aquí para totales (sus saldos son sumas con signo)
-                if is_negative:
-                    _safe_set_formula(ws, f"G{current_row}", f"=ABS(F{current_row})-C{current_row}")
-                else:
-                    _safe_set_formula(ws, f"G{current_row}", f"=F{current_row}-C{current_row}")
+                # Regla unificada: G = F - C (mismo signo en ambas columnas).
+                _safe_set_formula(ws, f"G{current_row}", f"=F{current_row}-C{current_row}")
 
                 if (not is_total and valor_declarado is not None and
                     valor_declarado != 0):
@@ -365,76 +388,72 @@ class A1Filler:
                     current_row += 1  # fila en blanco
                 continue
 
-            # === Primera fila: primera cuenta en D/E/F + fórmula G en SUM range ===
+            # === Primera fila: primera cuenta en D/E/F + fórmula G ===
             first = matching[0]
             if _safe_set(ws, f"D{current_row}", first.get("codigo", "")): filled += 1
             if _safe_set(ws, f"E{current_row}", first.get("descripcion", "")): filled += 1
-            # F = REFERENCIA a 'DATOS BALANCE'!D<row_idx> para que el auditor
-            # vea de qué cuenta exacta proviene el saldo. Fallback a literal si
-            # no hay lookup (caso edge).
-            # NORMALIZACIÓN: si el casillero requiere signo positivo (Pasivos/
-            # Patrimonio que el sistema contable trae negativos, o cuentas (-)
-            # del activo), envolvemos en ABS() para coincidir con F-101.
-            needs_abs = self._needs_abs_normalization(casillero)
+
+            # REGLA UNIFICADA DE SIGNOS — col F debe coincidir con col C:
+            #   · is_negative (cas (-) acumulado) → SIEMPRE NEGATIVO: =-ABS(...)
+            #     (el balance puede traerlo + o -, fijamos NEGATIVO para
+            #     coincidir con el signo de C que también es NEGATIVO)
+            #   · Pasivo o Patrimonio normal      → INVERTIR signo balance: =-(...)
+            #     (balance trae créditos negativos; col F los muestra positivos
+            #     igual que el F-101)
+            #   · Activo normal                   → mantener signo balance: =(...)
+            is_pas_pat = self._is_pasivo_o_patrimonio(casillero)
             src_row = first.get("_source_row")
+
+            def _formula_f(ref_or_value: str, is_literal: bool = False) -> str | float:
+                """Devuelve fórmula F con el signo aplicado según las reglas."""
+                if is_literal:
+                    # ref_or_value es un float, aplicamos signo directo
+                    val = float(ref_or_value) if ref_or_value else 0
+                    if is_negative:
+                        return -abs(val)
+                    if is_pas_pat:
+                        return -val
+                    return val
+                # ref_or_value es una referencia tipo 'DATOS BALANCE'!Dxx
+                if is_negative:
+                    return f"=-ABS({ref_or_value})"
+                if is_pas_pat:
+                    return f"=-{ref_or_value}"
+                return f"={ref_or_value}"
+
             if src_row:
                 base_ref = f"'DATOS BALANCE'!D{src_row}"
-                formula_f = f"=ABS({base_ref})" if needs_abs else f"={base_ref}"
-                _safe_set_formula(ws, f"F{current_row}", formula_f)
+                _safe_set_formula(ws, f"F{current_row}", _formula_f(base_ref))
                 filled += 1
             else:
-                saldo = first.get("saldo", 0)
-                if needs_abs:
-                    try:
-                        saldo = abs(float(saldo))
-                    except (TypeError, ValueError):
-                        pass
-                if _safe_set(ws, f"F{current_row}", saldo):
+                saldo_f = _formula_f(first.get("saldo", 0), is_literal=True)
+                if _safe_set(ws, f"F{current_row}", saldo_f):
                     filled += 1
 
-            # Fórmula G — metodología oficial 2024:
-            #   N cuentas → "=SUM(F<row>:F<row+N-1>)-C<row>"
-            #   1 cuenta  → "=F<row>-C<row>"
-            # Si el casillero es NEGATIVO en F-101, envolvemos en ABS() para que
-            # los saldos negativos del balance den cuadre 0 contra el declarado positivo.
+            # Fórmula G (Diferencia) — ahora SIMPLE: F-C porque ambos tienen
+            # el mismo signo (regla unificada). Sin ABS porque F ya viene
+            # con signo correcto.
             if n_accounts > 1:
                 end_row = current_row + n_accounts - 1
-                if is_negative:
-                    formula = f"=ABS(SUM(F{current_row}:F{end_row}))-C{current_row}"
-                else:
-                    formula = f"=SUM(F{current_row}:F{end_row})-C{current_row}"
+                formula = f"=SUM(F{current_row}:F{end_row})-C{current_row}"
             else:
-                if is_negative:
-                    formula = f"=ABS(F{current_row})-C{current_row}"
-                else:
-                    formula = f"=F{current_row}-C{current_row}"
+                formula = f"=F{current_row}-C{current_row}"
             _safe_set_formula(ws, f"G{current_row}", formula)
 
             # === Filas adicionales: cuentas extra del mismo casillero ===
-            # Sólo D/E/F. NO se pone fórmula en G (queda en blanco) porque la
-            # fórmula SUM de la primera fila YA suma todo este rango.
-            # F referencia 'DATOS BALANCE'!D<row_src> (trazabilidad).
             for offset, item in enumerate(matching[1:], start=1):
                 row_n = current_row + offset
                 ws.insert_rows(row_n)
                 if _safe_set(ws, f"D{row_n}", item.get("codigo", "")): filled += 1
                 if _safe_set(ws, f"E{row_n}", item.get("descripcion", "")): filled += 1
-                # NORMALIZACIÓN: aplicar ABS si el casillero lo requiere
-                # (Pasivos/Patrimonio o cuentas (-) del activo).
                 src_row = item.get("_source_row")
                 if src_row:
                     base_ref = f"'DATOS BALANCE'!D{src_row}"
-                    formula_f = f"=ABS({base_ref})" if needs_abs else f"={base_ref}"
-                    _safe_set_formula(ws, f"F{row_n}", formula_f)
+                    _safe_set_formula(ws, f"F{row_n}", _formula_f(base_ref))
                     filled += 1
                 else:
-                    saldo = item.get("saldo", 0)
-                    if needs_abs:
-                        try:
-                            saldo = abs(float(saldo))
-                        except (TypeError, ValueError):
-                            pass
-                    if _safe_set(ws, f"F{row_n}", saldo):
+                    saldo_f = _formula_f(item.get("saldo", 0), is_literal=True)
+                    if _safe_set(ws, f"F{row_n}", saldo_f):
                         filled += 1
 
             # Trackear grupo (N filas)

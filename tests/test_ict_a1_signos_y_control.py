@@ -117,9 +117,9 @@ def _row_of_cas(ws, cas: str, start: int = A1_FIRST_DATA_ROW) -> int | None:
     return None
 
 
-def test_e2e_total_C_es_suma_de_componentes_no_referencia_directa():
-    """Cas 361 (Total Activos Corrientes) ya NO debe ser ='DATOS F-101'!Cxx
-    sino una fórmula =+C13+C22-C25+... que SUMA los componentes."""
+def test_e2e_total_C_es_suma_simple_de_componentes():
+    """REGLA UNIFICADA: Cas 361 (Total Activos Corrientes) usa =SUM simple
+    porque los signos ya están aplicados en cada cas individual."""
     wb = load_template()
     reset_trace()
     A1Filler().fill(wb, _sess(), {
@@ -130,34 +130,38 @@ def test_e2e_total_C_es_suma_de_componentes_no_referencia_directa():
     row_361 = _row_of_cas(ws, "361")
     assert row_361 is not None
     c_value = ws[f"C{row_361}"].value
-    assert isinstance(c_value, str) and c_value.startswith("="), \
-        f"Esperaba fórmula, recibí {c_value!r}"
+    assert isinstance(c_value, str) and c_value.startswith("=SUM("), \
+        f"Total debe ser SUMA simple, recibí {c_value!r}"
     # NO debe ser referencia directa al F-101
     assert "DATOS F-101" not in c_value, \
         f"C del total NO debe referenciar el F-101 directo: {c_value!r}"
-    # Sí debe sumar referencias intra-A1
-    assert c_value.startswith("=+C") or c_value.startswith("=C"), \
-        f"Debe ser fórmula de suma intra-A1: {c_value!r}"
 
 
-def test_e2e_total_C_resta_cuentas_negativas():
-    """En la fórmula del total, cas 314 (deterioro) debe ir con signo -."""
+def test_e2e_C_individual_invierte_signo_para_cuentas_negativas():
+    """REGLA UNIFICADA: cas 314 (deterioro) en col C debe quedar NEGATIVO.
+    Con lookup F-101 → fórmula =-ref; sin lookup (fallback) → valor literal
+    negativo (-ABS(declarado)). Ambos casos: el resultado es negativo."""
     wb = load_template()
     reset_trace()
     A1Filler().fill(wb, _sess(), {
-        "f101": {"311": 100, "314": 10, "315": 50, "361": 140},
+        "f101": {"311": 100, "314": 10, "315": 50},
         "balance_mapeado": [],
     })
     ws = wb[A1_SHEET]
-    row_361 = _row_of_cas(ws, "361")
     row_314 = _row_of_cas(ws, "314")
-    c_total = ws[f"C{row_361}"].value
-    assert f"-C{row_314}" in c_total, \
-        f"Cas 314 debe restarse en el total. Fórmula: {c_total!r}"
+    c_value = ws[f"C{row_314}"].value
+    # Caso fórmula: "=-'DATOS F-101'!Cxx"  o caso literal: -10.0
+    if isinstance(c_value, str):
+        assert c_value.startswith("=-"), \
+            f"C de cas 314 (-) fórmula debe empezar con '=-': {c_value!r}"
+    else:
+        assert c_value < 0, \
+            f"C de cas 314 (-) valor literal debe ser NEGATIVO: {c_value!r}"
 
 
-def test_e2e_total_F_es_suma_de_componentes_con_signos():
-    """F del total también debe ser =+F13-F25+... no =SUM(F:F) simple."""
+def test_e2e_total_F_es_suma_simple():
+    """REGLA UNIFICADA: F del total es =SUM(F13:F69) simple — los signos
+    ya están en los componentes individuales (cas (-) ya en negativo)."""
     wb = load_template()
     reset_trace()
     A1Filler().fill(wb, _sess(), {
@@ -167,36 +171,31 @@ def test_e2e_total_F_es_suma_de_componentes_con_signos():
     ws = wb[A1_SHEET]
     row_361 = _row_of_cas(ws, "361")
     f_total = ws[f"F{row_361}"].value
-    assert isinstance(f_total, str) and f_total.startswith("="), \
-        f"F del total debe ser fórmula: {f_total!r}"
-    row_314 = _row_of_cas(ws, "314")
-    # cas 314 debe restarse
-    assert f"-F{row_314}" in f_total, \
-        f"F total debe restar cas 314 (deterioro): {f_total!r}"
+    assert isinstance(f_total, str) and f_total.startswith("=SUM("), \
+        f"F del total debe ser SUMA simple, recibí: {f_total!r}"
 
 
-def test_e2e_balance_pasivo_negativo_se_normaliza_con_ABS():
-    """Pasivo cargado en el balance como -100000 (convención contable
-    de algunos sistemas) debe aparecer como ABS() en F del A1 para
-    coincidir con el signo positivo del F-101."""
+def test_e2e_balance_pasivo_invierte_signo_no_ABS():
+    """REGLA UNIFICADA: Pasivo en col F usa =-ref (inversión), NO ABS().
+    Si el balance trae -100000 (convención contable), =-ref da +100000.
+    Si trajera +100000, =-ref da -100000."""
     wb = load_template()
     reset_trace()
     A1Filler().fill(wb, _sess(), {
         "f101": {"511": 100000},
         "balance_mapeado": [
             {"casillero_sri": "511", "codigo": "X", "descripcion": "Cuenta x pagar",
-             "saldo": -100000.0},  # ← negativo (convención contable)
+             "saldo": -100000.0},
         ],
-        # Forzar el lookup para que F genere ='DATOS BALANCE'!D<row>
         "_balance_lookup": [4],
     })
     ws = wb[A1_SHEET]
     row_511 = _row_of_cas(ws, "511")
     f_value = ws[f"F{row_511}"].value
-    # F debe envolver con ABS() para normalizar el signo
     assert isinstance(f_value, str), f"F debe ser fórmula: {f_value!r}"
-    assert f_value.startswith("=ABS("), \
-        f"F de cas pasivo debe usar ABS para normalizar signo: {f_value!r}"
+    # Nueva regla: =-ref (inversión, no ABS)
+    assert f_value.startswith("=-") and "ABS" not in f_value, \
+        f"F de pasivo debe INVERTIR signo (=-...), no ABS: {f_value!r}"
 
 
 def test_e2e_balance_activo_normal_NO_lleva_ABS():
@@ -219,10 +218,10 @@ def test_e2e_balance_activo_normal_NO_lleva_ABS():
         f"F de cas 311 (Caja, activo normal) NO debe llevar ABS: {f_value!r}"
 
 
-def test_e2e_balance_cuenta_negativa_activo_se_normaliza():
-    """Cas 314 (deterioro, NEGATIVE_CASILLEROS): si el balance lo trae
-    -31857 (signo contable), debe mostrarse positivo en F para coincidir
-    con el F-101 (que lo trae positivo)."""
+def test_e2e_balance_cuenta_negativa_activo_usa_neg_ABS():
+    """REGLA UNIFICADA: cas 314 (deterioro) en col F usa =-ABS(ref)
+    para que SIEMPRE quede NEGATIVO (igual signo que C que también
+    es negativo). Sin importar el signo original del balance."""
     wb = load_template()
     reset_trace()
     A1Filler().fill(wb, _sess(), {
@@ -236,5 +235,6 @@ def test_e2e_balance_cuenta_negativa_activo_se_normaliza():
     ws = wb[A1_SHEET]
     row_314 = _row_of_cas(ws, "314")
     f_value = ws[f"F{row_314}"].value
-    assert f_value.startswith("=ABS("), \
-        f"F de cas 314 (deterioro, viene negativo) debe llevar ABS: {f_value!r}"
+    # Nueva regla: =-ABS(...) — siempre negativo
+    assert f_value.startswith("=-ABS("), \
+        f"F de cas 314 (deterioro) debe ser =-ABS(...) para quedar negativo: {f_value!r}"
