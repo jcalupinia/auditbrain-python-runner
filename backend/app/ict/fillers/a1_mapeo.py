@@ -84,7 +84,6 @@ class A1Filler:
         "550": "PAS_CORR",      "589": "PAS_NO_CORR",
         "698": "PATRIMONIO",
         "1005": "ING_ORD",      "1045": "ING_NO_OP",
-        "6999": "INGRESOS",
         "7991": "COSTOS_OP",    "7992": "GASTOS",
     }
     COMPOSITE_TOTALS = {
@@ -92,6 +91,7 @@ class A1Filler:
         "499": ("361", "449"),
         "599": ("550", "589"),
         "699": ("599", "698"),
+        "6999": ("1005", "1045"),    # TOTAL INGRESOS = ord + no operacionales
         "7999": ("7991", "7992"),
     }
     # En qué bloque empieza cada casillero PRIMARIO. Lookup directo por casillero
@@ -103,9 +103,67 @@ class A1Filler:
         "PAS_CORR":    "511",   "PAS_NO_CORR": "555",   # 555 es el primero en cell_map
         "PATRIMONIO":  "601",
         "ING_ORD":     "6001",  "ING_NO_OP":   "6033",
-        "INGRESOS":    "6001",
         "COSTOS_OP":   "7001",  "GASTOS":      "7173",
     }
+
+    # Rangos de casilleros que en el F-101 figuran en POSITIVO pero el sistema
+    # contable del cliente PUEDE traerlos en NEGATIVO (convención contable:
+    # créditos = negativos). Para que la columna F del A1 sea visualmente
+    # comparable con el F-101, normalizamos esos saldos a POSITIVO via ABS().
+    # Esto cubre: pasivos corrientes/no corrientes/patrimonio + todas las
+    # cuentas "(-)" del activo (deterioros, depreciaciones, amortizaciones).
+    @classmethod
+    def _needs_abs_normalization(cls, casillero: str) -> bool:
+        """True si el saldo del balance debe normalizarse a positivo para
+        coincidir con el signo del F-101."""
+        # Casilleros "(-)" del activo, patrimonio, inventarios finales:
+        # el F-101 los pone POSITIVOS aunque conceptualmente restan.
+        if casillero in cls.NEGATIVE_CASILLEROS:
+            return True
+        if not casillero.isdigit():
+            return False
+        num = int(casillero)
+        # Pasivos (todos los 511-599) y Patrimonio (601-698): el sistema
+        # contable del cliente puede traerlos negativos por convención.
+        if 511 <= num <= 599:
+            return True
+        if 601 <= num <= 698:
+            return True
+        return False
+
+    @classmethod
+    def _build_signed_sum_formula(
+        cls,
+        col: str,
+        componentes: list[str],
+        casillero_to_row: dict[str, int],
+    ) -> str | None:
+        """Construye una fórmula tipo `=+C13+C22-C25-C29+...` que SUMA los
+        componentes del bloque, RESTANDO los casilleros que están en
+        NEGATIVE_CASILLEROS (cuentas (-) acumuladas que conceptualmente
+        restan: deterioros, depreciaciones, amortizaciones, pérdidas).
+
+        Args:
+            col: 'C' (declarado) o 'F' (contable).
+            componentes: lista de casilleros del bloque en orden.
+            casillero_to_row: lookup cas → fila A1.
+
+        Returns:
+            Fórmula `=+Cxx+Cyy-Czz...` o None si no hay componentes con fila.
+        """
+        if not componentes:
+            return None
+        parts: list[str] = []
+        for cas in componentes:
+            row = casillero_to_row.get(cas)
+            if row is None:
+                continue
+            sign = "-" if cas in cls.NEGATIVE_CASILLEROS else "+"
+            parts.append(f"{sign}{col}{row}")
+        if not parts:
+            return None
+        # Resulta en p.ej. "=+C13+C22-C25+C26..." — el signo + inicial es válido
+        return "=" + "".join(parts)
 
     def fill(
         self,
@@ -170,8 +228,13 @@ class A1Filler:
         # en la columna F (saldos contables), igualando lo que pasa en C (declarado).
         # block_start_rows[bloque_id] = fila donde empieza el bloque
         # total_rows[casillero_total] = fila donde se escribió ese TOTAL
+        # casillero_to_row[cas] = fila donde se escribió ese cas (para SUM con signos)
+        # bloque_to_casilleros[bloque_id] = lista ordenada de casilleros del bloque
         block_start_rows: dict[str, int] = {}
         total_rows: dict[str, int] = {}
+        casillero_to_row: dict[str, int] = {}
+        bloque_to_casilleros: dict[str, list[str]] = {}
+        current_bloque_id: str | None = None
 
         for casillero, casillero_nombre in A1_CASILLEROS_ORDERED:
             valor_declarado = f101.get(casillero)
@@ -185,6 +248,15 @@ class A1Filler:
             for bloque_id, first_cas in self.BLOCK_FIRST_CAS.items():
                 if casillero == first_cas and bloque_id not in block_start_rows:
                     block_start_rows[bloque_id] = current_row
+                    current_bloque_id = bloque_id
+                    bloque_to_casilleros.setdefault(bloque_id, [])
+
+            # Registrar el cas en el bloque actual (excepto el propio TOTAL)
+            if current_bloque_id and not is_total:
+                bloque_to_casilleros[current_bloque_id].append(casillero)
+
+            # Track posición fila para este cas — usado en la fórmula del TOTAL
+            casillero_to_row[casillero] = current_row
 
             # === Casillero + nombre (cols A, B) ===
             if _safe_set(ws, f"A{current_row}", casillero):
@@ -192,15 +264,32 @@ class A1Filler:
             if _safe_set(ws, f"B{current_row}", casillero_nombre):
                 filled += 1
 
-            # === C — Valor declarado (REFERENCIA a 'DATOS F-101' o fórmula compuesta) ===
-            if is_total and casillero in self.COMPOSITE_TOTALS:
+            # === C — Valor declarado ===
+            # Para TOTALES PRIMARIOS: fórmula SUMA-CON-SIGNOS de los casilleros
+            # del bloque, en lugar de referencia directa al total declarado en
+            # F-101. Esto sirve como CONTROL del F-101: si la suma de los
+            # componentes ≠ total declarado, hay inconsistencia interna del F-101
+            # que el auditor debe revisar.
+            # Para TOTALES COMPUESTOS: suma de los sub-totales previos.
+            # Para CASILLEROS NORMALES: referencia a DATOS F-101.
+            if is_total and casillero in self.PRIMARY_TOTAL_BLOCKS:
+                bloque_id = self.PRIMARY_TOTAL_BLOCKS[casillero]
+                componentes = bloque_to_casilleros.get(bloque_id, [])
+                formula_c = self._build_signed_sum_formula(
+                    "C", componentes, casillero_to_row
+                )
+                if formula_c:
+                    _safe_set_formula(ws, f"C{current_row}", formula_c,
+                                      casillero=casillero)
+                    filled += 1
+                current_bloque_id = None  # cerrar bloque
+            elif is_total and casillero in self.COMPOSITE_TOTALS:
                 sub1, sub2 = self.COMPOSITE_TOTALS[casillero]
                 if sub1 in total_rows and sub2 in total_rows:
                     _safe_set_formula(ws, f"C{current_row}",
                                       f"=C{total_rows[sub1]}+C{total_rows[sub2]}")
                     filled += 1
                 elif casillero in f101_lookup:
-                    # Si no hay subtotales, referenciar DATOS F-101
                     _safe_set_formula(
                         ws, f"C{current_row}",
                         f"='DATOS F-101'!C{f101_lookup[casillero]}",
@@ -223,20 +312,20 @@ class A1Filler:
                 if not is_total:
                     warnings.append(f"Casillero {casillero} no encontrado en F-101")
 
-            # === F (saldos contables) — fórmula SUM si es TOTAL ===
-            f_formula_for_total = None
+            # === F (saldos contables) — fórmula SUMA-CON-SIGNOS si es TOTAL ===
+            # Igual que C: el TOTAL F suma los componentes del bloque con signos
+            # correctos (resta las cuentas (-) acumuladas como deterioros).
             if is_total:
+                f_formula_for_total = None
                 if casillero in self.PRIMARY_TOTAL_BLOCKS:
-                    # TOTAL primario: suma del rango del bloque actual
                     bloque_id = self.PRIMARY_TOTAL_BLOCKS[casillero]
+                    componentes = bloque_to_casilleros.get(bloque_id, [])
+                    f_formula_for_total = self._build_signed_sum_formula(
+                        "F", componentes, casillero_to_row
+                    )
                     if bloque_id in block_start_rows:
-                        f_formula_for_total = (
-                            f"=SUM(F{block_start_rows[bloque_id]}:F{current_row-1})"
-                        )
-                        # Reset del bloque para que el siguiente bloque arranque limpio
                         del block_start_rows[bloque_id]
                 elif casillero in self.COMPOSITE_TOTALS:
-                    # TOTAL compuesto: suma de los sub-totales previos
                     sub1, sub2 = self.COMPOSITE_TOTALS[casillero]
                     if sub1 in total_rows and sub2 in total_rows:
                         f_formula_for_total = (
@@ -283,13 +372,25 @@ class A1Filler:
             # F = REFERENCIA a 'DATOS BALANCE'!D<row_idx> para que el auditor
             # vea de qué cuenta exacta proviene el saldo. Fallback a literal si
             # no hay lookup (caso edge).
+            # NORMALIZACIÓN: si el casillero requiere signo positivo (Pasivos/
+            # Patrimonio que el sistema contable trae negativos, o cuentas (-)
+            # del activo), envolvemos en ABS() para coincidir con F-101.
+            needs_abs = self._needs_abs_normalization(casillero)
             src_row = first.get("_source_row")
             if src_row:
-                _safe_set_formula(ws, f"F{current_row}",
-                                  f"='DATOS BALANCE'!D{src_row}")
+                base_ref = f"'DATOS BALANCE'!D{src_row}"
+                formula_f = f"=ABS({base_ref})" if needs_abs else f"={base_ref}"
+                _safe_set_formula(ws, f"F{current_row}", formula_f)
                 filled += 1
-            elif _safe_set(ws, f"F{current_row}", first.get("saldo", 0)):
-                filled += 1
+            else:
+                saldo = first.get("saldo", 0)
+                if needs_abs:
+                    try:
+                        saldo = abs(float(saldo))
+                    except (TypeError, ValueError):
+                        pass
+                if _safe_set(ws, f"F{current_row}", saldo):
+                    filled += 1
 
             # Fórmula G — metodología oficial 2024:
             #   N cuentas → "=SUM(F<row>:F<row+N-1>)-C<row>"
@@ -318,13 +419,23 @@ class A1Filler:
                 ws.insert_rows(row_n)
                 if _safe_set(ws, f"D{row_n}", item.get("codigo", "")): filled += 1
                 if _safe_set(ws, f"E{row_n}", item.get("descripcion", "")): filled += 1
+                # NORMALIZACIÓN: aplicar ABS si el casillero lo requiere
+                # (Pasivos/Patrimonio o cuentas (-) del activo).
                 src_row = item.get("_source_row")
                 if src_row:
-                    _safe_set_formula(ws, f"F{row_n}",
-                                      f"='DATOS BALANCE'!D{src_row}")
+                    base_ref = f"'DATOS BALANCE'!D{src_row}"
+                    formula_f = f"=ABS({base_ref})" if needs_abs else f"={base_ref}"
+                    _safe_set_formula(ws, f"F{row_n}", formula_f)
                     filled += 1
-                elif _safe_set(ws, f"F{row_n}", item.get("saldo", 0)):
-                    filled += 1
+                else:
+                    saldo = item.get("saldo", 0)
+                    if needs_abs:
+                        try:
+                            saldo = abs(float(saldo))
+                        except (TypeError, ValueError):
+                            pass
+                    if _safe_set(ws, f"F{row_n}", saldo):
+                        filled += 1
 
             # Trackear grupo (N filas)
             casillero_groups.append({
