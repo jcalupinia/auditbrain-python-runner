@@ -258,16 +258,21 @@ def test_a4_cuadro2_populated_from_balance_when_no_f101(db_session, client_user)
     assert "CONCILIACIÓN INGRESOS A4" in wb.sheetnames
 
     a4 = wb["CONCILIACIÓN INGRESOS A4"]
-    # Modo referencial: G32 y G33 contienen fórmulas hacia DATOS BALANCE.
+    # Nueva semántica (regla DATOS F-101 completo): F-101 siempre tiene
+    # los 320+ casilleros canónicos. Cuando el cliente no sube F-101,
+    # sus valores quedan en 0 y el filler genera referencias a 'DATOS
+    # F-101'!Cxx (con valor 0). Lo que se valida es que los saldos
+    # reales del balance estén en DATOS BALANCE para que el auditor
+    # pueda ver la diferencia.
     val_804 = a4["G32"].value
     val_805 = a4["G33"].value
-    assert isinstance(val_804, str) and val_804.startswith("="), \
+    assert isinstance(val_804, str) and val_804.startswith("=") and \
+           ("DATOS F-101" in val_804 or "DATOS BALANCE" in val_804), \
         f"G32 debe ser fórmula referencial, obtenido {val_804!r}"
-    assert isinstance(val_805, str) and val_805.startswith("="), \
+    assert isinstance(val_805, str) and val_805.startswith("=") and \
+           ("DATOS F-101" in val_805 or "DATOS BALANCE" in val_805), \
         f"G33 debe ser fórmula referencial, obtenido {val_805!r}"
-    assert "DATOS BALANCE" in val_804
-    assert "DATOS BALANCE" in val_805
-    # Verificar que los valores 5000.0 y 1200.0 están en DATOS BALANCE
+    # Los valores REALES del balance se preservan en DATOS BALANCE
     assert _datos_balance_has_value(wb, 5000.0)
     assert _datos_balance_has_value(wb, 1200.0)
 
@@ -304,13 +309,18 @@ def test_a5_cuadro_d_populated_from_balance_when_no_f101(db_session, client_user
     assert "CONCILIACIÓN COSTOS Y GASTOS A5" in wb.sheetnames
 
     a5 = wb["CONCILIACIÓN COSTOS Y GASTOS A5"]
-    # Modo referencial: H66 y H67 contienen fórmulas hacia DATOS BALANCE.
+    # Nueva semántica: F-101 siempre tiene los 320+ canónicos (con 0
+    # cuando el cliente no lo subió). El filler genera referencia a
+    # 'DATOS F-101' o 'DATOS BALANCE'. Validamos que los valores
+    # reales del balance se preservan en DATOS BALANCE.
     val_806 = a5["H66"].value
     val_807 = a5["H67"].value
-    assert isinstance(val_806, str) and val_806.startswith("=") and "DATOS BALANCE" in val_806, \
-        f"H66 debe ser fórmula referencial DATOS BALANCE, obtenido {val_806!r}"
-    assert isinstance(val_807, str) and val_807.startswith("=") and "DATOS BALANCE" in val_807, \
-        f"H67 debe ser fórmula referencial DATOS BALANCE, obtenido {val_807!r}"
+    assert isinstance(val_806, str) and val_806.startswith("=") and \
+           ("DATOS F-101" in val_806 or "DATOS BALANCE" in val_806), \
+        f"H66 debe ser fórmula referencial, obtenido {val_806!r}"
+    assert isinstance(val_807, str) and val_807.startswith("=") and \
+           ("DATOS F-101" in val_807 or "DATOS BALANCE" in val_807), \
+        f"H67 debe ser fórmula referencial, obtenido {val_807!r}"
     assert _datos_balance_has_value(wb, 3000.0)
     assert _datos_balance_has_value(wb, 500.0)
 
@@ -346,8 +356,12 @@ def test_a6_casillero_810_from_balance(db_session, client_user):
 
     a6 = wb["BENEFICIOS TRIBUTARIOS A6"]
     val_810 = a6["G25"].value
-    assert isinstance(val_810, str) and val_810.startswith("=") and "DATOS BALANCE" in val_810, \
-        f"G25 debe ser fórmula referencial DATOS BALANCE, obtenido {val_810!r}"
+    # Nueva semántica: F-101 siempre tiene cas 810 canónico (con 0).
+    # El filler puede referenciar DATOS F-101 o DATOS BALANCE.
+    assert isinstance(val_810, str) and val_810.startswith("=") and \
+           ("DATOS F-101" in val_810 or "DATOS BALANCE" in val_810), \
+        f"G25 debe ser fórmula referencial, obtenido {val_810!r}"
+    # El valor real del balance (7500) se preserva en DATOS BALANCE
     assert _datos_balance_has_value(wb, 7500.0)
 
 

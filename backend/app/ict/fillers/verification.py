@@ -255,7 +255,13 @@ def build_verification_sheet(
         ws.cell(row, 4, value=bal).font = FONT_DATA
         diff_cell = ws.cell(row, 5, value=diff if diff is not None else "—")
         est_cell = ws.cell(row, 6, value=estado)
-        if abs(diff) <= 0.5:
+        # Coloreado: si diff es None (F-101 no declaró), usar color warning;
+        # si no, verde cuando cuadra y rojo cuando difiere.
+        if diff is None:
+            diff_cell.font = FONT_DATA_BAD
+            est_cell.font = FONT_DATA_BAD
+            est_cell.fill = FILL_BAD
+        elif abs(diff) <= 0.5:
             diff_cell.font = FONT_DATA_OK
             est_cell.font = FONT_DATA_OK
             est_cell.fill = FILL_OK
@@ -310,7 +316,13 @@ def build_verification_sheet(
         ws.cell(row, 4, value=bal).font = FONT_DATA
         diff_cell = ws.cell(row, 5, value=diff if diff is not None else "—")
         est_cell = ws.cell(row, 6, value=estado)
-        if abs(diff) <= 0.5:
+        # Coloreado: si diff es None (F-101 no declaró), usar color warning;
+        # si no, verde cuando cuadra y rojo cuando difiere.
+        if diff is None:
+            diff_cell.font = FONT_DATA_BAD
+            est_cell.font = FONT_DATA_BAD
+            est_cell.fill = FILL_BAD
+        elif abs(diff) <= 0.5:
             diff_cell.font = FONT_DATA_OK
             est_cell.font = FONT_DATA_OK
             est_cell.fill = FILL_OK
