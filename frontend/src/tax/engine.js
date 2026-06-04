@@ -449,3 +449,25 @@ export function projectFinancials(D, CTRL, params) {
   });
   return { assumptions: A, rows };
 }
+
+/* ===================== ESCENARIOS (COMPARACIÓN) ===================== */
+
+// Modelo de la "regla mortal": el anticipo del año t se pierde como gasto no
+// deducible si NO hay distribución ni capitalización en t, t+1 o t+2. Si la
+// ventana de 2 años excede el horizonte proyectado, se marca fueraHorizonte.
+export function creditAging(rows) {
+  const n = rows.length;
+  return rows.map((r, t) => {
+    const fin = Math.min(t + 2, n - 1);
+    let recuperado = false;
+    for (let k = t; k <= fin; k++) {
+      if ((rows[k].div || 0) > 0 || (rows[k].cap || 0) > 0) recuperado = true;
+    }
+    const fueraHorizonte = t + 2 > n - 1;
+    return {
+      ...r,
+      costoMuerto: recuperado ? 0 : r.pago || 0,
+      fueraHorizonte,
+    };
+  });
+}
