@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { tarifa, creditAging } from "../engine.js";
+import { tarifa, creditAging, compareScenarios } from "../engine.js";
+import { emptyData } from "../seed.js";
 
 describe("smoke", () => {
   it("tarifa tramo exento", () => {
@@ -30,5 +31,38 @@ describe("creditAging (costo muerto 2 años)", () => {
   it("anticipo de 2028 con ventana fuera de horizonte se marca", () => {
     const r = creditAging(rows([]));
     expect(r[2].fueraHorizonte).toBe(true);
+  });
+});
+
+describe("compareScenarios", () => {
+  const D = emptyData();
+  // Empresa con utilidades acumuladas altas para que haya impuesto.
+  D.resAcum = [0, 0, 5000000];
+  D.utilAcum = [0, 0, 4000000];
+  D.utilEjercicio = [0, 0, 1000000];
+  D.ventas = [0, 0, 8000000];
+  D.costo = [0, 0, 5000000];
+  D.capital = [0, 0, 100000];
+  const params = { costoR: 60, gastoR: 25, irR: 25, retDiv: 12, growth: 0 };
+
+  const r = compareScenarios(D, params);
+
+  it("devuelve los 4 escenarios", () => {
+    expect(Object.keys(r).sort()).toEqual(["cap", "div", "mix", "sin"]);
+  });
+
+  it("'sin' tiene impuesto > 0 en 2026", () => {
+    expect(r.sin.rows[0].impuesto).toBeGreaterThan(0);
+  });
+
+  it("'cap' (solo capitalización) lleva el impuesto a ~0", () => {
+    const total = r.cap.totales.impuesto;
+    expect(total).toBeLessThan(r.sin.totales.impuesto);
+    expect(total).toBeLessThan(1);
+  });
+
+  it("cada escenario tiene 3 años con costoMuerto definido", () => {
+    expect(r.sin.rows).toHaveLength(3);
+    expect(typeof r.sin.rows[0].costoMuerto).toBe("number");
   });
 });

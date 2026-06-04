@@ -471,3 +471,55 @@ export function creditAging(rows) {
     };
   });
 }
+
+// Comparación de los 4 escenarios año por año (2026–2028). Reusa el motor
+// existente (applyScenario + computeModel) y le agrega el costo muerto a 2 años.
+// overrides (opcional) = { div: CTRL, mix: CTRL } con los montos editables.
+const _PROJ_YEARS = [2026, 2027, 2028];
+
+export function compareScenarios(D, params, overrides = {}) {
+  const build = (scn) => {
+    const ctrl = overrides[scn] || applyScenario(scn, D, _emptyCtrl(), params);
+    const model = computeModel(D, ctrl, params);
+    const aged = creditAging(
+      model.map((m) => ({ pago: m.pago, div: m.div, cap: m.cap })),
+    );
+    const rows = model.map((m, i) => ({
+      anio: _PROJ_YEARS[i],
+      impuesto: m.pago,
+      repartido: m.div,
+      capitalizado: m.cap,
+      // sobrante = utilidad no distribuida que queda tras dividendos/capitalización
+      sobrante: Math.max(0, m.resAcum),
+      devolucion: m.dev,
+      costoMuerto: aged[i].costoMuerto,
+      fueraHorizonte: aged[i].fueraHorizonte,
+    }));
+    const sum = (k) => rows.reduce((a, r) => a + (r[k] || 0), 0);
+    return {
+      rows,
+      totales: {
+        impuesto: sum("impuesto"),
+        repartido: sum("repartido"),
+        capitalizado: sum("capitalizado"),
+        devolucion: sum("devolucion"),
+        costoMuerto: sum("costoMuerto"),
+        costoNeto: sum("costoMuerto"),
+      },
+    };
+  };
+  return {
+    sin: build("sin"),
+    div: build("div"),
+    mix: build("mix"),
+    cap: build("cap"),
+  };
+}
+
+function _emptyCtrl() {
+  return [
+    { g: 0, div: 0, cap: 0 },
+    { g: 0, div: 0, cap: 0 },
+    { g: 0, div: 0, cap: 0 },
+  ];
+}
