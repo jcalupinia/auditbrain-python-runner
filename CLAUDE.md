@@ -268,3 +268,57 @@ Si el cliente reporta que un cas no se traslada al A1:
    para diagnosticar.
 4. NUNCA arreglar manualmente agregando una línea hardcoded — eso causa
    exactamente el bug que esta regla intenta prevenir.
+
+## Formatos numéricos en parsers SRI — soporte automático `.` y `,`
+
+**REGLA OBLIGATORIA:** Todos los parsers de PDFs SRI (F-101, F-103, F-104)
+deben aceptar números en cualquier formato regional:
+
+| Formato | Ejemplo | Resultado esperado |
+|---|---|---|
+| US (coma=miles, punto=decimal) | `178,259.63` | `178259.63` |
+| Europeo (punto=miles, coma=decimal) | `178.259,63` | `178259.63` |
+| Plano sin separador de miles | `183724.10` | `183724.10` |
+| Solo decimal | `0.00` / `0,00` | `0.0` |
+| Solo entero | `100` | `100.0` |
+| Negativo | `-150.00` / `-178,259.63` | `-150.0` / `-178259.63` |
+
+**Razón:** los computadores de los clientes están configurados con
+"Configuración regional" diferente. Algunos exportan PDFs con `.`
+decimal, otros con `,`. El sistema debe abstraer eso del usuario.
+
+**Implementación canónica:**
+- `backend/app/ict/parsers/f103_pdf.py::_parse_amount()`
+- `backend/app/aud/obligaciones_fiscales/cedulas/base.py::_parse_amount_sri()`
+
+Ambos siguen la heurística: si el string tiene `.` y `,`, el separador
+DECIMAL es el que aparece **al final**. Si solo tiene `,` y los caracteres
+después son 1-2 dígitos, es coma decimal. Si solo `.`, es separador estándar.
+
+**Regex para extracción de montos en PDFs:**
+```python
+# CORRECTO: captura cualquier cantidad de dígitos + grupos de separadores
+monetario = r"(-?\d+(?:[.,]\d+)*)"
+```
+```python
+# INCORRECTO (bug histórico 2026-06-04): limitaba a 3 dígitos
+monetario = r"(-?\d{1,3}(?:[,.]\d{3})*(?:[,.]\d{1,2})?)"
+# → para "183724.10" capturaba solo "183"
+```
+
+**Tests obligatorios** (no remover sin reemplazo):
+- `tests/test_ict_parser_formato_numerico.py` (20 tests)
+  - `TestParseAmountFormatosNumericos` — 11 casos de _parse_amount
+  - `TestParseAmountSriBase` — 4 casos del helper en base.py
+  - `TestExtractCasillerosF103` — 4 casos de regresión con texto simulado
+  - `TestExtractCasillerosPDFRealPROPHAR` — verificación empírica con
+    PDF real de PROPHAR febrero 2025 (skipea si no está disponible)
+
+**Procedimiento al detectar valores 0 en DATOS F-103/F-104:**
+1. Confirmar que el PDF se subió correctamente al slot
+2. Correr `parse_f103(pdf_bytes)` localmente con el PDF problemático
+3. Si devuelve `casilleros={}` o valores != esperados → bug en parser
+4. Agregar test con texto simulado a `test_ict_parser_formato_numerico.py`
+5. Corregir el regex/`_parse_amount` para que el test pase
+6. NUNCA hardcodear el valor en el filler — el filler solo presenta lo
+   que el parser le da

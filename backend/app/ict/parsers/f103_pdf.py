@@ -308,10 +308,39 @@ MONTH_MAP = {
 
 
 def _parse_amount(s: str) -> float | None:
-    """Convert SRI-format number to float. Returns None if not numeric."""
+    """Convert SRI-format number to float. Returns None if not numeric.
+
+    Soporta:
+      - "178,259.63"  (formato US: coma=miles, punto=decimal)
+      - "178.259,63"  (formato europeo: punto=miles, coma=decimal)
+      - "178259.63"   (sin separador de miles)
+      - "0.00", "0", ""
+    """
     if not s:
         return None
-    s = s.strip().replace(",", "")
+    s = s.strip()
+    if not s:
+        return None
+    # Detectar formato: si tiene MAS de 1 coma o el último separador es coma → euro
+    has_dot = "." in s
+    has_comma = "," in s
+    if has_dot and has_comma:
+        # Ambos: decimal es el ÚLTIMO que aparece
+        if s.rfind(",") > s.rfind("."):
+            # formato euro: 178.259,63 → quitar puntos, coma → punto
+            s = s.replace(".", "").replace(",", ".")
+        else:
+            # formato US: 178,259.63 → quitar comas
+            s = s.replace(",", "")
+    elif has_comma:
+        # Solo coma: si tiene 2 decimales detrás, es coma decimal (euro)
+        parts = s.split(",")
+        if len(parts) == 2 and len(parts[1]) in (1, 2):
+            s = s.replace(",", ".")
+        else:
+            # Es separador de miles US sin centavos
+            s = s.replace(",", "")
+    # else: solo punto o ningún separador → ya es válido
     try:
         return float(s)
     except ValueError:
@@ -334,16 +363,31 @@ def _extract_periodo(text: str) -> str | None:
 def _extract_casilleros(text: str) -> dict[str, float]:
     """Scan the F-103 text and pull values for every casillero in ALL_CASILLEROS.
 
-    The SRI PDF layout shows casillero number then its base, then a few cells
-    later the retained value. We do a robust regex that captures the FIRST
-    number after the casillero label.
+    El PDF F-103 SRI tiene formato tabular:
+        CAS  CONCEPTO  BASE_IMPONIBLE  CAS_RET  VALOR_RETENIDO
+
+    Estrategia: para cada cas conocido, buscar el patrón
+    `\b{cas}\b` seguido de un NÚMERO con formato monetario (acepta
+    comas como separador de miles y puntos como decimal, o viceversa).
+
+    El regex captura el primer número MONETARIO válido (mínimo 1 dígito
+    + opcional separador miles + opcional decimal) dentro de 100 chars
+    del cas. NO captura números que sean otros codigos de casillero.
     """
     result: dict[str, float] = {}
+    # Patrón monetario robusto:
+    #   `\d+`               → uno o más dígitos (cubre "183724" sin separador)
+    #   `(?:[.,]\d+)*`      → cero o más grupos "separador + dígitos"
+    #                         (cubre "183,724.10" formato US,
+    #                          "183.724,10" formato europeo,
+    #                          "1,234,567.89" tres grupos, etc.)
+    # La interpretación coma/punto la hace _parse_amount() según contexto.
+    monetario = r"(-?\d+(?:[.,]\d+)*)"
     for casillero in ALL_CASILLEROS:
-        # Match: 3-4 digit casillero, optional space, then numeric value
-        # We look for the casillero number at word boundary, then capture
-        # the next number that follows (within ~80 chars).
-        pattern = rf"\b{casillero}\b[\s\S]{{0,80}}?(-?\d[\d.]*)"
+        # Buscar cas + cualquier whitespace/texto NO numérico + primer monto.
+        # El whitespace `\s` antes del monto es OBLIGATORIO para evitar
+        # capturar dígitos contiguos al cas (ej. "30201" no debe matchear cas 302).
+        pattern = rf"\b{casillero}\b\s+{monetario}"
         m = re.search(pattern, text)
         if m:
             val = _parse_amount(m.group(1))

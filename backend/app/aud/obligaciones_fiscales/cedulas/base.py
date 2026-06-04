@@ -55,13 +55,49 @@ def find_periodo(text: str) -> str | None:
 def find_casillero_value(text: str, casillero: str) -> float | None:
     """Busca el valor decimal asociado a un casillero SRI.
 
-    Patrón: '<casillero>\\s+<valor decimal>' (ignora menciones sin valor decimal).
-    Si hay múltiples coincidencias, devuelve la primera con valor.
+    REGLA del proyecto (CLAUDE.md): el sistema acepta números en formato
+    US (`178,259.63`), europeo (`178.259,63`) o plano (`178259.63`).
+    Esto permite que clientes con computadores configurados con coma o
+    punto como separador decimal puedan cargar PDFs sin pre-procesar.
+
+    Patrón: '<casillero>\\s+<monto>' (acepta cualquier formato monetario
+    SRI). Si hay múltiples coincidencias, devuelve la primera con valor.
     """
-    pattern = rf"\b{casillero}\s+(-?\d+\.\d+)"
+    # Monto: dígitos + opcionales grupos "separador+dígitos"
+    pattern = rf"\b{casillero}\s+(-?\d+(?:[.,]\d+)*)"
     for raw in re.findall(pattern, text):
-        try:
-            return float(raw)
-        except ValueError:
-            continue
+        val = _parse_amount_sri(raw)
+        if val is not None:
+            return val
     return None
+
+
+def _parse_amount_sri(s: str) -> float | None:
+    """Convierte número en formato SRI (US o europeo) a float.
+
+    Reglas:
+      - '178,259.63' o '178.259,63'  → 178259.63
+      - '178259.63' o '0.00' o '25,50' → directo
+      - El SEPARADOR DECIMAL es el ÚLTIMO que aparece (`,` o `.`).
+    """
+    if not s:
+        return None
+    s = s.strip()
+    if not s:
+        return None
+    has_dot, has_comma = "." in s, "," in s
+    if has_dot and has_comma:
+        if s.rfind(",") > s.rfind("."):
+            s = s.replace(".", "").replace(",", ".")   # euro → US
+        else:
+            s = s.replace(",", "")                      # US: quitar miles
+    elif has_comma:
+        parts = s.split(",")
+        if len(parts) == 2 and len(parts[1]) in (1, 2):
+            s = s.replace(",", ".")                     # coma decimal
+        else:
+            s = s.replace(",", "")                      # coma de miles US
+    try:
+        return float(s)
+    except ValueError:
+        return None
