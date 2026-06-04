@@ -205,6 +205,18 @@ export async function consultarSriRuc(ruc) {
   );
 }
 
+// Agente: genera la narrativa de recomendación a partir de las cifras
+// deterministas de los escenarios. La IA no calcula números.
+export async function generarRecomendacionAgente({ empresa, comparacion, recomendado }) {
+  return parse(
+    await fetch(`${TAX_PU_BASE}/recomendacion`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ empresa, comparacion, recomendado }),
+    })
+  );
+}
+
 // Genera y descarga la presentación ejecutiva (.pptx) premium para
 // gerencia/accionistas. Se arma en el servidor con python-pptx.
 export async function generarPresentacionTax({ content }) {

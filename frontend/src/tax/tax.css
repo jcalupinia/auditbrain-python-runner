@@ -914,3 +914,11 @@
     padding: 0;
   }
 }
+
+/* === Sección Escenarios + Recomendación del agente === */
+.tax-root .tx-best { color: #1e8449; font-weight: 700; font-size: 12px; margin-left: 8px; }
+.tax-root .tx-rec { margin-top: 12px; padding: 14px; border-left: 4px solid var(--gold); background: #fafbfc; }
+.tax-root .tx-rec.rec-baja { border-left-color: #c0392b; }
+.tax-root .tx-rec-narr { white-space: pre-wrap; line-height: 1.5; }
+.tax-root .tx-disclaimer { font-size: 11px; font-style: italic; color: #6b7280; margin-top: 10px; }
+.tax-root .tx-btn.primary { background: var(--navy); color: #fff; }

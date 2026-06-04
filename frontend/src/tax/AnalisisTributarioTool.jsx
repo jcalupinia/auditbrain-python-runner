@@ -7,6 +7,7 @@ import {
   consultarSriRuc,
 } from "../api.js";
 import TaxChart from "./TaxChart.jsx";
+import SecEscenarios from "./SecEscenarios.jsx";
 import { fmt, f0, fX, fP, fD, m } from "./format.js";
 import {
   ESF_SCHEMA,
@@ -79,6 +80,7 @@ const SECTIONS = [
   ["retenciones", "4", "Retenciones dividendos"],
   ["credito", "5", "Crédito vs. Renta"],
   ["proyectado", "6", "Estados proyectados"],
+  ["escenarios", "✦", "Escenarios + Recomendación"],
   ["dashboard", "7", "Dashboards"],
   ["informe", "★", "Informe gerencial"],
 ];
@@ -126,6 +128,8 @@ export default function AnalisisTributarioTool({ projectId }) {
   const [params, setParams] = useState(() => ({ ...BLANK_PARAMS }));
   const [section, setSection] = useState("datos");
   const [ingest, setIngest] = useState(null); // null | "f101" | "resumido"
+  // Escenario aprobado por el agente; fluye a Informe gerencial y Presentación.
+  const [recomendacion, setRecomendacion] = useState(null);
 
   // Supuestos de proyección AUTO-derivados del histórico (crecimiento, márgenes,
   // días de capital de trabajo, depreciación, CAPEX). Se recalculan al cambiar
@@ -480,6 +484,14 @@ export default function AnalisisTributarioTool({ projectId }) {
         {section === "credito" && <SecCredito R={R} sumK={sumK} />}
         {section === "proyectado" && (
           <SecProyectado D={D} CTRL={CTRL} params={params} R={R} scn={scn} />
+        )}
+        {section === "escenarios" && (
+          <SecEscenarios
+            D={D}
+            params={params}
+            recomendacion={recomendacion}
+            setRecomendacion={setRecomendacion}
+          />
         )}
         {section === "dashboard" && (
           <SecDashboard
