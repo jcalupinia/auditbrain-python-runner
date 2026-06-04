@@ -47,6 +47,8 @@ class SriRucResponse(BaseModel):
     estado: str | None = None
     tipo: str | None = None
     regimen: str | None = None
+    ciiu: str | None = None
+    fuente: str | None = None
 
 
 class PresentacionRequest(BaseModel):

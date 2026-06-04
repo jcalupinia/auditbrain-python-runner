@@ -667,8 +667,15 @@ function SecDatos({ params, setText, setParam }) {
       if (r.razon_social) setText("empresa", r.razon_social);
       const actividad = r.actividad || "";
       setText("actividadSRI", actividad);
-      // Sugerir sección CIIU a partir de la actividad y fijar su tasa.
-      const cod = actividad ? sugerirSeccion(actividad) : "";
+      // Sección CIIU: si la fuente devuelve el código CIIU (ej. "G46900002"),
+      // su primera letra es la sección oficial y prevalece; si no, se infiere
+      // de la actividad. Luego se fija la tasa sectorial de respaldo.
+      const ciiuSec = String(r.ciiu || "").trim().charAt(0).toUpperCase();
+      const cod = sectorPorCod(ciiuSec)
+        ? ciiuSec
+        : actividad
+        ? sugerirSeccion(actividad)
+        : "";
       if (cod) {
         setText("sector", cod);
         const s = sectorPorCod(cod);
