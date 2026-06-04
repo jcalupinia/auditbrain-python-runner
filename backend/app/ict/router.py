@@ -247,6 +247,54 @@ def download_excel_endpoint(
     )
 
 
+@router.get(
+    "/sessions/{session_id}/papel-trabajo",
+    summary="Descarga papel de trabajo del auditor",
+    description=(
+        "Devuelve el archivo Excel COMPLETO incluyendo VERIFICACIÓN A1, "
+        "AUDITORÍA DE ANEXOS, TRAZABILIDAD y la interpretación generada por "
+        "IA. Este archivo es para uso interno del auditor — NO debe cargarse "
+        "al SRI."
+    ),
+)
+def download_papel_trabajo_endpoint(
+    session_id: int,
+    user: User = Depends(require_client_with_device),
+    db: Session = Depends(get_db),
+):
+    """Devuelve el Excel PAPEL DE TRABAJO con todas las hojas internas.
+
+    Regla CLAUDE.md (interpretación IA): este archivo contiene resultados
+    generados por LLM con disclaimer obligatorio. El auditor responsable
+    debe validar antes de cualquier decisión.
+    """
+    try:
+        session = ict_service.get_session(db, session_id=session_id, user=user)
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+
+    from backend.app.aud.obligaciones_fiscales import file_storage as _fs
+    cached_papel = (
+        _fs._root() / "ict" / f"{session.id}" / "_output" / "ICT_PAPEL_TRABAJO.xlsx"
+    )
+    if cached_papel.exists():
+        excel_bytes = cached_papel.read_bytes()
+    else:
+        # Generar al vuelo si no hay cache (sesiones pre-PT-9 también caen acá).
+        _sri, excel_bytes = ict_service.generate_excel(db, session=session)
+
+    filename = (
+        f"ICT_{session.ejercicio_fiscal}_{session.ruc}_PAPEL_TRABAJO.xlsx"
+    )
+    return StreamingResponse(
+        BytesIO(excel_bytes),
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post(
     "/sessions/{session_id}/anexos/{anexo_code}/upload",
     response_model=UploadResponse,
