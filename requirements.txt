@@ -51,3 +51,7 @@ torch==2.4.0
 # === Security / Stability ===
 pydantic==2.8.2
 typing_extensions==4.12.2
+
+# === LLM / AI motor (ICT audit) ===
+anthropic==0.105.2
+pytest-asyncio==1.4.0
