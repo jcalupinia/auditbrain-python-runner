@@ -211,7 +211,17 @@ def reparse_session_endpoint(
     return ict_service.reparse_session_uploads(db, session=session)
 
 
-@router.get("/sessions/{session_id}/download")
+@router.get(
+    "/sessions/{session_id}/download",
+    summary="Descarga Excel listo para cargar al SRI Ecuador",
+    description=(
+        "Devuelve el archivo Excel ICT LIMPIO listo para cargar al portal "
+        "del SRI Ecuador. NO incluye VERIFICACIÓN A1, AUDITORÍA DE ANEXOS "
+        "ni TRAZABILIDAD (hojas internas del auditor). Para descargar el "
+        "papel de trabajo con esas hojas + interpretación IA, usar el "
+        "endpoint `/papel-trabajo`."
+    ),
+)
 def download_excel_endpoint(
     session_id: int,
     user: User = Depends(require_client_with_device),
