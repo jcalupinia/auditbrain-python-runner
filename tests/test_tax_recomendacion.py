@@ -47,3 +47,15 @@ def test_build_recomendacion_usa_texto_del_llm():
             comparacion={"cap": {"totales": {"impuesto": 0, "costoMuerto": 0}}},
         )
     assert out.narrativa == "Recomendamos capitalizar."
+
+
+def test_deck_se_genera_con_recomendacion():
+    # El slide _recomendacion del deck consume content["recomendacion"]/["nota"].
+    from backend.app.tax.planificacion_utilidades import pptx_builder
+
+    data = pptx_builder.build_deck({
+        "empresa": "X",
+        "recomendacion": "Capitalizar el excedente antes del 31 de julio.",
+        "nota": "Análisis generado por IA. Validar por el profesional responsable.",
+    })
+    assert isinstance(data, (bytes, bytearray)) and len(data) > 1000

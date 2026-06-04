@@ -349,13 +349,17 @@ export default function AnalisisTributarioTool({ projectId }) {
         { accion: "Sustentar capitalización en activos productivos/empleo (no inventarios)", responsable: "Gerencia financiera", plazo: "Antes del corte" },
         { accion: "Aplicar el crédito en retención de dividendos e IR", responsable: "Tributario", plazo: "En la declaración" },
       ],
-      recomendacion:
-        `Bajo el escenario ${SCENARIO_NAMES[scn]}, el pago a cuenta 2026–2028 ` +
-        `baja a ${fmt(pagoAct)} frente a ${fmt(scComp.sin)} sin actuar, con ` +
-        `${fmt(recuperable)} recuperables. Perfeccionar la decisión antes del ` +
-        `31 de julio con sustancia económica. Para ${params.empresa || "la Compañía"} ` +
-        `evitar capitalizar vía inventarios.`,
-      nota: "Parámetros normativos editables, sujetos a validación humana y a criterios del SRI.",
+      // Si el agente aprobó un escenario, su narrativa IA prevalece en el deck.
+      recomendacion: recomendacion?.aprobado
+        ? recomendacion.narrativa
+        : `Bajo el escenario ${SCENARIO_NAMES[scn]}, el pago a cuenta 2026–2028 ` +
+          `baja a ${fmt(pagoAct)} frente a ${fmt(scComp.sin)} sin actuar, con ` +
+          `${fmt(recuperable)} recuperables. Perfeccionar la decisión antes del ` +
+          `31 de julio con sustancia económica. Para ${params.empresa || "la Compañía"} ` +
+          `evitar capitalizar vía inventarios.`,
+      nota: recomendacion?.aprobado
+        ? "Análisis generado por IA. Validar por el profesional responsable."
+        : "Parámetros normativos editables, sujetos a validación humana y a criterios del SRI.",
     };
   };
 
@@ -517,6 +521,7 @@ export default function AnalisisTributarioTool({ projectId }) {
             scn={scn}
             params={params}
             sumK={sumK}
+            recomendacion={recomendacion}
           />
         )}
       </div>
@@ -1800,7 +1805,7 @@ function buildEscenarios(D, CTRL, params) {
   });
 }
 
-function SecInforme({ D, R, CTRL, i0, i1, i2, scComp, scn, params, sumK }) {
+function SecInforme({ D, R, CTRL, i0, i1, i2, scComp, scn, params, sumK, recomendacion }) {
   const emp = (params.empresa || "").trim() || "la Compañía";
   const rep = (params.repLegal || "").trim();
   const ruc = (params.ruc || "").trim();
@@ -1879,6 +1884,18 @@ function SecInforme({ D, R, CTRL, i0, i1, i2, scComp, scn, params, sumK }) {
             </span>
           </div>
         </div>
+
+        {/* ===== RECOMENDACIÓN DEL AGENTE (aprobada) ===== */}
+        {recomendacion?.aprobado && (
+          <div className="tx-card">
+            <h4>Recomendación del agente (aprobada)</h4>
+            <p className="tx-rec-narr">{recomendacion.narrativa}</p>
+            <p className="tx-disclaimer">
+              Análisis generado por IA. La interpretación debe ser validada por
+              el profesional responsable antes de cualquier decisión.
+            </p>
+          </div>
+        )}
 
         {/* ===== ÍNDICE GENERAL ===== */}
         <h4>Índice general</h4>
