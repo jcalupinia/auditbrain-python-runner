@@ -108,6 +108,51 @@ def _table_header(ws, row: int, headers: list[str]) -> int:
     return row + 1
 
 
+def _balance_formula_for_ranges(
+    by_cas: dict,
+    balance_lookup: list[int],
+    balance_mapeado: list[dict],
+    ranges: list,
+    take_abs: bool,
+) -> tuple[str, float]:
+    """Construye fórmula Excel que suma las celdas D de DATOS BALANCE
+    cuyos casilleros caen en `ranges`. Devuelve (fórmula, valor_calculado).
+
+    Si `take_abs` es True, envuelve cada referencia en ABS() (pasivos y
+    patrimonio: el balance los trae con signo crédito).
+
+    Si no hay matches, devuelve ("0", 0.0). Si hay overflow (>200 refs),
+    devuelve un valor literal redondeado como fallback con comentario.
+    """
+    matched_rows: list[int] = []
+    matched_val = 0.0
+    item_idx = 0
+    for item in balance_mapeado:
+        cas_str = str(item.get("casillero_sri", "")).strip()
+        if cas_str.isdigit():
+            n = int(cas_str)
+            in_range = any(lo <= n <= hi for (lo, hi) in ranges)
+            if in_range:
+                # balance_lookup[item_idx] es la fila en DATOS BALANCE
+                if item_idx < len(balance_lookup):
+                    matched_rows.append(balance_lookup[item_idx])
+                saldo = float(item.get("saldo") or 0)
+                matched_val += abs(saldo) if take_abs else saldo
+        item_idx += 1
+
+    if not matched_rows:
+        return ("0", 0.0)
+    refs = [
+        (f"ABS('DATOS BALANCE'!D{r})" if take_abs else f"'DATOS BALANCE'!D{r}")
+        for r in matched_rows
+    ]
+    formula = "=" + "+".join(refs)
+    # Excel limita fórmulas a ~8192 chars. Si excede, fallback a valor literal.
+    if len(formula) > 7500:
+        return (None, round(matched_val, 2))
+    return (formula, round(matched_val, 2))
+
+
 def build_verification_sheet(
     workbook: Workbook,
     *,
@@ -116,6 +161,8 @@ def build_verification_sheet(
     session_data: dict,
     f103_monthly: dict | None = None,
     f104_monthly: dict | None = None,
+    f101_lookup: dict[str, int] | None = None,
+    balance_lookup: list[int] | None = None,
     trace_log: list[dict] | None = None,
 ) -> None:
     if SHEET_NAME in workbook.sheetnames:
@@ -233,6 +280,11 @@ def build_verification_sheet(
         ("TOTAL DEL PATRIMONIO",          "698", [(601, 697)],            True),
         ("TOTAL PASIVO + PATRIMONIO",     "699", [(511, 599), (601, 697)], True),
     ]
+    # Lookups defensivos: si no se pasaron, dict/list vacíos → fallback
+    # a valores literales (sin fórmulas, comportamiento legacy).
+    f101_lookup_safe = f101_lookup or {}
+    balance_lookup_safe = balance_lookup or []
+
     for nombre, cas, ranges, abs_flag in BLOQUES_EEFF:
         # decl_raw es None si el F-101 NO declaró ese casillero (ej. cas
         # 550/589/698 cuando el parser falló o el PDF no los tenía).
@@ -241,6 +293,7 @@ def build_verification_sheet(
         # de dato declarado.
         decl_raw = f101.get(cas)
         decl = round(decl_raw, 2) if decl_raw is not None else None
+        # Pre-calculamos bal para diff/estado pero la celda emitirá FÓRMULA.
         bal = round(_sum_balance_range(by_cas, ranges, take_abs=abs_flag), 2)
         if decl is None:
             diff = None
@@ -251,9 +304,38 @@ def build_verification_sheet(
 
         ws.cell(row, 1, value=nombre).font = FONT_DATA
         ws.cell(row, 2, value=cas).font = FONT_DATA
-        ws.cell(row, 3, value=decl if decl is not None else "n/d").font = FONT_DATA
-        ws.cell(row, 4, value=bal).font = FONT_DATA
-        diff_cell = ws.cell(row, 5, value=diff if diff is not None else "—")
+
+        # === COL C — F-101 declarado ===
+        # FÓRMULA referencial a DATOS F-101 si tenemos lookup, else literal.
+        c3 = ws.cell(row, 3)
+        c3.font = FONT_DATA
+        if decl is None:
+            c3.value = "n/d"
+        elif cas in f101_lookup_safe:
+            c3.value = f"='DATOS F-101'!C{f101_lookup_safe[cas]}"
+        else:
+            c3.value = decl  # fallback literal
+
+        # === COL D — Balance contable ===
+        # FÓRMULA SUM/ABS referencial a DATOS BALANCE.
+        c4 = ws.cell(row, 4)
+        c4.font = FONT_DATA
+        bal_formula, bal_calc = _balance_formula_for_ranges(
+            by_cas, balance_lookup_safe, balance_mapeado, ranges, abs_flag,
+        )
+        if bal_formula is not None and balance_lookup_safe:
+            c4.value = bal_formula
+        else:
+            c4.value = bal  # fallback literal
+
+        # === COL E — Diferencia ===
+        # FÓRMULA: =D{row}-C{row} para que el auditor vea claro el cálculo.
+        # Si decl es None ("n/d"), poner "—" sin fórmula.
+        diff_cell = ws.cell(row, 5)
+        if decl is None:
+            diff_cell.value = "—"
+        else:
+            diff_cell.value = f"=D{row}-C{row}"
         est_cell = ws.cell(row, 6, value=estado)
         # Coloreado: si diff es None (F-101 no declaró), usar color warning;
         # si no, verde cuando cuadra y rojo cuando difiere.
@@ -312,9 +394,34 @@ def build_verification_sheet(
 
         ws.cell(row, 1, value=nombre).font = FONT_DATA
         ws.cell(row, 2, value=cas).font = FONT_DATA
-        ws.cell(row, 3, value=decl if decl is not None else "n/d").font = FONT_DATA
-        ws.cell(row, 4, value=bal).font = FONT_DATA
-        diff_cell = ws.cell(row, 5, value=diff if diff is not None else "—")
+
+        # COL C — F-101 declarado: FÓRMULA referencial.
+        c3 = ws.cell(row, 3)
+        c3.font = FONT_DATA
+        if decl is None:
+            c3.value = "n/d"
+        elif cas in f101_lookup_safe:
+            c3.value = f"='DATOS F-101'!C{f101_lookup_safe[cas]}"
+        else:
+            c3.value = decl
+
+        # COL D — Balance contable: FÓRMULA SUM referencial.
+        c4 = ws.cell(row, 4)
+        c4.font = FONT_DATA
+        bal_formula, _ = _balance_formula_for_ranges(
+            by_cas, balance_lookup_safe, balance_mapeado, ranges, abs_flag,
+        )
+        if bal_formula is not None and balance_lookup_safe:
+            c4.value = bal_formula
+        else:
+            c4.value = bal
+
+        # COL E — Diferencia: FÓRMULA entre celdas.
+        diff_cell = ws.cell(row, 5)
+        if decl is None:
+            diff_cell.value = "—"
+        else:
+            diff_cell.value = f"=D{row}-C{row}"
         est_cell = ws.cell(row, 6, value=estado)
         # Coloreado: si diff es None (F-101 no declaró), usar color warning;
         # si no, verde cuando cuadra y rojo cuando difiere.

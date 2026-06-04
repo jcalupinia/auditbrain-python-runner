@@ -584,6 +584,11 @@ def generate_excel(db: Session, *, session: ICTSession) -> tuple[bytes, bytes]:
             f103_monthly=shared_context.get("f103_monthly", {}) or {},
             f104_monthly=shared_context.get("f104_monthly", {}) or {},
             trace_log=get_trace(),
+            # Lookups → fórmulas referenciales en la tabla CUADRATURA en
+            # vez de valores literales (regla "auditor debe poder ver qué
+            # celdas se están sumando").
+            f101_lookup=shared_context.get("_f101_lookup") or {},
+            balance_lookup=shared_context.get("_balance_lookup") or [],
         )
     except Exception:
         import logging
