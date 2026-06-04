@@ -64,7 +64,10 @@ def test_regla_f103_pagos_exterior_parcialmente_presentes():
 
 
 def test_regla_f103_helper_get_name_funciona():
-    assert get_f103_name("302") == "En relación de dependencia que supera o no la base desgravada"
+    """Validación tolerante al sufijo '— Base imponible' del catálogo oficial."""
+    nombre_302 = get_f103_name("302")
+    assert "relación de dependencia" in nombre_302.lower()
+    assert "base desgravada" in nombre_302.lower()
     assert get_f103_name("99999") == ""
     assert get_f103_name("99999", fallback="?") == "?"
 
