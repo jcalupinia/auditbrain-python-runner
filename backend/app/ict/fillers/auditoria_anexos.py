@@ -793,3 +793,109 @@ def build_auditoria_anexos_sheet(
 
     # Freeze panes para mantener título visible
     ws.freeze_panes = "A4"
+
+
+# ============================================================================
+# NUEVO ENTRY POINT (Approach C — Data/Presentation split)
+# ============================================================================
+# fill_auditoria_anexos consume AnexosMetrics + dict[str, AnexoInterpretation]
+# del módulo audit/ y usa kpi_components para renderizar matriz 3x3 + finding
+# boxes. La entry function legacy (build_auditoria_anexos_sheet) queda intacta
+# para no romper callers existentes — se migrará en PT-9.
+# ============================================================================
+
+def fill_auditoria_anexos(
+    ws,
+    *,
+    metrics,           # backend.app.ict.audit.schemas.AnexosMetrics
+    interpretations: dict,  # dict[str, AnexoInterpretation]
+    contexto: dict,
+) -> None:
+    """Render AUDITORÍA DE ANEXOS con banner + matriz 3x3 + interpretaciones."""
+    from backend.app.ict.audit.schemas import Status
+    from backend.app.ict.fillers.kpi_components import (
+        build_executive_banner,
+        build_finding_box,
+        build_traffic_light_grid,
+    )
+
+    razon = contexto.get("razon_social", "")
+    ruc = contexto.get("ruc", "")
+    periodo = contexto.get("periodo", "")
+
+    # 1. Banner ejecutivo
+    build_executive_banner(
+        ws, anchor="A1",
+        title_main="AUDITBRAIN · PAPEL DE TRABAJO DEL AUDITOR",
+        title_sub="AUDITORÍA INTEGRAL DE ANEXOS A1..A9",
+        meta=f"{razon} · RUC {ruc} · Período {periodo}",
+        width_cols=14,
+    )
+
+    # 2. Título de sección "MATRIZ DE ESTADO"
+    ws.cell(
+        row=5, column=1,
+        value="MATRIZ DE ESTADO POR ANEXO",
+    ).font = Font(name="Calibri", size=12, bold=True)
+
+    # 3. Matriz 3x3 de semáforos
+    build_traffic_light_grid(
+        ws, anchor="A7", anexos_status=metrics.anexos,
+        card_width_cols=4, card_height_rows=4, gap_cols=1, gap_rows=1,
+    )
+
+    # 4. Leyenda
+    legend_row = 7 + 3 * (4 + 1) + 1   # filas tomadas por el grid 3x3 + gap
+    resumen = metrics.resumen_global
+    legend_txt = (
+        f"🟢 OK ({resumen.get(Status.OK, 0)})   "
+        f"🟧 Revisar ({resumen.get(Status.REVISAR, 0)})   "
+        f"🔴 Crítico ({resumen.get(Status.CRITICO, 0)})   "
+        f"⚪ N/A ({resumen.get(Status.NA, 0)})"
+    )
+    ws.cell(row=legend_row, column=1, value=legend_txt).font = Font(
+        name="Calibri", size=10, italic=True,
+    )
+
+    # 5. Sección INTERPRETACIÓN POR ANEXO
+    interp_start = legend_row + 3
+    ws.cell(
+        row=interp_start, column=1,
+        value="🤖 INTERPRETACIÓN POR ANEXO · Análisis del agente",
+    ).font = Font(name="Calibri", size=12, bold=True)
+
+    r = interp_start + 2
+    for code in ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9"]:
+        interp = interpretations.get(code)
+        if interp is None:
+            continue
+        emoji = {"alta": "🟢", "media": "🟡", "baja": "🔴"}.get(
+            interp.confianza_modelo, "⚪",
+        )
+        header = (
+            f"▸ {code} — {interp.anexo_nombre}  "
+            f"[Confianza: {emoji} {interp.confianza_modelo}]"
+        )
+        ws.cell(row=r, column=1, value=header).font = Font(
+            name="Calibri", size=11, bold=True,
+        )
+        r += 1
+        resumen_cell = ws.cell(row=r, column=1, value=interp.resumen_ejecutivo)
+        resumen_cell.alignment = Alignment(wrap_text=True)
+        r += 2
+        for f in interp.findings:
+            r = build_finding_box(
+                ws, anchor_row=r, anchor_col=1,
+                finding=f, width_cols=14,
+            ) + 2
+
+    # 6. Disclaimer obligatorio
+    disc_row = r + 2
+    ws.cell(
+        row=disc_row, column=1,
+        value=(
+            "Análisis generado por IA. Toda interpretación debe ser "
+            "validada por el auditor responsable antes de cualquier "
+            "decisión, glosa o entrega al cliente."
+        ),
+    ).font = Font(name="Calibri", size=8, italic=True, color="6B7280")
