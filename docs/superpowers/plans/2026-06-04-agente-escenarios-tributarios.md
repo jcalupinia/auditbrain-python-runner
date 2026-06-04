@@ -27,7 +27,11 @@
 - `frontend/src/api.js` — `generarRecomendacionAgente()`.
 - `backend/app/tax/planificacion_utilidades/router.py` — endpoint `/recomendacion`.
 - `backend/app/tax/planificacion_utilidades/schemas.py` — `RecomendacionRequest`/`Response`.
-- `backend/app/tax/planificacion_utilidades/pptx_builder.py` — slide de recomendación.
+
+**Sin cambios (se reutiliza tal cual):**
+- `backend/app/tax/planificacion_utilidades/pptx_builder.py` — el slide
+  `_recomendacion` ya renderiza `content["recomendacion"]` y `content["nota"]`.
+- `backend/app/chat/providers.py` — `chat_complete(messages, system)` es el cliente IA.
 
 ---
 
@@ -818,9 +822,17 @@ _NOMBRES = {
 
 
 def _call_llm(prompt: str) -> str:  # pragma: no cover - se mockea en tests
-    """Llama al proveedor IA configurado. Aislado para poder mockearlo."""
-    from backend.app.llm.client import complete  # patrón existente del proyecto
-    return complete(prompt)
+    """Llama al proveedor IA configurado vía backend/app/chat/providers.
+
+    chat_complete elige el proveedor (gemini>groq>openrouter>anthropic>openai),
+    reintenta con el siguiente si uno falla, y levanta ProviderUnavailable si no
+    hay ninguno configurado (lo captura build_recomendacion → fallback)."""
+    from backend.app.chat.providers import chat_complete
+    system = (
+        "Eres un asesor tributario senior en Ecuador. Redactas recomendaciones "
+        "ejecutivas claras y prudentes. No inventas cifras."
+    )
+    return chat_complete([{"role": "user", "content": prompt}], system=system).content
 
 
 def _prompt(empresa: str, recomendado: str, comparacion: dict) -> str:
@@ -860,7 +872,7 @@ def build_recomendacion(empresa: str, recomendado: str, comparacion: dict) -> Re
         )
 ```
 
-Nota: si `backend/app/llm/client.complete` no existe con esa firma, ajustar `_call_llm` al cliente IA real del proyecto (buscar con `grep -ri "def complete\|anthropic\|llm" backend/app | head`). El test no depende de ello (se mockea).
+(El cliente IA es `backend/app/chat/providers.chat_complete`, ya existente; el test mockea `rec._call_llm`, así que no hace red.)
 
 - [ ] **Step 4: Correr el test**
 
@@ -971,60 +983,60 @@ git add frontend/src/tax/AnalisisTributarioTool.jsx
 git commit -m "feat(tax): la recomendación aprobada aparece en el Informe gerencial"
 ```
 
-### Task 11: Slide de recomendación en la Presentación
+### Task 11: Alimentar la recomendación al deck (el slide YA existe)
 
 **Files:**
-- Modify: `frontend/src/tax/AnalisisTributarioTool.jsx` (incluir `recomendacion` en el `content` que se manda al deck)
-- Modify: `backend/app/tax/planificacion_utilidades/pptx_builder.py`
+- Modify: `frontend/src/tax/AnalisisTributarioTool.jsx` (incluir `recomendacion` y `nota` en el `content` del deck)
 - Test: `backend/tests/test_tax_recomendacion.py`
+
+NOTA: `pptx_builder._recomendacion(prs, c)` (línea ~433) **ya renderiza**
+`c.get("recomendacion", "")` (cuerpo del slide) y `c.get("nota", "")` (pie). No
+se modifica `pptx_builder`; solo hay que poblar esos campos desde el frontend.
 
 - [ ] **Step 1: Incluir la recomendación en el contenido del deck**
 
-En la función que arma el `content` para `generarPresentacionTax` (buscar `generarPresentacionTax` en el JSX), agregar al objeto:
+En la función que arma el `content` para `generarPresentacionTax` (buscar
+`generarPresentacionTax(` en `AnalisisTributarioTool.jsx`), agregar al objeto
+`content` (sobrescribe `recomendacion`/`nota` solo si hay una aprobada):
 ```jsx
-    recomendacion: recomendacion?.aprobado ? recomendacion.narrativa : "",
-    escenarioRecomendado: recomendacion?.aprobado ? recomendacion.escenario : "",
+    ...(recomendacion?.aprobado
+      ? {
+          recomendacion: recomendacion.narrativa,
+          nota: "Análisis generado por IA. Validar por el profesional responsable.",
+        }
+      : {}),
 ```
 
-- [ ] **Step 2: Test del builder (slide presente cuando hay recomendación)**
+- [ ] **Step 2: Test — el deck se genera con la recomendación (slide existente)**
 
 Agregar a `test_tax_recomendacion.py`:
 ```python
 from backend.app.tax.planificacion_utilidades import pptx_builder
 
-def test_deck_incluye_slide_recomendacion():
-    data = pptx_builder.build_deck({"empresa": "X", "recomendacion": "Capitalizar todo."})
+def test_deck_se_genera_con_recomendacion():
+    data = pptx_builder.build_deck({
+        "empresa": "X",
+        "recomendacion": "Capitalizar el excedente antes del 31 de julio.",
+        "nota": "Análisis generado por IA. Validar por el profesional responsable.",
+    })
     assert isinstance(data, (bytes, bytearray)) and len(data) > 1000
 ```
 
-- [ ] **Step 2b: Correr para ver que falla (si el builder aún no maneja el campo)**
+- [ ] **Step 3: Correr el test**
 
-Run: `python -m pytest backend/tests/test_tax_recomendacion.py::test_deck_incluye_slide_recomendacion -v`
-Expected: PASS si `build_deck` ya tolera campos extra; si falla por el contenido, continuar al Step 3.
+Run desde la raíz: `python -m pytest backend/tests/test_tax_recomendacion.py -v`
+Expected: PASS (incluye el nuevo; el slide `_recomendacion` ya consume el campo).
 
-- [ ] **Step 3: Agregar el slide de recomendación en `pptx_builder.build_deck`**
+- [ ] **Step 4: Build del frontend**
 
-En `build_deck`, tras los slides existentes, si `content.get("recomendacion")`:
-```python
-    rec = content.get("recomendacion")
-    if rec:
-        slide = prs.slides.add_slide(prs.slide_layouts[blank_layout_idx])
-        _title(slide, "Recomendación del agente")
-        _body(slide, rec)
-        _footer(slide, "Análisis generado por IA. Validar por el profesional responsable.")
-```
-(Reusar los helpers de título/cuerpo/pie que el builder ya tenga; si no existen con esos nombres, seguir el patrón de los slides existentes en el archivo.)
-
-- [ ] **Step 4: Correr el test**
-
-Run: `python -m pytest backend/tests/test_tax_recomendacion.py -v`
-Expected: PASS (todos).
+Run desde `frontend/`: `npm run build`
+Expected: exit 0.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add frontend/src/tax/AnalisisTributarioTool.jsx backend/app/tax/planificacion_utilidades/pptx_builder.py backend/tests/test_tax_recomendacion.py
-git commit -m "feat(tax): slide de recomendación del agente en la presentación"
+git add frontend/src/tax/AnalisisTributarioTool.jsx backend/tests/test_tax_recomendacion.py
+git commit -m "feat(tax): la recomendación aprobada alimenta el slide del deck"
 ```
 
 ### Task 12: Verificación end-to-end (regla suprema)
