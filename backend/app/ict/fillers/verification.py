@@ -841,3 +841,136 @@ def _sugerir_anexo(casillero: str) -> str:
     if 800 <= n <= 999:   return "A6 / A7 (Beneficios / Crédito)"
     if 402 <= n <= 433:   return "A8 (Comercio Exterior)"
     return "—"
+
+
+# ============================================================================
+# NUEVO ENTRY POINT (Approach C — Data/Presentation split)
+# ============================================================================
+# fill_verification_a1 consume Pydantic models del módulo audit/ y delega los
+# helpers visuales a fillers/kpi_components.py. Es el reemplazo de
+# build_verification_sheet para el flujo del Papel de Trabajo del Auditor.
+# La función vieja se conserva para compatibilidad mientras se migra el caller.
+# ============================================================================
+
+def fill_verification_a1(
+    ws,
+    *,
+    metrics,           # backend.app.ict.audit.schemas.A1Metrics
+    interpretation,    # backend.app.ict.audit.schemas.AnexoInterpretation
+    contexto: dict,
+) -> None:
+    """Render VERIFICACIÓN A1 con banner ejecutivo + 3 KPI cards + cobertura
+    + sección INTERPRETACIÓN IA + disclaimer.
+
+    Esta es la NUEVA entry function que consume audit metrics + LLM
+    interpretation. Reemplaza progresivamente a build_verification_sheet.
+    """
+    from backend.app.ict.audit.schemas import Status
+    from backend.app.ict.fillers.kpi_components import (
+        build_executive_banner,
+        build_finding_box,
+        build_kpi_card,
+    )
+
+    razon = contexto.get("razon_social", "")
+    ruc = contexto.get("ruc", "")
+    periodo = contexto.get("periodo", "")
+
+    # 1. Banner ejecutivo (rows 1..3)
+    build_executive_banner(
+        ws,
+        anchor="A1",
+        title_main="AUDITBRAIN · PAPEL DE TRABAJO DEL AUDITOR",
+        title_sub="VERIFICACIÓN ANEXO A1 · MAPEO BALANCE",
+        meta=f"{razon} · RUC {ruc} · Período {periodo}",
+        width_cols=12,
+    )
+
+    # 2. KPI cards (rows 5..8)
+    activo_fmt = f"$ {metrics.activo_total:,.2f}"
+    pasivo_fmt = f"$ {metrics.pasivo_patrimonio_total:,.2f}"
+    diff_fmt = f"$ {metrics.diferencia:,.2f}"
+
+    build_kpi_card(
+        ws, anchor="A5",
+        title="ACTIVO TOTAL", value=activo_fmt, status=Status.OK,
+        subtitle="F-101 cas 499", width_cols=4, height_rows=4,
+    )
+    build_kpi_card(
+        ws, anchor="E5",
+        title="PASIVO + PATRIMONIO", value=pasivo_fmt, status=Status.OK,
+        subtitle="F-101 cas 699", width_cols=4, height_rows=4,
+    )
+    build_kpi_card(
+        ws, anchor="I5",
+        title="DIFERENCIA A=P+Pa", value=diff_fmt,
+        status=metrics.status_cuadre,
+        subtitle={
+            Status.OK: "Cuadra",
+            Status.REVISAR: "Revisar",
+            Status.CRITICO: "Crítico",
+            Status.NA: "Sin datos",
+        }[metrics.status_cuadre],
+        width_cols=4, height_rows=4,
+    )
+
+    # 3. Barra de cobertura (row 11)
+    cobertura_txt = (
+        f"COBERTURA DE MAPEO F-101 ↔ BALANCE CONTABLE: "
+        f"{metrics.cobertura_mapeo_pct:.0f}%  "
+        f"({metrics.cas_mapeados} de {metrics.cas_total} cas con balance)"
+    )
+    cob_cell = ws.cell(row=11, column=1, value=cobertura_txt)
+    cob_cell.font = Font(name="Calibri", size=11, bold=True)
+
+    if metrics.cas_sin_contrapartida:
+        warn_txt = (
+            f"⚠ {len(metrics.cas_sin_contrapartida)} casilleros declarados "
+            f"sin contrapartida contable: "
+            f"{', '.join(metrics.cas_sin_contrapartida[:10])}"
+            + (" ..." if len(metrics.cas_sin_contrapartida) > 10 else "")
+        )
+        ws.cell(row=12, column=1, value=warn_txt)
+
+    # 4. Sección INTERPRETACIÓN IA
+    interp_start = 14
+    title_cell = ws.cell(
+        row=interp_start, column=1,
+        value="🤖 INTERPRETACIÓN A1 · Análisis del agente",
+    )
+    title_cell.font = Font(name="Calibri", size=12, bold=True)
+
+    confianza_emoji = {"alta": "🟢", "media": "🟡", "baja": "🔴"}.get(
+        interpretation.confianza_modelo, "⚪",
+    )
+    ws.cell(
+        row=interp_start + 1, column=1,
+        value=f"Confianza modelo: {confianza_emoji} "
+              f"{interpretation.confianza_modelo.upper()}",
+    )
+    resumen_cell = ws.cell(
+        row=interp_start + 2, column=1,
+        value=f"Resumen: {interpretation.resumen_ejecutivo}",
+    )
+    resumen_cell.alignment = Alignment(wrap_text=True)
+
+    finding_row = interp_start + 4
+    for f in interpretation.findings:
+        finding_row = build_finding_box(
+            ws, anchor_row=finding_row, anchor_col=1,
+            finding=f, width_cols=12,
+        ) + 2
+
+    # 5. Disclaimer obligatorio (regla CLAUDE.md interpretación IA)
+    disc_row = max(finding_row + 2, interp_start + 6)
+    disc_cell = ws.cell(
+        row=disc_row, column=1,
+        value=(
+            "Análisis generado por IA. La interpretación debe ser "
+            "validada por el auditor responsable antes de cualquier "
+            "decisión."
+        ),
+    )
+    disc_cell.font = Font(
+        name="Calibri", size=8, italic=True, color="6B7280",
+    )
