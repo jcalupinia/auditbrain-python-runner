@@ -159,3 +159,65 @@ Se hace una vez al año, típicamente entre noviembre y febrero. Pasos:
   `rnd_CXjUFxFmYQNZ2l2lAy8Ho2ebthhw` y configurar Resend email API key.
 - **QA pendiente**: re-habilitar checks estrictos de device/session una vez
   terminada la fase de QA con clientes piloto.
+
+## Separación SRI vs Papel de trabajo del auditor
+
+**REGLA OBLIGATORIA:** El archivo Excel que se entrega al cliente para
+cargar al portal del SRI Ecuador **NUNCA debe contener hojas internas del
+auditor** (`VERIFICACIÓN A1`, `AUDITORÍA DE ANEXOS`, `TRAZABILIDAD`,
+hojas de debug o logs). Si una hoja existe únicamente para revisión
+interna, debe ir en un archivo separado generado en paralelo:
+`ICT_{ejercicio}_{ruc}_PAPEL_TRABAJO.xlsx`.
+
+Razón: el SRI Ecuador espera la estructura oficial del ICT
+(INDICE + A1..A9 + hojas DATOS fuente). Hojas adicionales pueden ser
+rechazadas, ignoradas o causar inconsistencias en la carga al portal.
+
+**Implementación canónica:**
+- `backend/app/ict/service.py::generate_excel()` devuelve
+  `tuple[bytes_sri, bytes_papel_trabajo]`.
+- La constante `INTERNAL_SHEETS_FOR_SRI` define qué hojas se eliminan del
+  archivo SRI. Si se agregan nuevas hojas internas en el futuro, agregarlas
+  a esa tupla.
+- `process_session` guarda en disco: `ICT_SRI.xlsx`, `ICT_PAPEL_TRABAJO.xlsx`,
+  y por compat `ICT.xlsx` (= SRI).
+- Endpoint `GET /sessions/{id}/download` devuelve el SRI.
+- Endpoint `GET /sessions/{id}/papel-trabajo` devuelve el papel de trabajo.
+
+**Tests obligatorios para mantener la regla viva:**
+- `tests/test_ict_service_split.py::test_internal_sheets_constant_documents_separation_rule`
+- `tests/test_ict_service_split.py::test_split_workbook_removes_internal_sheets_for_sri`
+- `tests/test_ict_endpoint_papel_trabajo.py` (los 3 tests del router).
+
+**Verificación empírica:** `python scripts/verify_papel_trabajo_prophar.py`
+(modo synthetic en CI, modo `--ruc <RUC>` con sesión real en producción).
+
+## Interpretación IA con disclaimer obligatorio
+
+Toda interpretación generada por LLM en artefactos del ICT
+(`backend/app/ict/audit/interpreter.py`) debe cumplir 6 controles antes
+de escribirse al Excel del papel de trabajo:
+
+1. **Validación schema Pydantic.** La salida pasa por
+   `AnexoInterpretation.model_validate`. JSON inválido → reintento
+   (máximo 3 con exponential backoff 1s/2s/4s) → fallback graceful.
+2. **QA evaluator.** Cada interpretación pasa por la skill
+   `auditbrain-ai-response-quality-evaluator` antes de renderizarse.
+   Hook documentado en interpreter.py para invocarse cuando la skill
+   esté disponible en runtime.
+3. **Audit trail.** Cada llamada queda registrada vía
+   `auditbrain-audit-trail-generator` (modelo, tokens, hash_input,
+   timestamp).
+4. **Disclaimer visible.** Toda hoja con interpretación IA debe llevar
+   al pie (font Calibri 8 italic color #6B7280):
+   "Análisis generado por IA. La interpretación debe ser validada por
+   el auditor responsable antes de cualquier decisión."
+   Esto se renderiza tanto en `fill_verification_a1` como en
+   `fill_auditoria_anexos`.
+5. **Confianza autoreportada.** El campo `confianza_modelo` (alta/media/
+   baja) debe renderizarse visualmente. Si es "baja", marcar el bloque
+   con borde rojo + leyenda "Revisar manualmente".
+6. **`requiere_revision_humana`.** Si es `True`, agregar ícono dedicado.
+
+Nunca renderizar un bloque interpretado al Excel sin estos 6 controles
+en su lugar.
