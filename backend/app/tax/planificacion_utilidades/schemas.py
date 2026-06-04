@@ -66,6 +66,22 @@ class PresentacionRequest(BaseModel):
     slides: int = Field(default=11, ge=6, le=20)
 
 
+class RecomendacionRequest(BaseModel):
+    """Cifras deterministas (del frontend) para que la IA redacte la recomendación."""
+
+    empresa: str = ""
+    recomendado: str = Field(description="clave del escenario óptimo: sin|div|mix|cap")
+    comparacion: dict = Field(description="resultado de compareScenarios (4 escenarios)")
+
+
+class RecomendacionResponse(BaseModel):
+    """Narrativa del agente con los controles de IA obligatorios."""
+
+    narrativa: str
+    confianza_modelo: str = Field(default="media", description="alta|media|baja")
+    requiere_revision_humana: bool = True
+
+
 class PresentacionResponse(BaseModel):
     status: str
     design_id: str | None = None
