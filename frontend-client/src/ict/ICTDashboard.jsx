@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { getActiveSession, deleteSession, downloadExcel, createSession, uploadAnexoSlot, resetSlot, processSession } from "./ictApi.js";
+import { getActiveSession, deleteSession, downloadExcel, downloadPapelTrabajo, createSession, uploadAnexoSlot, resetSlot, processSession } from "./ictApi.js";
 import ICTEditContribuyenteModal from "./ICTEditContribuyenteModal.jsx";
 import PortalShell from "../shell/PortalShell.jsx";
 
@@ -178,6 +178,7 @@ export default function ICTDashboard() {
   const [session, setSession] = useState(undefined);
   const [editOpen, setEditOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [downloadingPapel, setDownloadingPapel] = useState(false);
   const [selected, setSelected] = useState("A1");
   const detailRef = useRef(null);
 
@@ -239,6 +240,17 @@ export default function ICTDashboard() {
       alert(`Error descargando: ${e.message}`);
     } finally {
       setDownloading(false);
+    }
+  }
+
+  async function handleDownloadPapelTrabajo() {
+    setDownloadingPapel(true);
+    try {
+      await downloadPapelTrabajo(session.id);
+    } catch (e) {
+      alert(`Error descargando papel de trabajo: ${e.message}`);
+    } finally {
+      setDownloadingPapel(false);
     }
   }
 
@@ -381,16 +393,29 @@ export default function ICTDashboard() {
               ▶ Procesar
             </button>
             <button
-              className="pc-chip"
+              className="pc-chip accent"
               onClick={handleDownload}
               disabled={downloading || readyCount === 0}
               title={
                 readyCount === 0
                   ? "Procesa primero para habilitar la descarga"
-                  : "Descarga el Excel ICT 2025 con los anexos generados"
+                  : "Excel limpio listo para cargar al portal del SRI Ecuador"
+              }
+              style={{ fontWeight: 700 }}
+            >
+              {downloading ? "⏳ Descargando..." : "📤 Descargar Excel para el SRI"}
+            </button>
+            <button
+              className="pc-chip"
+              onClick={handleDownloadPapelTrabajo}
+              disabled={downloadingPapel || readyCount === 0}
+              title={
+                readyCount === 0
+                  ? "Procesa primero para habilitar la descarga"
+                  : "Papel de trabajo del auditor: incluye VERIFICACIÓN A1, AUDITORÍA DE ANEXOS e interpretación IA. NO subir al SRI."
               }
             >
-              {downloading ? "⏳ Descargando..." : "↓ Descargar Excel ICT"}
+              {downloadingPapel ? "⏳ Descargando..." : "📋 Papel de trabajo"}
             </button>
             <button
               className="pc-chip danger"
@@ -581,6 +606,8 @@ export default function ICTDashboard() {
         onClose={closeProcModal}
         onDownload={handleDownload}
         downloading={downloading}
+        onDownloadPapelTrabajo={handleDownloadPapelTrabajo}
+        downloadingPapel={downloadingPapel}
       />
     </PortalShell>
   );
@@ -592,6 +619,7 @@ export default function ICTDashboard() {
    ============================================================ */
 function ICTProcessModal({
   open, step, result, done, error, anexos, onClose, onDownload, downloading,
+  onDownloadPapelTrabajo, downloadingPapel,
 }) {
   if (!open) return null;
 
@@ -752,21 +780,39 @@ function ICTProcessModal({
             <div style={{ fontSize: 14, marginBottom: 14 }}>
               📂 Tu Excel ICT 2025 está listo
             </div>
-            <button
-              onClick={onDownload}
-              disabled={downloading || !result?.excel_ready}
-              style={{
-                padding: "12px 28px", fontSize: 14, fontWeight: 700,
-                background: "var(--accent, #34d36a)",
-                color: "#04130b",
-                border: "1px solid var(--accent, #34d36a)",
-                borderRadius: 10, cursor: "pointer",
-              }}
-            >
-              {downloading ? "⏳ Descargando..." : "↓ Descargar Excel ICT 2025"}
-            </button>
-            <div style={{ fontSize: 11, color: "var(--text-soft, #8b97a8)", marginTop: 10 }}>
-              Puedes seguir editando, subiendo más documentos y volver a procesar.
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "center" }}>
+              <button
+                onClick={onDownload}
+                disabled={downloading || !result?.excel_ready}
+                title="Archivo limpio listo para cargar al portal del SRI Ecuador"
+                style={{
+                  padding: "12px 28px", fontSize: 14, fontWeight: 700,
+                  background: "var(--accent, #34d36a)",
+                  color: "#04130b",
+                  border: "1px solid var(--accent, #34d36a)",
+                  borderRadius: 10, cursor: "pointer",
+                }}
+              >
+                {downloading ? "⏳ Descargando..." : "📤 Descargar Excel para el SRI"}
+              </button>
+              <button
+                onClick={onDownloadPapelTrabajo}
+                disabled={downloadingPapel || !result?.excel_ready}
+                title="Papel de trabajo del auditor: VERIFICACIÓN A1, AUDITORÍA DE ANEXOS, interpretación IA. NO subir al SRI."
+                style={{
+                  padding: "10px 22px", fontSize: 13, fontWeight: 600,
+                  background: "rgba(255,255,255,0.04)",
+                  color: "var(--text, #d6dee9)",
+                  border: "1px solid var(--border, #2a3a52)",
+                  borderRadius: 10, cursor: "pointer",
+                }}
+              >
+                {downloadingPapel ? "⏳ Descargando..." : "📋 Papel de trabajo del auditor"}
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-soft, #8b97a8)", marginTop: 10, maxWidth: 360 }}>
+              Sube al SRI <strong>solamente</strong> el archivo verde. Conserva el papel
+              de trabajo como evidencia interna de auditoría.
             </div>
           </div>
         )}

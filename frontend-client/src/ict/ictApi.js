@@ -80,25 +80,48 @@ export async function processSession(sessionId) {
   return _request(`/client/ict/sessions/${sessionId}/process`, { method: "POST" });
 }
 
-export async function downloadExcel(sessionId) {
+// Helper común para los dos descargadores. Llama al endpoint, extrae el
+// filename del Content-Disposition y dispara el download en el navegador.
+async function _downloadBlob(url, defaultFilename) {
   const token = api.getToken();
   const headers = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
-  const resp = await fetch(`${BASE}/api/v1/client/ict/sessions/${sessionId}/download`, {
-    headers,
-    credentials: "include",
-  });
+  const resp = await fetch(url, { headers, credentials: "include" });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   const blob = await resp.blob();
   const cd = resp.headers.get("content-disposition") || "";
   const m = cd.match(/filename="?([^"]+)"?/);
-  const filename = m ? m[1] : `ICT_${sessionId}.xlsx`;
-  const url = URL.createObjectURL(blob);
+  const filename = m ? m[1] : defaultFilename;
+  const blobUrl = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url;
+  a.href = blobUrl;
   a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+}
+
+/**
+ * Descarga el Excel LIMPIO listo para cargar al portal del SRI Ecuador.
+ * NO contiene VERIFICACIÓN A1, AUDITORÍA DE ANEXOS ni TRAZABILIDAD
+ * (regla CLAUDE.md "Separación SRI vs Papel de trabajo").
+ */
+export async function downloadExcel(sessionId) {
+  return _downloadBlob(
+    `${BASE}/api/v1/client/ict/sessions/${sessionId}/download`,
+    `ICT_${sessionId}_SRI.xlsx`,
+  );
+}
+
+/**
+ * Descarga el Excel PAPEL DE TRABAJO del auditor: incluye VERIFICACIÓN A1,
+ * AUDITORÍA DE ANEXOS, TRAZABILIDAD e interpretación generada por IA.
+ * Este archivo NO debe cargarse al SRI.
+ */
+export async function downloadPapelTrabajo(sessionId) {
+  return _downloadBlob(
+    `${BASE}/api/v1/client/ict/sessions/${sessionId}/papel-trabajo`,
+    `ICT_${sessionId}_PAPEL_TRABAJO.xlsx`,
+  );
 }
