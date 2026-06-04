@@ -207,7 +207,7 @@ def test_e2e_balance_in_a1_propagates_to_a3_via_generate_excel(db_session, clien
     db_session.refresh(s)
 
     # Generate Excel — should not raise
-    excel_bytes = ict_service.generate_excel(db_session, session=s)
+    _sri, excel_bytes = ict_service.generate_excel(db_session, session=s)
     assert len(excel_bytes) > 1000
 
     # Open the Excel and verify A3 sheet was generated
@@ -251,7 +251,7 @@ def test_a4_cuadro2_populated_from_balance_when_no_f101(db_session, client_user)
     ict_service.recompute_indice(db_session, session=s)
     db_session.refresh(s)
 
-    excel_bytes = ict_service.generate_excel(db_session, session=s)
+    _sri, excel_bytes = ict_service.generate_excel(db_session, session=s)
     assert len(excel_bytes) > 1000
 
     wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), data_only=False)
@@ -304,7 +304,7 @@ def test_a5_cuadro_d_populated_from_balance_when_no_f101(db_session, client_user
     ict_service.recompute_indice(db_session, session=s)
     db_session.refresh(s)
 
-    excel_bytes = ict_service.generate_excel(db_session, session=s)
+    _sri, excel_bytes = ict_service.generate_excel(db_session, session=s)
     wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), data_only=False)
     assert "CONCILIACIÓN COSTOS Y GASTOS A5" in wb.sheetnames
 
@@ -350,7 +350,7 @@ def test_a6_casillero_810_from_balance(db_session, client_user):
     ict_service.recompute_indice(db_session, session=s)
     db_session.refresh(s)
 
-    excel_bytes = ict_service.generate_excel(db_session, session=s)
+    _sri, excel_bytes = ict_service.generate_excel(db_session, session=s)
     wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), data_only=False)
     assert "BENEFICIOS TRIBUTARIOS A6" in wb.sheetnames
 
@@ -390,7 +390,7 @@ def test_a9_casilleros_from_balance(db_session, client_user):
     ict_service.recompute_indice(db_session, session=s)
     db_session.refresh(s)
 
-    excel_bytes = ict_service.generate_excel(db_session, session=s)
+    _sri, excel_bytes = ict_service.generate_excel(db_session, session=s)
     wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), data_only=False)
     assert "INVENTARIOS A9" in wb.sheetnames
 
@@ -431,7 +431,7 @@ def test_f101_takes_precedence_over_balance_in_merged_context(db_session, client
     ict_service.recompute_indice(db_session, session=s)
     db_session.refresh(s)
 
-    excel_bytes = ict_service.generate_excel(db_session, session=s)
+    _sri, excel_bytes = ict_service.generate_excel(db_session, session=s)
     wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), data_only=False)
 
     # Modo referencial: F-101 mergea valores de TODOS los anexos (A1+A3).

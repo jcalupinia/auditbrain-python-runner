@@ -177,8 +177,9 @@ def test_generate_excel_returns_bytes_with_all_sheets(db_session, client_user):
     ict_service.recompute_indice(db_session, session=s)
     db_session.refresh(s)
 
-    excel_bytes = ict_service.generate_excel(db_session, session=s)
+    bytes_sri, excel_bytes = ict_service.generate_excel(db_session, session=s)
     assert isinstance(excel_bytes, bytes)
+    assert isinstance(bytes_sri, bytes)
     assert len(excel_bytes) > 1000
 
     import io

@@ -394,8 +394,27 @@ def recompute_indice(db: Session, *, session: ICTSession) -> ICTAnexo:
     return indice
 
 
-def generate_excel(db: Session, *, session: ICTSession) -> bytes:
-    """Generate the ICT Excel by loading template + applying all fillers.
+# Hojas internas (uso del auditor) que NUNCA deben ir en el Excel cargado al SRI.
+# Regla CLAUDE.md "Separación SRI vs Papel de trabajo del auditor": cuando se
+# divide el workbook, estas hojas se eliminan del archivo destinado al SRI y
+# quedan solo en el archivo _PAPEL_TRABAJO.xlsx.
+INTERNAL_SHEETS_FOR_SRI: tuple[str, ...] = (
+    "VERIFICACIÓN A1",
+    "AUDITORÍA DE ANEXOS",
+    "TRAZABILIDAD",
+)
+
+
+def generate_excel(db: Session, *, session: ICTSession) -> tuple[bytes, bytes]:
+    """Generate the ICT Excel and split into (bytes_sri, bytes_papel_trabajo).
+
+    Returns:
+        (bytes_sri, bytes_papel_trabajo) where:
+            bytes_sri              — Excel limpio, listo para cargar al SRI
+                                     (sin VERIFICACIÓN A1 ni AUDITORÍA DE ANEXOS
+                                     ni TRAZABILIDAD).
+            bytes_papel_trabajo    — Excel completo con las hojas internas para
+                                     uso del auditor.
 
     Builds a SHARED context across anexos: data uploaded for one anexo
     (e.g. balance_mapeado in A1) is accessible to other anexos that need it.
@@ -556,10 +575,24 @@ def generate_excel(db: Session, *, session: ICTSession) -> bytes:
         import logging
         logging.exception("write_trace_sheet falló para sesión %s", session.id)
 
-    buf = BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return buf.read()
+    # Guardar workbook completo (con hojas internas) → bytes_papel_trabajo
+    buf_papel = BytesIO()
+    wb.save(buf_papel)
+    buf_papel.seek(0)
+    bytes_papel = buf_papel.read()
+
+    # Reabrir y eliminar hojas internas → bytes_sri (limpio para el SRI)
+    import openpyxl
+    wb_sri = openpyxl.load_workbook(BytesIO(bytes_papel))
+    for sheet_name in INTERNAL_SHEETS_FOR_SRI:
+        if sheet_name in wb_sri.sheetnames:
+            del wb_sri[sheet_name]
+    buf_sri = BytesIO()
+    wb_sri.save(buf_sri)
+    buf_sri.seek(0)
+    bytes_sri = buf_sri.read()
+
+    return bytes_sri, bytes_papel
 
 
 def process_session(db: Session, *, session: ICTSession) -> dict:
@@ -636,13 +669,15 @@ def process_session(db: Session, *, session: ICTSession) -> dict:
     except Exception:
         pass
 
-    # 4) Pre-generar el Excel y dejarlo en disco para descarga rápida
+    # 4) Pre-generar los dos Excels (SRI + papel de trabajo) y dejarlos en
+    #    disco para descarga rápida desde los endpoints.
     excel_ready = False
     try:
-        excel_bytes = generate_excel(db, session=session)
+        bytes_sri, bytes_papel = generate_excel(db, session=session)
         out_dir = _ict_job_dir(session.id, "_output")
-        out_path = out_dir / "ICT.xlsx"
-        out_path.write_bytes(excel_bytes)
+        (out_dir / "ICT.xlsx").write_bytes(bytes_sri)            # backwards-compat
+        (out_dir / "ICT_SRI.xlsx").write_bytes(bytes_sri)
+        (out_dir / "ICT_PAPEL_TRABAJO.xlsx").write_bytes(bytes_papel)
         excel_ready = True
     except Exception:
         import logging

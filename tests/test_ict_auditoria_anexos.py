@@ -233,7 +233,7 @@ def test_e2e_generate_excel_incluye_hoja_auditoria(db_session, client_user):
     ict_service.recompute_indice(db_session, session=s)
     db_session.refresh(s)
 
-    excel_bytes = ict_service.generate_excel(db_session, session=s)
+    _sri, excel_bytes = ict_service.generate_excel(db_session, session=s)
     wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), data_only=False)
 
     assert SHEET_NAME in wb.sheetnames, \

@@ -222,16 +222,22 @@ def download_excel_endpoint(
     except PermissionError as e:
         raise HTTPException(403, detail=str(e))
 
-    # Si /process pre-generó el Excel, sírvelo del cache (instantáneo).
-    # Sino lo generamos al vuelo (modo legacy).
+    # Si /process pre-generó el Excel SRI, sírvelo del cache (instantáneo).
+    # Sino lo generamos al vuelo y tomamos solo el bytes_sri.
+    # Regla CLAUDE.md: este endpoint devuelve SOLO el Excel limpio para SRI
+    # (sin VERIFICACIÓN A1, AUDITORÍA DE ANEXOS, TRAZABILIDAD).
     from backend.app.aud.obligaciones_fiscales import file_storage as _fs
-    cached_path = _fs._root() / "ict" / f"{session.id}" / "_output" / "ICT.xlsx"
-    if cached_path.exists():
-        excel_bytes = cached_path.read_bytes()
+    cached_sri = _fs._root() / "ict" / f"{session.id}" / "_output" / "ICT_SRI.xlsx"
+    legacy_cached = _fs._root() / "ict" / f"{session.id}" / "_output" / "ICT.xlsx"
+    if cached_sri.exists():
+        excel_bytes = cached_sri.read_bytes()
+    elif legacy_cached.exists():
+        # Compatibilidad con sesiones generadas antes del split (PT-9).
+        excel_bytes = legacy_cached.read_bytes()
     else:
-        excel_bytes = ict_service.generate_excel(db, session=session)
+        excel_bytes, _ = ict_service.generate_excel(db, session=session)
 
-    filename = f"ICT_{session.ejercicio_fiscal}_{session.ruc}.xlsx"
+    filename = f"ICT_{session.ejercicio_fiscal}_{session.ruc}_SRI.xlsx"
     return StreamingResponse(
         BytesIO(excel_bytes),
         media_type=(
