@@ -221,3 +221,50 @@ de escribirse al Excel del papel de trabajo:
 
 Nunca renderizar un bloque interpretado al Excel sin estos 6 controles
 en su lugar.
+
+## A1 sin "saldos de línea" — TODOS los cas del balance del catálogo OFICIAL
+
+**REGLA OBLIGATORIA:** El anexo A1 (`backend/app/ict/cell_maps/a1.py`,
+constante `A1_CASILLEROS_ORDERED`) debe contener **TODOS** los casilleros
+del balance (rango 311-699) que estén en el catálogo OFICIAL F-101
+(`backend/app/ict/catalogo_f101.py::F101_CASILLERO_NAMES`).
+
+NO se permiten listas hardcoded paralelas: la lista del A1 se DERIVA en
+runtime del catálogo oficial. Esto evita el bug "saldos de línea": cuando
+el F-101 declara un valor en un casillero (ej. cas 490 DERECHOS DE USO,
+cas 491 (-) AMORTIZACIÓN, cas 593 PASIVO POR ARRENDAMIENTO) pero el A1
+NO lo muestra porque la lista hardcoded no lo incluía.
+
+### Detección automática de casilleros negativos
+
+`A1Filler.NEGATIVE_CASILLEROS` se construye en init estático como
+`_NEGATIVE_CORE ∪ {cas : nombre del catálogo empieza con "(-)" }`. Esto
+asegura que cuando SRI agrega un nuevo cas de naturaleza (-) (deterioro,
+amortización, depreciación, etc.), queda automáticamente clasificado sin
+necesidad de tocar `a1_mapeo.py`.
+
+### Tests obligatorios (no remover sin agregar reemplazo)
+
+- `tests/test_ict_a1_no_saldos_de_linea.py` (6 tests)
+  - `test_a1_contiene_todos_los_casilleros_del_balance_oficial`
+  - `test_a1_cas_specicos_del_screenshot_estan_presentes` (regresión
+    del bug 2026-06-04: cas 490, 491, 593)
+  - `test_a1_usa_nombres_oficiales_del_catalogo`
+  - `test_a1_negative_casilleros_incluye_cas_491`
+  - `test_a1_todos_los_negativos_del_balance_son_minoradores`
+  - `test_a1_conteo_minimo_267_casilleros_balance`
+- `tests/test_ict_a1_totales_regla.py` (8 tests) — orden de filas y
+  cuadratura de TOTALES.
+
+### Procedimiento al detectar saldos de línea nuevos
+
+Si el cliente reporta que un cas no se traslada al A1:
+1. Verificar que está en `F101_CASILLERO_NAMES`. Si no → bug del extractor
+   F-101 (ver "Procedimiento anual de actualización SRI" más arriba).
+2. Verificar que `_en_rango_a1(cas)` devuelve `True`. Si no → ampliar el
+   rango en `cell_maps/a1.py`.
+3. Si está en el rango y en el catálogo pero NO aparece → ejecutar el
+   test `test_a1_contiene_todos_los_casilleros_del_balance_oficial`
+   para diagnosticar.
+4. NUNCA arreglar manualmente agregando una línea hardcoded — eso causa
+   exactamente el bug que esta regla intenta prevenir.

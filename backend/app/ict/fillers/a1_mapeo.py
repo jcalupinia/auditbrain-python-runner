@@ -66,7 +66,13 @@ class A1Filler:
     # pérdidas, inventarios finales). Sus saldos en el balance del cliente vienen
     # con signo CONTABLE NEGATIVO mientras F-101 los expresa positivos. Para que
     # la fórmula de diferencia dé 0 al cuadrar usamos ABS() sobre el sumatorio.
-    NEGATIVE_CASILLEROS = {
+    #
+    # _CORE: casilleros conocidos antes del fix 2026-06-04. Calibrados manualmente.
+    # NEGATIVE_CASILLEROS: union de _CORE + auto-detección por prefijo "(-)" en el
+    # catálogo OFICIAL F-101. La auto-detección garantiza que cualquier cas del
+    # balance que en el SRI sea de naturaleza (-) (deterioro, amortización,
+    # depreciación) quede correctamente clasificado, incluso si no estaba en _CORE.
+    _NEGATIVE_CORE = {
         "314", "317", "324", "327", "329",  # deterioros cuentas por cobrar
         "347",                                 # deterioro inventarios
         "384", "385", "386",                  # depreciación acumulada PPE
@@ -75,6 +81,22 @@ class A1Filler:
         "612", "616",                          # pérdidas acumuladas / del ejercicio
         "7010", "7022", "7028", "7034",       # inventarios finales (restan en CoGS)
     }
+
+    @classmethod
+    def _build_negative_set(cls) -> set[str]:
+        """Combina _NEGATIVE_CORE con cas del catálogo cuyos nombres empiezan con
+        '(-)'. Defensivo contra el bug de 'saldos de línea': si SRI agrega un
+        nuevo cas negativo, queda clasificado correctamente sin tocar este file."""
+        from backend.app.ict.catalogo_f101 import F101_CASILLERO_NAMES
+        auto_detected = {
+            cas for cas, nombre in F101_CASILLERO_NAMES.items()
+            if nombre.strip().startswith("(-)")
+            and cas.isdigit() and 311 <= int(cas) <= 699
+        }
+        return cls._NEGATIVE_CORE | auto_detected
+
+    # Se construye una vez al cargar la clase. Es read-only durante la sesión.
+    NEGATIVE_CASILLEROS: set[str] = set()  # se completa abajo
 
     # Mapping de TOTAL → identificador de bloque para que F<row_total> tenga
     # fórmula SUM del rango del bloque que totaliza.
@@ -533,3 +555,12 @@ class A1Filler:
             logging.exception("format_a1_sheet falló")
 
         return {"filled_cells": filled, "warnings": warnings}
+
+
+# === Inicialización estática de NEGATIVE_CASILLEROS ===
+# Se ejecuta UNA VEZ al importar el módulo. Combina _NEGATIVE_CORE
+# (calibrado manual) con los cas (-) auto-detectados del catálogo F-101.
+# Resultado: any cas del balance con nombre que empieza "(-)" queda
+# clasificado como negativo, sin requerir tocar este archivo cada vez
+# que SRI agrega un nuevo cas de naturaleza (-).
+A1Filler.NEGATIVE_CASILLEROS = A1Filler._build_negative_set()

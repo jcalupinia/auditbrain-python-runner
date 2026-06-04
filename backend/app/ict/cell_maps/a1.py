@@ -12,10 +12,19 @@ contable agregado del Balance Mapeado del cliente. La fórmula G
 calcula =SUM(saldos_balance) - valor_declarado para evidenciar
 diferencias.
 
-Cuando el SRI emita el F-101 2026 con nuevos casilleros, actualizar
-ESTA lista (no hay generación automática para no perder nombres
-canónicos del SRI).
+REGLA SUPREMA: A1_CASILLEROS_ORDERED debe contener TODOS los casilleros
+del balance (rango 311-699) del catálogo OFICIAL F101_CASILLERO_NAMES.
+NO se permite tener listas hardcoded en paralelo — eso causa "saldos
+de línea" (casilleros que el F-101 declara pero el A1 no muestra).
+
+Para garantizarlo, la lista se DERIVA en runtime del catálogo oficial.
+El bloque LEGACY abajo (lista hardcoded) se conserva solo como
+referencia documental del orden esperado por los TOTALS hardcodeados
+en a1_mapeo.py. La fuente de verdad es BALANCE_RANGE filtrado del
+catálogo.
 """
+
+from backend.app.ict.catalogo_f101 import F101_CASILLERO_NAMES
 
 A1_SHEET = "MAPEO DE LA DECLARACIÓN A1"
 A1_FIRST_DATA_ROW = 13
@@ -27,7 +36,84 @@ A1_HEADER_MAP = {
     "C6": "numero_adhesivo",
 }
 
+# ====================================================================
+# A1_CASILLEROS_ORDERED — DERIVADO DEL CATÁLOGO OFICIAL F-101
+# ====================================================================
+# Antes (PRE-fix-2026-06-04): lista hardcoded de 193 casilleros que
+# perdía 164 casilleros del balance oficial (ej: 490, 491, 593, etc.).
+# Causaba el bug "saldos de línea": el F-101 declaraba valor pero el
+# A1 nunca los mostraba.
+#
+# Ahora: se genera dinámicamente filtrando el catálogo OFICIAL por el
+# rango del balance (311-699). Garantiza TODOS los 267 casilleros.
+def _en_rango_a1(cas: str) -> bool:
+    """¿Pertenece este cas al universo del A1?
+
+    El A1 cubre:
+      - Estado de Situación Financiera: 311-699 (Activos, Pasivos, Patrimonio)
+      - Estado de Resultados:
+          * Detalle ingresos: 6001-6999
+          * Subtotales de ingresos: 1005, 1045 (después de detalles)
+          * Detalle costos/gastos: 7001-7990
+          * Subtotales costos/gastos: 7991, 7992, 7999 (después de detalles)
+    """
+    if not cas.isdigit():
+        return False
+    n = int(cas)
+    if 311 <= n <= 699:        # Balance
+        return True
+    if 6001 <= n <= 6999:      # Detalle ingresos
+        return True
+    if 7001 <= n <= 7999:      # Costos + gastos + sus subtotales
+        return True
+    if n in (1005, 1045):      # Solo subtotales del legacy A1
+        return True
+    return False
+
+
+def _a1_sort_key(cas: str) -> tuple[int, int]:
+    """Ordena los cas del A1 con jerarquía:
+       grupo 1 = balance 311-699
+       grupo 2 = detalle ingresos 6001-6998 (sin TOTAL 6999)
+       grupo 3 = subtotales ingresos 1005, 1045
+       grupo 4 = TOTAL ingresos 6999
+       grupo 5 = detalle costos/gastos 7001-7990
+       grupo 6 = subtotales costos/gastos 7991, 7992, 7999
+
+    Garantiza que el filler procese DETALLE antes que TOTAL — necesario
+    porque las fórmulas de TOTAL son SUM(detail_range)."""
+    if not cas.isdigit():
+        return (99, 0)
+    n = int(cas)
+    if 311 <= n <= 699:
+        return (1, n)
+    if 6001 <= n <= 6998:
+        return (2, n)
+    if n in (1005, 1045):
+        return (3, n)
+    if n == 6999:
+        return (4, n)
+    if 7001 <= n <= 7990:
+        return (5, n)
+    if n in (7991, 7992, 7999):
+        return (6, n)
+    return (99, n)
+
+
 A1_CASILLEROS_ORDERED: list[tuple[str, str]] = [
+    (cas, F101_CASILLERO_NAMES[cas])
+    for cas in sorted(F101_CASILLERO_NAMES.keys(), key=_a1_sort_key)
+    if _en_rango_a1(cas)
+]
+
+
+# ====================================================================
+# A1_CASILLEROS_LEGACY_PARCIAL — referencia documental del orden vivo
+# ====================================================================
+# Lista hardcoded de los 193 casilleros que el A1 ya cubría desde
+# 2025. Se conserva sólo para referencia / debugging. El A1 USA
+# A1_CASILLEROS_ORDERED arriba.
+A1_CASILLEROS_LEGACY_PARCIAL: list[tuple[str, str]] = [
     # ============================================================
     # ACTIVOS CORRIENTES (311-361)
     # ============================================================
