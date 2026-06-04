@@ -36,7 +36,8 @@ NAVY = "0A2342"
 GOLD = "C7A83C"
 INPUT_FILL = PatternFill("solid", fgColor="DCE9F7")   # celdas editables (azul)
 HEAD_FILL = PatternFill("solid", fgColor=NAVY)
-TOTAL_FILL = PatternFill("solid", fgColor="EEF1F5")
+TOTAL_FILL = PatternFill("solid", fgColor="BDD7EE")  # azul claro visible (totales)
+DET_FONT = Font(name="Calibri", size=9, italic=True, color="555555")
 WHITE = Font(color="FFFFFF", bold=True)
 BOLD = Font(bold=True)
 GOLD_FONT = Font(color=GOLD, bold=True, size=14)
@@ -63,6 +64,7 @@ def build_workbook(data: dict, ctrl: list[dict], params: dict) -> bytes:
     datos_ref = _sheet_datos(wb, params)
     esf_rows = _sheet_esf(wb, data)
     er_rows = _sheet_er(wb, data)
+    _verif_utilidad(wb, esf_rows, er_rows)
     _sheet_indices(wb, esf_rows, er_rows)
     _sheet_proyeccion(wb, ctrl, esf_rows, er_rows, datos_ref)
     _sheet_resumen(wb, params)
@@ -185,6 +187,19 @@ def _sheet_esf(wb: Workbook, data: dict) -> dict:
                 cell.fill = INPUT_FILL
                 cell.number_format = MONEY
                 cell.border = BORDER
+        elif kind == "det":  # subcuenta de desglose (valor leído, solo lectura)
+            ws[f"B{r}"].font = DET_FONT
+            vals = data.get(key) or [0, 0, 0]
+            for i, col in enumerate(YEAR_COLS):
+                cell = ws[f"{col}{r}"]
+                cell.value = _g(key, vals[i] if i < len(vals) else 0)
+                cell.number_format = MONEY
+                cell.font = DET_FONT
+        elif kind == "chk":  # línea de verificación de cuadre (texto)
+            ws[f"B{r}"].font = BOLD
+            for col in YEAR_COLS:
+                ws[f"{col}{r}"].font = BOLD
+                ws[f"{col}{r}"].alignment = Alignment(horizontal="center")
         else:  # sub / tot -> fórmula
             ws[f"B{r}"].font = BOLD
             for col in YEAR_COLS:
@@ -208,6 +223,14 @@ def _sheet_esf(wb: Workbook, data: dict) -> dict:
         ws[f"{col}{rowmap['totalPasivo']}"] = (
             f"={col}{rowmap['totalPC']}+{col}{rowmap['totalPNC']}")
         ws[f"{col}{rowmap['totalPat']}"] = f"={s(_PAT_KEYS, col)}"
+        # Pasivo + Patrimonio y verificación de cuadre (A = P + Patrimonio).
+        ws[f"{col}{rowmap['totalPasPat']}"] = (
+            f"={col}{rowmap['totalPasivo']}+{col}{rowmap['totalPat']}")
+        act = f"{col}{rowmap['totalActivo']}"
+        pp = f"{col}{rowmap['totalPasPat']}"
+        ws[f"{col}{rowmap['cuadre']}"] = (
+            f'=IF(ABS({act}-{pp})<1,"✓ Cuadra",'
+            f'"✗ No cuadra (Δ "&TEXT({act}-{pp},"#,##0")&")")')
     return rowmap
 
 
@@ -248,6 +271,22 @@ def _sheet_er(wb: Workbook, data: dict) -> dict:
             f"={col}{rowmap['uai']}-{col}{rowmap['partTrab']}"
             f"-{col}{rowmap['irCausado']}-{col}{rowmap['impDif']}")
     return rowmap
+
+
+# ------------------------------------- Verificación utilidad del ejercicio
+def _verif_utilidad(wb: Workbook, esf: dict, er: dict) -> None:
+    """En la hoja ESF, valida que la 'Utilidad del ejercicio' (patrimonio,
+    casillero 615) cuadre con el 'Resultado Neto' del Estado de Resultados.
+    Fórmula cruzada ESF↔ER (se escribe tras construir ambas hojas)."""
+    if "verUtil" not in esf or "utilEjercicio" not in esf or "neta" not in er:
+        return
+    ws = wb["ESF"]
+    for col in YEAR_COLS:
+        ue = f"{col}{esf['utilEjercicio']}"
+        nt = f"ER!{col}{er['neta']}"
+        ws[f"{col}{esf['verUtil']}"] = (
+            f'=IF({ue}=0,"—",IF(ABS({ue}-{nt})<1,"✓ Cuadra",'
+            f'"✗ Δ "&TEXT({ue}-{nt},"#,##0")))')
 
 
 # --------------------------------------------------------------- Índices

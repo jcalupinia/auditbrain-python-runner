@@ -457,6 +457,30 @@
   font-weight: 700;
   color: #7a5b16;
 }
+.tax-root .tx-tbl tbody tr.chkrow td {
+  background: #f4f7fa;
+  font-weight: 700;
+  font-size: 11px;
+  border-top: 2px solid var(--navy);
+}
+.tax-root .tx-tbl tbody tr.chkrow td.cuadre-ok {
+  color: #1e8449;
+  background: #eafaf1;
+}
+.tax-root .tx-tbl tbody tr.chkrow td.cuadre-bad {
+  color: #c0392b;
+  background: #fdecea;
+}
+.tax-root .tx-tbl tbody tr.detrow td {
+  font-style: italic;
+  color: #556;
+  font-size: 11px;
+  background: #fafbfc;
+}
+.tax-root .tx-tbl tbody tr.detrow td:first-child {
+  padding-left: 26px;
+  color: #667;
+}
 .tax-root .tx-cin {
   width: 104px;
   text-align: right;

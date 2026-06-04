@@ -100,6 +100,8 @@ function calcLine(D, sp, c) {
       return tPasivo(D, c);
     case "totalPat":
       return tPat(D, c);
+    case "totalPasPat":
+      return tPasivo(D, c) + tPat(D, c);
     case "ub":
       return ub(D, c);
     case "ebit":
@@ -953,6 +955,44 @@ function Ingesta({ schema, title, D, setCell }) {
                     />
                   </td>
                 ))}
+              </tr>
+            );
+          if (sp[0] === "det")
+            return (
+              <tr className="detrow" key={idx}>
+                <td>{sp[2]}</td>
+                {[0, 1, 2].map((c) => (
+                  <td key={c}>{fmt(D[key][c])}</td>
+                ))}
+              </tr>
+            );
+          if (sp[0] === "chk")
+            return (
+              <tr className="chkrow" key={idx}>
+                <td>{sp[2]}</td>
+                {[0, 1, 2].map((c) => {
+                  // 'cuadre': Activo = Pasivo + Patrimonio.
+                  // 'verUtil': utilidad/(pérdida) del ejercicio (cas. 615/616) =
+                  //            Resultado Neto del Estado de Resultados.
+                  let diff;
+                  let neutral = false;
+                  if (key === "verUtil") {
+                    const ue = D.utilEjercicio[c];
+                    if (!ue) neutral = true;
+                    diff = ue - neta(D, c);
+                  } else {
+                    diff = tActivo(D, c) - (tPasivo(D, c) + tPat(D, c));
+                  }
+                  const ok = Math.abs(diff) < 1;
+                  return (
+                    <td
+                      key={c}
+                      className={neutral ? "" : ok ? "cuadre-ok" : "cuadre-bad"}
+                    >
+                      {neutral ? "—" : ok ? "✓ Cuadra" : `✗ Δ ${fmt(diff)}`}
+                    </td>
+                  );
+                })}
               </tr>
             );
           return (

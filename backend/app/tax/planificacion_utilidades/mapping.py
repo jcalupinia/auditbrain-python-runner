@@ -60,16 +60,34 @@ F101_MAP_DECLARACION: dict[str, list[str]] = {
     "ori": ["607", "608", "609", "610", "618", "619", "620", "621", "622",
              "623", "624", "625", "626", "627"],
     "resAcum": ["611", "-612", "613", "614", "615", "-616", "617"],
+    # Desglose de 'resAcum' (no afecta totales; solo para verificación):
+    #   utilAcum  = ejercicios anteriores + adopción NIIF (611,612,613,614)
+    #   utilEjercicio = resultado del ejercicio en patrimonio (615,616,617);
+    #   el 615 (utilidad del ejercicio) debe cuadrar con el Resultado Neto del ER.
+    "utilAcum": ["611", "-612", "613", "614"],
+    "utilEjercicio": ["615", "-616", "617"],
     # ---- ESTADO DE RESULTADOS (casilleros de 4 dígitos) ----
     "ventas": ["6001", "6003", "6005", "6007"],          # ventas bienes + servicios
     "otrosIng": ["6115"],                                # otros ingresos
     "otrosIngFin": ["6111", "6113"],                     # ingresos financieros
     "costo": ["7991"],                                   # total costos operacionales
-    "gAdmin": ["7992"],                                  # total gastos
-    "gFin": [],                                          # incluido en 7992; a mano si se separa
+    # Gastos financieros: bloque 7251–7305 del F-101 (arrendamiento mercantil,
+    # intereses bancarios/instituciones financieras/terceros, comisiones, etc.).
+    # Solo los casilleros de GASTO; se EXCLUYEN los "VALOR NO DEDUCIBLE" (memo
+    # tributario intercalado) para no duplicar el importe contable.
+    "gFin": ["7251", "7254", "7257", "7260", "7263", "7266", "7269", "7272",
+             "7275", "7278", "7281", "7284", "7287", "7290", "7293", "7296",
+             "7299", "7302", "7305"],
+    # Resto de gastos = TOTAL GASTOS (7992) − gastos financieros. El 7992 ya
+    # incluye los financieros, así que se restan aquí para desglosarlos sin
+    # duplicar: gAdmin + gFin = 7992 (el total de gastos se conserva).
+    "gAdmin": ["7992", "-7251", "-7254", "-7257", "-7260", "-7263", "-7266",
+               "-7269", "-7272", "-7275", "-7278", "-7281", "-7284", "-7287",
+               "-7290", "-7293", "-7296", "-7299", "-7302", "-7305"],
     "partTrab": ["803"],                                 # 15% participación trabajadores
-    "irCausado": ["854"],                                # IR causado
-    "impDif": ["889"],                                   # gasto/(ingreso) impuesto diferido
+    "irCausado": ["850"],                                # IMPUESTO A LA RENTA CAUSADO
+    #   (NO 854 = "IR causado mayor al anticipo reducido", que es otro concepto)
+    "impDif": ["889"],                                   # gasto/(ingreso) IR diferido (±)
     "dna": [],                                           # D&A: completar a mano
 }
 
@@ -98,6 +116,10 @@ F101_MAP_LEGACY: dict[str, list[str]] = {
     "reservas": ["481", "482"],
     "ori": ["483"],
     "resAcum": ["484", "485", "498"],
+    # Formato legacy: no se desglosa la utilidad del ejercicio (numeración
+    # antigua sin verificar); se deja todo como acumulado.
+    "utilAcum": ["484", "485", "498"],
+    "utilEjercicio": [],
     "ventas": ["601", "602", "603"],
     "otrosIng": ["605", "606"],
     "otrosIngFin": ["608"],

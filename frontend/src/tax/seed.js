@@ -3,7 +3,8 @@
 // resumido" que el parser (101 / plantilla) debe poblar.
 
 // ESF: ['sec',label] sección | ['in',key,label] input editable |
-//      ['sub'|'tot',key,label,op,...] línea calculada.
+//      ['sub'|'tot',key,label,op,...] línea calculada |
+//      ['chk',key,label] línea de verificación de cuadre (A = P + Patrimonio).
 export const ESF_SCHEMA = [
   ["sec", "ACTIVO CORRIENTE"],
   ["in", "efectivo", "Efectivo y equivalentes"],
@@ -38,7 +39,12 @@ export const ESF_SCHEMA = [
   ["in", "reservas", "Reservas"],
   ["in", "ori", "Otros result. integrales"],
   ["in", "resAcum", "Resultados acumulados"],
+  ["det", "utilAcum", "Utilidades/(pérdidas) acumuladas"],
+  ["det", "utilEjercicio", "Utilidad/(pérdida) del ejercicio"],
   ["tot", "totalPat", "TOTAL PATRIMONIO"],
+  ["tot", "totalPasPat", "TOTAL PASIVO + PATRIMONIO"],
+  ["chk", "cuadre", "Cuadre (Activo = Pasivo + Patrimonio)"],
+  ["chk", "verUtil", "Utilidad/(pérdida) del ejercicio = Resultado Neto (ER)"],
 ];
 
 export const ER_SCHEMA = [
@@ -57,10 +63,11 @@ export const ER_SCHEMA = [
   ["tot", "neta", "RESULTADO NETO"],
 ];
 
-// Todas las claves de input (las que el parser debe llenar).
+// Todas las claves de input que el parser debe llenar.
+// 'in' = editable; 'det' = subcuenta de desglose (informativa, la llena el parser).
 export const INPUT_KEYS = [
-  ...ESF_SCHEMA.filter((r) => r[0] === "in").map((r) => r[1]),
-  ...ER_SCHEMA.filter((r) => r[0] === "in").map((r) => r[1]),
+  ...ESF_SCHEMA.filter((r) => r[0] === "in" || r[0] === "det").map((r) => r[1]),
+  ...ER_SCHEMA.filter((r) => r[0] === "in" || r[0] === "det").map((r) => r[1]),
 ];
 
 export const ANIOS = [2023, 2024, 2025];
@@ -90,6 +97,9 @@ export const EX = {
   reservas: [26108, 26108, 26108],
   ori: [185591, 109499, 106541],
   resAcum: [3318801, 3967845, 4258920],
+  // Desglose de resAcum (acumuladas + utilidad del ejercicio = resAcum):
+  utilAcum: [2744875, 3318800, 3918806],
+  utilEjercicio: [573926, 649045, 340114],
   ventas: [9776562, 9788597, 7599670],
   otrosIng: [302863, 139154, 169082],
   otrosIngFin: [79432, 81010, 47853],

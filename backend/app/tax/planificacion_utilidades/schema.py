@@ -11,6 +11,8 @@ from __future__ import annotations
 #   ("sec", label)                  -> encabezado de sección
 #   ("in", key, label)              -> input editable (el parser debe poblarlo)
 #   ("sub"|"tot", key, label, *ops) -> línea calculada (fórmula en el exporter)
+#   ("det", key, label)             -> subcuenta de desglose (informativa, no suma)
+#   ("chk", key, label)             -> línea de verificación (cuadre / utilidad ER)
 ESF_SCHEMA: list[tuple] = [
     ("sec", "ACTIVO CORRIENTE"),
     ("in", "efectivo", "Efectivo y equivalentes"),
@@ -45,7 +47,12 @@ ESF_SCHEMA: list[tuple] = [
     ("in", "reservas", "Reservas"),
     ("in", "ori", "Otros result. integrales"),
     ("in", "resAcum", "Resultados acumulados"),
+    ("det", "utilAcum", "    Utilidades/(pérdidas) acumuladas"),
+    ("det", "utilEjercicio", "    Utilidad/(pérdida) del ejercicio"),
     ("tot", "totalPat", "TOTAL PATRIMONIO"),
+    ("tot", "totalPasPat", "TOTAL PASIVO + PATRIMONIO"),
+    ("chk", "cuadre", "Cuadre (Activo = Pasivo + Patrimonio)"),
+    ("chk", "verUtil", "Utilidad/(pérdida) del ejercicio = Resultado Neto (ER)"),
 ]
 
 ER_SCHEMA: list[tuple] = [
@@ -66,7 +73,8 @@ ER_SCHEMA: list[tuple] = [
 
 
 def _input_keys(schema: list[tuple]) -> list[str]:
-    return [row[1] for row in schema if row[0] == "in"]
+    # 'in' = editable; 'det' = subcuenta de desglose poblada por el parser.
+    return [row[1] for row in schema if row[0] in ("in", "det")]
 
 
 ESF_INPUT_KEYS: list[str] = _input_keys(ESF_SCHEMA)
@@ -80,7 +88,7 @@ INPUT_KEYS: list[str] = ESF_INPUT_KEYS + ER_INPUT_KEYS + ["dna"]
 LABELS: dict[str, str] = {
     row[1]: row[2]
     for row in (*ESF_SCHEMA, *ER_SCHEMA)
-    if row[0] in ("in", "sub", "tot")
+    if row[0] in ("in", "det", "sub", "tot")
 }
 LABELS.setdefault("dna", "Depreciación y amortización")
 
