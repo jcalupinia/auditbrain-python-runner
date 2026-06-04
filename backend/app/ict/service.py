@@ -402,7 +402,52 @@ INTERNAL_SHEETS_FOR_SRI: tuple[str, ...] = (
     "VERIFICACIÓN A1",
     "AUDITORÍA DE ANEXOS",
     "TRAZABILIDAD",
+    "ARTEFACTO A1",
+    "ARTEFACTO AUDITORIA",
 )
+
+
+def _get_interpretations(wb, contexto: dict) -> dict:
+    """Llama al motor LLM (interpret_all_anexos) desde código sync.
+
+    Devuelve dict {code: AnexoInterpretation} para los 9 anexos.
+    Si la llamada falla por cualquier razón (no hay ANTHROPIC_API_KEY,
+    timeout, etc.), devuelve fallbacks que marcan confianza=baja y
+    requiere_revision_humana=True. El sistema sigue funcionando sin
+    interpretación IA.
+    """
+    import asyncio
+    import logging
+    from backend.app.ict.audit.interpreter import (
+        _fallback_interpretation,
+        interpret_all_anexos,
+    )
+    codes = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9"]
+    try:
+        return asyncio.run(interpret_all_anexos(wb, contexto))
+    except RuntimeError as exc:
+        # asyncio.run no se puede llamar dentro de un event loop ya activo.
+        # Caso típico: tests pytest-asyncio. Crear nuevo loop en thread separado.
+        if "running event loop" in str(exc).lower():
+            import threading
+            result: list = [None]
+            def _runner():
+                loop = asyncio.new_event_loop()
+                try:
+                    result[0] = loop.run_until_complete(
+                        interpret_all_anexos(wb, contexto)
+                    )
+                finally:
+                    loop.close()
+            t = threading.Thread(target=_runner)
+            t.start()
+            t.join(timeout=120)
+            if result[0] is not None:
+                return result[0]
+        logging.warning("interpret_all_anexos RuntimeError: %s — usando fallback", exc)
+    except Exception as exc:
+        logging.warning("interpret_all_anexos falló: %s — usando fallback", exc)
+    return {c: _fallback_interpretation(c) for c in codes}
 
 
 def generate_excel(db: Session, *, session: ICTSession) -> tuple[bytes, bytes]:
@@ -574,6 +619,58 @@ def generate_excel(db: Session, *, session: ICTSession) -> tuple[bytes, bytes]:
     except Exception:
         import logging
         logging.exception("write_trace_sheet falló para sesión %s", session.id)
+
+    # ARTEFACTOS PROFESIONALES con KPIs Big4 + interpretación IA.
+    # Hojas ARTEFACTO A1 y ARTEFACTO AUDITORIA viven solo en el papel de
+    # trabajo (se eliminan del Excel SRI por INTERNAL_SHEETS_FOR_SRI).
+    # Si el motor LLM no está disponible (no hay ANTHROPIC_API_KEY o la
+    # API falla), las hojas se generan con interpretación fallback que
+    # marca confianza=baja y requiere_revision_humana=True.
+    try:
+        from backend.app.ict.audit.metrics import (
+            compute_a1_metrics,
+            compute_anexos_metrics,
+        )
+        from backend.app.ict.audit.interpreter import _fallback_interpretation
+        from backend.app.ict.fillers.verification import fill_verification_a1
+        from backend.app.ict.fillers.auditoria_anexos import fill_auditoria_anexos
+
+        contexto_artefacto = {
+            "razon_social": session.razon_social or "",
+            "ruc": session.ruc or "",
+            "periodo": str(session.ejercicio_fiscal or ""),
+        }
+        metrics_a1 = compute_a1_metrics(wb)
+        metrics_anexos = compute_anexos_metrics(wb)
+        interpretations = _get_interpretations(wb, contexto_artefacto)
+
+        # Hoja "ARTEFACTO A1"
+        if "ARTEFACTO A1" in wb.sheetnames:
+            del wb["ARTEFACTO A1"]
+        ws_artefacto_a1 = wb.create_sheet("ARTEFACTO A1")
+        fill_verification_a1(
+            ws_artefacto_a1,
+            metrics=metrics_a1,
+            interpretation=interpretations.get("A1") or _fallback_interpretation("A1"),
+            contexto=contexto_artefacto,
+        )
+
+        # Hoja "ARTEFACTO AUDITORIA"
+        if "ARTEFACTO AUDITORIA" in wb.sheetnames:
+            del wb["ARTEFACTO AUDITORIA"]
+        ws_artefacto_aud = wb.create_sheet("ARTEFACTO AUDITORIA")
+        fill_auditoria_anexos(
+            ws_artefacto_aud,
+            metrics=metrics_anexos,
+            interpretations=interpretations,
+            contexto=contexto_artefacto,
+        )
+    except Exception:
+        import logging
+        logging.exception(
+            "Artefactos profesionales (IA) fallaron para sesión %s — "
+            "se continúa sin ellos", session.id,
+        )
 
     # Guardar workbook completo (con hojas internas) → bytes_papel_trabajo
     buf_papel = BytesIO()
