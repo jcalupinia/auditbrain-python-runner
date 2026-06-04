@@ -24,10 +24,13 @@ import json
 import urllib.error
 import urllib.request
 
+from backend.app.tax.planificacion_utilidades import recomendacion as rec_mod
 from backend.app.tax.planificacion_utilidades.schemas import (
     ExportRequest,
     ExtractResponse,
     PresentacionRequest,
+    RecomendacionRequest,
+    RecomendacionResponse,
     SriRucResponse,
 )
 
@@ -223,4 +226,22 @@ def presentacion_endpoint(
         BytesIO(pptx),
         media_type=PPTX_MIME,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/recomendacion", response_model=RecomendacionResponse)
+def recomendacion_endpoint(
+    body: RecomendacionRequest,
+    current: User = Depends(get_current_user),
+):
+    """Genera la narrativa del agente (IA) anclada a las cifras deterministas.
+
+    Las cifras de los escenarios las calcula el frontend (motor determinista);
+    aquí la IA solo redacta. Si no hay proveedor IA, devuelve un fallback con
+    requiere_revision_humana=True.
+    """
+    return rec_mod.build_recomendacion(
+        empresa=body.empresa,
+        recomendado=body.recomendado,
+        comparacion=body.comparacion,
     )
