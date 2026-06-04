@@ -523,3 +523,19 @@ function _emptyCtrl() {
     { g: 0, div: 0, cap: 0 },
   ];
 }
+
+// Óptimo = menor costo neto (impuesto no devuelto + costo muerto). Desempate:
+// preferir el escenario que elimina el impuesto (cap > mix > div > sin).
+export function bestScenario(comparison) {
+  const orden = ["cap", "mix", "div", "sin"];
+  let best = null;
+  for (const key of orden) {
+    const c = comparison[key];
+    const costo =
+      c.totales.impuesto - c.totales.devolucion + c.totales.costoMuerto;
+    if (best === null || costo < best.costo - 0.5) {
+      best = { key, costo, totales: c.totales };
+    }
+  }
+  return best;
+}

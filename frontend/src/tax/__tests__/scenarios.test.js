@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { tarifa, creditAging, compareScenarios } from "../engine.js";
+import {
+  tarifa,
+  creditAging,
+  compareScenarios,
+  bestScenario,
+} from "../engine.js";
 import { emptyData } from "../seed.js";
 
 describe("smoke", () => {
@@ -64,5 +69,19 @@ describe("compareScenarios", () => {
   it("cada escenario tiene 3 años con costoMuerto definido", () => {
     expect(r.sin.rows).toHaveLength(3);
     expect(typeof r.sin.rows[0].costoMuerto).toBe("number");
+  });
+});
+
+describe("bestScenario", () => {
+  it("elige 'cap' cuando elimina el impuesto", () => {
+    const D = emptyData();
+    D.resAcum = [0, 0, 5000000];
+    D.utilEjercicio = [0, 0, 1000000];
+    D.ventas = [0, 0, 8000000];
+    D.costo = [0, 0, 5000000];
+    D.capital = [0, 0, 100000];
+    const params = { costoR: 60, gastoR: 25, irR: 25, retDiv: 12, growth: 0 };
+    const r = compareScenarios(D, params);
+    expect(bestScenario(r).key).toBe("cap");
   });
 });
