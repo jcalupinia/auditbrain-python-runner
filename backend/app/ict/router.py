@@ -336,12 +336,22 @@ async def upload_for_anexo_endpoint(
         raise HTTPException(400, detail=f"Slot '{slot_name}' no soportado")
 
     MAX_SIZE = 50 * 1024 * 1024
-    IS_MULTI = slot_name == "f104"  # solo f104 acumula por mes; el resto toma el primer archivo
+    # BUG HISTÓRICO (2026-06-05): IS_MULTI = slot_name == "f104" excluía F-103,
+    # aunque el frontend (ICTDashboard.jsx:39) lo envía con multi:true y los 12
+    # PDFs en una sola petición. De los 12 PDFs F-103 que el cliente subía solo
+    # se persistía el PRIMERO, y bajo la clave equivocada "f103" en lugar de
+    # "f103_monthly" (que es la que leen build_f103_sheet, service.py, etc.).
+    # Resultado: DATOS F-103 mostraba 24 columnas × 184 cas en 0.00.
+    # Fix: ambos F-103 y F-104 son multi-archivo mensual.
+    IS_MULTI = slot_name in ("f104", "f103")
+    # Clave canónica del dict mensual por slot. La usa tanto el estado previo
+    # como la persistencia final.
+    MONTHLY_KEY = "f104_monthly" if slot_name == "f104" else "f103_monthly"
 
-    # Para f104 necesitamos el estado previo al iniciar el loop
+    # Para slots multi (f104/f103) necesitamos el estado previo al iniciar el loop
     existing_anexo = next((a for a in session.anexos if a.anexo_code == anexo_code), None)
     existing_data = (existing_anexo.extracted_data if existing_anexo else None) or {}
-    monthly: dict = dict(existing_data.get("f104_monthly") or {}) if IS_MULTI else {}
+    monthly: dict = dict(existing_data.get(MONTHLY_KEY) or {}) if IS_MULTI else {}
 
     total_bytes = 0
     warnings_acc: list[str] = []
@@ -391,7 +401,7 @@ async def upload_for_anexo_endpoint(
         last_size = len(data)
 
         if IS_MULTI:
-            # f104: acumular por mes
+            # f104/f103: acumular por mes
             periodo = parsed.get("periodo")
             if periodo:
                 mes_key = periodo.split("/")[0].strip() if "/" in str(periodo) else str(periodo).strip()
@@ -409,7 +419,7 @@ async def upload_for_anexo_endpoint(
                     status="warning",
                     message="no se detectó período",
                 ))
-            last_extracted = {"f104_monthly": monthly}
+            last_extracted = {MONTHLY_KEY: monthly}
         else:
             # Slots de un solo archivo: construir extracted y salir al terminar el primero
             if slot_name == "f101":
@@ -443,10 +453,11 @@ async def upload_for_anexo_endpoint(
         )
 
     if IS_MULTI:
-        last_extracted = {"f104_monthly": monthly}
-        # Nombre descriptivo para el meta: "f104_01.pdf" si 1, "3 archivos" si varios
+        last_extracted = {MONTHLY_KEY: monthly}
+        # Nombre descriptivo para el meta
         ok_count = sum(1 for r in per_file_results if r.status == "ok")
-        meta_filename = last_filename if ok_count == 1 else f"{ok_count} archivos F-104"
+        slot_label = "F-104" if slot_name == "f104" else "F-103"
+        meta_filename = last_filename if ok_count == 1 else f"{ok_count} archivos {slot_label}"
         meta_size = total_bytes
     else:
         meta_filename = last_filename

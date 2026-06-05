@@ -298,6 +298,10 @@ def reparse_session_uploads(db: Session, *, session: ICTSession) -> dict:
             # MERGE: preservar campos del extracted que NO vienen de archivos
             # (ej. campos manuales como exoneraciones, contratos_inversion).
             merged = dict(anexo_extracted_before)
+            # Limpieza de clave zombie "f103" (single-file, bug previo al
+            # commit 2026-06-05). Si la sesión tenía datos con esa clave
+            # huérfana, la borramos antes del update para evitar confusión.
+            merged.pop("f103", None)
             merged.update(new_extracted)
             # Asignación nueva para que SQLAlchemy detecte el cambio
             anexo.extracted_data = merged
@@ -814,6 +818,7 @@ def reset_anexo_slot(
         "f101": "f101",
         "balance_mapeado": "balance_mapeado",
         "kardex": "kardex_items",
+        "f103": "f103_monthly",          # fix 2026-06-05: antes faltaba (bug multi-archivo)
         "f104": "f104_monthly",
         "facturacion": "facturacion",
         "mayor_exentos": "mayor_exentos",
@@ -825,6 +830,10 @@ def reset_anexo_slot(
     main_key = key_map.get(slot_name, slot_name)
     if main_key in extracted:
         del extracted[main_key]
+    # Limpieza de claves zombies del bug histórico: sesiones que tenían
+    # extracted_data["f103"] (single, mal) en vez de "f103_monthly".
+    if slot_name == "f103" and "f103" in extracted:
+        del extracted["f103"]
     anexo.extracted_data = extracted
 
     anexo.status = "empty" if not files else "partial"
