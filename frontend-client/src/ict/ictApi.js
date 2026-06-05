@@ -87,7 +87,31 @@ async function _downloadBlob(url, defaultFilename) {
   const headers = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
   const resp = await fetch(url, { headers, credentials: "include" });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  if (!resp.ok) {
+    // Mensajes amigables por status code común
+    if (resp.status === 401) {
+      throw new Error(
+        "Tu sesión expiró. Refrescá la página (F5) y volvé a intentar."
+      );
+    }
+    if (resp.status === 403) {
+      throw new Error(
+        "No tenés permiso para descargar este archivo. Verificá que sos el dueño de la sesión."
+      );
+    }
+    if (resp.status === 404) {
+      throw new Error(
+        "Archivo no encontrado. Procesá la sesión primero."
+      );
+    }
+    if (resp.status >= 500) {
+      throw new Error(
+        `Error del servidor (${resp.status}). Esperá unos segundos y reintentá. ` +
+        "Si persiste, refrescá la página."
+      );
+    }
+    throw new Error(`HTTP ${resp.status}`);
+  }
   const blob = await resp.blob();
   const cd = resp.headers.get("content-disposition") || "";
   const m = cd.match(/filename="?([^"]+)"?/);

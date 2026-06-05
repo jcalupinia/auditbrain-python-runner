@@ -35,8 +35,23 @@ _PROMPT_PATH = Path(__file__).parent / "prompts" / "auditor_tributario_ec.md"
 #   2026-06-04: claude-sonnet-4-7-20260101 (ID futuro, no existía) →
 #              claude-sonnet-4-5-20250929 (verificado adversarial workflow).
 DEFAULT_MODEL = os.getenv("ICT_LLM_MODEL", "claude-sonnet-4-5-20250929")
-DEFAULT_TIMEOUT = 30.0
-DEFAULT_MAX_RETRIES = 3
+
+# Performance tuning (calibrado 2026-06-05 tras reporte cliente de demora):
+# - TIMEOUT 30s era largo: ~95s peor caso por anexo con 3 retries × backoff.
+# - Bajamos a 15s timeout + 1 retry (= 2 intentos max) → ~30s peor caso.
+# Si necesitás más resiliencia en alguna sesión, override via env vars.
+DEFAULT_TIMEOUT = float(os.getenv("ICT_LLM_TIMEOUT", "15.0"))
+DEFAULT_MAX_RETRIES = int(os.getenv("ICT_LLM_MAX_RETRIES", "2"))
+
+# Kill switch: si ICT_LLM_ENABLED=false, NO se llama a la API Anthropic en
+# ningún anexo. Todas las interpretaciones devuelven el fallback inmediato
+# (confianza=baja, requiere_revision_humana=True). Util para:
+#   - Cortes de Anthropic / desactivar IA temporalmente sin redeploy
+#   - Sesiones donde el cliente quiere descarga rápida sin esperar el LLM
+#   - Desarrollo local sin gastar tokens
+# El sistema sigue 100% funcional, solo que las hojas ARTEFACTO A1 /
+# AUDITORIA muestran fallback text en lugar de análisis IA real.
+ICT_LLM_ENABLED = os.getenv("ICT_LLM_ENABLED", "true").lower() in ("true", "1", "yes")
 
 
 def _load_prompt_template() -> str:
@@ -116,8 +131,20 @@ async def interpret_anexo(
     max_retries: int = DEFAULT_MAX_RETRIES,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> AnexoInterpretation:
-    """Interpret a single anexo via Claude, with retries and graceful fallback."""
+    """Interpret a single anexo via Claude, with retries and graceful fallback.
+
+    Optimización 2026-06-05: si ANTHROPIC_API_KEY no está seteada, devuelve
+    fallback inmediato sin intentar conectar (evita ~15-30s de timeout
+    inútil por anexo cuando la key está ausente)."""
     anexo_nombre = contexto.get(f"nombre_{anexo_codigo}", anexo_codigo)
+
+    if anthropic_client is None and not os.getenv("ANTHROPIC_API_KEY"):
+        log.info(
+            "ANTHROPIC_API_KEY no configurada → fallback inmediato para %s",
+            anexo_codigo,
+        )
+        return _fallback_interpretation(anexo_codigo, anexo_nombre)
+
     if anthropic_client is None:
         try:
             from anthropic import AsyncAnthropic
@@ -180,8 +207,14 @@ async def interpret_all_anexos(
     *,
     anthropic_client: Any = None,
 ) -> dict[str, AnexoInterpretation]:
-    """Interpret all 9 anexos in parallel."""
+    """Interpret all 9 anexos in parallel.
+
+    Si `ICT_LLM_ENABLED=false`, devuelve fallback inmediato sin llamar
+    a la API (kill switch para acelerar descarga / evitar costos)."""
     codes = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9"]
+    if not ICT_LLM_ENABLED:
+        log.info("ICT_LLM_ENABLED=false → devolviendo fallback para los 9 anexos")
+        return {c: _fallback_interpretation(c) for c in codes}
     data_per_code = {c: extract_anexo_data(wb, c) for c in codes}
     tasks = [
         interpret_anexo(

@@ -284,13 +284,19 @@ def download_papel_trabajo_endpoint(
         raise HTTPException(403, detail=str(e))
 
     from backend.app.aud.obligaciones_fiscales import file_storage as _fs
-    cached_papel = (
-        _fs._root() / "ict" / f"{session.id}" / "_output" / "ICT_PAPEL_TRABAJO.xlsx"
-    )
+    out_dir = _fs._root() / "ict" / f"{session.id}" / "_output"
+    cached_papel = out_dir / "ICT_PAPEL_TRABAJO.xlsx"
+    legacy_cached = out_dir / "ICT.xlsx"  # pre-PT-9: archivo único con todo
     if cached_papel.exists():
         excel_bytes = cached_papel.read_bytes()
+    elif legacy_cached.exists():
+        # Compat: sesiones pre-PT-9 generaron solo ICT.xlsx que incluía las
+        # hojas internas (VERIFICACIÓN A1, AUDITORÍA, TRAZABILIDAD). Sirve
+        # ese archivo sin regenerar — más rápido que rehacer todo + LLM.
+        excel_bytes = legacy_cached.read_bytes()
     else:
-        # Generar al vuelo si no hay cache (sesiones pre-PT-9 también caen acá).
+        # Sin cache: generar al vuelo. Puede tardar ~30-60s si está activo
+        # el LLM motor (9 interpretaciones IA en paralelo).
         _sri, excel_bytes = ict_service.generate_excel(db, session=session)
 
     filename = (
