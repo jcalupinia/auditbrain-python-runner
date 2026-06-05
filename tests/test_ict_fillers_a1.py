@@ -44,14 +44,21 @@ def test_a1_filler_warns_when_casillero_has_no_balance_items():
 
 
 def test_a1_filler_notes_extra_casilleros_not_in_a1():
+    """Si el balance contable del cliente declara un cas que NO existe en
+    el catálogo OFICIAL F-101, el filler debe avisar.
+
+    Histórico: este test antes usaba cas "999" asumiendo que NO estaba
+    en A1. Pero el commit 5f90238 expandió A1 a TODOS los 888 cas del
+    catálogo OFICIAL (incluido 999 que es TOTAL PAGADO). Ahora usamos un
+    cas verdaderamente inválido (99999) para validar el mismo comportamiento."""
     wb = load_template()
     filler = A1Filler()
     sess = {"razon_social": "X", "ruc": "1", "ejercicio_fiscal": "2025", "numero_adhesivo": ""}
-    # 999 is not in A1_CASILLEROS_ORDERED
+    # 99999 NO existe en el catálogo OFICIAL F-101 (out of valid range)
     data = {
         "f101": {},
         "balance_mapeado": [
-            {"casillero_sri": "999", "codigo": "X", "descripcion": "Test", "saldo": 100.0},
+            {"casillero_sri": "99999", "codigo": "X", "descripcion": "Test", "saldo": 100.0},
         ],
     }
     result = filler.fill(wb, sess, data)
@@ -61,4 +68,7 @@ def test_a1_filler_notes_extra_casilleros_not_in_a1():
         or "se trasladan a" in w.lower()
         or "otros anexos" in w.lower()
         for w in result["warnings"]
+    ), (
+        f"Esperado un warning sobre cas 99999 no mapeado al A1. "
+        f"Warnings actuales: {result['warnings']}"
     )
