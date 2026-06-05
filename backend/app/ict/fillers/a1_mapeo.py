@@ -166,6 +166,30 @@ class A1Filler:
         return False
 
     @classmethod
+    def _is_ingreso_estado_resultados(cls, casillero: str) -> bool:
+        """True si el casillero pertenece a INGRESOS (6001-6999).
+
+        REGLA cliente (2026-06-05): los ingresos en el balance vienen como
+        CRÉDITOS (saldos negativos por convención contable). El F-101 los
+        declara en POSITIVO. Para que la columna F del A1 coincida con la
+        columna C (F-101 declarado), hay que INVERTIR el signo del balance.
+
+        Ejemplo: cas 6001 (VENTAS NETAS LOCALES)
+          - Balance contable: -5,069,641.37 (crédito)
+          - F-101 declarado: 5,069,641.37 (positivo)
+          - A1 col F debe mostrar: 5,069,641.37 → fórmula =-'DATOS BALANCE'!D{row}
+
+        Excepción: cas con (-) en el nombre (ej. cas 6147 DESCUENTOS) ya
+        están en NEGATIVE_CASILLEROS y mantienen el flujo is_negative
+        (=-ABS) — esos representan devoluciones/descuentos que conceptual-
+        mente RESTAN al ingreso, deben quedar negativos en A1.
+        """
+        if not casillero.isdigit():
+            return False
+        num = int(casillero)
+        return 6001 <= num <= 6999
+
+    @classmethod
     def _build_signed_sum_formula(
         cls,
         col: str,
@@ -522,12 +546,20 @@ class A1Filler:
             # REGLA UNIFICADA DE SIGNOS — col F debe coincidir con col C:
             #   · is_negative (cas (-) acumulado) → SIEMPRE NEGATIVO: =-ABS(...)
             #     (el balance puede traerlo + o -, fijamos NEGATIVO para
-            #     coincidir con el signo de C que también es NEGATIVO)
+            #     coincidir con el signo de C que también es NEGATIVO).
+            #     Cubre: deterioros, depreciaciones, amortizaciones,
+            #     pérdidas acumuladas, devoluciones/descuentos en ventas
+            #     (cas 6147), reversiones (cas 7299/7300).
             #   · Pasivo o Patrimonio normal      → INVERTIR signo balance: =-(...)
             #     (balance trae créditos negativos; col F los muestra positivos
             #     igual que el F-101)
-            #   · Activo normal                   → mantener signo balance: =(...)
+            #   · Ingreso 6001-6999 (excepto los is_negative) → INVERTIR
+            #     signo balance: =-(...) (balance trae créditos negativos,
+            #     F-101 los declara positivos)
+            #     [regla agregada 2026-06-05 a pedido del cliente]
+            #   · Activo normal y Costo/Gasto normal → mantener signo: =(...)
             is_pas_pat = self._is_pasivo_o_patrimonio(casillero)
+            is_ingreso = self._is_ingreso_estado_resultados(casillero)
             src_row = first.get("_source_row")
 
             def _formula_f(ref_or_value: str, is_literal: bool = False) -> str | float:
@@ -537,13 +569,13 @@ class A1Filler:
                     val = float(ref_or_value) if ref_or_value else 0
                     if is_negative:
                         return -abs(val)
-                    if is_pas_pat:
+                    if is_pas_pat or is_ingreso:
                         return -val
                     return val
                 # ref_or_value es una referencia tipo 'DATOS BALANCE'!Dxx
                 if is_negative:
                     return f"=-ABS({ref_or_value})"
-                if is_pas_pat:
+                if is_pas_pat or is_ingreso:
                     return f"=-{ref_or_value}"
                 return f"={ref_or_value}"
 
