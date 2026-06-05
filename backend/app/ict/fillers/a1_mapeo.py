@@ -227,6 +227,22 @@ class A1Filler:
             if mr.min_row >= A1_FIRST_DATA_ROW:
                 ws.unmerge_cells(str(mr))
 
+        # ⚠ FIX bug "notas SRI residuales del template" (2026-06-05):
+        # El template del SRI trae filas con texto explicativo
+        # (ej. "a) Corresponde al número, nombre y valor del casillero...")
+        # entre los bloques de cas. Cuando el filler escribe la lista de cas,
+        # esas filas quedan en medio del A1. El cliente PROPHAR reportó esto
+        # en ICT_9_PAPEL_TRABAJO.xlsx fila 52.
+        # SOLUCIÓN: limpiar TODAS las celdas A-H desde A1_FIRST_DATA_ROW hasta
+        # el final del template antes de empezar a escribir cas. El filler
+        # tendrá un canvas limpio y el formato se aplica al final.
+        last_row = ws.max_row
+        for r in range(A1_FIRST_DATA_ROW, last_row + 1):
+            for c in range(1, 9):  # A-H
+                cell = ws.cell(r, c)
+                if cell.value is not None:
+                    cell.value = None
+
         # Header
         for cell_addr, key in A1_HEADER_MAP.items():
             if _safe_set(ws, cell_addr, session_data.get(key, "")):
