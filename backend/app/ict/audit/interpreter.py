@@ -21,7 +21,20 @@ from backend.app.ict.audit.schemas import AnexoInterpretation
 log = logging.getLogger(__name__)
 
 _PROMPT_PATH = Path(__file__).parent / "prompts" / "auditor_tributario_ec.md"
-DEFAULT_MODEL = os.getenv("ICT_LLM_MODEL", "claude-sonnet-4-7-20260101")
+
+# Modelo Anthropic por defecto. Sonnet 4.5 es la versión más reciente verificada
+# en producción al 2026-06-04 (publicada 2025-09-29). Calibra precio/calidad:
+# suficiente capacidad de razonamiento contable + costo ~$0.003/1K input tokens.
+#
+# IMPORTANTE: el ID debe ser un modelo EXISTENTE en la API Anthropic.
+# Sobreescribir via env var ICT_LLM_MODEL cuando Anthropic publique uno nuevo.
+# Si el modelo no existe, _fallback_interpretation cubre el caso devolviendo
+# confianza_modelo="baja" + requiere_revision_humana=True (no crashea).
+#
+# Historial de cambios:
+#   2026-06-04: claude-sonnet-4-7-20260101 (ID futuro, no existía) →
+#              claude-sonnet-4-5-20250929 (verificado adversarial workflow).
+DEFAULT_MODEL = os.getenv("ICT_LLM_MODEL", "claude-sonnet-4-5-20250929")
 DEFAULT_TIMEOUT = 30.0
 DEFAULT_MAX_RETRIES = 3
 

@@ -222,6 +222,36 @@ de escribirse al Excel del papel de trabajo:
 Nunca renderizar un bloque interpretado al Excel sin estos 6 controles
 en su lugar.
 
+### Configuración del modelo LLM (env var `ICT_LLM_MODEL`)
+
+`backend/app/ict/audit/interpreter.py::DEFAULT_MODEL` define el modelo
+Anthropic por defecto. Actual: `claude-sonnet-4-5-20250929`.
+
+**Reglas operativas:**
+1. El ID del modelo DEBE existir en la API Anthropic vigente. Si se
+   pinea un ID futuro/inventado, el sistema NO crashea (cae a
+   `_fallback_interpretation` que marca confianza=baja), pero las
+   interpretaciones IA reales NUNCA se generarán.
+2. Cuando Anthropic publique un modelo nuevo (Sonnet 4.6, etc.) y
+   quieras usarlo, hacelo via env var en Render:
+   ```
+   ICT_LLM_MODEL=claude-sonnet-4-6-XXXXXXXX
+   ```
+   NO modifiques el default en `interpreter.py` salvo en bump de versión
+   verificado y commit con changelog.
+3. Síntoma de problema: si las hojas `ARTEFACTO A1` / `ARTEFACTO AUDITORIA`
+   muestran *"Análisis IA no disponible en esta sesión..."* en TODOS los
+   anexos, probablemente el `DEFAULT_MODEL` apunta a un ID inválido o
+   falta `ANTHROPIC_API_KEY` en el entorno. Diagnosticar primero el log
+   server-side y luego el ID del modelo.
+
+### Variables de entorno requeridas en Render
+
+| Variable | Requerida | Default | Notas |
+|---|---|---|---|
+| `ANTHROPIC_API_KEY` | Sí (para IA real) | — | `sk-ant-api03-...` del Anthropic Console. Sin esto → fallback graceful en todos los anexos. |
+| `ICT_LLM_MODEL` | No (tiene default) | `claude-sonnet-4-5-20250929` | Sobreescribir solo cuando Anthropic publique un modelo nuevo verificado. |
+
 ## A1 sin "saldos de línea" — TODOS los cas del balance del catálogo OFICIAL
 
 **REGLA OBLIGATORIA:** El anexo A1 (`backend/app/ict/cell_maps/a1.py`,
