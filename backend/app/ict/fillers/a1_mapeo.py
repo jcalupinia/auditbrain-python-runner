@@ -270,7 +270,73 @@ class A1Filler:
         bloque_to_casilleros: dict[str, list[str]] = {}
         current_bloque_id: str | None = None
 
+        # REGLA cliente (2026-06-05): A1 solo debe contener cas con saldo
+        # (en F-101 o balance contable) + ocultar los informativos. Los
+        # TOTALES siempre se muestran (cuadratura).
+        # Razón: el SRI necesita identificar los cas del balance vs F-101,
+        # no los meramente informativos.
+        from backend.app.ict.fillers.source_data_sheets import (
+            _es_informativo, F101_TOTALES,
+        )
+
+        def _cas_es_relevante_a1(cas: str, nombre: str) -> bool:
+            """¿Este cas debe aparecer en A1?"""
+            if cas in self.TOTAL_CASILLEROS or cas in F101_TOTALES:
+                return True  # TOTAL siempre
+            if _es_informativo(nombre):
+                return False  # Nunca informativos
+            # Tiene saldo en F-101?
+            v = f101.get(cas)
+            try:
+                f101_val = float(v) if v not in (None, "") else 0
+            except (TypeError, ValueError):
+                f101_val = 0
+            if f101_val != 0:
+                return True
+            # Tiene saldo contable?
+            for item in by_casillero.get(cas, []):
+                try:
+                    if float(item.get("saldo") or 0) != 0:
+                        return True
+                except (TypeError, ValueError):
+                    pass
+            return False
+
+        # Pre-pass: determinar el conjunto de cas que SÍ se van a emitir y
+        # cuál es el PRIMER cas emitido de cada bloque. Esto permite que
+        # block_start_rows se registre correctamente aunque el cas
+        # hardcoded como first_cas se haya filtrado.
+        cas_a_emitir: set[str] = set()
+        for cas, nombre in A1_CASILLEROS_ORDERED:
+            if _cas_es_relevante_a1(cas, nombre):
+                cas_a_emitir.add(cas)
+        # first_emitted_per_block[bloque_id] = primer cas EMITIDO de ese bloque
+        first_emitted_per_block: dict[str, str] = {}
+        for cas, nombre in A1_CASILLEROS_ORDERED:
+            if cas not in cas_a_emitir:
+                continue
+            if not cas.isdigit():
+                continue
+            n = int(cas)
+            # Map cas → bloque por rango
+            bloque = None
+            if 311 <= n <= 360: bloque = "ACT_CORR"
+            elif 362 <= n <= 448: bloque = "ACT_NO_CORR"
+            elif 511 <= n <= 549 or n == 593: bloque = "PAS_CORR"
+            elif 551 <= n <= 588 or (590 <= n <= 598 and n != 593): bloque = "PAS_NO_CORR"
+            elif 601 <= n <= 697: bloque = "PATRIMONIO"
+            elif 6001 <= n <= 6018: bloque = "ING_ORD"
+            elif 6019 <= n <= 6998: bloque = "ING_NO_OP"
+            elif 7001 <= n <= 7172: bloque = "COSTOS_OP"
+            elif 7173 <= n <= 7990: bloque = "GASTOS"
+            if bloque and bloque not in first_emitted_per_block:
+                first_emitted_per_block[bloque] = cas
+
         for casillero, casillero_nombre in A1_CASILLEROS_ORDERED:
+            # FILTRO REGLA cliente: solo cas relevantes en A1.
+            if casillero not in cas_a_emitir:
+                continue
+
             valor_declarado = f101.get(casillero)
             matching = by_casillero.get(casillero, [])
             n_accounts = len(matching)
@@ -278,9 +344,10 @@ class A1Filler:
             is_negative = casillero in self.NEGATIVE_CASILLEROS
             row_start = current_row
 
-            # Detectar inicio de bloque (primer casillero de cada bloque PRIMARIO)
-            for bloque_id, first_cas in self.BLOCK_FIRST_CAS.items():
-                if casillero == first_cas and bloque_id not in block_start_rows:
+            # Detectar inicio de bloque usando el PRIMER CAS EMITIDO de cada
+            # bloque (no el first_cas hardcoded, que podría haberse filtrado).
+            for bloque_id, primer_cas_emitido in first_emitted_per_block.items():
+                if casillero == primer_cas_emitido and bloque_id not in block_start_rows:
                     block_start_rows[bloque_id] = current_row
                     current_bloque_id = bloque_id
                     bloque_to_casilleros.setdefault(bloque_id, [])
@@ -345,6 +412,20 @@ class A1Filler:
                         casillero=casillero,
                     )
                     filled += 1
+                elif casillero in f101_lookup:
+                    # Fallback 1: bloque sin detalles emitidos (filtro
+                    # de relevancia descartó todo). Referencia directa F-101.
+                    _safe_set_formula(
+                        ws, f"C{current_row}",
+                        f"='DATOS F-101'!C{f101_lookup[casillero]}",
+                        casillero=casillero,
+                    )
+                    filled += 1
+                elif valor_declarado is not None:
+                    # Fallback 2: sin lookup (test sin DATOS F-101). Valor
+                    # literal — preserva la cuadratura aunque sin fórmula.
+                    _safe_set(ws, f"C{current_row}", float(valor_declarado))
+                    filled += 1
                 current_bloque_id = None  # cerrar bloque
             elif casillero in f101_lookup:
                 # Casillero normal: referencia con signo según nombre.
@@ -373,6 +454,13 @@ class A1Filler:
                     first_row = block_start_rows.get(bloque_id)
                     if first_row:
                         f_formula_for_total = f"=SUM(F{first_row}:F{current_row-1})"
+                    elif casillero in f101_lookup:
+                        # Fallback 1: bloque sin detalles emitidos → ref F-101.
+                        f_formula_for_total = f"='DATOS F-101'!C{f101_lookup[casillero]}"
+                    elif valor_declarado is not None:
+                        # Fallback 2: sin lookup ni detalles → fórmula refiriendo
+                        # a la celda C de la misma fila (asume balance = declarado).
+                        f_formula_for_total = f"=C{current_row}"
                     if bloque_id in block_start_rows:
                         del block_start_rows[bloque_id]
                 elif casillero in self.COMPOSITE_TOTALS:

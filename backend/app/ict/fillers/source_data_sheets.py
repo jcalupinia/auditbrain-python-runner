@@ -33,6 +33,67 @@ SHEET_F104 = "DATOS F-104"
 SHEET_BALANCE = "DATOS BALANCE"
 
 
+# ============================================================================
+# REGLA del proyecto (CLAUDE.md / pedido cliente 2026-06-05):
+# "Para A1 y DATOS F-101 solo extraer la información que tenga saldo y que NO
+#  diga informativo".
+# ============================================================================
+# TOTALES del F-101 — SIEMPRE se muestran (aunque tengan saldo 0) porque
+# son indicadores de cuadratura del balance.
+F101_TOTALES = {
+    "361", "449", "499",         # totales activos
+    "550", "589", "599",          # totales pasivos
+    "698", "699",                  # totales patrimonio + p+pa
+    "1005", "1025", "1030", "1040", "1045", "1055", "1065", "1075", "1099",
+    "6999",                        # total ingresos
+    "7991", "7992", "7999",       # totales costos/gastos
+    "899", "999",                  # totales impuesto
+}
+
+
+def _es_total_f101(cas: str) -> bool:
+    """¿Es un casillero TOTAL del F-101?"""
+    return cas in F101_TOTALES
+
+
+def _es_informativo(nombre: str) -> bool:
+    """¿El cas es meramente informativo (no parte de la cuadratura)?
+
+    SRI marca varios cas con "(INFORMATIVO)" o "(CASILLERO INFORMATIVO)" en
+    el nombre — son cas opcionales que el auditor no necesita ver en A1
+    o en DATOS F-101 si no tienen saldo.
+    """
+    if not nombre:
+        return False
+    upper = nombre.upper()
+    return (
+        "INFORMATIVO" in upper
+        or "CASILLERO INFORMATIVO" in upper
+    )
+
+
+def es_cas_relevante_f101(cas: str, valor, nombre: str) -> bool:
+    """REGLA: un cas del F-101 es relevante (se muestra en A1 / DATOS F-101) si:
+        1) Es un TOTAL (cuadratura), o
+        2) Tiene saldo != 0 Y no es informativo.
+
+    Cas con saldo 0 que no son TOTAL → ocultar.
+    Cas marcados (INFORMATIVO) con saldo 0 → ocultar.
+    Cas con saldo != 0 marcados (INFORMATIVO) → ocultar (regla del cliente).
+
+    Devuelve True si el cas debe aparecer.
+    """
+    if _es_total_f101(cas):
+        return True
+    if _es_informativo(nombre):
+        return False
+    try:
+        v = float(valor) if valor is not None else 0
+    except (TypeError, ValueError):
+        v = 0
+    return v != 0
+
+
 def _safe_text(s) -> str:
     """Escapa el texto para que Excel NO lo interprete como fórmula.
 
@@ -154,7 +215,11 @@ def build_f101_sheet(
     casillero_to_row: dict[str, int] = {}
     row = 4
 
-    # Paso 1: TODOS los casilleros canónicos (con valor 0.00 si el PDF no trae)
+    # DATOS F-101 conserva TODOS los 888 cas del catálogo (vista completa
+    # del declarante / referencia documental del SRI). El filtro de
+    # relevancia (solo con saldo + sin informativos) aplica SOLO al A1
+    # (regla cliente 2026-06-05: "datos f101 puede estar completo si se
+    # quiere, pero a1 no debe tener informativos").
     for cas in canonical_cas:
         val = f101.get(cas, 0)
         if val is None:
