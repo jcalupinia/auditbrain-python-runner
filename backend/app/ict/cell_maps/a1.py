@@ -49,26 +49,26 @@ A1_HEADER_MAP = {
 def _en_rango_a1(cas: str) -> bool:
     """¿Pertenece este cas al universo del A1?
 
-    El A1 cubre:
-      - Estado de Situación Financiera: 311-699 (Activos, Pasivos, Patrimonio)
-      - Estado de Resultados:
-          * Detalle ingresos: 6001-6999
-          * Subtotales de ingresos: 1005, 1045 (después de detalles)
-          * Detalle costos/gastos: 7001-7990
-          * Subtotales costos/gastos: 7991, 7992, 7999 (después de detalles)
+    REGLA SUPREMA (CLAUDE.md / pedido cliente 2026-06-04):
+    "TODOS los casilleros del formulario 101 que se encuentran en la
+     pestaña de datos f-101 deben trasladarse a la pestaña A1".
+
+    Por tanto: A1 cubre TODOS los casilleros del catálogo OFICIAL F-101
+    (los 888 publicados por SRI). Esto incluye:
+      - Estado de Situación Financiera: 311-699
+      - Estado de Resultados (subtotales): 1005, 1025, 1030, 1040, 1045, etc.
+      - Estado de Resultados (detalle ingresos): 6001-6999
+      - Estado de Resultados (detalle costos/gastos): 7001-7999
+      - Conciliación tributaria: 800-849 (utilidad, gastos no deducibles)
+      - Anticipo IR + retenciones: 850-899
+      - Cálculo IR: 900-999
+      - Anexos especiales y otros: 1100+, 5xxx, etc.
+
+    El único filtro es que el cas sea numérico. Cas con valor 0 en F-101
+    aparecen igualmente en A1 (la regla del proyecto exige "no saldos de
+    línea" — preferimos mostrar 0 a omitir un cas que el SRI declara).
     """
-    if not cas.isdigit():
-        return False
-    n = int(cas)
-    if 311 <= n <= 699:        # Balance
-        return True
-    if 6001 <= n <= 6999:      # Detalle ingresos
-        return True
-    if 7001 <= n <= 7999:      # Costos + gastos + sus subtotales
-        return True
-    if n in (1005, 1045):      # Solo subtotales del legacy A1
-        return True
-    return False
+    return cas.isdigit()
 
 
 def _a1_sort_key(cas: str) -> tuple[int, int]:
@@ -79,9 +79,16 @@ def _a1_sort_key(cas: str) -> tuple[int, int]:
        grupo 4 = TOTAL ingresos 6999
        grupo 5 = detalle costos/gastos 7001-7990
        grupo 6 = subtotales costos/gastos 7991, 7992, 7999
+       grupo 7 = otros subtotales del estado de resultados (1025, 1030, ...)
+       grupo 8 = conciliación tributaria + anticipo + cálculo IR (800-999)
+       grupo 9 = anexos especiales + resto (1100+, 5xxx, etc.)
 
-    Garantiza que el filler procese DETALLE antes que TOTAL — necesario
-    porque las fórmulas de TOTAL son SUM(detail_range)."""
+    Garantiza que el filler procese DETALLE antes que TOTAL (necesario
+    porque las fórmulas de TOTAL son SUM(detail_range)) y que los
+    casilleros nuevos del catálogo OFICIAL (sección conciliación, IR,
+    anexos especiales) aparezcan AL FINAL, después de la cuadratura
+    contable, para no romper el flujo visual del A1 tradicional.
+    """
     if not cas.isdigit():
         return (99, 0)
     n = int(cas)
@@ -97,7 +104,11 @@ def _a1_sort_key(cas: str) -> tuple[int, int]:
         return (5, n)
     if n in (7991, 7992, 7999):
         return (6, n)
-    return (99, n)
+    if 1001 <= n <= 1099:        # otros subtotales (1025, 1030, 1040, etc.)
+        return (7, n)
+    if 800 <= n <= 999:          # conciliación + anticipo + cálculo IR
+        return (8, n)
+    return (9, n)                # anexos especiales (1100+, 5xxx, etc.)
 
 
 A1_CASILLEROS_ORDERED: list[tuple[str, str]] = [

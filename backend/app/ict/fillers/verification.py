@@ -270,15 +270,32 @@ def build_verification_sheet(
     row = _table_header(ws, row, headers)
     table_eeff_start = row
 
+    # Rangos calibrados contra el catálogo OFICIAL F-101 SRI (888 cas, 2025).
+    # Histórico del bug 2026-06-04 (reporte cliente):
+    #   - Rango (362, 449) NO incluía cas 490 (DERECHOS DE USO) ni 491
+    #     ((-) AMORTIZACIÓN DERECHOS DE USO) — diff -82,328.19 perdida.
+    #   - Rango (511, 549) NO incluía cas 593 (PASIVO CORRIENTE POR
+    #     ARRENDAMIENTO) — diff -45,015.53 perdida.
+    #   - Rango (553, 588) NO incluía cas 594 (PASIVO NO CORRIENTE POR
+    #     ARRENDAMIENTO) ni los nuevos cas SRI > 588.
+    # Fix: expandir rangos hasta el TOTAL anterior - 1 (el TOTAL ya está
+    # en otra fila, no debe sumarse) e incluir explícitamente cas 593/594.
     BLOQUES_EEFF = [
-        ("TOTAL ACTIVOS CORRIENTES",      "361", [(311, 360)],            False),
-        ("TOTAL ACTIVOS NO CORRIENTES",   "449", [(362, 449)],            False),
-        ("TOTAL DEL ACTIVO",              "499", [(311, 499)],            False),
-        ("TOTAL PASIVOS CORRIENTES",      "550", [(511, 549)],            True),
-        ("TOTAL PASIVOS NO CORRIENTES",   "589", [(553, 588)],            True),
-        ("TOTAL DEL PASIVO",              "599", [(511, 599)],            True),
-        ("TOTAL DEL PATRIMONIO",          "698", [(601, 697)],            True),
-        ("TOTAL PASIVO + PATRIMONIO",     "699", [(511, 599), (601, 697)], True),
+        ("TOTAL ACTIVOS CORRIENTES",      "361", [(311, 360)],                   False),
+        # ACT NO CORR: ahora abarca 362-498 (incluye 490, 491 y cualquier
+        # cas nuevo SRI hasta antes del TOTAL DEL ACTIVO 499).
+        ("TOTAL ACTIVOS NO CORRIENTES",   "449", [(362, 498)],                   False),
+        ("TOTAL DEL ACTIVO",              "499", [(311, 498)],                   False),
+        # PAS CORR: 511-549 (corriente clásico) + cas 593 (arrendamiento
+        # corriente, el SRI lo numeró fuera del rango tradicional).
+        ("TOTAL PASIVOS CORRIENTES",      "550", [(511, 549), (593, 593)],       True),
+        # PAS NO CORR: 551-588 (no corriente clásico, sin TOTAL 550) +
+        # cas 594 (arrendamiento no corriente) + cas 590-592, 595-598.
+        ("TOTAL PASIVOS NO CORRIENTES",   "589", [(551, 588), (590, 598)],       True),
+        # TOTAL PASIVOS: cobertura completa 511-598 (sin TOTAL 599).
+        ("TOTAL DEL PASIVO",              "599", [(511, 598)],                   True),
+        ("TOTAL DEL PATRIMONIO",          "698", [(601, 697)],                   True),
+        ("TOTAL PASIVO + PATRIMONIO",     "699", [(511, 598), (601, 697)],       True),
     ]
     # Lookups defensivos: si no se pasaron, dict/list vacíos → fallback
     # a valores literales (sin fórmulas, comportamiento legacy).
