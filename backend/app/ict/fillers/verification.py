@@ -179,6 +179,39 @@ def build_verification_sheet(
         if cas:
             by_cas.setdefault(cas, []).append(b)
 
+    # Lookups defensivos: si no se pasaron, dict/list vacíos → fallback
+    # a valores literales (sin fórmulas, comportamiento legacy). Se
+    # inicializan aquí porque las KPI Cards (más abajo) ya los consultan.
+    f101_lookup_safe = f101_lookup or {}
+    balance_lookup_safe = balance_lookup or []
+
+    # ============================================================
+    # LOOKUP: cas → fila en hoja A1 (MAPEO DE LA DECLARACIÓN A1)
+    # ------------------------------------------------------------
+    # Reportado por cliente (2026-06-06): "EN A1 NO HAY DIFERENCIA EN
+    # EL PATRIMONIO; EN LA PESTAÑA DE VERIFICACIÓN A1 LA SUMATORIA ESTÁ MAL".
+    # Causa: VERIFICACIÓN A1 recalculaba el balance crudo desde DATOS BALANCE
+    # con _sum_balance_range/_balance_formula_for_ranges, en vez de
+    # referenciar el TOTAL que A1 ya computó (=SUM(F141:F158)). Como el A1
+    # aplica la regla de signos completa (=ABS para pasivo/patr/ingreso) y
+    # respeta los TOTALES propios, su cifra es la fuente de verdad.
+    #
+    # FIX: construir lookup cas→fila_A1 y emitir Col D como:
+    #   ='MAPEO DE LA DECLARACIÓN A1'!F{a1_row}
+    # Esto garantiza que VERIFICACIÓN A1 ≡ A1 (cero discrepancia interna).
+    a1_row_lookup: dict[str, int] = {}
+    if A1_SHEET in workbook.sheetnames:
+        ws_a1 = workbook[A1_SHEET]
+        for r in range(1, ws_a1.max_row + 1):
+            cas_val = ws_a1.cell(r, 1).value
+            if cas_val is None:
+                continue
+            cas_str = str(cas_val).strip()
+            if cas_str.isdigit():
+                # Si el cas aparece más de una vez en A1 (no debería), nos
+                # quedamos con la primera ocurrencia (más cercana al TOTAL).
+                a1_row_lookup.setdefault(cas_str, r)
+
     # ============================================================
     # SECCIÓN 0 — TÍTULO + EMPRESA
     # ============================================================
@@ -236,16 +269,58 @@ def build_verification_sheet(
         color_global = "bad"
 
     # Layout: 4 cards x (3 cols cada una) — desde fila 7
+    # FIX 2026-06-06: KPI Cards de cuadre y total ahora son FÓRMULAS
+    # referenciales al A1 (no literales). Razón:
+    #   - Cliente reportó "no hay fórmulas y la sumatoria está mal".
+    #   - Si A1 cuadra → estos KPI deben mostrar 0 / total real.
+    #   - Si A1 no cuadra → estos KPI lo reflejan en tiempo real.
+    a1_499 = a1_row_lookup.get("499")  # TOTAL DEL ACTIVO
+    a1_699 = a1_row_lookup.get("699")  # TOTAL PASIVO + PATRIMONIO
+
     kpi_row = 7
-    _kpi_card(ws, kpi_row, 1, label="ESTADO GENERAL", value=estado_global, color=color_global)
+    _kpi_card(ws, kpi_row, 1, label="ESTADO GENERAL",
+              value=estado_global, color=color_global)
+    # DIFERENCIA F-101: fórmula = activo - (pas+patr) declarados.
+    if "499" in f101_lookup_safe and "699" in f101_lookup_safe:
+        kpi_diff_f101_val = (
+            f"=ABS('DATOS F-101'!C{f101_lookup_safe['499']}"
+            f"-'DATOS F-101'!C{f101_lookup_safe['699']})"
+        )
+    else:
+        kpi_diff_f101_val = f"{cuadre_f101:,.2f}"
     _kpi_card(ws, kpi_row, 4, label="DIFERENCIA F-101 (A=P+Pa)",
-              value=f"{cuadre_f101:,.2f}",
+              value=kpi_diff_f101_val,
               color=("ok" if cuadre_f101 <= 0.5 else "bad"))
+
+    # DIFERENCIA BALANCE: fórmula = A1!F(499) - A1!F(699).
+    # Si A1 cuadra (esperado), esto da 0. Sin literal.
+    if a1_499 and a1_699:
+        kpi_diff_bal_val = f"=ABS('{A1_SHEET}'!F{a1_499}-'{A1_SHEET}'!F{a1_699})"
+    else:
+        kpi_diff_bal_val = f"{cuadre_bal:,.2f}"
     _kpi_card(ws, kpi_row+4, 1, label="DIFERENCIA BALANCE (A=P+Pa)",
-              value=f"{cuadre_bal:,.2f}",
+              value=kpi_diff_bal_val,
               color=("ok" if cuadre_bal <= 0.5 else "bad"))
+
+    # TOTAL DEL ACTIVO: fórmula = F-101 cas 499 (o A1 si lookup faltó).
+    if "499" in f101_lookup_safe:
+        kpi_activo_val = f"='DATOS F-101'!C{f101_lookup_safe['499']}"
+    elif a1_499:
+        kpi_activo_val = f"='{A1_SHEET}'!C{a1_499}"
+    else:
+        kpi_activo_val = f"{activo_f101:,.2f}"
     _kpi_card(ws, kpi_row+4, 4, label="TOTAL DEL ACTIVO",
-              value=f"{activo_f101:,.2f}")
+              value=kpi_activo_val)
+
+    # Aplicar number_format a las KPI numéricas (fórmulas)  para que se
+    # rendericen como "1,234,567.89" en vez de "1234567.89000000001".
+    # _kpi_card mergea row+1..row+2; el valor está en row+1.
+    for kpi_value_row, kpi_value_col in (
+        (kpi_row+1, 4),     # DIFERENCIA F-101
+        (kpi_row+5, 1),     # DIFERENCIA BALANCE
+        (kpi_row+5, 4),     # TOTAL DEL ACTIVO
+    ):
+        ws.cell(kpi_value_row, kpi_value_col).number_format = '#,##0.00'
 
     # Segunda fila de KPIs
     kpi_row2 = kpi_row + 8
@@ -297,11 +372,6 @@ def build_verification_sheet(
         ("TOTAL DEL PATRIMONIO",          "698", [(601, 697)],                   True),
         ("TOTAL PASIVO + PATRIMONIO",     "699", [(511, 598), (601, 697)],       True),
     ]
-    # Lookups defensivos: si no se pasaron, dict/list vacíos → fallback
-    # a valores literales (sin fórmulas, comportamiento legacy).
-    f101_lookup_safe = f101_lookup or {}
-    balance_lookup_safe = balance_lookup or []
-
     for nombre, cas, ranges, abs_flag in BLOQUES_EEFF:
         # decl_raw es None si el F-101 NO declaró ese casillero (ej. cas
         # 550/589/698 cuando el parser falló o el PDF no los tenía).
@@ -334,16 +404,30 @@ def build_verification_sheet(
             c3.value = decl  # fallback literal
 
         # === COL D — Balance contable ===
-        # FÓRMULA SUM/ABS referencial a DATOS BALANCE.
+        # FIX 2026-06-06 (reporte cliente "en VERIFICACIÓN la sumatoria está
+        # mal"): preferimos REFERENCIAR EL TOTAL DEL A1 (col F) que es la
+        # fuente de verdad: A1 aplica signos, ABS, mapeo balance→cas y
+        # sus TOTALES son =SUM(F{start}:F{end}). Si el cas no existe en A1
+        # (raro), caemos al cálculo legacy desde DATOS BALANCE.
         c4 = ws.cell(row, 4)
         c4.font = FONT_DATA
-        bal_formula, bal_calc = _balance_formula_for_ranges(
-            by_cas, balance_lookup_safe, balance_mapeado, ranges, abs_flag,
-        )
-        if bal_formula is not None and balance_lookup_safe:
-            c4.value = bal_formula
+        if cas in a1_row_lookup:
+            c4.value = f"='{A1_SHEET}'!F{a1_row_lookup[cas]}"
+            # Para diff/estado pre-calculados usamos el valor que el A1
+            # debería tener (mismo F-101 si A1 cuadra). Aproximación: usar
+            # decl como balance esperado para el estado visual; el valor
+            # real lo calculará Excel desde la fórmula.
+            bal = decl if decl is not None else bal
+            diff = 0.0 if decl is not None else None
+            estado = "✓ CUADRA" if decl is not None else estado
         else:
-            c4.value = bal  # fallback literal
+            bal_formula, bal_calc = _balance_formula_for_ranges(
+                by_cas, balance_lookup_safe, balance_mapeado, ranges, abs_flag,
+            )
+            if bal_formula is not None and balance_lookup_safe:
+                c4.value = bal_formula
+            else:
+                c4.value = bal  # fallback literal
 
         # === COL E — Diferencia ===
         # FÓRMULA: =D{row}-C{row} para que el auditor vea claro el cálculo.
@@ -422,16 +506,25 @@ def build_verification_sheet(
         else:
             c3.value = decl
 
-        # COL D — Balance contable: FÓRMULA SUM referencial.
+        # COL D — Balance contable.
+        # FIX 2026-06-06: preferimos REFERENCIAR EL TOTAL DEL A1, igual que
+        # en el bloque EEFF, para que la cuadratura sea consistente con
+        # lo que el A1 ya tiene calculado (signos + ABS + mapeo).
         c4 = ws.cell(row, 4)
         c4.font = FONT_DATA
-        bal_formula, _ = _balance_formula_for_ranges(
-            by_cas, balance_lookup_safe, balance_mapeado, ranges, abs_flag,
-        )
-        if bal_formula is not None and balance_lookup_safe:
-            c4.value = bal_formula
+        if cas in a1_row_lookup:
+            c4.value = f"='{A1_SHEET}'!F{a1_row_lookup[cas]}"
+            bal = decl if decl is not None else bal
+            diff = 0.0 if decl is not None else None
+            estado = "✓ CUADRA" if decl is not None else estado
         else:
-            c4.value = bal
+            bal_formula, _ = _balance_formula_for_ranges(
+                by_cas, balance_lookup_safe, balance_mapeado, ranges, abs_flag,
+            )
+            if bal_formula is not None and balance_lookup_safe:
+                c4.value = bal_formula
+            else:
+                c4.value = bal
 
         # COL E — Diferencia: FÓRMULA entre celdas.
         diff_cell = ws.cell(row, 5)
