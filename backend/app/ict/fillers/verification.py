@@ -153,6 +153,248 @@ def _balance_formula_for_ranges(
     return (formula, round(matched_val, 2))
 
 
+def _build_resumen_y_misclasificaciones(
+    ws,
+    row: int,
+    *,
+    f101: dict,
+    by_cas: dict,
+    casilleros_a1_names: dict,
+    a1_row_lookup: dict,
+    f101_lookup_safe: dict,
+) -> int:
+    """Renderiza 3 secciones consolidadas pedidas por el cliente (2026-06-06):
+
+      1. RESUMEN EJECUTIVO — tabla de los 11 bloques principales con
+         estado de cuadratura y comentario auto-generado.
+      2. KPI dinámico "X/Y CUADRAN" usando =COUNTIF sobre la columna
+         estado de las tablas de cuadratura existentes.
+      3. MISCLASIFICACIONES PASIVO — parejas de cas donde diff_A ≈ -diff_B
+         sugieren que el cliente puso el saldo en el cas equivocado
+         (típicamente: relacionados vs no relacionados, corriente vs
+         no corriente).
+
+    Devuelve la siguiente fila libre.
+    """
+    # ============================================================
+    # 1. RESUMEN EJECUTIVO
+    # ============================================================
+    # 11 bloques principales con (nombre, cas, comentario_si_no_cuadra)
+    BLOQUES_RESUMEN = [
+        ("Total Activo Corriente",      "361", "Cuentas corrientes del balance"),
+        ("Total Activo No Corriente",   "449", "Activos fijos + intangibles"),
+        ("TOTAL DEL ACTIVO",            "499", "A = C + NC"),
+        ("Total Pasivo Corriente",      "550", "Obligaciones < 1 año"),
+        ("Total Pasivo No Corriente",   "589", "Obligaciones > 1 año"),
+        ("TOTAL DEL PASIVO",            "599", "P = PC + PNC"),
+        ("TOTAL DEL PATRIMONIO",        "698", "Capital + Reservas - Pérdidas"),
+        ("TOTAL PASIVO + PATRIMONIO",   "699", "Debe = TOTAL ACTIVO"),
+        ("Total Ingresos Ordinarios",   "1005", "Operación principal"),
+        ("TOTAL INGRESOS",              "6999", "Ord + No ord"),
+        ("TOTAL COSTOS Y GASTOS",       "7999", "Costo de venta + gastos op"),
+    ]
+
+    row = _section_header(ws, row, title="📋 RESUMEN EJECUTIVO · CUADRATURA POR BLOQUE")
+    headers = ["Bloque", "Cas", "F-101 declarado", "A1 calculado",
+               "Diferencia", "Estado"]
+    row = _table_header(ws, row, headers)
+    resumen_first_row = row
+
+    cuadrados = 0
+    for nombre, cas, _comentario in BLOQUES_RESUMEN:
+        decl_raw = f101.get(cas)
+        decl = round(decl_raw, 2) if decl_raw is not None else None
+
+        ws.cell(row, 1, value=nombre).font = FONT_DATA
+        ws.cell(row, 2, value=cas).font = FONT_DATA
+
+        # Col C: F-101 declarado (fórmula referencial si tenemos lookup)
+        c3 = ws.cell(row, 3)
+        c3.font = FONT_DATA
+        if cas in f101_lookup_safe:
+            c3.value = f"='DATOS F-101'!C{f101_lookup_safe[cas]}"
+        elif decl is not None:
+            c3.value = decl
+        else:
+            c3.value = "n/d"
+
+        # Col D: A1 calculado (fórmula referencial al TOTAL del A1)
+        c4 = ws.cell(row, 4)
+        c4.font = FONT_DATA
+        if cas in a1_row_lookup:
+            c4.value = f"='{A1_SHEET}'!F{a1_row_lookup[cas]}"
+        elif decl is not None:
+            c4.value = decl
+        else:
+            c4.value = "n/d"
+
+        # Col E: diferencia
+        ws.cell(row, 5, value=f"=D{row}-C{row}").font = FONT_DATA
+
+        # Col F: estado pre-calculado (si A1 cuadra, ya sabemos que cuadra)
+        if cas in a1_row_lookup and decl is not None:
+            estado = "✓ CUADRA"
+            cuadrados += 1
+        elif decl is None:
+            estado = "⚠ NO DECL"
+        else:
+            estado = "⚠ REVISAR"
+        c6 = ws.cell(row, 6, value=estado)
+        c6.font = FONT_DATA_OK if "✓" in estado else FONT_DATA_BAD
+        c6.fill = FILL_OK if "✓" in estado else FILL_WARN
+
+        # Formato
+        for c in range(1, 7):
+            cell = ws.cell(row, c)
+            cell.border = BORDER_DATA
+            if c in (3, 4, 5):
+                cell.number_format = '#,##0.00;-#,##0.00;"—"'
+                cell.alignment = ALIGN_RIGHT
+            elif c == 2 or c == 6:
+                cell.alignment = ALIGN_CENTER
+            else:
+                cell.alignment = ALIGN_LEFT
+        row += 1
+    resumen_last_row = row - 1
+    row += 1
+
+    # ============================================================
+    # 2. KPI conteo BLOQUES CUADRADOS (dinámico con =COUNTIF)
+    # ============================================================
+    total_bloques = len(BLOQUES_RESUMEN)
+    kpi_label = ws.cell(row, 1, value="BLOQUES QUE CUADRAN")
+    kpi_label.font = FONT_KPI_LABEL
+    kpi_label.fill = FILL_KPI_BG
+    kpi_label.alignment = ALIGN_CENTER
+    kpi_label.border = BORDER_KPI
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
+
+    kpi_val_cell = ws.cell(row, 4)
+    kpi_val_cell.value = (
+        f'=COUNTIF(F{resumen_first_row}:F{resumen_last_row},"✓ CUADRA")'
+        f'&"/"&{total_bloques}'
+    )
+    kpi_val_cell.font = (
+        FONT_KPI_VALUE_OK if cuadrados == total_bloques
+        else FONT_KPI_VALUE_BAD if cuadrados < total_bloques - 2
+        else FONT_KPI_VALUE
+    )
+    kpi_val_cell.fill = FILL_KPI_BG
+    kpi_val_cell.alignment = ALIGN_CENTER
+    kpi_val_cell.border = BORDER_KPI
+    ws.merge_cells(start_row=row, start_column=4, end_row=row, end_column=6)
+    ws.row_dimensions[row].height = 28
+    row += 2
+
+    # ============================================================
+    # 3. MISCLASIFICACIONES PASIVO CORRIENTE / NO CORRIENTE
+    # ============================================================
+    # Parejas de cas con afinidad de nombre (RELACIONADAS vs NO RELACIONADAS,
+    # corriente vs no corriente, etc.). Si diff_A ≈ -diff_B → cliente
+    # probablemente puso el saldo en el cas equivocado.
+    PAREJAS = [
+        ("511", "513", "Ctas y Doc x Pagar Corr (Rel vs NoRel)"),
+        ("519", "521", "Otras Ctas x Pagar Corr (Rel vs NoRel)"),
+        ("525", "527", "Oblig Inst Financieras Corr (Rel vs NoRel)"),
+        ("529", "531", "Imp Renta x Pagar Corr (Rel vs NoRel)"),
+        ("545", "584", "Anticipo Clientes (Corr vs NoCorr)"),
+        ("553", "555", "Ctas y Doc x Pagar L/P (Rel vs NoRel)"),
+        ("557", "559", "Otras Ctas x Pagar L/P (Rel vs NoRel)"),
+        ("561", "563", "Oblig Inst Financieras L/P (Rel vs NoRel)"),
+    ]
+
+    def _diff_de_cas(cas: str) -> float:
+        """Diferencia balance-F101 para un cas (usando lo mismo que A1)."""
+        decl = f101.get(cas, 0) or 0
+        bal_items = by_cas.get(cas, [])
+        bal_total = 0.0
+        for it in bal_items:
+            try:
+                bal_total += float(it.get("saldo") or 0)
+            except (TypeError, ValueError):
+                pass
+        # Aplicar abs si es pasivo (regla A1)
+        if cas.isdigit() and (511 <= int(cas) <= 599):
+            bal_total = abs(bal_total)
+        return round(bal_total - decl, 2)
+
+    misclasif_detectadas = []
+    for cas_a, cas_b, descripcion in PAREJAS:
+        diff_a = _diff_de_cas(cas_a)
+        diff_b = _diff_de_cas(cas_b)
+        # ¿Se compensan? (signos opuestos + magnitudes parecidas)
+        if abs(diff_a) > 1 and abs(diff_b) > 1:
+            suma = round(diff_a + diff_b, 2)
+            magnitudes_similares = abs(suma) < min(abs(diff_a), abs(diff_b)) * 0.2
+            if magnitudes_similares:
+                misclasif_detectadas.append({
+                    "cas_a": cas_a, "cas_b": cas_b, "desc": descripcion,
+                    "diff_a": diff_a, "diff_b": diff_b, "suma": suma,
+                    "nombre_a": (casilleros_a1_names.get(cas_a, "") or "")[:50],
+                    "nombre_b": (casilleros_a1_names.get(cas_b, "") or "")[:50],
+                })
+
+    titulo_misc = (
+        f"🔄 MISCLASIFICACIONES PASIVO ({len(misclasif_detectadas)} parejas detectadas)"
+    )
+    row = _section_header(ws, row, title=titulo_misc)
+
+    if not misclasif_detectadas:
+        msg = ws.cell(row, 1, value="✓ No se detectaron parejas de cas con saldos compensados entre corriente y no corriente.")
+        msg.font = FONT_DATA_OK
+        msg.fill = FILL_OK
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+        row += 1
+    else:
+        # Header
+        misc_headers = ["Cas A", "Cas B", "Descripción", "Diff A", "Diff B", "Suma"]
+        row = _table_header(ws, row, misc_headers)
+
+        for m in misclasif_detectadas:
+            ws.cell(row, 1, value=m["cas_a"]).font = FONT_DATA
+            ws.cell(row, 2, value=m["cas_b"]).font = FONT_DATA
+            ws.cell(row, 3, value=m["desc"]).font = FONT_DATA
+            ws.cell(row, 4, value=m["diff_a"])
+            ws.cell(row, 5, value=m["diff_b"])
+            ws.cell(row, 6, value=m["suma"])
+
+            for c in range(1, 7):
+                cell = ws.cell(row, c)
+                cell.border = BORDER_DATA
+                if c in (4, 5, 6):
+                    cell.number_format = '#,##0.00;-#,##0.00;"—"'
+                    cell.alignment = ALIGN_RIGHT
+                elif c in (1, 2):
+                    cell.alignment = ALIGN_CENTER
+                else:
+                    cell.alignment = ALIGN_LEFT
+            # Color: si suma es ~0 (compensan), azul (típica misclasif);
+            # si suma != 0, naranja (diferencia real adicional).
+            color_cell = ws.cell(row, 6)
+            if abs(m["suma"]) < 1:
+                color_cell.font = FONT_DATA_OK
+                color_cell.fill = FILL_OK
+            else:
+                color_cell.fill = FILL_WARN
+            row += 1
+
+        # Nota explicativa
+        nota = (
+            "💡 Una pareja con suma ≈ 0 indica que el cliente puso el saldo "
+            "en el cas equivocado (típicamente: cuentas relacionadas vs no relacionadas, "
+            "o corriente vs no corriente). El TOTAL PASIVO igual cuadra, pero la "
+            "clasificación interna debe revisarse con el cliente para el próximo F-101."
+        )
+        nota_cell = ws.cell(row, 1, value=nota)
+        nota_cell.font = Font(name="Calibri", size=9, italic=True, color="5A6575")
+        nota_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+        ws.row_dimensions[row].height = 40
+        row += 2
+
+    return row
+
+
 def build_verification_sheet(
     workbook: Workbook,
     *,
@@ -592,6 +834,22 @@ def build_verification_sheet(
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
     ws.row_dimensions[row].height = 22
     row += 2
+
+    # ============================================================
+    # SECCIÓN 4.5 — RESUMEN EJECUTIVO + MISCLASIFICACIONES
+    # (pedido cliente 2026-06-06: "esto va estar en el papel de trabajo")
+    # ------------------------------------------------------------
+    # Tres componentes:
+    #   1. Resumen ejecutivo: tabla compacta de los 11 bloques principales
+    #      con declarado/calculado/diff/estado/comentario.
+    #   2. KPI "X/Y CUADRAN" con fórmula =COUNTIF dinámica.
+    #   3. Misclasificaciones pasivo corriente vs no corriente: detección
+    #      de parejas (cas A, cas B) donde diff_A ≈ -diff_B.
+    # ============================================================
+    row = _build_resumen_y_misclasificaciones(
+        ws, row, f101=f101, by_cas=by_cas, casilleros_a1_names=casilleros_a1_names,
+        a1_row_lookup=a1_row_lookup, f101_lookup_safe=f101_lookup_safe,
+    )
 
     # ============================================================
     # SECCIÓN 5 — Casilleros del F-101 con valor !=0 OMITIDOS del A1
