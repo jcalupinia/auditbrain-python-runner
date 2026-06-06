@@ -563,20 +563,31 @@ class A1Filler:
             src_row = first.get("_source_row")
 
             def _formula_f(ref_or_value: str, is_literal: bool = False) -> str | float:
-                """Devuelve fórmula F con el signo aplicado según las reglas."""
+                """Devuelve fórmula F con el signo aplicado según las reglas.
+
+                FIX 2026-06-05 (reporte cliente): antes usábamos `=-{ref}` para
+                pasivo/patrimonio/ingreso asumiendo que el balance los traía
+                NEGATIVOS (crédito). Pero PROPHAR los carga con signo VARIABLE
+                (algunos negativos, otros ya normalizados a positivo). Esto
+                generaba signo invertido erróneamente cuando el saldo venía
+                positivo (resultado: doble del valor en col G de diferencia).
+
+                Solución: usar `=ABS(...)` en vez de `=-{ref}` para
+                NORMALIZAR a positivo sin importar el signo de entrada. La
+                cuadratura sigue siendo correcta porque ABS(-X) = X = -(-X)
+                y ABS(+X) = X.
+                """
                 if is_literal:
-                    # ref_or_value es un float, aplicamos signo directo
                     val = float(ref_or_value) if ref_or_value else 0
                     if is_negative:
                         return -abs(val)
                     if is_pas_pat or is_ingreso:
-                        return -val
+                        return abs(val)
                     return val
-                # ref_or_value es una referencia tipo 'DATOS BALANCE'!Dxx
                 if is_negative:
                     return f"=-ABS({ref_or_value})"
                 if is_pas_pat or is_ingreso:
-                    return f"=-{ref_or_value}"
+                    return f"=ABS({ref_or_value})"
                 return f"={ref_or_value}"
 
             if src_row:
