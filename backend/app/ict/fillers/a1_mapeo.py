@@ -316,7 +316,7 @@ class A1Filler:
         # Razón: el SRI necesita identificar los cas del balance vs F-101,
         # no los meramente informativos.
         from backend.app.ict.fillers.source_data_sheets import (
-            _es_informativo, F101_TOTALES,
+            _es_informativo, _es_excluido_estado_resultados, F101_TOTALES,
         )
 
         def _cas_es_relevante_a1(cas: str, nombre: str) -> bool:
@@ -325,6 +325,11 @@ class A1Filler:
                 return True  # TOTAL siempre
             if _es_informativo(nombre):
                 return False  # Nunca informativos
+            # REGLA cliente 2026-06-06: en el estado de resultados (6001-7999)
+            # también ocultar VALOR EXENTO, VALOR NO DEDUCIBLE y NO OBJETO
+            # DE IMPUESTO — son ajustes tributarios sin contraparte contable.
+            if _es_excluido_estado_resultados(cas, nombre):
+                return False
             # Tiene saldo en F-101?
             v = f101.get(cas)
             try:

@@ -72,6 +72,49 @@ def _es_informativo(nombre: str) -> bool:
     )
 
 
+def _es_excluido_estado_resultados(cas: str, nombre: str) -> bool:
+    """¿Este cas del estado de resultados (6001-7999) debe ocultarse del A1?
+
+    Regla cliente (2026-06-06): "QUITA DE A1 DEL ESTADO DE RESULTADOS LOS
+    CASILLEROS INFORMATIVOS, INGRESOS EXENTOS Y GASTOS NO DEDUCIBLES.
+    SOLO DEBE QUEDAR LAS CUENTAS QUE SE COMPARAN CON SALDOS CONTABLES."
+
+    Excluye 4 familias del estado de resultados (rango 6001-7999):
+      - VALOR EXENTO ... (~70 cas, son ingresos exentos del 25% IR)
+      - VALOR NO DEDUCIBLE ... (~99 cas, ajuste tributario sin saldo contable)
+      - INGRESOS NO OBJETO DE IMPUESTO A LA RENTA (cas 6150, 7906)
+      - Cualquier cas marcado (INFORMATIVO) en el estado de resultados
+
+    Estos cas son ajustes tributarios o información declarativa que NO
+    tienen contraparte en el libro mayor del cliente — el auditor no
+    puede cuadrarlos. Mostrarlos en A1 genera ruido y confunde.
+
+    Los TOTALES (6999, 7999, etc.) NUNCA se excluyen: la cuadratura es
+    responsabilidad de la fila TOTAL, no del detalle.
+
+    NO se aplica al balance (311-699): ahí no hay este patrón.
+    """
+    if not cas or not cas.isdigit():
+        return False
+    n = int(cas)
+    # Solo aplica al estado de resultados.
+    if not (6001 <= n <= 7999):
+        return False
+    if not nombre:
+        return False
+    upper = nombre.upper().strip()
+    # Patrones de exclusión validados contra catálogo F-101 OFICIAL SRI 2025.
+    if upper.startswith("VALOR EXENTO"):
+        return True
+    if upper.startswith("VALOR NO DEDUCIBLE"):
+        return True
+    if "NO OBJETO DE IMPUESTO" in upper:
+        return True
+    if _es_informativo(nombre):
+        return True
+    return False
+
+
 def es_cas_relevante_f101(cas: str, valor, nombre: str) -> bool:
     """REGLA: un cas del F-101 es relevante (se muestra en A1 / DATOS F-101) si:
         1) Es un TOTAL (cuadratura), o
