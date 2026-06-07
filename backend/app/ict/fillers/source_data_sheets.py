@@ -56,13 +56,31 @@ def _es_total_f101(cas: str) -> bool:
     return cas in F101_TOTALES
 
 
-def _es_informativo(nombre: str) -> bool:
+# Cas que CONCEPTUALMENTE son informativos del subbloque revaluaciones
+# pero el catálogo SRI 2025 NO los marca con "(INFORMATIVO)" en el nombre.
+# Verificado empíricamente (PROPHAR 2025): incluirlos infla la cuadratura
+# del cas 449 (TOTAL ACT NO CORR) porque son subtotales del subbloque
+# revaluaciones — sus componentes ya están contabilizados en cas 385.
+_INFORMATIVOS_EXTRA: frozenset[str] = frozenset({
+    "469",  # (-) TOTAL DEPRECIACION ACUMULADA DEL AJUSTE ACUMULADO POR
+            # REVALUACIONES Y OTROS AJUSTES NEGATIVOS — falta "(INFORMATIVO)"
+            # en el catálogo SRI 2025 pero es subtotal del subbloque.
+})
+
+
+def _es_informativo(nombre: str, cas: str | None = None) -> bool:
     """¿El cas es meramente informativo (no parte de la cuadratura)?
 
     SRI marca varios cas con "(INFORMATIVO)" o "(CASILLERO INFORMATIVO)" en
     el nombre — son cas opcionales que el auditor no necesita ver en A1
     o en DATOS F-101 si no tienen saldo.
+
+    Adicional (2026-06-06): cas en _INFORMATIVOS_EXTRA también se tratan
+    como informativos aunque el catálogo SRI no los marque (omisión SRI).
     """
+    # Cas conceptualmente informativo aunque el nombre no lo diga.
+    if cas and cas in _INFORMATIVOS_EXTRA:
+        return True
     if not nombre:
         return False
     upper = nombre.upper()
@@ -110,7 +128,7 @@ def _es_excluido_estado_resultados(cas: str, nombre: str) -> bool:
         return True
     if "NO OBJETO DE IMPUESTO" in upper:
         return True
-    if _es_informativo(nombre):
+    if _es_informativo(nombre, cas):
         return True
     return False
 
@@ -128,7 +146,7 @@ def es_cas_relevante_f101(cas: str, valor, nombre: str) -> bool:
     """
     if _es_total_f101(cas):
         return True
-    if _es_informativo(nombre):
+    if _es_informativo(nombre, cas):
         return False
     try:
         v = float(valor) if valor is not None else 0

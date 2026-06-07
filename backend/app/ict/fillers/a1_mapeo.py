@@ -323,7 +323,7 @@ class A1Filler:
             """¿Este cas debe aparecer en A1?"""
             if cas in self.TOTAL_CASILLEROS or cas in F101_TOTALES:
                 return True  # TOTAL siempre
-            if _es_informativo(nombre):
+            if _es_informativo(nombre, cas):
                 return False  # Nunca informativos
             # REGLA cliente 2026-06-06: en el estado de resultados (6001-7999)
             # también ocultar VALOR EXENTO, VALOR NO DEDUCIBLE y NO OBJETO
