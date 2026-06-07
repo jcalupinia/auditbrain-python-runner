@@ -65,6 +65,15 @@ _INFORMATIVOS_EXTRA: frozenset[str] = frozenset({
     "469",  # (-) TOTAL DEPRECIACION ACUMULADA DEL AJUSTE ACUMULADO POR
             # REVALUACIONES Y OTROS AJUSTES NEGATIVOS — falta "(INFORMATIVO)"
             # en el catálogo SRI 2025 pero es subtotal del subbloque.
+    "6140", # VENTAS NETAS DE PROPIEDADES PLANTA Y EQUIPO — verificado
+            # empíricamente PROPHAR 2025: el F-101 SRI NO suma este cas
+            # al TOTAL INGRESOS (6999). El ingreso real va en cas 6035
+            # (UTILIDAD EN VENTA DE PPE). Sin este filtro, el A1 inflaba
+            # cas 6999 en $176.52 (mismo valor que cas 6035, duplicado).
+    "7901", # BAJA DE INVENTARIOS — verificado empíricamente PROPHAR 2025:
+            # el F-101 SRI NO suma este cas al TOTAL COSTOS Y GASTOS
+            # (7999). Es un cas con tratamiento tributario especial.
+            # Sin este filtro, el A1 inflaba cas 7999 en $328,047.09.
 })
 
 
