@@ -271,6 +271,17 @@ def reparse_session_uploads(db: Session, *, session: ICTSession) -> dict:
                         casilleros_total = len(parsed.get("casilleros", {}))
                     elif slot_name == "balance_mapeado":
                         new_extracted["balance_mapeado"] = parsed.get("cuentas", [])
+                        # Propagar advertencias del parser al shared_context.
+                        # Bug histórico 2026-06-07: cuentas con cas pero sin
+                        # saldo se omitían silenciosamente. El parser ahora las
+                        # reporta y aquí las propagamos para que VERIFICACIÓN A1
+                        # las muestre como hallazgo al auditor.
+                        new_extracted["balance_mapeado_advertencias"] = (
+                            parsed.get("advertencias", [])
+                        )
+                        new_extracted["balance_mapeado_cuentas_sin_saldo"] = (
+                            parsed.get("cuentas_sin_saldo", [])
+                        )
                         casilleros_total = len(parsed.get("cuentas", []))
                     elif slot_name == "kardex":
                         new_extracted["kardex_items"] = parsed["items"]
@@ -593,6 +604,12 @@ def generate_excel(db: Session, *, session: ICTSession) -> tuple[bytes, bytes]:
             # celdas se están sumando").
             f101_lookup=shared_context.get("_f101_lookup") or {},
             balance_lookup=shared_context.get("_balance_lookup") or [],
+            # Advertencias del parser de balance: cuentas con cas asignado
+            # pero saldo vacío. Aparecen en VERIFICACIÓN A1 para que el
+            # auditor las cotice con el cliente.
+            balance_cuentas_sin_saldo=shared_context.get(
+                "balance_mapeado_cuentas_sin_saldo", []
+            ) or [],
         )
     except Exception:
         import logging

@@ -406,6 +406,7 @@ def build_verification_sheet(
     f101_lookup: dict[str, int] | None = None,
     balance_lookup: list[int] | None = None,
     trace_log: list[dict] | None = None,
+    balance_cuentas_sin_saldo: list[dict] | None = None,
 ) -> None:
     if SHEET_NAME in workbook.sheetnames:
         del workbook[SHEET_NAME]
@@ -850,6 +851,76 @@ def build_verification_sheet(
         ws, row, f101=f101, by_cas=by_cas, casilleros_a1_names=casilleros_a1_names,
         a1_row_lookup=a1_row_lookup, f101_lookup_safe=f101_lookup_safe,
     )
+
+    # ============================================================
+    # SECCIÓN 4.6 — CUENTAS SIN SALDO DETECTADAS POR EL PARSER
+    # ------------------------------------------------------------
+    # REGLA cliente 2026-06-07 ("regla que no permita que se vuelva a
+    # omitir información"): el parser de balance ahora reporta cuentas
+    # con casillero SRI asignado pero saldo vacío. Las mostramos aquí
+    # para que el auditor las cotice con el cliente antes de cerrar el
+    # ICT. Si la lista está vacía → mensaje verde "Todas las cuentas
+    # tienen saldo".
+    # ============================================================
+    if balance_cuentas_sin_saldo is None:
+        balance_cuentas_sin_saldo = []
+
+    titulo_sin_saldo = (
+        f"⚠ CUENTAS CON CASILLERO PERO SIN SALDO "
+        f"({len(balance_cuentas_sin_saldo)} detectadas por el parser)"
+    )
+    row = _section_header(ws, row, title=titulo_sin_saldo)
+
+    if not balance_cuentas_sin_saldo:
+        msg = ws.cell(row, 1, value=(
+            "✓ TODAS las cuentas del balance mapeado tienen saldo. No se "
+            "detectó información omitida."
+        ))
+        msg.font = FONT_DATA_OK
+        msg.fill = FILL_OK
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+        row += 1
+    else:
+        # Tabla con las cuentas sin saldo
+        headers_ss = [
+            "Fila Excel", "Código contable", "Descripción cuenta",
+            "Casillero SRI", "Cuenta", "Acción auditor",
+        ]
+        row = _table_header(ws, row, headers_ss)
+        for cta in balance_cuentas_sin_saldo:
+            ws.cell(row, 1, value=cta.get("_source_excel_row", "")).font = FONT_DATA
+            ws.cell(row, 2, value=cta.get("codigo", "")).font = FONT_DATA
+            ws.cell(row, 3, value=cta.get("descripcion", "")).font = FONT_DATA
+            ws.cell(row, 4, value=cta.get("casillero_sri", "")).font = FONT_DATA
+            ws.cell(row, 5, value="SIN SALDO").font = FONT_DATA_BAD
+            ws.cell(
+                row, 6,
+                value="Solicitar saldo al cliente o confirmar que es 0"
+            ).font = FONT_DATA
+            for c in range(1, 7):
+                cell = ws.cell(row, c)
+                cell.border = BORDER_DATA
+                cell.fill = FILL_WARN
+                if c in (1, 4):
+                    cell.alignment = ALIGN_CENTER
+                else:
+                    cell.alignment = ALIGN_LEFT
+            row += 1
+        # Nota explicativa
+        nota = (
+            "💡 Estas cuentas tienen un casillero SRI asignado en el plan "
+            "de cuentas pero su columna saldo está VACÍA (no es 0 explícito). "
+            "Antes del fix 2026-06-07, el parser las descartaba en silencio "
+            "y nunca aparecían en el ICT. Ahora se reportan aquí para que el "
+            "auditor confirme con el cliente si el saldo real es 0 o se "
+            "olvidó de completarlo."
+        )
+        nota_cell = ws.cell(row, 1, value=nota)
+        nota_cell.font = Font(name="Calibri", size=9, italic=True, color="5A6575")
+        nota_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+        ws.row_dimensions[row].height = 48
+        row += 2
 
     # ============================================================
     # SECCIÓN 5 — Casilleros del F-101 con valor !=0 OMITIDOS del A1
