@@ -640,9 +640,170 @@ def build_balance_sheet(wb: Workbook, balance: list[dict]) -> list[int]:
         item_to_row.append(row)
         row += 1
 
-    widths = {"A": 14, "B": 22, "C": 50, "D": 18, "E": 30}
+    detail_last_row = row - 1
+    detail_first_row = 4
+
+    # ================================================================
+    # BLOQUE CUADRE CON MAPEO A1 (pedido cliente 2026-06-06)
+    # ================================================================
+    # Para cada casillero SRI único, comparamos:
+    #   - Suma balance contable (SUMIF sobre col D del detalle de arriba)
+    #   - Saldo final que el A1 muestra en col F del cas (VLOOKUP a A1)
+    # La diferencia en valores absolutos debe ser 0 (A1 toma el balance
+    # con signo aplicado, pero el monto bruto es el mismo).
+    casilleros_unicos = sorted(
+        {str(it.get("casillero_sri", "")).strip() for it in balance
+         if str(it.get("casillero_sri", "")).strip().isdigit()},
+        key=lambda x: int(x),
+    )
+
+    if casilleros_unicos:
+        row += 2  # separación visual
+        # Título
+        title_cell = ws.cell(row, 1,
+                             value="🔍 CUADRE POR CASILLERO · Balance ↔ MAPEO A1")
+        title_cell.font = Font(name="Calibri", size=12, bold=True, color="FFFFFF")
+        title_cell.fill = PatternFill("solid", fgColor="2D5F8B")
+        title_cell.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+        ws.row_dimensions[row].height = 24
+        row += 1
+
+        # Headers
+        headers = [
+            "Casillero",
+            "# Cuentas",
+            "Suma Balance",
+            "Saldo A1 col F",
+            "Diferencia |F|-|Bal|",
+            "Cuadre",
+        ]
+        for i, h in enumerate(headers, start=1):
+            c = ws.cell(row, i, value=h)
+            c.font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+            c.fill = PatternFill("solid", fgColor="4A7BA8")
+            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            c.border = BORDER
+        ws.row_dimensions[row].height = 28
+        row += 1
+        resumen_first = row
+
+        # Referencia a la hoja A1 — usamos comillas porque tiene espacios
+        A1_REF = "'MAPEO DE LA DECLARACIÓN A1'"
+        # Rango col A:F del A1 (debería cubrir todos los cas)
+        # Usamos VLOOKUP con 4° argumento FALSE para coincidencia exacta.
+        # Si el cas no está en A1 (raro), la cifra será #N/A — convertimos
+        # a 0 con IFERROR.
+
+        for cas in casilleros_unicos:
+            ws.cell(row, 1, value=cas).font = FONT_DATA
+            ws.cell(row, 1).alignment = Alignment(horizontal="center")
+            ws.cell(row, 1).border = BORDER
+
+            # Col B: cuántas cuentas hay con ese cas
+            f_count = f'=COUNTIF(A{detail_first_row}:A{detail_last_row},"{cas}")'
+            cb = ws.cell(row, 2, value=f_count)
+            cb.font = FONT_DATA
+            cb.alignment = Alignment(horizontal="center")
+            cb.border = BORDER
+
+            # Col C: suma balance del cas (SUMIF)
+            f_sumbal = f'=SUMIF(A{detail_first_row}:A{detail_last_row},"{cas}",D{detail_first_row}:D{detail_last_row})'
+            cc = ws.cell(row, 3, value=f_sumbal)
+            cc.font = FONT_DATA
+            cc.number_format = '#,##0.00;-#,##0.00;0.00'
+            cc.alignment = Alignment(horizontal="right")
+            cc.border = BORDER
+
+            # Col D: saldo del A1 col F (VLOOKUP)
+            # Buscar cas en col A de A1, devolver col F (índice 6)
+            # IFERROR para evitar #N/A si no encuentra
+            f_a1 = (
+                f'=IFERROR(VLOOKUP("{cas}",{A1_REF}!$A:$F,6,FALSE),0)'
+            )
+            cd = ws.cell(row, 4, value=f_a1)
+            cd.font = FONT_DATA
+            cd.number_format = '#,##0.00;-#,##0.00;0.00'
+            cd.alignment = Alignment(horizontal="right")
+            cd.border = BORDER
+
+            # Col E: diferencia en valor absoluto (debe ser 0)
+            # ABS(D{row}) - ABS(C{row})
+            f_diff = f'=ABS(D{row})-ABS(C{row})'
+            ce = ws.cell(row, 5, value=f_diff)
+            ce.font = FONT_DATA
+            ce.number_format = '#,##0.00;-#,##0.00;0.00'
+            ce.alignment = Alignment(horizontal="right")
+            ce.border = BORDER
+
+            # Col F: estado (texto IF basado en col E)
+            # Si |diff| < 0.5 → "✓ OK", sino "✗ DIFF"
+            f_estado = f'=IF(ABS(E{row})<0.5,"✓ OK","✗ DIFF")'
+            cf = ws.cell(row, 6, value=f_estado)
+            cf.font = FONT_DATA
+            cf.alignment = Alignment(horizontal="center")
+            cf.border = BORDER
+
+            row += 1
+
+        resumen_last = row - 1
+
+        # Fila TOTAL al final del bloque
+        ws.cell(row, 1, value="TOTAL").font = Font(name="Calibri", size=10, bold=True)
+        ws.cell(row, 1).alignment = Alignment(horizontal="center")
+        ws.cell(row, 1).fill = PatternFill("solid", fgColor="DCEAF7")
+        ws.cell(row, 1).border = BORDER
+
+        # # cas únicos
+        c_cnt = ws.cell(row, 2, value=len(casilleros_unicos))
+        c_cnt.font = Font(name="Calibri", size=10, bold=True)
+        c_cnt.alignment = Alignment(horizontal="center")
+        c_cnt.fill = PatternFill("solid", fgColor="DCEAF7")
+        c_cnt.border = BORDER
+
+        # Suma total balance
+        c_sum_bal = ws.cell(row, 3, value=f'=SUM(C{resumen_first}:C{resumen_last})')
+        c_sum_bal.font = Font(name="Calibri", size=10, bold=True)
+        c_sum_bal.number_format = '#,##0.00;-#,##0.00;0.00'
+        c_sum_bal.alignment = Alignment(horizontal="right")
+        c_sum_bal.fill = PatternFill("solid", fgColor="DCEAF7")
+        c_sum_bal.border = BORDER
+
+        # Suma total A1 col F
+        c_sum_a1 = ws.cell(row, 4, value=f'=SUM(D{resumen_first}:D{resumen_last})')
+        c_sum_a1.font = Font(name="Calibri", size=10, bold=True)
+        c_sum_a1.number_format = '#,##0.00;-#,##0.00;0.00'
+        c_sum_a1.alignment = Alignment(horizontal="right")
+        c_sum_a1.fill = PatternFill("solid", fgColor="DCEAF7")
+        c_sum_a1.border = BORDER
+
+        # Diferencias absolutas (cuántas filas con diff > 0.5)
+        c_cnt_diff = ws.cell(
+            row, 5,
+            value=f'=COUNTIF(F{resumen_first}:F{resumen_last},"✗ DIFF")&" con diff"',
+        )
+        c_cnt_diff.font = Font(name="Calibri", size=10, bold=True, color="C62828")
+        c_cnt_diff.alignment = Alignment(horizontal="center")
+        c_cnt_diff.fill = PatternFill("solid", fgColor="DCEAF7")
+        c_cnt_diff.border = BORDER
+
+        # Estado global
+        c_glob = ws.cell(
+            row, 6,
+            value=(
+                f'=IF(COUNTIF(F{resumen_first}:F{resumen_last},"✗ DIFF")=0,'
+                f'"✓ TODO CUADRA","⚠ REVISAR")'
+            ),
+        )
+        c_glob.font = Font(name="Calibri", size=10, bold=True)
+        c_glob.alignment = Alignment(horizontal="center")
+        c_glob.fill = PatternFill("solid", fgColor="DCEAF7")
+        c_glob.border = BORDER
+        row += 1
+
+    widths = {"A": 14, "B": 22, "C": 50, "D": 18, "E": 30, "F": 14}
     for col, w in widths.items():
         ws.column_dimensions[col].width = w
     ws.freeze_panes = "A4"
-    ws.auto_filter.ref = f"A3:E{row-1}"
+    ws.auto_filter.ref = f"A3:E{detail_last_row}"
     return item_to_row
