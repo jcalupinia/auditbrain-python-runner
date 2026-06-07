@@ -578,29 +578,40 @@ class A1Filler:
             def _formula_f(ref_or_value: str, is_literal: bool = False) -> str | float:
                 """Devuelve fórmula F con el signo aplicado según las reglas.
 
-                FIX 2026-06-05 (reporte cliente): antes usábamos `=-{ref}` para
-                pasivo/patrimonio/ingreso asumiendo que el balance los traía
-                NEGATIVOS (crédito). Pero PROPHAR los carga con signo VARIABLE
-                (algunos negativos, otros ya normalizados a positivo). Esto
-                generaba signo invertido erróneamente cuando el saldo venía
-                positivo (resultado: doble del valor en col G de diferencia).
+                FIX 2026-06-07 (reporte cliente cas 623): para PATRIMONIO se
+                volvió a `=-{ref}` (invertir signo crudo) porque el cas 623
+                GANANCIAS Y PERDIDAS ACTUARIALES tiene sub-cuentas mixtas:
+                  - Jubilación: balance crédito (-) → en patrimonio = ganancia
+                  - Desahucio:  balance débito (+) → en patrimonio = pérdida
+                Con ABS se perdía la diferenciación: ambas quedaban +. Con
+                -{ref}, la regla deudor/acreedor del balance se preserva:
+                  - crédito → ganancia → POSITIVO en A1
+                  - débito  → pérdida  → NEGATIVO en A1
 
-                Solución: usar `=ABS(...)` en vez de `=-{ref}` para
-                NORMALIZAR a positivo sin importar el signo de entrada. La
-                cuadratura sigue siendo correcta porque ABS(-X) = X = -(-X)
-                y ABS(+X) = X.
+                INGRESOS sigue con ABS porque PROPHAR los carga ya como
+                positivos en balance (no respeta convención crédito = +).
+
+                Reglas:
+                  is_negative (cas (-) catálogo): =-ABS(ref) [siempre neg]
+                  is_ingreso (6001-6999):        =ABS(ref)  [siempre pos]
+                  is_pas_pat (pasivo/patrim):    =-{ref}    [invertir signo]
+                  resto (activo, costo):         ={ref}     [signo crudo]
                 """
                 if is_literal:
                     val = float(ref_or_value) if ref_or_value else 0
                     if is_negative:
                         return -abs(val)
-                    if is_pas_pat or is_ingreso:
+                    if is_ingreso:
                         return abs(val)
+                    if is_pas_pat:
+                        return -val
                     return val
                 if is_negative:
                     return f"=-ABS({ref_or_value})"
-                if is_pas_pat or is_ingreso:
+                if is_ingreso:
                     return f"=ABS({ref_or_value})"
+                if is_pas_pat:
+                    return f"=-{ref_or_value}"
                 return f"={ref_or_value}"
 
             if src_row:
