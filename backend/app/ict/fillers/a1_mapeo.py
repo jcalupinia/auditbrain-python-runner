@@ -366,7 +366,15 @@ class A1Filler:
             # Map cas → bloque por rango
             bloque = None
             if 311 <= n <= 360: bloque = "ACT_CORR"
-            elif 362 <= n <= 448: bloque = "ACT_NO_CORR"
+            # ACT_NO_CORR componentes que SÍ van al SUM del TOTAL 449:
+            #   - cas 362-448 (componentes principales: PPE, intangibles)
+            #   - cas 490-491 (derechos de uso por arrendamiento + amortización)
+            # Fix 2026-06-06: incluir cas 490/491 que antes quedaban después
+            # del TOTAL 449 (verificado contra F-101 PROPHAR 2025 — sin estos
+            # cas el SUM daba $10,921,729.14 vs declarado $11,004,057.33).
+            # Excluidos: cas 449 (TOTAL) y cas 460-498 (subtotales informativos
+            # del subbloque REVALUACIONES/FIDEICOMISOS, no van al SUM).
+            elif (362 <= n <= 448) or n in (490, 491): bloque = "ACT_NO_CORR"
             elif 511 <= n <= 549 or n == 593: bloque = "PAS_CORR"
             elif 551 <= n <= 588 or (590 <= n <= 598 and n != 593): bloque = "PAS_NO_CORR"
             elif 601 <= n <= 697: bloque = "PATRIMONIO"

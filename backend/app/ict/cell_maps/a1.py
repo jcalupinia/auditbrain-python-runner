@@ -71,41 +71,90 @@ def _en_rango_a1(cas: str) -> bool:
     return cas.isdigit()
 
 
-def _a1_sort_key(cas: str) -> tuple[int, int]:
-    """Ordena los cas del A1 con jerarquía:
-       grupo 1 = balance 311-699
-       grupo 2 = detalle ingresos 6001-6998 (sin TOTAL 6999)
-       grupo 3 = subtotales ingresos 1005, 1045
-       grupo 4 = TOTAL ingresos 6999
-       grupo 5 = detalle costos/gastos 7001-7990
-       grupo 6 = subtotales costos/gastos 7991, 7992, 7999
-       grupo 7 = otros subtotales del estado de resultados (1025, 1030, ...)
-       grupo 8 = conciliación tributaria + anticipo + cálculo IR (800-999)
-       grupo 9 = anexos especiales + resto (1100+, 5xxx, etc.)
+def _a1_sort_key(cas: str) -> tuple[int, int, int]:
+    """Ordena los cas del A1 con jerarquía de tier + sub-tier + n.
+
+    REGLA cliente (2026-06-06): TOTALES deben ir DESPUÉS de TODOS sus
+    componentes para que las fórmulas =SUM(detail_range) los incluyan.
+    Reporte de bug: el cas 449 (TOTAL ACT NO CORR) salía en pos 135 pero
+    los cas 490 (DERECHOS DE USO) y 491 ((-) AMORTIZACIÓN) en pos 153-154,
+    quedando FUERA del SUM. Diff: $82,328.19.
+
+    Jerarquía dentro del balance (tier 1) por sub-tier:
+      0: ACT CORR componentes (311-360)
+      1: TOTAL ACT CORR (361)
+      2: ACT NO CORR componentes (362-498, incluye 490, 491, 468, etc.)
+      3: TOTAL ACT NO CORR (449) ← DESPUÉS de componentes
+      4: TOTAL ACTIVO (499)
+      5: PAS CORR componentes (511-549 + 593 arrendamiento corriente)
+      6: TOTAL PAS CORR (550)
+      7: PAS NO CORR componentes (551-588, 590-598 sin 593)
+      8: TOTAL PAS NO CORR (589)
+      9: TOTAL PASIVO (599)
+      10: PATRIMONIO componentes (601-697)
+      11: TOTAL PATRIMONIO (698)
+      12: TOTAL PAS+PATR (699)
 
     Garantiza que el filler procese DETALLE antes que TOTAL (necesario
     porque las fórmulas de TOTAL son SUM(detail_range)) y que los
-    casilleros nuevos del catálogo OFICIAL (sección conciliación, IR,
-    anexos especiales) aparezcan AL FINAL, después de la cuadratura
-    contable, para no romper el flujo visual del A1 tradicional.
+    casilleros nuevos del catálogo OFICIAL aparezcan AL FINAL.
     """
     if not cas.isdigit():
-        return (99, 0)
+        return (99, 99, 0)
     n = int(cas)
-    if 311 <= n <= 699:
-        return (1, n)
+    # === BALANCE (tier 1) con sub-tier ===
+    # Sub-tier dentro de cada bloque coloca:
+    #   - componentes primero (van al SUM del TOTAL)
+    #   - TOTAL después
+    #   - subtotales informativos del bloque (no van al SUM) AL FINAL
+    if 311 <= n <= 360:
+        return (1, 0, n)
+    if n == 361:
+        return (1, 1, n)
+    # ACT NO CORR componentes principales: 362-448 + cas 490-491 (DERECHOS USO).
+    # Cas 490/491 van aquí (no en sub-tier 4) porque SÍ son componentes
+    # del cálculo SRI del cas 449 (verificado empíricamente PROPHAR 2025).
+    if (362 <= n <= 448) or n in (490, 491):
+        return (1, 2, n)
+    if n == 449:
+        return (1, 3, n)
+    # Subtotales informativos del subbloque REVALUACIONES + FIDEICOMISOS
+    # (cas 460-489, 492-498) — están en F-101 después del cas 449 y NO
+    # se incluyen en su SUM (sus componentes ya están en cas 385 del PPE).
+    # Verificación PROPHAR 2025: incluirlos en SUM(449) inflaba $814,091.82.
+    if (460 <= n <= 489) or (492 <= n <= 498):
+        return (1, 4, n)
+    if n == 499:
+        return (1, 5, n)
+    if (511 <= n <= 549) or n == 593:
+        return (1, 6, n)
+    if n == 550:
+        return (1, 7, n)
+    if (551 <= n <= 588) or (590 <= n <= 598 and n != 593):
+        return (1, 8, n)
+    if n == 589:
+        return (1, 9, n)
+    if n == 599:
+        return (1, 10, n)
+    if 601 <= n <= 697:
+        return (1, 11, n)
+    if n == 698:
+        return (1, 12, n)
+    if n == 699:
+        return (1, 13, n)
+    # === ESTADO DE RESULTADOS ===
     if 6001 <= n <= 6998:
-        return (2, n)
+        return (2, 0, n)
     if n in (1005, 1045):
-        return (3, n)
+        return (3, 0, n)
     if n == 6999:
-        return (4, n)
+        return (4, 0, n)
     if 7001 <= n <= 7990:
-        return (5, n)
+        return (5, 0, n)
     if n in (7991, 7992, 7999):
-        return (6, n)
+        return (6, 0, n)
     if 1001 <= n <= 1099:        # otros subtotales (1025, 1030, 1040, etc.)
-        return (7, n)
+        return (7, 0, n)
     if 800 <= n <= 999:          # conciliación + anticipo + cálculo IR
         return (8, n)
     return (9, n)                # anexos especiales (1100+, 5xxx, etc.)
