@@ -30,6 +30,7 @@ from backend.app.ict.cell_maps.a1 import (
     A1_FIRST_DATA_ROW,
     A1_HEADER_MAP,
     A1_SHEET,
+    clasificar_resultado,
 )
 
 
@@ -402,10 +403,15 @@ class A1Filler:
             elif 511 <= n <= 549 or n == 593: bloque = "PAS_CORR"
             elif 551 <= n <= 588 or (590 <= n <= 598 and n != 593): bloque = "PAS_NO_CORR"
             elif 601 <= n <= 697: bloque = "PATRIMONIO"
-            elif 6001 <= n <= 6018: bloque = "ING_ORD"
-            elif 6019 <= n <= 6998: bloque = "ING_NO_OP"
-            elif 7001 <= n <= 7172: bloque = "COSTOS_OP"
-            elif 7173 <= n <= 7990: bloque = "GASTOS"
+            elif (6001 <= n <= 6998) or (7001 <= n <= 7990):
+                # Clasificación del Estado de Resultados POR NATURALEZA (no por
+                # rango): costos y gastos están INTERCALADOS por número en el
+                # F-101 (ej. 7040 COSTO / 7041 GASTO / 7247 COSTO > 7172). Fuente
+                # única compartida con el orden (cell_maps.a1.clasificar_resultado),
+                # validada contra el golden master ICT_14. Devuelve None para los
+                # no-sumables (exento/no deducible/informativo), que el sort_key
+                # ubica DESPUÉS del total → quedan fuera del SUM posicional.
+                bloque = clasificar_resultado(cas)
             if bloque and bloque not in first_emitted_per_block:
                 first_emitted_per_block[bloque] = cas
 

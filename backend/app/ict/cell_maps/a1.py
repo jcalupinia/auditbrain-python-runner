@@ -71,6 +71,67 @@ def _en_rango_a1(cas: str) -> bool:
     return cas.isdigit()
 
 
+# ====================================================================
+# Clasificación del Estado de Resultados POR NATURALEZA (no por rango).
+# Validado contra el golden master ICT_14 (PROPHAR): costos y gastos están
+# INTERCALADOS por número en el F-101 (ej. 7040 COSTO / 7041 GASTO / 7178 COSTO
+# > 7172), así que NO se pueden separar por rango. Se separan por el nombre del
+# casillero en el catálogo oficial. Los "VALOR EXENTO" / "NO DEDUCIBLE" /
+# "(INFORMATIVO)" NO suman al total y se ubican después de los subtotales.
+# ====================================================================
+
+# Casilleros 7xxx informativos/especiales que NO suman al TOTAL (aunque su
+# nombre no contenga "(INFORMATIVO)"). Verificado contra ICT_14 y commits previos.
+_RESULTADO_NO_SUMABLE_EXTRA: set[str] = {"7901", "7902", "7903", "7905", "7907", "7908"}
+
+# Casilleros 7xxx de naturaleza GASTO cuyo nombre NO empieza con "GASTO"
+# (excepciones del catálogo). Validado contra ICT_14: 7113 y 7654 caen en GASTOS.
+_GASTO_EXCEPCIONES: set[str] = {"7038", "7113", "7239", "7299", "7302", "7305", "7308"}
+# Casilleros 7xxx de naturaleza COSTO cuyo nombre NO empieza con "COSTO".
+_COSTO_EXCEPCIONES: set[str] = {"7001", "7037", "7238", "7653"}
+
+
+def _resultado_no_sumable(cas: str, nombre: str) -> bool:
+    """True si el cas del Estado de Resultados NO debe sumar al subtotal
+    (valores exentos, no deducibles, informativos y especiales)."""
+    U = (nombre or "").upper()
+    if "NO DEDUCIBLE" in U or "VALOR EXENTO" in U or "(INFORMATIVO)" in U:
+        return True
+    return cas in _RESULTADO_NO_SUMABLE_EXTRA
+
+
+def _es_gasto_resultado(cas: str, nombre: str) -> bool:
+    """True si el cas 7xxx es de naturaleza GASTO (vs COSTO)."""
+    U = (nombre or "").upper()
+    if U.startswith("GASTO") or U.rstrip().endswith("(GASTO)"):
+        return True
+    return cas in _GASTO_EXCEPCIONES
+
+
+def clasificar_resultado(cas: str) -> str | None:
+    """Clasifica un casillero del Estado de Resultados en su bloque sumable.
+
+    Devuelve uno de: 'ING_OP', 'ING_NO_OP', 'COSTOS_OP', 'GASTOS', o None si
+    no es sumable (exento/no deducible/informativo) o no es del estado de
+    resultados. Es la fuente única usada por el orden (cell_maps) y por el
+    filler (a1_mapeo) para que coincidan."""
+    if not cas.isdigit():
+        return None
+    n = int(cas)
+    nombre = F101_CASILLERO_NAMES.get(cas, "")
+    if 6001 <= n <= 6998:
+        if _resultado_no_sumable(cas, nombre):
+            return None
+        return "ING_ORD" if n <= 6032 else "ING_NO_OP"
+    if 7001 <= n <= 7990:
+        if _resultado_no_sumable(cas, nombre):
+            return None
+        if cas in _COSTO_EXCEPCIONES:
+            return "COSTOS_OP"
+        return "GASTOS" if _es_gasto_resultado(cas, nombre) else "COSTOS_OP"
+    return None
+
+
 def _a1_sort_key(cas: str) -> tuple[int, int, int]:
     """Ordena los cas del A1 con jerarquía de tier + sub-tier + n.
 
@@ -142,17 +203,38 @@ def _a1_sort_key(cas: str) -> tuple[int, int, int]:
         return (1, 12, n)
     if n == 699:
         return (1, 13, n)
-    # === ESTADO DE RESULTADOS ===
-    if 6001 <= n <= 6998:
-        return (2, 0, n)
-    if n in (1005, 1045):
-        return (3, 0, n)
-    if n == 6999:
-        return (4, 0, n)
-    if 7001 <= n <= 7990:
-        return (5, 0, n)
-    if n in (7991, 7992, 7999):
-        return (6, 0, n)
+    # === ESTADO DE RESULTADOS — INGRESOS (tier 2, agrupado por naturaleza) ===
+    # operacionales → TOTAL 1005 → no operacionales → TOTAL 1045 → no-sumables →
+    # TOTAL INGRESOS 6999. Cada subtotal va DESPUÉS de sus componentes para que
+    # el SUM posicional sume solo lo que corresponde.
+    if (6001 <= n <= 6998) or n in (1005, 1045, 6999):
+        if n == 1005:
+            return (2, 1, n)            # TOTAL ingresos operacionales
+        if n == 1045:
+            return (2, 3, n)            # TOTAL ingresos no operacionales
+        if n == 6999:
+            return (2, 6, n)            # TOTAL INGRESOS
+        cls = clasificar_resultado(cas)
+        if cls == "ING_ORD":
+            return (2, 0, n)
+        if cls == "ING_NO_OP":
+            return (2, 2, n)
+        return (2, 4, n)                # exento/no deducible/informativo (no suma)
+    # === ESTADO DE RESULTADOS — COSTOS/GASTOS (tier 5, agrupado por naturaleza) ===
+    # costos → TOTAL 7991 → gastos → TOTAL 7992 → no-sumables → TOTAL 7999.
+    if (7001 <= n <= 7990) or n in (7991, 7992, 7999):
+        if n == 7991:
+            return (5, 1, n)            # TOTAL COSTOS OPERATIVOS
+        if n == 7992:
+            return (5, 3, n)            # TOTAL GASTOS
+        if n == 7999:
+            return (5, 6, n)            # TOTAL COSTOS Y GASTOS
+        cls = clasificar_resultado(cas)
+        if cls == "COSTOS_OP":
+            return (5, 0, n)
+        if cls == "GASTOS":
+            return (5, 2, n)
+        return (5, 4, n)                # no deducible/informativo (no suma)
     if 1001 <= n <= 1099:        # otros subtotales (1025, 1030, 1040, etc.)
         return (7, 0, n)
     if 800 <= n <= 999:          # conciliación + anticipo + cálculo IR
