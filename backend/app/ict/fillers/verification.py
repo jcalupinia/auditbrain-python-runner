@@ -395,6 +395,226 @@ def _build_resumen_y_misclasificaciones(
     return row
 
 
+def _build_validacion_cobertura(
+    ws,
+    row: int,
+    *,
+    f101: dict,
+    balance_mapeado: list[dict],
+    balance_cuentas_sin_saldo: list[dict],
+    workbook: Workbook,
+) -> int:
+    """Renderiza sección "🔒 VALIDACIÓN DE COBERTURA" — pedido cliente 2026-06-07:
+    "verificar que del formulario 101 llegue toda la información a DATOS F-101
+    y que se traslade toda la información del balance mapeado a DATOS BALANCE".
+
+    Reporta:
+      - Cuántos casilleros del F-101 se parsearon vs cuántos en DATOS F-101
+      - Cuántas cuentas del balance se parsearon vs cuántas en DATOS BALANCE
+      - Cuántas cuentas tienen problemas (sin cas, sin saldo, etc.)
+      - Estado global: ✓ OK / ⚠ REVISAR / ✗ PÉRDIDA DE DATOS
+    """
+    # ============================================================
+    # 1. Conteos del PARSER (lo que se extrajo de los archivos fuente)
+    # ============================================================
+    f101_cas_parsed = sum(1 for v in f101.values() if v not in (None, 0, 0.0))
+    f101_cas_total = len(f101)
+    balance_cuentas_parsed = len(balance_mapeado)
+    balance_sin_saldo = len(balance_cuentas_sin_saldo)
+    balance_con_saldo = balance_cuentas_parsed - balance_sin_saldo
+
+    # ============================================================
+    # 2. Conteos del EXCEL GENERADO (lo que llegó a las hojas)
+    # ============================================================
+    f101_cas_excel = 0
+    if "DATOS F-101" in workbook.sheetnames:
+        ws_f101 = workbook["DATOS F-101"]
+        for r in range(4, ws_f101.max_row + 1):
+            cas = str(ws_f101.cell(r, 1).value or "").strip()
+            if cas.isdigit():
+                f101_cas_excel += 1
+
+    balance_cuentas_excel = 0
+    if "DATOS BALANCE" in workbook.sheetnames:
+        ws_bal = workbook["DATOS BALANCE"]
+        # Las filas con cuenta son las que tienen valor en col A (cas) o B (código)
+        for r in range(4, ws_bal.max_row + 1):
+            a = str(ws_bal.cell(r, 1).value or "").strip()
+            b = str(ws_bal.cell(r, 2).value or "").strip()
+            # Excluir filas del bloque "CUADRE POR CASILLERO" (titulares como TOTAL)
+            if "🔍" in a or "TOTAL" == a or "Casillero" in a:
+                break  # llegamos al bloque cuadre, terminamos
+            if a.isdigit() or b:
+                balance_cuentas_excel += 1
+
+    # ============================================================
+    # 3. Cas declarados en F-101 con valor pero NO en DATOS F-101
+    # ============================================================
+    f101_perdidos = []
+    if "DATOS F-101" in workbook.sheetnames:
+        cas_en_excel = set()
+        ws_f101 = workbook["DATOS F-101"]
+        for r in range(4, ws_f101.max_row + 1):
+            cas = str(ws_f101.cell(r, 1).value or "").strip()
+            if cas.isdigit():
+                cas_en_excel.add(cas)
+        for cas, v in f101.items():
+            if v in (None, 0, 0.0):
+                continue
+            if cas not in cas_en_excel:
+                f101_perdidos.append({"cas": cas, "valor": v})
+
+    # ============================================================
+    # 4. Estado global
+    # ============================================================
+    problemas = []
+    if f101_perdidos:
+        problemas.append(
+            f"{len(f101_perdidos)} cas declarados del F-101 NO llegaron a DATOS F-101"
+        )
+    if balance_sin_saldo > 0:
+        problemas.append(
+            f"{balance_sin_saldo} cuentas del balance sin saldo (cliente debe completar)"
+        )
+    if balance_cuentas_parsed != balance_cuentas_excel:
+        problemas.append(
+            f"Discrepancia balance: {balance_cuentas_parsed} parseadas vs "
+            f"{balance_cuentas_excel} en DATOS BALANCE"
+        )
+
+    if not problemas:
+        estado_global = "✓ COBERTURA 100%"
+        color_estado = "ok"
+    elif f101_perdidos:
+        estado_global = "✗ PÉRDIDA DE DATOS"
+        color_estado = "bad"
+    else:
+        estado_global = "⚠ REVISAR"
+        color_estado = "warn"
+
+    # ============================================================
+    # 5. Renderizar la sección
+    # ============================================================
+    row = _section_header(
+        ws, row,
+        title=f"🔒 VALIDACIÓN DE COBERTURA · {estado_global}",
+    )
+
+    # Tabla resumen
+    headers_cob = ["Fuente", "Total parseado", "En Excel", "Cobertura", "Estado"]
+    row = _table_header(ws, row, headers_cob[:5])
+
+    for label, parsed, excel, info in [
+        (
+            f"F-101 (casilleros con valor)",
+            f101_cas_parsed,
+            f101_cas_excel,
+            "Solo cas con valor != 0",
+        ),
+        (
+            f"F-101 (catálogo completo)",
+            f101_cas_total,
+            f101_cas_excel,
+            "TODOS los cas parseados",
+        ),
+        (
+            f"BALANCE (cuentas totales)",
+            balance_cuentas_parsed,
+            balance_cuentas_excel,
+            "Incluye cuentas sin saldo",
+        ),
+        (
+            f"BALANCE (cuentas con saldo)",
+            balance_con_saldo,
+            balance_con_saldo,
+            "Excluye cuentas sin saldo",
+        ),
+    ]:
+        ws.cell(row, 1, value=label).font = FONT_DATA
+        ws.cell(row, 2, value=parsed).font = FONT_DATA
+        ws.cell(row, 3, value=excel).font = FONT_DATA
+        cobertura = (excel / parsed * 100) if parsed > 0 else 100
+        ws.cell(row, 4, value=f"{cobertura:.1f}%").font = FONT_DATA
+        if cobertura >= 99.9:
+            est = "✓ OK"
+            est_cell = ws.cell(row, 5, value=est)
+            est_cell.font = FONT_DATA_OK
+            est_cell.fill = FILL_OK
+        elif cobertura >= 95:
+            est = "⚠ REVISAR"
+            est_cell = ws.cell(row, 5, value=est)
+            est_cell.font = FONT_DATA_BAD
+            est_cell.fill = FILL_WARN
+        else:
+            est = "✗ PÉRDIDA"
+            est_cell = ws.cell(row, 5, value=est)
+            est_cell.font = FONT_DATA_BAD
+            est_cell.fill = FILL_BAD
+        for c in range(1, 6):
+            cell = ws.cell(row, c)
+            cell.border = BORDER_DATA
+            if c in (2, 3):
+                cell.alignment = ALIGN_RIGHT
+            elif c in (4, 5):
+                cell.alignment = ALIGN_CENTER
+            else:
+                cell.alignment = ALIGN_LEFT
+        row += 1
+
+    row += 1
+
+    # Lista de cas perdidos del F-101 (si hay)
+    if f101_perdidos:
+        sub_titulo = (
+            f"✗ CASILLEROS DEL F-101 DECLARADOS PERO NO EXTRAÍDOS "
+            f"({len(f101_perdidos)})"
+        )
+        row = _section_header(ws, row, title=sub_titulo)
+        row = _table_header(ws, row, ["Casillero", "Valor declarado F-101",
+                                      "Acción auditor", "", "", ""])
+        for item in f101_perdidos:
+            ws.cell(row, 1, value=item["cas"]).font = FONT_DATA
+            v_cell = ws.cell(row, 2, value=item["valor"])
+            v_cell.font = FONT_DATA
+            v_cell.number_format = '#,##0.00;-#,##0.00;0.00'
+            ws.cell(
+                row, 3,
+                value="Verificar parser F-101 — cas con valor no llegó al Excel",
+            ).font = FONT_DATA_BAD
+            for c in range(1, 7):
+                cell = ws.cell(row, c)
+                cell.border = BORDER_DATA
+                cell.fill = FILL_BAD
+                if c == 1:
+                    cell.alignment = ALIGN_CENTER
+                elif c == 2:
+                    cell.alignment = ALIGN_RIGHT
+                else:
+                    cell.alignment = ALIGN_LEFT
+            row += 1
+        row += 1
+
+    # Nota explicativa al pie
+    nota = (
+        "💡 Esta sección garantiza que TODOS los casilleros del F-101 PDF y "
+        "TODAS las cuentas del balance mapeado lleguen a las hojas DATOS. "
+        "Si la cobertura es < 100% en F-101, hay un BUG del parser que se "
+        "debe investigar inmediatamente. Si el balance tiene cuentas sin "
+        "saldo, el cliente debe completarlas o confirmar que son cero. "
+        "Si hay pérdida de datos confirmada, NO ENTREGAR el ICT hasta resolver."
+    )
+    nota_cell = ws.cell(row, 1, value=nota)
+    nota_cell.font = Font(name="Calibri", size=9, italic=True, color="5A6575")
+    nota_cell.alignment = Alignment(
+        horizontal="left", vertical="center", wrap_text=True,
+    )
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+    ws.row_dimensions[row].height = 60
+    row += 2
+
+    return row
+
+
 def build_verification_sheet(
     workbook: Workbook,
     *,
@@ -597,6 +817,25 @@ def build_verification_sheet(
               color=("ok" if cuentas_con_cas == cuentas_total else "bad"))
 
     row = kpi_row2 + 9
+
+    # ============================================================
+    # SECCIÓN 1.5 — VALIDACIÓN DE COBERTURA (NUEVA, 2026-06-07)
+    # Pedido cliente: "verificar que del formulario 101 llegue toda la
+    # información a DATOS F-101 y del balance mapeado a DATOS BALANCE".
+    # Se renderiza ANTES de las cuadraturas para que sea lo PRIMERO que
+    # el auditor ve después de los KPIs ejecutivos.
+    # ============================================================
+    if balance_cuentas_sin_saldo is None:
+        balance_cuentas_sin_saldo_temp = []
+    else:
+        balance_cuentas_sin_saldo_temp = balance_cuentas_sin_saldo
+    row = _build_validacion_cobertura(
+        ws, row,
+        f101=f101,
+        balance_mapeado=balance_mapeado,
+        balance_cuentas_sin_saldo=balance_cuentas_sin_saldo_temp,
+        workbook=workbook,
+    )
 
     # ============================================================
     # SECCIÓN 2 — CUADRATURA Estado Situación Financiera
