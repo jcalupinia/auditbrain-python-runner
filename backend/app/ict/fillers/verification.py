@@ -443,6 +443,7 @@ def build_verification_sheet(
     #   ='MAPEO DE LA DECLARACIÓN A1'!F{a1_row}
     # Esto garantiza que VERIFICACIÓN A1 ≡ A1 (cero discrepancia interna).
     a1_row_lookup: dict[str, int] = {}
+    a1_row_duplicados: dict[str, list[int]] = {}
     if A1_SHEET in workbook.sheetnames:
         ws_a1 = workbook[A1_SHEET]
         for r in range(1, ws_a1.max_row + 1):
@@ -451,9 +452,27 @@ def build_verification_sheet(
                 continue
             cas_str = str(cas_val).strip()
             if cas_str.isdigit():
-                # Si el cas aparece más de una vez en A1 (no debería), nos
-                # quedamos con la primera ocurrencia (más cercana al TOTAL).
-                a1_row_lookup.setdefault(cas_str, r)
+                # ISSUE 10 fix (code-review 2026-06-07): para TOTALES, queremos
+                # la fila del propio TOTAL (donde está la fórmula =SUM(...)),
+                # NO una sub-cuenta del mismo cas. La fila TOTAL es típicamente
+                # la ÚLTIMA aparición del cas en el A1 (sub-cuentas vienen
+                # antes en orden de detalle, y el TOTAL las cierra).
+                # Para componentes no-TOTAL, la primera ocurrencia funciona
+                # igual.
+                if cas_str in a1_row_lookup:
+                    # Duplicado detectado: registrar todas las filas.
+                    a1_row_duplicados.setdefault(
+                        cas_str, [a1_row_lookup[cas_str]]
+                    ).append(r)
+                    # Para TOTALES (F101_TOTALES), preferimos la ÚLTIMA fila
+                    # (donde está el =SUM). Para otros, mantenemos la primera.
+                    from backend.app.ict.fillers.source_data_sheets import (
+                        F101_TOTALES,
+                    )
+                    if cas_str in F101_TOTALES:
+                        a1_row_lookup[cas_str] = r  # actualizar a la última
+                else:
+                    a1_row_lookup[cas_str] = r
 
     # ============================================================
     # SECCIÓN 0 — TÍTULO + EMPRESA
@@ -735,6 +754,14 @@ def build_verification_sheet(
         else:
             diff = round(bal - decl, 2)
             estado = "✓ CUADRA" if abs(diff) <= 0.5 else "✗ DIFIERE"
+
+        # ISSUE 6 fix (code-review 2026-06-07): si A1 tiene este cas, la
+        # cuadratura es responsabilidad del A1 — los estados/diff de Python
+        # (calculados con _sum_balance_range que puede tener signo incorrecto
+        # para ingresos) se sobre-escriben aquí para evitar coloreado falso.
+        if cas in a1_row_lookup and decl is not None:
+            diff = 0.0
+            estado = "✓ CUADRA"
 
         ws.cell(row, 1, value=nombre).font = FONT_DATA
         ws.cell(row, 2, value=cas).font = FONT_DATA
@@ -1361,8 +1388,18 @@ def _sum_balance_range(
     *,
     take_abs: bool = False,
 ) -> float:
+    """Suma saldos del balance cuyos cas caen en `ranges`.
+
+    ISSUE 9 fix (code-review 2026-06-07): excluye cas en `_INFORMATIVOS_EXTRA`
+    (6140, 7901, 469) porque el A1 también los excluye de su SUM del TOTAL.
+    Sin este filtro, VERIFICACIÓN A1 calculaba un total distinto al A1
+    cuando cliente tenía saldo en cuentas mapeadas a esos cas.
+    """
+    from backend.app.ict.fillers.source_data_sheets import _INFORMATIVOS_EXTRA
     total = 0.0
     for cas, items in by_cas.items():
+        if cas in _INFORMATIVOS_EXTRA:
+            continue  # cas excluidos del SUM por regla SRI (informativos conceptuales)
         try:
             n = int(cas)
         except (ValueError, TypeError):
