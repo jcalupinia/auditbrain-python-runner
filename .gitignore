@@ -10,3 +10,4 @@ auditbrain.db
 node_modules/
 dist/
 
+audit_artifacts/
