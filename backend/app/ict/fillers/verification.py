@@ -395,6 +395,181 @@ def _build_resumen_y_misclasificaciones(
     return row
 
 
+def _build_3_verificaciones_referenciales(
+    ws,
+    row,
+    *,
+    a1_row_lookup,
+):
+    """Renderiza las 3 verificaciones que pidio el cliente (2026-06-07):
+
+    VERIFICACION 1: Cuadratura interna del F-101 (col C del A1)
+    VERIFICACION 2: Cuadratura interna del Balance (col F del A1)
+    VERIFICACION 3: Cuadratura cas a cas C vs F
+
+    TODO con formulas referenciales al MAPEO A1.
+    """
+    A1 = "'" + A1_SHEET + "'"
+
+    def a1_c(cas):
+        r = a1_row_lookup.get(cas)
+        return f"={A1}!C{r}" if r else '"n/d"'
+
+    def a1_f(cas):
+        r = a1_row_lookup.get(cas)
+        return f"={A1}!F{r}" if r else '"n/d"'
+
+    # VERIFICACION 1
+    row = _section_header(
+        ws, row,
+        title="VERIFICACION 1 - CUADRATURA F-101 (col C del MAPEO A1 = declarado al SRI)",
+    )
+    row = _table_header(
+        ws, row,
+        ["Verificacion", "Total Activo / Ingresos", "Total Pasivo+Patr / Gastos+Util",
+         "Diferencia", "Estado", "Trazabilidad"],
+    )
+
+    ws.cell(row, 1, value="Balance: A = P + Pa").font = FONT_DATA
+    ws.cell(row, 2, value=a1_c("499"))
+    ws.cell(row, 3, value=a1_c("699"))
+    ws.cell(row, 4, value=f"=B{row}-C{row}")
+    ws.cell(row, 5, value='=IF(ABS(D' + str(row) + ')<0.5,"OK","DIFIERE")')
+    ws.cell(row, 6, value=f"C{a1_row_lookup.get('499','?')} vs C{a1_row_lookup.get('699','?')}")
+    _formato_fila_verif(ws, row)
+    row += 1
+
+    ws.cell(row, 1, value="ER: Ingresos = Costos+Gastos+Utilidad").font = FONT_DATA
+    ws.cell(row, 2, value=a1_c("6999"))
+    if "7999" in a1_row_lookup and "801" in a1_row_lookup:
+        ws.cell(row, 3, value=f"={A1}!C{a1_row_lookup['7999']}+{A1}!C{a1_row_lookup['801']}")
+    else:
+        ws.cell(row, 3, value=a1_c("7999"))
+    ws.cell(row, 4, value=f"=B{row}-C{row}")
+    ws.cell(row, 5, value='=IF(ABS(D' + str(row) + ')<0.5,"OK","DIFIERE")')
+    ws.cell(row, 6, value=f"C{a1_row_lookup.get('6999','?')} vs C{a1_row_lookup.get('7999','?')}+C{a1_row_lookup.get('801','?')}")
+    _formato_fila_verif(ws, row)
+    row += 2
+
+    # VERIFICACION 2
+    row = _section_header(
+        ws, row,
+        title="VERIFICACION 2 - CUADRATURA BALANCE CONTABLE (col F del MAPEO A1)",
+    )
+    row = _table_header(
+        ws, row,
+        ["Verificacion", "Total Activo / Ingresos", "Total Pasivo+Patr / Gastos",
+         "Diferencia", "Estado", "Trazabilidad"],
+    )
+
+    ws.cell(row, 1, value="Balance: A = P + Pa").font = FONT_DATA
+    ws.cell(row, 2, value=a1_f("499"))
+    ws.cell(row, 3, value=a1_f("699"))
+    ws.cell(row, 4, value=f"=B{row}-C{row}")
+    ws.cell(row, 5, value='=IF(ABS(D' + str(row) + ')<0.5,"OK","DIFIERE")')
+    ws.cell(row, 6, value=f"F{a1_row_lookup.get('499','?')} vs F{a1_row_lookup.get('699','?')}")
+    _formato_fila_verif(ws, row)
+    row += 1
+
+    ws.cell(row, 1, value="Utilidad Contable: Ingresos - Costos").font = FONT_DATA
+    ws.cell(row, 2, value=a1_f("6999"))
+    ws.cell(row, 3, value=a1_f("7999"))
+    ws.cell(row, 4, value=f"=B{row}-C{row}")
+    ws.cell(row, 5, value='=IF(D' + str(row) + '>0,"UTILIDAD","PERDIDA")')
+    ws.cell(row, 6, value=f"F{a1_row_lookup.get('6999','?')} - F{a1_row_lookup.get('7999','?')}")
+    _formato_fila_verif(ws, row)
+    row += 2
+
+    # VERIFICACION 3
+    row = _section_header(
+        ws, row,
+        title="VERIFICACION 3 - DIFERENCIAS POR CASILLERO (F-101 vs Balance)",
+    )
+    row = _table_header(
+        ws, row,
+        ["Bloque", "Cas", "F-101 (col C)", "Balance (col F)", "Diferencia", "Estado"],
+    )
+
+    BLOQUES_V3 = [
+        ("TOTAL ACTIVOS CORRIENTES",      "361"),
+        ("TOTAL ACTIVOS NO CORRIENTES",   "449"),
+        ("TOTAL DEL ACTIVO",              "499"),
+        ("TOTAL PASIVOS CORRIENTES",      "550"),
+        ("TOTAL PASIVOS NO CORRIENTES",   "589"),
+        ("TOTAL DEL PASIVO",              "599"),
+        ("TOTAL DEL PATRIMONIO",          "698"),
+        ("TOTAL PASIVO + PATRIMONIO",     "699"),
+        ("TOTAL INGRESOS ACTIVIDADES ORD","1005"),
+        ("TOTAL INGRESOS",                "6999"),
+        ("TOTAL COSTOS Y GASTOS",         "7999"),
+    ]
+    v3_first_row = row
+    for nombre, cas in BLOQUES_V3:
+        ws.cell(row, 1, value=nombre).font = FONT_DATA
+        ws.cell(row, 2, value=cas).font = FONT_DATA
+        ws.cell(row, 3, value=a1_c(cas)).font = FONT_DATA
+        ws.cell(row, 4, value=a1_f(cas)).font = FONT_DATA
+        ws.cell(row, 5, value=f"=D{row}-C{row}").font = FONT_DATA
+        ws.cell(row, 6, value='=IF(ABS(E' + str(row) + ')<0.5,"OK","DIFIERE")').font = FONT_DATA
+        for c in range(1, 7):
+            cell = ws.cell(row, c)
+            cell.border = BORDER_DATA
+            if c in (3, 4, 5):
+                cell.number_format = '#,##0.00;-#,##0.00;"-"'
+                cell.alignment = ALIGN_RIGHT
+            elif c == 2 or c == 6:
+                cell.alignment = ALIGN_CENTER
+            else:
+                cell.alignment = ALIGN_LEFT
+        row += 1
+    v3_last_row = row - 1
+
+    ws.cell(row, 1, value="BLOQUES CUADRADOS").font = Font(name="Calibri", size=10, bold=True)
+    ws.cell(row, 1).fill = PatternFill("solid", fgColor="DCEAF7")
+    cell_count = ws.cell(row, 5, value=f'=COUNTIF(F{v3_first_row}:F{v3_last_row},"OK")&"/"&{len(BLOQUES_V3)}')
+    cell_count.font = Font(name="Calibri", size=10, bold=True)
+    cell_count.fill = PatternFill("solid", fgColor="DCEAF7")
+    cell_count.alignment = ALIGN_CENTER
+    cell_estado = ws.cell(row, 6, value=f'=IF(COUNTIF(F{v3_first_row}:F{v3_last_row},"DIFIERE")=0,"TODO CUADRA","REVISAR")')
+    cell_estado.font = Font(name="Calibri", size=10, bold=True)
+    cell_estado.fill = PatternFill("solid", fgColor="DCEAF7")
+    cell_estado.alignment = ALIGN_CENTER
+    for c in range(1, 7):
+        ws.cell(row, c).border = BORDER_DATA
+    row += 2
+
+    nota = (
+        "Las 3 verificaciones usan formulas referenciales al MAPEO A1. "
+        "Doble click en cualquier celda C/D/E para trazabilidad. "
+        "Si cambias un valor en el A1, estas tablas se recalculan solas."
+    )
+    nota_cell = ws.cell(row, 1, value=nota)
+    nota_cell.font = Font(name="Calibri", size=9, italic=True, color="5A6575")
+    nota_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+    ws.row_dimensions[row].height = 45
+    row += 2
+
+    return row
+
+
+def _formato_fila_verif(ws, row):
+    """Aplica formato comun a una fila de verificacion referencial."""
+    for c in (2, 3, 4):
+        cell = ws.cell(row, c)
+        cell.number_format = '#,##0.00;-#,##0.00;"-"'
+        cell.alignment = ALIGN_RIGHT
+        cell.font = FONT_DATA
+        cell.border = BORDER_DATA
+    ws.cell(row, 1).border = BORDER_DATA
+    ws.cell(row, 1).font = FONT_DATA
+    ws.cell(row, 5).border = BORDER_DATA
+    ws.cell(row, 5).alignment = ALIGN_CENTER
+    ws.cell(row, 5).font = FONT_DATA
+    ws.cell(row, 6).border = BORDER_DATA
+    ws.cell(row, 6).font = Font(name="Calibri", size=8, italic=True, color="5A6575")
+
+
 def _build_validacion_cobertura(
     ws,
     row: int,
@@ -838,287 +1013,17 @@ def build_verification_sheet(
     )
 
     # ============================================================
-    # SECCIÓN 2 — CUADRATURA Estado Situación Financiera
+    # SECCION 2 - 3 VERIFICACIONES REFERENCIALES AL MAPEO A1
+    # Pedido cliente 2026-06-07: VERIFICACION debe tomar datos del A1
+    # con formulas (no del balance crudo), con 3 controles separados.
+    # Reemplaza las secciones 2/3/4/4.5 anteriores.
     # ============================================================
-    row = _section_header(ws, row, title="📊 CUADRATURA · ESTADO DE SITUACIÓN FINANCIERA")
-    headers = ["Bloque", "Casillero", "F-101 declarado", "Balance contable",
-               "Diferencia", "Estado"]
-    row = _table_header(ws, row, headers)
-    table_eeff_start = row
-
-    # Rangos calibrados contra el catálogo OFICIAL F-101 SRI (888 cas, 2025).
-    # Histórico del bug 2026-06-04 (reporte cliente):
-    #   - Rango (362, 449) NO incluía cas 490 (DERECHOS DE USO) ni 491
-    #     ((-) AMORTIZACIÓN DERECHOS DE USO) — diff -82,328.19 perdida.
-    #   - Rango (511, 549) NO incluía cas 593 (PASIVO CORRIENTE POR
-    #     ARRENDAMIENTO) — diff -45,015.53 perdida.
-    #   - Rango (553, 588) NO incluía cas 594 (PASIVO NO CORRIENTE POR
-    #     ARRENDAMIENTO) ni los nuevos cas SRI > 588.
-    # Fix: expandir rangos hasta el TOTAL anterior - 1 (el TOTAL ya está
-    # en otra fila, no debe sumarse) e incluir explícitamente cas 593/594.
-    BLOQUES_EEFF = [
-        ("TOTAL ACTIVOS CORRIENTES",      "361", [(311, 360)],                   False),
-        # ACT NO CORR: ahora abarca 362-498 (incluye 490, 491 y cualquier
-        # cas nuevo SRI hasta antes del TOTAL DEL ACTIVO 499).
-        ("TOTAL ACTIVOS NO CORRIENTES",   "449", [(362, 498)],                   False),
-        ("TOTAL DEL ACTIVO",              "499", [(311, 498)],                   False),
-        # PAS CORR: 511-549 (corriente clásico) + cas 593 (arrendamiento
-        # corriente, el SRI lo numeró fuera del rango tradicional).
-        ("TOTAL PASIVOS CORRIENTES",      "550", [(511, 549), (593, 593)],       True),
-        # PAS NO CORR: 551-588 (no corriente clásico, sin TOTAL 550) +
-        # cas 594 (arrendamiento no corriente) + cas 590-592, 595-598.
-        ("TOTAL PASIVOS NO CORRIENTES",   "589", [(551, 588), (590, 598)],       True),
-        # TOTAL PASIVOS: cobertura completa 511-598 (sin TOTAL 599).
-        ("TOTAL DEL PASIVO",              "599", [(511, 598)],                   True),
-        ("TOTAL DEL PATRIMONIO",          "698", [(601, 697)],                   True),
-        ("TOTAL PASIVO + PATRIMONIO",     "699", [(511, 598), (601, 697)],       True),
-    ]
-    for nombre, cas, ranges, abs_flag in BLOQUES_EEFF:
-        # decl_raw es None si el F-101 NO declaró ese casillero (ej. cas
-        # 550/589/698 cuando el parser falló o el PDF no los tenía).
-        # Mostrarlo como "n/d" en lugar de 0 evita la confusión "diferencia
-        # = total balance" que sugiere bug cuando en realidad es ausencia
-        # de dato declarado.
-        decl_raw = f101.get(cas)
-        decl = round(decl_raw, 2) if decl_raw is not None else None
-        # Pre-calculamos bal para diff/estado pero la celda emitirá FÓRMULA.
-        bal = round(_sum_balance_range(by_cas, ranges, take_abs=abs_flag), 2)
-        if decl is None:
-            diff = None
-            estado = "⚠ F-101 NO DECLARÓ"
-        else:
-            diff = round(bal - decl, 2)
-            estado = "✓ CUADRA" if abs(diff) <= 0.5 else "✗ DIFIERE"
-
-        ws.cell(row, 1, value=nombre).font = FONT_DATA
-        ws.cell(row, 2, value=cas).font = FONT_DATA
-
-        # === COL C — F-101 declarado ===
-        # FÓRMULA referencial a DATOS F-101 si tenemos lookup, else literal.
-        c3 = ws.cell(row, 3)
-        c3.font = FONT_DATA
-        if decl is None:
-            c3.value = "n/d"
-        elif cas in f101_lookup_safe:
-            c3.value = f"='DATOS F-101'!C{f101_lookup_safe[cas]}"
-        else:
-            c3.value = decl  # fallback literal
-
-        # === COL D — Balance contable ===
-        # FIX 2026-06-06 (reporte cliente "en VERIFICACIÓN la sumatoria está
-        # mal"): preferimos REFERENCIAR EL TOTAL DEL A1 (col F) que es la
-        # fuente de verdad: A1 aplica signos, ABS, mapeo balance→cas y
-        # sus TOTALES son =SUM(F{start}:F{end}). Si el cas no existe en A1
-        # (raro), caemos al cálculo legacy desde DATOS BALANCE.
-        c4 = ws.cell(row, 4)
-        c4.font = FONT_DATA
-        if cas in a1_row_lookup:
-            c4.value = f"='{A1_SHEET}'!F{a1_row_lookup[cas]}"
-            # Para diff/estado pre-calculados usamos el valor que el A1
-            # debería tener (mismo F-101 si A1 cuadra). Aproximación: usar
-            # decl como balance esperado para el estado visual; el valor
-            # real lo calculará Excel desde la fórmula.
-            bal = decl if decl is not None else bal
-            diff = 0.0 if decl is not None else None
-            estado = "✓ CUADRA" if decl is not None else estado
-        else:
-            bal_formula, bal_calc = _balance_formula_for_ranges(
-                by_cas, balance_lookup_safe, balance_mapeado, ranges, abs_flag,
-            )
-            if bal_formula is not None and balance_lookup_safe:
-                c4.value = bal_formula
-            else:
-                c4.value = bal  # fallback literal
-
-        # === COL E — Diferencia ===
-        # FÓRMULA: =D{row}-C{row} para que el auditor vea claro el cálculo.
-        # Si decl es None ("n/d"), poner "—" sin fórmula.
-        diff_cell = ws.cell(row, 5)
-        if decl is None:
-            diff_cell.value = "—"
-        else:
-            diff_cell.value = f"=D{row}-C{row}"
-        est_cell = ws.cell(row, 6, value=estado)
-        # Coloreado: si diff es None (F-101 no declaró), usar color warning;
-        # si no, verde cuando cuadra y rojo cuando difiere.
-        if diff is None:
-            diff_cell.font = FONT_DATA_BAD
-            est_cell.font = FONT_DATA_BAD
-            est_cell.fill = FILL_BAD
-        elif abs(diff) <= 0.5:
-            diff_cell.font = FONT_DATA_OK
-            est_cell.font = FONT_DATA_OK
-            est_cell.fill = FILL_OK
-        else:
-            diff_cell.font = FONT_DATA_BAD
-            est_cell.font = FONT_DATA_BAD
-            est_cell.fill = FILL_BAD
-
-        # Formato números + bordes + alineación
-        for c in range(1, 7):
-            cell = ws.cell(row, c)
-            cell.border = BORDER_DATA
-            if c in (3, 4, 5):
-                cell.number_format = '#,##0.00;-#,##0.00;"—"'
-                cell.alignment = ALIGN_RIGHT
-            elif c == 2 or c == 6:
-                cell.alignment = ALIGN_CENTER
-            else:
-                cell.alignment = ALIGN_LEFT
-        row += 1
-
-    table_eeff_end = row - 1
-    # AutoFilter sobre la tabla
-    ws.auto_filter.ref = f"A{table_eeff_start - 1}:F{table_eeff_end}"
-    row += 1
-
-    # ============================================================
-    # SECCIÓN 3 — CUADRATURA Estado de Resultados
-    # ============================================================
-    row = _section_header(ws, row, title="📈 CUADRATURA · ESTADO DE RESULTADOS")
-    row = _table_header(ws, row, headers)
-
-    BLOQUES_RESULTADOS = [
-        ("TOTAL INGRESOS DE ACTIVIDADES ORDINARIAS", "1005", [(6001, 6018)], False),
-        ("TOTAL INGRESOS",                           "6999", [(6001, 6999)], False),
-        ("TOTAL COSTOS Y GASTOS",                    "7999", [(7001, 7999)], False),
-    ]
-    for nombre, cas, ranges, abs_flag in BLOQUES_RESULTADOS:
-        decl_raw = f101.get(cas)
-        decl = round(decl_raw, 2) if decl_raw is not None else None
-        bal = round(_sum_balance_range(by_cas, ranges, take_abs=abs_flag), 2)
-        if decl is None:
-            diff = None
-            estado = "⚠ F-101 NO DECLARÓ"
-        else:
-            diff = round(bal - decl, 2)
-            estado = "✓ CUADRA" if abs(diff) <= 0.5 else "✗ DIFIERE"
-
-        # ISSUE 6 fix (code-review 2026-06-07): si A1 tiene este cas, la
-        # cuadratura es responsabilidad del A1 — los estados/diff de Python
-        # (calculados con _sum_balance_range que puede tener signo incorrecto
-        # para ingresos) se sobre-escriben aquí para evitar coloreado falso.
-        if cas in a1_row_lookup and decl is not None:
-            diff = 0.0
-            estado = "✓ CUADRA"
-
-        ws.cell(row, 1, value=nombre).font = FONT_DATA
-        ws.cell(row, 2, value=cas).font = FONT_DATA
-
-        # COL C — F-101 declarado: FÓRMULA referencial.
-        c3 = ws.cell(row, 3)
-        c3.font = FONT_DATA
-        if decl is None:
-            c3.value = "n/d"
-        elif cas in f101_lookup_safe:
-            c3.value = f"='DATOS F-101'!C{f101_lookup_safe[cas]}"
-        else:
-            c3.value = decl
-
-        # COL D — Balance contable.
-        # FIX 2026-06-06: preferimos REFERENCIAR EL TOTAL DEL A1, igual que
-        # en el bloque EEFF, para que la cuadratura sea consistente con
-        # lo que el A1 ya tiene calculado (signos + ABS + mapeo).
-        c4 = ws.cell(row, 4)
-        c4.font = FONT_DATA
-        if cas in a1_row_lookup:
-            c4.value = f"='{A1_SHEET}'!F{a1_row_lookup[cas]}"
-            bal = decl if decl is not None else bal
-            diff = 0.0 if decl is not None else None
-            estado = "✓ CUADRA" if decl is not None else estado
-        else:
-            bal_formula, _ = _balance_formula_for_ranges(
-                by_cas, balance_lookup_safe, balance_mapeado, ranges, abs_flag,
-            )
-            if bal_formula is not None and balance_lookup_safe:
-                c4.value = bal_formula
-            else:
-                c4.value = bal
-
-        # COL E — Diferencia: FÓRMULA entre celdas.
-        diff_cell = ws.cell(row, 5)
-        if decl is None:
-            diff_cell.value = "—"
-        else:
-            diff_cell.value = f"=D{row}-C{row}"
-        est_cell = ws.cell(row, 6, value=estado)
-        # Coloreado: si diff es None (F-101 no declaró), usar color warning;
-        # si no, verde cuando cuadra y rojo cuando difiere.
-        if diff is None:
-            diff_cell.font = FONT_DATA_BAD
-            est_cell.font = FONT_DATA_BAD
-            est_cell.fill = FILL_BAD
-        elif abs(diff) <= 0.5:
-            diff_cell.font = FONT_DATA_OK
-            est_cell.font = FONT_DATA_OK
-            est_cell.fill = FILL_OK
-        else:
-            diff_cell.font = FONT_DATA_BAD
-            est_cell.font = FONT_DATA_BAD
-            est_cell.fill = FILL_BAD
-        for c in range(1, 7):
-            cell = ws.cell(row, c)
-            cell.border = BORDER_DATA
-            if c in (3, 4, 5):
-                cell.number_format = '#,##0.00;-#,##0.00;"—"'
-                cell.alignment = ALIGN_RIGHT
-            elif c == 2 or c == 6:
-                cell.alignment = ALIGN_CENTER
-            else:
-                cell.alignment = ALIGN_LEFT
-        row += 1
-    row += 1
-
-    # ============================================================
-    # SECCIÓN 4 — Utilidad del ejercicio
-    # ============================================================
-    row = _section_header(ws, row, title="💰 UTILIDAD DEL EJERCICIO")
-    ingresos = round(f101.get("6999") or 0, 2)
-    cyg = round(f101.get("7999") or 0, 2)
-    util_calc = round(ingresos - cyg, 2)
-    util_decl = round(f101.get("801") or 0, 2)
-    diff_util = round(util_calc - util_decl, 2)
-
-    util_rows = [
-        ("F-101: Ingresos (6999) menos Costos y Gastos (7999)", util_calc),
-        ("F-101: Utilidad declarada (cas 801)", util_decl),
-        ("Diferencia (debe ser 0)", diff_util),
-    ]
-    for label, val in util_rows:
-        ws.cell(row, 1, value=label).font = FONT_DATA
-        cell_v = ws.cell(row, 3, value=val)
-        cell_v.font = FONT_DATA_OK if abs(diff_util) <= 0.5 else FONT_DATA_BAD
-        cell_v.number_format = '#,##0.00;-#,##0.00;"—"'
-        cell_v.alignment = ALIGN_RIGHT
-        for c in range(1, 7):
-            ws.cell(row, c).border = BORDER_DATA
-        row += 1
-    est_util = "✓ UTILIDAD CUADRA" if abs(diff_util) <= 0.5 else "✗ UTILIDAD NO CUADRA"
-    est_cell = ws.cell(row, 1, value=est_util)
-    est_cell.font = FONT_DATA_OK if abs(diff_util) <= 0.5 else FONT_DATA_BAD
-    est_cell.fill = FILL_OK if abs(diff_util) <= 0.5 else FILL_BAD
-    est_cell.alignment = Alignment(horizontal="center", vertical="center", indent=1)
-    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
-    ws.row_dimensions[row].height = 22
-    row += 2
-
-    # ============================================================
-    # SECCIÓN 4.5 — RESUMEN EJECUTIVO + MISCLASIFICACIONES
-    # (pedido cliente 2026-06-06: "esto va estar en el papel de trabajo")
-    # ------------------------------------------------------------
-    # Tres componentes:
-    #   1. Resumen ejecutivo: tabla compacta de los 11 bloques principales
-    #      con declarado/calculado/diff/estado/comentario.
-    #   2. KPI "X/Y CUADRAN" con fórmula =COUNTIF dinámica.
-    #   3. Misclasificaciones pasivo corriente vs no corriente: detección
-    #      de parejas (cas A, cas B) donde diff_A ≈ -diff_B.
-    # ============================================================
-    row = _build_resumen_y_misclasificaciones(
-        ws, row, f101=f101, by_cas=by_cas, casilleros_a1_names=casilleros_a1_names,
-        a1_row_lookup=a1_row_lookup, f101_lookup_safe=f101_lookup_safe,
+    row = _build_3_verificaciones_referenciales(
+        ws, row,
+        a1_row_lookup=a1_row_lookup,
     )
 
-    # ============================================================
+        # ============================================================
     # SECCIÓN 4.6 — CUENTAS SIN SALDO DETECTADAS POR EL PARSER
     # ------------------------------------------------------------
     # REGLA cliente 2026-06-07 ("regla que no permita que se vuelva a
