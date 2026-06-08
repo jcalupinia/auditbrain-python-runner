@@ -156,8 +156,11 @@ def _a1_sort_key(cas: str) -> tuple[int, int, int]:
     if 1001 <= n <= 1099:        # otros subtotales (1025, 1030, 1040, etc.)
         return (7, 0, n)
     if 800 <= n <= 999:          # conciliación + anticipo + cálculo IR
-        return (8, n)
-    return (9, n)                # anexos especiales (1100+, 5xxx, etc.)
+        return (8, 0, n)
+    return (9, 0, n)             # anexos especiales (1100+, 5xxx, etc.)
+    # ISSUE 4 fix (code-review 2026-06-07): tier 8/9 ahora retornan tupla de
+    # 3 elementos para consistencia con tier 1-7. Previene errores de orden
+    # silencioso si en el futuro se agregan sub-tiers a estos rangos.
 
 
 A1_CASILLEROS_ORDERED: list[tuple[str, str]] = [

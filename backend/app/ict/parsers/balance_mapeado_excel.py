@@ -29,6 +29,43 @@ def _norm(s) -> str:
     return str(s or "").strip().lower()
 
 
+def _normalize_casillero(casillero_raw) -> str:
+    """Normaliza un casillero SRI a su forma canónica como string entero.
+
+    ISSUE 7 fix (code-review 2026-06-07): el código viejo solo manejaba
+    `"311.0"` (endswith ".0"), pero Excel exporta float con cualquier
+    cantidad de decimales según el formato de la celda. Casos:
+      - 311 (int)        → "311"
+      - 311.0 (float)    → "311"
+      - "311"            → "311"
+      - "311.00"         → "311"  ← antes fallaba
+      - "6001.00"        → "6001" ← antes fallaba
+      - "311 " (string)  → "311"
+      - "" / None        → ""
+      - "abc" (no num)   → "abc" (no normaliza, queda como vino)
+    """
+    if casillero_raw is None:
+        return ""
+    # Si es número, conversion directa.
+    if isinstance(casillero_raw, (int, float)):
+        try:
+            return str(int(casillero_raw))
+        except (ValueError, OverflowError):
+            return str(casillero_raw).strip()
+    s = str(casillero_raw).strip()
+    if not s:
+        return ""
+    # Si es un string que representa un número (con o sin decimales),
+    # convertirlo a int para eliminar cualquier cantidad de decimales.
+    try:
+        n = float(s)
+        if n == int(n):
+            return str(int(n))
+        return s  # tiene decimales reales (raro en cas SRI), dejar como está
+    except (ValueError, TypeError):
+        return s  # no es número, dejar como vino (cas alfanumérico hipotético)
+
+
 def _find_header(ws, max_scan: int = 20) -> tuple[int, dict[str, int]] | tuple[None, None]:
     """Find the header row + column indices.
 
@@ -133,9 +170,7 @@ def parse_balance_mapeado(excel_bytes: bytes) -> dict:
         # Antes (bug 2026-06-07): se ignoraba silenciosamente.
         # Ahora: se incluye con saldo=0.0 y se registra advertencia.
         if saldo_raw is None:
-            casillero = str(casillero_raw).strip()
-            if casillero.endswith(".0"):
-                casillero = casillero[:-2]
+            casillero = _normalize_casillero(casillero_raw)
 
             codigo = ""
             if col_codigo is not None and col_codigo < len(row) and row[col_codigo] is not None:
@@ -178,10 +213,7 @@ def parse_balance_mapeado(excel_bytes: bytes) -> dict:
             errores.append(f"Saldo inválido para casillero {casillero_raw}: {saldo_raw!r}")
             continue
 
-        casillero = str(casillero_raw).strip()
-        # Strip ".0" if Excel stored as float (e.g. 311.0 -> "311")
-        if casillero.endswith(".0"):
-            casillero = casillero[:-2]
+        casillero = _normalize_casillero(casillero_raw)
 
         codigo = ""
         if col_codigo is not None and col_codigo < len(row) and row[col_codigo] is not None:

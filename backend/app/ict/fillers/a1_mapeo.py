@@ -73,25 +73,41 @@ class A1Filler:
     # balance que en el SRI sea de naturaleza (-) (deterioro, amortización,
     # depreciación) quede correctamente clasificado, incluso si no estaba en _CORE.
     _NEGATIVE_CORE = {
-        "314", "317", "324", "327", "329",  # deterioros cuentas por cobrar
+        "314", "317", "324", "327",            # deterioros cuentas por cobrar (rel/no rel)
+        "329",                                 # deterioro inversiones corrientes
         "347",                                 # deterioro inventarios
-        "384", "385", "386",                  # depreciación acumulada PPE
+        "384", "385", "386",                   # depreciación acumulada PPE
         "392", "393",                          # amortización acumulada intangibles
-        "602",                                 # capital no pagado
+        # ISSUE 1 fix (code-review 2026-06-07): cas que el catálogo SRI NO
+        # marca con "(-)" al inicio pero conceptualmente RESTAN. Sin esto,
+        # clientes con activos biológicos / propiedades de inversión /
+        # exploración minera ven col F del A1 con signo invertido (diferencia
+        # = doble del valor real).
+        "398", "399",                          # depreciación/deterioro propiedades inversión
+        "401", "402",                          # plantas vivas - depreciación/deterioro
+        "405", "406",                          # animales vivos - depreciación/deterioro
+        "410", "411",                          # activos exploración - depreciación/deterioro
+        "602",                                 # capital suscrito no pagado (acciones tesorería)
         "612", "616",                          # pérdidas acumuladas / del ejercicio
-        "7010", "7022", "7028", "7034",       # inventarios finales (restan en CoGS)
+        "7010", "7022", "7028", "7034",        # inventarios finales (restan en CoGS)
     }
 
     @classmethod
     def _build_negative_set(cls) -> set[str]:
         """Combina _NEGATIVE_CORE con cas del catálogo cuyos nombres empiezan con
         '(-)'. Defensivo contra el bug de 'saldos de línea': si SRI agrega un
-        nuevo cas negativo, queda clasificado correctamente sin tocar este file."""
+        nuevo cas negativo, queda clasificado correctamente sin tocar este file.
+
+        ISSUE 5 fix (code-review 2026-06-07): ampliado el rango a 311-9999 para
+        capturar también cas del Estado de Resultados con nombres "(-)" (ej:
+        cas 6147 DESCUENTOS, cas 7299 REVERSIONES). Antes solo se capturaba el
+        rango del balance (311-699), excluyendo silenciosamente estado resultados.
+        """
         from backend.app.ict.catalogo_f101 import F101_CASILLERO_NAMES
         auto_detected = {
             cas for cas, nombre in F101_CASILLERO_NAMES.items()
             if nombre.strip().startswith("(-)")
-            and cas.isdigit() and 311 <= int(cas) <= 699
+            and cas.isdigit() and 311 <= int(cas) <= 9999
         }
         return cls._NEGATIVE_CORE | auto_detected
 
@@ -179,10 +195,18 @@ class A1Filler:
           - F-101 declarado: 5,069,641.37 (positivo)
           - A1 col F debe mostrar: 5,069,641.37 → fórmula =-'DATOS BALANCE'!D{row}
 
-        Excepción: cas con (-) en el nombre (ej. cas 6147 DESCUENTOS) ya
-        están en NEGATIVE_CASILLEROS y mantienen el flujo is_negative
-        (=-ABS) — esos representan devoluciones/descuentos que conceptual-
-        mente RESTAN al ingreso, deben quedar negativos en A1.
+        Excepción: cas con (-) en el nombre ya están en NEGATIVE_CASILLEROS
+        y mantienen el flujo is_negative (=-ABS) — esos representan
+        devoluciones/descuentos que conceptualmente RESTAN al ingreso,
+        deben quedar negativos en A1.
+
+        Nota ISSUE 8 (code-review 2026-06-07): el comentario anterior
+        mencionaba cas 6147 DESCUENTOS como ejemplo de NEGATIVE_CASILLEROS,
+        pero el nombre del cas 6147 en el catálogo NO empieza con "(-)" —
+        empieza con "VALOR TOTAL CORRESPONDIENTE COMISIONES, DESCUENTOS...".
+        Por lo tanto cas 6147 NO está en NEGATIVE_CASILLEROS automáticamente.
+        Si el cliente declara descuentos como un cas independiente y necesita
+        tratarse como negativo, agregarlo manualmente a _NEGATIVE_CORE.
         """
         if not casillero.isdigit():
             return False
