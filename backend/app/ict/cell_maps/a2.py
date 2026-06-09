@@ -87,17 +87,54 @@ A2_CUADRO2_ROWS = {
     44: "transferencias_no_objeto",
 }
 
-# Map: (concepto, column_letter) → F-104 casillero (annual aggregated)
-# F-104 casilleros for Ventas (411=loc dif tarifa, 412=AF dif tarifa, etc.)
+# Map: (concepto, column_letter) → F-104 casillero declarado (total anual).
+# Columna IZQUIERDA del Cuadro 2 = lo DECLARADO en el F-104 por tarifa.
+# Casilleros validados contra el golden master ICT_14 (401-408).
 A2_CUADRO2_IVA_MAP: dict[tuple[str, str], str] = {
-    ("ventas_locales_diff_iva", "C"): "411",
-    ("ventas_activos_fijos_diff", "C"): "412",
-    ("ventas_locales_0_sin_derecho", "B"): "413",
-    ("ventas_activos_0_sin_derecho", "B"): "414",
-    ("ventas_locales_0_con_derecho", "B"): "415",
-    ("exportaciones_bienes", "D"): "416",
-    ("exportaciones_servicios", "D"): "417",
-    ("transferencias_no_objeto", "B"): "418",
+    ("ventas_locales_diff_iva", "C"): "401",
+    ("ventas_activos_fijos_diff", "C"): "402",
+    ("ventas_locales_0_sin_derecho", "B"): "403",
+    ("ventas_activos_0_sin_derecho", "B"): "404",
+    ("ventas_locales_0_con_derecho", "B"): "405",
+    ("ventas_activos_0_con_derecho", "B"): "406",
+    ("exportaciones_bienes", "D"): "407",
+    ("exportaciones_servicios", "D"): "408",
+    ("transferencias_no_objeto", "B"): "418",  # B44 en ICT_14
+}
+
+# Columna F del Cuadro 2 = "Valor neto de Ingresos" (lo FACTURADO), casilleros
+# 411-418 del F-104. Cada fila del Cuadro 2 lleva su valor neto en la col F.
+# (concepto → casillero F-104). Validado contra ICT_14.
+A2_CUADRO2_VALORNETO_MAP: dict[str, str] = {
+    "ventas_locales_diff_iva": "411",
+    "ventas_activos_fijos_diff": "412",
+    "ventas_locales_0_sin_derecho": "413",
+    "ventas_activos_0_sin_derecho": "414",
+    "ventas_locales_0_con_derecho": "415",
+    "ventas_activos_0_con_derecho": "416",
+    "exportaciones_bienes": "417",
+    "exportaciones_servicios": "418",
+}
+
+# Columna fuente (B/C/D) de cada fila del Cuadro 2, para la fórmula de la
+# columna E = diferencia = (columna fuente) − F (valor neto). Validado ICT_14.
+A2_CUADRO2_SOURCE_COL: dict[str, str] = {
+    "ventas_locales_diff_iva": "C",
+    "ventas_activos_fijos_diff": "C",
+    "ventas_locales_0_sin_derecho": "B",
+    "ventas_activos_0_sin_derecho": "B",
+    "ventas_locales_0_con_derecho": "B",
+    "ventas_activos_0_con_derecho": "B",
+    "exportaciones_bienes": "D",
+    "exportaciones_servicios": "D",
+}
+
+# Cuadro 1 — fórmula del total por fila (col F): cuáles columnas se suman.
+# Validado contra ICT_14 (F14=B+C+E, F17=D+E, F19=E, etc.).
+A2_CUADRO1_TOTAL_COLS: dict[int, tuple[str, ...]] = {
+    14: ("B", "C", "E"), 15: ("B", "C", "E"), 16: ("B", "C", "E"),
+    17: ("D", "E"), 18: ("D", "E"),
+    19: ("E",), 20: ("E",), 21: ("E",),
 }
 
 # Facturación electrónica columns in Cuadro 2

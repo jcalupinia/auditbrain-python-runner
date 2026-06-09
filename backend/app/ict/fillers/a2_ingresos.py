@@ -21,9 +21,12 @@ from openpyxl import Workbook
 from backend.app.ict.cell_maps.a2 import (
     A2_CUADRO1_CASILLERO_MAP,
     A2_CUADRO1_ROWS,
+    A2_CUADRO1_TOTAL_COLS,
     A2_CUADRO2_IVA_MAP,
     A2_CUADRO2_ROWS,
+    A2_CUADRO2_SOURCE_COL,
     A2_CUADRO2_TOTAL_ROW,
+    A2_CUADRO2_VALORNETO_MAP,
     A2_CUADRO2_FACT_ELEC_COLS,
     A2_CUADRO3_ROWS,
     A2_HEADER_MAP,
@@ -89,6 +92,17 @@ class A2Filler:
                     "no encontrado en F-101 ni Balance Mapeado"
                 )
 
+        # ── Cuadro 1: total por fila (col F = suma intra-anexo) + SUM fila 25 ─
+        for row, cols in A2_CUADRO1_TOTAL_COLS.items():
+            formula = "=" + "+".join(f"{c}{row}" for c in cols)
+            if safe_set_formula(ws, f"F{row}", formula, anexo="A2",
+                                origen="A2 Cuadro 1 · total ingresos ordinarios"):
+                filled += 1
+        for col in ("B", "C", "F"):
+            if safe_set_formula(ws, f"{col}25", f"=SUM({col}14:{col}24)", anexo="A2",
+                                origen="A2 Cuadro 1 · total columna (i)"):
+                filled += 1
+
         # ── Cuadro 2: IVA vs Facturación (referencial F-104 TOTAL ANUAL) ────
         # Cada casillero de IVA mensual se referencia al total anual del
         # casillero en 'DATOS F-104'. Fallback (tests directos sin DATOS
@@ -119,6 +133,32 @@ class A2Filler:
             if val is not None and val != 0:
                 if _safe_set(ws, f"{col}{row}", val):
                     filled += 1
+
+        # ── Cuadro 2: valor neto (col F = facturado, F-104 cas 411-418) y ────
+        #    diferencia (col E = columna fuente − F).
+        for concepto, casillero in A2_CUADRO2_VALORNETO_MAP.items():
+            row = next(
+                (r for r, c in A2_CUADRO2_ROWS.items() if c == concepto), None
+            )
+            if row is None:
+                continue
+            if set_f104_annual_ref(
+                ws, f"F{row}", casillero=str(casillero),
+                lookup=f104_lookup, anexo="A2",
+            ):
+                filled += 1
+            else:
+                val = iva_totals_fallback.get(str(casillero))
+                if val is not None and val != 0:
+                    if _safe_set(ws, f"F{row}", val):
+                        filled += 1
+            # E = (columna fuente B/C/D) − F (valor neto)
+            src = A2_CUADRO2_SOURCE_COL.get(concepto)
+            if src and safe_set_formula(
+                ws, f"E{row}", f"=+{src}{row}-F{row}",
+                anexo="A2", origen="A2 Cuadro 2 · diferencia declarado vs facturado",
+            ):
+                filled += 1
 
         # Facturación electrónica: NO viene de un formulario SRI parseado,
         # se mantiene como valor literal (origen XML local).
@@ -172,5 +212,13 @@ class A2Filler:
                 origen=f"A2 Cuadro 3 · derivado del Cuadro 2 fila {c2_row}",
             ):
                 filled += 1
+
+        # ── Limpieza puntual: E43/E44 (col diferencia de las filas Total y
+        #    Transferencias del Cuadro 2) quedan en blanco como en ICT_14.
+        #    NO se tocan los 'XXXX' del Cuadro 3 (C52-D59): son celdas de
+        #    llenado manual del auditor y ICT_14 las conserva.
+        for addr in ("E43", "E44"):
+            if ws[addr].value == "XXXX":
+                ws[addr].value = None
 
         return {"filled_cells": filled, "warnings": warnings}

@@ -48,17 +48,25 @@ def test_a2_filler_cuadro1_from_f101():
 def test_a2_filler_cuadro2_from_f104_monthly():
     wb = load_template()
     filler = A2Filler()
-    # Simulate 2 months of F-104 data
+    # Simulate 2 months of F-104 data. Casilleros validados contra ICT_14:
+    # col IVA declarado = 401-408 (401 ventas locales dif, 407 exportaciones bienes);
+    # col valor neto F = 411-418.
     f104_monthly = {
-        "01": {"casilleros": {"411": 5000000.0, "416": 200000.0}, "periodo": "01/2025"},
-        "02": {"casilleros": {"411": 4500000.0, "416": 180000.0}, "periodo": "02/2025"},
+        "01": {"casilleros": {"401": 5000000.0, "407": 200000.0, "411": 6000000.0},
+               "periodo": "01/2025"},
+        "02": {"casilleros": {"401": 4500000.0, "407": 180000.0, "411": 5500000.0},
+               "periodo": "02/2025"},
     }
     result = filler.fill(wb, _session_data(), {"f104_monthly": f104_monthly})
     ws = wb["INGRESOS A2"]
-    # casillero 411 → ventas_locales_diff_iva row 35, col C
+    # casillero 401 → ventas_locales_diff_iva row 35, col C (IVA declarado)
     assert ws["C35"].value == 9500000.0
-    # casillero 416 → exportaciones_bienes row 41, col D
+    # casillero 407 → exportaciones_bienes row 41, col D
     assert ws["D41"].value == 380000.0
+    # casillero 411 → ventas_locales_diff_iva row 35, col F (valor neto facturado)
+    assert ws["F35"].value == 11500000.0
+    # col E = diferencia declarado − facturado (=+C35-F35)
+    assert ws["E35"].value == "=+C35-F35"
     assert "warnings" in result
 
 
