@@ -73,13 +73,29 @@ es trazable, robusto (da 0 si el casillero no existe) y permite fórmulas reacti
 Para cada uno de los 9 casilleros (filas 18–26, `A9_CASILLEROS`):
 
 ```
-G<row> = SUMIF('DATOS BALANCE'!$A:$A, <casillero>, 'DATOS BALANCE'!$D:$D)
+# Saldos de inventario (7001, 7010, 7013, 7022, 7025, 7028, 7031, 7034):
+G<row> = ABS(SUMIF('DATOS BALANCE'!$A:$A, <casillero>, 'DATOS BALANCE'!$D:$D))
+
+# Ajustes (7037) — respeta signo:
+G26   = SUMIF('DATOS BALANCE'!$A:$A, 7037, 'DATOS BALANCE'!$D:$D)
 ```
 
 - `<casillero>` es el número literal (7001, 7010, …) — ya conocido en `a9.py`.
+- **Regla de signo (verificada empíricamente, PROPHAR 2026-06-08):** el balance
+  guarda los inventarios **finales** con signo **negativo** (nombre de cuenta
+  `"(-) Inventario final de …"`) porque restan en el cálculo del costo de ventas.
+  El F-101 los declara en **positivo**. Por eso el Costo Total usa `ABS(...)` para
+  todos los casilleros de saldo de inventario; **solo 7037 (ajustes)** mantiene el
+  signo directo. Sin esta normalización, 7022/7028/7034 darían diferencias **falsas**
+  de signo. Con ella, las 9 diferencias dan **0.00** (el inventario contable cuadra
+  exacto con lo declarado).
 - Diferencia `H<row> = G<row> - C<row>` (si la plantilla aún no la trae como fórmula).
 - **Código + nombre de cuenta (col D):** si el casillero tiene **exactamente 1 cuenta**
   en el balance, escribir código (texto) y nombre; si tiene varias, dejar en blanco.
+
+> **Prueba de cuadre A9 (PROPHAR, 2026-06-08):** los 9 casilleros cuadran a 0.00.
+> TOTAL declarado = TOTAL costo contable = 4.524.122,81. La lógica SUMIF+ABS está
+> validada con datos reales del cliente antes de implementar.
 
 ### 3.2 A4 / A5 — casillero lo escribe el auditor (reactivo)
 
@@ -87,9 +103,13 @@ El número de casillero (col B) es input manual. Se coloca una fórmula reactiva
 columna de valor en libros que se activa cuando el auditor escribe el casillero:
 
 ```
-A4: G<row> = IF($B<row>="", "", SUMIF('DATOS BALANCE'!$A:$A, $B<row>, 'DATOS BALANCE'!$D:$D))
-A5: K<row> = IF($B<row>="", "", SUMIF('DATOS BALANCE'!$A:$A, $B<row>, 'DATOS BALANCE'!$D:$D))
+A4: G<row> = IF($B<row>="", "", ABS(SUMIF('DATOS BALANCE'!$A:$A, $B<row>, 'DATOS BALANCE'!$D:$D)))
+A5: K<row> = IF($B<row>="", "", ABS(SUMIF('DATOS BALANCE'!$A:$A, $B<row>, 'DATOS BALANCE'!$D:$D)))
 ```
+
+> Se usa `ABS(...)` por consistencia con A9: el valor en libros de ingresos exentos /
+> gastos no deducibles se presenta en positivo (a validar cuando el auditor cargue
+> casilleros reales en estos cuadros).
 
 - Rangos de filas: A4 Cuadro 1 = filas 16–25 (`A4_CUADRO1_RANGE`); A5 Cuadro A =
   filas 17–21.
