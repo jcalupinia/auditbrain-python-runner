@@ -48,14 +48,15 @@ def test_a7_filler_writes_ir_credit_by_year():
     assert result["filled_cells"] > 3
 
 
-def test_a7_filler_accepts_casillero_850_alias():
-    """'850' key in year_data should map to valor_generado."""
+def test_a7_filler_accepts_casillero_857_alias():
+    """'857' (retenciones en la fuente) es el crédito tributario generado.
+    NO el 850 (IR causado). Validado contra ICT_14."""
     wb = load_template()
     filler = A7Filler()
     sess = _session_data()
     data = {
         "f101_multiyear": {
-            "2022": {"850": 7500.0},
+            "2022": {"857": 7500.0},
         }
     }
     result = filler.fill(wb, sess, data)

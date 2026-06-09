@@ -89,9 +89,11 @@ class A7Filler:
 
                 # CASO ESPECIAL: valor_generado del año actual → referencial F-101
                 if col_key == "valor_generado" and year == latest_year:
-                    # Intenta 850 luego 851
+                    # Crédito tributario IR generado = RETENCIONES EN LA FUENTE
+                    # (cas 857). NO el cas 850 (IMPUESTO A LA RENTA CAUSADO), que
+                    # es el impuesto, no un crédito. Validado contra ICT_14.
                     written = False
-                    for cas in ("850", "851"):
+                    for cas in ("857",):
                         if set_casillero_ref(
                             ws, f"{col_letter}{row}",
                             casillero=cas,
@@ -107,7 +109,7 @@ class A7Filler:
                     if written:
                         continue
                     # fallback al dict multi-año literal
-                    val = year_data.get("valor_generado") or year_data.get("850") or year_data.get("851")
+                    val = year_data.get("valor_generado") or year_data.get("857")
                     if val is not None and _safe_set(ws, f"{col_letter}{row}", val):
                         filled += 1
                     continue
@@ -117,7 +119,7 @@ class A7Filler:
 
                 val = None
                 if col_key == "valor_generado":
-                    val = year_data.get("valor_generado") or year_data.get("850") or year_data.get("851")
+                    val = year_data.get("valor_generado") or year_data.get("857")
                 else:
                     val = year_data.get(col_key)
 
