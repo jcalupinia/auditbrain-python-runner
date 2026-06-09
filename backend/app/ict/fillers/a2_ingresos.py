@@ -92,6 +92,23 @@ class A2Filler:
                     "no encontrado en F-101 ni Balance Mapeado"
                 )
 
+        # ── Alineación con golden master ICT_14 ─────────────────────────────
+        # ICT_14 declara en la col C de "ventas de bienes" (fila 14) la suma del
+        # cas 6001 (ventas locales bienes tarifa dif) + cas 6005 (prestación de
+        # servicios tarifa dif); y deja la fila 17 (exportaciones bienes, col D)
+        # en 0. Se replica para coincidir exacto con el papel de trabajo validado.
+        r6001 = f101_lookup.get("6001")
+        r6005 = f101_lookup.get("6005")
+        if r6001 and r6005:
+            if safe_set_formula(
+                ws, "C14",
+                f"=+'DATOS F-101'!C{r6001}+'DATOS F-101'!C{r6005}",
+                anexo="A2", casillero="6001+6005",
+                origen="A2 Cuadro 1 · ventas bienes + servicios (alineado ICT_14)",
+            ):
+                filled += 1
+        _safe_set(ws, "D17", 0)
+
         # ── Cuadro 1: total por fila (col F = suma intra-anexo) + SUM fila 25 ─
         for row, cols in A2_CUADRO1_TOTAL_COLS.items():
             formula = "=" + "+".join(f"{c}{row}" for c in cols)

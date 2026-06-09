@@ -42,7 +42,11 @@ A2_CUADRO1_CASILLERO_MAP: dict[tuple[str, str], str] = {
     ("ventas_bienes", "C"): "6001",          # Ventas bienes tarifa dif 0%
     ("ventas_servicios", "B"): "6013",       # Servicios tarifa 0%
     ("ventas_servicios", "C"): "6011",       # Servicios tarifa dif 0%
-    ("exportaciones_bienes", "D"): "6005",   # Exportaciones bienes
+    # NOTA: el cas 6005 (PRESTACIÓN DE SERVICIOS tarifa dif) NO es exportaciones.
+    # ICT_14 lo agrega en la col C de "ventas de bienes" (fila 14) junto al 6001;
+    # eso se resuelve en el filler (caso especial alineado ICT_14). Por eso aquí
+    # NO se mapea a la fila 17. Las exportaciones de bienes reales (cas 6009) las
+    # deja ICT_14 en 0 para este cliente → D17 se fija en 0 en el filler.
     ("exportaciones_servicios", "D"): "6015", # Exportaciones servicios
     ("otros_ingresos", "E"): "6017",         # Otros ingresos gravados
     ("construccion", "E"): "6019",           # Construcción (modalidad)

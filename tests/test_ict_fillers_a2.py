@@ -34,15 +34,17 @@ def test_a2_filler_cuadro1_from_f101():
         "f101": {
             "6001": 13066588.05,   # ventas bienes tarifa dif 0% → row 14, col C
             "6011": 5313181.16,    # servicios tarifa dif 0%     → row 15, col C
-            "6005": 2000000.0,     # exportaciones bienes        → row 17, col D
         }
     }
     result = filler.fill(wb, session, anexo_data)
     ws = wb["INGRESOS A2"]
     assert ws["C14"].value == 13066588.05
     assert ws["C15"].value == 5313181.16
-    assert ws["D17"].value == 2000000.0
-    assert result["filled_cells"] >= 6  # 3 header + 3 cuadro1
+    # Alineado ICT_14: la fila 17 (exportaciones bienes, col D) queda en 0.
+    # El cas 6005 (servicios) se agrega a C14 vía referencia DATOS F-101 (no en
+    # este test directo sin hoja DATOS).
+    assert ws["D17"].value == 0
+    assert result["filled_cells"] >= 5  # 3 header + 2 cuadro1
 
 
 def test_a2_filler_cuadro2_from_f104_monthly():
