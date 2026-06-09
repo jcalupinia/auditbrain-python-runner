@@ -100,11 +100,17 @@ G26   = SUMIF('DATOS BALANCE'!$A:$A, 7037, 'DATOS BALANCE'!$D:$D)
 
   trae el código (`5PYG.53602.017`) desde el balance; si el casillero no tiene cuenta
   (7001, 7010) → celda vacía (no `#N/A`).
-  - **Si un casillero tuviera varias cuentas** (no ocurre en PROPHAR): usar
-    `TEXTJOIN(", ", TRUE, IF('DATOS BALANCE'!$A:$A=<cas>, 'DATOS BALANCE'!$B:$B, ""))`
-    para listar los códigos en la misma celda (1 fila por casillero). El desglose
-    cuenta-por-cuenta completo ya vive en el A1 (que sí expande filas); el A9 queda
-    como resumen y el A1 como máximo detalle.
+  - **Si un casillero tuviera varias cuentas** (no ocurre en PROPHAR): listar los
+    códigos en la misma celda (1 fila por casillero) separados por **" / "**:
+
+    ```
+    D<row> = TEXTJOIN(" / ", TRUE, IF('DATOS BALANCE'!$A:$A=<cas>, 'DATOS BALANCE'!$B:$B, ""))
+    ```
+
+    Se elige `" / "` (barra con espacios) en vez de `"-"` porque muchos planes de
+    cuentas usan guiones dentro del código (ambigüedad); la barra casi nunca aparece
+    en un código contable. El desglose cuenta-por-cuenta completo ya vive en el A1
+    (que sí expande filas); el A9 queda como resumen y el A1 como máximo detalle.
   - Verificado empíricamente (PROPHAR 2026-06-08): 7 casilleros con 1 cuenta cada uno,
     2 casilleros (7001/7010) sin cuenta → columna D queda vacía en esos dos.
 
