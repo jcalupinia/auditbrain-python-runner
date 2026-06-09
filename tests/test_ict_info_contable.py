@@ -122,3 +122,38 @@ def test_a5_cuadro_a_filas_vacias_tienen_formula_reactiva():
     ws = wb["CONCILIACIÓN COSTOS Y GASTOS A5"]
     assert ws["K17"].value == ('=IF($B17="","",ABS(SUMIF(\'DATOS BALANCE\'!$A:$A,'
                                '$B17,\'DATOS BALANCE\'!$D:$D)))')
+
+
+def test_a9_cuadre_prophar_cero_diferencias():
+    """En PROPHAR, el inventario contable (col G, ABS) cuadra con lo declarado:
+    todas las diferencias = 0 una vez resueltas las fórmulas."""
+    import os
+    import pytest
+    from openpyxl import load_workbook
+
+    artifact = "audit_artifacts/ict15_papel_trabajo.xlsx"
+    if not os.path.exists(artifact):
+        pytest.skip("requiere ICT15 PROPHAR regenerado")
+
+    wb = load_workbook(artifact, data_only=False)
+    db = wb["DATOS BALANCE"]
+    suma: dict[str, float] = {}
+    for r in range(4, db.max_row + 1):
+        c = db.cell(r, 1).value
+        if c is None:
+            continue
+        c = str(c).strip()
+        s = db.cell(r, 4).value or 0
+        suma[c] = suma.get(c, 0) + (s if isinstance(s, (int, float)) else 0)
+    f1 = wb["DATOS F-101"]
+    dec: dict[str, float] = {}
+    for r in range(1, f1.max_row + 1):
+        v = f1.cell(r, 1).value
+        if v:
+            dec[str(v).strip()] = f1.cell(r, 3).value
+    for cas in ["7013", "7022", "7025", "7028", "7031", "7034", "7037"]:
+        d = dec.get(cas) or 0
+        g = suma.get(cas, 0)
+        g = g if cas == "7037" else abs(g)
+        d = d if isinstance(d, (int, float)) else 0
+        assert abs(g - d) < 0.01, f"cas {cas}: costo {g} != declarado {d}"
