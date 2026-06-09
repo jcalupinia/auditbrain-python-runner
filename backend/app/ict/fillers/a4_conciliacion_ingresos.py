@@ -23,12 +23,13 @@ from backend.app.ict.cell_maps.a4 import (
     A4_HEADER_MAP,
     A4_SHEET,
 )
-from backend.app.ict.fillers.base import safe_set
+from backend.app.ict.fillers.base import safe_set, safe_set_formula
 from backend.app.ict.fillers.helpers import filter_balance_by_casilleros
 from backend.app.ict.fillers.referential_helpers import (
     lookups_from_context,
     set_balance_item_ref,
     set_casillero_ref,
+    libros_sumif_reactivo_formula,
 )
 
 
@@ -127,6 +128,20 @@ class A4Filler:
                 "A4 Cuadro 1: sin datos de ingresos exentos. "
                 "Sube el Libro Mayor o el Balance Mapeado para poblar el detalle."
             )
+
+        # Filas del Cuadro 1 SIN pre-llenado: fórmula reactiva al casillero (col B).
+        # Cuando el auditor escribe el Nº de casillero, el valor en libros (col G)
+        # se calcula solo sumando DATOS BALANCE por ese casillero.
+        num_prellenadas = min(len(balance_indexed), max_rows) if balance_indexed else 0
+        col_b_a4 = A4_CUADRO1_COLS["casillero"]
+        col_g_a4 = A4_CUADRO1_COLS["valor"]
+        for row in range(start_row + num_prellenadas, end_row + 1):
+            formula = libros_sumif_reactivo_formula(f"${col_b_a4}{row}", take_abs=True)
+            if safe_set_formula(
+                ws, f"{col_g_a4}{row}", formula, anexo="A4",
+                origen="A4 Cuadro 1 · valor en libros reactivo al casillero",
+            ):
+                filled += 1
 
         # ── Cuadro 2: Conciliación F-101 casilleros (referencial) ─────────
         any_cuadro2 = False

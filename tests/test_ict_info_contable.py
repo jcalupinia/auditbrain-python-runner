@@ -95,3 +95,17 @@ def test_a9_diferencia_h22_corregida_a_formula():
     assert ws["H22"].value == "=G22-C22"
     assert ws["H18"].value == "=G18-C18"
     assert ws["H19"].value == "=G19-C19"
+
+
+from backend.app.ict.fillers.a4_conciliacion_ingresos import A4Filler
+
+
+def test_a4_cuadro1_filas_vacias_tienen_formula_reactiva():
+    """Sin cuentas exentas pre-llenadas, cada fila del Cuadro 1 lleva una
+    fórmula reactiva al casillero (col B) en la col G (valor en libros)."""
+    wb = load_template()
+    session = {"razon_social": "X", "ruc": "1", "ejercicio_fiscal": "2025", "numero_adhesivo": ""}
+    A4Filler().fill(wb, session, {"mayor_exentos": [], "balance_mapeado": []})
+    ws = wb["CONCILIACIÓN INGRESOS A4"]
+    assert ws["G16"].value == ('=IF($B16="","",ABS(SUMIF(\'DATOS BALANCE\'!$A:$A,'
+                               '$B16,\'DATOS BALANCE\'!$D:$D)))')
