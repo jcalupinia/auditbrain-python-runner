@@ -30,7 +30,9 @@ def test_excepciones_validadas_contra_ict14():
 
 def test_ingresos_operacional_vs_no_operacional():
     assert clasificar_resultado("6001") == "ING_ORD"     # ventas
-    assert clasificar_resultado("6005") == "ING_ORD"     # prestación de servicios
+    assert clasificar_resultado("6017") == "ING_ORD"     # arrendamientos operativos
+    # límite: 6019 (regalías) en adelante es NO operacional
+    assert clasificar_resultado("6019") == "ING_NO_OP"   # regalías
     assert clasificar_resultado("6033") == "ING_NO_OP"   # diferencias de cambio (no op)
     # "VALOR EXENTO" no suma (no se clasifica)
     assert clasificar_resultado("6002") is None          # VALOR EXENTO ventas

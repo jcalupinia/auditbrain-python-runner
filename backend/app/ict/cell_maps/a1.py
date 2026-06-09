@@ -122,7 +122,11 @@ def clasificar_resultado(cas: str) -> str | None:
     if 6001 <= n <= 6998:
         if _resultado_no_sumable(cas, nombre):
             return None
-        return "ING_ORD" if n <= 6032 else "ING_NO_OP"
+        # Operacionales (actividades ordinarias) = 6001-6018: ventas, servicios,
+        # exportaciones, construcción, comisiones, arrendamientos operativos.
+        # No operacionales = 6019+ (regalías, dividendos, ganancias por valoración,
+        # diferencias de cambio, etc.). Criterio confirmado por el cliente.
+        return "ING_ORD" if n <= 6018 else "ING_NO_OP"
     if 7001 <= n <= 7990:
         if _resultado_no_sumable(cas, nombre):
             return None
