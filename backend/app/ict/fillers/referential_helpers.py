@@ -106,6 +106,39 @@ def balance_sum_ref(rows_in_balance_sheet: list[int], column: str = "D",
     return f"={expr}"
 
 
+def balance_codigo_ref(rows_in_balance_sheet: list[int], column: str = "B",
+                       sep: str = " / ") -> str | None:
+    """Fórmula que trae el/los código(s) de cuenta contable (texto, col B de
+    DATOS BALANCE) de las filas dadas.
+
+      [5]      → ='DATOS BALANCE'!B5
+      [5, 7]   → =TEXTJOIN(" / ",TRUE,'DATOS BALANCE'!B5,'DATOS BALANCE'!B7)
+      []       → None
+    """
+    if not rows_in_balance_sheet:
+        return None
+    refs = [f"'{SHEET_BALANCE}'!{column}{r}" for r in rows_in_balance_sheet]
+    if len(refs) == 1:
+        return f"={refs[0]}"
+    joined = ",".join(refs)
+    return f'=TEXTJOIN("{sep}",TRUE,{joined})'
+
+
+def libros_sumif_reactivo_formula(casillero_cell: str, *,
+                                  take_abs: bool = True) -> str:
+    """Fórmula REACTIVA para la columna 'valor en libros' de A4/A5: cuando el
+    auditor escribe el casillero en ``casillero_cell`` (ej. '$B17'), suma en
+    DATOS BALANCE todas las cuentas con ese casillero. Vacía si la celda lo está.
+
+      $B17 → =IF($B17="","",ABS(SUMIF('DATOS BALANCE'!$A:$A,$B17,'DATOS BALANCE'!$D:$D)))
+    """
+    inner = (f"SUMIF('{SHEET_BALANCE}'!$A:$A,{casillero_cell},"
+             f"'{SHEET_BALANCE}'!$D:$D)")
+    if take_abs:
+        inner = f"ABS({inner})"
+    return f'=IF({casillero_cell}="","",{inner})'
+
+
 # ---------------------------------------------------------------------------
 # Lookups del shared_context
 # ---------------------------------------------------------------------------
