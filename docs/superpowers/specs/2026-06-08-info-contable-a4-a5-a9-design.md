@@ -90,8 +90,23 @@ G26   = SUMIF('DATOS BALANCE'!$A:$A, 7037, 'DATOS BALANCE'!$D:$D)
   de signo. Con ella, las 9 diferencias dan **0.00** (el inventario contable cuadra
   exacto con lo declarado).
 - Diferencia `H<row> = G<row> - C<row>` (si la plantilla aún no la trae como fórmula).
-- **Código + nombre de cuenta (col D):** si el casillero tiene **exactamente 1 cuenta**
-  en el balance, escribir código (texto) y nombre; si tiene varias, dejar en blanco.
+- **Código de cuenta contable, al máximo detalle (col D):** también **fórmula viva**
+  (no texto pegado). Como cada casillero de inventario en PROPHAR tiene exactamente
+  1 cuenta:
+
+  ```
+  D<row> = IFERROR(INDEX('DATOS BALANCE'!$B:$B, MATCH(<cas>, 'DATOS BALANCE'!$A:$A, 0)), "")
+  ```
+
+  trae el código (`5PYG.53602.017`) desde el balance; si el casillero no tiene cuenta
+  (7001, 7010) → celda vacía (no `#N/A`).
+  - **Si un casillero tuviera varias cuentas** (no ocurre en PROPHAR): usar
+    `TEXTJOIN(", ", TRUE, IF('DATOS BALANCE'!$A:$A=<cas>, 'DATOS BALANCE'!$B:$B, ""))`
+    para listar los códigos en la misma celda (1 fila por casillero). El desglose
+    cuenta-por-cuenta completo ya vive en el A1 (que sí expande filas); el A9 queda
+    como resumen y el A1 como máximo detalle.
+  - Verificado empíricamente (PROPHAR 2026-06-08): 7 casilleros con 1 cuenta cada uno,
+    2 casilleros (7001/7010) sin cuenta → columna D queda vacía en esos dos.
 
 > **Prueba de cuadre A9 (PROPHAR, 2026-06-08):** los 9 casilleros cuadran a 0.00.
 > TOTAL declarado = TOTAL costo contable = 4.524.122,81. La lógica SUMIF+ABS está
