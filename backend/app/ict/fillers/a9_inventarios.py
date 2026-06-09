@@ -13,10 +13,13 @@ from __future__ import annotations
 from openpyxl import Workbook
 
 from backend.app.ict.cell_maps.a9 import A9_CASILLEROS, A9_HEADER_MAP, A9_SHEET
-from backend.app.ict.fillers.base import safe_set
+from backend.app.ict.fillers.base import safe_set, safe_set_formula
 from backend.app.ict.fillers.referential_helpers import (
     lookups_from_context,
     set_casillero_ref,
+    balance_rows_for_casillero,
+    balance_sum_ref,
+    balance_codigo_ref,
 )
 
 
@@ -63,6 +66,21 @@ class A9Filler:
                 warnings.append(
                     f"Casillero F-101 {casillero} no detectado en F-101 ni Balance Mapeado"
                 )
+
+            # ── Información contable (col D código, col G costo total) ─────
+            rows_bal = balance_rows_for_casillero(
+                anexo_data, str(casillero), balance_lookup
+            )
+            # Col G (Costo Total): ABS para saldos de inventario; 7037 (ajustes)
+            # mantiene signo (validado contra PROPHAR — ver spec).
+            take_abs = str(casillero) != "7037"
+            g_formula = balance_sum_ref(rows_bal, column="D", take_abs=take_abs)
+            if g_formula and safe_set_formula(
+                ws, f"G{row_idx}", g_formula, anexo="A9", casillero=str(casillero),
+                origen=f"A9 fila {row_idx} · Costo Total (balance, "
+                       f"{'ABS' if take_abs else 'signo directo'})",
+            ):
+                filled += 1
 
             # Cols D-G: del Kardex (literal)
             if kardex_items:

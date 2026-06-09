@@ -29,3 +29,43 @@ def test_libros_sumif_reactivo_sin_abs():
     f = libros_sumif_reactivo_formula("$B17", take_abs=False)
     assert f == ('=IF($B17="","",SUMIF(\'DATOS BALANCE\'!$A:$A,$B17,'
                  '\'DATOS BALANCE\'!$D:$D))')
+
+
+from backend.app.ict.fillers.base import load_template
+from backend.app.ict.fillers.a9_inventarios import A9Filler
+
+
+def _a9_session():
+    return {"razon_social": "X", "ruc": "1", "ejercicio_fiscal": "2025",
+            "numero_adhesivo": ""}
+
+
+def test_a9_costo_total_inventario_final_usa_abs():
+    """7022 (inv. final) tiene saldo negativo en balance → Costo Total con ABS."""
+    wb = load_template()
+    anexo_data = {
+        "balance_mapeado": [
+            {"casillero_sri": "7022", "codigo": "5PYG.53602.017",
+             "descripcion": "(-) Inventario final de materia prima",
+             "saldo": -930768.56},
+        ],
+        "_balance_lookup": [5],
+    }
+    A9Filler().fill(wb, _a9_session(), anexo_data)
+    ws = wb["INVENTARIOS A9"]
+    assert ws["G21"].value == "=ABS('DATOS BALANCE'!D5)"
+
+
+def test_a9_costo_total_ajustes_7037_respeta_signo():
+    """7037 (ajustes) NO usa ABS — mantiene el signo del balance."""
+    wb = load_template()
+    anexo_data = {
+        "balance_mapeado": [
+            {"casillero_sri": "7037", "codigo": "5PYG.53602.017",
+             "descripcion": "(+/-) Ajustes", "saldo": -223636.86},
+        ],
+        "_balance_lookup": [9],
+    }
+    A9Filler().fill(wb, _a9_session(), anexo_data)
+    ws = wb["INVENTARIOS A9"]
+    assert ws["G26"].value == "='DATOS BALANCE'!D9"
