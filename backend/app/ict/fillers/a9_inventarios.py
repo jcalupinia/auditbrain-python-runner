@@ -82,20 +82,29 @@ class A9Filler:
             ):
                 filled += 1
 
-            # Cols D-G: del Kardex (literal)
+            # Col D (código de cuenta, al máximo detalle): referencia(s) al balance
+            d_formula = balance_codigo_ref(rows_bal, column="B")
+            if d_formula and safe_set_formula(
+                ws, f"D{row_idx}", d_formula, anexo="A9", casillero=str(casillero),
+                origen=f"A9 fila {row_idx} · código de cuenta (balance)",
+            ):
+                filled += 1
+
+            # Col H (diferencia): la plantilla deja H18/H19/H22 en 0 hardcoded;
+            # uniformizar a =G-C para que el cuadre sea consistente en todas las filas.
+            safe_set_formula(
+                ws, f"H{row_idx}", f"=G{row_idx}-C{row_idx}",
+                anexo="A9", casillero=str(casillero),
+                origen=f"A9 fila {row_idx} · diferencia costo - declarado",
+            )
+
+            # Cols E-F: del Kardex (literal) si el cliente lo subió.
+            # D (código) y G (costo total) ya vienen del balance (arriba).
             if kardex_items:
                 first_match = kardex_items[0]
-                if _safe_set(ws, f"D{row_idx}", first_match.get("codigo_cuenta", "")):
-                    filled += 1
                 if _safe_set(ws, f"E{row_idx}", first_match.get("forma_valoracion", "PROMEDIO")):
                     filled += 1
                 if _safe_set(ws, f"F{row_idx}", first_match.get("cantidad", "")):
                     filled += 1
-                if _safe_set(ws, f"G{row_idx}", first_match.get("costo_total", 0.0)):
-                    filled += 1
-            elif ok:
-                warnings.append(
-                    f"Casillero {casillero} tiene valor pero no se subió Kardex"
-                )
 
         return {"filled_cells": filled, "warnings": warnings}

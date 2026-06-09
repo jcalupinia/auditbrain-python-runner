@@ -29,14 +29,12 @@ def test_a9_filler_writes_9_casilleros():
     assert ws["C19"].value == 6004284.22
 
 
-def test_a9_filler_warns_when_kardex_missing_and_valor_exists():
+def test_a9_filler_warns_when_no_source_for_casillero():
+    """Sin F-101 ni balance para un casillero con concepto, se emite warning."""
     wb = load_template()
     filler = A9Filler()
     session_data = {"razon_social": "X", "ruc": "1", "ejercicio_fiscal": "2025", "numero_adhesivo": ""}
-    anexo_data = {
-        "f101": {"7001": 5000.0, "7010": 0.0, "7013": 0.0, "7022": 0.0,
-                 "7025": 0.0, "7028": 0.0, "7031": 0.0, "7034": 0.0, "7037": 0.0},
-        "kardex_items": [],
-    }
+    anexo_data = {"f101": {}, "balance_mapeado": [], "_balance_lookup": [], "kardex_items": []}
     result = filler.fill(wb, session_data, anexo_data)
-    assert any("Kardex" in w for w in result["warnings"])
+    assert any("no detectado" in w.lower() or "no se subió" in w.lower()
+               for w in result["warnings"])

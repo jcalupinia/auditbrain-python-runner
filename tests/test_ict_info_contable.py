@@ -69,3 +69,29 @@ def test_a9_costo_total_ajustes_7037_respeta_signo():
     A9Filler().fill(wb, _a9_session(), anexo_data)
     ws = wb["INVENTARIOS A9"]
     assert ws["G26"].value == "='DATOS BALANCE'!D9"
+
+
+def test_a9_codigo_cuenta_col_d_es_referencia():
+    wb = load_template()
+    anexo_data = {
+        "balance_mapeado": [
+            {"casillero_sri": "7013", "codigo": "5PYG.53602.017",
+             "descripcion": "Inventario inicial de materia prima",
+             "saldo": 1018613.72},
+        ],
+        "_balance_lookup": [4],
+    }
+    A9Filler().fill(wb, _a9_session(), anexo_data)
+    ws = wb["INVENTARIOS A9"]
+    assert ws["D20"].value == "='DATOS BALANCE'!B4"
+    assert ws["H20"].value == "=G20-C20"
+
+
+def test_a9_diferencia_h22_corregida_a_formula():
+    """H22 (cas 7025) estaba hardcodeada en 0 en la plantilla → debe ser =G22-C22."""
+    wb = load_template()
+    A9Filler().fill(wb, _a9_session(), {"balance_mapeado": [], "_balance_lookup": []})
+    ws = wb["INVENTARIOS A9"]
+    assert ws["H22"].value == "=G22-C22"
+    assert ws["H18"].value == "=G18-C18"
+    assert ws["H19"].value == "=G19-C19"
