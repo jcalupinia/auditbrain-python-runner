@@ -109,3 +109,16 @@ def test_a4_cuadro1_filas_vacias_tienen_formula_reactiva():
     ws = wb["CONCILIACIÓN INGRESOS A4"]
     assert ws["G16"].value == ('=IF($B16="","",ABS(SUMIF(\'DATOS BALANCE\'!$A:$A,'
                                '$B16,\'DATOS BALANCE\'!$D:$D)))')
+
+
+
+from backend.app.ict.fillers.a5_conciliacion_costos import A5Filler
+
+
+def test_a5_cuadro_a_filas_vacias_tienen_formula_reactiva():
+    wb = load_template()
+    session = {"razon_social": "X", "ruc": "1", "ejercicio_fiscal": "2025", "numero_adhesivo": ""}
+    A5Filler().fill(wb, session, {"mayor_no_deducibles": [], "balance_mapeado": []})
+    ws = wb["CONCILIACIÓN COSTOS Y GASTOS A5"]
+    assert ws["K17"].value == ('=IF($B17="","",ABS(SUMIF(\'DATOS BALANCE\'!$A:$A,'
+                               '$B17,\'DATOS BALANCE\'!$D:$D)))')

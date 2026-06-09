@@ -22,12 +22,13 @@ from backend.app.ict.cell_maps.a5 import (
     A5_HEADER_MAP,
     A5_SHEET,
 )
-from backend.app.ict.fillers.base import safe_set
+from backend.app.ict.fillers.base import safe_set, safe_set_formula
 from backend.app.ict.fillers.helpers import filter_balance_by_casilleros
 from backend.app.ict.fillers.referential_helpers import (
     lookups_from_context,
     set_balance_item_ref,
     set_casillero_ref,
+    libros_sumif_reactivo_formula,
 )
 
 
@@ -118,6 +119,19 @@ class A5Filler:
             warnings.append(
                 "A5: sin gastos no deducibles (mayor_no_deducibles y balance 806/807 vacíos)"
             )
+
+        # Filas del Cuadro A SIN pre-llenado: fórmula reactiva al casillero (col B).
+        # La col B (Nº casillero) la escribe el auditor; al hacerlo, el valor en
+        # libros (col K) se calcula solo sumando DATOS BALANCE por ese casillero.
+        num_prellenadas_a = min(len(items_indexed), max_rows_a) if items_indexed else 0
+        col_k_a5 = A5_CUADRO_A_COLS["valor"]
+        for row in range(start_a + num_prellenadas_a, end_a + 1):
+            formula = libros_sumif_reactivo_formula(f"$B{row}", take_abs=True)
+            if safe_set_formula(
+                ws, f"{col_k_a5}{row}", formula, anexo="A5",
+                origen="A5 Cuadro A · valor en libros reactivo al casillero",
+            ):
+                filled += 1
 
         # ── Cuadro B: Prorrateo (casilleros 6999, 7999) referencial ───────
         any_cuadro_b = False
