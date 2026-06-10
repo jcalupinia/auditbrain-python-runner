@@ -10,7 +10,7 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -93,7 +93,7 @@ def _fallback_interpretation(code: str, nombre: str = "") -> AnexoInterpretation
         findings=[],
         confianza_modelo="baja",
         requiere_revision_humana=True,
-        timestamp_analisis=datetime.utcnow(),
+        timestamp_analisis=datetime.now(timezone.utc).replace(tzinfo=None),
         modelo_usado="fallback",
         tokens_consumidos=0,
     )
@@ -185,7 +185,7 @@ async def interpret_anexo(
                         )
                     raw["modelo_usado"] = model
                     if "timestamp_analisis" not in raw:
-                        raw["timestamp_analisis"] = datetime.utcnow().isoformat()
+                        raw["timestamp_analisis"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
                     return AnexoInterpretation.model_validate(raw)
             raise ValueError("No tool_use block in response")
         except Exception as exc:

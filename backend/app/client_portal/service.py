@@ -101,7 +101,7 @@ def create_client_job(
             "Tiene otro trabajo en proceso. Espere a que termine."
         )
 
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     project_id = _ensure_client_project(db, user=user)
 
     job = ToolJob(

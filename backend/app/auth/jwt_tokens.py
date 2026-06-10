@@ -30,7 +30,7 @@ def _secret() -> str:
 def create_access_token(
     subject: str, role: str, extra_claims: dict | None = None
 ) -> str:
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     payload = {
         "sub": subject,
         "role": role,

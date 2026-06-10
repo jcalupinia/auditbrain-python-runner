@@ -111,5 +111,5 @@ async def health():
         "ocr": _ocr_status(),
         "canva": _canva_status(),
         "formats": _formats_status(),
-        "timestamp": datetime.datetime.utcnow().isoformat(),
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat(),
     }

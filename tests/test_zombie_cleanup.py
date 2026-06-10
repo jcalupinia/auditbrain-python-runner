@@ -26,7 +26,7 @@ def test_zombie_processing_job_marked_error():
         email = f"zombie-{suffix}@x.com"
         u = get_user_by_email(db, email) or create_user(db, email, "x", Role.client)
 
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         job = ToolJob(
             user_id=u.id, project_id=proj.id, tool_code="STUB_ECHO",
             status="processing", cliente_name="x", period_label="x",

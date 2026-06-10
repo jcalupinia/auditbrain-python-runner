@@ -40,7 +40,7 @@ def _resolve_base(document_service: dict) -> str:
 
 def _build_payload(format_type: str, result, execution_context: dict):
     ctx = execution_context or {}
-    now = datetime.datetime.utcnow().isoformat()
+    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat()
 
     if format_type == "excel":
         return {
@@ -65,7 +65,7 @@ def _build_payload(format_type: str, result, execution_context: dict):
                 "titulo": ctx.get("task_name", "Informe Corporativo"),
                 "subtitulo": ctx.get("module_area", "Resultados de Análisis"),
                 "autor": "Audit Consulting IA Suite",
-                "fecha": datetime.datetime.utcnow().strftime("%Y-%m-%d"),
+                "fecha": datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).strftime("%Y-%m-%d"),
             },
             "content": [
                 {"type": "heading", "text": "Resultados Generales"},

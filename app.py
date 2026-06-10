@@ -315,7 +315,7 @@ async def root():
         "service": "AuditBrain Python Runner",
         "version": APP_VERSION,
         "message": "AuditBrain operativo y conectado al Universal Creador de Documentos 🚀",
-        "timestamp": datetime.datetime.utcnow().isoformat()
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat()
     }
 
 # ==========================================================
@@ -451,7 +451,7 @@ async def run_python(request: Request, _auth: None = Depends(_require_api_key)):
                         "sections": [
                             {"type": "h1", "text": "Resultados Analíticos"},
                             {"type": "p", "text": json.dumps(result, indent=2)},
-                            {"type": "p", "text": f"Generado por AuditBrain el {datetime.datetime.utcnow().isoformat()}"}
+                            {"type": "p", "text": f"Generado por AuditBrain el {datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat()}"}
                         ]
                     }
 
@@ -464,7 +464,7 @@ async def run_python(request: Request, _auth: None = Depends(_require_api_key)):
                             "titulo": execution_context.get("task_name", "Informe Corporativo"),
                             "subtitulo": execution_context.get("module_area", "Resultados de Análisis"),
                             "autor": "Audit Consulting IA Suite",
-                            "fecha": datetime.datetime.utcnow().strftime("%Y-%m-%d")
+                            "fecha": datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).strftime("%Y-%m-%d")
                         },
                         "content": [
                             {"type": "heading", "text": "Resultados Generales"},
@@ -525,7 +525,7 @@ async def run_python(request: Request, _auth: None = Depends(_require_api_key)):
                         "rows": [[v for v in result.values()]],
                         "metadata": {
                             "module_area": execution_context.get("module_area", "general"),
-                            "generated_at": datetime.datetime.utcnow().isoformat()
+                            "generated_at": datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat()
                         }
                     }
 
@@ -585,7 +585,7 @@ async def run_python(request: Request, _auth: None = Depends(_require_api_key)):
         # ==========================================================
         # Respuesta final al cliente
         # ==========================================================
-        response_data["timestamp"] = datetime.datetime.utcnow().isoformat()
+        response_data["timestamp"] = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat()
         response_data["service"] = "AuditBrain Python Runner"
         return response_data
 

@@ -50,7 +50,7 @@ class ToolJob(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=datetime.datetime.utcnow, nullable=False
+        DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None), nullable=False
     )
     finished_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
     downloaded_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)

@@ -36,7 +36,7 @@ def create_job(
     firma_auditora: str | None = None,
 ) -> ToolJob:
     _ensure_project_access(db, user, project_id)
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     job = ToolJob(
         user_id=user.id,
         project_id=project_id,
@@ -92,7 +92,7 @@ def mark_done(db: Session, job_id: int, summary: dict) -> None:
     job = db.get(ToolJob, job_id)
     if job:
         job.status = "done"
-        job.finished_at = datetime.datetime.utcnow()
+        job.finished_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         job.summary_json = summary
         db.add(job)
         db.commit()
@@ -102,7 +102,7 @@ def mark_failed(db: Session, job_id: int, error_message: str) -> None:
     job = db.get(ToolJob, job_id)
     if job:
         job.status = "failed"
-        job.finished_at = datetime.datetime.utcnow()
+        job.finished_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         job.error_message = error_message[:5000]
         db.add(job)
         db.commit()
@@ -111,7 +111,7 @@ def mark_failed(db: Session, job_id: int, error_message: str) -> None:
 def mark_downloaded(db: Session, job_id: int) -> None:
     job = db.get(ToolJob, job_id)
     if job:
-        job.downloaded_at = datetime.datetime.utcnow()
+        job.downloaded_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         db.add(job)
         db.commit()
 
