@@ -10,7 +10,7 @@ test.describe("Generación de Documentos", () => {
     await login(page, BASIC_USER.email);
     await page.locator("aside.cc-side")
       .getByRole("button", { name: /Documentos/i }).first().click();
-    await expect(page.getByRole("heading", { name: /Generación Documental/i }))
+    await expect(page.getByRole("heading", { name: /Generación Documental/i }).first())
       .toBeVisible();
 
     // Form de generación

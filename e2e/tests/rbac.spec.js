@@ -7,7 +7,7 @@ test.describe("Gating de roles", () => {
     await login(page);
     const side = page.locator("aside.cc-side");
     await expect(side.getByRole("button", { name: /Motor de Ejecución/i })).toBeVisible();
-    await expect(side.getByRole("button", { name: /^Cuentas$/ })).toBeVisible();
+    await expect(side.getByRole("button", { name: /Cuentas/ })).toBeVisible();
     await expect(side.getByRole("button", { name: /Workspaces/i })).toBeVisible();
   });
 

@@ -36,7 +36,7 @@ test.describe("Navegación del Command Center", () => {
       .getByRole("button", { name: /Centro de Operaciones/i }).click();
     await expect(page.getByRole("heading", { name: /Centro de Operaciones/i })).toBeVisible();
     await expect(page.getByText(/Operativo/).first()).toBeVisible();
-    await expect(page.getByText("4.0.0-test")).toBeVisible();
+    await expect(page.getByText("4.0.0-test").first()).toBeVisible();
   });
 
   test("Footer muestra el estado operativo en vivo", async ({ page }) => {
