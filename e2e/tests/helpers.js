@@ -67,6 +67,12 @@ export async function mockApi(page, {
   context = CONTEXT_EMPTY,
   modules = MODULES_CATALOG,
 } = {}) {
+  // Catch-all PRIMERO. En Playwright moderno, cuando varias rutas hacen match
+  // gana la registrada ÚLTIMO. Por eso este fallback va al inicio: así las
+  // rutas específicas de abajo (registradas después) tienen prioridad. Si
+  // estuviera al final, interceptaría TODAS las llamadas (login incluido).
+  await page.route("**/api/v1/**", (route) => jsonRoute(route, { detail: "not mocked" }, 404));
+
   await page.route("**/api/v1/health", (route) => {
     if (healthDown) return route.fulfill({ status: 503, body: "{}" });
     return jsonRoute(route, HEALTH_OK);
@@ -91,9 +97,6 @@ export async function mockApi(page, {
   await page.route("**/api/v1/documents/generate", (route) =>
     jsonRoute(route, { status: "ok", ...documentResult })
   );
-
-  // Default catch-all para no contaminar con 404s confusos.
-  await page.route("**/api/v1/**", (route) => jsonRoute(route, { detail: "not mocked" }, 404));
 }
 
 /**
