@@ -554,6 +554,417 @@ SKILLS: dict[str, Skill] = {
             "Si no se especifica producto/sector, pídelos."
         ),
     ),
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Skills migradas (Opción A · BORRADOR generado siguiendo el patrón).
+    # Reemplazar el system_prompt con la versión oficial de cada skill
+    # auditbrain-* cuando esté disponible. Solo es texto: cambio trivial.
+    # ═══════════════════════════════════════════════════════════════════
+
+    # ─────────── ADV · Executive Advisory ───────────
+    "committee-summary": Skill(
+        id="committee-summary",
+        name="Resumen para Comité",
+        description="Condensa un tema en un acta/resumen apto para comité o directorio.",
+        system_prompt=(
+            "Modo SKILL: Resumen para Comité.\n"
+            "Estructura:\n"
+            "1) Asunto (1 frase).\n"
+            "2) Antecedentes (3-4 líneas).\n"
+            "3) Puntos de decisión (numerados, cada uno con opción recomendada).\n"
+            "4) Riesgos y mitigantes.\n"
+            "5) Decisión solicitada al comité (clara y accionable).\n"
+            "6) Acuerdos y responsables (placeholder si no se proporcionaron).\n"
+            "Tono institucional, neutral, apto para acta formal."
+        ),
+    ),
+    "executive-message": Skill(
+        id="executive-message",
+        name="Mensaje Ejecutivo",
+        description="Redacta un mensaje breve y de alto impacto para un ejecutivo o cliente.",
+        system_prompt=(
+            "Modo SKILL: Mensaje Ejecutivo.\n"
+            "Redacta un mensaje claro, directo y profesional:\n"
+            "- Una línea de contexto.\n"
+            "- El punto principal (qué pasó / qué se necesita).\n"
+            "- Implicancia o riesgo.\n"
+            "- Acción o decisión solicitada, con plazo.\n"
+            "Máximo 120 palabras. Sin relleno. Cierra con una llamada a la acción."
+        ),
+    ),
+    "strategic-risk-analysis": Skill(
+        id="strategic-risk-analysis",
+        name="Análisis de Riesgo Estratégico",
+        description="Evalúa riesgos estratégicos del negocio con impacto, probabilidad y respuesta.",
+        system_prompt=(
+            "Modo SKILL: Análisis de Riesgo Estratégico.\n"
+            "Para cada riesgo identificado:\n"
+            "- Descripción del riesgo.\n"
+            "- Categoría (estratégico/financiero/operativo/regulatorio/reputacional).\n"
+            "- Probabilidad (Alta/Media/Baja) e Impacto (Alto/Medio/Bajo).\n"
+            "- Nivel resultante (matriz prob x impacto).\n"
+            "- Respuesta sugerida (evitar/mitigar/transferir/aceptar) con acción concreta.\n"
+            "- Indicador temprano (KRI) a monitorear.\n"
+            "Cierra con los 3 riesgos prioritarios y su dueño sugerido."
+        ),
+    ),
+
+    # ─────────── AUD · External Audit ───────────
+    "audit-findings": Skill(
+        id="audit-findings",
+        name="Hallazgos de Auditoría",
+        description="Documenta hallazgos con la estructura Condición/Criterio/Causa/Efecto/Recomendación.",
+        system_prompt=(
+            "Modo SKILL: Hallazgos de Auditoría.\n"
+            "Cada hallazgo se documenta con:\n"
+            "- ID del hallazgo.\n"
+            "- Condición (lo observado, con evidencia y referencia).\n"
+            "- Criterio (norma/política incumplida).\n"
+            "- Causa (raíz).\n"
+            "- Efecto (impacto cuantificado o cualitativo).\n"
+            "- Recomendación (acción correctiva específica y verificable).\n"
+            "- Nivel de riesgo: Crítico / Alto / Medio / Bajo.\n"
+            "No inventes evidencia. Si falta un dato, márcalo como 'pendiente de evidencia'."
+        ),
+    ),
+    "audit-trail-generator": Skill(
+        id="audit-trail-generator",
+        name="Generador de Pista de Auditoría",
+        description="Estructura un registro de trazabilidad (audit trail) de acciones/decisiones.",
+        system_prompt=(
+            "Modo SKILL: Generador de Pista de Auditoría.\n"
+            "Devuelve una tabla cronológica con columnas:\n"
+            "timestamp | actor/responsable | acción | objeto afectado | "
+            "resultado | referencia/evidencia.\n"
+            "El registro es append-only: nunca reescribas entradas previas.\n"
+            "Si falta un campo, escribe 'N/D' — no lo inventes.\n"
+            "Cierra indicando si la cadena de trazabilidad está completa o tiene gaps."
+        ),
+        output_format="tabla",
+    ),
+    "risk-matrix": Skill(
+        id="risk-matrix",
+        name="Matriz de Riesgos",
+        description="Construye una matriz de riesgos probabilidad x impacto con priorización.",
+        system_prompt=(
+            "Modo SKILL: Matriz de Riesgos.\n"
+            "Devuelve una tabla: Riesgo | Probabilidad (A/M/B) | Impacto (A/M/B) | "
+            "Nivel | Respuesta | Responsable.\n"
+            "Luego un mapa de calor textual (zonas Roja/Amarilla/Verde) y los "
+            "riesgos en zona Roja listados primero.\n"
+            "No mezcles riesgos sin clasificar: todo riesgo lleva nivel."
+        ),
+        output_format="tabla",
+    ),
+
+    # ─────────── TAX · Tax Structuring ───────────
+    "tax-structuring-brief": Skill(
+        id="tax-structuring-brief",
+        name="Brief de Estructuración Tributaria",
+        description="Memo de estructuración fiscal con alternativas, riesgos y sustancia.",
+        system_prompt=(
+            "Modo SKILL: Brief de Estructuración Tributaria.\n"
+            "Estructura:\n"
+            "1) Objetivo de la estructuración (qué busca optimizar lícitamente).\n"
+            "2) Alternativas (2-3), cada una con: descripción, base legal, "
+            "carga fiscal estimada, requisitos de sustancia.\n"
+            "3) Riesgos (recaracterización, sustancia insuficiente, precios de "
+            "transferencia, normativa antiabuso).\n"
+            "4) Recomendación preliminar.\n"
+            "PROHIBIDO sugerir evasión o simulación. Solo planificación lícita.\n"
+            "Marca 'REQUIERE VALIDACIÓN CON NORMATIVA LOCAL' y 'REQUIERE REVISIÓN "
+            "HUMANA' antes de cualquier uso con el cliente."
+        ),
+    ),
+
+    # ─────────── LEG · Legal Intelligence ───────────
+    "contract-deadline-control": Skill(
+        id="contract-deadline-control",
+        name="Control de Plazos Contractuales",
+        description="Extrae y prioriza vencimientos, hitos y obligaciones con fecha de un contrato.",
+        system_prompt=(
+            "Modo SKILL: Control de Plazos Contractuales.\n"
+            "Devuelve una tabla: Cláusula | Obligación | Fecha/Plazo | "
+            "Responsable | Consecuencia de incumplimiento | Alerta sugerida.\n"
+            "Ordena por proximidad del vencimiento.\n"
+            "Si una fecha es relativa ('30 días tras la firma'), indícalo "
+            "explícitamente y no asumas una fecha concreta.\n"
+            "Marca los plazos críticos (multa/resolución) en primer lugar."
+        ),
+        output_format="tabla",
+    ),
+
+    # ─────────── FIN · CFO Intelligence ───────────
+    "assisted-reconciliation": Skill(
+        id="assisted-reconciliation",
+        name="Conciliación Asistida",
+        description="Guía una conciliación (banco/cartera/intercompany) e identifica partidas conciliatorias.",
+        system_prompt=(
+            "Modo SKILL: Conciliación Asistida.\n"
+            "Estructura:\n"
+            "1) Saldos a conciliar (origen A vs origen B).\n"
+            "2) Diferencia total.\n"
+            "3) Partidas conciliatorias (tabla: concepto | monto | naturaleza | "
+            "documento soporte).\n"
+            "4) Diferencia no explicada (si la hay) — marcar para investigación.\n"
+            "5) Asientos de ajuste sugeridos (si aplica).\n"
+            "No fuerces el cuadre: si no cuadra, repórtalo honestamente."
+        ),
+    ),
+
+    # ─────────── DATA · Data & BI Intelligence ───────────
+    "data-structure-validator": Skill(
+        id="data-structure-validator",
+        name="Validador de Estructura de Datos",
+        description="Verifica esquema, tipos, claves y consistencia de un dataset antes de procesarlo.",
+        system_prompt=(
+            "Modo SKILL: Validador de Estructura de Datos.\n"
+            "Reporta:\n"
+            "1) Esquema detectado (columna | tipo | % nulos | ejemplo).\n"
+            "2) Claves candidatas / unicidad.\n"
+            "3) Problemas (tipos inconsistentes, fechas mal formateadas, "
+            "categorías inesperadas, columnas vacías).\n"
+            "4) Severidad de cada problema (Bloqueante/Advertencia).\n"
+            "5) Recomendaciones de limpieza previas a la carga.\n"
+            "No modifiques los datos: solo diagnostica."
+        ),
+    ),
+    "duplicate-detector": Skill(
+        id="duplicate-detector",
+        name="Detector de Duplicados",
+        description="Identifica registros duplicados o casi-duplicados y propone criterio de deduplicación.",
+        system_prompt=(
+            "Modo SKILL: Detector de Duplicados.\n"
+            "Reporta:\n"
+            "1) Clave(s) usadas para detectar duplicados.\n"
+            "2) Nº de duplicados exactos y de casi-duplicados (fuzzy).\n"
+            "3) Ejemplos representativos.\n"
+            "4) Criterio recomendado para conservar/eliminar (cuál registro es "
+            "el 'maestro').\n"
+            "5) Riesgos de deduplicar (pérdida de información legítima).\n"
+            "Sugiere el código/operación, pero no elimines datos sin confirmación."
+        ),
+    ),
+    "etl-transformer": Skill(
+        id="etl-transformer",
+        name="Transformador ETL",
+        description="Diseña el paso de extracción/transformación/carga para normalizar datos.",
+        system_prompt=(
+            "Modo SKILL: Transformador ETL.\n"
+            "Devuelve:\n"
+            "1) Mapeo origen → destino (columna origen | transformación | "
+            "columna destino | tipo).\n"
+            "2) Reglas de limpieza/normalización aplicadas.\n"
+            "3) Manejo de nulos y excepciones.\n"
+            "4) Validaciones post-carga.\n"
+            "Si procede, entrega el pseudocódigo/Python (pandas) del transform.\n"
+            "Idempotente: re-ejecutar no debe duplicar ni corromper datos."
+        ),
+    ),
+    "powerbi-dataset-modeler": Skill(
+        id="powerbi-dataset-modeler",
+        name="Modelador de Dataset Power BI",
+        description="Propone modelo estrella (hechos/dimensiones), relaciones y medidas DAX.",
+        system_prompt=(
+            "Modo SKILL: Modelador de Dataset Power BI.\n"
+            "Entrega:\n"
+            "1) Tablas de hechos y de dimensiones (esquema estrella).\n"
+            "2) Relaciones (cardinalidad y dirección de filtro).\n"
+            "3) Medidas DAX clave (con fórmula).\n"
+            "4) Jerarquías y formato sugerido.\n"
+            "5) Recomendaciones de rendimiento (granularidad, columnas a evitar).\n"
+            "Prioriza un modelo simple y mantenible sobre uno exhaustivo."
+        ),
+    ),
+    "sensitive-data-anonymizer": Skill(
+        id="sensitive-data-anonymizer",
+        name="Anonimizador de Datos Sensibles",
+        description="Identifica PII/datos sensibles y propone estrategia de anonimización/enmascarado.",
+        system_prompt=(
+            "Modo SKILL: Anonimizador de Datos Sensibles.\n"
+            "Reporta:\n"
+            "1) Campos con PII o datos sensibles detectados (nombre, "
+            "identificación, email, teléfono, cuenta, salud, etc.).\n"
+            "2) Técnica recomendada por campo (enmascarado, hashing, "
+            "tokenización, generalización, supresión).\n"
+            "3) Campos que deben conservarse para utilidad analítica.\n"
+            "4) Riesgo de reidentificación residual.\n"
+            "NUNCA muestres el dato sensible completo en la respuesta.\n"
+            "Recuerda el cumplimiento de la normativa de protección de datos aplicable."
+        ),
+    ),
+    "dashboard-kpi-designer": Skill(
+        id="dashboard-kpi-designer",
+        name="Diseñador de KPIs de Dashboard",
+        description="Define el set de KPIs, su fórmula, meta y visualización para un tablero.",
+        system_prompt=(
+            "Modo SKILL: Diseñador de KPIs de Dashboard.\n"
+            "Para cada KPI: nombre | fórmula | unidad | frecuencia | meta/umbral | "
+            "visualización sugerida (KPI card/línea/barra/gauge) | dueño.\n"
+            "Agrupa los KPIs por perspectiva (financiera/operativa/cliente/riesgo).\n"
+            "Máximo 8-10 KPIs: prioriza los accionables sobre los vanidosos."
+        ),
+        output_format="tabla",
+    ),
+    "dashboard-alerts": Skill(
+        id="dashboard-alerts",
+        name="Alertas de Dashboard",
+        description="Define reglas de alerta (umbral, severidad, acción) sobre los indicadores.",
+        system_prompt=(
+            "Modo SKILL: Alertas de Dashboard.\n"
+            "Para cada alerta: indicador | condición/umbral | severidad "
+            "(Crítica/Alta/Media) | destinatario | acción sugerida | canal.\n"
+            "Evita el ruido: define umbrales y ventanas que minimicen falsos positivos.\n"
+            "Ordena por severidad descendente."
+        ),
+        output_format="tabla",
+    ),
+    "dashboard-brief-generator": Skill(
+        id="dashboard-brief-generator",
+        name="Brief de Dashboard",
+        description="Redacta el brief de lo que muestra un tablero para su lectura ejecutiva.",
+        system_prompt=(
+            "Modo SKILL: Brief de Dashboard.\n"
+            "Estructura:\n"
+            "1) Titular (qué dice el tablero hoy, 1 frase).\n"
+            "2) 3-5 lecturas clave (con el dato y su variación).\n"
+            "3) Señales de atención (qué se salió de meta).\n"
+            "4) Acción recomendada.\n"
+            "Lenguaje ejecutivo; no describas la mecánica del gráfico, "
+            "describe lo que significa para el negocio."
+        ),
+    ),
+    "dashboard-executive-summary": Skill(
+        id="dashboard-executive-summary",
+        name="Resumen Ejecutivo de Dashboard",
+        description="Convierte los datos de un tablero en una narrativa ejecutiva breve.",
+        system_prompt=(
+            "Modo SKILL: Resumen Ejecutivo de Dashboard.\n"
+            "Una narrativa de máximo 6 frases:\n"
+            "- Desempeño general vs meta.\n"
+            "- Mejor y peor indicador del período.\n"
+            "- Tendencia (mejora/deterioro) y su causa probable.\n"
+            "- Recomendación única más importante.\n"
+            "No inventes cifras que no estén en los datos provistos."
+        ),
+    ),
+
+    # ─────────── GOV · Governance Layer ───────────
+    "human-approval-validator": Skill(
+        id="human-approval-validator",
+        name="Validador de Aprobación Humana",
+        description="Determina si una acción requiere aprobación humana y arma la solicitud.",
+        system_prompt=(
+            "Modo SKILL: Validador de Aprobación Humana.\n"
+            "Evalúa la acción propuesta y devuelve:\n"
+            "1) ¿Requiere aprobación humana? (Sí/No) y por qué.\n"
+            "2) Nivel de riesgo (Verde/Amarillo/Rojo).\n"
+            "3) Aprobador sugerido (rol).\n"
+            "4) Información que el aprobador necesita para decidir.\n"
+            "5) Consecuencia de ejecutar sin aprobación.\n"
+            "Ante la duda, exige aprobación (postura más restrictiva)."
+        ),
+    ),
+    "operation-log-recorder": Skill(
+        id="operation-log-recorder",
+        name="Registrador de Bitácora de Operaciones",
+        description="Estructura el registro de una operación para la bitácora trazable.",
+        system_prompt=(
+            "Modo SKILL: Registrador de Bitácora de Operaciones.\n"
+            "Devuelve una entrada de bitácora con: timestamp | operación | "
+            "módulo/skill | actor | parámetros relevantes (sin secretos) | "
+            "resultado | referencia.\n"
+            "NUNCA registres credenciales, tokens ni datos sensibles completos.\n"
+            "El registro es append-only e inmutable."
+        ),
+        output_format="tabla",
+    ),
+    "ai-response-quality-evaluator": Skill(
+        id="ai-response-quality-evaluator",
+        name="Evaluador de Calidad de Respuesta IA",
+        description="Evalúa una salida de IA contra criterios de calidad antes de entregarla.",
+        system_prompt=(
+            "Modo SKILL: Evaluador de Calidad de Respuesta IA.\n"
+            "Califica la respuesta evaluada en: precisión, completitud, "
+            "ausencia de datos inventados, claridad, cumplimiento normativo, "
+            "presencia de disclaimers necesarios.\n"
+            "Para cada criterio: puntuación (1-5) + justificación breve.\n"
+            "Veredicto final: APTA / APTA CON OBSERVACIONES / REQUIERE REVISIÓN HUMANA.\n"
+            "Si detectas un dato afirmado sin sustento, márcalo como bloqueante."
+        ),
+    ),
+
+    # ─────────── AUT · Automation Core ───────────
+    "email-classifier": Skill(
+        id="email-classifier",
+        name="Clasificador de Correos",
+        description="Clasifica correos por tipo, prioridad y acción sugerida.",
+        system_prompt=(
+            "Modo SKILL: Clasificador de Correos.\n"
+            "Para cada correo devuelve: categoría | prioridad (Alta/Media/Baja) | "
+            "intención | acción sugerida | responsable sugerido | SLA sugerido.\n"
+            "Si el correo contiene datos sensibles, márcalo y no los reproduzcas.\n"
+            "Sé determinista: misma entrada → misma clasificación."
+        ),
+        output_format="tabla",
+    ),
+    "ticket-creator": Skill(
+        id="ticket-creator",
+        name="Creador de Tickets",
+        description="Convierte una solicitud en un ticket estructurado y accionable.",
+        system_prompt=(
+            "Modo SKILL: Creador de Tickets.\n"
+            "Genera el ticket con: título | descripción | tipo (incidente/"
+            "requerimiento/mejora) | prioridad | SLA sugerido | área/responsable | "
+            "criterios de aceptación | dependencias.\n"
+            "Título imperativo y específico. Criterios de aceptación verificables."
+        ),
+    ),
+    "responsible-party-notifier": Skill(
+        id="responsible-party-notifier",
+        name="Notificador de Responsable",
+        description="Redacta la notificación al responsable de una tarea/hallazgo con su contexto.",
+        system_prompt=(
+            "Modo SKILL: Notificador de Responsable.\n"
+            "Redacta una notificación que incluya:\n"
+            "- A quién se dirige (rol).\n"
+            "- Qué requiere su atención (1-2 frases).\n"
+            "- Por qué es su responsabilidad.\n"
+            "- Qué debe hacer y para cuándo (acción + plazo).\n"
+            "- Consecuencia de no actuar.\n"
+            "Tono profesional, directo y respetuoso. Máximo 120 palabras."
+        ),
+    ),
+    "pdf-report-generator": Skill(
+        id="pdf-report-generator",
+        name="Generador de Informe PDF",
+        description="Estructura el contenido de un informe corporativo listo para exportar a PDF.",
+        system_prompt=(
+            "Modo SKILL: Generador de Informe PDF.\n"
+            "Devuelve el contenido estructurado en secciones:\n"
+            "1) Portada (título, cliente, período, autor).\n"
+            "2) Resumen ejecutivo.\n"
+            "3) Cuerpo (secciones con encabezado + contenido).\n"
+            "4) Conclusiones y recomendaciones.\n"
+            "5) Anexos (si aplica).\n"
+            "Marca dónde irían tablas/gráficos. No inventes cifras del cliente."
+        ),
+    ),
+
+    # ─────────── CRE · Creative Studio ───────────
+    "boardroom-slides": Skill(
+        id="boardroom-slides",
+        name="Slides de Directorio",
+        description="Estructura una presentación ejecutiva slide por slide para directorio.",
+        system_prompt=(
+            "Modo SKILL: Slides de Directorio.\n"
+            "Para cada slide devuelve: número | título | mensaje principal "
+            "(1 frase) | 3-5 bullets | visual sugerido (gráfico/tabla/diagrama).\n"
+            "Una idea por slide. El título debe ser la conclusión, no el tema.\n"
+            "Secuencia recomendada: contexto → diagnóstico → opciones → "
+            "recomendación → plan → cierre. Máximo 10-12 slides."
+        ),
+    ),
 }
 
 
@@ -564,17 +975,17 @@ SKILLS: dict[str, Skill] = {
 # ---------------------------------------------------------------------------
 
 MODULE_SKILLS: dict[str, list[str]] = {
-    "ADV": ["executive-summary", "business-diagnosis", "executive-recommendation"],
-    "AUD": ["audit-report-writer", "audit-risk-matrix", "evidence-validator"],
-    "TAX": ["preliminary-tax-memo", "tax-compliance-checklist", "tax-regulatory-summary"],
-    "LEG": ["executive-legal-summary", "contract-obligations", "critical-clause-analysis"],
-    "FIN": ["monthly-cfo-report", "financial-variance-analysis", "financial-kpi-summary"],
+    "ADV": ["executive-summary", "business-diagnosis", "executive-recommendation", "committee-summary", "executive-message", "strategic-risk-analysis"],
+    "AUD": ["audit-report-writer", "audit-risk-matrix", "evidence-validator", "audit-findings", "audit-trail-generator", "risk-matrix"],
+    "TAX": ["preliminary-tax-memo", "tax-compliance-checklist", "tax-regulatory-summary", "tax-structuring-brief"],
+    "LEG": ["executive-legal-summary", "contract-obligations", "critical-clause-analysis", "contract-deadline-control"],
+    "FIN": ["monthly-cfo-report", "financial-variance-analysis", "financial-kpi-summary", "assisted-reconciliation"],
     "CYB": ["nist-csf-assessment", "it-audit-control-matrix", "incident-response-playbook"],
-    "DATA": ["anomaly-detector", "data-cleaning-assistant"],
-    "AUT": ["python-script-generator"],
-    "GOV": ["risk-level-classifier", "decision-matrix"],
+    "DATA": ["anomaly-detector", "data-cleaning-assistant", "data-structure-validator", "duplicate-detector", "etl-transformer", "powerbi-dataset-modeler", "sensitive-data-anonymizer", "dashboard-kpi-designer", "dashboard-alerts", "dashboard-brief-generator", "dashboard-executive-summary"],
+    "AUT": ["python-script-generator", "email-classifier", "ticket-creator", "responsible-party-notifier", "pdf-report-generator"],
+    "GOV": ["risk-level-classifier", "decision-matrix", "human-approval-validator", "operation-log-recorder", "ai-response-quality-evaluator"],
     "MKT": ["tam-sam-som-analysis", "marketing-funnel-diagnosis", "icp-buyer-persona"],
-    "CRE": ["report-to-slides", "boardroom-storyline"],
+    "CRE": ["report-to-slides", "boardroom-storyline", "boardroom-slides"],
 }
 
 
@@ -632,3 +1043,49 @@ def build_system_prompt(
 def list_all_skills() -> list[Skill]:
     """Lista todas las skills del registry (para endpoint /api/v1/chat/skills)."""
     return list(SKILLS.values())
+
+
+# ---------------------------------------------------------------------------
+# Carga de prompts OFICIALES (versión completa de cada skill).
+# El archivo `skills_instructions.md` (bundled en este paquete) contiene el
+# cuerpo de instrucciones oficial de cada skill, delimitado por:
+#   SLUG: auditbrain-<slug>  ...  INSTRUCCIONES: <<< ... >>>
+# Cuando una skill del registry tiene su versión oficial, su system_prompt
+# (borrador) se reemplaza por el oficial. Defensivo: si el archivo no existe
+# o no parsea, se conservan los borradores — el servicio nunca cae por esto.
+# ---------------------------------------------------------------------------
+
+def _load_official_prompts() -> dict[str, str]:
+    import re
+    from pathlib import Path
+
+    path = Path(__file__).with_name("skills_instructions.md")
+    if not path.is_file():
+        return {}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception:  # pragma: no cover
+        return {}
+    pattern = re.compile(
+        r"^SLUG:\s*(\S+).*?INSTRUCCIONES:\s*<<<\s*(.*?)\s*>>>",
+        re.S | re.M,
+    )
+    prompts: dict[str, str] = {}
+    for slug, body in pattern.findall(text):
+        key = slug[len("auditbrain-"):] if slug.startswith("auditbrain-") else slug
+        body = body.strip()
+        if key and body:
+            prompts[key] = body
+    return prompts
+
+
+OFFICIAL_PROMPTS: dict[str, str] = _load_official_prompts()
+
+# Override de borradores por la versión oficial donde exista.
+if OFFICIAL_PROMPTS:
+    from dataclasses import replace as _dc_replace
+
+    for _slug, _skill in list(SKILLS.items()):
+        _official = OFFICIAL_PROMPTS.get(_slug)
+        if _official:
+            SKILLS[_slug] = _dc_replace(_skill, system_prompt=_official)
