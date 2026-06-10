@@ -22,6 +22,15 @@ python-docx==1.1.2
 python-pptx==0.6.23
 lxml>=4.9.0
 
+# --- Visualización + financiero (Camino A · livianos para DATA/BI/FIN/CRE) ---
+# matplotlib/plotly: gráficos y dashboards en los scripts de los GPTs.
+# numpy-financial: NPV/IRR y métricas financieras (FIN).
+# Se cargan solo cuando un script los importa (subproceso, concurrencia 1).
+# Vigilar RAM en Starter (512 MB); si hay OOM, subir el servicio a Standard.
+matplotlib==3.9.2
+plotly==5.24.1
+numpy-financial==1.0.0
+
 # --- AUD Obligaciones Fiscales (M1+): extracción de PDFs SRI ---
 pdfplumber==0.11.5
 Pillow>=10.0.0
@@ -59,13 +68,16 @@ email-validator==2.2.0
 # ==========================================================
 # EXCLUIDOS a propósito (causan OOM en starter / no usados al arrancar):
 #   torch, transformers, spacy, dask, great_expectations, tensorflow,
-#   scikit-learn, statsmodels, pyod, langchain, matplotlib, plotly,
-#   seaborn, pyarrow, duckdb, pyautogui, fuzzywuzzy, beautifulsoup4,
-#   docxtpl, fpdf, cython
+#   scikit-learn, statsmodels, pyod, langchain, seaborn, pyarrow,
+#   duckdb, pyautogui, fuzzywuzzy, beautifulsoup4,
+#   docxtpl, fpdf, cython, torch, transformers, spacy
 #   (reportlab no está en requirements.txt ni se importa)
 # Nota: sqlalchemy y python-multipart, antes excluidos, ahora SÍ se
 # incluyen porque F2 añade auth multiusuario (login OAuth2 + Postgres).
 # Nota: pdfplumber y Pillow, antes excluidos, ahora SÍ se incluyen porque
 # M1 de AUD Obligaciones Fiscales necesita extraer texto de PDFs SRI.
+# Nota: matplotlib, plotly y numpy-financial (Camino A) ahora SÍ se incluyen
+# para gráficos/dashboards/financiero en el sandbox. scikit-learn sigue fuera
+# por riesgo de OOM en Starter (reevaluar tras subir el servicio a Standard).
 # Si un script de GPT necesita alguno de los excluidos, evaluar caso a caso.
 # ==========================================================
