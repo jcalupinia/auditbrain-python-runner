@@ -1,4 +1,8 @@
 # Dependencias SOLO para desarrollo/tests. No afecta la imagen de
 # producción (Render usa requirements.txt). Migración aditiva.
 pytest>=8.0.0
+# Requerido por asyncio_mode=auto (pytest.ini) y los tests @pytest.mark.asyncio
+# (ej. tests/test_ict_audit_interpreter.py). Sin esto, CI falla con
+# "async def functions are not natively supported".
+pytest-asyncio>=1.0.0
 httpx>=0.27.0
