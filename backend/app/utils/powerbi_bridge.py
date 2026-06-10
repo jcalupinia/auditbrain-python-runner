@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -143,7 +143,7 @@ def ingest_export(
             "exporta con cabeceras en filas distintas. Verifica el header."
         )
 
-    refresh = refresh_date or datetime.utcnow().isoformat()
+    refresh = refresh_date or datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
     sample = df.head(5).to_dict(orient="records")
     # Limpiar NaN para que sean JSON-serializables

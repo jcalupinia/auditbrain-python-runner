@@ -123,7 +123,7 @@ def add_user_message_and_respond(
     except ProviderUnavailable as exc:
         # No fingir respuesta: dejar el mensaje del usuario persistido y
         # devolver el error real para que la UI lo muestre.
-        conversation.updated_at = datetime.datetime.utcnow()
+        conversation.updated_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         db.add(conversation)
         db.commit()
         return user_msg, None, str(exc)
@@ -137,7 +137,7 @@ def add_user_message_and_respond(
         tokens_out=llm.tokens_out,
     )
     db.add(assistant_msg)
-    conversation.updated_at = datetime.datetime.utcnow()
+    conversation.updated_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     # Si la conversación aún tiene el título por defecto, autotitular con
     # los primeros 60 chars del mensaje del usuario.
     if conversation.title == "Nueva conversación":

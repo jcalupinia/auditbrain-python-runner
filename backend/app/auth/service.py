@@ -46,7 +46,7 @@ def start_new_session(db: Session, *, user: User) -> str:
     """
     sid = str(uuid.uuid4())
     user.current_session_id = sid
-    user.session_started_at = datetime.datetime.utcnow()
+    user.session_started_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     db.add(user)
     db.commit()
     return sid

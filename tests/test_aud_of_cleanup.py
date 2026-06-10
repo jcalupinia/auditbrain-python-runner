@@ -57,7 +57,7 @@ def test_cleanup_marks_expired_jobs_and_deletes_dir():
             cliente_name="C", period_label="2025",
         )
         # Forzar expires_at en el pasado
-        job.expires_at = datetime.datetime.utcnow() - datetime.timedelta(hours=2)
+        job.expires_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) - datetime.timedelta(hours=2)
         db.add(job)
         db.commit()
         job_id = job.id
@@ -90,7 +90,7 @@ def test_cleanup_removes_downloaded_old_dirs():
             cliente_name="C", period_label="2025",
         )
         job.status = "done"
-        job.downloaded_at = datetime.datetime.utcnow() - datetime.timedelta(minutes=30)
+        job.downloaded_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) - datetime.timedelta(minutes=30)
         db.add(job)
         db.commit()
         job_id = job.id

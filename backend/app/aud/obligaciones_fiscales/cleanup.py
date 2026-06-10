@@ -27,7 +27,7 @@ def cleanup_once() -> dict:
     """Una pasada de cleanup. Devuelve resumen de acciones."""
     from backend.app.ict import service as ict_service
 
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     summary = {"expired_jobs": 0, "post_download_cleanups": 0, "orphan_dirs": 0, "zombie_jobs": 0, "ict_files_deleted": 0}
 
     db = SessionLocal()

@@ -36,7 +36,7 @@ def register_device(
     ip: str | None = None,
 ) -> ClientDevice:
     """Crea ClientDevice nuevo para el usuario. Devuelve la instancia."""
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     device = ClientDevice(
         user_id=user.id,
         device_id=generate_device_id(),
@@ -75,7 +75,7 @@ def validate_device(
     if device.fingerprint_hash != fingerprint_hash:
         return None
     # Touch last_seen
-    device.last_seen_at = datetime.datetime.utcnow()
+    device.last_seen_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     db.add(device)
     db.commit()
     return device
@@ -86,7 +86,7 @@ def revoke_device(
 ) -> None:
     """Marca el dispositivo como revocado (no se borra para auditoría)."""
     device.is_active = False
-    device.revoked_at = datetime.datetime.utcnow()
+    device.revoked_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     device.revoked_by_user_id = revoked_by.id
     db.add(device)
     db.commit()
@@ -102,7 +102,7 @@ def revoke_all_devices_for_user(
             ClientDevice.is_active.is_(True),
         )
     ).scalars().all()
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     for d in devices:
         d.is_active = False
         d.revoked_at = now

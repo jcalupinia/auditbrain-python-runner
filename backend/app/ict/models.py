@@ -36,10 +36,10 @@ class ICTSession(Base):
         String(20), default="in_progress", nullable=False
     )  # in_progress | completed | expired
     created_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=datetime.datetime.utcnow, nullable=False
+        DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None), nullable=False
     )
     last_activity_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=datetime.datetime.utcnow, nullable=False
+        DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None), nullable=False
     )
     expires_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False)
 
@@ -65,7 +65,7 @@ class ICTAnexo(Base):
     warnings: Mapped[list | None] = mapped_column(JSON, nullable=True)
     uploaded_files: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     last_updated_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=datetime.datetime.utcnow, nullable=False
+        DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None), nullable=False
     )
 
     session: Mapped["ICTSession"] = relationship(back_populates="anexos")
