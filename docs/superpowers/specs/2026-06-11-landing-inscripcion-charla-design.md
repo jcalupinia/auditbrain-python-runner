@@ -300,3 +300,84 @@ desc por `created_at`.
 - `backend/app/notifications/email.py` (helpers `send_charla_*`).
 - `frontend-client/src/App.jsx` (ruta `/charla`).
 - `requirements.txt` (si falta `email-validator` para `EmailStr`).
+
+---
+
+## ENMIENDA v2 (2026-06-11) — QR a grupo de WhatsApp + protección de datos
+
+Esta enmienda **reemplaza** la estrategia de WhatsApp de las secciones 9.3, 13 y 14.
+El resto del diseño (backend de inscripción, persistencia, email, frontend base)
+se mantiene.
+
+### E1. Se elimina WhatsApp Cloud API
+- Borrar `backend/app/notifications/whatsapp.py` y `tests/test_notifications_whatsapp.py`.
+- Quitar su uso de `backend/app/events/notify.py`.
+- Quitar la columna `whatsapp_enviado` del modelo `EventRegistration` y de
+  `RegistrationOut`. (No requiere migración: en SQLite/Postgres una columna
+  sobrante en la BD existente es inofensiva; los fresh DB no la crean.)
+- Quitar las env vars `WHATSAPP_*` de la documentación.
+- **Razón:** el canal de WhatsApp ahora es "unirse a un grupo" vía un link de
+  invitación estático (`https://chat.whatsapp.com/...`), que NO requiere API de
+  Meta ni plantilla aprobada.
+
+### E2. Nuevo canal: grupo de WhatsApp por QR
+- Catálogo: nuevo campo `whatsapp_group_url` en `EventInfo`, desde env var
+  **`CHARLA_WHATSAPP_GROUP_URL`** (default `""`).
+- `POST /events/{slug}/registrations` devuelve `whatsapp_group_url` en
+  `RegistrationResponse` para que el frontend arme el QR.
+
+### E3. Segunda pantalla (post-inscripción) con QR
+- La pantalla de éxito muestra:
+  - **Código QR** que codifica `whatsapp_group_url`, generado en el frontend con
+    `qrcode.react` (sin servicios externos; funciona offline).
+  - Texto: *"¡Inscripción confirmada! Escaneá este código para unirte al grupo de
+    WhatsApp donde recibirás el link de la charla."*
+  - Botón de respaldo **"Unirme al grupo"** (link directo, para quien abre desde
+    el mismo celular y no puede escanear su pantalla).
+  - **Texto de protección de datos** (informativo, ver E5).
+- Si `whatsapp_group_url` está vacío (no configurado): NO se muestra QR; en su
+  lugar un texto *"Pronto te enviaremos el link del grupo por email."*.
+
+### E4. Email de confirmación
+- Mantiene la confirmación de datos del evento.
+- Agrega un botón **"Unirme al grupo de WhatsApp"** (solo si `whatsapp_group_url`
+  está presente).
+- Agrega al pie el **texto de protección de datos** (E5).
+- `send_charla_confirmacion` recibe nuevos parámetros: `whatsapp_group_url` y
+  `data_protection_contact`.
+
+### E5. Protección de datos (LOPDP Ecuador) — solo texto, SIN checkbox
+- Texto informativo (sin consentimiento por checkbox; decisión del usuario):
+  > *"Audit Consulting Group trata tus datos (nombre, correo, teléfono,
+  > identificación, empresa) para gestionar tu inscripción y enviarte información
+  > de la charla, conforme a la Ley Orgánica de Protección de Datos Personales del
+  > Ecuador. Podés ejercer tus derechos de acceso, rectificación y eliminación
+  > escribiendo a {contacto}."*
+- Aparece en: el **formulario** (bajo los campos), la **segunda pantalla** del QR,
+  y el **email** de confirmación.
+- Correo de contacto configurable: env var **`DATA_PROTECTION_CONTACT_EMAIL`**
+  (default `info@auditconsulting.ec`).
+- Helper backend reutilizable: `backend/app/events/legal.py::data_protection_text(contacto)`
+  devuelve el texto plano; el frontend mantiene su propia copia del texto.
+
+### E6. Variables de entorno (reemplaza la tabla de la sección 13)
+
+| Var | Requerida | Default | Uso |
+|---|---|---|---|
+| `CHARLA_ZOOM_URL` | No | `""` | Link de Zoom en el email. |
+| `CHARLA_WHATSAPP_GROUP_URL` | No | `""` | Link del grupo de WhatsApp (QR + botón). |
+| `EVENTS_NOTIFY_EMAIL` | No | `info@auditconsulting.ec` | Destino del aviso interno. |
+| `DATA_PROTECTION_CONTACT_EMAIL` | No | `info@auditconsulting.ec` | Contacto LOPDP en el texto legal. |
+| `RESEND_API_KEY` | Sí (email real) | — | Resend. |
+
+> Ya NO se usan `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TEMPLATE_NAME`.
+
+### E7. Tests afectados
+- Eliminar `tests/test_notifications_whatsapp.py`.
+- `tests/test_events_models.py`: quitar aserción de `whatsapp_enviado`.
+- `tests/test_events_notify.py`: quitar monkeypatch/aserción de WhatsApp; verificar
+  solo `email_enviado` y `aviso_interno_enviado`.
+- `tests/test_events_router.py`: aserir que la respuesta incluye `whatsapp_group_url`.
+- `tests/test_notifications_charla_email.py`: el email de confirmación incluye el
+  botón del grupo cuando hay `whatsapp_group_url` y el texto de protección de datos.
+- Frontend: `npm run build` verde con `qrcode.react` y la segunda pantalla.
