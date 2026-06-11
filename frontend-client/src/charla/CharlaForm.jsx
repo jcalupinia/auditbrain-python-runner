@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { registrarCharla } from "../api.js";
+import { DATA_PROTECTION_TEXT } from "./legal.js";
 
 const SLUG = "charla-anexos-2026-06";
 
@@ -87,6 +88,7 @@ export default function CharlaForm({ evento, onSuccess }) {
         <button className="charla-btn" disabled={busy}>
           {busy ? "Enviando…" : "¡Registrarme gratis!"}
         </button>
+        <p className="charla-legal">{DATA_PROTECTION_TEXT}</p>
       </form>
     </div>
   );

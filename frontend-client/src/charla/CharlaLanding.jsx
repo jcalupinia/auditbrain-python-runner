@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import CharlaForm from "./CharlaForm.jsx";
+import { DATA_PROTECTION_TEXT } from "./legal.js";
 import "./charla.css";
 
 const EVENTO = {
@@ -18,25 +20,45 @@ const EVENTO = {
   ],
 };
 
-function Exito({ evento }) {
+function Exito({ evento, resultado }) {
+  const grupo = resultado?.whatsapp_group_url || "";
   return (
     <div className="charla-card">
       <div className="charla-success">
         <div className="check">✓</div>
-        <h3>¡Reserva confirmada!</h3>
-        <p>Te enviamos los detalles a tu email y WhatsApp.</p>
-        <div className="charla-meta" style={{ justifyContent: "center" }}>
+        <h3>¡Inscripción confirmada!</h3>
+        {grupo ? (
+          <>
+            <p>Escaneá este código para unirte al grupo de WhatsApp donde recibirás el link de la charla.</p>
+            <div className="charla-qr">
+              <QRCodeSVG value={grupo} size={200} level="M" includeMargin />
+            </div>
+            <a
+              className="charla-btn"
+              href={grupo}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ display: "inline-block", textDecoration: "none", marginTop: 8 }}
+            >
+              Unirme al grupo
+            </a>
+          </>
+        ) : (
+          <p>Pronto te enviaremos el link del grupo de WhatsApp por email.</p>
+        )}
+        <div className="charla-meta" style={{ justifyContent: "center", marginTop: 16 }}>
           <div><span>Fecha</span><b>{evento.fecha}</b></div>
           <div><span>Hora</span><b>{evento.hora}</b></div>
           <div><span>Modalidad</span><b>{evento.modalidad}</b></div>
         </div>
+        <p className="charla-legal">{DATA_PROTECTION_TEXT}</p>
       </div>
     </div>
   );
 }
 
 export default function CharlaLanding() {
-  const [done, setDone] = useState(false);
+  const [resultado, setResultado] = useState(null);
 
   return (
     <div className="charla-page">
@@ -58,7 +80,9 @@ export default function CharlaLanding() {
               {EVENTO.beneficios.map((b) => <li key={b}>{b}</li>)}
             </ul>
           </div>
-          {done ? <Exito evento={EVENTO} /> : <CharlaForm evento={EVENTO} onSuccess={() => setDone(true)} />}
+          {resultado
+            ? <Exito evento={EVENTO} resultado={resultado} />
+            : <CharlaForm evento={EVENTO} onSuccess={(res) => setResultado(res)} />}
         </div>
         <div className="charla-foot">
           © {new Date().getFullYear()} Audit Consulting Group · Powered by Audit-IA
