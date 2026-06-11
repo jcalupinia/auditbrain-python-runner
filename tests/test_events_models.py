@@ -29,7 +29,6 @@ def test_can_insert_registration():
         assert reg.id is not None
         assert reg.estado == "registrado"
         assert reg.email_enviado is False
-        assert reg.whatsapp_enviado is False
         assert reg.aviso_interno_enviado is False
         assert reg.created_at is not None
     finally:

@@ -16,6 +16,7 @@ class EventInfo:
     duracion_texto: str
     modalidad: str
     zoom_url: str
+    whatsapp_group_url: str
     beneficios: list[str] = field(default_factory=list)
     activo: bool = True
 
@@ -30,6 +31,7 @@ def _build_events() -> dict[str, EventInfo]:
         duracion_texto="2 horas",
         modalidad="Zoom",
         zoom_url=os.getenv("CHARLA_ZOOM_URL", ""),
+        whatsapp_group_url=os.getenv("CHARLA_WHATSAPP_GROUP_URL", ""),
         beneficios=[
             "Automatiza tus anexos tributarios",
             "Descarga inteligente de información del SRI",

@@ -27,7 +27,6 @@ class EventRegistration(Base):
     empresa: Mapped[str] = mapped_column(String(200), nullable=False)
     estado: Mapped[str] = mapped_column(String(16), default="registrado", nullable=False)
     email_enviado: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    whatsapp_enviado: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     aviso_interno_enviado: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, default=_utcnow, nullable=False

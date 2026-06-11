@@ -40,9 +40,6 @@ def test_notify_sets_flags_when_senders_succeed(monkeypatch):
     monkeypatch.setattr(
         notify.email_mod, "send_charla_aviso_interno", lambda **k: {"id": "e2"}
     )
-    monkeypatch.setattr(
-        notify.wa_mod, "send_template_message", lambda **k: {"id": "w1"}
-    )
 
     reg_id = _make_reg()
     notify.process_registration_notifications(reg_id)
@@ -52,19 +49,17 @@ def test_notify_sets_flags_when_senders_succeed(monkeypatch):
         reg = db.get(EventRegistration, reg_id)
         assert reg.email_enviado is True
         assert reg.aviso_interno_enviado is True
-        assert reg.whatsapp_enviado is True
     finally:
         db.close()
 
 
-def test_notify_whatsapp_failure_does_not_break(monkeypatch):
+def test_notify_email_failure_does_not_break(monkeypatch):
     monkeypatch.setattr(
-        notify.email_mod, "send_charla_confirmacion", lambda **k: {"id": "e1"}
+        notify.email_mod, "send_charla_confirmacion", lambda **k: None
     )
     monkeypatch.setattr(
         notify.email_mod, "send_charla_aviso_interno", lambda **k: {"id": "e2"}
     )
-    monkeypatch.setattr(notify.wa_mod, "send_template_message", lambda **k: None)
 
     reg_id = _make_reg()
     notify.process_registration_notifications(reg_id)
@@ -72,8 +67,8 @@ def test_notify_whatsapp_failure_does_not_break(monkeypatch):
     db = SessionLocal()
     try:
         reg = db.get(EventRegistration, reg_id)
-        assert reg.email_enviado is True
-        assert reg.whatsapp_enviado is False
+        assert reg.email_enviado is False
+        assert reg.aviso_interno_enviado is True
     finally:
         db.close()
 

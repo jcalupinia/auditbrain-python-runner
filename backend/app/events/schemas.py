@@ -65,7 +65,6 @@ class RegistrationOut(BaseModel):
     empresa: str
     estado: str
     email_enviado: bool
-    whatsapp_enviado: bool
     aviso_interno_enviado: bool
     created_at: datetime.datetime
 

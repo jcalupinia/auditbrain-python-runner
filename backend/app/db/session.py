@@ -108,6 +108,14 @@ def init_db() -> None:
                     # SQLite no soporta ALTER COLUMN TYPE; se ignora.
                     pass
 
+    # Migración destructiva en ``event_registrations``: eliminar columna
+    # ``whatsapp_enviado`` (WhatsApp Cloud API eliminado, reemplazado por QR).
+    if "event_registrations" in inspector.get_table_names():
+        ev_cols = {c["name"] for c in inspector.get_columns("event_registrations")}
+        if "whatsapp_enviado" in ev_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE event_registrations DROP COLUMN whatsapp_enviado"))
+
     # Migración aditiva en ``tool_jobs``: firma_auditora (M1+), portal cliente (M2).
     if "tool_jobs" in inspector.get_table_names():
         existing_cols = {c["name"] for c in inspector.get_columns("tool_jobs")}

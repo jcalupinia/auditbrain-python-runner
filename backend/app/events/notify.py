@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from backend.app.db.session import SessionLocal
 from backend.app.events.catalog import get_event
 from backend.app.events.models import EventRegistration
 from backend.app.notifications import email as email_mod
-from backend.app.notifications import whatsapp as wa_mod
 
 log = logging.getLogger(__name__)
 
 
 def process_registration_notifications(registration_id: int) -> None:
-    """Envía confirmación (inscrito) + aviso interno + WhatsApp y persiste los
-    flags. Defensivo: ninguna falla individual interrumpe a las demás ni
-    propaga excepción al runner de background."""
+    """Envía confirmación (inscrito) + aviso interno y persiste los flags.
+    Defensivo: ninguna falla individual interrumpe a las demás ni propaga
+    excepción al runner de background."""
     db = SessionLocal()
     try:
         reg = db.get(EventRegistration, registration_id)
@@ -28,7 +28,11 @@ def process_registration_notifications(registration_id: int) -> None:
             log.warning("Evento %s desconocido para inscripción %s.", reg.event_slug, registration_id)
             return
 
-        # 1. Confirmación al inscrito
+        contacto = os.getenv(
+            "DATA_PROTECTION_CONTACT_EMAIL", "info@auditconsulting.ec"
+        ).strip()
+
+        # 1. Confirmación al inscrito (incluye botón al grupo de WhatsApp + texto legal)
         try:
             res = email_mod.send_charla_confirmacion(
                 to=reg.email,
@@ -38,6 +42,8 @@ def process_registration_notifications(registration_id: int) -> None:
                 hora=event.hora_texto,
                 modalidad=event.modalidad,
                 zoom_url=event.zoom_url,
+                whatsapp_group_url=event.whatsapp_group_url,
+                data_protection_contact=contacto,
             )
             reg.email_enviado = res is not None
         except Exception:  # noqa: BLE001
@@ -56,16 +62,6 @@ def process_registration_notifications(registration_id: int) -> None:
             reg.aviso_interno_enviado = res is not None
         except Exception:  # noqa: BLE001
             log.exception("Aviso interno falló para inscripción %s.", registration_id)
-
-        # 3. WhatsApp al inscrito
-        try:
-            res = wa_mod.send_template_message(
-                to_e164=reg.telefono_e164,
-                variables=[reg.nombre, event.fecha_texto, event.hora_texto],
-            )
-            reg.whatsapp_enviado = res is not None
-        except Exception:  # noqa: BLE001
-            log.exception("WhatsApp falló para inscripción %s.", registration_id)
 
         try:
             db.commit()
