@@ -78,18 +78,40 @@ def send_job_ready_email(*, job_id: int, to: str, tool_label: str) -> dict | Non
 
 
 def render_charla_confirmacion(
-    *, nombre: str, titulo: str, fecha: str, hora: str, modalidad: str, zoom_url: str
+    *,
+    nombre: str,
+    titulo: str,
+    fecha: str,
+    hora: str,
+    modalidad: str,
+    zoom_url: str,
+    whatsapp_group_url: str = "",
+    data_protection_contact: str = "info@auditconsulting.ec",
 ) -> str:
+    from backend.app.events.legal import data_protection_text
+
     tpl = (_TEMPLATES_DIR / "charla_confirmacion.html").read_text(encoding="utf-8")
     if zoom_url:
         zoom_block = (
-            '<p style="text-align:center;margin:24px 0">'
+            '<p style="text-align:center;margin:8px 0 18px">'
             f'<a href="{_html.escape(zoom_url, quote=True)}" '
-            'style="background:#8bc34a;color:#0a2540;font-weight:bold;padding:12px 28px;'
+            'style="background:#0a2540;color:#fff;font-weight:bold;padding:12px 28px;'
             'text-decoration:none;border-radius:6px;display:inline-block">Unirme por Zoom</a></p>'
         )
     else:
         zoom_block = ""
+    if whatsapp_group_url:
+        grupo_block = (
+            '<p style="color:#334155;font-size:14px;margin:14px 0 4px">'
+            'Unite al grupo de WhatsApp donde compartiremos el link de la charla:</p>'
+            '<p style="text-align:center;margin:8px 0 18px">'
+            f'<a href="{_html.escape(whatsapp_group_url, quote=True)}" '
+            'style="background:#8bc34a;color:#0a2540;font-weight:bold;padding:12px 28px;'
+            'text-decoration:none;border-radius:6px;display:inline-block">Unirme al grupo de WhatsApp</a></p>'
+        )
+    else:
+        grupo_block = ""
+    proteccion = _html.escape(data_protection_text(data_protection_contact))
     return (
         tpl.replace("{{nombre}}", _html.escape(nombre))
         .replace("{{titulo}}", _html.escape(titulo))
@@ -97,14 +119,32 @@ def render_charla_confirmacion(
         .replace("{{hora}}", _html.escape(hora))
         .replace("{{modalidad}}", _html.escape(modalidad))
         .replace("{{zoom_block}}", zoom_block)
+        .replace("{{grupo_block}}", grupo_block)
+        .replace("{{proteccion_datos}}", proteccion)
     )
 
 
 def send_charla_confirmacion(
-    *, to: str, nombre: str, titulo: str, fecha: str, hora: str, modalidad: str, zoom_url: str
+    *,
+    to: str,
+    nombre: str,
+    titulo: str,
+    fecha: str,
+    hora: str,
+    modalidad: str,
+    zoom_url: str,
+    whatsapp_group_url: str = "",
+    data_protection_contact: str = "info@auditconsulting.ec",
 ) -> dict | None:
     html_body = render_charla_confirmacion(
-        nombre=nombre, titulo=titulo, fecha=fecha, hora=hora, modalidad=modalidad, zoom_url=zoom_url
+        nombre=nombre,
+        titulo=titulo,
+        fecha=fecha,
+        hora=hora,
+        modalidad=modalidad,
+        zoom_url=zoom_url,
+        whatsapp_group_url=whatsapp_group_url,
+        data_protection_contact=data_protection_contact,
     )
     return send_email(
         to=to, subject=f"Confirmación de tu reserva — {titulo}", html=html_body

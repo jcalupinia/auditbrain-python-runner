@@ -42,6 +42,24 @@ def test_send_confirmacion_calls_send_email(monkeypatch):
     assert "T" in captured["subject"]
 
 
+def test_render_confirmacion_with_group_and_data_protection():
+    html = email_mod.render_charla_confirmacion(
+        nombre="María",
+        titulo="T",
+        fecha="F",
+        hora="H",
+        modalidad="Zoom",
+        zoom_url="",
+        whatsapp_group_url="https://chat.whatsapp.com/ABC123",
+        data_protection_contact="datos@auditconsulting.ec",
+    )
+    assert "https://chat.whatsapp.com/ABC123" in html
+    assert "Unirme al grupo de WhatsApp" in html
+    assert "Protección de Datos Personales" in html
+    assert "datos@auditconsulting.ec" in html
+    assert "{{" not in html
+
+
 def test_send_aviso_interno_uses_env_recipient(monkeypatch):
     monkeypatch.setenv("EVENTS_NOTIFY_EMAIL", "firma@auditconsulting.ec")
     captured = {}
