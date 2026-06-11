@@ -53,6 +53,7 @@ class RegistrationResponse(BaseModel):
     estado: str
     ya_inscrito: bool
     mensaje: str
+    whatsapp_group_url: str = ""
 
 
 class RegistrationOut(BaseModel):

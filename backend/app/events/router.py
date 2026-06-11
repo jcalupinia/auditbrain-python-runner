@@ -55,12 +55,16 @@ def create_registration_endpoint(
     background_tasks.add_task(notify.process_registration_notifications, reg.id)
 
     mensaje = (
-        "Ya estabas inscrito; te reenviamos los detalles por email y WhatsApp."
+        "Ya estabas inscrito. Escaneá el QR para unirte al grupo de WhatsApp; también te reenviamos el email."
         if ya_inscrito
-        else "Inscripción confirmada. Te enviamos los detalles por email y WhatsApp."
+        else "Inscripción confirmada. Escaneá el QR para unirte al grupo de WhatsApp; te enviamos los detalles por email."
     )
     return RegistrationResponse(
-        ok=True, estado=reg.estado, ya_inscrito=ya_inscrito, mensaje=mensaje
+        ok=True,
+        estado=reg.estado,
+        ya_inscrito=ya_inscrito,
+        mensaje=mensaje,
+        whatsapp_group_url=event.whatsapp_group_url,
     )
 
 

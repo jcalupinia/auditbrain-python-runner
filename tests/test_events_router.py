@@ -65,6 +65,12 @@ def test_register_ok_201(client):
     assert body["ya_inscrito"] is False
 
 
+def test_register_response_includes_group_url(client):
+    r = client.post(f"/api/v1/events/{SLUG}/registrations", json=_payload())
+    assert r.status_code == 201, r.text
+    assert "whatsapp_group_url" in r.json()
+
+
 def test_register_idempotent(client):
     email = f"r-{uuid.uuid4().hex[:8]}@example.com"
     client.post(f"/api/v1/events/{SLUG}/registrations", json=_payload(email))
