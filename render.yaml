@@ -135,6 +135,19 @@ services:
       - key: AUDITBRAIN_JWT_EXPIRE_MINUTES
         value: "60"
 
+      # --- Landing de inscripción a la charla (módulo events) ---
+      # Link de invitación al grupo de WhatsApp donde se comparte el link
+      # de la charla. NO es secreto (se muestra en el QR a los inscritos),
+      # por eso se versiona aquí. El backend lo devuelve en la respuesta de
+      # inscripción y el frontend lo renderiza como código QR.
+      - key: CHARLA_WHATSAPP_GROUP_URL
+        value: "https://chat.whatsapp.com/LTGW1zxsFmYJ0KOgH0GAkn"
+
+      # Link de Zoom de la charla (opcional; agrega botón en el email).
+      # Definir el valor en el dashboard cuando se genere la reunión.
+      - key: CHARLA_ZOOM_URL
+        sync: false
+
       # ----- Portal Cliente — toggles de seguridad (modo QA / piloto) -----
       # Mientras se hacen pruebas con clientes reales, apagamos la
       # validación de DISPOSITIVO ÚNICO y SESIÓN ÚNICA para que el
