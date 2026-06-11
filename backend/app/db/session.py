@@ -53,6 +53,7 @@ def init_db() -> None:
     from backend.app.chat import models as _chat_models  # noqa: F401
     from backend.app.context import models as _context_models  # noqa: F401
     from backend.app.ict import models as _ict_models  # noqa: F401
+    from backend.app.events import models as _events_models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
 
