@@ -19,7 +19,7 @@ class RegistrationCreate(BaseModel):
     documento: str = Field(min_length=8, max_length=20)
     empresa: str = Field(min_length=1, max_length=200)
     # Calculado en el validador a partir de telefono + telefono_pais.
-    telefono_e164: str = ""
+    telefono_e164: str = Field(default="", exclude=True)
 
     @field_validator("documento")
     @classmethod
@@ -44,7 +44,7 @@ class RegistrationCreate(BaseModel):
         e164 = f"+{pais}{local}"
         if not _E164.match(e164):
             raise ValueError("Número de teléfono inválido.")
-        object.__setattr__(self, "telefono_e164", e164)
+        self.telefono_e164 = e164
         return self
 
 

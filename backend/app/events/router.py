@@ -19,6 +19,15 @@ from backend.app.events.schemas import (
 router = APIRouter(prefix="/events", tags=["events"])
 
 
+def _client_ip(request: Request) -> str:
+    """IP real del cliente. Detrás de un proxy (Render) usa el primer hop
+    de X-Forwarded-For; si no, la IP directa de la conexión."""
+    xff = request.headers.get("X-Forwarded-For", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 @router.post(
     "/{slug}/registrations",
     response_model=RegistrationResponse,
@@ -35,7 +44,7 @@ def create_registration_endpoint(
     if event is None or not event.activo:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Evento no encontrado o inactivo.")
 
-    ip = request.client.host if request.client else "unknown"
+    ip = _client_ip(request)
     if not check_and_record(f"event-reg:{ip}", max_hits=10, window_seconds=600):
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,

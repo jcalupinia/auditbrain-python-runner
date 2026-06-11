@@ -67,6 +67,12 @@ def process_registration_notifications(registration_id: int) -> None:
         except Exception:  # noqa: BLE001
             log.exception("WhatsApp falló para inscripción %s.", registration_id)
 
-        db.commit()
+        try:
+            db.commit()
+        except Exception:  # noqa: BLE001
+            log.exception(
+                "Error al persistir flags de notificación para inscripción %s.",
+                registration_id,
+            )
     finally:
         db.close()

@@ -66,5 +66,7 @@ def test_list_registrations_returns_desc():
             )
         rows = service.list_registrations(db, event_slug=slug, limit=10)
         assert len(rows) == 3
+        ids = [r.id for r in rows]
+        assert ids == sorted(ids, reverse=True), "Debe venir en orden descendente"
     finally:
         db.close()
