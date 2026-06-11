@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"></head>
+<body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:0;background:#f4f6f8">
+  <div style="background:#0a2540;padding:24px;text-align:center">
+    <h2 style="color:#fff;margin:0">Audit Consulting Group</h2>
+    <p style="margin:6px 0 0;color:#9fb3c8;font-size:13px">Powered by Audit-IA</p>
+  </div>
+  <div style="padding:24px">
+    <p>Hola {{nombre}},</p>
+    <p>Tu reserva quedó <strong>confirmada</strong>. Te esperamos en:</p>
+    <h3 style="color:#0a2540;margin:8px 0">{{titulo}}</h3>
+    <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:15px">
+      <tr><td style="padding:6px 0;color:#64748b">Fecha</td><td style="padding:6px 0"><strong>{{fecha}}</strong></td></tr>
+      <tr><td style="padding:6px 0;color:#64748b">Hora</td><td style="padding:6px 0"><strong>{{hora}}</strong></td></tr>
+      <tr><td style="padding:6px 0;color:#64748b">Modalidad</td><td style="padding:6px 0"><strong>{{modalidad}}</strong></td></tr>
+    </table>
+    {{zoom_block}}
+    <p style="color:#64748b;font-size:13px;border-top:1px solid #e2e8f0;padding-top:14px;margin-top:24px">
+      Si no esperabas este mensaje, ignóralo. Mensaje automático de Audit Consulting Group.
+    </p>
+  </div>
+</body>
+</html>

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html as _html
 import logging
 import os
 import time
@@ -74,3 +75,61 @@ def send_job_ready_email(*, job_id: int, to: str, tool_label: str) -> dict | Non
         subject=f"Su entregable '{tool_label}' está listo (disponible 24h)",
         html=html,
     )
+
+
+def render_charla_confirmacion(
+    *, nombre: str, titulo: str, fecha: str, hora: str, modalidad: str, zoom_url: str
+) -> str:
+    tpl = (_TEMPLATES_DIR / "charla_confirmacion.html").read_text(encoding="utf-8")
+    if zoom_url:
+        zoom_block = (
+            '<p style="text-align:center;margin:24px 0">'
+            f'<a href="{_html.escape(zoom_url, quote=True)}" '
+            'style="background:#8bc34a;color:#0a2540;font-weight:bold;padding:12px 28px;'
+            'text-decoration:none;border-radius:6px;display:inline-block">Unirme por Zoom</a></p>'
+        )
+    else:
+        zoom_block = ""
+    return (
+        tpl.replace("{{nombre}}", _html.escape(nombre))
+        .replace("{{titulo}}", _html.escape(titulo))
+        .replace("{{fecha}}", _html.escape(fecha))
+        .replace("{{hora}}", _html.escape(hora))
+        .replace("{{modalidad}}", _html.escape(modalidad))
+        .replace("{{zoom_block}}", zoom_block)
+    )
+
+
+def send_charla_confirmacion(
+    *, to: str, nombre: str, titulo: str, fecha: str, hora: str, modalidad: str, zoom_url: str
+) -> dict | None:
+    html_body = render_charla_confirmacion(
+        nombre=nombre, titulo=titulo, fecha=fecha, hora=hora, modalidad=modalidad, zoom_url=zoom_url
+    )
+    return send_email(
+        to=to, subject=f"Confirmación de tu reserva — {titulo}", html=html_body
+    )
+
+
+def render_charla_aviso_interno(
+    *, nombre: str, email: str, telefono: str, documento: str, empresa: str, titulo: str
+) -> str:
+    tpl = (_TEMPLATES_DIR / "charla_aviso_interno.html").read_text(encoding="utf-8")
+    return (
+        tpl.replace("{{nombre}}", _html.escape(nombre))
+        .replace("{{email}}", _html.escape(email))
+        .replace("{{telefono}}", _html.escape(telefono))
+        .replace("{{documento}}", _html.escape(documento))
+        .replace("{{empresa}}", _html.escape(empresa))
+        .replace("{{titulo}}", _html.escape(titulo))
+    )
+
+
+def send_charla_aviso_interno(
+    *, nombre: str, email: str, telefono: str, documento: str, empresa: str, titulo: str
+) -> dict | None:
+    to = os.getenv("EVENTS_NOTIFY_EMAIL", "info@auditconsulting.ec").strip()
+    html_body = render_charla_aviso_interno(
+        nombre=nombre, email=email, telefono=telefono, documento=documento, empresa=empresa, titulo=titulo
+    )
+    return send_email(to=to, subject=f"Nueva inscripción — {titulo}", html=html_body)
