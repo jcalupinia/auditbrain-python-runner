@@ -29,3 +29,7 @@
 .charla-foot { text-align:center; color:#9fb3c8; font-size:12px; padding:24px 0 0; }
 .charla-qr { display:flex; justify-content:center; margin:16px 0; background:#fff; padding:12px; border-radius:12px; }
 .charla-legal { font-size:11px; color:#64748b; line-height:1.5; margin:14px 0 0; border-top:1px solid #e2e8f0; padding-top:12px; }
+/* Meta cards dentro de la tarjeta blanca de éxito: legibles (no blanco-sobre-blanco). */
+.charla-success .charla-meta div { background:#f1f5f9; border-color:#e2e8f0; }
+.charla-success .charla-meta span { color:#64748b; }
+.charla-success .charla-meta b { color:#0a2540; }
