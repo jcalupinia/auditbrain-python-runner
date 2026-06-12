@@ -127,7 +127,7 @@ services:
         sync: false
 
       - key: RESEND_FROM_EMAIL
-        value: "no-reply@auditconsulting.com"
+        value: "no-reply@auditconsulting.ec"
 
       - key: CLIENT_PORTAL_URL
         value: "https://auditbrain-clientes.onrender.com"
