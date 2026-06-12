@@ -37,5 +37,5 @@
 .charla-hero-img { margin-top:20px; }
 .charla-hero-img img { width:100%; height:340px; object-fit:cover; object-position:center 22%; border-radius:16px; box-shadow:0 16px 40px rgba(0,0,0,.35); display:block; }
 @media (max-width:880px){ .charla-hero-img img { height:auto; max-height:380px; } }
-/* Botón secundario de Zoom (azul corporativo). */
-.charla-btn-zoom { background:#0a2540; color:#fff; }
+/* Botón secundario "Unirme a través de correo" (azul corporativo). */
+.charla-btn-mail { background:#0a2540; color:#fff; }

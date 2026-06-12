@@ -40,15 +40,22 @@ export default function CharlaForm({ evento, onSuccess }) {
     setErr("");
     setBusy(true);
     try {
-      const res = await registrarCharla(SLUG, {
+      const datos = {
         nombre: form.nombre.trim(),
         email: form.email.trim(),
-        telefono: form.telefono.trim(),
-        telefono_pais: form.telefono_pais.trim(),
+        telefono: `${form.telefono_pais.trim()} ${form.telefono.trim()}`,
         documento: form.documento.trim(),
         empresa: form.empresa.trim(),
+      };
+      const res = await registrarCharla(SLUG, {
+        nombre: datos.nombre,
+        email: datos.email,
+        telefono: form.telefono.trim(),
+        telefono_pais: form.telefono_pais.trim(),
+        documento: datos.documento,
+        empresa: datos.empresa,
       });
-      onSuccess(res);
+      onSuccess(res, datos);
     } catch (e2) {
       setErr(e2.message || "No se pudo completar la inscripción.");
     } finally {

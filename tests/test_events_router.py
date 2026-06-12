@@ -70,7 +70,8 @@ def test_register_response_includes_group_url(client):
     assert r.status_code == 201, r.text
     body = r.json()
     assert "whatsapp_group_url" in body
-    assert "zoom_url" in body
+    # zoom_url NO debe exponerse en la respuesta pública (se une vía correo).
+    assert "zoom_url" not in body
 
 
 def test_register_idempotent(client):
