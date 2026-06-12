@@ -143,9 +143,14 @@ services:
       - key: CHARLA_WHATSAPP_GROUP_URL
         value: "https://chat.whatsapp.com/LTGW1zxsFmYJ0KOgH0GAkn"
 
-      # Link de Zoom de la charla (botón en email + pantalla de inscripción).
+      # Link de Zoom de la charla. NO se expone en la landing (el inscrito se
+      # une vía correo a capacitación); queda server-side para el email privado.
       - key: CHARLA_ZOOM_URL
         value: "https://us02web.zoom.us/j/86936610773?pwd=rObMqOSvrGeBnGuBZz8hYXYYMgKOZS.1"
+
+      # Casilla que recibe el aviso de cada inscripción (envío real requiere Resend).
+      - key: EVENTS_NOTIFY_EMAIL
+        value: "capacitacion@auditconsulting.ec"
 
       # ----- Portal Cliente — toggles de seguridad (modo QA / piloto) -----
       # Mientras se hacen pruebas con clientes reales, apagamos la

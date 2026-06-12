@@ -20,9 +20,20 @@ const EVENTO = {
   ],
 };
 
-function Exito({ evento, resultado }) {
+const CORREO_CAPACITACION = "capacitacion@auditconsulting.ec";
+
+function Exito({ evento, resultado, datos }) {
   const grupo = resultado?.whatsapp_group_url || "";
-  const zoom = resultado?.zoom_url || "";
+  const asunto = `Inscripción charla — ${datos?.nombre || ""}`;
+  const cuerpo =
+    `Hola, confirmo mi inscripción a la charla "${evento.titulo}".\n\n` +
+    `Nombre: ${datos?.nombre || ""}\n` +
+    `Email: ${datos?.email || ""}\n` +
+    `Celular: ${datos?.telefono || ""}\n` +
+    `Cédula/RUC: ${datos?.documento || ""}\n` +
+    `Empresa: ${datos?.empresa || ""}\n\n` +
+    `Fecha: ${evento.fecha} · Hora: ${evento.hora} · Modalidad: ${evento.modalidad}`;
+  const mailtoHref = `mailto:${CORREO_CAPACITACION}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(cuerpo)}`;
   return (
     <div className="charla-card">
       <div className="charla-success">
@@ -47,17 +58,13 @@ function Exito({ evento, resultado }) {
         ) : (
           <p>Pronto te enviaremos el link del grupo de WhatsApp por email.</p>
         )}
-        {zoom && (
-          <a
-            className="charla-btn charla-btn-zoom"
-            href={zoom}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ display: "inline-block", textDecoration: "none", marginTop: 10 }}
-          >
-            Unirme por Zoom
-          </a>
-        )}
+        <a
+          className="charla-btn charla-btn-mail"
+          href={mailtoHref}
+          style={{ display: "inline-block", textDecoration: "none", marginTop: 10 }}
+        >
+          Unirme a través de correo
+        </a>
         <div className="charla-meta" style={{ justifyContent: "center", marginTop: 16 }}>
           <div><span>Fecha</span><b>{evento.fecha}</b></div>
           <div><span>Hora</span><b>{evento.hora}</b></div>
@@ -71,6 +78,7 @@ function Exito({ evento, resultado }) {
 
 export default function CharlaLanding() {
   const [resultado, setResultado] = useState(null);
+  const [datos, setDatos] = useState(null);
 
   return (
     <div className="charla-page">
@@ -100,8 +108,8 @@ export default function CharlaLanding() {
             </div>
           </div>
           {resultado
-            ? <Exito evento={EVENTO} resultado={resultado} />
-            : <CharlaForm evento={EVENTO} onSuccess={(res) => setResultado(res)} />}
+            ? <Exito evento={EVENTO} resultado={resultado} datos={datos} />
+            : <CharlaForm evento={EVENTO} onSuccess={(res, d) => { setResultado(res); setDatos(d); }} />}
         </div>
         <div className="charla-foot">
           © {new Date().getFullYear()} Audit Consulting Group · Powered by Audit-IA
