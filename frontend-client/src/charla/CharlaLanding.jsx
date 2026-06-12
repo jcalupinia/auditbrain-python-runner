@@ -91,16 +91,14 @@ export default function CharlaLanding() {
             <ul className="charla-benefits">
               {EVENTO.beneficios.map((b) => <li key={b}>{b}</li>)}
             </ul>
+            <div className="charla-hero-img">
+              <img
+                src="/assets/charla-hero.jpg"
+                alt="Charla de Anexos Tributarios — Audit Consulting Group"
+                onError={(e) => { e.currentTarget.style.display = "none"; }}
+              />
+            </div>
           </div>
-          <div className="charla-hero-img">
-            <img
-              src="/assets/charla-hero.jpg"
-              alt="Charla de Anexos Tributarios — Audit Consulting Group"
-              onError={(e) => { e.currentTarget.style.display = "none"; }}
-            />
-          </div>
-        </div>
-        <div className="charla-cta">
           {resultado
             ? <Exito evento={EVENTO} resultado={resultado} />
             : <CharlaForm evento={EVENTO} onSuccess={(res) => setResultado(res)} />}
