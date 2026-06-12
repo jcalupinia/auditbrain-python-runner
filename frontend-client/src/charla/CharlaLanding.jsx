@@ -22,6 +22,7 @@ const EVENTO = {
 
 function Exito({ evento, resultado }) {
   const grupo = resultado?.whatsapp_group_url || "";
+  const zoom = resultado?.zoom_url || "";
   return (
     <div className="charla-card">
       <div className="charla-success">
@@ -29,7 +30,7 @@ function Exito({ evento, resultado }) {
         <h3>¡Inscripción confirmada!</h3>
         {grupo ? (
           <>
-            <p>Escaneá este código para unirte al grupo de WhatsApp donde recibirás el link de la charla.</p>
+            <p>Escaneá este código para unirte al grupo de WhatsApp con novedades y recordatorios de la charla.</p>
             <div className="charla-qr">
               <QRCodeSVG value={grupo} size={200} level="M" includeMargin />
             </div>
@@ -45,6 +46,17 @@ function Exito({ evento, resultado }) {
           </>
         ) : (
           <p>Pronto te enviaremos el link del grupo de WhatsApp por email.</p>
+        )}
+        {zoom && (
+          <a
+            className="charla-btn charla-btn-zoom"
+            href={zoom}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: "inline-block", textDecoration: "none", marginTop: 10 }}
+          >
+            Unirme por Zoom
+          </a>
         )}
         <div className="charla-meta" style={{ justifyContent: "center", marginTop: 16 }}>
           <div><span>Fecha</span><b>{evento.fecha}</b></div>
@@ -63,6 +75,13 @@ export default function CharlaLanding() {
   return (
     <div className="charla-page">
       <div className="charla-wrap">
+        <div className="charla-banner">
+          <img
+            src="/assets/charla-hero.jpg"
+            alt="Charla de Anexos Tributarios — Audit Consulting Group"
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
+        </div>
         <div className="charla-hero">
           <div>
             <span className="charla-badge">{EVENTO.subtitulo}</span>

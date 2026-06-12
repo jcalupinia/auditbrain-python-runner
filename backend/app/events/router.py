@@ -65,6 +65,7 @@ def create_registration_endpoint(
         ya_inscrito=ya_inscrito,
         mensaje=mensaje,
         whatsapp_group_url=event.whatsapp_group_url,
+        zoom_url=event.zoom_url,
     )
 
 

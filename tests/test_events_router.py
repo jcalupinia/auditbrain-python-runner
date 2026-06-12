@@ -68,7 +68,9 @@ def test_register_ok_201(client):
 def test_register_response_includes_group_url(client):
     r = client.post(f"/api/v1/events/{SLUG}/registrations", json=_payload())
     assert r.status_code == 201, r.text
-    assert "whatsapp_group_url" in r.json()
+    body = r.json()
+    assert "whatsapp_group_url" in body
+    assert "zoom_url" in body
 
 
 def test_register_idempotent(client):

@@ -33,3 +33,9 @@
 .charla-success .charla-meta div { background:#f1f5f9; border-color:#e2e8f0; }
 .charla-success .charla-meta span { color:#64748b; }
 .charla-success .charla-meta b { color:#0a2540; }
+/* Banner del hero (foto de la campaña). */
+.charla-banner { width:100%; margin-bottom:24px; border-radius:16px; overflow:hidden; box-shadow:0 16px 40px rgba(0,0,0,.35); }
+.charla-banner img { width:100%; height:320px; object-fit:cover; object-position:center 28%; display:block; }
+@media (max-width:880px){ .charla-banner img { height:200px; } }
+/* Botón secundario de Zoom (azul corporativo). */
+.charla-btn-zoom { background:#0a2540; color:#fff; }

@@ -143,10 +143,9 @@ services:
       - key: CHARLA_WHATSAPP_GROUP_URL
         value: "https://chat.whatsapp.com/LTGW1zxsFmYJ0KOgH0GAkn"
 
-      # Link de Zoom de la charla (opcional; agrega botón en el email).
-      # Definir el valor en el dashboard cuando se genere la reunión.
+      # Link de Zoom de la charla (botón en email + pantalla de inscripción).
       - key: CHARLA_ZOOM_URL
-        sync: false
+        value: "https://us02web.zoom.us/j/86936610773?pwd=rObMqOSvrGeBnGuBZz8hYXYYMgKOZS.1"
 
       # ----- Portal Cliente — toggles de seguridad (modo QA / piloto) -----
       # Mientras se hacen pruebas con clientes reales, apagamos la

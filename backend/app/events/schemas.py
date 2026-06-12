@@ -54,6 +54,7 @@ class RegistrationResponse(BaseModel):
     ya_inscrito: bool
     mensaje: str
     whatsapp_group_url: str = ""
+    zoom_url: str = ""
 
 
 class RegistrationOut(BaseModel):
