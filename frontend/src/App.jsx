@@ -857,10 +857,49 @@ const INS_COLS = {
   gridTemplateColumns: "1.4fr 1.7fr 1fr 1.1fr 1.4fr 1fr 0.7fr",
 };
 
+function _insFecha(r) {
+  return (r.created_at || "").slice(0, 16).replace("T", " ");
+}
+
+// Exporta las filas a CSV (UTF-8 con BOM para que Excel lea los acentos).
+function descargarInscritosCsv(rows) {
+  const headers = [
+    "Nombre", "Email", "Celular", "Cedula/RUC", "Empresa",
+    "Fecha", "Email enviado", "Aviso enviado",
+  ];
+  const esc = (v) => {
+    const s = String(v ?? "");
+    return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [headers.join(",")];
+  for (const r of rows) {
+    lines.push(
+      [
+        r.nombre, r.email, r.telefono_e164, r.documento, r.empresa,
+        _insFecha(r),
+        r.email_enviado ? "si" : "no",
+        r.aviso_interno_enviado ? "si" : "no",
+      ].map(esc).join(",")
+    );
+  }
+  const blob = new Blob(["﻿" + lines.join("\r\n")], {
+    type: "text/csv;charset=utf-8;",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "inscritos_charla_anexos.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
 function Inscripciones() {
   const [rows, setRows] = useState([]);
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState("");
+  const [q, setQ] = useState("");
 
   const reload = useCallback(async () => {
     setBusy(true);
@@ -877,18 +916,44 @@ function Inscripciones() {
     reload();
   }, [reload]);
 
+  const term = q.trim().toLowerCase();
+  const filtered = term
+    ? rows.filter((r) =>
+        `${r.nombre} ${r.email} ${r.empresa} ${r.documento}`
+          .toLowerCase()
+          .includes(term)
+      )
+    : rows;
+
+  const meta = term
+    ? `${filtered.length} de ${rows.length}`
+    : `${rows.length} registro(s)`;
+
   return (
     <>
       <ViewHead code="INS" title="Inscripciones a charlas"
         sub="Inscritos a la charla de Anexos Tributarios." />
-      <Panel title="Inscritos" meta={`${rows.length} registro(s)`}>
-        <div style={{ marginBottom: 12 }}>
+      <Panel title="Inscritos" meta={meta}>
+        <div className="row-form" style={{ marginBottom: 12 }}>
+          <input
+            placeholder="Buscar por nombre, email, empresa o RUC…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
           <button className="btn ghost" onClick={reload} disabled={busy}>
             {busy ? "Cargando…" : "Actualizar"}
           </button>
+          <button
+            className="btn primary"
+            onClick={() => descargarInscritosCsv(filtered)}
+            disabled={busy || filtered.length === 0}
+            title="Descargar la lista (se abre en Excel)"
+          >
+            ⇩ Descargar Excel/CSV
+          </button>
         </div>
         {err && <div className="err">{err}</div>}
-        {rows.length > 0 ? (
+        {filtered.length > 0 ? (
           <div style={{ overflowX: "auto" }}>
             <div className="table" style={{ minWidth: 920 }}>
               <div className="tr th" style={INS_COLS}>
@@ -900,16 +965,14 @@ function Inscripciones() {
                 <span>Fecha</span>
                 <span>Envíos</span>
               </div>
-              {rows.map((r) => (
+              {filtered.map((r) => (
                 <div className="tr" key={r.id} style={INS_COLS}>
                   <span>{r.nombre}</span>
                   <span className="muted">{r.email}</span>
                   <span className="muted">{r.telefono_e164}</span>
                   <span className="muted">{r.documento}</span>
                   <span className="muted">{r.empresa}</span>
-                  <span className="muted">
-                    {(r.created_at || "").slice(0, 16).replace("T", " ")}
-                  </span>
+                  <span className="muted">{_insFecha(r)}</span>
                   <span className="muted">
                     {r.email_enviado ? "✉️" : "—"}
                     {r.aviso_interno_enviado ? " 🔔" : ""}
@@ -919,7 +982,13 @@ function Inscripciones() {
             </div>
           </div>
         ) : (
-          !busy && <div className="notice">Aún no hay inscritos.</div>
+          !busy && (
+            <div className="notice">
+              {rows.length === 0
+                ? "Aún no hay inscritos."
+                : "Sin resultados para la búsqueda."}
+            </div>
+          )
         )}
       </Panel>
     </>
