@@ -116,3 +116,23 @@ export async function downloadJob(jobId, filename = null) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+// --- Inscripción pública a eventos (charlas). Endpoint sin auth. ---
+export async function registrarCharla(slug, payload) {
+  const resp = await fetch(`${BASE}/api/v1/events/${slug}/registrations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  let body = null;
+  try { body = await resp.json(); } catch { /* ignore */ }
+  if (!resp.ok) {
+    const detail = body?.detail;
+    const msg = typeof detail === "string" ? detail
+      : detail?.message || "No se pudo completar la inscripción. Revisa los datos.";
+    const err = new Error(msg);
+    err.status = resp.status;
+    throw err;
+  }
+  return body;
+}

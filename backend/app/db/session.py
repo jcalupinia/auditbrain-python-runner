@@ -53,6 +53,7 @@ def init_db() -> None:
     from backend.app.chat import models as _chat_models  # noqa: F401
     from backend.app.context import models as _context_models  # noqa: F401
     from backend.app.ict import models as _ict_models  # noqa: F401
+    from backend.app.events import models as _events_models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
 
@@ -106,6 +107,14 @@ def init_db() -> None:
                 except Exception:
                     # SQLite no soporta ALTER COLUMN TYPE; se ignora.
                     pass
+
+    # Migración destructiva en ``event_registrations``: eliminar columna
+    # ``whatsapp_enviado`` (WhatsApp Cloud API eliminado, reemplazado por QR).
+    if "event_registrations" in inspector.get_table_names():
+        ev_cols = {c["name"] for c in inspector.get_columns("event_registrations")}
+        if "whatsapp_enviado" in ev_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE event_registrations DROP COLUMN whatsapp_enviado"))
 
     # Migración aditiva en ``tool_jobs``: firma_auditora (M1+), portal cliente (M2).
     if "tool_jobs" in inspector.get_table_names():
