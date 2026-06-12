@@ -233,6 +233,17 @@ export async function generarPresentacionTax({ content }) {
   );
 }
 
+// ---------- Eventos / Inscripciones a charlas (admin) ----------
+
+export async function listEventRegistrations(slug, limit = 500) {
+  return parse(
+    await fetch(
+      `${API_BASE}/api/v1/events/${slug}/registrations?limit=${limit}`,
+      { headers: authHeaders() }
+    )
+  );
+}
+
 // ---------- Fase 2 · M1: contexto operativo ----------
 
 export async function getMyContext() {
