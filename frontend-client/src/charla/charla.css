@@ -1,7 +1,7 @@
 .charla-page { background:#0a2540; color:#e6edf3; min-height:100vh; font-family:Arial, Helvetica, sans-serif; }
 .charla-wrap { max-width:1040px; margin:0 auto; padding:32px 20px 64px; }
 .charla-hero { display:grid; grid-template-columns:1fr; gap:24px; }
-@media (min-width:880px){ .charla-hero{ grid-template-columns:1.1fr 0.9fr; align-items:start; } }
+@media (min-width:880px){ .charla-hero{ grid-template-columns:1.05fr 0.95fr; align-items:stretch; } }
 .charla-badge { display:inline-block; background:rgba(139,195,74,.15); color:#a5d66a; border:1px solid #8bc34a; border-radius:999px; padding:6px 14px; font-size:13px; font-weight:bold; letter-spacing:.5px; }
 .charla-title { font-size:34px; line-height:1.1; margin:14px 0 8px; color:#fff; text-transform:uppercase; }
 .charla-title b { color:#8bc34a; }
@@ -33,9 +33,11 @@
 .charla-success .charla-meta div { background:#f1f5f9; border-color:#e2e8f0; }
 .charla-success .charla-meta span { color:#64748b; }
 .charla-success .charla-meta b { color:#0a2540; }
-/* Banner del hero (foto de la campaña). */
-.charla-banner { width:100%; margin-bottom:24px; border-radius:16px; overflow:hidden; box-shadow:0 16px 40px rgba(0,0,0,.35); }
-.charla-banner img { width:100%; height:320px; object-fit:cover; object-position:center 28%; display:block; }
-@media (max-width:880px){ .charla-banner img { height:200px; } }
+/* Foto de la campaña: al costado del texto (columna), se ve casi completa. */
+.charla-hero-img { display:flex; }
+.charla-hero-img img { width:100%; height:100%; object-fit:cover; object-position:center 18%; border-radius:16px; box-shadow:0 16px 40px rgba(0,0,0,.35); display:block; }
+@media (max-width:880px){ .charla-hero-img img { height:auto; max-height:380px; } }
+/* Formulario / pantalla de éxito centrados debajo del hero. */
+.charla-cta { max-width:560px; margin:28px auto 0; }
 /* Botón secundario de Zoom (azul corporativo). */
 .charla-btn-zoom { background:#0a2540; color:#fff; }

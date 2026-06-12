@@ -75,15 +75,8 @@ export default function CharlaLanding() {
   return (
     <div className="charla-page">
       <div className="charla-wrap">
-        <div className="charla-banner">
-          <img
-            src="/assets/charla-hero.jpg"
-            alt="Charla de Anexos Tributarios — Audit Consulting Group"
-            onError={(e) => { e.currentTarget.style.display = "none"; }}
-          />
-        </div>
         <div className="charla-hero">
-          <div>
+          <div className="charla-hero-text">
             <span className="charla-badge">{EVENTO.subtitulo}</span>
             <h1 className="charla-title">
               Elaboración de <b>Anexos Tributarios</b> con Herramienta de Automatización
@@ -99,6 +92,15 @@ export default function CharlaLanding() {
               {EVENTO.beneficios.map((b) => <li key={b}>{b}</li>)}
             </ul>
           </div>
+          <div className="charla-hero-img">
+            <img
+              src="/assets/charla-hero.jpg"
+              alt="Charla de Anexos Tributarios — Audit Consulting Group"
+              onError={(e) => { e.currentTarget.style.display = "none"; }}
+            />
+          </div>
+        </div>
+        <div className="charla-cta">
           {resultado
             ? <Exito evento={EVENTO} resultado={resultado} />
             : <CharlaForm evento={EVENTO} onSuccess={(res) => setResultado(res)} />}
