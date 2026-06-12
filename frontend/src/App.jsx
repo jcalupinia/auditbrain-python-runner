@@ -851,6 +851,81 @@ function Workspaces({ onContextChanged }) {
   );
 }
 
+/* ---------------- Inscripciones a charlas (admin) ---------------- */
+const CHARLA_SLUG = "charla-anexos-2026-06";
+const INS_COLS = {
+  gridTemplateColumns: "1.4fr 1.7fr 1fr 1.1fr 1.4fr 1fr 0.7fr",
+};
+
+function Inscripciones() {
+  const [rows, setRows] = useState([]);
+  const [busy, setBusy] = useState(true);
+  const [err, setErr] = useState("");
+
+  const reload = useCallback(async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      setRows(await api.listEventRegistrations(CHARLA_SLUG));
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  return (
+    <>
+      <ViewHead code="INS" title="Inscripciones a charlas"
+        sub="Inscritos a la charla de Anexos Tributarios." />
+      <Panel title="Inscritos" meta={`${rows.length} registro(s)`}>
+        <div style={{ marginBottom: 12 }}>
+          <button className="btn ghost" onClick={reload} disabled={busy}>
+            {busy ? "Cargando…" : "Actualizar"}
+          </button>
+        </div>
+        {err && <div className="err">{err}</div>}
+        {rows.length > 0 ? (
+          <div style={{ overflowX: "auto" }}>
+            <div className="table" style={{ minWidth: 920 }}>
+              <div className="tr th" style={INS_COLS}>
+                <span>Nombre</span>
+                <span>Email</span>
+                <span>Celular</span>
+                <span>Cédula/RUC</span>
+                <span>Empresa</span>
+                <span>Fecha</span>
+                <span>Envíos</span>
+              </div>
+              {rows.map((r) => (
+                <div className="tr" key={r.id} style={INS_COLS}>
+                  <span>{r.nombre}</span>
+                  <span className="muted">{r.email}</span>
+                  <span className="muted">{r.telefono_e164}</span>
+                  <span className="muted">{r.documento}</span>
+                  <span className="muted">{r.empresa}</span>
+                  <span className="muted">
+                    {(r.created_at || "").slice(0, 16).replace("T", " ")}
+                  </span>
+                  <span className="muted">
+                    {r.email_enviado ? "✉️" : "—"}
+                    {r.aviso_interno_enviado ? " 🔔" : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          !busy && <div className="notice">Aún no hay inscritos.</div>
+        )}
+      </Panel>
+    </>
+  );
+}
+
 /* ---------------- Command Center Shell ---------------- */
 export default function App() {
   const [user, setUser] = useState(null);
@@ -909,6 +984,7 @@ export default function App() {
     { id: "documents", code: "DOC", label: "Documentos" },
     { id: "runner", code: "RUN", label: "Motor de Ejecución", admin: true },
     { id: "workspaces", code: "WKS", label: "Workspaces", admin: true },
+    { id: "inscripciones", code: "INS", label: "Inscripciones", admin: true },
     { id: "users", code: "USR", label: "Cuentas", admin: true },
     { id: "security", code: "SEC", label: "Seguridad" },
   ].filter((n) => !n.admin || isAdmin);
@@ -940,6 +1016,8 @@ export default function App() {
         return isAdmin
           ? <Workspaces onContextChanged={loadContext} />
           : <Dashboard user={user} health={hp} />;
+      case "inscripciones":
+        return isAdmin ? <Inscripciones /> : <Dashboard user={user} health={hp} />;
       case "security": return <Security user={user} />;
       case "documents": return (
         <><ViewHead code="DOC" title="Generación Documental"
