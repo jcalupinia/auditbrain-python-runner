@@ -182,6 +182,50 @@ class A1Filler:
             return True
         return False
 
+    # === EXCLUSIÓN A1: cas de Conciliación Tributaria sin contraparte contable ===
+    #
+    # REPORTE CLIENTE (2026-06-13, ICT_17): el cliente pintó en rojo en MAPEO A1
+    # una cadena de casilleros que NO deben trasladarse al A1 porque son CÁLCULOS
+    # DERIVADOS de la Conciliación Tributaria (subtotales, utilidades intermedias,
+    # ajustes tributarios) sin contrapartida contable directa con el balance.
+    #
+    # Lógica del cliente: la cadena correcta de la utilidad integral es
+    #   cas 801 UTILIDAD DEL EJERCICIO        ← cuenta contable
+    #   cas 803 PARTICIPACIÓN A TRABAJADORES  ← cuenta contable
+    #   cas 850 IMPUESTO A LA RENTA CAUSADO   ← cuenta contable
+    #   cas 889 IMPUESTO A LA RENTA DIFERIDO  ← cuenta contable
+    #   cuadra con cas 615/616 del Patrimonio (utilidad/pérdida del ejercicio).
+    #
+    # Cas 888 GASTO/INGRESO POR IMPUESTO RENTA CORRIENTE = duplica al 850
+    # según el cliente — se excluye para evitar doble conteo en el A1.
+    CAS_CONCILIACION_TRIBUTARIA: set[str] = {
+        # Subtotales del bloque 10XX (Conciliación)
+        "1025",  # UTILIDAD BRUTA
+        "1030",  # TOTAL GASTOS OPERACIONALES
+        "1040",  # UTILIDAD OPERACIONAL
+        "1055",  # TOTAL GASTOS FINANCIEROS NO OPERACIONALES
+        "1065",  # UTILIDAD ANTES DE PARTICIPACIÓN A TRABAJADORES
+        "1075",  # UTILIDAD ANTES DE IMPUESTO A LA RENTA
+        "1099",  # UTILIDAD DESPUÉS DE IMPUESTO A LA RENTA
+        # Ajustes tributarios del bloque 8XX (entre 801/803 y 850/889)
+        "805", "806", "807", "808", "809",
+        "816", "817",
+        "836", "843", "849",
+        "854", "857", "865", "869", "871",
+        "888",   # duplica al 850 — excluir por instrucción cliente
+        "899", "902", "999",
+    }
+
+    @classmethod
+    def _es_cas_conciliacion_tributaria(cls, casillero: str) -> bool:
+        """True si el cas es un cálculo derivado de la Conciliación Tributaria
+        sin contrapartida contable directa — NO debe trasladarse al A1.
+
+        Reportado por cliente en ICT_17 (2026-06-13). Ver CAS_CONCILIACION_TRIBUTARIA
+        para la lista canónica y la lógica del cliente.
+        """
+        return casillero in cls.CAS_CONCILIACION_TRIBUTARIA
+
     @classmethod
     def _is_ingreso_estado_resultados(cls, casillero: str) -> bool:
         """True si el casillero pertenece a INGRESOS (6001-6999).
@@ -346,6 +390,13 @@ class A1Filler:
 
         def _cas_es_relevante_a1(cas: str, nombre: str) -> bool:
             """¿Este cas debe aparecer en A1?"""
+            # Cas de Conciliación Tributaria (cálculos derivados) — excluir
+            # SIEMPRE, incluso si están listados como TOTAL en F101_TOTALES.
+            # Cliente ICT_17 (2026-06-13): los subtotales 10XX y los ajustes
+            # 8XX entre 801/803 y 850/889 no tienen contrapartida contable y
+            # contaminan el A1.
+            if self._es_cas_conciliacion_tributaria(cas):
+                return False
             if cas in self.TOTAL_CASILLEROS or cas in F101_TOTALES:
                 return True  # TOTAL siempre
             if _es_informativo(nombre, cas):
