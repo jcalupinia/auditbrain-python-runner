@@ -941,7 +941,10 @@ def build_verification_sheet(
         ("(+) TOTAL INGRESOS (cas 6999)", _f_a1_col("6999", "C"), "subtotal"),
         ("(-) TOTAL COSTOS Y GASTOS (cas 7999)",
          f"=-{_f_a1_col('7999', 'C')[1:]}", "subtotal"),
-        ("= UTILIDAD OPERACIONAL (Ing - Costos)",
+        # IMPORTANTE: labels NO deben empezar con "=" porque openpyxl los
+        # interpreta como formulas Excel y al guardar quedan como formulas
+        # invalidas. Usar "(=)" o ">" como prefijo en su lugar.
+        ("(=) UTILIDAD OPERACIONAL (Ing - Costos)",
          f"=E{r3_ing}+E{r3_cos}", "total"),
         ("(=) Utilidad antes PT e IR segun F-101 (cas 801, control)",
          _f_a1_col("801", "C"), "subtotal"),
@@ -951,7 +954,7 @@ def build_verification_sheet(
          f"=-{_f_a1_col('850', 'C')[1:]}", "subtotal"),
         ("(+) Ingreso por Impuesto Diferido (cas 889)",
          _f_a1_col("889", "C"), "subtotal"),
-        ("= UTILIDAD INTEGRAL CALCULADA",
+        ("(=) UTILIDAD INTEGRAL CALCULADA",
          f"=E{r3_801}+E{r3_pt}+E{r3_ir}+E{r3_dif}", "total"),
         # cas 616 en A1 col C YA viene con signo negativo (el filler A1
         # aplica la regla NEGATIVE_CASILLEROS al cas 616 "PERDIDAS DEL
