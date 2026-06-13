@@ -950,11 +950,15 @@ def build_verification_sheet(
          _f_a1_col("801", "C"), "subtotal"),
         ("(-) Participacion Trabajadores (cas 803)",
          f"=-{_f_a1_col('803', 'C')[1:]}", "subtotal"),
-        # CAMBIO 2026-06-13 (cliente ICT_19): usar cas 888 (Impuesto Renta
-        # CORRIENTE — el que la empresa registra en su balance contable)
-        # en lugar de cas 850 (Impuesto Renta Causado — valor calculado).
-        ("(-) Impuesto a la Renta Corriente (cas 888)",
-         f"=-{_f_a1_col('888', 'C')[1:]}", "subtotal"),
+        # CAMBIO 2026-06-13 (cliente ICT_20): regla condicional cas 888 vs
+        # cas 850. La fórmula prueba MATCH del cas 888 primero; si no esta
+        # en A1 (la empresa no lo mapeo a balance), cae al cas 850 (IR
+        # Causado calculado del F-101). IFERROR encadenado.
+        ("(-) Impuesto a la Renta (cas 888 si mapeado, sino cas 850)",
+         (
+             f'=-IFERROR(INDEX({A1_REF}!C:C,MATCH("888",{A1_REF}!A:A,0)),'
+             f'IFERROR(INDEX({A1_REF}!C:C,MATCH("850",{A1_REF}!A:A,0)),0))'
+         ), "subtotal"),
         # CAMBIO 2026-06-13 (cliente ICT_19): cas 889 se RESTA con su signo
         # natural del F-101. Si es gasto (+), restar gasto = correcto.
         # Si es ingreso (-), restar -X = +X = sumar ingreso = correcto.

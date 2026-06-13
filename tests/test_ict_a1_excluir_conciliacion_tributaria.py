@@ -60,10 +60,9 @@ CAS_EXCLUIDOS_CONCILIACION = [
     "816", "817",
     "836", "843", "849",
     "854", "857", "865", "869", "871",
-    # CAMBIO 2026-06-13 (cliente ICT_19): la empresa usa cas 888 IR CORRIENTE
-    # como cuenta del balance contable. Cas 850 IR CAUSADO es valor calculado
-    # del F-101 sin cuenta contable → EXCLUIR cas 850, INCLUIR cas 888.
-    "850",   # IMPUESTO A LA RENTA CAUSADO (calculado, sin cuenta balance)
+    # NOTA 2026-06-13 (cliente ICT_20): cas 850 y 888 son CONDICIONALES
+    # (no excluidos estaticamente). Su filtro vive en _cas_es_relevante_a1
+    # con logica de runtime — NO en CAS_CONCILIACION_TRIBUTARIA.
     "880",   # GANANCIAS Y PERDIDAS POR REVALUACIONES PPE (informativo)
     "6152",  # INGRESOS BRUTOS TOTALES SEGUN CONTABILIDAD (informativo)
     "899", "902", "999",
@@ -73,7 +72,7 @@ CAS_EXCLUIDOS_CONCILIACION = [
 CAS_QUE_QUEDAN_EN_A1 = [
     "801",   # UTILIDAD DEL EJERCICIO (con FORMULA = Ing - Costos)
     "803",   # PARTICIPACIÓN A TRABAJADORES
-    "888",   # IMPUESTO A LA RENTA CORRIENTE (con cuenta balance)
+    # cas 888 y 850 NO estan aqui — son condicionales (runtime).
     "889",   # GASTO (INGRESO) POR IMPUESTO A LA RENTA DIFERIDO
     "615",   # UTILIDAD DEL EJERCICIO PATRIMONIO
     "616",   # PERDIDA DEL EJERCICIO PATRIMONIO

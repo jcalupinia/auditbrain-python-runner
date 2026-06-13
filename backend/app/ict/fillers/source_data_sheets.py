@@ -137,6 +137,13 @@ def _es_excluido_estado_resultados(cas: str, nombre: str) -> bool:
         return True
     if "NO OBJETO DE IMPUESTO" in upper:
         return True
+    # AMPLIACION 2026-06-13 (cliente ICT_20): "RENTAS EXENTAS" cubre cas
+    # 6081, 6083, 6085, 6094 — ingresos exentos del 25% IR sin contraparte
+    # contable directa. Antes solo se excluian los que empezaban con
+    # "VALOR EXENTO" (los del subbloque informativo), pero ahora tambien
+    # los del subbloque principal con nombre "RENTAS EXENTAS".
+    if "RENTAS EXENTAS" in upper:
+        return True
     if _es_informativo(nombre, cas):
         return True
     return False

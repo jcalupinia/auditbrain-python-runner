@@ -212,14 +212,11 @@ class A1Filler:
         "816", "817",
         "836", "843", "849",
         "854", "857", "865", "869", "871",
-        # CAMBIO 2026-06-13 (cliente ICT_19): la empresa usa cas 888
-        # (Impuesto a la Renta CORRIENTE) para mapear el balance, NO cas 850
-        # (Impuesto a la Renta Causado). Cas 850 es valor calculado del
-        # F-101, no tiene cuenta contable directa. Si ambos aparecieran
-        # se duplicaria la informacion del impuesto.
-        "850",   # NO aparece en A1 (no tiene cuenta contable)
-        # cas 888 (Impuesto Renta CORRIENTE) SI aparece en A1 (tiene
-        # cuenta contable mapeada en el balance del cliente).
+        # NOTA 2026-06-13 (cliente ICT_20): cas 850 vs 888 ahora es CONDICIONAL,
+        # se decide en runtime segun el mapeo del balance del cliente:
+        #   - Si cas 888 tiene cuenta contable mapeada → mostrar 888, ocultar 850
+        #   - Si cas 888 NO tiene mapeo balance → mostrar 850 (fallback)
+        # La logica vive en _cas_es_relevante_a1(); aqui no se excluye estaticamente.
         "880",   # Cas 880 GANANCIAS Y PERDIDAS POR REVALUACIONES PPE:
                  # informativo, no tiene cuenta contable directa. Cliente
                  # ICT_19 reporto que aparecia sin mapeo de balance.
@@ -401,8 +398,28 @@ class A1Filler:
             _es_informativo, _es_excluido_estado_resultados, F101_TOTALES,
         )
 
+        def _cas_888_tiene_cuenta_balance() -> bool:
+            """True si la empresa mapeo el cas 888 (IR Corriente) a una
+            cuenta del balance con saldo != 0. Se usa para decidir si
+            mostramos cas 888 o caemos a cas 850 (IR Causado calculado)."""
+            for item in by_casillero.get("888", []):
+                try:
+                    if float(item.get("saldo") or 0) != 0:
+                        return True
+                except (TypeError, ValueError):
+                    continue
+            return False
+
         def _cas_es_relevante_a1(cas: str, nombre: str) -> bool:
             """¿Este cas debe aparecer en A1?"""
+            # Regla condicional 2026-06-13 (cliente ICT_20):
+            # cas 888 vs cas 850 → solo uno aparece.
+            # - Si cas 888 tiene cuenta balance mapeada → mostrar 888, ocultar 850
+            # - Si NO → mostrar 850 (fallback), ocultar 888
+            if cas == "888":
+                return _cas_888_tiene_cuenta_balance()
+            if cas == "850":
+                return not _cas_888_tiene_cuenta_balance()
             # Cas de Conciliación Tributaria (cálculos derivados) — excluir
             # SIEMPRE, incluso si están listados como TOTAL en F101_TOTALES.
             # Cliente ICT_17 (2026-06-13): los subtotales 10XX y los ajustes
@@ -696,31 +713,34 @@ class A1Filler:
                   - crédito → ganancia → POSITIVO en A1
                   - débito  → pérdida  → NEGATIVO en A1
 
-                INGRESOS sigue con ABS porque PROPHAR los carga ya como
-                positivos en balance (no respeta convención crédito = +).
+                CAMBIO 2026-06-13 (cliente ICT_20): INGRESOS ya NO aplican
+                ABS. El cliente reporto que cas 6133 OTROS INGRESOS
+                EXTRAORDINARIOS venia como -4.20 en el balance pero el
+                codigo lo ponia +4.20 (con ABS). Ahora se RESPETA el signo
+                crudo del balance — si el contador del cliente registro
+                el ingreso como negativo (convencion contable acreedora),
+                queda negativo en A1 col F. Si lo registro positivo, queda
+                positivo. La col G mostrara la diferencia con F-101
+                (que siempre declara ingresos en positivo) y el auditor
+                identifica el ajuste necesario.
 
                 Reglas:
                   is_negative (cas (-) catálogo): =-ABS(ref) [siempre neg]
-                  is_ingreso (6001-6999):        =ABS(ref)  [siempre pos]
                   is_pas_pat (pasivo/patrim):    =-{ref}    [invertir signo]
-                  resto (activo, costo):         ={ref}     [signo crudo]
+                  resto (activo, ingreso, costo):={ref}     [signo crudo]
                 """
                 if is_literal:
                     val = float(ref_or_value) if ref_or_value else 0
                     if is_negative:
                         return -abs(val)
-                    if is_ingreso:
-                        return abs(val)
                     if is_pas_pat:
                         return -val
-                    return val
+                    return val  # ingresos y resto: signo crudo
                 if is_negative:
                     return f"=-ABS({ref_or_value})"
-                if is_ingreso:
-                    return f"=ABS({ref_or_value})"
                 if is_pas_pat:
                     return f"=-{ref_or_value}"
-                return f"={ref_or_value}"
+                return f"={ref_or_value}"  # ingresos y resto: signo crudo
 
             if src_row:
                 base_ref = f"'DATOS BALANCE'!D{src_row}"
