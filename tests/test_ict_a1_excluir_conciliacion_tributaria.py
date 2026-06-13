@@ -60,15 +60,20 @@ CAS_EXCLUIDOS_CONCILIACION = [
     "816", "817",
     "836", "843", "849",
     "854", "857", "865", "869", "871",
-    "888",  # duplica al 850 según el cliente
+    # CAMBIO 2026-06-13 (cliente ICT_19): la empresa usa cas 888 IR CORRIENTE
+    # como cuenta del balance contable. Cas 850 IR CAUSADO es valor calculado
+    # del F-101 sin cuenta contable → EXCLUIR cas 850, INCLUIR cas 888.
+    "850",   # IMPUESTO A LA RENTA CAUSADO (calculado, sin cuenta balance)
+    "880",   # GANANCIAS Y PERDIDAS POR REVALUACIONES PPE (informativo)
+    "6152",  # INGRESOS BRUTOS TOTALES SEGUN CONTABILIDAD (informativo)
     "899", "902", "999",
 ]
 
 # Cas que SÍ deben quedar en A1 (la cadena contable de la utilidad integral)
 CAS_QUE_QUEDAN_EN_A1 = [
-    "801",   # UTILIDAD DEL EJERCICIO
+    "801",   # UTILIDAD DEL EJERCICIO (con FORMULA = Ing - Costos)
     "803",   # PARTICIPACIÓN A TRABAJADORES
-    "850",   # IMPUESTO A LA RENTA CAUSADO
+    "888",   # IMPUESTO A LA RENTA CORRIENTE (con cuenta balance)
     "889",   # GASTO (INGRESO) POR IMPUESTO A LA RENTA DIFERIDO
     "615",   # UTILIDAD DEL EJERCICIO PATRIMONIO
     "616",   # PERDIDA DEL EJERCICIO PATRIMONIO

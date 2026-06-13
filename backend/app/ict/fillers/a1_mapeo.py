@@ -207,12 +207,25 @@ class A1Filler:
         "1065",  # UTILIDAD ANTES DE PARTICIPACIÓN A TRABAJADORES
         "1075",  # UTILIDAD ANTES DE IMPUESTO A LA RENTA
         "1099",  # UTILIDAD DESPUÉS DE IMPUESTO A LA RENTA
-        # Ajustes tributarios del bloque 8XX (entre 801/803 y 850/889)
+        # Ajustes tributarios del bloque 8XX (entre 801/803 y 888/889)
         "805", "806", "807", "808", "809",
         "816", "817",
         "836", "843", "849",
         "854", "857", "865", "869", "871",
-        "888",   # duplica al 850 — excluir por instrucción cliente
+        # CAMBIO 2026-06-13 (cliente ICT_19): la empresa usa cas 888
+        # (Impuesto a la Renta CORRIENTE) para mapear el balance, NO cas 850
+        # (Impuesto a la Renta Causado). Cas 850 es valor calculado del
+        # F-101, no tiene cuenta contable directa. Si ambos aparecieran
+        # se duplicaria la informacion del impuesto.
+        "850",   # NO aparece en A1 (no tiene cuenta contable)
+        # cas 888 (Impuesto Renta CORRIENTE) SI aparece en A1 (tiene
+        # cuenta contable mapeada en el balance del cliente).
+        "880",   # Cas 880 GANANCIAS Y PERDIDAS POR REVALUACIONES PPE:
+                 # informativo, no tiene cuenta contable directa. Cliente
+                 # ICT_19 reporto que aparecia sin mapeo de balance.
+        "6152",  # INGRESOS BRUTOS TOTALES SEGUN CONTABILIDAD — total
+                 # informativo del estado de resultados, no es cuenta del
+                 # balance. Cliente ICT_19 lo pinto en rojo.
         "899", "902", "999",
     }
 
@@ -561,6 +574,20 @@ class A1Filler:
                     _safe_set(ws, f"C{current_row}", float(valor_declarado))
                     filled += 1
                 current_bloque_id = None  # cerrar bloque
+            elif casillero == "801" and "6999" in casillero_to_row and "7999" in casillero_to_row:
+                # CAMBIO 2026-06-13 (cliente ICT_19): cas 801 UTILIDAD DEL
+                # EJERCICIO debe ser FORMULA = Ingresos - Costos+Gastos, no
+                # un traslado directo del F-101 declarado. Si el F-101 no
+                # cuadra con esta operacion, el auditor ve la diferencia en
+                # col G (no se enmascara).
+                row_6999 = casillero_to_row["6999"]
+                row_7999 = casillero_to_row["7999"]
+                _safe_set_formula(
+                    ws, f"C{current_row}",
+                    f"=C{row_6999}-C{row_7999}",
+                    casillero=casillero,
+                )
+                filled += 1
             elif casillero in f101_lookup:
                 # Casillero normal: referencia con signo según nombre.
                 # is_negative → multiplicar por -1 (cuenta acumulada que resta).

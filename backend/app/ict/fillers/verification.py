@@ -950,10 +950,17 @@ def build_verification_sheet(
          _f_a1_col("801", "C"), "subtotal"),
         ("(-) Participacion Trabajadores (cas 803)",
          f"=-{_f_a1_col('803', 'C')[1:]}", "subtotal"),
-        ("(-) Impuesto a la Renta Causado (cas 850)",
-         f"=-{_f_a1_col('850', 'C')[1:]}", "subtotal"),
-        ("(+) Ingreso por Impuesto Diferido (cas 889)",
-         _f_a1_col("889", "C"), "subtotal"),
+        # CAMBIO 2026-06-13 (cliente ICT_19): usar cas 888 (Impuesto Renta
+        # CORRIENTE — el que la empresa registra en su balance contable)
+        # en lugar de cas 850 (Impuesto Renta Causado — valor calculado).
+        ("(-) Impuesto a la Renta Corriente (cas 888)",
+         f"=-{_f_a1_col('888', 'C')[1:]}", "subtotal"),
+        # CAMBIO 2026-06-13 (cliente ICT_19): cas 889 se RESTA con su signo
+        # natural del F-101. Si es gasto (+), restar gasto = correcto.
+        # Si es ingreso (-), restar -X = +X = sumar ingreso = correcto.
+        # Asi la operacion aritmetica es consistente sin invertir signos.
+        ("(-/+) Gasto/(Ingreso) Impuesto Diferido (cas 889)",
+         f"=-{_f_a1_col('889', 'C')[1:]}", "subtotal"),
         ("(=) UTILIDAD INTEGRAL CALCULADA",
          f"=E{r3_801}+E{r3_pt}+E{r3_ir}+E{r3_dif}", "total"),
         # cas 616 en A1 col C YA viene con signo negativo (el filler A1
