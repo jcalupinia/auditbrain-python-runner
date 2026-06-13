@@ -398,28 +398,35 @@ class A1Filler:
             _es_informativo, _es_excluido_estado_resultados, F101_TOTALES,
         )
 
-        def _cas_888_tiene_cuenta_balance() -> bool:
-            """True si la empresa mapeo el cas 888 (IR Corriente) a una
-            cuenta del balance con saldo != 0. Se usa para decidir si
-            mostramos cas 888 o caemos a cas 850 (IR Causado calculado)."""
-            for item in by_casillero.get("888", []):
-                try:
-                    if float(item.get("saldo") or 0) != 0:
-                        return True
-                except (TypeError, ValueError):
-                    continue
-            return False
+        def _cas_888_tiene_valor_f101() -> bool:
+            """True si la empresa DECLARO cas 888 (IR Corriente) en el F-101
+            con valor != 0. Se usa para decidir si mostramos cas 888 o
+            caemos a cas 850 (IR Causado).
+
+            CAMBIO 2026-06-13 (cliente ICT_21): antes la regla chequeaba
+            si cas 888 tenia cuenta de balance mapeada. Pero el cliente
+            puede mapear una cuenta a cas 888 SIN declarar valor en cas
+            888 del F-101 (el contador declara bajo cas 850). En ese
+            caso el A1 mostraba cas 888 con col C = 0 y col F = saldo,
+            generando dif = saldo (descuadre falso). La regla correcta:
+            si el F-101 declara cas 888 != 0, mostrar cas 888; sino, 850.
+            """
+            v = f101.get("888")
+            try:
+                return abs(float(v) if v not in (None, "") else 0) >= 0.005
+            except (TypeError, ValueError):
+                return False
 
         def _cas_es_relevante_a1(cas: str, nombre: str) -> bool:
             """¿Este cas debe aparecer en A1?"""
-            # Regla condicional 2026-06-13 (cliente ICT_20):
+            # Regla condicional 2026-06-13 (cliente ICT_21):
             # cas 888 vs cas 850 → solo uno aparece.
-            # - Si cas 888 tiene cuenta balance mapeada → mostrar 888, ocultar 850
-            # - Si NO → mostrar 850 (fallback), ocultar 888
+            # - Si cas 888 tiene VALOR DECLARADO en F-101 → mostrar 888, ocultar 850
+            # - Si NO → mostrar 850 (fallback con su valor F-101), ocultar 888
             if cas == "888":
-                return _cas_888_tiene_cuenta_balance()
+                return _cas_888_tiene_valor_f101()
             if cas == "850":
-                return not _cas_888_tiene_cuenta_balance()
+                return not _cas_888_tiene_valor_f101()
             # Cas de Conciliación Tributaria (cálculos derivados) — excluir
             # SIEMPRE, incluso si están listados como TOTAL en F101_TOTALES.
             # Cliente ICT_17 (2026-06-13): los subtotales 10XX y los ajustes
