@@ -255,7 +255,14 @@ class TestVerificationE2E:
         assert "VERIFICACIÓN A1" in wb.sheetnames
 
     def test_verification_con_cuentas_sin_saldo_no_rompe(self):
-        """Pasar balance_cuentas_sin_saldo no rompe la generación."""
+        """Pasar balance_cuentas_sin_saldo no rompe la generación.
+
+        Rediseño 2026-06-13: VERIFICACIÓN A1 es un dashboard ejecutivo de
+        4 recuadros (Balance contable, F-101, Utilidad integral, Comparación).
+        El detalle de cuentas-sin-saldo ya vive en DATOS BALANCE → su CUADRE
+        las marca como NO TRASLADADO. El parámetro se acepta por compatibilidad
+        pero no se renderiza en VERIFICACIÓN.
+        """
         from backend.app.ict.fillers.verification import build_verification_sheet
         from backend.app.ict.cell_maps.a1 import A1_SHEET
 
@@ -278,14 +285,22 @@ class TestVerificationE2E:
             ],
         )
         ws = wb["VERIFICACIÓN A1"]
-        # Verificar que la sección se renderizó
-        found = False
+        # Verificar que los 4 recuadros del rediseño se renderizan
+        encontrados = []
         for r in range(1, ws.max_row + 1):
-            v = str(ws.cell(r, 1).value or "")
-            if "CUENTAS CON CASILLERO PERO SIN SALDO" in v:
-                found = True
-                break
-        assert found, "Sección de cuentas sin saldo debe renderizarse"
+            v = str(ws.cell(r, 2).value or "")  # los títulos están en col B
+            for keyword in [
+                "CUADRE BALANCE CONTABLE",
+                "CUADRE BALANCE SEGUN F-101",
+                "UTILIDAD INTEGRAL",
+                "COMPARACION CONTABLE",
+            ]:
+                if keyword in v.upper():
+                    encontrados.append(keyword)
+                    break
+        assert len(set(encontrados)) >= 3, (
+            f"Esperaba al menos 3 de los 4 recuadros del rediseño, encontrados: {encontrados}"
+        )
 
 
 class TestA1OrderRegression:

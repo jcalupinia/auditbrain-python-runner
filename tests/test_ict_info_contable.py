@@ -146,8 +146,16 @@ def test_a9_cuadre_prophar_cero_diferencias():
         s = db.cell(r, 4).value or 0
         suma[c] = suma.get(c, 0) + (s if isinstance(s, (int, float)) else 0)
     f1 = wb["DATOS F-101"]
-    dec: dict[str, float] = {}
+    # Limitar al rango DETALLE — la sección "🔍 CUADRE POR CASILLERO" al
+    # final reutiliza col A=cas y col C=fórmula, sobreescribiría los valores.
+    f1_end = f1.max_row
     for r in range(1, f1.max_row + 1):
+        a = f1.cell(r, 1).value
+        if a and "CUADRE" in str(a).upper():
+            f1_end = r - 1
+            break
+    dec: dict[str, float] = {}
+    for r in range(1, f1_end + 1):
         v = f1.cell(r, 1).value
         if v:
             dec[str(v).strip()] = f1.cell(r, 3).value
