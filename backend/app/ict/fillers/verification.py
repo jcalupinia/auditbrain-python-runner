@@ -803,483 +803,265 @@ def build_verification_sheet(
     trace_log: list[dict] | None = None,
     balance_cuentas_sin_saldo: list[dict] | None = None,
 ) -> None:
+    """Hoja VERIFICACION A1 - resumen ejecutivo en 4 recuadros (rediseno
+    pedido por cliente 2026-06-13).
+
+    Reemplaza el dashboard extenso anterior con un artefacto simple: el
+    detalle de cas/cuentas ya vive en DATOS BALANCE y DATOS F-101 (con
+    sus propios bloques CUADRE). Aqui solo lo esencial para que el lector
+    confirme en 10 segundos que TODO cuadra:
+
+      1. Cuadre Balance Contable: TotalActivo = TotalPas+Pat -> dif 0
+      2. Cuadre F-101 Declarado: cas 499 = cas 699 -> dif 0
+      3. Utilidad Integral: Ing - Costos = UO - PT - IR + Diferido = UI = cas 615/616
+      4. Comparacion Contable vs F-101: dif 0 en cada bloque
+
+    Todas las cifras son FORMULAS referenciales (INDEX+MATCH a la hoja
+    A1) - se autoactualizan si el cliente edita los datos.
+    """
     if SHEET_NAME in workbook.sheetnames:
         del workbook[SHEET_NAME]
     ws = workbook.create_sheet(SHEET_NAME)
 
-    casilleros_a1_set = {c for c, _ in A1_CASILLEROS_ORDERED}
-    casilleros_a1_names = dict(A1_CASILLEROS_ORDERED)
+    # NOTA: el nombre de la hoja A1 tiene tilde (DECLARACIÓN) — debe coincidir
+    # exactamente con A1_SHEET o las fórmulas devuelven #REF!. Importamos del
+    # cell_map para no hardcodear.
+    A1_REF = f"'{A1_SHEET}'"
+    NUM_FMT = '#,##0.00;-#,##0.00;0.00'
 
-    # Agrupar balance por casillero
-    by_cas: dict[str, list[dict]] = {}
-    for b in balance_mapeado:
-        cas = str(b.get("casillero_sri", "")).strip()
-        if cas:
-            by_cas.setdefault(cas, []).append(b)
+    def _f_a1_col(cas, col):
+        return (
+            f'=IFERROR(INDEX({A1_REF}!{col}:{col},'
+            f'MATCH("{cas}",{A1_REF}!A:A,0)),0)'
+        )
 
-    # Lookups defensivos: si no se pasaron, dict/list vacíos → fallback
-    # a valores literales (sin fórmulas, comportamiento legacy). Se
-    # inicializan aquí porque las KPI Cards (más abajo) ya los consultan.
-    f101_lookup_safe = f101_lookup or {}
-    balance_lookup_safe = balance_lookup or []
+    ws.column_dimensions["A"].width = 4
+    ws.column_dimensions["B"].width = 48
+    ws.column_dimensions["C"].width = 8
+    ws.column_dimensions["D"].width = 20
+    ws.column_dimensions["E"].width = 20
+    ws.column_dimensions["F"].width = 18
+    ws.column_dimensions["G"].width = 20
 
-    # ============================================================
-    # LOOKUP: cas → fila en hoja A1 (MAPEO DE LA DECLARACIÓN A1)
-    # ------------------------------------------------------------
-    # Reportado por cliente (2026-06-06): "EN A1 NO HAY DIFERENCIA EN
-    # EL PATRIMONIO; EN LA PESTAÑA DE VERIFICACIÓN A1 LA SUMATORIA ESTÁ MAL".
-    # Causa: VERIFICACIÓN A1 recalculaba el balance crudo desde DATOS BALANCE
-    # con _sum_balance_range/_balance_formula_for_ranges, en vez de
-    # referenciar el TOTAL que A1 ya computó (=SUM(F141:F158)). Como el A1
-    # aplica la regla de signos completa (=ABS para pasivo/patr/ingreso) y
-    # respeta los TOTALES propios, su cifra es la fuente de verdad.
-    #
-    # FIX: construir lookup cas→fila_A1 y emitir Col D como:
-    #   ='MAPEO DE LA DECLARACIÓN A1'!F{a1_row}
-    # Esto garantiza que VERIFICACIÓN A1 ≡ A1 (cero discrepancia interna).
-    a1_row_lookup: dict[str, int] = {}
-    a1_row_duplicados: dict[str, list[int]] = {}
-    if A1_SHEET in workbook.sheetnames:
-        ws_a1 = workbook[A1_SHEET]
-        for r in range(1, ws_a1.max_row + 1):
-            cas_val = ws_a1.cell(r, 1).value
-            if cas_val is None:
-                continue
-            cas_str = str(cas_val).strip()
-            if cas_str.isdigit():
-                # ISSUE 10 fix (code-review 2026-06-07): para TOTALES, queremos
-                # la fila del propio TOTAL (donde está la fórmula =SUM(...)),
-                # NO una sub-cuenta del mismo cas. La fila TOTAL es típicamente
-                # la ÚLTIMA aparición del cas en el A1 (sub-cuentas vienen
-                # antes en orden de detalle, y el TOTAL las cierra).
-                # Para componentes no-TOTAL, la primera ocurrencia funciona
-                # igual.
-                if cas_str in a1_row_lookup:
-                    # Duplicado detectado: registrar todas las filas.
-                    a1_row_duplicados.setdefault(
-                        cas_str, [a1_row_lookup[cas_str]]
-                    ).append(r)
-                    # Para TOTALES (F101_TOTALES), preferimos la ÚLTIMA fila
-                    # (donde está el =SUM). Para otros, mantenemos la primera.
-                    from backend.app.ict.fillers.source_data_sheets import (
-                        F101_TOTALES,
-                    )
-                    if cas_str in F101_TOTALES:
-                        a1_row_lookup[cas_str] = r  # actualizar a la última
-                else:
-                    a1_row_lookup[cas_str] = r
+    ws.merge_cells("B1:G1")
+    c = ws.cell(1, 2, value="AUDITBRAIN - VERIFICACION A1 - RESUMEN EJECUTIVO")
+    c.font = FONT_TITLE
+    c.fill = FILL_TITLE
+    c.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 32
 
-    # ============================================================
-    # SECCIÓN 0 — TÍTULO + EMPRESA
-    # ============================================================
-    ws.merge_cells("A1:F2")
-    tcell = ws.cell(1, 1, value="🔍 VERIFICACIÓN A1 · Dashboard de Cuadratura")
-    tcell.font = FONT_TITLE
-    tcell.fill = FILL_TITLE
-    tcell.alignment = Alignment(horizontal="left", vertical="center", indent=2)
-    ws.row_dimensions[1].height = 22
-    ws.row_dimensions[2].height = 22
+    razon = (session_data or {}).get("razon_social", "")
+    ruc = (session_data or {}).get("ruc", "")
+    ejercicio = (session_data or {}).get("ejercicio_fiscal", "")
+    ws.merge_cells("B2:G2")
+    sub = ws.cell(2, 2, value=f"Razon social: {razon}    |    RUC: {ruc}    |    Ejercicio: {ejercicio}")
+    sub.font = Font(name="Calibri", size=11, bold=True, color="2D5F8B")
+    sub.fill = FILL_KPI_BG
+    sub.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[2].height = 24
 
-    info_label_style = Font(name="Calibri", size=10, bold=True, color="5A6575")
-    info_value_style = Font(name="Calibri", size=10, color="1F3A5F")
-    info_rows = [
-        ("Contribuyente", session_data.get("razon_social", "")),
-        ("RUC", session_data.get("ruc", "")),
-        ("Ejercicio fiscal", session_data.get("ejercicio_fiscal", "")),
+    def _draw_recuadro(start_row, titulo, filas):
+        ws.merge_cells(start_row=start_row, start_column=2,
+                       end_row=start_row, end_column=7)
+        ct = ws.cell(start_row, 2, value=titulo)
+        ct.font = FONT_SECTION
+        ct.fill = FILL_SECTION
+        ct.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        ws.row_dimensions[start_row].height = 22
+
+        r = start_row + 1
+        for fila in filas:
+            label, formula_val, es_total = fila
+            cb = ws.cell(r, 2, value=label)
+            if es_total == "total":
+                cb.font = Font(name="Calibri", size=11, bold=True, color="1F3A5F")
+                cb.fill = FILL_KPI_BG
+            elif es_total == "subtotal":
+                cb.font = Font(name="Calibri", size=10, bold=True, color="2D5F8B")
+            else:
+                cb.font = FONT_DATA
+            cb.border = BORDER_DATA
+            cb.alignment = Alignment(horizontal="left", indent=1)
+            ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=4)
+
+            cv = ws.cell(r, 5, value=formula_val)
+            cv.number_format = NUM_FMT
+            cv.alignment = Alignment(horizontal="right")
+            cv.border = BORDER_DATA
+            if es_total == "total":
+                cv.font = Font(name="Calibri", size=12, bold=True, color="1F3A5F")
+                cv.fill = FILL_KPI_BG
+            elif es_total == "subtotal":
+                cv.font = Font(name="Calibri", size=10, bold=True)
+            else:
+                cv.font = FONT_DATA
+            r += 1
+        return r + 1
+
+    r = 4
+    activo_f_ref = f"E{r+1}"
+    pas_pat_f_ref = f"E{r+2}"
+    filas1 = [
+        ("TOTAL ACTIVO (Balance Contable)", _f_a1_col("499", "F"), "subtotal"),
+        ("TOTAL PASIVO + PATRIMONIO (Balance Contable)",
+         f"={_f_a1_col('599', 'F')[1:]}+{_f_a1_col('698', 'F')[1:]}", "subtotal"),
+        ("DIFERENCIA (debe ser 0.00)", f"={activo_f_ref}-{pas_pat_f_ref}", "total"),
     ]
-    for i, (k, v) in enumerate(info_rows, start=3):
-        ck = ws.cell(i, 1, value=k); ck.font = info_label_style
-        cv = ws.cell(i, 2, value=v); cv.font = info_value_style
+    r = _draw_recuadro(r, "1. CUADRE BALANCE CONTABLE (Estados Financieros)", filas1)
+    estado_r1 = r - 2
+    cest = ws.cell(estado_r1, 6, value=f'=IF(ABS(E' + str(estado_r1) + ')<0.5,"OK CUADRA","NO CUADRA")')
+    cest.font = Font(name="Calibri", size=11, bold=True, color="2E7D32")
+    cest.alignment = Alignment(horizontal="center")
+    cest.border = BORDER_DATA
 
-    # ============================================================
-    # SECCIÓN 1 — KPI Cards (4 tarjetas)
-    # ============================================================
-    # Pre-calc para los KPIs.
-    # Prioridad para Pasivo+Patrimonio: usar cas 699 (TOTAL PASIVO Y PATRIMONIO)
-    # que el F-101 declara directamente; sólo caer a 599+698 si 699 no se
-    # parseó. Sin esta prioridad, cuando el parser falla en 599/698 el KPI
-    # mostraba la diferencia = activo total (~ 21M) en vez de 0.
-    activo_f101 = f101.get("499") or 0
-    if f101.get("699") not in (None, 0, 0.0):
-        pp_f101 = f101.get("699")
-    else:
-        pp_f101 = (f101.get("599") or 0) + (f101.get("698") or 0)
-    cuadre_f101 = round(abs(activo_f101 - pp_f101), 2)
-    activo_bal = _sum_balance_range(by_cas, [(311, 499)])
-    pp_bal = _sum_balance_range(by_cas, [(511, 599), (601, 697)], take_abs=True)
-    cuadre_bal = round(abs(activo_bal - pp_bal), 2)
+    activo_c_ref = f"E{r+1}"
+    pas_pat_c_ref = f"E{r+2}"
+    filas2 = [
+        ("ACTIVO TOTAL DECLARADO (cas 499)", _f_a1_col("499", "C"), "subtotal"),
+        ("PASIVO + PATRIMONIO DECLARADO (cas 699)", _f_a1_col("699", "C"), "subtotal"),
+        ("DIFERENCIA (debe ser 0.00)", f"={activo_c_ref}-{pas_pat_c_ref}", "total"),
+    ]
+    r = _draw_recuadro(r, "2. CUADRE BALANCE SEGUN F-101 DECLARADO", filas2)
+    estado_r2 = r - 2
+    cest2 = ws.cell(estado_r2, 6, value=f'=IF(ABS(E' + str(estado_r2) + ')<0.5,"OK CUADRA","NO CUADRA")')
+    cest2.font = Font(name="Calibri", size=11, bold=True, color="2E7D32")
+    cest2.alignment = Alignment(horizontal="center")
+    cest2.border = BORDER_DATA
 
-    casilleros_with_value = sum(1 for k, v in f101.items() if v not in (None, 0, 0.0))
-    casilleros_en_a1 = sum(1 for k in f101.keys() if k in casilleros_a1_set)
-    cuentas_total = len(balance_mapeado)
-    cuentas_con_cas = sum(1 for b in balance_mapeado if str(b.get("casillero_sri", "")).strip())
+    r3_ing = r + 1
+    r3_cos = r + 2
+    r3_uo  = r + 3
+    r3_801 = r + 4
+    r3_pt  = r + 5
+    r3_ir  = r + 6
+    r3_dif = r + 7
+    r3_ui  = r + 8
+    r3_pat = r + 9
+    filas3 = [
+        ("(+) TOTAL INGRESOS (cas 6999)", _f_a1_col("6999", "C"), "subtotal"),
+        ("(-) TOTAL COSTOS Y GASTOS (cas 7999)",
+         f"=-{_f_a1_col('7999', 'C')[1:]}", "subtotal"),
+        ("= UTILIDAD OPERACIONAL (Ing - Costos)",
+         f"=E{r3_ing}+E{r3_cos}", "total"),
+        ("(=) Utilidad antes PT e IR segun F-101 (cas 801, control)",
+         _f_a1_col("801", "C"), "subtotal"),
+        ("(-) Participacion Trabajadores (cas 803)",
+         f"=-{_f_a1_col('803', 'C')[1:]}", "subtotal"),
+        ("(-) Impuesto a la Renta Causado (cas 850)",
+         f"=-{_f_a1_col('850', 'C')[1:]}", "subtotal"),
+        ("(+) Ingreso por Impuesto Diferido (cas 889)",
+         _f_a1_col("889", "C"), "subtotal"),
+        ("= UTILIDAD INTEGRAL CALCULADA",
+         f"=E{r3_801}+E{r3_pt}+E{r3_ir}+E{r3_dif}", "total"),
+        # cas 616 en A1 col C YA viene con signo negativo (el filler A1
+        # aplica la regla NEGATIVE_CASILLEROS al cas 616 "PERDIDAS DEL
+        # EJERCICIO"). Por eso aquí sumamos en vez de restar: si hubo
+        # utilidad cas 615 = +X, cas 616 = 0 → pat = +X; si hubo perdida
+        # cas 615 = 0, cas 616_A1 = -X → pat = -X. Ambos casos correctos.
+        ("Utilidad / (Perdida) segun Patrimonio (cas 615 + cas 616)",
+         f"={_f_a1_col('615', 'C')[1:]}+{_f_a1_col('616', 'C')[1:]}", "subtotal"),
+        ("DIFERENCIA (debe ser 0.00)",
+         f"=E{r3_ui}-E{r3_pat}", "total"),
+    ]
+    r = _draw_recuadro(r, "3. UTILIDAD INTEGRAL - Cadena Estado de Resultados", filas3)
+    estado_r3 = r - 2
+    cest3 = ws.cell(estado_r3, 6, value=f'=IF(ABS(E' + str(estado_r3) + ')<0.5,"OK CUADRA","NO CUADRA")')
+    cest3.font = Font(name="Calibri", size=11, bold=True, color="2E7D32")
+    cest3.alignment = Alignment(horizontal="center")
+    cest3.border = BORDER_DATA
 
-    # Estado global
-    if cuadre_f101 <= 0.5 and cuadre_bal <= 0.5:
-        estado_global = "✓ CUADRA"
-        color_global = "ok"
-    elif cuadre_f101 <= 0.5:
-        estado_global = "⚠ REVISAR"
-        color_global = "default"
-    else:
-        estado_global = "✗ NO CUADRA"
-        color_global = "bad"
+    ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=7)
+    ct4 = ws.cell(r, 2, value="4. COMPARACION CONTABLE vs F-101")
+    ct4.font = FONT_SECTION
+    ct4.fill = FILL_SECTION
+    ct4.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws.row_dimensions[r].height = 22
+    r += 1
 
-    # Layout: 4 cards x (3 cols cada una) — desde fila 7
-    # FIX 2026-06-06: KPI Cards de cuadre y total ahora son FÓRMULAS
-    # referenciales al A1 (no literales). Razón:
-    #   - Cliente reportó "no hay fórmulas y la sumatoria está mal".
-    #   - Si A1 cuadra → estos KPI deben mostrar 0 / total real.
-    #   - Si A1 no cuadra → estos KPI lo reflejan en tiempo real.
-    a1_499 = a1_row_lookup.get("499")  # TOTAL DEL ACTIVO
-    a1_699 = a1_row_lookup.get("699")  # TOTAL PASIVO + PATRIMONIO
+    headers4 = ["Bloque", "", "", "Contable", "F-101 Declarado", "Diferencia", "Estado"]
+    for i, h in enumerate(headers4):
+        if not h:
+            continue
+        cc = ws.cell(r, i + 1, value=h)
+        cc.font = FONT_HEADER
+        cc.fill = FILL_HEADER
+        cc.alignment = Alignment(horizontal="center", vertical="center")
+        cc.border = BORDER_DATA
+    ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
+    ws.row_dimensions[r].height = 24
+    r += 1
 
-    kpi_row = 7
-    _kpi_card(ws, kpi_row, 1, label="ESTADO GENERAL",
-              value=estado_global, color=color_global)
-    # DIFERENCIA F-101: fórmula = activo - (pas+patr) declarados.
-    if "499" in f101_lookup_safe and "699" in f101_lookup_safe:
-        kpi_diff_f101_val = (
-            f"=ABS('DATOS F-101'!C{f101_lookup_safe['499']}"
-            f"-'DATOS F-101'!C{f101_lookup_safe['699']})"
-        )
-    else:
-        kpi_diff_f101_val = f"{cuadre_f101:,.2f}"
-    _kpi_card(ws, kpi_row, 4, label="DIFERENCIA F-101 (A=P+Pa)",
-              value=kpi_diff_f101_val,
-              color=("ok" if cuadre_f101 <= 0.5 else "bad"))
+    bloques4 = [
+        ("ACTIVO", "499", "F", "499", "C"),
+        ("PASIVO + PATRIMONIO",
+         f"={_f_a1_col('599', 'F')[1:]}+{_f_a1_col('698', 'F')[1:]}", None,
+         "699", "C"),
+        ("INGRESOS (Estado Resultados)", "6999", "F", "6999", "C"),
+        ("COSTOS Y GASTOS (Estado Resultados)", "7999", "F", "7999", "C"),
+    ]
+    first_block_row = r
+    for bloque, c_or_f, col_f, c_decl, col_c in bloques4:
+        cb = ws.cell(r, 2, value=bloque)
+        cb.font = FONT_DATA
+        cb.border = BORDER_DATA
+        cb.alignment = Alignment(horizontal="left", indent=1)
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
 
-    # DIFERENCIA BALANCE: fórmula = A1!F(499) - A1!F(699).
-    # Si A1 cuadra (esperado), esto da 0. Sin literal.
-    if a1_499 and a1_699:
-        kpi_diff_bal_val = f"=ABS('{A1_SHEET}'!F{a1_499}-'{A1_SHEET}'!F{a1_699})"
-    else:
-        kpi_diff_bal_val = f"{cuadre_bal:,.2f}"
-    _kpi_card(ws, kpi_row+4, 1, label="DIFERENCIA BALANCE (A=P+Pa)",
-              value=kpi_diff_bal_val,
-              color=("ok" if cuadre_bal <= 0.5 else "bad"))
+        cf = ws.cell(r, 4, value=(c_or_f if col_f is None else _f_a1_col(c_or_f, col_f)))
+        cf.number_format = NUM_FMT
+        cf.alignment = Alignment(horizontal="right")
+        cf.border = BORDER_DATA
+        cf.font = FONT_DATA
 
-    # TOTAL DEL ACTIVO: fórmula = F-101 cas 499 (o A1 si lookup faltó).
-    if "499" in f101_lookup_safe:
-        kpi_activo_val = f"='DATOS F-101'!C{f101_lookup_safe['499']}"
-    elif a1_499:
-        kpi_activo_val = f"='{A1_SHEET}'!C{a1_499}"
-    else:
-        kpi_activo_val = f"{activo_f101:,.2f}"
-    _kpi_card(ws, kpi_row+4, 4, label="TOTAL DEL ACTIVO",
-              value=kpi_activo_val)
+        cd = ws.cell(r, 5, value=_f_a1_col(c_decl, col_c))
+        cd.number_format = NUM_FMT
+        cd.alignment = Alignment(horizontal="right")
+        cd.border = BORDER_DATA
+        cd.font = FONT_DATA
 
-    # Aplicar number_format a las KPI numéricas (fórmulas)  para que se
-    # rendericen como "1,234,567.89" en vez de "1234567.89000000001".
-    # _kpi_card mergea row+1..row+2; el valor está en row+1.
-    for kpi_value_row, kpi_value_col in (
-        (kpi_row+1, 4),     # DIFERENCIA F-101
-        (kpi_row+5, 1),     # DIFERENCIA BALANCE
-        (kpi_row+5, 4),     # TOTAL DEL ACTIVO
-    ):
-        ws.cell(kpi_value_row, kpi_value_col).number_format = '#,##0.00'
+        cdif = ws.cell(r, 6, value=f"=ABS(D{r})-ABS(E{r})")
+        cdif.number_format = NUM_FMT
+        cdif.alignment = Alignment(horizontal="right")
+        cdif.border = BORDER_DATA
+        cdif.font = FONT_DATA
 
-    # Segunda fila de KPIs
-    kpi_row2 = kpi_row + 8
-    _kpi_card(ws, kpi_row2, 1, label="CASILLEROS F-101 CON VALOR",
-              value=f"{casilleros_with_value}")
-    _kpi_card(ws, kpi_row2, 4, label="CASILLEROS QUE LLEGAN AL A1",
-              value=f"{casilleros_en_a1}")
-    _kpi_card(ws, kpi_row2+4, 1, label="CUENTAS EN BALANCE MAPEADO",
-              value=f"{cuentas_total}")
-    _kpi_card(ws, kpi_row2+4, 4, label="CUENTAS CON CASILLERO SRI",
-              value=f"{cuentas_con_cas}",
-              color=("ok" if cuentas_con_cas == cuentas_total else "bad"))
+        cstat = ws.cell(r, 7, value=f'=IF(ABS(F' + str(r) + ')<0.5,"OK","DIFF")')
+        cstat.font = Font(name="Calibri", size=10, bold=True, color="2E7D32")
+        cstat.alignment = Alignment(horizontal="center")
+        cstat.border = BORDER_DATA
 
-    row = kpi_row2 + 9
+        r += 1
 
-    # ============================================================
-    # SECCIÓN 1.5 — VALIDACIÓN DE COBERTURA (NUEVA, 2026-06-07)
-    # Pedido cliente: "verificar que del formulario 101 llegue toda la
-    # información a DATOS F-101 y del balance mapeado a DATOS BALANCE".
-    # Se renderiza ANTES de las cuadraturas para que sea lo PRIMERO que
-    # el auditor ve después de los KPIs ejecutivos.
-    # ============================================================
-    if balance_cuentas_sin_saldo is None:
-        balance_cuentas_sin_saldo_temp = []
-    else:
-        balance_cuentas_sin_saldo_temp = balance_cuentas_sin_saldo
-    row = _build_validacion_cobertura(
-        ws, row,
-        f101=f101,
-        balance_mapeado=balance_mapeado,
-        balance_cuentas_sin_saldo=balance_cuentas_sin_saldo_temp,
-        workbook=workbook,
-    )
+    last_block_row = r - 1
 
-    # ============================================================
-    # SECCION 2 - 3 VERIFICACIONES REFERENCIALES AL MAPEO A1
-    # Pedido cliente 2026-06-07: VERIFICACION debe tomar datos del A1
-    # con formulas (no del balance crudo), con 3 controles separados.
-    # Reemplaza las secciones 2/3/4/4.5 anteriores.
-    # ============================================================
-    row = _build_3_verificaciones_referenciales(
-        ws, row,
-        a1_row_lookup=a1_row_lookup,
-    )
+    r += 1
+    ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=5)
+    cgb = ws.cell(r, 2, value="ESTADO GLOBAL DEL CUADRE")
+    cgb.font = Font(name="Calibri", size=12, bold=True, color="1F3A5F")
+    cgb.fill = FILL_KPI_BG
+    cgb.alignment = Alignment(horizontal="right", indent=1)
+    cgb.border = BORDER_DATA
+    cgs = ws.cell(r, 7, value=(
+        f'=IF(SUMPRODUCT((ABS(F' + str(first_block_row) + ':F' + str(last_block_row) + ')>0.5)*1)=0,'
+        f'"TODO CUADRA","HAY DIFERENCIAS")'
+    ))
+    cgs.font = Font(name="Calibri", size=12, bold=True, color="2E7D32")
+    cgs.fill = FILL_KPI_BG
+    cgs.alignment = Alignment(horizontal="center")
+    cgs.border = BORDER_DATA
+    ws.merge_cells(start_row=r, start_column=6, end_row=r, end_column=6)
 
-        # ============================================================
-    # SECCIÓN 4.6 — CUENTAS SIN SALDO DETECTADAS POR EL PARSER
-    # ------------------------------------------------------------
-    # REGLA cliente 2026-06-07 ("regla que no permita que se vuelva a
-    # omitir información"): el parser de balance ahora reporta cuentas
-    # con casillero SRI asignado pero saldo vacío. Las mostramos aquí
-    # para que el auditor las cotice con el cliente antes de cerrar el
-    # ICT. Si la lista está vacía → mensaje verde "Todas las cuentas
-    # tienen saldo".
-    # ============================================================
-    if balance_cuentas_sin_saldo is None:
-        balance_cuentas_sin_saldo = []
+    r += 2
+    ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=7)
+    cn = ws.cell(r, 2, value=(
+        "El detalle por casillero se encuentra en las pestanas DATOS F-101 "
+        "y DATOS BALANCE (seccion CUADRE POR CASILLERO al final de cada hoja)."
+    ))
+    cn.font = Font(name="Calibri", size=9, italic=True, color="5A6575")
+    cn.alignment = Alignment(horizontal="left", vertical="center", indent=1, wrap_text=True)
+    ws.row_dimensions[r].height = 30
 
-    titulo_sin_saldo = (
-        f"⚠ CUENTAS CON CASILLERO PERO SIN SALDO "
-        f"({len(balance_cuentas_sin_saldo)} detectadas por el parser)"
-    )
-    row = _section_header(ws, row, title=titulo_sin_saldo)
-
-    if not balance_cuentas_sin_saldo:
-        msg = ws.cell(row, 1, value=(
-            "✓ TODAS las cuentas del balance mapeado tienen saldo. No se "
-            "detectó información omitida."
-        ))
-        msg.font = FONT_DATA_OK
-        msg.fill = FILL_OK
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
-        row += 1
-    else:
-        # Tabla con las cuentas sin saldo
-        headers_ss = [
-            "Fila Excel", "Código contable", "Descripción cuenta",
-            "Casillero SRI", "Cuenta", "Acción auditor",
-        ]
-        row = _table_header(ws, row, headers_ss)
-        for cta in balance_cuentas_sin_saldo:
-            ws.cell(row, 1, value=cta.get("_source_excel_row", "")).font = FONT_DATA
-            ws.cell(row, 2, value=cta.get("codigo", "")).font = FONT_DATA
-            ws.cell(row, 3, value=cta.get("descripcion", "")).font = FONT_DATA
-            ws.cell(row, 4, value=cta.get("casillero_sri", "")).font = FONT_DATA
-            ws.cell(row, 5, value="SIN SALDO").font = FONT_DATA_BAD
-            ws.cell(
-                row, 6,
-                value="Solicitar saldo al cliente o confirmar que es 0"
-            ).font = FONT_DATA
-            for c in range(1, 7):
-                cell = ws.cell(row, c)
-                cell.border = BORDER_DATA
-                cell.fill = FILL_WARN
-                if c in (1, 4):
-                    cell.alignment = ALIGN_CENTER
-                else:
-                    cell.alignment = ALIGN_LEFT
-            row += 1
-        # Nota explicativa
-        nota = (
-            "💡 Estas cuentas tienen un casillero SRI asignado en el plan "
-            "de cuentas pero su columna saldo está VACÍA (no es 0 explícito). "
-            "Antes del fix 2026-06-07, el parser las descartaba en silencio "
-            "y nunca aparecían en el ICT. Ahora se reportan aquí para que el "
-            "auditor confirme con el cliente si el saldo real es 0 o se "
-            "olvidó de completarlo."
-        )
-        nota_cell = ws.cell(row, 1, value=nota)
-        nota_cell.font = Font(name="Calibri", size=9, italic=True, color="5A6575")
-        nota_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
-        ws.row_dimensions[row].height = 48
-        row += 2
-
-    # ============================================================
-    # SECCIÓN 5 — Casilleros del F-101 con valor !=0 OMITIDOS del A1
-    # ============================================================
-    casilleros_no_cero = {k: v for k, v in f101.items() if v not in (None, 0, 0.0)}
-    casilleros_omitidos = sorted(
-        [k for k in casilleros_no_cero if k not in casilleros_a1_set],
-        key=lambda x: int(x) if x.isdigit() else 9999,
-    )
-
-    row = _section_header(ws, row, title=f"⚠ CASILLEROS F-101 CON VALOR FUERA DEL A1 ({len(casilleros_omitidos)})")
-    if casilleros_omitidos:
-        row = _table_header(ws, row, ["Casillero", "Valor F-101", "Anexo destino sugerido", "", "", ""])
-        for cas in casilleros_omitidos:
-            ws.cell(row, 1, value=cas).font = FONT_DATA
-            ws.cell(row, 2, value=casilleros_no_cero[cas]).font = FONT_DATA
-            destino = _sugerir_anexo(cas)
-            cell_d = ws.cell(row, 3, value=destino)
-            cell_d.font = FONT_DATA
-            if "A3" in destino or "A5" in destino:
-                cell_d.fill = FILL_WARN
-            for c in range(1, 7):
-                cell = ws.cell(row, c)
-                cell.border = BORDER_DATA
-                if c == 2:
-                    cell.number_format = '#,##0.00;-#,##0.00;"—"'
-                    cell.alignment = ALIGN_RIGHT
-                elif c == 1:
-                    cell.alignment = ALIGN_CENTER
-                else:
-                    cell.alignment = ALIGN_LEFT
-            row += 1
-    else:
-        msg = ws.cell(row, 1, value="✓ Todos los casilleros del F-101 con valor están cubiertos por el A1")
-        msg.font = FONT_DATA_OK
-        msg.fill = FILL_OK
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
-        row += 1
-    row += 1
-
-    # ============================================================
-    # SECCIÓN 6 — Casilleros del Balance fuera del A1
-    # ============================================================
-    cas_fuera = sorted(set(by_cas.keys()) - casilleros_a1_set,
-                       key=lambda x: int(x) if x.isdigit() else 9999)
-    row = _section_header(ws, row, title=f"📋 CASILLEROS DEL BALANCE FUERA DEL A1 ({len(cas_fuera)})")
-    if cas_fuera:
-        row = _table_header(ws, row, ["Casillero", "# Cuentas", "Suma saldos", "Anexo destino", "", ""])
-        for cas in cas_fuera:
-            items = by_cas[cas]
-            total = sum((it.get("saldo") or 0) for it in items)
-            destino = _sugerir_anexo(cas)
-            ws.cell(row, 1, value=cas).font = FONT_DATA
-            ws.cell(row, 2, value=len(items)).font = FONT_DATA
-            ws.cell(row, 3, value=total).font = FONT_DATA
-            ws.cell(row, 4, value=destino).font = FONT_DATA
-            for c in range(1, 7):
-                cell = ws.cell(row, c)
-                cell.border = BORDER_DATA
-                if c == 3:
-                    cell.number_format = '#,##0.00;-#,##0.00;"—"'
-                    cell.alignment = ALIGN_RIGHT
-                elif c in (1, 2):
-                    cell.alignment = ALIGN_CENTER
-                else:
-                    cell.alignment = ALIGN_LEFT
-            row += 1
-
-    # ============================================================
-    # SECCIÓN 6.5 — 🔬 ARTEFACTO DIFERENCIAS POR REVISAR (cas por cas)
-    # ============================================================
-    # Análisis cell-by-cell de las diferencias entre F-101 declarado y
-    # Balance contable mapeado, categorizadas por causa probable para
-    # que el auditor sepa EXACTAMENTE qué revisar en cada caso.
-    row += 1
-    row = _build_diferencias_section(
-        ws, row,
-        f101=f101,
-        by_cas=by_cas,
-        casilleros_a1_names=casilleros_a1_names,
-        casilleros_a1_set=casilleros_a1_set,
-    )
-
-    # ============================================================
-    # SECCIÓN 7 — COBERTURA DE CASILLEROS POR FORMULARIO
-    # ============================================================
-    # Reporta qué casilleros de F-101, F-103, F-104 NO fueron usados
-    # (no se generó ninguna fórmula que los referencie). Esto detecta
-    # datos del cliente que se PARSEAN pero quedan SIN llegar a los anexos.
-    row += 1
-    row = _section_header(ws, row,
-                          title="🔎 COBERTURA · Casilleros parseados vs referenciados")
-
-    # Set de casilleros que aparecen en el trace log (= fueron escritos)
-    trace_log = trace_log or []
-    casilleros_referenciados: set[str] = set()
-    for entry in trace_log:
-        cas = str(entry.get("casillero", "")).strip()
-        if cas:
-            casilleros_referenciados.add(cas)
-    # También agregar los casilleros que el A1 cubre por cell_map
-    # (aunque no aparezcan con casillero explícito en el trace)
-    casilleros_referenciados |= casilleros_a1_set
-
-    def _reportar_formulario(label: str, casilleros_disponibles: set[str], total_parseados: int):
-        nonlocal row
-        usados = sum(1 for c in casilleros_disponibles if c in casilleros_referenciados)
-        no_usados_con_valor = sorted(
-            [c for c in casilleros_disponibles if c not in casilleros_referenciados],
-            key=lambda x: int(x) if x.isdigit() else 9999,
-        )
-        # Header subtítulo
-        c = ws.cell(row, 1, value=label)
-        c.font = Font(name="Calibri", size=11, bold=True, color="2D5F8B")
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
-        row += 1
-
-        ws.cell(row, 1, value="Casilleros parseados:").font = FONT_DATA
-        ws.cell(row, 2, value=total_parseados).font = FONT_DATA
-        ws.cell(row, 4, value="Casilleros usados en anexos:").font = FONT_DATA
-        c_used = ws.cell(row, 5, value=usados)
-        c_used.font = FONT_DATA_OK if usados > 0 else FONT_DATA
-        row += 1
-        ws.cell(row, 1, value="Casilleros con valor SIN usar:").font = FONT_DATA
-        c_un = ws.cell(row, 2, value=len(no_usados_con_valor))
-        c_un.font = FONT_DATA_BAD if len(no_usados_con_valor) > 0 else FONT_DATA_OK
-        row += 1
-
-        if no_usados_con_valor:
-            # Listar primeros 50
-            ws.cell(row, 1, value="Casilleros NO usados (primeros 50):").font = FONT_DATA
-            row += 1
-            for cas in no_usados_con_valor[:50]:
-                ws.cell(row, 1, value=cas).font = FONT_DATA
-                ws.cell(row, 1).alignment = ALIGN_CENTER
-                ws.cell(row, 2, value="(revisar si debe estar en algún anexo)").font = FONT_DATA
-                ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=6)
-                row += 1
-            if len(no_usados_con_valor) > 50:
-                ws.cell(row, 1, value=f"... y {len(no_usados_con_valor)-50} más").font = FONT_DATA
-                row += 1
-        else:
-            ok = ws.cell(row, 1, value="✓ Todos los casilleros parseados fueron referenciados en algún anexo")
-            ok.font = FONT_DATA_OK
-            ok.fill = FILL_OK
-            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
-            row += 1
-        row += 1
-
-    # F-101
-    f101_caslleros_con_valor = {k for k, v in f101.items() if v not in (None, 0, 0.0)}
-    _reportar_formulario("📄 F-101 · Declaración Anual IR Sociedades",
-                          f101_caslleros_con_valor, len(f101))
-
-    # F-103
-    if f103_monthly:
-        all_f103: set[str] = set()
-        for periodo in f103_monthly:
-            casilleros = (f103_monthly[periodo].get("casilleros") if isinstance(f103_monthly.get(periodo), dict) else {}) or {}
-            for cas, val in casilleros.items():
-                if val not in (None, 0, 0.0):
-                    all_f103.add(cas)
-        _reportar_formulario("📋 F-103 · Retenciones IR mensuales",
-                              all_f103, len(all_f103))
-
-    # F-104
-    if f104_monthly:
-        all_f104: set[str] = set()
-        for periodo in f104_monthly:
-            d = f104_monthly.get(periodo) or {}
-            casilleros = d.get("casilleros") if isinstance(d, dict) else None
-            if casilleros:
-                for cas, val in casilleros.items():
-                    if val not in (None, 0, 0.0):
-                        all_f104.add(cas)
-        _reportar_formulario("📑 F-104 · IVA mensual",
-                              all_f104, len(all_f104))
-
-    # ============================================================
-    # FORMATO FINAL
-    # ============================================================
-    widths = {"A": 50, "B": 14, "C": 18, "D": 24, "E": 18, "F": 18}
-    for col, w in widths.items():
-        ws.column_dimensions[col].width = w
-
-    # Freeze panes: dejar el título y el bloque KPI siempre visible
-    ws.freeze_panes = "A7"
-
+    ws.freeze_panes = "A4"
 
 # ----------------------------------------------------------------------
 # 🔬 Sección 6.5 — Artefacto Diferencias por revisar

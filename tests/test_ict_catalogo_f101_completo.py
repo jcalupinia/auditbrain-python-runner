@@ -145,8 +145,18 @@ def test_e2e_ninguna_fila_DATOS_F101_sin_nombre():
     wb = _build_test_wb_with_datos_f101(f101)
     ws = wb["DATOS F-101"]
 
-    filas_sin_nombre = []
+    # Solo verificar el rango DETALLE (filas 4..antes del bloque CUADRE).
+    # La sección "🔍 CUADRE POR CASILLERO" agregada 2026-06-13 no usa col B
+    # como nombre de cas — es un bloque de verificación independiente.
+    detail_end = ws.max_row
     for r in range(4, ws.max_row + 1):
+        a = ws.cell(r, 1).value
+        if a and "CUADRE" in str(a).upper():
+            detail_end = r - 1
+            break
+
+    filas_sin_nombre = []
+    for r in range(4, detail_end + 1):
         cas = ws.cell(r, 1).value
         nombre = ws.cell(r, 2).value
         if cas is None or str(cas).strip() == "":
@@ -188,9 +198,17 @@ def test_e2e_casilleros_declarados_conservan_valor():
     wb = _build_test_wb_with_datos_f101(f101)
     ws = wb["DATOS F-101"]
 
+    # Limitar al rango DETALLE (no incluir bloque CUADRE al final).
+    detail_end = ws.max_row
+    for r in range(4, ws.max_row + 1):
+        a = ws.cell(r, 1).value
+        if a and "CUADRE" in str(a).upper():
+            detail_end = r - 1
+            break
+
     valores_esperados = {"574": 341311.19, "311": 8500.0}
     encontrados = {}
-    for r in range(4, ws.max_row + 1):
+    for r in range(4, detail_end + 1):
         cas = str(ws.cell(r, 1).value or "").strip()
         if cas in valores_esperados:
             encontrados[cas] = ws.cell(r, 3).value

@@ -339,13 +339,150 @@ def build_f101_sheet(
                 r, cas_r,
             )
 
-    # Anchos
-    widths = {"A": 14, "B": 60, "C": 18, "D": 32}
+    detail_last_row = row - 1
+    detail_first_row = 4
+
+    # ================================================================
+    # BLOQUE CUADRE F-101 ↔ MAPEO A1 (pedido cliente 2026-06-13, ICT_17)
+    # ================================================================
+    # Verifica que TODO cas con valor declarado ≠ 0 en F-101 se haya
+    # trasladado correctamente al MAPEO A1. Detecta:
+    #   - Cas con valor pero ausente del A1   → "⚠ NO TRASLADADO"
+    #   - Cas con valor distinto en A1 col C  → "✗ DIFF"
+    #   - Cas excluido a propósito             → "ℹ EXCLUIDO" (informativo
+    #     / conciliación tributaria / valor 0)
+    #   - Cas OK                               → "✓ OK"
+    # Reutiliza la lógica MATCH + IFERROR validada en CUADRE de DATOS BALANCE
+    # (sin VLOOKUP simple — ese era el bug de la sección equivalente).
+    # A1Filler vive en módulo separado → import diferido para evitar ciclos.
+    from backend.app.ict.fillers.a1_mapeo import A1Filler
+
+    # Solo cas con valor declarado ≠ 0 (los 0.00 son ruido aquí)
+    cas_con_valor = [
+        cas for cas, r in casillero_to_row.items()
+        if cas.isdigit() and (
+            (lambda v: isinstance(v,(int,float)) and abs(float(v)) >= 0.005)(
+                ws.cell(r, 3).value)
+        )
+    ]
+    cas_con_valor.sort(key=lambda x: int(x))
+
+    if cas_con_valor:
+        row += 2  # separación visual
+
+        # Título
+        title_cell = ws.cell(row, 1,
+                             value="🔍 CUADRE POR CASILLERO · F-101 ↔ MAPEO A1")
+        title_cell.font = Font(name="Calibri", size=12, bold=True, color="FFFFFF")
+        title_cell.fill = PatternFill("solid", fgColor="2D5F8B")
+        title_cell.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+        ws.row_dimensions[row].height = 24
+        row += 1
+
+        # Headers
+        headers = [
+            "Casillero",
+            "Valor F-101",
+            "¿En A1?",
+            "Valor A1 col C",
+            "|Dif|",
+            "Estado",
+        ]
+        for i, h in enumerate(headers, start=1):
+            c = ws.cell(row, i, value=h)
+            c.font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+            c.fill = PatternFill("solid", fgColor="4A7BA8")
+            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            c.border = BORDER
+        ws.row_dimensions[row].height = 28
+        row += 1
+
+        # Referencia a la hoja A1 (con comillas porque tiene espacios)
+        A1_REF = "'MAPEO DE LA DECLARACIÓN A1'"
+
+        for cas in cas_con_valor:
+            cas_row_f101 = casillero_to_row.get(cas)
+            nombre_cas = F101_CASILLERO_NAMES.get(cas, "")
+
+            # ¿El cas debe estar excluido a propósito? (informativo,
+            # conciliación tributaria, o cualquier filtro del A1)
+            es_excluido_a_proposito = (
+                _es_informativo(nombre_cas, cas)
+                or _es_excluido_estado_resultados(cas, nombre_cas)
+                or A1Filler._es_cas_conciliacion_tributaria(cas)
+            )
+
+            # Col A: casillero
+            ws.cell(row, 1, value=cas).font = FONT_DATA
+            ws.cell(row, 1).alignment = Alignment(horizontal="center")
+            ws.cell(row, 1).border = BORDER
+
+            # Col B: valor F-101 declarado (ref a la fila del detalle)
+            cb = ws.cell(row, 2, value=f"=C{cas_row_f101}")
+            cb.font = FONT_DATA
+            cb.number_format = '#,##0.00;-#,##0.00;0.00'
+            cb.alignment = Alignment(horizontal="right")
+            cb.border = BORDER
+
+            # Col C: ¿está en A1? Si excluido a propósito → "EXCLUIDO".
+            # MATCH falla → "NO TRASLADADO". MATCH OK → "SÍ".
+            if es_excluido_a_proposito:
+                f_en_a1 = '="EXCLUIDO"'
+            else:
+                f_en_a1 = (
+                    f'=IF(ISERROR(MATCH("{cas}",{A1_REF}!A:A,0)),'
+                    f'"NO TRASLADADO","SÍ")'
+                )
+            cc = ws.cell(row, 3, value=f_en_a1)
+            cc.font = FONT_DATA
+            cc.alignment = Alignment(horizontal="center")
+            cc.border = BORDER
+
+            # Col D: valor en A1 col C (con INDEX + MATCH).
+            # IFERROR → 0 si MATCH falla.
+            f_val_a1 = (
+                f'=IFERROR('
+                f'INDEX({A1_REF}!C:C,MATCH("{cas}",{A1_REF}!A:A,0)),'
+                f'0)'
+            )
+            cd = ws.cell(row, 4, value=f_val_a1)
+            cd.font = FONT_DATA
+            cd.number_format = '#,##0.00;-#,##0.00;0.00'
+            cd.alignment = Alignment(horizontal="right")
+            cd.border = BORDER
+
+            # Col E: |F-101| − |A1| (signed comparable)
+            ce = ws.cell(row, 5, value=f"=ABS(B{row})-ABS(D{row})")
+            ce.font = FONT_DATA
+            ce.number_format = '#,##0.00;-#,##0.00;0.00'
+            ce.alignment = Alignment(horizontal="right")
+            ce.border = BORDER
+
+            # Col F: estado:
+            #   - EXCLUIDO → "ℹ EXCLUIDO"
+            #   - NO TRASLADADO → "⚠ NO TRASLADADO"
+            #   - ABS(dif) > 0.5 → "✗ DIFF"
+            #   - resto → "✓ OK"
+            f_estado = (
+                f'=IF(C{row}="EXCLUIDO","ℹ EXCLUIDO",'
+                f'IF(C{row}="NO TRASLADADO","⚠ NO TRASLADADO",'
+                f'IF(ABS(E{row})>0.5,"✗ DIFF","✓ OK")))'
+            )
+            cf = ws.cell(row, 6, value=f_estado)
+            cf.font = FONT_DATA
+            cf.alignment = Alignment(horizontal="center")
+            cf.border = BORDER
+
+            row += 1
+
+    # Anchos (incluir cols E y F del CUADRE)
+    widths = {"A": 14, "B": 60, "C": 18, "D": 32, "E": 14, "F": 22}
     for col, w in widths.items():
         ws.column_dimensions[col].width = w
 
     ws.freeze_panes = "A4"
-    ws.auto_filter.ref = f"A3:D{row-1}"
+    ws.auto_filter.ref = f"A3:D{detail_last_row}"
     return casillero_to_row
 
 
@@ -669,14 +806,23 @@ def build_balance_sheet(wb: Workbook, balance: list[dict]) -> list[int]:
         ws.row_dimensions[row].height = 24
         row += 1
 
-        # Headers
+        # Headers — rediseño 2026-06-13 (cliente ICT_17):
+        # En vez de VLOOKUP simple (que solo traía la PRIMERA fila del cas en
+        # A1 y daba falsas diferencias), usamos MATCH + OFFSET para sumar el
+        # rango completo del cas en A1, y ISERROR(MATCH) para detectar cas
+        # AUSENTES del A1 (verdaderos bugs).
+        # Notar: en A1 solo la PRIMERA fila del cas tiene su número en col A;
+        # las extra solo tienen D/E/F. Por eso NO se compara con COUNTIF.
+        # El rango se determina por #_cuentas del balance (asumiendo que A1
+        # traslada N cuentas cuando el balance tiene N). Si A1 trasladó menos,
+        # la suma incluirá filas del cas siguiente → DIFF (señal real).
         headers = [
             "Casillero",
-            "# Cuentas",
+            "# Cuentas Bal",
             "Suma Balance",
-            "Saldo A1 col F",
-            "Diferencia |F|-|Bal|",
-            "Cuadre",
+            "¿En A1?",
+            "Suma A1 col F",
+            "Estado",
         ]
         for i, h in enumerate(headers, start=1):
             c = ws.cell(row, i, value=h)
@@ -690,19 +836,28 @@ def build_balance_sheet(wb: Workbook, balance: list[dict]) -> list[int]:
 
         # Referencia a la hoja A1 — usamos comillas porque tiene espacios
         A1_REF = "'MAPEO DE LA DECLARACIÓN A1'"
-        # Rango col A:F del A1 (debería cubrir todos los cas)
-        # Usamos VLOOKUP con 4° argumento FALSE para coincidencia exacta.
-        # Si el cas no está en A1 (raro), la cifra será #N/A — convertimos
-        # a 0 con IFERROR.
 
+        # PARTE FUNDAMENTAL DEL FIX (cliente ICT_17, 2026-06-13):
+        #
+        # En A1 cada cas con N cuentas ocupa N filas pero solo la PRIMERA
+        # tiene el número de casillero en col A (las filas adicionales
+        # solo escriben D/E/F). Por eso VLOOKUP("cas", A1, 6, FALSE) solo
+        # traía la primera cuenta → falsa diferencia.
+        #
+        # Solución: usar MATCH para encontrar la fila inicial del cas y
+        # OFFSET para sumar las N filas (N = COUNTIF en BALANCE, donde
+        # sí están todas las cuentas con su cas).
+        #
+        # Si MATCH falla (cas ausente del A1), IFERROR devuelve 0. Eso
+        # se distingue del estado OK porque #A1 también será 0.
         for cas in casilleros_unicos:
             ws.cell(row, 1, value=cas).font = FONT_DATA
             ws.cell(row, 1).alignment = Alignment(horizontal="center")
             ws.cell(row, 1).border = BORDER
 
-            # Col B: cuántas cuentas hay con ese cas
-            f_count = f'=COUNTIF(A{detail_first_row}:A{detail_last_row},"{cas}")'
-            cb = ws.cell(row, 2, value=f_count)
+            # Col B: # cuentas en BALANCE para ese cas
+            f_count_bal = f'=COUNTIF(A{detail_first_row}:A{detail_last_row},"{cas}")'
+            cb = ws.cell(row, 2, value=f_count_bal)
             cb.font = FONT_DATA
             cb.alignment = Alignment(horizontal="center")
             cb.border = BORDER
@@ -715,30 +870,49 @@ def build_balance_sheet(wb: Workbook, balance: list[dict]) -> list[int]:
             cc.alignment = Alignment(horizontal="right")
             cc.border = BORDER
 
-            # Col D: saldo del A1 col F (VLOOKUP)
-            # Buscar cas en col A de A1, devolver col F (índice 6)
-            # IFERROR para evitar #N/A si no encuentra
-            f_a1 = (
-                f'=IFERROR(VLOOKUP("{cas}",{A1_REF}!$A:$F,6,FALSE),0)'
+            # Col D: ¿el cas aparece en A1? Usamos ISERROR(MATCH(...))
+            # porque en A1 solo la PRIMERA fila del cas tiene col A poblada.
+            # MATCH falla si el cas no fue trasladado al A1 — ese es el bug
+            # que el cliente quiere detectar.
+            f_en_a1 = (
+                f'=IF(ISERROR(MATCH("{cas}",{A1_REF}!A:A,0)),'
+                f'"NO TRASLADADO","SÍ")'
             )
-            cd = ws.cell(row, 4, value=f_a1)
+            cd = ws.cell(row, 4, value=f_en_a1)
             cd.font = FONT_DATA
-            cd.number_format = '#,##0.00;-#,##0.00;0.00'
-            cd.alignment = Alignment(horizontal="right")
+            cd.alignment = Alignment(horizontal="center")
             cd.border = BORDER
 
-            # Col E: diferencia en valor absoluto (debe ser 0)
-            # ABS(D{row}) - ABS(C{row})
-            f_diff = f'=ABS(D{row})-ABS(C{row})'
-            ce = ws.cell(row, 5, value=f_diff)
+            # Col E: suma del rango col F del cas en A1.
+            # MATCH(cas, A1!A:A, 0) → fila donde aparece (1-indexed).
+            # OFFSET(F1, fila-1, 0, #_bal, 1) → rango F de #_bal filas.
+            # IFERROR → 0 si MATCH falla (cas AUSENTE del A1).
+            # NOTA: si A1 trasladó menos cuentas que el balance, OFFSET
+            # incluye filas del cas siguiente → col F = SUMA + ruido. La
+            # cola Estado lo capta como DIFF. Es señal real, no falso.
+            f_suma_a1 = (
+                f'=IFERROR('
+                f'SUM(OFFSET({A1_REF}!F$1,MATCH("{cas}",{A1_REF}!A:A,0)-1,0,B{row},1)),'
+                f'0)'
+            )
+            ce = ws.cell(row, 5, value=f_suma_a1)
             ce.font = FONT_DATA
             ce.number_format = '#,##0.00;-#,##0.00;0.00'
             ce.alignment = Alignment(horizontal="right")
             ce.border = BORDER
 
-            # Col F: estado (texto IF basado en col E)
-            # Si |diff| < 0.5 → "✓ OK", sino "✗ DIFF"
-            f_estado = f'=IF(ABS(E{row})<0.5,"✓ OK","✗ DIFF")'
+            # Col F: estado con 3 ramas — distingue bugs reales del ruido.
+            #   D="NO TRASLADADO" (MATCH falla en A1) → "⚠ NO TRASLADADO"
+            #   |C|-|E| > 0.5 (sumas no cuadran)      → "✗ DIFF"
+            #   resto                                  → "✓ OK"
+            # Importante: ABS en ambos lados porque A1 puede invertir signo
+            # según regla de pasivos/patrimonio/ingresos. La magnitud es
+            # lo que debe coincidir.
+            f_estado = (
+                f'=IF(D{row}="NO TRASLADADO","⚠ NO TRASLADADO",'
+                f'IF(ABS(ABS(E{row})-ABS(C{row}))>0.5,"✗ DIFF",'
+                f'"✓ OK"))'
+            )
             cf = ws.cell(row, 6, value=f_estado)
             cf.font = FONT_DATA
             cf.alignment = Alignment(horizontal="center")
