@@ -950,21 +950,22 @@ def build_verification_sheet(
          _f_a1_col("801", "C"), "subtotal"),
         ("(-) Participacion Trabajadores (cas 803)",
          f"=-{_f_a1_col('803', 'C')[1:]}", "subtotal"),
-        # CAMBIO 2026-06-13 (cliente ICT_20): regla condicional cas 888 vs
-        # cas 850. La fórmula prueba MATCH del cas 888 primero; si no esta
-        # en A1 (la empresa no lo mapeo a balance), cae al cas 850 (IR
-        # Causado calculado del F-101). IFERROR encadenado.
+        # CAMBIO 2026-06-13 (cliente ICT_21): aplicar -ABS() en lugar de -X
+        # porque cas 888 puede venir POSITIVO o NEGATIVO en F-101 segun
+        # naturaleza ("GASTO (INGRESO)"). ABS() garantiza que SIEMPRE reste
+        # el monto del IR de la utilidad — sin importar el signo declarado.
+        # IFERROR encadenado: si cas 888 esta en A1 usa 888, sino 850, sino 0.
         ("(-) Impuesto a la Renta (cas 888 si mapeado, sino cas 850)",
          (
-             f'=-IFERROR(INDEX({A1_REF}!C:C,MATCH("888",{A1_REF}!A:A,0)),'
-             f'IFERROR(INDEX({A1_REF}!C:C,MATCH("850",{A1_REF}!A:A,0)),0))'
+             f'=-ABS(IFERROR(INDEX({A1_REF}!C:C,MATCH("888",{A1_REF}!A:A,0)),'
+             f'IFERROR(INDEX({A1_REF}!C:C,MATCH("850",{A1_REF}!A:A,0)),0)))'
          ), "subtotal"),
-        # CAMBIO 2026-06-13 (cliente ICT_19): cas 889 se RESTA con su signo
-        # natural del F-101. Si es gasto (+), restar gasto = correcto.
-        # Si es ingreso (-), restar -X = +X = sumar ingreso = correcto.
-        # Asi la operacion aritmetica es consistente sin invertir signos.
-        ("(-/+) Gasto/(Ingreso) Impuesto Diferido (cas 889)",
-         f"=-{_f_a1_col('889', 'C')[1:]}", "subtotal"),
+        # CAMBIO 2026-06-13 (cliente ICT_21): cas 889 ahora SUMA con su signo
+        # natural del F-101. Convencion SRI: si es gasto (+), suma resta;
+        # si es ingreso (-), suma resta menos = suma. La aritmetica se
+        # ajusta automaticamente con el signo declarado en F-101.
+        ("(+) Gasto/(Ingreso) Impuesto Diferido (cas 889)",
+         _f_a1_col("889", "C"), "subtotal"),
         ("(=) UTILIDAD INTEGRAL CALCULADA",
          f"=E{r3_801}+E{r3_pt}+E{r3_ir}+E{r3_dif}", "total"),
         # cas 616 en A1 col C YA viene con signo negativo (el filler A1

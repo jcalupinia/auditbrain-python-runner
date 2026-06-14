@@ -604,6 +604,9 @@ class A1Filler:
                 # un traslado directo del F-101 declarado. Si el F-101 no
                 # cuadra con esta operacion, el auditor ve la diferencia en
                 # col G (no se enmascara).
+                # CAMBIO 2026-06-13 (cliente ICT_21): aplicar tambien en col F
+                # (Balance contable) para que el cuadro de utilidad integral
+                # cuadre en ambas columnas.
                 row_6999 = casillero_to_row["6999"]
                 row_7999 = casillero_to_row["7999"]
                 _safe_set_formula(
@@ -611,7 +614,25 @@ class A1Filler:
                     f"=C{row_6999}-C{row_7999}",
                     casillero=casillero,
                 )
-                filled += 1
+                _safe_set_formula(
+                    ws, f"F{current_row}",
+                    f"=F{row_6999}-F{row_7999}",
+                    casillero=casillero,
+                )
+                filled += 2
+                # Saltar el flujo normal de procesamiento de col F (cas 801
+                # no tiene cuenta balance directa, la formula ya esta puesta).
+                # Trackear grupo y avanzar fila como caso n_accounts=0.
+                _safe_set_formula(ws, f"G{current_row}",
+                                  f"=F{current_row}-C{current_row}")
+                casillero_groups.append({
+                    "casillero": casillero, "row_start": row_start,
+                    "row_end": current_row, "is_total": is_total,
+                })
+                current_row += 1
+                if casillero in self.BLOQUE_BREAKS:
+                    current_row += 1
+                continue
             elif casillero in f101_lookup:
                 # Casillero normal: referencia con signo según nombre.
                 # is_negative → multiplicar por -1 (cuenta acumulada que resta).
