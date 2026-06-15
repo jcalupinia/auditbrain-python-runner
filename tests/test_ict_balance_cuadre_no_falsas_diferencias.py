@@ -44,7 +44,12 @@ def regenerated_ict15():
     )
     from backend.app.ict.service import generate_excel
 
-    data, _log = load_prophar_data()
+    try:
+        data, _log = load_prophar_data()
+    except FileNotFoundError as exc:
+        pytest.skip(
+            f"Datos PROPHAR reales no disponibles en este entorno (p. ej. CI): {exc}"
+        )
     mock_session = make_mock_session(data)
 
     # Generamos en memoria via service.generate_excel
