@@ -442,19 +442,24 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
         <div className="tx-card">
           <h3>Fase 1 · Análisis de estados financieros</h3>
           <p className="tx-muted">
-            Elige el <b>período de análisis</b> y la <b>fuente de información</b>. Cada archivo que
-            cargues se agrega como un período comparable.
+            Elige la <b>duración de cada período</b> y la <b>fuente de información</b>. El análisis es
+            <b> multi-período</b>: comparas tantos años como traigan tus archivos (ej. 3 años = 3 columnas comparables).
           </p>
 
-          {/* Período de análisis */}
+          {/* Duración de cada período (la cantidad de años se detecta de los archivos) */}
           <div style={{ marginTop: 6 }}>
-            <div className="tx-muted" style={{ fontWeight: 600, marginBottom: 6 }}>🗓 Período de análisis</div>
+            <div className="tx-muted" style={{ fontWeight: 600, marginBottom: 6 }}>
+              🗓 Duración de cada período <span style={{ fontWeight: 400 }}>— comparas varios años automáticamente (1 por cada año/corte de tus archivos)</span>
+            </div>
             <div className="tx-ingest-actions">
-              {[["anual", "Anual (12m)"], ["semestral", "Semestral (6m)"], ["trimestral", "Trimestral (3m)"], ["mensual", "Mensual (1m)"]].map(([id, lbl]) => (
+              {[["anual", "Anual · 1 año (12m)"], ["semestral", "Semestral (6m)"], ["trimestral", "Trimestral (3m)"], ["mensual", "Mensual (1m)"]].map(([id, lbl]) => (
                 <button key={id} className={`tx-btn ${periodoTipo === id ? "" : "ghost"}`} onClick={() => setPeriodoTipo(id)}>
                   {periodoTipo === id ? "● " : ""}{lbl}
                 </button>
               ))}
+            </div>
+            <div className="tx-muted small" style={{ marginTop: 6 }}>
+              Ej.: 3 balances anuales (2023, 2024, 2025) → 3 períodos comparativos. No necesitas elegir "cuántos años": se detectan solos.
             </div>
           </div>
 
