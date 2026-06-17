@@ -470,15 +470,116 @@ function _secHead(num,title,sub){return '<div class="sec-head"><div class="sec-n
 function _emptyMsg(t){return '<div class="panel"><div class="placeholder-cell" style="padding:8px">'+t+'</div></div>';}
 
 function renderGastos(C){
-  const rows=_det("gastos");
-  let body='',tot=[0,0,0];
-  rows.forEach(r=>{const v=r.v||[0,0,0];v.forEach((x,i)=>tot[i]+=(+x||0));
-    body+='<tr><td>'+r.concepto+'</td>'+v.map(x=>'<td>'+n$(+x||0)+'</td>').join('')+'<td>'+deltaTag(v[YRS.length-1],v[YRS.length-2])+'</td></tr>';});
-  body+='<tr class="bold"><td>TOTAL GASTOS ANALIZADOS</td>'+tot.map(x=>'<td>'+n$(x)+'</td>').join('')+'<td>'+deltaTag(tot[YRS.length-1],tot[YRS.length-2])+'</td></tr>';
-  const chart=rows.length?svgCombo(YRS.map(String),rows.slice(0,6).map((r,i)=>({name:r.concepto,data:(r.v||[]).map(x=>+x||0),color:[CL.teal,CL.gold,CL.blue,CL.green,CL.amber,CL.red][i%6]})),[],axisFmt,n$):'';
-  document.getElementById("sec-gastos").innerHTML=_secHead("05 · Análisis de Gastos","Principales gastos por concepto","Composición y evolución de los principales rubros de gasto del trienio.")
-    +(rows.length?('<div class="panel"><div class="panel-title">Evolución por concepto</div>'+chart+'</div>'):'')
-    +(rows.length?('<div class="panel"><div class="panel-title">Detalle</div><table><thead><tr><th>Concepto</th>'+YRS.map(y=>'<th>'+y+'</th>').join('')+'<th>Var</th></tr></thead><tbody>'+body+'</tbody></table></div>'):_emptyMsg("Sin datos de gastos. Cárgalos desde la herramienta CFO Intelligence."));
+  // ═══ PRINCIPALES GASTOS (CFO · cómo la empresa consume valor) ═══
+  // Fuente: cuentas detalladas del ER (costos/gastos) + resumido. Aplica el
+  // prompt de Gerencia/Directorio: estructura del P&L, evolución, ratios
+  // financieros, Top 10, crecimiento destructivo, A/B, semáforo y conclusión.
+  const y=activeYear,_yi=YRS.indexOf(y),py=_yi>0?YRS[_yi-1]:null,c=C[y],cp=py?C[py]:null;
+  const mOf=(yy)=>{const i=YRS.indexOf(yy);return (Array.isArray(MESES)&&MESES[i])?MESES[i]:12;};
+  const anu=(v,yy)=>v*(12/mOf(yy));
+  // Helpers locales (estilo ejecutivo)
+  const ec=(ac,l,v,s)=>'<div class="ec" style="--ec-accent:var(--'+ac+')"><div class="ec-label">'+l+'</div><div class="ec-val" style="color:var(--white)">'+v+'</div><div class="ec-sub">'+s+'</div></div>';
+  const cajaAB=(l,t,a)=>'<div style="margin-top:10px;padding:11px 13px;background:rgba(13,115,119,.09);border-left:3px solid var(--'+(a||'teal')+');border-radius:5px;font-size:11.5px;line-height:1.55;color:var(--grayL)"><b style="color:var(--'+(a||'teal')+')">'+l+':</b> '+t+'</div>';
+  const dotc=cc=>'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--'+cc+');margin-right:7px;vertical-align:middle"></span>';
+  const fP=v=>(v==null||isNaN(v))?'[N/D]':v.toFixed(1)+'%',fX=v=>(v==null||isNaN(v))?'[N/D]':v.toFixed(2)+'x';
+  const g=(cur,prev)=>(cur!=null&&prev!=null&&Math.abs(prev)>0)?((cur-prev)/Math.abs(prev)*100):null;
+  // Series por año
+  const ventas=yy=>D.ingOrd[yy]||0, costo=yy=>Math.abs(D.costoVta[yy]||0), gOper=yy=>Math.abs(D.gastAdm[yy]||0);
+  const gFin=yy=>Math.abs(D.gastFin[yy]||0), imp=yy=>Math.abs((D.irCorr[yy]||0)+(D.irDif[yy]||0)), util=yy=>C[yy].utilNeta;
+  const ebAn=yy=>anu(C[yy].ebitda,yy), deuda=yy=>(D.oblBanc[yy]||0)+(D.prestamosLP[yy]||0);
+  const pct=(num,den)=>den?num/den*100:null;
+  // ── BLOQUE 0: KPIs ──
+  const venG=cp?g(ventas(y),ventas(py)):null, utG=cp?g(util(y),util(py)):null, ebG=cp?g(C[y].ebitda,cp.ebitda):null;
+  const gOperG=cp?g(gOper(y),gOper(py)):null, costoG=cp?g(costo(y),costo(py)):null, gFinG=cp?g(gFin(y),gFin(py)):null;
+  // Crecimiento destructivo (alertas del prompt)
+  const destruct=[];
+  if(venG!=null&&utG!=null&&venG>0&&utG<0)destruct.push('Ventas suben ('+fP(venG)+') pero la utilidad cae ('+fP(utG)+')');
+  if(venG!=null&&ebG!=null&&venG>0&&ebG<0)destruct.push('Ventas suben pero el EBITDA cae ('+fP(ebG)+')');
+  if(cp&&deuda(y)>deuda(py)&&ebG!=null&&ebG<=0)destruct.push('La deuda sube y el EBITDA no mejora');
+  if(gFinG!=null&&ebG!=null&&gFinG>ebG&&gFinG>0)destruct.push('Gastos financieros crecen ('+fP(gFinG)+') más rápido que el EBITDA ('+fP(ebG)+')');
+  const kpiBand='<div class="ec-grid" style="margin-bottom:16px">'
+    +ec('red','Costo de ventas',fP(pct(costo(y),ventas(y))),'de las ventas'+(costoG!=null?' · '+(costoG>=0?'+':'')+costoG.toFixed(1)+'% vs '+py:''))
+    +ec('gold','Gastos operativos',fP(pct(gOper(y),ventas(y))),'de las ventas'+(gOperG!=null?' · '+(gOperG>=0?'+':'')+gOperG.toFixed(1)+'% vs '+py:''))
+    +ec('amber','Gastos financieros',fP(pct(gFin(y),ventas(y))),'de las ventas · '+fX(pct(gFin(y),ebAn(y))==null?null:gFin(y)/ebAn(y))+' / EBITDA')
+    +ec(destruct.length?'red':'green','Utilidad neta',fP(c.mrgNeto*100),destruct.length?('⚠ '+destruct.length+' señal(es) destructiva(s)'):'margen neto'+(utG!=null?' · '+(utG>=0?'+':'')+utG.toFixed(0)+'% vs '+py:''))
+    +'</div>';
+  // ── BLOQUE 1: Estructura del P&L por cada USD 100 ──
+  const plBase=yy=>costo(yy)+gOper(yy)+gFin(yy)+imp(yy)+Math.max(0,util(yy));
+  const plRows=[['Costo de ventas',costo,'#E24B4A'],['Gastos operativos',gOper,'#E3B778'],['Gastos financieros',gFin,'#D68910'],['Impuestos',imp,'#9AA5B1'],['Utilidad neta',yy=>Math.max(0,util(yy)),'#8FB85B']];
+  let plTab='<table style="font-size:12px"><thead><tr><th style="text-align:left">Por cada $100 vendidos</th>'+YRS.map(yy=>'<th>'+yy+'</th>').join('')+'</tr></thead><tbody>';
+  plRows.forEach(([lbl,fn,col])=>{plTab+='<tr><td style="text-align:left">'+dotc('teal').replace('var(--teal)',col)+lbl+'</td>'+YRS.map(yy=>{const v=ventas(yy)?fn(yy)/ventas(yy)*100:0;return '<td class="mono">$'+v.toFixed(0)+'</td>';}).join('')+'</tr>';});
+  plTab+='</tbody></table>';
+  const plBars=plRows.map(([lbl,fn,col])=>({label:lbl.replace('Gastos ','G. ').replace('Costo de ventas','Costo'),value:ventas(y)?fn(y)/ventas(y)*100:0,color:col}));
+  const panelPL='<div class="panel"><div class="panel-title">Estructura del P&amp;L · ¿a dónde va cada $100 vendido? · '+y+'</div><div style="max-width:560px;margin:0 auto">'+svgBars3D(plBars,v=>'$'+v.toFixed(0))+'</div>'+plTab+'</div>';
+  // ── BLOQUE 2: Evolución de gastos principales (monto, var$, var%, %ventas) ──
+  const evoRows=[['Costo de ventas',costo],['Gastos operativos',gOper],['Gastos financieros',gFin]];
+  let evoTab='<table style="font-size:12px"><thead><tr><th style="text-align:left">Gasto</th>'+YRS.map(yy=>'<th>'+yy+'</th>').join('')+'<th>Var $</th><th>Var %</th><th>% ventas '+y+'</th></tr></thead><tbody>';
+  evoRows.forEach(([lbl,fn])=>{const dv=cp?fn(y)-fn(py):null,dp=cp?g(fn(y),fn(py)):null;
+    evoTab+='<tr><td style="text-align:left">'+lbl+'</td>'+YRS.map(yy=>'<td class="mono">'+n$(fn(yy))+'</td>').join('')
+      +'<td class="mono">'+(dv!=null?(dv>=0?'+':'')+n$(dv):'—')+'</td><td class="mono" style="color:var(--'+(dp!=null&&dp>0?'red':'green')+')">'+(dp!=null?(dp>=0?'+':'')+dp.toFixed(1)+'%':'—')+'</td><td class="mono">'+fP(pct(fn(y),ventas(y)))+'</td></tr>';});
+  evoTab+='</tbody></table>';
+  const evoChart=svgLines(YRS.map(String),[{name:'Costo ventas',data:YRS.map(costo),color:CL.red},{name:'Gastos oper.',data:YRS.map(gOper),color:CL.gold},{name:'Gastos fin.',data:YRS.map(gFin),color:CL.amber}],axisFmt,n$);
+  const panelEvo='<div class="panel"><div class="panel-title">Evolución de los gastos principales</div>'+evoChart+evoTab+'</div>';
+  // ── BLOQUE 3: Gastos financieros vs EBITDA · Deuda vs EBITDA ──
+  const icr=ebAn(y)>0?(anu(C[y].ebit,y)/ (gFin(y)?anu(gFin(y),y):1)):null;
+  const deudaEbitda=ebAn(y)>0?deuda(y)/ebAn(y):null, gfEbitda=ebAn(y)>0?gFin(y)/ebAn(y)*100:null;
+  const chFin='<div class="panel"><div class="panel-title">Gastos financieros vs EBITDA · '+y+'</div>'+svgBars3D([{label:'EBITDA',value:Math.round(ebAn(y)),color:CL.green},{label:'Gastos fin.',value:Math.round(anu(gFin(y),y)),color:CL.red},{label:'Deuda fin.',value:Math.round(deuda(y)),color:CL.amber}],n$)+'</div>';
+  // ── BLOQUE 4: Top 10 gastos materiales (de las cuentas del ER) ──
+  const gastoKeys=['costoVta','gastAdm','gastFin'];
+  const cuentasG=(Array.isArray(CUENTAS)?CUENTAS:[]).filter(x=>gastoKeys.indexOf(x.key)>=0);
+  const topG=cuentasG.map(x=>({nombre:x.nombre,codigo:x.codigo,key:x.key,cur:Math.abs((x.vals&&x.vals[_yi])||0),prev:cp?Math.abs((x.vals&&x.vals[YRS.indexOf(py)])||0):null}))
+    .filter(x=>x.cur>0).sort((a,b)=>b.cur-a.cur).slice(0,10);
+  let topPanel;
+  if(topG.length){
+    const barsTop=topG.map(x=>({label:(x.nombre||'').slice(0,22),value:x.cur,color:x.key==='costoVta'?CL.red:x.key==='gastFin'?CL.amber:CL.gold}));
+    let topTab='<table style="font-size:12px"><thead><tr><th style="text-align:left">#</th><th style="text-align:left">Gasto</th><th>'+y+'</th><th>% ventas</th><th>Var %</th><th style="text-align:center">Acción</th></tr></thead><tbody>';
+    topG.forEach((x,i)=>{const dp=g(x.cur,x.prev),pv=pct(x.cur,ventas(y));const inter=(pv!=null&&pv>=5)||(dp!=null&&dp>15);
+      topTab+='<tr><td style="text-align:left">'+(i+1)+'</td><td style="text-align:left">'+(x.codigo?'<span style="opacity:.5;font-size:10px">'+x.codigo+'</span> ':'')+x.nombre+'</td><td class="mono">'+n$(x.cur)+'</td><td class="mono">'+fP(pv)+'</td><td class="mono" style="color:var(--'+(dp!=null&&dp>0?'red':'green')+')">'+(dp!=null?(dp>=0?'+':'')+dp.toFixed(0)+'%':'—')+'</td><td style="text-align:center">'+(inter?'<span style="color:var(--amber)">⚠ revisar</span>':'<span style="color:var(--greenOk)">ok</span>')+'</td></tr>';});
+    topTab+='</tbody></table>';
+    topPanel='<div class="grid-2"><div class="panel"><div class="panel-title">Top 10 gastos que más consumen valor · '+y+'</div>'+svgBarsH(barsTop,n$)+'</div><div class="panel"><div class="panel-title">Top 10 · detalle e intervención</div>'+topTab+'</div></div>';
+  } else {
+    topPanel='<div class="panel"><div class="panel-title">Top 10 gastos materiales</div>'+_emptyMsg("[DATO NO DISPONIBLE] — sube los balances internos con detalle (Estado de Resultados por cuenta) para ver el Top 10 de gastos.")+'</div>';
+  }
+  // ── Semáforo final (6 dimensiones) ──
+  const sem=(txt,st)=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.06)"><span style="font-size:12.5px;color:var(--grayL)">'+txt+'</span><span style="font-size:13px;color:var(--'+st+')">'+(st==='greenOk'?'🟢 Sano':st==='amber'?'🟡 Atención':'🔴 Riesgo')+'</span></div>';
+  const stCostos=(costoG!=null&&venG!=null&&costoG>venG+2)?'red':(cp&&c.mrgBruto<cp.mrgBruto?'amber':'greenOk');
+  const stGOper=(gOperG!=null&&venG!=null&&gOperG>venG+2)?'red':(gOperG!=null&&venG!=null&&gOperG>venG?'amber':'greenOk');
+  const stGFin=(gfEbitda!=null&&gfEbitda>30)?'red':(gfEbitda!=null&&gfEbitda>15?'amber':'greenOk');
+  const stEbitda=(ebG!=null&&ebG<0)?'red':(ebG!=null&&ebG<5?'amber':'greenOk');
+  const stRent=(c.mrgNeto<0.05)?'red':(c.mrgNeto<0.10?'amber':'greenOk');
+  const stValor=destruct.length>=2?'red':(destruct.length===1?'amber':'greenOk');
+  const semPanel='<div class="panel"><div class="panel-title">Semáforo final de gastos y creación de valor · '+y+'</div>'
+    +sem('Costos (costo de ventas)',stCostos)+sem('Gastos operativos',stGOper)+sem('Gastos financieros',stGFin)+sem('EBITDA',stEbitda)+sem('Rentabilidad (margen neto '+fP(c.mrgNeto*100)+')',stRent)+sem('Creación de valor',stValor)+'</div>';
+  // ── A / B / críticos / riesgos / acciones / conclusión ──
+  const A='<b>Estructura y consumo de valor:</b> de cada $100 vendidos en '+y+', $'+(ventas(y)?(costo(y)/ventas(y)*100).toFixed(0):0)+' van a costo de ventas, $'+(ventas(y)?(gOper(y)/ventas(y)*100).toFixed(0):0)+' a gastos operativos, $'+(ventas(y)?(gFin(y)/ventas(y)*100).toFixed(0):0)+' a financieros y quedan $'+(ventas(y)?(Math.max(0,util(y))/ventas(y)*100).toFixed(0):0)+' de utilidad neta. '+(cp?('Frente a '+py+', ventas '+(venG>=0?'+':'')+venG.toFixed(0)+'%, costo '+(costoG>=0?'+':'')+(costoG||0).toFixed(0)+'%, gastos op. '+(gOperG>=0?'+':'')+(gOperG||0).toFixed(0)+'%.'):'Único período.');
+  const B='<b>KPIs de gasto:</b> margen bruto '+fP(c.mrgBruto*100)+', margen operativo '+fP(c.mrgOp*100)+', margen neto '+fP(c.mrgNeto*100)+'. Gastos fin./ventas '+fP(pct(gFin(y),ventas(y)))+', gastos fin./EBITDA '+fP(gfEbitda)+', EBITDA/gastos fin. '+fX(gfEbitda?100/gfEbitda:null)+'. Deuda/EBITDA '+fX(deudaEbitda)+'. '+(cp?'EBITDA '+(ebG>=0?'+':'')+ebG.toFixed(0)+'% vs '+py+'.':'');
+  const criticos=topG.slice(0,5).map((x,i)=>(i+1)+') '+x.nombre+' ('+n$(x.cur)+', '+fP(pct(x.cur,ventas(y)))+' de ventas)');
+  const riesgos=[]; if(destruct.length)riesgos.push(...destruct);
+  if(stCostos==='red')riesgos.push('El costo de ventas crece más rápido que las ventas (presión sobre el margen bruto)');
+  if(stGFin!=='greenOk')riesgos.push('Carga financiera elevada (gastos fin./EBITDA '+fP(gfEbitda)+')');
+  if(!riesgos.length)riesgos.push('Sin riesgos materiales de gasto en el período');
+  const acciones=[];
+  if(stCostos!=='greenOk')acciones.push('renegociar costos/proveedores y revisar márgenes por línea');
+  if(stGOper!=='greenOk')acciones.push('contener gastos operativos por debajo del crecimiento de ventas');
+  if(stGFin!=='greenOk')acciones.push('reperfilar deuda / reducir costo financiero');
+  if(!acciones.length)acciones.push('mantener la disciplina de costos y gastos actual');
+  // Conclusión: gasto a atacar primero = el rubro con mayor % de ventas y peor tendencia
+  const cand=[['Costo de ventas',pct(costo(y),ventas(y)),costoG,stCostos],['Gastos operativos',pct(gOper(y),ventas(y)),gOperG,stGOper],['Gastos financieros',pct(gFin(y),ventas(y)),gFinG,stGFin]];
+  cand.sort((a,b)=>((b[3]==='red'?2:b[3]==='amber'?1:0)-(a[3]==='red'?2:a[3]==='amber'?1:0))||((b[1]||0)-(a[1]||0)));
+  const ataque=cand[0];
+  const concl='<b>¿Qué gasto atacar primero?</b> '+ataque[0]+' — representa '+fP(ataque[1])+' de las ventas'+(ataque[2]!=null?' y varió '+(ataque[2]>=0?'+':'')+ataque[2].toFixed(0)+'% vs '+py:'')+'. '+(ataque[3]==='red'?'Es el de mayor riesgo y mayor peso: priorizar su control protege directamente el margen.':ataque[3]==='amber'?'Muestra señales de presión; conviene actuar antes de que erosione el margen.':'Es el de mayor peso; optimizarlo libera la mayor cantidad de valor.');
+  const detalle='<div class="panel"><div class="panel-title">Análisis ejecutivo de gastos (Gerencia y Directorio)</div>'
+    +cajaAB('A · Análisis del dashboard',A,'teal')+cajaAB('B · Análisis de KPIs',B,'gold')
+    +cajaAB('Top 5 gastos críticos',(criticos.length?criticos.join('<br>'):'[DATO NO DISPONIBLE — requiere detalle de cuentas]'),'red')
+    +cajaAB('Riesgos para accionistas',riesgos.map((r,i)=>(i+1)+') '+r).join('<br>'),'amber')
+    +cajaAB('Acciones recomendadas',acciones.map((a,i)=>(i+1)+') '+a).join('; ')+'.','green')
+    +cajaAB('Conclusión',concl,'teal')+'</div>';
+  document.getElementById("sec-gastos").innerHTML=_secHead("05 · Principales Gastos","Cómo la empresa consume valor","Análisis CFO de los gastos principales "+(YRS[0])+"–"+(YRS[YRS.length-1])+" desde las cuentas detalladas del Estado de Resultados.")
+    +kpiBand
+    +'<div class="grid-2">'+panelPL+panelEvo+'</div>'
+    +'<div class="grid-2">'+chFin+semPanel+'</div>'
+    +topPanel
+    +detalle;
 }
 
 function renderAtipicos(C){
