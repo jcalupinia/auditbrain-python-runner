@@ -86,7 +86,13 @@ const sum = (D, c, keys) => keys.reduce((s, k) => s + (D[k] ? +D[k][c] || 0 : 0)
 export function mapToDashboard(D, labels = FIN_YRS) {
   const yobj = (fn) => {
     const o = {};
-    labels.forEach((y, c) => (o[y] = Math.round(fn(c))));
+    // Se conservan 2 decimales (centavos): el balance cuadra EXACTO (A=P+Patrimonio)
+    // sin el ruido de ±$ que producía redondear cada rubro a entero. La presentación
+    // (n$) redondea igual a entero, así que lo mostrado no cambia.
+    labels.forEach((y, c) => {
+      const v = fn(c);
+      o[y] = v == null ? v : Math.round(v * 100) / 100;
+    });
     return o;
   };
   return {
