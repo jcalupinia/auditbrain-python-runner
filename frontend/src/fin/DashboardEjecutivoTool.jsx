@@ -154,11 +154,14 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
   // archivos SEPARADOS, cada uno con comparativo de varios años. Aquí se unen:
   // ESF + ER del mismo año = UN período. Reemplaza el dataset (la data de
   // ejemplo es solo un placeholder). `label`=fecha del ER, `labelESF`=del balance.
-  const cargarInternos = (results, mesesDefault) => {
+  const cargarInternos = (items, mesesDefault) => {
     const num = (v) => (v == null ? 0 : (+v || 0));
+    const yearOf = (s) => { const m = String(s == null ? "" : s).match(/20\d{2}/); return m ? m[0] : null; };
     const byYear = new Map();
     const order = [];
-    results.forEach((res) => {
+    items.forEach((it, fileIdx) => {
+      const res = it.res || it;            // compat: {res,name} o res directo
+      const fname = it.name || "";
       const d = res.data || {};
       const anios =
         res.anios_detectados && res.anios_detectados.length
@@ -169,10 +172,19 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
       const n =
         anios.length ||
         Math.max(0, ...Object.values(d).map((a) => (Array.isArray(a) ? a.length : 0)));
+      const fnYear = yearOf(fname); // p.ej. "BALANCE 2023.xlsx" -> 2023
       for (let j = 0; j < n; j++) {
-        const yr = anios[j] || `Período ${j + 1}`;
+        // Clave de período por AÑO: del contenido (anios/labels), o del nombre del
+        // archivo si trae 1 sola columna; si no hay forma, clave única por archivo
+        // (no se mezcla con otros archivos sin año).
+        const yr =
+          yearOf(anios[j]) ||
+          yearOf(lblESF[j]) ||
+          yearOf(lblER[j]) ||
+          (n === 1 && fnYear ? fnYear : null) ||
+          `arch${fileIdx}-${j}`;
         if (!byYear.has(yr)) {
-          byYear.set(yr, { data: {}, labelESF: null, labelER: null });
+          byYear.set(yr, { data: {}, labelESF: null, labelER: null, fname: fname.replace(/\.(xlsx|xls)$/i, "") });
           order.push(yr);
         }
         const slot = byYear.get(yr);
@@ -184,17 +196,25 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
         if (lblER[j]) slot.labelER = lblER[j];
       }
     });
-    order.sort(); // años ascendentes ("2023" < "2024" < "2025")
+    // Años primero (ascendente); las claves sin año ("arch…") al final.
+    order.sort((a, b) => {
+      const ya = /^20\d{2}$/.test(a), yb = /^20\d{2}$/.test(b);
+      if (ya && yb) return a < b ? -1 : a > b ? 1 : 0;
+      if (ya) return -1;
+      if (yb) return 1;
+      return a < b ? -1 : 1;
+    });
     const baseKeys = INPUT_KEYS.concat(["dna"]);
     const nextD = {};
     baseKeys.forEach((k) => (nextD[k] = []));
     const nextPer = order.map((yr) => {
       const slot = byYear.get(yr);
       baseKeys.forEach((k) => nextD[k].push(num(slot.data[k])));
+      const fallback = /^20\d{2}$/.test(yr) ? yr : slot.fname || yr;
       return {
         id: nextId(),
-        label: slot.labelER || slot.labelESF || yr,
-        labelESF: slot.labelESF || slot.labelER || yr,
+        label: slot.labelER || slot.labelESF || fallback,
+        labelESF: slot.labelESF || slot.labelER || fallback,
         meses: mesesDefault,
         normalizar: true,
       };
@@ -247,7 +267,7 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
           const f = files[i];
           if (!esXlsx(f)) { noSoportados.push(f.name); continue; }
           const res = await extractTaxPlan("interno", f);
-          results.push(res);
+          results.push({ res, name: f.name });
           (res.warnings || []).forEach((w) => warns.add(w));
         }
         if (results.length) {
@@ -422,19 +442,24 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
         <div className="tx-card">
           <h3>Fase 1 · Análisis de estados financieros</h3>
           <p className="tx-muted">
-            Elige el <b>período de análisis</b> y la <b>fuente de información</b>. Cada archivo que
-            cargues se agrega como un período comparable.
+            Elige la <b>duración de cada período</b> y la <b>fuente de información</b>. El análisis es
+            <b> multi-período</b>: comparas tantos años como traigan tus archivos (ej. 3 años = 3 columnas comparables).
           </p>
 
-          {/* Período de análisis */}
+          {/* Duración de cada período (la cantidad de años se detecta de los archivos) */}
           <div style={{ marginTop: 6 }}>
-            <div className="tx-muted" style={{ fontWeight: 600, marginBottom: 6 }}>🗓 Período de análisis</div>
+            <div className="tx-muted" style={{ fontWeight: 600, marginBottom: 6 }}>
+              🗓 Duración de cada período <span style={{ fontWeight: 400 }}>— comparas varios años automáticamente (1 por cada año/corte de tus archivos)</span>
+            </div>
             <div className="tx-ingest-actions">
-              {[["anual", "Anual (12m)"], ["semestral", "Semestral (6m)"], ["trimestral", "Trimestral (3m)"], ["mensual", "Mensual (1m)"]].map(([id, lbl]) => (
+              {[["anual", "Anual · 1 año (12m)"], ["semestral", "Semestral (6m)"], ["trimestral", "Trimestral (3m)"], ["mensual", "Mensual (1m)"]].map(([id, lbl]) => (
                 <button key={id} className={`tx-btn ${periodoTipo === id ? "" : "ghost"}`} onClick={() => setPeriodoTipo(id)}>
                   {periodoTipo === id ? "● " : ""}{lbl}
                 </button>
               ))}
+            </div>
+            <div className="tx-muted small" style={{ marginTop: 6 }}>
+              Ej.: 3 balances anuales (2023, 2024, 2025) → 3 períodos comparativos. No necesitas elegir "cuántos años": se detectan solos.
             </div>
           </div>
 
