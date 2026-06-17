@@ -1,0 +1,62 @@
+/* Análisis Financiero Empresarial — capa de Fases (CFO Intelligence) */
+.fin-fases-head h2 { margin: 0 0 2px; }
+.fin-fases-head p { margin: 0; }
+
+.fin-fase-rail {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 14px 0 18px;
+}
+.fin-fase-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  color: #cdd6e4;
+  cursor: pointer;
+  min-width: 160px;
+  max-width: 220px;
+  transition: border-color 0.15s, background 0.15s, transform 0.15s;
+  position: relative;
+}
+.fin-fase-tab:hover { border-color: rgba(93, 202, 165, 0.5); transform: translateY(-1px); }
+.fin-fase-tab.active {
+  border-color: #5dcaa5;
+  background: rgba(93, 202, 165, 0.10);
+  box-shadow: inset 0 0 0 1px #5dcaa5;
+}
+.fin-fase-tab.soon { opacity: 0.85; }
+.fin-fase-n {
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #8a94b0;
+  font-family: "Roboto Mono", monospace;
+}
+.fin-fase-l { font-size: 12.5px; font-weight: 600; line-height: 1.25; }
+.fin-fase-badge { font-size: 9px; color: #e8b84b; margin-top: 2px; }
+
+.fin-fase-soon {
+  text-align: center;
+  padding: 48px 24px;
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.fin-fase-soon h3 { margin: 0 0 8px; }
+.fin-fase-soon p { max-width: 560px; margin: 0 auto 14px; line-height: 1.6; }
+.fin-fase-soon-badge {
+  display: inline-block;
+  padding: 5px 14px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(232, 184, 75, 0.14);
+  color: #e8b84b;
+}

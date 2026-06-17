@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FIN_CATEGORIES } from "./catalog.js";
-import DashboardEjecutivoTool from "./DashboardEjecutivoTool.jsx";
+import AnalisisFinanciero from "./AnalisisFinanciero.jsx";
 
 export default function FinCatalog({ projectId }) {
   const [activeTool, setActiveTool] = useState(null);
@@ -11,7 +11,7 @@ export default function FinCatalog({ projectId }) {
         <button className="link aud-back" onClick={() => setActiveTool(null)}>
           ← Volver al catálogo
         </button>
-        <DashboardEjecutivoTool projectId={projectId} />
+        <AnalisisFinanciero projectId={projectId} />
       </div>
     );
   }
