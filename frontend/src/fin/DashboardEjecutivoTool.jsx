@@ -149,39 +149,73 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
     if (empresa) setHeader((h) => ({ ...h, empresa }));
   };
 
-  // Añade columnas-período (balances internos/auditados). Cada corte detectado
-  // = 1 período. El balance (ESF) y el resultado (ER) pueden traer fechas
-  // distintas: `label` es la del ER (canónica) y `labelESF` la del balance.
-  const anexarPeriodos = (res, mesesDefault) => {
-    const lblER = res.labels_er && res.labels_er.length
-      ? res.labels_er
-      : (res.anios_detectados || []).map(String);
-    const lblESF = res.labels_esf && res.labels_esf.length ? res.labels_esf : lblER;
-    const n = Math.max(lblER.length, lblESF.length, 1);
-    setD((prev) => {
-      const next = {};
-      Object.keys(prev).forEach((k) => (next[k] = prev[k].slice()));
+  // Carga balances internos/auditados FUSIONANDO todos los archivos por año.
+  // El cliente suele tener el Balance (ESF) y el Estado de Resultados (ER) en
+  // archivos SEPARADOS, cada uno con comparativo de varios años. Aquí se unen:
+  // ESF + ER del mismo año = UN período. Reemplaza el dataset (la data de
+  // ejemplo es solo un placeholder). `label`=fecha del ER, `labelESF`=del balance.
+  const cargarInternos = (results, mesesDefault) => {
+    const num = (v) => (v == null ? 0 : (+v || 0));
+    const byYear = new Map();
+    const order = [];
+    results.forEach((res) => {
+      const d = res.data || {};
+      const anios =
+        res.anios_detectados && res.anios_detectados.length
+          ? res.anios_detectados.map(String)
+          : ((res.labels_er && res.labels_er.length ? res.labels_er : res.labels_esf) || []).map(String);
+      const lblESF = res.labels_esf || [];
+      const lblER = res.labels_er || [];
+      const n =
+        anios.length ||
+        Math.max(0, ...Object.values(d).map((a) => (Array.isArray(a) ? a.length : 0)));
       for (let j = 0; j < n; j++) {
-        Object.keys(next).forEach((k) => {
-          const arr = res.data?.[k];
-          next[k].push(Array.isArray(arr) && arr[j] != null ? arr[j] : 0);
+        const yr = anios[j] || `Período ${j + 1}`;
+        if (!byYear.has(yr)) {
+          byYear.set(yr, { data: {}, labelESF: null, labelER: null });
+          order.push(yr);
+        }
+        const slot = byYear.get(yr);
+        Object.keys(d).forEach((k) => {
+          const v = Array.isArray(d[k]) ? num(d[k][j]) : 0;
+          if (v !== 0) slot.data[k] = v; // overlay: ESF del balance, ER del resultado
         });
+        if (lblESF[j]) slot.labelESF = lblESF[j];
+        if (lblER[j]) slot.labelER = lblER[j];
       }
-      return next;
     });
-    setPeriodos((prev) => {
-      const add = [];
-      for (let j = 0; j < n; j++) {
-        add.push({
-          id: nextId(),
-          label: lblER[j] || lblESF[j] || `Período ${j + 1}`,
-          labelESF: lblESF[j] || lblER[j] || `Período ${j + 1}`,
-          meses: mesesDefault,
-          normalizar: true,
-        });
-      }
-      return [...prev, ...add];
+    order.sort(); // años ascendentes ("2023" < "2024" < "2025")
+    const baseKeys = INPUT_KEYS.concat(["dna"]);
+    const nextD = {};
+    baseKeys.forEach((k) => (nextD[k] = []));
+    const nextPer = order.map((yr) => {
+      const slot = byYear.get(yr);
+      baseKeys.forEach((k) => nextD[k].push(num(slot.data[k])));
+      return {
+        id: nextId(),
+        label: slot.labelER || slot.labelESF || yr,
+        labelESF: slot.labelESF || slot.labelER || yr,
+        meses: mesesDefault,
+        normalizar: true,
+      };
     });
+    setD(nextD);
+    setPeriodos(nextPer);
+    let patInc = false;
+    order.forEach((yr) => {
+      const dd = byYear.get(yr).data;
+      const tot = num(dd.capital) + num(dd.reservas) + num(dd.ori) + num(dd.resAcum);
+      if (tot > 0 && num(dd.capital) === 0 && num(dd.reservas) === 0) patInc = true;
+    });
+    const hasESF = order.some((yr) => {
+      const dd = byYear.get(yr).data;
+      return num(dd.efectivo) || num(dd.ppe) || num(dd.capital) || num(dd.resAcum) || num(dd.cxp);
+    });
+    const hasER = order.some((yr) => {
+      const dd = byYear.get(yr).data;
+      return num(dd.ventas) || num(dd.costo) || num(dd.gAdmin);
+    });
+    return { count: order.length, patInc, hasESF, hasER };
   };
 
   const esXlsx = (f) => /\.(xlsx|xls)$/i.test(f.name);
@@ -193,32 +227,41 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
     const warns = new Set();
     const noSoportados = [];
     let procesados = 0;
+    let periodosCargados = 0;
     let patIncompleto = false;
     const num = (v) => (v == null ? 0 : (+v || 0));
     const mesesDefault = PERIODO_MESES[periodoTipo] || 12;
     try {
-      for (let i = 0; i < files.length; i++) {
-        const f = files[i];
-        if (fuente === "f101") {
-          const res = await extractTaxPlan("f101", f);
+      if (fuente === "f101") {
+        for (let i = 0; i < files.length; i++) {
+          const res = await extractTaxPlan("f101", files[i]);
           cargarFijos3(res.data, res.params?.empresa);
           procesados++;
           (res.warnings || []).forEach((w) => warns.add(w));
-        } else if (esXlsx(f)) {
+        }
+      } else {
+        // Internos / auditados: procesa TODOS los archivos y los fusiona por año
+        // (Balance + Estado de Resultados separados → un período por año).
+        const results = [];
+        for (let i = 0; i < files.length; i++) {
+          const f = files[i];
+          if (!esXlsx(f)) { noSoportados.push(f.name); continue; }
           const res = await extractTaxPlan("interno", f);
-          anexarPeriodos(res, mesesDefault);
-          procesados++;
+          results.push(res);
           (res.warnings || []).forEach((w) => warns.add(w));
-          // Balance resumido sin desglose de patrimonio: hay patrimonio pero
-          // no viene capital social ni reservas (solo el total / resultados).
-          const d = res.data || {};
-          const ny = Math.max((d.capital || []).length, (d.resAcum || []).length, (d.reservas || []).length, 0);
-          for (let j = 0; j < ny; j++) {
-            const tot = num(d.capital?.[j]) + num(d.reservas?.[j]) + num(d.ori?.[j]) + num(d.resAcum?.[j]);
-            if (tot > 0 && num(d.capital?.[j]) === 0 && num(d.reservas?.[j]) === 0) patIncompleto = true;
+        }
+        if (results.length) {
+          const r = cargarInternos(results, mesesDefault);
+          procesados = results.length;
+          periodosCargados = r.count;
+          patIncompleto = r.patInc;
+          // Si al unir los archivos quedó el ESF y el ER completos, los avisos
+          // "solo se cargó balance / solo resultados" ya no aplican.
+          if (r.hasESF && r.hasER) {
+            [...warns].forEach((w) => {
+              if (/no se encontr/i.test(w)) warns.delete(w);
+            });
           }
-        } else {
-          noSoportados.push(f.name);
         }
       }
       if (noSoportados.length) {
@@ -232,7 +275,9 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
         prorrateoPreg: procesados > 0 && fuente !== "f101" && mesesDefault !== 12,
         patrimonioIncompleto: patIncompleto,
         text: procesados
-          ? `${procesados} archivo(s) cargado(s) como período(s) ${periodoTipo}.`
+          ? (fuente === "f101"
+              ? `${procesados} Formulario(s) 101 cargado(s).`
+              : `${procesados} archivo(s) fusionado(s) en ${periodosCargados} período(s) ${periodoTipo} (Balance + Estado de Resultados por año).`)
           : "Ningún archivo pudo procesarse con esta fuente.",
         warns: [...warns],
       });
@@ -408,6 +453,11 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
                 </button>
               ))}
             </div>
+            {!fuente && (
+              <div className="tx-muted small" style={{ marginTop: 8 }}>
+                ① Elige una fuente para subir tus archivos y habilitar el botón <b>Procesar</b>.
+              </div>
+            )}
           </div>
 
           {fuente && (
@@ -415,21 +465,25 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
               <p className="tx-muted">
                 {fuente === "f101"
                   ? "Sube uno o varios PDF del Formulario 101 (reemplaza el análisis por 3 años anuales)."
-                  : `Sube los ${fuente === "internos" ? "balances internos" : "balances auditados"} en Excel. Cada año/corte detectado se agrega como un período ${periodoTipo}.`}
+                  : `Sube los ${fuente === "internos" ? "balances internos" : "balances auditados"} en Excel. Puedes seleccionar VARIOS archivos a la vez — por ejemplo el Balance (ESF) y el Estado de Resultados (ER) por separado: se fusionan por año en un período ${periodoTipo}.`}
               </p>
               {fuente !== "f101" && (
                 <button className="tx-btn ghost" onClick={() => downloadTaxPlantilla().catch((e) => alert(e.message))}>⬇ Descargar plantilla Excel</button>
               )}
-              <input type="file" multiple={fuente === "f101"}
+              <input type="file" multiple
                 accept={fuente === "f101" ? "application/pdf" : ".xlsx,.xls,.pdf,.doc,.docx"}
                 onChange={(e) => { setFiles([...(e.target.files || [])]); setIngMsg(null); }} />
               {files.length > 0 && (
                 <div className="tx-muted small">Seleccionado(s) ({files.length}): {files.map((f) => f.name).join(", ")}</div>
               )}
-              <div className="tx-ingest-actions">
-                <button className="tx-btn" onClick={procesar} disabled={!files.length || ingBusy}>
-                  {ingBusy ? "Procesando…" : "Procesar y cargar"}
+              <div className="tx-ingest-actions" style={{ marginTop: 10, alignItems: "center" }}>
+                <button className="tx-btn" onClick={procesar} disabled={!files.length || ingBusy}
+                  style={{ fontWeight: 700, fontSize: 15, padding: "10px 20px" }}>
+                  {ingBusy ? "Procesando…" : "▶ Procesar y generar dashboard"}
                 </button>
+                {!files.length && !ingBusy && (
+                  <span className="tx-muted small">② Sube al menos un archivo para habilitar este botón.</span>
+                )}
               </div>
             </div>
           )}
