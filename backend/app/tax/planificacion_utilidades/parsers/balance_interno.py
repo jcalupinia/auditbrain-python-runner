@@ -46,6 +46,29 @@ def _norm(s: str) -> str:
     return s.upper().strip()
 
 
+def _fix_mojibake(s: str) -> str:
+    """Repara el mojibake clásico "UTF-8 leído como Windows-1252/Latin-1".
+
+    Síntoma: nombres como "AÑO" llegan como "AÃ‘O", "Gestión" como "GestiÃ³n",
+    "Compañías" como "CompaÃ±Ã­as" — el prefijo siempre es 'Ã' (byte 0xC3 del
+    UTF-8 mal decodificado). Salvaguarda defensiva: openpyxl/xlrd normalmente
+    devuelven Unicode correcto, pero algunos .xls/.csv de clientes traen el texto
+    ya corrompido. Es CONSERVADORA: solo actúa si re-codificar a cp1252 y decodificar
+    como UTF-8 produce una secuencia válida sin carácter de reemplazo; ante cualquier
+    ambigüedad (texto que legítimamente contiene 'Ã', bytes que no forman UTF-8 válido)
+    deja el original intacto.
+    """
+    if not s or "Ã" not in s:
+        return s
+    try:
+        fixed = s.encode("cp1252").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return s
+    if "�" in fixed:
+        return s
+    return fixed
+
+
 def _num(x) -> float:
     try:
         if x is None or (isinstance(x, float) and pd.isna(x)):
@@ -248,7 +271,7 @@ def _add_det(det, sec, key, codigo, nombre, yi, val, ncols):
     """Acumula una cuenta-hoja del detalle (un solo registro por código; los
     valores se suman por columna/período)."""
     cod = str(codigo).strip()
-    nom = str(nombre).strip()
+    nom = _fix_mojibake(str(nombre).strip())
     ck = cod or ("__otras_" + sec + "__")
     e = det.get(ck)
     if e is None:
