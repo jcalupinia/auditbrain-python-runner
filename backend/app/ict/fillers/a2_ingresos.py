@@ -274,5 +274,11 @@ class A2Filler:
         for addr in ("E43",):
             if ws[addr].value == "XXXX":
                 ws[addr].value = None
+        # ── Limpieza placeholder 'xxxxx' del template en E16 (cliente ICT_24):
+        #    El template trae E16='xxxxx' como placeholder, pero rompe la
+        #    formula F16=B16+C16+E16 (texto + numero = #VALUE!). El cliente
+        #    lo reemplaza con 0. Hacemos lo mismo para que F16 evalue limpio.
+        if ws["E16"].value == "xxxxx":
+            ws["E16"].value = 0
 
         return {"filled_cells": filled, "warnings": warnings}
