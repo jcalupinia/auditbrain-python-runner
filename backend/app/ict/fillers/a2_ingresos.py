@@ -67,8 +67,24 @@ class A2Filler:
 
         facturacion: dict = anexo_data.get("facturacion", {})
 
-        # ── Cuadro 1: Ingresos Ordinarios (referencial F-101 → Balance) ─────
-        for (concepto, col), casillero in A2_CUADRO1_CASILLERO_MAP.items():
+        # ── Cuadro 1: Ingresos Ordinarios (referencial F-101) ───────────────
+        # Override local del A2_CUADRO1_CASILLERO_MAP del cell_map: el cliente
+        # (ICT_24_PAPEL_TRABAJO) referencia los casilleros REALES del catálogo
+        # F-101 oficial 2024 (6001/6003/6005/6007/6009/6011/6013/6015/6017),
+        # no los del cell_map (que estaba desfasado +2/+4/+6). No se modifica
+        # el cell_map compartido — el override vive aquí.
+        cuadro1_casillero_map_cliente: dict[tuple[str, str], str] = {
+            ("ventas_bienes", "B"): "6003",          # B14 → C466
+            ("ventas_bienes", "C"): "6001",          # C14 → C464
+            ("ventas_servicios", "B"): "6007",       # B15 → C470
+            ("ventas_servicios", "C"): "6005",       # C15 → C468
+            ("exportaciones_bienes", "D"): "6009",   # D17 → C472
+            ("exportaciones_servicios", "D"): "6011",# D18 → C474
+            ("construccion", "E"): "6013",           # E19 → C476
+            ("comisiones", "E"): "6015",             # E20 → C478
+            ("arrendamientos", "E"): "6017",         # E21 → C480
+        }
+        for (concepto, col), casillero in cuadro1_casillero_map_cliente.items():
             row = next(
                 (r for r, c in A2_CUADRO1_ROWS.items() if c == concepto), None
             )
@@ -92,23 +108,6 @@ class A2Filler:
                     "no encontrado en F-101 ni Balance Mapeado"
                 )
 
-        # ── Alineación con golden master ICT_14 ─────────────────────────────
-        # ICT_14 declara en la col C de "ventas de bienes" (fila 14) la suma del
-        # cas 6001 (ventas locales bienes tarifa dif) + cas 6005 (prestación de
-        # servicios tarifa dif); y deja la fila 17 (exportaciones bienes, col D)
-        # en 0. Se replica para coincidir exacto con el papel de trabajo validado.
-        r6001 = f101_lookup.get("6001")
-        r6005 = f101_lookup.get("6005")
-        if r6001 and r6005:
-            if safe_set_formula(
-                ws, "C14",
-                f"=+'DATOS F-101'!C{r6001}+'DATOS F-101'!C{r6005}",
-                anexo="A2", casillero="6001+6005",
-                origen="A2 Cuadro 1 · ventas bienes + servicios (alineado ICT_14)",
-            ):
-                filled += 1
-        _safe_set(ws, "D17", 0)
-
         # ── Cuadro 1: total por fila (col F = suma intra-anexo) + SUM fila 25 ─
         for row, cols in A2_CUADRO1_TOTAL_COLS.items():
             formula = "=" + "+".join(f"{c}{row}" for c in cols)
@@ -130,7 +129,13 @@ class A2Filler:
             for cas, val in (mes_data.get("casilleros") or {}).items():
                 iva_totals_fallback[str(cas)] = iva_totals_fallback.get(str(cas), 0.0) + (val or 0.0)
 
-        for (concepto, col), casillero in A2_CUADRO2_IVA_MAP.items():
+        # Override local del A2_CUADRO2_IVA_MAP: el cliente
+        # (ICT_24_PAPEL_TRABAJO) usa cas 431 (INGRESOS POR REEMBOLSO …) en
+        # B44 (Transferencias no objeto), NO cas 418 que define el cell_map.
+        cuadro2_iva_map_cliente: dict[tuple[str, str], str] = dict(A2_CUADRO2_IVA_MAP)
+        cuadro2_iva_map_cliente[("transferencias_no_objeto", "B")] = "431"
+
+        for (concepto, col), casillero in cuadro2_iva_map_cliente.items():
             row = next(
                 (r for r, c in A2_CUADRO2_ROWS.items() if c == concepto), None
             )
@@ -153,7 +158,21 @@ class A2Filler:
 
         # ── Cuadro 2: valor neto (col F = facturado, F-104 cas 411-418) y ────
         #    diferencia (col E = columna fuente − F).
-        for concepto, casillero in A2_CUADRO2_VALORNETO_MAP.items():
+        # Override local del A2_CUADRO2_VALORNETO_MAP: el cliente usa cas 441
+        # (= INGRESOS POR REEMBOLSO valor neto) para F44 (transferencias no
+        # objeto). El SOURCE_COL de transferencias es 'B', por lo que E44 =
+        # +B44 - F44, replicando el patrón cliente E44=+D44-F44 con la columna
+        # source correcta (D no aplica para esa fila — el cliente la deja en
+        # blanco; el cell_map dice B y eso es lo que respeta el código).
+        valorneto_map_cliente: dict[str, str] = dict(A2_CUADRO2_VALORNETO_MAP)
+        valorneto_map_cliente["transferencias_no_objeto"] = "441"
+
+        # Source col override: el cliente escribe en E44 la fórmula =+D44-F44,
+        # implicando que la columna fuente del Cuadro 2 para transferencias es D.
+        source_col_cliente: dict[str, str] = dict(A2_CUADRO2_SOURCE_COL)
+        source_col_cliente["transferencias_no_objeto"] = "D"
+
+        for concepto, casillero in valorneto_map_cliente.items():
             row = next(
                 (r for r, c in A2_CUADRO2_ROWS.items() if c == concepto), None
             )
@@ -170,7 +189,7 @@ class A2Filler:
                     if _safe_set(ws, f"F{row}", val):
                         filled += 1
             # E = (columna fuente B/C/D) − F (valor neto)
-            src = A2_CUADRO2_SOURCE_COL.get(concepto)
+            src = source_col_cliente.get(concepto)
             if src and safe_set_formula(
                 ws, f"E{row}", f"=+{src}{row}-F{row}",
                 anexo="A2", origen="A2 Cuadro 2 · diferencia declarado vs facturado",
@@ -230,11 +249,29 @@ class A2Filler:
             ):
                 filled += 1
 
-        # ── Limpieza puntual: E43/E44 (col diferencia de las filas Total y
-        #    Transferencias del Cuadro 2) quedan en blanco como en ICT_14.
-        #    NO se tocan los 'XXXX' del Cuadro 3 (C52-D59): son celdas de
-        #    llenado manual del auditor y ICT_14 las conserva.
-        for addr in ("E43", "E44"):
+        # ── Cuadro 3: subtotal y referencia cruzada (cliente) ────────────────
+        # B60 = SUM(B51:B59) — total IVA del Cuadro 3.
+        if safe_set_formula(
+            ws, "B60", "=SUM(B51:B59)",
+            anexo="A2",
+            origen="A2 Cuadro 3 · total IVA (suma B51:B59)",
+        ):
+            filled += 1
+        # C63 = +C42 — la "Diferencia IVA vs Facturación" se referencia a
+        # exportaciones de servicios del Cuadro 2 (col C, fila 42) según el
+        # papel de trabajo del cliente.
+        if safe_set_formula(
+            ws, "C63", "=+C42",
+            anexo="A2",
+            origen="A2 Cuadro 3 · diferencia IVA referencia a C42",
+        ):
+            filled += 1
+
+        # ── Limpieza puntual: E43 (col diferencia de la fila Total del Cuadro
+        #    2) queda en blanco como en ICT_14. NO se tocan los 'XXXX' del
+        #    Cuadro 3 (C52-D59): son celdas de llenado manual del auditor y
+        #    ICT_14 las conserva. E44 SÍ se llena (=+D44-F44) según cliente.
+        for addr in ("E43",):
             if ws[addr].value == "XXXX":
                 ws[addr].value = None
 

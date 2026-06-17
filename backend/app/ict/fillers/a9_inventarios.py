@@ -107,4 +107,18 @@ class A9Filler:
                 if _safe_set(ws, f"F{row_idx}", first_match.get("cantidad", "")):
                     filled += 1
 
+        # Fila TOTAL (27): SUM de diferencias H18:H26.
+        # Replica el archivo del cliente (FOSFORERA ECUATORIANA 2025):
+        #   H27 = '=SUM(H18:H26)'
+        if A9_CASILLEROS:
+            first_row = min(A9_CASILLEROS.keys())
+            last_row = max(A9_CASILLEROS.keys())
+            total_row = last_row + 1
+            if safe_set_formula(
+                ws, f"H{total_row}", f"=SUM(H{first_row}:H{last_row})",
+                anexo="A9",
+                origen=f"A9 fila {total_row} · TOTAL diferencias H{first_row}:H{last_row}",
+            ):
+                filled += 1
+
         return {"filled_cells": filled, "warnings": warnings}

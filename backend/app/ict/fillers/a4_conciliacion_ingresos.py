@@ -1,14 +1,24 @@
 """Filler for CONCILIACIÓN INGRESOS A4 sheet (2 cuadros).
 
-REFACTOR REFERENCIAL (CLAUDE.md):
-  Cuadro 1 — Detalle de ingresos exentos. Texto (código, nombre) se escribe
-              literal (vienen del Libro Mayor/Balance, no se referencia hoja
-              DATOS para strings descriptivos). El VALOR (saldo) sí se
-              referencia a 'DATOS BALANCE'!D<row> cuando la fuente es el
-              balance mapeado.
-  Cuadro 2 — Conciliación casilleros F-101 (804, 805, 812, 1112). Valor →
-              ='DATOS F-101'!C<row>, fallback Balance.
-  Filas de SUM y diferencia son fórmulas del template (no se tocan).
+REFACTOR REFERENCIAL (CLAUDE.md) — matching exacto al template oficial SRI:
+  Cuadro 1 — Detalle de ingresos exentos (filas 16-25). Cols A-D (texto
+              descriptivo: identificación, casillero, código, nombre cuenta)
+              se llenan desde el balance/mayor cuando hay datos. La col G
+              (valor en libros) SIEMPRE es la fórmula reactiva:
+                =IF($B<row>="","",ABS(SUMIF('DATOS BALANCE'!$A:$A,$B<row>,
+                                            'DATOS BALANCE'!$D:$D)))
+              Esto coincide con las 10 fórmulas G16:G25 del template oficial
+              SRI 2024 (ARCOLANDS / cliente PROPHAR), permite recálculo al
+              cambiar el casillero, y evita hardcodear saldos.
+  Cuadro 2 — Conciliación casilleros F-101 (804, 805, 812, 1112) en G32:G35.
+              Valor → ='DATOS F-101'!C<row>, fallback Balance.
+  G26, G36, G37 — fórmulas del template (=SUM(G16:G25), =SUM(G32:G35),
+                  =G26-G36). NO se tocan.
+
+Total fórmulas esperadas en la hoja generada: 17
+  · 10 SUMIF reactivas (G16:G25)
+  · 4 referencias F-101 (G32:G35)
+  · 3 fórmulas del template (G26, G36, G37)
 """
 
 from __future__ import annotations
@@ -27,7 +37,6 @@ from backend.app.ict.fillers.base import safe_set, safe_set_formula
 from backend.app.ict.fillers.helpers import filter_balance_by_casilleros
 from backend.app.ict.fillers.referential_helpers import (
     lookups_from_context,
-    set_balance_item_ref,
     set_casillero_ref,
     libros_sumif_reactivo_formula,
 )
@@ -87,7 +96,6 @@ class A4Filler:
                 row = start_row + i
                 codigo = mov.get("codigo", "")
                 nombre = mov.get("nombre", "")
-                saldo = mov.get("saldo", 0.0)
                 casillero_num = mov.get("casillero_sri", "")
 
                 col_a = A4_CUADRO1_COLS["identificacion"]
@@ -102,21 +110,8 @@ class A4Filler:
                 col_d = A4_CUADRO1_COLS["nombre_cuenta"]
                 if nombre and _safe_set(ws, f"{col_d}{row}", nombre):
                     filled += 1
-
-                # Col G: SALDO → referencia a DATOS BALANCE si viene de ahí
-                col_g = A4_CUADRO1_COLS["valor"]
-                if orig_idx is not None:
-                    if set_balance_item_ref(
-                        ws, f"{col_g}{row}",
-                        item_index=orig_idx,
-                        balance_lookup=balance_lookup,
-                        anexo="A4", casillero=casillero_num,
-                        origen=f"A4 Cuadro 1 · Balance fila #{orig_idx + 1}",
-                    ):
-                        filled += 1
-                else:
-                    if _safe_set(ws, f"{col_g}{row}", saldo):
-                        filled += 1
+                # Col G la escribimos en el bucle de abajo (fórmula SUMIF reactiva
+                # uniforme para TODAS las 10 filas, matching template oficial SRI).
 
             if len(balance_indexed) > max_rows:
                 warnings.append(
@@ -129,13 +124,15 @@ class A4Filler:
                 "Sube el Libro Mayor o el Balance Mapeado para poblar el detalle."
             )
 
-        # Filas del Cuadro 1 SIN pre-llenado: fórmula reactiva al casillero (col B).
-        # Cuando el auditor escribe el Nº de casillero, el valor en libros (col G)
-        # se calcula solo sumando DATOS BALANCE por ese casillero.
-        num_prellenadas = min(len(balance_indexed), max_rows) if balance_indexed else 0
+        # Cuadro 1, col G (G16:G25): fórmula REACTIVA al casillero (col B) en
+        # TODAS las 10 filas — matching el template oficial SRI 2024.
+        # Patrón: =IF($B<row>="","",ABS(SUMIF('DATOS BALANCE'!$A:$A,$B<row>,'DATOS BALANCE'!$D:$D)))
+        # El valor se calcula solo a partir del casillero declarado en col B y
+        # las cuentas mapeadas en DATOS BALANCE. Esto evita hardcodear saldos y
+        # permite que el auditor cambie un casillero y vea el efecto inmediato.
         col_b_a4 = A4_CUADRO1_COLS["casillero"]
         col_g_a4 = A4_CUADRO1_COLS["valor"]
-        for row in range(start_row + num_prellenadas, end_row + 1):
+        for row in range(start_row, end_row + 1):
             formula = libros_sumif_reactivo_formula(f"${col_b_a4}{row}", take_abs=True)
             if safe_set_formula(
                 ws, f"{col_g_a4}{row}", formula, anexo="A4",

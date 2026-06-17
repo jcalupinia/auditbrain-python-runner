@@ -30,20 +30,19 @@ def test_a2_filler_cuadro1_from_f101():
     wb = load_template()
     filler = A2Filler()
     session = _session_data()
+    # Catálogo F-101 oficial 2024 (el que usa el cliente del papel de trabajo):
+    #   6001 = VENTAS NETAS LOCALES BIENES TARIFA DIFERENTE DE 0%
+    #   6005 = PRESTACIONES LOCALES SERVICIOS TARIFA DIFERENTE DE 0%
     anexo_data = {
         "f101": {
             "6001": 13066588.05,   # ventas bienes tarifa dif 0% → row 14, col C
-            "6011": 5313181.16,    # servicios tarifa dif 0%     → row 15, col C
+            "6005": 5313181.16,    # servicios tarifa dif 0%     → row 15, col C
         }
     }
     result = filler.fill(wb, session, anexo_data)
     ws = wb["INGRESOS A2"]
     assert ws["C14"].value == 13066588.05
     assert ws["C15"].value == 5313181.16
-    # Alineado ICT_14: la fila 17 (exportaciones bienes, col D) queda en 0.
-    # El cas 6005 (servicios) se agrega a C14 vía referencia DATOS F-101 (no en
-    # este test directo sin hoja DATOS).
-    assert ws["D17"].value == 0
     assert result["filled_cells"] >= 5  # 3 header + 2 cuadro1
 
 

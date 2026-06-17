@@ -65,10 +65,18 @@ def test_a4_filler_writes_mayor_detail():
     result = filler.fill(wb, sess, data)
     ws = wb["CONCILIACIÓN INGRESOS A4"]
 
-    # Cuadro 1: first movimiento at row 16
-    assert ws["G16"].value == 18000.0     # valor/saldo primera cuenta
+    # Cuadro 1: cols A-D del primer movimiento en fila 16
     assert ws["C16"].value == "510101"    # código primera cuenta
-    assert ws["G17"].value == 5500.0      # segunda cuenta
+    # Col G ahora es SIEMPRE fórmula reactiva SUMIF (matching template oficial SRI),
+    # no el saldo literal. El valor se calcula a partir del casillero en col B
+    # y la hoja DATOS BALANCE.
+    g16 = ws["G16"].value
+    assert isinstance(g16, str) and g16.startswith("=IF($B16"), (
+        f"G16 debe ser fórmula SUMIF reactiva, no valor literal: {g16!r}"
+    )
+    assert "SUMIF" in g16 and "DATOS BALANCE" in g16
+    g17 = ws["G17"].value
+    assert isinstance(g17, str) and g17.startswith("=IF($B17")
     assert result["filled_cells"] > 5
 
 
