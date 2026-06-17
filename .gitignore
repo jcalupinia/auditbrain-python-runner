@@ -11,3 +11,10 @@ node_modules/
 dist/
 
 audit_artifacts/
+
+# Scratch del módulo FIN (demos/generadores locales — no van al build)
+frontend/_dash_iav.html
+frontend/_gen.mjs
+frontend/fin-demo.html
+frontend/resultados_preview.html
+frontend/src/fin/_demo.jsx

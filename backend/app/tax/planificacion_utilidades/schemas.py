@@ -22,6 +22,10 @@ class ExtractResponse(BaseModel):
         description="Casilleros F-101 efectivamente leídos (auditoría humana).",
     )
     anio_detectado: int | None = None
+    anios_detectados: list[int] = Field(default_factory=list)
+    # Etiquetas (fechas de corte) por estado — pueden diferir entre ESF y ER.
+    labels_esf: list[str] = Field(default_factory=list)
+    labels_er: list[str] = Field(default_factory=list)
 
 
 class CtrlYear(BaseModel):
