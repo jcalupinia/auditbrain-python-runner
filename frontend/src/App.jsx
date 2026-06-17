@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import * as api from "./api.js";
 import ToolCatalog from "./aud/ToolCatalog.jsx";
 import TaxCatalog from "./tax/TaxCatalog.jsx";
+import FinCatalog from "./fin/FinCatalog.jsx";
 
 /* ---------------- Theme (oscuro premium fijo en el Command Center) ---------------- */
 const THEME_KEY = "ab_theme";
@@ -599,6 +600,10 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin }) {
         ) : tab === "análisis" && module.id === "TAX" ? (
           <div className="cw-tool">
             <TaxCatalog projectId={ctx?.active_project?.id} />
+          </div>
+        ) : tab === "análisis" && module.id === "FIN" ? (
+          <div className="cw-tool">
+            <FinCatalog projectId={ctx?.active_project?.id} />
           </div>
         ) : tab === "documentos" ? (
           <div className="cw-docs">

@@ -1,0 +1,1424 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AuditBrain · __EMPRESA__ — Dashboard Ejecutivo</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Poppins:wght@300;400;500;600&family=Roboto+Mono:wght@300;400;500;600&display=swap');
+  :root{--navy:#071B2F;--navyCRE:#0A2342;--gold:#C7A83C;--green:#A6C63F;--blue:#1E5AA8;--teal:#0D7377;--steel:#1B4F72;--graphite:#2F3640;--white:#F5F7FA;--grayL:#D5D8DC;--red:#C0392B;--amber:#D68910;--greenOk:#1E8449;}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--navy);font-family:'Poppins',-apple-system,Arial,sans-serif;color:var(--white)}
+  .mono{font-family:'Roboto Mono',monospace}
+  .topbar{background:var(--navyCRE);border-bottom:1px solid rgba(13,115,119,.3);padding:8px 0;position:sticky;top:0;z-index:100}
+  .bar-inner{width:100%;max-width:1500px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .topbar .bar-inner{justify-content:space-between;min-height:54px}
+  .nav-inner{gap:4px}
+  .logo{display:flex;align-items:center;gap:10px}
+  .logo-mark{width:30px;height:30px;background:linear-gradient(135deg,var(--gold),var(--green));border-radius:5px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;color:var(--navy)}
+  .logo-text{font-family:'Montserrat',Arial;font-weight:600;font-size:13px}
+  .logo-sub{font-size:11px;color:var(--teal)}
+  .topbar-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .btn{padding:7px 14px;border-radius:6px;border:1px solid rgba(13,115,119,.4);background:transparent;color:var(--grayL);cursor:pointer;font-size:12px;font-family:'Poppins',Arial;transition:all .2s}
+  .btn:hover{border-color:var(--gold);color:var(--gold)}
+  .btn-primary{background:rgba(199,168,60,.12);border-color:var(--gold);color:var(--gold)}
+  .btn-primary:hover{background:rgba(199,168,60,.22)}
+  .nav{background:var(--navyCRE);border-bottom:1px solid rgba(13,115,119,.2)}
+  .nav-tab{padding:12px 16px;font-size:12px;color:var(--grayL);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;transition:all .2s}
+  .nav-tab:hover{color:var(--white)}
+  .nav-tab.active{color:var(--gold);border-bottom-color:var(--gold);font-weight:500}
+  .yearfilter{display:flex;gap:6px;align-items:center;margin-left:auto;padding:8px 0}
+  .yearbtn{padding:4px 12px;border-radius:5px;border:1px solid rgba(13,115,119,.4);background:transparent;color:var(--grayL);cursor:pointer;font-size:11px;font-family:'Roboto Mono',monospace;transition:all .2s}
+  .yearbtn.active{background:var(--gold);color:var(--navy);border-color:var(--gold);font-weight:600}
+  .content{max-width:1500px;margin:0 auto;padding:24px}
+  .section{display:none}
+  .section.active{display:block;animation:fade .4s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  .sec-head{margin-bottom:20px}
+  .sec-num{font-size:10px;color:var(--teal);letter-spacing:2px;text-transform:uppercase;font-family:'Roboto Mono',monospace}
+  .sec-title{font-size:24px;font-weight:600;color:var(--gold);font-family:'Montserrat',Arial;letter-spacing:-.3px;margin:4px 0}
+  .sec-sub{font-size:13px;color:var(--grayL);font-weight:300}
+  .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+  .kpi-card{background:var(--graphite);border-radius:8px;padding:16px;border-top:3px solid var(--gold)}
+  .kpi-card.blue{border-top-color:var(--blue)}.kpi-card.teal{border-top-color:var(--teal)}.kpi-card.green{border-top-color:var(--green)}
+  .kpi-label{font-size:10px;color:var(--grayL);text-transform:uppercase;letter-spacing:.6px;font-family:'Roboto Mono',monospace}
+  .kpi-value{font-size:clamp(17px,1.55vw,26px);font-weight:300;font-family:'Roboto Mono',monospace;margin:6px 0 2px;letter-spacing:-1px;color:var(--gold);white-space:nowrap}
+  .kpi-card.blue .kpi-value{color:var(--blue)}.kpi-card.teal .kpi-value{color:var(--teal)}.kpi-card.green .kpi-value{color:var(--green)}
+  .kpi-delta{font-size:11px;font-family:'Roboto Mono',monospace}
+  /* Tarjetas ejecutivas (estilo Command Center) */
+  .ec-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:14px}
+  .ec{position:relative;overflow:hidden;background:linear-gradient(165deg,rgba(255,255,255,.045),rgba(255,255,255,0));border:1px solid rgba(213,216,220,.10);border-radius:12px;padding:18px 20px;transition:border-color .2s,transform .2s}
+  .ec:hover{border-color:rgba(213,216,220,.22);transform:translateY(-2px)}
+  .ec::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--ec-accent,var(--gold));opacity:.9}
+  .ec-label{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--grayL);font-family:'Roboto Mono',monospace}
+  .ec-val{font-size:clamp(24px,2.1vw,32px);font-weight:700;font-family:'Montserrat',Arial;letter-spacing:-.5px;margin:10px 0 5px;line-height:1}
+  .ec-sub{font-size:11.5px;color:var(--grayL);line-height:1.45}
+  /* Tarjetas con efecto 3D (Tablero de Mando Ejecutivo) */
+  .kc3d{border-radius:12px;padding:16px 18px;box-shadow:0 6px 20px rgba(0,0,0,.5),4px 6px 0 #080e1a;transition:transform .18s}
+  .kc3d:hover{transform:translateY(-3px)}
+  .t3d-badge{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:99px;font-size:11px;font-weight:600}
+  .panel{background:var(--graphite);border-radius:8px;padding:18px;margin-bottom:16px}
+  .panel-title{font-size:11px;color:var(--teal);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;font-weight:500}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  table{width:100%;border-collapse:collapse}
+  thead tr{background:var(--navyCRE)}
+  th{text-align:right;padding:9px 10px;font-size:10px;color:var(--teal);font-weight:500}
+  th:first-child{text-align:left}
+  td{padding:7px 10px;font-size:12px;border-bottom:1px solid rgba(13,115,119,.12);font-family:'Roboto Mono',monospace;text-align:right}
+  td:first-child{text-align:left;font-family:'Poppins',Arial}
+  tr.bold{background:rgba(10,35,66,.5)}
+  tr.bold td{font-weight:600}
+  .editable{cursor:pointer;border-bottom:1px dashed rgba(13,115,119,.6);transition:all .15s}
+  .editable:hover{color:var(--gold);border-bottom-color:var(--gold)}
+  .edit-input{width:90px;background:var(--navy);border:1px solid var(--gold);border-radius:3px;color:var(--gold);font-family:'Roboto Mono',monospace;font-size:12px;padding:2px 4px;text-align:right}
+  .placeholder-cell{color:rgba(13,115,119,.7);font-style:italic}
+  .tag{font-size:9px;padding:2px 8px;border-radius:3px;font-family:'Roboto Mono',monospace;font-weight:600}
+  .tag.up{background:rgba(166,198,63,.15);color:var(--green)}
+  .tag.down{background:rgba(192,57,43,.12);color:var(--red)}
+  .tag.warn{background:rgba(214,137,16,.12);color:var(--amber)}
+  .semaforo{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
+  .cover-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:24px 0}
+  .cover-card{background:var(--graphite);border-radius:8px;padding:20px;border-left:3px solid var(--teal)}
+  .cover-card.highlight{border-left-color:var(--gold)}
+  .narrative{background:var(--graphite);border-radius:8px;padding:16px;border-left:3px solid var(--teal);font-size:13px;color:var(--grayL);line-height:1.7;margin-top:16px}
+  .narrative b{color:var(--gold)}
+  .insight{padding:8px 0;border-bottom:1px solid rgba(13,115,119,.12);font-size:12px;color:var(--grayL);display:flex;gap:8px;align-items:flex-start}
+  .footer{border-top:1px solid rgba(13,115,119,.2);padding:10px 24px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;font-size:9px;color:var(--teal);font-family:'Roboto Mono',monospace}
+  .decision{padding:16px 0;border-bottom:1px solid rgba(13,115,119,.2);display:flex;gap:14px;align-items:flex-start}
+  .decision-num{width:34px;height:34px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-family:'Roboto Mono',monospace;font-size:15px;flex-shrink:0}
+  .toast{position:fixed;bottom:24px;right:24px;background:var(--graphite);border:1px solid var(--gold);border-radius:8px;padding:14px 20px;color:var(--gold);font-size:13px;opacity:0;transform:translateY(20px);transition:all .3s;z-index:200;pointer-events:none}
+  .toast.show{opacity:1;transform:translateY(0)}
+  .svgwrap{width:100%}
+  .svgwrap svg{width:100%;height:auto;display:block}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:8px}
+  .legend-item{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--grayL);font-family:'Roboto Mono',monospace}
+  .legend-dot{width:10px;height:10px;border-radius:2px}
+  @media(max-width:768px){.kpi-grid{grid-template-columns:repeat(2,1fr)}.grid-2,.grid-3{grid-template-columns:1fr}}
+  /* selectores de tema/layout en la barra */
+  .selctl{font-family:'Poppins',Arial;cursor:pointer}
+  /* ---- variantes de layout ---- */
+  body.layout-compacto .content{max-width:1400px;padding:14px}
+  body.layout-compacto .panel{padding:11px;margin-bottom:11px}
+  body.layout-compacto .kpi-card{padding:11px}
+  body.layout-compacto .kpi-value{font-size:21px}
+  body.layout-compacto .svgwrap svg{max-height:210px}
+  body.layout-compacto td,body.layout-compacto th{padding:5px 8px}
+  body.layout-tablas .svgwrap svg{max-height:150px}
+  body.layout-tablas .grid-2{grid-template-columns:1fr}
+  body.layout-tablas .kpi-value{font-size:22px}
+  body.layout-tablas td,body.layout-tablas th{padding:9px 12px;font-size:12.5px}
+  body.layout-presentacion .content{max-width:1080px}
+  body.layout-presentacion .kpi-value{font-size:32px}
+  body.layout-presentacion .panel{padding:24px}
+  body.layout-presentacion .sec-title{font-size:30px}
+  body.layout-presentacion .svgwrap svg{max-height:340px}
+  body.layout-presentacion td,body.layout-presentacion th{padding:10px 12px;font-size:13.5px}
+</style>
+</head>
+<body>
+<div class="topbar">
+ <div class="bar-inner">
+  <div class="logo">
+    <div class="logo-mark">AB</div>
+    <div class="logo-text">AuditBrain</div>
+    <span class="logo-sub">· __EMPRESA__ · Dashboard Ejecutivo</span>
+  </div>
+  <div class="topbar-actions">
+    <select id="selTheme" class="btn selctl" onchange="applyTheme(this.value)" title="Tema de color (no cambia el tipo de gráfico)">
+      <option value="ejecutivo">🎨 Color · Ejecutivo</option>
+      <option value="medianoche">🎨 Color · Medianoche</option>
+      <option value="esmeralda">🎨 Color · Esmeralda</option>
+      <option value="grafito">🎨 Color · Grafito</option>
+      <option value="claro">🎨 Color · Claro</option>
+    </select>
+    <select id="selChart" class="btn selctl" onchange="applyChartStyle(this.value)" title="Tipo de gráfico (este es el único que cambia los gráficos)">
+      <option value="combo">📊 Gráfico · Barras + línea</option>
+      <option value="barras">📊 Gráfico · Barras</option>
+      <option value="lineas">📈 Gráfico · Líneas</option>
+      <option value="area">📉 Gráfico · Área</option>
+      <option value="puntos">⦿ Gráfico · Puntos</option>
+    </select>
+    <select id="selLayout" class="btn selctl" onchange="applyLayout(this.value)" title="Disposición del tablero (tamaños y orden, no el gráfico)">
+      <option value="ejecutivo">▦ Vista · Estándar</option>
+      <option value="compacto">▦ Vista · Compacta</option>
+      <option value="tablas">▦ Vista · Foco en tablas</option>
+      <option value="presentacion">▦ Vista · Presentación</option>
+    </select>
+    <button class="btn" onclick="resetData()">↺ Restaurar datos</button>
+    <button class="btn" onclick="exportHTML()">⬇ Descargar HTML interactivo</button>
+    <button class="btn btn-primary" onclick="exportExcel()">⬇ Abrir en Excel (HTML)</button>
+  </div>
+ </div>
+</div>
+<div class="nav" id="nav"></div>
+<div class="content">
+  <div id="sec-resumen" class="section active"></div>
+  <div id="sec-resultados" class="section"></div>
+  <div id="sec-balance" class="section"></div>
+  <div id="sec-indicadores" class="section"></div>
+  <div id="sec-variaciones" class="section"></div>
+  <div id="sec-gastos" class="section"></div>
+  <div id="sec-atipicos" class="section"></div>
+  <div id="sec-inversiones" class="section"></div>
+  <div id="sec-decisiones" class="section"></div>
+</div>
+<div class="footer">
+  <span>__EMPRESA__ · Confidencial · __PIE__</span>
+  <span>AuditBrain Executive Advisory · FIN v2.0 · CRE v1.0</span>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+// ════ DATA (inyectada por AuditBrain · CFO Intelligence) ════
+const DEFAULT=__DATA__;
+const DETALLE=__DETALLE__;
+const BAL_DET=__BALANCE_DET__;   // balance a nivel detallado (todas las cuentas)
+const LBL_ESF=__LBL_ESF__;       // etiquetas (fechas) propias del Balance (pueden diferir del ER)
+let NIVEL=__NIVEL__;             // "resumido" | "detallado"
+let D=JSON.parse(JSON.stringify(DEFAULT));
+const YRS=__YRS__;
+const MESES=(function(){try{return __MESES__;}catch(e){return null;}})(); // meses que cubre el ER por período (para anualizar DIO/DSO)
+let activeYear=YRS[YRS.length-1];
+
+// ════ COMPUTE ════
+function compute(){
+  const C={};
+  YRS.forEach((y,yi)=>{
+    const g=k=>D[k][y]||0;const c={};
+    const _m=(Array.isArray(MESES)&&MESES[yi])?MESES[yi]:12;const _dias=_m*30.42;  // días que cubre el ER
+    c.utilBruta=g("ingOrd")+g("costoVta");
+    c.dna=g("dna");
+    c.ebit=c.utilBruta+g("gastAdm");           // operativo antes de financieros
+    c.ebitda=c.ebit+g("dna");                   // EBIT + depreciación/amortización
+    c.utilOp=c.utilBruta+g("gastAdm")+g("gastFin");
+    c.utilAntIR=c.utilOp+g("ingNoOrd");
+    c.utilNeta=c.utilAntIR+g("irCorr")+g("irDif");
+    c.resIntegral=c.utilNeta+g("ori");
+    c.actCorr=g("efectivo")+g("actFin")+g("cxc")+g("cxcRelac")+g("anticiposProv")+g("inventario")+g("otrosAct")+g("actImpCorr");
+    c.actNoCorr=g("propEquip")+g("actImpDif")+g("cxcLP")+g("otrosActNoCorr");c.totalAct=c.actCorr+c.actNoCorr;
+    c.pasCorr=g("oblBanc")+g("cxp")+g("benefEmpl")+g("pasImpCorr")+g("cxpRelacPas")+g("provisiones")+g("otrasCxp");c.pasNoCorr=g("prestamosLP")+g("benDefLP")+g("pasImpDifLP");
+    c.totalPas=c.pasCorr+c.pasNoCorr;c.patrimonio=g("capital")+g("resLegal")+g("oriAcum")+g("utilAcum");
+    c.mrgBruto=g("ingOrd")?c.utilBruta/g("ingOrd"):0;c.mrgOp=g("ingOrd")?c.utilOp/g("ingOrd"):0;
+    c.mrgNeto=g("ingOrd")?c.utilNeta/g("ingOrd"):0;c.liquidez=c.pasCorr?c.actCorr/c.pasCorr:0;
+    c.endeud=c.totalAct?c.totalPas/c.totalAct:0;c.roe=c.patrimonio?c.utilNeta/c.patrimonio:0;
+    c.dso=g("ingOrd")?Math.round(g("cxc")/(g("ingOrd")/_dias)):0;
+    c.dio=g("costoVta")?Math.round(g("inventario")/(Math.abs(g("costoVta"))/_dias)):0;  // días de inventario (DIO)
+    c.rotAct=c.totalAct?(g("ingOrd")*(12/_m))/c.totalAct:0;  // rotación de activos (ventas anualizadas/activos)
+    c.revpar=(D.ocupacion[y]&&D.adr[y])?(D.ocupacion[y]/100*D.adr[y]):null;
+    C[y]=c;
+  });
+  return C;
+}
+// ════ FORMAT ════
+function n$(v){if(v==null)return"—";const a=Math.abs(v);const s=v<0?"(":"";const e=v<0?")":"";return s+"$"+Math.round(a).toLocaleString()+e;}
+function pctv(a,b){if(!b)return"—";const v=((a-b)/Math.abs(b))*100;return(v>0?"+":"")+v.toFixed(1)+"%";}
+function pctOf(a,b){return b?((Math.abs(a)/Math.abs(b))*100).toFixed(1)+"%":"—";}
+function deltaTag(a,b){if(!b)return"";const v=(a-b)/Math.abs(b);return'<span class="tag '+(v>0.01?'up':v<-0.01?'down':'warn')+'">'+(v>0?'+':'')+(v*100).toFixed(1)+'%</span>';}
+function axisFmt(v){return'$'+Math.round(v).toLocaleString();}
+
+// ════ SVG CHARTS (no external deps) ════
+const CL={gold:'#C7A83C',green:'#A6C63F',blue:'#1E5AA8',teal:'#0D7377',red:'#C0392B',amber:'#D68910',graphite:'#2F3640',grayL:'#D5D8DC',navy:'#071B2F'};
+let GRID='rgba(125,135,145,.18)';let AX='#D5D8DC';
+
+// ════ TEMAS (paletas) y LAYOUTS — seleccionables en vivo ════
+const THEMES={
+  ejecutivo:{label:'Ejecutivo',vars:{navy:'#071B2F',navyCRE:'#0A2342',gold:'#C7A83C',green:'#A6C63F',blue:'#1E5AA8',teal:'#0D7377',graphite:'#2F3640',white:'#F5F7FA',grayL:'#D5D8DC',red:'#C0392B',amber:'#D68910',greenOk:'#1E8449'}},
+  medianoche:{label:'Medianoche',vars:{navy:'#0B1B2B',navyCRE:'#0E2A45',gold:'#E0B84C',green:'#4FB286',blue:'#3B82F6',teal:'#22B8CF',graphite:'#22344A',white:'#EAF0F7',grayL:'#9FB3C8',red:'#E5484D',amber:'#F5A623',greenOk:'#2FA36B'}},
+  esmeralda:{label:'Esmeralda',vars:{navy:'#08211A',navyCRE:'#0C2E24',gold:'#D9B44A',green:'#34D399',blue:'#2DB7A3',teal:'#0EA5A5',graphite:'#16382E',white:'#EAF6F0',grayL:'#9DBDAF',red:'#E5484D',amber:'#E8A33D',greenOk:'#1FA971'}},
+  grafito:{label:'Grafito',vars:{navy:'#14181D',navyCRE:'#1C2228',gold:'#E2A93B',green:'#86B14A',blue:'#4A78C2',teal:'#3FA7A0',graphite:'#262C34',white:'#ECEFF2',grayL:'#A6AEB8',red:'#D9544D',amber:'#E0922E',greenOk:'#3F9A5A'}},
+  claro:{label:'Claro Corporativo',vars:{navy:'#EFF3F8',navyCRE:'#15324F',gold:'#B8860B',green:'#4C9A2A',blue:'#1E5AA8',teal:'#0D7377',graphite:'#FFFFFF',white:'#16222E',grayL:'#5C6B7A',red:'#C0392B',amber:'#B9770E',greenOk:'#1E8449'}},
+  oceano:{label:'Océano',vars:{navy:'#06141C',navyCRE:'#0A2230',gold:'#56CCF2',green:'#2DD4BF',blue:'#2F80ED',teal:'#56CCF2',graphite:'#102330',white:'#E9F4FA',grayL:'#93AEBC',red:'#EB5757',amber:'#F2C94C',greenOk:'#27AE60'}},
+  borgona:{label:'Borgoña',vars:{navy:'#1A0E12',navyCRE:'#2A1620',gold:'#D4A24C',green:'#C9A227',blue:'#B5546A',teal:'#A8576B',graphite:'#2E1A22',white:'#F4EAEE',grayL:'#C2A6B0',red:'#E5484D',amber:'#E0922E',greenOk:'#7FB069'}},
+  violeta:{label:'Violeta',vars:{navy:'#120E22',navyCRE:'#1C1638',gold:'#E0B84C',green:'#7FD1AE',blue:'#7C5CFC',teal:'#A78BFA',graphite:'#231B3C',white:'#ECE8F7',grayL:'#A99FC4',red:'#F472B6',amber:'#FBBF24',greenOk:'#34D399'}},
+  solar:{label:'Solar',vars:{navy:'#1B130A',navyCRE:'#2A1E0E',gold:'#F5A623',green:'#9BBF3B',blue:'#E07A3F',teal:'#E0922E',graphite:'#2C2113',white:'#F6EFE3',grayL:'#C4B49A',red:'#E5484D',amber:'#F5A623',greenOk:'#7FB069'}},
+  pizarra:{label:'Pizarra',vars:{navy:'#101418',navyCRE:'#171C22',gold:'#9DB2C9',green:'#8FB339',blue:'#5E81AC',teal:'#88C0D0',graphite:'#1E242B',white:'#E5E9EF',grayL:'#9AA4AF',red:'#BF616A',amber:'#D08770',greenOk:'#A3BE8C'}},
+};
+const CHART_STYLES={combo:'Barras + línea',barras:'Barras',lineas:'Líneas',area:'Área',puntos:'Puntos'};
+let THEME=__THEME__;let LAYOUT=__LAYOUT__;let CHART_STYLE=__CHART__;
+function applyChartStyle(c){CHART_STYLE=c;const s=document.getElementById('selChart');if(s)s.value=c;renderAll();}
+function applyTheme(t){
+  const th=THEMES[t]||THEMES.ejecutivo;const v=th.vars;const r=document.documentElement.style;
+  Object.keys(v).forEach(k=>r.setProperty('--'+k,v[k]));
+  CL.gold=v.gold;CL.green=v.green;CL.blue=v.blue;CL.teal=v.teal;CL.red=v.red;CL.amber=v.amber;CL.graphite=v.graphite;CL.grayL=v.grayL;CL.navy=v.navy;
+  AX=v.grayL;GRID=(t==='claro')?'rgba(90,107,122,.22)':'rgba(125,135,145,.18)';
+  THEME=t;const s=document.getElementById('selTheme');if(s)s.value=t;renderAll();
+}
+function applyLayout(l){document.body.className='layout-'+l;LAYOUT=l;const s=document.getElementById('selLayout');if(s)s.value=l;}
+
+// Render unificado de series. CHART_STYLE: combo|barras|lineas|area|puntos.
+// series = [{name,data,color,role:'bar'|'line'}] (role solo aplica en 'combo').
+function svgChart(labels,series,yfmt,tipFmt){const tip=tipFmt||yfmt;const st=CHART_STYLE||'combo';
+  const W=620,H=252,pt=20,pr=16,pb=30,pl=78,iw=W-pl-pr,ih=H-pt-pb;
+  let all=[];series.forEach(d=>all=all.concat(d.data));
+  let max=Math.max(...all,0),min=Math.min(...all,0);if(min>0)min=0;const rng=(max-min)||1;
+  const Y=v=>pt+ih-((v-min)/rng)*ih;const n=labels.length;const gw=iw/n;const cx=i=>pl+gw*i+gw/2;
+  const _sm={barras:'bar',lineas:'line',area:'area',puntos:'puntos'};
+  const modeOf=d=>st==='combo'?(d.role==='bar'?'bar':'line'):(_sm[st]||'line');
+  const barSeries=series.filter(d=>modeOf(d)==='bar');const nb=barSeries.length;const bw=nb?Math.min(gw*0.62/nb,38):0;
+  let s='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet">';
+  for(let i=0;i<=4;i++){const gy=pt+ih*i/4;const val=max-(max-min)*i/4;s+='<line x1="'+pl+'" y1="'+gy+'" x2="'+(W-pr)+'" y2="'+gy+'" stroke="'+GRID+'" stroke-width="1"/>';s+='<text x="'+(pl-6)+'" y="'+(gy+3)+'" fill="'+AX+'" font-size="8" text-anchor="end" font-family="Roboto Mono,monospace">'+(yfmt?yfmt(val):Math.round(val))+'</text>';}
+  labels.forEach((lb,i)=>{s+='<text x="'+cx(i)+'" y="'+(H-10)+'" fill="'+AX+'" font-size="10" text-anchor="middle" font-family="Roboto Mono,monospace">'+lb+'</text>';});
+  barSeries.forEach((b,bi)=>{b.data.forEach((v,i)=>{const x=cx(i)-(nb*bw)/2+bi*bw;const y0=Y(0),y1=Y(v);s+='<rect x="'+x+'" y="'+Math.min(y0,y1)+'" width="'+(bw-2)+'" height="'+Math.abs(y1-y0)+'" fill="'+b.color+'" rx="3"><title>'+b.name+' '+labels[i]+': '+(tip?tip(v):v)+'</title></rect>';});});
+  series.forEach(d=>{const m=modeOf(d);if(m==='bar')return;
+    const pts=d.data.map((v,i)=>[cx(i),Y(v)]);const path=pts.map((p,i)=>(i?'L':'M')+p[0]+' '+p[1]).join(' ');
+    if(m==='area'){s+='<path d="'+path+' L'+pts[pts.length-1][0]+' '+Y(0)+' L'+pts[0][0]+' '+Y(0)+' Z" fill="'+d.color+'" fill-opacity="0.18" stroke="none"/>';}
+    if(m!=='puntos'){s+='<path d="'+path+'" fill="none" stroke="'+d.color+'" stroke-width="2.5"/>';}
+    pts.forEach((p,i)=>{s+='<circle cx="'+p[0]+'" cy="'+p[1]+'" r="'+(m==='puntos'?5:4)+'" fill="'+d.color+'"><title>'+d.name+' '+labels[i]+': '+(tip?tip(d.data[i]):d.data[i])+'</title></circle>';});});
+  s+='</svg>';
+  const leg=series.map(d=>'<span class="legend-item"><span class="legend-dot" style="background:'+d.color+'"></span>'+d.name+'</span>').join('');
+  return '<div class="svgwrap">'+s+'</div><div class="legend">'+leg+'</div>';
+}
+function svgCombo(labels,bars,lines,yfmt,tip){return svgChart(labels,bars.map(b=>({name:b.name,data:b.data,color:b.color,role:'bar'})).concat(lines.map(l=>({name:l.name,data:l.data,color:l.color,role:'line'}))),yfmt,tip);}
+function svgLines(labels,lines,yfmt,tip){return svgChart(labels,lines.map(l=>({name:l.name,data:l.data,color:l.color,role:'line'})),yfmt,tip);}
+function svgDonut(items,noLeg,center){
+  const W=300,H=230,cx=W/2,cy=H/2,rO=80,rI=50;
+  const total=items.reduce((a,b)=>a+Math.abs(b.value),0)||1;
+  let ang=-Math.PI/2;let s='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet">';
+  items.forEach(it=>{const frac=Math.abs(it.value)/total;const a2=ang+frac*Math.PI*2;const large=frac>0.5?1:0;
+    const x1=cx+rO*Math.cos(ang),y1=cy+rO*Math.sin(ang),x2=cx+rO*Math.cos(a2),y2=cy+rO*Math.sin(a2);
+    const x3=cx+rI*Math.cos(a2),y3=cy+rI*Math.sin(a2),x4=cx+rI*Math.cos(ang),y4=cy+rI*Math.sin(ang);
+    s+='<path d="M'+x1+' '+y1+' A'+rO+' '+rO+' 0 '+large+' 1 '+x2+' '+y2+' L'+x3+' '+y3+' A'+rI+' '+rI+' 0 '+large+' 0 '+x4+' '+y4+' Z" fill="'+it.color+'" stroke="'+CL.navy+'" stroke-width="2"><title>'+it.label+': '+n$(it.value)+' ('+(frac*100).toFixed(1)+'%)</title></path>';
+    // etiqueta de % sobre cada segmento mayor al 6%
+    if(frac>0.06){const mid=(ang+a2)/2,rL=(rO+rI)/2;s+='<text x="'+(cx+rL*Math.cos(mid))+'" y="'+(cy+rL*Math.sin(mid)+3)+'" fill="#fff" font-size="10" font-weight="700" text-anchor="middle" font-family="Roboto Mono,monospace">'+(frac*100).toFixed(0)+'%</text>';}
+    ang=a2;});
+  if(center){s+='<text x="'+cx+'" y="'+(cy-1)+'" fill="#fff" font-size="21" font-weight="700" text-anchor="middle" font-family="Roboto Mono,monospace">'+center.big+'</text>';if(center.small)s+='<text x="'+cx+'" y="'+(cy+15)+'" fill="'+AX+'" font-size="9" text-anchor="middle" font-family="Roboto Mono,monospace">'+center.small+'</text>';}
+  s+='</svg>';
+  const leg=items.map(it=>'<span class="legend-item"><span class="legend-dot" style="background:'+it.color+'"></span>'+it.label+' '+(Math.abs(it.value)/total*100).toFixed(0)+'%</span>').join('');
+  return '<div class="svgwrap">'+s+'</div>'+(noLeg?'':'<div class="legend" style="justify-content:center">'+leg+'</div>');
+}
+
+// Cascada (waterfall) — items:[{label,value,type:'total'|'step'}]. Totales desde 0.
+function svgWaterfall(items){
+  const W=620,H=270,pt=22,pr=16,pb=50,pl=78,iw=W-pl-pr,ih=H-pt-pb;
+  let cum=0;const bars=items.map(it=>{ if(it.type==='total'){const b={label:it.label,from:0,to:it.value,val:it.value,kind:'total'};cum=it.value;return b;} const from=cum,to=cum+it.value;cum=to;return {label:it.label,from,to,val:it.value,kind:it.value>=0?'pos':'neg'};});
+  let vals=[0];bars.forEach(b=>{vals.push(b.from,b.to);});
+  let max=Math.max(...vals),min=Math.min(...vals);if(min>0)min=0;const rng=(max-min)||1;
+  const Y=v=>pt+ih-((v-min)/rng)*ih;const n=bars.length,gw=iw/n,bw=Math.min(gw*0.62,46);
+  const k=v=>(v<0?'-':'+')+'$'+Math.abs(Math.round(v/1000)).toLocaleString()+'k';
+  let s='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet">';
+  for(let i=0;i<=4;i++){const gy=pt+ih*i/4;const val=max-(max-min)*i/4;s+='<line x1="'+pl+'" y1="'+gy+'" x2="'+(W-pr)+'" y2="'+gy+'" stroke="'+GRID+'" stroke-width="1"/>';s+='<text x="'+(pl-6)+'" y="'+(gy+3)+'" fill="'+AX+'" font-size="8" text-anchor="end" font-family="Roboto Mono,monospace">'+axisFmt(val)+'</text>';}
+  bars.forEach((b,i)=>{const cx=pl+gw*i+gw/2,x=cx-bw/2;const y0=Y(b.from),y1=Y(b.to),top=Math.min(y0,y1),h=Math.max(2,Math.abs(y1-y0));
+    const color=b.kind==='total'?CL.blue:(b.kind==='pos'?CL.green:CL.red);
+    if(i>0){const pcx=pl+gw*(i-1)+gw/2;s+='<line x1="'+(pcx)+'" y1="'+Y(bars[i-1].to)+'" x2="'+(x)+'" y2="'+Y(bars[i-1].to)+'" stroke="'+AX+'" stroke-dasharray="2 2" stroke-width="1" opacity="0.5"/>';}
+    s+='<rect x="'+x+'" y="'+top+'" width="'+bw+'" height="'+h+'" fill="'+color+'" rx="3"><title>'+b.label+': '+n$(b.val)+'</title></rect>';
+    s+='<text x="'+cx+'" y="'+(top-4)+'" fill="'+(b.kind==='neg'?CL.red:b.kind==='pos'?CL.green:AX)+'" font-size="9" text-anchor="middle" font-family="Roboto Mono,monospace">'+(b.kind==='total'?axisFmt(b.val):k(b.val))+'</text>';
+    s+='<text x="'+cx+'" y="'+(H-30)+'" fill="'+AX+'" font-size="8.5" text-anchor="middle" font-family="Roboto Mono,monospace" transform="rotate(-18 '+cx+' '+(H-30)+')">'+b.label+'</text>';});
+  s+='</svg>';
+  return '<div class="svgwrap">'+s+'</div>';
+}
+
+// Barras 100% apiladas. labels=[períodos], segments=[{name,color,vals:[abs por período]}].
+function svgStacked100(labels,segments){
+  const W=620,H=258,pt=16,pr=16,pb=30,pl=44,iw=W-pl-pr,ih=H-pt-pb;
+  const n=labels.length,gw=iw/n,bw=Math.min(gw*0.5,70);
+  let s='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet">';
+  for(let i=0;i<=4;i++){const gy=pt+ih*i/4;s+='<line x1="'+pl+'" y1="'+gy+'" x2="'+(W-pr)+'" y2="'+gy+'" stroke="'+GRID+'" stroke-width="1"/>';s+='<text x="'+(pl-6)+'" y="'+(gy+3)+'" fill="'+AX+'" font-size="8" text-anchor="end" font-family="Roboto Mono,monospace">'+(100-i*25)+'%</text>';}
+  labels.forEach((lb,i)=>{const cx=pl+gw*i+gw/2,x=cx-bw/2;
+    const tot=segments.reduce((a,sg)=>a+(sg.vals[i]||0),0)||1;let cum=0;
+    segments.forEach(sg=>{const f=(sg.vals[i]||0)/tot;const h=f*ih;const yTop=pt+ih-(cum+f)*ih;
+      s+='<rect x="'+x+'" y="'+yTop+'" width="'+bw+'" height="'+Math.max(0,h)+'" fill="'+sg.color+'"><title>'+sg.name+' '+lb+': '+(f*100).toFixed(1)+'%</title></rect>';
+      if(f>0.07)s+='<text x="'+cx+'" y="'+(yTop+h/2+3)+'" fill="#fff" font-size="9" text-anchor="middle" font-family="Roboto Mono,monospace">'+(f*100).toFixed(0)+'%</text>';
+      cum+=f;});
+    s+='<text x="'+cx+'" y="'+(H-10)+'" fill="'+AX+'" font-size="10" text-anchor="middle" font-family="Roboto Mono,monospace">'+lb+'</text>';});
+  s+='</svg>';
+  const leg=segments.map(sg=>'<span class="legend-item"><span class="legend-dot" style="background:'+sg.color+'"></span>'+sg.name+'</span>').join('');
+  return '<div class="svgwrap">'+s+'</div><div class="legend">'+leg+'</div>';
+}
+
+// Punto de equilibrio (break-even) gerencial. Barra de ventas dividida en
+// "cubre costos" (teal) y "margen de seguridad / colchón" (verde), con la línea
+// del punto de equilibrio (dorada). Si las ventas no alcanzan el BE, barra roja.
+function svgBreakeven(labels,ventas,be){
+  const W=620,H=272,pt=24,pr=16,pb=44,pl=78,iw=W-pl-pr,ih=H-pt-pb;
+  let max=Math.max(...ventas,...be,0)*1.14||1;
+  const Y=v=>pt+ih-(v/max)*ih;const n=labels.length,gw=iw/n,bw=Math.min(gw*0.5,72);
+  let s='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet">';
+  for(let i=0;i<=4;i++){const gy=pt+ih*i/4;const val=max-max*i/4;s+='<line x1="'+pl+'" y1="'+gy+'" x2="'+(W-pr)+'" y2="'+gy+'" stroke="'+GRID+'" stroke-width="1"/>';s+='<text x="'+(pl-6)+'" y="'+(gy+3)+'" fill="'+AX+'" font-size="8" text-anchor="end" font-family="Roboto Mono,monospace">'+axisFmt(val)+'</text>';}
+  labels.forEach((lb,i)=>{const cx=pl+gw*i+gw/2,x=cx-bw/2;const y0=Y(0),yV=Y(ventas[i]),yB=Y(be[i]);
+    const safe=ventas[i]>=be[i];
+    if(safe){
+      s+='<rect x="'+x+'" y="'+yB+'" width="'+bw+'" height="'+(y0-yB)+'" fill="'+CL.teal+'" rx="3"><title>Cubre costos '+lb+': '+n$(be[i])+'</title></rect>';
+      s+='<rect x="'+x+'" y="'+yV+'" width="'+bw+'" height="'+(yB-yV)+'" fill="'+CL.green+'" opacity="0.85" rx="3"><title>Margen de seguridad '+lb+'</title></rect>';
+    }else{
+      s+='<rect x="'+x+'" y="'+yV+'" width="'+bw+'" height="'+(y0-yV)+'" fill="'+CL.red+'" rx="3"><title>Ventas bajo el punto de equilibrio '+lb+'</title></rect>';
+    }
+    s+='<line x1="'+(x-7)+'" y1="'+yB+'" x2="'+(x+bw+7)+'" y2="'+yB+'" stroke="'+CL.gold+'" stroke-width="2.5" stroke-dasharray="5 3"><title>Punto de equilibrio '+lb+': '+n$(be[i])+'</title></line>';
+    const ms=ventas[i]?((ventas[i]-be[i])/ventas[i]*100):0;
+    s+='<text x="'+cx+'" y="'+(yV-6)+'" fill="'+(safe?CL.green:CL.red)+'" font-size="10.5" text-anchor="middle" font-family="Roboto Mono,monospace">'+(ms>=0?'+':'')+ms.toFixed(0)+'% colchón</text>';
+    s+='<text x="'+cx+'" y="'+(H-24)+'" fill="'+AX+'" font-size="9.5" text-anchor="middle" font-family="Roboto Mono,monospace">'+lb+'</text>';});
+  s+='</svg>';
+  const leg='<span class="legend-item"><span class="legend-dot" style="background:'+CL.teal+'"></span>Ventas que cubren costos</span><span class="legend-item"><span class="legend-dot" style="background:'+CL.green+'"></span>Margen de seguridad</span><span class="legend-item"><span class="legend-dot" style="background:'+CL.gold+'"></span>Punto de equilibrio</span>';
+  return '<div class="svgwrap">'+s+'</div><div class="legend">'+leg+'</div>';
+}
+// Caja de interpretación gerencial bajo cada gráfico.
+function lectura(t){return '<div style="margin-top:10px;padding:11px 13px;background:rgba(13,115,119,.09);border-left:3px solid var(--teal);border-radius:5px;font-size:11.5px;line-height:1.55;color:var(--grayL)"><b style="color:var(--teal)">📊 Lectura gerencial:</b> '+t+'</div>';}
+
+// Barras horizontales (ranking de cuentas materiales). items:[{label,value,color}].
+function svgBarsH(items,fmt){
+  const W=620,rowH=30,pl=178,pr=78,top=10;const H=top*2+items.length*rowH;
+  const max=Math.max(...items.map(it=>Math.abs(it.value)),1);
+  let s='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet">';
+  items.forEach((it,i)=>{const y=top+i*rowH;const bw=(Math.abs(it.value)/max)*(W-pl-pr);
+    s+='<text x="'+(pl-8)+'" y="'+(y+rowH/2+3)+'" fill="'+AX+'" font-size="10" text-anchor="end" font-family="Roboto Mono,monospace">'+it.label+'</text>';
+    s+='<rect x="'+pl+'" y="'+(y+4)+'" width="'+Math.max(2,bw)+'" height="'+(rowH-12)+'" fill="'+(it.color||CL.teal)+'" rx="3"/>';
+    s+='<text x="'+(pl+Math.max(2,bw)+6)+'" y="'+(y+rowH/2+3)+'" fill="'+AX+'" font-size="10" font-family="Roboto Mono,monospace">'+(fmt?fmt(it.value):it.value)+'</text>';});
+  s+='</svg>';return '<div class="svgwrap">'+s+'</div>';
+}
+// Barra de composición 100% horizontal (una sola barra segmentada). items:[{label,value,color}].
+function svgBar100H(items){
+  const total=items.reduce((a,b)=>a+Math.abs(b.value),0)||1;const W=1000,H=48,h=34;let x=0,s='';
+  items.forEach(it=>{const f=Math.abs(it.value)/total,w=f*W;s+='<rect x="'+x+'" y="7" width="'+Math.max(0,w-1.5)+'" height="'+h+'" fill="'+it.color+'" rx="2"/>';if(f>=0.05)s+='<text x="'+(x+w/2)+'" y="'+(7+h/2+5)+'" fill="#fff" font-size="13" font-weight="700" text-anchor="middle" font-family="Roboto Mono,monospace">'+(f*100).toFixed(0)+'%</text>';x+=w;});
+  const leg=items.map(it=>'<span class="legend-item"><span class="legend-dot" style="background:'+it.color+'"></span>'+it.label+' '+(Math.abs(it.value)/total*100).toFixed(0)+'%</span>').join('');
+  return '<div class="svgwrap"><svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block">'+s+'</svg></div><div class="legend" style="justify-content:flex-start;margin-top:10px">'+leg+'</div>';
+}
+// Barras verticales con efecto 3D (extrusión). items:[{label,value,color}], fmt(valor).
+function svgBars3D(items,fmt){
+  const W=700,H=340,pt=34,pb=84,pl=24,pr=24,d=15;
+  const iw=W-pl-pr,ih=H-pt-pb,baseY=pt+ih,n=items.length||1;
+  const max=Math.max(...items.map(it=>Math.abs(it.value)),1);
+  const slot=iw/n,bw=Math.min(70,slot*0.56);
+  const shade=(hex,p)=>{const c=(hex||'#0D7377').replace('#','');let r=parseInt(c.substr(0,2),16),g=parseInt(c.substr(2,2),16),b=parseInt(c.substr(4,2),16);const a=v=>Math.max(0,Math.min(255,Math.round(v+p/100*255)));return '#'+[a(r),a(g),a(b)].map(v=>v.toString(16).padStart(2,'0')).join('');};
+  const wrap=(t)=>{const w=t.split(' ');if(w.length<=1||t.length<=11)return [t];const lines=[];let cur='';w.forEach(x=>{if((cur+' '+x).trim().length>12){if(cur)lines.push(cur);cur=x;}else cur=(cur+' '+x).trim();});if(cur)lines.push(cur);return lines.slice(0,2);};
+  let s='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block">';
+  s+='<line x1="'+pl+'" y1="'+baseY+'" x2="'+(W-pr)+'" y2="'+baseY+'" stroke="'+AX+'" stroke-opacity=".25"/>';
+  s+='<line x1="'+(pl+d)+'" y1="'+(baseY-d)+'" x2="'+(W-pr+d)+'" y2="'+(baseY-d)+'" stroke="'+AX+'" stroke-opacity=".12"/>';
+  items.forEach((it,i)=>{
+    const h=Math.max(3,(Math.abs(it.value)/max)*ih),x=pl+slot*i+(slot-bw)/2,yT=baseY-h,col=it.color||CL.teal;
+    s+='<polygon points="'+(x+d)+','+(yT-d)+' '+(x+bw+d)+','+(yT-d)+' '+(x+bw+d)+','+(baseY-d)+' '+(x+bw)+','+baseY+' '+(x+bw)+','+yT+'" fill="'+shade(col,-26)+'"/>';
+    s+='<polygon points="'+x+','+yT+' '+(x+d)+','+(yT-d)+' '+(x+bw+d)+','+(yT-d)+' '+(x+bw)+','+yT+'" fill="'+shade(col,26)+'"/>';
+    s+='<rect x="'+x+'" y="'+yT+'" width="'+bw+'" height="'+h+'" fill="'+col+'"/>';
+    const vy=it.delta?(yT-d-21):(yT-d-7);
+    s+='<text x="'+(x+bw/2+d/2)+'" y="'+vy+'" fill="'+AX+'" font-size="11.5" font-weight="700" text-anchor="middle" font-family="Roboto Mono,monospace">'+(fmt?fmt(it.value):it.value)+'</text>';
+    if(it.delta)s+='<text x="'+(x+bw/2+d/2)+'" y="'+(yT-d-7)+'" fill="'+(it.deltaCol||AX)+'" font-size="11" font-weight="700" text-anchor="middle" font-family="Roboto Mono,monospace">'+it.delta+'</text>';
+    wrap(it.label).forEach((ln,li)=>{s+='<text x="'+(x+bw/2)+'" y="'+(baseY+18+li*13)+'" fill="'+AX+'" font-size="10" text-anchor="middle" font-family="Roboto Mono,monospace">'+ln+'</text>';});
+  });
+  s+='</svg>';return '<div class="svgwrap">'+s+'</div>';
+}
+// Barras agrupadas comparativas (2 series: anterior vs actual). Siempre barras.
+function svgBarsComp(labels,s1,s2,n1,n2){
+  const W=620,H=246,pt=14,pr=12,pb=52,pl=66,iw=W-pl-pr,ih=H-pt-pb;
+  const max=Math.max(...s1,...s2,1);const Y=v=>pt+ih-(v/max)*ih;const n=labels.length,gw=iw/n,bw=Math.min(gw*0.3,24);
+  let s='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet">';
+  for(let i=0;i<=4;i++){const gy=pt+ih*i/4;s+='<line x1="'+pl+'" y1="'+gy+'" x2="'+(W-pr)+'" y2="'+gy+'" stroke="'+GRID+'" stroke-width="1"/>';s+='<text x="'+(pl-6)+'" y="'+(gy+3)+'" fill="'+AX+'" font-size="8" text-anchor="end" font-family="Roboto Mono,monospace">'+axisFmt(max-(max)*i/4)+'</text>';}
+  labels.forEach((lb,i)=>{const cx=pl+gw*i+gw/2;
+    [[s1[i],CL.blue,-bw-1],[s2[i],CL.teal,1]].forEach(p=>{const v=p[0]||0,y0=Y(0),y1=Y(v);s+='<rect x="'+(cx+p[2])+'" y="'+y1+'" width="'+bw+'" height="'+Math.max(0,y0-y1)+'" fill="'+p[1]+'" rx="2"><title>'+lb+': '+n$(v)+'</title></rect>';});
+    s+='<text x="'+cx+'" y="'+(H-30)+'" fill="'+AX+'" font-size="8.5" text-anchor="middle" font-family="Roboto Mono,monospace" transform="rotate(-15 '+cx+' '+(H-30)+')">'+lb+'</text>';});
+  s+='</svg>';
+  const leg='<span class="legend-item"><span class="legend-dot" style="background:'+CL.blue+'"></span>'+n1+'</span><span class="legend-item"><span class="legend-dot" style="background:'+CL.teal+'"></span>'+n2+'</span>';
+  return '<div class="svgwrap">'+s+'</div><div class="legend">'+leg+'</div>';
+}
+// Matriz de riesgo: materialidad (x, % del activo) vs riesgo de recuperabilidad (y, 0-100).
+function svgMatriz(items){
+  const W=620,H=300,pt=16,pr=20,pb=40,pl=52,iw=W-pl-pr,ih=H-pt-pb;
+  const X=v=>pl+(Math.min(v,50)/50)*iw,Y=v=>pt+ih-(Math.min(v,100)/100)*ih;
+  let s='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet">';
+  const qx=X(10),qy=Y(50);
+  s+='<rect x="'+qx+'" y="'+pt+'" width="'+(pl+iw-qx)+'" height="'+(qy-pt)+'" fill="'+CL.red+'" opacity="0.10"/>';
+  s+='<text x="'+(pl+iw-6)+'" y="'+(pt+12)+'" fill="'+CL.red+'" font-size="8" text-anchor="end">crítico</text>';
+  for(const gx of [10,50]){s+='<line x1="'+X(gx)+'" y1="'+pt+'" x2="'+X(gx)+'" y2="'+(pt+ih)+'" stroke="'+GRID+'" stroke-dasharray="3 3"/>';s+='<text x="'+X(gx)+'" y="'+(pt+ih+12)+'" fill="'+AX+'" font-size="8" text-anchor="middle">'+gx+'%</text>';}
+  s+='<line x1="'+pl+'" y1="'+qy+'" x2="'+(W-pr)+'" y2="'+qy+'" stroke="'+GRID+'" stroke-dasharray="3 3"/>';
+  s+='<text x="'+(pl+iw/2)+'" y="'+(H-6)+'" fill="'+AX+'" font-size="9" text-anchor="middle">Materialidad (% del activo) →</text>';
+  s+='<text x="12" y="'+(pt+ih/2)+'" fill="'+AX+'" font-size="9" text-anchor="middle" transform="rotate(-90 12 '+(pt+ih/2)+')">Riesgo de recuperabilidad →</text>';
+  items.forEach(it=>{const cx=X(it.mat),cy=Y(it.risk);const right=cx>pl+iw*0.62;s+='<circle cx="'+cx+'" cy="'+cy+'" r="7" fill="'+(it.color||CL.gold)+'" stroke="'+CL.navy+'" stroke-width="1.5"><title>'+it.label+' · materialidad '+it.mat.toFixed(1)+'% · riesgo '+it.risk+'/100</title></circle>';s+='<text x="'+(right?cx-11:cx+11)+'" y="'+(cy+3)+'" fill="'+AX+'" font-size="9" text-anchor="'+(right?'end':'start')+'" font-family="Roboto Mono,monospace">'+it.label+'</text>';});
+  s+='</svg>';return '<div class="svgwrap">'+s+'</div>';
+}
+
+// ════ NAV ════
+const SECTIONS=[{id:"resumen",label:"Resumen Ejecutivo"},{id:"resultados",label:"Estado de Resultados"},{id:"gastos",label:"Principales Gastos"},{id:"atipicos",label:"Gastos Atípicos"},{id:"balance",label:"Balance General"},{id:"indicadores",label:"Indicadores Financieros"},{id:"variaciones",label:"Variaciones"},{id:"inversiones",label:"Inversiones"},{id:"decisiones",label:"Decisiones"}];
+function buildNav(){
+  const nav=document.getElementById("nav");
+  nav.innerHTML='<div class="bar-inner nav-inner">'+SECTIONS.map((sx,i)=>'<div class="nav-tab '+(i===0?'active':'')+'" data-sec="'+sx.id+'" onclick="showSection(\''+sx.id+'\',this)">'+sx.label+'</div>').join('')
+    +'<div class="yearfilter"><span style="font-size:10px;color:var(--teal);margin-right:4px">PERÍODO:</span>'+YRS.map(y=>'<button class="yearbtn '+(y===activeYear?'active':'')+'" onclick="setYear(\''+y+'\')">'+y+'</button>').join('')+'</div></div>';
+}
+function showSection(id,el){document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));document.getElementById("sec-"+id).classList.add("active");document.querySelectorAll(".nav-tab").forEach(t=>t.classList.remove("active"));el.classList.add("active");}
+function setYear(y){activeYear=y;document.querySelectorAll(".yearbtn").forEach(b=>b.classList.toggle("active",b.textContent.trim()===String(y)));renderAll();}
+
+// ════ EDIT ════
+function makeEditable(key,yr,val,neg){const display=val!=null?n$(val):"—";return '<span class="editable" onclick="startEdit(this,\''+key+'\','+yr+','+(neg?1:0)+')">'+display+'</span>';}
+function makeEditablePH(key,yr,val){if(val!=null)return '<span class="editable" onclick="startEdit(this,\''+key+'\','+yr+',0)">'+val.toLocaleString()+'</span>';return '<span class="editable placeholder-cell" onclick="startEdit(this,\''+key+'\','+yr+',0)">ingresar</span>';}
+function startEdit(span,key,yr,neg){
+  const cur=D[key][yr];const inp=document.createElement("input");inp.className="edit-input";inp.value=cur!=null?Math.abs(cur):"";
+  span.replaceWith(inp);inp.focus();inp.select();
+  const commit=()=>{let v=parseFloat(inp.value.replace(/[,$\s()]/g,""));if(isNaN(v))v=null;else if(neg&&v>0)v=-v;D[key][yr]=v;renderAll();};
+  inp.addEventListener("blur",commit);inp.addEventListener("keydown",e=>{if(e.key==="Enter")inp.blur();if(e.key==="Escape")renderAll();});
+}
+
+// ════ RENDER ════
+function renderAll(){const C=compute();renderResumen(C);renderResultados(C);renderBalance(C);renderIndicadores(C);renderVariaciones(C);renderGastos(C);renderAtipicos(C);renderInversiones(C);renderDecisiones(C);}
+
+// ════ SUB-SECCIONES CFO (detalle editable inyectado) ════
+function _det(k){return (DETALLE&&DETALLE[k])?DETALLE[k]:[];}
+function _secHead(num,title,sub){return '<div class="sec-head"><div class="sec-num">'+num+'</div><div class="sec-title">'+title+'</div><div class="sec-sub">'+sub+'</div></div>';}
+function _emptyMsg(t){return '<div class="panel"><div class="placeholder-cell" style="padding:8px">'+t+'</div></div>';}
+
+function renderGastos(C){
+  const rows=_det("gastos");
+  let body='',tot=[0,0,0];
+  rows.forEach(r=>{const v=r.v||[0,0,0];v.forEach((x,i)=>tot[i]+=(+x||0));
+    body+='<tr><td>'+r.concepto+'</td>'+v.map(x=>'<td>'+n$(+x||0)+'</td>').join('')+'<td>'+deltaTag(v[YRS.length-1],v[YRS.length-2])+'</td></tr>';});
+  body+='<tr class="bold"><td>TOTAL GASTOS ANALIZADOS</td>'+tot.map(x=>'<td>'+n$(x)+'</td>').join('')+'<td>'+deltaTag(tot[YRS.length-1],tot[YRS.length-2])+'</td></tr>';
+  const chart=rows.length?svgCombo(YRS.map(String),rows.slice(0,6).map((r,i)=>({name:r.concepto,data:(r.v||[]).map(x=>+x||0),color:[CL.teal,CL.gold,CL.blue,CL.green,CL.amber,CL.red][i%6]})),[],axisFmt,n$):'';
+  document.getElementById("sec-gastos").innerHTML=_secHead("05 · Análisis de Gastos","Principales gastos por concepto","Composición y evolución de los principales rubros de gasto del trienio.")
+    +(rows.length?('<div class="panel"><div class="panel-title">Evolución por concepto</div>'+chart+'</div>'):'')
+    +(rows.length?('<div class="panel"><div class="panel-title">Detalle</div><table><thead><tr><th>Concepto</th>'+YRS.map(y=>'<th>'+y+'</th>').join('')+'<th>Var</th></tr></thead><tbody>'+body+'</tbody></table></div>'):_emptyMsg("Sin datos de gastos. Cárgalos desde la herramienta CFO Intelligence."));
+}
+
+function renderAtipicos(C){
+  const rows=_det("atipicos");
+  let body='';rows.forEach(r=>{body+='<tr><td>'+r.concepto+'</td><td style="text-align:center">'+(r.anio||'')+'</td><td>'+n$(+r.monto||0)+'</td><td style="text-align:left;font-size:11px;color:var(--grayL)">'+(r.just||'')+'</td></tr>';});
+  const tot=rows.reduce((a,r)=>a+(+r.monto||0),0);
+  document.getElementById("sec-atipicos").innerHTML=_secHead("06 · Gastos Atípicos","Gastos no recurrentes / extraordinarios","Partidas atípicas que distorsionan la comparabilidad y deben aislarse del análisis de tendencia.")
+    +(rows.length?('<div class="panel"><div class="panel-title">Detalle de gastos atípicos · Total '+n$(tot)+'</div><table><thead><tr><th>Concepto</th><th style="text-align:center">Año</th><th>Monto</th><th style="text-align:left">Justificación / impacto</th></tr></thead><tbody>'+body+'</tbody></table></div>'):_emptyMsg("Sin gastos atípicos registrados."));
+}
+
+function renderActivos(C){
+  const rows=_det("activos");
+  let body='',tot=0;rows.forEach(r=>{tot+=(+r.monto||0);body+='<tr><td>'+r.desc+'</td><td style="text-align:left">'+(r.categoria||'')+'</td><td style="text-align:center">'+(r.anio||'')+'</td><td>'+n$(+r.monto||0)+'</td></tr>';});
+  // agrupar por año
+  const porAnio={};rows.forEach(r=>{const a=r.anio||'—';porAnio[a]=(porAnio[a]||0)+(+r.monto||0);});
+  const labels=Object.keys(porAnio);
+  const chart=rows.length?svgCombo(labels,[{name:'Altas de activos',data:labels.map(a=>porAnio[a]),color:CL.blue}],[],axisFmt,n$):'';
+  document.getElementById("sec-activos").innerHTML=_secHead("07 · Activos Fijos","Activos fijos adquiridos (últimos 3 años)","Altas de propiedad, planta y equipo — base para análisis de CAPEX y depreciación.")
+    +(rows.length?('<div class="panel"><div class="panel-title">Inversión en activos por año</div>'+chart+'</div>'):'')
+    +(rows.length?('<div class="panel"><div class="panel-title">Detalle de adquisiciones · Total '+n$(tot)+'</div><table><thead><tr><th>Descripción</th><th style="text-align:left">Categoría</th><th style="text-align:center">Año</th><th>Monto</th></tr></thead><tbody>'+body+'</tbody></table></div>'):_emptyMsg("Sin activos fijos registrados."));
+}
+
+function renderInversiones(C){
+  const rows=_det("inversiones");
+  let body='',tot=0;rows.forEach(r=>{tot+=(+r.monto||0);body+='<tr><td>'+r.instrumento+'</td><td style="text-align:center">'+(r.anio||'')+'</td><td>'+n$(+r.monto||0)+'</td><td style="text-align:right">'+(r.rendimiento!=null&&r.rendimiento!==''?(+r.rendimiento).toFixed(2)+'%':'—')+'</td></tr>';});
+  document.getElementById("sec-inversiones").innerHTML=_secHead("08 · Estado de Inversiones","Portafolio de inversiones","Instrumentos financieros, plazos y rendimiento — gestión de excedentes de liquidez.")
+    +(rows.length?('<div class="panel"><div class="panel-title">Detalle del portafolio · Total '+n$(tot)+'</div><table><thead><tr><th>Instrumento</th><th style="text-align:center">Año</th><th>Monto</th><th style="text-align:right">Rendimiento</th></tr></thead><tbody>'+body+'</tbody></table></div>'):_emptyMsg("Sin inversiones registradas."));
+}
+
+function renderResumen(C){
+  // ═══ TABLERO DE MANDO EJECUTIVO 3D (Resumen consolidado ER + Balance) ═══
+  const y=activeYear;const _yi=YRS.indexOf(y);const py=_yi>0?YRS[_yi-1]:null;
+  const c=C[y],cp=py?C[py]:null;
+  const caja=yy=>D.efectivo[yy]||0;
+  const M=v=>v/1e6,m$=v=>'$'+(v/1e6).toFixed(2)+'M';
+  // Paleta del tablero 3D
+  const G='#E8B84B',TX2='#8a94b0',GN='#5DCAA5',BL='#85B7EB',RD='#e87474';
+  const cajaG=py?(caja(y)-caja(py))/(Math.abs(caja(py))||1):0,ingG=py?(D.ingOrd[y]-D.ingOrd[py])/(Math.abs(D.ingOrd[py])||1):0;
+  // Drivers de riesgo (consolidado honesto, ponderando solvencia)
+  const improd=(D.actFin[y]||0)+(D.cxcRelac[y]||0)+(D.anticiposProv[y]||0)+(D.cxcLP[y]||0)+(D.otrosActNoCorr[y]||0),improdPct=improd/(c.totalAct||1)*100;
+  const utilRet=Math.max(0,D.utilAcum?D.utilAcum[y]:0),resLegalPct=D.capital[y]?D.resLegal[y]/D.capital[y]*100:0;
+  // Solvencia (continuidad) domina; los ítems operativos/gobierno solo elevan hasta MEDIO.
+  const solvScore=(c.liquidez<1?3:c.liquidez<1.5?1:0)+(c.endeud>0.6?3:c.endeud>0.4?1:0)+(c.utilNeta<0?3:0);
+  const opScore=(c.dio>180?1:0)+(c.dso>90?1:0)+(improdPct>5?1:0)+(utilRet>10e6?1:0)+(resLegalPct<50?1:0);
+  const riskTxt=solvScore>=5?'ALTO':((solvScore>=2||opScore>=2)?'MEDIO':'BAJO'),riskCol=riskTxt==='ALTO'?RD:(riskTxt==='MEDIO'?G:GN);
+  const rating=solvScore>=5?'B':(riskTxt==='MEDIO'?'BBB':'A'),tend=!py?'Estable →':c.utilNeta>cp.utilNeta*1.02?'Mejora ↗':c.utilNeta<cp.utilNeta*0.98?'Deterioro ↘':'Estable →';
+  // Watch-items reales (honesto, sin sesgo positivo)
+  const vigilar=[];
+  if(c.dio>180)vigilar.push(['Inventario de baja rotación','DIO '+Math.round(c.dio)+' d']);
+  else if(c.dio>120)vigilar.push(['Inventario rotación lenta','DIO '+Math.round(c.dio)+' d']);
+  if(c.dso>90)vigilar.push(['Cobranza lenta','DSO '+Math.round(c.dso)+' d']);
+  if(utilRet>=100e3)vigilar.push(['Utilidades retenidas (SRI 2025)',m$(utilRet)]);
+  if(improdPct>5)vigilar.push(['Activos improductivos',improdPct.toFixed(1)+'%']);
+  if(resLegalPct<50)vigilar.push(['Reserva legal < 50%',resLegalPct.toFixed(0)+'%']);
+  // Helpers visuales
+  const dlt=(cur,prev,goodUp)=>{if(prev==null)return '<span style="color:'+TX2+'">período único</span>';const up=cur>=prev,good=goodUp?up:!up;return '<span style="color:'+(good?GN:RD)+'">'+(up?'↗':'↘')+' '+pctv(cur,prev)+' vs '+py+'</span>';};
+  const card=(bg,bord,icon,label,val,valCol,delta)=>'<div class="kc3d" style="background:'+bg+';border:1px solid '+bord+'"><div style="font-size:22px;margin-bottom:4px">'+icon+'</div><div style="font-size:10px;letter-spacing:1px;color:'+TX2+';text-transform:uppercase">'+label+'</div><div style="font-size:24px;font-weight:700;color:'+valCol+';margin:6px 0 4px;font-family:Montserrat,Arial;line-height:1">'+val+'</div><div style="font-size:11.5px">'+delta+'</div></div>';
+  const badge=(bg,col,txt)=>'<span class="t3d-badge" style="background:'+bg+';color:'+col+'">'+txt+'</span>';
+  // ── BLOQUE 1: Topbar ──
+  const riskBadge=riskTxt==='BAJO'?badge('rgba(29,158,117,0.12)',GN,'✓ Riesgo bajo'):riskTxt==='MEDIO'?badge('rgba(232,184,75,0.12)',G,'▲ Riesgo medio'):badge('rgba(226,75,74,0.12)',RD,'● Riesgo alto');
+  const topbar='<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;padding-bottom:16px;border-bottom:1px solid rgba(232,184,75,0.2);margin-bottom:18px">'
+    +'<div style="display:flex;align-items:center;gap:12px"><div style="width:44px;height:44px;border-radius:10px;background:rgba(232,184,75,0.12);display:flex;align-items:center;justify-content:center;font-weight:700;color:'+G+';font-size:16px">AB</div><div><div style="font-size:16px;font-weight:700;color:var(--white)">AuditBrain · __EMPRESA__</div><div style="font-size:11px;color:'+TX2+'">Tablero de mando ejecutivo · NIIF · Resumen consolidado ER + Balance General</div></div></div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap">'+riskBadge+badge('rgba(232,184,75,0.12)',G,'📅 '+y)+badge('rgba(55,138,221,0.12)',BL,'FIN v2.0')+'</div></div>';
+  // ── BLOQUE 2: KPI cards Estado de Resultados (5) ──
+  const cardsER='<div class="ec-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:16px">'
+    +card('#1a2335','rgba(232,184,75,0.3)','💰','Ventas netas',m$(D.ingOrd[y]),G,dlt(D.ingOrd[y],cp?D.ingOrd[py]:null,true))
+    +card('#0e1e38','rgba(55,138,221,0.3)','📊','EBITDA',m$(c.ebitda),BL,dlt(c.ebitda,cp?cp.ebitda:null,true))
+    +card('#0a2218','rgba(29,158,117,0.3)','🪙','Utilidad neta',m$(c.utilNeta),GN,dlt(c.utilNeta,cp?cp.utilNeta:null,true))
+    +card('#1a2335','rgba(232,184,75,0.3)','%','Margen neto',(c.mrgNeto*100).toFixed(1)+'%',G,cp?'<span style="color:'+(c.mrgNeto>=cp.mrgNeto?GN:RD)+'">'+(c.mrgNeto>=cp.mrgNeto?'↗':'↘')+' vs '+(cp.mrgNeto*100).toFixed(1)+'% · '+py+'</span>':'<span style="color:'+TX2+'">período único</span>')
+    +card('#0e1e38','rgba(55,138,221,0.3)','💳','Caja disponible',m$(caja(y)),BL,dlt(caja(y),cp?caja(py):null,true))
+    +'</div>';
+  // ── BLOQUE 3: Barras 3D (Util neta · EBITDA · Caja, ant vs actual) ──
+  const bars=[];
+  if(cp)bars.push({label:'Util. neta '+py,value:M(cp.utilNeta),color:'#1e5fa5'});
+  bars.push({label:'Util. neta '+y,value:M(c.utilNeta),color:G});
+  if(cp)bars.push({label:'EBITDA '+py,value:M(cp.ebitda),color:'#c0392b'});
+  bars.push({label:'EBITDA '+y,value:M(c.ebitda),color:'#16a085'});
+  if(cp)bars.push({label:'Caja '+py,value:M(caja(py)),color:'#8e44ad'});
+  bars.push({label:'Caja '+y,value:M(caja(y)),color:'#d35400'});
+  const barPanel='<div class="panel"><div class="panel-title">Utilidad neta · EBITDA · Caja — '+(cp?py+' vs '+y:y)+' (millones)</div>'+svgBars3D(bars,v=>'$'+v.toFixed(2)+'M')+'</div>';
+  // ── BLOQUE 4: Donut composición del resultado ──
+  const plSeg=[{label:'Costo de ventas',value:Math.abs(D.costoVta[y]),color:'#E24B4A'},{label:'Gastos operativos',value:Math.abs(D.gastAdm[y]+D.gastFin[y]),color:'#378ADD'},{label:'Utilidad neta',value:Math.max(0,c.utilNeta),color:'#1D9E75'},{label:'Impuestos/otros',value:Math.abs(D.irCorr[y]+D.irDif[y]),color:'#534AB7'}].filter(s=>s.value>0);
+  const donutPL='<div class="panel"><div class="panel-title">Composición del resultado · '+y+'</div>'+svgDonut(plSeg,false,{big:(c.mrgNeto*100).toFixed(0)+'%',small:'utilidad neta'})+'</div>';
+  // ── BLOQUE 5: KPI cards Balance (3) ──
+  const cardsBG='<div class="ec-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-bottom:16px">'
+    +card('#1a2335','rgba(232,184,75,0.3)','🏗','Total activos',m$(c.totalAct),G,'<span style="color:'+TX2+'">'+(c.actCorr/c.totalAct*100).toFixed(0)+'% corriente · '+(c.actNoCorr/c.totalAct*100).toFixed(0)+'% no corriente</span>')
+    +card('#220c0c','rgba(226,75,74,0.3)','💳','Total pasivos',m$(c.totalPas),RD,'Endeudamiento <span style="color:'+(c.endeud<=0.4?GN:c.endeud<=0.6?G:RD)+'">'+(c.endeud*100).toFixed(1)+'%</span>')
+    +card('#0a2218','rgba(29,158,117,0.3)','🏆','Patrimonio neto',m$(c.patrimonio),GN,dlt(c.patrimonio,cp?cp.patrimonio:null,true))
+    +'</div>';
+  // ── BLOQUE 6: Donut estructura de activos + semáforo ──
+  const actSeg=[{label:'Cuentas por cobrar',value:c.actCorr-(D.inventario[y]||0)-caja(y),color:'#378ADD'},{label:'Inventarios',value:D.inventario[y]||0,color:'#534AB7'},{label:'Efectivo y equiv.',value:caja(y),color:G},{label:'Activo no corriente',value:c.actNoCorr,color:'#5f6e80'}].filter(s=>s.value>0);
+  const donutAct='<div class="panel"><div class="panel-title">Estructura de activos · '+y+'</div>'+svgDonut(actSeg,false,{big:(c.actCorr/c.totalAct*100).toFixed(0)+'%',small:'corriente'})+'</div>';
+  const semRows=[
+    ['Liquidez',c.liquidez.toFixed(2)+'x',c.liquidez>=1.5?GN:c.liquidez>=1?G:RD],
+    ['Rentabilidad (ROE)',(c.roe*100).toFixed(1)+'%',c.roe>=.15?GN:c.roe>=.08?G:RD],
+    ['Endeudamiento',(c.endeud*100).toFixed(1)+'%',c.endeud<=.4?GN:c.endeud<=.6?G:RD],
+    ['Flujo de caja',py?pctv(caja(y),caja(py)):'—',cajaG>=0?GN:G],
+    ['Crecimiento ventas',py?pctv(D.ingOrd[y],D.ingOrd[py]):'—',ingG>=.05?GN:ingG>=0?G:RD],
+    ['Crecimiento patrimonio',(py&&cp)?pctv(c.patrimonio,cp.patrimonio):'—',(cp&&c.patrimonio>=cp.patrimonio)?GN:G]
+  ];
+  const semaforo='<div class="panel"><div class="panel-title">Semáforo financiero · '+y+'</div><div style="display:flex;flex-direction:column;gap:11px;margin-top:4px">'
+    +semRows.map(r=>'<div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:9px;border-bottom:1px solid rgba(255,255,255,0.05)"><span style="font-size:13px;color:'+TX2+';display:flex;align-items:center;gap:9px"><span style="width:10px;height:10px;border-radius:50%;background:'+r[2]+';box-shadow:0 0 8px '+r[2]+'"></span>'+r[0]+'</span><span class="mono" style="font-size:15px;color:'+r[2]+'">'+r[1]+'</span></div>').join('')
+    +'</div></div>';
+  // ── BLOQUE 7: Lo bueno / Lo que vigilar / Riesgo ──
+  const bueno=[['Liquidez',c.liquidez.toFixed(2)+'x'],['ROE',(c.roe*100).toFixed(1)+'%'],['EBITDA',cp?pctv(c.ebitda,cp.ebitda):m$(c.ebitda)],['Patrimonio',cp?pctv(c.patrimonio,cp.patrimonio):m$(c.patrimonio)],['Utilidad neta',cp?pctv(c.utilNeta,cp.utilNeta):m$(c.utilNeta)],['Caja',cp?pctv(caja(y),caja(py)):m$(caja(y))]];
+  const panelBueno='<div class="panel"><div class="panel-title" style="color:'+GN+'">✅ Lo bueno</div><div style="display:flex;flex-direction:column;gap:9px">'+bueno.map(b=>'<div style="display:flex;justify-content:space-between;font-size:12.5px"><span style="color:'+TX2+'">'+b[0]+'</span><span class="mono" style="color:'+GN+'">'+b[1]+'</span></div>').join('')+'</div></div>';
+  const panelVig='<div class="panel"><div class="panel-title" style="color:'+G+'">⚠ Lo que vigilar</div>'+(vigilar.length?('<div style="display:flex;flex-direction:column;gap:9px">'+vigilar.map(v=>'<div style="display:flex;justify-content:space-between;font-size:12.5px"><span style="color:'+TX2+'">'+v[0]+'</span><span class="mono" style="color:'+G+'">'+v[1]+'</span></div>').join('')+'</div>'):('<div style="text-align:center;padding:14px 0"><div style="font-size:34px">✅</div><div style="font-size:12px;color:'+TX2+';margin-top:6px">Sin alertas materiales al '+y+'</div><div style="margin-top:8px">'+badge('rgba(29,158,117,0.12)',GN,'Situación saludable')+'</div></div>'))+'</div>';
+  const panelRiesgo='<div class="panel" style="background:'+(riskTxt==='BAJO'?'#081508':riskTxt==='MEDIO'?'#1a1608':'#180808')+';border:1px solid '+(riskTxt==='BAJO'?'rgba(29,158,117,0.25)':riskTxt==='MEDIO'?'rgba(232,184,75,0.25)':'rgba(226,75,74,0.25)')+'"><div class="panel-title">Riesgo financiero</div>'
+    +'<div style="text-align:center;margin:6px 0 12px"><div style="font-size:38px;font-weight:700;color:'+riskCol+';text-shadow:0 0 30px '+riskCol+'66;font-family:Montserrat,Arial">'+riskTxt+'</div><div style="margin-top:6px">'+badge('rgba(255,255,255,0.05)',TX2,'Calificación interna · NIIF')+'</div></div>'
+    +'<div style="display:flex;justify-content:space-around;border-top:1px solid rgba(255,255,255,0.08);padding-top:10px;text-align:center">'
+    +'<div><div style="font-size:9px;color:'+TX2+'">RATING</div><div style="font-size:18px;font-weight:700;color:'+G+'">'+rating+'</div></div>'
+    +'<div style="border-left:1px solid rgba(255,255,255,0.08);padding-left:14px"><div style="font-size:9px;color:'+TX2+'">TENDENCIA</div><div style="font-size:14px;color:'+GN+'">'+tend+'</div></div>'
+    +'<div style="border-left:1px solid rgba(255,255,255,0.08);padding-left:14px"><div style="font-size:9px;color:'+TX2+'">ESTADO</div><div style="font-size:13px;color:'+riskCol+'">'+(riskTxt==='BAJO'?'Saludable':riskTxt==='MEDIO'?'En vigilancia':'Atención')+'</div></div>'
+    +'</div><div style="font-size:9px;color:'+TX2+';margin-top:9px;text-align:center">Estimación interna a partir de ratios — no es calificación crediticia externa.</div></div>';
+  // ── BLOQUE 8: Comentario del CFO ──
+  const cfo='<div style="background:rgba(232,184,75,0.04);border:1px solid rgba(232,184,75,0.12);border-radius:8px;padding:15px 18px;font-size:13px;color:'+TX2+';line-height:1.8;margin-bottom:16px">'
+    +'<b style="color:'+G+'">Comentario del CFO:</b> <b style="color:var(--white)">Estado de resultados:</b> las ventas alcanzaron '+n$(D.ingOrd[y])+(cp?' ('+pctv(D.ingOrd[y],D.ingOrd[py])+' vs '+py+')':'')+'. La utilidad neta '+(cp?(c.utilNeta>=cp.utilNeta?'creció ':'cayó ')+pctv(c.utilNeta,cp.utilNeta):'fue '+n$(c.utilNeta))+' hasta '+n$(c.utilNeta)+' con margen de '+(c.mrgNeto*100).toFixed(1)+'%'+(cp?' (vs '+(cp.mrgNeto*100).toFixed(1)+'% en '+py+')':'')+'. EBITDA de '+n$(c.ebitda)+(cp?' ('+pctv(c.ebitda,cp.ebitda)+')':'')+'. <b style="color:var(--white)">Balance general:</b> activos '+n$(c.totalAct)+' con estructura '+(c.actCorr/c.totalAct*100).toFixed(0)+'% corriente, liquidez '+c.liquidez.toFixed(2)+'x. Patrimonio '+(cp?pctv(c.patrimonio,cp.patrimonio)+' ':'')+'hasta '+n$(c.patrimonio)+'. Endeudamiento '+(c.endeud*100).toFixed(1)+'%. <b style="color:var(--white)">Conclusión:</b> posición financiera sólida en solvencia y rentabilidad; riesgo consolidado <b style="color:'+riskCol+'">'+riskTxt+'</b>'+(vigilar.length?' por '+vigilar.slice(0,2).map(v=>v[0].toLowerCase()).join(' y '):'')+' (calificación interna '+rating+', tendencia '+tend.replace(/[↗↘→]/g,'').trim().toLowerCase()+').</div>';
+  // ── BLOQUE 9: Footer ──
+  const footer='<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;border-top:1px solid rgba(232,184,75,0.1);padding-top:12px;font-size:11px;color:'+TX2+'"><span>__EMPRESA__ · Confidencial · NIIF · '+y+'</span><span style="display:flex;align-items:center;gap:8px">AuditBrain Executive Advisory '+badge('rgba(232,184,75,0.12)',G,'FIN v2.0')+badge('rgba(55,138,221,0.12)',BL,'CRE v1.0')+'</span></div>';
+
+  document.getElementById("sec-resumen").innerHTML=
+    topbar
+    +'<div style="font-size:11px;color:'+TX2+';text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;font-weight:600">Estado de Resultados</div>'
+    +cardsER
+    +'<div class="grid-2">'+barPanel+donutPL+'</div>'
+    +'<div style="font-size:11px;color:'+TX2+';text-transform:uppercase;letter-spacing:.5px;margin:6px 0 8px;font-weight:600">Balance General</div>'
+    +cardsBG
+    +'<div class="grid-2">'+donutAct+semaforo+'</div>'
+    +'<div class="grid-3">'+panelBueno+panelVig+panelRiesgo+'</div>'
+    +cfo
+    +footer;
+}
+
+function renderResultados(C){
+  const rows=[['Ingresos ordinarios','ingOrd',false,'bold',false],['Costo de ventas','costoVta',true,'','ind'],['Utilidad bruta',null,false,'bold','',c=>c.utilBruta],['Gastos admin, ventas y otros','gastAdm',true,'','ind'],['Utilidad operativa (EBIT)',null,false,'bold','',c=>c.ebit],['Gastos financieros','gastFin',true,'','ind'],['Ingresos no ordinarios','ingNoOrd',false,'','ind'],['Utilidad antes de IR',null,false,'bold','',c=>c.utilAntIR],['IR corriente','irCorr',true,'','ind'],['IR diferido','irDif',false,'','ind'],['Utilidad neta del año',null,false,'bold','',c=>c.utilNeta],['ORI beneficios definidos','ori',false,'','ind'],['Total resultado integral',null,false,'bold','',c=>c.resIntegral],['Depreciación y amortización (memo · incluida en gastos)',null,false,'','ind',c=>c.dna],['EBITDA (EBIT + D&A)',null,false,'bold','',c=>c.ebitda]];
+  let tbody='';
+  rows.forEach(r=>{const[label,key,neg,cls,ind,fn]=r;const vals=YRS.map(y=>fn?fn(C[y]):D[key][y]);
+    tbody+='<tr class="'+cls+'"><td style="'+(ind==='ind'?'padding-left:24px':'')+'">'+label+'</td>'
+    +YRS.map((y,i)=>'<td>'+(key?makeEditable(key,y,vals[i],neg):n$(vals[i]))+'</td>').join('')
+    +'<td>'+deltaTag(vals[vals.length-1],vals[vals.length-2])+'</td>'
+    +YRS.map((y,i)=>'<td style="color:var(--grayL);font-size:10px">'+pctOf(vals[i],D.ingOrd[y])+'</td>').join('')+'</tr>';});
+  const y=activeYear;const _yi=YRS.indexOf(y);const py=_yi>0?YRS[_yi-1]:null;const c=C[y],cp=py?C[py]:null;
+  // Insight automático
+  const insight=(function(){
+    if(!py)return 'Conclusión del Estado de Resultados '+y+': utilidad neta '+n$(c.utilNeta)+' con un margen neto de '+(c.mrgNeto*100).toFixed(1)+'% y margen bruto '+(c.mrgBruto*100).toFixed(1)+'%.';
+    const ingD=pctv(D.ingOrd[y],D.ingOrd[py]),utD=pctv(c.utilNeta,cp.utilNeta);
+    const ingBaja=D.ingOrd[y]<D.ingOrd[py];
+    const driver=ingBaja?'la reducción del volumen de ventas':(c.mrgBruto<cp.mrgBruto?'la presión sobre los márgenes':'el aumento de gastos');
+    const mitig=(c.mrgBruto>=0.30)?' No obstante, la empresa mantuvo un margen bruto cercano al '+(c.mrgBruto*100).toFixed(0)+'% y controló los gastos administrativos, mitigando parcialmente el impacto.':'';
+    return 'Conclusión del Estado de Resultados '+y+': Los ingresos '+(ingBaja?'disminuyeron':'crecieron')+' '+ingD+' respecto a '+py+'. La utilidad neta '+(c.utilNeta<cp.utilNeta?'cayó':'aumentó')+' '+utD+' debido principalmente a '+driver+'.'+mitig;
+  })();
+  // ── Gráfico 1: Punto de equilibrio (break-even) gerencial ──
+  // Aprox.: costo de ventas = variable; gastos admin/ventas/financieros = fijos.
+  const beCalc=yy=>{const v=D.ingOrd[yy]||0;const cv=Math.abs(D.costoVta[yy]);const cf=Math.abs(D.gastAdm[yy])+Math.abs(D.gastFin[yy]);const mc=v?(v-cv)/v:0;const be=mc>0?cf/mc:0;const ms=v?(v-be)/v:0;return{v,cv,cf,mc,be,ms};};
+  const ventasArr=YRS.map(yy=>D.ingOrd[yy]);
+  const beArr=YRS.map(yy=>beCalc(yy).be);
+  const breakeven=svgBreakeven(YRS.map(String),ventasArr,beArr);
+  const bk=beCalc(y),bkp=py?beCalc(py):null;
+  let beTxt='En '+y+' la empresa cubre todos sus costos al vender '+n$(bk.be)+' (punto de equilibrio). Con ventas de '+n$(bk.v)+', opera con un <b>margen de seguridad de '+(bk.ms*100).toFixed(0)+'%</b>: las ventas podrían caer hasta ese porcentaje antes de entrar en pérdidas. Cada $1 vendido aporta '+(bk.mc*100).toFixed(0)+'¢ para cubrir gastos fijos y generar utilidad.';
+  if(bkp)beTxt+=' El colchón '+(bk.ms>bkp.ms?'mejoró':'se redujo')+' frente a '+py+' (era '+(bkp.ms*100).toFixed(0)+'%).';
+  beTxt+=' <span style="opacity:.65;font-size:10.5px">(Costo de ventas = variable; gastos admin/ventas/financieros = fijos.)</span>';
+  // ── Gráfico 2: Tendencia de rentabilidad en $ (Bruta · EBIT · Neta) ──
+  const trend=svgLines(YRS.map(String),[
+    {name:'Utilidad bruta',data:YRS.map(yy=>C[yy].utilBruta),color:CL.gold},
+    {name:'Operativa (EBIT)',data:YRS.map(yy=>C[yy].ebit),color:CL.blue},
+    {name:'Utilidad neta',data:YRS.map(yy=>C[yy].utilNeta),color:CL.green},
+  ],axisFmt,n$);
+  let trTxt;
+  if(py){const gb=pctv(c.utilBruta,cp.utilBruta),ge=pctv(c.ebit,cp.ebit),gn=pctv(c.utilNeta,cp.utilNeta);
+    const rb=(c.utilBruta-cp.utilBruta)/Math.abs(cp.utilBruta||1),rn=(c.utilNeta-cp.utilNeta)/Math.abs(cp.utilNeta||1);
+    const apal=rn>rb?'La utilidad neta crece más rápido que la bruta: la empresa gana eficiencia (gastos e impuestos pesan proporcionalmente menos).':'La utilidad neta avanza menos que la bruta: parte de la mejora operativa se diluye en gastos, financiamiento o impuestos.';
+    trTxt='Frente a '+py+', la utilidad bruta '+gb+', la operativa (EBIT) '+ge+' y la neta '+gn+'. '+apal;
+  }else trTxt='Niveles de ganancia en '+y+': bruta '+n$(c.utilBruta)+', operativa (EBIT) '+n$(c.ebit)+' y neta '+n$(c.utilNeta)+'. La distancia entre la bruta y la neta es lo que consumen gastos, financiamiento e impuestos.';
+  // ── Interpretaciones de los gráficos existentes ──
+  let cbTxt;
+  if(py){const di=pctv(D.ingOrd[y],D.ingOrd[py]),dc=pctv(Math.abs(D.costoVta[y]),Math.abs(D.costoVta[py])),du=pctv(c.utilNeta,cp.utilNeta);
+    cbTxt='Los ingresos '+(D.ingOrd[y]>=D.ingOrd[py]?'crecieron':'cayeron')+' '+di+' y el costo de ventas varió '+dc+'; la utilidad neta '+(c.utilNeta>=cp.utilNeta?'subió':'bajó')+' '+du+'. '+((c.utilNeta>cp.utilNeta&&D.ingOrd[y]>D.ingOrd[py])?'El mayor volumen se tradujo en más utilidad (apalancamiento positivo).':'Conviene revisar por qué la utilidad no acompaña el nivel de ventas.');
+  }else cbTxt='Ingresos '+n$(D.ingOrd[y])+', costo de ventas '+n$(Math.abs(D.costoVta[y]))+' y utilidad neta '+n$(c.utilNeta)+' en '+y+'.';
+  let mgTxt;
+  if(py){const ar=(a,b)=>a>=b?'subió':'bajó';
+    mgTxt='El margen bruto '+ar(c.mrgBruto,cp.mrgBruto)+' de '+(cp.mrgBruto*100).toFixed(1)+'% a '+(c.mrgBruto*100).toFixed(1)+'%, el operativo a '+(c.mrgOp*100).toFixed(1)+'% y el neto a '+(c.mrgNeto*100).toFixed(1)+'%. La brecha entre el margen bruto y el neto ('+((c.mrgBruto-c.mrgNeto)*100).toFixed(1)+' pts) refleja el peso de gastos, financiamiento e impuestos sobre cada venta.';
+  }else mgTxt='Margen bruto '+(c.mrgBruto*100).toFixed(1)+'%, operativo '+(c.mrgOp*100).toFixed(1)+'% y neto '+(c.mrgNeto*100).toFixed(1)+'% en '+y+'.';
+  // Base común de las donas (costo+gastos+impuestos+utilidad) para que centro,
+  // segmentos y lectura coincidan exactamente.
+  const plTot=yy=>(Math.abs(D.costoVta[yy])+Math.abs(D.gastAdm[yy]+D.gastFin[yy])+Math.abs(D.irCorr[yy]+D.irDif[yy])+Math.max(0,C[yy].utilNeta))||1;
+  const tt=plTot(y);
+  const pCost=Math.abs(D.costoVta[y])/tt*100,pGas=Math.abs(D.gastAdm[y]+D.gastFin[y])/tt*100,pImp=Math.abs(D.irCorr[y]+D.irDif[y])/tt*100,pUt=Math.max(0,c.utilNeta)/tt*100;
+  let stTxt='Por cada $100 que se reparten en '+y+': $'+pCost.toFixed(0)+' van a costo de ventas, $'+pGas.toFixed(0)+' a gastos operativos, $'+pImp.toFixed(0)+' a impuestos y quedan <b>$'+pUt.toFixed(0)+' de utilidad neta</b>.';
+  if(py){const pUtp=Math.max(0,cp.utilNeta)/plTot(py)*100;stTxt+=' Frente a '+py+', la utilidad por cada $100 '+(pUt>=pUtp?'mejoró':'se redujo')+' (era $'+pUtp.toFixed(0)+').';}
+  // Estructura del P&L como donas comparativas (a dónde va cada $1 de ingreso),
+  // con paleta suave para un look más gerencial / menos saturado.
+  const PL_COL={costo:'#7FB3D5',gastos:'#E3B778',imp:'#9AA5B1',util:'#8FB85B'};
+  const plSeg=yy=>[
+    {label:'Costo de ventas',value:Math.abs(D.costoVta[yy]),color:PL_COL.costo},
+    {label:'Gastos operativos',value:Math.abs(D.gastAdm[yy]+D.gastFin[yy]),color:PL_COL.gastos},
+    {label:'Impuestos',value:Math.abs(D.irCorr[yy]+D.irDif[yy]),color:PL_COL.imp},
+    {label:'Utilidad neta',value:Math.max(0,C[yy].utilNeta),color:PL_COL.util},
+  ];
+  const plLeg='<div class="legend" style="justify-content:center;margin-top:6px">'+[['Costo de ventas',PL_COL.costo],['Gastos operativos',PL_COL.gastos],['Impuestos',PL_COL.imp],['Utilidad neta',PL_COL.util]].map(p=>'<span class="legend-item"><span class="legend-dot" style="background:'+p[1]+'"></span>'+p[0]+'</span>').join('')+'</div>';
+  // ═══ VISTA EJECUTIVA DEL ESTADO DE RESULTADOS (estándar del Balance: 3D + riesgos + semáforo + A/B/Cierre) ═══
+  // Helpers locales (los del Balance están en otro scope)
+  const ec=(accent,label,val,sub)=>'<div class="ec" style="--ec-accent:var(--'+accent+')"><div class="ec-label">'+label+'</div><div class="ec-val" style="color:var(--white)">'+val+'</div><div class="ec-sub">'+sub+'</div></div>';
+  const cajaAB=(lbl,txt,ac)=>'<div style="margin-top:10px;padding:11px 13px;background:rgba(13,115,119,.09);border-left:3px solid var(--'+(ac||'teal')+');border-radius:5px;font-size:11.5px;line-height:1.55;color:var(--grayL)"><b style="color:var(--'+(ac||'teal')+')">'+lbl+':</b> '+txt+'</div>';
+  const dotc=cc=>'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--'+cc+');margin-right:7px;vertical-align:middle"></span>';
+  const nivCol={ALTO:'red',MEDIO:'amber',BAJO:'greenOk'},nivBg={ALTO:'rgba(192,57,43,.18)',MEDIO:'rgba(214,137,16,.18)',BAJO:'rgba(30,132,73,.20)'},nivRank={ALTO:0,MEDIO:1,BAJO:2};
+  const badge=lv=>'<span style="display:inline-block;padding:3px 11px;border-radius:11px;font-size:10px;font-weight:700;letter-spacing:.4px;background:'+nivBg[lv]+';color:var(--'+nivCol[lv]+')">'+lv+'</span>';
+  const fP2=v=>v.toFixed(1)+'%';
+  const polar=(deg,r)=>{const a=deg*Math.PI/180;return[(100+r*Math.cos(a)).toFixed(1),(100-r*Math.sin(a)).toFixed(1)];};
+  const arcP=(d1,d2,col)=>{const p1=polar(d1,74),p2=polar(d2,74);return '<path d="M'+p1[0]+' '+p1[1]+' A74 74 0 0 1 '+p2[0]+' '+p2[1]+'" fill="none" stroke="'+col+'" stroke-width="15"/>';};
+  // KPIs base e indicadores
+  const mb=c.mrgBruto*100,mo=c.mrgOp*100,mn=c.mrgNeto*100,msg=bk.ms*100;
+  const ventasG=cp?(D.ingOrd[y]-D.ingOrd[py])/Math.abs(D.ingOrd[py]||1)*100:null;
+  const depNoOp=c.utilAntIR>0?(D.ingNoOrd[y]/c.utilAntIR*100):0;
+  const cargaFin=c.ebitda>0?Math.abs(D.gastFin[y])/c.ebitda*100:0;
+  // Calidad del crecimiento (módulo 09)
+  let calCrecTxt='[Sin período previo]',calColor='teal',calG=50;
+  if(cp){
+    const vU=D.ingOrd[y]>D.ingOrd[py],ebU=c.ebitda>=cp.ebitda,utU=c.utilNeta>=cp.utilNeta,perdida=c.utilNeta<0;
+    const venG=(D.ingOrd[y]-D.ingOrd[py])/Math.abs(D.ingOrd[py]||1),gfUp=Math.abs(D.gastFin[y])>Math.abs(D.gastFin[py]),gfG=Math.abs(D.gastFin[py])>0?(Math.abs(D.gastFin[y])-Math.abs(D.gastFin[py]))/Math.abs(D.gastFin[py]):0;
+    if(perdida||(vU&&!utU)||(vU&&!ebU)||(gfUp&&gfG>venG&&venG>=0)){calCrecTxt='Destructivo';calColor='red';calG=80;}
+    else if(vU&&ebU&&utU){calCrecTxt='Saludable';calColor='greenOk';calG=20;}
+    else {calCrecTxt='Frágil';calColor='amber';calG=50;}
+  }
+  // 1) Banda de KPIs
+  const kpiVs=(cur,prev,goodUp)=>{if(prev==null)return 'período único';const up=cur>=prev,good=goodUp?up:!up;return '<span style="color:var(--'+(good?'green':'red')+')">'+(up?'▲':'▼')+' '+pctv(cur,prev)+' vs '+py+'</span>';};
+  const erKpiBand='<div class="ec-grid" style="margin-bottom:16px">'
+    +ec('teal','Ingresos',n$(D.ingOrd[y]),cp?kpiVs(D.ingOrd[y],D.ingOrd[py],true):'período único')
+    +ec('gold','Utilidad neta',n$(c.utilNeta),cp?kpiVs(c.utilNeta,cp.utilNeta,true):'período único')
+    +ec('green','Margen neto',fP2(mn),'utilidad por cada $ vendido')
+    +ec(calColor,'Calidad del crecimiento','<span style="color:var(--'+calColor+')">'+calCrecTxt+'</span>',cp?'Ventas '+pctv(D.ingOrd[y],D.ingOrd[py])+' · utilidad '+pctv(c.utilNeta,cp.utilNeta):'requiere período previo')
+    +'</div>';
+  // 2) Cascada de rentabilidad → BARRAS 3D (Ingresos → Bruta → EBIT → Neta) con crecimiento/disminución
+  const casc=[{lbl:'Ingresos',cur:D.ingOrd[y],prev:cp?D.ingOrd[py]:null,col:CL.teal},{lbl:'Utilidad bruta',cur:c.utilBruta,prev:cp?cp.utilBruta:null,col:CL.gold},{lbl:'Operativa (EBIT)',cur:c.ebit,prev:cp?cp.ebit:null,col:CL.blue},{lbl:'Utilidad neta',cur:c.utilNeta,prev:cp?cp.utilNeta:null,col:CL.green}];
+  const cascBars=casc.map(x=>{const dp=(x.prev!=null&&Math.abs(x.prev)>1e-9)?((x.cur-x.prev)/Math.abs(x.prev)*100):null,grew=dp!=null&&dp>0.05,shrank=dp!=null&&dp<-0.05;return {label:x.lbl,value:x.cur,color:x.col,delta:dp==null?null:((grew?'▲ +':(shrank?'▼ ':'→ '))+dp.toFixed(1)+'%'),deltaCol:grew?CL.green:(shrank?CL.red:'#9AA5B1')};});
+  const cascChart='<div class="panel"><div class="panel-title">Cascada de rentabilidad · Ingresos → Bruta → EBIT → Neta'+(cp?' (vs '+py+')':'')+'</div>'+svgBars3D(cascBars,n$)+'</div>';
+  // 3) Riesgos clave del resultado
+  const erRubros=[
+    {nom:'Margen bruto',riesgo:'Presión de costo de ventas',nivel:mb>=30?'BAJO':(mb>=20?'MEDIO':'ALTO'),ind:fP2(mb)},
+    {nom:'Margen neto',riesgo:'Rentabilidad final del negocio',nivel:mn>=10?'BAJO':(mn>=5?'MEDIO':'ALTO'),ind:fP2(mn)},
+    {nom:'Punto de equilibrio',riesgo:'Colchón ante caída de ventas',nivel:msg>=30?'BAJO':(msg>=15?'MEDIO':'ALTO'),ind:fP2(msg)+' m. seg.'},
+    {nom:'Dependencia no operativa',riesgo:'Utilidad por ingresos no ordinarios',nivel:depNoOp<=10?'BAJO':(depNoOp<=25?'MEDIO':'ALTO'),ind:fP2(depNoOp)},
+    {nom:'Carga financiera',riesgo:'Gastos financieros vs EBITDA',nivel:cargaFin<=10?'BAJO':(cargaFin<=25?'MEDIO':'ALTO'),ind:fP2(cargaFin)}
+  ].sort((a,b)=>nivRank[a.nivel]-nivRank[b.nivel]);
+  const erRiesgoTabla='<div class="panel"><div class="panel-title">Riesgos clave del resultado</div><table style="font-size:12px"><thead><tr><th style="text-align:left">Área</th><th style="text-align:left">Riesgo principal</th><th style="text-align:center">Nivel</th><th>Indicador</th></tr></thead><tbody>'
+    +erRubros.map(r=>'<tr><td style="text-align:left">'+dotc(nivCol[r.nivel])+r.nom+'</td><td style="text-align:left;color:var(--grayL)">'+r.riesgo+'</td><td style="text-align:center">'+badge(r.nivel)+'</td><td class="mono">'+r.ind+'</td></tr>').join('')
+    +'</tbody></table></div>';
+  // 4) Resumen de riesgo (calidad del crecimiento): semáforo + 5 indicadores
+  const erNd=polar(180-calG*1.8,56),erSemC=calColor;
+  const erGauge='<svg viewBox="0 0 200 122" style="width:100%;max-width:240px">'+arcP(180,135,CL.green)+arcP(135,90,CL.gold)+arcP(90,45,CL.amber)+arcP(45,0,CL.red)
+    +'<line x1="100" y1="100" x2="'+erNd[0]+'" y2="'+erNd[1]+'" stroke="var(--white)" stroke-width="3" stroke-linecap="round"/><circle cx="100" cy="100" r="6" fill="var(--white)"/>'
+    +'<text x="100" y="119" text-anchor="middle" fill="'+(calColor==='greenOk'?CL.green:calColor==='amber'?CL.amber:calColor==='red'?CL.red:CL.teal)+'" font-size="15" font-weight="700" font-family="Montserrat,Arial">'+calCrecTxt.toUpperCase()+'</text></svg>';
+  const erKpi=[
+    {lbl:'Margen bruto',cur:mb,prev:cp?cp.mrgBruto*100:null,sem:mb>=30?'greenOk':(mb>=20?'amber':'red'),low:false,nota:'Utilidad bruta / ventas'},
+    {lbl:'Margen operativo',cur:mo,prev:cp?cp.mrgOp*100:null,sem:mo>=15?'greenOk':(mo>=8?'amber':'red'),low:false,nota:'EBIT / ventas'},
+    {lbl:'Margen neto',cur:mn,prev:cp?cp.mrgNeto*100:null,sem:mn>=10?'greenOk':(mn>=5?'amber':'red'),low:false,nota:'Utilidad neta / ventas'},
+    {lbl:'Margen de seguridad',cur:msg,prev:bkp?bkp.ms*100:null,sem:msg>=30?'greenOk':(msg>=15?'amber':'red'),low:false,nota:'Caída de ventas tolerable'},
+    (ventasG!=null)?{lbl:'Crecimiento de ventas',cur:ventasG,prev:null,sem:ventasG>=0?'greenOk':'red',low:false,nota:'Ventas vs '+py}:{lbl:'Margen EBITDA',cur:c.ebitda/(D.ingOrd[y]||1)*100,prev:null,sem:'teal',low:false,nota:'EBITDA / ventas'}
+  ].filter(Boolean).slice(0,5);
+  const erKpiCards=erKpi.map(k=>{
+    let delta='<span style="font-size:10px;color:var(--grayL)">único período</span>';
+    if(k.prev!=null){const same=Math.abs(k.cur-k.prev)<1e-9,better=k.low?k.cur<k.prev:k.cur>k.prev,arr=same?'→':(k.cur>k.prev?'▲':'▼'),col=same?'grayL':(better?'green':'red');
+      delta='<span style="color:var(--'+col+');font-size:10px">'+arr+' ant. '+fP2(k.prev)+'</span>';}
+    return '<div style="background:rgba(255,255,255,.03);border:1px solid rgba(213,216,220,.10);border-top:2px solid var(--'+k.sem+');border-radius:8px;padding:12px 12px;text-align:center"><div style="font-size:10px;color:var(--grayL);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;min-height:24px;display:flex;align-items:center;justify-content:center;line-height:1.2">'+k.lbl+'</div><div class="mono" style="font-size:20px;font-weight:700;color:var(--'+k.sem+');line-height:1">'+fP2(k.cur)+'</div><div style="margin-top:4px">'+delta+'</div><div style="font-size:10px;color:var(--grayL);margin-top:6px;line-height:1.3">'+k.nota+'</div></div>';
+  }).join('');
+  const erResumen='<div class="panel"><div class="panel-title">Resumen de riesgo · calidad del crecimiento</div><div style="display:flex;gap:22px;align-items:center;flex-wrap:wrap"><div style="text-align:center;flex:0 0 auto"><div style="font-size:9.5px;color:var(--grayL);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Calidad del crecimiento</div>'+erGauge+'</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;flex:1;min-width:300px">'+erKpiCards+'</div></div></div>';
+  // 5) Estructura del P&L → BARRAS 3D (a dónde va cada $1 de ingreso, año activo)
+  const plItems=[{label:'Costo ventas',v:Math.abs(D.costoVta[y]),color:PL_COL.costo},{label:'Gastos oper.',v:Math.abs(D.gastAdm[y]+D.gastFin[y]),color:PL_COL.gastos},{label:'Impuestos',v:Math.abs(D.irCorr[y]+D.irDif[y]),color:PL_COL.imp},{label:'Utilidad neta',v:Math.max(0,c.utilNeta),color:PL_COL.util}].filter(x=>x.v>0);
+  const plBars=plItems.map(x=>({label:x.label,value:x.v,color:x.color,delta:(x.v/tt*100).toFixed(0)+'%',deltaCol:'#9AA5B1'}));
+  const plChart='<div class="panel"><div class="panel-title">Estructura del P&amp;L · ¿a dónde va cada $1 de ingreso? · '+y+'</div><div style="max-width:560px;margin:0 auto">'+svgBars3D(plBars,n$)+'</div>'+lectura(stTxt)+'</div>';
+  // 6) Detalle y análisis ejecutivo (módulo 09: A crecimiento · B calidad · Cierre)
+  const ebitdaG=cp?pctv(c.ebitda,cp.ebitda):null;
+  const erA='<b>Qué creció y por qué:</b> los ingresos '+(cp?'pasaron de '+n$(D.ingOrd[py])+' a '+n$(D.ingOrd[y])+' ('+pctv(D.ingOrd[y],D.ingOrd[py])+')':'fueron '+n$(D.ingOrd[y]))+'. '+(cp?'La utilidad bruta '+pctv(c.utilBruta,cp.utilBruta)+', el EBITDA '+ebitdaG+' y la utilidad neta '+pctv(c.utilNeta,cp.utilNeta)+'. ':'')+'Separación precio vs volumen: <b>[DATO NO DISPONIBLE — solicitar volumen y precio promedio]</b>.';
+  const erB='<b>Calidad del crecimiento:</b> márgenes bruto '+fP2(mb)+', operativo '+fP2(mo)+', neto '+fP2(mn)+'. '+(cp?('El margen neto '+(mn>=cp.mrgNeto*100?'mejoró':'se redujo')+' vs '+py+' (era '+fP2(cp.mrgNeto*100)+'). '):'')+'Punto de equilibrio '+n$(bk.be)+' con margen de seguridad '+fP2(msg)+'. Carga financiera (gastos fin./EBITDA) '+fP2(cargaFin)+'. '+(depNoOp>10?'⚠️ El '+fP2(depNoOp)+' de la utilidad antes de IR proviene de ingresos no ordinarios (menos recurrente). ':'')+'En conjunto, el crecimiento '+(calColor==='greenOk'?'mejoró la rentabilidad sin elevar la carga financiera':calColor==='amber'?'avanzó pero con señales de fragilidad':'deterioró rentabilidad o cobertura')+'.';
+  const leaks=[['gastos administrativos y de ventas',Math.abs(D.gastAdm[y])],['gastos financieros',Math.abs(D.gastFin[y])],['impuestos',Math.abs(D.irCorr[y]+D.irDif[y])]].sort((a,b)=>b[1]-a[1]);
+  const causa=cp?(D.ingOrd[y]>D.ingOrd[py]?'mayor nivel de ventas'+(mb>=cp.mrgBruto*100?' con mejora del margen bruto':''):'control de costos y gastos pese a menores ventas'):'[N/D — requiere período previo]';
+  const erAcc=calColor==='greenOk'?'sostener volumen y margen; reinvertir la utilidad con disciplina de capital de trabajo':(calColor==='amber'?'proteger el margen bruto y la generación de caja antes de seguir creciendo':'frenar el deterioro: revisar precios, costos y carga financiera');
+  const erSemTxt=calColor==='greenOk'?'🟢 Saludable':(calColor==='amber'?'🟡 Frágil':(calColor==='red'?'🔴 Destructivo':'⚪ Sin período previo'));
+  const erCierre='<b>Clasificación del crecimiento:</b> '+erSemTxt+'.<br><b>Principal causa del crecimiento:</b> '+causa+'.<br><b>Principal fuga de valor:</b> '+leaks[0][0]+' ('+n$(leaks[0][1])+', '+(leaks[0][1]/D.ingOrd[y]*100).toFixed(0)+'% de las ventas).<br><b>Acción recomendada:</b> '+erAcc+'.<br><b>Semáforo de calidad del crecimiento:</b> '+erSemTxt+'.';
+  document.getElementById("sec-resultados").innerHTML=
+  '<div class="sec-head"><div class="sec-num">01 · Estado de Resultados</div><div class="sec-title">¿Cómo se generó la utilidad? · '+YRS[0]+'–'+YRS[YRS.length-1]+'</div><div class="sec-sub">Clic en cualquier número azul para editarlo — todo se recalcula al instante.</div></div>'
+  +erKpiBand
+  +'<div class="grid-2">'+cascChart+erRiesgoTabla+'</div>'
+  +'<div class="grid-2"><div class="panel"><div class="panel-title">Ingresos · Costos · Utilidad neta</div>'+svgCombo(YRS.map(String),[{name:'Ingresos',data:YRS.map(yy=>D.ingOrd[yy]),color:CL.teal},{name:'Costo ventas',data:YRS.map(yy=>Math.abs(D.costoVta[yy])),color:CL.red}],[{name:'Utilidad neta',data:YRS.map(yy=>C[yy].utilNeta),color:CL.gold}],axisFmt,n$)+lectura(cbTxt)+'</div>'
+  +'<div class="panel"><div class="panel-title">Evolución de márgenes (%)</div>'+svgLines(YRS.map(String),[{name:'M. bruto',data:YRS.map(yy=>+(C[yy].mrgBruto*100).toFixed(1)),color:CL.gold},{name:'M. operativo',data:YRS.map(yy=>+(C[yy].mrgOp*100).toFixed(1)),color:CL.blue},{name:'M. neto',data:YRS.map(yy=>+(C[yy].mrgNeto*100).toFixed(1)),color:CL.green}],v=>v.toFixed(0)+'%')+lectura(mgTxt)+'</div></div>'
+  +'<div class="grid-2"><div class="panel"><div class="panel-title">Punto de equilibrio · ¿cuánto pueden caer las ventas antes de perder?</div>'+breakeven+lectura(beTxt)+'</div>'
+  +'<div class="panel"><div class="panel-title">Tendencia de rentabilidad ($) · Bruta → Operativa → Neta</div>'+trend+lectura(trTxt)+'</div></div>'
+  +erResumen
+  +plChart
+  +'<div class="panel"><div class="panel-title">Detalle y análisis ejecutivo del resultado</div>'
+    +cajaAB('A · Análisis del crecimiento',erA,'teal')
+    +cajaAB('B · Análisis de calidad',erB,'gold')
+    +cajaAB('Cierre ejecutivo (Gerencia y Accionistas)',erCierre,'teal')
+    +'<div style="margin-top:14px;font-size:10px;color:var(--teal);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Detalle del estado de resultados</div>'
+    +'<table><thead><tr><th>Cuenta</th>'+YRS.map(yy=>'<th>'+yy+'</th>').join('')+'<th>Var</th>'+YRS.map(yy=>'<th>%'+yy+'</th>').join('')+'</tr></thead><tbody>'+tbody+'</tbody></table></div>';
+}
+
+function renderBalance(C){
+  const rows=[['ACTIVOS CORRIENTES',null,'bold',c=>c.actCorr],['Efectivo y equivalentes','efectivo','ind'],['Activos financieros','actFin','ind'],['CxC comerciales','cxc','ind'],['CxC relacionadas','cxcRelac','ind'],['Anticipos a proveedores','anticiposProv','ind'],['Inventarios','inventario','ind'],['Activos imp. corrientes','actImpCorr','ind'],['Otras cuentas por cobrar','otrosAct','ind'],['ACTIVOS NO CORRIENTES',null,'bold',c=>c.actNoCorr],['Propiedades y equipos','propEquip','ind'],['Activos imp. diferidos','actImpDif','ind'],['Cuentas por cobrar a largo plazo','cxcLP','ind'],['Otros activos no corrientes','otrosActNoCorr','ind'],['TOTAL ACTIVOS',null,'bold',c=>c.totalAct],['',null,'',null],['PASIVOS CORRIENTES',null,'bold',c=>c.pasCorr],['Obligaciones bancarias','oblBanc','ind'],['CxP comerciales','cxp','ind'],['Obligaciones con empleados','benefEmpl','ind'],['Obligaciones tributarias','pasImpCorr','ind'],['CxP relacionadas / accionistas','cxpRelacPas','ind'],['Provisiones','provisiones','ind'],['Otras cuentas por pagar','otrasCxp','ind'],['PASIVOS NO CORRIENTES',null,'bold',c=>c.pasNoCorr],['Préstamos a largo plazo','prestamosLP','ind'],['Pasivo por impuestos diferidos','pasImpDifLP','ind'],['Beneficios definidos LP','benDefLP','ind'],['TOTAL PASIVOS',null,'bold',c=>c.totalPas],['',null,'',null],['PATRIMONIO',null,'head'],['Capital social','capital','ind'],['Reservas','resLegal','ind'],['Otro resultado integral (ORI)','oriAcum','ind'],['Resultados acumulados (ejerc. anteriores)',null,'ind',(c,y)=>D.utilAcum[y]-c.utilNeta],['Utilidad del ejercicio',null,'ind',(c)=>c.utilNeta],['TOTAL PATRIMONIO',null,'bold',c=>c.patrimonio],['TOTAL PASIVO + PATRIMONIO',null,'check',c=>c.totalPas+c.patrimonio]];
+  let tbody='';
+  rows.forEach(r=>{const[label,key,ind,fn]=r;if(!label){tbody+='<tr><td colspan="'+(YRS.length*2+2)+'" style="height:6px;border:none"></td></tr>';return;}
+    const isHead=ind==='head',isCheck=ind==='check',isBold=ind==='bold'||isHead||isCheck;
+    const vals=YRS.map(y=>fn?fn(C[y],y):(key?D[key][y]:null));
+    // Ocultar cuentas de detalle (editables o calculadas) con saldo 0 en todos los años.
+    if(ind==='ind'&&vals.every(v=>Math.round(v||0)===0))return;
+    const valCells=isHead?YRS.map(()=>'<td></td>').join('')
+      :YRS.map((y,i)=>'<td>'+(key?makeEditable(key,y,vals[i],false):n$(vals[i]))+'</td>').join('');
+    const varCell=isHead?'<td></td>':'<td>'+deltaTag(vals[vals.length-1],vals[vals.length-2])+'</td>';
+    const pctCells=isHead?YRS.map(()=>'<td></td>').join('')
+      :YRS.map((y,i)=>'<td style="color:var(--grayL);font-size:10px">'+pctOf(vals[i],C[y].totalAct)+'</td>').join('');
+    let labelHtml=label;
+    if(isCheck){const ok=YRS.every(y=>Math.abs((C[y].totalPas+C[y].patrimonio)-C[y].totalAct)<1.5);
+      labelHtml=label+' '+(ok?'<span style="color:var(--greenOk);font-size:11px">✓ cuadra con el activo</span>':'<span style="color:var(--red);font-size:11px">✗ no cuadra</span>');}
+    tbody+='<tr class="'+(isBold?'bold':'')+'"><td style="'+(ind==='ind'?'padding-left:24px':'')+(isCheck?';border-top:2px double var(--teal);color:var(--teal)':'')+'">'+labelHtml+'</td>'
+    +valCells+varCell+pctCells+'</tr>';});
+  const y=activeYear;
+  // Toggle de nivel de detalle (resumido / detallado).
+  const hayDet=Array.isArray(BAL_DET)&&BAL_DET.length>0;
+  const toggle=hayDet?('<div style="display:flex;gap:6px;margin-top:8px;align-items:center"><span style="font-size:10px;color:var(--teal)">NIVEL DE DETALLE:</span>'
+    +[['resumido','Resumido'],['detallado','Detallado']].map(([nv,lb])=>'<button class="yearbtn '+(NIVEL===nv?'active':'')+'" onclick="setNivel(\''+nv+'\')">'+lb+'</button>').join('')+'</div>'):'';
+  // Tabla detallada (todas las cuentas) desde BAL_DET.
+  const detTabla=()=>{let b='';BAL_DET.forEach(r=>{
+    if(r.t==='sec'){b+='<tr class="bold"><td colspan="'+(YRS.length*2+2)+'" style="text-align:left;background:rgba(10,35,66,.6)">'+r.label+'</td></tr>';return;}
+    // Ocultar cuentas de detalle con saldo 0 en todos los años (los totales sí se muestran).
+    if(r.t==='in'&&YRS.every(yy=>Math.round(r.vals[yy]||0)===0))return;
+    const isTot=r.t!=='in';
+    b+='<tr class="'+(isTot?'bold':'')+'"><td style="'+(r.t==='in'?'padding-left:24px':'')+'">'+r.label+'</td>'
+      +YRS.map(yy=>'<td>'+n$(r.vals[yy]||0)+'</td>').join('')
+      +'<td>'+deltaTag(r.vals[YRS[YRS.length-1]]||0,r.vals[YRS[YRS.length-2]]||0)+'</td>'
+      +YRS.map(yy=>'<td style="color:var(--grayL);font-size:10px">'+pctOf(r.vals[yy]||0,C[yy].totalAct)+'</td>').join('')+'</tr>';});
+    return b;};
+  const usarDet=hayDet&&NIVEL==='detallado';
+  const tablaHTML=usarDet?detTabla():tbody;
+  const tituloTabla=usarDet?'Detalle del balance — todas las cuentas (detallado)':'Detalle del balance — agrupado (resumido)';
+  // Etiquetas propias del Balance (fechas de corte que pueden diferir del ER).
+  const BLBL=(Array.isArray(LBL_ESF)&&LBL_ESF.length===YRS.length)?LBL_ESF:YRS;
+  const curLbl=BLBL[BLBL.length-1];
+  const subDates=BLBL.length>=2?(' Comparativo '+BLBL[0]+' vs '+BLBL[BLBL.length-1]+'.'):'';
+  // ── KPIs e insights por grupo (año activo) ──
+  const _yi=YRS.indexOf(y),py=_yi>0?YRS[_yi-1]:null,c=C[y],cp=py?C[py]:null,tA=c.totalAct||1;
+  const kRow=(label,value,note,color)=>'<div style="padding:9px 0;border-bottom:1px solid rgba(13,115,119,.12)"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><span style="font-size:12px;color:var(--white)">'+label+'</span><span class="mono" style="font-size:14px;color:var(--'+(color||'gold')+')">'+value+'</span></div><div style="font-size:10.5px;color:var(--grayL);margin-top:2px;line-height:1.4">'+note+'</div></div>';
+  const kpiBox=(html)=>'<div><div style="font-size:10px;color:var(--teal);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Indicadores afectados</div>'+html+'</div>';
+  const grupo=(titulo,donut,kpis,lecturaTxt)=>'<div class="panel"><div class="panel-title">'+titulo+'</div><div class="grid-2" style="align-items:center">'+'<div style="max-width:340px;margin:0 auto;width:100%">'+donut+'</div>'+kpiBox(kpis)+'</div>'+lectura(lecturaTxt)+'</div>';
+  // ACTIVOS
+  const inv=D.inventario?D.inventario[y]:0;
+  // ===== DIAGNÓSTICO DINÁMICO DEL ACTIVO (regla CFO) =====
+  const av=(k)=>(D[k]?D[k][y]||0:0),avp=(k)=>(cp&&D[k]?D[k][py]||0:0);
+  const cajaPct=av('efectivo')/tA*100,cartPct=av('cxc')/tA*100,invPct=inv/tA*100,relPct=av('cxcRelac')/tA*100,ppePct=av('propEquip')/tA*100,invsPct=av('actFin')/tA*100,ocioso=cajaPct>8&&av('actFin')<=0,capTrab=c.actCorr-c.pasCorr;
+  const ancPct=c.actNoCorr/tA*100;
+  const relPatr=c.patrimonio?av('cxcRelac')/c.patrimonio*100:null;
+  // Activos improductivos: no generan flujo operativo directo (inversiones, relacionadas, anticipos, CxC L/P, otros no corrientes).
+  const improd=av('actFin')+av('cxcRelac')+av('anticiposProv')+av('cxcLP')+av('otrosActNoCorr'),imprPct=improd/tA*100;
+  // Crecimientos para alertas (requieren período anterior).
+  const ventaG=(cp&&D.ingOrd[py])?(D.ingOrd[y]-D.ingOrd[py])/Math.abs(D.ingOrd[py]):null;
+  const invG=(cp&&avp('inventario'))?(inv-avp('inventario'))/Math.abs(avp('inventario')):null;
+  const ppeG=(cp&&avp('propEquip'))?(av('propEquip')-avp('propEquip'))/Math.abs(avp('propEquip')):null;
+  const alertaInv20=(invG!=null&&ventaG!=null&&invG>0.20&&ventaG<invG*0.6);
+  const alertaPpe10=(ppeG!=null&&ppeG>0.10);
+  const matInv=invPct>=5,matCart=cartPct>=5,matPPE=ppePct>=5,matRel=relPct>=5,matInvs=invsPct>=5;
+  // Cuentas → materialidad y variación
+  const ACT_CTAS=[['Efectivo y equivalentes','efectivo'],['Inversiones','actFin'],['CxC comerciales','cxc'],['CxC relacionadas','cxcRelac'],['Anticipos a proveedores','anticiposProv'],['Inventarios','inventario'],['Activos imp. corrientes','actImpCorr'],['Otras cuentas por cobrar','otrosAct'],['Propiedades y equipos','propEquip'],['Activos imp. diferidos','actImpDif'],['CxC a largo plazo','cxcLP'],['Otros activos no corrientes','otrosActNoCorr']];
+  const ctas=ACT_CTAS.map(([lbl,k])=>{const v=av(k),vp=avp(k),pct=tA?v/tA*100:0,pctp=(cp&&cp.totalAct)?vp/cp.totalAct*100:0;return{lbl,k,v,vp,pct,dabs:v-vp,dpct:vp?((v-vp)/Math.abs(vp)*100):null,dpart:pct-pctp,mat:pct>=10?'alta':pct>=5?'media':'baja'};}).filter(x=>Math.abs(x.v)>0).sort((a,b)=>b.v-a.v);
+  const materiales=ctas.filter(x=>x.mat!=='baja');
+  const dom=ctas[0]||{pct:0,k:''},domTipo={inventario:'inventario',cxc:'cartera comercial',propEquip:'activos fijos',actFin:'inversiones',cxcRelac:'cuentas relacionadas',efectivo:'efectivo'}[dom.k]||(dom.lbl||'').toLowerCase();
+  const perfil=(()=>{const a=[];if((invPct+cartPct)>=40)a.push('intensivo en capital de trabajo');if(ppePct>=35)a.push('intensivo en activos fijos');if(invsPct>=15)a.push('intensivo en inversiones');if(relPct>=15)a.push('intensivo en cuentas relacionadas');if(imprPct>=20)a.push('con peso de activos improductivos');return a.length?a.join(' · '):'estructura equilibrada';})();
+  // Tabla de indicadores ejecutiva (estilo Command Center): indicador · período ant · actual + semáforo.
+  const dotc=cc=>'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--'+cc+');margin-right:7px;vertical-align:middle"></span>';
+  const fX=v=>v.toFixed(2)+'x',fP=v=>v.toFixed(1)+'%',fD=v=>Math.round(v)+' d';
+  const imprPrev=cp?(avp('actFin')+avp('cxcRelac')+avp('anticiposProv')+avp('cxcLP')+avp('otrosActNoCorr')):0;
+  const indRows=[
+    ['Liquidez corriente',fX(c.liquidez),cp?fX(cp.liquidez):'—',c.liquidez>=1.5?'green':(c.liquidez>=1?'gold':'red')],
+    ['Capital de trabajo',n$(capTrab),cp?n$(cp.actCorr-cp.pasCorr):'—',capTrab>=0?'green':'red'],
+    ['Activo corriente / total',fP(c.actCorr/tA*100),cp?fP(cp.actCorr/cp.totalAct*100):'—','teal'],
+    ['Activo no corriente / total',fP(ancPct),cp?fP(cp.actNoCorr/cp.totalAct*100):'—','teal'],
+    ['Caja / activos',fP(cajaPct),cp?fP(avp('efectivo')/cp.totalAct*100):'—',ocioso?'amber':'teal'],
+    matInv?['Inventario / activos',fP(invPct),cp?fP(avp('inventario')/cp.totalAct*100):'—',invPct>=10?'amber':'gold']:null,
+    matInv?['Días de inventario (DIO)',fD(c.dio),cp?fD(cp.dio):'—',c.dio>120?'amber':'green']:null,
+    matCart?['Cartera / activos',fP(cartPct),cp?fP(avp('cxc')/cp.totalAct*100):'—',cartPct>=10?'amber':'gold']:null,
+    matCart?['Días de cobro (DSO)',fD(c.dso),cp?fD(cp.dso):'—',c.dso>60?'amber':'green']:null,
+    matRel?['CxC relacionadas / activos',fP(relPct),cp?fP(avp('cxcRelac')/cp.totalAct*100):'—','amber']:null,
+    (matRel&&relPatr!=null)?['CxC relacionadas / patrimonio',fP(relPatr),(cp&&cp.patrimonio)?fP(avp('cxcRelac')/cp.patrimonio*100):'—',relPatr>10?'amber':'teal']:null,
+    (imprPct>0)?['Activos improductivos / activos',fP(imprPct),cp?fP(imprPrev/cp.totalAct*100):'—',imprPct>5?'amber':'teal']:null,
+    matPPE?['PP&E / activos',fP(ppePct),cp?fP(avp('propEquip')/cp.totalAct*100):'—','teal']:null,
+    ['Rotación de activos',fX(c.rotAct),cp?fX(cp.rotAct):'—',c.rotAct>=1?'green':'gold'],
+    ['CAPEX / activos','[N/D]','[N/D]','grayL']
+  ].filter(Boolean);
+  const indTabla='<table style="font-size:12px"><thead><tr><th style="text-align:left">Indicador</th><th>'+(py||'Anterior')+'</th><th>'+y+'</th></tr></thead><tbody>'+indRows.map(r=>'<tr><td style="text-align:left">'+dotc(r[3])+r[0]+'</td><td class="mono" style="color:var(--grayL)">'+r[2]+'</td><td class="mono" style="color:var(--'+r[3]+')">'+r[1]+'</td></tr>').join('')+'</tbody></table>';
+  // Bloques A / B / conclusión (dinámicos)
+  const fmtPct=x=>(x>=0?'+':'')+x.toFixed(0)+'%';
+  const topMat=materiales.map(x=>x.lbl.replace(' y equivalentes','').replace('Propiedades y equipos','PP&E')+' '+x.pct.toFixed(0)+'%');
+  const variaciones=cp?ctas.slice().sort((a,b)=>Math.abs(b.dabs)-Math.abs(a.dabs)).slice(0,3).map(x=>(x.dabs>=0?'+':'')+n$(x.dabs)+' '+x.lbl.toLowerCase()):[];
+  // A — Análisis del dashboard / composición
+  const bloqueA='<b>Composición:</b> activo corriente '+(c.actCorr/tA*100).toFixed(0)+'% / no corriente '+ancPct.toFixed(0)+'%. Perfil: <b>'+perfil+'</b>. Las '+materiales.length+' cuentas materiales ('+topMat.join(' · ')+') concentran el '+materiales.reduce((s,x)=>s+x.pct,0).toFixed(0)+'% del activo; el rubro dominante es <b>'+domTipo+'</b> ('+dom.pct.toFixed(0)+'%). '+(cp?('Frente a '+py+', los mayores movimientos: '+variaciones.join(', ')+'; total activos '+pctv(c.totalAct,cp.totalAct)+'.'):'Único período disponible.');
+  // B — Análisis de KPIs / eficiencia
+  const bloqueB='<b>Eficiencia del activo:</b> '+(c.liquidez>=1.5?'liquidez holgada ('+c.liquidez.toFixed(1)+'x), capital de trabajo '+n$(capTrab)+'. ':'liquidez '+c.liquidez.toFixed(1)+'x. ')+'Rotación de activos '+c.rotAct.toFixed(2)+'x'+(matInv?', inventario rota en '+c.dio+' días':'')+(matCart?', cobranza en '+c.dso+' días':'')+'. Activos improductivos '+imprPct.toFixed(0)+'% del activo'+(relPatr!=null?'; relacionadas '+relPatr.toFixed(0)+'% del patrimonio':'')+'.';
+  // C — Alertas (semáforo)
+  const alertas=[];
+  if(alertaInv20)alertas.push('🔴 Inventario crece '+(invG*100).toFixed(0)+'% mientras las ventas '+(ventaG*100).toFixed(0)+'%: acumulación no respaldada por ventas (riesgo de obsolescencia).');
+  if(imprPct>5)alertas.push('🔴 Activos improductivos '+imprPct.toFixed(0)+'% (>5%): capital sin flujo; evaluar deterioro/recuperabilidad (NIC 36).');
+  if(relPatr!=null&&relPatr>10)alertas.push('🔴 CxC relacionadas '+relPatr.toFixed(0)+'% del patrimonio (>10%): patrimonio inmovilizado en relacionadas.');
+  if(matInv&&c.dio>120)alertas.push('🟡 Inventario de rotación lenta (DIO '+c.dio+' días).');
+  if(matCart&&c.dso>60)alertas.push('🟡 Cobranza lenta (DSO '+c.dso+' días).');
+  if(alertaPpe10)alertas.push('🟡 Activos fijos +'+(ppeG*100).toFixed(0)+'%: justificar expansión/reposición.');
+  if(ocioso)alertas.push('🟡 Efectivo ocioso ('+cajaPct.toFixed(0)+'%) sin inversiones.');
+  if(!alertas.some(a=>a.startsWith('🔴')||a.startsWith('🟡')))alertas.push('🟢 Sin alertas materiales en la calidad del activo.');
+  const bloqueC=alertas.join('<br>')+'<br><span style="opacity:.7">ℹ️ [DATO NO DISPONIBLE — solicitar]: control de inventario (manual/sistema), aging y provisión por obsolescencia; concentración de clientes y morosidad; CAPEX y utilización de activos fijos.</span>';
+  // D — Recomendaciones
+  const acciones=[];
+  if(matInv&&c.dio>120)acciones.push('acelerar la rotación de inventario (depurar SKUs lentos, provisión NIC 2)');
+  if(matCart&&c.dso>60)acciones.push('apretar la cobranza (política de crédito y aging)');
+  if((relPatr!=null&&relPatr>10)||matRel)acciones.push('formalizar y cobrar las cuentas con relacionadas');
+  if(imprPct>5)acciones.push('monetizar o reasignar activos improductivos');
+  if(ocioso)acciones.push('rentabilizar la caja excedente o reducir deuda');
+  if(!acciones.length)acciones.push('mantener la disciplina de capital de trabajo');
+  const bloqueD=acciones.map((a,i)=>(i+1)+') '+a).join('; ')+'.';
+  // Cierre — fortalezas / riesgos / acciones (Top 3) + semáforo general
+  const fortalezas=[];
+  if(c.liquidez>=1.5)fortalezas.push('Liquidez sólida ('+c.liquidez.toFixed(2)+'x)');
+  if(capTrab>0)fortalezas.push('Capital de trabajo positivo ('+n$(capTrab)+')');
+  if(invG!=null&&invG<0)fortalezas.push('Inventario en reducción (mejora de rotación)');
+  if(relPatr!=null&&relPatr<=10)fortalezas.push('Baja dependencia de relacionadas');
+  if(cajaPct>=4&&!ocioso)fortalezas.push('Caja suficiente ('+cajaPct.toFixed(0)+'%)');
+  if(cp&&c.totalAct>=cp.totalAct)fortalezas.push('Activo estable o en crecimiento');
+  if(!fortalezas.length)fortalezas.push('[EVIDENCIA INSUFICIENTE para fortalezas materiales]');
+  const riesgos=alertas.filter(a=>a.startsWith('🔴')||a.startsWith('🟡')).map(a=>a.replace(/^[^ ]+ /,''));
+  const nRojo=alertas.filter(a=>a.startsWith('🔴')).length,nAmar=alertas.filter(a=>a.startsWith('🟡')).length;
+  const semActivo=nRojo>=1?'🔴 Alerta':(nAmar>=1?'🟡 Atención':'🟢 Normal');
+  const top3=arr=>arr.slice(0,3).map((t,i)=>(i+1)+') '+t).join(' · ');
+  const cierre='<b>Top 3 fortalezas:</b> '+top3(fortalezas)+'.<br><b>Top 3 riesgos:</b> '+(riesgos.length?top3(riesgos):'sin riesgos materiales')+'.<br><b>Top 3 acciones:</b> '+top3(acciones)+'.<br><b>Semáforo general del activo:</b> '+semActivo+'.';
+  // Tabla de materialidad y variación (sólo cuentas materiales)
+  const matRows=materiales.map(x=>'<tr><td style="text-align:left">'+x.lbl+' <span style="font-size:9px;color:var(--'+(x.mat==='alta'?'red':'amber')+')">·'+x.mat+'</span></td><td>'+(cp?n$(x.vp):'—')+'</td><td>'+n$(x.v)+'</td><td>'+x.pct.toFixed(1)+'%</td><td>'+(x.dpct!=null?fmtPct(x.dpct):'—')+'</td><td>'+(x.dpart>=0?'+':'')+x.dpart.toFixed(1)+' pts</td></tr>').join('');
+  const matTabla='<div style="margin-top:12px"><div style="font-size:10px;color:var(--teal);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Materialidad y variación · cuentas materiales (≥5% del activo)</div><table style="font-size:11px"><thead><tr><th style="text-align:left">Cuenta</th><th>Saldo '+(py||'ant.')+'</th><th>Saldo '+y+'</th><th>% Act.</th><th>Δ%</th><th>Δ part.</th></tr></thead><tbody>'+matRows+'</tbody></table></div>';
+  const cajaAB=(lbl,txt,ac)=>'<div style="margin-top:10px;padding:11px 13px;background:rgba(13,115,119,.09);border-left:3px solid var(--'+(ac||'teal')+');border-radius:5px;font-size:11.5px;line-height:1.55;color:var(--grayL)"><b style="color:var(--'+(ac||'teal')+')">'+lbl+':</b> '+txt+'</div>';
+  // === GRÁFICOS DEL PROMPT (FASE 4): 1 donut · 2 comparativas · 3 waterfall · 4 barras H · 5 línea · 6 matriz ===
+  const shortLbl=s=>s.replace(' y equivalentes','').replace('Propiedades y equipos','PP&E').replace('CxC comerciales','Cartera com.').replace('CxC relacionadas','CxC relac.').replace('Activos imp. corrientes','Imp. corr.').replace('Anticipos a proveedores','Anticipos');
+  const matTop=materiales.slice(0,6);
+  const colOf=x=>x.mat==='alta'?CL.gold:CL.teal;
+  // 1) Donut — composición del activo
+  const chDonut='<div class="panel"><div class="panel-title">Composición del activo · '+curLbl+'</div>'+svgDonut([{label:'Inventarios',value:inv,color:CL.amber},{label:'Cartera',value:av('cxc'),color:CL.gold},{label:'CxC relac.',value:av('cxcRelac'),color:CL.red},{label:'Efectivo',value:av('efectivo'),color:CL.green},{label:'PP&E',value:av('propEquip'),color:'#9AA5B1'},{label:'Otros',value:av('anticiposProv')+av('otrosAct')+av('actImpCorr')+av('actImpDif')+av('cxcLP')+av('otrosActNoCorr')+av('actFin'),color:CL.blue}].filter(it=>Math.abs(it.value)>0),false,{big:(c.actCorr/tA*100).toFixed(0)+'%',small:'corriente'})+'</div>';
+  // 4) Barras horizontales — cuentas materiales (% del activo)
+  const chBarsH='<div class="panel"><div class="panel-title">Cuentas materiales · % del activo</div>'+svgBarsH(matTop.map(x=>({label:shortLbl(x.lbl),value:x.pct,color:colOf(x)})),v=>v.toFixed(1)+'%')+'</div>';
+  // 2) Barras comparativas + 3) Waterfall (con período anterior)
+  let chComp='',chWf='';
+  if(cp){
+    chComp='<div class="panel"><div class="panel-title">Comparativo '+py+' vs '+y+' · cuentas materiales</div>'+svgBarsComp(matTop.map(x=>shortLbl(x.lbl)),matTop.map(x=>avp(x.k)),matTop.map(x=>av(x.k)),py,y)+'</div>';
+    const wf=[{label:'Activo '+py,value:cp.totalAct,type:'total'}];let sd=0;
+    matTop.forEach(x=>{const d=av(x.k)-avp(x.k);wf.push({label:shortLbl(x.lbl),value:d});sd+=d;});
+    const otros=(c.totalAct-cp.totalAct)-sd;if(Math.abs(otros)>1)wf.push({label:'Otros',value:otros});
+    wf.push({label:'Activo '+y,value:c.totalAct,type:'total'});
+    chWf='<div class="panel"><div class="panel-title">Variación del activo '+py+' → '+y+'</div>'+svgWaterfall(wf)+'</div>';
+  }
+  // 5) Línea de tendencia (3+ períodos)
+  let chTrend='';
+  if(YRS.length>=3){const lines=[{name:'Total activo',data:YRS.map(yy=>C[yy].totalAct),color:CL.blue}];matTop.slice(0,2).forEach((x,i)=>lines.push({name:shortLbl(x.lbl),data:YRS.map(yy=>(D[x.k]?D[x.k][yy]||0:0)),color:i?CL.gold:CL.teal}));chTrend='<div class="panel"><div class="panel-title">Tendencia del activo y principales rubros</div>'+svgLines(YRS.map(String),lines,axisFmt,n$)+'</div>';}
+  // 6) Matriz de riesgo — materialidad vs recuperabilidad
+  const riskOf=x=>{switch(x.k){case 'inventario':return Math.min(95,Math.max(30,Math.round(c.dio/2)));case 'cxc':return Math.min(90,Math.max(25,c.dso));case 'cxcRelac':return 80;case 'anticiposProv':return 50;case 'actFin':return 55;case 'propEquip':return c.rotAct>=1?30:50;case 'efectivo':return 8;case 'cxcLP':return 60;case 'actImpDif':return 40;default:return 45;}};
+  const chMatriz='<div class="panel"><div class="panel-title">Matriz de riesgo · materialidad vs recuperabilidad</div>'+svgMatriz(materiales.map(x=>({label:shortLbl(x.lbl),mat:x.pct,risk:riskOf(x),color:x.mat==='alta'?CL.gold:CL.teal})))+'</div>';
+  // ═══ VISTA EJECUTIVA DEL ACTIVO (Dashboard Ejecutivo · riesgos clave) ═══
+  // Nivel de riesgo total derivado de las alertas (nRojo/nAmar calculados arriba).
+  const riesgoNivelTxt=nRojo>=1?'ALTO':(nAmar>=1?'MEDIO':'BAJO');
+  const semColor=nRojo>=1?'red':(nAmar>=1?'amber':'greenOk');
+  // 1) Banda de KPIs ejecutivos
+  const ec=(accent,label,val,sub)=>'<div class="ec" style="--ec-accent:var(--'+accent+')"><div class="ec-label">'+label+'</div><div class="ec-val" style="color:var(--white)">'+val+'</div><div class="ec-sub">'+sub+'</div></div>';
+  const deltaTot=cp?('<span style="color:var(--'+(c.totalAct>=cp.totalAct?'green':'red')+')">'+(c.totalAct>=cp.totalAct?'▲':'▼')+' '+pctv(c.totalAct,cp.totalAct)+' vs '+py+'</span>'):'período único';
+  const kpiBand='<div class="ec-grid" style="margin-bottom:16px">'
+    +ec('blue','Total activo',n$(c.totalAct),deltaTot)
+    +ec('teal','Activo corriente',(c.actCorr/tA*100).toFixed(1)+'%','del total · '+n$(c.actCorr))
+    +ec('steel','Activo no corriente',ancPct.toFixed(1)+'%','del total · '+n$(c.actNoCorr))
+    +ec(semColor,'Riesgo total del activo','<span style="color:var(--'+semColor+')">'+riesgoNivelTxt+'</span>','Improductivos '+n$(improd)+' ('+imprPct.toFixed(1)+'% del activo)')
+    +'</div>';
+  // 2) Modelo de riesgo por rubro (exposición = saldo del rubro sujeto al riesgo)
+  const nivCol={ALTO:'red',MEDIO:'amber',BAJO:'greenOk','MUY BAJO':'teal'};
+  const nivBg={ALTO:'rgba(192,57,43,.18)',MEDIO:'rgba(214,137,16,.18)',BAJO:'rgba(30,132,73,.20)','MUY BAJO':'rgba(13,115,119,.20)'};
+  const nivRank={ALTO:0,MEDIO:1,BAJO:2,'MUY BAJO':3};
+  const otrosExpo=av('anticiposProv')+av('actImpCorr')+av('otrosAct')+av('actImpDif')+av('cxcLP')+av('otrosActNoCorr')+av('actFin');
+  let riesgoRubros=[
+    {nom:'Inventarios',expo:inv,riesgo:'Inventario de baja rotación / obsolescencia',nivel:(c.dio>180||alertaInv20)?'ALTO':(c.dio>120?'MEDIO':'BAJO')},
+    {nom:'Cartera (CxC comerciales)',expo:av('cxc'),riesgo:'Cartera vencida / deterioro',nivel:c.dso>90?'ALTO':(c.dso>60?'MEDIO':'BAJO')},
+    {nom:'CxC relacionadas',expo:av('cxcRelac'),riesgo:'Recuperabilidad / partes relacionadas',nivel:(relPatr!=null&&relPatr>10)?'ALTO':(relPct>=5?'MEDIO':'BAJO')},
+    {nom:'Activo fijo (PP&E)',expo:av('propEquip'),riesgo:'Activo fijo improductivo / deterioro',nivel:(c.rotAct<1||ppePct>35)?'MEDIO':'BAJO'},
+    {nom:'Otros activos',expo:otrosExpo,riesgo:'Recuperabilidad de partidas menores',nivel:'BAJO'},
+    {nom:'Efectivo y equivalentes',expo:av('efectivo'),riesgo:ocioso?'Efectivo ocioso (costo de oportunidad)':'Sin riesgo significativo',nivel:ocioso?'MEDIO':'MUY BAJO'}
+  ].filter(r=>Math.abs(r.expo)>0).sort((a,b)=>nivRank[a.nivel]-nivRank[b.nivel]||b.expo-a.expo);
+  const badge=lv=>'<span style="display:inline-block;padding:3px 11px;border-radius:11px;font-size:10px;font-weight:700;letter-spacing:.4px;background:'+nivBg[lv]+';color:var(--'+nivCol[lv]+')">'+lv+'</span>';
+  const riesgoTabla='<div class="panel"><div class="panel-title">Riesgos clave por activo</div><table style="font-size:12px"><thead><tr><th style="text-align:left">Activo</th><th style="text-align:left">Riesgo principal</th><th style="text-align:center">Nivel</th><th>Exposición</th><th>% del total</th></tr></thead><tbody>'
+    +riesgoRubros.map(r=>'<tr><td style="text-align:left">'+dotc(nivCol[r.nivel])+r.nom+'</td><td style="text-align:left;color:var(--grayL)">'+r.riesgo+'</td><td style="text-align:center">'+badge(r.nivel)+'</td><td class="mono">'+n$(r.expo)+'</td><td class="mono" style="color:var(--grayL)">'+(r.expo/tA*100).toFixed(1)+'%</td></tr>').join('')
+    +'</tbody></table></div>';
+  // 3) Resumen de riesgo: semáforo (gauge) + tarjetas por activo
+  const gScore=nRojo>=1?80:(nAmar>=1?50:20);
+  const polar=(deg,r)=>{const a=deg*Math.PI/180;return[(100+r*Math.cos(a)).toFixed(1),(100-r*Math.sin(a)).toFixed(1)];};
+  const arcP=(d1,d2,col)=>{const p1=polar(d1,74),p2=polar(d2,74);return '<path d="M'+p1[0]+' '+p1[1]+' A74 74 0 0 1 '+p2[0]+' '+p2[1]+'" fill="none" stroke="'+col+'" stroke-width="15"/>';};
+  const ndDeg=180-gScore*1.8,nd=polar(ndDeg,56);
+  const gauge='<svg viewBox="0 0 200 122" style="width:100%;max-width:240px">'+arcP(180,135,CL.green)+arcP(135,90,CL.gold)+arcP(90,45,CL.amber)+arcP(45,0,CL.red)
+    +'<line x1="100" y1="100" x2="'+nd[0]+'" y2="'+nd[1]+'" stroke="var(--white)" stroke-width="3" stroke-linecap="round"/><circle cx="100" cy="100" r="6" fill="var(--white)"/>'
+    +'<text x="100" y="119" text-anchor="middle" fill="'+(semColor==='greenOk'?CL.green:semColor==='amber'?CL.amber:CL.red)+'" font-size="16" font-weight="700" font-family="Montserrat,Arial">'+riesgoNivelTxt+'</text></svg>';
+  // 3b) Indicadores financieros del activo (señales de riesgo) — máx. 5, junto al medidor
+  const fX2=v=>v.toFixed(2)+'x',fD2=v=>Math.round(v)+' d',fP2=v=>v.toFixed(1)+'%';
+  const kpiRiesgo=[
+    {lbl:'Liquidez corriente',cur:c.liquidez,prev:cp?cp.liquidez:null,fmt:fX2,sem:c.liquidez>=1.5?'greenOk':(c.liquidez>=1?'amber':'red'),low:false,nota:'Cobertura del pasivo corriente'},
+    {lbl:'Días de inventario (DIO)',cur:c.dio,prev:cp?cp.dio:null,fmt:fD2,sem:c.dio>180?'red':(c.dio>120?'amber':'greenOk'),low:true,nota:'Rotación del inventario (NIC 2)'},
+    {lbl:'Días de cobro (DSO)',cur:c.dso,prev:cp?cp.dso:null,fmt:fD2,sem:c.dso>90?'red':(c.dso>60?'amber':'greenOk'),low:true,nota:'Velocidad de cobranza de cartera'},
+    {lbl:'Rotación de activos',cur:c.rotAct,prev:cp?cp.rotAct:null,fmt:fX2,sem:c.rotAct>=1?'greenOk':'amber',low:false,nota:'Ventas por cada $ de activo'},
+    {lbl:'Activos improductivos',cur:imprPct,prev:cp?imprPrev/cp.totalAct*100:null,fmt:fP2,sem:imprPct>5?'amber':'greenOk',low:true,nota:'Sin flujo / total activo (NIC 36)'}
+  ].slice(0,5);
+  const kpiRiesgoCards=kpiRiesgo.map(k=>{
+    let delta='<span style="font-size:10px;color:var(--grayL)">único período</span>';
+    if(k.prev!=null){const same=Math.abs(k.cur-k.prev)<1e-9,better=k.low?k.cur<k.prev:k.cur>k.prev,arr=same?'→':(k.cur>k.prev?'▲':'▼'),col=same?'grayL':(better?'green':'red');
+      delta='<span style="color:var(--'+col+');font-size:10px">'+arr+' ant. '+k.fmt(k.prev)+'</span>';}
+    return '<div style="background:rgba(255,255,255,.03);border:1px solid rgba(213,216,220,.10);border-top:2px solid var(--'+k.sem+');border-radius:8px;padding:12px 12px;text-align:center"><div style="font-size:10px;color:var(--grayL);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;min-height:24px;display:flex;align-items:center;justify-content:center;line-height:1.2">'+k.lbl+'</div><div class="mono" style="font-size:20px;font-weight:700;color:var(--'+k.sem+');line-height:1">'+k.fmt(k.cur)+'</div><div style="margin-top:4px">'+delta+'</div><div style="font-size:10px;color:var(--grayL);margin-top:6px;line-height:1.3">'+k.nota+'</div></div>';
+  }).join('');
+  // Resumen de riesgo: semáforo (gauge) + indicadores financieros del activo
+  const resumenRiesgo='<div class="panel"><div class="panel-title">Resumen de riesgo</div><div style="display:flex;gap:22px;align-items:center;flex-wrap:wrap"><div style="text-align:center;flex:0 0 auto"><div style="font-size:9.5px;color:var(--grayL);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Nivel de riesgo total del activo</div>'+gauge+'</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;flex:1;min-width:300px">'+kpiRiesgoCards+'</div></div></div>';
+  // Ensamblado: KPIs → composición + riesgos clave → resumen de riesgo (semáforo + indicadores) → (respaldo: materialidad + análisis A/B/C/D)
+  const bloqueActivos=kpiBand
+    +'<div class="grid-2">'+chDonut+riesgoTabla+'</div>'
+    +resumenRiesgo
+    +'<div class="panel"><div class="panel-title">Detalle y análisis ejecutivo del activo</div>'+matTabla
+      +cajaAB('A · Análisis del dashboard / gráficos',bloqueA,'teal')
+      +cajaAB('B · Análisis de KPIs',bloqueB,'gold')
+      +cajaAB('C · Alertas',bloqueC,'red')
+      +cajaAB('D · Recomendaciones',bloqueD,'green')
+      +cajaAB('Cierre ejecutivo (Gerencia y Accionistas)',cierre,'teal')
+    +'</div>';
+  // ═══ VISTA EJECUTIVA DEL PASIVO (barras 3D · riesgos clave · semáforo) ═══
+  const gv=(k)=>(D[k]?D[k][y]||0:0),gvp=(k)=>(cp&&D[k]?D[k][py]||0:0);
+  const tP=c.totalPas||1;
+  const endPct=c.endeud*100,deudaFin=gv('oblBanc')+gv('prestamosLP'),pasCorrPct=c.totalPas?c.pasCorr/c.totalPas*100:0,deudaFinPct=c.totalPas?deudaFin/c.totalPas*100:0;
+  const operativos=gv('cxp')+gv('benefEmpl')+gv('pasImpCorr')+gv('provisiones')+gv('otrasCxp');
+  // EBITDA anualizado y servicio de deuda (para Deuda/EBITDA e ICR)
+  const _mP=(Array.isArray(MESES)&&MESES[_yi])?MESES[_yi]:12,ebitdaAn=c.ebitda*(12/_mP),ebitAn=c.ebit*(12/_mP),gastFinAn=Math.abs(gv('gastFin'))*(12/_mP);
+  const deudaEbitda=ebitdaAn>0?deudaFin/ebitdaAn:null,icr=gastFinAn>0?ebitAn/gastFinAn:null,deudaPatr=c.patrimonio?deudaFin/c.patrimonio:null;
+  // 1) Banda de KPIs del pasivo
+  const pNivelTxt=(endPct>60||(deudaEbitda!=null&&deudaEbitda>4)||(icr!=null&&icr<1.5))?'ALTO':((endPct>40||(deudaEbitda!=null&&deudaEbitda>3)||gv('cxpRelacPas')>0||pasCorrPct>70)?'MEDIO':'BAJO');
+  const pSem=pNivelTxt==='ALTO'?'red':(pNivelTxt==='MEDIO'?'amber':'greenOk');
+  const pasKpiBand='<div class="ec-grid" style="margin-bottom:16px">'
+    +ec('blue','Total pasivo',n$(c.totalPas),cp?('<span style="color:var(--'+(c.totalPas<=cp.totalPas?'green':'red')+')">'+(c.totalPas<=cp.totalPas?'▼':'▲')+' '+pctv(c.totalPas,cp.totalPas)+' vs '+py+'</span>'):'período único')
+    +ec('gold','Pasivo corriente',pasCorrPct.toFixed(1)+'%','del pasivo · '+n$(c.pasCorr))
+    +ec('steel','Pasivo no corriente',(100-pasCorrPct).toFixed(1)+'%','del pasivo · '+n$(c.pasNoCorr))
+    +ec(pSem,'Riesgo financiero','<span style="color:var(--'+pSem+')">'+pNivelTxt+'</span>','Endeudamiento '+endPct.toFixed(1)+'% del activo')
+    +'</div>';
+  // 2) Composición del pasivo — BARRAS 3D (no dona)
+  const pasComp=[{label:'CxP comerciales',value:gv('cxp'),color:CL.gold},{label:'Deuda financiera',value:deudaFin,color:CL.red},{label:'Oblig. operativas',value:gv('benefEmpl')+gv('pasImpCorr')+gv('provisiones')+gv('otrasCxp'),color:CL.teal},{label:'CxP relacionadas',value:gv('cxpRelacPas'),color:CL.amber},{label:'Pasivos LP',value:gv('benDefLP')+gv('pasImpDifLP'),color:CL.blue}].filter(it=>Math.abs(it.value)>0).sort((a,b)=>b.value-a.value);
+  const pasChart='<div class="panel"><div class="panel-title">Composición del pasivo · '+curLbl+'</div>'+svgBars3D(pasComp,n$)+'</div>';
+  // 3) Riesgos clave por pasivo
+  const pRubros=[
+    {nom:'Deuda financiera',expo:deudaFin,riesgo:'Costo financiero / refinanciamiento',nivel:(deudaEbitda!=null&&deudaEbitda>4)||(icr!=null&&icr<1.5)?'ALTO':(deudaFin>0?((deudaEbitda!=null&&deudaEbitda>3)?'MEDIO':'BAJO'):'MUY BAJO')},
+    {nom:'CxP comerciales',expo:gv('cxp'),riesgo:'Presión de proveedores / liquidez',nivel:c.liquidez<1?'ALTO':(pasCorrPct>70?'MEDIO':'BAJO')},
+    {nom:'CxP relacionadas',expo:gv('cxpRelacPas'),riesgo:'Partes relacionadas / sustento y P. de transf.',nivel:gv('cxpRelacPas')>0?'MEDIO':'MUY BAJO'},
+    {nom:'Oblig. operativas (laboral/fiscal)',expo:gv('benefEmpl')+gv('pasImpCorr')+gv('provisiones')+gv('otrasCxp'),riesgo:'Obligaciones laborales y tributarias',nivel:'BAJO'},
+    {nom:'Otros pasivos LP (diferidos/beneficios)',expo:gv('benDefLP')+gv('pasImpDifLP'),riesgo:'Exigibilidad de largo plazo',nivel:'BAJO'}
+  ].filter(r=>Math.abs(r.expo)>0).sort((a,b)=>nivRank[a.nivel]-nivRank[b.nivel]||b.expo-a.expo);
+  const pasRiesgoTabla='<div class="panel"><div class="panel-title">Riesgos clave por pasivo</div><table style="font-size:12px"><thead><tr><th style="text-align:left">Pasivo</th><th style="text-align:left">Riesgo principal</th><th style="text-align:center">Nivel</th><th>Exposición</th><th>% del pasivo</th></tr></thead><tbody>'
+    +pRubros.map(r=>'<tr><td style="text-align:left">'+dotc(nivCol[r.nivel])+r.nom+'</td><td style="text-align:left;color:var(--grayL)">'+r.riesgo+'</td><td style="text-align:center">'+badge(r.nivel)+'</td><td class="mono">'+n$(r.expo)+'</td><td class="mono" style="color:var(--grayL)">'+(r.expo/tP*100).toFixed(1)+'%</td></tr>').join('')
+    +'</tbody></table></div>';
+  // 4) Resumen de riesgo del pasivo: semáforo + 5 indicadores
+  const pGScore=pNivelTxt==='ALTO'?80:(pNivelTxt==='MEDIO'?50:20),pNd=polar(180-pGScore*1.8,56);
+  const pasGauge='<svg viewBox="0 0 200 122" style="width:100%;max-width:240px">'+arcP(180,135,CL.green)+arcP(135,90,CL.gold)+arcP(90,45,CL.amber)+arcP(45,0,CL.red)
+    +'<line x1="100" y1="100" x2="'+pNd[0]+'" y2="'+pNd[1]+'" stroke="var(--white)" stroke-width="3" stroke-linecap="round"/><circle cx="100" cy="100" r="6" fill="var(--white)"/>'
+    +'<text x="100" y="119" text-anchor="middle" fill="'+(pSem==='greenOk'?CL.green:pSem==='amber'?CL.amber:CL.red)+'" font-size="16" font-weight="700" font-family="Montserrat,Arial">'+pNivelTxt+'</text></svg>';
+  const pKpi=[
+    {lbl:'Endeudamiento',cur:endPct,prev:cp?cp.endeud*100:null,fmt:fP2,sem:endPct<=40?'greenOk':(endPct<=60?'amber':'red'),low:true,nota:'Pasivo / activo total'},
+    {lbl:'Cobertura corriente',cur:c.liquidez,prev:cp?cp.liquidez:null,fmt:fX2,sem:c.liquidez>=1.5?'greenOk':(c.liquidez>=1?'amber':'red'),low:false,nota:'Activo corr. / pasivo corr.'},
+    {lbl:'Pasivo corriente / total',cur:pasCorrPct,prev:cp?(cp.totalPas?cp.pasCorr/cp.totalPas*100:0):null,fmt:fP2,sem:pasCorrPct>70?'amber':'greenOk',low:true,nota:'Concentración en corto plazo'},
+    (deudaPatr!=null)?{lbl:'Deuda fin. / patrimonio',cur:deudaPatr,prev:(cp&&cp.patrimonio)?(gvp('oblBanc')+gvp('prestamosLP'))/cp.patrimonio:null,fmt:fX2,sem:deudaPatr<=0.5?'greenOk':(deudaPatr<=1?'amber':'red'),low:true,nota:'Apalancamiento financiero'}:null,
+    (deudaEbitda!=null)?{lbl:'Deuda fin. / EBITDA',cur:deudaEbitda,prev:null,fmt:fX2,sem:deudaEbitda<=3?'greenOk':(deudaEbitda<=4?'amber':'red'),low:true,nota:'Años de EBITDA para pagar deuda'}:{lbl:'Cobertura intereses (ICR)',cur:icr||0,prev:null,fmt:fX2,sem:(icr!=null&&icr>=3)?'greenOk':(icr!=null&&icr>=1.5?'amber':'red'),low:false,nota:'EBIT / gastos financieros'}
+  ].filter(Boolean).slice(0,5);
+  const pasKpiCards=pKpi.map(k=>{
+    let delta='<span style="font-size:10px;color:var(--grayL)">único período</span>';
+    if(k.prev!=null){const same=Math.abs(k.cur-k.prev)<1e-9,better=k.low?k.cur<k.prev:k.cur>k.prev,arr=same?'→':(k.cur>k.prev?'▲':'▼'),col=same?'grayL':(better?'green':'red');
+      delta='<span style="color:var(--'+col+');font-size:10px">'+arr+' ant. '+k.fmt(k.prev)+'</span>';}
+    return '<div style="background:rgba(255,255,255,.03);border:1px solid rgba(213,216,220,.10);border-top:2px solid var(--'+k.sem+');border-radius:8px;padding:12px 12px;text-align:center"><div style="font-size:10px;color:var(--grayL);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;min-height:24px;display:flex;align-items:center;justify-content:center;line-height:1.2">'+k.lbl+'</div><div class="mono" style="font-size:20px;font-weight:700;color:var(--'+k.sem+');line-height:1">'+k.fmt(k.cur)+'</div><div style="margin-top:4px">'+delta+'</div><div style="font-size:10px;color:var(--grayL);margin-top:6px;line-height:1.3">'+k.nota+'</div></div>';
+  }).join('');
+  const pasResumen='<div class="panel"><div class="panel-title">Resumen de riesgo</div><div style="display:flex;gap:22px;align-items:center;flex-wrap:wrap"><div style="text-align:center;flex:0 0 auto"><div style="font-size:9.5px;color:var(--grayL);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Nivel de riesgo financiero</div>'+pasGauge+'</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;flex:1;min-width:300px">'+pasKpiCards+'</div></div></div>';
+  // FASE 8 (módulo 02) — Análisis A/B + Cierre obligatorio
+  const pasPatr=c.patrimonio?c.totalPas/c.patrimonio*100:null;
+  const deudaFinPrev=gvp('oblBanc')+gvp('prestamosLP'),deudaFinG=(cp&&deudaFinPrev)?(deudaFin-deudaFinPrev)/Math.abs(deudaFinPrev)*100:null;
+  const gastFinG=(cp&&gvp('gastFin'))?(Math.abs(gv('gastFin'))-Math.abs(gvp('gastFin')))/Math.abs(gvp('gastFin'))*100:null;
+  const PAS_CTAS=[['CxP comerciales','cxp'],['oblig. bancarias','oblBanc'],['préstamos LP','prestamosLP'],['beneficios a empleados','benefEmpl'],['oblig. tributarias','pasImpCorr'],['provisiones','provisiones'],['CxP relacionadas','cxpRelacPas'],['otras CxP','otrasCxp']];
+  const pasTop3=cp?PAS_CTAS.map(([l,k])=>({l,d:gv(k)-gvp(k)})).filter(x=>Math.abs(x.d)>1).sort((a,b)=>Math.abs(b.d)-Math.abs(a.d)).slice(0,3).map(x=>(x.d>=0?'+':'')+n$(x.d)+' '+x.l):[];
+  const ngFlags=[];
+  if(c.liquidez<1)ngFlags.push('liquidez corriente <1');
+  if(capTrab<0)ngFlags.push('capital de trabajo negativo');
+  if(pasPatr!=null&&pasPatr>300)ngFlags.push('Pasivo/Patrimonio >300%');
+  if(deudaEbitda!=null&&deudaEbitda>4.5)ngFlags.push('Deuda/EBITDA crítico');
+  const pasA='<b>Quién financia la empresa:</b> el pasivo de '+n$(c.totalPas)+' se financia con proveedores ('+(gv('cxp')/tP*100).toFixed(0)+'%), deuda financiera ('+(deudaFin/tP*100).toFixed(0)+'%: '+(gv('oblBanc')>0?'bancos '+n$(gv('oblBanc'))+' + ':'')+'préstamos LP '+n$(gv('prestamosLP'))+'), obligaciones operativas laboral/fiscal ('+(operativos/tP*100).toFixed(0)+'%)'+(gv('cxpRelacPas')>0?' y relacionadas ('+(gv('cxpRelacPas')/tP*100).toFixed(0)+'%)':'')+'. El '+pasCorrPct.toFixed(0)+'% es de corto plazo. '+(cp?('Frente a '+py+', el pasivo total '+pctv(c.totalPas,cp.totalPas)+'; mayores movimientos: '+pasTop3.join(', ')+'.'):'Único período disponible.');
+  const pasB='<b>Cobertura y sostenibilidad:</b> endeudamiento '+endPct.toFixed(0)+'% del activo, Pasivo/Patrimonio '+(pasPatr!=null?pasPatr.toFixed(0)+'%':'[N/D]')+' ('+(pasPatr!=null&&pasPatr<100?'apalancamiento bajo':'apalancamiento elevado')+'). '+(icr!=null?'ICR '+icr.toFixed(1)+'x ('+(icr>=3?'🟢 adecuado':icr>=1.5?'🟡 presión':'🔴 alto riesgo')+'); ':'')+(deudaEbitda!=null?'Deuda fin./EBITDA '+deudaEbitda.toFixed(1)+'x ('+(deudaEbitda<2.5?'🟢 conservador':deudaEbitda<3.5?'🟡 moderado':deudaEbitda<4.5?'🟠 elevado':'🔴 crítico')+'); ':'')+'liquidez '+c.liquidez.toFixed(1)+'x, capital de trabajo '+n$(capTrab)+'. DSCR <b>[DATO NO DISPONIBLE — requiere servicio de deuda]</b>. Calidad de deuda: el EBITDA cubre la deuda financiera '+(deudaEbitda!=null?'en '+deudaEbitda.toFixed(1)+'x (perfil de deuda productiva)':'(perfil productivo)')+'; la clasificación productiva/especulativa/supervivencia requiere el destino de los fondos [DATO NO DISPONIBLE]. Negocio en marcha: '+(ngFlags.length?'⚠️ '+ngFlags.join(', '):'sin señales de alerta (capital de trabajo positivo, liquidez >1, apalancamiento bajo)')+'.';
+  const pasAlertas=[];
+  if(deudaFinG!=null&&ventaG!=null&&deudaFinG>(ventaG*100)&&deudaFinG>0)pasAlertas.push('🟡 La deuda financiera crece ('+deudaFinG.toFixed(0)+'%) más rápido que las ventas ('+(ventaG*100).toFixed(0)+'%).');
+  if(gastFinG!=null&&ventaG!=null&&gastFinG>(ventaG*100))pasAlertas.push('🟡 Los gastos financieros crecen ('+gastFinG.toFixed(0)+'%) más que las ventas.');
+  if(pasCorrPct>70)pasAlertas.push('🟡 Pasivo concentrado en el corto plazo ('+pasCorrPct.toFixed(0)+'%): presión de liquidez (mitigada por liquidez '+c.liquidez.toFixed(1)+'x).');
+  if(gv('cxpRelacPas')>0)pasAlertas.push('🟡 CxP con relacionadas '+n$(gv('cxpRelacPas'))+': revisar sustento y precios de transferencia.');
+  if(ngFlags.length)pasAlertas.push('🔴 Señales de negocio en marcha: '+ngFlags.join(', ')+'.');
+  if(!pasAlertas.some(a=>/🔴|🟡/.test(a)))pasAlertas.push('🟢 Sin alertas materiales de solvencia.');
+  const pasC=pasAlertas.join('<br>')+'<br><span style="opacity:.7">ℹ️ [DATO NO DISPONIBLE — solicitar]: cronograma de vencimientos (capital+interés 12m) para DSCR, garantías otorgadas/recibidas y pertenencia a grupo económico (garantías cruzadas).</span>';
+  const pasRiesgos=pasAlertas.filter(a=>/🔴|🟡/.test(a)).map(a=>a.replace(/^[^ ]+ /,''));
+  const pasRec=[];
+  if(pasCorrPct>70)pasRec.push('reperfilar parte del pasivo corriente a largo plazo');
+  if(gv('cxpRelacPas')>0)pasRec.push('formalizar y documentar las CxP con relacionadas');
+  pasRec.push(deudaFin>0?'mantener el bajo apalancamiento y monitorear el servicio de deuda':'preservar la independencia de deuda financiera');
+  const pasSemTxt=pNivelTxt==='ALTO'?'🔴 Alerta':(pNivelTxt==='MEDIO'?'🟡 Atención':'🟢 Normal');
+  const pasCierre='<b>Top 3 riesgos del pasivo:</b> '+(pasRiesgos.length?pasRiesgos.slice(0,3).map((t,i)=>(i+1)+') '+t).join(' · '):'sin riesgos materiales')+'.<br><b>Top 3 recomendaciones:</b> '+pasRec.slice(0,3).map((t,i)=>(i+1)+') '+t).join(' · ')+'.<br><b>Refinanciamiento / capitalización:</b> '+(((pasPatr!=null&&pasPatr>300)||(deudaEbitda!=null&&deudaEbitda>4.5))?'recomendado evaluar capitalización o reperfilamiento por alto apalancamiento.':'no requerido: apalancamiento bajo y el EBITDA cubre la deuda.')+'<br><b>Semáforo general del pasivo:</b> '+pasSemTxt+'.';
+  const bloquePasivos=pasKpiBand
+    +'<div class="grid-2">'+pasChart+pasRiesgoTabla+'</div>'
+    +pasResumen
+    +'<div class="panel"><div class="panel-title">Detalle y análisis ejecutivo del pasivo</div>'
+      +cajaAB('A · Análisis del dashboard / gráficos',pasA,'teal')
+      +cajaAB('B · Análisis de KPIs',pasB,'gold')
+      +cajaAB('C · Alertas',pasC,'red')
+      +cajaAB('Cierre ejecutivo (Gerencia y Accionistas)',pasCierre,'teal')
+    +'</div>';
+  // ═══ VISTA EJECUTIVA DEL PATRIMONIO (barras 3D: cuentas y su crecimiento/disminución) ═══
+  const autonomia=(1-c.endeud)*100,roe=c.roe*100,resLegalPct=D.capital[y]?D.resLegal[y]/D.capital[y]*100:0,crecPat=cp?pctv(c.patrimonio,cp.patrimonio):'—';
+  // FASE 3/6/8 — calidad patrimonial, utilidades retenidas (SRI 2025), relacionadas
+  const calidadPat=(D.capital[y]+D.resLegal[y])/(c.patrimonio||1)*100;          // (capital+reservas)/patrimonio
+  const utilRet=Math.max(0,(D.utilAcum?D.utilAcum[y]:0));                        // resultados acum + utilidad ejercicio = utilidades retenidas sujetas a revisión
+  const patPasPatr=c.patrimonio?c.totalPas/c.patrimonio*100:null;
+  // Nivel de riesgo patrimonial (módulo 03)
+  let patWarn=0,patAlert=0;
+  if(autonomia<40)patAlert++;else if(autonomia<60)patWarn++;
+  if(calidadPat<30)patWarn++;                       // baja calidad: depende de utilidades acumuladas
+  if(utilRet>=100e3)patWarn++;                      // exposición tributaria utilidades retenidas
+  if(resLegalPct<50)patWarn++;                      // reserva legal incompleta
+  if(roe<8)patWarn++;
+  if(relPatr!=null&&relPatr>10)patWarn++;
+  if(patPasPatr!=null&&patPasPatr>300)patAlert++;   // sobreendeudamiento patrimonial
+  const patNivelTxt=patAlert>=1?'ALTO':(patWarn>=1?'MEDIO':'BAJO'),patSemC=patNivelTxt==='ALTO'?'red':(patNivelTxt==='MEDIO'?'amber':'greenOk');
+  // 1) Banda de KPIs del patrimonio
+  const patKpiBand='<div class="ec-grid" style="margin-bottom:16px">'
+    +ec('blue','Total patrimonio',n$(c.patrimonio),cp?('<span style="color:var(--'+(c.patrimonio>=cp.patrimonio?'green':'red')+')">'+(c.patrimonio>=cp.patrimonio?'▲':'▼')+' '+crecPat+' vs '+py+'</span>'):'período único')
+    +ec('teal','Autonomía financiera',autonomia.toFixed(1)+'%','del activo con recursos propios')
+    +ec('green','ROE',roe.toFixed(1)+'%','retorno sobre patrimonio')
+    +ec(patSemC,'Riesgo patrimonial','<span style="color:var(--'+patSemC+')">'+patNivelTxt+'</span>','Reserva legal '+resLegalPct.toFixed(0)+'% del capital')
+    +'</div>';
+  // 2) Cuentas del patrimonio → BARRAS 3D con crecimiento/disminución vs período anterior
+  const patCtas=[
+    {lbl:'Capital social',cur:D.capital[y],prev:cp?D.capital[py]:null},
+    {lbl:'Reservas',cur:D.resLegal[y],prev:cp?D.resLegal[py]:null},
+    {lbl:'Result. acumulados',cur:Math.max(0,D.utilAcum[y]-c.utilNeta),prev:cp?Math.max(0,D.utilAcum[py]-cp.utilNeta):null},
+    {lbl:'Utilidad ejercicio',cur:Math.max(0,c.utilNeta),prev:cp?Math.max(0,cp.utilNeta):null}
+  ];
+  if(D.oriAcum&&Math.abs(D.oriAcum[y])>0)patCtas.push({lbl:'ORI',cur:D.oriAcum[y],prev:cp?D.oriAcum[py]:null});
+  const patBars=patCtas.filter(x=>Math.abs(x.cur)>0).map(x=>{
+    const dp=(x.prev!=null&&Math.abs(x.prev)>1e-9)?((x.cur-x.prev)/Math.abs(x.prev)*100):null;
+    const grew=dp!=null&&dp>0.05,shrank=dp!=null&&dp<-0.05;
+    return {label:x.lbl,value:x.cur,color:grew?CL.green:(shrank?CL.red:CL.blue),delta:dp==null?null:((grew?'▲ +':(shrank?'▼ ':'→ '))+dp.toFixed(1)+'%'),deltaCol:grew?CL.green:(shrank?CL.red:'#9AA5B1')};
+  });
+  const patChart='<div class="panel"><div class="panel-title">Cuentas del patrimonio · crecimiento / disminución'+(cp?' vs '+py:'')+'</div>'+svgBars3D(patBars,n$)+'</div>';
+  // 3) Riesgos clave por cuenta/área de patrimonio (módulo 03: calidad, reserva legal, utilidades retenidas SRI, relacionadas)
+  const patRubros=[
+    {nom:'Calidad patrimonial',riesgo:'Dependencia de utilidades acumuladas (capital+reservas bajo)',nivel:calidadPat>=50?'BAJO':(calidadPat>=30?'MEDIO':'ALTO'),ind:calidadPat.toFixed(1)+'%'},
+    {nom:'Utilidades retenidas (SRI 2025)',riesgo:'Pago a cuenta sobre utilidades no distribuidas',nivel:utilRet>10e6?'ALTO':(utilRet>=100e3?'MEDIO':'BAJO'),ind:n$(utilRet)},
+    {nom:'Reserva legal',riesgo:'No alcanza el 50% del capital (Ley Cías.)',nivel:resLegalPct>=50?'BAJO':'MEDIO',ind:resLegalPct.toFixed(0)+'% / 50%'},
+    {nom:'Relacionadas / patrimonio',riesgo:'Patrimonio inmovilizado en relacionadas (umbral 10%)',nivel:(relPatr!=null&&relPatr>10)?'ALTO':'BAJO',ind:relPatr!=null?relPatr.toFixed(1)+'%':'[N/D]'}
+  ].sort((a,b)=>nivRank[a.nivel]-nivRank[b.nivel]);
+  const patRiesgoTabla='<div class="panel"><div class="panel-title">Riesgos clave del patrimonio</div><table style="font-size:12px"><thead><tr><th style="text-align:left">Área</th><th style="text-align:left">Riesgo principal</th><th style="text-align:center">Nivel</th><th>Indicador</th></tr></thead><tbody>'
+    +patRubros.map(r=>'<tr><td style="text-align:left">'+dotc(nivCol[r.nivel])+r.nom+'</td><td style="text-align:left;color:var(--grayL)">'+r.riesgo+'</td><td style="text-align:center">'+badge(r.nivel)+'</td><td class="mono">'+r.ind+'</td></tr>').join('')
+    +'</tbody></table></div>';
+  // Composición y calidad (tabla interna para el bloque de detalle)
+  const patComp=[
+    {nom:'Capital social',nat:'Aporte de accionistas',v:D.capital[y]},
+    {nom:'Reservas (incl. legal)',nat:'Retención obligatoria / voluntaria',v:D.resLegal[y]},
+    {nom:'Resultados acumulados',nat:'Utilidades retenidas (ejerc. anteriores)',v:Math.max(0,D.utilAcum[y]-c.utilNeta)},
+    {nom:'Utilidad del ejercicio',nat:'Generada en el período',v:Math.max(0,c.utilNeta)}
+  ].filter(x=>Math.abs(x.v)>0);
+  if(D.oriAcum&&Math.abs(D.oriAcum[y])>0)patComp.push({nom:'ORI',nat:'Otro resultado integral',v:D.oriAcum[y]});
+  const patCompTable='<table style="font-size:12px"><thead><tr><th style="text-align:left">Componente</th><th style="text-align:left">Naturaleza</th><th>Monto</th><th>% patrim.</th></tr></thead><tbody>'
+    +patComp.map(x=>'<tr><td style="text-align:left">'+x.nom+'</td><td style="text-align:left;color:var(--grayL)">'+x.nat+'</td><td class="mono">'+n$(x.v)+'</td><td class="mono" style="color:var(--grayL)">'+(x.v/(c.patrimonio||1)*100).toFixed(1)+'%</td></tr>').join('')
+    +'<tr class="bold"><td style="text-align:left">TOTAL PATRIMONIO</td><td></td><td class="mono">'+n$(c.patrimonio)+'</td><td class="mono">100.0%</td></tr></tbody></table>';
+  // 4) Resumen de riesgo del patrimonio: semáforo + 5 indicadores
+  const patGScore=patNivelTxt==='ALTO'?80:(patNivelTxt==='MEDIO'?50:20),patNd=polar(180-patGScore*1.8,56);
+  const patGauge='<svg viewBox="0 0 200 122" style="width:100%;max-width:240px">'+arcP(180,135,CL.green)+arcP(135,90,CL.gold)+arcP(90,45,CL.amber)+arcP(45,0,CL.red)
+    +'<line x1="100" y1="100" x2="'+patNd[0]+'" y2="'+patNd[1]+'" stroke="var(--white)" stroke-width="3" stroke-linecap="round"/><circle cx="100" cy="100" r="6" fill="var(--white)"/>'
+    +'<text x="100" y="119" text-anchor="middle" fill="'+(patSemC==='greenOk'?CL.green:patSemC==='amber'?CL.amber:CL.red)+'" font-size="16" font-weight="700" font-family="Montserrat,Arial">'+patNivelTxt+'</text></svg>';
+  const capPerm=(D.capital[y]+D.resLegal[y])/(c.patrimonio||1)*100,crecPatNum=cp?((c.patrimonio-cp.patrimonio)/Math.abs(cp.patrimonio)*100):null;
+  const patKpi=[
+    {lbl:'ROE',cur:roe,prev:cp?cp.roe*100:null,fmt:fP2,sem:roe>=15?'greenOk':(roe>=8?'amber':'red'),low:false,nota:'Utilidad neta / patrimonio'},
+    {lbl:'Autonomía financiera',cur:autonomia,prev:cp?(1-cp.endeud)*100:null,fmt:fP2,sem:autonomia>=60?'greenOk':(autonomia>=40?'amber':'red'),low:false,nota:'Patrimonio / activo total'},
+    {lbl:'Reserva legal / capital',cur:resLegalPct,prev:cp?(D.capital[py]?D.resLegal[py]/D.capital[py]*100:0):null,fmt:fP2,sem:resLegalPct>=50?'greenOk':'amber',low:false,nota:'Mínimo legal 50% (Ley Cías.)'},
+    (crecPatNum!=null)?{lbl:'Crecimiento patrimonial',cur:crecPatNum,prev:null,fmt:fP2,sem:crecPatNum>=0?'greenOk':'red',low:false,nota:'Variación vs '+py}:null,
+    {lbl:'Capital + reservas / patrim.',cur:capPerm,prev:null,fmt:fP2,sem:'teal',low:false,nota:'Base patrimonial estable'}
+  ].filter(Boolean).slice(0,5);
+  const patKpiCards=patKpi.map(k=>{
+    let delta='<span style="font-size:10px;color:var(--grayL)">único período</span>';
+    if(k.prev!=null){const same=Math.abs(k.cur-k.prev)<1e-9,better=k.low?k.cur<k.prev:k.cur>k.prev,arr=same?'→':(k.cur>k.prev?'▲':'▼'),col=same?'grayL':(better?'green':'red');
+      delta='<span style="color:var(--'+col+');font-size:10px">'+arr+' ant. '+k.fmt(k.prev)+'</span>';}
+    return '<div style="background:rgba(255,255,255,.03);border:1px solid rgba(213,216,220,.10);border-top:2px solid var(--'+k.sem+');border-radius:8px;padding:12px 12px;text-align:center"><div style="font-size:10px;color:var(--grayL);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;min-height:24px;display:flex;align-items:center;justify-content:center;line-height:1.2">'+k.lbl+'</div><div class="mono" style="font-size:20px;font-weight:700;color:var(--'+k.sem+');line-height:1">'+k.fmt(k.cur)+'</div><div style="margin-top:4px">'+delta+'</div><div style="font-size:10px;color:var(--grayL);margin-top:6px;line-height:1.3">'+k.nota+'</div></div>';
+  }).join('');
+  const patResumen='<div class="panel"><div class="panel-title">Resumen de riesgo</div><div style="display:flex;gap:22px;align-items:center;flex-wrap:wrap"><div style="text-align:center;flex:0 0 auto"><div style="font-size:9.5px;color:var(--grayL);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Nivel de riesgo patrimonial</div>'+patGauge+'</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;flex:1;min-width:300px">'+patKpiCards+'</div></div></div>';
+  // FASE 11 (módulo 03) — Análisis A/B + Cierre obligatorio
+  const pctOfPat=v=>(v/(c.patrimonio||1)*100).toFixed(0)+'%';
+  const patA='<b>Estructura y origen del crecimiento:</b> el patrimonio de '+n$(c.patrimonio)+' financia el '+autonomia.toFixed(0)+'% del activo. Composición: capital '+pctOfPat(D.capital[y])+', reservas '+pctOfPat(D.resLegal[y])+', resultados acumulados '+pctOfPat(Math.max(0,D.utilAcum[y]-c.utilNeta))+', utilidad del ejercicio '+pctOfPat(Math.max(0,c.utilNeta))+'. '+(cp?('Creció '+crecPat+' vs '+py+', impulsado por '+(c.utilNeta>0?'la utilidad del ejercicio y la retención de resultados (crecimiento real, no por revalorizaciones ni ajustes no realizados)':'ajustes patrimoniales')+'.'):'Único período disponible.')+' Calidad patrimonial (capital+reservas)/patrimonio = '+calidadPat.toFixed(0)+'% ('+(calidadPat>=50?'🟢 alta':calidadPat>=30?'🟡 media':'🔴 baja: depende de utilidades acumuladas')+').';
+  const patB='<b>Financiero, societario y tributario:</b> ROE '+roe.toFixed(0)+'%, autonomía '+autonomia.toFixed(0)+'%, Pasivo/Patrimonio '+(patPasPatr!=null?patPasPatr.toFixed(0)+'%':'[N/D]')+'. Reserva legal '+resLegalPct.toFixed(0)+'% del capital ('+(resLegalPct>=50?'cumple el 50%':'aún no alcanza el 50% legal — apropiar utilidades')+'). Utilidades retenidas sujetas a revisión = '+n$(utilRet)+' ('+(utilRet>10e6?'🔴 alerta alta':utilRet>1e6?'🟠 alerta media':utilRet>=100e3?'🟡 informativa':'sin alerta')+'). '+(utilRet>=100e3?'⚠️ Bajo el régimen ecuatoriano vigente desde sep-2025, las utilidades no distribuidas ni capitalizadas al 31-jul podrían generar un pago a cuenta recuperable sobre utilidades no distribuidas, sujeto a validación del SRI. ':'')+'CxC relacionadas/patrimonio '+(relPatr!=null?relPatr.toFixed(0)+'%':'[N/D]')+(relPatr!=null&&relPatr>10?' (🔴 patrimonio parcialmente inmovilizado en relacionadas)':'')+'. Crédito por impuesto a utilidades retenidas: [DATO NO DISPONIBLE — solicitar cuenta de pago a cuenta/crédito tributario]. Fortalecimiento patrimonial: '+((patPasPatr!=null&&patPasPatr>300)?'requerido (alto apalancamiento): evaluar aporte de accionistas o capitalización de deuda':'no requerido (apalancamiento bajo)')+'.';
+  const patFort=[];
+  if(roe>=15)patFort.push('ROE atractivo ('+roe.toFixed(0)+'%)');
+  if(autonomia>=60)patFort.push('Autonomía financiera sólida ('+autonomia.toFixed(0)+'%)');
+  if(crecPatNum!=null&&crecPatNum>0)patFort.push('Patrimonio creciente (+'+crecPatNum.toFixed(0)+'%) por utilidades reales');
+  if(relPatr!=null&&relPatr<=10)patFort.push('Baja inmovilización en relacionadas');
+  if(!patFort.length)patFort.push('[EVIDENCIA INSUFICIENTE para fortalezas materiales]');
+  const patRiesgosTop=[];
+  if(calidadPat<30)patRiesgosTop.push('Baja calidad patrimonial ('+calidadPat.toFixed(0)+'%): depende de utilidades acumuladas');
+  if(utilRet>10e6)patRiesgosTop.push('Utilidades retenidas '+n$(utilRet)+' (🔴 >USD 10M): exposición tributaria SRI 2025');
+  else if(utilRet>=100e3)patRiesgosTop.push('Utilidades retenidas '+n$(utilRet)+': revisión tributaria SRI 2025');
+  if(resLegalPct<50)patRiesgosTop.push('Reserva legal '+resLegalPct.toFixed(0)+'% (<50% legal)');
+  if(relPatr!=null&&relPatr>10)patRiesgosTop.push('Relacionadas '+relPatr.toFixed(0)+'% del patrimonio');
+  if(!patRiesgosTop.length)patRiesgosTop.push('sin riesgos materiales');
+  const patAcc=[];
+  if(utilRet>=100e3)patAcc.push('definir política de dividendos/capitalización dentro del plazo (mitigar pago a cuenta SRI)');
+  if(resLegalPct<50)patAcc.push('apropiar utilidades a reserva legal hasta el 50% del capital');
+  if(calidadPat<30)patAcc.push('fortalecer la base de capital+reservas (capitalizar utilidades retenidas)');
+  if(!patAcc.length)patAcc.push('mantener la política de reservas y retención de utilidades');
+  const patSemTxt=patNivelTxt==='ALTO'?'🔴 Alerta':(patNivelTxt==='MEDIO'?'🟡 Atención':'🟢 Normal');
+  const patCierre='<b>Top 3 fortalezas patrimoniales:</b> '+patFort.slice(0,3).map((t,i)=>(i+1)+') '+t).join(' · ')+'.<br><b>Top 3 riesgos patrimoniales:</b> '+patRiesgosTop.slice(0,3).map((t,i)=>(i+1)+') '+t).join(' · ')+'.<br><b>Top 3 acciones para accionistas:</b> '+patAcc.slice(0,3).map((t,i)=>(i+1)+') '+t).join(' · ')+'.<br><b>Semáforo general del patrimonio:</b> '+patSemTxt+'.';
+  const bloquePatrimonio=patKpiBand
+    +'<div class="grid-2">'+patChart+patRiesgoTabla+'</div>'
+    +patResumen
+    +'<div class="panel"><div class="panel-title">Detalle y análisis ejecutivo del patrimonio</div>'
+      +'<div style="font-size:10px;color:var(--teal);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Composición y calidad del patrimonio</div>'+patCompTable
+      +cajaAB('A · Estructura patrimonial',patA,'teal')
+      +cajaAB('B · Análisis financiero, societario y tributario',patB,'gold')
+      +cajaAB('Cierre ejecutivo (Gerencia y Accionistas)',patCierre,'teal')
+    +'</div>';
+  document.getElementById("sec-balance").innerHTML=
+  '<div class="sec-head"><div class="sec-num">02 · Estado de Situación Financiera</div><div class="sec-title">Balance general comparativo · '+curLbl+'</div><div class="sec-sub">Análisis vertical sobre total de activos.'+subDates+(usarDet?'':' Clic en cualquier valor azul para editar.')+'</div>'+toggle+'</div>'
+  +bloqueActivos
+  +'<div class="sec-head" style="margin-top:26px"><div class="sec-num">02 · Pasivos</div><div class="sec-title">Pasivos · '+curLbl+'</div></div>'
+  +bloquePasivos
+  +'<div class="sec-head" style="margin-top:26px"><div class="sec-num">02 · Patrimonio</div><div class="sec-title">Patrimonio · '+curLbl+'</div></div>'
+  +bloquePatrimonio
+  +'<div class="panel"><div class="panel-title">'+tituloTabla+'</div><table><thead><tr><th>Cuenta</th>'+BLBL.map(yy=>'<th>'+yy+'</th>').join('')+'<th>Var</th>'+BLBL.map(yy=>'<th>%'+yy+'</th>').join('')+'</tr></thead><tbody>'+tablaHTML+'</tbody></table></div>';
+}
+function setNivel(n){NIVEL=n;renderBalance(compute());}
+
+// ════ INDICADORES FINANCIEROS (clasificados · vista del accionista) ════
+function renderIndicadores(C){
+  const y=activeYear,_yi=YRS.indexOf(y),py=_yi>0?YRS[_yi-1]:null,c=C[y];
+  const g=(k,yr)=>(D[k]&&D[k][yr]!=null)?D[k][yr]:0;
+  const idx=yr=>YRS.indexOf(yr);
+  const diasOf=yr=>{const m=(Array.isArray(MESES)&&MESES[idx(yr)])?MESES[idx(yr)]:12;return m*30.42;};
+  const dpoOf=yr=>{const co=Math.abs(g('costoVta',yr));return co?Math.round(g('cxp',yr)/(co/diasOf(yr))):0;};
+  const ebitdaAn=yr=>{const m=(Array.isArray(MESES)&&MESES[idx(yr)])?MESES[idx(yr)]:12;return C[yr].ebitda*(12/m);};
+  const acida=yr=>C[yr].pasCorr?(C[yr].actCorr-g('inventario',yr))/C[yr].pasCorr:0;
+  const dEbitda=yr=>{const e=ebitdaAn(yr);return e?(g('oblBanc',yr)+g('prestamosLP',yr))/e:null;};
+  const icr=yr=>{const gf=Math.abs(g('gastFin',yr));return gf?C[yr].ebit/gf:null;};
+  const roa=yr=>C[yr].totalAct?C[yr].utilNeta/C[yr].totalAct:0;
+  const apal=yr=>C[yr].patrimonio?C[yr].totalAct/C[yr].patrimonio:0;
+  const endPatr=yr=>C[yr].patrimonio?C[yr].totalPas/C[yr].patrimonio:0;
+  const mgEbitda=yr=>g('ingOrd',yr)?C[yr].ebitda/g('ingOrd',yr):0;
+  const ciclo=yr=>C[yr].dio+C[yr].dso-dpoOf(yr);
+  const fX=v=>v==null?'—':v.toFixed(2)+'x',fP=v=>v==null?'—':(v*100).toFixed(1)+'%',fD=v=>v==null?'—':Math.round(v)+' d';
+  const dot=cc=>'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--'+cc+');margin-right:7px;vertical-align:middle"></span>';
+  const semLiq=v=>v>=1.5?'green':(v>=1?'gold':'red'),semEnd=v=>v<=.4?'green':(v<=.6?'gold':'red'),semDE=v=>v==null?'grayL':(v<2.5?'green':(v<3.5?'gold':(v<4.5?'amber':'red'))),semICR=v=>v==null?'grayL':(v>3?'green':(v>1.5?'gold':'red')),semROE=v=>v>=.15?'green':(v>=.08?'gold':'red');
+  const row=(label,fn,fmt,sem,nota)=>{const cur=fn(y),prev=py?fn(py):null,co=sem(cur);return '<tr><td style="text-align:left">'+dot(co)+label+(nota?'<div style="font-size:9.5px;color:var(--grayL);opacity:.8">'+nota+'</div>':'')+'</td><td class="mono" style="color:var(--grayL)">'+(prev==null?'—':fmt(prev))+'</td><td class="mono" style="color:var(--'+co+')">'+fmt(cur)+'</td></tr>';};
+  const cat=(titulo,rows,chart)=>'<div class="panel"><div class="panel-title">'+titulo+'</div><div class="grid-2" style="align-items:start">'+'<table style="font-size:12px"><thead><tr><th style="text-align:left">Indicador</th><th>'+(py||'Ant.')+'</th><th>'+y+'</th></tr></thead><tbody>'+rows.join('')+'</tbody></table><div>'+chart+'</div></div></div>';
+  const t=v=>'teal';
+  // Liquidez
+  const liqRows=[row('Razón corriente',yr=>C[yr].liquidez,fX,semLiq,'AC / PC · cobertura de corto plazo'),row('Prueba ácida',acida,fX,v=>v>=1?'green':(v>=.8?'gold':'red'),'(AC − inventario) / PC'),row('Capital de trabajo',yr=>C[yr].actCorr-C[yr].pasCorr,n$,v=>v>=0?'green':'red','AC − PC')];
+  const liqChart=svgBarsComp(['Razón corr.','Prueba ácida'],[py?C[py].liquidez:0,py?acida(py):0],[c.liquidez,acida(y)],py||'Ant.',y);
+  // Actividad
+  const actRows=[row('Rotación de activos',yr=>C[yr].rotAct,fX,v=>v>=1?'green':'gold','ventas anualizadas / activos'),row('Días de inventario (DIO)',yr=>C[yr].dio,fD,v=>v<=90?'green':(v<=120?'gold':'amber'),'inventario en bodega'),row('Días de cobro (DSO)',yr=>C[yr].dso,fD,v=>v<=45?'green':(v<=60?'gold':'amber'),'recuperación de cartera'),row('Días de pago (DPO)',dpoOf,fD,t,'plazo a proveedores'),row('Ciclo de conversión de efectivo',ciclo,fD,v=>v<=90?'green':(v<=150?'gold':'amber'),'DIO + DSO − DPO')];
+  const actChart=svgBarsComp(['DIO','DSO','DPO','Ciclo'],[py?C[py].dio:0,py?C[py].dso:0,py?dpoOf(py):0,py?ciclo(py):0],[c.dio,c.dso,dpoOf(y),ciclo(y)],py||'Ant.',y);
+  // Endeudamiento
+  const endRows=[row('Endeudamiento del activo',yr=>C[yr].endeud,fP,semEnd,'Pasivo / Activo'),row('Endeudamiento patrimonial',endPatr,fP,v=>v<=1?'green':(v<=2?'gold':'red'),'Pasivo / Patrimonio'),row('Apalancamiento',apal,fX,v=>v<=2?'green':(v<=3?'gold':'red'),'Activo / Patrimonio'),row('Deuda financiera / EBITDA',dEbitda,fX,semDE,'bancos + préstamos / EBITDA anual'),row('Cobertura de intereses (ICR)',icr,fX,semICR,'EBIT / gastos financieros')];
+  const endChart=svgBarsComp(['Endeud. %','Patrim. %'],[py?C[py].endeud*100:0,py?endPatr(py)*100:0],[c.endeud*100,endPatr(y)*100],py||'Ant.',y);
+  // Rentabilidad
+  const rentRows=[row('ROE',yr=>C[yr].roe,fP,semROE,'utilidad / patrimonio'),row('ROA',roa,fP,v=>v>=.08?'green':(v>=.04?'gold':'red'),'utilidad / activos'),row('Margen bruto',yr=>C[yr].mrgBruto,fP,t,'ventas − costo'),row('Margen operativo (EBIT)',yr=>C[yr].mrgOp,fP,t,''),row('Margen neto',yr=>C[yr].mrgNeto,fP,v=>v>=.1?'green':(v>=.05?'gold':'red'),'utilidad / ventas'),row('Margen EBITDA',mgEbitda,fP,t,'EBITDA / ventas')];
+  const rentChart=svgLines(YRS.map(String),[{name:'ROE',data:YRS.map(yy=>+(C[yy].roe*100).toFixed(1)),color:CL.gold},{name:'ROA',data:YRS.map(yy=>+(roa(yy)*100).toFixed(1)),color:CL.blue},{name:'Margen neto',data:YRS.map(yy=>+(C[yy].mrgNeto*100).toFixed(1)),color:CL.green}],v=>v.toFixed(0)+'%');
+  // DuPont (período, reconcilia con ROE): Margen neto × Rotación × Apalancamiento
+  const rotP=g('ingOrd',y)&&c.totalAct?g('ingOrd',y)/c.totalAct:0,roeChk=c.mrgNeto*rotP*apal(y);
+  const dpBox=(lbl,val)=>'<div style="flex:1;min-width:120px;text-align:center;background:var(--navy);border-radius:8px;padding:14px"><div style="font-size:10px;color:var(--grayL);text-transform:uppercase;letter-spacing:.5px">'+lbl+'</div><div class="mono" style="font-size:22px;font-weight:700;color:var(--teal);margin-top:4px">'+val+'</div></div>';
+  const opn=s=>'<div style="display:flex;align-items:center;font-size:22px;color:var(--grayL);padding:0 2px">'+s+'</div>';
+  const dupont='<div class="panel"><div class="panel-title">Descomposición DuPont del ROE · '+y+'</div><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:stretch">'+dpBox('Margen neto',fP(c.mrgNeto))+opn('×')+dpBox('Rotación (período)',rotP.toFixed(3)+'x')+opn('×')+dpBox('Apalancamiento',apal(y).toFixed(3)+'x')+opn('=')+'<div style="flex:1;min-width:120px;text-align:center;background:rgba(199,168,60,.12);border:1px solid var(--gold);border-radius:8px;padding:14px"><div style="font-size:10px;color:var(--grayL);text-transform:uppercase;letter-spacing:.5px">ROE</div><div class="mono" style="font-size:22px;font-weight:700;color:var(--gold);margin-top:4px">'+fP(roeChk)+'</div></div></div></div>';
+  document.getElementById("sec-indicadores").innerHTML=
+    '<div class="sec-head"><div class="sec-num">Indicadores Financieros</div><div class="sec-title">Indicadores clave para el accionista · '+y+(py?' vs '+py:'')+'</div><div class="sec-sub">Clasificados por liquidez, actividad, endeudamiento y rentabilidad, con semáforo por umbral.'+(py?'':' Falta período anterior para comparar.')+'</div></div>'
+    +cat('Liquidez',liqRows,liqChart)
+    +cat('Actividad y rotación',actRows,actChart)
+    +cat('Endeudamiento y solvencia',endRows,endChart)
+    +cat('Rentabilidad',rentRows,rentChart)
+    +dupont;
+}
+
+function renderVariaciones(C){
+  const ny=YRS.length, yA=YRS[0], yM=YRS[ny>=2?ny-2:0], yB=YRS[ny-1];
+  const lineas=(p,q)=>[
+    ['Ingresos',D.ingOrd[q]-D.ingOrd[p],pctv(D.ingOrd[q],D.ingOrd[p])],
+    ['Utilidad neta',C[q].utilNeta-C[p].utilNeta,pctv(C[q].utilNeta,C[p].utilNeta)],
+    ['CxC comerciales',D.cxc[q]-D.cxc[p],pctv(D.cxc[q],D.cxc[p])],
+    ['Gastos admin',D.gastAdm[q]-D.gastAdm[p],pctv(D.gastAdm[q],D.gastAdm[p])],
+    ['Efectivo',D.efectivo[q]-D.efectivo[p],pctv(D.efectivo[q],D.efectivo[p])],
+  ];
+  const per1=lineas(yA,yM), per2=lineas(yM,yB);
+  const card=(title,data,color)=>'<div class="panel"><div class="panel-title" style="color:var(--'+color+')">'+title+'</div>'+data.map(r=>'<div style="padding:9px 0;border-bottom:1px solid rgba(13,115,119,.12)"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:12px;color:var(--white)">'+r[0]+'</span><span class="mono" style="font-size:12px;color:var(--'+(r[1]>0?'green':'red')+')">'+n$(r[1])+' ('+r[2]+')</span></div></div>').join('')+'</div>';
+  document.getElementById("sec-variaciones").innerHTML=
+  '<div class="sec-head"><div class="sec-num">03 · Análisis de Variaciones</div><div class="sec-title">Cómo cambiaron los números</div><div class="sec-sub">Variación interanual de los rubros más relevantes. Documenta las causas en el informe gerencial.</div></div>'
+  +'<div class="grid-2">'+card('Variación '+yM+' vs '+yA,per1,'amber')+card('Variación '+yB+' vs '+yM,per2,'green')+'</div>'
+  +'<div class="panel"><div class="panel-title">Tendencia de ratios de costo (% sobre ingresos)</div>'+svgLines(YRS.map(String),[{name:'Margen bruto',data:YRS.map(y=>+(C[y].mrgBruto*100).toFixed(1)),color:CL.gold},{name:'Costo ventas/ing',data:YRS.map(y=>+(Math.abs(D.costoVta[y]/D.ingOrd[y])*100).toFixed(1)),color:CL.red},{name:'Gastos adm/ing',data:YRS.map(y=>+(Math.abs(D.gastAdm[y]/D.ingOrd[y])*100).toFixed(1)),color:CL.teal}],v=>v.toFixed(0)+'%')+'</div>';
+}
+
+function renderOperativos(C){
+  let opRows='';
+  [['numHab','N° habitaciones / tiendas','—'],['ocupacion','Ocupación (%)','62–68%'],['adr','Tarifa promedio noche (ADR)','$110–130'],['nps','NPS satisfacción','>70']].forEach(r=>{const[k,l,bench]=r;opRows+='<tr><td>'+l+'</td>'+YRS.map(y=>'<td>'+makeEditablePH(k,y,D[k][y])+'</td>').join('')+'<td style="color:var(--teal);font-size:10px">'+bench+'</td></tr>';});
+  let derived='';
+  [['Ingreso por día',YRS.map(y=>'$'+(D.ingOrd[y]/365).toFixed(0))],['Costo ventas / ingreso',YRS.map(y=>(Math.abs(D.costoVta[y]/D.ingOrd[y])*100).toFixed(1)+'%')],['Gastos admin / ingreso',YRS.map(y=>(Math.abs(D.gastAdm[y]/D.ingOrd[y])*100).toFixed(1)+'%')],['Tasa efectiva IR',YRS.map(y=>(Math.abs(D.irCorr[y]/C[y].utilAntIR)*100).toFixed(1)+'%')],['Patrimonio / activos',YRS.map(y=>((1-C[y].endeud)*100).toFixed(1)+'%')],['Activos líquidos',YRS.map(y=>n$(D.efectivo[y]+D.actFin[y]))]].forEach(r=>{const[l,vs]=r;derived+='<div style="background:var(--navy);border-radius:6px;padding:12px"><div style="font-size:9px;color:var(--grayL);margin-bottom:6px">'+l+'</div><div style="display:flex;gap:8px">'+vs.map((v,j)=>'<div style="flex:1;text-align:center"><div style="font-size:8px;color:var(--grayL)">'+YRS[j]+'</div><div class="mono" style="font-size:12px;color:var(--'+(j===2?'gold':'white')+')">'+v+'</div></div>').join('')+'</div></div>';});
+  document.getElementById("sec-operativos").innerHTML=
+  '<div class="sec-head"><div class="sec-num">04 · KPIs Financieros</div><div class="sec-title">Indicadores derivados de los estados financieros</div><div class="sec-sub">Ratios calculados automáticamente a partir de los estados financieros cargados.</div></div>'
+  +'<div class="panel"><div class="panel-title">KPIs financieros derivados (calculados automáticamente)</div><div class="grid-3">'+derived+'</div></div>';
+}
+
+function renderDecisiones(C){
+  const yA=YRS[0], yB=YRS[YRS.length-1];
+  const fort=[];
+  if(C[yB].liquidez>=1.5) fort.push('Liquidez corriente sólida: '+C[yB].liquidez.toFixed(2)+'x al cierre de '+yB);
+  if(C[yB].endeud<=0.4) fort.push('Bajo endeudamiento: '+(C[yB].endeud*100).toFixed(1)+'% de los activos');
+  if(C[yB].patrimonio>=C[yA].patrimonio) fort.push('Patrimonio en crecimiento: '+n$(C[yB].patrimonio)+' ('+pctv(C[yB].patrimonio,C[yA].patrimonio)+' vs '+yA+')');
+  if(C[yB].roe>=0.15) fort.push('ROE atractivo: '+(C[yB].roe*100).toFixed(1)+'%');
+  fort.push('Activos líquidos al cierre: '+n$(D.efectivo[yB]+D.actFin[yB]));
+  if(D.ingOrd[yB]>D.ingOrd[yA]) fort.push('Ingresos en expansión: '+pctv(D.ingOrd[yB],D.ingOrd[yA])+' en el periodo');
+  const aten=[];
+  if(C[yB].mrgBruto<C[yA].mrgBruto) aten.push('Margen bruto comprimido: '+(C[yB].mrgBruto*100).toFixed(1)+'% vs '+(C[yA].mrgBruto*100).toFixed(1)+'% ('+yA+')');
+  if(C[yB].liquidez<1) aten.push('Liquidez ajustada: '+C[yB].liquidez.toFixed(2)+'x — vigilar capital de trabajo');
+  if(C[yB].endeud>0.6) aten.push('Endeudamiento elevado: '+(C[yB].endeud*100).toFixed(1)+'%');
+  if(C[yB].dso>60) aten.push('Días de cobro altos (DSO '+C[yB].dso+' días) — revisar política de crédito');
+  if(D.ingOrd[yB]<D.ingOrd[yA]) aten.push('Ingresos a la baja: '+pctv(D.ingOrd[yB],D.ingOrd[yA])+' en el periodo');
+  aten.push('Documentar partidas no recurrentes y operaciones con relacionadas');
+  const dec=[['1','Distribución de utilidades '+yB,'Utilidad neta '+n$(C[yB].utilNeta)+'. Evaluar política de dividendos vs. capitalización según necesidades de caja y plan de inversión.','gold'],['2','Plan de inversión (CAPEX)','Propiedad, planta y equipo varió '+pctv(D.propEquip[yB],D.propEquip[yA])+' en el periodo (de '+n$(D.propEquip[yA])+' a '+n$(D.propEquip[yB])+'). Definir presupuesto de renovación y retorno esperado.','blue'],['3','Gestión de excedentes de liquidez','Activos líquidos '+n$(D.efectivo[yB]+D.actFin[yB])+'. Revisar el portafolio de inversiones y su rendimiento (ver sección Inversiones).','teal']];
+  document.getElementById("sec-decisiones").innerHTML=
+  '<div class="sec-head"><div class="sec-num">05 · Conclusiones y Decisiones</div><div class="sec-title">Puntos para la junta de accionistas</div><div class="sec-sub">Síntesis ejecutiva y aprobaciones requeridas.</div></div>'
+  +'<div class="grid-2"><div class="panel"><div class="panel-title" style="color:var(--greenOk)">Fortalezas identificadas</div>'+fort.map(t=>'<div class="insight"><span style="color:var(--greenOk)">•</span>'+t+'</div>').join('')+'</div>'
+  +'<div class="panel"><div class="panel-title" style="color:var(--amber)">Puntos de atención</div>'+aten.map(t=>'<div class="insight"><span style="color:var(--amber)">•</span>'+t+'</div>').join('')+'</div></div>'
+  +'<div class="panel">'+dec.map(d=>'<div class="decision"><div class="decision-num" style="background:rgba(199,168,60,.12);border:1px solid var(--'+d[3]+');color:var(--'+d[3]+')">'+d[0]+'</div><div><div style="font-size:13px;font-weight:600;color:var(--white);font-family:Montserrat,Arial;margin-bottom:4px">'+d[1]+' <span class="tag warn">Aprobación requerida</span></div><div style="font-size:12px;color:var(--grayL);line-height:1.6">'+d[2]+'</div></div></div>').join('')+'</div>';
+}
+
+// ════ EXPORT — Dashboard visual que abre en Excel ════
+function exportExcel(){
+  const C=compute();const cur=new Date().toLocaleDateString();const y=activeYear;
+  // Color palette (AuditBrain)
+  const NV='#071B2F',NC='#0A2342',GR='#2F3640',GO='#C7A83C',GN='#A6C63F',BL='#1E5AA8',TL='#0D7377',RD='#C0392B',AM='#D68910',GK='#1E8449',WH='#F5F7FA',GY='#D5D8DC';
+  const nf="mso-number-format:'\\#\\,\\#\\#0';";
+  const money=v=>v==null?'':(v<0?'($'+Math.round(Math.abs(v)).toLocaleString()+')':'$'+Math.round(v).toLocaleString());
+  // cell style helper
+  const cell=(txt,o={})=>{
+    let s='border:1px solid '+(o.bd||'#0D7377')+';padding:'+(o.pad||'6px 10px')+';font-family:'+(o.ff||'Arial')+';';
+    s+='background:'+(o.bg||NV)+';color:'+(o.c||WH)+';font-size:'+(o.fs||11)+'px;';
+    s+='font-weight:'+(o.fw||400)+';text-align:'+(o.al||'left')+';';
+    if(o.nf)s+=nf;
+    let attr='';if(o.cs)attr+=' colspan="'+o.cs+'"';if(o.rs)attr+=' rowspan="'+o.rs+'"';
+    return '<td style="'+s+'"'+attr+'>'+(txt==null?'':txt)+'</td>';
+  };
+  const blank=(n,bg)=>{let r='';for(let i=0;i<n;i++)r+=cell('',{bg:bg||NV,bd:bg||NV});return r;};
+
+  // ══ SHEET 1: DASHBOARD VISUAL ══
+  // 14-column grid
+  let d='';
+  // Brand header
+  d+='<tr>'+cell('▦ AuditBrain  ·  __EMPRESA__',{cs:14,bg:NC,c:GO,fs:18,fw:700,al:'left',pad:'14px 16px',bd:NC})+'</tr>';
+  d+='<tr>'+cell('Dashboard Ejecutivo · '+YRS[0]+'–'+YRS[YRS.length-1]+' · NIIF (USD) · Generado '+cur,{cs:14,bg:NC,c:GY,fs:11,al:'left',pad:'4px 16px',bd:NC})+'</tr>';
+  d+='<tr>'+blank(14,NV)+'</tr>';
+  // Section: KPIs
+  d+='<tr>'+cell('INDICADORES CLAVE · AÑO '+y,{cs:14,bg:NV,c:TL,fs:11,fw:700,al:'left',bd:NV})+'</tr>';
+  // KPI cards row (each card 3 cols label + value stacked => use 2 rows)
+  const py=y>2023?y-1:null;
+  const kpis=[
+    ['INGRESOS ORDINARIOS',money(D.ingOrd[y]),GO,py?pctv(D.ingOrd[y],D.ingOrd[py])+' vs '+py:''],
+    ['UTILIDAD NETA',money(C[y].utilNeta),GN,py?pctv(C[y].utilNeta,C[py].utilNeta)+' vs '+py:''],
+    ['PATRIMONIO',money(C[y].patrimonio),BL,py?pctv(C[y].patrimonio,C[py].patrimonio)+' vs '+py:''],
+    ['MARGEN NETO',(C[y].mrgNeto*100).toFixed(1)+'%',TL,py?(C[py].mrgNeto*100).toFixed(1)+'% en '+py:'']
+  ];
+  // labels row
+  let lr='<tr>';kpis.forEach((k,i)=>{lr+=cell(k[0],{cs:3,bg:GR,c:GY,fs:9,fw:700,al:'left',bd:GR,pad:'8px 10px 2px'});if(i<3)lr+=cell('',{bg:NV,bd:NV});});lr+=cell('',{bg:NV,bd:NV});lr+='</tr>';
+  // value row
+  let vr='<tr>';kpis.forEach((k,i)=>{vr+=cell(k[1],{cs:3,bg:GR,c:k[2],fs:20,fw:700,al:'left',bd:GR,pad:'0 10px 2px'});if(i<3)vr+=cell('',{bg:NV,bd:NV});});vr+=cell('',{bg:NV,bd:NV});vr+='</tr>';
+  // delta row
+  let dr='<tr>';kpis.forEach((k,i)=>{dr+=cell(k[3],{cs:3,bg:GR,c:GY,fs:9,al:'left',bd:GR,pad:'0 10px 8px'});if(i<3)dr+=cell('',{bg:NV,bd:NV});});dr+=cell('',{bg:NV,bd:NV});dr+='</tr>';
+  d+=lr+vr+dr;
+  d+='<tr>'+blank(14,NV)+'</tr>';
+
+  // Section: trend bar charts (cells)
+  d+='<tr>'+cell('EVOLUCIÓN DE INGRESOS (gráfico de barras)',{cs:14,bg:NV,c:TL,fs:11,fw:700,al:'left',bd:NV})+'</tr>';
+  const barRow=(label,val,max,color,valTxt)=>{
+    const seg=10;const fill=Math.max(0,Math.round(val/max*seg));
+    let r='<tr>'+cell(label,{cs:2,bg:NV,c:WH,fs:11,al:'left',bd:NV});
+    for(let i=0;i<seg;i++)r+=cell('',{bg:i<fill?color:'#16314a',bd:NV,pad:'8px 2px'});
+    r+=cell(valTxt,{cs:2,bg:NV,c:color,fs:11,fw:700,al:'left',bd:NV});
+    return r+'</tr>';
+  };
+  const maxIng=Math.max(...YRS.map(yy=>D.ingOrd[yy]));
+  YRS.forEach(yy=>{d+=barRow(yy+'  Ingresos',D.ingOrd[yy],maxIng,TL,money(D.ingOrd[yy]));});
+  d+='<tr>'+blank(14,NV)+'</tr>';
+  d+='<tr>'+cell('EVOLUCIÓN DE UTILIDAD NETA (gráfico de barras)',{cs:14,bg:NV,c:TL,fs:11,fw:700,al:'left',bd:NV})+'</tr>';
+  const maxUt=Math.max(...YRS.map(yy=>C[yy].utilNeta));
+  YRS.forEach(yy=>{d+=barRow(yy+'  Utilidad',C[yy].utilNeta,maxUt,GO,money(C[yy].utilNeta));});
+  d+='<tr>'+blank(14,NV)+'</tr>';
+
+  // Section: health indicators with semaforo
+  d+='<tr>'+cell('SALUD FINANCIERA · AÑO '+y,{cs:14,bg:NV,c:TL,fs:11,fw:700,al:'left',bd:NV})+'</tr>';
+  const sem=c=>c==='greenOk'?GK:c==='amber'?AM:RD;
+  const health=[
+    ['Liquidez corriente',C[y].liquidez.toFixed(2)+'x',C[y].liquidez>=1.5?'greenOk':C[y].liquidez>=1?'amber':'red'],
+    ['Endeudamiento',(C[y].endeud*100).toFixed(1)+'%',C[y].endeud<=0.4?'greenOk':C[y].endeud<=0.6?'amber':'red'],
+    ['ROE',(C[y].roe*100).toFixed(1)+'%',C[y].roe>=0.15?'greenOk':C[y].roe>=0.08?'amber':'red'],
+    ['DSO (días cobro)',C[y].dso+' días',C[y].dso<=45?'greenOk':C[y].dso<=60?'amber':'red'],
+    ['Activos líquidos',money(D.efectivo[y]+D.actFin[y]),'greenOk']
+  ];
+  health.forEach(h=>{
+    d+='<tr>'+cell('',{bg:sem(h[2]),bd:NV,cs:1})+cell(h[0],{cs:8,bg:GR,c:GY,fs:11,al:'left',bd:GR})+cell(h[1],{cs:5,bg:GR,c:WH,fs:12,fw:700,al:'right',bd:GR})+'</tr>';
+  });
+  d+='<tr>'+blank(14,NV)+'</tr>';
+  d+='<tr>'+cell('AuditBrain Executive Advisory · FIN v2.0 · CRE v1.0 · Confidencial',{cs:14,bg:NC,c:TL,fs:9,al:'left',bd:NC})+'</tr>';
+
+  // ══ SHEET 2: ESTADO DE RESULTADOS (dark) ══
+  const thL='background:'+NC+';color:'+GO+';font-family:Arial;font-size:11px;font-weight:700;padding:8px 10px;border:1px solid '+TL+';text-align:left;';
+  const th='background:'+NC+';color:'+WH+';font-family:Arial;font-size:11px;font-weight:700;padding:8px 10px;border:1px solid '+TL+';text-align:right;';
+  const td='background:'+NV+';font-family:Arial;font-size:11px;padding:6px 10px;border:1px solid '+TL+';text-align:right;color:'+WH+';';
+  const tdL='background:'+NV+';font-family:Arial;font-size:11px;padding:6px 10px;border:1px solid '+TL+';text-align:left;color:'+WH+';';
+  const tot='background:'+GR+';font-family:Arial;font-size:11px;font-weight:700;padding:6px 10px;border:1px solid '+TL+';color:'+WH+';';
+  const totL='background:'+GR+';font-family:Arial;font-size:11px;font-weight:700;padding:6px 10px;border:1px solid '+TL+';color:'+WH+';text-align:left;';
+  const goldC='background:'+NC+';color:'+GO+';font-family:Arial;font-size:12px;font-weight:700;padding:6px 10px;border:1px solid '+TL+';text-align:right;';
+  const goldL='background:'+NC+';color:'+GO+';font-family:Arial;font-size:12px;font-weight:700;padding:6px 10px;border:1px solid '+TL+';text-align:left;';
+  const plRows=[['Ingresos ordinarios','ingOrd',1],['Costo de ventas','costoVta',0],['Utilidad bruta',null,2,c=>c.utilBruta],['Gastos admin, ventas y otros','gastAdm',0],['Gastos financieros','gastFin',0],['Utilidad operaciones ordinarias',null,2,c=>c.utilOp],['Ingresos no ordinarios','ingNoOrd',0],['Utilidad antes de IR',null,2,c=>c.utilAntIR],['IR corriente','irCorr',0],['IR diferido','irDif',0],['Utilidad neta del año',null,3,c=>c.utilNeta],['ORI beneficios definidos','ori',0],['Total resultado integral',null,2,c=>c.resIntegral]];
+  let s1='<tr><td colspan="'+(YRS.length*2+2)+'" style="background:'+NC+';color:'+GO+';font-family:Arial;font-size:16px;font-weight:700;padding:12px 14px;border:1px solid '+NC+'">__EMPRESA__</td></tr><tr><td colspan="'+(YRS.length*2+2)+'" style="background:'+NC+';color:'+TL+';font-family:Arial;font-size:11px;font-weight:700;padding:4px 14px;border:1px solid '+NC+'">ESTADO DE RESULTADOS INTEGRAL · NIIF PYMES (USD)</td></tr><tr><td colspan="'+(YRS.length*2+2)+'" style="background:'+NV+';border:1px solid '+NV+'">&nbsp;</td></tr>';
+  s1+='<tr><td style="'+thL+'">Cuenta</td>'+YRS.map(yy=>'<td style="'+th+'">'+yy+'</td>').join('')+'<td style="'+th+'">Var</td>'+YRS.map(yy=>'<td style="'+th+'">%'+yy+'</td>').join('')+'</tr>';
+  plRows.forEach(r=>{const[l,k,lvl,fn]=r;const vals=YRS.map(yy=>fn?fn(C[yy]):D[k][yy]);const isTot=lvl>=2;const cs=lvl===3?goldC:(isTot?tot:td);const cl=lvl===3?goldL:(isTot?totL:tdL);const _a=vals[vals.length-1],_b=vals[vals.length-2];const v2=_b?(((_a-_b)/Math.abs(_b))*100).toFixed(1)+'%':'-';s1+='<tr><td style="'+cl+'">'+l+'</td>'+vals.map(v=>'<td style="'+cs+nf+'">'+money(v)+'</td>').join('')+'<td style="'+td+'">'+v2+'</td>'+YRS.map((yy,i)=>'<td style="'+td+'">'+(D.ingOrd[yy]?(Math.abs(vals[i])/D.ingOrd[yy]*100).toFixed(1)+'%':'-')+'</td>').join('')+'</tr>';});
+
+  // ══ SHEET 3: BALANCE (dark) ══
+  const balRows=[['ACTIVOS CORRIENTES',null,1,c=>c.actCorr],['  Efectivo y equivalentes','efectivo',0],['  Activos financieros','actFin',0],['  CxC comerciales','cxc',0],['  Otros activos','otrosAct',0],['  Activos imp. corrientes','actImpCorr',0],['ACTIVOS NO CORRIENTES',null,1,c=>c.actNoCorr],['  Propiedades y equipos','propEquip',0],['  Activos imp. diferidos','actImpDif',0],['TOTAL ACTIVOS',null,3,c=>c.totalAct],['','',0],['PASIVOS CORRIENTES',null,1,c=>c.pasCorr],['  Obligaciones bancarias','oblBanc',0],['  CxP comerciales','cxp',0],['  Obligaciones acumuladas','oblAcum',0],['  Pasivos imp. corrientes','pasImpCorr',0],['  Beneficios definidos LP','benDefLP',0],['TOTAL PASIVOS',null,2,c=>c.totalPas],['PATRIMONIO',null,3,c=>c.patrimonio]];
+  let s2='<tr><td colspan="'+(YRS.length+2)+'" style="background:'+NC+';color:'+GO+';font-family:Arial;font-size:16px;font-weight:700;padding:12px 14px;border:1px solid '+NC+'">__EMPRESA__</td></tr><tr><td colspan="'+(YRS.length+2)+'" style="background:'+NC+';color:'+TL+';font-family:Arial;font-size:11px;font-weight:700;padding:4px 14px;border:1px solid '+NC+'">ESTADO DE SITUACIÓN FINANCIERA · NIIF PYMES (USD)</td></tr><tr><td colspan="'+(YRS.length+2)+'" style="background:'+NV+';border:1px solid '+NV+'">&nbsp;</td></tr>';
+  s2+='<tr><td style="'+thL+'">Cuenta</td>'+YRS.map(yy=>'<td style="'+th+'">'+yy+'</td>').join('')+'<td style="'+th+'">Var</td></tr>';
+  balRows.forEach(r=>{const[l,k,lvl,fn]=r;if(!l){s2+='<tr><td colspan="'+(YRS.length+2)+'" style="background:'+NV+';border:1px solid '+NV+'">&nbsp;</td></tr>';return;}const vals=YRS.map(yy=>fn?fn(C[yy]):D[k][yy]);const cs=lvl===3?goldC:(lvl>=1?tot:td);const cl=lvl===3?goldL:(lvl>=1?totL:tdL);const _a=vals[vals.length-1],_b=vals[vals.length-2];const v2=_b?(((_a-_b)/Math.abs(_b))*100).toFixed(1)+'%':'-';s2+='<tr><td style="'+cl+'">'+l+'</td>'+vals.map(v=>'<td style="'+cs+nf+'">'+money(v)+'</td>').join('')+'<td style="'+td+'">'+v2+'</td></tr>';});
+
+  // ══ SHEET 4: KPIs (dark) ══
+  let s3='<tr><td colspan="'+(YRS.length+1)+'" style="background:'+NC+';color:'+GO+';font-family:Arial;font-size:16px;font-weight:700;padding:12px 14px;border:1px solid '+NC+'">__EMPRESA__</td></tr><tr><td colspan="'+(YRS.length+1)+'" style="background:'+NC+';color:'+TL+';font-family:Arial;font-size:11px;font-weight:700;padding:4px 14px;border:1px solid '+NC+'">INDICADORES FINANCIEROS Y OPERATIVOS</td></tr><tr><td colspan="'+(YRS.length+1)+'" style="background:'+NV+';border:1px solid '+NV+'">&nbsp;</td></tr>';
+  s3+='<tr><td style="'+thL+'">Indicador</td>'+YRS.map(yy=>'<td style="'+th+'">'+yy+'</td>').join('')+'</tr>';
+  [['Margen bruto',YRS.map(yy=>(C[yy].mrgBruto*100).toFixed(1)+'%')],['Margen operativo',YRS.map(yy=>(C[yy].mrgOp*100).toFixed(1)+'%')],['Margen neto',YRS.map(yy=>(C[yy].mrgNeto*100).toFixed(1)+'%')],['Liquidez corriente',YRS.map(yy=>C[yy].liquidez.toFixed(2)+'x')],['Endeudamiento',YRS.map(yy=>(C[yy].endeud*100).toFixed(1)+'%')],['ROE',YRS.map(yy=>(C[yy].roe*100).toFixed(1)+'%')],['DSO (días)',YRS.map(yy=>C[yy].dso+' días')]].forEach(r=>{s3+='<tr><td style="'+tdL+'">'+r[0]+'</td>'+r[1].map(v=>'<td style="'+td+'">'+v+'</td>').join('')+'</tr>';});
+  s3+='<tr><td colspan="'+(YRS.length+1)+'" style="background:'+NV+';border:1px solid '+NV+'">&nbsp;</td></tr>';
+  s3+='<tr><td style="'+thL+'">KPIs OPERATIVOS (completar)</td>'+YRS.map(yy=>'<td style="'+th+'">'+yy+'</td>').join('')+'</tr>';
+  [['numHab','N° habitaciones/tiendas'],['ocupacion','Ocupación (%)'],['adr','Tarifa promedio (ADR)'],['nps','NPS satisfacción']].forEach(r=>{const[k,l]=r;s3+='<tr><td style="'+tdL+'">'+l+'</td>'+YRS.map(yy=>'<td style="'+td+'">'+(D[k][yy]!=null?D[k][yy]:'')+'</td>').join('')+'</tr>';});
+  s3+='<tr><td style="'+totL+'">RevPAR (calculado)</td>'+YRS.map(yy=>'<td style="'+goldC+'">'+(C[yy].revpar!=null?'$'+C[yy].revpar.toFixed(0):'')+'</td>').join('')+'</tr>';
+
+  const xls='<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="UTF-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Dashboard</x:Name><x:WorksheetOptions><x:DoNotDisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet><x:ExcelWorksheet><x:Name>Estado de Resultados</x:Name><x:WorksheetOptions><x:DoNotDisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet><x:ExcelWorksheet><x:Name>Balance General</x:Name><x:WorksheetOptions><x:DoNotDisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet><x:ExcelWorksheet><x:Name>KPIs y Ratios</x:Name><x:WorksheetOptions><x:DoNotDisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head><body><table style="border-collapse:collapse">'+d+'</table><table style="border-collapse:collapse">'+s1+'</table><table style="border-collapse:collapse">'+s2+'</table><table style="border-collapse:collapse">'+s3+'</table></body></html>';
+  const blob=new Blob(['\ufeff'+xls],{type:'application/vnd.ms-excel'});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="Galapagos_Safari_Dashboard.xls";a.click();URL.revokeObjectURL(url);
+  showToast("✓ Dashboard descargado — se abre en Excel con el diseño");
+}
+
+// ════ EXPORT — Snapshot HTML interactivo ════
+function exportHTML(){
+  let src=document.documentElement.outerHTML;
+  src=src.replace('let D=JSON.parse(JSON.stringify(DEFAULT));','let D='+JSON.stringify(D)+';');
+  // conservar el tema, layout y nivel elegidos en la copia descargada
+  src=src.replace(/let THEME=[^;]*;/,'let THEME='+JSON.stringify(THEME)+';');
+  src=src.replace(/let LAYOUT=[^;]*;/,'let LAYOUT='+JSON.stringify(LAYOUT)+';');
+  src=src.replace(/let NIVEL=[^;]*;/,'let NIVEL='+JSON.stringify(NIVEL)+';');
+  src=src.replace(/let CHART_STYLE=[^;]*;/,'let CHART_STYLE='+JSON.stringify(CHART_STYLE)+';');
+  const blob=new Blob(['<!DOCTYPE html>\n'+src],{type:'text/html'});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="Dashboard_Interactivo.html";a.click();URL.revokeObjectURL(url);
+  showToast("✓ Dashboard HTML interactivo descargado");
+}
+function resetData(){D=JSON.parse(JSON.stringify(DEFAULT));renderAll();showToast("↺ Datos restaurados a valores auditados");}
+function showToast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2500);}
+
+// ════ INIT ════
+buildNav();applyLayout(LAYOUT);const _sc=document.getElementById('selChart');if(_sc)_sc.value=CHART_STYLE;applyTheme(THEME);
+</script>
+</body>
+</html>

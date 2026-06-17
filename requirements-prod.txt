@@ -18,6 +18,7 @@ requests==2.32.3
 pandas==2.1.4
 numpy==1.26.4
 openpyxl==3.1.5
+xlrd==2.0.1  # lectura de .xls legacy (balances internos)
 python-docx==1.1.2
 python-pptx==0.6.23
 lxml>=4.9.0

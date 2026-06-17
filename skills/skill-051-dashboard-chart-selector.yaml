@@ -1,0 +1,126 @@
+# ============================================================
+# AUDITBRAIN SKILL — 051 · Dashboard Chart Selector
+# Reconstruido limpio (el pegado original se corrompió en code_snippets).
+# Componente in-app: frontend/src/fin/ChartSelector.jsx
+# ============================================================
+
+skill_id: "051"
+name: "Dashboard Chart Selector"
+version: "1.0.0"
+author: "Lider Audit-IA"
+domain: "Auditing | Finance | Reporting | Data Visualization"
+language: "es/en"
+status: "active"
+
+description: >
+  Selección inteligente de gráficos para dashboards financieros ejecutivos.
+  Analiza el objetivo del dashboard, la naturaleza del dato y el perfil del
+  usuario, y recomienda el tipo de gráfico óptimo entre 20 alternativas en 4
+  categorías: Rendimiento y Tendencias, Composición y Distribución, Análisis
+  Financiero Especializado, y Control/Riesgo/Gestión. Devuelve especificación
+  técnica, justificación estratégica y vista previa.
+
+activation_triggers:
+  spanish:
+    - "seleccionar gráfico dashboard"
+    - "qué gráfico usar"
+    - "recomendar visualización financiera"
+    - "chart selector auditbrain"
+    - "skill 051"
+  english:
+    - "select dashboard chart"
+    - "recommend financial chart"
+    - "chart selector"
+    - "skill 051"
+
+# ------------------------------------------------------------
+# CATÁLOGO DE GRÁFICOS (20 · 4 categorías)
+# ------------------------------------------------------------
+chart_catalog:
+  cat_1_rendimiento_tendencias:
+    - { id: C01, name: "Líneas",            code: line,     complexity: Baja,  impact: 5 }
+    - { id: C02, name: "Barras verticales", code: vbar,     complexity: Baja,  impact: 4 }
+    - { id: C03, name: "Barras horizontales", code: hbar,   complexity: Baja,  impact: 4 }
+    - { id: C04, name: "Área",              code: area,     complexity: Baja,  impact: 3 }
+    - { id: C05, name: "Velas (Candlestick)", code: candle, complexity: Media, impact: 4 }
+  cat_2_composicion_distribucion:
+    - { id: C06, name: "Torta (Pie)",       code: pie,      complexity: Baja,  impact: 3 }
+    - { id: C07, name: "Dona (Donut)",      code: donut,    complexity: Baja,  impact: 5 }
+    - { id: C08, name: "Barras apiladas",   code: stacked,  complexity: Baja,  impact: 4 }
+    - { id: C09, name: "Treemap",           code: treemap,  complexity: Media, impact: 4 }
+    - { id: C10, name: "Sankey",            code: sankey,   complexity: Alta,  impact: 5 }
+  cat_3_analisis_especializado:
+    - { id: C11, name: "Cascada (Waterfall)", code: waterfall, complexity: Media, impact: 5 }
+    - { id: C12, name: "Embudo (Funnel)",   code: funnel,   complexity: Baja,  impact: 4 }
+    - { id: C13, name: "Dispersión (Scatter)", code: scatter, complexity: Media, impact: 3 }
+    - { id: C14, name: "Burbuja",           code: bubble,   complexity: Media, impact: 4 }
+    - { id: C15, name: "Velocímetro (Gauge)", code: gauge,  complexity: Baja,  impact: 5 }
+  cat_4_control_riesgo_gestion:
+    - { id: C16, name: "Radar / Araña",     code: radar,    complexity: Media, impact: 4 }
+    - { id: C17, name: "Mapa de calor (Heatmap)", code: heatmap, complexity: Media, impact: 5 }
+    - { id: C18, name: "Box plot",          code: boxplot,  complexity: Media-Alta, impact: 3 }
+    - { id: C19, name: "Histograma",        code: histogram, complexity: Media, impact: 3 }
+    - { id: C20, name: "Combinado (Combo)", code: combo,    complexity: Baja-Media, impact: 5 }
+
+# ------------------------------------------------------------
+# MOTOR DE SELECCIÓN
+# ------------------------------------------------------------
+selection_engine:
+  input_questions:
+    - { id: Q1, q: "Objetivo principal del dashboard" }
+    - { id: Q2, q: "Cuántas métricas principales" }
+    - { id: Q3, q: "Perfil de la audiencia" }
+    - { id: Q4, q: "Existe dimensión temporal" }
+    - { id: Q5, q: "Cuántas categorías o ítems" }
+  decision_matrix:
+    - { when: "tendencias + temporal + 1 métrica", primary: C01, alts: [C04, C20] }
+    - { when: "tendencias + temporal + 2 métricas", primary: C20, alts: [C01, C08] }
+    - { when: "tendencias + 3+ métricas",          primary: C08, alts: [C04, C20] }
+    - { when: "comparación + 1-3 ítems",           primary: C02, alts: [C20, C07] }
+    - { when: "comparación + 4-6 ítems",           primary: C02, alts: [C08, C03] }
+    - { when: "comparación + 7+ ítems",            primary: C03, alts: [C09, C17] }
+    - { when: "composición + 1-3 + directorio",    primary: C07, alts: [C06, C15] }
+    - { when: "composición + temporal",            primary: C08, alts: [C04, C10] }
+    - { when: "composición + 7+ ítems",            primary: C09, alts: [C10, C03] }
+    - { when: "variación + CFO/directorio",        primary: C11, alts: [C20, C02] }
+    - { when: "variación + auditor",               primary: C11, alts: [C17, C16] }
+    - { when: "kpi_meta + 1 métrica",              primary: C15, alts: [C07, C02] }
+    - { when: "kpi_meta + 2+ métricas",            primary: C20, alts: [C08, C02] }
+    - { when: "correlación + 2 métricas",          primary: C13, alts: [C20, C14] }
+    - { when: "correlación + 3+ métricas",         primary: C14, alts: [C13, C09] }
+    - { when: "riesgo + auditor",                  primary: C17, alts: [C16, C19] }
+    - { when: "riesgo (default)",                  primary: C16, alts: [C15, C17] }
+  default: { primary: C11, alts: [C20, C07] }
+
+# ------------------------------------------------------------
+# PALETA ESTÁNDAR AUDITBRAIN
+# ------------------------------------------------------------
+palette:
+  positivo:    "#1D9E75"
+  negativo:    "#E24B4A"
+  acumulado:   "#378ADD"
+  secundario:  "#534AB7"
+  neutro:      "#888780"
+  advertencia: "#BA7517"
+
+output_format:
+  sections:
+    - "Resumen ejecutivo de selección (gráfico + justificación en 3 líneas)"
+    - "Especificación técnica (tipo, variables, ejes, restricciones, herramientas)"
+    - "Alternativas evaluadas (top 3 con pros/contras)"
+    - "Guía de implementación (estructura de datos, paleta, snippets Power BI/Chart.js)"
+  output_file: "/mnt/user-data/outputs/skill-051-[cliente]-[YYYY-MM-DD].md"
+
+related_skills:
+  - { id: "041", name: "KPI Designer" }
+  - { id: "042", name: "Power BI Dataset Modeler" }
+  - { id: "043", name: "Dashboard Brief Generator" }
+  - { id: "044", name: "Dashboard Alerts" }
+  - { id: "045", name: "Executive Summary" }
+
+metadata:
+  created: "2026-06-15"
+  category: "Data Visualization / Dashboard Design"
+  implementation: "frontend/src/fin/ChartSelector.jsx + ChartSelectorModal.jsx"
+  tags: [dashboard, gráficos financieros, waterfall, chart selector, Chart.js, auditoría, finanzas]
+  compatible_with: ["AuditBrain v4.x", "Chart.js 4.x", "Power BI Desktop", "Tableau"]

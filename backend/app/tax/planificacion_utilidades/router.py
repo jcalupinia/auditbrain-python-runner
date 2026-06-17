@@ -16,6 +16,7 @@ from backend.app.auth.models import User
 from backend.app.core.config import settings
 from backend.app.tax.planificacion_utilidades import exporter
 from backend.app.tax.planificacion_utilidades.parsers import (
+    balance_interno,
     balance_resumido,
     f101,
 )
@@ -32,9 +33,12 @@ router = APIRouter(
 )
 
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+XLS_MIME = "application/vnd.ms-excel"
 _ALLOWED = {
     "f101": {"application/pdf"},
-    "resumido": {XLSX_MIME, "application/vnd.ms-excel"},
+    "resumido": {XLSX_MIME, XLS_MIME},
+    # Balances internos / auditados en Excel (.xlsx o .xls legacy).
+    "interno": {XLSX_MIME, XLS_MIME, "application/octet-stream", ""},
 }
 
 
@@ -45,7 +49,7 @@ async def extract_endpoint(
     current: User = Depends(get_current_user),
 ):
     if kind not in _ALLOWED:
-        raise HTTPException(400, detail="kind debe ser 'f101' o 'resumido'.")
+        raise HTTPException(400, detail="kind debe ser 'f101', 'resumido' o 'interno'.")
     allowed = _ALLOWED[kind]
     if file.content_type and file.content_type not in allowed:
         raise HTTPException(
@@ -64,6 +68,8 @@ async def extract_endpoint(
 
     if kind == "f101":
         result = f101.extract_f101(data)
+    elif kind == "interno":
+        result = balance_interno.extract_balance_interno(data)
     else:
         result = balance_resumido.extract_balance_resumido(data)
     return ExtractResponse(**result)
