@@ -408,6 +408,11 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
                 </button>
               ))}
             </div>
+            {!fuente && (
+              <div className="tx-muted small" style={{ marginTop: 8 }}>
+                ① Elige una fuente para subir tus archivos y habilitar el botón <b>Procesar</b>.
+              </div>
+            )}
           </div>
 
           {fuente && (
@@ -426,10 +431,14 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
               {files.length > 0 && (
                 <div className="tx-muted small">Seleccionado(s) ({files.length}): {files.map((f) => f.name).join(", ")}</div>
               )}
-              <div className="tx-ingest-actions">
-                <button className="tx-btn" onClick={procesar} disabled={!files.length || ingBusy}>
-                  {ingBusy ? "Procesando…" : "Procesar y cargar"}
+              <div className="tx-ingest-actions" style={{ marginTop: 10, alignItems: "center" }}>
+                <button className="tx-btn" onClick={procesar} disabled={!files.length || ingBusy}
+                  style={{ fontWeight: 700, fontSize: 15, padding: "10px 20px" }}>
+                  {ingBusy ? "Procesando…" : "▶ Procesar y generar dashboard"}
                 </button>
+                {!files.length && !ingBusy && (
+                  <span className="tx-muted small">② Sube al menos un archivo para habilitar este botón.</span>
+                )}
               </div>
             </div>
           )}
