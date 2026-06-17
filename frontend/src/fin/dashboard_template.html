@@ -792,12 +792,30 @@ function renderFraude(C){
   // ── Top banderas por materialidad (gráfico) ──
   const topF=flags.slice(0,12);
   const chart='<div class="panel"><div class="panel-title">Cuentas señaladas · por materialidad</div>'+svgBarsH(topF.map(f=>({label:(f.nombre||'').slice(0,22),value:f.mat,color:nivCol[f.niv]==='red'?CL.red:nivCol[f.niv]==='amber'?CL.amber:CL.green})),n$)+'</div>';
-  // ── Tabla línea por línea ──
-  let tab='<table style="font-size:11px"><thead><tr><th style="text-align:left">Cuenta</th><th style="text-align:center">Sec.</th>'+YRS.map(yy=>'<th>'+yy+'</th>').join('')+'<th>Δ%</th><th style="text-align:left">Hallazgo</th><th style="text-align:left">Norma</th><th style="text-align:center">Nivel</th></tr></thead><tbody>';
-  const secAbr={activo:'ACT',pasivo:'PAS',patrimonio:'PAT',resultado:'ER'};
-  flags.slice(0,40).forEach(f=>{tab+='<tr><td style="text-align:left">'+(f.codigo?'<span style="opacity:.5;font-size:9px">'+f.codigo+'</span> ':'')+f.nombre+'</td><td style="text-align:center;font-size:9px;color:var(--grayL)">'+(secAbr[f.sec]||f.sec)+'</td>'+f.v.map(z=>'<td class="mono">'+n$(z)+'</td>').join('')+'<td class="mono" style="color:var(--'+((f.dpct||0)>0?'amber':'grayL')+')">'+(f.dpct!=null?(f.dpct>=0?'+':'')+f.dpct.toFixed(0)+'%':'—')+'</td><td style="text-align:left;color:var(--grayL)"><b style="color:var(--'+nivCol[f.niv]+')">'+f.tipo+':</b> '+f.obs+'</td><td style="text-align:left;font-size:10px;color:var(--grayL)">'+f.norma+'</td><td style="text-align:center">'+badge(f.niv)+'</td></tr>';});
+  // ── MATRIZ DE AUDITORÍA: código · descripción · hallazgo · riesgo · acción ──
+  const secAbr={activo:'Activo',pasivo:'Pasivo',patrimonio:'Patrimonio',resultado:'Resultados'};
+  const MIT={
+    'Nuevo':{r:'Gasto/partida sin historial ni aprobación previa',a:'Exigir autorización y sustento documental del nuevo registro'},
+    'Eliminado':{r:'Posible reclasificación u omisión de un gasto vigilado',a:'Confirmar baja real vs reclasificación; rastrear la cuenta destino'},
+    'Volátil':{r:'Error de corte o manejo de resultado entre períodos',a:'Documentar la causa de la variación y revisar el corte (NIC 8)'},
+    'Comodín':{r:'Gasto sin sustento agrupado en "otros/varios"',a:'Desglosar la cuenta y soportar cada partida con su comprobante'},
+    'Relacionadas':{r:'Extracción de valor / precios de transferencia',a:'Contrato, aprobación del Directorio y estudio de PT (NIC 24)'},
+    'Discrecional':{r:'Gasto personal disfrazado / no deducible',a:'Política de límites, aprobación y verificación de deducibilidad (NIC 12)'},
+    'Provisión':{r:'Manejo de resultado vía reversa de provisión ("cookie-jar")',a:'Soportar el cálculo de la provisión y justificar toda reversa (NIC 37)'},
+    'Traspaso':{r:'Maquillaje de márgenes por reclasificación entre líneas',a:'Validar la reclasificación y su efecto en el resultado (NIC 1)'},
+    'Monto redondo':{r:'Estimación o factura sin respaldo',a:'Verificar la factura/soporte real del importe'}
+  };
+  let tab='<table style="font-size:11px"><thead><tr><th>Código</th><th style="text-align:left">Descripción</th><th style="text-align:left">Hallazgo del problema</th><th style="text-align:left">Riesgo detectado</th><th style="text-align:left">Acción para mitigarlo</th><th style="text-align:left">Norma</th><th style="text-align:center">Nivel</th></tr></thead><tbody>';
+  flags.slice(0,40).forEach(f=>{const mit=MIT[f.tipo]||{r:'—',a:'Revisar sustento'};
+    tab+='<tr><td class="mono" style="font-size:10px">'+(f.codigo||'—')+'</td>'
+      +'<td style="text-align:left">'+f.nombre+' <span style="opacity:.5;font-size:9px">('+(secAbr[f.sec]||f.sec)+')</span></td>'
+      +'<td style="text-align:left;color:var(--grayL)"><b style="color:var(--'+nivCol[f.niv]+')">'+f.tipo+'</b> · '+f.obs+'</td>'
+      +'<td style="text-align:left;color:var(--grayL)">'+mit.r+'</td>'
+      +'<td style="text-align:left;color:var(--grayL)">'+mit.a+'</td>'
+      +'<td style="text-align:left;font-size:10px;color:var(--grayL)">'+f.norma+'</td>'
+      +'<td style="text-align:center">'+badge(f.niv)+'</td></tr>';});
   tab+='</tbody></table>';
-  const tablaPanel='<div class="panel"><div class="panel-title">Banderas detectadas (revisión línea por línea)'+(flags.length>40?' · mostrando 40 de '+flags.length:'')+'</div>'+(flags.length?tab:'<div class="tx-muted">Sin banderas materiales en las cuentas analizadas. 🟢</div>')+'</div>';
+  const tablaPanel='<div class="panel"><div class="panel-title">Matriz de auditoría · código · hallazgo · riesgo · acción de mitigación'+(flags.length>40?' · mostrando 40 de '+flags.length:'')+'</div>'+(flags.length?tab:'<div class="tx-muted">Sin banderas materiales en las cuentas analizadas. 🟢</div>')+'</div>';
   // ── Riesgos detectados (agrupados) ──
   const tipos={};flags.forEach(f=>{tipos[f.tipo]=(tipos[f.tipo]||0)+1;});
   const descTipo={Nuevo:'Gastos/cuentas nuevas sin historial — validar aprobación y sustento.',Eliminado:'Cuentas que desaparecen — confirmar si es eficiencia o reclasificación.',Volátil:'Variaciones >30% sin explicación — posible error de corte o manejo de resultado.',Comodín:'Cuentas "otros/varios" abultadas — riesgo de gasto sin sustento.',Relacionadas:'Operaciones con vinculadas — recuperabilidad y precios de transferencia.',Discrecional:'Gastos discrecionales (viáticos, consultorías…) — alto riesgo de control y deducibilidad.',Provisión:'Reversas de provisión — posible "cookie-jar".',Traspaso:'Reclasificación entre líneas — maquilla márgenes.','Monto redondo':'Montos redondos repetidos — posible estimación sin respaldo.'};
@@ -812,7 +830,7 @@ function renderFraude(C){
   audit.push('<b>Control general:</b> implantar <b>presupuesto vs real</b>, <b>centros de costo/responsable</b> y matriz de autorizaciones — hoy <b>[DATO NO DISPONIBLE]</b>; su ausencia es en sí misma una debilidad de control.');
   const auditPanel='<div class="panel"><div class="panel-title">Posibles problemas de auditoría (externa e interna)</div><div style="display:flex;flex-direction:column;gap:8px;font-size:11.5px;color:var(--grayL);line-height:1.5">'+audit.map(a=>'<div style="border-left:3px solid var(--amber);padding-left:10px">'+a+'</div>').join('')+'</div></div>';
   // ── Limitaciones de alcance ──
-  const limit='<div class="panel"><div class="panel-title">Limitaciones de alcance (no ejecutable solo con ESF/ER)</div><div style="font-size:11.5px;color:var(--grayL);line-height:1.6">Estas pruebas requieren insumos adicionales y se marcan <b>[DATO NO DISPONIBLE]</b>: ley de Benford y concentración por proveedor/tercero, fraccionamiento bajo umbrales, corte mensual de cierre, presupuesto vs real, centro de costo/responsable. Para habilitarlas se necesita el <b>mayor auxiliar mensual por cuenta y tercero</b> + presupuesto. Sin ellos, este análisis <b>señala comportamiento sospechoso para investigar</b>, no prueba fraude.</div></div>';
+  const limit='<div class="panel"><div class="panel-title">Limitaciones de alcance (no ejecutable solo con ESF/ER)</div><div style="font-size:11.5px;color:var(--grayL);line-height:1.6">Estas pruebas requieren insumos adicionales y se marcan <b>[DATO NO DISPONIBLE]</b>: ley de Benford y concentración por proveedor/tercero, fraccionamiento bajo umbrales, corte mensual de cierre, presupuesto vs real, centro de costo/responsable. Para habilitarlas se necesita el <b>mayor auxiliar mensual por cuenta y tercero</b> + presupuesto. Sin ellos, este análisis <b>señala comportamiento sospechoso para investigar</b>, no prueba fraude.<br><br><b style="color:var(--teal)">Capa de machine learning (próxima fase):</b> con el mayor mensual por cuenta y tercero se puede sumar detección automática de anomalías — <i>Isolation Forest / LOF</i> (gastos atípicos), <i>ley de Benford</i> (primer dígito), <i>clustering</i> de patrones de gasto, <i>scoring</i> de riesgo por cuenta y NLP sobre descripciones. Hoy la detección es <b>basada en reglas</b> (forense + NIIF + control) por transparencia y trazabilidad; la capa ML es complementaria y requiere ese detalle transaccional.</div></div>';
   // ── Conclusión ──
   const concl='<b>Conclusión:</b> sobre '+CU.length+' cuentas revisadas línea por línea se detectaron <b>'+flags.length+'</b> banderas ('+nAlto+' altas). Nivel de riesgo de fraude/errores: <b style="color:var(--'+colG+')">'+nivelG+'</b>. '+(nAlto?'Priorizar la revisión de las banderas ALTAS (partes relacionadas, comodines materiales, traspasos y volátiles) con pruebas de sustento y corte. ':'No se observan banderas altas materiales. ')+'Recomendación: incorporar presupuesto y mayor mensual para elevar la detección de transaccional a forense.';
   document.getElementById("sec-fraude").innerHTML=_secHead("Detección de Riesgo de Fraude / Errores","Revisión forense (NIA 240), NIIF y de control — línea por línea","Balance y Estado de Resultados detallados "+(YRS[0])+"–"+(YRS[last])+". Señala comportamiento sospechoso; no sustituye una auditoría.")
