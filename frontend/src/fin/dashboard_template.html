@@ -198,6 +198,7 @@ let D=JSON.parse(JSON.stringify(DEFAULT));
 const YRS=__YRS__;
 const MESES=(function(){try{return __MESES__;}catch(e){return null;}})(); // meses que cubre el ER por período (para anualizar DIO/DSO)
 let activeYear=YRS[YRS.length-1];
+let fraudeNivel='ALTO'; // control del artefacto de la matriz de fraude: ALTO|MEDIO|BAJO|TODAS
 
 // ════ COMPUTE ════
 function compute(){
@@ -451,6 +452,7 @@ function buildNav(){
 }
 function showSection(id,el){document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));document.getElementById("sec-"+id).classList.add("active");document.querySelectorAll(".nav-tab").forEach(t=>t.classList.remove("active"));el.classList.add("active");}
 function setYear(y){activeYear=y;document.querySelectorAll(".yearbtn").forEach(b=>b.classList.toggle("active",b.textContent.trim()===String(y)));renderAll();}
+function setFraudeNivel(nv){fraudeNivel=nv;renderAll();}
 
 // ════ EDIT ════
 function makeEditable(key,yr,val,neg){const display=val!=null?n$(val):"—";return '<span class="editable" onclick="startEdit(this,\''+key+'\','+yr+','+(neg?1:0)+')">'+display+'</span>';}
@@ -805,17 +807,26 @@ function renderFraude(C){
     'Traspaso':{r:'Maquillaje de márgenes por reclasificación entre líneas',a:'Validar la reclasificación y su efecto en el resultado (NIC 1)'},
     'Monto redondo':{r:'Estimación o factura sin respaldo',a:'Verificar la factura/soporte real del importe'}
   };
-  let tab='<table style="font-size:11px"><thead><tr><th>Código</th><th style="text-align:left">Descripción</th><th style="text-align:left">Hallazgo del problema</th><th style="text-align:left">Riesgo detectado</th><th style="text-align:left">Acción para mitigarlo</th><th style="text-align:left">Norma</th><th style="text-align:center">Nivel</th></tr></thead><tbody>';
-  flags.slice(0,40).forEach(f=>{const mit=MIT[f.tipo]||{r:'—',a:'Revisar sustento'};
+  const baseOf=f=>(f.sec!=='resultado')?(totalActY||1):(ventasY||1);
+  // Control del artefacto: filtro por nivel (centra la matriz en lo material/prioritario).
+  const cntN=k=>flags.filter(f=>f.niv===k).length;
+  const nivBtns=[['ALTO','🔴 Alto'],['MEDIO','🟠 Medio'],['BAJO','🟢 Bajo'],['TODAS','Todas']]
+    .map(([k,l])=>'<button class="yearbtn '+(fraudeNivel===k?'active':'')+'" onclick="setFraudeNivel(\''+k+'\')">'+l+' ('+(k==='TODAS'?flags.length:cntN(k))+')</button>').join('');
+  const ctrlBar='<div class="yearfilter" style="margin:0 0 12px"><span style="font-size:10px;color:var(--teal);margin-right:6px">FILTRAR MATRIZ:</span>'+nivBtns+'</div>';
+  const filt=(fraudeNivel==='TODAS'?flags:flags.filter(f=>f.niv===fraudeNivel)).slice(0,40);
+  let tab='<table style="font-size:11px"><thead><tr><th>Código</th><th style="text-align:left">Cuenta</th><th style="text-align:right">Monto material</th><th style="text-align:right">% base</th><th style="text-align:left">Hallazgo</th><th style="text-align:left">Riesgo → acción de mitigación</th><th style="text-align:center">Nivel</th></tr></thead><tbody>';
+  filt.forEach(f=>{const mit=MIT[f.tipo]||{r:'—',a:'Revisar sustento'};
+    const mv=f.mat||0,pct=mv/baseOf(f)*100,pc=pct>=2?'red':pct>=1?'amber':'grayL';
     tab+='<tr><td class="mono" style="font-size:10px">'+(f.codigo||'—')+'</td>'
       +'<td style="text-align:left">'+f.nombre+' <span style="opacity:.5;font-size:9px">('+(secAbr[f.sec]||f.sec)+')</span></td>'
+      +'<td class="mono" style="text-align:right;white-space:nowrap">'+n$(mv)+'</td>'
+      +'<td class="mono" style="text-align:right;color:var(--'+pc+')">'+pct.toFixed(1)+'%</td>'
       +'<td style="text-align:left;color:var(--grayL)"><b style="color:var(--'+nivCol[f.niv]+')">'+f.tipo+'</b> · '+f.obs+'</td>'
-      +'<td style="text-align:left;color:var(--grayL)">'+mit.r+'</td>'
-      +'<td style="text-align:left;color:var(--grayL)">'+mit.a+'</td>'
-      +'<td style="text-align:left;font-size:10px;color:var(--grayL)">'+f.norma+'</td>'
+      +'<td style="text-align:left;color:var(--grayL);font-size:10.5px">'+mit.r+'. <i style="color:var(--teal)">'+mit.a+'</i> <span style="opacity:.55;font-size:9.5px">('+f.norma+')</span></td>'
       +'<td style="text-align:center">'+badge(f.niv)+'</td></tr>';});
   tab+='</tbody></table>';
-  const tablaPanel='<div class="panel"><div class="panel-title">Matriz de auditoría · código · hallazgo · riesgo · acción de mitigación'+(flags.length>40?' · mostrando 40 de '+flags.length:'')+'</div>'+(flags.length?tab:'<div class="tx-muted">Sin banderas materiales en las cuentas analizadas. 🟢</div>')+'</div>';
+  const cuentaT=fraudeNivel==='TODAS'?('todas · '+flags.length+' banderas'):('nivel '+fraudeNivel+' · '+Math.min(filt.length,flags.filter(f=>f.niv===fraudeNivel).length)+' de '+flags.length);
+  const tablaPanel='<div class="panel"><div class="panel-title">Matriz de auditoría · ordenada por materialidad ($) · '+cuentaT+'</div>'+ctrlBar+(flags.length?(filt.length?tab:'<div class="tx-muted">Sin banderas en este nivel — usa el control de arriba para ver otros niveles.</div>'):'<div class="tx-muted">Sin banderas materiales en las cuentas analizadas. 🟢</div>')+'</div>';
   // ── Riesgos detectados (agrupados) ──
   const tipos={};flags.forEach(f=>{tipos[f.tipo]=(tipos[f.tipo]||0)+1;});
   const descTipo={Nuevo:'Gastos/cuentas nuevas sin historial — validar aprobación y sustento.',Eliminado:'Cuentas que desaparecen — confirmar si es eficiencia o reclasificación.',Volátil:'Variaciones >30% sin explicación — posible error de corte o manejo de resultado.',Comodín:'Cuentas "otros/varios" abultadas — riesgo de gasto sin sustento.',Relacionadas:'Operaciones con vinculadas — recuperabilidad y precios de transferencia.',Discrecional:'Gastos discrecionales (viáticos, consultorías…) — alto riesgo de control y deducibilidad.',Provisión:'Reversas de provisión — posible "cookie-jar".',Traspaso:'Reclasificación entre líneas — maquilla márgenes.','Monto redondo':'Montos redondos repetidos — posible estimación sin respaldo.'};
