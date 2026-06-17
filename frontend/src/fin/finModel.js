@@ -10,6 +10,25 @@ export const FIN_YRS = ANIOS; // [2023, 2024, 2025] (compat / período por defec
 
 export const NIVELES = ["resumido", "detallado"];
 
+// Mapea las claves del modelo del parser (detalle por cuenta) a las claves del
+// DASHBOARD (rubros que muestra la plantilla en Resumido), espejo de mapToDashboard.
+// Permite el drill-down: clic en un rubro → cuentas cuya clave-dash coincide.
+export const PARSER_TO_DASH = {
+  // Activos
+  efectivo: "efectivo", inversiones: "actFin", cxc: "cxc", inventario: "inventario",
+  cxcRel: "cxcRelac", anticiposProv: "anticiposProv", otrasCxc: "otrosAct", impRec: "actImpCorr",
+  ppe: "propEquip", actImpDif: "actImpDif", cxcLP: "cxcLP", otrosActNoCorr: "otrosActNoCorr",
+  // Pasivos
+  oblBanc: "oblBanc", cxp: "cxp", benef: "benefEmpl", impPagar: "pasImpCorr",
+  cxpRelCorr: "cxpRelacPas", provisiones: "provisiones", anticipos: "otrasCxp", otrasCxp: "otrasCxp",
+  prestamosLP: "prestamosLP", benefPost: "benDefLP", cxpRel: "benDefLP", pasImpDif: "pasImpDifLP",
+  // Patrimonio
+  capital: "capital", reservas: "resLegal", ori: "oriAcum", resAcum: "utilAcum",
+  // Estado de Resultados
+  ventas: "ingOrd", otrosIng: "ingNoOrd", otrosIngFin: "ingNoOrd", costo: "costoVta",
+  gAdmin: "gastAdm", gFin: "gastFin", impDif: "irDif", partTrab: "irCorr", irCausado: "irCorr",
+};
+
 // Período de análisis → número de meses que cubre el flujo (Estado de Resultados).
 export const PERIODO_MESES = { anual: 12, semestral: 6, trimestral: 3, mensual: 1 };
 

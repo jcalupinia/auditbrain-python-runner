@@ -241,7 +241,27 @@ def _route_pasivo(name: str, corriente: bool) -> str:
     return "otrasCxp" if corriente else "cxpRel"
 
 
-def _parse_balance_block(df, b, data, ncols):
+_SEC_BY_SEG = {"1": "activo", "2": "pasivo", "3": "patrimonio"}
+
+
+def _add_det(det, sec, key, codigo, nombre, yi, val, ncols):
+    """Acumula una cuenta-hoja del detalle (un solo registro por código; los
+    valores se suman por columna/período)."""
+    cod = str(codigo).strip()
+    nom = str(nombre).strip()
+    ck = cod or ("__otras_" + sec + "__")
+    e = det.get(ck)
+    if e is None:
+        e = {"sec": sec, "key": key, "codigo": cod, "nombre": nom, "vals": [0.0] * ncols}
+        det[ck] = e
+    if 0 <= yi < ncols:
+        e["vals"][yi] += val
+
+
+def _parse_balance_block(df, b, data, ncols, detalle=None):
+    det = {}
+    node_key = {}  # prefijo de cuenta-nodo (que se suma) -> rubro
+    sectot = {"1": [0.0] * ncols, "2": [0.0] * ncols, "3": [0.0] * ncols}
     rows = df.iloc[b["hr"] + 1:b["end"]]
     cols = b["periods"]  # [(col,label,year)]
     # Prefijos de 3 segmentos del grupo EXIGIBLE que tienen hijos de 4 segmentos:
@@ -282,6 +302,8 @@ def _parse_balance_block(df, b, data, ncols):
             val = _num(r.iloc[col])
             if len(segs) == 1:
                 total[segs[0]] = abs(val)
+                if yi < ncols:
+                    sectot[segs[0]][yi] = abs(val)
                 continue
             if len(segs) == 3:
                 if tuple(segs) in descender3:
@@ -290,25 +312,80 @@ def _parse_balance_block(df, b, data, ncols):
                 key = _route_balance(str(r.iloc[0]), r.iloc[1], corriente)
                 data[key][yi] += abs(val)
                 mapped[segs[0]] += abs(val)
+                node_key[tuple(segs)] = key
             elif len(segs) == 4 and tuple(segs[:3]) in descender3:
                 if tuple(segs[:4]) in descender4:
                     continue  # se cubre con los sub-grupos de 5 segmentos
                 key = _route_grupo(str(r.iloc[0]), r.iloc[1], segs[1] == "1")
                 data[key][yi] += abs(val)
                 mapped[segs[0]] += abs(val)
+                node_key[tuple(segs)] = key
             elif len(segs) == 5 and tuple(segs[:4]) in descender4:
                 key = _route_grupo(str(r.iloc[0]), r.iloc[1], segs[1] == "1")
                 data[key][yi] += abs(val)
                 mapped[segs[0]] += abs(val)
+                node_key[tuple(segs)] = key
             elif (len(segs) == 5 and tuple(segs[:3]) in descender3
                   and tuple(segs[:4]) not in filas4):
                 # Grupo "huérfano": existe a 5 seg sin fila de grupo a 4 seg.
                 key = _route_grupo(str(r.iloc[0]), r.iloc[1], segs[1] == "1")
                 data[key][yi] += abs(val)
                 mapped[segs[0]] += abs(val)
+                node_key[tuple(segs)] = key
         data["otrasCxc"][yi] += round(total["1"] - mapped["1"], 2)
         data["otrasCxp"][yi] += round(total["2"] - mapped["2"], 2)
         data["resAcum"][yi] += round(total["3"] - mapped["3"], 2)
+    # ---- Detalle a nivel de CUENTA HOJA (las más profundas) ----
+    # Cada hoja se asigna al rubro de su cuenta-nodo ancestro (la que se suma).
+    seg_rows = []
+    for _, r in rows.iterrows():
+        segs = _segs(r.iloc[0])
+        if segs and segs[0] in ("1", "2", "3") and len(segs) >= 2:
+            seg_rows.append((tuple(segs), r))
+    codeset = {s for s, _ in seg_rows}
+
+    def _is_leaf(s):
+        return not any(o != s and len(o) > len(s) and o[:len(s)] == s for o in codeset)
+
+    def _key_for(s):
+        for L in range(len(s), 0, -1):
+            if s[:L] in node_key:
+                return node_key[s[:L]]
+        return None
+
+    leaf_sum = {"1": [0.0] * ncols, "2": [0.0] * ncols, "3": [0.0] * ncols}
+    for s, r in seg_rows:
+        if not _is_leaf(s):
+            continue
+        key = _key_for(s)
+        if key is None:
+            continue
+        sec = _SEC_BY_SEG[s[0]]
+        # Cuentas CONTRA (depreciación, amortización, deterioro, "(-) …") restan
+        # dentro de su rubro, igual que en el total NETO del grupo.
+        nm = _norm(r.iloc[1])
+        contra = (nm.startswith("(-") or "DEPREC" in nm or "DEP.ACUM" in nm or "DEP ACUM" in nm
+                  or "AMORT" in nm or "DETERIOR" in nm or "INCOBRABLE" in nm)
+        for yi, (col, _l, _y) in enumerate(cols):
+            if yi >= ncols:
+                break
+            raw = _num(r.iloc[col])
+            if raw == 0:
+                continue
+            v = -abs(raw) if contra else abs(raw)
+            _add_det(det, sec, key, r.iloc[0], r.iloc[1], yi, v, ncols)
+            leaf_sum[s[0]][yi] += v
+    # Residual por sección: lo no clasificado, para que el detalle sume el total.
+    _otras = {"1": ("activo", "otrasCxc", "(otras / no clasificadas)"),
+              "2": ("pasivo", "otrasCxp", "(otras / no clasificadas)"),
+              "3": ("patrimonio", "resAcum", "(resultado del ejercicio / no clasificado)")}
+    for sg, (sec, key, nom) in _otras.items():
+        for yi in range(ncols):
+            resid = round(sectot[sg][yi] - leaf_sum[sg][yi], 2)
+            if abs(resid) > 0.005:
+                _add_det(det, sec, key, "", nom, yi, resid, ncols)
+    if detalle is not None:
+        detalle.extend(det.values())
 
 
 def _classify_ing(names_joined: str) -> str:
@@ -327,7 +404,7 @@ def _classify_egr(names_joined: str) -> str:
     return "gAdmin"
 
 
-def _parse_resultados_block(df, b, data, ncols):
+def _parse_resultados_block(df, b, data, ncols, detalle=None):
     """Suma las cuentas HOJA (sin hijos) del bloque y las clasifica por nombre.
 
     No confía en los subtotales del libro (que pueden ser inconsistentes; ej.
@@ -368,11 +445,13 @@ def _parse_resultados_block(df, b, data, ncols):
                     best = v
         return best
 
+    det = {}
     for yi, (col, _lab, _y) in enumerate(b["periods"][:ncols]):
         # Acumular CON SIGNO por categoría: las cuentas contra (devoluciones,
         # descuentos) restan; luego valor absoluto por categoría.
         acc = {k: 0.0 for k in ing_keys + egr_keys}
         dna = 0.0  # depreciación + amortización (memo dentro de gastos/costos)
+        leaves_yi = []  # (codigo, nombre, key, val) de hojas de este período
         for s, r in accts:
             if not is_leaf(s):
                 continue
@@ -384,6 +463,7 @@ def _parse_resultados_block(df, b, data, ncols):
                 dna += abs(val)
             key = _classify_ing(names) if s[0] == "4" else _classify_egr(names)
             acc[key] += val
+            leaves_yi.append((r.iloc[0], r.iloc[1], key, val))
         bucket = {k: abs(acc[k]) for k in acc}
         ing_leaves = sum(bucket[k] for k in ing_keys)
         egr_leaves = sum(bucket[k] for k in egr_keys)
@@ -406,6 +486,14 @@ def _parse_resultados_block(df, b, data, ncols):
         data["dna"][yi] = round(dna * fe, 2)  # consistente con la escala de egresos
         data["partTrab"][yi] = 0.0
         data["irCausado"][yi] = 0.0
+        # Detalle por cuenta: escala con la misma f; signo de presentación por
+        # categoría (positivo; las cuentas contra quedan en negativo).
+        for cod, nom, key, val in leaves_yi:
+            f = fi if key in ing_keys else fe
+            sgn = 1.0 if acc[key] >= 0 else -1.0
+            _add_det(det, "resultado", key, cod, nom, yi, round(val * sgn * f, 2), ncols)
+    if detalle is not None:
+        detalle.extend(det.values())
 
 
 def extract_balance_interno(data_bytes: bytes) -> dict:
@@ -442,24 +530,26 @@ def extract_balance_interno(data_bytes: bytes) -> dict:
     )
     data = {k: [0.0] * ncols for k in INPUT_KEYS}
     data["dna"] = [0.0] * ncols
+    detalle: list[dict] = []
     warnings: list[str] = []
     labels_esf: list[str] = []
     labels_er: list[str] = []
 
     if bal_block:
         labels_esf = [lab for _c, lab, _y in bal_block["periods"]][:ncols]
-        _parse_balance_block(bal_sheet, bal_block, data, ncols)
+        _parse_balance_block(bal_sheet, bal_block, data, ncols, detalle)
     else:
         warnings.append("No se encontró Balance (ESF); solo se cargaron resultados.")
     if res_block:
         labels_er = [lab for _c, lab, _y in res_block["periods"]][:ncols]
-        _parse_resultados_block(res_sheet, res_block, data, ncols)
+        _parse_resultados_block(res_sheet, res_block, data, ncols, detalle)
     else:
         warnings.append("No se encontró Estado de Resultados (ER); solo se cargó el balance.")
 
     anios = [y for _c, _lab, y in (bal_block or res_block)["periods"]][:ncols]
     return {
         "data": data,
+        "detalle": detalle,
         "params": {},
         "warnings": warnings,
         "source": "interno",

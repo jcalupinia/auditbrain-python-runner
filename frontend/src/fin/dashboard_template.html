@@ -173,6 +173,24 @@
 const DEFAULT=__DATA__;
 const DETALLE=__DETALLE__;
 const BAL_DET=__BALANCE_DET__;   // balance a nivel detallado (todas las cuentas)
+const CUENTAS=(function(){try{return __CUENTAS__;}catch(e){return [];}})();  // detalle por cuenta (drill-down)
+const CUENTAS_BYKEY=(function(){const m={};(Array.isArray(CUENTAS)?CUENTAS:[]).forEach(function(c){(m[c.key]=m[c.key]||[]).push(c);});return m;})();
+function hayCuentasKey(k){return !!(CUENTAS_BYKEY[k]&&CUENTAS_BYKEY[k].length);}
+function toggleDet(grp,el){var rs=document.querySelectorAll('tr[data-grp="'+grp+'"]');var op=false;rs.forEach(function(r){var h=(r.style.display==='none');r.style.display=h?'':'none';op=h;});if(el){var m=el.querySelector('.dtri');if(m)m.textContent=op?'▾':'▸';}}
+// Filas-hijo (cuentas reales) de un rubro, ocultas. pctBase = array de bases por año.
+function detChildRows(key,grp,pctBase){
+  var cs=CUENTAS_BYKEY[key]||[],o='';
+  cs.forEach(function(c){
+    var v=YRS.map(function(y,i){return (c.vals&&c.vals[i]!=null)?c.vals[i]:0;});
+    o+='<tr class="detrow" data-grp="'+grp+'" style="display:none;background:rgba(255,255,255,.02)">';
+    o+='<td style="padding-left:44px;color:var(--grayL);font-size:11px">'+(c.codigo?'<span style="opacity:.5">'+c.codigo+'</span> ':'')+c.nombre+'</td>';
+    o+=v.map(function(x){return '<td style="color:var(--grayL)">'+n$(x)+'</td>';}).join('');
+    o+='<td>'+deltaTag(v[v.length-1],v[v.length-2])+'</td>';
+    o+=v.map(function(x,i){return '<td style="color:var(--grayL);font-size:10px">'+pctOf(x,pctBase[i])+'</td>';}).join('');
+    o+='</tr>';
+  });
+  return o;
+}
 const LBL_ESF=__LBL_ESF__;       // etiquetas (fechas) propias del Balance (pueden diferir del ER)
 let NIVEL=__NIVEL__;             // "resumido" | "detallado"
 let D=JSON.parse(JSON.stringify(DEFAULT));
@@ -598,10 +616,14 @@ function renderResultados(C){
   const rows=[['Ingresos ordinarios','ingOrd',false,'bold',false],['Costo de ventas','costoVta',true,'','ind'],['Utilidad bruta',null,false,'bold','',c=>c.utilBruta],['Gastos admin, ventas y otros','gastAdm',true,'','ind'],['Utilidad operativa (EBIT)',null,false,'bold','',c=>c.ebit],['Gastos financieros','gastFin',true,'','ind'],['Ingresos no ordinarios','ingNoOrd',false,'','ind'],['Utilidad antes de IR',null,false,'bold','',c=>c.utilAntIR],['IR corriente','irCorr',true,'','ind'],['IR diferido','irDif',false,'','ind'],['Utilidad neta del año',null,false,'bold','',c=>c.utilNeta],['ORI beneficios definidos','ori',false,'','ind'],['Total resultado integral',null,false,'bold','',c=>c.resIntegral],['Depreciación y amortización (memo · incluida en gastos)',null,false,'','ind',c=>c.dna],['EBITDA (EBIT + D&A)',null,false,'bold','',c=>c.ebitda]];
   let tbody='';
   rows.forEach(r=>{const[label,key,neg,cls,ind,fn]=r;const vals=YRS.map(y=>fn?fn(C[y]):D[key][y]);
-    tbody+='<tr class="'+cls+'"><td style="'+(ind==='ind'?'padding-left:24px':'')+'">'+label+'</td>'
+    const drill=ind==='ind'&&key&&hayCuentasKey(key);
+    const grp=drill?('detr_'+key):'';
+    const lab=drill?('<span class="dtri" style="display:inline-block;width:12px;color:var(--teal)">▸</span>'+label):label;
+    tbody+='<tr class="'+cls+'"><td '+(drill?'onclick="toggleDet(\''+grp+'\',this)" ':'')+'style="'+(drill?'cursor:pointer;':'')+(ind==='ind'?'padding-left:24px':'')+'">'+lab+'</td>'
     +YRS.map((y,i)=>'<td>'+(key?makeEditable(key,y,vals[i],neg):n$(vals[i]))+'</td>').join('')
     +'<td>'+deltaTag(vals[vals.length-1],vals[vals.length-2])+'</td>'
-    +YRS.map((y,i)=>'<td style="color:var(--grayL);font-size:10px">'+pctOf(vals[i],D.ingOrd[y])+'</td>').join('')+'</tr>';});
+    +YRS.map((y,i)=>'<td style="color:var(--grayL);font-size:10px">'+pctOf(vals[i],D.ingOrd[y])+'</td>').join('')+'</tr>';
+    if(drill)tbody+=detChildRows(key,grp,YRS.map(y=>D.ingOrd[y]));});
   const y=activeYear;const _yi=YRS.indexOf(y);const py=_yi>0?YRS[_yi-1]:null;const c=C[y],cp=py?C[py]:null;
   // Insight automático
   const insight=(function(){
@@ -771,10 +793,14 @@ function renderBalance(C){
     const pctCells=isHead?YRS.map(()=>'<td></td>').join('')
       :YRS.map((y,i)=>'<td style="color:var(--grayL);font-size:10px">'+pctOf(vals[i],C[y].totalAct)+'</td>').join('');
     let labelHtml=label;
+    const drill=ind==='ind'&&key&&hayCuentasKey(key);
+    const grp=drill?('detb_'+key):'';
+    if(drill)labelHtml='<span class="dtri" style="display:inline-block;width:12px;color:var(--teal)">▸</span>'+label;
     if(isCheck){const ok=YRS.every(y=>Math.abs((C[y].totalPas+C[y].patrimonio)-C[y].totalAct)<1.5);
       labelHtml=label+' '+(ok?'<span style="color:var(--greenOk);font-size:11px">✓ cuadra con el activo</span>':'<span style="color:var(--red);font-size:11px">✗ no cuadra</span>');}
-    tbody+='<tr class="'+(isBold?'bold':'')+'"><td style="'+(ind==='ind'?'padding-left:24px':'')+(isCheck?';border-top:2px double var(--teal);color:var(--teal)':'')+'">'+labelHtml+'</td>'
-    +valCells+varCell+pctCells+'</tr>';});
+    tbody+='<tr class="'+(isBold?'bold':'')+'"><td '+(drill?'onclick="toggleDet(\''+grp+'\',this)" ':'')+'style="'+(drill?'cursor:pointer;':'')+(ind==='ind'?'padding-left:24px':'')+(isCheck?';border-top:2px double var(--teal);color:var(--teal)':'')+'">'+labelHtml+'</td>'
+    +valCells+varCell+pctCells+'</tr>';
+    if(drill)tbody+=detChildRows(key,grp,YRS.map(y=>C[y].totalAct));});
   const y=activeYear;
   // Toggle de nivel de detalle (resumido / detallado).
   const hayDet=Array.isArray(BAL_DET)&&BAL_DET.length>0;
@@ -791,8 +817,20 @@ function renderBalance(C){
       +'<td>'+deltaTag(r.vals[YRS[YRS.length-1]]||0,r.vals[YRS[YRS.length-2]]||0)+'</td>'
       +YRS.map(yy=>'<td style="color:var(--grayL);font-size:10px">'+pctOf(r.vals[yy]||0,C[yy].totalAct)+'</td>').join('')+'</tr>';});
     return b;};
-  const usarDet=hayDet&&NIVEL==='detallado';
-  const tablaHTML=usarDet?detTabla():tbody;
+  // Detallado con las cuentas REALES subidas (activo/pasivo/patrimonio).
+  const cuentasBal=(Array.isArray(CUENTAS)?CUENTAS:[]).filter(c=>c.sec==='activo'||c.sec==='pasivo'||c.sec==='patrimonio');
+  const hayCuentasBal=cuentasBal.length>0;
+  const detTablaReal=()=>{let b='';[['activo','ACTIVOS'],['pasivo','PASIVOS'],['patrimonio','PATRIMONIO']].forEach(([sc,scl])=>{
+    const cs=cuentasBal.filter(c=>c.sec===sc);if(!cs.length)return;
+    b+='<tr class="bold"><td colspan="'+(YRS.length*2+2)+'" style="text-align:left;background:rgba(10,35,66,.6)">'+scl+'</td></tr>';
+    cs.forEach(c=>{const v=YRS.map((y,i)=>(c.vals&&c.vals[i]!=null)?c.vals[i]:0);
+      b+='<tr><td style="padding-left:24px;font-size:11px">'+(c.codigo?'<span style="opacity:.5">'+c.codigo+'</span> ':'')+c.nombre+'</td>'
+        +v.map(x=>'<td>'+n$(x)+'</td>').join('')
+        +'<td>'+deltaTag(v[v.length-1],v[v.length-2])+'</td>'
+        +v.map((x,i)=>'<td style="color:var(--grayL);font-size:10px">'+pctOf(x,C[YRS[i]].totalAct)+'</td>').join('')+'</tr>';});});
+    return b;};
+  const usarDet=NIVEL==='detallado'&&(hayCuentasBal||hayDet);
+  const tablaHTML=usarDet?(hayCuentasBal?detTablaReal():detTabla()):tbody;
   const tituloTabla=usarDet?'Detalle del balance — todas las cuentas (detallado)':'Detalle del balance — agrupado (resumido)';
   // Etiquetas propias del Balance (fechas de corte que pueden diferir del ER).
   const BLBL=(Array.isArray(LBL_ESF)&&LBL_ESF.length===YRS.length)?LBL_ESF:YRS;
