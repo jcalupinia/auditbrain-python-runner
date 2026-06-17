@@ -895,15 +895,18 @@ function renderResumen(C){
     +card('#1a2335','rgba(232,184,75,0.3)','%','Margen neto',(c.mrgNeto*100).toFixed(1)+'%',G,cp?'<span style="color:'+(c.mrgNeto>=cp.mrgNeto?GN:RD)+'">'+(c.mrgNeto>=cp.mrgNeto?'↗':'↘')+' vs '+(cp.mrgNeto*100).toFixed(1)+'% · '+py+'</span>':'<span style="color:'+TX2+'">período único</span>')
     +card('#0e1e38','rgba(55,138,221,0.3)','💳','Caja disponible',m$(caja(y)),BL,dlt(caja(y),cp?caja(py):null,true))
     +'</div>';
-  // ── BLOQUE 3: Barras 3D (Util neta · EBITDA · Caja, ant vs actual) ──
+  // ── BLOQUE 3: Barras 3D (Util neta · EBITDA · Caja — TODOS los períodos) ──
+  // Comparativo de los N años cargados (no solo actual vs anterior): una barra por
+  // año en cada métrica, con degradado por antigüedad (más oscuro = más antiguo).
+  const yshort=yy=>"'"+String(yy).slice(-2);
+  const metr3=[
+    {n:'U. neta',f:yy=>C[yy].utilNeta,cols:['#9c7b1e','#c79a2b','#E8B84B']},
+    {n:'EBITDA', f:yy=>C[yy].ebitda, cols:['#0e5a4a','#117a63','#16a085']},
+    {n:'Caja',   f:yy=>caja(yy),     cols:['#8a4f1f','#b35e12','#d35400']},
+  ];
   const bars=[];
-  if(cp)bars.push({label:'Util. neta '+py,value:M(cp.utilNeta),color:'#1e5fa5'});
-  bars.push({label:'Util. neta '+y,value:M(c.utilNeta),color:G});
-  if(cp)bars.push({label:'EBITDA '+py,value:M(cp.ebitda),color:'#c0392b'});
-  bars.push({label:'EBITDA '+y,value:M(c.ebitda),color:'#16a085'});
-  if(cp)bars.push({label:'Caja '+py,value:M(caja(py)),color:'#8e44ad'});
-  bars.push({label:'Caja '+y,value:M(caja(y)),color:'#d35400'});
-  const barPanel='<div class="panel"><div class="panel-title">Utilidad neta · EBITDA · Caja — '+(cp?py+' vs '+y:y)+' (millones)</div>'+svgBars3D(bars,v=>'$'+v.toFixed(2)+'M')+'</div>';
+  metr3.forEach(mt=>{const nY=YRS.length;YRS.forEach((yy,i)=>{const ci=nY<=mt.cols.length?mt.cols.length-nY+i:Math.min(i,mt.cols.length-1);bars.push({label:mt.n+' '+yshort(yy),value:M(mt.f(yy)),color:mt.cols[Math.max(0,Math.min(ci,mt.cols.length-1))]});});});
+  const barPanel='<div class="panel"><div class="panel-title">Utilidad neta · EBITDA · Caja — comparativo '+YRS[0]+' a '+YRS[YRS.length-1]+' ('+YRS.length+' períodos · millones)</div>'+svgBars3D(bars,v=>'$'+v.toFixed(2)+'M')+'</div>';
   // ── BLOQUE 4: Donut composición del resultado ──
   const plSeg=[{label:'Costo de ventas',value:Math.abs(D.costoVta[y]),color:'#E24B4A'},{label:'Gastos operativos',value:Math.abs(D.gastAdm[y]+D.gastFin[y]),color:'#378ADD'},{label:'Utilidad neta',value:Math.max(0,c.utilNeta),color:'#1D9E75'},{label:'Impuestos/otros',value:Math.abs(D.irCorr[y]+D.irDif[y]),color:'#534AB7'}].filter(s=>s.value>0);
   const donutPL='<div class="panel"><div class="panel-title">Composición del resultado · '+y+'</div>'+svgDonut(plSeg,false,{big:(c.mrgNeto*100).toFixed(0)+'%',small:'utilidad neta'})+'</div>';
