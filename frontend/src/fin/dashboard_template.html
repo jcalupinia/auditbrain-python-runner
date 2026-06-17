@@ -157,6 +157,7 @@
   <div id="sec-resultados" class="section"></div>
   <div id="sec-balance" class="section"></div>
   <div id="sec-indicadores" class="section"></div>
+  <div id="sec-fraude" class="section"></div>
   <div id="sec-variaciones" class="section"></div>
   <div id="sec-gastos" class="section"></div>
   <div id="sec-atipicos" class="section"></div>
@@ -442,7 +443,7 @@ function svgMatriz(items){
 }
 
 // ════ NAV ════
-const SECTIONS=[{id:"resumen",label:"Resumen Ejecutivo"},{id:"resultados",label:"Estado de Resultados"},{id:"gastos",label:"Principales Gastos"},{id:"atipicos",label:"Gastos Atípicos"},{id:"balance",label:"Balance General"},{id:"indicadores",label:"Indicadores Financieros"},{id:"variaciones",label:"Variaciones"},{id:"inversiones",label:"Inversiones"},{id:"decisiones",label:"Decisiones"}];
+const SECTIONS=[{id:"resumen",label:"Resumen Ejecutivo"},{id:"resultados",label:"Estado de Resultados"},{id:"gastos",label:"Principales Gastos"},{id:"atipicos",label:"Gastos Atípicos"},{id:"balance",label:"Balance General"},{id:"indicadores",label:"Indicadores Financieros"},{id:"fraude",label:"Detección de Fraude/Errores"},{id:"variaciones",label:"Variaciones"},{id:"inversiones",label:"Inversiones"},{id:"decisiones",label:"Decisiones"}];
 function buildNav(){
   const nav=document.getElementById("nav");
   nav.innerHTML='<div class="bar-inner nav-inner">'+SECTIONS.map((sx,i)=>'<div class="nav-tab '+(i===0?'active':'')+'" data-sec="'+sx.id+'" onclick="showSection(\''+sx.id+'\',this)">'+sx.label+'</div>').join('')
@@ -462,7 +463,7 @@ function startEdit(span,key,yr,neg){
 }
 
 // ════ RENDER ════
-function renderAll(){const C=compute();renderResumen(C);renderResultados(C);renderBalance(C);renderIndicadores(C);renderVariaciones(C);renderGastos(C);renderAtipicos(C);renderInversiones(C);renderDecisiones(C);}
+function renderAll(){const C=compute();renderResumen(C);renderResultados(C);renderBalance(C);renderIndicadores(C);renderFraude(C);renderVariaciones(C);renderGastos(C);renderAtipicos(C);renderInversiones(C);renderDecisiones(C);}
 
 // ════ SUB-SECCIONES CFO (detalle editable inyectado) ════
 function _det(k){return (DETALLE&&DETALLE[k])?DETALLE[k]:[];}
@@ -731,6 +732,96 @@ function renderInversiones(C){
   let body='',tot=0;rows.forEach(r=>{tot+=(+r.monto||0);body+='<tr><td>'+r.instrumento+'</td><td style="text-align:center">'+(r.anio||'')+'</td><td>'+n$(+r.monto||0)+'</td><td style="text-align:right">'+(r.rendimiento!=null&&r.rendimiento!==''?(+r.rendimiento).toFixed(2)+'%':'—')+'</td></tr>';});
   document.getElementById("sec-inversiones").innerHTML=_secHead("08 · Estado de Inversiones","Portafolio de inversiones","Instrumentos financieros, plazos y rendimiento — gestión de excedentes de liquidez.")
     +(rows.length?('<div class="panel"><div class="panel-title">Detalle del portafolio · Total '+n$(tot)+'</div><table><thead><tr><th>Instrumento</th><th style="text-align:center">Año</th><th>Monto</th><th style="text-align:right">Rendimiento</th></tr></thead><tbody>'+body+'</tbody></table></div>'):_emptyMsg("Sin inversiones registradas."));
+}
+
+function renderFraude(C){
+  // ═══ DETECCIÓN DE RIESGO DE FRAUDE / ERRORES (línea por línea: Balance + ER) ═══
+  // Aplica los chequeos forense (NIA 240), NIIF y de control interno sobre TODAS
+  // las cuentas detalladas. Lo que requiere datos que el ESF/ER no contienen
+  // (presupuesto, centro de costo, mayor mensual, Benford) se declara
+  // [DATO NO DISPONIBLE] — no se inventa.
+  const y=activeYear,_yi=YRS.indexOf(y),py=_yi>0?YRS[_yi-1]:null,c=C[y],last=YRS.length-1;
+  const CU=(Array.isArray(CUENTAS)?CUENTAS:[]);
+  const ec=(ac,l,v,s)=>'<div class="ec" style="--ec-accent:var(--'+ac+')"><div class="ec-label">'+l+'</div><div class="ec-val" style="color:var(--white)">'+v+'</div><div class="ec-sub">'+s+'</div></div>';
+  const cajaAB=(l,t,a)=>'<div style="margin-top:10px;padding:11px 13px;background:rgba(13,115,119,.09);border-left:3px solid var(--'+(a||'teal')+');border-radius:5px;font-size:11.5px;line-height:1.55;color:var(--grayL)"><b style="color:var(--'+(a||'teal')+')">'+l+':</b> '+t+'</div>';
+  const nivCol={ALTO:'red',MEDIO:'amber',BAJO:'greenOk'},nivBg={ALTO:'rgba(192,57,43,.18)',MEDIO:'rgba(214,137,16,.18)',BAJO:'rgba(30,132,73,.20)'},nivRk={ALTO:0,MEDIO:1,BAJO:2};
+  const badge=lv=>'<span style="display:inline-block;padding:2px 9px;border-radius:11px;font-size:9.5px;font-weight:700;background:'+nivBg[lv]+';color:var(--'+nivCol[lv]+')">'+lv+'</span>';
+  const fP=v=>(v==null||isNaN(v))?'[N/D]':v.toFixed(1)+'%',fX=v=>(v==null||isNaN(v))?'[N/D]':v.toFixed(2)+'x';
+  const NM=s=>String(s||'').toUpperCase();
+  if(!CU.length){
+    document.getElementById("sec-fraude").innerHTML=_secHead("Detección de Riesgo de Fraude / Errores","Revisión forense, NIIF y de control — línea por línea","Requiere las cuentas detalladas del Balance y del Estado de Resultados.")
+      +_emptyMsg("[DATO NO DISPONIBLE] — Sube los balances internos con detalle por cuenta (Balance y Estado de Resultados) para ejecutar la detección línea por línea.");
+    return;
+  }
+  const ventasY=D.ingOrd[y]||0,totalActY=c.totalAct||1;
+  // ── Banderas línea por línea ──
+  const flags=[];
+  CU.forEach(ct=>{
+    const v=YRS.map((yy,i)=>(ct.vals&&ct.vals[i]!=null)?ct.vals[i]:0);
+    const f=v[0],l=v[last],dpct=f?((l-f)/Math.abs(f)*100):(Math.abs(l)>0?null:0);
+    const nm=NM(ct.nombre),esBal=ct.sec!=='resultado',base=esBal?totalActY:(ventasY||1);
+    const pvL=Math.abs(l)/base*100,pvF=Math.abs(f)/base*100;
+    const add=(tipo,obs,norma,niv)=>flags.push({sec:ct.sec,codigo:ct.codigo,nombre:ct.nombre,v,dpct,tipo,obs,norma,niv,mat:Math.max(Math.abs(l),Math.abs(f))});
+    if(f===0&&Math.abs(l)>0&&pvL>=0.5)add('Nuevo','Cuenta nueva (no existía en '+YRS[0]+'); validar sustento gerencial','NIC 8 / control',pvL>=2?'ALTO':'MEDIO');
+    else if(Math.abs(f)>0&&Math.abs(l)<1e-6&&pvF>=0.5)add('Eliminado','Cuenta desaparece en '+YRS[last]+'; ¿eficiencia, reclasificación o eliminación?','NIC 1 / control',pvF>=2?'ALTO':'MEDIO');
+    else if(dpct!=null&&Math.abs(dpct)>30&&pvL>=0.5)add('Volátil','Variación '+(dpct>=0?'+':'')+dpct.toFixed(0)+'% (>30%) sin explicación documentada','NIC 8 reexpresión',(Math.abs(dpct)>60&&pvL>=2)?'ALTO':'MEDIO');
+    if(/OTROS|OTRAS|VARIOS|VARIAS|DIVERS|GENERAL|GESTION|NO CLASIFIC/.test(nm)&&pvL>=1)add('Comodín','Cuenta comodín/no específica ('+fP(pvL)+' de la base): destino habitual de gasto sin sustento','NIC 1 clasificación',pvL>=3?'ALTO':'MEDIO');
+    if(/RELACIONAD|ACCIONISTA|VINCULAD|MATRIZ|SUBSIDIARI|INTERCOMP|\bSOCIO/.test(nm)&&Math.abs(l)>0)add('Relacionadas','Operación con partes relacionadas: recuperabilidad y precios de transferencia','NIC 24','ALTO');
+    if(ct.sec==='resultado'&&/VIATIC|REPRESENTAC|CONSULTOR|HONORARIO|MOVILIZ|ATENCION|AGASAJO|PUBLICID|DONACION/.test(nm)&&pvL>=0.5)add('Discrecional','Gasto discrecional de alto riesgo de control'+(dpct!=null&&dpct>20?' (creció '+dpct.toFixed(0)+'%)':''),'Control interno / NIC 12',(dpct!=null&&dpct>20)?'ALTO':'MEDIO');
+    if(/PROVISION|ESTIMACION|DETERIORO|INCOBRABLE/.test(nm)&&Math.abs(f)>0&&Math.abs(l)<Math.abs(f)*0.5)add('Provisión','Reversa/baja fuerte de provisión (posible manejo de resultado "cookie-jar")','NIC 37','MEDIO');
+    if(Math.abs(l)>=1000&&Math.abs(l)%1000===0&&l===f&&pvL>=0.5)add('Monto redondo','Monto redondo idéntico entre períodos (posible estimación sin sustento)','Evidencia','BAJO');
+  });
+  // Traspaso compensatorio: una NUEVA ~ una ELIMINADA de magnitud similar en la misma sección
+  const nuevas=flags.filter(f=>f.tipo==='Nuevo'),elim=flags.filter(f=>f.tipo==='Eliminado');
+  nuevas.forEach(n2=>{const m=elim.find(e=>e.sec===n2.sec&&Math.abs(e.mat-n2.mat)<n2.mat*0.1);
+    if(m)flags.push({sec:n2.sec,codigo:n2.codigo,nombre:n2.nombre+' ↔ '+m.nombre,v:n2.v,dpct:null,tipo:'Traspaso',obs:'Una cuenta nace y otra desaparece por monto similar: posible RECLASIFICACIÓN entre líneas',norma:'NIC 1.45',niv:'ALTO',mat:n2.mat});});
+  flags.sort((a,b)=>(nivRk[a.niv]-nivRk[b.niv])||(b.mat-a.mat));
+  const nAlto=flags.filter(f=>f.niv==='ALTO').length,nMed=flags.filter(f=>f.niv==='MEDIO').length;
+  const score=nAlto*2+nMed,nivelG=score>=6?'ALTO':score>=3?'MEDIO':(flags.length?'MEDIO':'BAJO'),colG=nivCol[nivelG];
+  // ── Banda KPIs ──
+  const kpiBand='<div class="ec-grid" style="margin-bottom:16px">'
+    +ec('blue','Cuentas revisadas',String(CU.length),'línea por línea (Balance + ER)')
+    +ec('amber','Banderas detectadas',String(flags.length),nAlto+' altas · '+nMed+' medias')
+    +ec(colG,'Riesgo de fraude/errores','<span style="color:var(--'+colG+')">'+nivelG+'</span>','índice interno por banderas')
+    +ec('teal','Partes relacionadas',String(flags.filter(f=>f.tipo==='Relacionadas').length),'cuentas con vinculación (NIC 24)')
+    +'</div>';
+  // ── Índices financieros (contexto del riesgo) ──
+  const dotc=cc=>'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--'+cc+');margin-right:7px;vertical-align:middle"></span>';
+  const idx=[['Liquidez corriente',fX(c.liquidez),c.liquidez>=1.5?'greenOk':c.liquidez>=1?'amber':'red'],['Endeudamiento',fP(c.endeud*100),c.endeud<=.4?'greenOk':c.endeud<=.6?'amber':'red'],['ROE',fP(c.roe*100),c.roe>=.15?'greenOk':c.roe>=.08?'amber':'red'],['Margen bruto',fP(c.mrgBruto*100),c.mrgBruto>=.3?'greenOk':c.mrgBruto>=.2?'amber':'red'],['Margen neto',fP(c.mrgNeto*100),c.mrgNeto>=.1?'greenOk':c.mrgNeto>=.05?'amber':'red'],['Rotación de activos',fX(c.rotAct),c.rotAct>=1?'greenOk':'amber']];
+  const idxPanel='<div class="panel"><div class="panel-title">Índices financieros · '+y+'</div><table style="font-size:12px"><tbody>'+idx.map(r=>'<tr><td style="text-align:left">'+dotc(r[2])+r[0]+'</td><td class="mono" style="text-align:right;color:var(--'+r[2]+')">'+r[1]+'</td></tr>').join('')+'</tbody></table></div>';
+  // ── Top banderas por materialidad (gráfico) ──
+  const topF=flags.slice(0,12);
+  const chart='<div class="panel"><div class="panel-title">Cuentas señaladas · por materialidad</div>'+svgBarsH(topF.map(f=>({label:(f.nombre||'').slice(0,22),value:f.mat,color:nivCol[f.niv]==='red'?CL.red:nivCol[f.niv]==='amber'?CL.amber:CL.green})),n$)+'</div>';
+  // ── Tabla línea por línea ──
+  let tab='<table style="font-size:11px"><thead><tr><th style="text-align:left">Cuenta</th><th style="text-align:center">Sec.</th>'+YRS.map(yy=>'<th>'+yy+'</th>').join('')+'<th>Δ%</th><th style="text-align:left">Hallazgo</th><th style="text-align:left">Norma</th><th style="text-align:center">Nivel</th></tr></thead><tbody>';
+  const secAbr={activo:'ACT',pasivo:'PAS',patrimonio:'PAT',resultado:'ER'};
+  flags.slice(0,40).forEach(f=>{tab+='<tr><td style="text-align:left">'+(f.codigo?'<span style="opacity:.5;font-size:9px">'+f.codigo+'</span> ':'')+f.nombre+'</td><td style="text-align:center;font-size:9px;color:var(--grayL)">'+(secAbr[f.sec]||f.sec)+'</td>'+f.v.map(z=>'<td class="mono">'+n$(z)+'</td>').join('')+'<td class="mono" style="color:var(--'+((f.dpct||0)>0?'amber':'grayL')+')">'+(f.dpct!=null?(f.dpct>=0?'+':'')+f.dpct.toFixed(0)+'%':'—')+'</td><td style="text-align:left;color:var(--grayL)"><b style="color:var(--'+nivCol[f.niv]+')">'+f.tipo+':</b> '+f.obs+'</td><td style="text-align:left;font-size:10px;color:var(--grayL)">'+f.norma+'</td><td style="text-align:center">'+badge(f.niv)+'</td></tr>';});
+  tab+='</tbody></table>';
+  const tablaPanel='<div class="panel"><div class="panel-title">Banderas detectadas (revisión línea por línea)'+(flags.length>40?' · mostrando 40 de '+flags.length:'')+'</div>'+(flags.length?tab:'<div class="tx-muted">Sin banderas materiales en las cuentas analizadas. 🟢</div>')+'</div>';
+  // ── Riesgos detectados (agrupados) ──
+  const tipos={};flags.forEach(f=>{tipos[f.tipo]=(tipos[f.tipo]||0)+1;});
+  const descTipo={Nuevo:'Gastos/cuentas nuevas sin historial — validar aprobación y sustento.',Eliminado:'Cuentas que desaparecen — confirmar si es eficiencia o reclasificación.',Volátil:'Variaciones >30% sin explicación — posible error de corte o manejo de resultado.',Comodín:'Cuentas "otros/varios" abultadas — riesgo de gasto sin sustento.',Relacionadas:'Operaciones con vinculadas — recuperabilidad y precios de transferencia.',Discrecional:'Gastos discrecionales (viáticos, consultorías…) — alto riesgo de control y deducibilidad.',Provisión:'Reversas de provisión — posible "cookie-jar".',Traspaso:'Reclasificación entre líneas — maquilla márgenes.','Monto redondo':'Montos redondos repetidos — posible estimación sin respaldo.'};
+  const riesgosPanel='<div class="panel"><div class="panel-title">Riesgos detectados</div>'+(Object.keys(tipos).length?('<div style="display:flex;flex-direction:column;gap:9px">'+Object.keys(tipos).sort((a,b)=>tipos[b]-tipos[a]).map(t=>'<div style="display:flex;gap:10px;font-size:12px"><span class="mono" style="color:var(--amber);min-width:24px;text-align:right">'+tipos[t]+'</span><span><b style="color:var(--white)">'+t+'</b> — <span style="color:var(--grayL)">'+(descTipo[t]||'')+'</span></span></div>').join('')+'</div>'):'<div class="tx-muted">Sin riesgos materiales. 🟢</div>')+'</div>';
+  // ── Posibles problemas de auditoría externa/interna ──
+  const audit=[];
+  if(tipos['Comodín'])audit.push('<b>Externa:</b> pruebas sustantivas y solicitud de desglose de cuentas comodín. <b>Interna:</b> exigir clasificación específica y sustento por partida.');
+  if(tipos['Relacionadas'])audit.push('<b>Externa:</b> revelaciones NIC 24 y soporte de precios de transferencia. <b>Interna:</b> aprobación del Directorio y contratos formales.');
+  if(tipos['Volátil']||tipos['Nuevo']||tipos['Traspaso'])audit.push('<b>Externa:</b> corte de período y posible reexpresión (NIC 8); revisar reclasificaciones. <b>Interna:</b> documentar toda variación material y su autorización.');
+  if(tipos['Provisión'])audit.push('<b>Externa:</b> evaluar razonabilidad de provisiones y sus reversas (NIC 37). <b>Interna:</b> política de estimaciones con respaldo.');
+  if(tipos['Discrecional'])audit.push('<b>Externa:</b> verificar deducibilidad (NIC 12) y sustento de gastos discrecionales. <b>Interna:</b> límites de autorización y rendición de cuentas.');
+  audit.push('<b>Control general:</b> implantar <b>presupuesto vs real</b>, <b>centros de costo/responsable</b> y matriz de autorizaciones — hoy <b>[DATO NO DISPONIBLE]</b>; su ausencia es en sí misma una debilidad de control.');
+  const auditPanel='<div class="panel"><div class="panel-title">Posibles problemas de auditoría (externa e interna)</div><div style="display:flex;flex-direction:column;gap:8px;font-size:11.5px;color:var(--grayL);line-height:1.5">'+audit.map(a=>'<div style="border-left:3px solid var(--amber);padding-left:10px">'+a+'</div>').join('')+'</div></div>';
+  // ── Limitaciones de alcance ──
+  const limit='<div class="panel"><div class="panel-title">Limitaciones de alcance (no ejecutable solo con ESF/ER)</div><div style="font-size:11.5px;color:var(--grayL);line-height:1.6">Estas pruebas requieren insumos adicionales y se marcan <b>[DATO NO DISPONIBLE]</b>: ley de Benford y concentración por proveedor/tercero, fraccionamiento bajo umbrales, corte mensual de cierre, presupuesto vs real, centro de costo/responsable. Para habilitarlas se necesita el <b>mayor auxiliar mensual por cuenta y tercero</b> + presupuesto. Sin ellos, este análisis <b>señala comportamiento sospechoso para investigar</b>, no prueba fraude.</div></div>';
+  // ── Conclusión ──
+  const concl='<b>Conclusión:</b> sobre '+CU.length+' cuentas revisadas línea por línea se detectaron <b>'+flags.length+'</b> banderas ('+nAlto+' altas). Nivel de riesgo de fraude/errores: <b style="color:var(--'+colG+')">'+nivelG+'</b>. '+(nAlto?'Priorizar la revisión de las banderas ALTAS (partes relacionadas, comodines materiales, traspasos y volátiles) con pruebas de sustento y corte. ':'No se observan banderas altas materiales. ')+'Recomendación: incorporar presupuesto y mayor mensual para elevar la detección de transaccional a forense.';
+  document.getElementById("sec-fraude").innerHTML=_secHead("Detección de Riesgo de Fraude / Errores","Revisión forense (NIA 240), NIIF y de control — línea por línea","Balance y Estado de Resultados detallados "+(YRS[0])+"–"+(YRS[last])+". Señala comportamiento sospechoso; no sustituye una auditoría.")
+    +kpiBand
+    +'<div class="grid-2">'+chart+idxPanel+'</div>'
+    +tablaPanel
+    +'<div class="grid-2">'+riesgosPanel+auditPanel+'</div>'
+    +limit
+    +'<div class="panel"><div class="panel-title">Síntesis</div>'+cajaAB('Conclusión de integridad del gasto y del balance',concl,colG==='red'?'red':colG==='amber'?'gold':'teal')+'</div>';
 }
 
 function renderResumen(C){
