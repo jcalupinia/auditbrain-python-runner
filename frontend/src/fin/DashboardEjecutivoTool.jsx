@@ -263,6 +263,26 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
 
   const esXlsx = (f) => /\.(xlsx|xls)$/i.test(f.name);
 
+  // Selección de archivos: ACUMULA en vez de reemplazar. El usuario puede subir
+  // el Balance (ESF) y el Estado de Resultados (ER) en clics separados —tal como
+  // promete el texto de ayuda— sin que el segundo borre al primero. Se deduplica
+  // por nombre+tamaño y se limpia el value del input para poder re-seleccionar el
+  // mismo archivo y que onChange vuelva a dispararse.
+  const onElegirArchivos = (e) => {
+    const nuevos = [...(e.target.files || [])];
+    e.target.value = "";
+    if (!nuevos.length) return;
+    setFiles((prev) => {
+      const merged = [...prev];
+      for (const f of nuevos) {
+        if (!merged.some((g) => g.name === f.name && g.size === f.size)) merged.push(f);
+      }
+      return merged;
+    });
+    setIngMsg(null);
+  };
+  const quitarArchivo = (idx) => setFiles((prev) => prev.filter((_, i) => i !== idx));
+
   const procesar = async () => {
     if (!files.length || !fuente) return;
     setIngBusy(true);
@@ -523,9 +543,22 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
               )}
               <input type="file" multiple
                 accept={fuente === "f101" ? "application/pdf" : ".xlsx,.xls,.pdf,.doc,.docx"}
-                onChange={(e) => { setFiles([...(e.target.files || [])]); setIngMsg(null); }} />
+                onChange={onElegirArchivos} />
               {files.length > 0 && (
-                <div className="tx-muted small">Seleccionado(s) ({files.length}): {files.map((f) => f.name).join(", ")}</div>
+                <div className="tx-muted small" style={{ marginTop: 6 }}>
+                  <div style={{ marginBottom: 4 }}>
+                    <b>Seleccionado(s) ({files.length})</b> — puedes seguir agregando más (se acumulan).
+                    {" "}<a href="#" onClick={(e) => { e.preventDefault(); setFiles([]); }} style={{ color: "var(--tx-link, #b58900)" }}>Limpiar selección</a>
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: 18 }}>
+                    {files.map((f, i) => (
+                      <li key={`${f.name}-${i}`}>
+                        {f.name}{" "}
+                        <a href="#" onClick={(e) => { e.preventDefault(); quitarArchivo(i); }} title="Quitar este archivo" style={{ color: "#c0392b" }}>✕</a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
               <div className="tx-ingest-actions" style={{ marginTop: 10, alignItems: "center" }}>
                 <button className="tx-btn" onClick={procesar} disabled={!files.length || ingBusy}
