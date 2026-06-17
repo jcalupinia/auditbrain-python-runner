@@ -25,6 +25,7 @@ import {
   EMPTY_DETALLE,
   BLANK_ROW,
   PERIODO_MESES,
+  PARSER_TO_DASH,
   mapToDashboard,
   buildDetailedBalance,
   checkBalance,
@@ -113,6 +114,7 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
   };
 
   // Ingesta
+  const [cuentas, setCuentas] = useState([]); // detalle por cuenta (drill-down)
   const [fuente, setFuente] = useState(null);
   const [files, setFiles] = useState([]);
   const [ingBusy, setIngBusy] = useState(false);
@@ -159,6 +161,7 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
     const yearOf = (s) => { const m = String(s == null ? "" : s).match(/20\d{2}/); return m ? m[0] : null; };
     const byYear = new Map();
     const order = [];
+    const cuentasMap = new Map(); // detalle por cuenta (drill-down), fusionado por año
     items.forEach((it, fileIdx) => {
       const res = it.res || it;            // compat: {res,name} o res directo
       const fname = it.name || "";
@@ -173,6 +176,7 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
         anios.length ||
         Math.max(0, ...Object.values(d).map((a) => (Array.isArray(a) ? a.length : 0)));
       const fnYear = yearOf(fname); // p.ej. "BALANCE 2023.xlsx" -> 2023
+      const colYear = []; // columna j -> año (clave de período) de ESTE archivo
       for (let j = 0; j < n; j++) {
         // Clave de período por AÑO: del contenido (anios/labels), o del nombre del
         // archivo si trae 1 sola columna; si no hay forma, clave única por archivo
@@ -183,6 +187,7 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
           yearOf(lblER[j]) ||
           (n === 1 && fnYear ? fnYear : null) ||
           `arch${fileIdx}-${j}`;
+        colYear[j] = yr;
         if (!byYear.has(yr)) {
           byYear.set(yr, { data: {}, labelESF: null, labelER: null, fname: fname.replace(/\.(xlsx|xls)$/i, "") });
           order.push(yr);
@@ -195,6 +200,19 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
         if (lblESF[j]) slot.labelESF = lblESF[j];
         if (lblER[j]) slot.labelER = lblER[j];
       }
+      // Fusión del detalle por cuenta: clave (sec|rubroDash|codigo|nombre); los
+      // valores se acumulan por año usando el mapeo columna→año de este archivo.
+      (res.detalle || []).forEach((acc) => {
+        const dk = PARSER_TO_DASH[acc.key] || acc.key;
+        const ck = acc.sec + "|" + dk + "|" + (acc.codigo || "") + "|" + acc.nombre;
+        let cm = cuentasMap.get(ck);
+        if (!cm) { cm = { sec: acc.sec, key: dk, codigo: acc.codigo || "", nombre: acc.nombre, byYear: {} }; cuentasMap.set(ck, cm); }
+        (acc.vals || []).forEach((v, j) => {
+          const yr = colYear[j];
+          if (yr == null) return;
+          cm.byYear[yr] = (cm.byYear[yr] || 0) + num(v);
+        });
+      });
     });
     // Años primero (ascendente); las claves sin año ("arch…") al final.
     order.sort((a, b) => {
@@ -221,6 +239,11 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
     });
     setD(nextD);
     setPeriodos(nextPer);
+    // Cuentas (detalle) alineadas al orden de períodos; descarta filas todo-cero.
+    const cuentasOut = [...cuentasMap.values()]
+      .map((cm) => ({ sec: cm.sec, key: cm.key, codigo: cm.codigo, nombre: cm.nombre, vals: order.map((yr) => Math.round(num(cm.byYear[yr]))) }))
+      .filter((c) => c.vals.some((v) => v !== 0));
+    setCuentas(cuentasOut);
     let patInc = false;
     order.forEach((yr) => {
       const dd = byYear.get(yr).data;
@@ -259,6 +282,7 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
           procesados++;
           (res.warnings || []).forEach((w) => warns.add(w));
         }
+        setCuentas([]); // F-101 no trae detalle por cuenta
       } else {
         // Internos / auditados: procesa TODOS los archivos y los fusiona por año
         // (Balance + Estado de Resultados separados → un período por año).
@@ -312,6 +336,7 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
   const cargarEjemplo = () => {
     setPeriodos(initPeriodos());
     setD(clone(EX));
+    setCuentas([]); // el ejemplo no trae detalle por cuenta
     setHeader({ ...DEFAULT_HEADER, empresa: DEFAULT_PARAMS.empresa + " (ejemplo)" });
     setIngMsg({ ok: true, text: "Datos de ejemplo cargados (SIGMANSERVICES, 3 años)." });
   };
@@ -320,6 +345,7 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
     if (!window.confirm("¿Limpiar todos los datos y empezar de nuevo?")) return;
     setPeriodos([]);
     setD(emptyD(0));
+    setCuentas([]);
     setHeader({ ...DEFAULT_HEADER, empresa: "" });
     setDetalle(clone(EMPTY_DETALLE));
     setIngMsg(null);
@@ -356,8 +382,8 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
 
   /* ---------- export / derivados ---------- */
   const dashHTML = useMemo(
-    () => buildStandaloneHTML({ D: Dnorm, header: { ...header, chart: chartStyle }, detalle, nivel, periodos }),
-    [Dnorm, header, detalle, nivel, periodos, chartStyle]
+    () => buildStandaloneHTML({ D: Dnorm, header: { ...header, chart: chartStyle }, detalle, nivel, periodos, cuentas }),
+    [Dnorm, header, detalle, nivel, periodos, chartStyle, cuentas]
   );
   const balCheck = useMemo(
     () => (periodos.length ? checkBalance(mapToDashboard(D, labels), labels) : []),
@@ -368,7 +394,7 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
     [D, params, todosAnuales, periodos.length]
   );
 
-  const descargarHTML = () => downloadStandaloneHTML({ D: Dnorm, header: { ...header, chart: chartStyle }, detalle, nivel, periodos });
+  const descargarHTML = () => downloadStandaloneHTML({ D: Dnorm, header: { ...header, chart: chartStyle }, detalle, nivel, periodos, cuentas });
   const [busyXl, setBusyXl] = useState(false);
   const [busyDoc, setBusyDoc] = useState(""); // "" | "pdf" | "word" | "ppt"
   const descargarExcelGrafico = async () => {

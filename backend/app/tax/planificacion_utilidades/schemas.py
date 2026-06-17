@@ -26,6 +26,9 @@ class ExtractResponse(BaseModel):
     # Etiquetas (fechas de corte) por estado — pueden diferir entre ESF y ER.
     labels_esf: list[str] = Field(default_factory=list)
     labels_er: list[str] = Field(default_factory=list)
+    # Detalle por cuenta-hoja (drill-down). Cada item:
+    # {sec, key (rubro), codigo, nombre, vals:[por período]}.
+    detalle: list[dict] = Field(default_factory=list)
 
 
 class CtrlYear(BaseModel):
