@@ -373,6 +373,26 @@ class A1Filler:
                 )
                 by_casillero.setdefault(cas, []).append(item_with_idx)
 
+        # CAMBIO 2026-06-17 (cliente ICT_26): la regla 888/850 condicional
+        # decide cual cas mostrar segun el F-101 declarado. Pero si el
+        # contador mapeo cuentas balance al cas 888 (ej. "610102.02 Gasto
+        # imp renta causado") y el F-101 declara solo cas 850 → las cuentas
+        # balance del cas 888 quedaban "huerfanas" (aparecian con codigo
+        # pintado en rojo pero sin saldo). Fix: si la regla mostrara cas
+        # 850 (porque F-101 cas 888 = 0), trasladar las cuentas balance
+        # del cas 888 al cas 850 para que aparezcan con su saldo.
+        f101_888 = 0.0
+        try:
+            v = f101.get("888")
+            f101_888 = float(v) if v not in (None, "") else 0.0
+        except (TypeError, ValueError):
+            pass
+        if abs(f101_888) < 0.005 and "888" in by_casillero:
+            # F-101 no declara cas 888 → A1 mostrara cas 850. Trasladar
+            # las cuentas balance del cas 888 al cas 850 para que el A1
+            # las muestre como cuentas del 850.
+            by_casillero.setdefault("850", []).extend(by_casillero.pop("888"))
+
         # Tracking de grupos para formatting posterior
         casillero_groups: list[dict] = []
         current_row = A1_FIRST_DATA_ROW
