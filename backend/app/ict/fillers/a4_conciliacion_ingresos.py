@@ -70,8 +70,26 @@ class A4Filler:
         # ── Cuadro 1: Detalle de ingresos exentos ────────────────────────
         movimientos: list[dict] = anexo_data.get("mayor_exentos", []) or []
         balance_mapeado: list[dict] = anexo_data.get("balance_mapeado", []) or []
+        f101: dict = anexo_data.get("f101", {}) or {}
         start_row, end_row = A4_CUADRO1_RANGE
         max_rows = end_row - start_row + 1
+
+        # FUENTE 2026-06-17 (regla cliente): cas oficiales SRI de
+        # ingresos exentos / no objeto que el F-101 declara con valor
+        # != 0 se trasladan automaticamente a B16+ (codigo) — la formula
+        # G reactiva ya cubre G16+. Los cas son los que el catalogo F-101
+        # define como "RENTAS EXENTAS DE..." o "INGRESOS NO OBJETO DE
+        # IMPUESTO" en el rango 6001-6999, excluyendo los que empiezan
+        # con "VALOR EXENTO" (esos son sub-items informativos).
+        CAS_EXENTOS_NO_OBJETO = ["6081", "6083", "6085", "6094", "6150"]
+        cas_exentos_f101: list[str] = []
+        for cas in CAS_EXENTOS_NO_OBJETO:
+            v = f101.get(cas)
+            try:
+                if v not in (None, "") and abs(float(v)) >= 0.005:
+                    cas_exentos_f101.append(cas)
+            except (TypeError, ValueError):
+                continue
 
         # Fuente: mayor_exentos si existe; si no, filtra balance por casilleros
         # 804/805/812/1112. Para los del balance guardamos su índice original
@@ -123,6 +141,30 @@ class A4Filler:
                 "A4 Cuadro 1: sin datos de ingresos exentos. "
                 "Sube el Libro Mayor o el Balance Mapeado para poblar el detalle."
             )
+
+        # ── Traslado automatico de cas exentos / no objeto del F-101 ──
+        # Regla 2026-06-17: si el cliente declara valores en cas de
+        # ingresos exentos / no objeto en F-101, llenar las primeras
+        # filas LIBRES de B16:B25 con el numero del casillero. La
+        # formula reactiva G ya hace el resto (col G se llena abajo
+        # uniformemente para todas las filas G16:G25).
+        col_b_a4 = A4_CUADRO1_COLS["casillero"]
+        if cas_exentos_f101:
+            # Buscar filas libres en B16:B25 (col B vacia en ese momento)
+            next_row = start_row
+            for cas in cas_exentos_f101:
+                # Avanzar hasta encontrar una fila libre en col B
+                while next_row <= end_row and ws.cell(next_row, 2).value:
+                    next_row += 1
+                if next_row > end_row:
+                    warnings.append(
+                        f"A4 Cuadro 1: cas exento {cas} no se trasladó — "
+                        f"todas las filas B16:B25 están ocupadas."
+                    )
+                    break
+                if _safe_set(ws, f"{col_b_a4}{next_row}", cas):
+                    filled += 1
+                next_row += 1
 
         # Cuadro 1, col G (G16:G25): fórmula REACTIVA al casillero (col B) en
         # TODAS las 10 filas — matching el template oficial SRI 2024.
