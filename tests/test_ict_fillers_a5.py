@@ -33,15 +33,12 @@ def _full_f101() -> dict:
     }
 
 
-def _mayor_nd(n: int = 1) -> list:
-    return [
-        {
-            "codigo": f"5.2.99.{i:02d}",
-            "nombre": f"Gasto no deducible {i}",
-            "saldo": 10_000.00 * i,
-        }
-        for i in range(1, n + 1)
-    ]
+def _f101_con_no_deducibles(cas_list: list[str]) -> dict:
+    """F-101 base + casilleros no deducibles 7xxx con valor."""
+    f101 = _full_f101()
+    for i, cas in enumerate(cas_list):
+        f101[cas] = 1_000.00 * (i + 1)
+    return f101
 
 
 # ── Test 1: header y casilleros se escriben ──────────────────────────────────
@@ -59,60 +56,61 @@ def test_a5_filler_anexo_code():
     assert A5Filler.anexo_code == "A5"
 
 
-# ── Test 3: advertencia sin libro mayor ──────────────────────────────────────
+# ── Test 3: advertencia cuando F-101 no declara no deducibles ────────────────
 
-def test_a5_filler_warns_without_mayor():
+def test_a5_filler_warns_without_no_deducibles():
+    """CAMBIO 2026-06-18: el Cuadro A ya NO toma datos del mayor/balance.
+    Sin casilleros no deducibles (7xxx) en F-101 → warning del Cuadro A."""
     wb = load_template()
     filler = A5Filler()
     result = filler.fill(wb, _session(), {"f101": _full_f101()})
-    assert any("mayor" in w.lower() for w in result["warnings"])
+    assert any("no deducible" in w.lower() for w in result["warnings"])
 
 
-# ── Test 4: Cuadro A con 1 movimiento escribe celdas ─────────────────────────
+# ── Test 4: Cuadro A traslada un casillero no deducible del F-101 ─────────────
 
-def test_a5_filler_cuadro_a_single_row():
+def test_a5_filler_cuadro_a_traslada_no_deducible():
+    """Un cas 7xxx 'VALOR NO DEDUCIBLE' con valor en F-101 → B17 = casillero."""
     wb = load_template()
     filler = A5Filler()
-    data = {
-        "f101": _full_f101(),
-        "mayor_no_deducibles": _mayor_nd(1),
-    }
+    data = {"f101": _f101_con_no_deducibles(["7042"])}
     result = filler.fill(wb, _session(), data)
     ws = wb["CONCILIACIÓN COSTOS Y GASTOS A5"]
-    # Cuadro A row 17 — col K debería tener el saldo del primer movimiento
-    assert ws["K17"].value == 10_000.00
-    # Sin warning de mayor cuando hay datos
-    assert not any("mayor" in w.lower() for w in result["warnings"])
+    assert ws["B17"].value == "7042"
+    # Ya hay no deducibles → no debe estar el warning de "no declara"
+    assert not any("no declara gastos no deducibles" in w.lower()
+                   for w in result["warnings"])
 
 
-# ── Test 5: Cuadro A con 5 movimientos (máximo) ──────────────────────────────
+# ── Test 5: 5 casilleros no deducibles caben sin inserción ───────────────────
 
-def test_a5_filler_cuadro_a_max_rows():
+def test_a5_filler_cuadro_a_5_no_deducibles_sin_insercion():
     wb = load_template()
     filler = A5Filler()
-    data = {
-        "f101": _full_f101(),
-        "mayor_no_deducibles": _mayor_nd(5),
-    }
+    data = {"f101": _f101_con_no_deducibles(
+        ["7042", "7048", "7057", "7060", "7063"])}
+    filler.fill(wb, _session(), data)
+    ws = wb["CONCILIACIÓN COSTOS Y GASTOS A5"]
+    casilleros = [ws.cell(r, 2).value for r in range(17, 22)]
+    assert "7063" in casilleros
+    # 5 cas → sin inserción → Cuadro B sigue en posición original (G34)
+    assert ws["G34"].value is not None
+
+
+# ── Test 6: más de 5 casilleros no deducibles → inserta filas (no trunca) ─────
+
+def test_a5_filler_cuadro_a_7_no_deducibles_inserta():
+    wb = load_template()
+    filler = A5Filler()
+    data = {"f101": _f101_con_no_deducibles(
+        ["7042", "7048", "7057", "7060", "7063", "7069", "7177"])}
     result = filler.fill(wb, _session(), data)
     ws = wb["CONCILIACIÓN COSTOS Y GASTOS A5"]
-    # Fila 21 (última fila permitida) debería tener el saldo del 5to movimiento
-    assert ws["K21"].value == 50_000.00
-    # No truncamiento
+    # 7 cas → 2 filas insertadas → todos presentes en B17:B23
+    casilleros = [ws.cell(r, 2).value for r in range(17, 24)]
+    assert "7177" in casilleros
+    # Nunca se trunca
     assert not any("truncaron" in w for w in result["warnings"])
-
-
-# ── Test 6: truncamiento con más de 5 movimientos ────────────────────────────
-
-def test_a5_filler_cuadro_a_truncates():
-    wb = load_template()
-    filler = A5Filler()
-    data = {
-        "f101": _full_f101(),
-        "mayor_no_deducibles": _mayor_nd(7),
-    }
-    result = filler.fill(wb, _session(), data)
-    assert any("truncaron" in w for w in result["warnings"])
 
 
 # ── Test 7: Cuadro B — casilleros 6999 y 7999 se escriben en col G ──────────

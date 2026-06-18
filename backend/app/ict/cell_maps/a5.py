@@ -63,9 +63,11 @@ A5_CUADRO_A_RANGE = (17, 21)  # (start_row, end_row) inclusive
 # Column mapping for Cuadro A detail rows
 A5_CUADRO_A_COLS = {
     "identificacion": "A",   # Identificación del gasto (nombre de cuenta)
+    "casillero": "B",        # No. Casillero de la declaración (no deducible)
     "codigo_cuenta": "C",    # Código de cuenta contable
     "nombre_cuenta": "D",    # Nombre de la cuenta contable
     "valor": "K",            # Valor total en libros contables
+    "valor_declarado": "L",  # Valor declarado (ref a DATOS F-101)
 }
 
 # Cuadro B: Prorrateo — input casilleros written to column G
