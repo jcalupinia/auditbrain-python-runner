@@ -51,51 +51,57 @@ def test_a4_filler_writes_casilleros():
 
 
 def test_a4_filler_writes_mayor_detail():
+    """CAMBIO 2026-06-17: A4 Cuadro 1 ya NO toma datos del balance_mapeado
+    ni del mayor_exentos. La fuente única es DATOS F-101 (cas exentos/no
+    objeto con valor declarado).
+
+    Este test ahora valida que cuando F-101 declare valor en un cas exento
+    (ej. 6094 OTRAS RENTAS EXENTAS), el A4 lo trasladará a col B y col G
+    apuntará a la referencia F-101 correspondiente."""
     wb = load_template()
     filler = A4Filler()
     sess = _session_data()
-    movimientos = [
-        {"codigo": "510101", "nombre": "Dividendos recibidos exentos", "saldo": 18000.0, "debe": 0.0, "haber": 18000.0, "tipo": ""},
-        {"codigo": "510201", "nombre": "Renta exenta inversiones", "saldo": 5500.0, "debe": 0.0, "haber": 5500.0, "tipo": ""},
-    ]
+    # f101 declara cas 6094 con valor → debe trasladarse a A4 B16
     data = {
-        "f101": {"804": 18000.0, "805": 5500.0, "812": 0.0, "1112": 0.0},
-        "mayor_exentos": movimientos,
+        "f101": {"6094": 18000.0},
+        "_f101_lookup": {"6094": 557},  # fila simulada en DATOS F-101
     }
     result = filler.fill(wb, sess, data)
     ws = wb["CONCILIACIÓN INGRESOS A4"]
 
-    # Cuadro 1: cols A-D del primer movimiento en fila 16
-    assert ws["C16"].value == "510101"    # código primera cuenta
-    # Col G ahora es SIEMPRE fórmula reactiva SUMIF (matching template oficial SRI),
-    # no el saldo literal. El valor se calcula a partir del casillero en col B
-    # y la hoja DATOS BALANCE.
-    g16 = ws["G16"].value
-    assert isinstance(g16, str) and g16.startswith("=IF($B16"), (
-        f"G16 debe ser fórmula SUMIF reactiva, no valor literal: {g16!r}"
+    # B16 debe ser '6094' (codigo del casillero del F-101)
+    assert ws["B16"].value == "6094", (
+        f"B16 esperado '6094', encontrado {ws['B16'].value!r}"
     )
-    assert "SUMIF" in g16 and "DATOS BALANCE" in g16
-    g17 = ws["G17"].value
-    assert isinstance(g17, str) and g17.startswith("=IF($B17")
-    assert result["filled_cells"] > 5
+    # G16 debe ser referencia al F-101, NO SUMIF al balance
+    g16 = ws["G16"].value
+    assert isinstance(g16, str) and "DATOS F-101" in g16, (
+        f"G16 debe ser referencia a F-101. Encontrado: {g16!r}"
+    )
+    assert result["filled_cells"] >= 2  # B16 + G16 al menos
 
 
-def test_a4_filler_truncates_mayor_at_10_rows():
+def test_a4_filler_truncates_cas_exentos_at_10_rows():
+    """CAMBIO 2026-06-17: si hay mas de 10 cas exentos con valor en F-101,
+    A4 trunca a las 10 filas disponibles (B16:B25) y emite warning."""
     wb = load_template()
     filler = A4Filler()
     sess = _session_data()
-    # 12 cuentas → se truncan en 10
-    movimientos = [
-        {"codigo": f"51{i:04d}", "nombre": f"Cuenta {i}", "saldo": float(i * 100), "debe": 0.0, "haber": 0.0, "tipo": ""}
-        for i in range(12)
-    ]
-    data = {"mayor_exentos": movimientos}
+    # 11 cas exentos con valor (sólo hay 10 filas disponibles en B16:B25)
+    f101 = {"6042": 100, "6044": 200, "6060": 300, "6094": 400,
+            "6116": 500, "6150": 600, "6081": 700, "6083": 800,
+            "6085": 900, "6062": 1000, "6064": 1100}
+    lookup = {cas: 500 + int(cas) - 6000 for cas in f101.keys()}
+    data = {"f101": f101, "_f101_lookup": lookup}
     result = filler.fill(wb, sess, data)
     ws = wb["CONCILIACIÓN INGRESOS A4"]
 
-    # Row 25 (index 9) should be filled; row 26 is the SUM formula
-    assert ws["G25"].value is not None   # última fila permitida (fila 25 = start_row + 9)
-    assert any("truncaron" in w for w in result["warnings"])
+    # Las 10 filas B16:B25 deben estar llenas
+    llenas = sum(1 for r in range(16, 26) if ws.cell(r, 2).value)
+    assert llenas == 10, f"Esperado 10 filas llenas, encontrado {llenas}"
+    # Y debe haber un warning de truncamiento
+    assert any("no se trasladó" in w.lower() or "ocupadas" in w.lower()
+               for w in result["warnings"]), result["warnings"]
 
 
 def test_a4_filler_no_crash_with_empty_data():
