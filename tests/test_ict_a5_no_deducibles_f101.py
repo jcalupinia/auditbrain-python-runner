@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from openpyxl import Workbook
 
+from backend.app.ict.catalogo_gnd import gnd_descripcion, gnd_normativa
 from backend.app.ict.cell_maps.a5 import A5_SHEET
 from backend.app.ict.fillers.a5_conciliacion_costos import A5Filler
 from backend.app.ict.fillers.source_data_sheets import build_f101_sheet
@@ -120,7 +121,55 @@ def test_a5_cuadros_bcd_se_desplazan_tras_insercion():
     assert isinstance(h68, str) and "DATOS F-101" in h68, f"H68={h68!r}"
 
 
-# ── 5. Sin no deducibles → no inserta, cuadros en posición original ───────────
+# ── 5. Autocompletado descripción (E) y normativa (G) desde catálogo GND ─────
+
+def test_a5_autocompleta_descripcion_y_normativa_gnd():
+    """Al trasladar un casillero no deducible, el A5 escribe:
+      - Col E (descripción del tipo de gasto) desde el catálogo GND
+      - Col G (normativa aplicable) desde el catálogo GND"""
+    ws, _ = _build_a5({"7042": 9_207.26})
+    assert ws["B17"].value == "7042"
+    assert ws["E17"].value == gnd_descripcion("7042")
+    assert ws["G17"].value == gnd_normativa("7042")
+    assert ws["E17"].value  # no vacío
+    assert ws["G17"].value  # no vacío
+
+
+def test_a5_autocompleta_gnd_en_filas_insertadas():
+    """La descripción/normativa también se autocompletan en las filas que se
+    insertan dinámicamente (no solo en las 5 base)."""
+    cas_list = [7042, 7048, 7057, 7060, 7063, 7069, 7177, 7183]  # 8 → +3 filas
+    f101 = {str(c): float(i + 1) * 100 for i, c in enumerate(cas_list)}
+    ws, _ = _build_a5(f101)
+    # La fila 24 (insertada) corresponde al 8º casillero (7183)
+    assert ws["B24"].value == "7183"
+    assert ws["E24"].value == gnd_descripcion("7183")
+    assert ws["G24"].value == gnd_normativa("7183")
+
+
+# ── REGLA estática: cobertura catálogo GND ⊇ casilleros 7xxx del F-101 ────────
+
+def test_gnd_cubre_todos_los_no_deducibles_del_f101():
+    """Todo casillero de gasto no deducible (7001-7999, 'VALOR NO DEDUCIBLE')
+    del catálogo F-101 DEBE tener descripción y normativa en el catálogo GND.
+    Si el F-101 incorpora un cas nuevo, este test obliga a actualizar el GND."""
+    from backend.app.ict.catalogo_f101 import F101_CASILLERO_NAMES
+    from backend.app.ict.catalogo_gnd import GND_CASILLERO_INFO
+
+    f101_nd = {
+        c for c in F101_CASILLERO_NAMES
+        if c.isdigit() and 7001 <= int(c) <= 7999
+        and F101_CASILLERO_NAMES[c].upper().startswith("VALOR NO DEDUCIBLE")
+    }
+    faltantes = sorted(f101_nd - set(GND_CASILLERO_INFO), key=int)
+    assert not faltantes, f"Casilleros no deducibles sin entrada en GND: {faltantes}"
+    # Toda entrada debe tener descripción y normativa no vacías
+    for cas, (desc, norm) in GND_CASILLERO_INFO.items():
+        assert desc, f"GND {cas}: descripción vacía"
+        assert norm, f"GND {cas}: normativa vacía"
+
+
+# ── 6. Sin no deducibles → no inserta, cuadros en posición original ───────────
 
 def test_a5_sin_no_deducibles_cuadros_en_posicion_original():
     f101 = {"6999": 18_000_000.0, "7999": 12_000_000.0, "806": 50_000.0}

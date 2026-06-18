@@ -24,6 +24,7 @@ from __future__ import annotations
 from openpyxl import Workbook
 
 from backend.app.ict.catalogo_f101 import F101_CASILLERO_NAMES
+from backend.app.ict.catalogo_gnd import gnd_descripcion, gnd_normativa
 from backend.app.ict.cell_maps.a5 import (
     A5_CUADRO_A_COLS,
     A5_CUADRO_A_RANGE,
@@ -66,6 +67,17 @@ def _cas_no_deducibles_declarados(f101: dict, f101_lookup: dict) -> list:
 def _safe_set(ws, cell_addr: str, value) -> bool:
     return safe_set(ws, cell_addr, value, anexo="A5",
                     origen="A5 Conciliación C/G (F-101 + Balance)")
+
+
+def _wrap(ws, cell_addr: str) -> None:
+    """Activa wrap_text + alineación superior en una celda (descripción y
+    normativa del catálogo GND traen saltos de línea)."""
+    from copy import copy
+    cell = ws[cell_addr]
+    al = copy(cell.alignment)
+    al.wrap_text = True
+    al.vertical = "top"
+    cell.alignment = al
 
 
 class A5Filler:
@@ -114,10 +126,14 @@ class A5Filler:
         offset = extra                              # desplazamiento Cuadros B/C/D/E
 
         col_b = A5_CUADRO_A_COLS["casillero"]        # B
+        col_e = A5_CUADRO_A_COLS["descripcion_gasto"]  # E (merged E:F)
+        col_g = A5_CUADRO_A_COLS["normativa"]          # G (merged G:H)
         col_k = A5_CUADRO_A_COLS["valor"]            # K
         col_l = A5_CUADRO_A_COLS["valor_declarado"]  # L
 
         # Traslado: col B = casillero, col L = valor declarado (ref F-101).
+        # Col E = descripción del tipo de gasto y col G = normativa aplicable,
+        # autocompletadas desde el catálogo GND (librería del cliente).
         for i, (cas, row_f101) in enumerate(cas_nd):
             row = start_a + i
             if _safe_set(ws, f"{col_b}{row}", cas):
@@ -129,6 +145,16 @@ class A5Filler:
                     origen=f"A5 Cuadro A · cas {cas} valor declarado F-101",
                 ):
                     filled += 1
+            # Descripción del tipo de gasto no deducible (catálogo GND) → col E
+            descripcion = gnd_descripcion(cas)
+            if descripcion and _safe_set(ws, f"{col_e}{row}", descripcion):
+                _wrap(ws, f"{col_e}{row}")
+                filled += 1
+            # Normativa aplicable (catálogo GND) → col G
+            normativa = gnd_normativa(cas)
+            if normativa and _safe_set(ws, f"{col_g}{row}", normativa):
+                _wrap(ws, f"{col_g}{row}")
+                filled += 1
 
         # Col K (valor en libros): fórmula reactiva al casillero (col B) en
         # TODAS las filas del Cuadro A — al cambiar el casillero, suma DATOS
