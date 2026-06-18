@@ -212,6 +212,12 @@ def client_user(db_session):
     return user
 
 
+@pytest.mark.skip(
+    reason="2026-06-17: hoja AUDITORÍA DE ANEXOS eliminada del flujo por "
+           "decisión del cliente. La info clave vive ahora en VERIFICACIÓN A1 "
+           "y en CUADRE POR CASILLERO de DATOS BALANCE/F-101. El test se "
+           "mantiene como referencia por si se reactiva la hoja."
+)
 def test_e2e_generate_excel_incluye_hoja_auditoria(db_session, client_user):
     """generate_excel() debe producir un Excel con la hoja AUDITORÍA."""
     s = ict_service.create_session(

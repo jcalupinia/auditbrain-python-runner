@@ -415,10 +415,11 @@ def recompute_indice(db: Session, *, session: ICTSession) -> ICTAnexo:
 # quedan solo en el archivo _PAPEL_TRABAJO.xlsx.
 INTERNAL_SHEETS_FOR_SRI: tuple[str, ...] = (
     "VERIFICACIÓN A1",
-    "AUDITORÍA DE ANEXOS",
     "TRAZABILIDAD",
-    "ARTEFACTO A1",
-    "ARTEFACTO AUDITORIA",
+    # NOTA 2026-06-17: hojas AUDITORÍA DE ANEXOS, ARTEFACTO A1 y
+    # ARTEFACTO AUDITORIA eliminadas del flujo (ya no se generan), por lo
+    # que tampoco hace falta quitarlas del SRI. Si en el futuro se reactivan,
+    # agregarlas aquí de nuevo.
 )
 
 
@@ -615,27 +616,11 @@ def generate_excel(db: Session, *, session: ICTSession) -> tuple[bytes, bytes]:
         import logging
         logging.exception("build_verification_sheet falló para sesión %s", session.id)
 
-    # Hoja AUDITORÍA DE ANEXOS — dashboard ejecutivo con resumen, diferencias
-    # y explicación metodológica por cada anexo. Pensado para que un Lider
-    # Auditor abra una sola hoja y en 60 segundos entienda el estado del ICT.
-    try:
-        from backend.app.ict.fillers.auditoria_anexos import (
-            build_auditoria_anexos_sheet,
-        )
-        build_auditoria_anexos_sheet(
-            wb,
-            session_data=session_data,
-            f101=shared_context.get("f101", {}) or {},
-            f103_monthly=shared_context.get("f103_monthly", {}) or {},
-            f104_monthly=shared_context.get("f104_monthly", {}) or {},
-            balance_mapeado=shared_context.get("balance_mapeado", []) or [],
-            ats_pagos_exterior=shared_context.get("ats_pagos_exterior", []) or [],
-            kardex_items=shared_context.get("kardex_items", []) or [],
-            anexo_warnings=anexo_warnings_collected,
-        )
-    except Exception:
-        import logging
-        logging.exception("build_auditoria_anexos_sheet falló para sesión %s", session.id)
+    # NOTA 2026-06-17: hoja "AUDITORÍA DE ANEXOS" eliminada por decisión del
+    # cliente — el dashboard ejecutivo de cuadre vive ahora en VERIFICACIÓN A1
+    # y en las secciones CUADRE POR CASILLERO de DATOS BALANCE / DATOS F-101.
+    # El filler `auditoria_anexos.build_auditoria_anexos_sheet` queda en el
+    # repo por si se reactiva en el futuro, pero no se invoca.
 
     # Vuelca el trace log a una hoja "TRAZABILIDAD" al final del workbook.
     # Permite al auditor cruzar cualquier celda llenada con su origen
@@ -646,57 +631,14 @@ def generate_excel(db: Session, *, session: ICTSession) -> tuple[bytes, bytes]:
         import logging
         logging.exception("write_trace_sheet falló para sesión %s", session.id)
 
-    # ARTEFACTOS PROFESIONALES con KPIs Big4 + interpretación IA.
-    # Hojas ARTEFACTO A1 y ARTEFACTO AUDITORIA viven solo en el papel de
-    # trabajo (se eliminan del Excel SRI por INTERNAL_SHEETS_FOR_SRI).
-    # Si el motor LLM no está disponible (no hay ANTHROPIC_API_KEY o la
-    # API falla), las hojas se generan con interpretación fallback que
-    # marca confianza=baja y requiere_revision_humana=True.
-    try:
-        from backend.app.ict.audit.metrics import (
-            compute_a1_metrics,
-            compute_anexos_metrics,
-        )
-        from backend.app.ict.audit.interpreter import _fallback_interpretation
-        from backend.app.ict.fillers.verification import fill_verification_a1
-        from backend.app.ict.fillers.auditoria_anexos import fill_auditoria_anexos
-
-        contexto_artefacto = {
-            "razon_social": session.razon_social or "",
-            "ruc": session.ruc or "",
-            "periodo": str(session.ejercicio_fiscal or ""),
-        }
-        metrics_a1 = compute_a1_metrics(wb)
-        metrics_anexos = compute_anexos_metrics(wb)
-        interpretations = _get_interpretations(wb, contexto_artefacto)
-
-        # Hoja "ARTEFACTO A1"
-        if "ARTEFACTO A1" in wb.sheetnames:
-            del wb["ARTEFACTO A1"]
-        ws_artefacto_a1 = wb.create_sheet("ARTEFACTO A1")
-        fill_verification_a1(
-            ws_artefacto_a1,
-            metrics=metrics_a1,
-            interpretation=interpretations.get("A1") or _fallback_interpretation("A1"),
-            contexto=contexto_artefacto,
-        )
-
-        # Hoja "ARTEFACTO AUDITORIA"
-        if "ARTEFACTO AUDITORIA" in wb.sheetnames:
-            del wb["ARTEFACTO AUDITORIA"]
-        ws_artefacto_aud = wb.create_sheet("ARTEFACTO AUDITORIA")
-        fill_auditoria_anexos(
-            ws_artefacto_aud,
-            metrics=metrics_anexos,
-            interpretations=interpretations,
-            contexto=contexto_artefacto,
-        )
-    except Exception:
-        import logging
-        logging.exception(
-            "Artefactos profesionales (IA) fallaron para sesión %s — "
-            "se continúa sin ellos", session.id,
-        )
+    # NOTA 2026-06-17: hojas "ARTEFACTO A1" y "ARTEFACTO AUDITORIA"
+    # eliminadas por decisión del cliente. Vivían solo en el papel de trabajo
+    # y replicaban con IA el cuadre del dashboard VERIFICACIÓN A1 + un análisis
+    # por anexo. Como la información clave ya está en VERIFICACIÓN A1 y en
+    # los bloques CUADRE de DATOS BALANCE/F-101, se quitaron para reducir
+    # ruido y costos LLM. Los helpers `fill_verification_a1` y
+    # `fill_auditoria_anexos` quedan en el repo por compatibilidad con tests
+    # y por si se reactivan en el futuro, pero no se invocan desde el flujo.
 
     # Guardar workbook completo (con hojas internas) → bytes_papel_trabajo
     buf_papel = BytesIO()
