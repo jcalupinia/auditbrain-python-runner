@@ -1,6 +1,6 @@
-# 🧠 AuditBrain (Python Runner)
+# 🧠 AUDIT-IA (Python Runner)
 
-AuditBrain es el motor analítico y generador de entregables del ecosistema **Audit Consulting IA Suite**.
+**AUDIT-IA** es el motor analítico y generador de entregables de la plataforma de **AuditConsulting Auditores Cía. Ltda.** _(nombre técnico del repositorio: `auditbrain-python-runner`)._
 
 ## 🚀 Funcionalidad
 - Ejecuta scripts Python enviados por los módulos GPT (AuditSmart, Audit Advisor, H&G Abogados, GPT Maestro).
