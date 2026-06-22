@@ -29,7 +29,7 @@ export default function ChartSelectorModal({ onChartSelected }) {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ fontSize: 15, fontWeight: 500 }}>Selección de gráfico</span>
-                <span style={{ background: "#EEEDFE", color: "#3C3489", fontSize: 11, fontWeight: 500, padding: "2px 8px", borderRadius: 99 }}>Skill 051 · AuditBrain</span>
+                <span style={{ background: "#EEEDFE", color: "#3C3489", fontSize: 11, fontWeight: 500, padding: "2px 8px", borderRadius: 99 }}>Skill 051 · AUDIT-IA</span>
               </div>
               <button onClick={() => setOpen(false)} style={{ border: "none", background: "transparent", fontSize: 20, cursor: "pointer", color: "#888" }}>×</button>
             </div>

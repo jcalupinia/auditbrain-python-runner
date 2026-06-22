@@ -9,7 +9,7 @@ import Chart from "chart.js/auto";
 const saveAs = FileSaver.saveAs || FileSaver.default || FileSaver;
 import { mapToDashboard, buildDetailedBalance } from "./finModel.js";
 
-// Paleta ORIGINAL del dashboard AuditBrain (tema "ejecutivo"), para que los
+// Paleta ORIGINAL del dashboard AUDIT-IA (tema "ejecutivo"), para que los
 // gráficos e informes exportados usen los mismos colores que el HTML.
 export const PALETTE = {
   positivo: "#A6C63F", negativo: "#C0392B", acumulado: "#1E5AA8",
@@ -83,14 +83,14 @@ export function buildDashboardWorkbook({ D, periodos, header, detalle, nivel, ch
   const lastEsf = esfLabels[esfLabels.length - 1];
 
   const wb = new ExcelJS.Workbook();
-  wb.creator = "AuditBrain · CFO Intelligence";
+  wb.creator = "AUDIT-IA · CFO Intelligence";
   const NAVY = "FF0A2342", GOLD = "FFC7A83C", WHITE = "FFFFFFFF", GREY = "FFF2F4F7";
   const money = "#,##0";
 
   // ── Hoja 1: Dashboard ──
   const ws = wb.addWorksheet("Dashboard");
   ws.columns = [{ width: 34 }, { width: 22 }, { width: 22 }, { width: 22 }];
-  const t = ws.addRow([`AuditBrain · ${header?.empresa || "Empresa"}`]);
+  const t = ws.addRow([`AUDIT-IA · ${header?.empresa || "Empresa"}`]);
   t.font = { bold: true, size: 16, color: { argb: GOLD } };
   t.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: NAVY } };
   ws.mergeCells("A1:D1");
@@ -169,9 +169,9 @@ export function buildDashboardWorkbook({ D, periodos, header, detalle, nivel, ch
     "   • Insertar > Gráfico recomendado > elige el tipo indicado en la hoja 'Config'.",
     "   • Líneas = tendencias · Barras = comparación · Área = volumen · Combinado = barras+línea.",
     "4. Para Waterfall/Radar/Sankey (no nativos): usa Power BI o el snippet Chart.js del asistente Skill 051.",
-    "5. Paleta AuditBrain — positivo #1D9E75 · negativo #E24B4A · acumulado #378ADD.",
+    "5. Paleta AUDIT-IA — positivo #1D9E75 · negativo #E24B4A · acumulado #378ADD.",
     "",
-    "Generado por AuditBrain · CFO Intelligence · Skill 051.",
+    "Generado por AUDIT-IA · CFO Intelligence · Skill 051.",
   ].forEach((l, i) => { const r = wins.addRow([l]); if (i === 0) r.font = { bold: true, size: 13 }; });
 
   return wb;
