@@ -1,0 +1,139 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AuditBrain Engine",
+    "version": "4.1.0",
+    "description": "Cerebro y motor del ecosistema Audit Consulting IA Suite. skill_run razona con los prompts oficiales server-side (54 skills); run_python ejecuta cálculos y genera entregables."
+  },
+  "servers": [
+    { "url": "https://auditbrain-python-runner.onrender.com" }
+  ],
+  "security": [{ "ApiKeyAuth": [] }],
+  "paths": {
+    "/api/v1/skill_run": {
+      "post": {
+        "operationId": "skillRun",
+        "summary": "Procesa una tarea con el cerebro AuditBrain (prompts oficiales, razonamiento server-side).",
+        "description": "Aplica la skill oficial del modulo a la tarea del usuario. El razonamiento corre en el servidor (no gasta tokens del GPT). Devuelve el campo output ya elaborado.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SkillRunRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SkillRunResponse" }
+              }
+            }
+          },
+          "401": { "description": "API Key invalida o ausente" },
+          "503": { "description": "Ningun proveedor LLM disponible" }
+        }
+      }
+    },
+    "/run_python": {
+      "post": {
+        "operationId": "runPython",
+        "summary": "Ejecuta Python para calculos/datos y genera entregables (Excel, graficos, PDF/Word via servicio).",
+        "description": "Ejecuta un script en el sandbox. El script asigna el resultado a la variable result. Para entregables, send_to_document_service=true delega al Universal Creador de Documentos.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RunPythonRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RunPythonResponse" }
+              }
+            }
+          },
+          "400": { "description": "Script vacio o datos invalidos" },
+          "401": { "description": "API Key invalida o ausente" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "Valor de AUDITBRAIN_API_KEY configurado en Render."
+      }
+    },
+    "schemas": {
+      "SkillRunRequest": {
+        "type": "object",
+        "required": ["input"],
+        "properties": {
+          "module_code": {
+            "type": "string",
+            "description": "Modulo: ADV, AUD, TAX, LEG, FIN, CYB, DATA, AUT, GOV, MKT o CRE."
+          },
+          "skill_id": {
+            "type": "string",
+            "description": "Slug de skill (opcional). Si se omite, usa la skill por defecto del modulo."
+          },
+          "input": {
+            "type": "string",
+            "description": "La tarea o datos del usuario, con todo el contexto relevante."
+          }
+        }
+      },
+      "SkillRunResponse": {
+        "type": "object",
+        "properties": {
+          "skill": { "type": "string" },
+          "skill_name": { "type": "string" },
+          "output": { "type": "string", "description": "Resultado elaborado por el LLM con el prompt oficial. Mostrar al usuario." },
+          "model": { "type": "string" }
+        }
+      },
+      "RunPythonRequest": {
+        "type": "object",
+        "required": ["script"],
+        "properties": {
+          "script": {
+            "type": "string",
+            "description": "Codigo Python. Asignar el resultado a la variable result. inputs esta disponible como dict.",
+            "example": "result = {'total': sum(inputs['valores'])}"
+          },
+          "inputs": {
+            "type": "object",
+            "description": "Datos accesibles en el script como variable inputs.",
+            "additionalProperties": true
+          },
+          "output_expectations": {
+            "type": "object",
+            "properties": {
+              "format": { "type": "string", "description": "excel | pdf | word | ppt | csv | zip" },
+              "send_to_document_service": { "type": "boolean" }
+            }
+          }
+        }
+      },
+      "RunPythonResponse": {
+        "type": "object",
+        "properties": {
+          "result": { "type": "object", "description": "Valor de la variable result del script." },
+          "stdout": { "type": "string" },
+          "stderr": { "type": "string" },
+          "document_service": { "type": "object", "description": "URL del entregable si se delego al servicio de documentos." }
+        }
+      }
+    }
+  }
+}
