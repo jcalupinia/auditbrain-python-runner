@@ -43,7 +43,7 @@ test.describe("Navegación del Command Center", () => {
     await mockApi(page, { user: ADMIN_USER });
     await login(page);
     const foot = page.locator("footer.cc-foot");
-    await expect(foot).toContainText(/AuditBrain IA/);
+    await expect(foot).toContainText(/AUDIT-IA/);
     await expect(foot).toContainText("Auth JWT");
     await expect(foot).toContainText("Sandbox Tier 0");
   });
