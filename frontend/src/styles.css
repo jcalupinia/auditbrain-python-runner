@@ -626,3 +626,8 @@ pre {
   font-size: 13px; cursor: pointer;
 }
 .of-firma-opt input[type="radio"] { cursor: pointer; }
+
+
+/* Logo AUDIT-IA en el login (fondo oscuro del PNG se funde con mix-blend-mode) */
+.login-brand--logo { display:flex; flex-direction:column; align-items:flex-start; gap:2px; }
+.login-audit-ia { width:100%; max-width:260px; height:auto; mix-blend-mode:screen; }

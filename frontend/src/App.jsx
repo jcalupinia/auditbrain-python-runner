@@ -108,12 +108,10 @@ function Login({ onLogged }) {
         fallback={null}
       />
       <form className="login-card" onSubmit={submit}>
-        <div className="login-brand">
-          <BrandMark size={38} />
-          <div>
-            <div className="bname">AUDIT<span>-IA</span></div>
-            <div className="btag">Enterprise Intelligence OS</div>
-          </div>
+        <div className="login-brand login-brand--logo">
+          <img className="login-audit-ia" src="/assets/logo-audit-ia.png"
+            alt="AUDIT-IA · Artificial Intelligence" />
+          <div className="btag">Enterprise Intelligence OS</div>
         </div>
         <div className="login-sub">Acceso restringido · sesión con cuenta</div>
         <label>Email corporativo</label>
