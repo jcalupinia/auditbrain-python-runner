@@ -96,13 +96,9 @@ export default function Login() {
       {/* Columna derecha: tarjeta del formulario. */}
       <form className="ab-login-card" onSubmit={submit}>
         <div className="ab-login-brand">
-          <BrandMark size={38} />
-          <div>
-            <div className="ab-login-bname">
-              AuditBrain<span> IA</span>
-            </div>
-            <div className="ab-login-btag">Enterprise Intelligence OS</div>
-          </div>
+          <img className="ab-login-aimg" src="/assets/logo-audit-ia.png"
+            alt="AUDIT-IA · Artificial Intelligence" />
+          <div className="ab-login-btag">Enterprise Intelligence OS</div>
         </div>
 
         <div className="ab-login-portal-tag">

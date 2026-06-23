@@ -145,3 +145,7 @@
   .ab-login-logo { width: min(70vw, 340px); top: 80px; }
   .ab-login-card { margin: 160px 20px 40px; }
 }
+
+
+/* Logo AUDIT-IA en el login del portal (fondo oscuro del PNG se funde) */
+.ab-login-aimg { width:100%; max-width:240px; height:auto; mix-blend-mode:screen; display:block; }

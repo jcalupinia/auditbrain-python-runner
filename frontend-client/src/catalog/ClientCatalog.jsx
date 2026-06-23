@@ -40,7 +40,7 @@ export default function ClientCatalog() {
         <h1>
           Hola <span>{displayName}</span>,
           <br />
-          bienvenido a <span>AuditBrain</span>
+          bienvenido a <span>AUDIT-IA</span>
         </h1>
         <p>
           Plataforma operativa de cumplimiento e inteligencia empresarial ·{" "}
