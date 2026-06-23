@@ -224,7 +224,7 @@ export default function PortalShell({
       {/* ----- Footer ----- */}
       <footer className="pc-foot">
         <span>
-          <b>AuditBrain IA</b> · Portal Cliente · Audit Consulting Group
+          <b>AUDIT-IA</b> · Portal Cliente · Audit Consulting Group
         </span>
         <span className="pc-foot-r">
           <span><span className="pc-dot ok" /> Operativo</span>
