@@ -352,3 +352,40 @@ monetario = r"(-?\d{1,3}(?:[,.]\d{3})*(?:[,.]\d{1,2})?)"
 5. Corregir el regex/`_parse_amount` para que el test pase
 6. NUNCA hardcodear el valor en el filler — el filler solo presenta lo
    que el parser le da
+
+## Marca — AuditConsulting Auditores Cía. Ltda. (firma) y AUDIT-IA (plataforma)
+
+**Identidad oficial:**
+- **Marca única (empresa):** **AuditConsulting Auditores Cía. Ltda.** — presta los
+  servicios de auditoría y consultoría; es la única marca. Todo contenido se firma
+  con este nombre.
+- **Plataforma:** **AUDIT-IA** — la aplicación de auditoría + advisory + IA que esta
+  firma creó (este repo es su backend/"cerebro"). El Manual v1 la nombraba
+  "AuditBrain Executive Advisory"; el nombre vigente es **AUDIT-IA**. A nivel técnico
+  el repo conserva el nombre `auditbrain-python-runner`.
+  Slogan de la plataforma: *"Auditoría, advisory e inteligencia artificial para
+  decisiones estratégicas."*
+
+**Fuentes de verdad de marca (no duplicar el contenido en otros archivos):**
+- **Manual de Marca v1** (capa verbal/estratégica): `docs/MANUAL_MARCA_AUDITBRAIN.docx`
+  — propósito, visión, misión, posicionamiento, personalidad, voz/tono, estructura
+  de informes (Problema→Impacto→Riesgo→Diagnóstico→Recomendación→Beneficio) y KPIs.
+- **Estilo visual (capa Canva, aprobada e implementada):** `docs/CANVA_ESTILO_PoC.md`
+  — DM Sans, tema "Dark Executive Dashboard" oscuro premium, Gold `#C7A83C` /
+  Deep Blue `#071B2F` / Navy `#0A2342`. *(El manual referencia además
+  Montserrat/Poppins/Roboto; la implementación vigente usa DM Sans.)*
+- **Perfil consolidado para skills de contenido:** `../MARCA_FIRMA.md` (raíz de
+  `PROYECTOS CLAUDE`) — lo aplican las skills del plugin Marketing de Cowork.
+- **Perfil contable-financiero:** `../PERFIL_FINANCIERO.md` — marco NIIF/SRI/USD que
+  aplican las skills del plugin Finance de Cowork.
+
+**REGLA:** cualquier entregable de comunicación (informe, deck, propuesta, carta de
+gerencia, contenido de marketing) o reporte financiero generado por el sistema o por
+las skills de Cowork debe respetar estas fuentes. Si la marca cambia, editar el
+Manual / `MARCA_FIRMA.md` / `PERFIL_FINANCIERO.md`, no este archivo.
+
+> **Contexto Cowork (2026-06-19):** se personalizaron los plugins **Marketing** y
+> **Finance** de Claude Cowork con el contexto real de la firma (perfiles enlazados
+> en el `CLAUDE.md` de la raíz para aplicación automática). Conectores externos
+> (HubSpot, BigQuery, Microsoft 365, Canva MCP, etc.) quedaron sin autenticar a
+> pedido del usuario; los plugins funcionan sin ellos.
