@@ -1868,7 +1868,7 @@ function SecInforme({ D, R, CTRL, i0, i1, i2, scComp, scn, params, sumK, recomen
       <div className="tx-report">
         {/* ===== PORTADA ===== */}
         <div className="rcover">
-          <div className="rk">AuditBrain · Executive Advisory · Tax Advisory</div>
+          <div className="rk">AUDIT-IA · Tax Advisory</div>
           <h2>Planificación tributaria sobre utilidades no distribuidas</h2>
           <div className="rsub">Informe ejecutivo para el accionista</div>
           <div className="remp">{emp}</div>
@@ -2255,7 +2255,7 @@ function SecInforme({ D, R, CTRL, i0, i1, i2, scComp, scn, params, sumK, recomen
         </p>
 
         <p className="rfoot">
-          Documento generado por AuditBrain® Tax › Análisis. Proyección de
+          Documento generado por AUDIT-IA Tax › Análisis. Proyección de
           planificación, no auditada. Régimen sujeto a criterios administrativos
           del SRI. Las cifras normativas requieren validación profesional.
         </p>

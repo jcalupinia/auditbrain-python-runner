@@ -108,12 +108,10 @@ function Login({ onLogged }) {
         fallback={null}
       />
       <form className="login-card" onSubmit={submit}>
-        <div className="login-brand">
-          <BrandMark size={38} />
-          <div>
-            <div className="bname">AuditBrain<span> IA</span></div>
-            <div className="btag">Enterprise Intelligence OS</div>
-          </div>
+        <div className="login-brand login-brand--logo">
+          <img className="login-audit-ia" src="/assets/logo-audit-ia.png"
+            alt="AUDIT-IA · Artificial Intelligence" />
+          <div className="btag">Enterprise Intelligence OS</div>
         </div>
         <div className="login-sub">Acceso restringido · sesión con cuenta</div>
         <label>Email corporativo</label>
@@ -288,7 +286,7 @@ function Dashboard({ user, health }) {
   return (
     <>
       <ViewHead code="DSH" title="Centro de Operaciones"
-        sub="Estado consolidado de la plataforma AuditBrain IA." />
+        sub="Estado consolidado de la plataforma AUDIT-IA." />
       {!isAdmin && (
         <div className="notice warn">
           Acceso limitado según rol. El rol <b>user</b> no incluye ejecución
@@ -411,7 +409,7 @@ function Security({ user }) {
   return (
     <>
       <ViewHead code="SEC" title="Postura de Seguridad"
-        sub="Modelo de seguridad vigente de AuditBrain IA." />
+        sub="Modelo de seguridad vigente de AUDIT-IA." />
       <Panel title="Controles activos" max={680}>
         <div className="kv">
           {rows.map(([k, v]) => (
@@ -575,7 +573,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin }) {
       <div className="hero">
         <div className="hero-txt">
           <h1>Hola <span>{name}</span>,</h1>
-          <h1>bienvenido a <span>AuditBrain</span></h1>
+          <h1>bienvenido a <span>AUDIT-IA</span></h1>
           <p>Plataforma operativa de inteligencia empresarial · módulo {module.id} · {module.label}.</p>
         </div>
         <div className="hero-wave" aria-hidden="true" />
@@ -624,13 +622,13 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin }) {
                 <div className="cw-thread">
                   {messages.map((m) => (
                     <div key={m.id} className={`cw-msg ${m.role}`}>
-                      <div className="cw-msg-role">{m.role === "user" ? name : "AuditBrain IA"}</div>
+                      <div className="cw-msg-role">{m.role === "user" ? name : "AUDIT-IA"}</div>
                       <div className="cw-msg-content">{m.content}</div>
                     </div>
                   ))}
                   {sending && (
                     <div className="cw-msg assistant pending">
-                      <div className="cw-msg-role">AuditBrain IA</div>
+                      <div className="cw-msg-role">AUDIT-IA</div>
                       <div className="cw-msg-content muted">Pensando…</div>
                     </div>
                   )}
@@ -1203,8 +1201,8 @@ export default function App() {
             type="text"
             value={headerSearch}
             onChange={(e) => setHeaderSearch(e.target.value)}
-            placeholder="Buscar en AuditBrain… (indexación en Fase 2)"
-            aria-label="Buscar en AuditBrain"
+            placeholder="Buscar en AUDIT-IA… (indexación en Fase 2)"
+            aria-label="Buscar en AUDIT-IA"
           />
           <kbd>⌘K</kbd>
         </div>
@@ -1277,7 +1275,7 @@ export default function App() {
       </main>
 
       <footer className="cc-foot">
-        <span><b>AuditBrain IA</b> · v{hp.data?.version || "—"}</span>
+        <span><b>AUDIT-IA</b> · v{hp.data?.version || "—"}</span>
         <span className="cc-foot-r">
           <span><span className={`dot ${ok ? "ok" : "idle"}`} /> {ok ? "Operativo" : "—"}</span>
           <span>Auth JWT</span>

@@ -56,7 +56,7 @@ export function buildPdf(model, pngDataUrl) {
   const W = doc.internal.pageSize.getWidth();
   doc.setFillColor("#" + NAVY); doc.rect(0, 0, W, 64, "F");
   doc.setTextColor("#" + GOLD); doc.setFontSize(18); doc.setFont(undefined, "bold");
-  doc.text("AuditBrain · " + model.empresa, 40, 30);
+  doc.text("AUDIT-IA · " + model.empresa, 40, 30);
   doc.setTextColor("#D5D8DC"); doc.setFontSize(10); doc.setFont(undefined, "normal");
   doc.text("Dashboard Ejecutivo · " + model.subtitulo, 40, 48);
 
@@ -100,7 +100,7 @@ function wtable(head, rows) {
 }
 export function buildWord(model, pngDataUrl) {
   const children = [
-    new Paragraph({ children: [new TextRun({ text: "AuditBrain · " + model.empresa, bold: true, size: 32, color: GOLD })] }),
+    new Paragraph({ children: [new TextRun({ text: "AUDIT-IA · " + model.empresa, bold: true, size: 32, color: GOLD })] }),
     new Paragraph({ children: [new TextRun({ text: "Dashboard Ejecutivo · " + model.subtitulo, size: 18, color: "666666" })] }),
     new Paragraph({ text: "" }),
     new Paragraph({ children: [new TextRun({ text: "Indicadores clave", bold: true, size: 24 })] }),
@@ -127,7 +127,7 @@ export function buildPptx(model, pngDataUrl) {
   const NV = "0A2342", GD = "C7A83C";
   // Slide 1 — portada + KPIs
   let s = p.addSlide(); s.background = { color: NV };
-  s.addText("AuditBrain · " + model.empresa, { x: 0.5, y: 0.5, w: 12.3, fontSize: 28, bold: true, color: GD });
+  s.addText("AUDIT-IA · " + model.empresa, { x: 0.5, y: 0.5, w: 12.3, fontSize: 28, bold: true, color: GD });
   s.addText("Dashboard Ejecutivo · " + model.subtitulo, { x: 0.5, y: 1.2, w: 12.3, fontSize: 13, color: "D5D8DC" });
   s.addTable([[{ text: "Indicador", options: { bold: true, color: "FFFFFF", fill: { color: "1E5AA8" } } }, { text: "Valor", options: { bold: true, color: "FFFFFF", fill: { color: "1E5AA8" } } }, { text: "Período", options: { bold: true, color: "FFFFFF", fill: { color: "1E5AA8" } } }],
     ...model.kpis.map((k) => k.map((c) => ({ text: String(c), options: { color: "FFFFFF" } })))],

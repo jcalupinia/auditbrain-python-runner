@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AuditBrain · __EMPRESA__ — Dashboard Ejecutivo</title>
+<title>AUDIT-IA · __EMPRESA__ — Dashboard Ejecutivo</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Poppins:wght@300;400;500;600&family=Roboto+Mono:wght@300;400;500;600&display=swap');
   :root{--navy:#071B2F;--navyCRE:#0A2342;--gold:#C7A83C;--green:#A6C63F;--blue:#1E5AA8;--teal:#0D7377;--steel:#1B4F72;--graphite:#2F3640;--white:#F5F7FA;--grayL:#D5D8DC;--red:#C0392B;--amber:#D68910;--greenOk:#1E8449;}
@@ -121,7 +121,7 @@
  <div class="bar-inner">
   <div class="logo">
     <div class="logo-mark">AB</div>
-    <div class="logo-text">AuditBrain</div>
+    <div class="logo-text">AUDIT-IA</div>
     <span class="logo-sub">· __EMPRESA__ · Dashboard Ejecutivo</span>
   </div>
   <div class="topbar-actions">
@@ -166,11 +166,11 @@
 </div>
 <div class="footer">
   <span>__EMPRESA__ · Confidencial · __PIE__</span>
-  <span>AuditBrain Executive Advisory · FIN v2.0 · CRE v1.0</span>
+  <span>AUDIT-IA · FIN v2.0 · CRE v1.0</span>
 </div>
 <div class="toast" id="toast"></div>
 <script>
-// ════ DATA (inyectada por AuditBrain · CFO Intelligence) ════
+// ════ DATA (inyectada por AUDIT-IA · CFO Intelligence) ════
 const DEFAULT=__DATA__;
 const DETALLE=__DETALLE__;
 const BAL_DET=__BALANCE_DET__;   // balance a nivel detallado (todas las cuentas)
@@ -885,7 +885,7 @@ function renderResumen(C){
   // ── BLOQUE 1: Topbar ──
   const riskBadge=riskTxt==='BAJO'?badge('rgba(29,158,117,0.12)',GN,'✓ Riesgo bajo'):riskTxt==='MEDIO'?badge('rgba(232,184,75,0.12)',G,'▲ Riesgo medio'):badge('rgba(226,75,74,0.12)',RD,'● Riesgo alto');
   const topbar='<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;padding-bottom:16px;border-bottom:1px solid rgba(232,184,75,0.2);margin-bottom:18px">'
-    +'<div style="display:flex;align-items:center;gap:12px"><div style="width:44px;height:44px;border-radius:10px;background:rgba(232,184,75,0.12);display:flex;align-items:center;justify-content:center;font-weight:700;color:'+G+';font-size:16px">AB</div><div><div style="font-size:16px;font-weight:700;color:var(--white)">AuditBrain · __EMPRESA__</div><div style="font-size:11px;color:'+TX2+'">Tablero de mando ejecutivo · NIIF · Resumen consolidado ER + Balance General</div></div></div>'
+    +'<div style="display:flex;align-items:center;gap:12px"><div style="width:44px;height:44px;border-radius:10px;background:rgba(232,184,75,0.12);display:flex;align-items:center;justify-content:center;font-weight:700;color:'+G+';font-size:16px">AB</div><div><div style="font-size:16px;font-weight:700;color:var(--white)">AUDIT-IA · __EMPRESA__</div><div style="font-size:11px;color:'+TX2+'">Tablero de mando ejecutivo · NIIF · Resumen consolidado ER + Balance General</div></div></div>'
     +'<div style="display:flex;gap:8px;flex-wrap:wrap">'+riskBadge+badge('rgba(232,184,75,0.12)',G,'📅 '+y)+badge('rgba(55,138,221,0.12)',BL,'FIN v2.0')+'</div></div>';
   // ── BLOQUE 2: KPI cards Estado de Resultados (5) ──
   const cardsER='<div class="ec-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:16px">'
@@ -945,7 +945,7 @@ function renderResumen(C){
   const cfo='<div style="background:rgba(232,184,75,0.04);border:1px solid rgba(232,184,75,0.12);border-radius:8px;padding:15px 18px;font-size:13px;color:'+TX2+';line-height:1.8;margin-bottom:16px">'
     +'<b style="color:'+G+'">Comentario del CFO:</b> <b style="color:var(--white)">Estado de resultados:</b> las ventas alcanzaron '+n$(D.ingOrd[y])+(cp?' ('+pctv(D.ingOrd[y],D.ingOrd[py])+' vs '+py+')':'')+'. La utilidad neta '+(cp?(c.utilNeta>=cp.utilNeta?'creció ':'cayó ')+pctv(c.utilNeta,cp.utilNeta):'fue '+n$(c.utilNeta))+' hasta '+n$(c.utilNeta)+' con margen de '+(c.mrgNeto*100).toFixed(1)+'%'+(cp?' (vs '+(cp.mrgNeto*100).toFixed(1)+'% en '+py+')':'')+'. EBITDA de '+n$(c.ebitda)+(cp?' ('+pctv(c.ebitda,cp.ebitda)+')':'')+'. <b style="color:var(--white)">Balance general:</b> activos '+n$(c.totalAct)+' con estructura '+(c.actCorr/c.totalAct*100).toFixed(0)+'% corriente, liquidez '+c.liquidez.toFixed(2)+'x. Patrimonio '+(cp?pctv(c.patrimonio,cp.patrimonio)+' ':'')+'hasta '+n$(c.patrimonio)+'. Endeudamiento '+(c.endeud*100).toFixed(1)+'%. <b style="color:var(--white)">Conclusión:</b> posición financiera sólida en solvencia y rentabilidad; riesgo consolidado <b style="color:'+riskCol+'">'+riskTxt+'</b>'+(vigilar.length?' por '+vigilar.slice(0,2).map(v=>v[0].toLowerCase()).join(' y '):'')+' (calificación interna '+rating+', tendencia '+tend.replace(/[↗↘→]/g,'').trim().toLowerCase()+').</div>';
   // ── BLOQUE 9: Footer ──
-  const footer='<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;border-top:1px solid rgba(232,184,75,0.1);padding-top:12px;font-size:11px;color:'+TX2+'"><span>__EMPRESA__ · Confidencial · NIIF · '+y+'</span><span style="display:flex;align-items:center;gap:8px">AuditBrain Executive Advisory '+badge('rgba(232,184,75,0.12)',G,'FIN v2.0')+badge('rgba(55,138,221,0.12)',BL,'CRE v1.0')+'</span></div>';
+  const footer='<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;border-top:1px solid rgba(232,184,75,0.1);padding-top:12px;font-size:11px;color:'+TX2+'"><span>__EMPRESA__ · Confidencial · NIIF · '+y+'</span><span style="display:flex;align-items:center;gap:8px">AUDIT-IA '+badge('rgba(232,184,75,0.12)',G,'FIN v2.0')+badge('rgba(55,138,221,0.12)',BL,'CRE v1.0')+'</span></div>';
 
   document.getElementById("sec-resumen").innerHTML=
     topbar
@@ -1680,7 +1680,7 @@ function renderDecisiones(C){
 // ════ EXPORT — Dashboard visual que abre en Excel ════
 function exportExcel(){
   const C=compute();const cur=new Date().toLocaleDateString();const y=activeYear;
-  // Color palette (AuditBrain)
+  // Color palette (AUDIT-IA)
   const NV='#071B2F',NC='#0A2342',GR='#2F3640',GO='#C7A83C',GN='#A6C63F',BL='#1E5AA8',TL='#0D7377',RD='#C0392B',AM='#D68910',GK='#1E8449',WH='#F5F7FA',GY='#D5D8DC';
   const nf="mso-number-format:'\\#\\,\\#\\#0';";
   const money=v=>v==null?'':(v<0?'($'+Math.round(Math.abs(v)).toLocaleString()+')':'$'+Math.round(v).toLocaleString());
@@ -1699,7 +1699,7 @@ function exportExcel(){
   // 14-column grid
   let d='';
   // Brand header
-  d+='<tr>'+cell('▦ AuditBrain  ·  __EMPRESA__',{cs:14,bg:NC,c:GO,fs:18,fw:700,al:'left',pad:'14px 16px',bd:NC})+'</tr>';
+  d+='<tr>'+cell('▦ AUDIT-IA  ·  __EMPRESA__',{cs:14,bg:NC,c:GO,fs:18,fw:700,al:'left',pad:'14px 16px',bd:NC})+'</tr>';
   d+='<tr>'+cell('Dashboard Ejecutivo · '+YRS[0]+'–'+YRS[YRS.length-1]+' · NIIF (USD) · Generado '+cur,{cs:14,bg:NC,c:GY,fs:11,al:'left',pad:'4px 16px',bd:NC})+'</tr>';
   d+='<tr>'+blank(14,NV)+'</tr>';
   // Section: KPIs
@@ -1752,7 +1752,7 @@ function exportExcel(){
     d+='<tr>'+cell('',{bg:sem(h[2]),bd:NV,cs:1})+cell(h[0],{cs:8,bg:GR,c:GY,fs:11,al:'left',bd:GR})+cell(h[1],{cs:5,bg:GR,c:WH,fs:12,fw:700,al:'right',bd:GR})+'</tr>';
   });
   d+='<tr>'+blank(14,NV)+'</tr>';
-  d+='<tr>'+cell('AuditBrain Executive Advisory · FIN v2.0 · CRE v1.0 · Confidencial',{cs:14,bg:NC,c:TL,fs:9,al:'left',bd:NC})+'</tr>';
+  d+='<tr>'+cell('AUDIT-IA · FIN v2.0 · CRE v1.0 · Confidencial',{cs:14,bg:NC,c:TL,fs:9,al:'left',bd:NC})+'</tr>';
 
   // ══ SHEET 2: ESTADO DE RESULTADOS (dark) ══
   const thL='background:'+NC+';color:'+GO+';font-family:Arial;font-size:11px;font-weight:700;padding:8px 10px;border:1px solid '+TL+';text-align:left;';
