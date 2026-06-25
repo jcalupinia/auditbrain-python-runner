@@ -27,7 +27,20 @@ services:
     startCommand: "uvicorn app:app --host 0.0.0.0 --port $PORT"
     autoDeploy: true
 
+    # Disco persistente: los archivos ICT (PDFs de origen + Excel generados:
+    # ICT_SRI.xlsx, ICT_PAPEL_TRABAJO.xlsx) viven aquí para SOBREVIVIR a los
+    # redeploys. Antes vivían en /tmp efímero y se perdían al reiniciar el
+    # contenedor (causaba "Failed to fetch" al descargar tras un deploy).
+    # AUD_OF_TMP_DIR (abajo) apunta el storage a este disco montado.
+    disk:
+      name: auditbrain-storage
+      mountPath: /var/data
+      sizeGB: 1
+
     envVars:
+      - key: AUD_OF_TMP_DIR
+        value: /var/data/obligaciones_fiscales
+
       - key: DOCUMENT_SERVICE
         value: "https://universal-creador-documentos.onrender.com"
 
