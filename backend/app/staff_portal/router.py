@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
+from backend.app.auth import service as auth_service
 from backend.app.auth.deps import get_current_user, require_admin
 from backend.app.auth.models import User
 from backend.app.client_portal import service as cp_service
@@ -116,6 +117,23 @@ def reset_portal_user_password_endpoint(
     return CreatePortalUserResponse(
         user_id=user.id, email=user.email, temp_password=temp
     )
+
+
+@router.delete(
+    "/{client_id}/portal-users/{user_id}",
+    status_code=200,
+    dependencies=[Depends(require_admin)],
+)
+def delete_portal_user_endpoint(
+    client_id: int, user_id: int, db: Session = Depends(get_db)
+):
+    """Borra DEFINITIVAMENTE un usuario de portal cliente y sus datos asociados."""
+    user = db.get(User, user_id)
+    if user is None or user.client_id != client_id:
+        raise HTTPException(404, detail="Usuario no encontrado para este cliente.")
+    deleted_email = user.email
+    auth_service.delete_user_completely(db, user=user)
+    return {"ok": True, "deleted": deleted_email}
 
 
 @router.get(

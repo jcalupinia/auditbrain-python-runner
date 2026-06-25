@@ -136,6 +136,24 @@ export async function resetPortalUserPassword(clientId, userId) {
   );
 }
 
+export async function deleteOperator(userId) {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/auth/users/${userId}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    })
+  );
+}
+
+export async function deletePortalUser(clientId, userId) {
+  return parse(
+    await fetch(
+      `${API_BASE}/api/v1/staff/clients/${clientId}/portal-users/${userId}`,
+      { method: "DELETE", headers: authHeaders() }
+    )
+  );
+}
+
 // Genera un documento vía el endpoint existente /api/v1/documents/generate.
 // Solo JWT (Bearer); la API Key nunca se envía desde el navegador.
 export async function generateDocument({ format, title, content }) {

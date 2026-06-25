@@ -419,6 +419,21 @@ function Users() {
     } catch (e2) { setListErr(e2.message); }
   }
 
+  async function delOperator(u) {
+    if (!window.confirm(`¿BORRAR definitivamente al operador ${u.email}?\nEsta acción es irreversible.`)) return;
+    if (!window.confirm(`Confirma de nuevo: se eliminará ${u.email} y sus datos asociados.`)) return;
+    setReveal(null); setListErr("");
+    try { await api.deleteOperator(u.id); loadOperators(); }
+    catch (e) { setListErr(e.message); }
+  }
+  async function delPortal(u) {
+    if (!window.confirm(`¿BORRAR definitivamente al usuario ${u.email}?\nEsta acción es irreversible.`)) return;
+    if (!window.confirm(`Confirma de nuevo: se eliminará ${u.email} y sus datos asociados.`)) return;
+    setReveal(null); setListErr("");
+    try { await api.deletePortalUser(selClient, u.id); loadPortalUsers(selClient); }
+    catch (e) { setListErr(e.message); }
+  }
+
   const clientLabel = (c) => c.name ?? c.razon_social ?? c.nombre ?? `Cliente #${c.id}`;
 
   return (
@@ -471,7 +486,11 @@ function Users() {
                 <span>
                   {o.email} <span className="muted">· {o.role}{o.is_active ? "" : " · inactivo"}</span>
                 </span>
-                <button className="btn" onClick={() => resetOperator(o)}>Resetear clave</button>
+                <span style={{ display: "flex", gap: 8 }}>
+                  <button className="btn" onClick={() => resetOperator(o)}>Resetear clave</button>
+                  <button className="btn" style={{ color: "var(--danger)", borderColor: "var(--danger)" }}
+                    onClick={() => delOperator(o)}>Borrar</button>
+                </span>
               </div>
             ))}
           </div>
@@ -503,7 +522,11 @@ function Users() {
                       <span className="muted">{u.is_active ? "" : " · inactivo"}
                         {u.password_reset_required ? " · clave temporal" : ""}</span>
                     </span>
-                    <button className="btn" onClick={() => resetPortal(u)}>Resetear clave</button>
+                    <span style={{ display: "flex", gap: 8 }}>
+                      <button className="btn" onClick={() => resetPortal(u)}>Resetear clave</button>
+                      <button className="btn" style={{ color: "var(--danger)", borderColor: "var(--danger)" }}
+                        onClick={() => delPortal(u)}>Borrar</button>
+                    </span>
                   </div>
                 ))
               )}

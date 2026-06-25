@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from backend.app.auth import service
 from backend.app.auth.deps import get_current_user, require_admin
 from backend.app.auth.jwt_tokens import create_access_token
-from backend.app.auth.models import User
+from backend.app.auth.models import Role, User
 from backend.app.auth.schemas import Token, UserCreate, UserOut
 from backend.app.db.session import get_db
 
@@ -80,3 +80,28 @@ def reset_user_password_endpoint(user_id: int, db: Session = Depends(get_db)):
         "temp_password": temp,
         "note": "Comparta este password por canal seguro. No se vuelve a mostrar.",
     }
+
+
+@router.delete(
+    "/users/{user_id}",
+    dependencies=[Depends(require_admin)],
+)
+def delete_user_endpoint(
+    user_id: int,
+    current: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Borra DEFINITIVAMENTE un operador. Solo admin. No permite borrarse a sí
+    mismo ni al último administrador activo."""
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+    if user.id == current.id:
+        raise HTTPException(status_code=400, detail="No puedes borrar tu propia cuenta.")
+    if user.role == Role.admin and service.count_active_admins(db) <= 1:
+        raise HTTPException(
+            status_code=400, detail="No puedes borrar el último administrador activo."
+        )
+    deleted_email = user.email
+    service.delete_user_completely(db, user=user)
+    return {"ok": True, "deleted": deleted_email}
