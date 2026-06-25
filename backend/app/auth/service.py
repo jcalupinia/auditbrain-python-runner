@@ -31,6 +31,28 @@ def create_user(
     return user
 
 
+def list_operators(db: Session) -> list[User]:
+    """Operadores del Command Center (roles admin/user), excluye clientes de portal."""
+    return list(
+        db.execute(
+            select(User).where(User.role != Role.client).order_by(User.email)
+        ).scalars()
+    )
+
+
+def reset_user_password(db: Session, *, user: User) -> str:
+    """Genera una clave temporal para un operador y la devuelve en claro (una sola vez)."""
+    from backend.app.client_portal.service import _generate_temp_password
+
+    temp = _generate_temp_password()
+    user.hashed_password = hash_password(temp)
+    user.password_reset_required = True
+    user.is_active = True
+    db.add(user)
+    db.commit()
+    return temp
+
+
 def authenticate_user(db: Session, email: str, password: str) -> User | None:
     user = get_user_by_email(db, email)
     if not user or not user.is_active:

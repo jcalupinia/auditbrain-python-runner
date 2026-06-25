@@ -360,19 +360,84 @@ function Users() {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // Listas de gestión
+  const [operators, setOperators] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [selClient, setSelClient] = useState("");
+  const [portalUsers, setPortalUsers] = useState([]);
+  const [newPuEmail, setNewPuEmail] = useState("");
+  const [reveal, setReveal] = useState(null); // { who, temp }
+  const [listErr, setListErr] = useState("");
+
+  async function loadOperators() {
+    try { setOperators(await api.listOperators()); } catch (e) { setListErr(e.message); }
+  }
+  async function loadClients() {
+    try { setClients(await api.listClients()); } catch (e) { setListErr(e.message); }
+  }
+  async function loadPortalUsers(cid) {
+    if (!cid) { setPortalUsers([]); return; }
+    try { setPortalUsers(await api.listPortalUsers(cid)); } catch (e) { setListErr(e.message); }
+  }
+  useEffect(() => { loadOperators(); loadClients(); }, []);
+  useEffect(() => { loadPortalUsers(selClient); }, [selClient]);
+
   async function submit(e) {
     e.preventDefault(); setMsg(""); setErr(""); setBusy(true);
     try {
       const u = await api.createUser(email, password, role);
       setMsg(`Usuario creado: ${u.email} · rol ${u.role}`);
       setEmail(""); setPassword(""); setRole("user");
+      loadOperators();
     } catch (e2) { setErr(e2.message); }
     finally { setBusy(false); }
   }
+
+  async function resetOperator(u) {
+    if (!window.confirm(`¿Resetear la clave del operador ${u.email}?`)) return;
+    setReveal(null); setListErr("");
+    try {
+      const r = await api.resetOperatorPassword(u.id);
+      setReveal({ who: u.email, temp: r.temp_password });
+    } catch (e) { setListErr(e.message); }
+  }
+  async function resetPortal(u) {
+    if (!window.confirm(`¿Resetear la clave del cliente ${u.email}?`)) return;
+    setReveal(null); setListErr("");
+    try {
+      const r = await api.resetPortalUserPassword(selClient, u.id);
+      setReveal({ who: u.email, temp: r.temp_password });
+    } catch (e) { setListErr(e.message); }
+  }
+  async function addPortalUser(e) {
+    e.preventDefault(); setReveal(null); setListErr("");
+    try {
+      const r = await api.createPortalUser(selClient, newPuEmail);
+      setReveal({ who: r.email, temp: r.temp_password });
+      setNewPuEmail(""); loadPortalUsers(selClient);
+    } catch (e2) { setListErr(e2.message); }
+  }
+
+  const clientLabel = (c) => c.name ?? c.razon_social ?? c.nombre ?? `Cliente #${c.id}`;
+
   return (
     <>
       <ViewHead code="USR" title="Administración de Cuentas"
-        sub="Provisión de operadores. Solo administradores." />
+        sub="Operadores y usuarios de portal · alta y reseteo de claves. Solo administradores." />
+
+      {reveal && (
+        <Panel title="🔑 Clave temporal generada" meta="copiar" max={680}>
+          <p className="muted">
+            Clave temporal para <b>{reveal.who}</b>. Cópiala y compártela por canal
+            seguro — <b>no se vuelve a mostrar</b>.
+          </p>
+          <pre style={{ fontSize: 16, userSelect: "all" }}>{reveal.temp}</pre>
+          <button className="btn" onClick={() => setReveal(null)}>Entendido</button>
+        </Panel>
+      )}
+      {listErr && <div className="err" style={{ marginBottom: 12 }}>{listErr}</div>}
+
       <Panel title="Alta de operador" max={520}>
         <form onSubmit={submit}>
           <label>Email</label>
@@ -391,6 +456,68 @@ function Users() {
           {msg && <div className="ok-msg">{msg}</div>}
           {err && <div className="err">{err}</div>}
         </form>
+      </Panel>
+
+      {/* Operadores existentes + reset */}
+      <Panel title={`Operadores (${operators.length})`} max={680}>
+        {operators.length === 0 ? (
+          <p className="muted">Sin operadores que mostrar.</p>
+        ) : (
+          <div className="kv">
+            {operators.map((o) => (
+              <div key={o.id} style={{ display: "flex", alignItems: "center",
+                justifyContent: "space-between", gap: 12, padding: "8px 0",
+                borderBottom: "1px solid var(--line)" }}>
+                <span>
+                  {o.email} <span className="muted">· {o.role}{o.is_active ? "" : " · inactivo"}</span>
+                </span>
+                <button className="btn" onClick={() => resetOperator(o)}>Resetear clave</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
+
+      {/* Clientes del portal + reset */}
+      <Panel title="Usuarios de portal (clientes)" max={680}>
+        <label>Cliente</label>
+        <select value={selClient} onChange={(e) => setSelClient(e.target.value)}>
+          <option value="">— Selecciona un cliente —</option>
+          {clients.map((c) => (
+            <option key={c.id} value={c.id}>{clientLabel(c)}</option>
+          ))}
+        </select>
+
+        {selClient && (
+          <>
+            <div style={{ marginTop: 16 }}>
+              {portalUsers.length === 0 ? (
+                <p className="muted">Este cliente no tiene usuarios de portal.</p>
+              ) : (
+                portalUsers.map((u) => (
+                  <div key={u.id} style={{ display: "flex", alignItems: "center",
+                    justifyContent: "space-between", gap: 12, padding: "8px 0",
+                    borderBottom: "1px solid var(--line)" }}>
+                    <span>
+                      {u.email}
+                      <span className="muted">{u.is_active ? "" : " · inactivo"}
+                        {u.password_reset_required ? " · clave temporal" : ""}</span>
+                    </span>
+                    <button className="btn" onClick={() => resetPortal(u)}>Resetear clave</button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <form onSubmit={addPortalUser} style={{ marginTop: 16 }}>
+              <label>Crear usuario de portal para este cliente</label>
+              <input type="email" value={newPuEmail}
+                onChange={(e) => setNewPuEmail(e.target.value)}
+                placeholder="cliente@empresa.com" required />
+              <button className="btn primary" style={{ marginTop: 8 }}>Crear usuario de portal</button>
+            </form>
+          </>
+        )}
       </Panel>
     </>
   );

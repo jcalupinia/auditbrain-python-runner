@@ -75,6 +75,21 @@ def change_password(
     db.commit()
 
 
+def reset_portal_user_password(db: Session, *, user: User) -> str:
+    """Genera una nueva clave temporal para un usuario de portal cliente.
+
+    La devuelve en claro (una sola vez) para que el admin la comparta por un
+    canal seguro. Marca ``password_reset_required`` y reactiva la cuenta.
+    """
+    temp_pwd = _generate_temp_password()
+    user.hashed_password = hash_password(temp_pwd)
+    user.password_reset_required = True
+    user.is_active = True
+    db.add(user)
+    db.commit()
+    return temp_pwd
+
+
 # ---------------------------------------------------------------------------
 # Job management
 # ---------------------------------------------------------------------------
