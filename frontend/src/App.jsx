@@ -433,6 +433,20 @@ function Users() {
     try { await api.deletePortalUser(selClient, u.id); loadPortalUsers(selClient); }
     catch (e) { setListErr(e.message); }
   }
+  async function toggleOperator(u) {
+    const next = !u.is_active;
+    if (!window.confirm(`¿${next ? "Habilitar" : "Deshabilitar"} al operador ${u.email}?`)) return;
+    setListErr("");
+    try { await api.setOperatorActive(u.id, next); loadOperators(); }
+    catch (e) { setListErr(e.message); }
+  }
+  async function togglePortal(u) {
+    const next = !u.is_active;
+    if (!window.confirm(`¿${next ? "Habilitar" : "Deshabilitar"} al usuario ${u.email}?`)) return;
+    setListErr("");
+    try { await api.setPortalUserActive(selClient, u.id, next); loadPortalUsers(selClient); }
+    catch (e) { setListErr(e.message); }
+  }
 
   const clientLabel = (c) => c.name ?? c.razon_social ?? c.nombre ?? `Cliente #${c.id}`;
 
@@ -488,6 +502,9 @@ function Users() {
                 </span>
                 <span style={{ display: "flex", gap: 8 }}>
                   <button className="btn" onClick={() => resetOperator(o)}>Resetear clave</button>
+                  <button className="btn" onClick={() => toggleOperator(o)}>
+                    {o.is_active ? "Deshabilitar" : "Habilitar"}
+                  </button>
                   <button className="btn" style={{ color: "var(--danger)", borderColor: "var(--danger)" }}
                     onClick={() => delOperator(o)}>Borrar</button>
                 </span>
@@ -524,6 +541,9 @@ function Users() {
                     </span>
                     <span style={{ display: "flex", gap: 8 }}>
                       <button className="btn" onClick={() => resetPortal(u)}>Resetear clave</button>
+                      <button className="btn" onClick={() => togglePortal(u)}>
+                        {u.is_active ? "Deshabilitar" : "Habilitar"}
+                      </button>
                       <button className="btn" style={{ color: "var(--danger)", borderColor: "var(--danger)" }}
                         onClick={() => delPortal(u)}>Borrar</button>
                     </span>

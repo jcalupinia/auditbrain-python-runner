@@ -101,6 +101,22 @@ def disable_portal_user_endpoint(
 
 
 @router.post(
+    "/{client_id}/portal-users/{user_id}/enable",
+    status_code=200,
+    dependencies=[Depends(require_admin)],
+)
+def enable_portal_user_endpoint(
+    client_id: int, user_id: int, db: Session = Depends(get_db)
+):
+    """Vuelve a habilitar un usuario de portal dado de baja."""
+    user = db.get(User, user_id)
+    if user is None or user.client_id != client_id:
+        raise HTTPException(404, detail="Usuario no encontrado para este cliente.")
+    sp_service.enable_portal_user(db, user=user)
+    return {"ok": True}
+
+
+@router.post(
     "/{client_id}/portal-users/{user_id}/reset-password",
     response_model=CreatePortalUserResponse,
     dependencies=[Depends(require_admin)],

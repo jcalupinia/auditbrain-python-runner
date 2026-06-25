@@ -24,6 +24,12 @@ def disable_portal_user(db: Session, *, user: User) -> None:
     db.commit()
 
 
+def enable_portal_user(db: Session, *, user: User) -> None:
+    user.is_active = True
+    db.add(user)
+    db.commit()
+
+
 def list_devices(db: Session, *, user_id: int) -> list[ClientDevice]:
     return list(
         db.execute(

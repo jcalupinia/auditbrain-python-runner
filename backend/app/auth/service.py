@@ -66,6 +66,13 @@ def count_active_admins(db: Session) -> int:
     )
 
 
+def set_user_active(db: Session, *, user: User, active: bool) -> None:
+    """Habilita/deshabilita una cuenta (baja reversible)."""
+    user.is_active = active
+    db.add(user)
+    db.commit()
+
+
 def delete_user_completely(db: Session, *, user: User) -> None:
     """Borrado DURO e irreversible: elimina al usuario y sus registros
     dependientes en orden hijo→padre (robusto aunque la BD no tenga ON DELETE

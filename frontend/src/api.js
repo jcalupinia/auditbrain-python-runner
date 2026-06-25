@@ -154,6 +154,26 @@ export async function deletePortalUser(clientId, userId) {
   );
 }
 
+export async function setOperatorActive(userId, active) {
+  const op = active ? "enable" : "disable";
+  return parse(
+    await fetch(`${API_BASE}/api/v1/auth/users/${userId}/${op}`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+    })
+  );
+}
+
+export async function setPortalUserActive(clientId, userId, active) {
+  const op = active ? "enable" : "disable";
+  return parse(
+    await fetch(
+      `${API_BASE}/api/v1/staff/clients/${clientId}/portal-users/${userId}/${op}`,
+      { method: "POST", headers: authHeaders({ "Content-Type": "application/json" }) }
+    )
+  );
+}
+
 // Genera un documento vía el endpoint existente /api/v1/documents/generate.
 // Solo JWT (Bearer); la API Key nunca se envía desde el navegador.
 export async function generateDocument({ format, title, content }) {
