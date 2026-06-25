@@ -53,6 +53,47 @@ def reset_user_password(db: Session, *, user: User) -> str:
     return temp
 
 
+def count_active_admins(db: Session) -> int:
+    from sqlalchemy import func
+
+    return int(
+        db.execute(
+            select(func.count())
+            .select_from(User)
+            .where(User.role == Role.admin, User.is_active.is_(True))
+        ).scalar()
+        or 0
+    )
+
+
+def delete_user_completely(db: Session, *, user: User) -> None:
+    """Borrado DURO e irreversible: elimina al usuario y sus registros
+    dependientes en orden hijo→padre (robusto aunque la BD no tenga ON DELETE
+    CASCADE). Preserva ``tool_jobs`` como historial (SET NULL). Para una baja
+    reversible usar ``disable``.
+    """
+    from sqlalchemy import text
+
+    uid = user.id
+    statements = [
+        "DELETE FROM messages WHERE conversation_id IN "
+        "(SELECT id FROM conversations WHERE user_id = :uid)",
+        "DELETE FROM conversations WHERE user_id = :uid",
+        "DELETE FROM ict_anexos WHERE session_id IN "
+        "(SELECT id FROM ict_sessions WHERE user_id = :uid)",
+        "DELETE FROM ict_sessions WHERE user_id = :uid",
+        "DELETE FROM project_members WHERE user_id = :uid",
+        "UPDATE client_devices SET revoked_by_user_id = NULL "
+        "WHERE revoked_by_user_id = :uid",
+        "DELETE FROM client_devices WHERE user_id = :uid",
+        "UPDATE tool_jobs SET user_id = NULL WHERE user_id = :uid",
+        "DELETE FROM users WHERE id = :uid",
+    ]
+    for stmt in statements:
+        db.execute(text(stmt), {"uid": uid})
+    db.commit()
+
+
 def authenticate_user(db: Session, email: str, password: str) -> User | None:
     user = get_user_by_email(db, email)
     if not user or not user.is_active:
