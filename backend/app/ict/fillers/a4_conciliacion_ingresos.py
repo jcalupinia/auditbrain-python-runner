@@ -25,6 +25,12 @@ from __future__ import annotations
 
 from openpyxl import Workbook
 
+from backend.app.ict.catalogo_f101 import F101_CASILLERO_NAMES
+from backend.app.ict.catalogo_ingresos_exentos import (
+    IE_CASILLERO_INFO,
+    ie_descripcion,
+    ie_normativa,
+)
 from backend.app.ict.cell_maps.a4 import (
     A4_CUADRO1_COLS,
     A4_CUADRO1_RANGE,
@@ -40,11 +46,59 @@ from backend.app.ict.fillers.referential_helpers import (
     set_casillero_ref,
     libros_sumif_reactivo_formula,
 )
+from backend.app.ict.fillers.row_expand import expand_tabular_block
 
 
 def _safe_set(ws, cell_addr: str, value) -> bool:
     return safe_set(ws, cell_addr, value, anexo="A4",
                     origen="A4 Conciliación Ingresos (F-101 + Balance)")
+
+
+def _wrap(ws, cell_addr: str) -> None:
+    """Activa wrap_text + alineación superior (descripción y normativa del
+    catálogo de ingresos exentos pueden ser largas)."""
+    from copy import copy
+    cell = ws[cell_addr]
+    al = copy(cell.alignment)
+    al.wrap_text = True
+    al.vertical = "top"
+    cell.alignment = al
+
+
+def _cas_exentos_declarados(f101: dict, f101_lookup: dict) -> list:
+    """Casilleros de ingresos exentos / no objeto que el F-101 declara con
+    valor != 0, en orden creciente. Devuelve [(cas, fila_DATOS_F101_o_None)].
+
+    Detección = casilleros que (a) el F-101 marca como exentos por nombre
+    (VALOR EXENTO / RENTAS EXENTAS / NO OBJETO) Y (b) están en la librería
+    de ingresos exentos del cliente (CMIE). El filtro por librería excluye
+    los casilleros informativos / totales que el cliente NO considera detalle
+    (ej. cas 6150 'INGRESOS NO OBJETO DE IMPUESTO A LA RENTA' — informativo).
+    """
+    out: list[tuple[str, int | None]] = []
+    for cas in sorted(F101_CASILLERO_NAMES.keys(),
+                      key=lambda x: int(x) if x.isdigit() else 99999):
+        if not cas.isdigit() or not (6001 <= int(cas) <= 6999):
+            continue
+        nombre = F101_CASILLERO_NAMES[cas].upper()
+        es_exento = (
+            nombre.startswith("VALOR EXENTO") or
+            "RENTAS EXENTAS" in nombre or
+            "NO OBJETO DE IMPUESTO" in nombre
+        )
+        if not es_exento:
+            continue
+        # Filtro CMIE: solo los que el cliente curó como ingresos exentos de
+        # detalle. Excluye informativos/totales (ej. 6150) que no están ahí.
+        if cas not in IE_CASILLERO_INFO:
+            continue
+        v = f101.get(cas)
+        try:
+            if v not in (None, "") and abs(float(v)) >= 0.005:
+                out.append((cas, f101_lookup.get(cas)))
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 class A4Filler:
@@ -67,51 +121,36 @@ class A4Filler:
             if _safe_set(ws, cell_addr, session_data.get(key, "")):
                 filled += 1
 
-        # ── Cuadro 1: Detalle de ingresos exentos ────────────────────────
-        # FUENTE ÚNICA (instrucción cliente 2026-06-17): DATOS F-101.
-        # Ya NO se leen `mayor_exentos` ni `balance_mapeado` para este
-        # cuadro — solo el F-101. El Cuadro 2 (más abajo) sí conserva el
-        # fallback al balance vía `balance_lookup`.
+        # ── Cuadro 1: Detalle de ingresos exentos (fuente única F-101) ────
+        # Los casilleros de ingresos exentos / no objeto (6001-6999) que el
+        # F-101 declara con valor != 0 se trasladan automáticamente:
+        #   · Col B = número del casillero
+        #   · Col E = descripción del tipo de ingreso exento (catálogo CMIE)
+        #   · Col F = normativa de respaldo (catálogo CMIE)
+        #   · Col G = valor declarado ('DATOS F-101'!Cxxx)
+        # Si hay más casilleros que las 10 filas base (16-25), se INSERTAN
+        # filas para que entren TODOS (REGLA SUPREMA: no truncar), reajustando
+        # la fórmula del total y desplazando el Cuadro 2 hacia abajo.
         f101: dict = anexo_data.get("f101", {}) or {}
-        start_row, end_row = A4_CUADRO1_RANGE
+        start_row, end_row = A4_CUADRO1_RANGE       # (16, 25)
+        base_rows = end_row - start_row + 1         # 10
+        cas_exentos_f101 = _cas_exentos_declarados(f101, f101_lookup)
+        n_ex = len(cas_exentos_f101)
 
-        # FUENTE 2026-06-17 (regla cliente): cas oficiales SRI de
-        # ingresos exentos / no objeto que el F-101 declara con valor
-        # != 0 se trasladan automaticamente a B16+ (codigo). Para esas
-        # filas la col G se sobrescribe con la referencia directa al
-        # F-101 ('DATOS F-101'!Cxxx), NO el SUMIF al balance — porque
-        # el cliente quiere ver el monto declarado en el F-101.
-        # Cobertura ampliada 2026-06-17: incluimos TODOS los cas del rango
-        # 6001-6999 que sean ingresos exentos / no objeto segun el catalogo
-        # SRI (incluye los "VALOR EXENTO" del subbloque informativo).
-        from backend.app.ict.catalogo_f101 import F101_CASILLERO_NAMES
-        cas_exentos_f101: list[tuple[str, int | None]] = []
-        for cas in sorted(F101_CASILLERO_NAMES.keys(),
-                          key=lambda x: int(x) if x.isdigit() else 99999):
-            if not cas.isdigit() or not (6001 <= int(cas) <= 6999):
-                continue
-            nombre = F101_CASILLERO_NAMES[cas].upper()
-            # Patrones de "ingresos exentos / no objeto" (rango 6001-6999)
-            es_exento = (
-                nombre.startswith("VALOR EXENTO") or
-                "RENTAS EXENTAS" in nombre or
-                "NO OBJETO DE IMPUESTO" in nombre
+        # Inserción dinámica si hay más exentos que filas base.
+        extra = max(0, n_ex - base_rows)
+        if extra > 0:
+            total_row_old = end_row + 1             # 26 (fila TOTAL Cuadro 1)
+            expand_tabular_block(
+                ws, insert_at=total_row_old, amount=extra, style_row=end_row,
+                inner_merges=None, last_col=7,
             )
-            if not es_exento:
-                continue
-            v = f101.get(cas)
-            try:
-                if v not in (None, "") and abs(float(v)) >= 0.005:
-                    cas_exentos_f101.append((cas, f101_lookup.get(cas)))
-            except (TypeError, ValueError):
-                continue
+            new_total_row = total_row_old + extra
+            ws.cell(new_total_row, 7).value = f"=SUM(G16:G{end_row + extra})"
 
-        # CAMBIO 2026-06-17 (instrucción cliente): A4 Cuadro 1 NO debe
-        # tomar la información del balance mapeado. La fuente única es
-        # DATOS F-101 — solo se trasladan los cas exentos / no objeto
-        # con valor declarado. La lógica anterior que filtraba balance
-        # por cas 804/805/812/1112 fue eliminada porque mezclaba
-        # cuentas contables del balance con casilleros del F-101.
+        end_row_eff = end_row + extra               # última fila de datos
+        offset = extra                              # desplazamiento Cuadro 2
+
         if not cas_exentos_f101:
             warnings.append(
                 "A4 Cuadro 1: el F-101 no declara valores en cas de "
@@ -119,52 +158,38 @@ class A4Filler:
                 "El cuadro queda vacío para llenado manual por el auditor."
             )
 
-        # ── Traslado automatico de cas exentos / no objeto del F-101 ──
-        # Regla 2026-06-17: si el cliente declara valores en cas de
-        # ingresos exentos / no objeto en F-101:
-        #   - Col B: numero del casillero (ej. "6090")
-        #   - Col G: valor declarado en F-101 ('DATOS F-101'!Cxxx)
-        # Las filas que NO se llenan aqui mantienen la formula SUMIF
-        # reactiva al balance (escrita abajo) para que el auditor pueda
-        # agregar otras cuentas manualmente.
-        col_b_a4 = A4_CUADRO1_COLS["casillero"]
-        col_g_a4 = A4_CUADRO1_COLS["valor"]
+        col_b_a4 = A4_CUADRO1_COLS["casillero"]      # B
+        col_e_a4 = A4_CUADRO1_COLS["descripcion"]    # E
+        col_f_a4 = A4_CUADRO1_COLS["normativa"]      # F
+        col_g_a4 = A4_CUADRO1_COLS["valor"]          # G
         filas_con_f101_ref: set[int] = set()
-        if cas_exentos_f101:
-            # Buscar filas libres en B16:B25 (col B vacia en ese momento)
-            next_row = start_row
-            for cas, row_f101 in cas_exentos_f101:
-                # Avanzar hasta encontrar una fila libre en col B
-                while next_row <= end_row and ws.cell(next_row, 2).value:
-                    next_row += 1
-                if next_row > end_row:
-                    warnings.append(
-                        f"A4 Cuadro 1: cas exento {cas} no se trasladó — "
-                        f"todas las filas B16:B25 están ocupadas."
-                    )
-                    break
-                if _safe_set(ws, f"{col_b_a4}{next_row}", cas):
+        for i, (cas, row_f101) in enumerate(cas_exentos_f101):
+            row = start_row + i
+            if _safe_set(ws, f"{col_b_a4}{row}", cas):
+                filled += 1
+            # Col G: referencia directa al valor F-101 declarado
+            if row_f101 is not None:
+                formula_g = f"='DATOS F-101'!C{row_f101}"
+                if safe_set_formula(
+                    ws, f"{col_g_a4}{row}", formula_g, anexo="A4",
+                    origen=f"A4 Cuadro 1 · cas {cas} traslado F-101",
+                ):
                     filled += 1
-                # Col G: referencia directa al valor F-101 declarado
-                if row_f101 is not None:
-                    formula_g = f"='DATOS F-101'!C{row_f101}"
-                    if safe_set_formula(
-                        ws, f"{col_g_a4}{next_row}", formula_g, anexo="A4",
-                        origen=f"A4 Cuadro 1 · cas {cas} traslado F-101",
-                    ):
-                        filled += 1
-                        filas_con_f101_ref.add(next_row)
-                next_row += 1
+                    filas_con_f101_ref.add(row)
+            # Col E = descripción del tipo de ingreso exento (catálogo CMIE)
+            desc = ie_descripcion(cas)
+            if desc and _safe_set(ws, f"{col_e_a4}{row}", desc):
+                _wrap(ws, f"{col_e_a4}{row}")
+                filled += 1
+            # Col F = normativa de respaldo (catálogo CMIE)
+            norm = ie_normativa(cas)
+            if norm and _safe_set(ws, f"{col_f_a4}{row}", norm):
+                _wrap(ws, f"{col_f_a4}{row}")
+                filled += 1
 
-        # Cuadro 1, col G (G16:G25): fórmula REACTIVA al casillero (col B) en
-        # TODAS las 10 filas — matching el template oficial SRI 2024.
-        # Patrón: =IF($B<row>="","",ABS(SUMIF('DATOS BALANCE'!$A:$A,$B<row>,'DATOS BALANCE'!$D:$D)))
-        # El valor se calcula solo a partir del casillero declarado en col B y
-        # las cuentas mapeadas en DATOS BALANCE. Esto evita hardcodear saldos y
-        # permite que el auditor cambie un casillero y vea el efecto inmediato.
-        # Las filas que ya recibieron formula referencial al F-101 (cas
-        # exentos trasladados) NO se sobrescriben con el SUMIF reactivo.
-        for row in range(start_row, end_row + 1):
+        # Col G reactiva (SUMIF al casillero en col B) en las filas que NO
+        # recibieron referencia al F-101 — el auditor puede agregar cuentas.
+        for row in range(start_row, end_row_eff + 1):
             if row in filas_con_f101_ref:
                 continue
             formula = libros_sumif_reactivo_formula(f"${col_b_a4}{row}", take_abs=True)
@@ -174,11 +199,11 @@ class A4Filler:
             ):
                 filled += 1
 
-        # ── Cuadro 2: Conciliación F-101 casilleros (referencial) ─────────
+        # ── Cuadro 2: Conciliación F-101 casilleros (desplazado +offset) ──
         any_cuadro2 = False
         for row, casillero in A4_CUADRO2_CASILLEROS.items():
             ok = set_casillero_ref(
-                ws, f"{A4_CUADRO2_COL}{row}",
+                ws, f"{A4_CUADRO2_COL}{row + offset}",
                 casillero=str(casillero),
                 anexo_data=anexo_data,
                 f101_lookup=f101_lookup,

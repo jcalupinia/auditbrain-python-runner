@@ -81,27 +81,31 @@ def test_a4_filler_writes_mayor_detail():
     assert result["filled_cells"] >= 2  # B16 + G16 al menos
 
 
-def test_a4_filler_truncates_cas_exentos_at_10_rows():
-    """CAMBIO 2026-06-17: si hay mas de 10 cas exentos con valor en F-101,
-    A4 trunca a las 10 filas disponibles (B16:B25) y emite warning."""
+def test_a4_filler_inserta_filas_con_mas_de_10_exentos():
+    """CAMBIO 2026-06-25: si hay más de 10 cas exentos con valor en F-101,
+    A4 INSERTA filas dinámicamente para que entren TODOS (no trunca)."""
     wb = load_template()
     filler = A4Filler()
     sess = _session_data()
-    # 11 cas exentos con valor (sólo hay 10 filas disponibles en B16:B25)
+    # 11 cas exentos con valor, TODOS en la librería CMIE (6150 se excluye
+    # por informativo, así que usamos 6002 en su lugar). Las 10 filas base
+    # no alcanzan → +1 fila insertada.
     f101 = {"6042": 100, "6044": 200, "6060": 300, "6094": 400,
-            "6116": 500, "6150": 600, "6081": 700, "6083": 800,
+            "6116": 500, "6002": 600, "6081": 700, "6083": 800,
             "6085": 900, "6062": 1000, "6064": 1100}
     lookup = {cas: 500 + int(cas) - 6000 for cas in f101.keys()}
     data = {"f101": f101, "_f101_lookup": lookup}
     result = filler.fill(wb, sess, data)
     ws = wb["CONCILIACIÓN INGRESOS A4"]
 
-    # Las 10 filas B16:B25 deben estar llenas
-    llenas = sum(1 for r in range(16, 26) if ws.cell(r, 2).value)
-    assert llenas == 10, f"Esperado 10 filas llenas, encontrado {llenas}"
-    # Y debe haber un warning de truncamiento
-    assert any("no se trasladó" in w.lower() or "ocupadas" in w.lower()
-               for w in result["warnings"]), result["warnings"]
+    # Los 11 casilleros deben estar presentes (B16:B26), ninguno truncado
+    presentes = [ws.cell(r, 2).value for r in range(16, 27) if ws.cell(r, 2).value]
+    assert len(presentes) == 11, f"Esperado 11 cas, encontrado {len(presentes)}: {presentes}"
+    for cas in f101:
+        assert cas in presentes, f"Cas {cas} no se trasladó. {presentes}"
+    # NO debe haber warning de truncamiento
+    assert not any("ocupadas" in w.lower() or "no se trasladó" in w.lower()
+                   for w in result["warnings"]), result["warnings"]
 
 
 def test_a4_filler_no_crash_with_empty_data():
