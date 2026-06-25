@@ -82,6 +82,43 @@ def reset_user_password_endpoint(user_id: int, db: Session = Depends(get_db)):
     }
 
 
+@router.post(
+    "/users/{user_id}/disable",
+    dependencies=[Depends(require_admin)],
+)
+def disable_user_endpoint(
+    user_id: int,
+    current: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Deshabilita (baja reversible) un operador. No permite deshabilitarse a sí
+    mismo ni al último administrador activo."""
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+    if user.id == current.id:
+        raise HTTPException(status_code=400, detail="No puedes deshabilitar tu propia cuenta.")
+    if user.role == Role.admin and service.count_active_admins(db) <= 1:
+        raise HTTPException(
+            status_code=400, detail="No puedes deshabilitar al último administrador activo."
+        )
+    service.set_user_active(db, user=user, active=False)
+    return {"ok": True, "is_active": False}
+
+
+@router.post(
+    "/users/{user_id}/enable",
+    dependencies=[Depends(require_admin)],
+)
+def enable_user_endpoint(user_id: int, db: Session = Depends(get_db)):
+    """Vuelve a habilitar un operador dado de baja."""
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+    service.set_user_active(db, user=user, active=True)
+    return {"ok": True, "is_active": True}
+
+
 @router.delete(
     "/users/{user_id}",
     dependencies=[Depends(require_admin)],

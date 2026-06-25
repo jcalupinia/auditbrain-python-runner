@@ -115,6 +115,42 @@ def test_operator_list_reset_and_delete(client, admin_token, db_session):
     assert get_user_by_email(db_session, op["email"]) is None
 
 
+def test_disable_enable_portal_user(client, admin_token, org_client):
+    _, cli = org_client
+    pu = _create_portal_user(client, admin_token, cli)
+    uid = pu["user_id"]
+    h = {"Authorization": f"Bearer {admin_token}"}
+    rd = client.post(f"/api/v1/staff/clients/{cli.id}/portal-users/{uid}/disable", headers=h)
+    assert rd.status_code == 200, rd.json()
+    re_ = client.post(f"/api/v1/staff/clients/{cli.id}/portal-users/{uid}/enable", headers=h)
+    assert re_.status_code == 200, re_.json()
+
+
+def test_disable_enable_operator(client, admin_token, db_session):
+    r = client.post(
+        "/api/v1/auth/users",
+        json={"email": _email("op2"), "password": "secret123", "role": "user"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 201
+    op = r.json()
+    h = {"Authorization": f"Bearer {admin_token}"}
+    rd = client.post(f"/api/v1/auth/users/{op['id']}/disable", headers=h)
+    assert rd.status_code == 200, rd.json()
+    re_ = client.post(f"/api/v1/auth/users/{op['id']}/enable", headers=h)
+    assert re_.status_code == 200, re_.json()
+
+
+def test_cannot_disable_self(client, db_session):
+    u = create_user(db_session, email=_email("selfadm2"), password="x", role=Role.admin)
+    token = create_access_token(subject=u.email, role="admin")
+    r = client.post(
+        f"/api/v1/auth/users/{u.id}/disable",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 400
+
+
 def test_cannot_delete_self(client, db_session):
     u = create_user(db_session, email=_email("selfadmin"), password="x", role=Role.admin)
     token = create_access_token(subject=u.email, role="admin")
