@@ -82,14 +82,29 @@ def test_client_a_cannot_get_client_b_job(client, db_session):
     assert r3.status_code == 403
 
 
-def test_staff_jwt_cannot_access_client_endpoints(client, db_session):
+def test_staff_jwt_can_access_client_endpoints(client, db_session):
+    """Los operadores (admin/user) SÍ pueden entrar al portal con su mismo
+    usuario (sin cuenta cliente aparte). La separación que importa —que un
+    cliente NO acceda al staff— se valida en test_client_jwt_cannot_access_staff."""
     email = f"staff-{uuid.uuid4().hex[:8]}@iso.com"
     staff = get_user_by_email(db_session, email) or create_user(
         db_session, email=email, password="x", role=Role.admin
     )
     token = create_access_token(subject=staff.email, role="admin")
     r = client.get("/api/v1/client/catalog", headers={"Authorization": f"Bearer {token}"})
-    assert r.status_code == 403
+    assert r.status_code == 200, r.json()
+
+
+def test_operator_can_login_to_portal(client, db_session):
+    """Un operador inicia sesión en el portal con su email+contraseña de staff."""
+    email = f"op-portal-{uuid.uuid4().hex[:8]}@iso.com"
+    create_user(db_session, email=email, password="operador123", role=Role.user)
+    r = client.post(
+        "/api/v1/client/auth/login",
+        data={"username": email, "password": "operador123"},
+    )
+    assert r.status_code == 200, r.json()
+    assert r.json()["access_token"]
 
 
 def test_client_jwt_cannot_access_staff_endpoints(client, db_session):
