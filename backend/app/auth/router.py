@@ -52,3 +52,31 @@ def create_user_endpoint(payload: UserCreate, db: Session = Depends(get_db)):
     return service.create_user(
         db, email=payload.email, password=payload.password, role=payload.role
     )
+
+
+@router.get(
+    "/users",
+    response_model=list[UserOut],
+    dependencies=[Depends(require_admin)],
+)
+def list_users_endpoint(db: Session = Depends(get_db)):
+    """Lista operadores (admin/user) para gestión. Solo admin."""
+    return service.list_operators(db)
+
+
+@router.post(
+    "/users/{user_id}/reset-password",
+    dependencies=[Depends(require_admin)],
+)
+def reset_user_password_endpoint(user_id: int, db: Session = Depends(get_db)):
+    """Resetea la clave de un operador. Devuelve la clave temporal una sola vez."""
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+    temp = service.reset_user_password(db, user=user)
+    return {
+        "user_id": user.id,
+        "email": user.email,
+        "temp_password": temp,
+        "note": "Comparta este password por canal seguro. No se vuelve a mostrar.",
+    }

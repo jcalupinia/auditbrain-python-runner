@@ -99,6 +99,25 @@ def disable_portal_user_endpoint(
     return {"ok": True}
 
 
+@router.post(
+    "/{client_id}/portal-users/{user_id}/reset-password",
+    response_model=CreatePortalUserResponse,
+    dependencies=[Depends(require_admin)],
+)
+def reset_portal_user_password_endpoint(
+    client_id: int, user_id: int, db: Session = Depends(get_db)
+):
+    """Resetea la clave de un usuario de portal cliente. Devuelve la clave
+    temporal una sola vez (compartir por canal seguro)."""
+    user = db.get(User, user_id)
+    if user is None or user.client_id != client_id:
+        raise HTTPException(404, detail="Usuario no encontrado para este cliente.")
+    temp = cp_service.reset_portal_user_password(db, user=user)
+    return CreatePortalUserResponse(
+        user_id=user.id, email=user.email, temp_password=temp
+    )
+
+
 @router.get(
     "/{client_id}/portal-users/{user_id}/devices",
     response_model=list[DeviceOut],

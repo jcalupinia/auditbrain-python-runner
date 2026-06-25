@@ -92,6 +92,50 @@ export async function createUser(email, password, role) {
   );
 }
 
+// --- Gestión de operadores (admin) ---
+export async function listOperators() {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/auth/users`, { headers: authHeaders() })
+  );
+}
+
+export async function resetOperatorPassword(userId) {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/auth/users/${userId}/reset-password`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+    })
+  );
+}
+
+// --- Gestión de usuarios de portal cliente (admin · staff portal) ---
+export async function listPortalUsers(clientId) {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/staff/clients/${clientId}/portal-users`, {
+      headers: authHeaders(),
+    })
+  );
+}
+
+export async function createPortalUser(clientId, email) {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/staff/clients/${clientId}/portal-users`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ email }),
+    })
+  );
+}
+
+export async function resetPortalUserPassword(clientId, userId) {
+  return parse(
+    await fetch(
+      `${API_BASE}/api/v1/staff/clients/${clientId}/portal-users/${userId}/reset-password`,
+      { method: "POST", headers: authHeaders({ "Content-Type": "application/json" }) }
+    )
+  );
+}
+
 // Genera un documento vía el endpoint existente /api/v1/documents/generate.
 // Solo JWT (Bearer); la API Key nunca se envía desde el navegador.
 export async function generateDocument({ format, title, content }) {
