@@ -1,0 +1,100 @@
+/* ============================================================
+   Selector flotante de tema de fondo (global, todas las pantallas)
+   ============================================================ */
+.ab-theme {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 9999;
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Botón flotante */
+.ab-theme-fab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px 9px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(52, 211, 106, 0.45);
+  background: rgba(10, 14, 21, 0.82);
+  color: #e8edf4;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.35);
+  transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.ab-theme-fab:hover {
+  transform: translateY(-1px);
+  border-color: rgba(52, 211, 106, 0.85);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);
+}
+.ab-theme-fab-dot,
+.ab-theme-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #34d36a;
+  flex: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+.ab-theme-fab-txt { line-height: 1; }
+
+/* Popover */
+.ab-theme-pop {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  width: 210px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(52, 211, 106, 0.30);
+  background: rgba(13, 18, 27, 0.96);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.5);
+  animation: ab-theme-in 0.14s ease;
+}
+@keyframes ab-theme-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ab-theme-title {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #8b97a8;
+  margin: 2px 2px 10px;
+}
+.ab-theme-grid { display: grid; gap: 6px; }
+.ab-theme-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #e8edf4;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.ab-theme-opt:hover { background: rgba(255, 255, 255, 0.05); }
+.ab-theme-opt.on {
+  background: rgba(52, 211, 106, 0.10);
+  border-color: rgba(52, 211, 106, 0.45);
+}
+.ab-theme-name { flex: 1; }
+.ab-theme-check { color: #34d36a; font-weight: 700; }
+
+@media (max-width: 640px) {
+  .ab-theme { right: 12px; bottom: 12px; }
+  .ab-theme-fab-txt { display: none; }
+  .ab-theme-fab { padding: 10px; }
+}

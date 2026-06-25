@@ -1,0 +1,93 @@
+/* ============================================================
+   Portal Cliente · Temas de fondo seleccionables por el usuario
+   ------------------------------------------------------------
+   El portal define sus tokens de color (--bg, --panel, --text,
+   --accent, ...) localmente en `.ab-login` (login) y `.pc`
+   (shell / catálogo / tools / ICT). Aquí se sobreescriben esos
+   tokens según `html[data-theme="..."]`, de forma COORDINADA
+   para mantener legibilidad y el verde de marca AUDIT-IA en
+   todas las variantes.
+
+   Default (sin data-theme o data-theme="dark"): oscuro IA, el
+   que ya viene en los CSS de cada pantalla — no se toca aquí.
+   ============================================================ */
+
+/* ---- CLARO / BLANCO -------------------------------------- */
+html[data-theme="light"] .pc,
+html[data-theme="light"] .ab-login {
+  --bg: #ffffff;
+  --panel: #f5f8fb;
+  --panel-2: #eaf0f6;
+  --line: #d7e0ea;
+  --line-soft: #e7eef5;
+  --text: #0a2342;          /* Navy de marca */
+  --text-soft: #46586d;
+  --text-dim: #8593a4;
+  --accent: #1f9d57;        /* verde de marca, oscurecido para contraste sobre blanco */
+  --accent-soft: #178a4a;
+  --accent-dim: #e2f5ea;
+}
+
+/* ---- AZUL MEDIO (Navy de marca) -------------------------- */
+html[data-theme="navy"] .pc,
+html[data-theme="navy"] .ab-login {
+  --bg: #0a2342;            /* Navy #0A2342 */
+  --panel: #0e2c50;
+  --panel-2: #103358;
+  --line: #1d4470;
+  --line-soft: #16385f;
+  --text: #eaf1fb;
+  --text-soft: #a6bbd6;
+  --text-dim: #6f87a6;
+  --accent: #34d36a;
+  --accent-soft: #5be08c;
+  --accent-dim: #0d3a28;
+}
+
+/* ---- GRIS (pizarra premium) ------------------------------ */
+html[data-theme="slate"] .pc,
+html[data-theme="slate"] .ab-login {
+  --bg: #23272e;
+  --panel: #2b3038;
+  --panel-2: #313842;
+  --line: #3d4651;
+  --line-soft: #2f3640;
+  --text: #eceff3;
+  --text-soft: #abb4c0;
+  --text-dim: #79828f;
+  --accent: #34d36a;
+  --accent-soft: #5be08c;
+  --accent-dim: #1c2b22;
+}
+
+/* En temas claros, suavizar el halo verde radial del fondo para
+   que no se vea sucio sobre blanco. */
+html[data-theme="light"] .pc,
+html[data-theme="light"] .ab-login {
+  background:
+    radial-gradient(900px 520px at 85% -10%, rgba(31,157,87,0.06), transparent 60%),
+    var(--bg);
+}
+
+/* En tema claro la imagen-logo del login usa mix-blend-mode:screen, que la
+   vuelve invisible sobre blanco. Se restaura el blend normal y se le da un
+   fondo oscuro sutil para que el banner AUDIT-IA siga legible sobre claro. */
+html[data-theme="light"] .ab-login-aimg {
+  mix-blend-mode: normal;
+  background: #071b2f;          /* Deep Blue de marca */
+  border-radius: 10px;
+  padding: 8px;
+}
+
+/* En tema claro, el logo "AUDIT CONSULTING GROUP" tiene texto y una raya
+   blanca/plateada que desaparecen sobre fondo blanco. Se intercambia por la
+   variante con esas partes en negro (el verde de marca se conserva). Aplica
+   tanto al login (.ab-login-logo) como al header del shell. */
+html[data-theme="light"] img[src$="logo-auditconsulting-group.png"] {
+  content: url("/assets/logo-auditconsulting-group-dark.png");
+}
+
+/* Transición suave al cambiar de tema. */
+.pc, .ab-login {
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
