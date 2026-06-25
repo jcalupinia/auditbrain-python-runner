@@ -11,7 +11,7 @@ de texto entre comillas ni referencias a otras hojas.
 """
 from __future__ import annotations
 
-from backend.app.ict.fillers.row_expand import shift_formula_rows
+from backend.app.ict.fillers.row_expand import shift_formula_rows, expand_tabular_block
 
 
 def test_shift_simple_sum_range():
@@ -57,3 +57,47 @@ def test_shift_no_toca_referencias_a_otra_hoja():
 def test_shift_amount_cero_es_identidad():
     f = "=+K22+G51+H61-H72"
     assert shift_formula_rows(f, threshold=22, amount=0) == f
+
+
+# ── expand_tabular_block: preservación de formato (bordes + merges) ───────────
+
+def _thin():
+    from openpyxl.styles import Side
+    return Side(style="thin")
+
+
+def test_expand_preserva_bordes_de_filas_desplazadas():
+    """Tras insertar filas, las celdas desplazadas (con y sin valor) deben
+    conservar sus bordes — incluso celdas vacías con borde."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Border
+    wb = Workbook()
+    ws = wb.active
+    b = Border(top=_thin(), bottom=_thin(), left=_thin(), right=_thin())
+    # Fila 30: A con valor + borde, C vacía pero CON borde (caso que rompe openpyxl)
+    ws.cell(30, 1).value = "dato"
+    ws.cell(30, 1).border = b
+    ws.cell(30, 3).border = b  # vacía pero con borde
+    # Insertar 4 filas en pos 25 → fila 30 baja a 34
+    expand_tabular_block(ws, insert_at=25, amount=4, style_row=24, last_col=5)
+    assert ws.cell(34, 1).value == "dato"
+    assert ws.cell(34, 1).border.top.style == "thin", "A: borde top perdido"
+    assert ws.cell(34, 1).border.bottom.style == "thin", "A: borde bottom perdido"
+    assert ws.cell(34, 3).border.left.style == "thin", "C vacía: borde perdido"
+
+
+def test_expand_preserva_merges_de_filas_desplazadas():
+    """Los merges en filas desplazadas deben moverse +amount, ninguno se pierde."""
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.cell(30, 1).value = "encabezado"
+    ws.merge_cells("A30:E30")
+    ws.cell(31, 1).value = "fila2"
+    ws.merge_cells("A31:C31")
+    expand_tabular_block(ws, insert_at=25, amount=4, style_row=24, last_col=5)
+    merges = {str(m) for m in ws.merged_cells.ranges}
+    assert "A34:E34" in merges, f"merge A30→A34 perdido. {merges}"
+    assert "A35:C35" in merges, f"merge A31→A35 perdido. {merges}"
+    # No deben quedar merges fantasma en la posición vieja
+    assert "A30:E30" not in merges, f"merge fantasma en pos vieja. {merges}"

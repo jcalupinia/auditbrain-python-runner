@@ -119,13 +119,23 @@ def expand_tabular_block(
 ) -> None:
     """Inserta ``amount`` filas en ``insert_at`` y deja la hoja consistente.
 
-    Pasos (compensan las limitaciones de openpyxl.insert_rows):
-      1. Recolecta merges con min_row >= insert_at y fórmulas con row >= insert_at.
-      2. insert_rows(insert_at, amount).
-      3. Borra los merges que quedaron sin desplazar y los recrea con +amount.
-      4. Reajusta cada fórmula desplazada (refs de fila >= insert_at → +amount).
-      5. Copia el estilo y el alto de ``style_row`` a las filas nuevas.
-      6. Recrea los merges internos de cada fila nueva (ej. E:F, G:H, I:J).
+    `openpyxl.insert_rows` es poco fiable al desplazar: pierde valores, bordes
+    y merges de algunas celdas (verificado en 3.1.5 — caso A5 con 5 filas
+    insertadas perdía los casilleros 807/808 del Cuadro D y sus bordes). En
+    vez de confiar en él, se toma un SNAPSHOT completo (valor + estilo) de
+    todas las celdas a desplazar ANTES de insertar y se RE-APLICA después en
+    la posición + amount. Así el resultado es determinista e idéntico al
+    original, solo desplazado.
+
+    Pasos:
+      1. Snapshot (valor + estilo) de cada celda en filas >= insert_at.
+      2. Capturar merges (>= insert_at) y alturas de fila; eliminar esos
+         merges para que el desplazamiento no los corrompa.
+      3. insert_rows(insert_at, amount).
+      4. Re-aplicar el snapshot a la posición + amount (valor con fórmulas
+         reajustadas + estilo completo). Re-aplicar alturas.
+      5. Recrear los merges desplazados (+amount).
+      6. Formatear las filas nuevas desde ``style_row`` + merges internos.
 
     Args:
       insert_at:   fila donde se insertan las nuevas (las que estaban aquí
@@ -134,55 +144,82 @@ def expand_tabular_block(
       style_row:   fila plantilla cuyo estilo/alto se copia a las nuevas.
       inner_merges: lista de (col_ini, col_fin) a fusionar dentro de cada
                    fila nueva (ej. [(5,6),(7,8),(9,10)] para E:F,G:H,I:J).
-      last_col:    última columna (1-based) a la que copiar estilo.
+      last_col:    última columna (1-based) a snapshotear/formatear.
     """
     if amount <= 0:
         return
 
-    # 1) Recolectar merges (>= insert_at) y fórmulas (>= insert_at) ANTES.
+    max_row = ws.max_row
+
+    # 1) Snapshot de valor + estilo de TODAS las celdas en filas >= insert_at
+    #    (incluye celdas vacías con borde — las que openpyxl suele perder).
+    snapshot: dict[tuple[int, int], dict] = {}
+    for r in range(insert_at, max_row + 1):
+        for c in range(1, last_col + 1):
+            cell = ws.cell(r, c)
+            snapshot[(r, c)] = {
+                "value": cell.value,
+                "font": copy(cell.font),
+                "border": copy(cell.border),
+                "fill": copy(cell.fill),
+                "number_format": cell.number_format,
+                "alignment": copy(cell.alignment),
+                "protection": copy(cell.protection),
+            }
+
+    # 2) Capturar merges (>= insert_at) y alturas; eliminar esos merges para
+    #    que el insert_rows no los deje en estado inconsistente.
     old_merges = [
         (mc.min_col, mc.min_row, mc.max_col, mc.max_row)
         for mc in ws.merged_cells.ranges
         if mc.min_row >= insert_at
     ]
-    old_formulas: dict[tuple[int, int], str] = {}
-    for row in ws.iter_rows(min_row=insert_at, max_row=ws.max_row):
-        for cell in row:
-            if isinstance(cell.value, str) and cell.value.startswith("="):
-                old_formulas[(cell.row, cell.column)] = cell.value
-
-    # 2) Insertar (mueve contenido+estilo, rompe merges/fórmulas).
-    ws.insert_rows(insert_at, amount)
-
-    # 3) Borrar merges desplazados-incorrectamente y recrearlos con +amount.
     for col_ini, row_ini, col_fin, row_fin in old_merges:
-        rng = (f"{get_column_letter(col_ini)}{row_ini}:"
-               f"{get_column_letter(col_fin)}{row_fin}")
         try:
-            ws.unmerge_cells(rng)
+            ws.unmerge_cells(start_row=row_ini, start_column=col_ini,
+                             end_row=row_fin, end_column=col_fin)
         except (KeyError, ValueError):
             pass
+    old_heights = {
+        r: ws.row_dimensions[r].height
+        for r in range(insert_at, max_row + 1)
+        if ws.row_dimensions[r].height is not None
+    }
+
+    # 3) Insertar las filas.
+    ws.insert_rows(insert_at, amount)
+
+    # 4) Re-aplicar snapshot (valor + estilo) a la posición + amount. Las
+    #    fórmulas se reajustan (refs de fila >= insert_at → +amount).
+    for (r, c), snap in snapshot.items():
+        dst = ws.cell(r + amount, c)
+        val = snap["value"]
+        if isinstance(val, str) and val.startswith("="):
+            val = shift_formula_rows(val, threshold=insert_at, amount=amount)
+        dst.value = val
+        dst.font = snap["font"]
+        dst.border = snap["border"]
+        dst.fill = snap["fill"]
+        dst.number_format = snap["number_format"]
+        dst.alignment = snap["alignment"]
+        dst.protection = snap["protection"]
+    for r, h in old_heights.items():
+        ws.row_dimensions[r + amount].height = h
+
+    # 5) Recrear los merges desplazados (+amount).
+    for col_ini, row_ini, col_fin, row_fin in old_merges:
         ws.merge_cells(
             start_row=row_ini + amount, start_column=col_ini,
             end_row=row_fin + amount, end_column=col_fin,
         )
 
-    # 4) Reajustar fórmulas desplazadas (ahora en row+amount).
-    for (row, col), formula in old_formulas.items():
-        ws.cell(row + amount, col).value = shift_formula_rows(
-            formula, threshold=insert_at, amount=amount
-        )
-
-    # 5) Copiar estilo y alto de style_row a las filas nuevas.
+    # 6) Formatear las filas nuevas desde style_row + merges internos.
     src_height = ws.row_dimensions[style_row].height
     for new_row in range(insert_at, insert_at + amount):
         if src_height is not None:
             ws.row_dimensions[new_row].height = src_height
         for col in range(1, last_col + 1):
             _copy_cell_style(ws.cell(style_row, col), ws.cell(new_row, col))
-
-    # 6) Recrear merges internos de cada fila nueva.
-    for new_row in range(insert_at, insert_at + amount):
         for col_ini, col_fin in (inner_merges or []):
             ws.merge_cells(
                 start_row=new_row, start_column=col_ini,

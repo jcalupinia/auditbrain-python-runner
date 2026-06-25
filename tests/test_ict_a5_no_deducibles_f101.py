@@ -147,6 +147,30 @@ def test_a5_autocompleta_gnd_en_filas_insertadas():
     assert ws["G24"].value == gnd_normativa("7183")
 
 
+# ── Preservación de formato del Cuadro D tras inserción (bug ICT_35) ──────────
+
+def test_a5_insercion_preserva_casilleros_y_bordes_cuadro_d():
+    """Con >5 no deducibles se insertan filas; los casilleros y bordes del
+    Cuadro D (806/807/808/809/813/1113) NO deben perderse en el desplazamiento.
+    Reproduce el bug del ICT_35: 807 y 808 desaparecían y perdían bordes."""
+    cas = ["7177", "7180", "7183", "7186", "7192", "7198", "7210", "7234",
+           "7243", "7249"]  # 10 no deducibles → +5 filas
+    f101 = {c: 100.0 * (i + 1) for i, c in enumerate(cas)}
+    f101.update({"6999": 1e7, "7999": 1e7, "806": 3000.0})
+    ws, _ = _build_a5(f101)
+    # Cuadro D desplazado +5: filas 71-76, casilleros en col G (7)
+    esperado = {71: 806, 72: 807, 73: 808, 74: 809, 75: 813, 76: 1113}
+    for row, cas_esp in esperado.items():
+        val = ws.cell(row, 7).value
+        assert val == cas_esp, f"G{row} esperado {cas_esp}, encontrado {val!r}"
+        b = ws.cell(row, 7).border
+        assert b.top.style and b.bottom.style, f"G{row}: bordes perdidos"
+    # Merges A:F de las filas del Cuadro D deben existir
+    merges = {str(m) for m in ws.merged_cells.ranges}
+    for row in (71, 72, 73, 74, 75, 76):
+        assert f"A{row}:F{row}" in merges, f"merge A{row}:F{row} perdido. {sorted(merges)}"
+
+
 # ── REGLA estática: cobertura catálogo GND ⊇ casilleros 7xxx del F-101 ────────
 
 def test_gnd_cubre_todos_los_no_deducibles_del_f101():
