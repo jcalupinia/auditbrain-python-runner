@@ -8,7 +8,7 @@ databases:
     # La base en producción está en Basic-1gb (de pago). El Blueprint NO puede
     # degradarla a 'free' (Render lo bloquea para proteger los datos) y eso
     # frenaba todo el sync. Alineado al plan real.
-    plan: basic_1gb
+    plan: basic-1gb
     databaseName: auditbrain
     user: auditbrain
 
