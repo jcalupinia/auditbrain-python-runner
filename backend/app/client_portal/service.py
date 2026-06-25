@@ -50,6 +50,10 @@ def create_portal_user(
 
 
 def authenticate_portal_user(db: Session, email: str, password: str) -> User | None:
+    """Autentica para el portal cliente. Acepta clientes (rol client) y también
+    operadores del staff (rol admin/user) para que entren con su mismo usuario,
+    sin necesidad de una cuenta cliente aparte. (Un cliente NUNCA accede al
+    staff: esa separación se mantiene en las dependencias de staff.)"""
     from sqlalchemy import select
 
     user = db.execute(
@@ -57,7 +61,7 @@ def authenticate_portal_user(db: Session, email: str, password: str) -> User | N
     ).scalar_one_or_none()
     if not user or not user.is_active:
         return None
-    if user.role != Role.client:
+    if user.role not in (Role.client, Role.admin, Role.user):
         return None
     if not verify_password(password, user.hashed_password):
         return None

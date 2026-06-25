@@ -182,12 +182,18 @@ def require_client_with_device(
     jwt_sid = payload.get("sid")
     jwt_did = payload.get("did")
 
-    if jwt_role != Role.client.value:
-        raise HTTPException(403, detail="Acceso reservado a clientes.")
+    _staff_roles = {Role.admin.value, Role.user.value}
+    if jwt_role != Role.client.value and jwt_role not in _staff_roles:
+        raise HTTPException(403, detail="Acceso reservado a clientes u operadores.")
 
     user = service.get_user_by_email(db, email)
-    if not user or not user.is_active or user.role != Role.client:
+    if not user or not user.is_active or user.role not in (Role.client, Role.admin, Role.user):
         raise _CRED_EXC
+
+    # Operadores (admin/user) entran al portal con su mismo usuario, sin los
+    # chequeos de dispositivo/sesión única (esos son específicos del cliente).
+    if user.role in (Role.admin, Role.user):
+        return user
 
     # Layer 3: session uniqueness (puede deshabilitarse via env)
     if _session_check_enabled():
