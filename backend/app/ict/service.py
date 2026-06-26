@@ -439,17 +439,45 @@ HIDDEN_SHEETS_FOR_SRI: tuple[str, ...] = (
 INTERNAL_SHEETS_FOR_SRI: tuple[str, ...] = HIDDEN_SHEETS_FOR_SRI
 
 
+# Contraseña que bloquea la ESTRUCTURA del libro SRI (impide que el cliente
+# use "Mostrar"/Unhide para des-ocultar las hojas DATOS/internas, o que
+# inserte/elimine/renombre hojas). Solo AuditConsulting debe conocerla.
+# Configurable por env var ICT_SRI_PROTECT_PASSWORD; el default es la clave
+# estándar de la firma. No protege los datos criptográficamente (la
+# protección de estructura de Excel es rompible) — es una barrera para que el
+# cliente no manipule por error las hojas fuente del ICT.
+DEFAULT_SRI_PROTECT_PASSWORD = "AuditIA-ICT-2025"
+
+
 def _apply_sri_sheet_visibility(wb) -> None:
     """Oculta en `wb` (la copia destinada al SRI) las hojas de
     HIDDEN_SHEETS_FOR_SRI que existan, dejándolas PRESENTES —para que las
     fórmulas referenciales de A1..A9 sigan resolviendo— pero fuera de la
     vista del cliente. Garantiza además que la hoja activa sea una visible
     (INDICE de preferencia), porque Excel muestra un aviso si abre un libro
-    cuya hoja activa está oculta."""
+    cuya hoja activa está oculta. Finalmente bloquea la estructura del libro
+    con contraseña para que el cliente no pueda des-ocultar esas hojas."""
     for sheet_name in HIDDEN_SHEETS_FOR_SRI:
         if sheet_name in wb.sheetnames:
             wb[sheet_name].sheet_state = "hidden"
     _set_visible_active_sheet(wb)
+    _protect_workbook_structure(wb)
+
+
+def _protect_workbook_structure(wb) -> None:
+    """Bloquea la estructura del libro SRI con contraseña. Con la estructura
+    protegida, Excel deshabilita la opción 'Mostrar' (Unhide): el cliente no
+    puede ver las hojas ocultas sin la clave, ni insertar/eliminar/renombrar/
+    mover hojas. La clave sale de ICT_SRI_PROTECT_PASSWORD (env var) o del
+    default de la firma."""
+    import os
+    from openpyxl.workbook.protection import WorkbookProtection
+
+    password = os.getenv("ICT_SRI_PROTECT_PASSWORD", DEFAULT_SRI_PROTECT_PASSWORD)
+    if wb.security is None:
+        wb.security = WorkbookProtection()
+    wb.security.lockStructure = True
+    wb.security.set_workbook_password(password)
 
 
 def _set_visible_active_sheet(wb) -> None:

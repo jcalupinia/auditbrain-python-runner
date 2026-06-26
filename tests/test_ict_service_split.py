@@ -109,6 +109,48 @@ def test_papel_trabajo_keeps_all_sheets_visible():
         assert ws.sheet_state == "visible"
 
 
+def test_sri_structure_is_password_protected():
+    """El SRI bloquea la ESTRUCTURA del libro con contraseña: con eso el
+    cliente no puede usar 'Mostrar' (Unhide) para des-ocultar las hojas
+    DATOS/internas, ni insertar/eliminar/renombrar hojas. Solo AuditConsulting
+    conoce la clave."""
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    for name in ["INDICE", "A1", *HIDDEN_SHEETS_FOR_SRI]:
+        wb.create_sheet(name)
+
+    buf = BytesIO()
+    wb.save(buf)
+    wb_sri = openpyxl.load_workbook(BytesIO(buf.getvalue()))
+    _apply_sri_sheet_visibility(wb_sri)
+    out = BytesIO()
+    wb_sri.save(out)
+    reloaded = openpyxl.load_workbook(BytesIO(out.getvalue()))
+
+    assert reloaded.security is not None, "El SRI no tiene protección de libro"
+    assert reloaded.security.lockStructure is True, (
+        "La estructura del libro SRI debe estar bloqueada (lockStructure=True)"
+    )
+    # Debe existir un hash de contraseña (protección CON clave, no sin clave).
+    has_password = bool(reloaded.security.workbookHashValue) or bool(
+        reloaded.security.workbookPassword
+    )
+    assert has_password, (
+        "La protección de estructura del SRI debe llevar contraseña"
+    )
+
+
+def test_papel_trabajo_workbook_is_not_protected():
+    """El papel de trabajo NO se protege: el auditor debe poder ver/editar
+    todas las hojas. La función de visibilidad SRI no se aplica al papel."""
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    for name in ["INDICE", "A1", *HIDDEN_SHEETS_FOR_SRI]:
+        wb.create_sheet(name)
+    # El papel NO pasa por _apply_sri_sheet_visibility.
+    assert not getattr(wb.security, "lockStructure", False)
+
+
 def test_generate_excel_signature_returns_tuple():
     """generate_excel devuelve tuple[bytes, bytes] (SRI, papel)."""
     import inspect

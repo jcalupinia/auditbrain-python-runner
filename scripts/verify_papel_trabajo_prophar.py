@@ -89,6 +89,18 @@ def _check_split(bytes_sri: bytes, bytes_papel: bytes) -> list[str]:
             f"Excel SRI: la hoja activa '{wb_sri.active.title}' está oculta"
         )
 
+    # CHECK: la estructura del SRI debe estar bloqueada CON contraseña, para
+    # que el cliente no pueda des-ocultar las hojas con "Mostrar".
+    sec = wb_sri.security
+    if sec is None or not sec.lockStructure:
+        errors.append("Excel SRI: la estructura del libro NO está bloqueada")
+    elif not (sec.workbookHashValue or sec.workbookPassword):
+        errors.append("Excel SRI: la estructura está bloqueada SIN contraseña")
+
+    # CHECK: el papel de trabajo NO debe estar protegido (el auditor edita libre)
+    if wb_papel.security is not None and wb_papel.security.lockStructure:
+        errors.append("Papel trabajo: NO debería tener la estructura bloqueada")
+
     # CHECK: en el papel de trabajo, esas mismas hojas siguen VISIBLES
     for name in HIDDEN_SHEETS_FOR_SRI:
         if name in wb_papel.sheetnames and wb_papel[name].sheet_state != "visible":

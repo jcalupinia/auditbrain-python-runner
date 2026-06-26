@@ -189,9 +189,19 @@ no estorban la vista; el contenido referenciado sigue disponible para Excel.
 - La constante `HIDDEN_SHEETS_FOR_SRI` define qué hojas se **ocultan** en el
   archivo SRI (alias retrocompat: `INTERNAL_SHEETS_FOR_SRI`). Si se agregan
   nuevas hojas internas/datos, agregarlas a esa tupla.
-- `_apply_sri_sheet_visibility(wb)` aplica `sheet_state="hidden"` y deja una
-  hoja visible como activa (`INDICE`), porque Excel avisa si abre un libro
-  cuya hoja activa está oculta.
+- `_apply_sri_sheet_visibility(wb)` aplica `sheet_state="hidden"`, deja una
+  hoja visible como activa (`INDICE`, porque Excel avisa si abre un libro
+  cuya hoja activa está oculta) y **bloquea la estructura del libro con
+  contraseña**.
+- `_protect_workbook_structure(wb)` aplica `lockStructure=True` +
+  `set_workbook_password(...)`. Con la estructura bloqueada, el cliente NO
+  puede usar "Mostrar"/Unhide para des-ocultar las hojas ni insertar/
+  eliminar/renombrar hojas. La clave sale de la env var
+  `ICT_SRI_PROTECT_PASSWORD` (default `DEFAULT_SRI_PROTECT_PASSWORD` =
+  `AuditIA-ICT-2025`). Solo AuditConsulting debe conocerla. NOTA: la
+  protección de estructura de Excel NO es cifrado fuerte (es rompible con
+  herramientas); es una barrera para que el cliente no manipule por error
+  las hojas fuente. El papel de trabajo NO se protege.
 - `process_session` guarda en disco: `ICT_SRI.xlsx`, `ICT_PAPEL_TRABAJO.xlsx`,
   y por compat `ICT.xlsx` (= SRI).
 - Endpoint `GET /sessions/{id}/download` devuelve el SRI.
