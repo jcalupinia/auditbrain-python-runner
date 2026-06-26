@@ -15,10 +15,14 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 from backend.app.aud.obligaciones_fiscales import file_storage
 from backend.app.aud.obligaciones_fiscales.schemas import JobOut
 from backend.app.auth import device as device_mod
-from backend.app.auth.deps import require_client_with_device
+from backend.app.auth.deps import require_client_with_device, _session_check_enabled
 from backend.app.auth.jwt_tokens import create_access_token
-from backend.app.auth.models import ClientDevice, User
-from backend.app.auth.service import start_new_session, invalidate_session
+from backend.app.auth.models import ClientDevice, Role, User
+from backend.app.auth.service import (
+    start_new_session,
+    invalidate_session,
+    has_active_session,
+)
 from backend.app.client_portal import jobs as cp_jobs
 from backend.app.client_portal import service as cp_service
 from backend.app.client_portal.schemas import (
@@ -62,6 +66,29 @@ def client_login(
             status.HTTP_401_UNAUTHORIZED,
             detail="Credenciales incorrectas.",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Sesión única "el primero gana": si esta cuenta ya tiene una sesión viva,
+    # se rechaza este segundo login (no se expulsa al que ya está dentro).
+    # Aplica solo a clientes (rol client); los operadores admin/user quedan
+    # exentos. La sesión se libera con "Salir" (logout) o automáticamente tras
+    # ~10 min de inactividad (ver has_active_session / touch_session).
+    if (
+        user.role == Role.client
+        and _session_check_enabled()
+        and has_active_session(user)
+    ):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "session_in_use",
+                "message": (
+                    "Esta cuenta ya está siendo usada en este momento. Para "
+                    "ingresar, pida a la persona que está usando el sistema que "
+                    "cierre sesión (botón «Salir»). Si nadie la está usando, la "
+                    "sesión se libera automáticamente en unos minutos."
+                ),
+            },
         )
 
     fingerprint = device_mod.compute_fingerprint_hash(

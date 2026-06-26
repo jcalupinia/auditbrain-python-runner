@@ -123,3 +123,83 @@ def test_invalidate_session_clears_sid(db_session):
     invalidate_session(db_session, user=u)
     db_session.refresh(u)
     assert u.current_session_id is None
+
+
+# ---------------------------------------------------------------------------
+# Sesión única "el primero gana" (first-wins) + auto-liberación por inactividad
+# ---------------------------------------------------------------------------
+import datetime as _dt
+
+
+def test_has_active_session_true_when_recent(db_session):
+    from backend.app.auth.service import has_active_session
+    email = _unique_email("active-recent")
+    u = get_user_by_email(db_session, email) or create_user(
+        db_session, email=email, password="pwd123!", role=Role.client
+    )
+    start_new_session(db_session, user=u)
+    db_session.refresh(u)
+    assert has_active_session(u) is True
+
+
+def test_has_active_session_false_when_no_session(db_session):
+    from backend.app.auth.service import has_active_session
+    email = _unique_email("active-none")
+    u = get_user_by_email(db_session, email) or create_user(
+        db_session, email=email, password="pwd123!", role=Role.client
+    )
+    invalidate_session(db_session, user=u)
+    db_session.refresh(u)
+    assert has_active_session(u) is False
+
+
+def test_has_active_session_false_when_stale(db_session):
+    """Tras > timeout de inactividad la sesión se considera libre (liberación
+    automática para no bloquear la cuenta si alguien cerró sin 'Salir')."""
+    from backend.app.auth.service import has_active_session
+    email = _unique_email("active-stale")
+    u = get_user_by_email(db_session, email) or create_user(
+        db_session, email=email, password="pwd123!", role=Role.client
+    )
+    start_new_session(db_session, user=u)
+    u.session_started_at = (
+        _dt.datetime.now(_dt.timezone.utc).replace(tzinfo=None)
+        - _dt.timedelta(minutes=11)
+    )
+    db_session.add(u)
+    db_session.commit()
+    db_session.refresh(u)
+    assert has_active_session(u) is False
+
+
+def test_touch_session_refreshes_activity(db_session):
+    """touch_session (heartbeat) refresca la última actividad → la sesión
+    vuelve a contar como viva aunque estuviera por expirar."""
+    from backend.app.auth.service import has_active_session, touch_session
+    email = _unique_email("touch")
+    u = get_user_by_email(db_session, email) or create_user(
+        db_session, email=email, password="pwd123!", role=Role.client
+    )
+    start_new_session(db_session, user=u)
+    u.session_started_at = (
+        _dt.datetime.now(_dt.timezone.utc).replace(tzinfo=None)
+        - _dt.timedelta(minutes=8)
+    )
+    db_session.add(u)
+    db_session.commit()
+    touch_session(db_session, user=u)
+    db_session.refresh(u)
+    assert has_active_session(u) is True
+
+
+def test_touch_session_noop_without_active_session(db_session):
+    """Si no hay sesión activa, touch_session no reactiva nada."""
+    from backend.app.auth.service import has_active_session, touch_session
+    email = _unique_email("touch-noop")
+    u = get_user_by_email(db_session, email) or create_user(
+        db_session, email=email, password="pwd123!", role=Role.client
+    )
+    invalidate_session(db_session, user=u)
+    touch_session(db_session, user=u)
+    db_session.refresh(u)
+    assert has_active_session(u) is False

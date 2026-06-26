@@ -28,6 +28,27 @@ export function AuthProvider({ children }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // Heartbeat de sesión única: mientras la pestaña esté abierta y haya un
+  // usuario logueado, hacemos un ping cada 3 min (/me → touch_session en el
+  // backend) para mantener viva la sesión. El backend libera la cuenta tras
+  // ~10 min de inactividad; así, mientras la persona tiene el portal abierto
+  // nadie más puede entrar, pero si cierra el navegador la sesión se libera
+  // sola y otro podrá ingresar (regla "el primero gana").
+  useEffect(() => {
+    if (!user || user.password_reset_required) return;
+    const id = setInterval(() => {
+      if (!api.getToken()) return;
+      api.me().catch((e) => {
+        if (e.code === "session_invalidated") {
+          setSessionInvalidated(true);
+          setUser(null);
+          api.setToken(null);
+        }
+      });
+    }, 3 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [user]);
+
   const login = async (email, password) => {
     const r = await api.login(email, password);
     // Si el usuario debe cambiar contraseña, NO llamamos a me() todavía:

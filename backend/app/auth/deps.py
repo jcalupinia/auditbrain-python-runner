@@ -205,6 +205,11 @@ def require_client_with_device(
                     "message": "Su sesión fue cerrada porque inició sesión desde otro lugar.",
                 },
             )
+        # Heartbeat: refresca la última actividad para mantener viva la sesión
+        # mientras el cliente usa el sistema. Si deja de haber requests, la
+        # sesión se libera sola tras el timeout de inactividad (~10 min) y otra
+        # persona podrá ingresar (regla "el primero gana").
+        service.touch_session(db, user=user)
 
     # Layer 2: device binding (puede deshabilitarse via env)
     if not _device_check_enabled():

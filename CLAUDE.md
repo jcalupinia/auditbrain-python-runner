@@ -216,6 +216,37 @@ no estorban la vista; el contenido referenciado sigue disponible para Excel.
 **Verificación empírica:** `python scripts/verify_papel_trabajo_prophar.py`
 (modo synthetic en CI, modo `--ruc <RUC>` con sesión real en producción).
 
+## Sesión única del portal cliente — "el primero gana"
+
+**REGLA OBLIGATORIA (activada 2026-06-26):** una cuenta del portal cliente
+(rol `client`) solo puede estar EN USO por una persona a la vez. Si ya hay una
+sesión viva y alguien intenta entrar con la misma cuenta, el **segundo login se
+BLOQUEA** (HTTP 409, `code: "session_in_use"`) con el mensaje: *"Esta cuenta ya
+está siendo usada… pida a la persona que está usando el sistema que cierre
+sesión (botón «Salir»)…"*. NO se expulsa al que ya está dentro ("el primero
+gana", a diferencia del comportamiento previo "el último gana").
+
+- Operadores `admin`/`user` quedan EXENTOS (entran al portal con su mismo usuario).
+- La sesión se libera con **logout** (botón Salir) o automáticamente tras
+  **`CLIENT_PORTAL_SESSION_TIMEOUT_MINUTES`** (default 10) de inactividad.
+- La "actividad" se refresca en cada request del cliente
+  (`require_client_with_device` → `service.touch_session`). El frontend hace un
+  **heartbeat** cada 3 min (`/client/auth/me`) para mantener viva la sesión
+  mientras la pestaña esté abierta; al cerrarla, deja de refrescarse y caduca sola.
+- Campos: `User.current_session_id` + `User.session_started_at` (este último
+  reutilizado como "última actividad"). `auth.service.has_active_session()`
+  decide si está viva; `auth.service.touch_session()` la refresca.
+
+**Toggles (env vars en Render):**
+- `CLIENT_PORTAL_SESSION_CHECK_ENABLED` = "true" (ON). "false" → modo multi-sesión (QA).
+- `CLIENT_PORTAL_SESSION_TIMEOUT_MINUTES` = "10".
+- `CLIENT_PORTAL_DEVICE_CHECK_ENABLED` sigue "false" (dispositivo único es aparte).
+
+**Tests:** `tests/test_auth_session.py` (has_active_session / touch_session) y
+`tests/test_client_portal_login.py`
+(`test_second_login_blocked_while_first_active`, `test_login_allowed_after_logout`,
+`test_login_allowed_after_inactivity_timeout`).
+
 ## Interpretación IA con disclaimer obligatorio
 
 Toda interpretación generada por LLM en artefactos del ICT

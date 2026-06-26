@@ -176,11 +176,21 @@ services:
       # Cuando termine la fase de pruebas y se vaya a producción real,
       # poner ambas a "true" (o eliminar las líneas) para reactivar la
       # triple seguridad: JWT + sesión única + device binding.
+      # Dispositivo único: sigue APAGADO (el cliente puede entrar desde
+      # laptop/oficina/casa). Solo exigimos SESIÓN única (abajo).
       - key: CLIENT_PORTAL_DEVICE_CHECK_ENABLED
         value: "false"
 
+      # Sesión única "el primero gana" (ACTIVADA 2026-06-26): una cuenta solo
+      # puede estar en uso por una persona a la vez. El segundo login se
+      # bloquea con mensaje "pida al usuario que está usando que salga". La
+      # sesión se libera con logout o tras CLIENT_PORTAL_SESSION_TIMEOUT_MINUTES
+      # de inactividad (heartbeat del frontend cada 3 min la mantiene viva).
       - key: CLIENT_PORTAL_SESSION_CHECK_ENABLED
-        value: "false"
+        value: "true"
+
+      - key: CLIENT_PORTAL_SESSION_TIMEOUT_MINUTES
+        value: "10"
 
       # Admin inicial (idempotente; se crea al primer arranque). Tras
       # crear el admin puedes vaciar la contraseña del dashboard.

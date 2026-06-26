@@ -110,11 +110,14 @@ def test_login_with_wrong_credentials_returns_401(client, db_session, org_and_cl
 
 
 # ---------------------------------------------------------------------------
-# Task 10: Session uniqueness E2E test
+# Sesión única "el primero gana" (first-wins): el segundo login se BLOQUEA
+# mientras el primero tiene una sesión viva; el primero NO es expulsado.
 # ---------------------------------------------------------------------------
 
 
-def test_second_login_invalidates_first_session(client, db_session, org_and_client):
+def test_second_login_blocked_while_first_active(client, db_session, org_and_client):
+    """Regla 'el primero gana': si ya hay una sesión viva, el segundo login
+    recibe 409 session_in_use y el primero sigue dentro."""
     _, cli = org_and_client
     email = _unique_email("dual")
     user, temp_pwd = create_portal_user(db_session, client_id=cli.id, email=email)
@@ -125,29 +128,84 @@ def test_second_login_invalidates_first_session(client, db_session, org_and_clie
     )
     assert r_a.status_code == 200, r_a.json()
     token_a = r_a.json()["access_token"]
-
-    # Retrieve the device_id cookie set during the first login.
-    # TestClient may not auto-forward cookies on re-POST; pass it explicitly.
     device_id_cookie = r_a.cookies.get("device_id")
 
-    # Second login from same device: must succeed using the existing device_id cookie.
+    # Segundo login (misma cuenta, sesión A viva) → 409 bloqueado.
+    r_b = client.post(
+        "/api/v1/client/auth/login",
+        data={"username": email, "password": temp_pwd},
+        cookies={"device_id": device_id_cookie} if device_id_cookie else {},
+    )
+    assert r_b.status_code == 409, r_b.json()
+    detail = r_b.json()["detail"]
+    assert isinstance(detail, dict) and detail["code"] == "session_in_use"
+
+    # El primero SIGUE dentro: /me con token_a → 200.
+    r_check = client.get(
+        "/api/v1/client/auth/me",
+        headers={"Authorization": f"Bearer {token_a}"},
+        cookies={"device_id": device_id_cookie} if device_id_cookie else {},
+    )
+    assert r_check.status_code == 200, r_check.json()
+
+
+def test_login_allowed_after_logout(client, db_session, org_and_client):
+    """Tras 'Salir' (logout) la cuenta queda libre para que otro entre."""
+    _, cli = org_and_client
+    email = _unique_email("after-logout")
+    user, temp_pwd = create_portal_user(db_session, client_id=cli.id, email=email)
+
+    r_a = client.post(
+        "/api/v1/client/auth/login",
+        data={"username": email, "password": temp_pwd},
+    )
+    assert r_a.status_code == 200, r_a.json()
+    token_a = r_a.json()["access_token"]
+    device_id_cookie = r_a.cookies.get("device_id")
+
+    r_logout = client.post(
+        "/api/v1/client/auth/logout",
+        headers={"Authorization": f"Bearer {token_a}"},
+        cookies={"device_id": device_id_cookie} if device_id_cookie else {},
+    )
+    assert r_logout.status_code == 200, r_logout.json()
+
+    # Ahora un nuevo login debe ser permitido (sesión liberada).
     r_b = client.post(
         "/api/v1/client/auth/login",
         data={"username": email, "password": temp_pwd},
         cookies={"device_id": device_id_cookie} if device_id_cookie else {},
     )
     assert r_b.status_code == 200, r_b.json()
-    token_b = r_b.json()["access_token"]
-    assert token_a != token_b
 
-    # Token A must be invalidated: /me with token_a should return 401.
-    # Pass device_id so the request reaches the session-check layer.
-    r_check = client.get(
-        "/api/v1/client/auth/me",
-        headers={"Authorization": f"Bearer {token_a}"},
+
+def test_login_allowed_after_inactivity_timeout(client, db_session, org_and_client):
+    """Si la sesión queda 'colgada' (sin logout) pero pasa el timeout de
+    inactividad, otra persona puede ingresar (auto-liberación)."""
+    import datetime
+    _, cli = org_and_client
+    email = _unique_email("after-timeout")
+    user, temp_pwd = create_portal_user(db_session, client_id=cli.id, email=email)
+
+    r_a = client.post(
+        "/api/v1/client/auth/login",
+        data={"username": email, "password": temp_pwd},
+    )
+    assert r_a.status_code == 200, r_a.json()
+    device_id_cookie = r_a.cookies.get("device_id")
+
+    # Simular inactividad: última actividad hace 11 min (> timeout de 10).
+    db_session.refresh(user)
+    user.session_started_at = (
+        datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        - datetime.timedelta(minutes=11)
+    )
+    db_session.add(user)
+    db_session.commit()
+
+    r_b = client.post(
+        "/api/v1/client/auth/login",
+        data={"username": email, "password": temp_pwd},
         cookies={"device_id": device_id_cookie} if device_id_cookie else {},
     )
-    assert r_check.status_code == 401
-    body = r_check.json()
-    if isinstance(body.get("detail"), dict):
-        assert body["detail"]["code"] == "session_invalidated"
+    assert r_b.status_code == 200, r_b.json()

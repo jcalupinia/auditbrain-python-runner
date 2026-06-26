@@ -130,6 +130,56 @@ def invalidate_session(db: Session, *, user: User) -> None:
     db.commit()
 
 
+# ---------------------------------------------------------------------------
+# Sesión única "el primero gana" (first-wins) + auto-liberación por inactividad
+# ---------------------------------------------------------------------------
+# Regla de negocio: una cuenta de cliente solo puede estar en uso por UNA
+# persona a la vez. Si ya hay una sesión viva, el segundo login se rechaza
+# (ver client_portal.router). La sesión se considera "viva" mientras la
+# ÚLTIMA ACTIVIDAD (campo session_started_at, que se refresca en cada request
+# del cliente vía touch_session) sea más reciente que el timeout de
+# inactividad. Así, si alguien cierra el navegador sin "Salir", la cuenta se
+# libera sola pasado el timeout. Default: 10 minutos.
+DEFAULT_SESSION_TIMEOUT_MINUTES = 10
+
+
+def _session_timeout_minutes() -> int:
+    try:
+        return int(os.getenv("CLIENT_PORTAL_SESSION_TIMEOUT_MINUTES",
+                             str(DEFAULT_SESSION_TIMEOUT_MINUTES)))
+    except (TypeError, ValueError):
+        return DEFAULT_SESSION_TIMEOUT_MINUTES
+
+
+def has_active_session(user: User) -> bool:
+    """True si el usuario tiene una sesión viva (no expirada por inactividad).
+
+    Viva = current_session_id seteado Y última actividad dentro del timeout.
+    """
+    if not user.current_session_id or not user.session_started_at:
+        return False
+    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    return (now - user.session_started_at) < datetime.timedelta(
+        minutes=_session_timeout_minutes()
+    )
+
+
+def touch_session(db: Session, *, user: User) -> None:
+    """Heartbeat: refresca la marca de última actividad de la sesión activa.
+
+    Se llama en cada request autenticado del cliente para mantener viva la
+    sesión mientras la persona está usando el sistema. No hace nada si no hay
+    sesión activa (evita "revivir" una sesión ya cerrada).
+    """
+    if not user.current_session_id:
+        return
+    user.session_started_at = datetime.datetime.now(
+        datetime.timezone.utc
+    ).replace(tzinfo=None)
+    db.add(user)
+    db.commit()
+
+
 def ensure_bootstrap_admin(db: Session) -> None:
     """Crea el admin inicial desde el entorno si no existe (idempotente)."""
     email = os.getenv("AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
