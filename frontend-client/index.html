@@ -10,6 +10,17 @@
     * { box-sizing: border-box; }
     a { color: #0a2540; }
   </style>
+  <script>
+    // Aplica el tema de fondo ANTES de montar React para evitar el parpadeo
+    // inicial. Default: "navy" (Azul medio). El usuario puede cambiarlo y la
+    // elección se guarda en localStorage (ab_portal_theme).
+    (function () {
+      try {
+        var t = localStorage.getItem("ab_portal_theme") || "navy";
+        if (t && t !== "dark") document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
   <div id="root"></div>
