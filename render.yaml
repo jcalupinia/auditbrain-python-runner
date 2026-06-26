@@ -225,6 +225,15 @@ services:
     staticPublishPath: frontend-client/dist
     pullRequestPreviewsEnabled: false
     autoDeploy: true
+    # Dominio propio del portal de clientes. Para que quede activo:
+    #   1) En el DNS de audit-ia.ec, apuntar 'clientes' con un CNAME al
+    #      destino que Render muestra en Settings → Custom Domains.
+    #   2) Agregar https://clientes.audit-ia.ec a CORS_ALLOW_ORIGINS del
+    #      backend (auditbrain-python-runner, env var con sync:false).
+    # Con el dominio aquí, cada push a main reconstruye y sirve este SPA
+    # automáticamente bajo clientes.audit-ia.ec.
+    domains:
+      - clientes.audit-ia.ec
     envVars:
       - key: VITE_API_BASE
         value: "https://auditbrain-python-runner.onrender.com"
