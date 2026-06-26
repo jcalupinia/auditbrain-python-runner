@@ -72,6 +72,16 @@ export async function me() {
   );
 }
 
+// Clave que bloquea la estructura del Excel SRI del ICT. Solo admin (el
+// backend valida el rol; si no es admin devuelve 403).
+export async function getSriProtectionKey() {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/auth/sri-protection-key`, {
+      headers: authHeaders(),
+    })
+  );
+}
+
 export async function runPython(script, inputs) {
   return parse(
     await fetch(`${API_BASE}/api/v1/python/run`, {

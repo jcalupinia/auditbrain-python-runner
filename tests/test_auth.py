@@ -116,6 +116,38 @@ def test_runner_allows_admin_jwt(client):
     assert r.json()["result"] == 42
 
 
+def test_admin_gets_sri_protection_key(client):
+    """El admin puede leer la contraseña de protección del Excel SRI."""
+    email, pw = _mk(Role.admin)
+    tok = _token(client, email, pw)
+    r = client.get(
+        "/api/v1/auth/sri-protection-key",
+        headers={"Authorization": f"Bearer {tok}"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert isinstance(body["password"], str) and body["password"], (
+        "Debe devolver la contraseña no vacía"
+    )
+
+
+def test_non_admin_cannot_get_sri_protection_key(client):
+    """Un usuario NO admin NO puede leer la contraseña de protección SRI."""
+    email, pw = _mk(Role.user)
+    tok = _token(client, email, pw)
+    r = client.get(
+        "/api/v1/auth/sri-protection-key",
+        headers={"Authorization": f"Bearer {tok}"},
+    )
+    assert r.status_code == 403
+
+
+def test_sri_protection_key_requires_auth(client):
+    """Sin token, el endpoint de la clave SRI responde 401."""
+    r = client.get("/api/v1/auth/sri-protection-key")
+    assert r.status_code == 401
+
+
 class _FakeDocResp:
     status_code = 200
     text = ""

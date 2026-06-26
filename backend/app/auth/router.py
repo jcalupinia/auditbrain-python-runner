@@ -36,6 +36,30 @@ def me(current: User = Depends(get_current_user)):
     return current
 
 
+@router.get("/sri-protection-key", dependencies=[Depends(require_admin)])
+def get_sri_protection_key():
+    """Devuelve la contraseña que bloquea la estructura del Excel SRI del ICT.
+
+    Solo accesible para rol admin. La clave la conoce únicamente
+    AuditConsulting; sirve para des-proteger un Excel SRI si fuera necesario
+    (Excel: Revisar → Proteger libro). Sale de la env var
+    ICT_SRI_PROTECT_PASSWORD o del default de la firma. Import perezoso de
+    ict.service para no acoplar el módulo auth al módulo ict.
+    """
+    import os
+    from backend.app.ict.service import DEFAULT_SRI_PROTECT_PASSWORD
+
+    password = os.getenv("ICT_SRI_PROTECT_PASSWORD", DEFAULT_SRI_PROTECT_PASSWORD)
+    return {
+        "password": password,
+        "scope": "Excel SRI del ICT (estructura del libro bloqueada)",
+        "note": (
+            "Solo AuditConsulting. Para des-proteger: en Excel, "
+            "Revisar → Proteger libro → escribir esta clave."
+        ),
+    }
+
+
 @router.post(
     "/users",
     response_model=UserOut,

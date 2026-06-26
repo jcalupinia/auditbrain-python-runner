@@ -593,6 +593,59 @@ function Security({ user }) {
   );
 }
 
+/* ---------------- Mi Perfil (admin) ----------------
+   Muestra la identidad del operador y la clave de protección de los Excel
+   SRI del ICT. La clave solo la sirve el backend a usuarios con rol admin
+   (GET /auth/sri-protection-key), y esta vista solo aparece en el menú para
+   admins. Se muestra oculta por defecto con un botón "Mostrar". */
+function Profile({ user }) {
+  const [creds, setCreds] = useState(null);
+  const [err, setErr] = useState("");
+  const [reveal, setReveal] = useState(false);
+
+  useEffect(() => {
+    api.getSriProtectionKey().then(setCreds).catch((e) => setErr(e.message));
+  }, []);
+
+  return (
+    <>
+      <ViewHead code="PRF" title="Mi Perfil"
+        sub="Cuenta del operador y credenciales de la firma." />
+      <Panel title="Identidad" max={680}>
+        <div className="kv">
+          <span className="k">Operador</span><span className="v">{user.email}</span>
+          <span className="k">Rol</span><span className="v">{user.role}</span>
+          <span className="k">Endpoint API</span>
+          <span className="v mono">{api.getApiBase()}</span>
+        </div>
+      </Panel>
+      <Panel title="🔒 Clave de protección · Excel SRI (ICT)" max={680}>
+        <p className="muted">
+          Contraseña que bloquea la estructura de los Excel «para el SRI» del
+          ICT: impide que el cliente des-oculte las hojas DATOS/internas. Solo
+          AuditConsulting debe conocerla. Para des-proteger un archivo en
+          Excel: <b>Revisar → Proteger libro</b> → escribir esta clave.
+        </p>
+        {err && <div className="err">{err}</div>}
+        {creds ? (
+          <>
+            {reveal ? (
+              <pre style={{ fontSize: 18, userSelect: "all" }}>{creds.password}</pre>
+            ) : (
+              <pre style={{ fontSize: 18, letterSpacing: 2 }}>••••••••••••</pre>
+            )}
+            <button className="btn" onClick={() => setReveal((r) => !r)}>
+              {reveal ? "Ocultar clave" : "Mostrar clave"}
+            </button>
+          </>
+        ) : (
+          !err && <p className="muted">Cargando…</p>
+        )}
+      </Panel>
+    </>
+  );
+}
+
 const DOC_FORMATS = [
   { value: "pdf", label: "PDF" },
   { value: "word", label: "Word (.docx)" },
@@ -1228,6 +1281,7 @@ export default function App() {
     { id: "workspaces", code: "WKS", label: "Workspaces", admin: true },
     { id: "inscripciones", code: "INS", label: "Inscripciones", admin: true },
     { id: "users", code: "USR", label: "Cuentas", admin: true },
+    { id: "profile", code: "PRF", label: "Mi Perfil", admin: true },
     { id: "security", code: "SEC", label: "Seguridad" },
   ].filter((n) => !n.admin || isAdmin);
 
@@ -1260,6 +1314,8 @@ export default function App() {
           : <Dashboard user={user} health={hp} />;
       case "inscripciones":
         return isAdmin ? <Inscripciones /> : <Dashboard user={user} health={hp} />;
+      case "profile":
+        return isAdmin ? <Profile user={user} /> : <Dashboard user={user} health={hp} />;
       case "security": return <Security user={user} />;
       case "documents": return (
         <><ViewHead code="DOC" title="Generación Documental"
