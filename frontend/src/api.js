@@ -184,6 +184,53 @@ export async function setPortalUserActive(clientId, userId, active) {
   );
 }
 
+// --- Carga masiva de clientes (licencias) + gestión global de portal ---
+export async function bulkUploadPortalUsers(file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  return parse(
+    await fetch(`${API_BASE}/api/v1/staff/portal-users/bulk`, {
+      method: "POST",
+      headers: authHeaders(), // el browser fija el boundary multipart
+      body: fd,
+    })
+  );
+}
+
+export async function listAllPortalUsers() {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/staff/portal-users`, { headers: authHeaders() })
+  );
+}
+
+export async function resetPortalUserById(userId) {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/staff/portal-users/${userId}/reset-password`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+    })
+  );
+}
+
+export async function setPortalUserActiveById(userId, active) {
+  const op = active ? "enable" : "disable";
+  return parse(
+    await fetch(`${API_BASE}/api/v1/staff/portal-users/${userId}/${op}`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+    })
+  );
+}
+
+export async function deletePortalUserById(userId) {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/staff/portal-users/${userId}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    })
+  );
+}
+
 // Genera un documento vía el endpoint existente /api/v1/documents/generate.
 // Solo JWT (Bearer); la API Key nunca se envía desde el navegador.
 export async function generateDocument({ format, title, content }) {

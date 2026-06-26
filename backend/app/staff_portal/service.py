@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import re
+from io import BytesIO
+
+import openpyxl
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.auth import device as device_mod
+from backend.app.auth import service as auth_service
 from backend.app.auth.models import ClientDevice, Role, User
 from backend.app.auth.service import invalidate_session
+from backend.app.client_portal import service as cp_service
+from backend.app.context.models import Client
 
 
 def list_portal_users(db: Session, *, client_id: int) -> list[User]:
@@ -45,3 +52,135 @@ def reset_all_devices(db: Session, *, user: User, revoked_by: User) -> int:
 
 def force_logout(db: Session, *, user: User) -> None:
     invalidate_session(db, user=user)
+
+
+# ---------------------------------------------------------------------------
+# Carga masiva de clientes (licencias) — UNA cuenta por correo único
+# ---------------------------------------------------------------------------
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def parse_clients_workbook(file_bytes: bytes) -> list[dict]:
+    """Parsea un .xlsx con columnas CLIENTE | RUC | Email Contador (en ese
+    orden). Salta filas en blanco y la fila de encabezado. Devuelve una lista
+    de dicts {cliente, ruc, email} con los valores en texto."""
+    wb = openpyxl.load_workbook(BytesIO(file_bytes), data_only=True)
+    ws = wb.active
+    out: list[dict] = []
+    for row in ws.iter_rows(values_only=True):
+        if not row or not row[0]:
+            continue
+        cliente = str(row[0]).strip()
+        if cliente.upper() == "CLIENTE":  # encabezado
+            continue
+        ruc = str(row[1]).strip() if len(row) > 1 and row[1] is not None else ""
+        email = str(row[2]).strip() if len(row) > 2 and row[2] is not None else ""
+        out.append({"cliente": cliente, "ruc": ruc, "email": email})
+    return out
+
+
+def _get_or_create_client(
+    db: Session, *, organization_id: int, name: str, tax_id: str | None
+) -> Client:
+    """Devuelve un Client por (organización, nombre); lo crea si no existe.
+    Maneja la restricción única (organization_id, name) reutilizando el
+    existente en vez de fallar."""
+    name = name[:200]
+    existing = db.execute(
+        select(Client).where(
+            Client.organization_id == organization_id, Client.name == name
+        )
+    ).scalar_one_or_none()
+    if existing:
+        return existing
+    client = Client(
+        organization_id=organization_id,
+        name=name,
+        tax_id=(tax_id or None),
+        is_active=True,
+    )
+    db.add(client)
+    db.commit()
+    db.refresh(client)
+    return client
+
+
+def bulk_create_portal_clients(
+    db: Session, *, organization_id: int, rows: list[dict]
+) -> dict:
+    """Crea cuentas de portal en bloque: UNA por correo único.
+
+    - Correos inválidos/ausentes → ``omitidos`` (con motivo).
+    - Correos ya registrados → ``existentes`` (no se duplican).
+    - Resto → ``creados`` con la clave temporal generada (mostrar una vez).
+
+    Cuando varios clientes comparten el mismo correo (un contador), se crea una
+    sola cuenta y se listan todas sus empresas asociadas.
+    """
+    creados: list[dict] = []
+    omitidos: list[dict] = []
+    existentes: list[dict] = []
+
+    # Agrupar por correo válido, preservando orden de aparición.
+    by_email: dict[str, list[dict]] = {}
+    for row in rows:
+        email = (row.get("email") or "").strip().lower()
+        if not _EMAIL_RE.match(email):
+            omitidos.append({
+                "cliente": row.get("cliente", ""),
+                "ruc": row.get("ruc", ""),
+                "motivo": f"correo no válido: {row.get('email', '')!r}",
+            })
+            continue
+        by_email.setdefault(email, []).append(row)
+
+    for email, empresas in by_email.items():
+        if auth_service.get_user_by_email(db, email):
+            existentes.append({
+                "email": email,
+                "empresas": [e.get("cliente", "") for e in empresas],
+            })
+            continue
+        nombre = empresas[0].get("cliente", "") or email
+        if len(empresas) > 1:
+            nombre = f"{nombre} (+{len(empresas) - 1})"
+        ruc = empresas[0].get("ruc") or None
+        client = _get_or_create_client(
+            db, organization_id=organization_id, name=nombre, tax_id=ruc
+        )
+        user, temp = cp_service.create_portal_user(
+            db, client_id=client.id, email=email
+        )
+        creados.append({
+            "user_id": user.id,
+            "email": email,
+            "temp_password": temp,
+            "ruc": ruc or "",
+            "empresas": [e.get("cliente", "") for e in empresas],
+        })
+
+    return {"creados": creados, "omitidos": omitidos, "existentes": existentes}
+
+
+def list_all_portal_users(db: Session) -> list[dict]:
+    """Lista TODAS las cuentas de portal (rol client) con el nombre de su
+    cliente asociado, para la gestión global en el panel admin."""
+    users = list(
+        db.execute(
+            select(User).where(User.role == Role.client).order_by(User.email)
+        ).scalars()
+    )
+    out: list[dict] = []
+    for u in users:
+        cliente = ""
+        if u.client_id:
+            c = db.get(Client, u.client_id)
+            cliente = c.name if c else ""
+        out.append({
+            "id": u.id,
+            "email": u.email,
+            "is_active": u.is_active,
+            "password_reset_required": u.password_reset_required,
+            "cliente": cliente,
+        })
+    return out

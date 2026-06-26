@@ -32,6 +32,7 @@ api_router.include_router(tax_pu_router.router)
 api_router.include_router(canva.router)
 api_router.include_router(client_portal_router.router)
 api_router.include_router(staff_portal_router.router)
+api_router.include_router(staff_portal_router.global_router)
 api_router.include_router(ict_router)
 api_router.include_router(events_router.router)
 

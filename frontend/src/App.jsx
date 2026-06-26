@@ -370,6 +370,12 @@ function Users() {
   const [reveal, setReveal] = useState(null); // { who, temp }
   const [listErr, setListErr] = useState("");
 
+  // Carga masiva de clientes (licencias) + lista global de cuentas de portal
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkRes, setBulkRes] = useState(null);
+  const [allPortal, setAllPortal] = useState([]);
+  const [puFilter, setPuFilter] = useState("");
+
   async function loadOperators() {
     try { setOperators(await api.listOperators()); } catch (e) { setListErr(e.message); }
   }
@@ -380,8 +386,58 @@ function Users() {
     if (!cid) { setPortalUsers([]); return; }
     try { setPortalUsers(await api.listPortalUsers(cid)); } catch (e) { setListErr(e.message); }
   }
-  useEffect(() => { loadOperators(); loadClients(); }, []);
+  async function loadAllPortal() {
+    try { setAllPortal(await api.listAllPortalUsers()); } catch (e) { setListErr(e.message); }
+  }
+  useEffect(() => { loadOperators(); loadClients(); loadAllPortal(); }, []);
   useEffect(() => { loadPortalUsers(selClient); }, [selClient]);
+
+  async function doBulkUpload(e) {
+    e.preventDefault();
+    const f = e.target.elements.bulkfile.files[0];
+    if (!f) { setListErr("Selecciona el archivo Excel primero."); return; }
+    setBulkBusy(true); setBulkRes(null); setListErr("");
+    try {
+      const res = await api.bulkUploadPortalUsers(f);
+      setBulkRes(res);
+      loadAllPortal();
+    } catch (e2) { setListErr(e2.message); }
+    finally { setBulkBusy(false); }
+  }
+  function downloadCredsCsv(creados) {
+    const headers = ["Email", "Clave temporal", "Empresas", "RUC"];
+    const esc = (v) => { const s = String(v ?? ""); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const lines = [headers.join(",")];
+    for (const c of creados) {
+      lines.push([c.email, c.temp_password, (c.empresas || []).join(" / "), c.ruc].map(esc).join(","));
+    }
+    const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "credenciales_clientes.csv";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  }
+  async function resetGlobal(u) {
+    if (!window.confirm(`¿Resetear la clave de ${u.email}?`)) return;
+    setReveal(null); setListErr("");
+    try { const r = await api.resetPortalUserById(u.id); setReveal({ who: u.email, temp: r.temp_password }); }
+    catch (e) { setListErr(e.message); }
+  }
+  async function toggleGlobal(u) {
+    const next = !u.is_active;
+    if (!window.confirm(`¿${next ? "Habilitar" : "Deshabilitar"} a ${u.email}?`)) return;
+    setListErr("");
+    try { await api.setPortalUserActiveById(u.id, next); loadAllPortal(); }
+    catch (e) { setListErr(e.message); }
+  }
+  async function deleteGlobal(u) {
+    if (!window.confirm(`¿BORRAR definitivamente a ${u.email}?\nEsta acción es irreversible.`)) return;
+    if (!window.confirm(`Confirma de nuevo: se eliminará ${u.email}.`)) return;
+    setListErr("");
+    try { await api.deletePortalUserById(u.id); loadAllPortal(); }
+    catch (e) { setListErr(e.message); }
+  }
 
   async function submit(e) {
     e.preventDefault(); setMsg(""); setErr(""); setBusy(true);
@@ -514,8 +570,95 @@ function Users() {
         )}
       </Panel>
 
+      {/* Carga masiva de clientes (licencias) */}
+      <Panel title="📋 Carga masiva de clientes (licencias)" max={680}>
+        <p className="muted">
+          Sube el Excel con columnas <b>CLIENTE · RUC · Email Contador</b>. Se
+          crea <b>una cuenta por correo</b> (si un contador lleva varios
+          clientes, una sola cuenta). Los correos inválidos se omiten y se
+          reportan; los ya existentes no se duplican.
+        </p>
+        <form onSubmit={doBulkUpload}>
+          <input type="file" name="bulkfile" accept=".xlsx,.xls" />
+          <button className="btn primary" disabled={bulkBusy} style={{ marginTop: 10 }}>
+            {bulkBusy ? "Procesando…" : "Crear cuentas en bloque"}
+          </button>
+        </form>
+        {bulkRes && (
+          <div style={{ marginTop: 14 }}>
+            <div className="ok-msg">
+              Creadas: <b>{bulkRes.resumen.creados}</b> · Omitidas:{" "}
+              <b>{bulkRes.resumen.omitidos}</b> · Ya existían:{" "}
+              <b>{bulkRes.resumen.existentes}</b>
+            </div>
+            {bulkRes.creados.length > 0 && (
+              <>
+                <button className="btn" style={{ margin: "10px 0" }}
+                  onClick={() => downloadCredsCsv(bulkRes.creados)}>
+                  ⇩ Descargar credenciales (CSV)
+                </button>
+                <div className="kv">
+                  {bulkRes.creados.map((c) => (
+                    <div key={c.email} style={{ display: "flex", justifyContent: "space-between",
+                      gap: 12, padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
+                      <span>{c.email}<span className="muted"> · {(c.empresas || []).join(", ")}</span></span>
+                      <code style={{ userSelect: "all" }}>{c.temp_password}</code>
+                    </div>
+                  ))}
+                </div>
+                <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                  Comparte cada clave con su cliente por canal seguro — no se vuelven a mostrar.
+                </p>
+              </>
+            )}
+            {bulkRes.omitidos.length > 0 && (
+              <details style={{ marginTop: 10 }}>
+                <summary className="muted">{bulkRes.omitidos.length} omitidos (sin correo válido)</summary>
+                {bulkRes.omitidos.map((o, i) => (
+                  <div key={i} className="muted" style={{ fontSize: 13 }}>{o.cliente} — {o.motivo}</div>
+                ))}
+              </details>
+            )}
+          </div>
+        )}
+      </Panel>
+
+      {/* Todas las cuentas de cliente — gestión global */}
+      <Panel title={`Todas las cuentas de cliente (${allPortal.length})`} max={680}>
+        <input placeholder="Filtrar por correo o empresa…" value={puFilter}
+          onChange={(e) => setPuFilter(e.target.value)} style={{ marginBottom: 10 }} />
+        {allPortal.length === 0 ? (
+          <p className="muted">Aún no hay cuentas de cliente.</p>
+        ) : (
+          <div className="kv">
+            {allPortal
+              .filter((u) => {
+                const t = puFilter.trim().toLowerCase();
+                return !t || `${u.email} ${u.cliente}`.toLowerCase().includes(t);
+              })
+              .map((u) => (
+                <div key={u.id} style={{ display: "flex", alignItems: "center",
+                  justifyContent: "space-between", gap: 12, padding: "8px 0",
+                  borderBottom: "1px solid var(--line)" }}>
+                  <span>{u.email}
+                    <span className="muted"> · {u.cliente}{u.is_active ? "" : " · inactivo"}</span>
+                  </span>
+                  <span style={{ display: "flex", gap: 8 }}>
+                    <button className="btn" onClick={() => resetGlobal(u)}>Resetear</button>
+                    <button className="btn" onClick={() => toggleGlobal(u)}>
+                      {u.is_active ? "Deshabilitar" : "Habilitar"}
+                    </button>
+                    <button className="btn" style={{ color: "var(--danger)", borderColor: "var(--danger)" }}
+                      onClick={() => deleteGlobal(u)}>Borrar</button>
+                  </span>
+                </div>
+              ))}
+          </div>
+        )}
+      </Panel>
+
       {/* Clientes del portal + reset */}
-      <Panel title="Usuarios de portal (clientes)" max={680}>
+      <Panel title="Usuarios de portal (clientes) · por cliente" max={680}>
         <label>Cliente</label>
         <select value={selClient} onChange={(e) => setSelClient(e.target.value)}>
           <option value="">— Selecciona un cliente —</option>

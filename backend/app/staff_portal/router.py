@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
 from backend.app.auth import service as auth_service
 from backend.app.auth.deps import get_current_user, require_admin
-from backend.app.auth.models import User
+from backend.app.auth.models import Role, User
 from backend.app.client_portal import service as cp_service
 from backend.app.context.models import Client
 from backend.app.db.session import get_db
@@ -203,3 +203,102 @@ def force_logout_endpoint(
         raise HTTPException(404)
     sp_service.force_logout(db, user=user)
     return {"ok": True}
+
+
+# ===========================================================================
+# Gestión GLOBAL de cuentas de portal (sin depender de client_id):
+# carga masiva (licencias) + listado + disable/enable/reset/borrar por user_id.
+# Prefijo /staff/portal-users.
+# ===========================================================================
+global_router = APIRouter(prefix="/staff", tags=["staff-portal-global"])
+
+
+def _require_portal_user(db: Session, user_id: int) -> User:
+    user = db.get(User, user_id)
+    if user is None or user.role != Role.client:
+        raise HTTPException(404, detail="Cuenta de portal (cliente) no encontrada.")
+    return user
+
+
+@global_router.post(
+    "/portal-users/bulk",
+    dependencies=[Depends(require_admin)],
+)
+async def bulk_create_portal_users_endpoint(
+    file: UploadFile = File(...),
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Carga masiva de cuentas de portal desde un Excel (CLIENTE | RUC | Email
+    Contador). Crea UNA cuenta por correo único; omite correos inválidos;
+    no duplica los ya existentes. Devuelve la lista de creados con su clave
+    temporal (mostrar una sola vez)."""
+    data = await file.read()
+    try:
+        rows = sp_service.parse_clients_workbook(data)
+    except Exception as e:  # archivo corrupto / no es xlsx
+        raise HTTPException(400, detail=f"No se pudo leer el Excel: {e}")
+    if not rows:
+        raise HTTPException(400, detail="El Excel no tiene filas de clientes.")
+    res = sp_service.bulk_create_portal_clients(
+        db, organization_id=admin.organization_id, rows=rows
+    )
+    res["resumen"] = {
+        "total_filas": len(rows),
+        "creados": len(res["creados"]),
+        "omitidos": len(res["omitidos"]),
+        "existentes": len(res["existentes"]),
+    }
+    return res
+
+
+@global_router.get(
+    "/portal-users",
+    response_model=list[dict],
+    dependencies=[Depends(require_admin)],
+)
+def list_all_portal_users_endpoint(db: Session = Depends(get_db)):
+    return sp_service.list_all_portal_users(db)
+
+
+@global_router.post(
+    "/portal-users/{user_id}/disable",
+    status_code=200,
+    dependencies=[Depends(require_admin)],
+)
+def disable_portal_user_global(user_id: int, db: Session = Depends(get_db)):
+    sp_service.disable_portal_user(db, user=_require_portal_user(db, user_id))
+    return {"ok": True, "is_active": False}
+
+
+@global_router.post(
+    "/portal-users/{user_id}/enable",
+    status_code=200,
+    dependencies=[Depends(require_admin)],
+)
+def enable_portal_user_global(user_id: int, db: Session = Depends(get_db)):
+    sp_service.enable_portal_user(db, user=_require_portal_user(db, user_id))
+    return {"ok": True, "is_active": True}
+
+
+@global_router.post(
+    "/portal-users/{user_id}/reset-password",
+    response_model=CreatePortalUserResponse,
+    dependencies=[Depends(require_admin)],
+)
+def reset_portal_user_password_global(user_id: int, db: Session = Depends(get_db)):
+    user = _require_portal_user(db, user_id)
+    temp = cp_service.reset_portal_user_password(db, user=user)
+    return CreatePortalUserResponse(user_id=user.id, email=user.email, temp_password=temp)
+
+
+@global_router.delete(
+    "/portal-users/{user_id}",
+    status_code=200,
+    dependencies=[Depends(require_admin)],
+)
+def delete_portal_user_global(user_id: int, db: Session = Depends(get_db)):
+    user = _require_portal_user(db, user_id)
+    deleted_email = user.email
+    auth_service.delete_user_completely(db, user=user)
+    return {"ok": True, "deleted": deleted_email}
