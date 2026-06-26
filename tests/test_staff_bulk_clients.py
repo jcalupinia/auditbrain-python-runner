@@ -75,6 +75,24 @@ def test_bulk_creates_one_account_per_unique_email(db_session, org):
     assert u is not None and u.role == Role.client
 
 
+def test_bulk_extracts_embedded_email(db_session, org):
+    """Extrae el correo aunque venga dentro de texto: 'Nombre <correo>',
+    varios correos separados por ';' o salto de línea, o con comillas."""
+    from backend.app.staff_portal.service import bulk_create_portal_clients
+    uniq = uuid.uuid4().hex[:6]
+    rows = [
+        {"cliente": "CORPAL", "ruc": "1", "email": f"EDWIN ORTIZ <eortiz-{uniq}@corpal.com.ec>"},
+        {"cliente": "LOGISINTER", "ruc": "2", "email": f"finance-{uniq}@outlook.com; contabilidad@choice.com"},
+        {"cliente": "I&G", "ruc": "3", "email": f"gcontable-{uniq}@iyg.com.ec\ngfinanciera@iyg.com.ec"},
+    ]
+    res = bulk_create_portal_clients(db_session, organization_id=org.id, rows=rows)
+    creados = {c["email"] for c in res["creados"]}
+    assert f"eortiz-{uniq}@corpal.com.ec" in creados
+    assert f"finance-{uniq}@outlook.com" in creados  # primer correo de la celda
+    assert f"gcontable-{uniq}@iyg.com.ec" in creados
+    assert len(res["omitidos"]) == 0
+
+
 def test_bulk_omits_invalid_emails(db_session, org):
     from backend.app.staff_portal.service import bulk_create_portal_clients
     rows = [

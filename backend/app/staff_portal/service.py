@@ -57,7 +57,20 @@ def force_logout(db: Session, *, user: User) -> None:
 # ---------------------------------------------------------------------------
 # Carga masiva de clientes (licencias) — UNA cuenta por correo único
 # ---------------------------------------------------------------------------
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# Buscamos el correo DENTRO del texto (no exigimos que la celda sea solo el
+# correo): así recuperamos casos reales como "EDWIN ORTIZ <e@x.com>", celdas
+# con varios correos ("a@x.com; b@y.com" → toma el primero), comillas o saltos
+# de línea. Si no hay ningún correo válido → la fila se omite.
+_EMAIL_FIND = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+
+
+def _extract_email(raw) -> str | None:
+    """Devuelve el primer correo válido encontrado en ``raw`` (en minúsculas),
+    o None si no hay ninguno."""
+    if not raw:
+        return None
+    m = _EMAIL_FIND.search(str(raw))
+    return m.group(0).strip().lower() if m else None
 
 
 def parse_clients_workbook(file_bytes: bytes) -> list[dict]:
@@ -124,12 +137,12 @@ def bulk_create_portal_clients(
     # Agrupar por correo válido, preservando orden de aparición.
     by_email: dict[str, list[dict]] = {}
     for row in rows:
-        email = (row.get("email") or "").strip().lower()
-        if not _EMAIL_RE.match(email):
+        email = _extract_email(row.get("email"))
+        if not email:
             omitidos.append({
                 "cliente": row.get("cliente", ""),
                 "ruc": row.get("ruc", ""),
-                "motivo": f"correo no válido: {row.get('email', '')!r}",
+                "motivo": f"sin correo válido: {row.get('email', '')!r}",
             })
             continue
         by_email.setdefault(email, []).append(row)
