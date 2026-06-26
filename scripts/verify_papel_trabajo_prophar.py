@@ -37,12 +37,18 @@ import openpyxl
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-INTERNAL_SHEETS = ("VERIFICACIÓN A1", "AUDITORÍA DE ANEXOS", "TRAZABILIDAD")
+from backend.app.ict.service import HIDDEN_SHEETS_FOR_SRI
 
 
 def _check_split(bytes_sri: bytes, bytes_papel: bytes) -> list[str]:
     """Apply all checks to a pair (bytes_sri, bytes_papel). Returns list of
-    error messages — empty list = all checks passed."""
+    error messages — empty list = all checks passed.
+
+    CAMBIO 2026-06-26: el SRI ya NO borra las hojas internas/datos — las
+    OCULTA (sheet_state="hidden") para no romper las fórmulas referenciales.
+    Los checks validan: en el SRI están presentes pero ocultas; en el papel
+    de trabajo están presentes y visibles; la hoja activa del SRI es visible.
+    """
     errors: list[str] = []
 
     if not isinstance(bytes_sri, bytes) or len(bytes_sri) < 1000:
@@ -62,15 +68,33 @@ def _check_split(bytes_sri: bytes, bytes_papel: bytes) -> list[str]:
         errors.append(f"Excel papel no abre: {exc}")
         return errors
 
-    # CHECK: Excel SRI NO contiene hojas internas
-    for forbidden in INTERNAL_SHEETS:
-        if forbidden in wb_sri.sheetnames:
-            errors.append(f"Excel SRI contiene hoja prohibida: {forbidden}")
+    # CHECK: en el SRI las hojas internas/datos siguen PRESENTES (no borradas)
+    # pero OCULTAS (sheet_state="hidden").
+    for name in HIDDEN_SHEETS_FOR_SRI:
+        if name not in wb_sri.sheetnames:
+            # Solo es error si la hoja existe en el papel (se generó) pero
+            # desapareció del SRI → significaría que se borró por error.
+            if name in wb_papel.sheetnames:
+                errors.append(f"Excel SRI BORRÓ (debía ocultar) la hoja: {name}")
+            continue
+        if wb_sri[name].sheet_state != "hidden":
+            errors.append(
+                f"Excel SRI: la hoja '{name}' debería estar oculta, "
+                f"está '{wb_sri[name].sheet_state}'"
+            )
 
-    # CHECK: Papel SÍ contiene VERIFICACIÓN A1 y AUDITORÍA DE ANEXOS
-    for required in ("VERIFICACIÓN A1", "AUDITORÍA DE ANEXOS"):
-        if required not in wb_papel.sheetnames:
-            errors.append(f"Papel trabajo NO contiene hoja requerida: {required}")
+    # CHECK: la hoja activa del SRI debe ser visible (no abrir en una oculta)
+    if wb_sri.active is not None and wb_sri.active.sheet_state != "visible":
+        errors.append(
+            f"Excel SRI: la hoja activa '{wb_sri.active.title}' está oculta"
+        )
+
+    # CHECK: en el papel de trabajo, esas mismas hojas siguen VISIBLES
+    for name in HIDDEN_SHEETS_FOR_SRI:
+        if name in wb_papel.sheetnames and wb_papel[name].sheet_state != "visible":
+            errors.append(
+                f"Papel trabajo: la hoja '{name}' debería estar visible"
+            )
 
     return errors
 
@@ -80,17 +104,19 @@ def _build_synthetic_pair() -> tuple[bytes, bytes]:
 
     No DB required — useful for CI smoke tests.
     """
-    from backend.app.ict.service import INTERNAL_SHEETS_FOR_SRI
+    from backend.app.ict.service import (
+        HIDDEN_SHEETS_FOR_SRI,
+        _apply_sri_sheet_visibility,
+    )
 
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
-    # Hojas de negocio que deben quedar en el SRI
-    for n in ["INDICE", "A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9",
-              "DATOS F-101", "DATOS F-103", "DATOS F-104"]:
+    # Hojas oficiales que quedan VISIBLES en el SRI
+    for n in ["INDICE", "A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9"]:
         ws = wb.create_sheet(n)
         ws["A1"] = f"datos {n}"
-    # Hojas internas que deben removerse del SRI
-    for n in INTERNAL_SHEETS_FOR_SRI:
+    # Hojas internas/datos que en el SRI se OCULTAN (no se borran)
+    for n in HIDDEN_SHEETS_FOR_SRI:
         ws = wb.create_sheet(n)
         ws["A1"] = f"interno {n}"
 
@@ -99,9 +125,7 @@ def _build_synthetic_pair() -> tuple[bytes, bytes]:
     bytes_papel = buf_papel.getvalue()
 
     wb_sri = openpyxl.load_workbook(BytesIO(bytes_papel))
-    for sn in INTERNAL_SHEETS_FOR_SRI:
-        if sn in wb_sri.sheetnames:
-            del wb_sri[sn]
+    _apply_sri_sheet_visibility(wb_sri)
     buf_sri = BytesIO()
     wb_sri.save(buf_sri)
     bytes_sri = buf_sri.getvalue()

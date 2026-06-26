@@ -162,31 +162,45 @@ Se hace una vez al año, típicamente entre noviembre y febrero. Pasos:
 
 ## Separación SRI vs Papel de trabajo del auditor
 
-**REGLA OBLIGATORIA:** El archivo Excel que se entrega al cliente para
-cargar al portal del SRI Ecuador **NUNCA debe contener hojas internas del
-auditor** (`VERIFICACIÓN A1`, `AUDITORÍA DE ANEXOS`, `TRAZABILIDAD`,
-hojas de debug o logs). Si una hoja existe únicamente para revisión
-interna, debe ir en un archivo separado generado en paralelo:
-`ICT_{ejercicio}_{ruc}_PAPEL_TRABAJO.xlsx`.
+**REGLA OBLIGATORIA:** En el archivo Excel que se entrega al cliente para
+cargar al portal del SRI Ecuador, las hojas internas del auditor
+(`VERIFICACIÓN A1`, `TRAZABILIDAD`, debug/logs) y las hojas de datos fuente
+(`DATOS F-101`, `DATOS F-103`, `DATOS F-104`, `DATOS BALANCE`) **NO deben
+verse en las pestañas**. El papel de trabajo paralelo
+(`ICT_{ejercicio}_{ruc}_PAPEL_TRABAJO.xlsx`) conserva TODAS las hojas
+visibles para el auditor.
 
-Razón: el SRI Ecuador espera la estructura oficial del ICT
-(INDICE + A1..A9 + hojas DATOS fuente). Hojas adicionales pueden ser
-rechazadas, ignoradas o causar inconsistencias en la carga al portal.
+**CAMBIO 2026-06-26 (decisión del cliente) — OCULTAR, no borrar.** Esas
+hojas ya **NO se eliminan** del archivo SRI: se **ocultan**
+(`sheet_state="hidden"`). Motivo crítico: las fórmulas referenciales de
+A1..A9 apuntan a `'DATOS F-101'!Cxxx`, `'DATOS BALANCE'!..`, `'DATOS F-103'!..`,
+`'DATOS F-104'!..`. **Borrar** esas hojas rompería las fórmulas con `#REF!`
+al abrir el Excel. **Ocultarlas** deja el archivo limpio a la vista del
+cliente (solo `INDICE` + `A1..A9` en las pestañas) y mantiene todas las
+fórmulas resolviendo. Nunca volver a `del wb[hoja]` para estas hojas.
+
+Razón SRI: el portal espera la estructura oficial del ICT
+(INDICE + A1..A9). Las hojas DATOS/internas ocultas viajan en el libro pero
+no estorban la vista; el contenido referenciado sigue disponible para Excel.
 
 **Implementación canónica:**
 - `backend/app/ict/service.py::generate_excel()` devuelve
   `tuple[bytes_sri, bytes_papel_trabajo]`.
-- La constante `INTERNAL_SHEETS_FOR_SRI` define qué hojas se eliminan del
-  archivo SRI. Si se agregan nuevas hojas internas en el futuro, agregarlas
-  a esa tupla.
+- La constante `HIDDEN_SHEETS_FOR_SRI` define qué hojas se **ocultan** en el
+  archivo SRI (alias retrocompat: `INTERNAL_SHEETS_FOR_SRI`). Si se agregan
+  nuevas hojas internas/datos, agregarlas a esa tupla.
+- `_apply_sri_sheet_visibility(wb)` aplica `sheet_state="hidden"` y deja una
+  hoja visible como activa (`INDICE`), porque Excel avisa si abre un libro
+  cuya hoja activa está oculta.
 - `process_session` guarda en disco: `ICT_SRI.xlsx`, `ICT_PAPEL_TRABAJO.xlsx`,
   y por compat `ICT.xlsx` (= SRI).
 - Endpoint `GET /sessions/{id}/download` devuelve el SRI.
 - Endpoint `GET /sessions/{id}/papel-trabajo` devuelve el papel de trabajo.
 
 **Tests obligatorios para mantener la regla viva:**
-- `tests/test_ict_service_split.py::test_internal_sheets_constant_documents_separation_rule`
-- `tests/test_ict_service_split.py::test_split_workbook_removes_internal_sheets_for_sri`
+- `tests/test_ict_service_split.py::test_hidden_sheets_constant_lists_datos_and_internal_sheets`
+- `tests/test_ict_service_split.py::test_sri_hides_but_never_deletes_sheets`
+- `tests/test_ict_service_split.py::test_sri_active_sheet_is_visible_indice`
 - `tests/test_ict_endpoint_papel_trabajo.py` (los 3 tests del router).
 
 **Verificación empírica:** `python scripts/verify_papel_trabajo_prophar.py`

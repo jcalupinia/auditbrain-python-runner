@@ -409,18 +409,62 @@ def recompute_indice(db: Session, *, session: ICTSession) -> ICTAnexo:
     return indice
 
 
-# Hojas internas (uso del auditor) que NUNCA deben ir en el Excel cargado al SRI.
-# Regla CLAUDE.md "Separación SRI vs Papel de trabajo del auditor": cuando se
-# divide el workbook, estas hojas se eliminan del archivo destinado al SRI y
-# quedan solo en el archivo _PAPEL_TRABAJO.xlsx.
-INTERNAL_SHEETS_FOR_SRI: tuple[str, ...] = (
+# Hojas que el archivo destinado al SRI OCULTA (no borra). Regla CLAUDE.md
+# "Separación SRI vs Papel de trabajo del auditor".
+#
+# CAMBIO 2026-06-26 (decisión del cliente): estas hojas ya NO se eliminan del
+# archivo SRI — se ocultan (`sheet_state="hidden"`). Motivo crítico: las
+# fórmulas referenciales de A1..A9 apuntan a 'DATOS F-101'!Cxxx,
+# 'DATOS BALANCE'!.., 'DATOS F-103'!.., 'DATOS F-104'!.. Borrar esas hojas
+# rompería las fórmulas con #REF! al abrir el Excel. Ocultarlas deja el
+# archivo limpio a la vista del cliente (solo INDICE + A1..A9 en las
+# pestañas) y mantiene TODAS las fórmulas resolviendo. El papel de trabajo
+# (_PAPEL_TRABAJO.xlsx) conserva todas las hojas visibles.
+HIDDEN_SHEETS_FOR_SRI: tuple[str, ...] = (
+    # Datos fuente (referenciadas por las fórmulas de A1..A9 → ocultar, jamás borrar)
+    "DATOS F-101",
+    "DATOS F-103",
+    "DATOS F-104",
+    "DATOS BALANCE",
+    # Papeles internos del auditor (no parte del formato oficial del SRI)
     "VERIFICACIÓN A1",
     "TRAZABILIDAD",
-    # NOTA 2026-06-17: hojas AUDITORÍA DE ANEXOS, ARTEFACTO A1 y
-    # ARTEFACTO AUDITORIA eliminadas del flujo (ya no se generan), por lo
-    # que tampoco hace falta quitarlas del SRI. Si en el futuro se reactivan,
-    # agregarlas aquí de nuevo.
+    # NOTA 2026-06-17: AUDITORÍA DE ANEXOS, ARTEFACTO A1 y ARTEFACTO AUDITORIA
+    # ya no se generan; si se reactivan, agregarlas aquí para ocultarlas.
 )
+
+# Alias retrocompatible: antes la constante se llamaba INTERNAL_SHEETS_FOR_SRI
+# y listaba solo las hojas del auditor que se BORRABAN. Se mantiene el nombre
+# apuntando a la nueva lista para no romper imports externos.
+INTERNAL_SHEETS_FOR_SRI: tuple[str, ...] = HIDDEN_SHEETS_FOR_SRI
+
+
+def _apply_sri_sheet_visibility(wb) -> None:
+    """Oculta en `wb` (la copia destinada al SRI) las hojas de
+    HIDDEN_SHEETS_FOR_SRI que existan, dejándolas PRESENTES —para que las
+    fórmulas referenciales de A1..A9 sigan resolviendo— pero fuera de la
+    vista del cliente. Garantiza además que la hoja activa sea una visible
+    (INDICE de preferencia), porque Excel muestra un aviso si abre un libro
+    cuya hoja activa está oculta."""
+    for sheet_name in HIDDEN_SHEETS_FOR_SRI:
+        if sheet_name in wb.sheetnames:
+            wb[sheet_name].sheet_state = "hidden"
+    _set_visible_active_sheet(wb)
+
+
+def _set_visible_active_sheet(wb) -> None:
+    """Apunta `wb.active` a una hoja visible (INDICE si existe; si no, la
+    primera visible). Salvaguarda: nunca deja el libro con todas las hojas
+    ocultas (Excel lo rechaza)."""
+    visibles = [ws for ws in wb.worksheets if ws.sheet_state == "visible"]
+    if not visibles:
+        wb.worksheets[0].sheet_state = "visible"
+        visibles = [wb.worksheets[0]]
+    target = next(
+        (ws for ws in visibles if ws.title.strip().upper() == "INDICE"),
+        visibles[0],
+    )
+    wb.active = wb.worksheets.index(target)
 
 
 def _get_interpretations(wb, contexto: dict) -> dict:
@@ -646,12 +690,11 @@ def generate_excel(db: Session, *, session: ICTSession) -> tuple[bytes, bytes]:
     buf_papel.seek(0)
     bytes_papel = buf_papel.read()
 
-    # Reabrir y eliminar hojas internas → bytes_sri (limpio para el SRI)
+    # Reabrir y OCULTAR (no borrar) hojas internas/datos → bytes_sri (limpio
+    # a la vista del cliente, pero con las fórmulas referenciales intactas).
     import openpyxl
     wb_sri = openpyxl.load_workbook(BytesIO(bytes_papel))
-    for sheet_name in INTERNAL_SHEETS_FOR_SRI:
-        if sheet_name in wb_sri.sheetnames:
-            del wb_sri[sheet_name]
+    _apply_sri_sheet_visibility(wb_sri)
     buf_sri = BytesIO()
     wb_sri.save(buf_sri)
     buf_sri.seek(0)
