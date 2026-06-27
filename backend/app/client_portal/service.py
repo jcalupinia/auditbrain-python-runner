@@ -27,13 +27,15 @@ def _generate_temp_password(length: int = 14) -> str:
 
 
 def create_portal_user(
-    db: Session, *, client_id: int, email: str
+    db: Session, *, client_id: int, email: str, password: str | None = None
 ) -> tuple[User, str]:
     client = db.get(Client, client_id)
     if client is None:
         raise ValueError(f"Client {client_id} no existe.")
 
-    temp_pwd = _generate_temp_password()
+    # Si se pasa una contraseña explícita (p. ej. la regla dominio+RUC de la
+    # carga masiva) se usa esa; si no, se genera una aleatoria segura.
+    temp_pwd = password or _generate_temp_password()
     user = User(
         email=email.lower(),
         hashed_password=hash_password(temp_pwd),

@@ -93,6 +93,23 @@ def test_bulk_extracts_embedded_email(db_session, org):
     assert len(res["omitidos"]) == 0
 
 
+def test_password_is_domain_plus_ruc4(db_session, org):
+    """La clave = dominio del correo (sin .com) + 4 primeros dígitos del RUC."""
+    from backend.app.staff_portal.service import (
+        bulk_create_portal_clients, password_from_email_ruc,
+    )
+    assert password_from_email_ruc("contador@corpogranja.com", "1792470013001") == "corpogranja1792"
+    assert password_from_email_ruc("c.rivadeneira@sixt.ec", "1792995221001") == "sixt1792"
+
+    uniq = uuid.uuid4().hex[:6]
+    e = f"contador@{uniq}empresa.com"
+    res = bulk_create_portal_clients(
+        db_session, organization_id=org.id,
+        rows=[{"cliente": "X", "ruc": "1391925220001", "email": e}],
+    )
+    assert res["creados"][0]["temp_password"] == f"{uniq}empresa1391"
+
+
 def test_bulk_omits_invalid_emails(db_session, org):
     from backend.app.staff_portal.service import bulk_create_portal_clients
     rows = [

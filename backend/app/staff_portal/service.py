@@ -73,6 +73,21 @@ def _extract_email(raw) -> str | None:
     return m.group(0).strip().lower() if m else None
 
 
+def password_from_email_ruc(email: str, ruc: str | None) -> str:
+    """Clave temporal de la carga masiva = nombre del dominio del correo (sin
+    el .com/.ec) + los 4 primeros dígitos del RUC. Ej:
+    contador@corpogranja.com + 1792470013001 → 'corpogranja1792'.
+
+    Es una clave TEMPORAL y predecible a propósito (fácil de comunicar al
+    cliente); el portal obliga a cambiarla en el primer ingreso
+    (password_reset_required=True)."""
+    dominio = ""
+    if email and "@" in email:
+        dominio = email.split("@", 1)[1].split(".", 1)[0].lower()
+    digitos = "".join(c for c in str(ruc or "") if c.isdigit())[:4]
+    return f"{dominio}{digitos}" or "cliente"
+
+
 def parse_clients_workbook(file_bytes: bytes) -> list[dict]:
     """Parsea un .xlsx con columnas CLIENTE | RUC | Email Contador (en ese
     orden). Salta filas en blanco y la fila de encabezado. Devuelve una lista
@@ -161,8 +176,9 @@ def bulk_create_portal_clients(
         client = _get_or_create_client(
             db, organization_id=organization_id, name=nombre, tax_id=ruc
         )
+        pwd = password_from_email_ruc(email, ruc)
         user, temp = cp_service.create_portal_user(
-            db, client_id=client.id, email=email
+            db, client_id=client.id, email=email, password=pwd
         )
         creados.append({
             "user_id": user.id,
