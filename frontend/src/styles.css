@@ -19,6 +19,29 @@
   --line-soft: #e6eaf0; --text: #131922; --text-soft: #56627a;
   --text-dim: #8a94a6; --accent: #149a5b; --accent-dim: #dff3e8;
 }
+/* Azul medio (Navy de marca) — tema PREDETERMINADO del Command Center. */
+[data-theme="navy"] {
+  --bg: #0a2342; --panel: #0e2c50; --panel-2: #103358; --line: #1d4470;
+  --line-soft: #16385f; --text: #eaf1fb; --text-soft: #a6bbd6;
+  --text-dim: #6f87a6; --accent: #34d36a; --accent-soft: #5be08c;
+  --accent-dim: #0d3a28;
+}
+/* Gris (pizarra premium). */
+[data-theme="slate"] {
+  --bg: #23272e; --panel: #2b3038; --panel-2: #313842; --line: #3d4651;
+  --line-soft: #2f3640; --text: #eceff3; --text-soft: #abb4c0;
+  --text-dim: #79828f; --accent: #34d36a; --accent-soft: #5be08c;
+  --accent-dim: #1c2b22;
+}
+/* Selector de tema de color (header del Command Center) */
+.cc-theme-sel { display: inline-flex; gap: 6px; align-items: center; }
+.cc-theme-dot {
+  width: 18px; height: 18px; border-radius: 50%; cursor: pointer;
+  border: 2px solid var(--line); padding: 0; transition: transform .12s ease, border-color .12s ease;
+}
+.cc-theme-dot:hover { transform: scale(1.15); }
+.cc-theme-dot.on { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent); }
+
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
 body {

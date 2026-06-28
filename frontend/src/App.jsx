@@ -4,17 +4,23 @@ import ToolCatalog from "./aud/ToolCatalog.jsx";
 import TaxCatalog from "./tax/TaxCatalog.jsx";
 import FinCatalog from "./fin/FinCatalog.jsx";
 
-/* ---------------- Theme (oscuro premium fijo en el Command Center) ---------------- */
+/* ---------------- Theme (Azul medio por defecto + selector de color) ---------------- */
 const THEME_KEY = "ab_theme";
+const THEMES = [
+  { id: "navy",  label: "Azul medio", swatch: "#0a2342" },
+  { id: "dark",  label: "Oscuro IA",  swatch: "#04060a" },
+  { id: "light", label: "Blanco",     swatch: "#eef1f5" },
+  { id: "slate", label: "Gris",       swatch: "#2b3038" },
+];
 function useTheme() {
   const [theme, setTheme] = useState(
-    () => localStorage.getItem(THEME_KEY) || "dark"
+    () => localStorage.getItem(THEME_KEY) || "navy"
   );
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
-  return [theme, () => setTheme((t) => (t === "dark" ? "light" : "dark"))];
+  return [theme, setTheme];
 }
 
 /* ---------------- Marca / assets ----------------
@@ -1370,7 +1376,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [section, setSection] = useState("ADV");
   const [navOpen, setNavOpen] = useState(false);
-  const [theme, toggleTheme] = useTheme();
+  const [theme, setTheme] = useTheme();
   const [hp, setHp] = useState({ state: "idle", data: null });
   const [headerSearch, setHeaderSearch] = useState("");
   const [ctx, setCtx] = useState(null);
@@ -1576,9 +1582,19 @@ export default function App() {
           <kbd>⌘K</kbd>
         </div>
         <div className="cc-head-r">
-          <button className="cc-icon" onClick={toggleTheme} title="Tema">
-            {theme === "dark" ? "◑" : "◐"}
-          </button>
+          <div className="cc-theme-sel" title="Tema de color">
+            {THEMES.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`cc-theme-dot${theme === t.id ? " on" : ""}`}
+                style={{ background: t.swatch }}
+                onClick={() => setTheme(t.id)}
+                title={t.label}
+                aria-label={`Tema ${t.label}`}
+              />
+            ))}
+          </div>
           <div className="cc-user">
             <span className="cc-user-n">{user.email}</span>
             <span className={`cc-role ${user.role}`}>{user.role}</span>
