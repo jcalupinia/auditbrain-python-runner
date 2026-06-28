@@ -214,6 +214,14 @@ services:
     staticPublishPath: frontend/dist
     pullRequestPreviewsEnabled: false
     autoDeploy: true
+    # Dominio propio de la consola principal (Command Center). Para activarlo:
+    #   1) En el DNS de audit-ia.ec, apuntar 'consola' con un CNAME a
+    #      auditbrain-frontend.onrender.com.
+    #   2) Render valida el dominio y emite el certificado SSL automáticamente.
+    # Con el dominio aquí, cada push a main reconstruye y sirve la consola
+    # bajo consola.audit-ia.ec (sin subir zips manualmente).
+    domains:
+      - consola.audit-ia.ec
     envVars:
       - key: VITE_API_BASE
         value: "https://auditbrain-python-runner.onrender.com"
