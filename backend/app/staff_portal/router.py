@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
@@ -26,6 +26,11 @@ class CreatePortalUserResponse(BaseModel):
     email: str
     temp_password: str
     note: str = "Comparta este password con el cliente por canal seguro. No se vuelve a mostrar."
+
+
+class ResetPortalPasswordRequest(BaseModel):
+    # Clave que asigna el admin. Si es None/ausente, se genera una temporal.
+    new_password: str | None = None
 
 
 class PortalUserOut(BaseModel):
@@ -122,14 +127,22 @@ def enable_portal_user_endpoint(
     dependencies=[Depends(require_admin)],
 )
 def reset_portal_user_password_endpoint(
-    client_id: int, user_id: int, db: Session = Depends(get_db)
+    client_id: int,
+    user_id: int,
+    body: ResetPortalPasswordRequest | None = Body(default=None),
+    db: Session = Depends(get_db),
 ):
-    """Resetea la clave de un usuario de portal cliente. Devuelve la clave
-    temporal una sola vez (compartir por canal seguro)."""
+    """Resetea la clave de un usuario de portal cliente. El admin puede ENVIAR la
+    nueva clave (``new_password``); si no, se genera una temporal aleatoria.
+    Devuelve la clave en claro una sola vez."""
     user = db.get(User, user_id)
     if user is None or user.client_id != client_id:
         raise HTTPException(404, detail="Usuario no encontrado para este cliente.")
-    temp = cp_service.reset_portal_user_password(db, user=user)
+    np = body.new_password if body else None
+    try:
+        temp = cp_service.reset_portal_user_password(db, user=user, new_password=np)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return CreatePortalUserResponse(
         user_id=user.id, email=user.email, temp_password=temp
     )
@@ -286,9 +299,17 @@ def enable_portal_user_global(user_id: int, db: Session = Depends(get_db)):
     response_model=CreatePortalUserResponse,
     dependencies=[Depends(require_admin)],
 )
-def reset_portal_user_password_global(user_id: int, db: Session = Depends(get_db)):
+def reset_portal_user_password_global(
+    user_id: int,
+    body: ResetPortalPasswordRequest | None = Body(default=None),
+    db: Session = Depends(get_db),
+):
     user = _require_portal_user(db, user_id)
-    temp = cp_service.reset_portal_user_password(db, user=user)
+    np = body.new_password if body else None
+    try:
+        temp = cp_service.reset_portal_user_password(db, user=user, new_password=np)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return CreatePortalUserResponse(user_id=user.id, email=user.email, temp_password=temp)
 
 

@@ -81,15 +81,25 @@ def change_password(
     db.commit()
 
 
-def reset_portal_user_password(db: Session, *, user: User) -> str:
-    """Genera una nueva clave temporal para un usuario de portal cliente.
+def reset_portal_user_password(
+    db: Session, *, user: User, new_password: str | None = None
+) -> str:
+    """Resetea la clave de un usuario de portal cliente (devuelta en claro una vez).
 
-    La devuelve en claro (una sola vez) para que el admin la comparta por un
-    canal seguro. Marca ``password_reset_required`` y reactiva la cuenta.
+    - Si el admin provee ``new_password``: esa queda como clave DEFINITIVA
+      (``password_reset_required=False``); el cliente entra directo con ella.
+    - Si no la provee: clave temporal aleatoria + ``password_reset_required=True``
+      (comportamiento histórico). Siempre reactiva la cuenta.
     """
-    temp_pwd = _generate_temp_password()
+    if new_password is not None:
+        if len(new_password) < 8:
+            raise ValueError("La contraseña debe tener al menos 8 caracteres.")
+        temp_pwd = new_password
+        user.password_reset_required = False
+    else:
+        temp_pwd = _generate_temp_password()
+        user.password_reset_required = True
     user.hashed_password = hash_password(temp_pwd)
-    user.password_reset_required = True
     user.is_active = True
     db.add(user)
     db.commit()

@@ -40,13 +40,27 @@ def list_operators(db: Session) -> list[User]:
     )
 
 
-def reset_user_password(db: Session, *, user: User) -> str:
-    """Genera una clave temporal para un operador y la devuelve en claro (una sola vez)."""
+def reset_user_password(
+    db: Session, *, user: User, new_password: str | None = None
+) -> str:
+    """Resetea la clave de un operador y la devuelve en claro (una sola vez).
+
+    - Si el admin provee ``new_password``: esa queda como clave DEFINITIVA
+      (``password_reset_required=False``); el operador entra directo con ella.
+    - Si no la provee: se genera una clave temporal aleatoria y se marca
+      ``password_reset_required=True`` (comportamiento histórico).
+    """
     from backend.app.client_portal.service import _generate_temp_password
 
-    temp = _generate_temp_password()
+    if new_password is not None:
+        if len(new_password) < 8:
+            raise ValueError("La contraseña debe tener al menos 8 caracteres.")
+        temp = new_password
+        user.password_reset_required = False
+    else:
+        temp = _generate_temp_password()
+        user.password_reset_required = True
     user.hashed_password = hash_password(temp)
-    user.password_reset_required = True
     user.is_active = True
     db.add(user)
     db.commit()

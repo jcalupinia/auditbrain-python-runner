@@ -375,6 +375,12 @@ function Users() {
   const [newPuEmail, setNewPuEmail] = useState("");
   const [reveal, setReveal] = useState(null); // { who, temp }
   const [listErr, setListErr] = useState("");
+  // Asignar clave manual al resetear: { who, run } -> modal formulario
+  const [pwAssign, setPwAssign] = useState(null);
+  const [pwValue, setPwValue] = useState("");
+  const [pwConfirm, setPwConfirm] = useState("");
+  const [pwErr, setPwErr] = useState("");
+  const [pwDone, setPwDone] = useState(null); // { who, pwd } -> modal confirmación
 
   // Carga masiva de clientes (licencias) + lista global de cuentas de portal
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -424,11 +430,24 @@ function Users() {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 30000);
   }
-  async function resetGlobal(u) {
-    if (!window.confirm(`¿Resetear la clave de ${u.email}?`)) return;
+  // Abre el modal para que el admin escriba la nueva clave. `run(pwd)` ejecuta
+  // el reset contra el endpoint correcto y devuelve { temp_password }.
+  function askAssign(who, run) {
     setReveal(null); setListErr("");
-    try { const r = await api.resetPortalUserById(u.id); setReveal({ who: u.email, temp: r.temp_password }); }
-    catch (e) { setListErr(e.message); }
+    setPwValue(""); setPwConfirm(""); setPwErr("");
+    setPwAssign({ who, run });
+  }
+  async function confirmAssign() {
+    if (pwValue.length < 8) { setPwErr("La clave debe tener al menos 8 caracteres."); return; }
+    if (pwValue !== pwConfirm) { setPwErr("Las claves no coinciden."); return; }
+    try {
+      const r = await pwAssign.run(pwValue);
+      setPwDone({ who: pwAssign.who, pwd: r.temp_password });
+      setPwAssign(null);
+    } catch (e) { setPwErr(e.message); }
+  }
+  function resetGlobal(u) {
+    askAssign(u.email, (pwd) => api.resetPortalUserById(u.id, pwd));
   }
   async function toggleGlobal(u) {
     const next = !u.is_active;
@@ -456,21 +475,11 @@ function Users() {
     finally { setBusy(false); }
   }
 
-  async function resetOperator(u) {
-    if (!window.confirm(`¿Resetear la clave del operador ${u.email}?`)) return;
-    setReveal(null); setListErr("");
-    try {
-      const r = await api.resetOperatorPassword(u.id);
-      setReveal({ who: u.email, temp: r.temp_password });
-    } catch (e) { setListErr(e.message); }
+  function resetOperator(u) {
+    askAssign(u.email, (pwd) => api.resetOperatorPassword(u.id, pwd));
   }
-  async function resetPortal(u) {
-    if (!window.confirm(`¿Resetear la clave del cliente ${u.email}?`)) return;
-    setReveal(null); setListErr("");
-    try {
-      const r = await api.resetPortalUserPassword(selClient, u.id);
-      setReveal({ who: u.email, temp: r.temp_password });
-    } catch (e) { setListErr(e.message); }
+  function resetPortal(u) {
+    askAssign(u.email, (pwd) => api.resetPortalUserPassword(selClient, u.id, pwd));
   }
   async function addPortalUser(e) {
     e.preventDefault(); setReveal(null); setListErr("");
@@ -526,6 +535,52 @@ function Users() {
           <pre style={{ fontSize: 16, userSelect: "all" }}>{reveal.temp}</pre>
           <button className="btn" onClick={() => setReveal(null)}>Entendido</button>
         </Panel>
+      )}
+      {pwAssign && (
+        <div onClick={() => setPwAssign(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: "var(--panel, #0a2342)", color: "var(--text, #e8eef6)",
+              border: "1px solid var(--border, #21456e)", borderRadius: 12, padding: 24,
+              width: 440, maxWidth: "92vw", boxShadow: "0 20px 60px rgba(0,0,0,.5)" }}>
+            <h3 style={{ marginTop: 0 }}>🔑 Asignar nueva clave</h3>
+            <p className="muted">
+              Cuenta: <b>{pwAssign.who}</b>. Escribe la clave que tendrá esta cuenta
+              (mín. 8 caracteres). El usuario entrará directo con ella.
+            </p>
+            <label>Nueva clave</label>
+            <input type="text" value={pwValue} autoFocus
+              onChange={(e) => setPwValue(e.target.value)} />
+            <label>Confirmar clave</label>
+            <input type="text" value={pwConfirm}
+              onChange={(e) => setPwConfirm(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") confirmAssign(); }} />
+            {pwErr && <div className="err" style={{ marginTop: 8 }}>{pwErr}</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <button className="btn" onClick={confirmAssign}>Asignar clave</button>
+              <button className="btn ghost" onClick={() => setPwAssign(null)}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {pwDone && (
+        <div onClick={() => setPwDone(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: "var(--panel, #0a2342)", color: "var(--text, #e8eef6)",
+              border: "1px solid var(--border, #21456e)", borderRadius: 12, padding: 24,
+              width: 440, maxWidth: "92vw", boxShadow: "0 20px 60px rgba(0,0,0,.5)" }}>
+            <h3 style={{ marginTop: 0 }}>✅ Clave asignada</h3>
+            <p className="muted">
+              Cuenta: <b>{pwDone.who}</b>. Esta es la clave asignada — compártela por
+              un canal seguro:
+            </p>
+            <pre style={{ fontSize: 18, userSelect: "all" }}>{pwDone.pwd}</pre>
+            <button className="btn" onClick={() => setPwDone(null)}>Entendido</button>
+          </div>
+        </div>
       )}
       {listErr && <div className="err" style={{ marginBottom: 12 }}>{listErr}</div>}
 

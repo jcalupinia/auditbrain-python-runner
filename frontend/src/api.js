@@ -109,11 +109,12 @@ export async function listOperators() {
   );
 }
 
-export async function resetOperatorPassword(userId) {
+export async function resetOperatorPassword(userId, newPassword) {
   return parse(
     await fetch(`${API_BASE}/api/v1/auth/users/${userId}/reset-password`, {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ new_password: newPassword ?? null }),
     })
   );
 }
@@ -137,11 +138,15 @@ export async function createPortalUser(clientId, email) {
   );
 }
 
-export async function resetPortalUserPassword(clientId, userId) {
+export async function resetPortalUserPassword(clientId, userId, newPassword) {
   return parse(
     await fetch(
       `${API_BASE}/api/v1/staff/clients/${clientId}/portal-users/${userId}/reset-password`,
-      { method: "POST", headers: authHeaders({ "Content-Type": "application/json" }) }
+      {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ new_password: newPassword ?? null }),
+      }
     )
   );
 }
@@ -203,11 +208,12 @@ export async function listAllPortalUsers() {
   );
 }
 
-export async function resetPortalUserById(userId) {
+export async function resetPortalUserById(userId, newPassword) {
   return parse(
     await fetch(`${API_BASE}/api/v1/staff/portal-users/${userId}/reset-password`, {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ new_password: newPassword ?? null }),
     })
   );
 }

@@ -1,7 +1,8 @@
 """Endpoints de autenticación (/api/v1/auth/*)."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.app.auth import service
@@ -88,21 +89,41 @@ def list_users_endpoint(db: Session = Depends(get_db)):
     return service.list_operators(db)
 
 
+class ResetPasswordRequest(BaseModel):
+    # Clave que asigna el admin. Si es None/ausente, se genera una temporal.
+    new_password: str | None = None
+
+
 @router.post(
     "/users/{user_id}/reset-password",
     dependencies=[Depends(require_admin)],
 )
-def reset_user_password_endpoint(user_id: int, db: Session = Depends(get_db)):
-    """Resetea la clave de un operador. Devuelve la clave temporal una sola vez."""
+def reset_user_password_endpoint(
+    user_id: int,
+    body: ResetPasswordRequest | None = Body(default=None),
+    db: Session = Depends(get_db),
+):
+    """Resetea la clave de un operador. El admin puede ENVIAR la nueva clave en
+    el cuerpo (``new_password``); si no, se genera una temporal aleatoria.
+    Devuelve la clave en claro una sola vez."""
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado.")
-    temp = service.reset_user_password(db, user=user)
+    np = body.new_password if body else None
+    try:
+        temp = service.reset_user_password(db, user=user, new_password=np)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    asignada = np is not None
     return {
         "user_id": user.id,
         "email": user.email,
         "temp_password": temp,
-        "note": "Comparta este password por canal seguro. No se vuelve a mostrar.",
+        "note": (
+            "Clave asignada por el administrador."
+            if asignada
+            else "Comparta este password por canal seguro. No se vuelve a mostrar."
+        ),
     }
 
 
