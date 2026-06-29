@@ -1,4 +1,3 @@
-import Landing from "./landing/Landing.jsx";
 import CharlaLanding from "./charla/CharlaLanding.jsx";
 import Login from "./auth/Login.jsx";
 import ChangePassword from "./auth/ChangePassword.jsx";
@@ -22,7 +21,7 @@ export default function App() {
   return (
     <>
       <Routes>
-        <Route path="/" element={<Landing />} />
+        <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/charla" element={<CharlaLanding />} />
         <Route path="/login" element={<Login />} />
         <Route path="/change-password" element={<ChangePassword />} />
