@@ -191,6 +191,46 @@ def bulk_create_portal_clients(
     return {"creados": creados, "omitidos": omitidos, "existentes": existentes}
 
 
+def create_single_portal_client(
+    db: Session,
+    *,
+    organization_id: int,
+    cliente: str,
+    ruc: str | None,
+    email: str,
+    new_password: str | None = None,
+) -> dict:
+    """Crea UN cliente de portal (empresa + cuenta) de forma individual.
+
+    La clave la escribe el admin (``new_password``) o, si va vacía, se autogenera
+    con la regla dominio+RUC (igual que la carga masiva). Reusa la misma lógica
+    de cliente/usuario que ``bulk_create_portal_clients`` para una sola fila.
+    """
+    correo = _extract_email(email)
+    if not correo:
+        raise ValueError(f"Correo inválido: {email!r}")
+    if auth_service.get_user_by_email(db, correo):
+        raise ValueError(f"Ya existe una cuenta con el correo {correo}.")
+    if new_password is not None and len(new_password) < 8:
+        raise ValueError("La contraseña debe tener al menos 8 caracteres.")
+    ruc_norm = (str(ruc) if ruc is not None else "").strip() or None
+    nombre = (cliente or "").strip() or correo
+    client = _get_or_create_client(
+        db, organization_id=organization_id, name=nombre, tax_id=ruc_norm
+    )
+    pwd = new_password or password_from_email_ruc(correo, ruc_norm)
+    user, temp = cp_service.create_portal_user(
+        db, client_id=client.id, email=correo, password=pwd
+    )
+    return {
+        "user_id": user.id,
+        "email": correo,
+        "temp_password": temp,
+        "cliente": nombre,
+        "ruc": ruc_norm or "",
+    }
+
+
 def list_all_portal_users(db: Session) -> list[dict]:
     """Lista TODAS las cuentas de portal (rol client) con el nombre de su
     cliente asociado, para la gestión global en el panel admin."""

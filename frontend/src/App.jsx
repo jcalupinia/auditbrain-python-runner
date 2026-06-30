@@ -387,6 +387,9 @@ function Users() {
   const [bulkRes, setBulkRes] = useState(null);
   const [allPortal, setAllPortal] = useState([]);
   const [puFilter, setPuFilter] = useState("");
+  // Crear cliente individual (uno a uno)
+  const [single, setSingle] = useState({ cliente: "", ruc: "", email: "", new_password: "" });
+  const [singleBusy, setSingleBusy] = useState(false);
 
   async function loadOperators() {
     try { setOperators(await api.listOperators()); } catch (e) { setListErr(e.message); }
@@ -415,6 +418,18 @@ function Users() {
       loadAllPortal();
     } catch (e2) { setListErr(e2.message); }
     finally { setBulkBusy(false); }
+  }
+  async function doCreateSingle(e) {
+    e.preventDefault(); setListErr("");
+    if (!single.email.trim()) { setListErr("El correo es obligatorio."); return; }
+    setSingleBusy(true);
+    try {
+      const r = await api.createSinglePortalClient(single);
+      setPwDone({ who: r.email, pwd: r.temp_password });
+      setSingle({ cliente: "", ruc: "", email: "", new_password: "" });
+      loadAllPortal();
+    } catch (e2) { setListErr(e2.message); }
+    finally { setSingleBusy(false); }
   }
   function downloadCredsCsv(creados) {
     const headers = ["Email", "Clave temporal", "Empresas", "RUC"];
@@ -629,6 +644,35 @@ function Users() {
             ))}
           </div>
         )}
+      </Panel>
+
+      {/* Crear cliente individual (uno a uno) */}
+      <Panel title="➕ Crear cliente individual" max={680}>
+        <p className="muted">
+          Crea un cliente uno a uno. La <b>clave es opcional</b>: si la dejas
+          vacía se genera con la regla dominio del correo + 4 dígitos del RUC.
+        </p>
+        <form onSubmit={doCreateSingle}>
+          <label>Empresa</label>
+          <input value={single.cliente}
+            onChange={(e) => setSingle({ ...single, cliente: e.target.value })}
+            placeholder="Razón social del cliente" required />
+          <label>RUC</label>
+          <input value={single.ruc}
+            onChange={(e) => setSingle({ ...single, ruc: e.target.value })}
+            placeholder="13 dígitos" />
+          <label>Correo del contador</label>
+          <input type="email" value={single.email}
+            onChange={(e) => setSingle({ ...single, email: e.target.value })}
+            placeholder="contador@empresa.com" required />
+          <label>Clave (opcional)</label>
+          <input type="text" value={single.new_password}
+            onChange={(e) => setSingle({ ...single, new_password: e.target.value })}
+            placeholder="vacío = dominio + 4 dígitos del RUC" />
+          <button className="btn primary" disabled={singleBusy} style={{ marginTop: 10 }}>
+            {singleBusy ? "Creando…" : "Crear cliente"}
+          </button>
+        </form>
       </Panel>
 
       {/* Carga masiva de clientes (licencias) */}

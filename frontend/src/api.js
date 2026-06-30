@@ -208,6 +208,16 @@ export async function listAllPortalUsers() {
   );
 }
 
+export async function createSinglePortalClient({ cliente, ruc, email, new_password }) {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/staff/portal-users`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ cliente, ruc, email, new_password: new_password ?? null }),
+    })
+  );
+}
+
 export async function resetPortalUserById(userId, newPassword) {
   return parse(
     await fetch(`${API_BASE}/api/v1/staff/portal-users/${userId}/reset-password`, {

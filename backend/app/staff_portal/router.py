@@ -33,6 +33,13 @@ class ResetPortalPasswordRequest(BaseModel):
     new_password: str | None = None
 
 
+class CreateSinglePortalClientRequest(BaseModel):
+    cliente: str
+    ruc: str | None = None
+    email: str
+    new_password: str | None = None
+
+
 class PortalUserOut(BaseModel):
     id: int
     email: str
@@ -263,6 +270,31 @@ async def bulk_create_portal_users_endpoint(
         "existentes": len(res["existentes"]),
     }
     return res
+
+
+@global_router.post(
+    "/portal-users",
+    dependencies=[Depends(require_admin)],
+)
+def create_single_portal_user_endpoint(
+    body: CreateSinglePortalClientRequest,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Crea UN cliente de portal de forma individual (empresa + cuenta). El admin
+    puede enviar la clave (``new_password``) o dejarla vacía para autogenerar
+    dominio+RUC. Devuelve la clave en claro una sola vez."""
+    try:
+        return sp_service.create_single_portal_client(
+            db,
+            organization_id=admin.organization_id,
+            cliente=body.cliente,
+            ruc=body.ruc,
+            email=body.email,
+            new_password=body.new_password,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @global_router.get(
