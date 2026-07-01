@@ -3,7 +3,7 @@
 import datetime
 import enum
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db.session import Base
@@ -66,4 +66,27 @@ class ClientDevice(Base):
     revoked_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
     revoked_by_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True
+    )
+
+
+class UserToolEntitlement(Base):
+    """Permiso de una cuenta de portal (rol client) para acceder a una
+    herramienta del catálogo. Una fila = una herramienta concedida."""
+
+    __tablename__ = "user_tool_entitlements"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    tool_code: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "tool_code", name="uq_entitle_user_tool"),
     )
