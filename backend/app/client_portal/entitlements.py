@@ -9,7 +9,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.auth.models import UserToolEntitlement
+from backend.app.auth.models import Role, User, UserToolEntitlement
 from backend.app.client_portal.tool_registry import TOOLS
 
 
@@ -60,3 +60,31 @@ def set_user_entitlements(db: Session, user_id: int, tool_codes: set[str]) -> No
         if code not in valid:
             db.delete(row)
     db.commit()
+
+
+def backfill_tributarias(db: Session) -> int:
+    """Concede las herramientas de la sección TRIBUTARIAS a todas las cuentas
+    de rol client, SOLO si la tabla de entitlements está globalmente vacía.
+    Devuelve el número de concesiones creadas (0 si no corrió)."""
+    already = db.execute(select(UserToolEntitlement.id).limit(1)).first()
+    if already is not None:
+        return 0  # ya inicializado; nunca re-aplicar
+
+    trib_codes = [
+        code for code, t in TOOLS.items()
+        if t.category == "TRIBUTARIAS" and t.enabled
+    ]
+    if not trib_codes:
+        return 0
+
+    client_ids = db.execute(
+        select(User.id).where(User.role == Role.client)
+    ).scalars().all()
+
+    created = 0
+    for uid in client_ids:
+        for code in trib_codes:
+            db.add(UserToolEntitlement(user_id=uid, tool_code=code, enabled=True))
+            created += 1
+    db.commit()
+    return created

@@ -128,3 +128,16 @@ def init_db() -> None:
             if col_name not in existing_cols:
                 with engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE tool_jobs ADD COLUMN {col_name} {col_type}"))
+
+    # Backfill de entitlements: concede la sección Tributarias a los clientes
+    # existentes en el primer arranque tras activar el gating comercial.
+    try:
+        from backend.app.client_portal.entitlements import backfill_tributarias
+        _bf_db = SessionLocal()
+        try:
+            backfill_tributarias(_bf_db)
+        finally:
+            _bf_db.close()
+    except Exception:
+        # El backfill nunca debe impedir el arranque de la app.
+        pass
