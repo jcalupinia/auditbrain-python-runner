@@ -366,14 +366,20 @@ def get_catalog(
     """Catálogo filtrado por los permisos (entitlements) del usuario.
     Las categorías se devuelven todas (para la barra lateral); solo se incluyen
     las herramientas concedidas al usuario. Sin permisos → categorías vacías
-    ('Próximamente')."""
+    ('Próximamente'). Los operadores (admin/user) que entran al portal con su
+    mismo usuario NO se filtran: ven el catálogo completo (QA/soporte)."""
+    from backend.app.auth.models import Role
     from backend.app.client_portal.entitlements import list_user_tool_codes
 
-    allowed = list_user_tool_codes(db, user.id)
+    # allowed=None → sin filtro (operadores). Rol client → set de sus permisos.
+    allowed = (
+        None if user.role in (Role.admin, Role.user)
+        else list_user_tool_codes(db, user.id)
+    )
 
     tools_by_cat: dict[str, list] = {c["id"]: [] for c in CATEGORIES}
     for t in list_enabled_tools():
-        if t.code not in allowed:
+        if allowed is not None and t.code not in allowed:
             continue
         if t.category not in tools_by_cat:
             tools_by_cat[t.category] = []

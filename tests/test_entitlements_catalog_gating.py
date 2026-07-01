@@ -50,3 +50,25 @@ def test_catalog_shows_only_granted_tool(client, db_session):
     assert r.status_code == 200
     by_cat = _codes_by_cat(r.json())
     assert by_cat["TRIBUTARIAS"] == ["ICT_2025"]
+
+
+def test_catalog_operator_bypasses_gating(client, db_session):
+    """Un operador (admin/user) que entra al portal con su mismo usuario ve el
+    catálogo completo, sin depender de entitlements (que solo aplican a client)."""
+    from backend.app.auth.models import Role
+    from backend.app.auth.service import create_user, get_user_by_email
+    from backend.app.auth.jwt_tokens import create_access_token
+
+    email = f"op-gate-{uuid.uuid4().hex[:8]}@example.com"
+    u = get_user_by_email(db_session, email) or create_user(
+        db_session, email=email, password="x", role=Role.admin
+    )
+    token = create_access_token(subject=u.email, role="admin")
+    r = client.get(
+        "/api/v1/client/catalog",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200, r.text
+    by_cat = _codes_by_cat(r.json())
+    # Sin ningún entitlement, el operador igual ve ICT_2025 (catálogo completo).
+    assert "ICT_2025" in by_cat["TRIBUTARIAS"]
