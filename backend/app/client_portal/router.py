@@ -252,6 +252,17 @@ async def create_client_job_endpoint(
     except KeyError:
         raise HTTPException(404, detail=f"Tool {tool_code} no existe.")
 
+    # Enforcement de permiso: solo el rol client se filtra. Los operadores
+    # (admin/user) que entran al portal con su usuario hacen bypass (QA/soporte),
+    # coherente con el gating del catálogo.
+    from backend.app.auth.models import Role
+    from backend.app.client_portal.entitlements import can_access_tool
+    if user.role == Role.client and not can_access_tool(db, user.id, tool_code):
+        raise HTTPException(
+            403,
+            detail="No tienes acceso a esta herramienta. Contacta a tu administrador.",
+        )
+
     # Parsear multipart manualmente para soportar slots dinámicos
     form = await request.form()
 

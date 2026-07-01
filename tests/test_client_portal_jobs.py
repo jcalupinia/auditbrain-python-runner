@@ -35,6 +35,8 @@ def logged_client(client, db_session):
     user, pwd = create_portal_user(
         db_session, client_id=cli.id, email=email
     )
+    from backend.app.client_portal import entitlements as ent
+    ent.set_user_entitlements(db_session, user.id, {"STUB_ECHO"})
     r = client.post(
         "/api/v1/client/auth/login",
         data={"username": email, "password": pwd},
