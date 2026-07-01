@@ -13,6 +13,17 @@ from backend.app.auth.models import Role, User, UserToolEntitlement
 from backend.app.client_portal.tool_registry import TOOLS
 
 
+def is_operator(user: User) -> bool:
+    """True si el usuario es operador (admin/user) y por tanto hace BYPASS del
+    gating comercial: entra al portal con su mismo usuario para QA/soporte y ve
+    todo. Fuente única de esa decisión, usada en el catálogo y en crear job.
+
+    Fail-closed a propósito: solo admin/user hacen bypass; cualquier otro rol
+    (incluido uno nuevo que se agregara en el futuro) queda gateado por defecto,
+    en vez de obtener acceso total por accidente."""
+    return user.role in (Role.admin, Role.user)
+
+
 def list_user_tool_codes(db: Session, user_id: int) -> set[str]:
     """Códigos de herramienta habilitados para el usuario."""
     rows = db.execute(

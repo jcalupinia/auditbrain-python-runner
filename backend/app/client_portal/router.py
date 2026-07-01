@@ -252,12 +252,11 @@ async def create_client_job_endpoint(
     except KeyError:
         raise HTTPException(404, detail=f"Tool {tool_code} no existe.")
 
-    # Enforcement de permiso: solo el rol client se filtra. Los operadores
-    # (admin/user) que entran al portal con su usuario hacen bypass (QA/soporte),
-    # coherente con el gating del catálogo.
-    from backend.app.auth.models import Role
-    from backend.app.client_portal.entitlements import can_access_tool
-    if user.role == Role.client and not can_access_tool(db, user.id, tool_code):
+    # Enforcement de permiso: los operadores (admin/user) hacen bypass (QA/soporte),
+    # coherente con el gating del catálogo; cualquier otro rol se filtra por
+    # entitlement (fail-closed vía is_operator).
+    from backend.app.client_portal.entitlements import can_access_tool, is_operator
+    if not is_operator(user) and not can_access_tool(db, user.id, tool_code):
         raise HTTPException(
             403,
             detail="No tienes acceso a esta herramienta. Contacta a tu administrador.",
@@ -379,14 +378,10 @@ def get_catalog(
     las herramientas concedidas al usuario. Sin permisos → categorías vacías
     ('Próximamente'). Los operadores (admin/user) que entran al portal con su
     mismo usuario NO se filtran: ven el catálogo completo (QA/soporte)."""
-    from backend.app.auth.models import Role
-    from backend.app.client_portal.entitlements import list_user_tool_codes
+    from backend.app.client_portal.entitlements import is_operator, list_user_tool_codes
 
     # allowed=None → sin filtro (operadores). Rol client → set de sus permisos.
-    allowed = (
-        None if user.role in (Role.admin, Role.user)
-        else list_user_tool_codes(db, user.id)
-    )
+    allowed = None if is_operator(user) else list_user_tool_codes(db, user.id)
 
     tools_by_cat: dict[str, list] = {c["id"]: [] for c in CATEGORIES}
     for t in list_enabled_tools():
