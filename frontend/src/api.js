@@ -567,3 +567,28 @@ export async function downloadObligacionesFiscalesJob(jobId, suggestedFilename) 
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
+
+// ---- Permisos de herramientas por usuario (entitlements) ----
+export async function getStaffTools() {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/staff/tools`, { headers: authHeaders() })
+  );
+}
+
+export async function getUserEntitlements(userId) {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/staff/portal-users/${userId}/entitlements`, {
+      headers: authHeaders(),
+    })
+  );
+}
+
+export async function setUserEntitlements(userId, toolCodes) {
+  return parse(
+    await fetch(`${API_BASE}/api/v1/staff/portal-users/${userId}/entitlements`, {
+      method: "PUT",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ tool_codes: toolCodes }),
+    })
+  );
+}
