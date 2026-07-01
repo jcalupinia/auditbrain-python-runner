@@ -39,3 +39,24 @@ def test_unique_user_tool(db_session):
     with pytest.raises(IntegrityError):
         db_session.commit()
     db_session.rollback()
+
+
+def test_delete_user_removes_entitlements(db_session):
+    """Borrar el usuario elimina sus entitlements (cascada manual en
+    delete_user_completely + ON DELETE CASCADE en Postgres). Sin huérfanos."""
+    from sqlalchemy import select, func
+    from backend.app.auth.service import delete_user_completely
+
+    u = _client_user(db_session)
+    db_session.add(UserToolEntitlement(user_id=u.id, tool_code="ICT_2025"))
+    db_session.commit()
+    uid = u.id
+
+    delete_user_completely(db_session, user=u)
+
+    remaining = db_session.execute(
+        select(func.count()).select_from(UserToolEntitlement).where(
+            UserToolEntitlement.user_id == uid
+        )
+    ).scalar_one()
+    assert remaining == 0

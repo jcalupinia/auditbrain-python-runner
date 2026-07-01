@@ -108,6 +108,7 @@ def delete_user_completely(db: Session, *, user: User) -> None:
         "WHERE revoked_by_user_id = :uid",
         "DELETE FROM client_devices WHERE user_id = :uid",
         "UPDATE tool_jobs SET user_id = NULL WHERE user_id = :uid",
+        "DELETE FROM user_tool_entitlements WHERE user_id = :uid",
         "DELETE FROM users WHERE id = :uid",
     ]
     for stmt in statements:
