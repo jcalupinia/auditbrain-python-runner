@@ -148,4 +148,9 @@ CATEGORIES = [
         "label": "Herramientas Societarias",
         "description": "Superintendencia, juntas, actas, distribución de utilidades.",
     },
+    {
+        "id": "GERENCIALES",
+        "label": "Reportes Gerenciales",
+        "description": "Reportes financieros y gerenciales, KPIs, análisis CFO, dashboards ejecutivos.",
+    },
 ]
