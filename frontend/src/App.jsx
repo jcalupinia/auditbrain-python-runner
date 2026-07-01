@@ -391,6 +391,40 @@ function Users() {
   const [single, setSingle] = useState({ cliente: "", ruc: "", email: "", new_password: "" });
   const [singleBusy, setSingleBusy] = useState(false);
 
+  // Panel de permisos de herramientas por cuenta
+  const [permUser, setPermUser] = useState(null);   // { id, email, cliente }
+  const [permCats, setPermCats] = useState([]);      // catálogo completo
+  const [permSel, setPermSel] = useState(new Set()); // códigos activos
+  const [permBusy, setPermBusy] = useState(false);
+  const [permErr, setPermErr] = useState("");
+
+  async function openPerms(u) {
+    setPermErr(""); setPermUser(u); setPermSel(new Set()); setPermCats([]);
+    try {
+      const [cats, ent] = await Promise.all([
+        api.getStaffTools(),
+        api.getUserEntitlements(u.id),
+      ]);
+      setPermCats(cats);
+      setPermSel(new Set(ent.enabled_tool_codes));
+    } catch (e) { setPermErr(e.message); }
+  }
+  function togglePerm(code) {
+    setPermSel((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code); else next.add(code);
+      return next;
+    });
+  }
+  async function savePerms() {
+    setPermBusy(true); setPermErr("");
+    try {
+      await api.setUserEntitlements(permUser.id, Array.from(permSel));
+      setPermUser(null);
+    } catch (e) { setPermErr(e.message); }
+    finally { setPermBusy(false); }
+  }
+
   async function loadOperators() {
     try { setOperators(await api.listOperators()); } catch (e) { setListErr(e.message); }
   }
@@ -540,6 +574,45 @@ function Users() {
     <>
       <ViewHead code="USR" title="Administración de Cuentas"
         sub="Operadores y usuarios de portal · alta y reseteo de claves. Solo administradores." />
+
+      {permUser && (
+        <Panel title={`🔐 Permisos · ${permUser.email}`} max={680}>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Empresa: <b>{permUser.cliente}</b>. Marca las herramientas a las que
+            esta cuenta puede acceder.
+          </p>
+          {permErr && <p style={{ color: "var(--danger)" }}>{permErr}</p>}
+          {permCats.length === 0 && !permErr && <p className="muted">Cargando…</p>}
+          {permCats.map((cat) => (
+            <div key={cat.id} style={{ marginBottom: 14 }}>
+              <div style={{ fontWeight: 600, margin: "8px 0 4px" }}>{cat.label}</div>
+              {cat.tools.length === 0 ? (
+                <p className="muted" style={{ margin: "2px 0 0 8px" }}>Sin herramientas aún.</p>
+              ) : (
+                cat.tools.map((t) => (
+                  <label key={t.code} style={{ display: "flex", alignItems: "center",
+                    gap: 8, padding: "4px 0 4px 8px" }}>
+                    <input
+                      type="checkbox"
+                      checked={permSel.has(t.code)}
+                      onChange={() => togglePerm(t.code)}
+                    />
+                    <span>{t.label}</span>
+                  </label>
+                ))
+              )}
+            </div>
+          ))}
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button className="btn primary" onClick={savePerms} disabled={permBusy}>
+              {permBusy ? "Guardando…" : "Guardar permisos"}
+            </button>
+            <button className="btn" onClick={() => setPermUser(null)} disabled={permBusy}>
+              Cerrar
+            </button>
+          </div>
+        </Panel>
+      )}
 
       {reveal && (
         <Panel title="🔑 Clave temporal generada" meta="copiar" max={680}>
@@ -749,6 +822,7 @@ function Users() {
                     <span className="muted"> · {u.cliente}{u.is_active ? "" : " · inactivo"}</span>
                   </span>
                   <span style={{ display: "flex", gap: 8 }}>
+                    <button className="btn" onClick={() => openPerms(u)}>Permisos</button>
                     <button className="btn" onClick={() => resetGlobal(u)}>Resetear</button>
                     <button className="btn" onClick={() => toggleGlobal(u)}>
                       {u.is_active ? "Deshabilitar" : "Habilitar"}
