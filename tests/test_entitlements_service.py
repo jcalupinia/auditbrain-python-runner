@@ -48,3 +48,20 @@ def test_set_is_idempotent(db_session):
     ent.set_user_entitlements(db_session, u.id, {"ICT_2025"})
     ent.set_user_entitlements(db_session, u.id, {"ICT_2025"})
     assert ent.list_user_tool_codes(db_session, u.id) == {"ICT_2025"}
+
+
+def test_set_partial_overlap_replace(db_session):
+    """Caso más común en producción: reemplazo con solapamiento parcial.
+    Ejercita en una sola llamada las tres ramas: mantener una fila existente,
+    insertar una nueva y borrar una sobrante."""
+    u = _client_user(db_session)
+    # A = {ICT_2025}
+    ent.set_user_entitlements(db_session, u.id, {"ICT_2025"})
+    # A→B: mantiene ICT_2025 (ya existía) e inserta STUB_ECHO
+    ent.set_user_entitlements(db_session, u.id, {"ICT_2025", "STUB_ECHO"})
+    assert ent.list_user_tool_codes(db_session, u.id) == {"ICT_2025", "STUB_ECHO"}
+    # B→C: mantiene STUB_ECHO y borra ICT_2025 (sobrante)
+    ent.set_user_entitlements(db_session, u.id, {"STUB_ECHO"})
+    assert ent.list_user_tool_codes(db_session, u.id) == {"STUB_ECHO"}
+    assert ent.can_access_tool(db_session, u.id, "ICT_2025") is False
+    assert ent.can_access_tool(db_session, u.id, "STUB_ECHO") is True
