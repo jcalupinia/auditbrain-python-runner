@@ -374,14 +374,18 @@ def get_catalog(
     db: Session = Depends(get_db),
 ):
     """Catálogo filtrado por los permisos (entitlements) del usuario.
-    Las categorías se devuelven todas (para la barra lateral); solo se incluyen
-    las herramientas concedidas al usuario. Sin permisos → categorías vacías
-    ('Próximamente'). Los operadores (admin/user) que entran al portal con su
-    mismo usuario NO se filtran: ven el catálogo completo (QA/soporte)."""
+
+    - Rol client: ve **solo** las secciones que tengan al menos una herramienta
+      concedida; las secciones sin nada asignado NO aparecen. Sin permisos →
+      catálogo vacío.
+    - Operadores (admin/user): ven TODAS las secciones (incluidas las vacías,
+      como 'Próximamente'), sin filtrar — entran al portal con su mismo usuario
+      para QA/soporte."""
     from backend.app.client_portal.entitlements import is_operator, list_user_tool_codes
 
+    operator = is_operator(user)
     # allowed=None → sin filtro (operadores). Rol client → set de sus permisos.
-    allowed = None if is_operator(user) else list_user_tool_codes(db, user.id)
+    allowed = None if operator else list_user_tool_codes(db, user.id)
 
     tools_by_cat: dict[str, list] = {c["id"]: [] for c in CATEGORIES}
     for t in list_enabled_tools():
@@ -402,14 +406,17 @@ def get_catalog(
             code=t.code, label=t.label, description=t.description,
             category=t.category, slots=slots_out,
         ))
-    return ClientCatalogResponse(
-        categories=[
-            CategoryOut(
-                id=c["id"],
-                label=c["label"],
-                description=c.get("description"),
-                tools=tools_by_cat.get(c["id"], []),
-            )
-            for c in CATEGORIES
-        ]
-    )
+    cats_out = [
+        CategoryOut(
+            id=c["id"],
+            label=c["label"],
+            description=c.get("description"),
+            tools=tools_by_cat.get(c["id"], []),
+        )
+        for c in CATEGORIES
+    ]
+    # Para clientes, ocultar las secciones sin herramientas asignadas: el cliente
+    # ve solo lo suyo. Los operadores ven todas las secciones (incl. vacías).
+    if not operator:
+        cats_out = [c for c in cats_out if c.tools]
+    return ClientCatalogResponse(categories=cats_out)

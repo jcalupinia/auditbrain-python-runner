@@ -35,26 +35,29 @@ def _codes_by_cat(body):
     return {c["id"]: [t["code"] for t in c["tools"]] for c in body["categories"]}
 
 
-def test_catalog_hides_tools_without_entitlement(client, db_session):
+def test_catalog_empty_when_client_has_nothing(client, db_session):
+    """Cliente sin nada asignado: catálogo vacío (ninguna sección aparece)."""
     auth = _login(client, db_session, granted=set())
     r = client.get("/api/v1/client/catalog", **auth)
     assert r.status_code == 200
     by_cat = _codes_by_cat(r.json())
-    assert "TRIBUTARIAS" in by_cat
-    assert by_cat["TRIBUTARIAS"] == []
+    assert by_cat == {}  # ni una sola sección
 
 
-def test_catalog_shows_only_granted_tool(client, db_session):
+def test_catalog_shows_only_granted_section(client, db_session):
+    """Cliente con ICT_2025: ve SOLO la sección Tributarias; las demás secciones
+    (sin herramientas asignadas) NO aparecen."""
     auth = _login(client, db_session, granted={"ICT_2025"})
     r = client.get("/api/v1/client/catalog", **auth)
     assert r.status_code == 200
     by_cat = _codes_by_cat(r.json())
+    assert set(by_cat.keys()) == {"TRIBUTARIAS"}  # solo esa sección
     assert by_cat["TRIBUTARIAS"] == ["ICT_2025"]
 
 
-def test_catalog_operator_bypasses_gating(client, db_session):
-    """Un operador (admin/user) que entra al portal con su mismo usuario ve el
-    catálogo completo, sin depender de entitlements (que solo aplican a client)."""
+def test_catalog_operator_sees_all_sections(client, db_session):
+    """Un operador (admin/user) ve TODAS las secciones (incl. vacías como
+    'Próximamente') y las herramientas, sin depender de entitlements."""
     from backend.app.auth.models import Role
     from backend.app.auth.service import create_user, get_user_by_email
     from backend.app.auth.jwt_tokens import create_access_token
@@ -70,5 +73,7 @@ def test_catalog_operator_bypasses_gating(client, db_session):
     )
     assert r.status_code == 200, r.text
     by_cat = _codes_by_cat(r.json())
-    # Sin ningún entitlement, el operador igual ve ICT_2025 (catálogo completo).
+    # Ve ICT_2025 y además las secciones vacías siguen presentes (p. ej. NIIF).
     assert "ICT_2025" in by_cat["TRIBUTARIAS"]
+    assert "NIIF" in by_cat  # sección vacía visible para operadores
+    assert by_cat["NIIF"] == []

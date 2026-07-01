@@ -55,9 +55,9 @@ def logged_client(client, db_session):
 
 
 def test_catalog_returns_categories_with_stub_tool(client, logged_client, db_session):
-    """Con gating: tras conceder ICT_2025 al cliente, el catálogo lo muestra en
-    TRIBUTARIAS. Las 4 categorías de cara al cliente siguen presentes y TESTING
-    nunca se expone."""
+    """Con gating: tras conceder solo ICT_2025 al cliente, el catálogo muestra
+    ÚNICAMENTE la sección Tributarias con esa herramienta. Las secciones sin
+    nada asignado (NIIF/Laborales/Societarias) NO aparecen, y TESTING tampoco."""
     from backend.app.client_portal import entitlements as ent
     ent.set_user_entitlements(db_session, logged_client["user"].id, {"ICT_2025"})
 
@@ -69,8 +69,8 @@ def test_catalog_returns_categories_with_stub_tool(client, logged_client, db_ses
     assert r.status_code == 200
     body = r.json()
     cats = {c["id"]: c for c in body["categories"]}
-    for expected in ("TRIBUTARIAS", "NIIF", "LABORALES", "SOCIETARIAS"):
-        assert expected in cats, f"Falta categoría {expected}"
+    # Solo la sección concedida aparece
+    assert set(cats.keys()) == {"TRIBUTARIAS"}
     trib_codes = [t["code"] for t in cats["TRIBUTARIAS"]["tools"]]
     assert "ICT_2025" in trib_codes
     assert "TESTING" not in cats
