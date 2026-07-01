@@ -139,5 +139,7 @@ def init_db() -> None:
         finally:
             _bf_db.close()
     except Exception:
-        # El backfill nunca debe impedir el arranque de la app.
-        pass
+        # El backfill nunca debe impedir el arranque de la app, pero un fallo
+        # silencioso dejaría a los clientes sin acceso sin dejar rastro: logueamos.
+        import logging
+        logging.getLogger(__name__).exception("backfill_tributarias falló en init_db")
