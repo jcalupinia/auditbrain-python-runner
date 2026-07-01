@@ -360,14 +360,21 @@ def list_client_jobs_endpoint(
 
 @router.get("/catalog", response_model=ClientCatalogResponse)
 def get_catalog(
-    _: User = Depends(require_client_with_device),
+    user: User = Depends(require_client_with_device),
+    db: Session = Depends(get_db),
 ):
-    """Catálogo de herramientas habilitadas para el cliente.
-    Por ahora retorna TODAS las tools habilitadas. Filtrado por organización
-    es upgrade futuro (gating comercial).
-    """
+    """Catálogo filtrado por los permisos (entitlements) del usuario.
+    Las categorías se devuelven todas (para la barra lateral); solo se incluyen
+    las herramientas concedidas al usuario. Sin permisos → categorías vacías
+    ('Próximamente')."""
+    from backend.app.client_portal.entitlements import list_user_tool_codes
+
+    allowed = list_user_tool_codes(db, user.id)
+
     tools_by_cat: dict[str, list] = {c["id"]: [] for c in CATEGORIES}
     for t in list_enabled_tools():
+        if t.code not in allowed:
+            continue
         if t.category not in tools_by_cat:
             tools_by_cat[t.category] = []
         slots_out = [

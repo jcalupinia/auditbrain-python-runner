@@ -52,12 +52,13 @@ def logged_client(client, db_session):
     }
 
 
-def test_catalog_returns_categories_with_stub_tool(client, logged_client):
-    """El catálogo público debe exponer las 4 categorías de cara al cliente
-    (Tributarias, NIIF, Laborales, Societarias) e incluir ICT_2025 en
-    Tributarias. La categoría TESTING (que contiene STUB_ECHO) se omite
-    intencionalmente para que el cliente final no vea herramientas internas.
-    """
+def test_catalog_returns_categories_with_stub_tool(client, logged_client, db_session):
+    """Con gating: tras conceder ICT_2025 al cliente, el catálogo lo muestra en
+    TRIBUTARIAS. Las 4 categorías de cara al cliente siguen presentes y TESTING
+    nunca se expone."""
+    from backend.app.client_portal import entitlements as ent
+    ent.set_user_entitlements(db_session, logged_client["user"].id, {"ICT_2025"})
+
     r = client.get(
         "/api/v1/client/catalog",
         headers=logged_client["headers"],
@@ -66,13 +67,10 @@ def test_catalog_returns_categories_with_stub_tool(client, logged_client):
     assert r.status_code == 200
     body = r.json()
     cats = {c["id"]: c for c in body["categories"]}
-    # Las 4 categorías de cara al cliente
     for expected in ("TRIBUTARIAS", "NIIF", "LABORALES", "SOCIETARIAS"):
         assert expected in cats, f"Falta categoría {expected}"
-    # ICT 2025 vive en TRIBUTARIAS
     trib_codes = [t["code"] for t in cats["TRIBUTARIAS"]["tools"]]
     assert "ICT_2025" in trib_codes
-    # TESTING no debe salir al cliente
     assert "TESTING" not in cats
 
 
