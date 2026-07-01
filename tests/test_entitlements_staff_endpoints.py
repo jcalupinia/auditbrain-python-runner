@@ -74,6 +74,18 @@ def test_get_and_put_entitlements(client, admin_token, portal_user):
     assert r3.json()["enabled_tool_codes"] == []
 
 
+def test_put_ignores_unknown_codes(client, admin_token, portal_user):
+    """PUT con un código inexistente: se ignora en silencio y la respuesta
+    trae solo los códigos válidos (contrato: no devuelve 400)."""
+    r = client.put(
+        f"/api/v1/staff/portal-users/{portal_user.id}/entitlements",
+        json={"tool_codes": ["ICT_2025", "NO_EXISTE_XYZ"]},
+        headers=_h(admin_token),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["enabled_tool_codes"] == ["ICT_2025"]
+
+
 def test_entitlements_404_for_unknown_user(client, admin_token):
     r = client.get(
         "/api/v1/staff/portal-users/99999999/entitlements",

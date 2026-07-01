@@ -428,6 +428,10 @@ def set_user_entitlements_endpoint(
     body: SetEntitlementsRequest,
     db: Session = Depends(get_db),
 ):
+    """Reemplaza el set completo de herramientas del usuario. Los códigos que
+    no existen en el catálogo se IGNORAN en silencio (no se devuelve 400): la
+    respuesta trae solo los códigos válidos efectivamente aplicados. El frontend
+    solo debe enviar códigos obtenidos de GET /staff/tools."""
     from backend.app.client_portal.entitlements import (
         list_user_tool_codes,
         set_user_entitlements,
