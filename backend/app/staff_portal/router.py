@@ -47,6 +47,27 @@ class PortalUserOut(BaseModel):
     password_reset_required: bool
 
 
+class ToolLite(BaseModel):
+    code: str
+    label: str
+    description: str
+
+
+class CategoryTools(BaseModel):
+    id: str
+    label: str
+    tools: list[ToolLite]
+
+
+class EntitlementsOut(BaseModel):
+    user_id: int
+    enabled_tool_codes: list[str]
+
+
+class SetEntitlementsRequest(BaseModel):
+    tool_codes: list[str]
+
+
 class DeviceOut(BaseModel):
     id: int
     device_id: str
@@ -355,3 +376,66 @@ def delete_portal_user_global(user_id: int, db: Session = Depends(get_db)):
     deleted_email = user.email
     auth_service.delete_user_completely(db, user=user)
     return {"ok": True, "deleted": deleted_email}
+
+
+# ===========================================================================
+# Permisos de herramientas por usuario (entitlements): catálogo + get/set.
+# ===========================================================================
+@global_router.get(
+    "/tools",
+    response_model=list[CategoryTools],
+    dependencies=[Depends(require_admin)],
+)
+def list_all_tools_for_admin():
+    """Catálogo COMPLETO (todas las categorías visibles + sus herramientas
+    habilitadas) para pintar la pantalla de permisos. Excluye TESTING porque
+    no está en CATEGORIES."""
+    from backend.app.client_portal.tool_registry import CATEGORIES, TOOLS
+
+    out: list[CategoryTools] = []
+    for c in CATEGORIES:
+        tools = [
+            ToolLite(code=t.code, label=t.label, description=t.description)
+            for t in TOOLS.values()
+            if t.category == c["id"] and t.enabled
+        ]
+        out.append(CategoryTools(id=c["id"], label=c["label"], tools=tools))
+    return out
+
+
+@global_router.get(
+    "/portal-users/{user_id}/entitlements",
+    response_model=EntitlementsOut,
+    dependencies=[Depends(require_admin)],
+)
+def get_user_entitlements_endpoint(user_id: int, db: Session = Depends(get_db)):
+    from backend.app.client_portal.entitlements import list_user_tool_codes
+
+    user = _require_portal_user(db, user_id)
+    return EntitlementsOut(
+        user_id=user.id,
+        enabled_tool_codes=sorted(list_user_tool_codes(db, user.id)),
+    )
+
+
+@global_router.put(
+    "/portal-users/{user_id}/entitlements",
+    response_model=EntitlementsOut,
+    dependencies=[Depends(require_admin)],
+)
+def set_user_entitlements_endpoint(
+    user_id: int,
+    body: SetEntitlementsRequest,
+    db: Session = Depends(get_db),
+):
+    from backend.app.client_portal.entitlements import (
+        list_user_tool_codes,
+        set_user_entitlements,
+    )
+
+    user = _require_portal_user(db, user_id)
+    set_user_entitlements(db, user.id, set(body.tool_codes))
+    return EntitlementsOut(
+        user_id=user.id,
+        enabled_tool_codes=sorted(list_user_tool_codes(db, user.id)),
+    )
