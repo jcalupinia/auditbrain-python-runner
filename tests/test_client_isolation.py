@@ -40,6 +40,11 @@ def _make_logged_client(db_session, email_prefix):
     db_session.add(cli); db_session.commit(); db_session.refresh(cli)
     email = f"{email_prefix}-{suffix}@iso.com"
     user, pwd = create_portal_user(db_session, client_id=cli.id, email=email)
+    # Con el gating por entitlements, crear un job exige permiso sobre la
+    # herramienta. Este test valida AISLAMIENTO (no permisos), así que
+    # concedemos STUB_ECHO para que la creación del job devuelva 201.
+    from backend.app.client_portal import entitlements as ent
+    ent.set_user_entitlements(db_session, user.id, {"STUB_ECHO"})
     tc = TestClient(legacy_app.app)
     r = tc.post(
         "/api/v1/client/auth/login",
