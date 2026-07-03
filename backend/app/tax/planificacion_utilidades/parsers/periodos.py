@@ -20,6 +20,11 @@ def clasificar_periodo(cell):
         return None
     if isinstance(cell, int) and 1900 < cell < 2100:
         return {"label": str(cell), "tipo": "anual", "meses": 12, "anio": cell}
+    # pandas coacciona un año entero a float (np.float64) cuando la columna
+    # mezcla tipos; aceptar float que sea un año entero exacto en rango.
+    if isinstance(cell, float) and cell.is_integer() and 1900 < cell < 2100:
+        anio = int(cell)
+        return {"label": str(anio), "tipo": "anual", "meses": 12, "anio": anio}
     if isinstance(cell, str):
         s = cell.strip()
         m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", s)
