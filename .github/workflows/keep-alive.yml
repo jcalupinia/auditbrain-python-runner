@@ -1,0 +1,31 @@
+name: keep-alive
+
+# Mantiene "despierto" el backend en Render. El plan gratuito (Sandbox Tier 0)
+# duerme el servicio tras ~15 min sin tráfico; el primer request durante el
+# arranque en frío (~50s) falla y el navegador muestra "Failed to fetch".
+# Este workflow le pega al health-check cada ~10 min para que no se duerma.
+#
+# Notas:
+#  - GitHub puede retrasar u omitir ejecuciones programadas bajo carga; por eso
+#    NO es una garantía absoluta. El frontend además reintenta ante cold-start
+#    (ver frontend/src/api.js::apiFetch), así que el peor caso es una espera, no
+#    un error. Para una garantía dura, subir el servicio a un plan pago de Render.
+#  - Repo público => minutos de Actions ilimitados.
+#  - Los workflows programados solo corren desde la rama por defecto (main).
+
+on:
+  schedule:
+    - cron: "*/10 * * * *" # cada 10 minutos
+  workflow_dispatch: {} # permite dispararlo a mano desde la pestaña Actions
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Despertar backend (health-check)
+        run: |
+          curl -fsS --max-time 120 \
+            --retry 5 --retry-all-errors --retry-delay 10 \
+            "https://auditbrain-python-runner.onrender.com/api/v1/health" \
+            && echo "Backend despierto ✓" \
+            || { echo "El backend no respondió tras los reintentos"; exit 1; }
