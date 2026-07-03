@@ -519,7 +519,7 @@ def _parse_resultados_block(df, b, data, ncols, detalle=None):
         detalle.extend(det.values())
 
 
-def extract_balance_interno(data_bytes: bytes) -> dict:
+def _extract_codificado(data_bytes: bytes) -> dict:
     xls = _read_excel(data_bytes)
     found = {"bal": [], "res": []}  # cada item: (block, df)
     for sh in xls.sheet_names:
@@ -581,3 +581,23 @@ def extract_balance_interno(data_bytes: bytes) -> dict:
         "labels_esf": labels_esf,
         "labels_er": labels_er,
     }
+
+
+def extract_balance_interno(data_bytes: bytes) -> dict:
+    """Fachada: detecta el formato del libro y delega.
+
+    - 'codificado' → lógica histórica (_extract_codificado), sin cambios.
+    - 'resumido_nombre' → nuevo extractor por nombre de concepto.
+    - 'plantilla' → se deja al parser resumido de plantilla existente.
+    """
+    from .layout import detect_layout
+    from .balance_resumido_nombre import extract_balance_resumido_nombre
+    try:
+        xls = _read_excel(data_bytes)
+        df = xls.parse(xls.sheet_names[0], header=None)
+        layout = detect_layout(df)
+    except Exception:
+        layout = "codificado"
+    if layout == "resumido_nombre":
+        return extract_balance_resumido_nombre(data_bytes)
+    return _extract_codificado(data_bytes)
