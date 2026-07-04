@@ -38,6 +38,39 @@ import { alinearPorIdentidad, tienePeriodosTipados } from "./finPeriodos.js";
 // Claves de input por estado (para detectar presencia de ESF/ER tras alinear).
 const ESF_INPUT = ESF_SCHEMA.filter((r) => r[0] === "in" || r[0] === "det").map((r) => r[1]);
 const ER_INPUT = ER_SCHEMA.filter((r) => r[0] === "in" || r[0] === "det").map((r) => r[1]);
+
+// Formatea un delta como "$-47.068" (miles con punto, es-EC).
+function _fmtDelta(d) {
+  const sign = d < 0 ? "-" : d > 0 ? "+" : "";
+  return sign + "$" + Math.abs(Math.round(d)).toLocaleString("es-EC");
+}
+// Construye las comparaciones LISTAS PARA RENDER (para inyectarlas en el dashboard
+// autocontenido). ESF encadenado; ERI parcial-vs-parcial (o anualizado) + anual.
+// Devuelve null si el resultado no trae comparaciones (evita tocar el render normal).
+function buildCmpPayload(results) {
+  const esfRes = (results || []).find((r) => r && r.comparaciones && (r.comparaciones.esf || []).length && (r.labels_esf || []).length);
+  const eriRes = (results || []).find((r) => r && r.comparaciones && (r.comparaciones.eri || []).length && (r.labels_er || []).length);
+  const build = (res, labels, pares, schema) => {
+    if (!res) return null;
+    const rubros = schema.filter((sp) => sp[0] === "in").map((sp) => [sp[1], sp[2]]);
+    const filas = comparacionFilas(res.data || {}, labels || [], pares || [], rubros);
+    if (!filas.length) return null;
+    return {
+      columnas: pares.map((par) => par[3] || `Δ ${par[0]} vs ${par[1]}`),
+      filas: filas.map((f) => ({
+        c: f.etiqueta,
+        celdas: f.celdas.map((cd) =>
+          cd.delta == null
+            ? { t: "—", s: "z" }
+            : { t: _fmtDelta(cd.delta) + (cd.pct == null ? "" : ` (${cd.pct > 0 ? "+" : ""}${cd.pct.toFixed(1)}%)`), s: cd.delta > 0 ? "p" : cd.delta < 0 ? "n" : "z" }
+        ),
+      })),
+    };
+  };
+  const esf = esfRes ? build(esfRes, esfRes.labels_esf, esfRes.comparaciones.esf, ESF_SCHEMA) : null;
+  const eri = eriRes ? build(eriRes, eriRes.labels_er, construirParesEri(eriRes.periodos_eri), ER_SCHEMA) : null;
+  return esf || eri ? { esf, eri } : null;
+}
 import ChartSelectorModal from "./ChartSelectorModal.jsx";
 import { exportDashboardExcel } from "./excelExport.js";
 import { exportDashboardPDF, exportDashboardWord, exportDashboardPPTX } from "./reportExport.js";
@@ -439,9 +472,10 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
     }));
 
   /* ---------- export / derivados ---------- */
+  const comparacionesPayload = useMemo(() => buildCmpPayload(cmpResults), [cmpResults]);
   const dashHTML = useMemo(
-    () => buildStandaloneHTML({ D: Dnorm, header: { ...header, chart: chartStyle }, detalle, nivel, periodos, cuentas }),
-    [Dnorm, header, detalle, nivel, periodos, chartStyle, cuentas]
+    () => buildStandaloneHTML({ D: Dnorm, header: { ...header, chart: chartStyle }, detalle, nivel, periodos, cuentas, comparaciones: comparacionesPayload }),
+    [Dnorm, header, detalle, nivel, periodos, chartStyle, cuentas, comparacionesPayload]
   );
   const balCheck = useMemo(
     () => (periodos.length ? checkBalance(mapToDashboard(D, labels), labels) : []),
@@ -452,7 +486,7 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
     [D, params, todosAnuales, periodos.length]
   );
 
-  const descargarHTML = () => downloadStandaloneHTML({ D: Dnorm, header: { ...header, chart: chartStyle }, detalle, nivel, periodos, cuentas });
+  const descargarHTML = () => downloadStandaloneHTML({ D: Dnorm, header: { ...header, chart: chartStyle }, detalle, nivel, periodos, cuentas, comparaciones: comparacionesPayload });
   const [busyXl, setBusyXl] = useState(false);
   const [busyDoc, setBusyDoc] = useState(""); // "" | "pdf" | "word" | "ppt"
   const descargarExcelGrafico = async () => {
@@ -500,7 +534,8 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
           onChange={(e) => setHeader((h) => ({ ...h, empresa: e.target.value }))} />
         <div className="tx-scbtns">
           <ChartSelectorModal onChartSelected={aplicarChartSkill051} />
-          <button className="tx-btn" onClick={descargarHTML}>⬇ Dashboard HTML</button>
+          <button className="tx-btn gold" onClick={() => setSection("preview")}>👁 Visualizar dashboard</button>
+          <button className="tx-btn" onClick={descargarHTML}>⬇ Descargar HTML</button>
           <button className="tx-btn" onClick={descargarExcelGrafico} disabled={busyXl}>{busyXl ? "Generando…" : "⬇ Excel + gráfico"}</button>
           <button className="tx-btn" onClick={() => descargarDoc("pdf")} disabled={!!busyDoc}>{busyDoc === "pdf" ? "Generando…" : "⬇ PDF"}</button>
           <button className="tx-btn" onClick={() => descargarDoc("word")} disabled={!!busyDoc}>{busyDoc === "word" ? "Generando…" : "⬇ Word"}</button>
