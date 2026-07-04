@@ -39,3 +39,12 @@ def test_total_solo_al_inicio():
     # Un concepto legitimo con "total" en medio NO debe clasificarse como total.
     # "Otros resultados totales" empieza con "OTROS" -> no es total.
     assert mapear_concepto("Otros resultados totales")[0] != "total"
+
+
+def test_impuestos_corrientes_activo_vs_pasivo():
+    # Un impuesto corriente es PASIVO si el nombre trae PAGAR/PASIV/OBLIGACION.
+    assert mapear_concepto("Impuesto corriente por pagar") == ("pasivo", "impPagar")
+    assert mapear_concepto("Impuesto a la renta por pagar") == ("pasivo", "impPagar")
+    assert mapear_concepto("Pasivos por impuestos corrientes") == ("pasivo", "impPagar")
+    # Si no, es ACTIVO (impuestos por recuperar / crédito tributario).
+    assert mapear_concepto("Activos por impuestos corrientes") == ("activo", "impRec")

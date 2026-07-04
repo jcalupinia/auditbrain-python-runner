@@ -52,8 +52,20 @@ def mapear_concepto(nombre: str):
     # contenga "total" en medio (ej. "Otros resultados totales") NO se descarta.
     if n.startswith("TOTAL") or n.startswith("SUBTOTAL"):
         return ("total", None)
-    # 'IMPUESTOS CORRIENTES' aparece en activo y pasivo: se desambigua por
-    # 'ACTIVOS'/'PASIVOS' si el nombre lo trae; si no, cae en activo.
+    # Impuestos corrientes: colisionan entre activo (por recuperar) y pasivo
+    # (por pagar). Un impuesto es PASIVO si el nombre trae cualquier marcador de
+    # obligación (PAGAR / PASIV / OBLIGACION); si no, es ACTIVO (impRec). Se
+    # resuelve ANTES del diccionario para no fusionar un pasivo en el activo ni
+    # que la regla genérica "PAGAR" lo mande a 'cxp'. Excluye impuestos
+    # DIFERIDOS (rubro propio) y el IMPUESTO A LA RENTA del ERI sin marcador de
+    # pasivo (que debe seguir siendo 'irCausado').
+    if "IMPUEST" in n and "DIFERID" not in n:
+        pasivo = any(m in n for m in ("PAGAR", "PASIV", "OBLIGACION"))
+        corriente = "CORRIENTE" in n
+        if pasivo:
+            return ("pasivo", "impPagar")
+        if corriente:
+            return ("activo", "impRec")
     for token, sec, key in _REGLAS:
         if token in n:
             if key == "impRec" and "PASIV" in n:
