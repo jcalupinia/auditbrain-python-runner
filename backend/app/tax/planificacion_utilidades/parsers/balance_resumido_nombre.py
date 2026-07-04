@@ -13,6 +13,10 @@ from .balance_interno import _fix_mojibake
 _TITULO_ESF = ("SITUACION FINANCIERA", "SITUACIÓN FINANCIERA", "BALANCE")
 _TITULO_ERI = ("RESULTADO", "RESULTADOS", "PERDIDAS Y GANANCIAS", "P Y G")
 
+# Cuántas filas hacia arriba se busca el título de un bloque (ESF/ERI) a partir
+# de su cabecera de períodos. 6 da margen para títulos con subtítulos/espacios.
+_LINEAS_BUSQUEDA_TITULO = 6
+
 
 def _read(data: bytes) -> pd.DataFrame:
     xls = _read_excel(data)
@@ -41,7 +45,7 @@ def extract_balance_resumido_nombre(data: bytes) -> dict:
             bloques.append([i, pers])
     # asignar tipo por el título más cercano hacia arriba
     def _tipo(fila_cab):
-        for j in range(fila_cab, max(-1, fila_cab - 4), -1):
+        for j in range(fila_cab, max(-1, fila_cab - _LINEAS_BUSQUEDA_TITULO), -1):
             t = str(df.iloc[j, 0]).upper()
             if any(k in t for k in _TITULO_ERI):
                 return "eri"
@@ -61,6 +65,11 @@ def extract_balance_resumido_nombre(data: bytes) -> dict:
     ncols = max(len(per_esf), len(per_eri), 1)
     data_out = {k: [0.0] * ncols for k in INPUT_KEYS}
     warnings: list[str] = []
+    # Simetría de avisos con el camino codificado: si falta un estado, avisar.
+    if not esf_bloques:
+        warnings.append("No se encontró Balance (ESF); solo se cargaron resultados.")
+    if not eri_bloques:
+        warnings.append("No se encontró Estado de Resultados (ERI); solo se cargó el balance.")
 
     def _fin_bloque(fila_cab):
         for b in bloques:

@@ -54,3 +54,36 @@ def test_bloques_esf_se_alinean_por_label_no_por_posicion():
     assert r["data"]["capital"] == [40, 30, 20, 10]
     # efectivo (bloque activo, orden normal) no se altera:
     assert r["data"]["efectivo"] == [100, 90, 80, 70]
+
+
+def _libro_solo(titulo, filas):
+    import io as _io
+    import datetime as _dt  # noqa: F401
+    from openpyxl import Workbook
+    wb = Workbook(); ws = wb.active
+    ws.append([titulo])
+    for f in filas:
+        ws.append(f)
+    buf = _io.BytesIO(); wb.save(buf); return buf.getvalue()
+
+
+def test_warning_si_no_hay_eri():
+    # Libro con SOLO ESF -> debe avisar que no se encontró el ERI.
+    b = _libro_solo("ESTADO DE SITUACIÓN FINANCIERA RESUMIDO", [
+        ["Activo", "2025", "2024"],
+        ["Efectivo y equivalentes de efectivo", 100, 90],
+        ["TOTAL ACTIVOS", 100, 90],
+    ])
+    r = extract_balance_resumido_nombre(b)
+    assert any("estado de resultados" in w.lower() or "eri" in w.lower() for w in r["warnings"])
+
+
+def test_warning_si_no_hay_esf():
+    # Libro con SOLO ERI -> debe avisar que no se encontró el ESF/Balance.
+    b = _libro_solo("ESTADO DE RESULTADO INTEGRAL RESUMIDO", [
+        ["Concepto", "2025", "2024"],
+        ["Ingresos ordinarios", 1200, 1500],
+        ["Costo de venta", -700, -900],
+    ])
+    r = extract_balance_resumido_nombre(b)
+    assert any("balance" in w.lower() or "esf" in w.lower() for w in r["warnings"])
