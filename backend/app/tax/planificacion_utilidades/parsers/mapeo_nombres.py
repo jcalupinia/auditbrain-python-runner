@@ -15,7 +15,6 @@ def _norm(s: str) -> str:
 # (subcadena normalizada, seccion, clave). Primera coincidencia gana; el orden
 # importa: reglas más específicas antes que las genéricas.
 _REGLAS = [
-    ("TOTAL", "total", None),  # cualquier 'total/subtotal' se usa para cuadrar
     ("EFECTIVO", "activo", "efectivo"),
     ("INVENTARIO", "activo", "inventario"),
     ("PROPIEDAD", "activo", "ppe"),
@@ -30,7 +29,6 @@ _REGLAS = [
     ("BENEFICIOS SOCIALES", "pasivo", "benef"),
     ("OBLIGACIONES ACUMULADAS", "pasivo", "benef"),
     ("BENEFICIOS DEFINIDOS", "pasivo", "benefPost"),
-    ("IMPUESTOS CORRIENTES", "pasivo", "impPagar"),
     ("CAPITAL", "patrimonio", "capital"),
     ("RESERVA", "patrimonio", "reservas"),
     ("REVALUACION", "patrimonio", "ori"),
@@ -49,6 +47,11 @@ _REGLAS = [
 
 def mapear_concepto(nombre: str):
     n = _norm(nombre)
+    # 'TOTAL'/'SUBTOTAL' solo cuadran si el nombre EMPIEZA con esa palabra; así
+    # una fila de total/subtotal se reconoce, pero un concepto legítimo que
+    # contenga "total" en medio (ej. "Otros resultados totales") NO se descarta.
+    if n.startswith("TOTAL") or n.startswith("SUBTOTAL"):
+        return ("total", None)
     # 'IMPUESTOS CORRIENTES' aparece en activo y pasivo: se desambigua por
     # 'ACTIVOS'/'PASIVOS' si el nombre lo trae; si no, cae en activo.
     for token, sec, key in _REGLAS:

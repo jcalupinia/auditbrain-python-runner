@@ -28,3 +28,14 @@ def test_no_mapeado_devuelve_none():
 def test_totales_se_reconocen_como_total():
     assert mapear_concepto("TOTAL ACTIVOS")[0] == "total"
     assert mapear_concepto("Total pasivos corrientes")[0] == "total"
+
+
+def test_total_solo_al_inicio():
+    # "TOTAL"/"SUBTOTAL" solo clasifica como total si el nombre normalizado
+    # EMPIEZA con esa palabra, no cuando aparece en medio.
+    assert mapear_concepto("TOTAL ACTIVOS")[0] == "total"
+    assert mapear_concepto("Total pasivos")[0] == "total"
+    assert mapear_concepto("Subtotal activos corrientes")[0] == "total"
+    # Un concepto legitimo con "total" en medio NO debe clasificarse como total.
+    # "Otros resultados totales" empieza con "OTROS" -> no es total.
+    assert mapear_concepto("Otros resultados totales")[0] != "total"
