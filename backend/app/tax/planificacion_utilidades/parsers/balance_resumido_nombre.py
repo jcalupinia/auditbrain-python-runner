@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import pandas as pd
 from ..schema import INPUT_KEYS
+from ..comparaciones import build_comparaciones
 from .periodos import clasificar_periodo
 from .mapeo_nombres import mapear_concepto
 
@@ -117,11 +118,19 @@ def extract_balance_resumido_nombre(data: bytes) -> dict:
                 lab = per_esf[yi]["label"] if yi < len(per_esf) else str(yi)
                 warnings.append(f"Descuadre en {lab}: Activo − (Pasivo+Patrimonio) = {dif:,.2f}")
 
+    comparaciones = {
+        "esf": [list(par) for par in build_comparaciones(
+            [p["label"] for p in per_esf], [p["tipo"] for p in per_esf], "esf")],
+        "eri": [list(par) for par in build_comparaciones(
+            [p["label"] for p in per_eri], [p["tipo"] for p in per_eri], "eri")],
+    }
+
     return {
         "data": data_out,
         "detalle": [],
         "params": {},
         "warnings": warnings,
+        "comparaciones": comparaciones,
         "source": "resumido_nombre",
         "periodos_esf": per_esf,
         "periodos_eri": per_eri,

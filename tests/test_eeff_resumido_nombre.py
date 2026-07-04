@@ -27,3 +27,14 @@ def test_ingresos_por_periodo_eri():
 def test_descuadre_emite_warning():
     r = extract_balance_resumido_nombre(libro_resumido_nombre())
     assert any("descuadre" in w.lower() or "cuadr" in w.lower() for w in r["warnings"])
+
+
+def test_comparaciones_en_salida():
+    r = extract_balance_resumido_nombre(libro_resumido_nombre())
+    assert r["comparaciones"]["esf"] == [
+        ["may-26", "2025"], ["2025", "2024"], ["2024", "2023"]
+    ]
+    eri = r["comparaciones"]["eri"]
+    assert ["may-26", "may-25"] in eri
+    assert ["2025", "2024"] in eri
+    assert ["may-26", "2025"] not in eri  # jamás cruza parcial/anual
