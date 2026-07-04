@@ -1,11 +1,7 @@
 """Detecta el formato de un libro de EEFF."""
 from __future__ import annotations
-import re
 from .periodos import clasificar_periodo
-
-
-def _segs(code):
-    return [p.strip() for p in re.split(r"[-.]", str(code)) if p.strip() != ""]
+from ._shared import _segs
 
 
 def detect_layout(df) -> str:

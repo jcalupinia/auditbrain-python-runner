@@ -4,12 +4,8 @@ Diccionario EXPLÍCITO y auditado — sin herencia stateful (política CLAUDE.md
 seccion ∈ {'activo','pasivo','patrimonio','resultado','total'}.
 """
 from __future__ import annotations
-import unicodedata
-
-
-def _norm(s: str) -> str:
-    s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode()
-    return " ".join(s.upper().split())
+from ._shared import _norm
+from .balance_interno import _fix_mojibake
 
 
 # (subcadena normalizada, seccion, clave). Primera coincidencia gana; el orden
@@ -46,7 +42,9 @@ _REGLAS = [
 
 
 def mapear_concepto(nombre: str):
-    n = _norm(nombre)
+    # Reparar mojibake (UTF-8 leído como cp1252) antes de normalizar, para que
+    # este camino sea consistente con el codificado (que ya lo aplica).
+    n = _norm(_fix_mojibake(str(nombre)))
     # 'TOTAL'/'SUBTOTAL' solo cuadran si el nombre EMPIEZA con esa palabra; así
     # una fila de total/subtotal se reconoce, pero un concepto legítimo que
     # contenga "total" en medio (ej. "Otros resultados totales") NO se descarta.

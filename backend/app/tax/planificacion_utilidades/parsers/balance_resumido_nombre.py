@@ -2,20 +2,20 @@
 variables y mixtos. Contrato compatible con extract_balance_interno más
 `periodos_esf`, `periodos_eri`."""
 from __future__ import annotations
-import io
 import pandas as pd
 from ..schema import INPUT_KEYS
 from ..comparaciones import build_comparaciones
 from .periodos import clasificar_periodo
 from .mapeo_nombres import mapear_concepto
+from ._shared import _read_excel
+from .balance_interno import _fix_mojibake
 
 _TITULO_ESF = ("SITUACION FINANCIERA", "SITUACIÓN FINANCIERA", "BALANCE")
 _TITULO_ERI = ("RESULTADO", "RESULTADOS", "PERDIDAS Y GANANCIAS", "P Y G")
 
 
 def _read(data: bytes) -> pd.DataFrame:
-    engine = "xlrd" if data[:4] == b"\xd0\xcf\x11\xe0" else "openpyxl"
-    xls = pd.ExcelFile(io.BytesIO(data), engine=engine)
+    xls = _read_excel(data)
     return xls.parse(xls.sheet_names[0], header=None)
 
 
@@ -96,6 +96,7 @@ def extract_balance_resumido_nombre(data: bytes) -> dict:
             nombre = df.iloc[i, 0]
             if not isinstance(nombre, str) or not nombre.strip():
                 continue
+            nombre = _fix_mojibake(nombre)
             sec, key = mapear_concepto(nombre)
             if sec is None:
                 warnings.append(f"Concepto no mapeado: '{nombre.strip()}'")
