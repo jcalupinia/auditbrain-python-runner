@@ -68,11 +68,30 @@ def extract_balance_resumido_nombre(data: bytes) -> dict:
                 return b[0]
         return n
 
-    def _cargar(bloque, periodos):
+    # Índice canónico por LABEL de período para cada estado. Cuando un ESF viene
+    # partido en varios bloques (Activo / Pasivo+Patrimonio) las columnas de cada
+    # bloque pueden venir en distinto orden; se asigna cada valor al índice del
+    # período que le corresponde por su label, no por su posición en el bloque.
+    idx_esf = {p["label"]: k for k, p in enumerate(per_esf)}
+    idx_eri = {p["label"]: k for k, p in enumerate(per_eri)}
+
+    def _cargar(bloque, idx_canonico):
         if not bloque:
             return {}
         cab, cols = bloque
-        totales = {}  # (seccion) -> [vals]
+        # Mapa columna-del-bloque -> índice canónico (por label). Si un bloque
+        # trae un período que no está en el estado, se avisa y se descarta.
+        col_a_canon = {}
+        for c, per in cols:
+            lab = per["label"]
+            if lab in idx_canonico:
+                col_a_canon[c] = idx_canonico[lab]
+            else:
+                warnings.append(
+                    f"Período '{lab}' del bloque en fila {cab + 1} no está en el "
+                    f"estado; sus valores se ignoran para no cruzar columnas."
+                )
+        totales = {}  # (seccion) -> [vals por índice canónico]
         for i in range(cab + 1, _fin_bloque(cab)):
             nombre = df.iloc[i, 0]
             if not isinstance(nombre, str) or not nombre.strip():
@@ -81,21 +100,31 @@ def extract_balance_resumido_nombre(data: bytes) -> dict:
             if sec is None:
                 warnings.append(f"Concepto no mapeado: '{nombre.strip()}'")
                 continue
-            vals = [float(df.iloc[i, c]) if pd.notna(df.iloc[i, c]) and isinstance(df.iloc[i, c], (int, float)) else 0.0
-                    for c, _p in cols]
             if sec == "total":
-                totales[nombre.strip().upper()] = vals
+                tvals = [0.0] * ncols
+                for c, _per in cols:
+                    yi = col_a_canon.get(c)
+                    if yi is None:
+                        continue
+                    cell = df.iloc[i, c]
+                    v = float(cell) if pd.notna(cell) and isinstance(cell, (int, float)) else 0.0
+                    tvals[yi] += v
+                totales[nombre.strip().upper()] = tvals
                 continue
-            for yi, v in enumerate(vals):
-                if yi < ncols and key in data_out:
-                    data_out[key][yi] += v
+            for c, _per in cols:
+                yi = col_a_canon.get(c)
+                if yi is None or yi >= ncols or key not in data_out:
+                    continue
+                cell = df.iloc[i, c]
+                v = float(cell) if pd.notna(cell) and isinstance(cell, (int, float)) else 0.0
+                data_out[key][yi] += v
         return totales
 
     tot_esf: dict = {}
     for b in esf_bloques:
-        tot_esf.update(_cargar(b, [p for _c, p in b[1]]))
+        tot_esf.update(_cargar(b, idx_esf))
     for b in eri_bloques:
-        _cargar(b, [p for _c, p in b[1]])
+        _cargar(b, idx_eri)
 
     # cuadre ESF: TOTAL ACTIVOS vs TOTAL PASIVO + PATRIMONIO por período.
     # Se busca el GRAN total, no un subtotal 'corriente/no corriente': para

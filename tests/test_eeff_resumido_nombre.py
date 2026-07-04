@@ -1,7 +1,10 @@
 from backend.app.tax.planificacion_utilidades.parsers.balance_resumido_nombre import (
     extract_balance_resumido_nombre,
 )
-from tests.fixtures.eeff_sintetico import libro_resumido_nombre
+from tests.fixtures.eeff_sintetico import (
+    libro_resumido_nombre,
+    libro_esf_pasivo_desordenado,
+)
 
 
 def test_periodos_esf_y_eri():
@@ -38,3 +41,16 @@ def test_comparaciones_en_salida():
     assert ["may-26", "may-25"] in eri
     assert ["2025", "2024"] in eri
     assert ["may-26", "2025"] not in eri  # jamás cruza parcial/anual
+
+
+def test_bloques_esf_se_alinean_por_label_no_por_posicion():
+    # per_esf canonico = [may-26, 2025, 2024, 2023] (del bloque Activo).
+    # El bloque pasivo trae las columnas INVERTIDAS: 2023,2024,2025,may-26 con
+    # valores cxp = 1,2,3,4. Alineado por label, cxp debe quedar:
+    #   may-26=4, 2025=3, 2024=2, 2023=1  -> [4,3,2,1]
+    r = extract_balance_resumido_nombre(libro_esf_pasivo_desordenado())
+    assert [p["label"] for p in r["periodos_esf"]] == ["may-26", "2025", "2024", "2023"]
+    assert r["data"]["cxp"] == [4, 3, 2, 1]
+    assert r["data"]["capital"] == [40, 30, 20, 10]
+    # efectivo (bloque activo, orden normal) no se altera:
+    assert r["data"]["efectivo"] == [100, 90, 80, 70]

@@ -38,3 +38,27 @@ def libro_resumido_nombre() -> bytes:
     for r in filas:
         ws.append(r)
     buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
+
+
+def libro_esf_pasivo_desordenado() -> bytes:
+    """Igual que el resumido, pero el bloque 'Pasivo y patrimonio' trae sus
+    columnas de período en ORDEN DISTINTO al bloque 'Activo'. Sirve para probar
+    que los valores se asignan por LABEL de período, no por posición de columna.
+    Activo:  [may-26, 2025, 2024, 2023]
+    Pasivo:  [2023,   2024, 2025, may-26]  (invertido)
+    """
+    wb = Workbook(); ws = wb.active; ws.title = "Hoja1"
+    filas = [
+        ["ESTADO DE SITUACIÓN FINANCIERA RESUMIDO"],
+        ["Activo", dt.datetime(2026, 5, 1), "2025", "2024", 2023],
+        ["Efectivo y equivalentes de efectivo", 100, 90, 80, 70],
+        ["TOTAL ACTIVOS", 100, 90, 80, 70],
+        # Cabecera del bloque pasivo con las columnas INVERTIDAS:
+        ["Pasivo y patrimonio", 2023, "2024", "2025", dt.datetime(2026, 5, 1)],
+        # cxp: en 2023=1, 2024=2, 2025=3, may-26=4 (segun la cabecera invertida)
+        ["Cuentas por pagar comerciales", 1, 2, 3, 4],
+        ["Capital", 10, 20, 30, 40],
+    ]
+    for r in filas:
+        ws.append(r)
+    buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
