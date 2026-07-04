@@ -22,12 +22,12 @@ libro), que coincide con el resultado del ejercicio del patrimonio.
 
 from __future__ import annotations
 
-import io
 import re
-import unicodedata
 from datetime import datetime, date
 
 import pandas as pd
+
+from ._shared import _norm, _segs, _read_excel
 
 INPUT_KEYS = [
     "efectivo", "inversiones", "cxc", "cxcRel", "impRec", "otrasCxc", "inventario",
@@ -39,11 +39,6 @@ INPUT_KEYS = [
     "partTrab", "irCausado", "impDif",
 ]
 _MESES = ["", "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
-
-
-def _norm(s: str) -> str:
-    s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode()
-    return s.upper().strip()
 
 
 def _fix_mojibake(s: str) -> str:
@@ -76,16 +71,6 @@ def _num(x) -> float:
         return float(x)
     except (ValueError, TypeError):
         return 0.0
-
-
-def _segs(code) -> list[str]:
-    """Segmentos del código, agnóstico al separador (punto o guion)."""
-    return [p.strip() for p in re.split(r"[-.]", str(code)) if p.strip() != ""]
-
-
-def _read_excel(data: bytes) -> pd.ExcelFile:
-    engine = "xlrd" if data[:4] == b"\xd0\xcf\x11\xe0" else "openpyxl"
-    return pd.ExcelFile(io.BytesIO(data), engine=engine)
 
 
 def _period_label(cell):
@@ -519,7 +504,7 @@ def _parse_resultados_block(df, b, data, ncols, detalle=None):
         detalle.extend(det.values())
 
 
-def extract_balance_interno(data_bytes: bytes) -> dict:
+def _extract_codificado(data_bytes: bytes) -> dict:
     xls = _read_excel(data_bytes)
     found = {"bal": [], "res": []}  # cada item: (block, df)
     for sh in xls.sheet_names:
@@ -581,3 +566,23 @@ def extract_balance_interno(data_bytes: bytes) -> dict:
         "labels_esf": labels_esf,
         "labels_er": labels_er,
     }
+
+
+def extract_balance_interno(data_bytes: bytes) -> dict:
+    """Fachada: detecta el formato del libro y delega.
+
+    - 'codificado' → lógica histórica (_extract_codificado), sin cambios.
+    - 'resumido_nombre' → nuevo extractor por nombre de concepto.
+    - 'plantilla' → se deja al parser resumido de plantilla existente.
+    """
+    from .layout import detect_layout
+    from .balance_resumido_nombre import extract_balance_resumido_nombre
+    try:
+        xls = _read_excel(data_bytes)
+        df = xls.parse(xls.sheet_names[0], header=None)
+        layout = detect_layout(df)
+    except Exception:
+        layout = "codificado"
+    if layout == "resumido_nombre":
+        return extract_balance_resumido_nombre(data_bytes)
+    return _extract_codificado(data_bytes)
