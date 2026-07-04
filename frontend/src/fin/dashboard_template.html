@@ -5,11 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AUDIT-IA · __EMPRESA__ — Dashboard Ejecutivo</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Poppins:wght@300;400;500;600&family=Roboto+Mono:wght@300;400;500;600&display=swap');
+  /* Autocontenido: SIN dependencias externas (no Google Fonts). Usa la pila de
+     fuentes del sistema para que el archivo abra idéntico en cualquier PC, con o
+     sin internet y aunque la red bloquee CDNs. Los @font-face con SOLO local()
+     mapean los nombres usados en el CSS a fuentes ya instaladas (sin descargar
+     nada); si ninguna existe, el texto cae al fallback genérico del elemento. */
+  @font-face{font-family:'Poppins';src:local('Segoe UI'),local('Helvetica Neue'),local('Roboto'),local('Arial');}
+  @font-face{font-family:'Montserrat';src:local('Segoe UI Semibold'),local('Segoe UI'),local('Helvetica Neue'),local('Arial');font-weight:400 700;}
+  @font-face{font-family:'Roboto Mono';src:local('Consolas'),local('SFMono-Regular'),local('Menlo'),local('Liberation Mono'),local('Courier New');}
   :root{--navy:#071B2F;--navyCRE:#0A2342;--gold:#C7A83C;--green:#A6C63F;--blue:#1E5AA8;--teal:#0D7377;--steel:#1B4F72;--graphite:#2F3640;--white:#F5F7FA;--grayL:#D5D8DC;--red:#C0392B;--amber:#D68910;--greenOk:#1E8449;}
   *{margin:0;padding:0;box-sizing:border-box}
-  body{background:var(--navy);font-family:'Poppins',-apple-system,Arial,sans-serif;color:var(--white)}
-  .mono{font-family:'Roboto Mono',monospace}
+  body{background:var(--navy);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:var(--white)}
+  .mono{font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace}
   .topbar{background:var(--navyCRE);border-bottom:1px solid rgba(13,115,119,.3);padding:8px 0;position:sticky;top:0;z-index:100}
   .bar-inner{width:100%;max-width:1500px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .topbar .bar-inner{justify-content:space-between;min-height:54px}
@@ -175,6 +182,7 @@ const DEFAULT=__DATA__;
 const DETALLE=__DETALLE__;
 const BAL_DET=__BALANCE_DET__;   // balance a nivel detallado (todas las cuentas)
 const CUENTAS=(function(){try{return __CUENTAS__;}catch(e){return [];}})();  // detalle por cuenta (drill-down)
+const COMPARACIONES=(function(){try{return __COMPARACIONES__;}catch(e){return null;}})();  // comparaciones listas por período (parcial vs parcial + anual); null = usar variaciones clásicas
 const CUENTAS_BYKEY=(function(){const m={};(Array.isArray(CUENTAS)?CUENTAS:[]).forEach(function(c){(m[c.key]=m[c.key]||[]).push(c);});return m;})();
 function hayCuentasKey(k){return !!(CUENTAS_BYKEY[k]&&CUENTAS_BYKEY[k].length);}
 function toggleDet(grp,el){var rs=document.querySelectorAll('tr[data-grp="'+grp+'"]');var op=false;rs.forEach(function(r){var h=(r.style.display==='none');r.style.display=h?'':'none';op=h;});if(el){var m=el.querySelector('.dtri');if(m)m.textContent=op?'▾':'▸';}}
@@ -1627,6 +1635,23 @@ function renderIndicadores(C){
 }
 
 function renderVariaciones(C){
+  // Si hay comparaciones tipadas (balances con cortes parciales), se renderizan
+  // las CORRECTAS (parcial vs parcial + anual), evitando el cruce engañoso de un
+  // corte de 5 meses contra un año de 12 meses.
+  if(COMPARACIONES && (COMPARACIONES.esf || COMPARACIONES.eri)){
+    const col=(s)=>s==='p'?'green':s==='n'?'red':'grayL';
+    const tabla=(blk,titulo)=>{
+      if(!blk||!blk.filas||!blk.filas.length) return '';
+      const head='<tr><th style="text-align:left;padding:6px 8px;border-bottom:1px solid rgba(13,115,119,.3)">Concepto</th>'+blk.columnas.map(c=>'<th style="text-align:right;padding:6px 8px;border-bottom:1px solid rgba(13,115,119,.3);white-space:nowrap">'+c+'</th>').join('')+'</tr>';
+      const body=blk.filas.map(f=>'<tr><td style="text-align:left;padding:6px 8px;border-bottom:1px solid rgba(13,115,119,.12);color:var(--white)">'+f.c+'</td>'+f.celdas.map(cd=>'<td class="mono" style="text-align:right;padding:6px 8px;border-bottom:1px solid rgba(13,115,119,.12);white-space:nowrap;color:var(--'+col(cd.s)+')">'+cd.t+'</td>').join('')+'</tr>').join('');
+      return '<div class="panel"><div class="panel-title">'+titulo+'</div><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div></div>';
+    };
+    document.getElementById("sec-variaciones").innerHTML=
+      '<div class="sec-head"><div class="sec-num">03 · Análisis de Variaciones</div><div class="sec-title">Comparaciones por período</div><div class="sec-sub">Balance: cada corte vs. el inmediatamente anterior. Resultados: parcial vs. parcial del mismo corte del año previo (o anualizado si falta) y anual vs. anual. Nunca se cruza un corte de 5 meses con uno de 12 meses.</div></div>'
+      +tabla(COMPARACIONES.esf,'Balance general (ESF · saldos por corte)')
+      +tabla(COMPARACIONES.eri,'Estado de resultados (ERI · flujo del período)');
+    return;
+  }
   const ny=YRS.length, yA=YRS[0], yM=YRS[ny>=2?ny-2:0], yB=YRS[ny-1];
   const lineas=(p,q)=>[
     ['Ingresos',D.ingOrd[q]-D.ingOrd[p],pctv(D.ingOrd[q],D.ingOrd[p])],

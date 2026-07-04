@@ -13,7 +13,7 @@ const jsStr = (s) =>
 // Construye el HTML autocontenido a partir del modelo `D` + cabecera + detalle.
 // `periodos` (opcional) define las columnas/etiquetas; si falta, usa FIN_YRS.
 // `D` debe venir ya normalizado (ER prorrateado) por el llamador.
-export function buildStandaloneHTML({ D, header, detalle, nivel, periodos, cuentas }) {
+export function buildStandaloneHTML({ D, header, detalle, nivel, periodos, cuentas, comparaciones }) {
   const labels = periodos && periodos.length ? periodos.map((p) => p.label) : FIN_YRS;
   // Etiquetas propias del balance (fechas de corte distintas a las del ER si aplica).
   const labelsESF = periodos && periodos.length ? periodos.map((p) => p.labelESF || p.label) : labels;
@@ -31,6 +31,7 @@ export function buildStandaloneHTML({ D, header, detalle, nivel, periodos, cuent
     .replace("__DETALLE__", JSON.stringify(det))
     .replace("__BALANCE_DET__", JSON.stringify(balDet))
     .replace("__CUENTAS__", JSON.stringify(Array.isArray(cuentas) ? cuentas : []))
+    .replace("__COMPARACIONES__", JSON.stringify(comparaciones || null))
     .replace("__LBL_ESF__", JSON.stringify(labelsESF))
     .replace("__THEME__", JSON.stringify(header?.theme || "ejecutivo"))
     .replace("__LAYOUT__", JSON.stringify(header?.layout || "ejecutivo"))
