@@ -1,5 +1,43 @@
 import { describe, it, expect } from "vitest";
-import { pctVar, comparacionFilas } from "./finComparaciones.js";
+import { pctVar, comparacionFilas, construirParesEri } from "./finComparaciones.js";
+
+describe("construirParesEri — anualización de respaldo", () => {
+  it("con may-25 presente: compara parcial vs parcial (sin prorratear)", () => {
+    const per = [
+      { label: "may-26", tipo: "parcial", meses: 5, anio: 2026 },
+      { label: "may-25", tipo: "parcial", meses: 5, anio: 2025 },
+      { label: "2025", tipo: "anual", meses: 12, anio: 2025 },
+      { label: "2024", tipo: "anual", meses: 12, anio: 2024 },
+    ];
+    const pares = construirParesEri(per);
+    expect(pares[0]).toEqual(["may-26", "may-25"]); // sin factor
+    expect(pares).toContainEqual(["2025", "2024"]);
+    expect(pares.some((p) => p[2])).toBe(false); // ningún factor de prorrateo
+  });
+
+  it("sin may-25: anualiza el cierre anterior ×(meses/12) para comparar con may-26", () => {
+    const per = [
+      { label: "may-26", tipo: "parcial", meses: 5, anio: 2026 },
+      { label: "2025", tipo: "anual", meses: 12, anio: 2025 },
+      { label: "2024", tipo: "anual", meses: 12, anio: 2024 },
+    ];
+    const pares = construirParesEri(per);
+    expect(pares[0][0]).toBe("may-26");
+    expect(pares[0][1]).toBe("2025");
+    expect(pares[0][2]).toBeCloseTo(5 / 12); // factor de anualización
+    expect(pares[0][3]).toMatch(/anualizado/);
+    expect(pares).toContainEqual(["2025", "2024"]);
+  });
+
+  it("el factor escala el valor anterior en comparacionFilas", () => {
+    const data = { ventas: [500, 1200, 1500] }; // may-26, 2025, 2024
+    const labels = ["may-26", "2025", "2024"];
+    const pares = [["may-26", "2025", 5 / 12]];
+    const [fila] = comparacionFilas(data, labels, pares, [["ventas", "Ingresos"]]);
+    // may-26(500) - 2025(1200×5/12=500) = 0
+    expect(fila.celdas[0].delta).toBeCloseTo(0);
+  });
+});
 
 describe("pctVar", () => {
   it("calcula variación porcentual", () => {
