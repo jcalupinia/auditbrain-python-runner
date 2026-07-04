@@ -13,11 +13,37 @@ export function pctVar(a, b) {
   return ((a - b) / Math.abs(b)) * 100;
 }
 
+// Construye los pares de comparación del ESTADO DE RESULTADOS (flujo), aplicando
+// la ANUALIZACIÓN DE RESPALDO: se compara parcial-vs-parcial (may-26 vs may-25),
+// pero si hay un único corte parcial sin su comparable del año anterior, se
+// compara contra el anual inmediato previo PRORRATEADO ×(meses/12). Luego los
+// anuales encadenados (2025 vs 2024, 2024 vs 2023). Nunca cruza 5m con 12m sin prorratear.
+// Cada par: [actual, anterior, factorAnterior?, etiqueta?].
+export function construirParesEri(periodosEri) {
+  const per = periodosEri || [];
+  const parciales = per.filter((p) => p.tipo === "parcial");
+  const anuales = per.filter((p) => p.tipo === "anual").slice().sort((a, b) => b.anio - a.anio);
+  const pares = [];
+  if (parciales.length >= 2) {
+    for (let i = 0; i < parciales.length - 1; i++) pares.push([parciales[i].label, parciales[i + 1].label]);
+  } else if (parciales.length === 1) {
+    const p = parciales[0];
+    const prev = anuales.filter((a) => a.anio < p.anio)[0]; // anual del año anterior
+    if (prev) {
+      const f = (p.meses || 12) / 12;
+      pares.push([p.label, prev.label, f, `Δ ${p.label} vs ${prev.label} (anualizado ×${p.meses}/12)`]);
+    }
+  }
+  for (let i = 0; i < anuales.length - 1; i++) pares.push([anuales[i].label, anuales[i + 1].label]);
+  return pares;
+}
+
 // Construye las filas de comparación de un estado.
 //   data:   { key: [valores por período] }
 //   labels: [etiqueta por período]  (labels_esf o labels_er)
-//   pares:  [[actual, anterior], ...]  (comparaciones.esf o .eri del backend)
+//   pares:  [[actual, anterior, factorAnterior?, etiqueta?], ...]
 //   rubros: [[key, etiquetaVisible], ...]  (rubros del esquema a mostrar)
+// factorAnterior escala el valor del período anterior (anualización de respaldo).
 // Devuelve solo los rubros con algún valor no nulo, cada uno con una celda por par.
 export function comparacionFilas(data, labels, pares, rubros) {
   const idx = (l) => labels.indexOf(l);
@@ -27,13 +53,15 @@ export function comparacionFilas(data, labels, pares, rubros) {
     .map(([k, etiqueta]) => ({
       key: k,
       etiqueta,
-      celdas: pares.map(([a, b]) => {
+      celdas: pares.map((par) => {
+        const [a, b, factorB] = par;
+        const f = factorB || 1;
         const ia = idx(a);
         const ib = idx(b);
         const va = ia >= 0 ? arrOf(k)[ia] : null;
-        const vb = ib >= 0 ? arrOf(k)[ib] : null;
-        if (va == null || vb == null) return { par: [a, b], delta: null, pct: null };
-        return { par: [a, b], delta: va - vb, pct: pctVar(va, vb) };
+        const vb = ib >= 0 ? arrOf(k)[ib] * f : null;
+        if (va == null || vb == null) return { par, delta: null, pct: null };
+        return { par, delta: va - vb, pct: pctVar(va, vb) };
       }),
     }));
 }

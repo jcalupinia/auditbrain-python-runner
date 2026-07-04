@@ -32,7 +32,12 @@ import {
   normalizarER,
 } from "./finModel.js";
 import { downloadStandaloneHTML, buildStandaloneHTML } from "./dashboardExport.js";
-import { comparacionFilas } from "./finComparaciones.js";
+import { comparacionFilas, construirParesEri } from "./finComparaciones.js";
+import { alinearPorIdentidad, tienePeriodosTipados } from "./finPeriodos.js";
+
+// Claves de input por estado (para detectar presencia de ESF/ER tras alinear).
+const ESF_INPUT = ESF_SCHEMA.filter((r) => r[0] === "in" || r[0] === "det").map((r) => r[1]);
+const ER_INPUT = ER_SCHEMA.filter((r) => r[0] === "in" || r[0] === "det").map((r) => r[1]);
 import ChartSelectorModal from "./ChartSelectorModal.jsx";
 import { exportDashboardExcel } from "./excelExport.js";
 import { exportDashboardPDF, exportDashboardWord, exportDashboardPPTX } from "./reportExport.js";
@@ -164,6 +169,29 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
   // ejemplo es solo un placeholder). `label`=fecha del ER, `labelESF`=del balance.
   const cargarInternos = (items, mesesDefault) => {
     const num = (v) => (v == null ? 0 : (+v || 0));
+    // Camino NUEVO: los balances resumidos por nombre traen períodos tipados
+    // (label/tipo/meses/anio). Se alinean por IDENTIDAD (año-mes) en vez de por
+    // año extraído — así el corte parcial may-26 y los cierres anuales quedan en
+    // su columna correcta (la fusión por año los desalineaba). El eje lo define
+    // el Balance; los cortes solo-ER (may-25) se usan aparte en Comparaciones.
+    const typed = items.map((it) => it.res || it).filter(tienePeriodosTipados);
+    if (typed.length && typed.length === items.length) {
+      const { D: aD, periodos: aPer } = alinearPorIdentidad(typed[0]);
+      const nz = (arr) => (arr || []).some((v) => num(v));
+      const hasESF = ESF_INPUT.some((k) => nz(aD[k]));
+      const hasER = ER_INPUT.some((k) => nz(aD[k]));
+      const patInc = aPer.some((_p, c) => {
+        const t = num(aD.capital[c]) + num(aD.reservas[c]) + num(aD.ori[c]) + num(aD.resAcum[c]);
+        return t > 0 && num(aD.capital[c]) === 0 && num(aD.reservas[c]) === 0;
+      });
+      setD(aD);
+      // normalizar:false → el dashboard muestra las cifras REALES por período
+      // (may-26 sus 5 meses, los anuales sus 12); la comparación 5m-vs-anual se
+      // resuelve en el panel Comparaciones, no prorrateando el estado completo.
+      setPeriodos(aPer.map((p) => ({ id: nextId(), label: p.label, labelESF: p.labelESF, meses: p.meses, normalizar: false })));
+      setCuentas([]); // el resumido por nombre no trae detalle por cuenta
+      return { count: aPer.length, patInc, hasESF, hasER };
+    }
     const yearOf = (s) => { const m = String(s == null ? "" : s).match(/20\d{2}/); return m ? m[0] : null; };
     const byYear = new Map();
     const order = [];
@@ -937,7 +965,8 @@ function ComparacionesPanel({ results }) {
       )}
       {eriRes && (
         <CmpTabla titulo="Estado de resultados (ERI · flujo del período)"
-          data={eriRes.data} labels={eriRes.labels_er} pares={eriRes.comparaciones.eri}
+          data={eriRes.data} labels={eriRes.labels_er}
+          pares={construirParesEri(eriRes.periodos_eri)}
           periodos={eriRes.periodos_eri} schema={ER_SCHEMA} />
       )}
     </>
@@ -964,7 +993,7 @@ function CmpTabla({ titulo, data, labels, pares, periodos, schema }) {
         <thead>
           <tr>
             <th>Concepto</th>
-            {pares.map(([a, b], i) => <th key={i}>Δ {a} vs {b}</th>)}
+            {pares.map((par, i) => <th key={i}>{par[3] || `Δ ${par[0]} vs ${par[1]}`}</th>)}
           </tr>
         </thead>
         <tbody>
