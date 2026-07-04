@@ -32,6 +32,7 @@ import {
   normalizarER,
 } from "./finModel.js";
 import { downloadStandaloneHTML, buildStandaloneHTML } from "./dashboardExport.js";
+import { comparacionFilas } from "./finComparaciones.js";
 import ChartSelectorModal from "./ChartSelectorModal.jsx";
 import { exportDashboardExcel } from "./excelExport.js";
 import { exportDashboardPDF, exportDashboardWord, exportDashboardPPTX } from "./reportExport.js";
@@ -52,6 +53,7 @@ const SECTIONS = [
   ["ingesta", "i", "Datos e ingesta"],
   ["periodos", "P", "Períodos"],
   ["eeff", "1", "Estados financieros"],
+  ["comparaciones", "Δ", "Comparaciones"],
   ["detalle", "2", "Detalle CFO"],
   ["proyeccion", "3", "Proyección 3 estados"],
   ["preview", "★", "Dashboard ejecutivo"],
@@ -115,6 +117,10 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
 
   // Ingesta
   const [cuentas, setCuentas] = useState([]); // detalle por cuenta (drill-down)
+  // Resultados crudos del backend (para las comparaciones período-a-período,
+  // que necesitan los períodos SIN fusionar por año — la fusión colapsa los
+  // cortes parciales). Solo se pueblan cuando el backend devuelve `comparaciones`.
+  const [cmpResults, setCmpResults] = useState([]);
   const [fuente, setFuente] = useState(null);
   const [files, setFiles] = useState([]);
   const [ingBusy, setIngBusy] = useState(false);
@@ -303,6 +309,7 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
           (res.warnings || []).forEach((w) => warns.add(w));
         }
         setCuentas([]); // F-101 no trae detalle por cuenta
+        setCmpResults([]); // F-101 no expone comparaciones período-a-período
       } else {
         // Internos / auditados: procesa TODOS los archivos y los fusiona por año
         // (Balance + Estado de Resultados separados → un período por año).
@@ -316,6 +323,7 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
         }
         if (results.length) {
           const r = cargarInternos(results, mesesDefault);
+          setCmpResults(results.map((x) => x.res)); // crudo, para Comparaciones
           procesados = results.length;
           periodosCargados = r.count;
           patIncompleto = r.patInc;
@@ -357,6 +365,7 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
     setPeriodos(initPeriodos());
     setD(clone(EX));
     setCuentas([]); // el ejemplo no trae detalle por cuenta
+    setCmpResults([]);
     setHeader({ ...DEFAULT_HEADER, empresa: DEFAULT_PARAMS.empresa + " (ejemplo)" });
     setIngMsg({ ok: true, text: "Datos de ejemplo cargados (SIGMANSERVICES, 3 años)." });
   };
@@ -366,6 +375,7 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
     setPeriodos([]);
     setD(emptyD(0));
     setCuentas([]);
+    setCmpResults([]);
     setHeader({ ...DEFAULT_HEADER, empresa: "" });
     setDetalle(clone(EMPTY_DETALLE));
     setIngMsg(null);
@@ -657,6 +667,19 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
         </div>
       )}
 
+      {/* ===== COMPARACIONES ===== */}
+      {section === "comparaciones" && (
+        <div className="tx-card">
+          <h3>Comparaciones período a período</h3>
+          <p className="tx-muted">
+            <b>Balance (ESF):</b> cada período vs. el inmediatamente anterior (may-26 vs 2025, 2025 vs 2024…).
+            {" "}<b>Resultados (ERI):</b> parcial vs. parcial del mismo corte del año previo (may-26 vs may-25) y anual vs. anual.
+            {" "}Nunca se cruza un corte parcial (p. ej. 5 meses) con uno anual (12 meses).
+          </p>
+          <ComparacionesPanel results={cmpResults} />
+        </div>
+      )}
+
       {/* ===== DETALLE CFO ===== */}
       {section === "detalle" && (
         <div>
@@ -884,6 +907,84 @@ function BalanceBanner({ balCheck }) {
           ? <>Ecuación contable <b>A = Pasivo + Patrimonio</b> cuadra en los {balCheck.length} período(s).</>
           : <>Hay descuadres: {balCheck.filter((b) => Math.abs(b.dif) >= 2).map((b) => `${b.anio}: ${fmt(b.dif)}`).join(" · ")}.</>}
       </div>
+    </div>
+  );
+}
+
+/* ---------- Comparaciones período a período (usa el crudo del backend) ---------- */
+function ComparacionesPanel({ results }) {
+  const tieneEsf = (r) => r && r.comparaciones && (r.comparaciones.esf || []).length && (r.labels_esf || []).length;
+  const tieneEri = (r) => r && r.comparaciones && (r.comparaciones.eri || []).length && (r.labels_er || []).length;
+  const esfRes = (results || []).find(tieneEsf);
+  const eriRes = (results || []).find(tieneEri);
+  if (!esfRes && !eriRes) {
+    return (
+      <div className="tx-note n-info">
+        <span className="ic">ℹ</span>
+        <div>
+          Las comparaciones aparecen aquí al procesar un estado financiero <b>resumido por nombre</b>
+          {" "}(ESF/ERI con columnas de período). Procesa un archivo en <b>Datos e ingesta</b>.
+        </div>
+      </div>
+    );
+  }
+  return (
+    <>
+      {esfRes && (
+        <CmpTabla titulo="Balance general (ESF · saldos por corte)"
+          data={esfRes.data} labels={esfRes.labels_esf} pares={esfRes.comparaciones.esf}
+          periodos={esfRes.periodos_esf} schema={ESF_SCHEMA} />
+      )}
+      {eriRes && (
+        <CmpTabla titulo="Estado de resultados (ERI · flujo del período)"
+          data={eriRes.data} labels={eriRes.labels_er} pares={eriRes.comparaciones.eri}
+          periodos={eriRes.periodos_eri} schema={ER_SCHEMA} />
+      )}
+    </>
+  );
+}
+
+function CmpTabla({ titulo, data, labels, pares, periodos, schema }) {
+  const rubros = schema.filter((sp) => sp[0] === "in").map((sp) => [sp[1], sp[2]]);
+  const filas = comparacionFilas(data || {}, labels || [], pares || [], rubros);
+  const tipoDe = (lab) => {
+    const p = (periodos || []).find((x) => x.label === lab);
+    return p && p.tipo === "parcial" ? " · parcial" : "";
+  };
+  if (!filas.length) return null;
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div className="tx-muted" style={{ fontWeight: 600, marginBottom: 6 }}>
+        {titulo}
+        <span style={{ fontWeight: 400 }}>
+          {" — "}{(labels || []).map((l) => `${l}${tipoDe(l)}`).join(" · ")}
+        </span>
+      </div>
+      <table className="tx-tbl">
+        <thead>
+          <tr>
+            <th>Concepto</th>
+            {pares.map(([a, b], i) => <th key={i}>Δ {a} vs {b}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {filas.map((fila) => (
+            <tr key={fila.key}>
+              <td style={{ textAlign: "left" }}>{fila.etiqueta}</td>
+              {fila.celdas.map((c, i) => {
+                if (c.delta == null) return <td key={i} style={{ textAlign: "right" }}>—</td>;
+                const col = c.delta > 0 ? "#1D9E75" : c.delta < 0 ? "#E24B4A" : "inherit";
+                return (
+                  <td key={i} style={{ textAlign: "right", color: col }}>
+                    {m(c.delta)}
+                    {c.pct == null ? "" : ` (${c.pct > 0 ? "+" : ""}${c.pct.toFixed(1)}%)`}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
