@@ -29,6 +29,21 @@ class ExtractResponse(BaseModel):
     # Detalle por cuenta-hoja (drill-down). Cada item:
     # {sec, key (rubro), codigo, nombre, vals:[por período]}.
     detalle: list[dict] = Field(default_factory=list)
+    # Comparaciones período-a-período (extractor resumido por nombre). Sin estos
+    # campos declarados, response_model=ExtractResponse los FILTRA de la respuesta
+    # y el dashboard nunca los recibe.
+    comparaciones: dict = Field(
+        default_factory=dict,
+        description="Pares período-a-período: {esf:[[actual,anterior],...], eri:[...]}.",
+    )
+    periodos_esf: list[dict] = Field(
+        default_factory=list,
+        description="Períodos del ESF: [{label, tipo, meses, anio}, ...].",
+    )
+    periodos_eri: list[dict] = Field(
+        default_factory=list,
+        description="Períodos del ERI: [{label, tipo, meses, anio}, ...].",
+    )
 
 
 class CtrlYear(BaseModel):
