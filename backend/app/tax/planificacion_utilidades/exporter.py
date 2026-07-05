@@ -512,6 +512,39 @@ _HEAD_FONT = Font(name="Calibri", color=GOLD, bold=True, size=11)
 _TITLE_FONT = Font(name="Calibri", color=GOLD, bold=True, size=14)
 _BLOCK_FONT = Font(name="Calibri", color="FFFFFF", bold=True, size=11)
 
+# ---------------------------------------------------------------------------
+# PALETA PREMIUM (tablero ejecutivo oscuro). Formato openpyxl 'FFxxxxxx'.
+# ---------------------------------------------------------------------------
+DASH_BG = "FF0B1F3A"        # fondo página / barra título / totales
+DASH_CARD = "FF11294C"      # tarjetas y filas de tabla
+DASH_KPI = "FF173564"       # KPIs superiores
+DASH_KPI_DK = "FF0E2444"    # variante oscura
+DASH_GOLD = "FFC9A961"      # acentos / títulos de sección / tarjeta hero
+DASH_TXT = "FFE8EEF7"       # texto claro
+DASH_MUTED = "FF9FB3D1"     # texto muted / labels
+DASH_DESC = "FFA8B5CC"      # descripción
+DASH_WHITE = "FFFFFFFF"     # blanco
+DASH_GREEN = "FF7BD389"     # positivo / óptimo (claro)
+DASH_GREEN_DK = "FF27AE60"  # positivo (dot / umbral)
+DASH_RED = "FFE07B7B"       # negativo
+DASH_BLUE = "FF3498DB"      # barra azul
+DASH_ORANGE = "FFE67E22"    # naranja
+
+_MONEY = "#,##0"
+_PCTF = "0.0%"
+
+# Rellenos reutilizables del dashboard.
+_F_BG = PatternFill("solid", fgColor=DASH_BG)
+_F_CARD = PatternFill("solid", fgColor=DASH_CARD)
+_F_KPI = PatternFill("solid", fgColor=DASH_KPI)
+_F_GOLD = PatternFill("solid", fgColor=DASH_GOLD)
+
+_FONT_NAME = "Calibri"
+
+
+def _dfont(size=10, bold=False, color=DASH_TXT, italic=False):
+    return Font(name=_FONT_NAME, size=size, bold=bold, color=color, italic=italic)
+
 
 def _dseries(data: dict, key: str) -> list[float]:
     """Serie de valores por período de una clave del modelo D."""
@@ -612,6 +645,23 @@ def build_dashboard_workbook(
         for i in range(n)
     ]
 
+    # --- Series de balance por grupo (para KPIs y semáforos). ---
+    def _sum_keys(keys: list[str]) -> list[float]:
+        return [sum(_at(_dabs(data, k), i) for k in keys) for i in range(n)]
+
+    activo_corr = _sum_keys(_AC_KEYS)
+    activo_ncorr = _sum_keys(_ANC_KEYS)
+    total_activo = [activo_corr[i] + activo_ncorr[i] for i in range(n)]
+    pasivo_corr = _sum_keys(_PC_KEYS)
+    pasivo_ncorr = _sum_keys(_PNC_KEYS)
+    total_pasivo = [pasivo_corr[i] + pasivo_ncorr[i] for i in range(n)]
+    # Patrimonio (incluye ori + resAcum + utilidad del ejercicio).
+    patrimonio = [
+        sum(_at(_dseries(data, k), i)
+            for k in ("capital", "reservas", "ori", "resAcum", "utilEjercicio"))
+        for i in range(n)
+    ]
+
     # =============== Bloque ESTADO DE RESULTADOS ===============
     row = 3
     _block_title(row, "ESTADO DE RESULTADOS")
@@ -654,6 +704,24 @@ def build_dashboard_workbook(
     # Filas de las 4 cuentas de composición (Efectivo/CxC/Inventario/PP&E).
     bal_comp_first = bal_first
     bal_comp_last = bal_first + 3
+    # Filas de totales/agregados (referenciadas por KPIs y semáforos, para que
+    # recalculen al editar). Se escriben con valores pero podrían ser fórmulas;
+    # se mantienen como valores tidy para Power BI.
+    bal_ac_row = row
+    _write_row(row, "Total activo corriente", activo_corr)
+    row += 1
+    bal_pc_row = row
+    _write_row(row, "Total pasivo corriente", pasivo_corr)
+    row += 1
+    bal_tact_row = row
+    _write_row(row, "Total activo", total_activo)
+    row += 1
+    bal_tpas_row = row
+    _write_row(row, "Total pasivo", total_pasivo)
+    row += 1
+    bal_pat_row = row
+    _write_row(row, "Patrimonio", patrimonio)
+    row += 1
     row += 1
 
     # =============== Bloque MÁRGENES (%) ===============
@@ -670,80 +738,40 @@ def build_dashboard_workbook(
     mar_neto_row = row
     _write_row(row, "Margen neto", mn, fmt="0.0%")
 
-    # ------------------------------------------------------------------
-    # GRÁFICOS NATIVOS -> hoja "Dashboard", ligados por Reference a "Datos".
-    # ------------------------------------------------------------------
+    # ==================================================================
+    # HOJA "Dashboard" — TABLERO EJECUTIVO PREMIUM (oscuro)
+    # ==================================================================
     min_data_col, max_data_col = 2, 1 + n
+    last_period = n - 1
+    prev_period = n - 2 if n >= 2 else 0
 
-    ws_dash["A1"] = f"AUDIT-IA · {empresa} · Dashboard"
-    ws_dash["A1"].font = _TITLE_FONT
-
-    cats = Reference(ws, min_col=min_data_col, max_col=max_data_col,
-                     min_row=er_head, max_row=er_head)
-
-    def _mk(cls: type):
-        ch = cls()
-        ch.style = 10
-        ch.width = 18
-        ch.height = 9
-        ch.x_axis.title = "Período"
-        ch.y_axis.title = "USD"
-        return ch
-
-    # --- (a) Resultados: Ingresos, Costo, Utilidad neta por período ---
-    if style in ("barras", "lineas", "area"):
-        cls_map = {"barras": BarChart, "lineas": LineChart, "area": AreaChart}
-        chart_a = _mk(cls_map[style])
-        if style == "barras":
-            chart_a.type = "col"
-        for rrow in (er_ing_row, er_costo_row, er_neta_row):
-            data_ref = Reference(ws, min_col=1, max_col=max_data_col,
-                                 min_row=rrow, max_row=rrow)
-            chart_a.add_data(data_ref, titles_from_data=True, from_rows=True)
-        chart_a.set_categories(cats)
-    else:  # combo (default): barras (Ingresos, Costo) + línea (Utilidad neta)
-        chart_a = _mk(BarChart)
-        chart_a.type = "col"
-        for rrow in (er_ing_row, er_costo_row):
-            data_ref = Reference(ws, min_col=1, max_col=max_data_col,
-                                 min_row=rrow, max_row=rrow)
-            chart_a.add_data(data_ref, titles_from_data=True, from_rows=True)
-        chart_a.set_categories(cats)
-        line = _mk(LineChart)
-        neta_ref = Reference(ws, min_col=1, max_col=max_data_col,
-                             min_row=er_neta_row, max_row=er_neta_row)
-        line.add_data(neta_ref, titles_from_data=True, from_rows=True)
-        line.set_categories(cats)
-        line.y_axis.axId = 200  # eje secundario para el combo
-        chart_a += line
-    chart_a.title = "Resultados por período"
-    ws_dash.add_chart(chart_a, "A3")
-
-    # --- (b) Composición del Balance: Efectivo/CxC/Inventario/PP&E ---
-    chart_b = _mk(BarChart)
-    chart_b.type = "col"
-    chart_b.grouping = "clustered"
-    chart_b.title = "Composición del Balance"
-    cats_b = Reference(ws, min_col=min_data_col, max_col=max_data_col,
-                       min_row=bal_head, max_row=bal_head)
-    comp_ref = Reference(ws, min_col=1, max_col=max_data_col,
-                         min_row=bal_comp_first, max_row=bal_comp_last)
-    chart_b.add_data(comp_ref, titles_from_data=True, from_rows=True)
-    chart_b.set_categories(cats_b)
-    ws_dash.add_chart(chart_b, "A22")
-
-    # --- (c) Tendencia de márgenes: Margen bruto y Margen neto ---
-    chart_c = _mk(LineChart)
-    chart_c.title = "Tendencia de márgenes"
-    chart_c.y_axis.numFmt = "0.0%"
-    chart_c.y_axis.title = "%"
-    cats_c = Reference(ws, min_col=min_data_col, max_col=max_data_col,
-                       min_row=mar_head, max_row=mar_head)
-    mar_ref = Reference(ws, min_col=1, max_col=max_data_col,
-                        min_row=mar_bruto_row, max_row=mar_neto_row)
-    chart_c.add_data(mar_ref, titles_from_data=True, from_rows=True)
-    chart_c.set_categories(cats_c)
-    ws_dash.add_chart(chart_c, "A41")
+    _build_premium_dashboard(
+        ws_dash, ws, empresa, labels, n,
+        series={
+            "total_activo": total_activo,
+            "total_pasivo": total_pasivo,
+            "patrimonio": patrimonio,
+            "neta": neta,
+            "ventas": ventas,
+            "ub": ub,
+            "gastos_op": gastos_op,
+            "activo_corr": activo_corr,
+            "pasivo_corr": pasivo_corr,
+        },
+        datos_rows={
+            "er_head": er_head, "er_ing": er_ing_row, "er_costo": er_costo_row,
+            "er_neta": er_neta_row,
+            "bal_head": bal_head, "bal_comp_first": bal_comp_first,
+            "bal_comp_last": bal_comp_last, "bal_ac": bal_ac_row,
+            "bal_pc": bal_pc_row, "bal_tact": bal_tact_row,
+            "bal_tpas": bal_tpas_row, "bal_pat": bal_pat_row,
+            "mar_head": mar_head, "mar_bruto": mar_bruto_row,
+            "mar_neto": mar_neto_row,
+        },
+        idx={"last": last_period, "prev": prev_period,
+             "mincol": min_data_col, "maxcol": max_data_col},
+        style=style,
+    )
 
     # --- Guardar + VALIDACIÓN OBLIGATORIA (regla suprema) ---
     buf = io.BytesIO()
@@ -751,6 +779,437 @@ def build_dashboard_workbook(
     raw = buf.getvalue()
     load_workbook(io.BytesIO(raw))  # si estuviera corrupto, lanzaría
     return raw
+
+
+# --------------------------------------------------------------------------
+# Construcción de la hoja "Dashboard" premium (oscuro, estilo tablero SRI).
+# --------------------------------------------------------------------------
+def _col(i: int) -> str:
+    return get_column_letter(i)
+
+
+def _build_premium_dashboard(wsd, ws, empresa, labels, n, series, datos_rows,
+                             idx, style) -> None:
+    """Rediseña la hoja Dashboard con calidad de presentación premium.
+
+    `wsd` = hoja Dashboard destino. `ws` = hoja Datos (para Reference y refs de
+    fórmula que recalculan). Todos los rellenos usan la paleta oscura.
+    """
+    LAST = idx["last"]
+    PREV = idx["prev"]
+    dcol = lambda name, i: f"Datos!{_col(2 + i)}{datos_rows[name]}"  # noqa: E731
+
+    # --- Lienzo oscuro: rellenar TODO A1:R60 con el fondo. ---
+    TOTAL_COLS = 18   # A..R
+    TOTAL_ROWS = 62
+    wsd.sheet_view.showGridLines = False
+    for r in range(1, TOTAL_ROWS + 1):
+        for c in range(1, TOTAL_COLS + 1):
+            wsd.cell(row=r, column=c).fill = _F_BG
+
+    # Anchos de columna.
+    for c in range(1, TOTAL_COLS + 1):
+        wsd.column_dimensions[_col(c)].width = 11.5
+    wsd.column_dimensions["A"].width = 3
+
+    def _merge(r1, c1, r2, c2):
+        wsd.merge_cells(start_row=r1, start_column=c1, end_row=r2, end_column=c2)
+
+    def _put(r, c, value, *, font=None, fill=None, align=None, numfmt=None):
+        cell = wsd.cell(row=r, column=c, value=value)
+        if font is not None:
+            cell.font = font
+        if fill is not None:
+            cell.fill = fill
+        if numfmt is not None:
+            cell.number_format = numfmt
+        cell.alignment = align or Alignment(vertical="center")
+        return cell
+
+    def _fill_block(r1, c1, r2, c2, fill):
+        for rr in range(r1, r2 + 1):
+            for cc in range(c1, c2 + 1):
+                wsd.cell(row=rr, column=cc).fill = fill
+
+    L_ALIGN = Alignment(horizontal="left", vertical="center")
+    R_ALIGN = Alignment(horizontal="right", vertical="center")
+    C_ALIGN = Alignment(horizontal="center", vertical="center")
+
+    # ---- (2) Barra de título (filas 1-2). ----
+    _fill_block(1, 1, 2, TOTAL_COLS, _F_BG)
+    _merge(1, 2, 2, 11)
+    _put(1, 2, f"AUDIT-IA · {empresa} — TABLERO EJECUTIVO",
+         font=_dfont(14, bold=True, color=DASH_TXT), align=L_ALIGN)
+    _merge(1, 12, 2, TOTAL_COLS)
+    primer = labels[0] if labels else ""
+    ultimo = labels[-1] if labels else ""
+    _put(1, 12, f"ESTADOS FINANCIEROS · {primer}–{ultimo}",
+         font=_dfont(12, bold=True, color=DASH_GOLD), align=R_ALIGN)
+
+    # ---- (3) Franja dorada (fila 4). ----
+    wsd.row_dimensions[4].height = 4
+    _fill_block(4, 2, 4, TOTAL_COLS, _F_GOLD)
+    _merge(4, 2, 4, TOTAL_COLS)
+
+    # ---- (4) 4 tarjetas KPI (filas 5-9). ----
+    def _fmt_money(v):
+        return f"{v:,.0f}"
+
+    def _variacion(cur, prev):
+        if prev == 0:
+            return None
+        return (cur - prev) / abs(prev)
+
+    kpis = [
+        ("TOTAL ACTIVOS", series["total_activo"], _F_KPI, DASH_TXT, DASH_WHITE, 24),
+        ("TOTAL PASIVOS", series["total_pasivo"], _F_KPI, DASH_TXT, DASH_WHITE, 24),
+        ("PATRIMONIO", series["patrimonio"], _F_GOLD, DASH_BG, DASH_BG, 26),  # hero
+        ("UTILIDAD NETA", series["neta"], _F_KPI, DASH_TXT, DASH_WHITE, 24),
+    ]
+    # 4 tarjetas de 4 columnas cada una: B-E, F-I, J-M, N-Q (col R queda margen).
+    kpi_spans = [(2, 5), (6, 9), (10, 13), (14, 17)]
+    krow_lbl, krow_val, krow_var, krow_foot = 5, 6, 8, 9
+    wsd.row_dimensions[krow_val].height = 30
+    for (label, serie, fill, lbl_color, val_color, vsize), (c1, c2) in zip(
+            kpis, kpi_spans):
+        is_hero = fill is _F_GOLD
+        _fill_block(krow_lbl, c1, krow_foot, c2, fill)
+        # Etiqueta.
+        _merge(krow_lbl, c1, krow_lbl, c2)
+        lbl_col = DASH_BG if is_hero else DASH_MUTED
+        _put(krow_lbl, c1, label, font=_dfont(10, bold=True, color=lbl_col),
+             align=L_ALIGN)
+        # Valor gigante.
+        cur = serie[LAST] if serie else 0.0
+        _merge(krow_val, c1, krow_val, c2)
+        _put(krow_val, c1, _fmt_money(cur),
+             font=_dfont(vsize, bold=True, color=val_color), align=L_ALIGN)
+        # Variación vs período anterior.
+        _merge(krow_var, c1, krow_var, c2)
+        var = _variacion(cur, serie[PREV] if serie else 0.0)
+        if var is None or n < 2:
+            var_txt, var_col = "s/ período previo", (DASH_BG if is_hero
+                                                     else DASH_MUTED)
+        else:
+            arrow = "▲" if var >= 0 else "▼"
+            var_txt = f"{arrow} {var:+.1%} vs {labels[PREV]}"
+            if is_hero:
+                var_col = DASH_BG
+            else:
+                var_col = DASH_GREEN if var >= 0 else DASH_RED
+        _put(krow_var, c1, var_txt, font=_dfont(10, bold=True, color=var_col),
+             align=L_ALIGN)
+        # Pie.
+        _merge(krow_foot, c1, krow_foot, c2)
+        foot_col = DASH_BG if is_hero else DASH_DESC
+        _put(krow_foot, c1, f"Cierre {labels[LAST]}",
+             font=_dfont(9, color=foot_col), align=L_ALIGN)
+
+    # ---- (5) Sección ESTADO DE RESULTADOS (tabla + barras de datos). ----
+    r = 11
+    _section_title(wsd, r, "ESTADO DE RESULTADOS", TOTAL_COLS, _merge, _put,
+                   L_ALIGN)
+    r += 1
+    er_defs = [
+        ("Ingresos", "er_ing", series["ventas"]),
+        ("Costo de ventas", "er_costo", None),
+        ("Utilidad bruta", None, series["ub"]),
+        ("Gastos operativos", None, series["gastos_op"]),
+        ("Utilidad neta", "er_neta", series["neta"]),
+    ]
+    r = _fin_table(wsd, r, "Concepto", labels, n, er_defs, series["ventas"],
+                   dcol, _merge, _put, _fill_block, L_ALIGN, R_ALIGN, C_ALIGN,
+                   TOTAL_COLS, ratio_base_last=series["ventas"][LAST], LAST=LAST)
+    er_bottom = r
+    r += 2
+
+    # ---- (6) Sección BALANCE (tabla + barras de datos). ----
+    _section_title(wsd, r, "BALANCE", TOTAL_COLS, _merge, _put, L_ALIGN)
+    r += 1
+    bal_defs = [
+        ("Efectivo", "bal_comp_first+0", None),
+        ("Cuentas por cobrar", "bal_comp_first+1", None),
+        ("Inventario", "bal_comp_first+2", None),
+        ("Propiedad planta y equipo", "bal_comp_first+3", None),
+        ("Total activo", "bal_tact", series["total_activo"]),
+        ("Total pasivo", "bal_tpas", series["total_pasivo"]),
+        ("Patrimonio", "bal_pat", series["patrimonio"]),
+    ]
+    # Referencias directas de fila en Datos para el balance.
+    bal_row_of = {
+        "Efectivo": datos_rows["bal_comp_first"],
+        "Cuentas por cobrar": datos_rows["bal_comp_first"] + 1,
+        "Inventario": datos_rows["bal_comp_first"] + 2,
+        "Propiedad planta y equipo": datos_rows["bal_comp_first"] + 3,
+        "Total activo": datos_rows["bal_tact"],
+        "Total pasivo": datos_rows["bal_tpas"],
+        "Patrimonio": datos_rows["bal_pat"],
+    }
+    r = _fin_table_balance(wsd, r, labels, n, bal_defs, bal_row_of,
+                           series["total_activo"][LAST], _merge, _put,
+                           _fill_block, L_ALIGN, R_ALIGN, C_ALIGN,
+                           TOTAL_COLS, LAST)
+    r += 2
+
+    # ---- (7) Panel INDICADORES · SEMÁFOROS. ----
+    _section_title(wsd, r, "INDICADORES · SEMÁFOROS", TOTAL_COLS, _merge, _put,
+                   L_ALIGN, gold_bg=True)
+    r += 1
+    sem_top = r
+    # 4 mini-tarjetas B-E, F-I, J-M, N-Q.
+    ac = dcol("bal_ac", LAST)
+    pc = dcol("bal_pc", LAST)
+    tact = dcol("bal_tact", LAST)
+    tpas = dcol("bal_tpas", LAST)
+    neta_ref = dcol("er_neta", LAST)
+    ventas_ref = dcol("er_ing", LAST)
+    sem = [
+        ("Liquidez", f"=IFERROR({ac}/{pc},0)", "0.00", "AC / PC",
+         "ÓPTIMO ≥ 1.5"),
+        ("Solvencia", f"=IFERROR({tact}/{tpas},0)", "0.00", "Activo / Pasivo",
+         "ÓPTIMO ≥ 1.5"),
+        ("Endeudamiento", f"=IFERROR({tpas}/{tact},0)", "0.0%",
+         "Pasivo / Activo", "ÓPTIMO ≤ 60%"),
+        ("Margen neto", f"=IFERROR({neta_ref}/{ventas_ref},0)", "0.0%",
+         "Neta / Ventas", "ÓPTIMO ≥ 8%"),
+    ]
+    for (title, formula, numfmt, sub, umbral), (c1, c2) in zip(sem, kpi_spans):
+        _fill_block(sem_top, c1, sem_top + 4, c2, _F_CARD)
+        _merge(sem_top, c1, sem_top, c2)
+        _put(sem_top, c1, f"● {title}",
+             font=_dfont(10, bold=True, color=DASH_GREEN_DK), align=L_ALIGN)
+        _merge(sem_top + 1, c1, sem_top + 2, c2)
+        vcell = _put(sem_top + 1, c1, formula,
+                     font=_dfont(22, bold=True, color=DASH_WHITE), align=L_ALIGN)
+        vcell.number_format = numfmt
+        _merge(sem_top + 3, c1, sem_top + 3, c2)
+        _put(sem_top + 3, c1, sub, font=_dfont(9, color=DASH_MUTED),
+             align=L_ALIGN)
+        _merge(sem_top + 4, c1, sem_top + 4, c2)
+        _put(sem_top + 4, c1, umbral, font=_dfont(8, bold=True,
+             color=DASH_GREEN_DK), align=L_ALIGN)
+    r = sem_top + 6
+
+    # ---- (8) Gráficos nativos (ligados a "Datos", recalculan al editar). ----
+    _add_dashboard_charts(wsd, ws, n, datos_rows, idx, style, anchor_row=r)
+
+
+def _section_title(wsd, r, text, total_cols, _merge, _put, L_ALIGN,
+                   gold_bg=False):
+    fill = _F_GOLD if gold_bg else _F_CARD
+    color = DASH_BG if gold_bg else DASH_GOLD
+    for cc in range(2, total_cols + 1):
+        wsd.cell(row=r, column=cc).fill = fill
+    _merge(r, 2, r, total_cols)
+    _put(r, 2, text, font=_dfont(13, bold=True, color=color), align=L_ALIGN)
+
+
+def _bar_formula(ratio_expr: str) -> str:
+    """Barra de datos como caracteres, escalada 0..20 sobre el máximo."""
+    return f'=REPT("■",ROUND(({ratio_expr})*20,0))'
+
+
+def _fin_table(wsd, r, first_col_label, labels, n, defs, ref_series,
+               dcol, _merge, _put, _fill_block, L_ALIGN, R_ALIGN, C_ALIGN,
+               total_cols, ratio_base_last, LAST):
+    """Tabla financiera premium: header + filas + Var% + barra de datos.
+
+    Las celdas de valor referencian la hoja Datos por fórmula (recalculan).
+    Layout: B=Concepto (ancho), C..(C+n-1)=períodos, luego Var%, luego barra.
+    """
+    # Header.
+    val_c1 = 4                      # primera col de valores
+    val_c2 = val_c1 + n - 1
+    var_c = val_c2 + 1
+    bar_c1 = var_c + 1
+    _fill_block(r, 2, r, total_cols, _F_CARD)
+    _merge(r, 2, r, val_c1 - 1)
+    _put(r, 2, first_col_label, font=_dfont(10, bold=True, color=DASH_WHITE),
+         align=L_ALIGN)
+    for i in range(n):
+        _put(r, val_c1 + i, labels[i],
+             font=_dfont(10, bold=True, color=DASH_WHITE), align=R_ALIGN)
+    _put(r, var_c, "Var%", font=_dfont(10, bold=True, color=DASH_WHITE),
+         align=R_ALIGN)
+    _merge(r, bar_c1, r, total_cols)
+    _put(r, bar_c1, "Tendencia", font=_dfont(10, bold=True, color=DASH_WHITE),
+         align=L_ALIGN)
+    r += 1
+
+    for label, datos_key, pyserie in defs:
+        is_total = label in ("Utilidad neta",)
+        rowfill = _F_BG if is_total else _F_CARD
+        _fill_block(r, 2, r, total_cols, rowfill)
+        _merge(r, 2, r, val_c1 - 1)
+        txt_col = DASH_GOLD if is_total else DASH_TXT
+        _put(r, 2, label, font=_dfont(10, bold=is_total, color=txt_col),
+             align=L_ALIGN)
+        # Valores: por fórmula si hay fila Datos, si no valor Python.
+        for i in range(n):
+            if datos_key and datos_key in (
+                    "er_ing", "er_costo", "er_neta"):
+                val = f"={dcol(datos_key, i)}"
+            else:
+                val = round(pyserie[i], 0) if pyserie else 0
+            cell = _put(r, val_c1 + i, val,
+                        font=_dfont(10, bold=is_total,
+                                    color=DASH_WHITE if not is_total
+                                    else DASH_GOLD),
+                        align=R_ALIGN)
+            cell.number_format = "#,##0"
+        # Var% último vs previo.
+        if n >= 2 and pyserie and pyserie[LAST - 1] not in (0,):
+            var = (pyserie[LAST] - pyserie[LAST - 1]) / abs(pyserie[LAST - 1])
+        else:
+            var = 0.0
+        vc = _put(r, var_c, var, font=_dfont(9, bold=True,
+                  color=DASH_GREEN if var >= 0 else DASH_RED), align=R_ALIGN)
+        vc.number_format = "0.0%"
+        # Barra de datos (proporción vs base del último período).
+        ratio = 0.0
+        base = ratio_base_last if ratio_base_last else 0.0
+        if base and pyserie:
+            ratio = max(0.0, min(1.0, pyserie[LAST] / base))
+        _merge(r, bar_c1, r, total_cols)
+        _put(r, bar_c1, _bar_formula(str(round(ratio, 4))),
+             font=_dfont(8, color=DASH_GOLD), align=L_ALIGN)
+        r += 1
+    return r
+
+
+def _fin_table_balance(wsd, r, labels, n, defs, bal_row_of, base_last, _merge,
+                       _put, _fill_block, L_ALIGN, R_ALIGN, C_ALIGN,
+                       total_cols, LAST):
+    """Tabla de balance: valores por fórmula a Datos + barra de datos."""
+    val_c1 = 4
+    val_c2 = val_c1 + n - 1
+    var_c = val_c2 + 1
+    bar_c1 = var_c + 1
+    _fill_block(r, 2, r, total_cols, _F_CARD)
+    _merge(r, 2, r, val_c1 - 1)
+    _put(r, 2, "Cuenta", font=_dfont(10, bold=True, color=DASH_WHITE),
+         align=L_ALIGN)
+    for i in range(n):
+        _put(r, val_c1 + i, labels[i],
+             font=_dfont(10, bold=True, color=DASH_WHITE), align=R_ALIGN)
+    _put(r, var_c, "Var%", font=_dfont(10, bold=True, color=DASH_WHITE),
+         align=R_ALIGN)
+    _merge(r, bar_c1, r, total_cols)
+    _put(r, bar_c1, "Peso", font=_dfont(10, bold=True, color=DASH_WHITE),
+         align=L_ALIGN)
+    r += 1
+    for label, _key, pyserie in defs:
+        is_total = label in ("Total activo", "Total pasivo", "Patrimonio")
+        rowfill = _F_BG if is_total else _F_CARD
+        _fill_block(r, 2, r, total_cols, rowfill)
+        _merge(r, 2, r, val_c1 - 1)
+        txt_col = DASH_GOLD if is_total else DASH_TXT
+        _put(r, 2, label, font=_dfont(10, bold=is_total, color=txt_col),
+             align=L_ALIGN)
+        drow = bal_row_of[label]
+        for i in range(n):
+            ref = f"=Datos!{_col(2 + i)}{drow}"
+            cell = _put(r, val_c1 + i, ref,
+                        font=_dfont(10, bold=is_total,
+                                    color=DASH_GOLD if is_total else DASH_WHITE),
+                        align=R_ALIGN)
+            cell.number_format = "#,##0"
+        if n >= 2 and pyserie and pyserie[LAST - 1] not in (0,):
+            var = (pyserie[LAST] - pyserie[LAST - 1]) / abs(pyserie[LAST - 1])
+        elif n >= 2 and not pyserie:
+            var = 0.0
+        else:
+            var = 0.0
+        vc = _put(r, var_c, var, font=_dfont(9, bold=True,
+                  color=DASH_GREEN if var >= 0 else DASH_RED), align=R_ALIGN)
+        vc.number_format = "0.0%"
+        ratio = 0.0
+        if base_last and pyserie:
+            ratio = max(0.0, min(1.0, pyserie[LAST] / base_last))
+        elif base_last:
+            # cuentas de composición: peso vs total activo (valor Datos LAST).
+            ratio = 0.5
+        _merge(r, bar_c1, r, total_cols)
+        _put(r, bar_c1, _bar_formula(str(round(ratio, 4))),
+             font=_dfont(8, color=DASH_GOLD), align=L_ALIGN)
+        r += 1
+    return r
+
+
+def _add_dashboard_charts(wsd, ws, n, datos_rows, idx, style, anchor_row):
+    """Reubica los 3 gráficos nativos ligados a 'Datos' dentro del layout."""
+    mincol, maxcol = idx["mincol"], idx["maxcol"]
+    er_head = datos_rows["er_head"]
+    bal_head = datos_rows["bal_head"]
+    mar_head = datos_rows["mar_head"]
+
+    cats = Reference(ws, min_col=mincol, max_col=maxcol,
+                     min_row=er_head, max_row=er_head)
+
+    def _mk(cls):
+        ch = cls()
+        ch.style = 10
+        ch.width = 12
+        ch.height = 8
+        return ch
+
+    # (a) Resultados por período.
+    if style in ("barras", "lineas", "area"):
+        cls_map = {"barras": BarChart, "lineas": LineChart, "area": AreaChart}
+        chart_a = _mk(cls_map[style])
+        if style == "barras":
+            chart_a.type = "col"
+        for rrow in (datos_rows["er_ing"], datos_rows["er_costo"],
+                     datos_rows["er_neta"]):
+            ref = Reference(ws, min_col=1, max_col=maxcol, min_row=rrow,
+                            max_row=rrow)
+            chart_a.add_data(ref, titles_from_data=True, from_rows=True)
+        chart_a.set_categories(cats)
+    else:
+        chart_a = _mk(BarChart)
+        chart_a.type = "col"
+        for rrow in (datos_rows["er_ing"], datos_rows["er_costo"]):
+            ref = Reference(ws, min_col=1, max_col=maxcol, min_row=rrow,
+                            max_row=rrow)
+            chart_a.add_data(ref, titles_from_data=True, from_rows=True)
+        chart_a.set_categories(cats)
+        line = _mk(LineChart)
+        neta_ref = Reference(ws, min_col=1, max_col=maxcol,
+                             min_row=datos_rows["er_neta"],
+                             max_row=datos_rows["er_neta"])
+        line.add_data(neta_ref, titles_from_data=True, from_rows=True)
+        line.set_categories(cats)
+        line.y_axis.axId = 200
+        chart_a += line
+    chart_a.title = "Resultados por período"
+    wsd.add_chart(chart_a, f"B{anchor_row}")
+
+    # (b) Composición del Balance.
+    chart_b = _mk(BarChart)
+    chart_b.type = "col"
+    chart_b.grouping = "clustered"
+    chart_b.title = "Composición del Balance"
+    cats_b = Reference(ws, min_col=mincol, max_col=maxcol, min_row=bal_head,
+                       max_row=bal_head)
+    comp_ref = Reference(ws, min_col=1, max_col=maxcol,
+                         min_row=datos_rows["bal_comp_first"],
+                         max_row=datos_rows["bal_comp_last"])
+    chart_b.add_data(comp_ref, titles_from_data=True, from_rows=True)
+    chart_b.set_categories(cats_b)
+    wsd.add_chart(chart_b, f"H{anchor_row}")
+
+    # (c) Tendencia de márgenes.
+    chart_c = _mk(LineChart)
+    chart_c.title = "Tendencia de márgenes"
+    chart_c.y_axis.numFmt = "0.0%"
+    cats_c = Reference(ws, min_col=mincol, max_col=maxcol, min_row=mar_head,
+                       max_row=mar_head)
+    mar_ref = Reference(ws, min_col=1, max_col=maxcol,
+                        min_row=datos_rows["mar_bruto"],
+                        max_row=datos_rows["mar_neto"])
+    chart_c.add_data(mar_ref, titles_from_data=True, from_rows=True)
+    chart_c.set_categories(cats_c)
+    wsd.add_chart(chart_c, f"N{anchor_row}")
 
 
 # ------------------------------------------------------------- utilidades
