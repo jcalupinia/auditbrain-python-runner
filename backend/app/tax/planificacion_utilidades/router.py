@@ -27,6 +27,7 @@ import urllib.request
 
 from backend.app.tax.planificacion_utilidades import recomendacion as rec_mod
 from backend.app.tax.planificacion_utilidades.schemas import (
+    DashboardXlsxRequest,
     ExportRequest,
     ExtractResponse,
     PresentacionRequest,
@@ -97,6 +98,25 @@ def export_endpoint(
         BytesIO(xlsx),
         media_type=XLSX_MIME,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/dashboard-xlsx")
+def dashboard_xlsx_endpoint(
+    body: DashboardXlsxRequest,
+    current: User = Depends(get_current_user),
+):
+    """Genera un .xlsx con gráficos NATIVOS de Excel ligados a las celdas de
+    datos: al editar los números en Excel, los gráficos se recalculan solos."""
+    xlsx = exporter.build_dashboard_workbook(
+        body.data, body.labels, body.meses, body.empresa, body.chart_style
+    )
+    return StreamingResponse(
+        BytesIO(xlsx),
+        media_type=XLSX_MIME,
+        headers={
+            "Content-Disposition": 'attachment; filename="Dashboard_graficos.xlsx"'
+        },
     )
 
 

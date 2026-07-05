@@ -20,7 +20,8 @@ from __future__ import annotations
 
 import io
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.chart import AreaChart, BarChart, LineChart, Reference
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -492,6 +493,264 @@ def _sheet_resumen(wb, params) -> None:
     ws[f"A{r+1}"] = ("Parámetros normativos editables — requieren validación "
                      "humana antes de presentar cifras.")
     ws[f"A{r+1}"].font = Font(italic=True, size=9, color="888888")
+
+
+# =========================================================================
+# Dashboard con GRÁFICOS NATIVOS de Excel (openpyxl.chart)
+# =========================================================================
+#
+# Genera un .xlsx con una hoja "Datos" (tidy, apta para Power BI) y una hoja
+# "Dashboard" con gráficos NATIVOS ligados por `Reference` a las celdas de la
+# hoja "Datos". Al editar los números en Excel, los gráficos se recalculan
+# solos (no se hornean imágenes ni valores estáticos en el gráfico).
+#
+# Regla suprema (CLAUDE.md): el archivo NO puede levantar el cuadro "Excel
+# pudo abrir el archivo reparando…". Al final se recarga con openpyxl para
+# validar que el libro es íntegro antes de devolver los bytes.
+
+_HEAD_FONT = Font(name="Calibri", color=GOLD, bold=True, size=11)
+_TITLE_FONT = Font(name="Calibri", color=GOLD, bold=True, size=14)
+_BLOCK_FONT = Font(name="Calibri", color="FFFFFF", bold=True, size=11)
+
+
+def _dseries(data: dict, key: str) -> list[float]:
+    """Serie de valores por período de una clave del modelo D."""
+    vals = data.get(key) or []
+    return [0.0 if v is None else float(v) for v in vals]
+
+
+def _dabs(data: dict, key: str) -> list[float]:
+    """Serie en valor absoluto (pasivos/costos pueden venir positivos)."""
+    return [abs(v) for v in _dseries(data, key)]
+
+
+def _at(seq: list[float], i: int) -> float:
+    return seq[i] if i < len(seq) else 0.0
+
+
+def build_dashboard_workbook(
+    data: dict,
+    labels: list[str],
+    meses: list[int],
+    empresa: str,
+    chart_style: str = "combo",
+) -> bytes:
+    """Arma un libro con hoja de datos + gráficos NATIVOS y devuelve los bytes.
+
+    Los gráficos referencian rangos de la hoja "Datos" mediante `Reference`,
+    por lo que se actualizan solos al editar los datos en Excel.
+
+    Args:
+        data: modelo D (`data[clave]` = lista de valores por período).
+        labels: etiquetas de cada período (columnas de datos / categorías).
+        meses: meses por período (metadato, no altera los cálculos).
+        empresa: razón social para el título.
+        chart_style: 'barras' | 'lineas' | 'area' | 'combo' (default).
+    """
+    n = len(labels)
+    if n == 0:
+        n = len(_dseries(data, "ventas")) or 1
+        labels = [str(i + 1) for i in range(n)]
+    style = (chart_style or "combo").strip().lower()
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    ws = wb.create_sheet("Datos")
+    ws_dash = wb.create_sheet("Dashboard")
+
+    ws.column_dimensions["A"].width = 30
+    for i in range(n):
+        ws.column_dimensions[get_column_letter(2 + i)].width = 16
+
+    last_col = get_column_letter(1 + n)
+
+    ws["A1"] = f"AUDIT-IA · {empresa} · Datos del Dashboard"
+    ws["A1"].font = _TITLE_FONT
+    if n >= 1:
+        ws.merge_cells(f"A1:{last_col}1")
+
+    def _write_header(row: int, first_label: str) -> None:
+        c = ws.cell(row=row, column=1, value=first_label)
+        c.font = _HEAD_FONT
+        c.fill = HEAD_FILL
+        for i in range(n):
+            hc = ws.cell(row=row, column=2 + i, value=labels[i])
+            hc.font = Font(name="Calibri", color="FFFFFF", bold=True)
+            hc.fill = HEAD_FILL
+            hc.alignment = Alignment(horizontal="center")
+
+    def _write_row(row: int, label: str, vals: list[float], fmt: str = MONEY) -> None:
+        ws.cell(row=row, column=1, value=label).font = BOLD
+        for i in range(n):
+            cc = ws.cell(row=row, column=2 + i, value=round(_at(vals, i), 4))
+            cc.number_format = fmt
+            cc.border = BORDER
+
+    def _block_title(row: int, text: str) -> None:
+        c = ws.cell(row=row, column=1, value=text)
+        c.font = _BLOCK_FONT
+        for i in range(n + 1):
+            ws.cell(row=row, column=1 + i).fill = HEAD_FILL
+
+    # Series calculadas (todas por período).
+    ventas = _dseries(data, "ventas")
+    otros_ing = _dseries(data, "otrosIng")
+    otros_ing_fin = _dseries(data, "otrosIngFin")
+    costo = _dabs(data, "costo")
+    g_admin = _dabs(data, "gAdmin")
+    g_fin = _dabs(data, "gFin")
+    part_trab = _dabs(data, "partTrab")
+    ir_causado = _dabs(data, "irCausado")
+    imp_dif = _dabs(data, "impDif")
+
+    ub = [_at(ventas, i) - _at(costo, i) for i in range(n)]
+    gastos_op = [_at(g_admin, i) + _at(g_fin, i) for i in range(n)]
+    neta = [
+        _at(ventas, i) - _at(costo, i) - _at(g_admin, i) - _at(g_fin, i)
+        + _at(otros_ing, i) + _at(otros_ing_fin, i)
+        - _at(part_trab, i) - _at(ir_causado, i) - _at(imp_dif, i)
+        for i in range(n)
+    ]
+
+    # =============== Bloque ESTADO DE RESULTADOS ===============
+    row = 3
+    _block_title(row, "ESTADO DE RESULTADOS")
+    row += 1
+    er_head = row
+    _write_header(row, "Concepto")
+    row += 1
+    er_ing_row = row
+    _write_row(row, "Ingresos ordinarios", ventas)
+    row += 1
+    er_costo_row = row
+    _write_row(row, "Costo de ventas", costo)
+    row += 1
+    _write_row(row, "Utilidad bruta", ub)
+    row += 1
+    _write_row(row, "Gastos operativos", gastos_op)
+    row += 1
+    er_neta_row = row
+    _write_row(row, "Utilidad neta", neta)
+    row += 2
+
+    # =============== Bloque BALANCE ===============
+    _block_title(row, "BALANCE")
+    row += 1
+    bal_head = row
+    _write_header(row, "Cuenta")
+    row += 1
+    bal_first = row
+    balance_rows = [
+        ("Efectivo", _dabs(data, "efectivo")),
+        ("Cuentas por cobrar", _dabs(data, "cxc")),
+        ("Inventario", _dabs(data, "inventario")),
+        ("Propiedad planta y equipo", _dabs(data, "ppe")),
+        ("Capital", _dabs(data, "capital")),
+        ("Resultados acumulados", _dabs(data, "resAcum")),
+    ]
+    for label, vals in balance_rows:
+        _write_row(row, label, vals)
+        row += 1
+    # Filas de las 4 cuentas de composición (Efectivo/CxC/Inventario/PP&E).
+    bal_comp_first = bal_first
+    bal_comp_last = bal_first + 3
+    row += 1
+
+    # =============== Bloque MÁRGENES (%) ===============
+    _block_title(row, "MÁRGENES (%)")
+    row += 1
+    mar_head = row
+    _write_header(row, "Indicador")
+    row += 1
+    mb = [(_at(ub, i) / _at(ventas, i)) if _at(ventas, i) else 0.0 for i in range(n)]
+    mn = [(_at(neta, i) / _at(ventas, i)) if _at(ventas, i) else 0.0 for i in range(n)]
+    mar_bruto_row = row
+    _write_row(row, "Margen bruto", mb, fmt="0.0%")
+    row += 1
+    mar_neto_row = row
+    _write_row(row, "Margen neto", mn, fmt="0.0%")
+
+    # ------------------------------------------------------------------
+    # GRÁFICOS NATIVOS -> hoja "Dashboard", ligados por Reference a "Datos".
+    # ------------------------------------------------------------------
+    min_data_col, max_data_col = 2, 1 + n
+
+    ws_dash["A1"] = f"AUDIT-IA · {empresa} · Dashboard"
+    ws_dash["A1"].font = _TITLE_FONT
+
+    cats = Reference(ws, min_col=min_data_col, max_col=max_data_col,
+                     min_row=er_head, max_row=er_head)
+
+    def _mk(cls: type):
+        ch = cls()
+        ch.style = 10
+        ch.width = 18
+        ch.height = 9
+        ch.x_axis.title = "Período"
+        ch.y_axis.title = "USD"
+        return ch
+
+    # --- (a) Resultados: Ingresos, Costo, Utilidad neta por período ---
+    if style in ("barras", "lineas", "area"):
+        cls_map = {"barras": BarChart, "lineas": LineChart, "area": AreaChart}
+        chart_a = _mk(cls_map[style])
+        if style == "barras":
+            chart_a.type = "col"
+        for rrow in (er_ing_row, er_costo_row, er_neta_row):
+            data_ref = Reference(ws, min_col=1, max_col=max_data_col,
+                                 min_row=rrow, max_row=rrow)
+            chart_a.add_data(data_ref, titles_from_data=True, from_rows=True)
+        chart_a.set_categories(cats)
+    else:  # combo (default): barras (Ingresos, Costo) + línea (Utilidad neta)
+        chart_a = _mk(BarChart)
+        chart_a.type = "col"
+        for rrow in (er_ing_row, er_costo_row):
+            data_ref = Reference(ws, min_col=1, max_col=max_data_col,
+                                 min_row=rrow, max_row=rrow)
+            chart_a.add_data(data_ref, titles_from_data=True, from_rows=True)
+        chart_a.set_categories(cats)
+        line = _mk(LineChart)
+        neta_ref = Reference(ws, min_col=1, max_col=max_data_col,
+                             min_row=er_neta_row, max_row=er_neta_row)
+        line.add_data(neta_ref, titles_from_data=True, from_rows=True)
+        line.set_categories(cats)
+        line.y_axis.axId = 200  # eje secundario para el combo
+        chart_a += line
+    chart_a.title = "Resultados por período"
+    ws_dash.add_chart(chart_a, "A3")
+
+    # --- (b) Composición del Balance: Efectivo/CxC/Inventario/PP&E ---
+    chart_b = _mk(BarChart)
+    chart_b.type = "col"
+    chart_b.grouping = "clustered"
+    chart_b.title = "Composición del Balance"
+    cats_b = Reference(ws, min_col=min_data_col, max_col=max_data_col,
+                       min_row=bal_head, max_row=bal_head)
+    comp_ref = Reference(ws, min_col=1, max_col=max_data_col,
+                         min_row=bal_comp_first, max_row=bal_comp_last)
+    chart_b.add_data(comp_ref, titles_from_data=True, from_rows=True)
+    chart_b.set_categories(cats_b)
+    ws_dash.add_chart(chart_b, "A22")
+
+    # --- (c) Tendencia de márgenes: Margen bruto y Margen neto ---
+    chart_c = _mk(LineChart)
+    chart_c.title = "Tendencia de márgenes"
+    chart_c.y_axis.numFmt = "0.0%"
+    chart_c.y_axis.title = "%"
+    cats_c = Reference(ws, min_col=min_data_col, max_col=max_data_col,
+                       min_row=mar_head, max_row=mar_head)
+    mar_ref = Reference(ws, min_col=1, max_col=max_data_col,
+                        min_row=mar_bruto_row, max_row=mar_neto_row)
+    chart_c.add_data(mar_ref, titles_from_data=True, from_rows=True)
+    chart_c.set_categories(cats_c)
+    ws_dash.add_chart(chart_c, "A41")
+
+    # --- Guardar + VALIDACIÓN OBLIGATORIA (regla suprema) ---
+    buf = io.BytesIO()
+    wb.save(buf)
+    raw = buf.getvalue()
+    load_workbook(io.BytesIO(raw))  # si estuviera corrupto, lanzaría
+    return raw
 
 
 # ------------------------------------------------------------- utilidades
