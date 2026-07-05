@@ -103,3 +103,58 @@ def test_todos_los_estilos_recargan(estilo):
     wb = _reload(raw)
     total = len(wb["Dashboard"]._charts)
     assert total >= 3, f"estilo {estilo}: {total} gráficos"
+
+
+# ============ Arquitectura de datos (2ª pasada Big Data) ============
+
+def test_zip_integro_sin_reparar():
+    """El .xlsx debe ser un zip íntegro (Excel no debe pedir 'reparar')."""
+    import zipfile
+    raw = exporter.build_dashboard_workbook(
+        _data_sintetico(), ["2024", "2025"], [12, 12], "Test SA", "combo"
+    )
+    assert zipfile.ZipFile(io.BytesIO(raw)).testzip() is None
+
+
+def test_existe_hoja_datos_powerbi_formato_largo():
+    """Hoja 'Datos_PowerBI' en formato largo: Estado|Concepto|Periodo|Valor."""
+    raw = exporter.build_dashboard_workbook(
+        _data_sintetico(), ["2024", "2025"], [12, 12], "Test SA", "combo"
+    )
+    wb = _reload(raw)
+    assert "Datos_PowerBI" in wb.sheetnames
+    wp = wb["Datos_PowerBI"]
+    assert [wp.cell(1, c).value for c in range(1, 5)] == [
+        "Estado", "Concepto", "Periodo", "Valor"]
+    # 12 conceptos (5 ER + 7 Balance) x 2 períodos = 24 filas de datos.
+    filas = sum(1 for r in range(2, wp.max_row + 1) if wp.cell(r, 1).value)
+    assert filas >= 24, f"esperaba >= 24 filas largas, obtuve {filas}"
+
+
+def test_existe_al_menos_una_tabla_estructurada():
+    """Debe existir al menos 1 Table (Ctrl+T). tblDatosLargo es obligatoria."""
+    raw = exporter.build_dashboard_workbook(
+        _data_sintetico(), ["2024", "2025"], [12, 12], "Test SA", "combo"
+    )
+    wb = _reload(raw)
+    nombres = set()
+    for sh in wb.sheetnames:
+        nombres |= set(wb[sh].tables.keys())
+    assert len(nombres) >= 1, f"no hay Tables; encontradas: {nombres}"
+    assert "tblDatosLargo" in nombres, f"falta tblDatosLargo; hay {nombres}"
+
+
+def test_celda_auditoria_cuadre_presente():
+    """La hoja Dashboard debe tener la fórmula de cuadre contable."""
+    raw = exporter.build_dashboard_workbook(
+        _data_sintetico(), ["2024", "2025"], [12, 12], "Test SA", "combo"
+    )
+    wb = _reload(raw)
+    d = wb["Dashboard"]
+    encontrada = False
+    for row in d.iter_rows():
+        for c in row:
+            if (isinstance(c.value, str) and c.value.startswith("=IF")
+                    and "Cuadra contable" in c.value):
+                encontrada = True
+    assert encontrada, "no se encontró la celda de auditoría de cuadre"

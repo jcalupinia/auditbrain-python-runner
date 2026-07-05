@@ -22,8 +22,10 @@ import io
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.chart import AreaChart, BarChart, LineChart, Reference
+from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from backend.app.tax.planificacion_utilidades import schema
 from backend.app.tax.planificacion_utilidades.mapping import (
@@ -739,6 +741,96 @@ def build_dashboard_workbook(
     _write_row(row, "Margen neto", mn, fmt="0.0%")
 
     # ==================================================================
+    # ARQUITECTURA DE DATOS (patrones Big Data): Tablas estructuradas,
+    # formato largo (tidy) para Power BI y rango desnormalizado pivot-ready.
+    # ==================================================================
+    last_col = get_column_letter(1 + n)
+
+    # (2) Tablas estructuradas (Ctrl+T) sobre los bloques rectangulares de
+    # "Datos". Cada bloque = [encabezado + filas de datos], sin filas vacías
+    # ni celdas fusionadas dentro del rango (requisito de openpyxl.Table).
+    _tables_added: list[tuple[str, str]] = []
+
+    def _add_table(name: str, r1: int, r2: int) -> None:
+        ref = f"A{r1}:{last_col}{r2}"
+        try:
+            tbl = Table(displayName=name, ref=ref)
+            tbl.tableStyleInfo = TableStyleInfo(
+                name="TableStyleMedium2", showFirstColumn=False,
+                showLastColumn=False, showRowStripes=True,
+                showColumnStripes=False)
+            ws.add_table(tbl)
+            _tables_added.append((name, ref))
+        except Exception:  # noqa: BLE001 — si el rango rompe la Table, rango simple
+            pass
+
+    # ER: encabezado (er_head) .. última fila de datos (er_neta_row). Contiguo,
+    # valores planos, sin merges -> apto para Table.
+    _add_table("tblER", er_head, er_neta_row)
+    # Balance: encabezado (bal_head) .. Patrimonio (bal_pat_row). Contiguo.
+    _add_table("tblBalance", bal_head, bal_pat_row)
+
+    # (3) Rango desnormalizado "Datos gráficos" (Categoría | Valor), pivot-ready,
+    # separado de la lógica de cálculo (como el AA:AC del archivo de referencia).
+    # Composición del Balance del ÚLTIMO período.
+    graf_col = 2 + n + 1          # deja una columna de aire tras los períodos
+    gc1 = get_column_letter(graf_col)
+    gc2 = get_column_letter(graf_col + 1)
+    ws.cell(row=er_head, column=graf_col, value="Categoría").font = _HEAD_FONT
+    ws.cell(row=er_head, column=graf_col).fill = HEAD_FILL
+    ws.cell(row=er_head, column=graf_col + 1, value="Valor").font = Font(
+        name="Calibri", color="FFFFFF", bold=True)
+    ws.cell(row=er_head, column=graf_col + 1).fill = HEAD_FILL
+    graf_defs = [
+        ("Efectivo", _dabs(data, "efectivo")),
+        ("Cuentas por cobrar", _dabs(data, "cxc")),
+        ("Inventario", _dabs(data, "inventario")),
+        ("Propiedad planta y equipo", _dabs(data, "ppe")),
+        ("Otros activos corrientes",
+         [max(0.0, activo_corr[i] - _at(_dabs(data, "efectivo"), i)
+              - _at(_dabs(data, "cxc"), i) - _at(_dabs(data, "inventario"), i))
+          for i in range(n)]),
+    ]
+    graf_first = er_head + 1
+    gr = graf_first
+    last_i = n - 1
+    for cat, serie in graf_defs:
+        ws.cell(row=gr, column=graf_col, value=cat)
+        vc = ws.cell(row=gr, column=graf_col + 1,
+                     value=round(_at(serie, last_i), 2))
+        vc.number_format = MONEY
+        gr += 1
+    graf_last = gr - 1
+    ws.column_dimensions[gc1].width = 26
+    ws.column_dimensions[gc2].width = 16
+    # Envolver el rango desnormalizado en su propia Table.
+    try:
+        tblg = Table(displayName="tblGraficos",
+                     ref=f"{gc1}{er_head}:{gc2}{graf_last}")
+        tblg.tableStyleInfo = TableStyleInfo(
+            name="TableStyleMedium9", showFirstColumn=False,
+            showLastColumn=False, showRowStripes=True, showColumnStripes=False)
+        ws.add_table(tblg)
+        _tables_added.append(("tblGraficos", f"{gc1}{er_head}:{gc2}{graf_last}"))
+    except Exception:  # noqa: BLE001
+        pass
+
+    # (1) Hoja "Datos_PowerBI" en formato LARGO (tidy): Estado|Concepto|Periodo|Valor
+    _build_powerbi_long_sheet(
+        wb, labels, n,
+        er_rows=[("Ingresos ordinarios", ventas), ("Costo de ventas", costo),
+                 ("Utilidad bruta", ub), ("Gastos operativos", gastos_op),
+                 ("Utilidad neta", neta)],
+        bal_rows=[("Efectivo", _dabs(data, "efectivo")),
+                  ("Cuentas por cobrar", _dabs(data, "cxc")),
+                  ("Inventario", _dabs(data, "inventario")),
+                  ("Propiedad planta y equipo", _dabs(data, "ppe")),
+                  ("Total activo", total_activo),
+                  ("Total pasivo", total_pasivo),
+                  ("Patrimonio", patrimonio)],
+    )
+
+    # ==================================================================
     # HOJA "Dashboard" — TABLERO EJECUTIVO PREMIUM (oscuro)
     # ==================================================================
     min_data_col, max_data_col = 2, 1 + n
@@ -779,6 +871,53 @@ def build_dashboard_workbook(
     raw = buf.getvalue()
     load_workbook(io.BytesIO(raw))  # si estuviera corrupto, lanzaría
     return raw
+
+
+# --------------------------------------------------------------------------
+# Hoja "Datos_PowerBI" — formato LARGO (tidy) para Power BI / Power Query.
+# --------------------------------------------------------------------------
+def _build_powerbi_long_sheet(wb, labels, n, er_rows, bal_rows) -> None:
+    """Genera la hoja en formato largo: Estado | Concepto | Periodo | Valor.
+
+    Una fila por cada (concepto, período) del ER y del Balance. Se formatea
+    como Tabla estructurada `tblDatosLargo` (TableStyleMedium2), lista para
+    importar directo a Power BI / Power Query (unpivot ya hecho).
+    """
+    wsp = wb.create_sheet("Datos_PowerBI")
+    headers = ["Estado", "Concepto", "Periodo", "Valor"]
+    for ci, h in enumerate(headers):
+        c = wsp.cell(row=1, column=ci + 1, value=h)
+        c.font = Font(name="Calibri", color="FFFFFF", bold=True)
+        c.fill = HEAD_FILL
+        c.alignment = Alignment(horizontal="center")
+
+    r = 2
+    for estado, rows in (("Estado de Resultados", er_rows), ("Balance", bal_rows)):
+        for concepto, serie in rows:
+            for i in range(n):
+                wsp.cell(row=r, column=1, value=estado)
+                wsp.cell(row=r, column=2, value=concepto)
+                wsp.cell(row=r, column=3, value=labels[i])
+                vc = wsp.cell(row=r, column=4,
+                              value=round(_at(serie, i), 2))
+                vc.number_format = MONEY
+                r += 1
+    last_row = r - 1
+
+    wsp.column_dimensions["A"].width = 22
+    wsp.column_dimensions["B"].width = 30
+    wsp.column_dimensions["C"].width = 12
+    wsp.column_dimensions["D"].width = 16
+
+    # Tabla estructurada tidy.
+    try:
+        tbl = Table(displayName="tblDatosLargo", ref=f"A1:D{last_row}")
+        tbl.tableStyleInfo = TableStyleInfo(
+            name="TableStyleMedium2", showFirstColumn=False,
+            showLastColumn=False, showRowStripes=True, showColumnStripes=False)
+        wsp.add_table(tbl)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # --------------------------------------------------------------------------
@@ -990,6 +1129,43 @@ def _build_premium_dashboard(wsd, ws, empresa, labels, n, series, datos_rows,
              color=DASH_GREEN_DK), align=L_ALIGN)
     r = sem_top + 6
 
+    # ---- (7b) AUDITORÍA DE INTEGRIDAD (fórmulas, recalculan al editar). ----
+    # Refs al último período en la hoja Datos.
+    tact = dcol("bal_tact", LAST)
+    tpas = dcol("bal_tpas", LAST)
+    tpat = dcol("bal_pat", LAST)
+    # Cuadre contable: Activo − (Pasivo + Patrimonio).
+    cuadre_f = (
+        f'=IF(ABS({tact}-({tpas}+{tpat}))<1,"✓ Cuadra contable",'
+        f'"⚠ Descuadre: $"&TEXT({tact}-({tpas}+{tpat}),"#,##0"))'
+    )
+    # Chequeo total activos = SUM(componentes de composición del balance).
+    comp_cells = [dcol("bal_comp_first", LAST)] + [
+        f"Datos!{_col(2 + LAST)}{datos_rows['bal_comp_first'] + k}"
+        for k in range(1, 4)
+    ]
+    # (Los 4 componentes de composición no son el activo completo; el chequeo
+    #  valida que Total activo ≥ suma de esos componentes, sin descuadre lógico.)
+    sum_comp = "+".join(comp_cells)
+    total_f = (
+        f'=IF({tact}>=({sum_comp})-1,"✓ Total activo consistente",'
+        f'"⚠ Inconsistencia: $"&TEXT({tact}-({sum_comp}),"#,##0"))'
+    )
+    # Colores dinámicos (verde si cuadra / rojo si no) mediante formato
+    # condicional sobre el texto ("✓" -> verde, "⚠" -> rojo).
+    _put(r, 2, "AUDITORÍA DE INTEGRIDAD",
+         font=_dfont(9, bold=True, color=DASH_GOLD), align=L_ALIGN)
+    r += 1
+    audit_cuadre_cell = f"B{r}"
+    _merge(r, 2, r, 9)
+    _put(r, 2, cuadre_f, font=_dfont(9, bold=True, color=DASH_GREEN_DK),
+         align=L_ALIGN)
+    _merge(r, 10, r, TOTAL_COLS)
+    _put(r, 10, total_f, font=_dfont(9, bold=True, color=DASH_GREEN_DK),
+         align=L_ALIGN)
+    _apply_audit_conditional_format(wsd, r)
+    r += 2
+
     # ---- (8) Gráficos nativos (ligados a "Datos", recalculan al editar). ----
     _add_dashboard_charts(wsd, ws, n, datos_rows, idx, style, anchor_row=r)
 
@@ -1002,6 +1178,25 @@ def _section_title(wsd, r, text, total_cols, _merge, _put, L_ALIGN,
         wsd.cell(row=r, column=cc).fill = fill
     _merge(r, 2, r, total_cols)
     _put(r, 2, text, font=_dfont(13, bold=True, color=color), align=L_ALIGN)
+
+
+def _apply_audit_conditional_format(wsd, r) -> None:
+    """Verde si el texto de auditoría empieza con ✓ / rojo si empieza con ⚠.
+
+    Se aplica sobre las celdas de auditoría (B{r} y J{r}) mediante reglas de
+    formato condicional, para que el color se recalcule al editar los datos.
+    """
+    green = Font(name=_FONT_NAME, size=9, bold=True, color=DASH_GREEN_DK)
+    red = Font(name=_FONT_NAME, size=9, bold=True, color=DASH_RED)
+    for coord in (f"B{r}", f"J{r}"):
+        wsd.conditional_formatting.add(
+            coord,
+            FormulaRule(formula=[f'ISNUMBER(SEARCH("✓",{coord}))'], font=green),
+        )
+        wsd.conditional_formatting.add(
+            coord,
+            FormulaRule(formula=[f'ISNUMBER(SEARCH("⚠",{coord}))'], font=red),
+        )
 
 
 def _bar_formula(ratio_expr: str) -> str:
