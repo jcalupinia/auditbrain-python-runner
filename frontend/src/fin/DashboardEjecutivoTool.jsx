@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   extractTaxPlan,
   exportTaxPlan,
+  exportDashboardXlsx,
   generarPresentacionTax,
   downloadTaxPlantilla,
 } from "../api.js";
@@ -517,6 +518,24 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
     } catch (e) { alert("Error al exportar a Excel: " + e.message); }
     finally { setBusyX(false); }
   };
+  // Excel EJECUTIVO premium con gráficos NATIVOS (backend openpyxl): tablero
+  // oscuro + KPIs + semáforos + gráficos ligados a celdas (se actualizan al
+  // editar) + hoja Datos_PowerBI (formato largo) lista para Power BI.
+  const [busyXe, setBusyXe] = useState(false);
+  const descargarExcelEjecutivo = async () => {
+    if (!periodos.length) { alert("Carga al menos un período primero."); return; }
+    setBusyXe(true);
+    try {
+      await exportDashboardXlsx({
+        data: D,
+        labels: periodos.map((p) => p.label),
+        meses: periodos.map((p) => p.meses || 12),
+        empresa: header.empresa,
+        chartStyle,
+      });
+    } catch (e) { alert("Error al generar el Excel ejecutivo: " + e.message); }
+    finally { setBusyXe(false); }
+  };
   const descargarPptx = async () => {
     setBusyP(true);
     try {
@@ -537,6 +556,7 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
           <button className="tx-btn gold" onClick={() => setSection("preview")}>👁 Visualizar dashboard</button>
           <button className="tx-btn" onClick={descargarHTML}>⬇ Descargar HTML</button>
           <button className="tx-btn" onClick={descargarExcelGrafico} disabled={busyXl}>{busyXl ? "Generando…" : "⬇ Excel + gráfico"}</button>
+          <button className="tx-btn gold" onClick={descargarExcelEjecutivo} disabled={busyXe}>{busyXe ? "Generando…" : "⬇ Excel ejecutivo (gráficos vivos)"}</button>
           <button className="tx-btn" onClick={() => descargarDoc("pdf")} disabled={!!busyDoc}>{busyDoc === "pdf" ? "Generando…" : "⬇ PDF"}</button>
           <button className="tx-btn" onClick={() => descargarDoc("word")} disabled={!!busyDoc}>{busyDoc === "word" ? "Generando…" : "⬇ Word"}</button>
           <button className="tx-btn" onClick={() => descargarDoc("ppt")} disabled={!!busyDoc}>{busyDoc === "ppt" ? "Generando…" : "⬇ PPT"}</button>

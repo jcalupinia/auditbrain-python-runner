@@ -391,6 +391,29 @@ export async function exportTaxPlan({ data, ctrl, params }) {
   );
 }
 
+// Exporta el Dashboard a un .xlsx EJECUTIVO PREMIUM con gráficos NATIVOS de Excel
+// (ligados a las celdas → se actualizan al editar), tablas estructuradas y hoja
+// "Datos_PowerBI" en formato largo (lista para importar a Power BI). El backend
+// (openpyxl) lo genera; el estilo de gráfico sale del selector del dashboard.
+export async function exportDashboardXlsx({ data, labels, meses, empresa, chartStyle }) {
+  const safe = String(empresa || "cliente").replace(/[\s/\\]+/g, "_") || "cliente";
+  await downloadXlsx(
+    `${TAX_PU_BASE}/dashboard-xlsx`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        data,
+        labels: labels || [],
+        meses: meses || [],
+        empresa: empresa || "Empresa",
+        chart_style: chartStyle || "combo",
+      }),
+    },
+    `Dashboard_Ejecutivo_${safe}.xlsx`
+  );
+}
+
 // Descarga la plantilla en blanco del balance resumido.
 export async function downloadTaxPlantilla() {
   await downloadXlsx(
