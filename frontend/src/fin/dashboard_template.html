@@ -41,6 +41,23 @@
   .section{display:none}
   .section.active{display:block;animation:fade .4s ease}
   @keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  /* ---- IMPRESIÓN / PDF ---- Imprime SOLO la pestaña activa, en A4, sin cortar
+     gráficos ni tablas y sin distorsionar (los SVG usan viewBox). El botón cambia
+     antes al tema 'claro' para que el texto quede oscuro sobre fondo blanco. */
+  .no-print{}
+  @media print{
+    @page{size:A4;margin:12mm}
+    html,body{background:#fff !important}
+    .topbar,.nav,.yearfilter,.no-print{display:none !important}
+    .content{max-width:none !important;margin:0 !important;padding:0 !important}
+    .section{display:none !important}
+    .section.active{display:block !important;animation:none !important}
+    .panel,.kpi-card,table,svg,.kpi-grid,.grid-2,.grid-3,tr{break-inside:avoid !important;page-break-inside:avoid !important}
+    .sec-head{break-after:avoid !important;page-break-after:avoid !important}
+    svg,img,canvas{max-width:100% !important;height:auto !important}
+    table{width:100% !important;border-collapse:collapse !important}
+    *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}
+  }
   .sec-head{margin-bottom:20px}
   .sec-num{font-size:10px;color:var(--teal);letter-spacing:2px;text-transform:uppercase;font-family:'Roboto Mono',monospace}
   .sec-title{font-size:24px;font-weight:600;color:var(--gold);font-family:'Montserrat',Arial;letter-spacing:-.3px;margin:4px 0}
@@ -155,6 +172,8 @@
     <button class="btn" onclick="resetData()">↺ Restaurar datos</button>
     <button class="btn" onclick="exportHTML()">⬇ Descargar HTML interactivo</button>
     <button class="btn btn-primary" onclick="exportExcel()">⬇ Abrir en Excel (HTML)</button>
+    <button class="btn" onclick="imprimirPestana()" title="Imprime SOLO la pestaña actual (elige 'Guardar como PDF' en el diálogo)">🖨 Imprimir / PDF</button>
+    <button class="btn" onclick="exportarWord()" title="Descarga la pestaña actual como documento Word (.doc) con los gráficos como imagen">⬇ Word (pestaña)</button>
   </div>
  </div>
 </div>
@@ -272,6 +291,57 @@ function applyTheme(t){
   THEME=t;const s=document.getElementById('selTheme');if(s)s.value=t;renderAll();
 }
 function applyLayout(l){document.body.className='layout-'+l;LAYOUT=l;const s=document.getElementById('selLayout');if(s)s.value=l;}
+
+// ---- Impresión (PDF) de la pestaña activa ----
+// Cambia al tema 'claro' (fondo blanco, texto oscuro) para que gráficos y tablas
+// se impriman legibles, imprime, y restaura el tema. El @media print imprime SOLO
+// la sección activa, en A4, sin cortar ni distorsionar (los SVG usan viewBox).
+function imprimirPestana(){
+  const prev=THEME;
+  if(prev!=='claro') applyTheme('claro');
+  const restore=()=>{ if(prev&&prev!=='claro') applyTheme(prev); window.removeEventListener('afterprint',restore); };
+  window.addEventListener('afterprint',restore);
+  setTimeout(function(){ window.print(); }, 350);
+}
+
+// Rasteriza un <svg> a PNG (data-uri) de forma OFFLINE (sin red), para que el
+// gráfico aparezca como imagen nítida en Word.
+function _svgToPngDataUri(svg){
+  return new Promise(function(resolve){
+    try{
+      let w=620,h=252;const vb=svg.getAttribute('viewBox');
+      if(vb){const p=vb.split(/[ ,]+/);w=+p[2]||w;h=+p[3]||h;}
+      const clone=svg.cloneNode(true);clone.setAttribute('width',w);clone.setAttribute('height',h);
+      const xml=new XMLSerializer().serializeToString(clone);
+      const src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml);
+      const img=new Image();
+      img.onload=function(){const sc=2,c=document.createElement('canvas');c.width=w*sc;c.height=h*sc;const ctx=c.getContext('2d');ctx.fillStyle='#ffffff';ctx.fillRect(0,0,c.width,c.height);ctx.drawImage(img,0,0,c.width,c.height);try{resolve({uri:c.toDataURL('image/png'),w:w});}catch(e){resolve(null);}};
+      img.onerror=function(){resolve(null);};
+      img.src=src;
+    }catch(e){resolve(null);}
+  });
+}
+
+// ---- Exportar la pestaña activa a Word (.doc) ----
+async function exportarWord(){
+  const prev=THEME;
+  if(prev!=='claro'){applyTheme('claro');await new Promise(r=>setTimeout(r,300));}
+  const sec=document.querySelector('.section.active');
+  if(!sec){if(prev!=='claro')applyTheme(prev);return;}
+  const clone=sec.cloneNode(true);
+  const reales=[...sec.querySelectorAll('svg')],clones=[...clone.querySelectorAll('svg')];
+  for(let i=0;i<reales.length;i++){
+    const r=await _svgToPngDataUri(reales[i]);
+    if(r&&clones[i]){const im=document.createElement('img');im.src=r.uri;im.setAttribute('width','600');im.style.maxWidth='100%';clones[i].replaceWith(im);}
+  }
+  const empresa='__EMPRESA__';
+  const titulo=(sec.querySelector('.sec-title')?sec.querySelector('.sec-title').textContent:'Dashboard');
+  const estilo='body{font-family:Calibri,Arial,sans-serif;color:#111;font-size:11pt}h2{color:#0A2342}table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:4px 6px;font-size:10pt}.panel{border:1px solid #ccc;padding:8px;margin:8px 0}.panel-title{color:#0A2342;font-weight:600;margin-bottom:6px}.sec-title{color:#0A2342;font-size:16pt;font-weight:700}.sec-num,.sec-sub{color:#555}img{max-width:100%}';
+  const doc='<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>'+titulo+'</title><style>'+estilo+'</style></head><body><h2>AUDIT-IA · '+empresa+'</h2>'+clone.innerHTML+'</body></html>';
+  const blob=new Blob(['﻿'+doc],{type:'application/msword'});
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='Dashboard_'+(sec.id||'seccion').replace(/^sec-/,'')+'.doc';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},3000);
+  if(prev!=='claro')applyTheme(prev);
+}
 
 // Render unificado de series. CHART_STYLE: combo|barras|lineas|area|puntos.
 // series = [{name,data,color,role:'bar'|'line'}] (role solo aplica en 'combo').
