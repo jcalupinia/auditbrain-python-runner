@@ -172,6 +172,7 @@
     <button class="btn" onclick="resetData()">↺ Restaurar datos</button>
     <button class="btn" onclick="exportHTML()">⬇ Descargar HTML interactivo</button>
     <button class="btn btn-primary" onclick="exportExcel()">⬇ Abrir en Excel (HTML)</button>
+    <button class="btn" onclick="exportExcelPorPestana()" title="Excel real: una hoja por pestaña, con las tablas fieles (números como números). Sin alterar nada.">⬇ Excel · una hoja por pestaña</button>
     <button class="btn" onclick="imprimirPestana()" title="Imprime SOLO la pestaña actual (elige 'Guardar como PDF' en el diálogo)">🖨 Imprimir / PDF</button>
     <button class="btn" onclick="exportarWord()" title="Descarga la pestaña actual como documento Word (.doc) con los gráficos como imagen">⬇ Word (pestaña)</button>
   </div>
@@ -341,6 +342,58 @@ async function exportarWord(){
   const blob=new Blob(['﻿'+doc],{type:'application/msword'});
   const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='Dashboard_'+(sec.id||'seccion').replace(/^sec-/,'')+'.doc';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},3000);
   if(prev!=='claro')applyTheme(prev);
+}
+
+// ---- Exportar a Excel REAL con UNA HOJA POR PESTAÑA (SpreadsheetML, offline) ----
+// No altera nada: los números van como números (fieles) y el texto tal cual. Cada
+// pestaña del dashboard es una hoja. Los gráficos son visuales (van en el PDF/Word).
+function _xmlEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+// Convierte un texto a número SOLO si es un monto limpio (sin %, letras ni combos);
+// soporta '.'/',' de miles/decimal y paréntesis = negativo. Ante cualquier
+// ambigüedad devuelve null (se guarda como texto = no se cambia nada).
+function _excelNum(txt){
+  let s=String(txt==null?'':txt).trim();if(!s)return null;let neg=false;
+  if(/^\(.*\)$/.test(s)){neg=true;s=s.slice(1,-1).trim();}
+  s=s.replace(/[$\s]/g,'');
+  if(s.startsWith('-')){neg=true;s=s.slice(1);}
+  if(!/^[\d.,]+$/.test(s))return null;
+  const dec=Math.max(s.lastIndexOf(','),s.lastIndexOf('.'));let num;
+  if(dec>=0){const tail=s.length-dec-1;
+    if(tail>=1&&tail<=2)num=parseFloat(s.slice(0,dec).replace(/[.,]/g,'')+'.'+s.slice(dec+1));
+    else num=parseFloat(s.replace(/[.,]/g,''));
+  }else num=parseFloat(s);
+  if(isNaN(num))return null;return neg?-num:num;
+}
+function _xlCell(txt,colspan){
+  const ma=(colspan&&colspan>1)?(' ss:MergeAcross="'+(colspan-1)+'"'):'';
+  const n=_excelNum(txt);
+  if(n!==null&&String(txt).trim()!=='')return '<Cell'+ma+'><Data ss:Type="Number">'+n+'</Data></Cell>';
+  return '<Cell'+ma+'><Data ss:Type="String">'+_xmlEsc(txt)+'</Data></Cell>';
+}
+function _sheetName(s,usados){
+  let base=String(s||'Hoja').replace(/[:\\\/?*\[\]]/g,' ').replace(/\s+/g,' ').trim().slice(0,31)||'Hoja';
+  let name=base,i=1;while(usados[name]){name=(base.slice(0,28)+' '+(++i));}usados[name]=1;return _xmlEsc(name);
+}
+function exportExcelPorPestana(){
+  let sheets='';const usados={};
+  const NOMBRES={resumen:'Resumen Ejecutivo',resultados:'Estado de Resultados',balance:'Balance General',indicadores:'Indicadores',fraude:'Fraude y Errores',variaciones:'Variaciones',gastos:'Principales Gastos',atipicos:'Gastos Atipicos',inversiones:'Inversiones',decisiones:'Decisiones',comparaciones:'Comparaciones'};
+  document.querySelectorAll('.section').forEach(function(sec){
+    const key=sec.id.replace(/^sec-/,'');
+    const name=_sheetName(NOMBRES[key]||(sec.querySelector('.sec-title')||{}).textContent||key,usados);
+    let rows='';const addRow=(cells)=>{rows+='<Row>'+(cells||'')+'</Row>';};
+    const t=sec.querySelector('.sec-title');if(t)addRow(_xlCell(t.textContent.trim()));
+    const sub=sec.querySelector('.sec-sub');if(sub)addRow(_xlCell(sub.textContent.trim()));
+    const kpis=[...sec.querySelectorAll('.kpi-card')];
+    if(kpis.length){addRow('');kpis.forEach(function(k){const lines=k.innerText.split('\n').map(x=>x.trim()).filter(Boolean);addRow(lines.map(l=>_xlCell(l)).join(''));});}
+    sec.querySelectorAll('table').forEach(function(tb){addRow('');
+      tb.querySelectorAll('tr').forEach(function(tr){const cs=[...tr.querySelectorAll('th,td')].map(td=>_xlCell(td.textContent.trim(),td.colSpan||1)).join('');if(cs)addRow(cs);});
+    });
+    if(!rows)addRow(_xlCell('(sin datos tabulares; el gráfico de esta pestaña está en el PDF/Word)'));
+    sheets+='<Worksheet ss:Name="'+name+'"><Table>'+rows+'</Table></Worksheet>';
+  });
+  const wb='<?xml version="1.0"?>\n<?mso-application progid="Excel.Sheet"?>\n<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">'+sheets+'</Workbook>';
+  const blob=new Blob([wb],{type:'application/vnd.ms-excel'});
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='Dashboard_por_pestana.xls';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},3000);
 }
 
 // Render unificado de series. CHART_STYLE: combo|barras|lineas|area|puntos.
