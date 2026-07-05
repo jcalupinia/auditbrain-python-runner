@@ -60,6 +60,20 @@ class ExportRequest(BaseModel):
     params: dict[str, str | float] = Field(default_factory=dict)
 
 
+class DashboardXlsxRequest(BaseModel):
+    """Genera un .xlsx con gráficos NATIVOS de Excel (openpyxl) ligados a las
+    celdas de datos. Al editar los datos en Excel, los gráficos se actualizan
+    solos. El frontend arma el modelo D; el backend solo arma el libro."""
+
+    data: dict[str, list[float | None]]
+    labels: list[str] = Field(default_factory=list)
+    meses: list[int] = Field(default_factory=list)
+    empresa: str = "Empresa"
+    chart_style: str = Field(
+        default="combo", description="barras | lineas | area | combo"
+    )
+
+
 class SriRucResponse(BaseModel):
     """Datos del contribuyente devueltos por el SRI (consulta por RUC)."""
 
