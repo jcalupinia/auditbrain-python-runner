@@ -13,6 +13,7 @@
 // (may-25) NO entran al eje del dashboard — se usan aparte en las Comparaciones.
 
 import { ESF_SCHEMA, ER_SCHEMA, INPUT_KEYS } from "../tax/seed.js";
+import { PARSER_TO_DASH } from "./finModel.js";
 
 const ESF_KEYS = new Set(ESF_SCHEMA.filter((r) => r[0] === "in" || r[0] === "det").map((r) => r[1]));
 const ER_KEYS = new Set(ER_SCHEMA.filter((r) => r[0] === "in" || r[0] === "det").map((r) => r[1]));
@@ -67,4 +68,51 @@ export function alinearPorIdentidad(res) {
     });
   });
   return { D, periodos };
+}
+
+// Alinea UNO o VARIOS resultados tipados a un eje por identidad, preservando el
+// detalle por cuenta (drill-down). Soporta el caso en que ESF y ERI vienen en
+// archivos SEPARADOS (el detallado codificado: un archivo ESF + un archivo ERI)
+// o en un mismo archivo. Devuelve { D, periodos, cuentas }.
+//
+// - Fuente ESF = primer res con `periodos_esf`; fuente ERI = primero con `periodos_eri`.
+// - `data` combinada: claves ESF desde la fuente ESF (índice periodos_esf),
+//   claves ER desde la fuente ERI (índice periodos_eri).
+// - `cuentas`: cada cuenta trae `vals` en el orden de columnas de SU archivo;
+//   se remapea al eje por identidad año-mes. Las cuentas de resultado usan la
+//   identidad del ERI; las de balance, la del ESF. Los períodos solo-ERI (may-25)
+//   no entran al eje (se usan en Comparaciones), igual que en `alinearPorIdentidad`.
+export function alinearMultiarchivo(items) {
+  const reses = (items || []).map((it) => (it && it.res ? it.res : it)).filter(Boolean);
+  const esfSrc = reses.find((r) => (r.periodos_esf || []).length) || null;
+  const eriSrc = reses.find((r) => (r.periodos_eri || []).length) || null;
+  const perEsf = esfSrc ? esfSrc.periodos_esf : [];
+  const perEri = eriSrc ? eriSrc.periodos_eri : [];
+
+  const data = {};
+  ALL_KEYS.forEach((k) => {
+    const src = ESF_KEYS.has(k) ? esfSrc : eriSrc; // ER_KEYS + dna -> ERI
+    data[k] = src && src.data && Array.isArray(src.data[k]) ? src.data[k] : [];
+  });
+  const { D, periodos } = alinearPorIdentidad({ periodos_esf: perEsf, periodos_eri: perEri, data });
+
+  // Detalle por cuenta remapeado al eje por identidad.
+  const idEsf = new Map(perEsf.map((p, i) => [identidadPeriodo(p), i]));
+  const idEri = new Map(perEri.map((p, j) => [identidadPeriodo(p), j]));
+  const ejeIds = periodos.map((p) => identidadPeriodo(p));
+  const cuentas = [];
+  reses.forEach((r) => {
+    (r.detalle || []).forEach((acc) => {
+      const dk = PARSER_TO_DASH[acc.key] || acc.key;
+      const idxById = acc.sec === "resultado" ? idEri : idEsf;
+      const vals = ejeIds.map((id) => {
+        const col = idxById.get(id);
+        return col == null ? 0 : Math.round(num((acc.vals || [])[col]));
+      });
+      if (vals.some((v) => v !== 0)) {
+        cuentas.push({ sec: acc.sec, key: dk, codigo: acc.codigo || "", nombre: acc.nombre, vals });
+      }
+    });
+  });
+  return { D, periodos, cuentas };
 }

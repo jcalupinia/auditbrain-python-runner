@@ -89,6 +89,13 @@ def _period_label(cell):
         return (f"{da:02d}-{_MESES[mo]}-{y}", y)
     m = re.search(r"\b(19|20)\d{2}\b", s)  # solo año
     if m:
+        # No confundir una columna de análisis (vertical/horizontal) que apenas
+        # MENCIONA un año con un período. Ej.: "% 2023 / Total Activos",
+        # "% 2024 / Ventas", "Variación 2024". Un encabezado de período es una
+        # fecha o una etiqueta de año, nunca una columna de ratio/variación.
+        su = s.upper()
+        if "%" in s or any(k in su for k in ("TOTAL", "VENTA", "VARIAC", "PORCENT")):
+            return None
         y = int(m.group(0))
         return (str(y), y)
     return None
@@ -504,6 +511,28 @@ def _parse_resultados_block(df, b, data, ncols, detalle=None):
         detalle.extend(det.values())
 
 
+def _tipar_periodos(sheet, block) -> list[dict]:
+    """Convierte los períodos de un bloque (col,label,año) en períodos TIPADOS
+    {label, tipo, meses, anio}, usando la MISMA lógica que el resumido
+    (`clasificar_periodo` sobre la celda de encabezado). Así el detallado alinea
+    por identidad año-mes igual que el resumido (may-26↔may-26; may-25 y dic-25
+    quedan separados). Se conserva la etiqueta del bloque para no cruzar columnas
+    con `labels_esf`/`labels_er`; solo se toma el tipo/meses/año del clasificador.
+    """
+    from .periodos import clasificar_periodo
+    out = []
+    hr = block["hr"]
+    for col, label, year in block["periods"]:
+        try:
+            p = clasificar_periodo(sheet.iloc[hr, col])
+        except Exception:
+            p = None
+        if not p:
+            p = {"tipo": "anual", "meses": 12, "anio": year}
+        out.append({"label": label, "tipo": p["tipo"], "meses": p["meses"], "anio": p["anio"]})
+    return out
+
+
 def _extract_codificado(data_bytes: bytes) -> dict:
     xls = _read_excel(data_bytes)
     found = {"bal": [], "res": []}  # cada item: (block, df)
@@ -555,6 +584,17 @@ def _extract_codificado(data_bytes: bytes) -> dict:
         warnings.append("No se encontró Estado de Resultados (ER); solo se cargó el balance.")
 
     anios = [y for _c, _lab, y in (bal_block or res_block)["periods"]][:ncols]
+    # Períodos TIPADOS (paridad con el resumido): permiten alinear por identidad
+    # año-mes en el frontend y construir las comparaciones (may-26 vs may-25).
+    per_esf = _tipar_periodos(bal_sheet, bal_block)[:ncols] if bal_block else []
+    per_eri = _tipar_periodos(res_sheet, res_block)[:ncols] if res_block else []
+    from ..comparaciones import build_comparaciones
+    comparaciones = {
+        "esf": [list(par) for par in build_comparaciones(
+            labels_esf, [p["tipo"] for p in per_esf], "esf")],
+        "eri": [list(par) for par in build_comparaciones(
+            labels_er, [p["tipo"] for p in per_eri], "eri")],
+    }
     return {
         "data": data,
         "detalle": detalle,
@@ -565,6 +605,9 @@ def _extract_codificado(data_bytes: bytes) -> dict:
         "anios_detectados": anios,
         "labels_esf": labels_esf,
         "labels_er": labels_er,
+        "periodos_esf": per_esf,
+        "periodos_eri": per_eri,
+        "comparaciones": comparaciones,
     }
 
 

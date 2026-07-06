@@ -34,7 +34,7 @@ import {
 } from "./finModel.js";
 import { downloadStandaloneHTML, buildStandaloneHTML } from "./dashboardExport.js";
 import { comparacionFilas, construirParesEri } from "./finComparaciones.js";
-import { alinearPorIdentidad, tienePeriodosTipados } from "./finPeriodos.js";
+import { alinearMultiarchivo, tienePeriodosTipados } from "./finPeriodos.js";
 
 // Claves de input por estado (para detectar presencia de ESF/ER tras alinear).
 const ESF_INPUT = ESF_SCHEMA.filter((r) => r[0] === "in" || r[0] === "det").map((r) => r[1]);
@@ -210,7 +210,10 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
     // el Balance; los cortes solo-ER (may-25) se usan aparte en Comparaciones.
     const typed = items.map((it) => it.res || it).filter(tienePeriodosTipados);
     if (typed.length && typed.length === items.length) {
-      const { D: aD, periodos: aPer } = alinearPorIdentidad(typed[0]);
+      // Alinea por identidad año-mes (ESF y ERI, en el mismo archivo o en archivos
+      // separados) y CONSERVA el detalle por cuenta — así el detallado codificado
+      // alimenta "Principales Gastos" y "Gastos Atípicos" sin fusionar por año.
+      const { D: aD, periodos: aPer, cuentas: aCuentas } = alinearMultiarchivo(typed);
       const nz = (arr) => (arr || []).some((v) => num(v));
       const hasESF = ESF_INPUT.some((k) => nz(aD[k]));
       const hasER = ER_INPUT.some((k) => nz(aD[k]));
@@ -223,7 +226,7 @@ export default function DashboardEjecutivoTool({ initialSection = "ingesta" } = 
       // (may-26 sus 5 meses, los anuales sus 12); la comparación 5m-vs-anual se
       // resuelve en el panel Comparaciones, no prorrateando el estado completo.
       setPeriodos(aPer.map((p) => ({ id: nextId(), label: p.label, labelESF: p.labelESF, meses: p.meses, normalizar: false })));
-      setCuentas([]); // el resumido por nombre no trae detalle por cuenta
+      setCuentas(aCuentas || []); // detalle por cuenta (drill-down) para gastos/atípicos
       return { count: aPer.length, patInc, hasESF, hasER };
     }
     const yearOf = (s) => { const m = String(s == null ? "" : s).match(/20\d{2}/); return m ? m[0] : null; };
