@@ -27,6 +27,8 @@ def fecha_larga_from_ddmmyyyy(s: str) -> str | None:
     dd, mm, yyyy = m.group(1), int(m.group(2)), m.group(3)
     if not (1 <= mm <= 12):
         return None
+    if not (1 <= int(dd) <= 31):
+        return None
     return f"{int(dd):02d} de {MESES[mm - 1]} de {yyyy}"
 
 

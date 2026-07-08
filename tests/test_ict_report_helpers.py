@@ -10,6 +10,8 @@ def test_fecha_larga_from_ddmmyyyy():
 def test_fecha_larga_invalid_returns_none():
     assert helpers.fecha_larga_from_ddmmyyyy("99-99-2026") is None
     assert helpers.fecha_larga_from_ddmmyyyy("basura") is None
+    assert helpers.fecha_larga_from_ddmmyyyy("32-01-2026") is None
+    assert helpers.fecha_larga_from_ddmmyyyy("00-01-2026") is None
 
 
 def test_normaliza_del():
