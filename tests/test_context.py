@@ -82,7 +82,7 @@ def test_legacy_users_assigned_to_default_org(client):
         db.close()
 
 
-def test_me_context_returns_org_and_empty_projects(client):
+def test_me_context_returns_org_and_projects_list(client):
     email, pw = _mk_user(Role.user)
     tok = _login(client, email, pw)
     r = client.get("/api/v1/me/context", headers=_h(tok))
@@ -90,11 +90,16 @@ def test_me_context_returns_org_and_empty_projects(client):
     body = r.json()
     assert body["organization"] is not None
     assert body["organization"]["slug"] == ctx_service.DEFAULT_ORG_SLUG
-    assert body["projects"] == []
+    # Política de firma: los operadores (rol user) ven los proyectos de su
+    # organización (igual que el admin). No hay activo por defecto.
+    assert isinstance(body["projects"], list)
     assert body["active_project"] is None
 
 
-def test_only_admin_creates_clients(client):
+def test_operator_can_create_clients(client):
+    # Nueva política de firma: los operadores (rol user) pueden crear clientes
+    # y proyectos, igual que el admin. La excepción admin-only es crear
+    # usuarios de portal de clientes y operadores (staff_portal / auth).
     user_email, user_pw = _mk_user(Role.user)
     user_tok = _login(client, user_email, user_pw)
     r = client.post(
@@ -102,7 +107,7 @@ def test_only_admin_creates_clients(client):
         headers=_h(user_tok),
         json={"name": "Cliente Demo"},
     )
-    assert r.status_code == 403
+    assert r.status_code == 201, r.text
 
 
 def test_admin_creates_client_and_project_and_user_is_scoped(client):
@@ -139,33 +144,17 @@ def test_admin_creates_client_and_project_and_user_is_scoped(client):
     assert r.status_code == 200
     assert any(p["id"] == project["id"] for p in r.json())
 
-    # User normal en la MISMA org no es miembro -> no lo ve
+    # Un operador (rol user) en la MISMA org VE el proyecto aunque no sea
+    # miembro (nueva política: operadores = admin para acceso a proyectos).
     user_email, user_pw = _mk_user(Role.user)
     user_tok = _login(client, user_email, user_pw)
     r = client.get("/api/v1/context/projects", headers=_h(user_tok))
     assert r.status_code == 200
-    assert all(p["id"] != project["id"] for p in r.json())
-
-    # Añadir al user como member habilita la visibilidad
-    db = SessionLocal()
-    try:
-        u = auth_service.get_user_by_email(db, user_email)
-        user_id = u.id
-    finally:
-        db.close()
-    r = client.post(
-        f"/api/v1/context/projects/{project['id']}/members",
-        headers=_h(admin_tok),
-        json={"user_id": user_id, "project_role": "member"},
-    )
-    assert r.status_code == 201, r.text
-
-    r = client.get("/api/v1/context/projects", headers=_h(user_tok))
     assert any(p["id"] == project["id"] for p in r.json())
 
 
-def test_user_cannot_set_inaccessible_project_active(client):
-    # Admin crea proyecto sin invitar al user
+def test_operator_can_set_same_org_but_not_cross_org_project_active(client):
+    # Admin de la org por defecto crea un proyecto (sin invitar al operador).
     admin_email, admin_pw = _mk_user(Role.admin)
     admin_tok = _login(client, admin_email, admin_pw)
     r = client.post(
@@ -177,14 +166,39 @@ def test_user_cannot_set_inaccessible_project_active(client):
         headers=_h(admin_tok),
         json={"client_id": cid, "name": "Privado"},
     )
-    pid = r.json()["id"]
+    same_org_pid = r.json()["id"]
 
+    # Operador de la MISMA org: SÍ puede fijarlo activo (nueva política).
     user_email, user_pw = _mk_user(Role.user)
     user_tok = _login(client, user_email, user_pw)
     r = client.put(
-        "/api/v1/me/context",
-        headers=_h(user_tok),
-        json={"project_id": pid},
+        "/api/v1/me/context", headers=_h(user_tok),
+        json={"project_id": same_org_pid},
+    )
+    assert r.status_code == 200, r.text
+
+    # Proyecto de OTRA organización: el operador NO puede fijarlo activo (403).
+    db = SessionLocal()
+    try:
+        org_b = Organization(name="Org B", slug=f"orgb-{uuid.uuid4().hex[:6]}")
+        db.add(org_b)
+        db.commit()
+        db.refresh(org_b)
+        org_b_id = org_b.id
+    finally:
+        db.close()
+    admin_b_email, admin_b_pw = _mk_user(Role.admin, organization_id=org_b_id)
+    b_tok = _login(client, admin_b_email, admin_b_pw)
+    r = client.post("/api/v1/context/clients", headers=_h(b_tok), json={"name": "CB"})
+    cb = r.json()["id"]
+    r = client.post(
+        "/api/v1/context/projects", headers=_h(b_tok),
+        json={"client_id": cb, "name": "Ajeno"},
+    )
+    cross_pid = r.json()["id"]
+    r = client.put(
+        "/api/v1/me/context", headers=_h(user_tok),
+        json={"project_id": cross_pid},
     )
     assert r.status_code == 403
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from backend.app.auth.deps import require_admin
+from backend.app.auth.deps import require_staff
 from backend.app.client_portal.rate_limit import check_and_record
 from backend.app.db.session import get_db
 from backend.app.events import notify, service
@@ -71,7 +71,7 @@ def create_registration_endpoint(
 @router.get(
     "/{slug}/registrations",
     response_model=list[RegistrationOut],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_staff)],
 )
 def list_registrations_endpoint(
     slug: str,

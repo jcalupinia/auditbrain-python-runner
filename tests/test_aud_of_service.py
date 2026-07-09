@@ -76,14 +76,25 @@ def test_create_job_pending_with_expires_at():
 
 
 def test_create_job_no_access_raises():
+    """Aislamiento entre organizaciones: un usuario de OTRA org no puede crear
+    un job sobre el proyecto. (Un operador de la MISMA org sí — política de firma.)"""
     _, project_id = _mk_admin_project()
     db = SessionLocal()
     try:
+        from backend.app.context.models import Organization
+
+        org_b = Organization(name="Org B", slug=f"orgb-{uuid.uuid4().hex[:6]}")
+        db.add(org_b)
+        db.commit()
+        db.refresh(org_b)
         other = auth_service.create_user(
             db, email=f"o-{uuid.uuid4().hex[:6]}@ex.com",
-            password="Sup3rSecret!", role=Role.user,
+            password="Sup3rSecret!", role=Role.admin,
         )
-        other = ctx_service.ensure_user_has_organization(db, other)
+        other.organization_id = org_b.id
+        db.add(other)
+        db.commit()
+        db.refresh(other)
         with pytest.raises(PermissionError):
             of_service.create_job(
                 db, user=other, project_id=project_id,

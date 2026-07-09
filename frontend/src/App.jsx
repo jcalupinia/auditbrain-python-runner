@@ -295,8 +295,8 @@ function Dashboard({ user, health }) {
         sub="Estado consolidado de la plataforma AUDIT-IA." />
       {!isAdmin && (
         <div className="notice warn">
-          Acceso limitado según rol. El rol <b>user</b> no incluye ejecución
-          (Runner) ni administración de cuentas.
+          Acceso limitado según rol. El rol <b>user</b> no incluye la
+          administración de cuentas (crear usuarios de clientes y operadores).
         </div>
       )}
       <Panel title="Telemetría del sistema" meta={ok ? "LIVE" : "—"}>
@@ -1058,7 +1058,7 @@ const AI_LINKS = [
   { name: "Gemini", href: "https://gemini.google.com", logo: "/assets/ai/gemini.svg" },
 ];
 
-function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin }) {
+function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isStaff }) {
   const [tab, setTab] = useState("chat");
   const [chatText, setChatText] = useState("");
   const [chatNotice, setChatNotice] = useState("");
@@ -1256,13 +1256,13 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin }) {
           <button className="qa-item" onClick={goDocs}>
             <b>Generar reporte</b><span>Informe ejecutivo</span>
           </button>
-          {isAdmin ? (
+          {isStaff ? (
             <button className="qa-item" onClick={goRunner}>
               <b>Ejecutar proceso</b><span>Motor Python · Tier 0</span>
             </button>
           ) : (
             <button className="qa-item off" disabled>
-              <b>Ejecutar proceso</b><span>Solo admin</span>
+              <b>Ejecutar proceso</b><span>Solo operadores</span>
             </button>
           )}
           <button className="qa-item off" disabled>
@@ -1595,17 +1595,20 @@ export default function App() {
   if (!user) return <Login onLogged={loadMe} />;
 
   const isAdmin = user.role === "admin";
+  // Operadores del Command Center (admin o user). Tienen las mismas capacidades
+  // de trabajo que el admin; la excepción admin-only es la gestión de cuentas.
+  const isStaff = user.role === "admin" || user.role === "user";
 
   const OPS = [
     { id: "dashboard", code: "DSH", label: "Centro de Operaciones" },
     { id: "documents", code: "DOC", label: "Documentos" },
-    { id: "runner", code: "RUN", label: "Motor de Ejecución", admin: true },
-    { id: "workspaces", code: "WKS", label: "Workspaces", admin: true },
-    { id: "inscripciones", code: "INS", label: "Inscripciones", admin: true },
+    { id: "runner", code: "RUN", label: "Motor de Ejecución", staff: true },
+    { id: "workspaces", code: "WKS", label: "Workspaces", staff: true },
+    { id: "inscripciones", code: "INS", label: "Inscripciones", staff: true },
     { id: "users", code: "USR", label: "Cuentas", admin: true },
-    { id: "profile", code: "PRF", label: "Mi Perfil", admin: true },
+    { id: "profile", code: "PRF", label: "Mi Perfil", staff: true },
     { id: "security", code: "SEC", label: "Seguridad" },
-  ].filter((n) => !n.admin || isAdmin);
+  ].filter((n) => (!n.admin || isAdmin) && (!n.staff || isStaff));
 
   const moduleActive = MODULES.find((m) => m.id === section);
   const opActive = OPS.find((o) => o.id === section);
@@ -1623,21 +1626,22 @@ export default function App() {
           module={moduleActive}
           ctx={ctx}
           isAdmin={isAdmin}
+          isStaff={isStaff}
           goDocs={() => go("documents")}
           goRunner={() => go("runner")}
         />
       );
     switch (section) {
-      case "runner": return isAdmin ? <Runner /> : <Dashboard user={user} health={hp} />;
+      case "runner": return isStaff ? <Runner /> : <Dashboard user={user} health={hp} />;
       case "users": return isAdmin ? <Users /> : <Dashboard user={user} health={hp} />;
       case "workspaces":
-        return isAdmin
+        return isStaff
           ? <Workspaces onContextChanged={loadContext} />
           : <Dashboard user={user} health={hp} />;
       case "inscripciones":
-        return isAdmin ? <Inscripciones /> : <Dashboard user={user} health={hp} />;
+        return isStaff ? <Inscripciones /> : <Dashboard user={user} health={hp} />;
       case "profile":
-        return isAdmin ? <Profile user={user} /> : <Dashboard user={user} health={hp} />;
+        return isStaff ? <Profile user={user} /> : <Dashboard user={user} health={hp} />;
       case "security": return <Security user={user} />;
       case "documents": return (
         <><ViewHead code="DOC" title="Generación Documental"
@@ -1733,7 +1737,7 @@ export default function App() {
               {(!ctx?.projects || ctx.projects.length === 0) && (
                 <div className="cc-ws-empty">
                   No hay proyectos asignados.{" "}
-                  {isAdmin && (
+                  {isStaff && (
                     <button type="button" className="link"
                       onClick={() => { setWsOpen(false); go("workspaces"); }}>
                       Crear uno

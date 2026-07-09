@@ -92,8 +92,8 @@ def test_admin_creates_user_and_conflict(client):
     assert r2.status_code == 409
 
 
-def test_runner_rejects_non_admin_jwt(client):
-    """Garantía 'runner solo admin': un JWT de usuario normal -> 403."""
+def test_runner_allows_operator_jwt(client):
+    """Política de firma: los operadores (rol user) también pueden usar el runner."""
     email, pw = _mk(Role.user)
     tok = _token(client, email, pw)
     r = client.post(
@@ -101,7 +101,8 @@ def test_runner_rejects_non_admin_jwt(client):
         headers={"Authorization": f"Bearer {tok}"},
         json={"script": "result = 1"},
     )
-    assert r.status_code == 403
+    assert r.status_code == 200, r.text
+    assert r.json()["result"] == 1
 
 
 def test_runner_allows_admin_jwt(client):
@@ -131,15 +132,16 @@ def test_admin_gets_sri_protection_key(client):
     )
 
 
-def test_non_admin_cannot_get_sri_protection_key(client):
-    """Un usuario NO admin NO puede leer la contraseña de protección SRI."""
+def test_operator_can_get_sri_protection_key(client):
+    """Política de firma: los operadores (rol user) también leen la clave SRI."""
     email, pw = _mk(Role.user)
     tok = _token(client, email, pw)
     r = client.get(
         "/api/v1/auth/sri-protection-key",
         headers={"Authorization": f"Bearer {tok}"},
     )
-    assert r.status_code == 403
+    assert r.status_code == 200, r.text
+    assert r.json()["password"]
 
 
 def test_sri_protection_key_requires_auth(client):
