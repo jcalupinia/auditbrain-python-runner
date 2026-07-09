@@ -37,5 +37,17 @@ export const CATEGORIES = [
       },
     ],
   },
-  { id: "CONCLUSION", label: "Conclusión y dictamen", type: "etapa" },
+  {
+    id: "CONCLUSION",
+    label: "Conclusión y dictamen",
+    type: "etapa",
+    tools: [
+      {
+        id: "AUD.CONCLUSION.INFORME_CUMPLIMIENTO_TRIBUTARIO",
+        label: "Informe de Cumplimiento Tributario",
+        description:
+          "Genera el informe de opinión (AuditConsulting / Partner) a partir del Informe de Auditoría Externa y el F-101. Descarga el Word listo para firmar.",
+      },
+    ],
+  },
 ];
