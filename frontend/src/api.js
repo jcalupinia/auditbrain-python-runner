@@ -664,3 +664,55 @@ export async function setUserEntitlements(userId, toolCodes) {
     })
   );
 }
+
+// ---------- AUD.CONCLUSION.INFORME_CUMPLIMIENTO_TRIBUTARIO ----------
+
+const ICT_BASE = `${API_BASE}/api/v1/aud/informe-cumplimiento-tributario`;
+
+export async function parseIctPreview(files) {
+  const fd = new FormData();
+  fd.append("informe_auditoria_externa", files.informe);
+  fd.append("declaracion_ir", files.f101);
+  return parse(await fetch(`${ICT_BASE}/parse-preview`, {
+    method: "POST", headers: authHeaders(), body: fd,
+  }));
+}
+
+export async function createIctJob(form, files) {
+  const fd = new FormData();
+  Object.entries(form).forEach(([k, v]) => {
+    if (v !== null && v !== undefined && v !== "") fd.append(k, v);
+  });
+  fd.append("informe_auditoria_externa", files.informe);
+  fd.append("declaracion_ir", files.f101);
+  if (files.diferencias) fd.append("anexo_diferencias_sri", files.diferencias);
+  return parse(await fetch(`${ICT_BASE}/jobs`, {
+    method: "POST", headers: authHeaders(), body: fd,
+  }));
+}
+
+export async function getIctJob(jobId) {
+  return parse(await fetch(`${ICT_BASE}/jobs/${jobId}`, { headers: authHeaders() }));
+}
+
+export async function listIctJobs(projectId) {
+  return parse(await fetch(`${ICT_BASE}/jobs?project_id=${projectId}`, { headers: authHeaders() }));
+}
+
+export async function downloadIctJob(jobId, suggestedFilename) {
+  const res = await fetch(`${ICT_BASE}/jobs/${jobId}/download`, { headers: authHeaders() });
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try { detail = (await res.json()).detail || detail; } catch { /* */ }
+    throw new Error(detail);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = suggestedFilename || `Informe_Cumplimiento_Tributario_${jobId}.docx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
