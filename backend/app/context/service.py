@@ -124,12 +124,14 @@ def create_client(
 def list_user_projects(db: Session, user: User) -> list[Project]:
     """Proyectos visibles para el usuario.
 
-    - admin: todos los proyectos de su organización.
-    - user: solo aquellos donde es ProjectMember (en la misma org).
+    - Operadores (admin y user): TODOS los proyectos de su organización. Los
+      operadores rol `user` tienen las mismas capacidades de trabajo que el
+      admin (política de la firma), por lo que ven todos los proyectos.
+    - Otros roles (ej. client de portal): solo aquellos donde son ProjectMember.
     """
     if not user.organization_id:
         return []
-    if user.role.value == "admin":
+    if user.role.value in ("admin", "user"):
         return list(
             db.execute(
                 select(Project)
@@ -163,7 +165,8 @@ def get_project(
 def user_can_access_project(db: Session, user: User, project: Project) -> bool:
     if not user.organization_id or project.organization_id != user.organization_id:
         return False
-    if user.role.value == "admin":
+    # Operadores (admin y user) acceden a cualquier proyecto de su organización.
+    if user.role.value in ("admin", "user"):
         return True
     membership = db.execute(
         select(ProjectMember).where(

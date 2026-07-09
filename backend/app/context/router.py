@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from backend.app.auth.deps import get_current_user, require_admin
+from backend.app.auth.deps import get_current_user, require_staff
 from backend.app.auth.models import User
 from backend.app.context import service
 from backend.app.context.schemas import (
@@ -38,6 +38,7 @@ def set_my_context(
     current: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    current = service.ensure_user_has_organization(db, current)
     try:
         service.set_active_project(db, current, payload.project_id)
     except PermissionError as e:
@@ -61,7 +62,7 @@ def list_clients_endpoint(
     "/context/clients",
     response_model=ClientOut,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_staff)],
 )
 def create_client_endpoint(
     payload: ClientCreate,
@@ -93,7 +94,7 @@ def list_projects_endpoint(
     "/context/projects",
     response_model=ProjectOut,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_staff)],
 )
 def create_project_endpoint(
     payload: ProjectCreate,
@@ -125,7 +126,7 @@ def create_project_endpoint(
     "/context/projects/{project_id}/members",
     response_model=ProjectMemberOut,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_staff)],
 )
 def add_project_member_endpoint(
     project_id: int,

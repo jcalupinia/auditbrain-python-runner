@@ -64,6 +64,23 @@ def require_admin(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+def require_staff(user: User = Depends(get_current_user)) -> User:
+    """Operadores del Command Center: admin o user.
+
+    Los operadores (rol user) tienen las mismas capacidades de trabajo que el
+    admin (ver/crear/usar clientes y proyectos). La ÚNICA excepción, que sigue
+    siendo admin-only, es la gestión de cuentas: crear usuarios de clientes de
+    portal y crear/administrar operadores (staff_portal + auth). Excluye el rol
+    client de portal.
+    """
+    if user.role not in (Role.admin, Role.user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Requiere rol operador (admin o user).",
+        )
+    return user
+
+
 async def require_runner_access(
     request: Request, db: Session = Depends(get_db)
 ) -> None:

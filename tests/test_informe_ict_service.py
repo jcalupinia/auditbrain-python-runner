@@ -81,7 +81,9 @@ def test_create_and_get_job():
         db.close()
 
 
-def test_get_job_sin_acceso_lanza_permissionerror():
+def test_get_job_cross_org_lanza_permissionerror():
+    """Aislamiento entre organizaciones: un usuario de OTRA org no puede leer
+    el job. (Un operador de la MISMA org sí puede — política de firma.)"""
     user_id, pid = _admin_and_project()
     db = SessionLocal()
     try:
@@ -96,11 +98,20 @@ def test_get_job_sin_acceso_lanza_permissionerror():
 
     db = SessionLocal()
     try:
+        from backend.app.context.models import Organization
+
+        org_b = Organization(name="Org B", slug=f"orgb-{uuid.uuid4().hex[:6]}")
+        db.add(org_b)
+        db.commit()
+        db.refresh(org_b)
         other = auth_service.create_user(
             db, email=f"o-{uuid.uuid4().hex[:6]}@ex.com",
-            password="Sup3rSecret!", role=Role.user,
+            password="Sup3rSecret!", role=Role.admin,
         )
-        other = ctx_service.ensure_user_has_organization(db, other)
+        other.organization_id = org_b.id
+        db.add(other)
+        db.commit()
+        db.refresh(other)
         with pytest.raises(PermissionError):
             service.get_job(db, other, job_id)
     finally:

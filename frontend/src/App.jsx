@@ -1595,17 +1595,20 @@ export default function App() {
   if (!user) return <Login onLogged={loadMe} />;
 
   const isAdmin = user.role === "admin";
+  // Operadores del Command Center (admin o user). Tienen las mismas capacidades
+  // de trabajo que el admin; la excepción admin-only es la gestión de cuentas.
+  const isStaff = user.role === "admin" || user.role === "user";
 
   const OPS = [
     { id: "dashboard", code: "DSH", label: "Centro de Operaciones" },
     { id: "documents", code: "DOC", label: "Documentos" },
     { id: "runner", code: "RUN", label: "Motor de Ejecución", admin: true },
-    { id: "workspaces", code: "WKS", label: "Workspaces", admin: true },
+    { id: "workspaces", code: "WKS", label: "Workspaces", staff: true },
     { id: "inscripciones", code: "INS", label: "Inscripciones", admin: true },
     { id: "users", code: "USR", label: "Cuentas", admin: true },
     { id: "profile", code: "PRF", label: "Mi Perfil", admin: true },
     { id: "security", code: "SEC", label: "Seguridad" },
-  ].filter((n) => !n.admin || isAdmin);
+  ].filter((n) => (!n.admin || isAdmin) && (!n.staff || isStaff));
 
   const moduleActive = MODULES.find((m) => m.id === section);
   const opActive = OPS.find((o) => o.id === section);
@@ -1631,7 +1634,7 @@ export default function App() {
       case "runner": return isAdmin ? <Runner /> : <Dashboard user={user} health={hp} />;
       case "users": return isAdmin ? <Users /> : <Dashboard user={user} health={hp} />;
       case "workspaces":
-        return isAdmin
+        return isStaff
           ? <Workspaces onContextChanged={loadContext} />
           : <Dashboard user={user} health={hp} />;
       case "inscripciones":
@@ -1733,7 +1736,7 @@ export default function App() {
               {(!ctx?.projects || ctx.projects.length === 0) && (
                 <div className="cc-ws-empty">
                   No hay proyectos asignados.{" "}
-                  {isAdmin && (
+                  {isStaff && (
                     <button type="button" className="link"
                       onClick={() => { setWsOpen(false); go("workspaces"); }}>
                       Crear uno
