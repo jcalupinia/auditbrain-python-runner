@@ -153,8 +153,12 @@ def test_cross_user_isolation(client):
     assert r.status_code == 404
 
 
-def test_conversation_with_inaccessible_project_rejected(client):
-    """Crear conversación atada a un proyecto al que no perteneces -> 403."""
+def test_conversation_with_cross_org_project_rejected(client):
+    """Crear conversación atada a un proyecto de OTRA organización -> 403.
+
+    (Un operador de la MISMA org sí accede — política de firma; la denegación
+    real es entre organizaciones.)
+    """
     admin_email, admin_pw = _mk(Role.admin)
     admin_tok = _login(client, admin_email, admin_pw)
     cid = client.post(
@@ -166,7 +170,26 @@ def test_conversation_with_inaccessible_project_rejected(client):
         json={"client_id": cid, "name": "Proyecto privado"},
     ).json()["id"]
 
-    user_email, user_pw = _mk()
+    # Usuario en OTRA organización (org B).
+    from backend.app.context.models import Organization
+
+    db = SessionLocal()
+    try:
+        org_b = Organization(name="Org B", slug=f"orgb-{uuid.uuid4().hex[:6]}")
+        db.add(org_b)
+        db.commit()
+        db.refresh(org_b)
+        user_email = f"user-{uuid.uuid4().hex[:8]}@example.com"
+        user_pw = "Sup3rSecret!"
+        u = auth_service.create_user(
+            db, email=user_email, password=user_pw, role=Role.user
+        )
+        u.organization_id = org_b.id
+        db.add(u)
+        db.commit()
+    finally:
+        db.close()
+
     user_tok = _login(client, user_email, user_pw)
     r = client.post(
         "/api/v1/chat/conversations",
