@@ -24,6 +24,10 @@ openpyxl==3.1.5
 xlsxwriter==3.2.0
 xlrd==2.0.1  # lectura de .xls legacy (balances internos)
 python-docx==1.1.2
+# docxtpl: plantillas Word (Jinja2 sobre python-docx). Requerido en runtime por
+# AUD Informe de Cumplimiento Tributario (docx_assembler) — se importa al
+# arrancar la app, así que DEBE estar en prod. Liviano (no causa OOM).
+docxtpl==0.17.0
 python-pptx==0.6.23
 lxml>=4.9.0
 
@@ -81,7 +85,7 @@ email-validator==2.2.0
 #   torch, transformers, spacy, dask, great_expectations, tensorflow,
 #   scikit-learn, statsmodels, pyod, langchain, seaborn, pyarrow,
 #   duckdb, pyautogui, fuzzywuzzy, beautifulsoup4,
-#   docxtpl, fpdf, cython, torch, transformers, spacy
+#   fpdf, cython, torch, transformers, spacy
 #   (reportlab no está en requirements.txt ni se importa)
 # Nota: sqlalchemy y python-multipart, antes excluidos, ahora SÍ se
 # incluyen porque F2 añade auth multiusuario (login OAuth2 + Postgres).
