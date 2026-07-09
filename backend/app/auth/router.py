@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.app.auth import service
-from backend.app.auth.deps import get_current_user, require_admin
+from backend.app.auth.deps import get_current_user, require_admin, require_staff
 from backend.app.auth.jwt_tokens import create_access_token
 from backend.app.auth.models import Role, User
 from backend.app.auth.schemas import Token, UserCreate, UserOut
@@ -37,7 +37,7 @@ def me(current: User = Depends(get_current_user)):
     return current
 
 
-@router.get("/sri-protection-key", dependencies=[Depends(require_admin)])
+@router.get("/sri-protection-key", dependencies=[Depends(require_staff)])
 def get_sri_protection_key():
     """Devuelve la contraseña que bloquea la estructura del Excel SRI del ICT.
 

@@ -11,14 +11,17 @@ test.describe("Gating de roles", () => {
     await expect(side.getByRole("button", { name: /Workspaces/i })).toBeVisible();
   });
 
-  test("user no ve los nodos admin-only", async ({ page }) => {
+  test("user solo NO ve Cuentas; ve todo lo demás (política de firma)", async ({ page }) => {
     await mockApi(page, { user: BASIC_USER });
     await login(page, BASIC_USER.email);
     const side = page.locator("aside.cc-side");
-    await expect(side.getByRole("button", { name: /Motor de Ejecución/i })).toHaveCount(0);
+    // Única excepción admin-only: Cuentas (crear usuarios de clientes y operadores).
     await expect(side.getByRole("button", { name: /^Cuentas$/ })).toHaveCount(0);
-    await expect(side.getByRole("button", { name: /Workspaces/i })).toHaveCount(0);
-    // Pero sí ve los que están disponibles para todos
+    // El operador (rol user) ve todo lo demás, igual que el admin.
+    await expect(side.getByRole("button", { name: /Motor de Ejecución/i })).toBeVisible();
+    await expect(side.getByRole("button", { name: /Workspaces/i })).toBeVisible();
+    await expect(side.getByRole("button", { name: /Inscripciones/i })).toBeVisible();
+    await expect(side.getByRole("button", { name: /Mi Perfil/i })).toBeVisible();
     await expect(side.getByRole("button", { name: /Centro de Operaciones/i })).toBeVisible();
     await expect(side.getByRole("button", { name: /Documentos/i }).first()).toBeVisible();
     await expect(side.getByRole("button", { name: /Seguridad/i })).toBeVisible();

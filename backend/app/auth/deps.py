@@ -88,10 +88,11 @@ async def require_runner_access(
     if authz.lower().startswith("bearer "):
         token = authz.split(" ", 1)[1].strip()
         user = _user_from_token(token, db)
-        if user.role != Role.admin:
+        # Política de firma: operadores (admin o user) pueden usar el runner.
+        if user.role not in (Role.admin, Role.user):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="El runner está restringido al rol admin.",
+                detail="El runner está restringido a operadores (admin o user).",
             )
         return
 
