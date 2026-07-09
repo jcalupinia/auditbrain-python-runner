@@ -2,6 +2,7 @@ import { useState } from "react";
 import { CATEGORIES } from "./catalog.js";
 import { STRINGS } from "./strings.js";
 import ObligacionesFiscalesTool from "./ObligacionesFiscalesTool.jsx";
+import InformeCumplimientoTributarioTool from "./InformeCumplimientoTributarioTool.jsx";
 
 export default function ToolCatalog({ projectId }) {
   const [activeTool, setActiveTool] = useState(null);
@@ -16,6 +17,17 @@ export default function ToolCatalog({ projectId }) {
           {STRINGS.back_to_catalog}
         </button>
         <ObligacionesFiscalesTool projectId={projectId} />
+      </div>
+    );
+  }
+
+  if (activeTool === "AUD.CONCLUSION.INFORME_CUMPLIMIENTO_TRIBUTARIO") {
+    return (
+      <div className="aud-tool-wrap">
+        <button className="link aud-back" onClick={() => setActiveTool(null)}>
+          {STRINGS.back_to_catalog}
+        </button>
+        <InformeCumplimientoTributarioTool projectId={projectId} />
       </div>
     );
   }
