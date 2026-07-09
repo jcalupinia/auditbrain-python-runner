@@ -46,6 +46,7 @@ export const STRINGS = {
   ict_marco: "Marco contable (auto)",
   ict_fecha_declaracion: "Fecha de declaración del IR (auto)",
   ict_generate: "Generar informe",
+  ict_clear: "Limpiar",
   ict_processing: "Generando informe…",
   ict_done: "Informe listo",
   ict_download: "Descargar Word",

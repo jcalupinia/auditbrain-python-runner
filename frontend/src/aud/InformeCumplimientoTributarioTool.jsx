@@ -20,6 +20,7 @@ export default function InformeCumplimientoTributarioTool({ projectId }) {
   const [recent, setRecent] = useState([]);
   const [err, setErr] = useState("");
   const [previewing, setPreviewing] = useState(false);
+  const [resetKey, setResetKey] = useState(0); // fuerza remontar los inputs de archivo al limpiar
   const pollRef = useRef();
 
   const loadRecent = useCallback(async () => {
@@ -81,6 +82,7 @@ export default function InformeCumplimientoTributarioTool({ projectId }) {
 
   function reset() {
     setStage("form"); setJob(null); setFiles({}); setErr("");
+    setResetKey((k) => k + 1); // limpia los inputs de archivo (uncontrolled)
     setForm({
       cliente_name: "", ejercicio: "", fecha_carga_sri: "",
       firma_auditora: "audit_consulting", hay_recomendaciones: false,
@@ -161,21 +163,21 @@ export default function InformeCumplimientoTributarioTool({ projectId }) {
           <div className="of-slots">
             <div className="of-slot req">
               <label>{STRINGS.ict_slot_informe}
-                <input type="file" accept="application/pdf"
+                <input key={`informe-${resetKey}`} type="file" accept="application/pdf"
                   onChange={(e) => onFile("informe", e.target.files)} />
               </label>
               {files.informe && <span className="of-slot-count">1 archivo</span>}
             </div>
             <div className="of-slot req">
               <label>{STRINGS.ict_slot_f101}
-                <input type="file" accept="application/pdf"
+                <input key={`f101-${resetKey}`} type="file" accept="application/pdf"
                   onChange={(e) => onFile("f101", e.target.files)} />
               </label>
               {files.f101 && <span className="of-slot-count">1 archivo</span>}
             </div>
             <div className="of-slot">
               <label>{STRINGS.ict_slot_diferencias}
-                <input type="file" accept="application/pdf"
+                <input key={`diferencias-${resetKey}`} type="file" accept="application/pdf"
                   onChange={(e) => setFile("diferencias", e.target.files)} />
               </label>
               {files.diferencias && <span className="of-slot-count">1 archivo</span>}
@@ -203,7 +205,10 @@ export default function InformeCumplimientoTributarioTool({ projectId }) {
           {previewing && <p className="muted small">Autocompletando desde los PDFs…</p>}
 
           {err && <div className="err">{err}</div>}
-          <button type="submit" className="btn primary lg">{STRINGS.ict_generate}</button>
+          <div className="of-stage-actions">
+            <button type="submit" className="btn primary lg">{STRINGS.ict_generate}</button>
+            <button type="button" className="btn" onClick={reset}>{STRINGS.ict_clear}</button>
+          </div>
         </form>
       )}
 
