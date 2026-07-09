@@ -10,33 +10,19 @@ Extrae:
 from __future__ import annotations
 
 import re
-from io import BytesIO
-
-import pdfplumber
 
 from backend.app.aud.informe_cumplimiento_tributario.helpers import normaliza_del
+from backend.app.aud.informe_cumplimiento_tributario.parsers import _pdf
 
 
 def parse(pdf_bytes: bytes) -> dict:
     errores: list[str] = []
-    text = _extract_text(pdf_bytes, errores)
+    text = _pdf.extract_text(pdf_bytes, errores)
     fecha = _fecha_emision(text)
     marco = _marco_contable(text)
     if fecha is None:
         errores.append("No se encontró la fecha de emisión en el informe.")
     return {"fecha_emision": fecha, "marco_contable": marco, "errores": errores}
-
-
-def _extract_text(pdf_bytes: bytes, errores: list[str]) -> str:
-    try:
-        out = []
-        with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
-            for page in pdf.pages:
-                out.append(page.extract_text() or "")
-        return "\n".join(out)
-    except Exception as e:  # noqa: BLE001
-        errores.append(f"No se pudo leer el PDF: {e}")
-        return ""
 
 
 def _fecha_emision(text: str) -> str | None:
