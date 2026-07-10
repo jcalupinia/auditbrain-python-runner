@@ -29,3 +29,22 @@ def totales_por_codigo(estructura: list[Nodo], saldos: dict[str, float]) -> dict
     for n in estructura:
         calc(n.codigo)
     return total
+
+
+def homologar_balanza(balanza: list[dict]) -> tuple[dict[str, float], list[dict]]:
+    """Agrupa las filas de la balanza por su Código Super Cías (SUMIF).
+    Devuelve (saldos_por_codigo, filas_sin_codigo). Las filas sin código NO se
+    pierden: se devuelven aparte para que el auditor las homologue."""
+    saldos: dict[str, float] = {}
+    sin_codigo: list[dict] = []
+    for fila in balanza:
+        cod = str(fila.get("super_cias") or "").strip()
+        try:
+            saldo = float(fila.get("saldo") or 0.0)
+        except (TypeError, ValueError):
+            saldo = 0.0
+        if not cod:
+            sin_codigo.append(fila)
+            continue
+        saldos[cod] = round(saldos.get(cod, 0.0) + saldo, 2)
+    return saldos, sin_codigo

@@ -47,3 +47,16 @@ def test_totales_cuenta_codificada_a_nivel_agregado_no_duplica():
     assert tot["10101"] == 450.0
     assert tot["101"] == 550.0    # 100 directo + 450 del hijo
     assert tot["1"] == 550.0
+
+
+def test_homologar_balanza_agrupa_por_super_cias():
+    # balanza: filas del cliente con su código Super Cías asignado y saldo
+    balanza = [
+        {"cuenta": "Caja Chica", "super_cias": "10101", "saldo": 200.0},
+        {"cuenta": "Banco Pichincha", "super_cias": "10101", "saldo": 250.0},
+        {"cuenta": "Inversión A", "super_cias": "10102", "saldo": 1500.0},
+        {"cuenta": "Sin código", "super_cias": "", "saldo": 99.0},
+    ]
+    saldos, sin_codigo = motor.homologar_balanza(balanza)
+    assert saldos == {"10101": 450.0, "10102": 1500.0}
+    assert len(sin_codigo) == 1 and sin_codigo[0]["cuenta"] == "Sin código"
