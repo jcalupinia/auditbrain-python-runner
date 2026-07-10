@@ -60,3 +60,18 @@ def test_homologar_balanza_agrupa_por_super_cias():
     saldos, sin_codigo = motor.homologar_balanza(balanza)
     assert saldos == {"10101": 450.0, "10102": 1500.0}
     assert len(sin_codigo) == 1 and sin_codigo[0]["cuenta"] == "Sin código"
+
+
+def test_cuadre_activo_pasivo_patrimonio():
+    # totales por sección ya calculados (con signo natural: A+, P-, Pat-)
+    tot = {"1": 6850.0, "2": -3318.0, "3": -3532.0}
+    r = motor.cuadre(tot)
+    assert r["activo"] == 6850.0
+    assert r["pasivo_mas_patrimonio"] == 6850.0   # -(P+Pat) presentado positivo
+    assert abs(r["diferencia"]) <= 1.0
+    assert r["cuadra"] is True
+
+    tot2 = {"1": 6850.0, "2": -3000.0, "3": -3532.0}
+    r2 = motor.cuadre(tot2)
+    assert r2["cuadra"] is False
+    assert round(r2["diferencia"], 0) == 318.0

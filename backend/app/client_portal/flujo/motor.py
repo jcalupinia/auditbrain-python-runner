@@ -48,3 +48,18 @@ def homologar_balanza(balanza: list[dict]) -> tuple[dict[str, float], list[dict]
             continue
         saldos[cod] = round(saldos.get(cod, 0.0) + saldo, 2)
     return saldos, sin_codigo
+
+
+def cuadre(totales: dict[str, float], tolerancia: float = 1.0) -> dict:
+    """Verifica Activo = Pasivo + Patrimonio. En el plan Superintendencia,
+    Activo es sección '1' (signo +), Pasivo '2' y Patrimonio '3' (crédito, −).
+    Se presenta P+Pat en positivo. Cuadra si |dif| ≤ tolerancia."""
+    activo = round(float(totales.get("1", 0.0)), 2)
+    pas_pat = round(-(float(totales.get("2", 0.0)) + float(totales.get("3", 0.0))), 2)
+    dif = round(activo - pas_pat, 2)
+    return {
+        "activo": activo,
+        "pasivo_mas_patrimonio": pas_pat,
+        "diferencia": dif,
+        "cuadra": abs(dif) <= tolerancia,
+    }
