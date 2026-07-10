@@ -51,6 +51,19 @@ def cargar_estructura(estado: str) -> list[Nodo]:
             for c, e in filas]
 
 
+def cargar_agregados_f101() -> dict[str, list[str]]:
+    """Devuelve {casillero: [tokens con signo]}, ej. {'499': ['+449','+361']}."""
+    out: dict[str, list[str]] = {}
+    ruta = os.path.join(_DATA, "f101_agregados.csv")
+    with open(ruta, encoding="utf-8-sig", newline="") as f:
+        for row in csv.DictReader(f):
+            cas = (row.get("casillero") or "").strip()
+            hijos = (row.get("hijos_con_signo") or "").split()
+            if cas and hijos:
+                out[cas] = hijos
+    return out
+
+
 def cargar_clasificacion_flujo() -> dict[str, str]:
     """Devuelve {codigo_super_cias: actividad} (OPERACION/INVERSION/FINANCIAMIENTO)
     desde flujo_clasificacion_actividad.csv."""

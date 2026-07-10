@@ -25,6 +25,34 @@ def casilleros_f101(balanza: list[dict]) -> dict[str, float]:
     return casilleros
 
 
+def casilleros_completos(balanza: list[dict], agregados: dict[str, list[str]],
+                         extras: dict[str, float] | None = None) -> dict[str, float]:
+    """Casilleros HOJA (SUMIF por SRI) + agregados (suma de casilleros hijos con signo).
+    `extras` = casilleros calculados fuera (ej. derivados del ER) que se inyectan antes
+    de resolver los agregados."""
+    val: dict[str, float] = dict(casilleros_f101(balanza))
+    if extras:
+        val.update({k: round(float(v), 2) for k, v in extras.items()})
+
+    def calc(cas: str, visto: set) -> float:
+        if cas in val:
+            return val[cas]
+        if cas not in agregados or cas in visto:
+            return 0.0
+        visto.add(cas)
+        total = 0.0
+        for tok in agregados[cas]:
+            signo = -1.0 if tok[0] == "-" else 1.0
+            hijo = tok.lstrip("+-").strip()
+            total += signo * calc(hijo, visto)
+        val[cas] = round(total, 2)
+        return val[cas]
+
+    for cas in agregados:
+        calc(cas, set())
+    return val
+
+
 def generar_xml_101(casilleros: dict[str, float]) -> str:
     """Genera el XML de detalle de declaración del F-101.
 
