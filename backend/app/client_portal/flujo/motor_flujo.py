@@ -25,3 +25,26 @@ def clasificar_flujo(variaciones: dict[str, float], clasificacion: dict[str, str
             continue
         act[a] += -float(var)
     return {k: round(v, 2) for k, v in act.items()}
+
+
+def flujo_efectivo(tot_ant: dict[str, float], tot_act: dict[str, float],
+                   clasificacion: dict[str, str], efectivo_cod: str = PREFIJO_EFECTIVO,
+                   tolerancia: float = 1.0) -> dict:
+    """Estado de flujo por método indirecto. AF = efectivo final calculado −
+    efectivo real del año actual (debe ser 0)."""
+    var = variaciones(tot_ant, tot_act)
+    act = clasificar_flujo(var, clasificacion, efectivo_cod)
+    op = round(act.get("OPERACION", 0.0), 2)
+    inv = round(act.get("INVERSION", 0.0), 2)
+    fin = round(act.get("FINANCIAMIENTO", 0.0), 2)
+    neto = round(op + inv + fin, 2)
+    efe_ini = round(float(tot_ant.get(efectivo_cod, 0.0)), 2)
+    efe_fin_calc = round(efe_ini + neto, 2)
+    efe_fin_real = round(float(tot_act.get(efectivo_cod, 0.0)), 2)
+    af = round(efe_fin_calc - efe_fin_real, 2)
+    return {
+        "operacion": op, "inversion": inv, "financiamiento": fin,
+        "incremento_neto": neto, "efectivo_inicial": efe_ini,
+        "efectivo_final_calculado": efe_fin_calc, "efectivo_final_real": efe_fin_real,
+        "cuadre_af": af, "cuadra": abs(af) <= tolerancia,
+    }
