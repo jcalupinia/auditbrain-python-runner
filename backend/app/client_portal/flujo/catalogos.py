@@ -49,3 +49,17 @@ def cargar_estructura(estado: str) -> list[Nodo]:
 
     return [Nodo(codigo=c, etiqueta=e, padre=padre(c), es_hoja=not tiene_hijo[c])
             for c, e in filas]
+
+
+def cargar_clasificacion_flujo() -> dict[str, str]:
+    """Devuelve {codigo_super_cias: actividad} (OPERACION/INVERSION/FINANCIAMIENTO)
+    desde flujo_clasificacion_actividad.csv."""
+    out: dict[str, str] = {}
+    ruta = os.path.join(_DATA, "flujo_clasificacion_actividad.csv")
+    with open(ruta, encoding="utf-8-sig", newline="") as f:
+        for row in csv.DictReader(f):
+            cod = (row.get("codigo_super_cias") or "").strip()
+            act = (row.get("actividad") or "").strip().upper()
+            if cod and act:
+                out[cod] = act
+    return out
