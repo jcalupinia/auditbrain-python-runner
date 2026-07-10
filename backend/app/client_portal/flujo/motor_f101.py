@@ -53,6 +53,41 @@ def casilleros_completos(balanza: list[dict], agregados: dict[str, list[str]],
     return val
 
 
+# Cuentas contables (Super Cías 30601) que en realidad son OCI actuarial y se
+# reclasifican a patrimonio (código 30505). Se identifican por su código de cuenta
+# porque comparten el código Super Cías con "resultados acumulados". Fuente: bloque
+# de reclasificación N/O del Mapeo del modelo (O16 = E185+E186).
+CUENTAS_ORI_ACTUARIAL = ("3020301002", "3020301003")
+
+
+def _normaliza_cuenta(cod) -> str:
+    return str(cod or "").replace(".", "").strip()
+
+
+def ori_del_periodo(balanza_ant: list[dict], balanza_act: list[dict],
+                    cuentas_ori: tuple[str, ...] = CUENTAS_ORI_ACTUARIAL) -> float:
+    """Casillero 885 (Otro resultado integral del año) = movimiento OCI del período.
+
+    Es la **variación** entre año actual y anterior de las cuentas actuariales
+    reclasificadas a patrimonio (30505). Como esas cuentas comparten el código
+    Super Cías 30601 con "resultados acumulados", NO se pueden aislar por total de
+    código: se identifican por su **código de cuenta contable** (campo ``cuenta``).
+    """
+    objetivo = {_normaliza_cuenta(c) for c in cuentas_ori}
+
+    def _suma(bal: list[dict]) -> float:
+        total = 0.0
+        for fila in bal:
+            if _normaliza_cuenta(fila.get("cuenta")) in objetivo:
+                try:
+                    total += float(fila.get("saldo") or 0.0)
+                except (TypeError, ValueError):
+                    pass
+        return round(total, 2)
+
+    return round(_suma(balanza_act) - _suma(balanza_ant), 2)
+
+
 def generar_xml_101(casilleros: dict[str, float]) -> str:
     """Genera el XML de detalle de declaración del F-101.
 

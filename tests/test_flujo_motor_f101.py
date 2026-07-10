@@ -38,3 +38,16 @@ def test_casilleros_completos_con_extras_y_resta():
     r = motor_f101.casilleros_completos([], {"801": ["+6999", "-7999"]},
                                         extras={"6999": 7813.0, "7999": 7241.0})
     assert r["801"] == 572.0      # 6999 - 7999
+
+
+def test_ori_del_periodo_reclass_actuarial():
+    # Casillero 885 (Otro resultado integral del año) = movimiento OCI del período =
+    # variación de las cuentas actuariales reclasificadas a patrimonio (30505).
+    # Se identifican por CÓDIGO DE CUENTA (Super Cías 30601, pero son OCI). Datos SIGMAN.
+    bal_ant = [{"cuenta": "3.02.03.01.002", "saldo": -150453.66},
+               {"cuenta": "3.02.03.01.003", "saldo": 40954.69},
+               {"cuenta": "1.01.01", "saldo": 999.0}]   # ruido: no ORI
+    bal_act = [{"cuenta": "3.02.03.01.002", "saldo": -147076.22},
+               {"cuenta": "3.02.03.01.003", "saldo": 40534.95}]
+    # act = -106541.27 ; ant = -109498.97 ; variación = 2957.70
+    assert motor_f101.ori_del_periodo(bal_ant, bal_act) == 2957.70
