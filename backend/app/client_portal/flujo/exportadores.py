@@ -87,6 +87,22 @@ def txt_eri(totales_eri: dict, cascada: dict, ori: float, estructura=None) -> st
     return "\n".join(lineas) + "\n"
 
 
+def txt_flujo(bal_ant: list[dict], bal_act: list[dict]) -> str:
+    """TXT del Estado de Flujo de Efectivo oficial (formato Super Cías, códigos
+    95xx), método directo + reconciliación indirecta.
+
+    Reproduce, línea por línea, la macro "Generar TXT" de la hoja "Estado de
+    Flujo" del modelo (validado 71/71 contra el archivo SIGMAN). Los valores se
+    calculan desde la balanza con ``flujo_95xx.calcular_flujo_95xx`` — tal cual
+    (sin inversión de signo: la presentación oficial ya trae el signo correcto).
+    """
+    from . import flujo_95xx  # import diferido: evita ciclo con motores
+
+    res = flujo_95xx.calcular_flujo_95xx(bal_ant, bal_act)
+    lineas = [_linea(ln["codigo"], ln["valor"]) for ln in res["lineas"] if ln["codigo"]]
+    return "\n".join(lineas) + "\n"
+
+
 def xml_101(balanza_actual: list[dict], balanza_anterior: list[dict] | None = None,
             agregados: dict | None = None) -> str:
     """XML de detalle del Formulario 101 (SRI). Inyecta el casillero 885 (ORI)

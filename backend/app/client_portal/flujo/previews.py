@@ -189,6 +189,15 @@ def construir_previews(bal_ant: list[dict], bal_act: list[dict]) -> dict:
         ["Cuadre (AF)", _r(fl["cuadre_af"])],
     ]}
 
+    # ---- Flujo de Efectivo oficial Super Cías (códigos 95xx, método directo) ----
+    from . import flujo_95xx
+    f95 = flujo_95xx.calcular_flujo_95xx(bal_ant, bal_act)
+    prev["FLU_95"] = {
+        "cols": ["Código", "Concepto", "Valor"],
+        "rows": [[ln["codigo"], ln["etiqueta"], _r(ln["valor"])] for ln in f95["lineas"]],
+        "totales": {k: _r(v) for k, v in f95["totales"].items()},
+    }
+
     # ---- Movimiento no Efectivo ----
     mne = motor_no_efectivo.gastos_no_efectivo(tot_eri, catalogos.cargar_no_efectivo())
     rows = [
