@@ -64,6 +64,21 @@ def cargar_agregados_f101() -> dict[str, list[str]]:
     return out
 
 
+def cargar_no_efectivo() -> dict[str, str]:
+    """Devuelve {codigo_eri: categoria} de las cuentas de gasto que NO son
+    desembolso de efectivo (DEPRECIACION/AMORTIZACION/DETERIORO), desde
+    no_efectivo_eri.csv. Son los add-backs de la conciliación del flujo."""
+    out: dict[str, str] = {}
+    ruta = os.path.join(_DATA, "no_efectivo_eri.csv")
+    with open(ruta, encoding="utf-8-sig", newline="") as f:
+        for row in csv.DictReader(f):
+            cod = (row.get("codigo_eri") or "").strip()
+            cat = (row.get("categoria") or "").strip().upper()
+            if cod and cat:
+                out[cod] = cat
+    return out
+
+
 def cargar_clasificacion_flujo() -> dict[str, str]:
     """Devuelve {codigo_super_cias: actividad} (OPERACION/INVERSION/FINANCIAMIENTO)
     desde flujo_clasificacion_actividad.csv."""
