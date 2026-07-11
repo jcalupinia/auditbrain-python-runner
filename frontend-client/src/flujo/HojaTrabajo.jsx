@@ -25,9 +25,9 @@ export default function HojaTrabajo({ data }) {
       const act = r2(edits[cod] !== undefined ? edits[cod] : r[3]);
       const actividad = r[4] || "", esSec = !!r[5], esHoja = !!r[6];
       const variacion = r2(act - ant);
-      const usos = variacion > 0 ? -variacion : 0;      // aumento de saldo = uso
-      const fuentes = variacion < 0 ? -variacion : 0;   // disminución = fuente
-      const impacto = r2(usos + fuentes);
+      const usos = variacion > 0 ? variacion : 0;       // uso (positivo, como el Excel)
+      const fuentes = variacion < 0 ? -variacion : 0;   // fuente (positivo)
+      const impacto = r2(fuentes - usos);               // = −variación (impacto al efectivo)
       const esEfectivo = String(cod).startsWith(efe);
       const clasifica = !!actividad && !esEfectivo && !esSec;
       return {
@@ -41,6 +41,12 @@ export default function HojaTrabajo({ data }) {
     const sum = (f) => r2(rows.reduce((a, x) => a + (f(x) || 0), 0));
     const op = sum((x) => x.op), inv = sum((x) => x.inv), fin = sum((x) => x.fin);
     const neto = r2(op + inv + fin);
+    // Totales por columna de la fila CUADRADO — como el Excel: se suman sobre
+    // las cuentas HOJA (variación total = 0; usos = fuentes = balance del papel).
+    const hojas = rows.filter((x) => x.esHoja);
+    const varTot = r2(hojas.reduce((a, x) => a + x.variacion, 0));
+    const usosTot = r2(hojas.reduce((a, x) => a + x.usos, 0));
+    const fuentesTot = r2(hojas.reduce((a, x) => a + x.fuentes, 0));
     const efeRow = rows.find((x) => x.cod === efe) || base.find && rows.find((x) => String(x.cod).startsWith(efe));
     const efIni = efeRow ? efeRow.ant : 0;
     const efReal = efeRow ? efeRow.act : 0;
@@ -51,7 +57,7 @@ export default function HojaTrabajo({ data }) {
     const activo = sumLeaf("1"), pasivo = sumLeaf("2"), patrimonio = sumLeaf("3");
     const totalPP = r2(-(pasivo + patrimonio));
     const cuadreEsf = r2(activo + pasivo + patrimonio);
-    return { rows, tot: { op, inv, fin, neto, efIni, efFin, efReal, cuadre, activo, totalPP, cuadreEsf } };
+    return { rows, tot: { op, inv, fin, neto, efIni, efFin, efReal, cuadre, activo, totalPP, cuadreEsf, varTot, usosTot, fuentesTot } };
   }, [base, edits, efe]);
 
   const cuadra = Math.abs(tot.cuadre) <= 1;
@@ -109,16 +115,24 @@ export default function HojaTrabajo({ data }) {
           </tbody>
           <tfoot>
             <tr className="tot">
-              <td className="c0" colSpan={8} style={{ textAlign: "right" }}>TOTAL ACTIVIDADES →</td>
+              <td className="c0" />
+              <td className="c1" style={{ textAlign: "right" }}>CUADRADO · TOTALES →</td>
+              <td className="num" />
+              <td className="num" />
+              <td className="num">{money(tot.varTot)}</td>
+              <td className="num">{money(tot.varTot)}</td>
+              <td className="num">{money(tot.usosTot)}</td>
+              <td className="num">{money(tot.fuentesTot)}</td>
               <td className="num act">{money(tot.op)}</td>
               <td className="num act">{money(tot.inv)}</td>
               <td className="num act">{money(tot.fin)}</td>
             </tr>
             <tr className="tot2">
-              <td className="c0" colSpan={2}>Incremento neto {money(tot.neto)}</td>
+              <td className="c0" />
+              <td className="c1">Incremento neto {money(tot.neto)}</td>
               <td className="num" colSpan={3}>Efectivo inicial {money(tot.efIni)}</td>
-              <td className="num" colSpan={3}>Efectivo final {money(tot.efFin)}</td>
-              <td className="num" colSpan={3}>AF {money(tot.cuadre)}</td>
+              <td className="num" colSpan={2}>Efectivo final {money(tot.efFin)}</td>
+              <td className="num act" colSpan={3}>AF {money(tot.cuadre)}</td>
             </tr>
           </tfoot>
         </table>
