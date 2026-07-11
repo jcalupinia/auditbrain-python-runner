@@ -123,13 +123,13 @@ export default function HojaTrabajo({ data }) {
               <td className="num">{money(tot.varTot)}</td>
               <td className="num">{money(tot.usosTot)}</td>
               <td className="num">{money(tot.fuentesTot)}</td>
-              <td className="num act">{money(tot.op)}</td>
-              <td className="num act">{money(tot.inv)}</td>
-              <td className="num act">{money(tot.fin)}</td>
+              <td className="num act">{money(Math.abs(tot.op))}</td>
+              <td className="num act">{money(Math.abs(tot.inv))}</td>
+              <td className="num act">{money(Math.abs(tot.fin))}</td>
             </tr>
             <tr className="tot2">
               <td className="c0" />
-              <td className="c1">Incremento neto {money(tot.neto)}</td>
+              <td className="c1">Incremento neto {money(Math.abs(tot.neto))}</td>
               <td className="num" colSpan={3}>Efectivo inicial {money(tot.efIni)}</td>
               <td className="num" colSpan={2}>Efectivo final {money(tot.efFin)}</td>
               <td className="num act" colSpan={3}>AF {money(tot.cuadre)}</td>

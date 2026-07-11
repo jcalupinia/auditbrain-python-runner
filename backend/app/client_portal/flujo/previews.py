@@ -57,6 +57,7 @@ def construir_previews(bal_ant: list[dict], bal_act: list[dict]) -> dict:
     tot_esf_ant = motor.totales_por_codigo(est_esf, sa)
     tot_esf = motor.totales_por_codigo(est_esf, sc)
     tot_eri = motor.totales_por_codigo(est_eri, sc)
+    tot_eri_ant = motor.totales_por_codigo(est_eri, sa)
     cascada = motor_er.cascada_resultados(tot_eri)
     ori = motor_f101.ori_del_periodo(bal_ant, bal_act)
 
@@ -134,6 +135,21 @@ def construir_previews(bal_ant: list[dict], bal_act: list[dict]) -> dict:
             val = tot_eri.get(c, 0.0)
         rows.append([c, n.etiqueta, _r(val)])
     prev["ERI"] = {"cols": ["Código", "Cuenta", "Valor"], "rows": rows}
+
+    # ---- Hoja de trabajo ERI (editable, cascada en vivo) ----
+    # Por código: etiqueta, saldo anterior, saldo actual, es_seccion, es_hoja.
+    # El frontend hace el rollup por prefijo y aplica la cascada de subtotales
+    # (402/600/602/604/607/707) al editar; el ORI (800/80005/801) usa `ori`.
+    wp_eri_rows = []
+    for n in est_eri:
+        wp_eri_rows.append([
+            n.codigo, n.etiqueta,
+            _r(tot_eri_ant.get(n.codigo, 0.0)),
+            _r(tot_eri.get(n.codigo, 0.0)),
+            1 if len(n.codigo) <= 1 else 0,
+            1 if n.es_hoja else 0,
+        ])
+    prev["WP_ERI"] = {"ori": _r(ori), "rows": wp_eri_rows}
 
     # ---- Patrimonio ----
     pat = motor_patrimonio.evolucion(tot_esf_ant, tot_esf)

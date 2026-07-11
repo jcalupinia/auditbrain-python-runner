@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import PortalShell from "../shell/PortalShell.jsx";
 import { createJob, getJob, downloadJobArtifact, getJobArtifactJson } from "../api.js";
 import HojaTrabajo from "./HojaTrabajo.jsx";
+import HojaTrabajoERI from "./HojaTrabajoERI.jsx";
 import "./flujo.css";
 
 /* ============================================================
@@ -329,6 +330,8 @@ export default function FlujoDashboard() {
                 <div className="fx-prev-empty">Procesá primero para ver la tabla de esta sección.</div>
               ) : sel.code === "ESF" && previews?.WP_ESF ? (
                 <HojaTrabajo data={previews.WP_ESF} />
+              ) : sel.code === "ERI" && previews?.WP_ERI ? (
+                <HojaTrabajoERI data={previews.WP_ERI} />
               ) : previews?.[sel.code] ? (
                 <div className="fx-prev-scroll">
                   <table className="fx-prev-tbl">
