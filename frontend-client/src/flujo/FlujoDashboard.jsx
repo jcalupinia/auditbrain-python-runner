@@ -41,6 +41,7 @@ const ART = {
   excel: "FlujoEfectivo.xlsx",
   esf: "EstadoDeSituacionFinanciera.txt",
   eri: "EstadoDeResultadoIntegral.txt",
+  flu: "EstadoDeFlujoDeEfectivo.txt",
   f101: "Formulario101.xml",
   zip: "FlujoEfectivo_completo.zip",
 };
@@ -50,7 +51,7 @@ const SECTIONS = [
   { n: "1", code: "ESF", name: "Situación Financiera", desc: "Balance por Código Super Cías", dl: "txt", art: ART.esf },
   { n: "2", code: "ERI", name: "Resultados Integral", desc: "Cascada de resultados", dl: "txt", art: ART.eri },
   { n: "3", code: "PAT", name: "Evolución Patrimonio", desc: "Componentes del patrimonio", dl: "soon" },
-  { n: "4", code: "FLU", name: "Flujo de Efectivo", desc: "Método indirecto · AF = 0", dl: "soon" },
+  { n: "4", code: "FLU", name: "Flujo de Efectivo", desc: "Oficial Super Cías · códigos 95xx", dl: "txt", art: ART.flu },
   { n: "5", code: "MNE", name: "Movimiento no Efectivo", desc: "Depreciación y deterioros", dl: "excel" },
   { n: "6", code: "MAP", name: "Homologación", desc: "Cuentas · Super Cías · SRI", dl: "excel" },
   { n: "7", code: "101", name: "Formulario 101", desc: "Casilleros por Código SRI", dl: "xml", art: ART.f101 },
@@ -315,7 +316,7 @@ export default function FlujoDashboard() {
               <div className="fx-prev-h">
                 <div>
                   <div className="fx-prev-t">{sel.name}</div>
-                  <div className="fx-prev-m">Vista previa · {(previews?.[sel.code]?.rows?.length ?? 0)} filas</div>
+                  <div className="fx-prev-m">Vista previa · {((sel.code === "FLU" ? previews?.FLU_95 : previews?.[sel.code])?.rows?.length ?? 0)} filas</div>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   {(sel.dl === "txt" || sel.dl === "xml") && isDone && (
@@ -338,6 +339,28 @@ export default function FlujoDashboard() {
                 <MatrizPatrimonio data={previews.WP_PATRIMONIO} />
               ) : sel.code === "MAP" && previews?.WP_MAP ? (
                 <HojaTrabajoMAP data={previews.WP_MAP} />
+              ) : sel.code === "FLU" && previews?.FLU_95 ? (
+                <div className="fx-prev-scroll">
+                  <table className="fx-prev-tbl">
+                    <thead>
+                      <tr>{previews.FLU_95.cols.map((c, i) => (
+                        <th key={i} className={i === 2 ? "num" : ""}>{c}</th>
+                      ))}</tr>
+                    </thead>
+                    <tbody>
+                      {previews.FLU_95.rows.map((r, ri) => {
+                        const esTotal = ["95", "9501", "9502", "9503", "9505", "9506", "9507", "96", "98"].includes(String(r[0]));
+                        return (
+                          <tr key={ri} className={esTotal ? "sec" : ""}>
+                            <td className="cod">{r[0]}</td>
+                            <td>{r[1]}</td>
+                            <td className="num">{typeof r[2] === "number" ? formatMoney(r[2]) : r[2]}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               ) : previews?.[sel.code] ? (
                 <div className="fx-prev-scroll">
                   <table className="fx-prev-tbl">

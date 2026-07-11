@@ -28,6 +28,7 @@ ARTIFACTS_DIR = "artifacts"
 ARCH_EXCEL = "FlujoEfectivo.xlsx"
 ARCH_ESF = "EstadoDeSituacionFinanciera.txt"
 ARCH_ERI = "EstadoDeResultadoIntegral.txt"
+ARCH_FLU = "EstadoDeFlujoDeEfectivo.txt"
 ARCH_101 = "Formulario101.xml"
 ARCH_ZIP = "FlujoEfectivo_completo.zip"
 
@@ -49,6 +50,7 @@ def _generar_artefactos(job_dir: Path, bal_ant: list[dict], bal_act: list[dict],
 
     txt_esf = generador_exportadores().txt_esf(tot_esf, estructura=est_esf)
     txt_eri = generador_exportadores().txt_eri(tot_eri, cascada, ori, estructura=est_eri)
+    txt_flu = generador_exportadores().txt_flujo(bal_ant, bal_act)
     xml_101 = generador_exportadores().xml_101(bal_act, balanza_anterior=bal_ant)
 
     art_dir = job_dir / ARTIFACTS_DIR
@@ -68,6 +70,7 @@ def _generar_artefactos(job_dir: Path, bal_ant: list[dict], bal_act: list[dict],
         ARCH_EXCEL: excel_bytes,
         ARCH_ESF: txt_esf.encode("utf-8"),
         ARCH_ERI: txt_eri.encode("utf-8"),
+        ARCH_FLU: txt_flu.encode("utf-8"),
         ARCH_101: xml_101.encode("utf-8"),
     }
     for nombre, data in contenidos.items():
@@ -87,6 +90,8 @@ def _generar_artefactos(job_dir: Path, bal_ant: list[dict], bal_act: list[dict],
          "estado": "ESF", "kind": "txt"},
         {"name": ARCH_ERI, "label": "Estado de Resultados Integral",
          "estado": "ERI", "kind": "txt"},
+        {"name": ARCH_FLU, "label": "Estado de Flujo de Efectivo",
+         "estado": "FLU", "kind": "txt"},
         {"name": ARCH_101, "label": "Formulario 101",
          "estado": "F-101", "kind": "xml"},
         {"name": ARCH_ZIP, "label": "Descargar todo",
