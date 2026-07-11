@@ -73,6 +73,14 @@ def _stub_echo_processor(job_id: int) -> None:
         db.close()
 
 
+# Processor de la Herramienta Flujo de Efectivo (pipeline genérico de jobs).
+# Import a nivel de módulo: flujo.processor NO importa tool_registry, así que
+# no hay ciclo. ToolConfig es frozen → el processor debe pasarse al construir.
+from backend.app.client_portal.flujo.processor import (  # noqa: E402
+    flujo_efectivo_processor as _flujo_efectivo_processor,
+)
+
+
 TOOLS: dict[str, ToolConfig] = {
     # =========================================================
     # TRIBUTARIAS
@@ -88,6 +96,43 @@ TOOLS: dict[str, ToolConfig] = {
         category="TRIBUTARIAS",
         slots={},  # vacío — gestiona sus propios uploads vía /client/ict/*
         processor=None,  # flujo propio, no pipeline genérico
+        enabled=True,
+    ),
+
+    # =========================================================
+    # SOCIETARIAS
+    # =========================================================
+    "FLUJO_EFECTIVO": ToolConfig(
+        code="FLUJO_EFECTIVO",
+        label="Flujo de Efectivo · Estados Financieros",
+        description=(
+            "Genera el Estado de Flujo de Efectivo (método indirecto) y los "
+            "estados financieros auditables (ESF, ERI, Evolución del Patrimonio, "
+            "Movimiento no Efectivo, Formulario 101 e indicadores) a partir de la "
+            "balanza homologada (Código Super Cías/SRI) del año anterior y actual."
+        ),
+        category="SOCIETARIAS",
+        slots={
+            "balanza_anterior": SlotConfig(
+                mimes_allowed=frozenset({
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "application/vnd.ms-excel.sheet.macroEnabled.12",
+                    "application/vnd.ms-excel",
+                }),
+                required=True,
+                multi=False,
+            ),
+            "balanza_actual": SlotConfig(
+                mimes_allowed=frozenset({
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "application/vnd.ms-excel.sheet.macroEnabled.12",
+                    "application/vnd.ms-excel",
+                }),
+                required=True,
+                multi=False,
+            ),
+        },
+        processor=_flujo_efectivo_processor,
         enabled=True,
     ),
 
