@@ -194,7 +194,7 @@ export default function FlujoDashboard() {
             ← Volver al catálogo
           </button>
 
-          {/* BARRA 1: acciones */}
+          {/* BARRA 1: contexto + Procesar (como el ICT) */}
           <div className="pc-scenarios">
             <span className="pc-scenarios-l">Doble codificación</span>
             <span className="pc-chip on" style={{ cursor: "default" }}>Super Cías · SRI</span>
@@ -202,6 +202,10 @@ export default function FlujoDashboard() {
             <button className="pc-chip accent" onClick={handleProcess} disabled={!reqDone || phase === "running"} title={reqDone ? "Corre los 8 motores" : "Sube las 2 balanzas"} style={{ fontWeight: 700 }}>
               {phase === "running" ? "⏳ Procesando…" : "▶ Procesar"}
             </button>
+          </div>
+
+          {/* BARRA 2: descargas + nuevo (como el ICT) */}
+          <div className="pc-scenarios">
             <button className="pc-chip accent" onClick={() => dl(ART.excel)} disabled={!isDone} title="Excel auditable de 9 hojas" style={{ fontWeight: 700 }}>
               📤 Descargar Excel
             </button>
@@ -209,7 +213,7 @@ export default function FlujoDashboard() {
               🗂 Descargar todo (ZIP)
             </button>
             <button className="pc-chip danger" onClick={handleReset} title="Empezar de nuevo">
-              🔄 Nuevo
+              🔄 Encerar / Nuevo
             </button>
           </div>
 
@@ -282,6 +286,7 @@ export default function FlujoDashboard() {
                   className={`pc-tile${ready ? " done" : ""}${selected === s.code ? " on" : ""}`}
                   onClick={() => { setSelected(s.code); tileDownload(s); }}
                   disabled={phase === "running"}
+                  style={ready ? { background: "linear-gradient(180deg, var(--panel-2), var(--accent-dim))" } : undefined}
                 >
                   <span className={`pc-tile-n${isDone ? " done" : " dim"}`}>{s.n}</span>
                   <div className="pc-tile-txt">
