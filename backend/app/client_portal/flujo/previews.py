@@ -162,6 +162,16 @@ def construir_previews(bal_ant: list[dict], bal_act: list[dict]) -> dict:
     rows.append(["TOTAL PATRIMONIO", _r(tp.get("saldo_inicial")), _r(tp.get("variacion")), _r(tp.get("saldo_final"))])
     prev["PAT"] = {"cols": ["Componente", "Saldo inicial", "Variación", "Saldo final"], "rows": rows}
 
+    # ---- Hoja de trabajo Patrimonio (editable por componente) ----
+    # Cada componente: etiqueta, código, saldo inicial, saldo final (editable).
+    # El frontend calcula la variación por componente y el TOTAL en vivo.
+    wp_pat = []
+    for key, label in _PAT_LABEL.items():
+        c = pat.get(key)
+        if c:
+            wp_pat.append([label, c["codigo"], _r(c["saldo_inicial"]), _r(c["saldo_final"])])
+    prev["WP_PAT"] = {"rows": wp_pat}
+
     # ---- Flujo de Efectivo ----
     clas = catalogos.cargar_clasificacion_flujo()
     fl = motor_flujo.flujo_efectivo(tot_esf_ant, tot_esf, clas)
@@ -189,6 +199,7 @@ def construir_previews(bal_ant: list[dict], bal_act: list[dict]) -> dict:
     rows = [[str(f.get("cuenta") or ""), f.get("super_cias", ""), f.get("sri", ""), _r(f.get("saldo"))]
             for f in bal_act]
     prev["MAP"] = {"cols": ["Cuenta", "Super Cías", "SRI", "Saldo"], "rows": rows}
+    prev["WP_MAP"] = {"rows": rows}
 
     # ---- Formulario 101 ----
     cas = motor_f101.casilleros_completos(
