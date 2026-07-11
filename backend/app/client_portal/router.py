@@ -353,6 +353,47 @@ def download_client_job_endpoint(
     )
 
 
+_ARTIFACT_MEDIA = {
+    ".txt": "text/plain; charset=utf-8",
+    ".xml": "application/xml; charset=utf-8",
+    ".zip": "application/zip",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
+
+@router.get("/tools/jobs/{job_id}/artifacts/{name}")
+def download_job_artifact_endpoint(
+    job_id: int,
+    name: str,
+    user: User = Depends(require_client_with_device),
+    db: Session = Depends(get_db),
+):
+    """Descarga un artefacto individual del job (ej. el TXT de un estado
+    financiero, el XML del 101, o el ZIP con todo). Cada tool que produce
+    varios entregables los deja en ``<job_dir>/artifacts/``."""
+    try:
+        job = cp_service.get_client_job(db, user=user, job_id=job_id)
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    if job.status not in ("done", "error_partial"):
+        raise HTTPException(409, detail=f"Job status={job.status}, no listo para descarga")
+
+    safe = os.path.basename(name)
+    if safe != name or not safe or "/" in name or "\\" in name:
+        raise HTTPException(400, detail="Nombre de artefacto inválido.")
+    art_path = file_storage.job_dir(job.id) / "artifacts" / safe
+    if not art_path.exists() or not art_path.is_file():
+        raise HTTPException(410, detail="Artefacto no disponible (expirado o inexistente).")
+
+    ext = os.path.splitext(safe)[1].lower()
+    media = _ARTIFACT_MEDIA.get(ext, "application/octet-stream")
+    return StreamingResponse(
+        BytesIO(art_path.read_bytes()),
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{safe}"'},
+    )
+
+
 @router.get("/tools/jobs", response_model=list[JobOut])
 def list_client_jobs_endpoint(
     status: str | None = None,
