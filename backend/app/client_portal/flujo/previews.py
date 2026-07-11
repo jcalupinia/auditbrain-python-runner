@@ -209,9 +209,12 @@ def construir_previews(bal_ant: list[dict], bal_act: list[dict]) -> dict:
     prev["MNE"] = {"cols": ["Concepto", "Del período"], "rows": rows}
 
     # ---- Homologación (Mapeo) ----
-    rows = [[str(f.get("cuenta") or ""), f.get("super_cias", ""), f.get("sri", ""), _r(f.get("saldo"))]
-            for f in bal_act]
+    def _fila_map(f):
+        return [str(f.get("cuenta") or ""), f.get("super_cias", ""), f.get("sri", ""), _r(f.get("saldo"))]
+    rows = [_fila_map(f) for f in bal_act]
+    rows_ant = [_fila_map(f) for f in bal_ant]
     prev["MAP"] = {"cols": ["Cuenta", "Super Cías", "SRI", "Saldo"], "rows": rows}
+    prev["MAP_ANT"] = {"cols": ["Cuenta", "Super Cías", "SRI", "Saldo"], "rows": rows_ant}
     prev["WP_MAP"] = {"rows": rows}
 
     # ---- Formulario 101 ----

@@ -91,3 +91,27 @@ def cargar_clasificacion_flujo() -> dict[str, str]:
             if cod and act:
                 out[cod] = act
     return out
+
+
+def cargar_plan_cuentas() -> dict:
+    """Devuelve el plan de cuentas oficial para poblar los selectores del editor
+    de balanzas: ``{"super": [{codigo, nombre}...], "sri": [{codigo, nombre}...]}``.
+
+    - ``super``: todas las cuentas Super Cías (código + nombre), en orden de archivo.
+    - ``sri``: casilleros SRI únicos (código + nombre), ordenados por código.
+    Fuente: ``plan_cuentas_super_sri.csv`` (mismo plan que usa la homologación).
+    """
+    ruta = os.path.join(_DATA, "plan_cuentas_super_sri.csv")
+    super_rows: list[dict] = []
+    sri_map: dict[str, str] = {}
+    with open(ruta, encoding="utf-8-sig", newline="") as f:
+        for row in csv.DictReader(f):
+            cs = (row.get("codigo_super_cias") or "").strip()
+            if cs:
+                super_rows.append({"codigo": cs, "nombre": (row.get("nombre_cuenta") or "").strip()})
+            sri = (row.get("codigo_sri") or "").strip()
+            if sri and sri not in sri_map:
+                sri_map[sri] = (row.get("nombre_sri") or "").strip()
+    sri_rows = [{"codigo": k, "nombre": v}
+                for k, v in sorted(sri_map.items(), key=lambda kv: (len(kv[0]), kv[0]))]
+    return {"super": super_rows, "sri": sri_rows}

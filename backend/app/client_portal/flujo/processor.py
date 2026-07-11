@@ -165,6 +165,32 @@ def _procesar_job_dir(job_dir: Path) -> tuple[Path, dict]:
     return out_path, summary
 
 
+def recalcular_desde_balanzas(job_id: int, bal_ant: list[dict],
+                              bal_act: list[dict]) -> dict:
+    """Recalcula TODA la herramienta a partir de balanzas editadas por el
+    usuario y devuelve los previews frescos.
+
+    Reusa los motores validados (no duplica lógica en el frontend): regenera el
+    Excel + todos los artefactos (TXT/XML/ZIP) y la ``previews.json`` en el
+    ``job_dir``, de modo que tanto la vista en vivo como las descargas reflejen
+    los cambios. Pensado para el editor de balanzas del portal (edición → todo
+    se actualiza).
+    """
+    if not bal_ant or not bal_act:
+        raise ValueError("Ambas balanzas (anterior y actual) deben tener filas.")
+
+    job_dir = file_storage.job_dir(job_id)
+    data = generador.generar_excel(bal_ant, bal_act)
+    out_path = file_storage.output_path(job_dir)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(data)
+
+    _generar_artefactos(job_dir, bal_ant, bal_act, data)
+
+    from . import previews as _previews
+    return _previews.construir_previews(bal_ant, bal_act)
+
+
 def flujo_efectivo_processor(job_id: int) -> None:
     """Procesa un ToolJob de la Herramienta Flujo de Efectivo.
 

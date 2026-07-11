@@ -58,3 +58,44 @@ def test_pipeline_interno_genera_excel_de_9_hojas(tmp_path):
     assert summary["filas_actual"] == 2
     assert "cuadre_esf" in summary
     assert "cuadre_af" in summary
+
+
+def test_recalcular_desde_balanzas_regenera_previews_y_artefactos(tmp_path, monkeypatch):
+    # El recálculo (editor de balanzas) reusa los motores del server: dado un
+    # job existente, con balanzas editadas regenera previews + artefactos.
+    from backend.app.aud.obligaciones_fiscales import file_storage
+
+    job_dir = tmp_path / "job_recalc"
+    (job_dir / file_storage.INPUTS_DIR).mkdir(parents=True)
+    # el helper resuelve el job_dir por id: lo apuntamos al tmp
+    monkeypatch.setattr(file_storage, "job_dir", lambda _id: job_dir)
+
+    bal_ant = [
+        {"cuenta": "Caja", "super_cias": "1010101", "sri": "311", "saldo": 400.0},
+        {"cuenta": "Proveedores", "super_cias": "2010301", "sri": "413", "saldo": -400.0},
+    ]
+    bal_act = [
+        {"cuenta": "Caja", "super_cias": "1010101", "sri": "311", "saldo": 900.0},
+        {"cuenta": "Proveedores", "super_cias": "2010301", "sri": "413", "saldo": -900.0},
+    ]
+
+    prev = processor.recalcular_desde_balanzas(1, bal_ant, bal_act)
+
+    # devuelve previews frescos con las secciones clave
+    assert "FLU_95" in prev and "MAP" in prev and "MAP_ANT" in prev
+    assert len(prev["MAP"]["rows"]) == 2 and len(prev["MAP_ANT"]["rows"]) == 2
+    # el saldo editado se refleja
+    assert prev["MAP"]["rows"][0][3] == 900.0
+    # regeneró los artefactos descargables (Excel + TXT del flujo + previews.json)
+    art = job_dir / processor.ARTIFACTS_DIR
+    assert (art / processor.ARCH_FLU).exists()
+    assert (art / "previews.json").exists()
+    assert file_storage.output_path(job_dir).exists()
+
+
+def test_recalcular_rechaza_balanza_vacia(tmp_path, monkeypatch):
+    from backend.app.aud.obligaciones_fiscales import file_storage
+    monkeypatch.setattr(file_storage, "job_dir", lambda _id: tmp_path / "j")
+    import pytest
+    with pytest.raises(ValueError):
+        processor.recalcular_desde_balanzas(1, [], [{"cuenta": "x", "super_cias": "1010101", "sri": "311", "saldo": 1.0}])
