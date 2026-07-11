@@ -8,6 +8,7 @@ from io import BytesIO
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException, Request, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.datastructures import UploadFile as StarletteUploadFile
@@ -393,6 +394,50 @@ def download_job_artifact_endpoint(
         media_type=media,
         headers={"Content-Disposition": f'attachment; filename="{safe}"'},
     )
+
+
+class _BalanzaFila(BaseModel):
+    cuenta: str = ""
+    super_cias: str = ""
+    sri: str = ""
+    saldo: float = 0.0
+
+
+class RecalcularFlujoRequest(BaseModel):
+    bal_ant: list[_BalanzaFila]
+    bal_act: list[_BalanzaFila]
+
+
+@router.post("/tools/jobs/{job_id}/flujo/recalcular")
+def recalcular_flujo_endpoint(
+    job_id: int,
+    payload: RecalcularFlujoRequest,
+    user: User = Depends(require_client_with_device),
+    db: Session = Depends(get_db),
+):
+    """Recalcula TODA la Herramienta Flujo de Efectivo a partir de las balanzas
+    editadas por el usuario en el portal. Reusa los motores validados en el
+    servidor (no duplica lógica en el navegador), regenera Excel/TXT/XML/ZIP y
+    la vista previa, y devuelve los previews frescos para refrescar el tablero.
+    """
+    try:
+        job = cp_service.get_client_job(db, user=user, job_id=job_id)
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    if job.tool_code != "FLUJO_EFECTIVO":
+        raise HTTPException(400, detail="El recálculo solo aplica a la Herramienta Flujo de Efectivo.")
+    if job.status not in ("done", "error_partial"):
+        raise HTTPException(409, detail=f"Job status={job.status}, no listo para recalcular.")
+
+    from backend.app.client_portal.flujo import processor as flujo_processor
+
+    bal_ant = [f.model_dump() for f in payload.bal_ant]
+    bal_act = [f.model_dump() for f in payload.bal_act]
+    try:
+        previews = flujo_processor.recalcular_desde_balanzas(job.id, bal_ant, bal_act)
+    except ValueError as e:
+        raise HTTPException(422, detail=str(e))
+    return previews
 
 
 @router.get("/tools/jobs", response_model=list[JobOut])

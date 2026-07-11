@@ -148,6 +148,16 @@ export async function getJobArtifactJson(jobId, name) {
   return resp.json();
 }
 
+// Recalcula toda la Herramienta Flujo de Efectivo con balanzas editadas.
+// Devuelve los previews frescos (todas las secciones) — reusa los motores
+// validados del backend (no duplica lógica en el navegador).
+export const recalcularFlujo = (jobId, balAnt, balAct) =>
+  request(`/client/tools/jobs/${jobId}/flujo/recalcular`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ bal_ant: balAnt, bal_act: balAct }),
+  });
+
 // --- Inscripción pública a eventos (charlas). Endpoint sin auth. ---
 export async function registrarCharla(slug, payload) {
   const resp = await fetch(`${BASE}/api/v1/events/${slug}/registrations`, {

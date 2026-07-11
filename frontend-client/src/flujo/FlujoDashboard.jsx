@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PortalShell from "../shell/PortalShell.jsx";
-import { createJob, getJob, downloadJobArtifact, getJobArtifactJson } from "../api.js";
+import { createJob, getJob, downloadJobArtifact, getJobArtifactJson, recalcularFlujo } from "../api.js";
 import HojaTrabajo from "./HojaTrabajo.jsx";
 import HojaTrabajoERI from "./HojaTrabajoERI.jsx";
-import HojaTrabajoMAP from "./HojaTrabajoMAP.jsx";
+import BalanzasEditor from "./BalanzasEditor.jsx";
 import MatrizPatrimonio from "./MatrizPatrimonio.jsx";
 import "./flujo.css";
 
@@ -53,7 +53,7 @@ const SECTIONS = [
   { n: "3", code: "PAT", name: "Evolución Patrimonio", desc: "Componentes del patrimonio", dl: "soon" },
   { n: "4", code: "FLU", name: "Flujo de Efectivo", desc: "Oficial Super Cías · códigos 95xx", dl: "txt", art: ART.flu },
   { n: "5", code: "MNE", name: "Movimiento no Efectivo", desc: "Depreciación y deterioros", dl: "excel" },
-  { n: "6", code: "MAP", name: "Homologación", desc: "Cuentas · Super Cías · SRI", dl: "excel" },
+  { n: "6", code: "MAP", name: "Balanzas (editable)", desc: "Editá saldos ant./act. · recalcula todo", dl: "excel" },
   { n: "7", code: "101", name: "Formulario 101", desc: "Casilleros por Código SRI", dl: "xml", art: ART.f101 },
   { n: "8", code: "NOT", name: "Notas a los Estados", desc: "Desglose por rubro", dl: "soon" },
   { n: "9", code: "IND", name: "Indicadores", desc: "Razón corriente, ROE…", dl: "excel" },
@@ -105,6 +105,7 @@ export default function FlujoDashboard() {
   const [runStep, setRunStep] = useState(0);
   const [selected, setSelected] = useState(null);
   const [previews, setPreviews] = useState(null);
+  const [recalculando, setRecalculando] = useState(false);
   const [err, setErr] = useState(null);
 
   const reqDone = UPLOADS.filter((u) => u.req).every((u) => files[u.key]);
@@ -157,6 +158,20 @@ export default function FlujoDashboard() {
 
   function handleReset() {
     setFiles({}); setJob(null); setPhase("idle"); setRunStep(0); setSelected(null); setErr(null);
+  }
+
+  // Recalcula toda la herramienta con las balanzas editadas (motores del server).
+  async function handleRecalc(balAnt, balAct) {
+    if (!job?.id) return;
+    setRecalculando(true); setErr(null);
+    try {
+      const p = await recalcularFlujo(job.id, balAnt, balAct);
+      setPreviews(p);
+    } catch (e) {
+      setErr(e.message || "No se pudo recalcular.");
+    } finally {
+      setRecalculando(false);
+    }
   }
 
   const dl = (name) => downloadJobArtifact(job.id, name).catch((e) => setErr(e.message));
@@ -337,8 +352,13 @@ export default function FlujoDashboard() {
                 <HojaTrabajoERI data={previews.WP_ERI} />
               ) : sel.code === "PAT" && previews?.WP_PATRIMONIO ? (
                 <MatrizPatrimonio data={previews.WP_PATRIMONIO} />
-              ) : sel.code === "MAP" && previews?.WP_MAP ? (
-                <HojaTrabajoMAP data={previews.WP_MAP} />
+              ) : sel.code === "MAP" && (previews?.MAP || previews?.MAP_ANT) ? (
+                <BalanzasEditor
+                  ant={previews.MAP_ANT}
+                  act={previews.MAP}
+                  onRecalc={handleRecalc}
+                  recalculando={recalculando}
+                />
               ) : sel.code === "FLU" && previews?.FLU_95 ? (
                 <div className="fx-prev-scroll">
                   <table className="fx-prev-tbl">
