@@ -50,16 +50,30 @@ _double = Side(style="double", color="000000")
 BORDE_THIN = Border(left=_thin, right=_thin, top=_thin, bottom=_thin)
 BORDE_TOTAL = Border(left=_thin, right=_thin, top=_double, bottom=_double)
 
-FONT_DATA = Font(name="Calibri", size=9)
-FONT_TOTAL = Font(name="Calibri", size=10, bold=True)
-FONT_BLOQUE = Font(name="Calibri", size=11, bold=True)
-FONT_HEADER = Font(name="Calibri", size=10, bold=True, color=BLANCO)
+DEEP_BLUE = "071B2F"    # banda de encabezado ejecutiva
+ZEBRA = "F3F6FA"        # fila alterna sutil
+
+FONT_DATA = Font(name="Calibri", size=9, color="1F2937")
+FONT_TOTAL = Font(name="Calibri", size=10, bold=True, color=NAVY)
+FONT_BLOQUE = Font(name="Calibri", size=10, bold=True, color=BLANCO)
+FONT_HEADER = Font(name="Calibri", size=9, bold=True, color=BLANCO)
 FONT_TITULO = Font(name="Calibri", size=16, bold=True, color=NAVY)
 FONT_MARCA = Font(name="Calibri", size=9, italic=True, color=GRIS)
+# banda ejecutiva premium
+FONT_BAND_T = Font(name="Calibri", size=17, bold=True, color=GOLD)
+FONT_BAND_S = Font(name="Calibri", size=9, bold=True, color="D7E0EA")
+FONT_BAND_R = Font(name="Calibri", size=9, bold=True, color=GOLD)
 
 FILL_HEADER = PatternFill("solid", fgColor=NAVY)
 FILL_TOTAL = PatternFill("solid", fgColor=AZUL_CLARO)
 FILL_GOLD = PatternFill("solid", fgColor=GOLD)
+FILL_BAND = PatternFill("solid", fgColor=DEEP_BLUE)
+FILL_ZEBRA = PatternFill("solid", fgColor=ZEBRA)
+FILL_BLOQUE = PatternFill("solid", fgColor=NAVY)
+
+# borde gold inferior para acentos
+_gold_side = Side(style="thin", color=GOLD)
+BORDE_HEADER = Border(left=_thin, right=_thin, top=_thin, bottom=Side(style="medium", color=GOLD))
 
 AL_IZQ = Alignment(horizontal="left", vertical="center", wrap_text=False)
 AL_DER = Alignment(horizontal="right", vertical="center")
@@ -118,30 +132,56 @@ def _encabezados(ws: Worksheet, row: int, titulos: list[str], anchos: list[int])
         c = ws.cell(row=row, column=i, value=_safe_text(t))
         c.font = FONT_HEADER
         c.fill = FILL_HEADER
-        c.alignment = AL_CEN
-        c.border = BORDE_THIN
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        c.border = BORDE_HEADER
         ws.column_dimensions[get_column_letter(i)].width = w
+    ws.row_dimensions[row].height = 22
 
 
 def _bloque(ws: Worksheet, row: int, texto: str, ncols: int):
-    c = ws.cell(row=row, column=1, value=_safe_text(texto))
+    c = ws.cell(row=row, column=1, value=_safe_text("  " + texto))
     c.font = FONT_BLOQUE
     c.alignment = AL_IZQ
     for i in range(1, ncols + 1):
-        ws.cell(row=row, column=i).fill = FILL_GOLD
+        cell = ws.cell(row=row, column=i)
+        cell.fill = FILL_BLOQUE
+        cell.border = Border(bottom=_gold_side)
+    ws.row_dimensions[row].height = 19
+
+
+def _zebra(ws: Worksheet, row: int, ncols: int):
+    """Sombreado alterno sutil para legibilidad (fila par)."""
+    for i in range(1, ncols + 1):
+        cell = ws.cell(row=row, column=i)
+        if cell.fill is None or cell.fill.fgColor.rgb in (None, "00000000"):
+            cell.fill = FILL_ZEBRA
 
 
 def _titulo_hoja(ws: Worksheet, titulo: str, ncols: int) -> int:
-    """Escribe el título + marca en las primeras filas. Devuelve la fila
-    donde empezar a escribir el contenido."""
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max(ncols, 2))
-    t = ws.cell(row=1, column=1, value=_safe_text(titulo))
-    t.font = FONT_TITULO
-    t.alignment = AL_IZQ
-    m = ws.cell(row=2, column=1, value=_safe_text(f"{MARCA} · {PLATAFORMA}"))
-    m.font = FONT_MARCA
-    m.alignment = AL_IZQ
-    return 4
+    """Banda de encabezado ejecutiva premium (Deep Blue + acento gold).
+    Devuelve la fila donde empieza el contenido."""
+    n = max(ncols, 3)
+    # banda de dos filas
+    for r in (1, 2):
+        for i in range(1, n + 1):
+            ws.cell(row=r, column=i).fill = FILL_BAND
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n)
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=n)
+    t = ws.cell(row=1, column=1, value=_safe_text("  " + titulo))
+    t.font = FONT_BAND_T
+    t.alignment = Alignment(horizontal="left", vertical="center")
+    s = ws.cell(row=2, column=1,
+                value=_safe_text(f"  {MARCA} · {PLATAFORMA}"))
+    s.font = FONT_BAND_S
+    s.alignment = Alignment(horizontal="left", vertical="center")
+    ws.row_dimensions[1].height = 30
+    ws.row_dimensions[2].height = 16
+    # línea de acento gold
+    for i in range(1, n + 1):
+        ws.cell(row=3, column=i).fill = FILL_GOLD
+    ws.row_dimensions[3].height = 3
+    ws.freeze_panes = "A5"
+    return 5
 
 
 # ----------------------------------------------------------------------------
@@ -150,17 +190,12 @@ def _titulo_hoja(ws: Worksheet, titulo: str, ncols: int) -> int:
 def _hoja_resumen(wb: Workbook, ctx: dict):
     ws = wb.create_sheet("RESUMEN")
     ws.sheet_view.showGridLines = False
+    _titulo_hoja(ws, "Estado de Flujo de Efectivo — Resumen ejecutivo", 5)
     ws.column_dimensions["A"].width = 4
     ws.column_dimensions["B"].width = 42
     ws.column_dimensions["C"].width = 22
     ws.column_dimensions["D"].width = 18
-
-    tt = ws.cell(row=2, column=2, value=_safe_text("Estado de Flujo de Efectivo"))
-    tt.font = FONT_TITULO
-    st = ws.cell(row=3, column=2, value=_safe_text("Papel de trabajo · Método indirecto"))
-    st.font = Font(name="Calibri", size=11, color=GOLD, bold=True)
-    mk = ws.cell(row=4, column=2, value=_safe_text(f"{MARCA} · {PLATAFORMA}"))
-    mk.font = FONT_MARCA
+    ws.column_dimensions["E"].width = 30
 
     # Semáforos de cuadratura
     _encabezados_resumen(ws, 6)
@@ -232,11 +267,12 @@ def _hoja_homologacion(wb: Workbook, ctx: dict):
         _encabezados(ws, fila, titulos, anchos)
         fila += 1
         total = 0.0
-        for f in balanza:
-            _celda_texto(ws, fila, 1, f.get("cuenta", ""))
-            _celda_texto(ws, fila, 2, f.get("super_cias", ""), al=AL_CEN)
-            _celda_texto(ws, fila, 3, f.get("sri", ""), al=AL_CEN)
-            _celda_num(ws, fila, 4, f.get("saldo", 0.0))
+        for j, f in enumerate(balanza):
+            z = FILL_ZEBRA if j % 2 else None
+            _celda_texto(ws, fila, 1, f.get("cuenta", ""), fill=z)
+            _celda_texto(ws, fila, 2, f.get("super_cias", ""), al=AL_CEN, fill=z)
+            _celda_texto(ws, fila, 3, f.get("sri", ""), al=AL_CEN, fill=z)
+            _celda_num(ws, fila, 4, f.get("saldo", 0.0), fill=z)
             total += float(f.get("saldo", 0.0) or 0.0)
             fila += 1
         _celda_texto(ws, fila, 1, "TOTAL (control ≈ 0)", font=FONT_TOTAL,
@@ -257,12 +293,14 @@ def _hoja_estructura(wb: Workbook, nombre: str, titulo: str, estructura,
     anchos = [16, 50, 18, 18, 16]
     _encabezados(ws, inicio, titulos, anchos)
     fila = inicio + 1
+    idx = 0
     for n in estructura:
         ant = round(float(tot_ant.get(n.codigo, 0.0)), 2)
         act = round(float(tot_act.get(n.codigo, 0.0)), 2)
         es_seccion = len(n.codigo) <= 1
         font = FONT_TOTAL if es_seccion else FONT_DATA
-        fill = FILL_TOTAL if es_seccion else None
+        fill = FILL_TOTAL if es_seccion else (FILL_ZEBRA if idx % 2 else None)
+        idx += 1
         _celda_texto(ws, fila, 1, n.codigo, al=AL_CEN, font=font, fill=fill)
         _celda_texto(ws, fila, 2, n.etiqueta, font=font, fill=fill)
         _celda_num(ws, fila, 3, ant, font=font, fill=fill)
