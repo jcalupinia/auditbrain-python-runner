@@ -131,6 +131,17 @@ TOOLS: dict[str, ToolConfig] = {
                 required=True,
                 multi=False,
             ),
+            # Opcional: tabla de mapeo Cuenta → Código Super Cías / SRI. Si el
+            # cliente la sube, sirve como referencia/validación de la homologación.
+            "plan_cuentas": SlotConfig(
+                mimes_allowed=frozenset({
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "application/vnd.ms-excel.sheet.macroEnabled.12",
+                    "application/vnd.ms-excel",
+                }),
+                required=False,
+                multi=False,
+            ),
         },
         processor=_flujo_efectivo_processor,
         enabled=True,
