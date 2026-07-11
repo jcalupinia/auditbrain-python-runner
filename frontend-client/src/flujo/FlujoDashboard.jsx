@@ -13,6 +13,11 @@ import { createJob, getJob, downloadJobArtifact } from "../api.js";
 
 const TOOL_CODE = "FLUJO_EFECTIVO";
 
+// Enlace al GPT del usuario (ChatGPT). Abre el asistente en la cuenta de cada
+// usuario — no consume tokens de la plataforma. (Macro AbrirAuditIA del modelo.)
+const ASISTENTE_IA_URL =
+  "https://chatgpt.com/g/g-67c5274cf9fc8191aa0e732f2048bb4a-asistente-virtual-audit-ia";
+
 const XLSX_MIMES = [
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "application/vnd.ms-excel.sheet.macroEnabled.12",
@@ -94,7 +99,6 @@ export default function FlujoDashboard() {
   const [runStep, setRunStep] = useState(0);
   const [selected, setSelected] = useState(null);
   const [err, setErr] = useState(null);
-  const [iaNote, setIaNote] = useState(false);
 
   const reqDone = UPLOADS.filter((u) => u.req).every((u) => files[u.key]);
   const docsUp = UPLOADS.filter((u) => files[u.key]).length;
@@ -222,16 +226,17 @@ export default function FlujoDashboard() {
                 onClear={() => setFiles((p) => { const n = { ...p }; delete n[u.key]; return n; })}
               />
             ))}
-            <button className="pc-chip" onClick={() => setIaNote((v) => !v)} title="Asistente Virtual IA (próximamente)">
-              <span>🤖</span><span>Asistente Virtual IA</span>
-            </button>
+            <a
+              className="pc-chip"
+              href={ASISTENTE_IA_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Abre el Asistente Virtual Audit IA en tu ChatGPT (no consume tokens de la plataforma)"
+              style={{ textDecoration: "none" }}
+            >
+              <span>🤖</span><span>Asistente Virtual IA</span><span style={{ fontSize: 11, opacity: 0.7 }}>↗</span>
+            </a>
           </div>
-
-          {iaNote && (
-            <div style={{ marginTop: 8, padding: "10px 14px", background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 10, fontSize: 12.5, color: "var(--text-soft)" }}>
-              🤖 <b style={{ color: "var(--text)" }}>Asistente Virtual IA</b> — próximamente: te explicará tus estados financieros y responderá preguntas sobre el flujo, el cuadre y los indicadores.
-            </div>
-          )}
 
           {/* Barra de progreso */}
           <div style={{ marginTop: 16, background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8, height: 8, overflow: "hidden" }}>
