@@ -1,0 +1,87 @@
+/* ============================================================
+   Herramienta Flujo de Efectivo · realce 3D y tarjetas compactas
+   Scoped bajo .fx3d para NO afectar al ICT ni a otras tools.
+   Reusa las clases pc-* de shell.css y solo agrega profundidad,
+   tamaño reducido y detalles estéticos.
+   ============================================================ */
+
+/* -------- Grilla más compacta -------- */
+.fx3d .pc-tiles {
+  grid-template-columns: repeat(auto-fill, minmax(188px, 1fr));
+  gap: 11px;
+}
+
+/* -------- Tarjetas 3D, más pequeñas y elegantes -------- */
+.fx3d .pc-tile {
+  padding: 11px 12px;
+  gap: 10px;
+  border-radius: 13px;
+  border-color: var(--line-soft);
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 3px 0 rgba(0, 0, 0, 0.28),
+    0 10px 18px -10px rgba(0, 0, 0, 0.55);
+  transition: transform 0.13s ease, box-shadow 0.13s ease, border-color 0.13s ease;
+}
+.fx3d .pc-tile:hover {
+  transform: translateY(-3px);
+  border-color: rgba(52, 211, 106, 0.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 6px 0 rgba(0, 0, 0, 0.28),
+    0 16px 26px -10px rgba(0, 0, 0, 0.6);
+}
+.fx3d .pc-tile:active {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.35),
+    0 1px 0 rgba(0, 0, 0, 0.28);
+}
+.fx3d .pc-tile.done {
+  background: linear-gradient(180deg, var(--panel-2), var(--accent-dim));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 3px 0 rgba(10, 40, 22, 0.6),
+    0 10px 18px -10px rgba(0, 0, 0, 0.55);
+}
+
+/* número: badge 3D más chico */
+.fx3d .pc-tile-n {
+  width: 26px; height: 26px;
+  border-radius: 8px; font-size: 12px;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+.fx3d .pc-tile-t { font-size: 12.5px; }
+.fx3d .pc-tile-d { font-size: 10.5px; line-height: 1.35; }
+.fx3d .pc-tile-st { font-size: 9.5px; font-weight: 700; }
+
+/* -------- Chips 3D (subir documentos + acciones) -------- */
+.fx3d .pc-chip {
+  border-radius: 9px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 2px 0 rgba(0, 0, 0, 0.26),
+    0 5px 11px -6px rgba(0, 0, 0, 0.5);
+  transition: transform 0.1s ease, box-shadow 0.1s ease, filter 0.1s ease;
+}
+.fx3d .pc-chip:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.05); }
+.fx3d .pc-chip:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+.fx3d .pc-chip.on,
+.fx3d .pc-chip.accent {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 2px 0 rgba(10, 60, 30, 0.55),
+    0 6px 13px -6px rgba(52, 211, 106, 0.45);
+}
+.fx3d .pc-chip[disabled] { box-shadow: none; }
+
+/* -------- Botón secundario (Volver) 3D -------- */
+.fx3d .pc-btn {
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.26), 0 5px 11px -6px rgba(0, 0, 0, 0.45);
+  transition: transform 0.1s ease;
+}
+.fx3d .pc-btn:active { transform: translateY(2px); box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3); }

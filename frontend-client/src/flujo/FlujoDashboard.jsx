@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PortalShell from "../shell/PortalShell.jsx";
 import { createJob, getJob, downloadJobArtifact } from "../api.js";
+import "./flujo.css";
 
 /* ============================================================
    Herramienta Flujo de Efectivo · Dashboard dedicado
@@ -180,7 +181,7 @@ export default function FlujoDashboard() {
       activeNodeCode={TOOL_CODE}
       contextExtras={contextExtras}
     >
-      <div className="pc-panel">
+      <div className="pc-panel fx3d">
         <header className="pc-panel-h">
           <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
             <span className="pc-code">FLUJO</span>
