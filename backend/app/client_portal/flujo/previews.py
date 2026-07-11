@@ -62,6 +62,31 @@ def construir_previews(bal_ant: list[dict], bal_act: list[dict]) -> dict:
 
     prev: dict = {}
 
+    # ---- Hoja de trabajo ESF (todas las columnas del working paper) ----
+    # Por cada código: etiqueta, saldo año anterior, saldo año actual y la
+    # actividad de flujo (OPERACION/INVERSION/FINANCIAMIENTO). El frontend
+    # deriva en vivo variación, usos, fuentes, impacto por actividad, totales y
+    # el cuadre AF — y permite editar los saldos.
+    clasif = catalogos.cargar_clasificacion_flujo()
+    wp_rows = []
+    vistos_wp: set[str] = set()
+    for n in est_esf:
+        if n.codigo in vistos_wp or n.codigo in _ESF_TXT_EXCLUIR:
+            continue
+        vistos_wp.add(n.codigo)
+        ant = _r(tot_esf_ant.get(n.codigo, 0.0))
+        act = _r(tot_esf.get(n.codigo, 0.0))
+        es_seccion = len(n.codigo) <= 1
+        wp_rows.append([
+            n.codigo, n.etiqueta, ant, act,
+            clasif.get(n.codigo, ""),   # actividad (vacío si no clasifica)
+            1 if es_seccion else 0,     # marca de fila sección/total
+        ])
+    prev["WP_ESF"] = {
+        "prefijo_efectivo": "10101",
+        "rows": wp_rows,
+    }
+
     # ---- ESF ----
     rows = []
     vistos: set[str] = set()

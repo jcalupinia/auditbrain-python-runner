@@ -110,6 +110,36 @@
 .fx3d .fx-prev-tbl td.num { font-family: var(--mono); color: var(--text); }
 .fx3d .fx-prev-tbl tbody tr:hover td { background: rgba(52, 211, 106, 0.06); }
 
+/* -------- Hoja de trabajo estilo Excel (editable, scroll) -------- */
+.fx3d .fx-ht { margin-top: 16px; border: 1px solid var(--line); border-radius: 13px; background: var(--panel); overflow: hidden; }
+.fx3d .fx-ht-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 11px 14px; border-bottom: 1px solid var(--line-soft); }
+.fx3d .fx-ht-af { display: inline-flex; align-items: center; gap: 7px; font: 700 12px var(--mono); padding: 5px 12px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); background: var(--accent-dim); color: var(--accent); }
+.fx3d .fx-ht-af.bad { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); background: rgba(255,93,93,0.08); }
+.fx3d .fx-ht-hint { font-size: 11.5px; color: var(--text-soft); }
+.fx3d .fx-ht-scroll { overflow: auto; max-height: 460px; }
+.fx3d .fx-ht-tbl { border-collapse: separate; border-spacing: 0; font-size: 11.5px; white-space: nowrap; }
+.fx3d .fx-ht-tbl th, .fx3d .fx-ht-tbl td { border-right: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); padding: 6px 10px; }
+.fx3d .fx-ht-tbl thead th { position: sticky; top: 0; z-index: 3; background: var(--panel-2); color: var(--text); font: 700 10px var(--mono); letter-spacing: 0.06em; text-transform: uppercase; border-bottom: 2px solid var(--accent); }
+.fx3d .fx-ht-tbl th.num, .fx3d .fx-ht-tbl td.num { text-align: right; font-family: var(--mono); }
+.fx3d .fx-ht-tbl td.cod { font-family: var(--mono); color: var(--accent); }
+.fx3d .fx-ht-tbl td.c1 { white-space: nowrap; max-width: 340px; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.fx3d .fx-ht-tbl .c0 { position: sticky; left: 0; z-index: 2; background: var(--panel); min-width: 74px; }
+.fx3d .fx-ht-tbl .c1 { position: sticky; left: 74px; z-index: 2; background: var(--panel); min-width: 230px; }
+.fx3d .fx-ht-tbl thead .c0, .fx3d .fx-ht-tbl thead .c1 { z-index: 4; background: var(--panel-2); }
+.fx3d .fx-ht-tbl td.num { color: var(--text-soft); }
+.fx3d .fx-ht-tbl th.act, .fx3d .fx-ht-tbl td.act { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.fx3d .fx-ht-tbl th.edit { color: var(--accent); }
+.fx3d .fx-ht-tbl td.edit { background: color-mix(in srgb, var(--accent) 10%, transparent); padding: 2px 6px; }
+.fx3d .fx-ht-tbl tr.sec td { background: var(--accent-dim); color: var(--text); font-weight: 700; }
+.fx3d .fx-ht-tbl tr.sec td.c0, .fx3d .fx-ht-tbl tr.sec td.c1 { background: var(--accent-dim); }
+.fx3d .fx-ht-tbl tbody tr:hover td { background: rgba(52,211,106,0.05); }
+.fx3d .fx-ht-tbl tbody tr:hover td.c0, .fx3d .fx-ht-tbl tbody tr:hover td.c1 { background: var(--panel-2); }
+.fx3d .fx-ht-in { width: 108px; text-align: right; font: 11.5px var(--mono); color: var(--text); background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 4px 6px; outline: none; }
+.fx3d .fx-ht-in:hover { border-color: var(--line); }
+.fx3d .fx-ht-in:focus { border-color: var(--accent); background: var(--panel); }
+.fx3d .fx-ht-tbl tfoot td { position: sticky; bottom: 0; background: var(--panel-2); font-weight: 700; color: var(--text); border-top: 2px solid var(--accent); }
+.fx3d .fx-ht-tbl tfoot .tot2 td { font: 700 11px var(--mono); color: var(--accent); }
+
 /* -------- Botón secundario (Volver) 3D -------- */
 .fx3d .pc-btn {
   box-shadow: 0 2px 0 rgba(0, 0, 0, 0.26), 0 5px 11px -6px rgba(0, 0, 0, 0.45);
