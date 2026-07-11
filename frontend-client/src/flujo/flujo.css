@@ -293,6 +293,67 @@
 
 @keyframes fx-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
+/* en la vista de resultados (índice) se oculta el hero y el stepper */
+.fx-done .fx-hero, .fx-done .fx-steps { display: none; }
+
+/* -------------------- ÍNDICE (resultados por sección) -------------------- */
+.fx-ix { display: grid; grid-template-columns: 264px 1fr; gap: 16px; align-items: start; }
+@media (max-width: 900px) { .fx-ix { grid-template-columns: 1fr; } }
+
+.fx-ix-menu {
+  border: 1px solid var(--line); border-radius: 13px;
+  background: var(--panel); padding: 10px; align-self: start;
+}
+.fx-ix-h {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--text-soft); padding: 6px 8px 10px;
+}
+.fx-ix-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 10px 8px; margin-bottom: 2px;
+  border: 1px solid transparent; border-radius: 9px;
+  background: transparent; color: var(--text);
+  font: inherit; text-align: left; cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.fx-ix-item:hover { background: var(--panel-2); }
+.fx-ix-item.on { background: var(--accent-dim); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.fx-ix-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 24px; height: 24px; padding: 0 5px; flex-shrink: 0;
+  border-radius: 6px; font-family: var(--mono); font-size: 11px; font-weight: 600;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--accent);
+}
+.fx-ix-item.on .fx-ix-num { background: var(--accent); color: #04130b; border-color: var(--accent); }
+.fx-ix-lbl { flex: 1; font-size: 13px; color: var(--text); }   /* blanco/alto contraste */
+.fx-ix-item.on .fx-ix-lbl { font-weight: 600; }
+.fx-ix-tag { font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; color: var(--text-dim); text-transform: uppercase; }
+.fx-ix-zip {
+  display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 8px;
+  padding: 11px 8px; border-radius: 9px; cursor: pointer; font: inherit; text-align: left;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: linear-gradient(180deg, var(--panel-2), var(--accent-dim)); color: var(--text);
+}
+.fx-ix-zip .fx-ix-num { background: var(--accent); color: #04130b; border-color: var(--accent); }
+
+.fx-ix-pane { border: 1px solid var(--line); border-radius: 13px; background: var(--panel); overflow: hidden; min-height: 380px; }
+.fx-ix-pane-h {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 16px 18px; border-bottom: 1px solid var(--line-soft);
+}
+.fx-ix-pt { font-size: 16px; font-weight: 700; color: var(--text); }
+.fx-ix-pm { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-dim); margin-top: 3px; }
+.fx-ix-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px;
+  font-size: 12px; color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); background: var(--accent-dim);
+}
+.fx-ix-chip.soon { color: var(--fx-gold); border-color: color-mix(in srgb, var(--fx-gold) 35%, transparent); background: color-mix(in srgb, var(--fx-gold) 10%, transparent); }
+.fx-ix-pb { padding: 18px; }
+.fx-ix-desc { font-size: 13.5px; line-height: 1.6; color: var(--text-soft); margin: 0 0 18px; }
+.fx-ix-desc b { color: var(--text); font-weight: 600; }
+.fx-ix-dls { display: flex; gap: 10px; flex-wrap: wrap; }
+
 /* panel de contexto (sidebar derecho) */
 .fx-ctx-prog { display: flex; flex-direction: column; gap: 8px; }
 .fx-ctx-line { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-soft); }

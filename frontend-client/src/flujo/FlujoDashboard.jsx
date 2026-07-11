@@ -40,6 +40,35 @@ const DELIVERABLES = [
   { ico: "✓", t: "Homologación (rastro auditable)" },
 ];
 
+// Nombres de artefacto que produce el processor (backend).
+const ART = {
+  excel: "FlujoEfectivo.xlsx",
+  esf: "EstadoDeSituacionFinanciera.txt",
+  eri: "EstadoDeResultadoIntegral.txt",
+  f101: "Formulario101.xml",
+  zip: "FlujoEfectivo_completo.zip",
+};
+
+// Secciones en el ORDEN del índice del modelo Excel del cliente.
+const SECTIONS = [
+  { n: "2", key: "ESF", title: "Estado de Situación Financiera", dl: "txt", art: ART.esf, cuadre: "esf",
+    desc: "Balance homologado por Código Super Cías. Cada rubro con su código y saldo; el TXT es el archivo de envío a la Superintendencia de Compañías." },
+  { n: "3", key: "ERI", title: "Estado de Resultados Integral", dl: "txt", art: ART.eri,
+    desc: "Ingresos, costos y gastos con la cascada de subtotales (ganancia bruta → utilidad neta → resultado integral). TXT de envío a Super Cías." },
+  { n: "4", key: "PATRIMONIO", title: "Estado de Evolución del Patrimonio", dl: "soon",
+    desc: "Movimiento de los componentes del patrimonio (capital, reservas, resultados). Sus valores ya están en el Excel; el TXT oficial (códigos 99xx) llega en la Fase B." },
+  { n: "5", key: "FLUJO", title: "Estado de Flujo de Efectivo", dl: "soon", cuadre: "af",
+    desc: "Flujo por método indirecto (operación / inversión / financiamiento). Cuadra con AF = 0. La presentación oficial (códigos 95xx) para el TXT llega en la Fase B." },
+  { n: "6", key: "NO EFECTIVO", title: "Movimiento no Efectivo", dl: "excel",
+    desc: "Add-backs de la conciliación: depreciación, amortización y deterioros del período. Disponible en el Excel auditable." },
+  { n: "7·8", key: "BALANZA", title: "Homologación (Mapeo)", dl: "excel",
+    desc: "El rastro auditable: las cuentas del cliente con su Código Super Cías y SRI, de donde sale cada saldo. Disponible en el Excel." },
+  { n: "10", key: "F-101", title: "Formulario 101", dl: "xml", art: ART.f101,
+    desc: "Casilleros del Formulario 101 agrupados por Código SRI. Se descarga como XML de detalle de declaración, listo para el SRI." },
+  { n: "14", key: "KPIs", title: "Indicadores financieros", dl: "excel",
+    desc: "Razón corriente, endeudamiento, ROE y más, calculados desde los estados. Disponible en el Excel." },
+];
+
 const MOTOR_STEPS = [
   "Homologando balanza por Código Super Cías",
   "Cuadrando Estado de Situación Financiera",
@@ -129,6 +158,7 @@ export default function FlujoDashboard() {
   const [job, setJob] = useState(null);
   const [runStep, setRunStep] = useState(0);
   const [err, setErr] = useState(null);
+  const [activeSec, setActiveSec] = useState(0);
 
   const bothReady = SLOTS.every((s) => files[s.key]);
   const stepUpload = !bothReady;
@@ -188,6 +218,7 @@ export default function FlujoDashboard() {
   const cuadreEsf = summary.cuadre_esf;
   const cuadreAf = summary.cuadre_af;
   const artifacts = summary.artifacts || [];
+  const dl = (name) => downloadJobArtifact(job.id, name).catch((e) => setErr(e.message));
 
   const contextExtras = (
     <div className="pc-ctx-card">
@@ -208,7 +239,7 @@ export default function FlujoDashboard() {
       activeNodeCode={TOOL_CODE}
       contextExtras={contextExtras}
     >
-      <div className="fx">
+      <div className={`fx${phase === "done" ? " fx-done" : ""}`}>
         <button className="fx-linkback" onClick={() => nav("/catalog")}>← Volver al catálogo</button>
 
         {/* HERO */}
@@ -264,42 +295,59 @@ export default function FlujoDashboard() {
               </div>
             </div>
 
-            <div className="fx-card">
-              <div className="fx-card-h">
-                <b>Descargas por estado</b>
-                <span className="fx-tag">SUPER CÍAS · SRI</span>
+            <div className="fx-ix">
+              <nav className="fx-ix-menu">
+                <div className="fx-ix-h">Contenido</div>
+                {SECTIONS.map((s, i) => (
+                  <button key={s.key} className={`fx-ix-item${i === activeSec ? " on" : ""}`} onClick={() => setActiveSec(i)}>
+                    <span className="fx-ix-num">{s.n}</span>
+                    <span className="fx-ix-lbl">{s.title}</span>
+                    <span className="fx-ix-tag">{s.dl === "txt" ? "TXT" : s.dl === "xml" ? "XML" : s.dl === "soon" ? "●" : ""}</span>
+                  </button>
+                ))}
+                <button className="fx-ix-zip" onClick={() => dl(ART.zip)}>
+                  <span className="fx-ix-num">{ART_ICON.zip}</span>
+                  <span className="fx-ix-lbl">Descargar todo (ZIP)</span>
+                </button>
+              </nav>
+
+              <div className="fx-ix-pane">
+                {(() => {
+                  const s = SECTIONS[activeSec];
+                  const q = s.cuadre === "esf" ? cuadreEsf : s.cuadre === "af" ? cuadreAf : null;
+                  return (
+                    <>
+                      <div className="fx-ix-pane-h">
+                        <div>
+                          <div className="fx-ix-pt">{s.title}</div>
+                          <div className="fx-ix-pm">Sección {s.n} · {s.key}</div>
+                        </div>
+                        {s.dl === "soon"
+                          ? <span className="fx-ix-chip soon">TXT en Fase B</span>
+                          : (q != null && (
+                            <span className="fx-ix-chip"><span className="pc-dot ok" /> {s.cuadre === "esf" ? "A = P + Pat" : "AF"} · {formatMoney(q)}</span>
+                          ))}
+                      </div>
+                      <div className="fx-ix-pb">
+                        <p className="fx-ix-desc">{s.desc}</p>
+                        <div className="fx-ix-dls">
+                          {(s.dl === "txt" || s.dl === "xml") && (
+                            <button className="fx-cta" onClick={() => dl(s.art)}>
+                              {ART_ICON[s.dl === "xml" ? "xml" : "txt"]} Descargar {s.dl.toUpperCase()}{s.dl === "txt" ? " (Super Cías)" : ""}
+                            </button>
+                          )}
+                          <button className="pc-btn secondary" onClick={() => dl(ART.excel)}>Ver en Excel</button>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
-              <div className="fx-card-b">
-                <div className="fx-arts-l">Envío electrónico</div>
-                <div className="fx-arts">
-                  {artifacts.map((a) => (
-                    <button
-                      key={a.name}
-                      className={`fx-art${a.kind === "zip" ? " primary" : ""}`}
-                      onClick={() => downloadJobArtifact(job.id, a.name).catch((e) => setErr(e.message))}
-                    >
-                      <span className="fx-art-ico">{ART_ICON[a.kind] || ART_ICON.txt}</span>
-                      <span className="fx-art-txt">
-                        <span className="fx-art-t">{a.label}</span>
-                        <span className="fx-art-k">{a.estado} · {(a.kind || "").toUpperCase()}</span>
-                      </span>
-                      <span className="fx-art-dl">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>
-                      </span>
-                    </button>
-                  ))}
-                  {artifacts.length === 0 && (
-                    <button className="fx-art primary" onClick={() => downloadJob(job.id).catch((e) => setErr(e.message))}>
-                      <span className="fx-art-ico">{ART_ICON.xlsx}</span>
-                      <span className="fx-art-txt"><span className="fx-art-t">Descargar Excel</span><span className="fx-art-k">Todos · XLSX</span></span>
-                    </button>
-                  )}
-                </div>
-                {err && <div className="fx-error" style={{ marginTop: 14 }}>{err}</div>}
-                <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--line-soft)" }}>
-                  <button className="pc-btn secondary" onClick={reset}>↺ Generar otro</button>
-                </div>
-              </div>
+            </div>
+
+            {err && <div className="fx-error" style={{ marginTop: 14 }}>{err}</div>}
+            <div style={{ marginTop: 18 }}>
+              <button className="pc-btn secondary" onClick={reset}>↺ Generar otro</button>
             </div>
           </section>
         ) : (
