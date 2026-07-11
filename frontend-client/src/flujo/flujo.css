@@ -139,6 +139,17 @@
 .fx3d .fx-ht-in:focus { border-color: var(--accent); background: var(--panel); }
 .fx3d .fx-ht-tbl tfoot td { position: sticky; bottom: 0; background: var(--panel-2); font-weight: 700; color: var(--text); border-top: 2px solid var(--accent); }
 .fx3d .fx-ht-tbl tfoot .tot2 td { font: 700 11px var(--mono); color: var(--accent); }
+.fx3d .fx-ht-sum { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 14px; border-top: 1px solid var(--line-soft); }
+@media (max-width: 620px) { .fx3d .fx-ht-sum { grid-template-columns: 1fr; } }
+.fx3d .fx-ht-sc { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); }
+.fx3d .fx-ht-sc.ok { border-color: color-mix(in srgb, var(--accent) 40%, transparent); background: linear-gradient(180deg, var(--panel-2), var(--accent-dim)); }
+.fx3d .fx-ht-sc.bad { border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+.fx3d .fx-ht-sl { font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-dim); }
+.fx3d .fx-ht-sv { display: inline-flex; align-items: center; gap: 7px; font: 700 17px var(--mono); color: var(--text); }
+.fx3d .fx-ht-sc.ok .fx-ht-sv { color: var(--accent); }
+.fx3d .fx-ht-sc.bad .fx-ht-sv { color: var(--danger); }
+.fx3d .fx-ht-extra { border-top: 1px solid var(--line-soft); }
+.fx3d .fx-ht-extra-h { padding: 11px 14px 4px; font: 700 10px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--fx-gold); }
 
 /* -------- Botón secundario (Volver) 3D -------- */
 .fx3d .pc-btn {

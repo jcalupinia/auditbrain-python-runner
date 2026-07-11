@@ -81,10 +81,31 @@ def construir_previews(bal_ant: list[dict], bal_act: list[dict]) -> dict:
             n.codigo, n.etiqueta, ant, act,
             clasif.get(n.codigo, ""),   # actividad (vacío si no clasifica)
             1 if es_seccion else 0,     # marca de fila sección/total
+            1 if n.es_hoja else 0,      # es hoja (para el rollup en vivo)
         ])
+
+    # Información extracontable ORI (código 30505): reclasificación actuarial de
+    # las cuentas 3.02.03.01.002/.003. Se presenta en positivo; la variación es
+    # el otro resultado integral del período.
+    obj = {motor_f101._normaliza_cuenta(c) for c in motor_f101.CUENTAS_ORI_ACTUARIAL}
+
+    def _suma_ori(bal):
+        return sum(float(f.get("saldo") or 0.0)
+                   for f in bal
+                   if motor_f101._normaliza_cuenta(f.get("cuenta")) in obj)
+
+    ori_ant = _suma_ori(bal_ant)
+    ori_act = _suma_ori(bal_act)
+    extracontable = [[
+        "30505",
+        "GANANCIAS (PÉRDIDAS) ACTUARIALES POR PLANES DE BENEFICIOS DEFINIDOS",
+        _r(abs(ori_ant)), _r(abs(ori_act)), _r(ori_act - ori_ant),
+    ]]
+
     prev["WP_ESF"] = {
         "prefijo_efectivo": "10101",
         "rows": wp_rows,
+        "extracontable": extracontable,
     }
 
     # ---- ESF ----

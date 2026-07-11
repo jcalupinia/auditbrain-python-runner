@@ -23,7 +23,7 @@ export default function HojaTrabajo({ data }) {
     const rows = base.map((r) => {
       const cod = r[0], etiqueta = r[1], ant = r2(r[2]);
       const act = r2(edits[cod] !== undefined ? edits[cod] : r[3]);
-      const actividad = r[4] || "", esSec = !!r[5];
+      const actividad = r[4] || "", esSec = !!r[5], esHoja = !!r[6];
       const variacion = r2(act - ant);
       const usos = variacion > 0 ? -variacion : 0;      // aumento de saldo = uso
       const fuentes = variacion < 0 ? -variacion : 0;   // disminución = fuente
@@ -31,7 +31,7 @@ export default function HojaTrabajo({ data }) {
       const esEfectivo = String(cod).startsWith(efe);
       const clasifica = !!actividad && !esEfectivo && !esSec;
       return {
-        cod, etiqueta, ant, act, actividad, esSec,
+        cod, etiqueta, ant, act, actividad, esSec, esHoja,
         variacion, saldos: variacion, usos, fuentes,
         op: clasifica && actividad === "OPERACION" ? impacto : null,
         inv: clasifica && actividad === "INVERSION" ? impacto : null,
@@ -46,10 +46,17 @@ export default function HojaTrabajo({ data }) {
     const efReal = efeRow ? efeRow.act : 0;
     const efFin = r2(efIni + neto);
     const cuadre = r2(efFin - efReal);
-    return { rows, tot: { op, inv, fin, neto, efIni, efFin, efReal, cuadre } };
+    // Cuadre ESF (A = P + Pat) por rollup en vivo de las cuentas hoja.
+    const sumLeaf = (p) => r2(rows.reduce((a, x) => a + (x.esHoja && String(x.cod).startsWith(p) ? x.act : 0), 0));
+    const activo = sumLeaf("1"), pasivo = sumLeaf("2"), patrimonio = sumLeaf("3");
+    const totalPP = r2(-(pasivo + patrimonio));
+    const cuadreEsf = r2(activo + pasivo + patrimonio);
+    return { rows, tot: { op, inv, fin, neto, efIni, efFin, efReal, cuadre, activo, totalPP, cuadreEsf } };
   }, [base, edits, efe]);
 
   const cuadra = Math.abs(tot.cuadre) <= 1;
+  const cuadraEsf = Math.abs(tot.cuadreEsf) <= 1;
+  const extra = data.extracontable || [];
 
   return (
     <div className="fx-ht">
@@ -116,6 +123,53 @@ export default function HojaTrabajo({ data }) {
           </tfoot>
         </table>
       </div>
+
+      {/* Cuadre del balance A = P + Pat */}
+      <div className="fx-ht-sum">
+        <div className="fx-ht-sc">
+          <span className="fx-ht-sl">Total activo</span>
+          <span className="fx-ht-sv">{money(tot.activo)}</span>
+        </div>
+        <div className="fx-ht-sc">
+          <span className="fx-ht-sl">Total pasivo + patrimonio</span>
+          <span className="fx-ht-sv">{money(tot.totalPP)}</span>
+        </div>
+        <div className={`fx-ht-sc ${cuadraEsf ? "ok" : "bad"}`}>
+          <span className="fx-ht-sl">Cuadrado (A = P + Pat)</span>
+          <span className="fx-ht-sv"><span className={`pc-dot ${cuadraEsf ? "ok" : "bad"}`} /> {money(tot.cuadreEsf)}</span>
+        </div>
+      </div>
+
+      {/* Información extracontable ORI */}
+      {extra.length > 0 && (
+        <div className="fx-ht-extra">
+          <div className="fx-ht-extra-h">Información extracontable · Otro Resultado Integral (ORI)</div>
+          <div className="fx-ht-scroll" style={{ maxHeight: "none" }}>
+            <table className="fx-ht-tbl">
+              <thead>
+                <tr>
+                  <th className="c0">Código</th>
+                  <th className="c1">Cuenta</th>
+                  <th className="num">Balance ant.</th>
+                  <th className="num">Balance actual</th>
+                  <th className="num">Variación (ORI)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {extra.map((e) => (
+                  <tr key={e[0]}>
+                    <td className="c0 cod">{e[0]}</td>
+                    <td className="c1">{e[1]}</td>
+                    <td className="num">{money(e[2])}</td>
+                    <td className="num">{money(e[3])}</td>
+                    <td className="num" style={{ color: "var(--accent)" }}>{money(e[4])}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
