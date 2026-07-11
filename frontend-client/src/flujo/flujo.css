@@ -79,6 +79,16 @@
 }
 .fx3d .pc-chip[disabled] { box-shadow: none; }
 
+/* -------- Matriz oficial del patrimonio (99xx) -------- */
+.fx3d .fx-mx th.grp { text-align: center; background: var(--panel); color: var(--fx-gold); font: 700 9px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); }
+.fx3d .fx-mx th.comp { min-width: 96px; vertical-align: bottom; padding: 6px 8px; }
+.fx3d .fx-mx th.comp .cc { display: block; color: var(--accent); font: 700 10px var(--mono); }
+.fx3d .fx-mx th.comp .cn { display: block; font-size: 8.5px; font-weight: 400; color: var(--text-soft); text-transform: none; letter-spacing: 0; line-height: 1.15; white-space: normal; max-width: 96px; }
+.fx3d .fx-mx th.tot, .fx3d .fx-mx td.tot { position: sticky; right: 0; z-index: 2; background: var(--panel-2); border-left: 2px solid var(--accent); font-weight: 700; }
+.fx3d .fx-mx thead th.tot { z-index: 5; min-width: 130px; }
+.fx3d .fx-mx td.tot { color: var(--accent); }
+.fx3d .fx-mx tbody tr.sec td.tot { background: var(--accent-dim); }
+
 /* -------- Panel de vista previa en vivo (tabla de la sección) -------- */
 .fx3d .fx-prev {
   margin-top: 16px;

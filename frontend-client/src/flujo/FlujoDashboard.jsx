@@ -4,8 +4,8 @@ import PortalShell from "../shell/PortalShell.jsx";
 import { createJob, getJob, downloadJobArtifact, getJobArtifactJson } from "../api.js";
 import HojaTrabajo from "./HojaTrabajo.jsx";
 import HojaTrabajoERI from "./HojaTrabajoERI.jsx";
-import HojaTrabajoPAT from "./HojaTrabajoPAT.jsx";
 import HojaTrabajoMAP from "./HojaTrabajoMAP.jsx";
+import MatrizPatrimonio from "./MatrizPatrimonio.jsx";
 import "./flujo.css";
 
 /* ============================================================
@@ -334,8 +334,8 @@ export default function FlujoDashboard() {
                 <HojaTrabajo data={previews.WP_ESF} />
               ) : sel.code === "ERI" && previews?.WP_ERI ? (
                 <HojaTrabajoERI data={previews.WP_ERI} />
-              ) : sel.code === "PAT" && previews?.WP_PAT ? (
-                <HojaTrabajoPAT data={previews.WP_PAT} />
+              ) : sel.code === "PAT" && previews?.WP_PATRIMONIO ? (
+                <MatrizPatrimonio data={previews.WP_PATRIMONIO} />
               ) : sel.code === "MAP" && previews?.WP_MAP ? (
                 <HojaTrabajoMAP data={previews.WP_MAP} />
               ) : previews?.[sel.code] ? (

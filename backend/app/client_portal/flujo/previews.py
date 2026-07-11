@@ -172,6 +172,10 @@ def construir_previews(bal_ant: list[dict], bal_act: list[dict]) -> dict:
             wp_pat.append([label, c["codigo"], _r(c["saldo_inicial"]), _r(c["saldo_final"])])
     prev["WP_PAT"] = {"rows": wp_pat}
 
+    # ---- Matriz oficial 99xx del patrimonio (16 filas × 18 componentes) ----
+    from . import patrimonio_matriz
+    prev["WP_PATRIMONIO"] = patrimonio_matriz.matriz_patrimonio(bal_ant, bal_act)
+
     # ---- Flujo de Efectivo ----
     clas = catalogos.cargar_clasificacion_flujo()
     fl = motor_flujo.flujo_efectivo(tot_esf_ant, tot_esf, clas)
