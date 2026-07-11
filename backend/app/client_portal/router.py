@@ -358,6 +358,7 @@ _ARTIFACT_MEDIA = {
     ".xml": "application/xml; charset=utf-8",
     ".zip": "application/zip",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".json": "application/json; charset=utf-8",
 }
 
 

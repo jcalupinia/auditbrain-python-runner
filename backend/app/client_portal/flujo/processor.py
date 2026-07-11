@@ -54,6 +54,16 @@ def _generar_artefactos(job_dir: Path, bal_ant: list[dict], bal_act: list[dict],
     art_dir = job_dir / ARTIFACTS_DIR
     art_dir.mkdir(parents=True, exist_ok=True)
 
+    # Vistas previas EN VIVO (tabla de cada sección) para el portal.
+    try:
+        import json as _json
+        from . import previews as _previews
+        prev = _previews.construir_previews(bal_ant, bal_act)
+        (art_dir / "previews.json").write_text(
+            _json.dumps(prev, ensure_ascii=False), encoding="utf-8")
+    except Exception:  # noqa: BLE001 — la preview es opcional, no rompe la descarga
+        pass
+
     contenidos = {
         ARCH_EXCEL: excel_bytes,
         ARCH_ESF: txt_esf.encode("utf-8"),

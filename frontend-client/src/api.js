@@ -139,6 +139,15 @@ export async function downloadJobArtifact(jobId, name) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+export async function getJobArtifactJson(jobId, name) {
+  const resp = await fetch(
+    `${BASE}/api/v1/client/tools/jobs/${jobId}/artifacts/${encodeURIComponent(name)}`,
+    { headers: _token ? { Authorization: `Bearer ${_token}` } : {}, credentials: "include" }
+  );
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.json();
+}
+
 // --- Inscripción pública a eventos (charlas). Endpoint sin auth. ---
 export async function registrarCharla(slug, payload) {
   const resp = await fetch(`${BASE}/api/v1/events/${slug}/registrations`, {

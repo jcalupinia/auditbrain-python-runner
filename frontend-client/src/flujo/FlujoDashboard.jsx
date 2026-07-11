@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PortalShell from "../shell/PortalShell.jsx";
-import { createJob, getJob, downloadJobArtifact } from "../api.js";
+import { createJob, getJob, downloadJobArtifact, getJobArtifactJson } from "../api.js";
 import "./flujo.css";
 
 /* ============================================================
@@ -99,6 +99,7 @@ export default function FlujoDashboard() {
   const [job, setJob] = useState(null);
   const [runStep, setRunStep] = useState(0);
   const [selected, setSelected] = useState(null);
+  const [previews, setPreviews] = useState(null);
   const [err, setErr] = useState(null);
 
   const reqDone = UPLOADS.filter((u) => u.req).every((u) => files[u.key]);
@@ -129,6 +130,16 @@ export default function FlujoDashboard() {
     return () => { alive = false; clearInterval(poll); };
   }, [phase, job?.id]);
 
+  // al terminar, trae las tablas de vista previa (una sola vez)
+  useEffect(() => {
+    if (phase !== "done" || !job?.id) return;
+    let alive = true;
+    getJobArtifactJson(job.id, "previews.json")
+      .then((p) => { if (alive) { setPreviews(p); setSelected("ESF"); } })
+      .catch(() => { /* la preview es opcional */ });
+    return () => { alive = false; };
+  }, [phase, job?.id]);
+
   async function handleProcess() {
     setErr(null); setRunStep(0); setPhase("running");
     try {
@@ -144,11 +155,6 @@ export default function FlujoDashboard() {
   }
 
   const dl = (name) => downloadJobArtifact(job.id, name).catch((e) => setErr(e.message));
-  function tileDownload(s) {
-    if (!isDone) return;
-    if (s.dl === "txt" || s.dl === "xml") dl(s.art);
-    else if (s.dl !== "soon") dl(ART.excel);
-  }
   function statusLabel(s) {
     if (!isDone) return "Pendiente";
     if (s.dl === "txt") return "TXT ⤓";
@@ -285,7 +291,7 @@ export default function FlujoDashboard() {
                 <button
                   key={s.code}
                   className={`pc-tile${ready ? " done" : ""}${selected === s.code ? " on" : ""}`}
-                  onClick={() => { setSelected(s.code); tileDownload(s); }}
+                  onClick={() => setSelected(s.code)}
                   disabled={phase === "running"}
                   style={ready ? { background: "linear-gradient(180deg, var(--panel-2), var(--accent-dim))" } : undefined}
                 >
@@ -301,11 +307,51 @@ export default function FlujoDashboard() {
           </div>
 
           {sel && (
-            <div style={{ marginTop: 14, padding: "12px 14px", background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 10, fontSize: 12.5, color: "var(--text-soft)" }}>
-              <b style={{ color: "var(--text)" }}>{sel.name}.</b>{" "}
-              {sel.dl === "soon"
-                ? "El TXT oficial (códigos 95xx / 99xx) llega en la Fase B; sus valores ya están en el Excel."
-                : isDone ? "Descarga iniciada. Volvé a hacer clic para bajarla de nuevo." : "Se habilitará al procesar."}
+            <div className="fx-prev">
+              <div className="fx-prev-h">
+                <div>
+                  <div className="fx-prev-t">{sel.name}</div>
+                  <div className="fx-prev-m">Vista previa · {(previews?.[sel.code]?.rows?.length ?? 0)} filas</div>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {(sel.dl === "txt" || sel.dl === "xml") && isDone && (
+                    <button className="pc-chip accent" onClick={() => dl(sel.art)} style={{ fontWeight: 700 }}>
+                      ⤓ Descargar {sel.dl.toUpperCase()}
+                    </button>
+                  )}
+                  {isDone && (
+                    <button className="pc-chip" onClick={() => dl(ART.excel)}>📊 Excel</button>
+                  )}
+                </div>
+              </div>
+              {!isDone ? (
+                <div className="fx-prev-empty">Procesá primero para ver la tabla de esta sección.</div>
+              ) : previews?.[sel.code] ? (
+                <div className="fx-prev-scroll">
+                  <table className="fx-prev-tbl">
+                    <thead>
+                      <tr>{previews[sel.code].cols.map((c, i) => (
+                        <th key={i} className={i === 0 ? "" : "num"}>{c}</th>
+                      ))}</tr>
+                    </thead>
+                    <tbody>
+                      {previews[sel.code].rows.map((r, ri) => (
+                        <tr key={ri}>{r.map((v, ci) => (
+                          <td key={ci} className={ci === 0 ? "cod" : "num"}>
+                            {ci === 0 ? v : (typeof v === "number" ? formatMoney(v) : v)}
+                          </td>
+                        ))}</tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="fx-prev-empty">
+                  {sel.dl === "soon"
+                    ? "La presentación oficial (códigos 95xx / 99xx) llega en la Fase B; sus valores ya están en el Excel."
+                    : "Cargando vista previa…"}
+                </div>
+              )}
             </div>
           )}
         </div>
