@@ -117,6 +117,28 @@ export async function downloadJob(jobId, filename = null) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+export async function downloadJobArtifact(jobId, name) {
+  const resp = await fetch(
+    `${BASE}/api/v1/client/tools/jobs/${jobId}/artifacts/${encodeURIComponent(name)}`,
+    { headers: _token ? { Authorization: `Bearer ${_token}` } : {}, credentials: "include" }
+  );
+  if (!resp.ok) {
+    let detail = null;
+    try { detail = (await resp.json())?.detail; } catch {}
+    const msg = typeof detail === "string" ? detail : detail?.message || `HTTP ${resp.status}`;
+    const err = new Error(msg); err.status = resp.status; throw err;
+  }
+  const blob = await resp.blob();
+  const cd = resp.headers.get("content-disposition") || "";
+  const m = cd.match(/filename="?([^"]+)"?/);
+  const finalName = m ? m[1] : name;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = finalName;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 // --- Inscripción pública a eventos (charlas). Endpoint sin auth. ---
 export async function registrarCharla(slug, payload) {
   const resp = await fetch(`${BASE}/api/v1/events/${slug}/registrations`, {

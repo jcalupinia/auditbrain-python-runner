@@ -250,6 +250,33 @@
 .fx-dl-t { font-size: 16px; font-weight: 700; }
 .fx-dl-d { font-size: 12.5px; color: var(--text-soft); margin-top: 2px; }
 
+/* -------------------- DESCARGAS POR ESTADO -------------------- */
+.fx-arts { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.fx-art {
+  display: flex; align-items: center; gap: 12px; text-align: left;
+  padding: 13px 14px; border-radius: 11px;
+  border: 1px solid var(--line); background: var(--panel-2);
+  color: var(--text); font: inherit; cursor: pointer;
+  transition: border-color .15s, background .15s, transform .15s;
+}
+.fx-art:hover { border-color: var(--accent); transform: translateY(-1px); background: linear-gradient(180deg, var(--panel-2), var(--accent-dim)); }
+.fx-art-ico {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px; flex-shrink: 0; border-radius: 9px;
+  background: var(--panel); border: 1px solid var(--line); color: var(--accent);
+}
+.fx-art-txt { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.fx-art-t { font-size: 13px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fx-art-k { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-dim); margin-top: 1px; }
+.fx-art-dl { color: var(--text-dim); flex-shrink: 0; }
+.fx-art.primary { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: linear-gradient(180deg, var(--panel-2), var(--accent-dim)); }
+.fx-art.primary .fx-art-ico { background: var(--accent); color: #04130b; border-color: var(--accent); }
+.fx-arts-l {
+  display: flex; align-items: center; gap: 8px; margin: 4px 0 12px;
+  font-family: var(--mono); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--text-soft);
+}
+.fx-arts-l::after { content: ""; flex: 1; height: 1px; background: var(--line-soft); }
+
 .fx-error {
   padding: 14px 16px; border-radius: 10px;
   border: 1px solid rgba(255, 93, 93, 0.4);

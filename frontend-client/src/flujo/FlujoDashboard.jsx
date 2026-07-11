@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PortalShell from "../shell/PortalShell.jsx";
-import { createJob, getJob, downloadJob } from "../api.js";
+import { createJob, getJob, downloadJob, downloadJobArtifact } from "../api.js";
 import "./flujo.css";
 
 /* ============================================================
@@ -55,6 +55,16 @@ const XLSX_MIMES = [
   "application/vnd.ms-excel.sheet.macroEnabled.12",
   "application/vnd.ms-excel",
 ].join(",");
+
+const I = (paths) => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">{paths}</svg>
+);
+const ART_ICON = {
+  txt: I(<><path d="M14 3v5h5" /><path d="M15 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M9 13h6" /><path d="M9 17h4" /></>),
+  xml: I(<><path d="m10 13-2 2 2 2" /><path d="m14 13 2 2-2 2" /><path d="M14 3v5h5" /><path d="M15 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /></>),
+  xlsx: I(<><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18" /><path d="M9 3v18" /></>),
+  zip: I(<><path d="M21 8v13H3V8" /><path d="M1 3h22v5H1z" /><path d="M10 12h4" /></>),
+};
 
 function DropZone({ slot, file, onPick, onClear, disabled }) {
   const inputRef = useRef(null);
@@ -177,6 +187,7 @@ export default function FlujoDashboard() {
   const summary = job?.summary_json || {};
   const cuadreEsf = summary.cuadre_esf;
   const cuadreAf = summary.cuadre_af;
+  const artifacts = summary.artifacts || [];
 
   const contextExtras = (
     <div className="pc-ctx-card">
@@ -253,17 +264,41 @@ export default function FlujoDashboard() {
               </div>
             </div>
 
-            <div className="fx-dl">
-              <div>
-                <div className="fx-dl-t">Excel auditable listo</div>
-                <div className="fx-dl-d">9 hojas · RESUMEN, ESF, ERI, Flujo, Patrimonio, No Efectivo, F-101, Indicadores + Homologación.</div>
+            <div className="fx-card">
+              <div className="fx-card-h">
+                <b>Descargas por estado</b>
+                <span className="fx-tag">SUPER CÍAS · SRI</span>
               </div>
-              <div style={{ display: "flex", gap: 10 }}>
-                <button className="pc-btn secondary" onClick={reset}>Generar otro</button>
-                <button className="fx-cta" onClick={() => downloadJob(job.id).catch((e) => setErr(e.message))}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>
-                  Descargar Excel
-                </button>
+              <div className="fx-card-b">
+                <div className="fx-arts-l">Envío electrónico</div>
+                <div className="fx-arts">
+                  {artifacts.map((a) => (
+                    <button
+                      key={a.name}
+                      className={`fx-art${a.kind === "zip" ? " primary" : ""}`}
+                      onClick={() => downloadJobArtifact(job.id, a.name).catch((e) => setErr(e.message))}
+                    >
+                      <span className="fx-art-ico">{ART_ICON[a.kind] || ART_ICON.txt}</span>
+                      <span className="fx-art-txt">
+                        <span className="fx-art-t">{a.label}</span>
+                        <span className="fx-art-k">{a.estado} · {(a.kind || "").toUpperCase()}</span>
+                      </span>
+                      <span className="fx-art-dl">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>
+                      </span>
+                    </button>
+                  ))}
+                  {artifacts.length === 0 && (
+                    <button className="fx-art primary" onClick={() => downloadJob(job.id).catch((e) => setErr(e.message))}>
+                      <span className="fx-art-ico">{ART_ICON.xlsx}</span>
+                      <span className="fx-art-txt"><span className="fx-art-t">Descargar Excel</span><span className="fx-art-k">Todos · XLSX</span></span>
+                    </button>
+                  )}
+                </div>
+                {err && <div className="fx-error" style={{ marginTop: 14 }}>{err}</div>}
+                <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--line-soft)" }}>
+                  <button className="pc-btn secondary" onClick={reset}>↺ Generar otro</button>
+                </div>
               </div>
             </div>
           </section>
