@@ -89,6 +89,7 @@ export default function PortalShell({
     if (cat.tools?.length === 1) {
       const code = cat.tools[0].code;
       if (code === "ICT_2025") nav("/tools/ICT_2025");
+      else if (code === "FLUJO_EFECTIVO") nav("/tools/FLUJO_EFECTIVO");
       else nav(`/tools/${code}`);
     } else {
       nav("/catalog");
