@@ -101,6 +101,7 @@ export default function ClientCatalog() {
                     className="pc-tile"
                     onClick={() => {
                       if (t.code === "ICT_2025") nav("/tools/ICT_2025");
+                      else if (t.code === "FLUJO_EFECTIVO") nav("/tools/FLUJO_EFECTIVO");
                       else nav(`/tools/${t.code}`);
                     }}
                   >
