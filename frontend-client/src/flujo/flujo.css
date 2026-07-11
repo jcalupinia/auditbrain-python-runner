@@ -147,6 +147,8 @@
 .fx3d .fx-ht-in { width: 108px; text-align: right; font: 11.5px var(--mono); color: var(--text); background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 4px 6px; outline: none; }
 .fx3d .fx-ht-in:hover { border-color: var(--line); }
 .fx3d .fx-ht-in:focus { border-color: var(--accent); background: var(--panel); }
+.fx3d .fx-ht-in.cod { text-align: left; width: 128px; color: var(--accent); }
+.fx3d .fx-ht-nom { display: block; font-size: 9.5px; line-height: 1.2; color: var(--text-soft); opacity: .72; max-width: 176px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 6px 3px; }
 .fx3d .fx-ht-tbl tfoot td { position: sticky; bottom: 0; background: var(--panel-2); font-weight: 700; color: var(--text); border-top: 2px solid var(--accent); }
 .fx3d .fx-ht-tbl tfoot .tot2 td { font: 700 11px var(--mono); color: var(--accent); }
 .fx3d .fx-ht-sum { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 14px; border-top: 1px solid var(--line-soft); }

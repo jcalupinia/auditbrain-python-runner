@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PortalShell from "../shell/PortalShell.jsx";
-import { createJob, getJob, downloadJobArtifact, getJobArtifactJson, recalcularFlujo } from "../api.js";
+import { createJob, getJob, downloadJobArtifact, getJobArtifactJson, recalcularFlujo, getFlujoCatalogos } from "../api.js";
 import HojaTrabajo from "./HojaTrabajo.jsx";
 import HojaTrabajoERI from "./HojaTrabajoERI.jsx";
 import BalanzasEditor from "./BalanzasEditor.jsx";
@@ -106,6 +106,7 @@ export default function FlujoDashboard() {
   const [selected, setSelected] = useState(null);
   const [previews, setPreviews] = useState(null);
   const [recalculando, setRecalculando] = useState(false);
+  const [catalogos, setCatalogos] = useState(null);
   const [err, setErr] = useState(null);
 
   const reqDone = UPLOADS.filter((u) => u.req).every((u) => files[u.key]);
@@ -145,6 +146,16 @@ export default function FlujoDashboard() {
       .catch(() => { /* la preview es opcional */ });
     return () => { alive = false; };
   }, [phase, job?.id]);
+
+  // plan de cuentas (Super Cías + SRI) para los selectores del editor — una vez
+  useEffect(() => {
+    if (phase !== "done" || catalogos) return;
+    let alive = true;
+    getFlujoCatalogos()
+      .then((c) => { if (alive) setCatalogos(c); })
+      .catch(() => { /* los selectores caen a texto libre si falla */ });
+    return () => { alive = false; };
+  }, [phase, catalogos]);
 
   async function handleProcess() {
     setErr(null); setRunStep(0); setPhase("running");
@@ -356,6 +367,7 @@ export default function FlujoDashboard() {
                 <BalanzasEditor
                   ant={previews.MAP_ANT}
                   act={previews.MAP}
+                  catalogos={catalogos}
                   onRecalc={handleRecalc}
                   recalculando={recalculando}
                 />

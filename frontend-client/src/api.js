@@ -148,6 +148,9 @@ export async function getJobArtifactJson(jobId, name) {
   return resp.json();
 }
 
+// Plan de cuentas oficial (Super Cías + SRI) para los selectores del editor.
+export const getFlujoCatalogos = () => request(`/client/tools/flujo/catalogos`);
+
 // Recalcula toda la Herramienta Flujo de Efectivo con balanzas editadas.
 // Devuelve los previews frescos (todas las secciones) — reusa los motores
 // validados del backend (no duplica lógica en el navegador).

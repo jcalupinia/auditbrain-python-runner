@@ -408,6 +408,17 @@ class RecalcularFlujoRequest(BaseModel):
     bal_act: list[_BalanzaFila]
 
 
+@router.get("/tools/flujo/catalogos")
+def flujo_catalogos_endpoint(
+    user: User = Depends(require_client_with_device),
+):
+    """Plan de cuentas oficial (Super Cías + SRI) para poblar los selectores del
+    editor de balanzas. Estático: el frontend lo cachea y lo pide una sola vez."""
+    from backend.app.client_portal.flujo import catalogos as flujo_catalogos
+
+    return flujo_catalogos.cargar_plan_cuentas()
+
+
 @router.post("/tools/jobs/{job_id}/flujo/recalcular")
 def recalcular_flujo_endpoint(
     job_id: int,
