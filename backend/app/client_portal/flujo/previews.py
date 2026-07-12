@@ -15,6 +15,7 @@ from . import (
     motor_no_efectivo,
     motor_notas,
     motor_patrimonio,
+    motor_resumen,
 )
 from .exportadores import (
     _ERI_ORI_CODES,
@@ -33,16 +34,34 @@ _PAT_LABEL = {
     "resultado_ejercicio": "Resultado del ejercicio",
 }
 _IND_LABEL = {
+    # Liquidez
     "razon_corriente": "Razón corriente",
+    "prueba_acida": "Prueba ácida",
     "capital_trabajo": "Capital de trabajo",
+    # Actividad
+    "dias_cartera": "Días cartera",
+    "dias_inventario": "Días inventario",
+    "dias_proveedores": "Días proveedores",
+    "ciclo_efectivo": "Ciclo de efectivo",
+    "eficiencia_activos": "Eficiencia de activos",
+    # Endeudamiento
     "endeudamiento_total": "Endeudamiento total",
-    "apalancamiento": "Apalancamiento",
+    "endeudamiento_lp": "Endeudamiento a largo plazo",
+    "endeudamiento_financiero": "Endeudamiento financiero",
+    "endeudamiento_patrimonial": "Relación de endeudamiento patrimonial",
+    "apalancamiento": "Apalancamiento (Activos / Patrimonio)",
+    # Rentabilidad
+    "roi": "ROI (Utilidad operativa / Activos)",
+    "margen_operativo": "Margen operativo",
+    "roe": "ROE",
     "margen_neto": "Margen neto",
     "roa": "ROA",
-    "roe": "ROE",
+    "ebit": "EBIT",
+    "ebitda": "EBITDA",
 }
 # indicadores que se muestran como porcentaje
-_IND_PCT = {"endeudamiento_total", "margen_neto", "roa", "roe"}
+_IND_PCT = {"endeudamiento_total", "endeudamiento_lp", "roi",
+            "margen_operativo", "roe", "margen_neto", "roa"}
 
 
 def _r(v) -> float:
@@ -229,10 +248,15 @@ def construir_previews(bal_ant: list[dict], bal_act: list[dict]) -> dict:
         est_esf, est_eri, tot_esf_ant, tot_esf, tot_eri_ant, tot_eri)
     prev["NOTAS"] = notas
 
+    # ---- Balance resumido (ER + ESF condensados) ----
+    resumen = motor_resumen.balance_resumido(
+        tot_esf_ant, tot_esf, tot_eri_ant, tot_eri)
+    prev["RESUMIDO"] = resumen
+
     # ---- Indicadores ----
-    eri_ind = dict(cascada)
-    eri_ind["_ingresos_totales"] = cascada.get("ingresos_ordinarios", 0.0) + cascada.get("otros_ingresos", 0.0)
-    ind = motor_indicadores.indicadores(tot_esf, eri_ind)
+    ne = motor_no_efectivo.gastos_no_efectivo(tot_eri, catalogos.cargar_no_efectivo())
+    ind = motor_indicadores.indicadores(
+        tot_esf, cascada, resumen=resumen, no_efectivo=ne, tot_esf_ant=tot_esf_ant)
     rows = []
     for key, label in _IND_LABEL.items():
         if key in ind:

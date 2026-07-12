@@ -302,7 +302,11 @@ def _eval_formula(formula, esf_ref, eri_ref, mne_ref, ep_ref, flujo_D):
                    lambda m: "(%r)" % flujo_D(int(m.group(1))), e)
     else:
         # Contexto MNE: las auto-referencias son celdas C{fila} desnudas de la
-        # propia hoja Movimiento no Efectivo.
+        # propia hoja Movimiento no Efectivo. Manejar rangos SUM(C..:C..) antes
+        # que las celdas sueltas (ej. filas SALDO FINAL = SUM(Cx:Cy)).
+        e = re.sub(r"SUM\(C(\d+):C(\d+)\)",
+                   lambda m: "(%r)" % _r2(sum(mne_ref("C", rr)
+                                              for rr in range(int(m.group(1)), int(m.group(2)) + 1))), e)
         e = re.sub(r"(?<![A-Za-z0-9_'!.])C(\d+)",
                    lambda m: "(%r)" % mne_ref("C", int(m.group(1))), e)
     # Guarda de seguridad: solo aritmética con números.

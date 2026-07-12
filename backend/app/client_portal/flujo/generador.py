@@ -29,6 +29,8 @@ from . import (
     motor_no_efectivo,
     motor_notas,
     motor_patrimonio,
+    motor_resumen,
+    patrimonio_matriz,
 )
 
 # ----------------------------------------------------------------------------
@@ -276,7 +278,7 @@ def _hoja_homologacion(wb: Workbook, ctx: dict):
             _celda_num(ws, fila, 4, f.get("saldo", 0.0), fill=z)
             total += float(f.get("saldo", 0.0) or 0.0)
             fila += 1
-        _celda_texto(ws, fila, 1, "TOTAL (control ≈ 0)", font=FONT_TOTAL,
+        _celda_texto(ws, fila, 1, "TOTAL saldos", font=FONT_TOTAL,
                      fill=FILL_TOTAL, borde=BORDE_TOTAL)
         for col in (2, 3):
             _celda_texto(ws, fila, col, "", fill=FILL_TOTAL, borde=BORDE_TOTAL)
@@ -354,45 +356,70 @@ def _hoja_flujo(wb: Workbook, ctx: dict):
 
 
 def _hoja_patrimonio(wb: Workbook, ctx: dict):
+    """Estado de Evolución del Patrimonio — matriz oficial 99xx (16 movimientos ×
+    18 componentes + TOTAL), con encabezados agrupados. Reproduce la hoja
+    ``Estado de Evolucion del Patrimo`` del modelo (validada 288/288 celdas)."""
+    from openpyxl.utils import get_column_letter
+
     ws = wb.create_sheet("Evolución del Patrimonio")
     ws.sheet_view.showGridLines = False
-    inicio = _titulo_hoja(ws, "Estado de Evolución del Patrimonio", 5)
-    _encabezados(ws, inicio,
-                 ["Código", "Componente", "Saldo Inicial", "Variación", "Saldo Final"],
-                 [12, 40, 18, 16, 18])
-    fila = inicio + 1
-    evo = ctx["patrimonio"]
-    orden = ["capital", "aportes_socios", "prima_emision", "reservas",
-             "otros_resultados_integrales", "resultados_acumulados",
-             "resultado_ejercicio"]
-    etiquetas = {
-        "capital": "Capital",
-        "aportes_socios": "Aportes de socios para futura capitalización",
-        "prima_emision": "Prima por emisión de acciones",
-        "reservas": "Reservas",
-        "otros_resultados_integrales": "Otros resultados integrales",
-        "resultados_acumulados": "Resultados acumulados",
-        "resultado_ejercicio": "Resultado del ejercicio",
-    }
-    for k in orden:
-        comp = evo[k]
-        _celda_texto(ws, fila, 1, comp["codigo"], al=AL_CEN)
-        _celda_texto(ws, fila, 2, etiquetas[k])
-        _celda_num(ws, fila, 3, comp["saldo_inicial"])
-        _celda_num(ws, fila, 4, comp["variacion"])
-        _celda_num(ws, fila, 5, comp["saldo_final"])
+    mat = ctx["patrimonio_matriz"]
+    cols = mat["columnas"]       # 18 componentes [{codigo,nombre}]
+    grupos = mat["grupos"]       # [{nombre, cols:[codigo...]}]
+    filas = mat["filas"]         # 16 movimientos
+    ncomp = len(cols)
+    col_total = 3 + ncomp        # columna del TOTAL
+
+    hr1 = _titulo_hoja(ws, "Estado de Evolución del Patrimonio (matriz oficial 99xx)",
+                       col_total)
+    ws.column_dimensions["A"].width = 10
+    ws.column_dimensions["B"].width = 34
+    for i in range(ncomp):
+        ws.column_dimensions[get_column_letter(3 + i)].width = 13
+    ws.column_dimensions[get_column_letter(col_total)].width = 16
+
+    # Encabezado fila 1: Cód. | Movimiento | [grupos] | TOTAL PATRIMONIO
+    _celda_texto(ws, hr1, 1, "Cód.", al=AL_CEN, font=FONT_TOTAL, fill=FILL_TOTAL)
+    _celda_texto(ws, hr1, 2, "Movimiento", font=FONT_TOTAL, fill=FILL_TOTAL)
+    c = 3
+    for g in grupos:
+        n = len(g["cols"])
+        if n > 1:
+            ws.merge_cells(start_row=hr1, start_column=c, end_row=hr1, end_column=c + n - 1)
+        _celda_texto(ws, hr1, c, g.get("nombre") or " ", al=AL_CEN,
+                     font=FONT_TOTAL, fill=FILL_TOTAL)
+        for cc in range(c, c + n):
+            celda = ws.cell(row=hr1, column=cc)
+            celda.fill = FILL_TOTAL
+            celda.border = BORDE_THIN
+        c += n
+    _celda_texto(ws, hr1, col_total, "TOTAL PATRIMONIO", al=AL_CEN,
+                 font=FONT_TOTAL, fill=FILL_TOTAL)
+
+    # Encabezado fila 2: códigos de componente
+    hr2 = hr1 + 1
+    _celda_texto(ws, hr2, 1, " ", fill=FILL_TOTAL)
+    _celda_texto(ws, hr2, 2, " ", fill=FILL_TOTAL)
+    for i, comp in enumerate(cols):
+        _celda_texto(ws, hr2, 3 + i, comp["codigo"], al=AL_CEN, font=FONT_DATA,
+                     fill=FILL_TOTAL)
+    _celda_texto(ws, hr2, col_total, " ", fill=FILL_TOTAL)
+
+    # Filas de movimiento
+    secciones = {"99", "9901", "9902"}
+    fila = hr2 + 1
+    for f in filas:
+        es_sec = f["codigo"] in secciones
+        font = FONT_TOTAL if es_sec else FONT_DATA
+        fill = FILL_TOTAL if es_sec else None
+        _celda_texto(ws, fila, 1, f["codigo"], al=AL_CEN, font=font, fill=fill)
+        _celda_texto(ws, fila, 2, f["nombre"], font=font, fill=fill)
+        for i, comp in enumerate(cols):
+            _celda_num(ws, fila, 3 + i, f["celdas"].get(comp["codigo"], 0.0),
+                       font=font, fill=fill)
+        _celda_num(ws, fila, col_total, f["celdas"].get("total", 0.0),
+                   font=FONT_TOTAL, fill=(fill or FILL_TOTAL))
         fila += 1
-    tot = evo["total_patrimonio"]
-    _celda_texto(ws, fila, 1, tot["codigo"], al=AL_CEN, font=FONT_TOTAL,
-                 fill=FILL_TOTAL, borde=BORDE_TOTAL)
-    _celda_texto(ws, fila, 2, "TOTAL PATRIMONIO", font=FONT_TOTAL,
-                 fill=FILL_TOTAL, borde=BORDE_TOTAL)
-    _celda_num(ws, fila, 3, tot["saldo_inicial"], font=FONT_TOTAL,
-               fill=FILL_TOTAL, borde=BORDE_TOTAL)
-    _celda_num(ws, fila, 4, tot["variacion"], font=FONT_TOTAL, fill=FILL_TOTAL,
-               borde=BORDE_TOTAL)
-    _celda_num(ws, fila, 5, tot["saldo_final"], font=FONT_TOTAL, fill=FILL_TOTAL,
-               borde=BORDE_TOTAL)
 
 
 def _hoja_no_efectivo(wb: Workbook, ctx: dict):
@@ -454,27 +481,73 @@ def _hoja_indicadores(wb: Workbook, ctx: dict):
     _encabezados(ws, inicio, ["Indicador", "Valor"], [42, 22])
     fila = inicio + 1
     ind = ctx["indicadores"]
-    etiquetas = {
-        "activo_total": ("Activo total", False),
-        "activo_corriente": ("Activo corriente", False),
-        "pasivo_total": ("Pasivo total", False),
-        "pasivo_corriente": ("Pasivo corriente", False),
-        "patrimonio": ("Patrimonio", False),
-        "capital_trabajo": ("Capital de trabajo", False),
-        "razon_corriente": ("Razón corriente", True),
-        "endeudamiento_total": ("Endeudamiento total", True),
-        "apalancamiento": ("Apalancamiento", True),
-        "margen_neto": ("Margen neto", True),
-        "roa": ("ROA", True),
-        "roe": ("ROE", True),
-    }
-    for clave, (nombre, es_ratio) in etiquetas.items():
+    # (clave, etiqueta, tipo) — tipo: "monto" #,##0.00 · "ratio" 0.0000 ·
+    # "pct" porcentaje · "dias" 0.0
+    etiquetas = [
+        ("activo_total", "Activo total", "monto"),
+        ("pasivo_total", "Pasivo total", "monto"),
+        ("patrimonio", "Patrimonio", "monto"),
+        ("capital_trabajo", "Capital de trabajo", "monto"),
+        ("razon_corriente", "Razón corriente", "ratio"),
+        ("prueba_acida", "Prueba ácida", "ratio"),
+        ("dias_cartera", "Días cartera", "dias"),
+        ("dias_inventario", "Días inventario", "dias"),
+        ("dias_proveedores", "Días proveedores", "dias"),
+        ("ciclo_efectivo", "Ciclo de efectivo", "dias"),
+        ("eficiencia_activos", "Eficiencia de activos", "ratio"),
+        ("endeudamiento_total", "Endeudamiento total", "pct"),
+        ("endeudamiento_lp", "Endeudamiento a largo plazo", "pct"),
+        ("endeudamiento_financiero", "Endeudamiento financiero", "ratio"),
+        ("endeudamiento_patrimonial", "Relación de endeudamiento patrimonial", "ratio"),
+        ("apalancamiento", "Apalancamiento (Activos / Patrimonio)", "ratio"),
+        ("roi", "ROI (Utilidad operativa / Activos)", "pct"),
+        ("margen_operativo", "Margen operativo", "pct"),
+        ("roe", "ROE", "pct"),
+        ("margen_neto", "Margen neto", "pct"),
+        ("roa", "ROA", "pct"),
+        ("ebit", "EBIT", "monto"),
+        ("ebitda", "EBITDA", "monto"),
+    ]
+    _fmt = {"monto": NUM_FMT, "ratio": "0.0000", "pct": "0.00%", "dias": "0.0"}
+    for clave, nombre, tipo in etiquetas:
         _celda_texto(ws, fila, 1, nombre)
         c = ws.cell(row=fila, column=2, value=round(float(ind.get(clave, 0.0)), 4))
-        c.number_format = "0.0000" if es_ratio else NUM_FMT
+        c.number_format = _fmt[tipo]
         c.font = FONT_DATA
         c.alignment = AL_DER
         c.border = BORDE_THIN
+        fila += 1
+
+
+def _hoja_er_esf(wb: Workbook, ctx: dict):
+    """Balance resumido — Estado de Resultados + ESF condensados (año actual y
+    anterior), replicando la hoja "ER y ESF" del modelo."""
+    ws = wb.create_sheet("Balance resumido")
+    ws.sheet_view.showGridLines = False
+    fila = _titulo_hoja(ws, "Estado de Resultados y Balance — resumido", 3)
+    ws.column_dimensions["A"].width = 48
+    ws.column_dimensions["B"].width = 18
+    ws.column_dimensions["C"].width = 18
+    res = ctx["resumen"]
+
+    for titulo, seccion in (("ESTADO DE RESULTADOS", res["er"]),
+                            ("ESTADO DE SITUACIÓN FINANCIERA", res["esf"])):
+        fila += 1
+        _bloque(ws, fila, titulo, 3)
+        fila += 1
+        _celda_texto(ws, fila, 1, "", fill=FILL_TOTAL)
+        _celda_texto(ws, fila, 2, "Año actual", al=AL_DER, font=FONT_TOTAL, fill=FILL_TOTAL)
+        _celda_texto(ws, fila, 3, "Año anterior", al=AL_DER, font=FONT_TOTAL, fill=FILL_TOTAL)
+        fila += 1
+        for f in seccion:
+            es_tot = f["es_total"]
+            font = FONT_TOTAL if es_tot else FONT_DATA
+            fill = FILL_TOTAL if es_tot else None
+            borde = BORDE_TOTAL if es_tot else BORDE_THIN
+            _celda_texto(ws, fila, 1, f["concepto"], font=font, fill=fill, borde=borde)
+            _celda_num(ws, fila, 2, f["act"], font=font, fill=fill, borde=borde)
+            _celda_num(ws, fila, 3, f["ant"], font=font, fill=fill, borde=borde)
+            fila += 1
         fila += 1
 
 
@@ -571,11 +644,11 @@ def generar_excel(balanza_anterior: list[dict], balanza_actual: list[dict]) -> b
     ori885 = motor_f101.ori_del_periodo(balanza_anterior, balanza_actual)
     f101 = motor_f101.casilleros_completos(balanza_actual, agregados,
                                            extras={"885": ori885})
-    # motor_indicadores usa la clave interna "_ingresos_totales" para el margen
-    eri_para_ind = dict(cascada)
-    eri_para_ind["_ingresos_totales"] = round(
-        cascada["ingresos_ordinarios"] + cascada["otros_ingresos"], 2)
-    indicadores = motor_indicadores.indicadores(tot_esf_act, eri_para_ind)
+    resumen = motor_resumen.balance_resumido(
+        tot_esf_ant, tot_esf_act, tot_eri_ant, tot_eri_act)
+    indicadores = motor_indicadores.indicadores(
+        tot_esf_act, cascada, resumen=resumen, no_efectivo=no_efectivo,
+        tot_esf_ant=tot_esf_ant)
 
     # Resultado integral REAL = utilidad neta + ORI del período. El ORI viene de
     # la reclasificación actuarial (motor_f101.ori_del_periodo), NO del código 800
@@ -592,8 +665,11 @@ def generar_excel(balanza_anterior: list[dict], balanza_actual: list[dict]) -> b
         "ori": ori885,
         "resultado_integral": resultado_integral,
         "patrimonio": patrimonio,
+        "patrimonio_matriz": patrimonio_matriz.matriz_patrimonio(
+            balanza_anterior, balanza_actual),
         "no_efectivo": no_efectivo,
         "notas": notas,
+        "resumen": resumen,
         "f101": f101,
         "indicadores": indicadores,
     }
@@ -618,6 +694,7 @@ def generar_excel(balanza_anterior: list[dict], balanza_actual: list[dict]) -> b
     _hoja_flujo(wb, ctx)
     _hoja_patrimonio(wb, ctx)
     _hoja_no_efectivo(wb, ctx)
+    _hoja_er_esf(wb, ctx)
     _hoja_f101(wb, ctx)
     _hoja_notas(wb, ctx)
     _hoja_indicadores(wb, ctx)

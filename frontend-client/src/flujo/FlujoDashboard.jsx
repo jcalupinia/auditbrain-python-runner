@@ -6,6 +6,7 @@ import HojaTrabajo from "./HojaTrabajo.jsx";
 import HojaTrabajoERI from "./HojaTrabajoERI.jsx";
 import BalanzasEditor from "./BalanzasEditor.jsx";
 import NotasEstados from "./NotasEstados.jsx";
+import BalanceResumido from "./BalanceResumido.jsx";
 import MatrizPatrimonio from "./MatrizPatrimonio.jsx";
 import "./flujo.css";
 
@@ -58,6 +59,7 @@ const SECTIONS = [
   { n: "7", code: "101", name: "Formulario 101", desc: "Casilleros por Código SRI", dl: "xml", art: ART.f101 },
   { n: "8", code: "NOT", name: "Notas a los Estados", desc: "Desglose por rubro · en el Excel", dl: "excel" },
   { n: "9", code: "IND", name: "Indicadores", desc: "Razón corriente, ROE…", dl: "excel" },
+  { n: "10", code: "RES", name: "Balance resumido", desc: "ER + ESF condensados", dl: "excel" },
 ];
 
 const MOTOR_STEPS = [
@@ -345,6 +347,8 @@ export default function FlujoDashboard() {
                   <div className="fx-prev-t">{sel.name}</div>
                   <div className="fx-prev-m">{sel.code === "NOT"
                     ? `Vista previa · ${(previews?.NOTAS?.esf?.length || 0) + (previews?.NOTAS?.eri?.length || 0)} notas`
+                    : sel.code === "RES"
+                    ? `Vista previa · ${(previews?.RESUMIDO?.er?.length || 0) + (previews?.RESUMIDO?.esf?.length || 0)} líneas`
                     : `Vista previa · ${(sel.code === "FLU" ? previews?.FLU_95 : previews?.[sel.code])?.rows?.length ?? 0} filas`}</div>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
@@ -368,6 +372,8 @@ export default function FlujoDashboard() {
                 <MatrizPatrimonio data={previews.WP_PATRIMONIO} />
               ) : sel.code === "NOT" && previews?.NOTAS ? (
                 <NotasEstados data={previews.NOTAS} />
+              ) : sel.code === "RES" && previews?.RESUMIDO ? (
+                <BalanceResumido data={previews.RESUMIDO} />
               ) : sel.code === "MAP" && (previews?.MAP || previews?.MAP_ANT) ? (
                 <BalanzasEditor
                   ant={previews.MAP_ANT}
