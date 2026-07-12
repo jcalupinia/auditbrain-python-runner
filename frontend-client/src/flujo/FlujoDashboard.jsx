@@ -343,7 +343,9 @@ export default function FlujoDashboard() {
               <div className="fx-prev-h">
                 <div>
                   <div className="fx-prev-t">{sel.name}</div>
-                  <div className="fx-prev-m">Vista previa · {((sel.code === "FLU" ? previews?.FLU_95 : previews?.[sel.code])?.rows?.length ?? 0)} filas</div>
+                  <div className="fx-prev-m">{sel.code === "NOT"
+                    ? `Vista previa · ${(previews?.NOTAS?.esf?.length || 0) + (previews?.NOTAS?.eri?.length || 0)} notas`
+                    : `Vista previa · ${(sel.code === "FLU" ? previews?.FLU_95 : previews?.[sel.code])?.rows?.length ?? 0} filas`}</div>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   {(sel.dl === "txt" || sel.dl === "xml") && isDone && (
