@@ -13,6 +13,7 @@ from . import (
     motor_flujo,
     motor_indicadores,
     motor_no_efectivo,
+    motor_notas,
     motor_patrimonio,
 )
 from .exportadores import (
@@ -222,6 +223,11 @@ def construir_previews(bal_ant: list[dict], bal_act: list[dict]) -> dict:
         bal_act, catalogos.cargar_agregados_f101(), extras={"885": ori})
     rows = [[c, _r(cas[c])] for c in sorted(cas, key=lambda x: int(x)) if cas[c]]
     prev["101"] = {"cols": ["Casillero", "Valor"], "rows": rows}
+
+    # ---- Notas a los Estados Financieros (desglose por rubro) ----
+    notas = motor_notas.notas_estados(
+        est_esf, est_eri, tot_esf_ant, tot_esf, tot_eri_ant, tot_eri)
+    prev["NOTAS"] = notas
 
     # ---- Indicadores ----
     eri_ind = dict(cascada)

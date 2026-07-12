@@ -10,7 +10,7 @@ from backend.app.client_portal.flujo import generador
 HOJAS_ESPERADAS = [
     "RESUMEN", "Homologación", "ESF", "ERI", "Flujo de Efectivo",
     "Evolución del Patrimonio", "Movimiento no Efectivo", "Formulario 101",
-    "Indicadores",
+    "Notas", "Indicadores",
 ]
 
 
@@ -32,7 +32,7 @@ def _balanza_actual():
     ]
 
 
-def test_generar_excel_devuelve_bytes_con_9_hojas():
+def test_generar_excel_devuelve_bytes_con_todas_las_hojas():
     data = generador.generar_excel(_balanza_anterior(), _balanza_actual())
     assert isinstance(data, (bytes, bytearray))
     assert len(data) > 0
@@ -63,7 +63,8 @@ def test_no_lanza_excepcion_con_balanza_minima():
     ]
     data = generador.generar_excel(bal, bal)
     wb = load_workbook(io.BytesIO(data))
-    assert len(wb.sheetnames) == 9
+    assert len(wb.sheetnames) == 10  # + hoja Notas (desde 2026-07-11)
+    assert "Notas" in wb.sheetnames
 
 
 def test_ninguna_celda_texto_parece_formula():
