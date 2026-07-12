@@ -9,8 +9,8 @@ from backend.app.client_portal.flujo import generador
 # Pasivo "2", Patrimonio "3", ingresos/gastos del ERI "4"/"5").
 HOJAS_ESPERADAS = [
     "RESUMEN", "Homologación", "ESF", "ERI", "Flujo de Efectivo",
-    "Evolución del Patrimonio", "Movimiento no Efectivo", "Formulario 101",
-    "Notas", "Indicadores",
+    "Evolución del Patrimonio", "Movimiento no Efectivo", "Balance resumido",
+    "Formulario 101", "Notas", "Indicadores",
 ]
 
 
@@ -63,7 +63,7 @@ def test_no_lanza_excepcion_con_balanza_minima():
     ]
     data = generador.generar_excel(bal, bal)
     wb = load_workbook(io.BytesIO(data))
-    assert len(wb.sheetnames) == 10  # + hoja Notas (desde 2026-07-11)
+    assert len(wb.sheetnames) == 11  # + Notas + Balance resumido
     assert "Notas" in wb.sheetnames
 
 

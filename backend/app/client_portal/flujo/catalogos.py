@@ -102,16 +102,17 @@ def cargar_plan_cuentas() -> dict:
     Fuente: ``plan_cuentas_super_sri.csv`` (mismo plan que usa la homologación).
     """
     ruta = os.path.join(_DATA, "plan_cuentas_super_sri.csv")
-    super_rows: list[dict] = []
+    super_map: dict[str, str] = {}   # dedup por código (el CSV trae una fila por par super↔SRI)
     sri_map: dict[str, str] = {}
     with open(ruta, encoding="utf-8-sig", newline="") as f:
         for row in csv.DictReader(f):
             cs = (row.get("codigo_super_cias") or "").strip()
-            if cs:
-                super_rows.append({"codigo": cs, "nombre": (row.get("nombre_cuenta") or "").strip()})
+            if cs and cs not in super_map:
+                super_map[cs] = (row.get("nombre_cuenta") or "").strip()
             sri = (row.get("codigo_sri") or "").strip()
             if sri and sri not in sri_map:
                 sri_map[sri] = (row.get("nombre_sri") or "").strip()
+    super_rows = [{"codigo": k, "nombre": v} for k, v in super_map.items()]
     sri_rows = [{"codigo": k, "nombre": v}
                 for k, v in sorted(sri_map.items(), key=lambda kv: (len(kv[0]), kv[0]))]
     return {"super": super_rows, "sri": sri_rows}

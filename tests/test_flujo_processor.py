@@ -4,7 +4,7 @@ Cubre el pipeline interno (leer inputs por slot -> parsear -> generar Excel)
 de forma pragmática, sin montar toda la DB. El test de humo verifica que:
   - el processor existe y es invocable,
   - la lógica de leer los DOS slots (balanza_anterior/balanza_actual) desde
-    file_storage, parsear y generar produce un .xlsx válido de 10 hojas,
+    file_storage, parsear y generar produce un .xlsx válido de 11 hojas,
   - el summary refleja las cuadraturas.
 """
 import io
@@ -53,7 +53,7 @@ def test_pipeline_interno_genera_excel_de_9_hojas(tmp_path):
 
     assert out_path.exists()
     wb = load_workbook(out_path)
-    assert len(wb.sheetnames) == 10  # + hoja Notas
+    assert len(wb.sheetnames) == 11  # + Notas + Balance resumido
     assert "Notas" in wb.sheetnames
     assert summary["filas_anterior"] == 2
     assert summary["filas_actual"] == 2
