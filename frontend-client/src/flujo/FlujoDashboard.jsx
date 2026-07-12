@@ -5,6 +5,7 @@ import { createJob, getJob, downloadJobArtifact, getJobArtifactJson, recalcularF
 import HojaTrabajo from "./HojaTrabajo.jsx";
 import HojaTrabajoERI from "./HojaTrabajoERI.jsx";
 import BalanzasEditor from "./BalanzasEditor.jsx";
+import NotasEstados from "./NotasEstados.jsx";
 import MatrizPatrimonio from "./MatrizPatrimonio.jsx";
 import "./flujo.css";
 
@@ -55,7 +56,7 @@ const SECTIONS = [
   { n: "5", code: "MNE", name: "Movimiento no Efectivo", desc: "Depreciación y deterioros", dl: "excel" },
   { n: "6", code: "MAP", name: "Balanzas (editable)", desc: "Editá saldos ant./act. · recalcula todo", dl: "excel" },
   { n: "7", code: "101", name: "Formulario 101", desc: "Casilleros por Código SRI", dl: "xml", art: ART.f101 },
-  { n: "8", code: "NOT", name: "Notas a los Estados", desc: "Desglose por rubro", dl: "soon" },
+  { n: "8", code: "NOT", name: "Notas a los Estados", desc: "Desglose por rubro · en el Excel", dl: "excel" },
   { n: "9", code: "IND", name: "Indicadores", desc: "Razón corriente, ROE…", dl: "excel" },
 ];
 
@@ -363,6 +364,8 @@ export default function FlujoDashboard() {
                 <HojaTrabajoERI data={previews.WP_ERI} />
               ) : sel.code === "PAT" && previews?.WP_PATRIMONIO ? (
                 <MatrizPatrimonio data={previews.WP_PATRIMONIO} />
+              ) : sel.code === "NOT" && previews?.NOTAS ? (
+                <NotasEstados data={previews.NOTAS} />
               ) : sel.code === "MAP" && (previews?.MAP || previews?.MAP_ANT) ? (
                 <BalanzasEditor
                   ant={previews.MAP_ANT}

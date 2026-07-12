@@ -27,6 +27,7 @@ from . import (
     motor_flujo,
     motor_indicadores,
     motor_no_efectivo,
+    motor_notas,
     motor_patrimonio,
 )
 
@@ -232,7 +233,7 @@ def _hoja_resumen(wb: Workbook, ctx: dict):
     ws.cell(row=fila, column=4, value="").border = BORDE_THIN
     fila += 1
     _celda_texto(ws, fila, 2, "Resultado integral del ejercicio")
-    _celda_num(ws, fila, 3, ctx["cascada"]["resultado_integral"])
+    _celda_num(ws, fila, 3, ctx["resultado_integral"])
     ws.cell(row=fila, column=4, value="").border = BORDE_THIN
     fila += 2
 
@@ -477,6 +478,56 @@ def _hoja_indicadores(wb: Workbook, ctx: dict):
         fila += 1
 
 
+def _hoja_notas(wb: Workbook, ctx: dict):
+    """Notas a los Estados Financieros — desglose por rubro (ESF y ERI).
+
+    Por cada rubro con saldo: encabezado (código + nombre + años), las cuentas
+    de detalle con saldo anterior/actual, y una fila de subtotal del rubro.
+    """
+    ws = wb.create_sheet("Notas")
+    ws.sheet_view.showGridLines = False
+    fila = _titulo_hoja(ws, "Notas a los Estados Financieros — desglose por rubro", 4)
+    ws.column_dimensions["A"].width = 18
+    ws.column_dimensions["B"].width = 56
+    ws.column_dimensions["C"].width = 18
+    ws.column_dimensions["D"].width = 18
+
+    notas = ctx["notas"]
+    anio_ant = ctx.get("anio_anterior", "Año anterior")
+    anio_act = ctx.get("anio_actual", "Año actual")
+
+    for titulo_bloque, grupo in (("ESTADO DE SITUACIÓN FINANCIERA", notas["esf"]),
+                                 ("ESTADO DE RESULTADOS INTEGRAL", notas["eri"])):
+        if not grupo:
+            continue
+        fila += 1
+        _bloque(ws, fila, titulo_bloque, 4)
+        fila += 2
+        for nt in grupo:
+            # Encabezado del rubro: código + nombre + años
+            _celda_texto(ws, fila, 1, nt["codigo"], al=AL_CEN, font=FONT_TOTAL, fill=FILL_TOTAL)
+            _celda_texto(ws, fila, 2, nt["nombre"], font=FONT_TOTAL, fill=FILL_TOTAL)
+            _celda_texto(ws, fila, 3, str(anio_ant), al=AL_CEN, font=FONT_TOTAL, fill=FILL_TOTAL)
+            _celda_texto(ws, fila, 4, str(anio_act), al=AL_CEN, font=FONT_TOTAL, fill=FILL_TOTAL)
+            fila += 1
+            # Cuentas de detalle
+            for f in nt["filas"]:
+                _celda_texto(ws, fila, 1, f["codigo"], al=AL_CEN)
+                _celda_texto(ws, fila, 2, f["nombre"])
+                _celda_num(ws, fila, 3, f["ant"])
+                _celda_num(ws, fila, 4, f["act"])
+                fila += 1
+            # Subtotal del rubro
+            _celda_texto(ws, fila, 1, "", font=FONT_TOTAL, fill=FILL_TOTAL, borde=BORDE_TOTAL)
+            _celda_texto(ws, fila, 2, "Subtotal " + nt["nombre"], font=FONT_TOTAL,
+                         fill=FILL_TOTAL, borde=BORDE_TOTAL)
+            _celda_num(ws, fila, 3, nt["total_ant"], font=FONT_TOTAL, fill=FILL_TOTAL,
+                       borde=BORDE_TOTAL)
+            _celda_num(ws, fila, 4, nt["total_act"], font=FONT_TOTAL, fill=FILL_TOTAL,
+                       borde=BORDE_TOTAL)
+            fila += 2  # fila en blanco entre rubros
+
+
 # ----------------------------------------------------------------------------
 # API pública
 # ----------------------------------------------------------------------------
@@ -515,6 +566,8 @@ def generar_excel(balanza_anterior: list[dict], balanza_actual: list[dict]) -> b
     cascada = motor_er.cascada_resultados(tot_eri_act)
     patrimonio = motor_patrimonio.evolucion(tot_esf_ant, tot_esf_act)
     no_efectivo = motor_no_efectivo.gastos_no_efectivo(tot_eri_act, cat_no_efectivo)
+    notas = motor_notas.notas_estados(est_esf, est_eri, tot_esf_ant, tot_esf_act,
+                                      tot_eri_ant, tot_eri_act)
     ori885 = motor_f101.ori_del_periodo(balanza_anterior, balanza_actual)
     f101 = motor_f101.casilleros_completos(balanza_actual, agregados,
                                            extras={"885": ori885})
@@ -524,14 +577,23 @@ def generar_excel(balanza_anterior: list[dict], balanza_actual: list[dict]) -> b
         cascada["ingresos_ordinarios"] + cascada["otros_ingresos"], 2)
     indicadores = motor_indicadores.indicadores(tot_esf_act, eri_para_ind)
 
+    # Resultado integral REAL = utilidad neta + ORI del período. El ORI viene de
+    # la reclasificación actuarial (motor_f101.ori_del_periodo), NO del código 800
+    # del ERI (que suele venir en 0). Sin este ajuste el resumen mostraba el
+    # resultado integral igual a la utilidad neta (bug detectado 2026-07-11).
+    resultado_integral = round(cascada["utilidad_neta"] + ori885, 2)
+
     ctx = {
         "bal_ant": balanza_anterior,
         "bal_act": balanza_actual,
         "cuadre_esf": cuadre_esf,
         "flujo": flujo,
         "cascada": cascada,
+        "ori": ori885,
+        "resultado_integral": resultado_integral,
         "patrimonio": patrimonio,
         "no_efectivo": no_efectivo,
+        "notas": notas,
         "f101": f101,
         "indicadores": indicadores,
     }
@@ -549,7 +611,7 @@ def generar_excel(balanza_anterior: list[dict], balanza_actual: list[dict]) -> b
         ("Utilidad operativa", cascada["utilidad_operativa"]),
         ("Utilidad antes de impuestos", cascada["utilidad_antes_ir"]),
         ("Utilidad neta", cascada["utilidad_neta"]),
-        ("Resultado integral", cascada["resultado_integral"]),
+        ("Resultado integral", resultado_integral),
     ]
     _hoja_estructura(wb, "ERI", "Estado de Resultados Integral", est_eri,
                      tot_eri_ant, tot_eri_act, subtotales=subtotales_eri)
@@ -557,6 +619,7 @@ def generar_excel(balanza_anterior: list[dict], balanza_actual: list[dict]) -> b
     _hoja_patrimonio(wb, ctx)
     _hoja_no_efectivo(wb, ctx)
     _hoja_f101(wb, ctx)
+    _hoja_notas(wb, ctx)
     _hoja_indicadores(wb, ctx)
 
     bio = io.BytesIO()
