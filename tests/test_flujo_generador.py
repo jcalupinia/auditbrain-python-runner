@@ -67,6 +67,17 @@ def test_no_lanza_excepcion_con_balanza_minima():
     assert "Notas" in wb.sheetnames
 
 
+def test_indicadores_dashboard_graficos_nativos_sin_corromper():
+    # El cuadro de mando de indicadores trae gráficos nativos de Excel; el .xlsx
+    # debe abrir sin reparación (integridad ZIP OK) y contener partes de gráfico.
+    import zipfile
+    data = generador.generar_excel(_balanza_anterior(), _balanza_actual())
+    zf = zipfile.ZipFile(io.BytesIO(data))
+    assert zf.testzip() is None  # integridad: no se daña al descargar
+    charts = [n for n in zf.namelist() if "charts/chart" in n and n.endswith(".xml")]
+    assert len(charts) >= 1
+
+
 def test_ninguna_celda_texto_parece_formula():
     # Regla del proyecto: ninguna celda de texto debe empezar con = + - @
     # (Excel levantaría el cuadro "Reparaciones").
