@@ -474,49 +474,110 @@ def _hoja_f101(wb: Workbook, ctx: dict):
         fila += 1
 
 
+# Cuadro de mando de indicadores: (categoría, [(clave, etiqueta, fórmula, tipo,
+# graficable)...]). Los graficables van primero en cada categoría (bloque
+# contiguo) para que el gráfico nativo tome un rango de igual escala.
+_IND_DASHBOARD = [
+    ("LIQUIDEZ", [
+        ("razon_corriente", "Razón corriente", "Act. corriente / Pas. corriente", "ratio", True),
+        ("prueba_acida", "Prueba ácida", "(Act. corriente − Inventarios) / Pas. corriente", "ratio", True),
+        ("capital_trabajo", "Capital de trabajo", "Act. corriente − Pas. corriente", "monto", False),
+    ]),
+    ("ACTIVIDAD", [
+        ("dias_cartera", "Días cartera", "Cuentas por cobrar / Ventas × 365", "dias", True),
+        ("dias_inventario", "Días inventario", "Inventario prom. / Costo × 365", "dias", True),
+        ("dias_proveedores", "Días proveedores", "Cuentas por pagar / Costo × 365", "dias", True),
+        ("ciclo_efectivo", "Ciclo de efectivo", "Cartera + Inventario − Proveedores", "dias", True),
+        ("eficiencia_activos", "Eficiencia de activos", "Ventas netas / Activos", "ratio", False),
+    ]),
+    ("ENDEUDAMIENTO", [
+        ("endeudamiento_total", "Endeudamiento total", "Pasivos / Activos", "pct", True),
+        ("endeudamiento_lp", "Endeudamiento a largo plazo", "Pasivo no corriente / Activos", "pct", True),
+        ("endeudamiento_patrimonial", "Rel. endeudamiento patrimonial", "Pasivo / Patrimonio", "ratio", True),
+        ("apalancamiento", "Apalancamiento", "Activos / Patrimonio", "ratio", True),
+        ("endeudamiento_financiero", "Endeudamiento financiero", "Pasivo financiero / Patrimonio", "ratio", False),
+    ]),
+    ("RENTABILIDAD", [
+        ("roi", "ROI", "Utilidad operativa / Activos", "pct", True),
+        ("margen_operativo", "Margen operativo", "Utilidad operativa / Ventas", "pct", True),
+        ("roe", "ROE", "Utilidad neta / Patrimonio", "pct", True),
+        ("margen_neto", "Margen neto", "Utilidad neta / Ventas", "pct", True),
+        ("roa", "ROA", "Utilidad neta / Activos", "pct", True),
+    ]),
+    ("ADICIONALES", [
+        ("ebit", "EBIT", "Utilidad operativa", "monto", True),
+        ("ebitda", "EBITDA", "EBIT + Depreciación + Amortización", "monto", True),
+    ]),
+]
+_IND_FMT = {"monto": NUM_FMT, "ratio": "0.0000", "pct": "0.00%", "dias": "0.0"}
+
+
 def _hoja_indicadores(wb: Workbook, ctx: dict):
+    """Cuadro de mando de indicadores financieros — tabla por categoría con
+    columnas del año actual y anterior + fórmula, y un gráfico de barras nativo
+    (openpyxl) por categoría comparando ambos años. Los gráficos son nativos de
+    Excel: el archivo abre sin reparación al descargarlo."""
+    from openpyxl.chart import BarChart, Reference
+
     ws = wb.create_sheet("Indicadores")
     ws.sheet_view.showGridLines = False
-    inicio = _titulo_hoja(ws, "Indicadores financieros", 2)
-    _encabezados(ws, inicio, ["Indicador", "Valor"], [42, 22])
-    fila = inicio + 1
+    fila = _titulo_hoja(ws, "Cuadro de mando — Indicadores financieros", 4)
+    ws.column_dimensions["A"].width = 34
+    ws.column_dimensions["B"].width = 46
+    ws.column_dimensions["C"].width = 14
+    ws.column_dimensions["D"].width = 14
+
     ind = ctx["indicadores"]
-    # (clave, etiqueta, tipo) — tipo: "monto" #,##0.00 · "ratio" 0.0000 ·
-    # "pct" porcentaje · "dias" 0.0
-    etiquetas = [
-        ("activo_total", "Activo total", "monto"),
-        ("pasivo_total", "Pasivo total", "monto"),
-        ("patrimonio", "Patrimonio", "monto"),
-        ("capital_trabajo", "Capital de trabajo", "monto"),
-        ("razon_corriente", "Razón corriente", "ratio"),
-        ("prueba_acida", "Prueba ácida", "ratio"),
-        ("dias_cartera", "Días cartera", "dias"),
-        ("dias_inventario", "Días inventario", "dias"),
-        ("dias_proveedores", "Días proveedores", "dias"),
-        ("ciclo_efectivo", "Ciclo de efectivo", "dias"),
-        ("eficiencia_activos", "Eficiencia de activos", "ratio"),
-        ("endeudamiento_total", "Endeudamiento total", "pct"),
-        ("endeudamiento_lp", "Endeudamiento a largo plazo", "pct"),
-        ("endeudamiento_financiero", "Endeudamiento financiero", "ratio"),
-        ("endeudamiento_patrimonial", "Relación de endeudamiento patrimonial", "ratio"),
-        ("apalancamiento", "Apalancamiento (Activos / Patrimonio)", "ratio"),
-        ("roi", "ROI (Utilidad operativa / Activos)", "pct"),
-        ("margen_operativo", "Margen operativo", "pct"),
-        ("roe", "ROE", "pct"),
-        ("margen_neto", "Margen neto", "pct"),
-        ("roa", "ROA", "pct"),
-        ("ebit", "EBIT", "monto"),
-        ("ebitda", "EBITDA", "monto"),
-    ]
-    _fmt = {"monto": NUM_FMT, "ratio": "0.0000", "pct": "0.00%", "dias": "0.0"}
-    for clave, nombre, tipo in etiquetas:
-        _celda_texto(ws, fila, 1, nombre)
-        c = ws.cell(row=fila, column=2, value=round(float(ind.get(clave, 0.0)), 4))
-        c.number_format = _fmt[tipo]
-        c.font = FONT_DATA
-        c.alignment = AL_DER
-        c.border = BORDE_THIN
+    ind_ant = ctx.get("indicadores_ant", {})
+
+    for categoria, filas_cat in _IND_DASHBOARD:
+        cat_start = fila
+        _bloque(ws, fila, categoria, 4)
         fila += 1
+        # Encabezado de columnas
+        _celda_texto(ws, fila, 1, "Indicador", font=FONT_TOTAL, fill=FILL_TOTAL)
+        _celda_texto(ws, fila, 2, "Fórmula", font=FONT_TOTAL, fill=FILL_TOTAL)
+        _celda_texto(ws, fila, 3, "Año actual", al=AL_DER, font=FONT_TOTAL, fill=FILL_TOTAL)
+        _celda_texto(ws, fila, 4, "Año anterior", al=AL_DER, font=FONT_TOTAL, fill=FILL_TOTAL)
+        hdr = fila
+        fila += 1
+        primera_dato = fila
+        n_graf = 0
+        contando = True
+        for clave, etiqueta, formula, tipo, graf in filas_cat:
+            _celda_texto(ws, fila, 1, etiqueta)
+            _celda_texto(ws, fila, 2, formula)
+            for col, dic in ((3, ind), (4, ind_ant)):
+                c = ws.cell(row=fila, column=col, value=round(float(dic.get(clave, 0.0)), 4))
+                c.number_format = _IND_FMT[tipo]
+                c.font = FONT_DATA
+                c.alignment = AL_DER
+                c.border = BORDE_THIN
+            if contando and graf:
+                n_graf += 1
+            else:
+                contando = False
+            fila += 1
+
+        # Gráfico nativo de la categoría (bloque graficable contiguo)
+        if n_graf >= 1:
+            chart = BarChart()
+            chart.type = "col"
+            chart.style = 10
+            chart.title = categoria
+            chart.height = 6.2
+            chart.width = 13
+            chart.gapWidth = 60
+            data = Reference(ws, min_col=3, max_col=4, min_row=hdr,
+                             max_row=primera_dato + n_graf - 1)
+            cats = Reference(ws, min_col=1, max_col=1, min_row=primera_dato,
+                             max_row=primera_dato + n_graf - 1)
+            chart.add_data(data, titles_from_data=True)
+            chart.set_categories(cats)
+            chart.legend.position = "b"
+            ws.add_chart(chart, "F%d" % cat_start)
+
+        fila += 1  # separación entre categorías
 
 
 def _hoja_er_esf(wb: Workbook, ctx: dict):
@@ -648,7 +709,12 @@ def generar_excel(balanza_anterior: list[dict], balanza_actual: list[dict]) -> b
         tot_esf_ant, tot_esf_act, tot_eri_ant, tot_eri_act)
     indicadores = motor_indicadores.indicadores(
         tot_esf_act, cascada, resumen=resumen, no_efectivo=no_efectivo,
-        tot_esf_ant=tot_esf_ant)
+        tot_esf_ant=tot_esf_ant, anio="act")
+    cascada_ant = motor_er.cascada_resultados(tot_eri_ant)
+    no_efectivo_ant = motor_no_efectivo.gastos_no_efectivo(tot_eri_ant, cat_no_efectivo)
+    indicadores_ant = motor_indicadores.indicadores(
+        tot_esf_ant, cascada_ant, resumen=resumen, no_efectivo=no_efectivo_ant,
+        anio="ant")
 
     # Resultado integral REAL = utilidad neta + ORI del período. El ORI viene de
     # la reclasificación actuarial (motor_f101.ori_del_periodo), NO del código 800
@@ -672,6 +738,7 @@ def generar_excel(balanza_anterior: list[dict], balanza_actual: list[dict]) -> b
         "resumen": resumen,
         "f101": f101,
         "indicadores": indicadores,
+        "indicadores_ant": indicadores_ant,
     }
 
     # --- Construcción del libro (orden de hojas exigido) ---

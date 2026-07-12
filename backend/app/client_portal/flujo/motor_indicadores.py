@@ -19,7 +19,8 @@ def _safe_div(a: float, b: float) -> float:
 def indicadores(tot_esf: dict[str, float], eri: dict,
                 resumen: dict | None = None,
                 no_efectivo: dict | None = None,
-                tot_esf_ant: dict | None = None) -> dict:
+                tot_esf_ant: dict | None = None,
+                anio: str = "act") -> dict:
     """Indicadores financieros (liquidez, actividad, endeudamiento y rentabilidad)
     alineados con el dashboard del modelo SIGMAN.
 
@@ -44,9 +45,9 @@ def indicadores(tot_esf: dict[str, float], eri: dict,
     utilidad_neta = eri.get("utilidad_neta", 0.0)
     utilidad_operativa = eri.get("utilidad_operativa", 0.0)
 
-    # Líneas del balance resumido (año actual) para los indicadores de actividad.
-    er = {f["clave"]: f["act"] for f in resumen["er"]} if resumen else {}
-    esf_r = {f["clave"]: f["act"] for f in resumen["esf"]} if resumen else {}
+    # Líneas del balance resumido (``anio`` = "act"|"ant") para actividad.
+    er = {f["clave"]: f[anio] for f in resumen["er"]} if resumen else {}
+    esf_r = {f["clave"]: f[anio] for f in resumen["esf"]} if resumen else {}
     ventas_netas = er.get("ventas_netas", 0.0)
     costo_ventas = er.get("costo_ventas", 0.0)
     cuentas_cobrar = esf_r.get("cuentas_cobrar", 0.0)
