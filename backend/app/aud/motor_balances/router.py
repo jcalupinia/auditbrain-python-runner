@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from backend.app.auth.deps import require_staff
 from backend.app.auth.models import User
-from backend.app.client_portal.flujo import motor_balances
+from backend.app.client_portal.flujo import catalogos, motor_balances
 
 router = APIRouter(prefix="/aud/motor-balances", tags=["aud-motor-balances"])
 
@@ -23,6 +23,21 @@ class RecalcularBody(BaseModel):
     eri: dict
 
 
+class EstadosBody(BaseModel):
+    esf: dict
+    eri: dict
+
+
 @router.post("/recalcular")
 def recalcular(body: RecalcularBody, _user: User = Depends(require_staff)) -> dict:
     return motor_balances.recalcular_homologado(body.esf, body.eri)
+
+
+@router.post("/estados")
+def estados(body: EstadosBody, _user: User = Depends(require_staff)) -> dict:
+    return motor_balances.estados_superintendencia(body.esf, body.eri)
+
+
+@router.get("/plan")
+def plan(_user: User = Depends(require_staff)) -> dict:
+    return catalogos.cargar_mapa_super_sri()

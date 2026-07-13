@@ -1,5 +1,10 @@
 import { useMemo, useRef, useState } from "react";
-import { motorBalancesHomologar, motorBalancesRecalcular } from "../api.js";
+import {
+  motorBalancesHomologar,
+  motorBalancesRecalcular,
+  motorBalancesPlan,
+  motorBalancesEstados,
+} from "../api.js";
 import "./motorBalances.css";
 
 /* ============================================================
@@ -16,7 +21,10 @@ const money = (n) =>
 export default function MotorBalancesTool() {
   const [files, setFiles] = useState([]);
   const [data, setData] = useState(null); // { esf, eri, errores }
-  const [tab, setTab] = useState("esf");
+  const [plan, setPlan] = useState(null); // { super_a_sri, sri_a_super, nombre_super, nombre_sri }
+  const [estados, setEstados] = useState(null); // { esf:{periodos,lineas}, eri:{...} }
+  const [genBusy, setGenBusy] = useState(false);
+  const [tab, setTab] = useState("esf"); // esf | eri | sf_sup | ri_sup
   const [busy, setBusy] = useState(false);
   const [recalc, setRecalc] = useState(false);
   const [err, setErr] = useState(null);
@@ -26,7 +34,17 @@ export default function MotorBalancesTool() {
   const dataRef = useRef(null);
   dataRef.current = data;
 
-  const estado = data ? data[tab] : null;
+  const esWorkspace = tab === "esf" || tab === "eri";
+  const estado = data && esWorkspace ? data[tab] : null;
+
+  const superOpts = useMemo(
+    () => (plan ? Object.entries(plan.nombre_super).map(([codigo, nombre]) => ({ codigo, nombre })) : []),
+    [plan]
+  );
+  const sriOpts = useMemo(
+    () => (plan ? Object.entries(plan.nombre_sri).map(([codigo, nombre]) => ({ codigo, nombre })) : []),
+    [plan]
+  );
 
   function elegirArchivos(e) {
     const nuevos = Array.from(e.target.files || []);
@@ -45,7 +63,9 @@ export default function MotorBalancesTool() {
     try {
       const res = await motorBalancesHomologar(files);
       setData(res);
+      setEstados(null);
       setTab(res.esf?.periodos?.length ? "esf" : "eri");
+      motorBalancesPlan().then(setPlan).catch(() => {});
     } catch (e) {
       setErr(e.message || "No se pudo homologar.");
     } finally {
@@ -56,14 +76,36 @@ export default function MotorBalancesTool() {
   function reset() {
     setFiles([]);
     setData(null);
+    setEstados(null);
     setErr(null);
     setFiltro("");
+    setTab("esf");
+  }
+
+  function generarSuperintendencia() {
+    if (!data) return;
+    setGenBusy(true);
+    setErr(null);
+    motorBalancesEstados(data.esf, data.eri)
+      .then((e) => {
+        setEstados(e);
+        setTab("sf_sup");
+      })
+      .catch((e) => setErr(e.message || "No se pudo generar el formato Superintendencia."))
+      .finally(() => setGenBusy(false));
   }
 
   function editarCodigo(idxReal, campo, valor) {
     setData((prev) => {
       const copia = structuredClone(prev);
-      copia[tab].filas[idxReal][campo] = valor;
+      const fila = copia[tab].filas[idxReal];
+      fila[campo] = valor;
+      // Enlace bidireccional Super↔SRI cuando el plan tiene mapeo 1:1.
+      if (campo === "super_cias" && plan?.super_a_sri?.[valor]?.length === 1) {
+        fila.sri = plan.super_a_sri[valor][0];
+      } else if (campo === "sri" && plan?.sri_a_super?.[valor]?.length === 1) {
+        fila.super_cias = plan.sri_a_super[valor][0];
+      }
       return copia;
     });
     clearTimeout(timer.current);
@@ -103,6 +145,20 @@ export default function MotorBalancesTool() {
 
   return (
     <div className="mb-tool">
+      {plan && (
+        <>
+          <datalist id="mb-plan-super">
+            {superOpts.map((o) => (
+              <option key={o.codigo} value={o.codigo}>{o.nombre}</option>
+            ))}
+          </datalist>
+          <datalist id="mb-plan-sri">
+            {sriOpts.map((o) => (
+              <option key={o.codigo} value={o.codigo}>{o.nombre}</option>
+            ))}
+          </datalist>
+        </>
+      )}
       <div className="mb-head">
         <div>
           <span className="mb-code">MOTOR</span>
@@ -155,7 +211,7 @@ export default function MotorBalancesTool() {
 
       {data && (
         <>
-          {/* Tabs ESF / ERI */}
+          {/* Tabs: workspace (secciones 1,2) + Superintendencia (secciones 4,5) */}
           <div className="mb-tabs">
             <button className={`mb-tab ${tab === "esf" ? "on" : ""}`} onClick={() => setTab("esf")}>
               Balances homologados (ESF)
@@ -163,89 +219,165 @@ export default function MotorBalancesTool() {
             <button className={`mb-tab ${tab === "eri" ? "on" : ""}`} onClick={() => setTab("eri")}>
               Resultados homologado (ERI)
             </button>
+            <button
+              className={`mb-tab ${tab === "sf_sup" ? "on" : ""}`}
+              onClick={() => estados && setTab("sf_sup")}
+              disabled={!estados}
+            >
+              Situación Financiera (Superintendencia)
+            </button>
+            <button
+              className={`mb-tab ${tab === "ri_sup" ? "on" : ""}`}
+              onClick={() => estados && setTab("ri_sup")}
+              disabled={!estados}
+            >
+              Resultado Integral (Superintendencia)
+            </button>
+            <button
+              className="mb-chip gen"
+              onClick={generarSuperintendencia}
+              disabled={!data || genBusy}
+            >
+              {genBusy ? "⏳ Generando…" : "▶ Generar formato Superintendencia"}
+            </button>
             <span className="mb-recalc">{recalc ? "recalculando…" : ""}</span>
           </div>
 
-          {/* Banner de cuadre (solo ESF) */}
-          {tab === "esf" && estado?.cuadre && (
-            <div className="mb-cuadre">
-              {estado.periodos.map((p) => {
-                const c = estado.cuadre[p];
-                const ok = c?.cuadra;
-                return (
-                  <span key={p} className={`mb-cua ${ok ? "ok" : "bad"}`}>
-                    {ok ? "✓" : "⚠"} {p}: {ok ? "cuadra" : money(c?.diferencia)}
-                  </span>
-                );
-              })}
-            </div>
-          )}
+          {/* ---- Workspace editable (secciones 1,2): solo tabs esf/eri ---- */}
+          {esWorkspace && estado && (
+            <>
+              {/* Banner de cuadre (solo ESF) */}
+              {tab === "esf" && estado?.cuadre && (
+                <div className="mb-cuadre">
+                  {estado.periodos.map((p) => {
+                    const c = estado.cuadre[p];
+                    const ok = c?.cuadra;
+                    return (
+                      <span key={p} className={`mb-cua ${ok ? "ok" : "bad"}`}>
+                        {ok ? "✓" : "⚠"} {p}: {ok ? "cuadra" : money(c?.diferencia)}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
 
-          <div className="mb-status">
-            <span className="mb-dot" />
-            {estado.filas.length} cuentas · {huerfanasSet.size} por homologar (ámbar)
-          </div>
+              <div className="mb-status">
+                <span className="mb-dot" />
+                {estado.filas.length} cuentas · {huerfanasSet.size} por homologar (ámbar)
+              </div>
 
-          <input
-            className="mb-search"
-            placeholder="Filtrar por cuenta / nombre / Super Cías / SRI…"
-            value={filtro}
-            onChange={(e) => setFiltro(e.target.value)}
-          />
+              <input
+                className="mb-search"
+                placeholder="Filtrar por cuenta / nombre / Super Cías / SRI…"
+                value={filtro}
+                onChange={(e) => setFiltro(e.target.value)}
+              />
 
-          {/* Tabla editable N-períodos */}
-          <div className="mb-scroll">
-            <table className="mb-tbl">
-              <thead>
-                <tr>
-                  <th className="c1">Cuenta contable (cliente)</th>
-                  <th className="edit sup">Codifo Super Cías</th>
-                  <th className="edit sri">Códigos SRI</th>
-                  {estado.periodos.map((p) => (
-                    <th key={p} className="num">{p}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filas.map(([f, i]) => {
-                  const grupo = f.es_hoja === false;
-                  const orphan = !grupo && !f.super_cias;
-                  return (
-                    <tr key={f.cuenta + i} className={grupo ? "grupo" : orphan ? "orphan" : ""}>
-                      <td className="c1">
-                        <span className="cod">{f.cuenta}</span>
-                        <span className="nom">{f.nombre}</span>
-                      </td>
-                      {grupo ? (
-                        <td className="edit grp" colSpan={2}>subtotal</td>
-                      ) : (
-                        <>
-                          <td className="edit">
-                            <input
-                              className="in cod"
-                              value={f.super_cias || ""}
-                              placeholder={orphan ? "homologar…" : ""}
-                              onChange={(e) => editarCodigo(i, "super_cias", e.target.value)}
-                            />
-                          </td>
-                          <td className="edit">
-                            <input
-                              className="in cod"
-                              value={f.sri || ""}
-                              onChange={(e) => editarCodigo(i, "sri", e.target.value)}
-                            />
-                          </td>
-                        </>
-                      )}
+              {/* Tabla editable N-períodos */}
+              <div className="mb-scroll">
+                <table className="mb-tbl">
+                  <thead>
+                    <tr>
+                      <th className="c1">Cuenta contable (cliente)</th>
+                      <th className="edit sup">Codifo Super Cías</th>
+                      <th className="edit sri">Códigos SRI</th>
                       {estado.periodos.map((p) => (
-                        <td key={p} className="num">{money(f.saldos[p])}</td>
+                        <th key={p} className="num">{p}</th>
                       ))}
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody>
+                    {filas.map(([f, i]) => {
+                      const grupo = f.es_hoja === false;
+                      const orphan = !grupo && !f.super_cias;
+                      return (
+                        <tr key={f.cuenta + i} className={grupo ? "grupo" : orphan ? "orphan" : ""}>
+                          <td className="c1">
+                            <span className="cod">{f.cuenta}</span>
+                            <span className="nom">{f.nombre}</span>
+                          </td>
+                          {grupo ? (
+                            <td className="edit grp" colSpan={2}>subtotal</td>
+                          ) : (
+                            <>
+                              <td className="edit">
+                                <input
+                                  className="in cod"
+                                  value={f.super_cias || ""}
+                                  list="mb-plan-super"
+                                  placeholder={orphan ? "homologar…" : ""}
+                                  onChange={(e) => editarCodigo(i, "super_cias", e.target.value)}
+                                />
+                                <span className="mb-nom">{plan?.nombre_super?.[f.super_cias] || ""}</span>
+                              </td>
+                              <td className="edit">
+                                <input
+                                  className="in cod"
+                                  value={f.sri || ""}
+                                  list="mb-plan-sri"
+                                  onChange={(e) => editarCodigo(i, "sri", e.target.value)}
+                                />
+                                <span className="mb-nom">{plan?.nombre_sri?.[f.sri] || ""}</span>
+                              </td>
+                            </>
+                          )}
+                          {estado.periodos.map((p) => (
+                            <td key={p} className="num">{money(f.saldos[p])}</td>
+                          ))}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {/* ---- Vistas Superintendencia (secciones 4,5): tabs sf_sup/ri_sup ---- */}
+          {!esWorkspace && (
+            estados ? (
+              (() => {
+                const est = tab === "sf_sup" ? estados.esf : estados.eri;
+                if (!est) return <div className="mb-warn">Sin datos para esta vista.</div>;
+                return (
+                  <div className="mb-scroll">
+                    <table className="mb-tbl">
+                      <thead>
+                        <tr>
+                          <th className="c1">Código Super Cías</th>
+                          <th>Cuenta</th>
+                          {(est.periodos || []).map((p) => (
+                            <th key={p} className="num">{p}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(est.lineas || []).map((linea, i) => {
+                          const grp = linea.es_hoja === false;
+                          return (
+                            <tr key={linea.codigo + i} className={grp ? "mb-grp-row" : ""}>
+                              <td className="c1">
+                                <span className="cod">{linea.codigo}</span>
+                              </td>
+                              <td>{linea.etiqueta}</td>
+                              {(linea.valores || []).map((v, j) => (
+                                <td key={j} className="num">{money(v)}</td>
+                              ))}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()
+            ) : (
+              <div className="mb-status">
+                <span className="mb-dot" />
+                Pulsá ▶ Generar formato Superintendencia
+              </div>
+            )
+          )}
         </>
       )}
     </div>

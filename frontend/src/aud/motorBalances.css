@@ -57,6 +57,7 @@
 .mb-tab { font-size: 13px; padding: 7px 13px; border-radius: 9px; cursor: pointer;
   background: transparent; border: 1px solid var(--mb-line); color: var(--mb-soft); }
 .mb-tab.on { background: var(--mb-accent-dim); border-color: rgba(52, 211, 106, 0.5); color: var(--mb-accent); font-weight: 700; }
+.mb-tab:disabled { opacity: 0.4; cursor: default; }
 .mb-recalc { margin-left: auto; font: 11px var(--mb-mono); color: var(--mb-accent); }
 
 .mb-cuadre { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
@@ -103,3 +104,8 @@
 .mb-tbl tr.grupo td.c1 { background: var(--mb-panel); }
 .mb-tbl tr.grupo td.c1 .cod { color: var(--mb-accent); }
 .mb-tbl td.edit.grp { color: var(--mb-dim); font: 9px var(--mb-mono); text-transform: uppercase; letter-spacing: 0.08em; text-align: center; }
+
+.mb-nom { display:block; font-size:9px; color:var(--mb-soft); max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 6px; }
+.mb-tbl tr.mb-grp-row td { font-weight:700; color:var(--mb-text); background:var(--mb-panel); }
+.mb-tbl tr.mb-grp-row td.c1 { background:var(--mb-panel); }
+.mb-chip.gen { background:var(--mb-accent-dim); border-color:rgba(52,211,106,.5); color:var(--mb-accent); font-weight:700; }
