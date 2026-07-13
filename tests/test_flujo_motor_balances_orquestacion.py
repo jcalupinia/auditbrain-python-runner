@@ -1,0 +1,45 @@
+import io
+from datetime import datetime
+
+from openpyxl import Workbook
+
+from backend.app.client_portal.flujo import motor_balances as mb
+
+
+def _xlsx(headers, rows):
+    wb = Workbook(); ws = wb.active
+    ws.append(list(headers))
+    for r in rows:
+        ws.append(list(r))
+    bio = io.BytesIO(); wb.save(bio)
+    return bio.getvalue()
+
+
+def test_homologar_archivos_propaga_mapeo_a_crudo():
+    mapeado = _xlsx(
+        ["Cod.Cuenta.Contable", "Descripción", "CODIFO SUPER CIAS", "Códigos SRI", "Saldos 31 DIC"],
+        [("1.01.01.02.001", "Produbanco", "1010103", "311", 100.0)],
+    )
+    crudo = _xlsx(
+        ["Código", "Cuenta", datetime(2023, 12, 31), datetime(2024, 12, 31)],
+        [("1.01.01.02.001", "Produbanco", 100.0, 110.0),
+         ("1.01.01.01.002", "Caja Chica", 0.0, 5.0)],
+    )
+    out = mb.homologar_archivos([("mapeo.xlsx", mapeado), ("balance.xlsx", crudo)])
+    esf = out["esf"]
+    fichas = {f["cuenta"]: f for f in esf["filas"]}
+    assert esf["periodos"] == ["31-dic-2023", "31-dic-2024"]
+    assert fichas["1.01.01.02.001"]["super_cias"] == "1010103"
+    assert fichas["1.01.01.01.002"]["super_cias"] == ""
+    assert esf["huerfanas"] == ["1.01.01.01.002"]
+    assert "31-dic-2024" in esf["cuadre"]
+
+
+def test_homologar_archivos_clasifica_eri_aparte():
+    crudo_eri = _xlsx(
+        ["Código", "Cuenta", 2024],
+        [("4.01.01", "Ventas", -100.0), ("5.1.01", "Costo", 60.0)],
+    )
+    out = mb.homologar_archivos([("resultados.xlsx", crudo_eri)])
+    assert out["eri"]["periodos"] == ["2024"]
+    assert out["esf"]["periodos"] == []

@@ -91,3 +91,42 @@ def cuadre_por_periodo(filas: list[dict], periodos: list[str], tolerancia: float
         out[p] = {"activo": activo, "pas_pat": pas_pat, "diferencia": dif,
                   "cuadra": abs(dif) <= tolerancia}
     return out
+
+
+def _vacio() -> dict:
+    return {"periodos": [], "filas": [], "avisos": []}
+
+
+def homologar_archivos(archivos: list[tuple[str, bytes]]) -> dict:
+    """Orquesta la ingesta: por cada archivo detecta si es un "balance mapeado"
+    (trae columnas Super Cías/SRI → fuente de homologación) o un balance CRUDO
+    multi-período; consolida los crudos por estado (ESF/ERI), propaga la
+    homologación del mapeado, y calcula huérfanas y cuadre por período.
+    ``archivos``: lista de ``(nombre, bytes)``.
+    Devuelve ``{"esf": {periodos, filas, avisos, cuadre, huerfanas},
+    "eri": {periodos, filas, avisos, huerfanas}}``."""
+    from . import parser  # import diferido
+    mapeo: dict[str, tuple[str, str]] = {}
+    esf_raw: list[dict] = []
+    eri_raw: list[dict] = []
+    for _nombre, contenido in archivos:
+        mapeados = parser.parse_balanza(contenido)
+        if mapeados:
+            for f in mapeados:
+                if f.get("super_cias") and f["cuenta"] not in mapeo:
+                    mapeo[f["cuenta"]] = (f["super_cias"], f.get("sri", ""))
+            continue
+        res = parser.parse_balanza_multiperiodo(contenido)
+        (esf_raw if res["estado"] == "esf" else eri_raw).append(res)
+    cons_esf = consolidar_multiarchivo(esf_raw) if esf_raw else _vacio()
+    cons_eri = consolidar_multiarchivo(eri_raw) if eri_raw else _vacio()
+    esf_h = propagar_homologacion(cons_esf["filas"], mapeo)
+    eri_h = propagar_homologacion(cons_eri["filas"], mapeo)
+    return {
+        "esf": {"periodos": cons_esf["periodos"], "filas": esf_h,
+                "avisos": cons_esf["avisos"],
+                "cuadre": cuadre_por_periodo(esf_h, cons_esf["periodos"]),
+                "huerfanas": huerfanas(esf_h)},
+        "eri": {"periodos": cons_eri["periodos"], "filas": eri_h,
+                "avisos": cons_eri["avisos"], "huerfanas": huerfanas(eri_h)},
+    }
