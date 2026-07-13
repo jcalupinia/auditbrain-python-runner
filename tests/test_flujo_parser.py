@@ -24,9 +24,27 @@ def test_parse_balanza_detecta_columnas_por_encabezado():
     ])
     filas = parser.parse_balanza(data)
     assert len(filas) == 2
-    assert filas[0] == {"cuenta": "1.01.01.01", "super_cias": "1010101",
-                        "sri": "311", "saldo": 1000.0}
+    assert filas[0] == {"cuenta": "1.01.01.01", "nombre": "Caja",
+                        "super_cias": "1010101", "sri": "311", "saldo": 1000.0}
     assert filas[1]["saldo"] == -500.0
+    assert filas[1]["nombre"] == "Proveedores"
+
+
+def test_parse_balanza_captura_nombre_del_cliente():
+    data = _wb_bytes([
+        ("1.01.01.02.001", "Produbanco Quito 02005093682", "1010103", "311", 351257.23),
+    ])
+    filas = parser.parse_balanza(data)
+    assert filas[0]["nombre"] == "Produbanco Quito 02005093682"
+
+
+def test_parse_balanza_nombre_vacio_si_no_hay_columna():
+    data = _wb_bytes(
+        [("1.01", "1010101", "311", 10.0)],
+        headers=("Cod.Cuenta.Contable", "CODIFO SUPER CIAS", "Códigos SRI", "Saldo"),
+    )
+    filas = parser.parse_balanza(data)
+    assert filas[0]["nombre"] == ""
 
 
 def test_parse_balanza_ignora_filas_sin_codigo_o_saldo():

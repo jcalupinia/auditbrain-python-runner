@@ -12,6 +12,7 @@ from openpyxl import load_workbook
 # palabras clave para detectar cada columna (normalizadas a minúsculas sin tildes)
 _CLAVES = {
     "cuenta": ("cuenta", "cta", "cod.cuenta", "codigo cuenta", "cod cuenta"),
+    "nombre": ("descrip", "nombre", "detalle", "concepto"),
     "super_cias": ("super", "supercias", "super cias"),
     "sri": ("sri",),
     "saldo": ("saldo", "31 dic", "valor"),
@@ -93,6 +94,7 @@ def _leer_filas(ws, col: dict[str, int], desde: int) -> list[dict]:
             continue
         out.append({
             "cuenta": str(fila[col["cuenta"]]).strip() if "cuenta" in col and fila[col["cuenta"]] is not None else "",
+            "nombre": str(fila[col["nombre"]]).strip() if "nombre" in col and fila[col["nombre"]] is not None else "",
             "super_cias": sc,
             "sri": str(fila[col["sri"]]).strip() if "sri" in col and fila[col["sri"]] is not None else "",
             "saldo": saldo,
