@@ -51,7 +51,19 @@ def consolidar_multiarchivo(archivos: list[dict]) -> dict:
                 val = float(saldos[idx]) if idx < len(saldos) else 0.0
                 f["saldos"][p] = f["saldos"].get(p, 0.0) + val
     periodos.sort(key=_orden_periodo)
+    codigos = set(fichas.keys())
+
+    def _es_hoja(c: str) -> bool:
+        # Grupo/subtotal si el código termina en punto (ej. "1.01.") o si otro
+        # código lo tiene como prefijo con frontera de punto (es un padre). El
+        # resto son cuentas hoja (homologables).
+        if c.endswith("."):
+            return False
+        pref = c + "."
+        return not any(o != c and o.startswith(pref) for o in codigos)
+
     for f in fichas.values():
+        f["es_hoja"] = _es_hoja(f["cuenta"])
         for p in periodos:
             f["saldos"].setdefault(p, 0.0)
     return {"periodos": periodos, "filas": list(fichas.values()), "avisos": avisos}
@@ -69,8 +81,11 @@ def propagar_homologacion(filas: list[dict], mapeo: dict[str, tuple[str, str]]) 
 
 
 def huerfanas(filas: list[dict]) -> list[str]:
-    """Códigos de cuenta cliente sin Super Cías asignado, en orden de aparición."""
-    return [f["cuenta"] for f in filas if not f.get("super_cias")]
+    """Códigos de cuenta HOJA sin Super Cías asignado, en orden de aparición.
+    Las filas de grupo/subtotal (``es_hoja=False``) NO son homologables y se
+    excluyen. Fichas sin ``es_hoja`` se tratan como hoja (retrocompat)."""
+    return [f["cuenta"] for f in filas
+            if f.get("es_hoja", True) and not f.get("super_cias")]
 
 
 def cuadre_por_periodo(filas: list[dict], periodos: list[str], tolerancia: float = 1.0) -> dict:
@@ -91,3 +106,64 @@ def cuadre_por_periodo(filas: list[dict], periodos: list[str], tolerancia: float
         out[p] = {"activo": activo, "pas_pat": pas_pat, "diferencia": dif,
                   "cuadra": abs(dif) <= tolerancia}
     return out
+
+
+def _vacio() -> dict:
+    return {"periodos": [], "filas": [], "avisos": []}
+
+
+def homologar_archivos(archivos: list[tuple[str, bytes]]) -> dict:
+    """Orquesta la ingesta: por cada archivo detecta si es un "balance mapeado"
+    (trae columnas Super Cías/SRI → fuente de homologación) o un balance CRUDO
+    multi-período; consolida los crudos por estado (ESF/ERI), propaga la
+    homologación del mapeado, y calcula huérfanas y cuadre por período.
+    ``archivos``: lista de ``(nombre, bytes)``.
+    Los archivos que no parsean (corruptos, no-xlsx, etc.) NO abortan la
+    ingesta: se capturan por archivo y se listan en ``errores``, para que el
+    endpoint responda 200 y el frontend muestre cuál falló.
+    Devuelve ``{"esf": {periodos, filas, avisos, cuadre, huerfanas},
+    "eri": {periodos, filas, avisos, huerfanas},
+    "errores": [{"archivo", "error"}]}``."""
+    from . import parser  # import diferido
+    mapeo: dict[str, tuple[str, str]] = {}
+    esf_raw: list[dict] = []
+    eri_raw: list[dict] = []
+    errores: list[dict] = []
+    for _nombre, contenido in archivos:
+        try:
+            mapeados = parser.parse_balanza(contenido)
+            if mapeados:
+                for f in mapeados:
+                    if f.get("super_cias") and f["cuenta"] not in mapeo:
+                        mapeo[f["cuenta"]] = (f["super_cias"], f.get("sri", ""))
+                continue
+            res = parser.parse_balanza_multiperiodo(contenido)
+        except Exception as ex:  # noqa: BLE001 — se reporta al usuario, no se pierde el resto
+            errores.append({"archivo": _nombre, "error": str(ex)[:200]})
+            continue
+        (esf_raw if res["estado"] == "esf" else eri_raw).append(res)
+    cons_esf = consolidar_multiarchivo(esf_raw) if esf_raw else _vacio()
+    cons_eri = consolidar_multiarchivo(eri_raw) if eri_raw else _vacio()
+    esf_h = propagar_homologacion(cons_esf["filas"], mapeo)
+    eri_h = propagar_homologacion(cons_eri["filas"], mapeo)
+    return {
+        "esf": {"periodos": cons_esf["periodos"], "filas": esf_h,
+                "avisos": cons_esf["avisos"],
+                "cuadre": cuadre_por_periodo(esf_h, cons_esf["periodos"]),
+                "huerfanas": huerfanas(esf_h)},
+        "eri": {"periodos": cons_eri["periodos"], "filas": eri_h,
+                "avisos": cons_eri["avisos"], "huerfanas": huerfanas(eri_h)},
+        "errores": errores,
+    }
+
+
+def recalcular_homologado(esf: dict, eri: dict) -> dict:
+    """Recalcula cuadre (ESF) y huérfanas (ESF y ERI) a partir de las tablas
+    editadas por el usuario (mismos dicts que devuelve ``homologar_archivos``,
+    con super_cias/sri corregidos). No re-parsea archivos."""
+    return {
+        "esf": {**esf,
+                "cuadre": cuadre_por_periodo(esf.get("filas", []), esf.get("periodos", [])),
+                "huerfanas": huerfanas(esf.get("filas", []))},
+        "eri": {**eri, "huerfanas": huerfanas(eri.get("filas", []))},
+    }

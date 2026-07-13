@@ -83,3 +83,16 @@ def test_consolidar_suma_misma_cuenta_en_varias_filas_del_mismo_archivo():
     assert len(cons["filas"]) == 1
     assert cons["filas"][0]["saldos"] == {"2023": 60.0, "2024": 60.0}
     assert cons["avisos"] == []   # NO es año duplicado (mismo archivo)
+
+
+def test_consolidar_marca_es_hoja_y_huerfanas_solo_hojas():
+    arch = _archivo("esf", ["2024"], [
+        {"cuenta": "1.01.", "nombre": "CORRIENTES", "saldos": [100.0]},   # grupo (termina en punto)
+        {"cuenta": "1.01.01", "nombre": "Caja", "saldos": [60.0]},         # hoja
+    ])
+    cons = mb.consolidar_multiarchivo([arch])
+    fichas = {f["cuenta"]: f for f in cons["filas"]}
+    assert fichas["1.01."]["es_hoja"] is False
+    assert fichas["1.01.01"]["es_hoja"] is True
+    hom = mb.propagar_homologacion(cons["filas"], {})
+    assert mb.huerfanas(hom) == ["1.01.01"]   # solo la hoja; el grupo no cuenta

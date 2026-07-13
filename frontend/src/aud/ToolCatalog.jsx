@@ -3,9 +3,21 @@ import { CATEGORIES } from "./catalog.js";
 import { STRINGS } from "./strings.js";
 import ObligacionesFiscalesTool from "./ObligacionesFiscalesTool.jsx";
 import InformeCumplimientoTributarioTool from "./InformeCumplimientoTributarioTool.jsx";
+import MotorBalancesTool from "./MotorBalancesTool.jsx";
 
 export default function ToolCatalog({ projectId }) {
   const [activeTool, setActiveTool] = useState(null);
+
+  if (activeTool === "AUD.MOTOR_BALANCES") {
+    return (
+      <div className="aud-tool-wrap">
+        <button className="link aud-back" onClick={() => setActiveTool(null)}>
+          {STRINGS.back_to_catalog}
+        </button>
+        <MotorBalancesTool />
+      </div>
+    );
+  }
 
   if (activeTool === "AUD.IMPUESTOS.OBLIGACIONES_FISCALES") {
     return (
