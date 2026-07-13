@@ -103,20 +103,29 @@ def homologar_archivos(archivos: list[tuple[str, bytes]]) -> dict:
     multi-período; consolida los crudos por estado (ESF/ERI), propaga la
     homologación del mapeado, y calcula huérfanas y cuadre por período.
     ``archivos``: lista de ``(nombre, bytes)``.
+    Los archivos que no parsean (corruptos, no-xlsx, etc.) NO abortan la
+    ingesta: se capturan por archivo y se listan en ``errores``, para que el
+    endpoint responda 200 y el frontend muestre cuál falló.
     Devuelve ``{"esf": {periodos, filas, avisos, cuadre, huerfanas},
-    "eri": {periodos, filas, avisos, huerfanas}}``."""
+    "eri": {periodos, filas, avisos, huerfanas},
+    "errores": [{"archivo", "error"}]}``."""
     from . import parser  # import diferido
     mapeo: dict[str, tuple[str, str]] = {}
     esf_raw: list[dict] = []
     eri_raw: list[dict] = []
+    errores: list[dict] = []
     for _nombre, contenido in archivos:
-        mapeados = parser.parse_balanza(contenido)
-        if mapeados:
-            for f in mapeados:
-                if f.get("super_cias") and f["cuenta"] not in mapeo:
-                    mapeo[f["cuenta"]] = (f["super_cias"], f.get("sri", ""))
+        try:
+            mapeados = parser.parse_balanza(contenido)
+            if mapeados:
+                for f in mapeados:
+                    if f.get("super_cias") and f["cuenta"] not in mapeo:
+                        mapeo[f["cuenta"]] = (f["super_cias"], f.get("sri", ""))
+                continue
+            res = parser.parse_balanza_multiperiodo(contenido)
+        except Exception as ex:  # noqa: BLE001 — se reporta al usuario, no se pierde el resto
+            errores.append({"archivo": _nombre, "error": str(ex)[:200]})
             continue
-        res = parser.parse_balanza_multiperiodo(contenido)
         (esf_raw if res["estado"] == "esf" else eri_raw).append(res)
     cons_esf = consolidar_multiarchivo(esf_raw) if esf_raw else _vacio()
     cons_eri = consolidar_multiarchivo(eri_raw) if eri_raw else _vacio()
@@ -129,6 +138,7 @@ def homologar_archivos(archivos: list[tuple[str, bytes]]) -> dict:
                 "huerfanas": huerfanas(esf_h)},
         "eri": {"periodos": cons_eri["periodos"], "filas": eri_h,
                 "avisos": cons_eri["avisos"], "huerfanas": huerfanas(eri_h)},
+        "errores": errores,
     }
 
 

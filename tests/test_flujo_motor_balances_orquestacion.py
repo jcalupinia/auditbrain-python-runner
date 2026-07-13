@@ -45,6 +45,13 @@ def test_homologar_archivos_clasifica_eri_aparte():
     assert out["esf"]["periodos"] == []
 
 
+def test_homologar_archivos_no_crashea_con_archivo_corrupto():
+    crudo = _xlsx(["Código", "Cuenta", 2024], [("1.01", "Caja", 100.0)])
+    out = mb.homologar_archivos([("bueno.xlsx", crudo), ("malo.xlsx", b"no soy un xlsx")])
+    assert out["esf"]["periodos"] == ["2024"]                       # el bueno se procesó
+    assert any(e["archivo"] == "malo.xlsx" for e in out["errores"]) # el malo se reporta
+
+
 def test_recalcular_homologado_actualiza_cuadre_y_huerfanas():
     esf = {"periodos": ["2024"], "filas": [
         {"cuenta": "a", "nombre": "Caja", "super_cias": "1010101", "sri": "311", "saldos": {"2024": 100.0}},
