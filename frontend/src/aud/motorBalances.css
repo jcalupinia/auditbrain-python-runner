@@ -109,3 +109,39 @@
 .mb-tbl tr.mb-grp-row td { font-weight:700; color:var(--mb-text); background:var(--mb-panel); }
 .mb-tbl tr.mb-grp-row td.c1 { background:var(--mb-panel); }
 .mb-chip.gen { background:var(--mb-accent-dim); border-color:rgba(52,211,106,.5); color:var(--mb-accent); font-weight:700; }
+
+/* Roadmap de secciones (tarjetas, estilo portal Flujo de Efectivo) */
+.mb-road-h {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin: 16px 0 8px; font-size: 11px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--mb-soft);
+}
+.mb-tiles {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px; margin-bottom: 14px;
+}
+.mb-tile {
+  display: flex; align-items: center; gap: 10px; text-align: left;
+  padding: 12px 14px; border-radius: 12px; cursor: pointer;
+  background: var(--mb-panel); border: 1px solid var(--mb-line); color: var(--mb-text);
+  transition: filter 0.12s ease, border-color 0.12s ease, transform 0.1s ease;
+}
+.mb-tile:hover:not(:disabled) { filter: brightness(1.12); border-color: rgba(52, 211, 106, 0.4); }
+.mb-tile:active:not(:disabled) { transform: translateY(1px); }
+.mb-tile:disabled { opacity: 0.5; cursor: default; }
+.mb-tile.done { background: linear-gradient(180deg, var(--mb-panel), var(--mb-accent-dim)); }
+.mb-tile.on { border-color: var(--mb-accent); box-shadow: 0 0 0 1px rgba(52, 211, 106, 0.35) inset; }
+.mb-tile-n {
+  flex: none; width: 30px; height: 30px; border-radius: 8px;
+  display: grid; place-items: center; font: 700 13px var(--mb-mono);
+  color: var(--mb-accent); background: var(--mb-accent-dim); border: 1px solid rgba(52, 211, 106, 0.35);
+}
+.mb-tile-n.dim { color: var(--mb-dim); background: transparent; border-color: var(--mb-line); }
+.mb-tile-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.mb-tile-t { font-size: 13px; font-weight: 700; }
+.mb-tile-d { font-size: 10px; color: var(--mb-soft); line-height: 1.25; }
+.mb-tile-st {
+  flex: none; font: 700 8.5px var(--mb-mono); letter-spacing: 0.08em;
+  color: var(--mb-dim); text-align: right;
+}
+.mb-tile.done .mb-tile-st { color: var(--mb-accent); }

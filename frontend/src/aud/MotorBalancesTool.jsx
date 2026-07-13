@@ -18,6 +18,17 @@ import "./motorBalances.css";
 const money = (n) =>
   (Number(n) || 0).toLocaleString("es-EC", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// Roadmap de secciones que produce la herramienta (visible siempre, como el
+// portal Flujo de Efectivo). `view` = tabs de workspace; `sup` = estados
+// Superintendencia; `action` = botón que genera el traslado.
+const SECCIONES = [
+  { id: "esf", n: "1", name: "Balances homologados", desc: "ESF · multiarchivo + cuadre por período", tipo: "view" },
+  { id: "eri", n: "2", name: "Resultados homologado", desc: "ERI · cascada de resultados", tipo: "view" },
+  { id: "traslado", n: "3", name: "Traslado Superintendencia", desc: "Genera el formato oficial (N períodos)", tipo: "action" },
+  { id: "sf_sup", n: "4", name: "Situación Financiera", desc: "Formato Superintendencia · un período por columna", tipo: "sup" },
+  { id: "ri_sup", n: "5", name: "Resultado Integral", desc: "Formato Superintendencia · un período por columna", tipo: "sup" },
+];
+
 export default function MotorBalancesTool() {
   const [files, setFiles] = useState([]);
   const [data, setData] = useState(null); // { esf, eri, errores }
@@ -93,6 +104,30 @@ export default function MotorBalancesTool() {
       })
       .catch((e) => setErr(e.message || "No se pudo generar el formato Superintendencia."))
       .finally(() => setGenBusy(false));
+  }
+
+  // --- Estado del roadmap de secciones ---
+  function estadoSeccion(s) {
+    if (s.tipo === "view") return data ? "listo" : "pend";
+    if (s.tipo === "sup") return estados ? "listo" : "pend";
+    if (genBusy) return "busy";
+    if (estados) return "listo";
+    if (data) return "accion";
+    return "pend";
+  }
+  function labelSeccion(s) {
+    const e = estadoSeccion(s);
+    return e === "busy" ? "GENERANDO…" : e === "listo" ? "LISTO" : e === "accion" ? "GENERAR ▶" : "PENDIENTE";
+  }
+  function seccionDisabled(s) {
+    if (s.tipo === "view") return !data;
+    if (s.tipo === "sup") return !estados;
+    return !data || genBusy;
+  }
+  function clickSeccion(s) {
+    if (seccionDisabled(s)) return;
+    if (s.tipo === "action") return generarSuperintendencia();
+    setTab(s.id);
   }
 
   function editarCodigo(idxReal, campo, valor) {
@@ -209,40 +244,38 @@ export default function MotorBalancesTool() {
         </div>
       )}
 
+      {/* Roadmap de secciones — siempre visible (línea gráfica del Flujo de Efectivo) */}
+      <div className="mb-road-h">
+        <span>{data ? "Secciones · elegí una para verla:" : "Secciones que se generarán:"}</span>
+        <span className="mb-recalc">{recalc ? "recalculando…" : ""}</span>
+      </div>
+      <div className="mb-tiles">
+        {SECCIONES.map((s) => {
+          const est = estadoSeccion(s);
+          const done = est === "listo" || est === "accion";
+          const active =
+            (s.tipo !== "action" && tab === s.id && data) ||
+            (s.tipo === "action" && genBusy);
+          return (
+            <button
+              key={s.id}
+              className={`mb-tile${done ? " done" : ""}${active ? " on" : ""}`}
+              onClick={() => clickSeccion(s)}
+              disabled={seccionDisabled(s)}
+            >
+              <span className={`mb-tile-n${est === "pend" ? " dim" : ""}`}>{s.n}</span>
+              <span className="mb-tile-txt">
+                <span className="mb-tile-t">{s.name}</span>
+                <span className="mb-tile-d">{s.desc}</span>
+              </span>
+              <span className="mb-tile-st">{labelSeccion(s)}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {data && (
         <>
-          {/* Tabs: workspace (secciones 1,2) + Superintendencia (secciones 4,5) */}
-          <div className="mb-tabs">
-            <button className={`mb-tab ${tab === "esf" ? "on" : ""}`} onClick={() => setTab("esf")}>
-              Balances homologados (ESF)
-            </button>
-            <button className={`mb-tab ${tab === "eri" ? "on" : ""}`} onClick={() => setTab("eri")}>
-              Resultados homologado (ERI)
-            </button>
-            <button
-              className={`mb-tab ${tab === "sf_sup" ? "on" : ""}`}
-              onClick={() => estados && setTab("sf_sup")}
-              disabled={!estados}
-            >
-              Situación Financiera (Superintendencia)
-            </button>
-            <button
-              className={`mb-tab ${tab === "ri_sup" ? "on" : ""}`}
-              onClick={() => estados && setTab("ri_sup")}
-              disabled={!estados}
-            >
-              Resultado Integral (Superintendencia)
-            </button>
-            <button
-              className="mb-chip gen"
-              onClick={generarSuperintendencia}
-              disabled={!data || genBusy}
-            >
-              {genBusy ? "⏳ Generando…" : "▶ Generar formato Superintendencia"}
-            </button>
-            <span className="mb-recalc">{recalc ? "recalculando…" : ""}</span>
-          </div>
-
           {/* ---- Workspace editable (secciones 1,2): solo tabs esf/eri ---- */}
           {esWorkspace && estado && (
             <>
