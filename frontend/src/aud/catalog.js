@@ -3,6 +3,19 @@
 // "Próximamente" en la UI.
 
 export const CATEGORIES = [
+  {
+    id: "MOTOR_BALANCES",
+    label: "Motor de balances",
+    type: "herramienta",
+    tools: [
+      {
+        id: "AUD.MOTOR_BALANCES",
+        label: "Motor de balances · homologación SRI-Super",
+        description:
+          "Sube balances y resultados (multiarchivo), homologa contra el plan Super Cías/SRI, marca las cuentas huérfanas y valida el cuadre por período. Sin cuadres forzados.",
+      },
+    ],
+  },
   { id: "PLANIFICACION", label: "Planificación", type: "etapa" },
   { id: "CAJA_BANCOS", label: "Caja y bancos", type: "ciclo" },
   { id: "INVERSIONES", label: "Inversiones", type: "ciclo" },

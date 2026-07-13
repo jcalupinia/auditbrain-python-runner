@@ -141,6 +141,29 @@ export async function runPython(script, inputs) {
   );
 }
 
+// ---- Motor de balances (homologación N-períodos, AUD staff) ----
+export async function motorBalancesHomologar(files) {
+  const fd = new FormData();
+  (files || []).forEach((f) => fd.append("archivos", f));
+  return parse(
+    await apiFetch(
+      `${API_BASE}/api/v1/aud/motor-balances/homologar`,
+      { method: "POST", body: fd, headers: authHeaders() }, // el browser fija el boundary
+      { timeoutMs: 120000 }
+    )
+  );
+}
+
+export async function motorBalancesRecalcular(esf, eri) {
+  return parse(
+    await apiFetch(`${API_BASE}/api/v1/aud/motor-balances/recalcular`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ esf, eri }),
+    })
+  );
+}
+
 export async function createUser(email, password, role) {
   return parse(
     await apiFetch(`${API_BASE}/api/v1/auth/users`, {
