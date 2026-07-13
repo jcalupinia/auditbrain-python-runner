@@ -10,8 +10,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
    todas las secciones.
 
    props:
-     ant  = { rows: [[cuenta, super_cias, sri, saldo], ...] }
-     act  = { rows: [[cuenta, super_cias, sri, saldo], ...] }
+     ant  = { rows: [[cuenta, nombre, super_cias, sri, saldo], ...] }
+     act  = { rows: [[cuenta, nombre, super_cias, sri, saldo], ...] }
      catalogos = { super: [{codigo,nombre}], sri: [{codigo,nombre}] } | null
      onRecalc(balAnt, balAct)  → dispara el recálculo (debounced)
      recalculando  → bool
