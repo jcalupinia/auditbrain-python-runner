@@ -6,6 +6,7 @@ SRI, saldo) para tolerar variaciones de formato entre archivos de clientes.
 Acepta números en formato regional (`.` o `,` como decimal)."""
 from __future__ import annotations
 import io
+import re
 from datetime import datetime, date
 
 from openpyxl import load_workbook
@@ -54,12 +55,23 @@ _MESES = ["", "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oc
 
 
 def _etiqueta_periodo(cell) -> str | None:
-    """Devuelve una etiqueta de período si la celda es una fecha o un año.
-    Fecha -> '31-may-2026'; año (int o texto 4 dígitos) -> '2025'. Si no, None."""
+    """Etiqueta de período si la celda es fecha (objeto o texto) o un año.
+    Fecha -> '31-may-2026'; año (int/float/texto 4 díg.) -> '2025'. Si no, None."""
     if isinstance(cell, (datetime, date)):
         return f"{cell.day:02d}-{_MESES[cell.month]}-{cell.year}"
     s = str(cell or "").strip()
-    if s[:4].isdigit() and len(s) >= 4 and s[:2] in ("19", "20"):
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})$", s)              # ISO yyyy-mm-dd
+    if m:
+        y, mo, da = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if 1 <= mo <= 12:
+            return f"{da:02d}-{_MESES[mo]}-{y}"
+    m = re.match(r"(\d{2})[/-](\d{2})[/-](\d{4})$", s)        # dd/mm/yyyy o dd-mm-yyyy
+    if m:
+        da, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if 1 <= mo <= 12:
+            return f"{da:02d}-{_MESES[mo]}-{y}"
+    m = re.match(r"(19|20)\d{2}", s)                           # año solo (permite '2024.0')
+    if m and (len(s) == 4 or s[4:] in (".0", "")):
         return s[:4]
     return None
 
@@ -75,18 +87,32 @@ def parse_balanza_multiperiodo(contenido: bytes) -> dict:
     filas_raw = list(ws.iter_rows(values_only=True))
     if not filas_raw:
         return {"periodos": [], "estado": "esf", "filas": []}
+    def _tiene_label_cuenta(fila) -> bool:
+        for v in fila:
+            n = _norm(v)
+            if n and any(k in n for k in ("codigo", "cuenta", "cod.cuenta", "cta")):
+                return True
+        return False
+
     hr = None
     per_cols: list[int] = []
     labels: list[str] = []
+    fallback = None  # (i, cols, labs) primera fila con períodos aunque no tenga label
     for i, fila in enumerate(filas_raw[:15]):
         cols, labs = [], []
         for j, v in enumerate(fila):
             lab = _etiqueta_periodo(v)
             if lab:
                 cols.append(j); labs.append(lab)
-        if cols:
+        if not cols:
+            continue
+        if fallback is None:
+            fallback = (i, cols, labs)
+        if _tiene_label_cuenta(fila):
             hr, per_cols, labels = i, cols, labs
             break
+    if hr is None and fallback is not None:
+        hr, per_cols, labels = fallback
     if hr is None:
         return {"periodos": [], "estado": "esf", "filas": []}
 
