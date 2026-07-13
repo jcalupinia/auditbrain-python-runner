@@ -1,7 +1,8 @@
 # backend/app/client_portal/flujo/motor_balances.py
 """Motor de balances multi-período: consolida balances crudos de varios
-archivos/años, propaga la homologación por cuenta y calcula el cuadre por
-período. Reutiliza ``motor.homologar_balanza`` para la agrupación por Super Cías.
+archivos/años, propaga la homologación por cuenta y calcula el cuadre A=P+Pat
+por período agrupando por sección del Código Super Cías (1/2/3). El cuadre se
+REPORTA, nunca se fuerza; las cuentas huérfanas (sin Super Cías) se listan aparte.
 """
 from __future__ import annotations
 
