@@ -157,6 +157,34 @@ def homologar_archivos(archivos: list[tuple[str, bytes]]) -> dict:
     }
 
 
+def estados_superintendencia(esf: dict, eri: dict) -> dict:
+    """Genera la Situación Financiera (ESF) y el Resultados Integral (ERI) en
+    formato oficial Super Cías: agrupa las fichas homologadas por Código Super
+    Cías y hace rollup jerárquico sobre la estructura oficial, con N columnas
+    (una por período). Las cuentas huérfanas (sin super_cias) NO entran.
+    Devuelve ``{"esf": {periodos, lineas:[{codigo, etiqueta, es_hoja, valores:[...]}]},
+    "eri": {...}}``."""
+    from . import catalogos, motor
+
+    def _build(estado: dict, tipo: str) -> dict:
+        estructura = catalogos.cargar_estructura(tipo)
+        periodos = estado.get("periodos", [])
+        filas = estado.get("filas", [])
+        vals = {n.codigo: [0.0] * len(periodos) for n in estructura}
+        for i, p in enumerate(periodos):
+            balanza = [{"super_cias": f["super_cias"], "saldo": float(f["saldos"].get(p, 0.0))}
+                       for f in filas if f.get("super_cias")]
+            saldos, _ = motor.homologar_balanza(balanza)
+            tot = motor.totales_por_codigo(estructura, saldos)
+            for n in estructura:
+                vals[n.codigo][i] = tot.get(n.codigo, 0.0)
+        lineas = [{"codigo": n.codigo, "etiqueta": n.etiqueta, "es_hoja": n.es_hoja,
+                   "valores": vals[n.codigo]} for n in estructura]
+        return {"periodos": periodos, "lineas": lineas}
+
+    return {"esf": _build(esf, "esf"), "eri": _build(eri, "eri")}
+
+
 def recalcular_homologado(esf: dict, eri: dict) -> dict:
     """Recalcula cuadre (ESF) y huérfanas (ESF y ERI) a partir de las tablas
     editadas por el usuario (mismos dicts que devuelve ``homologar_archivos``,
