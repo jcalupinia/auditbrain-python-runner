@@ -12,6 +12,9 @@
   --mb-danger: #ff6b6b;
   --mb-amber: #e0a73c;
   --mb-amber-bg: rgba(224, 167, 60, 0.12);
+  --mb-sug: #38bdf8;
+  --mb-sug-bg: rgba(56, 189, 248, 0.13);
+  --mb-sug-line: rgba(56, 189, 248, 0.45);
   --mb-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   background: var(--mb-bg);
   border: 1px solid var(--mb-line);
@@ -94,6 +97,25 @@
 .mb-tbl tr.orphan td { background: var(--mb-amber-bg); }
 .mb-tbl tr.orphan td.c1 { background: #1c2417; }
 .mb-tbl tr.orphan td.c1 .nom { color: var(--mb-amber); }
+
+/* Sugeridas por grupo: pintadas cian, pendientes de confirmar */
+.mb-tbl tr.sugerido td { background: var(--mb-sug-bg); }
+.mb-tbl tr.sugerido td.c1 { background: #0e2630; }
+.mb-tbl tr.sugerido td.c1 .nom { color: var(--mb-sug); }
+.mb-tbl tr.sugerido .in.cod { color: var(--mb-sug); }
+.mb-tbl th.conf, .mb-tbl td.conf { text-align: center; width: 96px; }
+.mb-conf-btn {
+  font: 700 10px var(--mb-mono); padding: 4px 8px; border-radius: 7px; cursor: pointer;
+  color: var(--mb-sug); background: var(--mb-sug-bg); border: 1px solid var(--mb-sug-line);
+  white-space: nowrap;
+}
+.mb-conf-btn:hover { filter: brightness(1.15); }
+.mb-conf-ok { color: var(--mb-accent); font-size: 12px; }
+.mb-sug-count { color: var(--mb-sug); }
+.mb-chip.sug {
+  margin-left: 8px; padding: 4px 10px; font-size: 11.5px; font-weight: 700;
+  color: var(--mb-sug); background: var(--mb-sug-bg); border-color: var(--mb-sug-line);
+}
 .mb-tbl .in { width: 120px; font: 11.5px var(--mb-mono); color: var(--mb-text);
   background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 4px 6px; outline: none; }
 .mb-tbl .in:hover { border-color: var(--mb-line); }

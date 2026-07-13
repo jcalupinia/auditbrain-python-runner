@@ -135,6 +135,7 @@ export default function MotorBalancesTool() {
       const copia = structuredClone(prev);
       const fila = copia[tab].filas[idxReal];
       fila[campo] = valor;
+      fila.sugerido = false; // editar manualmente = tomar control (confirma la línea)
       // Enlace bidireccional Super↔SRI cuando el plan tiene mapeo 1:1.
       if (campo === "super_cias" && plan?.super_a_sri?.[valor]?.length === 1) {
         fila.sri = plan.super_a_sri[valor][0];
@@ -163,8 +164,29 @@ export default function MotorBalancesTool() {
     }, 700);
   }
 
+  function confirmarSugerencia(idxReal) {
+    setData((prev) => {
+      const copia = structuredClone(prev);
+      copia[tab].filas[idxReal].sugerido = false;
+      return copia;
+    });
+  }
+  function confirmarTodas() {
+    setData((prev) => {
+      const copia = structuredClone(prev);
+      copia[tab].filas.forEach((f) => {
+        if (f.sugerido) f.sugerido = false;
+      });
+      return copia;
+    });
+  }
+
   const huerfanasSet = useMemo(
     () => new Set(estado?.huerfanas || []),
+    [estado]
+  );
+  const sugeridas = useMemo(
+    () => (estado?.filas || []).filter((f) => f.sugerido).length,
     [estado]
   );
 
@@ -297,6 +319,15 @@ export default function MotorBalancesTool() {
               <div className="mb-status">
                 <span className="mb-dot" />
                 {estado.filas.length} cuentas · {huerfanasSet.size} por homologar (ámbar)
+                {sugeridas > 0 && (
+                  <>
+                    {" · "}
+                    <span className="mb-sug-count">{sugeridas} sugeridas por grupo (cian)</span>
+                    <button className="mb-chip sug" onClick={confirmarTodas}>
+                      ✓ Confirmar todas ({sugeridas})
+                    </button>
+                  </>
+                )}
               </div>
 
               <input
@@ -314,6 +345,7 @@ export default function MotorBalancesTool() {
                       <th className="c1">Cuenta contable (cliente)</th>
                       <th className="edit sup">Codifo Super Cías</th>
                       <th className="edit sri">Códigos SRI</th>
+                      <th className="conf">Confirmar</th>
                       {estado.periodos.map((p) => (
                         <th key={p} className="num">{p}</th>
                       ))}
@@ -322,15 +354,22 @@ export default function MotorBalancesTool() {
                   <tbody>
                     {filas.map(([f, i]) => {
                       const grupo = f.es_hoja === false;
+                      const sugerido = !grupo && f.sugerido;
                       const orphan = !grupo && !f.super_cias;
                       return (
-                        <tr key={f.cuenta + i} className={grupo ? "grupo" : orphan ? "orphan" : ""}>
+                        <tr
+                          key={f.cuenta + i}
+                          className={grupo ? "grupo" : sugerido ? "sugerido" : orphan ? "orphan" : ""}
+                        >
                           <td className="c1">
                             <span className="cod">{f.cuenta}</span>
                             <span className="nom">{f.nombre}</span>
                           </td>
                           {grupo ? (
-                            <td className="edit grp" colSpan={2}>subtotal</td>
+                            <>
+                              <td className="edit grp" colSpan={2}>subtotal</td>
+                              <td className="conf" />
+                            </>
                           ) : (
                             <>
                               <td className="edit">
@@ -351,6 +390,19 @@ export default function MotorBalancesTool() {
                                   onChange={(e) => editarCodigo(i, "sri", e.target.value)}
                                 />
                                 <span className="mb-nom">{plan?.nombre_sri?.[f.sri] || ""}</span>
+                              </td>
+                              <td className="conf">
+                                {sugerido ? (
+                                  <button
+                                    className="mb-conf-btn"
+                                    title="Confirmar el código heredado del grupo"
+                                    onClick={() => confirmarSugerencia(i)}
+                                  >
+                                    ✓ Confirmar
+                                  </button>
+                                ) : f.super_cias ? (
+                                  <span className="mb-conf-ok">✓</span>
+                                ) : null}
                               </td>
                             </>
                           )}
