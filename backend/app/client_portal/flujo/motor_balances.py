@@ -80,6 +80,44 @@ def propagar_homologacion(filas: list[dict], mapeo: dict[str, tuple[str, str]]) 
     return out
 
 
+def _grupo(cuenta: str) -> str:
+    """Prefijo de grupo = código sin el último segmento (el padre inmediato).
+    ``'1.01.01.01.006'`` -> ``'1.01.01.01.'``. Cuentas sin punto -> ``''``."""
+    c = str(cuenta).rstrip(".")
+    i = c.rfind(".")
+    return c[: i + 1] if i >= 0 else ""
+
+
+def sugerir_por_grupo(filas: list[dict]) -> list[dict]:
+    """Para cada cuenta HOJA huérfana, sugiere ``(super_cias, sri)`` si sus
+    hermanas del MISMO grupo (mismo código padre) ya homologadas comparten
+    UNÁNIMEMENTE el mismo Super Cías (ej.: todas las cajas chicas de
+    ``1.01.01.01. CAJA`` heredan ``1010101``). Rellena los códigos y marca
+    ``sugerido=True`` para que el frontend los pinte y pida confirmación. Si el
+    grupo es ambiguo (hermanas con distinto Super) NO sugiere. No muta la
+    entrada; devuelve fichas nuevas. Las hermanas que siembran la sugerencia
+    son solo las ya homologadas (no se encadenan sugerencias)."""
+    por_grupo: dict[str, dict[str, tuple[str, str]]] = {}
+    for f in filas:
+        if f.get("es_hoja", True) and f.get("super_cias"):
+            g = _grupo(f["cuenta"])
+            if g:
+                por_grupo.setdefault(g, {})[f["super_cias"]] = (
+                    f["super_cias"], f.get("sri", ""))
+    out = []
+    for f in filas:
+        nf = {**f}
+        if nf.get("es_hoja", True) and not nf.get("super_cias"):
+            cands = por_grupo.get(_grupo(nf["cuenta"]))
+            if cands and len(cands) == 1:
+                sc, sri = next(iter(cands.values()))
+                nf["super_cias"] = sc
+                nf["sri"] = sri
+                nf["sugerido"] = True
+        out.append(nf)
+    return out
+
+
 def huerfanas(filas: list[dict]) -> list[str]:
     """Códigos de cuenta HOJA sin Super Cías asignado, en orden de aparición.
     Las filas de grupo/subtotal (``es_hoja=False``) NO son homologables y se
@@ -144,8 +182,8 @@ def homologar_archivos(archivos: list[tuple[str, bytes]]) -> dict:
         (esf_raw if res["estado"] == "esf" else eri_raw).append(res)
     cons_esf = consolidar_multiarchivo(esf_raw) if esf_raw else _vacio()
     cons_eri = consolidar_multiarchivo(eri_raw) if eri_raw else _vacio()
-    esf_h = propagar_homologacion(cons_esf["filas"], mapeo)
-    eri_h = propagar_homologacion(cons_eri["filas"], mapeo)
+    esf_h = sugerir_por_grupo(propagar_homologacion(cons_esf["filas"], mapeo))
+    eri_h = sugerir_por_grupo(propagar_homologacion(cons_eri["filas"], mapeo))
     return {
         "esf": {"periodos": cons_esf["periodos"], "filas": esf_h,
                 "avisos": cons_esf["avisos"],
