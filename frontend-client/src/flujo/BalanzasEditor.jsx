@@ -22,16 +22,19 @@ const money = (n) => (Number(n) || 0).toLocaleString("es-EC", { minimumFractionD
 const num = (v) => (v === "" || v === null || v === undefined ? 0 : Number(v) || 0);
 
 // Une ambas balanzas por cuenta (código contable completo, único).
+// Fila de entrada: [cuenta, nombre, super_cias, sri, saldo].
 function fusionar(rowsAnt, rowsAct) {
   const idx = new Map();
   const push = (r, col) => {
     const cuenta = String(r[0] || "");
-    const key = cuenta || `${r[1]}·${col}`;
-    if (!idx.has(key)) idx.set(key, { cuenta, super_cias: r[1] || "", sri: r[2] || "", ant: "", act: "" });
+    const nombre = String(r[1] || "");
+    const key = cuenta || `${r[2]}·${col}`;
+    if (!idx.has(key)) idx.set(key, { cuenta, nombre, super_cias: r[2] || "", sri: r[3] || "", ant: "", act: "" });
     const o = idx.get(key);
-    o[col] = r[3];
-    if (!o.super_cias) o.super_cias = r[1] || "";
-    if (!o.sri) o.sri = r[2] || "";
+    o[col] = r[4];
+    if (!o.super_cias) o.super_cias = r[2] || "";
+    if (!o.sri) o.sri = r[3] || "";
+    if (!o.nombre) o.nombre = nombre;
   };
   (rowsAnt || []).forEach((r) => push(r, "ant"));
   (rowsAct || []).forEach((r) => push(r, "act"));
@@ -79,7 +82,7 @@ export default function BalanzasEditor({ ant, act, catalogos, onRecalc, recalcul
     const balAnt = [];
     const balAct = [];
     baseFusion.forEach((row, i) => {
-      const meta = { cuenta: row.cuenta, super_cias: String(valSuper(i) || ""), sri: String(valSri(i) || "") };
+      const meta = { cuenta: row.cuenta, nombre: row.nombre, super_cias: String(valSuper(i) || ""), sri: String(valSri(i) || "") };
       const a = valAnt(i);
       const c = valAct(i);
       if (a !== "" && a !== null && a !== undefined) balAnt.push({ ...meta, saldo: num(a) });
@@ -104,7 +107,7 @@ export default function BalanzasEditor({ ant, act, catalogos, onRecalc, recalcul
     const q = filtro.trim().toLowerCase();
     return baseFusion
       .map((r, i) => [r, i])
-      .filter(([r]) => `${r.cuenta} ${r.super_cias} ${r.sri}`.toLowerCase().includes(q));
+      .filter(([r]) => `${r.cuenta} ${r.nombre} ${r.super_cias} ${r.sri}`.toLowerCase().includes(q));
   }, [baseFusion, filtro]);
 
   const tieneCatalogo = !!(catalogos?.super?.length);
@@ -162,7 +165,10 @@ export default function BalanzasEditor({ ant, act, catalogos, onRecalc, recalcul
               const sr = String(valSri(i) || "");
               return (
                 <tr key={i}>
-                  <td className="c1">{r.cuenta}</td>
+                  <td className="c1" title={`${r.cuenta} · ${r.nombre}`}>
+                    <span className="fx-ht-cod-cli">{r.cuenta}</span>
+                    <span className="fx-ht-nom">{r.nombre}</span>
+                  </td>
                   <td className="edit">
                     <input
                       className="fx-ht-in cod"
