@@ -68,8 +68,8 @@ def _detectar_columnas(fila_encabezado) -> dict[str, int]:
 
 def parse_balanza(contenido: bytes) -> list[dict]:
     """Lee la primera hoja con encabezados reconocibles y devuelve filas
-    ``{"cuenta", "super_cias", "sri", "saldo"}``. Ignora filas sin código
-    Super Cías o sin saldo numérico."""
+    ``{"cuenta", "nombre", "super_cias", "sri", "saldo"}``. Ignora filas sin
+    código Super Cías o sin saldo numérico."""
     wb = load_workbook(io.BytesIO(contenido), data_only=True, read_only=True)
     for ws in wb.worksheets:
         # busca la fila de encabezados en las primeras 15 filas
