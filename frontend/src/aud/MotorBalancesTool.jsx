@@ -135,13 +135,20 @@ export default function MotorBalancesTool() {
       const copia = structuredClone(prev);
       const fila = copia[tab].filas[idxReal];
       fila[campo] = valor;
-      fila.sugerido = false; // editar manualmente = tomar control (confirma la línea)
-      // Enlace bidireccional Super↔SRI cuando el plan tiene mapeo 1:1.
-      if (campo === "super_cias" && plan?.super_a_sri?.[valor]?.length === 1) {
-        fila.sri = plan.super_a_sri[valor][0];
-      } else if (campo === "sri" && plan?.sri_a_super?.[valor]?.length === 1) {
-        fila.super_cias = plan.sri_a_super[valor][0];
+      // Autocompletar el par homologado desde el plan de cuentas (Super↔SRI van
+      // juntos). Si el código elegido tiene UN solo par, se llena con certeza y
+      // la línea queda confirmada. Si tiene VARIOS (ej. SRI 311 = CAJA/bancos, o
+      // SRI 330 = renta variable), se llena el primero pero se PINTA como
+      // sugerencia a confirmar (cian), para no afirmar un código a ciegas.
+      let ambiguo = false;
+      if (campo === "super_cias") {
+        const sris = plan?.super_a_sri?.[valor] || [];
+        if (sris.length) { fila.sri = sris[0]; ambiguo = sris.length > 1; }
+      } else if (campo === "sri") {
+        const supers = plan?.sri_a_super?.[valor] || [];
+        if (supers.length) { fila.super_cias = supers[0]; ambiguo = supers.length > 1; }
       }
+      fila.sugerido = ambiguo; // manual + par único = confirmado; par múltiple = sugerido
       return copia;
     });
     clearTimeout(timer.current);
