@@ -208,28 +208,35 @@ export default function MotorBalancesTool() {
               </thead>
               <tbody>
                 {filas.map(([f, i]) => {
-                  const orphan = !f.super_cias;
+                  const grupo = f.es_hoja === false;
+                  const orphan = !grupo && !f.super_cias;
                   return (
-                    <tr key={f.cuenta + i} className={orphan ? "orphan" : ""}>
+                    <tr key={f.cuenta + i} className={grupo ? "grupo" : orphan ? "orphan" : ""}>
                       <td className="c1">
                         <span className="cod">{f.cuenta}</span>
                         <span className="nom">{f.nombre}</span>
                       </td>
-                      <td className="edit">
-                        <input
-                          className="in cod"
-                          value={f.super_cias || ""}
-                          placeholder={orphan ? "homologar…" : ""}
-                          onChange={(e) => editarCodigo(i, "super_cias", e.target.value)}
-                        />
-                      </td>
-                      <td className="edit">
-                        <input
-                          className="in cod"
-                          value={f.sri || ""}
-                          onChange={(e) => editarCodigo(i, "sri", e.target.value)}
-                        />
-                      </td>
+                      {grupo ? (
+                        <td className="edit grp" colSpan={2}>subtotal</td>
+                      ) : (
+                        <>
+                          <td className="edit">
+                            <input
+                              className="in cod"
+                              value={f.super_cias || ""}
+                              placeholder={orphan ? "homologar…" : ""}
+                              onChange={(e) => editarCodigo(i, "super_cias", e.target.value)}
+                            />
+                          </td>
+                          <td className="edit">
+                            <input
+                              className="in cod"
+                              value={f.sri || ""}
+                              onChange={(e) => editarCodigo(i, "sri", e.target.value)}
+                            />
+                          </td>
+                        </>
+                      )}
                       {estado.periodos.map((p) => (
                         <td key={p} className="num">{money(f.saldos[p])}</td>
                       ))}

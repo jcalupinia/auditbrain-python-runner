@@ -51,7 +51,19 @@ def consolidar_multiarchivo(archivos: list[dict]) -> dict:
                 val = float(saldos[idx]) if idx < len(saldos) else 0.0
                 f["saldos"][p] = f["saldos"].get(p, 0.0) + val
     periodos.sort(key=_orden_periodo)
+    codigos = set(fichas.keys())
+
+    def _es_hoja(c: str) -> bool:
+        # Grupo/subtotal si el código termina en punto (ej. "1.01.") o si otro
+        # código lo tiene como prefijo con frontera de punto (es un padre). El
+        # resto son cuentas hoja (homologables).
+        if c.endswith("."):
+            return False
+        pref = c + "."
+        return not any(o != c and o.startswith(pref) for o in codigos)
+
     for f in fichas.values():
+        f["es_hoja"] = _es_hoja(f["cuenta"])
         for p in periodos:
             f["saldos"].setdefault(p, 0.0)
     return {"periodos": periodos, "filas": list(fichas.values()), "avisos": avisos}
@@ -69,8 +81,11 @@ def propagar_homologacion(filas: list[dict], mapeo: dict[str, tuple[str, str]]) 
 
 
 def huerfanas(filas: list[dict]) -> list[str]:
-    """Códigos de cuenta cliente sin Super Cías asignado, en orden de aparición."""
-    return [f["cuenta"] for f in filas if not f.get("super_cias")]
+    """Códigos de cuenta HOJA sin Super Cías asignado, en orden de aparición.
+    Las filas de grupo/subtotal (``es_hoja=False``) NO son homologables y se
+    excluyen. Fichas sin ``es_hoja`` se tratan como hoja (retrocompat)."""
+    return [f["cuenta"] for f in filas
+            if f.get("es_hoja", True) and not f.get("super_cias")]
 
 
 def cuadre_por_periodo(filas: list[dict], periodos: list[str], tolerancia: float = 1.0) -> dict:

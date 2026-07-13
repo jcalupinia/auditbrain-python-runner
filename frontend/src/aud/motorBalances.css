@@ -99,3 +99,7 @@
 .mb-tbl .in:focus { border-color: var(--mb-accent); background: var(--mb-bg); }
 .mb-tbl .in.cod { color: var(--mb-accent); }
 .mb-tbl tr.orphan .in { color: var(--mb-amber); }
+.mb-tbl tr.grupo td { font-weight: 700; color: var(--mb-text); background: var(--mb-panel); }
+.mb-tbl tr.grupo td.c1 { background: var(--mb-panel); }
+.mb-tbl tr.grupo td.c1 .cod { color: var(--mb-accent); }
+.mb-tbl td.edit.grp { color: var(--mb-dim); font: 9px var(--mb-mono); text-transform: uppercase; letter-spacing: 0.08em; text-align: center; }
