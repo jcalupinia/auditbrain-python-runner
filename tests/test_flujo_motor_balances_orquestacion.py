@@ -43,3 +43,14 @@ def test_homologar_archivos_clasifica_eri_aparte():
     out = mb.homologar_archivos([("resultados.xlsx", crudo_eri)])
     assert out["eri"]["periodos"] == ["2024"]
     assert out["esf"]["periodos"] == []
+
+
+def test_recalcular_homologado_actualiza_cuadre_y_huerfanas():
+    esf = {"periodos": ["2024"], "filas": [
+        {"cuenta": "a", "nombre": "Caja", "super_cias": "1010101", "sri": "311", "saldos": {"2024": 100.0}},
+        {"cuenta": "b", "nombre": "X", "super_cias": "", "sri": "", "saldos": {"2024": -60.0}},
+    ]}
+    eri = {"periodos": [], "filas": []}
+    out = mb.recalcular_homologado(esf, eri)
+    assert out["esf"]["huerfanas"] == ["b"]
+    assert out["esf"]["cuadre"]["2024"]["cuadra"] is False

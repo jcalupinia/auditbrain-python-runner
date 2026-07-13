@@ -130,3 +130,15 @@ def homologar_archivos(archivos: list[tuple[str, bytes]]) -> dict:
         "eri": {"periodos": cons_eri["periodos"], "filas": eri_h,
                 "avisos": cons_eri["avisos"], "huerfanas": huerfanas(eri_h)},
     }
+
+
+def recalcular_homologado(esf: dict, eri: dict) -> dict:
+    """Recalcula cuadre (ESF) y huérfanas (ESF y ERI) a partir de las tablas
+    editadas por el usuario (mismos dicts que devuelve ``homologar_archivos``,
+    con super_cias/sri corregidos). No re-parsea archivos."""
+    return {
+        "esf": {**esf,
+                "cuadre": cuadre_por_periodo(esf.get("filas", []), esf.get("periodos", [])),
+                "huerfanas": huerfanas(esf.get("filas", []))},
+        "eri": {**eri, "huerfanas": huerfanas(eri.get("filas", []))},
+    }
