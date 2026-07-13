@@ -177,3 +177,6 @@
   transition: transform 0.1s ease;
 }
 .fx3d .pc-btn:active { transform: translateY(2px); box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3); }
+
+.fx3d .fx-ht-cod-cli { display: block; font: 700 11.5px var(--mono); color: var(--text); }
+.fx3d .fx-ht-tbl td.c1 { white-space: normal; line-height: 1.25; vertical-align: top; }
