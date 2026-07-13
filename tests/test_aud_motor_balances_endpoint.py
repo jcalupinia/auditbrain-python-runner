@@ -67,3 +67,40 @@ def test_homologar_con_staff_devuelve_esf_eri(client):
     body = r.json()
     assert "esf" in body
     assert "eri" in body
+
+
+def test_estados_con_staff_devuelve_lineas(client):
+    email, pw = _mk_user(Role.user)
+    tok = _login(client, email, pw)
+    payload = {
+        "esf": {"periodos": ["2024"], "filas": [
+            {"cuenta": "x", "super_cias": "1010101", "es_hoja": True, "saldos": {"2024": 100.0}},
+        ]},
+        "eri": {"periodos": [], "filas": []},
+    }
+    r = client.post(f"{BASE}/estados", headers=_h(tok), json=payload)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "esf" in body
+    assert "lineas" in body["esf"]
+
+
+def test_plan_con_staff_devuelve_mapa(client):
+    email, pw = _mk_user(Role.user)
+    tok = _login(client, email, pw)
+    r = client.get(f"{BASE}/plan", headers=_h(tok))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "super_a_sri" in body
+    assert "nombre_super" in body
+
+
+def test_estados_sin_auth_rechazado(client):
+    r = client.post(f"{BASE}/estados", json={"esf": {"periodos": [], "filas": []},
+                                             "eri": {"periodos": [], "filas": []}})
+    assert r.status_code in (401, 403), r.text
+
+
+def test_plan_sin_auth_rechazado(client):
+    r = client.get(f"{BASE}/plan")
+    assert r.status_code in (401, 403), r.text
