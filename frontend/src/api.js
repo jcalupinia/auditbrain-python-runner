@@ -164,6 +164,17 @@ export async function motorBalancesRecalcular(esf, eri) {
   );
 }
 
+export async function motorBalancesPlan() {
+  return parse(await apiFetch(`${API_BASE}/api/v1/aud/motor-balances/plan`, { headers: authHeaders() }));
+}
+
+export async function motorBalancesEstados(esf, eri) {
+  return parse(await apiFetch(`${API_BASE}/api/v1/aud/motor-balances/estados`, {
+    method: "POST", headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ esf, eri }),
+  }));
+}
+
 export async function createUser(email, password, role) {
   return parse(
     await apiFetch(`${API_BASE}/api/v1/auth/users`, {
