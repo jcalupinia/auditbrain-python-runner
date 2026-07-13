@@ -40,6 +40,7 @@ export default function MotorBalancesTool() {
   const [recalc, setRecalc] = useState(false);
   const [err, setErr] = useState(null);
   const [filtro, setFiltro] = useState("");
+  const [soloPend, setSoloPend] = useState(false); // ver solo huérfanas + sugerencias
   const inputRef = useRef(null);
   const timer = useRef(null);
   const dataRef = useRef(null);
@@ -196,16 +197,26 @@ export default function MotorBalancesTool() {
     () => (estado?.filas || []).filter((f) => f.sugerido).length,
     [estado]
   );
+  // "Pendiente" = cuenta hoja huérfana (sin Super) o sugerencia sin confirmar.
+  const esPendiente = (f) =>
+    f.es_hoja !== false && (!f.super_cias || f.sugerido);
+  const pendientes = useMemo(
+    () => (estado?.filas || []).filter(esPendiente).length,
+    [estado]
+  );
 
   const filas = useMemo(() => {
     if (!estado) return [];
-    const conIdx = estado.filas.map((f, i) => [f, i]);
-    if (!filtro.trim()) return conIdx;
+    let arr = estado.filas.map((f, i) => [f, i]);
+    if (soloPend) arr = arr.filter(([f]) => esPendiente(f));
     const q = filtro.trim().toLowerCase();
-    return conIdx.filter(([f]) =>
-      `${f.cuenta} ${f.nombre} ${f.super_cias} ${f.sri}`.toLowerCase().includes(q)
-    );
-  }, [estado, filtro]);
+    if (q) {
+      arr = arr.filter(([f]) =>
+        `${f.cuenta} ${f.nombre} ${f.super_cias} ${f.sri}`.toLowerCase().includes(q)
+      );
+    }
+    return arr;
+  }, [estado, filtro, soloPend]);
 
   return (
     <div className="mb-tool">
@@ -337,14 +348,32 @@ export default function MotorBalancesTool() {
                 )}
               </div>
 
-              <input
-                className="mb-search"
-                placeholder="Filtrar por cuenta / nombre / Super Cías / SRI…"
-                value={filtro}
-                onChange={(e) => setFiltro(e.target.value)}
-              />
+              <div className="mb-filtros">
+                <input
+                  className="mb-search"
+                  placeholder="Filtrar por cuenta / nombre / Super Cías / SRI…"
+                  value={filtro}
+                  onChange={(e) => setFiltro(e.target.value)}
+                />
+                <button
+                  className={`mb-chip pend${soloPend ? " on" : ""}`}
+                  onClick={() => setSoloPend((v) => !v)}
+                  disabled={!soloPend && pendientes === 0}
+                  title="Trabajá solo las cuentas por homologar; al validarlas, volvé a ver todo"
+                >
+                  {soloPend
+                    ? "↩ Ver todas las filas"
+                    : `🔎 Ver solo pendientes (${pendientes})`}
+                </button>
+              </div>
 
               {/* Tabla editable N-períodos */}
+              {soloPend && filas.length === 0 ? (
+                <div className="mb-done">
+                  ✓ No quedan cuentas pendientes en este estado. Pulsá “Ver todas
+                  las filas” para revisar el balance completo.
+                </div>
+              ) : (
               <div className="mb-scroll">
                 <table className="mb-tbl">
                   <thead>
@@ -422,6 +451,7 @@ export default function MotorBalancesTool() {
                   </tbody>
                 </table>
               </div>
+              )}
             </>
           )}
 
