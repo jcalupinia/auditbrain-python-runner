@@ -85,8 +85,8 @@ def test_recalcular_desde_balanzas_regenera_previews_y_artefactos(tmp_path, monk
     # devuelve previews frescos con las secciones clave
     assert "FLU_95" in prev and "MAP" in prev and "MAP_ANT" in prev
     assert len(prev["MAP"]["rows"]) == 2 and len(prev["MAP_ANT"]["rows"]) == 2
-    # el saldo editado se refleja
-    assert prev["MAP"]["rows"][0][3] == 900.0
+    # el saldo editado se refleja (saldo en índice 4 tras agregar la col Nombre)
+    assert prev["MAP"]["rows"][0][4] == 900.0
     # regeneró los artefactos descargables (Excel + TXT del flujo + previews.json)
     art = job_dir / processor.ARTIFACTS_DIR
     assert (art / processor.ARCH_FLU).exists()
