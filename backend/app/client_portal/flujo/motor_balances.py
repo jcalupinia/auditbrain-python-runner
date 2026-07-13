@@ -47,7 +47,8 @@ def consolidar_multiarchivo(archivos: list[dict]) -> dict:
                 if not f["nombre"]:
                     f["nombre"] = fila.get("nombre", "")
                 saldos = fila.get("saldos", [])
-                f["saldos"][p] = float(saldos[idx]) if idx < len(saldos) else 0.0
+                val = float(saldos[idx]) if idx < len(saldos) else 0.0
+                f["saldos"][p] = f["saldos"].get(p, 0.0) + val
     periodos.sort(key=_orden_periodo)
     for f in fichas.values():
         for p in periodos:

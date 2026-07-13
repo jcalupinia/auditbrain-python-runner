@@ -71,3 +71,15 @@ def test_cuadre_por_periodo_reporta_descuadre():
     cua = mb.cuadre_por_periodo(fichas, ["2024"])
     assert cua["2024"]["cuadra"] is False
     assert abs(cua["2024"]["diferencia"] - 40.0) < 0.01
+
+
+def test_consolidar_suma_misma_cuenta_en_varias_filas_del_mismo_archivo():
+    # misma cuenta en 2 filas del MISMO archivo, cada una con el valor de un período distinto
+    arch = _archivo("esf", ["2023", "2024"], [
+        {"cuenta": "1.01", "nombre": "CxL", "saldos": [60.0, 0.0]},
+        {"cuenta": "1.01", "nombre": "CxL", "saldos": [0.0, 60.0]},
+    ])
+    cons = mb.consolidar_multiarchivo([arch])
+    assert len(cons["filas"]) == 1
+    assert cons["filas"][0]["saldos"] == {"2023": 60.0, "2024": 60.0}
+    assert cons["avisos"] == []   # NO es año duplicado (mismo archivo)
