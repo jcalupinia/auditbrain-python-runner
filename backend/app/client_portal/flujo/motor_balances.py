@@ -53,3 +53,39 @@ def consolidar_multiarchivo(archivos: list[dict]) -> dict:
         for p in periodos:
             f["saldos"].setdefault(p, 0.0)
     return {"periodos": periodos, "filas": list(fichas.values()), "avisos": avisos}
+
+
+def propagar_homologacion(filas: list[dict], mapeo: dict[str, tuple[str, str]]) -> list[dict]:
+    """Asigna ``super_cias``/``sri`` a cada ficha según ``mapeo`` (cuenta cliente ->
+    (super, sri)). Las que no están en el mapeo quedan con "" (huérfanas). No pierde
+    ninguna cuenta. Devuelve nuevas fichas (no muta las de entrada)."""
+    out = []
+    for f in filas:
+        sc, sri = mapeo.get(f["cuenta"], ("", ""))
+        out.append({**f, "super_cias": sc, "sri": sri})
+    return out
+
+
+def huerfanas(filas: list[dict]) -> list[str]:
+    """Códigos de cuenta cliente sin Super Cías asignado, en orden de aparición."""
+    return [f["cuenta"] for f in filas if not f.get("super_cias")]
+
+
+def cuadre_por_periodo(filas: list[dict], periodos: list[str], tolerancia: float = 1.0) -> dict:
+    """Cuadre A = P + Patrimonio por período, agrupando por sección del Código Super
+    Cías (1=activo, 2=pasivo, 3=patrimonio; 2 y 3 son crédito/negativo). **Reporta,
+    nunca fuerza.** Devuelve ``{periodo: {"activo","pas_pat","diferencia","cuadra"}}``.
+    Las cuentas huérfanas (sin super_cias) NO entran al cuadre."""
+    out: dict[str, dict] = {}
+    for p in periodos:
+        sec = {"1": 0.0, "2": 0.0, "3": 0.0}
+        for f in filas:
+            sc = str(f.get("super_cias") or "")
+            if sc[:1] in sec:
+                sec[sc[:1]] += float(f["saldos"].get(p, 0.0))
+        activo = round(sec["1"], 2)
+        pas_pat = round(-(sec["2"] + sec["3"]), 2)
+        dif = round(activo - pas_pat, 2)
+        out[p] = {"activo": activo, "pas_pat": pas_pat, "diferencia": dif,
+                  "cuadra": abs(dif) <= tolerancia}
+    return out
