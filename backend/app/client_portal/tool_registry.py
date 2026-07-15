@@ -100,6 +100,24 @@ TOOLS: dict[str, ToolConfig] = {
     ),
 
     # =========================================================
+    # DESARROLLO
+    # =========================================================
+    "FORGE_CONSOLE": ToolConfig(
+        code="FORGE_CONSOLE",
+        label="Forge Console · Un cerebro, muchos destinos",
+        description=(
+            "AuditBrain Forge: define una vez el cerebro de tu proyecto "
+            "(reglas, memoria, skills) y compílalo al formato nativo de cada "
+            "herramienta de IA de código (Claude Code, Cursor, Copilot, Codex, "
+            "Gemini CLI, Windsurf)."
+        ),
+        category="DESARROLLO",
+        slots={},  # dashboard propio en /tools/FORGE_CONSOLE vía /client/forge/*
+        processor=None,  # flujo propio, no pipeline genérico
+        enabled=True,
+    ),
+
+    # =========================================================
     # SOCIETARIAS
     # =========================================================
     "FLUJO_EFECTIVO": ToolConfig(
@@ -208,5 +226,10 @@ CATEGORIES = [
         "id": "GERENCIALES",
         "label": "Reportes Gerenciales",
         "description": "Reportes financieros y gerenciales, KPIs, análisis CFO, dashboards ejecutivos.",
+    },
+    {
+        "id": "DESARROLLO",
+        "label": "Desarrollo con IA",
+        "description": "AuditBrain Forge — un cerebro, muchos destinos: compila el contexto del proyecto a las herramientas de IA de código.",
     },
 ]
