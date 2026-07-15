@@ -48,3 +48,29 @@ class ForgeBrain(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, default=_utcnow, nullable=False
     )
+
+
+class ForgeSubscription(Base):
+    """Suscripción de Forge de un usuario (tenant). Una por usuario."""
+
+    __tablename__ = "forge_subscriptions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        unique=True,
+        nullable=False,
+    )
+    plan: Mapped[str] = mapped_column(String(40), default="free", nullable=False)
+    status: Mapped[str] = mapped_column(String(40), default="none", nullable=False)
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    stripe_subscription_id: Mapped[str | None] = mapped_column(
+        String(120), nullable=True
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow, nullable=False
+    )

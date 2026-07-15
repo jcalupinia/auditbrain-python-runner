@@ -6,7 +6,7 @@ usuario solo ve y compila sus propios cerebros.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
@@ -14,9 +14,16 @@ from backend.app.auth.deps import get_current_user
 from backend.app.auth.models import User
 from backend.app.db.session import get_db
 
-from . import service
+from . import billing, plans, service
 from .engine.adapters import list_adapters
-from .schemas import BrainCreate, BrainOut, CompileOut, CompileRequest
+from .schemas import (
+    BrainCreate,
+    BrainOut,
+    CheckoutRequest,
+    CompileOut,
+    CompileRequest,
+    SubscriptionOut,
+)
 
 router = APIRouter(prefix="/forge", tags=["forge"])
 
@@ -40,6 +47,7 @@ def create_brain(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> BrainOut:
+    plans.check_can_create_brain(db, user.id)
     return service.to_out(service.create_brain(db, user, payload))
 
 
@@ -60,6 +68,7 @@ def compile_brain(
     user: User = Depends(get_current_user),
 ) -> CompileOut:
     row = service.get_owned_brain(db, user.id, brain_id)
+    plans.check_can_compile(db, user.id, payload.target)
     try:
         files = service.compile_brain(row, payload.target)
     except KeyError as exc:
@@ -69,3 +78,34 @@ def compile_brain(
             status_code=400, detail=f"Cerebro inválido: {exc}"
         ) from exc
     return CompileOut(target=payload.target, files=files, count=len(files))
+
+
+# --- Facturación (Stripe) ---------------------------------------------------
+
+@router.get("/subscription", response_model=SubscriptionOut)
+def get_subscription(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> SubscriptionOut:
+    plan = plans.get_user_plan(db, user.id)
+    allowed = plans.PLANS[plan]["targets"]
+    targets = sorted(list_adapters()) if allowed is None else sorted(allowed)
+    return SubscriptionOut(
+        plan=plan, targets=targets, max_brains=plans.plan_brain_limit(plan)
+    )
+
+
+@router.post("/billing/checkout")
+def create_checkout(
+    payload: CheckoutRequest,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Crea una sesión de pago de Stripe y devuelve la URL de checkout."""
+    return {"url": billing.create_checkout_url(user, payload.plan)}
+
+
+@router.post("/billing/webhook")
+async def stripe_webhook(request: Request, db: Session = Depends(get_db)) -> dict:
+    """Webhook de Stripe (sin auth: lo llama Stripe). Verifica firma si hay secret."""
+    payload = await request.body()
+    signature = request.headers.get("stripe-signature", "")
+    return billing.handle_webhook(db, payload, signature)

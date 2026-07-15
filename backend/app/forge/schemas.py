@@ -39,3 +39,13 @@ class CompileOut(BaseModel):
     target: str
     files: dict[str, str]
     count: int
+
+
+class CheckoutRequest(BaseModel):
+    plan: str
+
+
+class SubscriptionOut(BaseModel):
+    plan: str
+    targets: list[str]
+    max_brains: int | None

@@ -96,3 +96,4 @@ email-validator==2.2.0
 # por riesgo de OOM en Starter (reevaluar tras subir el servicio a Standard).
 # Si un script de GPT necesita alguno de los excluidos, evaluar caso a caso.
 # ==========================================================
+stripe==11.1.0
