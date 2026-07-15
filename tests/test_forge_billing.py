@@ -43,24 +43,9 @@ def test_plan_por_defecto_free(client):
     assert data["max_brains"] == 1
 
 
-def test_free_limita_cerebros_a_uno(client):
-    h, _ = _admin(client)
-    assert client.post("/api/v1/forge/brains", json=_brain(), headers=h).status_code == 201
-    # segundo cerebro supera el límite del plan free
-    r = client.post("/api/v1/forge/brains", json=_brain(), headers=h)
-    assert r.status_code == 402, r.text
-
-
-def test_free_no_permite_destino_premium(client):
-    h, _ = _admin(client)
-    bid = client.post("/api/v1/forge/brains", json=_brain(), headers=h).json()["id"]
-    assert client.post(
-        f"/api/v1/forge/brains/{bid}/compile", json={"target": "claude-code"}, headers=h
-    ).status_code == 200
-    r = client.post(
-        f"/api/v1/forge/brains/{bid}/compile", json={"target": "cursor"}, headers=h
-    )
-    assert r.status_code == 402, r.text
+# Nota: el gating por plan (límite de cerebros / destinos) aplica a CLIENTES, no
+# a operadores admin/user (que hacen bypass). Su verificación vive en
+# tests/test_forge_client.py con un usuario de rol client.
 
 
 def test_webhook_activa_pro(client):

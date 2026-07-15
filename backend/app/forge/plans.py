@@ -11,8 +11,15 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from backend.app.auth.models import Role
+
 from .engine.adapters import list_adapters
 from .models import ForgeBrain, ForgeSubscription
+
+
+def _is_operator(user) -> bool:
+    """Operadores (admin/user) hacen bypass del gating por plan (como staff interno)."""
+    return getattr(user, "role", None) in (Role.admin, Role.user)
 
 # targets=None → todos los destinos; max_brains=None → ilimitado.
 PLANS: dict[str, dict] = {
@@ -44,15 +51,17 @@ def plan_brain_limit(plan: str) -> int | None:
     return PLANS[plan]["max_brains"]
 
 
-def check_can_create_brain(db: Session, user_id: int) -> None:
-    plan = get_user_plan(db, user_id)
+def check_can_create_brain(db: Session, user) -> None:
+    if _is_operator(user):
+        return
+    plan = get_user_plan(db, user.id)
     limit = plan_brain_limit(plan)
     if limit is None:
         return
     count = db.execute(
         select(func.count())
         .select_from(ForgeBrain)
-        .where(ForgeBrain.owner_user_id == user_id)
+        .where(ForgeBrain.owner_user_id == user.id)
     ).scalar_one()
     if count >= limit:
         raise HTTPException(
@@ -61,8 +70,10 @@ def check_can_create_brain(db: Session, user_id: int) -> None:
         )
 
 
-def check_can_compile(db: Session, user_id: int, target: str) -> None:
-    plan = get_user_plan(db, user_id)
+def check_can_compile(db: Session, user, target: str) -> None:
+    if _is_operator(user):
+        return
+    plan = get_user_plan(db, user.id)
     if not plan_allows_target(plan, target):
         raise HTTPException(
             status_code=402,

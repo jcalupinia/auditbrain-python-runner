@@ -68,7 +68,7 @@ def create_brain(
     db: Session = Depends(get_db),
     user: User = Depends(require_forge_client),
 ) -> BrainOut:
-    plans.check_can_create_brain(db, user.id)
+    plans.check_can_create_brain(db, user)
     return service.to_out(service.create_brain(db, user, payload))
 
 
@@ -89,7 +89,7 @@ def compile_brain(
     user: User = Depends(require_forge_client),
 ) -> CompileOut:
     row = service.get_owned_brain(db, user.id, brain_id)
-    plans.check_can_compile(db, user.id, payload.target)
+    plans.check_can_compile(db, user, payload.target)
     try:
         files = service.compile_brain(row, payload.target)
     except KeyError as exc:
