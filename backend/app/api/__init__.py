@@ -18,6 +18,7 @@ from backend.app.context import router as context_router
 from backend.app.events import router as events_router
 from backend.app.staff_portal import router as staff_portal_router
 from backend.app.ict.router import router as ict_router
+from backend.app.forge import router as forge_router
 from backend.app.core.config import settings
 
 api_router = APIRouter(prefix=settings.PLATFORM_API_PREFIX)
@@ -39,5 +40,6 @@ api_router.include_router(staff_portal_router.router)
 api_router.include_router(staff_portal_router.global_router)
 api_router.include_router(ict_router)
 api_router.include_router(events_router.router)
+api_router.include_router(forge_router.router)
 
 __all__ = ["api_router"]
