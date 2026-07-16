@@ -102,6 +102,7 @@ export default function ClientCatalog() {
                     onClick={() => {
                       if (t.code === "ICT_2025") nav("/tools/ICT_2025");
                       else if (t.code === "FLUJO_EFECTIVO") nav("/tools/FLUJO_EFECTIVO");
+                      else if (t.code === "FORGE_CONSOLE") nav("/tools/FORGE_CONSOLE");
                       else nav(`/tools/${t.code}`);
                     }}
                   >

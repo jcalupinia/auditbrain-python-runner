@@ -1,0 +1,81 @@
+/* Forge Console — usa los tokens del portal (var(--accent) verde, paneles). */
+.forge-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.forge-grid {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 14px;
+}
+@media (max-width: 820px) {
+  .forge-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.forge-muted {
+  color: var(--text-soft);
+  font-size: 13px;
+}
+.forge-error {
+  border-color: var(--danger);
+}
+.forge-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  margin-bottom: 8px;
+  text-align: left;
+}
+.forge-tile.on {
+  border-color: var(--accent);
+}
+.forge-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.forge-form-t {
+  font-weight: 600;
+  color: var(--text);
+}
+.forge-form input,
+.forge-form textarea,
+.forge-compile-bar select {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+}
+.forge-compile-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.pc-btn-ghost.accent {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.forge-output {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.forge-file summary {
+  cursor: pointer;
+  color: var(--accent-soft);
+  padding: 6px 0;
+}
+.forge-file pre {
+  max-height: 320px;
+  overflow: auto;
+}
