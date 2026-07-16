@@ -49,3 +49,17 @@ class SubscriptionOut(BaseModel):
     plan: str
     targets: list[str]
     max_brains: int | None
+
+
+class MemoryCreate(BaseModel):
+    name: str
+    description: str
+    body: str = ""
+    type: str = "project"
+
+
+class MemoryOut(BaseModel):
+    slug: str
+    name: str
+    description: str
+    type: str
