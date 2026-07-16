@@ -6,9 +6,21 @@ El motor (``engine/``) es puro y determinista; aquí solo se construye el objeto
 
 from __future__ import annotations
 
+import re
+import unicodedata
+
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+_VALID_MEMORY_TYPES = ("user", "feedback", "project", "reference")
+
+
+def _slugify(name: str) -> str:
+    ascii_name = (
+        unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    )
+    return re.sub(r"[^a-z0-9]+", "-", ascii_name.lower()).strip("-") or "memoria"
 
 from .engine.adapters import get_adapter
 from .engine.model import (
@@ -107,3 +119,36 @@ def compile_brain(row: ForgeBrain, target: str) -> dict[str, str]:
     """Compila el cerebro al ``target``. Lanza KeyError si el destino no existe."""
     brain = build_brain(row)
     return get_adapter(target).compile(brain)
+
+
+def list_memory(row: ForgeBrain) -> list[dict]:
+    return list(row.memory or [])
+
+
+def add_memory(
+    db: Session,
+    row: ForgeBrain,
+    name: str,
+    description: str,
+    body: str = "",
+    type: str = "project",
+) -> dict:
+    """Añade (o reemplaza por slug) una entrada de memoria del cerebro y persiste."""
+    if type not in _VALID_MEMORY_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"type debe ser uno de {_VALID_MEMORY_TYPES}",
+        )
+    slug = _slugify(name)
+    entry = {
+        "slug": slug,
+        "name": name,
+        "description": description,
+        "type": type,
+        "body": body,
+    }
+    # Reasignar la lista para que SQLAlchemy detecte el cambio del JSON.
+    row.memory = [m for m in (row.memory or []) if m.get("slug") != slug] + [entry]
+    db.commit()
+    db.refresh(row)
+    return entry

@@ -22,8 +22,19 @@ from .schemas import (
     CheckoutRequest,
     CompileOut,
     CompileRequest,
+    MemoryCreate,
+    MemoryOut,
     SubscriptionOut,
 )
+
+
+def _memory_out(m: dict) -> MemoryOut:
+    return MemoryOut(
+        slug=m.get("slug", ""),
+        name=m.get("name", ""),
+        description=m.get("description", ""),
+        type=m.get("type", "project"),
+    )
 
 router = APIRouter(prefix="/forge", tags=["forge"])
 
@@ -78,6 +89,32 @@ def compile_brain(
             status_code=400, detail=f"Cerebro inválido: {exc}"
         ) from exc
     return CompileOut(target=payload.target, files=files, count=len(files))
+
+
+# --- Memoria (L8) -----------------------------------------------------------
+
+@router.get("/brains/{brain_id}/memory", response_model=list[MemoryOut])
+def list_memory(
+    brain_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[MemoryOut]:
+    row = service.get_owned_brain(db, user.id, brain_id)
+    return [_memory_out(m) for m in service.list_memory(row)]
+
+
+@router.post("/brains/{brain_id}/memory", response_model=MemoryOut, status_code=201)
+def add_memory(
+    brain_id: int,
+    payload: MemoryCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> MemoryOut:
+    row = service.get_owned_brain(db, user.id, brain_id)
+    entry = service.add_memory(
+        db, row, payload.name, payload.description, payload.body, payload.type
+    )
+    return _memory_out(entry)
 
 
 # --- Facturación (Stripe) ---------------------------------------------------
