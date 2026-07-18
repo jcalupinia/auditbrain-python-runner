@@ -48,7 +48,29 @@ def test_plan_por_defecto_free(client):
 # tests/test_forge_client.py con un usuario de rol client.
 
 
-def test_webhook_activa_pro(client):
+def test_webhook_sin_firma_se_rechaza(client, monkeypatch):
+    """Fail-closed: sin STRIPE_WEBHOOK_SECRET, un webhook sin firmar NO activa nada.
+
+    Antes esto era una vulnerabilidad: cualquiera con la URL podía forjar un
+    checkout y activarse un plan de pago. El endpoint no tiene auth.
+    """
+    monkeypatch.delenv("STRIPE_WEBHOOK_SECRET", raising=False)
+    monkeypatch.delenv("FORGE_STRIPE_WEBHOOK_ALLOW_UNSIGNED", raising=False)
+    _h, uid = _admin(client)
+    event = {
+        "type": "checkout.session.completed",
+        "data": {"object": {"metadata": {"forge_user_id": str(uid), "forge_plan": "pro"}}},
+    }
+    r = client.post("/api/v1/forge/billing/webhook", content=json.dumps(event))
+    assert r.status_code == 400, r.text
+    # y el plan sigue siendo free: el payload forjado no tuvo efecto
+    assert client.get("/api/v1/forge/subscription", headers=_h).json()["plan"] == "free"
+
+
+def test_webhook_activa_pro(client, monkeypatch):
+    # El opt-in explícito de dev/test permite ejercitar la lógica de activación
+    # sin firmar; en producción esta variable no existe (ver el test de arriba).
+    monkeypatch.setenv("FORGE_STRIPE_WEBHOOK_ALLOW_UNSIGNED", "true")
     h, uid = _admin(client)
     event = {
         "type": "checkout.session.completed",

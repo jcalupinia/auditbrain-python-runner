@@ -77,7 +77,19 @@ def _upsert(db: Session, user_id: int, plan: str, status: str, **stripe_ids) -> 
 
 
 def handle_webhook(db: Session, payload: bytes, signature: str) -> dict:
-    """Procesa un evento de Stripe. Con ``STRIPE_WEBHOOK_SECRET`` verifica la firma."""
+    """Procesa un evento de Stripe. **Fail-closed**: sin firma verificable, rechaza.
+
+    El endpoint no tiene auth (lo llama Stripe). Si aceptara payloads sin firmar,
+    cualquiera que conozca la URL podría forjar un ``checkout.session.completed`` y
+    activarse un plan de pago. Por eso:
+
+    - Con ``STRIPE_WEBHOOK_SECRET`` (producción): se verifica la firma. Es el camino
+      normal y el único seguro.
+    - Sin él: se **rechaza con 400**, salvo que se pida explícitamente lo contrario
+      con ``FORGE_STRIPE_WEBHOOK_ALLOW_UNSIGNED=true`` — un opt-in solo para
+      dev/test que jamás debe existir en Render. `SECURITY.md §5.2` exige
+      fail-closed; el antiguo `else: json.loads(payload)` era fail-open.
+    """
     secret = os.getenv("STRIPE_WEBHOOK_SECRET", "").strip()
     if secret:
         stripe = _require_stripe()
@@ -85,9 +97,17 @@ def handle_webhook(db: Session, payload: bytes, signature: str) -> dict:
             event = stripe.Webhook.construct_event(payload, signature, secret)
         except Exception as exc:  # firma inválida / payload corrupto
             raise HTTPException(status_code=400, detail=f"Firma inválida: {exc}") from exc
-    else:
-        # Sin secret (dev/test): se acepta el payload sin verificar firma.
+    elif os.getenv("FORGE_STRIPE_WEBHOOK_ALLOW_UNSIGNED", "").strip().lower() == "true":
+        # Opt-in EXPLÍCITO para dev/test. En producción no se pone esta variable.
         event = json.loads(payload)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Webhook sin verificar: falta STRIPE_WEBHOOK_SECRET. Se rechaza por "
+                "seguridad (un payload sin firma podría ser forjado)."
+            ),
+        )
 
     etype = event.get("type", "")
     obj = event.get("data", {}).get("object", {})
