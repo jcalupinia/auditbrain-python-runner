@@ -100,6 +100,22 @@ def _canva_status() -> dict:
         return {"available": False, "engine": None}
 
 
+def _forge_status() -> dict:
+    """¿Quedó montado el módulo Forge (L0-L11)?
+
+    Con F2b.0, si algo en ``forge/`` no importa, la API sigue en pie **sin** Forge
+    en vez de no arrancar. Este flag hace visible ese caso: un deploy donde Forge
+    no montó se ve aquí (``mounted: false``) en vez de fallar en silencio. El
+    import es perezoso a propósito: ``health`` se importa desde ``api/__init__``
+    antes de que ``forge_montado`` exista, así que arriba sería circular.
+    """
+    try:
+        from backend.app.api import forge_montado
+        return {"mounted": bool(forge_montado)}
+    except Exception:  # pragma: no cover - defensa
+        return {"mounted": False}
+
+
 @router.get("/health")
 async def health():
     return {
@@ -110,6 +126,7 @@ async def health():
         "llm": _llm_providers(),
         "ocr": _ocr_status(),
         "canva": _canva_status(),
+        "forge": _forge_status(),
         "formats": _formats_status(),
         "timestamp": datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat(),
     }
