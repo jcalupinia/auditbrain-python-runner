@@ -37,6 +37,69 @@ def get_db():
         db.close()
 
 
+def _ensure_forge_append_only_triggers() -> None:
+    """Hace ``forge_decisions`` **append-only a nivel de motor** (F2b, §3.2).
+
+    Un trigger, no ``REVOKE``: en el Postgres de Render la app es **dueña** de la
+    tabla y el dueño conserva todos los privilegios (``REVOKE`` sería no-op). El
+    trigger bloquea UPDATE/DELETE **independientemente de la propiedad**, y tiene la
+    misma semántica en SQLite, así que la garantía se prueba en CI (que corre sobre
+    SQLite). Idempotente.
+
+    Si algo falla aquí, se registra pero **no se tumba el arranque** (misma filosofía
+    que F2b.0): el servicio nunca emite UPDATE/DELETE sobre la cadena, así que el
+    trigger es la garantía dura contra un bug o código rogue, no la única barrera.
+    """
+    from sqlalchemy import text
+
+    dialect = engine.dialect.name
+    try:
+        with engine.begin() as conn:
+            if dialect == "postgresql":
+                conn.execute(
+                    text(
+                        "CREATE OR REPLACE FUNCTION forge_decisions_append_only() "
+                        "RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
+                        "RAISE EXCEPTION 'forge_decisions es append-only'; "
+                        "END; $$;"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "DROP TRIGGER IF EXISTS forge_decisions_no_mutate "
+                        "ON forge_decisions;"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE TRIGGER forge_decisions_no_mutate "
+                        "BEFORE UPDATE OR DELETE ON forge_decisions "
+                        "FOR EACH ROW EXECUTE FUNCTION forge_decisions_append_only();"
+                    )
+                )
+            elif dialect == "sqlite":
+                conn.execute(
+                    text(
+                        "CREATE TRIGGER IF NOT EXISTS forge_decisions_no_update "
+                        "BEFORE UPDATE ON forge_decisions BEGIN "
+                        "SELECT RAISE(ABORT, 'forge_decisions es append-only'); END;"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE TRIGGER IF NOT EXISTS forge_decisions_no_delete "
+                        "BEFORE DELETE ON forge_decisions BEGIN "
+                        "SELECT RAISE(ABORT, 'forge_decisions es append-only'); END;"
+                    )
+                )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "No se pudieron crear los triggers append-only de forge_decisions"
+        )
+
+
 def init_db() -> None:
     """Crea las tablas si no existen y aplica migraciones ligeras.
 
@@ -57,6 +120,8 @@ def init_db() -> None:
     from backend.app.forge import models as _forge_models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+
+    _ensure_forge_append_only_triggers()
 
     # Migración aditiva en ``users``: añade columnas si faltan.
     inspector = inspect(engine)

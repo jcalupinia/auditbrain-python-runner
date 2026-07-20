@@ -92,8 +92,27 @@ def delete_user_completely(db: Session, *, user: User) -> None:
     dependientes en orden hijo→padre (robusto aunque la BD no tenga ON DELETE
     CASCADE). Preserva ``tool_jobs`` como historial (SET NULL). Para una baja
     reversible usar ``disable``.
+
+    **Excepción (F2b, P12):** si el usuario firmó decisiones de gobernanza
+    (``forge_decisions``), el borrado se **bloquea con 409**. Perder quién aprobó
+    qué es un fallo de control interno para una firma de auditoría, no un detalle.
+    La traza es append-only por diseño; para dar de baja a esa persona se usa
+    ``disable`` (reversible), no el borrado duro.
     """
+    from fastapi import HTTPException
     from sqlalchemy import text
+
+    from backend.app.forge import governance_service
+
+    if governance_service.usuario_tiene_decisiones(db, user.id):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No se puede borrar esta cuenta: tiene decisiones de gobernanza "
+                "en la traza de auditoría (append-only). Usá 'deshabilitar' en su "
+                "lugar; la traza debe conservar quién aprobó qué."
+            ),
+        )
 
     uid = user.id
     statements = [
