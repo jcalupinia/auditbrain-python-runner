@@ -61,10 +61,12 @@ def _montar_forge(router: APIRouter) -> bool:
     """
     try:
         from backend.app.forge import client_router as forge_client_router
+        from backend.app.forge import governance_router as forge_governance_router
         from backend.app.forge import router as forge_router
 
         router.include_router(forge_router.router)
         router.include_router(forge_client_router.client_router)
+        router.include_router(forge_governance_router.governance_router)
     except Exception:  # noqa: BLE001 - aislar Forge es justo el objetivo
         _log.exception(
             "Forge no se pudo montar; /api/v1 arranca SIN Forge "

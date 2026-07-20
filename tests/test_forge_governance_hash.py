@@ -16,7 +16,12 @@ Para regenerar los vectores (solo si el CLI cambia su contrato a propósito):
     compute_hash(ENTRADA_2, VECTOR_1)         # -> VECTOR_2
 """
 
-from backend.app.forge.engine.governance import GENESIS, _CAMPOS_FIRMADOS, compute_hash
+from backend.app.forge.engine.governance import (
+    GENESIS,
+    _CAMPOS_FIRMADOS,
+    compute_hash,
+    task_content_hash,
+)
 
 # --- Contrato de campos ----------------------------------------------------------
 
@@ -86,3 +91,39 @@ def test_un_campo_ausente_cuenta_como_cadena_vacia_igual_que_el_cli():
 def test_cambiar_un_campo_firmado_cambia_el_hash():
     alterada = {**ENTRADA_1, "decision": "rejected"}
     assert compute_hash(alterada, GENESIS) != VECTOR_1
+
+
+# --- task_content_hash: byte-idéntico a Task.content_hash del CLI (P8) -----------
+
+# Vectores generados con `forge.planner.model.Task.content_hash`.
+TAREA_FULL = {
+    "id": "t1",
+    "description": "hacer login",
+    "acceptance": "usuario entra",
+    "capabilities": ["code", "rules"],
+    "target": "claude-code",
+    "deps": ["t0"],
+}
+TAREA_FULL_HASH = "39d82329ae5d996d"
+
+TAREA_MIN = {"id": "t2", "description": "algo", "acceptance": "hecho"}
+TAREA_MIN_HASH = "0192bd51248419cc"
+
+
+def test_content_hash_de_tarea_completa_coincide_con_el_cli():
+    assert task_content_hash(TAREA_FULL) == TAREA_FULL_HASH
+
+
+def test_content_hash_de_tarea_minima_coincide_con_el_cli():
+    assert task_content_hash(TAREA_MIN) == TAREA_MIN_HASH
+
+
+def test_content_hash_ignora_id_y_status():
+    """El id es el ancla y status es la vista: no entran en la huella."""
+    con_ruido = {**TAREA_FULL, "id": "OTRO", "status": "approved"}
+    assert task_content_hash(con_ruido) == TAREA_FULL_HASH
+
+
+def test_content_hash_cambia_si_cambia_la_description():
+    editada = {**TAREA_FULL, "description": "hacer logout"}
+    assert task_content_hash(editada) != TAREA_FULL_HASH
