@@ -88,10 +88,15 @@ def _openrouter_model() -> str:
 
 
 def _max_tokens() -> int:
+    # Techo de tokens de SALIDA del LLM. Default alto para permitir documentos
+    # largos (contratos, dictámenes, informes) sin que la respuesta se corte.
+    # Es un TECHO, no un mínimo: no encarece ni alarga las respuestas cortas
+    # (el modelo se detiene cuando termina). Ajustable por env si algún
+    # proveedor gratuito lo limita: AUDITBRAIN_LLM_MAX_TOKENS.
     try:
-        return int(os.getenv("AUDITBRAIN_LLM_MAX_TOKENS", "1024"))
+        return int(os.getenv("AUDITBRAIN_LLM_MAX_TOKENS", "8192"))
     except ValueError:
-        return 1024
+        return 8192
 
 
 def _providers_with_keys() -> list[str]:
