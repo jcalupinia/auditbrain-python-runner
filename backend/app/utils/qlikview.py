@@ -39,12 +39,15 @@ class QVDError(RuntimeError):
 
 
 def is_available() -> bool:
-    """True si PyQvd está disponible."""
-    try:
-        import pyqvd  # noqa: F401
-        return True
-    except ImportError:
-        return False
+    """True si PyQvd está disponible.
+
+    Usa ``find_spec`` y no ``import``: la llama ``/api/v1/health`` y un
+    import ahí queda residente para siempre en el proceso web
+    (ver backend/app/utils/module_probe.py).
+    """
+    from backend.app.utils.module_probe import module_installed
+
+    return module_installed("pyqvd")
 
 
 def _require_lib():
