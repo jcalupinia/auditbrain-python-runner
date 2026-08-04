@@ -1,4 +1,23 @@
-"""Endpoint de salud de la plataforma v1."""
+"""Endpoint de salud de la plataforma v1.
+
+REGLA (incidente de memoria 2026-08) — este endpoint es de DIAGNÓSTICO, no
+es el health check de Render. El health check de Render es ``GET /healthz``
+(ver app.py), que devuelve ``{"status": "ok"}`` y nada más.
+
+Aquí se reporta qué capacidades tiene el backend (OCR, Canva, formatos,
+proveedores LLM), y por eso está permitido consultar el entorno. Lo que NO
+está permitido, nunca, es **importar** una librería pesada solo para saber
+si está instalada. Python cachea el módulo en ``sys.modules`` y no lo
+libera: cada import hecho desde aquí queda residente en el proceso web para
+siempre. Ese patrón dejaba grpcio + protobuf (google-cloud-vision), pbixray,
+pyqvd y anthropic cargados de forma permanente, aunque ninguna petición real
+los usara.
+
+Las funciones ``is_available()`` de backend/app/utils/* ya resuelven la
+pregunta con ``importlib.util.find_spec`` (ver utils/module_probe.py). Si se
+añade una capacidad nueva a este endpoint, seguir el mismo patrón: consultar
+disponibilidad con ``module_installed(...)``, jamás con ``import``.
+"""
 
 import datetime
 
