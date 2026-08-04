@@ -167,6 +167,10 @@ def leer_mayor(contenido: bytes) -> LecturaMayor:
         if not codigo:
             lectura.filas_descartadas += 1
             continue
+        if _norm(codigo) in SINONIMOS["codigo"]:
+            # Encabezado repetido a mitad del listado (paginación del ERP).
+            lectura.filas_descartadas += 1
+            continue
         lectura.movimientos.append(
             Movimiento(
                 codigo=codigo,

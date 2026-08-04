@@ -2,6 +2,7 @@
 
 from io import BytesIO
 
+import pytest
 from openpyxl import load_workbook
 
 from tests._mayor_fixtures import ENCABEZADO_REAL, mayor_xlsx
@@ -71,3 +72,54 @@ def test_acepta_sinonimos_de_otros_erp():
     assert lectura.columnas_detectadas["codigo"] == 0
     assert lectura.columnas_detectadas["cuenta"] == 1
     assert lectura.columnas_detectadas["debe"] == 4
+
+
+@pytest.mark.parametrize(
+    "texto,esperado",
+    [
+        ("178.259,63", 178259.63),   # europeo
+        ("178,259.63", 178259.63),   # US
+        ("183724.10", 183724.10),    # plano
+        ("-150,00", -150.0),         # negativo con coma decimal
+        ("0,00", 0.0),
+    ],
+)
+def test_importes_en_cualquier_formato_regional(texto, esperado):
+    lectura = leer_mayor(
+        mayor_xlsx([["1.1.5.1.1", "IVA", "2025-01-05", "A1", "", "", "", "",
+                     "", texto, None, texto]])
+    )
+    assert lectura.movimientos[0].debe == esperado
+
+
+def test_descarta_filas_de_total_sin_codigo_de_cuenta():
+    filas = [
+        ["1.1.5.1.1", "IVA sobre Compras", "2025-01-05", "COM 1", "", "", "",
+         "", "", 10, 0, 10],
+        [None, "TOTAL GENERAL", None, None, None, None, None, None, None,
+         999, 0, 999],
+    ]
+    lectura = leer_mayor(mayor_xlsx(filas))
+    assert len(lectura.movimientos) == 1
+    assert lectura.filas_descartadas == 1
+
+
+def test_descarta_un_encabezado_repetido_a_mitad_del_listado():
+    filas = [
+        ["1.1.5.1.1", "IVA sobre Compras", "2025-01-05", "COM 1", "", "", "",
+         "", "", 10, 0, 10],
+        list(ENCABEZADO_REAL),
+        ["1.1.5.1.3", "IVA en Importaciones", "2025-01-06", "COM 2", "", "",
+         "", "", "", 20, 0, 20],
+    ]
+    lectura = leer_mayor(mayor_xlsx(filas))
+    assert [m.codigo for m in lectura.movimientos] == ["1.1.5.1.1", "1.1.5.1.3"]
+
+
+def test_celda_vacia_de_haber_cuenta_como_cero():
+    lectura = leer_mayor(
+        mayor_xlsx([["1.1.5.1.1", "IVA", "2025-01-05", "A1", "", "", "", "",
+                     "", 2.39, None, 2.39]])
+    )
+    assert lectura.movimientos[0].haber == 0.0
+    assert lectura.movimientos[0].neto == 2.39
