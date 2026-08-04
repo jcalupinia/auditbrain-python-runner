@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import os
-from io import BytesIO
 
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException, Request, Response, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -347,8 +346,11 @@ def download_client_job_endpoint(
     if not out_path.exists():
         raise HTTPException(410, detail="Archivo expirado (>24h). Reprocese.")
     filename = f"{job.tool_code}_{job.id}.bin"
-    return StreamingResponse(
-        BytesIO(out_path.read_bytes()),
+    # FileResponse transmite desde disco por trozos. La versión anterior,
+    # `BytesIO(out_path.read_bytes())`, mantenía DOS copias completas del
+    # entregable en RAM durante toda la descarga. Mismos headers, mismo cuerpo.
+    return FileResponse(
+        out_path,
         media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
@@ -389,8 +391,10 @@ def download_job_artifact_endpoint(
 
     ext = os.path.splitext(safe)[1].lower()
     media = _ARTIFACT_MEDIA.get(ext, "application/octet-stream")
-    return StreamingResponse(
-        BytesIO(art_path.read_bytes()),
+    # Ver comentario en download_client_job_endpoint: streaming desde disco
+    # en lugar de dos copias completas del artefacto en memoria.
+    return FileResponse(
+        art_path,
         media_type=media,
         headers={"Content-Disposition": f'attachment; filename="{safe}"'},
     )
