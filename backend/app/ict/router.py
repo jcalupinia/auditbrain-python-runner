@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from io import BytesIO
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from backend.app.ict.parsers.f101_pdf import parse_f101
 from backend.app.ict.parsers.balance_mapeado_excel import parse_balance_mapeado
@@ -61,6 +62,10 @@ from backend.app.ict.schemas import (
 )
 
 router = APIRouter(prefix="/client/ict", tags=["client-ict"])
+
+#: MIME de .xlsx. Extraído a constante al pasar las descargas a FileResponse
+#: para que los dos endpoints (SRI y papel de trabajo) no puedan divergir.
+_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def _session_to_out(session) -> SessionOut:
@@ -239,21 +244,24 @@ def download_excel_endpoint(
     from backend.app.aud.obligaciones_fiscales import file_storage as _fs
     cached_sri = _fs._root() / "ict" / f"{session.id}" / "_output" / "ICT_SRI.xlsx"
     legacy_cached = _fs._root() / "ict" / f"{session.id}" / "_output" / "ICT.xlsx"
-    if cached_sri.exists():
-        excel_bytes = cached_sri.read_bytes()
-    elif legacy_cached.exists():
-        # Compatibilidad con sesiones generadas antes del split (PT-9).
-        excel_bytes = legacy_cached.read_bytes()
-    else:
-        excel_bytes, _ = ict_service.generate_excel(db, session=session)
-
     filename = f"ICT_{session.ejercicio_fiscal}_{session.ruc}_SRI.xlsx"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+
+    # Camino con caché: servir el archivo DESDE DISCO con FileResponse, que lo
+    # transmite por trozos. La versión anterior hacía `read_bytes()` y lo
+    # envolvía en un `BytesIO`: dos copias completas del Excel vivas en RAM
+    # durante toda la descarga, sobre un proceso que ya rozaba el límite del
+    # contenedor. Mismos headers, mismo cuerpo.
+    if cached_sri.exists():
+        return FileResponse(cached_sri, media_type=_XLSX_MIME, headers=headers)
+    if legacy_cached.exists():
+        # Compatibilidad con sesiones generadas antes del split (PT-9).
+        return FileResponse(legacy_cached, media_type=_XLSX_MIME, headers=headers)
+
+    # Sin caché: hay que generar en memoria, no hay archivo que transmitir.
+    excel_bytes, _ = ict_service.generate_excel(db, session=session)
     return StreamingResponse(
-        BytesIO(excel_bytes),
-        media_type=(
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        ),
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        BytesIO(excel_bytes), media_type=_XLSX_MIME, headers=headers
     )
 
 
@@ -287,27 +295,26 @@ def download_papel_trabajo_endpoint(
     out_dir = _fs._root() / "ict" / f"{session.id}" / "_output"
     cached_papel = out_dir / "ICT_PAPEL_TRABAJO.xlsx"
     legacy_cached = out_dir / "ICT.xlsx"  # pre-PT-9: archivo único con todo
-    if cached_papel.exists():
-        excel_bytes = cached_papel.read_bytes()
-    elif legacy_cached.exists():
-        # Compat: sesiones pre-PT-9 generaron solo ICT.xlsx que incluía las
-        # hojas internas (VERIFICACIÓN A1, AUDITORÍA, TRAZABILIDAD). Sirve
-        # ese archivo sin regenerar — más rápido que rehacer todo + LLM.
-        excel_bytes = legacy_cached.read_bytes()
-    else:
-        # Sin cache: generar al vuelo. Puede tardar ~30-60s si está activo
-        # el LLM motor (9 interpretaciones IA en paralelo).
-        _sri, excel_bytes = ict_service.generate_excel(db, session=session)
-
     filename = (
         f"ICT_{session.ejercicio_fiscal}_{session.ruc}_PAPEL_TRABAJO.xlsx"
     )
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+
+    # Igual que en /download: con caché se transmite desde disco (FileResponse)
+    # en vez de cargar el Excel entero dos veces en RAM.
+    if cached_papel.exists():
+        return FileResponse(cached_papel, media_type=_XLSX_MIME, headers=headers)
+    if legacy_cached.exists():
+        # Compat: sesiones pre-PT-9 generaron solo ICT.xlsx que incluía las
+        # hojas internas (VERIFICACIÓN A1, AUDITORÍA, TRAZABILIDAD). Sirve
+        # ese archivo sin regenerar — más rápido que rehacer todo + LLM.
+        return FileResponse(legacy_cached, media_type=_XLSX_MIME, headers=headers)
+
+    # Sin cache: generar al vuelo. Puede tardar ~30-60s si está activo
+    # el LLM motor (9 interpretaciones IA en paralelo).
+    _sri, excel_bytes = ict_service.generate_excel(db, session=session)
     return StreamingResponse(
-        BytesIO(excel_bytes),
-        media_type=(
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        ),
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        BytesIO(excel_bytes), media_type=_XLSX_MIME, headers=headers
     )
 
 
@@ -366,7 +373,14 @@ async def upload_for_anexo_endpoint(
             raise HTTPException(413, detail=f"Archivo {upload.filename} excede 50 MB")
         total_bytes += len(data)
 
-        parsed = parser(data)
+        # `parser` es CPU-bound y bloqueante (pdfplumber / openpyxl sobre
+        # archivos de hasta 50 MB), y este bucle procesa hasta 12 PDFs en una
+        # sola petición (los F-103/F-104 mensuales). Ejecutarlo en línea
+        # dentro de esta corrutina congelaba el event loop durante todo el
+        # lote: el health check de Render caducaba a los 5s y la instancia se
+        # reiniciaba a mitad de la carga del cliente. `to_thread` lo saca del
+        # loop sin alterar el resultado ni el orden de procesamiento.
+        parsed = await asyncio.to_thread(parser, data)
 
         if parsed.get("errores"):
             warnings_acc.extend([f"{upload.filename}: {e}" for e in parsed["errores"]])
