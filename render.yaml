@@ -41,6 +41,33 @@ services:
       sizeGB: 1
 
     envVars:
+      # --- Instrumentación de recursos (diagnóstico OOM/CPU) ---
+      # Cuando está en "true", cada request emite una línea REQUEST_METRICS
+      # con método, ruta (sin query), status, duración y RSS antes/después.
+      # No registra headers, cuerpos, tokens ni secretos. El default EN
+      # CÓDIGO es "false" (apagado); se enciende aquí a propósito mientras
+      # dure el diagnóstico del OOM. Para apagarlo: poner "false" y
+      # reiniciar. Ver backend/app/core/resource_metrics.py.
+      - key: ENABLE_RESOURCE_METRICS
+        value: "true"
+
+      # --- Fragmentación del asignador de glibc (PENDIENTE DE DECIDIR) ---
+      # NO activar todavía. Se deja documentado como el siguiente paso, a
+      # aplicar SOLO si los logs REQUEST_METRICS confirman la hipótesis.
+      #
+      # Hipótesis: el proceso "en reposo" arrastra ~730 MB cuando arrancar la
+      # app entera cuesta ~160 MB (medido en local, import por import). La
+      # diferencia sería residuo de picos anteriores que glibc mantiene en sus
+      # arenas sin devolver al kernel. Con 1 CPU y el threadpool de Starlette,
+      # glibc puede abrir hasta 8 arenas por núcleo, cada una con su heap.
+      # MALLOC_ARENA_MAX=2 las limita y reduce esa fragmentación.
+      #
+      # Qué buscar en los logs antes de activarlo: líneas REQUEST_METRICS
+      # donde `rss_after_mb` quede muy por encima de `rss_before_mb` y el
+      # valor NO baje en los requests siguientes. Si eso ocurre, descomentar:
+      # - key: MALLOC_ARENA_MAX
+      #   value: "2"
+
       - key: AUD_OF_TMP_DIR
         value: /var/data/obligaciones_fiscales
 
@@ -200,7 +227,18 @@ services:
       - key: AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD
         sync: false
 
-    healthCheckPath: "/"
+    # Health check DEDICADO (cambiado 2026-08-04, antes era "/").
+    #
+    # "/" construía timestamps y devolvía payload informativo; cualquier
+    # lógica añadida ahí en el futuro se convertiría en un riesgo de reinicio.
+    # "/healthz" (ver app.py) devuelve {"status": "ok"} y nada más: no toca
+    # Postgres, no llama a servicios externos, no lee archivos, no autentica
+    # y no importa módulos.
+    #
+    # IMPORTANTE: modificar este archivo NO cambia el health check de un
+    # servicio ya existente. Hay que actualizarlo también a mano en
+    # Render → auditbrain-python-runner → Settings → Health Check Path.
+    healthCheckPath: "/healthz"
 
   # ==========================================================
   # F2 Fase B: Frontend React (SPA estática). Solo JWT; la API Key
