@@ -79,14 +79,19 @@ def _max_tokens() -> int:
 # ---------------------------------------------------------------------------
 
 def is_available() -> bool:
-    """True si Anthropic + token de Canva MCP están configurados."""
+    """True si Anthropic + token de Canva MCP están configurados.
+
+    Usa ``find_spec`` y no ``import``: la llama ``/api/v1/health`` y el SDK
+    de Anthropic (con httpx detrás) quedaba residente para siempre en el
+    proceso web (ver backend/app/utils/module_probe.py). El import real
+    ocurre en ``_require_available`` y en las funciones que llaman a la API.
+    """
     if not _anthropic_key() or not _canva_mcp_token():
         return False
-    try:
-        import anthropic  # noqa: F401
-        return True
-    except ImportError:
-        return False
+
+    from backend.app.utils.module_probe import module_installed
+
+    return module_installed("anthropic")
 
 
 def _require_available():
