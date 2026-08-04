@@ -39,6 +39,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from backend.app.utils.module_probe import module_installed as _module_installed
+
 log = logging.getLogger(__name__)
 
 
@@ -63,14 +65,19 @@ def is_available() -> bool:
 
     Permite que el resto del código haga fallback elegante a pdfplumber
     cuando OCR no esté disponible (entornos dev, tests, etc.).
+
+    IMPORTANTE — no usa ``import`` como prueba de disponibilidad.
+    ``google.cloud.vision`` arrastra grpcio + protobuf + google-api-core, y
+    Python nunca descarga un módulo una vez importado: cada llamada a
+    ``/api/v1/health`` dejaba esa memoria residente para siempre en el
+    proceso web, aunque nadie usara OCR. ``find_spec`` responde lo mismo
+    (¿está instalada?) consultando el sistema de imports SIN ejecutar el
+    módulo. El import real sigue ocurriendo en ``_require_available`` y en
+    las funciones que de verdad hacen OCR.
     """
     if not os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON", "").strip():
         return False
-    try:
-        import google.cloud.vision  # noqa: F401
-        return True
-    except ImportError:
-        return False
+    return _module_installed("google.cloud.vision")
 
 
 def _require_available() -> None:
