@@ -712,23 +712,84 @@ def generate_excel(db: Session, *, session: ICTSession) -> tuple[bytes, bytes]:
     # `fill_auditoria_anexos` quedan en el repo por compatibilidad con tests
     # y por si se reactivan en el futuro, pero no se invocan desde el flujo.
 
-    # Guardar workbook completo (con hojas internas) → bytes_papel_trabajo
+    # ------------------------------------------------------------------
+    # Serialización de los dos entregables.
+    #
+    # PICO DE MEMORIA (corregido 2026-08-04). La versión anterior reabría el
+    # libro recién guardado con `openpyxl.load_workbook(BytesIO(bytes_papel))`,
+    # de modo que en el instante previo al return convivían en RAM:
+    #     wb  +  buf_papel  +  bytes_papel  +  BytesIO(bytes_papel)
+    #         +  wb_sri  +  buf_sri  +  bytes_sri
+    # es decir DOS workbooks openpyxl completos del ICT (con DATOS F-101 de
+    # 888 casilleros, DATOS F-103/F-104 mensuales, DATOS BALANCE y
+    # TRAZABILIDAD) más cuatro copias de los bytes. openpyxl materializa un
+    # objeto Python por celda, así que ese segundo libro costaba cientos de MB
+    # sobre un contenedor de 2 GB — y era el pico que disparaba el OOM.
+    #
+    # El segundo libro nunca fue necesario: la ÚNICA diferencia entre los dos
+    # entregables es `sheet_state`, la hoja activa y la protección de
+    # estructura. Se aplican sobre el MISMO `wb`, después de haber serializado
+    # el papel de trabajo. El contenido resultante es idéntico: `wb` ya venía
+    # de `load_workbook(plantilla)`, así que lo que openpyxl no sabe
+    # representar (p. ej. la forma decorativa "Line 2" de drawing1.xml) ya se
+    # había perdido en esa primera carga, no en el round-trip que se elimina.
+    # ------------------------------------------------------------------
+
+    # 1) Papel de trabajo: el libro tal cual, con TODAS las hojas visibles.
     buf_papel = BytesIO()
     wb.save(buf_papel)
-    buf_papel.seek(0)
-    bytes_papel = buf_papel.read()
+    bytes_papel = buf_papel.getvalue()
+    buf_papel.close()  # libera el buffer intermedio antes del segundo guardado
 
-    # Reabrir y OCULTAR (no borrar) hojas internas/datos → bytes_sri (limpio
-    # a la vista del cliente, pero con las fórmulas referenciales intactas).
-    import openpyxl
-    wb_sri = openpyxl.load_workbook(BytesIO(bytes_papel))
-    _apply_sri_sheet_visibility(wb_sri)
+    # 2) SRI: MISMO libro, ahora con las hojas DATOS/internas ocultas (nunca
+    #    borradas — ver CLAUDE.md: borrarlas rompería las fórmulas con #REF!)
+    #    y la estructura bloqueada con contraseña.
+    _apply_sri_sheet_visibility(wb)
     buf_sri = BytesIO()
-    wb_sri.save(buf_sri)
-    buf_sri.seek(0)
-    bytes_sri = buf_sri.read()
+    wb.save(buf_sri)
+    bytes_sri = buf_sri.getvalue()
+    buf_sri.close()
 
     return bytes_sri, bytes_papel
+
+
+def _liberar_memoria_tras_generacion() -> None:
+    """Devuelve al sistema la memoria del workbook recién generado.
+
+    Son dos pasos, porque hay dos niveles que retienen la memoria:
+
+    1. ``gc.collect()`` — los objetos de openpyxl forman ciclos de referencias
+       (worksheet -> celdas -> ``parent`` -> worksheet). El conteo de
+       referencias por sí solo NO libera el libro al salir de
+       ``generate_excel``: hace falta el recolector cíclico. Sin esto, los
+       cientos de MB seguían ocupados hasta que a Python le tocara una
+       recolección de generación 2, que podía llegar después de que otra
+       petición ya hubiera subido más el RSS.
+
+    2. ``malloc_trim(0)`` — aunque Python libere los objetos, glibc conserva
+       esas páginas en sus arenas y NO las devuelve al kernel. Por eso el RSS
+       del contenedor subía a ~1770 MB durante una generación y se quedaba
+       arriba: el proceso "en reposo" arrastraba el residuo del pico anterior.
+       (Medido en local: arrancar la app entera cuesta ~160 MB, muy lejos de
+       los ~730 MB que Render reporta en reposo — la diferencia es residuo,
+       no coste de arranque.) ``malloc_trim`` fuerza esa devolución.
+
+    Defensiva y silenciosa: ``malloc_trim`` solo existe en glibc (Linux, que
+    es lo que corre en Render). En Windows/macOS/musl el paso 2 no se aplica y
+    la función se queda en el ``gc.collect()``. Nunca propaga excepciones:
+    liberar memoria es una optimización, jamás un motivo para fallar un job.
+    """
+    import gc
+
+    gc.collect()
+
+    try:
+        import ctypes
+
+        libc = ctypes.CDLL("libc.so.6")
+        libc.malloc_trim(0)
+    except Exception:  # pragma: no cover - depende de la plataforma
+        pass
 
 
 def process_session(db: Session, *, session: ICTSession) -> dict:
@@ -815,9 +876,14 @@ def process_session(db: Session, *, session: ICTSession) -> dict:
         (out_dir / "ICT_SRI.xlsx").write_bytes(bytes_sri)
         (out_dir / "ICT_PAPEL_TRABAJO.xlsx").write_bytes(bytes_papel)
         excel_ready = True
+        # Sueltan referencias a los dos Excels completos ya persistidos: sin
+        # esto se mantenían vivos hasta el final de la petición HTTP.
+        del bytes_sri, bytes_papel
     except Exception:
         import logging
         logging.exception("Pre-generación Excel falló para sesión %s", session.id)
+    finally:
+        _liberar_memoria_tras_generacion()
 
     total_ms = int((perf_counter() - start) * 1000)
     ready_count = sum(1 for r in results if r["status"] == "ready")
