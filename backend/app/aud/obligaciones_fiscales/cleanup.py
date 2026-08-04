@@ -98,13 +98,23 @@ def cleanup_once() -> dict:
 
 
 async def cleanup_loop() -> None:
-    """Loop infinito que ejecuta cleanup cada AUD_OF_CLEANUP_INTERVAL_SECONDS."""
+    """Loop infinito que ejecuta cleanup cada AUD_OF_CLEANUP_INTERVAL_SECONDS.
+
+    ``cleanup_once`` es SÍNCRONO y bloqueante: abre una sesión Postgres, hace
+    tres SELECT + commit, recorre directorios del disco montado y llama a
+    ``cleanup_ict_orphan_files``. Ejecutarlo directamente aquí congelaba el
+    event loop —y con él el health check— durante toda su duración, cada 5
+    minutos. Se despacha a un hilo para que el loop siga atendiendo requests.
+    """
     interval = settings.AUD_OF_CLEANUP_INTERVAL_SECONDS
     while True:
         try:
-            s = cleanup_once()
+            s = await asyncio.to_thread(cleanup_once)
             if any(s.values()):
                 log.info("aud_of cleanup: %s", s)
+        except asyncio.CancelledError:
+            # Shutdown ordenado: propagar para que la tarea termine.
+            raise
         except Exception:
             log.exception("aud_of cleanup failed")
         await asyncio.sleep(interval)
