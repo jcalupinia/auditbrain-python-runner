@@ -95,6 +95,26 @@ if _cors_origins:
     )
 
 # ==========================================================
+# Instrumentación de recursos (diagnóstico OOM/CPU) — OPT-IN.
+# Solo se monta si ENABLE_RESOURCE_METRICS=true. Import defensivo:
+# un fallo aquí jamás debe impedir que el servicio arranque.
+# ==========================================================
+try:
+    from backend.app.core.resource_metrics import (
+        ResourceMetricsMiddleware as _ResourceMetricsMiddleware,
+        metrics_enabled as _metrics_enabled,
+    )
+
+    if _metrics_enabled():
+        app.add_middleware(_ResourceMetricsMiddleware)
+except Exception as _metrics_exc:  # pragma: no cover
+    import logging as _logging
+
+    _logging.getLogger("auditbrain").warning(
+        "Instrumentación de recursos no montada: %s", _metrics_exc
+    )
+
+# ==========================================================
 # Configuración Global de Servicios Externos
 # ==========================================================
 DOCUMENT_SERVICE = os.getenv("DOCUMENT_SERVICE", "https://universal-creador-documentos.onrender.com").rstrip("/")
@@ -303,6 +323,26 @@ async def _execute_script_subprocess(code, inputs):
         result_payload["runner_stderr"] = _truncate_stream(runner_stderr)
     result_payload["job_dir"] = job_dir
     return result_payload
+
+# ==========================================================
+# Health check DEDICADO para Render.
+#
+# Es deliberadamente lo más barato que puede ser un endpoint HTTP: una
+# corrutina que devuelve un dict literal. NO toca PostgreSQL, NO llama a
+# servicios externos, NO lee archivos, NO autentica, NO importa módulos y
+# NO ejecuta lógica de negocio. Solo prueba lo que Render necesita saber:
+# que el proceso vive y que el event loop está libre para atender.
+#
+# Justo por eso NO debe usarse "/" como Health Check Path: la raíz
+# construye timestamps y sirve payload informativo, y cualquier lógica que
+# se le agregue en el futuro se convertiría en un riesgo de reinicio.
+#
+# En Render → Settings → Health Check Path: /healthz
+# ==========================================================
+@app.get("/healthz", include_in_schema=False)
+async def healthz():
+    return {"status": "ok"}
+
 
 # ==========================================================
 # Ruta raíz para verificación (Render Health Check)
@@ -562,9 +602,20 @@ async def run_python(request: Request, _auth: None = Depends(_require_api_key)):
                         "incluir_grafico": False
                     }
 
-                doc_response = requests.post(endpoint, json=payload, timeout=90)
+                # `requests` es SÍNCRONO. Llamarlo directamente desde esta
+                # corrutina congelaba el event loop hasta 90s por intento
+                # (180s con el fallback de PDF): durante ese tiempo el único
+                # worker no podía responder NI SIQUIERA al health check, y
+                # Render mataba la instancia a los 5s de timeout. Despacharlo
+                # a un hilo mantiene el loop libre sin cambiar la semántica
+                # (mismo cliente HTTP, mismos timeouts, misma respuesta).
+                doc_response = await asyncio.to_thread(
+                    requests.post, endpoint, json=payload, timeout=90
+                )
                 if doc_response.status_code != 200 and format_type == "pdf" and pdf_fallback_payload:
-                    doc_response = requests.post(endpoint, json=pdf_fallback_payload, timeout=90)
+                    doc_response = await asyncio.to_thread(
+                        requests.post, endpoint, json=pdf_fallback_payload, timeout=90
+                    )
                 if doc_response.status_code == 200:
                     document_service_payload = doc_response.json()
                     response_data["document_service"] = (
@@ -634,22 +685,52 @@ try:
                 "Bootstrap de BD/admin omitido: %s", _db_exc
             )
 
+    #: Handle de la tarea periódica de cleanup. Se guarda a nivel de módulo por
+    #: dos razones: (1) asyncio solo mantiene una referencia DÉBIL a las tareas
+    #: creadas con create_task —sin guardar el handle, el GC puede recolectar la
+    #: tarea a mitad de vuelo y el cleanup deja de correr en silencio—, y (2)
+    #: permite cancelarla limpiamente en shutdown y evitar crear un segundo loop
+    #: si el evento startup se dispara más de una vez.
+    _AUD_OF_CLEANUP_TASK = None
+
     @app.on_event("startup")
     async def _aud_of_cleanup_startup():
         """Arranca el loop periódico de cleanup de jobs efímeros AUD/OF.
         Defensivo: si falla la importación, el resto del servicio sigue."""
+        global _AUD_OF_CLEANUP_TASK
         try:
             import asyncio
 
             from backend.app.aud.obligaciones_fiscales import cleanup as _aud_of_cleanup
 
-            asyncio.create_task(_aud_of_cleanup.cleanup_loop())
+            if _AUD_OF_CLEANUP_TASK is not None and not _AUD_OF_CLEANUP_TASK.done():
+                return  # ya hay un loop vivo: nunca duplicar
+
+            _AUD_OF_CLEANUP_TASK = asyncio.create_task(
+                _aud_of_cleanup.cleanup_loop(), name="aud_of_cleanup_loop"
+            )
         except Exception as _cleanup_exc:  # pragma: no cover
             import logging
 
             logging.getLogger("auditbrain").warning(
                 "AUD/OF cleanup loop no iniciado: %s", _cleanup_exc
             )
+
+    @app.on_event("shutdown")
+    async def _aud_of_cleanup_shutdown():
+        """Cancela el loop de cleanup al apagar. Sin esto, la tarea podía
+        quedar a medio commit contra Postgres mientras el proceso muere."""
+        global _AUD_OF_CLEANUP_TASK
+        task = _AUD_OF_CLEANUP_TASK
+        _AUD_OF_CLEANUP_TASK = None
+        if task is None or task.done():
+            return
+        import asyncio
+        import contextlib
+
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
 
 except Exception as _platform_exc:  # pragma: no cover
     import logging
