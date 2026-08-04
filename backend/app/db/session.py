@@ -20,7 +20,40 @@ _connect_args = (
     {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 )
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args=_connect_args)
+# Parámetros de pool EXPLÍCITOS para Postgres (2026-08-04).
+#
+# Antes se dependía de los defaults implícitos de SQLAlchemy (pool_size=5,
+# max_overflow=10). Se fijan aquí por tres motivos:
+#
+#  1. `pool_recycle`: Render cierra conexiones ociosas por su lado. Una
+#     conexión reciclada por el servidor pero viva en el pool provoca un
+#     error en la primera consulta que la use. `pool_pre_ping` ya lo
+#     detectaba (a costa de un SELECT 1 extra), pero reciclar a los 30 min
+#     evita llegar a ese punto.
+#  2. `pool_timeout`: con el default de 30s, una petición que no consigue
+#     conexión se queda ocupando un hilo del threadpool medio minuto. 10s
+#     falla antes y libera el hilo, que es lo que interesa en un servicio de
+#     1 CPU.
+#  3. Visibilidad: los valores quedan a la vista y ajustables por entorno sin
+#     tocar código. Los defaults se dejan en 5/10 —los mismos que ya había—
+#     para NO alterar el comportamiento actual: el diagnóstico mostró 3
+#     conexiones en uso sobre un máximo de 103, así que el pool no es el
+#     cuello de botella y no hay motivo para ampliarlo a ciegas.
+#
+# Solo se aplican a Postgres: SQLite (dev/tests) usa clases de pool distintas
+# que no aceptan `max_overflow`.
+_pool_kwargs: dict = {}
+if not DATABASE_URL.startswith("sqlite"):
+    _pool_kwargs = {
+        "pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
+        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
+        "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "10")),
+        "pool_recycle": int(os.getenv("DB_POOL_RECYCLE", "1800")),
+    }
+
+engine = create_engine(
+    DATABASE_URL, pool_pre_ping=True, connect_args=_connect_args, **_pool_kwargs
+)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
