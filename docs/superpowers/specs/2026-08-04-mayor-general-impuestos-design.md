@@ -187,17 +187,9 @@ No pasa por el clasificador (origen `declarada`), pero sí alimenta las hojas de
 
 ## Salidas del Excel (fase 2)
 
-1. **CLASIFICACIÓN** — trazabilidad: cuenta, naturaleza, categoría final, tarifa, confianza,
-   origen y señales que la justificaron.
-2. **Una hoja de detalle por categoría** — réplica automática de `BASE DE IMPUESTOS`:
-   movimientos clasificados con subtotal por mes.
-3. **CONCILIACIÓN** — por categoría y mes: *según libros* vs *según declaración* (casillero
-   del F-104/F-103) y diferencia absoluta y relativa.
-4. **DM6 y DM7** — sin cambios, siguen saliendo del F-104.
-
-El mapeo categoría → casillero vive en `mayor_categorias.casillero_f104/f103` y se valida
-contra los 12 F-104 y 12 F-103 reales de MEDI durante la implementación. **No se asume de
-memoria.**
+El libro generado replica el modelo real del auditor (`DM - Obligaciones Fiscales FINAL`).
+Ver la sección **"Modelo del Excel DM"** más abajo para el detalle pestaña por pestaña,
+la cadena de dependencias y los casilleros confirmados empíricamente.
 
 ## Frontend
 
@@ -266,10 +258,124 @@ hace `skip` si no está — mismo patrón que `TestExtractCasillerosPDFRealPROPH
   homologaciones.
 - Idempotencia: aprobar dos veces no duplica homologaciones.
 
+## Modelo del Excel DM (validado con el archivo real del auditor, 2026-08-04)
+
+### Las 11 pestañas y de qué se alimentan
+
+| # | Pestaña | Fuente |
+|---|---|---|
+| 1 | `Mayores homologados` | **Resumen del motor**: cuenta × 12 meses, agrupado por categoría con subtotal. Única fuente del "según libros" |
+| 2 | `Detalle mayor` | Los movimientos completos del mayor, con columna *Categoría* y autofiltro |
+| 3 | `DM3 Revisión de saldos` | Saldos globales al cierre |
+| 4 | `DM4 Compras` | IVA en compras + base imponible |
+| 5 | `DM5 Ventas` | Ventas ≠0%, ventas 0%, IVA en ventas |
+| 6 | `DM6 IVA` | Conciliación mensual del IVA, 29 columnas |
+| 7 | `DM7 Retenciones x pagar` | Retenciones de IVA (F-104) + retenciones de renta (F-103) |
+| 8 | `DM8 ATS` | ATS vs formularios |
+| 9 | `ingresos iva vs facturacion` | Declaración de renta vs facturación electrónica |
+| 10 | `datos 103` | 184 casilleros F-103 × 12 meses |
+| 11 | `datos 104` | 141+8 casilleros F-104 × 12 meses |
+
+`Hoja2` del modelo se descarta (oculta y vacía).
+
+### Cadena de dependencias
+
+```
+Mayor General ─►[motor]─► Mayores homologados ─fórmula─► "Según libros"    (DM3, DM4, DM5, DM7)
+F-104 (12 PDF) ─────────► datos 104           ─fórmula─► "Según declaración"
+F-103 (12 PDF) ─────────► datos 103           ─fórmula─► DM7 bloque 2
+ATS (12 XML)   ──────────────────────────────fórmula─► DM8
+Facturas electrónicas ───────────────────────fórmula─► ingresos iva vs facturacion
+                                                          │
+                                DM6 y DM8 ◄─fórmula─ DM4 + DM5 + DM7
+```
+
+**REGLA:** ninguna celda de dato se escribe como valor pegado. Todo importe que provenga de
+otra hoja va como **fórmula**. Así, al corregir una homologación y regenerar, el libro entero
+se recalcula y es imposible arrastrar cifras de otro cliente.
+
+### Lógica confirmada por DM
+
+**DM3 — Revisión de saldos.** Tres bloques, cada uno *según libros* vs *según F-104*:
+
+| Bloque | Cuenta | Casillero |
+|---|---|---|
+| Crédito tributario | `1.1.5.1.2` | **615 + 617** |
+| IVA Diferido | `2.1.7.4.2` | **485** |
+| SRI por Pagar | `2.1.7.5.6` | **859** de diciembre **+** total de retenciones de renta de diciembre (F-103) |
+
+Verificado con datos reales: crédito tributario 68,07 = 615+617 de diciembre; IVA diferido
+14.139,28 = casillero 485 de diciembre; SRI por pagar 3.762,30 = 950,14 + 2.812,16.
+
+**DM4 — Compras.** La base imponible **se calcula**: `base = IVA en compras ÷ tarifa de IVA`.
+No sale del mayor. Casilleros declarados: 510-512 (base) y 520-526/555/560 (IVA).
+
+**DM5 — Ventas.** Tres bloques (ventas ≠0% vs cas 411/412/444; ventas 0% vs cas
+412/413/414/415/417/418/444; IVA en ventas vs cas 421/422/423/424/454). El bloque de cuentas
+**es dinámico: crece o encoge según las cuentas de venta de cada cliente**, así que la hoja se
+construye programáticamente y todas las fórmulas inferiores se desplazan con él.
+
+**DM6 — IVA.** 29 columnas `{1}…{29}`. Origen de cada entrada manual del modelo:
+
+| Col | Concepto | Origen |
+|---|---|---|
+| `F {5}` | Transferencias gravadas **a contado** del mes | **casillero 480** (verificado 12/12 meses) |
+| `G {6}` | Tarifa de IVA | **parametrizable por mes** (12 % → 15 %), no constante |
+| `I {8}` | IVA generado en la diferencia entre ventas y NC | **casillero 424**, puede ser **423** según el caso |
+| `J {9}` | Impuesto a liquidar del mes anterior | **casillero 483** (enero); resto = `{11}` del mes previo |
+| `T {19}` | Saldo de crédito tributario del mes anterior | **605 + 606** (enero); resto = `{22}` del mes previo |
+| `U {20}` | Retenciones de IVA del período según libros | cuenta `1.1.5.2.1` del mayor |
+| `AF` | Su contraparte declarada | **casillero 609** |
+| `Z {25}` | Saldo de crédito para el próximo mes declarado | **615 + 617** (verificado los 12 meses) |
+| `AA {26}` | Impuesto a pagar por percepción | **casillero 699** |
+
+**DM7 — Retenciones por pagar.** Bloque 1: retenciones de IVA, libros `2.1.7.3.x` vs F-104
+cas 721/723/725/727/729/731/799. Bloque 2: retenciones de renta, libros `2.1.7.2.x` vs
+**casillero 499 del F-103**.
+
+**DM8 — ATS.** Cruza las cifras declaradas contra el Anexo Transaccional. El campo del XML a
+usar **depende del concepto de cada fila** (compras / retenciones): el mapeo fila → campo del
+ATS queda por detallar antes de implementar esta cédula.
+
+**`ingresos iva vs facturacion`.** Requiere un **insumo nuevo en la consola**: los **XML o PDF
+de las facturas electrónicas autorizadas por el SRI**. Es un slot adicional del formulario,
+con volumen potencialmente alto (miles de comprobantes por ejercicio).
+
+### Marcas de auditoría
+
+`ü` (cotejado según libros), `£` (cotejado según formularios), `‡` (diferencia determinada),
+`Σ` (sumado, totalizado). **Son marcas fijas de la cédula, no se calculan** contra ninguna
+tolerancia. Se unifica la fuente (el modelo mezcla Arial y Wingdings para la misma marca).
+
+### Defectos del modelo que el generador NO debe reproducir
+
+1. **Casilleros pegados a mano** — pasan a ser fórmulas contra `datos 103` / `datos 104`.
+2. **`DM6` inflada**: el modelo declara `A1:XFD438` con 1.114 celdas combinadas, de las cuales
+   solo 22 son útiles (el último dato real está en fila 32, columna 36). Se genera limpia.
+3. **Vínculo externo roto** a `1791332377001_Anexos ICT_2025_07.xlsx` (ICT de otro cliente).
+   Ninguna hoja generada referencia libros externos.
+4. **`datos 103` / `datos 104` de otro cliente**: en el modelo esas hojas venían del ICT de
+   Geosintéticos (`datos 103` entero en ceros). Se generan siempre desde los PDFs del cliente
+   del job.
+5. **Campos de encargos anteriores**: `DM7` conserva `Elaborado por: JT`, `Fecha: 2024-09-26`.
+   Se escriben desde el formulario del job.
+6. **Ruido de flotantes** (`-3,6e-12`): todo importe se redondea a 2 decimales.
+
 ## Fuera de alcance (explícito)
 
 - Sugerencia por LLM del residuo no clasificado (posible fase 2 del motor; la interfaz del
   clasificador queda preparada).
 - Ingestión de `COMPRAS 0%.xlsx` (reporte del ERP con estructura propia).
-- Cruce contra el Anexo Transaccional (ATS).
 - Homologaciones compartidas entre clientes de la firma.
+
+## Pendientes de definición antes de implementar
+
+1. **DM3 · "según libros"** — falta precisar si la celda lleva el saldo al 31 de diciembre o
+   el movimiento acumulado del ejercicio. La evidencia apunta a saldo al cierre (el crédito
+   tributario 68,07 corresponde al 615+617 de diciembre), pero el usuario indicó que la
+   distinción existe y debe confirmarse.
+2. **DM8 · mapeo fila → campo del ATS** — depende del concepto de cada fila (compras /
+   retenciones). Sin ese mapeo la cédula no se puede generar.
+3. **Facturación electrónica** — formato exacto del insumo (XML o PDF de comprobantes
+   autorizados), volumen esperado por ejercicio y qué campos alimentan el cuadro
+   (emitidas / anuladas / notas de crédito).
