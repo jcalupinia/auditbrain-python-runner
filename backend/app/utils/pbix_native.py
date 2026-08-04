@@ -53,12 +53,15 @@ def is_available() -> bool:
 
     Permite que el resto del código haga fallback elegante a
     `powerbi_bridge` (export CSV/Excel) si pbixray no está instalada.
+
+    Comprueba con ``find_spec`` en vez de ``import``: esta función la llama
+    ``/api/v1/health``, y un import ahí queda residente en el proceso web
+    para siempre (ver backend/app/utils/module_probe.py). El import real
+    ocurre en las funciones que abren un .pbix.
     """
-    try:
-        import pbixray  # noqa: F401
-        return True
-    except ImportError:
-        return False
+    from backend.app.utils.module_probe import module_installed
+
+    return module_installed("pbixray")
 
 
 def _require_lib():
