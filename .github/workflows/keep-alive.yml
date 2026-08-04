@@ -1,31 +1,58 @@
-name: keep-alive
+name: keep-alive (DESACTIVADO)
 
-# Mantiene "despierto" el backend en Render. El plan gratuito (Sandbox Tier 0)
-# duerme el servicio tras ~15 min sin tráfico; el primer request durante el
-# arranque en frío (~50s) falla y el navegador muestra "Failed to fetch".
-# Este workflow le pega al health-check cada ~10 min para que no se duerma.
+# ==========================================================================
+# DESACTIVADO — 2026-08-04. El cron ya no existe. No reactivar sin leer esto.
 #
-# Notas:
-#  - GitHub puede retrasar u omitir ejecuciones programadas bajo carga; por eso
-#    NO es una garantía absoluta. El frontend además reintenta ante cold-start
-#    (ver frontend/src/api.js::apiFetch), así que el peor caso es una espera, no
-#    un error. Para una garantía dura, subir el servicio a un plan pago de Render.
-#  - Repo público => minutos de Actions ilimitados.
-#  - Los workflows programados solo corren desde la rama por defecto (main).
+# QUÉ HACÍA
+#   Un `curl` a https://auditbrain-python-runner.onrender.com/api/v1/health
+#   cada 10 minutos (`cron: "*/10 * * * *"`). Nada más: sin checkout, sin
+#   instalar dependencias, sin ejecutar código del repo, sin sincronizar
+#   datos, sin llamar a ningún otro endpoint. Su único propósito era
+#   mantener el servicio despierto.
+#
+# POR QUÉ SE DESACTIVA
+#   1. Ya no es necesario. Su propio comentario original decía: "El plan
+#      gratuito (Sandbox Tier 0) duerme el servicio tras ~15 min sin
+#      tráfico". El backend está hoy en plan STANDARD de pago, que NO se
+#      suspende por inactividad. El keep-alive quedó huérfano de su motivo.
+#
+#   2. Era una fuente activa de consumo de memoria. `/api/v1/health` usaba
+#      `try: import X` como prueba de disponibilidad de librerías
+#      opcionales. Python no descarga módulos: cada llamada dejaba
+#      grpcio + protobuf (google-cloud-vision), pbixray, pyqvd y anthropic
+#      residentes en el proceso web PARA SIEMPRE. Con este cron, a los
+#      pocos minutos de cada arranque el backend ya cargaba cientos de MB
+#      que ninguna petición real necesitaba, acercándolo al límite de 2 GB
+#      del contenedor. La causa de fondo ya está corregida
+#      (ver backend/app/utils/module_probe.py), pero el cron tampoco aporta.
+#
+# QUÉ USAR EN SU LUGAR
+#   El health check de Render, configurado en render.yaml como
+#   `healthCheckPath: /healthz`. Esa ruta devuelve {"status": "ok"} sin
+#   tocar Postgres, sin importar módulos y sin lógica de negocio.
+#
+# CÓMO ELIMINARLO DEFINITIVAMENTE
+#   Borrar este archivo. Se deja desactivado en lugar de borrado para que
+#   quede constancia de por qué existió y por qué dejó de existir.
+#
+# Los otros workflows (backend.yml → pytest, e2e.yml → Playwright) son
+# independientes y no dependen de éste.
+# ==========================================================================
 
 on:
-  schedule:
-    - cron: "*/10 * * * *" # cada 10 minutos
-  workflow_dispatch: {} # permite dispararlo a mano desde la pestaña Actions
+  # El `schedule` que disparaba el curl cada 10 min queda ELIMINADO.
+  # Se conserva solo el disparo manual, por si hace falta comprobar el
+  # servicio a mano tras una incidencia.
+  workflow_dispatch: {}
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Despertar backend (health-check)
+      - name: Comprobar que el backend responde (manual)
         run: |
-          curl -fsS --max-time 120 \
-            --retry 5 --retry-all-errors --retry-delay 10 \
-            "https://auditbrain-python-runner.onrender.com/api/v1/health" \
-            && echo "Backend despierto ✓" \
-            || { echo "El backend no respondió tras los reintentos"; exit 1; }
+          curl -fsS --max-time 30 \
+            --retry 3 --retry-all-errors --retry-delay 5 \
+            "https://auditbrain-python-runner.onrender.com/healthz" \
+            && echo "Backend operativo ✓" \
+            || { echo "El backend no respondió"; exit 1; }
