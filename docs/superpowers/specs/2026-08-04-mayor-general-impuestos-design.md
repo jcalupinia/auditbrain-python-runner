@@ -307,6 +307,10 @@ se recalcula y es imposible arrastrar cifras de otro cliente.
 Verificado con datos reales: crédito tributario 68,07 = 615+617 de diciembre; IVA diferido
 14.139,28 = casillero 485 de diciembre; SRI por pagar 3.762,30 = 950,14 + 2.812,16.
 
+El **"según libros" de DM3 es el movimiento ACUMULADO DEL AÑO** de la cuenta, no el saldo al
+cierre: se lee de la columna *Total* del resumen de `Mayores homologados` (suma de los 12
+meses).
+
 **DM4 — Compras.** La base imponible **se calcula**: `base = IVA en compras ÷ tarifa de IVA`.
 No sale del mayor. Casilleros declarados: 510-512 (base) y 520-526/555/560 (IVA).
 
@@ -333,9 +337,19 @@ construye programáticamente y todas las fórmulas inferiores se desplazan con �
 cas 721/723/725/727/729/731/799. Bloque 2: retenciones de renta, libros `2.1.7.2.x` vs
 **casillero 499 del F-103**.
 
-**DM8 — ATS.** Cruza las cifras declaradas contra el Anexo Transaccional. El campo del XML a
-usar **depende del concepto de cada fila** (compras / retenciones): el mapeo fila → campo del
-ATS queda por detallar antes de implementar esta cédula.
+**DM8 — ATS.** Cruza el Anexo Transaccional contra lo declarado en los formularios. La
+contraparte de cada bloque:
+
+| Bloque de DM8 | Se compara contra |
+|---|---|
+| Ventas | casillero 419 (F-104) |
+| IVA en ventas | casillero 429 (F-104) |
+| Compras | casillero 519 (F-104) |
+| IVA en compras | casillero 529 (F-104) |
+| Retenciones | **formulario 103** |
+
+El campo del XML del ATS a usar depende del concepto de cada fila; ese mapeo detallado queda
+por definir antes de implementar la cédula (ver Pendientes).
 
 **`ingresos iva vs facturacion`.** Requiere un **insumo nuevo en la consola**: los **XML o PDF
 de las facturas electrónicas autorizadas por el SRI**. Es un slot adicional del formulario,
@@ -370,12 +384,10 @@ tolerancia. Se unifica la fuente (el modelo mezcla Arial y Wingdings para la mis
 
 ## Pendientes de definición antes de implementar
 
-1. **DM3 · "según libros"** — falta precisar si la celda lleva el saldo al 31 de diciembre o
-   el movimiento acumulado del ejercicio. La evidencia apunta a saldo al cierre (el crédito
-   tributario 68,07 corresponde al 615+617 de diciembre), pero el usuario indicó que la
-   distinción existe y debe confirmarse.
-2. **DM8 · mapeo fila → campo del ATS** — depende del concepto de cada fila (compras /
-   retenciones). Sin ese mapeo la cédula no se puede generar.
-3. **Facturación electrónica** — formato exacto del insumo (XML o PDF de comprobantes
+1. **DM8 · mapeo fila → campo del XML del ATS** — ya se conoce la contraparte de cada bloque
+   (ver tabla de DM8), falta qué nodo/campo del XML alimenta cada fila. **DM8 se implementa en
+   una fase posterior**; el resto de las cédulas no depende de ella.
+2. **Facturación electrónica** — formato exacto del insumo (XML o PDF de comprobantes
    autorizados), volumen esperado por ejercicio y qué campos alimentan el cuadro
-   (emitidas / anuladas / notas de crédito).
+   (emitidas / anuladas / notas de crédito). Afecta solo a
+   `ingresos iva vs facturacion`.
