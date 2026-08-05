@@ -44,7 +44,8 @@ ALLOWED_MIMES = {
     "f103": {"application/pdf"},
     "f104": {"application/pdf"},
     "f101": {"application/pdf"},
-    "ats": {"application/xml", "text/xml"},
+    # El ATS llega como XML o como PDF (el "Talón Resumen" que emite el SRI).
+    "ats": {"application/xml", "text/xml", "application/pdf"},
     "mayor_general": {
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "application/vnd.ms-excel",
