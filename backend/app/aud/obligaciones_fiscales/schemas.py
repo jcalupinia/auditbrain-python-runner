@@ -62,3 +62,18 @@ class CorreccionIn(BaseModel):
 
 class CorreccionesIn(BaseModel):
     correcciones: list[CorreccionIn] = []
+
+
+class JobUpdateIn(BaseModel):
+    """PATCH de metadatos del encargo (cliente, período, corte, preparado/
+    revisado por, firma auditora). Todos los campos son opcionales: el
+    router usa ``model_dump(exclude_unset=True)`` para actualizar solo lo
+    que venga en el body, sin tocar archivos ni clasificación."""
+
+    cliente_name: str | None = None
+    period_label: str | None = None
+    period_start: datetime.date | None = None
+    period_end: datetime.date | None = None
+    prepared_by_name: str | None = None
+    reviewed_by_name: str | None = None
+    firma_auditora: str | None = None  # "audit_consulting" | "partner_auditing"

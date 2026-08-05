@@ -25,9 +25,11 @@ from backend.app.aud.obligaciones_fiscales import (
     service,
 )
 from backend.app.aud.obligaciones_fiscales.schemas import (
+    FIRMAS_VALIDAS,
     SLOTS_VALIDOS,
     CorreccionesIn,
     JobOut,
+    JobUpdateIn,
 )
 from backend.app.core.config import settings
 from backend.app.db.session import get_db
@@ -94,8 +96,6 @@ def create_job_endpoint(
     db: Session = Depends(get_db),
 ):
     """Crea el job en estado 'borrador'. Los archivos se suben por slot."""
-    from backend.app.aud.obligaciones_fiscales.schemas import FIRMAS_VALIDAS
-
     if firma_auditora and firma_auditora not in FIRMAS_VALIDAS:
         raise HTTPException(
             400, detail=f"firma_auditora debe ser uno de: {sorted(FIRMAS_VALIDAS)}"
@@ -413,6 +413,32 @@ def download_job_endpoint(
         ),
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.patch("/jobs/{job_id}", response_model=JobOut)
+def update_job_endpoint(
+    job_id: int,
+    payload: JobUpdateIn,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Actualiza los metadatos del encargo (cliente, período, corte,
+    preparado/revisado por, firma auditora) sin tocar archivos ni
+    clasificación. Solo se permite en 'borrador' y 'revision'."""
+    _job_editable(db, current, job_id)
+
+    datos = payload.model_dump(exclude_unset=True)
+    firma = datos.get("firma_auditora")
+    if firma and firma not in FIRMAS_VALIDAS:
+        raise HTTPException(
+            400, detail=f"firma_auditora debe ser uno de: {sorted(FIRMAS_VALIDAS)}"
+        )
+
+    try:
+        job = service.update_job(db, current, job_id, **datos)
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    return JobOut.model_validate(job)
 
 
 @router.delete("/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
