@@ -23,7 +23,7 @@ from backend.app.aud.obligaciones_fiscales import (
     file_storage,
     service,
 )
-from backend.app.aud.obligaciones_fiscales.schemas import JobOut
+from backend.app.aud.obligaciones_fiscales.schemas import SLOTS_VALIDOS, JobOut
 from backend.app.core.config import settings
 from backend.app.db.session import get_db
 
@@ -107,6 +107,84 @@ def create_job_endpoint(
         raise HTTPException(403, detail=str(e))
     file_storage.create_job_dir(job.id)
     return JobOut.model_validate(job)
+
+
+def _estado_slots(job_id: int) -> dict[str, dict]:
+    d = file_storage.job_dir(job_id)
+    estado = {}
+    for slot in SLOTS_VALIDOS:
+        archivos = file_storage.list_inputs(d, slot)
+        estado[slot] = {"n_archivos": len(archivos), "nombres": [p.name for p in archivos]}
+    return estado
+
+
+def _job_editable(db, current, job_id: int):
+    try:
+        job = service.get_job(db, current, job_id)
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    if job.status not in ("borrador", "revision"):
+        raise HTTPException(
+            409, detail=f"El job está en estado {job.status}: ya no admite cambios de archivos."
+        )
+    return job
+
+
+@router.put("/jobs/{job_id}/slots/{slot}")
+async def upload_slot_endpoint(
+    job_id: int,
+    slot: str,
+    archivos: list[UploadFile] = File(...),
+    categoria: str | None = Form(None),
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if slot not in SLOTS_VALIDOS:
+        raise HTTPException(400, detail=f"Slot desconocido: {slot}")
+    job = _job_editable(db, current, job_id)
+
+    if slot == "mayor_especifico" and not categoria:
+        raise HTTPException(
+            400,
+            detail="El mayor específico exige declarar la categoria a la que pertenece.",
+        )
+
+    job_dir = file_storage.create_job_dir(job_id)
+    await _save_files(job_dir, slot, archivos)
+
+    if slot == "mayor_especifico":
+        job.mayor_especifico_categoria = categoria
+        db.add(job)
+        db.commit()
+    return _estado_slots(job_id)
+
+
+@router.delete("/jobs/{job_id}/slots/{slot}")
+def clear_slot_endpoint(
+    job_id: int,
+    slot: str,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if slot not in SLOTS_VALIDOS:
+        raise HTTPException(400, detail=f"Slot desconocido: {slot}")
+    _job_editable(db, current, job_id)
+    for p in file_storage.list_inputs(file_storage.job_dir(job_id), slot):
+        p.unlink(missing_ok=True)
+    return _estado_slots(job_id)
+
+
+@router.get("/jobs/{job_id}/slots")
+def get_slots_endpoint(
+    job_id: int,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        service.get_job(db, current, job_id)
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    return _estado_slots(job_id)
 
 
 @router.get("/jobs/{job_id}", response_model=JobOut)

@@ -43,3 +43,13 @@ class JobOut(BaseModel):
     expires_at: datetime.datetime
 
     model_config = {"from_attributes": True}
+
+
+class SlotEstado(BaseModel):
+    n_archivos: int
+    nombres: list[str]
+
+
+SLOTS_VALIDOS = (
+    "f104", "f103", "ats", "mayor_general", "mayor_especifico", "f101",
+)
