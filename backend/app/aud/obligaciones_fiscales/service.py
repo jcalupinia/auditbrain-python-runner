@@ -41,7 +41,7 @@ def create_job(
         user_id=user.id,
         project_id=project_id,
         tool_code=TOOL_CODE,
-        status="pending",
+        status="borrador",
         cliente_name=cliente_name,
         period_label=period_label,
         period_start=period_start,

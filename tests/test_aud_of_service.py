@@ -58,7 +58,9 @@ def _mk_admin_project():
         db.close()
 
 
-def test_create_job_pending_with_expires_at():
+def test_create_job_borrador_with_expires_at():
+    """El job nace en 'borrador' (sesión persistente): el auditor sube
+    archivos por su cuenta antes de disparar el procesamiento."""
     user_id, project_id = _mk_admin_project()
     db = SessionLocal()
     try:
@@ -68,7 +70,7 @@ def test_create_job_pending_with_expires_at():
             cliente_name="C", period_label="2025",
         )
         assert job.id is not None
-        assert job.status == "pending"
+        assert job.status == "borrador"
         assert job.expires_at > job.created_at
         assert job.tool_code == of_service.TOOL_CODE
     finally:

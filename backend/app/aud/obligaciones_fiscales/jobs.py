@@ -31,8 +31,8 @@ def process_job(job_id: int) -> None:
             "f103": file_storage.list_inputs(job_dir, "f103"),
             "f104": file_storage.list_inputs(job_dir, "f104"),
             "ats": file_storage.list_inputs(job_dir, "ats"),
-            "mayor_compras": file_storage.list_inputs(job_dir, "mayor_compras"),
-            "mayor_ventas": file_storage.list_inputs(job_dir, "mayor_ventas"),
+            "mayor_general": file_storage.list_inputs(job_dir, "mayor_general"),
+            "mayor_especifico": file_storage.list_inputs(job_dir, "mayor_especifico"),
             "f101": file_storage.list_inputs(job_dir, "f101"),
         }
 

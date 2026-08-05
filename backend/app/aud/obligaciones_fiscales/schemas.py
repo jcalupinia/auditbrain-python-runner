@@ -34,6 +34,7 @@ class JobOut(BaseModel):
     prepared_by_name: str | None
     reviewed_by_name: str | None
     firma_auditora: str | None
+    mayor_especifico_categoria: str | None
     error_message: str | None
     summary_json: dict | None
     created_at: datetime.datetime

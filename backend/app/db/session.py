@@ -196,6 +196,15 @@ def init_db() -> None:
                 with engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE tool_jobs ADD COLUMN {col_name} {col_type}"))
 
+    # Migración aditiva en ``tool_jobs``: modalidad manual del mayor.
+    if "tool_jobs" in inspector.get_table_names():
+        cols_jobs = {c["name"] for c in inspector.get_columns("tool_jobs")}
+        if "mayor_especifico_categoria" not in cols_jobs:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE tool_jobs ADD COLUMN mayor_especifico_categoria VARCHAR(32)")
+                )
+
     # Backfill de entitlements: concede la sección Tributarias a los clientes
     # existentes en el primer arranque tras activar el gating comercial.
     try:
