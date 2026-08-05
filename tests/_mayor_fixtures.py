@@ -42,3 +42,33 @@ def mayor_xlsx(
     bio = BytesIO()
     wb.save(bio)
     return bio.getvalue()
+
+
+def mayor_xlsx_multihoja(
+    hojas: dict[str, list[list]],
+    *,
+    encabezado: tuple[str, ...] = ENCABEZADO_REAL,
+    fila_encabezado: int = 1,
+) -> bytes:
+    """Como mayor_xlsx, pero escribe VARIAS hojas con datos, cada una con su
+    propio encabezado (idéntico) y sus propias filas. Sirve para simular un
+    mayor repartido en varias hojas (una por mes o por tipo de comprobante).
+    """
+    wb = Workbook()
+    nombres = list(hojas.keys())
+    hojas_ws = {nombres[0]: wb.active}
+    hojas_ws[nombres[0]].title = nombres[0]
+    for nombre in nombres[1:]:
+        hojas_ws[nombre] = wb.create_sheet(title=nombre)
+
+    for nombre, filas in hojas.items():
+        ws = hojas_ws[nombre]
+        for col, valor in enumerate(encabezado, start=1):
+            ws.cell(fila_encabezado, col, valor)
+        for j, fila in enumerate(filas, start=fila_encabezado + 1):
+            for col, valor in enumerate(fila, start=1):
+                ws.cell(j, col, valor)
+
+    bio = BytesIO()
+    wb.save(bio)
+    return bio.getvalue()

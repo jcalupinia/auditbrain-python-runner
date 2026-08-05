@@ -5,7 +5,7 @@ from io import BytesIO
 import pytest
 from openpyxl import load_workbook
 
-from tests._mayor_fixtures import ENCABEZADO_REAL, mayor_xlsx
+from tests._mayor_fixtures import ENCABEZADO_REAL, mayor_xlsx, mayor_xlsx_multihoja
 from backend.app.aud.obligaciones_fiscales.mayor.reader import leer_mayor
 
 
@@ -114,6 +114,23 @@ def test_descarta_un_encabezado_repetido_a_mitad_del_listado():
     ]
     lectura = leer_mayor(mayor_xlsx(filas))
     assert [m.codigo for m in lectura.movimientos] == ["1.1.5.1.1", "1.1.5.1.3"]
+
+
+def test_lee_todas_las_hojas_cuando_el_mayor_esta_repartido():
+    """Defecto 1: un ERP que exporta una hoja por mes no debe perder las
+    demás hojas en silencio."""
+    fila_enero = ["1.1.5.1.1", "IVA sobre Compras", "2025-01-05", "COM 1",
+                  "", "", "", "", "", 10, 0, 10]
+    fila_febrero = ["1.1.5.1.3", "IVA en Importaciones", "2025-02-05", "COM 2",
+                     "", "", "", "", "", 20, 0, 20]
+    data = mayor_xlsx_multihoja({"ENERO": [fila_enero], "FEBRERO": [fila_febrero]})
+
+    lectura = leer_mayor(data)
+
+    assert len(lectura.movimientos) == 2
+    assert lectura.hojas_leidas == ["ENERO", "FEBRERO"]
+    assert lectura.hoja == "ENERO"  # la primera hoja leída, por compatibilidad
+    assert lectura.filas_descartadas == 0
 
 
 def test_celda_vacia_de_haber_cuenta_como_cero():
