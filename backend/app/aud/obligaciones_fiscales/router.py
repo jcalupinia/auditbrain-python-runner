@@ -24,7 +24,11 @@ from backend.app.aud.obligaciones_fiscales import (
     jobs,
     service,
 )
-from backend.app.aud.obligaciones_fiscales.schemas import SLOTS_VALIDOS, JobOut
+from backend.app.aud.obligaciones_fiscales.schemas import (
+    SLOTS_VALIDOS,
+    CorreccionesIn,
+    JobOut,
+)
 from backend.app.core.config import settings
 from backend.app.db.session import get_db
 
@@ -259,6 +263,83 @@ def get_clasificacion_endpoint(
             for c in categorias
         ],
     }
+
+
+@router.put("/jobs/{job_id}/clasificacion")
+def put_clasificacion_endpoint(
+    job_id: int,
+    payload: CorreccionesIn,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from backend.app.aud.obligaciones_fiscales.mayor import (
+        catalogo_service,
+        clasificacion_service,
+    )
+
+    try:
+        job = service.get_job(db, current, job_id)
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    if job.status != "revision":
+        raise HTTPException(409, detail=f"El job está en estado {job.status}.")
+
+    validas = {
+        c.codigo
+        for c in catalogo_service.categorias_visibles(
+            db, organization_id=getattr(current, "organization_id", None)
+        )
+    }
+    for c in payload.correcciones:
+        if c.categoria and c.categoria not in validas:
+            raise HTTPException(400, detail=f"Categoría desconocida: {c.categoria}")
+
+    clasificacion_service.aplicar_correcciones(
+        db, job_id=job_id,
+        correcciones=[c.model_dump() for c in payload.correcciones],
+        user_id=current.id,
+    )
+    return get_clasificacion_endpoint(job_id, current=current, db=db)
+
+
+@router.post("/jobs/{job_id}/aprobar", response_model=JobOut)
+def aprobar_endpoint(
+    job_id: int,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Persiste lo aprendido y dispara la fase 2 (generación del Excel)."""
+    from backend.app.aud.obligaciones_fiscales.mayor import (
+        clasificacion_service,
+        homologaciones,
+    )
+    from backend.app.context.models import Project
+
+    try:
+        job = service.get_job(db, current, job_id)
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    if job.status != "revision":
+        raise HTTPException(
+            409, detail=f"El job está en estado {job.status}: no hay nada que aprobar."
+        )
+
+    filas = clasificacion_service.clasificacion_de_job(db, job_id=job_id)
+    proyecto = db.get(Project, job.project_id)
+    homologaciones.guardar_homologaciones(
+        db,
+        client_id=proyecto.client_id,
+        asignaciones=[
+            {"codigo_cuenta": f.codigo_cuenta, "nombre_cuenta": f.nombre_cuenta,
+             "categoria": f.categoria_final, "tarifa": f.tarifa}
+            for f in filas
+        ],
+        user_id=current.id,
+    )
+
+    jobs.process_job(job_id)
+    db.expire_all()
+    return JobOut.model_validate(service.get_job(db, current, job_id))
 
 
 @router.get("/jobs/{job_id}", response_model=JobOut)

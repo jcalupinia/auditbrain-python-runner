@@ -53,3 +53,12 @@ class SlotEstado(BaseModel):
 SLOTS_VALIDOS = (
     "f104", "f103", "ats", "mayor_general", "mayor_especifico", "f101",
 )
+
+
+class CorreccionIn(BaseModel):
+    codigo_cuenta: str
+    categoria: str | None = None
+
+
+class CorreccionesIn(BaseModel):
+    correcciones: list[CorreccionIn] = []
