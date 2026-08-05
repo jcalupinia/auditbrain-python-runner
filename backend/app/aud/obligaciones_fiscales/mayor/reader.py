@@ -24,8 +24,14 @@ from backend.app.aud.obligaciones_fiscales.mayor.tipos import (
 # normalizado; el "contiene" sólo se usa como respaldo y NUNCA para 'cuenta'
 # (porque 'Persona Cruce Cuenta' lo capturaría por error).
 SINONIMOS: dict[str, tuple[str, ...]] = {
+    # 'cuenta' va AL FINAL: es un sinónimo débil de código (solo aparece en
+    # encabezados de dos columnas tipo 'Cuenta | Nombre', donde 'Cuenta' es
+    # el código). Cuando el encabezado real ya tiene una columna 'Cuenta'
+    # propia (el nombre de la cuenta), esa se resuelve primero por su
+    # propio código exacto ('cuenta contable', 'cta', ...) antes de llegar
+    # a esta columna, así que el orden no la roba.
     "codigo": ("codigo", "cod", "cod cuenta", "codigo cuenta", "cuenta contable",
-               "nro cuenta", "numero de cuenta", "cta"),
+               "nro cuenta", "numero de cuenta", "cta", "cuenta"),
     "cuenta": ("cuenta", "nombre", "nombre cuenta", "nombre de cuenta",
                "descripcion cuenta", "detalle cuenta"),
     "fecha": ("fecha", "fecha asiento", "fecha movimiento", "f asiento"),
@@ -95,6 +101,18 @@ def _mapear_encabezado(celdas: list) -> dict[str, int]:
                 mapeo[campo] = i
                 usadas.add(i)
                 break
+
+    # Último recurso (defecto 6): si 'cuenta' (nombre de la cuenta) no se
+    # resolvió por NINGÚN sinónimo propio pero sí hay una columna
+    # 'descripcion' mapeada, esa columna es probablemente el nombre de la
+    # cuenta (ERP sin columna 'Nombre' separada, ej.
+    # 'Cta | Descripción | Debe | Haber'). Solo cede cuando 'cuenta' no se
+    # resolvió de ninguna otra forma, para no confundir la glosa del
+    # movimiento del encabezado real de 12 columnas (donde 'Cuenta' ya se
+    # mapea por su propio sinónimo antes de llegar a 'Descripción').
+    if "cuenta" not in mapeo and "descripcion" in mapeo:
+        mapeo["cuenta"] = mapeo.pop("descripcion")
+
     return mapeo
 
 

@@ -93,6 +93,50 @@ def test_importes_en_cualquier_formato_regional(texto, esperado):
     assert lectura.movimientos[0].debe == esperado
 
 
+def test_encabezado_cuenta_nombre_no_se_confunde_codigo_con_nombre():
+    """Defecto 6: con 'Cuenta | Nombre | Debe | Haber', 'cuenta' no estaba
+    entre los sinonimos de codigo y ademas era SOLO_EXACTO, asi que la
+    columna de codigo se mapeaba como nombre y codigo nunca se mapeaba:
+    el archivo se rechazaba entero."""
+    lectura = leer_mayor(
+        mayor_xlsx(
+            [["1.1.5.1.1", "IVA sobre Compras", 10, 0]],
+            encabezado=("Cuenta", "Nombre", "Debe", "Haber"),
+        )
+    )
+    assert lectura.mapeo_suficiente, lectura.columnas_faltantes
+    assert lectura.columnas_detectadas["codigo"] == 0
+    assert lectura.columnas_detectadas["cuenta"] == 1
+    assert lectura.movimientos[0].codigo == "1.1.5.1.1"
+    assert lectura.movimientos[0].cuenta == "IVA sobre Compras"
+
+
+def test_encabezado_cta_descripcion_usa_la_descripcion_como_nombre_de_cuenta():
+    """Defecto 6: con 'Cta | Descripción | Debe | Haber', 'descripcion' no
+    estaba entre los sinonimos de cuenta, asi que el nombre quedaba vacio y
+    la clasificacion caia a confianza baja."""
+    lectura = leer_mayor(
+        mayor_xlsx(
+            [["1.1.5.1.1", "IVA sobre Compras", 10, 0]],
+            encabezado=("Cta", "Descripción", "Debe", "Haber"),
+        )
+    )
+    assert lectura.mapeo_suficiente, lectura.columnas_faltantes
+    assert lectura.columnas_detectadas["codigo"] == 0
+    assert lectura.columnas_detectadas["cuenta"] == 1
+    assert lectura.movimientos[0].cuenta == "IVA sobre Compras"
+
+
+def test_encabezado_real_de_12_columnas_no_se_rompe_por_el_fix_del_defecto_6():
+    """El encabezado real tiene 'Cuenta' (nombre) antes que 'Descripción'
+    (glosa del movimiento): 'Descripción' NO debe convertirse en el nombre
+    de la cuenta."""
+    lectura = leer_mayor(mayor_xlsx([FILA]))
+    assert lectura.columnas_detectadas["cuenta"] == 1
+    assert lectura.movimientos[0].cuenta == "IVA sobre Compras"
+    assert lectura.movimientos[0].descripcion == "COMPRA DE PRUEBA"
+
+
 @pytest.mark.parametrize(
     "texto,esperado",
     [
