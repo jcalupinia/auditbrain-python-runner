@@ -6,6 +6,7 @@ import pytest
 from openpyxl import load_workbook
 
 from tests._mayor_fixtures import ENCABEZADO_REAL, mayor_xlsx, mayor_xlsx_multihoja
+import backend.app.aud.obligaciones_fiscales.mayor.reader as reader_mod
 from backend.app.aud.obligaciones_fiscales.mayor.reader import leer_mayor
 
 
@@ -224,6 +225,38 @@ def test_lee_todas_las_hojas_cuando_el_mayor_esta_repartido():
     assert lectura.hojas_leidas == ["ENERO", "FEBRERO"]
     assert lectura.hoja == "ENERO"  # la primera hoja leída, por compatibilidad
     assert lectura.filas_descartadas == 0
+
+
+def test_el_workbook_se_cierra_aunque_la_lectura_de_filas_falle(monkeypatch):
+    """Defecto 4: si algo revienta durante la iteracion de filas, el ZipFile
+    del workbook (y sus handles) debe cerrarse igual, no quedar abierto."""
+    data = mayor_xlsx([FILA])
+    cerrado = {"valor": False}
+
+    def _leer_hoja_que_revienta(*args, **kwargs):
+        raise RuntimeError("fallo simulado durante la lectura de filas")
+
+    monkeypatch.setattr(reader_mod, "_leer_hoja", _leer_hoja_que_revienta)
+
+    load_workbook_original = reader_mod.load_workbook
+
+    def load_workbook_espia(*args, **kwargs):
+        wb = load_workbook_original(*args, **kwargs)
+        close_original = wb.close
+
+        def close_espia():
+            cerrado["valor"] = True
+            close_original()
+
+        wb.close = close_espia
+        return wb
+
+    monkeypatch.setattr(reader_mod, "load_workbook", load_workbook_espia)
+
+    with pytest.raises(RuntimeError, match="fallo simulado"):
+        reader_mod.leer_mayor(data)
+
+    assert cerrado["valor"] is True, "wb.close() no se llamo tras la excepcion"
 
 
 def test_celda_vacia_de_haber_cuenta_como_cero():

@@ -244,53 +244,59 @@ def leer_mayor(contenido: bytes) -> LecturaMayor:
     except Exception as e:  # noqa: BLE001
         return LecturaMayor(errores=[f"No se pudo abrir el Excel: {e}"])
 
-    candidatos = []  # [(hoja, fila_encabezado, mapeo, puntaje), ...]
-    for nombre in wb.sheetnames:
-        ws = wb[nombre]
-        mejor_de_hoja = None  # (fila, mapeo, puntaje)
-        for fila_idx, fila in enumerate(
-            ws.iter_rows(max_row=MAX_FILAS_BUSQUEDA_ENCABEZADO, values_only=True),
-            start=1,
-        ):
-            mapeo = _mapear_encabezado(list(fila))
-            puntaje = len(mapeo)
-            if mejor_de_hoja is None or puntaje > mejor_de_hoja[2]:
-                mejor_de_hoja = (fila_idx, mapeo, puntaje)
-        if mejor_de_hoja is not None:
-            fila_idx, mapeo, puntaje = mejor_de_hoja
-            candidatos.append((nombre, fila_idx, mapeo, puntaje))
+    # Defecto 4: cualquier excepción durante el barrido de hojas o la
+    # lectura de filas debe dejar el workbook (y su ZipFile/handles)
+    # cerrado igual, para no acumular archivos abiertos en un backend de
+    # larga vida. try/finally garantiza el cierre en TODOS los caminos,
+    # incluida una excepción que se propaga hacia arriba.
+    try:
+        candidatos = []  # [(hoja, fila_encabezado, mapeo, puntaje), ...]
+        for nombre in wb.sheetnames:
+            ws = wb[nombre]
+            mejor_de_hoja = None  # (fila, mapeo, puntaje)
+            for fila_idx, fila in enumerate(
+                ws.iter_rows(max_row=MAX_FILAS_BUSQUEDA_ENCABEZADO, values_only=True),
+                start=1,
+            ):
+                mapeo = _mapear_encabezado(list(fila))
+                puntaje = len(mapeo)
+                if mejor_de_hoja is None or puntaje > mejor_de_hoja[2]:
+                    mejor_de_hoja = (fila_idx, mapeo, puntaje)
+            if mejor_de_hoja is not None:
+                fila_idx, mapeo, puntaje = mejor_de_hoja
+                candidatos.append((nombre, fila_idx, mapeo, puntaje))
 
-    if not candidatos or max(c[3] for c in candidatos) == 0:
+        if not candidatos or max(c[3] for c in candidatos) == 0:
+            return LecturaMayor(
+                errores=["No se detectó una fila de encabezado reconocible."],
+                columnas_faltantes=list(COLUMNAS_MINIMAS),
+            )
+
+        # Hoja de referencia para reportar columnas detectadas/faltantes
+        # cuando NINGUNA hoja alcanza el mapeo mínimo (el auditor mapea a
+        # mano).
+        mejor = max(candidatos, key=lambda c: c[3])
+        mapeo_mejor = mejor[2]
+        columnas_faltantes = [c for c in COLUMNAS_MINIMAS if c not in mapeo_mejor]
+        if columnas_faltantes:
+            return LecturaMayor(
+                columnas_detectadas=mapeo_mejor,
+                columnas_faltantes=columnas_faltantes,
+                hoja=mejor[0],
+                fila_encabezado=mejor[1],
+            )
+
+        lectura = LecturaMayor()
+        for nombre, fila_encabezado, mapeo, _puntaje in candidatos:
+            if any(c not in mapeo for c in COLUMNAS_MINIMAS):
+                continue  # esta hoja concreta no alcanza el mapeo mínimo
+            if not lectura.hojas_leidas:
+                lectura.hoja = nombre
+                lectura.fila_encabezado = fila_encabezado
+                lectura.columnas_detectadas = mapeo
+            lectura.hojas_leidas.append(nombre)
+            _leer_hoja(wb[nombre], mapeo, fila_encabezado, lectura)
+
+        return lectura
+    finally:
         wb.close()
-        return LecturaMayor(
-            errores=["No se detectó una fila de encabezado reconocible."],
-            columnas_faltantes=list(COLUMNAS_MINIMAS),
-        )
-
-    # Hoja de referencia para reportar columnas detectadas/faltantes cuando
-    # NINGUNA hoja alcanza el mapeo mínimo (el auditor mapea a mano).
-    mejor = max(candidatos, key=lambda c: c[3])
-    mapeo_mejor = mejor[2]
-    columnas_faltantes = [c for c in COLUMNAS_MINIMAS if c not in mapeo_mejor]
-    if columnas_faltantes:
-        wb.close()
-        return LecturaMayor(
-            columnas_detectadas=mapeo_mejor,
-            columnas_faltantes=columnas_faltantes,
-            hoja=mejor[0],
-            fila_encabezado=mejor[1],
-        )
-
-    lectura = LecturaMayor()
-    for nombre, fila_encabezado, mapeo, _puntaje in candidatos:
-        if any(c not in mapeo for c in COLUMNAS_MINIMAS):
-            continue  # esta hoja concreta no alcanza el mapeo mínimo
-        if not lectura.hojas_leidas:
-            lectura.hoja = nombre
-            lectura.fila_encabezado = fila_encabezado
-            lectura.columnas_detectadas = mapeo
-        lectura.hojas_leidas.append(nombre)
-        _leer_hoja(wb[nombre], mapeo, fila_encabezado, lectura)
-
-    wb.close()
-    return lectura
