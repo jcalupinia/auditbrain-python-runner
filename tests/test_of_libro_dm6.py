@@ -20,7 +20,7 @@ for i, mes in enumerate(MESES, start=1):
     DIR_DM4[("base", mes)] = f"'DM4 Compras'!E{i}"
     DIR_MAYORES[("IVA_RETENIDO", mes)] = f"'Mayores homologados'!F{i}"
 
-CASILLEROS = ["480", "424", "483", "605", "606", "609", "615", "617", "699"]
+CASILLEROS = ["480", "424", "483", "605", "606", "609", "615", "617", "699", "413", "417", "418"]
 DIR_F104 = {
     (f"2025-{m:02d}", cas): f"'DATOS F-104'!C{m}{cas}"
     for m in range(1, 13) for cas in CASILLEROS
@@ -103,6 +103,26 @@ def test_columna_i_viene_del_casillero_424():
     fila = _fila_de(ws, "Enero")
     i_ = letra_columna(8)
     assert ws[f"{i_}{fila}"].value == "='DATOS F-104'!C1424"
+
+
+def test_columna_d_viene_del_casillero_413():
+    """{3} D: ventas netas gravadas con tarifa 0% que NO dan derecho a
+    crédito tributario. Sale del casillero 413 del F-104, no es un cero
+    sin fuente definida: si queda en 0 literal, la columna AB {27} =
+    Y-B-C-D-E da un descuadre falso."""
+    ws = _cedula()
+    fila = _fila_de(ws, "Enero")
+    d = letra_columna(3)
+    assert ws[f"{d}{fila}"].value == "='DATOS F-104'!C1413"
+
+
+def test_columna_e_viene_de_los_casilleros_417_mas_418():
+    """{4} E: exportaciones de bienes y servicios. Sale de 417 + 418 del
+    F-104, no de un cero sin fuente definida."""
+    ws = _cedula()
+    fila = _fila_de(ws, "Enero")
+    e = letra_columna(4)
+    assert ws[f"{e}{fila}"].value == "='DATOS F-104'!C1417+'DATOS F-104'!C1418"
 
 
 def test_columna_u_viene_de_los_libros_de_iva_retenido():

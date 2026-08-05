@@ -38,15 +38,16 @@ FILA_PRIMER_MES = 13
 # del plan; no forma parte de la conciliacion numerada, es informativa.
 COL_AF = "AF"
 
-# Etiquetas descriptivas de cada columna. Las que dicen "(manual)" no tienen
-# fuente definida en el plan 3b: quedan en 0 a la espera de que una fase
-# posterior las conecte a su hoja de origen (ver decision de diseno en el
-# reporte de la tarea 5).
+# Etiquetas descriptivas de cada columna. Las que dicen "(manual)" quedan en 0
+# porque en el modelo real del auditor son cero por diseno (no hay percepcion
+# de IVA ni ajustes manuales en el caso validado): no es que falte definirlas,
+# es que su valor esperado es 0. D y E SI tienen fuente (casilleros 413 y
+# 417+418): dejarlas en 0 literal producia un descuadre falso en AB {27}.
 _ETIQUETAS = {
     1: "Ventas <> 0% (libros, DM5)",
     2: "Ventas 0% (libros, DM5)",
-    3: "Otras ventas (manual)",
-    4: "Notas de credito ventas (manual)",
+    3: "Ventas 0% sin derecho a credito tributario (cas. 413)",
+    4: "Exportaciones de bienes y servicios (cas. 417+418)",
     5: "Transferencias a contado (cas. 480)",
     6: "Tarifa de IVA del mes",
     7: "IVA en ventas (B x G)",
@@ -57,13 +58,13 @@ _ETIQUETAS = {
     12: "Total impuesto a liquidar",
     13: "Base imponible de compras (DM4)",
     14: "IVA en compras (N x G)",
-    15: "Otro credito tributario (manual)",
+    15: "Otro credito tributario (cero por diseno)",
     16: "Factor de proporcionalidad",
     17: "Credito tributario aplicable",
-    18: "Retenciones que le efectuaron (manual)",
+    18: "Retenciones que le efectuaron (cero por diseno)",
     19: "Credito del mes anterior",
     20: "IVA retenido por clientes (libros)",
-    21: "Ajuste manual",
+    21: "Ajuste manual (cero por diseno)",
     22: "Saldo a favor del contribuyente",
     23: "Impuesto a pagar",
     24: "Total ventas declaradas (DM5)",
@@ -171,8 +172,13 @@ def build_dm6(
         # --- columnas que vienen de fuera ---
         _escribir(ws, b, fila, _formula_o_cero(dir_dm5.get(("ventas_libros", mes))))
         _escribir(ws, c_, fila, _formula_o_cero(dir_dm5.get(("ventas_0_libros", mes))))
-        _escribir(ws, d, fila, 0)  # sin fuente definida en el plan 3b
-        _escribir(ws, e, fila, 0)  # sin fuente definida en el plan 3b
+        # {3} D: ventas 0% que NO dan derecho a credito tributario, casillero 413.
+        _escribir(ws, d, fila, _formula_o_cero(_dir_casillero(dir_f104, mapa_periodo, mes, "413")))
+        # {4} E: exportaciones de bienes y servicios, casilleros 417 + 418.
+        _escribir(ws, e, fila, _formula_suma_o_cero(
+            _dir_casillero(dir_f104, mapa_periodo, mes, "417"),
+            _dir_casillero(dir_f104, mapa_periodo, mes, "418"),
+        ))
         _escribir(ws, f, fila, _formula_o_cero(_dir_casillero(dir_f104, mapa_periodo, mes, "480")))
         _escribir(ws, g, fila, tarifas.get(mes, TARIFA_POR_DEFECTO), es_tarifa=True)
 
@@ -198,7 +204,7 @@ def build_dm6(
         _escribir(ws, n, fila, _formula_o_cero(dir_dm4.get(("base", mes))))
         # --- {14} O = N*G ---
         _escribir(ws, o, fila, f"={n}{fila}*{g}{fila}")
-        _escribir(ws, p, fila, 0)  # sin fuente definida en el plan 3b
+        _escribir(ws, p, fila, 0)  # {15} cero por diseno en el modelo real del auditor
 
         # --- {16} Q = IF(SUM(B:E)=0, 0, (B+C+E)/(B+C+D+E)) ---
         _escribir(ws, q, fila,
@@ -208,7 +214,7 @@ def build_dm6(
         # --- {17} R = (O+P)*Q ---
         _escribir(ws, r, fila, f"=({o}{fila}+{p}{fila})*{q}{fila}")
 
-        _escribir(ws, s, fila, 0)  # sin fuente definida en el plan 3b
+        _escribir(ws, s, fila, 0)  # {18} cero por diseno en el modelo real del auditor
 
         # --- {19} T: enero = casillero 605+606; resto = W del mes anterior ---
         if es_enero:
@@ -220,7 +226,7 @@ def build_dm6(
             _escribir(ws, t, fila, f"={w}{fila_anterior}")
 
         _escribir(ws, u, fila, _formula_o_cero(dir_mayores.get(("IVA_RETENIDO", mes))))
-        _escribir(ws, v, fila, 0)  # sin fuente definida en el plan 3b
+        _escribir(ws, v, fila, 0)  # {21} cero por diseno en el modelo real del auditor
 
         expr = f"({m}{fila}-{r}{fila}-{s}{fila}-{t}{fila}-{u}{fila}+{v}{fila})"
         # --- {22} W = ABS(IF((M-R-S-T-U+V)<0, (M-R-S-T-U+V), 0)) ---
