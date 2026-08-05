@@ -190,10 +190,35 @@ def senal_historial(perfil: PerfilCuenta, historial: dict[str, str]) -> list[Sen
     ]
 
 
+_RE_SEPARADORES_RAMA = re.compile(r"[.\-/\s]+")
+
+
 def _rama(codigo: str) -> str | None:
-    """Prefijo de la cuenta sin su último segmento ('2.1.7.2.5' → '2.1.7.2')."""
-    partes = (codigo or "").split(".")
-    return ".".join(partes[:-1]) if len(partes) > 1 else None
+    """Prefijo (rama) de la cuenta sin su último segmento.
+
+    Normaliza los separadores habituales ('.', '-', '/', espacio) antes de
+    partir, así que '2-1-7-2-5' y '2/1/7 2 5' se tratan igual que
+    '2.1.7.2.5' (→ rama '2.1.7.2').
+
+    Para códigos totalmente numéricos SIN separador (ej. '1150101', típico
+    de ERP que no segmenta el plan de cuentas), no hay segmentos que
+    partir; se usa como heurística el código sin sus dos últimos
+    caracteres ('1150101' → '11501'), asumiendo que el subgrupo/dígito
+    verificador se codifica ahí (patrón habitual en planes de cuentas
+    ecuatorianos).
+
+    Devuelve None si el código tiene 2 caracteres o menos (no hay rama
+    posible).
+    """
+    codigo = (codigo or "").strip()
+    if len(codigo) <= 2:
+        return None
+    partes = [p for p in _RE_SEPARADORES_RAMA.split(codigo) if p]
+    if len(partes) > 1:
+        return ".".join(partes[:-1])
+    if codigo.isdigit():
+        return codigo[:-2]
+    return None
 
 
 def senal_rama(perfil: PerfilCuenta, clasificadas: dict[str, str]) -> list[Senal]:

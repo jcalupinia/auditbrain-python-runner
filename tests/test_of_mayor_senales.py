@@ -4,6 +4,7 @@ import pytest
 
 from backend.app.aud.obligaciones_fiscales.mayor.senales import (
     PESO_HISTORIAL,
+    _rama,
     extraer_tarifa,
     senal_codigo,
     senal_contrapartidas,
@@ -177,3 +178,45 @@ def test_una_cuenta_de_otra_rama_no_contamina():
 
 def test_codigo_de_un_solo_segmento_no_tiene_rama():
     assert senal_rama(_perfil("4", "Ingresos"), {"5": "VENTAS"}) == []
+
+
+# --- Defecto 7: _rama debe funcionar con códigos sin puntos ---------------
+
+def test_rama_normaliza_guiones_como_separador():
+    assert _rama("2-1-7-2-5") == "2.1.7.2"
+
+
+def test_rama_normaliza_barras_y_espacios_como_separador():
+    assert _rama("2/1/7 2 5") == "2.1.7.2"
+
+
+def test_rama_de_codigo_plano_numerico_usa_los_dos_ultimos_caracteres():
+    """Sin separador, se asume que el subgrupo va en los últimos dos
+    dígitos (heurística documentada en el docstring de _rama)."""
+    assert _rama("1150101") == "11501"
+
+
+def test_rama_de_codigo_de_dos_caracteres_o_menos_es_none():
+    assert _rama("15") is None
+    assert _rama("1") is None
+    assert _rama("") is None
+
+
+def test_la_propagacion_por_rama_funciona_con_codigos_con_guiones():
+    """Integración: la propagación (senal_rama) también debe reconocer que
+    dos cuentas hermanas con guiones comparten rama."""
+    senales = senal_rama(
+        _perfil("2-1-7-2-11", "Retencion imptos relacion dependencia"),
+        {"2-1-7-2-5": "RET_RENTA", "2-1-7-2-8": "RET_RENTA"},
+    )
+    assert senales[0].categoria == "RET_RENTA"
+
+
+def test_la_propagacion_por_rama_funciona_con_codigos_planos():
+    """Integración: cuentas hermanas con códigos totalmente numéricos sin
+    separador también deben propagar por rama."""
+    senales = senal_rama(
+        _perfil("1150111", "Retencion sin tarifa en el nombre"),
+        {"1150105": "RET_RENTA", "1150108": "RET_RENTA"},
+    )
+    assert senales[0].categoria == "RET_RENTA"
