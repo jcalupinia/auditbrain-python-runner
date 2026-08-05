@@ -39,6 +39,96 @@ export const STRINGS = {
   of_recent: "Generados recientemente",
   of_need_pdf: "Sube al menos 1 PDF F-104 para continuar.",
 
+  // ---- Workspace de Obligaciones Fiscales (estilo ICT) ----
+  of_ws_code: "OF",
+  of_ws_title: "Workspace de Obligaciones Fiscales",
+  of_ws_cargando: "Cargando encargo…",
+  of_ws_contribuyente: "Contribuyente",
+  of_ws_edit_datos: "✏ Editar datos",
+  of_ws_procesar: "▶ Procesar",
+  of_ws_procesando: "⏳ Procesando…",
+  of_ws_procesar_disabled_sin_mayor:
+    "Sube el Mayor General de Impuestos antes de procesar.",
+  of_ws_procesar_disabled_no_borrador:
+    "Solo se puede procesar un encargo en borrador o en revisión.",
+  of_ws_descargar: "📤 Descargar Excel",
+  of_ws_descargando: "⏳ Descargando…",
+  of_ws_descargar_disabled:
+    "Aprueba la clasificación en la pestaña Clasificación para habilitar la descarga.",
+  of_ws_encerar: "🔄 Encerar",
+  of_ws_encerar_confirm:
+    "¿Encerar el encargo actual? Se perderán los documentos subidos y la " +
+    "clasificación revisada. Esta acción no se puede deshacer.",
+  of_ws_subir_documentos: "📂 Subir documentos",
+  of_ws_documentos_subidos: "documentos subidos",
+  of_ws_anexos_label: "de",
+  of_ws_click_cedula: "Click en una cédula para ver su estado y qué documentos usa:",
+  of_ws_sin_job_title: "Ningún encargo en curso",
+  of_ws_sin_job_desc:
+    "Crea un encargo nuevo para empezar a subir documentos y generar el papel de trabajo.",
+  of_ws_nuevo_encargo: "+ Nuevo encargo",
+  of_ws_error_cargar: "No se pudo cargar el encargo del proyecto.",
+  of_ws_llenado_automatico_t: "Estado de la cédula",
+  of_ws_llenado_automatico_d:
+    "Esta cédula se genera automáticamente al aprobar la clasificación. No requiere una subida propia.",
+  of_ws_docs_usados: "📄 Documentos que usa esta cédula:",
+
+  of_tile_clasificacion_t: "Clasificación",
+  of_tile_clasificacion_d: "Revisión de la clasificación del Mayor General",
+  of_tile_dm3_t: "DM3 Saldos",
+  of_tile_dm3_d: "Saldos por cuenta clasificados",
+  of_tile_dm4_t: "DM4 Compras",
+  of_tile_dm4_d: "Cédula de compras (F-104 / Mayor)",
+  of_tile_dm5_t: "DM5 Ventas",
+  of_tile_dm5_d: "Cédula de ventas (F-104 / Mayor)",
+  of_tile_dm6_t: "DM6 IVA",
+  of_tile_dm6_d: "Conciliación de IVA",
+  of_tile_dm7_t: "DM7 Retenciones",
+  of_tile_dm7_d: "Retenciones en la fuente (F-103)",
+
+  // Modal de datos del encargo (crear / editar)
+  of_modal_title_nuevo: "Nuevo encargo",
+  of_modal_title_editar: "Editar datos del encargo",
+  of_modal_crear: "Crear encargo",
+  of_modal_guardar: "Guardar",
+  of_modal_guardando: "Guardando…",
+  of_modal_cancelar: "Cancelar",
+  of_modal_editar_warning:
+    "Editar estos datos borra el encargo actual (incluidos los documentos " +
+    "subidos y la clasificación revisada) y crea uno nuevo con los datos " +
+    "editados. ¿Continuar?",
+
+  // Pantalla de revisión de la clasificación
+  of_rev_title: "Revisión de la clasificación",
+  of_rev_cargando: "Cargando clasificación…",
+  of_rev_error_cargar: "No se pudo cargar la clasificación del Mayor General.",
+  of_rev_sin_cuentas: "El Mayor General no arrojó cuentas para clasificar.",
+  of_rev_cuentas: "cuentas",
+  of_rev_requieren_revision: "requieren revisión",
+  of_rev_col_codigo: "Código",
+  of_rev_col_cuenta: "Cuenta",
+  of_rev_col_movs: "Movs",
+  of_rev_col_debe: "Debe",
+  of_rev_col_haber: "Haber",
+  of_rev_col_categoria: "Categoría",
+  of_rev_col_confianza: "Confianza",
+  of_rev_col_porque: "Por qué",
+  of_rev_confianza_alta: "alta",
+  of_rev_confianza_media: "media",
+  of_rev_confianza_baja: "baja",
+  of_rev_sugerido: "Motor sugirió:",
+  of_rev_corregida: "corregida",
+  of_rev_sin_justificacion: "Sin motivos registrados.",
+  of_rev_ver_motivos: "Ver motivos",
+  of_rev_categoria_sin_asignar: "Sin categoría",
+  of_rev_guardar: "Guardar correcciones",
+  of_rev_guardando: "Guardando…",
+  of_rev_guardado_ok: "Correcciones guardadas.",
+  of_rev_aprobar: "Aprobar y generar",
+  of_rev_aprobando: "Generando…",
+  of_rev_aprobar_disabled:
+    "Guarda las correcciones pendientes antes de aprobar.",
+
   ict_title: "Informe de Cumplimiento Tributario",
   ict_subtitle:
     "Llena los datos del cliente, elige la firma y sube el Informe de Auditoría Externa y el F-101. Descarga el informe Word lleno.",
