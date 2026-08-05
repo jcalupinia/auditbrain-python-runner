@@ -21,7 +21,9 @@ from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm4_compras import buil
 from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm5_ventas import build_dm5
 from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm6_iva import build_dm6
 from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm7_retenciones import build_dm7
+from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm8_ats import build_dm8
 from backend.app.aud.obligaciones_fiscales.libro.fuentes import (
+    construir_hoja_ats,
     construir_hojas_de_casilleros,
 )
 from backend.app.aud.obligaciones_fiscales.libro.hoja_detalle import build_hoja_detalle
@@ -30,8 +32,8 @@ from backend.app.aud.obligaciones_fiscales.libro.hoja_mayores import build_hoja_
 ORDEN_HOJAS = [
     "Mayores homologados", "Detalle mayor",
     "DM3 Revisión de saldos", "DM4 Compras", "DM5 Ventas", "DM6 IVA",
-    "DM7 Retenciones x pagar",
-    "DATOS F-104", "DATOS F-103",
+    "DM7 Retenciones x pagar", "DM8 ATS",
+    "DATOS F-104", "DATOS F-103", "DATOS ATS",
 ]
 
 
@@ -58,6 +60,7 @@ def armar_libro(
     movimientos,
     f104_monthly: dict,
     f103_monthly: dict,
+    ats_resumenes: dict | None = None,
     cliente: str = "",
     periodo: str = "",
     preparado_por: str | None = None,
@@ -77,6 +80,9 @@ def armar_libro(
     )
     dir_f104 = hojas_datos["f104"]
     dir_f103 = hojas_datos["f103"]
+    # El ATS es opcional: si el cliente no lo entregó, la hoja se crea igual
+    # con la matriz en cero para que el auditor vea qué se esperaba.
+    dir_ats = construir_hoja_ats(wb, ats_resumenes or {})
 
     periodos = _periodos_del_ejercicio(f104_monthly, f103_monthly, periodo)
     nombres_cuenta = {f.codigo_cuenta: f.nombre_cuenta for f in clasificacion}
@@ -102,6 +108,10 @@ def armar_libro(
     )
     build_dm3(
         wb, dir_mayores=dir_mayores, dir_f104=dir_f104, dir_dm7=dir_dm7,
+        periodos=periodos, **kwargs_comunes,
+    )
+    build_dm8(
+        wb, dir_ats=dir_ats, dir_f104=dir_f104, dir_f103=dir_f103,
         periodos=periodos, **kwargs_comunes,
     )
 

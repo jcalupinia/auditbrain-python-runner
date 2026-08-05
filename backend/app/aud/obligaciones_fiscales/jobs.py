@@ -93,7 +93,10 @@ def clasificar_mayor_job(job_id: int) -> None:
 def process_job(job_id: int) -> None:
     """Procesa un job: lee inputs de /tmp, arma el libro DM, escribe output.xlsx."""
     from backend.app.aud.obligaciones_fiscales.libro.ensamblador import armar_libro
-    from backend.app.aud.obligaciones_fiscales.libro.fuentes import leer_declaraciones
+    from backend.app.aud.obligaciones_fiscales.libro.fuentes import (
+        leer_ats,
+        leer_declaraciones,
+    )
     from backend.app.aud.obligaciones_fiscales.mayor import clasificacion_service
     from backend.app.aud.obligaciones_fiscales.mayor.reader import leer_mayor
 
@@ -125,6 +128,7 @@ def process_job(job_id: int) -> None:
             movimientos=movimientos,
             f104_monthly=f104_monthly,
             f103_monthly=f103_monthly,
+            ats_resumenes=leer_ats(job_dir),
             cliente=job.cliente_name,
             periodo=job.period_label,
             preparado_por=job.prepared_by_name,

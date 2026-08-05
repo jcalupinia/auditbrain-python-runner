@@ -72,24 +72,30 @@ def test_sin_declaraciones_el_libro_igual_se_genera():
     assert "DATOS F-104" in wb.sheetnames
 
 
-def test_el_libro_trae_las_nueve_hojas():
+HOJAS_EN_ORDEN = [
+    "Mayores homologados", "Detalle mayor", "DM3 Revisión de saldos",
+    "DM4 Compras", "DM5 Ventas", "DM6 IVA", "DM7 Retenciones x pagar",
+    "DM8 ATS",
+    "DATOS F-104", "DATOS F-103", "DATOS ATS",
+]
+
+
+def test_el_libro_trae_las_once_hojas():
     wb = _libro()
-    esperadas = {
-        "Mayores homologados", "Detalle mayor", "DM3 Revisión de saldos",
-        "DM4 Compras", "DM5 Ventas", "DM6 IVA", "DM7 Retenciones x pagar",
-        "DATOS F-104", "DATOS F-103",
-    }
-    assert esperadas <= set(wb.sheetnames)
-    assert len(wb.sheetnames) == 9
+    assert set(HOJAS_EN_ORDEN) <= set(wb.sheetnames)
+    assert len(wb.sheetnames) == len(HOJAS_EN_ORDEN)
 
 
 def test_el_orden_de_las_hojas_es_el_obligatorio():
     wb = _libro()
-    assert wb.sheetnames == [
-        "Mayores homologados", "Detalle mayor", "DM3 Revisión de saldos",
-        "DM4 Compras", "DM5 Ventas", "DM6 IVA", "DM7 Retenciones x pagar",
-        "DATOS F-104", "DATOS F-103",
-    ]
+    assert wb.sheetnames == HOJAS_EN_ORDEN
+
+
+def test_sin_ats_la_cedula_y_su_hoja_de_datos_igual_se_generan():
+    """El ATS es opcional: el auditor debe ver qué se esperaba."""
+    wb = _libro(ats_resumenes={})
+    assert "DM8 ATS" in wb.sheetnames
+    assert "DATOS ATS" in wb.sheetnames
 
 
 def test_ninguna_formula_referencia_una_hoja_inexistente():
