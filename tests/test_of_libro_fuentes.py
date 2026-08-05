@@ -2,9 +2,11 @@
 
 from openpyxl import Workbook
 
+from backend.app.aud.obligaciones_fiscales import file_storage
 from backend.app.aud.obligaciones_fiscales.libro.fuentes import (
     a_periodos_anuales,
     construir_hojas_de_casilleros,
+    leer_ats,
 )
 
 
@@ -54,3 +56,21 @@ def test_sin_pdfs_igual_se_crean_las_hojas_con_la_matriz_vacia():
     lookups = construir_hojas_de_casilleros(wb, f104_monthly={}, f103_monthly={})
     assert "DATOS F-104" in wb.sheetnames
     assert lookups["f104"]
+
+
+def test_leer_ats_sin_archivos_devuelve_diccionario_vacio(tmp_path, monkeypatch):
+    monkeypatch.setattr(file_storage, "_root", lambda: tmp_path)
+    job_dir = file_storage.create_job_dir(999)
+    assert leer_ats(job_dir) == {}
+
+
+def test_leer_ats_agrupa_por_periodo_los_archivos_subidos(tmp_path, monkeypatch):
+    monkeypatch.setattr(file_storage, "_root", lambda: tmp_path)
+    job_dir = file_storage.create_job_dir(998)
+    texto_pdf_invalido = b"no es un pdf real"
+    file_storage.save_input(job_dir, "ats", "anexo.xml", b"<xml/>")
+    # No es un PDF real (pdfplumber no puede abrirlo): se registra pero no
+    # aporta período, así que leer_ats() no debe reventar.
+    file_storage.save_input(job_dir, "ats", "anexo.pdf", texto_pdf_invalido)
+    resultado = leer_ats(job_dir)
+    assert resultado == {}
