@@ -154,6 +154,23 @@ def test_sin_historial_para_esa_cuenta_no_hay_senal():
     assert senal_historial(_perfil("9.9", "x"), {"1.1": "VENTAS"}) == []
 
 
+def test_senal_historial_ignora_categoria_que_no_existe_en_el_catalogo():
+    """Defecto 8b: una categoría obsoleta o mal escrita en el historial
+    (ej. persistida antes en base de datos) no debe propagarse; cuando
+    llegue al renderer del papel de trabajo explotaría."""
+    senales = senal_historial(
+        _perfil("2.1.7.2.11", "Retencion imptos relacion dependencia"),
+        {"2.1.7.2.11": "CATEGORIA_QUE_NO_EXISTE"},
+    )
+    assert senales == []
+
+
+def test_no_existe_una_constante_de_tarifas_de_retencion_de_iva_sin_usar():
+    """Defecto 8c: TARIFAS_RET_IVA estaba definida y nunca se usaba."""
+    import backend.app.aud.obligaciones_fiscales.mayor.senales as senales_mod
+    assert not hasattr(senales_mod, "TARIFAS_RET_IVA")
+
+
 def test_una_cuenta_hereda_la_categoria_de_sus_hermanas_de_rama():
     """2.1.7.2.11 hereda de 2.1.7.2.5 y 2.1.7.2.8, sus hermanas."""
     senales = senal_rama(

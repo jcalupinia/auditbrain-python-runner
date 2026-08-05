@@ -20,6 +20,10 @@ UMBRAL_ALTA = 60
 UMBRAL_MEDIA = 35
 VENTAJA_MINIMA_ALTA = 25
 
+# 'tarifa' es la columna "tarifa de retención" del papel de trabajo: solo
+# tiene sentido para las categorías de retención (defecto 8a).
+CATEGORIAS_CON_TARIFA = frozenset({"RET_RENTA", "RET_IVA"})
+
 
 def _acumular(senales: list[Senal]) -> dict[str, int]:
     puntajes: dict[str, int] = defaultdict(int)
@@ -67,6 +71,7 @@ def clasificar_cuenta(
     puntajes = _acumular(senales)
     categoria, confianza = _decidir(puntajes)
     origen = "historial" if perfil.codigo in historial else "reglas"
+    tarifa = sig.extraer_tarifa(perfil.nombre) if categoria in CATEGORIAS_CON_TARIFA else None
 
     return ResultadoClasificacion(
         codigo=perfil.codigo,
@@ -74,7 +79,7 @@ def clasificar_cuenta(
         categoria=categoria,
         confianza=confianza,
         origen=origen,
-        tarifa=sig.extraer_tarifa(perfil.nombre),
+        tarifa=tarifa,
         puntajes=puntajes,
         # Se guardan TODAS las señales, incluidas las penalizaciones
         # (puntaje negativo): son la evidencia mas informativa para el

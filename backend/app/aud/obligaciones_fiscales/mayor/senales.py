@@ -21,8 +21,6 @@ from backend.app.aud.obligaciones_fiscales.mayor.tipos import PerfilCuenta, Sena
 PESO_NOMBRE = 40
 PESO_NOMBRE_AMBIGUO = 20
 
-# Tarifas de retención de IVA en Ecuador; el resto son de renta.
-TARIFAS_RET_IVA = {10.0, 20.0, 30.0, 50.0, 70.0, 100.0}
 # El 10% existe en ambos regímenes (arriendos/honorarios de renta), así que
 # solo las tarifas altas discriminan por sí solas.
 TARIFAS_SOLO_RET_IVA = {20.0, 30.0, 50.0, 70.0, 100.0}
@@ -183,6 +181,11 @@ def senal_historial(perfil: PerfilCuenta, historial: dict[str, str]) -> list[Sen
     """Homologación previa del MISMO cliente para el MISMO código."""
     categoria = historial.get(perfil.codigo)
     if not categoria:
+        return []
+    if categoria not in CATEGORIAS:
+        # Categoría obsoleta o mal escrita (ej. persistida en base de datos
+        # antes de un cambio de catálogo): no se propaga, para no explotar
+        # más adelante en el renderer del papel de trabajo.
         return []
     return [
         Senal(categoria, PESO_HISTORIAL,

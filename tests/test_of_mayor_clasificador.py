@@ -83,6 +83,17 @@ def test_clasificar_cuenta_guarda_tambien_las_senales_negativas():
     assert negativas, "las señales negativas (penalizaciones) deben conservarse"
 
 
+def test_tarifa_solo_se_rellena_para_categorias_de_retencion():
+    """Defecto 8a: 'tarifa' es la columna 'tarifa de retención' del papel
+    de trabajo; no debe rellenarse para categorías que no son retención,
+    aunque el nombre tenga un porcentaje (ej. 'IVA sobre Ventas 12%')."""
+    r = clasificar_cuenta(
+        _perfil("2.1.7.4.1", "IVA sobre Ventas 12%", prefijos_asiento={"VTA": 100})
+    )
+    assert r.categoria == "IVA_VENTAS"
+    assert r.tarifa is None
+
+
 def test_clasificar_devuelve_un_resultado_por_cuenta():
     perfiles = {
         "1.1.5.1.1": _perfil("1.1.5.1.1", "IVA sobre Compras"),
