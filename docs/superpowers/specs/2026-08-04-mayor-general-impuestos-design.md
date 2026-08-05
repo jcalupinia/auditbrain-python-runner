@@ -353,8 +353,48 @@ contraparte de cada bloque:
 | IVA en compras | casillero 529 (F-104) |
 | Retenciones | **formulario 103** |
 
-El campo del XML del ATS a usar depende del concepto de cada fila; ese mapeo detallado queda
-por definir antes de implementar la cédula (ver Pendientes).
+### Insumo del ATS: XML **o** PDF
+
+El cliente puede entregar el Anexo Transaccional en cualquiera de los dos formatos, así que
+el slot `ats` acepta ambos y el parser normaliza a la misma estructura.
+
+El PDF es el **"Talón Resumen"** que emite el SRI: una hoja por período con los totales ya
+agregados, que es justo el nivel de detalle que DM8 necesita (DM8 compara totales mensuales,
+no comprobante por comprobante).
+
+### Mapeo fila de DM8 → campo del Talón Resumen
+
+Verificado empíricamente contra el ATS real de diciembre 2025 de un cliente:
+
+| Bloque del talón | Campo | Fila de DM8 | Se compara contra |
+|---|---|---|---|
+| `COMPRAS` | `TOTAL: BI tarifa 0%` | Compras 0 % según ATS | casillero 519 − importaciones |
+| `COMPRAS` | `TOTAL: BI tarifa 12%` | Compras gravadas según ATS | casillero 519 |
+| `COMPRAS` | `TOTAL: Valor IVA` | IVA compras según ATS | **casillero 520** |
+| `VENTAS` | `TOTAL: BI tarifa 0%` | Ventas 0 % según ATS | casilleros 413/415 |
+| `VENTAS` | `TOTAL: BI tarifa 12%` | Ventas gravadas según ATS | **casillero 411** |
+| `VENTAS` | `TOTAL: Valor IVA` | IVA ventas según ATS | **casillero 421** |
+| `COMPROBANTES ANULADOS` | total | Anulados | informativo |
+| `RETENCIÓN EN LA FUENTE DE IR` | por código de concepto (303, 303A, 310, 312, 320, 332, 343, 3440…), con base imponible y valor retenido | Retenciones de renta según ATS | casilleros del **F-103** |
+| `RETENCIÓN EN LA FUENTE DE IVA` | por porcentaje (10, 20, 30, 50, 70, 100, NC) | Retenciones de IVA según ATS | casilleros 721-731 |
+| `RETENCIONES QUE LE EFECTUARON` | `Valor de IVA que le han retenido` | — | **casillero 609** |
+| `RETENCIONES QUE LE EFECTUARON` | `Valor de Renta que le han retenido` | — | anticipo de IR |
+
+Cruces verificados con diciembre 2025 (coincidencia exacta salvo donde se indica):
+retención de IVA 30 %/70 %/100 % = 9,95 / 723,79 / 216,40 → idéntico a los libros de DM7;
+total de retenciones de IVA 950,14 → idéntico al casillero 859; IVA que le retuvieron
+4.241,79 → idéntico al casillero 609; ventas gravadas 315.439,63 → idéntico al casillero 411;
+IVA en ventas 47.315,95 vs casillero 421 = 47.315,94 (2 centavos); IVA en compras 1.635,58
+vs casillero 520 = 1.635,60 (2 centavos).
+
+**Ojo con la etiqueta "BI tarifa 12%"**: el talón conserva el rótulo histórico aunque la
+tarifa vigente sea 15 %. Es la base imponible gravada con tarifa distinta de cero, no una
+tarifa del 12 %. No renombrar el campo al parsear: se lee por posición de columna.
+
+El cabezal del talón trae además RUC, período, fecha de generación, estado
+(`CARGA DEFINITIVA`) y secuencial del anexo: sirven para verificar que el ATS cargado
+corresponde al contribuyente y al período del encargo, y para dejar constancia en el papel
+de trabajo de qué versión del anexo se auditó.
 
 **`ingresos iva vs facturacion`.** Requiere un **insumo nuevo en la consola**: los **XML o PDF
 de las facturas electrónicas autorizadas por el SRI**. Es un slot adicional del formulario,
@@ -389,10 +429,7 @@ tolerancia. Se unifica la fuente (el modelo mezcla Arial y Wingdings para la mis
 
 ## Pendientes de definición antes de implementar
 
-1. **DM8 · mapeo fila → campo del XML del ATS** — ya se conoce la contraparte de cada bloque
-   (ver tabla de DM8), falta qué nodo/campo del XML alimenta cada fila. **DM8 se implementa en
-   una fase posterior**; el resto de las cédulas no depende de ella.
-2. **Facturación electrónica** — formato exacto del insumo (XML o PDF de comprobantes
+1. **Facturación electrónica** — formato exacto del insumo (XML o PDF de comprobantes
    autorizados), volumen esperado por ejercicio y qué campos alimentan el cuadro
    (emitidas / anuladas / notas de crédito). Afecta solo a
    `ingresos iva vs facturacion`.
