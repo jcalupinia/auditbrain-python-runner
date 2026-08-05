@@ -64,6 +64,21 @@ export function estadoTile(jobStatus, esClasificacion) {
   return "dim";
 }
 
+// Normaliza el form del modal "Editar datos del encargo" al payload que
+// esperan crearJobOF / actualizarJobOF: recorta espacios y convierte
+// campos opcionales vacíos a null. Se usa tanto al crear como al editar
+// (editar además envía el project_id por separado, no aquí).
+export function datosEncargoParaGuardar(form) {
+  return {
+    cliente_name: (form.cliente_name || "").trim(),
+    period_label: (form.period_label || "").trim(),
+    period_end: form.period_end || null,
+    prepared_by_name: (form.prepared_by_name || "").trim() || null,
+    reviewed_by_name: (form.reviewed_by_name || "").trim() || null,
+    firma_auditora: form.firma_auditora,
+  };
+}
+
 export function etiquetaEstadoTile(clase) {
   if (clase === "done") return "Completado";
   if (clase === "") return "Parcial";

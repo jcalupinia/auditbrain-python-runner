@@ -143,6 +143,19 @@ describe("API de Obligaciones Fiscales (ciclo de dos fases)", () => {
     expect(JSON.parse(opts.body)).toEqual({ correcciones: [] });
   });
 
+  it("actualizarJobOF hace PATCH con JSON a /jobs/{id} (edita metadatos sin tocar archivos)", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(jsonResponse({ id: 7, status: "borrador", cliente_name: "Nuevo" }));
+    const job = await api.actualizarJobOF(7, { cliente_name: "Nuevo", prepared_by_name: null });
+    expect(job.cliente_name).toBe("Nuevo");
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/jobs\/7$/);
+    expect(opts.method).toBe("PATCH");
+    expect(opts.headers["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(opts.body)).toEqual({ cliente_name: "Nuevo", prepared_by_name: null });
+  });
+
   it("aprobarOF hace POST a /jobs/{id}/aprobar", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ id: 7, status: "done" }));
     const job = await api.aprobarOF(7);

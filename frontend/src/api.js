@@ -709,11 +709,23 @@ export async function listarCategoriasOF() {
   return parse(await apiFetch(`${OF_BASE}/categorias`, { headers: authHeaders() }));
 }
 
+// Actualiza los metadatos del encargo (cliente, período, corte, preparado/
+// revisado por, firma auditora) SIN tocar archivos ni clasificación. Solo
+// se envían los campos presentes en `form` (el backend actualiza solo eso).
+export async function actualizarJobOF(jobId, form) {
+  return parse(
+    await apiFetch(`${OF_BASE}/jobs/${jobId}`, {
+      method: "PATCH",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(form),
+    })
+  );
+}
+
 // Borra el job (y sus archivos en /tmp). El backend YA expone este endpoint
 // (DELETE /jobs/{id}); se agrega el wrapper acá porque el workspace lo
-// necesita para "🔄 Encerar" y para recrear el job cuando el auditor edita
-// los datos del encargo (cliente/período/firma no se pueden actualizar in
-// situ: no existe un PUT de metadatos del job).
+// necesita para "🔄 Encerar" (empezar el encargo desde cero, incluyendo los
+// documentos subidos).
 export async function eliminarJobOF(jobId) {
   const res = await apiFetch(`${OF_BASE}/jobs/${jobId}`, {
     method: "DELETE",

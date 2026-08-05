@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import * as api from "../../api.js";
 import { STRINGS } from "../strings.js";
+import { datosEncargoParaGuardar } from "./ofLogic.js";
 
 const FIRMAS = [
   { value: "audit_consulting", label: STRINGS.of_firma_audit_consulting },
@@ -20,16 +21,9 @@ function datosIniciales(job) {
 
 /*
  * Datos del encargo (cliente, período, corte, preparado/revisado por,
- * firma auditora) — crea el job (mode="crear", sin job activo) o lo
- * recrea con datos nuevos (mode="editar", job activo).
- *
- * IMPORTANTE: el backend NO tiene un PUT de metadatos del job (solo
- * POST /jobs, PUT de slots y PUT de clasificación). Por eso "editar" acá
- * significa: borrar el job actual (eliminarJobOF) y crear uno nuevo con
- * los datos editados — se pierden los documentos ya subidos y la
- * clasificación revisada, y se lo advierte explícitamente antes de
- * confirmar. Es una limitación conocida del backend actual, no un
- * descuido de esta pantalla.
+ * firma auditora) — crea el job (mode="crear", sin job activo) o
+ * actualiza sus metadatos in situ (mode="editar", job activo) vía
+ * PATCH /jobs/{id} (actualizarJobOF), sin tocar archivos ni clasificación.
  */
 export default function EditarDatosModal({ open, mode, projectId, job, onClose, onSaved }) {
   const [form, setForm] = useState(() => datosIniciales(job));
@@ -55,25 +49,15 @@ export default function EditarDatosModal({ open, mode, projectId, job, onClose, 
       setError(`${STRINGS.of_form_cliente} y ${STRINGS.of_form_periodo} son obligatorios.`);
       return;
     }
-    if (mode === "editar" && job) {
-      if (!window.confirm(STRINGS.of_modal_editar_warning)) return;
-    }
     setBusy(true);
     setError("");
     try {
-      if (mode === "editar" && job) {
-        await api.eliminarJobOF(job.id);
-      }
-      const nuevo = await api.crearJobOF({
-        project_id: projectId,
-        cliente_name: form.cliente_name.trim(),
-        period_label: form.period_label.trim(),
-        period_end: form.period_end || null,
-        prepared_by_name: form.prepared_by_name.trim() || null,
-        reviewed_by_name: form.reviewed_by_name.trim() || null,
-        firma_auditora: form.firma_auditora,
-      });
-      onSaved(nuevo);
+      const datos = datosEncargoParaGuardar(form);
+      const guardado =
+        mode === "editar" && job
+          ? await api.actualizarJobOF(job.id, datos)
+          : await api.crearJobOF({ project_id: projectId, ...datos });
+      onSaved(guardado);
       onClose();
     } catch (e2) {
       setError(e2.message);

@@ -93,10 +93,6 @@ export const STRINGS = {
   of_modal_guardar: "Guardar",
   of_modal_guardando: "Guardando…",
   of_modal_cancelar: "Cancelar",
-  of_modal_editar_warning:
-    "Editar estos datos borra el encargo actual (incluidos los documentos " +
-    "subidos y la clasificación revisada) y crea uno nuevo con los datos " +
-    "editados. ¿Continuar?",
 
   // Pantalla de revisión de la clasificación
   of_rev_title: "Revisión de la clasificación",

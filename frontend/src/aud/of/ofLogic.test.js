@@ -3,6 +3,7 @@ import {
   calcularCorrecciones,
   contarRequierenRevision,
   contarSubidos,
+  datosEncargoParaGuardar,
   encontrarJobActivo,
   estadoTile,
   ordenarPorConfianza,
@@ -111,6 +112,67 @@ describe("encontrarJobActivo", () => {
 
   it("null con lista vacía", () => {
     expect(encontrarJobActivo([])).toBeNull();
+  });
+});
+
+describe("datosEncargoParaGuardar", () => {
+  it("recorta espacios de cliente_name y period_label", () => {
+    const form = {
+      cliente_name: "  Cliente X  ",
+      period_label: "  2025  ",
+      period_end: "",
+      prepared_by_name: "",
+      reviewed_by_name: "",
+      firma_auditora: "audit_consulting",
+    };
+    const out = datosEncargoParaGuardar(form);
+    expect(out.cliente_name).toBe("Cliente X");
+    expect(out.period_label).toBe("2025");
+  });
+
+  it("convierte period_end vacío a null", () => {
+    const form = {
+      cliente_name: "C", period_label: "2025", period_end: "",
+      prepared_by_name: "", reviewed_by_name: "", firma_auditora: "audit_consulting",
+    };
+    expect(datosEncargoParaGuardar(form).period_end).toBeNull();
+  });
+
+  it("conserva period_end cuando viene con valor", () => {
+    const form = {
+      cliente_name: "C", period_label: "2025", period_end: "2025-12-31",
+      prepared_by_name: "", reviewed_by_name: "", firma_auditora: "audit_consulting",
+    };
+    expect(datosEncargoParaGuardar(form).period_end).toBe("2025-12-31");
+  });
+
+  it("convierte prepared_by_name / reviewed_by_name vacíos (o solo espacios) a null", () => {
+    const form = {
+      cliente_name: "C", period_label: "2025", period_end: "",
+      prepared_by_name: "   ", reviewed_by_name: "", firma_auditora: "audit_consulting",
+    };
+    const out = datosEncargoParaGuardar(form);
+    expect(out.prepared_by_name).toBeNull();
+    expect(out.reviewed_by_name).toBeNull();
+  });
+
+  it("recorta espacios de prepared_by_name / reviewed_by_name con valor", () => {
+    const form = {
+      cliente_name: "C", period_label: "2025", period_end: "",
+      prepared_by_name: "  Ana  ", reviewed_by_name: "  Beatriz  ",
+      firma_auditora: "partner_auditing",
+    };
+    const out = datosEncargoParaGuardar(form);
+    expect(out.prepared_by_name).toBe("Ana");
+    expect(out.reviewed_by_name).toBe("Beatriz");
+  });
+
+  it("conserva firma_auditora tal cual", () => {
+    const form = {
+      cliente_name: "C", period_label: "2025", period_end: "",
+      prepared_by_name: "", reviewed_by_name: "", firma_auditora: "partner_auditing",
+    };
+    expect(datosEncargoParaGuardar(form).firma_auditora).toBe("partner_auditing");
   });
 });
 
