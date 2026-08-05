@@ -709,6 +709,28 @@ export async function listarCategoriasOF() {
   return parse(await apiFetch(`${OF_BASE}/categorias`, { headers: authHeaders() }));
 }
 
+// Borra el job (y sus archivos en /tmp). El backend YA expone este endpoint
+// (DELETE /jobs/{id}); se agrega el wrapper acá porque el workspace lo
+// necesita para "🔄 Encerar" y para recrear el job cuando el auditor edita
+// los datos del encargo (cliente/período/firma no se pueden actualizar in
+// situ: no existe un PUT de metadatos del job).
+export async function eliminarJobOF(jobId) {
+  const res = await apiFetch(`${OF_BASE}/jobs/${jobId}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok && res.status !== 204) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      detail = body.detail || detail;
+    } catch {
+      /* sin body */
+    }
+    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+  }
+}
+
 export async function getObligacionesFiscalesJob(jobId) {
   return parse(
     await apiFetch(

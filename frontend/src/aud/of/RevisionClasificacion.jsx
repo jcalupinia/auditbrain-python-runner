@@ -26,8 +26,11 @@ function chipConfianza(confianza) {
  * Props:
  *   jobId       id del job en estado 'revision'
  *   onAprobado(jobActualizado)  se llama tras aprobarOF exitoso
+ *   soloLectura si el job ya está en 'done' no tiene sentido ofrecer editar
+ *               ni volver a aprobar (el backend además lo rechazaría con
+ *               409): se muestra la tabla pero sin los selects ni botones.
  */
-export default function RevisionClasificacion({ jobId, onAprobado }) {
+export default function RevisionClasificacion({ jobId, onAprobado, soloLectura }) {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
   const [cuentas, setCuentas] = useState([]);
@@ -124,26 +127,28 @@ export default function RevisionClasificacion({ jobId, onAprobado }) {
           </b>{" "}
           {STRINGS.of_rev_requieren_revision}
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button
-            type="button"
-            className="pc-chip"
-            onClick={guardarCorrecciones}
-            disabled={!hayCambiosSinGuardar || guardando}
-          >
-            {guardando ? STRINGS.of_rev_guardando : `${STRINGS.of_rev_guardar}${hayCambiosSinGuardar ? ` (${correcciones.length})` : ""}`}
-          </button>
-          <button
-            type="button"
-            className="pc-chip accent"
-            onClick={aprobar}
-            disabled={hayCambiosSinGuardar || aprobando}
-            title={hayCambiosSinGuardar ? STRINGS.of_rev_aprobar_disabled : undefined}
-            style={{ fontWeight: 700 }}
-          >
-            {aprobando ? STRINGS.of_rev_aprobando : STRINGS.of_rev_aprobar}
-          </button>
-        </div>
+        {!soloLectura && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button
+              type="button"
+              className="pc-chip"
+              onClick={guardarCorrecciones}
+              disabled={!hayCambiosSinGuardar || guardando}
+            >
+              {guardando ? STRINGS.of_rev_guardando : `${STRINGS.of_rev_guardar}${hayCambiosSinGuardar ? ` (${correcciones.length})` : ""}`}
+            </button>
+            <button
+              type="button"
+              className="pc-chip accent"
+              onClick={aprobar}
+              disabled={hayCambiosSinGuardar || aprobando}
+              title={hayCambiosSinGuardar ? STRINGS.of_rev_aprobar_disabled : undefined}
+              style={{ fontWeight: 700 }}
+            >
+              {aprobando ? STRINGS.of_rev_aprobando : STRINGS.of_rev_aprobar}
+            </button>
+          </div>
+        )}
       </div>
 
       {error && <div className="err" style={{ marginBottom: 10 }}>{error}</div>}
@@ -206,6 +211,7 @@ export default function RevisionClasificacion({ jobId, onAprobado }) {
                     <select
                       value={valorActual}
                       onChange={(e) => handleCambioCategoria(c.codigo_cuenta, e.target.value)}
+                      disabled={soloLectura}
                       style={{ padding: "6px 8px", fontSize: 12 }}
                     >
                       <option value="">{STRINGS.of_rev_categoria_sin_asignar}</option>
