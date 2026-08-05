@@ -72,6 +72,17 @@ def test_la_segunda_pasada_propaga_la_categoria_a_las_hermanas():
     assert resultados["2.1.7.2.11"].categoria == "RET_RENTA"
 
 
+def test_clasificar_cuenta_guarda_tambien_las_senales_negativas():
+    """Defecto 5: las penalizaciones (puntaje < 0) son la señal mas
+    informativa para el auditor ('saldo deudor contradice naturaleza
+    ingreso') y hoy se descartaban al guardar el resultado."""
+    r = clasificar_cuenta(
+        _perfil("4.1.1.4", "Venta de insumos odontologicos", debe=100.0)
+    )
+    negativas = [s for s in r.senales if s.puntaje < 0]
+    assert negativas, "las señales negativas (penalizaciones) deben conservarse"
+
+
 def test_clasificar_devuelve_un_resultado_por_cuenta():
     perfiles = {
         "1.1.5.1.1": _perfil("1.1.5.1.1", "IVA sobre Compras"),

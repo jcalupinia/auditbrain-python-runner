@@ -76,7 +76,11 @@ def clasificar_cuenta(
         origen=origen,
         tarifa=sig.extraer_tarifa(perfil.nombre),
         puntajes=puntajes,
-        senales=[s for s in senales if s.puntaje > 0],
+        # Se guardan TODAS las señales, incluidas las penalizaciones
+        # (puntaje negativo): son la evidencia mas informativa para el
+        # auditor (ej. "saldo deudor contradice naturaleza ingreso").
+        # ResultadoClasificacion.justificacion filtra lo que se imprime.
+        senales=senales,
     )
 
 

@@ -113,4 +113,20 @@ class ResultadoClasificacion:
 
     @property
     def justificacion(self) -> list[str]:
-        return [s.motivo for s in self.senales]
+        """Motivos que sustentan la categoría elegida, sin duplicados.
+
+        Solo las señales de la MISMA categoría elegida y con puntaje
+        positivo: mostrar motivos de categorías que perdieron (o
+        penalizaciones que ya se descartaron) contradiría la propia
+        conclusión de la clasificación en el papel de trabajo.
+        """
+        vistos: set[str] = set()
+        motivos: list[str] = []
+        for s in self.senales:
+            if s.categoria != self.categoria or s.puntaje <= 0:
+                continue
+            if s.motivo in vistos:
+                continue
+            vistos.add(s.motivo)
+            motivos.append(s.motivo)
+        return motivos
