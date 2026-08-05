@@ -198,6 +198,37 @@ def _http_post(url: str, headers: dict[str, str], payload: dict, timeout: int = 
         raise ProviderUnavailable(f"HTTP {e.code} del proveedor: {detail[:400]}")
     except urllib.error.URLError as e:
         raise ProviderUnavailable(f"Error de red contactando al proveedor: {e}")
+    # ------------------------------------------------------------------
+    # Timeout de LECTURA (incidente 2026-08-05).
+    #
+    # `urllib` envuelve en `URLError` los fallos de CONEXIÓN, pero una vez
+    # establecida la conexión el timeout del socket sube crudo como
+    # `TimeoutError`. Y `TimeoutError` NO es subclase de `URLError`: ambas
+    # cuelgan de `OSError` como hermanas. Sin estas dos cláusulas la
+    # excepción escapaba de `_http_post`, escapaba del bucle de failover de
+    # `chat_complete` (que solo captura ProviderUnavailable) —de modo que
+    # gemini y groq nunca llegaban a probarse— y escapaba del `except` de
+    # skill_run, terminando en un HTTP 500 con traceback en vez del 503 que
+    # el propio contrato OpenAPI declara.
+    #
+    # Caso real: `max_tokens` subió de 1024 a 8192 y, al no usarse streaming,
+    # Anthropic no envía el primer byte hasta terminar de generar. La lectura
+    # excedía los 60s y el proveedor primario se llevaba por delante toda la
+    # cadena de respaldo.
+    #
+    # El orden importa: `URLError` va ANTES porque también es subclase de
+    # `OSError`; `TimeoutError` va antes que `OSError` solo para dar un
+    # mensaje más preciso (es subclase suya).
+    # ------------------------------------------------------------------
+    except TimeoutError as e:
+        raise ProviderUnavailable(
+            f"El proveedor no respondió en {timeout}s (timeout de lectura). "
+            f"Si es recurrente, baja AUDITBRAIN_LLM_MAX_TOKENS: sin streaming "
+            f"la respuesta no empieza a llegar hasta que termina de generarse. "
+            f"Detalle: {e}"
+        )
+    except OSError as e:
+        raise ProviderUnavailable(f"Error de socket contactando al proveedor: {e}")
     try:
         return json.loads(body)
     except json.JSONDecodeError:
