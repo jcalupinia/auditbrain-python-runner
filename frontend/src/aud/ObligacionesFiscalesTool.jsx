@@ -6,8 +6,8 @@ const SLOTS = [
   { key: "f104", label: STRINGS.of_slot_f104, accept: "application/pdf", multiple: true, required: true },
   { key: "f103", label: STRINGS.of_slot_f103, accept: "application/pdf", multiple: true },
   { key: "ats", label: STRINGS.of_slot_ats, accept: ".xml,application/xml,text/xml", multiple: true },
-  { key: "mayor_compras", label: STRINGS.of_slot_mayor_compras, accept: ".xlsx,.xls", multiple: false },
-  { key: "mayor_ventas", label: STRINGS.of_slot_mayor_ventas, accept: ".xlsx,.xls", multiple: false },
+  { key: "mayor_general", label: STRINGS.of_slot_mayor_general, accept: ".xlsx,.xls,.csv", multiple: false, required: true },
+  { key: "mayor_especifico", label: STRINGS.of_slot_mayor_especifico, accept: ".xlsx,.xls,.csv", multiple: false },
   { key: "f101", label: STRINGS.of_slot_f101, accept: "application/pdf", multiple: false },
 ];
 
@@ -58,8 +58,8 @@ export default function ObligacionesFiscalesTool({ projectId }) {
         f103: files.f103 || [],
         f104: files.f104 || [],
         ats: files.ats || [],
-        mayor_compras: files.mayor_compras?.[0],
-        mayor_ventas: files.mayor_ventas?.[0],
+        mayor_general: files.mayor_general?.[0],
+        mayor_especifico: files.mayor_especifico?.[0],
         f101: files.f101?.[0],
       };
       const j = await api.createObligacionesFiscalesJob(

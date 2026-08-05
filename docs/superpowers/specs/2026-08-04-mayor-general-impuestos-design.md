@@ -152,6 +152,11 @@ Los slots `mayor_compras` y `mayor_ventas` **se eliminan** del router, `jobs.py`
 `file_storage.py`, `strings.js` y del frontend. Los jobs históricos ya generados siguen
 siendo descargables: no se toca nada de lo producido.
 
+> **Implementado en el Plan 2 (2026-08-04).** El backend del ciclo completo está operativo
+> end-to-end. **La pantalla del Command Center queda inservible hasta el Plan 4**, porque la
+> API dejó de aceptar los archivos en el POST de creación: la rama NO debe fusionarse a
+> `main` antes de terminar el Plan 4.
+
 ## Motor de clasificación
 
 Cada señal aporta puntaje a una o más categorías y **deja registrado su motivo**, que es lo

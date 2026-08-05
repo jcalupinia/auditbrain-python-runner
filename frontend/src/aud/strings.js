@@ -18,8 +18,10 @@ export const STRINGS = {
   of_slot_f103: "F-103 Retenciones IR (PDFs mensuales) — opcional en M1",
   of_slot_f104: "F-104 IVA (PDFs mensuales) — requerido",
   of_slot_ats: "Anexo Transaccional (XML) — opcional en M1",
-  of_slot_mayor_compras: "Mayor de Compras (Excel) — opcional en M1",
-  of_slot_mayor_ventas: "Mayor de Ventas (Excel) — opcional en M1",
+  of_slot_mayor_general: "Mayor General de Impuestos (Excel) — requerido",
+  of_slot_mayor_especifico:
+    "Mayor específico para prueba puntual (Excel) — opcional",
+  of_mayor_especifico_categoria: "¿A qué categoría corresponde?",
   of_slot_f101: "F-101 Renta anual (PDF) — opcional en M1",
   of_generate: "Generar papel de trabajo",
   of_processing: "Procesando…",
