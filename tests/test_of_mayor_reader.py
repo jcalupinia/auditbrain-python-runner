@@ -116,6 +116,57 @@ def test_descarta_un_encabezado_repetido_a_mitad_del_listado():
     assert [m.codigo for m in lectura.movimientos] == ["1.1.5.1.1", "1.1.5.1.3"]
 
 
+def test_descarta_filas_de_total_por_cuenta_que_duplican_el_saldo():
+    """Defecto 2: el ERP emite al cierre de cada cuenta una fila con codigo
+    pero sin fecha/asiento y los acumulados del periodo; hoy entra como un
+    movimiento mas y duplica el debe/haber de la cuenta."""
+    filas = [
+        ["1.1.5.1.1", "IVA sobre Compras", "2025-01-05", "COM 1", "", "", "",
+         "", "", 10, 0, 10],
+        ["1.1.5.1.1", "TOTAL CUENTA", None, None, "", "", "", "", "",
+         21167.49, 21167.49, 0],
+    ]
+    lectura = leer_mayor(mayor_xlsx(filas))
+    assert len(lectura.movimientos) == 1
+    assert lectura.movimientos[0].asiento == "COM 1"
+    assert lectura.filas_descartadas == 1
+
+
+def test_descarta_filas_de_saldo_anterior():
+    filas = [
+        ["1.1.5.1.1", "SALDO ANTERIOR", None, None, "", "", "", "", "",
+         100.0, 0, 100.0],
+        ["1.1.5.1.1", "IVA sobre Compras", "2025-01-05", "COM 1", "", "", "",
+         "", "", 10, 0, 10],
+    ]
+    lectura = leer_mayor(mayor_xlsx(filas))
+    assert len(lectura.movimientos) == 1
+    assert lectura.filas_descartadas == 1
+
+
+def test_descarta_fila_cuando_la_descripcion_indica_subtotal():
+    """La palabra clave puede venir en la glosa/descripcion, no en el nombre."""
+    filas = [
+        ["1.1.5.1.1", "", None, None, "", "", "", "", "Subtotal cuenta",
+         50.0, 0, 50.0],
+    ]
+    lectura = leer_mayor(mayor_xlsx(filas))
+    assert len(lectura.movimientos) == 0
+    assert lectura.filas_descartadas == 1
+
+
+def test_no_descarta_una_fila_legitima_sin_fecha_ni_asiento():
+    """Ojo: no toda fila sin fecha es un acumulado. Solo se descarta si el
+    nombre/descripcion delata que es TOTAL/SUMA/SUBTOTAL/SALDO."""
+    filas = [
+        ["1.1.5.1.1", "IVA sobre Compras", None, None, "", "", "", "",
+         "AJUSTE MANUAL SIN FECHA", 10, 0, 10],
+    ]
+    lectura = leer_mayor(mayor_xlsx(filas))
+    assert len(lectura.movimientos) == 1
+    assert lectura.filas_descartadas == 0
+
+
 def test_lee_todas_las_hojas_cuando_el_mayor_esta_repartido():
     """Defecto 1: un ERP que exporta una hoja por mes no debe perder las
     demás hojas en silencio."""

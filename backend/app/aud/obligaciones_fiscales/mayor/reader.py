@@ -49,6 +49,12 @@ SOLO_EXACTO = frozenset({"cuenta", "saldo"})
 
 MAX_FILAS_BUSQUEDA_ENCABEZADO = 30
 
+# Prefijos (normalizados) que delatan una fila de acumulado por cuenta
+# ("TOTAL CUENTA", "SALDO ANTERIOR", ...) en vez de un movimiento real.
+_PREFIJOS_FILA_ACUMULADO = (
+    "total", "suma", "subtotal", "saldo anterior", "saldo inicial",
+)
+
 
 def _norm(valor) -> str:
     """minúsculas, sin tildes, sin puntuación, espacios colapsados."""
@@ -115,6 +121,18 @@ def _importe(valor) -> float:
     return parsed if parsed is not None else 0.0
 
 
+def _es_fila_acumulado(cuenta: str, descripcion: str) -> bool:
+    """Filas de TOTAL/SUBTOTAL/SALDO que un ERP emite al cierre de cada
+    cuenta: llevan código pero no son un movimiento (defecto 2). El texto
+    delator puede venir en el nombre de la cuenta o en la glosa/descripción.
+    """
+    for texto in (cuenta, descripcion):
+        n = _norm(texto)
+        if any(n.startswith(p) for p in _PREFIJOS_FILA_ACUMULADO):
+            return True
+    return False
+
+
 def _leer_hoja(ws, mapeo: dict[str, int], fila_encabezado: int, lectura: LecturaMayor) -> None:
     """Lee los movimientos de UNA hoja ya mapeada y los agrega a `lectura`."""
     col = mapeo
@@ -135,16 +153,29 @@ def _leer_hoja(ws, mapeo: dict[str, int], fila_encabezado: int, lectura: Lectura
             # Encabezado repetido a mitad del listado (paginación del ERP).
             lectura.filas_descartadas += 1
             continue
+
+        fecha = _fecha(celda(fila, "fecha"))
+        asiento = _texto(celda(fila, "asiento"))
+        cuenta = _texto(celda(fila, "cuenta"))
+        descripcion = _texto(celda(fila, "descripcion"))
+
+        if not fecha and not asiento and _es_fila_acumulado(cuenta, descripcion):
+            # Fila de TOTAL/SUBTOTAL/SALDO ANTERIOR/INICIAL: son los
+            # acumulados de la cuenta, no un movimiento; si se cargara
+            # duplicaría exactamente el debe y el haber de la cuenta.
+            lectura.filas_descartadas += 1
+            continue
+
         lectura.movimientos.append(
             Movimiento(
                 codigo=codigo,
-                cuenta=_texto(celda(fila, "cuenta")),
-                fecha=_fecha(celda(fila, "fecha")),
-                asiento=_texto(celda(fila, "asiento")),
+                cuenta=cuenta,
+                fecha=fecha,
+                asiento=asiento,
                 documento=_texto(celda(fila, "documento")),
                 identificacion=_texto(celda(fila, "identificacion")),
                 persona=_texto(celda(fila, "persona")),
-                descripcion=_texto(celda(fila, "descripcion")),
+                descripcion=descripcion,
                 debe=_importe(celda(fila, "debe")),
                 haber=_importe(celda(fila, "haber")),
                 saldo=_importe(celda(fila, "saldo")),
