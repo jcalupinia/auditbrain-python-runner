@@ -1,0 +1,58 @@
+"""Agregación de movimientos en perfiles por cuenta."""
+
+import datetime
+
+from backend.app.aud.obligaciones_fiscales.mayor.cuentas import perfilar
+from backend.app.aud.obligaciones_fiscales.mayor.tipos import Movimiento
+
+
+def _mov(codigo, cuenta, mes, debe=0.0, haber=0.0, asiento="COM 1"):
+    return Movimiento(
+        codigo=codigo, cuenta=cuenta, fecha=datetime.date(2025, mes, 15),
+        asiento=asiento, debe=debe, haber=haber,
+    )
+
+
+def test_agrupa_por_codigo_y_suma_debe_y_haber():
+    perfiles = perfilar([
+        _mov("1.1.5.1.1", "IVA sobre Compras", 1, debe=10.0),
+        _mov("1.1.5.1.1", "IVA sobre Compras", 2, debe=5.0),
+        _mov("1.1.5.1.1", "IVA sobre Compras", 2, haber=15.0),
+    ])
+    p = perfiles["1.1.5.1.1"]
+    assert p.n_movimientos == 3
+    assert p.debe == 15.0
+    assert p.haber == 15.0
+    assert p.tendencia == "neutro"
+
+
+def test_mensualiza_el_neto_por_mes():
+    perfiles = perfilar([
+        _mov("4.1.1.4", "Venta insumos", 1, haber=100.0),
+        _mov("4.1.1.4", "Venta insumos", 1, haber=50.0),
+        _mov("4.1.1.4", "Venta insumos", 3, haber=20.0),
+    ])
+    p = perfiles["4.1.1.4"]
+    assert p.por_mes["01"] == -150.0
+    assert p.por_mes["03"] == -20.0
+    assert "02" not in p.por_mes
+
+
+def test_cuenta_los_prefijos_de_asiento():
+    perfiles = perfilar([
+        _mov("4.1.1.4", "Venta", 1, asiento="VTA 202501000001"),
+        _mov("4.1.1.4", "Venta", 1, asiento="VTA 202501000002"),
+        _mov("4.1.1.4", "Venta", 2, asiento="ASI 202502000001"),
+    ])
+    assert perfiles["4.1.1.4"].prefijos_asiento == {"VTA": 2, "ASI": 1}
+
+
+def test_conserva_el_nombre_de_la_cuenta():
+    perfiles = perfilar([_mov("2.1.7.4.1", "IVA sobre Ventas", 1, haber=9.0)])
+    assert perfiles["2.1.7.4.1"].nombre == "IVA sobre Ventas"
+
+
+def test_movimiento_sin_fecha_no_rompe_la_mensualizacion():
+    perfiles = perfilar([Movimiento(codigo="1", cuenta="x", debe=5.0)])
+    assert perfiles["1"].por_mes == {}
+    assert perfiles["1"].n_movimientos == 1
