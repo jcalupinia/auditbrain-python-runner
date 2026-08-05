@@ -23,6 +23,13 @@ export const STRINGS = {
     "Mayor específico para prueba puntual (Excel) — opcional",
   of_mayor_especifico_categoria: "¿A qué categoría corresponde?",
   of_slot_f101: "F-101 Renta anual (PDF) — opcional en M1",
+  of_slot_uploading: "Subiendo…",
+  of_slot_categoria_placeholder: "Selecciona una categoría",
+  of_slot_categoria_loading: "Cargando categorías…",
+  of_slot_categoria_hint: "Elige la categoría antes de subir el archivo.",
+  of_slot_remove_title: "Quitar archivo(s)",
+  of_slot_remove_confirm:
+    "¿Eliminar los archivos subidos de este documento? Podrás volver a subirlos.",
   of_generate: "Generar papel de trabajo",
   of_processing: "Procesando…",
   of_done: "Papel de trabajo listo",
