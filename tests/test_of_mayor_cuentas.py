@@ -56,3 +56,33 @@ def test_movimiento_sin_fecha_no_rompe_la_mensualizacion():
     perfiles = perfilar([Movimiento(codigo="1", cuenta="x", debe=5.0)])
     assert perfiles["1"].por_mes == {}
     assert perfiles["1"].n_movimientos == 1
+
+
+def test_detecta_las_contrapartidas_del_mismo_asiento():
+    movs = [
+        _mov("4.1.1.4", "Venta", 1, haber=100.0, asiento="VTA 1"),
+        _mov("2.1.7.4.1", "IVA Ventas", 1, haber=15.0, asiento="VTA 1"),
+        _mov("1.1.2.1", "Clientes", 1, debe=115.0, asiento="VTA 1"),
+        _mov("4.1.1.4", "Venta", 2, haber=200.0, asiento="VTA 2"),
+        _mov("1.1.2.1", "Clientes", 2, debe=200.0, asiento="VTA 2"),
+    ]
+    perfiles = perfilar(movs)
+    assert perfiles["4.1.1.4"].contrapartidas[0] == ("1.1.2.1", 2)
+    assert ("2.1.7.4.1", 1) in perfiles["4.1.1.4"].contrapartidas
+
+
+def test_una_cuenta_no_es_contrapartida_de_si_misma():
+    movs = [
+        _mov("4.1.1.4", "Venta", 1, haber=100.0, asiento="VTA 1"),
+        _mov("4.1.1.4", "Venta", 1, debe=10.0, asiento="VTA 1"),
+    ]
+    assert perfilar(movs)["4.1.1.4"].contrapartidas == []
+
+
+def test_mayor_filtrado_sin_asientos_compartidos_no_produce_contrapartidas():
+    """Caso real: el mayor viene filtrado a cuentas de impuestos."""
+    movs = [
+        _mov("1.1.5.1.1", "IVA Compras", 1, debe=2.39, asiento="COM 1"),
+        _mov("1.1.5.1.1", "IVA Compras", 1, debe=12.0, asiento="COM 2"),
+    ]
+    assert perfilar(movs)["1.1.5.1.1"].contrapartidas == []

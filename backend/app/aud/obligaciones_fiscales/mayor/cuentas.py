@@ -7,11 +7,37 @@ from collections import Counter, defaultdict
 from backend.app.aud.obligaciones_fiscales.mayor.tipos import Movimiento, PerfilCuenta
 
 MAX_DESCRIPCIONES = 20
+MAX_CONTRAPARTIDAS = 5
 
 
 def _prefijo(asiento: str) -> str:
     partes = asiento.split()
     return partes[0].upper() if partes else ""
+
+
+def _contrapartidas(movimientos: list[Movimiento]) -> dict[str, list[tuple[str, int]]]:
+    """Cuentas que aparecen en el mismo número de asiento.
+
+    Con un mayor filtrado a cuentas de impuestos casi no hay asientos
+    compartidos: la señal simplemente no aporta, no penaliza.
+    """
+    por_asiento: dict[str, set[str]] = defaultdict(set)
+    for m in movimientos:
+        if m.asiento:
+            por_asiento[m.asiento].add(m.codigo)
+
+    conteo: dict[str, Counter] = defaultdict(Counter)
+    for cuentas in por_asiento.values():
+        if len(cuentas) < 2:
+            continue
+        for codigo in cuentas:
+            for otra in cuentas:
+                if otra != codigo:
+                    conteo[codigo][otra] += 1
+
+    return {
+        codigo: c.most_common(MAX_CONTRAPARTIDAS) for codigo, c in conteo.items()
+    }
 
 
 def perfilar(movimientos: list[Movimiento]) -> dict[str, PerfilCuenta]:
@@ -39,4 +65,9 @@ def perfilar(movimientos: list[Movimiento]) -> dict[str, PerfilCuenta]:
 
     for codigo, contador in prefijos.items():
         perfiles[codigo].prefijos_asiento = dict(contador)
+
+    for codigo, pares in _contrapartidas(movimientos).items():
+        if codigo in perfiles:
+            perfiles[codigo].contrapartidas = pares
+
     return perfiles
