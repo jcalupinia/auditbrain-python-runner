@@ -88,6 +88,16 @@ def mark_running(db: Session, job_id: int) -> None:
         db.commit()
 
 
+def mark_revision(db: Session, job_id: int, summary: dict | None = None) -> None:
+    job = db.get(ToolJob, job_id)
+    if job:
+        job.status = "revision"
+        if summary is not None:
+            job.summary_json = summary
+        db.add(job)
+        db.commit()
+
+
 def mark_done(db: Session, job_id: int, summary: dict) -> None:
     job = db.get(ToolJob, job_id)
     if job:

@@ -21,6 +21,7 @@ from backend.app.auth.deps import get_current_user
 from backend.app.auth.models import User
 from backend.app.aud.obligaciones_fiscales import (
     file_storage,
+    jobs,
     service,
 )
 from backend.app.aud.obligaciones_fiscales.schemas import SLOTS_VALIDOS, JobOut
@@ -185,6 +186,79 @@ def get_slots_endpoint(
     except PermissionError as e:
         raise HTTPException(403, detail=str(e))
     return _estado_slots(job_id)
+
+
+@router.post("/jobs/{job_id}/procesar", response_model=JobOut)
+def procesar_endpoint(
+    job_id: int,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Fase 1: clasifica el Mayor General y deja el job listo para revisión."""
+    try:
+        job = service.get_job(db, current, job_id)
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    if job.status not in ("borrador", "revision", "failed"):
+        raise HTTPException(409, detail=f"El job está en estado {job.status}.")
+    if not file_storage.list_inputs(file_storage.job_dir(job_id), "mayor_general"):
+        raise HTTPException(400, detail="Sube el Mayor General de Impuestos antes de procesar.")
+
+    jobs.clasificar_mayor_job(job_id)
+    db.expire_all()
+    return JobOut.model_validate(service.get_job(db, current, job_id))
+
+
+@router.get("/jobs/{job_id}/clasificacion")
+def get_clasificacion_endpoint(
+    job_id: int,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from backend.app.aud.obligaciones_fiscales.mayor import (
+        catalogo_service,
+        clasificacion_service,
+    )
+
+    try:
+        job = service.get_job(db, current, job_id)
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+
+    filas = clasificacion_service.clasificacion_de_job(db, job_id=job_id)
+    categorias = catalogo_service.categorias_visibles(
+        db, organization_id=getattr(current, "organization_id", None)
+    )
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "cuentas": [
+            {
+                "codigo_cuenta": f.codigo_cuenta,
+                "nombre_cuenta": f.nombre_cuenta,
+                "n_movimientos": f.n_movimientos,
+                "debe": f.debe,
+                "haber": f.haber,
+                "categoria_sugerida": f.categoria_sugerida,
+                "categoria_final": f.categoria_final,
+                "tarifa": f.tarifa,
+                "confianza": f.confianza,
+                "origen": f.origen,
+                "corregida": f.corregida,
+                "justificacion": [
+                    s.get("motivo", "")
+                    for s in (f.senales_json or [])
+                    if s.get("categoria") == f.categoria_final and s.get("puntaje", 0) > 0
+                ],
+            }
+            for f in filas
+        ],
+        "categorias": [
+            {"codigo": c.codigo, "nombre": c.nombre,
+             "naturaleza_esperada": c.naturaleza_esperada}
+            for c in categorias
+        ],
+    }
 
 
 @router.get("/jobs/{job_id}", response_model=JobOut)
