@@ -25,6 +25,9 @@ def test_las_tres_tablas_se_crean_con_init_db():
 def test_una_homologacion_es_unica_por_cliente_y_codigo_de_cuenta():
     db = SessionLocal()
     try:
+        # Limpieza previa: la base de dev es persistente entre corridas de pytest.
+        db.query(MayorHomologacion).filter_by(client_id=1, codigo_cuenta="1.1.5.1.1").delete()
+        db.commit()
         db.add(MayorHomologacion(client_id=1, codigo_cuenta="1.1.5.1.1",
                                  nombre_norm="iva sobre compras", categoria="IVA_COMPRAS"))
         db.commit()
@@ -34,12 +37,17 @@ def test_una_homologacion_es_unica_por_cliente_y_codigo_de_cuenta():
             db.commit()
     finally:
         db.rollback()
+        db.query(MayorHomologacion).filter_by(client_id=1, codigo_cuenta="1.1.5.1.1").delete()
+        db.commit()
         db.close()
 
 
 def test_el_mismo_codigo_puede_existir_para_otro_cliente():
     db = SessionLocal()
     try:
+        # Limpieza previa: la base de dev es persistente entre corridas de pytest.
+        db.query(MayorHomologacion).filter_by(codigo_cuenta="4.1.1.1").delete()
+        db.commit()
         db.add(MayorHomologacion(client_id=101, codigo_cuenta="4.1.1.1",
                                  nombre_norm="ventas", categoria="VENTAS"))
         db.add(MayorHomologacion(client_id=102, codigo_cuenta="4.1.1.1",
@@ -49,12 +57,17 @@ def test_el_mismo_codigo_puede_existir_para_otro_cliente():
         assert n == 2
     finally:
         db.rollback()
+        db.query(MayorHomologacion).filter_by(codigo_cuenta="4.1.1.1").delete()
+        db.commit()
         db.close()
 
 
 def test_la_clasificacion_de_un_job_guarda_las_senales_como_json():
     db = SessionLocal()
     try:
+        # Limpieza previa: la base de dev es persistente entre corridas de pytest.
+        db.query(MayorClasificacionJob).filter_by(job_id=1).delete()
+        db.commit()
         fila = MayorClasificacionJob(
             job_id=1, codigo_cuenta="2.1.7.3.2", nombre_cuenta="Ret. 70% Servicios",
             categoria_sugerida="RET_IVA", categoria_final="RET_IVA", tarifa=70.0,
@@ -68,6 +81,8 @@ def test_la_clasificacion_de_un_job_guarda_las_senales_como_json():
         assert leida.tarifa == 70.0
     finally:
         db.rollback()
+        db.query(MayorClasificacionJob).filter_by(job_id=1).delete()
+        db.commit()
         db.close()
 
 

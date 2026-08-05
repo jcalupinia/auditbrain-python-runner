@@ -40,6 +40,9 @@ def test_sembrar_dos_veces_no_duplica():
 def test_una_organizacion_ve_las_de_sistema_mas_las_suyas():
     db = SessionLocal()
     try:
+        # Limpieza previa: la base de dev es persistente entre corridas de pytest.
+        db.query(MayorCategoria).filter_by(organization_id=777, codigo="ICE").delete()
+        db.commit()
         sembrar_categorias_de_sistema(db)
         db.add(MayorCategoria(organization_id=777, codigo="ICE", nombre="ICE",
                               naturaleza_esperada="pasivo", orden=8))
@@ -50,12 +53,17 @@ def test_una_organizacion_ve_las_de_sistema_mas_las_suyas():
         otra = {c.codigo for c in categorias_visibles(db, organization_id=888)}
         assert "ICE" not in otra
     finally:
+        db.query(MayorCategoria).filter_by(organization_id=777, codigo="ICE").delete()
+        db.commit()
         db.close()
 
 
 def test_las_categorias_inactivas_no_se_listan():
     db = SessionLocal()
     try:
+        # Limpieza previa: la base de dev es persistente entre corridas de pytest.
+        db.query(MayorCategoria).filter_by(organization_id=999, codigo="VIEJA").delete()
+        db.commit()
         sembrar_categorias_de_sistema(db)
         db.add(MayorCategoria(organization_id=999, codigo="VIEJA", nombre="Vieja",
                               naturaleza_esperada="pasivo", orden=9, activa=False))
@@ -63,4 +71,6 @@ def test_las_categorias_inactivas_no_se_listan():
         codigos = {c.codigo for c in categorias_visibles(db, organization_id=999)}
         assert "VIEJA" not in codigos
     finally:
+        db.query(MayorCategoria).filter_by(organization_id=999, codigo="VIEJA").delete()
+        db.commit()
         db.close()

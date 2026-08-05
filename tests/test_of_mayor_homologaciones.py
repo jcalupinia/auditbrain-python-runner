@@ -49,6 +49,9 @@ def test_guardar_y_recuperar_el_historial_como_diccionario():
 def test_guardar_la_misma_cuenta_otra_vez_actualiza_y_cuenta_el_uso():
     db = SessionLocal()
     try:
+        # Limpieza previa: la base de dev es persistente entre corridas de pytest.
+        db.query(MayorHomologacion).filter_by(client_id=4244, codigo_cuenta="4.1.1.4").delete()
+        db.commit()
         datos = [{"codigo_cuenta": "4.1.1.4", "nombre_cuenta": "Venta insumos",
                   "categoria": "VENTAS", "tarifa": None}]
         guardar_homologaciones(db, client_id=4244, asignaciones=datos, user_id=1)
@@ -73,6 +76,8 @@ def test_guardar_la_misma_cuenta_otra_vez_actualiza_y_cuenta_el_uso():
         assert fila.categoria == "IVA_VENTAS"
         assert fila.veces_usada == 3
     finally:
+        db.query(MayorHomologacion).filter_by(client_id=4244, codigo_cuenta="4.1.1.4").delete()
+        db.commit()
         db.close()
 
 
