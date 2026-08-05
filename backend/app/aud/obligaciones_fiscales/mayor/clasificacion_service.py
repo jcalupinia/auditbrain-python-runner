@@ -8,6 +8,7 @@ from dataclasses import asdict
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from backend.app.aud.obligaciones_fiscales.mayor.cuentas import monto_segun_libros
 from backend.app.aud.obligaciones_fiscales.mayor.models import MayorClasificacionJob
 from backend.app.aud.obligaciones_fiscales.mayor.tipos import (
     PerfilCuenta,
@@ -22,7 +23,20 @@ def guardar_clasificacion(
     resultados: list[ResultadoClasificacion],
     perfiles: dict[str, PerfilCuenta],
 ) -> int:
-    """Reemplaza la clasificación del job por la recién calculada."""
+    """Reemplaza la clasificación del job por la recién calculada.
+
+    ``por_mes_json`` se calcula con ``monto_segun_libros`` a partir de la
+    categoría SUGERIDA (``r.categoria``, igual a ``categoria_final`` en este
+    momento): usa el lado débito o crédito según la naturaleza contable de
+    la categoría. LIMITACIÓN CONOCIDA: si el auditor corrige la categoría
+    después con ``aplicar_correcciones`` (p.ej. de una categoría de activo a
+    una de pasivo), ``por_mes_json`` NO se recalcula —queda con el lado
+    elegido para la categoría original— porque esta función no persiste el
+    débito/crédito bruto por separado para recomputar más tarde. En la
+    práctica no se han observado correcciones que crucen de naturaleza
+    contable (activo↔pasivo), pero si ocurre, "Según libros" saldría con el
+    signo equivocado hasta que se regenere la clasificación completa.
+    """
     db.execute(delete(MayorClasificacionJob).where(MayorClasificacionJob.job_id == job_id))
     for r in resultados:
         p = perfiles.get(r.codigo)
@@ -34,7 +48,7 @@ def guardar_clasificacion(
                 n_movimientos=p.n_movimientos if p else 0,
                 debe=p.debe if p else 0.0,
                 haber=p.haber if p else 0.0,
-                por_mes_json=dict(p.por_mes) if p else None,
+                por_mes_json=monto_segun_libros(p, r.categoria) if p else None,
                 categoria_sugerida=r.categoria,
                 categoria_final=r.categoria,
                 tarifa=r.tarifa,

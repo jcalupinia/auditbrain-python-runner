@@ -2,7 +2,7 @@
 
 import datetime
 
-from backend.app.aud.obligaciones_fiscales.mayor.cuentas import perfilar
+from backend.app.aud.obligaciones_fiscales.mayor.cuentas import monto_segun_libros, perfilar
 from backend.app.aud.obligaciones_fiscales.mayor.tipos import Movimiento
 
 
@@ -86,3 +86,39 @@ def test_mayor_filtrado_sin_asientos_compartidos_no_produce_contrapartidas():
         _mov("1.1.5.1.1", "IVA Compras", 1, debe=12.0, asiento="COM 2"),
     ]
     assert perfilar(movs)["1.1.5.1.1"].contrapartidas == []
+
+
+def test_tambien_mensualiza_el_debe_y_el_haber_por_separado():
+    """El neto mezcla las compras del mes con la liquidación del mismo mes
+    contra el pasivo de IVA. Caso real (cliente IMPUESTOS MEDI, enero):
+    659.57 de débito por compras + 659.60 de crédito por la liquidación →
+    neto -0.03, pero lo que se declaró al SRI fue el débito bruto: 659.57."""
+    perfiles = perfilar([
+        _mov("1.1.5.1.1", "IVA sobre Compras", 1, debe=659.57),
+        _mov("1.1.5.1.1", "IVA sobre Compras", 1, haber=659.60),
+    ])
+    p = perfiles["1.1.5.1.1"]
+    assert p.por_mes_debe["01"] == 659.57
+    assert p.por_mes_haber["01"] == 659.60
+    assert p.por_mes["01"] == -0.03  # se conserva el neto para otros usos
+
+
+def test_monto_segun_libros_usa_el_debe_para_categorias_de_activo():
+    perfiles = perfilar([
+        _mov("1.1.5.1.1", "IVA sobre Compras", 1, debe=659.57),
+        _mov("1.1.5.1.1", "IVA sobre Compras", 1, haber=659.60),
+    ])
+    assert monto_segun_libros(perfiles["1.1.5.1.1"], "IVA_COMPRAS") == {"01": 659.57}
+
+
+def test_monto_segun_libros_usa_el_haber_para_categorias_de_pasivo_e_ingreso():
+    """Caso real: la cuenta de ventas es acreedora; el neto sale negativo
+    (-28.117,84) pero el papel de trabajo del auditor lo muestra en
+    positivo: 28.117,84, el crédito bruto del mes."""
+    perfiles = perfilar([_mov("4.1.1.4", "Venta de insumos", 1, haber=28117.84)])
+    assert monto_segun_libros(perfiles["4.1.1.4"], "VENTAS") == {"01": 28117.84}
+
+
+def test_monto_segun_libros_sin_categoria_usa_el_debe_por_defecto():
+    perfiles = perfilar([_mov("9.9.9", "Cuenta puente", 1, debe=5.0, haber=1.0)])
+    assert monto_segun_libros(perfiles["9.9.9"], None) == {"01": 5.0}

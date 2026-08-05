@@ -16,7 +16,7 @@ from backend.app.aud.obligaciones_fiscales.cedulas.f104_extractor import extract
 from backend.app.aud.obligaciones_fiscales.libro.ensamblador import armar_libro
 from backend.app.aud.obligaciones_fiscales.libro.fuentes import a_periodos_anuales
 from backend.app.aud.obligaciones_fiscales.mayor.clasificador import clasificar
-from backend.app.aud.obligaciones_fiscales.mayor.cuentas import perfilar
+from backend.app.aud.obligaciones_fiscales.mayor.cuentas import monto_segun_libros, perfilar
 from backend.app.aud.obligaciones_fiscales.mayor.reader import leer_mayor
 
 pytestmark = pytest.mark.skipif(
@@ -26,11 +26,15 @@ pytestmark = pytest.mark.skipif(
 
 
 class _FilaClasif:
+    """Doble de ``MayorClasificacionJob``: reproduce lo que hace
+    ``clasificacion_service.guardar_clasificacion`` para que este test
+    ejercite la misma lógica que corre en producción."""
+
     def __init__(self, r, p):
         self.codigo_cuenta = r.codigo
         self.nombre_cuenta = r.nombre
         self.categoria_final = r.categoria
-        self.por_mes_json = dict(p.por_mes) if p else {}
+        self.por_mes_json = monto_segun_libros(p, r.categoria) if p else {}
         self.n_movimientos = p.n_movimientos if p else 0
         self.debe = p.debe if p else 0.0
         self.haber = p.haber if p else 0.0

@@ -69,6 +69,8 @@ class PerfilCuenta:
     debe: float = 0.0
     haber: float = 0.0
     por_mes: dict[str, float] = field(default_factory=dict)
+    por_mes_debe: dict[str, float] = field(default_factory=dict)
+    por_mes_haber: dict[str, float] = field(default_factory=dict)
     prefijos_asiento: dict[str, int] = field(default_factory=dict)
     contrapartidas: list[tuple[str, int]] = field(default_factory=list)
     descripciones: list[str] = field(default_factory=list)
