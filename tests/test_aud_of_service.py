@@ -141,7 +141,11 @@ def test_list_jobs_filters_by_project_and_orders_desc():
 
 
 def test_process_job_end_to_end_with_real_pdf(tmp_root):
-    """Sube el F-104 enero real, ejecuta process_job, verifica output.xlsx."""
+    """Sube el F-104 enero real, ejecuta process_job, verifica el libro DM.
+
+    Actualizado para el ensamblador nuevo (Plan 3a Tarea 5): la fase 2 ya no
+    arma DM6/DM7 desde la plantilla vieja, arma el libro DM con la hoja
+    DATOS F-104 leyendo directamente del PDF del cliente."""
     user_id, project_id = _mk_admin_project()
     db = SessionLocal()
     try:
@@ -167,11 +171,22 @@ def test_process_job_end_to_end_with_real_pdf(tmp_root):
     try:
         final = db.get(ToolJob, job_id)
         assert final.status == "done", f"status={final.status}, error={final.error_message}"
-        assert final.summary_json["dm7_months_with_data"] == 1
-        assert final.summary_json["dm6_months_with_data"] == 1
+        assert final.summary_json["f104_files_received"] == 1
     finally:
         db.close()
 
     out = file_storage.output_path(job_dir)
     assert out.exists()
     assert out.stat().st_size > 1000  # Excel real, no vacío
+
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(BytesIO(out.read_bytes()))
+    assert "DATOS F-104" in wb.sheetnames
+    ws = wb["DATOS F-104"]
+    fila = next(r for r in range(4, ws.max_row + 1) if str(ws.cell(r, 1).value) == "429")
+    valores = [ws.cell(fila, c).value for c in range(3, ws.max_column + 1)]
+    # Valor real del fixture (NEGOCIOS MORACOSTA enero 2025), ver test_aud_of_cedula_dm6.py
+    assert 107656.60 in valores
