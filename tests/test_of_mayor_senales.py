@@ -3,12 +3,15 @@
 import pytest
 
 from backend.app.aud.obligaciones_fiscales.mayor.senales import (
+    PESO_HISTORIAL,
     extraer_tarifa,
     senal_codigo,
     senal_contrapartidas,
+    senal_historial,
     senal_movimientos,
     senal_naturaleza,
     senal_nombre,
+    senal_rama,
 )
 from backend.app.aud.obligaciones_fiscales.mayor.tipos import PerfilCuenta
 
@@ -134,3 +137,43 @@ def test_contrapartida_de_otra_naturaleza_no_aporta():
 
 def test_sin_contrapartidas_la_senal_calla_y_no_penaliza():
     assert senal_contrapartidas(_perfil("1.1.5.1.1", "IVA Compras"), {}) == []
+
+
+def test_el_historial_del_cliente_manda_sobre_todo_lo_demas():
+    senales = senal_historial(
+        _perfil("2.1.7.2.11", "Retencion imptos relacion dependencia"),
+        {"2.1.7.2.11": "RET_RENTA"},
+    )
+    assert senales[0].categoria == "RET_RENTA"
+    assert senales[0].puntaje == PESO_HISTORIAL
+    assert PESO_HISTORIAL > 100
+
+
+def test_sin_historial_para_esa_cuenta_no_hay_senal():
+    assert senal_historial(_perfil("9.9", "x"), {"1.1": "VENTAS"}) == []
+
+
+def test_una_cuenta_hereda_la_categoria_de_sus_hermanas_de_rama():
+    """2.1.7.2.11 hereda de 2.1.7.2.5 y 2.1.7.2.8, sus hermanas."""
+    senales = senal_rama(
+        _perfil("2.1.7.2.11", "Retencion imptos relacion dependencia"),
+        {"2.1.7.2.5": "RET_RENTA", "2.1.7.2.8": "RET_RENTA"},
+    )
+    assert senales[0].categoria == "RET_RENTA"
+    assert senales[0].puntaje == 25
+
+
+def test_hermanas_en_desacuerdo_ganan_por_mayoria():
+    senales = senal_rama(
+        _perfil("2.1.7.2.11", "x"),
+        {"2.1.7.2.5": "RET_RENTA", "2.1.7.2.8": "RET_RENTA", "2.1.7.2.1": "RET_IVA"},
+    )
+    assert senales[0].categoria == "RET_RENTA"
+
+
+def test_una_cuenta_de_otra_rama_no_contamina():
+    assert senal_rama(_perfil("4.1.1.4", "Venta"), {"2.1.7.2.5": "RET_RENTA"}) == []
+
+
+def test_codigo_de_un_solo_segmento_no_tiene_rama():
+    assert senal_rama(_perfil("4", "Ingresos"), {"5": "VENTAS"}) == []

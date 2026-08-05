@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections import Counter
 
 from backend.app.aud.obligaciones_fiscales.mayor.catalogo import (
     CATEGORIAS,
@@ -170,4 +171,45 @@ def senal_contrapartidas(
     return [
         Senal(categoria, PESO_CONTRAPARTIDA,
               f"contrapartida dominante {codigo_cp} ({veces} asientos) es {categoria}")
+    ]
+
+
+# El historial del cliente es evidencia directa: domina cualquier heurística.
+PESO_HISTORIAL = 1000
+PESO_RAMA = 25
+
+
+def senal_historial(perfil: PerfilCuenta, historial: dict[str, str]) -> list[Senal]:
+    """Homologación previa del MISMO cliente para el MISMO código."""
+    categoria = historial.get(perfil.codigo)
+    if not categoria:
+        return []
+    return [
+        Senal(categoria, PESO_HISTORIAL,
+              f"homologación previa del cliente para la cuenta {perfil.codigo}")
+    ]
+
+
+def _rama(codigo: str) -> str | None:
+    """Prefijo de la cuenta sin su último segmento ('2.1.7.2.5' → '2.1.7.2')."""
+    partes = (codigo or "").split(".")
+    return ".".join(partes[:-1]) if len(partes) > 1 else None
+
+
+def senal_rama(perfil: PerfilCuenta, clasificadas: dict[str, str]) -> list[Senal]:
+    """Las cuentas hermanas del mismo prefijo suelen ser de la misma categoría."""
+    rama = _rama(perfil.codigo)
+    if not rama:
+        return []
+    votos = Counter(
+        categoria
+        for codigo, categoria in clasificadas.items()
+        if codigo != perfil.codigo and _rama(codigo) == rama
+    )
+    if not votos:
+        return []
+    categoria, n = votos.most_common(1)[0]
+    return [
+        Senal(categoria, PESO_RAMA,
+              f"{n} cuenta(s) hermana(s) de la rama {rama} están en {categoria}")
     ]
