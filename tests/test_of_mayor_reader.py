@@ -92,6 +92,48 @@ def test_importes_en_cualquier_formato_regional(texto, esperado):
     assert lectura.movimientos[0].debe == esperado
 
 
+@pytest.mark.parametrize(
+    "texto,esperado",
+    [
+        ("(150.00)", -150.0),        # negativo contable entre parentesis
+        ("$ 1,234.56", 1234.56),     # simbolo de moneda
+        ("1.234,56 USD", 1234.56),   # sufijo de moneda, formato europeo
+        ("-", 0.0),                  # guion como cero
+    ],
+)
+def test_defecto_3_formatos_habituales_de_erp_que_antes_quedaban_en_cero(texto, esperado):
+    lectura = leer_mayor(
+        mayor_xlsx([["1.1.5.1.1", "IVA", "2025-01-05", "A1", "", "", "", "",
+                     "", texto, None, texto]])
+    )
+    assert lectura.movimientos[0].debe == esperado
+    assert lectura.importes_no_parseables == 0
+
+
+def test_importe_no_parseable_se_cuenta_y_deja_rastro_en_errores():
+    lectura = leer_mayor(
+        mayor_xlsx([["1.1.5.1.1", "IVA", "2025-01-05", "A1", "", "", "", "",
+                     "", "N/D", None, "N/D"]])
+    )
+    assert lectura.movimientos[0].debe == 0.0
+    # "haber" viene vacio (None) y no cuenta como error; "debe" y "saldo"
+    # traen "N/D" y ambos si.
+    assert lectura.importes_no_parseables == 2
+    assert any("N/D" in e for e in lectura.errores)
+    assert any("2" in e for e in lectura.errores)  # numero de fila del dato
+
+
+def test_importes_no_parseables_se_limitan_a_diez_entradas_en_errores():
+    filas = [
+        ["1.1.5.1.1", "IVA", "2025-01-05", f"A{i}", "", "", "", "", "",
+         "N/D", 0, 0]
+        for i in range(15)
+    ]
+    lectura = leer_mayor(mayor_xlsx(filas))
+    assert lectura.importes_no_parseables == 15
+    assert len(lectura.errores) == 10
+
+
 def test_descarta_filas_de_total_sin_codigo_de_cuenta():
     filas = [
         ["1.1.5.1.1", "IVA sobre Compras", "2025-01-05", "COM 1", "", "", "",

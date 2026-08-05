@@ -51,6 +51,7 @@ class LecturaMayor:
     hojas_leidas: list[str] = field(default_factory=list)
     fila_encabezado: int = 0
     filas_descartadas: int = 0
+    importes_no_parseables: int = 0
     errores: list[str] = field(default_factory=list)
 
     @property

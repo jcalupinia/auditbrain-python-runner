@@ -55,6 +55,10 @@ _PREFIJOS_FILA_ACUMULADO = (
     "total", "suma", "subtotal", "saldo anterior", "saldo inicial",
 )
 
+# Cuantas entradas de "importe no parseable" se listan en errores como
+# máximo, para no inundar el reporte de lectura.
+MAX_ERRORES_IMPORTES_NO_PARSEABLES = 10
+
 
 def _norm(valor) -> str:
     """minúsculas, sin tildes, sin puntuación, espacios colapsados."""
@@ -114,11 +118,53 @@ def _texto(valor) -> str:
     return "" if valor is None else str(valor).strip()
 
 
-def _importe(valor) -> float:
+def _limpiar_importe(texto: str) -> str:
+    """Normaliza formatos habituales de exportaciones de ERP antes de
+    delegar el parseo a `_parse_amount_sri`: quita símbolos de moneda
+    ('$', 'USD') y espacios, convierte el negativo contable entre
+    paréntesis ('(150.00)') en '-150.00', y trata un guion solo ('-') o
+    una celda vacía como cero.
+    """
+    t = (texto or "").strip()
+    if not t:
+        return t
+    for simbolo in ("$", "USD", "usd"):
+        t = t.replace(simbolo, "")
+    t = t.strip()
+    negativo = t.startswith("(") and t.endswith(")")
+    if negativo:
+        t = t[1:-1].strip()
+    t = t.replace(" ", "")
+    if t in ("-", ""):
+        return "0"
+    if negativo and not t.startswith("-"):
+        t = "-" + t
+    return t
+
+
+def _importe(valor, *, lectura: LecturaMayor, fila_num: int, campo: str) -> float:
+    """Convierte una celda de importe a float.
+
+    Si tras limpiar el texto sigue sin poder parsearse, NO desaparece en
+    silencio como 0.00: se cuenta en `lectura.importes_no_parseables` y se
+    deja rastro (fila y texto original) en `lectura.errores`, hasta un
+    máximo de entradas para no inundar el reporte.
+    """
     if isinstance(valor, (int, float)):
         return float(valor)
-    parsed = _parse_amount_sri(_texto(valor))
-    return parsed if parsed is not None else 0.0
+    texto = _texto(valor)
+    limpio = _limpiar_importe(texto)
+    if not limpio:
+        return 0.0
+    parsed = _parse_amount_sri(limpio)
+    if parsed is not None:
+        return parsed
+    lectura.importes_no_parseables += 1
+    if len(lectura.errores) < MAX_ERRORES_IMPORTES_NO_PARSEABLES:
+        lectura.errores.append(
+            f"Fila {fila_num}: importe no parseable en '{campo}': {texto!r}"
+        )
+    return 0.0
 
 
 def _es_fila_acumulado(cuenta: str, descripcion: str) -> bool:
@@ -176,9 +222,9 @@ def _leer_hoja(ws, mapeo: dict[str, int], fila_encabezado: int, lectura: Lectura
                 identificacion=_texto(celda(fila, "identificacion")),
                 persona=_texto(celda(fila, "persona")),
                 descripcion=descripcion,
-                debe=_importe(celda(fila, "debe")),
-                haber=_importe(celda(fila, "haber")),
-                saldo=_importe(celda(fila, "saldo")),
+                debe=_importe(celda(fila, "debe"), lectura=lectura, fila_num=n, campo="debe"),
+                haber=_importe(celda(fila, "haber"), lectura=lectura, fila_num=n, campo="haber"),
+                saldo=_importe(celda(fila, "saldo"), lectura=lectura, fila_num=n, campo="saldo"),
                 fila=n,
             )
         )
