@@ -342,6 +342,22 @@ def aprobar_endpoint(
     return JobOut.model_validate(service.get_job(db, current, job_id))
 
 
+@router.get("/categorias")
+def list_categorias_endpoint(
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from backend.app.aud.obligaciones_fiscales.mayor import catalogo_service
+
+    return [
+        {"codigo": c.codigo, "nombre": c.nombre,
+         "naturaleza_esperada": c.naturaleza_esperada, "es_sistema": c.es_sistema}
+        for c in catalogo_service.categorias_visibles(
+            db, organization_id=getattr(current, "organization_id", None)
+        )
+    ]
+
+
 @router.get("/jobs/{job_id}", response_model=JobOut)
 def get_job_endpoint(
     job_id: int,
