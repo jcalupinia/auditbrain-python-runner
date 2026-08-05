@@ -89,3 +89,24 @@ def test_las_cuentas_sin_categoria_van_a_un_bloque_de_no_clasificadas():
     codigos = [ws.cell(r, 2).value for r in range(1, ws.max_row + 1)]
     assert "9.9.9" in codigos
     assert ("SIN_CLASIFICAR", "01") in lookup
+
+
+def test_publica_tambien_la_direccion_de_cada_cuenta():
+    wb = Workbook()
+    lookup = build_hoja_mayores(wb, FILAS)
+    assert ("cuenta:1.1.5.1.1", "01") in lookup
+    assert ("cuenta:1.1.5.1.1", "TOTAL") in lookup
+
+
+def test_la_direccion_de_una_cuenta_apunta_a_su_valor_mensual():
+    wb = Workbook()
+    lookup = build_hoja_mayores(wb, FILAS)
+    ws = wb[SHEET_MAYORES]
+    assert ws[lookup[("cuenta:1.1.5.1.1", "01")]].value == 659.57
+    assert ws[lookup[("cuenta:1.1.5.1.3", "01")]].value == 9252.0
+
+
+def test_las_cuentas_de_una_categoria_se_pueden_listar_en_orden():
+    wb = Workbook()
+    lookup = build_hoja_mayores(wb, FILAS)
+    assert lookup[("orden:IVA_COMPRAS", "cuentas")] == ["1.1.5.1.1", "1.1.5.1.3"]

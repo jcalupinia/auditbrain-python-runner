@@ -70,14 +70,21 @@ def build_hoja_mayores(wb: Workbook, filas) -> dict[tuple[str, str], str]:
                 c.font = FONT_DATA
                 c.number_format = FORMATO_NUM
                 c.border = BORDE
+                lookup[(f"cuenta:{f.codigo_cuenta}", MESES[j])] = (
+                    f"{get_column_letter(COL_PRIMER_MES + j)}{fila}"
+                )
             ini = get_column_letter(COL_PRIMER_MES)
             fin = get_column_letter(COL_PRIMER_MES + 11)
             t = ws.cell(fila, COL_TOTAL, f"=SUM({ini}{fila}:{fin}{fila})")
             t.font = FONT_DATA
             t.number_format = FORMATO_NUM
             t.border = BORDE
+            lookup[(f"cuenta:{f.codigo_cuenta}", "TOTAL")] = (
+                f"{get_column_letter(COL_TOTAL)}{fila}"
+            )
             fila += 1
 
+        lookup[(f"orden:{categoria}", "cuentas")] = [f.codigo_cuenta for f in cuentas]
         ultima = fila - 1
         etiqueta = ws.cell(fila, COL_NOMBRE, f"Subtotal {categoria}")
         etiqueta.font = FONT_TOTAL
