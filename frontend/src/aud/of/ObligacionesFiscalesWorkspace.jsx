@@ -7,15 +7,18 @@ import EditarDatosModal from "./EditarDatosModal.jsx";
 import RevisionClasificacion from "./RevisionClasificacion.jsx";
 import { contarSubidos, estadoTile, etiquetaEstadoTile, encontrarJobActivo } from "./ofLogic.js";
 
+// `label` es el texto corto del chip (para que la barra quepa en una fila,
+// como en el ICT); `descripcion` es el detalle completo, que va como tooltip
+// y se muestra en el panel inferior de cada cédula.
 const SLOTS = [
-  { key: "f104", label: STRINGS.of_slot_f104, accept: "application/pdf", multiple: true, required: true },
-  { key: "f103", label: STRINGS.of_slot_f103, accept: "application/pdf", multiple: true },
+  { key: "f104", label: STRINGS.of_chip_f104, descripcion: STRINGS.of_slot_f104, accept: "application/pdf", multiple: true, required: true },
+  { key: "f103", label: STRINGS.of_chip_f103, descripcion: STRINGS.of_slot_f103, accept: "application/pdf", multiple: true },
   // El ATS llega en XML o en PDF (el "Talón Resumen" del SRI), según lo que
   // el cliente entregue. El backend acepta ambos; la UI no debe restringirlo.
-  { key: "ats", label: STRINGS.of_slot_ats, accept: ".xml,application/xml,text/xml,application/pdf", multiple: true },
-  { key: "mayor_general", label: STRINGS.of_slot_mayor_general, accept: ".xlsx,.xls,.csv", multiple: false, required: true },
-  { key: "mayor_especifico", label: STRINGS.of_slot_mayor_especifico, accept: ".xlsx,.xls,.csv", multiple: false },
-  { key: "f101", label: STRINGS.of_slot_f101, accept: "application/pdf", multiple: false },
+  { key: "ats", label: STRINGS.of_chip_ats, descripcion: STRINGS.of_slot_ats, accept: ".xml,application/xml,text/xml,application/pdf", multiple: true },
+  { key: "mayor_general", label: STRINGS.of_chip_mayor_general, descripcion: STRINGS.of_slot_mayor_general, accept: ".xlsx,.xls,.csv", multiple: false, required: true },
+  { key: "mayor_especifico", label: STRINGS.of_chip_mayor_especifico, descripcion: STRINGS.of_slot_mayor_especifico, accept: ".xlsx,.xls,.csv", multiple: false },
+  { key: "f101", label: STRINGS.of_chip_f101, descripcion: STRINGS.of_slot_f101, accept: "application/pdf", multiple: false },
 ];
 const SLOT_KEYS = SLOTS.map((s) => s.key);
 
@@ -401,8 +404,13 @@ function PanelCedula({ cedula, job, slotsEstado, slots, onAprobado }) {
               if (!meta) return null;
               const got = (slotsEstado[slotKey]?.n_archivos || 0) > 0;
               return (
-                <span key={slotKey} className={got ? "pc-chip on" : "pc-chip warn"} style={{ cursor: "default" }}>
-                  {got ? "✓" : "○"} {meta.label}
+                <span
+                  key={slotKey}
+                  className={got ? "pc-chip on" : "pc-chip warn"}
+                  style={{ cursor: "default" }}
+                  title={meta.descripcion || meta.label}
+                >
+                  {got ? "✓" : "○"} {meta.descripcion || meta.label}
                 </span>
               );
             })}
