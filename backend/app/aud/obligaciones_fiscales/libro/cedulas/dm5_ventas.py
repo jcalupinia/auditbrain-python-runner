@@ -85,14 +85,19 @@ def _fila_suma_de_filas(ws, *, fila: int, etiqueta: str, filas: list[int]) -> No
 
     Es el caso de 'Total ventas declaradas': la suma de dos filas 'Según
     declaraciones' que quedan separadas por el bloque de casilleros
-    intermedio, así que no se puede usar SUM sobre un rango.
+    intermedio, así que no se puede usar SUM sobre un RANGO; sí sobre la
+    lista de celdas. Se escribe `=SUM(C20,C35)` y no `=C20+C35` a propósito:
+    en las cédulas DM una fórmula que son puras referencias unidas por '+'
+    significa siempre "referencia a otra hoja" y debe ir calificada (ver
+    tests/test_of_libro_direcciones_calificadas.py). Esta es la única suma de
+    celdas sueltas de la MISMA hoja, y como SUM no rompe esa regla.
     """
     e = ws.cell(fila, COL_ETIQUETA, etiqueta)
     e.font = FONT_TOTAL
     e.fill = RELLENO_TOTAL
     for j in range(13):
         col = get_column_letter(COL_PRIMER_MES + j)
-        formula = "=" + "+".join(f"{col}{f}" for f in filas)
+        formula = "=SUM(" + ",".join(f"{col}{f}" for f in filas) + ")"
         c = ws.cell(fila, COL_PRIMER_MES + j, formula)
         c.font = FONT_TOTAL
         c.fill = RELLENO_TOTAL

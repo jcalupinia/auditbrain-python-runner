@@ -36,8 +36,25 @@ def _orden(codigo: str | None) -> int:
     return cat.orden if cat else 99
 
 
+def _addr(letra: str, fila: int) -> str:
+    """Dirección CALIFICADA con el nombre de esta hoja.
+
+    Las cédulas publican estas direcciones tal cual (`f"={addr}"`), así que
+    sin el prefijo Excel las resolvería contra la propia hoja de la cédula:
+    ése fue el bug de las referencias circulares de DM5/DM7. El nombre lleva
+    espacios, por eso va siempre entre comillas simples.
+    """
+    return f"'{SHEET_MAYORES}'!{letra}{fila}"
+
+
 def build_hoja_mayores(wb: Workbook, filas) -> dict[tuple[str, str], str]:
-    """Crea la hoja resumen. Devuelve {(categoria, "01".."12"|"TOTAL") → addr}."""
+    """Crea la hoja resumen. Devuelve {(categoria, "01".."12"|"TOTAL") → addr}.
+
+    Todas las direcciones devueltas van calificadas con el nombre de la hoja
+    (`'Mayores homologados'!D30`). La única excepción es la clave
+    `("orden:<categoria>", "cuentas")`, que guarda una LISTA de códigos de
+    cuenta, no una dirección.
+    """
     if SHEET_MAYORES in wb.sheetnames:
         del wb[SHEET_MAYORES]
     ws = wb.create_sheet(SHEET_MAYORES)
@@ -70,8 +87,8 @@ def build_hoja_mayores(wb: Workbook, filas) -> dict[tuple[str, str], str]:
                 c.font = FONT_DATA
                 c.number_format = FORMATO_NUM
                 c.border = BORDE
-                lookup[(f"cuenta:{f.codigo_cuenta}", MESES[j])] = (
-                    f"{get_column_letter(COL_PRIMER_MES + j)}{fila}"
+                lookup[(f"cuenta:{f.codigo_cuenta}", MESES[j])] = _addr(
+                    get_column_letter(COL_PRIMER_MES + j), fila
                 )
             ini = get_column_letter(COL_PRIMER_MES)
             fin = get_column_letter(COL_PRIMER_MES + 11)
@@ -79,8 +96,8 @@ def build_hoja_mayores(wb: Workbook, filas) -> dict[tuple[str, str], str]:
             t.font = FONT_DATA
             t.number_format = FORMATO_NUM
             t.border = BORDE
-            lookup[(f"cuenta:{f.codigo_cuenta}", "TOTAL")] = (
-                f"{get_column_letter(COL_TOTAL)}{fila}"
+            lookup[(f"cuenta:{f.codigo_cuenta}", "TOTAL")] = _addr(
+                get_column_letter(COL_TOTAL), fila
             )
             fila += 1
 
@@ -98,7 +115,7 @@ def build_hoja_mayores(wb: Workbook, filas) -> dict[tuple[str, str], str]:
             c.number_format = FORMATO_NUM
             c.border = BORDE
             clave = MESES[j] if j < 12 else "TOTAL"
-            lookup[(categoria, clave)] = f"{letra}{fila}"
+            lookup[(categoria, clave)] = _addr(letra, fila)
         fila += 2  # una fila en blanco entre bloques
 
     ws.freeze_panes = "D4"

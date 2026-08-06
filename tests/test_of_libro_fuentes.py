@@ -46,8 +46,10 @@ def test_la_direccion_devuelta_apunta_al_valor_correcto():
         f104_monthly={"2025-01": {"casilleros": {"429": 4341.16}}},
         f103_monthly={},
     )
+    # La dirección viene CALIFICADA: `'DATOS F-104'!C18`.
     addr = lookups["f104"][("2025-01", "429")]
-    assert wb["DATOS F-104"][addr].value == 4341.16
+    assert addr.startswith("'DATOS F-104'!")
+    assert wb["DATOS F-104"][addr.split("!", 1)[1]].value == 4341.16
 
 
 def test_sin_pdfs_igual_se_crean_las_hojas_con_la_matriz_vacia():

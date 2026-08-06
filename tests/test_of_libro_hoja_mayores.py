@@ -28,6 +28,11 @@ FILAS = [
 ]
 
 
+def _celda(ws, addr: str):
+    """La celda de una dirección CALIFICADA (`'Mayores homologados'!D4`)."""
+    return ws[addr.split("!", 1)[1]]
+
+
 def test_crea_la_hoja_con_una_fila_por_cuenta():
     wb = Workbook()
     build_hoja_mayores(wb, FILAS)
@@ -42,7 +47,7 @@ def test_agrupa_por_categoria_y_pone_un_subtotal():
     lookup = build_hoja_mayores(wb, FILAS)
     ws = wb[SHEET_MAYORES]
     addr = lookup[("IVA_COMPRAS", "01")]
-    assert ws[addr].value.startswith("=SUM(")
+    assert _celda(ws, addr).value.startswith("=SUM(")
 
 
 def test_el_subtotal_de_enero_de_iva_compras_suma_sus_dos_cuentas():
@@ -51,7 +56,7 @@ def test_el_subtotal_de_enero_de_iva_compras_suma_sus_dos_cuentas():
     ws = wb[SHEET_MAYORES]
     # El subtotal es una fórmula SUM sobre el rango de sus cuentas: se
     # verifica el rango, no el valor (openpyxl no evalúa fórmulas).
-    formula = ws[lookup[("IVA_COMPRAS", "01")]].value
+    formula = _celda(ws, lookup[("IVA_COMPRAS", "01")]).value
     assert formula.count(":") == 1
 
 
@@ -102,8 +107,8 @@ def test_la_direccion_de_una_cuenta_apunta_a_su_valor_mensual():
     wb = Workbook()
     lookup = build_hoja_mayores(wb, FILAS)
     ws = wb[SHEET_MAYORES]
-    assert ws[lookup[("cuenta:1.1.5.1.1", "01")]].value == 659.57
-    assert ws[lookup[("cuenta:1.1.5.1.3", "01")]].value == 9252.0
+    assert _celda(ws, lookup[("cuenta:1.1.5.1.1", "01")]).value == 659.57
+    assert _celda(ws, lookup[("cuenta:1.1.5.1.3", "01")]).value == 9252.0
 
 
 def test_las_cuentas_de_una_categoria_se_pueden_listar_en_orden():

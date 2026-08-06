@@ -93,6 +93,23 @@ def test_hay_una_fila_total_ventas_declaradas():
     assert "Total ventas declaradas" in _etiquetas(ws)
 
 
+def test_el_total_declarado_suma_las_dos_filas_con_sum_no_con_mas():
+    """`=SUM(C20,C35)` y no `=C20+C35`.
+
+    Es la única suma de celdas sueltas de la MISMA hoja en toda la cédula.
+    Escribirla como SUM mantiene la regla del libro: en DM3..DM8, una fórmula
+    que son puras referencias unidas por '+' es siempre una referencia a otra
+    hoja y por tanto debe ir calificada. Sin esto, esta fila es un falso
+    positivo permanente del test de regresión de direcciones.
+    """
+    ws = _cedula()
+    fila = next(r for r in range(1, ws.max_row + 1)
+                if ws.cell(r, 2).value == "Total ventas declaradas")
+    formula = ws.cell(fila, 3).value
+    assert formula.startswith("=SUM("), formula
+    assert "+" not in formula, formula
+
+
 def test_lleva_el_encabezado_de_cedula_con_su_referencia():
     ws = _cedula()
     valores = [ws.cell(r, c).value for r in range(1, 11) for c in range(1, 6)]

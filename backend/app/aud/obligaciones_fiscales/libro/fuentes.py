@@ -18,6 +18,8 @@ from backend.app.aud.obligaciones_fiscales.libro.estilos import (
     BORDE, FONT_DATA, FONT_ENCABEZADO_TABLA, FORMATO_NUM,
 )
 from backend.app.ict.fillers.source_data_sheets import (
+    SHEET_F103,
+    SHEET_F104,
     build_f103_sheet,
     build_f104_sheet,
 )
@@ -165,13 +167,29 @@ def a_periodos_anuales(month_data: dict) -> dict:
     return salida
 
 
+def _calificar(lookup: dict[tuple[str, str], str], hoja: str) -> dict[tuple[str, str], str]:
+    """Antepone el nombre de hoja a cada dirección del lookup.
+
+    Los builders del ICT devuelven direcciones SIN prefijo a propósito: allá
+    el prefijo lo pone el consumidor (`referential_helpers`). Aquí no hay tal
+    consumidor —las cédulas publican la dirección tal cual (`f"={addr}"`)—,
+    así que sin prefijo Excel la resolvería contra la propia hoja de la
+    cédula: ése fue el bug de las referencias circulares de DM5/DM7.
+    """
+    return {clave: f"'{hoja}'!{addr}" for clave, addr in lookup.items()}
+
+
 def construir_hojas_de_casilleros(
     wb: Workbook, *, f104_monthly: dict, f103_monthly: dict
 ) -> dict[str, dict]:
-    """Crea DATOS F-104 y DATOS F-103. Devuelve {"f104": lookup, "f103": lookup}."""
+    """Crea DATOS F-104 y DATOS F-103. Devuelve {"f104": lookup, "f103": lookup}.
+
+    Las direcciones salen CALIFICADAS (`'DATOS F-104'!C18`), listas para que
+    una cédula las publique como fórmula sin más envoltura.
+    """
     return {
-        "f104": build_f104_sheet(wb, f104_monthly or {}),
-        "f103": build_f103_sheet(wb, f103_monthly or {}),
+        "f104": _calificar(build_f104_sheet(wb, f104_monthly or {}), SHEET_F104),
+        "f103": _calificar(build_f103_sheet(wb, f103_monthly or {}), SHEET_F103),
     }
 
 
