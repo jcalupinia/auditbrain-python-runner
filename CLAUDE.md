@@ -148,12 +148,19 @@ Se hace una vez al año, típicamente entre noviembre y febrero. Pasos:
   `extract_f104_oficial.py` desde la raíz del repo a `scripts/extractors/` con
   docstring explicando cuándo correrlos. Razón: hoy contaminan el root y un
   developer nuevo no sabe que son one-shot tools, no parte del runtime.
-- **Tests legacy fallando** (5 fallos pre-existentes, NO bloquean ICT):
-  `test_chat.py::test_conversation_with_inaccessible_project_rejected`,
+- **Tests legacy fallando** (6 fallos pre-existentes, NO bloquean ICT). Lista
+  actualizada y verificada el 2026-08-05 (el PR de operadores renombró dos y
+  agregó uno; la nota anterior listaba 5 con nombres viejos):
+  `test_chat.py::test_conversation_with_cross_org_project_rejected`,
+  `test_context.py::test_operator_can_create_clients`,
   `test_context.py::test_admin_creates_client_and_project_and_user_is_scoped`,
-  `test_context.py::test_user_cannot_set_inaccessible_project_active`,
+  `test_context.py::test_operator_can_set_same_org_but_not_cross_org_project_active`,
   `test_context.py::test_cross_org_isolation`,
   `test_sandbox.py::test_make_rlimit_preexec_optin`.
+  **Diagnóstico:** los 5 primeros son de AISLAMIENTO, no de lógica: pasan al
+  ejecutarlos solos y fallan al correr la suite completa, con
+  `sqlalchemy.exc.IntegrityError` por estado compartido en la base SQLite de
+  desarrollo. `test_sandbox` sí falla también en aislamiento.
   Investigar y arreglar antes de cualquier release a producción de esos módulos.
 - **API keys pendientes de rotar**: revocar Render API key
   `rnd_CXjUFxFmYQNZ2l2lAy8Ho2ebthhw` y configurar Resend email API key.
