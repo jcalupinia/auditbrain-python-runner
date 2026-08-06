@@ -10,7 +10,9 @@ import { contarSubidos, estadoTile, etiquetaEstadoTile, encontrarJobActivo } fro
 const SLOTS = [
   { key: "f104", label: STRINGS.of_slot_f104, accept: "application/pdf", multiple: true, required: true },
   { key: "f103", label: STRINGS.of_slot_f103, accept: "application/pdf", multiple: true },
-  { key: "ats", label: STRINGS.of_slot_ats, accept: ".xml,application/xml,text/xml", multiple: true },
+  // El ATS llega en XML o en PDF (el "Talón Resumen" del SRI), según lo que
+  // el cliente entregue. El backend acepta ambos; la UI no debe restringirlo.
+  { key: "ats", label: STRINGS.of_slot_ats, accept: ".xml,application/xml,text/xml,application/pdf", multiple: true },
   { key: "mayor_general", label: STRINGS.of_slot_mayor_general, accept: ".xlsx,.xls,.csv", multiple: false, required: true },
   { key: "mayor_especifico", label: STRINGS.of_slot_mayor_especifico, accept: ".xlsx,.xls,.csv", multiple: false },
   { key: "f101", label: STRINGS.of_slot_f101, accept: "application/pdf", multiple: false },

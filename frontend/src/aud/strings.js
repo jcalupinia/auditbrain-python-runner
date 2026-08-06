@@ -17,7 +17,7 @@ export const STRINGS = {
   of_firma_partner_auditing: "Partner Auditing Cía. Ltda.",
   of_slot_f103: "F-103 Retenciones IR (PDFs mensuales) — opcional en M1",
   of_slot_f104: "F-104 IVA (PDFs mensuales) — requerido",
-  of_slot_ats: "Anexo Transaccional (XML) — opcional en M1",
+  of_slot_ats: "Anexo Transaccional (XML o PDF) — opcional en M1",
   of_slot_mayor_general: "Mayor General de Impuestos (Excel) — requerido",
   of_slot_mayor_especifico:
     "Mayor específico para prueba puntual (Excel) — opcional",
