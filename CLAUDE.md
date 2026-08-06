@@ -148,24 +148,65 @@ Se hace una vez al año, típicamente entre noviembre y febrero. Pasos:
   `extract_f104_oficial.py` desde la raíz del repo a `scripts/extractors/` con
   docstring explicando cuándo correrlos. Razón: hoy contaminan el root y un
   developer nuevo no sabe que son one-shot tools, no parte del runtime.
-- **Tests legacy fallando** (6 fallos pre-existentes, NO bloquean ICT). Lista
-  actualizada y verificada el 2026-08-05 (el PR de operadores renombró dos y
-  agregó uno; la nota anterior listaba 5 con nombres viejos):
-  `test_chat.py::test_conversation_with_cross_org_project_rejected`,
-  `test_context.py::test_operator_can_create_clients`,
-  `test_context.py::test_admin_creates_client_and_project_and_user_is_scoped`,
-  `test_context.py::test_operator_can_set_same_org_but_not_cross_org_project_active`,
-  `test_context.py::test_cross_org_isolation`,
-  `test_sandbox.py::test_make_rlimit_preexec_optin`.
-  **Diagnóstico:** los 5 primeros son de AISLAMIENTO, no de lógica: pasan al
-  ejecutarlos solos y fallan al correr la suite completa, con
-  `sqlalchemy.exc.IntegrityError` por estado compartido en la base SQLite de
-  desarrollo. `test_sandbox` sí falla también en aislamiento.
-  Investigar y arreglar antes de cualquier release a producción de esos módulos.
+- ~~**Tests legacy fallando**~~ **RESUELTO el 2026-08-06 (PR #108).** Eran 7,
+  no 6, y ninguno era de lógica de negocio. Dos causas raíz:
+  1. `backend/app/db/session.py` resuelve `DATABASE_URL` **en tiempo de
+     import** y su default es `sqlite:///./auditbrain.db`: la MISMA base que
+     usa `uvicorn app:app` en local. `pytest` escribía ahí (se midieron 1.957
+     clientes y ~700 usuarios basura acumulados), y a partir de la SEGUNDA
+     corrida fallaban los tests que insertan filas con nombre fijo contra el
+     índice único `clients(organization_id, name)`, más el listado de usuarios
+     al serializar correos inválidos guardados de corridas viejas
+     (`admin@local.test`). En CI nunca se vio: checkout limpio ⇒ base vacía.
+  2. `test_make_rlimit_preexec_optin` asumía POSIX sin decirlo.
+     `make_rlimit_preexec()` devuelve `None` si `os.name != "posix"`, que es lo
+     CORRECTO (Windows no soporta `preexec_fn` ni el módulo `resource`).
 - **API keys pendientes de rotar**: revocar Render API key
   `rnd_CXjUFxFmYQNZ2l2lAy8Ho2ebthhw` y configurar Resend email API key.
 - **QA pendiente**: re-habilitar checks estrictos de device/session una vez
   terminada la fase de QA con clientes piloto.
+
+## La suite NUNCA corre contra la base de desarrollo
+
+**REGLA OBLIGATORIA (2026-08-06):** `tests/conftest.py` fija `DATABASE_URL` a
+`auditbrain_tests.db` (borrada al arrancar la sesión) **ANTES** de importar la
+app. Motivo: `session.py` resuelve `DATABASE_URL` en tiempo de import con
+default `sqlite:///./auditbrain.db`, que es la misma base del `uvicorn` local.
+Sin el override, `pytest` ensucia la base de trabajo del programador y la
+suite deja de ser reproducible a partir de la segunda corrida.
+
+- El override va en `os.environ`, no sólo en el módulo ya importado, para que
+  cualquier módulo que relea la variable vea la misma base.
+- `TEST_DATABASE_URL` permite apuntar la suite a otro motor (p. ej. un
+  Postgres de pruebas) sin tocar código.
+- Tests que mantienen viva la regla: `tests/test_suite_hermetica.py` (2).
+
+## Fórmulas referenciales del libro DM (Obligaciones Fiscales)
+
+**REGLA OBLIGATORIA (2026-08-06, PR #108):** toda dirección que una hoja del
+libro DM publique para que OTRA hoja la referencie por fórmula debe ir
+**calificada con el nombre de hoja entre comillas simples**
+(`'Mayores homologados'!D30`, `'DATOS F-104'!C18`).
+
+`cedulas/bloques.py::fila_referencias` escribe literalmente `f"={addr}"`, así
+que una dirección desnuda la resuelve Excel contra la PROPIA hoja de la
+cédula. Ese fue el bug que produjo 1.420 fórmulas rotas y 6 referencias
+circulares reales en DM5 y DM7: el saldo de libros no llegaba, se perdía la
+trazabilidad a DATOS F-104 / F-103, y Excel abría el archivo con aviso de
+referencia circular.
+
+**Ojo con el ICT:** `ict/fillers/source_data_sheets.py` (`build_f103_sheet`,
+`build_f104_sheet`) devuelve direcciones SIN prefijo **a propósito** — el ICT
+lo añade del lado consumidor en `ict/fillers/referential_helpers.py`.
+Calificar ahí produciría doble prefijo y rompería A1..A9. El lado OF califica
+en `libro/fuentes.py::construir_hojas_de_casilleros`.
+
+**Test que mantiene viva la regla:**
+`tests/test_of_libro_direcciones_calificadas.py`. Discriminador: una fórmula
+es "publicación de direcciones" si está compuesta exclusivamente por
+referencias unidas por `+`; en ellas cada token debe llevar `!`. Las
+legítimamente intra-hoja son `=SUM(...)` y `=ROUND(...)`, más la aritmética de
+la matriz de DM6 (`=B13*G13`, arrastres `=L13`/`=W13` del mes anterior).
 
 ## Separación SRI vs Papel de trabajo del auditor
 
