@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import * as api from "../../api.js";
 import { STRINGS } from "../strings.js";
 import { datosEncargoParaGuardar } from "./ofLogic.js";
@@ -66,10 +67,14 @@ export default function EditarDatosModal({ open, mode, projectId, job, onClose, 
     }
   }
 
-  return (
+  // El modal se monta en <body> con createPortal. Si se renderiza dentro del
+  // panel de la herramienta, queda atrapado en su contexto de apilamiento
+  // (.panel tiene z-index: 2), y cualquier panel posterior del Command Center
+  // — como "Accesos rápidos" — se dibuja encima tapando los botones.
+  return createPortal(
     <div
       style={{
-        position: "fixed", inset: 0, zIndex: 100,
+        position: "fixed", inset: 0, zIndex: 9000,
         background: "rgba(0,0,0,0.75)", backdropFilter: "blur(6px)",
         display: "flex", alignItems: "center", justifyContent: "center",
         padding: 20,
@@ -81,7 +86,7 @@ export default function EditarDatosModal({ open, mode, projectId, job, onClose, 
         style={{
           background: "var(--panel)", border: "1px solid var(--line)",
           borderRadius: 14, maxWidth: 620, width: "100%",
-          maxHeight: "88vh", overflow: "auto",
+          maxHeight: "88vh", display: "flex", flexDirection: "column",
         }}
       >
         <header style={{
@@ -102,7 +107,13 @@ export default function EditarDatosModal({ open, mode, projectId, job, onClose, 
           </button>
         </header>
 
-        <form onSubmit={submit} style={{ padding: 20 }}>
+        <form
+          onSubmit={submit}
+          style={{
+            padding: 20, overflow: "auto", display: "flex",
+            flexDirection: "column", gap: 4,
+          }}
+        >
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             <label style={{ flex: "1 1 220px" }}>
               {STRINGS.of_form_cliente}*
@@ -166,7 +177,16 @@ export default function EditarDatosModal({ open, mode, projectId, job, onClose, 
 
           {error && <div className="err">{error}</div>}
 
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 20 }}>
+          {/* Pie pegajoso: los botones deben verse siempre, aunque el
+              formulario tenga que hacer scroll en pantallas bajas. */}
+          <div
+            style={{
+              display: "flex", gap: 8, justifyContent: "flex-end",
+              marginTop: 20, position: "sticky", bottom: -20,
+              background: "var(--panel)", paddingTop: 12, paddingBottom: 4,
+              borderTop: "1px solid var(--line-soft)",
+            }}
+          >
             <button type="button" className="pc-btn secondary" onClick={onClose} disabled={busy}>
               {STRINGS.of_modal_cancelar}
             </button>
@@ -178,6 +198,7 @@ export default function EditarDatosModal({ open, mode, projectId, job, onClose, 
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

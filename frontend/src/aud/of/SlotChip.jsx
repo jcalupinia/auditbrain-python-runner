@@ -110,11 +110,14 @@ export default function SlotChip({ slot, jobId, estado, disabled, onChanged }) {
       ? `✓ ${slot.label} (${nArchivos})`
       : slot.label;
 
+  // El chip muestra la etiqueta corta; el tooltip lleva la descripción
+  // completa (o los nombres de archivo cuando ya hay algo subido).
+  const descripcion = slot.descripcion || slot.label;
   const title = tieneArchivos
     ? (estado.nombres || []).join(", ")
     : esMayorEspecifico
-      ? STRINGS.of_slot_categoria_hint
-      : slot.label;
+      ? `${descripcion} · ${STRINGS.of_slot_categoria_hint}`
+      : descripcion;
 
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>

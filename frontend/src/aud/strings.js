@@ -23,6 +23,16 @@ export const STRINGS = {
     "Mayor específico para prueba puntual (Excel) — opcional",
   of_mayor_especifico_categoria: "¿A qué categoría corresponde?",
   of_slot_f101: "F-101 Renta anual (PDF) — opcional en M1",
+  // Etiquetas cortas para los chips de la barra de documentos: con el texto
+  // largo la barra ocupaba 5 filas y el workspace no cabía en una pantalla,
+  // que es justo lo que se buscaba al copiar el ICT. La descripción completa
+  // queda como tooltip.
+  of_chip_f104: "F-104 IVA",
+  of_chip_f103: "F-103 Retenciones",
+  of_chip_ats: "ATS",
+  of_chip_mayor_general: "Mayor General",
+  of_chip_mayor_especifico: "Mayor específico",
+  of_chip_f101: "F-101 Renta",
   of_slot_uploading: "Subiendo…",
   of_slot_categoria_placeholder: "Selecciona una categoría",
   of_slot_categoria_loading: "Cargando categorías…",
