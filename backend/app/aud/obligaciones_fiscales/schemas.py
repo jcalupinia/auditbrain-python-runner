@@ -34,6 +34,7 @@ class JobOut(BaseModel):
     prepared_by_name: str | None
     reviewed_by_name: str | None
     firma_auditora: str | None
+    mayor_especifico_categoria: str | None
     error_message: str | None
     summary_json: dict | None
     created_at: datetime.datetime
@@ -42,3 +43,37 @@ class JobOut(BaseModel):
     expires_at: datetime.datetime
 
     model_config = {"from_attributes": True}
+
+
+class SlotEstado(BaseModel):
+    n_archivos: int
+    nombres: list[str]
+
+
+SLOTS_VALIDOS = (
+    "f104", "f103", "ats", "mayor_general", "mayor_especifico", "f101",
+)
+
+
+class CorreccionIn(BaseModel):
+    codigo_cuenta: str
+    categoria: str | None = None
+
+
+class CorreccionesIn(BaseModel):
+    correcciones: list[CorreccionIn] = []
+
+
+class JobUpdateIn(BaseModel):
+    """PATCH de metadatos del encargo (cliente, período, corte, preparado/
+    revisado por, firma auditora). Todos los campos son opcionales: el
+    router usa ``model_dump(exclude_unset=True)`` para actualizar solo lo
+    que venga en el body, sin tocar archivos ni clasificación."""
+
+    cliente_name: str | None = None
+    period_label: str | None = None
+    period_start: datetime.date | None = None
+    period_end: datetime.date | None = None
+    prepared_by_name: str | None = None
+    reviewed_by_name: str | None = None
+    firma_auditora: str | None = None  # "audit_consulting" | "partner_auditing"

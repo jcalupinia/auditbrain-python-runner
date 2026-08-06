@@ -8,7 +8,15 @@ Cada concepto del F-104 tiene hasta 3 casilleros relacionados:
   · Valor Neto     (cols 411-420, 511-525): después de notas de crédito
   · Impuesto       (cols 421-430, 521-525): IVA generado / pagado
 
-Total casilleros oficiales: 141
+Total casilleros oficiales: 149
+
+Historial de cambios:
+  · 2026-08-04 — se agregaron los 8 casilleros del bloque de SALDO CRÉDITO
+    TRIBUTARIO (605-608 del mes anterior, 615/617/618/619 para el próximo
+    mes), ausentes desde la extracción original. Sin ellos, DM3 "Revisión de
+    saldos" (crédito tributario = 615+617) y DM6 "IVA" (columnas T = 605+606
+    y Z = 615+617) quedaban en blanco. Verificado contra F-104 reales 2025.
+    El casillero 616 no existe en el formulario.
 """
 
 from __future__ import annotations
@@ -117,12 +125,26 @@ F104_CASILLERO_NAMES: dict[str, str] = {
     "602": "Crédito tributario aplicable en este período — Impuesto Generado",
     "603": "(-) Compensación de IVA por ventas efectuadas con medio electrónico y/o IVA devuelto o descontado por transacciones realizadas con personas adultas mayores o personas con discapacidad — Impuesto Generado",
     "604": "(-) Compensación de IVA por ventas efectuadas en zonas afectadas - Ley de solidaridad, restitución de crédito tributario en resoluciones administrativas o sentencias judiciales de última instancia — Impuesto Generado",
+    # (-) Saldo crédito tributario del MES ANTERIOR (605-608). Cada uno se
+    # traslada del casillero espejo de la declaración previa: 605←615,
+    # 606←617, 607←618, 608←619. Los nombres identifican explícitamente el
+    # bloque porque la glosa del PDF es idéntica a la de 615-619.
+    "605": "(-) Saldo crédito tributario del mes anterior · Por adquisiciones e importaciones — Impuesto Generado",
+    "606": "(-) Saldo crédito tributario del mes anterior · Por retenciones en la fuente de IVA que le han sido efectuadas — Impuesto Generado",
+    "607": "(-) Saldo crédito tributario del mes anterior · Por compensación de IVA por ventas efectuadas con medio electrónico — Impuesto Generado",
+    "608": "(-) Saldo crédito tributario del mes anterior · Por compensación de IVA por ventas efectuadas en zonas afectadas - Ley de solidaridad, restitución de crédito tributario en resoluciones administrativas o sentencias judiciales de última instancia — Impuesto Generado",
     "609": "(-) Retenciones en la fuente de IVA que le han sido efectuadas en este período — Impuesto Generado",
     "610": "(+) Ajuste por IVA devuelto o descontado por adquisiciones efectuadas con medio electrónico — Impuesto Generado",
     "611": "(+) Ajuste por IVA devuelto o descontado en adquisiciones efectuadas en zonas afectadas - Ley de solidaridad — Impuesto Generado",
     "612": "(+) Ajuste por IVA devuelto e IVA rechazado (por concepto de devoluciones de IVA), ajuste de IVA por procesos de control y otros (adquisiciones en importaciones), imputables al crédito tributario — Impuesto Generado",
     "613": "(+) Ajuste por IVA devuelto e IVA rechazado, ajuste de IVA por procesos de control y otros (por concepto retenciones en la fuente de IVA), imputables al crédito tributario — Impuesto Generado",
     "614": "(+) Ajuste por IVA devuelto por otras instituciones del sector público imputable al crédito tributario en el mes — Impuesto Generado",
+    # Saldo crédito tributario para el PRÓXIMO MES (615, 617, 618, 619).
+    # OJO: el 616 NO EXISTE en el formulario; el bloque salta de 615 a 617.
+    "615": "Saldo crédito tributario para el próximo mes · Por adquisiciones e importaciones — Impuesto Generado",
+    "617": "Saldo crédito tributario para el próximo mes · Por retenciones en la fuente de IVA que le han sido efectuadas — Impuesto Generado",
+    "618": "Saldo crédito tributario para el próximo mes · Por compensación de IVA por ventas efectuadas con medio electrónico — Impuesto Generado",
+    "619": "Saldo crédito tributario para el próximo mes · Por compensación de IVA por ventas efectuadas en zonas afectadas - Ley de solidaridad, restitución de crédito tributario en resoluciones administrativas o sentencias judiciales de última instancia — Impuesto Generado",
     "620": "SUBTOTAL A PAGAR — Impuesto Generado",
     "621": "IVA PRESUNTIVO DE SALAS DE JUEGO (BINGO MECÁNICOS) Y OTROS JUEGOS DE AZAR (Aplica para Ejercicios Anteriores al 2013), RETENCIÓN DE IVA EN VENTAS DIFERENTES PORCENTAJES (aplica para Ejercicios posteriores al 2021) — Impuesto Generado",
     "622": "(-) IVA devuelto o descontado por transacciones realizadas con personas adultas mayores o personas con discapacidad — Impuesto Generado",

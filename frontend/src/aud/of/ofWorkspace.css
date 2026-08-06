@@ -1,0 +1,173 @@
+/* ============================================================
+   pc-* — sistema visual portado DELIBERADAMENTE desde el portal
+   de clientes (frontend-client/src/shell/shell.css), donde nació
+   para el workspace del ICT (ICTDashboard.jsx).
+
+   Por qué existe esta copia:
+   - frontend/ (Command Center) y frontend-client/ (portal cliente)
+     son dos apps npm independientes, sin build ni paquete
+     compartido: no hay forma de importar el CSS de una desde la
+     otra sin una app intermedia.
+   - Los tokens de tema (--accent, --panel-2, --line, --text-soft,
+     --accent-dim, --mono, --warn, --danger, --text-dim, --panel,
+     --text, --line-soft) YA existen en frontend/src/styles.css con
+     los mismos valores/nombres, así que NO se copian aquí: estas
+     clases heredan los 4 temas del Command Center automáticamente.
+   - Los nombres de clase se conservan IDÉNTICOS a los del portal
+     cliente a propósito, para que una futura extracción a un
+     paquete `frontend-shared` sea mecánica (copiar/pegar, sin
+     renombrar selectores ni tocar el JSX que los usa).
+
+   Mantenimiento: si corregís un estilo acá (por bug visual, por
+   ejemplo), revisá si el mismo bug existe en
+   frontend-client/src/shell/shell.css y replicá el fix allá — hoy
+   viven duplicados, no sincronizados automáticamente.
+
+   Adaptación consciente: en el origen, `.pc-btn` está bajo el
+   selector `.pc .pc-btn` (heredado del contenedor raíz `.pc` del
+   shell del portal). El Command Center no tiene ese contenedor,
+   así que aquí `.pc-btn` queda sin ese ancestro — incluye también
+   los estados de `.pc-tile`/`.pc-tile-n` (on/done/dim) que el
+   grid de cédulas del workspace necesita para pintar
+   Pendiente/Parcial/Completado.
+   ============================================================ */
+
+/* Panel genérico (cabecera + cuerpo) */
+.pc-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  margin-bottom: 18px;
+  overflow: hidden;
+}
+.pc-panel-h {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.pc-panel-t { font-size: 14px; font-weight: 700; letter-spacing: -0.1px; }
+.pc-panel-m {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--text-soft); letter-spacing: 0.12em;
+}
+.pc-panel-b { padding: 18px; }
+
+/* Código corto tipo badge (ej. "ICT", "OF") */
+.pc-code {
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.12em; color: var(--accent);
+  background: rgba(52,211,106,0.10);
+  border: 1px solid rgba(52,211,106,0.25);
+  padding: 3px 6px; border-radius: 5px;
+  text-align: center;
+}
+
+/* Barra de chips (ej. "Subir documentos") */
+.pc-scenarios {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin: 12px 0 18px;
+}
+.pc-scenarios-l {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em;
+  color: var(--text-soft); text-transform: uppercase; margin-right: 4px;
+}
+
+/* Chip de documento / acción */
+.pc-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text); font-size: 13px; font-weight: 500;
+  cursor: pointer; transition: all 0.12s;
+}
+.pc-chip:hover { border-color: var(--text-soft); }
+.pc-chip.on {
+  background: var(--accent); border-color: var(--accent);
+  color: #04130b; font-weight: 700;
+}
+.pc-chip.accent {
+  background: rgba(52,211,106,0.10);
+  border-color: rgba(52,211,106,0.35);
+  color: var(--accent);
+}
+.pc-chip.warn {
+  background: rgba(231,178,74,0.10);
+  border-color: rgba(231,178,74,0.35);
+  color: var(--warn);
+}
+.pc-chip.danger {
+  background: rgba(255,93,93,0.08);
+  border-color: rgba(255,93,93,0.30);
+  color: var(--danger);
+}
+.pc-chip[disabled], .pc-chip.disabled {
+  opacity: 0.5; cursor: not-allowed;
+}
+
+/* Grid de tiles numerados (cédulas / anexos) */
+.pc-tiles {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.pc-tile {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  font: inherit; text-align: left;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.pc-tile:hover {
+  border-color: var(--accent);
+  background: linear-gradient(180deg, var(--panel-2), var(--accent-dim));
+  transform: translateY(-1px);
+}
+.pc-tile.on {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+.pc-tile.done {
+  border-color: rgba(52,211,106,0.45);
+}
+.pc-tile-n {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px;
+  background: var(--accent);
+  color: #04130b;
+  font-weight: 800; font-size: 13px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.pc-tile-n.dim { background: var(--line); color: var(--text-soft); }
+.pc-tile-n.done { background: var(--accent); color: #04130b; }
+.pc-tile-txt { display: flex; flex-direction: column; min-width: 0; }
+.pc-tile-t { font-size: 13px; font-weight: 700; }
+.pc-tile-d { font-size: 11px; color: var(--text-soft); }
+.pc-tile-st {
+  margin-left: auto;
+  font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* Botón primario/secundario del workspace */
+.pc-btn {
+  padding: 9px 16px;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  color: #04130b;
+  font: inherit; font-weight: 700;
+  cursor: pointer;
+}
+.pc-btn:hover { filter: brightness(1.08); }
+.pc-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.pc-btn.secondary {
+  background: var(--panel-2); color: var(--text); border-color: var(--line);
+  font-weight: 500;
+}
+.pc-btn.secondary:hover { border-color: var(--text-soft); }

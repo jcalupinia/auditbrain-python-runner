@@ -1,6 +1,7 @@
 """Lógica de usuarios: alta, autenticación y bootstrap del admin."""
 
 import datetime
+import logging
 import os
 import uuid
 
@@ -215,11 +216,40 @@ def touch_session(db: Session, *, user: User) -> None:
 
 
 def ensure_bootstrap_admin(db: Session) -> None:
-    """Crea el admin inicial desde el entorno si no existe (idempotente)."""
+    """Crea el admin inicial desde el entorno si no existe (idempotente).
+
+    El email se valida con el MISMO validador que usan los schemas de la API
+    (``EmailStr``). Sin esta comprobación, un email de dominio reservado
+    (``@algo.test``, ``@localhost``) creaba un admin que podía loguearse pero
+    hacía reventar con 500 cualquier endpoint que lo serializara — un fallo
+    que aparece muy lejos de su causa.
+    """
     email = os.getenv("AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
     password = os.getenv("AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD", "").strip()
     if not email or not password:
         return
+    if not _email_valido(email):
+        logging.error(
+            "AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL=%r no es un email válido para la "
+            "API (¿dominio reservado como .test o .localhost?). No se creó el "
+            "admin inicial; corrige la variable y reinicia.",
+            email,
+        )
+        return
     if get_user_by_email(db, email):
         return
     create_user(db, email=email, password=password, role=Role.admin)
+
+
+def _email_valido(email: str) -> bool:
+    """¿Lo aceptaría ``EmailStr`` de Pydantic al serializar la respuesta?"""
+    from pydantic import BaseModel, EmailStr, ValidationError
+
+    class _Sonda(BaseModel):
+        email: EmailStr
+
+    try:
+        _Sonda(email=email)
+    except ValidationError:
+        return False
+    return True

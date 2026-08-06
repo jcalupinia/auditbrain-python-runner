@@ -604,29 +604,143 @@ export async function sendChatMessage(conversationId, content) {
   );
 }
 
-// ---------- AUD.IMPUESTOS.OBLIGACIONES_FISCALES (M1) ----------
+// ---------- AUD.IMPUESTOS.OBLIGACIONES_FISCALES (ciclo de dos fases) ----------
 
-export async function createObligacionesFiscalesJob(form, files) {
+const OF_BASE = `${API_BASE}/api/v1/aud/obligaciones-fiscales`;
+
+// Crea el job en estado 'borrador'. Ya NO recibe archivos: esos se suben
+// después, slot por slot, con subirSlotOF.
+export async function crearJobOF(form) {
   const fd = new FormData();
   Object.entries(form).forEach(([k, v]) => {
     if (v !== null && v !== undefined && v !== "") fd.append(k, v);
   });
-  (files.f103 || []).forEach((f) => fd.append("files_f103", f));
-  (files.f104 || []).forEach((f) => fd.append("files_f104", f));
-  (files.ats || []).forEach((f) => fd.append("files_ats", f));
-  if (files.mayor_compras) fd.append("mayor_compras", files.mayor_compras);
-  if (files.mayor_ventas) fd.append("mayor_ventas", files.mayor_ventas);
-  if (files.f101) fd.append("file_f101", files.f101);
-
-  const res = await apiFetch(
-    `${API_BASE}/api/v1/aud/obligaciones-fiscales/jobs`,
-    {
+  return parse(
+    await apiFetch(`${OF_BASE}/jobs`, {
       method: "POST",
       headers: authHeaders(), // No Content-Type: el browser pone el boundary multipart
       body: fd,
-    }
+    })
   );
-  return parse(res);
+}
+
+// Sube (o reemplaza) los archivos de un slot. `archivos` es un array de
+// File; todos viajan bajo el campo 'archivos'. `categoria` solo se agrega
+// si viene (obligatoria para el slot mayor_especifico; el backend responde
+// 400 si falta). Devuelve el estado de slots actualizado.
+export async function subirSlotOF(jobId, slot, archivos, categoria) {
+  const fd = new FormData();
+  (archivos || []).forEach((f) => fd.append("archivos", f));
+  if (categoria !== null && categoria !== undefined && categoria !== "") {
+    fd.append("categoria", categoria);
+  }
+  return parse(
+    await apiFetch(`${OF_BASE}/jobs/${jobId}/slots/${slot}`, {
+      method: "PUT",
+      headers: authHeaders(),
+      body: fd,
+    })
+  );
+}
+
+// Borra los archivos de un slot. Devuelve el estado de slots actualizado.
+export async function quitarSlotOF(jobId, slot) {
+  return parse(
+    await apiFetch(`${OF_BASE}/jobs/${jobId}/slots/${slot}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    })
+  );
+}
+
+// Estado de todos los slots: { slot: { n_archivos, nombres } }.
+export async function estadoSlotsOF(jobId) {
+  return parse(
+    await apiFetch(`${OF_BASE}/jobs/${jobId}/slots`, {
+      headers: authHeaders(),
+    })
+  );
+}
+
+// Fase 1: clasifica el Mayor General y deja el job en 'revision'.
+export async function procesarOF(jobId) {
+  return parse(
+    await apiFetch(`${OF_BASE}/jobs/${jobId}/procesar`, {
+      method: "POST",
+      headers: authHeaders(),
+    })
+  );
+}
+
+// Cuentas propuestas por el motor + catálogo de categorías, para la
+// pantalla de revisión de la clasificación.
+export async function getClasificacionOF(jobId) {
+  return parse(
+    await apiFetch(`${OF_BASE}/jobs/${jobId}/clasificacion`, {
+      headers: authHeaders(),
+    })
+  );
+}
+
+// Guarda las correcciones del auditor. `correcciones` es un array de
+// { codigo_cuenta, categoria } — solo las cuentas que cambiaron.
+export async function guardarCorreccionesOF(jobId, correcciones) {
+  return parse(
+    await apiFetch(`${OF_BASE}/jobs/${jobId}/clasificacion`, {
+      method: "PUT",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ correcciones: correcciones || [] }),
+    })
+  );
+}
+
+// Fase 2: persiste lo aprendido y genera el Excel. Deja el job en 'done'.
+export async function aprobarOF(jobId) {
+  return parse(
+    await apiFetch(`${OF_BASE}/jobs/${jobId}/aprobar`, {
+      method: "POST",
+      headers: authHeaders(),
+    })
+  );
+}
+
+// Catálogo de categorías disponibles (para los selects de clasificación).
+export async function listarCategoriasOF() {
+  return parse(await apiFetch(`${OF_BASE}/categorias`, { headers: authHeaders() }));
+}
+
+// Actualiza los metadatos del encargo (cliente, período, corte, preparado/
+// revisado por, firma auditora) SIN tocar archivos ni clasificación. Solo
+// se envían los campos presentes en `form` (el backend actualiza solo eso).
+export async function actualizarJobOF(jobId, form) {
+  return parse(
+    await apiFetch(`${OF_BASE}/jobs/${jobId}`, {
+      method: "PATCH",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(form),
+    })
+  );
+}
+
+// Borra el job (y sus archivos en /tmp). El backend YA expone este endpoint
+// (DELETE /jobs/{id}); se agrega el wrapper acá porque el workspace lo
+// necesita para "🔄 Encerar" (empezar el encargo desde cero, incluyendo los
+// documentos subidos).
+export async function eliminarJobOF(jobId) {
+  const res = await apiFetch(`${OF_BASE}/jobs/${jobId}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok && res.status !== 204) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      detail = body.detail || detail;
+    } catch {
+      /* sin body */
+    }
+    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+  }
 }
 
 export async function getObligacionesFiscalesJob(jobId) {

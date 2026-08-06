@@ -41,7 +41,7 @@ def create_job(
         user_id=user.id,
         project_id=project_id,
         tool_code=TOOL_CODE,
-        status="pending",
+        status="borrador",
         cliente_name=cliente_name,
         period_label=period_label,
         period_start=period_start,
@@ -88,6 +88,16 @@ def mark_running(db: Session, job_id: int) -> None:
         db.commit()
 
 
+def mark_revision(db: Session, job_id: int, summary: dict | None = None) -> None:
+    job = db.get(ToolJob, job_id)
+    if job:
+        job.status = "revision"
+        if summary is not None:
+            job.summary_json = summary
+        db.add(job)
+        db.commit()
+
+
 def mark_done(db: Session, job_id: int, summary: dict) -> None:
     job = db.get(ToolJob, job_id)
     if job:
@@ -120,3 +130,17 @@ def delete_job(db: Session, user, job_id: int) -> None:
     job = get_job(db, user, job_id)
     db.delete(job)
     db.commit()
+
+
+def update_job(db: Session, user, job_id: int, **fields) -> ToolJob:
+    """Actualiza solo los metadatos del job (cliente, período, firma...)
+    sin tocar archivos ni clasificación. ``fields`` trae exclusivamente los
+    campos entregados explícitamente por el caller (el router filtra con
+    ``model_dump(exclude_unset=True)``)."""
+    job = get_job(db, user, job_id)
+    for key, value in fields.items():
+        setattr(job, key, value)
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    return job

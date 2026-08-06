@@ -42,6 +42,10 @@ class ToolJob(Base):
     # Firma auditora: 'audit_consulting' | 'partner_auditing'. Determina qué
     # logo se inserta en cada cédula del Excel generado.
     firma_auditora: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Modalidad manual: mayor de una sola categoría declarada por el auditor.
+    mayor_especifico_categoria: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )
     # Portal cliente (M2)
     initiated_from: Mapped[str] = mapped_column(
         String(16), default="staff", nullable=False

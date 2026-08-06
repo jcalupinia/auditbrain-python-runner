@@ -146,6 +146,7 @@ def init_db() -> None:
     # projects deben existir antes de que users referencie sus columnas).
     from backend.app.auth import models as _auth_models  # noqa: F401
     from backend.app.aud.obligaciones_fiscales import models as _aud_of_models  # noqa: F401
+    from backend.app.aud.obligaciones_fiscales.mayor import models as _mayor_models  # noqa: F401
     from backend.app.chat import models as _chat_models  # noqa: F401
     from backend.app.context import models as _context_models  # noqa: F401
     from backend.app.ict import models as _ict_models  # noqa: F401
@@ -227,6 +228,15 @@ def init_db() -> None:
             if col_name not in existing_cols:
                 with engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE tool_jobs ADD COLUMN {col_name} {col_type}"))
+
+    # Migración aditiva en ``tool_jobs``: modalidad manual del mayor.
+    if "tool_jobs" in inspector.get_table_names():
+        cols_jobs = {c["name"] for c in inspector.get_columns("tool_jobs")}
+        if "mayor_especifico_categoria" not in cols_jobs:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE tool_jobs ADD COLUMN mayor_especifico_categoria VARCHAR(32)")
+                )
 
     # Backfill de entitlements: concede la sección Tributarias a los clientes
     # existentes en el primer arranque tras activar el gating comercial.
