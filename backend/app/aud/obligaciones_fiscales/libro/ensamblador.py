@@ -71,7 +71,10 @@ def armar_libro(
     if "Sheet" in wb.sheetnames:
         del wb["Sheet"]
 
-    dir_mayores = build_hoja_mayores(wb, clasificacion)
+    # Los movimientos también van a la hoja resumen: el desglose de ventas
+    # por tarifa se calcula asiento por asiento, no se puede derivar de los
+    # totales por cuenta y mes.
+    dir_mayores = build_hoja_mayores(wb, clasificacion, movimientos)
     build_hoja_detalle(
         wb, movimientos, {f.codigo_cuenta: f.categoria_final for f in clasificacion}
     )

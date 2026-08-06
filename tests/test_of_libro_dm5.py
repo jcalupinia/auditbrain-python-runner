@@ -1,16 +1,27 @@
 """DM5 Ventas: ventas gravadas, ventas 0% e IVA en ventas, libros vs declaraciones."""
 
-from openpyxl import Workbook
+import datetime
+from io import BytesIO
+
+from openpyxl import Workbook, load_workbook
 
 from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm5_ventas import (
-    CASILLEROS_IVA_VENTAS, CASILLEROS_VENTAS, CASILLEROS_VENTAS_0, SHEET_DM5, build_dm5,
+    CASILLEROS_IVA_VENTAS, CASILLEROS_VENTAS, CASILLEROS_VENTAS_0, ETIQUETA_POR_ASIGNAR,
+    SHEET_DM5, build_dm5,
 )
+from backend.app.aud.obligaciones_fiscales.libro.ensamblador import armar_libro
+from backend.app.aud.obligaciones_fiscales.mayor.tipos import Movimiento
 
 PERIODOS = [f"2025-{m:02d}" for m in range(1, 13)]
 
 DIR_MAYORES = {
     ("cuenta:4.1.1.1.1", "01"): "'Mayores homologados'!D4",
     ("cuenta:4.1.1.1.2", "01"): "'Mayores homologados'!D5",
+    ("cuenta:4.1.1.1.1:gravada", "01"): "'Mayores homologados'!D40",
+    ("cuenta:4.1.1.1.2:gravada", "01"): "'Mayores homologados'!D41",
+    ("cuenta:4.1.1.1.1:cero", "01"): "'Mayores homologados'!D44",
+    ("cuenta:4.1.1.1.2:cero", "01"): "'Mayores homologados'!D45",
+    ("VENTAS:por_asignar", "01"): "'Mayores homologados'!D52",
     ("orden:VENTAS", "cuentas"): ["4.1.1.1.1", "4.1.1.1.2"],
     ("cuenta:2.1.3.1.1", "01"): "'Mayores homologados'!D8",
     ("orden:IVA_VENTAS", "cuentas"): ["2.1.3.1.1"],
@@ -152,3 +163,89 @@ def test_el_bloque_crece_con_mas_cuentas_de_venta_y_el_subtotal_se_desplaza():
                                 if ws.cell(r, 2).value == "Según libros")
     formula = ws.cell(primera_fila_libros, 3).value
     assert formula == f"=SUM(C14:C{primera_fila_libros - 1})"
+
+
+# ------------------------------------------- separación gravadas / 0% ---
+#
+# El motor agrega por cuenta y mes sin distinguir tarifa: los dos bloques de
+# ventas leían la MISMA celda del resumen y contrastaban esa única cifra
+# contra casilleros distintos del F-104. Ahora cada bloque lee su tramo del
+# desglose por asiento que publica la hoja de mayores.
+
+def _fila_del_titulo(ws, titulo: str) -> int:
+    return next(r for r in range(1, ws.max_row + 1) if ws.cell(r, 1).value == titulo)
+
+
+def test_cada_bloque_de_ventas_lee_su_propio_tramo_del_desglose():
+    ws = _cedula()
+    primera_no_cero = _fila_del_titulo(ws, "VENTAS ≠ 0%") + 1
+    primera_cero = _fila_del_titulo(ws, "VENTAS 0%") + 1
+    assert ws.cell(primera_no_cero, 3).value == "='Mayores homologados'!D40"
+    assert ws.cell(primera_cero, 3).value == "='Mayores homologados'!D44"
+
+
+def test_hay_una_fila_visible_de_ventas_por_asignar():
+    ws = _cedula()
+    etiquetas = _etiquetas(ws)
+    assert etiquetas.count(ETIQUETA_POR_ASIGNAR) == 1
+    fila = etiquetas.index(ETIQUETA_POR_ASIGNAR) + 1
+    assert ws.cell(fila, 3).value == "='Mayores homologados'!D52"
+
+
+def test_la_fila_por_asignar_no_entra_en_el_segun_libros():
+    """Lo que no se pudo clasificar se MUESTRA, no se suma a la base gravada:
+    el 'Según libros' del bloque tiene que seguir sumando sólo las cuentas."""
+    ws = _cedula()
+    etiquetas = _etiquetas(ws)
+    fila_por_asignar = etiquetas.index(ETIQUETA_POR_ASIGNAR) + 1
+    fila_libros = next(r for r in range(1, ws.max_row + 1)
+                       if ws.cell(r, 2).value == "Según libros")
+    assert fila_libros < fila_por_asignar
+    assert ws.cell(fila_libros, 3).value == f"=SUM(C14:C{fila_libros - 1})"
+
+
+# --------------------------------------- regresión: DM5!C14 vs DM5!C36 ---
+
+class _FilaClasif:
+    def __init__(self, codigo, nombre, categoria, por_mes):
+        self.codigo_cuenta = codigo
+        self.nombre_cuenta = nombre
+        self.categoria_final = categoria
+        self.por_mes_json = por_mes
+        self.n_movimientos = 1
+        self.debe = 0.0
+        self.haber = 0.0
+
+
+def _mov(codigo, haber, asiento):
+    return Movimiento(codigo=codigo, asiento=asiento,
+                      fecha=datetime.date(2025, 1, 15), haber=haber)
+
+
+def test_los_dos_bloques_de_ventas_ya_no_apuntan_a_la_misma_celda():
+    """Regresión del defecto reportado: DM5!C14 y DM5!C36 leían ambos
+    'Mayores homologados'!D30, así que los dos bloques mostraban la misma
+    cifra contrastada contra casilleros distintos."""
+    filas = [
+        _FilaClasif("4.1.1.1", "Venta de mercadería", "VENTAS", {"01": 1150.0}),
+        _FilaClasif("2.1.7.4.1", "IVA en ventas", "IVA_VENTAS", {"01": 120.0}),
+    ]
+    movimientos = [
+        _mov("4.1.1.1", 100.0, "VTA 1"), _mov("4.1.1.1", 250.0, "VTA 1"),
+        _mov("4.1.1.1", 300.0, "VTA 1"), _mov("2.1.7.4.1", 45.0, "VTA 1"),
+        _mov("4.1.1.1", 500.0, "VTA 2"), _mov("2.1.7.4.1", 75.0, "VTA 2"),
+    ]
+    wb = load_workbook(BytesIO(armar_libro(
+        clasificacion=filas, movimientos=movimientos,
+        f104_monthly={"2025-01": {"casilleros": {"411": 800.0}}},
+        f103_monthly={}, cliente="C", periodo="2025",
+    )))
+    ws = wb[SHEET_DM5]
+    fila_no_cero = _fila_del_titulo(ws, "VENTAS ≠ 0%") + 1
+    fila_cero = _fila_del_titulo(ws, "VENTAS 0%") + 1
+    gravada = ws.cell(fila_no_cero, 3).value
+    cero = ws.cell(fila_cero, 3).value
+    assert gravada != cero, gravada
+    mayores = wb["Mayores homologados"]
+    assert mayores[gravada.split("!", 1)[1]].value == 800.0
+    assert mayores[cero.split("!", 1)[1]].value == 350.0

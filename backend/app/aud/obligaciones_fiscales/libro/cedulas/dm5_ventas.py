@@ -4,10 +4,19 @@ Tres bloques "libros vs declarado vs diferencia". El número de cuentas de
 venta varía por cliente, así que las posiciones de las filas de subtotal se
 calculan en cada bloque, nunca se hardcodean.
 
-Las cuentas de VENTAS ≠0% y VENTAS 0% son las MISMAS cuentas del mayor: el
-mayor no distingue tarifa, solo el F-104 declarado lo hace. Por eso ambos
-bloques listan idénticas filas de cuenta (misma fórmula) y solo cambian los
-casilleros contra los que se comparan.
+Las cuentas de VENTAS ≠0% y VENTAS 0% son las MISMAS cuentas del mayor, pero
+NO las mismas cifras: la hoja de mayores publica, además del total por cuenta
+y mes, el desglose por tarifa que se obtiene asiento por asiento (ver
+`mayor/ventas_tarifa.py`). El bloque ≠0% lee el tramo gravado y el bloque 0%
+lee el tramo 0%. Antes ambos leían la misma celda del resumen y contrastaban
+esa única cifra contra casilleros distintos del F-104.
+
+Lo que la separación no puede resolver sin adivinar (asientos con tarifas
+mezcladas donde varias combinaciones de líneas cuadran con el IVA) se muestra
+en una fila propia dentro del bloque ≠0%, FUERA del "Según libros". Va en ese
+bloque porque el remanente sólo aparece en asientos que SÍ tienen IVA —los
+asientos sin IVA se resuelven como 0% de una— así que es base gravada
+pendiente de identificar, no venta 0% no declarada.
 """
 
 from __future__ import annotations
@@ -29,8 +38,25 @@ CASILLEROS_VENTAS = ["411", "412", "444"]
 CASILLEROS_VENTAS_0 = ["412", "413", "414", "415", "417", "418", "444"]
 CASILLEROS_IVA_VENTAS = ["421", "422", "423", "424", "454"]
 
+ETIQUETA_POR_ASIGNAR = "Por asignar (revisar asientos con tarifas mezcladas)"
 
-def _dirs_cuenta(dir_mayores: dict, codigo: str) -> dict[str, str]:
+
+def _dirs_cuenta(dir_mayores: dict, codigo: str, tramo: str | None = None) -> dict[str, str]:
+    """Direcciones mensuales de una cuenta, opcionalmente de un tramo.
+
+    Si se pide un tramo (`gravada` / `cero`) y la hoja de mayores no lo
+    publicó —se armó sin movimientos, así que no hubo cómo separar— se cae al
+    total de la cuenta: es preferible mostrar el total en los dos bloques,
+    como antes, que dejar la cédula en cero.
+    """
+    if tramo:
+        del_tramo = {
+            mes: dir_mayores[(f"cuenta:{codigo}:{tramo}", mes)]
+            for mes in MESES
+            if (f"cuenta:{codigo}:{tramo}", mes) in dir_mayores
+        }
+        if del_tramo:
+            return del_tramo
     return {
         mes: dir_mayores[(f"cuenta:{codigo}", mes)]
         for mes in MESES
@@ -49,19 +75,30 @@ def _dirs_casillero(dir_f104: dict, periodos: list[str], cas: str) -> dict[str, 
 
 
 def _bloque_cuentas(ws, *, fila: int, titulo: str, cuentas: list[str],
-                    dir_mayores: dict, nombres_cuenta: dict) -> tuple[int, int]:
-    """Encabezado + una fila por cuenta + 'Según libros'. Devuelve (fila_siguiente, fila_libros)."""
+                    dir_mayores: dict, nombres_cuenta: dict,
+                    tramo: str | None = None,
+                    extra: tuple[str, dict[str, str]] | None = None) -> tuple[int, int]:
+    """Encabezado + una fila por cuenta + 'Según libros'. Devuelve (fila_siguiente, fila_libros).
+
+    `extra` es una fila informativa que se escribe DESPUÉS del 'Según libros'
+    y por tanto queda fuera de su suma.
+    """
     escribir_encabezado_meses(ws, fila=fila, titulo=titulo)
     fila += 1
     primera = fila
     for codigo in cuentas:
         fila_referencias(ws, fila=fila, etiqueta=nombres_cuenta.get(codigo, codigo),
-                         direcciones=_dirs_cuenta(dir_mayores, codigo))
+                         direcciones=_dirs_cuenta(dir_mayores, codigo, tramo))
         fila += 1
     ultima = fila - 1
     fila_libros = fila
     fila_suma_rango(ws, fila=fila_libros, etiqueta="Según libros", desde=primera, hasta=ultima)
-    fila += 2
+    fila += 1
+    if extra:
+        etiqueta, direcciones = extra
+        fila_referencias(ws, fila=fila, etiqueta=etiqueta, direcciones=direcciones)
+        fila += 1
+    fila += 1
     return fila, fila_libros
 
 
@@ -138,9 +175,15 @@ def build_dm5(
     fila = 13
 
     # --- Bloque 1: Ventas ≠ 0% ---
+    dirs_por_asignar = {
+        mes: dir_mayores[("VENTAS:por_asignar", mes)]
+        for mes in MESES
+        if ("VENTAS:por_asignar", mes) in dir_mayores
+    }
     fila, fila_libros_1 = _bloque_cuentas(
         ws, fila=fila, titulo="VENTAS ≠ 0%", cuentas=cuentas_ventas,
-        dir_mayores=dir_mayores, nombres_cuenta=nombres_cuenta,
+        dir_mayores=dir_mayores, nombres_cuenta=nombres_cuenta, tramo="gravada",
+        extra=(ETIQUETA_POR_ASIGNAR, dirs_por_asignar) if dirs_por_asignar else None,
     )
     fila, fila_decl_1 = _bloque_declarado(
         ws, fila=fila, casilleros=CASILLEROS_VENTAS, dir_f104=dir_f104, periodos=periodos,
@@ -152,7 +195,7 @@ def build_dm5(
     # --- Bloque 2: Ventas 0% (mismas cuentas de libros, otros casilleros) ---
     fila, fila_libros_2 = _bloque_cuentas(
         ws, fila=fila, titulo="VENTAS 0%", cuentas=cuentas_ventas,
-        dir_mayores=dir_mayores, nombres_cuenta=nombres_cuenta,
+        dir_mayores=dir_mayores, nombres_cuenta=nombres_cuenta, tramo="cero",
     )
     fila, fila_decl_2 = _bloque_declarado(
         ws, fila=fila, casilleros=CASILLEROS_VENTAS_0, dir_f104=dir_f104, periodos=periodos,
