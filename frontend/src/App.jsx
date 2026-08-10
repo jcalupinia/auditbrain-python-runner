@@ -179,6 +179,12 @@ function Metric({ label, value, state }) {
    Muestra el proveedor actual y enlaces directos a las páginas de
    facturación de cada proveedor LLM soportado. */
 const LLM_PROVIDER_INFO = {
+  local: {
+    label: "Servidor IA local",
+    free: true,
+    rechargeUrl: "",
+    note: "Privado · en tu servidor · sin coste por token",
+  },
   anthropic: {
     label: "Anthropic · Claude",
     free: false,
@@ -241,7 +247,7 @@ function TokensPanel({ llm }) {
           </li>
         </ul>
       )}
-      {primaryInfo && (
+      {primaryInfo && primaryInfo.rechargeUrl && (
         <a
           href={primaryInfo.rechargeUrl}
           target="_blank"
@@ -265,19 +271,30 @@ function TokensPanel({ llm }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {Object.entries(LLM_PROVIDER_INFO)
             .filter(([key]) => key !== primary)
-            .map(([key, info]) => (
-              <a
-                key={key}
-                href={info.rechargeUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="link"
-                style={{ fontSize: 12 }}
-                title={info.note}
-              >
-                {info.label} {info.free ? "(gratis)" : "↗"}
-              </a>
-            ))}
+            .map(([key, info]) =>
+              info.rechargeUrl ? (
+                <a
+                  key={key}
+                  href={info.rechargeUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="link"
+                  style={{ fontSize: 12 }}
+                  title={info.note}
+                >
+                  {info.label} {info.free ? "(gratis)" : "↗"}
+                </a>
+              ) : (
+                <span
+                  key={key}
+                  className="link"
+                  style={{ fontSize: 12, cursor: "default" }}
+                  title={info.note}
+                >
+                  {info.label} {info.free ? "(gratis)" : ""}
+                </span>
+              ),
+            )}
         </div>
       </div>
     </div>
