@@ -1,5 +1,21 @@
 import { useState, useEffect, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import * as api from "./api.js";
+
+/* Renderiza el contenido del asistente como Markdown (tablas, negritas,
+   listas, encabezados). Los mensajes del usuario van como texto plano.
+   remark-gfm habilita tablas y otras extensiones estilo GitHub. */
+function MessageContent({ role, content }) {
+  if (role === "user") {
+    return <div className="cw-msg-content">{content}</div>;
+  }
+  return (
+    <div className="cw-msg-content cw-markdown">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || ""}</ReactMarkdown>
+    </div>
+  );
+}
 import ToolCatalog from "./aud/ToolCatalog.jsx";
 import TaxCatalog from "./tax/TaxCatalog.jsx";
 import FinCatalog from "./fin/FinCatalog.jsx";
@@ -1185,7 +1201,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
                   {messages.map((m) => (
                     <div key={m.id} className={`cw-msg ${m.role}`}>
                       <div className="cw-msg-role">{m.role === "user" ? name : "AUDIT-IA"}</div>
-                      <div className="cw-msg-content">{m.content}</div>
+                      <MessageContent role={m.role} content={m.content} />
                     </div>
                   ))}
                   {sending && (
