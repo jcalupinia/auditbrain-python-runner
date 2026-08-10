@@ -9,6 +9,7 @@ de inventar respuestas.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import urllib.error
 import urllib.request
@@ -435,3 +436,146 @@ def _call_gemini(messages: list[dict], system: str | None) -> LLMResponse:
         tokens_in=usage.get("promptTokenCount"),
         tokens_out=usage.get("candidatesTokenCount"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Streaming (SSE token por token) — aditivo, no altera el path clásico
+# ---------------------------------------------------------------------------
+#
+# Solo los proveedores OpenAI-compatibles (local, openai, groq, openrouter)
+# soportan streaming aquí. Si el primario es gemini/anthropic, o si el stream
+# falla ANTES del primer token, se levanta ProviderUnavailable para que el
+# caller (service) caiga limpio a chat_complete() no-streaming, que recorre
+# toda la cadena de failover. Una vez emitido el primer token ya no hay
+# failover transparente (se propaga el error con el parcial ya entregado).
+
+_STREAMABLE = {"local", "openai", "groq", "openrouter"}
+
+
+def _stream_openai_compatible(url, key, model, messages, system, timeout, extra_headers=None):
+    """Generador de deltas desde un endpoint OpenAI-compatible con stream=True.
+
+    Emite dicts: {"type": "token", "text": ...} y al final
+    {"type": "done", "model", "tokens_in", "tokens_out"} (si el gateway envía
+    usage vía stream_options). Traduce cualquier fallo de red a ProviderUnavailable.
+    """
+    msgs: list[dict] = []
+    if system:
+        msgs.append({"role": "system", "content": system})
+    msgs.extend(messages)
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    if extra_headers:
+        headers.update(extra_headers)
+    body = json.dumps(
+        {
+            "model": model,
+            "messages": msgs,
+            "max_tokens": _max_tokens(),
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        resp = urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")
+        raise ProviderUnavailable(f"HTTP {e.code} del proveedor: {detail[:400]}")
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        raise ProviderUnavailable(f"Error de red/timeout contactando al proveedor: {e}")
+
+    try:
+        for raw in resp:  # el file-object de urllib itera línea por línea (SSE)
+            line = raw.decode("utf-8", errors="replace").strip()
+            if not line or not line.startswith("data:"):
+                continue
+            data = line[len("data:"):].strip()
+            if data == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            choices = chunk.get("choices") or []
+            if choices:
+                delta = choices[0].get("delta") or {}
+                piece = delta.get("content")
+                if piece:
+                    yield {"type": "token", "text": piece}
+            usage = chunk.get("usage")
+            if usage:
+                yield {
+                    "type": "done",
+                    "model": model,
+                    "tokens_in": usage.get("prompt_tokens"),
+                    "tokens_out": usage.get("completion_tokens"),
+                }
+    finally:
+        try:
+            resp.close()
+        except Exception:
+            pass
+
+
+def _stream_provider(provider, messages, system):
+    if provider == "local":
+        base = _local_base_url().rstrip("/")
+        return _stream_openai_compatible(
+            f"{base}/chat/completions", _local_key() or "sk-noauth",
+            _local_model(), messages, system, _local_timeout(),
+        )
+    if provider == "openai":
+        return _stream_openai_compatible(
+            "https://api.openai.com/v1/chat/completions", _openai_key(),
+            _openai_model(), messages, system, 60,
+        )
+    if provider == "groq":
+        return _stream_openai_compatible(
+            "https://api.groq.com/openai/v1/chat/completions", _groq_key(),
+            _groq_model(), messages, system, 60,
+        )
+    if provider == "openrouter":
+        title = os.getenv("OPENROUTER_APP_NAME", "AuditBrain").strip()
+        extra = {"X-Title": title}
+        referer = os.getenv("OPENROUTER_SITE_URL", "").strip()
+        if referer:
+            extra["HTTP-Referer"] = referer
+        return _stream_openai_compatible(
+            "https://openrouter.ai/api/v1/chat/completions", _openrouter_key(),
+            _openrouter_model(), messages, system, 60, extra_headers=extra,
+        )
+    raise ProviderUnavailable(f"Proveedor {provider} no soporta streaming")
+
+
+def stream_chat_complete(messages, system=None):
+    """Versión en streaming de chat_complete. Generador de deltas
+    {"type": "token"|"done", ...}. Failover ANTES del primer token; si el
+    primario no es streameable, levanta ProviderUnavailable para que el caller
+    use el path no-streaming."""
+    chain = _providers_with_keys()
+    if not chain:
+        raise ProviderUnavailable(
+            "No hay proveedor LLM configurado. Define una API key "
+            "(GEMINI_API_KEY, ANTHROPIC_API_KEY, etc.) o LOCAL_LLM_BASE_URL."
+        )
+    last_exc: ProviderUnavailable | None = None
+    for provider in chain:
+        if provider not in _STREAMABLE:
+            last_exc = ProviderUnavailable(f"{provider} no streamea (usar fallback no-streaming)")
+            continue
+        emitted = False
+        try:
+            for delta in _stream_provider(provider, messages, system):
+                emitted = True
+                yield delta
+            return  # el proveedor terminó correctamente
+        except ProviderUnavailable as exc:
+            last_exc = exc
+            if emitted:
+                raise  # ya se entregó texto: no hay failover transparente
+            logging.getLogger("auditbrain").warning(
+                "Streaming: proveedor %s falló antes del primer token (%s). Siguiente…",
+                provider, exc,
+            )
+            continue
+    raise last_exc or ProviderUnavailable("Streaming no disponible con la configuración actual.")

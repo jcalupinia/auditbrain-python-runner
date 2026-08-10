@@ -604,6 +604,66 @@ export async function sendChatMessage(conversationId, content) {
   );
 }
 
+/**
+ * Envía un mensaje y consume la respuesta en STREAMING (SSE), token por token.
+ * No usa apiFetch: su AbortController (60s) y reintentos romperían/duplicarían
+ * el stream. El JWT va en header (Authorization), por eso fetch+ReadableStream
+ * en vez de EventSource nativo (que no admite headers).
+ *
+ * Callbacks: onUser(msg), onToken(text), onAssistant(msg), onError(detail).
+ * Devuelve true si el stream se procesó; lanza si la conexión falla al abrir.
+ */
+export async function streamChatMessage(
+  conversationId,
+  content,
+  { onUser, onToken, onAssistant, onError } = {}
+) {
+  const res = await fetch(
+    `${API_BASE}/api/v1/chat/conversations/${conversationId}/messages/stream`,
+    {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ content }),
+    }
+  );
+  if (res.status === 401) {
+    clearSession();
+    if (typeof window !== "undefined") window.location.reload();
+    return false;
+  }
+  if (!res.ok || !res.body) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const frames = buf.split("\n\n");
+    buf = frames.pop(); // el último puede estar incompleto
+    for (const frame of frames) {
+      const lines = frame.split("\n");
+      const evLine = lines.find((l) => l.startsWith("event:"));
+      const dataLine = lines.find((l) => l.startsWith("data:"));
+      if (!dataLine) continue;
+      const ev = evLine ? evLine.slice(6).trim() : "message";
+      let data;
+      try {
+        data = JSON.parse(dataLine.slice(5).trim());
+      } catch {
+        continue;
+      }
+      if (ev === "user_message") onUser?.(data);
+      else if (ev === "token") onToken?.(data.text);
+      else if (ev === "assistant_message") onAssistant?.(data);
+      else if (ev === "error") onError?.(data.detail);
+    }
+  }
+  return true;
+}
+
 // ---------- AUD.IMPUESTOS.OBLIGACIONES_FISCALES (ciclo de dos fases) ----------
 
 const OF_BASE = `${API_BASE}/api/v1/aud/obligaciones-fiscales`;

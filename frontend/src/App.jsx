@@ -1098,6 +1098,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
   const [conv, setConv] = useState(null);          // conversación activa
   const [messages, setMessages] = useState([]);
   const [sending, setSending] = useState(false);
+  const [streamingText, setStreamingText] = useState(""); // respuesta en vivo (SSE)
   const first = (user.email || "Operador").split("@")[0].split(/[._-]/)[0];
   const name = first.charAt(0).toUpperCase() + first.slice(1);
 
@@ -1107,7 +1108,19 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
     setMessages([]);
     setChatNotice("");
     setChatText("");
+    setStreamingText("");
   }, [module.id]);
+
+  // Envío clásico (no-streaming) — se usa como respaldo si el stream falla.
+  async function submitChatClassic(activeConv, content) {
+    const turn = await api.sendChatMessage(activeConv.id, content);
+    setMessages((prev) => [
+      ...prev,
+      turn.user_message,
+      ...(turn.assistant_message ? [turn.assistant_message] : []),
+    ]);
+    if (turn.provider_error) setChatNotice(turn.provider_error);
+  }
 
   async function submitChat(e) {
     e.preventDefault();
@@ -1115,6 +1128,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
     if (!content || sending) return;
     setSending(true);
     setChatNotice("");
+    setStreamingText("");
     try {
       let activeConv = conv;
       if (!activeConv) {
@@ -1124,18 +1138,29 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
         });
         setConv(activeConv);
       }
-      const turn = await api.sendChatMessage(activeConv.id, content);
-      setMessages((prev) => [
-        ...prev,
-        turn.user_message,
-        ...(turn.assistant_message ? [turn.assistant_message] : []),
-      ]);
       setChatText("");
-      if (turn.provider_error) setChatNotice(turn.provider_error);
+      try {
+        // Camino preferido: streaming token por token (SSE).
+        await api.streamChatMessage(activeConv.id, content, {
+          onUser: (um) => setMessages((prev) => [...prev, um]),
+          onToken: (t) => setStreamingText((s) => s + t),
+          onAssistant: (am) => {
+            setMessages((prev) => [...prev, am]);
+            setStreamingText("");
+          },
+          onError: (detail) => setChatNotice(detail),
+        });
+      } catch (streamErr) {
+        // Si el stream no pudo ni abrir, caer al envío clásico para no perder
+        // el turno. (El user_message se re-crea; el backend lo maneja.)
+        setStreamingText("");
+        await submitChatClassic(activeConv, content);
+      }
     } catch (err) {
       setChatNotice(err.message || "Error enviando el mensaje.");
     } finally {
       setSending(false);
+      setStreamingText("");
     }
   }
 
@@ -1196,7 +1221,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
               />
             </div>
             <div className="cw-stage-content">
-              {messages.length > 0 && (
+              {(messages.length > 0 || sending) && (
                 <div className="cw-thread">
                   {messages.map((m) => (
                     <div key={m.id} className={`cw-msg ${m.role}`}>
@@ -1204,7 +1229,16 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
                       <MessageContent role={m.role} content={m.content} />
                     </div>
                   ))}
-                  {sending && (
+                  {/* Respuesta en vivo: mientras llegan tokens la mostramos
+                      renderizada como Markdown; si aún no llegó el primero,
+                      "Pensando…". Al terminar, el mensaje pasa a `messages`. */}
+                  {sending && streamingText && (
+                    <div className="cw-msg assistant">
+                      <div className="cw-msg-role">AUDIT-IA</div>
+                      <MessageContent role="assistant" content={streamingText} />
+                    </div>
+                  )}
+                  {sending && !streamingText && (
                     <div className="cw-msg assistant pending">
                       <div className="cw-msg-role">AUDIT-IA</div>
                       <div className="cw-msg-content muted">Pensando…</div>
