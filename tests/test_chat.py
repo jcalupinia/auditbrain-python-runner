@@ -204,14 +204,89 @@ def test_provider_availability_defaults_to_none(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("LOCAL_LLM_BASE_URL", raising=False)
+    monkeypatch.delenv("LOCAL_LLM_API_KEY", raising=False)
     assert chat_providers.available_provider() is None
 
 
 def test_gemini_available_when_key_set(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("LOCAL_LLM_BASE_URL", raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     assert chat_providers.available_provider() == "gemini"
+
+
+def test_local_is_primary_when_base_url_set(monkeypatch):
+    """Con el gateway local configurado, es el proveedor primario aunque
+    haya proveedores de nube configurados (local-first)."""
+    monkeypatch.setenv("LOCAL_LLM_BASE_URL", "http://gateway.local/v1")
+    monkeypatch.setenv("GEMINI_API_KEY", "gem-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-key")
+    assert chat_providers.available_provider() == "local"
+
+
+def test_local_call_maps_payload_and_response(monkeypatch):
+    """El proveedor local usa el wire format OpenAI y apunta a
+    LOCAL_LLM_BASE_URL + /chat/completions con timeout corto."""
+    captured = {}
+
+    def fake_http_post(url, headers, payload, timeout=60):
+        captured["url"] = url
+        captured["headers"] = headers
+        captured["payload"] = payload
+        captured["timeout"] = timeout
+        return {
+            "choices": [{"message": {"content": "respuesta local"}}],
+            "usage": {"prompt_tokens": 7, "completion_tokens": 9},
+        }
+
+    monkeypatch.setenv("LOCAL_LLM_BASE_URL", "https://auditia.tailnet.ts.net/v1")
+    monkeypatch.setenv("LOCAL_LLM_API_KEY", "sk-master")
+    monkeypatch.setenv("LOCAL_LLM_MODEL", "auditia-rutina")
+    monkeypatch.setenv("AUDITBRAIN_LLM_PROVIDER", "local")
+    monkeypatch.setattr(chat_providers, "_http_post", fake_http_post)
+
+    r = chat_providers.chat_complete(
+        messages=[{"role": "user", "content": "hola"}],
+        system="Eres AuditBrain IA.",
+    )
+    assert r.content == "respuesta local"
+    assert r.tokens_in == 7 and r.tokens_out == 9
+    assert captured["url"] == "https://auditia.tailnet.ts.net/v1/chat/completions"
+    assert captured["headers"]["Authorization"] == "Bearer sk-master"
+    assert captured["payload"]["model"] == "auditia-rutina"
+    # timeout corto propio del local (default 15s), no los 60 por defecto
+    assert captured["timeout"] == 15
+    # el system va como primer mensaje en el wire format OpenAI
+    assert captured["payload"]["messages"][0]["role"] == "system"
+
+
+def test_failover_from_local_to_cloud(monkeypatch):
+    """Si el servidor local no responde (timeout/caído), debe caer a la nube
+    automáticamente sin que el usuario note nada."""
+    monkeypatch.setenv("LOCAL_LLM_BASE_URL", "http://gateway.local/v1")
+    monkeypatch.setenv("GEMINI_API_KEY", "gem-key")
+    monkeypatch.delenv("AUDITBRAIN_LLM_PROVIDER", raising=False)
+
+    def fail_local(messages, system=None):
+        raise chat_providers.ProviderUnavailable(
+            "El proveedor no respondió en 15s (timeout de lectura)."
+        )
+
+    def ok_gemini(messages, system=None):
+        return chat_providers.LLMResponse(
+            content="respuesta de gemini", model="gemini-2.0-flash",
+            tokens_in=5, tokens_out=10,
+        )
+
+    monkeypatch.setattr(chat_providers, "_call_local", fail_local)
+    monkeypatch.setattr(chat_providers, "_call_gemini", ok_gemini)
+
+    r = chat_providers.chat_complete([{"role": "user", "content": "hola"}])
+    assert r.content == "respuesta de gemini"
 
 
 def test_failover_when_primary_provider_fails(monkeypatch):

@@ -123,10 +123,28 @@ services:
       - key: CORS_ALLOW_ORIGINS
         sync: false
 
-      # --- Proveedores LLM (free-first con failover automático) ---
+      # --- Proveedores LLM (local-first con failover automático) ---
       # Sin AUDITBRAIN_LLM_PROVIDER explícito, el orden es:
-      # gemini > groq > openrouter > anthropic > openai (gratis primero).
-      # Configurar las keys en el dashboard como secretos.
+      # local > gemini > groq > openrouter > anthropic > openai.
+      # El servidor de IA propio (gateway LiteLLM) es el PRIMARIO por
+      # privacidad y coste cero; si no responde en LOCAL_LLM_TIMEOUT_SECONDS
+      # cae automáticamente a los proveedores de la nube.
+      # Configurar las keys/secretos en el dashboard.
+      #
+      # LOCAL_LLM_BASE_URL = URL pública del gateway (Tailscale Funnel),
+      # DEBE incluir el sufijo /v1. Ej: https://auditia.tailXXXX.ts.net/v1
+      - key: LOCAL_LLM_BASE_URL
+        sync: false
+
+      - key: LOCAL_LLM_API_KEY
+        sync: false
+
+      - key: LOCAL_LLM_MODEL
+        value: "auditia-rutina"
+
+      - key: LOCAL_LLM_TIMEOUT_SECONDS
+        value: "15"
+
       - key: GROQ_API_KEY
         sync: false
 

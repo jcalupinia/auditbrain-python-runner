@@ -87,6 +87,36 @@ def _openrouter_model() -> str:
     ).strip()
 
 
+def _local_base_url() -> str:
+    # Gateway LOCAL compatible con la API de OpenAI (LiteLLM en el servidor de
+    # IA propio). DEBE incluir el sufijo /v1 (ej. https://host/v1); abajo se le
+    # concatena /chat/completions. Es lo que decide si "local" está disponible:
+    # basta la URL, la key puede ser opcional según el gateway.
+    return os.getenv("LOCAL_LLM_BASE_URL", "").strip()
+
+
+def _local_key() -> str:
+    # Master key del gateway LiteLLM. Puede ir vacía si el gateway no la exige;
+    # en _call_local se envía un Bearer no-vacío de todas formas.
+    return os.getenv("LOCAL_LLM_API_KEY", "").strip()
+
+
+def _local_model() -> str:
+    # Nombre lógico del modelo servido por el gateway local.
+    return os.getenv("LOCAL_LLM_MODEL", "auditia-rutina").strip()
+
+
+def _local_timeout() -> int:
+    # Timeout CORTO propio del proveedor local (no los 60s por defecto).
+    # El servidor local es el primario: si responde lento (modelo cargando,
+    # VRAM saturada, enlace lento) queremos degradar RÁPIDO a la nube en vez
+    # de congelar la UI. Ajustable por env.
+    try:
+        return int(os.getenv("LOCAL_LLM_TIMEOUT_SECONDS", "15"))
+    except ValueError:
+        return 15
+
+
 def _max_tokens() -> int:
     # Techo de tokens de SALIDA del LLM. Default alto para permitir documentos
     # largos (contratos, dictámenes, informes) sin que la respuesta se corte.
@@ -103,11 +133,14 @@ def _providers_with_keys() -> list[str]:
     """Lista de proveedores realmente configurados, en orden de preferencia.
 
     Preferencia: el valor explícito de AUDITBRAIN_LLM_PROVIDER primero, y luego
-    el resto. Sin override, los gratuitos van antes que los de pago para no
-    quemar saldo de pago accidentalmente:
-        gemini > groq > openrouter > anthropic > openai
+    el resto. Sin override, el servidor de IA LOCAL va primero (privacidad +
+    coste cero), y los gratuitos antes que los de pago como respaldo:
+        local > gemini > groq > openrouter > anthropic > openai
     """
     have = {
+        # "local" está disponible con solo la base URL configurada; la key es
+        # opcional según el gateway.
+        "local": bool(_local_base_url()),
         "anthropic": bool(_anthropic_key()),
         "openai": bool(_openai_key()),
         "gemini": bool(_gemini_key()),
@@ -117,7 +150,7 @@ def _providers_with_keys() -> list[str]:
     preferred = _provider()
     if preferred == "google":
         preferred = "gemini"
-    default_order = ["gemini", "groq", "openrouter", "anthropic", "openai"]
+    default_order = ["local", "gemini", "groq", "openrouter", "anthropic", "openai"]
     order: list[str] = []
     if preferred in have and have[preferred]:
         order.append(preferred)
@@ -138,6 +171,8 @@ def available_provider() -> str | None:
 # ---------------------------------------------------------------------------
 
 def _dispatch(provider: str, messages: list[dict], system: str | None) -> LLMResponse:
+    if provider == "local":
+        return _call_local(messages, system)
     if provider == "anthropic":
         return _call_anthropic(messages, system)
     if provider == "openai":
@@ -271,8 +306,11 @@ def _call_openai_compatible(
     messages: list[dict],
     system: str | None,
     extra_headers: dict[str, str] | None = None,
+    timeout: int = 60,
 ) -> LLMResponse:
-    """Backend común para OpenAI, Groq y OpenRouter (mismo wire format)."""
+    """Backend común para OpenAI, Groq, OpenRouter y el gateway local (mismo
+    wire format). ``timeout`` permite un tope de lectura propio por proveedor
+    (el local usa uno corto para degradar rápido a la nube)."""
     msgs: list[dict] = []
     if system:
         msgs.append({"role": "system", "content": system})
@@ -287,6 +325,7 @@ def _call_openai_compatible(
         url,
         headers=headers,
         payload={"model": model, "messages": msgs, "max_tokens": _max_tokens()},
+        timeout=timeout,
     )
     choice = (data.get("choices") or [{}])[0]
     msg = choice.get("message") or {}
@@ -297,6 +336,22 @@ def _call_openai_compatible(
         model=model,
         tokens_in=usage.get("prompt_tokens"),
         tokens_out=usage.get("completion_tokens"),
+    )
+
+
+def _call_local(messages: list[dict], system: str | None) -> LLMResponse:
+    # Gateway LiteLLM propio (OpenAI-compatible). LOCAL_LLM_BASE_URL incluye
+    # /v1, aquí se le añade /chat/completions. Se envía un Bearer no-vacío por
+    # si el gateway valida el header aunque la master key sea opcional. Usa el
+    # timeout CORTO propio del local para no congelar la UI si va lento.
+    base = _local_base_url().rstrip("/")
+    return _call_openai_compatible(
+        url=f"{base}/chat/completions",
+        key=_local_key() or "sk-noauth",
+        model=_local_model(),
+        messages=messages,
+        system=system,
+        timeout=_local_timeout(),
     )
 
 
