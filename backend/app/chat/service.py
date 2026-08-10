@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import datetime
+import json
+import logging
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -13,9 +15,21 @@ from backend.app.chat.providers import (
     LLMResponse,
     ProviderUnavailable,
     chat_complete,
+    stream_chat_complete,
 )
+from backend.app.chat.schemas import MessageOut
 from backend.app.chat.skills_registry import build_system_prompt
 from backend.app.context.service import ensure_user_has_organization
+from backend.app.db.session import SessionLocal
+
+
+def _now():
+    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+
+
+def _sse(event: str, data: dict) -> str:
+    """Serializa un evento SSE (Server-Sent Events)."""
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
 def list_user_conversations(db: Session, user: User) -> list[Conversation]:
@@ -146,3 +160,103 @@ def add_user_message_and_respond(
     db.commit()
     db.refresh(assistant_msg)
     return user_msg, assistant_msg, None
+
+
+def stream_user_message_and_respond(
+    conversation_id: int,
+    user_content: str,
+    skill_id: str | None = None,
+):
+    """Versión en streaming (SSE) de add_user_message_and_respond.
+
+    Es un GENERADOR que emite eventos SSE. Abre su PROPIA sesión de BD porque
+    la sesión del endpoint (Depends get_db) ya está cerrada cuando el
+    StreamingResponse comienza a iterar. Persiste el mensaje del usuario al
+    inicio y el del assistant al terminar el stream.
+
+    Eventos emitidos: user_message, token (x N), assistant_message, error, done.
+    """
+    db = SessionLocal()
+    try:
+        conv = db.get(Conversation, conversation_id)
+        if conv is None:
+            yield _sse("error", {"detail": "Conversación no encontrada."})
+            yield _sse("done", {})
+            return
+
+        user_msg = Message(conversation_id=conv.id, role="user", content=user_content)
+        db.add(user_msg)
+        db.commit()
+        db.refresh(user_msg)
+        yield _sse("user_message", MessageOut.model_validate(user_msg).model_dump(mode="json"))
+
+        history_rows = list_messages(db, conv)
+        api_messages = [
+            {"role": m.role, "content": m.content}
+            for m in history_rows
+            if m.role in ("user", "assistant")
+        ]
+        system = _system_prompt(conv.module_code, skill_id)
+
+        acc: list[str] = []
+        model_used: str | None = None
+        tin: int | None = None
+        tout: int | None = None
+        error_detail: str | None = None
+
+        try:
+            for delta in stream_chat_complete(api_messages, system):
+                if delta.get("type") == "token":
+                    acc.append(delta["text"])
+                    yield _sse("token", {"text": delta["text"]})
+                elif delta.get("type") == "done":
+                    model_used = delta.get("model")
+                    tin = delta.get("tokens_in")
+                    tout = delta.get("tokens_out")
+        except ProviderUnavailable as exc:
+            # Failover: si NADA se emitió aún, caer al path no-streaming (que
+            # recorre toda la cadena: local→gemini→groq→anthropic→openai).
+            if not acc:
+                try:
+                    llm: LLMResponse = chat_complete(api_messages, system)
+                    acc = [llm.content]
+                    model_used = llm.model
+                    tin, tout = llm.tokens_in, llm.tokens_out
+                    yield _sse("token", {"text": llm.content})
+                except ProviderUnavailable as exc2:
+                    error_detail = str(exc2)
+            else:
+                # Ya se entregó texto parcial: no hay failover transparente.
+                error_detail = str(exc)
+
+        content = "".join(acc)
+        if content:
+            assistant_msg = Message(
+                conversation_id=conv.id,
+                role="assistant",
+                content=content,
+                model=model_used,
+                tokens_in=tin,
+                tokens_out=tout,
+            )
+            db.add(assistant_msg)
+            conv.updated_at = _now()
+            if conv.title == "Nueva conversación":
+                conv.title = (user_content.strip().splitlines() or [""])[0][:60] or "Conversación"
+            db.add(conv)
+            db.commit()
+            db.refresh(assistant_msg)
+            yield _sse(
+                "assistant_message",
+                MessageOut.model_validate(assistant_msg).model_dump(mode="json"),
+            )
+
+        if error_detail:
+            yield _sse("error", {"detail": error_detail})
+        yield _sse("done", {})
+    except Exception as exc:  # red de seguridad: nunca colgar el stream sin cerrar
+        logging.getLogger("auditbrain").exception("Error en stream de chat")
+        yield _sse("error", {"detail": f"Error interno: {exc}"})
+        yield _sse("done", {})
+    finally:
+        db.close()

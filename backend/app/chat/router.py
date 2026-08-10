@@ -1,6 +1,7 @@
 """Endpoints del chat cognitivo: /api/v1/chat/*."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from backend.app.auth.deps import get_current_user
@@ -96,4 +97,34 @@ def send_message(
         user_message=MessageOut.model_validate(user_msg),
         assistant_message=MessageOut.model_validate(assistant_msg) if assistant_msg else None,
         provider_error=error,
+    )
+
+
+@router.post("/conversations/{conversation_id}/messages/stream")
+def send_message_stream(
+    conversation_id: int,
+    payload: MessageIn,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Igual que send_message pero transmite la respuesta token por token (SSE).
+
+    Valida el acceso con la sesión del request; el generador abre su propia
+    sesión de BD (la del Depends se cierra cuando esta función retorna, antes
+    de que StreamingResponse empiece a iterar).
+    """
+    conv = service.get_conversation(db, conversation_id, current)
+    if not conv:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Conversación no encontrada.")
+    generator = service.stream_user_message_and_respond(conv.id, payload.content)
+    return StreamingResponse(
+        generator,
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            # Anti-buffering: sin esto, el proxy de Render/nginx acumula el body
+            # y el usuario recibe todo de golpe en vez de token por token.
+            "X-Accel-Buffering": "no",
+        },
     )

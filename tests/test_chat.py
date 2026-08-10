@@ -360,3 +360,101 @@ def test_gemini_call_maps_payload_and_response(monkeypatch):
     # rol del asistente sería "model" en Gemini; el system va aparte
     assert captured["payload"]["system_instruction"]["parts"][0]["text"].startswith("Eres AuditBrain")
     assert captured["payload"]["contents"][0]["role"] == "user"
+
+
+# ---------------------------------------------------------------------------
+# Streaming (stream_chat_complete) — aditivo
+# ---------------------------------------------------------------------------
+
+def test_stream_local_emits_tokens_and_done(monkeypatch):
+    """El streaming del proveedor local emite tokens en orden y un done final."""
+    monkeypatch.setenv("LOCAL_LLM_BASE_URL", "http://gw.local/v1")
+    monkeypatch.setenv("AUDITBRAIN_LLM_PROVIDER", "local")
+
+    def fake_stream_provider(provider, messages, system):
+        assert provider == "local"
+        yield {"type": "token", "text": "Hola"}
+        yield {"type": "token", "text": " mundo"}
+        yield {"type": "done", "model": "auditia-rutina", "tokens_in": 3, "tokens_out": 2}
+
+    monkeypatch.setattr(chat_providers, "_stream_provider", fake_stream_provider)
+
+    deltas = list(chat_providers.stream_chat_complete(
+        [{"role": "user", "content": "hola"}], system="Eres AuditBrain."
+    ))
+    tokens = [d["text"] for d in deltas if d["type"] == "token"]
+    assert tokens == ["Hola", " mundo"]
+    done = [d for d in deltas if d["type"] == "done"]
+    assert done and done[0]["model"] == "auditia-rutina"
+
+
+def test_stream_failover_before_first_token(monkeypatch):
+    """Si el local falla ANTES del primer token, se prueba el siguiente
+    proveedor streameable (aquí groq)."""
+    monkeypatch.setenv("LOCAL_LLM_BASE_URL", "http://gw.local/v1")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-key")
+    monkeypatch.delenv("AUDITBRAIN_LLM_PROVIDER", raising=False)
+
+    def fake_stream_provider(provider, messages, system):
+        if provider == "local":
+            raise chat_providers.ProviderUnavailable("local caido")
+        if provider == "groq":
+            yield {"type": "token", "text": "desde groq"}
+            return
+        raise chat_providers.ProviderUnavailable("otro")
+
+    monkeypatch.setattr(chat_providers, "_stream_provider", fake_stream_provider)
+
+    deltas = list(chat_providers.stream_chat_complete([{"role": "user", "content": "h"}]))
+    tokens = [d["text"] for d in deltas if d["type"] == "token"]
+    assert tokens == ["desde groq"]
+
+
+def test_stream_raises_when_fails_after_first_token(monkeypatch):
+    """Si ya se emitió un token y luego el proveedor muere, NO hay failover
+    transparente: se propaga ProviderUnavailable (el caller guarda el parcial)."""
+    monkeypatch.setenv("LOCAL_LLM_BASE_URL", "http://gw.local/v1")
+    monkeypatch.setenv("AUDITBRAIN_LLM_PROVIDER", "local")
+
+    def fake_stream_provider(provider, messages, system):
+        yield {"type": "token", "text": "parcial"}
+        raise chat_providers.ProviderUnavailable("cortado a mitad")
+
+    monkeypatch.setattr(chat_providers, "_stream_provider", fake_stream_provider)
+
+    gen = chat_providers.stream_chat_complete([{"role": "user", "content": "h"}])
+    assert next(gen)["text"] == "parcial"
+    try:
+        list(gen)
+        assert False, "debería propagar ProviderUnavailable tras el primer token"
+    except chat_providers.ProviderUnavailable as exc:
+        assert "cortado" in str(exc)
+
+
+def test_stream_openai_compatible_parses_sse(monkeypatch):
+    """_stream_openai_compatible parsea las líneas SSE `data:` y termina en [DONE]."""
+    sse_lines = [
+        b'data: {"choices":[{"delta":{"content":"Uno"}}]}\n',
+        b'data: {"choices":[{"delta":{"content":" dos"}}]}\n',
+        b'data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":5,"completion_tokens":2}}\n',
+        b'data: [DONE]\n',
+    ]
+
+    class FakeResp:
+        def __iter__(self):
+            return iter(sse_lines)
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        chat_providers.urllib.request, "urlopen",
+        lambda req, timeout=60: FakeResp(),
+    )
+    out = list(chat_providers._stream_openai_compatible(
+        "http://gw/v1/chat/completions", "sk-x", "auditia-rutina",
+        [{"role": "user", "content": "h"}], "sys", 15,
+    ))
+    tokens = [d["text"] for d in out if d["type"] == "token"]
+    assert tokens == ["Uno", " dos"]
+    done = [d for d in out if d["type"] == "done"]
+    assert done and done[0]["tokens_out"] == 2
