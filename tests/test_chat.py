@@ -458,3 +458,35 @@ def test_stream_openai_compatible_parses_sse(monkeypatch):
     assert tokens == ["Uno", " dos"]
     done = [d for d in out if d["type"] == "done"]
     assert done and done[0]["tokens_out"] == 2
+
+
+def test_stream_emits_reasoning_before_content(monkeypatch):
+    """gpt-oss emite reasoning_content antes del content real; el stream debe
+    señalar 'reasoning' ANTES del primer 'token' para que la UI muestre
+    'Analizando…' en vez de parecer congelada."""
+    sse_lines = [
+        b'data: {"choices":[{"delta":{"reasoning_content":"The"}}]}\n',
+        b'data: {"choices":[{"delta":{"reasoning_content":" user"}}]}\n',
+        b'data: {"choices":[{"delta":{"content":"Hola"}}]}\n',
+        b'data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":5,"completion_tokens":1}}\n',
+        b'data: [DONE]\n',
+    ]
+
+    class FakeResp:
+        def __iter__(self):
+            return iter(sse_lines)
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        chat_providers.urllib.request, "urlopen",
+        lambda req, timeout=60: FakeResp(),
+    )
+    out = list(chat_providers._stream_openai_compatible(
+        "http://gw/v1/chat/completions", "sk-x", "auditia-rutina",
+        [{"role": "user", "content": "h"}], "sys", 15,
+    ))
+    types = [d["type"] for d in out]
+    assert "reasoning" in types
+    assert types.index("reasoning") < types.index("token")
+    assert [d["text"] for d in out if d["type"] == "token"] == ["Hola"]

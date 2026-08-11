@@ -178,6 +178,12 @@ def stream_user_message_and_respond(
     """
     db = SessionLocal()
     try:
+        # Primer chunk "primer" (comentario SSE + padding) para forzar a los
+        # proxies (Render/nginx/Cloudflare) a ABRIR el stream y dejar de
+        # bufferizar: sin bytes iniciales algunos proxies retienen la respuesta
+        # hasta llenar su buffer y el usuario no ve nada en vivo.
+        yield ": stream-start\n" + (":" + " " * 2048 + "\n") + "\n"
+
         conv = db.get(Conversation, conversation_id)
         if conv is None:
             yield _sse("error", {"detail": "Conversación no encontrada."})
@@ -206,10 +212,16 @@ def stream_user_message_and_respond(
 
         try:
             for delta in stream_chat_complete(api_messages, system):
-                if delta.get("type") == "token":
+                dtype = delta.get("type")
+                if dtype == "reasoning":
+                    # Heartbeat de razonamiento: mantiene el stream vivo y le
+                    # dice a la UI que muestre "Analizando…" durante los
+                    # segundos previos al primer token de respuesta.
+                    yield _sse("reasoning", {})
+                elif dtype == "token":
                     acc.append(delta["text"])
                     yield _sse("token", {"text": delta["text"]})
-                elif delta.get("type") == "done":
+                elif dtype == "done":
                     model_used = delta.get("model")
                     tin = delta.get("tokens_in")
                     tout = delta.get("tokens_out")

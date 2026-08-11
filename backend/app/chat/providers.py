@@ -499,6 +499,12 @@ def _stream_openai_compatible(url, key, model, messages, system, timeout, extra_
             choices = chunk.get("choices") or []
             if choices:
                 delta = choices[0].get("delta") or {}
+                # gpt-oss (modelo de razonamiento) emite primero varios
+                # segundos de reasoning_content ANTES del content real. Lo
+                # señalamos como "reasoning" para que la UI muestre actividad
+                # ("Analizando…") en vez de un "Pensando…" que parece congelado.
+                if delta.get("reasoning_content"):
+                    yield {"type": "reasoning"}
                 piece = delta.get("content")
                 if piece:
                     yield {"type": "token", "text": piece}

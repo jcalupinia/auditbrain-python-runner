@@ -415,6 +415,19 @@ textarea {
 .cw-msg-content {
   font-size: 13px; line-height: 1.55; white-space: pre-wrap; word-wrap: break-word;
 }
+/* Indicador animado mientras el modelo piensa/analiza (evita sensación de
+   pantalla congelada durante la fase de razonamiento de gpt-oss). */
+.cw-thinking { display: inline-flex; align-items: baseline; gap: 2px; }
+.cw-dots i {
+  font-style: normal; opacity: 0.2; animation: cw-blink 1.2s infinite both;
+}
+.cw-dots i:nth-child(2) { animation-delay: 0.2s; }
+.cw-dots i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes cw-blink {
+  0%, 80%, 100% { opacity: 0.2; }
+  40% { opacity: 1; }
+}
+
 /* Respuestas del asistente renderizadas como Markdown */
 .cw-markdown { white-space: normal; }
 .cw-markdown > :first-child { margin-top: 0; }
