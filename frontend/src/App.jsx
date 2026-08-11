@@ -1099,6 +1099,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
   const [messages, setMessages] = useState([]);
   const [sending, setSending] = useState(false);
   const [streamingText, setStreamingText] = useState(""); // respuesta en vivo (SSE)
+  const [thinking, setThinking] = useState(false); // el modelo está razonando
   const first = (user.email || "Operador").split("@")[0].split(/[._-]/)[0];
   const name = first.charAt(0).toUpperCase() + first.slice(1);
 
@@ -1109,6 +1110,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
     setChatNotice("");
     setChatText("");
     setStreamingText("");
+    setThinking(false);
   }, [module.id]);
 
   // Envío clásico (no-streaming) — se usa como respaldo si el stream falla.
@@ -1129,6 +1131,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
     setSending(true);
     setChatNotice("");
     setStreamingText("");
+    setThinking(false);
     try {
       let activeConv = conv;
       if (!activeConv) {
@@ -1143,10 +1146,15 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
         // Camino preferido: streaming token por token (SSE).
         await api.streamChatMessage(activeConv.id, content, {
           onUser: (um) => setMessages((prev) => [...prev, um]),
-          onToken: (t) => setStreamingText((s) => s + t),
+          onReasoning: () => setThinking(true),
+          onToken: (t) => {
+            setThinking(false);
+            setStreamingText((s) => s + t);
+          },
           onAssistant: (am) => {
             setMessages((prev) => [...prev, am]);
             setStreamingText("");
+            setThinking(false);
           },
           onError: (detail) => setChatNotice(detail),
         });
@@ -1154,6 +1162,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
         // Si el stream no pudo ni abrir, caer al envío clásico para no perder
         // el turno. (El user_message se re-crea; el backend lo maneja.)
         setStreamingText("");
+        setThinking(false);
         await submitChatClassic(activeConv, content);
       }
     } catch (err) {
@@ -1161,6 +1170,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
     } finally {
       setSending(false);
       setStreamingText("");
+      setThinking(false);
     }
   }
 
@@ -1241,7 +1251,10 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
                   {sending && !streamingText && (
                     <div className="cw-msg assistant pending">
                       <div className="cw-msg-role">AUDIT-IA</div>
-                      <div className="cw-msg-content muted">Pensando…</div>
+                      <div className="cw-msg-content muted cw-thinking">
+                        <span>{thinking ? "Analizando" : "Pensando"}</span>
+                        <span className="cw-dots"><i>.</i><i>.</i><i>.</i></span>
+                      </div>
                     </div>
                   )}
                 </div>

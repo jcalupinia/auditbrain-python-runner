@@ -616,7 +616,7 @@ export async function sendChatMessage(conversationId, content) {
 export async function streamChatMessage(
   conversationId,
   content,
-  { onUser, onToken, onAssistant, onError } = {}
+  { onUser, onToken, onAssistant, onError, onReasoning } = {}
 ) {
   const res = await fetch(
     `${API_BASE}/api/v1/chat/conversations/${conversationId}/messages/stream`,
@@ -656,6 +656,7 @@ export async function streamChatMessage(
         continue;
       }
       if (ev === "user_message") onUser?.(data);
+      else if (ev === "reasoning") onReasoning?.();
       else if (ev === "token") onToken?.(data.text);
       else if (ev === "assistant_message") onAssistant?.(data);
       else if (ev === "error") onError?.(data.detail);
