@@ -591,14 +591,28 @@ export async function getConversation(conversationId) {
   );
 }
 
-export async function sendChatMessage(conversationId, content) {
+// Sube un archivo y devuelve su texto extraído (no lo persiste en el servidor).
+// { name, kind, chars, truncated, text }. Lanza si el archivo no se puede leer.
+export async function extractAttachment(file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  return parse(
+    await apiFetch(
+      `${API_BASE}/api/v1/chat/attachments/extract`,
+      { method: "POST", body: fd, headers: authHeaders() }, // el browser fija el boundary
+      { timeoutMs: 120000 }
+    )
+  );
+}
+
+export async function sendChatMessage(conversationId, content, attachments = []) {
   return parse(
     await apiFetch(
       `${API_BASE}/api/v1/chat/conversations/${conversationId}/messages`,
       {
         method: "POST",
         headers: authHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, attachments }),
       }
     )
   );
@@ -616,14 +630,14 @@ export async function sendChatMessage(conversationId, content) {
 export async function streamChatMessage(
   conversationId,
   content,
-  { onUser, onToken, onAssistant, onError, onReasoning } = {}
+  { onUser, onToken, onAssistant, onError, onReasoning, attachments = [] } = {}
 ) {
   const res = await fetch(
     `${API_BASE}/api/v1/chat/conversations/${conversationId}/messages/stream`,
     {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, attachments }),
     }
   );
   if (res.status === 401) {

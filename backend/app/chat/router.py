@@ -1,13 +1,15 @@
 """Endpoints del chat cognitivo: /api/v1/chat/*."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from backend.app.auth.deps import get_current_user
 from backend.app.auth.models import User
+from backend.app.chat import attachments as attachments_mod
 from backend.app.chat import service
 from backend.app.chat.schemas import (
+    AttachmentExtractOut,
     ChatTurnResult,
     ConversationCreate,
     ConversationDetail,
@@ -91,7 +93,7 @@ def send_message(
     if not conv:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Conversación no encontrada.")
     user_msg, assistant_msg, error = service.add_user_message_and_respond(
-        db, conv, payload.content
+        db, conv, payload.content, attachments=payload.attachments
     )
     return ChatTurnResult(
         user_message=MessageOut.model_validate(user_msg),
@@ -116,7 +118,9 @@ def send_message_stream(
     conv = service.get_conversation(db, conversation_id, current)
     if not conv:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Conversación no encontrada.")
-    generator = service.stream_user_message_and_respond(conv.id, payload.content)
+    generator = service.stream_user_message_and_respond(
+        conv.id, payload.content, attachments=payload.attachments
+    )
     return StreamingResponse(
         generator,
         media_type="text/event-stream",
@@ -128,3 +132,21 @@ def send_message_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/attachments/extract", response_model=AttachmentExtractOut)
+async def extract_attachment(
+    file: UploadFile = File(...),
+    _current: User = Depends(get_current_user),
+):
+    """Extrae el texto de un documento subido para adjuntarlo al chat.
+
+    No persiste el archivo: devuelve solo el texto extraído, que el frontend
+    reenvía junto al siguiente mensaje. Requiere sesión válida (JWT).
+    """
+    data = await file.read()
+    try:
+        result = attachments_mod.extract(file.filename or "documento", data)
+    except attachments_mod.AttachmentError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    return AttachmentExtractOut(**result)

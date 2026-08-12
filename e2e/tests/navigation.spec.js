@@ -59,4 +59,46 @@ test.describe("Navegación del Command Center", () => {
     await expect(mic).toContainText(/Voz/i);
     await expect(mic).toHaveAttribute("aria-pressed", "false");
   });
+
+  test("adjuntar un documento muestra el chip y habilita Enviar", async ({ page }) => {
+    await mockApi(page, { user: ADMIN_USER });
+    // El backend extrae el texto del archivo subido.
+    await page.route("**/api/v1/chat/attachments/extract", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          name: "balance.csv",
+          kind: "csv",
+          chars: 42,
+          truncated: false,
+          text: "Cuenta\tSaldo\nCaja\t1500",
+        }),
+      })
+    );
+    await login(page);
+    await page.locator("aside.cc-side")
+      .getByRole("button", { name: /Executive Advisory/i }).click();
+
+    // Sin texto ni adjuntos, Enviar está deshabilitado.
+    const enviar = page.getByRole("button", { name: /^Enviar$/ });
+    await expect(enviar).toBeDisabled();
+
+    // Adjuntar dispara el input file oculto; lo llenamos directamente.
+    await page.locator('input[type="file"]').setInputFiles({
+      name: "balance.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from("Cuenta,Saldo\nCaja,1500\n"),
+    });
+
+    // Aparece el chip del documento y Enviar se habilita (solo-adjunto permitido).
+    const chip = page.locator(".cw-chip", { hasText: "balance.csv" });
+    await expect(chip).toBeVisible();
+    await expect(enviar).toBeEnabled();
+
+    // Quitar el chip vuelve a deshabilitar Enviar.
+    await chip.getByRole("button", { name: /Quitar/i }).click();
+    await expect(chip).toHaveCount(0);
+    await expect(enviar).toBeDisabled();
+  });
 });

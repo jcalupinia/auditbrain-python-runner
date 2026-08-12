@@ -390,8 +390,61 @@ textarea {
   margin-top: 12px; gap: 10px;
 }
 .cw-prompt-actions { display: flex; align-items: center; gap: 10px; }
+.cw-prompt-left { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .btn.sm { margin: 0; padding: 7px 14px; font-size: 12.5px; }
 .cw-notice { margin-top: 12px; margin-bottom: 0; }
+
+/* Botón "Adjuntar documento" (abre el selector de archivos) */
+.cw-attach-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 999px; cursor: pointer;
+  font: inherit; font-size: 13px; line-height: 1;
+  color: var(--text, #e7ecf3);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  transition: background 0.15s, border-color 0.15s;
+}
+.cw-attach-btn:hover:not(:disabled) { border-color: rgba(255, 255, 255, 0.35); }
+.cw-attach-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Chips de documentos adjuntos, encima de la barra de acciones */
+.cw-attach-list {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;
+}
+.cw-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  max-width: 260px;
+  padding: 5px 8px 5px 10px; border-radius: 8px;
+  font-size: 12.5px; line-height: 1;
+  color: var(--text, #e7ecf3);
+  background: rgba(199, 168, 60, 0.10);        /* Gold sutil */
+  border: 1px solid rgba(199, 168, 60, 0.45);
+}
+.cw-chip-ico { font-size: 13px; }
+.cw-chip-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cw-chip-trunc {
+  font-size: 10.5px; padding: 1px 5px; border-radius: 5px;
+  background: rgba(224, 168, 60, 0.25); color: #f0d98a;
+}
+.cw-chip-x {
+  border: 0; background: transparent; cursor: pointer;
+  color: inherit; opacity: 0.7; font-size: 15px; line-height: 1;
+  padding: 0 2px;
+}
+.cw-chip-x:hover { opacity: 1; }
+.cw-chip-loading {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--muted, #9fb0c3);
+}
+.cw-mini-spin {
+  width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: var(--gold, #C7A83C);
+  display: inline-block; animation: spin 0.8s linear infinite;
+}
 
 .cw-thread {
   display: flex; flex-direction: column; gap: 12px;
