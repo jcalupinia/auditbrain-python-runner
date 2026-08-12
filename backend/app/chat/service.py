@@ -90,6 +90,40 @@ def create_conversation(
     return conv
 
 
+def _compose_with_attachments(
+    user_content: str, attachments=None
+) -> tuple[str, str]:
+    """Devuelve (contenido_guardado, contenido_para_el_modelo).
+
+    - contenido_guardado: lo que se persiste y se muestra en el historial —
+      la pregunta del usuario más una nota discreta de los adjuntos (sin volcar
+      el documento entero en la conversación).
+    - contenido_para_el_modelo: la misma pregunta con el texto de cada documento
+      inyectado, para que el modelo lo lea SOLO en este turno.
+    """
+    atts = list(attachments or [])
+    if not atts:
+        return user_content, user_content
+
+    def _name(a):
+        return getattr(a, "name", None) or (a.get("name") if isinstance(a, dict) else "documento")
+
+    def _text(a):
+        return getattr(a, "text", None) or (a.get("text") if isinstance(a, dict) else "")
+
+    names = ", ".join(_name(a) for a in atts)
+    stored = f"{user_content}\n\n📎 Adjunto: {names}"
+
+    bloques = [user_content, ""]
+    for a in atts:
+        bloques.append(f"--- Documento adjunto: {_name(a)} ---")
+        bloques.append(_text(a))
+        bloques.append("--- fin del documento ---")
+        bloques.append("")
+    model_content = "\n".join(bloques).strip()
+    return stored, model_content
+
+
 def _system_prompt(module_code: str | None, skill_id: str | None = None) -> str:
     """Construye el system prompt usando el skills registry.
 
@@ -105,6 +139,7 @@ def add_user_message_and_respond(
     conversation: Conversation,
     user_content: str,
     skill_id: str | None = None,
+    attachments=None,
 ) -> tuple[Message, Message | None, str | None]:
     """Persiste el mensaje del usuario, llama al LLM, persiste respuesta.
 
@@ -112,11 +147,14 @@ def add_user_message_and_respond(
 
     skill_id (opcional) permite forzar una skill específica del registry.
     Si no se pasa, se usa la skill default del módulo de la conversación.
+    attachments (opcional) inyecta el texto de documentos adjuntos SOLO en el
+    prompt de este turno (el historial guarda el mensaje limpio).
     """
+    stored_content, model_content = _compose_with_attachments(user_content, attachments)
     user_msg = Message(
         conversation_id=conversation.id,
         role="user",
-        content=user_content,
+        content=stored_content,
     )
     db.add(user_msg)
     db.commit()
@@ -128,6 +166,9 @@ def add_user_message_and_respond(
         for m in history_rows
         if m.role in ("user", "assistant")
     ]
+    # El último mensaje de usuario va al modelo con los documentos inyectados.
+    if api_messages and api_messages[-1]["role"] == "user":
+        api_messages[-1]["content"] = model_content
 
     try:
         llm: LLMResponse = chat_complete(
@@ -166,6 +207,7 @@ def stream_user_message_and_respond(
     conversation_id: int,
     user_content: str,
     skill_id: str | None = None,
+    attachments=None,
 ):
     """Versión en streaming (SSE) de add_user_message_and_respond.
 
@@ -190,7 +232,8 @@ def stream_user_message_and_respond(
             yield _sse("done", {})
             return
 
-        user_msg = Message(conversation_id=conv.id, role="user", content=user_content)
+        stored_content, model_content = _compose_with_attachments(user_content, attachments)
+        user_msg = Message(conversation_id=conv.id, role="user", content=stored_content)
         db.add(user_msg)
         db.commit()
         db.refresh(user_msg)
@@ -202,6 +245,9 @@ def stream_user_message_and_respond(
             for m in history_rows
             if m.role in ("user", "assistant")
         ]
+        # El último mensaje de usuario va al modelo con los documentos inyectados.
+        if api_messages and api_messages[-1]["role"] == "user":
+            api_messages[-1]["content"] = model_content
         system = _system_prompt(conv.module_code, skill_id)
 
         acc: list[str] = []

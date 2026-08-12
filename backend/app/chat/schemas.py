@@ -24,8 +24,30 @@ class ConversationOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AttachmentIn(BaseModel):
+    """Documento adjunto ya extraído (texto plano) que acompaña al mensaje.
+
+    El texto se genera en el endpoint /chat/attachments/extract; aquí solo se
+    reenvía para inyectarlo como contexto del turno actual del modelo.
+    """
+
+    name: str = Field(min_length=1, max_length=260)
+    text: str = Field(min_length=1, max_length=30000)
+
+
+class AttachmentExtractOut(BaseModel):
+    """Resultado de extraer el texto de un archivo subido."""
+
+    name: str
+    kind: str
+    chars: int
+    truncated: bool
+    text: str
+
+
 class MessageIn(BaseModel):
     content: str = Field(min_length=1, max_length=20000)
+    attachments: list[AttachmentIn] = Field(default_factory=list, max_length=6)
 
 
 class MessageOut(BaseModel):

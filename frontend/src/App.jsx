@@ -1102,6 +1102,9 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
   const [thinking, setThinking] = useState(false); // el modelo está razonando
   const [listening, setListening] = useState(false); // micrófono (voz→texto) activo
   const recognitionRef = useRef(null); // instancia de SpeechRecognition
+  const [attachments, setAttachments] = useState([]); // docs adjuntos [{name,kind,chars,truncated,text}]
+  const [extracting, setExtracting] = useState(false); // extrayendo texto de un adjunto
+  const fileInputRef = useRef(null); // input file oculto
   const first = (user.email || "Operador").split("@")[0].split(/[._-]/)[0];
   const name = first.charAt(0).toUpperCase() + first.slice(1);
 
@@ -1113,7 +1116,36 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
     setChatText("");
     setStreamingText("");
     setThinking(false);
+    setAttachments([]);
   }, [module.id]);
+
+  // --- Adjuntar documentos (voz→texto server-side) -----------------------
+  // Sube cada archivo, extrae su texto en el backend (PDF/Word/Excel/CSV/txt)
+  // y lo guarda como adjunto pendiente. El texto se envía junto al mensaje.
+  async function handleAttachFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    setChatNotice("");
+    setExtracting(true);
+    for (const file of files) {
+      if (attachments.length >= 6) {
+        setChatNotice("Máximo 6 documentos por mensaje.");
+        break;
+      }
+      try {
+        const doc = await api.extractAttachment(file);
+        setAttachments((prev) => [...prev, doc]);
+      } catch (err) {
+        setChatNotice(err.message || `No se pudo leer «${file.name}».`);
+      }
+    }
+    setExtracting(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function removeAttachment(idx) {
+    setAttachments((prev) => prev.filter((_, i) => i !== idx));
+  }
 
   // --- Micrófono (dictado voz→texto) -------------------------------------
   // Usa la Web Speech API del navegador (Chrome/Edge). Requiere HTTPS —
@@ -1194,8 +1226,8 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
   }, [module.id]);
 
   // Envío clásico (no-streaming) — se usa como respaldo si el stream falla.
-  async function submitChatClassic(activeConv, content) {
-    const turn = await api.sendChatMessage(activeConv.id, content);
+  async function submitChatClassic(activeConv, content, attachs = []) {
+    const turn = await api.sendChatMessage(activeConv.id, content, attachs);
     setMessages((prev) => [
       ...prev,
       turn.user_message,
@@ -1208,7 +1240,11 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
     e.preventDefault();
     if (listening) stopMic();
     const content = chatText.trim();
-    if (!content || sending) return;
+    if ((!content && attachments.length === 0) || sending || extracting) return;
+    // El backend exige texto: si solo hay adjuntos, usar una instrucción por defecto.
+    const finalContent = content || "Analiza el/los documento(s) adjunto(s).";
+    // payload de adjuntos para el modelo (solo nombre + texto extraído).
+    const attachPayload = attachments.map((a) => ({ name: a.name, text: a.text }));
     setSending(true);
     setChatNotice("");
     setStreamingText("");
@@ -1223,9 +1259,11 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
         setConv(activeConv);
       }
       setChatText("");
+      setAttachments([]);
       try {
         // Camino preferido: streaming token por token (SSE).
-        await api.streamChatMessage(activeConv.id, content, {
+        await api.streamChatMessage(activeConv.id, finalContent, {
+          attachments: attachPayload,
           onUser: (um) => setMessages((prev) => [...prev, um]),
           onReasoning: () => setThinking(true),
           onToken: (t) => {
@@ -1244,7 +1282,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
         // el turno. (El user_message se re-crea; el backend lo maneja.)
         setStreamingText("");
         setThinking(false);
-        await submitChatClassic(activeConv, content);
+        await submitChatClassic(activeConv, finalContent, attachPayload);
       }
     } catch (err) {
       setChatNotice(err.message || "Error enviando el mensaje.");
@@ -1353,10 +1391,52 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
                       : `Modo ${tab} — todavía sin capa especializada (Fase 2 avanzada).`
                   }
                 />
+                {(attachments.length > 0 || extracting) && (
+                  <div className="cw-attach-list">
+                    {attachments.map((a, i) => (
+                      <span className="cw-chip" key={`${a.name}-${i}`} title={`${a.chars} caracteres${a.truncated ? " · truncado" : ""}`}>
+                        <span className="cw-chip-ico" aria-hidden="true">📄</span>
+                        <span className="cw-chip-name">{a.name}</span>
+                        {a.truncated && <span className="cw-chip-trunc">truncado</span>}
+                        <button
+                          type="button"
+                          className="cw-chip-x"
+                          onClick={() => removeAttachment(i)}
+                          aria-label={`Quitar ${a.name}`}
+                        >×</button>
+                      </span>
+                    ))}
+                    {extracting && (
+                      <span className="cw-chip cw-chip-loading">
+                        <span className="cw-mini-spin" aria-hidden="true" />
+                        Leyendo documento…
+                      </span>
+                    )}
+                  </div>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept=".pdf,.docx,.xlsx,.xlsm,.csv,.tsv,.txt,.md,.json,.xml"
+                  style={{ display: "none" }}
+                  onChange={(e) => handleAttachFiles(e.target.files)}
+                />
                 <div className="cw-prompt-bar">
-                  <button type="button" className="link" onClick={goDocs}>
-                    ⌯ Adjuntar / generar documento
-                  </button>
+                  <div className="cw-prompt-left">
+                    <button
+                      type="button"
+                      className="cw-attach-btn"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={extracting || attachments.length >= 6}
+                      title="Adjuntar documento (PDF, Word, Excel, CSV, texto)"
+                    >
+                      <span aria-hidden="true">📎</span> Adjuntar documento
+                    </button>
+                    <button type="button" className="link" onClick={goDocs}>
+                      ⌯ Generar documento
+                    </button>
+                  </div>
                   <div className="cw-prompt-actions">
                     {messages.length > 0 && (
                       <button type="button" className="link" onClick={newConversation}>
@@ -1379,7 +1459,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
                     <button
                       type="submit"
                       className="btn primary sm"
-                      disabled={!chatText.trim() || sending}
+                      disabled={(!chatText.trim() && attachments.length === 0) || sending || extracting}
                     >
                       {sending ? "Enviando…" : "Enviar"}
                     </button>
