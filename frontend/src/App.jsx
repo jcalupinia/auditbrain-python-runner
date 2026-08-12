@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import * as api from "./api.js";
@@ -1100,6 +1100,8 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
   const [sending, setSending] = useState(false);
   const [streamingText, setStreamingText] = useState(""); // respuesta en vivo (SSE)
   const [thinking, setThinking] = useState(false); // el modelo está razonando
+  const [listening, setListening] = useState(false); // micrófono (voz→texto) activo
+  const recognitionRef = useRef(null); // instancia de SpeechRecognition
   const first = (user.email || "Operador").split("@")[0].split(/[._-]/)[0];
   const name = first.charAt(0).toUpperCase() + first.slice(1);
 
@@ -1111,6 +1113,84 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
     setChatText("");
     setStreamingText("");
     setThinking(false);
+  }, [module.id]);
+
+  // --- Micrófono (dictado voz→texto) -------------------------------------
+  // Usa la Web Speech API del navegador (Chrome/Edge). Requiere HTTPS —
+  // el Command Center corre en Render con candado, así que funciona.
+  // Nota de privacidad: en Chrome el reconocimiento se procesa en la nube de
+  // Google. Para dictar datos sensibles de cliente, mejor escribir. A futuro
+  // se puede migrar a Whisper local (audio → servidor propio).
+  const SpeechRec =
+    typeof window !== "undefined"
+      ? window.SpeechRecognition || window.webkitSpeechRecognition
+      : null;
+  const micSupported = Boolean(SpeechRec);
+
+  function stopMic() {
+    const rec = recognitionRef.current;
+    if (rec) {
+      try { rec.stop(); } catch { /* ya detenido */ }
+    }
+    recognitionRef.current = null;
+    setListening(false);
+  }
+
+  function toggleMic() {
+    if (listening) { stopMic(); return; }
+    if (!SpeechRec) {
+      setChatNotice(
+        "Tu navegador no soporta dictado por voz. Usa Chrome o Edge actualizado."
+      );
+      return;
+    }
+    const rec = new SpeechRec();
+    rec.lang = "es-EC";
+    rec.continuous = true;
+    rec.interimResults = true;
+    let finalChunk = "";
+    rec.onresult = (event) => {
+      let interim = "";
+      finalChunk = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = event.results[i][0].transcript;
+        if (event.results[i].isFinal) finalChunk += t;
+        else interim += t;
+      }
+      if (finalChunk) {
+        setChatText((prev) => {
+          const sep = prev && !prev.endsWith(" ") ? " " : "";
+          return prev + sep + finalChunk.trim();
+        });
+      }
+    };
+    rec.onerror = (event) => {
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        setChatNotice(
+          "Permiso de micrófono denegado. Habilítalo en el candado del navegador."
+        );
+      } else if (event.error !== "aborted" && event.error !== "no-speech") {
+        setChatNotice("No se pudo capturar el audio (" + event.error + ").");
+      }
+      stopMic();
+    };
+    rec.onend = () => { setListening(false); recognitionRef.current = null; };
+    recognitionRef.current = rec;
+    setChatNotice("");
+    setListening(true);
+    try {
+      rec.start();
+    } catch {
+      stopMic();
+    }
+  }
+
+  // Detener el micrófono si se cambia de módulo o se desmonta.
+  useEffect(() => {
+    return () => {
+      const rec = recognitionRef.current;
+      if (rec) { try { rec.stop(); } catch { /* noop */ } }
+    };
   }, [module.id]);
 
   // Envío clásico (no-streaming) — se usa como respaldo si el stream falla.
@@ -1126,6 +1206,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
 
   async function submitChat(e) {
     e.preventDefault();
+    if (listening) stopMic();
     const content = chatText.trim();
     if (!content || sending) return;
     setSending(true);
@@ -1280,6 +1361,19 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
                     {messages.length > 0 && (
                       <button type="button" className="link" onClick={newConversation}>
                         Nueva conversación
+                      </button>
+                    )}
+                    {micSupported && (
+                      <button
+                        type="button"
+                        className={"cw-mic" + (listening ? " rec" : "")}
+                        onClick={toggleMic}
+                        title={listening ? "Detener dictado" : "Dictar por voz"}
+                        aria-label={listening ? "Detener dictado" : "Dictar por voz"}
+                        aria-pressed={listening}
+                      >
+                        <span className="cw-mic-ico" aria-hidden="true">🎙</span>
+                        {listening ? "Escuchando…" : "Voz"}
                       </button>
                     )}
                     <button

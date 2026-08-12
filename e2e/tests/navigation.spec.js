@@ -47,4 +47,16 @@ test.describe("Navegación del Command Center", () => {
     await expect(foot).toContainText("Auth JWT");
     await expect(foot).toContainText("Sandbox Tier 0");
   });
+
+  test("el chat ofrece el botón de dictado por voz (micrófono)", async ({ page }) => {
+    await mockApi(page, { user: ADMIN_USER });
+    await login(page);
+    await page.locator("aside.cc-side")
+      .getByRole("button", { name: /Executive Advisory/i }).click();
+    // Chromium expone webkitSpeechRecognition, así que el botón debe renderizar.
+    const mic = page.locator("button.cw-mic");
+    await expect(mic).toBeVisible();
+    await expect(mic).toContainText(/Voz/i);
+    await expect(mic).toHaveAttribute("aria-pressed", "false");
+  });
 });
