@@ -67,6 +67,20 @@ class ConversationDetail(ConversationOut):
     messages: list[MessageOut]
 
 
+class MediaImageIn(BaseModel):
+    prompt: str = Field(min_length=1, max_length=2000)
+    model: str = Field(default="flux", max_length=16)
+    width: int = Field(default=1024, ge=256, le=1536)
+    height: int = Field(default=1024, ge=256, le=1536)
+
+
+class MediaVideoIn(BaseModel):
+    prompt: str = Field(min_length=1, max_length=2000)
+    width: int = Field(default=704, ge=256, le=1280)
+    height: int = Field(default=480, ge=256, le=1280)
+    length: int = Field(default=65, ge=9, le=161)
+
+
 class ChatTurnResult(BaseModel):
     """Resultado de enviar un mensaje: el mensaje del usuario y la respuesta del assistant."""
 

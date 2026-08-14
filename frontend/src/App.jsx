@@ -1225,8 +1225,17 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
   const [attachments, setAttachments] = useState([]); // docs adjuntos [{name,kind,chars,truncated,text}]
   const [extracting, setExtracting] = useState(false); // extrayendo texto de un adjunto
   const fileInputRef = useRef(null); // input file oculto
+  const [mediaEnabled, setMediaEnabled] = useState(false); // ¿puente de imagen/video activo?
   const first = (user.email || "Operador").split("@")[0].split(/[._-]/)[0];
   const name = first.charAt(0).toUpperCase() + first.slice(1);
+
+  // ¿El backend tiene configurado el puente de imagen/video? Si no, se oculta
+  // la pestaña "Estudio" (degradación limpia). Se consulta una vez.
+  useEffect(() => {
+    let alive = true;
+    api.mediaStatus().then((ok) => { if (alive) setMediaEnabled(ok); });
+    return () => { alive = false; };
+  }, []);
 
   // Reset chat al cambiar de módulo (cada módulo arranca su conversación).
   useEffect(() => {
@@ -1437,7 +1446,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
       >
         <div className="cw-tabs">
           {["chat", "análisis", "documentos", "notas",
-            ...(api.comfyBridgeConfigured ? ["estudio"] : [])].map((t) => (
+            ...(mediaEnabled ? ["estudio"] : [])].map((t) => (
             <button key={t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>
               {t === "estudio" ? "Estudio" : t.charAt(0).toUpperCase() + t.slice(1)}
             </button>

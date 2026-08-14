@@ -35,9 +35,6 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     env: {
       VITE_API_BASE: "",
-      // Habilita la pestaña "Imagen" (puente ComfyUI) para los tests.
-      VITE_COMFY_BRIDGE_URL: "https://bridge.test",
-      VITE_COMFY_BRIDGE_KEY: "testkey",
     },
   },
 });
