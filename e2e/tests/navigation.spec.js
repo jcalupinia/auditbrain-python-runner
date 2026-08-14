@@ -102,10 +102,13 @@ test.describe("Navegación del Command Center", () => {
     await expect(enviar).toBeDisabled();
   });
 
-  test("Estudio genera imagen con confirmación (puente ComfyUI)", async ({ page }) => {
+  test("Estudio genera imagen con confirmación (proxy backend)", async ({ page }) => {
     await mockApi(page, { user: ADMIN_USER });
     const png1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
-    await page.route("https://bridge.test/generate", (route) =>
+    // El backend reporta el puente activo → aparece la pestaña Estudio.
+    await page.route("**/api/v1/chat/media/status", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ enabled: true }) }));
+    await page.route("**/api/v1/chat/media/image", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -133,7 +136,9 @@ test.describe("Navegación del Command Center", () => {
     await mockApi(page, { user: ADMIN_USER });
     // MP4 mínimo válido (ftyp) en base64 para el <video>.
     const mp4b64 = "AAAAHGZ0eXBpc29tAAACAGlzb21pc28ybXA0MQAAAAhmcmVlAAAAAW1kYXQ=";
-    await page.route("https://bridge.test/generate_video", (route) =>
+    await page.route("**/api/v1/chat/media/status", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ enabled: true }) }));
+    await page.route("**/api/v1/chat/media/video", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",

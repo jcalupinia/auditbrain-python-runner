@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from backend.app.auth.deps import get_current_user
 from backend.app.auth.models import User
 from backend.app.chat import attachments as attachments_mod
+from backend.app.chat import media as media_mod
 from backend.app.chat import service
 from backend.app.chat.schemas import (
     AttachmentExtractOut,
@@ -14,6 +15,8 @@ from backend.app.chat.schemas import (
     ConversationCreate,
     ConversationDetail,
     ConversationOut,
+    MediaImageIn,
+    MediaVideoIn,
     MessageIn,
     MessageOut,
 )
@@ -150,3 +153,27 @@ async def extract_attachment(
     except attachments_mod.AttachmentError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     return AttachmentExtractOut(**result)
+
+
+# --- Generación de imágenes/video (proxy al puente ComfyUI local) -----------
+# El backend guarda la URL del túnel y la clave; el frontend solo llama aquí con
+# su sesión JWT. Así funciona SIN Tailscale en el navegador.
+@router.get("/media/status")
+def media_status(_current: User = Depends(get_current_user)):
+    return {"enabled": media_mod.enabled()}
+
+
+@router.post("/media/image")
+def media_image(payload: MediaImageIn, _current: User = Depends(get_current_user)):
+    try:
+        return media_mod.generate_image(payload.prompt, payload.model, payload.width, payload.height)
+    except media_mod.MediaUnavailable as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+
+@router.post("/media/video")
+def media_video(payload: MediaVideoIn, _current: User = Depends(get_current_user)):
+    try:
+        return media_mod.generate_video(payload.prompt, payload.width, payload.height, payload.length)
+    except media_mod.MediaUnavailable as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc))

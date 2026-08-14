@@ -30,13 +30,35 @@ tanto el chat del Command Center **cae solo a Gemini/Groq** (failover gratuito d
    `sudo tailscale serve --bg --https=8443 http://127.0.0.1:8189`
    → `https://<nodo>.<tailnet>.ts.net:8443`.
 
-## Variables en Render (static site `auditbrain-frontend`)
-- `VITE_COMFY_BRIDGE_URL` = la URL de Tailscale (p. ej. `https://auditia.tail70d973.ts.net:8443`)
-- `VITE_COMFY_BRIDGE_KEY` = el valor de `COMFY_BRIDGE_KEY`
+## Arquitectura: proxy por el backend (sin Tailscale en el cliente)
+El navegador **no** llama al puente directamente. Llama al **backend**
+(`auditbrain-python-runner`, con sesión JWT), y el backend reenvía al puente por
+un **túnel público** (Cloudflare). Así el Command Center funciona **sin Tailscale**
+en cada máquina, y la clave del puente **nunca sale al frontend**.
 
-Si no se configuran, la pestaña "Imagen" **no aparece** (degradación limpia).
+```
+navegador → (JWT) backend Render → (X-Comfy-Key, túnel) puente :8189 → ComfyUI :8188
+```
+
+Endpoints del backend: `GET /chat/media/status`, `POST /chat/media/image`,
+`POST /chat/media/video` (ver `backend/app/chat/media.py`).
+
+### Túnel del puente
+Servicio systemd `comfy-tunnel` corre
+`cloudflared tunnel --url http://127.0.0.1:8189` y da una URL
+`https://xxx.trycloudflare.com`. ⚠️ Es un **quick tunnel efímero**: la URL cambia
+si el servicio reinicia → hay que refrescar `COMFY_BRIDGE_URL` en Render (mismo
+pendiente que el túnel del LLM; conviene un túnel de nombre fijo).
+
+## Variables en Render (web service `auditbrain-python-runner`, NO el frontend)
+- `COMFY_BRIDGE_URL` = URL del túnel del puente (p. ej. `https://xxx.trycloudflare.com`, sin barra final)
+- `COMFY_BRIDGE_KEY` = el valor de `COMFY_BRIDGE_KEY` de `bridge.env`
+
+Si no se configuran, `GET /chat/media/status` devuelve `{enabled:false}` y la
+pestaña **"Estudio"** del Command Center **no aparece** (degradación limpia).
 
 ## Seguridad
-El puente solo es accesible dentro del **tailnet** (no expuesto a internet).
-`X-Comfy-Key` es defensa en profundidad. Los usuarios del Command Center deben
-estar en el tailnet (Tailscale activo) para usar la pestaña Imagen.
+El puente exige `X-Comfy-Key` (48 hex). Solo el backend conoce la clave; solo
+usuarios con sesión JWT pueden disparar generación. La `tailscale serve` en :8443
+(tailnet) se mantiene como acceso alterno/manual, pero el Command Center ya no
+depende de ella.

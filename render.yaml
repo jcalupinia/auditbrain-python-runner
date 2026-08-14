@@ -145,6 +145,16 @@ services:
       - key: LOCAL_LLM_TIMEOUT_SECONDS
         value: "15"
 
+      # Puente de generación de imagen/video (ComfyUI local, time-sharing).
+      # COMFY_BRIDGE_URL = URL pública del túnel del puente (sin barra final).
+      # COMFY_BRIDGE_KEY = clave X-Comfy-Key del puente. Si faltan, la pestaña
+      # "Estudio" del Command Center no aparece (GET /chat/media/status → false).
+      - key: COMFY_BRIDGE_URL
+        sync: false
+
+      - key: COMFY_BRIDGE_KEY
+        sync: false
+
       - key: GROQ_API_KEY
         sync: false
 
@@ -281,14 +291,9 @@ services:
     envVars:
       - key: VITE_API_BASE
         value: "https://auditbrain-python-runner.onrender.com"
-      # Generación de imágenes (pestaña "Imagen"): puente ComfyUI en el servidor
-      # local, expuesto por Tailscale HTTPS. Si NO se configuran, la pestaña
-      # "Imagen" simplemente no aparece (degradación limpia). Ver
-      # server/comfy-bridge/README.md. sync:false → se cargan en el panel de Render.
-      - key: VITE_COMFY_BRIDGE_URL
-        sync: false
-      - key: VITE_COMFY_BRIDGE_KEY
-        sync: false
+      # La pestaña "Estudio" (imagen/video) se activa según el backend
+      # (GET /chat/media/status). Las variables del puente van en el BACKEND,
+      # no aquí — así el frontend no expone la clave ni requiere Tailscale.
     routes:
       - type: rewrite
         source: /*

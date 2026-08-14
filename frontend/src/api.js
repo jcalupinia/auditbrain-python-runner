@@ -591,41 +591,47 @@ export async function getConversation(conversationId) {
   );
 }
 
-// --- Generación de imágenes (puente ComfyUI en el servidor local) ----------
-// El puente vive en el servidor (Tailscale HTTPS). Genera con Flux/SDXL haciendo
-// time-sharing de la GPU: mientras genera, el chat cae solo a Gemini/Groq.
-export const COMFY_BRIDGE_URL = (import.meta.env.VITE_COMFY_BRIDGE_URL || "").replace(/\/$/, "");
-const COMFY_BRIDGE_KEY = import.meta.env.VITE_COMFY_BRIDGE_KEY || "";
-export const comfyBridgeConfigured = Boolean(COMFY_BRIDGE_URL && COMFY_BRIDGE_KEY);
+// --- Generación de imágenes/video ------------------------------------------
+// El backend hace de proxy al puente ComfyUI del servidor local (time-sharing
+// de la GPU). El frontend solo habla con el backend usando su sesión JWT — NO
+// necesita Tailscale ni conoce la clave del puente.
+export async function mediaStatus() {
+  try {
+    const d = await parse(
+      await apiFetch(`${API_BASE}/api/v1/chat/media/status`, { headers: authHeaders() })
+    );
+    return Boolean(d && d.enabled);
+  } catch {
+    return false;
+  }
+}
 
 export async function generateImage({ prompt, model = "flux", width = 1024, height = 1024 }) {
-  if (!comfyBridgeConfigured) throw new Error("La generación de imágenes no está configurada.");
-  const res = await fetch(`${COMFY_BRIDGE_URL}/generate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Comfy-Key": COMFY_BRIDGE_KEY },
-    body: JSON.stringify({ prompt, model, width, height }),
-  });
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
-    try { detail = (await res.json()).error || detail; } catch { /* noop */ }
-    throw new Error(detail);
-  }
-  return res.json(); // { model, filename, seconds, image_base64, mime }
+  return parse(
+    await apiFetch(
+      `${API_BASE}/api/v1/chat/media/image`,
+      {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ prompt, model, width, height }),
+      },
+      { timeoutMs: 240000, retries: 0 } // la generación + swap tarda; no reintentar
+    )
+  );
 }
 
 export async function generateVideo({ prompt, width = 704, height = 480, length = 65 }) {
-  if (!comfyBridgeConfigured) throw new Error("La generación de video no está configurada.");
-  const res = await fetch(`${COMFY_BRIDGE_URL}/generate_video`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Comfy-Key": COMFY_BRIDGE_KEY },
-    body: JSON.stringify({ prompt, width, height, length }),
-  });
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
-    try { detail = (await res.json()).error || detail; } catch { /* noop */ }
-    throw new Error(detail);
-  }
-  return res.json(); // { model, filename, seconds, video_base64, mime }
+  return parse(
+    await apiFetch(
+      `${API_BASE}/api/v1/chat/media/video`,
+      {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ prompt, width, height, length }),
+      },
+      { timeoutMs: 300000, retries: 0 }
+    )
+  );
 }
 
 // Sube un archivo y devuelve su texto extraído (no lo persiste en el servidor).
