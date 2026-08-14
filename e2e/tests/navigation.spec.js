@@ -102,9 +102,8 @@ test.describe("Navegación del Command Center", () => {
     await expect(enviar).toBeDisabled();
   });
 
-  test("pestaña Imagen genera con confirmación (puente ComfyUI)", async ({ page }) => {
+  test("Estudio genera imagen con confirmación (puente ComfyUI)", async ({ page }) => {
     await mockApi(page, { user: ADMIN_USER });
-    // PNG 1x1 base64 de prueba que devuelve el puente.
     const png1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
     await page.route("https://bridge.test/generate", (route) =>
       route.fulfill({
@@ -118,17 +117,43 @@ test.describe("Navegación del Command Center", () => {
     await page.locator("aside.cc-side")
       .getByRole("button", { name: /Executive Advisory/i }).click();
 
-    // La pestaña Imagen aparece porque el puente está configurado (env de test).
-    await page.getByRole("button", { name: /^Imagen$/ }).click();
+    // La pestaña Estudio aparece porque el puente está configurado (env de test).
+    await page.getByRole("button", { name: /^Estudio$/ }).click();
     await page.locator("textarea.cw-img-prompt").fill("póster navy y gold AUDITCONSULTING");
     await page.getByRole("button", { name: /Generar imagen/i }).click();
 
-    // Sale el diálogo de confirmación (honestidad del trade-off).
     await expect(page.getByText(/el chat seguirá funcionando con el respaldo/i)).toBeVisible();
     await page.getByRole("button", { name: /Sí, generar/i }).click();
 
-    // Aparece la imagen generada y el botón de descarga.
     await expect(page.locator(".cw-img-result img")).toBeVisible();
     await expect(page.getByRole("link", { name: /Descargar/i })).toBeVisible();
+  });
+
+  test("Estudio genera video (MP4) con el toggle Video", async ({ page }) => {
+    await mockApi(page, { user: ADMIN_USER });
+    // MP4 mínimo válido (ftyp) en base64 para el <video>.
+    const mp4b64 = "AAAAHGZ0eXBpc29tAAACAGlzb21pc28ybXA0MQAAAAhmcmVlAAAAAW1kYXQ=";
+    await page.route("https://bridge.test/generate_video", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ model: "ltxv", filename: "v.mp4", seconds: 19.6,
+                               video_base64: mp4b64, mime: "video/mp4" }),
+      })
+    );
+    await login(page);
+    await page.locator("aside.cc-side")
+      .getByRole("button", { name: /Executive Advisory/i }).click();
+    await page.getByRole("button", { name: /^Estudio$/ }).click();
+
+    // Cambiar a Video, escribir prompt, generar, confirmar.
+    await page.getByRole("button", { name: /🎬 Video/ }).click();
+    await page.locator("textarea.cw-img-prompt").fill("cámara volando sobre la ciudad al atardecer");
+    await page.getByRole("button", { name: /Generar video/i }).click();
+    await page.getByRole("button", { name: /Sí, generar/i }).click();
+
+    // Aparece el <video> y la descarga como .mp4.
+    await expect(page.locator(".cw-img-result video")).toBeVisible();
+    await expect(page.getByRole("link", { name: /Descargar/i })).toHaveAttribute("download", /\.mp4$/);
   });
 });

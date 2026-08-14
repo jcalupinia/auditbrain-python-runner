@@ -1008,27 +1008,35 @@ const DOC_FORMATS = [
   { value: "ppt", label: "PowerPoint (.pptx)" },
 ];
 
-// Panel de generación de imágenes (usa el puente ComfyUI del servidor local).
-function ImagePanel() {
+// Estudio de medios: genera imágenes (Flux/SDXL) y video (LTX-Video) con el
+// puente ComfyUI del servidor local (time-sharing de la GPU).
+function MediaPanel() {
+  const [kind, setKind] = useState("imagen"); // "imagen" | "video"
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("flux");
   const [size, setSize] = useState("1024x1024");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [image, setImage] = useState(null);
+  const [result, setResult] = useState(null); // {kind, src, seconds, model}
   const [confirming, setConfirming] = useState(false);
+  const isVideo = kind === "video";
 
   async function doGenerate() {
     setConfirming(false);
     const p = prompt.trim();
     if (!p || busy) return;
-    setBusy(true); setError(""); setImage(null);
-    const [w, h] = size.split("x").map(Number);
+    setBusy(true); setError(""); setResult(null);
     try {
-      const r = await api.generateImage({ prompt: p, model, width: w, height: h });
-      setImage({ src: `data:${r.mime};base64,${r.image_base64}`, seconds: r.seconds, model: r.model });
+      if (isVideo) {
+        const r = await api.generateVideo({ prompt: p });
+        setResult({ kind: "video", src: `data:${r.mime};base64,${r.video_base64}`, seconds: r.seconds, model: r.model });
+      } else {
+        const [w, h] = size.split("x").map(Number);
+        const r = await api.generateImage({ prompt: p, model, width: w, height: h });
+        setResult({ kind: "imagen", src: `data:${r.mime};base64,${r.image_base64}`, seconds: r.seconds, model: r.model });
+      }
     } catch (e) {
-      setError(e.message || "No se pudo generar la imagen.");
+      setError(e.message || "No se pudo generar.");
     } finally {
       setBusy(false);
     }
@@ -1037,44 +1045,59 @@ function ImagePanel() {
   return (
     <div className="cw-img">
       <div className="cw-img-note">
-        🎨 Genera imágenes con tu servidor local (Flux/SDXL). Mientras genera (~20–60 s),
-        el motor local se ocupa y el chat responde con el respaldo gratis (Gemini/Groq);
-        al terminar vuelve solo a local.
+        🎬 Genera <b>imágenes</b> (Flux/SDXL) y <b>video</b> (LTX-Video) con tu servidor local.
+        Mientras genera, el motor local se ocupa y el chat responde con el respaldo gratis
+        (Gemini/Groq); al terminar vuelve solo a local.
+      </div>
+      <div className="cw-media-kind">
+        <button type="button" className={!isVideo ? "on" : ""} disabled={busy}
+          onClick={() => setKind("imagen")}>🖼️ Imagen</button>
+        <button type="button" className={isVideo ? "on" : ""} disabled={busy}
+          onClick={() => setKind("video")}>🎬 Video</button>
       </div>
       <textarea
         className="cw-img-prompt"
         value={prompt}
         disabled={busy}
         onChange={(e) => setPrompt(e.target.value)}
-        placeholder="Describe la imagen… (ej: póster corporativo navy y gold con el texto AUDITCONSULTING)"
+        placeholder={isVideo
+          ? "Describe el video… (ej: cámara volando sobre un distrito financiero al atardecer)"
+          : "Describe la imagen… (ej: póster corporativo navy y gold con el texto AUDITCONSULTING)"}
       />
       <div className="cw-img-controls">
-        <label>Modelo
-          <select value={model} disabled={busy} onChange={(e) => setModel(e.target.value)}>
-            <option value="flux">Flux (premium · texto legible)</option>
-            <option value="sdxl">SDXL (rápido)</option>
-          </select>
-        </label>
-        <label>Tamaño
-          <select value={size} disabled={busy} onChange={(e) => setSize(e.target.value)}>
-            <option value="1024x1024">1024×1024 (cuadrado)</option>
-            <option value="1216x832">1216×832 (horizontal)</option>
-            <option value="832x1216">832×1216 (vertical)</option>
-          </select>
-        </label>
+        {!isVideo && (
+          <>
+            <label>Modelo
+              <select value={model} disabled={busy} onChange={(e) => setModel(e.target.value)}>
+                <option value="flux">Flux (premium · texto legible)</option>
+                <option value="sdxl">SDXL (rápido)</option>
+              </select>
+            </label>
+            <label>Tamaño
+              <select value={size} disabled={busy} onChange={(e) => setSize(e.target.value)}>
+                <option value="1024x1024">1024×1024 (cuadrado)</option>
+                <option value="1216x832">1216×832 (horizontal)</option>
+                <option value="832x1216">832×1216 (vertical)</option>
+              </select>
+            </label>
+          </>
+        )}
+        {isVideo && (
+          <span className="cw-media-hint">Clip corto (~2–3 s, 704×480). LTX-Video.</span>
+        )}
         <button
           type="button"
           className="btn primary sm"
           disabled={!prompt.trim() || busy}
           onClick={() => setConfirming(true)}
         >
-          {busy ? "Generando…" : "Generar imagen"}
+          {busy ? "Generando…" : isVideo ? "Generar video" : "Generar imagen"}
         </button>
       </div>
       {confirming && (
         <div className="cw-img-confirm">
-          <p>Generar una imagen ocupa el motor local ~1 min. El chat seguirá funcionando
-          con el respaldo gratis (Gemini/Groq) mientras tanto. ¿Continuar?</p>
+          <p>Generar {isVideo ? "un video" : "una imagen"} ocupa el motor local ~1 min. El chat
+          seguirá funcionando con el respaldo gratis (Gemini/Groq) mientras tanto. ¿Continuar?</p>
           <div className="cw-img-confirm-actions">
             <button type="button" className="btn sm" onClick={() => setConfirming(false)}>Cancelar</button>
             <button type="button" className="btn primary sm" onClick={doGenerate}>Sí, generar</button>
@@ -1083,16 +1106,21 @@ function ImagePanel() {
       )}
       {busy && (
         <div className="cw-thinking">
-          Generando imagen<span className="cw-dots"><i>.</i><i>.</i><i>.</i></span>
+          Generando {isVideo ? "video" : "imagen"}<span className="cw-dots"><i>.</i><i>.</i><i>.</i></span>
         </div>
       )}
       {error && <div className="notice warn cw-notice">{error}</div>}
-      {image && (
+      {result && (
         <div className="cw-img-result">
-          <img src={image.src} alt="imagen generada" />
+          {result.kind === "video" ? (
+            <video src={result.src} controls autoPlay loop muted />
+          ) : (
+            <img src={result.src} alt="imagen generada" />
+          )}
           <div className="cw-img-meta">
-            <span>{image.model.toUpperCase()} · {image.seconds}s</span>
-            <a className="btn sm" href={image.src} download="auditia-imagen.png">Descargar</a>
+            <span>{result.model.toUpperCase()} · {result.seconds}s</span>
+            <a className="btn sm" href={result.src}
+              download={result.kind === "video" ? "auditia-video.mp4" : "auditia-imagen.png"}>Descargar</a>
           </div>
         </div>
       )}
@@ -1409,16 +1437,16 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
       >
         <div className="cw-tabs">
           {["chat", "análisis", "documentos", "notas",
-            ...(api.comfyBridgeConfigured ? ["imagen"] : [])].map((t) => (
+            ...(api.comfyBridgeConfigured ? ["estudio"] : [])].map((t) => (
             <button key={t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>
-              {t.charAt(0).toUpperCase() + t.slice(1)}
+              {t === "estudio" ? "Estudio" : t.charAt(0).toUpperCase() + t.slice(1)}
             </button>
           ))}
         </div>
 
-        {tab === "imagen" ? (
+        {tab === "estudio" ? (
           <div className="cw-tool">
-            <ImagePanel />
+            <MediaPanel />
           </div>
         ) : tab === "análisis" && module.id === "AUD" ? (
           <div className="cw-tool">
