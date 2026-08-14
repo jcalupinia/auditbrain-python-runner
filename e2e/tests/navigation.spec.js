@@ -101,4 +101,34 @@ test.describe("Navegación del Command Center", () => {
     await expect(chip).toHaveCount(0);
     await expect(enviar).toBeDisabled();
   });
+
+  test("pestaña Imagen genera con confirmación (puente ComfyUI)", async ({ page }) => {
+    await mockApi(page, { user: ADMIN_USER });
+    // PNG 1x1 base64 de prueba que devuelve el puente.
+    const png1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    await page.route("https://bridge.test/generate", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ model: "flux", filename: "x.png", seconds: 12.3,
+                               image_base64: png1x1, mime: "image/png" }),
+      })
+    );
+    await login(page);
+    await page.locator("aside.cc-side")
+      .getByRole("button", { name: /Executive Advisory/i }).click();
+
+    // La pestaña Imagen aparece porque el puente está configurado (env de test).
+    await page.getByRole("button", { name: /^Imagen$/ }).click();
+    await page.locator("textarea.cw-img-prompt").fill("póster navy y gold AUDITCONSULTING");
+    await page.getByRole("button", { name: /Generar imagen/i }).click();
+
+    // Sale el diálogo de confirmación (honestidad del trade-off).
+    await expect(page.getByText(/el chat seguirá funcionando con el respaldo/i)).toBeVisible();
+    await page.getByRole("button", { name: /Sí, generar/i }).click();
+
+    // Aparece la imagen generada y el botón de descarga.
+    await expect(page.locator(".cw-img-result img")).toBeVisible();
+    await expect(page.getByRole("link", { name: /Descargar/i })).toBeVisible();
+  });
 });
