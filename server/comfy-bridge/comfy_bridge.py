@@ -75,6 +75,28 @@ def _wf_flux(prompt, neg, width, height, steps, seed):
     }
 
 
+def _wf_ltxv(prompt, neg, width, height, length, fps, steps, seed):
+    """Workflow texto→video LTX-Video 2B (distilled). Sale un .webp animado."""
+    return {
+        "ckpt": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "ltxv-2b-0.9.6-distilled.safetensors"}},
+        "clip": {"class_type": "CLIPLoader", "inputs": {"clip_name": "t5xxl_fp8_e4m3fn.safetensors", "type": "ltxv"}},
+        "pos": {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["clip", 0]}},
+        "neg": {"class_type": "CLIPTextEncode", "inputs": {"text": neg, "clip": ["clip", 0]}},
+        "lat": {"class_type": "EmptyLTXVLatentVideo", "inputs": {"width": width, "height": height, "length": length, "batch_size": 1}},
+        "cond": {"class_type": "LTXVConditioning", "inputs": {"positive": ["pos", 0], "negative": ["neg", 0], "frame_rate": float(fps)}},
+        "msamp": {"class_type": "ModelSamplingLTXV", "inputs": {"model": ["ckpt", 0], "max_shift": 2.05, "base_shift": 0.95, "latent": ["lat", 0]}},
+        "sched": {"class_type": "LTXVScheduler", "inputs": {"steps": steps, "max_shift": 2.05, "base_shift": 0.95, "stretch": True, "terminal": 0.1, "latent": ["lat", 0]}},
+        "ssel": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "euler"}},
+        "samp": {"class_type": "SamplerCustom", "inputs": {"model": ["msamp", 0], "add_noise": True, "noise_seed": seed, "cfg": 1.0,
+                 "positive": ["cond", 0], "negative": ["cond", 1], "sampler": ["ssel", 0], "sigmas": ["sched", 0], "latent_image": ["lat", 0]}},
+        "dec": {"class_type": "VAEDecode", "inputs": {"samples": ["samp", 0], "vae": ["ckpt", 2]}},
+        # Guardamos FRAMES PNG (no webp animado): ffmpeg los ensambla en un MP4
+        # fiable. Prefijo único por seed para no mezclar con otras corridas.
+        "save": {"class_type": "SaveImage", "inputs": {"images": ["dec", 0],
+                 "filename_prefix": f"cc_vid_{seed}"}},
+    }
+
+
 # ---------- helpers ----------
 async def _run(cmd):
     p = await asyncio.create_subprocess_exec(*cmd,
@@ -188,6 +210,80 @@ async def generate(req):
             _state["busy"] = False
 
 
+async def generate_video(req):
+    if not _auth(req):
+        return web.json_response({"error": "no autorizado"}, status=401)
+    try:
+        body = await req.json()
+    except Exception:
+        return web.json_response({"error": "JSON inválido"}, status=400)
+
+    prompt = (body.get("prompt") or "").strip()
+    if not prompt:
+        return web.json_response({"error": "falta 'prompt'"}, status=400)
+    neg = body.get("negative") or "low quality, worst quality, blurry, distorted, jittery, watermark, text"
+    width = int(body.get("width", 704)); height = int(body.get("height", 480))
+    fps = int(body.get("fps", 25)); steps = int(body.get("steps", 10))
+    length = int(body.get("length", 65))
+    if (length - 1) % 8 != 0:  # LTXV exige múltiplos de 8 + 1
+        length = ((length - 1) // 8) * 8 + 1
+    seed = int(body.get("seed", int(time.time()) % 2_000_000))
+    wf = _wf_ltxv(prompt, neg, width, height, length, fps, steps, seed)
+
+    async with _lock:
+        _state["busy"] = True
+        t0 = time.time()
+        try:
+            await _ensure_comfy_on()
+            loop = asyncio.get_event_loop()
+            pid = (await loop.run_in_executor(None, _comfy_post, "/prompt", {"prompt": wf}))["prompt_id"]
+            done = False
+            for _ in range(400):
+                h = await loop.run_in_executor(None, _comfy_get, f"/history/{pid}")
+                if pid in h:
+                    st = h[pid].get("status", {})
+                    if h[pid].get("outputs"):
+                        done = True
+                        break
+                    if st.get("status_str") == "error":
+                        return web.json_response({"error": "fallo la generación", "detail": st}, status=500)
+                await asyncio.sleep(1)
+            if not done:
+                return web.json_response({"error": "timeout de generación"}, status=504)
+
+            # Ensamblar los frames PNG (cc_vid_<seed>_NNNNN_.png) en un MP4.
+            out_dir = "/opt/auditia/comfyui/output"
+            import glob as _glob
+            frames = sorted(_glob.glob(os.path.join(out_dir, f"cc_vid_{seed}_*.png")))
+            if not frames:
+                return web.json_response({"error": "no se generaron frames"}, status=500)
+            mp4 = os.path.join(out_dir, f"cc_vid_{seed}.mp4")
+            rc, ffout = await _run([
+                "ffmpeg", "-y", "-framerate", str(fps),
+                "-pattern_type", "glob", "-i", os.path.join(out_dir, f"cc_vid_{seed}_*.png"),
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", mp4,
+            ])
+            if rc == 0 and os.path.exists(mp4):
+                with open(mp4, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode()
+                mime, outname = "video/mp4", os.path.basename(mp4)
+            else:
+                return web.json_response({"error": f"ffmpeg falló: {ffout[-300:]}"}, status=500)
+            # limpiar los frames PNG (dejar solo el mp4)
+            for fr in frames:
+                try: os.remove(fr)
+                except OSError: pass
+            _state["warm_until"] = time.time() + WARM_SECONDS
+            return web.json_response({
+                "model": "ltxv", "filename": outname, "seconds": round(time.time() - t0, 1),
+                "video_base64": b64, "mime": mime,
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+        finally:
+            _state["busy"] = False
+
+
 async def on_start(app):
     app["janitor"] = asyncio.create_task(_janitor())
 
@@ -206,6 +302,7 @@ def main():
     app = web.Application(client_max_size=2 * 1024 * 1024, middlewares=[cors_mw])
     app.router.add_get("/status", status)
     app.router.add_post("/generate", generate)
+    app.router.add_post("/generate_video", generate_video)
     app.router.add_route("OPTIONS", "/{tail:.*}", preflight)
     app.on_startup.append(on_start)
     web.run_app(app, host="127.0.0.1", port=PORT)

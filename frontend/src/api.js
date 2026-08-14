@@ -613,6 +613,21 @@ export async function generateImage({ prompt, model = "flux", width = 1024, heig
   return res.json(); // { model, filename, seconds, image_base64, mime }
 }
 
+export async function generateVideo({ prompt, width = 704, height = 480, length = 65 }) {
+  if (!comfyBridgeConfigured) throw new Error("La generación de video no está configurada.");
+  const res = await fetch(`${COMFY_BRIDGE_URL}/generate_video`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Comfy-Key": COMFY_BRIDGE_KEY },
+    body: JSON.stringify({ prompt, width, height, length }),
+  });
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try { detail = (await res.json()).error || detail; } catch { /* noop */ }
+    throw new Error(detail);
+  }
+  return res.json(); // { model, filename, seconds, video_base64, mime }
+}
+
 // Sube un archivo y devuelve su texto extraído (no lo persiste en el servidor).
 // { name, kind, chars, truncated, text }. Lanza si el archivo no se puede leer.
 export async function extractAttachment(file) {
