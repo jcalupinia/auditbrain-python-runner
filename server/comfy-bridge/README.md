@@ -57,6 +57,30 @@ pendiente que el túnel del LLM; conviene un túnel de nombre fijo).
 Si no se configuran, `GET /chat/media/status` devuelve `{enabled:false}` y la
 pestaña **"Estudio"** del Command Center **no aparece** (degradación limpia).
 
+## Herramientas de marketing (CPU · no usan la GPU · no pausan el chat)
+El puente también expone motores para producción de contenido, instalados en un
+venv aparte (`/opt/auditia/mediatools/venv`):
+
+| Endpoint | Motor | Qué hace |
+|---|---|---|
+| `POST /removebg` | rembg (u2net) | Quita el fondo → PNG transparente. `{image_base64}` → `{image_base64}` |
+| `POST /tts` | Piper (voz `es_MX-ald-medium`) | Texto → voz en off. `{text}` → `{audio_base64, mime:audio/mpeg}` |
+| `POST /subtitle` | faster-whisper (small, es) | Audio/video → subtítulos. `{audio_base64}` → `{srt}` |
+
+Instalación (una vez):
+```bash
+sudo mkdir -p /opt/auditia/mediatools && sudo chown auditia: /opt/auditia/mediatools
+cd /opt/auditia/mediatools && python3 -m venv venv
+./venv/bin/pip install "rembg[cli]" onnxruntime pillow piper-tts faster-whisper
+# voz Piper:
+mkdir voices && curl -L -o voices/es_MX-ald-medium.onnx \
+  https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_MX/ald/medium/es_MX-ald-medium.onnx
+curl -L -o voices/es_MX-ald-medium.onnx.json \
+  https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_MX/ald/medium/es_MX-ald-medium.onnx.json
+# subtitle.py (transcribe a .srt) — ver subtitle.py junto a este README
+```
+Estos endpoints son CPU: **no** hacen `comfy-mode on`, así que **conviven con el chat**.
+
 ## Seguridad
 El puente exige `X-Comfy-Key` (48 hex). Solo el backend conoce la clave; solo
 usuarios con sesión JWT pueden disparar generación. La `tailscale serve` en :8443
