@@ -320,6 +320,105 @@ async def generate_video(req):
             _state["busy"] = False
 
 
+# --- Herramientas de marketing (CPU, NO usan la GPU → no pausan el chat) -----
+MEDIATOOLS = "/opt/auditia/mediatools"
+_TMP = os.path.join(MEDIATOOLS, "tmp")
+
+
+def _tmp(name):
+    os.makedirs(_TMP, exist_ok=True)
+    return os.path.join(_TMP, f"{name}_{int(time.time() * 1000)}")
+
+
+async def removebg(req):
+    """Recorta el fondo de una imagen (rembg). {image_base64} → PNG transparente."""
+    if not _auth(req):
+        return web.json_response({"error": "no autorizado"}, status=401)
+    try:
+        body = await req.json()
+    except Exception:
+        return web.json_response({"error": "JSON inválido"}, status=400)
+    b64 = body.get("image_base64")
+    if not b64:
+        return web.json_response({"error": "falta image_base64"}, status=400)
+    inp = _tmp("rmbg_in") + ".png"
+    outp = _tmp("rmbg_out") + ".png"
+    with open(inp, "wb") as f:
+        f.write(base64.b64decode(b64))
+    rc, out = await _run([f"{MEDIATOOLS}/venv/bin/rembg", "i", inp, outp])
+    try:
+        if rc != 0 or not os.path.exists(outp):
+            return web.json_response({"error": f"rembg falló: {out[-200:]}"}, status=500)
+        with open(outp, "rb") as f:
+            res = base64.b64encode(f.read()).decode()
+        return web.json_response({"image_base64": res, "mime": "image/png"})
+    finally:
+        for p in (inp, outp):
+            try: os.remove(p)
+            except OSError: pass
+
+
+async def tts(req):
+    """Texto → voz en off (Piper, es-MX). {text} → MP3 base64."""
+    if not _auth(req):
+        return web.json_response({"error": "no autorizado"}, status=401)
+    try:
+        body = await req.json()
+    except Exception:
+        return web.json_response({"error": "JSON inválido"}, status=400)
+    text = (body.get("text") or "").strip()
+    if not text:
+        return web.json_response({"error": "falta text"}, status=400)
+    wav = _tmp("tts") + ".wav"
+    mp3 = wav[:-4] + ".mp3"
+    voice = f"{MEDIATOOLS}/voices/es_MX-ald-medium.onnx"
+    p = await asyncio.create_subprocess_exec(
+        f"{MEDIATOOLS}/venv/bin/piper", "-m", voice, "-f", wav,
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT)
+    await p.communicate(text.encode())
+    try:
+        if not os.path.exists(wav):
+            return web.json_response({"error": "piper falló"}, status=500)
+        rc, _o = await _run(["ffmpeg", "-y", "-i", wav, "-b:a", "128k", mp3])
+        final = mp3 if (rc == 0 and os.path.exists(mp3)) else wav
+        mime = "audio/mpeg" if final == mp3 else "audio/wav"
+        with open(final, "rb") as f:
+            res = base64.b64encode(f.read()).decode()
+        return web.json_response({"audio_base64": res, "mime": mime})
+    finally:
+        for p2 in (wav, mp3):
+            try: os.remove(p2)
+            except OSError: pass
+
+
+async def subtitle(req):
+    """Audio/video → subtítulos .srt (faster-whisper, es). {audio_base64} → {srt}."""
+    if not _auth(req):
+        return web.json_response({"error": "no autorizado"}, status=401)
+    try:
+        body = await req.json()
+    except Exception:
+        return web.json_response({"error": "JSON inválido"}, status=400)
+    b64 = body.get("audio_base64")
+    if not b64:
+        return web.json_response({"error": "falta audio_base64"}, status=400)
+    au = _tmp("sub_in")
+    srt = au + ".srt"
+    with open(au, "wb") as f:
+        f.write(base64.b64decode(b64))
+    rc, out = await _run([f"{MEDIATOOLS}/venv/bin/python", f"{MEDIATOOLS}/subtitle.py", au, srt])
+    try:
+        if rc != 0 or not os.path.exists(srt):
+            return web.json_response({"error": f"subtítulos fallaron: {out[-200:]}"}, status=500)
+        with open(srt, encoding="utf-8") as f:
+            return web.json_response({"srt": f.read()})
+    finally:
+        for p in (au, srt):
+            try: os.remove(p)
+            except OSError: pass
+
+
 async def on_start(app):
     app["janitor"] = asyncio.create_task(_janitor())
 
@@ -335,10 +434,13 @@ async def cors_mw(req, handler):
 def main():
     if not KEY:
         raise SystemExit("Falta COMFY_BRIDGE_KEY en el entorno")
-    app = web.Application(client_max_size=2 * 1024 * 1024, middlewares=[cors_mw])
+    app = web.Application(client_max_size=64 * 1024 * 1024, middlewares=[cors_mw])
     app.router.add_get("/status", status)
     app.router.add_post("/generate", generate)
     app.router.add_post("/generate_video", generate_video)
+    app.router.add_post("/removebg", removebg)
+    app.router.add_post("/tts", tts)
+    app.router.add_post("/subtitle", subtitle)
     app.router.add_route("OPTIONS", "/{tail:.*}", preflight)
     app.on_startup.append(on_start)
     web.run_app(app, host="127.0.0.1", port=PORT)
