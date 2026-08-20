@@ -47,8 +47,29 @@ async def preflight(req):
 
 
 # ---------- workflows ----------
-def _wf_sdxl(prompt, neg, width, height, steps, seed):
-    return {
+# Modelos añadidos (Civitai/HF) integrados en Estudio:
+UPSCALER = "4x-UltraSharp.pth"                 # alta resolución para imprimir
+FLUX_REALISM_LORA = "flux_realism_xlabs.safetensors"  # estilo fotorrealista (Flux)
+
+
+def _upscale_tail(image_ref, out_w, out_h, upscale):
+    """Cola opcional de super-resolución: 4x-UltraSharp y reescalado a 2x del
+    tamaño original (nítido, listo para imprimir). Devuelve (nodos, img_final)."""
+    if not upscale:
+        return {}, image_ref
+    nodes = {
+        "_upm": {"class_type": "UpscaleModelLoader", "inputs": {"model_name": UPSCALER}},
+        "_up": {"class_type": "ImageUpscaleWithModel",
+                "inputs": {"upscale_model": ["_upm", 0], "image": image_ref}},
+        "_sc": {"class_type": "ImageScale",
+                "inputs": {"image": ["_up", 0], "upscale_method": "lanczos",
+                           "width": out_w * 2, "height": out_h * 2, "crop": "disabled"}},
+    }
+    return nodes, ["_sc", 0]
+
+
+def _wf_sdxl(prompt, neg, width, height, steps, seed, upscale=True, realism=True):
+    wf = {
         "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "sd_xl_base_1.0.safetensors"}},
         "5": {"class_type": "EmptyLatentImage", "inputs": {"width": width, "height": height, "batch_size": 1}},
         "6": {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["4", 1]}},
@@ -57,22 +78,33 @@ def _wf_sdxl(prompt, neg, width, height, steps, seed):
               "sampler_name": "euler", "scheduler": "normal", "denoise": 1.0,
               "model": ["4", 0], "positive": ["6", 0], "negative": ["7", 0], "latent_image": ["5", 0]}},
         "8": {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},
-        "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "cc_img", "images": ["8", 0]}},
     }
+    extra, img = _upscale_tail(["8", 0], width, height, upscale)
+    wf.update(extra)
+    wf["9"] = {"class_type": "SaveImage", "inputs": {"filename_prefix": "cc_img", "images": img}}
+    return wf
 
 
-def _wf_flux(prompt, neg, width, height, steps, seed):
-    return {
+def _wf_flux(prompt, neg, width, height, steps, seed, upscale=True, realism=True):
+    wf = {
         "ckpt": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "flux1-schnell-fp8.safetensors"}},
         "pos": {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["ckpt", 1]}},
         "neg": {"class_type": "CLIPTextEncode", "inputs": {"text": neg, "clip": ["ckpt", 1]}},
         "lat": {"class_type": "EmptySD3LatentImage", "inputs": {"width": width, "height": height, "batch_size": 1}},
-        "samp": {"class_type": "KSampler", "inputs": {"seed": seed, "steps": steps, "cfg": 1.0,
-                 "sampler_name": "euler", "scheduler": "simple", "denoise": 1.0,
-                 "model": ["ckpt", 0], "positive": ["pos", 0], "negative": ["neg", 0], "latent_image": ["lat", 0]}},
-        "dec": {"class_type": "VAEDecode", "inputs": {"samples": ["samp", 0], "vae": ["ckpt", 2]}},
-        "save": {"class_type": "SaveImage", "inputs": {"filename_prefix": "cc_img", "images": ["dec", 0]}},
     }
+    model_ref = ["ckpt", 0]
+    if realism:  # LoRA de realismo (estilo fotorrealista) sobre el modelo Flux
+        wf["lora"] = {"class_type": "LoraLoaderModelOnly",
+                      "inputs": {"model": ["ckpt", 0], "lora_name": FLUX_REALISM_LORA, "strength_model": 0.8}}
+        model_ref = ["lora", 0]
+    wf["samp"] = {"class_type": "KSampler", "inputs": {"seed": seed, "steps": steps, "cfg": 1.0,
+                  "sampler_name": "euler", "scheduler": "simple", "denoise": 1.0,
+                  "model": model_ref, "positive": ["pos", 0], "negative": ["neg", 0], "latent_image": ["lat", 0]}}
+    wf["dec"] = {"class_type": "VAEDecode", "inputs": {"samples": ["samp", 0], "vae": ["ckpt", 2]}}
+    extra, img = _upscale_tail(["dec", 0], width, height, upscale)
+    wf.update(extra)
+    wf["save"] = {"class_type": "SaveImage", "inputs": {"filename_prefix": "cc_img", "images": img}}
+    return wf
 
 
 def _wf_ltxv(prompt, neg, width, height, length, fps, steps, seed):
@@ -169,10 +201,14 @@ async def generate(req):
     neg = body.get("negative") or "low quality, blurry, watermark, text artifacts"
     width = int(body.get("width", 1024)); height = int(body.get("height", 1024))
     seed = int(body.get("seed", int(time.time()) % 2_000_000))
+    upscale = bool(body.get("upscale", True))   # alta resolución por defecto
+    realism = bool(body.get("realism", True))   # LoRA de realismo por defecto (Flux)
     if model == "sdxl":
-        steps = int(body.get("steps", 25)); wf = _wf_sdxl(prompt, neg, width, height, steps, seed)
+        steps = int(body.get("steps", 25))
+        wf = _wf_sdxl(prompt, neg, width, height, steps, seed, upscale=upscale, realism=realism)
     else:
-        model = "flux"; steps = int(body.get("steps", 4)); wf = _wf_flux(prompt, neg, width, height, steps, seed)
+        model = "flux"; steps = int(body.get("steps", 4))
+        wf = _wf_flux(prompt, neg, width, height, steps, seed, upscale=upscale, realism=realism)
 
     async with _lock:
         _state["busy"] = True
