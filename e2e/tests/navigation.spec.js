@@ -118,9 +118,9 @@ test.describe("Navegación del Command Center", () => {
     );
     await login(page);
     await page.locator("aside.cc-side")
-      .getByRole("button", { name: /Executive Advisory/i }).click();
+      .getByRole("button", { name: /Creative Studio/i }).click();
 
-    // La pestaña Estudio aparece porque el puente está configurado (env de test).
+    // Estudio vive solo en Creative Studio (CRE) y aparece porque el puente está configurado.
     await page.getByRole("button", { name: /^Estudio$/ }).click();
     await page.locator("textarea.cw-img-prompt").fill("póster navy y gold AUDITCONSULTING");
     await page.getByRole("button", { name: /Generar imagen/i }).click();
@@ -148,7 +148,7 @@ test.describe("Navegación del Command Center", () => {
     );
     await login(page);
     await page.locator("aside.cc-side")
-      .getByRole("button", { name: /Executive Advisory/i }).click();
+      .getByRole("button", { name: /Creative Studio/i }).click();
     await page.getByRole("button", { name: /^Estudio$/ }).click();
 
     // Cambiar a Video, escribir prompt, generar, confirmar.

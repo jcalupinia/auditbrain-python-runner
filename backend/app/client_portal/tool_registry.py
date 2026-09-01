@@ -79,6 +79,9 @@ def _stub_echo_processor(job_id: int) -> None:
 from backend.app.client_portal.flujo.processor import (  # noqa: E402
     flujo_efectivo_processor as _flujo_efectivo_processor,
 )
+from backend.app.client_portal.reels.processor import (  # noqa: E402
+    reels_processor as _reels_processor,
+)
 
 
 TOOLS: dict[str, ToolConfig] = {
@@ -166,6 +169,33 @@ TOOLS: dict[str, ToolConfig] = {
     ),
 
     # =========================================================
+    # MARKETING
+    # =========================================================
+    "GENERADOR_REELS": ToolConfig(
+        code="GENERADOR_REELS",
+        label="Generador de Reels · Avatar + Marca",
+        description=(
+            "Genera un reel de marca (horizontal 16:9 y vertical 9:16) a partir "
+            "de un audio de voz: avatar hablando, pantalla con material de apoyo, "
+            "logo, subtítulos, intro y música. Corre en el servidor de IA local."
+        ),
+        category="MARKETING",
+        slots={
+            "audio": SlotConfig(
+                mimes_allowed=frozenset({
+                    "audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/aac",
+                    "audio/wav", "audio/x-wav", "audio/ogg",
+                    "video/mp4", "application/octet-stream",
+                }),
+                required=True,
+                multi=False,
+            ),
+        },
+        processor=_reels_processor,
+        enabled=True,
+    ),
+
+    # =========================================================
     # TESTING (oculto del catálogo público)
     # =========================================================
     "STUB_ECHO": ToolConfig(
@@ -231,5 +261,10 @@ CATEGORIES = [
         "id": "DESARROLLO",
         "label": "Desarrollo con IA",
         "description": "AuditBrain Forge — un cerebro, muchos destinos: compila el contexto del proyecto a las herramientas de IA de código.",
+    },
+    {
+        "id": "MARKETING",
+        "label": "Marketing y Contenido",
+        "description": "Reels de marca con avatar y voz, contenido para redes.",
     },
 ]

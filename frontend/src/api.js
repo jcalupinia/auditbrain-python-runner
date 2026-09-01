@@ -634,6 +634,39 @@ export async function generateVideo({ prompt, width = 704, height = 480, length 
   );
 }
 
+// ---- Marketing-Tools (Creative Studio) ----
+export async function removeBg(image_base64) {
+  return parse(await apiFetch(`${API_BASE}/api/v1/chat/media/removebg`,
+    { method: "POST", headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ image_base64 }) }, { timeoutMs: 120000, retries: 0 }));
+}
+export async function ttsGenerate(text) {
+  return parse(await apiFetch(`${API_BASE}/api/v1/chat/media/tts`,
+    { method: "POST", headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ text }) }, { timeoutMs: 120000, retries: 0 }));
+}
+export async function subtitleGenerate(audio_base64) {
+  return parse(await apiFetch(`${API_BASE}/api/v1/chat/media/subtitle`,
+    { method: "POST", headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ audio_base64 }) }, { timeoutMs: 180000, retries: 0 }));
+}
+export async function reelStart(file) {
+  const fd = new FormData();
+  fd.append("audio", file);
+  return parse(await apiFetch(`${API_BASE}/api/v1/chat/media/reel`,
+    { method: "POST", headers: authHeaders(), body: fd }, { timeoutMs: 120000, retries: 0 }));
+}
+export async function reelStatus(jid) {
+  return parse(await apiFetch(`${API_BASE}/api/v1/chat/media/reel/${jid}`,
+    { headers: authHeaders() }, { timeoutMs: 30000, retries: 1 }));
+}
+export async function reelOutput(jid, fmt) {
+  const res = await apiFetch(`${API_BASE}/api/v1/chat/media/reel/${jid}/output?fmt=${fmt}`,
+    { headers: authHeaders() }, { timeoutMs: 180000, retries: 0 });
+  if (!res.ok) throw new Error("No se pudo descargar el reel.");
+  return URL.createObjectURL(await res.blob());
+}
+
 // Sube un archivo y devuelve su texto extraído (no lo persiste en el servidor).
 // { name, kind, chars, truncated, text }. Lanza si el archivo no se puede leer.
 export async function extractAttachment(file) {

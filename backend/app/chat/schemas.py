@@ -81,6 +81,18 @@ class MediaVideoIn(BaseModel):
     length: int = Field(default=65, ge=9, le=161)
 
 
+class MediaRemoveBgIn(BaseModel):
+    image_base64: str = Field(min_length=1)
+
+
+class MediaTtsIn(BaseModel):
+    text: str = Field(min_length=1, max_length=5000)
+
+
+class MediaSubtitleIn(BaseModel):
+    audio_base64: str = Field(min_length=1)
+
+
 class ChatTurnResult(BaseModel):
     """Resultado de enviar un mensaje: el mensaje del usuario y la respuesta del assistant."""
 

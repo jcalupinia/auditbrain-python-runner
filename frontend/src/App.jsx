@@ -1190,6 +1190,154 @@ function Documents({ embedded }) {
   );
 }
 
+// Lee un File como base64 (sin el prefijo data:).
+function fileToB64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(",")[1]);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+// Creative Studio: hub con dos secciones (Realismo = MediaPanel; Marketing-Tools).
+function CreativeStudio() {
+  const [sec, setSec] = useState("realismo");
+  return (
+    <div>
+      <div className="cw-tabs">
+        <button className={sec === "realismo" ? "on" : ""} onClick={() => setSec("realismo")}>🎬 Estudio-Realismo</button>
+        <button className={sec === "marketing" ? "on" : ""} onClick={() => setSec("marketing")}>🚀 Marketing-Tools</button>
+      </div>
+      {sec === "realismo" ? <MediaPanel /> : <MarketingTools />}
+    </div>
+  );
+}
+
+function MarketingTools() {
+  const [t, setT] = useState("reel");
+  return (
+    <div>
+      <div className="cw-media-kind">
+        <button className={t === "reel" ? "on" : ""} onClick={() => setT("reel")}>🎥 Reel</button>
+        <button className={t === "rembg" ? "on" : ""} onClick={() => setT("rembg")}>✂️ Quitar fondo</button>
+        <button className={t === "tts" ? "on" : ""} onClick={() => setT("tts")}>🎙️ Voz (TTS)</button>
+        <button className={t === "sub" ? "on" : ""} onClick={() => setT("sub")}>💬 Subtítulos</button>
+      </div>
+      {t === "reel" && <ReelPanel />}
+      {t === "rembg" && <RemoveBgPanel />}
+      {t === "tts" && <TtsPanel />}
+      {t === "sub" && <SubtitlePanel />}
+    </div>
+  );
+}
+
+function ReelPanel() {
+  const [file, setFile] = useState(null);
+  const [job, setJob] = useState(null);
+  const [error, setError] = useState("");
+  const [links, setLinks] = useState(null);
+  const busy = job && ["queued", "running"].includes(job.status);
+  async function poll(jid) {
+    try {
+      const s = await api.reelStatus(jid);
+      setJob(s);
+      if (s.status === "done") {
+        const [h, v] = await Promise.all([api.reelOutput(jid, "horizontal"), api.reelOutput(jid, "vertical")]);
+        setLinks({ h, v });
+        return;
+      }
+      if (s.status === "error") { setError(s.error || "La generación falló."); return; }
+      setTimeout(() => poll(jid), 8000);
+    } catch (e) { setError(e.message || "Error consultando el estado."); }
+  }
+  async function start() {
+    if (!file || busy) return;
+    setError(""); setLinks(null); setJob({ status: "queued", step: "subiendo…" });
+    try { const j = await api.reelStart(file); setJob(j); poll(j.job_id); }
+    catch (e) { setError(e.message || "No se pudo iniciar."); setJob(null); }
+  }
+  return (
+    <div className="cw-img">
+      <div className="cw-img-note">🎥 Sube un <b>audio de voz</b> (mp3/mp4/m4a/wav). Genera el reel de marca
+        (horizontal 16:9 y vertical 9:16) con tu avatar. Ocupa la GPU ~5 min y el chat responde con el respaldo mientras tanto.</div>
+      <input type="file" accept="audio/*,video/mp4" disabled={busy} onChange={(e) => setFile(e.target.files[0] || null)} />
+      <div className="cw-img-controls">
+        <button type="button" className="btn primary sm" disabled={!file || busy} onClick={start}>
+          {busy ? "Generando…" : "Generar reel"}</button>
+      </div>
+      {busy && <div className="cw-thinking">{job.step || "procesando"}<span className="cw-dots"><i>.</i><i>.</i><i>.</i></span></div>}
+      {error && <div className="notice warn">{error}</div>}
+      {links && (
+        <div className="cw-img-result">
+          <p>✅ Reel listo:</p>
+          <a className="btn sm" href={links.h} download="reel_horizontal.mp4">⬇️ Horizontal 16:9</a>{" "}
+          <a className="btn sm" href={links.v} download="reel_vertical.mp4">⬇️ Vertical 9:16</a>
+          <video src={links.v} controls style={{ maxWidth: "320px", display: "block", marginTop: "10px" }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RemoveBgPanel() {
+  const [busy, setBusy] = useState(false), [err, setErr] = useState(""), [out, setOut] = useState(null);
+  async function run(file) {
+    if (!file) return;
+    setBusy(true); setErr(""); setOut(null);
+    try { const b = await fileToB64(file); const r = await api.removeBg(b); setOut(`data:${r.mime};base64,${r.image_base64}`); }
+    catch (e) { setErr(e.message || "Falló."); } finally { setBusy(false); }
+  }
+  return (
+    <div className="cw-img">
+      <div className="cw-img-note">✂️ Sube una imagen y te la devuelvo con el <b>fondo quitado</b> (PNG transparente).</div>
+      <input type="file" accept="image/*" disabled={busy} onChange={(e) => run(e.target.files[0])} />
+      {busy && <div className="cw-thinking">Quitando fondo<span className="cw-dots"><i>.</i><i>.</i><i>.</i></span></div>}
+      {err && <div className="notice warn">{err}</div>}
+      {out && <div className="cw-img-result"><img src={out} alt="sin fondo" style={{ maxWidth: "320px" }} /><br /><a className="btn sm" href={out} download="sin_fondo.png">⬇️ Descargar PNG</a></div>}
+    </div>
+  );
+}
+
+function TtsPanel() {
+  const [text, setText] = useState(""), [busy, setBusy] = useState(false), [err, setErr] = useState(""), [src, setSrc] = useState(null);
+  async function run() {
+    if (!text.trim() || busy) return;
+    setBusy(true); setErr(""); setSrc(null);
+    try { const r = await api.ttsGenerate(text.trim()); setSrc(`data:${r.mime};base64,${r.audio_base64}`); }
+    catch (e) { setErr(e.message || "Falló."); } finally { setBusy(false); }
+  }
+  return (
+    <div className="cw-img">
+      <div className="cw-img-note">🎙️ Escribe un texto y lo convierto en <b>voz en off</b> (es-MX).</div>
+      <textarea className="cw-img-prompt" value={text} disabled={busy} onChange={(e) => setText(e.target.value)} placeholder="Texto a locutar…" />
+      <div className="cw-img-controls"><button type="button" className="btn primary sm" disabled={!text.trim() || busy} onClick={run}>{busy ? "Generando…" : "Generar voz"}</button></div>
+      {err && <div className="notice warn">{err}</div>}
+      {src && <div className="cw-img-result"><audio src={src} controls /><br /><a className="btn sm" href={src} download="voz.mp3">⬇️ Descargar</a></div>}
+    </div>
+  );
+}
+
+function SubtitlePanel() {
+  const [busy, setBusy] = useState(false), [err, setErr] = useState(""), [srt, setSrt] = useState(null);
+  async function run(file) {
+    if (!file) return;
+    setBusy(true); setErr(""); setSrt(null);
+    try { const b = await fileToB64(file); const r = await api.subtitleGenerate(b); setSrt(r.srt); }
+    catch (e) { setErr(e.message || "Falló."); } finally { setBusy(false); }
+  }
+  const dl = srt ? URL.createObjectURL(new Blob([srt], { type: "text/plain" })) : null;
+  return (
+    <div className="cw-img">
+      <div className="cw-img-note">💬 Sube un audio/video y te devuelvo los <b>subtítulos .srt</b> (español).</div>
+      <input type="file" accept="audio/*,video/*" disabled={busy} onChange={(e) => run(e.target.files[0])} />
+      {busy && <div className="cw-thinking">Transcribiendo<span className="cw-dots"><i>.</i><i>.</i><i>.</i></span></div>}
+      {err && <div className="notice warn">{err}</div>}
+      {srt && <div className="cw-img-result"><textarea className="cw-img-prompt" readOnly value={srt} style={{ height: "140px" }} /><br /><a className="btn sm" href={dl} download="subtitulos.srt">⬇️ Descargar .srt</a></div>}
+    </div>
+  );
+}
+
 /* ---------------- Módulos sectoriales (nodos reales · capa cognitiva en Fase 2) ---------------- */
 const MODULES = [
   { id: "ADV", label: "Executive Advisory" },
@@ -1446,7 +1594,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
       >
         <div className="cw-tabs">
           {["chat", "análisis", "documentos", "notas",
-            ...(mediaEnabled ? ["estudio"] : [])].map((t) => (
+            ...(mediaEnabled && module.id === "CRE" ? ["estudio"] : [])].map((t) => (
             <button key={t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>
               {t === "estudio" ? "Estudio" : t.charAt(0).toUpperCase() + t.slice(1)}
             </button>
@@ -1455,7 +1603,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
 
         {tab === "estudio" ? (
           <div className="cw-tool">
-            <MediaPanel />
+            <CreativeStudio />
           </div>
         ) : tab === "análisis" && module.id === "AUD" ? (
           <div className="cw-tool">
