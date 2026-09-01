@@ -1,7 +1,7 @@
 """Endpoints del chat cognitivo: /api/v1/chat/*."""
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 
 from backend.app.auth.deps import get_current_user
@@ -16,6 +16,9 @@ from backend.app.chat.schemas import (
     ConversationDetail,
     ConversationOut,
     MediaImageIn,
+    MediaRemoveBgIn,
+    MediaSubtitleIn,
+    MediaTtsIn,
     MediaVideoIn,
     MessageIn,
     MessageOut,
@@ -177,3 +180,55 @@ def media_video(payload: MediaVideoIn, _current: User = Depends(get_current_user
         return media_mod.generate_video(payload.prompt, payload.width, payload.height, payload.length)
     except media_mod.MediaUnavailable as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+
+# ---- Marketing-Tools (Creative Studio) ----
+@router.post("/media/removebg")
+def media_removebg(payload: MediaRemoveBgIn, _current: User = Depends(get_current_user)):
+    try:
+        return media_mod.remove_bg(payload.image_base64)
+    except media_mod.MediaUnavailable as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+
+@router.post("/media/tts")
+def media_tts(payload: MediaTtsIn, _current: User = Depends(get_current_user)):
+    try:
+        return media_mod.tts(payload.text)
+    except media_mod.MediaUnavailable as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+
+@router.post("/media/subtitle")
+def media_subtitle(payload: MediaSubtitleIn, _current: User = Depends(get_current_user)):
+    try:
+        return media_mod.subtitle(payload.audio_base64)
+    except media_mod.MediaUnavailable as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+
+@router.post("/media/reel")
+async def media_reel(audio: UploadFile = File(...), _current: User = Depends(get_current_user)):
+    try:
+        return media_mod.reel_start(await audio.read(), audio.filename or "voz.mp4")
+    except media_mod.MediaUnavailable as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+
+@router.get("/media/reel/{jid}")
+def media_reel_status(jid: str, _current: User = Depends(get_current_user)):
+    try:
+        return media_mod.reel_status(jid)
+    except media_mod.MediaUnavailable as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+
+@router.get("/media/reel/{jid}/output")
+def media_reel_output(jid: str, fmt: str = Query("horizontal"),
+                      _current: User = Depends(get_current_user)):
+    try:
+        data = media_mod.reel_output(jid, "vertical" if fmt == "vertical" else "horizontal")
+    except media_mod.MediaUnavailable as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+    return Response(content=data, media_type="video/mp4",
+                    headers={"Content-Disposition": f'attachment; filename="reel_{fmt}.mp4"'})
