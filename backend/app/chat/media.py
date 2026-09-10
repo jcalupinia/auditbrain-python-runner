@@ -16,6 +16,17 @@ import os
 
 import requests
 
+# El host del Funnel (*.ts.net) es dual-stack (A + AAAA). Render no tiene ruta IPv6,
+# y requests/urllib3 prefiere IPv6 → "Network is unreachable" (ENETUNREACH). Forzamos
+# IPv4 en la resolución del proceso. Todos los proveedores externos tienen IPv4, así
+# que no hay regresión. Fix del error visto en Creative Studio → Estudio (2026-09-10).
+try:
+    import socket as _socket
+    from urllib3.util import connection as _u3conn
+    _u3conn.allowed_gai_family = lambda: _socket.AF_INET
+except Exception:  # noqa: BLE001 — si cambia el interno de urllib3, no romper el import
+    pass
+
 _URL = os.environ.get("COMFY_BRIDGE_URL", "").rstrip("/")
 _KEY = os.environ.get("COMFY_BRIDGE_KEY", "")
 _TIMEOUT = int(os.environ.get("COMFY_BRIDGE_TIMEOUT", "220"))
