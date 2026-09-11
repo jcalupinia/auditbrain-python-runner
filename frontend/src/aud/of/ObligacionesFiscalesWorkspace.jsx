@@ -16,6 +16,7 @@ const SLOTS = [
   // El ATS llega en XML o en PDF (el "Talón Resumen" del SRI), según lo que
   // el cliente entregue. El backend acepta ambos; la UI no debe restringirlo.
   { key: "ats", label: STRINGS.of_chip_ats, descripcion: STRINGS.of_slot_ats, accept: ".xml,application/xml,text/xml,application/pdf", multiple: true },
+  { key: "facturas", label: STRINGS.of_chip_facturas, descripcion: STRINGS.of_slot_facturas, accept: ".xml,.zip,application/xml,text/xml,application/zip", multiple: true },
   { key: "mayor_general", label: STRINGS.of_chip_mayor_general, descripcion: STRINGS.of_slot_mayor_general, accept: ".xlsx,.xls,.csv", multiple: false, required: true },
   { key: "mayor_especifico", label: STRINGS.of_chip_mayor_especifico, descripcion: STRINGS.of_slot_mayor_especifico, accept: ".xlsx,.xls,.csv", multiple: false },
   { key: "f101", label: STRINGS.of_chip_f101, descripcion: STRINGS.of_slot_f101, accept: "application/pdf", multiple: false },

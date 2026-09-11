@@ -123,12 +123,19 @@ def process_job(job_id: int) -> None:
             movimientos.extend(leer_mayor(ruta.read_bytes()).movimientos)
         f104_monthly, f103_monthly = leer_declaraciones(job_dir)
 
+        from backend.app.aud.obligaciones_fiscales.libro.facturacion import leer_facturas
+        facturas, avisos_facturas = leer_facturas(file_storage.list_inputs(job_dir, "facturas"))
+        if avisos_facturas:
+            log.warning("job %s: %d avisos al leer facturas (p. ej. %s)",
+                        job_id, len(avisos_facturas), avisos_facturas[:3])
+
         excel_bytes = armar_libro(
             clasificacion=clasificacion_service.clasificacion_de_job(db, job_id=job_id),
             movimientos=movimientos,
             f104_monthly=f104_monthly,
             f103_monthly=f103_monthly,
             ats_resumenes=leer_ats(job_dir),
+            facturas=facturas,
             cliente=job.cliente_name,
             periodo=job.period_label,
             preparado_por=job.prepared_by_name,

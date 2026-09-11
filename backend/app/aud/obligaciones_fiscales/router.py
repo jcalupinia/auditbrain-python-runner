@@ -46,6 +46,14 @@ ALLOWED_MIMES = {
     "f101": {"application/pdf"},
     # El ATS llega como XML o como PDF (el "Talón Resumen" que emite el SRI).
     "ats": {"application/xml", "text/xml", "application/pdf"},
+    # Facturas y notas de crédito autorizadas: XML sueltos o un .zip con todos.
+    # octet-stream: hay navegadores que lo mandan para .zip. El content_type lo
+    # declara el cliente, así que no es la barrera real: lo es el parser, que
+    # rechaza todo lo que no sea XML o zip.
+    "facturas": {
+        "application/xml", "text/xml", "application/zip", "application/x-zip-compressed",
+        "application/octet-stream",
+    },
     "mayor_general": {
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "application/vnd.ms-excel",

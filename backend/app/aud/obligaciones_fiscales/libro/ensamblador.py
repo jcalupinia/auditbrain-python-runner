@@ -28,12 +28,17 @@ from backend.app.aud.obligaciones_fiscales.libro.fuentes import (
 )
 from backend.app.aud.obligaciones_fiscales.libro.hoja_detalle import build_hoja_detalle
 from backend.app.aud.obligaciones_fiscales.libro.hoja_mayores import build_hoja_mayores
+from backend.app.aud.obligaciones_fiscales.libro.facturacion import (
+    SHEET_CUADRO,
+    SHEET_DATOS,
+    construir_hojas_facturacion,
+)
 
 ORDEN_HOJAS = [
     "Mayores homologados", "Detalle mayor",
     "DM3 Revisión de saldos", "DM4 Compras", "DM5 Ventas", "DM6 IVA",
-    "DM7 Retenciones x pagar", "DM8 ATS",
-    "DATOS F-104", "DATOS F-103", "DATOS ATS",
+    "DM7 Retenciones x pagar", "DM8 ATS", SHEET_CUADRO,
+    "DATOS F-104", "DATOS F-103", "DATOS ATS", SHEET_DATOS,
 ]
 
 
@@ -61,6 +66,7 @@ def armar_libro(
     f104_monthly: dict,
     f103_monthly: dict,
     ats_resumenes: dict | None = None,
+    facturas: list | None = None,
     cliente: str = "",
     periodo: str = "",
     preparado_por: str | None = None,
@@ -86,6 +92,8 @@ def armar_libro(
     # El ATS es opcional: si el cliente no lo entregó, la hoja se crea igual
     # con la matriz en cero para que el auditor vea qué se esperaba.
     dir_ats = construir_hoja_ats(wb, ats_resumenes or {})
+    # Igual con las facturas: sin XML, el lado declarado del cuadro ya sirve.
+    construir_hojas_facturacion(wb, facturas or [], dir_f104)
 
     periodos = _periodos_del_ejercicio(f104_monthly, f103_monthly, periodo)
     nombres_cuenta = {f.codigo_cuenta: f.nombre_cuenta for f in clasificacion}

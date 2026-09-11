@@ -51,7 +51,7 @@ class SlotEstado(BaseModel):
 
 
 SLOTS_VALIDOS = (
-    "f104", "f103", "ats", "mayor_general", "mayor_especifico", "f101",
+    "f104", "f103", "ats", "mayor_general", "mayor_especifico", "f101", "facturas",
 )
 
 

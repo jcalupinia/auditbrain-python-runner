@@ -23,6 +23,9 @@ export const STRINGS = {
     "Mayor específico para prueba puntual (Excel) — opcional",
   of_mayor_especifico_categoria: "¿A qué categoría corresponde?",
   of_slot_f101: "F-101 Renta anual (PDF) — opcional en M1",
+  of_slot_facturas:
+    "Facturas y notas de crédito electrónicas autorizadas (XML sueltos o un .zip) — opcional",
+  of_chip_facturas: "Facturación",
   // Etiquetas cortas para los chips de la barra de documentos: con el texto
   // largo la barra ocupaba 5 filas y el workspace no cabía en una pantalla,
   // que es justo lo que se buscaba al copiar el ICT. La descripción completa
