@@ -188,3 +188,53 @@ describe("API de Obligaciones Fiscales (ciclo de dos fases)", () => {
     );
   });
 });
+
+describe("API de cuentas de recursos (consola REC)", () => {
+  beforeEach(() => {
+    globalThis.localStorage.store = {};
+    globalThis.localStorage.setItem("ab_token", "token-de-prueba");
+    vi.restoreAllMocks();
+  });
+
+  it("setRecursoAcceso(on=true) hace PUT al acceso del recurso", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(jsonResponse({ ok: true, accesos: ["anticipo-ir-2026"] }));
+    const res = await api.setRecursoAcceso(5, "anticipo-ir-2026", true);
+    expect(res.accesos).toEqual(["anticipo-ir-2026"]);
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/api\/v1\/recursos\/cuentas\/5\/accesos\/anticipo-ir-2026$/);
+    expect(opts.method).toBe("PUT");
+    expect(opts.headers.Authorization).toBe("Bearer token-de-prueba");
+  });
+
+  it("setRecursoAcceso(on=false) hace DELETE al acceso del recurso", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(jsonResponse({ ok: true, accesos: [] }));
+    await api.setRecursoAcceso(5, "anticipo-ir-2026", false);
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/api\/v1\/recursos\/cuentas\/5\/accesos\/anticipo-ir-2026$/);
+    expect(opts.method).toBe("DELETE");
+  });
+
+  it("resetRecursoClave con clave vacía envía new_password null y enviar_correo", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(jsonResponse({ email: "a@b.ec", temp_password: "X", note: "n" }));
+    await api.resetRecursoClave(5, "", true);
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/api\/v1\/recursos\/cuentas\/5\/reset-clave$/);
+    expect(opts.method).toBe("POST");
+    expect(JSON.parse(opts.body)).toEqual({ new_password: null, enviar_correo: true });
+  });
+
+  it("resetRecursoClave envía la clave escrita por el admin", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(jsonResponse({ email: "a@b.ec", temp_password: "Abcdefgh1", note: "n" }));
+    await api.resetRecursoClave(5, "Abcdefgh1", false);
+    const [, opts] = fetchMock.mock.calls[0];
+    expect(JSON.parse(opts.body)).toEqual({ new_password: "Abcdefgh1", enviar_correo: false });
+  });
+});

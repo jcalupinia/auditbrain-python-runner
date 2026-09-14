@@ -1941,8 +1941,8 @@ const INS_COLS = {
   gridTemplateColumns: "1.4fr 1.7fr 1fr 1.1fr 1.4fr 1fr 0.7fr",
 };
 
-function _insFecha(r) {
-  return (r.created_at || "").slice(0, 16).replace("T", " ");
+function _insFecha(r, campo = "created_at") {
+  return (r[campo] || "").slice(0, 16).replace("T", " ");
 }
 
 // Escapa una celda CSV y neutraliza fórmulas (CSV injection): los datos vienen de formularios públicos.
@@ -2083,26 +2083,26 @@ function Inscripciones() {
 
 /* ---------------- Cuentas de recursos gratuitos (staff lee; admin modifica) ---------------- */
 export const RECURSOS_CATALOGO = [
-  { slug: "ir-personas-naturales-2026", label: "IR Personas Naturales" },
-  { slug: "anticipo-ir-2026", label: "Anticipo IR" },
+  { slug: "ir-personas-naturales-2026", label: "IR Personas Naturales", corto: "IR PN" },
+  { slug: "anticipo-ir-2026", label: "Anticipo IR", corto: "Anticipo" },
 ];
+const [, RECURSO_ANTICIPO] = RECURSOS_CATALOGO;
 const REC_COLS = {
   gridTemplateColumns: "1.3fr 1.2fr 1.7fr 1fr 1fr 0.8fr 0.8fr 0.9fr 1.9fr",
 };
-const _fechaCorta = (v) => (v || "").slice(0, 16).replace("T", " ");
 const SOLO_ADMIN = "Solo administradores";
 
 export const RECURSO_CSV_HEADERS = [
   "Nombre", "Empresa", "Email", "Fecha registro", "Último ingreso",
-  "Acceso IR PN", "Acceso Anticipo", "Estado", "Consentimiento",
+  ...RECURSOS_CATALOGO.map((c) => `Acceso ${c.corto}`), "Estado", "Consentimiento",
 ];
 export function recursoCuentaCsvFila(r) {
   const acc = r.accesos || [];
   return [
-    r.nombre, r.empresa, r.email, _fechaCorta(r.created_at), _fechaCorta(r.ultimo_ingreso_at),
+    r.nombre, r.empresa, r.email, _insFecha(r), _insFecha(r, "ultimo_ingreso_at"),
     ...RECURSOS_CATALOGO.map((c) => (acc.includes(c.slug) ? "si" : "no")),
     r.activo ? "Activa" : "Desactivada",
-    _fechaCorta(r.consentimiento_at),
+    _insFecha(r, "consentimiento_at"),
   ];
 }
 
@@ -2111,7 +2111,14 @@ function RecursosCuentas({ isAdmin }) {
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState("");
   const [q, setQ] = useState("");
-  const [pending, setPending] = useState(null); // "id:slug" | "id:activo"
+  // Acciones en curso por control: "id:slug" | "id:activo" | "id:reset"
+  const [pending, setPending] = useState(() => new Set());
+  const marcar = (k, on) =>
+    setPending((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(k); else next.delete(k);
+      return next;
+    });
   // Resetear clave: mismo patrón que Cuentas (askAssign / pwDone)
   const [pwAssign, setPwAssign] = useState(null); // cuenta a resetear
   const [pwValue, setPwValue] = useState("");
@@ -2140,23 +2147,31 @@ function RecursosCuentas({ isAdmin }) {
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...cambios } : r)));
 
   async function toggleAcceso(r, slug) {
+    const k = `${r.id}:${slug}`;
+    if (pending.has(k)) return;
     const on = !(r.accesos || []).includes(slug);
-    setErr(""); setPending(`${r.id}:${slug}`);
+    setErr(""); marcar(k, true);
     try {
       const res = await api.setRecursoAcceso(r.id, slug, on);
       patch(r.id, { accesos: res.accesos });
     } catch (e) { setErr(e.message); }
-    finally { setPending(null); }
+    finally { marcar(k, false); }
   }
   async function toggleActivo(r) {
+    const k = `${r.id}:activo`;
+    if (pending.has(k)) return;
     const next = !r.activo;
     if (!window.confirm(`¿${next ? "Activar" : "Desactivar"} la cuenta de ${r.email}?`)) return;
-    setErr(""); setPending(`${r.id}:activo`);
+    setErr(""); marcar(k, true);
     try {
       const res = await api.setRecursoActivo(r.id, next);
       patch(r.id, { activo: res.activo });
     } catch (e) { setErr(e.message); }
-    finally { setPending(null); }
+    finally { marcar(k, false); }
+  }
+  function closeReset() {
+    setPwValue(""); setPwConfirm(""); setPwMail(false); setPwErr("");
+    setPwAssign(null);
   }
   function askReset(r) {
     setErr(""); setPwDone(null);
@@ -2164,26 +2179,28 @@ function RecursosCuentas({ isAdmin }) {
     setPwAssign(r);
   }
   async function confirmReset() {
+    if (pwBusy) return;
     if (pwValue || pwConfirm) {
       if (pwValue.length < 8) { setPwErr("La clave debe tener al menos 8 caracteres."); return; }
       if (pwValue !== pwConfirm) { setPwErr("Las claves no coinciden."); return; }
     }
-    setPwBusy(true); setPwErr("");
+    const k = `${pwAssign.id}:reset`;
+    setPwBusy(true); setPwErr(""); marcar(k, true);
     try {
       setPwDone(await api.resetRecursoClave(pwAssign.id, pwValue || null, pwMail));
-      setPwAssign(null);
+      closeReset();
     } catch (e) { setPwErr(e.message); }
-    finally { setPwBusy(false); }
+    finally { setPwBusy(false); marcar(k, false); }
   }
 
   const term = q.trim().toLowerCase();
   const filtered = term
     ? rows.filter((r) => `${r.nombre} ${r.email} ${r.empresa}`.toLowerCase().includes(term))
     : rows;
-  const conAnticipo = rows.filter((r) => (r.accesos || []).includes("anticipo-ir-2026")).length;
+  const conAnticipo = rows.filter((r) => (r.accesos || []).includes(RECURSO_ANTICIPO.slug)).length;
   const meta = term
     ? `${filtered.length} de ${rows.length}`
-    : `${rows.length} cuenta(s) · ${conAnticipo} con acceso al Anticipo`;
+    : `${rows.length} cuenta(s) · ${conAnticipo} con acceso al ${RECURSO_ANTICIPO.corto}`;
 
   const descargar = () =>
     _descargarCsv("cuentas_recursos.csv", RECURSO_CSV_HEADERS, filtered.map(recursoCuentaCsvFila));
@@ -2194,7 +2211,7 @@ function RecursosCuentas({ isAdmin }) {
         sub="Personas con cuenta en recursos.audit-ia.ec · accesos por recurso y claves." />
 
       {pwAssign && (
-        <div onClick={() => !pwBusy && setPwAssign(null)}
+        <div onClick={() => !pwBusy && closeReset()}
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)",
             display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
           <div onClick={(e) => e.stopPropagation()}
@@ -2203,18 +2220,18 @@ function RecursosCuentas({ isAdmin }) {
               width: 440, maxWidth: "92vw", boxShadow: "0 20px 60px rgba(0,0,0,.5)" }}>
             <h3 style={{ marginTop: 0 }}>🔑 Resetear clave</h3>
             <p className="muted">
-              Cuenta: <b>{pwAssign.email}</b>. Escribe la clave que tendrá esta cuenta
-              (mín. 8 caracteres) o deja ambos campos vacíos para generar una.
+              Cuenta: <b>{pwAssign.email}</b>. Escriba la clave que tendrá esta cuenta
+              (mín. 8 caracteres) o deje ambos campos vacíos para generar una automáticamente.
             </p>
             <label>Nueva clave</label>
-            <input type="text" value={pwValue} autoFocus
+            <input type="text" value={pwValue} autoFocus disabled={pwBusy}
               onChange={(e) => setPwValue(e.target.value)} />
             <label>Confirmar clave</label>
-            <input type="text" value={pwConfirm}
+            <input type="text" value={pwConfirm} disabled={pwBusy}
               onChange={(e) => setPwConfirm(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") confirmReset(); }} />
             <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
-              <input type="checkbox" checked={pwMail}
+              <input type="checkbox" checked={pwMail} disabled={pwBusy}
                 onChange={(e) => setPwMail(e.target.checked)} />
               <span>Enviar la clave por correo a la persona</span>
             </label>
@@ -2223,7 +2240,7 @@ function RecursosCuentas({ isAdmin }) {
               <button className="btn" onClick={confirmReset} disabled={pwBusy}>
                 {pwBusy ? "Reseteando…" : "Resetear clave"}
               </button>
-              <button className="btn ghost" onClick={() => setPwAssign(null)} disabled={pwBusy}>
+              <button className="btn ghost" onClick={closeReset} disabled={pwBusy}>
                 Cancelar
               </button>
             </div>
@@ -2286,8 +2303,8 @@ function RecursosCuentas({ isAdmin }) {
                   <span>{r.nombre}</span>
                   <span className="muted">{r.empresa}</span>
                   <span className="muted">{r.email}</span>
-                  <span className="muted">{_fechaCorta(r.created_at)}</span>
-                  <span className="muted">{_fechaCorta(r.ultimo_ingreso_at) || "—"}</span>
+                  <span className="muted">{_insFecha(r)}</span>
+                  <span className="muted">{_insFecha(r, "ultimo_ingreso_at") || "—"}</span>
                   {RECURSOS_CATALOGO.map((c) => (
                     <span key={c.slug}>
                       <input
@@ -2295,7 +2312,7 @@ function RecursosCuentas({ isAdmin }) {
                         aria-label={`${c.label} · ${r.email}`}
                         title={isAdmin ? c.label : SOLO_ADMIN}
                         checked={(r.accesos || []).includes(c.slug)}
-                        disabled={!isAdmin || pending === `${r.id}:${c.slug}`}
+                        disabled={!isAdmin || pending.has(`${r.id}:${c.slug}`)}
                         onChange={() => toggleAcceso(r, c.slug)}
                       />
                     </span>
@@ -2305,11 +2322,12 @@ function RecursosCuentas({ isAdmin }) {
                   </span>
                   <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     <button className="btn ghost" onClick={() => askReset(r)}
-                      disabled={!isAdmin} title={isAdmin ? undefined : SOLO_ADMIN}>
+                      disabled={!isAdmin || pending.has(`${r.id}:reset`)}
+                      title={isAdmin ? undefined : SOLO_ADMIN}>
                       Resetear clave
                     </button>
                     <button className="btn ghost" onClick={() => toggleActivo(r)}
-                      disabled={!isAdmin || pending === `${r.id}:activo`}
+                      disabled={!isAdmin || pending.has(`${r.id}:activo`)}
                       title={isAdmin ? undefined : SOLO_ADMIN}>
                       {r.activo ? "Desactivar" : "Activar"}
                     </button>
