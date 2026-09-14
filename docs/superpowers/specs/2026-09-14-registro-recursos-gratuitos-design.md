@@ -38,8 +38,10 @@ analítica de uso de la calculadora.
 3. Tras enviar: *"Listo, {nombre}. Su usuario es su correo. Le enviamos el enlace de
    acceso a {correo}. Revise también la bandeja de correo no deseado."*
 4. Correo desde `no-reply@auditconsulting.ec`, asunto *"Su acceso a la Calculadora del
-   Anticipo IR 2026"*: saludo, "Usuario: {correo}", botón **Abrir mi calculadora**,
-   contacto (jcalupinia@auditconsulting.ec · WhatsApp 0990 609 811), texto LOPDP.
+   Anticipo IR 2026"*: saludo genérico "Estimado(a):" (el correo NO incluye texto
+   escrito por el usuario — anti-suplantación, ver "Límites conocidos"), "Usuario:
+   {correo}", botón **Abrir mi calculadora**, contacto (jcalupinia@auditconsulting.ec ·
+   WhatsApp 0990 609 811), texto LOPDP.
 5. El botón abre `…/anticipo-ir-2026/?acceso=<token>`. La página valida el token con el
    backend, guarda el acceso en `localStorage`, quita `?acceso=` de la URL y oculta el
    recuadro. En visitas siguientes, en ese dispositivo, entra directo.
@@ -104,8 +106,8 @@ prueba que lo asegura.
 
 | Método y ruta | Auth | Comportamiento |
 |---|---|---|
-| `POST /{slug}/registros` | pública | Valida, límite 10/600 s por IP (`check_and_record("recurso-reg:{ip}")`), honeypot lleno → 201 falso sin guardar. Alta idempotente: si el correo ya existe para ese recurso, conserva el registro tal cual (no se sobrescribe nombre/empresa/consentimiento) y solo reenvía el enlace. Correo en background, sujeto a tope de envíos (3/hora por correo y 100/hora en total; si se excede, no se agenda el correo pero la respuesta es la misma). 201 `{ok, mensaje}` — sin `ya_registrado`, para no permitir enumerar correos registrados a partir de la respuesta. |
-| `POST /{slug}/reenviar` | pública | Body `{email}`. Mismo límite (clave compartida). Si existe, reenvía en background, sujeto al mismo tope de envíos (3/hora por correo, 100/hora en total; al alcanzar el total se registra un aviso en el log). Siempre 200 con mensaje genérico. |
+| `POST /{slug}/registros` | pública | Valida, límite 10/600 s por IP (`check_and_record("recurso-reg:{ip}")`), honeypot lleno → 201 falso sin guardar. Alta idempotente: si el correo ya existe para ese recurso, conserva el registro tal cual (no se sobrescribe nombre/empresa/consentimiento) y solo reenvía el enlace. Correo en background, sujeto a tope de envíos (3/hora por correo y 30/hora en total; si se excede, no se agenda el correo pero la respuesta es la misma). 201 `{ok, mensaje}` — sin `ya_registrado`, para no permitir enumerar correos registrados a partir de la respuesta. |
+| `POST /{slug}/reenviar` | pública | Body `{email}`. Mismo límite (clave compartida). Si existe, reenvía en background, sujeto al mismo tope de envíos (3/hora por correo, 30/hora en total; al alcanzar el total se registra un aviso en el log). Siempre 200 con mensaje genérico. |
 | `GET /{slug}/acceso?token=` | pública | Verifica firma, `aud`, vencimiento y que `rs` = slug y el lead exista. Marca `verificado_at` si es la primera vez. 200 `{ok: true, nombre}`; inválido/vencido → 401. |
 | `GET /registros?slug=&limit=` | `require_staff` | Lista más recientes primero (máx. 1000). |
 
@@ -121,7 +123,7 @@ En `frontend/src/App.jsx`: entrada `{ id: "recursos", code: "REC", label: "Recur
 staff: true }` en `OPS`, `case "recursos"` en `render()`, y componente `RecursosLeads()`
 copiado de `Inscripciones()` (tabla: fecha, nombre, empresa, correo, recurso,
 verificado sí/no, correo enviado sí/no; buscador; descarga CSV). En `frontend/src/api.js`:
-`listRecursoLeads(slug, limit)` con `apiFetch` + `authHeaders()`.
+`listRecursoLeads(limit)` con `apiFetch` + `authHeaders()`.
 
 ### Mini-sitio `audit-ia-recursos`
 
@@ -139,7 +141,8 @@ verificado sí/no, correo enviado sí/no; buscador; descarga CSV). En `frontend/
   AuditConsulting Group, datos tratados — nombre, empresa, correo —, finalidad: dar
   acceso al recurso y enviar información de la firma, base: consentimiento, derechos de
   acceso/rectificación/eliminación/oposición escribiendo a jcalupinia@auditconsulting.ec,
-  conservación mientras no se solicite la eliminación).
+  conservación hasta 24 meses desde el último contacto o hasta que retire su
+  consentimiento).
 
 ## Límites conocidos
 
@@ -147,9 +150,22 @@ verificado sí/no, correo enviado sí/no; buscador; descarga CSV). En `frontend/
   recurso gratuito y el objetivo es capturar contactos verificados.
 - Límite de envíos en memoria de una sola instancia (igual que las charlas); se reinicia
   con cada despliegue.
-- Plan gratuito de Render: el primer envío tras inactividad puede tardar 30–50 s;
-  mitigado con el ping a `/healthz` al abrir la página y un `timeout` de 60 s en el
-  `fetch` con mensaje "Conectando con el servidor…".
+- Plan de Render es `starter` (según `render.yaml`), no gratuito; el ping a `/healthz`
+  al abrir la página es inofensivo (no despierta un servicio dormido, pero no hace daño).
+- El correo NO incluye ningún texto escrito por el usuario (ni `nombre` ni otro campo
+  libre): el saludo es genérico "Estimado(a):". Motivo: el formulario es público y
+  cualquiera puede registrar el correo de un tercero con un `nombre` hostil (hasta 160
+  caracteres) para que el dominio de la firma entregue ese texto — anti-suplantación.
+- `ip` / el limitador de tasa usan el **primer** hop de `X-Forwarded-For`, que puede ser
+  falsificable por el cliente. Pendiente de verificar en producción durante el deploy
+  (probar con `curl` mandando un XFF falso y revisar qué IP quedó registrada/limitada)
+  antes de decidir si conviene cambiar al hop más a la derecha. Mientras tanto, los
+  topes por correo (3/hora) y global (30/hora) acotan el abuso.
+- `verificado` puede activarse por escáneres de enlaces corporativos (antivirus/proxy de
+  correo que sigue el link automáticamente): significa "probablemente real", no una
+  garantía.
+- Las solicitudes de baja LOPDP se atienden manualmente (SQL) por ahora: no hay borrado
+  desde la consola ni purga automática a los 24 meses.
 
 ## Tareas del usuario (requieren su cuenta de Render)
 
@@ -179,9 +195,10 @@ verificado sí/no, correo enviado sí/no; buscador; descarga CSV). En `frontend/
   recurso es rechazado por `decode_token` de la consola (`InvalidAudienceError`, por la
   `aud` distinta) y un token de staff (`create_access_token`) no sirve como token de
   recurso.
-- `tests/test_notifications_recurso_email.py`: la plantilla escapa HTML e incluye el
-  enlace y el usuario; `email_enviado` nunca vuelve a `False` una vez en `True` aunque
-  un reenvío falle.
+- `tests/test_notifications_recurso_email.py`: la plantilla no incluye texto del
+  usuario (saludo genérico) e incluye el enlace escapado y el usuario; un `nombre`
+  hostil en el lead nunca llega al correo; `email_enviado` nunca vuelve a `False` una
+  vez en `True` aunque un reenvío falle.
 - E2E local (backend `uvicorn app:app` + mini-sitio servido local con CORS local):
   llenar el formulario, capturar el enlace del correo (Resend parcheado → log), abrirlo,
   ver la calculadora desbloqueada y el registro `verificado` en la pestaña REC.

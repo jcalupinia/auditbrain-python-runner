@@ -47,13 +47,13 @@ def _limite(request: Request) -> str:
 
 
 def _puede_enviar(email: str) -> bool:
-    """Tope de correos de acceso: 3/hora por correo y 100/hora en total."""
+    """Tope de correos de acceso: 3/hora por correo y 30/hora en total."""
     correo = email.strip().lower()
     if not check_and_record(f"recurso-mail:{correo}", max_hits=3, window_seconds=3600):
         return False
-    if not check_and_record("recurso-mail:global", max_hits=100, window_seconds=3600):
+    if not check_and_record("recurso-mail:global", max_hits=30, window_seconds=3600):
         # Visible en los logs de Render: nadie recibe su enlace hasta que baje el pico.
-        log.warning("Tope global de correos de recursos alcanzado (100/hora).")
+        log.warning("Tope global de correos de recursos alcanzado (30/hora).")
         return False
     return True
 

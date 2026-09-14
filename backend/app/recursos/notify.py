@@ -25,7 +25,6 @@ def enviar_acceso(lead_id: int) -> None:
         try:
             res = email_mod.send_recurso_acceso(
                 to=lead.email,
-                nombre=lead.nombre,
                 titulo=rec.titulo,
                 enlace=enlace,
                 contacto=CONTACTO,
