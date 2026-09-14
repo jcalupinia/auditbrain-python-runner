@@ -7,18 +7,18 @@ from backend.app.recursos import notify
 from backend.app.recursos.models import RecursoLead
 from backend.app.recursos.tokens import leer_token
 
-SLUG = "anticipo-ir-2026"
+SLUG = "ir-personas-naturales-2026"
 
 
 def test_render_sin_texto_de_usuario_e_incluye_enlace():
     html = email_mod.render_recurso_acceso(
-        titulo="Calculadora del Anticipo IR 2026",
+        titulo="Calculadora de Impuesto a la Renta de Personas Naturales 2026",
         email="ana@example.com",
-        enlace="https://recursos.audit-ia.ec/anticipo-ir-2026/?acceso=abc&x=1",
+        enlace="https://recursos.audit-ia.ec/ir-personas-naturales-2026/?acceso=abc&x=1",
         contacto="jcalupinia@auditconsulting.ec",
     )
     assert "Estimado(a):" in html
-    assert 'href="https://recursos.audit-ia.ec/anticipo-ir-2026/?acceso=abc&amp;x=1"' in html
+    assert 'href="https://recursos.audit-ia.ec/ir-personas-naturales-2026/?acceso=abc&amp;x=1"' in html
     assert "ana@example.com" in html
     assert "jcalupinia@auditconsulting.ec" in html
 
@@ -80,7 +80,7 @@ def test_notify_envia_enlace_valido_y_marca_enviado(monkeypatch):
     assert len(enviados) == 1
     kw = enviados[0]
     assert kw["to"] == correo
-    prefijo = "https://recursos.audit-ia.ec/anticipo-ir-2026/?acceso="
+    prefijo = "https://recursos.audit-ia.ec/ir-personas-naturales-2026/?acceso="
     assert kw["enlace"].startswith(prefijo)
     assert leer_token(kw["enlace"][len(prefijo):], SLUG) == lead_id
 

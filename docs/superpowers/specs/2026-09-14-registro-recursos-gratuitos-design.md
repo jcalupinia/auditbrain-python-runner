@@ -4,12 +4,17 @@ Fecha: 2026-09-14 · Estado: aprobado por el usuario en conversación
 
 ## Objetivo
 
-El video "Auditoría Externa 2026" ofrece la **Calculadora del Anticipo IR 2026** gratis
+El video "Auditoría Externa 2026" ofrece la **Calculadora de Impuesto a la Renta de Personas Naturales 2026** gratis
 ("registre su correo, acepte la política de protección de datos y reciba su clave").
-Hoy la calculadora (`recursos.audit-ia.ec/anticipo-ir-2026/`) está abierta. Se necesita
+Hoy la calculadora (`recursos.audit-ia.ec/ir-personas-naturales-2026/`) está abierta. Se necesita
 que, para usarla, la persona deje **nombre, empresa y correo**, acepte la política de
 protección de datos (LOPDP) y reciba **por correo** el enlace de acceso. Así la firma
 captura contactos con correo verificado.
+
+**Cambio 2026-09-14 (decisión del dueño):** el recurso con registro deja de ser la
+Calculadora del Anticipo IR 2026 (esa calculadora queda abierta, sin registro) y pasa a
+ser la Calculadora de Impuesto a la Renta de Personas Naturales 2026, slug
+`ir-personas-naturales-2026`. El resto de este documento ya refleja ese recurso.
 
 Decisiones tomadas con el usuario:
 
@@ -26,7 +31,7 @@ analítica de uso de la calculadora.
 ## Experiencia del usuario
 
 1. En `recursos.audit-ia.ec` la tarjeta de la calculadora dice **"Quiero la calculadora
-   gratis"** y lleva a `anticipo-ir-2026/`.
+   gratis"** y lleva a `ir-personas-naturales-2026/`.
 2. Sin acceso válido, la calculadora se ve de fondo (atenuada, sin interacción) con un
    recuadro encima:
    - Campos: **Nombre** (3–160), **Empresa** (1–200), **Correo** (válido).
@@ -38,11 +43,11 @@ analítica de uso de la calculadora.
 3. Tras enviar: *"Listo, {nombre}. Su usuario es su correo. Le enviamos el enlace de
    acceso a {correo}. Revise también la bandeja de correo no deseado."*
 4. Correo desde `no-reply@auditconsulting.ec`, asunto *"Su acceso a la Calculadora del
-   Anticipo IR 2026"*: saludo genérico "Estimado(a):" (el correo NO incluye texto
+   Impuesto a la Renta de Personas Naturales 2026"*: saludo genérico "Estimado(a):" (el correo NO incluye texto
    escrito por el usuario — anti-suplantación, ver "Límites conocidos"), "Usuario:
    {correo}", botón **Abrir mi calculadora**, contacto (jcalupinia@auditconsulting.ec ·
    WhatsApp 0990 609 811), texto LOPDP.
-5. El botón abre `…/anticipo-ir-2026/?acceso=<token>`. La página valida el token con el
+5. El botón abre `…/ir-personas-naturales-2026/?acceso=<token>`. La página valida el token con el
    backend, guarda el acceso en `localStorage`, quita `?acceso=` de la URL y oculta el
    recuadro. En visitas siguientes, en ese dispositivo, entra directo.
 6. Otro dispositivo: "¿Ya se registró?" → se reenvía el enlace. La respuesta es siempre
@@ -67,7 +72,7 @@ Dos repos:
 
 | Archivo | Responsabilidad |
 |---|---|
-| `catalog.py` | Lista blanca de recursos: `anticipo-ir-2026` → título y URL pública. Slug desconocido = 404. |
+| `catalog.py` | Lista blanca de recursos: `ir-personas-naturales-2026` → título y URL pública. Slug desconocido = 404. |
 | `models.py` | Tabla `recurso_leads`. |
 | `schemas.py` | `LeadCreate`, `ReenvioIn`, `LeadResponse`, `AccesoOut`, `LeadOut`. |
 | `tokens.py` | Crear/verificar el token del enlace. |
@@ -127,10 +132,10 @@ verificado sí/no, correo enviado sí/no; buscador; descarga CSV). En `frontend/
 
 ### Mini-sitio `audit-ia-recursos`
 
-- `public/anticipo-ir-2026/index.html`: bloque `<div id="gate">` (recuadro + estados:
+- `public/ir-personas-naturales-2026/index.html`: bloque `<div id="gate">` (recuadro + estados:
   formulario, reenvío, confirmación, error) y un `<script>` pequeño al final. Constante
-  `API = "https://auditbrain-python-runner.onrender.com/api/v1/recursos/anticipo-ir-2026"`.
-  Al cargar: si hay `?acceso=` → valida → guarda `localStorage["acg_acceso_anticipo-ir-2026"]`
+  `API = "https://auditbrain-python-runner.onrender.com/api/v1/recursos/ir-personas-naturales-2026"`.
+  Al cargar: si hay `?acceso=` → valida → guarda `localStorage["acg_acceso_ir-personas-naturales-2026"]`
   → `history.replaceState` sin el parámetro; si ya hay acceso guardado → no muestra el
   recuadro; si no → muestra el recuadro y hace `fetch(".../healthz")` sin esperar, para
   despertar el servidor mientras la persona escribe. `localStorage` en `try/catch`: si

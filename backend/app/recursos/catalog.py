@@ -20,9 +20,9 @@ _RECURSOS = {
     r.slug: r
     for r in (
         Recurso(
-            slug="anticipo-ir-2026",
-            titulo="Calculadora del Anticipo IR 2026",
-            url="https://recursos.audit-ia.ec/anticipo-ir-2026/",
+            slug="ir-personas-naturales-2026",
+            titulo="Calculadora de Impuesto a la Renta de Personas Naturales 2026",
+            url="https://recursos.audit-ia.ec/ir-personas-naturales-2026/",
         ),
     )
 }
