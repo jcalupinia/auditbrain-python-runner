@@ -1941,8 +1941,8 @@ const INS_COLS = {
   gridTemplateColumns: "1.4fr 1.7fr 1fr 1.1fr 1.4fr 1fr 0.7fr",
 };
 
-function _insFecha(r) {
-  return (r.created_at || "").slice(0, 16).replace("T", " ");
+function _insFecha(r, campo = "created_at") {
+  return (r[campo] || "").slice(0, 16).replace("T", " ");
 }
 
 // Escapa una celda CSV y neutraliza fórmulas (CSV injection): los datos vienen de formularios públicos.
@@ -2081,20 +2081,58 @@ function Inscripciones() {
   );
 }
 
-/* ---------------- Registros de recursos gratuitos (staff) ---------------- */
-const REC_COLS = { gridTemplateColumns: "1.3fr 1.3fr 1.7fr 1.2fr 1.1fr 0.8fr" };
+/* ---------------- Cuentas de recursos gratuitos (staff lee; admin modifica) ---------------- */
+export const RECURSOS_CATALOGO = [
+  { slug: "ir-personas-naturales-2026", label: "IR Personas Naturales", corto: "IR PN" },
+  { slug: "anticipo-ir-2026", label: "Anticipo IR", corto: "Anticipo" },
+];
+const [, RECURSO_ANTICIPO] = RECURSOS_CATALOGO;
+const REC_COLS = {
+  gridTemplateColumns: "1.3fr 1.2fr 1.7fr 1fr 1fr 0.8fr 0.8fr 0.9fr 1.9fr",
+};
+const SOLO_ADMIN = "Solo administradores";
 
-function RecursosLeads() {
+export const RECURSO_CSV_HEADERS = [
+  "Nombre", "Empresa", "Email", "Fecha registro", "Último ingreso",
+  ...RECURSOS_CATALOGO.map((c) => `Acceso ${c.corto}`), "Estado", "Consentimiento",
+];
+export function recursoCuentaCsvFila(r) {
+  const acc = r.accesos || [];
+  return [
+    r.nombre, r.empresa, r.email, _insFecha(r), _insFecha(r, "ultimo_ingreso_at"),
+    ...RECURSOS_CATALOGO.map((c) => (acc.includes(c.slug) ? "si" : "no")),
+    r.activo ? "Activa" : "Desactivada",
+    _insFecha(r, "consentimiento_at"),
+  ];
+}
+
+function RecursosCuentas({ isAdmin }) {
   const [rows, setRows] = useState([]);
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState("");
   const [q, setQ] = useState("");
+  // Acciones en curso por control: "id:slug" | "id:activo" | "id:reset"
+  const [pending, setPending] = useState(() => new Set());
+  const marcar = (k, on) =>
+    setPending((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(k); else next.delete(k);
+      return next;
+    });
+  // Resetear clave: mismo patrón que Cuentas (askAssign / pwDone)
+  const [pwAssign, setPwAssign] = useState(null); // cuenta a resetear
+  const [pwValue, setPwValue] = useState("");
+  const [pwConfirm, setPwConfirm] = useState("");
+  const [pwMail, setPwMail] = useState(false);
+  const [pwErr, setPwErr] = useState("");
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwDone, setPwDone] = useState(null); // { email, temp_password, note }
 
   const reload = useCallback(async () => {
     setBusy(true);
     setErr("");
     try {
-      setRows(await api.listRecursoLeads());
+      setRows(await api.listRecursoCuentas());
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -2105,38 +2143,132 @@ function RecursosLeads() {
     reload();
   }, [reload]);
 
+  const patch = (id, cambios) =>
+    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...cambios } : r)));
+
+  async function toggleAcceso(r, slug) {
+    const k = `${r.id}:${slug}`;
+    if (pending.has(k)) return;
+    const on = !(r.accesos || []).includes(slug);
+    setErr(""); marcar(k, true);
+    try {
+      const res = await api.setRecursoAcceso(r.id, slug, on);
+      patch(r.id, { accesos: res.accesos });
+    } catch (e) { setErr(e.message); }
+    finally { marcar(k, false); }
+  }
+  async function toggleActivo(r) {
+    const k = `${r.id}:activo`;
+    if (pending.has(k)) return;
+    const next = !r.activo;
+    if (!window.confirm(`¿${next ? "Activar" : "Desactivar"} la cuenta de ${r.email}?`)) return;
+    setErr(""); marcar(k, true);
+    try {
+      const res = await api.setRecursoActivo(r.id, next);
+      patch(r.id, { activo: res.activo });
+    } catch (e) { setErr(e.message); }
+    finally { marcar(k, false); }
+  }
+  function closeReset() {
+    setPwValue(""); setPwConfirm(""); setPwMail(false); setPwErr("");
+    setPwAssign(null);
+  }
+  function askReset(r) {
+    setErr(""); setPwDone(null);
+    setPwValue(""); setPwConfirm(""); setPwMail(false); setPwErr("");
+    setPwAssign(r);
+  }
+  async function confirmReset() {
+    if (pwBusy) return;
+    if (pwValue || pwConfirm) {
+      if (pwValue.length < 8) { setPwErr("La clave debe tener al menos 8 caracteres."); return; }
+      if (pwValue !== pwConfirm) { setPwErr("Las claves no coinciden."); return; }
+    }
+    const k = `${pwAssign.id}:reset`;
+    setPwBusy(true); setPwErr(""); marcar(k, true);
+    try {
+      setPwDone(await api.resetRecursoClave(pwAssign.id, pwValue || null, pwMail));
+      closeReset();
+    } catch (e) { setPwErr(e.message); }
+    finally { setPwBusy(false); marcar(k, false); }
+  }
+
   const term = q.trim().toLowerCase();
   const filtered = term
-    ? rows.filter((r) =>
-        `${r.nombre} ${r.email} ${r.empresa} ${r.recurso_slug}`.toLowerCase().includes(term)
-      )
+    ? rows.filter((r) => `${r.nombre} ${r.email} ${r.empresa}`.toLowerCase().includes(term))
     : rows;
-  const verificados = rows.filter((r) => r.verificado_at).length;
+  const conAnticipo = rows.filter((r) => (r.accesos || []).includes(RECURSO_ANTICIPO.slug)).length;
   const meta = term
     ? `${filtered.length} de ${rows.length}`
-    : `${rows.length} registro(s) · ${verificados} verificado(s)`;
+    : `${rows.length} cuenta(s) · ${conAnticipo} con acceso al ${RECURSO_ANTICIPO.corto}`;
 
   const descargar = () =>
-    _descargarCsv(
-      "registros_recursos.csv",
-      ["Nombre", "Empresa", "Email", "Recurso", "Fecha", "Verificado", "Email enviado", "Consentimiento", "Version politica"],
-      filtered.map((r) => [
-        r.nombre, r.empresa, r.email, r.recurso_slug, _insFecha(r),
-        r.verificado_at ? "si" : "no",
-        r.email_enviado ? "si" : "no",
-        (r.consentimiento_at || "").slice(0, 16).replace("T", " "),
-        r.consentimiento_version,
-      ])
-    );
+    _descargarCsv("cuentas_recursos.csv", RECURSO_CSV_HEADERS, filtered.map(recursoCuentaCsvFila));
 
   return (
     <>
-      <ViewHead code="REC" title="Registros de recursos gratuitos"
-        sub="Personas que pidieron acceso a las herramientas de recursos.audit-ia.ec." />
-      <Panel title="Registros" meta={meta}>
+      <ViewHead code="REC" title="Cuentas de recursos gratuitos"
+        sub="Personas con cuenta en recursos.audit-ia.ec · accesos por recurso y claves." />
+
+      {pwAssign && (
+        <div onClick={() => !pwBusy && closeReset()}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: "var(--panel, #0a2342)", color: "var(--text, #e8eef6)",
+              border: "1px solid var(--border, #21456e)", borderRadius: 12, padding: 24,
+              width: 440, maxWidth: "92vw", boxShadow: "0 20px 60px rgba(0,0,0,.5)" }}>
+            <h3 style={{ marginTop: 0 }}>🔑 Resetear clave</h3>
+            <p className="muted">
+              Cuenta: <b>{pwAssign.email}</b>. Escriba la clave que tendrá esta cuenta
+              (mín. 8 caracteres) o deje ambos campos vacíos para generar una automáticamente.
+            </p>
+            <label>Nueva clave</label>
+            <input type="text" value={pwValue} autoFocus disabled={pwBusy}
+              onChange={(e) => setPwValue(e.target.value)} />
+            <label>Confirmar clave</label>
+            <input type="text" value={pwConfirm} disabled={pwBusy}
+              onChange={(e) => setPwConfirm(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") confirmReset(); }} />
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+              <input type="checkbox" checked={pwMail} disabled={pwBusy}
+                onChange={(e) => setPwMail(e.target.checked)} />
+              <span>Enviar la clave por correo a la persona</span>
+            </label>
+            {pwErr && <div className="err" style={{ marginTop: 8 }}>{pwErr}</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <button className="btn" onClick={confirmReset} disabled={pwBusy}>
+                {pwBusy ? "Reseteando…" : "Resetear clave"}
+              </button>
+              <button className="btn ghost" onClick={closeReset} disabled={pwBusy}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {pwDone && (
+        <div onClick={() => setPwDone(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: "var(--panel, #0a2342)", color: "var(--text, #e8eef6)",
+              border: "1px solid var(--border, #21456e)", borderRadius: 12, padding: 24,
+              width: 440, maxWidth: "92vw", boxShadow: "0 20px 60px rgba(0,0,0,.5)" }}>
+            <h3 style={{ marginTop: 0 }}>✅ Clave asignada</h3>
+            <p className="muted">
+              Cuenta: <b>{pwDone.email}</b>. {pwDone.note}
+            </p>
+            <pre style={{ fontSize: 18, userSelect: "all" }}>{pwDone.temp_password}</pre>
+            <button className="btn" onClick={() => setPwDone(null)}>Entendido</button>
+          </div>
+        </div>
+      )}
+
+      <Panel title="Cuentas" meta={meta}>
         <div className="row-form" style={{ marginBottom: 12 }}>
           <input
-            placeholder="Buscar por nombre, email, empresa o recurso…"
+            placeholder="Buscar por nombre, email o empresa…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
@@ -2155,25 +2287,50 @@ function RecursosLeads() {
         {err && <div className="err">{err}</div>}
         {filtered.length > 0 ? (
           <div style={{ overflowX: "auto" }}>
-            <div className="table" style={{ minWidth: 880 }}>
+            <div className="table" style={{ minWidth: 1180 }}>
               <div className="tr th" style={REC_COLS}>
                 <span>Nombre</span>
                 <span>Empresa</span>
-                <span>Email</span>
-                <span>Recurso</span>
-                <span>Fecha</span>
+                <span>Correo</span>
+                <span>Registro</span>
+                <span>Último ingreso</span>
+                {RECURSOS_CATALOGO.map((c) => <span key={c.slug}>{c.label}</span>)}
                 <span>Estado</span>
+                <span>Acciones</span>
               </div>
               {filtered.map((r) => (
                 <div className="tr" key={r.id} style={REC_COLS}>
                   <span>{r.nombre}</span>
                   <span className="muted">{r.empresa}</span>
                   <span className="muted">{r.email}</span>
-                  <span className="muted">{r.recurso_slug}</span>
                   <span className="muted">{_insFecha(r)}</span>
-                  <span className="muted" title={r.verificado_at ? "Abrió el enlace del correo" : "Aún no abre el enlace"}>
-                    {r.verificado_at ? "✅" : "—"}
-                    {r.email_enviado ? " ✉️" : ""}
+                  <span className="muted">{_insFecha(r, "ultimo_ingreso_at") || "—"}</span>
+                  {RECURSOS_CATALOGO.map((c) => (
+                    <span key={c.slug}>
+                      <input
+                        type="checkbox"
+                        aria-label={`${c.label} · ${r.email}`}
+                        title={isAdmin ? c.label : SOLO_ADMIN}
+                        checked={(r.accesos || []).includes(c.slug)}
+                        disabled={!isAdmin || pending.has(`${r.id}:${c.slug}`)}
+                        onChange={() => toggleAcceso(r, c.slug)}
+                      />
+                    </span>
+                  ))}
+                  <span style={r.activo ? undefined : { color: "var(--danger)" }}>
+                    {r.activo ? "Activa" : "Desactivada"}
+                  </span>
+                  <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <button className="btn ghost" onClick={() => askReset(r)}
+                      disabled={!isAdmin || pending.has(`${r.id}:reset`)}
+                      title={isAdmin ? undefined : SOLO_ADMIN}>
+                      Resetear clave
+                    </button>
+                    <button className="btn ghost" onClick={() => toggleActivo(r)}
+                      disabled={!isAdmin || pending.has(`${r.id}:activo`)}
+                      title={isAdmin ? undefined : SOLO_ADMIN}>
+                      {r.activo ? "Desactivar" : "Activar"}
+                    </button>
                   </span>
                 </div>
               ))}
@@ -2182,7 +2339,7 @@ function RecursosLeads() {
         ) : (
           !busy && !err && (
             <div className="notice">
-              {rows.length === 0 ? "Aún no hay registros." : "Sin resultados para la búsqueda."}
+              {rows.length === 0 ? "Aún no hay cuentas." : "Sin resultados para la búsqueda."}
             </div>
           )
         )}
@@ -2290,7 +2447,7 @@ export default function App() {
       case "inscripciones":
         return isStaff ? <Inscripciones /> : <Dashboard user={user} health={hp} />;
       case "recursos":
-        return isStaff ? <RecursosLeads /> : <Dashboard user={user} health={hp} />;
+        return isStaff ? <RecursosCuentas isAdmin={isAdmin} /> : <Dashboard user={user} health={hp} />;
       case "profile":
         return isStaff ? <Profile user={user} /> : <Dashboard user={user} health={hp} />;
       case "security": return <Security user={user} />;
