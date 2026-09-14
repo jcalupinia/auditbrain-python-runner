@@ -90,7 +90,7 @@ tabla nueva vía `create_all`.
 | email | str(320), index | normalizado a minúsculas y sin espacios |
 | consentimiento_at | datetime | momento en que aceptó la política |
 | consentimiento_version | str(16) | `"v1"` = texto de `politica-datos/` vigente |
-| ip | str(64) | primer hop de X-Forwarded-For |
+| ip | str(64) | `True-Client-IP` / `CF-Connecting-IP` (Cloudflare delante de Render) |
 | email_enviado | bool | resultado del último envío |
 | verificado_at | datetime, null | primera vez que abrió el enlace = correo real |
 | created_at | datetime | |
@@ -156,11 +156,11 @@ verificado sí/no, correo enviado sí/no; buscador; descarga CSV). En `frontend/
   libre): el saludo es genérico "Estimado(a):". Motivo: el formulario es público y
   cualquiera puede registrar el correo de un tercero con un `nombre` hostil (hasta 160
   caracteres) para que el dominio de la firma entregue ese texto — anti-suplantación.
-- `ip` / el limitador de tasa usan el **primer** hop de `X-Forwarded-For`, que puede ser
-  falsificable por el cliente. Pendiente de verificar en producción durante el deploy
-  (probar con `curl` mandando un XFF falso y revisar qué IP quedó registrada/limitada)
-  antes de decidir si conviene cambiar al hop más a la derecha. Mientras tanto, los
-  topes por correo (3/hora) y global (30/hora) acotan el abuso.
+- `ip` / el limitador de tasa usan `True-Client-IP` → `CF-Connecting-IP` → IP de la
+  conexión. Verificado en producción el 2026-09-14: `X-Forwarded-For` es falsificable en
+  Render (rotándolo, 11 intentos sin 429; con el mismo valor, 429 al 11.º), por eso se
+  dejó de usar. Los topes por correo (3/hora) y global (30/hora) siguen como segunda
+  barrera.
 - `verificado` puede activarse por escáneres de enlaces corporativos (antivirus/proxy de
   correo que sigue el link automáticamente): significa "probablemente real", no una
   garantía.
