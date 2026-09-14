@@ -11,7 +11,7 @@ from backend.app.recursos.models import RecursoLead
 from backend.app.recursos.router import MSG_REGISTRO
 from backend.app.recursos.tokens import crear_token
 
-SLUG = "anticipo-ir-2026"
+SLUG = "ir-personas-naturales-2026"
 BASE = f"/api/v1/recursos/{SLUG}"
 
 

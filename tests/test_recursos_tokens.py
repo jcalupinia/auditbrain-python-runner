@@ -5,14 +5,15 @@ from backend.app.auth.jwt_tokens import create_access_token, decode_token
 from backend.app.recursos.catalog import get_recurso
 from backend.app.recursos.tokens import crear_token, leer_token
 
-SLUG = "anticipo-ir-2026"
+SLUG = "ir-personas-naturales-2026"
 
 
 def test_catalogo_conoce_la_calculadora():
     rec = get_recurso(SLUG)
     assert rec is not None
-    assert rec.url == "https://recursos.audit-ia.ec/anticipo-ir-2026/"
+    assert rec.url == "https://recursos.audit-ia.ec/ir-personas-naturales-2026/"
     assert get_recurso("no-existe") is None
+    assert get_recurso("anticipo-ir-2026") is None
 
 
 def test_token_ida_y_vuelta():
