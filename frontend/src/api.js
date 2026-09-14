@@ -505,12 +505,39 @@ export async function listEventRegistrations(slug, limit = 500) {
   );
 }
 
-// ---------- Registros de recursos gratuitos (staff) ----------
+// ---------- Cuentas de recursos gratuitos (staff lee; admin modifica) ----------
 
-export async function listRecursoLeads(limit = 1000) {
+export async function listRecursoCuentas() {
   return parse(
-    await apiFetch(`${API_BASE}/api/v1/recursos/registros?limit=${limit}`, {
-      headers: authHeaders(),
+    await apiFetch(`${API_BASE}/api/v1/recursos/cuentas`, { headers: authHeaders() })
+  );
+}
+
+export async function setRecursoAcceso(id, slug, on) {
+  return parse(
+    await apiFetch(
+      `${API_BASE}/api/v1/recursos/cuentas/${id}/accesos/${encodeURIComponent(slug)}`,
+      { method: on ? "PUT" : "DELETE", headers: authHeaders() }
+    )
+  );
+}
+
+export async function resetRecursoClave(id, newPassword, enviarCorreo) {
+  return parse(
+    await apiFetch(`${API_BASE}/api/v1/recursos/cuentas/${id}/reset-clave`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ new_password: newPassword || null, enviar_correo: !!enviarCorreo }),
+    })
+  );
+}
+
+export async function setRecursoActivo(id, activo) {
+  return parse(
+    await apiFetch(`${API_BASE}/api/v1/recursos/cuentas/${id}/activo`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ activo }),
     })
   );
 }
