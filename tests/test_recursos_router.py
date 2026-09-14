@@ -8,6 +8,7 @@ from backend.app.auth.models import Role
 from backend.app.client_portal.rate_limit import reset_for_key
 from backend.app.db.session import SessionLocal
 from backend.app.recursos.models import RecursoLead
+from backend.app.recursos.router import MSG_REGISTRO
 from backend.app.recursos.tokens import crear_token
 
 SLUG = "anticipo-ir-2026"
@@ -26,8 +27,10 @@ def enviados(monkeypatch):
 @pytest.fixture(autouse=True)
 def _reset_rate_limit():
     reset_for_key("recurso-reg:testclient")
+    reset_for_key("recurso-mail:global")
     yield
     reset_for_key("recurso-reg:testclient")
+    reset_for_key("recurso-mail:global")
 
 
 def _payload(email=None, **cambios):
@@ -68,22 +71,34 @@ def test_registro_201_guarda_consentimiento_y_envia(client, enviados):
     p = _payload()
     r = client.post(f"{BASE}/registros", json=p)
     assert r.status_code == 201, r.text
-    assert r.json()["ya_registrado"] is False
+    assert r.json() == {"ok": True, "mensaje": MSG_REGISTRO}
     [lead] = _leads(p["email"])
     assert lead.consentimiento_version == "v1"
     assert lead.consentimiento_at is not None
     assert enviados == [lead.id]
 
 
-def test_registro_repetido_actualiza_y_reenvia(client, enviados):
+def test_registro_repetido_no_sobrescribe_y_reenvia(client, enviados):
     email = f"l-{uuid.uuid4().hex[:8]}@example.com"
     client.post(f"{BASE}/registros", json=_payload(email))
     r = client.post(f"{BASE}/registros", json=_payload(email.upper(), empresa="Otra S.A."))
     assert r.status_code == 201, r.text
-    assert r.json()["ya_registrado"] is True
+    # Sin enumeración: la respuesta es idéntica a la de un correo nuevo.
+    assert r.json() == {"ok": True, "mensaje": MSG_REGISTRO}
     [lead] = _leads(email)
-    assert lead.empresa == "Otra S.A."
+    assert lead.empresa == "Empresa S.A."  # no se sobrescribe
     assert len(enviados) == 2
+
+
+def test_limite_correo_por_email_no_envia_el_4to(client, enviados):
+    email = f"l-{uuid.uuid4().hex[:8]}@example.com"
+    for _ in range(3):
+        r = client.post(f"{BASE}/registros", json=_payload(email))
+        assert r.status_code == 201, r.text
+    r4 = client.post(f"{BASE}/registros", json=_payload(email))
+    assert r4.status_code == 201, r4.text
+    assert r4.json() == {"ok": True, "mensaje": MSG_REGISTRO}  # sin señal al llamador
+    assert len(enviados) == 3
 
 
 @pytest.mark.parametrize(
@@ -104,6 +119,7 @@ def test_honeypot_responde_ok_sin_guardar(client, enviados):
     p = _payload(website="http://spam.example")
     r = client.post(f"{BASE}/registros", json=p)
     assert r.status_code == 201
+    assert r.json() == {"ok": True, "mensaje": MSG_REGISTRO}
     assert _leads(p["email"]) == []
     assert enviados == []
 

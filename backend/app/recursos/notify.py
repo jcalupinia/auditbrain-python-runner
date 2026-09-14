@@ -30,8 +30,9 @@ def enviar_acceso(lead_id: int) -> None:
                 enlace=enlace,
                 contacto=CONTACTO,
             )
-            lead.email_enviado = res is not None
-            db.commit()
+            if res is not None:
+                lead.email_enviado = True
+                db.commit()
         except Exception:  # noqa: BLE001
             log.exception("Correo de acceso falló para lead %s.", lead_id)
     finally:

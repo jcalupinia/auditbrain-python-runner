@@ -43,6 +43,14 @@ def _limite(request: Request) -> str:
     return ip
 
 
+def _puede_enviar(email: str) -> bool:
+    """Tope de correos de acceso: 3/hora por correo y 100/hora en total."""
+    correo = email.strip().lower()
+    return check_and_record(
+        f"recurso-mail:{correo}", max_hits=3, window_seconds=3600
+    ) and check_and_record("recurso-mail:global", max_hits=100, window_seconds=3600)
+
+
 @router.post(
     "/{slug}/registros", response_model=LeadResponse, status_code=status.HTTP_201_CREATED
 )
@@ -56,10 +64,11 @@ def registrar_endpoint(
     _recurso_o_404(slug)
     ip = _limite(request)
     if payload.website:  # bot: se le responde igual, sin guardar ni enviar
-        return LeadResponse(ok=True, ya_registrado=False, mensaje=MSG_REGISTRO)
-    lead, ya_registrado = service.registrar(db, slug=slug, data=payload, ip=ip)
-    background_tasks.add_task(notify.enviar_acceso, lead.id)
-    return LeadResponse(ok=True, ya_registrado=ya_registrado, mensaje=MSG_REGISTRO)
+        return LeadResponse(ok=True, mensaje=MSG_REGISTRO)
+    lead = service.registrar(db, slug=slug, data=payload, ip=ip)
+    if _puede_enviar(str(payload.email)):
+        background_tasks.add_task(notify.enviar_acceso, lead.id)
+    return LeadResponse(ok=True, mensaje=MSG_REGISTRO)
 
 
 @router.post("/{slug}/reenviar", response_model=MensajeOut)
@@ -73,7 +82,7 @@ def reenviar_endpoint(
     _recurso_o_404(slug)
     _limite(request)
     lead = service.buscar(db, slug, str(payload.email))
-    if lead is not None:
+    if lead is not None and _puede_enviar(str(payload.email)):
         background_tasks.add_task(notify.enviar_acceso, lead.id)
     return MensajeOut(ok=True, mensaje=MSG_REENVIO)
 

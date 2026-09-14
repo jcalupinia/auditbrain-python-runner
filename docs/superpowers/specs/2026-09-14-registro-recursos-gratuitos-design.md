@@ -104,7 +104,7 @@ prueba que lo asegura.
 
 | Método y ruta | Auth | Comportamiento |
 |---|---|---|
-| `POST /{slug}/registros` | pública | Valida, límite 10/600 s por IP (`check_and_record("recurso-reg:{ip}")`), honeypot lleno → 201 falso sin guardar. Alta idempotente: si el correo ya existe para ese recurso, conserva el registro, actualiza nombre/empresa/consentimiento y reenvía. Correo en background. 201 `{ok, ya_registrado, mensaje}`. |
+| `POST /{slug}/registros` | pública | Valida, límite 10/600 s por IP (`check_and_record("recurso-reg:{ip}")`), honeypot lleno → 201 falso sin guardar. Alta idempotente: si el correo ya existe para ese recurso, conserva el registro tal cual (no se sobrescribe nombre/empresa/consentimiento) y solo reenvía el enlace. Correo en background, sujeto a tope de envíos (3/hora por correo y 100/hora en total; si se excede, no se agenda el correo pero la respuesta es la misma). 201 `{ok, mensaje}` — sin `ya_registrado`, para no permitir enumerar correos registrados a partir de la respuesta. |
 | `POST /{slug}/reenviar` | pública | Body `{email}`. Mismo límite (clave compartida). Si existe, reenvía en background. Siempre 200 con mensaje genérico. |
 | `GET /{slug}/acceso?token=` | pública | Verifica firma, `aud`, vencimiento y que `rs` = slug y el lead exista. Marca `verificado_at` si es la primera vez. 200 `{ok: true, nombre}`; inválido/vencido → 401. |
 | `GET /registros?slug=&limit=` | `require_staff` | Lista más recientes primero (máx. 1000). |
@@ -166,14 +166,22 @@ verificado sí/no, correo enviado sí/no; buscador; descarga CSV). En `frontend/
 ## Pruebas
 
 - `tests/test_recursos_router.py` (patrón `test_events_router.py`, notificación
-  parcheada, límite reiniciado por prueba): 201 alta; alta repetida = 201 con
-  `ya_registrado` y un solo registro; 422 sin consentimiento / correo inválido / nombre
-  corto; honeypot → 201 sin registro; slug desconocido → 404; 429 tras 11 envíos;
-  reenviar con correo inexistente → 200 genérico sin envío; acceso con token válido →
-  200 y `verificado_at`; token alterado, vencido, de otro slug → 401; token de recurso
-  contra un endpoint de staff → 401; listado sin token → 401, con staff → 200.
+  parcheada, límite reiniciado por prueba): 201 alta; alta repetida = 201 con la misma
+  respuesta que una alta nueva (sin `ya_registrado`) y sin sobrescribir el registro
+  existente (solo reenvía); 422 sin consentimiento / correo inválido / nombre corto;
+  honeypot → 201 sin registro; slug desconocido → 404; 429 tras 11 envíos por IP; tope
+  de envíos por correo (3/hora): el 4.º registro del mismo correo en la hora no agenda
+  correo (sin señal al llamador); reenviar con correo inexistente → 200 genérico sin
+  envío; acceso con token válido → 200 y `verificado_at`; token alterado, vencido, de
+  otro slug → 401; token de recurso contra un endpoint de staff → 401; listado sin
+  token → 401, con staff → 200.
+- `tests/test_recursos_tokens.py`: además de la ida y vuelta del token, un token de
+  recurso es rechazado por `decode_token` de la consola (`InvalidAudienceError`, por la
+  `aud` distinta) y un token de staff (`create_access_token`) no sirve como token de
+  recurso.
 - `tests/test_notifications_recurso_email.py`: la plantilla escapa HTML e incluye el
-  enlace y el usuario.
+  enlace y el usuario; `email_enviado` nunca vuelve a `False` una vez en `True` aunque
+  un reenvío falle.
 - E2E local (backend `uvicorn app:app` + mini-sitio servido local con CORS local):
   llenar el formulario, capturar el enlace del correo (Resend parcheado → log), abrirlo,
   ver la calculadora desbloqueada y el registro `verificado` en la pestaña REC.

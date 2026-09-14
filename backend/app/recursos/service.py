@@ -22,20 +22,22 @@ def buscar(db: Session, slug: str, email: str) -> RecursoLead | None:
     ).scalar_one_or_none()
 
 
-def registrar(
-    db: Session, *, slug: str, data: LeadCreate, ip: str
-) -> tuple[RecursoLead, bool]:
-    """Crea o actualiza el registro. Devuelve (lead, ya_registrado)."""
+def registrar(db: Session, *, slug: str, data: LeadCreate, ip: str) -> RecursoLead:
+    """Alta idempotente. Si el (slug, email) ya existe, lo devuelve sin tocarlo."""
     email = str(data.email).strip().lower()
     lead = buscar(db, slug, email)
-    ya_registrado = lead is not None
-    if lead is None:
-        lead = RecursoLead(recurso_slug=slug, email=email, ip=ip[:64])
-        db.add(lead)
-    lead.nombre = data.nombre
-    lead.empresa = data.empresa
-    lead.consentimiento_at = _utcnow()
-    lead.consentimiento_version = POLITICA_VERSION
+    if lead is not None:
+        return lead
+    lead = RecursoLead(
+        recurso_slug=slug,
+        email=email,
+        ip=ip[:64],
+        nombre=data.nombre,
+        empresa=data.empresa,
+        consentimiento_at=_utcnow(),
+        consentimiento_version=POLITICA_VERSION,
+    )
+    db.add(lead)
     try:
         db.commit()
     except IntegrityError:
@@ -44,9 +46,9 @@ def registrar(
         lead = buscar(db, slug, email)
         if lead is None:
             raise
-        return lead, True
+        return lead
     db.refresh(lead)
-    return lead, ya_registrado
+    return lead
 
 
 def marcar_verificado(db: Session, lead: RecursoLead) -> None:

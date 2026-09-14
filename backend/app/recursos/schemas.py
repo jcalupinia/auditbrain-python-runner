@@ -33,7 +33,6 @@ class ReenvioIn(BaseModel):
 
 class LeadResponse(BaseModel):
     ok: bool
-    ya_registrado: bool
     mensaje: str
 
 

@@ -194,4 +194,4 @@ def send_recurso_acceso(
     html_body = render_recurso_acceso(
         nombre=nombre, titulo=titulo, email=to, enlace=enlace, contacto=contacto
     )
-    return send_email(to=to, subject=f"Su acceso a la {titulo}", html=html_body)
+    return send_email(to=to, subject=f"Su acceso a la {titulo}", html=html_body, max_retries=2)

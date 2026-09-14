@@ -65,3 +65,31 @@ def test_notify_envia_enlace_valido_y_marca_enviado(monkeypatch):
 def test_notify_lead_inexistente_no_falla(monkeypatch):
     monkeypatch.setattr(email_mod, "send_recurso_acceso", lambda **kw: 1 / 0)
     notify.enviar_acceso(999_999_999)  # no debe lanzar
+
+
+def test_notify_envio_fallido_no_regresa_email_enviado_a_false(monkeypatch):
+    db = SessionLocal()
+    try:
+        lead = RecursoLead(
+            recurso_slug=SLUG,
+            nombre="Ana Torres",
+            empresa="Alfa S.A.",
+            email=f"n-{uuid.uuid4().hex[:8]}@example.com",
+            consentimiento_at=datetime.datetime(2026, 9, 14),
+            consentimiento_version="v1",
+            email_enviado=True,
+        )
+        db.add(lead)
+        db.commit()
+        lead_id = lead.id
+    finally:
+        db.close()
+
+    monkeypatch.setattr(email_mod, "send_recurso_acceso", lambda **kw: None)
+    notify.enviar_acceso(lead_id)
+
+    db = SessionLocal()
+    try:
+        assert db.get(RecursoLead, lead_id).email_enviado is True
+    finally:
+        db.close()
