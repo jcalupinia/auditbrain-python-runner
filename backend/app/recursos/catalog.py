@@ -8,6 +8,14 @@ from dataclasses import dataclass
 # (coincide con public/politica-datos/ del mini-sitio).
 CONTACTO = "jcalupinia@auditconsulting.ec"
 
+# Home del mini-sitio: el correo de acceso lleva aquí (no a rec.url) para que
+# el usuario abra el login sobre la página de recursos, no directo a la calculadora.
+RECURSOS_HOME = "https://recursos.audit-ia.ec/"
+
+
+def enlace_acceso(slug: str) -> str:
+    return f"{RECURSOS_HOME}#ingresar-{slug}"
+
 
 @dataclass(frozen=True)
 class Recurso:

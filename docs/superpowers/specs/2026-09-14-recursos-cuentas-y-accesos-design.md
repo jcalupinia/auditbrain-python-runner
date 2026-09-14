@@ -161,3 +161,15 @@ ingresar anticipo), móvil, capturas de botones para el dueño.
 
 PR del portal (aprobación del dueño) → Render despliega → commit/push del mini-sitio con
 aprobación. Ojo: al publicar, el anticipo deja de estar abierto.
+
+## Cambio 2026-09-14 (tarde): acceso sobre la página de recursos
+
+El recuadro de ingreso/registro ya no vive solo en la subpágina de cada calculadora: se
+abre como **modal sobre `index.html`** (la home del mini-sitio), disparado por los botones
+de cada tarjeta y por los deep links de hash `#ingresar-<slug>` / `#registro-<slug>`. El
+botón del correo de acceso ("Ingresar a mi calculadora") enlaza a
+`https://recursos.audit-ia.ec/#ingresar-<slug>` en vez de a `rec.url` directo, para que la
+persona aterrice en la home con el login ya abierto. El enlace que se comparte para videos
+y biografías (WhatsApp/IG/TikTok) sigue siendo `https://recursos.audit-ia.ec/` a secas. Las
+calculadoras conservan su propio candado para quien llega por URL directa (sin pasar por el
+modal de la home).
