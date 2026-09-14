@@ -1945,38 +1945,37 @@ function _insFecha(r) {
   return (r.created_at || "").slice(0, 16).replace("T", " ");
 }
 
-// Exporta las filas a CSV (UTF-8 con BOM para que Excel lea los acentos).
-function descargarInscritosCsv(rows) {
-  const headers = [
-    "Nombre", "Email", "Celular", "Cedula/RUC", "Empresa",
-    "Fecha", "Email enviado", "Aviso enviado",
-  ];
+// Descarga filas como CSV (UTF-8 con BOM para que Excel lea los acentos).
+function _descargarCsv(archivo, headers, filas) {
   const esc = (v) => {
     const s = String(v ?? "");
     return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const lines = [headers.join(",")];
-  for (const r of rows) {
-    lines.push(
-      [
-        r.nombre, r.email, r.telefono_e164, r.documento, r.empresa,
-        _insFecha(r),
-        r.email_enviado ? "si" : "no",
-        r.aviso_interno_enviado ? "si" : "no",
-      ].map(esc).join(",")
-    );
-  }
+  const lines = [headers.join(","), ...filas.map((f) => f.map(esc).join(","))];
   const blob = new Blob(["﻿" + lines.join("\r\n")], {
     type: "text/csv;charset=utf-8;",
   });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "inscritos_charla_anexos.csv";
+  a.download = archivo;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+function descargarInscritosCsv(rows) {
+  _descargarCsv(
+    "inscritos_charla_anexos.csv",
+    ["Nombre", "Email", "Celular", "Cedula/RUC", "Empresa", "Fecha", "Email enviado", "Aviso enviado"],
+    rows.map((r) => [
+      r.nombre, r.email, r.telefono_e164, r.documento, r.empresa,
+      _insFecha(r),
+      r.email_enviado ? "si" : "no",
+      r.aviso_interno_enviado ? "si" : "no",
+    ])
+  );
 }
 
 function Inscripciones() {
@@ -2079,6 +2078,114 @@ function Inscripciones() {
   );
 }
 
+/* ---------------- Registros de recursos gratuitos (staff) ---------------- */
+const REC_COLS = { gridTemplateColumns: "1.3fr 1.3fr 1.7fr 1.2fr 1.1fr 0.8fr" };
+
+function RecursosLeads() {
+  const [rows, setRows] = useState([]);
+  const [busy, setBusy] = useState(true);
+  const [err, setErr] = useState("");
+  const [q, setQ] = useState("");
+
+  const reload = useCallback(async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      setRows(await api.listRecursoLeads());
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  const term = q.trim().toLowerCase();
+  const filtered = term
+    ? rows.filter((r) =>
+        `${r.nombre} ${r.email} ${r.empresa} ${r.recurso_slug}`.toLowerCase().includes(term)
+      )
+    : rows;
+  const verificados = rows.filter((r) => r.verificado_at).length;
+  const meta = term
+    ? `${filtered.length} de ${rows.length}`
+    : `${rows.length} registro(s) · ${verificados} verificado(s)`;
+
+  const descargar = () =>
+    _descargarCsv(
+      "registros_recursos.csv",
+      ["Nombre", "Empresa", "Email", "Recurso", "Fecha", "Verificado", "Email enviado"],
+      filtered.map((r) => [
+        r.nombre, r.empresa, r.email, r.recurso_slug, _insFecha(r),
+        r.verificado_at ? "si" : "no",
+        r.email_enviado ? "si" : "no",
+      ])
+    );
+
+  return (
+    <>
+      <ViewHead code="REC" title="Registros de recursos gratuitos"
+        sub="Personas que pidieron acceso a las herramientas de recursos.audit-ia.ec." />
+      <Panel title="Registros" meta={meta}>
+        <div className="row-form" style={{ marginBottom: 12 }}>
+          <input
+            placeholder="Buscar por nombre, email, empresa o recurso…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <button className="btn ghost" onClick={reload} disabled={busy}>
+            {busy ? "Cargando…" : "Actualizar"}
+          </button>
+          <button
+            className="btn primary"
+            onClick={descargar}
+            disabled={busy || filtered.length === 0}
+            title="Descargar la lista (se abre en Excel)"
+          >
+            ⇩ Descargar Excel/CSV
+          </button>
+        </div>
+        {err && <div className="err">{err}</div>}
+        {filtered.length > 0 ? (
+          <div style={{ overflowX: "auto" }}>
+            <div className="table" style={{ minWidth: 880 }}>
+              <div className="tr th" style={REC_COLS}>
+                <span>Nombre</span>
+                <span>Empresa</span>
+                <span>Email</span>
+                <span>Recurso</span>
+                <span>Fecha</span>
+                <span>Estado</span>
+              </div>
+              {filtered.map((r) => (
+                <div className="tr" key={r.id} style={REC_COLS}>
+                  <span>{r.nombre}</span>
+                  <span className="muted">{r.empresa}</span>
+                  <span className="muted">{r.email}</span>
+                  <span className="muted">{r.recurso_slug}</span>
+                  <span className="muted">{_insFecha(r)}</span>
+                  <span className="muted" title={r.verificado_at ? "Abrió el enlace del correo" : "Aún no abre el enlace"}>
+                    {r.verificado_at ? "✅" : "—"}
+                    {r.email_enviado ? " ✉️" : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          !busy && (
+            <div className="notice">
+              {rows.length === 0 ? "Aún no hay registros." : "Sin resultados para la búsqueda."}
+            </div>
+          )
+        )}
+      </Panel>
+    </>
+  );
+}
+
 /* ---------------- Command Center Shell ---------------- */
 export default function App() {
   const [user, setUser] = useState(null);
@@ -2141,6 +2248,7 @@ export default function App() {
     { id: "runner", code: "RUN", label: "Motor de Ejecución", staff: true },
     { id: "workspaces", code: "WKS", label: "Workspaces", staff: true },
     { id: "inscripciones", code: "INS", label: "Inscripciones", staff: true },
+    { id: "recursos", code: "REC", label: "Recursos", staff: true },
     { id: "users", code: "USR", label: "Cuentas", admin: true },
     { id: "profile", code: "PRF", label: "Mi Perfil", staff: true },
     { id: "security", code: "SEC", label: "Seguridad" },
@@ -2176,6 +2284,8 @@ export default function App() {
           : <Dashboard user={user} health={hp} />;
       case "inscripciones":
         return isStaff ? <Inscripciones /> : <Dashboard user={user} health={hp} />;
+      case "recursos":
+        return isStaff ? <RecursosLeads /> : <Dashboard user={user} health={hp} />;
       case "profile":
         return isStaff ? <Profile user={user} /> : <Dashboard user={user} health={hp} />;
       case "security": return <Security user={user} />;

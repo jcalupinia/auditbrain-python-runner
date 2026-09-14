@@ -505,6 +505,16 @@ export async function listEventRegistrations(slug, limit = 500) {
   );
 }
 
+// ---------- Registros de recursos gratuitos (staff) ----------
+
+export async function listRecursoLeads(limit = 1000) {
+  return parse(
+    await apiFetch(`${API_BASE}/api/v1/recursos/registros?limit=${limit}`, {
+      headers: authHeaders(),
+    })
+  );
+}
+
 // ---------- Fase 2 · M1: contexto operativo ----------
 
 export async function getMyContext() {
