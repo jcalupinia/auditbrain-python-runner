@@ -1,3 +1,4 @@
+import re
 import uuid
 
 import pytest
@@ -7,19 +8,20 @@ from backend.app.auth import service as auth_service
 from backend.app.auth.models import Role
 from backend.app.client_portal.rate_limit import reset_for_key
 from backend.app.db.session import SessionLocal
-from backend.app.recursos.models import RecursoLead
+from backend.app.recursos.models import RecursoAcceso, RecursoCuenta, RecursoLead
 from backend.app.recursos.router import MSG_REGISTRO
-from backend.app.recursos.tokens import crear_token
 
 SLUG = "ir-personas-naturales-2026"
 BASE = f"/api/v1/recursos/{SLUG}"
+FORMATO_CLAVE = re.compile(r"^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{3}(-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{3}){2}$")
 
 
 @pytest.fixture(autouse=True)
 def enviados(monkeypatch):
     lista = []
     monkeypatch.setattr(
-        "backend.app.recursos.notify.enviar_acceso", lambda lead_id: lista.append(lead_id)
+        "backend.app.recursos.notify.enviar_clave",
+        lambda cuenta_id, clave, slug: lista.append((cuenta_id, clave, slug)),
     )
     return lista
 
@@ -54,6 +56,25 @@ def _leads(email):
         db.close()
 
 
+def _cuenta(email):
+    db = SessionLocal()
+    try:
+        c = db.execute(
+            select(RecursoCuenta).where(RecursoCuenta.email == email.lower())
+        ).scalar_one_or_none()
+        if c is None:
+            return None, set()
+        accesos = set(
+            db.execute(
+                select(RecursoAcceso.recurso_slug).where(RecursoAcceso.cuenta_id == c.id)
+            ).scalars()
+        )
+        db.expunge(c)
+        return c, accesos
+    finally:
+        db.close()
+
+
 def _admin_token(client):
     email = f"admin-{uuid.uuid4().hex[:8]}@example.com"
     pw = "Sup3rSecret!"
@@ -67,7 +88,7 @@ def _admin_token(client):
     return r.json()["access_token"]
 
 
-def test_registro_201_guarda_consentimiento_y_envia(client, enviados):
+def test_registro_nuevo_crea_cuenta_acceso_y_envia_clave(client, enviados):
     p = _payload()
     r = client.post(f"{BASE}/registros", json=p)
     assert r.status_code == 201, r.text
@@ -75,10 +96,16 @@ def test_registro_201_guarda_consentimiento_y_envia(client, enviados):
     [lead] = _leads(p["email"])
     assert lead.consentimiento_version == "v1"
     assert lead.consentimiento_at is not None
-    assert enviados == [lead.id]
+    cuenta, accesos = _cuenta(p["email"])
+    assert cuenta is not None and cuenta.activo and cuenta.clave_generada
+    assert accesos == {SLUG}
+    [(cuenta_id, clave, slug)] = enviados
+    assert cuenta_id == cuenta.id and slug == SLUG
+    assert FORMATO_CLAVE.match(clave)
+    assert clave.replace("-", "") not in cuenta.hashed_clave  # solo hash
 
 
-def test_registro_repetido_no_sobrescribe_y_reenvia(client, enviados):
+def test_registro_repetido_rota_clave_con_respuesta_identica(client, enviados):
     email = f"l-{uuid.uuid4().hex[:8]}@example.com"
     client.post(f"{BASE}/registros", json=_payload(email))
     r = client.post(f"{BASE}/registros", json=_payload(email.upper(), empresa="Otra S.A."))
@@ -88,6 +115,17 @@ def test_registro_repetido_no_sobrescribe_y_reenvia(client, enviados):
     [lead] = _leads(email)
     assert lead.empresa == "Empresa S.A."  # no se sobrescribe
     assert len(enviados) == 2
+    (id1, vieja, _), (id2, nueva, _) = enviados
+    assert id1 == id2 and vieja != nueva
+    login = lambda c: client.post(f"{BASE}/ingresar", json={"email": email, "clave": c})  # noqa: E731
+    assert login(vieja).status_code == 401
+    assert login(nueva).status_code == 200
+
+
+def test_registro_en_recurso_cerrado_404(client, enviados):
+    r = client.post("/api/v1/recursos/anticipo-ir-2026/registros", json=_payload())
+    assert r.status_code == 404
+    assert enviados == []
 
 
 def test_limite_correo_por_email_no_envia_el_4to(client, enviados):
@@ -99,6 +137,9 @@ def test_limite_correo_por_email_no_envia_el_4to(client, enviados):
     assert r4.status_code == 201, r4.text
     assert r4.json() == {"ok": True, "mensaje": MSG_REGISTRO}  # sin señal al llamador
     assert len(enviados) == 3
+    # La clave del último correo enviado sigue sirviendo (no se rotó sin enviar).
+    r = client.post(f"{BASE}/ingresar", json={"email": email, "clave": enviados[-1][1]})
+    assert r.status_code == 200, r.text
 
 
 @pytest.mark.parametrize(
@@ -121,6 +162,7 @@ def test_honeypot_responde_ok_sin_guardar(client, enviados):
     assert r.status_code == 201
     assert r.json() == {"ok": True, "mensaje": MSG_REGISTRO}
     assert _leads(p["email"]) == []
+    assert _cuenta(p["email"])[0] is None
     assert enviados == []
 
 
@@ -136,49 +178,9 @@ def test_limite_429(client):
     assert ultimo.status_code == 429
 
 
-def test_reenviar_no_revela_si_existe(client, enviados):
-    email = f"l-{uuid.uuid4().hex[:8]}@example.com"
-    client.post(f"{BASE}/registros", json=_payload(email))
-    enviados.clear()
-    existe = client.post(f"{BASE}/reenviar", json={"email": email.upper()})
-    no_existe = client.post(f"{BASE}/reenviar", json={"email": "nadie-zz@example.com"})
-    assert existe.status_code == no_existe.status_code == 200
-    assert existe.json() == no_existe.json()
-    assert len(enviados) == 1
-
-
-def test_acceso_valido_marca_verificado(client):
-    p = _payload()
-    client.post(f"{BASE}/registros", json=p)
-    [lead] = _leads(p["email"])
-    r = client.get(f"{BASE}/acceso", params={"token": crear_token(lead.id, SLUG)})
-    assert r.status_code == 200, r.text
-    assert r.json() == {"ok": True, "nombre": "María Pérez"}
-    assert _leads(p["email"])[0].verificado_at is not None
-
-
-@pytest.mark.parametrize("caso", ["alterado", "vencido", "otro_recurso", "lead_inexistente"])
-def test_acceso_invalido_401(client, caso):
-    p = _payload()
-    client.post(f"{BASE}/registros", json=p)
-    [lead] = _leads(p["email"])
-    bueno = crear_token(lead.id, SLUG)
-    token = {
-        "alterado": bueno[:-4] + ("AAAA" if not bueno.endswith("AAAA") else "BBBB"),
-        "vencido": crear_token(lead.id, SLUG, dias=-1),
-        "otro_recurso": crear_token(lead.id, "otro-recurso"),
-        "lead_inexistente": crear_token(999_999_999, SLUG),
-    }[caso]
-    r = client.get(f"{BASE}/acceso", params={"token": token})
-    assert r.status_code == 401
-
-
-def test_token_de_recurso_no_abre_la_consola(client):
-    r = client.get(
-        "/api/v1/recursos/registros",
-        headers={"Authorization": f"Bearer {crear_token(1, SLUG)}"},
-    )
-    assert r.status_code == 401
+def test_rutas_v1_eliminadas(client):
+    assert client.get(f"{BASE}/acceso", params={"token": "x"}).status_code in (404, 405)
+    assert client.post(f"{BASE}/reenviar", json={"email": "a@example.com"}).status_code in (404, 405)
 
 
 def test_listado_sin_token_401(client):

@@ -27,8 +27,13 @@ class LeadCreate(BaseModel):
         return v
 
 
-class ReenvioIn(BaseModel):
+class OlvideIn(BaseModel):
     email: EmailStr
+
+
+class IngresarIn(BaseModel):
+    email: EmailStr
+    clave: str = Field(min_length=1, max_length=128)
 
 
 class LeadResponse(BaseModel):
@@ -59,3 +64,42 @@ class LeadOut(BaseModel):
     created_at: datetime.datetime
 
     model_config = {"from_attributes": True}
+
+
+class CuentaOut(BaseModel):
+    id: int
+    email: str
+    nombre: str
+    empresa: str
+    activo: bool
+    accesos: list[str]
+    ultimo_ingreso_at: datetime.datetime | None
+    created_at: datetime.datetime
+    consentimiento_at: datetime.datetime | None
+    email_enviado: bool
+
+
+class AccesosOut(BaseModel):
+    ok: bool
+    accesos: list[str]
+
+
+class ResetClaveIn(BaseModel):
+    # Clave que escribe el admin (se compara exacta). Ausente: se genera una.
+    new_password: str | None = Field(default=None, min_length=8, max_length=128)
+    enviar_correo: bool = False
+
+
+class ResetClaveOut(BaseModel):
+    email: str
+    temp_password: str
+    note: str = "Comparta esta clave con la persona por un canal seguro. No se vuelve a mostrar."
+
+
+class ActivoIn(BaseModel):
+    activo: bool
+
+
+class ActivoOut(BaseModel):
+    ok: bool
+    activo: bool

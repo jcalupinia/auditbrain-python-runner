@@ -176,21 +176,24 @@ def send_charla_aviso_interno(
 
 
 def render_recurso_acceso(
-    *, titulo: str, email: str, enlace: str, contacto: str
+    *, titulo: str, email: str, enlace: str, clave: str, contacto: str
 ) -> str:
     tpl = (_TEMPLATES_DIR / "recurso_acceso.html").read_text(encoding="utf-8")
     return (
         tpl.replace("{{enlace}}", _html.escape(enlace, quote=True))
         .replace("{{titulo}}", _html.escape(titulo))
         .replace("{{email}}", _html.escape(email))
+        .replace("{{clave}}", _html.escape(clave))
         .replace("{{contacto}}", _html.escape(contacto))
     )
 
 
 def send_recurso_acceso(
-    *, to: str, titulo: str, enlace: str, contacto: str
+    *, to: str, titulo: str, enlace: str, clave: str, contacto: str
 ) -> dict | None:
     html_body = render_recurso_acceso(
-        titulo=titulo, email=to, enlace=enlace, contacto=contacto
+        titulo=titulo, email=to, enlace=enlace, clave=clave, contacto=contacto
     )
-    return send_email(to=to, subject=f"Su acceso a la {titulo}", html=html_body, max_retries=2)
+    return send_email(
+        to=to, subject=f"Su usuario y clave — {titulo}", html=html_body, max_retries=2
+    )
