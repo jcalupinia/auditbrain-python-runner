@@ -26,13 +26,16 @@ def enviados(monkeypatch):
     return lista
 
 
+_CLAVES_LIMITE = ("recurso-reg:testclient", "recurso-login-ip:testclient", "recurso-mail:global")
+
+
 @pytest.fixture(autouse=True)
 def _reset_rate_limit():
-    reset_for_key("recurso-reg:testclient")
-    reset_for_key("recurso-mail:global")
+    for k in _CLAVES_LIMITE:
+        reset_for_key(k)
     yield
-    reset_for_key("recurso-reg:testclient")
-    reset_for_key("recurso-mail:global")
+    for k in _CLAVES_LIMITE:
+        reset_for_key(k)
 
 
 def _payload(email=None, **cambios):

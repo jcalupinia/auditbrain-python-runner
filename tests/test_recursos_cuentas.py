@@ -22,6 +22,7 @@ MSG_403 = (
     "0990 609 811 o a jcalupinia@auditconsulting.ec."
 )
 IP_KEY = "recurso-reg:testclient"
+LOGIN_IP_KEY = "recurso-login-ip:testclient"
 
 
 @pytest.fixture(autouse=True)
@@ -36,11 +37,11 @@ def enviados(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _reset_rate_limit():
-    reset_for_key(IP_KEY)
-    reset_for_key("recurso-mail:global")
+    for k in (IP_KEY, LOGIN_IP_KEY, "recurso-mail:global"):
+        reset_for_key(k)
     yield
-    reset_for_key(IP_KEY)
-    reset_for_key("recurso-mail:global")
+    for k in (IP_KEY, LOGIN_IP_KEY, "recurso-mail:global"):
+        reset_for_key(k)
 
 
 def _email():
@@ -59,7 +60,7 @@ def _registrar(client, enviados, email=None):
 
 
 def _ingresar(client, email, clave, slug=PN):
-    reset_for_key(IP_KEY)  # aísla el límite por correo del límite por IP
+    reset_for_key(LOGIN_IP_KEY)  # aísla el límite por correo del límite por IP
     return client.post(f"{API}/{slug}/ingresar", json={"email": email, "clave": clave})
 
 
@@ -151,6 +152,54 @@ def test_ingresar_exito_reinicia_contador_de_fallos(client, enviados):
     assert _ingresar(client, email, clave).status_code == 200
     for _ in range(9):
         assert _ingresar(client, email, "MAL-MAL-MAL").status_code == 401
+
+
+def test_ingresar_limite_por_ip_propio_30(client, enviados):
+    email, _, clave = _registrar(client, enviados)
+    # 30 ingresos desde la misma IP pasan (el de registros, 10/10 min, no aplica)...
+    for i in range(30):
+        r = client.post(f"{API}/{PN}/ingresar", json={"email": email, "clave": clave})
+        assert r.status_code == 200, (i, r.text)
+    # ...el 31 no.
+    r = client.post(f"{API}/{PN}/ingresar", json={"email": email, "clave": clave})
+    assert r.status_code == 429
+    assert r.json()["detail"] == "Demasiados intentos desde esta red. Intente en unos minutos."
+
+
+def test_ingresar_cuenta_inexistente_corre_bcrypt(client, monkeypatch):
+    from backend.app.recursos import service
+
+    llamadas = []
+    real = service.verify_password
+    monkeypatch.setattr(service, "verify_password", lambda p, h: llamadas.append(h) or real(p, h))
+    r = _ingresar(client, _email(), "")
+    assert r.status_code == 422  # clave vacía no llega al servicio
+    r = _ingresar(client, _email(), "---")
+    assert r.status_code == 401 and r.json()["detail"] == MSG_401
+    assert llamadas == [service._HASH_SENUELO]
+
+
+def test_registro_en_cuenta_desactivada_no_envia_ni_rota(client, enviados):
+    email, cuenta_id, clave = _registrar(client, enviados)
+    h = _token(client, Role.admin)
+    client.post(f"{API}/cuentas/{cuenta_id}/activo", json={"activo": False}, headers=h)
+    db = SessionLocal()
+    try:
+        antes = db.get(RecursoCuenta, cuenta_id).hashed_clave
+    finally:
+        db.close()
+    r = client.post(
+        f"{API}/{PN}/registros",
+        json={"nombre": "Ana Torres", "empresa": "Alfa S.A.", "email": email, "acepta_politica": True},
+    )
+    assert r.status_code == 201
+    assert len(enviados) == 1
+    db = SessionLocal()
+    try:
+        cuenta = db.get(RecursoCuenta, cuenta_id)
+        assert cuenta.hashed_clave == antes and cuenta.activo is False
+    finally:
+        db.close()
 
 
 # ---- olvidé mi clave -----------------------------------------------------
@@ -295,13 +344,23 @@ def test_reset_sin_clave_genera_y_envia(client, enviados):
     assert _ingresar(client, email, nueva.lower()).status_code == 200
 
 
-def test_reset_clave_corta_422(client, enviados):
+@pytest.mark.parametrize("clave", ["corta", "a" * 73, "ñ" * 37])  # "ñ"*37 = 74 bytes
+def test_reset_clave_fuera_de_rango_422(client, enviados, clave):
     _, cuenta_id, _ = _registrar(client, enviados)
     h = _token(client, Role.admin)
     r = client.post(
-        f"{API}/cuentas/{cuenta_id}/reset-clave", json={"new_password": "corta", "enviar_correo": False}, headers=h
+        f"{API}/cuentas/{cuenta_id}/reset-clave", json={"new_password": clave, "enviar_correo": False}, headers=h
     )
     assert r.status_code == 422
+
+
+def test_reset_con_correo_sin_accesos_no_envia(client, enviados):
+    _, cuenta_id, _ = _registrar(client, enviados)
+    h = _token(client, Role.admin)
+    client.delete(f"{API}/cuentas/{cuenta_id}/accesos/{PN}", headers=h)
+    r = client.post(f"{API}/cuentas/{cuenta_id}/reset-clave", json={"enviar_correo": True}, headers=h)
+    assert r.status_code == 200 and r.json()["temp_password"]
+    assert len(enviados) == 1  # solo el del registro
 
 
 def test_desactivar_y_activar(client, enviados):

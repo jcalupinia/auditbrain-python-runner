@@ -13,7 +13,7 @@ from backend.app.client_portal.rate_limit import check_and_record, reset_for_key
 from backend.app.db.session import get_db
 from backend.app.events.router import _client_ip
 from backend.app.recursos import notify, service
-from backend.app.recursos.catalog import Recurso, get_recurso, recursos
+from backend.app.recursos.catalog import Recurso, get_recurso
 from backend.app.recursos.models import RecursoCuenta
 from backend.app.recursos.schemas import (
     AccesoOut,
@@ -58,6 +58,16 @@ def _limite(request: Request) -> str:
             detail="Demasiados intentos desde esta red. Intente en unos minutos.",
         )
     return ip
+
+
+def _limite_login(request: Request) -> None:
+    """Límite por IP propio del ingreso (más holgado: oficinas detrás de una IP)."""
+    ip = _client_ip(request)
+    if not check_and_record(f"recurso-login-ip:{ip}", max_hits=30, window_seconds=600):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demasiados intentos desde esta red. Intente en unos minutos.",
+        )
 
 
 def _puede_enviar(email: str) -> bool:
@@ -114,7 +124,7 @@ def ingresar_endpoint(
     slug: str, payload: IngresarIn, request: Request, db: Session = Depends(get_db)
 ):
     _recurso_o_404(slug)
-    _limite(request)
+    _limite_login(request)
     email = str(payload.email).strip().lower()
     clave_login = f"recurso-login:{email}"
     # Cuenta intentos desde el último ingreso válido; bloqueado, ni la clave correcta pasa.
@@ -124,7 +134,8 @@ def ingresar_endpoint(
             detail="Demasiados intentos con este usuario. Intente en unos minutos.",
         )
     cuenta = service.obtener_cuenta(db, email)
-    if cuenta is None or not cuenta.activo or not service.verificar(cuenta, payload.clave):
+    # verificar() corre bcrypt siempre (señuelo si no hay cuenta): sin atajos de tiempo.
+    if not service.verificar(cuenta, payload.clave) or not cuenta.activo:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=MSG_401)
     reset_for_key(clave_login)
     if slug not in service.accesos(db, cuenta):
@@ -144,16 +155,23 @@ def olvide_clave_endpoint(
     _limite(request)
     email = str(payload.email)
     cuenta = service.obtener_cuenta(db, email)
+    # El correo lleva el recurso de la página si la cuenta lo tiene; si no, el
+    # primero que tenga otorgado (sin accesos no hay a dónde mandarla).
     if cuenta is None:
         # Registros previos a v2: lead sin cuenta → se crea con acceso a sus recursos.
         slugs = [s for s in service.slugs_de_leads(db, email) if get_recurso(s)]
-        if slugs and _puede_enviar(email):
+        destino = service.slug_para_correo(slugs, slug)
+        if destino is not None and _puede_enviar(email):
             cuenta, clave = service.crear_cuenta(db, email, slugs)
             if clave is not None:
-                background_tasks.add_task(notify.enviar_clave, cuenta.id, clave, slug)
-    elif cuenta.activo and _puede_enviar(email):
-        clave = service.rotar_clave(db, cuenta)
-        background_tasks.add_task(notify.enviar_clave, cuenta.id, clave, slug)
+                background_tasks.add_task(notify.enviar_clave, cuenta.id, clave, destino)
+    elif cuenta.activo:
+        destino = service.slug_para_correo(service.accesos(db, cuenta), slug)
+        if destino is None:
+            log.warning("Cuenta de recurso %s sin accesos; no se envía clave.", cuenta.id)
+        elif _puede_enviar(email):
+            clave = service.rotar_clave(db, cuenta)
+            background_tasks.add_task(notify.enviar_clave, cuenta.id, clave, destino)
     return MensajeOut(ok=True, mensaje=MSG_OLVIDE)
 
 
@@ -222,10 +240,11 @@ def reset_clave_endpoint(
     cuenta = _cuenta_o_404(db, cuenta_id)
     clave = service.rotar_clave(db, cuenta, payload.new_password)
     if payload.enviar_correo:
-        accs = service.accesos(db, cuenta)
-        todos = recursos()
-        slug = next((r.slug for r in todos if r.slug in accs), todos[0].slug)
-        background_tasks.add_task(notify.enviar_clave, cuenta.id, clave, slug)
+        destino = service.slug_para_correo(service.accesos(db, cuenta))
+        if destino is None:
+            log.warning("Cuenta de recurso %s sin accesos; no se envía clave.", cuenta.id)
+        else:
+            background_tasks.add_task(notify.enviar_clave, cuenta.id, clave, destino)
     return ResetClaveOut(email=cuenta.email, temp_password=clave)
 
 

@@ -86,8 +86,16 @@ class AccesosOut(BaseModel):
 
 class ResetClaveIn(BaseModel):
     # Clave que escribe el admin (se compara exacta). Ausente: se genera una.
-    new_password: str | None = Field(default=None, min_length=8, max_length=128)
+    new_password: str | None = Field(default=None, min_length=8, max_length=72)
     enviar_correo: bool = False
+
+    @field_validator("new_password")
+    @classmethod
+    def _limite_bcrypt(cls, v: str | None) -> str | None:
+        # bcrypt solo usa los primeros 72 bytes: más largo, el resto se ignoraría.
+        if v is not None and len(v.encode("utf-8")) > 72:
+            raise ValueError("La clave no puede superar 72 bytes (las tildes y la ñ ocupan 2).")
+        return v
 
 
 class ResetClaveOut(BaseModel):

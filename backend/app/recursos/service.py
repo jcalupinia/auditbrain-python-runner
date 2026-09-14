@@ -9,12 +9,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.app.auth.password import hash_password, verify_password
+from backend.app.recursos.catalog import recursos
 from backend.app.recursos.claves import generar_clave, normalizar
 from backend.app.recursos.models import RecursoAcceso, RecursoCuenta, RecursoLead, _utcnow
 from backend.app.recursos.schemas import LeadCreate
 
 # Versión del texto de public/politica-datos/ del mini-sitio.
 POLITICA_VERSION = "v1"
+
+# Hash contra el que se verifica cuando la cuenta no existe (tiempo constante).
+_HASH_SENUELO = hash_password("senuelo-no-es-clave")
 
 
 def _norm_email(email: str) -> str:
@@ -139,9 +143,14 @@ def rotar_clave(db: Session, cuenta: RecursoCuenta, nueva: str | None = None) ->
     return clave
 
 
-def verificar(cuenta: RecursoCuenta, clave: str) -> bool:
+def verificar(cuenta: RecursoCuenta | None, clave: str) -> bool:
+    """Siempre corre un bcrypt (contra el señuelo si no hay cuenta): el tiempo de
+    respuesta no revela qué correos tienen cuenta."""
+    if cuenta is None:
+        verify_password(clave, _HASH_SENUELO)
+        return False
     escrita = normalizar(clave) if cuenta.clave_generada else clave
-    return bool(escrita) and verify_password(escrita, cuenta.hashed_clave)
+    return verify_password(escrita, cuenta.hashed_clave)
 
 
 def accesos(db: Session, cuenta: RecursoCuenta) -> list[str]:
@@ -150,6 +159,15 @@ def accesos(db: Session, cuenta: RecursoCuenta) -> list[str]:
             select(RecursoAcceso.recurso_slug).where(RecursoAcceso.cuenta_id == cuenta.id)
         ).scalars()
     )
+
+
+def slug_para_correo(slugs, preferido: str | None = None) -> str | None:
+    """Recurso del enlace/título del correo: el preferido si está otorgado; si no,
+    el primero otorgado en orden del catálogo; None si no hay ninguno."""
+    slugs = set(slugs)
+    if preferido in slugs:
+        return preferido
+    return next((r.slug for r in recursos() if r.slug in slugs), None)
 
 
 def asegurar_acceso(db: Session, cuenta: RecursoCuenta, slug: str, otorgado_por: str) -> None:

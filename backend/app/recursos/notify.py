@@ -1,6 +1,7 @@
 """Envío del correo con usuario y clave (corre en BackgroundTask; nunca propaga).
 
-La clave llega como argumento del task: nunca se persiste ni se registra en claro."""
+La clave llega como argumento del task: nunca se persiste ni se registra en claro
+(por eso los errores se registran solo con el tipo de excepción, sin traceback)."""
 
 from __future__ import annotations
 
@@ -16,27 +17,28 @@ log = logging.getLogger(__name__)
 
 
 def enviar_clave(cuenta_id: int, clave: str, slug: str) -> None:
-    db = SessionLocal()
+    db = None
     try:
+        db = SessionLocal()
         cuenta = db.get(RecursoCuenta, cuenta_id)
         rec = get_recurso(slug)
         if cuenta is None or rec is None:
             log.warning("Cuenta de recurso %s inexistente; no se envía correo.", cuenta_id)
             return
-        try:
-            res = email_mod.send_recurso_acceso(
-                to=cuenta.email,
-                titulo=rec.titulo,
-                enlace=rec.url,
-                clave=clave,
-                contacto=CONTACTO,
-            )
-            if res is not None:
-                lead = service.buscar(db, slug, cuenta.email)
-                if lead is not None and not lead.email_enviado:
-                    lead.email_enviado = True
-                    db.commit()
-        except Exception:  # noqa: BLE001
-            log.exception("Correo de clave falló para cuenta %s.", cuenta_id)
+        res = email_mod.send_recurso_acceso(
+            to=cuenta.email,
+            titulo=rec.titulo,
+            enlace=rec.url,
+            clave=clave,
+            contacto=CONTACTO,
+        )
+        if res is not None:
+            lead = service.buscar(db, slug, cuenta.email)
+            if lead is not None and not lead.email_enviado:
+                lead.email_enviado = True
+                db.commit()
+    except Exception as e:  # noqa: BLE001
+        log.error("Correo de clave falló para cuenta %s (%s).", cuenta_id, type(e).__name__)
     finally:
-        db.close()
+        if db is not None:
+            db.close()

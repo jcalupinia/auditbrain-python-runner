@@ -63,13 +63,14 @@ una clave (mín. 8 caracteres), se guarda tal cual (hash) y se compara exacta.
 
 ## Endpoints (prefijo `/api/v1/recursos`)
 
-Públicos (límite por IP compartido `recurso-reg:{ip}` 10/600 s, más los topes de correo
-3/h por correo y 30/h global ya existentes):
+Públicos (`registros` y `olvide-clave` comparten el límite por IP `recurso-reg:{ip}`
+10/600 s; `ingresar` tiene el suyo, `recurso-login-ip:{ip}` 30/600 s; más los topes de
+correo 3/h por correo y 30/h global ya existentes):
 
 | Ruta | Comportamiento |
 |---|---|
 | `POST /{slug}/registros` | Solo si `registro_abierto` (si no, 404). Guarda/conserva el lead (igual que hoy). Si la cuenta **no existe**: la crea con clave nueva, otorga el acceso a `slug` y envía el correo con usuario y clave. Si **ya existe**: se comporta como "olvidé mi clave" (clave nueva por correo; asegura el acceso a `slug`). Respuesta 201 idéntica en ambos casos. |
-| `POST /{slug}/ingresar` `{email, clave}` | 401 `"Usuario o clave incorrectos."` si la cuenta no existe, está inactiva o la clave no coincide. Si las credenciales son válidas pero no hay acceso a `slug`: 403 `"Su usuario aún no tiene acceso a esta herramienta. Solicítelo por WhatsApp 0990 609 811 o a jcalupinia@auditconsulting.ec."`. 200 `{ok, nombre}` si todo es válido; actualiza `ultimo_ingreso_at` y marca `verificado_at` del lead (probó que recibió el correo). Límite adicional por correo: 10 intentos fallidos/10 min (`recurso-login:{email}`) → 429. |
+| `POST /{slug}/ingresar` `{email, clave}` | 401 `"Usuario o clave incorrectos."` si la cuenta no existe, está inactiva o la clave no coincide. Si las credenciales son válidas pero no hay acceso a `slug`: 403 `"Su usuario aún no tiene acceso a esta herramienta. Solicítelo por WhatsApp 0990 609 811 o a jcalupinia@auditconsulting.ec."`. 200 `{ok, nombre}` si todo es válido; actualiza `ultimo_ingreso_at` y marca `verificado_at` del lead (probó que recibió el correo). Límite adicional por correo: 10 intentos/10 min (`recurso-login:{email}`; el contador se reinicia al ingresar bien; bloqueado, ni la clave correcta pasa) → 429. |
 | `POST /{slug}/olvide-clave` `{email}` | Si la cuenta existe y está activa: clave nueva por correo (la anterior deja de servir). Si existe el lead pero no la cuenta (registros previos a v2): crea la cuenta con acceso a los recursos de sus leads y envía la clave. Respuesta 200 genérica siempre. Sujeto a los topes de correo. |
 
 Se **eliminan** `GET /{slug}/acceso` (enlace mágico) y el módulo `tokens.py`, y el endpoint
@@ -85,6 +86,18 @@ Staff (`require_staff` para leer; **`require_admin`** para modificar, igual que 
 | `POST /cuentas/{id}/activo` `{activo: bool}` | Activa/desactiva. |
 
 `GET /registros` se mantiene (histórico de leads).
+
+### Límites y riesgos aceptados
+
+- Cualquiera que conozca un correo puede provocar una clave nueva (registro u "olvidé mi
+  clave"): máx. 3/h por correo y la clave nueva llega solo a la víctima, que puede
+  seguir entrando con ella. Aceptado.
+- La restricción de acceso por recurso vive en la interfaz del mini-sitio (sitio
+  estático): **no es una frontera de seguridad**; quien lea el HTML ve la calculadora.
+- Bloqueo de ingreso: 10 intentos/10 min por correo y 30/10 min por IP. La verificación
+  corre bcrypt siempre (señuelo si la cuenta no existe) para no revelar correos por tiempo.
+- Claves escritas por el admin: 8 a 72 bytes (límite de bcrypt).
+- Sin accesos otorgados no se envía clave por correo (no hay a dónde enlazar).
 
 ## Correo (plantilla `recurso_acceso.html`, línea gráfica navy/lime ya aprobada)
 

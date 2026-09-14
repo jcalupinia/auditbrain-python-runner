@@ -107,6 +107,19 @@ def test_notify_excepcion_no_propaga_ni_registra_clave(monkeypatch, caplog):
     assert "ABC-DEF-GHJ" not in caplog.text
 
 
+def test_notify_resend_sin_respuesta_no_marca_enviado(monkeypatch):
+    # Camino real de send_recurso_acceso; solo se simula que Resend no respondió.
+    cuenta_id, correo = _cuenta_y_lead()
+    monkeypatch.setattr(email_mod, "send_email", lambda **kw: None)
+    notify.enviar_clave(cuenta_id, "ABC-DEF-GHJ", SLUG)
+    assert _lead_enviado(correo) is False
+
+
+def test_notify_error_de_base_no_propaga(monkeypatch):
+    monkeypatch.setattr(notify, "SessionLocal", lambda: 1 / 0)
+    notify.enviar_clave(1, "ABC-DEF-GHJ", SLUG)  # no debe lanzar
+
+
 def test_notify_envio_fallido_no_regresa_email_enviado_a_false(monkeypatch):
     cuenta_id, correo = _cuenta_y_lead(email_enviado=True)
     monkeypatch.setattr(email_mod, "send_recurso_acceso", lambda **kw: None)
