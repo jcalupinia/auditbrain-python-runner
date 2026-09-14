@@ -20,11 +20,17 @@ router = APIRouter(prefix="/events", tags=["events"])
 
 
 def _client_ip(request: Request) -> str:
-    """IP real del cliente. Detrás de un proxy (Render) usa el primer hop
-    de X-Forwarded-For; si no, la IP directa de la conexión."""
-    xff = request.headers.get("X-Forwarded-For", "")
-    if xff:
-        return xff.split(",")[0].strip()
+    """IP real del cliente para los límites de intentos.
+
+    Render va detrás de Cloudflare, que fija True-Client-IP / CF-Connecting-IP
+    (el cliente no puede falsificarlas). X-Forwarded-For NO sirve: el proxy de
+    Render agrega al valor que manda el cliente (verificado en producción el
+    2026-09-14: rotando ese header se evitaba el 429). Sin esas cabeceras
+    (local, tests) se usa la IP directa de la conexión."""
+    for header in ("True-Client-IP", "CF-Connecting-IP"):
+        ip = request.headers.get(header, "").strip()
+        if ip:
+            return ip
     return request.client.host if request.client else "unknown"
 
 
