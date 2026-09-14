@@ -1945,13 +1945,16 @@ function _insFecha(r) {
   return (r.created_at || "").slice(0, 16).replace("T", " ");
 }
 
+// Escapa una celda CSV y neutraliza fórmulas (CSV injection): los datos vienen de formularios públicos.
+export function _csvEsc(v) {
+  let s = String(v ?? "");
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return /[",\n\r;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
 // Descarga filas como CSV (UTF-8 con BOM para que Excel lea los acentos).
 function _descargarCsv(archivo, headers, filas) {
-  const esc = (v) => {
-    const s = String(v ?? "");
-    return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const lines = [headers.join(","), ...filas.map((f) => f.map(esc).join(","))];
+  const lines = [headers.join(","), ...filas.map((f) => f.map(_csvEsc).join(","))];
   const blob = new Blob(["﻿" + lines.join("\r\n")], {
     type: "text/csv;charset=utf-8;",
   });
@@ -2116,11 +2119,13 @@ function RecursosLeads() {
   const descargar = () =>
     _descargarCsv(
       "registros_recursos.csv",
-      ["Nombre", "Empresa", "Email", "Recurso", "Fecha", "Verificado", "Email enviado"],
+      ["Nombre", "Empresa", "Email", "Recurso", "Fecha", "Verificado", "Email enviado", "Consentimiento", "Version politica"],
       filtered.map((r) => [
         r.nombre, r.empresa, r.email, r.recurso_slug, _insFecha(r),
         r.verificado_at ? "si" : "no",
         r.email_enviado ? "si" : "no",
+        (r.consentimiento_at || "").slice(0, 16).replace("T", " "),
+        r.consentimiento_version,
       ])
     );
 
@@ -2142,7 +2147,7 @@ function RecursosLeads() {
             className="btn primary"
             onClick={descargar}
             disabled={busy || filtered.length === 0}
-            title="Descargar la lista (se abre en Excel)"
+            title="Descarga lo que se ve en la lista (se abre en Excel)"
           >
             ⇩ Descargar Excel/CSV
           </button>
@@ -2175,7 +2180,7 @@ function RecursosLeads() {
             </div>
           </div>
         ) : (
-          !busy && (
+          !busy && !err && (
             <div className="notice">
               {rows.length === 0 ? "Aún no hay registros." : "Sin resultados para la búsqueda."}
             </div>
