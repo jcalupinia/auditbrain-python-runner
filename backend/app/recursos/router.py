@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
@@ -23,6 +25,7 @@ from backend.app.recursos.schemas import (
 from backend.app.recursos.tokens import leer_token
 
 router = APIRouter(prefix="/recursos", tags=["recursos"])
+log = logging.getLogger(__name__)
 
 MSG_REGISTRO = "Registro recibido. Le enviamos el enlace de acceso a su correo."
 MSG_REENVIO = "Si el correo está registrado, le reenviamos el enlace de acceso."
@@ -46,9 +49,13 @@ def _limite(request: Request) -> str:
 def _puede_enviar(email: str) -> bool:
     """Tope de correos de acceso: 3/hora por correo y 100/hora en total."""
     correo = email.strip().lower()
-    return check_and_record(
-        f"recurso-mail:{correo}", max_hits=3, window_seconds=3600
-    ) and check_and_record("recurso-mail:global", max_hits=100, window_seconds=3600)
+    if not check_and_record(f"recurso-mail:{correo}", max_hits=3, window_seconds=3600):
+        return False
+    if not check_and_record("recurso-mail:global", max_hits=100, window_seconds=3600):
+        # Visible en los logs de Render: nadie recibe su enlace hasta que baje el pico.
+        log.warning("Tope global de correos de recursos alcanzado (100/hora).")
+        return False
+    return True
 
 
 @router.post(

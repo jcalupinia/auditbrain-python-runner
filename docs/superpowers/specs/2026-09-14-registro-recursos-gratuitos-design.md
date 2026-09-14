@@ -105,7 +105,7 @@ prueba que lo asegura.
 | Método y ruta | Auth | Comportamiento |
 |---|---|---|
 | `POST /{slug}/registros` | pública | Valida, límite 10/600 s por IP (`check_and_record("recurso-reg:{ip}")`), honeypot lleno → 201 falso sin guardar. Alta idempotente: si el correo ya existe para ese recurso, conserva el registro tal cual (no se sobrescribe nombre/empresa/consentimiento) y solo reenvía el enlace. Correo en background, sujeto a tope de envíos (3/hora por correo y 100/hora en total; si se excede, no se agenda el correo pero la respuesta es la misma). 201 `{ok, mensaje}` — sin `ya_registrado`, para no permitir enumerar correos registrados a partir de la respuesta. |
-| `POST /{slug}/reenviar` | pública | Body `{email}`. Mismo límite (clave compartida). Si existe, reenvía en background. Siempre 200 con mensaje genérico. |
+| `POST /{slug}/reenviar` | pública | Body `{email}`. Mismo límite (clave compartida). Si existe, reenvía en background, sujeto al mismo tope de envíos (3/hora por correo, 100/hora en total; al alcanzar el total se registra un aviso en el log). Siempre 200 con mensaje genérico. |
 | `GET /{slug}/acceso?token=` | pública | Verifica firma, `aud`, vencimiento y que `rs` = slug y el lead exista. Marca `verificado_at` si es la primera vez. 200 `{ok: true, nombre}`; inválido/vencido → 401. |
 | `GET /registros?slug=&limit=` | `require_staff` | Lista más recientes primero (máx. 1000). |
 
