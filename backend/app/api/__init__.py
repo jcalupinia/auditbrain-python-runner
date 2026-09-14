@@ -18,6 +18,7 @@ from backend.app.chat import router as chat_router
 from backend.app.client_portal import router as client_portal_router
 from backend.app.context import router as context_router
 from backend.app.events import router as events_router
+from backend.app.recursos import router as recursos_router
 from backend.app.staff_portal import router as staff_portal_router
 from backend.app.ict.router import router as ict_router
 from backend.app.core.config import settings
@@ -43,6 +44,7 @@ api_router.include_router(staff_portal_router.router)
 api_router.include_router(staff_portal_router.global_router)
 api_router.include_router(ict_router)
 api_router.include_router(events_router.router)
+api_router.include_router(recursos_router.router)
 
 
 def _montar_forge(router: APIRouter) -> bool:
