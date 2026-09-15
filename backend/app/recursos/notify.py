@@ -10,7 +10,7 @@ import logging
 from backend.app.db.session import SessionLocal
 from backend.app.notifications import email as email_mod
 from backend.app.recursos import service
-from backend.app.recursos.catalog import CONTACTO, get_recurso
+from backend.app.recursos.catalog import CONTACTO, enlace_acceso, get_recurso
 from backend.app.recursos.models import RecursoCuenta
 
 log = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ def enviar_clave(cuenta_id: int, clave: str, slug: str) -> None:
         res = email_mod.send_recurso_acceso(
             to=cuenta.email,
             titulo=rec.titulo,
-            enlace=rec.url,
+            enlace=enlace_acceso(slug),
             clave=clave,
             contacto=CONTACTO,
         )

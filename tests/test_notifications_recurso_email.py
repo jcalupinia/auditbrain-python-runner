@@ -86,7 +86,7 @@ def test_notify_envia_clave_y_marca_enviado_sin_texto_de_usuario(monkeypatch):
     assert kw == {
         "to": correo,
         "titulo": "Calculadora de Impuesto a la Renta de Personas Naturales 2026",
-        "enlace": "https://recursos.audit-ia.ec/ir-personas-naturales-2026/",
+        "enlace": "https://recursos.audit-ia.ec/#ingresar-ir-personas-naturales-2026",
         "clave": "ABC-DEF-GHJ",
         "contacto": "jcalupinia@auditconsulting.ec",
     }
