@@ -47,8 +47,29 @@ async def preflight(req):
 
 
 # ---------- workflows ----------
-def _wf_sdxl(prompt, neg, width, height, steps, seed):
-    return {
+# Modelos añadidos (Civitai/HF) integrados en Estudio:
+UPSCALER = "4x-UltraSharp.pth"                 # alta resolución para imprimir
+FLUX_REALISM_LORA = "flux_realism_xlabs.safetensors"  # estilo fotorrealista (Flux)
+
+
+def _upscale_tail(image_ref, out_w, out_h, upscale):
+    """Cola opcional de super-resolución: 4x-UltraSharp y reescalado a 2x del
+    tamaño original (nítido, listo para imprimir). Devuelve (nodos, img_final)."""
+    if not upscale:
+        return {}, image_ref
+    nodes = {
+        "_upm": {"class_type": "UpscaleModelLoader", "inputs": {"model_name": UPSCALER}},
+        "_up": {"class_type": "ImageUpscaleWithModel",
+                "inputs": {"upscale_model": ["_upm", 0], "image": image_ref}},
+        "_sc": {"class_type": "ImageScale",
+                "inputs": {"image": ["_up", 0], "upscale_method": "lanczos",
+                           "width": out_w * 2, "height": out_h * 2, "crop": "disabled"}},
+    }
+    return nodes, ["_sc", 0]
+
+
+def _wf_sdxl(prompt, neg, width, height, steps, seed, upscale=True, realism=True):
+    wf = {
         "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "sd_xl_base_1.0.safetensors"}},
         "5": {"class_type": "EmptyLatentImage", "inputs": {"width": width, "height": height, "batch_size": 1}},
         "6": {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["4", 1]}},
@@ -57,22 +78,33 @@ def _wf_sdxl(prompt, neg, width, height, steps, seed):
               "sampler_name": "euler", "scheduler": "normal", "denoise": 1.0,
               "model": ["4", 0], "positive": ["6", 0], "negative": ["7", 0], "latent_image": ["5", 0]}},
         "8": {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},
-        "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "cc_img", "images": ["8", 0]}},
     }
+    extra, img = _upscale_tail(["8", 0], width, height, upscale)
+    wf.update(extra)
+    wf["9"] = {"class_type": "SaveImage", "inputs": {"filename_prefix": "cc_img", "images": img}}
+    return wf
 
 
-def _wf_flux(prompt, neg, width, height, steps, seed):
-    return {
+def _wf_flux(prompt, neg, width, height, steps, seed, upscale=True, realism=True):
+    wf = {
         "ckpt": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "flux1-schnell-fp8.safetensors"}},
         "pos": {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["ckpt", 1]}},
         "neg": {"class_type": "CLIPTextEncode", "inputs": {"text": neg, "clip": ["ckpt", 1]}},
         "lat": {"class_type": "EmptySD3LatentImage", "inputs": {"width": width, "height": height, "batch_size": 1}},
-        "samp": {"class_type": "KSampler", "inputs": {"seed": seed, "steps": steps, "cfg": 1.0,
-                 "sampler_name": "euler", "scheduler": "simple", "denoise": 1.0,
-                 "model": ["ckpt", 0], "positive": ["pos", 0], "negative": ["neg", 0], "latent_image": ["lat", 0]}},
-        "dec": {"class_type": "VAEDecode", "inputs": {"samples": ["samp", 0], "vae": ["ckpt", 2]}},
-        "save": {"class_type": "SaveImage", "inputs": {"filename_prefix": "cc_img", "images": ["dec", 0]}},
     }
+    model_ref = ["ckpt", 0]
+    if realism:  # LoRA de realismo (estilo fotorrealista) sobre el modelo Flux
+        wf["lora"] = {"class_type": "LoraLoaderModelOnly",
+                      "inputs": {"model": ["ckpt", 0], "lora_name": FLUX_REALISM_LORA, "strength_model": 0.8}}
+        model_ref = ["lora", 0]
+    wf["samp"] = {"class_type": "KSampler", "inputs": {"seed": seed, "steps": steps, "cfg": 1.0,
+                  "sampler_name": "euler", "scheduler": "simple", "denoise": 1.0,
+                  "model": model_ref, "positive": ["pos", 0], "negative": ["neg", 0], "latent_image": ["lat", 0]}}
+    wf["dec"] = {"class_type": "VAEDecode", "inputs": {"samples": ["samp", 0], "vae": ["ckpt", 2]}}
+    extra, img = _upscale_tail(["dec", 0], width, height, upscale)
+    wf.update(extra)
+    wf["save"] = {"class_type": "SaveImage", "inputs": {"filename_prefix": "cc_img", "images": img}}
+    return wf
 
 
 def _wf_ltxv(prompt, neg, width, height, length, fps, steps, seed):
@@ -169,10 +201,14 @@ async def generate(req):
     neg = body.get("negative") or "low quality, blurry, watermark, text artifacts"
     width = int(body.get("width", 1024)); height = int(body.get("height", 1024))
     seed = int(body.get("seed", int(time.time()) % 2_000_000))
+    upscale = bool(body.get("upscale", True))   # alta resolución por defecto
+    realism = bool(body.get("realism", True))   # LoRA de realismo por defecto (Flux)
     if model == "sdxl":
-        steps = int(body.get("steps", 25)); wf = _wf_sdxl(prompt, neg, width, height, steps, seed)
+        steps = int(body.get("steps", 25))
+        wf = _wf_sdxl(prompt, neg, width, height, steps, seed, upscale=upscale, realism=realism)
     else:
-        model = "flux"; steps = int(body.get("steps", 4)); wf = _wf_flux(prompt, neg, width, height, steps, seed)
+        model = "flux"; steps = int(body.get("steps", 4))
+        wf = _wf_flux(prompt, neg, width, height, steps, seed, upscale=upscale, realism=realism)
 
     async with _lock:
         _state["busy"] = True
@@ -284,6 +320,105 @@ async def generate_video(req):
             _state["busy"] = False
 
 
+# --- Herramientas de marketing (CPU, NO usan la GPU → no pausan el chat) -----
+MEDIATOOLS = "/opt/auditia/mediatools"
+_TMP = os.path.join(MEDIATOOLS, "tmp")
+
+
+def _tmp(name):
+    os.makedirs(_TMP, exist_ok=True)
+    return os.path.join(_TMP, f"{name}_{int(time.time() * 1000)}")
+
+
+async def removebg(req):
+    """Recorta el fondo de una imagen (rembg). {image_base64} → PNG transparente."""
+    if not _auth(req):
+        return web.json_response({"error": "no autorizado"}, status=401)
+    try:
+        body = await req.json()
+    except Exception:
+        return web.json_response({"error": "JSON inválido"}, status=400)
+    b64 = body.get("image_base64")
+    if not b64:
+        return web.json_response({"error": "falta image_base64"}, status=400)
+    inp = _tmp("rmbg_in") + ".png"
+    outp = _tmp("rmbg_out") + ".png"
+    with open(inp, "wb") as f:
+        f.write(base64.b64decode(b64))
+    rc, out = await _run([f"{MEDIATOOLS}/venv/bin/rembg", "i", inp, outp])
+    try:
+        if rc != 0 or not os.path.exists(outp):
+            return web.json_response({"error": f"rembg falló: {out[-200:]}"}, status=500)
+        with open(outp, "rb") as f:
+            res = base64.b64encode(f.read()).decode()
+        return web.json_response({"image_base64": res, "mime": "image/png"})
+    finally:
+        for p in (inp, outp):
+            try: os.remove(p)
+            except OSError: pass
+
+
+async def tts(req):
+    """Texto → voz en off (Piper, es-MX). {text} → MP3 base64."""
+    if not _auth(req):
+        return web.json_response({"error": "no autorizado"}, status=401)
+    try:
+        body = await req.json()
+    except Exception:
+        return web.json_response({"error": "JSON inválido"}, status=400)
+    text = (body.get("text") or "").strip()
+    if not text:
+        return web.json_response({"error": "falta text"}, status=400)
+    wav = _tmp("tts") + ".wav"
+    mp3 = wav[:-4] + ".mp3"
+    voice = f"{MEDIATOOLS}/voices/es_MX-ald-medium.onnx"
+    p = await asyncio.create_subprocess_exec(
+        f"{MEDIATOOLS}/venv/bin/piper", "-m", voice, "-f", wav,
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT)
+    await p.communicate(text.encode())
+    try:
+        if not os.path.exists(wav):
+            return web.json_response({"error": "piper falló"}, status=500)
+        rc, _o = await _run(["ffmpeg", "-y", "-i", wav, "-b:a", "128k", mp3])
+        final = mp3 if (rc == 0 and os.path.exists(mp3)) else wav
+        mime = "audio/mpeg" if final == mp3 else "audio/wav"
+        with open(final, "rb") as f:
+            res = base64.b64encode(f.read()).decode()
+        return web.json_response({"audio_base64": res, "mime": mime})
+    finally:
+        for p2 in (wav, mp3):
+            try: os.remove(p2)
+            except OSError: pass
+
+
+async def subtitle(req):
+    """Audio/video → subtítulos .srt (faster-whisper, es). {audio_base64} → {srt}."""
+    if not _auth(req):
+        return web.json_response({"error": "no autorizado"}, status=401)
+    try:
+        body = await req.json()
+    except Exception:
+        return web.json_response({"error": "JSON inválido"}, status=400)
+    b64 = body.get("audio_base64")
+    if not b64:
+        return web.json_response({"error": "falta audio_base64"}, status=400)
+    au = _tmp("sub_in")
+    srt = au + ".srt"
+    with open(au, "wb") as f:
+        f.write(base64.b64decode(b64))
+    rc, out = await _run([f"{MEDIATOOLS}/venv/bin/python", f"{MEDIATOOLS}/subtitle.py", au, srt])
+    try:
+        if rc != 0 or not os.path.exists(srt):
+            return web.json_response({"error": f"subtítulos fallaron: {out[-200:]}"}, status=500)
+        with open(srt, encoding="utf-8") as f:
+            return web.json_response({"srt": f.read()})
+    finally:
+        for p in (au, srt):
+            try: os.remove(p)
+            except OSError: pass
+
+
 async def on_start(app):
     app["janitor"] = asyncio.create_task(_janitor())
 
@@ -299,10 +434,13 @@ async def cors_mw(req, handler):
 def main():
     if not KEY:
         raise SystemExit("Falta COMFY_BRIDGE_KEY en el entorno")
-    app = web.Application(client_max_size=2 * 1024 * 1024, middlewares=[cors_mw])
+    app = web.Application(client_max_size=64 * 1024 * 1024, middlewares=[cors_mw])
     app.router.add_get("/status", status)
     app.router.add_post("/generate", generate)
     app.router.add_post("/generate_video", generate_video)
+    app.router.add_post("/removebg", removebg)
+    app.router.add_post("/tts", tts)
+    app.router.add_post("/subtitle", subtitle)
     app.router.add_route("OPTIONS", "/{tail:.*}", preflight)
     app.on_startup.append(on_start)
     web.run_app(app, host="127.0.0.1", port=PORT)
