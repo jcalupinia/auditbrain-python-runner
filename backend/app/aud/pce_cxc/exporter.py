@@ -285,7 +285,16 @@ def construir_excel(resultado: dict[str, Any], parametros: dict[str, Any]) -> by
     de ``service.analizar`` y los parámetros con los que se corrió.
 
     ``resultado`` y ``parametros`` nunca se mutan.
+
+    Las dos entradas se normalizan a diccionario ANTES de tocarlas: el
+    exportador lee corridas ya guardadas, cuyos parámetros no vuelven a pasar
+    por la validación de entrada del servicio, así que una corrida con
+    ``parametros`` en forma de número, cadena o lista tiene que dar un papel
+    que dice lo que sabe, nunca un HTTP 500 al descargar.
     """
+    resultado = _como_diccionario(resultado)
+    parametros = _como_diccionario(parametros)
+
     wb = Workbook()
     wb.remove(wb.active)
 

@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { pceCxcAnalizar, pceCxcDescargarExcel } from "../api.js";
+import { useEffect, useState } from "react";
+import { pceCxcAnalizar, pceCxcDescargarExcel, pceCxcLimites } from "../api.js";
 import {
   SEGMENTOS,
+  archivosQueSuperanElLimite,
   bandasDeLaPolitica,
   carteraMedidaDe,
   coberturaDe,
@@ -57,12 +58,33 @@ export default function PceCxcTool({ projectId }) {
     tasas_sustitutas: [],
     evaluaciones_individuales: [],
   });
+  // Límites de carga del backend: se consultan al abrir la pantalla para
+  // poder ANUNCIAR el máximo por archivo antes de que el auditor intente subir
+  // uno grande, en vez de que se entere con un 413 después de la subida. La
+  // cifra la fija `MAX_BYTES_POR_ARCHIVO` en el router; aquí no se reescribe.
+  const [limites, setLimites] = useState(null);
   const [procesando, setProcesando] = useState(false);
   const [error, setError] = useState("");
   const [res, setRes] = useState(null);
   const [descargando, setDescargando] = useState(false);
 
+  useEffect(() => {
+    let vivo = true;
+    // Si la consulta falla, la pantalla sigue funcionando sin anunciar el
+    // límite: el backend lo aplica igual. Lo que no se puede es inventarlo.
+    pceCxcLimites()
+      .then((l) => vivo && setLimites(l))
+      .catch(() => {});
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
   const listoLosCortes = CORTES.every((c) => archivos[c.k] && fechas[c.k]);
+  const archivosGrandes = archivosQueSuperanElLimite(
+    CORTES.map((c) => archivos[c.k]),
+    limites
+  );
 
   // Filas repetibles (tasas sustitutas y evaluaciones individuales): se
   // añaden, se editan y se quitan sobre el mismo estado.
@@ -86,7 +108,7 @@ export default function PceCxcTool({ projectId }) {
   } catch (e) {
     factorFueraDeRango = e.message;
   }
-  const listo = listoLosCortes && !factorFueraDeRango;
+  const listo = listoLosCortes && !factorFueraDeRango && archivosGrandes.length === 0;
   const sustitutasIncompletas = filasIncompletas(datos.tasas_sustitutas, tasaSustitutaCompleta);
   const evaluacionesIncompletas = filasIncompletas(
     datos.evaluaciones_individuales,
@@ -152,6 +174,12 @@ export default function PceCxcTool({ projectId }) {
         sistema no asume ninguna. Lo que falte para medir se reporta como pendiente, nunca como
         cero.
       </p>
+
+      {limites?.mensaje_limite && (
+        <div className="pce-hint">
+          <b>Tamaño de los archivos:</b> {limites.mensaje_limite}
+        </div>
+      )}
 
       <div className="pce-grid">
         {CORTES.map((c) => (
@@ -488,6 +516,13 @@ export default function PceCxcTool({ projectId }) {
       </button>
       {!listoLosCortes && !procesando && (
         <div className="pce-hint">Suba los tres cortes con su fecha para habilitar el cálculo.</div>
+      )}
+      {archivosGrandes.length > 0 && !procesando && (
+        <div className="pce-msg pce-bad">
+          {archivosGrandes.length === 1 ? "Este archivo supera" : "Estos archivos superan"} el
+          límite de {limites.max_mb_por_archivo} MB por archivo:{" "}
+          {archivosGrandes.map((a) => `${a.nombre} (${a.mb} MB)`).join(", ")}. {limites.mensaje_limite}
+        </div>
       )}
       {listoLosCortes && factorFueraDeRango && !procesando && (
         <div className="pce-msg pce-bad">{factorFueraDeRango}</div>

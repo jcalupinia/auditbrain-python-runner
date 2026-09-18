@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CATEGORIES } from "./catalog.js";
 import {
+  archivosQueSuperanElLimite,
   carteraMedida,
   bandasDeLaPolitica,
   carteraMedidaDe,
@@ -516,5 +517,34 @@ describe("factorProspectivoDeclarado", () => {
       "NO-RELACIONADOS": 1,
       RELACIONADOS: 1,
     });
+  });
+});
+
+describe("archivosQueSuperanElLimite", () => {
+  const limites = { max_bytes_por_archivo: 7 * 1024 * 1024, max_mb_por_archivo: 7 };
+
+  it("sin límites consultados todavía, no acusa a ningún archivo", () => {
+    expect(archivosQueSuperanElLimite([{ name: "a.xlsx", size: 99e6 }], null)).toEqual([]);
+  });
+
+  it("nombra los archivos que superan el límite, con su tamaño", () => {
+    const archivos = [
+      { name: "cartera_2023.xlsx", size: 1e6 },
+      { name: "cartera_2025.xlsx", size: 16 * 1024 * 1024 },
+    ];
+    const fuera = archivosQueSuperanElLimite(archivos, limites);
+    expect(fuera).toHaveLength(1);
+    expect(fuera[0].nombre).toBe("cartera_2025.xlsx");
+    expect(fuera[0].mb).toBe("16,0");
+  });
+
+  it("un archivo exactamente en el límite pasa", () => {
+    expect(
+      archivosQueSuperanElLimite([{ name: "x.xlsx", size: 7 * 1024 * 1024 }], limites)
+    ).toEqual([]);
+  });
+
+  it("tolera huecos: un corte sin archivo todavía no es un archivo grande", () => {
+    expect(archivosQueSuperanElLimite([null, undefined], limites)).toEqual([]);
   });
 });

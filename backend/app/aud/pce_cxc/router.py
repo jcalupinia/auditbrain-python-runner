@@ -34,8 +34,12 @@ router = APIRouter(prefix="/aud/pce-cxc", tags=["aud-pce-cxc"])
 #:
 #: El plan starter de Render tiene 512 MB para todo el proceso, así que el
 #: techo de trabajo es 250 MB de pico: los 25 MB por archivo que había al
-#: principio dejaban pasar tres archivos de 133.000 filas, que medidos daban
-#: 334 MB. El límite bajó primero a 10 MB, y **vuelve a bajar a 7 MB** porque
+#: principio dejaban pasar tres archivos de 133.000 filas (unos 16 MB cada
+#: uno), que con la recta de ABAJO -la medición VIGENTE, ya con el control del
+#: corte intermedio y la detección de documentos repetidos- proyectan unos
+#: 355 MB. (Los 334 MB que decía este comentario eran la medición ANTERIOR a
+#: esa regresión, y quedaron aquí sin actualizar.) El límite bajó primero a
+#: 10 MB, y **vuelve a bajar a 7 MB** porque
 #: el control del corte intermedio y la detección de documentos con número
 #: repetido cuestan unos 25 MB más por petición: el escalón de 10,8 MB, que
 #: antes quedaba en 236 MB, ahora llega a 261 MB y se pasa del techo.
@@ -52,15 +56,46 @@ router = APIRouter(prefix="/aud/pce-cxc", tags=["aud-pce-cxc"])
 MAX_BYTES_POR_ARCHIVO = 7 * 1024 * 1024
 
 
-def _mensaje_413(nombre_archivo: str | None) -> str:
-    limite_mb = MAX_BYTES_POR_ARCHIVO // (1024 * 1024)
+#: Los tres análisis de antigüedad (t-2, t-1 y el corte actual).
+ARCHIVOS_REQUERIDOS = 3
+
+
+def _limite_mb() -> int:
+    return MAX_BYTES_POR_ARCHIVO // (1024 * 1024)
+
+
+def _mensaje_limite() -> str:
+    """Qué límite hay y qué hacer si el archivo lo supera.
+
+    La pantalla lo pide a `/limites` y lo pinta ANTES de que el auditor
+    intente subir nada: el límite lo fija `MAX_BYTES_POR_ARCHIVO` y duplicar la
+    cifra a mano en el frontend garantiza que un día digan cosas distintas.
+    """
     return (
-        f"{nombre_archivo}: supera el límite de {limite_mb} MB por archivo. "
-        "Depure el análisis de antigüedad (por ejemplo, quite columnas u hojas que no "
-        "aporten al cálculo) y vuelva a subirlo. Si aun depurado lo supera, el archivo "
-        "excede lo que el servicio puede procesar en línea; divida el análisis por "
-        "segmento o solicite el procesamiento por lotes."
+        f"Máximo {_limite_mb()} MB por archivo ({ARCHIVOS_REQUERIDOS} archivos por corrida). "
+        "Si el análisis de antigüedad lo supera, depúrelo (quite columnas u hojas que no "
+        "aporten al cálculo) y vuelva a subirlo. Si aun depurado lo supera, el archivo excede "
+        "lo que el servicio puede procesar en línea; divida el análisis por segmento o "
+        "solicite el procesamiento por lotes."
     )
+
+
+def _mensaje_413(nombre_archivo: str | None) -> str:
+    return f"{nombre_archivo}: supera el límite por archivo. {_mensaje_limite()}"
+
+
+@router.get("/limites")
+def limites(user: User = Depends(require_staff)) -> dict:
+    """Límites de carga que la pantalla tiene que anunciar antes de la subida.
+
+    Se exponen desde aquí -no se reescriben en el frontend- para que la cifra
+    que ve el auditor y la que aplica el servidor sean, por construcción, la
+    misma.
+    """
+    return {"max_bytes_por_archivo": MAX_BYTES_POR_ARCHIVO,
+            "max_mb_por_archivo": _limite_mb(),
+            "archivos_requeridos": ARCHIVOS_REQUERIDOS,
+            "mensaje_limite": _mensaje_limite()}
 
 
 @router.post("/analizar")
@@ -75,7 +110,7 @@ async def analizar(archivos: list[UploadFile] = File(...),
     Sin los tres cortes con sus tres fechas no hay una cohorte con ventana
     completa de 24 meses, así que no se calcula nada.
     """
-    if len(archivos) != 3:
+    if len(archivos) != ARCHIVOS_REQUERIDOS:
         raise HTTPException(
             400,
             "Se requieren los tres análisis de antigüedad de cartera (t-2, t-1 y el corte "
@@ -85,6 +120,18 @@ async def analizar(archivos: list[UploadFile] = File(...),
         params = json.loads(parametros or "{}")
     except json.JSONDecodeError as e:
         raise HTTPException(400, f"El campo 'parametros' no es JSON válido: {e}") from e
+
+    # JSON válido no es lo mismo que la forma esperada: `"5"`, `5` o `[1,2]`
+    # parsean sin error y el `params.get` siguiente levantaba `AttributeError`,
+    # o sea un 500 por un dato de entrada. Es el hermano de la guarda que ya
+    # tiene el exportador, en la ENTRADA.
+    if not isinstance(params, dict):
+        raise HTTPException(
+            400,
+            f"El campo 'parametros' debe ser un objeto JSON con los parámetros de la corrida "
+            f"(por ejemplo, {{\"fechas\": [\"2023-12-31\", \"2024-12-31\", \"2025-12-31\"]}}); "
+            f"llegó un {type(params).__name__}.",
+        )
 
     fechas = params.get("fechas") or []
     if len(fechas) != 3:

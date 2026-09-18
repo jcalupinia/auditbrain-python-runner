@@ -176,6 +176,19 @@ export async function motorBalancesEstados(esf, eri) {
 }
 
 // ---- AUD.CXC.PCE · matriz de pérdidas crediticias esperadas (staff) ----
+
+/**
+ * Límites de carga del endpoint, tal como los fija el backend.
+ *
+ * El límite por archivo lo define `MAX_BYTES_POR_ARCHIVO` en el router y se
+ * consulta, no se reescribe aquí: una cifra duplicada a mano termina diciendo
+ * algo distinto de la que el servidor aplica, y el auditor se entera subiendo
+ * tres archivos para recibir un 413.
+ */
+export async function pceCxcLimites() {
+  return parse(await apiFetch(`${API_BASE}/api/v1/aud/pce-cxc/limites`, { headers: authHeaders() }));
+}
+
 export async function pceCxcAnalizar(archivos, parametros) {
   const fd = new FormData();
   (archivos || []).forEach((f) => fd.append("archivos", f));

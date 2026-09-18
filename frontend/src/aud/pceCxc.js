@@ -257,6 +257,36 @@ export function carteraMedidaDe(resultado) {
   );
 }
 
+/**
+ * Archivos ya elegidos que superan el límite por archivo del backend.
+ *
+ * El límite lo fija `MAX_BYTES_POR_ARCHIVO` en el router y llega por
+ * `/limites`: aquí no se escribe ninguna cifra. Sirve para decirlo ANTES de
+ * subir -el análisis de antigüedad real con el que se calibró la memoria son
+ * unos 16 MB y se rechaza con un 413- en vez de después de esperar la subida
+ * de tres archivos.
+ *
+ * Mientras los límites no se hayan podido consultar se devuelve la lista
+ * vacía: no se acusa a un archivo con una cifra que la pantalla no conoce; el
+ * backend sigue siendo quien decide.
+ * @param {Array} archivos - Archivos elegidos (puede haber huecos)
+ * @param {object|null} limites - Respuesta de `pceCxcLimites`
+ * @returns {Array<{nombre: string, mb: string}>} Los que no entran
+ */
+export function archivosQueSuperanElLimite(archivos, limites) {
+  const maximo = Number(limites?.max_bytes_por_archivo || 0);
+  if (!maximo) return [];
+  return (archivos || [])
+    .filter((f) => f && Number(f.size) > maximo)
+    .map((f) => ({
+      nombre: f.name,
+      mb: (Number(f.size) / (1024 * 1024)).toLocaleString("es-EC", {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+      }),
+    }));
+}
+
 /** Importe en el formato del papel (es-EC, dos decimales). */
 function importe(valor) {
   return Number(valor || 0).toLocaleString("es-EC", {

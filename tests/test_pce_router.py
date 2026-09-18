@@ -442,3 +442,48 @@ def test_un_factor_prospectivo_mal_formado_responde_400_y_no_500(client):
                     headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 400, f"se esperaba 400, se obtuvo {r.status_code}: {r.text}"
     assert "factor_prospectivo" in r.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# U9 — `parametros` con JSON válido pero que no es un objeto
+# ---------------------------------------------------------------------------
+
+import pytest  # noqa: E402  (las pruebas de arriba no lo necesitaban)
+
+
+@pytest.mark.parametrize("crudo", ['"5"', "5", "[1,2]", "null", "true", '"texto"'])
+def test_parametros_que_no_son_un_objeto_responden_400_y_no_500(client, crudo):
+    """`params.get("fechas")` levantaba `AttributeError` con cualquier JSON
+    válido que no fuera un objeto: es el hermano de T8 en la ENTRADA, donde T8
+    solo endureció el exportador. Un error de entrada es un 400 accionable."""
+    token = _token(client)
+    r = client.post(f"{BASE}/analizar", files=_archivos(),
+                    data={"parametros": crudo},
+                    headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 400, f"se esperaba 400, se obtuvo {r.status_code}: {r.text}"
+    assert "parametros" in r.json()["detail"].lower()
+
+
+def test_el_excel_de_una_corrida_con_parametros_no_objeto_no_da_500(client):
+    """La misma forma, pero leída de una corrida YA GUARDADA: `construir_excel`
+    no vuelve a pasar por la validación de entrada, así que tiene que dar un
+    papel que dice lo que sabe."""
+    from backend.app.aud.pce_cxc.exporter import construir_excel
+
+    for parametros in ("5", 5, [1, 2], None, True):
+        wb = load_workbook(io.BytesIO(construir_excel({}, parametros)))
+        assert len(wb.sheetnames) == 13
+
+
+def test_la_pantalla_puede_consultar_el_limite_de_tamano_por_archivo(client):
+    """U12: la pantalla tiene que poder decir el límite ANTES de que el auditor
+    intente subir un archivo grande, y sin duplicar la cifra a mano."""
+    from backend.app.aud.pce_cxc.router import MAX_BYTES_POR_ARCHIVO
+
+    token = _token(client)
+    r = client.get(f"{BASE}/limites", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+    cuerpo = r.json()
+    assert cuerpo["max_bytes_por_archivo"] == MAX_BYTES_POR_ARCHIVO
+    assert cuerpo["archivos_requeridos"] == 3
+    assert "MB" in cuerpo["mensaje_limite"]
