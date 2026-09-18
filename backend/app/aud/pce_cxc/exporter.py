@@ -484,7 +484,88 @@ def _fuentes(wb: Workbook, resultado: dict[str, Any]) -> None:
     for col in (1, 2, 3, 4, 5, 6, 7, 8):
         _celda(ws, fila_total, col, None, total=True)
 
+    _control_corte_intermedio(ws, resultado, fila_total + 2)
+
     _anchos(ws, {"A": 22, "B": 16, "C": 12, "D": 40, "E": 16, "F": 12, "G": 14, "H": 16, "I": 12, "J": 16})
+
+
+TIPOS_INCONSISTENCIA = {
+    "reaparece_tras_desaparecer": "Desaparece en el corte intermedio y reaparece en el actual",
+    "remanente_mayor_que_intermedio": "El saldo del corte actual supera al del corte intermedio",
+}
+
+
+def _control_corte_intermedio(ws, resultado: dict[str, Any], fila: int) -> int:
+    """Bloque de ``02-Fuentes`` con el control de la cohorte contra el corte t-1.
+
+    El corte intermedio se le pide al cliente: el papel tiene que decir para
+    qué sirvió. Si no se registró (corridas anteriores a este control) se dice
+    eso, no se deja el hueco -un bloque ausente se lee como "no aplica"-.
+    """
+    control = resultado.get("control_corte_intermedio")
+    _bloque(ws, fila, "Control del corte intermedio (coherencia de la cohorte entre los tres cortes)", 10)
+    fila += 1
+    if not control:
+        _celda(ws, fila, 1, "El control del corte intermedio no se registró en esta corrida.",
+               alineacion=ALIN_IZQ)
+        ws.merge_cells(start_row=fila, start_column=1, end_row=fila, end_column=10)
+        return fila + 1
+
+    resumen = [
+        ("Documentos de la cohorte (t-2)", control.get("documentos_cohorte"), FORMATO_ENTERO),
+        ("Saldo inicial de la cohorte", _numero(control.get("saldo_cohorte")), FORMATO_MONEDA),
+        ("Documentos todavía vivos en el corte intermedio (t-1)",
+         control.get("vivos_en_intermedio"), FORMATO_ENTERO),
+        ("Saldo de la cohorte en el corte intermedio (t-1)",
+         _numero(control.get("saldo_en_intermedio")), FORMATO_MONEDA),
+        ("Saldo de la cohorte en el corte actual (t) — remanente medido",
+         _numero(control.get("saldo_en_actual")), FORMATO_MONEDA),
+    ]
+    for etiqueta, valor, formato in resumen:
+        _celda(ws, fila, 1, etiqueta, alineacion=ALIN_IZQ)
+        ws.merge_cells(start_row=fila, start_column=1, end_row=fila, end_column=4)
+        _celda(ws, fila, 5, valor, formato=formato, alineacion=ALIN_DER)
+        fila += 1
+
+    if control.get("consistente"):
+        _celda(ws, fila, 1, "Sin inconsistencias: ningún documento de la cohorte desaparece y "
+                            "reaparece, ni crece de saldo entre el corte intermedio y el actual.",
+               alineacion=ALIN_IZQ)
+        ws.merge_cells(start_row=fila, start_column=1, end_row=fila, end_column=10)
+        return fila + 1
+
+    c = _celda(ws, fila, 1,
+               f"{control.get('inconsistencias_total')} documento(s) con trayectoria imposible "
+               f"entre los tres cortes; USD {_numero(control.get('inconsistencias_importe')) or 0:,.2f} "
+               "del remanente que alimenta las tasas provienen de ellos.", alineacion=ALIN_IZQ)
+    c.font = FUENTE_DATOS_ALERTA
+    ws.merge_cells(start_row=fila, start_column=1, end_row=fila, end_column=10)
+    fila += 1
+
+    # `_encabezados` congela paneles; este es un bloque interior, así que se
+    # conserva el congelado de la cabecera de la hoja.
+    congelado = ws.freeze_panes
+    _encabezados(ws, fila, ["Documento", "Inconsistencia", "Saldo en t-2", "Saldo en t-1",
+                            "Saldo en t"])
+    ws.freeze_panes = congelado
+    fila += 1
+    for caso in control.get("inconsistencias") or []:
+        _celda(ws, fila, 1, caso.get("documento", ""), alineacion=ALIN_IZQ)
+        _celda(ws, fila, 2, TIPOS_INCONSISTENCIA.get(caso.get("tipo"), caso.get("tipo", "")),
+               alineacion=ALIN_IZQ)
+        _celda(ws, fila, 3, _numero(caso.get("saldo_cohorte")), formato=FORMATO_MONEDA,
+               alineacion=ALIN_DER)
+        _celda(ws, fila, 4, _numero(caso.get("saldo_intermedio")), formato=FORMATO_MONEDA,
+               alineacion=ALIN_DER)
+        _celda(ws, fila, 5, _numero(caso.get("saldo_actual")), formato=FORMATO_MONEDA,
+               alineacion=ALIN_DER)
+        fila += 1
+    if control.get("inconsistencias_total", 0) > len(control.get("inconsistencias") or []):
+        _celda(ws, fila, 1, f"(se listan los primeros {len(control['inconsistencias'])} de "
+                            f"{control['inconsistencias_total']})", alineacion=ALIN_IZQ)
+        ws.merge_cells(start_row=fila, start_column=1, end_row=fila, end_column=10)
+        fila += 1
+    return fila
 
 
 # ---------------------------------------------------------------------------

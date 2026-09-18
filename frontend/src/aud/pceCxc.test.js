@@ -5,6 +5,7 @@ import {
   bandasDeLaPolitica,
   carteraMedidaDe,
   coberturaDe,
+  controlDeLaCohorte,
   fechaEmision,
   parametrosDeLaCorrida,
   tramosVisibles,
@@ -270,5 +271,50 @@ describe("la política del cliente viaja con la corrida (C2)", () => {
   it("sin política declarada manda un objeto vacío, no ceros", () => {
     const p = parametrosDeLaCorrida(base, fechas, null);
     expect(p.politica).toEqual({});
+  });
+});
+
+describe("controlDeLaCohorte (I5)", () => {
+  it("resume el control cuando la cohorte es coherente", () => {
+    const c = controlDeLaCohorte({
+      control_corte_intermedio: {
+        documentos_cohorte: 120,
+        vivos_en_intermedio: 80,
+        permanencia_intermedia: 0.6666666666666666,
+        inconsistencias: [],
+        inconsistencias_total: 0,
+        inconsistencias_importe: 0,
+        consistente: true,
+      },
+    });
+    expect(c.consistente).toBe(true);
+    expect(c.total).toBe(0);
+    expect(c.permanencia).toBeCloseTo(0.6667, 4);
+  });
+
+  it("lista los documentos con trayectoria imposible", () => {
+    const c = controlDeLaCohorte({
+      control_corte_intermedio: {
+        documentos_cohorte: 3,
+        vivos_en_intermedio: 1,
+        permanencia_intermedia: 0.3333333333333333,
+        inconsistencias: [
+          { documento: "F-77", tipo: "reaparece_tras_desaparecer" },
+          { documento: "F-88", tipo: "remanente_mayor_que_intermedio" },
+        ],
+        inconsistencias_total: 2,
+        inconsistencias_importe: 6500,
+        consistente: false,
+      },
+    });
+    expect(c.consistente).toBe(false);
+    expect(c.total).toBe(2);
+    expect(c.importe).toBe(6500);
+    expect(c.ejemplos).toBe("F-77, F-88");
+  });
+
+  it("una corrida sin el control no inventa uno", () => {
+    expect(controlDeLaCohorte({})).toBeNull();
+    expect(controlDeLaCohorte(null)).toBeNull();
   });
 });

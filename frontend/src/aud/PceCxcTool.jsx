@@ -4,6 +4,7 @@ import {
   bandasDeLaPolitica,
   carteraMedidaDe,
   coberturaDe,
+  controlDeLaCohorte,
   parametrosDeLaCorrida,
   tramosVisibles,
 } from "./pceCxc.js";
@@ -88,6 +89,7 @@ export default function PceCxcTool({ projectId }) {
   // (`motor.resumen_deterioro`): la pantalla las muestra, no las vuelve a deducir.
   const carteraMedida = carteraMedidaDe(res);
   const cobertura = coberturaDe(res);
+  const controlCohorte = controlDeLaCohorte(res);
   const filasMatriz = tramosVisibles(matriz?.tramos);
   const filasOmitidas = (matriz?.tramos?.length ?? 0) - filasMatriz.length;
 
@@ -271,6 +273,22 @@ export default function PceCxcTool({ projectId }) {
             <div className="pce-msg pce-warn">
               {money(sinEstratificar)} de los estados financieros no se pudo ubicar en ningún
               segmento del análisis de antigüedad cargado: revise si falta cartera por cargar.
+            </div>
+          )}
+          {controlCohorte && !controlCohorte.consistente && (
+            <div className="pce-msg pce-bad">
+              <b>Control del corte intermedio:</b> {controlCohorte.total} documento(s) de la cohorte
+              siguen una trayectoria imposible entre los tres cortes ({controlCohorte.ejemplos}):
+              desaparecen en el corte intermedio y reaparecen en el actual, o su saldo crece sin
+              facturación nueva. {money(controlCohorte.importe)} del remanente que alimenta las
+              tasas provienen de esos documentos.
+            </div>
+          )}
+          {controlCohorte && controlCohorte.consistente && (
+            <div className="pce-msg pce-info">
+              <b>Control del corte intermedio:</b> los {controlCohorte.documentos} documentos de la
+              cohorte son coherentes entre los tres cortes; {controlCohorte.vivos} seguían vivos en
+              t-1 ({pct(controlCohorte.permanencia)}).
             </div>
           )}
           {conciliacion && conciliacion.cuadra != null && !conciliacion.cuadra && (

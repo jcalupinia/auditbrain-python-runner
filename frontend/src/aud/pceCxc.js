@@ -169,3 +169,34 @@ export function politicaDeclarada(politica) {
   }
   return salida;
 }
+
+/** Cuántos documentos inconsistentes se nombran en la pantalla. */
+const MAX_EJEMPLOS_COHORTE = 5;
+
+/**
+ * Control de la cohorte contra el corte intermedio, listo para mostrar.
+ *
+ * El corte t-1 no entra en las tasas (la permanencia se mide entre t-2 y t),
+ * pero sí dice si el camino entre los dos extremos es coherente: un documento
+ * que desapareció y volvió, o un saldo que creció sin facturación nueva,
+ * invalidan el remanente que alimenta todas las tasas.
+ * @param {object|null} resultado - Resultado de `analizar`
+ * @returns {object|null} Resumen del control, o null si la corrida no lo trae
+ */
+export function controlDeLaCohorte(resultado) {
+  const control = resultado?.control_corte_intermedio;
+  if (!control) return null;
+  const inconsistencias = control.inconsistencias || [];
+  return {
+    consistente: control.consistente === true,
+    total: control.inconsistencias_total ?? 0,
+    importe: control.inconsistencias_importe ?? 0,
+    documentos: control.documentos_cohorte ?? 0,
+    vivos: control.vivos_en_intermedio ?? 0,
+    permanencia: control.permanencia_intermedia ?? null,
+    ejemplos: inconsistencias
+      .slice(0, MAX_EJEMPLOS_COHORTE)
+      .map((c) => c.documento)
+      .join(", "),
+  };
+}

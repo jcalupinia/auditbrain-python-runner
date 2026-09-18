@@ -190,9 +190,13 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
 
     leidos = [leer_cartera(c["contenido"], c["nombre"], c["fecha"], bandas,
                            c.get("hoja"), c.get("mapeo")) for c in cortes]
-    cohorte, _intermedio, actual = leidos
+    cohorte, intermedio, actual = leidos
 
-    coh = tasas_por_permanencia(cohorte["filas"], actual["filas"])
+    # El corte intermedio no entra en las tasas -la permanencia se mide entre
+    # t-2 y t-, pero sí controla que el camino entre los dos extremos sea
+    # coherente: sin él no hay forma de ver un documento que desapareció y
+    # volvió, ni un remanente que creció.
+    coh = tasas_por_permanencia(cohorte["filas"], actual["filas"], intermedio["filas"])
     tasas = coh["tasas"]
 
     # Exposición por segmento y banda, anclada a los estados financieros.
@@ -385,6 +389,8 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
         "trazabilidad": coh["trazabilidad"], "anomalias": coh["anomalias"],
         "documentos_ambiguos": coh["documentos_ambiguos"],
         "documentos_ambiguos_total": coh["documentos_ambiguos_total"],
+        # Contraste de la cohorte contra su rastro en el corte intermedio.
+        "control_corte_intermedio": coh["control_corte_intermedio"],
         "matriz": resumen["colectivo"],
         "individual": resumen["individual"], "conciliacion": resumen.get("conciliacion", {
             "cartera_total": exposicion["total"], "saldo_contable": None,
@@ -637,6 +643,19 @@ def _pendientes(resumen, parametros, coh, leidos, sin_medir_individual=0.0, poli
                             "cohorte por ese número, así que el saldo remanente -numerador de "
                             "todas las tasas- suma saldos de clientes distintos: la trazabilidad "
                             "queda invalidada de raíz, no solo reducida."})
+    control = coh.get("control_corte_intermedio") or {}
+    if control.get("inconsistencias_total"):
+        total = control["inconsistencias_total"]
+        ejemplos = ", ".join(c["documento"] for c in control["inconsistencias"][:5])
+        p.append({"variable": "Consistencia de la cohorte en el corte intermedio",
+                  "responsable": "Cliente", "criticidad": "Alta",
+                  "efecto": f"{total} documento(s) de la cohorte siguen una trayectoria imposible "
+                            f"entre los tres cortes (por ejemplo: {ejemplos}): desaparecen en el "
+                            "corte intermedio y reaparecen en el actual, o su saldo crece sin "
+                            "facturación nueva. El remanente en el corte actual -numerador de "
+                            f"todas las tasas- incluye USD {control['inconsistencias_importe']:,.2f} "
+                            "de esos documentos, así que la permanencia medida no es la de la "
+                            "cohorte original."})
     if coh["trazabilidad"] < 0.8:
         p.append({"variable": "Trazabilidad por número de documento", "responsable": "Cliente",
                   "criticidad": "Alta",

@@ -914,3 +914,48 @@ def test_la_hoja_de_politica_declara_que_bandas_no_se_pudieron_comparar():
     textos = " ".join(str(c.value) for fila in ws.iter_rows() for c in fila if c.value)
     assert "no fue proporcionada" in textos
     assert "0 a 30 días" in textos
+
+
+# ---------------------------------------------------------------------------
+# I5 — El control del corte intermedio llega al papel.
+# ---------------------------------------------------------------------------
+
+CONTROL_INCONSISTENTE = {
+    "documentos_cohorte": 120, "saldo_cohorte": 500000.0,
+    "vivos_en_intermedio": 80, "saldo_en_intermedio": 200000.0, "saldo_en_actual": 150000.0,
+    "permanencia_intermedia": 0.6666666666666666,
+    "inconsistencias": [
+        {"documento": "F-77", "tipo": "reaparece_tras_desaparecer", "saldo_cohorte": 9000.0,
+         "saldo_intermedio": 0.0, "saldo_actual": 4000.0},
+        {"documento": "F-88", "tipo": "remanente_mayor_que_intermedio", "saldo_cohorte": 3000.0,
+         "saldo_intermedio": 1000.0, "saldo_actual": 2500.0},
+    ],
+    "inconsistencias_total": 2, "inconsistencias_importe": 6500.0, "consistente": False,
+}
+
+
+def _texto_de(ws):
+    return " ".join(str(c.value) for fila in ws.iter_rows() for c in fila if c.value is not None)
+
+
+def test_las_fuentes_declaran_el_control_del_corte_intermedio():
+    resultado = {**RESULTADO, "control_corte_intermedio": CONTROL_INCONSISTENTE}
+    ws = _abrir(construir_excel(resultado, {}))["02-Fuentes"]
+    texto = _texto_de(ws)
+    assert "Control del corte intermedio" in texto
+    assert "F-77" in texto and "F-88" in texto
+    assert "reaparece" in texto
+
+
+def test_una_cohorte_consistente_tambien_se_declara_en_el_papel():
+    consistente = {**CONTROL_INCONSISTENTE, "inconsistencias": [], "inconsistencias_total": 0,
+                   "inconsistencias_importe": 0.0, "consistente": True}
+    ws = _abrir(construir_excel({**RESULTADO, "control_corte_intermedio": consistente}, {}))["02-Fuentes"]
+    texto = _texto_de(ws)
+    assert "Control del corte intermedio" in texto
+    assert "Sin inconsistencias" in texto
+
+
+def test_sin_control_registrado_el_papel_lo_dice_en_vez_de_callarlo():
+    ws = _abrir(construir_excel(RESULTADO, {}))["02-Fuentes"]
+    assert "no se registró" in _texto_de(ws)

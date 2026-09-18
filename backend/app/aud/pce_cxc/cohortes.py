@@ -19,8 +19,88 @@ from backend.app.aud.pce_cxc.motor import redondear, tasa_perdida
 #: materializar en memoria la cartera entera de un archivo con 130.000 filas.
 MAX_DOCUMENTOS_AMBIGUOS = 50
 
+#: Cuántas inconsistencias del corte intermedio se listan como ejemplo. El
+#: conteo completo va aparte, por la misma razón que arriba.
+MAX_INCONSISTENCIAS_INTERMEDIO = 50
 
-def tasas_por_permanencia(cohorte: list[dict[str, Any]], actual: list[dict[str, Any]]) -> dict:
+#: Por debajo de este importe una diferencia es ruido de redondeo, no un hecho.
+TOLERANCIA = 0.005
+
+
+def _controlar_corte_intermedio(
+    cohorte: list[dict[str, Any]],
+    saldo_intermedio: dict[str, float],
+    saldo_actual: dict[str, float],
+) -> dict[str, Any]:
+    """Contrasta la cohorte (t-2) contra su propio rastro en t-1 y en t.
+
+    El método de permanencia solo mira dos puntos -el saldo inicial en t-2 y el
+    remanente en t-, así que el corte intermedio es la única forma de saber si
+    el camino entre ambos tiene sentido. Dos trayectorias no lo tienen:
+
+    - Un documento que ya no está en t-1 y vuelve a aparecer en t. Si se cobró
+      o se dio de baja no puede resucitar: o la numeración se reutilizó, o una
+      factura nueva heredó el número, o el corte intermedio está incompleto.
+      En cualquiera de los tres casos el remanente que alimenta las tasas no es
+      lo que quedó vivo de la cohorte.
+    - Un remanente en t MAYOR que el saldo del mismo documento en t-1. Un saldo
+      por cobrar no crece sin facturación nueva; si crece, algo se imputó al
+      mismo número.
+
+    Se recorre la cohorte una sola vez y solo se guardan los documentos que
+    fallan: no se materializa ninguna copia de la cartera.
+    """
+    saldo_cohorte: dict[str, float] = defaultdict(float)
+    for f in cohorte:
+        saldo_cohorte[f["documento"]] += float(f["saldo"])
+
+    inconsistencias: list[dict[str, Any]] = []
+    total_inconsistencias = 0
+    importe_afectado = 0.0
+    vivos_en_intermedio = 0
+    total_intermedio = 0.0
+    total_actual = 0.0
+    for documento, inicial in saldo_cohorte.items():
+        en_intermedio = float(saldo_intermedio.get(documento, 0.0))
+        en_actual = float(saldo_actual.get(documento, 0.0))
+        total_intermedio += en_intermedio
+        total_actual += en_actual
+        if abs(en_intermedio) > TOLERANCIA:
+            vivos_en_intermedio += 1
+        tipo = None
+        if abs(en_intermedio) <= TOLERANCIA and abs(en_actual) > TOLERANCIA:
+            tipo = "reaparece_tras_desaparecer"
+        elif en_actual > en_intermedio + TOLERANCIA:
+            tipo = "remanente_mayor_que_intermedio"
+        if tipo is None:
+            continue
+        total_inconsistencias += 1
+        importe_afectado += en_actual
+        if len(inconsistencias) < MAX_INCONSISTENCIAS_INTERMEDIO:
+            inconsistencias.append({
+                "documento": documento, "tipo": tipo,
+                "saldo_cohorte": redondear(inicial),
+                "saldo_intermedio": redondear(en_intermedio),
+                "saldo_actual": redondear(en_actual),
+            })
+
+    documentos = len(saldo_cohorte)
+    return {
+        "documentos_cohorte": documentos,
+        "saldo_cohorte": redondear(sum(saldo_cohorte.values())),
+        "vivos_en_intermedio": vivos_en_intermedio,
+        "saldo_en_intermedio": redondear(total_intermedio),
+        "saldo_en_actual": redondear(total_actual),
+        "permanencia_intermedia": (vivos_en_intermedio / documentos) if documentos else 0.0,
+        "inconsistencias": sorted(inconsistencias, key=lambda c: c["documento"]),
+        "inconsistencias_total": total_inconsistencias,
+        "inconsistencias_importe": redondear(importe_afectado),
+        "consistente": total_inconsistencias == 0,
+    }
+
+
+def tasas_por_permanencia(cohorte: list[dict[str, Any]], actual: list[dict[str, Any]],
+                          intermedio: list[dict[str, Any]] | None = None) -> dict:
     """Deriva la tasa de cada banda siguiendo la cohorte por número de documento.
 
     El método depende de que el número de documento sea único: el remanente se
@@ -28,6 +108,10 @@ def tasas_por_permanencia(cohorte: list[dict[str, Any]], actual: list[dict[str, 
     sus saldos se fusionan y el numerador de todas las tasas queda mal. Esos
     números se detectan y se devuelven en `documentos_ambiguos` (con el conteo
     completo en `documentos_ambiguos_total`) en vez de calcular como si nada.
+
+    `intermedio` es el corte t-1. No entra en las tasas -el método mide
+    permanencia entre t-2 y t- pero sí controla que el camino entre los dos
+    extremos sea coherente: el resultado va en `control_corte_intermedio`.
     """
     saldo_actual: dict[str, float] = defaultdict(float)
     for f in actual:
@@ -96,9 +180,20 @@ def tasas_por_permanencia(cohorte: list[dict[str, Any]], actual: list[dict[str, 
             else:
                 tasas[segmento][banda] = None
 
+    control = None
+    if intermedio is not None:
+        # Un solo diccionario documento -> saldo del corte intermedio; se
+        # construye aquí y se descarta al salir, y `saldo_actual` se reutiliza
+        # en vez de recorrer el corte actual por segunda vez.
+        saldo_intermedio: dict[str, float] = defaultdict(float)
+        for f in intermedio:
+            saldo_intermedio[f["documento"]] += float(f["saldo"])
+        control = _controlar_corte_intermedio(cohorte, saldo_intermedio, saldo_actual)
+
     encontrados = sum(1 for f in cohorte if f["documento"] in saldo_actual)
     return {"tasas": tasas, "detalle": {s: dict(b) for s, b in detalle.items()},
             "trazabilidad": (encontrados / len(cohorte)) if cohorte else 0.0,
             "anomalias": anomalias,
             "documentos_ambiguos": documentos_ambiguos,
-            "documentos_ambiguos_total": len(clientes_en_conflicto)}
+            "documentos_ambiguos_total": len(clientes_en_conflicto),
+            "control_corte_intermedio": control}

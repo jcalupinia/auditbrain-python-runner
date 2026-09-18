@@ -516,3 +516,51 @@ def test_con_la_politica_completa_no_queda_pendiente_de_politica():
     assert not any(p["variable"] == "Política de deterioro del cliente" for p in r["pendientes"])
     assert r["politica"]["politica_declarada"] is True
     assert all(f["sin_comparar"] is False for f in r["politica"]["filas"])
+
+
+# ---------------------------------------------------------------------------
+# I5 — El corte intermedio controla la cohorte.
+# ---------------------------------------------------------------------------
+
+def _cortes_con_intermedio(filas_intermedio):
+    """Los mismos cortes de `_cortes()` pero con el corte t-1 a medida."""
+    cortes = _cortes()
+    cortes[1] = {**cortes[1], "contenido": _xlsx(filas_intermedio)}
+    return cortes
+
+
+def test_el_corte_intermedio_se_usa_para_controlar_la_cohorte():
+    r = analizar(_cortes(), {"umbral_dias_incumplimiento": 730})
+    control = r["control_corte_intermedio"]
+    # F-1 va de 100.000 (t-2) a 20.000 (t-1) a 10.000 (t): se cobra, es coherente.
+    # F-2 desaparece en t-1 y no reaparece en t: se cobró, tampoco es un problema.
+    assert control["consistente"] is True
+    assert control["documentos_cohorte"] == 2
+    assert control["vivos_en_intermedio"] == 1
+    assert not any(p["variable"] == "Consistencia de la cohorte en el corte intermedio"
+                   for p in r["pendientes"])
+
+
+def test_el_documento_que_reaparece_en_el_corte_actual_se_reporta_y_deja_pendiente():
+    # El corte intermedio ya no trae F-1, que sí está vivo en el corte actual.
+    r = analizar(_cortes_con_intermedio([
+        ("BETA", "F-2", "NO-RELACIONADOS", date(2023, 1, 1), date(2023, 3, 1), 30000.0),
+    ]), {"umbral_dias_incumplimiento": 730})
+    control = r["control_corte_intermedio"]
+    assert control["consistente"] is False
+    assert control["inconsistencias_total"] == 1
+    assert control["inconsistencias"][0]["documento"] == "F-1"
+    assert control["inconsistencias"][0]["tipo"] == "reaparece_tras_desaparecer"
+    pendiente = next(p for p in r["pendientes"]
+                     if p["variable"] == "Consistencia de la cohorte en el corte intermedio")
+    assert pendiente["responsable"] == "Cliente"
+
+
+def test_cambiar_el_corte_intermedio_cambia_el_resultado():
+    """Antes, sustituirlo por una cartera distinta dejaba el resultado idéntico."""
+    fiel = analizar(_cortes(), {"umbral_dias_incumplimiento": 730})
+    ajeno = analizar(_cortes_con_intermedio([
+        ("OTRA EMPRESA", "Z-99", "NO-RELACIONADOS", date(2024, 1, 1), date(2024, 3, 1), 999.0),
+    ]), {"umbral_dias_incumplimiento": 730})
+    assert fiel["control_corte_intermedio"] != ajeno["control_corte_intermedio"]
+    assert ajeno["control_corte_intermedio"]["consistente"] is False

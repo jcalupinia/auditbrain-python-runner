@@ -114,3 +114,51 @@ def test_el_ruido_de_coma_flotante_no_se_reporta_como_remanente_negativo():
     r = tasas_por_permanencia(cohorte, actual)
     assert r["tasas"]["NO-RELACIONADOS"]["0 a 30 días"] == pytest.approx(0.0)
     assert r["anomalias"] == []
+
+
+# ---------------------------------------------------------------------------
+# I5 — El corte intermedio (t-1) controla la cohorte, no solo ocupa memoria.
+# ---------------------------------------------------------------------------
+
+def test_sin_corte_intermedio_no_hay_control():
+    r = tasas_por_permanencia([_doc("F-1", "0 a 30 días", 100.0)], [])
+    assert r["control_corte_intermedio"] is None
+
+
+def test_una_cohorte_que_se_va_cobrando_es_consistente():
+    cohorte = [_doc("F-1", "0 a 30 días", 100.0), _doc("F-2", "0 a 30 días", 50.0)]
+    intermedio = [_doc("F-1", "0 a 30 días", 60.0)]
+    actual = [_doc("F-1", "0 a 30 días", 20.0)]
+    control = tasas_por_permanencia(cohorte, actual, intermedio)["control_corte_intermedio"]
+    assert control["consistente"] is True
+    assert control["inconsistencias"] == []
+    assert control["documentos_cohorte"] == 2
+    assert control["vivos_en_intermedio"] == 1
+    assert control["saldo_en_intermedio"] == pytest.approx(60.0)
+    assert control["saldo_en_actual"] == pytest.approx(20.0)
+
+
+def test_el_documento_que_desaparece_en_el_intermedio_y_reaparece_se_reporta():
+    cohorte = [_doc("F-1", "0 a 30 días", 100.0)]
+    intermedio = []
+    actual = [_doc("F-1", "0 a 30 días", 40.0)]
+    control = tasas_por_permanencia(cohorte, actual, intermedio)["control_corte_intermedio"]
+    assert control["consistente"] is False
+    assert control["inconsistencias_total"] == 1
+    caso = control["inconsistencias"][0]
+    assert caso["documento"] == "F-1"
+    assert caso["tipo"] == "reaparece_tras_desaparecer"
+    assert caso["saldo_intermedio"] == pytest.approx(0.0)
+    assert caso["saldo_actual"] == pytest.approx(40.0)
+
+
+def test_el_remanente_que_crece_respecto_del_intermedio_se_reporta():
+    cohorte = [_doc("F-1", "0 a 30 días", 100.0)]
+    intermedio = [_doc("F-1", "0 a 30 días", 30.0)]
+    actual = [_doc("F-1", "0 a 30 días", 80.0)]
+    control = tasas_por_permanencia(cohorte, actual, intermedio)["control_corte_intermedio"]
+    assert control["consistente"] is False
+    caso = control["inconsistencias"][0]
+    assert caso["tipo"] == "remanente_mayor_que_intermedio"
+    assert caso["saldo_intermedio"] == pytest.approx(30.0)
+    assert caso["saldo_actual"] == pytest.approx(80.0)
