@@ -98,6 +98,18 @@ class ParametrosECL:
         for tramo, l in (self.lgd.items() if isinstance(self.lgd, dict) else [("todos", self.lgd)]):
             if not _es_numero(l) or not 0 <= float(l) <= 1:
                 raise ValueError(f"LGD inválida en '{tramo}': {l!r}. Debe estar entre 0 y 1")
+        if not _es_numero(self.ajuste_prospectivo):
+            raise ValueError(
+                f"Ajuste prospectivo inválido: {self.ajuste_prospectivo!r}. Indique el factor "
+                "prospectivo como un número (1,00 = sin ajuste; 1,10 = 10 % más de pérdida)."
+            )
+        if 1 + float(self.ajuste_prospectivo) < 0:
+            raise ValueError(
+                f"El factor prospectivo no puede ser negativo: se pidió "
+                f"{1 + float(self.ajuste_prospectivo):.3f}. Un factor negativo invertiría el signo "
+                "de la pérdida esperada. Indique un factor mayor o igual a 0,000 "
+                "(1,000 = sin ajuste)."
+            )
         if self.ajuste_prospectivo and not self.justificacion_ajuste.strip():
             raise ValueError(
                 "El ajuste prospectivo exige justificación escrita (NIIF 9 B5.5.51-52)"
@@ -128,14 +140,35 @@ def medir_ecl(exposiciones: dict[str, float], parametros: ParametrosECL) -> dict
 
     El total es la suma de los tramos ya redondeados, para que el papel de
     trabajo cuadre con lo que se ve en pantalla.
+
+    Dos cotas de la norma se aplican tramo a tramo y se declaran, nunca se
+    aplican en silencio:
+
+    - PISO CERO: la corrección de valor no puede ser negativa. Una nota de
+      crédito deja la banda con exposición negativa, y sin piso su "pérdida"
+      negativa neutralizaría la pérdida medida en las demás bandas del mismo
+      segmento (una NC no genera "ganancia esperada").
+    - TECHO DEL IMPORTE EN LIBROS BRUTO (B5.5.35): ni la tasa ajustada por el
+      factor prospectivo puede superar el 100 %, ni la PCE de la banda puede
+      superar su exposición.
+
+    Cada tramo lleva `tasa_ajustada_sin_acotar`, `ecl_sin_acotar` y `acotado`
+    (`None`, `"piso_cero"`, `"tasa_maxima"` o `"techo_exposicion"`), y el
+    resultado totaliza `exposicion_negativa`, `ecl_acotada_por_piso` y
+    `ecl_acotada_por_techo`.
     """
     filas = []
     total = 0.0
     exposicion_total = 0.0
     sin_medir = 0.0
+    exposicion_negativa = 0.0
+    acotada_piso = 0.0
+    acotada_techo = 0.0
     for tramo, saldo in exposiciones.items():
         saldo = float(saldo or 0)
         exposicion_total += saldo
+        if saldo < 0:
+            exposicion_negativa += saldo
         tasa = parametros.tasas_perdida.get(tramo)
         if tasa is None:
             # Sin historia no se inventa una tasa: la banda queda sin medir y su
@@ -147,13 +180,17 @@ def medir_ecl(exposiciones: dict[str, float], parametros: ParametrosECL) -> dict
                 "exposicion": redondear(saldo),
                 "tasa_perdida": None,
                 "tasa_ajustada": None,
+                "tasa_ajustada_sin_acotar": None,
                 "lgd": None,
                 "horizonte": None,
                 "factor_descuento": None,
                 "ecl": None,
+                "ecl_sin_acotar": None,
+                "acotado": None,
             })
             continue
-        tasa_ajustada = float(tasa) * (1 + parametros.ajuste_prospectivo)
+        tasa_ajustada_bruta = float(tasa) * (1 + parametros.ajuste_prospectivo)
+        tasa_ajustada = min(tasa_ajustada_bruta, 1.0)
         lgd = parametros.lgd_de(tramo)
         if parametros.tasa_descuento is None:
             factor = 1.0
@@ -163,23 +200,40 @@ def medir_ecl(exposiciones: dict[str, float], parametros: ParametrosECL) -> dict
             if t is None:
                 raise ValueError(f"Falta el horizonte del tramo '{tramo}' para descontar")
             factor = 1 / (1 + parametros.tasa_descuento) ** float(t)
-        ecl = redondear(saldo * tasa_ajustada * lgd * factor)
+        # `ecl_sin_acotar` conserva lo que daría el cálculo puro; `ecl` aplica
+        # el piso y el techo de la norma, y `acotado` dice cuál actuó.
+        ecl_sin_acotar = redondear(saldo * tasa_ajustada_bruta * lgd * factor)
+        techo = max(redondear(saldo), 0.0)
+        ecl = min(max(redondear(saldo * tasa_ajustada * lgd * factor), 0.0), techo)
+        acotado = None
+        if ecl_sin_acotar < ecl - 0.0001:
+            acotado = "piso_cero"
+            acotada_piso += ecl - ecl_sin_acotar
+        elif ecl_sin_acotar > ecl + 0.0001:
+            acotado = "tasa_maxima" if tasa_ajustada_bruta > 1.0 else "techo_exposicion"
+            acotada_techo += ecl_sin_acotar - ecl
         total += ecl
         filas.append({
             "tramo": tramo,
             "exposicion": redondear(saldo),
             "tasa_perdida": float(tasa),
             "tasa_ajustada": tasa_ajustada,
+            "tasa_ajustada_sin_acotar": tasa_ajustada_bruta,
             "lgd": lgd,
             "horizonte": t,
             "factor_descuento": factor,
             "ecl": ecl,
+            "ecl_sin_acotar": ecl_sin_acotar,
+            "acotado": acotado,
         })
 
     return {
         "tramos": filas,
         "exposicion_total": redondear(exposicion_total),
         "exposicion_sin_medir": redondear(sin_medir),
+        "exposicion_negativa": redondear(exposicion_negativa),
+        "ecl_acotada_por_piso": redondear(acotada_piso),
+        "ecl_acotada_por_techo": redondear(acotada_techo),
         "ecl_total": redondear(total),
         "descuento_aplicado": parametros.tasa_descuento is not None,
         "ajuste_prospectivo": parametros.ajuste_prospectivo,
@@ -193,10 +247,18 @@ def medir_ecl(exposiciones: dict[str, float], parametros: ParametrosECL) -> dict
 # ---------------------------------------------------------------------------
 
 def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
-    """Mide uno por uno los saldos que no pueden agruparse en la matriz."""
+    """Mide uno por uno los saldos que no pueden agruparse en la matriz.
+
+    Rigen las mismas cotas que en la matriz: la corrección de valor de un caso
+    no puede ser negativa ni superar su importe en libros bruto. Un cliente con
+    saldo neto acreedor (una nota de crédito mayor que sus facturas) se mide en
+    0,00 y se declara con `acotado`, en vez de abortar la corrida.
+    """
     detalle = []
     saldo_total = 0.0
     ecl_total = 0.0
+    acotada_piso = 0.0
+    acotada_techo = 0.0
     for caso in casos:
         saldo = float(caso.get("saldo") or 0)
         recuperacion = caso.get("recuperacion_estimada")
@@ -206,19 +268,32 @@ def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
                 "no se puede medir sin ese dato"
             )
         recuperacion = float(recuperacion)
-        if recuperacion < 0 or recuperacion > saldo:
+        ecl_sin_acotar = redondear(saldo - recuperacion)
+        techo = max(redondear(saldo), 0.0)
+        if ecl_sin_acotar < -0.005:
+            # La recuperación supera al saldo: eso no es una nota de crédito,
+            # es un dato imposible de quien cargó la evaluación individual.
             raise ValueError(
                 f"Recuperación estimada fuera de rango en '{caso.get('identificacion')}': "
-                f"{recuperacion} sobre un saldo de {saldo}"
+                f"{recuperacion:,.2f} sobre un saldo de {saldo:,.2f}. La recuperación estimada "
+                f"no puede superar el saldo del cliente: indique un importe entre 0,00 y "
+                f"{techo:,.2f}."
             )
-        ecl = redondear(saldo - recuperacion)
+        ecl = min(max(ecl_sin_acotar, 0.0), techo)
+        acotado = None
+        if ecl_sin_acotar < ecl - 0.0001:
+            acotado = "piso_cero"
+            acotada_piso += ecl - ecl_sin_acotar
+        elif ecl_sin_acotar > ecl + 0.0001:
+            acotado = "techo_saldo"
+            acotada_techo += ecl_sin_acotar - ecl
         saldo_total += saldo
         ecl_total += ecl
         detalle.append({
             "identificacion": caso.get("identificacion"),
             "tramo": caso.get("tramo"),
             "saldo": redondear(saldo),
-            "recuperacion_estimada": redondear(recuperacion),
+            "recuperacion_estimada": redondear(saldo - ecl),
             "sustento": caso.get("sustento", ""),
             # Parte del saldo del caso que no se pudo medir (banda sin tasa y
             # sin estimación propia justificada). Va como campo propio, no solo
@@ -226,11 +301,15 @@ def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
             # que parsear una frase.
             "saldo_sin_tasa": redondear(float(caso.get("saldo_sin_tasa") or 0.0)),
             "ecl": ecl,
+            "ecl_sin_acotar": ecl_sin_acotar,
+            "acotado": acotado,
         })
     return {
         "casos": detalle,
         "saldo_total": redondear(saldo_total),
         "ecl_total": redondear(ecl_total),
+        "ecl_acotada_por_piso": redondear(acotada_piso),
+        "ecl_acotada_por_techo": redondear(acotada_techo),
     }
 
 

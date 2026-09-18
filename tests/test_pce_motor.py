@@ -209,3 +209,86 @@ def test_la_misma_cartera_bajo_el_criterio_niif9():
     r = medir_ecl(SALDO, p)
     assert r["ecl_total"] == pytest.approx(427910.25, abs=0.01)
     assert r["ecl_total"] / sum(SALDO.values()) == pytest.approx(0.0899, abs=0.0001)
+
+
+# ---------------------------------------------------------------------------
+# Cotas de NIIF 9: la corrección de valor no puede ser negativa ni superar el
+# importe en libros bruto de la banda (B5.5.35)
+# ---------------------------------------------------------------------------
+
+def test_una_banda_con_exposicion_negativa_no_produce_perdida_negativa():
+    """Una nota de crédito entra a la matriz como exposición negativa. Sin piso,
+    su "pérdida" negativa neutraliza en silencio la pérdida medida en las demás
+    bandas del mismo segmento."""
+    p = ParametrosECL(tasas_perdida={"0 a 30 días": 0.10}, lgd=1.0)
+    r = medir_ecl({"0 a 30 días": -50000.0}, p)
+    fila = r["tramos"][0]
+    assert fila["ecl"] == pytest.approx(0.0)
+    assert fila["ecl_sin_acotar"] == pytest.approx(-5000.0)
+    assert fila["acotado"] == "piso_cero"
+    assert r["ecl_total"] == pytest.approx(0.0)
+    # El acotamiento no se hace en silencio: queda declarado y se puede sumar.
+    assert r["exposicion_negativa"] == pytest.approx(-50000.0)
+    assert r["ecl_acotada_por_piso"] == pytest.approx(5000.0)
+
+
+def test_una_nota_de_credito_no_compensa_la_perdida_de_otra_banda():
+    p = ParametrosECL(tasas_perdida={"0 a 30 días": 0.10, "91 a 180 días": 0.50}, lgd=1.0)
+    r = medir_ecl({"0 a 30 días": -50000.0, "91 a 180 días": 100000.0}, p)
+    assert r["ecl_total"] == pytest.approx(50000.0)
+
+
+def test_el_factor_prospectivo_no_lleva_la_perdida_sobre_el_importe_en_libros():
+    """Con factor 12,0 la tasa 0,10 se convertía en 1,20 y la PCE daba 240.000
+    sobre una exposición de 200.000 (cobertura del 120 %). B5.5.35 mide sobre el
+    importe en libros bruto."""
+    p = ParametrosECL(tasas_perdida={"1-60": 0.10}, lgd=1.0, ajuste_prospectivo=11.0,
+                      justificacion_ajuste="Escenario severo documentado por el socio")
+    r = medir_ecl({"1-60": 200000.0}, p)
+    fila = r["tramos"][0]
+    assert fila["tasa_ajustada_sin_acotar"] == pytest.approx(1.20)
+    assert fila["tasa_ajustada"] == pytest.approx(1.0)
+    assert fila["ecl"] == pytest.approx(200000.0)
+    assert fila["acotado"] == "tasa_maxima"
+    assert r["ecl_total"] <= r["exposicion_total"]
+    assert r["ecl_acotada_por_techo"] == pytest.approx(40000.0)
+
+
+def test_un_factor_prospectivo_negativo_se_rechaza_con_un_mensaje_accionable():
+    with pytest.raises(ValueError) as e:
+        ParametrosECL(tasas_perdida={"1-60": 0.10}, lgd=1.0, ajuste_prospectivo=-2.0,
+                      justificacion_ajuste="Reversión esperada")
+    mensaje = str(e.value).lower()
+    assert "prospectivo" in mensaje and "negativo" in mensaje
+
+
+def test_un_ajuste_prospectivo_no_numerico_se_rechaza():
+    with pytest.raises(ValueError, match="prospectivo"):
+        ParametrosECL(tasas_perdida={"1-60": 0.10}, lgd=1.0, ajuste_prospectivo="mucho",
+                      justificacion_ajuste="x")
+
+
+def test_sin_acotamiento_los_campos_nuevos_quedan_neutros():
+    p = ParametrosECL(tasas_perdida={"1-60": 0.10}, lgd=1.0)
+    r = medir_ecl({"1-60": 100000.0}, p)
+    assert r["tramos"][0]["acotado"] is None
+    assert r["tramos"][0]["ecl_sin_acotar"] == pytest.approx(10000.0)
+    assert r["exposicion_negativa"] == pytest.approx(0.0)
+    assert r["ecl_acotada_por_piso"] == pytest.approx(0.0)
+    assert r["ecl_acotada_por_techo"] == pytest.approx(0.0)
+
+
+def test_un_caso_individual_con_saldo_acreedor_se_mide_en_cero():
+    """Un cliente cuyo saldo neto es acreedor (nota de crédito) no genera
+    "ganancia esperada": su corrección de valor es 0,00 y la corrida no aborta."""
+    r = evaluar_individual([{"identificacion": "NC", "saldo": -1000.0,
+                             "recuperacion_estimada": -1000.0}])
+    assert r["casos"][0]["ecl"] == pytest.approx(0.0)
+    assert r["ecl_total"] == pytest.approx(0.0)
+
+
+def test_la_recuperacion_que_supera_al_saldo_sigue_siendo_un_error_accionable():
+    with pytest.raises(ValueError) as e:
+        evaluar_individual([{"identificacion": "X", "saldo": 100.0,
+                             "recuperacion_estimada": 150.0}])
+    assert "X" in str(e.value)
