@@ -2,6 +2,7 @@
 import io
 from datetime import date
 
+import pytest
 from openpyxl import Workbook
 
 from backend.app.aud.pce_cxc.bandas import BANDAS_POR_DEFECTO
@@ -106,3 +107,19 @@ def test_el_encabezado_se_puede_indicar_a_mano():
     assert r["fila_encabezado"] == 3
     assert len(r["filas"]) == 1
     assert r["filas"][0]["documento"] == "F-9"
+
+
+def test_una_fila_de_encabezado_fuera_de_rango_se_rechaza():
+    """Valida que fila_encabezado se rechace si está fuera del rango válido."""
+    datos = _xlsx([("ALFA S.A.", "F-1", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 1000.0)])
+    mapeo = {"cliente": 0, "documento": 1, "tipo": 2, "emision": 3, "vencimiento": 4, "saldo": 5}
+
+    # Con mapeo manual y fila_encabezado fuera de rango: debe rechazarse
+    for valor in (50, 0, -3):
+        with pytest.raises(ValueError, match="fuera de rango"):
+            leer_cartera(datos, "c.xlsx", CORTE, BANDAS_POR_DEFECTO, mapeo=mapeo, fila_encabezado=valor)
+
+    # Sin mapeo y con fila_encabezado fuera de rango: debe rechazarse
+    for valor in (50, 0, -3):
+        with pytest.raises(ValueError, match="fuera de rango"):
+            leer_cartera(datos, "c.xlsx", CORTE, BANDAS_POR_DEFECTO, fila_encabezado=valor)

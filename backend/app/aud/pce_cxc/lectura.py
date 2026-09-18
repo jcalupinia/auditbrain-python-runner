@@ -189,10 +189,13 @@ def leer_cartera(contenido: bytes, nombre: str, corte, bandas, hoja=None, mapeo=
 
     if fila_encabezado is not None:
         i_enc = fila_encabezado - 1
+        # Valida que fila_encabezado esté dentro del rango válido (1 <= fila_encabezado <= len(filas))
+        if i_enc < 0 or i_enc >= len(filas):
+            raise ValueError(f"{nombre}: fila_encabezado {fila_encabezado} fuera de rango (la hoja tiene {len(filas)} filas)")
     else:
         i_enc = 0 if mapeo else _detectar_encabezado(filas)
-    if i_enc < 0:
-        raise ValueError(f"{nombre}: no se identificó la fila de encabezados")
+        if i_enc < 0:
+            raise ValueError(f"{nombre}: no se identificó la fila de encabezados")
     cols = mapeo or _mapear(filas[i_enc])
     faltantes = [c for c in _OBLIGATORIOS if c not in cols]
     if faltantes:
