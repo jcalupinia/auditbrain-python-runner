@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CATEGORIES } from "./catalog.js";
-import { carteraMedida } from "./pceCxc.js";
+import { carteraMedida, fechaEmision } from "./pceCxc.js";
 
 describe("catálogo AUD", () => {
   it("la tarjeta de Cuentas por cobrar ya no está vacía", () => {
@@ -48,5 +48,16 @@ describe("carteraMedida", () => {
   it("retorna null si total es null", () => {
     const resultado = carteraMedida(null, 100000, 50000);
     expect(resultado).toBeNull();
+  });
+});
+
+describe("fechaEmision", () => {
+  it("da la fecha local en formato AAAA-MM-DD, con ceros a la izquierda", () => {
+    expect(fechaEmision(new Date(2025, 2, 4, 23, 30))).toBe("2025-03-04");
+  });
+
+  it("no se corre de día por la zona horaria (usa la fecha local, no la UTC)", () => {
+    const tarde = new Date(2025, 11, 31, 22, 0);
+    expect(fechaEmision(tarde)).toBe("2025-12-31");
   });
 });

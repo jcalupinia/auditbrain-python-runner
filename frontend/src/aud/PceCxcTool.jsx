@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { pceCxcAnalizar, pceCxcDescargarExcel } from "../api.js";
-import { carteraMedida as calcularCarteraMedida } from "./pceCxc.js";
+import { carteraMedida as calcularCarteraMedida, fechaEmision } from "./pceCxc.js";
 import "./pceCxc.css";
 
 const CORTES = [
@@ -44,6 +44,9 @@ export default function PceCxcTool({ projectId }) {
           project_id: projectId ?? null,
           entidad: datos.entidad,
           fechas: CORTES.map((c) => fechas[c.k]),
+          // Se guarda con la corrida para que el Excel imprima la fecha de
+          // emisión y no la del día en que se descargue el papel.
+          fecha_emision: fechaEmision(),
           umbral_dias_incumplimiento: Number(datos.umbral_dias) || 730,
           umbral_individual: Number(datos.umbral_individual) || 0,
           materialidad: Number(datos.materialidad) || 0,

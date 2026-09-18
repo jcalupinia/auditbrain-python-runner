@@ -1,9 +1,23 @@
 """Excel del papel de trabajo: hojas, fórmulas y cuadres."""
 import io
+import zipfile
+from datetime import date
 
 from openpyxl import load_workbook
 
+from backend.app.aud.pce_cxc import exporter
 from backend.app.aud.pce_cxc.exporter import construir_excel
+
+
+class _FechaFija(date):
+    """``date`` con un ``today()`` congelado: simula descargar la misma corrida
+    en dos días distintos."""
+
+    HOY = "2030-01-01"
+
+    @classmethod
+    def today(cls):
+        return date(2030, 1, 1)
 
 RESULTADO = {
     "exposicion": {"colectiva": 100000.0, "individual": 0.0, "sin_estratificar": 0.0,
@@ -308,3 +322,74 @@ def test_el_umbral_de_incumplimiento_no_se_atribuye_a_la_norma():
     assert "90" in fuente, "debe decir cuál es la presunción de la norma (90 días)"
     assert "refutable" in fuente.lower(), "y que esa presunción es refutable"
     assert "olítica de la entidad" in fuente, "y que el plazo aplicado lo fija la entidad"
+
+
+# ---------------------------------------------------------------------------
+# M7 — el papel no era reproducible: se escribía la fecha del día de la descarga
+# ---------------------------------------------------------------------------
+
+PARAMETROS_CORRIDA = {
+    "entidad": "PRUEBA S.A.",
+    "fechas": ["2022-12-31", "2023-12-31", "2024-12-31"],
+    "fecha_emision": "2025-03-14",
+}
+
+
+def _contenido_del_paquete(binario: bytes) -> dict:
+    """Contenido de cada parte del .xlsx (el .zip guarda además la hora de
+    escritura de cada entrada, que es metadato del contenedor y no del papel)."""
+    z = zipfile.ZipFile(io.BytesIO(binario))
+    return {nombre: z.read(nombre) for nombre in sorted(z.namelist())}
+
+
+def _celda_por_concepto(ws, concepto: str):
+    for fila in range(1, 40):
+        if ws.cell(fila, 1).value == concepto:
+            return ws.cell(fila, 2).value
+    return None
+
+
+def test_la_fecha_de_emision_sale_de_la_corrida_no_del_dia_de_la_descarga(monkeypatch):
+    """``models.py`` dice que la corrida existe para reproducir el papel «tal
+    como se emitió», pero 00-Caratula y 12-Bitacora escribían ``date.today()``
+    (M7)."""
+    monkeypatch.setattr(exporter, "date", _FechaFija)
+    wb = _abrir(construir_excel(RESULTADO, PARAMETROS_CORRIDA))
+
+    assert _celda_por_concepto(wb["00-Caratula"], "Fecha de emisión del papel") == "2025-03-14"
+    generacion = str(_celda_por_concepto(wb["12-Bitacora"], "Versión y fecha de generación"))
+    assert "2025-03-14" in generacion
+
+    for hoja in wb.sheetnames:
+        for texto in _textos(wb[hoja]):
+            assert _FechaFija.HOY not in texto, \
+                f"la hoja {hoja} imprime la fecha de la descarga, no la de la corrida"
+
+
+def test_sin_fecha_de_emision_registrada_se_declara_en_vez_de_poner_la_de_hoy(monkeypatch):
+    """Corridas antiguas que no guardaron la fecha de emisión: lo que no se
+    registró se declara, nunca se rellena con el día de la descarga (M7)."""
+    monkeypatch.setattr(exporter, "date", _FechaFija)
+    wb = _abrir(construir_excel(RESULTADO, {"fechas": ["2022-12-31", "2023-12-31", "2024-12-31"]}))
+    valor = str(_celda_por_concepto(wb["00-Caratula"], "Fecha de emisión del papel"))
+    assert _FechaFija.HOY not in valor
+    assert "no registrada" in valor.lower()
+
+
+def test_dos_descargas_de_la_misma_corrida_dan_el_mismo_papel(monkeypatch):
+    """Dos descargas en días distintos tienen que dar el mismo papel: es la
+    única forma de que el revisor recalcule lo que el preparador emitió (M7)."""
+    monkeypatch.setattr(exporter, "date", _FechaFija)
+    primera = construir_excel(RESULTADO, PARAMETROS_CORRIDA)
+
+    class _OtroDia(_FechaFija):
+        HOY = "2031-07-09"
+
+        @classmethod
+        def today(cls):
+            return date(2031, 7, 9)
+
+    monkeypatch.setattr(exporter, "date", _OtroDia)
+    segunda = construir_excel(RESULTADO, PARAMETROS_CORRIDA)
+
+    assert _contenido_del_paquete(primera) == _contenido_del_paquete(segunda)

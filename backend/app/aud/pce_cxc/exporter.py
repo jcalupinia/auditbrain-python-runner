@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import io
 import re
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from openpyxl import Workbook
@@ -72,6 +72,14 @@ ESTADO_PRELIMINAR = "PRELIMINAR — pendiente de revisión y aprobación del Soc
 #: Lo que no se registró no se deja en blanco (una celda vacía se lee como
 #: "no aplica"): se declara que está pendiente.
 SIN_REGISTRAR = "(pendiente)"
+#: Corridas guardadas antes de que la pantalla enviara `fecha_emision`: el dato
+#: no existe y no se inventa con la fecha de la descarga.
+SIN_FECHA_EMISION = "(no registrada en la corrida)"
+#: Marca temporal de las propiedades del documento cuando la corrida no trae
+#: ninguna fecha. No es un dato del papel -no se imprime en ninguna celda-,
+#: es metadato del archivo; fijarlo es lo que evita que dos descargas de la
+#: misma corrida difieran en `docProps/core.xml`.
+EPOCA_SIN_FECHA = datetime(2000, 1, 1)
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +127,33 @@ def _anchos(ws, mapa: dict[str, float]) -> None:
         ws.column_dimensions[col].width = w
 
 
+def _fecha_emision(parametros: dict[str, Any]) -> tuple[str, datetime]:
+    """Fecha con la que se emitió el papel: la de la corrida, nunca la de hoy.
+
+    Devuelve el texto que se imprime y la marca temporal con la que se sellan
+    las propiedades del documento. `date.today()` haría que dos descargas de la
+    misma corrida dieran papeles distintos, y `models.py` guarda la corrida
+    precisamente para reproducirlo "tal como se emitió".
+    """
+    crudo = str(parametros.get("fecha_emision") or "").strip()
+    if crudo:
+        try:
+            d = date.fromisoformat(crudo)
+        except ValueError:
+            d = None
+        if d is not None:
+            return d.isoformat(), datetime(d.year, d.month, d.day)
+    # Sin fecha de emisión registrada se declara el vacío. Para el metadato del
+    # archivo se cae a la fecha de corte, que sí viaja en la corrida.
+    for candidata in reversed([str(f) for f in (parametros.get("fechas") or [])]):
+        try:
+            d = date.fromisoformat(candidata)
+        except ValueError:
+            continue
+        return SIN_FECHA_EMISION, datetime(d.year, d.month, d.day)
+    return SIN_FECHA_EMISION, EPOCA_SIN_FECHA
+
+
 def _numero(valor: Any) -> float | None:
     """``None`` explícito se preserva (banda sin medir); todo lo demás, a float."""
     if valor is None:
@@ -142,8 +177,15 @@ def construir_excel(resultado: dict[str, Any], parametros: dict[str, Any]) -> by
     wb = Workbook()
     wb.remove(wb.active)
 
+    fecha_texto, marca = _fecha_emision(parametros)
+    # Las propiedades del documento se sellan con la fecha de la corrida: por
+    # defecto openpyxl pone `datetime.now()`, que vuelve distinto el paquete en
+    # cada descarga aunque ninguna celda cambie.
+    wb.properties.created = marca
+    wb.properties.modified = marca
+
     refs: dict[str, Any] = {}
-    _caratula(wb, resultado, parametros)
+    _caratula(wb, resultado, parametros, fecha_texto)
     _parametros(wb, resultado, parametros, refs)
     _fuentes(wb, resultado)
     _cohorte(wb, resultado, refs)
@@ -155,7 +197,7 @@ def construir_excel(resultado: dict[str, Any], parametros: dict[str, Any]) -> by
     _tributario(wb, resultado, refs)
     _hallazgos(wb, resultado)
     _pendientes(wb, resultado)
-    _bitacora(wb, resultado)
+    _bitacora(wb, resultado, fecha_texto)
 
     wb.calculation.fullCalcOnLoad = True
     bio = io.BytesIO()
@@ -183,7 +225,8 @@ _INDICE = [
 ]
 
 
-def _caratula(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, Any]) -> None:
+def _caratula(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, Any],
+              fecha_emision: str) -> None:
     ws = wb.create_sheet("00-Caratula")
     ws.cell(1, 1, "PAPEL DE TRABAJO — PÉRDIDA CREDITICIA ESPERADA, CUENTAS POR COBRAR")
     ws.cell(1, 1).font = FUENTE_TITULO
@@ -214,7 +257,7 @@ def _caratula(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, Any
         ("Referencia del papel", parametros.get("referencia", "PT-PCE-CXC")),
         ("Preparado por", parametros.get("preparado_por") or SIN_REGISTRAR),
         ("Revisado por", parametros.get("revisado_por") or SIN_REGISTRAR),
-        ("Fecha de emisión del papel", date.today().isoformat()),
+        ("Fecha de emisión del papel", fecha_emision),
     ]
     fila = 5
     for concepto, valor in filas:
@@ -808,7 +851,7 @@ def _pendientes(wb: Workbook, resultado: dict[str, Any]) -> None:
 # 12-Bitacora
 # ---------------------------------------------------------------------------
 
-def _bitacora(wb: Workbook, resultado: dict[str, Any]) -> None:
+def _bitacora(wb: Workbook, resultado: dict[str, Any], fecha_emision: str) -> None:
     ws = wb.create_sheet("12-Bitacora")
     _encabezados(ws, 1, ["Concepto", "Detalle"])
 
@@ -835,7 +878,7 @@ def _bitacora(wb: Workbook, resultado: dict[str, Any]) -> None:
         ("Factores de anclaje a EEFF", factores_texto),
         ("Trazabilidad de la cohorte", trazabilidad_texto),
         ("Transformaciones aplicadas por archivo", transformaciones_texto),
-        ("Versión y fecha de generación", f"PT-PCE-CXC v1.0 — generado {date.today().isoformat()}"),
+        ("Versión y fecha de generación", f"PT-PCE-CXC v1.0 — emitido {fecha_emision}"),
     ]
     for i, (concepto, detalle) in enumerate(filas, start=2):
         _celda(ws, i, 1, concepto, alineacion=ALIN_IZQ)
