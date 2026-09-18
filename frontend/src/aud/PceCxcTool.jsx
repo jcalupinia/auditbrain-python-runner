@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { pceCxcAnalizar, pceCxcDescargarExcel } from "../api.js";
+import { carteraMedida as calcularCarteraMedida } from "./pceCxc.js";
 import "./pceCxc.css";
 
 const CORTES = [
@@ -79,7 +80,7 @@ export default function PceCxcTool({ projectId }) {
   const sinMedirTotal = exposicion?.sin_medir ?? 0;
   const sinEstratificar = exposicion?.sin_estratificar ?? 0;
   const cartera = exposicion?.total ?? null;
-  const carteraMedida = cartera != null ? cartera - sinMedirTotal : null;
+  const carteraMedida = calcularCarteraMedida(cartera, sinMedirTotal, sinEstratificar);
   const cobertura =
     carteraMedida && carteraMedida > 0.005 ? (res?.ecl_total ?? 0) / carteraMedida : null;
 
