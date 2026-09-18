@@ -58,6 +58,117 @@ export function tramosVisibles(tramos) {
   );
 }
 
+/** Los dos segmentos del papel, en el mismo orden que `service.SEGMENTOS`. */
+export const SEGMENTOS = ["NO-RELACIONADOS", "RELACIONADOS"];
+
+/** Número escrito por el usuario (admite coma decimal), o `null` si no lo es. */
+function numeroEscrito(valor) {
+  const texto = String(valor ?? "").trim().replace(",", ".");
+  if (texto === "") return null;
+  const numero = Number(texto);
+  return isFinite(numero) ? numero : null;
+}
+
+/**
+ * Factor prospectivo por segmento (1,000 = sin ajuste).
+ *
+ * Lo que no se declara vale 1,000 -«sin ajuste»-, nunca 0: un factor cero
+ * anularía la pérdida esperada entera. El backend exige justificación escrita
+ * para aplicarlo (NIIF 9 B5.5.51-52); sin ella lo deja en 1,000 y emite el
+ * hallazgo «Ausencia del componente prospectivo».
+ * @param {object} datos - Campos del formulario
+ * @returns {object} `{segmento: factor}`
+ */
+export function factorProspectivoDeclarado(datos) {
+  const leer = (valor) => {
+    const numero = numeroEscrito(valor);
+    return numero === null ? 1 : numero;
+  };
+  return {
+    "NO-RELACIONADOS": leer(datos?.factor_nr),
+    RELACIONADOS: leer(datos?.factor_r),
+  };
+}
+
+/** ¿La tasa sustituta está completa? Sin justificación escrita el backend la ignora. */
+export function tasaSustitutaCompleta(fila) {
+  return Boolean(
+    String(fila?.segmento || "").trim() &&
+      String(fila?.banda || "").trim() &&
+      numeroEscrito(fila?.tasa) !== null &&
+      String(fila?.justificacion || "").trim()
+  );
+}
+
+/** ¿La evaluación individual está completa? */
+export function evaluacionIndividualCompleta(fila) {
+  return Boolean(
+    String(fila?.segmento || "").trim() &&
+      String(fila?.cliente || "").trim() &&
+      numeroEscrito(fila?.ecl) !== null &&
+      String(fila?.justificacion || "").trim()
+  );
+}
+
+/**
+ * Cuántas filas quedaron a medio llenar.
+ *
+ * Una fila incompleta no se envía -el backend la ignoraría igual-, pero
+ * tampoco se descarta en silencio: la pantalla dice cuántas hay para que el
+ * auditor las complete o las borre.
+ * @param {Array} filas - Filas del formulario
+ * @param {function} completa - Predicado de completitud
+ * @returns {number} Filas con algo escrito pero incompletas
+ */
+export function filasIncompletas(filas, completa) {
+  return (filas || []).filter(
+    (f) =>
+      !completa(f) &&
+      Object.values(f || {}).some((v) => String(v ?? "").trim() !== "")
+  ).length;
+}
+
+/**
+ * Tasas sustitutas listas para el backend: `{ "SEGMENTO|banda": {tasa, justificacion} }`.
+ *
+ * El formulario recoge PORCENTAJES ("42" = 42 %) y el servicio espera
+ * fracciones, igual que con la política del cliente.
+ * @param {Array} filas - Filas `{segmento, banda, tasa, justificacion}`
+ * @returns {object} Solo las filas completas
+ */
+export function tasasSustitutasDeclaradas(filas) {
+  const salida = {};
+  for (const fila of filas || []) {
+    if (!tasaSustitutaCompleta(fila)) continue;
+    salida[`${String(fila.segmento).trim()}|${String(fila.banda).trim()}`] = {
+      tasa: numeroEscrito(fila.tasa) / 100,
+      justificacion: String(fila.justificacion).trim(),
+    };
+  }
+  return salida;
+}
+
+/**
+ * Evaluaciones individuales: `{ "SEGMENTO|cliente": {ecl, justificacion} }`.
+ *
+ * `ecl` es un IMPORTE en dólares (la pérdida esperada que el auditor midió
+ * para ese cliente), no un porcentaje. Un 0,00 declarado sí viaja: «medí y no
+ * hay pérdida» es una afirmación, distinta de «no se midió».
+ * @param {Array} filas - Filas `{segmento, cliente, ecl, justificacion}`
+ * @returns {object} Solo las filas completas
+ */
+export function evaluacionesIndividualesDeclaradas(filas) {
+  const salida = {};
+  for (const fila of filas || []) {
+    if (!evaluacionIndividualCompleta(fila)) continue;
+    salida[`${String(fila.segmento).trim()}|${String(fila.cliente).trim()}`] = {
+      ecl: numeroEscrito(fila.ecl),
+      justificacion: String(fila.justificacion).trim(),
+    };
+  }
+  return salida;
+}
+
 /**
  * Parámetros que viajan con los tres cortes y quedan guardados con la corrida.
  *
@@ -66,6 +177,12 @@ export function tramosVisibles(tramos) {
  * y el servicio solo comprueba que el dato esté presente. Vacío, el pendiente
  * «Mayores de la provisión de los tres ejercicios» se dispara, que es lo
  * correcto mientras la evidencia no exista.
+ *
+ * El factor prospectivo con su justificación, las tasas sustitutas, las
+ * evaluaciones individuales y el RUC SÍ se envían: el backend los aceptaba
+ * desde siempre y la pantalla no los mandaba, así que el hallazgo «Ausencia
+ * del componente prospectivo» se disparaba en el 100 % de las corridas y
+ * `00-Caratula` B7 salía en blanco.
  * @param {object} datos - Campos del formulario
  * @param {string[]} fechas - Las tres fechas de corte, en el orden de los archivos
  * @param {number|null} projectId - Proyecto al que se imputa la corrida
@@ -76,6 +193,7 @@ export function parametrosDeLaCorrida(datos, fechas, projectId, ahora = new Date
   return {
     project_id: projectId ?? null,
     entidad: datos.entidad,
+    ruc: String(datos.ruc || "").trim(),
     fechas,
     // Se guarda con la corrida para que el Excel imprima la fecha de emisión
     // y no la del día en que se descargue el papel.
@@ -87,6 +205,14 @@ export function parametrosDeLaCorrida(datos, fechas, projectId, ahora = new Date
     // Política de deterioro del cliente por banda. Lo que no se declaró no
     // viaja: el backend lo deja «sin comparar», nunca en 0 %.
     politica: politicaDeclarada(datos.politica),
+    // Componente prospectivo (NIIF 9 5.5.17(c) y B5.5.51-52): el factor solo
+    // se aplica si viaja con su justificación escrita.
+    factor_prospectivo: factorProspectivoDeclarado(datos),
+    justificacion_prospectivo: String(datos.justificacion_prospectivo || "").trim(),
+    tasas_sustitutas: tasasSustitutasDeclaradas(datos.tasas_sustitutas),
+    evaluaciones_individuales: evaluacionesIndividualesDeclaradas(
+      datos.evaluaciones_individuales
+    ),
     eeff: {
       no_relacionados: Number(datos.eeff_nr) || 0,
       relacionados: Number(datos.eeff_r) || 0,

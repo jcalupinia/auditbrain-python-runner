@@ -6,8 +6,13 @@ import {
   carteraMedidaDe,
   coberturaDe,
   controlDeLaCohorte,
+  evaluacionesIndividualesDeclaradas,
+  factorProspectivoDeclarado,
   fechaEmision,
+  filasIncompletas,
   parametrosDeLaCorrida,
+  tasaSustitutaCompleta,
+  tasasSustitutasDeclaradas,
   tramosVisibles,
 } from "./pceCxc.js";
 
@@ -316,5 +321,126 @@ describe("controlDeLaCohorte (I5)", () => {
   it("una corrida sin el control no inventa uno", () => {
     expect(controlDeLaCohorte({})).toBeNull();
     expect(controlDeLaCohorte(null)).toBeNull();
+  });
+});
+
+describe("el formulario manda lo que promete (T12)", () => {
+  const fechas = ["2023-12-31", "2024-12-31", "2025-12-31"];
+  const base = {
+    entidad: "ARCOLANDS S.A.",
+    ruc: "1791240154001",
+    materialidad: "50000",
+    umbral_individual: "200000",
+    eeff_nr: "1000000",
+    eeff_r: "135300",
+    umbral_dias: 730,
+    mayor_provision: "PT B-2",
+    politica: {},
+    factor_nr: "1.10",
+    factor_r: "1.05",
+    justificacion_prospectivo: "Contracción del sector prevista por el BCE para 2026.",
+    tasas_sustitutas: [
+      { segmento: "RELACIONADOS", banda: "361 a 730 días", tasa: "42", justificacion: "Analogía con terceros de la misma banda (PT C-4)." },
+    ],
+    evaluaciones_individuales: [
+      { segmento: "NO-RELACIONADOS", cliente: "GRANDES ALMACENES", ecl: "93600", justificacion: "Concurso preventivo; acuerdo de pago al 72 % (PT D-1)." },
+    ],
+  };
+
+  it("envía el RUC de la entidad: 00-Caratula B7 quedaba en blanco", () => {
+    expect(parametrosDeLaCorrida(base, fechas, null).ruc).toBe("1791240154001");
+  });
+
+  it("envía el factor prospectivo por segmento", () => {
+    expect(parametrosDeLaCorrida(base, fechas, null).factor_prospectivo).toEqual({
+      "NO-RELACIONADOS": 1.1,
+      RELACIONADOS: 1.05,
+    });
+  });
+
+  it("envía la justificación del ajuste prospectivo", () => {
+    expect(parametrosDeLaCorrida(base, fechas, null).justificacion_prospectivo).toMatch(/BCE/);
+  });
+
+  it("envía las tasas sustitutas como fracción, con su justificación", () => {
+    expect(parametrosDeLaCorrida(base, fechas, null).tasas_sustitutas).toEqual({
+      "RELACIONADOS|361 a 730 días": {
+        tasa: 0.42,
+        justificacion: "Analogía con terceros de la misma banda (PT C-4).",
+      },
+    });
+  });
+
+  it("envía las evaluaciones individuales con su importe y su justificación", () => {
+    expect(parametrosDeLaCorrida(base, fechas, null).evaluaciones_individuales).toEqual({
+      "NO-RELACIONADOS|GRANDES ALMACENES": {
+        ecl: 93600,
+        justificacion: "Concurso preventivo; acuerdo de pago al 72 % (PT D-1).",
+      },
+    });
+  });
+
+  it("sin factor declarado manda 1,000 en los dos segmentos: sin ajuste, no cero", () => {
+    const vacio = { ...base, factor_nr: "", factor_r: "" };
+    expect(parametrosDeLaCorrida(vacio, fechas, null).factor_prospectivo).toEqual({
+      "NO-RELACIONADOS": 1,
+      RELACIONADOS: 1,
+    });
+  });
+});
+
+describe("factorProspectivoDeclarado", () => {
+  it("acepta la coma decimal que escribe el usuario", () => {
+    expect(factorProspectivoDeclarado({ factor_nr: "1,25", factor_r: "" })).toEqual({
+      "NO-RELACIONADOS": 1.25,
+      RELACIONADOS: 1,
+    });
+  });
+
+  it("lo que no es un número no se convierte en cero: queda en 1,000", () => {
+    expect(factorProspectivoDeclarado({ factor_nr: "mucho", factor_r: "1.1" })).toEqual({
+      "NO-RELACIONADOS": 1,
+      RELACIONADOS: 1.1,
+    });
+  });
+});
+
+describe("tasasSustitutasDeclaradas", () => {
+  it("descarta la fila sin justificación escrita: el backend la ignoraría igual", () => {
+    const filas = [{ segmento: "RELACIONADOS", banda: "Por vencer", tasa: "10", justificacion: "  " }];
+    expect(tasasSustitutasDeclaradas(filas)).toEqual({});
+  });
+
+  it("descarta la fila sin banda o sin tasa", () => {
+    expect(
+      tasasSustitutasDeclaradas([
+        { segmento: "RELACIONADOS", banda: "", tasa: "10", justificacion: "x" },
+        { segmento: "RELACIONADOS", banda: "Por vencer", tasa: "", justificacion: "x" },
+      ])
+    ).toEqual({});
+  });
+
+  it("cuenta cuántas filas quedaron incompletas para poder declararlo", () => {
+    const filas = [
+      { segmento: "RELACIONADOS", banda: "Por vencer", tasa: "10", justificacion: "" },
+      { segmento: "RELACIONADOS", banda: "0 a 30 días", tasa: "20", justificacion: "ok" },
+    ];
+    expect(filasIncompletas(filas, tasaSustitutaCompleta)).toBe(1);
+  });
+});
+
+describe("evaluacionesIndividualesDeclaradas", () => {
+  it("descarta la fila sin cliente o sin justificación", () => {
+    expect(
+      evaluacionesIndividualesDeclaradas([
+        { segmento: "NO-RELACIONADOS", cliente: "", ecl: "100", justificacion: "x" },
+        { segmento: "NO-RELACIONADOS", cliente: "ALFA", ecl: "100", justificacion: "" },
+      ])
+    ).toEqual({});
+  });
+
+  it("conserva un importe de cero declarado: 0,00 medido no es un dato ausente", () => {
+    const filas = [{ segmento: "NO-RELACIONADOS", cliente: "ALFA", ecl: "0", justificacion: "Garantía bancaria por el 100 % (PT D-2)." }];
+    expect(evaluacionesIndividualesDeclaradas(filas)["NO-RELACIONADOS|ALFA"].ecl).toBe(0);
   });
 });

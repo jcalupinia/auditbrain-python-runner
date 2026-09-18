@@ -332,8 +332,11 @@ def _caratula(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, Any
     _encabezados(ws, 4, ["Concepto", "Valor"])
     filas = [
         ("Estado del papel", ESTADO_PRELIMINAR),
-        ("Entidad", parametros.get("entidad", "")),
-        ("RUC", parametros.get("ruc", "")),
+        # Una celda vacía se lee como "no aplica": la entidad y su RUC o
+        # están, o se declara que no se registraron, igual que "Preparado por"
+        # y "Revisado por".
+        ("Entidad", str(parametros.get("entidad") or "").strip() or SIN_REGISTRAR),
+        ("RUC", str(parametros.get("ruc") or "").strip() or SIN_REGISTRAR),
         ("Fecha de corte", fecha_corte),
         ("Moneda", parametros.get("moneda", "USD")),
         ("Marco contable", parametros.get("marco", "NIIF 9 - Deterioro de cartera comercial")),

@@ -698,3 +698,63 @@ def test_sin_cartera_ilegible_no_se_emite_el_hallazgo_de_los_cortes_anteriores()
     r = analizar(_cortes(), {"umbral_dias_incumplimiento": 730})
     titulos = [h["titulo"] for h in r["hallazgos"]]
     assert "Cartera descartada en la lectura de los cortes anteriores" not in titulos
+
+
+# ---------------------------------------------------------------------------
+# T12 — El servicio acepta, tal cual, lo que ahora envía el formulario
+# ---------------------------------------------------------------------------
+
+PARAMETROS_DEL_FORMULARIO = {
+    "project_id": None,
+    "entidad": "ARCOLANDS S.A.",
+    "ruc": "1791240154001",
+    "fecha_emision": "2026-09-18",
+    "umbral_dias_incumplimiento": 730,
+    "umbral_individual": 150000,
+    "materialidad": 50000,
+    "mayor_provision": "Mayor 2.1.3.01 de 2023, 2024 y 2025 (PT B-2).",
+    "politica": {"0 a 30 días": 0.02},
+    "factor_prospectivo": {"NO-RELACIONADOS": 1.1, "RELACIONADOS": 1.05},
+    "justificacion_prospectivo": "Proyección del PIB sectorial del BCE trasladada al factor (PT C-3).",
+    "tasas_sustitutas": {
+        "NO-RELACIONADOS|Más de 730 días": {
+            "tasa": 0.95,
+            "justificacion": "Analogía con la banda comparable del mismo segmento (PT C-4).",
+        }
+    },
+    "evaluaciones_individuales": {},
+    "eeff": {"no_relacionados": 0, "relacionados": 0},
+}
+
+
+def test_el_servicio_acepta_los_parametros_que_envia_el_formulario():
+    """El formulario no mandaba factor prospectivo, justificación, tasas
+    sustitutas ni evaluaciones individuales, así que ese camino no se ejercitaba
+    de extremo a extremo."""
+    r = analizar(_cortes(), dict(PARAMETROS_DEL_FORMULARIO))
+    assert r["matriz"]["ajuste_prospectivo"] == {"NO-RELACIONADOS": pytest.approx(1.1),
+                                                 "RELACIONADOS": pytest.approx(1.05)}
+
+
+def test_con_factor_justificado_desaparece_el_hallazgo_de_ausencia_del_prospectivo():
+    """El hallazgo se disparaba en el 100 % de las corridas porque la pantalla
+    no tenía por dónde ingresar el componente prospectivo."""
+    r = analizar(_cortes(), dict(PARAMETROS_DEL_FORMULARIO))
+    titulos = [h["titulo"] for h in r["hallazgos"]]
+    assert "Ausencia del componente prospectivo" not in titulos
+    variables = [p["variable"] for p in r["pendientes"]]
+    assert "Información prospectiva documentada" not in variables
+
+
+def test_la_tasa_sustituta_justificada_mide_la_banda_que_no_tenia_historia():
+    """«Más de 730 días» no tiene cohorte y quedaba SIN MEDIR; con la sustituta
+    justificada pasa a medirse, y deja de haber cartera sin medir."""
+    sin_sustituta = {**PARAMETROS_DEL_FORMULARIO, "tasas_sustitutas": {}}
+    assert analizar(_cortes(), sin_sustituta)["exposicion"]["sin_medir"] == pytest.approx(10000.0)
+
+    r = analizar(_cortes(), dict(PARAMETROS_DEL_FORMULARIO))
+    banda = next(t for t in r["matriz"]["tramos"]
+                 if t["segmento"] == "NO-RELACIONADOS" and t["tramo"] == "Más de 730 días")
+    assert banda["tasa_perdida"] == pytest.approx(0.95)
+    assert r["exposicion"]["sin_medir"] == pytest.approx(0.0)
+    assert r["medicion_completa"] is True

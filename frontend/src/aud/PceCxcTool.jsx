@@ -1,11 +1,15 @@
 import { useState } from "react";
 import { pceCxcAnalizar, pceCxcDescargarExcel } from "../api.js";
 import {
+  SEGMENTOS,
   bandasDeLaPolitica,
   carteraMedidaDe,
   coberturaDe,
   controlDeLaCohorte,
+  evaluacionIndividualCompleta,
+  filasIncompletas,
   parametrosDeLaCorrida,
+  tasaSustitutaCompleta,
   tramosVisibles,
 } from "./pceCxc.js";
 import "./pceCxc.css";
@@ -15,6 +19,9 @@ const CORTES = [
   { k: "a2", t: "Corte intermedio (t-1)" },
   { k: "a3", t: "Corte actual" },
 ];
+
+const TASA_SUSTITUTA_VACIA = { segmento: SEGMENTOS[0], banda: "", tasa: "", justificacion: "" };
+const EVALUACION_VACIA = { segmento: SEGMENTOS[0], cliente: "", ecl: "", justificacion: "" };
 
 const money = (v) =>
   v == null || isNaN(v)
@@ -27,6 +34,7 @@ export default function PceCxcTool({ projectId }) {
   const [fechas, setFechas] = useState({ a1: "", a2: "", a3: "" });
   const [datos, setDatos] = useState({
     entidad: "",
+    ruc: "",
     materialidad: "",
     umbral_individual: "",
     eeff_nr: "",
@@ -37,6 +45,15 @@ export default function PceCxcTool({ projectId }) {
     // blanco NO se envía: el papel lo declara «sin comparar» en vez de
     // suponer un 0 % que el cliente nunca afirmó.
     politica: {},
+    // Componente prospectivo (NIIF 9 5.5.17(c)). Vacío = 1,000, sin ajuste.
+    factor_nr: "",
+    factor_r: "",
+    justificacion_prospectivo: "",
+    // Tasas que sustituyen a la observada y saldos medidos uno por uno: el
+    // backend los acepta desde siempre y la pantalla no tenía por dónde
+    // ingresarlos.
+    tasas_sustitutas: [],
+    evaluaciones_individuales: [],
   });
   const [procesando, setProcesando] = useState(false);
   const [error, setError] = useState("");
@@ -44,6 +61,25 @@ export default function PceCxcTool({ projectId }) {
   const [descargando, setDescargando] = useState(false);
 
   const listo = CORTES.every((c) => archivos[c.k] && fechas[c.k]);
+
+  // Filas repetibles (tasas sustitutas y evaluaciones individuales): se
+  // añaden, se editan y se quitan sobre el mismo estado.
+  const agregarFila = (campo, vacia) =>
+    setDatos((d) => ({ ...d, [campo]: [...d[campo], { ...vacia }] }));
+  const editarFila = (campo, i, clave, valor) =>
+    setDatos((d) => ({
+      ...d,
+      [campo]: d[campo].map((f, j) => (j === i ? { ...f, [clave]: valor } : f)),
+    }));
+  const quitarFila = (campo, i) =>
+    setDatos((d) => ({ ...d, [campo]: d[campo].filter((_, j) => j !== i) }));
+
+  const bandas = bandasDeLaPolitica(datos.umbral_dias);
+  const sustitutasIncompletas = filasIncompletas(datos.tasas_sustitutas, tasaSustitutaCompleta);
+  const evaluacionesIncompletas = filasIncompletas(
+    datos.evaluaciones_individuales,
+    evaluacionIndividualCompleta
+  );
 
   async function calcular() {
     setProcesando(true);
@@ -133,6 +169,14 @@ export default function PceCxcTool({ projectId }) {
           />
         </label>
         <label>
+          RUC de la entidad
+          <input
+            value={datos.ruc}
+            placeholder="1791240154001"
+            onChange={(e) => setDatos({ ...datos, ruc: e.target.value })}
+          />
+        </label>
+        <label>
           Materialidad de desempeño
           <input
             type="number"
@@ -198,7 +242,7 @@ export default function PceCxcTool({ projectId }) {
           no provisionar una banda que nadie le preguntó.
         </p>
         <div className="pce-grid">
-          {bandasDeLaPolitica(datos.umbral_dias).map((banda) => (
+          {bandas.map((banda) => (
             <label key={banda}>
               {banda}
               <input
@@ -218,6 +262,207 @@ export default function PceCxcTool({ projectId }) {
             </label>
           ))}
         </div>
+      </fieldset>
+
+      <fieldset className="pce-politica">
+        <legend>Componente prospectivo (NIIF 9 5.5.17 c)</legend>
+        <p className="pce-hint">
+          Factor por el que se multiplica la tasa observada de cada segmento: <b>1,000 es sin
+          ajuste</b>, 1,100 es un 10 % más de pérdida esperada. La norma exige que el ajuste esté
+          sustentado (B5.5.51-52), así que <b>sin justificación escrita el factor no se aplica</b>{" "}
+          y queda el hallazgo «Ausencia del componente prospectivo». Un factor que lleve la tasa
+          sobre el 100 % se acota al importe en libros bruto y el papel lo declara.
+        </p>
+        <div className="pce-grid">
+          <label>
+            Factor · no relacionados
+            <input
+              type="number"
+              step="0.001"
+              min="0"
+              placeholder="1,000"
+              value={datos.factor_nr}
+              onChange={(e) => setDatos({ ...datos, factor_nr: e.target.value })}
+            />
+          </label>
+          <label>
+            Factor · relacionados
+            <input
+              type="number"
+              step="0.001"
+              min="0"
+              placeholder="1,000"
+              value={datos.factor_r}
+              onChange={(e) => setDatos({ ...datos, factor_r: e.target.value })}
+            />
+          </label>
+        </div>
+        <label className="pce-declaracion">
+          Justificación del ajuste prospectivo — variables, fuente y traslación al factor
+          <textarea
+            rows={2}
+            placeholder="P. ej.: proyección del PIB del sector del BCE (-2,1 % para 2026) trasladada a la tasa de la banda vencida con la elasticidad observada 2019-2024 (PT C-3)."
+            value={datos.justificacion_prospectivo}
+            onChange={(e) => setDatos({ ...datos, justificacion_prospectivo: e.target.value })}
+          />
+        </label>
+      </fieldset>
+
+      <fieldset className="pce-politica">
+        <legend>Tasas sustitutas por banda (opcional)</legend>
+        <p className="pce-hint">
+          Solo para las bandas sin historia propia en la cohorte, o cuya tasa observada no es
+          representativa. La tasa sustituta <b>manda sobre la observada</b> y exige justificación
+          escrita: sin ella no se envía y la banda se mide con la observada o queda sin medir.
+        </p>
+        {datos.tasas_sustitutas.map((fila, i) => (
+          <div key={i} className="pce-fila-editable">
+            <label>
+              Segmento
+              <select
+                value={fila.segmento}
+                onChange={(e) => editarFila("tasas_sustitutas", i, "segmento", e.target.value)}
+              >
+                {SEGMENTOS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Banda
+              <select
+                value={fila.banda}
+                onChange={(e) => editarFila("tasas_sustitutas", i, "banda", e.target.value)}
+              >
+                <option value="">(elija una banda)</option>
+                {bandas.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Tasa (%)
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max="100"
+                value={fila.tasa}
+                onChange={(e) => editarFila("tasas_sustitutas", i, "tasa", e.target.value)}
+              />
+            </label>
+            <label className="pce-ancha">
+              Justificación
+              <input
+                value={fila.justificacion}
+                placeholder="Analogía con el segmento comparable y referencia del papel"
+                onChange={(e) =>
+                  editarFila("tasas_sustitutas", i, "justificacion", e.target.value)
+                }
+              />
+            </label>
+            <button type="button" className="pce-quitar" onClick={() => quitarFila("tasas_sustitutas", i)}>
+              Quitar
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          className="pce-btn pce-btn-sec"
+          onClick={() => agregarFila("tasas_sustitutas", TASA_SUSTITUTA_VACIA)}
+        >
+          Añadir una tasa sustituta
+        </button>
+        {sustitutasIncompletas > 0 && (
+          <div className="pce-msg pce-warn">
+            {sustitutasIncompletas} tasa(s) sustituta(s) quedaron incompletas y <b>no se enviarán</b>:
+            hacen falta el segmento, la banda, la tasa y la justificación escrita.
+          </div>
+        )}
+      </fieldset>
+
+      <fieldset className="pce-politica">
+        <legend>Evaluaciones individuales medidas por el auditor (opcional)</legend>
+        <p className="pce-hint">
+          Pérdida esperada que el auditor midió uno por uno (litigio, concurso, acuerdo de pago).
+          Sustituye a la medición provisional con la tasa de la matriz para ese cliente y cubre
+          todo su saldo, así que exige justificación escrita. El importe va en dólares y no puede
+          ser negativo ni superar el saldo del cliente; un <b>0,00 declarado sí viaja</b>: «medí y
+          no hay pérdida» no es lo mismo que «no se midió».
+        </p>
+        {datos.evaluaciones_individuales.map((fila, i) => (
+          <div key={i} className="pce-fila-editable">
+            <label>
+              Segmento
+              <select
+                value={fila.segmento}
+                onChange={(e) =>
+                  editarFila("evaluaciones_individuales", i, "segmento", e.target.value)
+                }
+              >
+                {SEGMENTOS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Cliente (tal como aparece en el archivo)
+              <input
+                value={fila.cliente}
+                onChange={(e) =>
+                  editarFila("evaluaciones_individuales", i, "cliente", e.target.value)
+                }
+              />
+            </label>
+            <label>
+              Pérdida esperada (USD)
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={fila.ecl}
+                onChange={(e) => editarFila("evaluaciones_individuales", i, "ecl", e.target.value)}
+              />
+            </label>
+            <label className="pce-ancha">
+              Justificación
+              <input
+                value={fila.justificacion}
+                placeholder="Sustento de la estimación y referencia del papel"
+                onChange={(e) =>
+                  editarFila("evaluaciones_individuales", i, "justificacion", e.target.value)
+                }
+              />
+            </label>
+            <button
+              type="button"
+              className="pce-quitar"
+              onClick={() => quitarFila("evaluaciones_individuales", i)}
+            >
+              Quitar
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          className="pce-btn pce-btn-sec"
+          onClick={() => agregarFila("evaluaciones_individuales", EVALUACION_VACIA)}
+        >
+          Añadir una evaluación individual
+        </button>
+        {evaluacionesIncompletas > 0 && (
+          <div className="pce-msg pce-warn">
+            {evaluacionesIncompletas} evaluación(es) individual(es) quedaron incompletas y{" "}
+            <b>no se enviarán</b>: hacen falta el segmento, el cliente, el importe y la
+            justificación escrita.
+          </div>
+        )}
       </fieldset>
 
       <button className="pce-btn" disabled={!listo || procesando} onClick={calcular}>

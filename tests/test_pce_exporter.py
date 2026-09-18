@@ -1217,3 +1217,29 @@ def test_el_exportador_tolera_parametros_mal_formados_sin_reventar():
                        {"eeff": "sin desglose"}):
         wb = _abrir(construir_excel(resultado, parametros))
         assert len(wb.sheetnames) == 13, parametros
+
+
+# ---------------------------------------------------------------------------
+# T12 — La carátula declara lo que no se registró, en vez de dejarlo en blanco
+# ---------------------------------------------------------------------------
+
+def _valor_de_caratula(ws, concepto: str):
+    for fila in range(1, ws.max_row + 1):
+        if str(ws.cell(fila, 1).value or "").strip() == concepto:
+            return ws.cell(fila, 2).value
+    raise AssertionError(f"00-Caratula no tiene la fila '{concepto}'")
+
+
+def test_la_caratula_imprime_el_ruc_que_envia_la_pantalla():
+    ws = _abrir(construir_excel(RESULTADO, {"entidad": "ARCOLANDS S.A.",
+                                            "ruc": "1791240154001"}))["00-Caratula"]
+    assert _valor_de_caratula(ws, "RUC") == "1791240154001"
+
+
+def test_la_caratula_declara_el_ruc_y_la_entidad_que_no_se_registraron():
+    """Una celda vacía se lee como «no aplica», que es justo lo que el arreglo
+    de PRELIMINAR había decidido evitar: B7 quedaba en blanco mientras
+    «Preparado por» y «Revisado por» decían «(pendiente)»."""
+    ws = _abrir(construir_excel(RESULTADO, {}))["00-Caratula"]
+    assert _valor_de_caratula(ws, "RUC") == exporter.SIN_REGISTRAR
+    assert _valor_de_caratula(ws, "Entidad") == exporter.SIN_REGISTRAR
