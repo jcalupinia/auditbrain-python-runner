@@ -400,8 +400,16 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
 
     politica = _comparar_politica(_diccionario(parametros.get("politica"), "politica"),
                                   bandas, tramos)
+    # Los dos cortes que no fijan la exposición pero sí sostienen las tasas.
+    cortes_anteriores = [
+        {"archivo": c["nombre"], "rol": rol,
+         "cartera_no_leida": l["cartera_no_leida"],
+         "descartados_por_motivo": l["descartados_por_motivo"]}
+        for c, l, rol in zip(cortes[:2], leidos[:2],
+                             ("cohorte t-2", "corte intermedio t-1"))
+    ]
     hallazgos = _hallazgos(resumen, politica, parametros, factor_prospectivo_aplicado,
-                           justificacion, exposicion, actual, ancla)
+                           justificacion, exposicion, actual, ancla, cortes_anteriores)
     pendientes = _pendientes(resumen, parametros, coh, leidos, sin_medir_individual, politica)
 
     return {
@@ -529,18 +537,32 @@ def _comparar_politica(politica, bandas, tramos):
             "politica_declarada": not sin_politica}
 
 
+def _motivos_descartados(por_motivo) -> str:
+    """Motivos de descarte con sus filas y su importe, en una frase.
+
+    Las filas idénticas repetidas no son cartera perdida (el saldo ya entró con
+    la primera aparición), así que no se nombran aquí.
+    """
+    motivos = ", ".join(
+        f"{d['motivo']} ({d['filas']} fila{'s' if d['filas'] != 1 else ''}, "
+        f"USD {d['importe']:,.2f})"
+        for d in por_motivo or []
+        if d["motivo"] != MOTIVO_FILA_REPETIDA)
+    return motivos or "motivo no registrado en la corrida"
+
+
 def _hallazgos(resumen, politica, parametros, factor_prospectivo_aplicado, justificacion,
-               exposicion=None, actual=None, ancla=False):
+               exposicion=None, actual=None, ancla=False, cortes_anteriores=None):
     h = []
     exposicion = exposicion or {}
     actual = actual or {}
     descartado = float(exposicion.get("descartado_en_lectura") or 0)
-    if descartado > 0.005:
-        motivos = ", ".join(
-            f"{d['motivo']} ({d['filas']} fila{'s' if d['filas'] != 1 else ''}, "
-            f"USD {d['importe']:,.2f})"
-            for d in actual.get("descartados_por_motivo") or []
-            if d["motivo"] != MOTIVO_FILA_REPETIDA)
+    # `descartado > 0.005` dejaba fuera el caso de una nota de crédito ilegible:
+    # el importe NETO de lo descartado puede ser acreedor y seguía sin aparecer
+    # ni en la pantalla, ni en el papel, ni como hallazgo. Lo que no se pudo
+    # leer se declara por su magnitud, no por su signo.
+    if abs(descartado) > 0.005:
+        motivos = _motivos_descartados(actual.get("descartados_por_motivo"))
         efecto = (f"La medición se hizo sobre USD {float(actual.get('total_saldo') or 0):,.2f} y no "
                   f"sobre el total del archivo.")
         if ancla:
@@ -548,6 +570,10 @@ def _hallazgos(resumen, politica, parametros, factor_prospectivo_aplicado, justi
                        "cartera_EEFF / total_del_archivo absorbe el hueco: ese importe reaparece "
                        "como exposición repartida sobre las filas que sí se leyeron, y cambia la "
                        "mezcla por banda.")
+        if descartado < 0:
+            efecto += (" El importe descartado es NETO ACREEDOR: entre las filas ilegibles hay "
+                       "notas de crédito, así que la cartera medida está sobrevalorada en ese "
+                       "importe.")
         h.append({"titulo": "Cartera descartada en la lectura del corte actual", "riesgo": "Alto",
                   "condicion": f"USD {descartado:,.2f} del análisis de antigüedad del corte actual "
                                f"no se pudieron leer: {motivos}.",
@@ -559,6 +585,33 @@ def _hallazgos(resumen, politica, parametros, factor_prospectivo_aplicado, justi
                   "recomendacion": "Solicitar el análisis de antigüedad con número de documento y "
                                    "fecha de vencimiento en todas las filas, o depurar esas filas "
                                    "con el cliente antes de volver a calcular."})
+    # Los cortes t-2 y t-1 no fijan la exposición, pero sostienen las TASAS: la
+    # cohorte del corte más antiguo es el denominador de toda la matriz y el
+    # corte intermedio es el único control de coherencia de esa cohorte. Lo que
+    # no se pudo leer ahí no tenía hallazgo, ni pendiente, ni celda.
+    anteriores = [c for c in (cortes_anteriores or [])
+                  if abs(float(c.get("cartera_no_leida") or 0)) > 0.005]
+    if anteriores:
+        detalle = "; ".join(
+            f"{c['archivo']} ({c['rol']}): USD {float(c['cartera_no_leida']):,.2f} en "
+            f"{_motivos_descartados(c.get('descartados_por_motivo'))}"
+            for c in anteriores)
+        h.append({"titulo": "Cartera descartada en la lectura de los cortes anteriores",
+                  "riesgo": "Alto",
+                  "condicion": f"No se pudieron leer filas de los cortes que sostienen las tasas: "
+                               f"{detalle}.",
+                  "criterio": "NIIF 9 B5.5.35: la matriz se sustenta en la experiencia propia de "
+                              "la entidad, medida sobre la cartera completa de cada corte.",
+                  "causa": "Los análisis de antigüedad de los ejercicios anteriores traen filas "
+                           "sin número de documento o sin fecha de vencimiento.",
+                  "efecto": "La tasa de cada banda es remanente / saldo inicial de la cohorte: lo "
+                            "que no se leyó en el corte más antiguo falta en el denominador de "
+                            "TODAS las tasas, y lo que no se leyó en el corte intermedio invalida "
+                            "el control de coherencia de la cohorte. No es un detalle de "
+                            "trazabilidad: mueve la matriz entera.",
+                  "recomendacion": "Solicitar los tres análisis de antigüedad con número de "
+                                   "documento y fecha de vencimiento en todas las filas antes de "
+                                   "aceptar las tasas observadas."})
     negativa = float(exposicion.get("negativa") or 0)
     # El piso cero actúa en dos sitios -la matriz colectiva y la evaluación
     # individual- y el hallazgo tiene que declarar los dos. Un cliente

@@ -1058,3 +1058,64 @@ def test_ninguna_hoja_solapa_celdas_combinadas():
                         anterior = ocupadas.get((col, fil))
                         assert anterior is None, f"{hoja}: {rango} se pisa con {anterior}"
                         ocupadas[(col, fil)] = rango
+
+
+# ---------------------------------------------------------------------------
+# T5 — 02-Fuentes declara el IMPORTE de lo descartado, no solo el conteo
+# ---------------------------------------------------------------------------
+
+RESULTADO_DESCARTES = {
+    **RESULTADO,
+    "bitacora": {
+        **RESULTADO["bitacora"],
+        "cortes": [
+            {"archivo": "cartera_2023.xlsx", "fecha": "2023-12-31", "hoja": "Hoja1",
+             "fila_encabezado": 1, "mapeo": {"documento": 1}, "formato_fecha": "dmy",
+             "documentos": 10, "duplicados_exactos": 0, "documentos_repetidos": 0,
+             "descartados": 2, "descartados_importe": 900000.0, "cartera_no_leida": 900000.0,
+             "descartados_por_motivo": [
+                 {"motivo": "sin número de documento", "filas": 1, "importe": 900000.0},
+                 {"motivo": "saldo cero", "filas": 1, "importe": 0.0}],
+             "total": 100000.0},
+            {"archivo": "cartera_2024.xlsx", "fecha": "2024-12-31", "hoja": "Hoja1",
+             "fila_encabezado": 1, "mapeo": {"documento": 1}, "formato_fecha": "dmy",
+             "documentos": 8, "duplicados_exactos": 0, "documentos_repetidos": 0,
+             "descartados": 0, "descartados_importe": 0.0, "cartera_no_leida": 0.0,
+             "descartados_por_motivo": [], "total": 80000.0},
+            {"archivo": "cartera_2025.xlsx", "fecha": "2025-12-31", "hoja": "Hoja1",
+             "fila_encabezado": 1, "mapeo": {"documento": 1}, "formato_fecha": "dmy",
+             "documentos": 6, "duplicados_exactos": 0, "documentos_repetidos": 0,
+             "descartados": 1, "descartados_importe": -800000.0, "cartera_no_leida": -800000.0,
+             "descartados_por_motivo": [
+                 {"motivo": "sin número de documento", "filas": 1, "importe": -800000.0}],
+             "total": 100000.0},
+        ],
+    },
+}
+
+
+def _encabezados_de(ws) -> list[str]:
+    return [str(ws.cell(1, c).value or "") for c in range(1, ws.max_column + 1)]
+
+
+def test_fuentes_lleva_el_importe_de_la_cartera_que_no_se_pudo_leer():
+    """La hoja conservaba «Descartados» como CONTEO y ninguna columna de
+    importe: el dinero que el lector no pudo leer no aparecía en ninguna celda
+    de las trece hojas."""
+    ws = _abrir(construir_excel(RESULTADO_DESCARTES, {}))["02-Fuentes"]
+    encabezados = _encabezados_de(ws)
+    columna = next((c for c, t in enumerate(encabezados, start=1)
+                    if "no leída" in t.lower() or "no leida" in t.lower()), None)
+    assert columna, f"02-Fuentes no declara el importe no leído: {encabezados}"
+    assert ws.cell(2, columna).value == 900000.0
+    assert ws.cell(4, columna).value == -800000.0
+
+
+def test_fuentes_desglosa_lo_descartado_por_motivo_con_su_importe():
+    """Un conteo no dice cuánta cartera se perdió ni por qué."""
+    ws = _abrir(construir_excel(RESULTADO_DESCARTES, {}))["02-Fuentes"]
+    textos = " ".join(str(c.value or "") for fila in ws.iter_rows() for c in fila)
+    assert "sin número de documento" in textos
+    importes = [c.value for fila in ws.iter_rows() for c in fila
+                if isinstance(c.value, (int, float))]
+    assert 900000.0 in importes and -800000.0 in importes

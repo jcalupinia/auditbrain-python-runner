@@ -479,9 +479,18 @@ def _mapeo_texto(mapeo: Any) -> str:
 
 
 def _fuentes(wb: Workbook, resultado: dict[str, Any]) -> None:
+    """Qué se cargó de cada archivo y, sobre todo, qué NO se pudo leer.
+
+    La hoja llevaba «Descartados» como CONTEO y ninguna columna de importe: el
+    dinero que el lector no pudo leer no aparecía en ninguna celda de las trece
+    hojas, ni siquiera cuando el anclaje a los estados financieros lo repartía
+    sobre las filas que sí entraron. Ahora el importe tiene columna propia -con
+    su total- y un bloque que lo desglosa por motivo y por archivo.
+    """
     ws = wb.create_sheet("02-Fuentes")
     encabezado = ["Archivo", "Hoja", "Fila de encabezado", "Mapeo de columnas", "Formato de fecha",
-                  "Documentos", "Duplicados exactos", "Documentos repetidos", "Descartados", "Total"]
+                  "Documentos", "Duplicados exactos", "Documentos repetidos", "Descartados",
+                  "Cartera no leída", "Total"]
     _encabezados(ws, 1, encabezado)
     cortes = (resultado.get("bitacora") or {}).get("cortes") or []
 
@@ -498,23 +507,78 @@ def _fuentes(wb: Workbook, resultado: dict[str, Any]) -> None:
             _celda(ws, i, 7, corte.get("duplicados_exactos"), formato=FORMATO_ENTERO, alineacion=ALIN_DER)
             _celda(ws, i, 8, corte.get("documentos_repetidos"), formato=FORMATO_ENTERO, alineacion=ALIN_DER)
             _celda(ws, i, 9, corte.get("descartados"), formato=FORMATO_ENTERO, alineacion=ALIN_DER)
-            _celda(ws, i, 10, _numero(corte.get("total")), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+            # Importe de las filas que no se pudieron leer (sin las repeticiones
+            # idénticas, cuyo saldo ya entró con la primera aparición).
+            no_leida = _numero(corte.get("cartera_no_leida"))
+            c = _celda(ws, i, 10, 0.0 if no_leida is None else no_leida, formato=FORMATO_MONEDA,
+                       alineacion=ALIN_DER)
+            if no_leida is not None and abs(no_leida) > 0.005:
+                c.font = FUENTE_DATOS_ALERTA
+            _celda(ws, i, 11, _numero(corte.get("total")), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
     else:
         ultima = primera
         _celda(ws, primera, 1, "(sin cortes registrados en la bitácora de esta corrida)", alineacion=ALIN_IZQ)
-        for col in range(2, 11):
+        for col in range(2, 12):
             _celda(ws, primera, col, None, alineacion=ALIN_IZQ)
 
     fila_total = ultima + 1
     _celda(ws, fila_total, 9, "TOTAL", total=True, alineacion=ALIN_IZQ)
     _celda(ws, fila_total, 10, f"=SUM(J{primera}:J{ultima})", formato=FORMATO_MONEDA, total=True,
            alineacion=ALIN_DER)
+    _celda(ws, fila_total, 11, f"=SUM(K{primera}:K{ultima})", formato=FORMATO_MONEDA, total=True,
+           alineacion=ALIN_DER)
     for col in (1, 2, 3, 4, 5, 6, 7, 8):
         _celda(ws, fila_total, col, None, total=True)
 
-    _control_corte_intermedio(ws, resultado, fila_total + 2)
+    fila = _descartes_por_motivo(ws, cortes, fila_total + 2)
+    _control_corte_intermedio(ws, resultado, fila + 1)
 
-    _anchos(ws, {"A": 22, "B": 16, "C": 12, "D": 40, "E": 16, "F": 12, "G": 14, "H": 16, "I": 12, "J": 16})
+    _anchos(ws, {"A": 22, "B": 16, "C": 12, "D": 40, "E": 16, "F": 12, "G": 14, "H": 16, "I": 12,
+                 "J": 18, "K": 16})
+
+
+def _descartes_por_motivo(ws, cortes: list[dict[str, Any]], fila: int) -> int:
+    """Bloque con el importe que no se pudo leer, archivo por archivo y motivo
+    por motivo.
+
+    Un conteo no dice cuánta cartera se perdió ni por qué. Si no hubo descartes
+    se dice eso: un bloque ausente se lee como "no aplica".
+    """
+    _bloque(ws, fila, "Detalle de lo descartado en la lectura (importe, no solo conteo)", 11)
+    fila += 1
+    detalle = [(c, m) for c in cortes for m in (c.get("descartados_por_motivo") or [])]
+    if not detalle:
+        _celda(ws, fila, 1, "Ninguna fila se descartó en la lectura de los tres cortes: la "
+                            "cartera medida es la cartera completa de cada archivo.",
+               alineacion=ALIN_IZQ)
+        ws.merge_cells(start_row=fila, start_column=1, end_row=fila, end_column=11)
+        return fila + 1
+
+    congelado = ws.freeze_panes
+    _encabezados(ws, fila, ["Archivo", "Motivo del descarte", "Filas", "Importe"])
+    ws.freeze_panes = congelado
+    fila += 1
+    for corte, motivo in detalle:
+        _celda(ws, fila, 1, corte.get("archivo", ""), alineacion=ALIN_IZQ)
+        _celda(ws, fila, 2, str(motivo.get("motivo", "")), alineacion=ALIN_IZQ)
+        _celda(ws, fila, 3, _numero(motivo.get("filas")), formato=FORMATO_ENTERO,
+               alineacion=ALIN_DER)
+        importe = _numero(motivo.get("importe"))
+        c = _celda(ws, fila, 4, 0.0 if importe is None else importe, formato=FORMATO_MONEDA,
+                   alineacion=ALIN_DER)
+        if importe is not None and abs(importe) > 0.005:
+            c.font = FUENTE_DATOS_ALERTA
+        fila += 1
+    nota = ws.cell(fila, 1,
+                   "Las filas idénticas repetidas no restan cartera (su saldo ya entró con la "
+                   "primera aparición) y por eso no suman en «Cartera no leída». El resto sí: "
+                   "esa cartera no se midió, y con anclaje a los estados financieros su importe "
+                   "se reparte sobre las filas que sí se leyeron.")
+    nota.font = FUENTE_DATOS
+    nota.alignment = ALIN_IZQ
+    ws.merge_cells(start_row=fila, start_column=1, end_row=fila, end_column=11)
+    ws.row_dimensions[fila].height = 30
+    return fila + 1
 
 
 TIPOS_INCONSISTENCIA = {

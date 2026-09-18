@@ -634,3 +634,67 @@ def test_una_tasa_de_politica_mal_formada_es_error_de_entrada():
 def test_una_tasa_de_politica_fuera_de_rango_es_error_de_entrada():
     with pytest.raises(ValueError, match="entre 0 y 1"):
         analizar(_cortes(), {"politica": {"0 a 30 días": 42}})
+
+
+# ---------------------------------------------------------------------------
+# T4 y T5 — La cartera que el lector no pudo leer se declara SIEMPRE: sume en
+#           positivo o en negativo, y en cualquiera de los tres cortes.
+# ---------------------------------------------------------------------------
+
+def _corte_con_fila_ilegible(saldo, anio):
+    """Una nota de crédito sin número de documento: el lector la descarta."""
+    return _xlsx([("ALFA", "F-1", "NO-RELACIONADOS", date(2023, 9, 1), date(2023, 12, 1), 100000.0),
+                  ("SIN DOCUMENTO", "", "NO-RELACIONADOS", date(anio, 9, 1), date(anio, 11, 1),
+                   saldo)])
+
+
+def test_la_cartera_descartada_se_declara_aunque_sume_en_negativo():
+    """`if descartado > 0.005` dejaba fuera el caso de la nota de crédito: el
+    importe no aparecía en la pantalla, ni en el papel, ni como hallazgo."""
+    cortes = _cortes()
+    cortes[2]["contenido"] = _corte_con_fila_ilegible(-800000.0, 2025)
+    r = analizar(cortes, {"umbral_dias_incumplimiento": 730})
+
+    assert r["exposicion"]["descartado_en_lectura"] == pytest.approx(-800000.0)
+    hallazgo = next((h for h in r["hallazgos"]
+                     if h["titulo"] == "Cartera descartada en la lectura del corte actual"), None)
+    assert hallazgo is not None, "el hallazgo tiene que dispararse también en negativo"
+    assert "800,000.00" in hallazgo["condicion"]
+
+
+def test_la_cartera_descartada_en_la_cohorte_se_declara():
+    """Lo ilegible en el corte t-2 distorsiona TODAS las tasas: la cohorte es el
+    denominador de la matriz entera, y no había hallazgo, ni pendiente, ni
+    celda."""
+    cortes = _cortes()
+    cortes[0]["contenido"] = _corte_con_fila_ilegible(900000.0, 2023)
+    r = analizar(cortes, {"umbral_dias_incumplimiento": 730})
+
+    hallazgo = next((h for h in r["hallazgos"]
+                     if h["titulo"] == "Cartera descartada en la lectura de los cortes anteriores"),
+                    None)
+    assert hallazgo is not None
+    assert "900,000.00" in hallazgo["condicion"]
+    assert "2023.xlsx" in hallazgo["condicion"]
+    assert "tasa" in hallazgo["efecto"].lower()
+
+
+def test_la_cartera_descartada_en_el_corte_intermedio_se_declara():
+    """El corte t-1 controla la coherencia de la cohorte: lo que no se lee ahí
+    invalida ese control."""
+    cortes = _cortes()
+    cortes[1]["contenido"] = _corte_con_fila_ilegible(500000.0, 2024)
+    r = analizar(cortes, {"umbral_dias_incumplimiento": 730})
+
+    hallazgo = next((h for h in r["hallazgos"]
+                     if h["titulo"] == "Cartera descartada en la lectura de los cortes anteriores"),
+                    None)
+    assert hallazgo is not None
+    assert "2024.xlsx" in hallazgo["condicion"]
+
+
+def test_sin_cartera_ilegible_no_se_emite_el_hallazgo_de_los_cortes_anteriores():
+    """Lo que no ocurrió no se declara: el hallazgo no puede ser de rutina."""
+    r = analizar(_cortes(), {"umbral_dias_incumplimiento": 730})
+    titulos = [h["titulo"] for h in r["hallazgos"]]
+    assert "Cartera descartada en la lectura de los cortes anteriores" not in titulos
