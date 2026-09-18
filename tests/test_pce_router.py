@@ -113,6 +113,9 @@ def test_rechaza_archivo_mayor_al_limite_413(client, monkeypatch):
     detalle = r.json()["detail"].lower()
     # El mensaje debe mencionar el límite en MB
     assert "mb" in detalle, f"El mensaje no menciona el límite en MB: {r.json()['detail']}"
+    # ...y decir qué hacer cuando el archivo depurado sigue sin entrar: quien sube
+    # un análisis de 130.000 filas necesita la salida, no solo la negativa.
+    assert "por segmento" in detalle and "lotes" in detalle,         f"El mensaje no indica cómo proceder con un archivo demasiado grande: {r.json()['detail']}"
 
 
 def test_sin_rol_staff_no_puede_consultar_corrida(client):

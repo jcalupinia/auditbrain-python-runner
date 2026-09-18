@@ -23,10 +23,20 @@ from backend.app.db.session import get_db
 
 router = APIRouter(prefix="/aud/pce-cxc", tags=["aud-pce-cxc"])
 
-#: Límite por archivo. Los análisis de antigüedad de cartera rara vez superan
-#: unos pocos MB incluso con miles de filas; 25 MB da margen amplio sin abrir
-#: la puerta a una carga que agote la memoria del proceso.
-MAX_BYTES_POR_ARCHIVO = 25 * 1024 * 1024
+#: Límite por archivo, fijado con la medición de `scripts/bench_pce_cxc.py`
+#: sobre un análisis de antigüedad real (132.946 filas). Lo que importa no es
+#: leer un archivo sino los TRES de una petición, que el servicio mantiene en
+#: memoria a la vez. Medido en el equipo de desarrollo, por petición completa:
+#:
+#:     7,2 MB c/u ( 60.000 filas)  ->  46,9 s  y 156 MB de pico
+#:    10,8 MB c/u ( 90.000 filas)  ->  69,4 s  y 214 MB de pico
+#:    16,0 MB c/u (132.941 filas)  -> 111,2 s  y 303 MB de pico
+#:
+#: El plan starter de Render tiene 512 MB para todo el proceso, así que el
+#: techo de trabajo es 250 MB de pico: los 25 MB por archivo que había antes
+#: dejaban pasar tres archivos de 133.000 filas y reventaban ese techo. 10 MB
+#: es el escalón medido que sí entra (el de 10,8 MB ya quedó en 214 MB).
+MAX_BYTES_POR_ARCHIVO = 10 * 1024 * 1024
 
 
 @router.post("/analizar")
@@ -69,7 +79,9 @@ async def analizar(archivos: list[UploadFile] = File(...),
                 413,
                 f"{archivo.filename}: supera el límite de {limite_mb} MB por archivo. "
                 "Depure el análisis de antigüedad (por ejemplo, quite columnas u hojas que no "
-                "aporten al cálculo) y vuelva a subirlo.",
+                "aporten al cálculo) y vuelva a subirlo. Si aun depurado lo supera, el archivo "
+                "excede lo que el servicio puede procesar en línea; divida el análisis por "
+                "segmento o solicite el procesamiento por lotes.",
             )
         try:
             fecha_corte = date.fromisoformat(fecha)
