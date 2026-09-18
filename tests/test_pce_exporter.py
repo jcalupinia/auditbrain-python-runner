@@ -9,6 +9,7 @@ from openpyxl.utils import range_boundaries
 
 from backend.app.aud.pce_cxc import exporter
 from backend.app.aud.pce_cxc.exporter import construir_excel
+from tests.excel_calc import Libro
 
 
 class _FechaFija(date):
@@ -705,15 +706,22 @@ def test_el_total_individual_cuadra_con_el_ecl_total_de_la_corrida():
 def test_la_matriz_redondea_la_perdida_como_el_motor():
     """`medir_ecl` redondea la PCE de cada banda a dos decimales antes de
     sumarla; la fórmula del Excel arrastraba todos los decimales del producto
-    y el total del papel se apartaba del que guardó la corrida (M3)."""
+    y el total del papel se apartaba del que guardó la corrida (M3).
+
+    Se comprueba EL NÚMERO que produce la celda, no el texto de la fórmula:
+    exigir que "empiece por =ROUND( y termine en ,2)" verifica la
+    implementación y no el comportamiento, y era el hueco por el que pasaba
+    que el libro no aplicara los acotamientos del motor.
+    """
     resultado = {"matriz": {"tramos": [
         {"segmento": "NO-RELACIONADOS", "tramo": "Por vencer",
          "exposicion": 1000.01, "tasa_perdida": 0.3333, "ecl": 333.30},
     ]}}
-    ws = _abrir(construir_excel(resultado, {}))["05-Matriz"]
-    formula = str(ws.cell(2, 6).value)
-    assert formula.startswith("=ROUND("), formula
-    assert formula.endswith(",2)"), formula
+    libro = Libro(_abrir(construir_excel(resultado, {})))
+    # 1000,01 x 0,3333 = 333,303333; el motor archiva 333,30 y la celda tiene
+    # que dar exactamente eso, no el producto con todos sus decimales.
+    assert libro.numero("05-Matriz", "F2") == 333.30
+    assert libro.numero("05-Matriz", "F3") == 333.30  # la fila TOTAL
 
 
 # ---------------------------------------------------------------------------

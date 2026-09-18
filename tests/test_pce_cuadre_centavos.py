@@ -20,14 +20,14 @@ resultados: en el tramo «181 a 360 días» de NO-RELACIONADOS el servicio
 guardaba 10.925,64 y Excel mostraba 10.925,65.
 """
 import io
-import re
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 
 from openpyxl import Workbook, load_workbook
 
 from backend.app.aud.pce_cxc.exporter import construir_excel
 from backend.app.aud.pce_cxc.service import analizar
+from tests.excel_calc import Libro
 
 # ---------------------------------------------------------------------------
 # Los tres cortes de prueba (mismos datos que `app/pruebas/cartera_*.xlsx`)
@@ -103,55 +103,15 @@ def _cortes() -> list[dict]:
 
 # ---------------------------------------------------------------------------
 # Lectura de las celdas: openpyxl no evalúa fórmulas y el libro se escribe sin
-# valores cacheados, así que aquí se resuelven -a mano y solo- las formas
-# exactas que escribe el exportador. Es deliberado: si el exportador cambia la
-# fórmula, esta prueba deja de reconocerla y falla, que es lo que se quiere.
+# valores cacheados, así que las evalúa ``tests/excel_calc.py``, que recorre
+# las referencias entre hojas igual que lo haría Excel. Antes aquí se
+# reconocían A MANO las formas exactas que escribía el exportador, y eso ataba
+# la prueba al TEXTO de la fórmula en vez de al número que produce: pasaba
+# igual aunque la fórmula no aplicara los acotamientos del motor.
 # ---------------------------------------------------------------------------
-
-_REF_TASAS = re.compile(r"^='04-Tasas'!([A-Z]+)(\d+)$")
-_IF_ACOTADA = re.compile(r'^=IF\(C(\d+)="SIN BASE","SIN MEDIR",'
-                         r'IF\(C\1>1,1,IF\(C\1<0,0,C\1\)\)\)$')
-_IF_COHORTE = re.compile(r"^=IF\('03-Cohorte'!D(\d+)=0,\"SIN BASE\","
-                         r"'03-Cohorte'!E\1/'03-Cohorte'!D\1\)$")
-_IF_AJUSTE = re.compile(r'^=IF\(A(\d+)="RELACIONADOS",AjusteProspectivoRelacionados,'
-                        r'AjusteProspectivoNoRelacionados\)$')
-
 
 def _dec(valor) -> Decimal:
     return Decimal(str(valor))
-
-
-def _centavos(valor: Decimal) -> Decimal:
-    return valor.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-
-def _tasa_de_la_celda(wb, valor) -> Decimal:
-    """Resuelve la tasa que el papel MUESTRA para una fila de 05-Matriz."""
-    if isinstance(valor, (int, float)):
-        return _dec(valor)
-    m = _REF_TASAS.match(str(valor))
-    assert m, f"05-Matriz D debería referenciar 04-Tasas: {valor!r}"
-    celda = wb["04-Tasas"][f"{m.group(1)}{m.group(2)}"].value
-    if isinstance(celda, (int, float)):
-        return _dec(celda)
-    m = _IF_ACOTADA.match(str(celda))
-    assert m, f"04-Tasas D inesperada: {celda!r}"
-    ratio = wb["04-Tasas"][f"C{m.group(1)}"].value
-    m = _IF_COHORTE.match(str(ratio))
-    assert m, f"04-Tasas C inesperada: {ratio!r}"
-    fila = m.group(1)
-    inicial = _dec(wb["03-Cohorte"][f"D{fila}"].value)
-    remanente = _dec(wb["03-Cohorte"][f"E{fila}"].value)
-    assert inicial != 0
-    return min(max(remanente / inicial, Decimal(0)), Decimal(1))
-
-
-def _ajuste_de_la_celda(wb, valor, segmento: str) -> Decimal:
-    if isinstance(valor, (int, float)):
-        return _dec(valor)
-    assert _IF_AJUSTE.match(str(valor)), f"05-Matriz E inesperada: {valor!r}"
-    fila = 6 if segmento == "RELACIONADOS" else 5
-    return _dec(wb["01-Parametros"][f"B{fila}"].value or 0)
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +130,8 @@ def _cuadre(resultado, parametros):
     de las de 06-Individual, cuántas bandas se midieron y qué bandas no cuadran
     contra lo que archivó la corrida.
     """
-    wb = load_workbook(io.BytesIO(construir_excel(resultado, parametros)))
+    libro = Libro(load_workbook(io.BytesIO(construir_excel(resultado, parametros))))
+    wb = libro.wb
     ws = wb["05-Matriz"]
     por_banda = {(t.get("segmento"), t["tramo"]): t for t in resultado["matriz"]["tramos"]}
     suma_libro = Decimal("0.00")
@@ -181,12 +142,11 @@ def _cuadre(resultado, parametros):
         if banda in (None, "TOTAL") or ws.cell(fila, 6).value == "SIN MEDIR":
             continue
         exposicion = _dec(ws.cell(fila, 3).value)
-        tasa = _tasa_de_la_celda(wb, ws.cell(fila, 4).value)
-        ajuste = _ajuste_de_la_celda(wb, ws.cell(fila, 5).value, str(segmento))
-        assert str(ws.cell(fila, 6).value) == f"=ROUND(C{fila}*D{fila}*(1+E{fila}),2)"
-        # Lo que obtiene quien reabre el papel y rehace la cuenta con las
-        # cifras que tiene delante.
-        segun_el_papel = _centavos(exposicion * tasa * (Decimal(1) + ajuste))
+        tasa = _dec(libro.numero("05-Matriz", f"D{fila}"))
+        # Lo que obtiene quien reabre el papel y rehace la cuenta con las cifras
+        # que tiene delante: se EVALÚA la fórmula de la celda, no se
+        # reimplementa aquí la cuenta que se supone que hace.
+        segun_el_papel = _dec(libro.numero("05-Matriz", f"F{fila}"))
         archivado = _dec(por_banda[(segmento, banda)]["ecl"])
         if segun_el_papel != archivado:
             discrepancias.append(
