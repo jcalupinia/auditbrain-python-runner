@@ -1,3 +1,18 @@
+// Bandas de mora por defecto, en el mismo orden que `bandas.BANDAS_POR_DEFECTO`
+// del backend. La última es abierta y se desdobla en el umbral de incumplimiento.
+const BANDAS_BASE = [
+  "Por vencer",
+  "0 a 30 días",
+  "31 a 60 días",
+  "61 a 90 días",
+  "91 a 180 días",
+  "181 a 360 días",
+  "Más de 360 días",
+];
+const ULTIMA_BANDA = BANDAS_BASE[BANDAS_BASE.length - 1];
+const INICIO_BANDA_ABIERTA = 361;
+const UMBRAL_DIAS_POR_DEFECTO = 730;
+
 /**
  * Calcula la cartera medida: total menos lo sin medir menos lo sin estratificar.
  * @param {number} total - Cartera total según los estados financieros
@@ -69,6 +84,9 @@ export function parametrosDeLaCorrida(datos, fechas, projectId, ahora = new Date
     umbral_individual: Number(datos.umbral_individual) || 0,
     materialidad: Number(datos.materialidad) || 0,
     mayor_provision: String(datos.mayor_provision || "").trim(),
+    // Política de deterioro del cliente por banda. Lo que no se declaró no
+    // viaja: el backend lo deja «sin comparar», nunca en 0 %.
+    politica: politicaDeclarada(datos.politica),
     eeff: {
       no_relacionados: Number(datos.eeff_nr) || 0,
       relacionados: Number(datos.eeff_r) || 0,
@@ -111,4 +129,43 @@ export function coberturaDe(resultado) {
   const medida = carteraMedidaDe(resultado);
   if (medida == null || medida <= 0.005) return null;
   return (resultado?.ecl_total ?? 0) / medida;
+}
+
+/**
+ * Bandas de mora sobre las que se pide la política de deterioro del cliente.
+ *
+ * Es el mismo universo que arma el backend (`bandas.desdoblar`): las siete
+ * bandas por defecto, con la última abierta partida en el umbral de
+ * incumplimiento. Con el umbral del plan (730 días) son ocho. Si aquí faltara
+ * una banda, esa fila quedaría SIN COMPARAR en `07-Politica`.
+ * @param {number|string} umbralDias - Días de mora a partir de los cuales se presume incumplimiento
+ * @returns {string[]} Nombres de banda, en el orden del papel
+ */
+export function bandasDeLaPolitica(umbralDias) {
+  const umbral = Number(umbralDias) || UMBRAL_DIAS_POR_DEFECTO;
+  const previas = BANDAS_BASE.slice(0, -1);
+  if (umbral <= INICIO_BANDA_ABIERTA) return [...previas, ULTIMA_BANDA];
+  return [...previas, `${INICIO_BANDA_ABIERTA} a ${umbral} días`, `Más de ${umbral} días`];
+}
+
+/**
+ * Política de deterioro declarada por el auditor, lista para el backend.
+ *
+ * El formulario recoge PORCENTAJES ("2" = 2 %) y el servicio espera fracciones.
+ * Una banda en blanco NO se envía: el backend la deja «sin comparar» y levanta
+ * el pendiente correspondiente. Rellenarla con 0 % acusaría al cliente de no
+ * provisionar una banda que nunca se le preguntó.
+ * @param {object} politica - Porcentajes por banda, tal como se escribieron
+ * @returns {object} `{banda: fracción}` solo con las bandas declaradas
+ */
+export function politicaDeclarada(politica) {
+  const salida = {};
+  for (const [banda, valor] of Object.entries(politica || {})) {
+    const texto = String(valor ?? "").trim().replace(",", ".");
+    if (texto === "") continue;
+    const numero = Number(texto);
+    if (!isFinite(numero)) continue;
+    salida[banda] = numero / 100;
+  }
+  return salida;
 }

@@ -114,7 +114,10 @@ def _cortes_banda_medida_en_un_segmento_y_sin_historia_en_el_otro():
 
 
 def test_la_comparacion_contra_la_politica_no_diluye_lo_no_medido():
-    r = analizar(_cortes_banda_medida_en_un_segmento_y_sin_historia_en_el_otro(), {})
+    # La política del cliente se ingresa: el 0 % de esta banda es una afirmación
+    # suya, no un hueco que el sistema rellene (C2).
+    r = analizar(_cortes_banda_medida_en_un_segmento_y_sin_historia_en_el_otro(),
+                 {"politica": {"0 a 30 días": 0.0}})
     fila = next(f for f in r["politica"]["filas"] if f["banda"] == "0 a 30 días")
 
     assert fila["exposicion"] == pytest.approx(900000.0)
@@ -449,3 +452,67 @@ def test_la_cartera_medida_descuenta_tambien_el_saldo_individual_sin_tasa():
     assert r["exposicion"]["medida"] == pytest.approx(200000.0)
     assert r["medicion_completa"] is False
     assert r["porcentaje_sobre_cartera"] == pytest.approx(0.10)
+
+
+# ---------------------------------------------------------------------------
+# C2 — La política de deterioro del cliente se compara solo si se ingresó.
+# ---------------------------------------------------------------------------
+
+def _titulos(r):
+    return [h["titulo"] for h in r["hallazgos"]]
+
+
+TITULO_POLITICA = "Política de deterioro no sustentada en el comportamiento observado"
+
+
+def test_sin_la_politica_del_cliente_no_se_acusa_de_no_provisionar():
+    r = analizar(_cortes(), {"umbral_dias_incumplimiento": 730})
+    assert TITULO_POLITICA not in _titulos(r)
+    fila = next(f for f in r["politica"]["filas"] if f["banda"] == "0 a 30 días")
+    # Sin dato no hay 0 %: la fila queda sin comparar.
+    assert fila["tasa_politica"] is None
+    assert fila["provision_politica"] is None
+    assert fila["diferencia"] is None
+    assert fila["sin_comparar"] is True
+    assert r["politica"]["politica_declarada"] is False
+
+
+def test_sin_la_politica_del_cliente_se_levanta_un_pendiente():
+    r = analizar(_cortes(), {"umbral_dias_incumplimiento": 730})
+    pendiente = next(p for p in r["pendientes"]
+                     if p["variable"] == "Política de deterioro del cliente")
+    assert pendiente["responsable"] == "Cliente"
+    assert "no fue proporcionada" in pendiente["efecto"]
+
+
+def test_con_la_politica_en_cero_el_hallazgo_si_se_emite():
+    """El 0 % ingresado por el cliente sí es una afirmación suya, y se contrasta."""
+    politica = {"0 a 30 días": 0.0}
+    r = analizar(_cortes(), {"umbral_dias_incumplimiento": 730, "politica": politica})
+    assert TITULO_POLITICA in _titulos(r)
+    fila = next(f for f in r["politica"]["filas"] if f["banda"] == "0 a 30 días")
+    assert fila["tasa_politica"] == 0.0
+    assert fila["sin_comparar"] is False
+    assert fila["diferencia"] == pytest.approx(20000.0)
+
+
+def test_la_politica_parcial_deja_pendiente_solo_las_bandas_que_faltan():
+    r = analizar(_cortes(), {"umbral_dias_incumplimiento": 730,
+                             "politica": {"0 a 30 días": 0.02}})
+    fila = next(f for f in r["politica"]["filas"] if f["banda"] == "0 a 30 días")
+    assert fila["sin_comparar"] is False
+    assert fila["provision_politica"] == pytest.approx(4000.0)
+    # Las demás bandas no se ingresaron: no se comparan ni suman provisión.
+    assert r["politica"]["bandas_sin_politica"]
+    assert "0 a 30 días" not in r["politica"]["bandas_sin_politica"]
+    assert r["politica"]["provision_politica_total"] == pytest.approx(4000.0)
+    assert any(p["variable"] == "Política de deterioro del cliente" for p in r["pendientes"])
+
+
+def test_con_la_politica_completa_no_queda_pendiente_de_politica():
+    bandas = analizar(_cortes(), {"umbral_dias_incumplimiento": 730})["bitacora"]["bandas"]
+    r = analizar(_cortes(), {"umbral_dias_incumplimiento": 730,
+                             "politica": {b: 0.01 for b in bandas}})
+    assert not any(p["variable"] == "Política de deterioro del cliente" for p in r["pendientes"])
+    assert r["politica"]["politica_declarada"] is True
+    assert all(f["sin_comparar"] is False for f in r["politica"]["filas"])

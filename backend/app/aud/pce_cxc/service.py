@@ -378,7 +378,7 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
                                   bandas, tramos)
     hallazgos = _hallazgos(resumen, politica, parametros, factor_prospectivo_aplicado,
                            justificacion, exposicion, actual, ancla)
-    pendientes = _pendientes(resumen, parametros, coh, leidos, sin_medir_individual)
+    pendientes = _pendientes(resumen, parametros, coh, leidos, sin_medir_individual, politica)
 
     return {
         "exposicion": exposicion, "tasas": tasas, "detalle_cohorte": coh["detalle"],
@@ -435,6 +435,12 @@ def _comparar_politica(politica, bandas, tramos):
     exposición sin medir en el mismo denominador que la medida diluye la tasa
     observada -justo la pérdida cero disfrazada que este módulo prohíbe-, así
     que aquí se acumulan por separado.
+
+    Una banda cuya tasa de política NO se ingresó queda SIN COMPARAR
+    (`sin_comparar`, con `tasa_politica`, `provision_politica` y `diferencia`
+    en `None`): convertir lo desconocido en 0 % hacía que el papel acusara al
+    cliente de no provisionar una banda que nunca se le preguntó. Lo que falta
+    se declara como pendiente, no se rellena con cero.
     """
     por_banda: dict[str, dict[str, Any]] = {
         b["nombre"]: {"medida": 0.0, "sin_medir": 0.0, "ecl": None} for b in bandas
@@ -447,30 +453,48 @@ def _comparar_politica(politica, bandas, tramos):
             datos["medida"] += t["exposicion"]
             datos["ecl"] = t["ecl"] if datos["ecl"] is None else datos["ecl"] + t["ecl"]
 
-    filas, total = [], 0.0
+    filas, total, sin_politica = [], 0.0, []
     for b in bandas:
         nombre = b["nombre"]
         datos = por_banda[nombre]
         exposicion_medida = datos["medida"]
         exposicion_sin_medir = datos["sin_medir"]
         exposicion = exposicion_medida + exposicion_sin_medir
-        # La provisión de la política se calcula sobre la exposición total de
-        # la banda: es lo que el cliente provisiona hoy, mida o no mida el
-        # auditor cada segmento.
-        tasa = float(politica.get(nombre, politica.get(b["origen"], 0)) or 0)
-        provision = redondear(exposicion * tasa)
-        total += provision
+        cruda = politica.get(nombre, politica.get(b["origen"]))
+        if cruda is None or cruda == "":
+            # El dato no existe: la banda no se compara. Un 0 % aquí sería una
+            # afirmación sobre la política del cliente que nadie hizo.
+            tasa = None
+            provision = None
+            sin_politica.append(nombre)
+        else:
+            tasa = _numero(cruda, f"politica['{nombre}']")
+            if not 0 <= tasa <= 1:
+                raise ValueError(
+                    f"La tasa de política de la banda '{nombre}' es {tasa}: debe estar entre 0 y 1 "
+                    "(0,02 = 2 %). Corrija la política de deterioro del cliente y vuelva a calcular."
+                )
+            # La provisión de la política se calcula sobre la exposición total
+            # de la banda: es lo que el cliente provisiona hoy, mida o no mida
+            # el auditor cada segmento.
+            provision = redondear(exposicion * tasa)
+            total += provision
         ecl = datos["ecl"]
         tasa_observada = (ecl / exposicion_medida) if (ecl is not None and exposicion_medida > 0) else None
         filas.append({"banda": nombre, "banda_origen": b["origen"], "exposicion": redondear(exposicion),
                       "exposicion_medida": redondear(exposicion_medida),
                       "exposicion_sin_medir": redondear(exposicion_sin_medir),
                       "tasa_politica": tasa, "provision_politica": provision, "ecl": ecl,
-                      "tasa_observada": tasa_observada,
-                      "diferencia": None if ecl is None else redondear(ecl - provision)})
+                      "tasa_observada": tasa_observada, "sin_comparar": tasa is None,
+                      "diferencia": None if (ecl is None or tasa is None)
+                                    else redondear(ecl - provision)})
     bruta = sum(abs(f["diferencia"]) for f in filas if f["diferencia"] is not None)
     return {"filas": filas, "provision_politica_total": redondear(total),
-            "diferencia_bruta": redondear(bruta)}
+            "diferencia_bruta": redondear(bruta),
+            # Bandas cuya tasa de política no se ingresó, y si la política quedó
+            # declarada para TODAS las bandas.
+            "bandas_sin_politica": sin_politica,
+            "politica_declarada": not sin_politica}
 
 
 def _hallazgos(resumen, politica, parametros, factor_prospectivo_aplicado, justificacion,
@@ -546,8 +570,13 @@ def _hallazgos(resumen, politica, parametros, factor_prospectivo_aplicado, justi
     # Sobre lo medido (tasa_observada), no sobre la exposición total de la banda:
     # dividir entre el total diluiría el porcentaje con la parte sin medir, que
     # es justo la dilución silenciosa que esta comparación evita.
-    sub = [f for f in politica["filas"] if f["tasa_politica"] == 0 and f["tasa_observada"] is not None
-           and f["tasa_observada"] > 0.05]
+    # Solo se compara contra lo que el cliente declaró: una banda sin política
+    # ingresada queda fuera del hallazgo (antes su ausencia se convertía en 0 %
+    # y el papel la acusaba de no provisionar). Su falta se declara como
+    # pendiente en `_pendientes`.
+    sub = [f for f in politica["filas"]
+           if not f.get("sin_comparar") and f["tasa_politica"] == 0
+           and f["tasa_observada"] is not None and f["tasa_observada"] > 0.05]
     if sub:
         h.append({"titulo": "Política de deterioro no sustentada en el comportamiento observado",
                   "riesgo": "Alto",
@@ -567,8 +596,18 @@ def _hallazgos(resumen, politica, parametros, factor_prospectivo_aplicado, justi
     return h
 
 
-def _pendientes(resumen, parametros, coh, leidos, sin_medir_individual=0.0):
+def _pendientes(resumen, parametros, coh, leidos, sin_medir_individual=0.0, politica=None):
     p = []
+    sin_politica = (politica or {}).get("bandas_sin_politica") or []
+    if sin_politica:
+        p.append({"variable": "Política de deterioro del cliente", "responsable": "Cliente",
+                  "criticidad": "Alta",
+                  "efecto": "La política de deterioro del cliente no fue proporcionada para "
+                            f"{len(sin_politica)} banda(s) ({', '.join(sin_politica)}): esas "
+                            "filas quedan SIN COMPARAR en 07-Politica. Sin el dato no se puede "
+                            "concluir si la provisión registrada se aparta del comportamiento "
+                            "observado, y suponerla en 0 % acusaría al cliente de algo que "
+                            "nunca declaró."})
     if not parametros.get("materialidad"):
         p.append({"variable": "Materialidad de desempeño", "responsable": "Socio", "criticidad": "Alta",
                   "efecto": "Impide concluir sobre la significatividad del ajuste"})

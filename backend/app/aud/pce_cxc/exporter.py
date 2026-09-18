@@ -64,6 +64,9 @@ ALIN_DER = Alignment(horizontal="right", vertical="center")
 ALIN_CEN = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
 SEGMENTOS_TEXTO = "SIN MEDIR"
+#: Rótulo de la banda cuya política de deterioro el cliente no proporcionó:
+#: no se compara, y no vale 0 %.
+TEXTO_SIN_COMPARAR = "SIN COMPARAR"
 
 #: La pantalla rotula el papel como preliminar arriba y abajo. El libro que se
 #: archiva tiene que decir lo mismo: mientras el Socio no lo revise y apruebe,
@@ -853,6 +856,13 @@ def _individual(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -
 # ---------------------------------------------------------------------------
 
 def _politica(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> None:
+    """Contrasta la política de deterioro del cliente contra la matriz medida.
+
+    Una banda cuya tasa de política NO se ingresó no vale 0 %: se rotula
+    ``SIN COMPARAR`` y se declara al pie. Escribir 0 % afirmaba, en nombre del
+    cliente, que no provisiona esa banda -y de ahí salía un hallazgo de riesgo
+    Alto sobre un dato que nunca se le pidió-.
+    """
     ws = wb.create_sheet("07-Politica")
     _encabezados(ws, 1, ["Banda", "Banda de origen", "Exposición", "Tasa de la política",
                          "Provisión política", "PCE recálculo", "Diferencia"])
@@ -866,9 +876,27 @@ def _politica(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> 
             _celda(ws, i, 1, f.get("banda", ""), alineacion=ALIN_IZQ)
             _celda(ws, i, 2, f.get("banda_origen", ""), alineacion=ALIN_IZQ)
             _celda(ws, i, 3, _numero(f.get("exposicion")), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
-            _celda(ws, i, 4, _numero(f.get("tasa_politica")), formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
-            _celda(ws, i, 5, f"=C{i}*D{i}", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
-            if f.get("ecl") is None:
+            sin_comparar = bool(f.get("sin_comparar")) or f.get("tasa_politica") is None
+            if sin_comparar:
+                # La política de esta banda no se pidió ni se ingresó: no hay
+                # nada que multiplicar ni que diferenciar.
+                _celda(ws, i, 4, TEXTO_SIN_COMPARAR, alineacion=ALIN_CEN)
+                _celda(ws, i, 5, TEXTO_SIN_COMPARAR, alineacion=ALIN_CEN)
+            else:
+                _celda(ws, i, 4, _numero(f.get("tasa_politica")), formato=FORMATO_PORCENTAJE,
+                       alineacion=ALIN_DER)
+                _celda(ws, i, 5, f"=C{i}*D{i}", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+            if sin_comparar:
+                sumifs = (f"=SUMIFS('05-Matriz'!{matriz_refs['col_perdida']}{matriz_refs['primera']}:"
+                          f"{matriz_refs['col_perdida']}{matriz_refs['ultima']},"
+                          f"'05-Matriz'!{matriz_refs['col_banda']}{matriz_refs['primera']}:"
+                          f"{matriz_refs['col_banda']}{matriz_refs['ultima']},A{i})")
+                if f.get("ecl") is None:
+                    _celda(ws, i, 6, SEGMENTOS_TEXTO, alineacion=ALIN_CEN)
+                else:
+                    _celda(ws, i, 6, sumifs, formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+                _celda(ws, i, 7, TEXTO_SIN_COMPARAR, alineacion=ALIN_CEN)
+            elif f.get("ecl") is None:
                 # Ninguna banda del segmento tuvo tasa observada ni sustituta:
                 # no se recalcula desde 05-Matriz porque ahí tampoco hay nada
                 # medido para esa banda. Se rotula, no se pone en cero.
@@ -895,6 +923,18 @@ def _politica(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> 
     _celda(ws, fila_total, 5, f"=SUM(E{primera}:E{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
     _celda(ws, fila_total, 6, f"=SUM(F{primera}:F{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
     _celda(ws, fila_total, 7, f"=SUM(G{primera}:G{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
+
+    sin_politica = (resultado.get("politica") or {}).get("bandas_sin_politica") or []
+    if sin_politica:
+        nota = ws.cell(fila_total + 2, 1,
+                       f"La política de deterioro del cliente no fue proporcionada para "
+                       f"{len(sin_politica)} banda(s): {', '.join(str(b) for b in sin_politica)}. "
+                       "Esas filas quedan SIN COMPARAR; suponerlas en 0 % afirmaría, en nombre del "
+                       "cliente, que no provisiona esas bandas.")
+        nota.font = FUENTE_DATOS_ALERTA
+        nota.alignment = ALIN_IZQ
+        ws.merge_cells(start_row=fila_total + 2, start_column=1, end_row=fila_total + 2,
+                       end_column=7)
 
     _anchos(ws, {"A": 20, "B": 20, "C": 16, "D": 16, "E": 16, "F": 16, "G": 16})
     refs["politica"] = {"primera": primera, "ultima": ultima, "fila_total": fila_total}

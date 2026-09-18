@@ -37,3 +37,16 @@ def test_no_se_desdobla_si_el_umbral_cae_fuera_de_la_banda_abierta():
 def test_dias_sin_banda_es_error():
     with pytest.raises(ValueError):
         clasificar(50, [{"nombre": "1 a 30", "desde": 1, "hasta": 30, "origen": "1 a 30"}])
+
+
+def test_los_nombres_de_banda_estan_fijados_porque_la_pantalla_los_repite():
+    """La pantalla pide la política del cliente banda por banda y arma los
+    mismos nombres en `frontend/src/aud/pceCxc.js::bandasDeLaPolitica`. Si un
+    nombre cambia aquí sin cambiarlo allá, esa banda llega al servicio sin
+    política y queda «sin comparar» en silencio."""
+    assert [b["nombre"] for b in desdoblar(BANDAS_POR_DEFECTO, 730)] == [
+        "Por vencer", "0 a 30 días", "31 a 60 días", "61 a 90 días", "91 a 180 días",
+        "181 a 360 días", "361 a 730 días", "Más de 730 días",
+    ]
+    # Un umbral que no supera el inicio de la banda abierta no la desdobla.
+    assert [b["nombre"] for b in desdoblar(BANDAS_POR_DEFECTO, 361)][-1] == "Más de 360 días"

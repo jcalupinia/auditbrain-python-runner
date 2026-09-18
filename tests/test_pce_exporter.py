@@ -875,3 +875,42 @@ def test_el_libro_se_construye_con_un_resultado_vacio():
     dice que no los hay, no un 500 al descargar."""
     wb = _abrir(construir_excel({}, {}))
     assert len(wb.sheetnames) == 13
+
+
+# ---------------------------------------------------------------------------
+# C2 — La banda cuya política no se ingresó dice SIN COMPARAR, no 0 %.
+# ---------------------------------------------------------------------------
+
+RESULTADO_POLITICA_PARCIAL = {
+    **RESULTADO,
+    "politica": {
+        "filas": [
+            {"banda": "Por vencer", "banda_origen": "Por vencer", "exposicion": 80000.0,
+             "tasa_politica": 0.01, "provision_politica": 800.0, "ecl": 800.0,
+             "tasa_observada": 0.01, "sin_comparar": False, "diferencia": 0.0},
+            {"banda": "0 a 30 días", "banda_origen": "0 a 30 días", "exposicion": 20000.0,
+             "tasa_politica": None, "provision_politica": None, "ecl": 1000.0,
+             "tasa_observada": 0.05, "sin_comparar": True, "diferencia": None},
+        ],
+        "provision_politica_total": 800.0, "diferencia_bruta": 0.0,
+        "bandas_sin_politica": ["0 a 30 días"], "politica_declarada": False,
+    },
+}
+
+
+def test_la_banda_sin_politica_del_cliente_dice_sin_comparar_y_no_cero():
+    ws = _abrir(construir_excel(RESULTADO_POLITICA_PARCIAL, {}))["07-Politica"]
+    # Fila 2: la banda que sí tiene política se compara con fórmula.
+    assert ws["D2"].value == 0.01
+    assert ws["E2"].value == "=C2*D2"
+    # Fila 3: sin política ingresada no hay 0 % ni provisión calculada.
+    assert ws["D3"].value == "SIN COMPARAR"
+    assert ws["E3"].value == "SIN COMPARAR"
+    assert ws["G3"].value == "SIN COMPARAR"
+
+
+def test_la_hoja_de_politica_declara_que_bandas_no_se_pudieron_comparar():
+    ws = _abrir(construir_excel(RESULTADO_POLITICA_PARCIAL, {}))["07-Politica"]
+    textos = " ".join(str(c.value) for fila in ws.iter_rows() for c in fila if c.value)
+    assert "no fue proporcionada" in textos
+    assert "0 a 30 días" in textos

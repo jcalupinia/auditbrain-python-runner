@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { pceCxcAnalizar, pceCxcDescargarExcel } from "../api.js";
 import {
+  bandasDeLaPolitica,
   carteraMedidaDe,
   coberturaDe,
   parametrosDeLaCorrida,
@@ -31,6 +32,10 @@ export default function PceCxcTool({ projectId }) {
     eeff_r: "",
     umbral_dias: 730,
     mayor_provision: "",
+    // Política de deterioro del cliente, en % por banda. Lo que quede en
+    // blanco NO se envía: el papel lo declara «sin comparar» en vez de
+    // suponer un 0 % que el cliente nunca afirmó.
+    politica: {},
   });
   const [procesando, setProcesando] = useState(false);
   const [error, setError] = useState("");
@@ -181,6 +186,37 @@ export default function PceCxcTool({ projectId }) {
           de la provisión. Si se deja vacío, queda declarado como pendiente.
         </span>
       </label>
+
+      <fieldset className="pce-politica">
+        <legend>Política de deterioro del cliente (% por banda)</legend>
+        <p className="pce-hint">
+          Es el porcentaje que la entidad provisiona hoy en cada banda, según su política escrita.
+          La banda que se deje en blanco queda <b>sin comparar</b> en el papel de trabajo y se
+          declara como pendiente: el sistema no la supone en 0 %, porque eso acusaría al cliente de
+          no provisionar una banda que nadie le preguntó.
+        </p>
+        <div className="pce-grid">
+          {bandasDeLaPolitica(datos.umbral_dias).map((banda) => (
+            <label key={banda}>
+              {banda}
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max="100"
+                placeholder="sin declarar"
+                value={datos.politica[banda] ?? ""}
+                onChange={(e) =>
+                  setDatos({
+                    ...datos,
+                    politica: { ...datos.politica, [banda]: e.target.value },
+                  })
+                }
+              />
+            </label>
+          ))}
+        </div>
+      </fieldset>
 
       <button className="pce-btn" disabled={!listo || procesando} onClick={calcular}>
         Calcular la matriz

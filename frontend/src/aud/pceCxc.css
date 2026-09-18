@@ -127,3 +127,14 @@
   font: 400 13px/1.5 inherit;
 }
 .pce .pce-declaracion span { font-size: 11.5px; line-height: 1.5; color: var(--pce-soft); }
+
+/* Política de deterioro del cliente: se pide por banda, y lo que no se declara
+   queda «sin comparar» en el papel (nunca en 0 %). */
+.pce .pce-politica {
+  border: 1px solid var(--pce-line);
+  border-radius: 8px;
+  padding: 12px 14px 4px;
+  margin-bottom: 14px;
+}
+.pce .pce-politica legend { font-size: 12.5px; font-weight: 600; padding: 0 6px; }
+.pce .pce-politica .pce-hint { margin: 0 0 10px; }

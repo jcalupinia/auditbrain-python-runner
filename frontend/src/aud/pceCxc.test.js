@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CATEGORIES } from "./catalog.js";
 import {
   carteraMedida,
+  bandasDeLaPolitica,
   carteraMedidaDe,
   coberturaDe,
   fechaEmision,
@@ -211,5 +212,63 @@ describe("la pantalla toma la medición del motor (I8)", () => {
   it("sin resultado todavía, no inventa cifras", () => {
     expect(carteraMedidaDe(null)).toBeNull();
     expect(coberturaDe(null)).toBeNull();
+  });
+});
+
+describe("bandasDeLaPolitica (C2)", () => {
+  it("con el umbral de 730 días desdobla la banda abierta: ocho bandas", () => {
+    const bandas = bandasDeLaPolitica(730);
+    expect(bandas).toHaveLength(8);
+    expect(bandas[0]).toBe("Por vencer");
+    expect(bandas[6]).toBe("361 a 730 días");
+    expect(bandas[7]).toBe("Más de 730 días");
+  });
+
+  it("con un umbral que no supera el inicio de la banda abierta, no desdobla", () => {
+    const bandas = bandasDeLaPolitica(361);
+    expect(bandas).toHaveLength(7);
+    expect(bandas[6]).toBe("Más de 360 días");
+  });
+
+  it("sin umbral válido cae al del plan (730)", () => {
+    expect(bandasDeLaPolitica("")).toEqual(bandasDeLaPolitica(730));
+  });
+});
+
+describe("la política del cliente viaja con la corrida (C2)", () => {
+  const base = {
+    entidad: "ARCOLANDS S.A.",
+    materialidad: "12000",
+    umbral_individual: "100000",
+    eeff_nr: "195000",
+    eeff_r: "25000",
+    umbral_dias: 730,
+    mayor_provision: "",
+  };
+  const fechas = ["2022-12-31", "2023-12-31", "2024-12-31"];
+
+  it("manda cada banda declarada como fracción, no como porcentaje", () => {
+    const p = parametrosDeLaCorrida(
+      { ...base, politica: { "Por vencer": "0", "0 a 30 días": "2", "31 a 60 días": "12,5" } },
+      fechas,
+      null
+    );
+    expect(p.politica["Por vencer"]).toBe(0);
+    expect(p.politica["0 a 30 días"]).toBeCloseTo(0.02, 10);
+    expect(p.politica["31 a 60 días"]).toBeCloseTo(0.125, 10);
+  });
+
+  it("no manda las bandas que el auditor dejó en blanco: quedan sin comparar", () => {
+    const p = parametrosDeLaCorrida(
+      { ...base, politica: { "Por vencer": "", "0 a 30 días": "   ", "31 a 60 días": "3" } },
+      fechas,
+      null
+    );
+    expect(Object.keys(p.politica)).toEqual(["31 a 60 días"]);
+  });
+
+  it("sin política declarada manda un objeto vacío, no ceros", () => {
+    const p = parametrosDeLaCorrida(base, fechas, null);
+    expect(p.politica).toEqual({});
   });
 });
