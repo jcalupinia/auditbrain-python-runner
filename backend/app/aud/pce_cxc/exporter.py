@@ -40,6 +40,9 @@ from openpyxl.workbook.defined_name import DefinedName
 # no los vuelve a escribir. Un motivo nuevo que el exportador no conozca cae en
 # el rótulo genérico, nunca en un "SIN ACOTAR" que sería mentira.
 from backend.app.aud.pce_cxc.motor import PISO_CERO, TECHO_SALDO
+# Todo texto del cliente entra por aquí: ver el docstring de `texto.py` y el de
+# `_Formula`, unas líneas más abajo.
+from backend.app.aud.pce_cxc.texto import empieza_como_formula, limpiar_texto
 
 # ---------------------------------------------------------------------------
 # Formato (CLAUDE.md: Calibri 9 en datos, 10 negrita en totales, 11 negrita en
@@ -150,10 +153,48 @@ EPOCA_SIN_FECHA = datetime(2000, 1, 1)
 # Helpers de estilo, reutilizados por las trece hojas
 # ---------------------------------------------------------------------------
 
+class _Formula(str):
+    """Una fórmula ESCRITA POR EL PAPEL: lo único que llega a Excel como fórmula.
+
+    El texto que empieza por «=» es fórmula para `openpyxl`, y el papel escribe
+    dos clases de texto que empiezan así: las fórmulas que redacta este módulo
+    y el nombre de un cliente, de un archivo o de un documento que redactó el
+    CLIENTE. No se pueden distinguir mirando la cadena, así que la marca va en
+    el tipo: `_celda` escribe como fórmula lo que sea `_Formula` y **como texto
+    todo lo demás**.
+
+    La regla queda del lado seguro por construcción, igual que `motor.acotar`
+    obliga a recibir el motivo: un sumidero nuevo que imprima texto del cliente
+    queda saneado sin que nadie se acuerde de sanearlo, y quien quiera escribir
+    una fórmula tiene que decirlo. Ver `tests/test_pce_saneamiento.py`.
+    """
+
+    __slots__ = ()
+
+
+def _f(formula: str) -> _Formula:
+    """Marca una cadena como fórmula del papel (ver `_Formula`)."""
+    return _Formula(formula)
+
+
 def _celda(ws, fila: int, col: int, valor, *, formato: str | None = None,
            alineacion: Alignment | None = None, total: bool = False):
-    """Escribe un valor (o fórmula) y aplica el estilo estándar de la hoja."""
+    """Escribe un valor (o una `_Formula`) y aplica el estilo estándar de la hoja.
+
+    TODO texto que no sea `_Formula` se escribe como TEXTO, aunque empiece por
+    «=»: se conserva el dato tal cual -un papel que cambia el nombre del deudor
+    deja de ser evidencia- y se le quita a Excel la posibilidad de evaluarlo.
+    Cuando además empieza por un inicio de fórmula se marca con `quotePrefix`,
+    el prefijo de literal de Excel, que es lo que impide que se reinterprete al
+    PEGAR la celda en otra hoja.
+    """
+    if isinstance(valor, str) and not isinstance(valor, _Formula):
+        valor = limpiar_texto(valor)
     c = ws.cell(fila, col, valor)
+    if isinstance(valor, str) and not isinstance(valor, _Formula):
+        c.data_type = "s"
+        if empieza_como_formula(valor):
+            c.quotePrefix = True
     c.font = FUENTE_TOTAL if total else FUENTE_DATOS
     c.border = BORDE_TOTAL if total else BORDE_DATOS
     if total:
@@ -802,7 +843,7 @@ def _cohorte(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> N
             _celda(ws, i, 3, _numero(d.get("documentos")), formato=FORMATO_ENTERO, alineacion=ALIN_DER)
             _celda(ws, i, 4, _numero(d.get("inicial")), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
             _celda(ws, i, 5, _numero(d.get("remanente")), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
-            _celda(ws, i, 6, f"=D{i}-E{i}", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+            _celda(ws, i, 6, _f(f"=D{i}-E{i}"), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
     else:
         ultima = primera
         _celda(ws, primera, 1, "(sin bandas en la cohorte de esta corrida)", alineacion=ALIN_IZQ)
@@ -812,10 +853,10 @@ def _cohorte(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> N
     fila_total = ultima + 1
     _celda(ws, fila_total, 2, "TOTAL", total=True, alineacion=ALIN_IZQ)
     _celda(ws, fila_total, 1, None, total=True)
-    _celda(ws, fila_total, 3, f"=SUM(C{primera}:C{ultima})", formato=FORMATO_ENTERO, total=True, alineacion=ALIN_DER)
-    _celda(ws, fila_total, 4, f"=SUM(D{primera}:D{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
-    _celda(ws, fila_total, 5, f"=SUM(E{primera}:E{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
-    _celda(ws, fila_total, 6, f"=SUM(F{primera}:F{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
+    _celda(ws, fila_total, 3, _f(f"=SUM(C{primera}:C{ultima})"), formato=FORMATO_ENTERO, total=True, alineacion=ALIN_DER)
+    _celda(ws, fila_total, 4, _f(f"=SUM(D{primera}:D{ultima})"), formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
+    _celda(ws, fila_total, 5, _f(f"=SUM(E{primera}:E{ultima})"), formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
+    _celda(ws, fila_total, 6, _f(f"=SUM(F{primera}:F{ultima})"), formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
 
     _anchos(ws, {"A": 22, "B": 20, "C": 14, "D": 18, "E": 18, "F": 16})
     refs["cohorte"] = {"pares": pares, "primera": primera, "ultima": ultima, "hay_datos": bool(pares)}
@@ -898,8 +939,8 @@ def _tasas(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, Any], 
             # mostrar #¡DIV/0! cuando la banda no tuvo cartera inicial.
             if fila_coh is not None:
                 _celda(ws, i, 3,
-                       f'=IF(\'03-Cohorte\'!D{fila_coh}=0,"SIN BASE",'
-                       f'\'03-Cohorte\'!E{fila_coh}/\'03-Cohorte\'!D{fila_coh})',
+                       _f(f'=IF(\'03-Cohorte\'!D{fila_coh}=0,"SIN BASE",'
+                       f'\'03-Cohorte\'!E{fila_coh}/\'03-Cohorte\'!D{fila_coh})'),
                        formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
             else:
                 _celda(ws, i, 3, "SIN COHORTE", alineacion=ALIN_CEN)
@@ -942,7 +983,7 @@ def _tasas(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, Any], 
                 if (fila_coh is not None and observada is not None
                         and abs(float(observada) - aplicada) < 1e-12):
                     _celda(ws, i, 4,
-                           f'=IF(C{i}="SIN BASE","SIN MEDIR",IF(C{i}>1,1,IF(C{i}<0,0,C{i})))',
+                           _f(f'=IF(C{i}="SIN BASE","SIN MEDIR",IF(C{i}>1,1,IF(C{i}<0,0,C{i})))'),
                            formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
                 else:
                     _celda(ws, i, 4, aplicada, formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
@@ -1030,7 +1071,7 @@ def _matriz(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> No
             fila_tasa = (tasas_refs.get("filas_por_par") or {}).get(
                 (str(t.get("segmento") or ""), str(t.get("tramo") or "")))
             if fila_tasa:
-                _celda(ws, i, 4, f"='04-Tasas'!{tasas_refs['col_aplicada']}{fila_tasa}",
+                _celda(ws, i, 4, _f(f"='04-Tasas'!{tasas_refs['col_aplicada']}{fila_tasa}"),
                        formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
             else:
                 _celda(ws, i, 4, _numero(t["tasa_perdida"]), formato=FORMATO_PORCENTAJE,
@@ -1038,8 +1079,8 @@ def _matriz(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> No
             # El factor prospectivo es por segmento: se resuelve el nombre
             # definido según el segmento de ESTA fila (columna A), no un
             # nombre único compartido por toda la matriz.
-            _celda(ws, i, 5, f'=IF(A{i}="RELACIONADOS",AjusteProspectivoRelacionados,'
-                             f'AjusteProspectivoNoRelacionados)',
+            _celda(ws, i, 5, _f(f'=IF(A{i}="RELACIONADOS",AjusteProspectivoRelacionados,'
+                             f'AjusteProspectivoNoRelacionados)'),
                    formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
             # LGD y factor de descuento: los dos factores que el motor aplica y
             # la fórmula omitía. Una corrida anterior a estos campos no afirmó
@@ -1061,15 +1102,15 @@ def _matriz(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> No
             # Excel redondea medio hacia afuera del cero, el mismo criterio
             # contable de `motor.redondear`.
             _celda(ws, i, 8,
-                   f"=MIN(MAX(ROUND(C{i}*MIN(D{i}*(1+E{i}),1){severidad},2),0),MAX(C{i},0))",
+                   _f(f"=MIN(MAX(ROUND(C{i}*MIN(D{i}*(1+E{i}),1){severidad},2),0),MAX(C{i},0))"),
                    formato=FORMATO_MONEDA, alineacion=ALIN_DER)
             # El cálculo puro, sin acotar: es la evidencia de cuánto separó el
             # acotamiento y la única forma de que el revisor lo vea.
-            _celda(ws, i, 9, f"=ROUND(C{i}*D{i}*(1+E{i}){severidad},2)", formato=FORMATO_MONEDA,
+            _celda(ws, i, 9, _f(f"=ROUND(C{i}*D{i}*(1+E{i}){severidad},2)"), formato=FORMATO_MONEDA,
                    alineacion=ALIN_DER)
             _celda(ws, i, 10,
-                   f'=IF(H{i}>I{i}+0.005,"{ACOTADO_PISO}",'
-                   f'IF(H{i}<I{i}-0.005,"{ACOTADO_TASA}","{SIN_ACOTAR}"))',
+                   _f(f'=IF(H{i}>I{i}+0.005,"{ACOTADO_PISO}",'
+                   f'IF(H{i}<I{i}-0.005,"{ACOTADO_TASA}","{SIN_ACOTAR}"))'),
                    alineacion=ALIN_CEN)
     else:
         ultima = primera
@@ -1080,13 +1121,13 @@ def _matriz(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> No
     fila_total = ultima + 1
     _celda(ws, fila_total, 2, "TOTAL", total=True, alineacion=ALIN_IZQ)
     _celda(ws, fila_total, 1, None, total=True)
-    _celda(ws, fila_total, 3, f"=SUM(C{primera}:C{ultima})", formato=FORMATO_MONEDA, total=True,
+    _celda(ws, fila_total, 3, _f(f"=SUM(C{primera}:C{ultima})"), formato=FORMATO_MONEDA, total=True,
            alineacion=ALIN_DER)
     for col in (4, 5, 6, 7):
         _celda(ws, fila_total, col, None, total=True)
-    _celda(ws, fila_total, 8, f"=SUM(H{primera}:H{ultima})", formato=FORMATO_MONEDA, total=True,
+    _celda(ws, fila_total, 8, _f(f"=SUM(H{primera}:H{ultima})"), formato=FORMATO_MONEDA, total=True,
            alineacion=ALIN_DER)
-    _celda(ws, fila_total, 9, f"=SUM(I{primera}:I{ultima})", formato=FORMATO_MONEDA, total=True,
+    _celda(ws, fila_total, 9, _f(f"=SUM(I{primera}:I{ultima})"), formato=FORMATO_MONEDA, total=True,
            alineacion=ALIN_DER)
     _celda(ws, fila_total, 10, None, total=True)
 
@@ -1205,9 +1246,9 @@ def _individual(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -
                 # Corridas antiguas que no guardaron la PCE del caso.
                 _celda(ws, i, 4, _numero(caso.get("recuperacion_estimada")), formato=FORMATO_MONEDA,
                        alineacion=ALIN_DER)
-                _celda(ws, i, 5, f"=C{i}-D{i}", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+                _celda(ws, i, 5, _f(f"=C{i}-D{i}"), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
             else:
-                _celda(ws, i, 4, f"=C{i}-E{i}", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+                _celda(ws, i, 4, _f(f"=C{i}-E{i}"), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
                 _celda(ws, i, 5, ecl, formato=FORMATO_MONEDA, alineacion=ALIN_DER)
             # `saldo_sin_tasa` viaja en el resultado desde que se le dio campo
             # propio, pero el papel solo lo dejaba dentro de la frase del
@@ -1224,12 +1265,12 @@ def _individual(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -
                 _celda(ws, i, 7, NO_REGISTRADO, alineacion=ALIN_CEN)
                 _celda(ws, i, 10, NO_REGISTRADO, alineacion=ALIN_CEN)
             else:
-                c = _celda(ws, i, 6, f"=MIN(MAX(G{i},0),MAX(C{i},0))", formato=FORMATO_MONEDA,
+                c = _celda(ws, i, 6, _f(f"=MIN(MAX(G{i},0),MAX(C{i},0))"), formato=FORMATO_MONEDA,
                            alineacion=ALIN_DER)
                 _celda(ws, i, 7, sin_acotar, formato=FORMATO_MONEDA, alineacion=ALIN_DER)
                 d = _celda(ws, i, 10,
-                           '=IF(F{0}<G{0}-0.005,"{1}","{2}")'.format(
-                               i, ACOTADO_EXPOSICION_CASO, SIN_ACOTAR),
+                           _f('=IF(F{0}<G{0}-0.005,"{1}","{2}")'.format(
+                               i, ACOTADO_EXPOSICION_CASO, SIN_ACOTAR)),
                            alineacion=ALIN_CEN)
                 if caso.get("saldo_sin_tasa_acotado"):
                     d.font = FUENTE_DATOS_ALERTA
@@ -1260,7 +1301,7 @@ def _individual(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -
     _celda(ws, fila_total, 1, "TOTAL", total=True, alineacion=ALIN_IZQ)
     _celda(ws, fila_total, 2, None, total=True)
     for col in "CDEFGH":
-        _celda(ws, fila_total, ord(col) - 64, f"=SUM({col}{primera}:{col}{ultima})",
+        _celda(ws, fila_total, ord(col) - 64, _f(f"=SUM({col}{primera}:{col}{ultima})"),
                formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
     for col in (9, 10, 11, 12):
         _celda(ws, fila_total, col, None, total=True)
@@ -1317,7 +1358,7 @@ def _politica(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> 
                 # (`redondear(exposicion * tasa)`): sin él la celda arrastra
                 # todos los decimales del producto y `=SUM(E…)` acumula esas
                 # fracciones contra la provisión archivada.
-                _celda(ws, i, 5, f"=ROUND(C{i}*D{i},2)", formato=FORMATO_MONEDA,
+                _celda(ws, i, 5, _f(f"=ROUND(C{i}*D{i},2)"), formato=FORMATO_MONEDA,
                        alineacion=ALIN_DER)
             if sin_comparar:
                 sumifs = (f"=SUMIFS('05-Matriz'!{matriz_refs['col_perdida']}{matriz_refs['primera']}:"
@@ -1327,7 +1368,7 @@ def _politica(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> 
                 if f.get("ecl") is None:
                     _celda(ws, i, 6, SEGMENTOS_TEXTO, alineacion=ALIN_CEN)
                 else:
-                    _celda(ws, i, 6, sumifs, formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+                    _celda(ws, i, 6, _f(sumifs), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
                 _celda(ws, i, 7, TEXTO_SIN_COMPARAR, alineacion=ALIN_CEN)
             elif f.get("ecl") is None:
                 # Ninguna banda del segmento tuvo tasa observada ni sustituta:
@@ -1340,8 +1381,8 @@ def _politica(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> 
                          f"{matriz_refs['col_perdida']}{matriz_refs['ultima']},"
                          f"'05-Matriz'!{matriz_refs['col_banda']}{matriz_refs['primera']}:"
                          f"{matriz_refs['col_banda']}{matriz_refs['ultima']},A{i})")
-                _celda(ws, i, 6, sumifs, formato=FORMATO_MONEDA, alineacion=ALIN_DER)
-                _celda(ws, i, 7, f"=F{i}-E{i}", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+                _celda(ws, i, 6, _f(sumifs), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+                _celda(ws, i, 7, _f(f"=F{i}-E{i}"), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
     else:
         ultima = primera
         _celda(ws, primera, 1, "(sin bandas de política en esta corrida)", alineacion=ALIN_IZQ)
@@ -1359,20 +1400,20 @@ def _politica(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> 
     fila_total = ultima + 1
     _celda(ws, fila_total, 2, "TOTAL", total=True, alineacion=ALIN_IZQ)
     _celda(ws, fila_total, 1, None, total=True)
-    _celda(ws, fila_total, 3, f"=SUM(C{primera}:C{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
+    _celda(ws, fila_total, 3, _f(f"=SUM(C{primera}:C{ultima})"), formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
     _celda(ws, fila_total, 4, None, total=True)
     if hay_politica:
-        _celda(ws, fila_total, 5, f"=SUM(E{primera}:E{ultima})", formato=FORMATO_MONEDA,
+        _celda(ws, fila_total, 5, _f(f"=SUM(E{primera}:E{ultima})"), formato=FORMATO_MONEDA,
                total=True, alineacion=ALIN_DER)
     else:
         _celda(ws, fila_total, 5, TEXTO_SIN_COMPARAR, total=True, alineacion=ALIN_CEN)
     if hay_medido:
-        _celda(ws, fila_total, 6, f"=SUM(F{primera}:F{ultima})", formato=FORMATO_MONEDA,
+        _celda(ws, fila_total, 6, _f(f"=SUM(F{primera}:F{ultima})"), formato=FORMATO_MONEDA,
                total=True, alineacion=ALIN_DER)
     else:
         _celda(ws, fila_total, 6, SEGMENTOS_TEXTO, total=True, alineacion=ALIN_CEN)
     if hay_politica and hay_medido:
-        _celda(ws, fila_total, 7, f"=SUM(G{primera}:G{ultima})", formato=FORMATO_MONEDA,
+        _celda(ws, fila_total, 7, _f(f"=SUM(G{primera}:G{ultima})"), formato=FORMATO_MONEDA,
                total=True, alineacion=ALIN_DER)
     else:
         _celda(ws, fila_total, 7, TEXTO_SIN_COMPARAR, total=True, alineacion=ALIN_CEN)
@@ -1423,20 +1464,20 @@ def _conciliacion(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any])
     _celda(ws, 3, 1, "Cartera según EEFF", alineacion=ALIN_IZQ)
     tiene_eeff = conciliacion.get("saldo_contable") is not None
     if tiene_eeff:
-        _celda(ws, 3, 2, "=SaldoContable", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+        _celda(ws, 3, 2, _f("=SaldoContable"), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
     else:
         _celda(ws, 3, 2, "SIN EEFF (no conciliado)", alineacion=ALIN_CEN)
 
     _celda(ws, 4, 1, "Partida conciliatoria (archivo menos EEFF)", alineacion=ALIN_IZQ)
     if tiene_eeff:
-        _celda(ws, 4, 2, "=B2-B3", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+        _celda(ws, 4, 2, _f("=B2-B3"), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
     else:
         _celda(ws, 4, 2, "N/A", alineacion=ALIN_CEN)
 
     _celda(ws, 5, 1, "Exposición estratificada (05-Matriz + 06-Individual)", alineacion=ALIN_IZQ)
     _celda(ws, 5, 2,
-           f"='05-Matriz'!{matriz_refs['col_exposicion']}{matriz_refs['fila_total']}"
-           f"+'06-Individual'!{individual_refs['col_exposicion']}{individual_refs['fila_total']}",
+           _f(f"='05-Matriz'!{matriz_refs['col_exposicion']}{matriz_refs['fila_total']}"
+           f"+'06-Individual'!{individual_refs['col_exposicion']}{individual_refs['fila_total']}"),
            formato=FORMATO_MONEDA, alineacion=ALIN_DER)
 
     _celda(ws, 6, 1, "Exposición sin estratificar (EEFF que no se ubicó en ninguna banda)",
@@ -1445,18 +1486,18 @@ def _conciliacion(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any])
            alineacion=ALIN_DER)
 
     _celda(ws, 7, 1, "Cartera total analizada (estratificada + sin estratificar)", alineacion=ALIN_IZQ)
-    _celda(ws, 7, 2, "=B5+B6", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    _celda(ws, 7, 2, _f("=B5+B6"), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
 
     # Suma las bandas que 05-Matriz rotula SIN MEDIR y los saldos individuales
     # sin tasa: el mismo importe que la pantalla pinta en rojo.
     _celda(ws, 8, 1, "Exposición SIN MEDIR (bandas sin tasa y saldos individuales sin tasa)",
            alineacion=ALIN_IZQ)
     c = _celda(ws, 8, 2,
-               f"=SUMIFS('05-Matriz'!{matriz_refs['col_exposicion']}{matriz_refs['primera']}:"
+               _f(f"=SUMIFS('05-Matriz'!{matriz_refs['col_exposicion']}{matriz_refs['primera']}:"
                f"{matriz_refs['col_exposicion']}{matriz_refs['ultima']},"
                f"'05-Matriz'!{matriz_refs['col_perdida']}{matriz_refs['primera']}:"
                f"{matriz_refs['col_perdida']}{matriz_refs['ultima']},\"{SEGMENTOS_TEXTO}\")"
-               f"+'06-Individual'!{individual_refs['col_sin_medir']}{individual_refs['fila_total']}",
+               f"+'06-Individual'!{individual_refs['col_sin_medir']}{individual_refs['fila_total']}"),
                formato=FORMATO_MONEDA, alineacion=ALIN_DER)
     if (_numero(exposicion.get("sin_medir")) or 0.0) > 0.005:
         c.font = FUENTE_DATOS_ALERTA
@@ -1468,17 +1509,17 @@ def _conciliacion(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any])
     # que la pantalla pintaba 0,00.
     _celda(ws, 9, 1, "Cartera medida (estratificada menos la exposición sin medir, acotada)",
            alineacion=ALIN_IZQ)
-    _celda(ws, 9, 2, "=MIN(MAX(B10,0),MAX(B5,0))", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    _celda(ws, 9, 2, _f("=MIN(MAX(B10,0),MAX(B5,0))"), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
 
     # Y no actúa en silencio: la resta cruda y el motivo tienen celda propia,
     # igual que `05-Matriz` imprime la pérdida sin acotar junto a la acotada.
     _celda(ws, 10, 1, "Cartera medida SIN ACOTAR (la resta, tal cual)", alineacion=ALIN_IZQ)
-    _celda(ws, 10, 2, "=B5-B8", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    _celda(ws, 10, 2, _f("=B5-B8"), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
 
     _celda(ws, 11, 1, "Acotamiento aplicado a la cartera medida", alineacion=ALIN_IZQ)
     c = _celda(ws, 11, 2,
-               f'=IF(B9>B10+0.005,"{ACOTADO_PISO}",'
-               f'IF(B9<B10-0.005,"{ACOTADO_TECHO_CARTERA}","{SIN_ACOTAR}"))',
+               _f(f'=IF(B9>B10+0.005,"{ACOTADO_PISO}",'
+               f'IF(B9<B10-0.005,"{ACOTADO_TECHO_CARTERA}","{SIN_ACOTAR}"))'),
                alineacion=ALIN_CEN)
     if (resultado.get("exposicion") or {}).get("medida_acotada"):
         c.font = FUENTE_DATOS_ALERTA
@@ -1492,7 +1533,7 @@ def _conciliacion(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any])
 
     _celda(ws, 12, 1, "Estado", alineacion=ALIN_IZQ)
     if tiene_eeff:
-        _celda(ws, 12, 2, '=IF(ABS(B4)<0.01,"CUADRA","DIFERENCIA")', alineacion=ALIN_CEN)
+        _celda(ws, 12, 2, _f('=IF(ABS(B4)<0.01,"CUADRA","DIFERENCIA")'), alineacion=ALIN_CEN)
     else:
         _celda(ws, 12, 2, "N/A (sin EEFF para conciliar)", alineacion=ALIN_CEN)
 
@@ -1547,11 +1588,11 @@ def _tributario(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -
     _celda(ws, 2, 1, "Provisión contable acumulada (PCE total medida)", alineacion=ALIN_IZQ)
     formula_pce = (f"='05-Matriz'!{matriz_refs['col_perdida']}{matriz_refs['fila_total']}"
                   f"+'06-Individual'!{individual_refs['col_perdida']}{individual_refs['fila_total']}")
-    _celda(ws, 2, 2, formula_pce, formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    _celda(ws, 2, 2, _f(formula_pce), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
 
     _celda(ws, 3, 1, "Tope de la provisión ACUMULADA: 10 % de la cartera ESTRATIFICADA "
                      "(LORTI art. 10 núm. 11)", alineacion=ALIN_IZQ)
-    _celda(ws, 3, 2, f"={base}*0.1", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    _celda(ws, 3, 2, _f(f"={base}*0.1"), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
 
     # El tope del 10 % solo es contrastable sobre una cartera POSITIVA. Con la
     # cartera estratificada neta acreedora (notas de crédito por encima de las
@@ -1560,14 +1601,14 @@ def _tributario(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -
     # en un absurdo. Lo que no se puede contrastar se declara, igual que el
     # límite anual del 1 % de la fila 7.
     _celda(ws, 4, 1, "Exceso sobre el tope acumulado del 10 % (no deducible)", alineacion=ALIN_IZQ)
-    c = _celda(ws, 4, 2, f'=IF({base}<=0,"{TOPE_NO_CONTRASTABLE}",MAX(0,B2-B3))',
+    c = _celda(ws, 4, 2, _f(f'=IF({base}<=0,"{TOPE_NO_CONTRASTABLE}",MAX(0,B2-B3))'),
                formato=FORMATO_MONEDA, alineacion=ALIN_DER)
     if not tributario.get("tope_acumulado_verificable", True):
         c.font = FUENTE_DATOS_ALERTA
 
     _celda(ws, 5, 1, "1 % de la cartera ESTRATIFICADA — referencia del límite ANUAL de la "
                      "provisión del ejercicio", alineacion=ALIN_IZQ)
-    _celda(ws, 5, 2, f"={base}*0.01", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    _celda(ws, 5, 2, _f(f"={base}*0.01"), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
 
     _celda(ws, 6, 1, "Provisión del ejercicio (movimiento del período)", alineacion=ALIN_IZQ)
     _celda(ws, 6, 2, "NO PROPORCIONADA", alineacion=ALIN_CEN)

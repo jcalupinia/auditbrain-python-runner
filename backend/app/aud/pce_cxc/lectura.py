@@ -14,6 +14,7 @@ from openpyxl import load_workbook
 
 from backend.app.aud.pce_cxc.bandas import clasificar
 from backend.app.aud.pce_cxc.motor import redondear
+from backend.app.aud.pce_cxc.texto import limpiar_texto
 
 _PATRON_DMY = re.compile(r"^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$")
 _PATRON_ISO = re.compile(r"^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})")
@@ -270,7 +271,12 @@ def leer_cartera(contenido: bytes, nombre: str, corte, bandas, hoja=None, mapeo=
     for n, fila in enumerate(cuerpo, start=i_enc + 2):
         if fila is None or all(v is None or str(v).strip() == "" for v in fila):
             continue
-        documento = str(valor(fila, "documento") or "").strip()
+        # El texto del cliente se limpia AL ENTRAR, no al escribirlo: un
+        # carácter de control que el XML de Excel no admite hace que guardar el
+        # libro levante una excepción -un 500 por un dato de entrada- y, si el
+        # resultado ya se guardó con él, la descarga falla para siempre. El
+        # dato no se altera de ninguna otra forma (ver `texto.limpiar_texto`).
+        documento = limpiar_texto(valor(fila, "documento") or "").strip()
         saldo = a_numero(valor(fila, "saldo"))
         vencimiento = a_fecha(valor(fila, "vencimiento"), formato)
         if not documento:
@@ -282,7 +288,7 @@ def leer_cartera(contenido: bytes, nombre: str, corte, bandas, hoja=None, mapeo=
         if abs(saldo) < 0.005:
             descartados.append({"fila_origen": n, "motivo": "saldo cero", "saldo": saldo})
             continue
-        cliente = str(valor(fila, "cliente") or "").strip()
+        cliente = limpiar_texto(valor(fila, "cliente") or "").strip()
         firma = (documento, round(saldo, 2), vencimiento, cliente)
         if firma in vistas:
             dup_exactos += 1
