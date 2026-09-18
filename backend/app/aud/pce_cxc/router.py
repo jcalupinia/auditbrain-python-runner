@@ -38,7 +38,9 @@ router = APIRouter(prefix="/aud/pce-cxc", tags=["aud-pce-cxc"])
 #: dejaban pasar tres archivos de 133.000 filas y reventaban ese techo. 10 MB
 #: es el escalón medido que sí entra: el de 10,8 MB ya quedó en 236 MB, y la
 #: recta que forman las tres mediciones (unos 18 MB de memoria por cada MB de
-#: archivo, más 38 MB de base) proyecta 222 MB para tres archivos de 10 MB.
+#: archivo, más 38 MB de base) proyecta 222 MB para tres archivos de 10 MB, o
+#: sea unos 28 MB de margen contra el techo. Quien suba este límite tiene que
+#: rehacer la medición: cada MB de más se paga a unos 18 MB de memoria.
 MAX_BYTES_POR_ARCHIVO = 10 * 1024 * 1024
 
 
