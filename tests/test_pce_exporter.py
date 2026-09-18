@@ -443,11 +443,13 @@ RESULTADO_CON_RUIDO = {"matriz": {"tramos": TRAMOS_COMPLETOS}}
 
 
 def _filas_de_matriz(ws) -> list[tuple]:
+    """(segmento, banda, exposición, tasa, número de fila) de cada fila emitida."""
     filas = []
     for fila in range(2, ws.max_row + 1):
         if ws.cell(fila, 2).value == "TOTAL" or ws.cell(fila, 2).value is None:
             break
-        filas.append((ws.cell(fila, 1).value, ws.cell(fila, 2).value, ws.cell(fila, 3).value))
+        filas.append((ws.cell(fila, 1).value, ws.cell(fila, 2).value, ws.cell(fila, 3).value,
+                      ws.cell(fila, 4).value, fila))
     return filas
 
 
@@ -459,8 +461,14 @@ def test_la_matriz_no_emite_las_combinaciones_sin_exposicion_ni_tasa():
     filas = _filas_de_matriz(ws)
     assert len(filas) == 4, f"debían quedar 4 filas con información, quedaron {len(filas)}"
     assert {(f[0], f[1]) for f in filas} == set(CON_EXPOSICION)
-    for segmento, banda, exposicion in filas:
-        assert not (exposicion in (0, 0.0) and ws.cell(2, 4).value == "SIN MEDIR" and banda != "Por vencer")
+    # El `assert` leía `ws.cell(2, 4)` -fila FIJA- dentro del bucle, así que
+    # comprobaba siempre la misma celda y era una aserción muerta: la fila que
+    # se está examinando es la que acompaña a cada tupla.
+    for segmento, banda, exposicion, tasa, fila in filas:
+        sin_exposicion = exposicion in (0, 0.0)
+        assert not (sin_exposicion and tasa == "SIN MEDIR"), (
+            f"{segmento} / {banda} (fila {fila}) no tiene exposición NI tasa: es ruido de cero "
+            "y no debía emitirse")
 
 
 def test_la_matriz_declara_cuantas_combinaciones_omitio():
@@ -809,10 +817,17 @@ def test_la_cartera_medida_del_papel_es_la_misma_que_la_de_la_pantalla():
     assert "sin medir" in etiqueta.lower(), etiqueta
     assert ws.cell(9, 2).value == "=B5-B8"
 
-    estratificada = 100000.0 + 50000.0
-    assert estratificada + 20000.0 == RESULTADO_SIN_MEDIR["exposicion"]["total"]
-    assert estratificada - RESULTADO_SIN_MEDIR["exposicion"]["sin_medir"] == \
-        CARTERA_MEDIDA_DE_LA_PANTALLA
+    # Antes aquí se hacía aritmética sobre constantes del propio test
+    # (`estratificada + 20000 == total`), que pasa con cualquier código. Lo que
+    # importa es lo que producen ESTAS celdas: se evalúan las fórmulas del
+    # libro y se comparan contra las cifras de la corrida.
+    libro = Libro(_abrir(construir_excel(RESULTADO_SIN_MEDIR, {})))
+    assert libro.numero("08-Conciliacion", "B5") == 150000.0       # 05-Matriz + 06-Individual
+    assert libro.numero("08-Conciliacion", "B7") == \
+        RESULTADO_SIN_MEDIR["exposicion"]["total"]
+    assert libro.numero("08-Conciliacion", "B8") == \
+        RESULTADO_SIN_MEDIR["exposicion"]["sin_medir"]
+    assert libro.numero("08-Conciliacion", "B9") == CARTERA_MEDIDA_DE_LA_PANTALLA
 
 
 def test_la_conciliacion_sigue_comparando_el_archivo_contra_los_eeff():
@@ -882,12 +897,24 @@ def test_el_libro_no_usa_funciones_prohibidas():
 
 
 def test_los_nombres_definidos_resuelven_a_una_celda_existente():
+    """`wb[hoja][celda] is not None` no comprobaba nada: `Worksheet.__getitem__`
+    devuelve la celda (creándola si hace falta) y NUNCA devuelve `None`. Lo que
+    hay que comprobar es que la celda esté dentro del rango que el exportador
+    escribió y que tenga un valor: un nombre definido que apunte a una celda
+    vacía es una fórmula que recalcula a cero sin avisar."""
     for resultado, parametros in RESULTADOS_A_VALIDAR:
         wb = _abrir(construir_excel(resultado, parametros))
         for nombre in wb.defined_names:
             hoja, celda = next(wb.defined_names[nombre].destinations)
             assert hoja in wb.sheetnames, f"{nombre} apunta a la hoja '{hoja}'"
-            assert wb[hoja][celda] is not None
+            ws = wb[hoja]
+            col, fila, *_ = range_boundaries(celda.replace("$", ""))
+            assert 1 <= fila <= ws.max_row and 1 <= col <= ws.max_column, \
+                f"{nombre} apunta a {hoja}!{celda}, fuera de lo escrito en la hoja"
+            # Y la celda de al lado (columna A) rotula el parámetro: así se sabe
+            # que el nombre cayó en la fila que se pretendía.
+            assert str(ws.cell(fila, 1).value or "").strip(), \
+                f"{nombre} apunta a {hoja}!{celda}, una fila sin rótulo"
 
 
 def test_el_libro_se_construye_con_un_resultado_vacio():

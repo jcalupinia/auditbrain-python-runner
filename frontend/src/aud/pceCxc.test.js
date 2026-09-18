@@ -114,18 +114,33 @@ describe("tramosVisibles", () => {
 });
 
 describe("la cartera medida de la pantalla y la del papel", () => {
-  // Mismos importes que RESULTADO_SIN_MEDIR en tests/test_pce_exporter.py.
-  const total = 170000;
-  const sinMedir = 35000;
-  const sinEstratificar = 20000;
-  const estratificada = 100000 + 50000; // 05-Matriz + 06-Individual
+  // Mismos importes que RESULTADO_SIN_MEDIR en tests/test_pce_exporter.py, y
+  // las mismas cifras que esa prueba comprueba recalculando 08-Conciliacion.
+  // Antes aquí se hacía aritmética sobre las constantes del propio test
+  // (`estratificada + sinEstratificar === total`), que pasa con cualquier
+  // código: no tocaba ninguna función del producto.
+  const exposicion = {
+    colectiva: 100000,
+    individual: 50000,
+    sin_estratificar: 20000,
+    sin_medir: 35000,
+    total: 170000,
+  };
 
-  it("dan la misma cifra: 08-Conciliacion B9 es =B5-B8", () => {
-    expect(carteraMedida(total, sinMedir, sinEstratificar)).toBe(estratificada - sinMedir);
+  it("da la misma cifra que 08-Conciliacion B9 (=B5-B8): 115.000", () => {
+    expect(carteraMedida(170000, 35000, 20000)).toBe(115000);
   });
 
-  it("y la cartera total analizada del papel es el total de la pantalla", () => {
-    expect(estratificada + sinEstratificar).toBe(total);
+  it("carteraMedidaDe la reconstruye desde la exposición de la corrida", () => {
+    expect(carteraMedidaDe({ exposicion })).toBe(115000);
+  });
+
+  it("y prefiere `exposicion.medida`, que es la que calculó el motor", () => {
+    expect(carteraMedidaDe({ exposicion: { ...exposicion, medida: 114999.5 } })).toBe(114999.5);
+  });
+
+  it("la cobertura se mide sobre lo medido, no sobre el total", () => {
+    expect(coberturaDe({ exposicion, ecl_total: 23000 })).toBe(23000 / 115000);
   });
 });
 

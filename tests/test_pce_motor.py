@@ -456,3 +456,39 @@ def test_el_reparto_solo_toca_bandas_acreedoras_si_no_hay_otra():
     # -100,012 redondea a -100,01, y la suma de las bandas redondeadas es
     # -100,02: falta un centavo y las dos bandas ya son acreedoras.
     assert r["colectivo"]["exposicion_total"] == -100.01
+
+
+# ---------------------------------------------------------------------------
+# T11 — La línea que redondea la exposición ANTES de medir (motor.py:186)
+#       no la cubría ninguna prueba: sustituirla por `float(saldo or 0)`
+#       dejaba las 216 pruebas en verde.
+# ---------------------------------------------------------------------------
+
+def test_la_exposicion_se_redondea_antes_de_multiplicarla_por_la_tasa():
+    """El papel imprime la exposición REDONDEADA, así que la pérdida tiene que
+    salir de ESA cifra: exposición impresa x tasa impresa = pérdida impresa.
+
+    Con 1.000,005 al 50 %, medir sobre el saldo sin redondear da 500,0025 ->
+    500,00; medir sobre la exposición ya redondeada (1.000,01) da 500,005 ->
+    500,01. Un centavo de diferencia entre lo que el papel muestra y lo que la
+    corrida archiva, que es exactamente lo que el redondeo previo evita.
+    """
+    p = ParametrosECL(tasas_perdida={"Corriente": 0.5})
+    fila = medir_ecl({"Corriente": 1000.005}, p)["tramos"][0]
+
+    assert fila["exposicion"] == 1000.01, "la exposición impresa va redondeada a centavos"
+    assert fila["ecl"] == 500.01, (
+        "la pérdida tiene que salir de la exposición redondeada: "
+        f"{fila['exposicion']} x 0,50 = 500,005 -> 500,01, no 500,00")
+    # Y quien rehaga la cuenta desde el papel llega al mismo número.
+    assert redondear(fila["exposicion"] * fila["tasa_ajustada"]) == fila["ecl"]
+
+
+def test_el_total_medido_es_la_suma_de_las_bandas_redondeadas():
+    """Redondear después de sumar y sumar las redondeadas no dan lo mismo: el
+    papel suma lo que imprime."""
+    p = ParametrosECL(tasas_perdida={"A": 0.5, "B": 0.5})
+    medido = medir_ecl({"A": 1000.005, "B": 1000.005}, p)
+    assert [t["exposicion"] for t in medido["tramos"]] == [1000.01, 1000.01]
+    assert medido["ecl_total"] == 1000.02
+    assert medido["exposicion_total"] == 2000.02
