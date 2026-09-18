@@ -16,7 +16,7 @@ from backend.app.aud.pce_cxc.cohortes import tasas_por_permanencia
 from backend.app.aud.pce_cxc.lectura import MOTIVO_FILA_REPETIDA, leer_cartera
 from backend.app.aud.pce_cxc.models import CorridaPCE
 from backend.app.aud.pce_cxc.motor import (
-    ParametrosECL, redondear, resumen_deterioro,
+    ParametrosECL, acotar_saldo_sin_medir, redondear, resumen_deterioro,
 )
 from backend.app.auth.models import User
 from backend.app.context import service as ctx_service
@@ -288,14 +288,20 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
 
     evaluaciones = _evaluaciones_individuales(parametros.get("evaluaciones_individuales"))
     lista_casos = []
-    sin_medir_individual = 0.0
     for clave, caso in casos.items():
         est = evaluaciones.get(f"{clave[0]}|{clave[1]}")
         aplicadas_seg = aplicadas[clave[0]]
         # Cada saldo del caso se separa entre las bandas con tasa (se miden
         # provisionalmente con ella) y las bandas sin tasa: estas últimas no se
-        # rellenan con 0,00 en silencio, se declaran como saldo sin medir.
-        saldo_sin_tasa = sum(v for b, v in caso["bandas"].items() if b not in aplicadas_seg)
+        # rellenan con 0,00 en silencio, se declaran como saldo sin medir. Lo
+        # sin medir se acota a la exposición del propio caso -su exposición es
+        # el NETO de sus bandas y lo sin medir sumaba solo las positivas-, con
+        # la misma regla que aplica el motor (`acotar_saldo_sin_medir`).
+        saldo_sin_tasa = acotar_saldo_sin_medir(
+            sum(v for b, v in caso["bandas"].items() if b not in aplicadas_seg), caso["saldo"])
+        # Saldo acreedor dentro del caso: una nota de crédito en una de sus
+        # bandas queda escondida si el neto del cliente es deudor.
+        saldo_acreedor = redondear(sum(v for v in caso["bandas"].values() if v < 0))
         provisional = sum(v * aplicadas_seg[b] for b, v in caso["bandas"].items() if b in aplicadas_seg)
         propia = bool(est and est["justificacion"].strip())
         # Techo del caso: su importe en libros bruto (B5.5.35). Un cliente con
@@ -322,7 +328,6 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
             saldo_sin_tasa_caso = saldo_sin_tasa if saldo_sin_tasa > 0.005 else 0.0
             if saldo_sin_tasa_caso > 0:
                 sustento += f"; USD {saldo_sin_tasa_caso:,.2f} sin medir por falta de tasa"
-                sin_medir_individual += saldo_sin_tasa_caso
         # Se entrega la pérdida SIN acotar: `evaluar_individual` aplica el piso y
         # el techo y deja dicho cuál actuó, en el mismo lugar donde lo hace la
         # matriz colectiva.
@@ -334,6 +339,7 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
             "segmento": clave[0], "bandas": caso["bandas"],
             "saldo": caso["saldo"], "ecl": ecl_caso,
             "sustento": sustento, "saldo_sin_tasa": saldo_sin_tasa_caso,
+            "saldo_acreedor": saldo_acreedor,
         })
 
     saldo_contable = sum(meta.values()) if ancla else None
@@ -363,7 +369,14 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
     # así que cada dólar perdido aquí reaparece como exposición inventada sobre
     # las filas que sí entraron.
     descartado_en_lectura = redondear(actual["cartera_no_leida"])
-    negativa_individual = sum(c["saldo"] for c in resumen["individual"]["casos"] if c["saldo"] < 0)
+    # Saldo acreedor de la evaluación individual: las notas de crédito que
+    # viajan DENTRO de cada caso (`saldo_acreedor_total`). Antes se sumaban
+    # solo los casos cuyo NETO era acreedor, así que un cliente con +300.000 y
+    # una nota de crédito de -100.000 no aportaba nada y su nota de crédito no
+    # se declaraba en ninguna parte, aunque el piso cero actuara sobre ella.
+    negativa_individual = resumen["individual"]["saldo_acreedor_total"]
+    # Lo que la evaluación individual no pudo medir, ya acotado por el motor.
+    sin_medir_individual = resumen["individual"]["saldo_sin_tasa_total"]
     exposicion = {
         "colectiva": resumen["colectivo"]["exposicion_total"],
         "individual": resumen["individual"]["saldo_total"],
@@ -547,17 +560,33 @@ def _hallazgos(resumen, politica, parametros, factor_prospectivo_aplicado, justi
                                    "fecha de vencimiento en todas las filas, o depurar esas filas "
                                    "con el cliente antes de volver a calcular."})
     negativa = float(exposicion.get("negativa") or 0)
-    if negativa < -0.005:
+    # El piso cero actúa en dos sitios -la matriz colectiva y la evaluación
+    # individual- y el hallazgo tiene que declarar los dos. Un cliente
+    # individual con neto deudor esconde su nota de crédito: el saldo acreedor
+    # no aparecía en `negativa` y el piso cero actuaba en silencio sobre él.
+    piso_colectivo = float(resumen["colectivo"].get("ecl_acotada_por_piso") or 0)
+    piso_individual = float(resumen["individual"].get("ecl_acotada_por_piso") or 0)
+    acreedor_individual = float(resumen["individual"].get("saldo_acreedor_total") or 0)
+    if negativa < -0.005 or piso_colectivo + piso_individual > 0.005:
+        detalle_individual = ""
+        if acreedor_individual < -0.005 or piso_individual > 0.005:
+            detalle_individual = (
+                f" De ese importe, USD {abs(acreedor_individual):,.2f} están dentro de clientes "
+                f"evaluados individualmente (06-Individual, columna «Saldo acreedor incluido»), "
+                f"cuyo saldo neto puede ser deudor y esconderlos.")
         h.append({"titulo": "Saldos acreedores en la cartera medida", "riesgo": "Alto",
                   "condicion": f"USD {abs(negativa):,.2f} de saldo acreedor (notas de crédito o "
-                               "anticipos) dentro de la cartera que se mide.",
+                               f"anticipos) dentro de la cartera que se mide.{detalle_individual}",
                   "criterio": "NIIF 9 5.5.15 y B5.5.35: la corrección de valor no puede ser "
                               "negativa ni superar el importe en libros bruto.",
                   "causa": "El análisis de antigüedad mezcla notas de crédito y anticipos de "
                            "clientes con las facturas por cobrar.",
                   "efecto": "Su pérdida esperada se fijó en 0,00: sin ese piso, esas bandas "
                             "restarían pérdida a las demás bandas del mismo segmento y la "
-                            "corrección total quedaría subestimada.",
+                            "corrección total quedaría subestimada. El piso cero evitó que se "
+                            f"restaran USD {piso_colectivo + piso_individual:,.2f} de pérdida "
+                            f"(USD {piso_colectivo:,.2f} en la matriz colectiva y "
+                            f"USD {piso_individual:,.2f} en la evaluación individual).",
                   "recomendacion": "Reclasificar los saldos acreedores a pasivo (anticipos de "
                                    "clientes) o cruzarlos contra la factura que corrigen antes de "
                                    "medir."})

@@ -51,6 +51,25 @@ def _es_numero(v: Any) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
+def acotar_saldo_sin_medir(saldo_sin_tasa: float, saldo: float) -> float:
+    """Lo que de un caso no se pudo medir, acotado a su propia exposición.
+
+    Un cliente evaluado individualmente reparte su cartera entre varias bandas,
+    y su exposición es el NETO de todas ellas. El saldo que no se pudo medir
+    -las bandas sin tasa aprobada- se acumulaba sumando SOLO las bandas
+    positivas, así que un cliente con 300.000 en una banda sin tasa y una nota
+    de crédito de 100.000 en otra declaraba 300.000 sin medir sobre una
+    exposición de 200.000. De ahí salía una «cartera medida» NEGATIVA sobre una
+    cartera positiva, y una cobertura negativa en la pantalla.
+
+    La cota es la misma idea que el techo de la pérdida esperada: nada de un
+    caso puede superar su importe en libros bruto. Y como toda cota de este
+    módulo, cuando actúa se declara (`saldo_sin_tasa_acotado`), nunca en
+    silencio.
+    """
+    return min(max(redondear(saldo_sin_tasa), 0.0), max(redondear(saldo), 0.0))
+
+
 # ---------------------------------------------------------------------------
 # Tasas de pérdida a partir de la experiencia histórica (cohortes)
 # ---------------------------------------------------------------------------
@@ -290,6 +309,8 @@ def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
     acotada_piso = 0.0
     acotada_techo = 0.0
     sin_tasa_total = 0.0
+    sin_tasa_recortado = 0.0
+    acreedor_total = 0.0
     for caso in casos:
         # Centavos exactos antes de medir (ver el docstring).
         saldo = redondear(float(caso.get("saldo") or 0))
@@ -325,9 +346,18 @@ def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
         # Parte del saldo del caso que no se pudo medir (banda sin tasa y sin
         # estimación propia justificada). Va como campo propio, no solo dentro
         # del texto de `sustento`, para que se pueda sumar sin tener que
-        # parsear una frase.
-        sin_tasa = redondear(float(caso.get("saldo_sin_tasa") or 0.0))
+        # parsear una frase. Se acota a la exposición del propio caso: ver
+        # `acotar_saldo_sin_medir`.
+        sin_tasa_sin_acotar = redondear(float(caso.get("saldo_sin_tasa") or 0.0))
+        sin_tasa = acotar_saldo_sin_medir(sin_tasa_sin_acotar, saldo)
         sin_tasa_total += sin_tasa
+        sin_tasa_recortado += sin_tasa_sin_acotar - sin_tasa
+        # Saldo acreedor DENTRO del caso (una nota de crédito en una de sus
+        # bandas). El neto del cliente puede ser deudor y esconderla: sin este
+        # campo, el piso cero actuaba sobre ella en silencio y ningún hallazgo
+        # la nombraba.
+        acreedor = redondear(float(caso.get("saldo_acreedor") or 0.0))
+        acreedor_total += acreedor
         detalle.append({
             "identificacion": caso.get("identificacion"),
             "tramo": caso.get("tramo"),
@@ -335,6 +365,9 @@ def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
             "recuperacion_estimada": redondear(saldo - ecl),
             "sustento": caso.get("sustento", ""),
             "saldo_sin_tasa": sin_tasa,
+            "saldo_sin_tasa_sin_acotar": sin_tasa_sin_acotar,
+            "saldo_sin_tasa_acotado": sin_tasa_sin_acotar > sin_tasa + 0.0001,
+            "saldo_acreedor": acreedor,
             "ecl": ecl,
             "ecl_sin_acotar": ecl_sin_acotar,
             "acotado": acotado,
@@ -350,6 +383,10 @@ def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
         # pérdida. Se totaliza aquí para que el resumen lo descuente de la
         # cartera medida en vez de darla por medida.
         "saldo_sin_tasa_total": redondear(sin_tasa_total),
+        # Cuánto tuvo que recortarse ese saldo para no superar la exposición de
+        # su propio caso, y cuánto saldo acreedor viaja dentro de los casos.
+        "saldo_sin_tasa_acotado_total": redondear(sin_tasa_recortado),
+        "saldo_acreedor_total": redondear(acreedor_total),
     }
 
 
@@ -584,7 +621,14 @@ def resumen_deterioro(
     # justificada.
     exposicion_sin_medir = redondear(
         colectivo["exposicion_sin_medir"] + individual["saldo_sin_tasa_total"])
-    exposicion_medida = redondear(exposicion_total - exposicion_sin_medir)
+    # La cartera medida es lo estratificado menos lo que no se pudo medir, y
+    # tiene que caer entre 0 y la cartera total: no existe una cartera medida
+    # negativa sobre una cartera positiva, ni una mayor que la que hay. Las dos
+    # magnitudes ya se cuadran sobre la misma base (`acotar_saldo_sin_medir`);
+    # esta cota es la red que impide que un cambio futuro vuelva a desalinear
+    # la pantalla, el papel y la base sin que nadie se entere.
+    exposicion_medida = redondear(
+        min(max(exposicion_total - exposicion_sin_medir, 0.0), max(exposicion_total, 0.0)))
     tope_acumulado = redondear(exposicion_total * TOPE_PROVISION_ACUMULADA)
 
     resultado: dict[str, Any] = {

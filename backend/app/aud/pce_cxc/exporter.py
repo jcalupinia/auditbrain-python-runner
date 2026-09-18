@@ -940,10 +940,25 @@ def _estado_caso(caso: dict[str, Any]) -> str:
     return "Estimación propia justificada"
 
 
+def _acotamiento_caso(caso: dict[str, Any]) -> str:
+    """Qué cota de la norma movió la pérdida de este caso, si es que alguna."""
+    return {"piso_cero": ACOTADO_PISO,
+            "techo_saldo": ACOTADO_TECHO}.get(caso.get("acotado") or "", SIN_ACOTAR)
+
+
 def _individual(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> None:
+    """Saldos medidos uno por uno, con su saldo acreedor y su acotamiento a la vista.
+
+    Una nota de crédito dentro de un cliente de evaluación individual quedaba
+    escondida: su saldo NETO era deudor, así que no entraba en «saldos
+    acreedores» y el piso cero actuaba sobre ella sin que ninguna hoja ni
+    ningún hallazgo lo dijeran. Aquí tiene columna propia -sumable, no dentro
+    de una frase-, igual que la tiene en la matriz colectiva.
+    """
     ws = wb.create_sheet("06-Individual")
     _encabezados(ws, 1, ["Cliente", "Segmento", "Exposición", "Recuperación estimada",
-                         "Pérdida esperada", "Saldo sin medir", "Sustento", "Estado"])
+                         "Pérdida esperada", "Saldo sin medir", "Saldo acreedor incluido",
+                         "Acotamiento aplicado", "Sustento", "Estado"])
     casos = (resultado.get("individual") or {}).get("casos") or []
     primera = 2
 
@@ -977,27 +992,36 @@ def _individual(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -
             c = _celda(ws, i, 6, sin_medir, formato=FORMATO_MONEDA, alineacion=ALIN_DER)
             if sin_medir > 0.005:
                 c.font = FUENTE_DATOS_ALERTA
-            _celda(ws, i, 7, caso.get("sustento", ""), alineacion=ALIN_IZQ)
-            _celda(ws, i, 8, _estado_caso(caso), alineacion=ALIN_IZQ)
+            acreedor = _numero(caso.get("saldo_acreedor")) or 0.0
+            c = _celda(ws, i, 7, acreedor, formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+            if acreedor < -0.005:
+                c.font = FUENTE_DATOS_ALERTA
+            c = _celda(ws, i, 8, _acotamiento_caso(caso), alineacion=ALIN_CEN)
+            if caso.get("acotado"):
+                c.font = FUENTE_DATOS_ALERTA
+            _celda(ws, i, 9, caso.get("sustento", ""), alineacion=ALIN_IZQ)
+            _celda(ws, i, 10, _estado_caso(caso), alineacion=ALIN_IZQ)
     else:
         ultima = primera
         _celda(ws, primera, 1, "(sin saldos evaluados individualmente en esta corrida)", alineacion=ALIN_IZQ)
-        for col in range(2, 9):
+        for col in range(2, 11):
             _celda(ws, primera, col, None)
 
     fila_total = ultima + 1
     _celda(ws, fila_total, 1, "TOTAL", total=True, alineacion=ALIN_IZQ)
     _celda(ws, fila_total, 2, None, total=True)
-    _celda(ws, fila_total, 3, f"=SUM(C{primera}:C{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
-    _celda(ws, fila_total, 4, f"=SUM(D{primera}:D{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
-    _celda(ws, fila_total, 5, f"=SUM(E{primera}:E{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
-    _celda(ws, fila_total, 6, f"=SUM(F{primera}:F{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
-    _celda(ws, fila_total, 7, None, total=True)
+    for col in "CDEFG":
+        _celda(ws, fila_total, ord(col) - 64, f"=SUM({col}{primera}:{col}{ultima})",
+               formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
     _celda(ws, fila_total, 8, None, total=True)
+    _celda(ws, fila_total, 9, None, total=True)
+    _celda(ws, fila_total, 10, None, total=True)
 
-    _anchos(ws, {"A": 24, "B": 18, "C": 16, "D": 18, "E": 16, "F": 16, "G": 40, "H": 26})
+    _anchos(ws, {"A": 24, "B": 18, "C": 16, "D": 18, "E": 16, "F": 16, "G": 20, "H": 34,
+                 "I": 40, "J": 26})
     refs["individual"] = {"primera": primera, "ultima": ultima, "fila_total": fila_total,
-                          "col_exposicion": "C", "col_perdida": "E", "col_sin_medir": "F"}
+                          "col_exposicion": "C", "col_perdida": "E", "col_sin_medir": "F",
+                          "col_acreedor": "G"}
 
 
 # ---------------------------------------------------------------------------
