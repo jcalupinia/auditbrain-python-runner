@@ -45,9 +45,12 @@ FUENTE_ENCABEZADO_COL = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
 FUENTE_HIPERVINCULO = Font(name="Calibri", size=9, color="0563C1", underline="single")
 FUENTE_TITULO = Font(name="Calibri", size=14, bold=True, color="0A2342")
 
+FUENTE_ALERTA = Font(name="Calibri", size=11, bold=True, color="9C0006")
+
 RELLENO_ENCABEZADO = PatternFill("solid", fgColor="0A2342")  # navy (identidad de la firma)
 RELLENO_TOTAL = PatternFill("solid", fgColor="FBF3DC")       # dorado muy claro
 RELLENO_BLOQUE = PatternFill("solid", fgColor="D9E2EC")      # azul grisáceo claro
+RELLENO_ALERTA = PatternFill("solid", fgColor="FFE3E3")      # rojo muy claro
 
 THIN = Side(style="thin", color="000000")
 DOUBLE = Side(style="double", color="000000")
@@ -59,6 +62,16 @@ ALIN_DER = Alignment(horizontal="right", vertical="center")
 ALIN_CEN = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
 SEGMENTOS_TEXTO = "SIN MEDIR"
+
+#: La pantalla rotula el papel como preliminar arriba y abajo. El libro que se
+#: archiva tiene que decir lo mismo: mientras el Socio no lo revise y apruebe,
+#: esto no es una conclusión de auditoría.
+AVISO_PRELIMINAR = ("PAPEL DE TRABAJO PRELIMINAR — pendiente de revisión y aprobación del "
+                    "Socio responsable. No usar como conclusión de auditoría.")
+ESTADO_PRELIMINAR = "PRELIMINAR — pendiente de revisión y aprobación del Socio responsable"
+#: Lo que no se registró no se deja en blanco (una celda vacía se lee como
+#: "no aplica"): se declara que está pendiente.
+SIN_REGISTRAR = "(pendiente)"
 
 
 # ---------------------------------------------------------------------------
@@ -176,20 +189,31 @@ def _caratula(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, Any
     ws.cell(1, 1).font = FUENTE_TITULO
     ws.merge_cells("A1:B1")
 
+    # El aviso va inmediatamente bajo el título, antes que cualquier cifra: es
+    # lo primero que tiene que leer quien abra el archivo permanente.
+    c = ws.cell(2, 1, AVISO_PRELIMINAR)
+    c.font = FUENTE_ALERTA
+    c.fill = RELLENO_ALERTA
+    c.alignment = ALIN_IZQ
+    ws.cell(2, 2).fill = RELLENO_ALERTA
+    ws.merge_cells("A2:B2")
+    ws.row_dimensions[2].height = 30
+
     fechas = parametros.get("fechas") or []
     fecha_corte = fechas[-1] if fechas else ""
 
     _bloque(ws, 3, "Datos generales", 2)
     _encabezados(ws, 4, ["Concepto", "Valor"])
     filas = [
+        ("Estado del papel", ESTADO_PRELIMINAR),
         ("Entidad", parametros.get("entidad", "")),
         ("RUC", parametros.get("ruc", "")),
         ("Fecha de corte", fecha_corte),
         ("Moneda", parametros.get("moneda", "USD")),
         ("Marco contable", parametros.get("marco", "NIIF 9 - Deterioro de cartera comercial")),
         ("Referencia del papel", parametros.get("referencia", "PT-PCE-CXC")),
-        ("Preparado por", parametros.get("preparado_por", "")),
-        ("Revisado por", parametros.get("revisado_por", "")),
+        ("Preparado por", parametros.get("preparado_por") or SIN_REGISTRAR),
+        ("Revisado por", parametros.get("revisado_por") or SIN_REGISTRAR),
         ("Fecha de emisión del papel", date.today().isoformat()),
     ]
     fila = 5

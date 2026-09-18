@@ -260,3 +260,33 @@ def test_tolera_formato_antiguo_del_ajuste_prospectivo_escalar_cero():
         valor = wb[hoja][celda].value
         assert abs(valor - esperado) < 1e-9, \
             f"{nombre} debería ser {esperado}, es {valor}"
+
+
+def _textos(ws) -> list[str]:
+    return [str(c.value) for fila in ws.iter_rows() for c in fila if c.value is not None]
+
+
+# ---------------------------------------------------------------------------
+# I11 — el Excel perdía la marca de PRELIMINAR que la pantalla muestra dos veces
+# ---------------------------------------------------------------------------
+
+def test_la_caratula_marca_el_papel_como_preliminar():
+    """La pantalla rotula el papel «PRELIMINAR» arriba y abajo; el libro que
+    entra al archivo permanente no contenía esa palabra en ninguna de sus
+    trece hojas, con «Preparado por» y «Revisado por» en blanco y sin
+    advertencia (I11)."""
+    wb = _abrir(construir_excel(RESULTADO, {"entidad": "PRUEBA S.A."}))
+    textos = _textos(wb["00-Caratula"])
+    assert any("PRELIMINAR" in t for t in textos), \
+        "la carátula debe declarar que el papel es preliminar"
+    assert any("Socio" in t for t in textos), \
+        "debe decir de quién depende la aprobación"
+
+
+def test_la_caratula_no_deja_en_blanco_al_preparador_ni_al_revisor():
+    """Una celda vacía se lee como «no aplica»; lo que falta se declara (I11)."""
+    wb = _abrir(construir_excel(RESULTADO, {}))
+    ws = wb["00-Caratula"]
+    valores = {ws.cell(f, 1).value: ws.cell(f, 2).value for f in range(1, 30)}
+    assert valores.get("Preparado por") == "(pendiente)"
+    assert valores.get("Revisado por") == "(pendiente)"
