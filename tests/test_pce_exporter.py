@@ -290,3 +290,21 @@ def test_la_caratula_no_deja_en_blanco_al_preparador_ni_al_revisor():
     valores = {ws.cell(f, 1).value: ws.cell(f, 2).value for f in range(1, 30)}
     assert valores.get("Preparado por") == "(pendiente)"
     assert valores.get("Revisado por") == "(pendiente)"
+
+
+# ---------------------------------------------------------------------------
+# M4 — 01-Parametros atribuía a NIIF 9 B5.5.37 un umbral de 730 días
+# ---------------------------------------------------------------------------
+
+def test_el_umbral_de_incumplimiento_no_se_atribuye_a_la_norma():
+    """B5.5.37 establece una presunción refutable de 90 días. El umbral de 730
+    que usa la herramienta es política de la entidad: la fuente no puede
+    presentarlo como el valor por defecto de la norma (M4)."""
+    ws = _abrir(construir_excel(RESULTADO, {}))["01-Parametros"]
+    assert ws.cell(4, 1).value == "Umbral de incumplimiento (días)"
+    fuente = str(ws.cell(4, 3).value)
+    assert "730 días por defecto" not in fuente, \
+        "la norma no trae 730 días por defecto: eso es política de la entidad"
+    assert "90" in fuente, "debe decir cuál es la presunción de la norma (90 días)"
+    assert "refutable" in fuente.lower(), "y que esa presunción es refutable"
+    assert "olítica de la entidad" in fuente, "y que el plazo aplicado lo fija la entidad"

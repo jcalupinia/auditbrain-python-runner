@@ -308,7 +308,14 @@ def _parametros(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, A
     _celda(ws, 4, 1, "Umbral de incumplimiento (días)", alineacion=ALIN_IZQ)
     _celda(ws, 4, 2, _numero(bitacora.get("umbral_incumplimiento")) or 730, formato=FORMATO_ENTERO,
            alineacion=ALIN_DER)
-    _celda(ws, 4, 3, "Política de la entidad / NIIF 9 B5.5.37 (730 días por defecto)", alineacion=ALIN_IZQ)
+    # El plazo lo fija la entidad. NIIF 9 B5.5.37 presume el incumplimiento a
+    # los 90 días de mora y esa presunción es refutable: citarla como si la
+    # norma trajera un defecto de 730 días atribuye a la NIIF una decisión que
+    # es de la administración y que el papel tiene que sustentar.
+    _celda(ws, 4, 3, "Política de la entidad. NIIF 9 B5.5.37 presume el incumplimiento a los "
+                     "90 días de mora; es una presunción refutable y la entidad la refuta con "
+                     "este plazo, que debe quedar sustentado en el papel.",
+           alineacion=ALIN_IZQ)
 
     _celda(ws, 5, 1, "Ajuste prospectivo — NO-RELACIONADOS (terceros)", alineacion=ALIN_IZQ)
     _celda(ws, 5, 2, ajuste_no_relacionados, formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
