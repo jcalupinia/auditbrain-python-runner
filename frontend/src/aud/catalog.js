@@ -19,7 +19,19 @@ export const CATEGORIES = [
   { id: "PLANIFICACION", label: "Planificación", type: "etapa" },
   { id: "CAJA_BANCOS", label: "Caja y bancos", type: "ciclo" },
   { id: "INVERSIONES", label: "Inversiones", type: "ciclo" },
-  { id: "CXC", label: "Cuentas por cobrar", type: "ciclo" },
+  {
+    id: "CXC",
+    label: "Cuentas por cobrar",
+    type: "ciclo",
+    tools: [
+      {
+        id: "AUD.CXC.PCE",
+        label: "Matriz de pérdidas crediticias esperadas · NIIF 9",
+        description:
+          "Sube los tres análisis de antigüedad y el movimiento de la provisión. Deriva las tasas del comportamiento observado de la cartera, ancla la exposición a los estados financieros, separa los saldos de evaluación individual y entrega el papel de trabajo en Excel con fórmulas auditables.",
+      },
+    ],
+  },
   { id: "INVENTARIOS", label: "Inventarios", type: "ciclo" },
   { id: "ACTIVOS_FIJOS", label: "Activos fijos", type: "ciclo" },
   {

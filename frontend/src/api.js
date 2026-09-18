@@ -175,6 +175,48 @@ export async function motorBalancesEstados(esf, eri) {
   }));
 }
 
+// ---- AUD.CXC.PCE · matriz de pérdidas crediticias esperadas (staff) ----
+export async function pceCxcAnalizar(archivos, parametros) {
+  const fd = new FormData();
+  (archivos || []).forEach((f) => fd.append("archivos", f));
+  fd.append("parametros", JSON.stringify(parametros || {}));
+  return parse(
+    await apiFetch(
+      `${API_BASE}/api/v1/aud/pce-cxc/analizar`,
+      { method: "POST", body: fd, headers: authHeaders() }, // el browser fija el boundary
+      { timeoutMs: 300000 }
+    )
+  );
+}
+
+export async function pceCxcDescargarExcel(corridaId) {
+  // Descarga autenticada (JWT). Crea un blob URL temporal y dispara click.
+  const resp = await apiFetch(
+    `${API_BASE}/api/v1/aud/pce-cxc/corridas/${corridaId}/excel`,
+    { headers: authHeaders() },
+    { timeoutMs: 120000 }
+  );
+  if (!resp.ok) {
+    let detail = `HTTP ${resp.status}`;
+    try {
+      const body = await resp.json();
+      detail = body.detail || detail;
+    } catch {
+      /* sin body */
+    }
+    throw new Error(`No se pudo descargar el papel de trabajo: ${detail}`);
+  }
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `PT-PCE-CXC-${corridaId}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
 export async function createUser(email, password, role) {
   return parse(
     await apiFetch(`${API_BASE}/api/v1/auth/users`, {

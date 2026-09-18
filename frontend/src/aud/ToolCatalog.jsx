@@ -4,6 +4,7 @@ import { STRINGS } from "./strings.js";
 import ObligacionesFiscalesTool from "./ObligacionesFiscalesTool.jsx";
 import InformeCumplimientoTributarioTool from "./InformeCumplimientoTributarioTool.jsx";
 import MotorBalancesTool from "./MotorBalancesTool.jsx";
+import PceCxcTool from "./PceCxcTool.jsx";
 
 export default function ToolCatalog({ projectId }) {
   const [activeTool, setActiveTool] = useState(null);
@@ -29,6 +30,17 @@ export default function ToolCatalog({ projectId }) {
           {STRINGS.back_to_catalog}
         </button>
         <ObligacionesFiscalesTool projectId={projectId} />
+      </div>
+    );
+  }
+
+  if (activeTool === "AUD.CXC.PCE") {
+    return (
+      <div className="aud-tool-wrap">
+        <button className="link aud-back" onClick={() => setActiveTool(null)}>
+          {STRINGS.back_to_catalog}
+        </button>
+        <PceCxcTool projectId={projectId} />
       </div>
     );
   }
