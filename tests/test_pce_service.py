@@ -90,3 +90,66 @@ def test_las_anomalias_de_cohorte_se_exponen_y_generan_pendiente():
     pendiente = next(p for p in r["pendientes"] if p["variable"] == "Tasas de cohorte fuera de rango")
     assert pendiente["responsable"] == "Gerente / Socio"
     assert pendiente["criticidad"] == "Alta"
+
+
+def _cortes_banda_medida_en_un_segmento_y_sin_historia_en_el_otro():
+    # NO-RELACIONADOS tiene historia en "0 a 30 días" (H-1: de 100.000 a 10.000 ->
+    # tasa observada 10 %). RELACIONADOS no tiene ni una fila en la cohorte, así
+    # que ninguna de sus bandas tiene tasa. Ambos segmentos exponen saldo en
+    # "0 a 30 días" en el corte actual: terceros 200.000 (medido, ECL 20.000) y
+    # relacionadas 700.000 (sin medir). Si la política diluyera lo no medido en el
+    # denominador, la tasa observada de la fila bajaría de 10 % a 900.000/20.000≈2,2 %.
+    cohorte = _xlsx([
+        ("HIST", "H-1", "NO-RELACIONADOS", date(2020, 1, 1), date(2020, 1, 15), 100000.0),
+    ])
+    intermedio = _xlsx([])
+    actual = _xlsx([
+        ("HIST", "H-1", "NO-RELACIONADOS", date(2020, 1, 1), date(2020, 1, 15), 10000.0),
+        ("TERCERO", "T-1", "NO-RELACIONADOS", date(2025, 1, 1), date(2025, 1, 15), 200000.0),
+        ("RELACIONADA", "R-1", "RELACIONADOS", date(2025, 1, 1), date(2025, 1, 15), 700000.0),
+    ])
+    return [{"nombre": "cohorte.xlsx", "contenido": cohorte, "fecha": date(2020, 1, 31)},
+            {"nombre": "intermedio.xlsx", "contenido": intermedio, "fecha": date(2020, 6, 30)},
+            {"nombre": "actual.xlsx", "contenido": actual, "fecha": date(2025, 1, 31)}]
+
+
+def test_la_comparacion_contra_la_politica_no_diluye_lo_no_medido():
+    r = analizar(_cortes_banda_medida_en_un_segmento_y_sin_historia_en_el_otro(), {})
+    fila = next(f for f in r["politica"]["filas"] if f["banda"] == "0 a 30 días")
+
+    assert fila["exposicion"] == pytest.approx(900000.0)
+    assert fila["exposicion_medida"] == pytest.approx(200000.0)
+    assert fila["exposicion_sin_medir"] == pytest.approx(700000.0)
+    assert fila["exposicion_medida"] + fila["exposicion_sin_medir"] == pytest.approx(fila["exposicion"])
+    assert fila["ecl"] == pytest.approx(20000.0)
+    # 20.000 / 200.000 (lo medido), no 20.000 / 900.000 (diluido con lo sin medir)
+    assert fila["tasa_observada"] == pytest.approx(0.10)
+
+    titulos = [h["titulo"] for h in r["hallazgos"]]
+    assert "Política de deterioro no sustentada en el comportamiento observado" in titulos
+
+
+def _cortes_individual_sin_tasa():
+    # Cohorte vacía: ninguna banda de ningún segmento tiene tasa observada.
+    cohorte = _xlsx([])
+    intermedio = _xlsx([])
+    actual = _xlsx([
+        ("GRANDE", "G-1", "NO-RELACIONADOS", date(2024, 11, 1), date(2024, 12, 15), 1000000.0),
+    ])
+    return [{"nombre": "cohorte.xlsx", "contenido": cohorte, "fecha": date(2020, 1, 31)},
+            {"nombre": "intermedio.xlsx", "contenido": intermedio, "fecha": date(2022, 1, 31)},
+            {"nombre": "actual.xlsx", "contenido": actual, "fecha": date(2025, 1, 31)}]
+
+
+def test_caso_individual_sin_tasa_no_reporta_perdida_cero_en_silencio():
+    r = analizar(_cortes_individual_sin_tasa(), {"umbral_individual": 500000.0})
+    caso = r["individual"]["casos"][0]
+    assert "USD 1,000,000.00 sin medir por falta de tasa" in caso["sustento"]
+
+    assert r["exposicion"]["sin_medir"] == pytest.approx(1000000.0)
+
+    variables = [p["variable"] for p in r["pendientes"]]
+    assert "Saldos individuales sin tasa aplicable" in variables
+    pendiente = next(p for p in r["pendientes"] if p["variable"] == "Saldos individuales sin tasa aplicable")
+    assert pendiente["responsable"] == "Gerente / Socio"
+    assert pendiente["criticidad"] == "Alta"

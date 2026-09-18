@@ -103,16 +103,31 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
 
     evaluaciones = parametros.get("evaluaciones_individuales") or {}
     lista_casos = []
+    sin_medir_individual = 0.0
     for clave, caso in casos.items():
         est = evaluaciones.get(f"{clave[0]}|{clave[1]}")
-        provisional = sum(v * aplicadas[clave[0]].get(b, 0.0) for b, v in caso["bandas"].items())
+        aplicadas_seg = aplicadas[clave[0]]
+        # Cada saldo del caso se separa entre las bandas con tasa (se miden
+        # provisionalmente con ella) y las bandas sin tasa: estas últimas no se
+        # rellenan con 0,00 en silencio, se declaran como saldo sin medir.
+        saldo_sin_tasa = sum(v for b, v in caso["bandas"].items() if b not in aplicadas_seg)
+        provisional = sum(v * aplicadas_seg[b] for b, v in caso["bandas"].items() if b in aplicadas_seg)
         propia = bool(est and str(est.get("justificacion", "")).strip())
-        ecl_caso = float(est["ecl"]) if propia else provisional
+        if propia:
+            # Una estimación propia con justificación escrita cubre todo el caso:
+            # no queda saldo sin medir.
+            ecl_caso = float(est["ecl"])
+            sustento = est["justificacion"]
+        else:
+            ecl_caso = provisional
+            sustento = "Medido con la tasa de la matriz (provisional)"
+            if saldo_sin_tasa > 0.005:
+                sustento += f"; USD {saldo_sin_tasa:,.2f} sin medir por falta de tasa"
+                sin_medir_individual += saldo_sin_tasa
         lista_casos.append({
             "identificacion": f"{caso['identificacion']} ({clave[0]})", "tramo": None,
             "saldo": caso["saldo"], "recuperacion_estimada": caso["saldo"] - ecl_caso,
-            "sustento": (est or {}).get("justificacion",
-                                        "Medido con la tasa de la matriz (provisional)"),
+            "sustento": sustento,
         })
 
     saldo_contable = sum(meta.values()) if ancla else None
@@ -163,14 +178,18 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
         "colectiva": resumen["colectivo"]["exposicion_total"],
         "individual": resumen["individual"]["saldo_total"],
         "sin_estratificar": total_sin_estratificar,
+        # Lo que no se midió en la matriz colectiva (bandas sin tasa) más lo que
+        # no se midió en la evaluación individual (mismo motivo): nunca se
+        # convierte en cero, se declara.
+        "sin_medir": redondear(sin_medir + sin_medir_individual),
         "total": redondear(resumen["exposicion_total"] + total_sin_estratificar),
         "segun_archivo": actual["total_saldo"],
         "factores_anclaje": factor,
     }
 
-    politica = _comparar_politica(parametros.get("politica") or {}, bandas, colectiva, tramos)
+    politica = _comparar_politica(parametros.get("politica") or {}, bandas, tramos)
     hallazgos = _hallazgos(resumen, politica, parametros, factor_prospectivo_aplicado, justificacion)
-    pendientes = _pendientes(resumen, parametros, coh, leidos)
+    pendientes = _pendientes(resumen, parametros, coh, leidos, sin_medir_individual)
 
     return {
         "exposicion": exposicion, "tasas": tasas, "detalle_cohorte": coh["detalle"],
@@ -196,41 +215,54 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
     }
 
 
-def _comparar_politica(politica, bandas, colectiva, tramos):
+def _comparar_politica(politica, bandas, tramos):
     """Compara la matriz observada contra la política fija del cliente.
 
     La política del cliente es un único porcentaje por banda (`{banda: tasa}`),
     sin distinción de segmento, así que aquí se agregan la exposición y el ECL
-    de NO-RELACIONADOS y RELACIONADOS por banda antes de comparar. `colectiva`
-    está indexado por segmento -> banda, y `tramos` trae una fila por cada
-    combinación segmento/banda (pueden repetirse nombres de banda entre
-    segmentos), por lo que ambas dimensiones se consolidan explícitamente en
-    vez de leerse como si ya vinieran planas.
-    """
-    expo_por_banda: dict[str, float] = {b["nombre"]: 0.0 for b in bandas}
-    for s in colectiva:
-        for nombre, saldo in colectiva[s].items():
-            expo_por_banda[nombre] = expo_por_banda.get(nombre, 0.0) + saldo
+    de NO-RELACIONADOS y RELACIONADOS por banda antes de comparar. `tramos`
+    trae una fila por cada combinación segmento/banda (los nombres de banda se
+    repiten entre segmentos) y, como la matriz colectiva se inicializa con
+    todas las bandas para ambos segmentos antes de medir, `tramos` ya cubre el
+    universo completo banda x segmento, incluidas las combinaciones en cero.
 
-    ecl_por_banda: dict[str, float | None] = {}
+    Dentro de cada banda, un segmento puede estar medido (tiene tasa, `ecl` no
+    es `None`) y el otro sin medir (sin historia, `ecl` es `None`). Mezclar esa
+    exposición sin medir en el mismo denominador que la medida diluye la tasa
+    observada -justo la pérdida cero disfrazada que este módulo prohíbe-, así
+    que aquí se acumulan por separado.
+    """
+    por_banda: dict[str, dict[str, Any]] = {
+        b["nombre"]: {"medida": 0.0, "sin_medir": 0.0, "ecl": None} for b in bandas
+    }
     for t in tramos:
-        nombre = t["tramo"]
+        datos = por_banda.setdefault(t["tramo"], {"medida": 0.0, "sin_medir": 0.0, "ecl": None})
         if t["ecl"] is None:
-            ecl_por_banda.setdefault(nombre, None)
-            continue
-        previo = ecl_por_banda.get(nombre)
-        ecl_por_banda[nombre] = t["ecl"] if previo is None else previo + t["ecl"]
+            datos["sin_medir"] += t["exposicion"]
+        else:
+            datos["medida"] += t["exposicion"]
+            datos["ecl"] = t["ecl"] if datos["ecl"] is None else datos["ecl"] + t["ecl"]
 
     filas, total = [], 0.0
     for b in bandas:
         nombre = b["nombre"]
+        datos = por_banda[nombre]
+        exposicion_medida = datos["medida"]
+        exposicion_sin_medir = datos["sin_medir"]
+        exposicion = exposicion_medida + exposicion_sin_medir
+        # La provisión de la política se calcula sobre la exposición total de
+        # la banda: es lo que el cliente provisiona hoy, mida o no mida el
+        # auditor cada segmento.
         tasa = float(politica.get(nombre, politica.get(b["origen"], 0)) or 0)
-        exposicion = expo_por_banda.get(nombre, 0.0)
         provision = redondear(exposicion * tasa)
         total += provision
-        ecl = ecl_por_banda.get(nombre)
+        ecl = datos["ecl"]
+        tasa_observada = (ecl / exposicion_medida) if (ecl is not None and exposicion_medida > 0) else None
         filas.append({"banda": nombre, "banda_origen": b["origen"], "exposicion": redondear(exposicion),
+                      "exposicion_medida": redondear(exposicion_medida),
+                      "exposicion_sin_medir": redondear(exposicion_sin_medir),
                       "tasa_politica": tasa, "provision_politica": provision, "ecl": ecl,
+                      "tasa_observada": tasa_observada,
                       "diferencia": None if ecl is None else redondear(ecl - provision)})
     bruta = sum(abs(f["diferencia"]) for f in filas if f["diferencia"] is not None)
     return {"filas": filas, "provision_politica_total": redondear(total),
@@ -251,8 +283,11 @@ def _hallazgos(resumen, politica, parametros, factor_prospectivo_aplicado, justi
                            "prospectiva, o el ajuste propuesto carece de justificación escrita.",
                   "efecto": "Incumplimiento de un requerimiento explícito de la norma.",
                   "recomendacion": "Documentar las variables prospectivas con fuente identificada y su traslación al factor."})
-    sub = [f for f in politica["filas"] if f["tasa_politica"] == 0 and f["ecl"] and f["exposicion"] > 0
-           and f["ecl"] / f["exposicion"] > 0.05]
+    # Sobre lo medido (tasa_observada), no sobre la exposición total de la banda:
+    # dividir entre el total diluiría el porcentaje con la parte sin medir, que
+    # es justo la dilución silenciosa que esta comparación evita.
+    sub = [f for f in politica["filas"] if f["tasa_politica"] == 0 and f["tasa_observada"] is not None
+           and f["tasa_observada"] > 0.05]
     if sub:
         h.append({"titulo": "Política de deterioro no sustentada en el comportamiento observado",
                   "riesgo": "Alto",
@@ -272,7 +307,7 @@ def _hallazgos(resumen, politica, parametros, factor_prospectivo_aplicado, justi
     return h
 
 
-def _pendientes(resumen, parametros, coh, leidos):
+def _pendientes(resumen, parametros, coh, leidos, sin_medir_individual=0.0):
     p = []
     if not parametros.get("materialidad"):
         p.append({"variable": "Materialidad de desempeño", "responsable": "Socio", "criticidad": "Alta",
@@ -280,6 +315,12 @@ def _pendientes(resumen, parametros, coh, leidos):
     if not parametros.get("umbral_individual"):
         p.append({"variable": "Umbral de evaluación individual", "responsable": "Socio", "criticidad": "Alta",
                   "efecto": "Impide segregar de la matriz los saldos relevantes"})
+    if sin_medir_individual > 0.005:
+        p.append({"variable": "Saldos individuales sin tasa aplicable", "responsable": "Gerente / Socio",
+                  "criticidad": "Alta",
+                  "efecto": f"USD {sin_medir_individual:,.2f} de saldos evaluados individualmente caen en "
+                            "bandas sin tasa observada y sin estimación propia justificada: su pérdida "
+                            "provisional es 0,00 pero no está medida, no que no haya pérdida."})
     if not str(parametros.get("justificacion_prospectivo") or "").strip():
         p.append({"variable": "Información prospectiva documentada", "responsable": "Cliente",
                   "criticidad": "Alta", "efecto": "El factor permanece en 1,000"})
