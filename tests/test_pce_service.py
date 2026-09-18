@@ -723,6 +723,41 @@ def test_la_cartera_descartada_en_el_corte_intermedio_se_declara():
     assert "2024.xlsx" in hallazgo["condicion"]
 
 
+def test_la_cartera_descartada_en_los_cortes_anteriores_se_declara_en_negativo():
+    """U4: el hallazgo de los cortes anteriores no tenía prueba del caso
+    NEGATIVO, que es justo el motivo por el que lleva `abs(...)`.
+
+    Una nota de crédito ilegible en la cohorte t-2 falta en el DENOMINADOR de
+    todas las tasas igual que una factura ilegible: lo que no se pudo leer se
+    declara por su magnitud, no por su signo. Con la guarda en
+    `cartera_no_leida > 0.005` las 257 pruebas de la tanda anterior seguían en
+    verde: las tres pruebas del hallazgo usaban descartes positivos.
+    """
+    cortes = _cortes()
+    cortes[0]["contenido"] = _corte_con_fila_ilegible(-900000.0, 2023)
+    r = analizar(cortes, {"umbral_dias_incumplimiento": 730})
+
+    hallazgo = next((h for h in r["hallazgos"]
+                     if h["titulo"] == "Cartera descartada en la lectura de los cortes anteriores"),
+                    None)
+    assert hallazgo is not None, "el hallazgo tiene que dispararse también en negativo"
+    assert "-900,000.00" in hallazgo["condicion"], hallazgo["condicion"]
+    assert "2023.xlsx" in hallazgo["condicion"]
+
+
+def test_la_cartera_descartada_en_el_corte_intermedio_se_declara_en_negativo():
+    """Lo mismo para el corte t-1, que es el control de coherencia."""
+    cortes = _cortes()
+    cortes[1]["contenido"] = _corte_con_fila_ilegible(-500000.0, 2024)
+    r = analizar(cortes, {"umbral_dias_incumplimiento": 730})
+
+    hallazgo = next((h for h in r["hallazgos"]
+                     if h["titulo"] == "Cartera descartada en la lectura de los cortes anteriores"),
+                    None)
+    assert hallazgo is not None, "el hallazgo tiene que dispararse también en negativo"
+    assert "-500,000.00" in hallazgo["condicion"], hallazgo["condicion"]
+
+
 def test_sin_cartera_ilegible_no_se_emite_el_hallazgo_de_los_cortes_anteriores():
     """Lo que no ocurrió no se declara: el hallazgo no puede ser de rutina."""
     r = analizar(_cortes(), {"umbral_dias_incumplimiento": 730})

@@ -134,6 +134,59 @@ def acotar_saldo_sin_medir_con_motivo(saldo_sin_tasa: float,
                   motivo_techo=TECHO_SALDO)
 
 
+@dataclass(frozen=True)
+class CotaDelModulo:
+    """Una cota del módulo y dónde tiene que aparecer en el papel de trabajo.
+
+    Este registro es la otra mitad de la regla: `acotar` obliga a recibir el
+    motivo, y esto obliga a que el motivo llegue al papel. `tests/test_pce_cotas.py`
+    recorre `COTAS` y, para cada entrada, exige un escenario donde la cota
+    ACTÚE, comprueba que la celda de `columna_valor` recalcule al centavo lo
+    archivado, y que la de `columna_declaracion` diga que actuó.
+
+    Una cota nueva que no se registre aquí hace fallar esa prueba, así que no
+    se puede volver a poner una cota en el motor y olvidarla en la fórmula.
+    """
+    #: Identificador de la cota; la prueba exige un escenario con este nombre.
+    nombre: str
+    #: Qué importe acota, en castellano, para el mensaje de la prueba.
+    que_acota: str
+    #: Hoja del papel donde vive.
+    hoja: str
+    #: Columna (o celda, si `fila` no es None) cuya FÓRMULA reproduce el valor
+    #: acotado. `None` cuando el papel imprime el importe como dato medido y no
+    #: puede derivarlo de sus propias celdas (la pérdida de un caso individual).
+    columna_valor: str | None
+    #: Columna (o celda) que declara qué cota actuó. Nunca es `None`.
+    columna_declaracion: str
+    #: Filas fijas, para las cotas que no van por fila de datos. `None` = la
+    #: cota se aplica fila a fila sobre los datos de la hoja.
+    fila: int | None = None
+    fila_declaracion: int | None = None
+
+
+#: Todas las cotas del módulo. Ver `CotaDelModulo`.
+COTAS: tuple[CotaDelModulo, ...] = (
+    CotaDelModulo(
+        nombre="perdida_esperada_de_la_banda",
+        que_acota="La pérdida esperada de cada banda de la matriz colectiva",
+        hoja="05-Matriz", columna_valor="H", columna_declaracion="J"),
+    CotaDelModulo(
+        nombre="perdida_esperada_del_caso_individual",
+        que_acota="La pérdida esperada de cada caso evaluado individualmente",
+        hoja="06-Individual", columna_valor=None, columna_declaracion="I"),
+    CotaDelModulo(
+        nombre="saldo_sin_medir_del_caso_individual",
+        que_acota="El saldo sin medir de un caso, acotado a su propia exposición",
+        hoja="06-Individual", columna_valor="F", columna_declaracion="J"),
+    CotaDelModulo(
+        nombre="cartera_medida",
+        que_acota="La cartera medida, acotada a [0; cartera estratificada]",
+        hoja="08-Conciliacion", columna_valor="B", columna_declaracion="B",
+        fila=9, fila_declaracion=11),
+)
+
+
 # ---------------------------------------------------------------------------
 # Tasas de pérdida a partir de la experiencia histórica (cohortes)
 # ---------------------------------------------------------------------------
