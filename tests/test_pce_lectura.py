@@ -47,3 +47,24 @@ def test_sin_fechas_parseables_el_formato_es_ambiguo():
 
 def test_mezcla_de_fechas_nativas_y_texto_es_inconsistente():
     assert inferir_formato_fecha([datetime(2025, 12, 31), "05/03/2025"]) == "inconsistente"
+
+
+# ---------------------------------------------------------------------------
+# M1 - El signo negativo solo lo marca un signo, no cualquier guion
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("entrada,esperado", [
+    # Un guion INTERIOR entre dígitos es un separador del dato, no un signo:
+    # una columna mal mapeada no puede convertirse en una exposición negativa
+    # enorme.
+    ("1234-5678", 12345678.0),
+    ("USD 1,500.00 s/n-c", 1500.0),
+    ("F-1234", 1234.0),
+    # ...y el signo de verdad se sigue reconociendo, venga como venga.
+    ("-987,65", -987.65),
+    ("(1.500,00)", -1500.00),
+    ("USD -1.500,00", -1500.00),
+    ("1.500,00-", -1500.00),
+])
+def test_solo_un_signo_de_verdad_vuelve_negativo_el_importe(entrada, esperado):
+    assert a_numero(entrada) == pytest.approx(esperado, abs=0.005)

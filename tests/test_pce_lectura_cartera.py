@@ -123,3 +123,60 @@ def test_una_fila_de_encabezado_fuera_de_rango_se_rechaza():
     for valor in (50, 0, -3):
         with pytest.raises(ValueError, match="fuera de rango"):
             leer_cartera(datos, "c.xlsx", CORTE, BANDAS_POR_DEFECTO, fila_encabezado=valor)
+
+
+# ---------------------------------------------------------------------------
+# I7 - La clasificación de segmento no depende del separador que use el cliente
+# ---------------------------------------------------------------------------
+
+def test_no_relacionados_escrito_de_cualquier_forma_no_cae_en_relacionados():
+    """El efecto de fallar aquí no es de una fila: toda la cartera de terceros
+    se muda al segmento de relacionadas, el total de NO-RELACIONADOS queda en 0
+    y el anclaje de ambos segmentos se descuadra a la vez."""
+    filas = [
+        ("A", "F-1", "NO_RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 100.0),
+        ("B", "F-2", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 100.0),
+        ("C", "F-3", "NO RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 100.0),
+        ("D", "F-4", "NORELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 100.0),
+        ("E", "F-5", "no.relacionados", date(2025, 9, 1), date(2025, 12, 1), 100.0),
+        ("F", "F-6", "TERCEROS NO RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 100.0),
+        ("G", "F-7", "RELACIONADAS", date(2025, 9, 1), date(2025, 12, 1), 100.0),
+        ("H", "F-8", "PARTES RELACIONADAS", date(2025, 9, 1), date(2025, 12, 1), 100.0),
+    ]
+    r = leer_cartera(_xlsx(filas), "c.xlsx", CORTE, BANDAS_POR_DEFECTO)
+    assert [f["segmento"] for f in r["filas"]] == ["NO-RELACIONADOS"] * 6 + ["RELACIONADOS"] * 2
+
+
+# ---------------------------------------------------------------------------
+# C1 - El importe descartado se totaliza, no solo se cuenta
+# ---------------------------------------------------------------------------
+
+def test_el_importe_descartado_se_totaliza_y_se_desglosa_por_motivo():
+    """Guardar solo el conteo de descartados hace desaparecer el importe: con
+    anclaje a los EEFF ese hueco se reparte sobre las filas que sí entraron."""
+    r = leer_cartera(_xlsx([
+        ("ALFA", "F-1", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 1000.0),
+        ("BETA", "", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 750000.0),
+        ("GAMA", "F-3", "NO-RELACIONADOS", date(2025, 9, 1), None, 1250000.0),
+    ]), "c.xlsx", CORTE, BANDAS_POR_DEFECTO)
+
+    assert r["total_saldo"] == pytest.approx(1000.0)
+    assert r["descartados_importe"] == pytest.approx(2000000.0)
+
+    por_motivo = {d["motivo"]: d for d in r["descartados_por_motivo"]}
+    assert por_motivo["sin número de documento"]["filas"] == 1
+    assert por_motivo["sin número de documento"]["importe"] == pytest.approx(750000.0)
+    assert por_motivo["sin fecha de vencimiento"]["filas"] == 1
+    assert por_motivo["sin fecha de vencimiento"]["importe"] == pytest.approx(1250000.0)
+    # El desglose cuadra contra el total, sin residuos.
+    assert sum(d["importe"] for d in r["descartados_por_motivo"]) == pytest.approx(
+        r["descartados_importe"])
+
+
+def test_la_fila_identica_repetida_no_cuenta_como_cartera_no_leida():
+    """Descartar una fila idéntica repetida es una depuración deliberada, no
+    cartera perdida: su importe se informa igual, pero aparte."""
+    fila = ("ALFA", "F-1", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 1000.0)
+    r = leer_cartera(_xlsx([fila, fila]), "c.xlsx", CORTE, BANDAS_POR_DEFECTO)
+    assert r["descartados_importe"] == pytest.approx(1000.0)
+    assert r["cartera_no_leida"] == pytest.approx(0.0)

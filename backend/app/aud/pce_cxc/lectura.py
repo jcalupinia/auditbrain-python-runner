@@ -13,9 +13,26 @@ from typing import Any, Iterable
 from openpyxl import load_workbook
 
 from backend.app.aud.pce_cxc.bandas import clasificar
+from backend.app.aud.pce_cxc.motor import redondear
 
 _PATRON_DMY = re.compile(r"^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$")
 _PATRON_ISO = re.compile(r"^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})")
+
+
+def _signo_delante(s: str) -> bool:
+    """¿El primer guion de la cadena es un signo menos y no un separador?
+
+    Lo es cuando delante no hay ninguna cifra y el carácter inmediatamente
+    anterior no es alfanumérico: "-987,65", "USD -1.500,00" y "$-1500" son
+    negativos; "F-1234", "1234-5678" y "USD 1,500.00 s/n-c" no lo son.
+    """
+    i = s.find("-")
+    if i < 0:
+        return False
+    previo = s[:i]
+    if previo and previo[-1].isalnum():
+        return False
+    return not any(c.isdigit() for c in previo)
 
 
 def a_numero(valor: Any) -> float:
@@ -30,7 +47,14 @@ def a_numero(valor: Any) -> float:
       - una sola vez y no le siguen exactamente tres dígitos -> es decimal
         ("1234.56" -> 1234.56).
 
-    Los paréntesis indican negativo.
+    El importe es negativo solo si trae un SIGNO de verdad: envuelto en
+    paréntesis ("(1.500,00)"), con el guion delante del primer dígito
+    ("-987,65", "USD -1.500,00") o con el guion al final, como lo escriben
+    algunos ERP ("1.500,00-"). Un guion INTERIOR entre dígitos es parte del
+    dato, no un signo: "1234-5678" vale 12.345.678, no -12.345.678. Como el
+    mapeo de columnas es automático, tratar cualquier guion como signo convertía
+    una columna mal mapeada (números de documento tipo "F-1234") en una
+    exposición negativa enorme.
     """
     if valor is None or valor == "":
         return 0.0
@@ -39,7 +63,9 @@ def a_numero(valor: Any) -> float:
     s = str(valor).strip()
     if not s:
         return 0.0
-    negativo = s.startswith("(") and s.endswith(")") or "-" in s
+    negativo = ((s.startswith("(") and s.endswith(")"))
+                or _signo_delante(s)
+                or s.endswith("-"))
     s = re.sub(r"[^0-9.,]", "", s)
     if not s:
         return 0.0
@@ -146,6 +172,33 @@ CAMPOS: dict[str, list[str]] = {
 }
 _OBLIGATORIOS = ("documento", "vencimiento", "saldo")
 
+#: Motivo de descarte que NO representa cartera perdida: la fila idéntica
+#: repetida se depura a propósito y su importe ya está contado una vez.
+MOTIVO_FILA_REPETIDA = "fila idéntica repetida"
+
+_SEPARADORES = re.compile(r"[^0-9A-ZÁÉÍÓÚÜÑ]+")
+
+
+def _es_relacionada(tipo: Any, clave: str) -> bool:
+    """¿El tipo de cliente del archivo corresponde a una parte relacionada?
+
+    Normaliza cualquier separador antes de comparar, porque el archivo del
+    cliente escribe lo mismo de muchas formas: "NO-RELACIONADOS",
+    "NO RELACIONADOS", "NO_RELACIONADOS", "NO.RELACIONADOS" y
+    "NORELACIONADOS" son todos TERCEROS. Reconocer solo dos de esas formas
+    mudaba toda la cartera de terceros al segmento de relacionadas y dejaba
+    mal el anclaje de los dos segmentos a la vez.
+    """
+    texto = _SEPARADORES.sub(" ", str(tipo or "").upper()).strip()
+    patron = _SEPARADORES.sub(" ", str(clave or "").upper()).strip()
+    if not patron or patron.replace(" ", "") not in texto.replace(" ", ""):
+        return False
+    # "NO" pegado o separado del patrón, al inicio o tras un espacio, niega la
+    # relación ("TERCEROS NO RELACIONADOS"); "INTERNO RELACIONADAS" no, porque
+    # ahí el "NO" es el final de otra palabra.
+    partes = r"\s*".join(re.escape(p) for p in patron.split())
+    return not re.search(rf"(?:^|\s)NO\s*{partes}", texto)
+
 
 def _detectar_encabezado(filas: list[tuple]) -> int:
     mejor, puntaje = -1, 0
@@ -238,9 +291,7 @@ def leer_cartera(contenido: bytes, nombre: str, corte, bandas, hoja=None, mapeo=
         vistas.add(firma)
         repetidos += 1 if documento in documentos else 0
         documentos.add(documento)
-        tipo = str(valor(fila, "tipo") or "").upper()
-        es_rel = clave_relacionadas in tipo and f"NO-{clave_relacionadas}" not in tipo \
-            and f"NO {clave_relacionadas}" not in tipo
+        es_rel = _es_relacionada(valor(fila, "tipo"), clave_relacionadas)
         dias = (corte - vencimiento).days
         salida.append({
             "fila_origen": n, "cliente": cliente, "documento": documento,
@@ -259,7 +310,25 @@ def leer_cartera(contenido: bytes, nombre: str, corte, bandas, hoja=None, mapeo=
     for f in salida:
         f["repetido"] = conteo_documentos[f["documento"]] > 1
 
+    # El importe de lo descartado se totaliza y se desglosa por motivo: guardar
+    # solo el conteo hacía desaparecer el dinero que no se pudo leer, y con
+    # anclaje a los estados financieros ese hueco se reparte sobre las filas que
+    # sí entraron (se convierte en exposición inventada).
+    acumulado: dict[str, dict[str, Any]] = {}
+    for d in descartados:
+        m = acumulado.setdefault(d["motivo"], {"motivo": d["motivo"], "filas": 0, "importe": 0.0})
+        m["filas"] += 1
+        m["importe"] += d["saldo"]
+    por_motivo = [{**m, "importe": redondear(m["importe"])}
+                  for m in sorted(acumulado.values(), key=lambda m: m["motivo"])]
+    descartados_importe = redondear(sum(d["saldo"] for d in descartados))
+    cartera_no_leida = redondear(sum(d["saldo"] for d in descartados
+                                    if d["motivo"] != MOTIVO_FILA_REPETIDA))
+
     return {"filas": salida, "hoja": ws.title, "fila_encabezado": i_enc + 1, "mapeo": cols,
             "formato_fecha": formato, "duplicados_exactos": dup_exactos,
             "documentos_repetidos": repetidos, "descartados": descartados,
-            "total_saldo": round(sum(f["saldo"] for f in salida), 2)}
+            "descartados_importe": descartados_importe,
+            "descartados_por_motivo": por_motivo,
+            "cartera_no_leida": cartera_no_leida,
+            "total_saldo": redondear(sum(f["saldo"] for f in salida))}
