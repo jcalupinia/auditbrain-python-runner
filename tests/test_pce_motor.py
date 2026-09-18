@@ -263,6 +263,23 @@ def test_un_factor_prospectivo_negativo_se_rechaza_con_un_mensaje_accionable():
     assert "prospectivo" in mensaje and "negativo" in mensaje
 
 
+def test_un_factor_prospectivo_de_cero_se_rechaza_con_un_mensaje_accionable():
+    """Un factor de 0,000 no es un ajuste prospectivo: anula la pérdida esperada
+    ENTERA (toda banda en 0,00 cualquiera que sea su tasa observada) y archiva
+    un papel que afirma que no hay pérdida. B5.5.51-52 pide ajustar la tasa
+    histórica por las previsiones, no sustituirla por cero.
+
+    El servicio lo rechaza antes de llegar aquí, así que sin esta prueba el
+    guarda del motor quedaba sin cubrir: quitarlo dejaba toda la suite en
+    verde."""
+    with pytest.raises(ValueError) as e:
+        ParametrosECL(tasas_perdida={"1-60": 0.10}, lgd=1.0, ajuste_prospectivo=-1.0,
+                      justificacion_ajuste="Contracción del sector prevista")
+    mensaje = str(e.value)
+    assert "0,000" in mensaje
+    assert "cero" in mensaje.lower()
+
+
 def test_un_ajuste_prospectivo_no_numerico_se_rechaza():
     with pytest.raises(ValueError, match="prospectivo"):
         ParametrosECL(tasas_perdida={"1-60": 0.10}, lgd=1.0, ajuste_prospectivo="mucho",

@@ -1378,3 +1378,13 @@ def test_el_individual_de_una_corrida_actual_si_declara_los_cuatro_datos():
     assert ws[f"{columna(ws, 'Saldo acreedor incluido')}2"].value == -1000.0
     assert ws[f"{columna(ws, 'Acotamiento de la pérdida')}2"].value == SIN_ACOTAR
     assert ws[f"{columna(ws, 'Saldo sin medir SIN ACOTAR')}2"].value == 8000.0
+
+
+# Las corridas de la tanda 3 -una corrida antigua sin los campos nuevos y una
+# actual con los cuatro- entran a las mismas guardas estructurales: son las dos
+# ramas de `06-Individual`, y una referencia rota en cualquiera de ellas hace
+# que Excel pida reparar el archivo.
+RESULTADOS_A_VALIDAR.extend([
+    (RESULTADO_CORRIDA_ANTIGUA, {}),
+    (RESULTADO_SIN_MEDIR_COMPLETO, {}),
+])

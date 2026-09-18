@@ -237,6 +237,14 @@ def test_el_papel_recalcula_el_valor_acotado(cota):
     for fila in filas:
         esperado = archivado[fila][0]
         celda = f"{cota.columna_valor}{fila}"
+        # Tiene que ser una FÓRMULA. Comparar solo la cifra no separa una
+        # fórmula de un número pegado -mientras nadie toque el libro los dos
+        # dan lo mismo-, y un número pegado deja de cuadrar en cuanto el
+        # revisor corrige una celda, que es para lo que existe el papel.
+        crudo = libro.wb[cota.hoja][celda].value
+        assert isinstance(crudo, str) and crudo.startswith("="), (
+            f"{cota.nombre}: {cota.hoja}!{celda} es un valor pegado ({crudo!r}), no una "
+            f"fórmula: el papel no recalcularía «{cota.que_acota}» desde sus propias celdas.")
         assert libro.numero(cota.hoja, celda) == pytest.approx(esperado, abs=CENTAVO), (
             f"{cota.nombre}: {cota.hoja}!{celda} recalcula distinto de lo archivado "
             f"({cota.que_acota})")

@@ -455,6 +455,11 @@ def test_el_recorte_del_saldo_sin_medir_llega_al_resultado():
         100000.0, abs=CENTAVO)
 
 
+def _fila_de_delta(ws):
+    return next(i for i in range(2, ws.max_row + 1)
+                if str(ws.cell(i, 1).value or "").startswith("DELTA"))
+
+
 def test_el_papel_recalcula_el_saldo_sin_medir_acotado_del_caso():
     """06-Individual no leía ninguno de los tres campos: el saldo sin medir era
     un número pegado. Ahora la cota está en la fórmula y la celda recalcula, al
@@ -462,14 +467,46 @@ def test_el_papel_recalcula_el_saldo_sin_medir_acotado_del_caso():
     resultado = _corrida_con_nota_de_credito_individual()
     libro = _libro(resultado)
     ws = libro.wb["06-Individual"]
-    fila = next(i for i in range(2, ws.max_row + 1)
-                if str(ws.cell(i, 1).value or "").startswith("DELTA"))
+    fila = _fila_de_delta(ws)
     caso = next(c for c in resultado["individual"]["casos"]
                 if c["identificacion"].startswith("DELTA"))
     assert libro.numero("06-Individual", f"F{fila}") == pytest.approx(
         caso["saldo_sin_tasa"], abs=CENTAVO)
     assert libro.numero("06-Individual", f"G{fila}") == pytest.approx(
         caso["saldo_sin_tasa_sin_acotar"], abs=CENTAVO)
+
+
+def test_el_saldo_sin_medir_del_caso_sigue_a_las_celdas_que_lo_sostienen():
+    """Y RECALCULA de verdad, que es lo que distingue un papel de trabajo de un
+    listado.
+
+    Comparar solo la cifra no separa una fórmula de un número pegado: mientras
+    nadie toque el libro, los dos dan lo mismo. La diferencia aparece cuando el
+    revisor corrige una celda, que es exactamente para lo que existe el papel.
+    Aquí se corrigen las dos celdas que sostienen la cota y se comprueba que la
+    columna las sigue.
+    """
+    resultado = _corrida_con_nota_de_credito_individual()
+
+    # 1) Se baja la exposición del cliente por debajo de lo sin medir: el techo
+    #    de la cota tiene que morder más.
+    libro = _libro(resultado)
+    fila = _fila_de_delta(libro.wb["06-Individual"])
+    libro.wb["06-Individual"][f"C{fila}"] = 120000.0
+    libro = Libro(libro.wb)
+    assert libro.numero("06-Individual", f"F{fila}") == pytest.approx(120000.0, abs=CENTAVO)
+
+    # 2) Se corrige lo sin medir a un importe acreedor: el piso cero manda.
+    libro = _libro(resultado)
+    libro.wb["06-Individual"][f"G{fila}"] = -5000.0
+    libro = Libro(libro.wb)
+    assert libro.numero("06-Individual", f"F{fila}") == pytest.approx(0.0, abs=CENTAVO)
+
+    # 3) Y sin que ninguna cota muerda, la columna es el importe de al lado.
+    libro = _libro(resultado)
+    libro.wb["06-Individual"][f"G{fila}"] = 30000.0
+    libro = Libro(libro.wb)
+    assert libro.numero("06-Individual", f"F{fila}") == pytest.approx(30000.0, abs=CENTAVO)
 
 
 def test_el_papel_declara_que_el_saldo_sin_medir_se_acoto():
