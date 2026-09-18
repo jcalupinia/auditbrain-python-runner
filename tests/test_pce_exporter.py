@@ -133,3 +133,70 @@ def test_cada_segmento_resuelve_su_propio_factor_prospectivo():
                              f'AjusteProspectivoRelacionados,AjusteProspectivoNoRelacionados)')
     assert formula_no_relacionados == esperado_no_relacionados, formula_no_relacionados
     assert formula_relacionados == esperado_relacionados, formula_relacionados
+
+
+def test_el_excel_muestra_el_factor_prospectivo_aplicado_no_el_solicitado():
+    """Cuando el motor rechaza un ajuste prospectivo solicitado (p. ej. porque
+    falta justificación), aplica 1,0 (sin ajuste) y lo escribe en
+    ``resultado["matriz"]["ajuste_prospectivo"]``. El Excel debe reflejar lo
+    **realmente aplicado**, no lo solicitado en parámetros.
+
+    Caso: usuario pide 1,15 para NO-RELACIONADOS y 1,20 para RELACIONADOS,
+    pero el motor rechaza ambos (sin justificación) y aplica 1,0 para ambos.
+    El Excel debe mostrar 0,00% (factor 1,0 = 0% de ajuste), no 15% ni 20%.
+    """
+    resultado = {
+        "matriz": {
+            "tramos": [
+                {"segmento": "NO-RELACIONADOS", "tramo": "Por vencer",
+                 "exposicion": 80000.0, "tasa_perdida": 0.01, "ecl": 800.0},
+                {"segmento": "RELACIONADOS", "tramo": "Por vencer",
+                 "exposicion": 20000.0, "tasa_perdida": 0.02, "ecl": 400.0},
+            ],
+            # Lo que el motor realmente aplicó (rechazó los solicitados)
+            "ajuste_prospectivo": {"NO-RELACIONADOS": 1.0, "RELACIONADOS": 1.0}
+        },
+    }
+    parametros = {
+        # Lo que el usuario pidió pero fue rechazado
+        "factor_prospectivo": {"NO-RELACIONADOS": 1.15, "RELACIONADOS": 1.20},
+    }
+    wb = _abrir(construir_excel(resultado, parametros))
+
+    # Los nombres definidos en 01-Parametros deben traer lo APLICADO (1,0 = 0%)
+    # no lo solicitado (1,15 = 15% o 1,20 = 20%).
+    esperados = {"AjusteProspectivoNoRelacionados": 0.0, "AjusteProspectivoRelacionados": 0.0}
+    for nombre, esperado in esperados.items():
+        assert nombre in wb.defined_names, f"falta el nombre definido {nombre}"
+        dn = wb.defined_names[nombre]
+        hoja, celda = next(dn.destinations)
+        valor = wb[hoja][celda].value
+        assert abs(valor - esperado) < 1e-9, \
+            f"{nombre} debería ser {esperado} (lo aplicado), es {valor}"
+
+
+def test_el_excel_refleja_factor_prospectivo_aplicado_distinto_de_uno():
+    """Caso inverso: cuando el motor SÍ aplica un factor distinto de 1,0,
+    el Excel debe reflejarlo. Por ejemplo, factor aplicado 1,08."""
+    resultado = {
+        "matriz": {
+            "tramos": [
+                {"segmento": "NO-RELACIONADOS", "tramo": "Por vencer",
+                 "exposicion": 80000.0, "tasa_perdida": 0.01, "ecl": 800.0},
+            ],
+            # Lo que el motor realmente aplicó
+            "ajuste_prospectivo": {"NO-RELACIONADOS": 1.08}
+        },
+    }
+    parametros = {
+        # Coincide con lo aplicado
+        "factor_prospectivo": {"NO-RELACIONADOS": 1.08},
+    }
+    wb = _abrir(construir_excel(resultado, parametros))
+
+    dn = wb.defined_names["AjusteProspectivoNoRelacionados"]
+    hoja, celda = next(dn.destinations)
+    valor = wb[hoja][celda].value
+    # 1,08 - 1,0 = 0,08 (8%)
+    assert abs(valor - 0.08) < 1e-9, \
+        f"AjusteProspectivoNoRelacionados debería ser 0.08 (factor 1,08), es {valor}"

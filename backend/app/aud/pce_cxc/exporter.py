@@ -233,13 +233,23 @@ def _parametros(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, A
     # resolver, fila por fila, el factor del segmento de esa fila -antes se
     # escribía una sola celda global y toda la matriz recalculaba con el
     # factor de un único "segmento principal", desalineándose en silencio de
-    # lo que el motor concluyó para el resto de segmentos-. Se toma cada
-    # factor del mismo lugar del que salía el factor global
-    # (parametros["factor_prospectivo"]); si un segmento no tiene factor, 1,0
-    # (sin ajuste), igual que el motor.
-    factor_dict = parametros.get("factor_prospectivo") or {}
-    ajuste_no_relacionados = float(factor_dict.get("NO-RELACIONADOS", 1.0)) - 1.0
-    ajuste_relacionados = float(factor_dict.get("RELACIONADOS", 1.0)) - 1.0
+    # lo que el motor concluyó para el resto de segmentos-.
+    #
+    # El factor debe ser el que el motor REALMENTE APLICÓ
+    # (resultado["matriz"]["ajuste_prospectivo"]), no el solicitado en parámetros:
+    # cuando se pide sin justificación escrita, el motor lo rechaza y aplica 1,0.
+    # Si esa clave no existe (resultado antiguo), caer a parámetros por
+    # retrocompatibilidad; si tampoco está, 1,0.
+    ajuste_dict = resultado.get("matriz", {}).get("ajuste_prospectivo") or {}
+    if not ajuste_dict:
+        # Retrocompatibilidad: resultado antiguo, leer de parámetros
+        factor_dict = parametros.get("factor_prospectivo") or {}
+        ajuste_no_relacionados = float(factor_dict.get("NO-RELACIONADOS", 1.0)) - 1.0
+        ajuste_relacionados = float(factor_dict.get("RELACIONADOS", 1.0)) - 1.0
+    else:
+        # Lo aplicado está en resultado: convertir factor a ajuste
+        ajuste_no_relacionados = float(ajuste_dict.get("NO-RELACIONADOS", 1.0)) - 1.0
+        ajuste_relacionados = float(ajuste_dict.get("RELACIONADOS", 1.0)) - 1.0
 
     saldo_contable = conciliacion.get("saldo_contable")
     if saldo_contable is None:
