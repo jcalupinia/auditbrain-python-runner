@@ -643,6 +643,19 @@ def _pendientes(resumen, parametros, coh, leidos, sin_medir_individual=0.0, poli
                             "cohorte por ese número, así que el saldo remanente -numerador de "
                             "todas las tasas- suma saldos de clientes distintos: la trazabilidad "
                             "queda invalidada de raíz, no solo reducida."})
+    # El 1 % de la LORTI limita la provisión DEL EJERCICIO, y para conocerla
+    # hace falta el movimiento de la provisión del período, que la herramienta
+    # no recibe. Lo que no se puede medir se declara: el papel compara contra
+    # el tope del 10 % acumulado y deja este pendiente.
+    if not (resumen.get("tributario") or {}).get("limite_ejercicio_verificable"):
+        p.append({"variable": "Movimiento de la provisión del ejercicio", "responsable": "Cliente",
+                  "criticidad": "Alta",
+                  "efecto": "Sin el movimiento de la provisión del período (saldo inicial, "
+                            "dotación, uso y reversión) no se puede determinar la provisión DEL "
+                            "EJERCICIO, así que el límite del 1 % de la LORTI art. 10 num. 11 no "
+                            "se puede verificar. El papel contrasta la pérdida esperada acumulada "
+                            "contra el tope del 10 %, que es el límite que sí corresponde a un "
+                            "saldo acumulado."})
     control = coh.get("control_corte_intermedio") or {}
     if control.get("inconsistencias_total"):
         total = control["inconsistencias_total"]

@@ -959,3 +959,59 @@ def test_una_cohorte_consistente_tambien_se_declara_en_el_papel():
 def test_sin_control_registrado_el_papel_lo_dice_en_vez_de_callarlo():
     ws = _abrir(construir_excel(RESULTADO, {}))["02-Fuentes"]
     assert "no se registró" in _texto_de(ws)
+
+
+# ---------------------------------------------------------------------------
+# I10 — 09-Tributario compara contra el tope del 10 % y declara lo que no puede
+# calcular.
+# ---------------------------------------------------------------------------
+
+RESULTADO_TRIBUTARIO = {
+    **RESULTADO,
+    "tributario": {"limite_ejercicio_1pct": 1000.0, "tope_acumulado_10pct": 10000.0,
+                   "excede_tope_acumulado": False, "exceso_sobre_tope_acumulado": 0.0,
+                   "provision_del_ejercicio": None, "limite_ejercicio_verificable": False,
+                   "nota": "Límites de deducción (LORTI art. 10 num. 11)."},
+}
+
+
+def test_el_exceso_no_deducible_se_mide_contra_el_tope_acumulado_del_10_por_ciento():
+    ws = _abrir(construir_excel(RESULTADO_TRIBUTARIO, {}))["09-Tributario"]
+    assert ws["B3"].value == "=SaldoContable*0.1"
+    assert "10 %" in ws["A3"].value
+    assert ws["B4"].value == "=MAX(0,B2-B3)"
+    assert "10 %" in ws["A4"].value
+    assert "no deducible" in ws["A4"].value.lower()
+
+
+def test_el_uno_por_ciento_queda_como_referencia_del_limite_anual_no_como_comparacion():
+    ws = _abrir(construir_excel(RESULTADO_TRIBUTARIO, {}))["09-Tributario"]
+    assert ws["B5"].value == "=SaldoContable*0.01"
+    assert "ejercicio" in ws["A5"].value.lower()
+    # Ninguna fórmula de la hoja resta el 1 % de la PCE acumulada.
+    formulas = [c.value for fila in ws.iter_rows() for c in fila
+                if isinstance(c.value, str) and c.value.startswith("=")]
+    assert "=MAX(0,B2-B5)" not in formulas
+
+
+def test_el_tributario_declara_que_el_limite_anual_no_se_puede_verificar():
+    ws = _abrir(construir_excel(RESULTADO_TRIBUTARIO, {}))["09-Tributario"]
+    texto = _texto_de(ws)
+    assert "NO VERIFICABLE" in texto
+    assert "movimiento de la provisión del ejercicio" in texto
+    # El tratamiento tributario concilia, nunca sustituye la medición contable.
+    assert "no la sustituye" in texto
+
+
+def test_un_umbral_de_incumplimiento_en_cero_se_imprime_como_cero_y_no_como_730():
+    """`... or 730` convertía en 730 el cero guardado en una corrida antigua. El
+    papel reproduce la corrida tal como se emitió: si se guardó un 0, dice 0."""
+    resultado = {**RESULTADO, "bitacora": {**RESULTADO["bitacora"], "umbral_incumplimiento": 0}}
+    ws = _abrir(construir_excel(resultado, {}))["01-Parametros"]
+    assert ws["B4"].value == 0
+
+
+def test_sin_umbral_registrado_se_imprime_el_defecto_del_plan():
+    resultado = {**RESULTADO, "bitacora": {**RESULTADO["bitacora"], "umbral_incumplimiento": None}}
+    ws = _abrir(construir_excel(resultado, {}))["01-Parametros"]
+    assert ws["B4"].value == 730

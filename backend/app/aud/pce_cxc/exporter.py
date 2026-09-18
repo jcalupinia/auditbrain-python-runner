@@ -10,9 +10,9 @@ cambiar un parámetro (p. ej. el factor prospectivo) recalcule el libro entero.
 Reglas de fórmulas (ver también CLAUDE.md, sección de anexos):
   - Funciones permitidas: ``SUM``, ``SUMIFS``, ``COUNTIFS``, ``INDEX``,
     ``MATCH``, ``IF``, ``ABS``, ``ROUND`` y ``MAX`` (esta última para el
-    exceso no deducible de ``09-Tributario``, según el propio diseño de esa
-    hoja). Prohibidas: ``INDIRECT``, ``OFFSET``, matrices dinámicas y
-    vínculos externos -ninguna se usa aquí-.
+    exceso sobre el tope acumulado del 10 % de ``09-Tributario``, según el
+    propio diseño de esa hoja). Prohibidas: ``INDIRECT``, ``OFFSET``, matrices
+    dinámicas y vínculos externos -ninguna se usa aquí-.
   - Una banda o fila sin medir NUNCA se escribe como 0,00: se rotula
     "SIN MEDIR" (texto, no fórmula) para que no se confunda con una pérdida
     cero real.
@@ -378,7 +378,11 @@ def _parametros(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, A
     _celda(ws, 3, 3, "Definido por el socio del encargo", alineacion=ALIN_IZQ)
 
     _celda(ws, 4, 1, "Umbral de incumplimiento (días)", alineacion=ALIN_IZQ)
-    _celda(ws, 4, 2, _numero(bitacora.get("umbral_incumplimiento")) or 730, formato=FORMATO_ENTERO,
+    # `... or 730` convertía en 730 un cero guardado: el papel tiene que
+    # reproducir la corrida tal como se emitió, así que solo la AUSENCIA del
+    # dato cae al defecto del plan.
+    umbral = _numero(bitacora.get("umbral_incumplimiento"))
+    _celda(ws, 4, 2, 730 if umbral is None else umbral, formato=FORMATO_ENTERO,
            alineacion=ALIN_DER)
     # El plazo lo fija la entidad. NIIF 9 B5.5.37 presume el incumplimiento a
     # los 90 días de mora y esa presunción es refutable: citarla como si la
@@ -1112,6 +1116,17 @@ def _conciliacion(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any])
 # ---------------------------------------------------------------------------
 
 def _tributario(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> None:
+    """Concilia la pérdida esperada contra los límites de la LORTI.
+
+    El art. 10 num. 11 pone dos límites sobre magnitudes distintas: el 1 %
+    limita la provisión DEL EJERCICIO (un flujo) y el 10 % la ACUMULADA (un
+    stock). La PCE que mide este papel es acumulada, así que el exceso no
+    deducible se calcula contra el tope del 10 %; restarle el 1 % era restar un
+    flujo de un stock. El límite anual queda declarado como NO VERIFICABLE
+    porque la herramienta no recibe el movimiento de la provisión del período.
+
+    La hoja concilia: en ningún caso sustituye la medición de NIIF 9.
+    """
     ws = wb.create_sheet("09-Tributario")
     _encabezados(ws, 1, ["Concepto", "Importe"])
 
@@ -1119,24 +1134,38 @@ def _tributario(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -
     matriz_refs = refs["matriz"]
     individual_refs = refs["individual"]
 
-    _celda(ws, 2, 1, "Provisión contable (PCE total)", alineacion=ALIN_IZQ)
+    _celda(ws, 2, 1, "Provisión contable acumulada (PCE total medida)", alineacion=ALIN_IZQ)
     formula_pce = (f"='05-Matriz'!{matriz_refs['col_perdida']}{matriz_refs['fila_total']}"
                   f"+'06-Individual'!{individual_refs['col_perdida']}{individual_refs['fila_total']}")
     _celda(ws, 2, 2, formula_pce, formato=FORMATO_MONEDA, alineacion=ALIN_DER)
 
-    _celda(ws, 3, 1, "1% del ejercicio (límite anual, LORTI art. 10 núm. 11)", alineacion=ALIN_IZQ)
-    _celda(ws, 3, 2, "=SaldoContable*0.01", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    _celda(ws, 3, 1, "Tope de la provisión ACUMULADA: 10 % de la cartera (LORTI art. 10 núm. 11)",
+           alineacion=ALIN_IZQ)
+    _celda(ws, 3, 2, "=SaldoContable*0.1", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
 
-    _celda(ws, 4, 1, "Tope acumulado 10%", alineacion=ALIN_IZQ)
-    _celda(ws, 4, 2, "=SaldoContable*0.1", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    _celda(ws, 4, 1, "Exceso sobre el tope acumulado del 10 % (no deducible)", alineacion=ALIN_IZQ)
+    _celda(ws, 4, 2, "=MAX(0,B2-B3)", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
 
-    _celda(ws, 5, 1, "Exceso no deducible", alineacion=ALIN_IZQ)
-    _celda(ws, 5, 2, "=MAX(0,B2-B3)", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    _celda(ws, 5, 1, "1 % de la cartera — referencia del límite ANUAL de la provisión del ejercicio",
+           alineacion=ALIN_IZQ)
+    _celda(ws, 5, 2, "=SaldoContable*0.01", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
 
-    _celda(ws, 6, 1, "Nota", alineacion=ALIN_IZQ)
-    _celda(ws, 6, 2, tributario.get("nota", ""), alineacion=ALIN_IZQ)
+    _celda(ws, 6, 1, "Provisión del ejercicio (movimiento del período)", alineacion=ALIN_IZQ)
+    _celda(ws, 6, 2, "NO PROPORCIONADA", alineacion=ALIN_CEN)
 
-    _anchos(ws, {"A": 46, "B": 22})
+    _celda(ws, 7, 1, "Límite del 1 % anual (LORTI art. 10 núm. 11)", alineacion=ALIN_IZQ)
+    c = _celda(ws, 7, 2, "NO VERIFICABLE — exige el movimiento de la provisión del ejercicio "
+                         "(saldo inicial, dotación, uso y reversión), que esta herramienta no "
+                         "recibe. El 1 % limita la provisión DEL EJERCICIO, no la acumulada, así "
+                         "que no se compara contra B2.", alineacion=ALIN_IZQ)
+    c.font = FUENTE_DATOS_ALERTA
+
+    _celda(ws, 8, 1, "Nota", alineacion=ALIN_IZQ)
+    _celda(ws, 8, 2, str(tributario.get("nota", "")) + " El tratamiento tributario concilia con la "
+                     "medición contable: no la sustituye ni la condiciona (NIIF 9 5.5.15), y la "
+                     "diferencia es temporaria.", alineacion=ALIN_IZQ)
+
+    _anchos(ws, {"A": 62, "B": 26})
 
 
 # ---------------------------------------------------------------------------

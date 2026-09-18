@@ -564,3 +564,26 @@ def test_cambiar_el_corte_intermedio_cambia_el_resultado():
     ]), {"umbral_dias_incumplimiento": 730})
     assert fiel["control_corte_intermedio"] != ajeno["control_corte_intermedio"]
     assert ajeno["control_corte_intermedio"]["consistente"] is False
+
+
+# ---------------------------------------------------------------------------
+# I10 — El límite anual del 1 % se declara como no verificable.
+# ---------------------------------------------------------------------------
+
+def test_el_limite_del_1_por_ciento_anual_se_declara_como_no_verificable():
+    r = analizar(_cortes(), {"umbral_dias_incumplimiento": 730})
+    assert r["tributario"]["limite_ejercicio_verificable"] is False
+    assert r["tributario"]["provision_del_ejercicio"] is None
+    pendiente = next(p for p in r["pendientes"]
+                     if p["variable"] == "Movimiento de la provisión del ejercicio")
+    assert pendiente["responsable"] == "Cliente"
+    assert "1 %" in pendiente["efecto"]
+
+
+def test_el_exceso_sobre_el_tope_acumulado_se_mide_contra_el_10_por_ciento():
+    r = analizar(_cortes(), {"umbral_dias_incumplimiento": 730})
+    t = r["tributario"]
+    # 210.000 de cartera: tope acumulado 21.000; la PCE es 20.000.
+    assert t["tope_acumulado_10pct"] == pytest.approx(21000.0)
+    assert t["excede_tope_acumulado"] is False
+    assert t["exceso_sobre_tope_acumulado"] == pytest.approx(0.0)

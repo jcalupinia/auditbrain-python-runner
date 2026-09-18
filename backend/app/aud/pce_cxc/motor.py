@@ -459,6 +459,7 @@ def resumen_deterioro(
     exposicion_sin_medir = redondear(
         colectivo["exposicion_sin_medir"] + individual["saldo_sin_tasa_total"])
     exposicion_medida = redondear(exposicion_total - exposicion_sin_medir)
+    tope_acumulado = redondear(exposicion_total * TOPE_PROVISION_ACUMULADA)
 
     resultado: dict[str, Any] = {
         "colectivo": colectivo,
@@ -472,12 +473,27 @@ def resumen_deterioro(
         # una banda sin tasa diluiría el porcentaje justo cuando hay algo sin
         # medir (la misma dilución silenciosa que esta tarea evita).
         "porcentaje_sobre_cartera": (ecl_total / exposicion_medida) if exposicion_medida else 0.0,
+        # LORTI art. 10 num. 11 pone DOS límites distintos y sobre magnitudes
+        # distintas: el 1 % limita la provisión DEL EJERCICIO (un flujo) y el
+        # 10 % la provisión ACUMULADA (un stock). La PCE que se mide aquí es
+        # acumulada, así que el único límite comparable es el del 10 %. El del
+        # 1 % exige el movimiento de la provisión del período, que la
+        # herramienta no recibe: se declara que no se puede verificar, en vez
+        # de restar un flujo de un stock.
         "tributario": {
             "limite_ejercicio_1pct": redondear(exposicion_total * TASA_PROVISION_EJERCICIO),
-            "tope_acumulado_10pct": redondear(exposicion_total * TOPE_PROVISION_ACUMULADA),
-            "excede_limite_ejercicio": ecl_total > exposicion_total * TASA_PROVISION_EJERCICIO,
-            "nota": "Límite de deducción (LORTI art. 10 num. 11). No condiciona la "
-                    "estimación contable; la diferencia es temporaria.",
+            "tope_acumulado_10pct": tope_acumulado,
+            "excede_tope_acumulado": ecl_total > tope_acumulado,
+            "exceso_sobre_tope_acumulado": redondear(max(ecl_total - tope_acumulado, 0.0)),
+            "provision_del_ejercicio": None,
+            "limite_ejercicio_verificable": False,
+            "nota": "Límites de deducción (LORTI art. 10 num. 11): el 1 % limita la provisión DEL "
+                    "EJERCICIO y el 10 % la ACUMULADA. La pérdida esperada medida aquí es "
+                    "acumulada, así que se contrasta contra el tope del 10 %; el límite anual del "
+                    "1 % no se puede verificar sin el movimiento de la provisión del ejercicio. "
+                    "Ninguno de los dos condiciona la estimación contable: el tratamiento "
+                    "tributario concilia, no sustituye la medición de NIIF 9, y la diferencia es "
+                    "temporaria.",
         },
         "asiento_propuesto": {
             "debe": "Gasto por deterioro de cartera",

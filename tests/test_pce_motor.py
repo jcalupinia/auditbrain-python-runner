@@ -372,3 +372,36 @@ def test_el_saldo_individual_sin_tasa_es_exposicion_sin_medir():
     assert r["exposicion_medida"] == pytest.approx(100000.0)
     assert r["medicion_completa"] is False
     assert r["porcentaje_sobre_cartera"] == pytest.approx(0.10)
+
+
+# ---------------------------------------------------------------------------
+# I10 — El cuadro tributario compara la PCE acumulada contra el tope del 10 %.
+# ---------------------------------------------------------------------------
+
+def test_el_cuadro_tributario_compara_contra_el_tope_acumulado_del_10_por_ciento():
+    p = ParametrosECL(tasas_perdida={"Corriente": 0.15}, lgd=1.0)
+    r = resumen_deterioro(exposiciones={"Corriente": 1000000.0}, parametros=p)
+    t = r["tributario"]
+    assert t["tope_acumulado_10pct"] == pytest.approx(100000.0)
+    assert t["excede_tope_acumulado"] is True
+    assert t["exceso_sobre_tope_acumulado"] == pytest.approx(50000.0)
+
+
+def test_dentro_del_tope_acumulado_no_hay_exceso():
+    p = ParametrosECL(tasas_perdida={"Corriente": 0.01}, lgd=1.0)
+    r = resumen_deterioro({"Corriente": 1000000.0}, p)
+    assert r["tributario"]["excede_tope_acumulado"] is False
+    assert r["tributario"]["exceso_sobre_tope_acumulado"] == pytest.approx(0.0)
+
+
+def test_el_limite_anual_del_1_por_ciento_no_se_calcula_sin_el_movimiento_de_la_provision():
+    """El 1 % limita la provisión DEL EJERCICIO; la herramienta no recibe su
+    movimiento, así que lo declara en vez de restar un flujo de un stock."""
+    p = ParametrosECL(tasas_perdida={"Corriente": 0.15}, lgd=1.0)
+    t = resumen_deterioro({"Corriente": 1000000.0}, p)["tributario"]
+    assert t["provision_del_ejercicio"] is None
+    assert t["limite_ejercicio_verificable"] is False
+    # El 1 % de la cartera se conserva como referencia, pero ya no se compara
+    # contra la PCE acumulada.
+    assert t["limite_ejercicio_1pct"] == pytest.approx(10000.0)
+    assert "excede_limite_ejercicio" not in t
