@@ -51,6 +51,62 @@ def _es_numero(v: Any) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
+# ---------------------------------------------------------------------------
+# Cotas: la ÚNICA forma de recortar un importe en este módulo
+#
+# La regla del módulo tiene dos mitades y las dos se han roto una vez por
+# ronda, siempre por el mismo sitio:
+#
+#   1. El papel de trabajo se recalcula desde SUS PROPIAS celdas y da
+#      exactamente lo que archiva la corrida. Cada vez que una cota nueva se
+#      puso en el motor y no en la fórmula del Excel, el papel empezó a decir
+#      otra cosa que la pantalla (pasó con `05-Matriz` y volvió a pasar con
+#      `08-Conciliacion`).
+#   2. Ninguna cota actúa en silencio: si un número se recorta, el resultado
+#      dice que se recortó, y eso llega al papel y a la pantalla.
+#
+# `acotar` es lo que impide repetir el patrón: devuelve SIEMPRE el par
+# (valor, motivo), así que no se puede obtener el valor recortado sin recibir
+# también el motivo, y `COTAS` obliga a que cada cota tenga su celda en el
+# papel. `tests/test_pce_cotas.py` comprueba las dos cosas: que no haya
+# ningún recorte fuera de este helper y que cada entrada de `COTAS` tenga un
+# escenario donde ACTÚE, una celda que la recalcule al centavo y una celda que
+# declare que actuó.
+# ---------------------------------------------------------------------------
+
+#: Motivos de acotamiento. Son los valores que viajan en `acotado` y los que
+#: el papel traduce a texto.
+PISO_CERO = "piso_cero"
+TASA_MAXIMA = "tasa_maxima"
+TECHO_SALDO = "techo_saldo"
+TECHO_CARTERA = "techo_cartera"
+
+
+def acotar(valor: float, *, piso: float | None = None, techo: float | None = None,
+           motivo_piso: str = PISO_CERO,
+           motivo_techo: str = TECHO_SALDO) -> tuple[float, str | None]:
+    """Recorta un importe entre `piso` y `techo` y DEVUELVE TAMBIÉN EL MOTIVO.
+
+    Devolver el par obliga a quien acota a hacer algo con el motivo: no existe
+    la forma "solo el número", que es como las cotas anteriores terminaron
+    aplicándose en silencio. `motivo` es `None` cuando ninguna cota mordió.
+
+    El piso se evalúa antes que el techo, y se exige `piso <= techo`: con el
+    orden invertido el resultado dependería de cuál se mirara primero, y una
+    cota cuyo resultado depende del orden no es una cota, es un accidente.
+    """
+    if piso is not None and techo is not None and piso > techo:
+        raise ValueError(
+            f"Cota mal formada: el piso ({piso}) supera al techo ({techo}). Una cota cuyo "
+            "resultado depende de cuál se evalúe primero no es una cota."
+        )
+    if piso is not None and valor < piso:
+        return piso, motivo_piso
+    if techo is not None and valor > techo:
+        return techo, motivo_techo
+    return valor, None
+
+
 def acotar_saldo_sin_medir(saldo_sin_tasa: float, saldo: float) -> float:
     """Lo que de un caso no se pudo medir, acotado a su propia exposición.
 
@@ -65,9 +121,17 @@ def acotar_saldo_sin_medir(saldo_sin_tasa: float, saldo: float) -> float:
     La cota es la misma idea que el techo de la pérdida esperada: nada de un
     caso puede superar su importe en libros bruto. Y como toda cota de este
     módulo, cuando actúa se declara (`saldo_sin_tasa_acotado`), nunca en
-    silencio.
+    silencio: quien necesite saber si mordió usa `acotar_saldo_sin_medir_con_motivo`.
     """
-    return min(max(redondear(saldo_sin_tasa), 0.0), max(redondear(saldo), 0.0))
+    return acotar_saldo_sin_medir_con_motivo(saldo_sin_tasa, saldo)[0]
+
+
+def acotar_saldo_sin_medir_con_motivo(saldo_sin_tasa: float,
+                                      saldo: float) -> tuple[float, str | None]:
+    """Igual que `acotar_saldo_sin_medir`, devolviendo también qué cota mordió."""
+    techo, _ = acotar(redondear(saldo), piso=0.0)
+    return acotar(redondear(saldo_sin_tasa), piso=0.0, techo=techo,
+                  motivo_techo=TECHO_SALDO)
 
 
 # ---------------------------------------------------------------------------
@@ -128,12 +192,19 @@ class ParametrosECL:
                 f"Ajuste prospectivo inválido: {self.ajuste_prospectivo!r}. Indique el factor "
                 "prospectivo como un número (1,00 = sin ajuste; 1,10 = 10 % más de pérdida)."
             )
-        if 1 + float(self.ajuste_prospectivo) < 0:
+        if 1 + float(self.ajuste_prospectivo) <= 0:
+            # Un factor de 0,000 no es un ajuste prospectivo: anula la pérdida
+            # esperada ENTERA (toda banda queda en 0,00 cualquiera que sea su
+            # tasa observada) y deja un papel que afirma que no hay pérdida.
+            # B5.5.51-52 pide ajustar la tasa histórica por las previsiones, no
+            # sustituirla por cero, así que es un error de entrada: 400 con el
+            # rango correcto, no una corrida archivada que dice 0,00.
             raise ValueError(
-                f"El factor prospectivo no puede ser negativo: se pidió "
-                f"{1 + float(self.ajuste_prospectivo):.3f}. Un factor negativo invertiría el signo "
-                "de la pérdida esperada. Indique un factor mayor o igual a 0,000 "
-                "(1,000 = sin ajuste)."
+                f"El factor prospectivo no puede ser cero ni negativo: se pidió "
+                f"{1 + float(self.ajuste_prospectivo):.3f}. Un factor de 0,000 anularía la "
+                "pérdida esperada de todas las bandas y uno negativo invertiría su signo. "
+                "Indique un factor mayor que 0,000 (1,000 = sin ajuste; 1,100 = 10 % más de "
+                "pérdida esperada)."
             )
         if self.ajuste_prospectivo and not self.justificacion_ajuste.strip():
             raise ValueError(
@@ -147,6 +218,16 @@ class ParametrosECL:
                 )
             if not _es_numero(self.tasa_descuento) or self.tasa_descuento < 0:
                 raise ValueError(f"Tasa de descuento inválida: {self.tasa_descuento!r}")
+            # El horizonte es el tiempo hasta el flujo esperado: no existe
+            # negativo. Con uno negativo el factor de descuento pasa de 1 y la
+            # pérdida esperada crecería al descontarla, que es lo contrario de
+            # lo que hace descontar (B5.5.44).
+            for tramo, t in self.horizontes.items():
+                if not _es_numero(t) or float(t) < 0:
+                    raise ValueError(
+                        f"Horizonte de descuento inválido en '{tramo}': {t!r}. Indique los años "
+                        "hasta el flujo esperado como un número mayor o igual a 0."
+                    )
 
     def lgd_de(self, tramo: str) -> float:
         if isinstance(self.lgd, dict):
@@ -227,7 +308,7 @@ def medir_ecl(exposiciones: dict[str, float], parametros: ParametrosECL) -> dict
             })
             continue
         tasa_ajustada_bruta = float(tasa) * (1 + parametros.ajuste_prospectivo)
-        tasa_ajustada = min(tasa_ajustada_bruta, 1.0)
+        tasa_ajustada, _ = acotar(tasa_ajustada_bruta, techo=1.0, motivo_techo=TASA_MAXIMA)
         lgd = parametros.lgd_de(tramo)
         if parametros.tasa_descuento is None:
             factor = 1.0
@@ -239,15 +320,23 @@ def medir_ecl(exposiciones: dict[str, float], parametros: ParametrosECL) -> dict
             factor = 1 / (1 + parametros.tasa_descuento) ** float(t)
         # `ecl_sin_acotar` conserva lo que daría el cálculo puro; `ecl` aplica
         # el piso y el techo de la norma, y `acotado` dice cuál actuó.
+        #
+        # El techo del importe en libros bruto se aplica igual que siempre
+        # (B5.5.35 lo exige por escrito), pero NO lleva rótulo propio: con la
+        # tasa ya acotada al 100 %, la LGD validada en [0, 1] y el factor de
+        # descuento en (0, 1] -la tasa de descuento no puede ser negativa y los
+        # horizontes tampoco-, el producto nunca supera la exposición, así que
+        # `techo_exposicion` era un rótulo inalcanzable. El único recorte hacia
+        # abajo posible es el de la tasa.
         ecl_sin_acotar = redondear(saldo * tasa_ajustada_bruta * lgd * factor)
-        techo = max(saldo, 0.0)
-        ecl = min(max(redondear(saldo * tasa_ajustada * lgd * factor), 0.0), techo)
+        techo, _ = acotar(saldo, piso=0.0)
+        ecl, _ = acotar(redondear(saldo * tasa_ajustada * lgd * factor), piso=0.0, techo=techo)
         acotado = None
         if ecl_sin_acotar < ecl - 0.0001:
-            acotado = "piso_cero"
+            acotado = PISO_CERO
             acotada_piso += ecl - ecl_sin_acotar
         elif ecl_sin_acotar > ecl + 0.0001:
-            acotado = "tasa_maxima" if tasa_ajustada_bruta > 1.0 else "techo_exposicion"
+            acotado = TASA_MAXIMA
             acotada_techo += ecl_sin_acotar - ecl
         total += ecl
         filas.append({
@@ -314,7 +403,7 @@ def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
     for caso in casos:
         # Centavos exactos antes de medir (ver el docstring).
         saldo = redondear(float(caso.get("saldo") or 0))
-        techo = max(saldo, 0.0)
+        techo, _ = acotar(saldo, piso=0.0)
         if caso.get("ecl") is not None:
             ecl_sin_acotar = redondear(float(caso["ecl"]))
         else:
@@ -333,13 +422,10 @@ def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
                     f"no puede superar el saldo del cliente: indique un importe entre 0,00 y "
                     f"{techo:,.2f}."
                 )
-        ecl = min(max(ecl_sin_acotar, 0.0), techo)
-        acotado = None
-        if ecl_sin_acotar < ecl - 0.0001:
-            acotado = "piso_cero"
+        ecl, acotado = acotar(ecl_sin_acotar, piso=0.0, techo=techo, motivo_techo=TECHO_SALDO)
+        if acotado == PISO_CERO:
             acotada_piso += ecl - ecl_sin_acotar
-        elif ecl_sin_acotar > ecl + 0.0001:
-            acotado = "techo_saldo"
+        elif acotado == TECHO_SALDO:
             acotada_techo += ecl_sin_acotar - ecl
         saldo_total += saldo
         ecl_total += ecl
@@ -649,9 +735,23 @@ def resumen_deterioro(
     # magnitudes ya se cuadran sobre la misma base (`acotar_saldo_sin_medir`);
     # esta cota es la red que impide que un cambio futuro vuelva a desalinear
     # la pantalla, el papel y la base sin que nadie se entere.
-    exposicion_medida = redondear(
-        min(max(exposicion_total - exposicion_sin_medir, 0.0), max(exposicion_total, 0.0)))
+    #
+    # Cuando muerde NO se aplica en silencio: viajan la resta cruda
+    # (`exposicion_medida_sin_acotar`) y el motivo (`exposicion_medida_acotada`),
+    # `08-Conciliacion` imprime las tres celdas y el servicio levanta el
+    # hallazgo «Cartera medida acotada».
+    exposicion_medida_sin_acotar = redondear(exposicion_total - exposicion_sin_medir)
+    techo_cartera, _ = acotar(exposicion_total, piso=0.0)
+    exposicion_medida, exposicion_medida_acotada = acotar(
+        exposicion_medida_sin_acotar, piso=0.0, techo=techo_cartera,
+        motivo_techo=TECHO_CARTERA)
     tope_acumulado = redondear(exposicion_total * TOPE_PROVISION_ACUMULADA)
+    # El tope tributario del 10 % solo tiene lectura sobre una cartera
+    # POSITIVA: con la cartera estratificada neta acreedora el tope sale
+    # negativo y «excede el tope» decía que sí con una pérdida esperada de
+    # 0,00. Lo que no se puede contrastar se declara, igual que el límite
+    # anual del 1 %, en vez de concluir un absurdo.
+    tope_verificable = exposicion_total > 0.005
 
     resultado: dict[str, Any] = {
         "colectivo": colectivo,
@@ -663,6 +763,10 @@ def resumen_deterioro(
         "exposicion_total": exposicion_total,
         "exposicion_sin_medir": exposicion_sin_medir,
         "exposicion_medida": exposicion_medida,
+        # La resta cruda y el motivo de la cota, para que el papel imprima las
+        # dos cifras y la pantalla pueda decir que se acotó.
+        "exposicion_medida_sin_acotar": exposicion_medida_sin_acotar,
+        "exposicion_medida_acotada": exposicion_medida_acotada,
         "medicion_completa": exposicion_sin_medir < 0.01,
         "ecl_total": ecl_total,
         # Sobre lo medido, no sobre el total: si se calculara sobre el total,
@@ -679,8 +783,13 @@ def resumen_deterioro(
         "tributario": {
             "limite_ejercicio_1pct": redondear(exposicion_total * TASA_PROVISION_EJERCICIO),
             "tope_acumulado_10pct": tope_acumulado,
-            "excede_tope_acumulado": ecl_total > tope_acumulado,
-            "exceso_sobre_tope_acumulado": redondear(max(ecl_total - tope_acumulado, 0.0)),
+            # Sin cartera estratificada positiva el tope no es contrastable: se
+            # declara, no se concluye (ver `tope_verificable`).
+            "tope_acumulado_verificable": tope_verificable,
+            "excede_tope_acumulado": tope_verificable and ecl_total > tope_acumulado,
+            "exceso_sobre_tope_acumulado": (
+                acotar(redondear(ecl_total - tope_acumulado), piso=0.0)[0]
+                if tope_verificable else 0.0),
             "provision_del_ejercicio": None,
             "limite_ejercicio_verificable": False,
             "nota": "Límites de deducción (LORTI art. 10 num. 11): el 1 % limita la provisión DEL "

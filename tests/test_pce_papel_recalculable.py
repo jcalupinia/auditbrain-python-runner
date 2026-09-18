@@ -115,6 +115,24 @@ def _corrida_con_nota_de_credito_individual():
                     {"umbral_dias_incumplimiento": 730, "umbral_individual": 100000})
 
 
+def _corrida_con_cartera_medida_acotada():
+    """U1: lo que no se pudo medir supera a la cartera estratificada.
+
+    BETA sale a evaluación individual con 500.000 en una banda SIN tasa, y
+    GAMMA deja la banda «0 a 30 días» con exposición acreedora por una nota de
+    crédito. La cartera total sigue siendo POSITIVA (160.000), pero
+    «estratificada menos sin medir» da −350.000: el motor acota esa resta a
+    [0, cartera total] y el papel tiene que hacer lo mismo y declararlo.
+    """
+    actual = COHORTE_2025 + [
+        ("BETA", "F-2", "NO-RELACIONADOS", date(2020, 1, 1), date(2020, 6, 1), 500000.0),
+        ("GAMMA", "F-9", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 100000.0),
+        ("GAMMA", "NC-1", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), -450000.0),
+    ]
+    return analizar(_cortes(COHORTE_2023, COHORTE_2024, actual),
+                    {"umbral_dias_incumplimiento": 730, "umbral_individual": 100000})
+
+
 def _corrida_con_cartera_sin_estratificar():
     """T3: los EEFF traen cartera de relacionadas que el archivo no tiene.
 
@@ -355,3 +373,50 @@ def test_la_hoja_tributaria_declara_sobre_que_cartera_se_aplica_el_tope():
     textos = " ".join(str(c.value or "") for fila in ws.iter_rows() for c in fila).lower()
     assert "estratificada" in textos
     assert "sin estratificar" in textos
+
+
+# ---------------------------------------------------------------------------
+# U1 — La cota de la «cartera medida» vive en la fórmula y se declara
+# ---------------------------------------------------------------------------
+
+def test_la_conciliacion_recalcula_la_cartera_medida_cuando_la_cota_actua():
+    """El defecto crítico de la tanda anterior: la cota se puso en el motor y la
+    fórmula siguió siendo la resta cruda, así que `08-Conciliacion` B9 imprimía
+    −350.000,00 bajo el rótulo «Cartera medida» mientras la corrida archivaba
+    0,00 y la pantalla pintaba 0,00."""
+    resultado = _corrida_con_cartera_medida_acotada()
+    # El escenario es el que hace actuar la cota: sin esto la prueba no prueba.
+    assert resultado["exposicion"]["total"] > 0
+    assert resultado["exposicion"]["sin_medir"] > resultado["exposicion"]["total"]
+    assert resultado["exposicion"]["medida"] == pytest.approx(0.0, abs=CENTAVO)
+
+    libro = _libro(resultado)
+    assert libro.numero("08-Conciliacion", "B9") == pytest.approx(
+        resultado["exposicion"]["medida"], abs=CENTAVO)
+
+
+def test_la_conciliacion_declara_que_la_cartera_medida_se_acoto():
+    """Ninguna cota puede actuar en silencio: el papel imprime la resta cruda,
+    la acotada y cuál cota actuó."""
+    resultado = _corrida_con_cartera_medida_acotada()
+    libro = _libro(resultado)
+    ws = libro.wb["08-Conciliacion"]
+    textos = {str(ws.cell(f, 1).value or "").lower(): f for f in range(1, ws.max_row + 1)}
+    fila_cruda = next((f for t, f in textos.items() if "sin acotar" in t), None)
+    assert fila_cruda, f"08-Conciliacion no imprime la cartera medida sin acotar: {list(textos)}"
+    assert libro.numero("08-Conciliacion", f"B{fila_cruda}") == pytest.approx(
+        resultado["exposicion"]["medida_sin_acotar"], abs=CENTAVO)
+
+    fila_decl = next((f for t, f in textos.items() if "acotamiento" in t), None)
+    assert fila_decl, f"08-Conciliacion no declara el acotamiento: {list(textos)}"
+    declarado = libro.valor("08-Conciliacion", f"B{fila_decl}")
+    assert "PISO CERO" in str(declarado).upper(), declarado
+
+
+def test_la_corrida_declara_el_acotamiento_de_la_cartera_medida():
+    """La pantalla y la base también lo reciben: `exposicion.medida_acotada`."""
+    resultado = _corrida_con_cartera_medida_acotada()
+    assert resultado["exposicion"]["medida_acotada"] == "piso_cero"
+    assert resultado["exposicion"]["medida_sin_acotar"] == pytest.approx(-350000.0, abs=CENTAVO)
+    titulos = [h["titulo"] for h in resultado["hallazgos"]]
+    assert "Cartera medida acotada" in titulos, titulos

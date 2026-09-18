@@ -76,13 +76,19 @@ SEGMENTOS_TEXTO = "SIN MEDIR"
 #: no se compara, y no vale 0 %.
 TEXTO_SIN_COMPARAR = "SIN COMPARAR"
 
-#: Rótulos del acotamiento que actuó sobre la pérdida de una banda. El papel
-#: NUNCA acota en silencio: la columna dice cuál de las dos cotas de la norma
-#: movió la cifra, y la columna vecina conserva el cálculo sin acotar.
+#: Rótulos del acotamiento que actuó. El papel NUNCA acota en silencio: hay
+#: una columna (o una fila) que dice cuál cota movió la cifra y otra que
+#: conserva el cálculo sin acotar. Cada rótulo corresponde a un motivo de
+#: ``motor.acotar``, y ``motor.COTAS`` los ata a la celda que los imprime.
 ACOTADO_PISO = "PISO CERO (NIIF 9 5.5.15)"
 ACOTADO_TASA = "TASA ACOTADA AL 100 % (NIIF 9 B5.5.35)"
 ACOTADO_TECHO = "TECHO DEL IMPORTE EN LIBROS BRUTO (NIIF 9 B5.5.35)"
+ACOTADO_TECHO_CARTERA = "TECHO DE LA CARTERA ESTRATIFICADA"
+ACOTADO_EXPOSICION_CASO = "ACOTADO A LA EXPOSICIÓN DEL CASO (NIIF 9 B5.5.35)"
 SIN_ACOTAR = "SIN ACOTAR"
+#: Corridas anteriores al campo que se imprime: el papel dice que el dato no
+#: se registró, nunca un 0,00 ni un "SIN ACOTAR" que esa corrida no afirmó.
+NO_REGISTRADO = "NO REGISTRADO EN ESTA CORRIDA"
 NOTA_ACOTAMIENTOS = (
     "La pérdida esperada de cada banda se acota como manda la norma y el papel lo declara: "
     "no puede ser negativa (NIIF 9 5.5.15 — una nota de crédito no genera «ganancia esperada») "
@@ -427,12 +433,23 @@ def _parametros(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, A
     # definidos AjusteProspectivoNoRelacionados / AjusteProspectivoRelacionados
     # (y esta función define los otros nombres en las celdas que se documentan
     # abajo).
+    # Materialidad y umbral individual son nombres definidos del libro
+    # (`Materialidad`, `UmbralIndividual`): su celda NO puede quedar vacía. Una
+    # celda vacía se lee como "cero" -y un nombre definido que apunta a una
+    # celda vacía es una fórmula que recalcularía a cero sin avisar-, así que
+    # el parámetro que no se registró se dice con todas sus letras.
+    materialidad = _numero(parametros.get("materialidad"))
     _celda(ws, 2, 1, "Materialidad", alineacion=ALIN_IZQ)
-    _celda(ws, 2, 2, _numero(parametros.get("materialidad")), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    _celda(ws, 2, 2, SIN_REGISTRAR if materialidad is None else materialidad,
+           formato=FORMATO_MONEDA,
+           alineacion=ALIN_DER if materialidad is not None else ALIN_CEN)
     _celda(ws, 2, 3, "Definida por el socio del encargo", alineacion=ALIN_IZQ)
 
+    umbral_individual = _numero(parametros.get("umbral_individual"))
     _celda(ws, 3, 1, "Umbral de evaluación individual", alineacion=ALIN_IZQ)
-    _celda(ws, 3, 2, _numero(parametros.get("umbral_individual")), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    _celda(ws, 3, 2, SIN_REGISTRAR if umbral_individual is None else umbral_individual,
+           formato=FORMATO_MONEDA,
+           alineacion=ALIN_DER if umbral_individual is not None else ALIN_CEN)
     _celda(ws, 3, 3, "Definido por el socio del encargo", alineacion=ALIN_IZQ)
 
     _celda(ws, 4, 1, "Umbral de incumplimiento (días)", alineacion=ALIN_IZQ)
@@ -461,8 +478,15 @@ def _parametros(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, A
     _celda(ws, 6, 3, "Cambiar este valor recalcula, en 05-Matriz, las bandas de RELACIONADOS",
            alineacion=ALIN_IZQ)
 
+    # `SaldoContable` también es nombre definido y `08-Conciliacion` B3 lo
+    # referencia cuando la corrida trae EEFF. Sin EEFF ni total del archivo la
+    # celda quedaba vacía: se declara, no se deja en blanco (esa hoja rotula su
+    # B3 como «SIN EEFF (no conciliado)» en ese mismo caso).
+    saldo_contable_numero = _numero(saldo_contable)
     _celda(ws, 7, 1, "Saldo contable (cartera según EEFF, total)", alineacion=ALIN_IZQ)
-    _celda(ws, 7, 2, _numero(saldo_contable), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    _celda(ws, 7, 2, SIN_REGISTRAR if saldo_contable_numero is None else saldo_contable_numero,
+           formato=FORMATO_MONEDA,
+           alineacion=ALIN_DER if saldo_contable_numero is not None else ALIN_CEN)
     _celda(ws, 7, 3, "Estados financieros auditados", alineacion=ALIN_IZQ)
 
     _celda(ws, 8, 1, "Justificación del ajuste prospectivo", alineacion=ALIN_IZQ)
@@ -1304,24 +1328,47 @@ def _conciliacion(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any])
     if (_numero(exposicion.get("sin_medir")) or 0.0) > 0.005:
         c.font = FUENTE_DATOS_ALERTA
 
-    _celda(ws, 9, 1, "Cartera medida (estratificada menos la exposición sin medir)",
+    # La cota de `motor.resumen_deterioro` VIVE EN LA FÓRMULA, no solo en el
+    # motor: la cartera medida cae entre 0,00 y la cartera estratificada. Con
+    # la resta cruda, un caso individual sin tasa mayor que la cartera neta
+    # imprimía aquí una cartera medida NEGATIVA bajo la misma etiqueta con la
+    # que la pantalla pintaba 0,00.
+    _celda(ws, 9, 1, "Cartera medida (estratificada menos la exposición sin medir, acotada)",
            alineacion=ALIN_IZQ)
-    _celda(ws, 9, 2, "=B5-B8", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    _celda(ws, 9, 2, "=MIN(MAX(B10,0),MAX(B5,0))", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+
+    # Y no actúa en silencio: la resta cruda y el motivo tienen celda propia,
+    # igual que `05-Matriz` imprime la pérdida sin acotar junto a la acotada.
+    _celda(ws, 10, 1, "Cartera medida SIN ACOTAR (la resta, tal cual)", alineacion=ALIN_IZQ)
+    _celda(ws, 10, 2, "=B5-B8", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+
+    _celda(ws, 11, 1, "Acotamiento aplicado a la cartera medida", alineacion=ALIN_IZQ)
+    c = _celda(ws, 11, 2,
+               f'=IF(B9>B10+0.005,"{ACOTADO_PISO}",'
+               f'IF(B9<B10-0.005,"{ACOTADO_TECHO_CARTERA}","{SIN_ACOTAR}"))',
+               alineacion=ALIN_CEN)
+    if (resultado.get("exposicion") or {}).get("medida_acotada"):
+        c.font = FUENTE_DATOS_ALERTA
+
     # 09-Tributario aplica el tope del 10 % sobre la exposición estratificada
     # (fila 5): es la cartera a la que se refiere la provisión. Se referencia
     # desde aquí para que el libro tenga UNA sola celda con esa base.
-    refs["conciliacion"] = {"fila_estratificada": 5, "col_importe": "B"}
+    refs["conciliacion"] = {"fila_estratificada": 5, "col_importe": "B",
+                            "fila_medida": 9, "fila_medida_sin_acotar": 10,
+                            "fila_acotamiento": 11}
 
-    _celda(ws, 10, 1, "Estado", alineacion=ALIN_IZQ)
+    _celda(ws, 12, 1, "Estado", alineacion=ALIN_IZQ)
     if tiene_eeff:
-        _celda(ws, 10, 2, '=IF(ABS(B4)<0.01,"CUADRA","DIFERENCIA")', alineacion=ALIN_CEN)
+        _celda(ws, 12, 2, '=IF(ABS(B4)<0.01,"CUADRA","DIFERENCIA")', alineacion=ALIN_CEN)
     else:
-        _celda(ws, 10, 2, "N/A (sin EEFF para conciliar)", alineacion=ALIN_CEN)
+        _celda(ws, 12, 2, "N/A (sin EEFF para conciliar)", alineacion=ALIN_CEN)
 
-    _celda(ws, 11, 1, "Nota", alineacion=ALIN_IZQ)
-    _celda(ws, 11, 2, "Una tasa cero por ausencia de historia no es evidencia de ausencia de "
+    _celda(ws, 13, 1, "Nota", alineacion=ALIN_IZQ)
+    _celda(ws, 13, 2, "Una tasa cero por ausencia de historia no es evidencia de ausencia de "
                       "pérdida: la exposición sin medir no está provisionada en 0,00, está sin "
-                      "medir (NIIF 9 B5.5.35).", alineacion=ALIN_IZQ)
+                      "medir (NIIF 9 B5.5.35). La cartera medida se acota a [0,00; cartera "
+                      "estratificada]: cuando lo sin medir supera a la cartera estratificada, la "
+                      "fila 11 lo declara y 10-Hallazgos lo recoge.", alineacion=ALIN_IZQ)
 
     _anchos(ws, {"A": 58, "B": 22})
 

@@ -16,7 +16,7 @@ from backend.app.aud.pce_cxc.cohortes import tasas_por_permanencia
 from backend.app.aud.pce_cxc.lectura import MOTIVO_FILA_REPETIDA, leer_cartera
 from backend.app.aud.pce_cxc.models import CorridaPCE
 from backend.app.aud.pce_cxc.motor import (
-    ParametrosECL, acotar_saldo_sin_medir, redondear, resumen_deterioro,
+    ParametrosECL, acotar, acotar_saldo_sin_medir, redondear, resumen_deterioro,
 )
 from backend.app.auth.models import User
 from backend.app.context import service as ctx_service
@@ -275,11 +275,18 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
     factor_prospectivo_aplicado: dict[str, float] = {}
     for s in SEGMENTOS:
         solicitado = factores_solicitados[s]
-        if solicitado < 0:
+        if solicitado <= 0:
+            # Un factor de 0,000 no es un ajuste: anula la pérdida esperada
+            # entera (toda banda en 0,00, cualquiera que sea su tasa observada)
+            # y archiva un papel que afirma que no hay pérdida. NIIF 9
+            # B5.5.51-52 pide ajustar la tasa histórica, no sustituirla por
+            # cero. Es un error de entrada, así que se rechaza con un mensaje
+            # accionable en vez de medir cero.
             raise ValueError(
-                f"El parámetro 'factor_prospectivo' de {s} es {solicitado:,.3f}: un factor negativo "
-                "invertiría el signo de la pérdida esperada. Indique un factor mayor o igual a "
-                "0,000 (1,000 = sin ajuste)."
+                f"El parámetro 'factor_prospectivo' de {s} es {solicitado:,.3f}: un factor de "
+                "0,000 anularía la pérdida esperada de todas las bandas y uno negativo "
+                "invertiría su signo. Indique un factor mayor que 0,000 (1,000 = sin ajuste; "
+                "1,100 = 10 % más de pérdida esperada)."
             )
         if solicitado != 1.0 and not justificacion.strip():
             factor_prospectivo_aplicado[s] = 1.0
@@ -293,12 +300,21 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
         aplicadas_seg = aplicadas[clave[0]]
         # Cada saldo del caso se separa entre las bandas con tasa (se miden
         # provisionalmente con ella) y las bandas sin tasa: estas últimas no se
-        # rellenan con 0,00 en silencio, se declaran como saldo sin medir. Lo
-        # sin medir se acota a la exposición del propio caso -su exposición es
-        # el NETO de sus bandas y lo sin medir sumaba solo las positivas-, con
-        # la misma regla que aplica el motor (`acotar_saldo_sin_medir`).
-        saldo_sin_tasa = acotar_saldo_sin_medir(
-            sum(v for b, v in caso["bandas"].items() if b not in aplicadas_seg), caso["saldo"])
+        # rellenan con 0,00 en silencio, se declaran como saldo sin medir.
+        #
+        # SE ENTREGA SIN ACOTAR. Lo sin medir se acota a la exposición del
+        # propio caso -su exposición es el NETO de sus bandas y lo sin medir
+        # suma solo las positivas-, pero esa cota la aplica y la DECLARA el
+        # motor (`saldo_sin_tasa_acotado`). Acotarlo aquí antes de entregarlo
+        # dejaba la declaración inalcanzable por construcción: los tres campos
+        # del motor se calculaban sobre un valor ya recortado y siempre decían
+        # que ninguna cota había actuado.
+        saldo_sin_tasa_bruto = redondear(
+            sum(v for b, v in caso["bandas"].items() if b not in aplicadas_seg))
+        # La frase del sustento sí habla de lo que queda REGISTRADO como sin
+        # medir, que es el importe ya acotado: es la misma cota del motor, por
+        # el mismo helper, no una segunda implementación.
+        saldo_sin_tasa = acotar_saldo_sin_medir(saldo_sin_tasa_bruto, caso["saldo"])
         # Saldo acreedor dentro del caso: una nota de crédito en una de sus
         # bandas queda escondida si el neto del cliente es deudor.
         saldo_acreedor = redondear(sum(v for v in caso["bandas"].values() if v < 0))
@@ -307,7 +323,7 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
         # Techo del caso: su importe en libros bruto (B5.5.35). Un cliente con
         # saldo neto acreedor (nota de crédito mayor que sus facturas) tiene
         # techo 0,00 y se mide en 0,00; nunca genera "ganancia esperada".
-        techo = max(redondear(caso["saldo"]), 0.0)
+        techo, _ = acotar(redondear(caso["saldo"]), piso=0.0)
         if propia:
             # Una estimación propia con justificación escrita cubre todo el caso:
             # no queda saldo sin medir.
@@ -325,9 +341,9 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
         else:
             ecl_caso = provisional
             sustento = "Medido con la tasa de la matriz (provisional)"
-            saldo_sin_tasa_caso = saldo_sin_tasa if saldo_sin_tasa > 0.005 else 0.0
-            if saldo_sin_tasa_caso > 0:
-                sustento += f"; USD {saldo_sin_tasa_caso:,.2f} sin medir por falta de tasa"
+            saldo_sin_tasa_caso = saldo_sin_tasa_bruto if saldo_sin_tasa > 0.005 else 0.0
+            if saldo_sin_tasa > 0.005:
+                sustento += f"; USD {saldo_sin_tasa:,.2f} sin medir por falta de tasa"
         # Se entrega la pérdida SIN acotar: `evaluar_individual` aplica el piso y
         # el techo y deja dicho cuál actuó, en el mismo lugar donde lo hace la
         # matriz colectiva.
@@ -389,10 +405,16 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
         # no se midió en la evaluación individual (mismo motivo): nunca se
         # convierte en cero, se declara. Lo totaliza el motor.
         "sin_medir": resumen["exposicion_sin_medir"],
-        # Cartera efectivamente medida: la estratificada menos lo sin medir. Es
-        # la misma cifra que la pantalla rotula «Cartera medida» y que
-        # `08-Conciliacion` B9 calcula como `=B5-B8`.
+        # Cartera efectivamente medida: la estratificada menos lo sin medir,
+        # acotada a [0, cartera estratificada]. Es la misma cifra que la
+        # pantalla rotula «Cartera medida» y que `08-Conciliacion` B9 calcula
+        # con la MISMA cota en la fórmula.
         "medida": resumen["exposicion_medida"],
+        # La resta cruda y el motivo de la cota: cuando lo sin medir supera a
+        # la cartera estratificada, la cota muerde y no puede hacerlo en
+        # silencio. Lo imprime `08-Conciliacion` y lo dice la pantalla.
+        "medida_sin_acotar": resumen["exposicion_medida_sin_acotar"],
+        "medida_acotada": resumen["exposicion_medida_acotada"],
         "total": redondear(resumen["exposicion_total"] + total_sin_estratificar),
         "segun_archivo": actual["total_saldo"],
         "factores_anclaje": factor,
@@ -687,6 +709,34 @@ def _hallazgos(resumen, politica, parametros, factor_prospectivo_aplicado, justi
                   "causa": "La política se definió sobre criterios de gestión y no sobre el comportamiento de pago.",
                   "efecto": f"Diferencia bruta de {politica['diferencia_bruta']:,.2f}.",
                   "recomendacion": "Reemplazar los porcentajes fijos por la matriz derivada del comportamiento observado."})
+    # La cota de la cartera medida (motor: `exposicion_medida`) no puede actuar
+    # en silencio. Que muerda significa que lo que NO se pudo medir supera a la
+    # cartera estratificada: la cobertura deja de tener denominador y el papel
+    # tiene que decirlo, no imprimir un 0,00 como si fuera una medición.
+    if exposicion.get("medida_acotada"):
+        sin_acotar = float(exposicion.get("medida_sin_acotar") or 0)
+        h.append({"titulo": "Cartera medida acotada", "riesgo": "Alto",
+                  "condicion": f"La cartera medida se calculó como la estratificada "
+                               f"(USD {float(exposicion.get('colectiva') or 0) + float(exposicion.get('individual') or 0):,.2f}) "
+                               f"menos la que no se pudo medir "
+                               f"(USD {float(exposicion.get('sin_medir') or 0):,.2f}), lo que da "
+                               f"USD {sin_acotar:,.2f}. Se acotó a "
+                               f"USD {float(exposicion.get('medida') or 0):,.2f} "
+                               f"(cota «{exposicion['medida_acotada']}»).",
+                  "criterio": "NIIF 9 B5.5.35: la matriz se aplica sobre el importe en libros "
+                              "bruto; no existe una cartera medida negativa sobre una cartera "
+                              "positiva, ni una mayor que la cartera que hay.",
+                  "causa": "Los saldos evaluados individualmente que caen en bandas sin tasa, más "
+                           "las bandas sin tasa de la matriz, superan a la cartera estratificada "
+                           "neta: hay notas de crédito que rebajan el neto sin rebajar lo que "
+                           "quedó sin medir.",
+                  "efecto": "La cobertura sobre lo medido pierde denominador y el porcentaje deja "
+                            "de ser interpretable. La corrección de valor registrada no cubre una "
+                            "cartera de la que no se sabe qué parte se midió.",
+                  "recomendacion": "Aprobar tasas sustitutas para las bandas sin historia, o una "
+                                   "estimación propia justificada para los clientes evaluados "
+                                   "individualmente, y reclasificar las notas de crédito antes de "
+                                   "volver a calcular."})
     if resumen["colectivo"].get("exposicion_sin_medir", 0) > 0.005:
         h.append({"titulo": "Cartera sin tasa histórica", "riesgo": "Alto",
                   "condicion": f"Quedan {resumen['colectivo']['exposicion_sin_medir']:,.2f} sin medir por falta de historia en su banda.",

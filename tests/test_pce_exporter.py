@@ -757,8 +757,12 @@ RESULTADO_SIN_MEDIR = {
     "conciliacion": {"cartera_total": 170000.0, "saldo_contable": 170000.0,
                      "diferencia": 0.0, "cuadra": True},
 }
-#: Lo que la pantalla calcula: total - sin medir - sin estratificar.
-CARTERA_MEDIDA_DE_LA_PANTALLA = 170000.0 - 35000.0 - 20000.0
+#: `exposicion.medida` es lo que el motor archiva y lo que la pantalla pinta:
+#: la cartera ESTRATIFICADA (05-Matriz + 06-Individual) menos lo sin medir,
+#: acotada a [0,00; cartera estratificada]. Aquí: 150.000 - 35.000.
+RESULTADO_SIN_MEDIR["exposicion"]["medida"] = 115000.0
+RESULTADO_SIN_MEDIR["exposicion"]["medida_sin_acotar"] = 115000.0
+RESULTADO_SIN_MEDIR["exposicion"]["medida_acotada"] = None
 
 
 def _suma_sin_medir_del_papel(wb) -> float:
@@ -815,19 +819,23 @@ def test_la_cartera_medida_del_papel_es_la_misma_que_la_de_la_pantalla():
     etiqueta = str(ws.cell(9, 1).value)
     assert etiqueta.startswith("Cartera medida"), etiqueta
     assert "sin medir" in etiqueta.lower(), etiqueta
-    assert ws.cell(9, 2).value == "=B5-B8"
 
     # Antes aquí se hacía aritmética sobre constantes del propio test
-    # (`estratificada + 20000 == total`), que pasa con cualquier código. Lo que
-    # importa es lo que producen ESTAS celdas: se evalúan las fórmulas del
-    # libro y se comparan contra las cifras de la corrida.
+    # (`estratificada + 20000 == total`, y B9 contra una resta escrita en el
+    # propio test), que pasa con cualquier código. Lo que importa es lo que
+    # producen ESTAS celdas contra lo que ARCHIVÓ la corrida:
+    # `exposicion.medida`, la misma clave que lee la pantalla.
     libro = Libro(_abrir(construir_excel(RESULTADO_SIN_MEDIR, {})))
     assert libro.numero("08-Conciliacion", "B5") == 150000.0       # 05-Matriz + 06-Individual
     assert libro.numero("08-Conciliacion", "B7") == \
         RESULTADO_SIN_MEDIR["exposicion"]["total"]
     assert libro.numero("08-Conciliacion", "B8") == \
         RESULTADO_SIN_MEDIR["exposicion"]["sin_medir"]
-    assert libro.numero("08-Conciliacion", "B9") == CARTERA_MEDIDA_DE_LA_PANTALLA
+    assert libro.numero("08-Conciliacion", "B9") == \
+        RESULTADO_SIN_MEDIR["exposicion"]["medida"]
+    assert libro.numero("08-Conciliacion", "B10") == \
+        RESULTADO_SIN_MEDIR["exposicion"]["medida_sin_acotar"]
+    assert libro.valor("08-Conciliacion", "B11") == "SIN ACOTAR"
 
 
 def test_la_conciliacion_sigue_comparando_el_archivo_contra_los_eeff():
@@ -836,7 +844,7 @@ def test_la_conciliacion_sigue_comparando_el_archivo_contra_los_eeff():
     assert ws.cell(2, 2).value == 150000.0
     assert ws.cell(3, 2).value == "=SaldoContable"
     assert ws.cell(4, 2).value == "=B2-B3"
-    assert ws.cell(10, 2).value == '=IF(ABS(B4)<0.01,"CUADRA","DIFERENCIA")'
+    assert ws.cell(12, 2).value == '=IF(ABS(B4)<0.01,"CUADRA","DIFERENCIA")'
 
 
 # ---------------------------------------------------------------------------
@@ -898,10 +906,14 @@ def test_el_libro_no_usa_funciones_prohibidas():
 
 def test_los_nombres_definidos_resuelven_a_una_celda_existente():
     """`wb[hoja][celda] is not None` no comprobaba nada: `Worksheet.__getitem__`
-    devuelve la celda (creándola si hace falta) y NUNCA devuelve `None`. Lo que
-    hay que comprobar es que la celda esté dentro del rango que el exportador
-    escribió y que tenga un valor: un nombre definido que apunte a una celda
-    vacía es una fórmula que recalcula a cero sin avisar."""
+    devuelve la celda (creándola si hace falta) y NUNCA devuelve `None`.
+
+    Tampoco alcanzaba con comprobar que la celda cayera dentro de lo escrito y
+    que la fila tuviera rótulo, que era lo que hacía: `Materialidad` y
+    `UmbralIndividual` apuntaban a celdas VACÍAS y la prueba pasaba, aunque su
+    propio docstring decía que lo que importa es que la celda TENGA VALOR. Un
+    nombre definido sobre una celda vacía es una fórmula que recalcula a cero
+    sin avisar."""
     for resultado, parametros in RESULTADOS_A_VALIDAR:
         wb = _abrir(construir_excel(resultado, parametros))
         for nombre in wb.defined_names:
@@ -915,6 +927,13 @@ def test_los_nombres_definidos_resuelven_a_una_celda_existente():
             # que el nombre cayó en la fila que se pretendía.
             assert str(ws.cell(fila, 1).value or "").strip(), \
                 f"{nombre} apunta a {hoja}!{celda}, una fila sin rótulo"
+            # Lo que el docstring decía y no se comprobaba: la celda tiene
+            # valor. Un número, o el texto que declara que el parámetro no se
+            # registró; nunca el vacío que Excel lee como cero.
+            valor = ws.cell(fila, col).value
+            assert valor is not None and str(valor).strip(), \
+                f"{nombre} apunta a {hoja}!{celda}, una celda VACÍA: cualquier fórmula que lo " \
+                f"use recalcularía a cero sin avisar"
 
 
 def test_el_libro_se_construye_con_un_resultado_vacio():
