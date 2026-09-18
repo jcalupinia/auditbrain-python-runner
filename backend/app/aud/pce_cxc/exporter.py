@@ -1184,6 +1184,10 @@ def _conciliacion(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any])
     _celda(ws, 9, 1, "Cartera medida (estratificada menos la exposición sin medir)",
            alineacion=ALIN_IZQ)
     _celda(ws, 9, 2, "=B5-B8", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    # 09-Tributario aplica el tope del 10 % sobre la exposición estratificada
+    # (fila 5): es la cartera a la que se refiere la provisión. Se referencia
+    # desde aquí para que el libro tenga UNA sola celda con esa base.
+    refs["conciliacion"] = {"fila_estratificada": 5, "col_importe": "B"}
 
     _celda(ws, 10, 1, "Estado", alineacion=ALIN_IZQ)
     if tiene_eeff:
@@ -1213,6 +1217,18 @@ def _tributario(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -
     flujo de un stock. El límite anual queda declarado como NO VERIFICABLE
     porque la herramienta no recibe el movimiento de la provisión del período.
 
+    BASE DE LOS DOS PORCENTAJES: la EXPOSICIÓN ESTRATIFICADA (``08-Conciliacion``
+    B5 = 05-Matriz + 06-Individual), no el saldo contable completo. El tope se
+    aplica sobre la cartera a la que se refiere la provisión, y la provisión se
+    midió únicamente sobre la cartera que se pudo ubicar en una banda: la parte
+    de los EEFF que no aparece en el análisis de antigüedad
+    (``exposicion.sin_estratificar``) no tiene pérdida medida, así que
+    incluirla solo inflaría el tope y haría deducible una provisión que sobre
+    su propia cartera excede el límite. Antes el motor usaba una base
+    (la estratificada) y la fórmula del papel otra (``SaldoContable``): con
+    cartera sin estratificar la pantalla decía que se excede el tope y el papel
+    decía que no.
+
     La hoja concilia: en ningún caso sustituye la medición de NIIF 9.
     """
     ws = wb.create_sheet("09-Tributario")
@@ -1221,22 +1237,25 @@ def _tributario(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -
     tributario = resultado.get("tributario") or {}
     matriz_refs = refs["matriz"]
     individual_refs = refs["individual"]
+    conciliacion_refs = refs.get("conciliacion") or {}
+    base = (f"'08-Conciliacion'!{conciliacion_refs.get('col_importe', 'B')}"
+            f"{conciliacion_refs.get('fila_estratificada', 5)}")
 
     _celda(ws, 2, 1, "Provisión contable acumulada (PCE total medida)", alineacion=ALIN_IZQ)
     formula_pce = (f"='05-Matriz'!{matriz_refs['col_perdida']}{matriz_refs['fila_total']}"
                   f"+'06-Individual'!{individual_refs['col_perdida']}{individual_refs['fila_total']}")
     _celda(ws, 2, 2, formula_pce, formato=FORMATO_MONEDA, alineacion=ALIN_DER)
 
-    _celda(ws, 3, 1, "Tope de la provisión ACUMULADA: 10 % de la cartera (LORTI art. 10 núm. 11)",
-           alineacion=ALIN_IZQ)
-    _celda(ws, 3, 2, "=SaldoContable*0.1", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    _celda(ws, 3, 1, "Tope de la provisión ACUMULADA: 10 % de la cartera ESTRATIFICADA "
+                     "(LORTI art. 10 núm. 11)", alineacion=ALIN_IZQ)
+    _celda(ws, 3, 2, f"={base}*0.1", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
 
     _celda(ws, 4, 1, "Exceso sobre el tope acumulado del 10 % (no deducible)", alineacion=ALIN_IZQ)
     _celda(ws, 4, 2, "=MAX(0,B2-B3)", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
 
-    _celda(ws, 5, 1, "1 % de la cartera — referencia del límite ANUAL de la provisión del ejercicio",
-           alineacion=ALIN_IZQ)
-    _celda(ws, 5, 2, "=SaldoContable*0.01", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    _celda(ws, 5, 1, "1 % de la cartera ESTRATIFICADA — referencia del límite ANUAL de la "
+                     "provisión del ejercicio", alineacion=ALIN_IZQ)
+    _celda(ws, 5, 2, f"={base}*0.01", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
 
     _celda(ws, 6, 1, "Provisión del ejercicio (movimiento del período)", alineacion=ALIN_IZQ)
     _celda(ws, 6, 2, "NO PROPORCIONADA", alineacion=ALIN_CEN)
@@ -1248,8 +1267,17 @@ def _tributario(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -
                          "que no se compara contra B2.", alineacion=ALIN_IZQ)
     c.font = FUENTE_DATOS_ALERTA
 
-    _celda(ws, 8, 1, "Nota", alineacion=ALIN_IZQ)
-    _celda(ws, 8, 2, str(tributario.get("nota", "")) + " El tratamiento tributario concilia con la "
+    _celda(ws, 8, 1, "Base de los dos porcentajes", alineacion=ALIN_IZQ)
+    _celda(ws, 8, 2, "La cartera ESTRATIFICADA (08-Conciliacion B5 = 05-Matriz + 06-Individual), "
+                     "que es la cartera a la que se refiere la provisión. NO se usa el saldo "
+                     "contable completo: la parte de los estados financieros que no se pudo "
+                     "ubicar en ninguna banda (exposición sin estratificar) no tiene pérdida "
+                     "medida, e incluirla solo inflaría el tope. Es la misma base que aplica el "
+                     "motor, así que la pantalla y este papel concluyen lo mismo.",
+           alineacion=ALIN_IZQ)
+
+    _celda(ws, 9, 1, "Nota", alineacion=ALIN_IZQ)
+    _celda(ws, 9, 2, str(tributario.get("nota", "")) + " El tratamiento tributario concilia con la "
                      "medición contable: no la sustituye ni la condiciona (NIIF 9 5.5.15), y la "
                      "diferencia es temporaria.", alineacion=ALIN_IZQ)
 

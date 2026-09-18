@@ -115,6 +115,25 @@ def _corrida_con_nota_de_credito_individual():
                     {"umbral_dias_incumplimiento": 730, "umbral_individual": 100000})
 
 
+def _corrida_con_cartera_sin_estratificar():
+    """T3: los EEFF traen cartera de relacionadas que el archivo no tiene.
+
+    El tope tributario del 10 % se calculaba sobre dos bases distintas: el
+    motor sobre la exposición estratificada y el Excel sobre el saldo contable
+    completo. La pantalla decía que la provisión excede el tope y el papel
+    decía que no.
+    """
+    intermedio = [("ALFA", "F-1", "NO-RELACIONADOS", date(2023, 9, 1), date(2023, 12, 1), 50000.0)]
+    actual = [
+        ("ALFA", "F-1", "NO-RELACIONADOS", date(2023, 9, 1), date(2023, 12, 1), 30000.0),
+        ("GAMMA", "F-9", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 200000.0),
+    ]
+    return analizar(
+        _cortes(COHORTE_2023, intermedio, actual),
+        {"umbral_dias_incumplimiento": 730,
+         "eeff": {"no_relacionados": 100000.0, "relacionados": 300000.0}})
+
+
 # ---------------------------------------------------------------------------
 # T1 — 05-Matriz recalcula exactamente la pérdida esperada archivada
 # ---------------------------------------------------------------------------
@@ -293,3 +312,46 @@ def test_el_papel_muestra_el_saldo_acreedor_del_cliente_individual():
     acreedores = [ws.cell(i, columna).value for i in range(2, ws.max_row + 1)
                   if ws.cell(i, 1).value not in (None, "TOTAL")]
     assert any(isinstance(v, (int, float)) and v < -CENTAVO for v in acreedores)
+
+
+# ---------------------------------------------------------------------------
+# T3 — El tope acumulado del 10 % se calcula sobre una sola base
+# ---------------------------------------------------------------------------
+
+def test_el_tope_del_diez_por_ciento_usa_la_misma_base_en_el_papel_y_en_el_motor():
+    """El tope se aplica sobre la cartera A LA QUE SE REFIERE LA PROVISIÓN: la
+    exposición estratificada, que es la única sobre la que se midió pérdida.
+    `=SaldoContable*0.1` incluía la cartera que no se ubicó en ninguna banda y
+    sobre la que no se midió nada, así que inflaba el tope."""
+    resultado = _corrida_con_cartera_sin_estratificar()
+    tributario = resultado["tributario"]
+    # El escenario tiene cartera sin estratificar: las dos bases no coinciden.
+    assert resultado["exposicion"]["sin_estratificar"] > 0
+    assert resultado["conciliacion"]["saldo_contable"] > resultado["exposicion"]["medida"]
+
+    libro = _libro(resultado)
+    assert libro.numero("09-Tributario", "B3") == pytest.approx(
+        tributario["tope_acumulado_10pct"], abs=CENTAVO)
+    assert libro.numero("09-Tributario", "B4") == pytest.approx(
+        tributario["exceso_sobre_tope_acumulado"], abs=CENTAVO)
+    assert libro.numero("09-Tributario", "B5") == pytest.approx(
+        tributario["limite_ejercicio_1pct"], abs=CENTAVO)
+
+
+def test_el_papel_dice_lo_mismo_que_la_pantalla_sobre_si_se_excede_el_tope():
+    """La pantalla decía «excede» y el papel decía que no: el mismo dato, dos
+    conclusiones opuestas."""
+    resultado = _corrida_con_cartera_sin_estratificar()
+    libro = _libro(resultado)
+    excede_en_el_papel = (libro.numero("09-Tributario", "B2")
+                          > libro.numero("09-Tributario", "B3") + CENTAVO)
+    assert excede_en_el_papel is resultado["tributario"]["excede_tope_acumulado"]
+
+
+def test_la_hoja_tributaria_declara_sobre_que_cartera_se_aplica_el_tope():
+    """La base elegida no puede quedar implícita en una fórmula."""
+    resultado = _corrida_con_cartera_sin_estratificar()
+    ws = _libro(resultado).wb["09-Tributario"]
+    textos = " ".join(str(c.value or "") for fila in ws.iter_rows() for c in fila).lower()
+    assert "estratificada" in textos
+    assert "sin estratificar" in textos

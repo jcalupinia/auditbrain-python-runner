@@ -995,8 +995,12 @@ RESULTADO_TRIBUTARIO = {
 
 def test_el_exceso_no_deducible_se_mide_contra_el_tope_acumulado_del_10_por_ciento():
     ws = _abrir(construir_excel(RESULTADO_TRIBUTARIO, {}))["09-Tributario"]
-    assert ws["B3"].value == "=SaldoContable*0.1"
+    # La base es la cartera ESTRATIFICADA (08-Conciliacion B5), no el saldo
+    # contable completo: el tope se aplica sobre la cartera a la que se refiere
+    # la provisión, y sobre lo que no se estratificó no se midió pérdida.
+    assert ws["B3"].value == "='08-Conciliacion'!B5*0.1"
     assert "10 %" in ws["A3"].value
+    assert "ESTRATIFICADA" in ws["A3"].value
     assert ws["B4"].value == "=MAX(0,B2-B3)"
     assert "10 %" in ws["A4"].value
     assert "no deducible" in ws["A4"].value.lower()
@@ -1004,7 +1008,7 @@ def test_el_exceso_no_deducible_se_mide_contra_el_tope_acumulado_del_10_por_cien
 
 def test_el_uno_por_ciento_queda_como_referencia_del_limite_anual_no_como_comparacion():
     ws = _abrir(construir_excel(RESULTADO_TRIBUTARIO, {}))["09-Tributario"]
-    assert ws["B5"].value == "=SaldoContable*0.01"
+    assert ws["B5"].value == "='08-Conciliacion'!B5*0.01"
     assert "ejercicio" in ws["A5"].value.lower()
     # Ninguna fórmula de la hoja resta el 1 % de la PCE acumulada.
     formulas = [c.value for fila in ws.iter_rows() for c in fila
