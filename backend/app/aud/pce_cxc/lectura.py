@@ -172,14 +172,25 @@ def _mapear(encabezado: tuple) -> dict[str, int]:
 
 
 def leer_cartera(contenido: bytes, nombre: str, corte, bandas, hoja=None, mapeo=None,
-                 clave_relacionadas: str = "RELACIONAD") -> dict:
-    """Lee un análisis de antigüedad y devuelve sus documentos clasificados por mora."""
+                 clave_relacionadas: str = "RELACIONAD",
+                 fila_encabezado: int | None = None) -> dict:
+    """Lee un análisis de antigüedad y devuelve sus documentos clasificados por mora.
+
+    `fila_encabezado` es opcional y se numera como lo ve el usuario (1 es la
+    primera fila de la hoja). Si viene, manda sobre la detección automática y
+    sobre el encabezado en la primera fila que se asume cuando se pasa `mapeo`
+    sin indicarlo: el mapeo manual suele usarse justo cuando el encabezado no
+    está en la primera fila, que es cuando la detección automática falla.
+    """
     wb = load_workbook(io.BytesIO(contenido), read_only=True, data_only=True)
     ws = wb[hoja] if hoja else wb.worksheets[0]
     filas = list(ws.iter_rows(values_only=True))
     wb.close()
 
-    i_enc = 0 if mapeo else _detectar_encabezado(filas)
+    if fila_encabezado is not None:
+        i_enc = fila_encabezado - 1
+    else:
+        i_enc = 0 if mapeo else _detectar_encabezado(filas)
     if i_enc < 0:
         raise ValueError(f"{nombre}: no se identificó la fila de encabezados")
     cols = mapeo or _mapear(filas[i_enc])
@@ -219,10 +230,10 @@ def leer_cartera(contenido: bytes, nombre: str, corte, bandas, hoja=None, mapeo=
         firma = (documento, round(saldo, 2), vencimiento, cliente)
         if firma in vistas:
             dup_exactos += 1
+            descartados.append({"fila_origen": n, "motivo": "fila idéntica repetida", "saldo": saldo})
             continue
         vistas.add(firma)
-        repetido = documento in documentos
-        repetidos += 1 if repetido else 0
+        repetidos += 1 if documento in documentos else 0
         documentos.add(documento)
         tipo = str(valor(fila, "tipo") or "").upper()
         es_rel = clave_relacionadas in tipo and f"NO-{clave_relacionadas}" not in tipo \
@@ -233,8 +244,17 @@ def leer_cartera(contenido: bytes, nombre: str, corte, bandas, hoja=None, mapeo=
             "segmento": "RELACIONADOS" if es_rel else "NO-RELACIONADOS",
             "emision": a_fecha(valor(fila, "emision"), formato),
             "vencimiento": vencimiento, "saldo": saldo, "dias": dias,
-            "banda": clasificar(dias, bandas), "repetido": repetido,
+            "banda": clasificar(dias, bandas), "repetido": False,
         })
+
+    # Marca TODAS las filas de un documento que aparece más de una vez (la
+    # primera incluida), no solo la segunda en adelante: un auditor que filtre
+    # por "repetido" debe encontrar el par completo.
+    conteo_documentos: dict[str, int] = {}
+    for f in salida:
+        conteo_documentos[f["documento"]] = conteo_documentos.get(f["documento"], 0) + 1
+    for f in salida:
+        f["repetido"] = conteo_documentos[f["documento"]] > 1
 
     return {"filas": salida, "hoja": ws.title, "fila_encabezado": i_enc + 1, "mapeo": cols,
             "formato_fecha": formato, "duplicados_exactos": dup_exactos,

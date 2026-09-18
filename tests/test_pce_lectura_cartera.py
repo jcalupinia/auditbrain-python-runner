@@ -68,3 +68,41 @@ def test_el_mapeo_manual_manda_sobre_la_deteccion():
                             "vencimiento": 4, "saldo": 5})
     assert len(r["filas"]) == 1
     assert r["filas"][0]["banda"] == "181 a 360 días"
+
+
+def test_la_fila_identica_repetida_queda_registrada_para_poder_cuadrar():
+    fila = ("ALFA S.A.", "F-1", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 1000.0)
+    r = leer_cartera(_xlsx([fila, fila]), "c.xlsx", CORTE, BANDAS_POR_DEFECTO)
+    assert r["duplicados_exactos"] == 1
+    descartes = [d for d in r["descartados"] if d["motivo"] == "fila idéntica repetida"]
+    assert len(descartes) == 1
+    assert descartes[0]["saldo"] == 1000.0
+    assert descartes[0]["fila_origen"] == 3
+    # El archivo trae 2.000 y el resultado los explica: 1.000 medidos + 1.000 descartados.
+    assert r["total_saldo"] + sum(d["saldo"] for d in r["descartados"]) == 2000.0
+
+
+def test_las_dos_filas_de_un_documento_repetido_quedan_marcadas():
+    a = ("ALFA S.A.", "F-1", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 1000.0)
+    b = ("ALFA S.A.", "F-1", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 250.0)
+    r = leer_cartera(_xlsx([a, b]), "c.xlsx", CORTE, BANDAS_POR_DEFECTO)
+    assert [f["repetido"] for f in r["filas"]] == [True, True]
+    assert r["documentos_repetidos"] == 1
+
+
+def test_el_encabezado_se_puede_indicar_a_mano():
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["ANÁLISIS DE ANTIGÜEDAD AL 31/12/2025", None, None, None, None, None])
+    ws.append([None, None, None, None, None, None])
+    ws.append(["Cliente", "Documento", "Tipo", "Emisión", "Vencimiento", "Saldo"])
+    ws.append(["ALFA", "F-9", "NO-RELACIONADOS", date(2025, 1, 1), date(2025, 6, 1), 700.0])
+    bio = io.BytesIO()
+    wb.save(bio)
+    r = leer_cartera(bio.getvalue(), "c.xlsx", CORTE, BANDAS_POR_DEFECTO,
+                     mapeo={"cliente": 0, "documento": 1, "tipo": 2, "emision": 3,
+                            "vencimiento": 4, "saldo": 5},
+                     fila_encabezado=3)
+    assert r["fila_encabezado"] == 3
+    assert len(r["filas"]) == 1
+    assert r["filas"][0]["documento"] == "F-9"
