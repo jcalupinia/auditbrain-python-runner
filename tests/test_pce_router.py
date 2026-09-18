@@ -258,3 +258,187 @@ def test_sin_rol_staff_no_puede_descargar_el_excel(client):
     r = client.get(f"{BASE}/corridas/{corrida_id}/excel", headers={"Authorization": f"Bearer {token_no_staff}"})
     assert r.status_code in (401, 403), \
         f"Se esperaba 401 o 403 para usuario no-staff, se obtuvo {r.status_code}: {r.text}"
+
+
+# ---------------------------------------------------------------------------
+# I9 - Aislamiento entre organizaciones
+# ---------------------------------------------------------------------------
+
+def _organizacion_con_proyecto(client, role=Role.user):
+    """Crea una organizacion propia con un operador y un proyecto.
+
+    Devuelve (token, project_id). `ensure_user_has_organization` engancharia a
+    todos a la organizacion por defecto, asi que aqui se crea una organizacion
+    explicita por cada tenant para poder probar el aislamiento.
+    """
+    from backend.app.context import service as ctx_service
+    from backend.app.context.models import Organization
+
+    init_db()
+    tag = uuid.uuid4().hex[:6]
+    email, pw = f"pce-{tag}@ex.com", "Sup3rSecret!"
+    db = SessionLocal()
+    try:
+        org = Organization(name=f"Org {tag}", slug=f"org-{tag}")
+        db.add(org)
+        db.commit()
+        db.refresh(org)
+        usuario = auth_service.create_user(db, email=email, password=pw, role=role)
+        usuario.organization_id = org.id
+        db.add(usuario)
+        db.commit()
+        cliente = ctx_service.create_client(db, organization_id=org.id, name=f"C-{tag}")
+        proyecto = ctx_service.create_project(db, organization_id=org.id, client_id=cliente.id,
+                                              name=f"P-{tag}", module_code="AUD")
+        project_id, org_id = proyecto.id, org.id
+    finally:
+        db.close()
+    r = client.post("/api/v1/auth/login", data={"username": email, "password": pw})
+    return r.json()["access_token"], project_id, org_id
+
+
+def _operador_en_la_organizacion(client, organization_id, role=Role.user):
+    """Segundo operador dentro de una organizacion ya existente."""
+    tag = uuid.uuid4().hex[:6]
+    email, pw = f"pce-{tag}@ex.com", "Sup3rSecret!"
+    db = SessionLocal()
+    try:
+        usuario = auth_service.create_user(db, email=email, password=pw, role=role)
+        usuario.organization_id = organization_id
+        db.add(usuario)
+        db.commit()
+    finally:
+        db.close()
+    r = client.post("/api/v1/auth/login", data={"username": email, "password": pw})
+    return r.json()["access_token"]
+
+
+def _crear_corrida(client, token, project_id=None):
+    params = {"fechas": ["2023-12-31", "2024-12-31", "2025-12-31"], "entidad": "PRUEBA S.A."}
+    if project_id is not None:
+        params["project_id"] = project_id
+    r = client.post(f"{BASE}/analizar", files=_archivos(),
+                    data={"parametros": json.dumps(params)},
+                    headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+    return r.json()["corrida_id"]
+
+
+def test_una_corrida_de_otra_organizacion_no_se_puede_leer(client):
+    """Iterando ids, un operador de la organizacion A obtenia entidad, matriz
+    completa, hallazgos y tasas de los clientes de la organizacion B."""
+    token_a, proyecto_a, _org_a = _organizacion_con_proyecto(client)
+    corrida_id = _crear_corrida(client, token_a, proyecto_a)
+
+    token_b, _proyecto_b, _org_b = _organizacion_con_proyecto(client)
+    r = client.get(f"{BASE}/corridas/{corrida_id}", headers={"Authorization": f"Bearer {token_b}"})
+    assert r.status_code == 403, f"se esperaba 403, se obtuvo {r.status_code}: {r.text}"
+
+
+def test_el_excel_de_otra_organizacion_no_se_puede_descargar(client):
+    token_a, proyecto_a, _org_a = _organizacion_con_proyecto(client)
+    corrida_id = _crear_corrida(client, token_a, proyecto_a)
+
+    token_b, _proyecto_b, _org_b = _organizacion_con_proyecto(client)
+    r = client.get(f"{BASE}/corridas/{corrida_id}/excel",
+                   headers={"Authorization": f"Bearer {token_b}"})
+    assert r.status_code == 403, f"se esperaba 403, se obtuvo {r.status_code}: {r.text}"
+
+
+def test_la_corrida_propia_se_sigue_leyendo_y_descargando(client):
+    token_a, proyecto_a, org_a = _organizacion_con_proyecto(client)
+    corrida_id = _crear_corrida(client, token_a, proyecto_a)
+
+    r = client.get(f"{BASE}/corridas/{corrida_id}", headers={"Authorization": f"Bearer {token_a}"})
+    assert r.status_code == 200, r.text
+    r = client.get(f"{BASE}/corridas/{corrida_id}/excel",
+                   headers={"Authorization": f"Bearer {token_a}"})
+    assert r.status_code == 200, r.text
+
+    # Y un companero de la misma organizacion tambien: el papel de trabajo es de
+    # la firma, no del operador que apreto el boton.
+    token_companero = _operador_en_la_organizacion(client, org_a)
+    r = client.get(f"{BASE}/corridas/{corrida_id}",
+                   headers={"Authorization": f"Bearer {token_companero}"})
+    assert r.status_code == 200, r.text
+
+
+def test_no_se_guarda_una_corrida_en_un_proyecto_ajeno(client):
+    """`project_id` se guardaba tal como venia en el cuerpo, sin validar que
+    existiera ni que el usuario tuviera acceso."""
+    _token_a, proyecto_a, _org_a = _organizacion_con_proyecto(client)
+    token_b, _proyecto_b, _org_b = _organizacion_con_proyecto(client)
+
+    r = client.post(f"{BASE}/analizar", files=_archivos(),
+                    data={"parametros": json.dumps({
+                        "fechas": ["2023-12-31", "2024-12-31", "2025-12-31"],
+                        "project_id": proyecto_a})},
+                    headers={"Authorization": f"Bearer {token_b}"})
+    assert r.status_code == 403, f"se esperaba 403, se obtuvo {r.status_code}: {r.text}"
+
+
+def test_un_proyecto_inexistente_no_se_guarda(client):
+    token, _proyecto, _org = _organizacion_con_proyecto(client)
+    r = client.post(f"{BASE}/analizar", files=_archivos(),
+                    data={"parametros": json.dumps({
+                        "fechas": ["2023-12-31", "2024-12-31", "2025-12-31"],
+                        "project_id": 999999})},
+                    headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 403, f"se esperaba 403, se obtuvo {r.status_code}: {r.text}"
+
+
+def test_un_project_id_no_numerico_es_error_de_entrada(client):
+    token, _proyecto, _org = _organizacion_con_proyecto(client)
+    r = client.post(f"{BASE}/analizar", files=_archivos(),
+                    data={"parametros": json.dumps({
+                        "fechas": ["2023-12-31", "2024-12-31", "2025-12-31"],
+                        "project_id": "el de siempre"})},
+                    headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 400, f"se esperaba 400, se obtuvo {r.status_code}: {r.text}"
+    assert "project_id" in r.json()["detail"]
+
+
+def test_una_corrida_sin_proyecto_la_ve_la_organizacion_de_quien_la_creo(client):
+    """Regla para las corridas sin proyecto asociado: no hay proyecto que acote
+    el alcance, asi que las ve la organizacion de quien la creo, y nadie mas."""
+    token_a, _proyecto_a, org_a = _organizacion_con_proyecto(client)
+    corrida_id = _crear_corrida(client, token_a)  # sin project_id
+
+    # El autor la ve.
+    r = client.get(f"{BASE}/corridas/{corrida_id}", headers={"Authorization": f"Bearer {token_a}"})
+    assert r.status_code == 200, r.text
+
+    # Un companero de su organizacion tambien.
+    token_companero = _operador_en_la_organizacion(client, org_a)
+    r = client.get(f"{BASE}/corridas/{corrida_id}",
+                   headers={"Authorization": f"Bearer {token_companero}"})
+    assert r.status_code == 200, r.text
+
+    # Un operador de otra organizacion no.
+    token_b, _proyecto_b, _org_b = _organizacion_con_proyecto(client)
+    r = client.get(f"{BASE}/corridas/{corrida_id}", headers={"Authorization": f"Bearer {token_b}"})
+    assert r.status_code == 403, f"se esperaba 403, se obtuvo {r.status_code}: {r.text}"
+    r = client.get(f"{BASE}/corridas/{corrida_id}/excel",
+                   headers={"Authorization": f"Bearer {token_b}"})
+    assert r.status_code == 403, f"se esperaba 403, se obtuvo {r.status_code}: {r.text}"
+
+
+def test_una_corrida_inexistente_sigue_dando_404(client):
+    token, _proyecto, _org = _organizacion_con_proyecto(client)
+    r = client.get(f"{BASE}/corridas/999999", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 404, r.text
+
+
+# ---------------------------------------------------------------------------
+# M2 - Un parametro mal formado responde 400, nunca 500
+# ---------------------------------------------------------------------------
+
+def test_un_factor_prospectivo_mal_formado_responde_400_y_no_500(client):
+    token = _token(client)
+    r = client.post(f"{BASE}/analizar", files=_archivos(),
+                    data={"parametros": json.dumps({
+                        "fechas": ["2023-12-31", "2024-12-31", "2025-12-31"],
+                        "factor_prospectivo": ["1.10"]})},
+                    headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 400, f"se esperaba 400, se obtuvo {r.status_code}: {r.text}"
+    assert "factor_prospectivo" in r.json()["detail"]

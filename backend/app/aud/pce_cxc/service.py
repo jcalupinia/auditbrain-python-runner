@@ -9,14 +9,62 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy.orm import Session
+
 from backend.app.aud.pce_cxc.bandas import BANDAS_POR_DEFECTO, desdoblar
 from backend.app.aud.pce_cxc.cohortes import tasas_por_permanencia
 from backend.app.aud.pce_cxc.lectura import MOTIVO_FILA_REPETIDA, leer_cartera
+from backend.app.aud.pce_cxc.models import CorridaPCE
 from backend.app.aud.pce_cxc.motor import (
     ParametrosECL, evaluar_individual, medir_ecl, redondear,
 )
+from backend.app.auth.models import User
+from backend.app.context import service as ctx_service
+from backend.app.context.models import Project
 
 SEGMENTOS = ("NO-RELACIONADOS", "RELACIONADOS")
+
+
+# ---------------------------------------------------------------------------
+# Autorización multi-tenant
+#
+# Mismo patrón que los módulos hermanos (`obligaciones_fiscales/service.py` y
+# `informe_cumplimiento_tributario/service.py`): el proyecto acota el alcance y
+# `ctx_service.user_can_access_project` decide. `require_staff` por sí solo no
+# alcanza: dice que quien pregunta es operador, no de QUÉ firma.
+# ---------------------------------------------------------------------------
+
+def asegurar_acceso_a_proyecto(db: Session, user: User, project_id: int) -> Project:
+    proyecto = db.get(Project, project_id)
+    if not proyecto or not ctx_service.user_can_access_project(db, user, proyecto):
+        raise PermissionError("Sin acceso al proyecto.")
+    return proyecto
+
+
+def obtener_corrida(db: Session, user: User, corrida_id: int) -> CorridaPCE:
+    """Recupera una corrida verificando que el usuario pueda verla.
+
+    - Con proyecto asociado: manda el acceso al proyecto (organización + rol).
+    - SIN proyecto asociado (`project_id` es nulo): no hay proyecto que acote el
+      alcance, así que la corrida es visible para quien la creó y para los
+      operadores de SU MISMA organización -el papel de trabajo es de la firma,
+      no del operador que apretó el botón-. Si no se puede determinar esa
+      organización (la corrida perdió su `user_id`, o el autor ya no existe o no
+      tiene organización), solo la ve el propio autor; si tampoco hay autor, no
+      la ve nadie.
+    """
+    corrida = db.get(CorridaPCE, corrida_id)
+    if not corrida:
+        raise LookupError("Corrida no encontrada")
+    if corrida.project_id is not None:
+        asegurar_acceso_a_proyecto(db, user, corrida.project_id)
+        return corrida
+    if corrida.user_id is not None and corrida.user_id == user.id:
+        return corrida
+    autor = db.get(User, corrida.user_id) if corrida.user_id is not None else None
+    if not (autor and autor.organization_id and autor.organization_id == user.organization_id):
+        raise PermissionError("Sin acceso a la corrida.")
+    return corrida
 
 
 # ---------------------------------------------------------------------------

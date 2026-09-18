@@ -86,6 +86,25 @@ async def analizar(archivos: list[UploadFile] = File(...),
             "una lista de tres fechas (una por archivo, en el mismo orden).",
         )
 
+    # El proyecto se valida ANTES de leer los archivos: guardar el `project_id`
+    # del cuerpo sin comprobar que existe y que el usuario tiene acceso dejaba
+    # una corrida colgada de un proyecto ajeno (y, de paso, evita gastar memoria
+    # leyendo tres análisis de antigüedad para una petición que no procede).
+    project_id = params.get("project_id")
+    if project_id is not None:
+        try:
+            project_id = int(project_id)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                400,
+                f"El campo 'project_id' debe ser el identificador numérico del proyecto; llegó "
+                f"{project_id!r}. Seleccione el proyecto en la pantalla y vuelva a calcular.",
+            ) from None
+        try:
+            service.asegurar_acceso_a_proyecto(db, user, project_id)
+        except PermissionError as e:
+            raise HTTPException(403, str(e)) from e
+
     cortes = []
     for archivo, fecha in zip(archivos, fechas):
         # Primer filtro, sin leer ni un byte: Starlette ya conoce `archivo.size`
@@ -117,20 +136,28 @@ async def analizar(archivos: list[UploadFile] = File(...),
 
     # Reutilizamos la fecha ya parseada del tercer corte (índice 2)
     fecha_corte_obj = cortes[2]["fecha"]
-    corrida = guardar_corrida(db, project_id=params.get("project_id"), user_id=user.id,
+    corrida = guardar_corrida(db, project_id=project_id, user_id=user.id,
                               entidad=str(params.get("entidad") or ""),
                               fecha_corte=fecha_corte_obj,
                               parametros=params, resultado=resultado)
     return {"corrida_id": corrida.id, **resultado}
 
 
+def _corrida_autorizada(db: Session, user: User, corrida_id: int) -> CorridaPCE:
+    """Recupera la corrida o traduce el motivo a su código HTTP."""
+    try:
+        return service.obtener_corrida(db, user, corrida_id)
+    except LookupError as e:
+        raise HTTPException(404, str(e)) from e
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+
+
 @router.get("/corridas/{corrida_id}", response_model=CorridaPCEOut)
 def obtener(corrida_id: int, db: Session = Depends(get_db),
-            _user: User = Depends(require_staff)) -> dict:
+            user: User = Depends(require_staff)) -> dict:
     """Recupera una corrida guardada: reproduce el papel de trabajo sin recargar archivos."""
-    corrida = db.get(CorridaPCE, corrida_id)
-    if not corrida:
-        raise HTTPException(404, "Corrida no encontrada")
+    corrida = _corrida_autorizada(db, user, corrida_id)
     return {"corrida_id": corrida.id, "entidad": corrida.entidad,
             "fecha_corte": corrida.fecha_corte.isoformat() if corrida.fecha_corte else None,
             "parametros": corrida.parametros, "resultado": corrida.resultado,
@@ -139,13 +166,11 @@ def obtener(corrida_id: int, db: Session = Depends(get_db),
 
 @router.get("/corridas/{corrida_id}/excel")
 def excel(corrida_id: int, db: Session = Depends(get_db),
-          _user: User = Depends(require_staff)) -> StreamingResponse:
+          user: User = Depends(require_staff)) -> StreamingResponse:
     """Descarga el papel de trabajo de la corrida como libro Excel (trece hojas,
     fórmulas auditables). Reconstruye el libro a partir del resultado guardado,
     sin volver a cargar los archivos originales."""
-    corrida = db.get(CorridaPCE, corrida_id)
-    if not corrida:
-        raise HTTPException(404, "Corrida no encontrada")
+    corrida = _corrida_autorizada(db, user, corrida_id)
     binario = construir_excel(corrida.resultado, corrida.parametros)
     nombre = f"PT-PCE-CXC_{(corrida.entidad or 'entidad').replace(' ', '_')}_{corrida.fecha_corte}.xlsx"
     return StreamingResponse(
