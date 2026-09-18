@@ -29,14 +29,16 @@ router = APIRouter(prefix="/aud/pce-cxc", tags=["aud-pce-cxc"])
 #: memoria a la vez: la tabla de abajo se reproduce con `--tres` (ver el
 #: docstring del script). Medido en el equipo de desarrollo, por petición completa:
 #:
-#:     7,2 MB c/u ( 60.000 filas)  ->  46,9 s  y 156 MB de pico
-#:    10,8 MB c/u ( 90.000 filas)  ->  69,4 s  y 214 MB de pico
-#:    16,0 MB c/u (132.941 filas)  -> 111,2 s  y 303 MB de pico
+#:     7,2 MB c/u ( 60.000 filas)  ->  51,6 s  y 171 MB de pico
+#:    10,8 MB c/u ( 90.000 filas)  ->  79,7 s  y 236 MB de pico
+#:    16,0 MB c/u (132.941 filas)  -> 117,6 s  y 334 MB de pico
 #:
 #: El plan starter de Render tiene 512 MB para todo el proceso, así que el
 #: techo de trabajo es 250 MB de pico: los 25 MB por archivo que había antes
 #: dejaban pasar tres archivos de 133.000 filas y reventaban ese techo. 10 MB
-#: es el escalón medido que sí entra (el de 10,8 MB ya quedó en 214 MB).
+#: es el escalón medido que sí entra: el de 10,8 MB ya quedó en 236 MB, y la
+#: recta que forman las tres mediciones (unos 18 MB de memoria por cada MB de
+#: archivo, más 38 MB de base) proyecta 222 MB para tres archivos de 10 MB.
 MAX_BYTES_POR_ARCHIVO = 10 * 1024 * 1024
 
 
