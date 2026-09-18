@@ -26,7 +26,8 @@ router = APIRouter(prefix="/aud/pce-cxc", tags=["aud-pce-cxc"])
 #: Límite por archivo, fijado con la medición de `scripts/bench_pce_cxc.py`
 #: sobre un análisis de antigüedad real (132.946 filas). Lo que importa no es
 #: leer un archivo sino los TRES de una petición, que el servicio mantiene en
-#: memoria a la vez. Medido en el equipo de desarrollo, por petición completa:
+#: memoria a la vez: la tabla de abajo se reproduce con `--tres` (ver el
+#: docstring del script). Medido en el equipo de desarrollo, por petición completa:
 #:
 #:     7,2 MB c/u ( 60.000 filas)  ->  46,9 s  y 156 MB de pico
 #:    10,8 MB c/u ( 90.000 filas)  ->  69,4 s  y 214 MB de pico
@@ -37,6 +38,17 @@ router = APIRouter(prefix="/aud/pce-cxc", tags=["aud-pce-cxc"])
 #: dejaban pasar tres archivos de 133.000 filas y reventaban ese techo. 10 MB
 #: es el escalón medido que sí entra (el de 10,8 MB ya quedó en 214 MB).
 MAX_BYTES_POR_ARCHIVO = 10 * 1024 * 1024
+
+
+def _mensaje_413(nombre_archivo: str | None) -> str:
+    limite_mb = MAX_BYTES_POR_ARCHIVO // (1024 * 1024)
+    return (
+        f"{nombre_archivo}: supera el límite de {limite_mb} MB por archivo. "
+        "Depure el análisis de antigüedad (por ejemplo, quite columnas u hojas que no "
+        "aporten al cálculo) y vuelva a subirlo. Si aun depurado lo supera, el archivo "
+        "excede lo que el servicio puede procesar en línea; divida el análisis por "
+        "segmento o solicite el procesamiento por lotes."
+    )
 
 
 @router.post("/analizar")
@@ -72,17 +84,18 @@ async def analizar(archivos: list[UploadFile] = File(...),
 
     cortes = []
     for archivo, fecha in zip(archivos, fechas):
-        contenido = await archivo.read()
+        # Primer filtro, sin leer ni un byte: Starlette ya conoce `archivo.size`
+        # (lo va sumando mientras recibe el cuerpo multipart) antes de que el
+        # handler se ejecute, así que consultarlo no cuesta I/O adicional.
+        if archivo.size is not None and archivo.size > MAX_BYTES_POR_ARCHIVO:
+            raise HTTPException(413, _mensaje_413(archivo.filename))
+        # Segundo filtro, por si `archivo.size` no viniera informado: se lee
+        # como máximo un byte de más que el límite, así que un archivo
+        # desproporcionado nunca llega a materializarse entero en `contenido`
+        # (en RAM) antes de compararlo contra el límite.
+        contenido = await archivo.read(MAX_BYTES_POR_ARCHIVO + 1)
         if len(contenido) > MAX_BYTES_POR_ARCHIVO:
-            limite_mb = MAX_BYTES_POR_ARCHIVO // (1024 * 1024)
-            raise HTTPException(
-                413,
-                f"{archivo.filename}: supera el límite de {limite_mb} MB por archivo. "
-                "Depure el análisis de antigüedad (por ejemplo, quite columnas u hojas que no "
-                "aporten al cálculo) y vuelva a subirlo. Si aun depurado lo supera, el archivo "
-                "excede lo que el servicio puede procesar en línea; divida el análisis por "
-                "segmento o solicite el procesamiento por lotes.",
-            )
+            raise HTTPException(413, _mensaje_413(archivo.filename))
         try:
             fecha_corte = date.fromisoformat(fecha)
         except ValueError as e:

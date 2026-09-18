@@ -115,7 +115,43 @@ def test_rechaza_archivo_mayor_al_limite_413(client, monkeypatch):
     assert "mb" in detalle, f"El mensaje no menciona el límite en MB: {r.json()['detail']}"
     # ...y decir qué hacer cuando el archivo depurado sigue sin entrar: quien sube
     # un análisis de 130.000 filas necesita la salida, no solo la negativa.
-    assert "por segmento" in detalle and "lotes" in detalle,         f"El mensaje no indica cómo proceder con un archivo demasiado grande: {r.json()['detail']}"
+    assert "por segmento" in detalle and "lotes" in detalle, \
+        f"El mensaje no indica cómo proceder con un archivo demasiado grande: {r.json()['detail']}"
+
+
+def test_rechaza_archivo_grande_sin_materializarlo_entero(client, monkeypatch):
+    """El límite se evalúa ANTES de traer el archivo entero a memoria.
+
+    Instrumenta ``UploadFile.read`` para probar que, para rechazar un archivo por
+    encima del límite, el router nunca hace una lectura sin tope: ni con
+    ``archivo.size`` (que Starlette ya conoce sin I/O adicional) ni, como
+    respaldo, con una lectura acotada a límite + 1 bytes.
+    """
+    from starlette.datastructures import UploadFile as StarletteUploadFile
+
+    limite_pequeño = 1 * 1024  # 1 KB
+    monkeypatch.setattr("backend.app.aud.pce_cxc.router.MAX_BYTES_POR_ARCHIVO", limite_pequeño)
+
+    lecturas: list[int] = []
+    read_original = StarletteUploadFile.read
+
+    async def read_instrumentado(self, size: int = -1) -> bytes:
+        datos = await read_original(self, size)
+        lecturas.append(len(datos))
+        return datos
+
+    monkeypatch.setattr(StarletteUploadFile, "read", read_instrumentado)
+
+    token = _token(client)
+    r = client.post(f"{BASE}/analizar", files=_archivos(),
+                    data={"parametros": json.dumps({"fechas": ["2023-12-31", "2024-12-31", "2025-12-31"]})},
+                    headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 413, f"Se esperaba 413, se obtuvo {r.status_code}: {r.text}"
+    # Ninguna lectura del router trajo más que límite + 1 bytes de una vez: el
+    # archivo (varios KB, como los otros fixtures de este módulo) nunca se
+    # materializó entero en `contenido` antes del rechazo.
+    assert all(n <= limite_pequeño + 1 for n in lecturas), \
+        f"alguna lectura trajo más de {limite_pequeño + 1} bytes de una vez: {lecturas}"
 
 
 def test_sin_rol_staff_no_puede_consultar_corrida(client):
