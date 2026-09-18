@@ -532,45 +532,148 @@ def _cohorte(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> N
     refs["cohorte"] = {"pares": pares, "primera": primera, "ultima": ultima, "hay_datos": bool(pares)}
 
 
+def _nota_anomalia(anomalia: dict[str, Any]) -> str:
+    """Por qué la tasa observada de esa banda se acotó, con las cifras a la vista."""
+    inicial = _numero(anomalia.get("inicial")) or 0.0
+    remanente = _numero(anomalia.get("remanente")) or 0.0
+    bruta = _numero(anomalia.get("tasa_bruta")) or 0.0
+    if anomalia.get("tipo") == "remanente_negativo":
+        return (f"Tasa acotada al 0 %: el remanente al corte resultó negativo ({remanente:,.2f}) "
+                f"sobre un saldo inicial de cohorte de {inicial:,.2f} (ratio crudo {bruta:,.2%}). "
+                f"El origen del signo (notas de crédito imputadas al mismo documento, error de "
+                f"carga) debe explicarse antes de aceptar la matriz.")
+    return (f"Tasa acotada al 100 %: el remanente al corte ({remanente:,.2f}) superó el saldo "
+            f"inicial de la cohorte ({inicial:,.2f}); el ratio crudo es {bruta:,.2%}. El origen "
+            f"del incremento (nueva facturación reclasificada al mismo documento, reversión, "
+            f"error de carga) debe explicarse antes de aceptar la matriz.")
+
+
 def _tasas(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, Any], refs: dict[str, Any]) -> None:
+    """Una fila por cada banda que el papel tiene que sustentar.
+
+    Tres correcciones conviven aquí:
+
+    - El origen sigue la misma precedencia que ``service.analizar``: la tasa
+      sustituida con justificación escrita manda sobre la observada. Antes era
+      al revés, así que una sustitución justificada se presentaba como
+      "Observada" y su justificación -la única evidencia del cambio- no se
+      escribía en ninguna parte del papel.
+    - La tasa aplicada es exactamente la que usa ``05-Matriz``, que la
+      referencia desde aquí: una sola cifra por banda en todo el libro. Cuando
+      sale de la cohorte se escribe como fórmula acotada entre 0 y 1, igual que
+      ``cohortes.tasas_por_permanencia``; el ratio crudo se conserva en su
+      propia columna porque es la evidencia de la que salió el acotamiento.
+    - Las filas son el universo completo: todas las bandas de ``05-Matriz``
+      -incluidas las que no tienen historia y el papel tiene que argumentar-
+      más las que solo existen en la cohorte.
+    """
     ws = wb.create_sheet("04-Tasas")
-    _encabezados(ws, 1, ["Segmento", "Banda", "Tasa observada", "Origen (observada o sustituida)",
-                         "Justificación de la sustitución"])
+    _encabezados(ws, 1, ["Segmento", "Banda", "Ratio observado en la cohorte (remanente / inicial)",
+                         "Tasa aplicada (la que usa 05-Matriz)", "Origen", "Justificación o nota"])
     tasas = resultado.get("tasas") or {}
     sustitutas = parametros.get("tasas_sustitutas") or {}
+    anomalias = resultado.get("anomalias") or []
     cohorte_refs = refs.get("cohorte") or {}
-    pares = cohorte_refs.get("pares") or []
-    primera = 2
+    pares_cohorte = list(cohorte_refs.get("pares") or []) if cohorte_refs.get("hay_datos") else []
+    primera_cohorte = cohorte_refs.get("primera", 2)
 
-    if pares and cohorte_refs.get("hay_datos"):
-        ultima = primera + len(pares) - 1
-        for i, (segmento, banda) in zip(range(primera, ultima + 1), pares):
+    # Mismo orden que 05-Matriz para que esa hoja referencie por número de fila.
+    filas: list[tuple[str, str, dict[str, Any] | None]] = [
+        (str(t.get("segmento") or ""), str(t.get("tramo") or ""), t)
+        for t in (refs.get("tramos_visibles") or [])
+    ]
+    ya = {(s, b) for s, b, _ in filas}
+    filas += [(s, b, None) for (s, b) in pares_cohorte if (s, b) not in ya]
+
+    primera = 2
+    filas_por_par: dict[tuple[str, str], int] = {}
+
+    if filas:
+        ultima = primera + len(filas) - 1
+        for i, (segmento, banda, tramo) in zip(range(primera, ultima + 1), filas):
+            filas_por_par.setdefault((segmento, banda), i)
             observada = (tasas.get(segmento) or {}).get(banda)
             sustituta = sustitutas.get(f"{segmento}|{banda}")
-            if observada is not None:
-                origen, justificacion = "Observada", ""
-            elif sustituta and str(sustituta.get("justificacion", "")).strip():
-                origen = "Sustituida"
-                justificacion = sustituta.get("justificacion", "")
-            else:
-                origen, justificacion = "SIN MEDIR", ""
+            sustituida = bool(sustituta and str(sustituta.get("justificacion", "")).strip())
+            anomalia = next((a for a in anomalias if a.get("segmento") == segmento
+                             and a.get("banda") == banda), None)
+            try:
+                fila_coh = primera_cohorte + pares_cohorte.index((segmento, banda))
+            except ValueError:
+                fila_coh = None
+
             _celda(ws, i, 1, segmento, alineacion=ALIN_IZQ)
             _celda(ws, i, 2, banda, alineacion=ALIN_IZQ)
-            # Ratio empírico remanente/inicial de la cohorte, sea o no la tasa
-            # finalmente aplicada (eso lo dice la columna "Origen"). Guardado
+            # Ratio empírico de la cohorte, SIN acotar: es la evidencia. Guardado
             # con IF (no IFERROR: fuera de las funciones permitidas) para no
             # mostrar #¡DIV/0! cuando la banda no tuvo cartera inicial.
-            _celda(ws, i, 3, f"=IF('03-Cohorte'!D{i}=0,\"SIN BASE\",'03-Cohorte'!E{i}/'03-Cohorte'!D{i})",
-                   formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
-            _celda(ws, i, 4, origen, alineacion=ALIN_CEN)
-            _celda(ws, i, 5, justificacion, alineacion=ALIN_IZQ)
+            if fila_coh is not None:
+                _celda(ws, i, 3,
+                       f'=IF(\'03-Cohorte\'!D{fila_coh}=0,"SIN BASE",'
+                       f'\'03-Cohorte\'!E{fila_coh}/\'03-Cohorte\'!D{fila_coh})',
+                       formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
+            else:
+                _celda(ws, i, 3, "SIN COHORTE", alineacion=ALIN_CEN)
+
+            # La tasa aplicada la manda el motor (`tasa_perdida` del tramo): así
+            # 04-Tasas y 05-Matriz no pueden discrepar. Para una banda que solo
+            # existe en la cohorte no hay tramo, y se documenta la que se
+            # aplicaría.
+            if tramo is not None:
+                aplicada = _numero(tramo.get("tasa_perdida"))
+            elif sustituida:
+                aplicada = _numero(sustituta.get("tasa"))
+            else:
+                aplicada = _numero(observada)
+
+            nota = ""
+            if aplicada is None:
+                origen = SEGMENTOS_TEXTO
+                _celda(ws, i, 4, SEGMENTOS_TEXTO, alineacion=ALIN_CEN)
+                if fila_coh is None:
+                    nota = ("La cohorte no registra documentos en esta banda: sin historia propia "
+                            "no se asume una tasa (NIIF 9 B5.5.35). Resuélvase por analogía con un "
+                            "segmento comparable, dejando constancia, o declárese la limitación.")
+                else:
+                    nota = ("La cohorte no tiene cartera inicial en esta banda: no hay ratio que "
+                            "calcular y no se asume una tasa (NIIF 9 B5.5.35).")
+            elif sustituida:
+                origen = "Sustituida"
+                nota = str(sustituta.get("justificacion", ""))
+                _celda(ws, i, 4, aplicada, formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
+            else:
+                origen = "Observada"
+                if anomalia is not None:
+                    origen = ("Observada (acotada al 0 %)"
+                              if anomalia.get("tipo") == "remanente_negativo"
+                              else "Observada (acotada al 100 %)")
+                    nota = _nota_anomalia(anomalia)
+                # Solo se escribe como fórmula si la tasa aplicada es la misma
+                # que se reconstruye desde 03-Cohorte; si no, manda el valor.
+                if (fila_coh is not None and observada is not None
+                        and abs(float(observada) - aplicada) < 1e-12):
+                    _celda(ws, i, 4,
+                           f'=IF(C{i}="SIN BASE","SIN MEDIR",IF(C{i}>1,1,IF(C{i}<0,0,C{i})))',
+                           formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
+                else:
+                    _celda(ws, i, 4, aplicada, formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
+
+            if tramo is None and aplicada is not None:
+                nota = (f"{nota} Banda sin exposición en el corte actual: la tasa queda "
+                        f"documentada pero no se aplica en 05-Matriz.").strip()
+
+            _celda(ws, i, 5, origen, alineacion=ALIN_CEN)
+            _celda(ws, i, 6, nota, alineacion=ALIN_IZQ)
     else:
         ultima = primera
-        _celda(ws, primera, 1, "(sin bandas en la cohorte de esta corrida)", alineacion=ALIN_IZQ)
-        for col in range(2, 6):
+        _celda(ws, primera, 1, "(sin bandas en la cohorte ni en la matriz de esta corrida)",
+               alineacion=ALIN_IZQ)
+        for col in range(2, 7):
             _celda(ws, primera, col, None)
 
-    _anchos(ws, {"A": 22, "B": 20, "C": 16, "D": 24, "E": 44})
+    _anchos(ws, {"A": 22, "B": 20, "C": 22, "D": 20, "E": 26, "F": 56})
+    refs["tasas"] = {"primera": primera, "ultima": ultima, "col_aplicada": "D",
+                     "filas_por_par": filas_por_par}
 
 
 # ---------------------------------------------------------------------------
@@ -600,7 +703,17 @@ def _matriz(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> No
                 _celda(ws, i, 5, "", alineacion=ALIN_CEN)
                 _celda(ws, i, 6, "SIN MEDIR", alineacion=ALIN_CEN)
                 continue
-            _celda(ws, i, 4, _numero(t["tasa_perdida"]), formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
+            # La tasa vive en 04-Tasas y aquí se referencia: una sola cifra por
+            # banda en todo el libro, y corregirla allá recalcula la matriz.
+            tasas_refs = refs.get("tasas") or {}
+            fila_tasa = (tasas_refs.get("filas_por_par") or {}).get(
+                (str(t.get("segmento") or ""), str(t.get("tramo") or "")))
+            if fila_tasa:
+                _celda(ws, i, 4, f"='04-Tasas'!{tasas_refs['col_aplicada']}{fila_tasa}",
+                       formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
+            else:
+                _celda(ws, i, 4, _numero(t["tasa_perdida"]), formato=FORMATO_PORCENTAJE,
+                       alineacion=ALIN_DER)
             # El factor prospectivo es por segmento: se resuelve el nombre
             # definido según el segmento de ESTA fila (columna A), no un
             # nombre único compartido por toda la matriz.

@@ -1,5 +1,6 @@
 """Excel del papel de trabajo: hojas, fórmulas y cuadres."""
 import io
+import re
 import zipfile
 from datetime import date
 
@@ -459,3 +460,186 @@ def test_la_fila_sin_medir_con_cartera_sigue_saliendo():
     fila = filas[("NO-RELACIONADOS", "Más de 730 días")]
     assert ws.cell(fila, 3).value == 5000.0
     assert ws.cell(fila, 6).value == "SIN MEDIR"
+
+
+# ---------------------------------------------------------------------------
+# I2, I3 y M5 — 04-Tasas: origen, acotamiento y universo de bandas
+# ---------------------------------------------------------------------------
+
+def _fila_de_tasas(ws, segmento: str, banda: str) -> int | None:
+    for fila in range(2, ws.max_row + 1):
+        if ws.cell(fila, 1).value == segmento and ws.cell(fila, 2).value == banda:
+            return fila
+    return None
+
+
+def _tasa_aplicada_de_la_matriz(wb, fila: int):
+    """Lo que 05-Matriz aplica en esa fila, siguiendo la referencia si la hay."""
+    valor = wb["05-Matriz"].cell(fila, 4).value
+    if isinstance(valor, str) and valor.startswith("='04-Tasas'!"):
+        celda = valor.split("!", 1)[1]
+        return wb["04-Tasas"][celda].value
+    return valor
+
+
+# --- I2 --------------------------------------------------------------------
+
+RESULTADO_SUSTITUTA = {
+    "tasas": {"NO-RELACIONADOS": {"0 a 30 días": 0.10}},
+    "detalle_cohorte": {"NO-RELACIONADOS": {
+        "0 a 30 días": {"inicial": 100000.0, "remanente": 10000.0, "documentos": 8}}},
+    "matriz": {"tramos": [{"segmento": "NO-RELACIONADOS", "tramo": "0 a 30 días",
+                           "exposicion": 50000.0, "tasa_perdida": 0.42, "ecl": 21000.0}]},
+}
+JUSTIFICACION_SUSTITUTA = ("Concordato preventivo del deudor principal de la banda, informado por "
+                           "la gerencia el 12/01: la historia de la cohorte no lo recoge.")
+PARAMETROS_SUSTITUTA = {"tasas_sustitutas": {
+    "NO-RELACIONADOS|0 a 30 días": {"tasa": 0.42, "justificacion": JUSTIFICACION_SUSTITUTA}}}
+
+
+def test_la_tasa_sustituida_se_presenta_como_sustituida_y_con_su_justificacion():
+    """El servicio prefiere la sustituta; el exportador hacía lo contrario y,
+    si había observada, marcaba origen «Observada» y borraba la justificación.
+    Dos hojas del mismo papel daban dos tasas para la misma banda y la única
+    evidencia del cambio no se escribía en ninguna parte (I2)."""
+    wb = _abrir(construir_excel(RESULTADO_SUSTITUTA, PARAMETROS_SUSTITUTA))
+    ws = wb["04-Tasas"]
+    fila = _fila_de_tasas(ws, "NO-RELACIONADOS", "0 a 30 días")
+    assert fila is not None
+
+    assert ws.cell(fila, 5).value == "Sustituida", ws.cell(fila, 5).value
+    assert JUSTIFICACION_SUSTITUTA in str(ws.cell(fila, 6).value)
+    assert ws.cell(fila, 4).value == 0.42, "04-Tasas debe traer la tasa que de verdad se aplicó"
+
+
+def test_las_dos_hojas_dan_la_misma_tasa_para_la_misma_banda():
+    """05-Matriz aplicaba 42 % y 04-Tasas mostraba 10 % por fórmula (I2)."""
+    wb = _abrir(construir_excel(RESULTADO_SUSTITUTA, PARAMETROS_SUSTITUTA))
+    assert _tasa_aplicada_de_la_matriz(wb, 2) == 0.42
+
+
+# --- I3 --------------------------------------------------------------------
+
+RESULTADO_ACOTADO = {
+    # `cohortes.tasas_por_permanencia` acota a 1,0 y deja constancia en anomalías.
+    "tasas": {"NO-RELACIONADOS": {"61 a 90 días": 1.0}},
+    "detalle_cohorte": {"NO-RELACIONADOS": {
+        "61 a 90 días": {"inicial": 10000.0, "remanente": 35000.0, "documentos": 3}}},
+    "anomalias": [{"segmento": "NO-RELACIONADOS", "banda": "61 a 90 días", "inicial": 10000.0,
+                   "remanente": 35000.0, "tasa_bruta": 3.5, "tipo": "remanente_mayor_que_inicial"}],
+    "matriz": {"tramos": [{"segmento": "NO-RELACIONADOS", "tramo": "61 a 90 días",
+                           "exposicion": 20000.0, "tasa_perdida": 1.0, "ecl": 20000.0}]},
+}
+
+
+def test_la_tasa_acotada_aparece_acotada_en_el_excel():
+    """04-Tasas mostraba E2/D2 = 350 % con origen «Observada» mientras 05-Matriz
+    aplicaba 100 %: quien recalculara desde 04-Tasas obtenía 3,5 veces la PCE
+    del papel (I3)."""
+    wb = _abrir(construir_excel(RESULTADO_ACOTADO, {}))
+    ws = wb["04-Tasas"]
+    fila = _fila_de_tasas(ws, "NO-RELACIONADOS", "61 a 90 días")
+
+    aplicada = ws.cell(fila, 4).value
+    assert isinstance(aplicada, str) and aplicada.startswith("="), \
+        "la tasa aplicada debe seguir siendo recalculable desde 03-Cohorte"
+    assert "1" in aplicada and "IF" in aplicada, \
+        f"la fórmula debe acotar el ratio a 1,0: {aplicada}"
+    assert _tasa_aplicada_de_la_matriz(wb, 2) == aplicada, \
+        "05-Matriz debe aplicar exactamente la tasa de 04-Tasas"
+
+
+def test_el_acotamiento_se_explica_en_la_hoja_de_tasas():
+    """El acotamiento solo se mencionaba en el texto de un pendiente (I3)."""
+    wb = _abrir(construir_excel(RESULTADO_ACOTADO, {}))
+    ws = wb["04-Tasas"]
+    fila = _fila_de_tasas(ws, "NO-RELACIONADOS", "61 a 90 días")
+    assert "acotada" in str(ws.cell(fila, 5).value).lower(), ws.cell(fila, 5).value
+    nota = str(ws.cell(fila, 6).value)
+    assert "35.000,00" in nota or "35,000.00" in nota, nota
+    assert "10.000,00" in nota or "10,000.00" in nota, nota
+    # El ratio crudo no se borra: es la evidencia de la que salió el acotamiento.
+    crudo = str(ws.cell(fila, 3).value)
+    assert crudo.startswith("=") and "03-Cohorte" in crudo, crudo
+
+
+# --- M5 --------------------------------------------------------------------
+
+def test_la_hoja_de_tasas_cubre_todas_las_bandas_de_la_matriz():
+    """Una corrida con 16 filas segmento x banda en 05-Matriz tuvo 1 fila en
+    04-Tasas: las bandas sin historia -las que el papel tiene que argumentar-
+    no tenían fila en la hoja de tasas (M5)."""
+    wb = _abrir(construir_excel(RESULTADO_CON_RUIDO, {}))
+    ws04, ws05 = wb["04-Tasas"], wb["05-Matriz"]
+
+    pares_matriz = [(ws05.cell(f, 1).value, ws05.cell(f, 2).value)
+                    for f in range(2, 2 + len(CON_EXPOSICION))]
+    for segmento, banda in pares_matriz:
+        assert _fila_de_tasas(ws04, segmento, banda) is not None, \
+            f"falta la fila de {segmento} / {banda} en 04-Tasas"
+
+
+def test_la_banda_sin_historia_dice_por_que_no_tiene_tasa():
+    """Sin fila no hay nada que argumentar; con fila, el papel tiene que decir
+    que la cohorte no registra documentos en esa banda (M5)."""
+    wb = _abrir(construir_excel(RESULTADO_CON_RUIDO, {}))
+    ws = wb["04-Tasas"]
+    fila = _fila_de_tasas(ws, "NO-RELACIONADOS", "Más de 730 días")
+    assert ws.cell(fila, 4).value == "SIN MEDIR"
+    assert ws.cell(fila, 5).value == "SIN MEDIR"
+    assert "cohorte" in str(ws.cell(fila, 6).value).lower()
+
+
+def test_la_hoja_de_tasas_conserva_la_banda_que_solo_existe_en_la_cohorte():
+    """Una banda con historia pero sin cartera hoy sigue documentada: su tasa
+    es evidencia aunque no se aplique en 05-Matriz (M5)."""
+    resultado = {
+        "tasas": {"NO-RELACIONADOS": {"181 a 360 días": 0.30}},
+        "detalle_cohorte": {"NO-RELACIONADOS": {
+            "181 a 360 días": {"inicial": 20000.0, "remanente": 6000.0, "documentos": 4}}},
+        "matriz": {"tramos": [{"segmento": "NO-RELACIONADOS", "tramo": "Por vencer",
+                               "exposicion": 1000.0, "tasa_perdida": 0.01, "ecl": 10.0}]},
+    }
+    ws = _abrir(construir_excel(resultado, {}))["04-Tasas"]
+    fila = _fila_de_tasas(ws, "NO-RELACIONADOS", "181 a 360 días")
+    assert fila is not None, "la banda con historia no puede desaparecer de 04-Tasas"
+    assert str(ws.cell(fila, 4).value).startswith("=")
+    assert "no se aplica" in str(ws.cell(fila, 6).value).lower()
+
+
+def test_cada_fila_de_tasas_apunta_a_su_propia_fila_de_cohorte():
+    """04-Tasas ya no comparte el orden de 03-Cohorte (lista además las bandas
+    sin historia), así que la referencia tiene que resolverse por par
+    segmento/banda y no por número de fila coincidente."""
+    resultado = {
+        "tasas": {"NO-RELACIONADOS": {"Por vencer": 0.01, "91 a 180 días": 0.30},
+                  "RELACIONADOS": {"Por vencer": 0.02}},
+        "detalle_cohorte": {
+            "NO-RELACIONADOS": {"91 a 180 días": {"inicial": 10000.0, "remanente": 3000.0, "documentos": 2},
+                                "Por vencer": {"inicial": 50000.0, "remanente": 500.0, "documentos": 9}},
+            "RELACIONADOS": {"Por vencer": {"inicial": 8000.0, "remanente": 160.0, "documentos": 1}},
+        },
+        "matriz": {"tramos": [
+            {"segmento": "RELACIONADOS", "tramo": "Por vencer", "exposicion": 4000.0,
+             "tasa_perdida": 0.02, "ecl": 80.0},
+            {"segmento": "NO-RELACIONADOS", "tramo": "Por vencer", "exposicion": 70000.0,
+             "tasa_perdida": 0.01, "ecl": 700.0},
+            {"segmento": "NO-RELACIONADOS", "tramo": "Más de 730 días", "exposicion": 900.0,
+             "tasa_perdida": None, "ecl": None},
+        ]},
+    }
+    wb = _abrir(construir_excel(resultado, {}))
+    ws04, ws03 = wb["04-Tasas"], wb["03-Cohorte"]
+    referencias = re.compile(r"'03-Cohorte'!D(\d+)")
+
+    revisadas = 0
+    for fila in range(2, ws04.max_row + 1):
+        formula = str(ws04.cell(fila, 3).value or "")
+        m = referencias.search(formula)
+        if not m:
+            continue
+        fila_coh = int(m.group(1))
+        assert ws03.cell(fila_coh, 1).value == ws04.cell(fila, 1).value
+        assert ws03.cell(fila_coh, 2).value == ws04.cell(fila, 2).value
+        revisadas += 1
+    assert revisadas == 3, f"debían resolverse las tres bandas con cohorte, se resolvieron {revisadas}"
