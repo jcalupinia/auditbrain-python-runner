@@ -535,6 +535,15 @@ def _cuadrar_restantes_a_centavos(
     individuales que salieron de esas bandas (`fuera`, ya en centavos porque
     `evaluar_individual` los redondeó). Sin anclaje el objetivo es el total del
     archivo redondeado, que es igualmente la cifra que el papel declara.
+
+    EL REPARTO NO PUEDE INVENTAR UNA BANDA ACREEDORA. Al quitar un centavo, el
+    orden ascendente por resto pone primero las bandas VACÍAS (resto 0) y las
+    dejaba en -0,01: esa banda entraba en la matriz, se imprimía en 05-Matriz y
+    disparaba el hallazgo Alto «Saldos acreedores en la cartera medida» sobre
+    un centavo que había puesto la propia herramienta. Ahora el centavo solo se
+    quita de bandas que pueden absorberlo sin volverse acreedoras; si ninguna
+    puede, manda el total -el papel no puede descuadrar contra los EEFF- y el
+    reparto queda declarado en la bitácora igual que siempre.
     """
     cien = Decimal("100")
     for segmento, bandas in restantes.items():
@@ -552,11 +561,24 @@ def _cuadrar_restantes_a_centavos(
                      for b, v in exactos.items()}
             orden = sorted(bandas, key=lambda b: resto[b], reverse=sobrante > 0)
             paso = Decimal("0.01") if sobrante > 0 else Decimal("-0.01")
-            # El módulo es una red de seguridad: `sobrante` no puede superar el
-            # número de bandas del segmento, pero si algún día lo hiciera el
-            # total seguiría cuadrando en vez de quedarse corto.
-            for k in range(abs(sobrante)):
-                b = orden[k % len(orden)]
+            # Cuántos centavos lleva cada banda: se reparte UNO por banda antes
+            # de repetir en ninguna, para que ninguna se aparte más de un
+            # centavo de su exposición exacta. El segundo reparto es una red de
+            # seguridad -`sobrante` no puede superar el número de bandas-, pero
+            # si algún día lo hiciera el total seguiría cuadrando.
+            usados: dict[str, int] = {}
+            for _ in range(abs(sobrante)):
+                # La elegibilidad se recalcula en cada paso: quitar un centavo
+                # puede dejar sin margen a una banda que lo tenía al empezar.
+                candidatos = [b for b in orden
+                              if sobrante > 0 or redondear(redondeadas[b] - 0.01) >= 0]
+                # Sin ninguna banda que pueda absorberlo sin volverse acreedora,
+                # manda el cuadre del total: el papel no puede descuadrar contra
+                # los EEFF, y el reparto se declara en la bitácora.
+                candidatos = candidatos or orden
+                minimo = min(usados.get(b, 0) for b in candidatos)
+                b = next(x for x in candidatos if usados.get(x, 0) == minimo)
+                usados[b] = minimo + 1
                 redondeadas[b] = float(Decimal(str(redondeadas[b])) + paso)
         restantes[segmento] = redondeadas
     return restantes

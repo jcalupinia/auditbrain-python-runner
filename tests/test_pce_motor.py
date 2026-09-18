@@ -414,3 +414,45 @@ def test_el_cero_negativo_no_llega_al_papel():
     assert redondear(-34339.62 * 0.0) == 0.0
     assert str(redondear(-0.001)) == "0.0"
     assert redondear(-0.006) == -0.01
+
+
+# ---------------------------------------------------------------------------
+# T9 — El reparto de centavos no puede inventar una banda acreedora
+# ---------------------------------------------------------------------------
+
+def test_el_reparto_de_centavos_no_inventa_una_banda_acreedora():
+    """Con sobrante negativo el reparto ordenaba por resto ascendente, así que
+    las bandas VACÍAS (resto 0) iban primero y se quedaban en -0,01. Esa banda
+    entra en la matriz, se imprime en 05-Matriz y dispara el hallazgo Alto
+    «Saldos acreedores en la cartera medida» sobre un centavo que puso la
+    propia herramienta."""
+    p = ParametrosECL(tasas_perdida={"A": 0.1, "B": 0.1, "C": 0.1, "D": 0.1})
+    r = resumen_deterioro({"A": 50.006, "B": 50.006, "C": 0.0, "D": 0.0}, p)
+    colectivo = r["colectivo"]
+
+    assert colectivo["exposicion_negativa"] == 0.0, "el reparto creó una banda acreedora"
+    acreedoras = [t["tramo"] for t in colectivo["tramos"] if t["exposicion"] < 0]
+    assert not acreedoras, f"bandas acreedoras inventadas: {acreedoras}"
+    # Y el centavo sigue repartiéndose: el total no se desancla.
+    assert colectivo["exposicion_total"] == 100.01
+
+
+def test_el_centavo_se_quita_de_una_banda_que_puede_absorberlo():
+    """No basta con no dejar la banda en negativo: el total tiene que seguir
+    cuadrando, así que el centavo va a una banda con saldo suficiente."""
+    p = ParametrosECL(tasas_perdida={"A": 0.1, "B": 0.1, "C": 0.1, "D": 0.1})
+    r = resumen_deterioro({"A": 50.006, "B": 50.006, "C": 0.0, "D": 0.0}, p)
+    exposiciones = {t["tramo"]: t["exposicion"] for t in r["colectivo"]["tramos"]}
+    assert exposiciones["C"] == 0.0 and exposiciones["D"] == 0.0
+    assert sorted((exposiciones["A"], exposiciones["B"])) == [50.0, 50.01]
+
+
+def test_el_reparto_solo_toca_bandas_acreedoras_si_no_hay_otra():
+    """Cuando ninguna banda puede absorber el centavo, el total manda: se
+    reparte igual -el papel no puede descuadrar contra los EEFF- y la bitácora
+    lo declara."""
+    p = ParametrosECL(tasas_perdida={"A": 0.1, "B": 0.1})
+    r = resumen_deterioro({"A": -50.006, "B": -50.006}, p)
+    # -100,012 redondea a -100,01, y la suma de las bandas redondeadas es
+    # -100,02: falta un centavo y las dos bandas ya son acreedoras.
+    assert r["colectivo"]["exposicion_total"] == -100.01

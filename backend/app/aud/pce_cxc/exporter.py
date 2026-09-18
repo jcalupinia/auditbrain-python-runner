@@ -211,6 +211,36 @@ def _numero(valor: Any) -> float | None:
         return None
 
 
+def _como_diccionario(valor: Any) -> dict:
+    """Un parámetro que se espera como objeto, tolerando lo que traiga la corrida.
+
+    El exportador lee corridas YA GUARDADAS: sus parámetros no vuelven a pasar
+    por la validación de entrada del servicio, así que aquí cualquier forma
+    inesperada tiene que dar un papel que dice lo que sabe, nunca un HTTP 500
+    al descargar. `x or {}` no alcanzaba: un número o una cadena son
+    verdaderos y el `.get` siguiente levantaba `AttributeError`.
+    """
+    return valor if isinstance(valor, dict) else {}
+
+
+def _ajustes_prospectivos_de_parametros(valor: Any) -> tuple[float, float]:
+    """Ajuste (factor - 1) por segmento leído de los PARÁMETROS de la corrida.
+
+    Admite el escalar de las corridas antiguas -el mismo factor para todos los
+    segmentos-, que es exactamente la rama de retrocompatibilidad en la que el
+    exportador reventaba con un 500 al llamar `.get` sobre un número.
+    """
+    if isinstance(valor, dict):
+        no_rel = _numero(valor.get("NO-RELACIONADOS"))
+        rel = _numero(valor.get("RELACIONADOS"))
+        return ((1.0 if no_rel is None else no_rel) - 1.0,
+                (1.0 if rel is None else rel) - 1.0)
+    unico = _numero(valor) if not isinstance(valor, (bool, list, tuple, set)) else None
+    if unico is None:
+        return 0.0, 0.0
+    return unico - 1.0, unico - 1.0
+
+
 # ---------------------------------------------------------------------------
 # Orquestación
 # ---------------------------------------------------------------------------
@@ -381,9 +411,10 @@ def _parametros(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, A
         ajuste_relacionados = 0.0
     else:
         # No hay ajuste en resultado: leer de parámetros por retrocompatibilidad
-        factor_dict = parametros.get("factor_prospectivo") or {}
-        ajuste_no_relacionados = float(factor_dict.get("NO-RELACIONADOS", 1.0)) - 1.0
-        ajuste_relacionados = float(factor_dict.get("RELACIONADOS", 1.0)) - 1.0
+        # (admite el escalar de las corridas antiguas; ver
+        # `_ajustes_prospectivos_de_parametros`).
+        ajuste_no_relacionados, ajuste_relacionados = _ajustes_prospectivos_de_parametros(
+            parametros.get("factor_prospectivo"))
 
     saldo_contable = conciliacion.get("saldo_contable")
     if saldo_contable is None:
@@ -450,7 +481,7 @@ def _parametros(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, A
     fila = 10
     _bloque(ws, fila, "Cartera según EEFF por segmento", 3)
     fila += 1
-    eeff = parametros.get("eeff") or {}
+    eeff = _como_diccionario(parametros.get("eeff"))
     if eeff:
         for segmento, valor in eeff.items():
             _celda(ws, fila, 1, f"Cartera EEFF — {segmento}", alineacion=ALIN_IZQ)
@@ -749,7 +780,7 @@ def _tasas(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, Any], 
     _encabezados(ws, 1, ["Segmento", "Banda", "Ratio observado en la cohorte (remanente / inicial)",
                          "Tasa aplicada (la que usa 05-Matriz)", "Origen", "Justificación o nota"])
     tasas = resultado.get("tasas") or {}
-    sustitutas = parametros.get("tasas_sustitutas") or {}
+    sustitutas = _como_diccionario(parametros.get("tasas_sustitutas"))
     anomalias = resultado.get("anomalias") or []
     cohorte_refs = refs.get("cohorte") or {}
     pares_cohorte = list(cohorte_refs.get("pares") or []) if cohorte_refs.get("hay_datos") else []
@@ -771,7 +802,7 @@ def _tasas(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, Any], 
         for i, (segmento, banda, tramo) in zip(range(primera, ultima + 1), filas):
             filas_por_par.setdefault((segmento, banda), i)
             observada = (tasas.get(segmento) or {}).get(banda)
-            sustituta = sustitutas.get(f"{segmento}|{banda}")
+            sustituta = _como_diccionario(sustitutas.get(f"{segmento}|{banda}"))
             sustituida = bool(sustituta and str(sustituta.get("justificacion", "")).strip())
             anomalia = next((a for a in anomalias if a.get("segmento") == segmento
                              and a.get("banda") == banda), None)
@@ -1122,7 +1153,12 @@ def _politica(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> 
             else:
                 _celda(ws, i, 4, _numero(f.get("tasa_politica")), formato=FORMATO_PORCENTAJE,
                        alineacion=ALIN_DER)
-                _celda(ws, i, 5, f"=C{i}*D{i}", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+                # ROUND, igual que `service._comparar_politica`
+                # (`redondear(exposicion * tasa)`): sin él la celda arrastra
+                # todos los decimales del producto y `=SUM(E…)` acumula esas
+                # fracciones contra la provisión archivada.
+                _celda(ws, i, 5, f"=ROUND(C{i}*D{i},2)", formato=FORMATO_MONEDA,
+                       alineacion=ALIN_DER)
             if sin_comparar:
                 sumifs = (f"=SUMIFS('05-Matriz'!{matriz_refs['col_perdida']}{matriz_refs['primera']}:"
                           f"{matriz_refs['col_perdida']}{matriz_refs['ultima']},"
@@ -1152,14 +1188,34 @@ def _politica(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> 
         for col in range(2, 8):
             _celda(ws, primera, col, None)
 
+    # Un TOTAL que suma celdas de TEXTO da 0,00, y ese cero afirma lo mismo que
+    # la hoja evita fila a fila: que el cliente no provisiona nada, o que la
+    # pérdida medida es cero. Si no hay ni una banda comparable, el total dice
+    # lo que pasa; si hay alguna, `SUM` ignora el texto y suma solo lo real.
+    hay_politica = any(not (f.get("sin_comparar") or f.get("tasa_politica") is None)
+                       for f in filas_pol)
+    hay_medido = any(f.get("ecl") is not None for f in filas_pol)
+
     fila_total = ultima + 1
     _celda(ws, fila_total, 2, "TOTAL", total=True, alineacion=ALIN_IZQ)
     _celda(ws, fila_total, 1, None, total=True)
     _celda(ws, fila_total, 3, f"=SUM(C{primera}:C{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
     _celda(ws, fila_total, 4, None, total=True)
-    _celda(ws, fila_total, 5, f"=SUM(E{primera}:E{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
-    _celda(ws, fila_total, 6, f"=SUM(F{primera}:F{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
-    _celda(ws, fila_total, 7, f"=SUM(G{primera}:G{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
+    if hay_politica:
+        _celda(ws, fila_total, 5, f"=SUM(E{primera}:E{ultima})", formato=FORMATO_MONEDA,
+               total=True, alineacion=ALIN_DER)
+    else:
+        _celda(ws, fila_total, 5, TEXTO_SIN_COMPARAR, total=True, alineacion=ALIN_CEN)
+    if hay_medido:
+        _celda(ws, fila_total, 6, f"=SUM(F{primera}:F{ultima})", formato=FORMATO_MONEDA,
+               total=True, alineacion=ALIN_DER)
+    else:
+        _celda(ws, fila_total, 6, SEGMENTOS_TEXTO, total=True, alineacion=ALIN_CEN)
+    if hay_politica and hay_medido:
+        _celda(ws, fila_total, 7, f"=SUM(G{primera}:G{ultima})", formato=FORMATO_MONEDA,
+               total=True, alineacion=ALIN_DER)
+    else:
+        _celda(ws, fila_total, 7, TEXTO_SIN_COMPARAR, total=True, alineacion=ALIN_CEN)
 
     sin_politica = (resultado.get("politica") or {}).get("bandas_sin_politica") or []
     if sin_politica:

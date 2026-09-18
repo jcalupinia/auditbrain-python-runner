@@ -4,6 +4,8 @@ import re
 import zipfile
 from datetime import date
 
+import pytest
+
 from openpyxl import load_workbook
 from openpyxl.utils import range_boundaries
 
@@ -920,7 +922,9 @@ def test_la_banda_sin_politica_del_cliente_dice_sin_comparar_y_no_cero():
     ws = _abrir(construir_excel(RESULTADO_POLITICA_PARCIAL, {}))["07-Politica"]
     # Fila 2: la banda que sí tiene política se compara con fórmula.
     assert ws["D2"].value == 0.01
-    assert ws["E2"].value == "=C2*D2"
+    # ROUND, igual que `service._comparar_politica`: sin él la celda arrastra
+    # los decimales del producto y el TOTAL acumula esas fracciones.
+    assert ws["E2"].value == "=ROUND(C2*D2,2)"
     # Fila 3: sin política ingresada no hay 0 % ni provisión calculada.
     assert ws["D3"].value == "SIN COMPARAR"
     assert ws["E3"].value == "SIN COMPARAR"
@@ -1119,3 +1123,97 @@ def test_fuentes_desglosa_lo_descartado_por_motivo_con_su_importe():
     importes = [c.value for fila in ws.iter_rows() for c in fila
                 if isinstance(c.value, (int, float))]
     assert 900000.0 in importes and -800000.0 in importes
+
+
+# ---------------------------------------------------------------------------
+# T10 — 07-Politica redondea como el resto del libro y su TOTAL no rellena
+#       con cero lo que no se puede comparar
+# ---------------------------------------------------------------------------
+
+RESULTADO_POLITICA_CENTAVO = {
+    **RESULTADO,
+    "politica": {
+        "filas": [
+            {"banda": "Por vencer", "banda_origen": "Por vencer", "exposicion": 33433.33,
+             "tasa_politica": 0.035, "provision_politica": 1170.17, "ecl": 800.0,
+             "tasa_observada": 0.024, "sin_comparar": False, "diferencia": -370.17},
+        ],
+        "provision_politica_total": 1170.17, "diferencia_bruta": 370.17,
+        "bandas_sin_politica": [], "politica_declarada": True,
+    },
+}
+
+RESULTADO_POLITICA_TODA_SIN_COMPARAR = {
+    **RESULTADO,
+    "politica": {
+        "filas": [
+            {"banda": "Por vencer", "banda_origen": "Por vencer", "exposicion": 80000.0,
+             "tasa_politica": None, "provision_politica": None, "ecl": 800.0,
+             "tasa_observada": 0.01, "sin_comparar": True, "diferencia": None},
+            {"banda": "0 a 30 días", "banda_origen": "0 a 30 días", "exposicion": 20000.0,
+             "tasa_politica": None, "provision_politica": None, "ecl": 1000.0,
+             "tasa_observada": 0.05, "sin_comparar": True, "diferencia": None},
+        ],
+        "provision_politica_total": 0.0, "diferencia_bruta": 0.0,
+        "bandas_sin_politica": ["Por vencer", "0 a 30 días"], "politica_declarada": False,
+    },
+}
+
+
+def test_la_politica_redondea_la_provision_como_el_motor():
+    """`=C*D` arrastraba todos los decimales del producto: 33.433,33 x 3,5 % da
+    1.170,1665… en la celda y 1.170,17 en la base, y `=SUM(E…)` acumulaba esas
+    fracciones."""
+    libro = Libro(_abrir(construir_excel(RESULTADO_POLITICA_CENTAVO, {})))
+    fila = RESULTADO_POLITICA_CENTAVO["politica"]["filas"][0]
+    assert libro.numero("07-Politica", "E2") == fila["provision_politica"]
+    assert libro.numero("07-Politica", "E3") == \
+        RESULTADO_POLITICA_CENTAVO["politica"]["provision_politica_total"]
+
+
+def test_el_total_de_la_politica_no_imprime_cero_cuando_no_hay_nada_que_comparar():
+    """Con todas las bandas SIN COMPARAR, `=SUM(E…)` sobre celdas de texto daba
+    0,00: justo el cero que la misma hoja evita fila a fila."""
+    wb = _abrir(construir_excel(RESULTADO_POLITICA_TODA_SIN_COMPARAR, {}))
+    ws = wb["07-Politica"]
+    fila_total = next(f for f in range(2, ws.max_row + 1) if ws.cell(f, 2).value == "TOTAL")
+    assert ws.cell(fila_total, 5).value == exporter.TEXTO_SIN_COMPARAR
+    assert ws.cell(fila_total, 7).value == exporter.TEXTO_SIN_COMPARAR
+    # La exposición sí se totaliza: eso sí se conoce.
+    assert str(ws.cell(fila_total, 3).value).startswith("=SUM(")
+
+
+# ---------------------------------------------------------------------------
+# T8 — Una corrida antigua con `factor_prospectivo` escalar se descarga sin 500
+# ---------------------------------------------------------------------------
+
+def test_el_exportador_acepta_un_factor_prospectivo_escalar_en_los_parametros():
+    """`parametros.get("factor_prospectivo") or {}` seguido de `.get(...)`
+    levantaba `AttributeError` -HTTP 500 al descargar- justo en la rama de
+    retrocompatibilidad, que es la única razón por la que ese código existe."""
+    resultado = {"matriz": {"tramos": [
+        {"segmento": "NO-RELACIONADOS", "tramo": "Por vencer", "exposicion": 1000.0,
+         "tasa_perdida": 0.1, "ecl": 110.0},
+    ]}}
+    wb = _abrir(construir_excel(resultado, {"factor_prospectivo": 1.1}))
+    hoja, celda = next(wb.defined_names["AjusteProspectivoNoRelacionados"].destinations)
+    assert wb[hoja][celda].value == pytest.approx(0.1)
+    hoja, celda = next(wb.defined_names["AjusteProspectivoRelacionados"].destinations)
+    assert wb[hoja][celda].value == pytest.approx(0.1)
+
+
+def test_el_exportador_tolera_parametros_mal_formados_sin_reventar():
+    """Una corrida guardada con parámetros de otra forma se sigue pudiendo
+    descargar: el papel dice lo que sabe, no devuelve un 500."""
+    resultado = {"matriz": {"tramos": [
+        {"segmento": "NO-RELACIONADOS", "tramo": "Por vencer", "exposicion": 1000.0,
+         "tasa_perdida": 0.1, "ecl": 100.0},
+    ]}}
+    for parametros in ({"factor_prospectivo": "1,1"},
+                       {"factor_prospectivo": [1.1]},
+                       {"tasas_sustitutas": [{"tasa": 0.5}]},
+                       {"tasas_sustitutas": "nada"},
+                       {"eeff": 100000.0},
+                       {"eeff": "sin desglose"}):
+        wb = _abrir(construir_excel(resultado, parametros))
+        assert len(wb.sheetnames) == 13, parametros
