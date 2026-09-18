@@ -117,3 +117,13 @@
   line-height: 1.45;
   opacity: 0.72;
 }
+
+/* Declaración del auditor: no es un archivo que se sube, es evidencia que se
+   referencia y se concluye. */
+.pce .pce-declaracion { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.pce .pce-declaracion textarea {
+  width: 100%; resize: vertical; padding: 9px 11px; border-radius: 8px;
+  background: var(--pce-panel); border: 1px solid var(--pce-line); color: var(--pce-text);
+  font: 400 13px/1.5 inherit;
+}
+.pce .pce-declaracion span { font-size: 11.5px; line-height: 1.5; color: var(--pce-soft); }

@@ -42,3 +42,36 @@ export function tramosVisibles(tramos) {
     (t) => Math.abs(Number(t.exposicion) || 0) > 0.005 || t.tasa_perdida != null
   );
 }
+
+/**
+ * Parámetros que viajan con los tres cortes y quedan guardados con la corrida.
+ *
+ * `mayor_provision` es una declaración del auditor, no un archivo: el endpoint
+ * `/analizar` exige exactamente tres archivos (los tres análisis de antigüedad)
+ * y el servicio solo comprueba que el dato esté presente. Vacío, el pendiente
+ * «Mayores de la provisión de los tres ejercicios» se dispara, que es lo
+ * correcto mientras la evidencia no exista.
+ * @param {object} datos - Campos del formulario
+ * @param {string[]} fechas - Las tres fechas de corte, en el orden de los archivos
+ * @param {number|null} projectId - Proyecto al que se imputa la corrida
+ * @param {Date} [ahora] - Momento de la emisión
+ * @returns {object} Parámetros para `pceCxcAnalizar`
+ */
+export function parametrosDeLaCorrida(datos, fechas, projectId, ahora = new Date()) {
+  return {
+    project_id: projectId ?? null,
+    entidad: datos.entidad,
+    fechas,
+    // Se guarda con la corrida para que el Excel imprima la fecha de emisión
+    // y no la del día en que se descargue el papel.
+    fecha_emision: fechaEmision(ahora),
+    umbral_dias_incumplimiento: Number(datos.umbral_dias) || 730,
+    umbral_individual: Number(datos.umbral_individual) || 0,
+    materialidad: Number(datos.materialidad) || 0,
+    mayor_provision: String(datos.mayor_provision || "").trim(),
+    eeff: {
+      no_relacionados: Number(datos.eeff_nr) || 0,
+      relacionados: Number(datos.eeff_r) || 0,
+    },
+  };
+}

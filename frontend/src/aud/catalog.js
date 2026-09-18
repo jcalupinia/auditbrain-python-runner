@@ -28,7 +28,7 @@ export const CATEGORIES = [
         id: "AUD.CXC.PCE",
         label: "Matriz de pérdidas crediticias esperadas · NIIF 9",
         description:
-          "Sube los tres análisis de antigüedad y el movimiento de la provisión. Deriva las tasas del comportamiento observado de la cartera, ancla la exposición a los estados financieros, separa los saldos de evaluación individual y entrega el papel de trabajo en Excel con fórmulas auditables.",
+          "Sube los tres análisis de antigüedad de cartera (t-2, t-1 y el corte actual). Deriva las tasas del comportamiento observado, ancla la exposición a los estados financieros, separa los saldos de evaluación individual y entrega el papel de trabajo en Excel con fórmulas auditables. El movimiento de la provisión se declara en la pantalla, con su referencia: sin él, el método de permanencia queda sin sustento y se reporta como pendiente.",
       },
     ],
   },

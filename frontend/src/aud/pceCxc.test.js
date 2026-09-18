@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { CATEGORIES } from "./catalog.js";
-import { carteraMedida, fechaEmision, tramosVisibles } from "./pceCxc.js";
+import {
+  carteraMedida,
+  fechaEmision,
+  parametrosDeLaCorrida,
+  tramosVisibles,
+} from "./pceCxc.js";
 
 describe("catálogo AUD", () => {
   it("la tarjeta de Cuentas por cobrar ya no está vacía", () => {
@@ -112,5 +117,66 @@ describe("la cartera medida de la pantalla y la del papel", () => {
 
   it("y la cartera total analizada del papel es el total de la pantalla", () => {
     expect(estratificada + sinEstratificar).toBe(total);
+  });
+});
+
+describe("la tarjeta del catálogo promete lo que la pantalla acepta (M9)", () => {
+  const descripcion = () =>
+    CATEGORIES.find((c) => c.id === "CXC").tools[0].description;
+
+  it("no ofrece subir el movimiento de la provisión: el endpoint exige tres archivos", () => {
+    expect(descripcion()).not.toMatch(/sub[ei][^.]*movimiento de la provisi[óo]n/i);
+  });
+
+  it("sigue diciendo que se suben los tres análisis de antigüedad", () => {
+    expect(descripcion()).toMatch(/tres an[áa]lisis de antig[üu]edad/i);
+  });
+
+  it("dice que el movimiento de la provisión se declara en la pantalla", () => {
+    expect(descripcion()).toMatch(/movimiento de la provisi[óo]n/i);
+    expect(descripcion()).toMatch(/declara/i);
+  });
+});
+
+describe("parametrosDeLaCorrida", () => {
+  const datos = {
+    entidad: "ARCOLANDS S.A.",
+    materialidad: "12000",
+    umbral_individual: "100000",
+    eeff_nr: "195000",
+    eeff_r: "25000",
+    umbral_dias: 730,
+    mayor_provision: "  Mayor 2.1.3.01 de los tres ejercicios; castigos por USD 340, inmateriales.  ",
+  };
+  const fechas = ["2022-12-31", "2023-12-31", "2024-12-31"];
+
+  it("envía el movimiento de la provisión que declara el auditor, sin espacios sobrantes", () => {
+    const p = parametrosDeLaCorrida(datos, fechas, 7, new Date(2025, 1, 28));
+    expect(p.mayor_provision).toBe(
+      "Mayor 2.1.3.01 de los tres ejercicios; castigos por USD 340, inmateriales."
+    );
+  });
+
+  it("deja vacío el movimiento de la provisión cuando no se declaró: el pendiente debe dispararse", () => {
+    const p = parametrosDeLaCorrida({ ...datos, mayor_provision: "   " }, fechas, null);
+    expect(p.mayor_provision).toBe("");
+  });
+
+  it("guarda la fecha de emisión con la corrida", () => {
+    const p = parametrosDeLaCorrida(datos, fechas, null, new Date(2025, 1, 28));
+    expect(p.fecha_emision).toBe("2025-02-28");
+  });
+
+  it("traslada los umbrales, la materialidad y los EEFF como números", () => {
+    const p = parametrosDeLaCorrida(datos, fechas, 7);
+    expect(p).toMatchObject({
+      project_id: 7,
+      entidad: "ARCOLANDS S.A.",
+      fechas,
+      umbral_dias_incumplimiento: 730,
+      umbral_individual: 100000,
+      materialidad: 12000,
+      eeff: { no_relacionados: 195000, relacionados: 25000 },
+    });
   });
 });

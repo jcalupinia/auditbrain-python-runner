@@ -2,7 +2,7 @@ import { useState } from "react";
 import { pceCxcAnalizar, pceCxcDescargarExcel } from "../api.js";
 import {
   carteraMedida as calcularCarteraMedida,
-  fechaEmision,
+  parametrosDeLaCorrida,
   tramosVisibles,
 } from "./pceCxc.js";
 import "./pceCxc.css";
@@ -29,6 +29,7 @@ export default function PceCxcTool({ projectId }) {
     eeff_nr: "",
     eeff_r: "",
     umbral_dias: 730,
+    mayor_provision: "",
   });
   const [procesando, setProcesando] = useState(false);
   const [error, setError] = useState("");
@@ -44,21 +45,11 @@ export default function PceCxcTool({ projectId }) {
     try {
       const salida = await pceCxcAnalizar(
         CORTES.map((c) => archivos[c.k]),
-        {
-          project_id: projectId ?? null,
-          entidad: datos.entidad,
-          fechas: CORTES.map((c) => fechas[c.k]),
-          // Se guarda con la corrida para que el Excel imprima la fecha de
-          // emisión y no la del día en que se descargue el papel.
-          fecha_emision: fechaEmision(),
-          umbral_dias_incumplimiento: Number(datos.umbral_dias) || 730,
-          umbral_individual: Number(datos.umbral_individual) || 0,
-          materialidad: Number(datos.materialidad) || 0,
-          eeff: {
-            no_relacionados: Number(datos.eeff_nr) || 0,
-            relacionados: Number(datos.eeff_r) || 0,
-          },
-        }
+        parametrosDeLaCorrida(
+          datos,
+          CORTES.map((c) => fechas[c.k]),
+          projectId
+        )
       );
       setRes(salida);
     } catch (e) {
@@ -173,6 +164,21 @@ export default function PceCxcTool({ projectId }) {
           />
         </label>
       </div>
+
+      <label className="pce-declaracion">
+        Mayores de la provisión de los tres ejercicios — referencia y conclusión sobre los castigos
+        <textarea
+          rows={2}
+          placeholder="P. ej.: mayor 2.1.3.01 de 2022, 2023 y 2024 (PT B-2); castigos por USD 340, inmateriales frente a la cartera."
+          value={datos.mayor_provision}
+          onChange={(e) => setDatos({ ...datos, mayor_provision: e.target.value })}
+        />
+        <span>
+          El método de permanencia supone que lo que desapareció de la cartera se cobró. Eso solo
+          vale si los castigos del período fueron inmateriales, y eso se demuestra con los mayores
+          de la provisión. Si se deja vacío, queda declarado como pendiente.
+        </span>
+      </label>
 
       <button className="pce-btn" disabled={!listo || procesando} onClick={calcular}>
         Calcular la matriz
