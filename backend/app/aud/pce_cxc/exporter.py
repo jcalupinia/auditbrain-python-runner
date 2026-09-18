@@ -240,16 +240,30 @@ def _parametros(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, A
     # cuando se pide sin justificación escrita, el motor lo rechaza y aplica 1,0.
     # Si esa clave no existe (resultado antiguo), caer a parámetros por
     # retrocompatibilidad; si tampoco está, 1,0.
-    ajuste_dict = resultado.get("matriz", {}).get("ajuste_prospectivo") or {}
-    if not ajuste_dict:
-        # Retrocompatibilidad: resultado antiguo, leer de parámetros
+    #
+    # Retrocompatibilidad: en corridas antiguas, ajuste_prospectivo era un
+    # escalar (float), no un diccionario por segmento. Si es un número,
+    # interpretarlo como el mismo ajuste para ambos segmentos.
+    ajuste_valor = resultado.get("matriz", {}).get("ajuste_prospectivo")
+
+    if isinstance(ajuste_valor, dict) and ajuste_valor:
+        # Formato nuevo: diccionario por segmento
+        ajuste_no_relacionados = float(ajuste_valor.get("NO-RELACIONADOS", 1.0)) - 1.0
+        ajuste_relacionados = float(ajuste_valor.get("RELACIONADOS", 1.0)) - 1.0
+    elif isinstance(ajuste_valor, (int, float)) and ajuste_valor != 0:
+        # Formato antiguo: escalar no cero. Aplicar a ambos segmentos.
+        # Un valor de 0.05 significa factor 1,05 → ajuste 0,05.
+        ajuste_no_relacionados = float(ajuste_valor)
+        ajuste_relacionados = float(ajuste_valor)
+    elif isinstance(ajuste_valor, (int, float)) and ajuste_valor == 0:
+        # Formato antiguo: escalar cero. Sin ajuste para ambos segmentos.
+        ajuste_no_relacionados = 0.0
+        ajuste_relacionados = 0.0
+    else:
+        # No hay ajuste en resultado: leer de parámetros por retrocompatibilidad
         factor_dict = parametros.get("factor_prospectivo") or {}
         ajuste_no_relacionados = float(factor_dict.get("NO-RELACIONADOS", 1.0)) - 1.0
         ajuste_relacionados = float(factor_dict.get("RELACIONADOS", 1.0)) - 1.0
-    else:
-        # Lo aplicado está en resultado: convertir factor a ajuste
-        ajuste_no_relacionados = float(ajuste_dict.get("NO-RELACIONADOS", 1.0)) - 1.0
-        ajuste_relacionados = float(ajuste_dict.get("RELACIONADOS", 1.0)) - 1.0
 
     saldo_contable = conciliacion.get("saldo_contable")
     if saldo_contable is None:

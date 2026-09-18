@@ -200,3 +200,63 @@ def test_el_excel_refleja_factor_prospectivo_aplicado_distinto_de_uno():
     # 1,08 - 1,0 = 0,08 (8%)
     assert abs(valor - 0.08) < 1e-9, \
         f"AjusteProspectivoNoRelacionados debería ser 0.08 (factor 1,08), es {valor}"
+
+
+def test_tolera_formato_antiguo_del_ajuste_prospectivo_escalar_no_cero():
+    """Formato retrocompatible: corridas guardadas antes de la refactor tenían
+    ``ajuste_prospectivo`` como un escalar (p. ej. 0.05), no un diccionario
+    por segmento. El exportador debe interpretarlo como el mismo ajuste para
+    ambos segmentos, sin revienta al llamar .get() en un float."""
+    resultado = {
+        "matriz": {
+            "tramos": [
+                {"segmento": "NO-RELACIONADOS", "tramo": "Por vencer",
+                 "exposicion": 80000.0, "tasa_perdida": 0.01, "ecl": 800.0},
+                {"segmento": "RELACIONADOS", "tramo": "Por vencer",
+                 "exposicion": 20000.0, "tasa_perdida": 0.02, "ecl": 400.0},
+            ],
+            # Formato antiguo: escalar en lugar de diccionario
+            "ajuste_prospectivo": 0.05  # 5% de ajuste para ambos segmentos
+        },
+    }
+    parametros = {}
+    wb = _abrir(construir_excel(resultado, parametros))
+
+    # El Excel se genera sin excepción y ambos factores prospectivos quedan en 0.05
+    esperados = {"AjusteProspectivoNoRelacionados": 0.05, "AjusteProspectivoRelacionados": 0.05}
+    for nombre, esperado in esperados.items():
+        assert nombre in wb.defined_names, f"falta el nombre definido {nombre}"
+        dn = wb.defined_names[nombre]
+        hoja, celda = next(dn.destinations)
+        valor = wb[hoja][celda].value
+        assert abs(valor - esperado) < 1e-9, \
+            f"{nombre} debería ser {esperado}, es {valor}"
+
+
+def test_tolera_formato_antiguo_del_ajuste_prospectivo_escalar_cero():
+    """Formato retrocompatible: cuando el escalar es 0.0 (ajuste cero para
+    ambos segmentos, el caso que ya usan varias pruebas existentes del archivo)."""
+    resultado = {
+        "matriz": {
+            "tramos": [
+                {"segmento": "NO-RELACIONADOS", "tramo": "Por vencer",
+                 "exposicion": 80000.0, "tasa_perdida": 0.01, "ecl": 800.0},
+                {"segmento": "RELACIONADOS", "tramo": "Por vencer",
+                 "exposicion": 20000.0, "tasa_perdida": 0.02, "ecl": 400.0},
+            ],
+            # Formato antiguo: escalar 0.0 (sin ajuste)
+            "ajuste_prospectivo": 0.0
+        },
+    }
+    parametros = {}
+    wb = _abrir(construir_excel(resultado, parametros))
+
+    # El Excel se genera sin excepción y ambos factores prospectivos quedan en 0.0
+    esperados = {"AjusteProspectivoNoRelacionados": 0.0, "AjusteProspectivoRelacionados": 0.0}
+    for nombre, esperado in esperados.items():
+        assert nombre in wb.defined_names, f"falta el nombre definido {nombre}"
+        dn = wb.defined_names[nombre]
+        hoja, celda = next(dn.destinations)
+        valor = wb[hoja][celda].value
+        assert abs(valor - esperado) < 1e-9, \
+            f"{nombre} debería ser {esperado}, es {valor}"
