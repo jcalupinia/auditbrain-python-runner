@@ -37,8 +37,14 @@ TOPE_PROVISION_ACUMULADA = 0.10
 
 
 def redondear(valor: float) -> float:
-    """Dos decimales, medio hacia arriba (criterio contable, no bancario)."""
-    return float(Decimal(str(valor)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    """Dos decimales, medio hacia arriba (criterio contable, no bancario).
+
+    El cero negativo se normaliza a 0,00: `-0,00` no es un importe y el papel
+    de trabajo no puede imprimirlo (sale, por ejemplo, de multiplicar una banda
+    con saldo acreedor por una tasa de política del 0 %).
+    """
+    redondeado = float(Decimal(str(valor)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    return 0.0 if redondeado == 0 else redondeado
 
 
 def _es_numero(v: Any) -> bool:
@@ -368,6 +374,7 @@ def _deducir_casos_individuales(
     casos_entrada: list[dict[str, Any]],
     casos_medidos: list[dict[str, Any]],
     segmentado: bool,
+    brutos: dict[str, dict[str, float]] | None = None,
 ) -> dict[str, dict[str, float]]:
     """Saca de la matriz colectiva los saldos que se miden caso por caso.
 
@@ -375,13 +382,21 @@ def _deducir_casos_individuales(
     cuando el cliente entero sale de la matriz por superar el umbral de
     evaluación individual; si no trae ese desglose se usa su `tramo`.
 
-    La guarda -«Los casos individuales del tramo X superan su exposición»-
-    solo se evalúa cuando tanto la exposición de la banda como el saldo del
-    caso son deudores: con un saldo acreedor (una nota de crédito) el resto
-    puede quedar negativo sin que nadie mida dos veces, y abortar ahí
-    convertiría una nota de crédito en un error inaccionable.
+    La guarda -«Los casos individuales del tramo X superan su exposición»- se
+    evalúa contra el saldo DEUDOR de la banda (`brutos`), no contra su neto.
+    Una nota de crédito de otro cliente en la misma banda deja el neto por
+    debajo del saldo del caso sin que nadie mida dos veces; comparar contra el
+    neto convertía esa nota de crédito en un error inaccionable, que es
+    justamente lo que el módulo no puede volver a hacer. Sin `brutos` (la
+    forma de un solo universo, donde no hay detalle por documento) se compara
+    contra la exposición tal como llegó.
+
+    El resto puede quedar NEGATIVO: es la nota de crédito, que sigue en la
+    matriz colectiva con su signo y a la que `medir_ecl` aplica el piso cero.
+    Solo se lleva a cero lo que está por debajo del centavo, que es ruido.
     """
     restantes = {s: dict(bandas) for s, bandas in exposiciones.items()}
+    techos = brutos if brutos is not None else exposiciones
     for entrada, medido in zip(casos_entrada, casos_medidos):
         segmento = entrada.get("segmento") if segmentado else None
         if segmento not in restantes:
@@ -398,19 +413,17 @@ def _deducir_casos_individuales(
         for tramo, monto in bandas.items():
             if tramo not in restantes[segmento]:
                 raise ValueError(f"El caso individual apunta a un tramo inexistente: '{tramo}'")
-            expuesto = float(restantes[segmento][tramo])
             monto = float(monto)
-            restante = expuesto - monto
-            if monto >= 0 and expuesto >= 0:
-                if restante < -0.01:
-                    ubicacion = f"'{tramo}'" + (f" de {segmento}" if segmento else "")
-                    raise ValueError(
-                        f"Los casos individuales del tramo {ubicacion} superan su exposición: "
-                        f"USD {monto:,.2f} sobre USD {expuesto:,.2f}. Revise que los saldos "
-                        "evaluados individualmente salgan de la misma cartera que la matriz."
-                    )
-                restante = max(restante, 0.0)
-            restantes[segmento][tramo] = restante
+            techo = float(techos.get(segmento, {}).get(tramo, restantes[segmento][tramo]))
+            if monto > techo + 0.01:
+                ubicacion = f"'{tramo}'" + (f" de {segmento}" if segmento else "")
+                raise ValueError(
+                    f"Los casos individuales del tramo {ubicacion} superan su exposición: "
+                    f"USD {monto:,.2f} sobre USD {techo:,.2f}. Revise que los saldos evaluados "
+                    "individualmente salgan de la misma cartera que la matriz."
+                )
+            restante = float(restantes[segmento][tramo]) - monto
+            restantes[segmento][tramo] = 0.0 if abs(restante) < 0.01 else restante
     return restantes
 
 
@@ -419,6 +432,7 @@ def resumen_deterioro(
     parametros: ParametrosECL | dict[str, ParametrosECL],
     casos_individuales: list[dict[str, Any]] | None = None,
     saldo_contable: float | None = None,
+    exposiciones_brutas: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Junta la matriz colectiva, los casos individuales, la conciliación y el
     cuadro tributario. Los saldos evaluados individualmente se descuentan de su
@@ -433,6 +447,11 @@ def resumen_deterioro(
       comportamiento de pago distinto y no pueden compartir matriz
       (NIIF 9 B5.5.35), así que cada segmento se mide con sus propias tasas y
       su propio factor prospectivo, y después se consolidan los tramos.
+
+    `exposiciones_brutas` es la misma estructura con SOLO el saldo deudor de
+    cada banda. Sirve para una cosa: acotar los casos individuales contra lo
+    que de verdad puede salir de la banda. Sin ella, una nota de crédito de
+    otro cliente en la misma banda haría fallar la guarda.
     """
     casos_individuales = casos_individuales or []
     individual = evaluar_individual(casos_individuales)
@@ -441,8 +460,12 @@ def resumen_deterioro(
     por_segmento: dict[str, dict[str, float]] = (
         {s: dict(e) for s, e in exposiciones.items()} if segmentado else {None: dict(exposiciones)}
     )
+    brutos = None
+    if exposiciones_brutas is not None:
+        brutos = ({s: dict(e) for s, e in exposiciones_brutas.items()} if segmentado
+                  else {None: dict(exposiciones_brutas)})
     restantes = _deducir_casos_individuales(
-        por_segmento, casos_individuales, individual["casos"], segmentado)
+        por_segmento, casos_individuales, individual["casos"], segmentado, brutos)
 
     if segmentado:
         medidos = {s: medir_ecl(restantes[s], parametros[s]) for s in restantes}

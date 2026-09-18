@@ -6,7 +6,8 @@ motor debe reproducir su pérdida esperada al centavo.
 import pytest
 
 from backend.app.aud.pce_cxc.motor import (
-    ParametrosECL, evaluar_individual, medir_ecl, promediar_tasas, resumen_deterioro, tasa_perdida,
+    ParametrosECL, evaluar_individual, medir_ecl, promediar_tasas, redondear, resumen_deterioro,
+    tasa_perdida,
 )
 
 TRAMOS = ["Corriente", "1-60", "61-180", "181-365", ">365"]
@@ -405,3 +406,11 @@ def test_el_limite_anual_del_1_por_ciento_no_se_calcula_sin_el_movimiento_de_la_
     # contra la PCE acumulada.
     assert t["limite_ejercicio_1pct"] == pytest.approx(10000.0)
     assert "excede_limite_ejercicio" not in t
+
+
+def test_el_cero_negativo_no_llega_al_papel():
+    """`-0,00` no es un importe: aparecía al multiplicar una banda acreedora por
+    una tasa de política del 0 %."""
+    assert redondear(-34339.62 * 0.0) == 0.0
+    assert str(redondear(-0.001)) == "0.0"
+    assert redondear(-0.006) == -0.01

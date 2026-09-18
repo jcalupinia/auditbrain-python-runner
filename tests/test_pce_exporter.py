@@ -5,6 +5,7 @@ import zipfile
 from datetime import date
 
 from openpyxl import load_workbook
+from openpyxl.utils import range_boundaries
 
 from backend.app.aud.pce_cxc import exporter
 from backend.app.aud.pce_cxc.exporter import construir_excel
@@ -831,6 +832,15 @@ RESULTADOS_A_VALIDAR = [
 ]
 
 
+def _sumar_corridas_nuevas():
+    """Las corridas de C2, I5 e I10 entran a las mismas guardas estructurales."""
+    RESULTADOS_A_VALIDAR.extend([
+        (RESULTADO_POLITICA_PARCIAL, {}),
+        ({**RESULTADO, "control_corte_intermedio": CONTROL_INCONSISTENTE}, {}),
+        (RESULTADO_TRIBUTARIO, {}),
+    ])
+
+
 def _formulas(wb):
     for hoja in wb.sheetnames:
         for fila in wb[hoja].iter_rows():
@@ -1015,3 +1025,24 @@ def test_sin_umbral_registrado_se_imprime_el_defecto_del_plan():
     resultado = {**RESULTADO, "bitacora": {**RESULTADO["bitacora"], "umbral_incumplimiento": None}}
     ws = _abrir(construir_excel(resultado, {}))["01-Parametros"]
     assert ws["B4"].value == 730
+
+
+# Las corridas definidas más abajo en el archivo se suman al final, cuando ya
+# existen, para que las cuatro guardas estructurales las recorran también.
+_sumar_corridas_nuevas()
+
+
+def test_ninguna_hoja_solapa_celdas_combinadas():
+    """Dos rangos combinados que se pisan son una de las causas de que Excel
+    pida reparar el archivo al abrirlo."""
+    for resultado, parametros in RESULTADOS_A_VALIDAR:
+        wb = _abrir(construir_excel(resultado, parametros))
+        for hoja in wb.sheetnames:
+            ocupadas = {}
+            for rango in [str(r) for r in wb[hoja].merged_cells.ranges]:
+                c1, f1, c2, f2 = range_boundaries(rango)
+                for col in range(c1, c2 + 1):
+                    for fil in range(f1, f2 + 1):
+                        anterior = ocupadas.get((col, fil))
+                        assert anterior is None, f"{hoja}: {rango} se pisa con {anterior}"
+                        ocupadas[(col, fil)] = rango

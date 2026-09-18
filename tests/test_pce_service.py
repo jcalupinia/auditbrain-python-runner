@@ -587,3 +587,50 @@ def test_el_exceso_sobre_el_tope_acumulado_se_mide_contra_el_10_por_ciento():
     assert t["tope_acumulado_10pct"] == pytest.approx(21000.0)
     assert t["excede_tope_acumulado"] is False
     assert t["exceso_sobre_tope_acumulado"] == pytest.approx(0.0)
+
+
+def test_una_nota_de_credito_en_la_banda_de_un_cliente_individual_no_aborta_la_corrida():
+    """La nota de crédito es de OTRO cliente y cae en la misma banda que el
+    cliente que sale a evaluación individual: la banda neta queda por debajo
+    del saldo del caso sin que nadie mida dos veces, y la guarda del motor no
+    puede convertir eso en un 400 inaccionable."""
+    c1 = _xlsx([("ALFA", "F-1", "NO-RELACIONADOS", date(2023, 1, 1), date(2023, 3, 1), 100000.0),
+                ("BETA", "F-2", "NO-RELACIONADOS", date(2023, 9, 1), date(2023, 12, 5), 200000.0)])
+    c2 = _xlsx([("ALFA", "F-1", "NO-RELACIONADOS", date(2023, 1, 1), date(2023, 3, 1), 50000.0),
+                ("BETA", "F-2", "NO-RELACIONADOS", date(2023, 9, 1), date(2023, 12, 5), 60000.0)])
+    c3 = _xlsx([
+        ("ALFA", "F-1", "NO-RELACIONADOS", date(2023, 1, 1), date(2023, 3, 1), 10000.0),
+        ("BETA", "F-2", "NO-RELACIONADOS", date(2023, 9, 1), date(2023, 12, 5), 20000.0),
+        ("GRANDE", "F-9", "NO-RELACIONADOS", date(2025, 11, 1), date(2025, 12, 10), 700000.0),
+        ("OTRO", "NC-1", "NO-RELACIONADOS", date(2025, 11, 1), date(2025, 12, 10), -35000.0),
+    ])
+    cortes = [{"nombre": "2023.xlsx", "contenido": c1, "fecha": date(2023, 12, 31)},
+              {"nombre": "2024.xlsx", "contenido": c2, "fecha": date(2024, 12, 31)},
+              {"nombre": "2025.xlsx", "contenido": c3, "fecha": date(2025, 12, 31)}]
+
+    r = analizar(cortes, {"umbral_dias_incumplimiento": 730, "umbral_individual": 400000})
+
+    assert [c["identificacion"] for c in r["individual"]["casos"]] == ["GRANDE (NO-RELACIONADOS)"]
+    assert r["individual"]["casos"][0]["ecl"] == pytest.approx(70000.0)
+    # La nota de crédito se queda en la matriz colectiva, con su signo, y su
+    # pérdida se acota en el piso cero en vez de restar pérdida a otras bandas.
+    banda = next(t for t in r["matriz"]["tramos"]
+                 if t["segmento"] == "NO-RELACIONADOS" and t["tramo"] == "0 a 30 días")
+    assert banda["exposicion"] == pytest.approx(-35000.0)
+    assert banda["ecl"] == pytest.approx(0.0)
+    assert banda["acotado"] == "piso_cero"
+    assert r["matriz"]["ecl_acotada_por_piso"] == pytest.approx(3500.0)
+    assert r["exposicion"]["negativa"] == pytest.approx(-35000.0)
+    # Y la cartera total no se pierde ni se duplica.
+    assert r["exposicion"]["total"] == pytest.approx(695000.0)
+    assert r["ecl_total"] == pytest.approx(70000.0)
+
+
+def test_una_tasa_de_politica_mal_formada_es_error_de_entrada():
+    with pytest.raises(ValueError, match="politica"):
+        analizar(_cortes(), {"politica": {"0 a 30 días": "dos por ciento"}})
+
+
+def test_una_tasa_de_politica_fuera_de_rango_es_error_de_entrada():
+    with pytest.raises(ValueError, match="entre 0 y 1"):
+        analizar(_cortes(), {"politica": {"0 a 30 días": 42}})

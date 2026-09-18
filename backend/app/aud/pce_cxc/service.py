@@ -236,11 +236,17 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
     # deduce de su banda, con su guarda de no medir dos veces. Repartir aquí y
     # entregar la matriz ya depurada dejaba esa guarda fuera del producto.
     colectiva = {s: {b: 0.0 for b in nombres} for s in SEGMENTOS}
+    # Saldo DEUDOR de cada banda: es el techo contra el que el motor acota los
+    # casos individuales. El neto no sirve, porque una nota de crédito de otro
+    # cliente lo deja por debajo del saldo del caso sin que nadie mida dos veces.
+    deudora = {s: {b: 0.0 for b in nombres} for s in SEGMENTOS}
     casos: dict[tuple[str, str], dict[str, Any]] = {}
     for f in actual["filas"]:
         clave = (f["segmento"], f["cliente"] or "(sin nombre)")
         saldo = f["saldo"] * factor[f["segmento"]]
         colectiva[f["segmento"]][f["banda"]] += saldo
+        if saldo > 0:
+            deudora[f["segmento"]][f["banda"]] += saldo
         if clave in individuales:
             caso = casos.setdefault(clave, {"identificacion": clave[1], "segmento": clave[0],
                                             "saldo": 0.0, "bandas": {}})
@@ -344,7 +350,8 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
     }
     resumen = resumen_deterioro(colectiva, parametros_por_segmento,
                                 casos_individuales=lista_casos,
-                                saldo_contable=saldo_contable)
+                                saldo_contable=saldo_contable,
+                                exposiciones_brutas=deudora)
     tramos = resumen["colectivo"]["tramos"]
     individual = resumen["individual"]
     exp_negativa = resumen["colectivo"]["exposicion_negativa"]
