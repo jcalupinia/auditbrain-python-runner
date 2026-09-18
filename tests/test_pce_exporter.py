@@ -10,7 +10,9 @@ from openpyxl import load_workbook
 from openpyxl.utils import range_boundaries
 
 from backend.app.aud.pce_cxc import exporter
-from backend.app.aud.pce_cxc.exporter import construir_excel
+from backend.app.aud.pce_cxc.exporter import (
+    NO_REGISTRADO, SIN_ACOTAR, TOPE_NO_CONTRASTABLE, construir_excel,
+)
 from tests.excel_calc import Libro, columna
 
 
@@ -767,6 +769,20 @@ RESULTADO_SIN_MEDIR["exposicion"]["medida_sin_acotar"] = 115000.0
 RESULTADO_SIN_MEDIR["exposicion"]["medida_acotada"] = None
 
 
+#: La misma corrida, pero con los cuatro campos que una corrida ACTUAL sí
+#: guarda: la guarda de retrocompatibilidad no puede apagar el caso normal.
+RESULTADO_SIN_MEDIR_COMPLETO = {
+    **RESULTADO_SIN_MEDIR,
+    "individual": {"casos": [
+        {"identificacion": "MEGA S.A. (NO-RELACIONADOS)", "tramo": None, "saldo": 50000.0,
+         "recuperacion_estimada": 45000.0, "ecl": 5000.0, "saldo_sin_tasa": 8000.0,
+         "saldo_sin_tasa_sin_acotar": 8000.0, "saldo_sin_tasa_acotado": False,
+         "saldo_acreedor": -1000.0, "acotado": None,
+         "sustento": "Medido con la tasa de la matriz (provisional)"},
+    ], "saldo_total": 50000.0, "ecl_total": 5000.0},
+}
+
+
 def _suma_sin_medir_del_papel(wb) -> float:
     """Recalcula a mano lo que suma la fórmula de la conciliación."""
     libro = Libro(wb)
@@ -1056,7 +1072,11 @@ def test_el_exceso_no_deducible_se_mide_contra_el_tope_acumulado_del_10_por_cien
     assert ws["B3"].value == "='08-Conciliacion'!B5*0.1"
     assert "10 %" in ws["A3"].value
     assert "ESTRATIFICADA" in ws["A3"].value
-    assert ws["B4"].value == "=MAX(0,B2-B3)"
+    # El exceso solo se calcula si la base es POSITIVA: con la cartera
+    # estratificada neta acreedora el tope sale negativo y `MAX(0;B2-B3)`
+    # imprimía un «exceso» con una pérdida esperada de 0,00.
+    assert ws["B4"].value == (
+        f'=IF(\'08-Conciliacion\'!B5<=0,"{TOPE_NO_CONTRASTABLE}",MAX(0,B2-B3))')
     assert "10 %" in ws["A4"].value
     assert "no deducible" in ws["A4"].value.lower()
 
@@ -1294,3 +1314,67 @@ def test_la_caratula_declara_el_ruc_y_la_entidad_que_no_se_registraron():
     ws = _abrir(construir_excel(RESULTADO, {}))["00-Caratula"]
     assert _valor_de_caratula(ws, "RUC") == exporter.SIN_REGISTRAR
     assert _valor_de_caratula(ws, "Entidad") == exporter.SIN_REGISTRAR
+
+
+# ---------------------------------------------------------------------------
+# U6 — La cartera no leída de tres cortes distintos no se puede netear
+# ---------------------------------------------------------------------------
+
+def test_fuentes_no_netea_la_cartera_no_leida_de_tres_cortes():
+    """El TOTAL sumaba +900.000 (t-2), 0 (t-1) y -800.000 (t) y presentaba
+    100.000,00, como si fuera una sola magnitud. Son tres fechas distintas:
+    no hay un «total ilegible» que netear."""
+    ws = _abrir(construir_excel(RESULTADO_DESCARTES, {}))["02-Fuentes"]
+    no_leida = columna(ws, "Cartera no leída")
+    fila_total = next(f for f in range(2, ws.max_row + 1)
+                      if any(str(ws.cell(f, c).value or "") == "TOTAL"
+                             for c in range(1, ws.max_column + 1)))
+    valor = ws[f"{no_leida}{fila_total}"].value
+    assert not isinstance(valor, (int, float)), \
+        f"02-Fuentes sigue neteando cortes de tres fechas distintas: {valor}"
+    assert "sumable" in str(valor).lower(), valor
+
+
+def test_fuentes_dice_a_que_corte_pertenece_cada_importe_no_leido():
+    """Cada fila tiene que decir qué corte es: el nombre del archivo lo dice el
+    cliente, el rol lo fija la herramienta (t-2, t-1, corte actual)."""
+    ws = _abrir(construir_excel(RESULTADO_DESCARTES, {}))["02-Fuentes"]
+    rol = columna(ws, "Rol del corte")
+    roles = [str(ws[f"{rol}{f}"].value or "") for f in range(2, 5)]
+    assert roles == ["cohorte (t-2)", "corte intermedio (t-1)", "corte actual (t)"], roles
+
+
+# ---------------------------------------------------------------------------
+# U5 — Una corrida antigua reexportada no puede afirmar lo que nunca guardó
+# ---------------------------------------------------------------------------
+
+RESULTADO_CORRIDA_ANTIGUA = {
+    **RESULTADO,
+    "individual": {"casos": [
+        # Tal como las guardaba una corrida anterior a `saldo_acreedor`,
+        # `acotado` y `saldo_sin_tasa_sin_acotar`: esas claves NO existen.
+        {"identificacion": "MEGA S.A. (NO-RELACIONADOS)", "tramo": None, "saldo": 50000.0,
+         "recuperacion_estimada": 45000.0, "ecl": 5000.0,
+         "sustento": "Convenio de pago vigente (PT D-1)"},
+    ], "saldo_total": 50000.0, "ecl_total": 5000.0},
+}
+
+
+def test_el_individual_no_inventa_los_datos_que_una_corrida_antigua_no_guardo():
+    """`06-Individual` imprimía «Saldo acreedor incluido 0,00» y «SIN ACOTAR»
+    para datos que esa corrida nunca guardó, justo cuando la columna de la
+    recuperación estimada sí trataba su caso de retrocompatibilidad de forma
+    explícita. Un 0,00 es una afirmación: esa corrida no la hizo."""
+    ws = _abrir(construir_excel(RESULTADO_CORRIDA_ANTIGUA, {}))["06-Individual"]
+    for rotulo in ("Saldo acreedor incluido", "Acotamiento de la pérdida",
+                   "Saldo sin medir SIN ACOTAR", "Acotamiento del saldo sin medir"):
+        celda = ws[f"{columna(ws, rotulo)}2"].value
+        assert celda == NO_REGISTRADO, f"{rotulo}: {celda!r}"
+
+
+def test_el_individual_de_una_corrida_actual_si_declara_los_cuatro_datos():
+    """La guarda de retrocompatibilidad no puede apagar el caso normal."""
+    ws = _abrir(construir_excel(RESULTADO_SIN_MEDIR_COMPLETO, {}))["06-Individual"]
+    assert ws[f"{columna(ws, 'Saldo acreedor incluido')}2"].value == -1000.0
+    assert ws[f"{columna(ws, 'Acotamiento de la pérdida')}2"].value == SIN_ACOTAR
+    assert ws[f"{columna(ws, 'Saldo sin medir SIN ACOTAR')}2"].value == 8000.0

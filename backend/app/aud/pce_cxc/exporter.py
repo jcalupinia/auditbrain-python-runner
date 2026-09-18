@@ -77,6 +77,18 @@ ALIN_DER = Alignment(horizontal="right", vertical="center")
 ALIN_CEN = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
 SEGMENTOS_TEXTO = "SIN MEDIR"
+#: Rol de cada corte por su posición, en el mismo orden en que el router los
+#: recibe (índice 0 = cohorte más antigua, índice 2 = corte actual).
+ROLES_DE_CORTE = ("cohorte (t-2)", "corte intermedio (t-1)", "corte actual (t)")
+#: Tres cortes son tres FECHAS: sus importes no se netean en un total.
+NO_SUMABLE_ENTRE_CORTES = "NO SUMABLE (tres cortes, tres fechas)"
+NOTA_CORTES_NO_SUMABLES = (
+    "Cada fila es un corte con su propia fecha, así que estas columnas NO se totalizan: sumar la "
+    "cartera no leída de t-2, la de t-1 y la de t presentaba como «lo que no se pudo leer» una "
+    "cifra que no existe en ningún corte (con signos opuestos llegaba a netear hasta casi cero). "
+    "Lo que no se pudo leer se lee corte por corte, en su propia fila. La cartera no leída del "
+    "CORTE ACTUAL es la que afecta a la medición -es el corte que fija la exposición- y tiene su "
+    "hallazgo en 10-Hallazgos; la de los cortes t-2 y t-1 mueve las TASAS y tiene el suyo.")
 #: Rótulo de la banda cuya política de deterioro el cliente no proporcionó:
 #: no se compara, y no vale 0 %.
 TEXTO_SIN_COMPARAR = "SIN COMPARAR"
@@ -91,6 +103,10 @@ ACOTADO_TECHO = "TECHO DEL IMPORTE EN LIBROS BRUTO (NIIF 9 B5.5.35)"
 ACOTADO_TECHO_CARTERA = "TECHO DE LA CARTERA ESTRATIFICADA"
 ACOTADO_EXPOSICION_CASO = "ACOTADO A LA EXPOSICIÓN DEL CASO (NIIF 9 B5.5.35)"
 SIN_ACOTAR = "SIN ACOTAR"
+#: El tope tributario del 10 % sobre una cartera estratificada neta acreedora:
+#: un tope negativo no es un límite, así que no se concluye sobre él.
+TOPE_NO_CONTRASTABLE = ("NO CONTRASTABLE — la cartera estratificada es NETA ACREEDORA y su 10 % "
+                        "sale negativo")
 #: Corridas anteriores al campo que se imprime: el papel dice que el dato no
 #: se registró, nunca un 0,00 ni un "SIN ACOTAR" que esa corrida no afirmó.
 NO_REGISTRADO = "NO REGISTRADO EN ESTA CORRIDA"
@@ -559,9 +575,9 @@ def _fuentes(wb: Workbook, resultado: dict[str, Any]) -> None:
     su total- y un bloque que lo desglosa por motivo y por archivo.
     """
     ws = wb.create_sheet("02-Fuentes")
-    encabezado = ["Archivo", "Hoja", "Fila de encabezado", "Mapeo de columnas", "Formato de fecha",
-                  "Documentos", "Duplicados exactos", "Documentos repetidos", "Descartados",
-                  "Cartera no leída", "Total"]
+    encabezado = ["Archivo", "Rol del corte", "Hoja", "Fila de encabezado",
+                  "Mapeo de columnas", "Formato de fecha", "Documentos", "Duplicados exactos",
+                  "Documentos repetidos", "Descartados", "Cartera no leída", "Total"]
     _encabezados(ws, 1, encabezado)
     cortes = (resultado.get("bitacora") or {}).get("cortes") or []
 
@@ -570,42 +586,57 @@ def _fuentes(wb: Workbook, resultado: dict[str, Any]) -> None:
         ultima = primera + len(cortes) - 1
         for i, corte in enumerate(cortes, start=primera):
             _celda(ws, i, 1, corte.get("archivo", ""), alineacion=ALIN_IZQ)
-            _celda(ws, i, 2, corte.get("hoja", ""), alineacion=ALIN_IZQ)
-            _celda(ws, i, 3, corte.get("fila_encabezado"), formato=FORMATO_ENTERO, alineacion=ALIN_CEN)
-            _celda(ws, i, 4, _mapeo_texto(corte.get("mapeo")), alineacion=ALIN_IZQ)
-            _celda(ws, i, 5, corte.get("formato_fecha", ""), alineacion=ALIN_CEN)
-            _celda(ws, i, 6, corte.get("documentos"), formato=FORMATO_ENTERO, alineacion=ALIN_DER)
-            _celda(ws, i, 7, corte.get("duplicados_exactos"), formato=FORMATO_ENTERO, alineacion=ALIN_DER)
-            _celda(ws, i, 8, corte.get("documentos_repetidos"), formato=FORMATO_ENTERO, alineacion=ALIN_DER)
-            _celda(ws, i, 9, corte.get("descartados"), formato=FORMATO_ENTERO, alineacion=ALIN_DER)
+            # Qué corte es cada fila. El nombre del archivo lo pone el cliente y
+            # puede decir cualquier cosa; el rol lo fija la herramienta por la
+            # posición, y es lo que da sentido a la cifra de esta fila.
+            _celda(ws, i, 2,
+                   ROLES_DE_CORTE[i - primera] if i - primera < len(ROLES_DE_CORTE)
+                   else "corte adicional", alineacion=ALIN_CEN)
+            _celda(ws, i, 3, corte.get("hoja", ""), alineacion=ALIN_IZQ)
+            _celda(ws, i, 4, corte.get("fila_encabezado"), formato=FORMATO_ENTERO, alineacion=ALIN_CEN)
+            _celda(ws, i, 5, _mapeo_texto(corte.get("mapeo")), alineacion=ALIN_IZQ)
+            _celda(ws, i, 6, corte.get("formato_fecha", ""), alineacion=ALIN_CEN)
+            _celda(ws, i, 7, corte.get("documentos"), formato=FORMATO_ENTERO, alineacion=ALIN_DER)
+            _celda(ws, i, 8, corte.get("duplicados_exactos"), formato=FORMATO_ENTERO, alineacion=ALIN_DER)
+            _celda(ws, i, 9, corte.get("documentos_repetidos"), formato=FORMATO_ENTERO, alineacion=ALIN_DER)
+            _celda(ws, i, 10, corte.get("descartados"), formato=FORMATO_ENTERO, alineacion=ALIN_DER)
             # Importe de las filas que no se pudieron leer (sin las repeticiones
             # idénticas, cuyo saldo ya entró con la primera aparición).
             no_leida = _numero(corte.get("cartera_no_leida"))
-            c = _celda(ws, i, 10, 0.0 if no_leida is None else no_leida, formato=FORMATO_MONEDA,
+            c = _celda(ws, i, 11, 0.0 if no_leida is None else no_leida, formato=FORMATO_MONEDA,
                        alineacion=ALIN_DER)
             if no_leida is not None and abs(no_leida) > 0.005:
                 c.font = FUENTE_DATOS_ALERTA
-            _celda(ws, i, 11, _numero(corte.get("total")), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+            _celda(ws, i, 12, _numero(corte.get("total")), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
     else:
         ultima = primera
         _celda(ws, primera, 1, "(sin cortes registrados en la bitácora de esta corrida)", alineacion=ALIN_IZQ)
-        for col in range(2, 12):
+        for col in range(2, 13):
             _celda(ws, primera, col, None, alineacion=ALIN_IZQ)
 
+    # NO HAY TOTAL QUE SUMAR. Cada fila es un corte con SU PROPIA fecha: la
+    # cartera no leída de t-2, la de t-1 y la de t son tres magnitudes
+    # distintas, y netearlas presentaba bajo el rótulo «lo que no se pudo leer»
+    # una cifra que no existe en ningún corte. Lo mismo vale para el total de
+    # cada archivo.
     fila_total = ultima + 1
-    _celda(ws, fila_total, 9, "TOTAL", total=True, alineacion=ALIN_IZQ)
-    _celda(ws, fila_total, 10, f"=SUM(J{primera}:J{ultima})", formato=FORMATO_MONEDA, total=True,
-           alineacion=ALIN_DER)
-    _celda(ws, fila_total, 11, f"=SUM(K{primera}:K{ultima})", formato=FORMATO_MONEDA, total=True,
-           alineacion=ALIN_DER)
-    for col in (1, 2, 3, 4, 5, 6, 7, 8):
+    _celda(ws, fila_total, 10, "TOTAL", total=True, alineacion=ALIN_IZQ)
+    _celda(ws, fila_total, 11, NO_SUMABLE_ENTRE_CORTES, total=True, alineacion=ALIN_CEN)
+    _celda(ws, fila_total, 12, NO_SUMABLE_ENTRE_CORTES, total=True, alineacion=ALIN_CEN)
+    for col in (1, 2, 3, 4, 5, 6, 7, 8, 9):
         _celda(ws, fila_total, col, None, total=True)
 
-    fila = _descartes_por_motivo(ws, cortes, fila_total + 2)
+    nota = ws.cell(fila_total + 1, 1, NOTA_CORTES_NO_SUMABLES)
+    nota.font = FUENTE_DATOS
+    nota.alignment = ALIN_IZQ
+    ws.merge_cells(start_row=fila_total + 1, start_column=1, end_row=fila_total + 1, end_column=12)
+    ws.row_dimensions[fila_total + 1].height = 42
+
+    fila = _descartes_por_motivo(ws, cortes, fila_total + 3)
     _control_corte_intermedio(ws, resultado, fila + 1)
 
-    _anchos(ws, {"A": 22, "B": 16, "C": 12, "D": 40, "E": 16, "F": 12, "G": 14, "H": 16, "I": 12,
-                 "J": 18, "K": 16})
+    _anchos(ws, {"A": 22, "B": 22, "C": 16, "D": 12, "E": 40, "F": 16, "G": 12, "H": 14, "I": 16,
+                 "J": 12, "K": 18, "L": 16})
 
 
 def _descartes_por_motivo(ws, cortes: list[dict[str, Any]], fila: int) -> int:
@@ -615,14 +646,14 @@ def _descartes_por_motivo(ws, cortes: list[dict[str, Any]], fila: int) -> int:
     Un conteo no dice cuánta cartera se perdió ni por qué. Si no hubo descartes
     se dice eso: un bloque ausente se lee como "no aplica".
     """
-    _bloque(ws, fila, "Detalle de lo descartado en la lectura (importe, no solo conteo)", 11)
+    _bloque(ws, fila, "Detalle de lo descartado en la lectura (importe, no solo conteo)", 12)
     fila += 1
     detalle = [(c, m) for c in cortes for m in (c.get("descartados_por_motivo") or [])]
     if not detalle:
         _celda(ws, fila, 1, "Ninguna fila se descartó en la lectura de los tres cortes: la "
                             "cartera medida es la cartera completa de cada archivo.",
                alineacion=ALIN_IZQ)
-        ws.merge_cells(start_row=fila, start_column=1, end_row=fila, end_column=11)
+        ws.merge_cells(start_row=fila, start_column=1, end_row=fila, end_column=12)
         return fila + 1
 
     congelado = ws.freeze_panes
@@ -647,7 +678,7 @@ def _descartes_por_motivo(ws, cortes: list[dict[str, Any]], fila: int) -> int:
                    "se reparte sobre las filas que sí se leyeron.")
     nota.font = FUENTE_DATOS
     nota.alignment = ALIN_IZQ
-    ws.merge_cells(start_row=fila, start_column=1, end_row=fila, end_column=11)
+    ws.merge_cells(start_row=fila, start_column=1, end_row=fila, end_column=12)
     ws.row_dimensions[fila].height = 30
     return fila + 1
 
@@ -1513,8 +1544,17 @@ def _tributario(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -
                      "(LORTI art. 10 núm. 11)", alineacion=ALIN_IZQ)
     _celda(ws, 3, 2, f"={base}*0.1", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
 
+    # El tope del 10 % solo es contrastable sobre una cartera POSITIVA. Con la
+    # cartera estratificada neta acreedora (notas de crédito por encima de las
+    # facturas) el tope sale negativo y `MAX(0;B2-B3)` daba un «exceso» con una
+    # pérdida esperada de 0,00: el papel y la pantalla coincidían, pero los dos
+    # en un absurdo. Lo que no se puede contrastar se declara, igual que el
+    # límite anual del 1 % de la fila 7.
     _celda(ws, 4, 1, "Exceso sobre el tope acumulado del 10 % (no deducible)", alineacion=ALIN_IZQ)
-    _celda(ws, 4, 2, "=MAX(0,B2-B3)", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    c = _celda(ws, 4, 2, f'=IF({base}<=0,"{TOPE_NO_CONTRASTABLE}",MAX(0,B2-B3))',
+               formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    if not tributario.get("tope_acumulado_verificable", True):
+        c.font = FUENTE_DATOS_ALERTA
 
     _celda(ws, 5, 1, "1 % de la cartera ESTRATIFICADA — referencia del límite ANUAL de la "
                      "provisión del ejercicio", alineacion=ALIN_IZQ)
@@ -1530,8 +1570,19 @@ def _tributario(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -
                          "que no se compara contra B2.", alineacion=ALIN_IZQ)
     c.font = FUENTE_DATOS_ALERTA
 
-    _celda(ws, 8, 1, "Base de los dos porcentajes", alineacion=ALIN_IZQ)
-    _celda(ws, 8, 2, "La cartera ESTRATIFICADA (08-Conciliacion B5 = 05-Matriz + 06-Individual), "
+    _celda(ws, 8, 1, "Contrastabilidad del tope del 10 %", alineacion=ALIN_IZQ)
+    c = _celda(ws, 8, 2,
+               'Un tope del 10 % solo tiene lectura sobre una cartera POSITIVA. Si la cartera '
+               'estratificada (08-Conciliacion B5) queda NETA ACREEDORA -las notas de crédito '
+               'superan a las facturas-, el tope sale negativo y compararlo contra la provisión '
+               'no concluye nada: la fila 4 lo declara NO CONTRASTABLE en vez de imprimir un '
+               'exceso. Reclasifique los saldos acreedores a pasivo (anticipos de clientes) '
+               'antes de conciliar el efecto tributario.', alineacion=ALIN_IZQ)
+    if not tributario.get("tope_acumulado_verificable", True):
+        c.font = FUENTE_DATOS_ALERTA
+
+    _celda(ws, 9, 1, "Base de los dos porcentajes", alineacion=ALIN_IZQ)
+    _celda(ws, 9, 2, "La cartera ESTRATIFICADA (08-Conciliacion B5 = 05-Matriz + 06-Individual), "
                      "que es la cartera a la que se refiere la provisión. NO se usa el saldo "
                      "contable completo: la parte de los estados financieros que no se pudo "
                      "ubicar en ninguna banda (exposición sin estratificar) no tiene pérdida "
@@ -1539,8 +1590,8 @@ def _tributario(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -
                      "motor, así que la pantalla y este papel concluyen lo mismo.",
            alineacion=ALIN_IZQ)
 
-    _celda(ws, 9, 1, "Nota", alineacion=ALIN_IZQ)
-    _celda(ws, 9, 2, str(tributario.get("nota", "")) + " El tratamiento tributario concilia con la "
+    _celda(ws, 10, 1, "Nota", alineacion=ALIN_IZQ)
+    _celda(ws, 10, 2, str(tributario.get("nota", "")) + " El tratamiento tributario concilia con la "
                      "medición contable: no la sustituye ni la condiciona (NIIF 9 5.5.15), y la "
                      "diferencia es temporaria.", alineacion=ALIN_IZQ)
 

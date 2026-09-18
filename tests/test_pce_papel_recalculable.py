@@ -586,3 +586,58 @@ def test_la_matriz_no_rotula_un_acotamiento_que_no_puede_alcanzarse():
                 for c in range(1, ws.max_column + 1)]
     assert not any(exporter.ACOTADO_TECHO in f for f in formulas), \
         "05-Matriz sigue rotulando el techo del importe en libros bruto, que no puede morder"
+
+
+# ---------------------------------------------------------------------------
+# U7 — El tope tributario del 10 % sobre una cartera estratificada negativa
+# ---------------------------------------------------------------------------
+
+def _corrida_con_cartera_estratificada_negativa():
+    """U7: las notas de crédito dejan la cartera estratificada NETA acreedora.
+
+    El tope del 10 % salía en -4.000,00 y «excede el tope» decía que sí con una
+    pérdida esperada de 0,00. El papel y la pantalla coincidían, pero los dos
+    en un absurdo.
+    """
+    actual = COHORTE_2025 + [
+        ("GAMMA", "NC-1", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), -50000.0),
+    ]
+    return analizar(_cortes(COHORTE_2023, COHORTE_2024, actual),
+                    {"umbral_dias_incumplimiento": 730})
+
+
+def test_el_tope_tributario_no_concluye_sobre_una_cartera_no_positiva():
+    """Un tope negativo no es un límite: lo que no se puede contrastar se
+    declara, igual que el límite anual del 1 %."""
+    resultado = _corrida_con_cartera_estratificada_negativa()
+    tributario = resultado["tributario"]
+    assert resultado["exposicion"]["colectiva"] < 0, "el escenario tiene que ser neto acreedor"
+    assert tributario["tope_acumulado_10pct"] < 0
+    assert tributario["tope_acumulado_verificable"] is False
+    assert tributario["excede_tope_acumulado"] is False
+    assert tributario["exceso_sobre_tope_acumulado"] == 0.0
+
+
+def test_el_papel_tributario_declara_que_el_tope_no_es_contrastable():
+    """Y la celda del exceso no puede imprimir un número: `MAX(0;B2-B3)` sobre
+    un tope negativo daba un «exceso» de 4.000,00 con provisión 0,00."""
+    resultado = _corrida_con_cartera_estratificada_negativa()
+    libro = _libro(resultado)
+    exceso = libro.valor("09-Tributario", "B4")
+    assert isinstance(exceso, str) and "NO" in exceso.upper(), exceso
+    ws = libro.wb["09-Tributario"]
+    textos = " ".join(str(c.value or "") for fila in ws.iter_rows() for c in fila).lower()
+    assert "acreedor" in textos or "no positiva" in textos, textos[:400]
+
+
+def test_el_tope_tributario_sigue_concluyendo_con_cartera_positiva():
+    """La guarda no puede apagar el contraste cuando sí procede."""
+    resultado = _corrida_con_factor_desbocado()
+    tributario = resultado["tributario"]
+    assert tributario["tope_acumulado_verificable"] is True
+    libro = _libro(resultado)
+    excede_en_el_papel = (libro.numero("09-Tributario", "B2")
+                          > libro.numero("09-Tributario", "B3") + CENTAVO)
+    assert excede_en_el_papel is tributario["excede_tope_acumulado"]
+    assert libro.numero("09-Tributario", "B4") == pytest.approx(
+        tributario["exceso_sobre_tope_acumulado"], abs=CENTAVO)
