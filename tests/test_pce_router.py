@@ -82,3 +82,52 @@ def test_exige_los_tres_cortes(client):
                     headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 400
     assert "tres" in r.json()["detail"].lower()
+
+
+def test_rechaza_fecha_en_formato_invalido(client):
+    """Una fecha en formato inválido (ej: 31/12/2023) debe retornar 400 con mensaje claro."""
+    token = _token(client)
+    r = client.post(f"{BASE}/analizar", files=_archivos(),
+                    data={"parametros": json.dumps({"fechas": ["31/12/2023", "2024-12-31", "2025-12-31"]})},
+                    headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 400, f"Se esperaba 400, se obtuvo {r.status_code}: {r.text}"
+    detalle = r.json()["detail"].lower()
+    # El mensaje debe mencionar la fecha inválida y el formato esperado
+    assert "fecha" in detalle or "formato" in detalle or "aaaa-mm-dd" in detalle, \
+        f"El mensaje no explica qué está mal: {r.json()['detail']}"
+
+
+def test_rechaza_archivo_mayor_al_limite_413(client, monkeypatch):
+    """Un archivo que supera MAX_BYTES_POR_ARCHIVO debe retornar 413 con mensaje explicativo."""
+    from backend.app.aud.pce_cxc import router
+
+    # Parchea el límite a algo muy pequeño para la prueba (1 KB)
+    limite_pequeño = 1 * 1024  # 1 KB
+    monkeypatch.setattr(router, "MAX_BYTES_POR_ARCHIVO", limite_pequeño)
+
+    token = _token(client)
+    r = client.post(f"{BASE}/analizar", files=_archivos(),
+                    data={"parametros": json.dumps({"fechas": ["2023-12-31", "2024-12-31", "2025-12-31"]})},
+                    headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 413, f"Se esperaba 413, se obtuvo {r.status_code}: {r.text}"
+    detalle = r.json()["detail"].lower()
+    # El mensaje debe mencionar el límite en MB
+    assert "mb" in detalle, f"El mensaje no menciona el límite en MB: {r.json()['detail']}"
+
+
+def test_sin_rol_staff_no_puede_consultar_corrida(client):
+    """Un usuario sin rol staff no puede leer una corrida con GET /corridas/{id}."""
+    # Primero, crear una corrida con un staff
+    token_staff = _token(client)
+    r_crear = client.post(f"{BASE}/analizar", files=_archivos(),
+                          data={"parametros": json.dumps({"fechas": ["2023-12-31", "2024-12-31", "2025-12-31"]})},
+                          headers={"Authorization": f"Bearer {token_staff}"})
+    assert r_crear.status_code == 200, r_crear.text
+    corrida_id = r_crear.json()["corrida_id"]
+
+    # Ahora intentar leer con un usuario no-staff
+    token_no_staff = _token(client, Role.client)
+    r_leer = client.get(f"{BASE}/corridas/{corrida_id}",
+                        headers={"Authorization": f"Bearer {token_no_staff}"})
+    assert r_leer.status_code in (401, 403), \
+        f"Se esperaba 401 o 403 para usuario no-staff, se obtuvo {r_leer.status_code}: {r_leer.text}"

@@ -68,17 +68,26 @@ async def analizar(archivos: list[UploadFile] = File(...),
                 "Depure el análisis de antigüedad (por ejemplo, quite columnas u hojas que no "
                 "aporten al cálculo) y vuelva a subirlo.",
             )
+        try:
+            fecha_corte = date.fromisoformat(fecha)
+        except ValueError as e:
+            raise HTTPException(
+                400,
+                f"Fecha de corte inválida: '{fecha}'. Use el formato AAAA-MM-DD (p. ej. 2023-12-31)."
+            ) from e
         cortes.append({"nombre": archivo.filename or "", "contenido": contenido,
-                       "fecha": date.fromisoformat(fecha), "hoja": None, "mapeo": None})
+                       "fecha": fecha_corte, "hoja": None, "mapeo": None})
 
     try:
         resultado = service.analizar(cortes, params)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
+    # Reutilizamos la fecha ya parseada del tercer corte (índice 2)
+    fecha_corte_obj = cortes[2]["fecha"]
     corrida = guardar_corrida(db, project_id=params.get("project_id"), user_id=user.id,
                               entidad=str(params.get("entidad") or ""),
-                              fecha_corte=date.fromisoformat(fechas[2]),
+                              fecha_corte=fecha_corte_obj,
                               parametros=params, resultado=resultado)
     return {"corrida_id": corrida.id, **resultado}
 
