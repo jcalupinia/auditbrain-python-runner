@@ -154,6 +154,24 @@ def _fecha_emision(parametros: dict[str, Any]) -> tuple[str, datetime]:
     return SIN_FECHA_EMISION, EPOCA_SIN_FECHA
 
 
+def _tramos_visibles(resultado: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
+    """Filas de la matriz que dicen algo, y cuántas se dejaron fuera.
+
+    ``service.analizar`` inicializa todas las bandas para los dos segmentos, así
+    que la mayoría de las combinaciones sale con exposición 0,00 y sin tasa. Esa
+    fila no es una pérdida cero medida (no hay tasa) ni una banda sin medir con
+    cartera (no hay exposición): es una combinación que no existe en la cartera,
+    y rotularla "SIN MEDIR" diluye la señal de las bandas que sí tienen saldo
+    sin medir. Se omite del papel -declarando cuántas, nunca en silencio-; el
+    universo completo de bandas queda en ``04-Tasas``.
+    """
+    tramos = (resultado.get("matriz") or {}).get("tramos") or []
+    visibles = [t for t in tramos
+                if abs(_numero(t.get("exposicion")) or 0.0) > 0.005
+                or t.get("tasa_perdida") is not None]
+    return visibles, len(tramos) - len(visibles)
+
+
 def _numero(valor: Any) -> float | None:
     """``None`` explícito se preserva (banda sin medir); todo lo demás, a float."""
     if valor is None:
@@ -185,6 +203,12 @@ def construir_excel(resultado: dict[str, Any], parametros: dict[str, Any]) -> by
     wb.properties.modified = marca
 
     refs: dict[str, Any] = {}
+    # Se resuelve una sola vez y antes de escribir ninguna hoja: 04-Tasas ordena
+    # sus filas igual que 05-Matriz para poder referenciarlas por número de fila.
+    visibles, omitidas = _tramos_visibles(resultado)
+    refs["tramos_visibles"] = visibles
+    refs["tramos_omitidos"] = omitidas
+
     _caratula(wb, resultado, parametros, fecha_texto)
     _parametros(wb, resultado, parametros, refs)
     _fuentes(wb, resultado)
@@ -561,7 +585,8 @@ def _matriz(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> No
     ws = wb.create_sheet("05-Matriz")
     _encabezados(ws, 1, ["Segmento", "Banda", "Exposición", "Tasa aplicada", "Factor prospectivo",
                          "Pérdida esperada"])
-    tramos = (resultado.get("matriz") or {}).get("tramos") or []
+    tramos = refs.get("tramos_visibles") or []
+    omitidas = refs.get("tramos_omitidos") or 0
     primera = 2
 
     if tramos:
@@ -596,6 +621,17 @@ def _matriz(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> No
     _celda(ws, fila_total, 4, None, total=True)
     _celda(ws, fila_total, 5, None, total=True)
     _celda(ws, fila_total, 6, f"=SUM(F{primera}:F{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
+
+    if omitidas:
+        c = ws.cell(fila_total + 2, 1,
+                    f"Nota: {omitidas} combinaciones de segmento × banda no se listan por estar "
+                    "sin exposición ni tasa observada. No son una pérdida cero medida: son "
+                    "combinaciones que no existen en la cartera del corte. El universo completo "
+                    "de bandas, con o sin historia, está en 04-Tasas.")
+        c.font = FUENTE_DATOS
+        c.alignment = ALIN_IZQ
+        ws.merge_cells(start_row=fila_total + 2, start_column=1, end_row=fila_total + 2, end_column=6)
+        ws.row_dimensions[fila_total + 2].height = 30
 
     _anchos(ws, {"A": 20, "B": 26, "C": 18, "D": 16, "E": 18, "F": 18})
     refs["matriz"] = {"primera": primera, "ultima": ultima, "fila_total": fila_total,

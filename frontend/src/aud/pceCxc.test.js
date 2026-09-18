@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CATEGORIES } from "./catalog.js";
-import { carteraMedida, fechaEmision } from "./pceCxc.js";
+import { carteraMedida, fechaEmision, tramosVisibles } from "./pceCxc.js";
 
 describe("catálogo AUD", () => {
   it("la tarjeta de Cuentas por cobrar ya no está vacía", () => {
@@ -59,5 +59,42 @@ describe("fechaEmision", () => {
   it("no se corre de día por la zona horaria (usa la fecha local, no la UTC)", () => {
     const tarde = new Date(2025, 11, 31, 22, 0);
     expect(fechaEmision(tarde)).toBe("2025-12-31");
+  });
+});
+
+describe("tramosVisibles", () => {
+  const ruido = (segmento, banda) => ({
+    segmento,
+    tramo: banda,
+    exposicion: 0,
+    tasa_perdida: null,
+    ecl: null,
+  });
+
+  it("deja fuera las combinaciones sin exposición ni tasa", () => {
+    const tramos = [
+      { segmento: "NO-RELACIONADOS", tramo: "Por vencer", exposicion: 80000, tasa_perdida: 0.01, ecl: 800 },
+      ruido("NO-RELACIONADOS", "31 a 60 días"),
+      ruido("RELACIONADOS", "91 a 180 días"),
+    ];
+    expect(tramosVisibles(tramos).map((t) => t.tramo)).toEqual(["Por vencer"]);
+  });
+
+  it("conserva la banda con cartera que no se pudo medir", () => {
+    const tramos = [
+      { segmento: "NO-RELACIONADOS", tramo: "Más de 730 días", exposicion: 5000, tasa_perdida: null, ecl: null },
+      ruido("RELACIONADOS", "Más de 730 días"),
+    ];
+    expect(tramosVisibles(tramos)).toHaveLength(1);
+    expect(tramosVisibles(tramos)[0].exposicion).toBe(5000);
+  });
+
+  it("conserva la pérdida cero medida: tiene tasa, no es una banda inexistente", () => {
+    const tramos = [{ segmento: "RELACIONADOS", tramo: "Por vencer", exposicion: 0, tasa_perdida: 0.02, ecl: 0 }];
+    expect(tramosVisibles(tramos)).toHaveLength(1);
+  });
+
+  it("tolera una matriz sin tramos", () => {
+    expect(tramosVisibles(undefined)).toEqual([]);
   });
 });

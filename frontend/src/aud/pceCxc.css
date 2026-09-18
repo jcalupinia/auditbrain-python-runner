@@ -109,3 +109,11 @@
 .pce-hallazgos span { color: var(--pce-soft); line-height: 1.4; }
 
 .pce-nota { margin-top: 14px; font-size: 11.5px; color: var(--pce-dim); font-style: italic; }
+
+/* Nota al pie de una tabla: explica lo que NO se está mostrando. */
+.pce .pce-nota-tabla {
+  margin: -4px 0 14px;
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0.72;
+}

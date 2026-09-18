@@ -25,3 +25,20 @@ export function fechaEmision(ahora = new Date()) {
   const dia = String(ahora.getDate()).padStart(2, "0");
   return `${anio}-${mes}-${dia}`;
 }
+
+/**
+ * Filas de la matriz que dicen algo.
+ *
+ * El servicio inicializa todas las bandas para los dos segmentos, así que la
+ * mayoría de las combinaciones sale con exposición 0,00 y sin tasa. Esa fila no
+ * es una pérdida cero medida (no hay tasa) ni una banda sin medir con cartera
+ * (no hay exposición): es una combinación que no existe, y pintarla «sin medir»
+ * diluye la señal de las bandas que sí tienen saldo sin medir.
+ * @param {Array} tramos - Tramos de `matriz.tramos`
+ * @returns {Array} Solo los tramos con exposición o con tasa
+ */
+export function tramosVisibles(tramos) {
+  return (tramos || []).filter(
+    (t) => Math.abs(Number(t.exposicion) || 0) > 0.005 || t.tasa_perdida != null
+  );
+}

@@ -393,3 +393,69 @@ def test_dos_descargas_de_la_misma_corrida_dan_el_mismo_papel(monkeypatch):
     segunda = construir_excel(RESULTADO, PARAMETROS_CORRIDA)
 
     assert _contenido_del_paquete(primera) == _contenido_del_paquete(segunda)
+
+
+# ---------------------------------------------------------------------------
+# M8 — 05-Matriz emitía una fila "SIN MEDIR" con exposición 0,00 por cada
+#      combinación segmento x banda inexistente
+# ---------------------------------------------------------------------------
+
+BANDAS = ["Por vencer", "0 a 30 días", "31 a 60 días", "61 a 90 días",
+          "91 a 180 días", "181 a 360 días", "361 a 730 días", "Más de 730 días"]
+
+#: Lo que arma `service.analizar`: todas las bandas para los dos segmentos.
+#: Solo cuatro filas dicen algo; las otras doce son ceros sin tasa.
+CON_EXPOSICION = {
+    ("NO-RELACIONADOS", "Por vencer"): (80000.0, 0.01, 800.0),
+    ("NO-RELACIONADOS", "0 a 30 días"): (20000.0, 0.05, 1000.0),
+    ("NO-RELACIONADOS", "Más de 730 días"): (5000.0, None, None),   # con cartera, sin tasa
+    ("RELACIONADOS", "Por vencer"): (0.0, 0.02, 0.0),               # cero medido de verdad
+}
+TRAMOS_COMPLETOS = [
+    {"segmento": s, "tramo": b,
+     "exposicion": CON_EXPOSICION.get((s, b), (0.0, None, None))[0],
+     "tasa_perdida": CON_EXPOSICION.get((s, b), (0.0, None, None))[1],
+     "ecl": CON_EXPOSICION.get((s, b), (0.0, None, None))[2]}
+    for s in ("NO-RELACIONADOS", "RELACIONADOS") for b in BANDAS
+]
+RESULTADO_CON_RUIDO = {"matriz": {"tramos": TRAMOS_COMPLETOS}}
+
+
+def _filas_de_matriz(ws) -> list[tuple]:
+    filas = []
+    for fila in range(2, ws.max_row + 1):
+        if ws.cell(fila, 2).value == "TOTAL" or ws.cell(fila, 2).value is None:
+            break
+        filas.append((ws.cell(fila, 1).value, ws.cell(fila, 2).value, ws.cell(fila, 3).value))
+    return filas
+
+
+def test_la_matriz_no_emite_las_combinaciones_sin_exposicion_ni_tasa():
+    """De 16 combinaciones segmento x banda, 12 salen en cero y sin tasa: no
+    son una pérdida cero medida ni una banda sin medir con cartera, y su ruido
+    diluye la señal real de «SIN MEDIR» (M8)."""
+    ws = _abrir(construir_excel(RESULTADO_CON_RUIDO, {}))["05-Matriz"]
+    filas = _filas_de_matriz(ws)
+    assert len(filas) == 4, f"debían quedar 4 filas con información, quedaron {len(filas)}"
+    assert {(f[0], f[1]) for f in filas} == set(CON_EXPOSICION)
+    for segmento, banda, exposicion in filas:
+        assert not (exposicion in (0, 0.0) and ws.cell(2, 4).value == "SIN MEDIR" and banda != "Por vencer")
+
+
+def test_la_matriz_declara_cuantas_combinaciones_omitio():
+    """Omitir no es esconder: el papel dice cuántas combinaciones se dejaron
+    fuera y por qué (M8)."""
+    ws = _abrir(construir_excel(RESULTADO_CON_RUIDO, {}))["05-Matriz"]
+    textos = " ".join(_textos(ws))
+    assert "12" in textos, "debe decir cuántas combinaciones se omitieron"
+    assert "sin exposición ni tasa" in textos
+
+
+def test_la_fila_sin_medir_con_cartera_sigue_saliendo():
+    """Lo que se filtra es el ruido de cero, nunca una banda con cartera que no
+    se pudo medir (M8)."""
+    ws = _abrir(construir_excel(RESULTADO_CON_RUIDO, {}))["05-Matriz"]
+    filas = {(ws.cell(f, 1).value, ws.cell(f, 2).value): f for f in range(2, ws.max_row + 1)}
+    fila = filas[("NO-RELACIONADOS", "Más de 730 días")]
+    assert ws.cell(fila, 3).value == 5000.0
+    assert ws.cell(fila, 6).value == "SIN MEDIR"

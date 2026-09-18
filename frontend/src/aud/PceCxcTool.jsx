@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { pceCxcAnalizar, pceCxcDescargarExcel } from "../api.js";
-import { carteraMedida as calcularCarteraMedida, fechaEmision } from "./pceCxc.js";
+import {
+  carteraMedida as calcularCarteraMedida,
+  fechaEmision,
+  tramosVisibles,
+} from "./pceCxc.js";
 import "./pceCxc.css";
 
 const CORTES = [
@@ -84,6 +88,8 @@ export default function PceCxcTool({ projectId }) {
   const sinEstratificar = exposicion?.sin_estratificar ?? 0;
   const cartera = exposicion?.total ?? null;
   const carteraMedida = calcularCarteraMedida(cartera, sinMedirTotal, sinEstratificar);
+  const filasMatriz = tramosVisibles(matriz?.tramos);
+  const filasOmitidas = (matriz?.tramos?.length ?? 0) - filasMatriz.length;
   const cobertura =
     carteraMedida && carteraMedida > 0.005 ? (res?.ecl_total ?? 0) / carteraMedida : null;
 
@@ -237,7 +243,7 @@ export default function PceCxcTool({ projectId }) {
               </tr>
             </thead>
             <tbody>
-              {matriz.tramos.map((t, i) => (
+              {filasMatriz.map((t, i) => (
                 <tr key={`${t.segmento}-${t.tramo}-${i}`} className={t.ecl == null ? "pce-sinmedir" : ""}>
                   <td>{t.segmento}</td>
                   <td>{t.tramo}</td>
@@ -248,6 +254,13 @@ export default function PceCxcTool({ projectId }) {
               ))}
             </tbody>
           </table>
+          {filasOmitidas > 0 && (
+            <div className="pce-nota-tabla">
+              No se listan {filasOmitidas} combinaciones de segmento × banda por estar sin
+              exposición ni tasa observada: no son una pérdida cero medida, son combinaciones que
+              no existen en la cartera del corte.
+            </div>
+          )}
 
           {individual && individual.casos.length > 0 && (
             <>
