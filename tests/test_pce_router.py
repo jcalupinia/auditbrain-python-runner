@@ -119,18 +119,12 @@ def test_rechaza_archivo_mayor_al_limite_413(client, monkeypatch):
         f"El mensaje no indica cómo proceder con un archivo demasiado grande: {r.json()['detail']}"
 
 
-def test_rechaza_archivo_grande_sin_materializarlo_entero(client, monkeypatch):
-    """El límite se evalúa ANTES de traer el archivo entero a memoria.
+def _instrumentar_lecturas(monkeypatch) -> list[int]:
+    """Registra cuántos bytes trae cada llamada a ``UploadFile.read`` del router.
 
-    Instrumenta ``UploadFile.read`` para probar que, para rechazar un archivo por
-    encima del límite, el router nunca hace una lectura sin tope: ni con
-    ``archivo.size`` (que Starlette ya conoce sin I/O adicional) ni, como
-    respaldo, con una lectura acotada a límite + 1 bytes.
+    Devuelve la lista (mutada in-place) donde se van anotando los tamaños.
     """
     from starlette.datastructures import UploadFile as StarletteUploadFile
-
-    limite_pequeño = 1 * 1024  # 1 KB
-    monkeypatch.setattr("backend.app.aud.pce_cxc.router.MAX_BYTES_POR_ARCHIVO", limite_pequeño)
 
     lecturas: list[int] = []
     read_original = StarletteUploadFile.read
@@ -141,13 +135,65 @@ def test_rechaza_archivo_grande_sin_materializarlo_entero(client, monkeypatch):
         return datos
 
     monkeypatch.setattr(StarletteUploadFile, "read", read_instrumentado)
+    return lecturas
+
+
+def test_rechaza_archivo_grande_por_tamano_declarado_sin_leer(client, monkeypatch):
+    """Camino del PRIMER filtro: con ``archivo.size`` informado (el caso normal con
+    ``TestClient``, que hace lo mismo que un cliente HTTP real informando el
+    tamaño de cada parte del cuerpo multipart), el router rechaza sin llamar a
+    ``UploadFile.read`` ni una sola vez.
+    """
+    limite_pequeño = 1 * 1024  # 1 KB
+    monkeypatch.setattr("backend.app.aud.pce_cxc.router.MAX_BYTES_POR_ARCHIVO", limite_pequeño)
+    lecturas = _instrumentar_lecturas(monkeypatch)
 
     token = _token(client)
     r = client.post(f"{BASE}/analizar", files=_archivos(),
                     data={"parametros": json.dumps({"fechas": ["2023-12-31", "2024-12-31", "2025-12-31"]})},
                     headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 413, f"Se esperaba 413, se obtuvo {r.status_code}: {r.text}"
-    # Ninguna lectura del router trajo más que límite + 1 bytes de una vez: el
+    # El filtro por `archivo.size` rechazó antes de leer: ninguna llamada a
+    # `.read()` llegó a ejecutarse.
+    assert lecturas == [], f"se esperaban cero lecturas (filtro por tamaño), hubo: {lecturas}"
+
+
+def test_rechaza_archivo_grande_sin_tamano_declarado_con_lectura_acotada(client, monkeypatch):
+    """Camino del SEGUNDO filtro (el de respaldo): cuando ``archivo.size`` no viene
+    informado, el router debe rechazar igual, y hacerlo con una lectura acotada
+    (nunca materializando el archivo entero en ``contenido``).
+
+    Fuerza el escenario parcheando ``UploadFile.__init__`` para que, tal como
+    haría un cliente que no informa el tamaño de la parte multipart, cada
+    ``UploadFile`` que llega al router quede con ``size = None``: como
+    ``UploadFile.write`` solo suma a ``self.size`` cuando no es ``None``
+    (``if self.size is not None: self.size += ...``), forzarlo a ``None`` desde
+    el arranque hace que se quede en ``None`` durante todo el parseo, sin que
+    haga falta tocar el resto de la máquina de multipart.
+    """
+    from starlette.datastructures import UploadFile as StarletteUploadFile
+
+    limite_pequeño = 1 * 1024  # 1 KB
+    monkeypatch.setattr("backend.app.aud.pce_cxc.router.MAX_BYTES_POR_ARCHIVO", limite_pequeño)
+    lecturas = _instrumentar_lecturas(monkeypatch)
+
+    init_original = StarletteUploadFile.__init__
+
+    def init_sin_tamano(self, *args, **kwargs):
+        init_original(self, *args, **kwargs)
+        self.size = None
+
+    monkeypatch.setattr(StarletteUploadFile, "__init__", init_sin_tamano)
+
+    token = _token(client)
+    r = client.post(f"{BASE}/analizar", files=_archivos(),
+                    data={"parametros": json.dumps({"fechas": ["2023-12-31", "2024-12-31", "2025-12-31"]})},
+                    headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 413, f"Se esperaba 413, se obtuvo {r.status_code}: {r.text}"
+    # El segundo filtro sí tuvo que leer (a diferencia del primero): si esto
+    # queda vacío, la prueba no está ejercitando el camino de respaldo.
+    assert lecturas, "no hubo ninguna lectura: la prueba no ejercitó el filtro de respaldo"
+    # ...pero ninguna lectura trajo más que límite + 1 bytes de una vez: el
     # archivo (varios KB, como los otros fixtures de este módulo) nunca se
     # materializó entero en `contenido` antes del rechazo.
     assert all(n <= limite_pequeño + 1 for n in lecturas), \

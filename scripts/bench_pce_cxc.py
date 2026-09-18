@@ -169,24 +169,40 @@ def _medir_un_archivo(opts: dict, contenido: bytes) -> None:
     print(f"memoria pico : {pico:.0f} MB (pico del proceso)")
 
 
-def _medir_tres(opts: dict, contenido: bytes) -> None:
+def _medir_tres(opts: dict) -> None:
     # Import diferido: solo hace falta para --tres, y evita cargar toda la
     # cadena de dependencias del servicio (motor, cohortes, exporter...) cuando
     # se mide la lectura de un solo archivo.
     from backend.app.aud.pce_cxc import service  # noqa: E402
 
     fechas = opts["fechas"] or FECHAS_POR_DEFECTO_TRES
-    cortes = [{"nombre": f"{opts['ruta']} (corte {i + 1}/3)", "contenido": contenido,
+    # OJO: cada corte necesita su PROPIA copia de los bytes en memoria, no el
+    # mismo objeto `contenido` repetido tres veces. El endpoint real hace
+    # `contenido = await archivo.read(...)` DENTRO del bucle, una vez por
+    # archivo: son tres lecturas independientes, cada una con su propio buffer
+    # en RAM. Si aquí se reutilizara la misma variable `contenido` en las tres
+    # entradas de `cortes` (o incluso `bytes(contenido)` o `contenido[:]`, que
+    # para un `bytes` no copian: devuelven el mismo objeto por identidad, ya
+    # que `bytes` es inmutable y CPython aprovecha eso para no duplicar), el
+    # pico medido subestimaría el real en, aproximadamente, dos archivos de
+    # menos. Releer el archivo del disco tres veces reproduce fielmente esa
+    # memoria: tres objetos `bytes` distintos, los tres vivos a la vez mientras
+    # `service.analizar` procesa la petición completa.
+    cortes = [{"nombre": f"{opts['ruta']} (corte {i + 1}/3)",
+               "contenido": open(opts["ruta"], "rb").read(),
                "fecha": fecha, "hoja": opts["hoja"], "mapeo": opts["mapeo"]}
               for i, fecha in enumerate(fechas)]
+    assert len({id(c["contenido"]) for c in cortes}) == 3, \
+        "los tres cortes deben ser objetos bytes independientes, no el mismo buffer reutilizado"
 
+    tam_mb = len(cortes[0]["contenido"]) / 1024 / 1024
     inicio = time.perf_counter()
     r = service.analizar(cortes, {})
     segundos = time.perf_counter() - inicio
     pico = _pico_memoria_mb()
 
     documentos = sum(c["documentos"] for c in r["bitacora"]["cortes"])
-    print(f"archivo      : {opts['ruta']} ({len(contenido) / 1024 / 1024:.1f} MB c/u, x3 cortes)")
+    print(f"archivo      : {opts['ruta']} ({tam_mb:.1f} MB c/u, x3 cortes, x3 lecturas independientes)")
     print(f"fechas       : {', '.join(f.isoformat() for f in fechas)}")
     print(f"documentos   : {documentos:,} (suma de los tres cortes)")
     print(f"ecl_total    : {r['ecl_total']:,.2f}")
@@ -195,9 +211,11 @@ def _medir_tres(opts: dict, contenido: bytes) -> None:
 
 
 opts = _parsear_args(sys.argv)
-contenido = open(opts["ruta"], "rb").read()
 
 if opts["tres"]:
-    _medir_tres(opts, contenido)
+    # Cada corte hace su propia lectura del disco (ver el comentario dentro de
+    # `_medir_tres`): no hay un `contenido` compartido que leer aquí primero.
+    _medir_tres(opts)
 else:
+    contenido = open(opts["ruta"], "rb").read()
     _medir_un_archivo(opts, contenido)
