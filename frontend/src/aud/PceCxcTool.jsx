@@ -8,6 +8,7 @@ import {
   controlDeLaCohorte,
   cotasDeLaCorrida,
   evaluacionIndividualCompleta,
+  factorProspectivoDeclarado,
   filasIncompletas,
   parametrosDeLaCorrida,
   tasaSustitutaCompleta,
@@ -61,7 +62,7 @@ export default function PceCxcTool({ projectId }) {
   const [res, setRes] = useState(null);
   const [descargando, setDescargando] = useState(false);
 
-  const listo = CORTES.every((c) => archivos[c.k] && fechas[c.k]);
+  const listoLosCortes = CORTES.every((c) => archivos[c.k] && fechas[c.k]);
 
   // Filas repetibles (tasas sustitutas y evaluaciones individuales): se
   // añaden, se editan y se quitan sobre el mismo estado.
@@ -76,6 +77,16 @@ export default function PceCxcTool({ projectId }) {
     setDatos((d) => ({ ...d, [campo]: d[campo].filter((_, j) => j !== i) }));
 
   const bandas = bandasDeLaPolitica(datos.umbral_dias);
+  // El factor prospectivo fuera de rango se dice aquí, junto al campo, y
+  // bloquea el cálculo: es el mismo criterio que aplica el backend (400), no
+  // una validación de pantalla que el servidor luego contradiga.
+  let factorFueraDeRango = "";
+  try {
+    factorProspectivoDeclarado(datos);
+  } catch (e) {
+    factorFueraDeRango = e.message;
+  }
+  const listo = listoLosCortes && !factorFueraDeRango;
   const sustitutasIncompletas = filasIncompletas(datos.tasas_sustitutas, tasaSustitutaCompleta);
   const evaluacionesIncompletas = filasIncompletas(
     datos.evaluaciones_individuales,
@@ -275,15 +286,18 @@ export default function PceCxcTool({ projectId }) {
           ajuste</b>, 1,100 es un 10 % más de pérdida esperada. La norma exige que el ajuste esté
           sustentado (B5.5.51-52), así que <b>sin justificación escrita el factor no se aplica</b>{" "}
           y queda el hallazgo «Ausencia del componente prospectivo». Un factor que lleve la tasa
-          sobre el 100 % se acota al importe en libros bruto y el papel lo declara.
+          sobre el 100 % se acota al importe en libros bruto y el papel lo declara. Un factor
+          de <b>0,000 no se admite</b>: no es un ajuste, anula la pérdida esperada de todas las
+          bandas cualquiera que sea su tasa observada.
         </p>
+        {factorFueraDeRango && <div className="pce-msg pce-bad">{factorFueraDeRango}</div>}
         <div className="pce-grid">
           <label>
             Factor · no relacionados
             <input
               type="number"
               step="0.001"
-              min="0"
+              min="0.001"
               placeholder="1,000"
               value={datos.factor_nr}
               onChange={(e) => setDatos({ ...datos, factor_nr: e.target.value })}
@@ -294,7 +308,7 @@ export default function PceCxcTool({ projectId }) {
             <input
               type="number"
               step="0.001"
-              min="0"
+              min="0.001"
               placeholder="1,000"
               value={datos.factor_r}
               onChange={(e) => setDatos({ ...datos, factor_r: e.target.value })}
@@ -472,8 +486,11 @@ export default function PceCxcTool({ projectId }) {
       <button className="pce-btn" disabled={!listo || procesando} onClick={calcular}>
         Calcular la matriz
       </button>
-      {!listo && !procesando && (
+      {!listoLosCortes && !procesando && (
         <div className="pce-hint">Suba los tres cortes con su fecha para habilitar el cálculo.</div>
+      )}
+      {listoLosCortes && factorFueraDeRango && !procesando && (
+        <div className="pce-msg pce-bad">{factorFueraDeRango}</div>
       )}
       {procesando && <div className="pce-msg pce-info">Procesando los tres cortes…</div>}
       {error && <div className="pce-msg pce-bad">{error}</div>}

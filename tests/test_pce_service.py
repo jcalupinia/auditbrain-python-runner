@@ -387,6 +387,36 @@ def test_un_factor_prospectivo_escalar_se_acepta_como_formato_antiguo():
     assert r["matriz"]["ajuste_prospectivo"] == {"NO-RELACIONADOS": 1.10, "RELACIONADOS": 1.10}
 
 
+@pytest.mark.parametrize("factor", [
+    0,
+    0.0,
+    {"NO-RELACIONADOS": 0.0, "RELACIONADOS": 1.0},
+    {"NO-RELACIONADOS": 1.0, "RELACIONADOS": 0},
+])
+def test_un_factor_prospectivo_de_cero_se_rechaza(factor):
+    """U2: un factor de 0,000 no es un ajuste prospectivo, anula la pérdida
+    esperada ENTERA: con 200.000 de cartera al 10 % observado y justificación
+    escrita daba `ecl_total = 0,00`, sin un solo acotamiento declarado y sin
+    pendiente. El único rastro era «Ajuste prospectivo -1» en 01-Parametros.
+
+    NIIF 9 B5.5.51-52 pide ajustar la tasa histórica por las previsiones, no
+    sustituirla por cero: es un error de entrada, y se rechaza con el rango
+    correcto en el mensaje (que el router traduce a un 400)."""
+    with pytest.raises(ValueError) as e:
+        analizar(_cortes(), {"factor_prospectivo": factor,
+                             "justificacion_prospectivo": "Contracción del sector prevista."})
+    assert "0,000" in str(e.value)
+    assert "factor_prospectivo" in str(e.value)
+
+
+def test_un_factor_prospectivo_de_cero_se_rechaza_tambien_sin_justificacion():
+    """Sin justificación el servicio lo ignoraría y mediría con 1,000, así que
+    el 0 quedaba escrito en el formulario sin que nadie lo corrigiera."""
+    with pytest.raises(ValueError) as e:
+        analizar(_cortes(), {"factor_prospectivo": 0})
+    assert "0,000" in str(e.value)
+
+
 @pytest.mark.parametrize("parametros,texto", [
     ({"factor_prospectivo": ["1.10"]}, "factor_prospectivo"),
     ({"tasas_sustitutas": "0.42"}, "tasas_sustitutas"),
