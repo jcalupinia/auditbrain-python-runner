@@ -262,13 +262,24 @@ def resumen_deterioro(
     colectivo = medir_ecl(exposiciones_colectivas, parametros)
     exposicion_total = redondear(colectivo["exposicion_total"] + individual["saldo_total"])
     ecl_total = redondear(colectivo["ecl_total"] + individual["ecl_total"])
+    # Los casos individuales siempre se miden (evaluar_individual exige la
+    # recuperación estimada), así que lo sin medir viene solo de la matriz
+    # colectiva: bandas sin tasa aprobada.
+    exposicion_sin_medir = redondear(colectivo["exposicion_sin_medir"])
+    exposicion_medida = redondear(exposicion_total - exposicion_sin_medir)
 
     resultado: dict[str, Any] = {
         "colectivo": colectivo,
         "individual": individual,
         "exposicion_total": exposicion_total,
+        "exposicion_sin_medir": exposicion_sin_medir,
+        "exposicion_medida": exposicion_medida,
+        "medicion_completa": exposicion_sin_medir < 0.01,
         "ecl_total": ecl_total,
-        "porcentaje_sobre_cartera": (ecl_total / exposicion_total) if exposicion_total else 0.0,
+        # Sobre lo medido, no sobre el total: si se calculara sobre el total,
+        # una banda sin tasa diluiría el porcentaje justo cuando hay algo sin
+        # medir (la misma dilución silenciosa que esta tarea evita).
+        "porcentaje_sobre_cartera": (ecl_total / exposicion_medida) if exposicion_medida else 0.0,
         "tributario": {
             "limite_ejercicio_1pct": redondear(exposicion_total * TASA_PROVISION_EJERCICIO),
             "tope_acumulado_10pct": redondear(exposicion_total * TOPE_PROVISION_ACUMULADA),
@@ -285,7 +296,9 @@ def resumen_deterioro(
     if saldo_contable is not None:
         diferencia = redondear(exposicion_total - float(saldo_contable))
         resultado["conciliacion"] = {
-            "cartera_medida": exposicion_total,
+            # Se compara contra el saldo contable, que es el total de la
+            # cartera (medida y sin medir), no solo la parte medida.
+            "cartera_total": exposicion_total,
             "saldo_contable": redondear(float(saldo_contable)),
             "diferencia": diferencia,
             "cuadra": abs(diferencia) < 0.01,

@@ -157,6 +157,32 @@ def test_el_cuadro_tributario_usa_los_limites_de_la_lorti():
     assert r["tributario"]["tope_acumulado_10pct"] == pytest.approx(100000.0)
 
 
+def test_el_resumen_informa_la_exposicion_que_no_pudo_medirse():
+    p = ParametrosECL(tasas_perdida={"Corriente": 0.02}, lgd=1.0)
+    r = resumen_deterioro({"Corriente": 100000.0, "361+": 50000.0}, p)
+    assert r["exposicion_total"] == pytest.approx(150000.0)
+    assert r["exposicion_sin_medir"] == pytest.approx(50000.0)
+    assert r["exposicion_medida"] == pytest.approx(100000.0)
+    assert r["medicion_completa"] is False
+    # El porcentaje se mide sobre lo medido, no sobre una base diluida.
+    assert r["porcentaje_sobre_cartera"] == pytest.approx(0.02)
+
+
+def test_cuando_todo_se_mide_la_medicion_es_completa():
+    p = ParametrosECL(tasas_perdida={"Corriente": 0.02}, lgd=1.0)
+    r = resumen_deterioro({"Corriente": 100000.0}, p)
+    assert r["exposicion_sin_medir"] == pytest.approx(0.0)
+    assert r["medicion_completa"] is True
+    assert r["porcentaje_sobre_cartera"] == pytest.approx(0.02)
+
+
+def test_la_conciliacion_compara_el_total_de_la_cartera():
+    p = ParametrosECL(tasas_perdida={"Corriente": 0.02}, lgd=1.0)
+    r = resumen_deterioro({"Corriente": 100000.0}, p, saldo_contable=100000.0)
+    assert r["conciliacion"]["cartera_total"] == pytest.approx(100000.0)
+    assert r["conciliacion"]["cuadra"] is True
+
+
 # ---------------------------------------------------------------------------
 # PRUEBA DE ACEPTACIÓN: reproducir el archivo del cliente
 # ---------------------------------------------------------------------------
