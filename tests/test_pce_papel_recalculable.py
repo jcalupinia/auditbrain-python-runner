@@ -420,3 +420,66 @@ def test_la_corrida_declara_el_acotamiento_de_la_cartera_medida():
     assert resultado["exposicion"]["medida_sin_acotar"] == pytest.approx(-350000.0, abs=CENTAVO)
     titulos = [h["titulo"] for h in resultado["hallazgos"]]
     assert "Cartera medida acotada" in titulos, titulos
+
+
+# ---------------------------------------------------------------------------
+# U3 — El recorte del «saldo sin medir» de un caso individual se declara
+# ---------------------------------------------------------------------------
+
+def test_el_recorte_del_saldo_sin_medir_llega_al_resultado():
+    """El servicio acotaba ANTES de entregar el caso al motor, así que los tres
+    campos del motor se calculaban sobre un valor ya recortado y siempre decían
+    que ninguna cota había actuado: la declaración era inalcanzable por
+    construcción."""
+    resultado = _corrida_con_nota_de_credito_individual()
+    caso = next(c for c in resultado["individual"]["casos"]
+                if c["identificacion"].startswith("DELTA"))
+    # DELTA: 300.000 en una banda SIN tasa y una nota de crédito de 100.000 en
+    # otra. Lo realmente sin medir eran 300.000 sobre una exposición de 200.000.
+    assert caso["saldo"] == pytest.approx(200000.0, abs=CENTAVO)
+    assert caso["saldo_sin_tasa_sin_acotar"] == pytest.approx(300000.0, abs=CENTAVO)
+    assert caso["saldo_sin_tasa"] == pytest.approx(200000.0, abs=CENTAVO)
+    assert caso["saldo_sin_tasa_acotado"] is True
+    assert resultado["individual"]["saldo_sin_tasa_acotado_total"] == pytest.approx(
+        100000.0, abs=CENTAVO)
+
+
+def test_el_papel_recalcula_el_saldo_sin_medir_acotado_del_caso():
+    """06-Individual no leía ninguno de los tres campos: el saldo sin medir era
+    un número pegado. Ahora la cota está en la fórmula y la celda recalcula, al
+    centavo, lo que archivó la corrida."""
+    resultado = _corrida_con_nota_de_credito_individual()
+    libro = _libro(resultado)
+    ws = libro.wb["06-Individual"]
+    fila = next(i for i in range(2, ws.max_row + 1)
+                if str(ws.cell(i, 1).value or "").startswith("DELTA"))
+    caso = next(c for c in resultado["individual"]["casos"]
+                if c["identificacion"].startswith("DELTA"))
+    assert libro.numero("06-Individual", f"F{fila}") == pytest.approx(
+        caso["saldo_sin_tasa"], abs=CENTAVO)
+    assert libro.numero("06-Individual", f"G{fila}") == pytest.approx(
+        caso["saldo_sin_tasa_sin_acotar"], abs=CENTAVO)
+
+
+def test_el_papel_declara_que_el_saldo_sin_medir_se_acoto():
+    """Ninguna cota en silencio: la columna dice que el saldo sin medir se
+    recortó a la exposición del propio caso."""
+    resultado = _corrida_con_nota_de_credito_individual()
+    libro = _libro(resultado)
+    ws = libro.wb["06-Individual"]
+    encabezados = [str(ws.cell(1, c).value or "") for c in range(1, ws.max_column + 1)]
+    columna = next((c for c, t in enumerate(encabezados, start=1)
+                    if "acotamiento" in t.lower() and "sin medir" in t.lower()), None)
+    assert columna, f"06-Individual no declara el acotamiento del saldo sin medir: {encabezados}"
+    fila = next(i for i in range(2, ws.max_row + 1)
+                if str(ws.cell(i, 1).value or "").startswith("DELTA"))
+    declarado = str(libro.valor("06-Individual", f"{chr(64 + columna)}{fila}")).upper()
+    assert "ACOTADO" in declarado and "SIN ACOTAR" not in declarado, declarado
+
+
+def test_la_corrida_declara_el_recorte_del_saldo_sin_medir_como_hallazgo():
+    """Y llega a la pantalla y al papel de hallazgos, no solo a un campo."""
+    resultado = _corrida_con_nota_de_credito_individual()
+    assert resultado["exposicion"]["sin_medir_recortado"] == pytest.approx(100000.0, abs=CENTAVO)
+    titulos = [h["titulo"] for h in resultado["hallazgos"]]
+    assert "Saldo sin medir acotado a la exposición del caso" in titulos, titulos

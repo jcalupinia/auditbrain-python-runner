@@ -36,6 +36,11 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.workbook.defined_name import DefinedName
 
+# Los motivos de acotamiento los define el motor: el papel los TRADUCE a texto,
+# no los vuelve a escribir. Un motivo nuevo que el exportador no conozca cae en
+# el rótulo genérico, nunca en un "SIN ACOTAR" que sería mentira.
+from backend.app.aud.pce_cxc.motor import PISO_CERO, TECHO_SALDO
+
 # ---------------------------------------------------------------------------
 # Formato (CLAUDE.md: Calibri 9 en datos, 10 negrita en totales, 11 negrita en
 # encabezados de bloque, bordes finos, doble en TOTAL, anchos explícitos,
@@ -97,6 +102,14 @@ NOTA_ACOTAMIENTOS = (
     "conserva el cálculo puro y la columna «Acotamiento aplicado» dice cuál de las dos cotas "
     "actuó: recalcular la columna «Pérdida esperada» desde estas mismas celdas devuelve, al "
     "centavo, la cifra archivada en la corrida.")
+NOTA_SIN_MEDIR_INDIVIDUAL = (
+    "El saldo sin medir de un cliente evaluado individualmente se acota a SU PROPIA exposición "
+    "(NIIF 9 B5.5.35): la exposición del cliente es el NETO de sus bandas y lo sin medir suma "
+    "solo las positivas, así que sin la cota un cliente con una nota de crédito declaraba más "
+    "saldo sin medir que cartera. La columna «Saldo sin medir SIN ACOTAR» conserva el importe "
+    "previo a la cota y la columna «Acotamiento del saldo sin medir» dice si actuó: recalcular "
+    "la columna «Saldo sin medir» desde estas mismas celdas devuelve, al centavo, lo archivado "
+    "en la corrida.")
 
 #: La pantalla rotula el papel como preliminar arriba y abajo. El libro que se
 #: archiva tiene que decir lo mismo: mientras el Socio no lo revise y apruebe,
@@ -1063,24 +1076,44 @@ def _estado_caso(caso: dict[str, Any]) -> str:
 
 
 def _acotamiento_caso(caso: dict[str, Any]) -> str:
-    """Qué cota de la norma movió la pérdida de este caso, si es que alguna."""
-    return {"piso_cero": ACOTADO_PISO,
-            "techo_saldo": ACOTADO_TECHO}.get(caso.get("acotado") or "", SIN_ACOTAR)
+    """Qué cota de la norma movió la pérdida de este caso, si es que alguna.
+
+    Una corrida anterior al campo `acotado` NO afirmó «sin acotar»: no guardó
+    el dato. Decirlo es lo mismo que ya hace la columna de la recuperación
+    estimada con su propio caso de retrocompatibilidad.
+    """
+    if "acotado" not in caso:
+        return NO_REGISTRADO
+    return {PISO_CERO: ACOTADO_PISO,
+            TECHO_SALDO: ACOTADO_TECHO}.get(caso.get("acotado") or "", SIN_ACOTAR)
 
 
 def _individual(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> None:
-    """Saldos medidos uno por uno, con su saldo acreedor y su acotamiento a la vista.
+    """Saldos medidos uno por uno, con su saldo acreedor y sus acotamientos a la vista.
 
     Una nota de crédito dentro de un cliente de evaluación individual quedaba
     escondida: su saldo NETO era deudor, así que no entraba en «saldos
     acreedores» y el piso cero actuaba sobre ella sin que ninguna hoja ni
     ningún hallazgo lo dijeran. Aquí tiene columna propia -sumable, no dentro
     de una frase-, igual que la tiene en la matriz colectiva.
+
+    EL SALDO SIN MEDIR SE ACOTA EN LA FÓRMULA, no fuera de ella:
+
+        F = MIN(MAX(saldo sin medir sin acotar; 0); MAX(exposición del caso; 0))
+
+    que es exactamente `motor.acotar_saldo_sin_medir`. La exposición de un
+    cliente es el NETO de sus bandas y lo sin medir suma solo las positivas,
+    así que un cliente con 300.000 en una banda sin tasa y una nota de crédito
+    de 100.000 en otra declaraba 300.000 sin medir sobre 200.000 de exposición.
+    La columna G conserva el importe SIN ACOTAR -la evidencia de que la cota
+    hizo falta- y la J declara que actuó.
     """
     ws = wb.create_sheet("06-Individual")
     _encabezados(ws, 1, ["Cliente", "Segmento", "Exposición", "Recuperación estimada",
-                         "Pérdida esperada", "Saldo sin medir", "Saldo acreedor incluido",
-                         "Acotamiento aplicado", "Sustento", "Estado"])
+                         "Pérdida esperada", "Saldo sin medir",
+                         "Saldo sin medir SIN ACOTAR", "Saldo acreedor incluido",
+                         "Acotamiento de la pérdida", "Acotamiento del saldo sin medir",
+                         "Sustento", "Estado"])
     casos = (resultado.get("individual") or {}).get("casos") or []
     primera = 2
 
@@ -1109,41 +1142,72 @@ def _individual(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -
                 _celda(ws, i, 5, ecl, formato=FORMATO_MONEDA, alineacion=ALIN_DER)
             # `saldo_sin_tasa` viaja en el resultado desde que se le dio campo
             # propio, pero el papel solo lo dejaba dentro de la frase del
-            # sustento: aquí es una columna que se puede sumar.
-            sin_medir = _numero(caso.get("saldo_sin_tasa")) or 0.0
-            c = _celda(ws, i, 6, sin_medir, formato=FORMATO_MONEDA, alineacion=ALIN_DER)
-            if sin_medir > 0.005:
+            # sustento: aquí es una columna sumable y, además, RECALCULADA
+            # desde el importe sin acotar de la columna G.
+            sin_medir = _numero(caso.get("saldo_sin_tasa"))
+            sin_acotar = _numero(caso.get("saldo_sin_tasa_sin_acotar"))
+            if sin_acotar is None:
+                # Corridas anteriores al campo: se imprime lo que sí guardaron
+                # y se dice que el importe sin acotar no se registró, en vez de
+                # afirmar que coincidían.
+                c = _celda(ws, i, 6, 0.0 if sin_medir is None else sin_medir,
+                           formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+                _celda(ws, i, 7, NO_REGISTRADO, alineacion=ALIN_CEN)
+                _celda(ws, i, 10, NO_REGISTRADO, alineacion=ALIN_CEN)
+            else:
+                c = _celda(ws, i, 6, f"=MIN(MAX(G{i},0),MAX(C{i},0))", formato=FORMATO_MONEDA,
+                           alineacion=ALIN_DER)
+                _celda(ws, i, 7, sin_acotar, formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+                d = _celda(ws, i, 10,
+                           '=IF(F{0}<G{0}-0.005,"{1}","{2}")'.format(
+                               i, ACOTADO_EXPOSICION_CASO, SIN_ACOTAR),
+                           alineacion=ALIN_CEN)
+                if caso.get("saldo_sin_tasa_acotado"):
+                    d.font = FUENTE_DATOS_ALERTA
+            if (sin_medir or 0.0) > 0.005:
                 c.font = FUENTE_DATOS_ALERTA
-            acreedor = _numero(caso.get("saldo_acreedor")) or 0.0
-            c = _celda(ws, i, 7, acreedor, formato=FORMATO_MONEDA, alineacion=ALIN_DER)
-            if acreedor < -0.005:
-                c.font = FUENTE_DATOS_ALERTA
-            c = _celda(ws, i, 8, _acotamiento_caso(caso), alineacion=ALIN_CEN)
+            # Corridas anteriores a la columna: el papel dice que el dato no se
+            # registró, no que valga 0,00.
+            acreedor = _numero(caso.get("saldo_acreedor"))
+            if "saldo_acreedor" not in caso or acreedor is None:
+                _celda(ws, i, 8, NO_REGISTRADO, alineacion=ALIN_CEN)
+            else:
+                c = _celda(ws, i, 8, acreedor, formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+                if acreedor < -0.005:
+                    c.font = FUENTE_DATOS_ALERTA
+            c = _celda(ws, i, 9, _acotamiento_caso(caso), alineacion=ALIN_CEN)
             if caso.get("acotado"):
                 c.font = FUENTE_DATOS_ALERTA
-            _celda(ws, i, 9, caso.get("sustento", ""), alineacion=ALIN_IZQ)
-            _celda(ws, i, 10, _estado_caso(caso), alineacion=ALIN_IZQ)
+            _celda(ws, i, 11, caso.get("sustento", ""), alineacion=ALIN_IZQ)
+            _celda(ws, i, 12, _estado_caso(caso), alineacion=ALIN_IZQ)
     else:
         ultima = primera
-        _celda(ws, primera, 1, "(sin saldos evaluados individualmente en esta corrida)", alineacion=ALIN_IZQ)
-        for col in range(2, 11):
+        _celda(ws, primera, 1, "(sin saldos evaluados individualmente en esta corrida)",
+               alineacion=ALIN_IZQ)
+        for col in range(2, 13):
             _celda(ws, primera, col, None)
 
     fila_total = ultima + 1
     _celda(ws, fila_total, 1, "TOTAL", total=True, alineacion=ALIN_IZQ)
     _celda(ws, fila_total, 2, None, total=True)
-    for col in "CDEFG":
+    for col in "CDEFGH":
         _celda(ws, fila_total, ord(col) - 64, f"=SUM({col}{primera}:{col}{ultima})",
                formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
-    _celda(ws, fila_total, 8, None, total=True)
-    _celda(ws, fila_total, 9, None, total=True)
-    _celda(ws, fila_total, 10, None, total=True)
+    for col in (9, 10, 11, 12):
+        _celda(ws, fila_total, col, None, total=True)
 
-    _anchos(ws, {"A": 24, "B": 18, "C": 16, "D": 18, "E": 16, "F": 16, "G": 20, "H": 34,
-                 "I": 40, "J": 26})
+    nota = ws.cell(fila_total + 2, 1, NOTA_SIN_MEDIR_INDIVIDUAL)
+    nota.font = FUENTE_DATOS
+    nota.alignment = ALIN_IZQ
+    ws.merge_cells(start_row=fila_total + 2, start_column=1, end_row=fila_total + 2, end_column=12)
+    ws.row_dimensions[fila_total + 2].height = 42
+
+    _anchos(ws, {"A": 24, "B": 18, "C": 16, "D": 18, "E": 16, "F": 16, "G": 22, "H": 20,
+                 "I": 34, "J": 36, "K": 40, "L": 26})
     refs["individual"] = {"primera": primera, "ultima": ultima, "fila_total": fila_total,
                           "col_exposicion": "C", "col_perdida": "E", "col_sin_medir": "F",
-                          "col_acreedor": "G"}
+                          "col_sin_medir_sin_acotar": "G", "col_acreedor": "H",
+                          "col_acotamiento": "I", "col_acotamiento_sin_medir": "J"}
 
 
 # ---------------------------------------------------------------------------

@@ -405,6 +405,11 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
         # no se midió en la evaluación individual (mismo motivo): nunca se
         # convierte en cero, se declara. Lo totaliza el motor.
         "sin_medir": resumen["exposicion_sin_medir"],
+        # Cuánto tuvo que recortarse ese saldo sin medir para no superar la
+        # exposición del propio caso individual. El motor aplica la cota y la
+        # declara; aquí se expone para la pantalla y el hallazgo. Cero = la
+        # cota no actuó, no "no se sabe".
+        "sin_medir_recortado": resumen["individual"]["saldo_sin_tasa_acotado_total"],
         # Cartera efectivamente medida: la estratificada menos lo sin medir,
         # acotada a [0, cartera estratificada]. Es la misma cifra que la
         # pantalla rotula «Cartera medida» y que `08-Conciliacion` B9 calcula
@@ -709,6 +714,30 @@ def _hallazgos(resumen, politica, parametros, factor_prospectivo_aplicado, justi
                   "causa": "La política se definió sobre criterios de gestión y no sobre el comportamiento de pago.",
                   "efecto": f"Diferencia bruta de {politica['diferencia_bruta']:,.2f}.",
                   "recomendacion": "Reemplazar los porcentajes fijos por la matriz derivada del comportamiento observado."})
+    # La cota que recorta el saldo sin medir de un caso individual a su propia
+    # exposición tampoco puede actuar en silencio. Que muerda significa que el
+    # cliente tiene notas de crédito que rebajan su neto sin rebajar lo que
+    # quedó sin medir: la parte recortada NO está medida, sencillamente ya no
+    # cabe dentro de su exposición.
+    recortado = float(exposicion.get("sin_medir_recortado") or 0)
+    if recortado > 0.005:
+        casos_recortados = [c["identificacion"] for c in resumen["individual"]["casos"]
+                            if c.get("saldo_sin_tasa_acotado")]
+        h.append({"titulo": "Saldo sin medir acotado a la exposición del caso", "riesgo": "Alto",
+                  "condicion": f"USD {recortado:,.2f} de saldo sin medir excedían la exposición de "
+                               f"su propio caso y se acotaron: "
+                               f"{', '.join(casos_recortados) or 'sin detalle de casos'}.",
+                  "criterio": "NIIF 9 B5.5.35: nada de un caso puede superar su importe en libros "
+                              "bruto, tampoco la parte que quedó sin medir.",
+                  "causa": "El cliente tiene saldo en bandas sin tasa aprobada y, a la vez, notas "
+                           "de crédito en otras bandas: su exposición es el NETO, y lo sin medir "
+                           "suma solo las bandas positivas.",
+                  "efecto": "El saldo sin medir que se informa (06-Individual, columna «Saldo sin "
+                            "medir») es menor que el saldo que realmente carece de tasa: la "
+                            "columna «Saldo sin medir SIN ACOTAR» conserva el importe previo.",
+                  "recomendacion": "Cruzar las notas de crédito del cliente contra las facturas "
+                                   "que corrigen, o aprobar una tasa sustituta para sus bandas sin "
+                                   "historia, antes de concluir sobre su medición."})
     # La cota de la cartera medida (motor: `exposicion_medida`) no puede actuar
     # en silencio. Que muerda significa que lo que NO se pudo medir supera a la
     # cartera estratificada: la cobertura deja de tener denominador y el papel

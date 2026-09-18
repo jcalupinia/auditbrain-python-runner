@@ -6,6 +6,7 @@ import {
   carteraMedidaDe,
   coberturaDe,
   controlDeLaCohorte,
+  cotasDeLaCorrida,
   evaluacionIndividualCompleta,
   filasIncompletas,
   parametrosDeLaCorrida,
@@ -126,6 +127,9 @@ export default function PceCxcTool({ projectId }) {
   const carteraMedida = carteraMedidaDe(res);
   const cobertura = coberturaDe(res);
   const controlCohorte = controlDeLaCohorte(res);
+  // Cotas que actuaron: ninguna puede quedarse solo en el papel. Si el motor
+  // recortó un importe, la pantalla lo dice con la cifra sin acotar a la vista.
+  const cotas = cotasDeLaCorrida(res);
   const filasMatriz = tramosVisibles(matriz?.tramos);
   const filasOmitidas = (matriz?.tramos?.length ?? 0) - filasMatriz.length;
 
@@ -508,6 +512,11 @@ export default function PceCxcTool({ projectId }) {
             </div>
           </div>
 
+          {cotas.map((cota) => (
+            <div key={cota.clave} className="pce-msg pce-bad">
+              <b>Acotamiento aplicado:</b> {cota.texto}
+            </div>
+          ))}
           {sinMedirTotal > 0.005 && (
             <div className="pce-msg pce-bad">
               Quedan {money(sinMedirTotal)} sin medir por falta de tasa histórica en su banda. Una

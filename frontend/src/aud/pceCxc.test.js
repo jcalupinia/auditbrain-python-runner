@@ -6,6 +6,7 @@ import {
   carteraMedidaDe,
   coberturaDe,
   controlDeLaCohorte,
+  cotasDeLaCorrida,
   evaluacionesIndividualesDeclaradas,
   factorProspectivoDeclarado,
   fechaEmision,
@@ -457,5 +458,63 @@ describe("evaluacionesIndividualesDeclaradas", () => {
   it("conserva un importe de cero declarado: 0,00 medido no es un dato ausente", () => {
     const filas = [{ segmento: "NO-RELACIONADOS", cliente: "ALFA", ecl: "0", justificacion: "Garantía bancaria por el 100 % (PT D-2)." }];
     expect(evaluacionesIndividualesDeclaradas(filas)["NO-RELACIONADOS|ALFA"].ecl).toBe(0);
+  });
+});
+
+describe("cotasDeLaCorrida", () => {
+  it("sin cotas que hayan actuado, no dice nada", () => {
+    const res = {
+      exposicion: { medida_acotada: null, sin_medir_recortado: 0 },
+      matriz: { ecl_acotada_por_piso: 0, ecl_acotada_por_techo: 0 },
+      individual: { ecl_acotada_por_piso: 0, ecl_acotada_por_techo: 0 },
+    };
+    expect(cotasDeLaCorrida(res)).toEqual([]);
+  });
+
+  it("declara que la cartera medida se acotó, con la cifra sin acotar", () => {
+    const res = {
+      exposicion: {
+        medida: 0, medida_sin_acotar: -350000, medida_acotada: "piso_cero",
+        sin_medir_recortado: 0,
+      },
+    };
+    const cotas = cotasDeLaCorrida(res);
+    expect(cotas).toHaveLength(1);
+    expect(cotas[0].clave).toBe("cartera_medida");
+    expect(cotas[0].texto).toContain("350.000,00");
+  });
+
+  it("declara el recorte del saldo sin medir de los casos individuales", () => {
+    const res = {
+      exposicion: { medida_acotada: null, sin_medir_recortado: 100000 },
+    };
+    const cotas = cotasDeLaCorrida(res);
+    expect(cotas.map((c) => c.clave)).toEqual(["saldo_sin_medir"]);
+    expect(cotas[0].texto).toContain("100.000,00");
+  });
+
+  it("sin resultado todavía, no revienta", () => {
+    expect(cotasDeLaCorrida(null)).toEqual([]);
+  });
+
+  it("una corrida antigua sin los campos no inventa que ninguna cota actuó", () => {
+    expect(cotasDeLaCorrida({ exposicion: { total: 100 } })).toEqual([]);
+  });
+});
+
+describe("factorProspectivoDeclarado", () => {
+  it("un factor de cero es un error de entrada, no un ajuste", () => {
+    expect(() => factorProspectivoDeclarado({ factor_nr: "0" })).toThrow(/0,000/);
+  });
+
+  it("un factor negativo también", () => {
+    expect(() => factorProspectivoDeclarado({ factor_r: "-1" })).toThrow(/0,000/);
+  });
+
+  it("vacío sigue siendo 1,000 (sin ajuste)", () => {
+    expect(factorProspectivoDeclarado({})).toEqual({
+      "NO-RELACIONADOS": 1,
+      RELACIONADOS: 1,
+    });
   });
 });

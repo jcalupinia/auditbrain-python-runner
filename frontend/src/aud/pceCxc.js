@@ -69,20 +69,35 @@ function numeroEscrito(valor) {
   return isFinite(numero) ? numero : null;
 }
 
+/** Mensaje único del factor prospectivo fuera de rango (pantalla y backend dicen lo mismo). */
+export const ERROR_FACTOR_PROSPECTIVO =
+  "El factor prospectivo debe ser mayor que 0,000: un factor de 0,000 anularía la pérdida " +
+  "esperada de todas las bandas y uno negativo invertiría su signo (1,000 = sin ajuste; " +
+  "1,100 = 10 % más de pérdida esperada).";
+
 /**
  * Factor prospectivo por segmento (1,000 = sin ajuste).
  *
- * Lo que no se declara vale 1,000 -«sin ajuste»-, nunca 0: un factor cero
- * anularía la pérdida esperada entera. El backend exige justificación escrita
- * para aplicarlo (NIIF 9 B5.5.51-52); sin ella lo deja en 1,000 y emite el
- * hallazgo «Ausencia del componente prospectivo».
+ * Lo que no se declara vale 1,000 -«sin ajuste»-, nunca 0. Un factor de 0,000
+ * NO es un ajuste: anula la pérdida esperada entera (toda banda en 0,00,
+ * cualquiera que sea su tasa observada) y archiva un papel que afirma que no
+ * hay pérdida. NIIF 9 B5.5.51-52 pide ajustar la tasa histórica por las
+ * previsiones, no sustituirla por cero, así que aquí se rechaza -igual que en
+ * el backend, con el mismo mensaje- en vez de enviarse y medir cero.
+ *
+ * El backend además exige justificación escrita para aplicar cualquier factor
+ * distinto de 1,000; sin ella lo deja en 1,000 y emite el hallazgo «Ausencia
+ * del componente prospectivo».
  * @param {object} datos - Campos del formulario
  * @returns {object} `{segmento: factor}`
+ * @throws {Error} Si algún factor declarado es cero o negativo
  */
 export function factorProspectivoDeclarado(datos) {
   const leer = (valor) => {
     const numero = numeroEscrito(valor);
-    return numero === null ? 1 : numero;
+    if (numero === null) return 1;
+    if (numero <= 0) throw new Error(ERROR_FACTOR_PROSPECTIVO);
+    return numero;
   };
   return {
     "NO-RELACIONADOS": leer(datos?.factor_nr),
@@ -240,6 +255,56 @@ export function carteraMedidaDe(resultado) {
     exposicion.sin_medir ?? 0,
     exposicion.sin_estratificar ?? 0
   );
+}
+
+/** Importe en el formato del papel (es-EC, dos decimales). */
+function importe(valor) {
+  return Number(valor || 0).toLocaleString("es-EC", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+/**
+ * Cotas que ACTUARON en esta corrida, listas para pintar.
+ *
+ * Ninguna cota de este módulo puede actuar en silencio: si un número se
+ * recortó, el motor lo declara (`exposicion.medida_acotada`,
+ * `exposicion.sin_medir_recortado`), el papel lo imprime en su celda y la
+ * pantalla tiene que decirlo también. Sin esta función el auditor veía una
+ * «Cartera medida» de 0,00 sin saber que salía de recortar una resta negativa.
+ *
+ * Una corrida anterior a estos campos devuelve la lista vacía: no se afirma
+ * que ninguna cota actuara, es que esa corrida no lo registró (y su papel lo
+ * rotula «NO REGISTRADO EN ESTA CORRIDA»).
+ * @param {object|null} resultado - Resultado de `analizar`
+ * @returns {Array<{clave: string, texto: string}>} Cotas que mordieron
+ */
+export function cotasDeLaCorrida(resultado) {
+  const exposicion = resultado?.exposicion;
+  if (!exposicion) return [];
+  const cotas = [];
+  if (exposicion.medida_acotada) {
+    cotas.push({
+      clave: "cartera_medida",
+      texto:
+        `La cartera medida se acotó: la cartera estratificada menos lo que no se pudo medir ` +
+        `daba ${importe(exposicion.medida_sin_acotar)} y se registró ` +
+        `${importe(exposicion.medida)}. Lo que no se pudo medir supera a la cartera ` +
+        `estratificada, así que la cobertura sobre lo medido pierde denominador.`,
+    });
+  }
+  if (Number(exposicion.sin_medir_recortado || 0) > 0.005) {
+    cotas.push({
+      clave: "saldo_sin_medir",
+      texto:
+        `${importe(exposicion.sin_medir_recortado)} de saldo sin medir excedían la exposición ` +
+        `de su propio cliente evaluado individualmente y se acotaron: ese importe carece de ` +
+        `tasa, pero ya no cabe dentro de la exposición del caso (06-Individual, columna ` +
+        `«Saldo sin medir SIN ACOTAR»).`,
+    });
+  }
+  return cotas;
 }
 
 /**
