@@ -428,6 +428,12 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
                         "total": l["total_saldo"]}
                        for c, l in zip(cortes, leidos)],
             "metodo": "Permanencia a 24 meses", "descuento": "No aplicado (NIIF 9 B5.5.44)",
+            # Centavos que hubo que repartir entre las bandas para que medir
+            # sobre la exposición redondeada no desanclara el total de los
+            # EEFF. Vacío = no hizo falta ninguno. Va al papel (12-Bitacora)
+            # porque una diferencia de redondeo que nadie declara es una
+            # diferencia que el revisor tiene que descubrir solo.
+            "redondeo_exposicion": resumen.get("redondeo_exposicion") or {},
         },
     }
 

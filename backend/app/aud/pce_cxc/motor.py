@@ -25,7 +25,7 @@ guarda junto con el resultado para dejar trazabilidad.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from typing import Any
 
 # Límites del artículo 10 numeral 11 de la LORTI (Ecuador): la provisión del
@@ -162,6 +162,16 @@ def medir_ecl(exposiciones: dict[str, float], parametros: ParametrosECL) -> dict
     (`None`, `"piso_cero"`, `"tasa_maxima"` o `"techo_exposicion"`), y el
     resultado totaliza `exposicion_negativa`, `ecl_acotada_por_piso` y
     `ecl_acotada_por_techo`.
+
+    LA BASE DE LA MEDICIÓN ES LA EXPOSICIÓN YA REDONDEADA A CENTAVOS. La
+    exposición de una banda es un importe monetario, y un papel de trabajo
+    auditable tiene que poder recalcularse desde sus propias celdas: la
+    exposición que se imprime, multiplicada por la tasa que se imprime, debe
+    dar la pérdida que se imprime. Antes se imprimía `redondear(saldo)` pero
+    se medía sobre `saldo` con todos sus decimales -que es lo que deja el
+    factor de anclaje a los estados financieros-, así que quien rehacía la
+    cuenta desde el papel obtenía hasta un centavo de diferencia por banda
+    contra lo archivado. Se redondea ANTES de multiplicar, no después.
     """
     filas = []
     total = 0.0
@@ -171,7 +181,9 @@ def medir_ecl(exposiciones: dict[str, float], parametros: ParametrosECL) -> dict
     acotada_piso = 0.0
     acotada_techo = 0.0
     for tramo, saldo in exposiciones.items():
-        saldo = float(saldo or 0)
+        # Centavos exactos antes de medir: esta es la cifra que el papel
+        # imprime y sobre la que se multiplica (ver el docstring).
+        saldo = redondear(float(saldo or 0))
         exposicion_total += saldo
         if saldo < 0:
             exposicion_negativa += saldo
@@ -183,7 +195,7 @@ def medir_ecl(exposiciones: dict[str, float], parametros: ParametrosECL) -> dict
             sin_medir += saldo
             filas.append({
                 "tramo": tramo,
-                "exposicion": redondear(saldo),
+                "exposicion": saldo,
                 "tasa_perdida": None,
                 "tasa_ajustada": None,
                 "tasa_ajustada_sin_acotar": None,
@@ -209,7 +221,7 @@ def medir_ecl(exposiciones: dict[str, float], parametros: ParametrosECL) -> dict
         # `ecl_sin_acotar` conserva lo que daría el cálculo puro; `ecl` aplica
         # el piso y el techo de la norma, y `acotado` dice cuál actuó.
         ecl_sin_acotar = redondear(saldo * tasa_ajustada_bruta * lgd * factor)
-        techo = max(redondear(saldo), 0.0)
+        techo = max(saldo, 0.0)
         ecl = min(max(redondear(saldo * tasa_ajustada * lgd * factor), 0.0), techo)
         acotado = None
         if ecl_sin_acotar < ecl - 0.0001:
@@ -221,7 +233,7 @@ def medir_ecl(exposiciones: dict[str, float], parametros: ParametrosECL) -> dict
         total += ecl
         filas.append({
             "tramo": tramo,
-            "exposicion": redondear(saldo),
+            "exposicion": saldo,
             "tasa_perdida": float(tasa),
             "tasa_ajustada": tasa_ajustada,
             "tasa_ajustada_sin_acotar": tasa_ajustada_bruta,
@@ -266,6 +278,11 @@ def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
     0,00 y se declara con `acotado`, en vez de abortar la corrida. Lo que sí
     sigue siendo un error es una recuperación estimada MAYOR que el saldo: ese
     dato lo carga una persona y no tiene lectura válida.
+
+    Igual que en la matriz colectiva, el saldo del caso se redondea a centavos
+    ANTES de medir: es un importe monetario y es el que imprime el papel, así
+    que saldo menos recuperación tiene que dar exactamente la pérdida
+    archivada.
     """
     detalle = []
     saldo_total = 0.0
@@ -274,8 +291,9 @@ def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
     acotada_techo = 0.0
     sin_tasa_total = 0.0
     for caso in casos:
-        saldo = float(caso.get("saldo") or 0)
-        techo = max(redondear(saldo), 0.0)
+        # Centavos exactos antes de medir (ver el docstring).
+        saldo = redondear(float(caso.get("saldo") or 0))
+        techo = max(saldo, 0.0)
         if caso.get("ecl") is not None:
             ecl_sin_acotar = redondear(float(caso["ecl"]))
         else:
@@ -313,7 +331,7 @@ def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
         detalle.append({
             "identificacion": caso.get("identificacion"),
             "tramo": caso.get("tramo"),
-            "saldo": redondear(saldo),
+            "saldo": saldo,
             "recuperacion_estimada": redondear(saldo - ecl),
             "sustento": caso.get("sustento", ""),
             "saldo_sin_tasa": sin_tasa,
@@ -375,6 +393,7 @@ def _deducir_casos_individuales(
     casos_medidos: list[dict[str, Any]],
     segmentado: bool,
     brutos: dict[str, dict[str, float]] | None = None,
+    ajustes: dict[str, int] | None = None,
 ) -> dict[str, dict[str, float]]:
     """Saca de la matriz colectiva los saldos que se miden caso por caso.
 
@@ -394,9 +413,16 @@ def _deducir_casos_individuales(
     El resto puede quedar NEGATIVO: es la nota de crédito, que sigue en la
     matriz colectiva con su signo y a la que `medir_ecl` aplica el piso cero.
     Solo se lleva a cero lo que está por debajo del centavo, que es ruido.
+
+    `ajustes`, si se pasa, recoge cuántos centavos tuvo que repartir
+    `_cuadrar_restantes_a_centavos` en cada segmento: no es un detalle interno,
+    va a la bitácora del papel de trabajo.
     """
     restantes = {s: dict(bandas) for s, bandas in exposiciones.items()}
     techos = brutos if brutos is not None else exposiciones
+    # Saldo que sale de cada segmento hacia 06-Individual: lo necesita
+    # `_cuadrar_restantes_a_centavos` para fijar el objetivo de la matriz.
+    fuera: dict[str, float] = {s: 0.0 for s in restantes}
     for entrada, medido in zip(casos_entrada, casos_medidos):
         segmento = entrada.get("segmento") if segmentado else None
         if segmento not in restantes:
@@ -424,6 +450,78 @@ def _deducir_casos_individuales(
                 )
             restante = float(restantes[segmento][tramo]) - monto
             restantes[segmento][tramo] = 0.0 if abs(restante) < 0.01 else restante
+        fuera[segmento] = fuera.get(segmento, 0.0) + float(medido["saldo"])
+    return _cuadrar_restantes_a_centavos(restantes, exposiciones, fuera, ajustes)
+
+
+def _a_centavos(valor: float) -> int:
+    """El importe, ya redondeado, como número entero de centavos."""
+    return int(Decimal(str(redondear(valor))) * 100)
+
+
+def _cuadrar_restantes_a_centavos(
+    restantes: dict[str, dict[str, float]],
+    exposiciones: dict[str, dict[str, float]],
+    fuera: dict[str, float],
+    ajustes: dict[str, int] | None = None,
+) -> dict[str, dict[str, float]]:
+    """Deja cada banda de la matriz en CENTAVOS EXACTOS sin descuadrar el total.
+
+    POR QUÉ HACE FALTA. La exposición de una banda es un importe monetario y
+    `medir_ecl` la redondea ANTES de multiplicarla por la tasa: es la única
+    forma de que el papel de trabajo se pueda recalcular desde sus propias
+    celdas (exposición impresa × tasa impresa = pérdida impresa). Pero
+    entonces el total deja de ser «la suma redondeada» y pasa a ser «la suma DE
+    LAS REDONDEADAS», y esa suma puede apartarse unos centavos de la cartera
+    anclada a los estados financieros: medio centavo por banda en el peor caso,
+    hasta cuatro centavos por segmento con las ocho bandas por defecto. Sin
+    esta función esa diferencia saldría en `08-Conciliacion` como un descuadre
+    contra los EEFF que no existe en la cartera del cliente: es redondeo de
+    presentación, no una partida conciliatoria.
+
+    DÓNDE SE ABSORBE. Dentro de las propias bandas de la matriz, UN centavo por
+    banda y empezando por las de mayor resto fraccionario (método del resto
+    mayor). Así ninguna banda se aparta más de un centavo de su exposición
+    exacta y se conserva la identidad que el papel necesita:
+
+        Σ bandas de 05-Matriz + Σ casos de 06-Individual = cartera anclada
+
+    Se descartaron las dos alternativas: cargarle toda la diferencia a una sola
+    banda (distorsiona una banda concreta por varios centavos y sesga su
+    pérdida esperada) y dejarla como partida conciliatoria de redondeo (ensucia
+    la conciliación con una diferencia que no es del cliente). El reparto no es
+    silencioso: la bitácora del papel lo declara.
+
+    Aquí no se conoce la cartera de los estados financieros, ni hace falta. El
+    objetivo de cada segmento es el importe que YA llegó en `exposiciones` -que
+    el servicio ancló antes de llamar- redondeado una sola vez, menos los casos
+    individuales que salieron de esas bandas (`fuera`, ya en centavos porque
+    `evaluar_individual` los redondeó). Sin anclaje el objetivo es el total del
+    archivo redondeado, que es igualmente la cifra que el papel declara.
+    """
+    cien = Decimal("100")
+    for segmento, bandas in restantes.items():
+        if not bandas:
+            continue
+        redondeadas = {b: redondear(v) for b, v in bandas.items()}
+        bruto = sum(float(v or 0) for v in exposiciones.get(segmento, {}).values())
+        objetivo = _a_centavos(bruto) - _a_centavos(fuera.get(segmento, 0.0))
+        sobrante = objetivo - sum(_a_centavos(v) for v in redondeadas.values())
+        if sobrante and ajustes is not None:
+            ajustes[str(segmento or "CARTERA")] = sobrante
+        if sobrante:
+            exactos = {b: Decimal(str(float(v or 0))) * cien for b, v in bandas.items()}
+            resto = {b: v - v.to_integral_value(rounding=ROUND_FLOOR)
+                     for b, v in exactos.items()}
+            orden = sorted(bandas, key=lambda b: resto[b], reverse=sobrante > 0)
+            paso = Decimal("0.01") if sobrante > 0 else Decimal("-0.01")
+            # El módulo es una red de seguridad: `sobrante` no puede superar el
+            # número de bandas del segmento, pero si algún día lo hiciera el
+            # total seguiría cuadrando en vez de quedarse corto.
+            for k in range(abs(sobrante)):
+                b = orden[k % len(orden)]
+                redondeadas[b] = float(Decimal(str(redondeadas[b])) + paso)
+        restantes[segmento] = redondeadas
     return restantes
 
 
@@ -464,8 +562,13 @@ def resumen_deterioro(
     if exposiciones_brutas is not None:
         brutos = ({s: dict(e) for s, e in exposiciones_brutas.items()} if segmentado
                   else {None: dict(exposiciones_brutas)})
+    # Centavos que la cuadratura del redondeo tuvo que repartir entre las
+    # bandas: se declara en el resultado (y de ahí en la bitácora del papel),
+    # nunca se aplica en silencio.
+    ajuste_redondeo: dict[str, int] = {}
     restantes = _deducir_casos_individuales(
-        por_segmento, casos_individuales, individual["casos"], segmentado, brutos)
+        por_segmento, casos_individuales, individual["casos"], segmentado, brutos,
+        ajuste_redondeo)
 
     if segmentado:
         medidos = {s: medir_ecl(restantes[s], parametros[s]) for s in restantes}
@@ -487,6 +590,10 @@ def resumen_deterioro(
     resultado: dict[str, Any] = {
         "colectivo": colectivo,
         "individual": individual,
+        # Reparto de centavos que exige medir sobre la exposición redondeada
+        # sin desanclar el total (ver `_cuadrar_restantes_a_centavos`). Vacío
+        # cuando la suma de las bandas redondeadas ya daba el total exacto.
+        "redondeo_exposicion": ajuste_redondeo,
         "exposicion_total": exposicion_total,
         "exposicion_sin_medir": exposicion_sin_medir,
         "exposicion_medida": exposicion_medida,

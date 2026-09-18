@@ -1237,6 +1237,20 @@ def _bitacora(wb: Workbook, resultado: dict[str, Any], fecha_emision: str) -> No
         for c in cortes
     ) or "(sin transformaciones registradas)"
     factores_texto = ", ".join(f"{k}: {v}" for k, v in factores.items()) or "(sin factores de anclaje)"
+    # Medir sobre la exposición redondeada obliga a que el total sea la suma DE
+    # LAS BANDAS REDONDEADAS, y esa suma puede quedar a unos centavos de la
+    # cartera anclada. Esos centavos se reparten entre las bandas (un centavo
+    # por banda, las de mayor resto primero) y aquí se declaran: sin esta línea
+    # el ajuste existiría igual, pero en silencio.
+    redondeo = (bitacora.get("redondeo_exposicion") or {})
+    if redondeo:
+        redondeo_texto = ("; ".join(f"{k}: {v:+d} centavo(s)" for k, v in redondeo.items())
+                          + ". Repartidos entre las bandas de 05-Matriz, un centavo por banda "
+                            "empezando por las de mayor resto, para que la exposición se mida "
+                            "en centavos exactos sin desanclarse de la cartera según EEFF.")
+    else:
+        redondeo_texto = ("Ninguno: la suma de las bandas redondeadas ya daba la cartera anclada "
+                          "al centavo.")
     trazabilidad_texto = f"{trazabilidad:.1%}" if isinstance(trazabilidad, (int, float)) else ""
 
     filas = [
@@ -1247,6 +1261,7 @@ def _bitacora(wb: Workbook, resultado: dict[str, Any], fecha_emision: str) -> No
         ("Umbral de evaluación individual", bitacora.get("umbral_individual", "")),
         ("Cortes cargados", cortes_texto),
         ("Factores de anclaje a EEFF", factores_texto),
+        ("Ajuste por redondeo de la exposición", redondeo_texto),
         ("Trazabilidad de la cohorte", trazabilidad_texto),
         ("Transformaciones aplicadas por archivo", transformaciones_texto),
         ("Versión y fecha de generación", f"PT-PCE-CXC v1.0 — emitido {fecha_emision}"),
