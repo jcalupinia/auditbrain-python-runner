@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { CATEGORIES } from "./catalog.js";
 import {
   carteraMedida,
+  carteraMedidaDe,
+  coberturaDe,
   fechaEmision,
   parametrosDeLaCorrida,
   tramosVisibles,
@@ -178,5 +180,36 @@ describe("parametrosDeLaCorrida", () => {
       materialidad: 12000,
       eeff: { no_relacionados: 195000, relacionados: 25000 },
     });
+  });
+});
+
+describe("la pantalla toma la medición del motor (I8)", () => {
+  const resultado = {
+    ecl_total: 20000,
+    porcentaje_sobre_cartera: 0.1,
+    medicion_completa: false,
+    exposicion: { total: 210000, sin_medir: 10000, sin_estratificar: 0, medida: 200000 },
+  };
+
+  it("usa la cartera medida que calculó el motor", () => {
+    expect(carteraMedidaDe(resultado)).toBe(200000);
+  });
+
+  it("y la cobertura que calculó el motor, sobre lo medido", () => {
+    expect(coberturaDe(resultado)).toBe(0.1);
+  });
+
+  it("con una corrida antigua sin esos campos, los reconstruye de la exposición", () => {
+    const antigua = {
+      ecl_total: 20000,
+      exposicion: { total: 210000, sin_medir: 10000, sin_estratificar: 0 },
+    };
+    expect(carteraMedidaDe(antigua)).toBe(200000);
+    expect(coberturaDe(antigua)).toBeCloseTo(0.1, 10);
+  });
+
+  it("sin resultado todavía, no inventa cifras", () => {
+    expect(carteraMedidaDe(null)).toBeNull();
+    expect(coberturaDe(null)).toBeNull();
   });
 });

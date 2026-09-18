@@ -266,6 +266,7 @@ def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
     ecl_total = 0.0
     acotada_piso = 0.0
     acotada_techo = 0.0
+    sin_tasa_total = 0.0
     for caso in casos:
         saldo = float(caso.get("saldo") or 0)
         techo = max(redondear(saldo), 0.0)
@@ -297,17 +298,19 @@ def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
             acotada_techo += ecl_sin_acotar - ecl
         saldo_total += saldo
         ecl_total += ecl
+        # Parte del saldo del caso que no se pudo medir (banda sin tasa y sin
+        # estimación propia justificada). Va como campo propio, no solo dentro
+        # del texto de `sustento`, para que se pueda sumar sin tener que
+        # parsear una frase.
+        sin_tasa = redondear(float(caso.get("saldo_sin_tasa") or 0.0))
+        sin_tasa_total += sin_tasa
         detalle.append({
             "identificacion": caso.get("identificacion"),
             "tramo": caso.get("tramo"),
             "saldo": redondear(saldo),
             "recuperacion_estimada": redondear(saldo - ecl),
             "sustento": caso.get("sustento", ""),
-            # Parte del saldo del caso que no se pudo medir (banda sin tasa y
-            # sin estimación propia justificada). Va como campo propio, no solo
-            # dentro del texto de `sustento`, para que se pueda sumar sin tener
-            # que parsear una frase.
-            "saldo_sin_tasa": redondear(float(caso.get("saldo_sin_tasa") or 0.0)),
+            "saldo_sin_tasa": sin_tasa,
             "ecl": ecl,
             "ecl_sin_acotar": ecl_sin_acotar,
             "acotado": acotado,
@@ -318,6 +321,11 @@ def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
         "ecl_total": redondear(ecl_total),
         "ecl_acotada_por_piso": redondear(acotada_piso),
         "ecl_acotada_por_techo": redondear(acotada_techo),
+        # Saldo evaluado individualmente que quedó SIN MEDIR: su pérdida
+        # provisional es 0,00 porque su banda no tiene tasa, no porque no haya
+        # pérdida. Se totaliza aquí para que el resumen lo descuente de la
+        # cartera medida en vez de darla por medida.
+        "saldo_sin_tasa_total": redondear(sin_tasa_total),
     }
 
 
@@ -325,39 +333,131 @@ def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
 # Resumen del papel de trabajo
 # ---------------------------------------------------------------------------
 
+def _consolidar_colectivo(
+    medidos: dict[str, dict[str, Any]],
+    parametros: dict[str, ParametrosECL],
+) -> dict[str, Any]:
+    """Une las matrices de todos los segmentos en un solo cuadro colectivo.
+
+    Cada fila conserva su segmento, y los agregados (exposición, pérdida,
+    acotamientos) se suman. `ajuste_prospectivo` sale como diccionario
+    segmento -> FACTOR (1,00 = sin ajuste), que es la forma que consume
+    `01-Parametros` del papel de trabajo.
+    """
+    tramos: list[dict[str, Any]] = []
+    totales = {"exposicion_total": 0.0, "exposicion_sin_medir": 0.0, "exposicion_negativa": 0.0,
+               "ecl_acotada_por_piso": 0.0, "ecl_acotada_por_techo": 0.0, "ecl_total": 0.0}
+    for segmento, medido in medidos.items():
+        for t in medido["tramos"]:
+            tramos.append({**t, "segmento": segmento})
+        for clave in totales:
+            totales[clave] += medido[clave]
+    primero = next(iter(parametros.values()))
+    return {
+        "tramos": tramos,
+        **{clave: redondear(valor) for clave, valor in totales.items()},
+        "descuento_aplicado": any(m["descuento_aplicado"] for m in medidos.values()),
+        "ajuste_prospectivo": {s: p.ajuste_prospectivo + 1.0 for s, p in parametros.items()},
+        "justificacion_ajuste": primero.justificacion_ajuste,
+        "fuente_tasas": primero.fuente_tasas,
+    }
+
+
+def _deducir_casos_individuales(
+    exposiciones: dict[str, dict[str, float]],
+    casos_entrada: list[dict[str, Any]],
+    casos_medidos: list[dict[str, Any]],
+    segmentado: bool,
+) -> dict[str, dict[str, float]]:
+    """Saca de la matriz colectiva los saldos que se miden caso por caso.
+
+    Un caso puede repartirse en varias bandas (`bandas`), que es lo normal
+    cuando el cliente entero sale de la matriz por superar el umbral de
+    evaluación individual; si no trae ese desglose se usa su `tramo`.
+
+    La guarda -«Los casos individuales del tramo X superan su exposición»-
+    solo se evalúa cuando tanto la exposición de la banda como el saldo del
+    caso son deudores: con un saldo acreedor (una nota de crédito) el resto
+    puede quedar negativo sin que nadie mida dos veces, y abortar ahí
+    convertiría una nota de crédito en un error inaccionable.
+    """
+    restantes = {s: dict(bandas) for s, bandas in exposiciones.items()}
+    for entrada, medido in zip(casos_entrada, casos_medidos):
+        segmento = entrada.get("segmento") if segmentado else None
+        if segmento not in restantes:
+            raise ValueError(
+                f"El caso individual '{medido.get('identificacion')}' apunta a un segmento "
+                f"inexistente: '{segmento}'"
+            )
+        bandas = entrada.get("bandas")
+        if not bandas:
+            tramo = medido.get("tramo")
+            if tramo is None:
+                continue
+            bandas = {tramo: medido["saldo"]}
+        for tramo, monto in bandas.items():
+            if tramo not in restantes[segmento]:
+                raise ValueError(f"El caso individual apunta a un tramo inexistente: '{tramo}'")
+            expuesto = float(restantes[segmento][tramo])
+            monto = float(monto)
+            restante = expuesto - monto
+            if monto >= 0 and expuesto >= 0:
+                if restante < -0.01:
+                    ubicacion = f"'{tramo}'" + (f" de {segmento}" if segmento else "")
+                    raise ValueError(
+                        f"Los casos individuales del tramo {ubicacion} superan su exposición: "
+                        f"USD {monto:,.2f} sobre USD {expuesto:,.2f}. Revise que los saldos "
+                        "evaluados individualmente salgan de la misma cartera que la matriz."
+                    )
+                restante = max(restante, 0.0)
+            restantes[segmento][tramo] = restante
+    return restantes
+
+
 def resumen_deterioro(
-    exposiciones: dict[str, float],
-    parametros: ParametrosECL,
+    exposiciones: dict[str, Any],
+    parametros: ParametrosECL | dict[str, ParametrosECL],
     casos_individuales: list[dict[str, Any]] | None = None,
     saldo_contable: float | None = None,
 ) -> dict[str, Any]:
     """Junta la matriz colectiva, los casos individuales, la conciliación y el
     cuadro tributario. Los saldos evaluados individualmente se descuentan de su
-    tramo para no medirlos dos veces."""
+    tramo para no medirlos dos veces.
+
+    Admite dos formas, y esta es la única entrada al resumen (el servicio no
+    reimplementa ninguna de las dos):
+
+    - Un solo universo: `exposiciones = {tramo: saldo}` y un `ParametrosECL`.
+    - Por segmento: `exposiciones = {segmento: {tramo: saldo}}` y
+      `parametros = {segmento: ParametrosECL}`. Terceros y relacionadas tienen
+      comportamiento de pago distinto y no pueden compartir matriz
+      (NIIF 9 B5.5.35), así que cada segmento se mide con sus propias tasas y
+      su propio factor prospectivo, y después se consolidan los tramos.
+    """
     casos_individuales = casos_individuales or []
     individual = evaluar_individual(casos_individuales)
 
-    exposiciones_colectivas = dict(exposiciones)
-    for caso in individual["casos"]:
-        tramo = caso.get("tramo")
-        if tramo is None:
-            continue
-        if tramo not in exposiciones_colectivas:
-            raise ValueError(f"El caso individual apunta a un tramo inexistente: '{tramo}'")
-        restante = float(exposiciones_colectivas[tramo]) - caso["saldo"]
-        if restante < -0.01:
-            raise ValueError(
-                f"Los casos individuales del tramo '{tramo}' superan su exposición"
-            )
-        exposiciones_colectivas[tramo] = max(restante, 0.0)
+    segmentado = isinstance(parametros, dict)
+    por_segmento: dict[str, dict[str, float]] = (
+        {s: dict(e) for s, e in exposiciones.items()} if segmentado else {None: dict(exposiciones)}
+    )
+    restantes = _deducir_casos_individuales(
+        por_segmento, casos_individuales, individual["casos"], segmentado)
 
-    colectivo = medir_ecl(exposiciones_colectivas, parametros)
+    if segmentado:
+        medidos = {s: medir_ecl(restantes[s], parametros[s]) for s in restantes}
+        colectivo = _consolidar_colectivo(medidos, parametros)
+    else:
+        colectivo = medir_ecl(restantes[None], parametros)
+
     exposicion_total = redondear(colectivo["exposicion_total"] + individual["saldo_total"])
     ecl_total = redondear(colectivo["ecl_total"] + individual["ecl_total"])
-    # Los casos individuales siempre se miden (evaluar_individual exige la
-    # recuperación estimada), así que lo sin medir viene solo de la matriz
-    # colectiva: bandas sin tasa aprobada.
-    exposicion_sin_medir = redondear(colectivo["exposicion_sin_medir"])
+    # Lo sin medir viene de dos lados y ninguno se rellena con cero: las bandas
+    # de la matriz que no tienen tasa aprobada, y los saldos evaluados
+    # individualmente que caen en una banda sin tasa y sin estimación propia
+    # justificada.
+    exposicion_sin_medir = redondear(
+        colectivo["exposicion_sin_medir"] + individual["saldo_sin_tasa_total"])
     exposicion_medida = redondear(exposicion_total - exposicion_sin_medir)
 
     resultado: dict[str, Any] = {

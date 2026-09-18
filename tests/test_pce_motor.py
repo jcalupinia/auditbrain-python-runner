@@ -292,3 +292,83 @@ def test_la_recuperacion_que_supera_al_saldo_sigue_siendo_un_error_accionable():
         evaluar_individual([{"identificacion": "X", "saldo": 100.0,
                              "recuperacion_estimada": 150.0}])
     assert "X" in str(e.value)
+
+
+# ---------------------------------------------------------------------------
+# I8 — El resumen del motor es el que usa producción: medición por segmento,
+# deducción de los casos individuales de CADA banda en la que tienen saldo, y
+# el saldo individual sin tasa contado como exposición sin medir.
+# ---------------------------------------------------------------------------
+
+def _parametros_por_segmento():
+    return {
+        "NO-RELACIONADOS": ParametrosECL(
+            tasas_perdida={"0 a 30 días": 0.10, "Más de 730 días": 0.50}, lgd=1.0),
+        "RELACIONADOS": ParametrosECL(
+            tasas_perdida={"0 a 30 días": 0.02}, lgd=1.0),
+    }
+
+
+def test_el_resumen_mide_cada_segmento_con_sus_propios_parametros():
+    """Terceros y relacionadas no comparten matriz (NIIF 9 B5.5.35)."""
+    r = resumen_deterioro(
+        exposiciones={"NO-RELACIONADOS": {"0 a 30 días": 100000.0, "Más de 730 días": 50000.0},
+                      "RELACIONADOS": {"0 a 30 días": 200000.0}},
+        parametros=_parametros_por_segmento(),
+    )
+    por_clave = {(t["segmento"], t["tramo"]): t for t in r["colectivo"]["tramos"]}
+    assert por_clave[("NO-RELACIONADOS", "0 a 30 días")]["ecl"] == pytest.approx(10000.0)
+    assert por_clave[("NO-RELACIONADOS", "Más de 730 días")]["ecl"] == pytest.approx(25000.0)
+    assert por_clave[("RELACIONADOS", "0 a 30 días")]["ecl"] == pytest.approx(4000.0)
+    assert r["colectivo"]["ecl_total"] == pytest.approx(39000.0)
+    assert r["exposicion_total"] == pytest.approx(350000.0)
+    assert r["medicion_completa"] is True
+
+
+def test_el_caso_individual_se_deduce_de_cada_banda_en_la_que_tiene_saldo():
+    """Un cliente evaluado individualmente reparte su saldo en varias bandas."""
+    r = resumen_deterioro(
+        exposiciones={"NO-RELACIONADOS": {"0 a 30 días": 100000.0, "Más de 730 días": 50000.0},
+                      "RELACIONADOS": {"0 a 30 días": 200000.0}},
+        parametros=_parametros_por_segmento(),
+        casos_individuales=[{"identificacion": "MEGA", "segmento": "NO-RELACIONADOS",
+                             "saldo": 70000.0, "ecl": 30000.0,
+                             "bandas": {"0 a 30 días": 20000.0, "Más de 730 días": 50000.0}}],
+    )
+    por_clave = {(t["segmento"], t["tramo"]): t for t in r["colectivo"]["tramos"]}
+    assert por_clave[("NO-RELACIONADOS", "0 a 30 días")]["exposicion"] == pytest.approx(80000.0)
+    assert por_clave[("NO-RELACIONADOS", "Más de 730 días")]["exposicion"] == pytest.approx(0.0)
+    # La cartera no se mide dos veces: el total sigue siendo el de origen.
+    assert r["exposicion_total"] == pytest.approx(350000.0)
+
+
+def test_los_casos_individuales_que_superan_su_tramo_son_un_error_accionable():
+    with pytest.raises(ValueError, match="superan su exposición"):
+        resumen_deterioro(
+            exposiciones={"NO-RELACIONADOS": {"0 a 30 días": 100000.0, "Más de 730 días": 50000.0},
+                          "RELACIONADOS": {"0 a 30 días": 200000.0}},
+            parametros=_parametros_por_segmento(),
+            casos_individuales=[{"identificacion": "MEGA", "segmento": "NO-RELACIONADOS",
+                                 "saldo": 500000.0, "ecl": 0.0,
+                                 "bandas": {"0 a 30 días": 500000.0}}],
+        )
+
+
+def test_el_saldo_individual_sin_tasa_es_exposicion_sin_medir():
+    """Un caso individual en una banda sin tasa no está medido en 0,00: está sin medir."""
+    r = resumen_deterioro(
+        exposiciones={"NO-RELACIONADOS": {"0 a 30 días": 100000.0, "Sin historia": 40000.0},
+                      "RELACIONADOS": {"0 a 30 días": 0.0}},
+        parametros={
+            "NO-RELACIONADOS": ParametrosECL(tasas_perdida={"0 a 30 días": 0.10}, lgd=1.0),
+            "RELACIONADOS": ParametrosECL(tasas_perdida={"0 a 30 días": 0.02}, lgd=1.0),
+        },
+        casos_individuales=[{"identificacion": "OMEGA", "segmento": "NO-RELACIONADOS",
+                             "saldo": 40000.0, "ecl": 0.0, "saldo_sin_tasa": 40000.0,
+                             "bandas": {"Sin historia": 40000.0}}],
+    )
+    assert r["individual"]["saldo_sin_tasa_total"] == pytest.approx(40000.0)
+    assert r["exposicion_sin_medir"] == pytest.approx(40000.0)
+    assert r["exposicion_medida"] == pytest.approx(100000.0)
+    assert r["medicion_completa"] is False
+    assert r["porcentaje_sobre_cartera"] == pytest.approx(0.10)

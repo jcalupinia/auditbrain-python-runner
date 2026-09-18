@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
-from backend.app.aud.pce_cxc.motor import redondear
+from backend.app.aud.pce_cxc.motor import redondear, tasa_perdida
 
 
 #: Cuántos documentos ambiguos se listan como ejemplo. El conteo completo va
@@ -65,7 +65,10 @@ def tasas_por_permanencia(cohorte: list[dict[str, Any]], actual: list[dict[str, 
         tasas[segmento] = {}
         for banda, d in bandas.items():
             if d["inicial"] > 0:
-                tasa_bruta = d["remanente"] / d["inicial"]
+                # La proporción de la cohorte que no se recuperó la calcula el
+                # motor (`tasa_perdida`), que es donde vive la definición: aquí
+                # solo se acota y se declara lo que queda fuera de rango.
+                tasa_bruta = tasa_perdida(d["inicial"], d["remanente"])
 
                 # Detectar anomalías y acotar la tasa entre 0 y 1
                 if tasa_bruta > 1.0:

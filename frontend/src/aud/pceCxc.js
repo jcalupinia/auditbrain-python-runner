@@ -75,3 +75,40 @@ export function parametrosDeLaCorrida(datos, fechas, projectId, ahora = new Date
     },
   };
 }
+
+/**
+ * Cartera efectivamente medida, tal como la calculó el motor.
+ *
+ * `exposicion.medida` es `exposicion_medida` de `motor.resumen_deterioro`: la
+ * cartera estratificada menos lo que no se pudo medir (bandas sin tasa y
+ * saldos individuales sin tasa). Se prefiere esa cifra a recalcularla aquí
+ * para que la pantalla, el papel y la base digan lo mismo. Las corridas
+ * anteriores a ese campo se reconstruyen desde la exposición.
+ * @param {object|null} resultado - Resultado de `analizar`
+ * @returns {number|null} Cartera medida, o null si todavía no hay resultado
+ */
+export function carteraMedidaDe(resultado) {
+  const exposicion = resultado?.exposicion;
+  if (!exposicion) return null;
+  if (exposicion.medida != null) return exposicion.medida;
+  return carteraMedida(
+    exposicion.total,
+    exposicion.sin_medir ?? 0,
+    exposicion.sin_estratificar ?? 0
+  );
+}
+
+/**
+ * Cobertura de la pérdida esperada SOBRE LO MEDIDO.
+ *
+ * Es `porcentaje_sobre_cartera` del motor: dividir entre la cartera total
+ * diluiría el porcentaje justo cuando hay algo sin medir.
+ * @param {object|null} resultado - Resultado de `analizar`
+ * @returns {number|null} Cobertura, o null si no se puede calcular
+ */
+export function coberturaDe(resultado) {
+  if (resultado?.porcentaje_sobre_cartera != null) return resultado.porcentaje_sobre_cartera;
+  const medida = carteraMedidaDe(resultado);
+  if (medida == null || medida <= 0.005) return null;
+  return (resultado?.ecl_total ?? 0) / medida;
+}

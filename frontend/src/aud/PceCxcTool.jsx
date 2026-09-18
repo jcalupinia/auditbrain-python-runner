@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { pceCxcAnalizar, pceCxcDescargarExcel } from "../api.js";
 import {
-  carteraMedida as calcularCarteraMedida,
+  carteraMedidaDe,
+  coberturaDe,
   parametrosDeLaCorrida,
   tramosVisibles,
 } from "./pceCxc.js";
@@ -78,11 +79,12 @@ export default function PceCxcTool({ projectId }) {
   const sinMedirTotal = exposicion?.sin_medir ?? 0;
   const sinEstratificar = exposicion?.sin_estratificar ?? 0;
   const cartera = exposicion?.total ?? null;
-  const carteraMedida = calcularCarteraMedida(cartera, sinMedirTotal, sinEstratificar);
+  // La cartera medida y la cobertura las calcula el motor
+  // (`motor.resumen_deterioro`): la pantalla las muestra, no las vuelve a deducir.
+  const carteraMedida = carteraMedidaDe(res);
+  const cobertura = coberturaDe(res);
   const filasMatriz = tramosVisibles(matriz?.tramos);
   const filasOmitidas = (matriz?.tramos?.length ?? 0) - filasMatriz.length;
-  const cobertura =
-    carteraMedida && carteraMedida > 0.005 ? (res?.ecl_total ?? 0) / carteraMedida : null;
 
   return (
     <div className="pce">

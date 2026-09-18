@@ -418,3 +418,34 @@ def test_un_umbral_de_incumplimiento_explicito_se_respeta():
 def test_sin_umbral_de_incumplimiento_se_usa_el_defecto_del_plan():
     r = analizar(_cortes(), {})
     assert r["bitacora"]["umbral_incumplimiento"] == 730
+
+
+# ---------------------------------------------------------------------------
+# I8 — El servicio mide con `motor.resumen_deterioro`, así que las invariantes
+# que la suite verifica sobre el motor llegan al producto.
+# ---------------------------------------------------------------------------
+
+def test_el_resultado_declara_si_la_medicion_esta_completa():
+    r = analizar(_cortes(), {"umbral_dias_incumplimiento": 730})
+    # F-1 quedó en "Más de 730 días", banda sin historia: la medición no es completa.
+    assert r["medicion_completa"] is False
+    assert r["exposicion"]["medida"] == pytest.approx(200000.0)
+
+
+def test_el_porcentaje_sobre_cartera_se_calcula_sobre_lo_medido():
+    r = analizar(_cortes(), {"umbral_dias_incumplimiento": 730})
+    # 20.000 de pérdida sobre 200.000 medidos: dividir entre los 210.000 totales
+    # diluiría el porcentaje justo cuando hay cartera sin medir.
+    assert r["porcentaje_sobre_cartera"] == pytest.approx(0.10)
+
+
+def test_la_cartera_medida_descuenta_tambien_el_saldo_individual_sin_tasa():
+    """Con los dos clientes evaluados individualmente, lo sin medir viene solo de ellos."""
+    r = analizar(_cortes(), {"umbral_dias_incumplimiento": 730, "umbral_individual": 5000})
+    identificaciones = [c["identificacion"] for c in r["individual"]["casos"]]
+    assert sorted(identificaciones) == ["ALFA (NO-RELACIONADOS)", "GAMMA (NO-RELACIONADOS)"]
+    # ALFA cae en "Más de 730 días", banda sin tasa: sus 10.000 no están medidos.
+    assert r["exposicion"]["sin_medir"] == pytest.approx(10000.0)
+    assert r["exposicion"]["medida"] == pytest.approx(200000.0)
+    assert r["medicion_completa"] is False
+    assert r["porcentaje_sobre_cartera"] == pytest.approx(0.10)

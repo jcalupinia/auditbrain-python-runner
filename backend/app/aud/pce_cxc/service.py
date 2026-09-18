@@ -16,7 +16,7 @@ from backend.app.aud.pce_cxc.cohortes import tasas_por_permanencia
 from backend.app.aud.pce_cxc.lectura import MOTIVO_FILA_REPETIDA, leer_cartera
 from backend.app.aud.pce_cxc.models import CorridaPCE
 from backend.app.aud.pce_cxc.motor import (
-    ParametrosECL, evaluar_individual, medir_ecl, redondear,
+    ParametrosECL, redondear, resumen_deterioro,
 )
 from backend.app.auth.models import User
 from backend.app.context import service as ctx_service
@@ -226,18 +226,22 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
 
     # La matriz se mide POR SEGMENTO: terceros y relacionadas tienen comportamiento
     # de pago distinto y no pueden agruparse (NIIF 9 B5.5.35).
+    #
+    # La exposición de cada banda se acumula COMPLETA, incluidos los clientes que
+    # se van a evaluar individualmente: es `motor.resumen_deterioro` quien los
+    # deduce de su banda, con su guarda de no medir dos veces. Repartir aquí y
+    # entregar la matriz ya depurada dejaba esa guarda fuera del producto.
     colectiva = {s: {b: 0.0 for b in nombres} for s in SEGMENTOS}
     casos: dict[tuple[str, str], dict[str, Any]] = {}
     for f in actual["filas"]:
         clave = (f["segmento"], f["cliente"] or "(sin nombre)")
         saldo = f["saldo"] * factor[f["segmento"]]
+        colectiva[f["segmento"]][f["banda"]] += saldo
         if clave in individuales:
             caso = casos.setdefault(clave, {"identificacion": clave[1], "segmento": clave[0],
                                             "saldo": 0.0, "bandas": {}})
             caso["saldo"] += saldo
             caso["bandas"][f["banda"]] = caso["bandas"].get(f["banda"], 0.0) + saldo
-        else:
-            colectiva[f["segmento"]][f["banda"]] += saldo
 
     # Tasas aplicadas: las observadas de cada segmento, o las sustituidas con
     # justificación escrita. Sin ninguna de las dos, la banda queda sin medir.
@@ -314,60 +318,32 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
         # matriz colectiva.
         lista_casos.append({
             "identificacion": f"{caso['identificacion']} ({clave[0]})", "tramo": None,
+            # `segmento` y `bandas` son lo que `resumen_deterioro` necesita para
+            # sacar el caso de CADA banda en la que tiene saldo: un cliente que
+            # supera el umbral individual reparte su cartera entre varias.
+            "segmento": clave[0], "bandas": caso["bandas"],
             "saldo": caso["saldo"], "ecl": ecl_caso,
             "sustento": sustento, "saldo_sin_tasa": saldo_sin_tasa_caso,
         })
 
     saldo_contable = sum(meta.values()) if ancla else None
-    # Se mide cada segmento por separado y luego se consolidan los tramos.
-    medidos, tramos, ecl_colectiva, exp_colectiva, sin_medir = {}, [], 0.0, 0.0, 0.0
-    exp_negativa = acotada_piso = acotada_techo = 0.0
-    for s in SEGMENTOS:
-        p = ParametrosECL(tasas_perdida=aplicadas[s], lgd=1.0,
-                          ajuste_prospectivo=factor_prospectivo_aplicado[s] - 1.0,
-                          justificacion_ajuste=justificacion,
-                          fuente_tasas="Permanencia a 24 meses sobre la cohorte del corte más antiguo")
-        medidos[s] = medir_ecl(colectiva[s], p)
-        for t in medidos[s]["tramos"]:
-            tramos.append({**t, "segmento": s})
-        ecl_colectiva += medidos[s]["ecl_total"]
-        exp_colectiva += medidos[s]["exposicion_total"]
-        sin_medir += medidos[s]["exposicion_sin_medir"]
-        exp_negativa += medidos[s]["exposicion_negativa"]
-        acotada_piso += medidos[s]["ecl_acotada_por_piso"]
-        acotada_techo += medidos[s]["ecl_acotada_por_techo"]
-
-    individual = evaluar_individual(lista_casos)
-    exposicion_total = redondear(exp_colectiva + individual["saldo_total"])
-    ecl_total = redondear(ecl_colectiva + individual["ecl_total"])
-    resumen = {
-        "colectivo": {"tramos": tramos, "exposicion_total": redondear(exp_colectiva),
-                      "ecl_total": redondear(ecl_colectiva),
-                      "exposicion_sin_medir": redondear(sin_medir),
-                      # Cotas de NIIF 9 aplicadas y declaradas (ver `medir_ecl`).
-                      "exposicion_negativa": redondear(exp_negativa),
-                      "ecl_acotada_por_piso": redondear(acotada_piso),
-                      "ecl_acotada_por_techo": redondear(acotada_techo),
-                      "descuento_aplicado": False,
-                      "ajuste_prospectivo": dict(factor_prospectivo_aplicado),
-                      "justificacion_ajuste": justificacion,
-                      "fuente_tasas": "Permanencia a 24 meses"},
-        "individual": individual,
-        "exposicion_total": exposicion_total,
-        "ecl_total": ecl_total,
-        "tributario": {
-            "limite_ejercicio_1pct": redondear(exposicion_total * 0.01),
-            "tope_acumulado_10pct": redondear(exposicion_total * 0.10),
-            "excede_limite_ejercicio": ecl_total > exposicion_total * 0.01,
-            "nota": "Límite de deducción (LORTI art. 10 num. 11). No condiciona la estimación "
-                    "contable; la diferencia es temporaria.",
-        },
+    # La medición completa la hace el motor: matriz por segmento, deducción de
+    # los casos individuales de su banda, conciliación y cuadro tributario. El
+    # servicio orquesta y traduce; no vuelve a implementar el resumen.
+    parametros_por_segmento = {
+        s: ParametrosECL(
+            tasas_perdida=aplicadas[s], lgd=1.0,
+            ajuste_prospectivo=factor_prospectivo_aplicado[s] - 1.0,
+            justificacion_ajuste=justificacion,
+            fuente_tasas="Permanencia a 24 meses sobre la cohorte del corte más antiguo")
+        for s in SEGMENTOS
     }
-    if saldo_contable is not None:
-        diferencia = redondear(exposicion_total - float(saldo_contable))
-        resumen["conciliacion"] = {"cartera_total": exposicion_total,
-                                   "saldo_contable": redondear(float(saldo_contable)),
-                                   "diferencia": diferencia, "cuadra": abs(diferencia) < 0.01}
+    resumen = resumen_deterioro(colectiva, parametros_por_segmento,
+                                casos_individuales=lista_casos,
+                                saldo_contable=saldo_contable)
+    tramos = resumen["colectivo"]["tramos"]
+    individual = resumen["individual"]
+    exp_negativa = resumen["colectivo"]["exposicion_negativa"]
 
     total_sin_estratificar = redondear(sum(sin_estratificar.values()))
     # Cartera que el lector no pudo leer en el CORTE ACTUAL (el que fija la
@@ -387,8 +363,12 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
         "negativa": redondear(exp_negativa + negativa_individual),
         # Lo que no se midió en la matriz colectiva (bandas sin tasa) más lo que
         # no se midió en la evaluación individual (mismo motivo): nunca se
-        # convierte en cero, se declara.
-        "sin_medir": redondear(sin_medir + sin_medir_individual),
+        # convierte en cero, se declara. Lo totaliza el motor.
+        "sin_medir": resumen["exposicion_sin_medir"],
+        # Cartera efectivamente medida: la estratificada menos lo sin medir. Es
+        # la misma cifra que la pantalla rotula «Cartera medida» y que
+        # `08-Conciliacion` B9 calcula como `=B5-B8`.
+        "medida": resumen["exposicion_medida"],
         "total": redondear(resumen["exposicion_total"] + total_sin_estratificar),
         "segun_archivo": actual["total_saldo"],
         "factores_anclaje": factor,
@@ -410,7 +390,13 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
             "cartera_total": exposicion["total"], "saldo_contable": None,
             "diferencia": None, "cuadra": None}),
         "tributario": resumen["tributario"], "politica": politica,
-        "ecl_total": resumen["ecl_total"], "hallazgos": hallazgos, "pendientes": pendientes,
+        "ecl_total": resumen["ecl_total"],
+        # Invariantes del motor, expuestas al producto: si la medición cubre
+        # toda la cartera y qué proporción de LO MEDIDO representa la pérdida
+        # (dividir entre el total diluiría el porcentaje con lo que no se midió).
+        "medicion_completa": resumen["medicion_completa"],
+        "porcentaje_sobre_cartera": resumen["porcentaje_sobre_cartera"],
+        "hallazgos": hallazgos, "pendientes": pendientes,
         "bitacora": {
             "bandas": nombres, "umbral_incumplimiento": umbral_dias,
             "umbral_individual": umbral_ind,

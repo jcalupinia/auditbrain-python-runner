@@ -104,3 +104,13 @@ def test_un_documento_del_mismo_cliente_repetido_no_es_ambiguo():
     r = tasas_por_permanencia(cohorte, actual)
     assert r["documentos_ambiguos_total"] == 0
     assert r["documentos_ambiguos"] == []
+
+
+def test_el_ruido_de_coma_flotante_no_se_reporta_como_remanente_negativo():
+    """Una centésima de centavo en negativo no es una pérdida: la tasa la calcula
+    `motor.tasa_perdida`, que ya distingue el ruido de una anomalía real."""
+    cohorte = [_doc("F-1", "0 a 30 días", 100.0)]
+    actual = [_doc("F-1", "0 a 30 días", -0.004)]
+    r = tasas_por_permanencia(cohorte, actual)
+    assert r["tasas"]["NO-RELACIONADOS"]["0 a 30 días"] == pytest.approx(0.0)
+    assert r["anomalias"] == []
