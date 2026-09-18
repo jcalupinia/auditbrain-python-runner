@@ -4,8 +4,9 @@ import pytest
 from backend.app.aud.pce_cxc.cohortes import tasas_por_permanencia
 
 
-def _doc(documento, banda, saldo, segmento="NO-RELACIONADOS"):
-    return {"documento": documento, "banda": banda, "saldo": saldo, "segmento": segmento}
+def _doc(documento, banda, saldo, segmento="NO-RELACIONADOS", cliente=""):
+    return {"documento": documento, "banda": banda, "saldo": saldo, "segmento": segmento,
+            "cliente": cliente}
 
 
 def test_la_tasa_es_el_saldo_que_sigue_vivo_sobre_la_cohorte_inicial():
@@ -73,3 +74,33 @@ def test_un_documento_repetido_en_el_corte_actual_suma_su_saldo():
     r = tasas_por_permanencia(cohorte, actual)
     assert r["detalle"]["NO-RELACIONADOS"]["0 a 30 días"]["remanente"] == pytest.approx(50.0)
     assert r["tasas"]["NO-RELACIONADOS"]["0 a 30 días"] == pytest.approx(0.50)
+
+
+# ---------------------------------------------------------------------------
+# I12 - El método depende de que el número de documento sea único
+# ---------------------------------------------------------------------------
+
+def test_un_numero_de_documento_con_dos_clientes_se_reporta_como_ambiguo():
+    """El remanente se agrega por número de documento. Si dos clientes comparten
+    número, sus saldos se fusionan y el numerador de todas las tasas queda mal:
+    hay que decirlo, no calcular como si nada."""
+    cohorte = [_doc("F-1", "0 a 30 días", 100.0, cliente="ALFA")]
+    actual = [_doc("F-1", "0 a 30 días", 30.0, cliente="ALFA"),
+              _doc("F-1", "0 a 30 días", 70.0, cliente="BETA")]
+    r = tasas_por_permanencia(cohorte, actual)
+    assert r["documentos_ambiguos_total"] == 1
+    ambiguo = r["documentos_ambiguos"][0]
+    assert ambiguo["documento"] == "F-1"
+    assert sorted(ambiguo["clientes"]) == ["ALFA", "BETA"]
+    assert ambiguo["saldo_actual"] == pytest.approx(100.0)
+
+
+def test_un_documento_del_mismo_cliente_repetido_no_es_ambiguo():
+    """Dos filas del mismo documento y el mismo cliente (abonos parciales) son
+    legítimas: no invalidan la trazabilidad."""
+    cohorte = [_doc("F-1", "0 a 30 días", 100.0, cliente="ALFA")]
+    actual = [_doc("F-1", "0 a 30 días", 30.0, cliente="ALFA"),
+              _doc("F-1", "0 a 30 días", 20.0, cliente="ALFA")]
+    r = tasas_por_permanencia(cohorte, actual)
+    assert r["documentos_ambiguos_total"] == 0
+    assert r["documentos_ambiguos"] == []

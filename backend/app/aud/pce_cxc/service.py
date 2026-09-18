@@ -11,7 +11,7 @@ from typing import Any
 
 from backend.app.aud.pce_cxc.bandas import BANDAS_POR_DEFECTO, desdoblar
 from backend.app.aud.pce_cxc.cohortes import tasas_por_permanencia
-from backend.app.aud.pce_cxc.lectura import leer_cartera
+from backend.app.aud.pce_cxc.lectura import MOTIVO_FILA_REPETIDA, leer_cartera
 from backend.app.aud.pce_cxc.motor import (
     ParametrosECL, evaluar_individual, medir_ecl, redondear,
 )
@@ -19,11 +19,124 @@ from backend.app.aud.pce_cxc.motor import (
 SEGMENTOS = ("NO-RELACIONADOS", "RELACIONADOS")
 
 
+# ---------------------------------------------------------------------------
+# Normalización de los parámetros que llegan del formulario
+#
+# `parametros` viaja como JSON libre desde el router, así que aquí se valida su
+# forma antes de tocarla. Un parámetro mal formado es un error de entrada del
+# usuario (HTTP 400 con un mensaje que dice qué corregir), nunca un
+# `AttributeError` que termine en HTTP 500.
+# ---------------------------------------------------------------------------
+
+def _diccionario(valor: Any, nombre: str) -> dict:
+    """Normaliza un parámetro que debe llegar como objeto (diccionario)."""
+    if valor is None or valor == "" or valor == [] or valor == {}:
+        return {}
+    if isinstance(valor, dict):
+        return valor
+    raise ValueError(
+        f"El parámetro '{nombre}' debe ser un objeto con un valor por clave; llegó un "
+        f"{type(valor).__name__}. Corrija '{nombre}' en el formulario y vuelva a calcular."
+    )
+
+
+def _numero(valor: Any, nombre: str, por_defecto: float = 0.0) -> float:
+    """Normaliza un parámetro numérico sin convertir un 0 explícito en el defecto."""
+    if valor is None or valor == "":
+        return por_defecto
+    if isinstance(valor, bool):
+        raise ValueError(f"El parámetro '{nombre}' debe ser un número; llegó un booleano.")
+    try:
+        return float(valor)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"El parámetro '{nombre}' debe ser un número; llegó {valor!r}. Corríjalo en el "
+            "formulario y vuelva a calcular."
+        ) from None
+
+
+def _factores_prospectivos(valor: Any) -> dict[str, float]:
+    """Factor prospectivo por segmento, admitiendo el formato antiguo escalar.
+
+    El exportador ya soportaba un escalar que aplica a todos los segmentos, así
+    que el servicio lo acepta igual en vez de reventar con un 500 al llamar
+    `.get` sobre un número.
+    """
+    if valor is None or valor == "":
+        return {s: 1.0 for s in SEGMENTOS}
+    if isinstance(valor, dict):
+        return {s: _numero(valor.get(s), f"factor_prospectivo['{s}']", 1.0) for s in SEGMENTOS}
+    if isinstance(valor, (int, float)) and not isinstance(valor, bool):
+        unico = _numero(valor, "factor_prospectivo", 1.0)
+        return {s: unico for s in SEGMENTOS}
+    raise ValueError(
+        f"El parámetro 'factor_prospectivo' debe ser un número (el mismo factor para todos los "
+        f"segmentos) o un objeto con un factor por segmento; llegó un {type(valor).__name__}. "
+        "Corríjalo en el formulario y vuelva a calcular."
+    )
+
+
+def _tasas_sustitutas(valor: Any) -> dict[str, dict[str, Any]]:
+    """Valida la forma de cada tasa sustituta: `{ "SEGMENTO|banda": {tasa, justificacion} }`."""
+    crudo = _diccionario(valor, "tasas_sustitutas")
+    salida: dict[str, dict[str, Any]] = {}
+    for clave, sus in crudo.items():
+        if not isinstance(sus, dict):
+            raise ValueError(
+                f"La tasa sustituta de '{clave}' debe ser un objeto con 'tasa' y 'justificacion'; "
+                f"llegó {sus!r}. Corrija 'tasas_sustitutas' y vuelva a calcular."
+            )
+        tasa = _numero(sus.get("tasa"), f"tasas_sustitutas['{clave}'].tasa", 0.0)
+        if not 0 <= tasa <= 1:
+            raise ValueError(
+                f"La tasa sustituta de '{clave}' es {tasa}: debe estar entre 0 y 1 (0,42 = 42 %). "
+                "Corrija 'tasas_sustitutas' y vuelva a calcular."
+            )
+        salida[clave] = {"tasa": tasa, "justificacion": str(sus.get("justificacion", ""))}
+    return salida
+
+
+def _evaluaciones_individuales(valor: Any) -> dict[str, dict[str, Any]]:
+    """Valida la forma de cada evaluación individual: `{ "SEGMENTO|cliente": {ecl, justificacion} }`."""
+    crudo = _diccionario(valor, "evaluaciones_individuales")
+    salida: dict[str, dict[str, Any]] = {}
+    for clave, est in crudo.items():
+        if not isinstance(est, dict):
+            raise ValueError(
+                f"La evaluación individual de '{clave}' debe ser un objeto con 'ecl' y "
+                f"'justificacion'; llegó {est!r}. Corrija 'evaluaciones_individuales' y vuelva a "
+                "calcular."
+            )
+        salida[clave] = {
+            "ecl": _numero(est.get("ecl"), f"evaluaciones_individuales['{clave}'].ecl", 0.0),
+            "justificacion": str(est.get("justificacion", "")),
+        }
+    return salida
+
+
+def _umbral_dias(valor: Any) -> int:
+    """Días de mora a partir de los cuales se presume incumplimiento.
+
+    Un 0 guardado no puede convertirse en 730 en silencio (era lo que hacía
+    `int(valor or 730)`): o el valor es utilizable, o se dice que no lo es.
+    """
+    if valor is None or valor == "":
+        return 730
+    dias = _numero(valor, "umbral_dias_incumplimiento", 730)
+    if dias != int(dias) or int(dias) <= 0:
+        raise ValueError(
+            f"El parámetro 'umbral_dias_incumplimiento' es {valor!r}: indique un número entero de "
+            "días mayor que 0 (el plan usa 730; NIIF 9 B5.5.37 presume 90 salvo refutación), o "
+            "déjelo vacío para usar el valor por defecto."
+        )
+    return int(dias)
+
+
 def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[str, Any]:
     if len(cortes) != 3:
         raise ValueError("Se requieren los tres análisis de antigüedad: sin tres cierres no existe "
                          "una cohorte con ventana completa de 24 meses")
-    umbral_dias = int(parametros.get("umbral_dias_incumplimiento") or 730)
+    umbral_dias = _umbral_dias(parametros.get("umbral_dias_incumplimiento"))
     bandas = desdoblar(BANDAS_POR_DEFECTO, umbral_dias)
     nombres = [b["nombre"] for b in bandas]
 
@@ -34,18 +147,10 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
     coh = tasas_por_permanencia(cohorte["filas"], actual["filas"])
     tasas = coh["tasas"]
 
-    # Evaluación individual: los clientes por encima del umbral salen de la matriz.
-    umbral_ind = float(parametros.get("umbral_individual") or 0)
-    por_cliente: dict[tuple[str, str], float] = {}
-    for f in actual["filas"]:
-        clave = (f["segmento"], f["cliente"] or "(sin nombre)")
-        por_cliente[clave] = por_cliente.get(clave, 0.0) + f["saldo"]
-    individuales = {k for k, v in por_cliente.items() if umbral_ind and v > umbral_ind}
-
     # Exposición por segmento y banda, anclada a los estados financieros.
-    eeff = parametros.get("eeff") or {}
-    meta = {"NO-RELACIONADOS": float(eeff.get("no_relacionados") or 0),
-            "RELACIONADOS": float(eeff.get("relacionados") or 0)}
+    eeff = _diccionario(parametros.get("eeff"), "eeff")
+    meta = {"NO-RELACIONADOS": _numero(eeff.get("no_relacionados"), "eeff.no_relacionados"),
+            "RELACIONADOS": _numero(eeff.get("relacionados"), "eeff.relacionados")}
     ancla = sum(meta.values()) > 0
     total_seg = {s: 0.0 for s in SEGMENTOS}
     for f in actual["filas"]:
@@ -58,6 +163,18 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
             factor[s], sin_estratificar[s] = meta[s] / total_seg[s], 0.0
         else:
             factor[s], sin_estratificar[s] = 1.0, meta[s]
+
+    # Evaluación individual: los clientes por encima del umbral salen de la
+    # matriz. La comparación va contra el saldo YA ANCLADO, que es la exposición
+    # que se va a medir: con el saldo crudo del archivo, un cliente con 90.000 y
+    # un factor de anclaje de 5,0 (450.000 de exposición) se quedaba en la
+    # matriz midiéndose con el promedio de su banda.
+    umbral_ind = _numero(parametros.get("umbral_individual"), "umbral_individual")
+    por_cliente: dict[tuple[str, str], float] = {}
+    for f in actual["filas"]:
+        clave = (f["segmento"], f["cliente"] or "(sin nombre)")
+        por_cliente[clave] = por_cliente.get(clave, 0.0) + f["saldo"] * factor[f["segmento"]]
+    individuales = {k for k, v in por_cliente.items() if umbral_ind and v > umbral_ind}
 
     # La matriz se mide POR SEGMENTO: terceros y relacionadas tienen comportamiento
     # de pago distinto y no pueden agruparse (NIIF 9 B5.5.35).
@@ -76,8 +193,8 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
 
     # Tasas aplicadas: las observadas de cada segmento, o las sustituidas con
     # justificación escrita. Sin ninguna de las dos, la banda queda sin medir.
-    sustitutas = parametros.get("tasas_sustitutas") or {}
-    factores_solicitados = parametros.get("factor_prospectivo") or {}
+    sustitutas = _tasas_sustitutas(parametros.get("tasas_sustitutas"))
+    factores_solicitados = _factores_prospectivos(parametros.get("factor_prospectivo"))
     justificacion = str(parametros.get("justificacion_prospectivo") or "")
     aplicadas: dict[str, dict[str, float]] = {}
     for s in SEGMENTOS:
@@ -85,8 +202,8 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
         for b in nombres:
             obs = tasas.get(s, {}).get(b)
             sus = sustitutas.get(f"{s}|{b}")
-            if sus and str(sus.get("justificacion", "")).strip():
-                aplicadas[s][b] = float(sus["tasa"])
+            if sus and sus["justificacion"].strip():
+                aplicadas[s][b] = sus["tasa"]
             elif obs is not None:
                 aplicadas[s][b] = obs
 
@@ -95,13 +212,19 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
     # se levanta una excepción por esto) y queda expuesto como hallazgo.
     factor_prospectivo_aplicado: dict[str, float] = {}
     for s in SEGMENTOS:
-        solicitado = float(factores_solicitados.get(s, 1.0))
+        solicitado = factores_solicitados[s]
+        if solicitado < 0:
+            raise ValueError(
+                f"El parámetro 'factor_prospectivo' de {s} es {solicitado:,.3f}: un factor negativo "
+                "invertiría el signo de la pérdida esperada. Indique un factor mayor o igual a "
+                "0,000 (1,000 = sin ajuste)."
+            )
         if solicitado != 1.0 and not justificacion.strip():
             factor_prospectivo_aplicado[s] = 1.0
         else:
             factor_prospectivo_aplicado[s] = solicitado
 
-    evaluaciones = parametros.get("evaluaciones_individuales") or {}
+    evaluaciones = _evaluaciones_individuales(parametros.get("evaluaciones_individuales"))
     lista_casos = []
     sin_medir_individual = 0.0
     for clave, caso in casos.items():
@@ -112,11 +235,23 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
         # rellenan con 0,00 en silencio, se declaran como saldo sin medir.
         saldo_sin_tasa = sum(v for b, v in caso["bandas"].items() if b not in aplicadas_seg)
         provisional = sum(v * aplicadas_seg[b] for b, v in caso["bandas"].items() if b in aplicadas_seg)
-        propia = bool(est and str(est.get("justificacion", "")).strip())
+        propia = bool(est and est["justificacion"].strip())
+        # Techo del caso: su importe en libros bruto (B5.5.35). Un cliente con
+        # saldo neto acreedor (nota de crédito mayor que sus facturas) tiene
+        # techo 0,00 y se mide en 0,00; nunca genera "ganancia esperada".
+        techo = max(redondear(caso["saldo"]), 0.0)
         if propia:
             # Una estimación propia con justificación escrita cubre todo el caso:
             # no queda saldo sin medir.
-            ecl_caso = float(est["ecl"])
+            ecl_caso = est["ecl"]
+            if ecl_caso < -0.005 or ecl_caso > techo + 0.005:
+                raise ValueError(
+                    f"La pérdida esperada indicada para '{clave[1]}' ({clave[0]}) es "
+                    f"{ecl_caso:,.2f} y su importe en libros bruto es {caso['saldo']:,.2f}: bajo "
+                    "NIIF 9 la corrección de valor no puede ser negativa ni superar el importe en "
+                    f"libros. Corrija 'evaluaciones_individuales' con un importe entre 0,00 y "
+                    f"{techo:,.2f}."
+                )
             sustento = est["justificacion"]
             saldo_sin_tasa_caso = 0.0
         else:
@@ -126,15 +261,19 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
             if saldo_sin_tasa_caso > 0:
                 sustento += f"; USD {saldo_sin_tasa_caso:,.2f} sin medir por falta de tasa"
                 sin_medir_individual += saldo_sin_tasa_caso
+        # Se entrega la pérdida SIN acotar: `evaluar_individual` aplica el piso y
+        # el techo y deja dicho cuál actuó, en el mismo lugar donde lo hace la
+        # matriz colectiva.
         lista_casos.append({
             "identificacion": f"{caso['identificacion']} ({clave[0]})", "tramo": None,
-            "saldo": caso["saldo"], "recuperacion_estimada": caso["saldo"] - ecl_caso,
+            "saldo": caso["saldo"], "ecl": ecl_caso,
             "sustento": sustento, "saldo_sin_tasa": saldo_sin_tasa_caso,
         })
 
     saldo_contable = sum(meta.values()) if ancla else None
     # Se mide cada segmento por separado y luego se consolidan los tramos.
     medidos, tramos, ecl_colectiva, exp_colectiva, sin_medir = {}, [], 0.0, 0.0, 0.0
+    exp_negativa = acotada_piso = acotada_techo = 0.0
     for s in SEGMENTOS:
         p = ParametrosECL(tasas_perdida=aplicadas[s], lgd=1.0,
                           ajuste_prospectivo=factor_prospectivo_aplicado[s] - 1.0,
@@ -146,6 +285,9 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
         ecl_colectiva += medidos[s]["ecl_total"]
         exp_colectiva += medidos[s]["exposicion_total"]
         sin_medir += medidos[s]["exposicion_sin_medir"]
+        exp_negativa += medidos[s]["exposicion_negativa"]
+        acotada_piso += medidos[s]["ecl_acotada_por_piso"]
+        acotada_techo += medidos[s]["ecl_acotada_por_techo"]
 
     individual = evaluar_individual(lista_casos)
     exposicion_total = redondear(exp_colectiva + individual["saldo_total"])
@@ -154,6 +296,10 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
         "colectivo": {"tramos": tramos, "exposicion_total": redondear(exp_colectiva),
                       "ecl_total": redondear(ecl_colectiva),
                       "exposicion_sin_medir": redondear(sin_medir),
+                      # Cotas de NIIF 9 aplicadas y declaradas (ver `medir_ecl`).
+                      "exposicion_negativa": redondear(exp_negativa),
+                      "ecl_acotada_por_piso": redondear(acotada_piso),
+                      "ecl_acotada_por_techo": redondear(acotada_techo),
                       "descuento_aplicado": False,
                       "ajuste_prospectivo": dict(factor_prospectivo_aplicado),
                       "justificacion_ajuste": justificacion,
@@ -176,10 +322,21 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
                                    "diferencia": diferencia, "cuadra": abs(diferencia) < 0.01}
 
     total_sin_estratificar = redondear(sum(sin_estratificar.values()))
+    # Cartera que el lector no pudo leer en el CORTE ACTUAL (el que fija la
+    # exposición). No es un detalle de trazabilidad: con anclaje a los estados
+    # financieros, `factor = cartera_EEFF / total_del_archivo` absorbe el hueco,
+    # así que cada dólar perdido aquí reaparece como exposición inventada sobre
+    # las filas que sí entraron.
+    descartado_en_lectura = redondear(actual["cartera_no_leida"])
+    negativa_individual = sum(c["saldo"] for c in resumen["individual"]["casos"] if c["saldo"] < 0)
     exposicion = {
         "colectiva": resumen["colectivo"]["exposicion_total"],
         "individual": resumen["individual"]["saldo_total"],
         "sin_estratificar": total_sin_estratificar,
+        "descartado_en_lectura": descartado_en_lectura,
+        # Saldo acreedor (notas de crédito, anticipos) dentro de la cartera
+        # medida: no genera "ganancia esperada", pero tampoco se esconde.
+        "negativa": redondear(exp_negativa + negativa_individual),
         # Lo que no se midió en la matriz colectiva (bandas sin tasa) más lo que
         # no se midió en la evaluación individual (mismo motivo): nunca se
         # convierte en cero, se declara.
@@ -189,13 +346,17 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
         "factores_anclaje": factor,
     }
 
-    politica = _comparar_politica(parametros.get("politica") or {}, bandas, tramos)
-    hallazgos = _hallazgos(resumen, politica, parametros, factor_prospectivo_aplicado, justificacion)
+    politica = _comparar_politica(_diccionario(parametros.get("politica"), "politica"),
+                                  bandas, tramos)
+    hallazgos = _hallazgos(resumen, politica, parametros, factor_prospectivo_aplicado,
+                           justificacion, exposicion, actual, ancla)
     pendientes = _pendientes(resumen, parametros, coh, leidos, sin_medir_individual)
 
     return {
         "exposicion": exposicion, "tasas": tasas, "detalle_cohorte": coh["detalle"],
         "trazabilidad": coh["trazabilidad"], "anomalias": coh["anomalias"],
+        "documentos_ambiguos": coh["documentos_ambiguos"],
+        "documentos_ambiguos_total": coh["documentos_ambiguos_total"],
         "matriz": resumen["colectivo"],
         "individual": resumen["individual"], "conciliacion": resumen.get("conciliacion", {
             "cartera_total": exposicion["total"], "saldo_contable": None,
@@ -210,7 +371,14 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
                         "mapeo": l["mapeo"], "formato_fecha": l["formato_fecha"],
                         "documentos": len(l["filas"]), "duplicados_exactos": l["duplicados_exactos"],
                         "documentos_repetidos": l["documentos_repetidos"],
-                        "descartados": len(l["descartados"]), "total": l["total_saldo"]}
+                        # El conteo de descartados se conserva (lo usa 02-Fuentes)
+                        # y ahora va acompañado de su importe: sin él, la cartera
+                        # que el lector no pudo leer desaparecía del papel.
+                        "descartados": len(l["descartados"]),
+                        "descartados_importe": l["descartados_importe"],
+                        "descartados_por_motivo": l["descartados_por_motivo"],
+                        "cartera_no_leida": l["cartera_no_leida"],
+                        "total": l["total_saldo"]}
                        for c, l in zip(cortes, leidos)],
             "metodo": "Permanencia a 24 meses", "descuento": "No aplicado (NIIF 9 B5.5.44)",
         },
@@ -271,8 +439,64 @@ def _comparar_politica(politica, bandas, tramos):
             "diferencia_bruta": redondear(bruta)}
 
 
-def _hallazgos(resumen, politica, parametros, factor_prospectivo_aplicado, justificacion):
+def _hallazgos(resumen, politica, parametros, factor_prospectivo_aplicado, justificacion,
+               exposicion=None, actual=None, ancla=False):
     h = []
+    exposicion = exposicion or {}
+    actual = actual or {}
+    descartado = float(exposicion.get("descartado_en_lectura") or 0)
+    if descartado > 0.005:
+        motivos = ", ".join(
+            f"{d['motivo']} ({d['filas']} fila{'s' if d['filas'] != 1 else ''}, "
+            f"USD {d['importe']:,.2f})"
+            for d in actual.get("descartados_por_motivo") or []
+            if d["motivo"] != MOTIVO_FILA_REPETIDA)
+        efecto = (f"La medición se hizo sobre USD {float(actual.get('total_saldo') or 0):,.2f} y no "
+                  f"sobre el total del archivo.")
+        if ancla:
+            efecto += (" Además, con anclaje a los estados financieros el factor "
+                       "cartera_EEFF / total_del_archivo absorbe el hueco: ese importe reaparece "
+                       "como exposición repartida sobre las filas que sí se leyeron, y cambia la "
+                       "mezcla por banda.")
+        h.append({"titulo": "Cartera descartada en la lectura del corte actual", "riesgo": "Alto",
+                  "condicion": f"USD {descartado:,.2f} del análisis de antigüedad del corte actual "
+                               f"no se pudieron leer: {motivos}.",
+                  "criterio": "NIIF 9 B5.5.35: la matriz se aplica sobre el importe en libros bruto "
+                              "de TODA la cartera, no sobre la parte legible del archivo.",
+                  "causa": "El archivo del cliente trae filas sin número de documento o sin fecha "
+                           "de vencimiento, los dos datos que sostienen el método.",
+                  "efecto": efecto,
+                  "recomendacion": "Solicitar el análisis de antigüedad con número de documento y "
+                                   "fecha de vencimiento en todas las filas, o depurar esas filas "
+                                   "con el cliente antes de volver a calcular."})
+    negativa = float(exposicion.get("negativa") or 0)
+    if negativa < -0.005:
+        h.append({"titulo": "Saldos acreedores en la cartera medida", "riesgo": "Alto",
+                  "condicion": f"USD {abs(negativa):,.2f} de saldo acreedor (notas de crédito o "
+                               "anticipos) dentro de la cartera que se mide.",
+                  "criterio": "NIIF 9 5.5.15 y B5.5.35: la corrección de valor no puede ser "
+                              "negativa ni superar el importe en libros bruto.",
+                  "causa": "El análisis de antigüedad mezcla notas de crédito y anticipos de "
+                           "clientes con las facturas por cobrar.",
+                  "efecto": "Su pérdida esperada se fijó en 0,00: sin ese piso, esas bandas "
+                            "restarían pérdida a las demás bandas del mismo segmento y la "
+                            "corrección total quedaría subestimada.",
+                  "recomendacion": "Reclasificar los saldos acreedores a pasivo (anticipos de "
+                                   "clientes) o cruzarlos contra la factura que corrigen antes de "
+                                   "medir."})
+    acotada_techo = float(resumen["colectivo"].get("ecl_acotada_por_techo") or 0)
+    if acotada_techo > 0.005:
+        h.append({"titulo": "Pérdida esperada acotada al importe en libros bruto", "riesgo": "Alto",
+                  "condicion": f"El cálculo daba USD {acotada_techo:,.2f} más de pérdida que la "
+                               "exposición de sus bandas: la tasa ajustada por el factor "
+                               "prospectivo superó el 100 %.",
+                  "criterio": "NIIF 9 B5.5.35: la matriz se aplica sobre el importe en libros bruto.",
+                  "causa": "El factor prospectivo solicitado lleva la tasa observada por encima de 1.",
+                  "efecto": "La tasa se acotó al 100 % para que la cobertura no supere la cartera; "
+                            "el factor tal como se pidió no es aplicable.",
+                  "recomendacion": "Revisar el factor prospectivo con el socio: un factor que lleva "
+                                   "la tasa sobre el 100 % indica que la banda ya está en pérdida "
+                                   "total y el ajuste no aporta."})
     sin_ajuste_efectivo = not any(
         abs(float(v) - 1.0) > 1e-9 for v in factor_prospectivo_aplicado.values()
     )
@@ -330,6 +554,16 @@ def _pendientes(resumen, parametros, coh, leidos, sin_medir_individual=0.0):
         p.append({"variable": "Mayores de la provisión de los tres ejercicios", "responsable": "Cliente",
                   "criticidad": "Alta",
                   "efecto": "Sin ellos no se puede demostrar que los castigos fueron inmateriales, y el método de permanencia queda sin sustento"})
+    if coh.get("documentos_ambiguos_total"):
+        total = coh["documentos_ambiguos_total"]
+        ejemplos = ", ".join(d["documento"] for d in coh["documentos_ambiguos"][:5])
+        p.append({"variable": "Número de documento no único", "responsable": "Cliente",
+                  "criticidad": "Alta",
+                  "efecto": f"{total} número(s) de documento aparecen con más de un cliente "
+                            f"(por ejemplo: {ejemplos}). El método de permanencia rastrea la "
+                            "cohorte por ese número, así que el saldo remanente -numerador de "
+                            "todas las tasas- suma saldos de clientes distintos: la trazabilidad "
+                            "queda invalidada de raíz, no solo reducida."})
     if coh["trazabilidad"] < 0.8:
         p.append({"variable": "Trazabilidad por número de documento", "responsable": "Cliente",
                   "criticidad": "Alta",

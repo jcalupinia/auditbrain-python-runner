@@ -249,10 +249,17 @@ def medir_ecl(exposiciones: dict[str, float], parametros: ParametrosECL) -> dict
 def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
     """Mide uno por uno los saldos que no pueden agruparse en la matriz.
 
+    Cada caso llega con su recuperación estimada (`recuperacion_estimada`) o,
+    si el llamador ya midió la pérdida, con ella directamente (`ecl`, que manda
+    sobre la recuperación).
+
     Rigen las mismas cotas que en la matriz: la corrección de valor de un caso
     no puede ser negativa ni superar su importe en libros bruto. Un cliente con
-    saldo neto acreedor (una nota de crédito mayor que sus facturas) se mide en
-    0,00 y se declara con `acotado`, en vez de abortar la corrida.
+    saldo neto acreedor (una nota de crédito mayor que sus facturas), o cuya
+    pérdida provisional salió negativa por esa misma nota de crédito, se mide en
+    0,00 y se declara con `acotado`, en vez de abortar la corrida. Lo que sí
+    sigue siendo un error es una recuperación estimada MAYOR que el saldo: ese
+    dato lo carga una persona y no tiene lectura válida.
     """
     detalle = []
     saldo_total = 0.0
@@ -261,24 +268,25 @@ def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
     acotada_techo = 0.0
     for caso in casos:
         saldo = float(caso.get("saldo") or 0)
-        recuperacion = caso.get("recuperacion_estimada")
-        if recuperacion is None:
-            raise ValueError(
-                f"El caso '{caso.get('identificacion')}' no tiene recuperación estimada: "
-                "no se puede medir sin ese dato"
-            )
-        recuperacion = float(recuperacion)
-        ecl_sin_acotar = redondear(saldo - recuperacion)
         techo = max(redondear(saldo), 0.0)
-        if ecl_sin_acotar < -0.005:
-            # La recuperación supera al saldo: eso no es una nota de crédito,
-            # es un dato imposible de quien cargó la evaluación individual.
-            raise ValueError(
-                f"Recuperación estimada fuera de rango en '{caso.get('identificacion')}': "
-                f"{recuperacion:,.2f} sobre un saldo de {saldo:,.2f}. La recuperación estimada "
-                f"no puede superar el saldo del cliente: indique un importe entre 0,00 y "
-                f"{techo:,.2f}."
-            )
+        if caso.get("ecl") is not None:
+            ecl_sin_acotar = redondear(float(caso["ecl"]))
+        else:
+            recuperacion = caso.get("recuperacion_estimada")
+            if recuperacion is None:
+                raise ValueError(
+                    f"El caso '{caso.get('identificacion')}' no tiene recuperación estimada: "
+                    "no se puede medir sin ese dato"
+                )
+            recuperacion = float(recuperacion)
+            ecl_sin_acotar = redondear(saldo - recuperacion)
+            if ecl_sin_acotar < -0.005:
+                raise ValueError(
+                    f"Recuperación estimada fuera de rango en '{caso.get('identificacion')}': "
+                    f"{recuperacion:,.2f} sobre un saldo de {saldo:,.2f}. La recuperación estimada "
+                    f"no puede superar el saldo del cliente: indique un importe entre 0,00 y "
+                    f"{techo:,.2f}."
+                )
         ecl = min(max(ecl_sin_acotar, 0.0), techo)
         acotado = None
         if ecl_sin_acotar < ecl - 0.0001:

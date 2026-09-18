@@ -186,3 +186,235 @@ def test_caso_individual_con_estimacion_propia_no_deja_saldo_sin_tasa():
 
     variables = [p["variable"] for p in r["pendientes"]]
     assert "Saldos individuales sin tasa aplicable" not in variables
+
+
+# ---------------------------------------------------------------------------
+# C1 - La cartera descartada por el lector no puede desaparecer
+# ---------------------------------------------------------------------------
+
+def _cortes_con_descartes():
+    # Corte actual de tres filas: 1.000,00 validos, 750.000,00 sin numero de
+    # documento y 1.250.000,00 sin fecha de vencimiento.
+    c23 = _xlsx([("ALFA", "F-1", "NO-RELACIONADOS", date(2023, 9, 1), date(2023, 12, 1), 100000.0)])
+    c24 = _xlsx([])
+    c25 = _xlsx([("ALFA", "F-1", "NO-RELACIONADOS", date(2023, 9, 1), date(2023, 12, 1), 1000.0),
+                 ("BETA", "", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 750000.0),
+                 ("GAMA", "F-3", "NO-RELACIONADOS", date(2025, 9, 1), None, 1250000.0)])
+    return [{"nombre": "2023.xlsx", "contenido": c23, "fecha": date(2023, 12, 31)},
+            {"nombre": "2024.xlsx", "contenido": c24, "fecha": date(2024, 12, 31)},
+            {"nombre": "2025.xlsx", "contenido": c25, "fecha": date(2025, 12, 31)}]
+
+
+def test_el_importe_descartado_en_la_lectura_no_desaparece_del_resultado():
+    r = analizar(_cortes_con_descartes(), {})
+    corte_actual = r["bitacora"]["cortes"][2]
+    # El conteo sigue estando (lo usa 02-Fuentes)...
+    assert corte_actual["descartados"] == 2
+    # ...y ahora el importe tambien.
+    assert corte_actual["descartados_importe"] == pytest.approx(2000000.0)
+    assert corte_actual["cartera_no_leida"] == pytest.approx(2000000.0)
+    por_motivo = {d["motivo"]: d["importe"] for d in corte_actual["descartados_por_motivo"]}
+    assert por_motivo["sin número de documento"] == pytest.approx(750000.0)
+    assert por_motivo["sin fecha de vencimiento"] == pytest.approx(1250000.0)
+    assert r["exposicion"]["descartado_en_lectura"] == pytest.approx(2000000.0)
+
+
+def test_el_anclaje_no_reparte_en_silencio_lo_que_el_lector_descarto():
+    """Con anclaje, `factor = cartera_EEFF / total_del_archivo` absorbe el hueco:
+    la exposicion perdida se convierte en exposicion inventada sobre las filas
+    que si entraron. Eso tiene que quedar dicho en el papel."""
+    r = analizar(_cortes_con_descartes(), {"eeff": {"no_relacionados": 5000.0, "relacionados": 0.0}})
+    assert r["exposicion"]["factores_anclaje"]["NO-RELACIONADOS"] == pytest.approx(5.0)
+    hallazgo = next(h for h in r["hallazgos"]
+                    if h["titulo"] == "Cartera descartada en la lectura del corte actual")
+    assert hallazgo["riesgo"] == "Alto"
+    assert "anclaje" in hallazgo["efecto"].lower()
+
+
+def test_sin_descartes_no_se_inventa_el_hallazgo():
+    r = analizar(_cortes(), {})
+    assert all(h["titulo"] != "Cartera descartada en la lectura del corte actual"
+               for h in r["hallazgos"])
+    assert r["exposicion"]["descartado_en_lectura"] == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# C3 - Una nota de credito no genera "ganancia esperada"
+# ---------------------------------------------------------------------------
+
+def _cortes_con_nota_de_credito():
+    c23 = _xlsx([("ALFA", "F-1", "NO-RELACIONADOS", date(2023, 9, 1), date(2023, 12, 1), 100000.0)])
+    c24 = _xlsx([])
+    c25 = _xlsx([("ALFA", "F-1", "NO-RELACIONADOS", date(2023, 9, 1), date(2023, 12, 1), 10000.0),
+                 ("GAMMA", "F-9", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 200000.0),
+                 ("GAMMA", "NC-9", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), -250000.0)])
+    return [{"nombre": "2023.xlsx", "contenido": c23, "fecha": date(2023, 12, 31)},
+            {"nombre": "2024.xlsx", "contenido": c24, "fecha": date(2024, 12, 31)},
+            {"nombre": "2025.xlsx", "contenido": c25, "fecha": date(2025, 12, 31)}]
+
+
+def test_una_nota_de_credito_no_produce_perdida_esperada_negativa():
+    r = analizar(_cortes_con_nota_de_credito(), {})
+    banda = next(t for t in r["matriz"]["tramos"]
+                 if t["segmento"] == "NO-RELACIONADOS" and t["tramo"] == "0 a 30 días")
+    assert banda["exposicion"] == pytest.approx(-50000.0)
+    assert banda["ecl"] == pytest.approx(0.0)
+    assert banda["ecl_sin_acotar"] == pytest.approx(-5000.0)
+    assert banda["acotado"] == "piso_cero"
+    assert r["matriz"]["ecl_total"] >= 0
+    assert r["ecl_total"] >= 0
+    # El saldo acreedor se totaliza y se declara, no se disimula.
+    assert r["matriz"]["exposicion_negativa"] == pytest.approx(-50000.0)
+    assert r["matriz"]["ecl_acotada_por_piso"] == pytest.approx(5000.0)
+    assert r["exposicion"]["negativa"] == pytest.approx(-50000.0)
+    assert "Saldos acreedores en la cartera medida" in [h["titulo"] for h in r["hallazgos"]]
+
+
+# ---------------------------------------------------------------------------
+# C4 - Una nota de credito en un cliente de evaluacion individual no aborta
+# ---------------------------------------------------------------------------
+
+def _cortes_individual_con_nota_de_credito():
+    # DELTA supera el umbral individual con 300.000 en una banda sin tasa
+    # observada y una nota de credito de -100.000 en "0 a 30 dias" (tasa 10 %).
+    c23 = _xlsx([("ALFA", "F-1", "NO-RELACIONADOS", date(2023, 9, 1), date(2023, 12, 1), 100000.0)])
+    c24 = _xlsx([])
+    c25 = _xlsx([("ALFA", "F-1", "NO-RELACIONADOS", date(2023, 9, 1), date(2023, 12, 1), 10000.0),
+                 ("DELTA", "F-5", "NO-RELACIONADOS", date(2024, 1, 1), date(2024, 6, 1), 300000.0),
+                 ("DELTA", "NC-5", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), -100000.0)])
+    return [{"nombre": "2023.xlsx", "contenido": c23, "fecha": date(2023, 12, 31)},
+            {"nombre": "2024.xlsx", "contenido": c24, "fecha": date(2024, 12, 31)},
+            {"nombre": "2025.xlsx", "contenido": c25, "fecha": date(2025, 12, 31)}]
+
+
+def test_una_nota_de_credito_en_un_cliente_individual_no_aborta_la_corrida():
+    r = analizar(_cortes_individual_con_nota_de_credito(), {"umbral_individual": 100000.0})
+    caso = next(c for c in r["individual"]["casos"] if c["identificacion"].startswith("DELTA"))
+    assert caso["saldo"] == pytest.approx(200000.0)
+    assert caso["ecl"] == pytest.approx(0.0)
+    assert caso["recuperacion_estimada"] == pytest.approx(200000.0)
+    assert caso["ecl_sin_acotar"] == pytest.approx(-10000.0)
+    assert caso["acotado"] == "piso_cero"
+    assert r["individual"]["ecl_acotada_por_piso"] == pytest.approx(10000.0)
+
+
+def test_una_evaluacion_individual_fuera_de_rango_es_un_error_accionable():
+    """Aqui el dato SI lo ingreso el operador, asi que el mensaje tiene que
+    decirle que corregir y entre que valores."""
+    parametros = {
+        "umbral_individual": 100000.0,
+        "evaluaciones_individuales": {
+            "NO-RELACIONADOS|DELTA": {"ecl": 900000.0, "justificacion": "Informe legal"},
+        },
+    }
+    with pytest.raises(ValueError) as e:
+        analizar(_cortes_individual_con_nota_de_credito(), parametros)
+    mensaje = str(e.value)
+    assert "DELTA" in mensaje
+    assert "evaluaciones_individuales" in mensaje
+
+
+# ---------------------------------------------------------------------------
+# I6 - El umbral individual se compara contra el saldo anclado
+# ---------------------------------------------------------------------------
+
+def _cortes_umbral_anclado():
+    c23 = _xlsx([("ALFA", "F-1", "NO-RELACIONADOS", date(2023, 9, 1), date(2023, 12, 1), 100000.0)])
+    c24 = _xlsx([])
+    c25 = _xlsx([("MEGA", "F-3", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 90000.0)])
+    return [{"nombre": "2023.xlsx", "contenido": c23, "fecha": date(2023, 12, 31)},
+            {"nombre": "2024.xlsx", "contenido": c24, "fecha": date(2024, 12, 31)},
+            {"nombre": "2025.xlsx", "contenido": c25, "fecha": date(2025, 12, 31)}]
+
+
+def test_el_umbral_individual_se_compara_contra_el_saldo_anclado():
+    """MEGA tiene 90.000 en el archivo y un factor de anclaje de 5,0: son
+    450.000 de exposicion. Con umbral de 100.000 no puede quedarse en la matriz
+    midiendose con el promedio de su banda."""
+    r = analizar(_cortes_umbral_anclado(),
+                 {"umbral_individual": 100000.0,
+                  "eeff": {"no_relacionados": 450000.0, "relacionados": 0.0}})
+    assert r["exposicion"]["factores_anclaje"]["NO-RELACIONADOS"] == pytest.approx(5.0)
+    assert [c["identificacion"] for c in r["individual"]["casos"]] == ["MEGA (NO-RELACIONADOS)"]
+    assert r["individual"]["saldo_total"] == pytest.approx(450000.0)
+    assert r["matriz"]["exposicion_total"] == pytest.approx(0.0)
+
+
+def test_sin_anclaje_el_umbral_individual_se_comporta_igual_que_antes():
+    r = analizar(_cortes_umbral_anclado(), {"umbral_individual": 100000.0})
+    assert r["individual"]["casos"] == []
+
+
+# ---------------------------------------------------------------------------
+# I12 - El numero de documento tiene que ser unico
+# ---------------------------------------------------------------------------
+
+def _cortes_documento_compartido():
+    c23 = _xlsx([("ALFA", "F-1", "NO-RELACIONADOS", date(2023, 9, 1), date(2023, 12, 1), 100000.0)])
+    c24 = _xlsx([])
+    c25 = _xlsx([("ALFA", "F-1", "NO-RELACIONADOS", date(2023, 9, 1), date(2023, 12, 1), 10000.0),
+                 ("BETA", "F-1", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 40000.0)])
+    return [{"nombre": "2023.xlsx", "contenido": c23, "fecha": date(2023, 12, 31)},
+            {"nombre": "2024.xlsx", "contenido": c24, "fecha": date(2024, 12, 31)},
+            {"nombre": "2025.xlsx", "contenido": c25, "fecha": date(2025, 12, 31)}]
+
+
+def test_un_numero_de_documento_compartido_por_dos_clientes_genera_pendiente():
+    r = analizar(_cortes_documento_compartido(), {})
+    assert r["documentos_ambiguos_total"] == 1
+    assert r["documentos_ambiguos"][0]["documento"] == "F-1"
+    pendiente = next(p for p in r["pendientes"]
+                     if p["variable"] == "Número de documento no único")
+    assert pendiente["criticidad"] == "Alta"
+
+
+def test_con_numeros_unicos_no_hay_pendiente_de_documento_ambiguo():
+    r = analizar(_cortes(), {})
+    assert r["documentos_ambiguos_total"] == 0
+    assert all(p["variable"] != "Número de documento no único" for p in r["pendientes"])
+
+
+# ---------------------------------------------------------------------------
+# M2 - Los parametros mal formados son error de entrada, no un 500
+# ---------------------------------------------------------------------------
+
+def test_un_factor_prospectivo_escalar_se_acepta_como_formato_antiguo():
+    r = analizar(_cortes(), {"factor_prospectivo": 1.10,
+                             "justificacion_prospectivo": "Proyeccion macro documentada"})
+    assert r["matriz"]["ajuste_prospectivo"] == {"NO-RELACIONADOS": 1.10, "RELACIONADOS": 1.10}
+
+
+@pytest.mark.parametrize("parametros,texto", [
+    ({"factor_prospectivo": ["1.10"]}, "factor_prospectivo"),
+    ({"tasas_sustitutas": "0.42"}, "tasas_sustitutas"),
+    ({"tasas_sustitutas": {"NO-RELACIONADOS|0 a 30 días": "0.42"}}, "tasas_sustitutas"),
+    ({"evaluaciones_individuales": [1, 2]}, "evaluaciones_individuales"),
+    ({"eeff": [1, 2]}, "eeff"),
+    ({"politica": "0.05"}, "politica"),
+    ({"umbral_individual": "mucho"}, "umbral_individual"),
+    ({"umbral_dias_incumplimiento": "dos años"}, "umbral_dias_incumplimiento"),
+])
+def test_un_parametro_mal_formado_es_error_de_entrada(parametros, texto):
+    with pytest.raises(ValueError) as e:
+        analizar(_cortes(), parametros)
+    assert texto in str(e.value)
+
+
+# ---------------------------------------------------------------------------
+# M6 - Un umbral de incumplimiento en 0 no se convierte en 730
+# ---------------------------------------------------------------------------
+
+def test_un_umbral_de_incumplimiento_en_cero_no_se_convierte_en_730():
+    with pytest.raises(ValueError) as e:
+        analizar(_cortes(), {"umbral_dias_incumplimiento": 0})
+    assert "umbral_dias_incumplimiento" in str(e.value)
+
+
+def test_un_umbral_de_incumplimiento_explicito_se_respeta():
+    r = analizar(_cortes(), {"umbral_dias_incumplimiento": 365})
+    assert r["bitacora"]["umbral_incumplimiento"] == 365
+
+
+def test_sin_umbral_de_incumplimiento_se_usa_el_defecto_del_plan():
+    r = analizar(_cortes(), {})
+    assert r["bitacora"]["umbral_incumplimiento"] == 730
