@@ -31,3 +31,19 @@ def test_lectura_de_fechas_segun_el_formato():
     assert a_fecha(datetime(2025, 12, 31)) == date(2025, 12, 31)
     assert a_fecha("no es fecha") is None
     assert a_fecha(None) is None
+
+
+@pytest.mark.parametrize("entrada,esperado", [
+    ("8.917.458", 8917458.0), ("1,234,567", 1234567.0), ("12.345.678,90", 12345678.90),
+])
+def test_miles_multiples_sin_decimales(entrada, esperado):
+    assert a_numero(entrada) == pytest.approx(esperado, abs=0.005)
+
+
+def test_sin_fechas_parseables_el_formato_es_ambiguo():
+    assert inferir_formato_fecha([]) == "ambiguo"
+    assert inferir_formato_fecha(["", None, "sin fecha"]) == "ambiguo"
+
+
+def test_mezcla_de_fechas_nativas_y_texto_es_inconsistente():
+    assert inferir_formato_fecha([datetime(2025, 12, 31), "05/03/2025"]) == "inconsistente"

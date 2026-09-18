@@ -16,9 +16,16 @@ _PATRON_ISO = re.compile(r"^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})")
 def a_numero(valor: Any) -> float:
     """Convierte a número respetando cualquier formato regional.
 
-    El separador decimal es el último que aparece; el otro es de miles. Un único
-    separador seguido de exactamente tres dígitos es de miles: "1.500" son mil
-    quinientos. Los paréntesis indican negativo.
+    - Si aparecen ambos separadores ("." y ","): el último que aparece es el
+      decimal, el otro es de miles.
+    - Si aparece un solo tipo de separador:
+      - más de una vez -> todos son de miles ("8.917.458" -> 8917458);
+      - una sola vez y le siguen exactamente tres dígitos -> es de miles
+        ("1.500" -> 1500);
+      - una sola vez y no le siguen exactamente tres dígitos -> es decimal
+        ("1234.56" -> 1234.56).
+
+    Los paréntesis indican negativo.
     """
     if valor is None or valor == "":
         return 0.0
@@ -31,13 +38,19 @@ def a_numero(valor: Any) -> float:
     s = re.sub(r"[^0-9.,]", "", s)
     if not s:
         return 0.0
-    i = max(s.rfind(","), s.rfind("."))
+    tiene_punto = "." in s
+    tiene_coma = "," in s
     entero, decimal = s, ""
-    if i >= 0:
-        cola = s[i + 1:]
-        unico = len(re.sub(r"[^.,]", "", s)) == 1
-        if not (unico and len(cola) == 3):
-            entero, decimal = s[:i], cola
+    if tiene_punto and tiene_coma:
+        i = max(s.rfind(","), s.rfind("."))
+        entero, decimal = s[:i], s[i + 1:]
+    elif tiene_punto or tiene_coma:
+        sep = "." if tiene_punto else ","
+        if s.count(sep) == 1:
+            i = s.rfind(sep)
+            cola = s[i + 1:]
+            if len(cola) != 3:
+                entero, decimal = s[:i], cola
     entero = re.sub(r"[.,]", "", entero)
     try:
         n = float(f"{entero}.{decimal}" if decimal else entero or "0")
@@ -47,21 +60,40 @@ def a_numero(valor: Any) -> float:
 
 
 def inferir_formato_fecha(valores: Iterable[Any]) -> str:
-    """Deduce si las fechas del archivo son día/mes/año o mes/día/año."""
+    """Deduce si las fechas del archivo son día/mes/año o mes/día/año.
+
+    Recorre todos los valores (no se detiene en el primero) porque un Excel
+    puede mezclar celdas con formato de fecha nativo y celdas de texto:
+
+    - solo fechas nativas -> "nativo";
+    - fechas nativas y además cadenas con patrón de fecha -> "inconsistente"
+      (el archivo mezcla formatos);
+    - solo cadenas -> "dmy"/"mdy"/"inconsistente" según qué componente supere
+      12, o "ambiguo" si ninguno lo delata;
+    - nada parseable -> "ambiguo" (no se sabe, no se asume "nativo").
+    """
     dmy = mdy = total = 0
+    hay_nativas = False
+    hay_texto_con_patron = False
     for v in valores:
         if isinstance(v, (date, datetime)):
-            return "nativo"
+            hay_nativas = True
+            continue
         m = _PATRON_DMY.match(str(v or "").strip())
         if not m:
             continue
+        hay_texto_con_patron = True
         total += 1
         if int(m.group(1)) > 12:
             dmy += 1
         if int(m.group(2)) > 12:
             mdy += 1
-    if not total:
+    if hay_nativas and hay_texto_con_patron:
+        return "inconsistente"
+    if hay_nativas:
         return "nativo"
+    if not total:
+        return "ambiguo"
     if dmy and mdy:
         return "inconsistente"
     if dmy:
