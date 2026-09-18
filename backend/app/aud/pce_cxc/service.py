@@ -118,16 +118,18 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
             # no queda saldo sin medir.
             ecl_caso = float(est["ecl"])
             sustento = est["justificacion"]
+            saldo_sin_tasa_caso = 0.0
         else:
             ecl_caso = provisional
             sustento = "Medido con la tasa de la matriz (provisional)"
-            if saldo_sin_tasa > 0.005:
-                sustento += f"; USD {saldo_sin_tasa:,.2f} sin medir por falta de tasa"
-                sin_medir_individual += saldo_sin_tasa
+            saldo_sin_tasa_caso = saldo_sin_tasa if saldo_sin_tasa > 0.005 else 0.0
+            if saldo_sin_tasa_caso > 0:
+                sustento += f"; USD {saldo_sin_tasa_caso:,.2f} sin medir por falta de tasa"
+                sin_medir_individual += saldo_sin_tasa_caso
         lista_casos.append({
             "identificacion": f"{caso['identificacion']} ({clave[0]})", "tramo": None,
             "saldo": caso["saldo"], "recuperacion_estimada": caso["saldo"] - ecl_caso,
-            "sustento": sustento,
+            "sustento": sustento, "saldo_sin_tasa": saldo_sin_tasa_caso,
         })
 
     saldo_contable = sum(meta.values()) if ancla else None

@@ -220,6 +220,11 @@ def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
             "saldo": redondear(saldo),
             "recuperacion_estimada": redondear(recuperacion),
             "sustento": caso.get("sustento", ""),
+            # Parte del saldo del caso que no se pudo medir (banda sin tasa y
+            # sin estimación propia justificada). Va como campo propio, no solo
+            # dentro del texto de `sustento`, para que se pueda sumar sin tener
+            # que parsear una frase.
+            "saldo_sin_tasa": redondear(float(caso.get("saldo_sin_tasa") or 0.0)),
             "ecl": ecl,
         })
     return {

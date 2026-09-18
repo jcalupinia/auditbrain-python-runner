@@ -145,11 +145,44 @@ def test_caso_individual_sin_tasa_no_reporta_perdida_cero_en_silencio():
     r = analizar(_cortes_individual_sin_tasa(), {"umbral_individual": 500000.0})
     caso = r["individual"]["casos"][0]
     assert "USD 1,000,000.00 sin medir por falta de tasa" in caso["sustento"]
+    # El monto no solo vive dentro del texto del sustento: el Excel del papel
+    # de trabajo lo necesita como campo numérico propio, no parseado de una frase.
+    assert caso["saldo_sin_tasa"] == pytest.approx(1000000.0)
 
     assert r["exposicion"]["sin_medir"] == pytest.approx(1000000.0)
+    suma_sin_tasa_casos = sum(c["saldo_sin_tasa"] for c in r["individual"]["casos"])
+    assert suma_sin_tasa_casos + r["matriz"]["exposicion_sin_medir"] == pytest.approx(
+        r["exposicion"]["sin_medir"])
 
     variables = [p["variable"] for p in r["pendientes"]]
     assert "Saldos individuales sin tasa aplicable" in variables
     pendiente = next(p for p in r["pendientes"] if p["variable"] == "Saldos individuales sin tasa aplicable")
     assert pendiente["responsable"] == "Gerente / Socio"
     assert pendiente["criticidad"] == "Alta"
+
+
+def test_caso_individual_con_estimacion_propia_no_deja_saldo_sin_tasa():
+    # Misma cartera del caso anterior (GRANDE, banda sin historia en la
+    # cohorte), pero ahora con una estimación propia justificada: cubre todo
+    # el caso y no debe quedar saldo sin medir.
+    parametros = {
+        "umbral_individual": 500000.0,
+        "evaluaciones_individuales": {
+            "NO-RELACIONADOS|GRANDE": {
+                "ecl": 300000.0,
+                "justificacion": "Informe legal Pérez & Asociados 2025-01-20: recupero estimado 70 %.",
+            },
+        },
+    }
+    r = analizar(_cortes_individual_sin_tasa(), parametros)
+    caso = r["individual"]["casos"][0]
+    assert caso["saldo_sin_tasa"] == pytest.approx(0.0)
+    assert caso["sustento"] == parametros["evaluaciones_individuales"]["NO-RELACIONADOS|GRANDE"]["justificacion"]
+    assert caso["ecl"] == pytest.approx(300000.0)
+
+    suma_sin_tasa_casos = sum(c["saldo_sin_tasa"] for c in r["individual"]["casos"])
+    assert suma_sin_tasa_casos + r["matriz"]["exposicion_sin_medir"] == pytest.approx(
+        r["exposicion"]["sin_medir"])
+
+    variables = [p["variable"] for p in r["pendientes"]]
+    assert "Saldos individuales sin tasa aplicable" not in variables
