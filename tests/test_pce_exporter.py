@@ -11,7 +11,7 @@ from openpyxl.utils import range_boundaries
 
 from backend.app.aud.pce_cxc import exporter
 from backend.app.aud.pce_cxc.exporter import construir_excel
-from tests.excel_calc import Libro
+from tests.excel_calc import Libro, columna
 
 
 class _FechaFija(date):
@@ -100,12 +100,13 @@ def test_banda_sin_medir_no_escribe_cero_ni_formula_de_perdida():
     }
     ws = _abrir(construir_excel(resultado, {}))["05-Matriz"]
     fila = 2
+    perdida = columna(ws, "Pérdida esperada")
     assert ws.cell(fila, 3).value == 5000.0  # la exposición sí se traslada
     assert ws.cell(fila, 4).value == "SIN MEDIR"
-    assert ws.cell(fila, 6).value == "SIN MEDIR"
-    assert ws.cell(fila, 6).value != 0
-    valor_col_f = ws.cell(fila, 6).value
-    assert not (isinstance(valor_col_f, str) and valor_col_f.startswith("=")), \
+    valor = ws[f"{perdida}{fila}"].value
+    assert valor == "SIN MEDIR"
+    assert valor != 0
+    assert not (isinstance(valor, str) and valor.startswith("=")), \
         "una banda sin medir no debe llevar fórmula de pérdida"
 
 
@@ -487,7 +488,7 @@ def test_la_fila_sin_medir_con_cartera_sigue_saliendo():
     filas = {(ws.cell(f, 1).value, ws.cell(f, 2).value): f for f in range(2, ws.max_row + 1)}
     fila = filas[("NO-RELACIONADOS", "Más de 730 días")]
     assert ws.cell(fila, 3).value == 5000.0
-    assert ws.cell(fila, 6).value == "SIN MEDIR"
+    assert ws[f"{columna(ws, 'Pérdida esperada')}{fila}"].value == "SIN MEDIR"
 
 
 # ---------------------------------------------------------------------------
@@ -730,8 +731,9 @@ def test_la_matriz_redondea_la_perdida_como_el_motor():
     libro = Libro(_abrir(construir_excel(resultado, {})))
     # 1000,01 x 0,3333 = 333,303333; el motor archiva 333,30 y la celda tiene
     # que dar exactamente eso, no el producto con todos sus decimales.
-    assert libro.numero("05-Matriz", "F2") == 333.30
-    assert libro.numero("05-Matriz", "F3") == 333.30  # la fila TOTAL
+    perdida = columna(libro.wb["05-Matriz"], "Pérdida esperada")
+    assert libro.numero("05-Matriz", f"{perdida}2") == 333.30
+    assert libro.numero("05-Matriz", f"{perdida}3") == 333.30  # la fila TOTAL
 
 
 # ---------------------------------------------------------------------------
@@ -767,18 +769,21 @@ RESULTADO_SIN_MEDIR["exposicion"]["medida_acotada"] = None
 
 def _suma_sin_medir_del_papel(wb) -> float:
     """Recalcula a mano lo que suma la fórmula de la conciliación."""
+    libro = Libro(wb)
     total = 0.0
     ws = wb["05-Matriz"]
+    perdida = columna(ws, "Pérdida esperada")
     for f in range(2, ws.max_row + 1):
         if ws.cell(f, 2).value == "TOTAL":
             break
-        if ws.cell(f, 6).value == "SIN MEDIR":
+        if ws[f"{perdida}{f}"].value == "SIN MEDIR":
             total += float(ws.cell(f, 3).value or 0)
     ws = wb["06-Individual"]
+    sin_medir = columna(ws, "Saldo sin medir")
     for f in range(2, ws.max_row + 1):
         if ws.cell(f, 1).value == "TOTAL":
             break
-        total += float(ws.cell(f, 6).value or 0)
+        total += libro.numero("06-Individual", f"{sin_medir}{f}")
     return total
 
 

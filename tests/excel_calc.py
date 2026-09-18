@@ -381,6 +381,24 @@ class Libro:
         return total
 
 
+def columna(ws, texto: str) -> str:
+    """Letra de la columna cuyo encabezado (fila 1) contiene ``texto``.
+
+    Las pruebas del papel no deben clavar el número de columna: cuando una
+    hoja gana una columna -la LGD y el factor de descuento de ``05-Matriz``,
+    el saldo sin medir sin acotar de ``06-Individual``- las pruebas que la
+    clavaban dejan de comprobar lo que dicen que comprueban y empiezan a
+    comprobar la columna de al lado. Se busca por el rótulo, que es lo que el
+    auditor lee.
+    """
+    objetivo = texto.strip().lower()
+    for c in range(1, ws.max_column + 1):
+        if objetivo in str(ws.cell(1, c).value or "").strip().lower():
+            return get_column_letter(c)
+    encabezados = [str(ws.cell(1, c).value or "") for c in range(1, ws.max_column + 1)]
+    raise ErrorDeFormula(f"{ws.title} no tiene ninguna columna «{texto}»: {encabezados}")
+
+
 def recalcular(binario: bytes, hoja: str, celda: str) -> Any:
     """Atajo: abre el libro en bytes y recalcula una celda desde sus fórmulas."""
     import io

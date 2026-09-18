@@ -27,7 +27,7 @@ from openpyxl import Workbook, load_workbook
 
 from backend.app.aud.pce_cxc.exporter import construir_excel
 from backend.app.aud.pce_cxc.service import analizar
-from tests.excel_calc import Libro
+from tests.excel_calc import Libro, columna
 
 # ---------------------------------------------------------------------------
 # Los tres cortes de prueba (mismos datos que `app/pruebas/cartera_*.xlsx`)
@@ -133,20 +133,24 @@ def _cuadre(resultado, parametros):
     libro = Libro(load_workbook(io.BytesIO(construir_excel(resultado, parametros))))
     wb = libro.wb
     ws = wb["05-Matriz"]
+    # Las columnas se resuelven por su rótulo: clavar el número dejaba de
+    # comprobar lo que dice comprobar en cuanto la hoja gana una columna.
+    col_perdida = columna(ws, "Pérdida esperada")
+    col_tasa = columna(ws, "Tasa aplicada")
     por_banda = {(t.get("segmento"), t["tramo"]): t for t in resultado["matriz"]["tramos"]}
     suma_libro = Decimal("0.00")
     medidas = 0
     discrepancias = []
     for fila in range(2, ws.max_row + 1):
         segmento, banda = ws.cell(fila, 1).value, ws.cell(fila, 2).value
-        if banda in (None, "TOTAL") or ws.cell(fila, 6).value == "SIN MEDIR":
+        if banda in (None, "TOTAL") or ws[f"{col_perdida}{fila}"].value == "SIN MEDIR":
             continue
         exposicion = _dec(ws.cell(fila, 3).value)
-        tasa = _dec(libro.numero("05-Matriz", f"D{fila}"))
+        tasa = _dec(libro.numero("05-Matriz", f"{col_tasa}{fila}"))
         # Lo que obtiene quien reabre el papel y rehace la cuenta con las cifras
         # que tiene delante: se EVALÚA la fórmula de la celda, no se
         # reimplementa aquí la cuenta que se supone que hace.
-        segun_el_papel = _dec(libro.numero("05-Matriz", f"F{fila}"))
+        segun_el_papel = _dec(libro.numero("05-Matriz", f"{col_perdida}{fila}"))
         archivado = _dec(por_banda[(segmento, banda)]["ecl"])
         if segun_el_papel != archivado:
             discrepancias.append(
@@ -157,9 +161,10 @@ def _cuadre(resultado, parametros):
 
     # 06-Individual escribe la PCE de cada caso como valor y su TOTAL la suma.
     wsi = wb["06-Individual"]
+    col_pce = columna(wsi, "Pérdida esperada")
     suma_individual = sum(
-        (_dec(wsi.cell(f, 5).value) for f in range(2, wsi.max_row)
-         if isinstance(wsi.cell(f, 5).value, (int, float))), Decimal("0.00"))
+        (_dec(wsi[f"{col_pce}{f}"].value) for f in range(2, wsi.max_row)
+         if isinstance(wsi[f"{col_pce}{f}"].value, (int, float))), Decimal("0.00"))
     return wb, suma_libro, suma_individual, medidas, discrepancias
 
 
@@ -172,12 +177,13 @@ def test_el_papel_se_recalcula_desde_sus_propias_celdas():
     assert medidas >= 5, "la corrida de prueba tiene que medir varias bandas"
     assert not discrepancias, _informe(discrepancias)
 
-    # El TOTAL de 05-Matriz (=SUM(F...)) es la suma de esas mismas celdas.
+    # El TOTAL de 05-Matriz es la suma de esas mismas celdas.
     assert suma_libro == _dec(resultado["matriz"]["ecl_total"])
     assert suma_individual == _dec(resultado["individual"]["ecl_total"])
 
-    # 09-Tributario B2 = '05-Matriz'!F(total) + '06-Individual'!E(total).
-    assert str(wb["09-Tributario"]["B2"].value).startswith("='05-Matriz'!F")
+    # 09-Tributario B2 = 05-Matriz (pérdida, TOTAL) + 06-Individual (pérdida, TOTAL).
+    col_perdida = columna(wb["05-Matriz"], "Pérdida esperada")
+    assert str(wb["09-Tributario"]["B2"].value).startswith(f"='05-Matriz'!{col_perdida}")
     assert suma_libro + suma_individual == _dec(resultado["ecl_total"])
 
 

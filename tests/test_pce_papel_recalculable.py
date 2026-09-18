@@ -18,8 +18,9 @@ import pytest
 from openpyxl import Workbook, load_workbook
 
 from backend.app.aud.pce_cxc.exporter import construir_excel
-from backend.app.aud.pce_cxc.service import analizar
-from tests.excel_calc import Libro
+from backend.app.aud.pce_cxc.motor import ParametrosECL, resumen_deterioro
+from backend.app.aud.pce_cxc.service import SEGMENTOS, analizar
+from tests.excel_calc import Libro, columna
 
 CENTAVO = 0.005
 
@@ -40,6 +41,16 @@ def _cortes(filas_2023, filas_2024, filas_2025):
     fechas = [date(2023, 12, 31), date(2024, 12, 31), date(2025, 12, 31)]
     return [{"nombre": f"cartera_{f.year}.xlsx", "contenido": c, "fecha": f}
             for c, f in zip(contenidos, fechas)]
+
+
+def _col_perdida(ws):
+    """Columna de la pérdida esperada de 05-Matriz, resuelta por su rótulo.
+
+    La hoja gana columnas (la LGD y el factor de descuento que el motor sí
+    aplica), y una prueba que clava la letra deja de comprobar lo que su
+    docstring dice y pasa a comprobar la columna de al lado.
+    """
+    return columna(ws, "Pérdida esperada")
 
 
 def _libro(resultado, parametros=None):
@@ -174,10 +185,10 @@ def test_cada_banda_de_la_matriz_recalcula_la_perdida_archivada(corrida):
         clave = (ws.cell(i, 1).value, ws.cell(i, 2).value)
         archivada = tramos[clave]["ecl"]
         if archivada is None:
-            assert ws.cell(i, 6).value == "SIN MEDIR"
+            assert ws[f"{_col_perdida(ws)}{i}"].value == "SIN MEDIR"
             continue
         medidas += 1
-        assert libro.numero("05-Matriz", f"F{i}") == pytest.approx(archivada, abs=CENTAVO), \
+        assert libro.numero("05-Matriz", f"{_col_perdida(ws)}{i}") == pytest.approx(archivada, abs=CENTAVO), \
             f"{clave} recalcula distinto de lo archivado"
     assert medidas, "la corrida de prueba tiene que traer bandas medidas"
 
@@ -192,7 +203,7 @@ def test_el_total_de_la_matriz_recalcula_el_total_archivado(corrida):
     libro = _libro(resultado)
     ws = libro.wb["05-Matriz"]
     fila_total = next(i for i in range(2, ws.max_row + 1) if ws.cell(i, 2).value == "TOTAL")
-    assert libro.numero("05-Matriz", f"F{fila_total}") == pytest.approx(
+    assert libro.numero("05-Matriz", f"{_col_perdida(ws)}{fila_total}") == pytest.approx(
         resultado["matriz"]["ecl_total"], abs=CENTAVO)
 
 
@@ -216,9 +227,9 @@ def test_la_perdida_esperada_del_papel_nunca_es_negativa():
     libro = _libro(resultado)
     ws = libro.wb["05-Matriz"]
     for i in _filas_medidas(ws):
-        if ws.cell(i, 6).value == "SIN MEDIR":
+        if ws[f"{_col_perdida(ws)}{i}"].value == "SIN MEDIR":
             continue
-        assert libro.numero("05-Matriz", f"F{i}") >= -CENTAVO
+        assert libro.numero("05-Matriz", f"{_col_perdida(ws)}{i}") >= -CENTAVO
     assert libro.numero("09-Tributario", "B2") >= -CENTAVO
 
 
@@ -228,10 +239,10 @@ def test_la_perdida_esperada_del_papel_nunca_supera_la_exposicion_de_su_banda():
     libro = _libro(resultado)
     ws = libro.wb["05-Matriz"]
     for i in _filas_medidas(ws):
-        if ws.cell(i, 6).value == "SIN MEDIR":
+        if ws[f"{_col_perdida(ws)}{i}"].value == "SIN MEDIR":
             continue
         exposicion = libro.numero("05-Matriz", f"C{i}")
-        assert libro.numero("05-Matriz", f"F{i}") <= max(exposicion, 0.0) + CENTAVO
+        assert libro.numero("05-Matriz", f"{_col_perdida(ws)}{i}") <= max(exposicion, 0.0) + CENTAVO
 
 
 def test_el_papel_declara_cuando_un_acotamiento_actuo():
@@ -244,7 +255,7 @@ def test_el_papel_declara_cuando_un_acotamiento_actuo():
         ws = libro.wb["05-Matriz"]
         declarados = []
         for i in _filas_medidas(ws):
-            valor = ws.cell(i, 8).value
+            valor = ws[f"{columna(ws, 'Acotamiento aplicado')}{i}"].value
             declarados.append(str(libro.evaluar(valor, "05-Matriz")
                                   if isinstance(valor, str) and valor.startswith("=") else valor))
         assert any(esperado in d.upper() for d in declarados), \
@@ -483,3 +494,95 @@ def test_la_corrida_declara_el_recorte_del_saldo_sin_medir_como_hallazgo():
     assert resultado["exposicion"]["sin_medir_recortado"] == pytest.approx(100000.0, abs=CENTAVO)
     titulos = [h["titulo"] for h in resultado["hallazgos"]]
     assert "Saldo sin medir acotado a la exposición del caso" in titulos, titulos
+
+
+# ---------------------------------------------------------------------------
+# U8 — La fórmula de 05-Matriz no puede quedarse atrás del motor
+# ---------------------------------------------------------------------------
+
+def _corrida_con_lgd_y_descuento():
+    """U8: la misma corrida real, medida con una LGD del 40 % y descuento.
+
+    El servicio fija hoy `lgd = 1.0` y no descuenta, así que la fórmula podía
+    omitir los dos factores sin que ninguna prueba lo notara. El motor SÍ los
+    soporta: aquí se vuelve a medir la exposición REAL de la corrida con una
+    LGD del 40 % y una tasa de descuento del 8 % a un año, que es exactamente
+    lo que ocurriría el día que el módulo deje de fijar la LGD en 1.
+
+    La corrida base tiene una banda medida con exposición POSITIVA (86.956,52
+    al 30 %): sobre una banda acreedora el piso cero llevaría la pérdida a 0,00
+    con LGD y sin ella, y la prueba no probaría nada.
+    """
+    resultado = _corrida_con_cartera_sin_estratificar()
+    exposiciones = {s: {} for s in SEGMENTOS}
+    tasas = {s: {} for s in SEGMENTOS}
+    for t in resultado["matriz"]["tramos"]:
+        exposiciones[t["segmento"]][t["tramo"]] = t["exposicion"]
+        if t["tasa_perdida"] is not None:
+            tasas[t["segmento"]][t["tramo"]] = t["tasa_perdida"]
+    parametros = {
+        s: ParametrosECL(tasas_perdida=tasas[s], lgd=0.4, tasa_descuento=0.08,
+                         horizontes={t: 1.0 for t in exposiciones[s]},
+                         fuente_tasas="Permanencia a 24 meses")
+        for s in SEGMENTOS
+    }
+    nuevo = resumen_deterioro(exposiciones, parametros)
+    return {**resultado, "matriz": nuevo["colectivo"],
+            "individual": {"casos": [], "saldo_total": 0.0, "ecl_total": 0.0,
+                           "saldo_sin_tasa_total": 0.0, "saldo_acreedor_total": 0.0,
+                           "ecl_acotada_por_piso": 0.0, "ecl_acotada_por_techo": 0.0,
+                           "saldo_sin_tasa_acotado_total": 0.0},
+            "ecl_total": nuevo["ecl_total"]}
+
+
+def test_la_matriz_recalcula_la_perdida_con_lgd_y_factor_de_descuento():
+    """La fórmula omitía la LGD y el factor de descuento que el motor sí aplica:
+    con una LGD del 40 % el papel imprimía 2,5 veces la pérdida archivada."""
+    resultado = _corrida_con_lgd_y_descuento()
+    libro = _libro(resultado)
+    ws = libro.wb["05-Matriz"]
+    tramos = {(t.get("segmento"), t["tramo"]): t for t in resultado["matriz"]["tramos"]}
+    medidas = 0
+    for i in _filas_medidas(ws):
+        clave = (ws.cell(i, 1).value, ws.cell(i, 2).value)
+        archivada = tramos[clave]["ecl"]
+        if archivada is None:
+            continue
+        medidas += 1
+        assert libro.numero("05-Matriz", f"{_col_perdida(ws)}{i}") == pytest.approx(archivada, abs=CENTAVO), \
+            f"{clave}: el papel no aplica la LGD ni el factor de descuento del motor"
+    assert medidas, "la corrida de prueba tiene que traer bandas medidas"
+    fila_total = next(i for i in range(2, ws.max_row + 1) if ws.cell(i, 2).value == "TOTAL")
+    assert libro.numero("05-Matriz", f"{_col_perdida(ws)}{fila_total}") == pytest.approx(
+        resultado["matriz"]["ecl_total"], abs=CENTAVO)
+
+
+def test_la_matriz_imprime_la_lgd_y_el_factor_de_descuento_de_cada_banda():
+    """No basta con que la fórmula los aplique: tienen que estar en una celda
+    que el revisor pueda cambiar, como el factor prospectivo."""
+    resultado = _corrida_con_lgd_y_descuento()
+    libro = _libro(resultado)
+    ws = libro.wb["05-Matriz"]
+    encabezados = [str(ws.cell(1, c).value or "").lower() for c in range(1, ws.max_column + 1)]
+    col_lgd = next((c for c, t in enumerate(encabezados, start=1) if "lgd" in t), None)
+    col_fd = next((c for c, t in enumerate(encabezados, start=1) if "descuento" in t), None)
+    assert col_lgd and col_fd, encabezados
+    tramos = {(t.get("segmento"), t["tramo"]): t for t in resultado["matriz"]["tramos"]}
+    for i in _filas_medidas(ws):
+        t = tramos[(ws.cell(i, 1).value, ws.cell(i, 2).value)]
+        if t["ecl"] is None:
+            continue
+        assert ws.cell(i, col_lgd).value == pytest.approx(t["lgd"])
+        assert ws.cell(i, col_fd).value == pytest.approx(t["factor_descuento"])
+
+
+def test_la_matriz_no_rotula_un_acotamiento_que_no_puede_alcanzarse():
+    """`ACOTADO_TECHO` era inalcanzable desde el motor: con la tasa acotada al
+    100 %, la LGD en [0, 1] y el factor de descuento en (0, 1], el producto
+    nunca supera la exposición. Un rótulo que nunca se alcanza es ruido."""
+    from backend.app.aud.pce_cxc import exporter
+    ws = _libro(_corrida_con_factor_desbocado()).wb["05-Matriz"]
+    formulas = [str(ws.cell(i, c).value or "") for i in range(2, ws.max_row + 1)
+                for c in range(1, ws.max_column + 1)]
+    assert not any(exporter.ACOTADO_TECHO in f for f in formulas), \
+        "05-Matriz sigue rotulando el techo del importe en libros bruto, que no puede morder"

@@ -934,28 +934,37 @@ def _tasas(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, Any], 
 # ---------------------------------------------------------------------------
 
 def _matriz(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> None:
-    """Matriz de provisiones, con los acotamientos de la norma DENTRO de la fórmula.
+    """Matriz de provisiones, con TODOS los factores del motor DENTRO de la fórmula.
 
-    La columna F (pérdida esperada) reproduce ``motor.medir_ecl`` celda a celda:
+    La columna H (pérdida esperada) reproduce ``motor.medir_ecl`` celda a celda:
 
-        F = MIN(MAX(ROUND(exposición × MIN(tasa × factor; 1); 2); 0); MAX(exposición; 0))
+        H = MIN(MAX(ROUND(exposición × MIN(tasa × factor; 1) × LGD × FD; 2); 0);
+                MAX(exposición; 0))
 
     - ``MIN(tasa × factor; 1)`` es el techo de la tasa ajustada (``motor.py``:
-      ``tasa_ajustada = min(bruta, 1.0)``).
+      ``acotar(tasa_ajustada_bruta, techo=1.0)``).
+    - ``× LGD × FD`` son la severidad de la pérdida y el factor de descuento.
+      El servicio fija hoy ``lgd = 1.0`` y no descuenta, así que omitirlos no
+      cambiaba ninguna cifra: por eso la divergencia estaba DORMIDA, y se
+      habría despertado en silencio el día que la LGD dejara de ser 1. Van en
+      columnas propias -como el factor prospectivo- para que cambiarlas en
+      Excel recalcule la banda.
     - ``MAX(...; 0)`` es el piso cero: una nota de crédito deja la banda con
       exposición acreedora y su "pérdida" negativa neutralizaría la pérdida
       medida en las demás bandas del mismo segmento.
     - ``MIN(...; MAX(exposición; 0))`` es el techo del importe en libros bruto
-      (NIIF 9 B5.5.35).
+      (NIIF 9 B5.5.35). Se escribe porque la norma lo exige por escrito, pero
+      NO lleva rótulo propio: con la tasa acotada al 100 %, la LGD validada en
+      [0, 1] y el factor de descuento en (0, 1], el producto no puede superar
+      la exposición, así que ``ACOTADO_TECHO`` era un rótulo inalcanzable.
 
-    La columna G conserva el cálculo SIN acotar -que es la evidencia de que el
-    acotamiento hizo falta- y la H declara cuál actuó. Antes la fórmula era el
-    producto puro: el motor acotaba, el libro no, y ninguna prueba llevaba una
-    banda acotada al exportador.
+    La columna I conserva el cálculo SIN acotar -que es la evidencia de que el
+    acotamiento hizo falta- y la J declara cuál actuó.
     """
     ws = wb.create_sheet("05-Matriz")
     _encabezados(ws, 1, ["Segmento", "Banda", "Exposición", "Tasa aplicada", "Factor prospectivo",
-                         "Pérdida esperada", "Pérdida sin acotar", "Acotamiento aplicado"])
+                         "LGD", "Factor de descuento", "Pérdida esperada", "Pérdida sin acotar",
+                         "Acotamiento aplicado"])
     tramos = refs.get("tramos_visibles") or []
     omitidas = refs.get("tramos_omitidos") or 0
     primera = 2
@@ -969,9 +978,11 @@ def _matriz(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> No
             if t.get("tasa_perdida") is None:
                 _celda(ws, i, 4, "SIN MEDIR", alineacion=ALIN_CEN)
                 _celda(ws, i, 5, "", alineacion=ALIN_CEN)
-                _celda(ws, i, 6, "SIN MEDIR", alineacion=ALIN_CEN)
-                _celda(ws, i, 7, "SIN MEDIR", alineacion=ALIN_CEN)
+                _celda(ws, i, 6, "", alineacion=ALIN_CEN)
+                _celda(ws, i, 7, "", alineacion=ALIN_CEN)
                 _celda(ws, i, 8, "SIN MEDIR", alineacion=ALIN_CEN)
+                _celda(ws, i, 9, "SIN MEDIR", alineacion=ALIN_CEN)
+                _celda(ws, i, 10, "SIN MEDIR", alineacion=ALIN_CEN)
                 continue
             # La tasa vive en 04-Tasas y aquí se referencia: una sola cifra por
             # banda en todo el libro, y corregirla allá recalcula la matriz.
@@ -990,43 +1001,59 @@ def _matriz(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> No
             _celda(ws, i, 5, f'=IF(A{i}="RELACIONADOS",AjusteProspectivoRelacionados,'
                              f'AjusteProspectivoNoRelacionados)',
                    formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
-            # Pérdida esperada CON los dos acotamientos de la norma, igual que
+            # LGD y factor de descuento: los dos factores que el motor aplica y
+            # la fórmula omitía. Una corrida anterior a estos campos no afirmó
+            # "1": no los guardó, y el papel lo dice en vez de suponerlos.
+            lgd = _numero(t.get("lgd"))
+            factor_descuento = _numero(t.get("factor_descuento"))
+            _celda(ws, i, 6, NO_REGISTRADO if lgd is None else lgd,
+                   formato=FORMATO_PORCENTAJE,
+                   alineacion=ALIN_DER if lgd is not None else ALIN_CEN)
+            _celda(ws, i, 7, NO_REGISTRADO if factor_descuento is None else factor_descuento,
+                   formato="0.000000",
+                   alineacion=ALIN_DER if factor_descuento is not None else ALIN_CEN)
+            # Sin los dos factores registrados la fórmula no puede referenciar
+            # sus celdas (serían texto en una multiplicación): la corrida
+            # antigua se mide como se midió, con los dos en 1.
+            severidad = f"*F{i}*G{i}" if lgd is not None and factor_descuento is not None else ""
+            # Pérdida esperada CON los acotamientos de la norma, igual que
             # `motor.medir_ecl` (ver el docstring de esta función). ROUND de
             # Excel redondea medio hacia afuera del cero, el mismo criterio
             # contable de `motor.redondear`.
-            _celda(ws, i, 6,
-                   f"=MIN(MAX(ROUND(C{i}*MIN(D{i}*(1+E{i}),1),2),0),MAX(C{i},0))",
+            _celda(ws, i, 8,
+                   f"=MIN(MAX(ROUND(C{i}*MIN(D{i}*(1+E{i}),1){severidad},2),0),MAX(C{i},0))",
                    formato=FORMATO_MONEDA, alineacion=ALIN_DER)
             # El cálculo puro, sin acotar: es la evidencia de cuánto separó el
             # acotamiento y la única forma de que el revisor lo vea.
-            _celda(ws, i, 7, f"=ROUND(C{i}*D{i}*(1+E{i}),2)", formato=FORMATO_MONEDA,
+            _celda(ws, i, 9, f"=ROUND(C{i}*D{i}*(1+E{i}){severidad},2)", formato=FORMATO_MONEDA,
                    alineacion=ALIN_DER)
-            _celda(ws, i, 8,
-                   f'=IF(F{i}>G{i}+0.005,"{ACOTADO_PISO}",'
-                   f'IF(F{i}<G{i}-0.005,'
-                   f'IF(D{i}*(1+E{i})>1,"{ACOTADO_TASA}","{ACOTADO_TECHO}"),'
-                   f'"{SIN_ACOTAR}"))',
+            _celda(ws, i, 10,
+                   f'=IF(H{i}>I{i}+0.005,"{ACOTADO_PISO}",'
+                   f'IF(H{i}<I{i}-0.005,"{ACOTADO_TASA}","{SIN_ACOTAR}"))',
                    alineacion=ALIN_CEN)
     else:
         ultima = primera
         _celda(ws, primera, 1, "(sin tramos medidos en esta corrida)", alineacion=ALIN_IZQ)
-        for col in range(2, 9):
+        for col in range(2, 11):
             _celda(ws, primera, col, None)
 
     fila_total = ultima + 1
     _celda(ws, fila_total, 2, "TOTAL", total=True, alineacion=ALIN_IZQ)
     _celda(ws, fila_total, 1, None, total=True)
-    _celda(ws, fila_total, 3, f"=SUM(C{primera}:C{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
-    _celda(ws, fila_total, 4, None, total=True)
-    _celda(ws, fila_total, 5, None, total=True)
-    _celda(ws, fila_total, 6, f"=SUM(F{primera}:F{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
-    _celda(ws, fila_total, 7, f"=SUM(G{primera}:G{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
-    _celda(ws, fila_total, 8, None, total=True)
+    _celda(ws, fila_total, 3, f"=SUM(C{primera}:C{ultima})", formato=FORMATO_MONEDA, total=True,
+           alineacion=ALIN_DER)
+    for col in (4, 5, 6, 7):
+        _celda(ws, fila_total, col, None, total=True)
+    _celda(ws, fila_total, 8, f"=SUM(H{primera}:H{ultima})", formato=FORMATO_MONEDA, total=True,
+           alineacion=ALIN_DER)
+    _celda(ws, fila_total, 9, f"=SUM(I{primera}:I{ultima})", formato=FORMATO_MONEDA, total=True,
+           alineacion=ALIN_DER)
+    _celda(ws, fila_total, 10, None, total=True)
 
     nota = ws.cell(fila_total + 2, 1, NOTA_ACOTAMIENTOS)
     nota.font = FUENTE_DATOS
     nota.alignment = ALIN_IZQ
-    ws.merge_cells(start_row=fila_total + 2, start_column=1, end_row=fila_total + 2, end_column=8)
+    ws.merge_cells(start_row=fila_total + 2, start_column=1, end_row=fila_total + 2, end_column=10)
     ws.row_dimensions[fila_total + 2].height = 42
 
     if omitidas:
@@ -1037,13 +1064,15 @@ def _matriz(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> No
                     "de bandas, con o sin historia, está en 04-Tasas.")
         c.font = FUENTE_DATOS
         c.alignment = ALIN_IZQ
-        ws.merge_cells(start_row=fila_total + 4, start_column=1, end_row=fila_total + 4, end_column=8)
+        ws.merge_cells(start_row=fila_total + 4, start_column=1, end_row=fila_total + 4, end_column=10)
         ws.row_dimensions[fila_total + 4].height = 30
 
-    _anchos(ws, {"A": 20, "B": 26, "C": 18, "D": 16, "E": 18, "F": 18, "G": 18, "H": 34})
+    _anchos(ws, {"A": 20, "B": 26, "C": 18, "D": 16, "E": 18, "F": 12, "G": 18, "H": 18, "I": 18,
+                 "J": 34})
     refs["matriz"] = {"primera": primera, "ultima": ultima, "fila_total": fila_total,
-                      "col_exposicion": "C", "col_banda": "B", "col_perdida": "F",
-                      "col_sin_acotar": "G", "col_acotamiento": "H"}
+                      "col_exposicion": "C", "col_banda": "B", "col_perdida": "H",
+                      "col_lgd": "F", "col_descuento": "G",
+                      "col_sin_acotar": "I", "col_acotamiento": "J"}
 
 
 # ---------------------------------------------------------------------------
