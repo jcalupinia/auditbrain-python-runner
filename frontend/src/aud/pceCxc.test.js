@@ -98,3 +98,19 @@ describe("tramosVisibles", () => {
     expect(tramosVisibles(undefined)).toEqual([]);
   });
 });
+
+describe("la cartera medida de la pantalla y la del papel", () => {
+  // Mismos importes que RESULTADO_SIN_MEDIR en tests/test_pce_exporter.py.
+  const total = 170000;
+  const sinMedir = 35000;
+  const sinEstratificar = 20000;
+  const estratificada = 100000 + 50000; // 05-Matriz + 06-Individual
+
+  it("dan la misma cifra: 08-Conciliacion B9 es =B5-B8", () => {
+    expect(carteraMedida(total, sinMedir, sinEstratificar)).toBe(estratificada - sinMedir);
+  });
+
+  it("y la cartera total analizada del papel es el total de la pantalla", () => {
+    expect(estratificada + sinEstratificar).toBe(total);
+  });
+});

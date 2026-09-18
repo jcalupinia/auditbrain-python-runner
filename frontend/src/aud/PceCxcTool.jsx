@@ -194,6 +194,11 @@ export default function PceCxcTool({ projectId }) {
               <span>Cartera total</span>
               <b>{money(cartera)}</b>
             </div>
+            <div>
+              {/* Misma cifra y misma etiqueta que 08-Conciliacion del Excel. */}
+              <span>Cartera medida</span>
+              <b>{money(carteraMedida)}</b>
+            </div>
             <div className={sinMedirTotal > 0.005 ? "pce-kpi-bad" : ""}>
               <span>Sin medir</span>
               <b>{money(sinMedirTotal)}</b>

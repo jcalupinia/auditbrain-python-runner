@@ -713,3 +713,101 @@ def test_la_matriz_redondea_la_perdida_como_el_motor():
     formula = str(ws.cell(2, 6).value)
     assert formula.startswith("=ROUND("), formula
     assert formula.endswith(",2)"), formula
+
+
+# ---------------------------------------------------------------------------
+# I4 — «Cartera medida» significaba cuatro cosas y el importe sin medir no
+#      aparecía en ninguna de las trece hojas
+# ---------------------------------------------------------------------------
+
+RESULTADO_SIN_MEDIR = {
+    "exposicion": {"colectiva": 100000.0, "individual": 50000.0, "sin_estratificar": 20000.0,
+                   "sin_medir": 35000.0, "total": 170000.0, "segun_archivo": 150000.0,
+                   "factores_anclaje": {"NO-RELACIONADOS": 1.0, "RELACIONADOS": 1.0}},
+    "matriz": {"tramos": [
+        {"segmento": "NO-RELACIONADOS", "tramo": "Por vencer", "exposicion": 70000.0,
+         "tasa_perdida": 0.01, "ecl": 700.0},
+        {"segmento": "NO-RELACIONADOS", "tramo": "Más de 730 días", "exposicion": 30000.0,
+         "tasa_perdida": None, "ecl": None},
+    ]},
+    "individual": {"casos": [
+        {"identificacion": "MEGA S.A. (NO-RELACIONADOS)", "tramo": None, "saldo": 50000.0,
+         "recuperacion_estimada": 45000.0, "ecl": 5000.0, "saldo_sin_tasa": 5000.0,
+         "sustento": "Medido con la tasa de la matriz (provisional); USD 5,000.00 sin medir"},
+    ], "saldo_total": 50000.0, "ecl_total": 5000.0},
+    "conciliacion": {"cartera_total": 170000.0, "saldo_contable": 170000.0,
+                     "diferencia": 0.0, "cuadra": True},
+}
+#: Lo que la pantalla calcula: total - sin medir - sin estratificar.
+CARTERA_MEDIDA_DE_LA_PANTALLA = 170000.0 - 35000.0 - 20000.0
+
+
+def _suma_sin_medir_del_papel(wb) -> float:
+    """Recalcula a mano lo que suma la fórmula de la conciliación."""
+    total = 0.0
+    ws = wb["05-Matriz"]
+    for f in range(2, ws.max_row + 1):
+        if ws.cell(f, 2).value == "TOTAL":
+            break
+        if ws.cell(f, 6).value == "SIN MEDIR":
+            total += float(ws.cell(f, 3).value or 0)
+    ws = wb["06-Individual"]
+    for f in range(2, ws.max_row + 1):
+        if ws.cell(f, 1).value == "TOTAL":
+            break
+        total += float(ws.cell(f, 6).value or 0)
+    return total
+
+
+def test_el_individual_declara_el_saldo_que_no_pudo_medir():
+    """`saldo_sin_tasa` viajaba en el resultado y no llegaba a ninguna columna
+    del papel: solo se podía leer parseando la frase del sustento (I4)."""
+    ws = _abrir(construir_excel(RESULTADO_SIN_MEDIR, {}))["06-Individual"]
+    assert "sin medir" in str(ws.cell(1, 6).value).lower(), ws.cell(1, 6).value
+    assert ws.cell(2, 6).value == 5000.0
+    assert ws.cell(3, 6).value == "=SUM(F2:F2)"
+
+
+def test_la_conciliacion_totaliza_la_exposicion_sin_medir():
+    """Ninguna celda de las trece hojas totalizaba `exposicion.sin_medir`: el
+    KPI que la pantalla pinta en rojo no tenía contraparte en el papel (I4)."""
+    wb = _abrir(construir_excel(RESULTADO_SIN_MEDIR, {}))
+    ws = wb["08-Conciliacion"]
+    assert "SIN MEDIR" in str(ws.cell(8, 1).value), ws.cell(8, 1).value
+    formula = str(ws.cell(8, 2).value)
+    assert formula.startswith("=SUMIFS("), formula
+    assert "'05-Matriz'" in formula and "'06-Individual'" in formula, formula
+    assert _suma_sin_medir_del_papel(wb) == RESULTADO_SIN_MEDIR["exposicion"]["sin_medir"]
+
+
+def test_la_cartera_medida_del_papel_es_la_misma_que_la_de_la_pantalla():
+    """B5 se rotulaba «Cartera medida» y sumaba la exposición total, incluidas
+    las filas SIN MEDIR: excedía a la celda de la pantalla exactamente en el
+    importe sin medir, bajo la misma etiqueta (I4)."""
+    wb = _abrir(construir_excel(RESULTADO_SIN_MEDIR, {}))
+    ws = wb["08-Conciliacion"]
+
+    assert "Exposición estratificada" in str(ws.cell(5, 1).value)
+    assert ws.cell(5, 2).value == "='05-Matriz'!C4+'06-Individual'!C3"
+    assert "sin estratificar" in str(ws.cell(6, 1).value).lower()
+    assert ws.cell(6, 2).value == 20000.0
+    assert ws.cell(7, 2).value == "=B5+B6"
+
+    etiqueta = str(ws.cell(9, 1).value)
+    assert etiqueta.startswith("Cartera medida"), etiqueta
+    assert "sin medir" in etiqueta.lower(), etiqueta
+    assert ws.cell(9, 2).value == "=B5-B8"
+
+    estratificada = 100000.0 + 50000.0
+    assert estratificada + 20000.0 == RESULTADO_SIN_MEDIR["exposicion"]["total"]
+    assert estratificada - RESULTADO_SIN_MEDIR["exposicion"]["sin_medir"] == \
+        CARTERA_MEDIDA_DE_LA_PANTALLA
+
+
+def test_la_conciliacion_sigue_comparando_el_archivo_contra_los_eeff():
+    """La partida conciliatoria y el estado no cambian de significado (I4)."""
+    ws = _abrir(construir_excel(RESULTADO_SIN_MEDIR, {}))["08-Conciliacion"]
+    assert ws.cell(2, 2).value == 150000.0
+    assert ws.cell(3, 2).value == "=SaldoContable"
+    assert ws.cell(4, 2).value == "=B2-B3"
+    assert ws.cell(10, 2).value == '=IF(ABS(B4)<0.01,"CUADRA","DIFERENCIA")'

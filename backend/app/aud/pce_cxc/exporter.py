@@ -46,6 +46,8 @@ FUENTE_HIPERVINCULO = Font(name="Calibri", size=9, color="0563C1", underline="si
 FUENTE_TITULO = Font(name="Calibri", size=14, bold=True, color="0A2342")
 
 FUENTE_ALERTA = Font(name="Calibri", size=11, bold=True, color="9C0006")
+FUENTE_DATOS_ALERTA = Font(name="Calibri", size=9, bold=True, color="9C0006")
+FUENTE_TOTAL_ALERTA = Font(name="Calibri", size=10, bold=True, color="9C0006")
 
 RELLENO_ENCABEZADO = PatternFill("solid", fgColor="0A2342")  # navy (identidad de la firma)
 RELLENO_TOTAL = PatternFill("solid", fgColor="FBF3DC")       # dorado muy claro
@@ -789,7 +791,7 @@ def _estado_caso(caso: dict[str, Any]) -> str:
 def _individual(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> None:
     ws = wb.create_sheet("06-Individual")
     _encabezados(ws, 1, ["Cliente", "Segmento", "Exposición", "Recuperación estimada",
-                         "Pérdida esperada", "Sustento", "Estado"])
+                         "Pérdida esperada", "Saldo sin medir", "Sustento", "Estado"])
     casos = (resultado.get("individual") or {}).get("casos") or []
     primera = 2
 
@@ -816,12 +818,19 @@ def _individual(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -
             else:
                 _celda(ws, i, 4, f"=C{i}-E{i}", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
                 _celda(ws, i, 5, ecl, formato=FORMATO_MONEDA, alineacion=ALIN_DER)
-            _celda(ws, i, 6, caso.get("sustento", ""), alineacion=ALIN_IZQ)
-            _celda(ws, i, 7, _estado_caso(caso), alineacion=ALIN_IZQ)
+            # `saldo_sin_tasa` viaja en el resultado desde que se le dio campo
+            # propio, pero el papel solo lo dejaba dentro de la frase del
+            # sustento: aquí es una columna que se puede sumar.
+            sin_medir = _numero(caso.get("saldo_sin_tasa")) or 0.0
+            c = _celda(ws, i, 6, sin_medir, formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+            if sin_medir > 0.005:
+                c.font = FUENTE_DATOS_ALERTA
+            _celda(ws, i, 7, caso.get("sustento", ""), alineacion=ALIN_IZQ)
+            _celda(ws, i, 8, _estado_caso(caso), alineacion=ALIN_IZQ)
     else:
         ultima = primera
         _celda(ws, primera, 1, "(sin saldos evaluados individualmente en esta corrida)", alineacion=ALIN_IZQ)
-        for col in range(2, 8):
+        for col in range(2, 9):
             _celda(ws, primera, col, None)
 
     fila_total = ultima + 1
@@ -830,12 +839,13 @@ def _individual(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -
     _celda(ws, fila_total, 3, f"=SUM(C{primera}:C{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
     _celda(ws, fila_total, 4, f"=SUM(D{primera}:D{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
     _celda(ws, fila_total, 5, f"=SUM(E{primera}:E{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
-    _celda(ws, fila_total, 6, None, total=True)
+    _celda(ws, fila_total, 6, f"=SUM(F{primera}:F{ultima})", formato=FORMATO_MONEDA, total=True, alineacion=ALIN_DER)
     _celda(ws, fila_total, 7, None, total=True)
+    _celda(ws, fila_total, 8, None, total=True)
 
-    _anchos(ws, {"A": 24, "B": 18, "C": 16, "D": 18, "E": 16, "F": 40, "G": 26})
+    _anchos(ws, {"A": 24, "B": 18, "C": 16, "D": 18, "E": 16, "F": 16, "G": 40, "H": 26})
     refs["individual"] = {"primera": primera, "ultima": ultima, "fila_total": fila_total,
-                          "col_exposicion": "C", "col_perdida": "E"}
+                          "col_exposicion": "C", "col_perdida": "E", "col_sin_medir": "F"}
 
 
 # ---------------------------------------------------------------------------
@@ -895,6 +905,17 @@ def _politica(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> 
 # ---------------------------------------------------------------------------
 
 def _conciliacion(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> None:
+    """Conciliación con los EEFF y, sobre todo, qué parte de la cartera se midió.
+
+    "Cartera medida" rotulaba la suma de las exposiciones de ``05-Matriz`` y
+    ``06-Individual``, o sea la exposición total, incluidas las filas SIN MEDIR:
+    excedía a la cifra de la pantalla exactamente en el importe sin medir, con
+    la misma etiqueta. Además ninguna celda del libro totalizaba
+    ``exposicion.sin_medir``, así que el KPI que la pantalla pinta en rojo no
+    tenía contraparte en el papel que se archiva. Aquí cada concepto lleva su
+    propia fila y la cartera medida es la misma cifra que muestra la pantalla:
+    lo estratificado menos lo que no se pudo medir.
+    """
     ws = wb.create_sheet("08-Conciliacion")
     _encabezados(ws, 1, ["Concepto", "Importe"])
 
@@ -913,24 +934,56 @@ def _conciliacion(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any])
     else:
         _celda(ws, 3, 2, "SIN EEFF (no conciliado)", alineacion=ALIN_CEN)
 
-    _celda(ws, 4, 1, "Partida conciliatoria", alineacion=ALIN_IZQ)
+    _celda(ws, 4, 1, "Partida conciliatoria (archivo menos EEFF)", alineacion=ALIN_IZQ)
     if tiene_eeff:
         _celda(ws, 4, 2, "=B2-B3", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
     else:
         _celda(ws, 4, 2, "N/A", alineacion=ALIN_CEN)
 
-    _celda(ws, 5, 1, "Cartera medida (05-Matriz + 06-Individual)", alineacion=ALIN_IZQ)
-    formula_medida = (f"='05-Matriz'!{matriz_refs['col_exposicion']}{matriz_refs['fila_total']}"
-                      f"+'06-Individual'!{individual_refs['col_exposicion']}{individual_refs['fila_total']}")
-    _celda(ws, 5, 2, formula_medida, formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    _celda(ws, 5, 1, "Exposición estratificada (05-Matriz + 06-Individual)", alineacion=ALIN_IZQ)
+    _celda(ws, 5, 2,
+           f"='05-Matriz'!{matriz_refs['col_exposicion']}{matriz_refs['fila_total']}"
+           f"+'06-Individual'!{individual_refs['col_exposicion']}{individual_refs['fila_total']}",
+           formato=FORMATO_MONEDA, alineacion=ALIN_DER)
 
-    _celda(ws, 6, 1, "Estado", alineacion=ALIN_IZQ)
+    _celda(ws, 6, 1, "Exposición sin estratificar (EEFF que no se ubicó en ninguna banda)",
+           alineacion=ALIN_IZQ)
+    _celda(ws, 6, 2, _numero(exposicion.get("sin_estratificar")) or 0.0, formato=FORMATO_MONEDA,
+           alineacion=ALIN_DER)
+
+    _celda(ws, 7, 1, "Cartera total analizada (estratificada + sin estratificar)", alineacion=ALIN_IZQ)
+    _celda(ws, 7, 2, "=B5+B6", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+
+    # Suma las bandas que 05-Matriz rotula SIN MEDIR y los saldos individuales
+    # sin tasa: el mismo importe que la pantalla pinta en rojo.
+    _celda(ws, 8, 1, "Exposición SIN MEDIR (bandas sin tasa y saldos individuales sin tasa)",
+           alineacion=ALIN_IZQ)
+    c = _celda(ws, 8, 2,
+               f"=SUMIFS('05-Matriz'!{matriz_refs['col_exposicion']}{matriz_refs['primera']}:"
+               f"{matriz_refs['col_exposicion']}{matriz_refs['ultima']},"
+               f"'05-Matriz'!{matriz_refs['col_perdida']}{matriz_refs['primera']}:"
+               f"{matriz_refs['col_perdida']}{matriz_refs['ultima']},\"{SEGMENTOS_TEXTO}\")"
+               f"+'06-Individual'!{individual_refs['col_sin_medir']}{individual_refs['fila_total']}",
+               formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    if (_numero(exposicion.get("sin_medir")) or 0.0) > 0.005:
+        c.font = FUENTE_DATOS_ALERTA
+
+    _celda(ws, 9, 1, "Cartera medida (estratificada menos la exposición sin medir)",
+           alineacion=ALIN_IZQ)
+    _celda(ws, 9, 2, "=B5-B8", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+
+    _celda(ws, 10, 1, "Estado", alineacion=ALIN_IZQ)
     if tiene_eeff:
-        _celda(ws, 6, 2, '=IF(ABS(B4)<0.01,"CUADRA","DIFERENCIA")', alineacion=ALIN_CEN)
+        _celda(ws, 10, 2, '=IF(ABS(B4)<0.01,"CUADRA","DIFERENCIA")', alineacion=ALIN_CEN)
     else:
-        _celda(ws, 6, 2, "N/A (sin EEFF para conciliar)", alineacion=ALIN_CEN)
+        _celda(ws, 10, 2, "N/A (sin EEFF para conciliar)", alineacion=ALIN_CEN)
 
-    _anchos(ws, {"A": 42, "B": 22})
+    _celda(ws, 11, 1, "Nota", alineacion=ALIN_IZQ)
+    _celda(ws, 11, 2, "Una tasa cero por ausencia de historia no es evidencia de ausencia de "
+                      "pérdida: la exposición sin medir no está provisionada en 0,00, está sin "
+                      "medir (NIIF 9 B5.5.35).", alineacion=ALIN_IZQ)
+
+    _anchos(ws, {"A": 58, "B": 22})
 
 
 # ---------------------------------------------------------------------------
