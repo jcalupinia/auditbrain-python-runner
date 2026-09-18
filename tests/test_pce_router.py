@@ -4,7 +4,7 @@ import json
 import uuid
 from datetime import date
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from backend.app.auth import service as auth_service
 from backend.app.auth.models import Role
@@ -131,3 +131,45 @@ def test_sin_rol_staff_no_puede_consultar_corrida(client):
                         headers={"Authorization": f"Bearer {token_no_staff}"})
     assert r_leer.status_code in (401, 403), \
         f"Se esperaba 401 o 403 para usuario no-staff, se obtuvo {r_leer.status_code}: {r_leer.text}"
+
+
+def test_descarga_el_excel_del_papel_de_trabajo(client):
+    """GET /corridas/{id}/excel devuelve un .xlsx válido con las trece hojas del papel de trabajo."""
+    token = _token(client)
+    r_crear = client.post(f"{BASE}/analizar", files=_archivos(),
+                          data={"parametros": json.dumps({"fechas": ["2023-12-31", "2024-12-31", "2025-12-31"],
+                                                          "entidad": "PRUEBA S.A."})},
+                          headers={"Authorization": f"Bearer {token}"})
+    assert r_crear.status_code == 200, r_crear.text
+    corrida_id = r_crear.json()["corrida_id"]
+
+    r = client.get(f"{BASE}/corridas/{corrida_id}/excel", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert ".xlsx" in r.headers["content-disposition"]
+
+    wb = load_workbook(io.BytesIO(r.content))
+    assert wb.sheetnames == ["00-Caratula", "01-Parametros", "02-Fuentes", "03-Cohorte", "04-Tasas",
+                             "05-Matriz", "06-Individual", "07-Politica", "08-Conciliacion",
+                             "09-Tributario", "10-Hallazgos", "11-Pendientes", "12-Bitacora"]
+
+
+def test_excel_de_corrida_inexistente_da_404(client):
+    token = _token(client)
+    r = client.get(f"{BASE}/corridas/999999/excel", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 404
+
+
+def test_sin_rol_staff_no_puede_descargar_el_excel(client):
+    """Un usuario de portal cliente no puede bajar el papel de trabajo interno."""
+    token_staff = _token(client)
+    r_crear = client.post(f"{BASE}/analizar", files=_archivos(),
+                          data={"parametros": json.dumps({"fechas": ["2023-12-31", "2024-12-31", "2025-12-31"]})},
+                          headers={"Authorization": f"Bearer {token_staff}"})
+    assert r_crear.status_code == 200, r_crear.text
+    corrida_id = r_crear.json()["corrida_id"]
+
+    token_no_staff = _token(client, Role.client)
+    r = client.get(f"{BASE}/corridas/{corrida_id}/excel", headers={"Authorization": f"Bearer {token_no_staff}"})
+    assert r.status_code in (401, 403), \
+        f"Se esperaba 401 o 403 para usuario no-staff, se obtuvo {r.status_code}: {r.text}"

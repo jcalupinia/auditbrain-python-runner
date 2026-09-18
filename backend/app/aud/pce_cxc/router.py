@@ -5,13 +5,16 @@ todos los endpoints exigen ``require_staff`` (admin u operador).
 """
 from __future__ import annotations
 
+import io
 import json
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from backend.app.aud.pce_cxc import service
+from backend.app.aud.pce_cxc.exporter import construir_excel
 from backend.app.aud.pce_cxc.models import CorridaPCE, guardar_corrida
 from backend.app.aud.pce_cxc.schemas import CorridaPCEOut
 from backend.app.auth.deps import require_staff
@@ -103,3 +106,20 @@ def obtener(corrida_id: int, db: Session = Depends(get_db),
             "fecha_corte": corrida.fecha_corte.isoformat() if corrida.fecha_corte else None,
             "parametros": corrida.parametros, "resultado": corrida.resultado,
             "created_at": corrida.created_at.isoformat()}
+
+
+@router.get("/corridas/{corrida_id}/excel")
+def excel(corrida_id: int, db: Session = Depends(get_db),
+          _user: User = Depends(require_staff)) -> StreamingResponse:
+    """Descarga el papel de trabajo de la corrida como libro Excel (trece hojas,
+    fórmulas auditables). Reconstruye el libro a partir del resultado guardado,
+    sin volver a cargar los archivos originales."""
+    corrida = db.get(CorridaPCE, corrida_id)
+    if not corrida:
+        raise HTTPException(404, "Corrida no encontrada")
+    binario = construir_excel(corrida.resultado, corrida.parametros)
+    nombre = f"PT-PCE-CXC_{(corrida.entidad or 'entidad').replace(' ', '_')}_{corrida.fecha_corte}.xlsx"
+    return StreamingResponse(
+        io.BytesIO(binario),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
