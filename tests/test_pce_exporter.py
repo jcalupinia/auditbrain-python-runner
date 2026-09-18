@@ -811,3 +811,67 @@ def test_la_conciliacion_sigue_comparando_el_archivo_contra_los_eeff():
     assert ws.cell(3, 2).value == "=SaldoContable"
     assert ws.cell(4, 2).value == "=B2-B3"
     assert ws.cell(10, 2).value == '=IF(ABS(B4)<0.01,"CUADRA","DIFERENCIA")'
+
+
+# ---------------------------------------------------------------------------
+# Guardas del libro completo: el papel tiene que abrir sin reparación y sus
+# fórmulas tienen que poder recalcular.
+# ---------------------------------------------------------------------------
+
+FUNCIONES_PROHIBIDAS = ("INDIRECT(", "OFFSET(", "IFERROR(", "DESREF(", "SI.ERROR(")
+
+RESULTADOS_A_VALIDAR = [
+    (RESULTADO, PARAMETROS_CORRIDA),
+    (RESULTADO_CON_RUIDO, {}),
+    (RESULTADO_SUSTITUTA, PARAMETROS_SUSTITUTA),
+    (RESULTADO_ACOTADO, {}),
+    (RESULTADO_SIN_MEDIR, {}),
+    (RESULTADO_CENTAVO, {}),
+    ({}, {}),
+]
+
+
+def _formulas(wb):
+    for hoja in wb.sheetnames:
+        for fila in wb[hoja].iter_rows():
+            for c in fila:
+                if isinstance(c.value, str) and c.value.startswith("="):
+                    yield hoja, c.coordinate, c.value
+
+
+def test_ninguna_formula_del_libro_apunta_a_una_hoja_inexistente():
+    """Una referencia rota es justo lo que hace que Excel pida reparar."""
+    referencia = re.compile(r"'([^']+)'!\$?([A-Z]+)\$?(\d+)")
+    for resultado, parametros in RESULTADOS_A_VALIDAR:
+        wb = _abrir(construir_excel(resultado, parametros))
+        for hoja, celda, formula in _formulas(wb):
+            for destino, col, fila in referencia.findall(formula):
+                assert destino in wb.sheetnames, f"{hoja}!{celda} apunta a '{destino}'"
+                assert int(fila) >= 1
+
+
+def test_el_libro_no_usa_funciones_prohibidas():
+    for resultado, parametros in RESULTADOS_A_VALIDAR:
+        wb = _abrir(construir_excel(resultado, parametros))
+        for hoja, celda, formula in _formulas(wb):
+            mayus = formula.upper()
+            for prohibida in FUNCIONES_PROHIBIDAS:
+                assert prohibida not in mayus, f"{hoja}!{celda} usa {prohibida}"
+            assert formula.count('"') % 2 == 0, f"{hoja}!{celda} deja una comilla abierta"
+            assert formula.count("(") == formula.count(")"), f"{hoja}!{celda} desbalancea paréntesis"
+
+
+def test_los_nombres_definidos_resuelven_a_una_celda_existente():
+    for resultado, parametros in RESULTADOS_A_VALIDAR:
+        wb = _abrir(construir_excel(resultado, parametros))
+        for nombre in wb.defined_names:
+            hoja, celda = next(wb.defined_names[nombre].destinations)
+            assert hoja in wb.sheetnames, f"{nombre} apunta a la hoja '{hoja}'"
+            assert wb[hoja][celda] is not None
+
+
+def test_el_libro_se_construye_con_un_resultado_vacio():
+    """El exportador nunca debe reventar: una corrida sin datos da un papel que
+    dice que no los hay, no un 500 al descargar."""
+    wb = _abrir(construir_excel({}, {}))
+    assert len(wb.sheetnames) == 13
