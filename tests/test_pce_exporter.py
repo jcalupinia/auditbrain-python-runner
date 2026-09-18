@@ -65,3 +65,71 @@ def test_los_parametros_estan_en_celdas_con_nombre_y_las_formulas_los_usan():
 def test_el_libro_abre_sin_reparacion_y_recalcula_al_abrirse():
     wb = _abrir(construir_excel(RESULTADO, {}))
     assert wb.calculation.fullCalcOnLoad is True
+
+
+def test_banda_sin_medir_no_escribe_cero_ni_formula_de_perdida():
+    """Un tramo con ``tasa_perdida`` y ``ecl`` en ``None`` (banda sin tasa
+    observada ni sustituta, camino que existe en el motor pero que ninguna
+    prueba ejercitaba) debe rotularse "SIN MEDIR" en 05-Matriz, nunca como
+    0,00 ni como fórmula: un cero confundiría "no medido" con "pérdida cero
+    real"."""
+    resultado = {
+        "matriz": {"tramos": [
+            {"segmento": "NO-RELACIONADOS", "tramo": "Más de 360 días",
+             "exposicion": 5000.0, "tasa_perdida": None, "ecl": None},
+        ]},
+    }
+    ws = _abrir(construir_excel(resultado, {}))["05-Matriz"]
+    fila = 2
+    assert ws.cell(fila, 3).value == 5000.0  # la exposición sí se traslada
+    assert ws.cell(fila, 4).value == "SIN MEDIR"
+    assert ws.cell(fila, 6).value == "SIN MEDIR"
+    assert ws.cell(fila, 6).value != 0
+    valor_col_f = ws.cell(fila, 6).value
+    assert not (isinstance(valor_col_f, str) and valor_col_f.startswith("=")), \
+        "una banda sin medir no debe llevar fórmula de pérdida"
+
+
+def test_cada_segmento_resuelve_su_propio_factor_prospectivo():
+    """El motor mide cada segmento por separado (``service.analizar`` llama a
+    ``medir_ecl`` una vez por segmento) y cada uno puede traer un factor
+    prospectivo distinto (p. ej. 1,05 para terceros y 1,10 para
+    relacionadas). 05-Matriz debe resolver, fila por fila, el nombre
+    definido que corresponde al segmento de ESA fila -no un único factor
+    global que desconoce el resto de segmentos-."""
+    resultado = {
+        "matriz": {"tramos": [
+            {"segmento": "NO-RELACIONADOS", "tramo": "Por vencer",
+             "exposicion": 80000.0, "tasa_perdida": 0.01, "ecl": 800.0},
+            {"segmento": "RELACIONADOS", "tramo": "Por vencer",
+             "exposicion": 20000.0, "tasa_perdida": 0.02, "ecl": 400.0},
+        ]},
+    }
+    parametros = {"factor_prospectivo": {"NO-RELACIONADOS": 1.05, "RELACIONADOS": 1.10}}
+    wb = _abrir(construir_excel(resultado, parametros))
+
+    # Los dos nombres existen en el libro, cada uno con el valor esperado
+    # (factor - 1: la misma convención que ya tenía AjusteProspectivo).
+    esperados = {"AjusteProspectivoNoRelacionados": 0.05, "AjusteProspectivoRelacionados": 0.10}
+    for nombre, esperado in esperados.items():
+        assert nombre in wb.defined_names, f"falta el nombre definido {nombre}"
+        dn = wb.defined_names[nombre]
+        hoja, celda = next(dn.destinations)
+        valor = wb[hoja][celda].value
+        assert abs(valor - esperado) < 1e-9, f"{nombre} debería ser {esperado}, es {valor}"
+
+    ws = wb["05-Matriz"]
+    fila_no_relacionados, fila_relacionados = 2, 3
+    assert ws.cell(fila_no_relacionados, 1).value == "NO-RELACIONADOS"
+    assert ws.cell(fila_relacionados, 1).value == "RELACIONADOS"
+
+    # Cada fila resuelve el nombre según SU PROPIO segmento (columna A de esa
+    # misma fila), no el de otra fila ni un nombre único compartido.
+    formula_no_relacionados = ws.cell(fila_no_relacionados, 5).value
+    formula_relacionados = ws.cell(fila_relacionados, 5).value
+    esperado_no_relacionados = (f'=IF(A{fila_no_relacionados}="RELACIONADOS",'
+                                f'AjusteProspectivoRelacionados,AjusteProspectivoNoRelacionados)')
+    esperado_relacionados = (f'=IF(A{fila_relacionados}="RELACIONADOS",'
+                             f'AjusteProspectivoRelacionados,AjusteProspectivoNoRelacionados)')
+    assert formula_no_relacionados == esperado_no_relacionados, formula_no_relacionados
+    assert formula_relacionados == esperado_relacionados, formula_relacionados

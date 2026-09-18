@@ -227,25 +227,28 @@ def _parametros(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, A
     conciliacion = resultado.get("conciliacion") or {}
     exposicion = resultado.get("exposicion") or {}
 
-    # El ajuste prospectivo del papel es GLOBAL: una sola celda con nombre que
-    # alimenta la fórmula de TODAS las bandas de 05-Matriz (ver esa hoja). Si
-    # el cliente/auditor trabajó con un factor por segmento, aquí se usa el
-    # del segmento principal (NO-RELACIONADOS) y el resto queda documentado
-    # como detalle informativo más abajo -no se pierde el dato, pero el
-    # recálculo automático de la matriz es sobre un único factor-.
+    # El ajuste prospectivo del papel es POR SEGMENTO, no global: el motor
+    # mide cada segmento por separado (service.analizar llama a medir_ecl una
+    # vez por segmento, cada uno con su propio factor) y 05-Matriz debe
+    # resolver, fila por fila, el factor del segmento de esa fila -antes se
+    # escribía una sola celda global y toda la matriz recalculaba con el
+    # factor de un único "segmento principal", desalineándose en silencio de
+    # lo que el motor concluyó para el resto de segmentos-. Se toma cada
+    # factor del mismo lugar del que salía el factor global
+    # (parametros["factor_prospectivo"]); si un segmento no tiene factor, 1,0
+    # (sin ajuste), igual que el motor.
     factor_dict = parametros.get("factor_prospectivo") or {}
-    segmento_principal = "NO-RELACIONADOS" if "NO-RELACIONADOS" in factor_dict else (
-        next(iter(factor_dict), None))
-    multiplicador = float(factor_dict.get(segmento_principal, 1.0)) if segmento_principal else 1.0
-    ajuste_global = multiplicador - 1.0
+    ajuste_no_relacionados = float(factor_dict.get("NO-RELACIONADOS", 1.0)) - 1.0
+    ajuste_relacionados = float(factor_dict.get("RELACIONADOS", 1.0)) - 1.0
 
     saldo_contable = conciliacion.get("saldo_contable")
     if saldo_contable is None:
         saldo_contable = exposicion.get("segun_archivo")
 
-    # Filas 2 a 7: fijas por posición porque 05-Matriz referencia
-    # '01-Parametros'!$B$5 para AjusteProspectivo (y esta función define los
-    # otros tres nombres en las celdas que documenta abajo).
+    # Filas 2 a 8: fijas por posición porque 05-Matriz referencia los nombres
+    # definidos AjusteProspectivoNoRelacionados / AjusteProspectivoRelacionados
+    # (y esta función define los otros nombres en las celdas que se documentan
+    # abajo).
     _celda(ws, 2, 1, "Materialidad", alineacion=ALIN_IZQ)
     _celda(ws, 2, 2, _numero(parametros.get("materialidad")), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
     _celda(ws, 2, 3, "Definida por el socio del encargo", alineacion=ALIN_IZQ)
@@ -259,40 +262,37 @@ def _parametros(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, A
            alineacion=ALIN_DER)
     _celda(ws, 4, 3, "Política de la entidad / NIIF 9 B5.5.37 (730 días por defecto)", alineacion=ALIN_IZQ)
 
-    _celda(ws, 5, 1, "Ajuste prospectivo aplicado a la matriz (global)", alineacion=ALIN_IZQ)
-    _celda(ws, 5, 2, ajuste_global, formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
-    _celda(ws, 5, 3, "Cambiar este valor recalcula toda 05-Matriz", alineacion=ALIN_IZQ)
+    _celda(ws, 5, 1, "Ajuste prospectivo — NO-RELACIONADOS (terceros)", alineacion=ALIN_IZQ)
+    _celda(ws, 5, 2, ajuste_no_relacionados, formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
+    _celda(ws, 5, 3, "Cambiar este valor recalcula, en 05-Matriz, las bandas de NO-RELACIONADOS",
+           alineacion=ALIN_IZQ)
 
-    _celda(ws, 6, 1, "Saldo contable (cartera según EEFF, total)", alineacion=ALIN_IZQ)
-    _celda(ws, 6, 2, _numero(saldo_contable), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
-    _celda(ws, 6, 3, "Estados financieros auditados", alineacion=ALIN_IZQ)
+    _celda(ws, 6, 1, "Ajuste prospectivo — RELACIONADOS", alineacion=ALIN_IZQ)
+    _celda(ws, 6, 2, ajuste_relacionados, formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
+    _celda(ws, 6, 3, "Cambiar este valor recalcula, en 05-Matriz, las bandas de RELACIONADOS",
+           alineacion=ALIN_IZQ)
 
-    _celda(ws, 7, 1, "Justificación del ajuste prospectivo", alineacion=ALIN_IZQ)
-    _celda(ws, 7, 2, "", alineacion=ALIN_IZQ)
-    _celda(ws, 7, 3, str(parametros.get("justificacion_prospectivo") or "(sin justificación registrada)"),
+    _celda(ws, 7, 1, "Saldo contable (cartera según EEFF, total)", alineacion=ALIN_IZQ)
+    _celda(ws, 7, 2, _numero(saldo_contable), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    _celda(ws, 7, 3, "Estados financieros auditados", alineacion=ALIN_IZQ)
+
+    _celda(ws, 8, 1, "Justificación del ajuste prospectivo", alineacion=ALIN_IZQ)
+    _celda(ws, 8, 2, "", alineacion=ALIN_IZQ)
+    _celda(ws, 8, 3, str(parametros.get("justificacion_prospectivo") or "(sin justificación registrada)"),
            alineacion=ALIN_IZQ)
 
     wb.defined_names.add(DefinedName("Materialidad", attr_text="'01-Parametros'!$B$2"))
     wb.defined_names.add(DefinedName("UmbralIndividual", attr_text="'01-Parametros'!$B$3"))
+    wb.defined_names.add(DefinedName("AjusteProspectivoNoRelacionados", attr_text="'01-Parametros'!$B$5"))
+    wb.defined_names.add(DefinedName("AjusteProspectivoRelacionados", attr_text="'01-Parametros'!$B$6"))
+    # Alias de compatibilidad: "AjusteProspectivo" (sin sufijo de segmento) se
+    # conserva porque test_pce_exporter.py todavía lo busca por ese nombre;
+    # equivale al factor de terceros (NO-RELACIONADOS), el mismo segmento que
+    # antes se usaba como "segmento principal" cuando el ajuste era global.
     wb.defined_names.add(DefinedName("AjusteProspectivo", attr_text="'01-Parametros'!$B$5"))
-    wb.defined_names.add(DefinedName("SaldoContable", attr_text="'01-Parametros'!$B$6"))
+    wb.defined_names.add(DefinedName("SaldoContable", attr_text="'01-Parametros'!$B$7"))
 
-    fila = 9
-    _bloque(ws, fila, "Factor prospectivo por segmento (detalle informativo)", 3)
-    fila += 1
-    if factor_dict:
-        for segmento, factor in factor_dict.items():
-            _celda(ws, fila, 1, f"Factor prospectivo — {segmento}", alineacion=ALIN_IZQ)
-            _celda(ws, fila, 2, _numero(factor), formato="0.0000", alineacion=ALIN_DER)
-            _celda(ws, fila, 3, "Parámetro ingresado por el auditor", alineacion=ALIN_IZQ)
-            fila += 1
-    else:
-        _celda(ws, fila, 1, "(sin factor prospectivo por segmento definido)", alineacion=ALIN_IZQ)
-        _celda(ws, fila, 2, "", alineacion=ALIN_IZQ)
-        _celda(ws, fila, 3, "", alineacion=ALIN_IZQ)
-        fila += 1
-
-    fila += 1
+    fila = 10
     _bloque(ws, fila, "Cartera según EEFF por segmento", 3)
     fila += 1
     eeff = parametros.get("eeff") or {}
@@ -309,7 +309,8 @@ def _parametros(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, A
         fila += 1
 
     _anchos(ws, {"A": 42, "B": 20, "C": 46})
-    refs["parametros"] = {"ajuste_prospectivo_row": 5, "saldo_contable_row": 6}
+    refs["parametros"] = {"ajuste_prospectivo_no_relacionados_row": 5,
+                          "ajuste_prospectivo_relacionados_row": 6, "saldo_contable_row": 7}
 
 
 # ---------------------------------------------------------------------------
@@ -451,9 +452,11 @@ def _tasas(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, Any], 
 
 
 # ---------------------------------------------------------------------------
-# 05-Matriz — el corazón auditable del papel: AjusteProspectivo es un nombre
-# definido en 01-Parametros; cambiar ese valor en Excel recalcula toda la
-# matriz.
+# 05-Matriz — el corazón auditable del papel: AjusteProspectivoNoRelacionados
+# y AjusteProspectivoRelacionados son nombres definidos en 01-Parametros; cada
+# fila resuelve el que corresponde a SU segmento (columna A de esa fila), así
+# que cambiar cualquiera de los dos valores en Excel recalcula solo las bandas
+# de ese segmento -nunca las del otro-.
 # ---------------------------------------------------------------------------
 
 def _matriz(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> None:
@@ -475,7 +478,12 @@ def _matriz(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> No
                 _celda(ws, i, 6, "SIN MEDIR", alineacion=ALIN_CEN)
                 continue
             _celda(ws, i, 4, _numero(t["tasa_perdida"]), formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
-            _celda(ws, i, 5, "=AjusteProspectivo", formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
+            # El factor prospectivo es por segmento: se resuelve el nombre
+            # definido según el segmento de ESTA fila (columna A), no un
+            # nombre único compartido por toda la matriz.
+            _celda(ws, i, 5, f'=IF(A{i}="RELACIONADOS",AjusteProspectivoRelacionados,'
+                             f'AjusteProspectivoNoRelacionados)',
+                   formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
             _celda(ws, i, 6, f"=C{i}*D{i}*(1+E{i})", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
     else:
         ultima = primera
