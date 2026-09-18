@@ -720,7 +720,13 @@ def _matriz(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> No
             _celda(ws, i, 5, f'=IF(A{i}="RELACIONADOS",AjusteProspectivoRelacionados,'
                              f'AjusteProspectivoNoRelacionados)',
                    formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
-            _celda(ws, i, 6, f"=C{i}*D{i}*(1+E{i})", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+            # ROUND a dos decimales porque `motor.medir_ecl` redondea la pérdida
+            # de cada banda antes de sumarla: sin esto el total del papel se
+            # aparta del que guardó la corrida. ROUND de Excel redondea medio
+            # hacia afuera del cero, que sobre importes no negativos es el mismo
+            # criterio contable de `motor.redondear`.
+            _celda(ws, i, 6, f"=ROUND(C{i}*D{i}*(1+E{i}),2)", formato=FORMATO_MONEDA,
+                   alineacion=ALIN_DER)
     else:
         ultima = primera
         _celda(ws, primera, 1, "(sin tramos medidos en esta corrida)", alineacion=ALIN_IZQ)
@@ -794,9 +800,22 @@ def _individual(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -
             _celda(ws, i, 1, cliente, alineacion=ALIN_IZQ)
             _celda(ws, i, 2, segmento, alineacion=ALIN_IZQ)
             _celda(ws, i, 3, _numero(caso.get("saldo")), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
-            _celda(ws, i, 4, _numero(caso.get("recuperacion_estimada")), formato=FORMATO_MONEDA,
-                   alineacion=ALIN_DER)
-            _celda(ws, i, 5, f"=C{i}-D{i}", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+            # La PCE es el dato medido (una estimación propia justificada o la
+            # medición provisional con las tasas de la matriz) y la recuperación
+            # la deriva el servicio como saldo - PCE. El papel deriva la misma
+            # cifra en vez de recalcular la PCE: `motor.evaluar_individual`
+            # redondea los tres importes por separado, así que C - D podía dar
+            # un centavo más que la PCE persistida, y 09-Tributario se construye
+            # sobre esta columna.
+            ecl = _numero(caso.get("ecl"))
+            if ecl is None:
+                # Corridas antiguas que no guardaron la PCE del caso.
+                _celda(ws, i, 4, _numero(caso.get("recuperacion_estimada")), formato=FORMATO_MONEDA,
+                       alineacion=ALIN_DER)
+                _celda(ws, i, 5, f"=C{i}-D{i}", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+            else:
+                _celda(ws, i, 4, f"=C{i}-E{i}", formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+                _celda(ws, i, 5, ecl, formato=FORMATO_MONEDA, alineacion=ALIN_DER)
             _celda(ws, i, 6, caso.get("sustento", ""), alineacion=ALIN_IZQ)
             _celda(ws, i, 7, _estado_caso(caso), alineacion=ALIN_IZQ)
     else:

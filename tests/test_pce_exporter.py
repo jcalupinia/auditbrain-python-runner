@@ -336,11 +336,24 @@ PARAMETROS_CORRIDA = {
 }
 
 
+#: Lo único que openpyxl sella al guardar y no se puede fijar por su API:
+#: `save_workbook` reescribe `properties.modified` con la hora de ese momento
+#: (openpyxl/writer/excel.py). No es contenido del papel -ninguna celda lo
+#: muestra-, igual que la hora de escritura de cada entrada del .zip, que fija
+#: `zipfile`. Todo lo demás, incluida la fecha de creación, sí es reproducible.
+PARTE_SELLADA_AL_GUARDAR = "docProps/core.xml"
+
+
 def _contenido_del_paquete(binario: bytes) -> dict:
-    """Contenido de cada parte del .xlsx (el .zip guarda además la hora de
-    escritura de cada entrada, que es metadato del contenedor y no del papel)."""
+    """Contenido de cada parte del .xlsx, sin el metadato que sella openpyxl."""
     z = zipfile.ZipFile(io.BytesIO(binario))
-    return {nombre: z.read(nombre) for nombre in sorted(z.namelist())}
+    return {nombre: z.read(nombre) for nombre in sorted(z.namelist())
+            if nombre != PARTE_SELLADA_AL_GUARDAR}
+
+
+def _creacion_del_paquete(binario: bytes) -> str:
+    xml = zipfile.ZipFile(io.BytesIO(binario)).read(PARTE_SELLADA_AL_GUARDAR).decode("utf-8")
+    return re.search(r"<dcterms:created[^>]*>([^<]+)<", xml).group(1)
 
 
 def _celda_por_concepto(ws, concepto: str):
@@ -394,6 +407,9 @@ def test_dos_descargas_de_la_misma_corrida_dan_el_mismo_papel(monkeypatch):
     segunda = construir_excel(RESULTADO, PARAMETROS_CORRIDA)
 
     assert _contenido_del_paquete(primera) == _contenido_del_paquete(segunda)
+    # La fecha de creación del archivo también sale de la corrida.
+    assert _creacion_del_paquete(primera) == _creacion_del_paquete(segunda)
+    assert _creacion_del_paquete(primera).startswith("2025-03-14")
 
 
 # ---------------------------------------------------------------------------
@@ -643,3 +659,57 @@ def test_cada_fila_de_tasas_apunta_a_su_propia_fila_de_cohorte():
         assert ws03.cell(fila_coh, 2).value == ws04.cell(fila, 2).value
         revisadas += 1
     assert revisadas == 3, f"debían resolverse las tres bandas con cohorte, se resolvieron {revisadas}"
+
+
+# ---------------------------------------------------------------------------
+# M3 — la fórmula de 06-Individual difería en un centavo de la PCE persistida
+# ---------------------------------------------------------------------------
+
+#: `motor.evaluar_individual` con saldo 1000,005 y recuperación 333,333:
+#: redondea cada importe por separado y la PCE sobre los valores SIN redondear,
+#: así que C - D en Excel daba 666,68 y la base guardaba 666,67.
+RESULTADO_CENTAVO = {
+    "individual": {"casos": [{"identificacion": "DELTA (NO-RELACIONADOS)", "tramo": None,
+                              "saldo": 1000.01, "recuperacion_estimada": 333.33,
+                              "saldo_sin_tasa": 0.0, "ecl": 666.67,
+                              "sustento": "Acuerdo de pago firmado el 03/02"}],
+                   "saldo_total": 1000.01, "ecl_total": 666.67},
+    "matriz": {"tramos": []},
+}
+
+
+def test_la_perdida_individual_del_excel_es_la_que_guardo_la_base():
+    """Con saldo 1000,005 y recuperación 333,333 la pantalla y la base dan
+    666,67 y la fórmula del Excel daba 666,68; 09-Tributario B2 se construye
+    sobre la versión del Excel (M3)."""
+    wb = _abrir(construir_excel(RESULTADO_CENTAVO, {}))
+    ws = wb["06-Individual"]
+    assert ws.cell(2, 5).value == 666.67, \
+        f"la PCE del papel debe ser la persistida, es {ws.cell(2, 5).value!r}"
+    # La recuperación es la cifra derivada (el servicio la calcula como
+    # saldo - PCE), así que es ella la que se recalcula en el papel.
+    assert ws.cell(2, 4).value == "=C2-E2", ws.cell(2, 4).value
+
+
+def test_el_total_individual_cuadra_con_el_ecl_total_de_la_corrida():
+    """El total de 06-Individual alimenta 09-Tributario: si arrastra el centavo,
+    el exceso no deducible también (M3)."""
+    wb = _abrir(construir_excel(RESULTADO_CENTAVO, {}))
+    ws = wb["06-Individual"]
+    valores = [ws.cell(f, 5).value for f in range(2, 3)]
+    assert sum(valores) == RESULTADO_CENTAVO["individual"]["ecl_total"]
+    assert ws.cell(3, 5).value == "=SUM(E2:E2)"
+
+
+def test_la_matriz_redondea_la_perdida_como_el_motor():
+    """`medir_ecl` redondea la PCE de cada banda a dos decimales antes de
+    sumarla; la fórmula del Excel arrastraba todos los decimales del producto
+    y el total del papel se apartaba del que guardó la corrida (M3)."""
+    resultado = {"matriz": {"tramos": [
+        {"segmento": "NO-RELACIONADOS", "tramo": "Por vencer",
+         "exposicion": 1000.01, "tasa_perdida": 0.3333, "ecl": 333.30},
+    ]}}
+    ws = _abrir(construir_excel(resultado, {}))["05-Matriz"]
+    formula = str(ws.cell(2, 6).value)
+    assert formula.startswith("=ROUND("), formula
+    assert formula.endswith(",2)"), formula
