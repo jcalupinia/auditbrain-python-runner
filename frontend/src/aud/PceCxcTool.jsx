@@ -331,7 +331,9 @@ export default function PceCxcTool({ projectId }) {
           y queda el hallazgo «Ausencia del componente prospectivo». Un factor que lleve la tasa
           sobre el 100 % se acota al importe en libros bruto y el papel lo declara. Un factor
           de <b>0,000 no se admite</b>: no es un ajuste, anula la pérdida esperada de todas las
-          bandas cualquiera que sea su tasa observada.
+          bandas cualquiera que sea su tasa observada. En el papel de trabajo es la misma
+          magnitud, con el mismo nombre y el mismo valor: <b>01-Parametros → «Factor prospectivo»</b>,
+          la celda que 05-Matriz recalcula, y esa celda declara la convención a su lado.
         </p>
         {factorFueraDeRango && <div className="pce-msg pce-bad">{factorFueraDeRango}</div>}
         <div className="pce-grid">

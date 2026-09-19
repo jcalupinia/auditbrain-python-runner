@@ -51,6 +51,10 @@ from backend.app.aud.pce_cxc.texto import empieza_como_formula, limpiar_texto
 # numéricos a la derecha con #,##0.00).
 # ---------------------------------------------------------------------------
 FORMATO_MONEDA = "#,##0.00"
+#: El factor prospectivo se escribe como FACTOR, no como porcentaje: 1,000 es
+#: «sin ajuste», que es lo que dicen la pantalla, el parámetro que se guarda
+#: con la corrida y los dos mensajes de error del módulo.
+FORMATO_FACTOR = "0.000"
 FORMATO_PORCENTAJE = "0.00%"
 FORMATO_ENTERO = "#,##0"
 
@@ -131,6 +135,18 @@ NOTA_SIN_MEDIR_INDIVIDUAL = (
     "previo a la cota y la columna «Acotamiento del saldo sin medir» dice si actuó: recalcular "
     "la columna «Saldo sin medir» desde estas mismas celdas devuelve, al centavo, lo archivado "
     "en la corrida.")
+
+#: Qué significa el valor de la celda del factor prospectivo. Va en la celda
+#: de al lado porque el papel INVITA a editarla, y una celda editable cuya
+#: convención no se declara es una invitación a equivocarse por 1,0.
+NOTA_CONVENCION_FACTOR = (
+    "FACTOR por el que se multiplica la tasa observada de esta banda: 1,000 = sin ajuste (la tasa "
+    "observada no se toca), 1,100 = 10 % más de pérdida esperada. Es la misma convención que usa "
+    "la pantalla y la que viaja en los parámetros de la corrida. Tiene que ser mayor que 0,000: "
+    "un factor de 0,000 anularía la pérdida esperada de todas las bandas y uno negativo invertiría "
+    "su signo. Cambiar este valor recalcula, en 05-Matriz, las bandas de {segmento}. El ajuste "
+    "exige justificación escrita (NIIF 9 B5.5.51-52): sin ella el motor lo deja en 1,000 y emite "
+    "el hallazgo «Ausencia del componente prospectivo».")
 
 NOTA_SIN_MEDIR_NO_SE_NETEA = (
     "Las dos cifras son reales y ninguna sustituye a la otra. La MAGNITUD (B10) suma la exposición "
@@ -505,31 +521,30 @@ def _parametros(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, A
     ajuste_valor = resultado.get("matriz", {}).get("ajuste_prospectivo")
 
     if isinstance(ajuste_valor, dict) and ajuste_valor:
-        # Formato nuevo: diccionario por segmento
-        ajuste_no_relacionados = float(ajuste_valor.get("NO-RELACIONADOS", 1.0)) - 1.0
-        ajuste_relacionados = float(ajuste_valor.get("RELACIONADOS", 1.0)) - 1.0
-    elif isinstance(ajuste_valor, (int, float)) and ajuste_valor != 0:
-        # Formato antiguo: escalar no cero. Aplicar a ambos segmentos.
-        # Un valor de 0.05 significa factor 1,05 → ajuste 0,05.
-        ajuste_no_relacionados = float(ajuste_valor)
-        ajuste_relacionados = float(ajuste_valor)
-    elif isinstance(ajuste_valor, (int, float)) and ajuste_valor == 0:
-        # Formato antiguo: escalar cero. Sin ajuste para ambos segmentos.
-        ajuste_no_relacionados = 0.0
-        ajuste_relacionados = 0.0
+        # Formato nuevo: diccionario por segmento, ya en FACTOR.
+        factor_no_relacionados = float(ajuste_valor.get("NO-RELACIONADOS", 1.0))
+        factor_relacionados = float(ajuste_valor.get("RELACIONADOS", 1.0))
+    elif isinstance(ajuste_valor, (int, float)):
+        # Formato antiguo: un escalar que era el AJUSTE (0,05 = factor 1,05),
+        # para los dos segmentos. Se traduce a factor aquí, que es la única
+        # convención que sale al papel.
+        factor_no_relacionados = 1.0 + float(ajuste_valor)
+        factor_relacionados = 1.0 + float(ajuste_valor)
     else:
         # No hay ajuste en resultado: leer de parámetros por retrocompatibilidad
         # (admite el escalar de las corridas antiguas; ver
         # `_ajustes_prospectivos_de_parametros`).
         ajuste_no_relacionados, ajuste_relacionados = _ajustes_prospectivos_de_parametros(
             parametros.get("factor_prospectivo"))
+        factor_no_relacionados = 1.0 + ajuste_no_relacionados
+        factor_relacionados = 1.0 + ajuste_relacionados
 
     saldo_contable = conciliacion.get("saldo_contable")
     if saldo_contable is None:
         saldo_contable = exposicion.get("segun_archivo")
 
     # Filas 2 a 8: fijas por posición porque 05-Matriz referencia los nombres
-    # definidos AjusteProspectivoNoRelacionados / AjusteProspectivoRelacionados
+    # definidos FactorProspectivoNoRelacionados / FactorProspectivoRelacionados
     # (y esta función define los otros nombres en las celdas que se documentan
     # abajo).
     # Materialidad y umbral individual son nombres definidos del libro
@@ -567,15 +582,21 @@ def _parametros(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, A
                      "este plazo, que debe quedar sustentado en el papel.",
            alineacion=ALIN_IZQ)
 
-    _celda(ws, 5, 1, "Ajuste prospectivo — NO-RELACIONADOS (terceros)", alineacion=ALIN_IZQ)
-    _celda(ws, 5, 2, ajuste_no_relacionados, formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
-    _celda(ws, 5, 3, "Cambiar este valor recalcula, en 05-Matriz, las bandas de NO-RELACIONADOS",
+    # UNA SOLA CONVENCIÓN EN TODO EL LIBRO Y EN LA PANTALLA: el FACTOR por el
+    # que se multiplica la tasa observada, donde 1,000 es «sin ajuste». Antes
+    # esta celda guardaba `factor - 1` con formato de porcentaje y se rotulaba
+    # «Ajuste prospectivo», mientras 05-Matriz llamaba «Factor prospectivo» a
+    # la misma magnitud y compensaba con `(1+E)`: dos nombres y dos valores
+    # separados por 1,0 para lo mismo. Y esta celda el papel INVITA a editarla,
+    # así que declara qué significa su valor.
+    _celda(ws, 5, 1, "Factor prospectivo — NO-RELACIONADOS (terceros)", alineacion=ALIN_IZQ)
+    _celda(ws, 5, 2, factor_no_relacionados, formato=FORMATO_FACTOR, alineacion=ALIN_DER)
+    _celda(ws, 5, 3, NOTA_CONVENCION_FACTOR.format(segmento="NO-RELACIONADOS"),
            alineacion=ALIN_IZQ)
 
-    _celda(ws, 6, 1, "Ajuste prospectivo — RELACIONADOS", alineacion=ALIN_IZQ)
-    _celda(ws, 6, 2, ajuste_relacionados, formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
-    _celda(ws, 6, 3, "Cambiar este valor recalcula, en 05-Matriz, las bandas de RELACIONADOS",
-           alineacion=ALIN_IZQ)
+    _celda(ws, 6, 1, "Factor prospectivo — RELACIONADOS", alineacion=ALIN_IZQ)
+    _celda(ws, 6, 2, factor_relacionados, formato=FORMATO_FACTOR, alineacion=ALIN_DER)
+    _celda(ws, 6, 3, NOTA_CONVENCION_FACTOR.format(segmento="RELACIONADOS"), alineacion=ALIN_IZQ)
 
     # `SaldoContable` también es nombre definido y `08-Conciliacion` B3 lo
     # referencia cuando la corrida trae EEFF. Sin EEFF ni total del archivo la
@@ -595,13 +616,15 @@ def _parametros(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, A
 
     wb.defined_names.add(DefinedName("Materialidad", attr_text="'01-Parametros'!$B$2"))
     wb.defined_names.add(DefinedName("UmbralIndividual", attr_text="'01-Parametros'!$B$3"))
-    wb.defined_names.add(DefinedName("AjusteProspectivoNoRelacionados", attr_text="'01-Parametros'!$B$5"))
-    wb.defined_names.add(DefinedName("AjusteProspectivoRelacionados", attr_text="'01-Parametros'!$B$6"))
-    # Alias de compatibilidad: "AjusteProspectivo" (sin sufijo de segmento) se
-    # conserva porque test_pce_exporter.py todavía lo busca por ese nombre;
-    # equivale al factor de terceros (NO-RELACIONADOS), el mismo segmento que
-    # antes se usaba como "segmento principal" cuando el ajuste era global.
-    wb.defined_names.add(DefinedName("AjusteProspectivo", attr_text="'01-Parametros'!$B$5"))
+    wb.defined_names.add(DefinedName("FactorProspectivoNoRelacionados", attr_text="'01-Parametros'!$B$5"))
+    wb.defined_names.add(DefinedName("FactorProspectivoRelacionados", attr_text="'01-Parametros'!$B$6"))
+    # Alias sin sufijo de segmento: apunta al factor de terceros
+    # (NO-RELACIONADOS), el mismo segmento que se usaba como "segmento
+    # principal" cuando el ajuste era global. Ya no se llama
+    # "AjusteProspectivo": un nombre definido que dice «ajuste» apuntando a una
+    # celda que guarda el FACTOR es exactamente la ambigüedad que este cambio
+    # cierra.
+    wb.defined_names.add(DefinedName("FactorProspectivo", attr_text="'01-Parametros'!$B$5"))
     wb.defined_names.add(DefinedName("SaldoContable", attr_text="'01-Parametros'!$B$7"))
 
     fila = 10
@@ -1033,8 +1056,8 @@ def _tasas(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, Any], 
 
 
 # ---------------------------------------------------------------------------
-# 05-Matriz — el corazón auditable del papel: AjusteProspectivoNoRelacionados
-# y AjusteProspectivoRelacionados son nombres definidos en 01-Parametros; cada
+# 05-Matriz — el corazón auditable del papel: FactorProspectivoNoRelacionados
+# y FactorProspectivoRelacionados son nombres definidos en 01-Parametros; cada
 # fila resuelve el que corresponde a SU segmento (columna A de esa fila), así
 # que cambiar cualquiera de los dos valores en Excel recalcula solo las bandas
 # de ese segmento -nunca las del otro-.
@@ -1049,7 +1072,12 @@ def _matriz(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> No
                 MAX(exposición; 0))
 
     - ``MIN(tasa × factor; 1)`` es el techo de la tasa ajustada (``motor.py``:
-      ``acotar(tasa_ajustada_bruta, techo=1.0)``).
+      ``acotar(tasa_ajustada_bruta, techo=1.0)``). El FACTOR es el de
+      ``01-Parametros``, con la convención que declara esa celda: 1,000 es
+      «sin ajuste». Es una sola convención en todo el libro y en la pantalla;
+      antes esta columna se llamaba «Factor prospectivo» y leía una celda que
+      guardaba el factor MENOS UNO, así que las dos hojas nombraban la misma
+      magnitud con 1,0 de diferencia.
     - ``× LGD × FD`` son la severidad de la pérdida y el factor de descuento.
       El servicio fija hoy ``lgd = 1.0`` y no descuenta, así que omitirlos no
       cambiaba ninguna cifra: por eso la divergencia estaba DORMIDA, y se
@@ -1105,9 +1133,9 @@ def _matriz(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> No
             # El factor prospectivo es por segmento: se resuelve el nombre
             # definido según el segmento de ESTA fila (columna A), no un
             # nombre único compartido por toda la matriz.
-            _celda(ws, i, 5, _f(f'=IF(A{i}="RELACIONADOS",AjusteProspectivoRelacionados,'
-                             f'AjusteProspectivoNoRelacionados)'),
-                   formato=FORMATO_PORCENTAJE, alineacion=ALIN_DER)
+            _celda(ws, i, 5, _f(f'=IF(A{i}="RELACIONADOS",FactorProspectivoRelacionados,'
+                             f'FactorProspectivoNoRelacionados)'),
+                   formato=FORMATO_FACTOR, alineacion=ALIN_DER)
             # LGD y factor de descuento: los dos factores que el motor aplica y
             # la fórmula omitía. Una corrida anterior a estos campos no afirmó
             # "1": no los guardó, y el papel lo dice en vez de suponerlos.
@@ -1128,11 +1156,11 @@ def _matriz(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> No
             # Excel redondea medio hacia afuera del cero, el mismo criterio
             # contable de `motor.redondear`.
             _celda(ws, i, 8,
-                   _f(f"=MIN(MAX(ROUND(C{i}*MIN(D{i}*(1+E{i}),1){severidad},2),0),MAX(C{i},0))"),
+                   _f(f"=MIN(MAX(ROUND(C{i}*MIN(D{i}*E{i},1){severidad},2),0),MAX(C{i},0))"),
                    formato=FORMATO_MONEDA, alineacion=ALIN_DER)
             # El cálculo puro, sin acotar: es la evidencia de cuánto separó el
             # acotamiento y la única forma de que el revisor lo vea.
-            _celda(ws, i, 9, _f(f"=ROUND(C{i}*D{i}*(1+E{i}){severidad},2)"), formato=FORMATO_MONEDA,
+            _celda(ws, i, 9, _f(f"=ROUND(C{i}*D{i}*E{i}{severidad},2)"), formato=FORMATO_MONEDA,
                    alineacion=ALIN_DER)
             _celda(ws, i, 10,
                    _f(f'=IF(H{i}>I{i}+0.005,"{ACOTADO_PISO}",'

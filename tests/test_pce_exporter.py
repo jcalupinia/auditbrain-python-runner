@@ -77,9 +77,9 @@ def test_la_matriz_calcula_con_formulas_y_no_con_valores_pegados():
 
 def test_los_parametros_estan_en_celdas_con_nombre_y_las_formulas_los_usan():
     wb = _abrir(construir_excel(RESULTADO, {}))
-    assert "AjusteProspectivo" in wb.defined_names
+    assert "FactorProspectivo" in wb.defined_names
     ws = wb["05-Matriz"]
-    assert any(isinstance(c.value, str) and "AjusteProspectivo" in c.value
+    assert any(isinstance(c.value, str) and "FactorProspectivo" in c.value
                for fila in ws.iter_rows() for c in fila)
 
 
@@ -130,9 +130,11 @@ def test_cada_segmento_resuelve_su_propio_factor_prospectivo():
     parametros = {"factor_prospectivo": {"NO-RELACIONADOS": 1.05, "RELACIONADOS": 1.10}}
     wb = _abrir(construir_excel(resultado, parametros))
 
-    # Los dos nombres existen en el libro, cada uno con el valor esperado
-    # (factor - 1: la misma convención que ya tenía AjusteProspectivo).
-    esperados = {"AjusteProspectivoNoRelacionados": 0.05, "AjusteProspectivoRelacionados": 0.10}
+    # Los dos nombres existen en el libro, cada uno con el FACTOR: la misma
+    # convención que la pantalla y que los parámetros de la corrida
+    # (1,000 = sin ajuste). Antes la celda guardaba `factor - 1`, así que el
+    # libro y la pantalla nombraban la misma magnitud con 1,0 de diferencia.
+    esperados = {"FactorProspectivoNoRelacionados": 1.05, "FactorProspectivoRelacionados": 1.10}
     for nombre, esperado in esperados.items():
         assert nombre in wb.defined_names, f"falta el nombre definido {nombre}"
         dn = wb.defined_names[nombre]
@@ -150,9 +152,9 @@ def test_cada_segmento_resuelve_su_propio_factor_prospectivo():
     formula_no_relacionados = ws.cell(fila_no_relacionados, 5).value
     formula_relacionados = ws.cell(fila_relacionados, 5).value
     esperado_no_relacionados = (f'=IF(A{fila_no_relacionados}="RELACIONADOS",'
-                                f'AjusteProspectivoRelacionados,AjusteProspectivoNoRelacionados)')
+                                f'FactorProspectivoRelacionados,FactorProspectivoNoRelacionados)')
     esperado_relacionados = (f'=IF(A{fila_relacionados}="RELACIONADOS",'
-                             f'AjusteProspectivoRelacionados,AjusteProspectivoNoRelacionados)')
+                             f'FactorProspectivoRelacionados,FactorProspectivoNoRelacionados)')
     assert formula_no_relacionados == esperado_no_relacionados, formula_no_relacionados
     assert formula_relacionados == esperado_relacionados, formula_relacionados
 
@@ -185,9 +187,9 @@ def test_el_excel_muestra_el_factor_prospectivo_aplicado_no_el_solicitado():
     }
     wb = _abrir(construir_excel(resultado, parametros))
 
-    # Los nombres definidos en 01-Parametros deben traer lo APLICADO (1,0 = 0%)
-    # no lo solicitado (1,15 = 15% o 1,20 = 20%).
-    esperados = {"AjusteProspectivoNoRelacionados": 0.0, "AjusteProspectivoRelacionados": 0.0}
+    # Los nombres definidos en 01-Parametros deben traer lo APLICADO (1,000 =
+    # sin ajuste), no lo solicitado (1,15 o 1,20).
+    esperados = {"FactorProspectivoNoRelacionados": 1.0, "FactorProspectivoRelacionados": 1.0}
     for nombre, esperado in esperados.items():
         assert nombre in wb.defined_names, f"falta el nombre definido {nombre}"
         dn = wb.defined_names[nombre]
@@ -216,12 +218,12 @@ def test_el_excel_refleja_factor_prospectivo_aplicado_distinto_de_uno():
     }
     wb = _abrir(construir_excel(resultado, parametros))
 
-    dn = wb.defined_names["AjusteProspectivoNoRelacionados"]
+    dn = wb.defined_names["FactorProspectivoNoRelacionados"]
     hoja, celda = next(dn.destinations)
     valor = wb[hoja][celda].value
-    # 1,08 - 1,0 = 0,08 (8%)
-    assert abs(valor - 0.08) < 1e-9, \
-        f"AjusteProspectivoNoRelacionados debería ser 0.08 (factor 1,08), es {valor}"
+    # El FACTOR tal cual, que es lo que dice la celda que guarda.
+    assert abs(valor - 1.08) < 1e-9, \
+        f"FactorProspectivoNoRelacionados debería ser 1.08, es {valor}"
 
 
 def test_tolera_formato_antiguo_del_ajuste_prospectivo_escalar_no_cero():
@@ -244,8 +246,9 @@ def test_tolera_formato_antiguo_del_ajuste_prospectivo_escalar_no_cero():
     parametros = {}
     wb = _abrir(construir_excel(resultado, parametros))
 
-    # El Excel se genera sin excepción y ambos factores prospectivos quedan en 0.05
-    esperados = {"AjusteProspectivoNoRelacionados": 0.05, "AjusteProspectivoRelacionados": 0.05}
+    # El Excel se genera sin excepción y el ajuste antiguo (0,05) se traduce al
+    # factor que el papel declara: 1,05.
+    esperados = {"FactorProspectivoNoRelacionados": 1.05, "FactorProspectivoRelacionados": 1.05}
     for nombre, esperado in esperados.items():
         assert nombre in wb.defined_names, f"falta el nombre definido {nombre}"
         dn = wb.defined_names[nombre]
@@ -273,8 +276,9 @@ def test_tolera_formato_antiguo_del_ajuste_prospectivo_escalar_cero():
     parametros = {}
     wb = _abrir(construir_excel(resultado, parametros))
 
-    # El Excel se genera sin excepción y ambos factores prospectivos quedan en 0.0
-    esperados = {"AjusteProspectivoNoRelacionados": 0.0, "AjusteProspectivoRelacionados": 0.0}
+    # El Excel se genera sin excepción y el ajuste antiguo (0,0) se traduce al
+    # factor que el papel declara: 1,000, «sin ajuste».
+    esperados = {"FactorProspectivoNoRelacionados": 1.0, "FactorProspectivoRelacionados": 1.0}
     for nombre, esperado in esperados.items():
         assert nombre in wb.defined_names, f"falta el nombre definido {nombre}"
         dn = wb.defined_names[nombre]
@@ -1274,10 +1278,10 @@ def test_el_exportador_acepta_un_factor_prospectivo_escalar_en_los_parametros():
          "tasa_perdida": 0.1, "ecl": 110.0},
     ]}}
     wb = _abrir(construir_excel(resultado, {"factor_prospectivo": 1.1}))
-    hoja, celda = next(wb.defined_names["AjusteProspectivoNoRelacionados"].destinations)
-    assert wb[hoja][celda].value == pytest.approx(0.1)
-    hoja, celda = next(wb.defined_names["AjusteProspectivoRelacionados"].destinations)
-    assert wb[hoja][celda].value == pytest.approx(0.1)
+    hoja, celda = next(wb.defined_names["FactorProspectivoNoRelacionados"].destinations)
+    assert wb[hoja][celda].value == pytest.approx(1.1)
+    hoja, celda = next(wb.defined_names["FactorProspectivoRelacionados"].destinations)
+    assert wb[hoja][celda].value == pytest.approx(1.1)
 
 
 def test_el_exportador_tolera_parametros_mal_formados_sin_reventar():
