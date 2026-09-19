@@ -213,6 +213,35 @@ TOOLS: dict[str, ToolConfig] = {
         processor=_stub_echo_processor,
         enabled=True,
     ),
+
+    # =========================================================
+    # AUTOMATIZACIONES
+    # =========================================================
+    "PRESUPUESTOS_IA": ToolConfig(
+        code="PRESUPUESTOS_IA",
+        label="Presupuestos con IA",
+        description=(
+            "Elaboración inteligente del presupuesto empresarial: diagnóstico "
+            "sectorial, matriz de requerimientos, supuestos trazables, estado "
+            "de resultados, flujo de caja y escenarios."
+        ),
+        category="AUTOMATIZACIONES",
+        slots={},
+        processor=None,
+        enabled=True,
+    ),
+    "PLANIFICACION_IA": ToolConfig(
+        code="PLANIFICACION_IA",
+        label="Planificación Estratégica con IA",
+        description=(
+            "Objetivos, iniciativas, responsables e indicadores conectados "
+            "al presupuesto."
+        ),
+        category="AUTOMATIZACIONES",
+        slots={},
+        processor=None,
+        enabled=False,
+    ),
 }
 
 
@@ -266,5 +295,10 @@ CATEGORIES = [
         "id": "MARKETING",
         "label": "Marketing y Contenido",
         "description": "Reels de marca con avatar y voz, contenido para redes.",
+    },
+    {
+        "id": "AUTOMATIZACIONES",
+        "label": "Automatizaciones",
+        "description": "Herramientas con IA: presupuestos y planificación estratégica.",
     },
 ]
