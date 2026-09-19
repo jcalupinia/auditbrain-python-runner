@@ -145,6 +145,7 @@ def init_db() -> None:
     # Registrar todas las tablas conocidas (orden importa: organizations y
     # projects deben existir antes de que users referencie sus columnas).
     from backend.app.auth import models as _auth_models  # noqa: F401
+    from backend.app.automatizaciones import models as _automatizaciones_models  # noqa: F401
     from backend.app.aud.obligaciones_fiscales import models as _aud_of_models  # noqa: F401
     from backend.app.aud.obligaciones_fiscales.mayor import models as _mayor_models  # noqa: F401
     from backend.app.chat import models as _chat_models  # noqa: F401

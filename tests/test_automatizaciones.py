@@ -1,4 +1,7 @@
-"""Tarea 1 del plan de Automatizaciones: categoría y herramientas del catálogo."""
+"""Tareas 1 y 2 del plan de Automatizaciones: catálogo y tabla ``aut_cuentas``."""
+
+import pytest
+from sqlalchemy.exc import IntegrityError
 
 from backend.app.db.session import SessionLocal
 
@@ -48,3 +51,56 @@ def test_catalog_endpoint_no_muestra_automatizaciones_sin_entitlement(client):
     assert r.status_code == 200
     by_cat = {c["id"]: c for c in r.json()["categories"]}
     assert "AUTOMATIZACIONES" not in by_cat
+
+
+def test_aut_cuenta_unica_por_cliente_y_herramienta(db):
+    from backend.app.automatizaciones.models import AutCuenta
+
+    db.add(
+        AutCuenta(
+            client_id=1,
+            herramienta="PRESUPUESTOS_IA",
+            empresa_nombre="X",
+            admin_email="a@x.ec",
+            admin_nombre="A",
+            creado_por="op@firma.ec",
+        )
+    )
+    db.commit()
+    db.add(
+        AutCuenta(
+            client_id=1,
+            herramienta="PRESUPUESTOS_IA",
+            empresa_nombre="Y",
+            admin_email="b@y.ec",
+            admin_nombre="B",
+            creado_por="op@firma.ec",
+        )
+    )
+    with pytest.raises(IntegrityError):
+        db.commit()
+
+
+def test_aut_cuenta_estado_por_defecto_activa(db):
+    from backend.app.automatizaciones.models import AutCuenta
+
+    cuenta = AutCuenta(
+        client_id=1,
+        herramienta="PLANIFICACION_IA",
+        empresa_nombre="Z",
+        admin_email="c@z.ec",
+        admin_nombre="C",
+        creado_por="op@firma.ec",
+    )
+    db.add(cuenta)
+    db.commit()
+    db.refresh(cuenta)
+    assert cuenta.estado == "activa"
+
+
+@pytest.fixture()
+def db():
+    db = SessionLocal()
+    yield db
+    db.rollback()
+    db.close()
