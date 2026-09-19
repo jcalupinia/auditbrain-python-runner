@@ -18,57 +18,7 @@ acumulan aquí y se hace **una sola publicación**.
 
 ## A · Listos en el checkout, esperando publicación
 
-| # | Cambio | Archivos | Verificado |
-|---|---|---|---|
-| A1 | Capacidad del motor: `MAX_ROWS` de 10.000 a **100.000** | `lib/tools/domain.mjs`, `lib/tools/portable-engine.mjs` | ✅ 100.000 filas en 4,08 s con la definición VNR real; 100.001 rechazado con mensaje claro |
-| A2 | Extractor conectado a la evidencia del encargo. Formatos **+ XML, + ZIP, + WebP**; límite por archivo 5 MB → **10 MB**; cada archivo se extrae y el resultado se guarda junto a él | `app/api/audit/route.ts`, `lib/audit.ts` | ✅ compila; XML, CSV y TXT extraen; **ZIP recursivo probado con la plantilla real: encontró el .xlsx dentro y leyó sus 11 hojas por nombre** |
-| A3 | **Markdown (.md)** aceptado en las dos rutas de carga y en el extractor, con tipo propio `kind:'md'` para que la cédula muestre de qué formato vino la evidencia | `lib/console/extract.mjs`, `app/api/audit/route.ts`, `app/api/tool-files/route.ts` | ✅ compila; `.md` suelto y **`.md` dentro de un ZIP** extraen correctamente |
-| A5 | **Ruta muerta eliminada.** `app/api/audit/route.ts`, `lib/audit.ts` y `lib/export.ts` no los llamaba nadie: eran la API de la versión anterior | borrados | ✅ compila sin ellos |
-| A6 | **Requerimiento estructurado en ítems.** Cada ítem declara qué se pide, **a qué formatos debe acogerse el cliente**, si es obligatorio y en **cuántos componentes** viene. La carga se vincula a su ítem y componente; el avance de etapa exige **cobertura completa**, no "algún documento" | `lib/requirement.mjs` (nuevo), `lib/workflow.mjs`, `lib/audit-store.ts`, `app/api/documents/route.ts`, `app/api/engagements/route.ts`, `app/audit-app.tsx`, `db/schema.ts`, migración `0005` | ✅ verificado de punta a punta — ver abajo |
-| A4 | **Límites definidos** por el responsable: 200 archivos y 300 MB por encargo, 25 MB por archivo. `TEXT_LIMIT` de 240.000 a 5.000.000 y el **CSV pasa a limitarse por filas, no por caracteres** | `lib/console/extract.mjs`, `app/api/audit/route.ts`, `app/api/tool-files/route.ts` | ✅ compila; CSV de 100.000 filas (4,3 MB) leído en 0,18 s; 150.000 filas rechazado por el límite de filas |
-
-| A7 | **Fuentes alternativas, plantilla descargable y estados del documento.** El ítem declara `group` (los del mismo grupo son intercambiables), `columns` e `instructions` (de ahí sale la plantilla CSV, sin archivos que mantener), y el auditor marca cada documento **validado o rechazado**: un rechazado deja de contar para la cobertura | `lib/requirement.mjs`, `app/api/engagements/route.ts`, `app/audit-app.tsx` | ✅ verificado contra la API viva — ver abajo |
-
-| A8 | **Casilla «Aplica impuestos diferidos»** en la ficha del encargo, y **fuera la población sintética** con sus cifras fijas de la pantalla del recorrido | `lib/engagement-context.ts`, `app/herramientas/context-controls.tsx`, `app/herramientas/recorrido/studio.tsx` | ✅ `true`, `false` y **sin declarar → `false`**; compila limpio |
-
-### Estado de verificación de A7
-
-| Prueba | Resultado |
-|---|---|
-| Grupo sin cubrir | ✅ *«Costos de venta: entregue una de estas fuentes — Costos por item o Estado de resultados»* |
-| Una alternativa satisface el grupo | ✅ el grupo desaparece del reclamo |
-| Todo cubierto | ✅ avanza a etapa 6 |
-| **Documento marcado rechazado** | ✅ **reabre el hueco y bloquea** |
-| Documento marcado validado | ✅ avanza a etapa 6 |
-| Plantilla CSV con columnas e instrucciones | ✅ a nivel de módulo (`templateCsv`) |
-
-**No probado en pantalla:** el botón «Plantilla» de la etapa 4 descarga el CSV
-en el navegador. La generación está verificada; el clic en la interfaz no.
-
-### Estado de verificación de A6
-
-Probado contra la API viva, con el servidor local y la migración aplicada:
-
-| Prueba | Resultado |
-|---|---|
-| Guardar ítems con formatos y componentes | ✅ `i1` con 3 componentes, `i2` sin componentes |
-| Cargar un PDF en un ítem que pide XLSX/CSV | ✅ rechazado: *«"Mayor general" admite XLSX, CSV. Recibido: pdf.»* |
-| Cargar un componente no declarado | ✅ rechazado: *«Componente no declarado…: abril.»* |
-| Cargar `.md` en un ítem que lo declara | ✅ aceptado y extraído como `kind: md` |
-| Bloquear el avance con un componente faltante | ✅ bloquea |
-| **Avanzar con cobertura completa** | ✅ **avanza a etapa 6** |
-| Sigue bloqueando cuando falta un componente (regresión) | ✅ *«Cobertura incompleta. Mayor general: faltan febrero»* |
-| Comprobaciones propias de `requirement.mjs` | ✅ todas pasan |
-
-**Causa encontrada:** `docs()` en `lib/audit-store.ts` no seleccionaba
-`item_id` ni `component`, así que la cobertura veía todos los documentos sin
-vínculo y nunca se cumplía. Corregido con
-`SELECT … item_id AS itemId, component …`.
-
-**Resuelto y reverificado** el 2026-09-19: recompilado, servidor levantado y
-prueba repetida. Los documentos vuelven con su `itemId` y `component`, la
-cobertura se cumple y el encargo avanza a etapa 6. El caso negativo sigue
-bloqueando, así que no se cambió un error por otro.
+*(vacío — todo lo anterior se publicó en la versión 19 el 2026-09-19; ver Historial)*
 
 ---
 
@@ -213,4 +163,8 @@ registrar la versión del sitio.
 
 | Fecha | Versión publicada | Qué entró |
 |---|---|---|
-| 2026-09-19 | 17 | Estado al sincronizar el checkout. Nada de esta lista está publicado todavía |
+| 2026-09-19 | 17 | Estado al sincronizar el checkout |
+| 2026-09-19 | **19** | **A1 a A8 en una sola publicación**: motor a 100.000 filas · extractor conectado a la evidencia del encargo con XML, ZIP y WebP · Markdown · límites 200 archivos / 300 MB / 25 MB · ruta muerta eliminada · requerimiento estructurado en ítems con cobertura por componentes · fuentes alternativas, plantilla descargable y estados del documento · casilla de impuestos diferidos y limpieza de pantalla. Migración `0005` aplicada y columnas `item_id`/`component` verificadas en D1. Acceso conservado como privado del propietario |
+
+Verificación independiente tras publicar: la URL responde `HTTP 401`, es decir
+el sitio está sirviendo y conserva su protección por sesión de ChatGPT.
