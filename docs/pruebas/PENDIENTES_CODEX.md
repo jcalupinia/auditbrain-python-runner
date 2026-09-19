@@ -23,6 +23,7 @@ acumulan aquí y se hace **una sola publicación**.
 | A1 | Capacidad del motor: `MAX_ROWS` de 10.000 a **100.000** | `lib/tools/domain.mjs`, `lib/tools/portable-engine.mjs` | ✅ 100.000 filas en 4,08 s con la definición VNR real; 100.001 rechazado con mensaje claro |
 | A2 | Extractor conectado a la evidencia del encargo. Formatos **+ XML, + ZIP, + WebP**; límite por archivo 5 MB → **10 MB**; cada archivo se extrae y el resultado se guarda junto a él | `app/api/audit/route.ts`, `lib/audit.ts` | ✅ compila; XML, CSV y TXT extraen; **ZIP recursivo probado con la plantilla real: encontró el .xlsx dentro y leyó sus 11 hojas por nombre** |
 | A3 | **Markdown (.md)** aceptado en las dos rutas de carga y en el extractor, con tipo propio `kind:'md'` para que la cédula muestre de qué formato vino la evidencia | `lib/console/extract.mjs`, `app/api/audit/route.ts`, `app/api/tool-files/route.ts` | ✅ compila; `.md` suelto y **`.md` dentro de un ZIP** extraen correctamente |
+| A4 | **Límites definidos** por el responsable: 200 archivos y 300 MB por encargo, 25 MB por archivo. `TEXT_LIMIT` de 240.000 a 5.000.000 y el **CSV pasa a limitarse por filas, no por caracteres** | `lib/console/extract.mjs`, `app/api/audit/route.ts`, `app/api/tool-files/route.ts` | ✅ compila; CSV de 100.000 filas (4,3 MB) leído en 0,18 s; 150.000 filas rechazado por el límite de filas |
 
 ---
 
@@ -41,29 +42,26 @@ Se conectó la segunda. Criterio aplicado: si un archivo no se puede leer, la
 carga **no falla** — queda recibido con estado `error` y su motivo, para no
 convertir un error de lectura en un dato ausente (M07).
 
-### B2 · Subir los límites de tamaño
+### B2 · Límites de tamaño ✅ RESUELTO — ver A4
 
-| Límite | Hoy | Objetivo |
-|---|---|---|
-| Por archivo (encargo) | ~~5 MB~~ **10 MB** | **por definir** |
-| Archivos por encargo | 20 | **por definir** |
-| Total por encargo | 20 MB | **por definir** |
-| Por archivo (extractor) | 10 MB | **por definir** |
+Medición previa a la decisión, sobre el encargo real de PROPHAR:
 
-**Inconsistencia introducida por A2.** Al subir el límite por archivo a 10 MB
-pero dejar el tope del encargo en 20 MB, **hoy solo entran dos archivos
-grandes**. Los tres límites tienen que moverse juntos o el de archivo no sirve
-de nada.
+| | Real | Límite que había | |
+|---|---|---|---|
+| Archivos | **27** | 20 | ❌ se pasaba |
+| Peso total | 7 MB | 20 MB | ✅ |
+| Archivo más grande | 1,54 MB | 10 MB | ✅ |
 
-| Escenario | Con los límites de hoy |
-|---|---|
-| 2 archivos de 10 MB | ✅ entra |
-| 3 archivos de 10 MB | ❌ rechazado por el tope de 20 MB |
-| 1 mayor general de 80 MB | ❌ rechazado por el límite de archivo |
+El cuello de botella no eran los MB sino **la cantidad de archivos**: un encargo
+tributario lleva 12 F-103 + 12 F-104 + F-101 + mayores y ya supera 20.
 
-Bloqueado hasta que se defina cuánto pesa el archivo más grande de un cliente
-real (un mayor general de empresa grande) y cuánta evidencia acumula un encargo
-completo. Necesito dos números: **MB por archivo** y **MB por encargo**.
+Valores definidos: **200 archivos**, **300 MB por encargo**, **25 MB por archivo**.
+
+**Defecto encontrado al hacerlo.** `TEXT_LIMIT` (240.000 caracteres) hacía que la
+capacidad de 100.000 filas de A1 fuera **inalcanzable por CSV**: un mayor de
+100.000 filas pesa 4,3 MB y se rechazaba antes de llegar al motor. Se corrigió
+subiendo el tope a 5.000.000 y, sobre todo, **sacando al CSV del límite por
+caracteres**: su control es `MAX_ROWS`, no la longitud del texto.
 
 ### B3 · Requerimiento al cliente
 
