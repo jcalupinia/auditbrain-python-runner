@@ -29,6 +29,8 @@ acumulan aquí y se hace **una sola publicación**.
 
 | A7 | **Fuentes alternativas, plantilla descargable y estados del documento.** El ítem declara `group` (los del mismo grupo son intercambiables), `columns` e `instructions` (de ahí sale la plantilla CSV, sin archivos que mantener), y el auditor marca cada documento **validado o rechazado**: un rechazado deja de contar para la cobertura | `lib/requirement.mjs`, `app/api/engagements/route.ts`, `app/audit-app.tsx` | ✅ verificado contra la API viva — ver abajo |
 
+| A8 | **Casilla «Aplica impuestos diferidos»** en la ficha del encargo, y **fuera la población sintética** con sus cifras fijas de la pantalla del recorrido | `lib/engagement-context.ts`, `app/herramientas/context-controls.tsx`, `app/herramientas/recorrido/studio.tsx` | ✅ `true`, `false` y **sin declarar → `false`**; compila limpio |
+
 ### Estado de verificación de A7
 
 | Prueba | Resultado |
@@ -145,15 +147,35 @@ partido por trimestre entra sin tocar los límites.
 
 | # | Cambio | Detalle |
 |---|---|---|
-| B4.1 | Casilla **«Aplica impuestos diferidos»** | Si se marca, la prueba habilita sus cédulas de diferido; si no, quedan ocultas. No existe en ninguna de las tres |
+| ~~B4.1~~ | ~~Casilla «Aplica impuestos diferidos»~~ | ✅ **Resuelto — ver A8** |
 
 ### B5 · Limpieza de pantalla
 
-| # | Se quita | Dónde | Motivo |
-|---|---|---|---|
-| B5.1 | Población sintética y parámetros de cálculo | `app/herramientas/recorrido/studio.tsx` | Ya queda definido en la ficha de la prueba |
-| B5.2 | «Confirmar ficha del ejemplo» | `app/herramientas/recorrido/studio.tsx` | Pertenece al recorrido de demostración |
-| B5.3 | Número fijo de 12 cédulas | `lib/tools/workbook-presentation.mjs` | Las cédulas son variables por prueba (Manual §11) |
+| # | Se quita | Estado |
+|---|---|---|
+| ~~B5.1~~ | ~~Población sintética y parámetros de cálculo~~ | ✅ **Resuelto — ver A8** |
+| ~~B5.2~~ | ~~«Confirmar ficha del ejemplo»~~ | ✖ **Ítem mal planteado. No se quita** |
+| **B5.3** | Número fijo de 12 cédulas | ⚠️ **No es limpieza: es reescribir el motor de exportación** |
+
+**B5.2 — por qué no se quita.** Ese botón es el que desbloquea las fuentes
+(`disabled={editing||!ctx.framework}`). Quitarlo deja el recorrido inutilizable.
+Y el archivo entero *es* la demostración (`/herramientas/recorrido`), así que
+«pertenece al recorrido» no es motivo para eliminarlo. El ítem estaba mal
+planteado en la versión 0.1 de esta lista.
+
+**B5.3 — el alcance real.** Las 12 etiquetas están cableadas en el motor que
+arma el libro, no en una pantalla:
+
+| Archivo | Uso |
+|---|---|
+| `lib/tools/workbook-presentation.mjs` | `labels[index]` en encabezados e hipervínculos entre hojas |
+| `lib/tools/exports.mjs` | `labels.slice(1)` arma la hoja índice |
+| `lib/tools/html-presentation.mjs` | misma fuente |
+
+Hacer las cédulas variables exige **rediseñar cómo se ensambla el libro**, para
+que las hojas salgan de la definición de cada prueba. Es el trabajo grande que
+queda pendiente para que la decisión «cédulas todas variables» sea real en el
+Excel, y no solo en el documento de estructura.
 
 ---
 
