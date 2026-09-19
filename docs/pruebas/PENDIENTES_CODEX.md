@@ -18,7 +18,9 @@ acumulan aquí y se hace **una sola publicación**.
 
 ## A · Listos en el checkout, esperando publicación
 
-*(vacío — todo lo anterior se publicó en la versión 19 el 2026-09-19; ver Historial)*
+| # | Cambio | Archivos | Verificado |
+|---|---|---|---|
+| A9 | **Manual y ejemplo alineados con el modelo de ítems.** Sección 05A «Requerimiento estructurado en ítems» y regla M17 en la memoria (manual a versión 1.3.0). Las cuatro fuentes del recorrido declaran formatos aceptados, exigencia y componentes | `lib/methodology.mjs`, `app/herramientas/recorrido/studio.tsx` | ✅ compila limpio; verificado en el HTML servido: `/metodologia` muestra 05A y M17, `/herramientas/recorrido` muestra los atributos en las cuatro fuentes |
 
 ---
 
