@@ -72,7 +72,7 @@ tiene. Misma firma, mismo encargo, dos niveles de control distintos.
 
 ---
 
-## 4 · Los ejemplos no están actualizados
+## 4 · Los ejemplos: estado original y qué se corrigió
 
 `app/herramientas/recorrido/studio.tsx` declara sus cuatro fuentes así:
 
@@ -91,8 +91,17 @@ obligatoriedad, ni componentes, ni plantilla.** Las únicas coincidencias de
 Además sigue produciendo **12 cédulas fijas**, que es exactamente lo que la
 estructura descartó (`B5.3`, pendiente).
 
-Resultado: **el ejemplo que un auditor abre para aprender el formato le enseña
-el modelo anterior.**
+Resultado: **el ejemplo que un auditor abría para aprender el formato le
+enseñaba el modelo anterior.**
+
+**Corregido el mismo día.** Las cuatro fuentes ahora declaran formatos
+aceptados, exigencia y componentes, y el texto introductorio explica que la
+cobertura se mide componente por componente y que un documento rechazado
+reabre el hueco. Verificado en el HTML servido.
+
+**Lo que sigue pendiente ahí:** el motor interno del recorrido conserva su
+lógica de «4 de 4 fuentes cargadas» —que no es el motor de cobertura real— y
+sus 12 cédulas fijas (`B5.3`).
 
 ---
 
@@ -117,4 +126,8 @@ Centro de trabajo y desalineado en el resto.
 La afirmación «la herramienta está estructurada según lo nuevo» **sería falsa
 si se dijera del sitio completo**. Es cierta solo del Centro de trabajo.
 
-No se hizo ningún cambio de código en esta revisión: es un diagnóstico.
+El diagnóstico se hizo sin tocar código. Después, en la misma jornada, se
+corrigieron los dos primeros puntos del orden propuesto: **Manual y memoria**
+(sección 05A y regla M17, versión 1.3.0) y **Ejemplo** (las cuatro fuentes
+declaran sus atributos). Quedan los tres de mayor alcance: Crear con guía,
+unificar Herramientas con el modelo de ítems, y las cédulas variables.
