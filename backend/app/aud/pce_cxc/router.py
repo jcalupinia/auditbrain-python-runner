@@ -14,6 +14,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from backend.app.aud.pce_cxc import service
+from backend.app.aud.pce_cxc.cortes import validar_orden_cronologico
 from backend.app.aud.pce_cxc.exporter import construir_excel
 from backend.app.aud.pce_cxc.models import CorridaPCE, guardar_corrida
 from backend.app.aud.pce_cxc.schemas import CorridaPCEOut
@@ -109,6 +110,11 @@ async def analizar(archivos: list[UploadFile] = File(...),
     posicional: índice 0 = cohorte más antigua (t-2), índice 2 = corte actual.
     Sin los tres cortes con sus tres fechas no hay una cohorte con ventana
     completa de 24 meses, así que no se calcula nada.
+
+    Las tres fechas tienen que ir en ORDEN CRONOLÓGICO ESTRICTO
+    (`cortes.validar_orden_cronologico`): el corte actual fija la exposición y
+    la cohorte fija las tasas, así que con el orden cambiado la corrida no
+    falla, mide otra cosa.
     """
     if len(archivos) != ARCHIVOS_REQUERIDOS:
         raise HTTPException(
@@ -160,8 +166,27 @@ async def analizar(archivos: list[UploadFile] = File(...),
         except PermissionError as e:
             raise HTTPException(403, str(e)) from e
 
+    # Las tres fechas se parsean y se ordenan ANTES de leer un solo byte: una
+    # petición con los cortes cambiados de orden no procede, y leer tres
+    # análisis de antigüedad para descubrirlo cuesta memoria que en producción
+    # no sobra (ver el comentario de `MAX_BYTES_POR_ARCHIVO`).
+    fechas_corte = []
+    for i, fecha in enumerate(fechas, start=1):
+        try:
+            fechas_corte.append(date.fromisoformat(fecha))
+        except (TypeError, ValueError) as e:
+            raise HTTPException(
+                400,
+                f"Fecha de corte inválida en el archivo {i}: '{fecha}'. Use el formato AAAA-MM-DD "
+                f"(p. ej. 2023-12-31)."
+            ) from e
+    try:
+        validar_orden_cronologico(fechas_corte)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
     cortes = []
-    for archivo, fecha in zip(archivos, fechas):
+    for archivo, fecha_corte in zip(archivos, fechas_corte):
         # Primer filtro, sin leer ni un byte: Starlette ya conoce `archivo.size`
         # (lo va sumando mientras recibe el cuerpo multipart) antes de que el
         # handler se ejecute, así que consultarlo no cuesta I/O adicional.
@@ -174,13 +199,6 @@ async def analizar(archivos: list[UploadFile] = File(...),
         contenido = await archivo.read(MAX_BYTES_POR_ARCHIVO + 1)
         if len(contenido) > MAX_BYTES_POR_ARCHIVO:
             raise HTTPException(413, _mensaje_413(archivo.filename))
-        try:
-            fecha_corte = date.fromisoformat(fecha)
-        except ValueError as e:
-            raise HTTPException(
-                400,
-                f"Fecha de corte inválida: '{fecha}'. Use el formato AAAA-MM-DD (p. ej. 2023-12-31)."
-            ) from e
         cortes.append({"nombre": archivo.filename or "", "contenido": contenido,
                        "fecha": fecha_corte, "hoja": None, "mapeo": None})
 

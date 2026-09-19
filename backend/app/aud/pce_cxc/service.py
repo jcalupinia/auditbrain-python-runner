@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.aud.pce_cxc.bandas import BANDAS_POR_DEFECTO, desdoblar
 from backend.app.aud.pce_cxc.cohortes import tasas_por_permanencia
+from backend.app.aud.pce_cxc.cortes import ROLES_DE_CORTE, validar_orden_cronologico
 from backend.app.aud.pce_cxc.lectura import MOTIVO_FILA_REPETIDA, leer_cartera
 from backend.app.aud.pce_cxc.models import CorridaPCE
 from backend.app.aud.pce_cxc.motor import (
@@ -184,6 +185,10 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
     if len(cortes) != 3:
         raise ValueError("Se requieren los tres análisis de antigüedad: sin tres cierres no existe "
                          "una cohorte con ventana completa de 24 meses")
+    # El orden de los tres cortes no es una preferencia: decide cuál fija la
+    # exposición y cuál las tasas. La guarda vive aquí -no solo en el
+    # endpoint- para que cualquier camino que llame a `analizar` la encuentre.
+    validar_orden_cronologico([c["fecha"] for c in cortes])
     umbral_dias = _umbral_dias(parametros.get("umbral_dias_incumplimiento"))
     bandas = desdoblar(BANDAS_POR_DEFECTO, umbral_dias)
     nombres = [b["nombre"] for b in bandas]
@@ -432,8 +437,7 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
         {"archivo": c["nombre"], "rol": rol,
          "cartera_no_leida": l["cartera_no_leida"],
          "descartados_por_motivo": l["descartados_por_motivo"]}
-        for c, l, rol in zip(cortes[:2], leidos[:2],
-                             ("cohorte t-2", "corte intermedio t-1"))
+        for c, l, rol in zip(cortes[:2], leidos[:2], ROLES_DE_CORTE[:2])
     ]
     hallazgos = _hallazgos(resumen, politica, parametros, factor_prospectivo_aplicado,
                            justificacion, exposicion, actual, ancla, cortes_anteriores)

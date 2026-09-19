@@ -39,6 +39,7 @@ from openpyxl.workbook.defined_name import DefinedName
 # Los motivos de acotamiento los define el motor: el papel los TRADUCE a texto,
 # no los vuelve a escribir. Un motivo nuevo que el exportador no conozca cae en
 # el rótulo genérico, nunca en un "SIN ACOTAR" que sería mentira.
+from backend.app.aud.pce_cxc.cortes import ROLES_DE_CORTE
 from backend.app.aud.pce_cxc.motor import PISO_CERO, TECHO_SALDO
 # Todo texto del cliente entra por aquí: ver el docstring de `texto.py` y el de
 # `_Formula`, unas líneas más abajo.
@@ -80,9 +81,6 @@ ALIN_DER = Alignment(horizontal="right", vertical="center")
 ALIN_CEN = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
 SEGMENTOS_TEXTO = "SIN MEDIR"
-#: Rol de cada corte por su posición, en el mismo orden en que el router los
-#: recibe (índice 0 = cohorte más antigua, índice 2 = corte actual).
-ROLES_DE_CORTE = ("cohorte (t-2)", "corte intermedio (t-1)", "corte actual (t)")
 #: Tres cortes son tres FECHAS: sus importes no se netean en un total.
 NO_SUMABLE_ENTRE_CORTES = "NO SUMABLE (tres cortes, tres fechas)"
 NOTA_CORTES_NO_SUMABLES = (
@@ -91,7 +89,11 @@ NOTA_CORTES_NO_SUMABLES = (
     "cifra que no existe en ningún corte (con signos opuestos llegaba a netear hasta casi cero). "
     "Lo que no se pudo leer se lee corte por corte, en su propia fila. La cartera no leída del "
     "CORTE ACTUAL es la que afecta a la medición -es el corte que fija la exposición- y tiene su "
-    "hallazgo en 10-Hallazgos; la de los cortes t-2 y t-1 mueve las TASAS y tiene el suyo.")
+    "hallazgo en 10-Hallazgos; la de los cortes t-2 y t-1 mueve las TASAS y tiene el suyo. "
+    "El ROL de cada fila lo fija la POSICIÓN en que se subió el archivo, no su nombre: por eso "
+    "cada fila imprime, al lado del rol, la FECHA DE CORTE que el auditor declaró para ese "
+    "archivo. Las tres fechas van en orden cronológico estricto y la herramienta rechaza la "
+    "corrida si no lo están: con el orden cambiado no falla nada, se mide otra cosa.")
 #: Rótulo de la banda cuya política de deterioro el cliente no proporcionó:
 #: no se compara, y no vale 0 %.
 TEXTO_SIN_COMPARAR = "SIN COMPARAR"
@@ -410,6 +412,12 @@ def _caratula(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, Any
     ws.merge_cells("A2:B2")
     ws.row_dimensions[2].height = 30
 
+    # La fecha del papel es la del CORTE ACTUAL, que es el último de los tres.
+    # Las tres llegan en orden cronológico estricto
+    # (`cortes.validar_orden_cronologico`), así que `fechas[-1]` es la más
+    # reciente por construcción, no por casualidad. El rótulo lo dice: antes
+    # imprimía «Fecha de corte» a secas y, con los archivos al revés, esa
+    # celda afirmaba como corte la fecha más ANTIGUA de las tres.
     fechas = parametros.get("fechas") or []
     fecha_corte = fechas[-1] if fechas else ""
 
@@ -422,7 +430,7 @@ def _caratula(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, Any
         # y "Revisado por".
         ("Entidad", str(parametros.get("entidad") or "").strip() or SIN_REGISTRAR),
         ("RUC", str(parametros.get("ruc") or "").strip() or SIN_REGISTRAR),
-        ("Fecha de corte", fecha_corte),
+        ("Fecha de corte (corte actual, t)", fecha_corte),
         ("Moneda", parametros.get("moneda", "USD")),
         ("Marco contable", parametros.get("marco", "NIIF 9 - Deterioro de cartera comercial")),
         ("Referencia del papel", parametros.get("referencia", "PT-PCE-CXC")),
@@ -625,7 +633,7 @@ def _fuentes(wb: Workbook, resultado: dict[str, Any]) -> None:
     su total- y un bloque que lo desglosa por motivo y por archivo.
     """
     ws = wb.create_sheet("02-Fuentes")
-    encabezado = ["Archivo", "Rol del corte", "Hoja", "Fila de encabezado",
+    encabezado = ["Archivo", "Rol del corte", "Fecha del corte", "Hoja", "Fila de encabezado",
                   "Mapeo de columnas", "Formato de fecha", "Documentos", "Duplicados exactos",
                   "Documentos repetidos", "Descartados", "Cartera no leída", "Total"]
     _encabezados(ws, 1, encabezado)
@@ -642,26 +650,32 @@ def _fuentes(wb: Workbook, resultado: dict[str, Any]) -> None:
             _celda(ws, i, 2,
                    ROLES_DE_CORTE[i - primera] if i - primera < len(ROLES_DE_CORTE)
                    else "corte adicional", alineacion=ALIN_CEN)
-            _celda(ws, i, 3, corte.get("hoja", ""), alineacion=ALIN_IZQ)
-            _celda(ws, i, 4, corte.get("fila_encabezado"), formato=FORMATO_ENTERO, alineacion=ALIN_CEN)
-            _celda(ws, i, 5, _mapeo_texto(corte.get("mapeo")), alineacion=ALIN_IZQ)
-            _celda(ws, i, 6, corte.get("formato_fecha", ""), alineacion=ALIN_CEN)
-            _celda(ws, i, 7, corte.get("documentos"), formato=FORMATO_ENTERO, alineacion=ALIN_DER)
-            _celda(ws, i, 8, corte.get("duplicados_exactos"), formato=FORMATO_ENTERO, alineacion=ALIN_DER)
-            _celda(ws, i, 9, corte.get("documentos_repetidos"), formato=FORMATO_ENTERO, alineacion=ALIN_DER)
-            _celda(ws, i, 10, corte.get("descartados"), formato=FORMATO_ENTERO, alineacion=ALIN_DER)
+            # La FECHA de este corte, en la misma fila que su rol: el rol lo
+            # fija la posición, así que «corte actual (t)» no es contrastable
+            # hasta que se lee, al lado, la fecha que el auditor declaró para
+            # ese archivo. Las tres van en orden cronológico estricto
+            # (`cortes.validar_orden_cronologico`).
+            _celda(ws, i, 3, corte.get("fecha", ""), alineacion=ALIN_CEN)
+            _celda(ws, i, 4, corte.get("hoja", ""), alineacion=ALIN_IZQ)
+            _celda(ws, i, 5, corte.get("fila_encabezado"), formato=FORMATO_ENTERO, alineacion=ALIN_CEN)
+            _celda(ws, i, 6, _mapeo_texto(corte.get("mapeo")), alineacion=ALIN_IZQ)
+            _celda(ws, i, 7, corte.get("formato_fecha", ""), alineacion=ALIN_CEN)
+            _celda(ws, i, 8, corte.get("documentos"), formato=FORMATO_ENTERO, alineacion=ALIN_DER)
+            _celda(ws, i, 9, corte.get("duplicados_exactos"), formato=FORMATO_ENTERO, alineacion=ALIN_DER)
+            _celda(ws, i, 10, corte.get("documentos_repetidos"), formato=FORMATO_ENTERO, alineacion=ALIN_DER)
+            _celda(ws, i, 11, corte.get("descartados"), formato=FORMATO_ENTERO, alineacion=ALIN_DER)
             # Importe de las filas que no se pudieron leer (sin las repeticiones
             # idénticas, cuyo saldo ya entró con la primera aparición).
             no_leida = _numero(corte.get("cartera_no_leida"))
-            c = _celda(ws, i, 11, 0.0 if no_leida is None else no_leida, formato=FORMATO_MONEDA,
+            c = _celda(ws, i, 12, 0.0 if no_leida is None else no_leida, formato=FORMATO_MONEDA,
                        alineacion=ALIN_DER)
             if no_leida is not None and abs(no_leida) > 0.005:
                 c.font = FUENTE_DATOS_ALERTA
-            _celda(ws, i, 12, _numero(corte.get("total")), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+            _celda(ws, i, 13, _numero(corte.get("total")), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
     else:
         ultima = primera
         _celda(ws, primera, 1, "(sin cortes registrados en la bitácora de esta corrida)", alineacion=ALIN_IZQ)
-        for col in range(2, 13):
+        for col in range(2, 14):
             _celda(ws, primera, col, None, alineacion=ALIN_IZQ)
 
     # NO HAY TOTAL QUE SUMAR. Cada fila es un corte con SU PROPIA fecha: la
@@ -670,23 +684,23 @@ def _fuentes(wb: Workbook, resultado: dict[str, Any]) -> None:
     # una cifra que no existe en ningún corte. Lo mismo vale para el total de
     # cada archivo.
     fila_total = ultima + 1
-    _celda(ws, fila_total, 10, "TOTAL", total=True, alineacion=ALIN_IZQ)
-    _celda(ws, fila_total, 11, NO_SUMABLE_ENTRE_CORTES, total=True, alineacion=ALIN_CEN)
+    _celda(ws, fila_total, 11, "TOTAL", total=True, alineacion=ALIN_IZQ)
     _celda(ws, fila_total, 12, NO_SUMABLE_ENTRE_CORTES, total=True, alineacion=ALIN_CEN)
-    for col in (1, 2, 3, 4, 5, 6, 7, 8, 9):
+    _celda(ws, fila_total, 13, NO_SUMABLE_ENTRE_CORTES, total=True, alineacion=ALIN_CEN)
+    for col in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
         _celda(ws, fila_total, col, None, total=True)
 
     nota = ws.cell(fila_total + 1, 1, NOTA_CORTES_NO_SUMABLES)
     nota.font = FUENTE_DATOS
     nota.alignment = ALIN_IZQ
-    ws.merge_cells(start_row=fila_total + 1, start_column=1, end_row=fila_total + 1, end_column=12)
+    ws.merge_cells(start_row=fila_total + 1, start_column=1, end_row=fila_total + 1, end_column=13)
     ws.row_dimensions[fila_total + 1].height = 42
 
     fila = _descartes_por_motivo(ws, cortes, fila_total + 3)
     _control_corte_intermedio(ws, resultado, fila + 1)
 
-    _anchos(ws, {"A": 22, "B": 22, "C": 16, "D": 12, "E": 40, "F": 16, "G": 12, "H": 14, "I": 16,
-                 "J": 12, "K": 18, "L": 16})
+    _anchos(ws, {"A": 22, "B": 22, "C": 16, "D": 16, "E": 12, "F": 40, "G": 16, "H": 12, "I": 14,
+                 "J": 16, "K": 12, "L": 18, "M": 16})
 
 
 def _descartes_por_motivo(ws, cortes: list[dict[str, Any]], fila: int) -> int:
@@ -696,14 +710,14 @@ def _descartes_por_motivo(ws, cortes: list[dict[str, Any]], fila: int) -> int:
     Un conteo no dice cuánta cartera se perdió ni por qué. Si no hubo descartes
     se dice eso: un bloque ausente se lee como "no aplica".
     """
-    _bloque(ws, fila, "Detalle de lo descartado en la lectura (importe, no solo conteo)", 12)
+    _bloque(ws, fila, "Detalle de lo descartado en la lectura (importe, no solo conteo)", 13)
     fila += 1
     detalle = [(c, m) for c in cortes for m in (c.get("descartados_por_motivo") or [])]
     if not detalle:
         _celda(ws, fila, 1, "Ninguna fila se descartó en la lectura de los tres cortes: la "
                             "cartera medida es la cartera completa de cada archivo.",
                alineacion=ALIN_IZQ)
-        ws.merge_cells(start_row=fila, start_column=1, end_row=fila, end_column=12)
+        ws.merge_cells(start_row=fila, start_column=1, end_row=fila, end_column=13)
         return fila + 1
 
     congelado = ws.freeze_panes
@@ -728,7 +742,7 @@ def _descartes_por_motivo(ws, cortes: list[dict[str, Any]], fila: int) -> int:
                    "se reparte sobre las filas que sí se leyeron.")
     nota.font = FUENTE_DATOS
     nota.alignment = ALIN_IZQ
-    ws.merge_cells(start_row=fila, start_column=1, end_row=fila, end_column=12)
+    ws.merge_cells(start_row=fila, start_column=1, end_row=fila, end_column=13)
     ws.row_dimensions[fila].height = 30
     return fila + 1
 
