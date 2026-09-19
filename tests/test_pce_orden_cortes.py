@@ -144,3 +144,23 @@ def test_el_servicio_tambien_rechaza_el_desorden_sin_pasar_por_el_router(client)
                                          date(2023, 12, 31)])]
     with pytest.raises(ValueError, match="cronológico"):
         service.analizar(cortes, {"fechas": list(reversed(FECHAS_EN_ORDEN))})
+
+
+def test_el_orden_se_comprueba_antes_de_leer_los_archivos(client):
+    """La guarda del endpoint vale por dos cosas: el 400 y NO gastar memoria.
+
+    Leer tres análisis de antigüedad para descubrir que la petición no procede
+    cuesta cientos de MB en producción. Si las fechas se validan antes de leer
+    un solo byte, un cuerpo de archivo ilegible da igual: la respuesta sigue
+    siendo el 400 del ORDEN, no el del archivo.
+    """
+    token = _token(client)
+    basura = b"esto no es un libro de Excel"
+    r = client.post(f"{BASE}/analizar", files=[
+        ("archivos", ("cartera_2025.xlsx", basura)),
+        ("archivos", ("cartera_2024.xlsx", basura)),
+        ("archivos", ("cartera_2023.xlsx", basura))],
+        data={"parametros": json.dumps({"fechas": list(reversed(FECHAS_EN_ORDEN))})},
+        headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 400, r.text
+    assert "cronológico" in r.json()["detail"], r.json()["detail"]

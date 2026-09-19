@@ -20,6 +20,7 @@ marca hostil, así que un sumidero nuevo que alguien olvide sanear la rompe.
 from __future__ import annotations
 
 import io
+import zipfile
 import json
 import uuid
 from datetime import date
@@ -240,3 +241,63 @@ def test_el_libro_con_datos_hostiles_no_tiene_ninguna_formula_invalida(client):
     assert not sospechosas, (
         "Fórmulas que el exportador no escribe (texto del cliente evaluado como fórmula): "
         + "; ".join(f"{h}!{c} -> {v!r}" for h, c, v in sospechosas))
+
+
+
+
+def _sucio_como_lo_escribe_excel(libro: bytes, reemplazos: dict[str, str]) -> bytes:
+    """Reescribe el XML del .xlsx sustituyendo marcadores por su escape.
+
+    Excel guarda los caracteres de control escapados (`_x0001_`), y ese es el
+    único archivo con el que el caso puede reproducirse: `openpyxl` se niega a
+    escribirlos directamente. Se sustituye sobre el XML ya generado para que el
+    resto del libro siga siendo el que produce `_xlsx`.
+    """
+    entrada = zipfile.ZipFile(io.BytesIO(libro))
+    salida_bytes = io.BytesIO()
+    with zipfile.ZipFile(salida_bytes, "w", zipfile.ZIP_DEFLATED) as salida:
+        for elemento in entrada.infolist():
+            datos = entrada.read(elemento.filename)
+            # `_xlsx` deja las cadenas en la propia hoja, no en la tabla
+            # compartida: ahi es donde hay que poner el escape.
+            hoja = elemento.filename.endswith("sheet1.xml")
+            tabla = elemento.filename.endswith("sharedStrings.xml")
+            if hoja or tabla:
+                xml = datos.decode("utf-8")
+                for marcador, escapado in reemplazos.items():
+                    xml = xml.replace(marcador, escapado)
+                datos = xml.encode("utf-8")
+            salida.writestr(elemento, datos)
+    return salida_bytes.getvalue()
+def test_un_caracter_de_control_llega_escapado_y_el_papel_se_descarga(client):
+    """Un carácter de control del archivo del cliente no rompe la descarga.
+
+    Excel guarda los caracteres de control escapados (`_x0001_`), y `openpyxl`
+    los devuelve tal cual, como texto: nunca entrega un carácter de control
+    crudo, y por eso no puede colarse en la corrida archivada y dejar el papel
+    imposible de guardar para siempre. Esta prueba fija ese comportamiento —el
+    libro se descarga y el nombre viaja íntegro— para que se note si algún día
+    cambia: `limpiar_texto` en la lectura es la segunda línea de defensa.
+    """
+    # `openpyxl` se niega a ESCRIBIR un carácter de control, así que el archivo
+    # del cliente se fabrica como lo haría Excel: el carácter viaja escapado
+    # (`_x0001_`) dentro de la tabla de cadenas del .xlsx. Al leerlo vuelve a ser
+    # un carácter de control, que es justo el caso que hay que cubrir.
+    contenido = _sucio_como_lo_escribe_excel(
+        _xlsx([("ALFA__CTRL1__ S.A.__CTRL2__", "F-1", "NO-RELACIONADOS",
+                date(2023, 9, 1), date(2023, 12, 1), 300000.0)]),
+        {"ALFA__CTRL1__ S.A.__CTRL2__": "ALFA_x0001_ S.A._x001F_"})
+    token = _token(client)
+    r = client.post(f"{BASE}/analizar", files=[
+        ("archivos", ("cartera_2023.xlsx", contenido)),
+        ("archivos", ("cartera_2024.xlsx", contenido)),
+        ("archivos", ("cartera_2025.xlsx", contenido))],
+        data={"parametros": json.dumps({"fechas": ["2023-12-31", "2024-12-31", "2025-12-31"],
+                                        "umbral_individual": 1000})},
+        headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+    x = client.get(f"{BASE}/corridas/{r.json()['corrida_id']}/excel",
+                   headers={"Authorization": f"Bearer {token}"})
+    assert x.status_code == 200, x.text[:300]
+    ws = load_workbook(io.BytesIO(x.content))["06-Individual"]
+    assert ws["A2"].value == "ALFA_x0001_ S.A._x001F_", ws["A2"].value
