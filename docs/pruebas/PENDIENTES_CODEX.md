@@ -22,6 +22,7 @@ acumulan aquí y se hace **una sola publicación**.
 |---|---|---|---|
 | A1 | Capacidad del motor: `MAX_ROWS` de 10.000 a **100.000** | `lib/tools/domain.mjs`, `lib/tools/portable-engine.mjs` | ✅ 100.000 filas en 4,08 s con la definición VNR real; 100.001 rechazado con mensaje claro |
 | A2 | Extractor conectado a la evidencia del encargo. Formatos **+ XML, + ZIP, + WebP**; límite por archivo 5 MB → **10 MB**; cada archivo se extrae y el resultado se guarda junto a él | `app/api/audit/route.ts`, `lib/audit.ts` | ✅ compila; XML, CSV y TXT extraen; **ZIP recursivo probado con la plantilla real: encontró el .xlsx dentro y leyó sus 11 hojas por nombre** |
+| A3 | **Markdown (.md)** aceptado en las dos rutas de carga y en el extractor, con tipo propio `kind:'md'` para que la cédula muestre de qué formato vino la evidencia | `lib/console/extract.mjs`, `app/api/audit/route.ts`, `app/api/tool-files/route.ts` | ✅ compila; `.md` suelto y **`.md` dentro de un ZIP** extraen correctamente |
 
 ---
 
@@ -73,7 +74,7 @@ completo. Necesito dos números: **MB por archivo** y **MB por encargo**.
 | B3.3 | Plantilla descargable con instrucciones | Existe en el ICT, no en el sitio |
 | B3.4 | Estados completos del documento | Recibido / extraído / pendiente de OCR o mapeo / validado / rechazado. Hoy parcial |
 | B3.5 | **Evidencia por componentes** | Que el cliente entregue una fuente grande **partida en varias piezas** (por mes, por bodega, por rango de cuentas) en vez de un archivo único. Ver detalle abajo |
-| B3.6 | Aceptar **Markdown (.md)** | No está ni en los formatos permitidos ni en el extractor. Es texto plano: el extractor ya procesa `txt`, así que el trabajo es declararlo, no escribir un lector |
+| ~~B3.6~~ | ~~Aceptar Markdown (.md)~~ | ✅ **Resuelto — ver A3** |
 
 #### B3.5 · Evidencia por componentes — detalle
 
