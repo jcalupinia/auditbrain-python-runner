@@ -67,6 +67,7 @@ carga **no falla** — queda recibido con estado `error` y su motivo, para no
 convertir un error de lectura en un dato ausente (M07).
 
 | A11 | **Las fuentes apuntan al texto de la norma, no a su índice.** NIC 2 y NIIF 9 al HTML oficial; NIIF para las PYMES a la tercera edición. El manual (§05) exige que una URL genérica no valga como verificación | `lib/tools/domain.mjs`, `lib/tools/research.ts` | ✅ los tres HTML responden 200 **sin registro**; compila limpio |
+| A12 | **Cédulas variables: el libro sale de la definición, no de una lista fija.** `definition.sheets` declara qué cédulas lleva la herramienta; sin declararlas siguen saliendo las doce. Cuatro son núcleo (`01_Caratula`, `03_Parametros`, `05_Data_Original`, `06_Data_Procesada`, `07_Calculos`) porque otras hojas las referencian por fórmula: el plan las conserva siempre. `validateDefinition` rechaza un nombre de cédula inexistente al crear la herramienta, no al descargar | `lib/tools/exports.mjs` (`sheetPlan`, `sheetNames`, `sheetLabels`), `lib/tools/domain.mjs` (`SHEETS` + validación), `lib/tools/workbook-presentation.mjs`, `lib/tools/html-presentation.mjs`, `lib/tools/portable-engine.mjs` regenerado | ✅ compila limpio · `node lib/tools/exports.mjs` pasa · verificado abriendo los Excel con openpyxl — ver abajo |
 
 ---
 
@@ -138,7 +139,7 @@ partido por trimestre entra sin tocar los límites.
 |---|---|---|
 | ~~B5.1~~ | ~~Población sintética y parámetros de cálculo~~ | ✅ **Resuelto — ver A8** |
 | ~~B5.2~~ | ~~«Confirmar ficha del ejemplo»~~ | ✖ **Ítem mal planteado. No se quita** |
-| **B5.3** | Número fijo de 12 cédulas | ⚠️ **No es limpieza: es reescribir el motor de exportación** |
+| ~~B5.3~~ | ~~Número fijo de 12 cédulas~~ | ✅ **Resuelto — ver A12** |
 
 **B5.2 — por qué no se quita.** Ese botón es el que desbloquea las fuentes
 (`disabled={editing||!ctx.framework}`). Quitarlo deja el recorrido inutilizable.
@@ -146,19 +147,38 @@ Y el archivo entero *es* la demostración (`/herramientas/recorrido`), así que
 «pertenece al recorrido» no es motivo para eliminarlo. El ítem estaba mal
 planteado en la versión 0.1 de esta lista.
 
-**B5.3 — el alcance real.** Las 12 etiquetas están cableadas en el motor que
-arma el libro, no en una pantalla:
+**B5.3 — resuelto el 2026-09-19.** El diagnóstico era correcto: las 12
+etiquetas estaban cableadas en el motor que arma el libro, no en una pantalla.
+Se midió el grafo de dependencias entre hojas antes de tocar nada:
 
-| Archivo | Uso |
+| Hoja | Referencias entrantes por fórmula |
 |---|---|
-| `lib/tools/workbook-presentation.mjs` | `labels[index]` en encabezados e hipervínculos entre hojas |
-| `lib/tools/exports.mjs` | `labels.slice(1)` arma la hoja índice |
-| `lib/tools/html-presentation.mjs` | misma fuente |
+| `03_Parametros` | 6 |
+| `05_Data_Original` | 5 |
+| `06_Data_Procesada` | 4 |
+| `07_Calculos` | 2 |
+| Las otras ocho | **ninguna** |
 
-Hacer las cédulas variables exige **rediseñar cómo se ensambla el libro**, para
-que las hojas salgan de la definición de cada prueba. Es el trabajo grande que
-queda pendiente para que la decisión «cédulas todas variables» sea real en el
-Excel, y no solo en el documento de estructura.
+De ahí el diseño: `sheetPlan(definition)` devuelve los índices de las cédulas
+que lleva la herramienta. Las cuatro con referencias entrantes —más la portada,
+que es el índice del libro— son núcleo y no se pueden omitir; las otras siete
+salen si la definición las declara. `workbookSheets` sigue armando las doce y
+filtra al final, así que ninguna fórmula cambió de dirección.
+
+Verificación empírica (no solo el auto-test):
+
+| Caso | Hojas | Partes / rels / Content_Types | Referencias rotas | openpyxl |
+|---|---|---|---|---|
+| Sin declarar cédulas | 12 | 12 / 12 / 12 | ninguna | abre y se recorre completo |
+| Declarando `02_Programa` y `11_Conclusion` | 7 | 7 / 7 / 7 | ninguna | abre y se recorre completo |
+| Declarando solo `11_Conclusion` | 6 | 6 / 6 / 6 | ninguna | abre y se recorre completo |
+
+Los hipervínculos de la portada, sus celdas combinadas y las dos filas de pie
+se calculan desde el plan: en el libro recortado bajan de 11 enlaces a 6 y el
+pie se mueve de la fila 29/30 a la 24/25, sin dejar enlaces a hojas ausentes.
+El motor portátil se **regeneró** con `scripts/export-portable-engine.mjs` para
+que la copia de `validateDefinition` que viaja dentro del HTML conozca `SHEETS`;
+el diff contra la versión anterior son exactamente esos dos cambios.
 
 ---
 

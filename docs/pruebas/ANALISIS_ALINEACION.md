@@ -67,7 +67,7 @@ tiene. Misma firma, mismo encargo, dos niveles de control distintos.
 | **Crear con guía** | ✅ | **Diagnóstico corregido + arreglado 2026-09-19.** No crea encargos ni herramientas: arma un prompt y abre una conversación en la Consola, y ya reutilizaba la ficha. Lo que fallaba era qué pedía ese prompt: el paso 4 decía «solicita lo que falte». Ahora exige el requerimiento como lista de ítems con formatos, obligatoriedad, componentes, alternativas y columnas |
 | **Reconstruir Excel** | ❌ | No usa el modelo de ítems |
 | **Manual y memoria** | ✅ | **Corregido 2026-09-19**: sección 05A «Requerimiento estructurado en ítems» y regla M17 en la memoria. Manual en versión 1.3.0 |
-| **Ejemplo Excel / HTML** | ⚠️ | **Parcial 2026-09-19**: sus cuatro fuentes ya declaran formatos, exigencia y componentes. Sigue con 12 cédulas fijas y su propia lógica de «4 de 4» |
+| **Ejemplo Excel / HTML** | ⚠️ | **2026-09-19**: sus cuatro fuentes declaran formatos, exigencia y componentes, y las cédulas ya no son 12 fijas (`B5.3` resuelto). Le queda su propia lógica de «4 de 4», que no es el motor de cobertura real |
 | **Agente** · **Demostración** | — | Sin revisar en detalle |
 
 ---
@@ -88,8 +88,9 @@ obligatoriedad, ni componentes, ni plantilla.** Las únicas coincidencias de
 `formats` y `components` en ese archivo son importaciones de
 `components/ui/...` y un tipo MIME: ninguna es el modelo nuevo.
 
-Además sigue produciendo **12 cédulas fijas**, que es exactamente lo que la
-estructura descartó (`B5.3`, pendiente).
+Además producía **12 cédulas fijas**, que es exactamente lo que la estructura
+descartó. Resuelto el mismo día (`B5.3` → `A12`): el libro sale ahora de
+`definition.sheets` y conserva solo el núcleo que otras hojas referencian.
 
 Resultado: **el ejemplo que un auditor abría para aprender el formato le
 enseñaba el modelo anterior.**
@@ -100,8 +101,7 @@ cobertura se mide componente por componente y que un documento rechazado
 reabre el hueco. Verificado en el HTML servido.
 
 **Lo que sigue pendiente ahí:** el motor interno del recorrido conserva su
-lógica de «4 de 4 fuentes cargadas» —que no es el motor de cobertura real— y
-sus 12 cédulas fijas (`B5.3`).
+lógica de «4 de 4 fuentes cargadas», que no es el motor de cobertura real.
 
 ---
 
@@ -113,7 +113,7 @@ sus 12 cédulas fijas (`B5.3`).
 | ~~2~~ | ~~Ejemplo: declarar formatos y componentes~~ | ✅ **Hecho**. Queda su motor interno, que no usa el de cobertura real |
 | ~~3~~ | ~~Crear con guía~~ | ✅ **Hecho**. El diagnóstico original estaba mal planteado: ver la fila de la sección 3 |
 | ~~4~~ | ~~Herramientas~~ | ✅ **Hecho y verificado**. Se adaptó en vez de reescribir |
-| 5 | **B5.3 · cédulas variables** | Ya registrado. Reescribir el ensamblado del libro |
+| ~~5~~ | ~~B5.3 · cédulas variables~~ | ✅ **Hecho y verificado**. `sheetPlan` deriva las cédulas de la definición; comprobado abriendo los Excel completo y recortado con openpyxl |
 
 ---
 
@@ -136,5 +136,7 @@ Efecto colateral útil: `METHODOLOGY_MEMORY` viaja completo dentro de cada
 prompt que genera la guía, así que la regla M17 llega al asistente sin
 necesidad de repetirla.
 
-Quedan los dos de mayor alcance: **unificar Herramientas** con el modelo de
-ítems, y las **cédulas variables** (`B5.3`).
+Los cinco puntos del orden propuesto quedaron cerrados el mismo día. Lo único
+que sobrevive es el motor interno del recorrido, que sigue contando «4 de 4
+fuentes» en vez de llamar al motor de cobertura: no afecta a ningún papel de
+trabajo real, solo a la demostración.
