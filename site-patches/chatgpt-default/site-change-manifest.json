@@ -1,0 +1,18 @@
+{
+  "schema": "auditbrain-site-change/1.0",
+  "project_id": "appgprj_6aac4365f6288191a6d65fea99a71373",
+  "slug": "auditbrain-auditoria",
+  "methodology_version": "1.2.0",
+  "default_mode": "chatgpt",
+  "optional_modes": [
+    "work",
+    "codex",
+    "astra"
+  ],
+  "direct_chat_handoff_verified": false,
+  "fallback": [
+    "copy_context",
+    "download_context"
+  ],
+  "invariant": "optional_mode_unavailable_does_not_block_auditbrain"
+}

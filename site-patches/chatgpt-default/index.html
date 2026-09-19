@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AuditBrain · Trabajar con IA</title><link rel="stylesheet" href="./styles.css"></head>
+<body>
+<main class="ab-shell">
+  <header><span class="eyebrow">AUDITBRAIN BUILDER · v1.2.0</span><h1>¿Cómo desea continuar?</h1><p>ChatGPT normal es la vía predeterminada. Work, Codex y Astra son opcionales.</p></header>
+  <section id="mode-grid" class="mode-grid" aria-label="Modos de trabajo"></section>
+  <section class="context-card">
+    <div><strong>Contexto portable</strong><p id="handoff-status">Listo para preparar</p></div>
+    <div class="actions"><button id="copy-context">Trabajar en ChatGPT</button><button id="download-context" class="secondary">Descargar contexto</button></div>
+    <textarea id="context-preview" readonly aria-label="Vista previa del contexto"></textarea>
+    <p class="truth">Si Sites no puede abrir un chat normal con contexto de forma verificada, copie o descargue este paquete y úselo en ChatGPT. No se afirma sincronización automática.</p>
+  </section>
+</main>
+<script type="module" src="./app.mjs"></script>
+</body></html>
