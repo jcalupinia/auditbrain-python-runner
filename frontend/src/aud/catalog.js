@@ -20,7 +20,7 @@ export const CATEGORIES = [
   { id: "CAJA_BANCOS", label: "Caja y bancos", type: "ciclo" },
   { id: "INVERSIONES", label: "Inversiones", type: "ciclo" },
   { id: "CXC", label: "Cuentas por cobrar", type: "ciclo" },
-  { id: "INVENTARIOS", label: "Inventarios", type: "ciclo" },
+  { id: "INVENTARIOS", label: "Inventarios", type: "ciclo", tools: [{ id: "AUD.INVENTARIOS.VNR", label: "Valor neto de realización", description: "NIIF completas o PYMES · evidencia, cálculo, ajustes, reversos y diferidos · Excel auditable y HTML." }] },
   { id: "ACTIVOS_FIJOS", label: "Activos fijos", type: "ciclo" },
   {
     id: "INTANGIBLES",
