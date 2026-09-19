@@ -619,16 +619,34 @@ def test_la_matriz_imprime_la_lgd_y_el_factor_de_descuento_de_cada_banda():
         assert ws.cell(i, col_fd).value == pytest.approx(t["factor_descuento"])
 
 
-def test_la_matriz_no_rotula_un_acotamiento_que_no_puede_alcanzarse():
-    """`ACOTADO_TECHO` era inalcanzable desde el motor: con la tasa acotada al
-    100 %, la LGD en [0, 1] y el factor de descuento en (0, 1], el producto
-    nunca supera la exposición. Un rótulo que nunca se alcanza es ruido."""
+def test_la_matriz_no_declara_un_techo_que_no_actuo():
+    """Con las cifras que escribe la herramienta, el techo del importe en libros
+    bruto NO puede morder: con la tasa acotada al 100 %, la LGD en [0, 1] y el
+    factor de descuento en (0, 1], el producto nunca supera la exposición. Lo
+    que actúa con un factor desbocado es el techo de LA TASA, y eso es lo que la
+    columna tiene que decir.
+
+    (La fórmula sí contempla el techo del importe en libros, porque las columnas
+    del factor, la LGD y el descuento existen para que el revisor las cambie y
+    ahí sí muerde: eso lo cubre `test_pce_acotamientos_declarados.py`. Lo que
+    esta prueba fija es que el rótulo no aparezca cuando la cota no actuó.)
+    """
     from backend.app.aud.pce_cxc import exporter
-    ws = _libro(_corrida_con_factor_desbocado()).wb["05-Matriz"]
-    formulas = [str(ws.cell(i, c).value or "") for i in range(2, ws.max_row + 1)
-                for c in range(1, ws.max_column + 1)]
-    assert not any(exporter.ACOTADO_TECHO in f for f in formulas), \
-        "05-Matriz sigue rotulando el techo del importe en libros bruto, que no puede morder"
+    libro = _libro(_corrida_con_factor_desbocado())
+    ws = libro.wb["05-Matriz"]
+    col = columna(ws, "Acotamiento aplicado")
+    declarados = []
+    for i in range(2, ws.max_row + 1):
+        if str(ws.cell(i, 2).value or "") in ("", "TOTAL"):
+            break
+        valor = libro.valor("05-Matriz", f"{col}{i}")
+        if isinstance(valor, str) and valor:
+            declarados.append(valor)
+    assert declarados, "ninguna banda declaró su acotamiento"
+    assert exporter.ACOTADO_TECHO not in declarados, (
+        f"05-Matriz declara el techo del importe en libros bruto, que aquí no muerde: "
+        f"{declarados}")
+    assert exporter.ACOTADO_TASA in declarados, declarados
 
 
 # ---------------------------------------------------------------------------

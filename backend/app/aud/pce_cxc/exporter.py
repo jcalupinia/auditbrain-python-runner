@@ -124,9 +124,13 @@ NOTA_ACOTAMIENTOS = (
     "no puede ser negativa (NIIF 9 5.5.15 — una nota de crédito no genera «ganancia esperada») "
     "ni superar el importe en libros bruto de su banda, y la tasa ajustada por el factor "
     "prospectivo no puede pasar del 100 % (NIIF 9 B5.5.35). La columna «Pérdida sin acotar» "
-    "conserva el cálculo puro y la columna «Acotamiento aplicado» dice cuál de las dos cotas "
-    "actuó: recalcular la columna «Pérdida esperada» desde estas mismas celdas devuelve, al "
-    "centavo, la cifra archivada en la corrida.")
+    "conserva el cálculo puro y la columna «Acotamiento aplicado» dice cuál de las TRES cotas "
+    "actuó -el piso cero, el techo de la tasa o el techo del importe en libros bruto-, "
+    "distinguiéndolas desde estas mismas celdas: con los valores que escribe la herramienta el "
+    "techo del importe en libros no puede morder, pero las columnas «Factor prospectivo», «LGD» y "
+    "«Factor de descuento» están para que el revisor las cambie, y ahí sí muerde. Recalcular la "
+    "columna «Pérdida esperada» desde estas mismas celdas devuelve, al centavo, la cifra "
+    "archivada en la corrida.")
 NOTA_SIN_MEDIR_INDIVIDUAL = (
     "El saldo sin medir de un cliente evaluado individualmente se acota a SU PROPIA exposición "
     "(NIIF 9 B5.5.35): la exposición del cliente es el NETO de sus bandas y lo sin medir suma "
@@ -1088,10 +1092,12 @@ def _matriz(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> No
       exposición acreedora y su "pérdida" negativa neutralizaría la pérdida
       medida en las demás bandas del mismo segmento.
     - ``MIN(...; MAX(exposición; 0))`` es el techo del importe en libros bruto
-      (NIIF 9 B5.5.35). Se escribe porque la norma lo exige por escrito, pero
-      NO lleva rótulo propio: con la tasa acotada al 100 %, la LGD validada en
-      [0, 1] y el factor de descuento en (0, 1], el producto no puede superar
-      la exposición, así que ``ACOTADO_TECHO`` era un rótulo inalcanzable.
+      (NIIF 9 B5.5.35). Con los valores que escribe la herramienta no puede
+      morder -la tasa va acotada al 100 %, la LGD validada en [0, 1] y el
+      factor de descuento en (0, 1]-, pero las columnas del factor, la LGD y
+      el descuento están para que el revisor las cambie, y ahí sí muerde: la
+      columna J lo distingue del techo de la tasa comprobando si el producto ya
+      acotado por la tasa supera la exposición.
 
     La columna I conserva el cálculo SIN acotar -que es la evidencia de que el
     acotamiento hizo falta- y la J declara cuál actuó.
@@ -1162,9 +1168,21 @@ def _matriz(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -> No
             # acotamiento y la única forma de que el revisor lo vea.
             _celda(ws, i, 9, _f(f"=ROUND(C{i}*D{i}*E{i}{severidad},2)"), formato=FORMATO_MONEDA,
                    alineacion=ALIN_DER)
+            # CUÁL de las tres cotas actuó, deducido de las celdas y no de lo
+            # que el motor concluyó: las columnas LGD (F) y Factor de descuento
+            # (G) existen para que el revisor las cambie, y con ellas el techo
+            # del importe en libros -que con los valores del motor no puede
+            # morder- sí muerde. Comparar solo H contra I no los distingue: las
+            # dos cotas bajan la cifra. Se reconoce el techo comprobando si el
+            # producto YA ACOTADO POR LA TASA supera la exposición; si no,
+            # lo que bajó la cifra fue la tasa.
+            producto_con_tasa_acotada = f"ROUND(C{i}*MIN(D{i}*E{i},1){severidad},2)"
             _celda(ws, i, 10,
                    _f(f'=IF(H{i}>I{i}+0.005,"{ACOTADO_PISO}",'
-                   f'IF(H{i}<I{i}-0.005,"{ACOTADO_TASA}","{SIN_ACOTAR}"))'),
+                   f'IF(H{i}<I{i}-0.005,'
+                   f'IF({producto_con_tasa_acotada}>MAX(C{i},0)+0.005,'
+                   f'"{ACOTADO_TECHO}","{ACOTADO_TASA}"),'
+                   f'"{SIN_ACOTAR}"))'),
                    alineacion=ALIN_CEN)
     else:
         ultima = primera
@@ -1322,9 +1340,14 @@ def _individual(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any]) -
                 c = _celda(ws, i, 6, _f(f"=MIN(MAX(G{i},0),MAX(C{i},0))"), formato=FORMATO_MONEDA,
                            alineacion=ALIN_DER)
                 _celda(ws, i, 7, sin_acotar, formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+                # Las DOS cotas del saldo sin medir, distinguidas desde las
+                # celdas: el piso cero (un saldo sin medir acreedor se lleva a
+                # 0,00) y el techo de la exposición del caso. Antes solo se
+                # miraba el techo, así que el piso movía el importe y la
+                # columna decía «SIN ACOTAR».
                 d = _celda(ws, i, 10,
-                           _f('=IF(F{0}<G{0}-0.005,"{1}","{2}")'.format(
-                               i, ACOTADO_EXPOSICION_CASO, SIN_ACOTAR)),
+                           _f('=IF(F{0}>G{0}+0.005,"{1}",IF(F{0}<G{0}-0.005,"{2}","{3}"))'.format(
+                               i, ACOTADO_PISO, ACOTADO_EXPOSICION_CASO, SIN_ACOTAR)),
                            alineacion=ALIN_CEN)
                 if caso.get("saldo_sin_tasa_acotado"):
                     d.font = FUENTE_DATOS_ALERTA

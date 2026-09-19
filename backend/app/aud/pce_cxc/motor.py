@@ -507,10 +507,18 @@ def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
         # del texto de `sustento`, para que se pueda sumar sin tener que
         # parsear una frase. Se acota a la exposición del propio caso: ver
         # `acotar_saldo_sin_medir`.
+        # Con el MOTIVO, no solo con el valor: `acotar_saldo_sin_medir` tiene
+        # dos cotas -el piso cero y el techo de la exposición del caso- y
+        # deducir «se acotó» de `sin_acotar > acotado` solo ve la segunda. Con
+        # un saldo sin medir acreedor el piso lo mueve a 0,00 y el caso decía
+        # que no se había acotado nada.
         sin_tasa_sin_acotar = redondear(float(caso.get("saldo_sin_tasa") or 0.0))
-        sin_tasa = acotar_saldo_sin_medir(sin_tasa_sin_acotar, saldo)
+        sin_tasa, sin_tasa_acotado = acotar_saldo_sin_medir_con_motivo(
+            sin_tasa_sin_acotar, saldo)
         sin_tasa_total += sin_tasa
-        sin_tasa_recortado += sin_tasa_sin_acotar - sin_tasa
+        # «Cuánto se recortó» es una MAGNITUD: con el piso actuando, la resta
+        # cruda daba el recorte en negativo.
+        sin_tasa_recortado += abs(sin_tasa_sin_acotar - sin_tasa)
         # Saldo acreedor DENTRO del caso (una nota de crédito en una de sus
         # bandas). El neto del cliente puede ser deudor y esconderla: sin este
         # campo, el piso cero actuaba sobre ella en silencio y ningún hallazgo
@@ -525,7 +533,7 @@ def evaluar_individual(casos: list[dict[str, Any]]) -> dict[str, Any]:
             "sustento": caso.get("sustento", ""),
             "saldo_sin_tasa": sin_tasa,
             "saldo_sin_tasa_sin_acotar": sin_tasa_sin_acotar,
-            "saldo_sin_tasa_acotado": sin_tasa_sin_acotar > sin_tasa + 0.0001,
+            "saldo_sin_tasa_acotado": sin_tasa_acotado is not None,
             "saldo_acreedor": acreedor,
             "ecl": ecl,
             "ecl_sin_acotar": ecl_sin_acotar,
