@@ -138,8 +138,12 @@ ARCHIVADO = {
         lambda r, ws: _archivado_del_caso(r, ws, "ecl", "acotado"),
     "saldo_sin_medir_del_caso_individual":
         lambda r, ws: _archivado_del_caso(r, ws, "saldo_sin_tasa", "saldo_sin_tasa_acotado"),
+    # La fila la declara `motor.COTAS`, no esta prueba: clavarla aquí era otra
+    # copia del número de fila, justo el error que `excel_calc.columna` vino a
+    # quitar de las pruebas de columnas.
     "cartera_medida":
-        lambda r, ws: {9: (r["exposicion"]["medida"], r["exposicion"]["medida_acotada"])},
+        lambda r, ws: {next(c.fila for c in motor.COTAS if c.nombre == "cartera_medida"):
+                       (r["exposicion"]["medida"], r["exposicion"]["medida_acotada"])},
 }
 
 

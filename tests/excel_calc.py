@@ -357,6 +357,8 @@ class Libro:
             return lista[int(self._numerico(valores[1])) - 1]
         raise ErrorDeFormula(f"Función fuera del subconjunto permitido: {nombre}")
 
+    # -- Criterios de SUMIFS/COUNTIFS --------------------------------------
+
     def _sumifs(self, nombre: str, valores: list[Any]) -> float:
         if nombre == "SUMIFS":
             rango = self._aplanar(valores[0])
@@ -366,12 +368,12 @@ class Libro:
             criterios = valores
         if len(criterios) % 2:
             raise ErrorDeFormula(f"{nombre} espera pares (rango, criterio)")
-        pares = [(self._aplanar(criterios[i]), criterios[i + 1])
+        pares = [(self._aplanar(criterios[i]), _criterio(criterios[i + 1]))
                  for i in range(0, len(criterios), 2)]
         largo = len(pares[0][0])
         total = 0.0
         for i in range(largo):
-            if all(self._comparar("=", c[0][i], c[1]) for c in pares):
+            if all(self._comparar(c[1][0], c[0][i], c[1][1]) for c in pares):
                 if rango is None:
                     total += 1
                 else:
@@ -379,6 +381,29 @@ class Libro:
                     if isinstance(v, (int, float)) and not isinstance(v, bool):
                         total += float(v)
         return total
+
+
+_CRITERIO_CON_OPERADOR = re.compile(r"^(>=|<=|<>|>|<|=)(.*)$")
+
+
+def _criterio(valor: Any) -> tuple[str, Any]:
+    """Traduce el criterio de `SUMIFS`/`COUNTIFS` a `(operador, valor)`.
+
+    Excel admite el criterio como TEXTO con el operador dentro (``">0"``,
+    ``"<0"``, ``"<>SIN MEDIR"``), y `08-Conciliacion` lo necesita para separar
+    la exposición sin medir DEUDORA de la ACREEDORA sin netearlas: no hay
+    `ABS` dentro de un `SUMIFS`. Sin operador, el criterio es una igualdad,
+    que es como se comportaba antes esta función.
+    """
+    if isinstance(valor, str):
+        m = _CRITERIO_CON_OPERADOR.match(valor)
+        if m:
+            operador, resto = m.group(1), m.group(2)
+            try:
+                return operador, float(resto)
+            except ValueError:
+                return operador, resto
+    return "=", valor
 
 
 def columna(ws, texto: str) -> str:
@@ -397,6 +422,24 @@ def columna(ws, texto: str) -> str:
             return get_column_letter(c)
     encabezados = [str(ws.cell(1, c).value or "") for c in range(1, ws.max_column + 1)]
     raise ErrorDeFormula(f"{ws.title} no tiene ninguna columna «{texto}»: {encabezados}")
+
+
+def fila(ws, texto: str, col: int = 1) -> int:
+    """Número de la fila cuyo concepto (columna ``col``) contiene ``texto``.
+
+    El hermano de `columna`, por el mismo motivo: las hojas de conceptos
+    (``08-Conciliacion``, ``09-Tributario``) ganan filas cuando el papel tiene
+    que declarar algo más -el desglose por signo de lo que no se pudo medir-,
+    y una prueba que clava el número de fila deja de comprobar lo que dice y
+    empieza a comprobar la fila de al lado. Se busca por el rótulo, que es lo
+    que el auditor lee.
+    """
+    objetivo = texto.strip().lower()
+    for f in range(1, ws.max_row + 1):
+        if objetivo in str(ws.cell(f, col).value or "").strip().lower():
+            return f
+    conceptos = [str(ws.cell(f, col).value or "") for f in range(1, ws.max_row + 1)]
+    raise ErrorDeFormula(f"{ws.title} no tiene ninguna fila «{texto}»: {conceptos}")
 
 
 def recalcular(binario: bytes, hoja: str, celda: str) -> Any:

@@ -13,7 +13,7 @@ from backend.app.aud.pce_cxc import exporter
 from backend.app.aud.pce_cxc.exporter import (
     NO_REGISTRADO, SIN_ACOTAR, TOPE_NO_CONTRASTABLE, construir_excel,
 )
-from tests.excel_calc import Libro, columna
+from tests.excel_calc import Libro, columna, fila
 
 
 class _FechaFija(date):
@@ -837,26 +837,33 @@ def test_la_cartera_medida_del_papel_es_la_misma_que_la_de_la_pantalla():
     assert ws.cell(6, 2).value == 20000.0
     assert ws.cell(7, 2).value == "=B5+B6"
 
-    etiqueta = str(ws.cell(9, 1).value)
+    # Las filas se resuelven por su rótulo (`excel_calc.fila`), no por su
+    # número: la hoja gana filas cuando el papel tiene que declarar algo más
+    # -el desglose por signo de lo que no se pudo medir-, y una prueba que
+    # clava el número empieza a comprobar la fila de al lado.
+    f_medida = fila(ws, "Cartera medida (")
+    etiqueta = str(ws.cell(f_medida, 1).value)
     assert etiqueta.startswith("Cartera medida"), etiqueta
     assert "sin medir" in etiqueta.lower(), etiqueta
 
     # Antes aquí se hacía aritmética sobre constantes del propio test
-    # (`estratificada + 20000 == total`, y B9 contra una resta escrita en el
-    # propio test), que pasa con cualquier código. Lo que importa es lo que
-    # producen ESTAS celdas contra lo que ARCHIVÓ la corrida:
+    # (`estratificada + 20000 == total`, y la cartera medida contra una resta
+    # escrita en el propio test), que pasa con cualquier código. Lo que importa
+    # es lo que producen ESTAS celdas contra lo que ARCHIVÓ la corrida:
     # `exposicion.medida`, la misma clave que lee la pantalla.
     libro = Libro(_abrir(construir_excel(RESULTADO_SIN_MEDIR, {})))
     assert libro.numero("08-Conciliacion", "B5") == 150000.0       # 05-Matriz + 06-Individual
     assert libro.numero("08-Conciliacion", "B7") == \
         RESULTADO_SIN_MEDIR["exposicion"]["total"]
-    assert libro.numero("08-Conciliacion", "B8") == \
+    assert libro.numero("08-Conciliacion", f"B{fila(ws, 'SIN MEDIR (magnitud')}") == \
         RESULTADO_SIN_MEDIR["exposicion"]["sin_medir"]
-    assert libro.numero("08-Conciliacion", "B9") == \
+    assert libro.numero("08-Conciliacion", f"B{f_medida}") == \
         RESULTADO_SIN_MEDIR["exposicion"]["medida"]
-    assert libro.numero("08-Conciliacion", "B10") == \
+    assert libro.numero("08-Conciliacion", f"B{fila(ws, 'Cartera medida SIN ACOTAR')}") == \
         RESULTADO_SIN_MEDIR["exposicion"]["medida_sin_acotar"]
-    assert libro.valor("08-Conciliacion", "B11") == "SIN ACOTAR"
+    assert libro.valor(
+        "08-Conciliacion", f"B{fila(ws, 'Acotamiento aplicado a la cartera medida')}"
+    ) == "SIN ACOTAR"
 
 
 def test_la_conciliacion_sigue_comparando_el_archivo_contra_los_eeff():
@@ -865,7 +872,7 @@ def test_la_conciliacion_sigue_comparando_el_archivo_contra_los_eeff():
     assert ws.cell(2, 2).value == 150000.0
     assert ws.cell(3, 2).value == "=SaldoContable"
     assert ws.cell(4, 2).value == "=B2-B3"
-    assert ws.cell(12, 2).value == '=IF(ABS(B4)<0.01,"CUADRA","DIFERENCIA")'
+    assert ws.cell(fila(ws, "Estado"), 2).value == '=IF(ABS(B4)<0.01,"CUADRA","DIFERENCIA")'
 
 
 # ---------------------------------------------------------------------------

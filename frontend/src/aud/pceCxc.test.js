@@ -13,6 +13,7 @@ import {
   fechaEmision,
   filasIncompletas,
   parametrosDeLaCorrida,
+  sinMedirNoNeteado,
   tasaSustitutaCompleta,
   tasasSustitutasDeclaradas,
   tramosVisibles,
@@ -546,5 +547,39 @@ describe("archivosQueSuperanElLimite", () => {
 
   it("tolera huecos: un corte sin archivo todavía no es un archivo grande", () => {
     expect(archivosQueSuperanElLimite([null, undefined], limites)).toEqual([]);
+  });
+});
+
+describe("sinMedirNoNeteado", () => {
+  it("sin nada que netear, no dice nada", () => {
+    const res = {
+      exposicion: {
+        sin_medir: 20000,
+        sin_medir_neto: 20000,
+        sin_medir_deudora: 20000,
+        sin_medir_acreedora: 0,
+      },
+    };
+    expect(sinMedirNoNeteado(res)).toBeNull();
+  });
+
+  it("declara la magnitud, el neto y por qué no suman con la cartera medida", () => {
+    const res = {
+      exposicion: {
+        sin_medir: 40000,
+        sin_medir_neto: 0,
+        sin_medir_deudora: 20000,
+        sin_medir_acreedora: -20000,
+      },
+    };
+    const texto = sinMedirNoNeteado(res);
+    expect(texto).toContain("20.000,00");
+    expect(texto).toContain("40.000,00");
+    expect(texto).toContain("No se netean");
+  });
+
+  it("una corrida anterior al campo no afirma nada", () => {
+    expect(sinMedirNoNeteado({ exposicion: { sin_medir: 40000 } })).toBeNull();
+    expect(sinMedirNoNeteado(null)).toBeNull();
   });
 });

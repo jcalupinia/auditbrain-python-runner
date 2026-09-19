@@ -12,6 +12,7 @@ import {
   factorProspectivoDeclarado,
   filasIncompletas,
   parametrosDeLaCorrida,
+  sinMedirNoNeteado,
   tasaSustitutaCompleta,
   tramosVisibles,
 } from "./pceCxc.js";
@@ -163,6 +164,10 @@ export default function PceCxcTool({ projectId }) {
   // Cotas que actuaron: ninguna puede quedarse solo en el papel. Si el motor
   // recortó un importe, la pantalla lo dice con la cifra sin acotar a la vista.
   const cotas = cotasDeLaCorrida(res);
+  // Lo sin medir se declara por su MAGNITUD y la cartera medida sale del NETO:
+  // cuando difieren, la pantalla dice por qué antes de que el auditor concluya
+  // que una de las dos cifras está mal. Lo mismo que imprime 08-Conciliacion.
+  const avisoSinMedir = sinMedirNoNeteado(res);
   const filasMatriz = tramosVisibles(matriz?.tramos);
   const filasOmitidas = (matriz?.tramos?.length ?? 0) - filasMatriz.length;
 
@@ -575,6 +580,7 @@ export default function PceCxcTool({ projectId }) {
               tasa cero por ausencia de historia no es evidencia de ausencia de pérdida.
             </div>
           )}
+          {avisoSinMedir && <div className="pce-msg pce-warn">{avisoSinMedir}</div>}
           {sinEstratificar > 0.005 && (
             <div className="pce-msg pce-warn">
               {money(sinEstratificar)} de los estados financieros no se pudo ubicar en ningún

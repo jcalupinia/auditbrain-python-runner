@@ -20,7 +20,7 @@ from openpyxl import Workbook, load_workbook
 from backend.app.aud.pce_cxc.exporter import construir_excel
 from backend.app.aud.pce_cxc.motor import ParametrosECL, resumen_deterioro
 from backend.app.aud.pce_cxc.service import SEGMENTOS, analizar
-from tests.excel_calc import Libro, columna
+from tests.excel_calc import Libro, columna, fila
 
 CENTAVO = 0.005
 
@@ -306,13 +306,19 @@ def test_el_saldo_sin_medir_de_un_caso_no_supera_su_propia_exposicion():
 
 
 def test_la_conciliacion_recalcula_la_cartera_medida_de_la_pantalla():
-    """08-Conciliacion B9 y el KPI «Cartera medida» son la misma cifra."""
+    """La «Cartera medida» de 08-Conciliacion y el KPI de la pantalla son la
+    misma cifra, y lo sin medir del papel es la MAGNITUD que archiva la corrida
+    (la deudora y la acreedora no se netean entre sí)."""
     resultado = _corrida_con_nota_de_credito_individual()
     libro = _libro(resultado)
-    assert libro.numero("08-Conciliacion", "B9") == pytest.approx(
+    ws = libro.wb["08-Conciliacion"]
+    assert libro.numero("08-Conciliacion", f"B{fila(ws, 'Cartera medida (')}") == pytest.approx(
         resultado["exposicion"]["medida"], abs=CENTAVO)
-    assert libro.numero("08-Conciliacion", "B8") == pytest.approx(
+    assert libro.numero(
+        "08-Conciliacion", f"B{fila(ws, 'SIN MEDIR (magnitud')}") == pytest.approx(
         resultado["exposicion"]["sin_medir"], abs=CENTAVO)
+    assert libro.numero("08-Conciliacion", f"B{fila(ws, 'SIN MEDIR NETA')}") == pytest.approx(
+        resultado["exposicion"]["sin_medir_neto"], abs=CENTAVO)
 
 
 # ---------------------------------------------------------------------------

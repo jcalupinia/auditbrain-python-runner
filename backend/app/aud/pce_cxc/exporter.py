@@ -132,6 +132,18 @@ NOTA_SIN_MEDIR_INDIVIDUAL = (
     "la columna «Saldo sin medir» desde estas mismas celdas devuelve, al centavo, lo archivado "
     "en la corrida.")
 
+NOTA_SIN_MEDIR_NO_SE_NETEA = (
+    "Las dos cifras son reales y ninguna sustituye a la otra. La MAGNITUD (B10) suma la exposición "
+    "sin medir deudora y la acreedora EN VALOR ABSOLUTO: una banda sin tasa no compensa a otra, "
+    "porque ninguna de las dos se midió, y es la cifra que decide si la medición está completa, la "
+    "que dispara el hallazgo «Cartera sin tasa histórica» y la que muestra la pantalla. La NETA "
+    "(B11) las suma con su signo, y es la única que puede restarse de la cartera ESTRATIFICADA "
+    "(B5), que también es neta: por eso «Cartera medida» (B12) sale de B11 y no de B10, y por eso "
+    "B12 + B10 NO da B5. Netear las dos bandas antes de declararlas era lo que permitía que "
+    "+20.000 sin tasa y -20.000 sin tasa se presentaran como «SIN MEDIR 0,00» sobre 40.000 de "
+    "cartera que nadie midió. Para cerrar la diferencia: apruebe una tasa sustituta para esas "
+    "bandas, o reclasifique los saldos acreedores a pasivo (anticipos de clientes).")
+
 #: La pantalla rotula el papel como preliminar arriba y abajo. El libro que se
 #: archiva tiene que decir lo mismo: mientras el Socio no lo revise y apruebe,
 #: esto no es una conclusión de auditoría.
@@ -1502,38 +1514,85 @@ def _conciliacion(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any])
     _celda(ws, 7, 1, "Cartera total analizada (estratificada + sin estratificar)", alineacion=ALIN_IZQ)
     _celda(ws, 7, 2, _f("=B5+B6"), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
 
-    # Suma las bandas que 05-Matriz rotula SIN MEDIR y los saldos individuales
-    # sin tasa: el mismo importe que la pantalla pinta en rojo.
-    _celda(ws, 8, 1, "Exposición SIN MEDIR (bandas sin tasa y saldos individuales sin tasa)",
-           alineacion=ALIN_IZQ)
+    # Rango de la exposición de `05-Matriz` seguido del rango de su columna de
+    # pérdida, que es la que rotula SIN MEDIR. Lo usan las dos filas del
+    # desglose por signo, así que se arma una sola vez.
+    rango_sin_medir = (
+        f"'05-Matriz'!{matriz_refs['col_exposicion']}{matriz_refs['primera']}:"
+        f"{matriz_refs['col_exposicion']}{matriz_refs['ultima']},"
+        f"'05-Matriz'!{matriz_refs['col_perdida']}{matriz_refs['primera']}:"
+        f"{matriz_refs['col_perdida']}{matriz_refs['ultima']}")
+    rango_exposicion = (
+        f"'05-Matriz'!{matriz_refs['col_exposicion']}{matriz_refs['primera']}:"
+        f"{matriz_refs['col_exposicion']}{matriz_refs['ultima']}")
+
+    # LO SIN MEDIR NO SE NETEA ENTRE BANDAS. Una banda sin tasa con saldo
+    # deudor y otra sin tasa con saldo acreedor no se compensan: ninguna de las
+    # dos se midió. Sumarlas con signo hacía que +20.000 y -20.000 dieran
+    # «Exposición SIN MEDIR 0,00» y que el módulo declarara medición completa
+    # con 40.000 de cartera sin medición.
+    #
+    # Por eso hay cuatro filas y no una, y las cuatro se recalculan desde
+    # `05-Matriz` y `06-Individual`:
+    #
+    #   B8  deudora    SUMIFS(... ">0")  más lo sin medir individual, que ya
+    #                                    viene con piso cero
+    #   B9  acreedora  SUMIFS(... "<0")
+    #   B10 MAGNITUD = B8-B9  -> cuánta cartera quedó sin medición. Es la que
+    #                            declara `medicion_completa`, la que dispara el
+    #                            hallazgo y la que pinta la pantalla.
+    #   B11 NETA     = B8+B9  -> lo único que se puede restar de una cartera
+    #                            estratificada que también es neta.
+    #
+    # No hay `ABS` dentro de un `SUMIFS`, así que el desglose por signo tiene
+    # celda propia en vez de esconderse dentro de una fórmula.
+    _celda(ws, 8, 1, "Exposición SIN MEDIR — deudora (bandas sin tasa con saldo deudor y saldos "
+                     "individuales sin tasa)", alineacion=ALIN_IZQ)
     c = _celda(ws, 8, 2,
-               _f(f"=SUMIFS('05-Matriz'!{matriz_refs['col_exposicion']}{matriz_refs['primera']}:"
-               f"{matriz_refs['col_exposicion']}{matriz_refs['ultima']},"
-               f"'05-Matriz'!{matriz_refs['col_perdida']}{matriz_refs['primera']}:"
-               f"{matriz_refs['col_perdida']}{matriz_refs['ultima']},\"{SEGMENTOS_TEXTO}\")"
-               f"+'06-Individual'!{individual_refs['col_sin_medir']}{individual_refs['fila_total']}"),
+               _f(f'=SUMIFS({rango_sin_medir},"{SEGMENTOS_TEXTO}",{rango_exposicion},">0")'
+                  f"+'06-Individual'!{individual_refs['col_sin_medir']}"
+                  f"{individual_refs['fila_total']}"),
                formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    if (_numero(exposicion.get("sin_medir_deudora")) or 0.0) > 0.005:
+        c.font = FUENTE_DATOS_ALERTA
+
+    _celda(ws, 9, 1, "Exposición SIN MEDIR — acreedora (bandas sin tasa con saldo acreedor: notas "
+                     "de crédito y anticipos)", alineacion=ALIN_IZQ)
+    c = _celda(ws, 9, 2,
+               _f(f'=SUMIFS({rango_sin_medir},"{SEGMENTOS_TEXTO}",{rango_exposicion},"<0")'),
+               formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    if (_numero(exposicion.get("sin_medir_acreedora")) or 0.0) < -0.005:
+        c.font = FUENTE_DATOS_ALERTA
+
+    _celda(ws, 10, 1, "Exposición SIN MEDIR (magnitud: la deudora más la acreedora en valor "
+                      "absoluto, SIN netear)", alineacion=ALIN_IZQ)
+    c = _celda(ws, 10, 2, _f("=B8-B9"), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
     if (_numero(exposicion.get("sin_medir")) or 0.0) > 0.005:
         c.font = FUENTE_DATOS_ALERTA
+
+    _celda(ws, 11, 1, "Exposición SIN MEDIR NETA (la deudora más la acreedora con su signo: lo "
+                      "que se resta de la cartera estratificada)", alineacion=ALIN_IZQ)
+    _celda(ws, 11, 2, _f("=B8+B9"), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
 
     # La cota de `motor.resumen_deterioro` VIVE EN LA FÓRMULA, no solo en el
     # motor: la cartera medida cae entre 0,00 y la cartera estratificada. Con
     # la resta cruda, un caso individual sin tasa mayor que la cartera neta
     # imprimía aquí una cartera medida NEGATIVA bajo la misma etiqueta con la
     # que la pantalla pintaba 0,00.
-    _celda(ws, 9, 1, "Cartera medida (estratificada menos la exposición sin medir, acotada)",
+    _celda(ws, 12, 1, "Cartera medida (estratificada menos la exposición sin medir NETA, acotada)",
            alineacion=ALIN_IZQ)
-    _celda(ws, 9, 2, _f("=MIN(MAX(B10,0),MAX(B5,0))"), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    _celda(ws, 12, 2, _f("=MIN(MAX(B13,0),MAX(B5,0))"), formato=FORMATO_MONEDA,
+           alineacion=ALIN_DER)
 
     # Y no actúa en silencio: la resta cruda y el motivo tienen celda propia,
     # igual que `05-Matriz` imprime la pérdida sin acotar junto a la acotada.
-    _celda(ws, 10, 1, "Cartera medida SIN ACOTAR (la resta, tal cual)", alineacion=ALIN_IZQ)
-    _celda(ws, 10, 2, _f("=B5-B8"), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
+    _celda(ws, 13, 1, "Cartera medida SIN ACOTAR (la resta, tal cual)", alineacion=ALIN_IZQ)
+    _celda(ws, 13, 2, _f("=B5-B11"), formato=FORMATO_MONEDA, alineacion=ALIN_DER)
 
-    _celda(ws, 11, 1, "Acotamiento aplicado a la cartera medida", alineacion=ALIN_IZQ)
-    c = _celda(ws, 11, 2,
-               _f(f'=IF(B9>B10+0.005,"{ACOTADO_PISO}",'
-               f'IF(B9<B10-0.005,"{ACOTADO_TECHO_CARTERA}","{SIN_ACOTAR}"))'),
+    _celda(ws, 14, 1, "Acotamiento aplicado a la cartera medida", alineacion=ALIN_IZQ)
+    c = _celda(ws, 14, 2,
+               _f(f'=IF(B12>B13+0.005,"{ACOTADO_PISO}",'
+               f'IF(B12<B13-0.005,"{ACOTADO_TECHO_CARTERA}","{SIN_ACOTAR}"))'),
                alineacion=ALIN_CEN)
     if (resultado.get("exposicion") or {}).get("medida_acotada"):
         c.font = FUENTE_DATOS_ALERTA
@@ -1542,21 +1601,28 @@ def _conciliacion(wb: Workbook, resultado: dict[str, Any], refs: dict[str, Any])
     # (fila 5): es la cartera a la que se refiere la provisión. Se referencia
     # desde aquí para que el libro tenga UNA sola celda con esa base.
     refs["conciliacion"] = {"fila_estratificada": 5, "col_importe": "B",
-                            "fila_medida": 9, "fila_medida_sin_acotar": 10,
-                            "fila_acotamiento": 11}
+                            "fila_sin_medir_deudora": 8, "fila_sin_medir_acreedora": 9,
+                            "fila_sin_medir_magnitud": 10, "fila_sin_medir_neta": 11,
+                            "fila_medida": 12, "fila_medida_sin_acotar": 13,
+                            "fila_acotamiento": 14}
 
-    _celda(ws, 12, 1, "Estado", alineacion=ALIN_IZQ)
+    _celda(ws, 15, 1, "Estado", alineacion=ALIN_IZQ)
     if tiene_eeff:
-        _celda(ws, 12, 2, _f('=IF(ABS(B4)<0.01,"CUADRA","DIFERENCIA")'), alineacion=ALIN_CEN)
+        _celda(ws, 15, 2, _f('=IF(ABS(B4)<0.01,"CUADRA","DIFERENCIA")'), alineacion=ALIN_CEN)
     else:
-        _celda(ws, 12, 2, "N/A (sin EEFF para conciliar)", alineacion=ALIN_CEN)
+        _celda(ws, 15, 2, "N/A (sin EEFF para conciliar)", alineacion=ALIN_CEN)
 
-    _celda(ws, 13, 1, "Nota", alineacion=ALIN_IZQ)
-    _celda(ws, 13, 2, "Una tasa cero por ausencia de historia no es evidencia de ausencia de "
+    _celda(ws, 16, 1, "Nota", alineacion=ALIN_IZQ)
+    _celda(ws, 16, 2, "Una tasa cero por ausencia de historia no es evidencia de ausencia de "
                       "pérdida: la exposición sin medir no está provisionada en 0,00, está sin "
                       "medir (NIIF 9 B5.5.35). La cartera medida se acota a [0,00; cartera "
                       "estratificada]: cuando lo sin medir supera a la cartera estratificada, la "
-                      "fila 11 lo declara y 10-Hallazgos lo recoge.", alineacion=ALIN_IZQ)
+                      "fila 14 lo declara y 10-Hallazgos lo recoge.", alineacion=ALIN_IZQ)
+
+    _celda(ws, 17, 1, "Por qué la magnitud (B10) y la neta (B11) no coinciden",
+           alineacion=ALIN_IZQ)
+    _celda(ws, 17, 2, NOTA_SIN_MEDIR_NO_SE_NETEA, alineacion=ALIN_IZQ)
+    ws.row_dimensions[17].height = 86
 
     _anchos(ws, {"A": 58, "B": 22})
 

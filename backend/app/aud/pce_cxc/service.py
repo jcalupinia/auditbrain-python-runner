@@ -409,7 +409,18 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
         # Lo que no se midió en la matriz colectiva (bandas sin tasa) más lo que
         # no se midió en la evaluación individual (mismo motivo): nunca se
         # convierte en cero, se declara. Lo totaliza el motor.
+        #
+        # `sin_medir` es la MAGNITUD (deudora + |acreedora|): una banda sin
+        # tasa no compensa a otra, porque ninguna de las dos se midió. Es la
+        # cifra que decide `medicion_completa`, la que dispara el hallazgo y la
+        # que pinta la pantalla. `sin_medir_neto` es la que se resta de la
+        # cartera estratificada -que también es neta- para dar la medida, y por
+        # eso viaja aparte con su desglose: sin él, el papel tendría dos cifras
+        # distintas bajo el mismo concepto sin poder explicar la diferencia.
         "sin_medir": resumen["exposicion_sin_medir"],
+        "sin_medir_neto": resumen["exposicion_sin_medir_neta"],
+        "sin_medir_deudora": resumen["exposicion_sin_medir_deudora"],
+        "sin_medir_acreedora": resumen["exposicion_sin_medir_acreedora"],
         # Cuánto tuvo que recortarse ese saldo sin medir para no superar la
         # exposición del propio caso individual. El motor aplica la cota y la
         # declara; aquí se expone para la pantalla y el hallazgo. Cero = la
@@ -770,9 +781,25 @@ def _hallazgos(resumen, politica, parametros, factor_prospectivo_aplicado, justi
                                    "estimación propia justificada para los clientes evaluados "
                                    "individualmente, y reclasificar las notas de crédito antes de "
                                    "volver a calcular."})
-    if resumen["colectivo"].get("exposicion_sin_medir", 0) > 0.005:
+    # Se dispara sobre la MAGNITUD de lo sin medir, no sobre su neto: una banda
+    # sin tasa con saldo deudor y otra sin tasa con saldo acreedor no se
+    # compensan, porque ninguna de las dos se midió. Con el neto, +20.000 y
+    # -20.000 hacían desaparecer el hallazgo sobre 40.000 de cartera sin medición.
+    colectivo = resumen["colectivo"]
+    sin_medir_colectivo = colectivo.get("exposicion_sin_medir", 0)
+    if sin_medir_colectivo > 0.005:
+        acreedora = float(colectivo.get("exposicion_sin_medir_acreedora") or 0.0)
+        deudora = float(colectivo.get("exposicion_sin_medir_deudora") or 0.0)
+        condicion = (f"Quedan {sin_medir_colectivo:,.2f} sin medir por falta de historia en su "
+                     f"banda.")
+        if acreedora < -0.005:
+            condicion += (f" Son {deudora:,.2f} de saldo deudor y {abs(acreedora):,.2f} de saldo "
+                          f"acreedor en bandas sin tasa, y NO se netean entre sí: ninguna de las "
+                          f"dos se midió, así que la cartera sin medición es la suma de las dos "
+                          f"magnitudes (neto: {deudora + acreedora:,.2f}, que es lo único que se "
+                          f"resta de la cartera estratificada; ver 08-Conciliacion).")
         h.append({"titulo": "Cartera sin tasa histórica", "riesgo": "Alto",
-                  "condicion": f"Quedan {resumen['colectivo']['exposicion_sin_medir']:,.2f} sin medir por falta de historia en su banda.",
+                  "condicion": condicion,
                   "criterio": "NIIF 9 B5.5.35: la matriz se sustenta en la experiencia propia de la entidad.",
                   "causa": "La cohorte no tiene documentos en esas bandas.",
                   "efecto": "La pérdida esperada no cubre la totalidad de la cartera.",

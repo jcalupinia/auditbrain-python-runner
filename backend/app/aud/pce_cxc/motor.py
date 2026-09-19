@@ -183,7 +183,7 @@ COTAS: tuple[CotaDelModulo, ...] = (
         nombre="cartera_medida",
         que_acota="La cartera medida, acotada a [0; cartera estratificada]",
         hoja="08-Conciliacion", columna_valor="B", columna_declaracion="B",
-        fila=9, fila_declaracion=11),
+        fila=12, fila_declaracion=14),
 )
 
 
@@ -329,7 +329,15 @@ def medir_ecl(exposiciones: dict[str, float], parametros: ParametrosECL) -> dict
     filas = []
     total = 0.0
     exposicion_total = 0.0
-    sin_medir = 0.0
+    # Lo sin medir se lleva por partida DOBLE y ninguna de las dos sobra:
+    # `sin_medir_deudora` y `sin_medir_acreedora` suman por separado, así que
+    # la MAGNITUD (deudora + |acreedora|) dice cuánta cartera quedó sin
+    # medición y la NETA dice cuánto hay que restarle a una cartera
+    # estratificada que también es neta. Acumularlo en una sola variable con
+    # signo -como estaba- hacía que una banda sin tasa de +20.000 y otra de
+    # -20.000 se cancelaran y el módulo declarara que lo había medido todo.
+    sin_medir_deudora = 0.0
+    sin_medir_acreedora = 0.0
     exposicion_negativa = 0.0
     acotada_piso = 0.0
     acotada_techo = 0.0
@@ -344,8 +352,13 @@ def medir_ecl(exposiciones: dict[str, float], parametros: ParametrosECL) -> dict
         if tasa is None:
             # Sin historia no se inventa una tasa: la banda queda sin medir y su
             # exposición se informa aparte, en vez de afirmar (con una tasa cero)
-            # que no hay pérdida.
-            sin_medir += saldo
+            # que no hay pérdida. Se acumula por SIGNO, no en una sola suma:
+            # una banda sin tasa no compensa a otra, porque ninguna de las dos
+            # se midió.
+            if saldo < 0:
+                sin_medir_acreedora += saldo
+            else:
+                sin_medir_deudora += saldo
             filas.append({
                 "tramo": tramo,
                 "exposicion": saldo,
@@ -409,7 +422,14 @@ def medir_ecl(exposiciones: dict[str, float], parametros: ParametrosECL) -> dict
     return {
         "tramos": filas,
         "exposicion_total": redondear(exposicion_total),
-        "exposicion_sin_medir": redondear(sin_medir),
+        # MAGNITUD: cuánta exposición quedó sin medición. Es la que decide
+        # `medicion_completa`, el hallazgo y el KPI de la pantalla.
+        "exposicion_sin_medir": redondear(sin_medir_deudora - sin_medir_acreedora),
+        # NETA: la única que puede restarse de la cartera estratificada, que
+        # también es neta. Las dos, con su desglose, llegan al papel.
+        "exposicion_sin_medir_neta": redondear(sin_medir_deudora + sin_medir_acreedora),
+        "exposicion_sin_medir_deudora": redondear(sin_medir_deudora),
+        "exposicion_sin_medir_acreedora": redondear(sin_medir_acreedora),
         "exposicion_negativa": redondear(exposicion_negativa),
         "ecl_acotada_por_piso": redondear(acotada_piso),
         "ecl_acotada_por_techo": redondear(acotada_techo),
@@ -545,7 +565,9 @@ def _consolidar_colectivo(
     `01-Parametros` del papel de trabajo.
     """
     tramos: list[dict[str, Any]] = []
-    totales = {"exposicion_total": 0.0, "exposicion_sin_medir": 0.0, "exposicion_negativa": 0.0,
+    totales = {"exposicion_total": 0.0, "exposicion_sin_medir": 0.0,
+               "exposicion_sin_medir_neta": 0.0, "exposicion_sin_medir_deudora": 0.0,
+               "exposicion_sin_medir_acreedora": 0.0, "exposicion_negativa": 0.0,
                "ecl_acotada_por_piso": 0.0, "ecl_acotada_por_techo": 0.0, "ecl_total": 0.0}
     for segmento, medido in medidos.items():
         for t in medido["tramos"]:
@@ -780,8 +802,27 @@ def resumen_deterioro(
     # de la matriz que no tienen tasa aprobada, y los saldos evaluados
     # individualmente que caen en una banda sin tasa y sin estimación propia
     # justificada.
+    #
+    # Y VIAJA EN DOS MAGNITUDES, porque las dos son reales y ninguna sustituye
+    # a la otra:
+    #
+    # - la MAGNITUD (deudora + |acreedora|) es cuánta cartera quedó sin
+    #   medición. Es la que declara `medicion_completa`, la que dispara el
+    #   hallazgo y la que pinta la pantalla. Antes se acumulaba con signo, así
+    #   que una banda sin tasa de +20.000 y otra de -20.000 se cancelaban y el
+    #   módulo declaraba que había medido toda la cartera.
+    # - la NETA es la única que puede restarse de la cartera estratificada,
+    #   porque esa cartera también es neta: `medida = estratificada - neta`
+    #   cuadra al centavo, y `medida + magnitud` NO da la estratificada. El
+    #   papel imprime las dos, cada una con su rótulo, y dice por qué difieren.
+    #
+    # Lo sin medir de la evaluación individual ya viene con piso cero
+    # (`acotar_saldo_sin_medir`), así que ahí magnitud y neta coinciden.
     exposicion_sin_medir = redondear(
         colectivo["exposicion_sin_medir"] + individual["saldo_sin_tasa_total"])
+    exposicion_sin_medir_neta = redondear(
+        colectivo.get("exposicion_sin_medir_neta", colectivo["exposicion_sin_medir"])
+        + individual["saldo_sin_tasa_total"])
     # La cartera medida es lo estratificado menos lo que no se pudo medir, y
     # tiene que caer entre 0 y la cartera total: no existe una cartera medida
     # negativa sobre una cartera positiva, ni una mayor que la que hay. Las dos
@@ -793,7 +834,7 @@ def resumen_deterioro(
     # (`exposicion_medida_sin_acotar`) y el motivo (`exposicion_medida_acotada`),
     # `08-Conciliacion` imprime las tres celdas y el servicio levanta el
     # hallazgo «Cartera medida acotada».
-    exposicion_medida_sin_acotar = redondear(exposicion_total - exposicion_sin_medir)
+    exposicion_medida_sin_acotar = redondear(exposicion_total - exposicion_sin_medir_neta)
     techo_cartera, _ = acotar(exposicion_total, piso=0.0)
     exposicion_medida, exposicion_medida_acotada = acotar(
         exposicion_medida_sin_acotar, piso=0.0, techo=techo_cartera,
@@ -815,6 +856,12 @@ def resumen_deterioro(
         "redondeo_exposicion": ajuste_redondeo,
         "exposicion_total": exposicion_total,
         "exposicion_sin_medir": exposicion_sin_medir,
+        "exposicion_sin_medir_neta": exposicion_sin_medir_neta,
+        "exposicion_sin_medir_deudora": redondear(
+            colectivo.get("exposicion_sin_medir_deudora", 0.0)
+            + individual["saldo_sin_tasa_total"]),
+        "exposicion_sin_medir_acreedora": redondear(
+            colectivo.get("exposicion_sin_medir_acreedora", 0.0)),
         "exposicion_medida": exposicion_medida,
         # La resta cruda y el motivo de la cota, para que el papel imprima las
         # dos cifras y la pantalla pueda decir que se acotó.

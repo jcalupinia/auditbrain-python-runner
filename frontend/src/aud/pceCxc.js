@@ -296,6 +296,39 @@ function importe(valor) {
 }
 
 /**
+ * Aviso de que lo sin medir NO se netea, cuando hay algo que netear.
+ *
+ * `exposicion.sin_medir` es la MAGNITUD (deudora + |acreedora|) y
+ * `exposicion.sin_medir_neto` la suma con signo. Cuando difieren, el KPI «Sin
+ * medir» y la «Cartera medida» dejan de sumar la cartera total, y el auditor
+ * tiene que saber por qué antes de concluir que una de las dos está mal: la
+ * cartera medida sale de la NETA -porque la estratificada también es neta- y
+ * la cifra que se declara es la MAGNITUD, porque una banda sin tasa no
+ * compensa a otra. Es la misma explicación que imprime `08-Conciliacion`.
+ *
+ * Una corrida anterior a estos campos devuelve `null`: no se afirma que no
+ * hubiera nada que netear, es que esa corrida no lo registró.
+ * @param {object|null} resultado - Resultado de `analizar`
+ * @returns {string|null} Texto para la pantalla, o `null` si no aplica
+ */
+export function sinMedirNoNeteado(resultado) {
+  const exposicion = resultado?.exposicion;
+  if (!exposicion || exposicion.sin_medir_neto == null) return null;
+  const magnitud = Number(exposicion.sin_medir || 0);
+  const neto = Number(exposicion.sin_medir_neto || 0);
+  if (Math.abs(magnitud - neto) <= 0.005) return null;
+  return (
+    `De la exposición sin medir, ${importe(exposicion.sin_medir_deudora)} es saldo deudor y ` +
+    `${importe(Math.abs(Number(exposicion.sin_medir_acreedora || 0)))} saldo acreedor en bandas ` +
+    `sin tasa. No se netean entre sí -ninguna de las dos se midió-, así que «Sin medir» declara ` +
+    `la magnitud (${importe(magnitud)}). La «Cartera medida» sí sale del NETO ` +
+    `(${importe(neto)}), porque la cartera estratificada también es neta: por eso «Cartera ` +
+    `medida» más «Sin medir» no da la cartera total. Apruebe una tasa sustituta para esas bandas, ` +
+    `o reclasifique los saldos acreedores a pasivo (anticipos de clientes).`
+  );
+}
+
+/**
  * Cotas que ACTUARON en esta corrida, listas para pintar.
  *
  * Ninguna cota de este módulo puede actuar en silencio: si un número se
