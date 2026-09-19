@@ -63,7 +63,7 @@ tiene. Misma firma, mismo encargo, dos niveles de control distintos.
 | **Centro de trabajo** | ✅ | Es lo que se reconstruyó: ítems con formatos, obligatoriedad, componentes, alternativas, plantilla, estados y cobertura que bloquea |
 | **En revisión** · **Aprobados** | ✅ | Son filtros del Centro de trabajo; heredan todo |
 | **Consola de archivos** | ✅ | Se benefició de A2 y A3: procesa XML, ZIP, Word, PDF, imágenes y Markdown con los límites nuevos |
-| **Herramientas** | ⚠️ | **Diagnóstico corregido + unificado 2026-09-19.** Sus requerimientos **sí** tenían `format` y `required`; lo que faltaba era que el formato se validara, los componentes, el rechazo y las alternativas. Ahora usa el mismo motor de cobertura vía `lib/tools/coverage.mjs`. Falta probar el cableado por la API |
+| **Herramientas** | ✅ | **Diagnóstico corregido + unificado 2026-09-19.** Sus requerimientos **sí** tenían `format` y `required`; lo que faltaba era que el formato se validara, los componentes, el rechazo y las alternativas. Ahora usa el mismo motor de cobertura vía `lib/tools/coverage.mjs`, **verificado de punta a punta por la API** |
 | **Crear con guía** | ✅ | **Diagnóstico corregido + arreglado 2026-09-19.** No crea encargos ni herramientas: arma un prompt y abre una conversación en la Consola, y ya reutilizaba la ficha. Lo que fallaba era qué pedía ese prompt: el paso 4 decía «solicita lo que falte». Ahora exige el requerimiento como lista de ítems con formatos, obligatoriedad, componentes, alternativas y columnas |
 | **Reconstruir Excel** | ❌ | No usa el modelo de ítems |
 | **Manual y memoria** | ✅ | **Corregido 2026-09-19**: sección 05A «Requerimiento estructurado en ítems» y regla M17 en la memoria. Manual en versión 1.3.0 |
@@ -112,7 +112,7 @@ sus 12 cédulas fijas (`B5.3`).
 | ~~1~~ | ~~Manual y memoria~~ | ✅ **Hecho**: sección 05A + M17, versión 1.3.0 |
 | ~~2~~ | ~~Ejemplo: declarar formatos y componentes~~ | ✅ **Hecho**. Queda su motor interno, que no usa el de cobertura real |
 | ~~3~~ | ~~Crear con guía~~ | ✅ **Hecho**. El diagnóstico original estaba mal planteado: ver la fila de la sección 3 |
-| ~~4~~ | ~~Herramientas~~ | ⚠️ **Hecho a nivel de motor**, con verificación de API pendiente. Se adaptó en vez de reescribir |
+| ~~4~~ | ~~Herramientas~~ | ✅ **Hecho y verificado**. Se adaptó en vez de reescribir |
 | 5 | **B5.3 · cédulas variables** | Ya registrado. Reescribir el ensamblado del libro |
 
 ---

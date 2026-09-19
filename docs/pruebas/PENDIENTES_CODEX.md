@@ -24,7 +24,7 @@ acumulan aquí y se hace **una sola publicación**.
 
 ---
 
-| A10 | **Herramientas unificadas con el motor de cobertura.** `lib/tools/coverage.mjs` adapta los requerimientos de Herramienta a los ítems del motor ya probado, en vez de duplicar la lógica. La carga valida formato y componente; la validación documental exige cobertura completa en vez de «un archivo por requerimiento» | `lib/tools/coverage.mjs` (nuevo), `lib/tools/repository.ts`, `app/api/tool-files/route.ts`, `app/api/tools/route.ts`, `db/schema.ts`, migración `0006` | ⚠️ **verificación parcial** — ver abajo |
+| A10 | **Herramientas unificadas con el motor de cobertura.** `lib/tools/coverage.mjs` adapta los requerimientos de Herramienta a los ítems del motor ya probado, en vez de duplicar la lógica. La carga valida formato y componente; la validación documental exige cobertura completa en vez de «un archivo por requerimiento» | `lib/tools/coverage.mjs` (nuevo), `lib/tools/repository.ts`, `app/api/tool-files/route.ts`, `app/api/tools/route.ts`, `db/schema.ts`, migración `0006` | ✅ verificado de punta a punta — ver abajo |
 
 ### Estado de verificación de A10
 
@@ -38,17 +38,16 @@ acumulan aquí y se hace **una sola publicación**.
 | Formato no declarado se rechaza nombrando el correcto | ✅ |
 | Compilación | ✅ limpia |
 | Migración `0006` | ✅ una columna, no destructiva |
-| **Cableado de punta a punta por la API** | ❌ **no probado** |
+| Carga: formato no declarado | ✅ *«"Inventario valorado al 2026-12-31" admite XLSX, CSV. Recibido: pdf.»* |
+| Carga: componente no declarado | ✅ *«Componente no declarado…: Bodega centro.»* |
+| Carga válida | ✅ 201, componente guardado y contenido extraído |
+| **Validar con un componente faltante** | ✅ *«Cobertura incompleta. Inventario valorado al 2026-12-31: faltan Bodega sur»* |
+| **Validar con cobertura completa** | ✅ la cobertura deja de bloquear; el flujo avanza a la validación siguiente (parámetros de conciliación, ajena a esto) |
 
-**Por qué quedó pendiente.** El flujo de Herramientas exige pasos previos que
-encadenan varias puertas: investigación de fuentes oficiales (`sourcesVerified`)
-y rol de revisor para aprobar. Llegar hasta `validate` por API requiere
-recorrerlas todas.
-
-**Qué falta probar antes de publicar:** que `toolGaps` bloquee de verdad al
-validar con un componente faltante, y que `checkToolUpload` rechace un formato
-no declarado en la carga real. Es la misma situación de A6, donde esa
-verificación destapó un defecto real (`docs()` sin las columnas nuevas).
+**Cerrado el 2026-09-19.** Se recorrió el flujo completo por la API —investigar
+fuentes, generar y aprobar programa, generar y aprobar requerimiento, cargar
+evidencia y validar— declarando dos componentes («Bodega norte» y «Bodega sur»)
+en el requerimiento del inventario.
 
 ---
 
@@ -66,6 +65,10 @@ Al revisarlo se encontró que había **dos rutas de carga**, no una:
 Se conectó la segunda. Criterio aplicado: si un archivo no se puede leer, la
 carga **no falla** — queda recibido con estado `error` y su motivo, para no
 convertir un error de lectura en un dato ausente (M07).
+
+| A11 | **Las fuentes apuntan al texto de la norma, no a su índice.** NIC 2 y NIIF 9 al HTML oficial; NIIF para las PYMES a la tercera edición. El manual (§05) exige que una URL genérica no valga como verificación | `lib/tools/domain.mjs`, `lib/tools/research.ts` | ✅ los tres HTML responden 200 **sin registro**; compila limpio |
+
+---
 
 ### B2 · Límites de tamaño ✅ RESUELTO — ver A4
 
