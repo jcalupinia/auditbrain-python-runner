@@ -64,7 +64,7 @@ tiene. Misma firma, mismo encargo, dos niveles de control distintos.
 | **En revisión** · **Aprobados** | ✅ | Son filtros del Centro de trabajo; heredan todo |
 | **Consola de archivos** | ✅ | Se benefició de A2 y A3: procesa XML, ZIP, Word, PDF, imágenes y Markdown con los límites nuevos |
 | **Herramientas** | ❌ | Conserva el modelo `requests`. Cero menciones de formatos, componentes u obligatoriedad |
-| **Crear con guía** | ❌ | Produce el requerimiento como **texto**, no como ítems. Lo que genera no se puede cargar en el modelo nuevo |
+| **Crear con guía** | ✅ | **Diagnóstico corregido + arreglado 2026-09-19.** No crea encargos ni herramientas: arma un prompt y abre una conversación en la Consola, y ya reutilizaba la ficha. Lo que fallaba era qué pedía ese prompt: el paso 4 decía «solicita lo que falte». Ahora exige el requerimiento como lista de ítems con formatos, obligatoriedad, componentes, alternativas y columnas |
 | **Reconstruir Excel** | ❌ | No usa el modelo de ítems |
 | **Manual y memoria** | ✅ | **Corregido 2026-09-19**: sección 05A «Requerimiento estructurado en ítems» y regla M17 en la memoria. Manual en versión 1.3.0 |
 | **Ejemplo Excel / HTML** | ⚠️ | **Parcial 2026-09-19**: sus cuatro fuentes ya declaran formatos, exigencia y componentes. Sigue con 12 cédulas fijas y su propia lógica de «4 de 4» |
@@ -111,7 +111,7 @@ sus 12 cédulas fijas (`B5.3`).
 |---|---|---|
 | ~~1~~ | ~~Manual y memoria~~ | ✅ **Hecho**: sección 05A + M17, versión 1.3.0 |
 | ~~2~~ | ~~Ejemplo: declarar formatos y componentes~~ | ✅ **Hecho**. Queda su motor interno, que no usa el de cobertura real |
-| 3 | **Crear con guía** | Genera texto en vez de ítems; el resultado no entra en el flujo nuevo |
+| ~~3~~ | ~~Crear con guía~~ | ✅ **Hecho**. El diagnóstico original estaba mal planteado: ver la fila de la sección 3 |
 | 4 | **Herramientas** | Unificar `requests` con `items`. Es el más grande: toca el ciclo de vida, la carga de fuentes y la interfaz |
 | 5 | **B5.3 · cédulas variables** | Ya registrado. Reescribir el ensamblado del libro |
 
@@ -127,7 +127,14 @@ La afirmación «la herramienta está estructurada según lo nuevo» **sería fa
 si se dijera del sitio completo**. Es cierta solo del Centro de trabajo.
 
 El diagnóstico se hizo sin tocar código. Después, en la misma jornada, se
-corrigieron los dos primeros puntos del orden propuesto: **Manual y memoria**
-(sección 05A y regla M17, versión 1.3.0) y **Ejemplo** (las cuatro fuentes
-declaran sus atributos). Quedan los tres de mayor alcance: Crear con guía,
-unificar Herramientas con el modelo de ítems, y las cédulas variables.
+corrigieron los tres primeros puntos del orden propuesto: **Manual y memoria**
+(sección 05A y regla M17, versión 1.3.0), **Ejemplo** (las cuatro fuentes
+declaran sus atributos) y **Crear con guía** (el prompt exige el requerimiento
+como lista de ítems).
+
+Efecto colateral útil: `METHODOLOGY_MEMORY` viaja completo dentro de cada
+prompt que genera la guía, así que la regla M17 llega al asistente sin
+necesidad de repetirla.
+
+Quedan los dos de mayor alcance: **unificar Herramientas** con el modelo de
+ítems, y las **cédulas variables** (`B5.3`).

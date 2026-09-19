@@ -20,7 +20,7 @@ acumulan aquí y se hace **una sola publicación**.
 
 | # | Cambio | Archivos | Verificado |
 |---|---|---|---|
-| A9 | **Manual y ejemplo alineados con el modelo de ítems.** Sección 05A «Requerimiento estructurado en ítems» y regla M17 en la memoria (manual a versión 1.3.0). Las cuatro fuentes del recorrido declaran formatos aceptados, exigencia y componentes | `lib/methodology.mjs`, `app/herramientas/recorrido/studio.tsx` | ✅ compila limpio; verificado en el HTML servido: `/metodologia` muestra 05A y M17, `/herramientas/recorrido` muestra los atributos en las cuatro fuentes |
+| A9 | **Manual y ejemplo alineados con el modelo de ítems.** Sección 05A «Requerimiento estructurado en ítems» y regla M17 en la memoria (manual a versión 1.3.0). Las cuatro fuentes del recorrido declaran formatos aceptados, exigencia y componentes | `lib/methodology.mjs`, `app/herramientas/recorrido/studio.tsx`, `lib/chatgpt/intake.ts` | ✅ compila limpio; verificado en el HTML servido: `/metodologia` muestra 05A y M17, `/herramientas/recorrido` muestra los atributos en las cuatro fuentes. **Crear con guía**: el prompt exige el requerimiento como lista de ítems con formatos, obligatoriedad, componentes, alternativas y columnas; y la regla M17 viaja dentro del prompt |
 
 ---
 
