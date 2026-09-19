@@ -16,7 +16,7 @@ acumulan aquí y se hace **una sola publicación**.
 
 ---
 
-## A · Listos en el checkout, esperando publicación
+## A · Publicados en la versión 21 (2026-09-19)
 
 | # | Cambio | Archivos | Verificado |
 |---|---|---|---|
@@ -218,6 +218,17 @@ registrar la versión del sitio.
 |---|---|---|
 | 2026-09-19 | 17 | Estado al sincronizar el checkout |
 | 2026-09-19 | **19** | **A1 a A8 en una sola publicación**: motor a 100.000 filas · extractor conectado a la evidencia del encargo con XML, ZIP y WebP · Markdown · límites 200 archivos / 300 MB / 25 MB · ruta muerta eliminada · requerimiento estructurado en ítems con cobertura por componentes · fuentes alternativas, plantilla descargable y estados del documento · casilla de impuestos diferidos y limpieza de pantalla. Migración `0005` aplicada y columnas `item_id`/`component` verificadas en D1. Acceso conservado como privado del propietario |
+| 2026-09-19 | **21** | **A9 a A12 en una sola publicación**: manual y ejemplo alineados con el modelo de ítems (sección 05A, regla M17, manual 1.3.0) · Herramientas unificadas con el motor de cobertura vía `lib/tools/coverage.mjs`, con migración `0006` (`tool_files.component`) · fuentes apuntando al texto de la norma y no a su índice · **cédulas variables**: el libro sale de `definition.sheets` y conserva solo el núcleo referenciado por fórmulas. La versión 20 falló y no quedó activa |
 
 Verificación independiente tras publicar: la URL responde `HTTP 401`, es decir
 el sitio está sirviendo y conserva su protección por sesión de ChatGPT.
+
+**Por qué falló la versión 20 (guardar para la próxima publicación).** El
+paquete de despliegue llevaba **las ocho migraciones históricas**, no solo la
+pendiente. D1 las rechaza por duplicadas. La versión 21 se armó con un paquete
+de 211 entradas que contiene **únicamente `0006`**, más el Worker y su
+configuración. Si una publicación futura falla en la migración, ese es el primer
+lugar donde mirar.
+
+Verificación de la versión 21: `HTTP 401` en dos intentos (1,4 s y 0,3 s), con
+`Cache-Control: no-store`. El sitio sirve y sigue siendo privado.
