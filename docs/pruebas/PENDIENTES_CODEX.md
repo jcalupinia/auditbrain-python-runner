@@ -21,30 +21,30 @@ acumulan aquí y se hace **una sola publicación**.
 | # | Cambio | Archivos | Verificado |
 |---|---|---|---|
 | A1 | Capacidad del motor: `MAX_ROWS` de 10.000 a **100.000** | `lib/tools/domain.mjs`, `lib/tools/portable-engine.mjs` | ✅ 100.000 filas en 4,08 s con la definición VNR real; 100.001 rechazado con mensaje claro |
+| A2 | Extractor conectado a la evidencia del encargo. Formatos **+ XML, + ZIP, + WebP**; límite por archivo 5 MB → **10 MB**; cada archivo se extrae y el resultado se guarda junto a él | `app/api/audit/route.ts`, `lib/audit.ts` | ✅ compila; XML, CSV y TXT extraen; **ZIP recursivo probado con la plantilla real: encontró el .xlsx dentro y leyó sus 11 hojas por nombre** |
 
 ---
 
 ## B · Pendientes de escribir
 
-### B1 · Conectar el extractor de la Consola al lector de fuentes
+### B1 · Conectar el extractor ✅ RESUELTO — ver A2
 
-**Estado:** el trabajo pesado ya está hecho, falta el cableado.
+Al revisarlo se encontró que había **dos rutas de carga**, no una:
 
-`lib/console/extract.mjs` (56 líneas) ya procesa **csv, docx con tablas, pdf,
-png, webp, txt, xlsx, xml y zip** con descompresión recursiva. Límites actuales:
-10 MB por archivo, 240.000 caracteres de texto.
+| Ruta | Qué carga | Estado antes |
+|---|---|---|
+| `app/api/tool-files/route.ts` | Fuentes de la herramienta | **Ya estaba conectada**: corría `extractFile` en cada archivo y aceptaba xml, zip, docx, pdf e imágenes |
+| `app/api/audit/route.ts` | Evidencia del encargo (flujo de 9 pasos) | **Sin extractor**, y sin XML ni ZIP |
 
-`lib/tools/files.mjs`, que es el que usa el requerimiento de la prueba, solo
-tiene `parseCsv` y `readSpreadsheet` — **csv y xlsx**.
-
-Al conectarlos quedan resueltos de una sola vez: XML, ZIP, tablas de Word,
-PDF e imágenes de soporte.
+Se conectó la segunda. Criterio aplicado: si un archivo no se puede leer, la
+carga **no falla** — queda recibido con estado `error` y su motivo, para no
+convertir un error de lectura en un dato ausente (M07).
 
 ### B2 · Subir los límites de tamaño
 
 | Límite | Hoy | Objetivo |
 |---|---|---|
-| Por archivo (prueba) | 5 MB | **por definir** |
+| Por archivo (encargo) | ~~5 MB~~ **10 MB** | **por definir** |
 | Archivos por encargo | 20 | **por definir** |
 | Total por encargo | 20 MB | **por definir** |
 | Por archivo (extractor) | 10 MB | **por definir** |
