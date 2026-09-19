@@ -543,6 +543,10 @@ def _parametros(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, A
         factor_no_relacionados = 1.0 + ajuste_no_relacionados
         factor_relacionados = 1.0 + ajuste_relacionados
 
+    # ¿La corrida trae estados financieros? Sin ellos la celda del saldo cae al
+    # total del propio archivo, y eso cambia el RÓTULO, no solo la cifra (ver
+    # más abajo y `08-Conciliacion`).
+    tiene_eeff = conciliacion.get("saldo_contable") is not None
     saldo_contable = conciliacion.get("saldo_contable")
     if saldo_contable is None:
         saldo_contable = exposicion.get("segun_archivo")
@@ -606,12 +610,31 @@ def _parametros(wb: Workbook, resultado: dict[str, Any], parametros: dict[str, A
     # referencia cuando la corrida trae EEFF. Sin EEFF ni total del archivo la
     # celda quedaba vacía: se declara, no se deja en blanco (esa hoja rotula su
     # B3 como «SIN EEFF (no conciliado)» en ese mismo caso).
+    #
+    # Y EL RÓTULO DICE DE DÓNDE SALE LA CIFRA. Sin EEFF esta celda cae al total
+    # del propio análisis de antigüedad, pero seguía rotulándose «según EEFF»:
+    # el mismo libro afirmaba «Saldo contable según EEFF 10.000,00» en esta
+    # hoja y «SIN EEFF (no conciliado)» en 08-Conciliacion. Un papel de trabajo
+    # no puede atribuir a los estados financieros auditados una cifra que salió
+    # del archivo del cliente.
     saldo_contable_numero = _numero(saldo_contable)
-    _celda(ws, 7, 1, "Saldo contable (cartera según EEFF, total)", alineacion=ALIN_IZQ)
+    if tiene_eeff:
+        etiqueta_saldo = "Saldo contable (cartera según EEFF, total)"
+        fuente_saldo = "Estados financieros auditados"
+    else:
+        etiqueta_saldo = "Cartera del análisis de antigüedad (total del archivo) — SIN EEFF"
+        fuente_saldo = ("La corrida NO trae estados financieros: esta cifra es el total del "
+                        "propio análisis de antigüedad del cliente, no una cifra auditada, y por "
+                        "eso 08-Conciliacion rotula su «Cartera según EEFF» como «SIN EEFF (no "
+                        "conciliado)» y no hay partida conciliatoria. Cargue la cartera según "
+                        "EEFF por segmento para poder conciliar.")
+    c = _celda(ws, 7, 1, etiqueta_saldo, alineacion=ALIN_IZQ)
+    if not tiene_eeff:
+        c.font = FUENTE_DATOS_ALERTA
     _celda(ws, 7, 2, SIN_REGISTRAR if saldo_contable_numero is None else saldo_contable_numero,
            formato=FORMATO_MONEDA,
            alineacion=ALIN_DER if saldo_contable_numero is not None else ALIN_CEN)
-    _celda(ws, 7, 3, "Estados financieros auditados", alineacion=ALIN_IZQ)
+    _celda(ws, 7, 3, fuente_saldo, alineacion=ALIN_IZQ)
 
     _celda(ws, 8, 1, "Justificación del ajuste prospectivo", alineacion=ALIN_IZQ)
     _celda(ws, 8, 2, "", alineacion=ALIN_IZQ)

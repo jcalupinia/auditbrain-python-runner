@@ -25,6 +25,18 @@ from backend.app.context.models import Project
 
 SEGMENTOS = ("NO-RELACIONADOS", "RELACIONADOS")
 
+#: Cuántos clientes puede sacar de la matriz colectiva un umbral de evaluación
+#: individual antes de que la corrida deje de ser una matriz de provisiones.
+#:
+#: Cada caso individual cuesta una fila de `06-Individual` y un diccionario en
+#: el JSON que se guarda con la corrida, así que un umbral de 1 sobre un archivo
+#: real manda a evaluación individual a la cartera entera, contra el techo de
+#: memoria de la petición (ver `router.MAX_BYTES_POR_ARCHIVO`). No es un límite
+#: de rendimiento: es el punto en el que el papel deja de ser una matriz de
+#: provisiones y pasa a ser un listado de clientes, que es justo lo contrario
+#: del método que NIIF 9 B5.5.35 describe.
+MAX_CASOS_INDIVIDUALES = 500
+
 
 # ---------------------------------------------------------------------------
 # Autorización multi-tenant
@@ -227,11 +239,39 @@ def analizar(cortes: list[dict[str, Any]], parametros: dict[str, Any]) -> dict[s
     # un factor de anclaje de 5,0 (450.000 de exposición) se quedaba en la
     # matriz midiéndose con el promedio de su banda.
     umbral_ind = _numero(parametros.get("umbral_individual"), "umbral_individual")
+    # Un umbral NEGATIVO no tiene lectura: el umbral separa los saldos
+    # relevantes, y no hay ningún saldo que sea relevante por ser mayor que
+    # -1. Lo que hace de verdad es mandar a TODOS los clientes a evaluación
+    # individual. Cero o ausente es otra cosa -«el socio no lo declaró»-, y eso
+    # es un pendiente del papel desde siempre, no un error de entrada.
+    if umbral_ind < 0:
+        raise ValueError(
+            f"El parámetro 'umbral_individual' debe ser un importe positivo; llegó "
+            f"{umbral_ind:,.2f}. Es el saldo a partir del cual un cliente sale de la matriz "
+            f"colectiva y se mide uno por uno: con un umbral negativo lo superan TODOS los "
+            f"clientes y la matriz colectiva desaparece. Indique el importe que el socio fijó "
+            f"para el encargo, o déjelo vacío si aún no está definido (quedará como pendiente)."
+        )
     por_cliente: dict[tuple[str, str], float] = {}
     for f in actual["filas"]:
         clave = (f["segmento"], f["cliente"] or "(sin nombre)")
         por_cliente[clave] = por_cliente.get(clave, 0.0) + f["saldo"] * factor[f["segmento"]]
     individuales = {k for k, v in por_cliente.items() if umbral_ind and v > umbral_ind}
+    # Y un umbral positivo pero absurdamente bajo convierte la matriz colectiva
+    # en un listado: cada caso individual es una fila de `06-Individual` y un
+    # diccionario en el JSON que se guarda con la corrida, contra un techo de
+    # memoria de 250 MB por petición (ver `router.MAX_BYTES_POR_ARCHIVO`). El
+    # método de la matriz de provisiones existe justamente para NO medir la
+    # cartera cliente por cliente.
+    if len(individuales) > MAX_CASOS_INDIVIDUALES:
+        raise ValueError(
+            f"Con un umbral de evaluación individual de {umbral_ind:,.2f} salen de la matriz "
+            f"colectiva {len(individuales)} clientes, y el máximo que esta herramienta procesa en "
+            f"línea es {MAX_CASOS_INDIVIDUALES}. La evaluación individual es para los saldos "
+            f"relevantes o con deterioro crediticio (litigios, concursos): con este umbral la "
+            f"matriz colectiva desaparece y el papel pasa a ser un listado de clientes. Suba el "
+            f"umbral al importe que el socio fijó para el encargo y vuelva a calcular."
+        )
 
     # La matriz se mide POR SEGMENTO: terceros y relacionadas tienen comportamiento
     # de pago distinto y no pueden agruparse (NIIF 9 B5.5.35).

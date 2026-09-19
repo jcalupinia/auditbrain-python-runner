@@ -11,7 +11,9 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
-from backend.app.aud.pce_cxc.motor import redondear, tasa_perdida
+from backend.app.aud.pce_cxc.motor import (
+    PISO_CERO, TASA_MAXIMA, acotar, redondear, tasa_perdida,
+)
 
 
 #: Cuántos documentos ambiguos se listan como ejemplo. El conteo completo va
@@ -154,29 +156,32 @@ def tasas_por_permanencia(cohorte: list[dict[str, Any]], actual: list[dict[str, 
                 # solo se acota y se declara lo que queda fuera de rango.
                 tasa_bruta = tasa_perdida(d["inicial"], d["remanente"])
 
-                # Detectar anomalías y acotar la tasa entre 0 y 1
-                if tasa_bruta > 1.0:
+                # La tasa observada se acota a [0 %; 100 %] con `motor.acotar`,
+                # como TODA cota de este módulo: el helper devuelve el par
+                # (valor, motivo), así que el motivo no se puede tirar por
+                # descuido y `motor.COTAS` obliga a que llegue al papel
+                # (04-Tasas: la columna «Tasa aplicada» lo RECALCULA desde el
+                # ratio de 03-Cohorte y la columna «Origen» lo DECLARA). Antes
+                # era un `if/elif` escrito a mano: el comportamiento era el
+                # mismo, pero la invariante que el módulo declara -ningún
+                # recorte fuera del helper- no era literal.
+                tasa, cota = acotar(tasa_bruta, piso=0.0, techo=1.0,
+                                    motivo_piso=PISO_CERO, motivo_techo=TASA_MAXIMA)
+                tasas[segmento][banda] = tasa
+                if cota is not None:
                     anomalias.append({
                         "segmento": segmento,
                         "banda": banda,
                         "inicial": d["inicial"],
                         "remanente": d["remanente"],
                         "tasa_bruta": tasa_bruta,
-                        "tipo": "remanente_mayor_que_inicial"
+                        # El motivo tal como lo nombra el motor, junto al tipo
+                        # que esta lista ya usaba: el papel traduce el tipo y
+                        # `tests/test_pce_cotas.py` comprueba el motivo.
+                        "cota": cota,
+                        "tipo": ("remanente_negativo" if cota == PISO_CERO
+                                 else "remanente_mayor_que_inicial"),
                     })
-                    tasas[segmento][banda] = 1.0
-                elif tasa_bruta < 0.0:
-                    anomalias.append({
-                        "segmento": segmento,
-                        "banda": banda,
-                        "inicial": d["inicial"],
-                        "remanente": d["remanente"],
-                        "tasa_bruta": tasa_bruta,
-                        "tipo": "remanente_negativo"
-                    })
-                    tasas[segmento][banda] = 0.0
-                else:
-                    tasas[segmento][banda] = tasa_bruta
             else:
                 tasas[segmento][banda] = None
 

@@ -340,7 +340,13 @@ def leer_cartera(contenido: bytes, nombre: str, corte, bandas, hoja=None, mapeo=
             descartados.append({"fila_origen": n, "motivo": "saldo cero", "saldo": saldo})
             continue
         cliente = limpiar_texto(valor(fila, "cliente") or "").strip()
-        firma = (documento, round(saldo, 2), vencimiento, cliente)
+        # `motor.redondear`, nunca `round()`: la regla del proyecto para todo
+        # importe contable. `round()` redondea al par más cercano y arrastra la
+        # representación binaria del float, así que 2,675 y 2,674 daban los dos
+        # 2,67 y dos saldos DISTINTOS al centavo compartían firma: el segundo
+        # documento se descartaba como «fila idéntica repetida» y su importe
+        # salía de la medición.
+        firma = (documento, redondear(saldo), vencimiento, cliente)
         if firma in vistas:
             dup_exactos += 1
             descartados.append({"fila_origen": n, "motivo": "fila idéntica repetida", "saldo": saldo})

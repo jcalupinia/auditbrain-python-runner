@@ -4,6 +4,7 @@ import json
 import uuid
 from datetime import date
 
+import pytest
 from openpyxl import Workbook, load_workbook
 
 from backend.app.auth import service as auth_service
@@ -447,9 +448,6 @@ def test_un_factor_prospectivo_mal_formado_responde_400_y_no_500(client):
 # ---------------------------------------------------------------------------
 # U9 — `parametros` con JSON válido pero que no es un objeto
 # ---------------------------------------------------------------------------
-
-import pytest  # noqa: E402  (las pruebas de arriba no lo necesitaban)
-
 
 @pytest.mark.parametrize("crudo", ['"5"', "5", "[1,2]", "null", "true", '"texto"'])
 def test_parametros_que_no_son_un_objeto_responden_400_y_no_500(client, crudo):

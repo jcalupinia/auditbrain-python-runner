@@ -180,3 +180,38 @@ def test_la_fila_identica_repetida_no_cuenta_como_cartera_no_leida():
     r = leer_cartera(_xlsx([fila, fila]), "c.xlsx", CORTE, BANDAS_POR_DEFECTO)
     assert r["descartados_importe"] == pytest.approx(1000.0)
     assert r["cartera_no_leida"] == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# V11 — la firma de la fila repetida redondea con el criterio contable
+# ---------------------------------------------------------------------------
+
+def test_dos_saldos_distintos_al_centavo_no_son_la_misma_fila_repetida():
+    """La firma que detecta la fila idéntica repetida usaba `round()` de Python,
+    que redondea al par más cercano y arrastra la representación binaria del
+    float: `round(2.675, 2)` da 2,67 y `round(2.674, 2)` también, así que dos
+    saldos DISTINTOS al centavo se confundían en una sola firma y el segundo
+    documento se descartaba como repetido, con su importe fuera de la medición.
+
+    La regla del proyecto es `motor.redondear` (`Decimal.quantize` con
+    ROUND_HALF_UP), que da 2,68 y 2,67: dos firmas distintas, dos filas.
+    """
+    datos = _xlsx([
+        ("ALFA S.A.", "F-1", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 2.675),
+        ("ALFA S.A.", "F-1", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 2.674),
+    ])
+    r = leer_cartera(datos, "cartera.xlsx", CORTE, BANDAS_POR_DEFECTO)
+    assert len(r["filas"]) == 2, (
+        f"se descartó una fila con saldo distinto como «idéntica repetida»: {r['descartados']}")
+    assert r["duplicados_exactos"] == 0
+
+
+def test_la_fila_verdaderamente_identica_se_sigue_descartando():
+    """La corrección no puede dejar pasar la repetición real."""
+    datos = _xlsx([
+        ("ALFA S.A.", "F-1", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 2.675),
+        ("ALFA S.A.", "F-1", "NO-RELACIONADOS", date(2025, 9, 1), date(2025, 12, 1), 2.675),
+    ])
+    r = leer_cartera(datos, "cartera.xlsx", CORTE, BANDAS_POR_DEFECTO)
+    assert len(r["filas"]) == 1
+    assert r["duplicados_exactos"] == 1

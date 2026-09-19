@@ -180,6 +180,10 @@ COTAS: tuple[CotaDelModulo, ...] = (
         que_acota="El saldo sin medir de un caso, acotado a su propia exposición",
         hoja="06-Individual", columna_valor="F", columna_declaracion="J"),
     CotaDelModulo(
+        nombre="tasa_observada_de_la_cohorte",
+        que_acota="La tasa observada de la cohorte, acotada a [0 %; 100 %]",
+        hoja="04-Tasas", columna_valor="D", columna_declaracion="E"),
+    CotaDelModulo(
         nombre="cartera_medida",
         que_acota="La cartera medida, acotada a [0; cartera estratificada]",
         hoja="08-Conciliacion", columna_valor="B", columna_declaracion="B",

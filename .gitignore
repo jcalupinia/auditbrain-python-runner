@@ -6,6 +6,11 @@ resultados/
 .venv/
 venv/
 *.db
+# Auxiliares que SQLite crea durante las corridas y borra al cerrar: aparecían
+# en `git status` en mitad de la suite.
+*.db-journal
+*.db-wal
+*.db-shm
 auditbrain.db
 node_modules/
 dist/

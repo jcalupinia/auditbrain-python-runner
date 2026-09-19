@@ -98,6 +98,21 @@ def _escenario_cartera_medida():
                     {"umbral_dias_incumplimiento": 730, "umbral_individual": 100000})
 
 
+def _escenario_tasa_observada():
+    """La tasa observada de la cohorte se sale de [0 %; 100 %].
+
+    El documento de la cohorte tiene MÁS saldo en el corte actual que en el
+    corte t-2 (nueva facturación reclasificada al mismo número, una reversión o
+    un error de carga), así que el ratio crudo pasa del 100 % y la cota lo topa
+    en 1,00.
+    """
+    cohorte = [("ALFA", "F-1", "NO-RELACIONADOS", date(2019, 1, 1), date(2020, 1, 1), 100000.0)]
+    intermedio = [("ALFA", "F-1", "NO-RELACIONADOS", date(2019, 1, 1), date(2020, 1, 1), 40000.0)]
+    actual = [("ALFA", "F-1", "NO-RELACIONADOS", date(2019, 1, 1), date(2020, 1, 1), 200000.0)]
+    return analizar(_cortes(cohorte, intermedio, actual),
+                    {"umbral_dias_incumplimiento": 730})
+
+
 #: Un escenario por cota, donde esa cota ACTÚA. Es lo que faltaba en las rondas
 #: anteriores: las pruebas que evaluaban la celda solo corrían escenarios donde
 #: la cota no mordía.
@@ -105,6 +120,7 @@ ESCENARIOS = {
     "perdida_esperada_de_la_banda": _escenario_perdida_de_la_banda,
     "perdida_esperada_del_caso_individual": _escenario_perdida_del_caso,
     "saldo_sin_medir_del_caso_individual": _escenario_perdida_del_caso,
+    "tasa_observada_de_la_cohorte": _escenario_tasa_observada,
     "cartera_medida": _escenario_cartera_medida,
 }
 
@@ -132,8 +148,27 @@ def _archivado_del_caso(resultado, ws, campo, campo_acotado):
     return salida
 
 
+def _archivado_tasa_observada(resultado, ws):
+    """Tasa aplicada y motivo de la cota, fila a fila de `04-Tasas`."""
+    salida = {}
+    tasas = resultado.get("tasas") or {}
+    anomalias = resultado.get("anomalias") or []
+    for i in range(2, ws.max_row + 1):
+        segmento, banda = ws.cell(i, 1).value, ws.cell(i, 2).value
+        if not segmento or not banda:
+            break
+        tasa = (tasas.get(segmento) or {}).get(banda)
+        if tasa is None:
+            continue
+        anomalia = next((a for a in anomalias
+                         if a.get("segmento") == segmento and a.get("banda") == banda), None)
+        salida[i] = (tasa, (anomalia or {}).get("cota"))
+    return salida
+
+
 ARCHIVADO = {
     "perdida_esperada_de_la_banda": _archivado_perdida_de_la_banda,
+    "tasa_observada_de_la_cohorte": _archivado_tasa_observada,
     "perdida_esperada_del_caso_individual":
         lambda r, ws: _archivado_del_caso(r, ws, "ecl", "acotado"),
     "saldo_sin_medir_del_caso_individual":

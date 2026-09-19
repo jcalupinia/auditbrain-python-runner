@@ -1399,3 +1399,50 @@ RESULTADOS_A_VALIDAR.extend([
     (RESULTADO_CORRIDA_ANTIGUA, {}),
     (RESULTADO_SIN_MEDIR_COMPLETO, {}),
 ])
+
+
+# ---------------------------------------------------------------------------
+# V8 — «según EEFF» solo cuando hay EEFF
+# ---------------------------------------------------------------------------
+
+def test_sin_eeff_la_celda_del_saldo_no_dice_segun_eeff():
+    """Sin estados financieros, la celda cae al total del propio análisis de
+    antigüedad y seguía rotulándose «según EEFF»: el mismo libro afirmaba
+    «Saldo contable según EEFF 10.000,00» en 01-Parametros y «SIN EEFF (no
+    conciliado)» en 08-Conciliacion."""
+    resultado = {
+        "matriz": {"tramos": [
+            {"segmento": "NO-RELACIONADOS", "tramo": "Por vencer", "exposicion": 10000.0,
+             "tasa_perdida": 0.1, "ecl": 1000.0},
+        ]},
+        "exposicion": {"segun_archivo": 10000.0},
+        # Sin `conciliacion.saldo_contable`: la corrida no trae EEFF.
+        "conciliacion": {"saldo_contable": None},
+    }
+    wb = _abrir(construir_excel(resultado, {}))
+    ws = wb["01-Parametros"]
+    f = fila(ws, "análisis de antigüedad (total del archivo)")
+    etiqueta = str(ws.cell(f, 1).value)
+    assert "EEFF" not in etiqueta or "SIN EEFF" in etiqueta, etiqueta
+    assert ws.cell(f, 2).value == 10000.0
+    fuente = str(ws.cell(f, 3).value)
+    assert "no trae estados financieros" in fuente.lower(), fuente
+    # Y las dos hojas dicen lo mismo.
+    assert wb["08-Conciliacion"].cell(3, 2).value == "SIN EEFF (no conciliado)"
+
+
+def test_con_eeff_la_celda_sigue_diciendo_que_son_los_eeff_auditados():
+    """La corrección no puede quitarle el rótulo al caso en que sí los hay."""
+    resultado = {
+        "matriz": {"tramos": [
+            {"segmento": "NO-RELACIONADOS", "tramo": "Por vencer", "exposicion": 10000.0,
+             "tasa_perdida": 0.1, "ecl": 1000.0},
+        ]},
+        "exposicion": {"segun_archivo": 10000.0},
+        "conciliacion": {"saldo_contable": 12000.0},
+    }
+    ws = _abrir(construir_excel(resultado, {}))["01-Parametros"]
+    f = fila(ws, "Saldo contable")
+    assert "según EEFF" in str(ws.cell(f, 1).value)
+    assert ws.cell(f, 2).value == 12000.0
+    assert "auditados" in str(ws.cell(f, 3).value)
