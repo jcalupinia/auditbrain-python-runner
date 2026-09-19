@@ -49,8 +49,20 @@ convertir un error de lectura en un dato ausente (M07).
 | Total por encargo | 20 MB | **por definir** |
 | Por archivo (extractor) | 10 MB | **por definir** |
 
+**Inconsistencia introducida por A2.** Al subir el límite por archivo a 10 MB
+pero dejar el tope del encargo en 20 MB, **hoy solo entran dos archivos
+grandes**. Los tres límites tienen que moverse juntos o el de archivo no sirve
+de nada.
+
+| Escenario | Con los límites de hoy |
+|---|---|
+| 2 archivos de 10 MB | ✅ entra |
+| 3 archivos de 10 MB | ❌ rechazado por el tope de 20 MB |
+| 1 mayor general de 80 MB | ❌ rechazado por el límite de archivo |
+
 Bloqueado hasta que se defina cuánto pesa el archivo más grande de un cliente
-real (un mayor general de empresa grande).
+real (un mayor general de empresa grande) y cuánta evidencia acumula un encargo
+completo. Necesito dos números: **MB por archivo** y **MB por encargo**.
 
 ### B3 · Requerimiento al cliente
 
