@@ -24,7 +24,7 @@ acumulan aquí y se hace **una sola publicación**.
 | A2 | Extractor conectado a la evidencia del encargo. Formatos **+ XML, + ZIP, + WebP**; límite por archivo 5 MB → **10 MB**; cada archivo se extrae y el resultado se guarda junto a él | `app/api/audit/route.ts`, `lib/audit.ts` | ✅ compila; XML, CSV y TXT extraen; **ZIP recursivo probado con la plantilla real: encontró el .xlsx dentro y leyó sus 11 hojas por nombre** |
 | A3 | **Markdown (.md)** aceptado en las dos rutas de carga y en el extractor, con tipo propio `kind:'md'` para que la cédula muestre de qué formato vino la evidencia | `lib/console/extract.mjs`, `app/api/audit/route.ts`, `app/api/tool-files/route.ts` | ✅ compila; `.md` suelto y **`.md` dentro de un ZIP** extraen correctamente |
 | A5 | **Ruta muerta eliminada.** `app/api/audit/route.ts`, `lib/audit.ts` y `lib/export.ts` no los llamaba nadie: eran la API de la versión anterior | borrados | ✅ compila sin ellos |
-| A6 | **Requerimiento estructurado en ítems.** Cada ítem declara qué se pide, **a qué formatos debe acogerse el cliente**, si es obligatorio y en **cuántos componentes** viene. La carga se vincula a su ítem y componente; el avance de etapa exige **cobertura completa**, no "algún documento" | `lib/requirement.mjs` (nuevo), `lib/workflow.mjs`, `lib/audit-store.ts`, `app/api/documents/route.ts`, `app/api/engagements/route.ts`, `app/audit-app.tsx`, `db/schema.ts`, migración `0005` | ⚠️ **verificación incompleta** — ver abajo |
+| A6 | **Requerimiento estructurado en ítems.** Cada ítem declara qué se pide, **a qué formatos debe acogerse el cliente**, si es obligatorio y en **cuántos componentes** viene. La carga se vincula a su ítem y componente; el avance de etapa exige **cobertura completa**, no "algún documento" | `lib/requirement.mjs` (nuevo), `lib/workflow.mjs`, `lib/audit-store.ts`, `app/api/documents/route.ts`, `app/api/engagements/route.ts`, `app/audit-app.tsx`, `db/schema.ts`, migración `0005` | ✅ verificado de punta a punta — ver abajo |
 | A4 | **Límites definidos** por el responsable: 200 archivos y 300 MB por encargo, 25 MB por archivo. `TEXT_LIMIT` de 240.000 a 5.000.000 y el **CSV pasa a limitarse por filas, no por caracteres** | `lib/console/extract.mjs`, `app/api/audit/route.ts`, `app/api/tool-files/route.ts` | ✅ compila; CSV de 100.000 filas (4,3 MB) leído en 0,18 s; 150.000 filas rechazado por el límite de filas |
 
 ### Estado de verificación de A6
@@ -38,16 +38,19 @@ Probado contra la API viva, con el servidor local y la migración aplicada:
 | Cargar un componente no declarado | ✅ rechazado: *«Componente no declarado…: abril.»* |
 | Cargar `.md` en un ítem que lo declara | ✅ aceptado y extraído como `kind: md` |
 | Bloquear el avance con un componente faltante | ✅ bloquea |
-| **Avanzar con cobertura completa** | ❌ **seguía bloqueando** |
+| **Avanzar con cobertura completa** | ✅ **avanza a etapa 6** |
+| Sigue bloqueando cuando falta un componente (regresión) | ✅ *«Cobertura incompleta. Mayor general: faltan febrero»* |
+| Comprobaciones propias de `requirement.mjs` | ✅ todas pasan |
 
 **Causa encontrada:** `docs()` en `lib/audit-store.ts` no seleccionaba
 `item_id` ni `component`, así que la cobertura veía todos los documentos sin
 vínculo y nunca se cumplía. Corregido con
 `SELECT … item_id AS itemId, component …`.
 
-**Pendiente:** ese arreglo **no está recompilado ni reverificado**. Antes de
-publicar hay que correr `npm run build` y repetir la prueba de cobertura
-completa.
+**Resuelto y reverificado** el 2026-09-19: recompilado, servidor levantado y
+prueba repetida. Los documentos vuelven con su `itemId` y `component`, la
+cobertura se cumple y el encargo avanza a etapa 6. El caso negativo sigue
+bloqueando, así que no se cambió un error por otro.
 
 ---
 
