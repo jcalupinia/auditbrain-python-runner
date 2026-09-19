@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { pceCxcAnalizar, pceCxcDescargarExcel, pceCxcLimites } from "../api.js";
 import {
+  FORMATOS_ACEPTADOS,
   SEGMENTOS,
+  archivosDeFormatoNoLeible,
   archivosQueSuperanElLimite,
   bandasDeLaPolitica,
   carteraMedidaDe,
@@ -86,6 +88,10 @@ export default function PceCxcTool({ projectId }) {
     CORTES.map((c) => archivos[c.k]),
     limites
   );
+  // El backend solo lee libros de Excel modernos. Se dice ANTES de subir tres
+  // archivos, no después: el 400 con la instrucción sigue estando, pero el
+  // auditor no tiene por qué esperar la subida para enterarse.
+  const archivosNoLeibles = archivosDeFormatoNoLeible(CORTES.map((c) => archivos[c.k]));
 
   // Filas repetibles (tasas sustitutas y evaluaciones individuales): se
   // añaden, se editan y se quitan sobre el mismo estado.
@@ -109,7 +115,11 @@ export default function PceCxcTool({ projectId }) {
   } catch (e) {
     factorFueraDeRango = e.message;
   }
-  const listo = listoLosCortes && !factorFueraDeRango && archivosGrandes.length === 0;
+  const listo =
+    listoLosCortes &&
+    !factorFueraDeRango &&
+    archivosGrandes.length === 0 &&
+    archivosNoLeibles.length === 0;
   const sustitutasIncompletas = filasIncompletas(datos.tasas_sustitutas, tasaSustitutaCompleta);
   const evaluacionesIncompletas = filasIncompletas(
     datos.evaluaciones_individuales,
@@ -192,7 +202,7 @@ export default function PceCxcTool({ projectId }) {
             <div className="pce-tag">{c.t}</div>
             <input
               type="file"
-              accept=".xlsx,.xls,.csv"
+              accept={FORMATOS_ACEPTADOS}
               onChange={(e) =>
                 setArchivos({ ...archivos, [c.k]: e.target.files[0] || null })
               }
@@ -527,6 +537,15 @@ export default function PceCxcTool({ projectId }) {
           {archivosGrandes.length === 1 ? "Este archivo supera" : "Estos archivos superan"} el
           límite de {limites.max_mb_por_archivo} MB por archivo:{" "}
           {archivosGrandes.map((a) => `${a.nombre} (${a.mb} MB)`).join(", ")}. {limites.mensaje_limite}
+        </div>
+      )}
+      {archivosNoLeibles.length > 0 && !procesando && (
+        <div className="pce-msg pce-bad">
+          {archivosNoLeibles.length === 1
+            ? "Este archivo no es un libro de Excel"
+            : "Estos archivos no son libros de Excel"}{" "}
+          ({FORMATOS_ACEPTADOS}): {archivosNoLeibles.map((a) => a.nombre).join(", ")}. Ábralo en
+          Excel y guárdelo con «Guardar como → Libro de Excel (*.xlsx)» antes de subirlo.
         </div>
       )}
       {listoLosCortes && factorFueraDeRango && !procesando && (

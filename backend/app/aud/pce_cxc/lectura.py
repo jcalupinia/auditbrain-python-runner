@@ -225,6 +225,50 @@ def _mapear(encabezado: tuple) -> dict[str, int]:
     return mapeo
 
 
+#: Lo único que este lector sabe abrir. Aceptar `.xls` exigiría una
+#: dependencia nueva (`xlrd`) y `.csv` cambiaría el perfil de memoria con el
+#: que está calibrado el límite por archivo, así que la pantalla ofrece
+#: exactamente esto y el backend lo dice cuando llega otra cosa.
+EXTENSIONES_LEIBLES = (".xlsx", ".xlsm")
+
+
+def _instruccion_por_extension(nombre: str) -> str:
+    """Qué hacer con este archivo, según lo que parece ser.
+
+    Un `.csv` no es un libro dañado y un `.xls` no es un `.xlsx` roto: cada uno
+    tiene su propio arreglo, y un mensaje genérico obliga al auditor a
+    adivinarlo.
+    """
+    bajo = nombre.lower()
+    if bajo.endswith((".csv", ".txt", ".tsv")):
+        return ("Es un archivo de texto separado por delimitadores, no un libro de Excel. Ábralo "
+                "en Excel y guárdelo con «Guardar como → Libro de Excel (*.xlsx)».")
+    if bajo.endswith(".xls"):
+        return ("Está en el formato binario antiguo de Excel (.xls), que esta herramienta no lee. "
+                "Ábralo en Excel y guárdelo con «Guardar como → Libro de Excel (*.xlsx)».")
+    return ("No se pudo abrir como libro de Excel (.xlsx): puede estar dañado, protegido con "
+            "contraseña o no ser realmente un .xlsx pese a su nombre. Ábralo en Excel, compruebe "
+            "que se ve bien y guárdelo de nuevo con «Guardar como → Libro de Excel (*.xlsx)».")
+
+
+def _abrir_libro(contenido: bytes, nombre: str):
+    """Abre el análisis de antigüedad, o explica por qué no se pudo.
+
+    `openpyxl` levanta `zipfile.BadZipFile` -que no es `ValueError`- con un
+    `.csv`, con un `.xls` binario y con un `.xlsx` corrupto, y también puede
+    levantar `KeyError` o `OSError` con un zip válido que no es un libro. Sin
+    esta traducción, los tres formatos que la pantalla llegó a ofrecer salían
+    por el 500 genérico: un error de entrada sin una sola instrucción.
+    """
+    try:
+        return load_workbook(io.BytesIO(contenido), read_only=True, data_only=True)
+    except Exception as e:  # noqa: BLE001 - la librería no declara un tipo común
+        raise ValueError(
+            f"{nombre}: {_instruccion_por_extension(nombre)} La herramienta lee libros "
+            f"{' o '.join(EXTENSIONES_LEIBLES)}."
+        ) from e
+
+
 def leer_cartera(contenido: bytes, nombre: str, corte, bandas, hoja=None, mapeo=None,
                  clave_relacionadas: str = "RELACIONAD",
                  fila_encabezado: int | None = None) -> dict:
@@ -236,7 +280,14 @@ def leer_cartera(contenido: bytes, nombre: str, corte, bandas, hoja=None, mapeo=
     sin indicarlo: el mapeo manual suele usarse justo cuando el encabezado no
     está en la primera fila, que es cuando la detección automática falla.
     """
-    wb = load_workbook(io.BytesIO(contenido), read_only=True, data_only=True)
+    wb = _abrir_libro(contenido, nombre)
+    if hoja and hoja not in wb.sheetnames:
+        disponibles = ", ".join(wb.sheetnames)
+        wb.close()
+        raise ValueError(
+            f"{nombre}: el libro no tiene ninguna hoja llamada '{hoja}'. Hojas disponibles: "
+            f"{disponibles}. Elija una de esas, o deje la hoja sin indicar para leer la primera."
+        )
     ws = wb[hoja] if hoja else wb.worksheets[0]
     filas = list(ws.iter_rows(values_only=True))
     wb.close()

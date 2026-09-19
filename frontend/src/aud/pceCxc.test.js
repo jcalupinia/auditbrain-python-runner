@@ -4,6 +4,8 @@ import {
   archivosQueSuperanElLimite,
   carteraMedida,
   bandasDeLaPolitica,
+  FORMATOS_ACEPTADOS,
+  archivosDeFormatoNoLeible,
   carteraMedidaDe,
   coberturaDe,
   controlDeLaCohorte,
@@ -581,5 +583,29 @@ describe("sinMedirNoNeteado", () => {
   it("una corrida anterior al campo no afirma nada", () => {
     expect(sinMedirNoNeteado({ exposicion: { sin_medir: 40000 } })).toBeNull();
     expect(sinMedirNoNeteado(null)).toBeNull();
+  });
+});
+
+describe("formatos que la pantalla ofrece", () => {
+  it("solo ofrece lo que el backend sabe leer", () => {
+    expect(FORMATOS_ACEPTADOS).toBe(".xlsx,.xlsm");
+    expect(FORMATOS_ACEPTADOS).not.toContain(".csv");
+    expect(FORMATOS_ACEPTADOS).not.toContain(".xls,");
+  });
+
+  it("marca por nombre los archivos que el backend no podría abrir", () => {
+    const elegidos = [
+      { name: "cartera_2023.xlsx" },
+      { name: "cartera_2024.csv" },
+      { name: "cartera_2025.xls" },
+    ];
+    expect(archivosDeFormatoNoLeible(elegidos)).toEqual([
+      { nombre: "cartera_2024.csv" },
+      { nombre: "cartera_2025.xls" },
+    ]);
+  });
+
+  it("no acusa a un .XLSX en mayúsculas ni a los huecos", () => {
+    expect(archivosDeFormatoNoLeible([{ name: "CARTERA.XLSX" }, null, undefined])).toEqual([]);
   });
 });

@@ -61,6 +61,36 @@ export function tramosVisibles(tramos) {
 /** Los dos segmentos del papel, en el mismo orden que `service.SEGMENTOS`. */
 export const SEGMENTOS = ["NO-RELACIONADOS", "RELACIONADOS"];
 
+/**
+ * Lo que el backend sabe leer, y por tanto lo único que la pantalla ofrece.
+ *
+ * Ofrecía `.xlsx,.xls,.csv` y el lector solo abre libros de Excel modernos
+ * (`lectura.EXTENSIONES_LEIBLES`): los otros dos formatos que la propia
+ * pantalla proponía terminaban en un error del servidor. Aceptar `.xls` de
+ * verdad exigiría una dependencia nueva y `.csv` cambiaría el perfil de
+ * memoria con el que está calibrado el límite por archivo, así que lo que se
+ * corrige es la oferta.
+ */
+export const FORMATOS_ACEPTADOS = ".xlsx,.xlsm";
+
+const EXTENSIONES_ACEPTADAS = FORMATOS_ACEPTADOS.split(",");
+
+/**
+ * Archivos ya elegidos cuyo formato el backend no puede leer.
+ *
+ * Se dice ANTES de subir tres archivos y esperar: el backend igual responde
+ * 400 con la instrucción, pero el auditor no tiene por qué descubrirlo después
+ * de la subida. El backend sigue siendo quien decide; esto solo se adelanta.
+ * @param {Array} archivos - Archivos elegidos (puede haber huecos)
+ * @returns {Array<{nombre: string}>} Los que no se pueden leer
+ */
+export function archivosDeFormatoNoLeible(archivos) {
+  return (archivos || [])
+    .filter((f) => f && f.name)
+    .filter((f) => !EXTENSIONES_ACEPTADAS.some((e) => f.name.toLowerCase().endsWith(e)))
+    .map((f) => ({ nombre: f.name }));
+}
+
 /** Número escrito por el usuario (admite coma decimal), o `null` si no lo es. */
 function numeroEscrito(valor) {
   const texto = String(valor ?? "").trim().replace(",", ".");
