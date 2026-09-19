@@ -4,9 +4,15 @@ import { STRINGS } from "./strings.js";
 import ObligacionesFiscalesTool from "./ObligacionesFiscalesTool.jsx";
 import InformeCumplimientoTributarioTool from "./InformeCumplimientoTributarioTool.jsx";
 import MotorBalancesTool from "./MotorBalancesTool.jsx";
+import VnrTool from "./vnr/VnrTool.jsx";
 
 export default function ToolCatalog({ projectId }) {
   const [activeTool, setActiveTool] = useState(null);
+  const [sharedContext, setSharedContext] = useState(null);
+
+  if (activeTool === "AUD.INVENTARIOS.VNR") {
+    return <div className="aud-tool-wrap"><button className="link aud-back" onClick={() => { if (window.confirm("Descargue sus resultados antes de salir. ¿Volver al catálogo?")) setActiveTool(null); }}>{STRINGS.back_to_catalog}</button><VnrTool key={projectId} projectId={projectId} sharedContext={sharedContext?.projectId === projectId ? sharedContext.context : null} onShareContext={context => setSharedContext({projectId, context})}/></div>;
+  }
 
   if (activeTool === "AUD.MOTOR_BALANCES") {
     return (
