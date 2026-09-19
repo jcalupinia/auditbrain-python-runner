@@ -1,0 +1,7 @@
+{
+  "inventory": {"headers":["code","description","quantity","unit_cost","recorded_impairment"],"rows":[["DEMO-A","Producto con deterioro",10,20,5],["DEMO-B","Producto con recuperación",5,100,40],["DEMO-C","Producto con margen insuficiente",20,12,20]]},
+  "prices": {"headers":["code","selling_price"],"rows":[["DEMO-A",18],["DEMO-B",120],["DEMO-C",11]]},
+  "expenses": {"headers":["code","completion_cost","selling_cost"],"rows":[["DEMO-A",1,2],["DEMO-B",0,5],["DEMO-C",0,2]]},
+  "ledger":{"ledger_cost":"940","ledger_impairment":"65","tolerance":"0.01"},
+  "expected":{"cost":"940.00","impairment":"110.00","expense":"85.00","reversal":"40.00","adjustment":"45.00","carrying":"830.00"}
+}
