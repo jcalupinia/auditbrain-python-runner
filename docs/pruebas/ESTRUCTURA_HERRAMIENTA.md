@@ -77,19 +77,23 @@ obligatoriedad, formatos aceptados y plantilla descargable.
 |---|:---:|:---:|:---:|:---:|
 | Excel (.xlsx / .xls) | ✅ | ✅ | ✅ | **R** |
 | CSV | ✅ | ✅ | — | **R** |
-| XML | ❌ | ⚠️ aceptado **sin lector** | — | **R** |
+| XML | ⚠️ lector en Consola, no en la prueba | ⚠️ aceptado **sin lector** | — | **R** |
 | Word (.docx), lectura de tablas | ✅ | ❌ | — | **R** |
 | PDF | ✅ | ✅ | ✅ | **R** |
 | Imágenes de soporte (png / jpg) | ✅ | ❌ | — | **R** |
-| ZIP | ❌ | ❌ | ❌ | **R** |
+| ZIP | ⚠️ lector en Consola, no en la prueba | ❌ | ❌ | **R** |
 | TXT | ✅ | ❌ | — | **R** |
 
 ⚠️ **Defecto abierto.** `obligaciones_fiscales/router.py:48` acepta
 `application/xml` para el ATS, pero `libro/ats.py` no tiene lector XML — solo
 procesa texto. El ATS del SRI es XML nativo: el archivo entra y no se extrae nada.
 
-**ZIP no existe en ninguna herramienta de auditoría.** El único manejo de ZIP del
-repositorio está en `backend/app/client_portal/flujo/`, que es otro módulo.
+**Los lectores ya existen en el sitio, pero no en la prueba.** `auditbrain-site/lib/console/extract.mjs`
+(la Consola de archivos) procesa **csv, docx con tablas, pdf, png, webp, txt, xlsx, xml y zip**
+con descompresión recursiva. Límite: 10 MB por archivo, 240.000 caracteres de texto.
+El lector de fuentes de la prueba (`lib/tools/files.mjs`) solo hace **csv y xlsx**.
+La tarea no es construir lectores: es **conectar el extractor de la Consola al
+requerimiento de la prueba**.
 
 ### 2.2 Capacidad
 
@@ -147,7 +151,8 @@ volumen objetivo en MB.
 **HTML en todas las pruebas.** Varios clientes lo prefieren al Excel. Requisito
 duro: **debe abrirse y funcionar sin conexión a internet**, sin depender de
 recursos remotos ni de servicios privados (Manual §12). Hoy solo el sitio genera
-HTML, y falta verificar que funcione sin conexión.
+HTML; se verificó que `lib/tools/html-presentation.mjs` **no contiene ninguna URL
+externa**, así que la salida ya es autónoma. Falta llevar el HTML al portal.
 
 **Condicionales.** «Guardar correcciones» y «Aprobar y generar» aparecen solo si
 la prueba tiene un paso de clasificación o mapeo: Obligaciones Fiscales sí,
@@ -204,13 +209,13 @@ Todo lo siguiente es **requisito de la estructura** y hoy no está resuelto:
 
 | Requisito | Estado |
 |---|---|
-| Lector XML: el ATS se acepta pero no se procesa | defecto abierto |
-| Soporte de ZIP | no existe en ninguna |
-| Lectura de tablas de Word | solo en el sitio |
-| Imágenes de soporte | solo en el sitio |
+| Lector XML en el portal: el ATS se acepta pero no se procesa | defecto abierto |
+| Conectar el extractor de la Consola (zip, docx, pdf, xml, imágenes) al lector de fuentes de la prueba | el extractor ya existe; falta el cableado |
+| Lectura de tablas de Word | ya resuelta en `console/extract.mjs` |
+| Imágenes de soporte (png, jpg, webp) | ya resuelta en `console/extract.mjs` |
 | Plantilla descargable por documento | solo en el ICT |
 | Casilla de impuestos diferidos | en ninguna |
-| HTML autónomo sin internet | solo el sitio genera HTML; falta verificar offline |
+| HTML autónomo sin internet | **verificado**: `html-presentation.mjs` no tiene ninguna URL externa |
 | Límite de archivo para empresa grande | 5 MB en el sitio, 20 MB en el portal |
 | Ficha completa en el portal | OF no pide RUC, visita ni marco contable |
 | Estados de documento completos | parciales en las tres |
