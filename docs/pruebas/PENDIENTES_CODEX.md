@@ -16,7 +16,28 @@ acumulan aquí y se hace **una sola publicación**.
 
 ---
 
-## A · Publicados en la versión 21 (2026-09-19)
+## A · Listos en el checkout, esperando publicación
+
+| # | Cambio | Archivos | Estado |
+|---|---|---|---|
+| A13 | **El recorrido usa el motor de cobertura real, no un contador de «4 de 4».** `app/herramientas/recorrido/studio.tsx` ya no lleva su propia lógica: importa `parseItems`, `coverage`, `gaps` y `checkUpload` de `lib/requirement.mjs`, el mismo motor del Centro de trabajo. El requerimiento del ejemplo pasó de tuplas de texto decorativo a **ítems reales** con formatos, exigencia, componentes y grupo. Se añadió el botón de rechazo por documento y un «Probar un formato no admitido» que muestra el mensaje del propio motor | `app/herramientas/recorrido/studio.tsx`, `app/herramientas/recorrido/walkthrough.css`, `lib/requirement.mjs` (redacción del hueco), `app/api/documents/route.ts` (un tipo) | ✅ compila limpio · `npx tsc --noEmit` **sin ningún error** · verificado con clics reales en el navegador — ver abajo |
+
+**Cómo se verificó A13** (clics reales en `/herramientas/recorrido`, no solo auto-test):
+
+| Regla | Prueba | Resultado |
+|---|---|---|
+| Componentes | Cargar solo «Bodega Quito» del inventario | «Inventario valorado al corte: faltan Bodega Guayaquil» · 0 de 5 ítems · Procesar deshabilitado |
+| Fuentes alternativas | Cargar el estado de resultados **sin** los costos por ítem | **4 de 5 ítems cubiertos y cero huecos**: el grupo se satisface con una |
+| Rechazo | Rechazar «Bodega Guayaquil» ya procesado | El hueco se reabre, baja a 3 de 5, el resultado se cae y las descargas se deshabilitan |
+| Formatos | «Probar un formato no admitido» | «"Inventario valorado al corte" admite XLSX, CSV. Recibido: jpg.» |
+
+Efecto secundario en el motor: un ítem **sin** componentes ya no se reporta como
+«Lista de precios de venta: faltan Lista de precios de venta». Se nombra una sola
+vez. La corrección está en `describe` de `lib/requirement.mjs`, con su aserción.
+
+---
+
+## A-histórico · Publicados en la versión 21 (2026-09-19)
 
 | # | Cambio | Archivos | Verificado |
 |---|---|---|---|
