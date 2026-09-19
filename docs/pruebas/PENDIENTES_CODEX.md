@@ -24,6 +24,34 @@ acumulan aquí y se hace **una sola publicación**.
 
 ---
 
+| A10 | **Herramientas unificadas con el motor de cobertura.** `lib/tools/coverage.mjs` adapta los requerimientos de Herramienta a los ítems del motor ya probado, en vez de duplicar la lógica. La carga valida formato y componente; la validación documental exige cobertura completa en vez de «un archivo por requerimiento» | `lib/tools/coverage.mjs` (nuevo), `lib/tools/repository.ts`, `app/api/tool-files/route.ts`, `app/api/tools/route.ts`, `db/schema.ts`, migración `0006` | ⚠️ **verificación parcial** — ver abajo |
+
+### Estado de verificación de A10
+
+| Prueba | Resultado |
+|---|---|
+| Comprobaciones de `lib/tools/coverage.mjs` | ✅ todas pasan |
+| Lee los formatos del texto `XLSX / CSV` | ✅ |
+| «imágenes» implica png, jpg, webp | ✅ |
+| **Un archivo por requerimiento ya no cubre dos componentes** | ✅ *«Mayor general: faltan febrero»* |
+| Archivo rechazado reabre el hueco | ✅ |
+| Formato no declarado se rechaza nombrando el correcto | ✅ |
+| Compilación | ✅ limpia |
+| Migración `0006` | ✅ una columna, no destructiva |
+| **Cableado de punta a punta por la API** | ❌ **no probado** |
+
+**Por qué quedó pendiente.** El flujo de Herramientas exige pasos previos que
+encadenan varias puertas: investigación de fuentes oficiales (`sourcesVerified`)
+y rol de revisor para aprobar. Llegar hasta `validate` por API requiere
+recorrerlas todas.
+
+**Qué falta probar antes de publicar:** que `toolGaps` bloquee de verdad al
+validar con un componente faltante, y que `checkToolUpload` rechace un formato
+no declarado en la carga real. Es la misma situación de A6, donde esa
+verificación destapó un defecto real (`docs()` sin las columnas nuevas).
+
+---
+
 ## B · Pendientes de escribir
 
 ### B1 · Conectar el extractor ✅ RESUELTO — ver A2
