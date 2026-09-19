@@ -25,9 +25,13 @@ def render_job_ready(*, client_name: str, tool_label: str, download_url: str) ->
     )
 
 
-def _post_to_resend(*, to: str, subject: str, html: str) -> dict:
+def _post_to_resend(
+    *, to: str, subject: str, html: str, from_email: str | None = None
+) -> dict:
     api_key = os.getenv("RESEND_API_KEY", "").strip()
-    from_email = os.getenv("RESEND_FROM_EMAIL", "no-reply@auditconsulting.com").strip()
+    from_email = (
+        from_email or os.getenv("RESEND_FROM_EMAIL", "no-reply@auditconsulting.com")
+    ).strip()
     if not api_key:
         raise RuntimeError("RESEND_API_KEY no configurado.")
     resp = requests.post(
@@ -45,12 +49,22 @@ def _post_to_resend(*, to: str, subject: str, html: str) -> dict:
 
 
 def send_email(
-    *, to: str, subject: str, html: str, max_retries: int = 3
+    *,
+    to: str,
+    subject: str,
+    html: str,
+    max_retries: int = 3,
+    from_email: str | None = None,
 ) -> dict | None:
+    """``from_email`` es opcional: sin él sale el remitente de siempre
+    (``RESEND_FROM_EMAIL``). Automatizaciones lo usa para salir desde
+    ``audit-ia.ec`` sin mover el remitente del portal ni el de recursos."""
     delay = 1.0
     for attempt in range(1, max_retries + 1):
         try:
-            return _post_to_resend(to=to, subject=subject, html=html)
+            return _post_to_resend(
+                to=to, subject=subject, html=html, from_email=from_email
+            )
         except Exception as e:  # noqa: BLE001
             log.warning("send_email attempt %d/%d failed: %s", attempt, max_retries, e)
             if attempt < max_retries:
@@ -196,4 +210,42 @@ def send_recurso_acceso(
     )
     return send_email(
         to=to, subject=f"Su usuario y clave — {titulo}", html=html_body, max_retries=2
+    )
+
+
+# --- Automatizaciones (Presupuestos IA / Planificación IA) ------------------
+#
+# Salen desde el dominio ``audit-ia.ec`` (verificado en Resend, decisión del
+# 18-sep), no desde el remitente del portal.
+
+FROM_AUTOMATIZACIONES_DEFECTO = "no-responder@audit-ia.ec"
+
+
+def render_automatizacion_acceso(
+    *, herramienta: str, empresa: str, enlace: str, contacto: str
+) -> str:
+    tpl = (_TEMPLATES_DIR / "automatizacion_acceso.html").read_text(encoding="utf-8")
+    return (
+        tpl.replace("{{enlace}}", _html.escape(enlace, quote=True))
+        .replace("{{herramienta}}", _html.escape(herramienta))
+        .replace("{{empresa}}", _html.escape(empresa))
+        .replace("{{contacto}}", _html.escape(contacto))
+    )
+
+
+def send_automatizacion_acceso(
+    *, to: str, herramienta: str, empresa: str, enlace: str, contacto: str
+) -> dict | None:
+    """Enlace de un solo uso; el correo NO lleva contraseña (la fija el usuario)."""
+    html_body = render_automatizacion_acceso(
+        herramienta=herramienta, empresa=empresa, enlace=enlace, contacto=contacto
+    )
+    return send_email(
+        to=to,
+        subject=f"Su acceso a {herramienta} — AuditConsulting",
+        html=html_body,
+        max_retries=2,
+        from_email=os.getenv(
+            "RESEND_FROM_EMAIL_AUTOMATIZACIONES", FROM_AUTOMATIZACIONES_DEFECTO
+        ),
     )
