@@ -23,7 +23,31 @@ acumulan aquí y se hace **una sola publicación**.
 | A1 | Capacidad del motor: `MAX_ROWS` de 10.000 a **100.000** | `lib/tools/domain.mjs`, `lib/tools/portable-engine.mjs` | ✅ 100.000 filas en 4,08 s con la definición VNR real; 100.001 rechazado con mensaje claro |
 | A2 | Extractor conectado a la evidencia del encargo. Formatos **+ XML, + ZIP, + WebP**; límite por archivo 5 MB → **10 MB**; cada archivo se extrae y el resultado se guarda junto a él | `app/api/audit/route.ts`, `lib/audit.ts` | ✅ compila; XML, CSV y TXT extraen; **ZIP recursivo probado con la plantilla real: encontró el .xlsx dentro y leyó sus 11 hojas por nombre** |
 | A3 | **Markdown (.md)** aceptado en las dos rutas de carga y en el extractor, con tipo propio `kind:'md'` para que la cédula muestre de qué formato vino la evidencia | `lib/console/extract.mjs`, `app/api/audit/route.ts`, `app/api/tool-files/route.ts` | ✅ compila; `.md` suelto y **`.md` dentro de un ZIP** extraen correctamente |
+| A5 | **Ruta muerta eliminada.** `app/api/audit/route.ts`, `lib/audit.ts` y `lib/export.ts` no los llamaba nadie: eran la API de la versión anterior | borrados | ✅ compila sin ellos |
+| A6 | **Requerimiento estructurado en ítems.** Cada ítem declara qué se pide, **a qué formatos debe acogerse el cliente**, si es obligatorio y en **cuántos componentes** viene. La carga se vincula a su ítem y componente; el avance de etapa exige **cobertura completa**, no "algún documento" | `lib/requirement.mjs` (nuevo), `lib/workflow.mjs`, `lib/audit-store.ts`, `app/api/documents/route.ts`, `app/api/engagements/route.ts`, `app/audit-app.tsx`, `db/schema.ts`, migración `0005` | ⚠️ **verificación incompleta** — ver abajo |
 | A4 | **Límites definidos** por el responsable: 200 archivos y 300 MB por encargo, 25 MB por archivo. `TEXT_LIMIT` de 240.000 a 5.000.000 y el **CSV pasa a limitarse por filas, no por caracteres** | `lib/console/extract.mjs`, `app/api/audit/route.ts`, `app/api/tool-files/route.ts` | ✅ compila; CSV de 100.000 filas (4,3 MB) leído en 0,18 s; 150.000 filas rechazado por el límite de filas |
+
+### Estado de verificación de A6
+
+Probado contra la API viva, con el servidor local y la migración aplicada:
+
+| Prueba | Resultado |
+|---|---|
+| Guardar ítems con formatos y componentes | ✅ `i1` con 3 componentes, `i2` sin componentes |
+| Cargar un PDF en un ítem que pide XLSX/CSV | ✅ rechazado: *«"Mayor general" admite XLSX, CSV. Recibido: pdf.»* |
+| Cargar un componente no declarado | ✅ rechazado: *«Componente no declarado…: abril.»* |
+| Cargar `.md` en un ítem que lo declara | ✅ aceptado y extraído como `kind: md` |
+| Bloquear el avance con un componente faltante | ✅ bloquea |
+| **Avanzar con cobertura completa** | ❌ **seguía bloqueando** |
+
+**Causa encontrada:** `docs()` en `lib/audit-store.ts` no seleccionaba
+`item_id` ni `component`, así que la cobertura veía todos los documentos sin
+vínculo y nunca se cumplía. Corregido con
+`SELECT … item_id AS itemId, component …`.
+
+**Pendiente:** ese arreglo **no está recompilado ni reverificado**. Antes de
+publicar hay que correr `npm run build` y repetir la prueba de cobertura
+completa.
 
 ---
 
@@ -67,11 +91,11 @@ caracteres**: su control es `MAX_ROWS`, no la longitud del texto.
 
 | # | Cambio | Detalle |
 |---|---|---|
-| B3.1 | Obligatorio / opcional por documento | Existe en Obligaciones Fiscales, no en el sitio |
+| ~~B3.1~~ | ~~Obligatorio / opcional por documento~~ | ✅ **Resuelto — ver A6** |
 | B3.2 | Fuentes alternativas | No existe en ninguna de las tres |
 | B3.3 | Plantilla descargable con instrucciones | Existe en el ICT, no en el sitio |
 | B3.4 | Estados completos del documento | Recibido / extraído / pendiente de OCR o mapeo / validado / rechazado. Hoy parcial |
-| B3.5 | **Evidencia por componentes** | Que el cliente entregue una fuente grande **partida en varias piezas** (por mes, por bodega, por rango de cuentas) en vez de un archivo único. Ver detalle abajo |
+| ~~B3.5~~ | ~~Evidencia por componentes~~ | ✅ **Resuelto — ver A6** |
 | ~~B3.6~~ | ~~Aceptar Markdown (.md)~~ | ✅ **Resuelto — ver A3** |
 
 #### B3.5 · Evidencia por componentes — detalle
