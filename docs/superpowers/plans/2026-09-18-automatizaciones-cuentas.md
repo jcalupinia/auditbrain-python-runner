@@ -8,7 +8,7 @@
 1. Control de cuentas centralizado en el Command Center para los 4 grupos: personal de oficina, clientes, recursos gratuitos y automatizaciones.
 2. Dos niveles en Automatizaciones: la firma crea al administrador de la empresa; el administrador crea a su personal.
 3. Mismo juego de acciones que hoy existe en cuentas: crear, **restablecer clave**, **dar de baja y reactivar**, **borrar**.
-4. Correo por **Resend** con el remitente ya verificado `no-reply@auditconsulting.ec`. No se verifica `audit-ia.ec` por ahora.
+4. Correo por **Resend**. El dominio `audit-ia.ec` quedó **verificado el 18-sep** (DKIM + los dos CNAME de envío; la recepción MX se dejó apagada para no romper el correo del cPanel). Los correos de automatizaciones salen desde **`no-responder@audit-ia.ec`**; recursos y el portal siguen con `no-reply@auditconsulting.ec`.
 5. Registro público cerrado en la app: nadie entra sin ser creado o invitado.
 
 **Arquitectura:** el Command Center (FastAPI en Render) actúa como **central de provisión**. Guarda qué empresa y qué administrador existen por cliente, y ejecuta las operaciones contra el Supabase self-hosted de la app usando la llave de servicio, que nunca sale del backend. La app de presupuestos no cambia su inicio de sesión: sigue autenticando contra su propio Supabase.
@@ -172,7 +172,9 @@ def test_aut_cuenta_unica_por_cliente_y_herramienta(db):
 
 Reglas a implementar y probar, calcadas de las cuentas del portal:
 
-1. **Alta atómica:** crear usuario → crear empresa con `crear_empresa_completa` → marcar al usuario como `administrador` en `empresa_miembros` → guardar `aut_cuentas`. Si un paso falla, se deshace lo anterior (borrar usuario creado) y no queda registro a medias.
+1. **Alta atómica:** crear usuario en Supabase → guardar `aut_cuentas` → enviar el correo. Si un paso falla, se deshace lo anterior (borrar el usuario creado) y no queda registro a medias.
+
+   **[ADAPTATION] La empresa NO se crea desde el Command Center.** `crear_empresa_completa` es `SECURITY DEFINER` pero exige `auth.uid()`, es decir una sesión de usuario real; con la llave de servicio `auth.uid()` es NULL y la función aborta con "Debes iniciar sesión". Las alternativas eran firmar un JWT de usuario desde el portal (obliga a compartir también el secreto de firma) o crear una función nueva solo para servicio (otra migración y otra vía privilegiada). Se elige que **el administrador cree su empresa al entrar por primera vez**, con el diagnóstico que la app ya tiene: él conoce el sector, el período y las unidades, que es justo lo que el formulario pide. El Command Center guarda `empresa_nombre` como referencia comercial y completa `empresa_id_app` cuando la empresa ya existe (consulta por el correo del administrador en `empresa_miembros`).
 2. **Correo:** al terminar el alta se envía el enlace de acceso por Resend (Tarea 5). El enlace es de un solo uso y lo define el propio administrador.
 3. **Restablecer clave:** genera un enlace nuevo y lo envía. La firma nunca ve ni fija la contraseña.
 4. **Baja reversible:** bloquea al usuario en Supabase y marca `estado='suspendida'`; reactivar hace lo inverso.
