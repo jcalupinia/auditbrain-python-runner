@@ -72,6 +72,32 @@ completo. Necesito dos números: **MB por archivo** y **MB por encargo**.
 | B3.2 | Fuentes alternativas | No existe en ninguna de las tres |
 | B3.3 | Plantilla descargable con instrucciones | Existe en el ICT, no en el sitio |
 | B3.4 | Estados completos del documento | Recibido / extraído / pendiente de OCR o mapeo / validado / rechazado. Hoy parcial |
+| B3.5 | **Evidencia por componentes** | Que el cliente entregue una fuente grande **partida en varias piezas** (por mes, por bodega, por rango de cuentas) en vez de un archivo único. Ver detalle abajo |
+| B3.6 | Aceptar **Markdown (.md)** | No está ni en los formatos permitidos ni en el extractor. Es texto plano: el extractor ya procesa `txt`, así que el trabajo es declararlo, no escribir un lector |
+
+#### B3.5 · Evidencia por componentes — detalle
+
+**Ya funciona a medias.** `app/api/audit/route.ts` no impone unicidad por
+`requestId`: se pueden subir varias piezas y todas quedan vinculadas al mismo
+requerimiento. Lo que falta no es la carga, es el **control de cobertura**.
+
+El Manual §08 lo advierte expresamente:
+
+> *«Una categoría con doce archivos no son doce requisitos; tener todas las
+> categorías tampoco prueba cobertura mensual.»*
+
+Sin ese control, partir la evidencia **empeora** el riesgo: es más fácil que
+falte un pedazo y que nadie lo note. Lo que hay que agregar:
+
+| Requisito | Qué hace |
+|---|---|
+| Declarar los componentes esperados | El requerimiento dice en cuántas piezas viene y cuáles: doce meses, tres bodegas, rangos de cuentas |
+| Marcar los que faltan | Cobertura visible: «9 de 12 meses recibidos; faltan abril, julio y noviembre» |
+| Conciliar al procesar | Las partes sumadas deben cuadrar contra un total de control antes de calcular |
+| Bloquear el cálculo si hay huecos | Un componente ausente no puede leerse como cero (M07) |
+
+**Beneficio colateral:** resuelve buena parte de B2. Un mayor general de 80 MB
+partido por trimestre entra sin tocar los límites.
 
 ### B4 · Ficha del encargo
 
