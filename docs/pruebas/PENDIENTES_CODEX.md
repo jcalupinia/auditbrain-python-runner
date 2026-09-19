@@ -27,6 +27,22 @@ acumulan aquí y se hace **una sola publicación**.
 | A6 | **Requerimiento estructurado en ítems.** Cada ítem declara qué se pide, **a qué formatos debe acogerse el cliente**, si es obligatorio y en **cuántos componentes** viene. La carga se vincula a su ítem y componente; el avance de etapa exige **cobertura completa**, no "algún documento" | `lib/requirement.mjs` (nuevo), `lib/workflow.mjs`, `lib/audit-store.ts`, `app/api/documents/route.ts`, `app/api/engagements/route.ts`, `app/audit-app.tsx`, `db/schema.ts`, migración `0005` | ✅ verificado de punta a punta — ver abajo |
 | A4 | **Límites definidos** por el responsable: 200 archivos y 300 MB por encargo, 25 MB por archivo. `TEXT_LIMIT` de 240.000 a 5.000.000 y el **CSV pasa a limitarse por filas, no por caracteres** | `lib/console/extract.mjs`, `app/api/audit/route.ts`, `app/api/tool-files/route.ts` | ✅ compila; CSV de 100.000 filas (4,3 MB) leído en 0,18 s; 150.000 filas rechazado por el límite de filas |
 
+| A7 | **Fuentes alternativas, plantilla descargable y estados del documento.** El ítem declara `group` (los del mismo grupo son intercambiables), `columns` e `instructions` (de ahí sale la plantilla CSV, sin archivos que mantener), y el auditor marca cada documento **validado o rechazado**: un rechazado deja de contar para la cobertura | `lib/requirement.mjs`, `app/api/engagements/route.ts`, `app/audit-app.tsx` | ✅ verificado contra la API viva — ver abajo |
+
+### Estado de verificación de A7
+
+| Prueba | Resultado |
+|---|---|
+| Grupo sin cubrir | ✅ *«Costos de venta: entregue una de estas fuentes — Costos por item o Estado de resultados»* |
+| Una alternativa satisface el grupo | ✅ el grupo desaparece del reclamo |
+| Todo cubierto | ✅ avanza a etapa 6 |
+| **Documento marcado rechazado** | ✅ **reabre el hueco y bloquea** |
+| Documento marcado validado | ✅ avanza a etapa 6 |
+| Plantilla CSV con columnas e instrucciones | ✅ a nivel de módulo (`templateCsv`) |
+
+**No probado en pantalla:** el botón «Plantilla» de la etapa 4 descarga el CSV
+en el navegador. La generación está verificada; el clic en la interfaz no.
+
 ### Estado de verificación de A6
 
 Probado contra la API viva, con el servidor local y la migración aplicada:
@@ -95,9 +111,9 @@ caracteres**: su control es `MAX_ROWS`, no la longitud del texto.
 | # | Cambio | Detalle |
 |---|---|---|
 | ~~B3.1~~ | ~~Obligatorio / opcional por documento~~ | ✅ **Resuelto — ver A6** |
-| B3.2 | Fuentes alternativas | No existe en ninguna de las tres |
-| B3.3 | Plantilla descargable con instrucciones | Existe en el ICT, no en el sitio |
-| B3.4 | Estados completos del documento | Recibido / extraído / pendiente de OCR o mapeo / validado / rechazado. Hoy parcial |
+| ~~B3.2~~ | ~~Fuentes alternativas~~ | ✅ **Resuelto — ver A7** |
+| ~~B3.3~~ | ~~Plantilla descargable con instrucciones~~ | ✅ **Resuelto — ver A7** |
+| ~~B3.4~~ | ~~Estados completos del documento~~ | ✅ **Resuelto — ver A7** |
 | ~~B3.5~~ | ~~Evidencia por componentes~~ | ✅ **Resuelto — ver A6** |
 | ~~B3.6~~ | ~~Aceptar Markdown (.md)~~ | ✅ **Resuelto — ver A3** |
 
