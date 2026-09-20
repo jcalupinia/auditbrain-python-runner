@@ -16,7 +16,18 @@ acumulan aquí y se hace **una sola publicación**.
 
 ---
 
-## A · Publicado en la versión 23 (2026-09-19)
+## A · Listos en el checkout, esperando publicación
+
+| # | Cambio | Archivos | Estado |
+|---|---|---|---|
+| A14 | **El sitio seguía prometiendo «12 cédulas» en cuatro sitios**, contradiciendo B5.3. Encontrado revisando el sitio **publicado**, no el local. La tarjeta del formato y la nota del estudio pasan a «Cédulas según la prueba»; los entregables de una herramienta concreta **calculan** el número real con `sheetLabels(tool.definition).length`; y el manual dejó de describir el recorrido viejo («cuatro fuentes sintéticas… doce cédulas») | `app/audit-app.tsx`, `app/herramientas/tool-studio.tsx`, `app/herramientas/tool-overview.tsx`, `lib/methodology.mjs` (manual a **1.3.1**) | ✅ compila limpio · `npx tsc --noEmit` sin errores · cero coincidencias de «12 cédulas» en el código y en el HTML servido de `/`, `/herramientas` y `/demostracion` |
+
+`sheetLabels(undefined)` devuelve las doce, así que el panel de entregables no
+puede romperse si a una herramienta le faltara la definición.
+
+---
+
+## A-histórico · Publicado en la versión 23 (2026-09-19)
 
 | # | Cambio | Archivos | Estado |
 |---|---|---|---|
