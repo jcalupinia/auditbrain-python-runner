@@ -87,3 +87,35 @@
 }
 .nf-recent-row .nf-recent-name { font-weight: 600; }
 .nf-recent-row .nf-recent-acts { margin-left: auto; display: flex; gap: 10px; }
+
+/* Estados del circuito: en diseño (ámbar, el default de .nf-badge),
+   probada (verde) y enviada (neutro, ya cerrada). */
+.nf-badge.probada {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.nf-badge.enviada {
+  color: var(--text-dim);
+  border-color: var(--line);
+  background: var(--panel-2);
+}
+
+.nf-idcat { margin: 8px 0 0; font-size: 11.5px; }
+.nf-idcat code { font-family: var(--mono); font-size: 11px; color: var(--accent); }
+
+/* Encargo generado: el texto se muestra completo y copiable. */
+.nf-encargo {
+  margin-top: 22px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel-2); padding: 12px 14px;
+}
+.nf-encargo-h {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.nf-encargo-h h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.nf-encargo-texto {
+  width: 100%; resize: vertical; font-family: var(--mono); font-size: 11.5px;
+  line-height: 1.5; padding: 10px; border-radius: 6px;
+  background: var(--panel); border: 1px solid var(--line); color: var(--text);
+}

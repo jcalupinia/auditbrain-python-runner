@@ -147,6 +147,7 @@ def init_db() -> None:
     from backend.app.auth import models as _auth_models  # noqa: F401
     from backend.app.aud.obligaciones_fiscales import models as _aud_of_models  # noqa: F401
     from backend.app.aud.obligaciones_fiscales.mayor import models as _mayor_models  # noqa: F401
+    from backend.app.aud.niif import models as _aud_niif_models  # noqa: F401
     from backend.app.chat import models as _chat_models  # noqa: F401
     from backend.app.context import models as _context_models  # noqa: F401
     from backend.app.ict import models as _ict_models  # noqa: F401

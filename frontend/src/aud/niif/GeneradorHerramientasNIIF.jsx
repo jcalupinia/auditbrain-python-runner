@@ -1,27 +1,39 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import * as api from "../../api.js";
 import { CATEGORIES } from "../catalog.js";
 import {
+  ESTADO_EN_DISENO,
+  ESTADO_ENVIADA,
+  ESTADO_PROBADA,
   FORMATOS_ENTRADA,
   FORMATOS_SALIDA,
-  borrarFicha,
+  esEditable,
+  etiquetaEstado,
+  fechaCorta,
   fichaParaEditar,
   fichaVacia,
-  guardarFicha,
   gruposAlternativos,
+  idCatalogo,
   itemVacio,
-  listarFichas,
+  nombreArchivoEncargo,
   prepararParaGuardar,
+  puedeGenerarCodigo,
   salidaVacia,
+  textoEncargo,
+  upsertFicha,
   validarFicha,
 } from "./fichaLogic.js";
 import "./fichaNiif.css";
 
 /* ============================================================
    Generación de herramientas NIIF · ficha de diseño
-   Primera entrega: se DISEÑA la prueba (identificación, qué se le
-   pide al cliente y qué cédulas produce) y queda "en diseño".
-   El motor de cálculo, la carga de archivos del cliente y la
-   generación del Excel NO son parte de esta entrega.
+   Circuito completo: se DISEÑA la prueba, se prueba, alguien la
+   marca «probada» (queda registrado quién y cuándo) y recién
+   entonces aparece «Generar código para Claude», que produce el
+   encargo para que un asistente implemente la herramienta.
+   Las fichas viven en el backend (/api/v1/aud/niif/fichas), no en
+   el navegador: el revisor tiene que ver lo que diseñó otro.
+   El motor de cálculo NO es parte de esta entrega.
    Fuente: docs/pruebas/ESTRUCTURA_HERRAMIENTA.md (bloques 2 y 4).
    ============================================================ */
 
@@ -47,12 +59,34 @@ function Formatos({ opciones, seleccion, onToggle }) {
 
 export default function GeneradorHerramientasNIIF() {
   const [ficha, setFicha] = useState(fichaVacia);
-  const [fichas, setFichas] = useState(listarFichas);
+  const [fichas, setFichas] = useState([]);
+  const [cargando, setCargando] = useState(true);
   const [intentoGuardar, setIntentoGuardar] = useState(false);
   const [aviso, setAviso] = useState("");
+  const [error, setError] = useState("");
+  const [ocupado, setOcupado] = useState(false);
+  // Encargo generado: { fichaId, nombreArchivo, texto }
+  const [encargo, setEncargo] = useState(null);
+  const [copiado, setCopiado] = useState("");
 
   const errores = useMemo(() => validarFicha(ficha), [ficha]);
   const grupos = useMemo(() => gruposAlternativos(ficha.items), [ficha.items]);
+
+  const recargar = useCallback(async () => {
+    setCargando(true);
+    try {
+      setFichas(await api.niifListarFichas());
+      setError("");
+    } catch (e) {
+      setError(e.message || "No se pudieron cargar las fichas.");
+    } finally {
+      setCargando(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    recargar();
+  }, [recargar]);
 
   const set = (campo, valor) => setFicha((f) => ({ ...f, [campo]: valor }));
 
@@ -72,30 +106,110 @@ export default function GeneradorHerramientasNIIF() {
     });
   }
 
-  function guardar(e) {
+  async function guardar(e) {
     e.preventDefault();
     setIntentoGuardar(true);
+    setError("");
     if (errores.length) {
       setAviso("");
       return;
     }
-    const guardada = prepararParaGuardar(ficha);
-    setFichas(guardarFicha(guardada));
-    setFicha(fichaVacia());
-    setIntentoGuardar(false);
-    setAviso(`Ficha «${guardada.nombre}» guardada en estado «en diseño».`);
+    const payload = prepararParaGuardar(ficha);
+    setOcupado(true);
+    try {
+      const guardada = ficha.id
+        ? await api.niifActualizarFicha(ficha.id, payload)
+        : await api.niifCrearFicha(payload);
+      setFichas((lista) => upsertFicha(lista, guardada));
+      setFicha(fichaVacia());
+      setIntentoGuardar(false);
+      setAviso(
+        `Ficha «${guardada.nombre}» guardada en estado «${etiquetaEstado(guardada.estado)}».`
+      );
+    } catch (err) {
+      setAviso("");
+      setError(err.message || "No se pudo guardar la ficha.");
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  async function marcarProbada(g) {
+    setError("");
+    setOcupado(true);
+    try {
+      const actualizada = await api.niifCambiarEstado(g.id, ESTADO_PROBADA);
+      setFichas((lista) => upsertFicha(lista, actualizada));
+      // Si estaba abierta en el formulario, ya no se edita.
+      setFicha((f) => (f.id === g.id ? fichaVacia() : f));
+      setAviso(
+        `«${actualizada.nombre}» quedó marcada como probada por ` +
+          `${actualizada.probada_por_email}.`
+      );
+    } catch (err) {
+      setAviso("");
+      setError(err.message || "No se pudo marcar la ficha como probada.");
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  async function generarCodigo(g) {
+    setError("");
+    setOcupado(true);
+    try {
+      // El paso de estado lo valida el backend: de «probada» a «enviada».
+      const actualizada = await api.niifCambiarEstado(g.id, ESTADO_ENVIADA);
+      setFichas((lista) => upsertFicha(lista, actualizada));
+      setEncargo({
+        fichaId: actualizada.id,
+        nombreArchivo: nombreArchivoEncargo(actualizada),
+        texto: textoEncargo(actualizada, RUBROS),
+      });
+      setCopiado("");
+      setAviso("");
+    } catch (err) {
+      setError(err.message || "No se pudo generar el encargo.");
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  async function copiarEncargo() {
+    try {
+      await navigator.clipboard.writeText(encargo.texto);
+      setCopiado("Encargo copiado al portapapeles.");
+    } catch {
+      setCopiado(
+        "El navegador bloqueó el portapapeles: selecciona el texto de abajo y cópialo a mano."
+      );
+    }
+  }
+
+  function descargarEncargo() {
+    const blob = new Blob([encargo.texto], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = encargo.nombreArchivo;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   function editar(g) {
     setFicha(fichaParaEditar(g));
     setIntentoGuardar(false);
     setAviso("");
+    setError("");
   }
 
   function nueva() {
     setFicha(fichaVacia());
     setIntentoGuardar(false);
     setAviso("");
+    setError("");
   }
 
   return (
@@ -104,9 +218,12 @@ export default function GeneradorHerramientasNIIF() {
         <h2>Generación de herramientas NIIF</h2>
         <p className="muted">
           Ficha de diseño de una prueba de auditoría: qué es, qué se le pide al
-          cliente y qué cédulas produce. Al guardar queda en estado{" "}
-          <span className="nf-badge">en diseño</span> — el motor de cálculo se
-          construye después.
+          cliente y qué cédulas produce. El circuito es{" "}
+          <span className="nf-badge">en diseño</span> →{" "}
+          <span className="nf-badge probada">probada</span> →{" "}
+          <span className="nf-badge enviada">enviada</span>. Las fichas son de la
+          firma: las ve todo el equipo, y quien marca una como probada queda
+          registrado.
         </p>
       </header>
 
@@ -156,6 +273,11 @@ export default function GeneradorHerramientasNIIF() {
               />
             </label>
           </div>
+          {ficha.nombre && ficha.rubro && (
+            <p className="muted nf-idcat">
+              Identificador en el catálogo AUD: <code>{idCatalogo(ficha)}</code>
+            </p>
+          )}
         </section>
 
         {/* ---------- 2 · Requerimiento al cliente ---------- */}
@@ -341,47 +463,98 @@ export default function GeneradorHerramientasNIIF() {
           </div>
         )}
         {aviso && <div className="notice nf-errores">{aviso}</div>}
+        {error && <div className="notice warn nf-errores">{error}</div>}
 
         <div className="of-stage-actions">
-          <button type="submit" className="btn primary lg">
-            Guardar ficha (en diseño)
+          <button type="submit" className="btn primary lg" disabled={ocupado}>
+            {ficha.id ? "Guardar cambios" : "Guardar ficha (en diseño)"}
           </button>
-          <button type="button" className="btn" onClick={nueva}>
-            Limpiar
+          <button type="button" className="btn" onClick={nueva} disabled={ocupado}>
+            {ficha.id ? "Cancelar edición" : "Limpiar"}
           </button>
         </div>
       </form>
 
-      {fichas.length > 0 && (
-        <div className="of-recent">
-          <h3>Herramientas en diseño</h3>
-          <ul className="of-recent-list">
-            {fichas.map((g) => (
-              <li key={g.id}>
-                <div className="nf-recent-row">
-                  <span className="nf-recent-name">{g.nombre}</span>
-                  <span className="nf-badge">en diseño</span>
-                  <span className="nf-ficha-meta">
-                    {g.norma} {g.parrafo} · {g.items.length} ítem(s) · {g.salidas.length} cédula(s)
-                  </span>
-                  <span className="nf-recent-acts">
-                    <button type="button" className="link" onClick={() => editar(g)}>
-                      Abrir
-                    </button>
-                    <button
-                      type="button"
-                      className="link"
-                      onClick={() => setFichas(borrarFicha(g.id))}
-                    >
-                      Borrar
-                    </button>
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
+      {/* ---------- Encargo generado ---------- */}
+      {encargo && (
+        <div className="nf-encargo">
+          <div className="nf-encargo-h">
+            <h3>Encargo para el asistente</h3>
+            <span className="nf-ficha-meta">{encargo.nombreArchivo}</span>
+            <span className="nf-recent-acts">
+              <button type="button" className="btn sm" onClick={copiarEncargo}>
+                Copiar al portapapeles
+              </button>
+              <button type="button" className="btn sm" onClick={descargarEncargo}>
+                Descargar .md
+              </button>
+              <button type="button" className="link" onClick={() => setEncargo(null)}>
+                Cerrar
+              </button>
+            </span>
+          </div>
+          {copiado && <div className="notice nf-errores">{copiado}</div>}
+          <textarea className="nf-encargo-texto" readOnly value={encargo.texto} rows={22} />
         </div>
       )}
+
+      {/* ---------- Fichas de la firma ---------- */}
+      <div className="of-recent">
+        <h3>Fichas de la firma</h3>
+        {cargando && <p className="muted">Cargando fichas…</p>}
+        {!cargando && fichas.length === 0 && (
+          <p className="muted">Todavía no hay ninguna ficha guardada.</p>
+        )}
+        <ul className="of-recent-list">
+          {fichas.map((g) => (
+            <li key={g.id}>
+              <div className="nf-recent-row">
+                <span className="nf-recent-name">{g.nombre}</span>
+                <span className={`nf-badge ${g.estado === ESTADO_EN_DISENO ? "" : g.estado}`}>
+                  {etiquetaEstado(g.estado)}
+                </span>
+                <span className="nf-ficha-meta">
+                  {g.norma} {g.parrafo} · {(g.items || []).length} ítem(s) ·{" "}
+                  {(g.salidas || []).length} cédula(s) · diseñada por {g.autor_email || "—"}
+                  {g.probada_por_email
+                    ? ` · probada por ${g.probada_por_email} el ${fechaCorta(g.probada_en)}`
+                    : ""}
+                  {g.estado === ESTADO_ENVIADA
+                    ? ` · enviada el ${fechaCorta(g.enviada_en)}`
+                    : ""}
+                </span>
+                <span className="nf-recent-acts">
+                  {esEditable(g) && (
+                    <>
+                      <button type="button" className="link" onClick={() => editar(g)}>
+                        Abrir
+                      </button>
+                      <button
+                        type="button"
+                        className="btn sm"
+                        disabled={ocupado}
+                        onClick={() => marcarProbada(g)}
+                      >
+                        Marcar probada
+                      </button>
+                    </>
+                  )}
+                  {puedeGenerarCodigo(g) && (
+                    <button
+                      type="button"
+                      className="btn sm primary"
+                      disabled={ocupado}
+                      onClick={() => generarCodigo(g)}
+                    >
+                      Generar código para Claude
+                    </button>
+                  )}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
