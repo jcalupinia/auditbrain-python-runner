@@ -16,7 +16,26 @@ acumulan aquí y se hace **una sola publicación**.
 
 ---
 
-## A · Publicado en la versión 25 (2026-09-19)
+## A · Listos en el checkout, esperando publicación
+
+| # | Cambio | Archivos | Estado |
+|---|---|---|---|
+| A16 | **Motor de cálculo NIIF, fase 1.** Series por períodos espejadas en el motor Python; contraste servidor/Python simetrizado (recorre la unión de claves e incluye `totals`); cédula `13_Cuadro` alimentada desde `run.schedule`, que antes se calculaba y se tiraba; **flujos irregulares con fechas** en convención `actual/365`, con el mismo algoritmo entero en los tres motores; guardarraíl que avisa si un cuadro de amortización no cierra en cero; y el motor portátil con script de regeneración y prueba que detecta la divergencia | `lib/tools/domain.mjs`, `lib/tools/exports.mjs`, `lib/tools/workbook-presentation.mjs`, `lib/tools/html-presentation.mjs`, `lib/tools/explanations.mjs`, `lib/tools/lifecycle.ts`, `lib/tools/portable-engine.mjs`, `public/engine/audit_engine.py`, `app/api/tools/route.ts`, `app/herramientas/tool-studio.tsx`, `scripts/export-portable-engine.mjs`, `package.json`, `tests/tools/*`, **`drizzle/0000_mixed_cyclops.sql` eliminado** | ✅ **60/60 pruebas** (antes 24/25 con un fallo crónico) · `tsc` sin errores · build limpio · Excel abierto con openpyxl sin reparaciones |
+
+### ⚠️ Aviso para esta publicación: `drizzle/` SÍ cambia
+
+A diferencia de las versiones 24 y 25, **esta vez hay un cambio en `drizzle/`**: se
+**eliminó** `0000_mixed_cyclops.sql`. No es una migración nueva y **nunca estuvo en
+`_journal.json`**, así que D1 jamás lo aplicó — era un archivo muerto con el esquema
+viejo de `engagements`. Eliminarlo es justamente lo que arregla el
+`table engagements already exists` que tumbó las versiones 20 y 22.
+
+Lo que hay que decirle a Codex: **no hay migraciones nuevas; siguen siendo las 7 del
+journal; se eliminó un `.sql` huérfano que no estaba en el journal.**
+
+---
+
+## A-histórico · Publicado en la versión 25 (2026-09-19)
 
 | # | Cambio | Archivos | Estado |
 |---|---|---|---|

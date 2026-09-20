@@ -10,6 +10,36 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-19-motor-calculo-niif-design.md`
 
+---
+
+## ✅ EJECUTADO · 2026-09-20
+
+Las nueve tareas cerradas con subagentes, dos revisiones por tarea y verificación
+independiente. La suite de `tests/tools` pasó de **24/25 con un fallo crónico a
+60/60 sin ninguno**. Nueve commits en la rama `motor-niif-fase-1` de
+`auditbrain-site`, de `7dbaa73` a `983ae23`.
+
+**Correcciones al propio plan que salieron al ejecutarlo:**
+
+| Dónde | Qué estaba mal en el plan | Cómo se resolvió |
+|---|---|---|
+| Task 1 | El preámbulo del motor portátil seguía incompleto: faltaban `SERIES_OPS` y `validateSeriesRule`, y `seriesKeys` es una función flecha que pierde el nombre con `toString()` | Se exportaron los helpers de `domain.mjs` y **todo** el preámbulo se deriva con `toString()`. Copiar literales reintroducía la divergencia silenciosa que la tarea venía a matar |
+| Task 1 | La prueba nacía **siempre en rojo**: `core.autocrlf=true` hace que `toString()` devuelva CRLF y el archivo commiteado tiene LF | Normalizar los finales de línea dentro de `portableSource()` |
+| Task 5b | **La serie de Taylor en escala 1e6 no alcanzaba** (un centavo de error por flujo, acumulativo) y `expScaled` **divergía** en plazos largos | Escala interna 1e18, descomposición `(1+i)^(d/365) = (1+i)^q · exp(ln(1+i)·r/365)` y **aritmética entera en los dos motores**: el dígito coincide por construcción, no por suerte. Error relativo peor: 6×10⁻¹⁸ contra referencia de 60 dígitos |
+| Task 4 | El plan proponía la cédula del cuadro en formato **largo** (una fila por par período-clave) | Se hizo **ancha**: en formato largo un cuadro de 5 períodos × 10 conceptos pasa de 5 a 50 filas y se pierde de vista lo único que importa, que el pasivo se extinga |
+
+**Hallazgos ajenos al plan, más valiosos que el plan:**
+
+1. **La causa raíz de los fallos de publicación.** `drizzle/0000_mixed_cyclops.sql` era un archivo **huérfano**: fuera de `_journal.json`, con el esquema **viejo** de `engagements` (`data`, `version` en vez de `payload`, `revision`). Cualquier cosa que barra el directorio —la prueba, y el despliegue, porque el plugin de build copia `drizzle/` entero— creaba la tabla dos veces. Es el `table engagements already exists` que tumbó las **versiones 20 y 22**. Eliminado, y la prueba ahora aplica las migraciones **en el orden del journal**, igual que el despliegue.
+2. **`int()` de Python no replicaba el redondeo de la autoridad.** Con `n=5.996` un motor daba 6 períodos y el otro 5. Es exactamente para lo que existe el doble cálculo.
+3. **Tres pruebas de `integration.test.mjs` nunca se habían ejecutado**: el archivo moría al importarse y sus fallos quedaban ocultos.
+4. **La réplica no estaba bajo git.** Tenía `.gitignore` pero nadie había corrido `git init`. Se resolvió en la Task 0.
+
+**Lo que no está verificado:** nadie hizo clic en el bloque del calendario de pagos.
+Está en el fuente y compilado al paquete servido, y la prueba de integración recorre
+ese camino de datos de punta a punta contra los handlers reales; pero llegar a esa
+pantalla exige completar todo el flujo y **no se vio renderizado**.
+
 **Raíz de trabajo:** `C:\Users\jcalu\Desktop\PROYECTOS CLAUDE\auditbrain-site`. Todas las rutas son relativas a ella salvo indicación contraria.
 
 ---
