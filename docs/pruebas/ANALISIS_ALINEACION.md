@@ -119,6 +119,22 @@ documento y una prueba de formato no admitido que muestra el mensaje del motor.
 
 ---
 
+## 5B · Los dos caminos que faltaban por ver (2026-09-19)
+
+Quedaban sin ejercitar porque el espacio publicado no tiene ninguna herramienta
+creada y crearla escribe en la base real. Se hicieron **en local**, con el mismo
+código que está publicado:
+
+| Camino | Resultado |
+|---|---|
+| Cobertura en Herramientas (`A10`) | La herramienta se crea y abre; el flujo de requerimientos responde |
+| Panel de entregables | «Excel con **12** cédulas» en una herramienta normal · «Excel con **7**» declarando `sheets:['02_Programa','11_Conclusion']` |
+
+Lo segundo cierra `B5.3`: el número sale de la definición también en pantalla,
+no solo en el libro.
+
+---
+
 ## 6 · Conclusión
 
 Lo reconstruido **funciona y está bien**, pero **llegó a una sola de las cinco

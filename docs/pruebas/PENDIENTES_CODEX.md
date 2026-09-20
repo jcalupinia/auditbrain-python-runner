@@ -27,6 +27,39 @@ puede romperse si a una herramienta le faltara la definición.
 
 ---
 
+## A · Listos en el checkout, esperando publicación
+
+| # | Cambio | Archivos | Estado |
+|---|---|---|---|
+| A15 | **Eliminar una herramienta, no solo encerarla.** No existía ningún `DELETE`: «Encerar» borraba datos y archivos pero **dejaba la prueba en la lista** con estado `PRUEBA_SELECCIONADA`, y no había forma de quitarla. `deleteTool` reutiliza el encerado en dos fases (anota las claves de R2 en el propio registro antes de borrar, para que un fallo a medias se reintente sin dejar objetos huérfanos) y luego borra en orden de clave foránea —`tool_files`, `tool_events`, `audit_tools`— con guardia de revisión en cada sentencia | `lib/tools/lifecycle.ts` (`deleteTool`), `app/api/tools/route.ts` (acción `delete`), `app/herramientas/context-controls.tsx` (botón y formulario), `app/herramientas/tool-studio.tsx` (vuelve a la lista) | ✅ compila limpio · `npx tsc --noEmit` sin errores · **verificado de punta a punta en local** — ver abajo |
+
+**Resguardos** (todos probados, ninguno asumido):
+
+| Resguardo | Resultado |
+|---|---|
+| Solo el propietario (`ADMIN`) | Código 403 |
+| Hay que escribir el nombre del cliente | 400 con el cliente mal escrito y 400 sin confirmar |
+| Revisión obsoleta | 409, no borra nada |
+| Versión **aprobada** | 400: «es evidencia del encargo. Confírmelo expresamente». Con `approvedConfirmed` sí borra |
+| Versión con sucesora | 409, hay que borrar primero la más reciente |
+
+**Verificación en la base local**, contando filas antes y después:
+
+| Comprobación | Resultado |
+|---|---|
+| Prueba con 5 archivos y 13 eventos | 0 filas en `audit_tools`, `tool_events` y `tool_files` |
+| Objetos en R2 de esa prueba | **0** (antes 5) |
+| Filas huérfanas en toda la base | 0 eventos, 0 archivos |
+| Encargos | **9 intactos**: borrar una prueba no toca la ficha |
+| Por la interfaz | Avisa «Prueba eliminada definitivamente: …», vuelve a la lista y la fila desaparece |
+
+De paso quedaron verificados los **dos caminos que faltaban** (ver ANALISIS):
+el panel de entregables muestra «Excel con **12** cédulas» en una herramienta
+normal y «Excel con **7**» en una que declara `sheets:['02_Programa','11_Conclusion']`,
+así que **calcula** el número y no lo tiene fijo.
+
+---
+
 ## A-histórico · Publicado en la versión 23 (2026-09-19)
 
 | # | Cambio | Archivos | Estado |
