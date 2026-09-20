@@ -3,6 +3,7 @@ import * as api from "./api.js";
 import ToolCatalog from "./aud/ToolCatalog.jsx";
 import TaxCatalog from "./tax/TaxCatalog.jsx";
 import FinCatalog from "./fin/FinCatalog.jsx";
+import GeneradorHerramientasNIIF from "./aud/niif/GeneradorHerramientasNIIF.jsx";
 
 /* ---------------- Theme (Azul medio por defecto + selector de color) ---------------- */
 const THEME_KEY = "ab_theme";
@@ -1058,6 +1059,19 @@ const AI_LINKS = [
   { name: "Gemini", href: "https://gemini.google.com", logo: "/assets/ai/gemini.svg" },
 ];
 
+// Pestañas del workspace. Antes el rótulo se capitalizaba a partir del id
+// (`t.charAt(0).toUpperCase()`), que con un nombre largo como "Generación de
+// herramientas NIIF" no da un rótulo presentable: el id queda para el estado
+// y la etiqueta se declara aquí. `soloAud` deja la pestaña fuera de los
+// módulos donde no tendría página que abrir.
+const CW_TABS = [
+  { id: "chat", label: "Chat" },
+  { id: "análisis", label: "Análisis" },
+  { id: "documentos", label: "Documentos" },
+  { id: "notas", label: "Notas" },
+  { id: "niif", label: "Generación de herramientas NIIF", soloAud: true },
+];
+
 function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isStaff }) {
   const [tab, setTab] = useState("chat");
   const [chatText, setChatText] = useState("");
@@ -1074,6 +1088,9 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
     setMessages([]);
     setChatNotice("");
     setChatText("");
+    // La pestaña NIIF solo existe en AUD: al salir del módulo no puede quedar
+    // seleccionada una pestaña que ya no se ve.
+    setTab((t) => (t === "niif" ? "chat" : t));
   }, [module.id]);
 
   async function submitChat(e) {
@@ -1129,14 +1146,18 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
         meta={`${module.id} · ${ctx?.active_project?.name || "sin proyecto"}`}
       >
         <div className="cw-tabs">
-          {["chat", "análisis", "documentos", "notas"].map((t) => (
-            <button key={t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>
-              {t.charAt(0).toUpperCase() + t.slice(1)}
+          {CW_TABS.filter((t) => !t.soloAud || module.id === "AUD").map((t) => (
+            <button key={t.id} className={tab === t.id ? "on" : ""} onClick={() => setTab(t.id)}>
+              {t.label}
             </button>
           ))}
         </div>
 
-        {tab === "análisis" && module.id === "AUD" ? (
+        {tab === "niif" && module.id === "AUD" ? (
+          <div className="cw-tool">
+            <GeneradorHerramientasNIIF />
+          </div>
+        ) : tab === "análisis" && module.id === "AUD" ? (
           <div className="cw-tool">
             <ToolCatalog projectId={ctx?.active_project?.id} />
           </div>
