@@ -16,7 +16,7 @@ acumulan aquí y se hace **una sola publicación**.
 
 ---
 
-## A · Listos en el checkout, esperando publicación
+## A · Publicado en la versión 25 (2026-09-19)
 
 | # | Cambio | Archivos | Estado |
 |---|---|---|---|
@@ -285,6 +285,8 @@ registrar la versión del sitio.
 | 2026-09-19 | **19** | **A1 a A8 en una sola publicación**: motor a 100.000 filas · extractor conectado a la evidencia del encargo con XML, ZIP y WebP · Markdown · límites 200 archivos / 300 MB / 25 MB · ruta muerta eliminada · requerimiento estructurado en ítems con cobertura por componentes · fuentes alternativas, plantilla descargable y estados del documento · casilla de impuestos diferidos y limpieza de pantalla. Migración `0005` aplicada y columnas `item_id`/`component` verificadas en D1. Acceso conservado como privado del propietario |
 | 2026-09-19 | **21** | **A9 a A12 en una sola publicación**: manual y ejemplo alineados con el modelo de ítems (sección 05A, regla M17, manual 1.3.0) · Herramientas unificadas con el motor de cobertura vía `lib/tools/coverage.mjs`, con migración `0006` (`tool_files.component`) · fuentes apuntando al texto de la norma y no a su índice · **cédulas variables**: el libro sale de `definition.sheets` y conserva solo el núcleo referenciado por fórmulas. La versión 20 falló y no quedó activa |
 | 2026-09-19 | **23** | **A13**: el recorrido usa el motor de cobertura real (`parseItems`/`coverage`/`gaps`/`checkUpload`) en vez de contar «4 de 4»; el requerimiento del ejemplo pasó a ítems con formatos, exigencia, componentes y grupo; botón de rechazo por documento. Redacción del hueco corregida en `lib/requirement.mjs` y un tipo en `app/api/documents/route.ts` (`npx tsc --noEmit` queda **sin errores**). La versión 22 volvió a fallar por migraciones ya aplicadas |
+| 2026-09-19 | **24** | **A14**: se quitaron las cuatro afirmaciones de «12 cédulas» que contradecían B5.3, incluida la del manual, que además describía el recorrido anterior a A13. Manual a 1.3.1. Primera publicación **sin intento fallido**, tras avisarle a Codex que no había migraciones |
+| 2026-09-19 | **25** | **A15**: eliminar herramientas de verdad (`deleteTool`), con cinco resguardos y limpieza de R2. Commit `11cc938`. Migraciones incluidas: 0, otra vez a la primera |
 
 Verificación independiente tras publicar: la URL responde `HTTP 401`, es decir
 el sitio está sirviendo y conserva su protección por sesión de ChatGPT.
