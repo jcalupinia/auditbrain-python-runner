@@ -16,7 +16,7 @@ acumulan aquí y se hace **una sola publicación**.
 
 ---
 
-## A · Listos en el checkout, esperando publicación
+## A · Publicado en la versión 26 (2026-09-20)
 
 | # | Cambio | Archivos | Estado |
 |---|---|---|---|
@@ -306,6 +306,7 @@ registrar la versión del sitio.
 | 2026-09-19 | **23** | **A13**: el recorrido usa el motor de cobertura real (`parseItems`/`coverage`/`gaps`/`checkUpload`) en vez de contar «4 de 4»; el requerimiento del ejemplo pasó a ítems con formatos, exigencia, componentes y grupo; botón de rechazo por documento. Redacción del hueco corregida en `lib/requirement.mjs` y un tipo en `app/api/documents/route.ts` (`npx tsc --noEmit` queda **sin errores**). La versión 22 volvió a fallar por migraciones ya aplicadas |
 | 2026-09-19 | **24** | **A14**: se quitaron las cuatro afirmaciones de «12 cédulas» que contradecían B5.3, incluida la del manual, que además describía el recorrido anterior a A13. Manual a 1.3.1. Primera publicación **sin intento fallido**, tras avisarle a Codex que no había migraciones |
 | 2026-09-19 | **25** | **A15**: eliminar herramientas de verdad (`deleteTool`), con cinco resguardos y limpieza de R2. Commit `11cc938`. Migraciones incluidas: 0, otra vez a la primera |
+| 2026-09-20 | **26** | **A16 · fase 1 del motor NIIF**: series en el motor Python, contraste simetrizado con `totals`, cédula `13_Cuadro`, flujos con fechas en `actual/365` y guardarraíl de cierre. 60/60 pruebas. **Se eliminó `drizzle/0000_mixed_cyclops.sql`**, el `.sql` huérfano fuera del journal con el esquema viejo de `engagements` que causaba el `table engagements already exists` de las versiones 20 y 22. El artefacto llevó las 7 del journal y 0 migraciones pendientes |
 
 Verificación independiente tras publicar: la URL responde `HTTP 401`, es decir
 el sitio está sirviendo y conserva su protección por sesión de ChatGPT.
