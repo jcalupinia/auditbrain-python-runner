@@ -16,7 +16,7 @@ acumulan aquí y se hace **una sola publicación**.
 
 ---
 
-## A · Listos en el checkout, esperando publicación
+## A · Publicado en la versión 23 (2026-09-19)
 
 | # | Cambio | Archivos | Estado |
 |---|---|---|---|
@@ -240,6 +240,7 @@ registrar la versión del sitio.
 | 2026-09-19 | 17 | Estado al sincronizar el checkout |
 | 2026-09-19 | **19** | **A1 a A8 en una sola publicación**: motor a 100.000 filas · extractor conectado a la evidencia del encargo con XML, ZIP y WebP · Markdown · límites 200 archivos / 300 MB / 25 MB · ruta muerta eliminada · requerimiento estructurado en ítems con cobertura por componentes · fuentes alternativas, plantilla descargable y estados del documento · casilla de impuestos diferidos y limpieza de pantalla. Migración `0005` aplicada y columnas `item_id`/`component` verificadas en D1. Acceso conservado como privado del propietario |
 | 2026-09-19 | **21** | **A9 a A12 en una sola publicación**: manual y ejemplo alineados con el modelo de ítems (sección 05A, regla M17, manual 1.3.0) · Herramientas unificadas con el motor de cobertura vía `lib/tools/coverage.mjs`, con migración `0006` (`tool_files.component`) · fuentes apuntando al texto de la norma y no a su índice · **cédulas variables**: el libro sale de `definition.sheets` y conserva solo el núcleo referenciado por fórmulas. La versión 20 falló y no quedó activa |
+| 2026-09-19 | **23** | **A13**: el recorrido usa el motor de cobertura real (`parseItems`/`coverage`/`gaps`/`checkUpload`) en vez de contar «4 de 4»; el requerimiento del ejemplo pasó a ítems con formatos, exigencia, componentes y grupo; botón de rechazo por documento. Redacción del hueco corregida en `lib/requirement.mjs` y un tipo en `app/api/documents/route.ts` (`npx tsc --noEmit` queda **sin errores**). La versión 22 volvió a fallar por migraciones ya aplicadas |
 
 Verificación independiente tras publicar: la URL responde `HTTP 401`, es decir
 el sitio está sirviendo y conserva su protección por sesión de ChatGPT.
@@ -250,6 +251,12 @@ pendiente. D1 las rechaza por duplicadas. La versión 21 se armó con un paquete
 de 211 entradas que contiene **únicamente `0006`**, más el Worker y su
 configuración. Si una publicación futura falla en la migración, ese es el primer
 lugar donde mirar.
+
+**Pasó otra vez en la versión 22** (`table engagements already exists`), con las
+ocho migraciones ya aplicadas en el paquete. Codex las quitó del paquete temporal
+—no del checkout, que conserva las ocho— y la 23 salió bien. **Conviene decírselo
+por adelantado en el próximo `codex exec`**: «no hay migraciones nuevas; empaqueta
+solo las pendientes». Ahorra un intento fallido por publicación.
 
 Verificación de la versión 21: `HTTP 401` en dos intentos (1,4 s y 0,3 s), con
 `Cache-Control: no-store`. El sitio sirve y sigue siendo privado.
