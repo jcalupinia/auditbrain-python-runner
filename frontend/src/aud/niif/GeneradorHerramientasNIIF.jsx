@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+
+import EstudioPrueba from "./EstudioPrueba";
 import * as api from "../../api.js";
 import { CATEGORIES } from "../catalog.js";
 import {
@@ -68,6 +70,8 @@ export default function GeneradorHerramientasNIIF() {
   // Encargo generado: { fichaId, nombreArchivo, texto }
   const [encargo, setEncargo] = useState(null);
   const [copiado, setCopiado] = useState("");
+  // Ficha cuyo «Estudio de la prueba» está abierto debajo de su fila.
+  const [estudioId, setEstudioId] = useState(null);
 
   const errores = useMemo(() => validarFicha(ficha), [ficha]);
   const grupos = useMemo(() => gruposAlternativos(ficha.items), [ficha.items]);
@@ -605,6 +609,13 @@ ${g.nombre}`
                   )}
                   <button
                     type="button"
+                    className="link"
+                    onClick={() => setEstudioId(estudioId === g.id ? null : g.id)}
+                  >
+                    {estudioId === g.id ? "Cerrar estudio" : "Estudio"}
+                  </button>
+                  <button
+                    type="button"
                     className="link peligro"
                     disabled={ocupado}
                     onClick={() => borrarFicha(g)}
@@ -613,6 +624,7 @@ ${g.nombre}`
                   </button>
                 </span>
               </div>
+              {estudioId === g.id && <EstudioPrueba ficha={g} />}
             </li>
           ))}
         </ul>

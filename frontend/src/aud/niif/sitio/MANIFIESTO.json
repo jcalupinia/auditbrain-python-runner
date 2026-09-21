@@ -1,0 +1,23 @@
+{
+  "origen": "auditbrain-site @ ac21ef9 · lib/tools/*.mjs -> tools/, lib/*.mjs -> raíz, public/documentos -> documentos/ (huellas sobre texto con LF)",
+  "sha256": {
+    "console/extract.mjs": "9ea97c6a33455268da31644ec526157ff70bb8130031098175ef0a7c566cbba1",
+    "documentos/Manual_Arquitectura_AuditBrain.html": "7e99bf1df3a15224aad1d564ffa4a831d0774182b1a24cdd30b943a83fceed5d",
+    "documentos/Manual_Arquitectura_AuditBrain.md": "82f5ed1043d777f789ce6766e3e5a0b436ec5c9f7cfc862f7cbb9f66f0062124",
+    "documentos/Memoria_Metodologica_AuditBrain.json": "de4dea0b83da0873e26ad02da746b19607d8c710aed692bd9b5076f0f9727d4f",
+    "documentos/Memoria_Metodologica_AuditBrain.md": "0e63ab28c2c10773b11366c15ca77344418ffa350e2aa1636cb870aac3d02bff",
+    "engagement-context.ts": "217b7cfedf33086264dde5f36e8f496262ed0b6a89b15193e32c1a11e9d28e13",
+    "methodology.mjs": "715f81dd224f5b5d5eadcd624b35fb76902ece21a52f24bcf31b666958a8151c",
+    "reconstruction/protocol.ts": "c4a94b72774e383b2200de41586c00c8b80ba3c3ae3c3f8ff7bbac25db1d6722",
+    "requirement.mjs": "4609cea73e2e07ee7eeca5800a4554d67d5b69586fdc15fd3c39e43e5f88eafc",
+    "tools/brand.mjs": "c49a7226cfc388df1ed11a8ea0f2556464d2d2fd3635b3f345bf7606fe9434bb",
+    "tools/domain.mjs": "27474d97edbcd74478bb4e1cc27673b85da38cfa43973f637e8f423d65fea506",
+    "tools/example.mjs": "a0a026300b70ebdb0bf4cc09a1e6fef62a018d6855e16602c7c6cef279b47d13",
+    "tools/explanations.mjs": "a8c9eabcc796f70410710254e964cf54979c7804fba0f9bf4010d1f071d395d5",
+    "tools/exports.mjs": "2395f0535161fc1fe9c3e0e4fa213426b46b08aa61405498cd23f41240bebdee",
+    "tools/files.mjs": "b4d985f2eba140a4dc32f336699d4ee67046a3eb7102d7fc941f07c4951dcff3",
+    "tools/html-presentation.mjs": "bec9e95467317512ba2be6184286f5d06633322a72fe4379abf1714220bbb6aa",
+    "tools/portable-engine.mjs": "3caad06a2d715a36396bbabaffdba0f16becb2d70e70fb266df9de323b4f141f",
+    "tools/workbook-presentation.mjs": "022089a870be384d2aa51b00f958584486042da3353a4373cf63875a5c9827a2"
+  }
+}

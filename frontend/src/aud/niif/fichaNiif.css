@@ -123,3 +123,85 @@
 /* Acción destructiva: se distingue del resto sin gritar. */
 .nf-lista .link.peligro { color: var(--peligro, #c0392b); }
 .nf-lista .link.peligro:hover { text-decoration: underline; }
+
+/* ---------- Estudio de la prueba ---------- */
+.nf-estudio { margin: 10px 0 18px; padding: 14px 16px; border: 1px solid rgba(199, 168, 60, 0.35); border-radius: 8px; background: rgba(10, 35, 66, 0.35); }
+.nf-estudio h4 { margin: 0 0 10px; }
+.nf-estudio h5 { margin: 14px 0 6px; }
+.nf-estudio section + section { border-top: 1px solid rgba(255, 255, 255, 0.08); margin-top: 12px; }
+.nf-estudio-items { list-style: none; padding: 0; margin: 0; }
+.nf-estudio-items li { padding: 6px 0; }
+.nf-estudio-marcas { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.nf-marca { min-width: 34px; padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.25); background: transparent; color: inherit; cursor: pointer; font-size: 12px; }
+.nf-marca.recibido { background: #1f6f43; border-color: #2e9e60; }
+.nf-marca.rechazado { background: #7a2020; border-color: #b33a3a; text-decoration: line-through; }
+.nf-huecos { margin-top: 8px; padding: 8px 10px; border-left: 3px solid #C7A83C; background: rgba(199, 168, 60, 0.08); }
+.nf-huecos ul { margin: 4px 0 0; padding-left: 18px; }
+.nf-ok { color: #4fc38a; }
+.nf-error { color: #ff8a8a; white-space: pre-wrap; }
+.nf-estudio-json { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0; }
+.nf-estudio-json label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.nf-estudio-json textarea { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.nf-estudio-scroll { overflow-x: auto; }
+.nf-estudio-tabla table { border-collapse: collapse; font-size: 12px; }
+.nf-estudio-tabla th, .nf-estudio-tabla td { border: 1px solid rgba(255, 255, 255, 0.12); padding: 3px 8px; white-space: nowrap; }
+.nf-estudio-tabla td.num { text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 720px) { .nf-estudio-json { grid-template-columns: 1fr; } }
+.nf-estudio-botones { display: flex; gap: 8px; margin: 6px 0; flex-wrap: wrap; }
+
+/* ---------- Centro NIIF: secciones (réplica del menú del sitio) ---------- */
+.nf-subtabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 8px; }
+.nf-subtabs button { background: transparent; color: inherit; border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 13px; }
+.nf-subtabs button.on { border-color: #C7A83C; color: #C7A83C; }
+
+/* ---------- Recorrido ---------- */
+.nf-recorrido { max-width: 1100px; }
+.nf-eyebrow { font-size: 11px; letter-spacing: 0.08em; color: #C7A83C; margin: 0 0 4px; }
+.nf-nota { padding: 8px 12px; border-left: 3px solid #C7A83C; background: rgba(199, 168, 60, 0.08); }
+.nf-rec-panel { margin: 12px 0; padding: 14px 16px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; }
+.nf-rec-panel h4 { margin: 0 0 8px; }
+.nf-rec-row { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.nf-rec-row p { margin: 2px 0; }
+.nf-rec-fuentes { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.nf-rec-item { padding: 10px 12px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; }
+.nf-rec-item h5 { margin: 0 0 4px; }
+.nf-rec-decl { padding-left: 16px; margin: 6px 0; font-size: 13px; }
+.nf-rec-pieza { display: flex; align-items: center; gap: 6px; margin: 4px 0; flex-wrap: wrap; }
+.nf-rec-falta { color: #e0b64a; }
+.nf-rec-metricas { display: flex; gap: 14px; flex-wrap: wrap; margin: 8px 0; }
+.nf-rec-metricas div { padding: 8px 12px; border: 1px solid rgba(199, 168, 60, 0.35); border-radius: 6px; display: flex; flex-direction: column; }
+.nf-rec-cedulas { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px; margin: 8px 0; }
+.nf-rec-cedulas button { text-align: left; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.15); background: transparent; color: inherit; cursor: pointer; }
+.nf-rec-cedulas button.selected { border-color: #C7A83C; background: rgba(199, 168, 60, 0.1); }
+.nf-rec-cedulas button:disabled { opacity: 0.5; cursor: default; }
+.nf-rec-encerar { border-color: #b33a3a; }
+.nf-ctx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin: 10px 0; }
+.nf-ctx-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.nf-ctx-check { display: flex; gap: 6px; align-items: flex-start; font-size: 13px; }
+.btn.peligro { background: #7a2020; border-color: #b33a3a; color: #fff; }
+
+/* ---------- Consola de archivos ---------- */
+.nf-consola-cuerpo { display: grid; grid-template-columns: 260px 1fr; gap: 12px; align-items: start; }
+.nf-consola-lista { list-style: none; padding: 0; margin: 12px 0; display: flex; flex-direction: column; gap: 6px; }
+.nf-consola-lista button { width: 100%; text-align: left; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; background: transparent; color: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.nf-consola-lista button.selected { border-color: #C7A83C; background: rgba(199, 168, 60, 0.1); }
+.nf-consola-detalle code { overflow-wrap: anywhere; }
+.nf-extraccion input { width: 100%; max-width: 360px; margin: 6px 0; }
+.nf-pre { white-space: pre-wrap; max-height: 360px; overflow: auto; font-size: 12px; padding: 8px; background: rgba(0, 0, 0, 0.2); border-radius: 6px; }
+@media (max-width: 760px) { .nf-consola-cuerpo { grid-template-columns: 1fr; } }
+.nf-estado { margin: 10px 0 0; } .nf-recon textarea { width: 100%; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+
+/* ---------- Manual y memoria ---------- */
+.nf-manual { max-width: 1000px; }
+.nf-manual h3 em { color: #C7A83C; font-style: normal; }
+.nf-manual-flujo { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 12px 0; }
+.nf-manual-flujo div { padding: 12px; border: 1px solid rgba(199, 168, 60, 0.35); border-radius: 8px; }
+.nf-manual-flujo span { font-size: 11px; letter-spacing: 0.08em; color: #C7A83C; }
+.nf-manual-flujo h4 { margin: 4px 0; }
+.nf-manual-indice div { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.nf-manual-seccion { scroll-margin-top: 16px; }
+.nf-manual-reglas { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin: 10px 0; }
+.nf-manual-reglas div { padding: 10px 12px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; }
+.nf-manual-reglas span { font-size: 11px; color: #C7A83C; }
+.nf-manual-reglas h5 { margin: 2px 0 6px; }
+a.btn { text-decoration: none; display: inline-block; }

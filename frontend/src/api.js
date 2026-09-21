@@ -224,6 +224,28 @@ export async function niifBorrarFicha(id, confirmarNombre) {
   );
 }
 
+// Estudio de la prueba: cobertura del requerimiento de una ficha y corrida
+// del motor de cálculo (el mismo archivo del sitio, vendorizado en backend).
+export async function niifCobertura(id, documentos) {
+  return parse(
+    await apiFetch(`${NIIF_BASE}/${id}/cobertura`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ documentos }),
+    })
+  );
+}
+
+export async function niifEjecutarMotor({ definicion, filas, parametros, flujos }) {
+  return parse(
+    await apiFetch(`${API_BASE}/api/v1/aud/niif/motor/ejecutar`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ definicion, filas, parametros: parametros || {}, flujos: flujos || [] }),
+    })
+  );
+}
+
 export async function createUser(email, password, role) {
   return parse(
     await apiFetch(`${API_BASE}/api/v1/auth/users`, {
