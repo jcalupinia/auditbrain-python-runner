@@ -11,8 +11,8 @@ propio**, así que este archivo es su única copia fuera de esa máquina.
 ### Qué contiene
 
 Un *bundle* de git: un archivo único con **todo el historial**, no una copia de los
-archivos. Al 2026-09-20 trae 12 commits, las ramas `master` y `motor-niif-fase-1`, y
-264 archivos versionados.
+archivos. Al 2026-09-20 (noche) trae 20 commits, las ramas `master` y `motor-niif-fase-1`,
+y 267 archivos versionados.
 
 Se eligió un bundle y no una copia de la carpeta a propósito: el sitio ya tiene tres
 copias del motor de cálculo que no pueden divergir (ver su `AGENTS.md`), y una cuarta
