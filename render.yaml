@@ -155,6 +155,13 @@ services:
       - key: COMFY_BRIDGE_KEY
         sync: false
 
+      # Motor de Auditoría Analítica (servidor propio). Si faltan, el endpoint
+      # /aud/motor-analitico/permiso responde 503.
+      - key: MOTOR_TOKEN_SECRET
+        sync: false
+      - key: MOTOR_ANALITICO_URL
+        sync: false
+
       - key: GROQ_API_KEY
         sync: false
 
