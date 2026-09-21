@@ -17,7 +17,7 @@ describe("la copia del exportador del sitio", () => {
   it("no se editó en el portal: cada archivo coincide con su huella", () => {
     const archivos = readdirSync(DIR, { recursive: true })
       .map((f) => String(f).split(sep).join("/"))
-      .filter((f) => f.endsWith(".mjs") && f !== "manifiesto.mjs")
+      .filter((f) => /\.(mjs|ts)$/.test(f) && f !== "manifiesto.mjs" && f !== "audit-store.ts")
       .sort();
     expect(archivos).toEqual(Object.keys(MANIFIESTO.sha256).sort());
     for (const f of archivos) {

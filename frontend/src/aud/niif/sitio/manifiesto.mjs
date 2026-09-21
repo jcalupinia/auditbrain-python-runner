@@ -14,7 +14,7 @@ const m = {
 };
 for (const f of readdirSync(DIR, { recursive: true })
   .map((f) => String(f).split(sep).join("/"))
-  .filter((f) => f.endsWith(".mjs") && f !== "manifiesto.mjs")
+  .filter((f) => /\.(mjs|ts)$/.test(f) && f !== "manifiesto.mjs" && f !== "audit-store.ts")
   .sort())
   m.sha256[f] = huella(readFileSync(DIR + f, "utf8"));
 writeFileSync(DIR + "MANIFIESTO.json", JSON.stringify(m, null, 2) + "\n");

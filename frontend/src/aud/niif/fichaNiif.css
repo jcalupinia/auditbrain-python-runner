@@ -189,3 +189,4 @@
 .nf-extraccion input { width: 100%; max-width: 360px; margin: 6px 0; }
 .nf-pre { white-space: pre-wrap; max-height: 360px; overflow: auto; font-size: 12px; padding: 8px; background: rgba(0, 0, 0, 0.2); border-radius: 6px; }
 @media (max-width: 760px) { .nf-consola-cuerpo { grid-template-columns: 1fr; } }
+.nf-estado { margin: 10px 0 0; } .nf-recon textarea { width: 100%; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }

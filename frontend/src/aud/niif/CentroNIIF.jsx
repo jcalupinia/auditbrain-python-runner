@@ -7,11 +7,13 @@ import GeneradorHerramientasNIIF from "./GeneradorHerramientasNIIF.jsx";
 // exportador del sitio se cargan al abrirlas, no con el portal.
 const RecorridoVNR = lazy(() => import("./RecorridoVNR.jsx"));
 const ConsolaArchivos = lazy(() => import("./ConsolaArchivos.jsx"));
+const ReconstruirExcel = lazy(() => import("./ReconstruirExcel.jsx"));
 
 const SECCIONES = [
   { id: "fichas", label: "Diseñar fichas", Vista: GeneradorHerramientasNIIF },
   { id: "recorrido", label: "Recorrido VNR", Vista: RecorridoVNR },
   { id: "consola", label: "Consola de archivos", Vista: ConsolaArchivos },
+  { id: "reconstruir", label: "Reconstruir Excel", Vista: ReconstruirExcel },
 ];
 
 export default function CentroNIIF() {

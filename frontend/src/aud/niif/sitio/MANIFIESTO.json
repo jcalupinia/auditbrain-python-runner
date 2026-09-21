@@ -2,7 +2,9 @@
   "origen": "auditbrain-site @ 7e42d3d · lib/tools/*.mjs -> tools/, lib/*.mjs -> raíz (huellas sobre texto con LF)",
   "sha256": {
     "console/extract.mjs": "9ea97c6a33455268da31644ec526157ff70bb8130031098175ef0a7c566cbba1",
+    "engagement-context.ts": "217b7cfedf33086264dde5f36e8f496262ed0b6a89b15193e32c1a11e9d28e13",
     "methodology.mjs": "715f81dd224f5b5d5eadcd624b35fb76902ece21a52f24bcf31b666958a8151c",
+    "reconstruction/protocol.ts": "c4a94b72774e383b2200de41586c00c8b80ba3c3ae3c3f8ff7bbac25db1d6722",
     "requirement.mjs": "4609cea73e2e07ee7eeca5800a4554d67d5b69586fdc15fd3c39e43e5f88eafc",
     "tools/brand.mjs": "c49a7226cfc388df1ed11a8ea0f2556464d2d2fd3635b3f345bf7606fe9434bb",
     "tools/domain.mjs": "27474d97edbcd74478bb4e1cc27673b85da38cfa43973f637e8f423d65fea506",
