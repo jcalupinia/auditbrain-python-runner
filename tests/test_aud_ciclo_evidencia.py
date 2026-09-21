@@ -185,3 +185,79 @@ def test_no_se_sube_antes_de_aprobar_el_requerimiento(client):
     p = _prueba_vnr(client, tok, pid)
     r = _subir(client, tok, p, "RQ-001", "a.xlsx", XLSX_VNR, "Quito")
     assert r.status_code == 400 and "no está habilitada" in r.json()["detail"]
+
+
+def _inventario(filas):
+    import io
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Inventario"
+    ws.append(["Código", "Descripción", "Cantidad", "Costo unitario", "Precio de venta", "Costo terminación", "Costo de venta", "Deterioro registrado"])
+    for f in filas:
+        ws.append(f)
+    b = io.BytesIO()
+    wb.save(b)
+    return b.getvalue()
+
+
+def test_varios_archivos_se_unen_en_una_poblacion(client):
+    # E10: Quito (Excel) y Guayaquil (CSV), mismo formato, una sola población del país.
+    tok, p = _hasta_requerimiento_aprobado(client, tok=None)
+    quito = _inventario([["Q-1", "A", 10, 20, 18, 1, 2, 0], ["Q-2", "B", 5, 30, 40, 1, 2, 0]])
+    gye = ("Código,Descripción,Cantidad,Costo unitario,Precio de venta,Costo terminación,Costo de venta,Deterioro registrado\n"
+           "G-1,C,8,15,13,1,1,0\n").encode("utf-8")
+    assert _subir(client, tok, _leer(client, tok, p), "RQ-001", "quito.xlsx", quito, "Quito").status_code == 201
+    assert _subir(client, tok, _leer(client, tok, p), "RQ-001", "gye.csv", gye, "Guayaquil").status_code == 201
+    p = _leer(client, tok, p)
+    q, g = p["archivos"]
+    partes = [{"fileId": q["id"], "sheet": "Inventario", "header": 1, "mapping": MAPA_VNR},
+              {"fileId": g["id"], "sheet": "CSV", "header": 1, "mapping": MAPA_VNR}]
+    hojas = client.get(f"{BASE}/pruebas/{p['id']}/archivos/{g['id']}", headers=_h(tok))
+    assert hojas.status_code == 200
+    r = _accion(client, tok, p, "map_validate", {"files": partes})
+    assert r.status_code == 200, r.text
+    reg = r.json()["registro"]
+    assert reg["validation"]["ok"] and reg["validation"]["records"] == 3
+    # 10×20 + 5×30 + 8×15 = 470,00: la suma de las dos bodegas.
+    assert reg["controlTotal"] == "470.00"
+    assert [(f["id"], f["_component"], f["_file"]) for f in reg["rows"]] == [
+        ("Q-1", "Quito", "quito.xlsx"), ("Q-2", "Quito", "quito.xlsx"), ("G-1", "Guayaquil", "gye.csv")]
+    assert [(m["file"], m["records"]) for m in reg["mappings"]] == [("quito.xlsx", 2), ("gye.csv", 1)]
+
+    # Un archivo rechazado no entra en la población.
+    p = _accion(client, tok, r.json(), "reject_file", {"fileId": g["id"]}).json()
+    r = _accion(client, tok, p, "map_validate", {"files": partes})
+    assert r.status_code == 400 and "rechazado" in r.json()["detail"]
+
+
+def test_el_modelo_se_llena_y_se_procesa_sin_ajustes(client):
+    # E10: el modelo trae las columnas de la ficha; lleno y subido, se mapea por nombre.
+    import io
+    import openpyxl
+    tok, p = _hasta_requerimiento_aprobado(client, tok=None)
+    p = _leer(client, tok, p)
+    assert p["modelos"] == ["RQ-001"]
+    r = client.get(f"{BASE}/pruebas/{p['id']}/modelo/RQ-002", headers=_h(tok))
+    assert r.status_code == 400 and "soporte" in r.json()["detail"]
+    r = client.get(f"{BASE}/pruebas/{p['id']}/modelo/RQ-001", headers=_h(tok))
+    assert r.status_code == 200
+    wb = openpyxl.load_workbook(io.BytesIO(r.content))
+    assert wb.sheetnames == ["Datos", "Instrucciones"]
+    etiquetas = [f["label"] for f in p["definicion"]["fields"]]
+    assert [c.value for c in wb["Datos"][1]] == etiquetas
+    assert any("Quito" in str(c.value) for fila in wb["Instrucciones"].iter_rows() for c in fila), "declara las partes"
+    # El cliente llena el modelo (Quito) y el auditor lo sube.
+    ws = wb["Datos"]
+    assert ws.max_row == 1, "el modelo no trae filas vacías que empujen los datos hacia abajo"
+    ws.append(["0001", "Producto A", 10, 20, 18, 1, 2, 0])
+    ws.append(["0002", "Producto B", 5, 30, 40, 1, 2, 0])
+    b = io.BytesIO()
+    wb.save(b)
+    assert _subir(client, tok, p, "RQ-001", "quito.xlsx", b.getvalue(), "Quito").status_code == 201
+    p = _leer(client, tok, p)
+    mapa = {f["key"]: i for i, f in enumerate(p["definicion"]["fields"])}
+    p = _accion(client, tok, p, "map_validate", {"files": [{"fileId": p["archivos"][0]["id"], "sheet": "Datos", "header": 1, "mapping": mapa}]}).json()
+    assert p["registro"]["validation"]["ok"], p["registro"]["validation"]
+    assert p["registro"]["controlTotal"] == "350.00"
+    assert [f["_row"] for f in p["registro"]["rows"]] == [2, 3]

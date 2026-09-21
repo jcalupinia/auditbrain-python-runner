@@ -96,7 +96,8 @@ export function mapeoSugerido(encabezados, campos) {
   const cols = (encabezados || []).map(normal);
   const mapa = {};
   for (const f of campos || []) {
-    const i = cols.findIndex((c) => c && (c === normal(f.label) || c === normal(f.key)));
+    const nombres = [f.label, f.key, ...(f.aliases || [])].map(normal);
+    const i = cols.findIndex((c) => c && nombres.includes(c));
     if (i >= 0) mapa[f.key] = i;
   }
   return mapa;
@@ -145,4 +146,102 @@ export function tramosDeTexto(filas) {
     max: i === filas.length - 1 && String(f.max ?? "").trim() === "" ? null : Number(f.max),
     rate: String(f.rate ?? "").trim(),
   }));
+}
+
+
+// --- E10 · vista de trabajo en cuatro bloques ---------------------------------
+
+// Hoja y fila de encabezados donde se reconocen más campos (prefiere «Datos»,
+// la hoja del modelo). Devuelve también los campos obligatorios que faltan.
+export function mejorEncabezado(sheets, campos) {
+  let mejor = null;
+  for (const s of sheets || []) {
+    const filas = (s.rows || []).slice(0, 30);
+    filas.forEach((fila, i) => {
+      const mapping = mapeoSugerido(fila, campos);
+      const n = Object.keys(mapping).length + (s.name === "Datos" ? 0.5 : 0);
+      if (!mejor || n > mejor.n) mejor = { n, sheet: s.name, header: i + 1, mapping };
+    });
+  }
+  if (!mejor) return null;
+  const faltan = (campos || []).filter((f) => f.required !== false && !(f.key in mejor.mapping)).map((f) => f.label || f.key);
+  return { sheet: mejor.sheet, header: mejor.header, mapping: mejor.mapping, faltan };
+}
+
+const SIMBOLO = { add: "+", subtract: "−", multiply: "×", divide: "÷" };
+
+// Cada cálculo de la ficha en lenguaje contable: «Costo total = Cantidad × Costo unitario».
+export function formulasLegibles(d) {
+  const nombre = {};
+  for (const f of d.fields || []) nombre[f.key] = f.label || f.key;
+  for (const r of d.rules || []) nombre[r.key] = r.label || r.key;
+  const n = (x) => (x === undefined ? "" : x === "corte" && !nombre.corte ? "fecha de corte" : x.startsWith("#") ? x.slice(1) : nombre[x] || x);
+  return (d.rules || []).map((r) => {
+    const [a, b, c] = [n(r.a), n(r.b), n(r.c)];
+    const expr = SIMBOLO[r.op] ? `${a} ${SIMBOLO[r.op]} ${b}`
+      : r.op === "min" ? `el menor entre ${a} y ${b}`
+      : r.op === "max" ? `el mayor entre ${a} y ${b}`
+      : r.op === "gt" ? `1 si ${a} > ${b}; si no, 0`
+      : r.op === "gte" ? `1 si ${a} ≥ ${b}; si no, 0`
+      : r.op === "lt" ? `1 si ${a} < ${b}; si no, 0`
+      : r.op === "lte" ? `1 si ${a} ≤ ${b}; si no, 0`
+      : r.op === "eq" ? `1 si ${a} = ${b}; si no, 0`
+      : r.op === "if" ? `si ${a} no es cero, ${b}; si no, ${c}`
+      : r.op === "days" ? `días desde ${a} hasta ${b}`
+      : r.op === "band" ? `tramo de ${a}: ${(r.table || []).map((t) => `desde ${t.from} → ${t.value}`).join("; ")}`
+      : r.op;
+    return { key: r.key, texto: `${r.label || r.key} = ${expr}`, principal: r.key === d.primary };
+  });
+}
+
+const OFICIAL = { NIIF: /(^|\.)ifrs\.org$/, NIA: /(^|\.)(iaasb|ifac)\.org$/ };
+const host = (u) => { try { return new URL(u).hostname; } catch { return ""; } };
+
+// Fuentes oficiales confirmadas con la referencia de la ficha: el auditor que
+// pulsa «Confirmar base técnica» da fe de haberla revisado (queda en la bitácora).
+export function fuentesConfirmadas(p) {
+  const d = p.definicion, reg = p.registro;
+  const pymes = reg.engagement?.framework === "NIIF para las PYMES";
+  const codigos = (reg.program || []).map((x) => x.code);
+  const refs = (reg.program || []).map((x) => x.reference).filter(Boolean);
+  const vigencia = `Vigente al ${reg.engagement?.cutoff || "corte"}`;
+  return (reg.sources || []).map((s) => {
+    if (s.category === "NIIF") {
+      const f = (pymes ? d.source_pymes : d.source) || {};
+      const url = f.url && OFICIAL.NIIF.test(host(f.url)) ? f.url : s.url;
+      return { ...s, url, document: f.document || s.document, section: refs.find((r) => !/^NIA/i.test(r)) || f.document || "Según programa de la ficha", date: vigencia, verified: true, procedures: codigos };
+    }
+    if (s.category === "NIA") {
+      return { ...s, document: (d.nia || []).join(", ") || s.document, section: refs.filter((r) => /^NIA/i.test(r)).join("; ") || "Según programa de la ficha", date: vigencia, verified: true, procedures: codigos };
+    }
+    return { ...s, section: s.section || "Según tratamiento tributario descrito", date: s.date || vigencia, verified: true };
+  });
+}
+
+// Siguiente paso de «Confirmar base técnica y preparar el requerimiento», o null.
+export function pasoPreparar(p, taxScope = "") {
+  const reg = p.registro;
+  switch (p.estado) {
+    case "PRUEBA_SELECCIONADA": return reg.researchedAt ? ["generate_program", {}] : ["research", {}];
+    case "PROGRAMA_PROPUESTO": return ["approve_program", { program: reg.program, sources: fuentesConfirmadas(p), taxScope: taxScope || reg.taxScope || "" }];
+    case "PROGRAMA_APROBADO": return ["generate_request", {}];
+    case "REQUERIMIENTO_GENERADO": return ["approve_request", { requests: reg.requests }];
+    default: return null;
+  }
+}
+
+// Archivos que alimentan el cálculo: los no rechazados, tabulares, de cada requerimiento de cálculo.
+export const archivosDe = (p, requerimiento) =>
+  (p.archivos || []).filter((a) => a.requerimiento === requerimiento && a.estado !== "rechazado" && esTabular(a.nombre));
+
+// Problemas que la vista de trabajo muestra junto al resultado.
+export function problemasDe(p) {
+  const reg = p.registro, lista = [];
+  const c = reg.reconciliation;
+  if (c && !c.within) lista.push(Number(c.ledger) === 0 ? `Saldo del mayor no ingresado: la población suma ${reg.controlTotal}; concilie antes de aprobar.` : `Diferencia con el mayor: ${c.difference} (población ${reg.controlTotal}, mayor ${c.ledger}).`);
+  const adv = reg.validation?.warnings || [];
+  if (adv.length) lista.push(`${adv.length} advertencia(s) de validación: ${adv.slice(0, 3).map((w) => `fila ${w.row} · ${w.message}`).join("; ")}`);
+  const exc = reg.run?.exceptions || [];
+  if (exc.length) lista.push(`${exc.length} excepción(es) por partida para evaluar.`);
+  return lista;
 }

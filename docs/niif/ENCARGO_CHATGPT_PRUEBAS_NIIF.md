@@ -104,7 +104,7 @@ Una fila por documento que el cliente debe entregar:
 | `procedure` | `code` del procedimiento del Bloque B que lo usa (obligatorio, debe existir) |
 | `formats` | Lista solo con: `xlsx`, `csv`, `pdf`, `docx`, `xml`, `txt`, `md`, `zip`, `png`, `jpg`, `webp` |
 | `required` | `true` / `false` |
-| `components` | Opcional: partes en que se entrega (ej. `["Quito", "Guayaquil"]` por bodega, o `["Enero", …]` por mes). Si no aplica, `[]` |
+| `components` | Opcional: partes en que se entrega **un mismo reporte**, un archivo por parte con el mismo formato (ej. `["Quito", "Guayaquil", "Cuenca"]` por bodega, o `["Enero", …, "Diciembre"]` por mes). La herramienta **une todas las partes en una sola población** al procesar. Si no aplica, `[]` |
 | `group` | Opcional: agrupa requerimientos alternativos (ej. «Precios» si sirve la lista de precios **o** las facturas posteriores) |
 | `use` | `calculo` si la herramienta **procesa** ese archivo; `soporte` si el auditor solo lo revisa |
 | `report` | El reporte exacto y de dónde sale: módulo o informe típico del sistema contable, o quién lo prepara (ej. «Kardex valorado exportado del módulo de inventarios») |
@@ -113,6 +113,12 @@ Una fila por documento que el cliente debe entregar:
 
 **`RQ-001` es siempre la población** que se procesa (`use: calculo`): un archivo
 `xlsx` o `csv`, una fila por partida.
+
+**Modelo para el cliente.** Con la tabla de columnas, la plataforma genera un
+**modelo Excel** por cada requerimiento de cálculo (hoja «Datos» con esas
+columnas exactas y hoja «Instrucciones»), que el auditor envía al cliente para
+que todos entreguen igual. Por eso los nombres de columna deben ser claros y
+estables.
 
 **Todo requerimiento con `use: calculo`** debe traer además la **tabla de
 columnas**: nombre de la columna tal como la verá el cliente, `key` del campo
@@ -155,7 +161,8 @@ reglas de la sección 3.
 7. **Cédulas** que genera: de la lista de la sección 3.4.
 8. **Conclusión tipo**: el texto modelo de conclusión, con los espacios para
    los valores.
-9. **Bloque JSON** de la sección 4, al final de la ficha.
+9. **Bloque JSON** de la sección 4, al final de la ficha, con `summary`
+   (el resumen técnico del bloque A) y `nia` (la lista de NIA aplicables).
 
 ---
 
@@ -171,6 +178,12 @@ interpreta texto ni ejecuta fórmulas libres.
 - `type`: solo `number`, `date` (formato AAAA-MM-DD) o `text`.
 - `label`: el nombre visible, en español.
 - `required`: `true` / `false`. `positive`: `true` si el número no puede ser negativo.
+- `aliases` (opcional): otros nombres con que suele venir esa columna en los
+  reportes de los clientes (ej. `["Cod.", "Código producto"]`); ayudan a
+  reconocerla si el cliente no usa el modelo.
+- `example` (opcional): un valor de ejemplo, que aparece en el modelo.
+- Si la población viene por bodega, sucursal o mes y conviene verlo en las
+  cédulas, declare también un campo de texto para eso (ej. `ubicacion`).
 - Prohibidas como clave: `constructor`, `prototype`, `__proto__`.
 
 ### 3.2 Cálculos
@@ -252,6 +265,8 @@ neto de realización que ya funciona en la plataforma; úsalo como modelo:
   "area": "Inventarios",
   "framework": ["NIIF completas", "NIIF para las PYMES"],
   "description": "Compara el costo con el precio estimado de venta menos los costos de terminación y venta, por partida.",
+  "summary": "La NIC 2 exige medir los inventarios al menor entre costo y valor neto de realización; el VNR es el precio estimado de venta menos los costos de terminación y los necesarios para la venta. La rebaja se reconoce partida por partida y se revierte si las circunstancias cambian.",
+  "nia": ["NIA 500", "NIA 501", "NIA 540"],
   "source": {
     "organization": "IFRS Foundation",
     "document": "NIC 2 Inventarios, párr. 9 y 28-33",
@@ -265,7 +280,7 @@ neto de realización que ya funciona en la plataforma; úsalo como modelo:
     "type": "Norma contable"
   },
   "fields": [
-    { "key": "id", "label": "Código / lote", "type": "text", "required": true, "positive": false },
+    { "key": "id", "label": "Código / lote", "type": "text", "required": true, "positive": false, "aliases": ["Código", "Cod. producto"], "example": "INV-0001" },
     { "key": "description", "label": "Descripción", "type": "text", "required": true, "positive": false },
     { "key": "quantity", "label": "Cantidad", "type": "number", "required": true, "positive": true },
     { "key": "unit_cost", "label": "Costo unitario", "type": "number", "required": true, "positive": false },

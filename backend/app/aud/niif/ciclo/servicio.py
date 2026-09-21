@@ -239,13 +239,34 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                 raise ReglaIncumplida("Seleccione una hoja válida.")
             return a, sheet
 
-        archivo, sheet = hoja(datos.get("fileId"), datos.get("sheet"))
-        mapped = datos_mod.mapped_rows(sheet, datos.get("header"), datos.get("mapping") or {}, p.definicion,
-                                       {"id": archivo.id, "name": archivo.nombre})
-        reg["rows"] = mapped["rows"]
-        reg["mapping"] = {"fileId": archivo.id, "file": archivo.nombre, "sheet": datos.get("sheet"),
-                          "header": datos.get("header"), "fields": datos.get("mapping"),
-                          "headers": mapped["headers"], "blankRows": mapped["blankRows"]}
+        # E10: la población puede venir en varios archivos del mismo formato
+        # (un mes, una bodega por archivo): `files` los une en una sola, y cada
+        # fila conserva su archivo y su parte. Un solo archivo sigue como en el sitio.
+        partes = datos.get("files") if isinstance(datos.get("files"), list) and datos.get("files") else [
+            {"fileId": datos.get("fileId"), "sheet": datos.get("sheet"), "header": datos.get("header"),
+             "mapping": datos.get("mapping")}]
+        if len(partes) > 60:
+            raise ReglaIncumplida("Máximo 60 archivos por población.")
+        filas, mapeos = [], []
+        for parte in partes:
+            parte = parte if isinstance(parte, dict) else {}
+            archivo, sheet = hoja(parte.get("fileId"), parte.get("sheet"))
+            if archivo.estado == "rechazado":
+                raise ReglaIncumplida(f"{archivo.nombre} está rechazado: no entra en la población.")
+            mapped = datos_mod.mapped_rows(sheet, parte.get("header"), parte.get("mapping") or {}, p.definicion,
+                                           {"id": archivo.id, "name": archivo.nombre})
+            for f in mapped["rows"]:
+                if archivo.componente:
+                    f["_component"] = archivo.componente
+            filas += mapped["rows"]
+            mapeos.append({"fileId": archivo.id, "file": archivo.nombre, "component": archivo.componente,
+                           "sheet": parte.get("sheet"), "header": parte.get("header"), "fields": parte.get("mapping"),
+                           "headers": mapped["headers"], "blankRows": mapped["blankRows"], "records": len(mapped["rows"])})
+        if len(filas) > datos_mod.MAX_ROWS:
+            raise ReglaIncumplida(f"Cargue entre 1 y {datos_mod.MAX_ROWS} registros.")
+        reg["rows"] = filas
+        reg["mapping"] = mapeos[0]
+        reg["mappings"] = mapeos
         if "flows" in p.definicion:
             flujos = datos.get("flows") if isinstance(datos.get("flows"), list) else []
             if datos.get("flowsFile"):

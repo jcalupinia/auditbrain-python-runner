@@ -302,6 +302,12 @@ export async function cicloSubirPapel(pruebaId, revision, xlsx, html) {
   fd.append("html", new Blob([html], { type: "text/html" }), "papel.html");
   return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/papel`, { method: "POST", headers: authHeaders(), body: fd }));
 }
+// E10: modelo Excel de un requerimiento de cálculo, para enviarlo al cliente.
+export async function cicloBajarModelo(pruebaId, requerimiento) {
+  const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/modelo/${encodeURIComponent(requerimiento)}`, { headers: authHeaders() });
+  if (!res.ok) await parse(res);
+  return new Uint8Array(await res.arrayBuffer());
+}
 export async function cicloBandejas() {
   return parse(await apiFetch(`${CICLO}/bandejas`, { headers: authHeaders() }));
 }

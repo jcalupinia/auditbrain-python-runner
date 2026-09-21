@@ -216,3 +216,16 @@ a.btn { text-decoration: none; display: inline-block; }
 .nf-ciclo-fuentes { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
 .nf-ciclo-prueba textarea { width: 100%; min-width: 160px; font-size: 12px; }
 .nf-ciclo-mapeo { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin: 8px 0; }
+
+/* ===== E10 · vista de trabajo (disposición del Workspace de Obligaciones Fiscales) ===== */
+.nf-vista { display: flex; flex-direction: column; gap: 12px; margin: 8px 0 16px; }
+.nf-vista-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.nf-vista-subir { padding: 12px 14px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.nf-vista-doc { display: inline-flex; gap: 6px; align-items: center; }
+.nf-vista-doc select { max-width: 160px; }
+.nf-vista-progreso { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; height: 8px; overflow: hidden; }
+.nf-vista-progreso > div { height: 100%; background: var(--accent); transition: width 0.3s; }
+.nf-vista-lista { margin: 4px 0 8px; padding-left: 18px; }
+.nf-vista-base > summary { cursor: pointer; list-style: none; }
+.nf-vista-modelos .link { margin-right: 8px; }
+.nf-circuito { margin-top: 12px; opacity: 0.95; }

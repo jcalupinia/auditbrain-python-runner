@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.aud.niif.ciclo import almacen, datos, servicio
+from backend.app.aud.niif.ciclo import almacen, datos, modelo, servicio
 from backend.app.aud.niif.ciclo.models import Prueba, PruebaArchivo
 from backend.app.aud.niif.ciclo.reglas import ReglaIncumplida
 from backend.app.aud.niif.models import NiifFicha
@@ -135,6 +135,8 @@ def leer(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(req
         "papeles": [{"id": a.id, "nombre": a.nombre, "sha256": a.sha256, "tamano": a.tamano,
                      "subido_por": a.subido_por, "subido_en": a.subido_en.isoformat() if a.subido_en else None}
                     for a in papeles],
+        # Requerimientos que alimentan el cálculo: tienen modelo Excel (E10).
+        "modelos": list(modelo.requerimientos_de_calculo(reqs, p.definicion)),
         # Versión siguiente, si existe: una aprobada solo origina una.
         "sucesora": db.execute(select(Prueba.id).where(Prueba.parent_id == p.id)).scalar(),
         # La cobertura la calcula el servidor con la regla del sitio: la pantalla solo la pinta.
@@ -246,3 +248,19 @@ def descargar(prueba_id: int, archivo_id: int, db: Session = Depends(get_db), us
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="El archivo ya no está en el almacenamiento.")
     nombre = a.nombre.encode("ascii", "replace").decode().replace('"', "_")
     return Response(contenido, media_type=a.tipo, headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+
+
+@router.get("/pruebas/{prueba_id}/modelo/{requerimiento}")
+def descargar_modelo(prueba_id: int, requerimiento: str, db: Session = Depends(get_db),
+                     user: User = Depends(require_staff)) -> Response:
+    """Modelo Excel para que el cliente entregue la información en el formato
+    que «Procesar» reconoce (E10)."""
+    p = _prueba(db, user, prueba_id)
+    reqs = p.registro.get("requests") or []
+    campos = modelo.requerimientos_de_calculo(reqs, p.definicion).get(requerimiento)
+    req = next((r for r in reqs if r["id"] == requerimiento), None)
+    if req is None or campos is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Este requerimiento es de soporte: no alimenta el cálculo y no tiene modelo.")
+    contenido = modelo.construir(p.definicion, req, campos, p.registro.get("engagement") or {})
+    nombre = f"Modelo_{requerimiento}.xlsx".encode("ascii", "replace").decode()
+    return Response(contenido, media_type=almacen.TIPOS["xlsx"], headers={"Content-Disposition": f'attachment; filename="{nombre}"'})

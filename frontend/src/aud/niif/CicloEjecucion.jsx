@@ -213,8 +213,23 @@ function Cedulas({ prueba }) {
   );
 }
 
-export function Ejecucion({ prueba, onAccion, ocupado }) {
+export function Ejecucion({ prueba, onAccion, ocupado, soloAnalisis = false }) {
   const reg = prueba.registro;
+  // En la vista de trabajo (E10) los resultados y las cédulas ya se ven arriba:
+  // aquí solo queda el análisis, que abre el cierre del papel.
+  if (soloAnalisis)
+    return (
+      <>
+        {prueba.estado === "PRUEBA_EJECUTADA" && (
+          <div className="nf-estudio-botones">
+            <button type="button" className="btn sm primary" disabled={ocupado} onClick={() => onAccion("analyze")}>
+              Generar análisis preliminar
+            </button>
+          </div>
+        )}
+        {prueba.estado === "RESULTADOS_ANALIZADOS" && <Analisis prueba={prueba} onAccion={onAccion} ocupado={ocupado} />}
+      </>
+    );
   const [error, setError] = useState("");
   const [corriendo, setCorriendo] = useState(false);
 
