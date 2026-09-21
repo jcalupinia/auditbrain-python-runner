@@ -19,6 +19,7 @@ function MessageContent({ role, content }) {
 import ToolCatalog from "./aud/ToolCatalog.jsx";
 import TaxCatalog from "./tax/TaxCatalog.jsx";
 import FinCatalog from "./fin/FinCatalog.jsx";
+import GeneradorHerramientasNIIF from "./aud/niif/GeneradorHerramientasNIIF.jsx";
 
 /* ---------------- Theme (Azul medio por defecto + selector de color) ---------------- */
 const THEME_KEY = "ab_theme";
@@ -1359,6 +1360,25 @@ const AI_LINKS = [
   { name: "Gemini", href: "https://gemini.google.com", logo: "/assets/ai/gemini.svg" },
 ];
 
+// Pestañas del workspace. Antes el rótulo se capitalizaba a partir del id
+// (`t.charAt(0).toUpperCase()`), que con un nombre largo como "Generación de
+// herramientas NIIF" no da un rótulo presentable: el id queda para el estado
+// y la etiqueta se declara aquí. `soloAud` deja la pestaña fuera de los
+// módulos donde no tendría página que abrir.
+// Las pestañas del workspace. `visible` decide cuáles se muestran: Estudio solo
+// en CRE y con el puente de medios activo; la generación de herramientas NIIF,
+// solo en auditoría externa.
+const CW_TABS = [
+  { id: "chat", label: "Chat" },
+  { id: "análisis", label: "Análisis" },
+  { id: "documentos", label: "Documentos" },
+  { id: "notas", label: "Notas" },
+  { id: "estudio", label: "Estudio", visible: (m, media) => media && m === "CRE" },
+  { id: "niif", label: "Generación de herramientas NIIF", visible: (m) => m === "AUD" },
+];
+const pestañasVisibles = (moduleId, media) =>
+  CW_TABS.filter((t) => !t.visible || t.visible(moduleId, media));
+
 function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isStaff }) {
   const [tab, setTab] = useState("chat");
   const [chatText, setChatText] = useState("");
@@ -1394,6 +1414,8 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
     setStreamingText("");
     setThinking(false);
     setAttachments([]);
+    // Al cambiar de módulo no puede quedar seleccionada una pestaña que ya no se ve.
+    setTab((t) => (CW_TABS.find((x) => x.id === t)?.visible ? "chat" : t));
   }, [module.id]);
 
   // --- Adjuntar documentos (voz→texto server-side) -----------------------
@@ -1593,15 +1615,18 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
         meta={`${module.id} · ${ctx?.active_project?.name || "sin proyecto"}`}
       >
         <div className="cw-tabs">
-          {["chat", "análisis", "documentos", "notas",
-            ...(mediaEnabled && module.id === "CRE" ? ["estudio"] : [])].map((t) => (
-            <button key={t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>
-              {t === "estudio" ? "Estudio" : t.charAt(0).toUpperCase() + t.slice(1)}
+          {pestañasVisibles(module.id, mediaEnabled).map((t) => (
+            <button key={t.id} className={tab === t.id ? "on" : ""} onClick={() => setTab(t.id)}>
+              {t.label}
             </button>
           ))}
         </div>
 
-        {tab === "estudio" ? (
+        {tab === "niif" && module.id === "AUD" ? (
+          <div className="cw-tool">
+            <GeneradorHerramientasNIIF />
+          </div>
+        ) : tab === "estudio" ? (
           <div className="cw-tool">
             <CreativeStudio />
           </div>

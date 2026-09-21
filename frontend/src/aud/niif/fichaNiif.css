@@ -1,0 +1,125 @@
+/* Ficha de diseño de herramientas NIIF.
+   Casi todo reutiliza las clases de la página de herramienta (.of-tool,
+   .of-form, .of-form-row, .of-slots, .of-slot, .of-recent…) definidas en
+   styles.css. Aquí solo va lo que esas clases no cubren. */
+
+.nf-sec { margin-top: 22px; }
+.nf-sec-h {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--line); padding-bottom: 6px; margin-bottom: 10px;
+}
+.nf-sec-h h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.nf-sec-h .nf-ref {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-dim);
+}
+.nf-sec-h .muted { margin: 0; font-size: 11.5px; }
+
+/* Cabecera de cada ítem / cédula, con su botón de quitar a la derecha. */
+.nf-card-h {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 8px;
+}
+.nf-card-n {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-dim);
+}
+.nf-del {
+  background: none; border: 0; cursor: pointer; padding: 0 2px;
+  font-size: 12px; color: var(--text-dim);
+}
+.nf-del:hover { color: var(--danger); }
+.nf-del:disabled { opacity: 0.35; cursor: default; }
+
+/* Casillas de formato: se leen como chips, no como una lista vertical. */
+.nf-formatos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.nf-fmt {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11.5px; color: var(--text-soft); cursor: pointer;
+  padding: 4px 9px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--panel-2);
+}
+.nf-fmt:hover { border-color: var(--text-soft); }
+.nf-fmt.on {
+  border-color: var(--accent); color: var(--accent);
+  background: var(--accent-dim);
+}
+.nf-fmt input { margin: 0; cursor: pointer; }
+
+.nf-flag {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-soft); cursor: pointer; margin-top: 8px;
+}
+
+/* Etiqueta pequeña sobre un control dentro de la tarjeta del ítem. */
+.nf-lbl {
+  display: block; font-size: 11px; color: var(--text-dim);
+  margin: 10px 0 4px;
+}
+.nf-in {
+  width: 100%; padding: 7px 9px; border-radius: 4px; font-size: 12.5px;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+}
+.nf-grid2 { display: flex; gap: 10px; flex-wrap: wrap; }
+.nf-grid2 > div { flex: 1; min-width: 120px; }
+
+.nf-grupos {
+  margin-top: 10px; font-size: 11.5px; color: var(--text-soft);
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px 10px;
+}
+.nf-grupos b { color: var(--text); }
+
+.nf-errores { margin-top: 16px; }
+.nf-errores ul { margin: 6px 0 0; padding-left: 18px; }
+.nf-errores li { font-size: 12.5px; }
+
+.nf-badge {
+  display: inline-block; font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border-radius: 999px; padding: 2px 8px;
+}
+.nf-ficha-meta { font-size: 11.5px; color: var(--text-dim); }
+.nf-recent-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.nf-recent-row .nf-recent-name { font-weight: 600; }
+.nf-recent-row .nf-recent-acts { margin-left: auto; display: flex; gap: 10px; }
+
+/* Estados del circuito: en diseño (ámbar, el default de .nf-badge),
+   probada (verde) y enviada (neutro, ya cerrada). */
+.nf-badge.probada {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.nf-badge.enviada {
+  color: var(--text-dim);
+  border-color: var(--line);
+  background: var(--panel-2);
+}
+
+.nf-idcat { margin: 8px 0 0; font-size: 11.5px; }
+.nf-idcat code { font-family: var(--mono); font-size: 11px; color: var(--accent); }
+
+/* Encargo generado: el texto se muestra completo y copiable. */
+.nf-encargo {
+  margin-top: 22px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel-2); padding: 12px 14px;
+}
+.nf-encargo-h {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.nf-encargo-h h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.nf-encargo-texto {
+  width: 100%; resize: vertical; font-family: var(--mono); font-size: 11.5px;
+  line-height: 1.5; padding: 10px; border-radius: 6px;
+  background: var(--panel); border: 1px solid var(--line); color: var(--text);
+}
+
+/* Acción destructiva: se distingue del resto sin gritar. */
+.nf-lista .link.peligro { color: var(--peligro, #c0392b); }
+.nf-lista .link.peligro:hover { text-decoration: underline; }

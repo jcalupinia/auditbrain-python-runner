@@ -175,6 +175,55 @@ export async function motorBalancesEstados(esf, eri) {
   }));
 }
 
+// ---- Fichas de diseño de herramientas NIIF (AUD) ----
+// Viven en el backend, no en el navegador: el circuito exige que quien marca
+// una ficha como «probada» pueda ser alguien distinto de quien la diseñó.
+
+const NIIF_BASE = `${API_BASE}/api/v1/aud/niif/fichas`;
+
+export async function niifListarFichas() {
+  return parse(await apiFetch(NIIF_BASE, { headers: authHeaders() }));
+}
+
+export async function niifCrearFicha(ficha) {
+  return parse(
+    await apiFetch(NIIF_BASE, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(ficha),
+    })
+  );
+}
+
+export async function niifActualizarFicha(id, ficha) {
+  return parse(
+    await apiFetch(`${NIIF_BASE}/${id}`, {
+      method: "PATCH",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(ficha),
+    })
+  );
+}
+
+export async function niifCambiarEstado(id, estado) {
+  return parse(
+    await apiFetch(`${NIIF_BASE}/${id}/estado`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ estado }),
+    })
+  );
+}
+
+export async function niifBorrarFicha(id, confirmarNombre) {
+  return parse(
+    await apiFetch(
+      `${NIIF_BASE}/${id}?confirmar_nombre=${encodeURIComponent(confirmarNombre)}`,
+      { method: "DELETE", headers: authHeaders() }
+    )
+  );
+}
+
 export async function createUser(email, password, role) {
   return parse(
     await apiFetch(`${API_BASE}/api/v1/auth/users`, {
