@@ -111,6 +111,14 @@ def test_perdidas_incurridas_de_punta_a_punta(client):
     assert run["totals"]["perdida"] == "1200.00" and run["totals"]["ajuste"] == "900.00"
     assert [h["name"] for h in run["hojas"]][:4] == ["01_Resumen", "02_Parametros", "03_Evidencia_historica", "04_Matriz_deterioro"]
 
+    # El papel en curso se baja en los cuatro formatos; el Excel lleva fórmulas.
+    for fmt, firma in (("xlsx", b"PK"), ("docx", b"PK"), ("pptx", b"PK"), ("html", b"<!doctype html>")):
+        r = client.get(f"{BASE}/pruebas/{p['id']}/libro?formato={fmt}", headers=_h(tok))
+        assert r.status_code == 200 and r.content.startswith(firma), fmt
+    wb = load_workbook(io.BytesIO(client.get(f"{BASE}/pruebas/{p['id']}/libro", headers=_h(tok)).content))
+    assert wb["11_Detalle"]["J5"].value.startswith("=IF(")
+    assert client.get(f"{BASE}/pruebas/{p['id']}/libro?formato=exe", headers=_h(tok)).status_code == 400
+
     p = _accion(client, tok, p, "analyze").json()
     p = _accion(client, tok, p, "submit", {"analysis": p["registro"]["analysis"], "conclusion": "Ajuste propuesto de 900,00."}).json()
     assert p["estado"] == "EN_REVISION", p

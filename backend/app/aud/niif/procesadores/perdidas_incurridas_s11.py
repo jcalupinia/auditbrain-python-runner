@@ -585,8 +585,14 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
 
 # --- cédulas -------------------------------------------------------------------
 # Cada cédula: {name, label, cols: [[título, formato]], rows, total}. Formatos:
-# "t" texto, "n" importe, "p" porcentaje, "i" entero. El libro Excel y la vista
-# de trabajo las pintan igual.
+# "t" texto, "n" importe, "p" porcentaje, "i" entero, "d" fecha, "x" libre.
+# Una celda calculada es {"f": fórmula de Excel sin «=», "v": valor de Python}:
+# el libro escribe la fórmula (editable y trazable hasta Parámetros, Detalle y
+# Matriz) y la pantalla muestra el valor. Los datos van en la fila 5 en
+# adelante (título, subtítulo, fila en blanco y encabezados), como en libro.py.
+
+FILA0 = 5
+
 
 def _n(x):
     return None if x is None else round(float(x), 2)
@@ -594,6 +600,10 @@ def _n(x):
 
 def _f(x):
     return float(x) if x not in (None, "") else None
+
+
+def _fx(formula: str, valor):
+    return {"f": formula, "v": valor}
 
 
 CEDULAS = [
@@ -604,89 +614,235 @@ CEDULAS = [
     ("11_Detalle", "Detalle por factura"), ("12_Problemas", "Problemas encontrados"),
 ]
 
+# Referencias fijas entre cédulas (fila de cada parámetro y de cada concepto fiscal).
+P = "'02_Parametros'!"
+PAR = {"corte": 5, "corte2": 6, "corte1": 7, "tasaDesc": 8, "plazoBase": 9, "umbralGrave": 10, "umbralIndividual": 11,
+       "pctDeducible": 12, "pctLimite": 13, "tasaImp": 14, "provFiscalAnt": 15, "dtaIniManual": 16}
+FIS = "'08_Fiscal'!"
+FISC = ["total", "corriente", "perdida", "provAnt", "gastoEjercicio", "limite1", "limite10", "provFiscalAnt", "margenAcum",
+        "deducible", "noDeducible", "provFiscalAcum", "difAcumFin", "dtaFin", "dtaIni", "dtaMov"]
+F_ = {k: f"{FIS}$B${FILA0 + i}" for i, k in enumerate(FISC)}
+DET = "'11_Detalle'!"
+MAT = "'04_Matriz_deterioro'!"
+EVI = "'03_Evidencia_historica'!"
+MAY = "'07_Mayor'!"
+MOV = "'06_Movimiento_provision'!"
+DIF = "'09_Impuesto_diferido'!"
+DESC = f"(1+{P}$B${PAR['tasaDesc']}/100)^({P}$B${PAR['plazoBase']}/12)"
+
+
+def _tramo_formula(celda: str) -> str:
+    """Tramo de mora con IF anidados, en el orden de TRAMOS."""
+    f = f'"{TRAMOS[-1]["n"]}"'
+    for t in reversed(TRAMOS[:-1]):
+        f = f'IF({celda}<={t["max"]},"{t["n"]}",{f})'
+    return f'IF({celda}="","",{f})'
+
 
 def hojas(res: dict) -> list[dict]:
     d = res["detalle"]
     f = d["fiscal"]
     p = d["parametros"]
     t = {k: float(v) for k, v in res["totals"].items()}
+    filas = res["rows"]
+    n_det = len(filas)
+    det_fin = FILA0 + n_det - 1
+    rango = lambda col: f"{DET}${col}${FILA0}:${col}${max(det_fin, FILA0)}"
+    manual = {k: v for k, v in (p.get("tasas") or {}).items()}
+
+    # 02 · Parámetros: filas fijas (PAR) y luego una por tasa fijada por el auditor.
+    num = lambda k: _f(p.get(k))
+    parametros = [
+        ["Corte del ejercicio corriente", d["cortes"]["a3"], "Ficha del encargo"],
+        ["Corte del ejercicio anterior", d["cortes"]["a2"] or "Sin anexo", "Fin del mes de la última emisión del anexo"],
+        ["Corte de dos ejercicios antes", d["cortes"]["a1"] or "Sin anexo", "Fin del mes de la última emisión del anexo"],
+        ["Tasa efectiva para descontar (%)", num("tasaDesc"), "Secc. 11 párr. 11.13 y 11.25"],
+        ["Plazo esperado de cobro (meses)", num("plazoBase"), "Juicio del auditor"],
+        ["Umbral de mora grave (días)", num("umbralGrave"), "Secc. 11 párr. 11.24"],
+        ["Umbral de saldo significativo", num("umbralIndividual"), "Secc. 11 párr. 11.24 (0 = desactivado)"],
+        ["Límite anual deducible (%)", num("pctDeducible"), "LRTI Art. 10 num. 11"],
+        ["Límite acumulado (%)", num("pctLimite"), "LRTI Art. 10 num. 11"],
+        ["Tasa del impuesto (%)", num("tasaImp"), "Tarifa del contribuyente"],
+        ["Provisión fiscal acumulada anterior", num("provFiscalAnt"), "En blanco: mínimo entre la provisión anterior y el límite acumulado"],
+        ["Activo por impuesto diferido inicial", num("dtaIniManual"), "En blanco: el del anexo de provisión inicial"],
+    ]
+    fila_tasa = {}
+    for k, v in manual.items():
+        fila_tasa[k] = FILA0 + len(parametros)
+        parametros.append([f"Tasa fijada por el auditor · {NOMBRE_TRAMO.get(k, k)} (%)", _f(v), "Juicio del auditor con evidencia de cobro"])
+
+    # 03 · Evidencia histórica: una fila por ventana y tramo; «Usable» decide si entra.
+    evidencia = []
+    for m in d["migracion"]:
+        for k, v in m["porT"].items():
+            r = FILA0 + len(evidencia)
+            evidencia.append([f"{m['de']} → {m['a']}", NOMBRE_TRAMO[k], v["docs"], v["emparejados"], _n(v["inicial"]), _n(v["persiste"]),
+                              _fx(f'IF(E{r}=0,"",F{r}/E{r})', (v["persiste"] / v["inicial"]) if v["inicial"] else None),
+                              "Sí" if m["diag"]["usable"] else "No"])
+
+    # 04 · Matriz: la tasa observada sale de la evidencia; la fijada, de Parámetros.
     saldo_t, perd_t, docs_t = {}, {}, {}
-    for r in res["rows"]:
+    for r in filas:
         saldo_t[r["tramo"]] = saldo_t.get(r["tramo"], 0) + float(r["saldo"])
         perd_t[r["tramo"]] = perd_t.get(r["tramo"], 0) + (_f(r["perdida"]) or 0)
         docs_t[r["tramo"]] = docs_t.get(r["tramo"], 0) + 1
+    matriz = []
+    for x in d["tasas"]:
+        r = FILA0 + len(matriz)
+        if x["k"] in manual:
+            tasa = _fx(f"{P}$B${fila_tasa[x['k']]}/100", x["tasa"])
+        elif x["origen"] == "Migración observada":
+            tasa = _fx(f'SUMIFS({EVI}$F:$F,{EVI}$B:$B,A{r},{EVI}$H:$H,"Sí")/SUMIFS({EVI}$E:$E,{EVI}$B:$B,A{r},{EVI}$H:$H,"Sí")', x["tasa"])
+        else:
+            tasa = x["tasa"]
+        matriz.append([x["tramo"], _fx(f"COUNTIF({rango('F')},A{r})", docs_t.get(x["tramo"], 0)),
+                       _fx(f"SUMIF({rango('F')},A{r},{rango('G')})", _n(saldo_t.get(x["tramo"], 0))), tasa, x["origen"],
+                       _fx(f"SUMIF({rango('F')},A{r},{rango('J')})", _n(perd_t.get(x["tramo"], 0))), x["base"]])
+    m_fin = FILA0 + len(matriz) - 1
+    tot_mat = FILA0 + len(matriz)
+    tasa_mat = f"INDEX({MAT}$D${FILA0}:$D${m_fin},MATCH(F{{r}},{MAT}$A${FILA0}:$A${m_fin},0))"
+
+    # 11 · Detalle por factura: días, tramo, tasa, valor presente y pérdida con fórmulas.
+    detalle = []
+    for i, x in enumerate(filas):
+        r = FILA0 + i
+        tm = tasa_mat.format(r=r)
+        detalle.append([
+            x["id"], x["cliente"], x["emision"], x["vence"],
+            _fx(f'IF(D{r}="","",{P}$B${PAR["corte"]}-D{r})', int(x["dias"]) if x["dias"] else None),
+            _fx(_tramo_formula(f"E{r}"), x["tramo"]), _n(x["saldo"]),
+            _fx(f'IF(F{r}="","",IF({tm}="","",{tm}))', _f(x["tasa"])),
+            _fx(f'IF(H{r}="","",G{r}*(1-H{r})/{DESC})', _n(_f(x["vp"]))),
+            _fx(f'IF(I{r}="","",MAX(G{r}-I{r},0))', _n(_f(x["perdida"]))), _n(x["provIni"]),
+        ])
+    tot_det = FILA0 + n_det
+    s = lambda col, fin, v: _fx(f"SUM({col}{FILA0}:{col}{fin})", v)
+
+    # 07 · Mayor: saldo final = inicial + gasto − castigos + recuperaciones.
+    mayor = [[m["anio"], _n(m["ini"]), _n(m["gasto"]), _n(m["cast"]), _n(m["rec"]),
+              _fx(f"B{FILA0 + j}+C{FILA0 + j}-D{FILA0 + j}+E{FILA0 + j}", _n(m["fin"]))] for j, m in enumerate(d["mayor"])]
+    nm = len(mayor)
+    prov_ant_ref = f"{MAY}F{FILA0 + nm - 2}" if nm > 1 else (f"{MAY}B{FILA0}" if nm == 1 else "0")
+    prov_reg_ref = f"{MAY}F{FILA0 + nm - 1}" if nm else "0"
+
+    # 06 · Movimiento: la provisión del año es la pérdida del Detalle por factura.
+    movs = [m for m in d["movimiento"] if m["provIni"] or m["provAnio"]]
+    movimiento = []
+    for j, m in enumerate(movs):
+        r = FILA0 + j
+        movimiento.append([m["cliente"], m["factura"], _n(m["provIni"]), _n(m["reversion"]), _n(m["bajas"]),
+                           _fx(f"SUMIF({rango('A')},B{r},{rango('J')})", _n(m["provAnio"])),
+                           _fx(f"C{r}-D{r}-E{r}+F{r}", _n(m["saldoFin"])), m["tipo"]])
+    fin_mov = FILA0 + len(movimiento) - 1
+    tot_mov = FILA0 + len(movimiento)
+    mt = d["movimientoTotales"]
+
+    # 08 · Fiscal (el orden es FISC).
+    pf_ant = f"{P}B{PAR['provFiscalAnt']}" if not f["pfEstimada"] else f"MIN({F_['provAnt']},{F_['limite10']})"
+    dta_ini = f"{P}B{PAR['dtaIniManual']}" if p.get("dtaIniManual") not in (None, "") else None
+    fiscal = [
+        ["Cartera total al corte", _fx(f"SUM({rango('G')})", _n(f["total"]))],
+        ["Cartera corriente (créditos del ejercicio)", _fx(f'SUMIF({rango("E")},"<=0",{rango("G")})', _n(f["corriente"]))],
+        ["Pérdida incurrida recalculada", _fx(f"SUM({rango('J')})", _n(f["perdida"]))],
+        ["Provisión del ejercicio anterior (mayor)", _fx(prov_ant_ref, _n(f["provAnt"] or 0))],
+        ["Gasto del ejercicio", _fx(f"{F_['perdida']}-{F_['provAnt']}", _n(f["gastoEjercicio"]))],
+        ["Límite anual (% sobre la cartera corriente)", _fx(f"{F_['corriente']}*{P}$B${PAR['pctDeducible']}/100", _n(f["limite1"]))],
+        ["Límite acumulado (% sobre la cartera total)", _fx(f"{F_['total']}*{P}$B${PAR['pctLimite']}/100", _n(f["limite10"]))],
+        ["Provisión fiscal acumulada anterior" + (" (estimada)" if f["pfEstimada"] else ""), _fx(pf_ant, _n(f["provFiscalAnt"]))],
+        ["Margen acumulado disponible", _fx(f"MAX({F_['limite10']}-{F_['provFiscalAnt']},0)", _n(f["margenAcum"]))],
+        ["Gasto deducible", _fx(f"MAX(MIN(MAX({F_['gastoEjercicio']},0),{F_['limite1']},{F_['margenAcum']}),0)", _n(f["deducible"]))],
+        ["Gasto no deducible", _fx(f"MAX(MAX({F_['gastoEjercicio']},0)-{F_['deducible']},0)", _n(f["noDeducible"]))],
+        ["Provisión fiscal acumulada al cierre", _fx(f"{F_['provFiscalAnt']}+{F_['deducible']}", _n(f["provFiscalAcum"]))],
+        ["Diferencia temporaria acumulada al cierre", _fx(f"MAX({F_['perdida']}-{F_['provFiscalAcum']},0)", _n(f["difAcumFin"]))],
+        ["Activo por impuesto diferido al cierre", _fx(f"{F_['difAcumFin']}*{P}$B${PAR['tasaImp']}/100", _n(f["dtaFin"]))],
+        ["Activo por impuesto diferido inicial" + ("" if dta_ini else " (anexo de provisión)"),
+         _fx(dta_ini, _n(f["dtaIni"])) if dta_ini else _n(f["dtaIni"])],
+        ["Movimiento del diferido", _fx(f"{F_['dtaFin']}-{F_['dtaIni']}", _n(f["dtaMov"]))],
+    ]
+
+    # 09 · Diferido: la parte deducible se reparte en proporción al deterioro.
+    dif_f = d["diferido"]["filas"]
+    tot_dif = FILA0 + len(dif_f)
+    fin_dif = tot_dif - 1
+    diferido = []
+    for j, x in enumerate(dif_f):
+        r = FILA0 + j
+        diferido.append([x["cliente"], x["factura"],
+                         _fx(f"SUMIF({rango('A')},B{r},{rango('J')})", _n(x["deterioro"])),
+                         _fx(f"IF($C${tot_dif}=0,0,C{r}*MIN({F_['provFiscalAcum']},$C${tot_dif})/$C${tot_dif})", _n(x["deducible"])),
+                         _fx(f"C{r}-D{r}", _n(x["noDeducible"])), _n(x["dtaIni"]), _n(x["reversion"]),
+                         _fx(f"E{r}*{P}$B${PAR['tasaImp']}/100", _n(x["dtaNuevo"])), _fx(f"F{r}-G{r}+H{r}", _n(x["dtaFin"]))])
+    dt = d["diferido"]
+    tot_det_dif = sum(x["deterioro"] for x in dif_f)
+
+    # 10 · Asientos: cada importe apunta al total de su cédula.
+    ref_asiento = {"1": (f"{MOV}F{tot_mov}", mt["provAnio"]), "1b": (f"{MOV}D{tot_mov}", mt["reversion"]),
+                   "1c": (f"{MOV}E{tot_mov}", mt["bajas"]), "2": (f"{DIF}H{tot_dif}", dt["nuevo"]), "3": (f"{DIF}G{tot_dif}", dt["rev"])}
+    asientos = []
+    for a in d["asientos"]:
+        ref, v = ref_asiento[a["n"]]
+        for i, l in enumerate(a["lineas"]):
+            celda = _fx(ref, _n(v))
+            asientos.append([f"{a['n']} · {a['titulo']}" if i == 0 else "", l["cta"],
+                             celda if l.get("d") is not None else None, celda if l.get("h") is not None else None])
+
+    # 05 · Por cliente.
+    clientes = []
+    for j, c in enumerate(d["clientes"]):
+        r = FILA0 + j
+        clientes.append([c["cliente"], c["ruc"], _fx(f"COUNTIF({rango('B')},A{r})", c["docs"]),
+                         _fx(f"SUMIF({rango('B')},A{r},{rango('G')})", _n(c["saldo"])),
+                         _fx(f'SUMIFS({rango("G")},{rango("B")},A{r},{rango("E")},"<=0")', _n(c["corriente"])),
+                         _fx(f"D{r}-E{r}", _n(c["vencido"])), c["maxdv"], c["tasaPond"],
+                         _fx(f'IF(H{r}="","",D{r}*(1-(1-H{r})/{DESC}))', _n(c["perdida"])),
+                         c["criterio"] if c["individual"] else "Colectiva"])
+    tot_cli = FILA0 + len(clientes)
+    fin_cli = tot_cli - 1
+
+    # 01 · Resumen (orden de res["labels"]).
+    fila_res = {k: FILA0 + i for i, k in enumerate(res["labels"])}
+    ref_res = {"saldo": F_["total"], "perdida": F_["perdida"], "provisionRegistrada": prov_reg_ref,
+               "ajuste": f"B{fila_res['perdida']}-B{fila_res['provisionRegistrada']}",
+               "reversion": f"{MOV}D{tot_mov}", "bajas": f"{MOV}E{tot_mov}", "deducible": F_["deducible"],
+               "noDeducible": F_["noDeducible"], "dtaFin": F_["dtaFin"], "dtaMov": F_["dtaMov"]}
+    resumen = [[res["labels"][k], _fx(ref_res[k], _n(t[k]))] for k in res["labels"]]
+
     hoja = lambda name, label, cols, rows, total=None: {"name": name, "label": label, "cols": cols, "rows": rows, "total": total}
     return [
-        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]],
-             [[res["labels"][k], _n(t[k])] for k in res["labels"]]),
-        hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "t"], ["Sustento", "t"]], [
-            ["Corte del ejercicio corriente", d["cortes"]["a3"], "Ficha del encargo"],
-            ["Corte del ejercicio anterior", d["cortes"]["a2"] or "Sin anexo", "Fin del mes de la última emisión del anexo"],
-            ["Corte de dos ejercicios antes", d["cortes"]["a1"] or "Sin anexo", "Fin del mes de la última emisión del anexo"],
-            ["Tasa efectiva para descontar (%)", str(p["tasaDesc"]), "Secc. 11 párr. 11.13 y 11.25"],
-            ["Plazo esperado de cobro (meses)", str(p["plazoBase"]), "Juicio del auditor"],
-            ["Umbral de mora grave (días)", str(p["umbralGrave"]), "Secc. 11 párr. 11.24"],
-            ["Umbral de saldo significativo", str(p["umbralIndividual"]), "Secc. 11 párr. 11.24 (0 = desactivado)"],
-            ["Límite anual deducible (%)", str(p["pctDeducible"]), "LRTI Art. 10 num. 11"],
-            ["Límite acumulado (%)", str(p["pctLimite"]), "LRTI Art. 10 num. 11"],
-            ["Tasa del impuesto (%)", str(p["tasaImp"]), "Tarifa del contribuyente"],
-            *[[f"Tasa fijada por el auditor · {NOMBRE_TRAMO.get(k, k)} (%)", str(v), "Juicio del auditor con evidencia de cobro"]
-              for k, v in (p.get("tasas") or {}).items()],
-        ]),
+        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen),
+        hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
         hoja("03_Evidencia_historica", "Evidencia histórica",
              [["Ventana", "t"], ["Tramo", "t"], ["Documentos", "i"], ["Emparejados", "i"], ["Saldo inicial", "n"],
-              ["Sigue vivo al año siguiente", "n"], ["No recuperación", "p"]],
-             [[f"{m['de']} → {m['a']}{'' if m['diag']['usable'] else ' (no usable)'}", NOMBRE_TRAMO[k], v["docs"], v["emparejados"],
-               _n(v["inicial"]), _n(v["persiste"]), (v["persiste"] / v["inicial"]) if v["inicial"] else None]
-              for m in d["migracion"] for k, v in m["porT"].items()]),
+              ["Sigue vivo al año siguiente", "n"], ["No recuperación", "p"], ["Usable", "t"]], evidencia),
         hoja("04_Matriz_deterioro", "Matriz de deterioro",
              [["Tramo", "t"], ["Documentos", "i"], ["Saldo", "n"], ["Tasa aplicada", "p"], ["Origen", "t"],
-              ["Pérdida", "n"], ["Base de la tasa", "t"]],
-             [[x["tramo"], docs_t.get(x["tramo"], 0), _n(saldo_t.get(x["tramo"], 0)), x["tasa"], x["origen"],
-               _n(perd_t.get(x["tramo"], 0)), x["base"]] for x in d["tasas"]],
-             ["TOTAL", len(res["rows"]), _n(t["saldo"]), None, "", _n(t["perdida"]), ""]),
+              ["Pérdida", "n"], ["Base de la tasa", "t"]], matriz,
+             ["TOTAL", s("B", m_fin, n_det), s("C", m_fin, _n(t["saldo"])), None, "", s("F", m_fin, _n(t["perdida"])), ""]),
         hoja("05_Por_cliente", "Por cliente",
              [["Cliente", "t"], ["RUC", "t"], ["Documentos", "i"], ["Saldo", "n"], ["Corriente", "n"], ["Vencido", "n"],
-              ["Mora máxima (días)", "i"], ["Tasa ponderada", "p"], ["Pérdida", "n"], ["Evaluación", "t"]],
-             [[c["cliente"], c["ruc"], c["docs"], _n(c["saldo"]), _n(c["corriente"]), _n(c["vencido"]), c["maxdv"],
-               c["tasaPond"], _n(c["perdida"]), c["criterio"] if c["individual"] else "Colectiva"] for c in d["clientes"]],
-             ["TOTAL", "", len(res["rows"]), _n(t["saldo"]), _n(f["corriente"]), _n(t["saldo"] - f["corriente"]), None, None,
-              _n(t["perdida"]), ""]),
+              ["Mora máxima (días)", "i"], ["Tasa ponderada", "p"], ["Pérdida", "n"], ["Evaluación", "t"]], clientes,
+             ["TOTAL", "", s("C", fin_cli, n_det), s("D", fin_cli, _n(t["saldo"])), s("E", fin_cli, _n(f["corriente"])),
+              s("F", fin_cli, _n(t["saldo"] - f["corriente"])), None, None,
+              s("I", fin_cli, _n(sum(c["perdida"] or 0 for c in d["clientes"]))), ""]),
         hoja("06_Movimiento_provision", "Movimiento de la provisión",
              [["Cliente", "t"], ["Factura", "t"], ["Provisión inicial", "n"], ["Reversión", "n"], ["Bajas", "n"],
-              ["Provisión del año", "n"], ["Saldo final", "n"], ["Tipo", "t"]],
-             [[m["cliente"], m["factura"], _n(m["provIni"]), _n(m["reversion"]), _n(m["bajas"]), _n(m["provAnio"]),
-               _n(m["saldoFin"]), m["tipo"]] for m in d["movimiento"] if m["provIni"] or m["provAnio"]],
-             ["TOTAL", "", *[_n(d["movimientoTotales"][k]) for k in ("provIni", "reversion", "bajas", "provAnio", "saldoFin")], ""]),
+              ["Provisión del año", "n"], ["Saldo final", "n"], ["Tipo", "t"]], movimiento,
+             ["TOTAL", "", *[s(c, fin_mov, _n(mt[k])) for c, k in zip("CDEFG", ("provIni", "reversion", "bajas", "provAnio", "saldoFin"))], ""]),
         hoja("07_Mayor", "Provisión según el mayor",
-             [["Año", "t"], ["Inicial", "n"], ["Gasto", "n"], ["Castigos", "n"], ["Recuperaciones", "n"], ["Final", "n"]],
-             [[m["anio"], _n(m["ini"]), _n(m["gasto"]), _n(m["cast"]), _n(m["rec"]), _n(m["fin"])] for m in d["mayor"]]),
-        hoja("08_Fiscal", "Fiscal", [["Concepto", "t"], ["Importe", "n"]], [
-            ["Cartera total al corte", _n(f["total"])], ["Cartera corriente (créditos del ejercicio)", _n(f["corriente"])],
-            ["Pérdida incurrida recalculada", _n(f["perdida"])], ["Provisión del ejercicio anterior (mayor)", _n(f["provAnt"])],
-            ["Gasto del ejercicio", _n(f["gastoEjercicio"])], ["Límite anual (% sobre la cartera corriente)", _n(f["limite1"])],
-            ["Límite acumulado (% sobre la cartera total)", _n(f["limite10"])],
-            ["Provisión fiscal acumulada anterior" + (" (estimada: mínimo entre provisión anterior y límite)" if f["pfEstimada"] else ""), _n(f["provFiscalAnt"])],
-            ["Margen acumulado disponible", _n(f["margenAcum"])], ["Gasto deducible", _n(f["deducible"])],
-            ["Gasto no deducible", _n(f["noDeducible"])], ["Provisión fiscal acumulada al cierre", _n(f["provFiscalAcum"])],
-            ["Diferencia temporaria acumulada al cierre", _n(f["difAcumFin"])], ["Activo por impuesto diferido al cierre", _n(f["dtaFin"])],
-            ["Activo por impuesto diferido inicial", _n(f["dtaIni"])], ["Movimiento del diferido", _n(f["dtaMov"])],
-        ]),
+             [["Año", "t"], ["Inicial", "n"], ["Gasto", "n"], ["Castigos", "n"], ["Recuperaciones", "n"], ["Final", "n"]], mayor),
+        hoja("08_Fiscal", "Fiscal", [["Concepto", "t"], ["Importe", "n"]], fiscal),
         hoja("09_Impuesto_diferido", "Impuesto diferido por factura",
              [["Cliente", "t"], ["Factura", "t"], ["Deterioro", "n"], ["Deducible", "n"], ["No deducible", "n"],
-              ["Diferido inicial", "n"], ["Reversión", "n"], ["Diferido nuevo", "n"], ["Diferido final", "n"]],
-             [[x["cliente"], x["factura"], *[_n(x[k]) for k in ("deterioro", "deducible", "noDeducible", "dtaIni", "reversion", "dtaNuevo", "dtaFin")]]
-              for x in d["diferido"]["filas"]],
-             ["TOTAL", "", None, None, None, *[_n(d["diferido"][k]) for k in ("ini", "rev", "nuevo", "fin")]]),
-        hoja("10_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]],
-             [[f"{a['n']} · {a['titulo']}" if i == 0 else "", l["cta"], _n(l.get("d")), _n(l.get("h"))]
-              for a in d["asientos"] for i, l in enumerate(a["lineas"])]),
+              ["Diferido inicial", "n"], ["Reversión", "n"], ["Diferido nuevo", "n"], ["Diferido final", "n"]], diferido,
+             ["TOTAL", "", s("C", fin_dif, _n(tot_det_dif)), s("D", fin_dif, _n(sum(x["deducible"] for x in dif_f))),
+              s("E", fin_dif, _n(sum(x["noDeducible"] for x in dif_f))),
+              *[s(c, fin_dif, _n(dt[k])) for c, k in zip("FGHI", ("ini", "rev", "nuevo", "fin"))]]),
+        hoja("10_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos),
         hoja("11_Detalle", "Detalle por factura",
-             [["Factura", "t"], ["Cliente", "t"], ["Emisión", "t"], ["Vencimiento", "t"], ["Días de mora", "i"], ["Tramo", "t"],
-              ["Saldo", "n"], ["Tasa", "p"], ["Valor presente", "n"], ["Pérdida", "n"], ["Provisión inicial", "n"]],
-             [[r["id"], r["cliente"], r["emision"], r["vence"], int(r["dias"]) if r["dias"] else None, r["tramo"], _n(r["saldo"]),
-               _f(r["tasa"]), _n(_f(r["vp"])), _n(_f(r["perdida"])), _n(r["provIni"])] for r in res["rows"]],
-             ["TOTAL", "", "", "", None, "", _n(t["saldo"]), None, None, _n(t["perdida"]), None]),
+             [["Factura", "t"], ["Cliente", "t"], ["Emisión", "d"], ["Vencimiento", "d"], ["Días de mora", "i"], ["Tramo", "t"],
+              ["Saldo", "n"], ["Tasa", "p"], ["Valor presente", "n"], ["Pérdida", "n"], ["Provisión inicial", "n"]], detalle,
+             ["TOTAL", "", "", "", None, "", s("G", det_fin, _n(t["saldo"])), None, s("I", det_fin, _n(sum(_f(x["vp"]) or 0 for x in filas))),
+              s("J", det_fin, _n(t["perdida"])), s("K", det_fin, _n(sum(float(x["provIni"]) for x in filas)))]),
         hoja("12_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], _n(e["amount"])] for e in res["exceptions"]]),
     ]

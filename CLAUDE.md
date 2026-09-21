@@ -451,3 +451,23 @@ Manual / `MARCA_FIRMA.md` / `PERFIL_FINANCIERO.md`, no este archivo.
 > en el `CLAUDE.md` de la raíz para aplicación automática). Conectores externos
 > (HubSpot, BigQuery, Microsoft 365, Canva MCP, etc.) quedaron sin autenticar a
 > pedido del usuario; los plugins funcionan sin ellos.
+
+## Papeles de trabajo de las herramientas NIIF — formatos obligatorios
+
+**REGLA OBLIGATORIA (decisión del dueño, 2026-09-21):** toda herramienta de prueba NIIF del
+Command Center entrega su papel de trabajo en estos formatos:
+
+1. **Excel con fórmulas editables, auditables y trazables.** Cada importe calculado es una
+   fórmula de Excel que remite a su origen (hoja de parámetros, detalle por partida, matriz),
+   no un valor pegado. Si el auditor cambia un parámetro o un saldo, el libro recalcula.
+2. **HTML autónomo que funciona sin internet:** sin fuentes, scripts ni estilos externos. Lleva
+   dentro, para descargar, el Excel con fórmulas, el Word y el PowerPoint, y el PDF se obtiene
+   con «Guardar como PDF» del navegador (formato de impresión horizontal ya preparado).
+3. **PDF, Word y PowerPoint** descargables también desde la vista de trabajo.
+
+**Verificación antes de entregar:** abrir el Excel en Excel real, recalcular y comparar cada
+fórmula con el valor que calculó Python (diferencia 0). Referencia:
+`scripts/verificar_formulas_pi.py` (pérdidas incurridas). Implementación de referencia:
+`backend/app/aud/niif/procesadores/libro.py` (celdas `{"f": fórmula, "v": valor}`).
+
+Pendiente: las pruebas declarativas (exportador del sitio) aún no traen Word ni PowerPoint.

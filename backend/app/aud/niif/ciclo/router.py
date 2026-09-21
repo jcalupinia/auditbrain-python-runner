@@ -295,11 +295,22 @@ def descargar_modelo(prueba_id: int, requerimiento: str, db: Session = Depends(g
 
 
 @router.get("/pruebas/{prueba_id}/libro")
-def descargar_libro(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> Response:
-    """Excel del papel en curso de una prueba con procesador (lo arma el servidor)."""
+def descargar_libro(prueba_id: int, formato: str = "xlsx", db: Session = Depends(get_db),
+                    user: User = Depends(require_staff)) -> Response:
+    """Papel en curso de una prueba con procesador, armado por el servidor:
+    Excel con fórmulas, Word, PowerPoint o HTML autónomo (funciona sin internet
+    y trae dentro los demás formatos)."""
+    from backend.app.aud.niif.procesadores import libro
+
+    tipos = {"xlsx": almacen.TIPOS["xlsx"],
+             "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+             "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+             "html": "text/html; charset=utf-8"}
+    if formato not in tipos:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Formato no disponible.")
     p = _prueba(db, user, prueba_id)
     if not p.definicion.get("processor") or not (p.registro.get("run") or {}).get("hojas"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Procese la prueba antes de descargar su Excel.")
-    contenido, _ = servicio.papel_procesador(db, p)
-    return Response(contenido, media_type=almacen.TIPOS["xlsx"],
-                    headers={"Content-Disposition": f'attachment; filename="Papel_v{p.version}.xlsx"'})
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Procese la prueba antes de descargar su papel.")
+    contenido = getattr(libro, formato)(*servicio.args_papel(db, p))
+    return Response(contenido, media_type=tipos[formato],
+                    headers={"Content-Disposition": f'attachment; filename="Papel_v{p.version}.{formato}"'})

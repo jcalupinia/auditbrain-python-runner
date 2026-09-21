@@ -47,6 +47,12 @@ const ETIQUETA_PARAM = {
   umbralIndividual: "Saldo significativo", pctDeducible: "Límite anual (%)", pctLimite: "Límite acumulado (%)",
   tasaImp: "Tasa del impuesto (%)", provFiscalAnt: "Provisión fiscal anterior", dtaIniManual: "Diferido inicial",
 };
+// Formatos del papel de un procesador (el Excel va en «Descargar Excel»).
+const FORMATOS_PAPEL = [
+  ["docx", "Word", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+  ["pptx", "PowerPoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation"],
+  ["html", "HTML sin conexión (y PDF)", "text/html;charset=utf-8"],
+];
 const TRAMOS_PI = [
   ["pv", "Corriente"], ["t30", "1 a 30 días"], ["t60", "31 a 60 días"], ["t90", "61 a 90 días"],
   ["t180", "91 a 180 días"], ["t360", "181 a 360 días"], ["t730", "361 a 730 días"], ["tmax", "Más de 730 días"],
@@ -184,7 +190,13 @@ const FORMATO = {
   p: (v) => `${(Number(v) * 100).toLocaleString("es-EC", { maximumFractionDigits: 2 })} %`,
   i: (v) => Number(v).toLocaleString("es-EC"),
 };
-const celda = (v, f) => (v === null || v === undefined || v === "" ? "" : FORMATO[f] ? FORMATO[f](v) : String(v));
+// Una celda calculada llega como {f: fórmula, v: valor}: se muestra el valor y la fórmula al pasar el cursor.
+const valorDe = (v) => (v && typeof v === "object" ? v.v : v);
+const celda = (v, f) => {
+  const x = valorDe(v);
+  if (x === null || x === undefined || x === "") return "";
+  return FORMATO[f] || (f === "x" && typeof x === "number") ? (FORMATO[f] || FORMATO.n)(x) : String(x);
+};
 
 function CedulaProcesador({ hoja }) {
   const filas = hoja.total ? [...hoja.rows, hoja.total] : hoja.rows;
@@ -195,7 +207,12 @@ function CedulaProcesador({ hoja }) {
         <tbody>
           {filas.map((r, i) => (
             <tr key={i} style={hoja.total && i === filas.length - 1 ? { fontWeight: 700 } : undefined}>
-              {r.map((v, j) => <td key={j} style={FORMATO[hoja.cols[j][1]] ? { textAlign: "right", whiteSpace: "nowrap" } : undefined}>{celda(v, hoja.cols[j][1])}</td>)}
+              {r.map((v, j) => (
+                <td key={j} title={v && typeof v === "object" ? `=${v.f}` : undefined}
+                  style={FORMATO[hoja.cols[j][1]] ? { textAlign: "right", whiteSpace: "nowrap" } : undefined}>
+                  {celda(v, hoja.cols[j][1])}
+                </td>
+              ))}
             </tr>
           ))}
           {!filas.length && <tr><td colSpan={hoja.cols.length} className="muted">Sin partidas.</td></tr>}
@@ -475,6 +492,18 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
         >
           Descargar Excel
         </button>
+        {d.processor && FORMATOS_PAPEL.map(([ext, etiqueta, tipo]) => (
+          <button key={ext} type="button" className="pc-chip" disabled={!reg.run} title={ext === "html" ? "Funciona sin internet y trae dentro Excel, Word, PowerPoint y PDF" : undefined}
+            onClick={async () => {
+              try {
+                descargar(`${d.name.replace(/[^\w-]+/g, "_").slice(0, 60)}_v${prueba.version}.${ext}`, await api.cicloBajarLibro(prueba.id, ext), tipo);
+              } catch (e) {
+                setError(e.message || String(e));
+              }
+            }}>
+            {etiqueta}
+          </button>
+        ))}
         <button type="button" className="pc-chip danger" onClick={abrirEncerar}>Encerar</button>
       </div>
       {avance && <p className="muted">{avance}</p>}

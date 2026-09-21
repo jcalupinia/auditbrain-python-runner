@@ -542,10 +542,18 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
     return p
 
 
-def papel_procesador(db: Session, p: Prueba) -> tuple[bytes, bytes]:
+def _eventos_papel(db: Session, p: Prueba) -> list[dict]:
     evs = [{"fecha": e.creado_en.isoformat() if e.creado_en else "", "accion": e.accion, "estado_anterior": e.estado_anterior,
             "estado_nuevo": e.estado_nuevo, "actor": e.actor, "comentario": e.comentario or ""} for e in eventos(db, p.id)]
-    args = (p.definicion, p.registro, evs, p.version, p.estado)
+    return evs
+
+
+def args_papel(db: Session, p: Prueba) -> tuple:
+    return (p.definicion, p.registro, _eventos_papel(db, p), p.version, p.estado)
+
+
+def papel_procesador(db: Session, p: Prueba) -> tuple[bytes, bytes]:
+    args = args_papel(db, p)
     return libro.xlsx(*args), libro.html(*args)
 
 
