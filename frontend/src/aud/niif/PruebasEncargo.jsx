@@ -13,6 +13,7 @@ import {
 import { Documentacion, EditorRequerimiento } from "./CicloDocumentacion";
 import { Ejecucion } from "./CicloEjecucion";
 import { Revision } from "./CicloRevision";
+import { VistaTrabajo } from "./CicloVista";
 import { ContextFields } from "./ContextoEncargo";
 
 /*
@@ -257,6 +258,21 @@ export function Prueba({ id, onCambio, onAbrir }) {
       </ol>
       {error && <p role="alert" className="nf-error">{error}</p>}
 
+      <VistaTrabajo prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
+
+      {["PRUEBA_EJECUTADA", "RESULTADOS_ANALIZADOS"].includes(prueba.estado) && (
+        <section>
+          <h5>Análisis y cierre del papel de trabajo</h5>
+          <Ejecucion prueba={prueba} onAccion={accion} ocupado={ocupado} soloAnalisis />
+        </section>
+      )}
+
+      <section>
+        <Revision prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
+      </section>
+
+      <details className="nf-circuito">
+        <summary>Circuito detallado (paso a paso, con mapeo manual)</summary>
       {prueba.estado === "PRUEBA_SELECCIONADA" && (
         <section>
           <h5>Programa de trabajo</h5>
@@ -316,9 +332,7 @@ export function Prueba({ id, onCambio, onAbrir }) {
         </section>
       )}
 
-      <section>
-        <Revision prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
-      </section>
+      </details>
 
       <details>
         <summary>Bitácora ({prueba.eventos.length})</summary>

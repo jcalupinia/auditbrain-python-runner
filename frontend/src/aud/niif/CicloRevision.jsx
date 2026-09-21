@@ -266,7 +266,7 @@ function EncerarEliminar({ prueba, onAccion, ocupado }) {
   const [definitivo, setDefinitivo] = useState(false);
   const [aprobada, setAprobada] = useState(false);
   return (
-    <details>
+    <details id={`encerar-${prueba.id}`}>
       <summary>Encerar o eliminar</summary>
       <p className="muted">
         Escriba el nombre del cliente tal como está en la ficha («{prueba.registro.engagement.client}»). Encerar borra
