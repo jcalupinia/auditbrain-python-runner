@@ -211,7 +211,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             h = historia.get((s, t["k"]))
             hist = h["perdida"] / h["inicial"] if h and h["inicial"] > 0 else None
             man = manual.get(t["k"])
-            base = man / 100 if man is not None else hist
+            base = hist if hist is not None else (man / 100 if man is not None else None)
             matriz.append({"segmento": s, "k": t["k"], "tramo": t["n"], "clave": f"{s}|{t['n']}", "inicial": h["inicial"] if h else 0,
                            "perdidaHist": h["perdida"] if h else 0, "docsHist": h["docs"] if h else 0, "hist": hist, "manual": man,
                            "base": base, "ajustada": None if base is None else min(base * factor, 1)})
@@ -273,6 +273,9 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     for m in matriz:
         if m["ajustada"] is None and m["sinTasa"]:
             problemas.append({"code": "TASA_FALTANTE", "message": f"{m['segmento']} · {m['tramo']}: sin historia ({_m(m['sinTasa'])} de cartera sin tasa). Fije la tasa con su sustento (B5.5.51).", "amount": r2(m["sinTasa"])})
+    for m in matriz:
+        if m["ajustada"] == 0 and m["saldo"] > 0:
+            problemas.append({"code": "TASA_CERO", "message": f"{m['segmento']} · {m['tramo']}: tasa 0 % sobre {_m(m['saldo'])}. La pérdida esperada se estima aunque la posibilidad sea muy baja (5.5.18): documente por qué es cero o fije una tasa.", "amount": r2(m["saldo"])})
     for s in segmentos:
         tasas = [m["ajustada"] for m in matriz if m["segmento"] == s and m["ajustada"] is not None and m["docs"]]
         if any(b < a - 1e-9 for a, b in zip(tasas, tasas[1:])):
@@ -304,7 +307,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                  "dtaMov": "Movimiento del diferido"}
     detalle = {"cortes": {"actual": corte_a.isoformat(), "anterior": corte_b.isoformat()}, "factor": factor, "matriz": matriz,
                "tasas": [{"k": t["k"], "tramo": t["n"], "tasa": next((m["ajustada"] for m in matriz if m["k"] == t["k"] and m["ajustada"] is not None), None),
-                          "origen": "Fijada por el auditor" if t["k"] in manual else "Historia × factor prospectivo"} for t in TRAMOS],
+                          "origen": "Historia × factor prospectivo" if any(m["hist"] is not None for m in matriz if m["k"] == t["k"]) else ("Fijada por el auditor" if t["k"] in manual else "Sin tasa")} for t in TRAMOS],
                "anterior": [{k: (v.isoformat() if isinstance(v, date) else v) for k, v in f.items()} for f in anterior],
                "castigos": [{"id": c.get("id"), "cliente": c.get("cliente"), "importe": a_num(c.get("importe")) or 0} for c in datasets.get("castigos") or []],
                "fiscal": fiscal, "asientos": asientos, "parametros": p, "provisionRegistrada": prov_reg}
@@ -376,7 +379,7 @@ def hojas(res: dict) -> list[dict]:
     fila_tasa = {}
     for k, v in manual.items():
         fila_tasa[k] = FILA0 + len(parametros)
-        parametros.append([f"Tasa fijada por el auditor · {NOMBRE_TRAMO.get(k, k)} (%)", float(v), "Juicio del auditor con evidencia (B5.5.51)"])
+        parametros.append([f"Tasa fijada por el auditor · {NOMBRE_TRAMO.get(k, k)} (%)", float(v), "Solo donde el tramo no tiene historia (B5.5.51)"])
 
     # 10 · Cartera anterior: días, tramo y pérdida observada con fórmulas.
     anterior = []
@@ -406,7 +409,7 @@ def hojas(res: dict) -> list[dict]:
         r = FILA0 + i
         man = _fx(f"{P}$B${fila_tasa[m['k']]}/100", m["manual"] / 100) if m["k"] in fila_tasa else None
         matriz.append([m["segmento"], m["tramo"], m["clave"], _fx(f"{HIS}G{r}", m["hist"]), man,
-                       _fx(f'IF(E{r}<>"",E{r},D{r})', m["base"]), _fx(f"{P}$B${PAR['factor']}", d["factor"]),
+                       _fx(f'IF(D{r}<>"",D{r},IF(E{r}<>"",E{r},""))', m["base"]), _fx(f"{P}$B${PAR['factor']}", d["factor"]),
                        _fx(f'IF(F{r}="","",MIN(F{r}*G{r},1))', m["ajustada"]),
                        _fx(f"SUMIF({_rango(DET, 'G', nd)},C{r},{_rango(DET, 'H', nd)})", _n(m["saldo"])),
                        _fx(f"SUMIF({_rango(DET, 'G', nd)},C{r},{_rango(DET, 'K', nd)})", _n(m["pce"]))])

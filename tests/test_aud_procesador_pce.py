@@ -131,3 +131,10 @@ def test_pce_de_punta_a_punta(client, disco_temporal):
         assert client.get(f"{BASE}/pruebas/{p['id']}/libro?formato={fmt}", headers=_h(tok)).status_code == 200, fmt
     wb = load_workbook(io.BytesIO(client.get(f"{BASE}/pruebas/{p['id']}/libro", headers=_h(tok)).content))
     assert wb["09_Detalle"]["K5"].value.startswith("=IF(")
+
+
+def test_tasa_cero_observada_se_avisa():
+    datos = {**pce.EJEMPLO["datasets"], "anterior": [*pce.EJEMPLO["datasets"]["anterior"], pce._ej("F-12", "B", "2025-01-20", "500")],
+             "actual": [*pce.EJEMPLO["datasets"]["actual"], pce._ej("F-40", "E", "2026-01-30", "800")]}
+    r = pce.ejecutar(datos, pce.EJEMPLO["parametros"], "2025-12-31")
+    assert any(e["code"] == "TASA_CERO" and "Corriente" in e["message"] for e in r["exceptions"])

@@ -48,7 +48,8 @@ La provisión registrada y la inicial se ingresan como parámetros (del mayor).
 1. Tramos: corriente, 1–30, 31–60, 61–90, 91–180, 181–360, más de 360 días.
 2. Tasa histórica por segmento y tramo = (sigue impago un año después + castigado) ÷ saldo positivo al corte anterior.
    El cruce es por N° de factura (el mismo que haría SUMIF en el Excel).
-3. Sin historia, el auditor fija la tasa por tramo (se aplica a todos los segmentos). Nunca queda en cero por omisión:
+3. Sin historia, el auditor fija la tasa por tramo; se usa **solo** donde el segmento no tiene historia en ese tramo
+   (la observada manda; para una factura puntual está la tasa individual). Nunca queda en cero por omisión:
    la herramienta lo marca como problema.
 4. Factor prospectivo = Σ peso × (1 + ajuste) ÷ Σ peso. Por defecto 1,00 con aviso para documentarlo.
 5. Pérdida esperada por factura = saldo × min(tasa × factor; 100 %) ÷ (1 + i)^(plazo/12); tasa individual si se informa.
