@@ -55,6 +55,8 @@ export function workbookSheets(t,template=false){
  const bucketStart=s[2].length+2;s[2].push(['Mora desde','Mora hasta','Tasa (0 a 1)']);for(const b of t.parameters?.buckets||[])s[2].push([numeric(b.min),b.max===null?'Sin límite':numeric(b.max),numeric(b.rate)]);
  s[2].push([],['Código','Operación','Operando A','Operando B','Decimales','Si no (C) / tramos']);for(const r of d.rules)s[2].push([r.key,r.op,r.a,r.b??'',numeric(r.precision),r.op==='band'?r.table.map(b=>`desde ${b.from}: ${b.value}`).join(' · '):r.c??'']);
  s[3]=intro('Fuentes y normativa',['Categoría','Organismo','Documento','Artículo / párrafo','Fecha / vigencia','URL','Procedimientos','Verificada']);for(const x of t.sources||[])s[3].push([x.category,x.organization,x.document,x.section,x.date,x.url,(x.procedures||[]).join(', '),x.verified?'Sí':'Pendiente']);
+ // Las NIA que rigen la prueba y qué exige cada una en ella (base técnica de la ficha).
+ if(d.nia?.length){s[3].push([],['NIA APLICADAS EN ESTA PRUEBA'],['Norma','Párrafos','Qué exige en esta prueba']);for(const x of d.nia)s[3].push(typeof x==='string'?[x,'','']:[x.document,x.section||'',x.requirement||'']);}
  s[4]=intro('Datos originales mapeados',['Identificador',...d.fields.slice(1).map(f=>f.label),'Archivo','Hoja','Fila origen']);
  s[5]=intro('Datos procesados',d.fields.map(f=>f.label));
  s[6]=intro('Cálculos auditables',['Identificador',...(d.id==='pce'?['Días de mora','Tasa']:[]),...d.rules.map(r=>r.label)]);

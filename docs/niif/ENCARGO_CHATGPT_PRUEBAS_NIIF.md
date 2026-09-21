@@ -161,8 +161,15 @@ reglas de la sección 3.
 7. **Cédulas** que genera: de la lista de la sección 3.4.
 8. **Conclusión tipo**: el texto modelo de conclusión, con los espacios para
    los valores.
-9. **Bloque JSON** de la sección 4, al final de la ficha, con `summary`
-   (el resumen técnico del bloque A) y `nia` (la lista de NIA aplicables).
+9. **Bloque JSON** de la sección 4, al final de la ficha, con:
+   - `summary`: el resumen técnico del bloque A;
+   - `frameworks`: para qué marcos sirve la herramienta (`["NIIF completas", "NIIF para las PYMES"]`
+     o solo uno). Si la prueba cambia entre marcos (por ejemplo, pérdida esperada en
+     NIIF 9 frente a pérdida incurrida en la Sección 11), haga **una ficha por marco**;
+   - `source` (NIIF completas) y `source_pymes` (NIIF para las PYMES) con sus párrafos;
+   - `nia`: una fila por NIA con `document` (norma), `section` (párrafos) y
+     `requirement` (**qué exige esa NIA en esta prueba concreta**, no una
+     definición general de la norma).
 
 ---
 
@@ -263,10 +270,14 @@ neto de realización que ya funciona en la plataforma; úsalo como modelo:
   "id": "inv01",
   "name": "Valor neto de realización",
   "area": "Inventarios",
-  "framework": ["NIIF completas", "NIIF para las PYMES"],
+  "frameworks": ["NIIF completas", "NIIF para las PYMES"],
   "description": "Compara el costo con el precio estimado de venta menos los costos de terminación y venta, por partida.",
   "summary": "La NIC 2 exige medir los inventarios al menor entre costo y valor neto de realización; el VNR es el precio estimado de venta menos los costos de terminación y los necesarios para la venta. La rebaja se reconoce partida por partida y se revierte si las circunstancias cambian.",
-  "nia": ["NIA 500", "NIA 501", "NIA 540"],
+  "nia": [
+    { "document": "NIA 501", "section": "párr. 4–8", "requirement": "Si los inventarios son materiales, asistir al recuento físico y cotejar cantidades con los registros." },
+    { "document": "NIA 540 (Revisada)", "section": "párr. 13 y 17–30", "requirement": "El VNR es una estimación: evaluar método, datos y supuestos significativos." },
+    { "document": "NIA 500", "section": "párr. 6–9", "requirement": "Evaluar la exactitud e integridad del inventario valorado que produce la entidad." }
+  ],
   "source": {
     "organization": "IFRS Foundation",
     "document": "NIC 2 Inventarios, párr. 9 y 28-33",

@@ -199,3 +199,24 @@ describe("E10 · archivos y problemas", () => {
     ]);
   });
 });
+
+import { marcoAplicable, niasDe } from "./cicloLogic";
+
+describe("marco aplicable y NIA", () => {
+  const vnr = { source: { document: "IAS 2" }, source_pymes: { document: "Sección 13" }, frameworks: ["NIIF completas", "NIIF para las PYMES"] };
+  it("marca la norma del marco del encargo", () => {
+    const m = marcoAplicable(vnr, "NIIF para las PYMES");
+    expect(m.sirve).toBe(true);
+    expect(m.normas.filter((n) => n.aplica).map((n) => n.texto)).toEqual(["Sección 13"]);
+  });
+  it("avisa si la herramienta no es para el marco del encargo", () => {
+    expect(marcoAplicable({ ...vnr, frameworks: ["NIIF completas"] }, "NIIF para las PYMES").sirve).toBe(false);
+  });
+  it("sin marcos declarados, sirve para los dos", () => {
+    expect(marcoAplicable({}, "NIIF completas").marcos).toEqual(["NIIF completas", "NIIF para las PYMES"]);
+  });
+  it("las NIA vienen como filas, también desde una lista de nombres", () => {
+    expect(niasDe({ nia: ["NIA 500", { document: "NIA 540", section: "párr. 13", requirement: "estimación" }] })).toEqual([
+      { document: "NIA 500", section: "", requirement: "" }, { document: "NIA 540", section: "párr. 13", requirement: "estimación" }]);
+  });
+});

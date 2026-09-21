@@ -229,3 +229,4 @@ a.btn { text-decoration: none; display: inline-block; }
 .nf-vista-base > summary { cursor: pointer; list-style: none; }
 .nf-vista-modelos .link { margin-right: 8px; }
 .nf-circuito { margin-top: 12px; opacity: 0.95; }
+.nf-vista-marco { display: flex; flex-wrap: wrap; gap: 8px 24px; padding: 8px 12px; margin: 4px 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }

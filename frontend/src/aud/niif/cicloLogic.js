@@ -214,7 +214,9 @@ export function fuentesConfirmadas(p) {
       return { ...s, url, document: f.document || s.document, section: refs.find((r) => !/^NIA/i.test(r)) || f.document || "Según programa de la ficha", date: vigencia, verified: true, procedures: codigos };
     }
     if (s.category === "NIA") {
-      return { ...s, document: (d.nia || []).join(", ") || s.document, section: refs.filter((r) => /^NIA/i.test(r)).join("; ") || "Según programa de la ficha", date: vigencia, verified: true, procedures: codigos };
+      const nias = niasDe(d);
+      const seccion = nias.filter((x) => x.section).map((x) => `${x.document} ${x.section}`).join("; ");
+      return { ...s, document: nias.map((x) => x.document).join(", ") || s.document, section: seccion || refs.filter((r) => /^NIA/i.test(r)).join("; ") || "Según programa de la ficha", date: vigencia, verified: true, procedures: codigos };
     }
     return { ...s, section: s.section || "Según tratamiento tributario descrito", date: s.date || vigencia, verified: true };
   });
@@ -247,3 +249,24 @@ export function problemasDe(p) {
   if (exc.length) lista.push(`${exc.length} excepción(es) por partida para evaluar.`);
   return lista;
 }
+
+// Marco de la herramienta frente al del encargo: qué norma se aplica aquí y si
+// la herramienta sirve para ese marco. Sin `frameworks` en la ficha, se asume
+// que sirve para los dos (no se puede afirmar lo contrario).
+export function marcoAplicable(d, marcoEncargo) {
+  const marcos = d.frameworks?.length ? d.frameworks : ["NIIF completas", "NIIF para las PYMES"];
+  const pymes = marcoEncargo === "NIIF para las PYMES";
+  return {
+    marcos,
+    encargo: marcoEncargo || "Sin definir",
+    sirve: !marcoEncargo || marcos.includes(marcoEncargo),
+    normas: [
+      { marco: "NIIF completas", texto: d.source?.document || "Según ficha", aplica: !pymes },
+      { marco: "NIIF para las PYMES", texto: d.source_pymes?.document || "Verificar sección aplicable", aplica: pymes },
+    ],
+  };
+}
+
+// Las NIA de la ficha, como filas {norma, párrafos, qué exige}; admite la lista simple de nombres.
+export const niasDe = (d) =>
+  (d.nia || []).map((x) => (typeof x === "string" ? { document: x, section: "", requirement: "" } : x));

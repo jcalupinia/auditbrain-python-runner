@@ -8,7 +8,9 @@ import {
   erroresLegibles,
   formulasLegibles,
   herramientaDePrueba,
+  marcoAplicable,
   mejorEncabezado,
+  niasDe,
   nombreEstado,
   pasoPreparar,
   problemasDe,
@@ -100,7 +102,8 @@ function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado }) {
 
 function BaseTecnica({ prueba, taxScope, setTaxScope }) {
   const d = prueba.definicion, reg = prueba.registro;
-  const pymes = reg.engagement?.framework === "NIIF para las PYMES";
+  const marco = marcoAplicable(d, reg.engagement?.framework);
+  const nias = niasDe(d);
   const formulas = formulasLegibles(d);
   const etiqueta = (k) => d.fields.find((f) => f.key === k)?.label || d.rules.find((r) => r.key === k)?.label || k;
   return (
@@ -110,12 +113,37 @@ function BaseTecnica({ prueba, taxScope, setTaxScope }) {
         <span className="pc-panel-m">{reg.engagement?.framework}</span>
       </summary>
       <div className="pc-panel-b">
+        <div className="nf-vista-marco">
+          <span>Esta herramienta aplica a: <strong>{marco.marcos.join(" y ")}</strong></span>
+          <span>Marco de este encargo: <strong className={marco.sirve ? "nf-ok" : "nf-error"}>{marco.encargo}</strong></span>
+        </div>
+        {!marco.sirve && (
+          <p role="alert" className="nf-error">
+            Esta herramienta no es para {marco.encargo}: sus cálculos siguen {marco.marcos.join(" y ")}. Use una ficha diseñada para ese marco.
+          </p>
+        )}
+        <p className="nf-eyebrow">NORMA CONTABLE</p>
         <ul className="nf-vista-lista">
-          <li><strong>NIIF completas:</strong> {d.source?.document || "Según ficha"}</li>
-          <li><strong>NIIF para las PYMES:</strong> {d.source_pymes?.document || "Verificar sección aplicable"}{pymes ? " · marco del encargo" : ""}</li>
-          {d.nia?.length > 0 && <li><strong>NIA:</strong> {d.nia.join(", ")}</li>}
+          {marco.normas.map((n) => (
+            <li key={n.marco} className={n.aplica ? "" : "muted"}>
+              <strong>{n.marco}:</strong> {n.texto} · {n.aplica ? <span className="nf-ok">se aplica en este encargo</span> : "referencia"}
+            </li>
+          ))}
           {reg.taxApplicable && <li><strong>Tributario:</strong> {reg.sources.find((s) => s.category === "TRIBUTARIA")?.document}</li>}
         </ul>
+        <p className="nf-eyebrow">QUÉ DICEN LAS NIA SOBRE ESTA PRUEBA</p>
+        {nias.length ? (
+          <div className="nf-estudio-scroll nf-estudio-tabla">
+            <table>
+              <thead><tr><th>Norma</th><th>Párrafos</th><th>Qué exige en esta prueba</th></tr></thead>
+              <tbody>
+                {nias.map((x) => <tr key={x.document}><td>{x.document}</td><td>{x.section}</td><td>{x.requirement}</td></tr>)}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="nf-error">La ficha no declara sus NIA: complétela antes de aplicar la prueba.</p>
+        )}
         {(d.summary || d.description) && <p className="muted">{d.summary || d.description}</p>}
         <p className="nf-eyebrow">QUÉ SE CALCULA</p>
         <ol className="nf-vista-lista">
@@ -352,6 +380,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
         <span className="pc-chip on" style={{ cursor: "default", fontWeight: 700 }} title={reg.engagement?.client}>
           {reg.engagement?.ruc || reg.engagement?.client}
         </span>
+        <span className="pc-chip" style={{ cursor: "default" }} title="Marco contable del encargo">{reg.engagement?.framework}</span>
         <button
           type="button"
           className="pc-chip"
