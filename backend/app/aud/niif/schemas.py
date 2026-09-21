@@ -81,3 +81,29 @@ class FichaOut(BaseModel):
     updated_at: datetime.datetime
 
     model_config = {"from_attributes": True}
+
+
+class CoberturaIn(BaseModel):
+    """Documentos recibidos, para medir la cobertura del requerimiento.
+
+    La forma de cada documento es la del sitio: ``kind`` siempre ``"source"``,
+    ``itemId`` el ítem al que se vinculó, ``component`` el componente cuando el
+    ítem los tiene, y ``state`` para que un documento ``"rechazado"`` no tape
+    el hueco.
+    """
+
+    documentos: list[dict] = Field(default_factory=list)
+
+
+class MotorIn(BaseModel):
+    """Definición de la prueba y datos con los que correrla.
+
+    La definición no sale de la ficha: la escribe Claude a partir del código
+    que genera el botón del diseñador. Correrla aquí es lo que habilita marcar
+    la ficha como probada con algo más que una impresión.
+    """
+
+    definicion: dict
+    filas: list[dict]
+    parametros: dict = Field(default_factory=dict)
+    flujos: list[dict] = Field(default_factory=list)

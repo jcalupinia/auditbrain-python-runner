@@ -13,14 +13,16 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.aud.niif import service
+from backend.app.aud.niif import estudio, service
 from backend.app.aud.niif.models import NiifFicha
 from backend.app.aud.niif.schemas import (
     ESTADO_EN_DISENO,
+    CoberturaIn,
     ESTADOS_VALIDOS,
     EstadoIn,
     FichaIn,
     FichaOut,
+    MotorIn,
 )
 from backend.app.auth.deps import require_staff
 from backend.app.auth.models import User
@@ -161,3 +163,44 @@ def eliminar_ficha(
         "estado_al_eliminar": estado,
         "eliminada_por": user.email,
     }
+
+
+@router.post("/fichas/{ficha_id}/cobertura")
+def medir_cobertura(
+    ficha_id: int,
+    body: CoberturaIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_staff),
+) -> dict:
+    """Qué está cubierto del requerimiento de la ficha y qué falta.
+
+    Es el mismo control del sitio: un ítem declarado por componentes no se
+    cubre con un solo archivo, un ítem opcional nunca bloquea, los ítems que
+    comparten grupo son fuentes alternativas y basta cubrir una, y un
+    documento rechazado no tapa el hueco.
+    """
+    ficha = _get_ficha(db, ficha_id)
+    try:
+        return estudio.cobertura_de_ficha(ficha.items, body.documentos)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post("/motor/ejecutar")
+def ejecutar_motor(
+    body: MotorIn,
+    user: User = Depends(require_staff),
+) -> dict:
+    """Corre el motor de cálculo sobre una definición y sus datos.
+
+    El motor es el archivo del sitio, sin tocar. Un error de definición vuelve
+    como 400 con el mensaje del motor: es el mismo texto que vería el auditor
+    en el sitio, y esa coincidencia es deliberada.
+    """
+    try:
+        return estudio.ejecutar_definicion(
+            body.definicion, body.filas, body.parametros, body.flujos
+        )
+    except (ValueError, KeyError, ArithmeticError, StopIteration) as exc:
+        detalle = str(exc) or "La definición no se pudo ejecutar."
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=detalle)
