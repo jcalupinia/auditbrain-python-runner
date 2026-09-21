@@ -27,6 +27,7 @@
    "name": "Valor neto de realización",
    "area": "Inventarios",
    "description": "Compara el costo con el precio estimado de venta menos los costos de terminación y venta, por partida.",
+   "summary": "La NIC 2 exige medir los inventarios al menor entre el costo y el valor neto de realización (párr. 9). El VNR es el precio estimado de venta menos los costos de terminación y los necesarios para la venta (párr. 6). La rebaja se calcula partida por partida (párr. 29) y se revierte si cambian las circunstancias (párr. 33).",
    "source": {
     "organization": "IFRS Foundation",
     "document": "IAS 2 Inventories",
@@ -34,6 +35,38 @@
     "type": "Norma contable",
     "date": "2026-09-19"
    },
+   "source_pymes": {
+    "organization": "IFRS Foundation",
+    "document": "NIIF para las PYMES, Sección 13 párr. 13.19 y Sección 27 párr. 27.2–27.4",
+    "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/",
+    "type": "Norma contable"
+   },
+   "nia": [
+    {
+     "document": "NIA 501",
+     "section": "párr. 4–8",
+     "requirement": "Si los inventarios son materiales, asistir al recuento físico y cotejar cantidades con los registros: existencia y condición."
+    },
+    {
+     "document": "NIA 540 (Revisada)",
+     "section": "párr. 13 y 17–30",
+     "requirement": "El VNR es una estimación contable: evaluar el método, los datos (precios y costos) y los supuestos significativos, y el posible sesgo de la dirección."
+    },
+    {
+     "document": "NIA 500",
+     "section": "párr. 6–9",
+     "requirement": "Evidencia suficiente y adecuada; evaluar la exactitud e integridad del inventario valorado que produce la entidad."
+    },
+    {
+     "document": "NIA 330",
+     "section": "párr. 18",
+     "requirement": "Aplicar procedimientos sustantivos a la valoración del inventario por ser un saldo material."
+    }
+   ],
+   "frameworks": [
+    "NIIF completas",
+    "NIIF para las PYMES"
+   ],
    "fields": [
     {
      "key": "id",
@@ -166,6 +199,7 @@
    "name": "Pérdidas crediticias esperadas",
    "area": "Cuentas por cobrar",
    "description": "Matriz de provisión con tasas y rangos de mora aprobados. Los cobros posteriores se muestran como evidencia, sin descontarlos automáticamente.",
+   "summary": "La NIIF 9 permite, para cuentas por cobrar comerciales, medir la corrección por pérdidas por las pérdidas crediticias esperadas durante toda la vida del activo (enfoque simplificado, párr. 5.5.15); la matriz de provisión es un método práctico admitido (párr. B5.5.35). Con NIIF para las PYMES rige otro modelo (pérdida incurrida), por eso esta matriz exige NIIF completas.",
    "source": {
     "organization": "IFRS Foundation",
     "document": "IFRS 9 Financial Instruments",
@@ -173,6 +207,37 @@
     "type": "Norma contable",
     "date": "2026-09-19"
    },
+   "source_pymes": {
+    "organization": "IFRS Foundation",
+    "document": "NIIF para las PYMES, Sección 11 párr. 11.21–11.26 (pérdida incurrida)",
+    "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/",
+    "type": "Norma contable"
+   },
+   "nia": [
+    {
+     "document": "NIA 540 (Revisada)",
+     "section": "párr. 13 y 17–30",
+     "requirement": "La pérdida crediticia esperada es una estimación: evaluar la matriz de provisión, las tasas por tramo y la información prospectiva."
+    },
+    {
+     "document": "NIA 500",
+     "section": "párr. 9",
+     "requirement": "La antigüedad de saldos la produce la entidad: evaluar su exactitud e integridad antes de usarla."
+    },
+    {
+     "document": "NIA 505",
+     "section": "párr. 7",
+     "requirement": "Considerar confirmaciones externas de saldos de clientes como evidencia de existencia."
+    },
+    {
+     "document": "NIA 560",
+     "section": "párr. 6",
+     "requirement": "Revisar los cobros posteriores al cierre como evidencia de recuperabilidad."
+    }
+   ],
+   "frameworks": [
+    "NIIF completas"
+   ],
    "fields": [
     {
      "key": "id",
@@ -304,10 +369,9 @@
      "criterion": "Diferencia dentro de tolerancia aprobada o aceptación documentada.",
      "source": {
       "organization": "IFRS Foundation",
-      "document": "NIIF para las PYMES — verificar edición aplicable y sección correspondiente",
+      "document": "NIIF para las PYMES, Sección 13 párr. 13.19 y Sección 27 párr. 27.2–27.4",
       "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/",
-      "type": "Norma contable",
-      "date": ""
+      "type": "Norma contable"
      },
      "state": "PROPUESTO"
     },
@@ -321,10 +385,9 @@
      "criterion": "Aplicar las reglas y parámetros aprobados por partida.",
      "source": {
       "organization": "IFRS Foundation",
-      "document": "NIIF para las PYMES — verificar edición aplicable y sección correspondiente",
+      "document": "NIIF para las PYMES, Sección 13 párr. 13.19 y Sección 27 párr. 27.2–27.4",
       "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/",
-      "type": "Norma contable",
-      "date": ""
+      "type": "Norma contable"
      },
      "state": "PROPUESTO"
     },
@@ -338,10 +401,9 @@
      "criterion": "Resolver excepciones y documentar conclusión.",
      "source": {
       "organization": "IFRS Foundation",
-      "document": "NIIF para las PYMES — verificar edición aplicable y sección correspondiente",
+      "document": "NIIF para las PYMES, Sección 13 párr. 13.19 y Sección 27 párr. 27.2–27.4",
       "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/",
-      "type": "Norma contable",
-      "date": ""
+      "type": "Norma contable"
      },
      "state": "PROPUESTO"
     }
