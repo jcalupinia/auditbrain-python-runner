@@ -447,14 +447,6 @@ def parse_csv(text: str, delimiter: str | None = None) -> list[list[str]]:
     return rows
 
 
-class _Objeto:
-    """Un nodo que en ``fast-xml-parser`` sería un objeto sin ``#text``: en
-    JavaScript, ``String(objeto)`` da '[object Object]'."""
-
-    def __str__(self) -> str:
-        return "[object Object]"
-
-
 def _xml(datos: bytes):
     s = datos.decode("utf-8", errors="replace")
     if re.search(r"<!DOCTYPE|<!ENTITY", s, re.IGNORECASE):
@@ -475,12 +467,11 @@ def _texto(nodo) -> str:
     return "".join(c.data for c in nodo.childNodes if c.nodeType in (c.TEXT_NODE, c.CDATA_SECTION_NODE)).strip()
 
 
-def _valor_t(nodo):
-    """Valor de un ``<t>`` como lo entrega fast-xml-parser tras ``?.['#text'] ?? t``."""
-    txt = _texto(nodo)
-    if nodo.attributes.length and not txt:
-        return _Objeto()
-    return txt
+def _valor_t(nodo) -> str:
+    """Texto de un ``<t>``: función ``texto`` de files.mjs. Un ``<t>`` vacío con
+    atributos (como escribe el exportador del sitio) es una celda vacía; antes
+    el sitio lo leía como "[object Object]" y se corrigió en los dos lados."""
+    return _texto(nodo)
 
 
 def _attr(nodo, nombre: str):
@@ -524,7 +515,7 @@ def read_spreadsheet(datos: bytes, nombre: str) -> dict:
                 partes = []
                 for r in _hijos(si, "r"):
                     tr = _hijo(r, "t")
-                    partes.append("" if tr is None else str(_valor_t(tr)))
+                    partes.append("" if tr is None else _valor_t(tr))
                 compartidos.append("".join(partes))
 
     pr = _hijo(libro, "workbookPr")
@@ -573,7 +564,7 @@ def read_spreadsheet(datos: bytes, nombre: str) -> dict:
                         partes = []
                         for r in _hijos(is_, "r"):
                             tr = _hijo(r, "t")
-                            partes.append("" if tr is None else str(_valor_t(tr)))
+                            partes.append("" if tr is None else _valor_t(tr))
                         v = "".join(partes)
                 if _hijo(c, "f") is not None and v_nodo is None:
                     v = "FORMULA_SIN_VALOR_GUARDADO"

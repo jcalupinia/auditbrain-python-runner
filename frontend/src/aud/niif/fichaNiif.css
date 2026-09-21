@@ -215,3 +215,4 @@ a.btn { text-decoration: none; display: inline-block; }
 .nf-ciclo-etapas li.actual { opacity: 1; border-color: #C7A83C; color: #C7A83C; font-weight: 600; }
 .nf-ciclo-fuentes { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
 .nf-ciclo-prueba textarea { width: 100%; min-width: 160px; font-size: 12px; }
+.nf-ciclo-mapeo { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin: 8px 0; }

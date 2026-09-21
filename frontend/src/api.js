@@ -275,6 +275,24 @@ export async function cicloLeerPrueba(id) {
 export async function cicloAccion(id, accion, revision, datos = {}) {
   return parse(await apiFetch(`${CICLO}/pruebas/${id}/acciones`, jsonPost("POST", { accion, revision, datos })));
 }
+// E7: evidencia. El archivo va por formulario multiparte; el servidor lo guarda
+// en su disco y devuelve su huella.
+export async function cicloSubirArchivo(pruebaId, revision, requerimiento, componente, archivo) {
+  const fd = new FormData();
+  fd.append("revision", String(revision));
+  fd.append("requerimiento", requerimiento);
+  fd.append("componente", componente || "");
+  fd.append("archivo", archivo);
+  return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/archivos`, { method: "POST", headers: authHeaders(), body: fd }));
+}
+
+// El original, tal cual se subió (para verlo o leer sus hojas en el navegador).
+export async function cicloBajarArchivo(pruebaId, archivoId) {
+  const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/archivos/${archivoId}`, { headers: authHeaders() });
+  if (!res.ok) await parse(res);
+  return new Uint8Array(await res.arrayBuffer());
+}
+
 export async function niifGuardarDefinicion(fichaId, definicion, filas) {
   return parse(await apiFetch(`${CICLO}/fichas/${fichaId}/definicion`, jsonPost("PUT", { definicion, filas })));
 }

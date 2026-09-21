@@ -1,5 +1,5 @@
 {
-  "origen": "auditbrain-site @ 7e42d3d · lib/tools/*.mjs -> tools/, lib/*.mjs -> raíz, public/documentos -> documentos/ (huellas sobre texto con LF)",
+  "origen": "auditbrain-site @ 138b3e8 · lib/tools/*.mjs -> tools/, lib/*.mjs -> raíz, public/documentos -> documentos/ (huellas sobre texto con LF)",
   "sha256": {
     "console/extract.mjs": "9ea97c6a33455268da31644ec526157ff70bb8130031098175ef0a7c566cbba1",
     "documentos/Manual_Arquitectura_AuditBrain.html": "28a3ee40bada089b6a1848053f5d5c1249c7edb411e52009d98cd21f2c91f156",
@@ -16,7 +16,7 @@
     "tools/example.mjs": "a0a026300b70ebdb0bf4cc09a1e6fef62a018d6855e16602c7c6cef279b47d13",
     "tools/explanations.mjs": "a8c9eabcc796f70410710254e964cf54979c7804fba0f9bf4010d1f071d395d5",
     "tools/exports.mjs": "2395f0535161fc1fe9c3e0e4fa213426b46b08aa61405498cd23f41240bebdee",
-    "tools/files.mjs": "b4d985f2eba140a4dc32f336699d4ee67046a3eb7102d7fc941f07c4951dcff3",
+    "tools/files.mjs": "47d26c68f595a124cdbe5ec92a9e48536fb98f461a47e85d64ca083e3cfc8164",
     "tools/html-presentation.mjs": "bec9e95467317512ba2be6184286f5d06633322a72fe4379abf1714220bbb6aa",
     "tools/portable-engine.mjs": "3caad06a2d715a36396bbabaffdba0f16becb2d70e70fb266df9de323b4f141f",
     "tools/workbook-presentation.mjs": "022089a870be384d2aa51b00f958584486042da3353a4373cf63875a5c9827a2"
