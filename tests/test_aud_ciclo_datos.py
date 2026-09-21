@@ -106,3 +106,36 @@ def test_lectura_de_hojas(c):
 @pytest.mark.parametrize("c", E["mapeos"], ids=lambda c: c["nombre"])
 def test_mapeo(c):
     _mismo(c["esperado"], lambda: datos.mapped_rows(c["sheet"], c["header"], c["mapping"], c["d"], c["archivo"]))
+
+
+# --- E8 ----------------------------------------------------------------------
+
+@pytest.mark.parametrize("c", E["tramos"], ids=lambda c: c["nombre"])
+def test_tramos_de_mora(c):
+    _mismo(c["esperado"] if "error" in c["esperado"] else {"ok": None}, lambda: datos.check_buckets(c["p"]))
+
+
+@pytest.mark.parametrize("c", E["excepciones"], ids=lambda c: c["nombre"])
+def test_excepciones_sobre_el_motor_python(c):
+    # El motor Python calcula y el puerto saca las excepciones: tienen que ser
+    # las mismas que calculate() del sitio, en el mismo orden.
+    from backend.app.aud.niif import estudio
+    run = estudio.ejecutar_definicion(c["d"], c["filas"], c["p"])
+    assert datos.excepciones(c["d"], run) == c["esperado"]
+
+
+@pytest.mark.parametrize("c", E["preliminares"], ids=lambda c: str(len(c["t"]["run"]["totals"])))
+def test_conclusion_preliminar(c):
+    assert datos.preliminary(c["t"]) == c["esperado"]
+
+
+def test_contraste_nombra_lo_que_difiere():
+    py = {"engine": "3.0.0", "rows": [{"id": "A", "x": "1.00"}], "totals": {"x": "1.00"}, "exceptions": []}
+    assert datos.motivo_contraste(py, {**py}) == ""
+    assert datos.motivo_contraste(py, None) == "no llegó el resultado del navegador"
+    assert datos.motivo_contraste(py, {**py, "engine": "2.0.0"}) == "versión del motor: Python usa 3.0.0"
+    assert datos.motivo_contraste(py, {**py, "rows": []}) == "número de filas: 1 en Python y 0 en el navegador"
+    assert datos.motivo_contraste(py, {**py, "rows": [{"id": "A", "x": "1.01"}]}) == "fila 1, campos: x"
+    assert datos.motivo_contraste(py, {**py, "rows": [{"id": "A", "x": "1.00", "y": "0"}]}) == "fila 1, campos: y"
+    assert datos.motivo_contraste(py, {**py, "totals": {}}) == "totales: x"
+    assert datos.motivo_contraste(py, {**py, "exceptions": [{"code": "RESULT"}]}) == "excepciones"

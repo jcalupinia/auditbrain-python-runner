@@ -688,3 +688,118 @@ def mapped_rows(sheet: dict, header, mapping: dict, definition: dict, file: dict
             row[f["key"]] = value
         rows.append(row)
     return {"rows": rows, "blankRows": blanks, "headers": headers}
+
+
+# --- E8: parámetros, excepciones, contraste y análisis ------------------------
+
+_SIN = object()  # `undefined` de JavaScript: la clave no vino.
+
+
+def check_buckets(p: dict) -> None:
+    """Puerto de ``checkBuckets``: rangos de mora de la PCE del catálogo."""
+    b_ = p.get("buckets") if isinstance(p, dict) else None
+    if not valid_date(p.get("cutoff") if isinstance(p, dict) else None) or not isinstance(b_, list) or not b_ or len(b_) > 30:
+        _falla("Defina fecha de corte y rangos con tasas aprobadas.")
+    siguiente = 0
+    for i, b in enumerate(b_):
+        mn = b.get("min", _SIN) if isinstance(b, dict) else _SIN
+        mx = b.get("max", _SIN) if isinstance(b, dict) else _SIN
+        if not _es_entero(mn) or mn != siguiente \
+                or (mx is not None and (not _es_entero(mx) or mx < mn)) \
+                or (mx is None and i != len(b_) - 1):
+            _falla("Los rangos deben cubrir desde cero, sin vacíos ni superposiciones; el último termina sin límite.")
+        tasa = decimal(b.get("rate"))
+        if tasa < 0 or tasa > SCALE:
+            _falla("Cada tasa debe estar entre 0 y 1.")
+        siguiente = float("inf") if mx is None else mx + 1
+    if siguiente != float("inf"):
+        _falla("El último rango debe tener límite superior vacío.")
+
+
+def excepciones(d: dict, run: dict) -> list[dict]:
+    """Las excepciones que ``calculate`` de domain.mjs agrega a cada fila, sobre
+    el resultado del motor Python: el servidor no depende de lo que mande el
+    navegador. Mismo orden: cuadro que no cierra, VNR negativo, resultado,
+    posible reverso."""
+    salida: list[dict] = []
+    cuadro = run.get("schedule") or []
+    pos = 0
+    etiqueta = next((x.get("label") for x in d["rules"] if x["key"] == d["primary"]), None)
+    # `values` de calculate(): campos numéricos y cálculos. Solo ahí mira el sitio.
+    numericas = {f["key"] for f in d["fields"] if f.get("type") == "number"} | {x["key"] for x in d["rules"]}
+
+    def fila(r, i, code, message, amount):
+        e = {"row": r.get("_row") or i + 2}
+        if "id" in r:
+            e["id"] = r["id"]
+        e.update(code=code, message=message, amount=amount)
+        return e
+
+    for i, r in enumerate(run["rows"]):
+        if "series" in d and pos < len(cuadro):
+            n = int(cuadro[pos]["periodos"])
+            ultimo = cuadro[pos + n - 1]
+            pos += n
+            if "cierre" in ultimo and decimal(ultimo["cierre"]) != 0:
+                salida.append(fila(r, i, "SERIES_NO_CIERRA",
+                                   "El cuadro no cierra en cero en el último período: revise la recurrencia y la semilla.",
+                                   ultimo["cierre"]))
+        if d.get("id") == "vnr" and "nrv_unit" in numericas and decimal(r["nrv_unit"]) < 0:
+            salida.append(fila(r, i, "NEGATIVE_NRV",
+                               "VNR negativo: deterioro limitado al costo; evaluar obligaciones separadas.",
+                               r.get("impairment")))
+        if decimal(r[d["primary"]]) > 0:
+            salida.append(fila(r, i, "RESULT", f"{_txt(etiqueta) if etiqueta is not None else 'undefined'}: requiere evaluación.",
+                               r[d["primary"]]))
+        if "adjustment" in numericas and decimal(r["adjustment"]) < 0:
+            salida.append(fila(r, i, "REVERSAL", "Posible reversión: verificar límites y sustento antes de registrar.",
+                               r["adjustment"]))
+    return salida
+
+
+def _distintas(x: dict, y: dict) -> list[str]:
+    x, y = x or {}, y or {}
+    claves = list(dict.fromkeys([*x.keys(), *y.keys()]))
+    js = lambda d_, k: _js(d_[k]) if k in d_ else "undefined"
+    return [k for k in claves if js(x, k) != js(y, k)]
+
+
+def motivo_contraste(python: dict, navegador: dict | None) -> str:
+    """El contraste del sitio, invertido: aquí manda el motor Python y el
+    navegador (domain.mjs) verifica. Mismo criterio —unión de claves de filas y
+    totales— más las excepciones. Nombra clave y posición, nunca importes."""
+    if not isinstance(navegador, dict):
+        return "no llegó el resultado del navegador"
+    if navegador.get("engine") != python["engine"]:
+        return f"versión del motor: Python usa {python['engine']}"
+    filas_n = navegador.get("rows") if isinstance(navegador.get("rows"), list) else []
+    if len(filas_n) != len(python["rows"]):
+        return f"número de filas: {len(python['rows'])} en Python y {len(filas_n)} en el navegador"
+    for i, (a, b) in enumerate(zip(python["rows"], filas_n)):
+        k = _distintas(a, b if isinstance(b, dict) else {})
+        if k:
+            return f"fila {i + 1}, campos: {', '.join(k[:8])}"
+    k = _distintas(python["totals"], navegador.get("totals") if isinstance(navegador.get("totals"), dict) else {})
+    if k:
+        return f"totales: {', '.join(k[:8])}"
+    if json.dumps(python.get("exceptions"), ensure_ascii=False, sort_keys=True) != \
+            json.dumps(navegador.get("exceptions"), ensure_ascii=False, sort_keys=True):
+        return "excepciones"
+    return ""
+
+
+def preliminary(t: dict) -> str:
+    """Puerto literal de ``preliminary``: la conclusión preliminar que el
+    auditor debe reemplazar."""
+    r, c = t["run"], t["reconciliation"]
+    resultados = "; ".join(f"{k}: {_txt(v)}" for k, v in r["totals"].items())
+    conc = "dentro de tolerancia" if c.get("within") else "aceptación documentada: " + _txt(c.get("acceptance"))
+    return (
+        "CONCLUSIÓN PRELIMINAR — PENDIENTE DE REVISIÓN DEL AUDITOR\n\n"
+        f"Alcance: {len(r['rows'])} registros de {_txt(t['definition'].get('name'))}. Motor {_txt(r.get('engine'))}.\n"
+        f"Resultados: {resultados}.\n"
+        f"Conciliación: diferencia {_txt(c.get('difference'))}; {conc}.\n"
+        f"Excepciones identificadas: {len(r['exceptions'])}.\n"
+        "El auditor debe evaluar el sustento de parámetros y cada excepción antes de concluir.\n\n"
+        "Conclusión del auditor: PENDIENTE."
+    )

@@ -280,6 +280,59 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         con_archivo = {a.requerimiento for a in recibidos_}
         reg["requests"] = [{**r, "status": "RECIBIDO" if r["id"] in con_archivo else "NO REQUERIDO"} for r in reg["requests"]]
 
+    # --- E8: ejecución y análisis (route.ts: configure … save_analysis) --------
+    elif accion == "configure":
+        reg["parameters"] = {
+            "cutoff": reg["engagement"]["cutoff"],
+            "buckets": datos.get("buckets") if isinstance(datos.get("buckets"), list) else [],
+            "basis": str(datos.get("basis") or "").strip()[:10000],
+        }
+        if not reg["parameters"]["basis"]:
+            raise ReglaIncumplida("Documente el sustento de parámetros y metodología.")
+        if p.definicion.get("id") == "pce":
+            datos_mod.check_buckets(reg["parameters"])
+        p.estado = reglas.transicion({**reg, "state": p.estado}, accion)
+
+    elif accion == "approve_methodology":
+        p.estado = reglas.transicion({**reg, "state": p.estado}, accion)
+
+    elif accion == "execute":
+        siguiente = reglas.transicion({**reg, "state": p.estado}, accion)
+        # Aquí la autoridad es el motor Python (el mismo archivo del sitio); el
+        # navegador corre domain.mjs y manda su resultado para contrastarlo.
+        from backend.app.aud.niif import estudio
+        try:
+            run = estudio.ejecutar_definicion(p.definicion, reg["rows"], reg["parameters"], reg.get("flows") or [])
+        except (ValueError, KeyError, ArithmeticError, StopIteration) as e:
+            raise ReglaIncumplida(str(e) or "La prueba no se pudo ejecutar.")
+        run["exceptions"] = datos_mod.excepciones(p.definicion, run)
+        motivo = datos_mod.motivo_contraste(run, datos.get("navegador"))
+        if motivo:
+            raise ReglaIncumplida(
+                f"La ejecución del navegador no coincide con el motor Python ({motivo}). No se guardaron resultados."
+            )
+        reg["run"] = run
+        reg["runHash"] = hashlib.sha256(json.dumps(
+            {"definition": p.definicion, "rows": reg["rows"], "parameters": reg["parameters"],
+             "flows": reg.get("flows") or [], "run": run},
+            ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")).hexdigest()
+        reg["executedAt"] = _ahora_iso()
+        p.estado = siguiente
+
+    elif accion == "analyze":
+        p.estado = reglas.transicion({**reg, "state": p.estado}, accion)
+        reg["analysis"] = datos_mod.preliminary({**reg, "definition": p.definicion})
+
+    elif accion == "save_analysis":
+        # `submit` (enviar a revisión) llega con E9.
+        if p.estado != "RESULTADOS_ANALIZADOS":
+            raise ReglaIncumplida("Análisis no editable.")
+        if not str(datos.get("analysis") or "").strip():
+            raise ReglaIncumplida("Complete el análisis.")
+        reg["analysis"] = str(datos["analysis"])[:50000]
+        reg["conclusion"] = str(datos.get("conclusion") or "")[:20000]
+
     else:
         raise ReglaIncumplida("Acción no disponible en el estado actual.")
 

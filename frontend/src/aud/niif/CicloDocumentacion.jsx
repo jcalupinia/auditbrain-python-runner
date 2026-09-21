@@ -332,7 +332,7 @@ export function Documentacion({ prueba, onAccion, onRecargar, ocupado }) {
       {prueba.estado === "DOCUMENTACION_VALIDADA" && (
         <p className="nf-nota">
           Documentación validada por {reg.evidenceReview?.by}: {reg.validation?.records} registros, total de control{" "}
-          {reg.controlTotal}, diferencia con el mayor {reg.reconciliation?.difference}. La ejecución de la prueba llega con E8.
+          {reg.controlTotal}, diferencia con el mayor {reg.reconciliation?.difference}.
         </p>
       )}
     </>

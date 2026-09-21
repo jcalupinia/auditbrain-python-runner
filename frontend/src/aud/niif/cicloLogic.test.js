@@ -80,3 +80,31 @@ describe("detalleRequerimiento", () => {
     expect(detalleRequerimiento({ id: "RQ-001", document: "Mayor", format: "XLSX / CSV" })).toEqual([]);
   });
 });
+
+import { herramientaDePrueba, tramosDeTexto } from "./cicloLogic";
+
+describe("herramientaDePrueba", () => {
+  const prueba = {
+    id: 7, version: 2, estado: "PRUEBA_EJECUTADA", definicion: { id: "vnr", name: "VNR" },
+    registro: { engagement: { client: "X" }, run: { totals: {} }, analysis: "" },
+    eventos: [{ accion: "execute", actor: "a@b.ec", fecha: "2026-09-21T10:00:00", estado_anterior: "METODOLOGIA_APROBADA", estado_nuevo: "PRUEBA_EJECUTADA", comentario: null }],
+  };
+  it("lleva registro, definición, estado y bitácora con los nombres del sitio", () => {
+    const t = herramientaDePrueba(prueba);
+    expect(t.definition.name).toBe("VNR");
+    expect(t.state).toBe("PRUEBA_EJECUTADA");
+    expect(t.draft).toBe(true);
+    expect(t.engagement.client).toBe("X");
+    expect(t.events[0]).toEqual({ action: "execute", actor: "a@b.ec", at: "2026-09-21T10:00:00", previous: "METODOLOGIA_APROBADA", next: "PRUEBA_EJECUTADA", comment: "", version: 2 });
+  });
+  it("una prueba aprobada ya no es borrador", () => {
+    expect(herramientaDePrueba({ ...prueba, estado: "APROBADO" }).draft).toBe(false);
+  });
+});
+
+describe("tramosDeTexto", () => {
+  it("convierte a números y deja sin límite solo el último vacío", () => {
+    expect(tramosDeTexto([{ min: "0", max: "30", rate: "0.01" }, { min: "31", max: "", rate: " 0.2 " }]))
+      .toEqual([{ min: 0, max: 30, rate: "0.01" }, { min: 31, max: null, rate: "0.2" }]);
+  });
+});

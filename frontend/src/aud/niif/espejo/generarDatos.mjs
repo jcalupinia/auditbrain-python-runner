@@ -12,12 +12,15 @@ import { fileURLToPath } from "node:url";
 import { strToU8, zipSync } from "fflate";
 
 import {
+  calculate,
   catalog,
+  checkBuckets,
   controlTotal,
   createProgram,
   createRequests,
   decimal,
   formatted,
+  preliminary,
   reconcile,
   validateDefinition,
   validateFlows,
@@ -315,6 +318,80 @@ function mapeos() {
   return casos.map(([nombre, sheet, header, mapping, d]) => ({ nombre, sheet, header, mapping, d, archivo, esperado: intentar(() => mappedRows(sheet, header, mapping, d, archivo)) }));
 }
 
+// --- E8: tramos de mora, excepciones y análisis preliminar ---------------------
+const TRAMOS = [{ min: 0, max: 30, rate: "0.01" }, { min: 31, max: 90, rate: "0.05" }, { min: 91, max: null, rate: "0.5" }];
+
+function tramos() {
+  const t = (buckets, cutoff = "2025-12-31") => ({ cutoff, buckets });
+  const casos = [
+    ["válidos", t(TRAMOS)],
+    ["uno solo sin límite", t([{ min: 0, max: null, rate: 1 }])],
+    ["sin corte", t(TRAMOS, "")],
+    ["corte inválido", t(TRAMOS, "2025-02-30")],
+    ["sin tramos", t([])],
+    ["no es lista", t("x")],
+    ["no empieza en cero", t([{ min: 1, max: null, rate: "0.1" }])],
+    ["hueco", t([{ min: 0, max: 30, rate: "0.1" }, { min: 32, max: null, rate: "0.2" }])],
+    ["superpuestos", t([{ min: 0, max: 30, rate: "0.1" }, { min: 30, max: null, rate: "0.2" }])],
+    ["máximo menor que mínimo", t([{ min: 0, max: -1, rate: "0.1" }, { min: 0, max: null, rate: "0.2" }])],
+    ["sin límite en medio", t([{ min: 0, max: null, rate: "0.1" }, { min: 1, max: null, rate: "0.2" }])],
+    ["último con límite", t([{ min: 0, max: 30, rate: "0.1" }])],
+    ["máximo ausente", t([{ min: 0, rate: "0.1" }])],
+    ["mínimo decimal", t([{ min: 0.5, max: null, rate: "0.1" }])],
+    ["mínimo entero en decimal", t([{ min: 0.0, max: 30.0, rate: "0.1" }, { min: 31, max: null, rate: "0.2" }])],
+    ["tasa mayor a uno", t([{ min: 0, max: null, rate: "1.5" }])],
+    ["tasa negativa", t([{ min: 0, max: null, rate: "-0.1" }])],
+    ["tasa inválida", t([{ min: 0, max: null, rate: "5%" }])],
+    ["mínimo booleano", t([{ min: false, max: null, rate: "0.1" }])],
+  ];
+  return casos.map(([nombre, par]) => ({ nombre, p: par, esperado: intentar(() => checkBuckets(par)) }));
+}
+
+// Cada caso corre calculate() del sitio: Python recibe las mismas filas, corre
+// su motor y debe sacar exactamente estas excepciones.
+function excepcionesCasos() {
+  const vnr = [
+    { id: "N", description: "VNR negativo", quantity: "2", unit_cost: "10", selling_price: "5", completion_cost: "4", selling_cost: "3", recorded_allowance: "0", _row: 7 },
+    { id: "R", description: "Reverso", quantity: "1", unit_cost: "10", selling_price: "20", completion_cost: "0", selling_cost: "0", recorded_allowance: "3" },
+    { id: "S", description: "Sin hallazgo", quantity: "1", unit_cost: "10", selling_price: "20", completion_cost: "0", selling_cost: "0", recorded_allowance: "0" },
+  ];
+  const pce = [
+    { id: "F-1", due_date: "2025-12-20", exposure: "1000", recorded_allowance: "0", subsequent_collection: "0" },
+    { id: "F-2", due_date: "2025-01-15", exposure: "400", recorded_allowance: "500", subsequent_collection: "0" },
+  ];
+  const cuadro = {
+    id: "custom", name: "Cuadro", area: "Préstamos",
+    fields: [{ key: "id", label: "Contrato", type: "text" }, { key: "pago", label: "Pago", type: "number" }, { key: "n", label: "Períodos", type: "number" }],
+    series: { count: "n", forward: [{ key: "cierre", label: "Saldo final", op: "add", a: "pago", b: "#0", precision: 2 }] },
+    rules: [{ key: "total", label: "Total", op: "add", a: "cierre_total", b: "#0", precision: 2 }],
+    control: "pago", primary: "total",
+  };
+  const casos = [
+    ["vnr", catalog.vnr, vnr, {}],
+    ["vnr del ejemplo del sitio", catalog.vnr, presentationExample().rows, {}],
+    ["pce con tramos", catalog.pce, pce, { cutoff: "2025-12-31", buckets: TRAMOS }],
+    ["cuadro que no cierra", cuadro, [{ id: "A", pago: "0", n: "3" }, { id: "B", pago: "5", n: "2", _row: 9 }], {}],
+    ["antigüedad con condiciones", ANTIGUEDAD, [
+      { id: "A", due_date: "2025-12-15", exposure: "1000", recorded_allowance: "0" },
+      { id: "B", due_date: "2025-01-01", exposure: "500", recorded_allowance: "40" },
+    ], { cutoff: "2025-12-31" }],
+  ];
+  return casos.map(([nombre, d, rows, par]) => ({ nombre, d, filas: rows, p: par, esperado: calculate(d, rows, par, []).exceptions }));
+}
+
+function preliminares() {
+  const t = (totals, excepciones, rec) => ({
+    definition: { name: "Valor neto de realización" },
+    run: { engine: "3.0.0", rows: [{}, {}, {}], totals, exceptions: excepciones },
+    reconciliation: rec,
+  });
+  const casos = [
+    t({ cost: "470.00", impairment: "50.00" }, [{}], { difference: "0.00", within: true, acceptance: "" }),
+    t({}, [], { difference: "-10.00", within: false, acceptance: "Partidas en tránsito documentadas al corte" }),
+  ];
+  return casos.map((c) => ({ t: c, esperado: preliminary(c) }));
+}
+
 export function contenido() {
   return {
     _origen: "Generado por frontend/src/aud/niif/espejo/generarDatos.mjs desde las copias intactas del sitio. No editar a mano.",
@@ -331,6 +408,9 @@ export function contenido() {
     csv_directo: [["x;y\n1;2", undefined], ["a\tb\n1\t2", "\t"], ["a|b", "|"]].map(([t, sep]) => ({ texto: t, sep: sep ?? null, esperado: intentar(() => parseCsv(t, sep)) })),
     archivos: archivos(),
     mapeos: mapeos(),
+    tramos: tramos(),
+    excepciones: excepcionesCasos(),
+    preliminares: preliminares(),
   };
 }
 
