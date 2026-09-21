@@ -5,9 +5,12 @@ declarativo (fila por fila): su cálculo compara años, agrega por cliente o
 aplica límites sobre totales, y lo hace el módulo registrado aquí. El resto del
 ciclo (programa, requerimientos, evidencia, revisión) es el mismo.
 """
-from backend.app.aud.niif.procesadores import perdidas_incurridas_s11
+from backend.app.aud.niif.procesadores import pce_simplificada_niif9, perdidas_incurridas_s11
 
-PROCESADORES = {"perdidas_incurridas_s11": perdidas_incurridas_s11}
+PROCESADORES = {
+    "perdidas_incurridas_s11": perdidas_incurridas_s11,
+    "pce_simplificada_niif9": pce_simplificada_niif9,
+}
 
 
 def de(definicion: dict):

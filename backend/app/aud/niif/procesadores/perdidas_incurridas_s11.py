@@ -950,6 +950,12 @@ def definicion() -> dict:
 DATASETS = ("a1", "a2", "a3", "provision", "movimiento")
 
 
+# Total que muestra el ejemplo de control en el Estudio.
+TOTAL_EJEMPLO = "perdida"
+# Anexo que es la población del corte (se concilia con el mayor).
+PRINCIPAL = "a3"
+
+
 def kind(dataset: str) -> str:
     return "cartera" if dataset in ("a1", "a2", "a3") else dataset
 

@@ -111,7 +111,7 @@ function ProcesadorEspecial({ ficha, onInstalado }) {
           <p className="nf-nota">
             <strong>Ejemplo de control calculado por el servidor:</strong>{" "}
             {p.ejemplo.tasas.map((t) => `${t.tramo} ${(t.tasa * 100).toFixed(0)} % (${t.origen.toLowerCase()})`).join(" · ")} ·{" "}
-            {p.ejemplo.etiquetas.perdida}: {p.ejemplo.totales.perdida}
+            {p.ejemplo.resultado.etiqueta}: {p.ejemplo.resultado.valor}
           </p>
         </>
       )}

@@ -121,7 +121,7 @@ def xlsx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
                 elif fmt in _FMT:
                     c.number_format = _FMT[fmt]
                     c.alignment = Alignment(horizontal="right")
-                elif fmt == "x" and isinstance(v, (int, float)):
+                elif fmt == "x" and isinstance(_valor(v), (int, float)):
                     c.alignment = Alignment(horizontal="right")
                 else:
                     c.alignment = Alignment(horizontal="left", wrap_text=True, vertical="top")

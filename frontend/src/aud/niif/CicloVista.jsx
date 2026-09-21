@@ -360,11 +360,11 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
     if (d.processor) {
       const datasets = {};
       for (const r of p.registro.requests.filter((x) => x.dataset)) {
-        const tipo = ["a1", "a2", "a3"].includes(r.dataset) ? "cartera" : r.dataset;
+        const tipo = d.tipos?.[r.dataset] || (["a1", "a2", "a3"].includes(r.dataset) ? "cartera" : r.dataset);
         const partes = await armar(r.id, d.campos[tipo]);
         if (partes.length) datasets[r.dataset] = partes;
       }
-      if (!datasets.a3) throw new Error("Suba el anexo de cartera del ejercicio corriente antes de procesar.");
+      if (!datasets.a3 && !datasets.actual) throw new Error("Suba el anexo de cartera del ejercicio corriente antes de procesar.");
       return paso("map_validate", { datasets });
     }
     const [poblacion, flujos] = (p.modelos || []);
@@ -563,14 +563,14 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
                 <div className="nf-rec-row">
                   {Object.keys(d.parametros || {}).map((k) => (
                     <label key={k} className="nf-ctx-field">
-                      {ETIQUETA_PARAM[k] || k}
+                      {d.etiquetas_parametros?.[k] || ETIQUETA_PARAM[k] || k}
                       <input value={param[k] ?? ""} onChange={(e) => setParam({ ...param, [k]: e.target.value })} style={{ width: 110 }} inputMode="decimal" />
                     </label>
                   ))}
                 </div>
                 <p className="muted">Tasa fijada por el auditor por tramo (%): déjela en blanco para usar la observada. Úsela solo con evidencia de gestión de cobro.</p>
                 <div className="nf-rec-row">
-                  {(reg.run?.detalle?.tasas || TRAMOS_PI).map((x) => (
+                  {(reg.run?.detalle?.tasas || d.tramos || TRAMOS_PI).map((x) => (
                     <label key={x.k} className="nf-ctx-field">
                       {x.tramo}{x.tasa === null && !(x.k in tasas) ? " · no medible" : ""}
                       <input value={tasas[x.k] ?? ""} placeholder={x.tasa === null || x.tasa === undefined ? "—" : `${(x.tasa * 100).toFixed(2)} observada`}

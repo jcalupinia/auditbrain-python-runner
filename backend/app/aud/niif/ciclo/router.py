@@ -226,10 +226,11 @@ def procesadores_disponibles(db: Session = Depends(get_db), user: User = Depends
     salida = []
     for k, m in PROCESADORES.items():
         d = m.definicion()
-        ej = m.ejecutar(m.EJEMPLO["datasets"], {}, m.EJEMPLO["corte"])
+        ej = m.ejecutar(m.EJEMPLO["datasets"], m.EJEMPLO.get("parametros", {}), m.EJEMPLO["corte"])
         salida.append({"id": k, "nombre": d["name"], "rubro": d["area"], "marcos": d.get("frameworks") or [],
                        "resumen": d.get("summary", ""), "definicion": d,
                        "ejemplo": {"totales": ej["totals"], "etiquetas": ej["labels"],
+                                   "resultado": {"etiqueta": ej["labels"][m.TOTAL_EJEMPLO], "valor": ej["totals"][m.TOTAL_EJEMPLO]},
                                    "tasas": [x for x in ej["detalle"]["tasas"] if x["tasa"] is not None]}})
     return salida
 

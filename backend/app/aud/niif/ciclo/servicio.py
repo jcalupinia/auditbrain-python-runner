@@ -264,7 +264,8 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         if proc:
             conjuntos = datos.get("datasets") if isinstance(datos.get("datasets"), dict) else {}
             por_ds = {r["dataset"]: r for r in reg["requests"] if r.get("dataset")}
-            if not conjuntos.get("a3"):
+            principal = proc.PRINCIPAL
+            if not conjuntos.get(principal):
                 raise ReglaIncumplida("Suba el anexo de cartera del ejercicio corriente antes de procesar.")
             filas_ds, mapeos, errores, avisos = {}, [], [], []
             for ds, partes in conjuntos.items():
@@ -292,14 +293,14 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                 errores += [{**e, "message": f"{por_ds[ds]['id']} · {e['message']}"} for e in v["errors"]]
                 avisos += [{**w, "message": f"{por_ds[ds]['id']} · {w['message']}"} for w in v["warnings"]]
             reg["datasets"] = filas_ds
-            reg["rows"] = filas_ds["a3"]
+            reg["rows"] = filas_ds[principal]
             reg["mapping"] = mapeos[0]
             reg["mappings"] = mapeos
-            reg["validation"] = {"records": len(filas_ds["a3"]), "errors": errores, "warnings": avisos, "ok": not errores}
+            reg["validation"] = {"records": len(filas_ds[principal]), "errors": errores, "warnings": avisos, "ok": not errores}
             p.estado = "DOCUMENTACION_RECIBIDA"
             reg["run"] = None
             if not errores:
-                reg["controlTotal"] = procesadores.perdidas_incurridas_s11.r2(sum(_num_seguro(f.get("saldo")) for f in filas_ds["a3"]))
+                reg["controlTotal"] = procesadores.perdidas_incurridas_s11.r2(sum(_num_seguro(f.get("saldo")) for f in filas_ds[principal]))
             p.registro = reg
             p.revision += 1
             _evento(db, p, accion, anterior, actor, str(datos.get("comment") or ""))
@@ -388,7 +389,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                 params["tasas"] = {t: proc.a_num(x) for t, x in tasas.items()}
             elif v is not None and str(v).strip() != "":
                 n = proc.a_num(v)
-                if n is None or n < 0:
+                if n is None or (n < 0 and k not in getattr(proc, "PARAM_NEGATIVOS", ())):
                     raise ReglaIncumplida(f"Parámetro {k}: use un número no negativo.")
                 params[k] = n
         reg["parameters"] = {"cutoff": reg["engagement"]["cutoff"], "buckets": [],
