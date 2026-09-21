@@ -90,6 +90,17 @@ def guardar_ficha(project_id: int, body: dict, db: Session = Depends(get_db), us
     return {"ficha": _regla(lambda: servicio.guardar_ficha(db, project_id, body, user.email))}
 
 
+@router.get("/encargos")
+def encargos(db: Session = Depends(get_db), user: User = Depends(require_staff)) -> list[dict]:
+    """Encargos NIIF (proyectos AUD) que el usuario ve, sin depender del Workspace activo."""
+    return servicio.listar_encargos(db, user)
+
+
+@router.post("/encargos", status_code=status.HTTP_201_CREATED)
+def crear_encargo(body: dict, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
+    return _regla(lambda: servicio.crear_encargo(db, user, body))
+
+
 @router.get("/herramientas")
 def herramientas(db: Session = Depends(get_db), user: User = Depends(require_staff)) -> list[dict]:
     return servicio.herramientas_disponibles(db)

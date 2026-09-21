@@ -349,7 +349,7 @@ export function Prueba({ id, onCambio, onAbrir }) {
   );
 }
 
-export default function PruebasEncargo({ proyecto, cliente }) {
+function EncargoTrabajo({ proyecto, cliente }) {
   const [ficha, setFicha] = useState(null);
   const [pruebas, setPruebas] = useState([]);
   const [herramientas, setHerramientas] = useState([]);
@@ -391,19 +391,6 @@ export default function PruebasEncargo({ proyecto, cliente }) {
     } catch (e) {
       setError(e.message || String(e));
     }
-  }
-
-  if (!proyecto) {
-    return <p className="nf-nota">Seleccione un proyecto del módulo AUD en «Workspace» para trabajar sus pruebas.</p>;
-  }
-  if ((proyecto.module_code || "").toUpperCase() !== "AUD") {
-    return (
-      <p className="nf-nota">
-        El proyecto activo es «{(proyecto.module_code || "").toUpperCase()} · {proyecto.name}», del módulo{" "}
-        {(proyecto.module_code || "").toUpperCase()}. Las pruebas NIIF se aplican a proyectos de auditoría externa: arriba,
-        en «Workspace», elija un proyecto que empiece con «AUD ·» (o cree uno del módulo AUD para este cliente).
-      </p>
-    );
   }
 
   return (
@@ -457,5 +444,139 @@ export default function PruebasEncargo({ proyecto, cliente }) {
         </>
       )}
     </div>
+  );
+}
+
+// --- Encargos NIIF, independientes del Workspace -------------------------------
+// El auditor elige o crea aquí el encargo (cliente + ejercicio + ficha); no
+// tiene que ir a Workspaces ni cambiar el proyecto activo de arriba.
+
+const RECORDAR = "nf_encargo_activo";
+const recordado = () => { try { return Number(localStorage.getItem(RECORDAR)) || null; } catch { return null; } };
+const recordar = (id) => { try { localStorage.setItem(RECORDAR, String(id)); } catch { /* sin almacenamiento */ } };
+
+function NuevoEncargo({ onCreado, onCancelar }) {
+  const [clientes, setClientes] = useState([]);
+  const [clienteId, setClienteId] = useState("");
+  const [nuevoCliente, setNuevoCliente] = useState("");
+  const [nombre, setNombre] = useState("");
+  const [ficha, setFicha] = useState(fichaInicial(""));
+  const [error, setError] = useState("");
+  const [ocupado, setOcupado] = useState(false);
+  useEffect(() => { api.listClients().then(setClientes).catch(() => setClientes([])); }, []);
+
+  function elegirCliente(id) {
+    setClienteId(id);
+    const c = clientes.find((x) => String(x.id) === String(id));
+    if (c) setFicha((f) => ({ ...f, client: c.name, ruc: f.ruc || c.tax_id || "" }));
+  }
+
+  async function crear(e) {
+    e.preventDefault();
+    setOcupado(true);
+    setError("");
+    try {
+      const datos = { nombre, ficha };
+      if (clienteId) datos.client_id = Number(clienteId);
+      else datos.cliente = nuevoCliente || ficha.client;
+      onCreado(await api.cicloCrearEncargo(datos));
+    } catch (err) {
+      setError(err.message || String(err));
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  return (
+    <form className="nf-rec-panel" onSubmit={crear}>
+      <p className="nf-eyebrow">NUEVO ENCARGO</p>
+      <div className="nf-rec-row">
+        <label className="nf-ctx-field">
+          Cliente
+          <select value={clienteId} onChange={(e) => elegirCliente(e.target.value)}>
+            <option value="">— Cliente nuevo —</option>
+            {clientes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </label>
+        {!clienteId && (
+          <label className="nf-ctx-field">
+            Nombre del cliente nuevo
+            <input value={nuevoCliente} onChange={(e) => { setNuevoCliente(e.target.value); setFicha((f) => ({ ...f, client: e.target.value })); }} />
+          </label>
+        )}
+        <label className="nf-ctx-field">
+          Nombre del encargo
+          <input value={nombre} placeholder={`Auditoría ${ficha.year || ""}`} onChange={(e) => setNombre(e.target.value)} />
+        </label>
+      </div>
+      <p className="muted">Ficha del encargo: la usan todas sus pruebas (marco NIIF, corte, responsables).</p>
+      <ContextFields value={ficha} onChange={setFicha} keys={CAMPOS_FICHA} />
+      {error && <p role="alert" className="nf-error">{error}</p>}
+      <div className="nf-estudio-botones">
+        <button type="submit" className="btn sm primary" disabled={ocupado}>Crear encargo</button>
+        {onCancelar && <button type="button" className="btn sm" onClick={onCancelar}>Cancelar</button>}
+      </div>
+    </form>
+  );
+}
+
+export default function PruebasEncargo({ proyecto: workspace }) {
+  const [encargos, setEncargos] = useState(null);
+  const [sel, setSel] = useState(null);
+  const [creando, setCreando] = useState(false);
+  const [error, setError] = useState("");
+
+  const cargar = useCallback(async () => {
+    try {
+      const lista = await api.cicloEncargos();
+      setEncargos(lista);
+      setSel((actual) => {
+        const hay = (id) => lista.some((e) => e.id === id);
+        if (hay(actual)) return actual;
+        if (hay(recordado())) return recordado();
+        if (hay(workspace?.id)) return workspace.id;
+        return lista[0]?.id || null;
+      });
+      if (!lista.length) setCreando(true);
+    } catch (e) {
+      setError(e.message || String(e));
+    }
+  }, [workspace?.id]);
+  useEffect(() => { cargar(); }, [cargar]);
+
+  function elegir(id) {
+    setSel(id);
+    recordar(id);
+    setCreando(false);
+  }
+
+  if (error) return <p role="alert" className="nf-error">{error}</p>;
+  if (!encargos) return <p className="muted">Cargando encargos…</p>;
+  const actual = encargos.find((e) => e.id === sel);
+
+  return (
+    <>
+      <div className="nf-encargo-barra">
+        <span className="nf-eyebrow">ENCARGO</span>
+        <select value={sel || ""} onChange={(e) => elegir(Number(e.target.value))} aria-label="Encargo">
+          {!encargos.length && <option value="">Todavía no hay encargos</option>}
+          {encargos.map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.cliente} · {e.nombre}{e.marco ? ` · ${e.marco}` : ""}{e.pruebas ? ` · ${e.pruebas} prueba(s)` : ""}
+            </option>
+          ))}
+        </select>
+        <button type="button" className="pc-chip accent" onClick={() => setCreando(true)}>+ Nuevo encargo</button>
+      </div>
+      {creando && (
+        <NuevoEncargo
+          onCreado={async (e) => { await cargar(); elegir(e.id); }}
+          onCancelar={encargos.length ? () => setCreando(false) : null}
+        />
+      )}
+      {!creando && actual && (
+        <EncargoTrabajo key={actual.id} proyecto={{ id: actual.id, name: actual.nombre, module_code: "AUD" }} cliente={{ name: actual.cliente }} />
+      )}
+    </>
   );
 }

@@ -230,3 +230,5 @@ a.btn { text-decoration: none; display: inline-block; }
 .nf-vista-modelos .link { margin-right: 8px; }
 .nf-circuito { margin-top: 12px; opacity: 0.95; }
 .nf-vista-marco { display: flex; flex-wrap: wrap; gap: 8px 24px; padding: 8px 12px; margin: 4px 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
+.nf-encargo-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
+.nf-encargo-barra select { min-width: 280px; flex: 1; max-width: 640px; }
