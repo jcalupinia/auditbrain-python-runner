@@ -163,7 +163,7 @@ function Cedulas({ prueba }) {
 
   if (error || armado?.error) return <p className="nf-error">{error || armado.error}</p>;
   if (!armado) return <p className="muted">Preparando cédulas…</p>;
-  const base = `${(prueba.definicion.name || "prueba").replace(/[^\w-]+/g, "_").slice(0, 60)}_v${prueba.version}_${t.draft ? "BORRADOR" : "APROBADO"}`;
+  const base = `${(prueba.definicion.name || "prueba").replace(/[^\w-]+/g, "_").slice(0, 60)}_v${prueba.version}_${prueba.estado === "APROBADO" ? "APROBADO" : "EN_PROCESO"}`;
   const hoja = armado.hojas[activa] || [];
   return (
     <>
@@ -180,7 +180,7 @@ function Cedulas({ prueba }) {
           <button key={label} type="button" className={activa === i ? "selected" : ""} onClick={() => setActiva(i)}>
             <span>{String(i + 1).padStart(2, "0")}</span>
             <strong>{label}</strong>
-            <small>{t.draft ? "Borrador" : "Aprobado"}</small>
+            <small>{prueba.estado === "APROBADO" ? "Aprobado" : "En proceso"}</small>
           </button>
         ))}
       </div>

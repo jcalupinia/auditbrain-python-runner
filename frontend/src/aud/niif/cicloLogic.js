@@ -130,7 +130,9 @@ export function herramientaDePrueba(p) {
     definition: p.definicion,
     version: p.version,
     state: p.estado,
-    draft: p.estado !== "APROBADO",
+    // «draft» es, para el sitio, un borrador de ChatGPT con fuentes sin verificar;
+    // una prueba del encargo en curso sale como «papel en proceso» por su estado.
+    draft: false,
     events: (p.eventos || []).map((e) => ({
       action: e.accion, actor: e.actor, at: e.fecha, previous: e.estado_anterior,
       next: e.estado_nuevo, comment: e.comentario || "", version: p.version,
