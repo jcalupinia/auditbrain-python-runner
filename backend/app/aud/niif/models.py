@@ -35,6 +35,9 @@ class NiifFicha(Base):
     # --- Contenido de la ficha -----------------------------------------
     items: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     salidas: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    # Definición del motor que corrió en el Estudio, guardada al marcar la
+    # ficha como probada. Es lo que permite aplicarla a un cliente.
+    definicion: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # --- Ciclo de vida ---------------------------------------------------
     # "en_diseño" -> "probada" -> "enviada". Sin saltos (ver service.py).

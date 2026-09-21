@@ -66,6 +66,7 @@ class FichaOut(BaseModel):
     parrafo: str
     items: list
     salidas: list
+    definicion: dict | None = None
     estado: str
     autor_user_id: int | None
     autor_email: str | None

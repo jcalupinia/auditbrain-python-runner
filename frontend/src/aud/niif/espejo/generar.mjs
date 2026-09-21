@@ -14,12 +14,17 @@
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { CAN_APPROVE, STATES, catalog, createProgram, transition } from "../sitio/tools/domain.mjs";
+import { METHODOLOGY_VERSION } from "../sitio/methodology.mjs";
+import { CAN_APPROVE, ENGINE_VERSION, STATES, catalog, createProgram, transition } from "../sitio/tools/domain.mjs";
 
 export const DESTINO = fileURLToPath(new URL("../../../../../backend/app/aud/niif/ciclo/espejo.json", import.meta.url));
 // El catálogo lo usa el servidor en funcionamiento, no solo las pruebas: va aparte.
 export const CATALOGO = fileURLToPath(new URL("../../../../../backend/app/aud/niif/ciclo/catalogo.json", import.meta.url));
 export const catalogoJson = () => JSON.stringify(catalog, null, 1) + "\n";
+// Versiones que la prueba registra, como en el sitio.
+export const VERSIONES = fileURLToPath(new URL("../../../../../backend/app/aud/niif/ciclo/versiones.json", import.meta.url));
+export const versionesJson = () =>
+  JSON.stringify({ methodologyVersion: METHODOLOGY_VERSION, engineVersion: ENGINE_VERSION }, null, 1) + "\n";
 
 const intentar = (fn) => {
   try {
@@ -117,5 +122,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const c = contenido();
   writeFileSync(DESTINO, serializar(c));
   writeFileSync(CATALOGO, catalogoJson());
+  writeFileSync(VERSIONES, versionesJson());
   console.log(`espejo.json: ${c.programas.length} programas, ${c.transiciones.length} transiciones`);
 }
