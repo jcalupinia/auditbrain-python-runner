@@ -13,6 +13,7 @@ from backend.app.auth import router as auth_router
 from backend.app.aud.obligaciones_fiscales import router as aud_of_router
 from backend.app.aud.informe_cumplimiento_tributario import router as aud_informe_ict_router
 from backend.app.aud.motor_balances import router as aud_motor_balances_router
+from backend.app.aud.motor_analitico import router as aud_motor_analitico_router
 from backend.app.aud.inventarios_vnr import router as aud_vnr_router
 from backend.app.aud.niif import router as aud_niif_router
 from backend.app.aud.niif.ciclo import router as aud_ciclo_router
@@ -40,6 +41,7 @@ api_router.include_router(chat_router.router)
 api_router.include_router(aud_of_router.router)
 api_router.include_router(aud_informe_ict_router.router)
 api_router.include_router(aud_motor_balances_router.router)
+api_router.include_router(aud_motor_analitico_router.router)
 api_router.include_router(aud_vnr_router.router)
 api_router.include_router(aud_niif_router.router)
 api_router.include_router(aud_ciclo_router.router)
