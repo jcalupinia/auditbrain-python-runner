@@ -1,4 +1,4 @@
-# MEMORIA METODOLÓGICA AUDITBRAIN v1.3.1 · 2026-09-19
+# MEMORIA METODOLÓGICA AUDITBRAIN v1.3.2 · 2026-09-21
 Reglas de diseño acordadas con el responsable del proyecto. Son requisitos del sistema objetivo, no certificación de funciones existentes.
 
 M01 — AuditBrain Builder y separación de sistemas: AuditBrain Builder es la fábrica lógica de herramientas; Sites es su interfaz actual. GitHub conserva el código de implementación, contratos, pruebas y artefactos técnicos versionados; AUDIT-IA ejecuta herramientas liberadas para el auditor. ChatGPT, Work, Codex, Astra y futuros modos de IA asisten, pero no son la fuente de verdad del proyecto. No confundir diseño, implementación, integración, ejecución ni estado de una sesión de IA.
