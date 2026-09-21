@@ -205,3 +205,13 @@
 .nf-manual-reglas span { font-size: 11px; color: #C7A83C; }
 .nf-manual-reglas h5 { margin: 2px 0 6px; }
 a.btn { text-decoration: none; display: inline-block; }
+
+/* ---------- Pruebas del encargo ---------- */
+.nf-ciclo { max-width: 1100px; }
+.nf-ciclo-etapas { display: flex; flex-wrap: wrap; gap: 4px; list-style: none; padding: 0; margin: 8px 0 12px; counter-reset: etapa; }
+.nf-ciclo-etapas li { counter-increment: etapa; font-size: 12px; padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.15); opacity: 0.6; }
+.nf-ciclo-etapas li::before { content: counter(etapa) " · "; }
+.nf-ciclo-etapas li.hecha { opacity: 1; border-color: #2e9e60; }
+.nf-ciclo-etapas li.actual { opacity: 1; border-color: #C7A83C; color: #C7A83C; font-weight: 600; }
+.nf-ciclo-fuentes { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.nf-ciclo-prueba textarea { width: 100%; min-width: 160px; font-size: 12px; }

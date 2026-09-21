@@ -1624,7 +1624,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
 
         {tab === "niif" && module.id === "AUD" ? (
           <div className="cw-tool">
-            <CentroNIIF />
+            <CentroNIIF proyecto={ctx?.active_project} cliente={ctx?.active_client} />
           </div>
         ) : tab === "estudio" ? (
           <div className="cw-tool">
