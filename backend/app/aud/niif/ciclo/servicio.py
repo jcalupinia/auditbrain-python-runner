@@ -12,7 +12,7 @@ import datetime
 import json
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 import hashlib
@@ -708,3 +708,69 @@ def editar_contexto(db: Session, old: Prueba, revision: int, datos: dict, actor:
     db.commit()
     db.refresh(old)
     return old
+
+
+# --- encargos NIIF, independientes del Workspace ------------------------------
+# Un encargo es, por dentro, un proyecto AUD con su cliente y su ficha. Se crea
+# desde la herramienta, en una sola transacción, sin pasar por Workspaces.
+
+def listar_encargos(db: Session, user) -> list[dict]:
+    from backend.app.context.models import Client, Project
+    from backend.app.context.service import user_can_access_project
+
+    if not user.organization_id:
+        return []
+    filas = db.execute(
+        select(Project, Client).join(Client, Client.id == Project.client_id)
+        .where(Project.organization_id == user.organization_id, Project.module_code == "AUD")
+        .order_by(Client.name, Project.name)
+    ).all()
+    salida = []
+    for pr, c in filas:
+        if not user_can_access_project(db, user, pr):
+            continue
+        f = db.get(FichaEncargo, pr.id)
+        n = db.execute(select(Prueba.id).where(Prueba.project_id == pr.id)).all()
+        salida.append({
+            "id": pr.id, "nombre": pr.name, "cliente": c.name, "client_id": c.id, "periodo": pr.period_label,
+            "marco": (f.datos or {}).get("framework") if f else None,
+            "corte": (f.datos or {}).get("cutoff") if f else None,
+            "pruebas": len(n),
+        })
+    return salida
+
+
+def crear_encargo(db: Session, user, datos: dict) -> dict:
+    """Cliente (existente o nuevo), proyecto AUD y ficha del encargo, juntos."""
+    from backend.app.context.models import Client, Project
+
+    if not user.organization_id:
+        raise ReglaIncumplida("Su usuario no tiene organización.")
+    ficha = reglas.validar_ficha_encargo(datos.get("ficha") or {}, completa=True)
+    client_id = datos.get("client_id")
+    if client_id:
+        cliente = db.get(Client, int(client_id)) if str(client_id).isdigit() else None
+        if cliente is None or cliente.organization_id != user.organization_id:
+            raise ReglaIncumplida("Cliente no encontrado.")
+    else:
+        nombre = str(datos.get("cliente") or ficha.get("client") or "").strip()[:200]
+        if len(nombre) < 2:
+            raise ReglaIncumplida("Indique el cliente.")
+        cliente = db.execute(
+            select(Client).where(Client.organization_id == user.organization_id,
+                                 func.lower(Client.name) == nombre.lower())
+        ).scalars().first()
+        if cliente is None:
+            cliente = Client(organization_id=user.organization_id, name=nombre,
+                             tax_id=ficha.get("ruc") or None)
+            db.add(cliente)
+            db.flush()
+    nombre_encargo = str(datos.get("nombre") or "").strip()[:200] or f"Auditoría {ficha['year']}"
+    proyecto = Project(organization_id=user.organization_id, client_id=cliente.id, name=nombre_encargo,
+                       module_code="AUD", period_label=f"AF {ficha['year']}")
+    db.add(proyecto)
+    db.flush()
+    db.add(FichaEncargo(project_id=proyecto.id, datos=ficha, actualizada_por=user.email))
+    db.commit()
+    return {"id": proyecto.id, "nombre": proyecto.name, "cliente": cliente.name, "client_id": cliente.id,
+            "periodo": proyecto.period_label, "marco": ficha["framework"], "corte": ficha["cutoff"], "pruebas": 0}

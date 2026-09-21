@@ -254,6 +254,13 @@ const jsonPost = (method, body) => ({
   body: JSON.stringify(body),
 });
 
+// Encargos NIIF: se eligen y crean dentro de la herramienta, sin depender del Workspace.
+export async function cicloEncargos() {
+  return parse(await apiFetch(`${CICLO}/encargos`, { headers: authHeaders() }));
+}
+export async function cicloCrearEncargo(datos) {
+  return parse(await apiFetch(`${CICLO}/encargos`, jsonPost("POST", datos)));
+}
 export async function cicloLeerFicha(projectId) {
   return parse(await apiFetch(`${CICLO}/proyectos/${projectId}/ficha`, { headers: authHeaders() }));
 }
