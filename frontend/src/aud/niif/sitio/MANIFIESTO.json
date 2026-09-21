@@ -1,5 +1,5 @@
 {
-  "origen": "auditbrain-site @ af13840 · lib/tools/*.mjs -> tools/, lib/*.mjs -> raíz, public/documentos -> documentos/ (huellas sobre texto con LF)",
+  "origen": "auditbrain-site @ 7e42d3d · lib/tools/*.mjs -> tools/, lib/*.mjs -> raíz, public/documentos -> documentos/ (huellas sobre texto con LF)",
   "sha256": {
     "console/extract.mjs": "9ea97c6a33455268da31644ec526157ff70bb8130031098175ef0a7c566cbba1",
     "documentos/Manual_Arquitectura_AuditBrain.html": "28a3ee40bada089b6a1848053f5d5c1249c7edb411e52009d98cd21f2c91f156",
@@ -11,6 +11,7 @@
     "reconstruction/protocol.ts": "c4a94b72774e383b2200de41586c00c8b80ba3c3ae3c3f8ff7bbac25db1d6722",
     "requirement.mjs": "4609cea73e2e07ee7eeca5800a4554d67d5b69586fdc15fd3c39e43e5f88eafc",
     "tools/brand.mjs": "c49a7226cfc388df1ed11a8ea0f2556464d2d2fd3635b3f345bf7606fe9434bb",
+    "tools/coverage.mjs": "f56d9f9e62400ef89b3ae38dba0e7f69ab7d275d79994c640ca88ce2a262bc9b",
     "tools/domain.mjs": "27474d97edbcd74478bb4e1cc27673b85da38cfa43973f637e8f423d65fea506",
     "tools/example.mjs": "a0a026300b70ebdb0bf4cc09a1e6fef62a018d6855e16602c7c6cef279b47d13",
     "tools/explanations.mjs": "a8c9eabcc796f70410710254e964cf54979c7804fba0f9bf4010d1f071d395d5",
