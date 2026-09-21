@@ -246,6 +246,39 @@ export async function niifEjecutarMotor({ definicion, filas, parametros, flujos 
   );
 }
 
+// ---- Ciclo real de una prueba (E6: ficha del encargo y programa) ----
+const CICLO = `${API_BASE}/api/v1/aud/ciclo`;
+const jsonPost = (method, body) => ({
+  method,
+  headers: authHeaders({ "Content-Type": "application/json" }),
+  body: JSON.stringify(body),
+});
+
+export async function cicloLeerFicha(projectId) {
+  return parse(await apiFetch(`${CICLO}/proyectos/${projectId}/ficha`, { headers: authHeaders() }));
+}
+export async function cicloGuardarFicha(projectId, ficha) {
+  return parse(await apiFetch(`${CICLO}/proyectos/${projectId}/ficha`, jsonPost("PUT", ficha)));
+}
+export async function cicloHerramientas() {
+  return parse(await apiFetch(`${CICLO}/herramientas`, { headers: authHeaders() }));
+}
+export async function cicloListarPruebas(projectId) {
+  return parse(await apiFetch(`${CICLO}/proyectos/${projectId}/pruebas`, { headers: authHeaders() }));
+}
+export async function cicloCrearPrueba(projectId, origen, tributario) {
+  return parse(await apiFetch(`${CICLO}/proyectos/${projectId}/pruebas`, jsonPost("POST", { origen, tributario })));
+}
+export async function cicloLeerPrueba(id) {
+  return parse(await apiFetch(`${CICLO}/pruebas/${id}`, { headers: authHeaders() }));
+}
+export async function cicloAccion(id, accion, revision, datos = {}) {
+  return parse(await apiFetch(`${CICLO}/pruebas/${id}/acciones`, jsonPost("POST", { accion, revision, datos })));
+}
+export async function niifGuardarDefinicion(fichaId, definicion, filas) {
+  return parse(await apiFetch(`${CICLO}/fichas/${fichaId}/definicion`, jsonPost("PUT", { definicion, filas })));
+}
+
 export async function createUser(email, password, role) {
   return parse(
     await apiFetch(`${API_BASE}/api/v1/auth/users`, {

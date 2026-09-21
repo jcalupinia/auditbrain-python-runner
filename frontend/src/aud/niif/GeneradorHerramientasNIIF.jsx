@@ -562,6 +562,7 @@ ${g.nombre}`
                   {etiquetaEstado(g.estado)}
                 </span>
                 <span className="nf-ficha-meta">
+                  {g.definicion ? "✓ definición guardada · " : ""}
                   {g.norma} {g.parrafo} · {(g.items || []).length} ítem(s) ·{" "}
                   {(g.salidas || []).length} cédula(s) · diseñada por {g.autor_email || "—"}
                   {g.probada_por_email
@@ -624,7 +625,7 @@ ${g.nombre}`
                   </button>
                 </span>
               </div>
-              {estudioId === g.id && <EstudioPrueba ficha={g} />}
+              {estudioId === g.id && <EstudioPrueba ficha={g} onDefinicionGuardada={recargar} />}
             </li>
           ))}
         </ul>

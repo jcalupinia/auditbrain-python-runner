@@ -9,8 +9,10 @@ const RecorridoVNR = lazy(() => import("./RecorridoVNR.jsx"));
 const ConsolaArchivos = lazy(() => import("./ConsolaArchivos.jsx"));
 const ReconstruirExcel = lazy(() => import("./ReconstruirExcel.jsx"));
 const ManualMetodologia = lazy(() => import("./ManualMetodologia.jsx"));
+const PruebasEncargo = lazy(() => import("./PruebasEncargo.jsx"));
 
 const SECCIONES = [
+  { id: "pruebas", label: "Pruebas del encargo", Vista: PruebasEncargo },
   { id: "fichas", label: "Diseñar fichas", Vista: GeneradorHerramientasNIIF },
   { id: "recorrido", label: "Recorrido VNR", Vista: RecorridoVNR },
   { id: "consola", label: "Consola de archivos", Vista: ConsolaArchivos },
@@ -18,8 +20,8 @@ const SECCIONES = [
   { id: "manual", label: "Manual y memoria", Vista: ManualMetodologia },
 ];
 
-export default function CentroNIIF() {
-  const [seccion, setSeccion] = useState("fichas");
+export default function CentroNIIF({ proyecto, cliente }) {
+  const [seccion, setSeccion] = useState("pruebas");
   const { Vista } = SECCIONES.find((s) => s.id === seccion);
   return (
     <div className="nf-centro">
@@ -37,7 +39,7 @@ export default function CentroNIIF() {
         ))}
       </nav>
       <Suspense fallback={<p className="muted">Cargando…</p>}>
-        <Vista onCrear={() => setSeccion("fichas")} />
+        <Vista onCrear={() => setSeccion("fichas")} proyecto={proyecto} cliente={cliente} />
       </Suspense>
     </div>
   );

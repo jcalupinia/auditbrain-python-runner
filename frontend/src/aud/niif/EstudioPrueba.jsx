@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { niifCobertura, niifEjecutarMotor } from "../../api";
+import { niifCobertura, niifEjecutarMotor, niifGuardarDefinicion } from "../../api";
 import { herramientaDeEstudio, motivoDiscrepancia } from "./contraste";
 import {
   EJEMPLO_NIIF16,
@@ -70,7 +70,7 @@ function Tabla({ filas, titulo }) {
   );
 }
 
-export default function EstudioPrueba({ ficha }) {
+export default function EstudioPrueba({ ficha, onDefinicionGuardada }) {
   const [marcas, setMarcas] = useState({});
   const [cobertura, setCobertura] = useState(null);
   const [errorCobertura, setErrorCobertura] = useState("");
@@ -82,6 +82,7 @@ export default function EstudioPrueba({ ficha }) {
   const [corriendo, setCorriendo] = useState(false);
   // Lo que se corrió y dio igual en los dos motores: base de las cédulas.
   const [corrida, setCorrida] = useState(null);
+  const [guardada, setGuardada] = useState("");
 
   // Cada cambio de marcas vuelve a preguntar al backend. La regla vive allí;
   // aquí solo se pinta lo que responde.
@@ -101,6 +102,20 @@ export default function EstudioPrueba({ ficha }) {
     const siguientes = { ...marcas, [clave]: siguienteMarca(marcas[clave]) };
     setMarcas(siguientes);
     medir(siguientes);
+  }
+
+  // La definición que corrió y coincidió en los dos motores queda en la ficha:
+  // es lo que permite aplicarla a un cliente en «Pruebas del encargo». El
+  // servidor la vuelve a ejecutar antes de guardarla.
+  async function guardarDefinicion() {
+    setGuardada("");
+    try {
+      await niifGuardarDefinicion(ficha.id, corrida.definicion, corrida.filas);
+      setGuardada("Definición guardada en la ficha. Ya se puede aplicar a un cliente cuando la ficha esté probada.");
+      onDefinicionGuardada?.();
+    } catch (e) {
+      setErrorMotor(e.message || String(e));
+    }
   }
 
   async function bajarCedulas(formato) {
@@ -283,7 +298,13 @@ export default function EstudioPrueba({ ficha }) {
               <button type="button" className="btn sm" onClick={() => bajarCedulas("html")}>
                 Descargar HTML autónomo
               </button>
+              {ficha.estado !== "enviada" && (
+                <button type="button" className="btn sm" onClick={guardarDefinicion}>
+                  Guardar esta definición en la ficha
+                </button>
+              )}
             </div>
+            {guardada && <p className="nf-ok">{guardada}</p>}
           </>
         )}
       </section>
