@@ -28,6 +28,7 @@ Codex que no hay migraciones nuevas.
 | A17 | **Documentos descargables del manual regenerados.** La página decía 1.3.1 pero el Manual HTML/MD y la Memoria MD/JSON seguían en **1.2.0** y **sin la sección 05A**. Prueba nueva que lo vigila (rojo con los viejos, verde con los nuevos) | `08e7721`, `de809ff` | ✅ `tests/tools` 67/67 · suite 96/96 |
 | A18 | **Índice del manual: «M01–M16» con 17 reglas** → el rango sale de los datos | `04538b8`, `ae91ddd` | ✅ `tsc` sin errores en `app/metodologia` |
 | A19 | `AGENTS.md`: conteos 67/67 y 96/96; regla de regenerar los documentos al cambiar la metodología | `ac21ef9` | ✅ idéntico en réplica y checkout |
+| A20 | **Manual 1.3.2**: sección 18 «Estado» al día (Command Center, motor con series y flujos, asistente elegido por el auditor) y changelog completo en la 17 (faltaban 1.3.0–1.3.1). Descargables regenerados | `af13840` | ✅ suite 96/96 · verif-niif16 y verif-alcance pasan · checkout sincronizado |
 
 A17 y A18 se encontraron al replicar el manual en el Command Center.
 
