@@ -1,0 +1,211 @@
+{
+ "vnr": {
+  "id": "vnr",
+  "name": "Valor neto de realización",
+  "area": "Inventarios",
+  "description": "Compara el costo con el precio estimado de venta menos los costos de terminación y venta, por partida.",
+  "source": {
+   "organization": "IFRS Foundation",
+   "document": "IAS 2 Inventories",
+   "url": "https://www.ifrs.org/content/dam/ifrs/publications/html-standards/english/2024/issued/ias2.html",
+   "type": "Norma contable",
+   "date": "2026-09-19"
+  },
+  "fields": [
+   {
+    "key": "id",
+    "label": "Código / lote",
+    "type": "text",
+    "required": true,
+    "positive": false
+   },
+   {
+    "key": "description",
+    "label": "Descripción",
+    "type": "text",
+    "required": true,
+    "positive": false
+   },
+   {
+    "key": "quantity",
+    "label": "Cantidad",
+    "type": "number",
+    "required": true,
+    "positive": true
+   },
+   {
+    "key": "unit_cost",
+    "label": "Costo unitario",
+    "type": "number",
+    "required": true,
+    "positive": false
+   },
+   {
+    "key": "selling_price",
+    "label": "Precio de venta unitario",
+    "type": "number",
+    "required": true,
+    "positive": false
+   },
+   {
+    "key": "completion_cost",
+    "label": "Costo de terminación unitario",
+    "type": "number",
+    "required": true,
+    "positive": false
+   },
+   {
+    "key": "selling_cost",
+    "label": "Costo necesario de venta unitario",
+    "type": "number",
+    "required": true,
+    "positive": false
+   },
+   {
+    "key": "recorded_allowance",
+    "label": "Deterioro registrado total",
+    "type": "number",
+    "required": true,
+    "positive": false
+   }
+  ],
+  "rules": [
+   {
+    "key": "net_price",
+    "label": "Precio menos terminación",
+    "op": "subtract",
+    "a": "selling_price",
+    "b": "completion_cost",
+    "precision": 6
+   },
+   {
+    "key": "nrv_unit",
+    "label": "VNR unitario",
+    "op": "subtract",
+    "a": "net_price",
+    "b": "selling_cost",
+    "precision": 6
+   },
+   {
+    "key": "nrv_floor",
+    "label": "VNR recuperable (mínimo cero)",
+    "op": "max",
+    "a": "nrv_unit",
+    "b": "#0",
+    "precision": 6
+   },
+   {
+    "key": "carrying_unit",
+    "label": "Menor entre costo y VNR",
+    "op": "min",
+    "a": "unit_cost",
+    "b": "nrv_floor",
+    "precision": 6
+   },
+   {
+    "key": "cost",
+    "label": "Costo total",
+    "op": "multiply",
+    "a": "quantity",
+    "b": "unit_cost",
+    "precision": 2
+   },
+   {
+    "key": "recoverable",
+    "label": "Valor recuperable total",
+    "op": "multiply",
+    "a": "quantity",
+    "b": "carrying_unit",
+    "precision": 2
+   },
+   {
+    "key": "impairment",
+    "label": "Deterioro requerido",
+    "op": "subtract",
+    "a": "cost",
+    "b": "recoverable",
+    "precision": 2
+   },
+   {
+    "key": "adjustment",
+    "label": "Ajuste frente a deterioro registrado",
+    "op": "subtract",
+    "a": "impairment",
+    "b": "recorded_allowance",
+    "precision": 2
+   }
+  ],
+  "control": "cost",
+  "primary": "impairment"
+ },
+ "pce": {
+  "id": "pce",
+  "name": "Pérdidas crediticias esperadas",
+  "area": "Cuentas por cobrar",
+  "description": "Matriz de provisión con tasas y rangos de mora aprobados. Los cobros posteriores se muestran como evidencia, sin descontarlos automáticamente.",
+  "source": {
+   "organization": "IFRS Foundation",
+   "document": "IFRS 9 Financial Instruments",
+   "url": "https://www.ifrs.org/content/dam/ifrs/publications/html-standards/english/2024/issued/ifrs9.html",
+   "type": "Norma contable",
+   "date": "2026-09-19"
+  },
+  "fields": [
+   {
+    "key": "id",
+    "label": "Documento / cliente",
+    "type": "text",
+    "required": true,
+    "positive": false
+   },
+   {
+    "key": "due_date",
+    "label": "Fecha de vencimiento",
+    "type": "date",
+    "required": true,
+    "positive": false
+   },
+   {
+    "key": "exposure",
+    "label": "Exposición al corte",
+    "type": "number",
+    "required": true,
+    "positive": false
+   },
+   {
+    "key": "recorded_allowance",
+    "label": "Provisión registrada",
+    "type": "number",
+    "required": true,
+    "positive": false
+   },
+   {
+    "key": "subsequent_collection",
+    "label": "Cobros posteriores (evidencia)",
+    "type": "number",
+    "required": true,
+    "positive": false
+   }
+  ],
+  "rules": [
+   {
+    "key": "impairment",
+    "label": "Pérdida estimada",
+    "op": "multiply",
+    "a": "exposure",
+    "b": "rate",
+    "precision": 2
+   },
+   {
+    "key": "adjustment",
+    "label": "Ajuste frente a provisión registrada",
+    "op": "subtract",
+    "a": "impairment",
+    "b": "recorded_allowance",
+    "precision": 2
+   }
+  ],
+  "control": "exposure",
+  "primary": "impairment"
+ }
+}
