@@ -179,7 +179,10 @@ function Programa({ prueba, onAccion, ocupado }) {
                     )}
                   </td>
                 ))}
-                <td>{p.state === "APROBADO" ? `${p.source?.category} · ${p.source?.document}` : faltan.includes(p.code) ? "Sin fuente verificada" : "✓"}</td>
+                <td>
+                  {p.state === "APROBADO" ? `${p.source?.category} · ${p.source?.document}` : faltan.includes(p.code) ? "Sin fuente verificada" : "✓"}
+                  {p.reference && <small className="muted"> · Norma: {p.reference}</small>}
+                </td>
               </tr>
             ))}
           </tbody>

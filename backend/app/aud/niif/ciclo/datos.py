@@ -37,6 +37,8 @@ SCALE = 1_000_000
 MAX_ROWS = 100_000
 MAX_FLOWS = 100_000
 SERIES_OPS = ("add", "subtract", "multiply", "divide", "min", "max")
+# RULE_OPS de domain.mjs: la aritmética más comparaciones, if, days y band.
+RULE_OPS = SERIES_OPS + ("gt", "gte", "lt", "lte", "eq", "if", "days", "band")
 FLOW_KEYS = ("flujos_vp", "flujos_total", "flujos_dias")
 SHEETS = (
     "01_Caratula", "02_Programa", "03_Parametros", "04_Fuentes", "05_Data_Original",
@@ -244,13 +246,9 @@ def validate_definition(d) -> dict:
                 _falla("Código reservado por los flujos: " + k)
             keys.add(k)
             numeric.add(k)
+    dates = {x["key"] for x in campos if x.get("type") == "date"}
     for x in reglas_:
-        if not _clave_ok(x, "key") or x.get("key") in keys or x.get("key") in _PROHIBIDAS \
-                or x.get("op") not in SERIES_OPS or x.get("precision") not in (2, 6):
-            _falla("Cálculo inválido o código repetido.")
-        for a in (x.get("a"), x.get("b")):
-            if not isinstance(a, str) or not (a in numeric or _CONST.fullmatch(a)):
-                _falla("Cada operando debe ser numérico: campo, cálculo anterior o constante (#0).")
+        _validar_regla(x, keys, numeric, dates)
         keys.add(x["key"])
         numeric.add(x["key"])
     if (d.get("id") == "custom" and not any(f.get("key") == d.get("control") and f.get("type") == "number" for f in campos)) \
@@ -258,7 +256,80 @@ def validate_definition(d) -> dict:
         _falla("Seleccione campo de conciliación y resultado principal válidos.")
     if "sheets" in d and (not isinstance(d["sheets"], list) or not d["sheets"] or any(x not in SHEETS for x in d["sheets"])):
         _falla("Las cedulas declaradas deben ser nombres de SHEETS, al menos una.")
+    if "program" in d or "requests" in d:
+        _validar_plan(d)
     return d
+
+
+def _validar_regla(x, keys: set, numeric: set, dates: set) -> None:
+    """Puerto de ``validateRule``."""
+    if not isinstance(x, dict) or not _clave_ok(x, "key") or x.get("key") in keys or x.get("key") in _PROHIBIDAS \
+            or x.get("op") not in RULE_OPS or x.get("precision") not in (2, 6):
+        _falla("Cálculo inválido o código repetido.")
+    k = _js(x.get("key")) if "key" in x else "undefined"
+    if x["op"] == "days":
+        for a in (x.get("a"), x.get("b")):
+            if not isinstance(a, str) or not (a in dates or a == "corte"):
+                _falla(f"{k}: los días se cuentan entre dos campos de fecha o la fecha de corte (corte).")
+        return
+    ops = [x.get("a")] if x["op"] == "band" else [x.get("a"), x.get("b"), x.get("c")] if x["op"] == "if" else [x.get("a"), x.get("b")]
+    for a in ops:
+        if not isinstance(a, str) or not (a in numeric or _CONST.fullmatch(a)):
+            _falla("Cada operando debe ser numérico: campo, cálculo anterior o constante (#0).")
+    if x["op"] == "band":
+        t = x.get("table")
+        if not isinstance(t, list) or not t or len(t) > 30:
+            _falla(f"{k}: declare de 1 a 30 tramos con desde y valor.")
+        previo = None
+        for b in t:
+            try:
+                desde = decimal(b.get("from") if isinstance(b, dict) else None)
+                decimal(b.get("value") if isinstance(b, dict) else None)
+            except ReglaIncumplida:
+                _falla(f"{k}: cada tramo necesita desde y valor numéricos.")
+            if previo is not None and desde <= previo:
+                _falla(f"{k}: los tramos van en orden creciente de desde, sin repetir.")
+            previo = desde
+
+
+_CODIGO_PLAN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,30}", re.ASCII)
+
+
+def _validar_plan(d: dict) -> None:
+    """Puerto de ``validatePlan``: programa y requerimientos propios de la ficha."""
+    def texto(v):
+        return isinstance(v, str) and v.strip() != ""
+
+    prog = d.get("program")
+    if not isinstance(prog, list) or not prog or len(prog) > 20:
+        _falla("El programa de la ficha debe tener de 1 a 20 procedimientos.")
+    codigos: set = set()
+    for x in prog:
+        if not isinstance(x, dict) or not _CODIGO_PLAN.fullmatch(_js(x.get("code")) if "code" in x else "undefined") \
+                or x.get("code") in codigos \
+                or not all(texto(x.get(c)) for c in ("objective", "risk", "assertion", "procedure", "evidence", "criterion")):
+            _falla("Cada procedimiento del programa necesita código único, objetivo, riesgo, afirmación, procedimiento, evidencia y criterio.")
+        codigos.add(x["code"])
+    if "requests" not in d:
+        return
+    reqs = d["requests"]
+    if not isinstance(reqs, list) or not reqs or len(reqs) > 40:
+        _falla("Los requerimientos de la ficha deben ser de 1 a 40.")
+    ids: set = set()
+    for r in reqs:
+        if not isinstance(r, dict) or not _CODIGO_PLAN.fullmatch(_js(r.get("id")) if "id" in r else "undefined") \
+                or r.get("id") in ids or not texto(r.get("document")) or not texto(r.get("purpose")):
+            _falla("Cada requerimiento necesita identificador único, documento y propósito.")
+        ids.add(r["id"])
+        if r.get("procedure") not in codigos:
+            _falla(f"{_js(r['id'])}: vincule un procedimiento del programa de la ficha.")
+        f = r.get("formats")
+        if not isinstance(f, list) or not f or any(x not in FORMATS for x in f):
+            _falla(f"{_js(r['id'])}: formatos admitidos: {', '.join(FORMATS)}.")
+        if "components" in r and (not isinstance(r["components"], list) or any(not texto(c) for c in r["components"])):
+            _falla(f"{_js(r['id'])}: los componentes son una lista de nombres.")
+        if "use" in r and r["use"] not in ("calculo", "soporte"):
+            _falla(f"{_js(r['id'])}: el uso es calculo o soporte.")
 
 
 # --- filas, flujos, control y conciliación -----------------------------------
@@ -347,6 +418,16 @@ def reconcile(total, ledger, tolerance, acceptance="") -> dict:
 # --- requerimiento y cobertura -------------------------------------------------
 
 def create_requests(program: list, cutoff: str, definition: dict | None) -> list[dict]:
+    propios = (definition or {}).get("requests")
+    if isinstance(propios, list) and propios:
+        return [{
+            "id": r["id"], "document": r["document"], "period": cutoff,
+            "format": " / ".join(f.upper() for f in r["formats"]), "formats": list(r["formats"]),
+            "purpose": r["purpose"], "procedure": r["procedure"], "required": r.get("required") is not False,
+            "components": list(r.get("components") or []), "group": r.get("group") or "",
+            "use": r.get("use") or "soporte", "report": r.get("report") or "", "timing": r.get("cutoff") or "",
+            "content": r.get("content") or "", "status": "PENDIENTE",
+        } for r in propios]
     rows = [{
         "id": f"RQ-{str(i + 1).rjust(3, '0')}", "document": p["evidence"], "period": cutoff,
         "format": "XLSX / CSV" if i == 0 else "XLSX / DOCX / CSV / XML / PDF / TXT / ZIP / imágenes",

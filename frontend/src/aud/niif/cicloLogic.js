@@ -105,3 +105,14 @@ export function mapeoSugerido(encabezados, campos) {
 // Los primeros errores de validación, legibles: «Fila 8 · Cantidad: número inválido.»
 export const erroresLegibles = (validacion, max = 20) =>
   (validacion?.errors || []).slice(0, max).map((e) => `Fila ${e.row} · ${e.message}`);
+
+// Lo que la ficha dice de cada requerimiento (encargo NIIF): qué reporte es, si
+// la herramienta lo procesa, qué período cubre y qué debe traer para aceptarlo.
+export function detalleRequerimiento(r) {
+  return [
+    r.use === "calculo" ? "Alimenta el cálculo" : r.use === "soporte" ? "Soporte" : "",
+    r.report ? `Reporte: ${r.report}` : "",
+    r.timing ? `Período: ${r.timing}` : "",
+    r.content ? `Contenido mínimo: ${r.content}` : "",
+  ].filter(Boolean);
+}

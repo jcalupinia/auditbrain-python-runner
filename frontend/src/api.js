@@ -293,8 +293,8 @@ export async function cicloBajarArchivo(pruebaId, archivoId) {
   return new Uint8Array(await res.arrayBuffer());
 }
 
-export async function niifGuardarDefinicion(fichaId, definicion, filas) {
-  return parse(await apiFetch(`${CICLO}/fichas/${fichaId}/definicion`, jsonPost("PUT", { definicion, filas })));
+export async function niifGuardarDefinicion(fichaId, definicion, filas, parametros) {
+  return parse(await apiFetch(`${CICLO}/fichas/${fichaId}/definicion`, jsonPost("PUT", { definicion, filas, parametros: parametros || {} })));
 }
 
 export async function createUser(email, password, role) {

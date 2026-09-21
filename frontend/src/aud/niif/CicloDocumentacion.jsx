@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import * as api from "../../api";
-import { componentesDeTexto, erroresLegibles, esTabular, mapeoSugerido } from "./cicloLogic";
+import { componentesDeTexto, detalleRequerimiento, erroresLegibles, esTabular, mapeoSugerido } from "./cicloLogic";
 
 /*
  * E7 — requerimiento al cliente y documentación de una prueba.
@@ -37,8 +37,12 @@ export function EditorRequerimiento({ prueba, onAccion, ocupado }) {
             {reqs.map((r, i) => (
               <tr key={r.id}>
                 <td>{r.id}</td>
-                <td><textarea rows={2} value={r.document || ""} onChange={(e) => set(i, { document: e.target.value })} /></td>
-                <td><input value={r.format || ""} onChange={(e) => set(i, { format: e.target.value })} /></td>
+                <td>
+                  <textarea rows={2} value={r.document || ""} onChange={(e) => set(i, { document: e.target.value })} />
+                  {detalleRequerimiento(r).length > 0 && <small className="muted">{detalleRequerimiento(r).join(" · ")}</small>}
+                </td>
+                {/* Editar el texto manda sobre la lista de formatos que trajo la ficha. */}
+                <td><input value={r.format || ""} onChange={(e) => set(i, { format: e.target.value, formats: undefined })} /></td>
                 <td><textarea rows={2} value={r.purpose || ""} onChange={(e) => set(i, { purpose: e.target.value })} /></td>
                 <td>
                   <select value={r.procedure} onChange={(e) => set(i, { procedure: e.target.value })}>
@@ -273,6 +277,7 @@ export function Documentacion({ prueba, onAccion, onRecargar, ocupado }) {
                 {r.group ? ` · alternativa de «${r.group}»` : ""}
                 {r.components?.length ? ` · componentes: ${r.components.join(", ")}` : ""}
               </p>
+              {detalleRequerimiento(r).length > 0 && <p className="muted">{detalleRequerimiento(r).join(" · ")}</p>}
               {suyos.map((a) => (
                 <div key={a.id} className="nf-rec-pieza">
                   <button type="button" className="link" onClick={() => bajar(a)}>{a.nombre}</button>

@@ -1,5 +1,5 @@
 {
-  "origen": "auditbrain-site @ 5b8b838 · lib/tools/*.mjs -> tools/, lib/*.mjs -> raíz, public/documentos -> documentos/ (huellas sobre texto con LF)",
+  "origen": "auditbrain-site @ 973a5d1 · lib/tools/*.mjs -> tools/, lib/*.mjs -> raíz, public/documentos -> documentos/ (huellas sobre texto con LF)",
   "sha256": {
     "console/extract.mjs": "f59dad6e28025c1b3bac83afbfc6c309b4ab94f23399c4bff0ca1f6f7b41f8cb",
     "documentos/Manual_Arquitectura_AuditBrain.html": "28a3ee40bada089b6a1848053f5d5c1249c7edb411e52009d98cd21f2c91f156",
@@ -12,13 +12,13 @@
     "requirement.mjs": "4609cea73e2e07ee7eeca5800a4554d67d5b69586fdc15fd3c39e43e5f88eafc",
     "tools/brand.mjs": "c49a7226cfc388df1ed11a8ea0f2556464d2d2fd3635b3f345bf7606fe9434bb",
     "tools/coverage.mjs": "f56d9f9e62400ef89b3ae38dba0e7f69ab7d275d79994c640ca88ce2a262bc9b",
-    "tools/domain.mjs": "27474d97edbcd74478bb4e1cc27673b85da38cfa43973f637e8f423d65fea506",
+    "tools/domain.mjs": "0d0e0792d7cf554028c7313e225290feec4533bd3605f0511bc3d29a91f9066f",
     "tools/example.mjs": "a0a026300b70ebdb0bf4cc09a1e6fef62a018d6855e16602c7c6cef279b47d13",
-    "tools/explanations.mjs": "a8c9eabcc796f70410710254e964cf54979c7804fba0f9bf4010d1f071d395d5",
-    "tools/exports.mjs": "2395f0535161fc1fe9c3e0e4fa213426b46b08aa61405498cd23f41240bebdee",
+    "tools/explanations.mjs": "f95f3a5f6f20c50c3dcbd77a735785cef468a62905af0bba0688a24188dec556",
+    "tools/exports.mjs": "c248044f5ecfdee2077df294dac9a221e4e7d6bf1e3d6d2bb321e35f55473c0e",
     "tools/files.mjs": "51a963646fbfddffbae2218d01133a295ce23f02daafddaf693fb84f4e7373ee",
     "tools/html-presentation.mjs": "bec9e95467317512ba2be6184286f5d06633322a72fe4379abf1714220bbb6aa",
-    "tools/portable-engine.mjs": "3caad06a2d715a36396bbabaffdba0f16becb2d70e70fb266df9de323b4f141f",
+    "tools/portable-engine.mjs": "2a0f1e5a4427177ab0184f091046143db50bece72139e06e0c9c1e5289e77bce",
     "tools/workbook-presentation.mjs": "022089a870be384d2aa51b00f958584486042da3353a4373cf63875a5c9827a2"
   }
 }

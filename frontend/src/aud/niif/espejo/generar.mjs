@@ -16,6 +16,10 @@ import { fileURLToPath } from "node:url";
 
 import { METHODOLOGY_VERSION } from "../sitio/methodology.mjs";
 import { CAN_APPROVE, ENGINE_VERSION, STATES, catalog, createProgram, transition } from "../sitio/tools/domain.mjs";
+import { ANTIGUEDAD } from "./generarDatos.mjs";
+
+// La misma ficha sin fuente PYMES propia: cae en la fuente genérica de la sección.
+const SIN_PYMES = (({ source_pymes, ...d }) => d)(ANTIGUEDAD);
 
 export const DESTINO = fileURLToPath(new URL("../../../../../backend/app/aud/niif/ciclo/espejo.json", import.meta.url));
 // El catálogo lo usa el servidor en funcionamiento, no solo las pruebas: va aparte.
@@ -111,6 +115,9 @@ export function contenido() {
       { definicion: "vnr", marco: "NIIF para las PYMES", esperado: createProgram(catalog.vnr, { framework: "NIIF para las PYMES" }) },
       { definicion: "pce", marco: "NIIF completas", esperado: createProgram(catalog.pce, { framework: "NIIF completas" }) },
       { definicion: CUSTOM, marco: "NIIF completas", esperado: createProgram(CUSTOM, { framework: "NIIF completas" }) },
+      { definicion: ANTIGUEDAD, marco: "NIIF completas", esperado: createProgram(ANTIGUEDAD, { framework: "NIIF completas" }) },
+      { definicion: ANTIGUEDAD, marco: "NIIF para las PYMES", esperado: createProgram(ANTIGUEDAD, { framework: "NIIF para las PYMES" }) },
+      { definicion: SIN_PYMES, marco: "NIIF para las PYMES", esperado: createProgram(SIN_PYMES, { framework: "NIIF para las PYMES" }) },
     ],
     transiciones: casosTransicion(),
   };

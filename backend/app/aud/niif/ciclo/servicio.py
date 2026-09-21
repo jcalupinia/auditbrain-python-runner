@@ -364,7 +364,8 @@ def eventos(db: Session, prueba_id: int) -> list[PruebaEvento]:
 
 # --- definición probada de una ficha NIIF -----------------------------------
 
-def guardar_definicion_ficha(db: Session, ficha: NiifFicha, definicion: dict, filas: list[dict]) -> NiifFicha:
+def guardar_definicion_ficha(db: Session, ficha: NiifFicha, definicion: dict, filas: list[dict],
+                             parametros: dict | None = None) -> NiifFicha:
     """Guarda la definición que corrió en el Estudio.
 
     Se vuelve a ejecutar aquí con el motor Python: no basta con que el
@@ -375,7 +376,7 @@ def guardar_definicion_ficha(db: Session, ficha: NiifFicha, definicion: dict, fi
     if ficha.estado == "enviada":
         raise ReglaIncumplida("La ficha ya fue enviada al catálogo: su definición no se modifica.")
     datos.validate_definition({**definicion, "id": "custom"})
-    estudio.ejecutar_definicion(definicion, filas)
+    estudio.ejecutar_definicion(definicion, filas, parametros or {})
     ficha.definicion = definicion
     db.commit()
     db.refresh(ficha)

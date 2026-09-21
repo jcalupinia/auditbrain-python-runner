@@ -1,6 +1,6 @@
 export function calculationNotes(tool){
- const d=tool.definition,ops={add:'sumar',subtract:'restar',multiply:'multiplicar',divide:'dividir',min:'tomar el menor',max:'tomar el mayor'};
- const formulas=d.rules.map(r=>`${r.label}: ${ops[r.op]} (${r.a}, ${r.b}); ${r.precision} decimales.`).join(' ');
+ const d=tool.definition,ops={add:'sumar',subtract:'restar',multiply:'multiplicar',divide:'dividir',min:'tomar el menor',max:'tomar el mayor',gt:'1 si A es mayor que B, si no 0',gte:'1 si A es mayor o igual que B, si no 0',lt:'1 si A es menor que B, si no 0',lte:'1 si A es menor o igual que B, si no 0',eq:'1 si A es igual a B, si no 0',if:'si A no es cero toma B, si no C',days:'días desde A hasta B',band:'valor del tramo en que cae A'};
+ const formulas=d.rules.map(r=>`${r.label}: ${ops[r.op]} (${[r.a,r.b,r.c].filter(x=>x!==undefined).join(', ')}${r.op==='band'?'; tramos '+r.table.map(b=>`desde ${b.from} = ${b.value}`).join(', '):''}); ${r.precision} decimales.`).join(' ');
  return [
  'La ficha identifica cliente, marco, edición, país, visita, corte, firma y responsables. Los resultados requieren revisión profesional.',
  'Cada procedimiento se vincula con su objetivo, riesgo, evidencia, criterio y fuente verificada. Los textos del programa no son resultados de cálculo.',

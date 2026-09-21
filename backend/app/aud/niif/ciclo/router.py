@@ -38,6 +38,8 @@ class AccionIn(BaseModel):
 class DefinicionIn(BaseModel):
     definicion: dict
     filas: list[dict]
+    # La fecha de corte de la corrida (`cutoff`), para los cálculos `days`.
+    parametros: dict = Field(default_factory=dict)
 
 
 def _proyecto(db: Session, user: User, project_id: int):
@@ -152,7 +154,7 @@ def guardar_definicion(ficha_id: int, body: DefinicionIn, db: Session = Depends(
     if ficha is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ficha no encontrada.")
     try:
-        servicio.guardar_definicion_ficha(db, ficha, body.definicion, body.filas)
+        servicio.guardar_definicion_ficha(db, ficha, body.definicion, body.filas, body.parametros)
     except ReglaIncumplida as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
     except (ValueError, KeyError, ArithmeticError, StopIteration) as e:
