@@ -53,6 +53,13 @@ class NiifFicha(Base):
     probada_por_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     probada_en: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
 
+    # Devolver una ficha probada a diseño también deja rastro: quién y cuándo.
+    devuelta_por_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    devuelta_por_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    devuelta_en: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+
     enviada_por_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

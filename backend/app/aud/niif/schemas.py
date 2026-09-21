@@ -75,6 +75,8 @@ class FichaOut(BaseModel):
     enviada_por_user_id: int | None
     enviada_por_email: str | None
     enviada_en: datetime.datetime | None
+    devuelta_por_email: str | None = None
+    devuelta_en: datetime.datetime | None = None
     created_at: datetime.datetime
     updated_at: datetime.datetime
 

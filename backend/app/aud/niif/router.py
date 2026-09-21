@@ -130,3 +130,34 @@ def cambiar_estado(
     db.commit()
     db.refresh(ficha)
     return ficha
+
+
+@router.delete("/fichas/{ficha_id}", status_code=status.HTTP_200_OK)
+def eliminar_ficha(
+    ficha_id: int,
+    confirmar_nombre: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_staff),
+) -> dict:
+    """Elimina una ficha de diseño. Hay que escribir su nombre para confirmar.
+
+    Mismos resguardos que el borrado de herramientas y de encargos en el sitio:
+    la confirmación es explícita y quién borró queda en la respuesta. Las fichas
+    descartadas no se acumulan para siempre en la lista de la firma.
+    """
+    ficha = _get_ficha(db, ficha_id)
+    if confirmar_nombre != ficha.nombre:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="Escriba el nombre de la ficha para confirmar la eliminación.",
+        )
+    nombre, estado = ficha.nombre, ficha.estado
+    db.delete(ficha)
+    db.commit()
+    return {
+        "eliminada": True,
+        "id": ficha_id,
+        "nombre": nombre,
+        "estado_al_eliminar": estado,
+        "eliminada_por": user.email,
+    }

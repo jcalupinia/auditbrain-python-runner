@@ -215,6 +215,15 @@ export async function niifCambiarEstado(id, estado) {
   );
 }
 
+export async function niifBorrarFicha(id, confirmarNombre) {
+  return parse(
+    await apiFetch(
+      `${NIIF_BASE}/${id}?confirmar_nombre=${encodeURIComponent(confirmarNombre)}`,
+      { method: "DELETE", headers: authHeaders() }
+    )
+  );
+}
+
 export async function createUser(email, password, role) {
   return parse(
     await apiFetch(`${API_BASE}/api/v1/auth/users`, {

@@ -134,6 +134,50 @@ export default function GeneradorHerramientasNIIF() {
     }
   }
 
+  async function devolverADiseno(g) {
+    setError("");
+    setOcupado(true);
+    try {
+      const actualizada = await api.niifCambiarEstado(g.id, ESTADO_EN_DISENO);
+      setFichas((lista) => upsertFicha(lista, actualizada));
+      setAviso(
+        `«${actualizada.nombre}» volvió a diseño. Se borró la marca de probada: ` +
+          `hay que volver a probarla antes de generar el código.`
+      );
+    } catch (err) {
+      setAviso("");
+      setError(err.message || "No se pudo devolver la ficha a diseño.");
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  async function borrarFicha(g) {
+    setError("");
+    const escrito = window.prompt(
+      `Esto elimina la ficha definitivamente. Escriba su nombre para confirmar:
+
+${g.nombre}`
+    );
+    if (escrito === null) return;
+    if (escrito !== g.nombre) {
+      setError("El nombre no coincide: la ficha no se eliminó.");
+      return;
+    }
+    setOcupado(true);
+    try {
+      await api.niifBorrarFicha(g.id, g.nombre);
+      setFichas((lista) => lista.filter((x) => x.id !== g.id));
+      setFicha((f) => (f.id === g.id ? fichaVacia() : f));
+      setAviso(`«${g.nombre}» se eliminó definitivamente.`);
+    } catch (err) {
+      setAviso("");
+      setError(err.message || "No se pudo eliminar la ficha.");
+    } finally {
+      setOcupado(false);
+    }
+  }
+
   async function marcarProbada(g) {
     setError("");
     setOcupado(true);
@@ -540,15 +584,33 @@ export default function GeneradorHerramientasNIIF() {
                     </>
                   )}
                   {puedeGenerarCodigo(g) && (
-                    <button
-                      type="button"
-                      className="btn sm primary"
-                      disabled={ocupado}
-                      onClick={() => generarCodigo(g)}
-                    >
-                      Generar código para Claude
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="link"
+                        disabled={ocupado}
+                        onClick={() => devolverADiseno(g)}
+                      >
+                        Devolver a diseño
+                      </button>
+                      <button
+                        type="button"
+                        className="btn sm primary"
+                        disabled={ocupado}
+                        onClick={() => generarCodigo(g)}
+                      >
+                        Generar código para Claude
+                      </button>
+                    </>
                   )}
+                  <button
+                    type="button"
+                    className="link peligro"
+                    disabled={ocupado}
+                    onClick={() => borrarFicha(g)}
+                  >
+                    Eliminar
+                  </button>
                 </span>
               </div>
             </li>

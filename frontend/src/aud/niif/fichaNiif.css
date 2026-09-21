@@ -119,3 +119,7 @@
   line-height: 1.5; padding: 10px; border-radius: 6px;
   background: var(--panel); border: 1px solid var(--line); color: var(--text);
 }
+
+/* Acción destructiva: se distingue del resto sin gritar. */
+.nf-lista .link.peligro { color: var(--peligro, #c0392b); }
+.nf-lista .link.peligro:hover { text-decoration: underline; }
