@@ -77,6 +77,8 @@ export default function EstudioPrueba({ ficha, onDefinicionGuardada }) {
 
   const [definicion, setDefinicion] = useState("");
   const [filas, setFilas] = useState("");
+  // Fecha de corte de la corrida: la usan los cálculos `days` que cuentan hasta «corte».
+  const [corte, setCorte] = useState("");
   const [resultado, setResultado] = useState(null);
   const [errorMotor, setErrorMotor] = useState("");
   const [corriendo, setCorriendo] = useState(false);
@@ -110,7 +112,7 @@ export default function EstudioPrueba({ ficha, onDefinicionGuardada }) {
   async function guardarDefinicion() {
     setGuardada("");
     try {
-      await niifGuardarDefinicion(ficha.id, corrida.definicion, corrida.filas);
+      await niifGuardarDefinicion(ficha.id, corrida.definicion, corrida.filas, corrida.parametros);
       setGuardada("Definición guardada en la ficha. Ya se puede aplicar a un cliente cuando la ficha esté probada.");
       onDefinicionGuardada?.();
     } catch (e) {
@@ -146,7 +148,11 @@ export default function EstudioPrueba({ ficha, onDefinicionGuardada }) {
     setCorrida(null);
     let payload;
     try {
-      payload = { definicion: parsearJson(definicion, "Definición"), filas: parsearJson(filas, "Filas") };
+      payload = {
+        definicion: parsearJson(definicion, "Definición"),
+        filas: parsearJson(filas, "Filas"),
+        parametros: corte ? { cutoff: corte } : {},
+      };
     } catch (e) {
       setErrorMotor(e.message);
       return;
@@ -154,7 +160,7 @@ export default function EstudioPrueba({ ficha, onDefinicionGuardada }) {
     setCorriendo(true);
     try {
       const [python, [dominio]] = await Promise.all([niifEjecutarMotor(payload), cargarSitio()]);
-      const run = dominio.calculate(payload.definicion, payload.filas, {}, []);
+      const run = dominio.calculate(payload.definicion, payload.filas, payload.parametros, []);
       const motivo = motivoDiscrepancia(run, python);
       if (motivo) {
         setErrorMotor(
@@ -163,7 +169,7 @@ export default function EstudioPrueba({ ficha, onDefinicionGuardada }) {
         return;
       }
       setResultado(run);
-      setCorrida({ ...payload, run });
+      setCorrida({ ...payload, run, encargo: { cutoff: corte } });
     } catch (e) {
       setErrorMotor(e.message || String(e));
     } finally {
@@ -254,6 +260,11 @@ export default function EstudioPrueba({ ficha, onDefinicionGuardada }) {
             <textarea rows={10} value={filas} onChange={(e) => setFilas(e.target.value)} spellCheck={false} />
           </label>
         </div>
+        <label className="nf-estudio-corte">
+          Fecha de corte{" "}
+          <input type="date" value={corte} onChange={(e) => setCorte(e.target.value)} />
+          <span className="muted"> · solo si algún cálculo cuenta días hasta «corte»</span>
+        </label>
         <button type="button" className="btn sm primary" disabled={corriendo} onClick={correr}>
           {corriendo ? "Corriendo…" : "Correr motor"}
         </button>

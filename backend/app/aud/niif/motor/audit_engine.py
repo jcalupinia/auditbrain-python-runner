@@ -19,22 +19,60 @@ def _quantize(n, precision):
     return abs(n) if n == 0 else n
 
 
-def _apply(rule, resolve):
-    a, b = resolve(rule['a']), resolve(rule['b'])
+def _op(op, a, b):
+    if op == 'add': return a + b
+    if op == 'subtract': return a - b
+    if op == 'multiply': return a * b
+    if op == 'divide': return a / b
+    if op == 'min': return min(a, b)
+    if op == 'max': return max(a, b)
+    # Comparaciones: 1 o 0, como OP de domain.mjs.
+    if op == 'gt': return Decimal(1 if a > b else 0)
+    if op == 'gte': return Decimal(1 if a >= b else 0)
+    if op == 'lt': return Decimal(1 if a < b else 0)
+    if op == 'lte': return Decimal(1 if a <= b else 0)
+    if op == 'eq': return Decimal(1 if a == b else 0)
+    raise ValueError('Operador no autorizado')
+
+
+def _eval_rule(d, rule, values, row, p):
+    """Espejo de evalRule (domain.mjs): `if`, `band` y `days` además de `_op`."""
     op = rule['op']
-    if op == 'add': n = a + b
-    elif op == 'subtract': n = a - b
-    elif op == 'multiply': n = a * b
-    elif op == 'divide': n = a / b
-    elif op == 'min': n = min(a, b)
-    elif op == 'max': n = max(a, b)
-    else: raise ValueError('Operador no autorizado')
+    if op == 'days':
+        def fecha(k):
+            campo = any(f['key'] == k for f in d['fields'])
+            v = str(row.get(k, '') if campo else (p or {}).get('cutoff', ''))
+            try:
+                return date.fromisoformat(v)
+            except ValueError:
+                raise ValueError('%s: fecha inválida en %s.' % (row.get('id') or 'La fila', k) if campo
+                                 else 'Indique la fecha de corte del encargo para contar días.')
+        return Decimal((fecha(rule['b']) - fecha(rule['a'])).days)
+    val = lambda x: Decimal(x[1:]) if x[0] == '#' else values[x]
+    if op == 'if':
+        return val(rule['b']) if val(rule['a']) != 0 else val(rule['c'])
+    if op == 'band':
+        x, v = val(rule['a']), None
+        for b in rule['table']:
+            if x >= Decimal(str(b['from'])):
+                v = Decimal(str(b['value']))
+        if v is None:
+            raise ValueError('%s: %s por debajo del primer tramo.' % (row.get('id') or 'La fila', rule.get('label') or rule['key']))
+        return v
+    return _op(op, val(rule['a']), val(rule['b']))
+
+
+def _finish(n, precision):
     # El tope se comprueba en el mismo punto que domain.mjs: sobre el resultado
     # ya llevado a seis decimales, antes de redondear a la precisión declarada.
     n = n.quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)
     if n > MAX_VALUE or n < -MAX_VALUE:
         raise ValueError('Resultado fuera del rango admitido. Divida la población en lotes.')
-    return _quantize(n, rule['precision'])
+    return _quantize(n, precision)
+
+
+def _apply(rule, resolve):
+    return _finish(_op(rule['op'], resolve(rule['a']), resolve(rule['b'])), rule['precision'])
 
 
 def _series_order(d):
@@ -230,7 +268,7 @@ def calculate(payload):
             for r in d['rules']:
                 # Mismo operador, mismo redondeo y mismo tope que la serie: una
                 # sola implementación, como en domain.mjs.
-                n = _apply(r, lambda x: Decimal(x[1:]) if x[0] == '#' else values[x])
+                n = _finish(_eval_rule(d, r, values, row, p), r['precision'])
                 out[r['key']] = format(n, 'f')
                 values[r['key']] = n
                 if r['precision'] == 2:

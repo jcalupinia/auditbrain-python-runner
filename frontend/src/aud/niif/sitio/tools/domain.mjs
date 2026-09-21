@@ -24,6 +24,12 @@ export const SHEETS=['01_Caratula','02_Programa','03_Parametros','04_Fuentes','0
 // Mas dos valores automaticos en cada fila: `periodo` (t) y `periodos` (n).
 export const MAX_PERIODS=600;
 export const SERIES_OPS=['add','subtract','multiply','divide','min','max'];
+// Las reglas del contrato admiten, además de la aritmética de la serie,
+// comparaciones (1 o 0), `if` con tercer operando `c`, `days` entre dos fechas
+// y `band` (tramos: el valor del último tramo cuyo `from` no supera al operando).
+export const RULE_OPS=[...SERIES_OPS,'gt','gte','lt','lte','eq','if','days','band'];
+// Formatos de evidencia que puede declarar un requerimiento (lib/requirement.mjs).
+export const REQUEST_FORMATS=['xlsx','csv','pdf','txt','md','xml','docx','zip','png','jpg','jpeg','webp'];
 export function validateSeriesRule(x,disponibles,vistas,delPase){
  if(!/^[a-z][a-z0-9_]{0,35}$/.test(x.key)||disponibles.has(x.key)||vistas.has(x.key)||['constructor','prototype','__proto__'].includes(x.key))throw Error('Cálculo de serie inválido o código repetido: '+x.key);
  if(!SERIES_OPS.includes(x.op)||![2,6].includes(x.precision))throw Error('Operación o decimales no admitidos en la serie: '+x.key);
@@ -176,10 +182,42 @@ export function validateDefinition(d){
  // cálculo: el primer período, el último y la suma. Un solo sentido, sin ciclos.
  if(d.series!==undefined){validateSeries(d);for(const k of seriesKeys(d))for(const suf of ['_inicial','_final','_total']){if(keys.has(k+suf))throw Error('Código reservado por la serie: '+k+suf);keys.add(k+suf);numeric.add(k+suf);}}
  if(d.flows!==undefined){validateFlowsBlock(d);for(const k of FLOW_KEYS){if(keys.has(k))throw Error('Código reservado por los flujos: '+k);keys.add(k);numeric.add(k);}}
- for(const x of d.rules){if(!/^[a-z][a-z0-9_]{0,35}$/.test(x.key)||keys.has(x.key)||['constructor','prototype','__proto__'].includes(x.key)||!['add','subtract','multiply','divide','min','max'].includes(x.op)||![2,6].includes(x.precision))throw Error('Cálculo inválido o código repetido.');for(const a of [x.a,x.b]){if(typeof a!=='string'||!(numeric.has(a)||/^#-?\d{1,12}(\.\d{1,6})?$/.test(a)))throw Error('Cada operando debe ser numérico: campo, cálculo anterior o constante (#0).');}keys.add(x.key);numeric.add(x.key);}
+ const dates=new Set(d.fields.filter(x=>x.type==='date').map(x=>x.key));
+ for(const x of d.rules){validateRule(x,keys,numeric,dates);keys.add(x.key);numeric.add(x.key);}
  if((d.id==='custom'&&!d.fields.some(f=>f.key===d.control&&f.type==='number'))||!numeric.has(d.control)||!d.rules.some(x=>x.key===d.primary))throw Error('Seleccione campo de conciliación y resultado principal válidos.');
   if(d.sheets!==undefined&&(!Array.isArray(d.sheets)||!d.sheets.length||d.sheets.some(x=>!SHEETS.includes(x))))throw Error('Las cedulas declaradas deben ser nombres de SHEETS, al menos una.');
+ if(d.program!==undefined||d.requests!==undefined)validatePlan(d);
  return d;
+}
+export function validateRule(x,keys,numeric,dates){
+ if(!/^[a-z][a-z0-9_]{0,35}$/.test(x.key)||keys.has(x.key)||['constructor','prototype','__proto__'].includes(x.key)||!RULE_OPS.includes(x.op)||![2,6].includes(x.precision))throw Error('Cálculo inválido o código repetido.');
+ const num=a=>typeof a==='string'&&(numeric.has(a)||/^#-?\d{1,12}(\.\d{1,6})?$/.test(a));
+ if(x.op==='days'){for(const a of [x.a,x.b])if(typeof a!=='string'||!(dates.has(a)||a==='corte'))throw Error(`${x.key}: los días se cuentan entre dos campos de fecha o la fecha de corte (corte).`);return;}
+ const ops=x.op==='band'?[x.a]:x.op==='if'?[x.a,x.b,x.c]:[x.a,x.b];
+ for(const a of ops)if(!num(a))throw Error('Cada operando debe ser numérico: campo, cálculo anterior o constante (#0).');
+ if(x.op==='band'){
+  if(!Array.isArray(x.table)||!x.table.length||x.table.length>30)throw Error(`${x.key}: declare de 1 a 30 tramos con desde y valor.`);
+  let previo=null;
+  for(const b of x.table){let desde;try{desde=decimal(b?.from);decimal(b?.value);}catch{throw Error(`${x.key}: cada tramo necesita desde y valor numéricos.`);}
+   if(previo!==null&&desde<=previo)throw Error(`${x.key}: los tramos van en orden creciente de desde, sin repetir.`);previo=desde;}
+ }
+}
+/** Programa y requerimientos propios de la ficha: si los trae, el ciclo los usa en vez de los genéricos. */
+export function validatePlan(d){
+ const texto=v=>typeof v==='string'&&v.trim().length>0;
+ if(!Array.isArray(d.program)||!d.program.length||d.program.length>20)throw Error('El programa de la ficha debe tener de 1 a 20 procedimientos.');
+ const codigos=new Set();
+ for(const x of d.program){if(!x||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,30}$/.test(String(x.code))||codigos.has(x.code)||!['objective','risk','assertion','procedure','evidence','criterion'].every(k=>texto(x[k])))throw Error('Cada procedimiento del programa necesita código único, objetivo, riesgo, afirmación, procedimiento, evidencia y criterio.');codigos.add(x.code);}
+ if(d.requests===undefined)return;
+ if(!Array.isArray(d.requests)||!d.requests.length||d.requests.length>40)throw Error('Los requerimientos de la ficha deben ser de 1 a 40.');
+ const ids=new Set();
+ for(const r of d.requests){
+  if(!r||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,30}$/.test(String(r.id))||ids.has(r.id)||!texto(r.document)||!texto(r.purpose))throw Error('Cada requerimiento necesita identificador único, documento y propósito.');ids.add(r.id);
+  if(!codigos.has(r.procedure))throw Error(`${r.id}: vincule un procedimiento del programa de la ficha.`);
+  if(!Array.isArray(r.formats)||!r.formats.length||r.formats.some(f=>!REQUEST_FORMATS.includes(f)))throw Error(`${r.id}: formatos admitidos: ${REQUEST_FORMATS.join(', ')}.`);
+  if(r.components!==undefined&&(!Array.isArray(r.components)||r.components.some(c=>!texto(c))))throw Error(`${r.id}: los componentes son una lista de nombres.`);
+  if(r.use!==undefined&&!['calculo','soporte'].includes(r.use))throw Error(`${r.id}: el uso es calculo o soporte.`);
+ }
 }
 const SCALE=1000000n;
 export function decimal(v){const s=String(v??'').trim();if(!/^-?\d{1,12}(\.\d{1,6})?$/.test(s))throw Error('Número inválido: use punto decimal, sin separadores de miles y hasta 6 decimales.');if(s.replace(/[^0-9]/g,'').replace(/^0+/,'').replace(/0+$/,'').length>15)throw Error('Máximo 15 dígitos significativos para compatibilidad con Excel.');const neg=s.startsWith('-');const [a,b='']=s.replace('-','').split('.');return (BigInt(a)*SCALE+BigInt(b.padEnd(6,'0')))*(neg?-1n:1n);}
@@ -200,7 +238,18 @@ export function checkBuckets(p){
  if(!validDate(p.cutoff)||!Array.isArray(p.buckets)||!p.buckets.length||p.buckets.length>30)throw Error('Defina fecha de corte y rangos con tasas aprobadas.');
  let next=0;for(let i=0;i<p.buckets.length;i++){const b=p.buckets[i];if(!Number.isInteger(b.min)||b.min!==next||b.max!==null&&(!Number.isInteger(b.max)||b.max<b.min)||b.max===null&&i!==p.buckets.length-1)throw Error('Los rangos deben cubrir desde cero, sin vacíos ni superposiciones; el último termina sin límite.');const rate=decimal(b.rate);if(rate<0n||rate>SCALE)throw Error('Cada tasa debe estar entre 0 y 1.');next=b.max===null?Infinity:b.max+1;}if(next!==Infinity)throw Error('El último rango debe tener límite superior vacío.');
 }
-export const OP={add:(a,b)=>a+b,subtract:(a,b)=>a-b,multiply:(a,b)=>rounded(a*b,SCALE),divide:(a,b)=>rounded(a*SCALE,b),min:(a,b)=>a<b?a:b,max:(a,b)=>a>b?a:b};
+export const OP={add:(a,b)=>a+b,subtract:(a,b)=>a-b,multiply:(a,b)=>rounded(a*b,SCALE),divide:(a,b)=>rounded(a*SCALE,b),min:(a,b)=>a<b?a:b,max:(a,b)=>a>b?a:b,gt:(a,b)=>a>b?SCALE:0n,gte:(a,b)=>a>=b?SCALE:0n,lt:(a,b)=>a<b?SCALE:0n,lte:(a,b)=>a<=b?SCALE:0n,eq:(a,b)=>a===b?SCALE:0n};
+/** Valor de una regla del contrato, antes de redondear. `row` y `p` solo los usa `days` (fecha de corte en p.cutoff). */
+export function evalRule(d,rule,values,row,p){
+ if(rule.op==='days'){
+  const fecha=k=>{const campo=d.fields.some(f=>f.key===k);const v=String(campo?row[k]??'':p?.cutoff??'');if(!validDate(v))throw Error(campo?`${row.id||'La fila'}: fecha inválida en ${k}.`:'Indique la fecha de corte del encargo para contar días.');return v;};
+  return BigInt(Math.round((Date.parse(fecha(rule.b))-Date.parse(fecha(rule.a)))/86400000))*SCALE;
+ }
+ const val=x=>x.startsWith('#')?decimal(x.slice(1)):values[x];
+ if(rule.op==='if')return val(rule.a)!==0n?val(rule.b):val(rule.c);
+ if(rule.op==='band'){const x=val(rule.a);let v=null;for(const b of rule.table)if(x>=decimal(b.from))v=decimal(b.value);if(v===null)throw Error(`${row.id||'La fila'}: ${rule.label||rule.key} por debajo del primer tramo.`);return v;}
+ return OP[rule.op](val(rule.a),val(rule.b));
+}
 export function apply(rule,resolve){
  const n=OP[rule.op](resolve(rule.a),resolve(rule.b));
  if(n>999999999999999999n||n< -999999999999999999n)throw Error('Resultado fuera del rango admitido. Divida la población en lotes.');
@@ -281,8 +330,7 @@ if(d.series){const {filas,agregados}=runSeries(d,row,values);schedule.push(...fi
   if(!mios||!mios.length)throw Error(`Sin calendario de pagos para ${row.id||'la fila'}: cargue al menos un flujo con ese identificador.`);
   const ag=runFlows(d,row,values,mios);Object.assign(values,ag);for(const [k,v] of Object.entries(ag))r[k]=formatted(v,2);}
  if(d.id==='pce'){r.days=String(Math.max(0,Math.round((Date.parse(p.cutoff)-Date.parse(row.due_date))/86400000)));const b=p.buckets.find(b=>Number(r.days)>=b.min&&(b.max===null||Number(r.days)<=b.max));r.rate=String(b.rate);values.rate=decimal(b.rate);r.bucket=`${b.min}–${b.max??'∞'}`;}
- for(const rule of d.rules){const val=x=>x.startsWith('#')?decimal(x.slice(1)):values[x];const a=val(rule.a),b=val(rule.b);let n;
- switch(rule.op){case'add':n=a+b;break;case'subtract':n=a-b;break;case'multiply':n=rounded(a*b,SCALE);break;case'divide':n=rounded(a*SCALE,b);break;case'min':n=a<b?a:b;break;case'max':n=a>b?a:b;break;}
+ for(const rule of d.rules){const n=evalRule(d,rule,values,row,p);
  if(n>999999999999999999n||n< -999999999999999999n)throw Error('Resultado fuera del rango admitido. Divida la población en lotes.');
  r[rule.key]=formatted(n,rule.precision);values[rule.key]=decimal(r[rule.key]);if(rule.precision===2)totals[rule.key]=(totals[rule.key]||0n)+values[rule.key];}
  if(d.fields.some(f=>f.key===d.control))totals[d.control]=(totals[d.control]||0n)+values[d.control];
@@ -308,7 +356,9 @@ export function transition(t,action,role){
  return map[action][1];
 }
 export function createProgram(d,engagement){
- const src=engagement.framework==='NIIF para las PYMES'?{organization:'IFRS Foundation',document:'NIIF para las PYMES — verificar edición aplicable y sección correspondiente',url:'https://www.ifrs.org/issued-standards/ifrs-for-smes/',type:'Norma contable',date:''}:d.source;
+ const src=engagement.framework==='NIIF para las PYMES'?d.source_pymes||{organization:'IFRS Foundation',document:'NIIF para las PYMES — verificar edición aplicable y sección correspondiente',url:'https://www.ifrs.org/issued-standards/ifrs-for-smes/',type:'Norma contable',date:''}:d.source;
+ // Una ficha con programa propio (el que redacta el encargo NIIF) se usa tal cual.
+ if(Array.isArray(d.program)&&d.program.length)return d.program.map(x=>({code:x.code,objective:x.objective,risk:x.risk,assertion:x.assertion,procedure:x.procedure,evidence:x.evidence,criterion:x.criterion,reference:typeof x.source==='string'?x.source:'',source:src,state:'PROPUESTO'}));
  return [
  ['01','Integridad de población','Población incompleta','Integridad','Conciliar la población con el saldo contable al corte.','Auxiliar y mayor contable','Diferencia dentro de tolerancia aprobada o aceptación documentada.'],
  // Una definición del Diseñador no trae `description`: sin respaldo, el procedimiento
@@ -318,6 +368,7 @@ export function createProgram(d,engagement){
  ].map(x=>({code:`${d.id.toUpperCase()}-${x[0]}`,objective:x[1],risk:x[2],assertion:x[3],procedure:x[4],evidence:x[5],criterion:x[6],source:src,state:'PROPUESTO'}));
 }
 export function createRequests(program,cutoff,definition){
+ if(Array.isArray(definition?.requests)&&definition.requests.length)return definition.requests.map(r=>({id:r.id,document:r.document,period:cutoff,format:r.formats.map(f=>f.toUpperCase()).join(' / '),formats:[...r.formats],purpose:r.purpose,procedure:r.procedure,required:r.required!==false,components:[...(r.components||[])],group:r.group||'',use:r.use||'soporte',report:r.report||'',timing:r.cutoff||'',content:r.content||'',status:'PENDIENTE'}));
  const rows=program.map((p,i)=>({id:`RQ-${String(i+1).padStart(3,'0')}`,document:p.evidence,period:cutoff,format:i===0?'XLSX / CSV':'XLSX / DOCX / CSV / XML / PDF / TXT / ZIP / imágenes',purpose:p.objective,procedure:p.code,required:true,status:'PENDIENTE'}));
  if(definition?.id==='vnr'&&rows.length>=3){rows[0].document=`Inventario valorado al ${cutoff}`;rows[1].document='Lista de precios de venta y evidencia de precios realizables';rows[2].document='Gastos de venta o estado de resultados, costos de terminación y sustento de asignación';rows.push({id:'RQ-VNR-04',document:'Política contable, deterioro registrado y sustento de reversos',period:cutoff,format:'XLSX / DOCX / CSV / PDF / TXT',purpose:'Contrastar deterioro calculado contra el saldo registrado y evaluar reversos',procedure:program.at(-1).code,required:true,status:'PENDIENTE'});}return rows;
 }

@@ -69,6 +69,33 @@ const FLUJOS = {
   rules: [{ key: "vp", label: "VP", op: "add", a: "flujos_vp", b: "#0", precision: 2 }],
   control: "precio", primary: "vp",
 };
+// Condiciones, fechas y tramos, con programa y requerimientos propios de la ficha.
+export const ANTIGUEDAD = {
+  id: "custom", name: "Pérdida crediticia por antigüedad", area: "Cuentas por cobrar",
+  source: { organization: "IFRS Foundation", document: "NIIF 9, párr. 5.5.15", url: "https://www.ifrs.org/issued-standards/list-of-standards/ifrs-9-financial-instruments/", type: "Norma contable" },
+  source_pymes: { organization: "IFRS Foundation", document: "NIIF para las PYMES, Sección 11", url: "https://www.ifrs.org/issued-standards/ifrs-for-smes/", type: "Norma contable" },
+  fields: [
+    { key: "id", label: "Factura", type: "text" }, { key: "due_date", label: "Vencimiento", type: "date" },
+    { key: "exposure", label: "Saldo", type: "number" }, { key: "recorded_allowance", label: "Provisión", type: "number" },
+  ],
+  rules: [
+    { key: "dias", label: "Días", op: "days", a: "due_date", b: "corte", precision: 2 },
+    { key: "mora", label: "Mora", op: "max", a: "dias", b: "#0", precision: 2 },
+    { key: "tasa", label: "Tasa", op: "band", a: "mora", table: [{ from: "0", value: "0.01" }, { from: "31", value: "0.05" }, { from: "91", value: "0.2" }], precision: 6 },
+    { key: "pce", label: "PCE", op: "multiply", a: "exposure", b: "tasa", precision: 2 },
+    { key: "vencida", label: "Vencida", op: "gt", a: "mora", b: "#90", precision: 2 },
+    { key: "ajuste", label: "Ajuste", op: "if", a: "vencida", b: "pce", c: "#0", precision: 2 },
+  ],
+  control: "exposure", primary: "ajuste",
+  program: [
+    { code: "CXC01-01", objective: "Integridad", risk: "Población incompleta", assertion: "Integridad", procedure: "Conciliar.", evidence: "Auxiliar", criterion: "Sin diferencias", source: "NIA 500" },
+    { code: "CXC01-02", objective: "Valorar", risk: "Provisión insuficiente", assertion: "Valoración", procedure: "Recalcular.", evidence: "Antigüedad", criterion: "Recalculado", source: "NIIF 9 párr. 5.5.15" },
+  ],
+  requests: [
+    { id: "RQ-001", document: "Antigüedad de saldos", purpose: "Población", procedure: "CXC01-01", formats: ["xlsx", "csv"], required: true, components: ["Quito", "Guayaquil"], group: "", use: "calculo", report: "Cartera por vencimiento", cutoff: "Al cierre", content: "Una fila por factura" },
+    { id: "RQ-002", document: "Política de provisiones", purpose: "Tasas", procedure: "CXC01-02", formats: ["pdf"], required: false },
+  ],
+};
 const mutar = (base, fn) => { const d = structuredClone(base); fn(d); return d; };
 
 function definiciones() {
@@ -103,6 +130,35 @@ function definiciones() {
     ["cédula inventada", mutar(NIIF16, (d) => { d.sheets = ["99_X"]; })],
     ["cédulas válidas", mutar(NIIF16, (d) => { d.sheets = ["02_Programa", "13_Cuadro"]; })],
     ["no es objeto", null],
+    ["antigüedad con plan", ANTIGUEDAD],
+    ["solo programa", mutar(ANTIGUEDAD, (d) => { delete d.requests; })],
+    ["regla operación inventada", mutar(ANTIGUEDAD, (d) => { d.rules[1].op = "pow"; })],
+    ["days sobre número", mutar(ANTIGUEDAD, (d) => { d.rules[0].a = "exposure"; })],
+    ["days sin segundo operando", mutar(ANTIGUEDAD, (d) => { delete d.rules[0].b; })],
+    ["band sin tabla", mutar(ANTIGUEDAD, (d) => { delete d.rules[2].table; })],
+    ["band vacía", mutar(ANTIGUEDAD, (d) => { d.rules[2].table = []; })],
+    ["band desordenada", mutar(ANTIGUEDAD, (d) => { d.rules[2].table[1].from = "0"; })],
+    ["band valor malo", mutar(ANTIGUEDAD, (d) => { d.rules[2].table[1].value = "5%"; })],
+    ["band tramo nulo", mutar(ANTIGUEDAD, (d) => { d.rules[2].table[1] = null; })],
+    ["band operando fecha", mutar(ANTIGUEDAD, (d) => { d.rules[2].a = "due_date"; })],
+    ["if sin c", mutar(ANTIGUEDAD, (d) => { delete d.rules[5].c; })],
+    ["if c inexistente", mutar(ANTIGUEDAD, (d) => { d.rules[5].c = "nada"; })],
+    ["gt con texto", mutar(ANTIGUEDAD, (d) => { d.rules[4].a = "id"; })],
+    ["programa vacío", mutar(ANTIGUEDAD, (d) => { d.program = []; })],
+    ["programa nulo", mutar(ANTIGUEDAD, (d) => { d.program = null; })],
+    ["procedimiento sin riesgo", mutar(ANTIGUEDAD, (d) => { d.program[1].risk = " "; })],
+    ["código con espacio", mutar(ANTIGUEDAD, (d) => { d.program[1].code = "CXC 02"; })],
+    ["código repetido", mutar(ANTIGUEDAD, (d) => { d.program[1].code = "CXC01-01"; })],
+    ["requerimientos sin programa", mutar(ANTIGUEDAD, (d) => { delete d.program; })],
+    ["requerimientos vacíos", mutar(ANTIGUEDAD, (d) => { d.requests = []; })],
+    ["requerimiento sin propósito", mutar(ANTIGUEDAD, (d) => { d.requests[1].purpose = ""; })],
+    ["requerimiento id repetido", mutar(ANTIGUEDAD, (d) => { d.requests[1].id = "RQ-001"; })],
+    ["requerimiento procedimiento ajeno", mutar(ANTIGUEDAD, (d) => { d.requests[1].procedure = "OTRO"; })],
+    ["requerimiento formato raro", mutar(ANTIGUEDAD, (d) => { d.requests[0].formats = ["xlsx", "exe"]; })],
+    ["requerimiento sin formatos", mutar(ANTIGUEDAD, (d) => { d.requests[0].formats = []; })],
+    ["componentes no lista", mutar(ANTIGUEDAD, (d) => { d.requests[0].components = "Quito"; })],
+    ["componente vacío", mutar(ANTIGUEDAD, (d) => { d.requests[0].components = ["Quito", " "]; })],
+    ["uso raro", mutar(ANTIGUEDAD, (d) => { d.requests[0].use = "otro"; })],
   ];
   return casos.map(([nombre, d]) => ({ nombre, d, esperado: intentar(() => validateDefinition(structuredClone(d))) }));
 }
@@ -171,6 +227,7 @@ function requerimientos() {
     { definicion: "vnr", corte: "2025-12-31", esperado: createRequests(createProgram(catalog.vnr, eng), "2025-12-31", catalog.vnr) },
     { definicion: "pce", corte: "2025-12-31", esperado: createRequests(createProgram(catalog.pce, eng), "2025-12-31", catalog.pce) },
     { definicion: custom, corte: "2025-06-30", esperado: createRequests(createProgram(custom, eng), "2025-06-30", custom) },
+    { definicion: ANTIGUEDAD, corte: "2025-12-31", esperado: createRequests(createProgram(ANTIGUEDAD, eng), "2025-12-31", ANTIGUEDAD) },
   ];
 }
 

@@ -99,7 +99,7 @@ def transicion(t: dict, accion: str, rol: str = "ADMIN") -> str:
 def crear_programa(d: dict, encargo: dict) -> list[dict]:
     """Programa propuesto. Puerto literal de ``createProgram``."""
     if encargo.get("framework") == "NIIF para las PYMES":
-        fuente = {
+        fuente = d.get("source_pymes") or {
             "organization": "IFRS Foundation",
             "document": "NIIF para las PYMES — verificar edición aplicable y sección correspondiente",
             "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/",
@@ -108,6 +108,18 @@ def crear_programa(d: dict, encargo: dict) -> list[dict]:
         }
     else:
         fuente = d.get("source")
+    # Una ficha con programa propio (la que redacta el encargo NIIF) se usa tal cual.
+    if isinstance(d.get("program"), list) and d["program"]:
+        propios = []
+        for x in d["program"]:
+            p = {"code": x["code"], "objective": x["objective"], "risk": x["risk"], "assertion": x["assertion"],
+                 "procedure": x["procedure"], "evidence": x["evidence"], "criterion": x["criterion"],
+                 "reference": x["source"] if isinstance(x.get("source"), str) else ""}
+            if fuente is not None:
+                p["source"] = fuente
+            p["state"] = "PROPUESTO"
+            propios.append(p)
+        return propios
     # Una definición del Diseñador no trae `description`: sin respaldo, el
     # procedimiento quedaba vacío y guardar el programa lo rechazaba.
     procedimiento_02 = d.get("description") or (

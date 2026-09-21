@@ -46,7 +46,7 @@ describe("fuentes y procedimientos", () => {
   });
 });
 
-import { componentesDeTexto, erroresLegibles, esTabular, mapeoSugerido } from "./cicloLogic";
+import { componentesDeTexto, detalleRequerimiento, erroresLegibles, esTabular, mapeoSugerido } from "./cicloLogic";
 
 describe("requerimiento y documentación", () => {
   it("convierte el texto de componentes en una lista limpia", () => {
@@ -68,5 +68,15 @@ describe("requerimiento y documentación", () => {
 
   it("resume los errores de validación con su fila", () => {
     expect(erroresLegibles({ errors: [{ row: 8, message: "Cantidad: número inválido." }] })).toEqual(["Fila 8 · Cantidad: número inválido."]);
+  });
+});
+
+describe("detalleRequerimiento", () => {
+  it("muestra uso, reporte, período y contenido cuando la ficha los trae", () => {
+    expect(detalleRequerimiento({ use: "calculo", report: "Cartera por vencimiento", timing: "Al cierre", content: "Una fila por factura" }))
+      .toEqual(["Alimenta el cálculo", "Reporte: Cartera por vencimiento", "Período: Al cierre", "Contenido mínimo: Una fila por factura"]);
+  });
+  it("no muestra nada en un requerimiento genérico", () => {
+    expect(detalleRequerimiento({ id: "RQ-001", document: "Mayor", format: "XLSX / CSV" })).toEqual([]);
   });
 });
