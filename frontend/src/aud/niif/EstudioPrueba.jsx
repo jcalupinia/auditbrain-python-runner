@@ -31,7 +31,7 @@ import {
 // El exportador pesa ~200 KB (el logo va dentro): se carga al usarlo, no con
 // el portal.
 const cargarSitio = () =>
-  Promise.all([import("./sitio/domain.mjs"), import("./sitio/exports.mjs")]);
+  Promise.all([import("./sitio/tools/domain.mjs"), import("./sitio/tools/exports.mjs")]);
 
 function descargar(nombre, contenido, tipo) {
   const url = URL.createObjectURL(new Blob([contenido], { type: tipo }));

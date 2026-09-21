@@ -1,6 +1,6 @@
 # Exportador del sitio AuditBrain — copia vendorizada
 
-Estos siete archivos son **los mismos** de `auditbrain-site/lib/tools/`, sin
+Estos archivos son **los mismos** de `auditbrain-site/lib/` (tools/, methodology.mjs y requirement.mjs), sin
 editar. Arman las cédulas en Excel y el HTML autónomo exactamente como el sitio:
 mismas hojas, mismas fórmulas, mismo motor portátil dentro del HTML.
 
@@ -8,10 +8,9 @@ mismas hojas, mismas fórmulas, mismo motor portátil dentro del HTML.
 vuelven a copiar:
 
 ```bash
-for f in exports domain portable-engine explanations workbook-presentation html-presentation brand; do
-  cp <auditbrain-site>/lib/tools/$f.mjs frontend/src/aud/niif/sitio/
-done
-# y regenerar MANIFIESTO.json con las huellas nuevas y el commit de origen
+cp <auditbrain-site>/lib/tools/{exports,domain,portable-engine,explanations,workbook-presentation,html-presentation,brand,example}.mjs frontend/src/aud/niif/sitio/tools/
+cp <auditbrain-site>/lib/{methodology,requirement}.mjs frontend/src/aud/niif/sitio/
+node src/aud/niif/sitio/manifiesto.mjs <commit-del-sitio>   # regenera MANIFIESTO.json
 ```
 
 `sitio.test.js` compara cada archivo contra `MANIFIESTO.json`: una edición local

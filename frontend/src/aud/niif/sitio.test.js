@@ -1,12 +1,13 @@
 import { readFileSync, readdirSync } from "node:fs";
+import { sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { unzipSync, strFromU8 } from "fflate";
 import { describe, expect, it } from "vitest";
 
 import { herramientaDeEstudio, motivoDiscrepancia } from "./contraste";
 import { EJEMPLO_NIIF16 } from "./estudioLogic";
-import { calculate } from "./sitio/domain.mjs";
-import { buildHtml, buildWorkbook, sheetNames } from "./sitio/exports.mjs";
+import { calculate } from "./sitio/tools/domain.mjs";
+import { buildHtml, buildWorkbook, sheetNames } from "./sitio/tools/exports.mjs";
 import { huella } from "./sitio/huella.js";
 
 const DIR = fileURLToPath(new URL("./sitio/", import.meta.url));
@@ -14,7 +15,10 @@ const MANIFIESTO = JSON.parse(readFileSync(DIR + "MANIFIESTO.json", "utf8"));
 
 describe("la copia del exportador del sitio", () => {
   it("no se editó en el portal: cada archivo coincide con su huella", () => {
-    const archivos = readdirSync(DIR).filter((f) => f.endsWith(".mjs")).sort();
+    const archivos = readdirSync(DIR, { recursive: true })
+      .map((f) => String(f).split(sep).join("/"))
+      .filter((f) => f.endsWith(".mjs") && f !== "manifiesto.mjs")
+      .sort();
     expect(archivos).toEqual(Object.keys(MANIFIESTO.sha256).sort());
     for (const f of archivos) {
       expect(huella(readFileSync(DIR + f, "utf8")), `${f} fue editado aquí; se cambia en el sitio`).toBe(

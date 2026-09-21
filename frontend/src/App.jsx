@@ -19,7 +19,7 @@ function MessageContent({ role, content }) {
 import ToolCatalog from "./aud/ToolCatalog.jsx";
 import TaxCatalog from "./tax/TaxCatalog.jsx";
 import FinCatalog from "./fin/FinCatalog.jsx";
-import GeneradorHerramientasNIIF from "./aud/niif/GeneradorHerramientasNIIF.jsx";
+import CentroNIIF from "./aud/niif/CentroNIIF.jsx";
 
 /* ---------------- Theme (Azul medio por defecto + selector de color) ---------------- */
 const THEME_KEY = "ab_theme";
@@ -1624,7 +1624,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
 
         {tab === "niif" && module.id === "AUD" ? (
           <div className="cw-tool">
-            <GeneradorHerramientasNIIF />
+            <CentroNIIF />
           </div>
         ) : tab === "estudio" ? (
           <div className="cw-tool">
