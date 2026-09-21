@@ -6,10 +6,12 @@ import GeneradorHerramientasNIIF from "./GeneradorHerramientasNIIF.jsx";
 // AuditBrain. Cada sección se incorpora cuando está probada; las que usan el
 // exportador del sitio se cargan al abrirlas, no con el portal.
 const RecorridoVNR = lazy(() => import("./RecorridoVNR.jsx"));
+const ConsolaArchivos = lazy(() => import("./ConsolaArchivos.jsx"));
 
 const SECCIONES = [
   { id: "fichas", label: "Diseñar fichas", Vista: GeneradorHerramientasNIIF },
   { id: "recorrido", label: "Recorrido VNR", Vista: RecorridoVNR },
+  { id: "consola", label: "Consola de archivos", Vista: ConsolaArchivos },
 ];
 
 export default function CentroNIIF() {

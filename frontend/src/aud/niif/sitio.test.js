@@ -85,3 +85,22 @@ describe("contraste contra el motor Python", () => {
     expect(motivoDiscrepancia(run, { ...python, engine: "2.0.0" })).toMatch(/versión del motor/);
   });
 });
+
+describe("inspector de la consola de archivos", () => {
+  it("lee el Excel que arma el propio exportador: hojas, fórmulas y valores guardados", async () => {
+    const { extractFile, brief } = await import("./sitio/console/extract.mjs");
+    const r = await extractFile(buildWorkbook(t), "estudio.xlsx");
+    expect(brief(r).status).toBe("extracted");
+    expect(r.sheets.map((s) => s.name)).toEqual(sheetNames(definicion));
+    const calculos = r.sheets.find((s) => s.name === "07_Calculos");
+    const b5 = calculos.formulas.find((f) => f.cell === "B5");
+    expect(b5.formula).toMatch(/^IF\(COUNTA/);
+    expect(b5.cached).toBe(run.rows[0].pasivo_inicial);
+  });
+
+  it("rechaza un ZIP con rutas que salen de la carpeta", async () => {
+    const { zipSync, strToU8 } = await import("fflate");
+    const { unpack } = await import("./sitio/console/extract.mjs");
+    expect(() => unpack(zipSync({ "../fuera.txt": strToU8("x") }))).toThrow(/ruta no permitida/);
+  });
+});

@@ -179,3 +179,13 @@
 .nf-ctx-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .nf-ctx-check { display: flex; gap: 6px; align-items: flex-start; font-size: 13px; }
 .btn.peligro { background: #7a2020; border-color: #b33a3a; color: #fff; }
+
+/* ---------- Consola de archivos ---------- */
+.nf-consola-cuerpo { display: grid; grid-template-columns: 260px 1fr; gap: 12px; align-items: start; }
+.nf-consola-lista { list-style: none; padding: 0; margin: 12px 0; display: flex; flex-direction: column; gap: 6px; }
+.nf-consola-lista button { width: 100%; text-align: left; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; background: transparent; color: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.nf-consola-lista button.selected { border-color: #C7A83C; background: rgba(199, 168, 60, 0.1); }
+.nf-consola-detalle code { overflow-wrap: anywhere; }
+.nf-extraccion input { width: 100%; max-width: 360px; margin: 6px 0; }
+.nf-pre { white-space: pre-wrap; max-height: 360px; overflow: auto; font-size: 12px; padding: 8px; background: rgba(0, 0, 0, 0.2); border-radius: 6px; }
+@media (max-width: 760px) { .nf-consola-cuerpo { grid-template-columns: 1fr; } }
