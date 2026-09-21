@@ -323,6 +323,15 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
     }
   }
 
+  // «Editar datos» y «Encerar» abren su panel de abajo, que pide las
+  // confirmaciones del sitio (alcance del cambio; nombre del cliente).
+  function abrir(id) {
+    const el = document.getElementById(id);
+    if (el) {
+      el.open = true;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
   function abrirEncerar() {
     const el = document.getElementById(`encerar-${prueba.id}`);
     if (el) {
@@ -339,9 +348,20 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
     <div className="nf-vista">
       {/* ===== Barra de acciones ===== */}
       <div className="nf-vista-barra">
-        <span className="nf-eyebrow">PRUEBA</span>
-        <strong>{d.name}</strong>
-        <span className="muted">{reg.engagement?.client} · corte {reg.engagement?.cutoff}</span>
+        <span className="nf-eyebrow">CONTRIBUYENTE</span>
+        <span className="pc-chip on" style={{ cursor: "default", fontWeight: 700 }} title={reg.engagement?.client}>
+          {reg.engagement?.ruc || reg.engagement?.client}
+        </span>
+        <button
+          type="button"
+          className="pc-chip"
+          disabled={prueba.estado === "APROBADO"}
+          title={prueba.estado === "APROBADO" ? "Versión aprobada: cree una nueva versión para cambiar los datos." : "Cambiar la ficha del encargo"}
+          onClick={() => abrir(`ficha-${prueba.id}`)}
+        >
+          ✎ Editar datos
+        </button>
+        <span className="muted">{d.name} · {reg.engagement?.client} · corte {reg.engagement?.cutoff}</span>
         <span style={{ flex: 1 }} />
         {ANTES_DEL_REQUERIMIENTO.includes(prueba.estado) ? (
           <button type="button" className="pc-chip accent" disabled={bloqueado} onClick={confirmar} style={{ fontWeight: 700 }}>

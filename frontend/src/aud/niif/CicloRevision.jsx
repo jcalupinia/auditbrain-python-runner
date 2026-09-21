@@ -227,7 +227,7 @@ function FichaConAlcance({ prueba, onAccion, ocupado }) {
   }, [alcance]); // eslint-disable-line react-hooks/exhaustive-deps
   const alternar = (id) => setElegidas(elegidas.includes(id) ? elegidas.filter((x) => x !== id) : [...elegidas, id]);
   return (
-    <details>
+    <details id={`ficha-${prueba.id}`}>
       <summary>Cambiar la ficha del encargo</summary>
       <p className="muted">Las pruebas afectadas vuelven a empezar: la ficha cambia fuentes, requerimientos y datos.</p>
       <ContextFields value={valor} onChange={setValor} keys={CAMPOS_FICHA} />
