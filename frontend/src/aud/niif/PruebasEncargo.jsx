@@ -320,13 +320,20 @@ export function Prueba({ id, onCambio, onAbrir }) {
         </section>
       )}
 
-      {["REQUERIMIENTO_APROBADO", "DOCUMENTACION_RECIBIDA", "DOCUMENTACION_VALIDADA"].includes(prueba.estado) && (
+      {prueba.definicion.processor && etapa > 3 && (
+        <p className="muted">
+          Esta herramienta tiene un procesador propio que une varios anexos (cartera de tres años, provisión y mayor): su
+          documentación, cálculo y cédulas se trabajan con «Procesar» en la vista de arriba.
+        </p>
+      )}
+
+      {!prueba.definicion.processor && ["REQUERIMIENTO_APROBADO", "DOCUMENTACION_RECIBIDA", "DOCUMENTACION_VALIDADA"].includes(prueba.estado) && (
         <section>
           <Documentacion prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
         </section>
       )}
 
-      {["DOCUMENTACION_VALIDADA", "PRUEBA_CONFIGURADA", "METODOLOGIA_APROBADA", "PRUEBA_EJECUTADA", "RESULTADOS_ANALIZADOS", "EN_REVISION", "APROBADO"].includes(prueba.estado) && (
+      {!prueba.definicion.processor && ["DOCUMENTACION_VALIDADA", "PRUEBA_CONFIGURADA", "METODOLOGIA_APROBADA", "PRUEBA_EJECUTADA", "RESULTADOS_ANALIZADOS", "EN_REVISION", "APROBADO"].includes(prueba.estado) && (
         <section>
           <Ejecucion prueba={prueba} onAccion={accion} ocupado={ocupado} />
         </section>

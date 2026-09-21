@@ -41,6 +41,11 @@ def requerimientos_de_calculo(requests: list, definicion: dict) -> dict:
     (el RQ-001 genérico es la población). El segundo de cálculo es el
     calendario de pagos cuando la ficha tiene flujos."""
     reqs = requests or []
+    if definicion.get("processor"):
+        # Procesador: un modelo por anexo, con las columnas de su tipo.
+        from backend.app.aud.niif import procesadores
+        proc = procesadores.de(definicion)
+        return {r["id"]: proc.CAMPOS[proc.kind(r["dataset"])] for r in reqs if r.get("dataset")}
     calculo = [r for r in reqs if r.get("use") == "calculo"] or reqs[:1]
     salida = {}
     if calculo:

@@ -27,6 +27,8 @@ from backend.app.aud.niif.ciclo.models import FichaEncargo, Prueba, PruebaArchiv
 from backend.app.aud.niif.requerimiento import check_upload
 from backend.app.aud.niif.ciclo.reglas import ReglaIncumplida
 from backend.app.aud.niif.models import NiifFicha
+from backend.app.aud.niif import procesadores
+from backend.app.aud.niif.procesadores import libro
 
 VERSIONES = json.loads((Path(__file__).resolve().parent / "versiones.json").read_text(encoding="utf-8"))
 
@@ -86,10 +88,29 @@ def _definicion_de(db: Session, origen: str) -> dict:
     if origen.startswith("ficha:") and origen[6:].isdigit():
         f = db.get(NiifFicha, int(origen[6:]))
         if f and f.estado in ESTADOS_FICHA_USABLE and f.definicion:
+            if f.definicion.get("processor"):
+                return _definicion_procesador({**copy.deepcopy(f.definicion), "id": "custom"})
             # Toda definición que no es del catálogo corre como «custom», igual
             # que en el sitio (validateDefinition({...definition, id:'custom'})).
             return datos.validate_definition({**copy.deepcopy(f.definicion), "id": "custom"})
     raise ReglaIncumplida("Seleccione una herramienta.")
+
+
+def _definicion_procesador(d: dict) -> dict:
+    """Definición de una ficha con procesador especializado: el cálculo no es
+    declarativo, así que se valida con su procesador y con el plan (programa y
+    requerimientos) igual que cualquier ficha."""
+    try:
+        procesadores.de(d).validar_definicion(d)
+    except ValueError as e:
+        raise ReglaIncumplida(str(e))
+    datos._validar_plan(d)
+    return d
+
+
+def _num_seguro(v) -> float:
+    n = procesadores.perdidas_incurridas_s11.a_num(v)
+    return n or 0.0
 
 
 # --- pruebas -----------------------------------------------------------------
@@ -239,6 +260,53 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                 raise ReglaIncumplida("Seleccione una hoja válida.")
             return a, sheet
 
+        proc = procesadores.de(p.definicion)
+        if proc:
+            conjuntos = datos.get("datasets") if isinstance(datos.get("datasets"), dict) else {}
+            por_ds = {r["dataset"]: r for r in reg["requests"] if r.get("dataset")}
+            if not conjuntos.get("a3"):
+                raise ReglaIncumplida("Suba el anexo de cartera del ejercicio corriente antes de procesar.")
+            filas_ds, mapeos, errores, avisos = {}, [], [], []
+            for ds, partes in conjuntos.items():
+                if ds not in por_ds or not isinstance(partes, list) or len(partes) > 60:
+                    raise ReglaIncumplida("Anexo no previsto en los requerimientos de la ficha.")
+                campos = proc.CAMPOS[proc.kind(ds)]
+                filas_ds[ds] = []
+                for parte in partes:
+                    parte = parte if isinstance(parte, dict) else {}
+                    archivo, sheet = hoja(parte.get("fileId"), parte.get("sheet"))
+                    if archivo.estado == "rechazado" or archivo.requerimiento != por_ds[ds]["id"]:
+                        raise ReglaIncumplida(f"{archivo.nombre} no corresponde a {por_ds[ds]['id']} o está rechazado.")
+                    try:
+                        m = proc.filas_mapeadas(sheet, parte.get("header"), parte.get("mapping") or {}, campos,
+                                                {"id": archivo.id, "name": archivo.nombre})
+                    except ValueError as e:
+                        raise ReglaIncumplida(str(e))
+                    filas_ds[ds] += m["rows"]
+                    mapeos.append({"dataset": ds, "requestId": archivo.requerimiento, "fileId": archivo.id, "file": archivo.nombre,
+                                   "sheet": parte.get("sheet"), "header": parte.get("header"), "fields": parte.get("mapping"),
+                                   "headers": m["headers"], "blankRows": m["blankRows"], "records": len(m["rows"])})
+                if sum(len(x) for x in filas_ds.values()) > datos_mod.MAX_ROWS:
+                    raise ReglaIncumplida(f"Cargue entre 1 y {datos_mod.MAX_ROWS} registros.")
+                v = proc.validar_filas(proc.kind(ds), filas_ds[ds])
+                errores += [{**e, "message": f"{por_ds[ds]['id']} · {e['message']}"} for e in v["errors"]]
+                avisos += [{**w, "message": f"{por_ds[ds]['id']} · {w['message']}"} for w in v["warnings"]]
+            reg["datasets"] = filas_ds
+            reg["rows"] = filas_ds["a3"]
+            reg["mapping"] = mapeos[0]
+            reg["mappings"] = mapeos
+            reg["validation"] = {"records": len(filas_ds["a3"]), "errors": errores, "warnings": avisos, "ok": not errores}
+            p.estado = "DOCUMENTACION_RECIBIDA"
+            reg["run"] = None
+            if not errores:
+                reg["controlTotal"] = procesadores.perdidas_incurridas_s11.r2(sum(_num_seguro(f.get("saldo")) for f in filas_ds["a3"]))
+            p.registro = reg
+            p.revision += 1
+            _evento(db, p, accion, anterior, actor, str(datos.get("comment") or ""))
+            db.commit()
+            db.refresh(p)
+            return p
+
         # E10: la población puede venir en varios archivos del mismo formato
         # (un mes, una bodega por archivo): `files` los une en una sola, y cada
         # fila conserva su archivo y su parte. Un solo archivo sigue como en el sitio.
@@ -305,6 +373,30 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         reg["requests"] = [{**r, "status": "RECIBIDO" if r["id"] in con_archivo else "NO REQUERIDO"} for r in reg["requests"]]
 
     # --- E8: ejecución y análisis (route.ts: configure … save_analysis) --------
+    elif accion == "configure" and procesadores.de(p.definicion):
+        proc = procesadores.de(p.definicion)
+        crudos = datos.get("parametros") if isinstance(datos.get("parametros"), dict) else {}
+        params = {}
+        for k in proc.PARAMETROS:
+            v = crudos.get(k)
+            if k == "tasas":
+                tasas = {t: v[t] for t in (v or {}) if t in proc.NOMBRE_TRAMO and str(v[t]).strip() != ""} if isinstance(v, dict) else {}
+                for t, x in tasas.items():
+                    n = proc.a_num(x)
+                    if n is None or not 0 <= n <= 100:
+                        raise ReglaIncumplida(f"Tasa de {proc.NOMBRE_TRAMO[t]}: use un porcentaje entre 0 y 100.")
+                params["tasas"] = {t: proc.a_num(x) for t, x in tasas.items()}
+            elif v is not None and str(v).strip() != "":
+                n = proc.a_num(v)
+                if n is None or n < 0:
+                    raise ReglaIncumplida(f"Parámetro {k}: use un número no negativo.")
+                params[k] = n
+        reg["parameters"] = {"cutoff": reg["engagement"]["cutoff"], "buckets": [],
+                             "basis": str(datos.get("basis") or "").strip()[:10000], **params}
+        if not reg["parameters"]["basis"]:
+            raise ReglaIncumplida("Documente el sustento de parámetros y metodología.")
+        p.estado = reglas.transicion({**reg, "state": p.estado}, "configure")
+
     elif accion == "configure":
         reg["parameters"] = {
             "cutoff": reg["engagement"]["cutoff"],
@@ -325,12 +417,22 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         # Aquí la autoridad es el motor Python (el mismo archivo del sitio); el
         # navegador corre domain.mjs y manda su resultado para contrastarlo.
         from backend.app.aud.niif import estudio
+        proc = procesadores.de(p.definicion)
         try:
-            run = estudio.ejecutar_definicion(p.definicion, reg["rows"], reg["parameters"], reg.get("flows") or [])
+            if proc:
+                # Procesador especializado: el cálculo solo existe en Python;
+                # no hay resultado del navegador que contrastar.
+                param = {k: v for k, v in reg["parameters"].items() if k in proc.PARAMETROS}
+                run = proc.ejecutar(reg.get("datasets") or {}, param, reg["engagement"]["cutoff"])
+                run["hojas"] = proc.hojas(run)
+                run["detalle"] = {k: v for k, v in run["detalle"].items() if k in ("tasas", "fiscal", "cortes")}
+            else:
+                run = estudio.ejecutar_definicion(p.definicion, reg["rows"], reg["parameters"], reg.get("flows") or [])
         except (ValueError, KeyError, ArithmeticError, StopIteration) as e:
             raise ReglaIncumplida(str(e) or "La prueba no se pudo ejecutar.")
-        run["exceptions"] = datos_mod.excepciones(p.definicion, run)
-        motivo = datos_mod.motivo_contraste(run, datos.get("navegador"))
+        if not proc:
+            run["exceptions"] = datos_mod.excepciones(p.definicion, run)
+        motivo = "" if proc else datos_mod.motivo_contraste(run, datos.get("navegador"))
         if motivo:
             raise ReglaIncumplida(
                 f"La ejecución del navegador no coincide con el motor Python ({motivo}). No se guardaron resultados."
@@ -433,7 +535,18 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
     _evento(db, p, accion, anterior, actor, str(datos.get("comment") or ""))
     db.commit()
     db.refresh(p)
+    if accion == "approve" and procesadores.de(p.definicion):
+        # El papel de un procesador lo arma el servidor (el exportador del sitio
+        # no conoce sus cédulas): se guarda al aprobar, con su huella.
+        return guardar_papel(db, p, p.revision, *papel_procesador(db, p), actor)
     return p
+
+
+def papel_procesador(db: Session, p: Prueba) -> tuple[bytes, bytes]:
+    evs = [{"fecha": e.creado_en.isoformat() if e.creado_en else "", "accion": e.accion, "estado_anterior": e.estado_anterior,
+            "estado_nuevo": e.estado_nuevo, "actor": e.actor, "comentario": e.comentario or ""} for e in eventos(db, p.id)]
+    args = (p.definicion, p.registro, evs, p.version, p.estado)
+    return libro.xlsx(*args), libro.html(*args)
 
 
 # --- evidencia ---------------------------------------------------------------
@@ -448,7 +561,7 @@ FLOW_FIELDS = [
 def invalidar(reg: dict, razon: str) -> dict:
     """Puerto de ``invalidateData`` (lifecycle.ts): la evidencia nueva obliga a
     volver a mapear y validar; se borra todo lo que dependía de los datos."""
-    return {**reg, "rows": [], "mapping": None, "flows": None, "flowsMapping": None, "validation": None,
+    return {**reg, "rows": [], "datasets": None, "mapping": None, "flows": None, "flowsMapping": None, "validation": None,
             "reconciliation": None, "run": None, "runHash": None, "controlTotal": None, "analysis": "",
             "conclusion": "", "conclusionReviewed": False, "exceptionReview": "", "notes": [], "artifacts": None,
             "templateApproved": None, "analysisAgent": None, "executedAt": None, "approvedAt": None,
@@ -520,8 +633,13 @@ def guardar_definicion_ficha(db: Session, ficha: NiifFicha, definicion: dict, fi
 
     if ficha.estado == "enviada":
         raise ReglaIncumplida("La ficha ya fue enviada al catálogo: su definición no se modifica.")
-    datos.validate_definition({**definicion, "id": "custom"})
-    estudio.ejecutar_definicion(definicion, filas, parametros or {})
+    if definicion.get("processor"):
+        # El cálculo de un procesador vive en el servidor y tiene sus pruebas
+        # propias: aquí basta con que la definición sea la que él entiende.
+        _definicion_procesador({**definicion, "id": "custom"})
+    else:
+        datos.validate_definition({**definicion, "id": "custom"})
+        estudio.ejecutar_definicion(definicion, filas, parametros or {})
     ficha.definicion = definicion
     db.commit()
     db.refresh(ficha)

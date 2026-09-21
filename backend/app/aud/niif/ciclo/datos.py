@@ -427,6 +427,7 @@ def create_requests(program: list, cutoff: str, definition: dict | None) -> list
             "components": list(r.get("components") or []), "group": r.get("group") or "",
             "use": r.get("use") or "soporte", "report": r.get("report") or "", "timing": r.get("cutoff") or "",
             "content": r.get("content") or "", "status": "PENDIENTE",
+            **({"dataset": r["dataset"]} if r.get("dataset") else {}),
         } for r in propios]
     rows = [{
         "id": f"RQ-{str(i + 1).rjust(3, '0')}", "document": p["evidence"], "period": cutoff,

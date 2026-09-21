@@ -217,6 +217,23 @@ def bandejas(db: Session = Depends(get_db), user: User = Depends(require_staff))
     ]
 
 
+@router.get("/procesadores")
+def procesadores_disponibles(db: Session = Depends(get_db), user: User = Depends(require_staff)) -> list[dict]:
+    """Procesadores especializados que se pueden instalar en una ficha, con el
+    resultado de su ejemplo numérico de control (la prueba de que calcula)."""
+    from backend.app.aud.niif.procesadores import PROCESADORES
+
+    salida = []
+    for k, m in PROCESADORES.items():
+        d = m.definicion()
+        ej = m.ejecutar(m.EJEMPLO["datasets"], {}, m.EJEMPLO["corte"])
+        salida.append({"id": k, "nombre": d["name"], "rubro": d["area"], "marcos": d.get("frameworks") or [],
+                       "resumen": d.get("summary", ""), "definicion": d,
+                       "ejemplo": {"totales": ej["totals"], "etiquetas": ej["labels"],
+                                   "tasas": [x for x in ej["detalle"]["tasas"] if x["tasa"] is not None]}})
+    return salida
+
+
 @router.put("/fichas/{ficha_id}/definicion")
 def guardar_definicion(ficha_id: int, body: DefinicionIn, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
     ficha = db.get(NiifFicha, ficha_id)
@@ -275,3 +292,14 @@ def descargar_modelo(prueba_id: int, requerimiento: str, db: Session = Depends(g
     contenido = modelo.construir(p.definicion, req, campos, p.registro.get("engagement") or {})
     nombre = f"Modelo_{requerimiento}.xlsx".encode("ascii", "replace").decode()
     return Response(contenido, media_type=almacen.TIPOS["xlsx"], headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+
+
+@router.get("/pruebas/{prueba_id}/libro")
+def descargar_libro(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> Response:
+    """Excel del papel en curso de una prueba con procesador (lo arma el servidor)."""
+    p = _prueba(db, user, prueba_id)
+    if not p.definicion.get("processor") or not (p.registro.get("run") or {}).get("hojas"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Procese la prueba antes de descargar su Excel.")
+    contenido, _ = servicio.papel_procesador(db, p)
+    return Response(contenido, media_type=almacen.TIPOS["xlsx"],
+                    headers={"Content-Disposition": f'attachment; filename="Papel_v{p.version}.xlsx"'})

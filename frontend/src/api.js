@@ -315,10 +315,19 @@ export async function cicloBajarModelo(pruebaId, requerimiento) {
   if (!res.ok) await parse(res);
   return new Uint8Array(await res.arrayBuffer());
 }
+// Excel del papel en curso de una prueba con procesador: lo arma el servidor.
+export async function cicloBajarLibro(pruebaId) {
+  const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/libro`, { headers: authHeaders() });
+  if (!res.ok) await parse(res);
+  return new Uint8Array(await res.arrayBuffer());
+}
 export async function cicloBandejas() {
   return parse(await apiFetch(`${CICLO}/bandejas`, { headers: authHeaders() }));
 }
 
+export async function cicloProcesadores() {
+  return parse(await apiFetch(`${CICLO}/procesadores`, { headers: authHeaders() }));
+}
 export async function niifGuardarDefinicion(fichaId, definicion, filas, parametros) {
   return parse(await apiFetch(`${CICLO}/fichas/${fichaId}/definicion`, jsonPost("PUT", { definicion, filas, parametros: parametros || {} })));
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { niifCobertura, niifEjecutarMotor, niifGuardarDefinicion } from "../../api";
+import { cicloProcesadores, niifCobertura, niifEjecutarMotor, niifGuardarDefinicion } from "../../api";
 import { herramientaDeEstudio, motivoDiscrepancia } from "./contraste";
 import {
   EJEMPLO_NIIF16,
@@ -67,6 +67,57 @@ function Tabla({ filas, titulo }) {
         </table>
       </div>
     </div>
+  );
+}
+
+// Pruebas que el motor declarativo no puede hacer (comparar años, agregar por
+// cliente, límites sobre totales) traen un procesador en Python. Aquí se ve su
+// ejemplo numérico de control, calculado por el servidor, y se instala su
+// definición (base técnica, programa y requerimientos) en la ficha.
+function ProcesadorEspecial({ ficha, onInstalado }) {
+  const [lista, setLista] = useState([]);
+  const [sel, setSel] = useState("");
+  const [aviso, setAviso] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => { cicloProcesadores().then((l) => { setLista(l); setSel(l[0]?.id || ""); }).catch(() => setLista([])); }, []);
+  const p = lista.find((x) => x.id === sel);
+  if (!lista.length) return null;
+
+  async function instalar() {
+    setAviso("");
+    setError("");
+    try {
+      await niifGuardarDefinicion(ficha.id, p.definicion, [], {});
+      setAviso("Procesador instalado en la ficha. Ya se puede aplicar a un cliente cuando la ficha esté probada.");
+      onInstalado?.();
+    } catch (e) {
+      setError(e.message || String(e));
+    }
+  }
+
+  return (
+    <section>
+      <h5>Procesador especializado</h5>
+      <p className="muted">Para pruebas que comparan años o agregan por cliente: el cálculo lo hace un procesador en Python.</p>
+      <div className="nf-rec-row">
+        <select value={sel} onChange={(e) => setSel(e.target.value)} aria-label="Procesador">
+          {lista.map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
+        </select>
+        <button type="button" className="btn sm primary" onClick={instalar} disabled={!p}>Instalar en esta ficha</button>
+      </div>
+      {p && (
+        <>
+          <p className="muted">{p.resumen} Marco: {p.marcos.join(", ")}. Rubro: {p.rubro}.</p>
+          <p className="nf-nota">
+            <strong>Ejemplo de control calculado por el servidor:</strong>{" "}
+            {p.ejemplo.tasas.map((t) => `${t.tramo} ${(t.tasa * 100).toFixed(0)} % (${t.origen.toLowerCase()})`).join(" · ")} ·{" "}
+            {p.ejemplo.etiquetas.perdida}: {p.ejemplo.totales.perdida}
+          </p>
+        </>
+      )}
+      {aviso && <p className="nf-ok">{aviso}</p>}
+      {error && <p role="alert" className="nf-error">{error}</p>}
+    </section>
   );
 }
 
@@ -237,6 +288,8 @@ export default function EstudioPrueba({ ficha, onDefinicionGuardada }) {
           </>
         )}
       </section>
+
+      <ProcesadorEspecial ficha={ficha} onInstalado={onDefinicionGuardada} />
 
       {/* ---------- 2. Motor de cálculo ---------- */}
       <section>

@@ -326,7 +326,7 @@ export function Revision({ prueba, onAccion, onRecargar, ocupado }) {
         </>
       )}
       {REABRIBLES.includes(prueba.estado) && <Reabrir onAccion={onAccion} ocupado={ocupado} />}
-      {!temprana && reg.sourcesVerified && <Plantilla prueba={prueba} onAccion={onAccion} ocupado={ocupado} />}
+      {!temprana && reg.sourcesVerified && !prueba.definicion.processor && <Plantilla prueba={prueba} onAccion={onAccion} ocupado={ocupado} />}
       {prueba.estado !== "APROBADO" && <FichaConAlcance prueba={prueba} onAccion={onAccion} ocupado={ocupado} />}
       <EncerarEliminar prueba={prueba} onAccion={onAccion} ocupado={ocupado} />
     </>

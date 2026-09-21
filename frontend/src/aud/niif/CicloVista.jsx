@@ -42,6 +42,16 @@ const PROCESADA = ["PRUEBA_EJECUTADA", "RESULTADOS_ANALIZADOS"];
 // Qué documentos alimentan cada cédula: los de cálculo, salvo las de contexto.
 const DE_CONTEXTO = { "01_Caratula": "Ficha del encargo", "02_Programa": "Programa de la ficha", "04_Fuentes": "Base técnica", "11_Conclusion": "Análisis del auditor", "12_Control_Revision": "Bitácora" };
 
+const ETIQUETA_PARAM = {
+  tasaDesc: "Tasa efectiva (%)", plazoBase: "Plazo de cobro (meses)", umbralGrave: "Mora grave (días)",
+  umbralIndividual: "Saldo significativo", pctDeducible: "Límite anual (%)", pctLimite: "Límite acumulado (%)",
+  tasaImp: "Tasa del impuesto (%)", provFiscalAnt: "Provisión fiscal anterior", dtaIniManual: "Diferido inicial",
+};
+const TRAMOS_PI = [
+  ["pv", "Corriente"], ["t30", "1 a 30 días"], ["t60", "31 a 60 días"], ["t90", "61 a 90 días"],
+  ["t180", "91 a 180 días"], ["t360", "181 a 360 días"], ["t730", "361 a 730 días"], ["tmax", "Más de 730 días"],
+].map(([k, tramo]) => ({ k, tramo }));
+
 function descargar(nombre, contenido, tipo) {
   const url = URL.createObjectURL(new Blob([contenido], { type: tipo }));
   const a = Object.assign(document.createElement("a"), { href: url, download: nombre });
@@ -104,7 +114,9 @@ function BaseTecnica({ prueba, taxScope, setTaxScope }) {
   const d = prueba.definicion, reg = prueba.registro;
   const marco = marcoAplicable(d, reg.engagement?.framework);
   const nias = niasDe(d);
-  const formulas = formulasLegibles(d);
+  const formulas = d.processor
+    ? (d.calculo || []).map((texto, i) => ({ key: i, texto, principal: i === d.calculo.length - 1 }))
+    : formulasLegibles(d);
   const etiqueta = (k) => d.fields.find((f) => f.key === k)?.label || d.rules.find((r) => r.key === k)?.label || k;
   return (
     <details className="pc-panel nf-vista-base" open={ANTES_DEL_REQUERIMIENTO.includes(prueba.estado)}>
@@ -167,6 +179,32 @@ function BaseTecnica({ prueba, taxScope, setTaxScope }) {
   );
 }
 
+const FORMATO = {
+  n: (v) => Number(v).toLocaleString("es-EC", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+  p: (v) => `${(Number(v) * 100).toLocaleString("es-EC", { maximumFractionDigits: 2 })} %`,
+  i: (v) => Number(v).toLocaleString("es-EC"),
+};
+const celda = (v, f) => (v === null || v === undefined || v === "" ? "" : FORMATO[f] ? FORMATO[f](v) : String(v));
+
+function CedulaProcesador({ hoja }) {
+  const filas = hoja.total ? [...hoja.rows, hoja.total] : hoja.rows;
+  return (
+    <div className="nf-estudio-scroll nf-estudio-tabla">
+      <table>
+        <thead><tr>{hoja.cols.map(([t]) => <th key={t}>{t}</th>)}</tr></thead>
+        <tbody>
+          {filas.map((r, i) => (
+            <tr key={i} style={hoja.total && i === filas.length - 1 ? { fontWeight: 700 } : undefined}>
+              {r.map((v, j) => <td key={j} style={FORMATO[hoja.cols[j][1]] ? { textAlign: "right", whiteSpace: "nowrap" } : undefined}>{celda(v, hoja.cols[j][1])}</td>)}
+            </tr>
+          ))}
+          {!filas.length && <tr><td colSpan={hoja.cols.length} className="muted">Sin partidas.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function PanelCedula({ prueba, indice, etiqueta, nombre, hojas, notas, calculo }) {
   const reg = prueba.registro;
   const hoja = hojas?.[indice];
@@ -184,6 +222,8 @@ function PanelCedula({ prueba, indice, etiqueta, nombre, hojas, notas, calculo }
         <p className="muted">Se alimenta de: {fuente}</p>
         {!reg.run || !hoja ? (
           <p className="muted">Se llena al pulsar «Procesar».</p>
+        ) : hoja.cols ? (
+          <CedulaProcesador hoja={hoja} />
         ) : (
           <>
             <div className="nf-estudio-scroll nf-estudio-tabla">
@@ -226,6 +266,8 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
   const [taxScope, setTaxScope] = useState(reg.taxScope || "");
   const [tramos, setTramos] = useState([{ min: "0", max: "30", rate: "" }, { min: "31", max: "", rate: "" }]);
   const [cedula, setCedula] = useState(0);
+  const [param, setParam] = useState(() => ({ ...(d.parametros || {}), ...Object.fromEntries(Object.entries(reg.parameters || {}).filter(([k]) => k in (d.parametros || {}))) }));
+  const [tasas, setTasas] = useState(reg.parameters?.tasas || {});
 
   useEffect(() => { cargarSitio().then(setSitio).catch((e) => setError(e.message || String(e))); }, []);
 
@@ -236,6 +278,8 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
   const completos = obligatorios.filter((r) => cobertura[r.id]?.complete).length;
   const t = useMemo(() => herramientaDePrueba(prueba), [prueba]);
   const armado = useMemo(() => {
+    if (d.processor)
+      return { etiquetas: (d.cedulas || []).map(([, l]) => l), nombres: (d.cedulas || []).map(([n]) => n), hojas: reg.run?.hojas || null };
     if (!sitio) return null;
     const [, exp] = sitio;
     try {
@@ -246,7 +290,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
   }, [sitio, t, d, reg.run]);
   const [notas, setNotas] = useState(null);
   useEffect(() => {
-    if (!reg.run) return setNotas(null);
+    if (!reg.run || d.processor) return setNotas(null);
     import("./sitio/tools/explanations.mjs").then((m) => setNotas(m.calculationNotes(t))).catch(() => setNotas(null));
   }, [t, reg.run]);
 
@@ -296,6 +340,16 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
       }
       return partes;
     };
+    if (d.processor) {
+      const datasets = {};
+      for (const r of p.registro.requests.filter((x) => x.dataset)) {
+        const tipo = ["a1", "a2", "a3"].includes(r.dataset) ? "cartera" : r.dataset;
+        const partes = await armar(r.id, d.campos[tipo]);
+        if (partes.length) datasets[r.dataset] = partes;
+      }
+      if (!datasets.a3) throw new Error("Suba el anexo de cartera del ejercicio corriente antes de procesar.");
+      return paso("map_validate", { datasets });
+    }
     const [poblacion, flujos] = (p.modelos || []);
     const files_ = await armar(poblacion, d.fields);
     if (!files_.length) throw new Error("Suba el reporte de cálculo antes de procesar.");
@@ -330,12 +384,17 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
         });
       } else if (p.estado === "DOCUMENTACION_VALIDADA") {
         p = await paso("configure", {
+          ...(d.processor ? { parametros: { ...param, tasas } } : {}),
           basis: `Parámetros y metodología de la ficha «${d.name}» (${d.source?.document || "base técnica confirmada"}), corte ${p.registro.engagement.cutoff}.`,
           buckets: d.id === "pce" ? tramosDeTexto(tramos) : [],
         });
       } else if (p.estado === "PRUEBA_CONFIGURADA") {
         p = await paso("approve_methodology");
       } else if (p.estado === "METODOLOGIA_APROBADA") {
+        if (d.processor) {
+          p = await paso("execute");
+          continue;
+        }
         const [dominio] = sitio || (await cargarSitio());
         const navegador = dominio.calculate(p.definicion, p.registro.rows, p.registro.parameters, p.registro.flows || []);
         p = await paso("execute", { navegador });
@@ -404,8 +463,15 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
         <button
           type="button"
           className="pc-chip accent"
-          disabled={!reg.run || !sitio}
-          onClick={() => descargar(`${d.name.replace(/[^\w-]+/g, "_").slice(0, 60)}_v${prueba.version}.xlsx`, sitio[1].buildWorkbook(t), XLSX)}
+          disabled={!reg.run || (!sitio && !d.processor)}
+          onClick={async () => {
+            const nombre = `${d.name.replace(/[^\w-]+/g, "_").slice(0, 60)}_v${prueba.version}.xlsx`;
+            try {
+              descargar(nombre, d.processor ? await api.cicloBajarLibro(prueba.id) : sitio[1].buildWorkbook(t), XLSX);
+            } catch (e) {
+              setError(e.message || String(e));
+            }
+          }}
         >
           Descargar Excel
         </button>
@@ -462,6 +528,29 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
                 <input value={mayor} onChange={(e) => setMayor(e.target.value)} placeholder="Ej.: 470.00" inputMode="decimal" />
               </label>
             )}
+            {d.processor && puedeProcesar && (
+              <details className="nf-ctx-field" open={!reg.run}>
+                <summary>Parámetros de la prueba (editables; quedan en la cédula de parámetros)</summary>
+                <div className="nf-rec-row">
+                  {Object.keys(d.parametros || {}).map((k) => (
+                    <label key={k} className="nf-ctx-field">
+                      {ETIQUETA_PARAM[k] || k}
+                      <input value={param[k] ?? ""} onChange={(e) => setParam({ ...param, [k]: e.target.value })} style={{ width: 110 }} inputMode="decimal" />
+                    </label>
+                  ))}
+                </div>
+                <p className="muted">Tasa fijada por el auditor por tramo (%): déjela en blanco para usar la observada. Úsela solo con evidencia de gestión de cobro.</p>
+                <div className="nf-rec-row">
+                  {(reg.run?.detalle?.tasas || TRAMOS_PI).map((x) => (
+                    <label key={x.k} className="nf-ctx-field">
+                      {x.tramo}{x.tasa === null && !(x.k in tasas) ? " · no medible" : ""}
+                      <input value={tasas[x.k] ?? ""} placeholder={x.tasa === null || x.tasa === undefined ? "—" : `${(x.tasa * 100).toFixed(2)} observada`}
+                        onChange={(e) => setTasas(Object.fromEntries(Object.entries({ ...tasas, [x.k]: e.target.value }).filter(([, v]) => String(v).trim() !== "")))} style={{ width: 130 }} />
+                    </label>
+                  ))}
+                </div>
+              </details>
+            )}
             {d.id === "pce" && puedeProcesar && (
               <div className="nf-ctx-field">
                 Tramos de mora (desde · hasta · tasa)
@@ -482,7 +571,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
             <section className="pc-panel">
               <header className="pc-panel-h">
                 <span className="pc-panel-t">Resultado</span>
-                <span className="pc-panel-m">{reg.run.rows.length} partidas · motor {reg.run.engine}</span>
+                <span className="pc-panel-m">{reg.run.rows.length} {d.processor ? "facturas" : "partidas"} · motor {reg.run.engine}</span>
               </header>
               <div className="pc-panel-b">
                 <div className="pc-tiles">
@@ -490,7 +579,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
                     <div key={k} className={`pc-tile ${k === d.primary ? "on" : "done"}`} style={{ cursor: "default" }}>
                       <div className="pc-tile-txt">
                         <span className="pc-tile-t">{v}</span>
-                        <span className="pc-tile-d">{d.rules.find((r) => r.key === k)?.label || d.fields.find((f) => f.key === k)?.label || k}</span>
+                        <span className="pc-tile-d">{reg.run.labels?.[k] || d.rules.find((r) => r.key === k)?.label || d.fields.find((f) => f.key === k)?.label || k}</span>
                       </div>
                     </div>
                   ))}
@@ -503,8 +592,8 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
                 )}
                 {reg.run.exceptions.length > 0 && (
                   <details open>
-                    <summary>Excepciones por partida ({reg.run.exceptions.length})</summary>
-                    <ul>{reg.run.exceptions.map((e, i) => <li key={i}>Fila {e.row} · {e.id} · {e.message} · {e.amount}</li>)}</ul>
+                    <summary>{d.processor ? "Problemas del cálculo" : "Excepciones por partida"} ({reg.run.exceptions.length})</summary>
+                    <ul>{reg.run.exceptions.map((e, i) => <li key={i}>{e.row ? `Fila ${e.row} · ${e.id} · ` : ""}{e.message} · {e.amount}</li>)}</ul>
                   </details>
                 )}
               </div>
@@ -522,7 +611,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
                     <span className={`pc-tile-n ${reg.run ? "done" : "dim"}`}>{i + 1}</span>
                     <div className="pc-tile-txt">
                       <span className="pc-tile-t">{label}</span>
-                      <span className="pc-tile-d">{DE_CONTEXTO[armado.nombres[i]] || calculo.map((r) => r.document).join(" · ")}</span>
+                      <span className="pc-tile-d">{DE_CONTEXTO[armado.nombres[i]] || (d.processor ? `${calculo.length} anexos del cliente` : calculo.map((r) => r.document).join(" · "))}</span>
                     </div>
                     <span className="pc-tile-st">{reg.run ? "GENERADA" : "PENDIENTE"}</span>
                   </button>
