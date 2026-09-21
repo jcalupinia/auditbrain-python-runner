@@ -11,6 +11,7 @@ import {
   procedimientosSinFuente,
 } from "./cicloLogic";
 import { Documentacion, EditorRequerimiento } from "./CicloDocumentacion";
+import { Ejecucion } from "./CicloEjecucion";
 import { ContextFields } from "./ContextoEncargo";
 
 /*
@@ -305,6 +306,12 @@ function Prueba({ id, onCambio }) {
         </section>
       )}
 
+      {["DOCUMENTACION_VALIDADA", "PRUEBA_CONFIGURADA", "METODOLOGIA_APROBADA", "PRUEBA_EJECUTADA", "RESULTADOS_ANALIZADOS", "EN_REVISION", "APROBADO"].includes(prueba.estado) && (
+        <section>
+          <Ejecucion prueba={prueba} onAccion={accion} ocupado={ocupado} />
+        </section>
+      )}
+
       <details>
         <summary>Bitácora ({prueba.eventos.length})</summary>
         <ul>
@@ -368,7 +375,13 @@ export default function PruebasEncargo({ proyecto, cliente }) {
     return <p className="nf-nota">Seleccione un proyecto del módulo AUD en «Workspace» para trabajar sus pruebas.</p>;
   }
   if ((proyecto.module_code || "").toUpperCase() !== "AUD") {
-    return <p className="nf-nota">El proyecto activo no es del módulo AUD. Las pruebas NIIF se aplican a proyectos AUD.</p>;
+    return (
+      <p className="nf-nota">
+        El proyecto activo es «{(proyecto.module_code || "").toUpperCase()} · {proyecto.name}», del módulo{" "}
+        {(proyecto.module_code || "").toUpperCase()}. Las pruebas NIIF se aplican a proyectos de auditoría externa: arriba,
+        en «Workspace», elija un proyecto que empiece con «AUD ·» (o cree uno del módulo AUD para este cliente).
+      </p>
+    );
   }
 
   return (

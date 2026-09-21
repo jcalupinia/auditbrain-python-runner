@@ -116,3 +116,33 @@ export function detalleRequerimiento(r) {
     r.content ? `Contenido mínimo: ${r.content}` : "",
   ].filter(Boolean);
 }
+
+// E8 · Objeto «herramienta» que esperan buildWorkbook/buildHtml del sitio,
+// armado con lo que guardó el servidor: el registro de la prueba tiene la
+// misma forma que el del sitio; aquí solo se le agregan definición, estado,
+// versión y la bitácora con los nombres del sitio (cédula 12).
+export function herramientaDePrueba(p) {
+  const reg = p.registro || {};
+  return {
+    ...reg,
+    id: String(p.id),
+    definition: p.definicion,
+    version: p.version,
+    state: p.estado,
+    draft: p.estado !== "APROBADO",
+    events: (p.eventos || []).map((e) => ({
+      action: e.accion, actor: e.actor, at: e.fecha, previous: e.estado_anterior,
+      next: e.estado_nuevo, comment: e.comentario || "", version: p.version,
+    })),
+  };
+}
+
+// Tramos de mora de la PCE del catálogo: se editan como texto y viajan con
+// números enteros y el último «sin límite» (null), como los valida el sitio.
+export function tramosDeTexto(filas) {
+  return filas.map((f, i) => ({
+    min: Number(f.min),
+    max: i === filas.length - 1 && String(f.max ?? "").trim() === "" ? null : Number(f.max),
+    rate: String(f.rate ?? "").trim(),
+  }));
+}
