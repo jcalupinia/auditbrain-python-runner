@@ -93,12 +93,12 @@ describe("herramientaDePrueba", () => {
     const t = herramientaDePrueba(prueba);
     expect(t.definition.name).toBe("VNR");
     expect(t.state).toBe("PRUEBA_EJECUTADA");
-    expect(t.draft).toBe(true);
+    expect(t.draft).toBe(false);
     expect(t.engagement.client).toBe("X");
     expect(t.events[0]).toEqual({ action: "execute", actor: "a@b.ec", at: "2026-09-21T10:00:00", previous: "METODOLOGIA_APROBADA", next: "PRUEBA_EJECUTADA", comment: "", version: 2 });
   });
-  it("una prueba aprobada ya no es borrador", () => {
-    expect(herramientaDePrueba({ ...prueba, estado: "APROBADO" }).draft).toBe(false);
+  it("el estado del papel sale del estado de la prueba", () => {
+    expect(herramientaDePrueba({ ...prueba, estado: "APROBADO" }).state).toBe("APROBADO");
   });
 });
 
