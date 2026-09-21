@@ -218,7 +218,9 @@ function archivos() {
       filas: '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="C1" t="s"><v>1</v></c><c r="D1" t="s"><v>2</v></c></row>' +
         '<row r="2"><c r="A2" t="inlineStr"><is><t> P-1 </t></is></c><c r="B2"><v>1.5E-3</v></c><c r="C2"><f>A1*2</f></c><c r="D2" t="e"><v>#DIV/0!</v></c><c r="E2" t="b"><v>1</v></c></row>' +
         '<row r="4"><c r="B4"><v>45657</v></c><c r="AA4"><v>0.30000000000000004</v></c><c r="C4" t="s"><v>3</v></c></row>' +
-        '<row r="5"><c r="A5" t="inlineStr"><is><r><t>ri</t></r><r><t>co</t></r></is></c><c r="B5"><f>B4+1</f><v>45658</v></c></row>',
+        '<row r="5"><c r="A5" t="inlineStr"><is><r><t>ri</t></r><r><t>co</t></r></is></c><c r="B5"><f>B4+1</f><v>45658</v></c></row>' +
+        // Referencias numéricas, como escriben openpyxl y muchos ERP (&#243; = ó).
+        '<row r="6"><c r="A6" t="inlineStr"><is><t>C&#243;digo &#xE1; &#8364;</t></is></c><c r="B6" t="inlineStr"><is><t xml:space="preserve"></t></is></c></row>',
     }, { nombre: "Vacía", filas: "" }],
   });
   const f1904 = libro({ date1904: true, absoluto: true, hojas: [{ nombre: "H", filas: '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>X</t></is></c><c r="B2"><v>44196</v></c></row>' }] });

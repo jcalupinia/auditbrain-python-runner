@@ -37,8 +37,10 @@ const ETAPA_DE_ESTADO = {
 export const etapaDe = (estado) => ETAPA_DE_ESTADO[estado] ?? 0;
 
 // «PROGRAMA_PROPUESTO» → «Programa propuesto».
+// Los estados del sitio van sin tildes (son códigos); al mostrarlos se ponen.
+const TILDES = { documentacion: "documentación", metodologia: "metodología", revision: "revisión" };
 export const nombreEstado = (estado) => {
-  const t = String(estado || "").toLowerCase().replace(/_/g, " ");
+  const t = String(estado || "").toLowerCase().split("_").map((w) => TILDES[w] || w).join(" ");
   return t.charAt(0).toUpperCase() + t.slice(1);
 };
 

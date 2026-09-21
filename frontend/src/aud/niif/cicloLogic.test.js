@@ -17,6 +17,9 @@ describe("etapas de una prueba", () => {
 
   it("nombra el estado en español legible", () => {
     expect(nombreEstado("PROGRAMA_PROPUESTO")).toBe("Programa propuesto");
+    expect(nombreEstado("DOCUMENTACION_RECIBIDA")).toBe("Documentación recibida");
+    expect(nombreEstado("METODOLOGIA_APROBADA")).toBe("Metodología aprobada");
+    expect(nombreEstado("EN_REVISION")).toBe("En revisión");
   });
 });
 

@@ -8,7 +8,10 @@ const arr=x=>x===undefined?[]:Array.isArray(x)?x:[x];
 // de sus Excel, así que al volver a subir un libro exportado aquí sus filas
 // vacías dejaban de serlo y la validación fallaba.
 const texto=t=>t!==null&&typeof t==='object'?(t['#text']??''):(t??'');
-const parser=new XMLParser({ignoreAttributes:false,attributeNamePrefix:'@',parseTagValue:false,processEntities:true});
+// htmlEntities: sin él, las referencias numéricas (&#243; = ó) quedaban sin
+// decodificar. openpyxl y muchos exportadores de ERP escriben así los acentos:
+// «Código» se leía «C&#243;digo».
+const parser=new XMLParser({ignoreAttributes:false,attributeNamePrefix:'@',parseTagValue:false,processEntities:true,htmlEntities:true});
 function xml(bytes){const s=strFromU8(bytes);if(/<!DOCTYPE|<!ENTITY/i.test(s))throw Error('XML con entidades no permitido.');return parser.parse(s);}
 export function parseCsv(text,delimiter){
  if(text.includes('\0'))throw Error('Archivo de texto inválido.');

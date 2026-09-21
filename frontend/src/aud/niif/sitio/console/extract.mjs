@@ -4,8 +4,8 @@ import {parseCsv} from '../tools/files.mjs';
 export const MAX_FILE=25*1024*1024;
 const TEXT_LIMIT=5000000,CELL_LIMIT=50000;
 const arr=x=>x===undefined?[]:Array.isArray(x)?x:[x];
-const parser=new XMLParser({ignoreAttributes:false,attributeNamePrefix:'@',parseTagValue:false,processEntities:true});
-const ordered=new XMLParser({preserveOrder:true,ignoreAttributes:true,parseTagValue:false,processEntities:true});
+const parser=new XMLParser({ignoreAttributes:false,attributeNamePrefix:'@',parseTagValue:false,processEntities:true,htmlEntities:true});
+const ordered=new XMLParser({preserveOrder:true,ignoreAttributes:true,parseTagValue:false,processEntities:true,htmlEntities:true});
 function xml(bytes,order=false){const s=strFromU8(bytes);if(/<!DOCTYPE|<!ENTITY/i.test(s))throw Error('XML con entidades no permitido.');return (order?ordered:parser).parse(s);}
 const scalar=v=>String(v && typeof v==='object' ? (v['#text']??'') : (v??''));
 export function unpack(bytes){

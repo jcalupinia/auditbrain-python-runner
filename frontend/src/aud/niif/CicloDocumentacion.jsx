@@ -114,7 +114,10 @@ function Mapeo({ prueba, onAccion, ocupado }) {
   const tabulares = prueba.archivos.filter((a) => esTabular(a.nombre) && a.estado !== "rechazado");
   const campos = prueba.definicion.fields;
   const previo = prueba.registro.mapping;
-  const [fileId, setFileId] = useState(previo?.fileId || tabulares[0]?.id || "");
+  const [elegidoPorUsuario, setFileId] = useState(previo?.fileId || "");
+  // El componente puede montarse antes de que exista ningún archivo: el
+  // elegido se calcula siempre sobre lo que hay subido ahora.
+  const fileId = tabulares.some((a) => a.id === Number(elegidoPorUsuario)) ? elegidoPorUsuario : tabulares[0]?.id || "";
   const [hojas, setHojas] = useState([]);
   const [hoja, setHoja] = useState(previo?.sheet || "");
   const [encabezado, setEncabezado] = useState(previo?.header || 1);
