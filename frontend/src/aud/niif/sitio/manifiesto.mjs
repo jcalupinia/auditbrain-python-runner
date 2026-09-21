@@ -9,12 +9,12 @@ import { huella } from "./huella.js";
 const DIR = fileURLToPath(new URL("./", import.meta.url));
 const commit = process.argv[2] || "desconocido";
 const m = {
-  origen: `auditbrain-site @ ${commit} · lib/tools/*.mjs -> tools/, lib/*.mjs -> raíz (huellas sobre texto con LF)`,
+  origen: `auditbrain-site @ ${commit} · lib/tools/*.mjs -> tools/, lib/*.mjs -> raíz, public/documentos -> documentos/ (huellas sobre texto con LF)`,
   sha256: {},
 };
 for (const f of readdirSync(DIR, { recursive: true })
   .map((f) => String(f).split(sep).join("/"))
-  .filter((f) => /\.(mjs|ts)$/.test(f) && f !== "manifiesto.mjs" && f !== "audit-store.ts")
+  .filter((f) => (/\.(mjs|ts)$/.test(f) || f.startsWith("documentos/")) && f !== "manifiesto.mjs" && f !== "audit-store.ts")
   .sort())
   m.sha256[f] = huella(readFileSync(DIR + f, "utf8"));
 writeFileSync(DIR + "MANIFIESTO.json", JSON.stringify(m, null, 2) + "\n");

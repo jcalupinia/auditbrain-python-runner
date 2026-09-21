@@ -1,7 +1,11 @@
 {
-  "origen": "auditbrain-site @ 7e42d3d · lib/tools/*.mjs -> tools/, lib/*.mjs -> raíz (huellas sobre texto con LF)",
+  "origen": "auditbrain-site @ ac21ef9 · lib/tools/*.mjs -> tools/, lib/*.mjs -> raíz, public/documentos -> documentos/ (huellas sobre texto con LF)",
   "sha256": {
     "console/extract.mjs": "9ea97c6a33455268da31644ec526157ff70bb8130031098175ef0a7c566cbba1",
+    "documentos/Manual_Arquitectura_AuditBrain.html": "7e99bf1df3a15224aad1d564ffa4a831d0774182b1a24cdd30b943a83fceed5d",
+    "documentos/Manual_Arquitectura_AuditBrain.md": "82f5ed1043d777f789ce6766e3e5a0b436ec5c9f7cfc862f7cbb9f66f0062124",
+    "documentos/Memoria_Metodologica_AuditBrain.json": "de4dea0b83da0873e26ad02da746b19607d8c710aed692bd9b5076f0f9727d4f",
+    "documentos/Memoria_Metodologica_AuditBrain.md": "0e63ab28c2c10773b11366c15ca77344418ffa350e2aa1636cb870aac3d02bff",
     "engagement-context.ts": "217b7cfedf33086264dde5f36e8f496262ed0b6a89b15193e32c1a11e9d28e13",
     "methodology.mjs": "715f81dd224f5b5d5eadcd624b35fb76902ece21a52f24bcf31b666958a8151c",
     "reconstruction/protocol.ts": "c4a94b72774e383b2200de41586c00c8b80ba3c3ae3c3f8ff7bbac25db1d6722",

@@ -190,3 +190,18 @@
 .nf-pre { white-space: pre-wrap; max-height: 360px; overflow: auto; font-size: 12px; padding: 8px; background: rgba(0, 0, 0, 0.2); border-radius: 6px; }
 @media (max-width: 760px) { .nf-consola-cuerpo { grid-template-columns: 1fr; } }
 .nf-estado { margin: 10px 0 0; } .nf-recon textarea { width: 100%; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+
+/* ---------- Manual y memoria ---------- */
+.nf-manual { max-width: 1000px; }
+.nf-manual h3 em { color: #C7A83C; font-style: normal; }
+.nf-manual-flujo { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 12px 0; }
+.nf-manual-flujo div { padding: 12px; border: 1px solid rgba(199, 168, 60, 0.35); border-radius: 8px; }
+.nf-manual-flujo span { font-size: 11px; letter-spacing: 0.08em; color: #C7A83C; }
+.nf-manual-flujo h4 { margin: 4px 0; }
+.nf-manual-indice div { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.nf-manual-seccion { scroll-margin-top: 16px; }
+.nf-manual-reglas { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin: 10px 0; }
+.nf-manual-reglas div { padding: 10px 12px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; }
+.nf-manual-reglas span { font-size: 11px; color: #C7A83C; }
+.nf-manual-reglas h5 { margin: 2px 0 6px; }
+a.btn { text-decoration: none; display: inline-block; }
