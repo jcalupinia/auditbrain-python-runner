@@ -121,7 +121,7 @@ function Analisis({ prueba, onAccion, ocupado }) {
     <>
       <p className="muted">
         El texto propuesto es la conclusión preliminar del sitio: reemplácelo con su análisis. La conclusión
-        preliminar se exige para enviar a revisión (E9).
+        preliminar se exige para enviar a revisión.
       </p>
       <label className="nf-ctx-field">
         Análisis de resultados
@@ -132,8 +132,11 @@ function Analisis({ prueba, onAccion, ocupado }) {
         <textarea rows={3} value={conclusion} onChange={(e) => setConclusion(e.target.value)} />
       </label>
       <div className="nf-estudio-botones">
-        <button type="button" className="btn sm primary" disabled={ocupado} onClick={() => onAccion("save_analysis", { analysis, conclusion })}>
+        <button type="button" className="btn sm" disabled={ocupado} onClick={() => onAccion("save_analysis", { analysis, conclusion })}>
           Guardar análisis
+        </button>
+        <button type="button" className="btn sm primary" disabled={ocupado} onClick={() => onAccion("submit", { analysis, conclusion })}>
+          Enviar a revisión
         </button>
       </div>
     </>

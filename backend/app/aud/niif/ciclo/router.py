@@ -118,7 +118,9 @@ def crear(project_id: int, body: NuevaPruebaIn, db: Session = Depends(get_db), u
 @router.get("/pruebas/{prueba_id}")
 def leer(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
     p = _prueba(db, user, prueba_id)
-    lista = servicio.archivos(db, p.id)
+    todos = servicio.archivos(db, p.id)
+    lista = [a for a in todos if a.clase == "source"]
+    papeles = [a for a in todos if a.clase == "workpaper"]
     reqs = p.registro.get("requests") or []
     docs = [{"id": a.id, "requestId": a.requerimiento, "component": a.componente} for a in lista]
     rechazados = [a.id for a in lista if a.estado == "rechazado"]
@@ -130,6 +132,11 @@ def leer(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(req
              "subido_en": a.subido_en.isoformat() if a.subido_en else None}
             for a in lista
         ],
+        "papeles": [{"id": a.id, "nombre": a.nombre, "sha256": a.sha256, "tamano": a.tamano,
+                     "subido_por": a.subido_por, "subido_en": a.subido_en.isoformat() if a.subido_en else None}
+                    for a in papeles],
+        # Versión siguiente, si existe: una aprobada solo origina una.
+        "sucesora": db.execute(select(Prueba.id).where(Prueba.parent_id == p.id)).scalar(),
         # La cobertura la calcula el servidor con la regla del sitio: la pantalla solo la pinta.
         "cobertura": datos.tool_coverage(reqs, docs, rechazados) if reqs else [],
         "huecos": datos.tool_gaps(reqs, docs, rechazados) if reqs else [],
@@ -145,7 +152,56 @@ def leer(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(req
 @router.post("/pruebas/{prueba_id}/acciones")
 def accion(prueba_id: int, body: AccionIn, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
     p = _prueba(db, user, prueba_id)
+    # Acciones que no son un paso del circuito (route.ts las atiende antes).
+    especiales = {
+        "new_version": lambda: _salida(servicio.nueva_version(db, p, body.revision, user.email)),
+        "erase": lambda: _salida(servicio.encerar(db, p, body.revision, body.datos, user.email)),
+        "delete": lambda: servicio.eliminar(db, p, body.revision, body.datos),
+        "edit_context": lambda: _salida(servicio.editar_contexto(db, p, body.revision, body.datos, user.email)),
+    }
+    if body.accion in especiales:
+        return _regla(especiales[body.accion])
     return _salida(_regla(lambda: servicio.aplicar_accion(db, p, body.accion, body.revision, body.datos, user.email)))
+
+
+@router.post("/pruebas/{prueba_id}/papel")
+async def guardar_papel(
+    prueba_id: int,
+    revision: int = Form(...),
+    xlsx: UploadFile = File(...),
+    html: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_staff),
+) -> dict:
+    p = _prueba(db, user, prueba_id)
+    a = await xlsx.read(almacen.MAX_ARCHIVO + 1)
+    b = await html.read(almacen.MAX_ARCHIVO + 1)
+    return _salida(_regla(lambda: servicio.guardar_papel(db, p, revision, a, b, user.email)))
+
+
+@router.get("/bandejas")
+def bandejas(db: Session = Depends(get_db), user: User = Depends(require_staff)) -> list[dict]:
+    """Pruebas en revisión y aprobadas de los proyectos AUD que el usuario ve."""
+    from backend.app.context.models import Client, Project
+
+    if not user.organization_id:
+        return []
+    filas = db.execute(
+        select(Prueba, Project, Client)
+        .join(Project, Project.id == Prueba.project_id)
+        .join(Client, Client.id == Project.client_id)
+        .where(Project.organization_id == user.organization_id, Prueba.estado.in_(("EN_REVISION", "APROBADO")))
+        .order_by(Prueba.actualizada_en.desc())
+    ).all()
+    return [
+        {"id": p.id, "nombre": p.definicion.get("name"), "estado": p.estado, "version": p.version,
+         "proyecto": pr.name, "project_id": pr.id, "cliente": c.name,
+         "notas_abiertas": sum(1 for n in p.registro.get("notes") or [] if n.get("status") != "RESUELTO"),
+         "aprobada_por": p.registro.get("approvedBy"),
+         "actualizada_en": p.actualizada_en.isoformat() if p.actualizada_en else None}
+        for p, pr, c in filas
+        if (pr.module_code or "").upper() == "AUD" and user_can_access_project(db, user, pr)
+    ]
 
 
 @router.put("/fichas/{ficha_id}/definicion")

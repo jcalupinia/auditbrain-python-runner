@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 import hashlib
 import re
+import uuid
 
 from backend.app.aud.niif.ciclo import almacen, datos, reglas
 # Dentro de aplicar_accion el parámetro `datos` (cuerpo de la acción) tapa al
@@ -155,6 +156,8 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
     """Acciones de E6. Cada rama replica la del mismo nombre en route.ts."""
     if revision != p.revision:
         raise Conflicto("La prueba cambió mientras la editaba. Actualice y vuelva a intentarlo.")
+    if p.estado == "APROBADO":
+        raise ReglaIncumplida("La versión aprobada es inmutable.")
     t = _t(p)
     reg = copy.deepcopy(p.registro)
     anterior = p.estado
@@ -324,14 +327,82 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         p.estado = reglas.transicion({**reg, "state": p.estado}, accion)
         reg["analysis"] = datos_mod.preliminary({**reg, "definition": p.definicion})
 
-    elif accion == "save_analysis":
-        # `submit` (enviar a revisión) llega con E9.
+    elif accion in ("save_analysis", "submit"):
         if p.estado != "RESULTADOS_ANALIZADOS":
             raise ReglaIncumplida("Análisis no editable.")
         if not str(datos.get("analysis") or "").strip():
             raise ReglaIncumplida("Complete el análisis.")
         reg["analysis"] = str(datos["analysis"])[:50000]
         reg["conclusion"] = str(datos.get("conclusion") or "")[:20000]
+        if accion == "submit":
+            if not reg["conclusion"].strip():
+                raise ReglaIncumplida("Redacte la conclusión preliminar antes de enviar.")
+            p.estado = reglas.transicion({**reg, "state": p.estado, "definition": p.definicion}, accion)
+
+    # --- E9: revisión y aprobación (route.ts) ---------------------------------
+    elif accion == "return_to_data":
+        if p.estado not in ("PRUEBA_CONFIGURADA", "METODOLOGIA_APROBADA", "PRUEBA_EJECUTADA",
+                            "RESULTADOS_ANALIZADOS", "EN_REVISION") or len(str(datos.get("comment") or "").strip()) < 10:
+            raise ReglaIncumplida("Un revisor debe documentar el motivo de reapertura.")
+        p.estado = "DOCUMENTACION_RECIBIDA"
+        ahora = _ahora_iso()
+        reg.update(validation=None, reconciliation=None, run=None, runHash=None, analysis="", conclusion="",
+                   conclusionReviewed=False, exceptionReview="")
+        reg["notes"] = [{**n, "status": "ABIERTO", "response": "", "reopenedAt": ahora} for n in reg.get("notes") or []]
+
+    elif accion == "add_note":
+        if p.estado != "EN_REVISION":
+            raise ReglaIncumplida("Solo revisores pueden crear puntos en revisión.")
+        if not str(datos.get("comment") or "").strip():
+            raise ReglaIncumplida("Describa el punto.")
+        reg.setdefault("notes", []).append({
+            "id": uuid.uuid4().hex, "section": str(datos.get("section") or "General")[:150],
+            "comment": str(datos["comment"])[:6000], "createdBy": actor, "createdAt": _ahora_iso(),
+            "response": "", "status": "ABIERTO",
+        })
+
+    elif accion in ("respond_note", "resolve_note"):
+        if p.estado != "EN_REVISION":
+            raise ReglaIncumplida("La herramienta no está en revisión.")
+        nota = next((n for n in reg.get("notes") or [] if n.get("id") == datos.get("noteId")), None)
+        if nota is None:
+            raise ReglaIncumplida("Punto no encontrado.")
+        if accion == "respond_note":
+            if not str(datos.get("response") or "").strip():
+                raise ReglaIncumplida("Escriba una respuesta sustentada.")
+            nota.update(response=str(datos["response"])[:10000], respondedBy=actor, respondedAt=_ahora_iso(), status="RESPONDIDO")
+        else:
+            if nota.get("status") != "RESPONDIDO" or not str(nota.get("response") or "").strip():
+                raise ReglaIncumplida("Un revisor debe resolver un punto respondido.")
+            nota.update(status="RESUELTO", resolvedBy=actor, resolvedAt=_ahora_iso())
+
+    elif accion == "approve":
+        conclusion = str(datos.get("conclusion") or "")[:20000]
+        if not conclusion.strip() or datos.get("conclusionReviewed") is not True:
+            raise ReglaIncumplida("Revise y confirme la conclusión final.")
+        reg["conclusion"] = conclusion
+        reg["exceptionReview"] = str(datos.get("exceptionReview") or "").strip()
+        if (reg.get("run") or {}).get("exceptions") and len(reg["exceptionReview"]) < 10:
+            raise ReglaIncumplida("Documente la evaluación de excepciones antes de cerrar.")
+        reg["conclusionReviewed"] = True
+        p.estado = reglas.transicion({**reg, "state": p.estado, "definition": p.definicion}, accion)
+        reg["approvedBy"] = actor
+        reg["approvedAt"] = _ahora_iso()
+        # El papel final (Excel y HTML) lo arma el navegador con el exportador
+        # del sitio desde este registro ya aprobado y lo sube a guardar_papel().
+        reg["artifacts"] = None
+
+    elif accion == "approve_template":
+        if not reg.get("sourcesVerified") or p.estado in ("PRUEBA_SELECCIONADA", "PROGRAMA_PROPUESTO"):
+            raise ReglaIncumplida("Apruebe el programa y sus fuentes antes del diseño.")
+        parametros = {"cutoff": reg["engagement"]["cutoff"],
+                      "buckets": datos.get("buckets") if isinstance(datos.get("buckets"), list) else [],
+                      "basis": str(datos.get("basis") or "").strip()}
+        if not parametros["basis"]:
+            raise ReglaIncumplida("Sustente la metodología de la plantilla.")
+        if p.definicion.get("id") == "pce":
+            datos_mod.check_buckets(parametros)
+        reg["templateApproved"] = {"by": actor, "at": _ahora_iso(), "parameters": parametros}
 
     else:
         raise ReglaIncumplida("Acción no disponible en el estado actual.")
@@ -434,3 +505,185 @@ def guardar_definicion_ficha(db: Session, ficha: NiifFicha, definicion: dict, fi
     db.commit()
     db.refresh(ficha)
     return ficha
+
+
+# --- E9: papel aprobado, versiones, contexto, encerar y eliminar -------------
+
+def guardar_papel(db: Session, p: Prueba, revision: int, xlsx: bytes, html: bytes, actor: str) -> Prueba:
+    """El papel aprobado se guarda una sola vez, con su huella, y ya no cambia.
+
+    Lo arma el navegador con el exportador del sitio a partir del registro que
+    el servidor ya aprobó (en Render no corre Node).
+    """
+    if revision != p.revision:
+        raise Conflicto("La prueba cambió mientras la editaba. Actualice y vuelva a intentarlo.")
+    if p.estado != "APROBADO":
+        raise ReglaIncumplida("Solo una versión aprobada tiene papel final.")
+    reg = copy.deepcopy(p.registro)
+    if reg.get("artifacts"):
+        raise ReglaIncumplida("El papel aprobado ya está guardado y no se reemplaza.")
+    if not xlsx.startswith(b"PK") or not 0 < len(xlsx) <= almacen.MAX_ARCHIVO:
+        raise ReglaIncumplida("El Excel del papel aprobado no es válido.")
+    if b"<html" not in html[:2000].lower() or len(html) > almacen.MAX_ARCHIVO:
+        raise ReglaIncumplida("El HTML del papel aprobado no es válido.")
+    artefactos = {}
+    for ext, contenido in (("xlsx", xlsx), ("html", html)):
+        huella = hashlib.sha256(contenido).hexdigest()
+        nombre = f"Papel_aprobado_v{p.version}.{ext}"
+        try:
+            ruta = almacen.guardar(p.id, f"papel_v{p.version}_{huella[:16]}.{ext}", contenido)
+        except almacen.SinEspacio as e:
+            raise ReglaIncumplida(str(e))
+        a = PruebaArchivo(prueba_id=p.id, requerimiento="PAPEL", nombre=nombre,
+                          tipo=almacen.TIPOS.get(ext, "text/html"), tamano=len(contenido), sha256=huella,
+                          ruta=ruta, clase="workpaper", subido_por=actor)
+        db.add(a)
+        db.flush()
+        artefactos[ext] = {"id": a.id, "hash": huella, "nombre": nombre}
+    reg["artifacts"] = artefactos
+    p.registro = reg
+    p.revision += 1
+    _evento(db, p, "workpaper", "APROBADO", actor, "Papel aprobado guardado con su huella.")
+    db.commit()
+    db.refresh(p)
+    return p
+
+
+def nueva_version(db: Session, old: Prueba, revision: int, actor: str) -> Prueba:
+    """Puerto de la acción ``new_version`` de route.ts."""
+    if revision != old.revision:
+        raise Conflicto("La prueba cambió mientras la editaba. Actualice y vuelva a intentarlo.")
+    if old.estado != "APROBADO":
+        raise ReglaIncumplida("Solo una versión aprobada origina una nueva versión.")
+    if db.execute(select(Prueba.id).where(Prueba.parent_id == old.id)).first():
+        raise ReglaIncumplida("Esta versión ya tiene una versión sucesora. Abra la más reciente.")
+    r = old.registro
+    registro = {
+        "methodologyVersion": VERSIONES["methodologyVersion"], "contextOverride": r.get("contextOverride") or False,
+        "engagement": r["engagement"], "country": r["country"], "taxApplicable": r.get("taxApplicable", False),
+        "taxScope": r.get("taxScope", ""), "program": [],
+        "sources": [{**x, "verified": False} for x in r.get("sources") or []], "sourcesVerified": False,
+        "requests": [], "rows": [], "parameters": r.get("parameters") or {}, "notes": [], "analysis": "",
+        "conclusion": "", "conclusionReviewed": False, "createdAt": _ahora_iso(), "createdBy": actor,
+    }
+    p = Prueba(project_id=old.project_id, parent_id=old.id, version=old.version + 1, estado="PRUEBA_SELECCIONADA",
+               origen=old.origen, definicion=old.definicion, registro=registro, revision=1, creada_por=actor)
+    db.add(p)
+    db.flush()
+    _evento(db, p, "new_version", None, actor, f"Versión anterior: v{old.version} (prueba {old.id})")
+    db.commit()
+    db.refresh(p)
+    return p
+
+
+def _confirma_cliente(p: Prueba, datos: dict) -> bool:
+    return str(datos.get("confirmClient") or "") == str(p.registro["engagement"].get("client") or "")
+
+
+def encerar(db: Session, p: Prueba, revision: int, datos: dict, actor: str) -> Prueba:
+    """Puerto de ``eraseTool``: borra evidencia, resultados e historial; la
+    prueba queda en la lista, lista para empezar de nuevo."""
+    if revision != p.revision:
+        raise Conflicto("La prueba cambió mientras la editaba. Actualice y vuelva a intentarlo.")
+    if not _confirma_cliente(p, datos) or datos.get("downloadConfirmed") is not True:
+        raise ReglaIncumplida("Confirme el cliente y que conserva el archivo o acepta eliminar la prueba sin resultados.")
+    r = p.registro
+    anterior = p.estado
+    p.registro = {
+        "engagement": r["engagement"], "country": r["country"], "taxApplicable": r.get("taxApplicable", False),
+        "taxScope": "", "sources": reglas.fuentes_oficiales(p.definicion, r["engagement"]["framework"], r["country"],
+                                                             bool(r.get("taxApplicable"))),
+        "sourcesVerified": False, "program": [], "requests": [], "rows": [], "run": None,
+        "parameters": {"cutoff": r["engagement"]["cutoff"], "buckets": []}, "notes": [], "analysis": "",
+        "conclusion": "", "conclusionReviewed": False, "evidenceStatus": {},
+        "methodologyVersion": VERSIONES["methodologyVersion"], "contextOverride": r.get("contextOverride") or False,
+        "createdAt": r.get("createdAt"), "createdBy": r.get("createdBy"), "erasedAt": _ahora_iso(),
+    }
+    p.estado = "PRUEBA_SELECCIONADA"
+    for a in archivos(db, p.id):
+        db.delete(a)
+    for e in eventos(db, p.id):
+        db.delete(e)
+    p.revision += 1
+    _evento(db, p, "erase", anterior, actor)
+    db.commit()
+    # Los archivos se borran del disco después de confirmar la base: si esto
+    # fallara quedaría una carpeta huérfana, nunca una fila sin su archivo.
+    almacen.borrar_prueba(p.id)
+    db.refresh(p)
+    return p
+
+
+def eliminar(db: Session, p: Prueba, revision: int, datos: dict) -> dict:
+    """Puerto de ``deleteTool``: quita la prueba con su evidencia e historial."""
+    if revision != p.revision:
+        raise Conflicto("La prueba cambió mientras la editaba. Actualice y vuelva a intentarlo.")
+    if not _confirma_cliente(p, datos) or datos.get("deleteConfirmed") is not True:
+        raise ReglaIncumplida("Escriba el nombre del cliente y confirme que la eliminación es definitiva.")
+    if p.estado == "APROBADO" and datos.get("approvedConfirmed") is not True:
+        raise ReglaIncumplida("Esta versión está aprobada y es evidencia del encargo. Confírmelo expresamente para eliminarla.")
+    if db.execute(select(Prueba.id).where(Prueba.parent_id == p.id)).first():
+        raise Conflicto("Esta prueba tiene una versión sucesora. Elimine primero la más reciente.")
+    salida = {"deleted": True, "id": p.id, "name": p.definicion.get("name") or "Prueba",
+              "client": p.registro["engagement"].get("client") or ""}
+    for a in archivos(db, p.id):
+        db.delete(a)
+    for e in eventos(db, p.id):
+        db.delete(e)
+    db.delete(p)
+    db.commit()
+    almacen.borrar_prueba(salida["id"])
+    return salida
+
+
+def editar_contexto(db: Session, old: Prueba, revision: int, datos: dict, actor: str) -> Prueba:
+    """Puerto de ``editContext``: cambiar la ficha del encargo para esta prueba,
+    para varias o para todas las abiertas del proyecto. Las afectadas vuelven a
+    empezar: la ficha cambia fuentes, requerimientos y datos."""
+    if revision != old.revision:
+        raise Conflicto("La prueba cambió. Actualice antes de guardar.")
+    if old.estado == "APROBADO":
+        raise Conflicto("Esta versión está cerrada. Cree otra versión antes de editar.")
+    ctx = reglas.validar_ficha_encargo(datos.get("context") or {}, completa=True)
+    alcance = datos.get("scope")
+    if alcance not in ("one", "selected", "all"):
+        raise ReglaIncumplida("Seleccione el alcance del cambio.")
+    ctx["reuseScope"] = alcance
+    candidatas = list(db.execute(select(Prueba).where(Prueba.project_id == old.project_id)).scalars())
+    elegidas = [old.id] if alcance == "one" else datos.get("toolIds") if alcance == "selected" else []
+    if alcance == "selected" and (not isinstance(elegidas, list) or not elegidas or old.id not in elegidas):
+        raise ReglaIncumplida("Seleccione esta prueba y las adicionales.")
+    if any(i not in {c.id for c in candidatas} for i in elegidas):
+        raise ReglaIncumplida("Solo se pueden seleccionar pruebas de este encargo.")
+    objetivo = [c for c in candidatas
+                if (not c.registro.get("contextOverride") or c.id == old.id if alcance == "all" else c.id in elegidas)
+                and c.estado != "APROBADO"]
+    if not any(c.id == old.id for c in objetivo) or len(objetivo) > 50:
+        raise ReglaIncumplida("Seleccione entre 1 y 50 pruebas abiertas.")
+    if alcance == "selected" and len(objetivo) != len(set(elegidas)):
+        raise Conflicto("La selección incluye versiones cerradas.")
+    if any(c.definicion.get("id") == "pce" and ctx["framework"] != "NIIF completas" for c in objetivo):
+        raise ReglaIncumplida("Una prueba PCE seleccionada requiere NIIF completas; use un diseño específico para PYMES.")
+    afectadas = ", ".join(str(c.id) for c in objetivo)
+    for c in objetivo:
+        reg = invalidar(copy.deepcopy(c.registro), "Cambió la ficha del encargo. Revise fuentes, requerimientos y datos.")
+        reg.update(
+            engagement={**reg["engagement"], **ctx}, country=ctx["country"], contextOverride=alcance != "all",
+            methodologyVersion=VERSIONES["methodologyVersion"], parameters={"cutoff": ctx["cutoff"], "buckets": []},
+            program=[], sources=reglas.fuentes_oficiales(c.definicion, ctx["framework"], ctx["country"],
+                                                         bool(reg.get("taxApplicable"))),
+            sourcesVerified=False, researchedAt=None, methodologyAgent=None, requests=[],
+        )
+        anterior = c.estado
+        c.registro = reg
+        c.estado = "PRUEBA_SELECCIONADA"
+        c.revision += 1
+        _evento(db, c, "edit_context", anterior, actor, f"Alcance {alcance}; pruebas afectadas: {afectadas}")
+    if alcance == "all":
+        f = db.get(FichaEncargo, old.project_id)
+        if f is not None:
+            f.datos = {**f.datos, **ctx}
+            f.actualizada_por = actor
+    db.commit()
+    db.refresh(old)
+    return old
