@@ -37,8 +37,10 @@ const ETAPA_DE_ESTADO = {
 export const etapaDe = (estado) => ETAPA_DE_ESTADO[estado] ?? 0;
 
 // «PROGRAMA_PROPUESTO» → «Programa propuesto».
+// Los estados del sitio van sin tildes (son códigos); al mostrarlos se ponen.
+const TILDES = { documentacion: "documentación", metodologia: "metodología", revision: "revisión" };
 export const nombreEstado = (estado) => {
-  const t = String(estado || "").toLowerCase().replace(/_/g, " ");
+  const t = String(estado || "").toLowerCase().split("_").map((w) => TILDES[w] || w).join(" ");
   return t.charAt(0).toUpperCase() + t.slice(1);
 };
 
@@ -75,3 +77,31 @@ export const fichaInicial = (cliente) => ({
   reuseScope: "one",
   deferredTax: false,
 });
+
+// --- E7: requerimiento y documentación -------------------------------------
+
+// «Quito, Guayaquil» → ["Quito", "Guayaquil"]: sin vacíos ni repetidos.
+export const componentesDeTexto = (texto) =>
+  [...new Set(String(texto || "").split(/[,;\n]/).map((x) => x.trim()).filter(Boolean))];
+
+// Solo XLSX y CSV sirven como población (la misma regla del lector del sitio).
+export const esTabular = (nombre) => /\.(xlsx|csv)$/i.test(String(nombre || ""));
+
+const normal = (t) =>
+  String(t ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]/g, "");
+
+// Propone el mapeo campo → columna comparando la etiqueta y el código del campo
+// con los encabezados. Es solo una sugerencia: el auditor la revisa.
+export function mapeoSugerido(encabezados, campos) {
+  const cols = (encabezados || []).map(normal);
+  const mapa = {};
+  for (const f of campos || []) {
+    const i = cols.findIndex((c) => c && (c === normal(f.label) || c === normal(f.key)));
+    if (i >= 0) mapa[f.key] = i;
+  }
+  return mapa;
+}
+
+// Los primeros errores de validación, legibles: «Fila 8 · Cantidad: número inválido.»
+export const erroresLegibles = (validacion, max = 20) =>
+  (validacion?.errors || []).slice(0, max).map((e) => `Fila ${e.row} · ${e.message}`);

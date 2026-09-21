@@ -86,3 +86,33 @@ class PruebaEvento(Base):
     actor: Mapped[str | None] = mapped_column(String(320), nullable=True)
     comentario: Mapped[str | None] = mapped_column(Text, nullable=True)
     creado_en: Mapped[datetime.datetime] = mapped_column(DateTime, default=_ahora, nullable=False)
+
+
+class PruebaArchivo(Base):
+    """Evidencia recibida para un requerimiento de la prueba (E7).
+
+    El archivo vive en el disco persistente (ver ``almacen.py``); aquí queda su
+    huella y a qué requerimiento y componente responde. ``estado`` permite
+    rechazarlo sin borrarlo: sigue siendo evidencia de lo recibido, pero no
+    cubre el requerimiento (misma regla del sitio).
+    """
+
+    __tablename__ = "aud_prueba_archivos"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    prueba_id: Mapped[int] = mapped_column(
+        ForeignKey("aud_pruebas.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    requerimiento: Mapped[str] = mapped_column(String(40), nullable=False)
+    componente: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    nombre: Mapped[str] = mapped_column(String(200), nullable=False)
+    tipo: Mapped[str] = mapped_column(String(120), nullable=False)
+    tamano: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    ruta: Mapped[str] = mapped_column(String(400), nullable=False)
+    # "source" = evidencia del cliente.
+    clase: Mapped[str] = mapped_column(String(16), default="source", nullable=False)
+    estado: Mapped[str] = mapped_column(String(16), default="recibido", nullable=False)
+    # Distingue auditor de cliente cuando llegue la carga desde su portal (fase 2).
+    subido_por: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    subido_en: Mapped[datetime.datetime] = mapped_column(DateTime, default=_ahora, nullable=False)

@@ -6,13 +6,14 @@ regla que el resto del portal (``user_can_access_project``).
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.aud.niif.ciclo import servicio
-from backend.app.aud.niif.ciclo.models import Prueba
+from backend.app.aud.niif.ciclo import almacen, datos, servicio
+from backend.app.aud.niif.ciclo.models import Prueba, PruebaArchivo
 from backend.app.aud.niif.ciclo.reglas import ReglaIncumplida
 from backend.app.aud.niif.models import NiifFicha
 from backend.app.auth.deps import require_staff
@@ -115,8 +116,21 @@ def crear(project_id: int, body: NuevaPruebaIn, db: Session = Depends(get_db), u
 @router.get("/pruebas/{prueba_id}")
 def leer(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
     p = _prueba(db, user, prueba_id)
+    lista = servicio.archivos(db, p.id)
+    reqs = p.registro.get("requests") or []
+    docs = [{"id": a.id, "requestId": a.requerimiento, "component": a.componente} for a in lista]
+    rechazados = [a.id for a in lista if a.estado == "rechazado"]
     return {
         **_salida(p),
+        "archivos": [
+            {"id": a.id, "requerimiento": a.requerimiento, "componente": a.componente, "nombre": a.nombre,
+             "tamano": a.tamano, "sha256": a.sha256, "estado": a.estado, "subido_por": a.subido_por,
+             "subido_en": a.subido_en.isoformat() if a.subido_en else None}
+            for a in lista
+        ],
+        # La cobertura la calcula el servidor con la regla del sitio: la pantalla solo la pinta.
+        "cobertura": datos.tool_coverage(reqs, docs, rechazados) if reqs else [],
+        "huecos": datos.tool_gaps(reqs, docs, rechazados) if reqs else [],
         "eventos": [
             {"accion": e.accion, "estado_anterior": e.estado_anterior, "estado_nuevo": e.estado_nuevo,
              "actor": e.actor, "comentario": e.comentario, "revision": e.revision,
@@ -144,3 +158,33 @@ def guardar_definicion(ficha_id: int, body: DefinicionIn, db: Session = Depends(
     except (ValueError, KeyError, ArithmeticError, StopIteration) as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e) or "La definición no se pudo ejecutar.")
     return {"id": ficha.id, "definicion_guardada": True}
+
+
+@router.post("/pruebas/{prueba_id}/archivos", status_code=status.HTTP_201_CREATED)
+async def subir(
+    prueba_id: int,
+    revision: int = Form(...),
+    requerimiento: str = Form(...),
+    componente: str = Form(""),
+    archivo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_staff),
+) -> dict:
+    p = _prueba(db, user, prueba_id)
+    contenido = await archivo.read(almacen.MAX_ARCHIVO + 1)
+    a = _regla(lambda: servicio.subir_archivo(db, p, revision, requerimiento, componente, archivo.filename or "", contenido, user.email))
+    return {"id": a.id, "sha256": a.sha256, "revision": p.revision}
+
+
+@router.get("/pruebas/{prueba_id}/archivos/{archivo_id}")
+def descargar(prueba_id: int, archivo_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> Response:
+    p = _prueba(db, user, prueba_id)
+    a = db.get(PruebaArchivo, archivo_id)
+    if a is None or a.prueba_id != p.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Archivo no encontrado.")
+    try:
+        contenido = almacen.leer(a.ruta)
+    except FileNotFoundError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="El archivo ya no está en el almacenamiento.")
+    nombre = a.nombre.encode("ascii", "replace").decode().replace('"', "_")
+    return Response(contenido, media_type=a.tipo, headers={"Content-Disposition": f'attachment; filename="{nombre}"'})

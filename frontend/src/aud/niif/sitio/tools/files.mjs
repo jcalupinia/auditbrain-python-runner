@@ -2,7 +2,16 @@ import {unzipSync,strFromU8} from 'fflate';
 import {XMLParser} from 'fast-xml-parser';
 import {MAX_ROWS} from './domain.mjs';
 const arr=x=>x===undefined?[]:Array.isArray(x)?x:[x];
-const parser=new XMLParser({ignoreAttributes:false,attributeNamePrefix:'@',parseTagValue:false,processEntities:true});
+// Texto de un nodo <t>. Con atributos (xml:space="preserve") el parser lo entrega
+// como objeto, y sin texto ese objeto no trae '#text': antes se colaba como
+// "[object Object]". Es justo como este mismo sitio escribe las celdas vacías
+// de sus Excel, así que al volver a subir un libro exportado aquí sus filas
+// vacías dejaban de serlo y la validación fallaba.
+const texto=t=>t!==null&&typeof t==='object'?(t['#text']??''):(t??'');
+// htmlEntities: sin él, las referencias numéricas (&#243; = ó) quedaban sin
+// decodificar. openpyxl y muchos exportadores de ERP escriben así los acentos:
+// «Código» se leía «C&#243;digo».
+const parser=new XMLParser({ignoreAttributes:false,attributeNamePrefix:'@',parseTagValue:false,processEntities:true,htmlEntities:true});
 function xml(bytes){const s=strFromU8(bytes);if(/<!DOCTYPE|<!ENTITY/i.test(s))throw Error('XML con entidades no permitido.');return parser.parse(s);}
 export function parseCsv(text,delimiter){
  if(text.includes('\0'))throw Error('Archivo de texto inválido.');
@@ -17,9 +26,9 @@ export function readSpreadsheet(bytes,name){
  if(!/\.xlsx$/i.test(name))throw Error('Para datos tabulares use XLSX o CSV.');
  let expanded=0;const z=unzipSync(bytes,{filter:e=>{expanded+=e.originalSize;if(expanded>60*1024*1024||e.originalSize>30*1024*1024)throw Error('Libro demasiado grande al descomprimir.');return /^(xl\/(workbook.xml|_rels\/workbook.xml.rels|sharedStrings.xml|worksheets\/sheet\d+.xml))$/.test(e.name);}});
  if(!z['xl/workbook.xml']||!z['xl/_rels/workbook.xml.rels'])throw Error('El contenido no es un libro XLSX válido.');
- const book=xml(z['xl/workbook.xml']),rels=arr(xml(z['xl/_rels/workbook.xml.rels']).Relationships?.Relationship),shared=z['xl/sharedStrings.xml']?arr(xml(z['xl/sharedStrings.xml']).sst?.si).map(s=>s.t!==undefined?(s.t?.['#text']??s.t):arr(s.r).map(r=>r.t?.['#text']??r.t??'').join('')):[];
+ const book=xml(z['xl/workbook.xml']),rels=arr(xml(z['xl/_rels/workbook.xml.rels']).Relationships?.Relationship),shared=z['xl/sharedStrings.xml']?arr(xml(z['xl/sharedStrings.xml']).sst?.si).map(s=>s.t!==undefined?texto(s.t):arr(s.r).map(r=>texto(r.t)).join('')):[];
  const sheets=arr(book.workbook?.sheets?.sheet).map(s=>{const rel=rels.find(r=>r['@Id']===s['@r:id']);let path=rel?.['@Target'];if(!path||rel['@TargetMode']==='External')throw Error('Referencia de hoja inválida.');path=path.startsWith('/')?path.slice(1):'xl/'+path.replace(/^\.\//,'');if(!z[path])throw Error('No se pudo leer la hoja '+s['@name']);
- const rows=[];for(const row of arr(xml(z[path]).worksheet?.sheetData?.row)){const n=Number(row['@r']);if(!Number.isInteger(n)||n>MAX_ROWS+100||n<1)throw Error(`La hoja excede ${MAX_ROWS} registros.`);const cells=[];for(const cell of arr(row.c)){const address=cell['@r']||'';const letters=address.match(/^[A-Z]+/)?.[0];if(!letters)throw Error('Celda sin referencia.');let col=0;for(const l of letters)col=col*26+l.charCodeAt(0)-64;if(col>150)throw Error('El límite es 150 columnas.');let v=cell.v??'';if(cell['@t']==='s')v=shared[Number(v)]??'';if(cell['@t']==='inlineStr')v=cell.is?.t?.['#text']??cell.is?.t??arr(cell.is?.r).map(r=>r.t??'').join('');if(cell.f!==undefined&&cell.v===undefined)v='FORMULA_SIN_VALOR_GUARDADO';if(cell['@t']==='e')v='ERROR_EXCEL: '+v;cells[col-1]=String(v);}rows[n-1]=cells;}
+ const rows=[];for(const row of arr(xml(z[path]).worksheet?.sheetData?.row)){const n=Number(row['@r']);if(!Number.isInteger(n)||n>MAX_ROWS+100||n<1)throw Error(`La hoja excede ${MAX_ROWS} registros.`);const cells=[];for(const cell of arr(row.c)){const address=cell['@r']||'';const letters=address.match(/^[A-Z]+/)?.[0];if(!letters)throw Error('Celda sin referencia.');let col=0;for(const l of letters)col=col*26+l.charCodeAt(0)-64;if(col>150)throw Error('El límite es 150 columnas.');let v=cell.v??'';if(cell['@t']==='s')v=shared[Number(v)]??'';if(cell['@t']==='inlineStr')v=cell.is?.t!==undefined?texto(cell.is.t):arr(cell.is?.r).map(r=>texto(r.t)).join('');if(cell.f!==undefined&&cell.v===undefined)v='FORMULA_SIN_VALOR_GUARDADO';if(cell['@t']==='e')v='ERROR_EXCEL: '+v;cells[col-1]=String(v);}rows[n-1]=cells;}
  return {name:s['@name'],date1904:['1','true'].includes(String(book.workbook?.workbookPr?.['@date1904'])),rows:Array.from({length:rows.length},(_,i)=>rows[i]||[])};});
  if(!sheets.length)throw Error('Libro sin hojas.');return {sheets};
 }

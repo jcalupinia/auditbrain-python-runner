@@ -17,6 +17,9 @@ describe("etapas de una prueba", () => {
 
   it("nombra el estado en español legible", () => {
     expect(nombreEstado("PROGRAMA_PROPUESTO")).toBe("Programa propuesto");
+    expect(nombreEstado("DOCUMENTACION_RECIBIDA")).toBe("Documentación recibida");
+    expect(nombreEstado("METODOLOGIA_APROBADA")).toBe("Metodología aprobada");
+    expect(nombreEstado("EN_REVISION")).toBe("En revisión");
   });
 });
 
@@ -40,5 +43,30 @@ describe("fuentes y procedimientos", () => {
     const conNia = alternarProcedimiento(fuentes, 1, "VNR-02");
     expect(procedimientosSinFuente(programa, conNia)).toEqual(["VNR-02"]);
     expect(procedimientosSinFuente(programa, [{ ...conNia[0] }, { ...conNia[1], verified: true }])).toEqual([]);
+  });
+});
+
+import { componentesDeTexto, erroresLegibles, esTabular, mapeoSugerido } from "./cicloLogic";
+
+describe("requerimiento y documentación", () => {
+  it("convierte el texto de componentes en una lista limpia", () => {
+    expect(componentesDeTexto(" Quito, Guayaquil ;Quito\n\n Cuenca")).toEqual(["Quito", "Guayaquil", "Cuenca"]);
+    expect(componentesDeTexto("")).toEqual([]);
+  });
+
+  it("solo XLSX y CSV sirven como población", () => {
+    expect(esTabular("mayor.XLSX")).toBe(true);
+    expect(esTabular("mayor.csv")).toBe(true);
+    expect(esTabular("mayor.pdf")).toBe(false);
+  });
+
+  it("sugiere el mapeo por etiqueta o código, sin tildes ni mayúsculas", () => {
+    const campos = [{ key: "id", label: "Código" }, { key: "quantity", label: "Cantidad" }, { key: "unit_cost", label: "Costo unitario" }];
+    expect(mapeoSugerido(["CODIGO", "Descripción", "cantidad", "Costo Unitario"], campos)).toEqual({ id: 0, quantity: 2, unit_cost: 3 });
+    expect(mapeoSugerido(["x"], campos)).toEqual({});
+  });
+
+  it("resume los errores de validación con su fila", () => {
+    expect(erroresLegibles({ errors: [{ row: 8, message: "Cantidad: número inválido." }] })).toEqual(["Fila 8 · Cantidad: número inválido."]);
   });
 });

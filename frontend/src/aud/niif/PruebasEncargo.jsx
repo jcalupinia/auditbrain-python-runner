@@ -10,6 +10,7 @@ import {
   nombreEstado,
   procedimientosSinFuente,
 } from "./cicloLogic";
+import { Documentacion, EditorRequerimiento } from "./CicloDocumentacion";
 import { ContextFields } from "./ContextoEncargo";
 
 /*
@@ -272,10 +273,32 @@ function Prueba({ id, onCambio }) {
           <h5>Programa de trabajo</h5>
           <Programa prueba={prueba} onAccion={accion} ocupado={ocupado} />
           {prueba.estado === "PROGRAMA_APROBADO" && (
-            <p className="nf-nota">
-              Programa aprobado. La etapa siguiente —requerimiento al cliente y evidencia— llega con E7.
-            </p>
+            <div className="nf-estudio-botones">
+              <button type="button" className="btn sm primary" disabled={ocupado} onClick={() => accion("generate_request")}>
+                Generar requerimiento al cliente
+              </button>
+            </div>
           )}
+        </section>
+      )}
+
+      {etapa > 2 && (
+        <details>
+          <summary>Programa de trabajo aprobado ({reg.program.length} procedimientos)</summary>
+          <ul>{reg.program.map((p) => <li key={p.code}>{p.code} · {p.objective} · {p.source?.category} {p.source?.document}</li>)}</ul>
+        </details>
+      )}
+
+      {prueba.estado === "REQUERIMIENTO_GENERADO" && (
+        <section>
+          <h5>Requerimiento al cliente</h5>
+          <EditorRequerimiento prueba={prueba} onAccion={accion} ocupado={ocupado} />
+        </section>
+      )}
+
+      {["REQUERIMIENTO_APROBADO", "DOCUMENTACION_RECIBIDA", "DOCUMENTACION_VALIDADA"].includes(prueba.estado) && (
+        <section>
+          <Documentacion prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
         </section>
       )}
 
