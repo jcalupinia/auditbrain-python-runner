@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { CATALOGO, DESTINO, VERSIONES, catalogoJson, contenido, serializar, versionesJson } from "./generar.mjs";
+import * as datos from "./generarDatos.mjs";
 
 // Normaliza finales de línea: con core.autocrlf=true el archivo puede salir con
 // CRLF según la máquina.
@@ -18,6 +19,10 @@ describe("espejo de las reglas del sitio para el backend Python", () => {
 
   it("versiones.json está al día con la metodología y el motor del sitio", () => {
     expect(leer(VERSIONES), "regenere: node frontend/src/aud/niif/espejo/generar.mjs").toBe(versionesJson());
+  });
+
+  it("espejo_datos.json está al día con las copias del sitio", () => {
+    expect(leer(datos.DESTINO), "regenere: node frontend/src/aud/niif/espejo/generarDatos.mjs").toBe(datos.serializar(datos.contenido()));
   });
 
   it("cubre todos los mensajes de error de la máquina de estados", () => {

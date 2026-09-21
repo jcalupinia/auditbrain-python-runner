@@ -3123,6 +3123,28 @@
    "esperado": {
     "error": "Número inválido: use punto decimal, sin separadores de miles y hasta 6 decimales."
    }
+  },
+  {
+   "v": "123456789.123456",
+   "esperado": {
+    "ok": {
+     "bigint": "123456789123456"
+    }
+   }
+  },
+  {
+   "v": "1234567890.123456",
+   "esperado": {
+    "error": "Máximo 15 dígitos significativos para compatibilidad con Excel."
+   }
+  },
+  {
+   "v": "-000123456789.123456",
+   "esperado": {
+    "ok": {
+     "bigint": "-123456789123456"
+    }
+   }
   }
  ],
  "formateados": [
