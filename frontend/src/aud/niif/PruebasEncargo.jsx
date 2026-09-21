@@ -12,6 +12,7 @@ import {
 } from "./cicloLogic";
 import { Documentacion, EditorRequerimiento } from "./CicloDocumentacion";
 import { Ejecucion } from "./CicloEjecucion";
+import { Revision } from "./CicloRevision";
 import { ContextFields } from "./ContextoEncargo";
 
 /*
@@ -206,7 +207,7 @@ function Programa({ prueba, onAccion, ocupado }) {
   );
 }
 
-function Prueba({ id, onCambio }) {
+export function Prueba({ id, onCambio, onAbrir }) {
   const [prueba, setPrueba] = useState(null);
   const [error, setError] = useState("");
   const [ocupado, setOcupado] = useState(false);
@@ -225,9 +226,12 @@ function Prueba({ id, onCambio }) {
     setOcupado(true);
     setError("");
     try {
-      await api.cicloAccion(prueba.id, nombre, prueba.revision, datos);
-      await cargar();
+      const r = await api.cicloAccion(prueba.id, nombre, prueba.revision, datos);
       onCambio();
+      // Una versión nueva es otra prueba; una eliminada ya no existe.
+      if (nombre === "new_version") return onAbrir?.(r.id);
+      if (nombre === "delete") return onAbrir?.(null);
+      await cargar();
     } catch (e) {
       setError(e.message || String(e));
     } finally {
@@ -311,6 +315,10 @@ function Prueba({ id, onCambio }) {
           <Ejecucion prueba={prueba} onAccion={accion} ocupado={ocupado} />
         </section>
       )}
+
+      <section>
+        <Revision prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
+      </section>
 
       <details>
         <summary>Bitácora ({prueba.eventos.length})</summary>
@@ -431,7 +439,7 @@ export default function PruebasEncargo({ proyecto, cliente }) {
             )}
           </section>
 
-          {abierta && <Prueba key={abierta} id={abierta} onCambio={recargar} />}
+          {abierta && <Prueba key={abierta} id={abierta} onCambio={recargar} onAbrir={setAbierta} />}
         </>
       )}
     </div>

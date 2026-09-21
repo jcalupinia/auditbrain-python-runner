@@ -293,6 +293,19 @@ export async function cicloBajarArchivo(pruebaId, archivoId) {
   return new Uint8Array(await res.arrayBuffer());
 }
 
+// E9: el papel aprobado lo arma el navegador con el exportador del sitio y el
+// servidor lo guarda una sola vez, con su huella.
+export async function cicloSubirPapel(pruebaId, revision, xlsx, html) {
+  const fd = new FormData();
+  fd.append("revision", String(revision));
+  fd.append("xlsx", new Blob([xlsx], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), "papel.xlsx");
+  fd.append("html", new Blob([html], { type: "text/html" }), "papel.html");
+  return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/papel`, { method: "POST", headers: authHeaders(), body: fd }));
+}
+export async function cicloBandejas() {
+  return parse(await apiFetch(`${CICLO}/bandejas`, { headers: authHeaders() }));
+}
+
 export async function niifGuardarDefinicion(fichaId, definicion, filas, parametros) {
   return parse(await apiFetch(`${CICLO}/fichas/${fichaId}/definicion`, jsonPost("PUT", { definicion, filas, parametros: parametros || {} })));
 }

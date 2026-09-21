@@ -10,9 +10,11 @@ const ConsolaArchivos = lazy(() => import("./ConsolaArchivos.jsx"));
 const ReconstruirExcel = lazy(() => import("./ReconstruirExcel.jsx"));
 const ManualMetodologia = lazy(() => import("./ManualMetodologia.jsx"));
 const PruebasEncargo = lazy(() => import("./PruebasEncargo.jsx"));
+const Bandejas = lazy(() => import("./Bandejas.jsx"));
 
 const SECCIONES = [
   { id: "pruebas", label: "Pruebas del encargo", Vista: PruebasEncargo },
+  { id: "bandejas", label: "En revisión y aprobados", Vista: Bandejas },
   { id: "fichas", label: "Diseñar fichas", Vista: GeneradorHerramientasNIIF },
   { id: "recorrido", label: "Recorrido VNR", Vista: RecorridoVNR },
   { id: "consola", label: "Consola de archivos", Vista: ConsolaArchivos },
