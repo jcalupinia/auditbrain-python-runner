@@ -1,0 +1,12 @@
+{
+  "origen": "auditbrain-site lib/tools/ @ 7e42d3d (huellas sobre texto con LF)",
+  "sha256": {
+    "brand.mjs": "c49a7226cfc388df1ed11a8ea0f2556464d2d2fd3635b3f345bf7606fe9434bb",
+    "domain.mjs": "27474d97edbcd74478bb4e1cc27673b85da38cfa43973f637e8f423d65fea506",
+    "explanations.mjs": "a8c9eabcc796f70410710254e964cf54979c7804fba0f9bf4010d1f071d395d5",
+    "exports.mjs": "2395f0535161fc1fe9c3e0e4fa213426b46b08aa61405498cd23f41240bebdee",
+    "html-presentation.mjs": "bec9e95467317512ba2be6184286f5d06633322a72fe4379abf1714220bbb6aa",
+    "portable-engine.mjs": "3caad06a2d715a36396bbabaffdba0f16becb2d70e70fb266df9de323b4f141f",
+    "workbook-presentation.mjs": "022089a870be384d2aa51b00f958584486042da3353a4373cf63875a5c9827a2"
+  }
+}

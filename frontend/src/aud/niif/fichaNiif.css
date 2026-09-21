@@ -147,3 +147,4 @@
 .nf-estudio-tabla th, .nf-estudio-tabla td { border: 1px solid rgba(255, 255, 255, 0.12); padding: 3px 8px; white-space: nowrap; }
 .nf-estudio-tabla td.num { text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width: 720px) { .nf-estudio-json { grid-template-columns: 1fr; } }
+.nf-estudio-botones { display: flex; gap: 8px; margin: 6px 0; flex-wrap: wrap; }

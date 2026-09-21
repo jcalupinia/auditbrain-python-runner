@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { niifCobertura, niifEjecutarMotor } from "../../api";
+import { herramientaDeEstudio, motivoDiscrepancia } from "./contraste";
 import {
   EJEMPLO_NIIF16,
   RECHAZADO,
@@ -20,7 +21,26 @@ import {
  *    ve, con la misma regla del sitio, qué queda sin cubrir.
  * 2. Motor: corre la definición de la prueba (la que Claude escribe desde el
  *    código generado) y muestra el cuadro, las filas y los totales.
+ * 3. Cédulas: el Excel y el HTML autónomo, armados con el exportador del
+ *    sitio sin tocar (carpeta sitio/).
+ *
+ * El cálculo corre dos veces, como en el sitio: domain.mjs (la autoridad) en
+ * el navegador y el motor Python en el backend. Si difieren, no hay cédulas.
  */
+
+// El exportador pesa ~200 KB (el logo va dentro): se carga al usarlo, no con
+// el portal.
+const cargarSitio = () =>
+  Promise.all([import("./sitio/domain.mjs"), import("./sitio/exports.mjs")]);
+
+function descargar(nombre, contenido, tipo) {
+  const url = URL.createObjectURL(new Blob([contenido], { type: tipo }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: nombre });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 function Tabla({ filas, titulo }) {
   const cols = columnas(filas);
@@ -60,6 +80,8 @@ export default function EstudioPrueba({ ficha }) {
   const [resultado, setResultado] = useState(null);
   const [errorMotor, setErrorMotor] = useState("");
   const [corriendo, setCorriendo] = useState(false);
+  // Lo que se corrió y dio igual en los dos motores: base de las cédulas.
+  const [corrida, setCorrida] = useState(null);
 
   // Cada cambio de marcas vuelve a preguntar al backend. La regla vive allí;
   // aquí solo se pinta lo que responde.
@@ -81,16 +103,32 @@ export default function EstudioPrueba({ ficha }) {
     medir(siguientes);
   }
 
+  async function bajarCedulas(formato) {
+    try {
+      const [, exp] = await cargarSitio();
+      const t = herramientaDeEstudio({ ficha, ...corrida });
+      const base = `${(ficha.nombre || "prueba").replace(/[^\w-]+/g, "_").slice(0, 60)}_BORRADOR`;
+      if (formato === "excel")
+        descargar(`${base}.xlsx`, exp.buildWorkbook(t),
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      else descargar(`${base}.html`, exp.buildHtml(t), "text/html;charset=utf-8");
+    } catch (e) {
+      setErrorMotor(e.message || String(e));
+    }
+  }
+
   function cargarEjemplo() {
     setDefinicion(JSON.stringify(EJEMPLO_NIIF16.definicion, null, 2));
     setFilas(JSON.stringify(EJEMPLO_NIIF16.filas, null, 2));
     setResultado(null);
+    setCorrida(null);
     setErrorMotor("");
   }
 
   async function correr() {
     setErrorMotor("");
     setResultado(null);
+    setCorrida(null);
     let payload;
     try {
       payload = { definicion: parsearJson(definicion, "Definición"), filas: parsearJson(filas, "Filas") };
@@ -100,7 +138,17 @@ export default function EstudioPrueba({ ficha }) {
     }
     setCorriendo(true);
     try {
-      setResultado(await niifEjecutarMotor(payload));
+      const [python, [dominio]] = await Promise.all([niifEjecutarMotor(payload), cargarSitio()]);
+      const run = dominio.calculate(payload.definicion, payload.filas, {}, []);
+      const motivo = motivoDiscrepancia(run, python);
+      if (motivo) {
+        setErrorMotor(
+          `El motor Python no coincide con el verificador (${motivo}). No se generan cédulas.`
+        );
+        return;
+      }
+      setResultado(run);
+      setCorrida({ ...payload, run });
     } catch (e) {
       setErrorMotor(e.message || String(e));
     } finally {
@@ -197,11 +245,46 @@ export default function EstudioPrueba({ ficha }) {
         {errorMotor && <p className="nf-error">{errorMotor}</p>}
         {resultado && (
           <div className="nf-estudio-resultado">
-            <p className="muted">Motor {resultado.engine}</p>
+            <p className="nf-ok">
+              Motor {resultado.engine} · el cálculo del navegador y el de Python coinciden.
+            </p>
+            {resultado.exceptions?.length > 0 && (
+              <div className="nf-huecos">
+                <strong>Excepciones ({resultado.exceptions.length}):</strong>
+                <ul>
+                  {resultado.exceptions.map((x, i) => (
+                    <li key={i}>{x.id} · {x.code} · {x.message}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <Tabla titulo="Resultado por fila" filas={resultado.rows} />
             <Tabla titulo={`Cuadro (${resultado.schedule.length} períodos)`} filas={resultado.schedule} />
             <Tabla titulo="Totales" filas={Object.keys(resultado.totals).length ? [resultado.totals] : []} />
           </div>
+        )}
+      </section>
+
+      {/* ---------- 3. Cédulas ---------- */}
+      <section>
+        <h5>3 · Cédulas</h5>
+        {!corrida ? (
+          <p className="muted">Corra el motor: las cédulas salen de una corrida que coincide en los dos motores.</p>
+        ) : (
+          <>
+            <p className="muted">
+              Mismo libro que arma el sitio, marcado como BORRADOR. El HTML abre sin internet y
+              lleva el motor dentro.
+            </p>
+            <div className="nf-estudio-botones">
+              <button type="button" className="btn sm primary" onClick={() => bajarCedulas("excel")}>
+                Descargar Excel
+              </button>
+              <button type="button" className="btn sm" onClick={() => bajarCedulas("html")}>
+                Descargar HTML autónomo
+              </button>
+            </div>
+          </>
         )}
       </section>
     </div>
