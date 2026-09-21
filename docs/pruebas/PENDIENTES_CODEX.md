@@ -29,8 +29,10 @@ Codex que no hay migraciones nuevas.
 | A18 | **Índice del manual: «M01–M16» con 17 reglas** → el rango sale de los datos | `04538b8`, `ae91ddd` | ✅ `tsc` sin errores en `app/metodologia` |
 | A19 | `AGENTS.md`: conteos 67/67 y 96/96; regla de regenerar los documentos al cambiar la metodología | `ac21ef9` | ✅ idéntico en réplica y checkout |
 | A20 | **Manual 1.3.2**: sección 18 «Estado» al día (Command Center, motor con series y flujos, asistente elegido por el auditor) y changelog completo en la 17 (faltaban 1.3.0–1.3.1). Descargables regenerados | `af13840` | ✅ suite 96/96 · verif-niif16 y verif-alcance pasan · checkout sincronizado |
+| A21 | **Celdas de texto vacías leídas como «[object Object]».** Un XLSX con `<t xml:space="preserve"></t>` (típico de Excel al borrar una celda) llegaba al mapeo como el texto `[object Object]`. `texto()` en `files.mjs` devuelve el texto recortado o vacío. Prueba `celdas-vacias` | `138b3e8` | ✅ suite 97/97 · checkout sincronizado |
+| A22 | **Referencias numéricas (`&#243;`) no se decodificaban** al leer XLSX: «Descripci&#243;n» en vez de «Descripción». `htmlEntities: true` en los parsers de `files.mjs` y `console/extract.mjs`. Prueba `referencias-numericas`; `AGENTS.md` a 70/70 y 99/99 | `5b8b838` | ✅ suite 99/99 · checkout sincronizado |
 
-A17 y A18 se encontraron al replicar el manual en el Command Center.
+A17 y A18 se encontraron al replicar el manual en el Command Center. A21 y A22, al portar la lectura de hojas a Python para el ciclo de pruebas (E7): el espejo del Command Center comparó ambos lectores y sacó las diferencias.
 
 ---
 
