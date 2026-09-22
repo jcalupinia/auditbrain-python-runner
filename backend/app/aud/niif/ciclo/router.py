@@ -225,6 +225,8 @@ def procesadores_disponibles(db: Session = Depends(get_db), user: User = Depends
 
     salida = []
     for k, m in PROCESADORES.items():
+        if getattr(m, "RUBRO", None):
+            continue  # herramientas del catálogo: se usan directo (proc:<id>), no se instalan en fichas
         d = m.definicion()
         ej = m.ejecutar(m.EJEMPLO["datasets"], m.EJEMPLO.get("parametros", {}), m.EJEMPLO["corte"])
         salida.append({"id": k, "nombre": d["name"], "rubro": d["area"], "marcos": d.get("frameworks") or [],

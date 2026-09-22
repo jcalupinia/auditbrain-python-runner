@@ -25,6 +25,13 @@ _MODULOS = [
     "activos_biologicos",
     "seguros_cobertura",
     "proveedores_cxp",
+    "prestamos_obligaciones",
+    "nomina_beneficios",
+    "ingresos_contratos",
+    "gastos_analisis",
+    "provisiones_contingencias",
+    "impuesto_corriente_diferido",
+    "patrimonio",
 ]
 
 PROCESADORES = {

@@ -1,0 +1,1140 @@
+"""Impuesto corriente y diferido: conciliación tributaria (formulario 101), impuesto corriente, bases fiscales,
+diferencias temporarias, activo y pasivo por impuesto diferido, pérdidas fiscales, recuperabilidad, tasa de
+reversión, resultados frente a ORI, compensación y tasa efectiva (NIC 12.81 c).
+
+Tres anexos:
+
+- ``conciliacion`` (principal): renglones de la conciliación tributaria del cliente con el signo con que suman a
+  la base imponible (+ suma, − resta). La suma de la columna «importe» es la base imponible según el cliente: ese
+  es el total de control (se compara con el casillero de base imponible del F-101). El tipo de cada renglón
+  (utilidad, participación, exentos, no deducibles, gastos atribuibles a exentos, participación atribuible a
+  exentos, deducciones, pérdidas, otros) decide cómo lo recalcula el auditor; «importe según auditor» (opcional)
+  reemplaza al del cliente (así se agregan gastos no deducibles omitidos).
+  1. Participación trabajadores recalculada = 15 % × utilidad contable (Código del Trabajo art. 97).
+  2. Participación atribuible a exentos = 15 % × (ingresos exentos − gastos atribuibles).
+  3. Amortización de pérdidas permitida = mín(la solicitada, 25 % de la utilidad gravable, saldo no vencido).
+  4. Base imponible × tarifa (25 % + 3 puntos por la proporción de composición societaria en paraísos fiscales).
+  5. Impuesto a pagar = causado − retenciones − anticipos − crédito de años anteriores (negativo: saldo a favor).
+- ``partidas``: diferencias temporarias por partida. Activo: libros − base; pasivo: base − libros
+  (positivo imponible → pasivo diferido, NIC 12.15; negativo deducible → activo diferido si es probable la
+  ganancia fiscal, NIC 12.24, y si la ley admite la deducción futura, Reglamento LRTI art. 28). Tasa de reversión
+  = tasa aprobada al cierre para el año de reversión (NIC 12.47); sin descuento (NIC 12.53). Movimiento: a
+  resultados salvo las partidas de ORI (NIC 12.58, 61A).
+- ``perdidas`` (opcional): pérdidas tributarias por año de origen; se amortizan de la más antigua a la más
+  reciente; el remanente no vencido genera activo diferido si es probable (NIC 12.34–36).
+
+El cálculo es el mismo en NIIF completas y en PYMES (Sección 29, alineada con la NIC 12 en lo que aquí se
+mide); se enruta con es_pymes/edicion_pymes para las citas.
+"""
+from __future__ import annotations
+
+from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y filas_mapeadas los usa el ciclo)
+    FILA0, MARCO_COMPLETAS, MARCO_PYMES, a_num, campo, edicion_pymes, es_pymes, fecha, filas_mapeadas, fx, hoja, m,
+    n2, norm, problema, r2, ref, req, validar_campos, validar_definicion_generica,
+)
+
+VERSION = "impuesto_corriente_diferido 1.0"
+RUBRO = "IMPUESTOS"
+
+_CONCILIACION = [
+    campo("id", "Renglón / casillero", alias=("renglon", "casillero", "linea", "codigo", "numero"), ejemplo="801"),
+    campo("concepto", "Concepto", alias=("descripcion", "detalle", "nombre"), ejemplo="Utilidad del ejercicio"),
+    campo("tipo", "Tipo (utilidad, participación, exentos, no deducibles, gastos exentos, participación exentos, deducciones, pérdidas, otros)",
+          alias=("tipo", "clase", "naturaleza", "categoria"), ejemplo="utilidad"),
+    campo("importe", "Importe según cliente (con signo: + suma, − resta)", "number",
+          alias=("importe", "valor", "monto", "segun cliente", "importe cliente"), ejemplo="1000000.00"),
+    campo("importe_auditor", "Importe según auditor (opcional, con signo)", "number", False,
+          ("segun auditor", "importe auditor", "auditado", "recalculado")),
+    campo("referencia", "Referencia (casillero F-101 / soporte)", "text", False, ("soporte", "casillero f101", "nota")),
+]
+_PARTIDAS = [
+    campo("id", "Partida", alias=("partida", "concepto", "cuenta", "descripcion"), ejemplo="Provisión jubilación patronal"),
+    campo("naturaleza", "Activo o pasivo", alias=("tipo", "naturaleza", "activo pasivo", "clase"), ejemplo="Pasivo"),
+    campo("libros", "Importe en libros NIIF", "number", alias=("libros", "importe en libros", "valor en libros", "niif"), ejemplo="120000.00"),
+    campo("base_fiscal", "Base fiscal", "number", alias=("base fiscal", "base tributaria", "valor fiscal", "tributario"), ejemplo="0.00"),
+    campo("permitido", "Permitido tributariamente (sí/no)", alias=("permitido", "admitido", "art 28", "reconocido sri"), ejemplo="Sí"),
+    campo("probable", "Probable ganancia fiscal futura (sí/no)", alias=("probable", "probabilidad", "recuperable"), ejemplo="Sí"),
+    campo("anio_reversion", "Año esperado de reversión", "number", False, ("ano reversion", "anio reversion", "reversion", "año")),
+    campo("tasa", "Tasa de reversión usada por el cliente (%)", "number", False, ("tasa", "tarifa", "tasa reversion")),
+    campo("inicial", "Impuesto diferido registrado al inicio (+ activo / − pasivo)", "number", False, ("saldo inicial", "inicio", "diferido inicial")),
+    campo("cierre", "Impuesto diferido registrado al cierre (+ activo / − pasivo)", "number", False, ("saldo final", "cierre", "diferido cierre", "registrado")),
+    campo("ori", "Reconocido en ORI (sí/no)", "text", False, ("ori", "otro resultado integral", "patrimonio")),
+]
+_PERDIDAS = [
+    campo("id", "Año de origen de la pérdida", alias=("ano", "anio", "año origen", "ejercicio"), ejemplo="2023"),
+    campo("importe", "Pérdida tributaria declarada", "number", alias=("perdida", "importe", "valor"), ejemplo="120000.00"),
+    campo("amortizado", "Amortizado acumulado en años anteriores", "number", False, ("amortizado", "amortizacion acumulada", "utilizado")),
+    campo("vence", "Último año para amortizar (vacío: origen + plazo)", "number", False, ("vence", "vencimiento", "ano vence")),
+]
+CAMPOS = {"conciliacion": _CONCILIACION, "partidas": _PARTIDAS, "perdidas": _PERDIDAS}
+TIPOS = {"conciliacion": "conciliacion", "partidas": "partidas", "perdidas": "perdidas"}
+DATASETS = tuple(TIPOS)
+PRINCIPAL = "conciliacion"
+CONTROL = "importe"
+
+PARAMETROS = {
+    "tasaIR": 25, "puntosRecargo": 3, "proporcionRecargo": 0, "participacion": 15, "limitePerdidas": 25, "plazoPerdidas": 5,
+    "tasaFutura": None, "anioTasaFutura": None, "perdidasPermitidas": "Sí", "probabilidadPerdidas": "Sí",
+    "retenciones": None, "anticipos": None, "creditoAnterior": None, "impuestoCorrienteRegistrado": None,
+    "saldoCorrienteRegistrado": None, "gastoDiferidoRegistrado": None, "dtaPerdidasInicial": None, "dtaPerdidasRegistrado": None,
+    "derechoCompensar": "Sí", "dtaPresentado": None, "dtlPresentado": None, "umbralTasaEfectiva": 1,
+}
+PARAM_NEGATIVOS = ("saldoCorrienteRegistrado", "gastoDiferidoRegistrado")
+ETIQUETAS_PARAM = {
+    "tasaIR": "Tarifa general del impuesto a la renta (%) — vigente al corte; VERIFICAR",
+    "puntosRecargo": "Puntos adicionales por paraísos fiscales / composición societaria — vigente al corte; VERIFICAR",
+    "proporcionRecargo": "Proporción de la base sujeta a la tarifa incrementada (%)",
+    "participacion": "Participación de trabajadores (%) — vigente al corte; VERIFICAR",
+    "limitePerdidas": "Límite anual de amortización de pérdidas (% de la utilidad gravable) — vigente al corte; VERIFICAR",
+    "plazoPerdidas": "Plazo para amortizar pérdidas (años) — vigente al corte; VERIFICAR",
+    "tasaFutura": "Tasa aprobada para años futuros (%) (vacío: no hay cambio aprobado)",
+    "anioTasaFutura": "Año desde el que rige la tasa futura",
+    "perdidasPermitidas": "¿La ley admite diferido por pérdidas tributarias? (Reglamento art. 28 — VERIFICAR)",
+    "probabilidadPerdidas": "¿Es probable la ganancia fiscal para compensar las pérdidas? (NIC 12.35–36)",
+    "retenciones": "Retenciones en la fuente del ejercicio",
+    "anticipos": "Anticipos de impuesto a la renta pagados",
+    "creditoAnterior": "Crédito tributario de años anteriores",
+    "impuestoCorrienteRegistrado": "Gasto por impuesto corriente registrado",
+    "saldoCorrienteRegistrado": "Impuesto a la renta por pagar registrado (+) / saldo a favor (−)",
+    "gastoDiferidoRegistrado": "Gasto (ingreso −) por impuesto diferido registrado en resultados",
+    "dtaPerdidasInicial": "Activo diferido por pérdidas registrado al inicio",
+    "dtaPerdidasRegistrado": "Activo diferido por pérdidas registrado al cierre",
+    "derechoCompensar": "¿Derecho legal de compensar y misma autoridad fiscal? (NIC 12.74)",
+    "dtaPresentado": "Activo por impuesto diferido presentado en el estado de situación",
+    "dtlPresentado": "Pasivo por impuesto diferido presentado en el estado de situación",
+    "umbralTasaEfectiva": "Diferencia tolerable en la tasa efectiva (puntos porcentuales)",
+}
+TOTAL_EJEMPLO = "ajusteResultados"
+
+CEDULAS = [
+    ("01_Resumen", "Resumen"), ("02_Parametros", "Parámetros"), ("03_Conciliacion", "Conciliación tributaria"),
+    ("04_Impuesto_corriente", "Impuesto corriente"), ("05_Perdidas", "Pérdidas tributarias"),
+    ("06_Diferencias_temp", "Diferencias temporarias y diferido"), ("07_Tasa_reversion", "Tasa de reversión"),
+    ("08_Recuperabilidad", "Recuperabilidad del activo diferido"), ("09_Movimiento", "Movimiento: resultados y ORI"),
+    ("10_Compensacion", "Compensación y presentación"), ("11_Tasa_efectiva", "Tasa efectiva (NIC 12.81 c)"),
+    ("12_Ajustes", "Ajustes propuestos"), ("13_Asientos", "Asientos propuestos"), ("14_Problemas", "Problemas encontrados"),
+]
+
+# Tipo → (signo exigido: 1 suma, -1 resta, 0 cualquiera; etiqueta).
+_TIPOS_CONC = {
+    "utilidad": (0, "Utilidad (pérdida) contable"), "participacion": (-1, "Participación trabajadores"),
+    "exentos": (-1, "Ingresos exentos"), "no_deducibles": (1, "Gastos no deducibles"),
+    "gastos_exentos": (1, "Gastos atribuibles a ingresos exentos"), "participacion_exentos": (1, "Participación atribuible a exentos"),
+    "deducciones": (-1, "Deducciones adicionales"), "perdidas": (-1, "Amortización de pérdidas"), "otros": (0, "Otras partidas"),
+}
+_ALIAS_TIPO = {
+    "utilidad": "utilidad", "utilidadcontable": "utilidad", "resultado": "utilidad", "perdidacontable": "utilidad",
+    "participacion": "participacion", "participaciontrabajadores": "participacion", "15participacion": "participacion",
+    "exentos": "exentos", "ingresosexentos": "exentos", "exento": "exentos",
+    "nodeducibles": "no_deducibles", "gastosnodeducibles": "no_deducibles", "nodeducible": "no_deducibles",
+    "gastosexentos": "gastos_exentos", "gastosatribuibles": "gastos_exentos", "gastosatribuiblesaexentos": "gastos_exentos",
+    "gastosatribuiblesaingresosexentos": "gastos_exentos",
+    "participacionexentos": "participacion_exentos", "participacionatribuible": "participacion_exentos",
+    "participacionatribuibleaexentos": "participacion_exentos", "participacionatribuibleaingresosexentos": "participacion_exentos",
+    "deducciones": "deducciones", "deduccionesadicionales": "deducciones", "deduccion": "deducciones",
+    "perdidas": "perdidas", "amortizaciondeperdidas": "perdidas", "amortizacionperdidas": "perdidas", "perdidastributarias": "perdidas",
+    "otros": "otros", "otras": "otros", "otraspartidas": "otros", "diferenciastemporarias": "otros",
+}
+_SIGNO_TXT = {1: "+ suma", -1: "− resta", 0: "± según signo"}
+_SI = {"si", "s", "x", "yes", "y", "1", "true", "verdadero"}
+_NO = {"no", "n", "0", "false", "falso"}
+
+
+def _sino(v, defecto=None):
+    k = norm(v)
+    if not k:
+        return defecto
+    return "Sí" if k in _SI else ("No" if k in _NO else None)
+
+
+def _tipo(v):
+    return _ALIAS_TIPO.get(norm(v))
+
+
+def _nat(v):
+    k = norm(v)
+    return "Activo" if k.startswith("activo") or k == "a" else ("Pasivo" if k.startswith("pasivo") or k == "p" else None)
+
+
+def kind(dataset: str) -> str:
+    return TIPOS[dataset]
+
+
+def validar_filas(tipo: str, filas: list) -> dict:
+    r = validar_campos(CAMPOS[tipo], filas)
+    for f in filas:
+        fila = f.get("_row")
+        if tipo == "conciliacion":
+            t = _tipo(f.get("tipo"))
+            if str(f.get("tipo", "") or "").strip() and t is None:
+                r["errors"].append({"row": fila, "field": "tipo", "message": "Tipo no reconocido: use utilidad, participación, exentos, "
+                                    "no deducibles, gastos exentos, participación exentos, deducciones, pérdidas u otros."})
+            elif t:
+                for k in ("importe", "importe_auditor"):
+                    x = a_num(f.get(k))
+                    s = _TIPOS_CONC[t][0]
+                    if x is not None and s and x * s < 0:
+                        r["errors"].append({"row": fila, "field": k, "message": f"{_TIPOS_CONC[t][1]} debe cargarse con signo "
+                                            f"{'positivo (suma)' if s > 0 else 'negativo (resta)'} a la base imponible."})
+        elif tipo == "partidas":
+            if str(f.get("naturaleza", "") or "").strip() and _nat(f.get("naturaleza")) is None:
+                r["errors"].append({"row": fila, "field": "naturaleza", "message": "Indique «Activo» o «Pasivo»."})
+            for k in ("permitido", "probable", "ori"):
+                if str(f.get(k, "") or "").strip() and _sino(f.get(k)) is None:
+                    r["errors"].append({"row": fila, "field": k, "message": "Responda «sí» o «no»."})
+        elif tipo == "perdidas":
+            y = a_num(f.get("id"))
+            if str(f.get("id", "") or "").strip() and (y is None or not 1900 < y < 2200):
+                r["errors"].append({"row": fila, "field": "id", "message": "Año de origen inválido (AAAA)."})
+    r["ok"] = not r["errors"]
+    return r
+
+
+# --- cálculo -----------------------------------------------------------------
+
+def _pnum(p, k):
+    v = p.get(k)
+    return None if v is None or str(v).strip() == "" else float(a_num(v))
+
+
+def _opc(f, k):
+    v = str(f.get(k, "") or "").strip()
+    return a_num(v) if v else None
+
+
+def _citas(pymes: bool, edicion: str) -> dict:
+    if pymes:
+        v = "PYMES 2025 Secc. 29 (VERIFICAR numeración)" if edicion == "2025" else "PYMES 2015"
+        return {"marco": v, "corr": f"{v} 29.4–29.8 (VERIFICAR)", "dt": f"{v} 29.9–29.11, 29.14–29.19 (VERIFICAR)",
+                "dta": f"{v} 29.15 y 29.21 (VERIFICAR)", "tasa": f"{v} 29.18 (VERIFICAR)", "ori": f"{v} 29.22 (VERIFICAR)",
+                "comp": f"{v} 29.24A (VERIFICAR)", "etr": f"{v} 29.32 (explicación de diferencias; VERIFICAR)"}
+    return {"marco": "NIC 12", "corr": "NIC 12.12–14, 46", "dt": "NIC 12.5, 15, 24", "dta": "NIC 12.24, 34–36, 56",
+            "tasa": "NIC 12.47, 53", "ori": "NIC 12.58, 61A", "comp": "NIC 12.71, 74", "etr": "NIC 12.81 c)"}
+
+
+def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
+    p = {**PARAMETROS, **{k: v for k, v in (parametros or {}).items() if v is not None and v != ""}}
+    corte_a = fecha(corte)
+    if corte_a is None:
+        raise ValueError("Indique la fecha de corte del encargo.")
+    anio = corte_a.year
+    pymes = es_pymes(p)
+    ed = edicion_pymes(p) if pymes else ""
+    cit = _citas(pymes, ed)
+    num = {k: _pnum(p, k) for k in ("tasaIR", "puntosRecargo", "proporcionRecargo", "participacion", "limitePerdidas", "plazoPerdidas",
+                                    "tasaFutura", "anioTasaFutura", "retenciones", "anticipos", "creditoAnterior",
+                                    "impuestoCorrienteRegistrado", "saldoCorrienteRegistrado", "gastoDiferidoRegistrado",
+                                    "dtaPerdidasInicial", "dtaPerdidasRegistrado", "dtaPresentado", "dtlPresentado", "umbralTasaEfectiva")}
+    for k in ("tasaIR", "puntosRecargo", "proporcionRecargo", "participacion", "limitePerdidas", "plazoPerdidas", "umbralTasaEfectiva"):
+        if num[k] is None:
+            raise ValueError(f"Indique el parámetro «{ETIQUETAS_PARAM[k]}».")
+    for k, v in num.items():
+        if v is not None and v < 0 and k not in PARAM_NEGATIVOS:
+            raise ValueError(f"El parámetro «{ETIQUETAS_PARAM[k]}» no puede ser negativo.")
+    if num["tasaIR"] > 100 or num["participacion"] > 100 or num["limitePerdidas"] > 100 or num["proporcionRecargo"] > 100:
+        raise ValueError("Las tasas y porcentajes deben estar entre 0 y 100.")
+    if (num["tasaFutura"] is None) != (num["anioTasaFutura"] is None):
+        raise ValueError("Indique juntos la tasa futura aprobada y el año desde el que rige.")
+    sn = {}
+    for k in ("perdidasPermitidas", "probabilidadPerdidas", "derechoCompensar"):
+        sn[k] = _sino(p.get(k))
+        if sn[k] is None:
+            raise ValueError(f"Responda «sí» o «no» en «{ETIQUETAS_PARAM[k]}».")
+    ti, part, lim, plazo = num["tasaIR"], num["participacion"], num["limitePerdidas"], num["plazoPerdidas"]
+    tf, af = num["tasaFutura"], num["anioTasaFutura"]
+    tarifa = ti + num["puntosRecargo"] * num["proporcionRecargo"] / 100
+    ret, ant, cred = num["retenciones"] or 0, num["anticipos"] or 0, num["creditoAnterior"] or 0
+    ir_reg, saldo_reg = num["impuestoCorrienteRegistrado"], num["saldoCorrienteRegistrado"]
+    gdr = num["gastoDiferidoRegistrado"]
+    dtal_ini, dtal_reg = num["dtaPerdidasInicial"] or 0, num["dtaPerdidasRegistrado"] or 0
+
+    # 1 · Conciliación tributaria.
+    conc = []
+    for f in datasets.get("conciliacion") or []:
+        t = _tipo(f.get("tipo"))
+        imp = a_num(f.get("importe"))
+        if t is None:
+            raise ValueError(f"Renglón {f.get('id')}: tipo no reconocido «{f.get('tipo')}».")
+        if imp is None:
+            raise ValueError(f"Renglón {f.get('id')}: falta el importe según cliente.")
+        aud = _opc(f, "importe_auditor")
+        s = _TIPOS_CONC[t][0]
+        for x in (imp, aud):
+            if x is not None and s and x * s < 0:
+                raise ValueError(f"Renglón {f.get('id')}: {_TIPOS_CONC[t][1]} con signo contrario al de la conciliación.")
+        conc.append({"id": str(f.get("id", "")).strip(), "concepto": str(f.get("concepto", "")).strip(), "tipo": t,
+                     "signo": _SIGNO_TXT[s], "cliente": imp, "auditor": aud, "usado": aud if aud is not None else imp,
+                     "_row": f.get("_row")})
+    if not conc:
+        raise ValueError("Cargue la conciliación tributaria del cliente (renglones del formulario 101).")
+    for c in conc:
+        c["dif"] = c["usado"] - c["cliente"]
+    if not any(c["tipo"] == "utilidad" for c in conc):
+        raise ValueError("La conciliación necesita el renglón de utilidad (pérdida) contable.")
+    sc = lambda t, k: sum(c[k] for c in conc if c["tipo"] == t)
+
+    # 2 · Pérdidas tributarias (de la más antigua a la más reciente).
+    perd = []
+    for f in datasets.get("perdidas") or []:
+        y, imp = a_num(f.get("id")), a_num(f.get("importe"))
+        if y is None or imp is None:
+            raise ValueError(f"Pérdida {f.get('id')}: faltan el año de origen o el importe.")
+        if imp < 0:
+            raise ValueError(f"Pérdida {f.get('id')}: cargue la pérdida como importe positivo.")
+        am = _opc(f, "amortizado") or 0
+        v = _opc(f, "vence")
+        perd.append({"origen": int(y), "importe": imp, "amortizado": am, "venceDato": v is not None,
+                     "vence": int(v) if v is not None else int(y + plazo), "_row": f.get("_row")})
+    perd.sort(key=lambda x: x["origen"])
+    for x in perd:
+        x["disponible"] = x["importe"] - x["amortizado"]
+        x["vencida"] = x["vence"] < anio
+        x["noVencido"] = 0 if x["vencida"] else x["disponible"]
+        x["saldoVencido"] = x["disponible"] if x["vencida"] else 0
+
+    # 3 · Impuesto corriente: según cliente (B) y auditado (C).
+    cl = {k: sc(t, "cliente") for k, t in (("u", "utilidad"), ("part", "participacion"), ("ex", "exentos"), ("nd", "no_deducibles"),
+                                           ("ge", "gastos_exentos"), ("pe", "participacion_exentos"), ("ded", "deducciones"),
+                                           ("otros", "otros"), ("perd", "perdidas"))}
+    au = {k: sc(t, "usado") for k, t in (("u", "utilidad"), ("ex", "exentos"), ("nd", "no_deducibles"), ("ge", "gastos_exentos"),
+                                         ("ded", "deducciones"), ("otros", "otros"))}
+    au["part"] = -max(au["u"], 0) * part / 100
+    au["pe"] = max(-au["ex"] - au["ge"], 0) * part / 100 if au["u"] > 0 else 0
+    orden = ("u", "part", "ex", "nd", "ge", "pe", "ded", "otros")
+    for d in (cl, au):
+        d["b0"] = sum(d[k] for k in orden)
+        d["lim"] = max(d["b0"], 0) * lim / 100
+        d["disp"] = sum(x["noVencido"] for x in perd) if perd else None
+    reclamo_aud = -sc("perdidas", "usado")
+    au["perd"] = -min(reclamo_aud, au["lim"], au["disp"]) if perd else -min(reclamo_aud, au["lim"])
+    for d in (cl, au):
+        d["base"] = d["b0"] + d["perd"]
+        d["tarifa"] = tarifa
+        d["ir"] = max(d["base"], 0) * tarifa / 100
+        d["ret"], d["ant"], d["cred"] = ret, ant, cred
+        d["pagar"] = d["ir"] - ret - ant - cred
+    ir_ef = cl["ir"] if ir_reg is None else ir_reg            # vacío: el impuesto de la conciliación del cliente
+    saldo_ef = cl["pagar"] if saldo_reg is None else saldo_reg
+    exceso_perd = au["perd"] - sc("perdidas", "usado")
+    amort = -au["perd"]
+    acum = 0
+    for x in perd:
+        x["amortAnio"] = max(0, min(x["noVencido"], amort - acum))
+        acum += x["amortAnio"]
+        x["remanente"] = x["noVencido"] - x["amortAnio"]
+        x["arrastrable"] = x["remanente"] if x["vence"] > anio else 0
+        x["dtaReq"] = x["arrastrable"] * ti / 100 if sn["perdidasPermitidas"] == "Sí" and sn["probabilidadPerdidas"] == "Sí" else 0
+        x["dtaNoRec"] = x["arrastrable"] * ti / 100 - x["dtaReq"]
+
+    # 4 · Diferencias temporarias por partida.
+    part_rows = []
+    for f in datasets.get("partidas") or []:
+        nat, lb, bf = _nat(f.get("naturaleza")), a_num(f.get("libros")), a_num(f.get("base_fiscal"))
+        perm, prob, ori = _sino(f.get("permitido")), _sino(f.get("probable")), _sino(f.get("ori"), "No")
+        if nat is None or lb is None or bf is None:
+            raise ValueError(f"Partida {f.get('id')}: faltan naturaleza (activo/pasivo), importe en libros o base fiscal.")
+        if perm is None or prob is None or ori is None:
+            raise ValueError(f"Partida {f.get('id')}: responda «sí» o «no» en permitido, probable y ORI.")
+        y = _opc(f, "anio_reversion")
+        tc = _opc(f, "tasa")
+        dt = lb - bf if nat == "Activo" else bf - lb
+        te = tf if (tf is not None and af is not None and y is not None and y >= af) else ti
+        tcli = tc if tc is not None else ti
+        dtl = dt * te / 100 if dt > 0 else 0
+        dtab = -dt * te / 100 if dt < 0 else 0
+        rec = dtab if perm == "Sí" and prob == "Sí" else 0
+        ini, cie = _opc(f, "inicial") or 0, _opc(f, "cierre") or 0
+        rq = rec - dtl
+        mov = rq - ini
+        part_rows.append({"partida": str(f.get("id", "")).strip(), "nat": nat, "libros": lb, "base": bf, "dt": dt,
+                          "clase": "Imponible" if dt > 0 else ("Deducible" if dt < 0 else "Sin diferencia"),
+                          "anio": int(y) if y is not None else None, "tasaDato": tc, "tasaCli": tcli, "tasa": te,
+                          "difTasa": tcli - te, "efectoTasa": abs(dt) * (tcli - te) / 100,
+                          "dtl": dtl, "dtaBruto": dtab, "perm": perm, "prob": prob, "dtaRec": rec, "dtaNoRec": dtab - rec,
+                          "req": rq, "ini": ini, "cie": cie, "aj": rq - cie, "ori": ori, "mov": mov,
+                          "res": -mov if ori == "No" else 0, "movOri": -mov if ori == "Sí" else 0, "_row": f.get("_row")})
+
+    # 5 · Movimiento, compensación, ajustes y tasa efectiva.
+    sp = lambda k, cond=lambda x: True: sum(x[k] for x in part_rows if cond(x))
+    no_ori, si_ori = (lambda x: x["ori"] == "No"), (lambda x: x["ori"] == "Sí")
+    dtal_req = sum(x["dtaReq"] for x in perd)
+    mv = [
+        {"k": "res", "concepto": "Diferencias temporarias con efecto en resultados", "ini": sp("ini", no_ori), "req": sp("req", no_ori),
+         "cie": sp("cie", no_ori), "ori": False},
+        {"k": "ori", "concepto": "Diferencias temporarias de partidas de ORI / patrimonio", "ini": sp("ini", si_ori), "req": sp("req", si_ori),
+         "cie": sp("cie", si_ori), "ori": True},
+        {"k": "perd", "concepto": "Pérdidas tributarias no utilizadas", "ini": dtal_ini, "req": dtal_req, "cie": dtal_reg, "ori": False},
+    ]
+    for x in mv:
+        x["mov"] = x["req"] - x["ini"]
+        x["aRes"] = 0 if x["ori"] else -x["mov"]
+        x["aOri"] = -x["mov"] if x["ori"] else 0
+        x["aj"] = x["req"] - x["cie"]
+    gasto_dif_req = sum(x["aRes"] for x in mv)
+    gasto_dif_saldos = -(mv[0]["cie"] - mv[0]["ini"]) - (mv[2]["cie"] - mv[2]["ini"])
+    reclas = 0 if gdr is None else gdr - gasto_dif_saldos
+
+    dta_rec = sp("dtaRec") + dtal_req
+    dtl_req = sp("dtl")
+    dta_norec = sp("dtaNoRec") + sum(x["dtaNoRec"] for x in perd)
+    dif_req = sp("req") + dtal_req
+    dif_reg = sp("cie") + dtal_reg
+    aj_dif = dif_req - dif_reg
+    aj_dif_res = mv[0]["aj"] + mv[2]["aj"]
+    aj_dif_ori = mv[1]["aj"]
+    aj_corr = au["ir"] - ir_ef
+    aj_saldo = au["pagar"] - saldo_ef
+    aj_res = aj_corr - aj_dif_res - reclas
+
+    der = sn["derechoCompensar"] == "Sí"
+    dta_rg = sum(x["cie"] for x in part_rows if x["cie"] > 0) + max(dtal_reg, 0)
+    dtl_rg = -sum(x["cie"] for x in part_rows if x["cie"] < 0)
+    comp = {"dtaReg": dta_rg, "dtlReg": dtl_rg,
+            "dtaEsp": max(dta_rg - dtl_rg, 0) if der else dta_rg, "dtlEsp": max(dtl_rg - dta_rg, 0) if der else dtl_rg,
+            "dtaAud": dta_rec, "dtlAud": dtl_req,
+            "dtaPresAud": max(dta_rec - dtl_req, 0) if der else dta_rec, "dtlPresAud": max(dtl_req - dta_rec, 0) if der else dtl_req}
+    comp["difDta"] = None if num["dtaPresentado"] is None else num["dtaPresentado"] - comp["dtaEsp"]
+    comp["difDtl"] = None if num["dtlPresentado"] is None else num["dtlPresentado"] - comp["dtlEsp"]
+
+    rai = au["u"] + au["part"]
+    t100 = tarifa / 100
+    etr = {"rai": rai, "teo": rai * t100, "nd": (au["nd"] + au["ge"] + au["pe"]) * t100, "ex": au["ex"] * t100,
+           "ded": au["ded"] * t100, "perd": au["perd"] * t100, "otros": au["otros"] * t100}
+    etr["neg"] = au["ir"] - (etr["teo"] + etr["nd"] + etr["ex"] + etr["ded"] + etr["perd"] + etr["otros"])
+    etr["corr"] = au["ir"]
+    etr["dif"] = gasto_dif_req
+    etr["req"] = au["ir"] + gasto_dif_req
+    etr["reg"] = ir_ef + (gasto_dif_saldos if gdr is None else gdr)
+    etr["noexp"] = etr["reg"] - etr["req"]
+    etr["tReq"] = None if rai == 0 else etr["req"] / rai
+    etr["tReg"] = None if rai == 0 else etr["reg"] / rai
+    etr["tApl"] = t100
+
+    # 6 · Problemas.
+    pr = []
+    if abs(aj_corr) > 0.005:
+        pr.append(problema("IR_CORRIENTE_MAL_CALCULADO", f"Impuesto corriente recalculado {m(au['ir'])} frente a {m(ir_ef)} registrado: diferencia "
+                           f"{m(aj_corr)}. Se mide con la tarifa vigente al cierre sobre la base imponible auditada ({cit['corr']}; LRTI).", aj_corr))
+    if ir_reg is not None and abs(cl["ir"] - ir_reg) > 0.005:
+        pr.append(problema("IR_REGISTRADO_NO_CUADRA", f"El impuesto registrado ({m(ir_reg)}) no es la base imponible del propio cliente × tarifa "
+                           f"({m(cl['base'])} × {m(tarifa)} % = {m(cl['ir'])}).", ir_reg - cl["ir"]))
+    if abs(au["part"] - cl["part"]) > 0.005:
+        pr.append(problema("PARTICIPACION_MAL_CALCULADA", f"Participación trabajadores {m(-cl['part'])} en la conciliación frente a {m(-au['part'])} "
+                           f"recalculada ({m(part)} % de la utilidad contable; Código del Trabajo art. 97 — VERIFICAR).", au["part"] - cl["part"]))
+    if abs(au["pe"] - cl["pe"]) > 0.005:
+        pr.append(problema("PARTICIPACION_EXENTOS", f"Participación atribuible a ingresos exentos {m(cl['pe'])} frente a {m(au['pe'])} recalculada "
+                           f"({m(part)} % × (exentos − gastos atribuibles)).", au["pe"] - cl["pe"]))
+    omit = sum(c["dif"] for c in conc if c["tipo"] == "no_deducibles")
+    if omit > 0.005:
+        pr.append(problema("NO_DEDUCIBLES_OMITIDOS", f"Gastos no deducibles omitidos en la conciliación por {m(omit)}: "
+                           + "; ".join(f"{c['id']} {c['concepto']} {m(c['dif'])}" for c in conc if c["tipo"] == "no_deducibles" and c["dif"] > 0.005)
+                           + " (LRTI art. 10 y Reglamento art. 35 — VERIFICAR).", omit))
+    otras = [c for c in conc if c["tipo"] != "no_deducibles" and abs(c["dif"]) > 0.005]
+    if otras:
+        pr.append(problema("OTRAS_DIFERENCIAS_CONCILIACION", f"{len(otras)} renglón(es) con importe según auditor distinto al del cliente: "
+                           + "; ".join(f"{c['id']} {m(c['dif'])}" for c in otras) + ".", sum(c["dif"] for c in otras)))
+    if exceso_perd > 0.005:
+        causa = []
+        if reclamo_aud - au["lim"] > 0.005:
+            causa.append(f"supera el {m(lim)} % de la utilidad gravable ({m(au['lim'])})")
+        if perd and reclamo_aud - au["disp"] > 0.005:
+            causa.append(f"supera el saldo no vencido ({m(au['disp'])})")
+        pr.append(problema("PERDIDAS_SOBRE_LIMITE", f"Amortización de pérdidas solicitada {m(reclamo_aud)}: " + " y ".join(causa)
+                           + f". Permitida {m(amort)} (LRTI art. 11: {m(lim)} % anual, {m(plazo)} años — VERIFICAR).", exceso_perd))
+    if not perd and reclamo_aud > 0.005:
+        pr.append(problema("PERDIDAS_SIN_ANEXO", f"Se amortizan pérdidas por {m(reclamo_aud)} sin anexo de pérdidas por año de origen: no se pudo "
+                           "verificar el saldo ni el vencimiento."))
+    venc = sum(x["saldoVencido"] for x in perd)
+    if venc > 0.005:
+        pr.append(problema("PERDIDAS_VENCIDAS", f"Pérdidas con plazo vencido y saldo sin amortizar {m(venc)} (años "
+                           + ", ".join(str(x["origen"]) for x in perd if x["saldoVencido"] > 0.005)
+                           + "): ya no se amortizan y no sustentan activo diferido.", venc))
+    for x in part_rows:
+        if x["cie"] > 0.005 and x["dtaBruto"] > 0 and x["perm"] == "No":
+            pr.append(problema("DTA_NO_PERMITIDO", f"{x['partida']}: activo diferido registrado {m(x['cie'])} por una diferencia que la ley no "
+                               "admite deducir en el futuro (Reglamento LRTI art. 28 — VERIFICAR): la diferencia es permanente.", x["cie"]))
+        elif x["cie"] > 0.005 and x["dtaBruto"] > 0 and x["prob"] == "No":
+            pr.append(problema("DTA_SIN_PROBABILIDAD", f"{x['partida']}: activo diferido registrado {m(x['cie'])} sin probabilidad de ganancia "
+                               f"fiscal futura ({cit['dta']}).", x["cie"]))
+    mal_tasa = [x for x in part_rows if abs(x["difTasa"]) > 1e-9 and x["dt"] != 0]
+    if mal_tasa:
+        pr.append(problema("TASA_REVERSION_INCORRECTA", f"{len(mal_tasa)} partida(s) medida(s) a una tasa distinta de la aprobada para el año de "
+                           "reversión: " + "; ".join(f"{x['partida']} {m(x['tasaCli'])} % frente a {m(x['tasa'])} %" for x in mal_tasa)
+                           + f" ({cit['tasa']}).", sum(x["efectoTasa"] for x in mal_tasa)))
+    if dtal_reg > 0.005 and sn["perdidasPermitidas"] == "No":
+        pr.append(problema("DTA_NO_PERMITIDO", f"Activo diferido por pérdidas {m(dtal_reg)} registrado sin que la ley lo admita (VERIFICAR).", dtal_reg))
+    elif dtal_reg > 0.005 and sn["probabilidadPerdidas"] == "No":
+        pr.append(problema("DTA_SIN_PROBABILIDAD", f"Activo diferido por pérdidas {m(dtal_reg)} sin evidencia convincente de ganancias fiscales "
+                           f"({cit['dta']}; NIC 12.35: las pérdidas recientes son indicio de que no las habrá).", dtal_reg))
+    elif dtal_reg - dtal_req > 0.005:
+        pr.append(problema("DTA_PERDIDAS_EXCESO", f"Activo diferido por pérdidas registrado {m(dtal_reg)} frente a {m(dtal_req)} sustentado por el "
+                           "remanente no vencido tras la amortización del año.", dtal_reg - dtal_req))
+    if abs(aj_dif) > 0.005:
+        n = sum(1 for x in part_rows if abs(x["aj"]) > 0.005) + (1 if abs(mv[2]["aj"]) > 0.005 else 0)
+        pr.append(problema("DIFERIDO_MAL_MEDIDO", f"Impuesto diferido neto requerido {m(dif_req)} frente a {m(dif_reg)} registrado ({n} partida(s) con "
+                           f"diferencia): ajuste {m(aj_dif)} ({cit['dt']}).", aj_dif))
+    ori_mov = mv[1]["mov"]
+    if gdr is not None and abs(reclas) > 0.005:
+        if abs(ori_mov) > 0.005 and abs(reclas + ori_mov) <= 0.005:
+            pr.append(problema("ORI_EN_RESULTADOS", f"El gasto diferido registrado en resultados ({m(gdr)}) incluye {m(reclas)} del diferido de partidas "
+                               f"reconocidas en ORI: debe ir a ORI ({cit['ori']}).", reclas))
+        else:
+            pr.append(problema("GASTO_DIFERIDO_NO_CONCILIA", f"El gasto diferido registrado en resultados ({m(gdr)}) no concilia con la variación de los "
+                               f"saldos registrados sin ORI ({m(gasto_dif_saldos)}): diferencia {m(reclas)}"
+                               + (f"; el diferido de partidas de ORI movió {m(-ori_mov)}" if abs(ori_mov) > 0.005 else "") + ".", reclas))
+    if (comp["difDta"] is not None and abs(comp["difDta"]) > 0.005) or (comp["difDtl"] is not None and abs(comp["difDtl"]) > 0.005):
+        if der:
+            pr.append(problema("FALTA_COMPENSAR", f"Activo diferido {m(num['dtaPresentado'] or 0)} y pasivo diferido {m(num['dtlPresentado'] or 0)} presentados "
+                               f"sin compensar pese al derecho legal y la misma autoridad fiscal: presentar el neto ({cit['comp']}).",
+                               abs(comp["difDta"] or 0)))
+        else:
+            pr.append(problema("COMPENSACION_INDEBIDA", "Activo y pasivo diferidos presentados por el neto sin derecho legal de compensar o con "
+                               f"distinta autoridad fiscal ({cit['comp']}).", abs(comp["difDta"] or 0)))
+    if rai != 0 and abs(etr["noexp"] / rai) * 100 > num["umbralTasaEfectiva"]:
+        pr.append(problema("TASA_EFECTIVA_INEXPLICADA", f"Tasa efectiva registrada {m(etr['tReg'] * 100)} % frente a {m(etr['tReq'] * 100)} % explicada "
+                           f"por la conciliación (tasa aplicable {m(tarifa)} %): gasto sin explicar {m(etr['noexp'])} ({cit['etr']}).", etr["noexp"]))
+    if abs(aj_saldo - aj_corr) > 0.005:
+        pr.append(problema("SALDO_CORRIENTE_NO_CONCILIA", f"El saldo registrado de impuesto por pagar ({m(saldo_ef)}) difiere del recalculado "
+                           f"({m(au['pagar'])}) en {m(aj_saldo)}, más que el ajuste al gasto: revise retenciones, anticipos y crédito tributario.",
+                           aj_saldo - aj_corr))
+    if au["pagar"] < -0.005:
+        pr.append(problema("SALDO_A_FAVOR", f"Saldo a favor de impuesto a la renta {m(-au['pagar'])}: se presenta como activo por impuesto corriente "
+                           f"({cit['corr']}); evalúe su recuperación (devolución o compensación)."))
+    if not part_rows:
+        pr.append(problema("SIN_PARTIDAS", "No se cargó el anexo de diferencias temporarias: el impuesto diferido no se pudo medir (NIC 12.15, 24)."))
+    falt = [ETIQUETAS_PARAM[k] for k in ("impuestoCorrienteRegistrado", "saldoCorrienteRegistrado", "gastoDiferidoRegistrado", "dtaPresentado", "dtlPresentado")
+            if num[k] is None]
+    if falt:
+        pr.append(problema("SIN_DATOS_REGISTRADOS", "Datos registrados no informados: " + "; ".join(falt) + ". Se asume lo que resulta de la "
+                           "conciliación del cliente (impuesto y saldo corriente) o de sus saldos (gasto diferido); la presentación no se prueba."))
+
+    rows = [{"id": c["id"], "concepto": c["concepto"], "tipo": _TIPOS_CONC[c["tipo"]][1], "importe": r2(c["cliente"]),
+             "importeAuditor": "" if c["auditor"] is None else r2(c["auditor"]), "importeAuditado": r2(c["usado"]), "_row": c["_row"]}
+            for c in conc]
+    tot = {"baseImponibleCliente": cl["base"], "baseImponibleAuditada": au["base"], "impuestoCorrienteAuditado": au["ir"],
+           "impuestoCorrienteRegistrado": ir_ef, "ajusteCorriente": aj_corr, "impuestoPorPagarAuditado": au["pagar"],
+           "saldoCorrienteRegistrado": saldo_ef, "ajusteSaldoCorriente": aj_saldo, "excesoAmortizacionPerdidas": exceso_perd,
+           "perdidasVencidas": venc, "dtaReconocido": dta_rec, "dtlRequerido": dtl_req, "dtaNoReconocido": dta_norec,
+           "diferidoNetoRequerido": dif_req, "diferidoNetoRegistrado": dif_reg, "ajusteDiferido": aj_dif,
+           "ajusteDiferidoResultados": aj_dif_res, "ajusteDiferidoORI": aj_dif_ori, "gastoDiferidoRequerido": gasto_dif_req}
+    lab = {"baseImponibleCliente": "Base imponible según el cliente (total de control)", "baseImponibleAuditada": "Base imponible auditada",
+           "impuestoCorrienteAuditado": "Impuesto corriente recalculado", "impuestoCorrienteRegistrado": "Impuesto corriente registrado",
+           "ajusteCorriente": "Ajuste al impuesto corriente", "impuestoPorPagarAuditado": "Impuesto por pagar (− saldo a favor) recalculado",
+           "saldoCorrienteRegistrado": "Impuesto por pagar registrado", "ajusteSaldoCorriente": "Ajuste al saldo de impuesto corriente",
+           "excesoAmortizacionPerdidas": "Amortización de pérdidas en exceso", "perdidasVencidas": "Pérdidas vencidas sin amortizar",
+           "dtaReconocido": "Activo por impuesto diferido requerido", "dtlRequerido": "Pasivo por impuesto diferido requerido",
+           "dtaNoReconocido": "Activo diferido no reconocido (revelar, NIC 12.81 e)", "diferidoNetoRequerido": "Impuesto diferido neto requerido (+ activo)",
+           "diferidoNetoRegistrado": "Impuesto diferido neto registrado (+ activo)", "ajusteDiferido": "Ajuste al impuesto diferido neto",
+           "ajusteDiferidoResultados": "de ello, contra resultados", "ajusteDiferidoORI": "de ello, contra ORI",
+           "gastoDiferidoRequerido": "Gasto (ingreso) por impuesto diferido requerido en resultados"}
+    if gdr is not None:
+        tot["gastoDiferidoRegistrado"] = gdr
+        lab["gastoDiferidoRegistrado"] = "Gasto (ingreso) por impuesto diferido registrado"
+    tot["reclasificacionORI"] = reclas
+    lab["reclasificacionORI"] = "Gasto diferido llevado a resultados que corresponde a ORI u otro origen"
+    tot["gastoTotalRequerido"] = etr["req"]
+    lab["gastoTotalRequerido"] = "Gasto total por impuesto requerido"
+    tot.update(gastoTotalRegistrado=etr["reg"], diferenciaNoExplicada=etr["noexp"])
+    lab.update(gastoTotalRegistrado="Gasto total por impuesto registrado", diferenciaNoExplicada="Gasto registrado no explicado por la conciliación")
+    if etr["tReq"] is not None:
+        tot["tasaEfectivaRequerida"] = etr["tReq"] * 100
+        lab["tasaEfectivaRequerida"] = "Tasa efectiva requerida (%)"
+    if etr["tReg"] is not None:
+        tot["tasaEfectivaRegistrada"] = etr["tReg"] * 100
+        lab["tasaEfectivaRegistrada"] = "Tasa efectiva registrada (%)"
+    tot["ajusteResultados"] = aj_res
+    lab["ajusteResultados"] = "Ajuste neto al gasto por impuesto en resultados (+ más gasto)"
+
+    detalle = {"cortes": {"actual": corte_a.isoformat()}, "anio": anio, "parametros": p, "pymes": pymes, "edicion": ed, "citas": cit,
+               "num": num, "sn": sn, "irEf": ir_ef, "saldoEf": saldo_ef, "tarifa": tarifa, "conc": conc, "cl": cl, "au": au, "perd": perd, "partidas": part_rows,
+               "tot": tot, "mov": mv, "comp": comp, "etr": etr, "gastoDifSaldos": gasto_dif_saldos, "reclas": reclas}
+    return {"engine": VERSION, "rows": rows, "totals": {k: r2(v) for k, v in tot.items()}, "labels": lab,
+            "primary": "ajusteResultados", "exceptions": pr, "schedule": [], "detalle": detalle}
+
+
+# --- cédulas con fórmulas ---------------------------------------------------------
+
+P = ref("02_Parametros")
+CON, IC, PER, DT, TR, MOV, ETR, AJ = (ref(n) for n in ("03_Conciliacion", "04_Impuesto_corriente", "05_Perdidas", "06_Diferencias_temp",
+                                                      "07_Tasa_reversion", "09_Movimiento", "11_Tasa_efectiva", "12_Ajustes"))
+_PAR = ["corte", "marco", "tasaIR", "puntosRecargo", "proporcionRecargo", "participacion", "limitePerdidas", "plazoPerdidas", "tasaFutura",
+        "anioTasaFutura", "perdidasPermitidas", "probabilidadPerdidas", "retenciones", "anticipos", "creditoAnterior",
+        "impuestoCorrienteRegistrado", "saldoCorrienteRegistrado", "gastoDiferidoRegistrado", "dtaPerdidasInicial", "dtaPerdidasRegistrado",
+        "derechoCompensar", "dtaPresentado", "dtlPresentado", "umbralTasaEfectiva"]
+PAR = {k: FILA0 + i for i, k in enumerate(_PAR)}
+_IC = ["u", "part", "ex", "nd", "ge", "pe", "ded", "otros", "b0", "lim", "disp", "perd", "base", "tarifa", "ir", "ret", "ant", "cred", "pagar",
+       "irReg", "saldoReg"]
+ICF = {k: FILA0 + i for i, k in enumerate(_IC)}
+_ETR = ["rai", "teo", "nd", "ex", "ded", "perd", "otros", "neg", "corr", "dif", "req", "reg", "noexp", "tReq", "tReg", "tApl"]
+ETRF = {k: FILA0 + i for i, k in enumerate(_ETR)}
+_AJ = ["irAud", "irReg", "ajCorr", "pagarAud", "saldoReg", "ajSaldo", "excesoPerd", "vencidas", "dtaRec", "dtl", "dtaNoRec", "difReq", "difReg",
+       "ajDif", "ajDifRes", "ajDifOri", "gastoDifReq", "gastoDifSaldos", "gastoDifReg", "reclas", "gastoReq", "gastoReg", "noexp", "ajRes"]
+AJF = {k: FILA0 + i for i, k in enumerate(_AJ)}
+
+
+def _pb(k):
+    return f"{P}$B${PAR[k]}"
+
+
+def _rg(h, col, n):
+    return f"{h}${col}${FILA0}:${col}${FILA0 + n - 1}"
+
+
+def suma(col, fin_fila, valor):
+    """Fila TOTAL sin redondear el valor de control (base.suma redondea y difiere de Excel en medios centavos)."""
+    return fx(f"SUM({col}{FILA0}:{col}{max(fin_fila, FILA0)})", valor)
+
+
+def _sum(h, col, n):
+    return f"SUM({_rg(h, col, n)})" if n else "0"
+
+
+def _sumif(h, ccol, crit, col, n):
+    return f'SUMIF({_rg(h, ccol, n)},"{crit}",{_rg(h, col, n)})' if n else "0"
+
+
+def hojas(res: dict) -> list[dict]:
+    d = res["detalle"]
+    conc, cl, au, perd, pt, mv, comp, etr, cit, num = (d[k] for k in ("conc", "cl", "au", "perd", "partidas", "mov", "comp", "etr", "citas", "num"))
+    t = d["tot"]                       # sin redondear: Excel calcula con todos los decimales
+    nc, nl, npt = len(conc), len(perd), len(pt)
+    marco = (MARCO_PYMES + f" {d['edicion']}") if d["pymes"] else MARCO_COMPLETAS
+    ti, yr = _pb("tasaIR"), f"YEAR({_pb('corte')})"
+    vr = "vigente al corte; VERIFICAR"
+
+    parametros = [
+        ["Corte del ejercicio", d["cortes"]["actual"], "Ficha del encargo"],
+        ["Marco contable", marco, f"{cit['marco']} — mismo cálculo en ambos marcos; cambian las citas"],
+        ["Tarifa general del impuesto a la renta (%)", num["tasaIR"], f"LRTI art. 37 — {vr}"],
+        ["Puntos adicionales (paraísos fiscales / composición societaria)", num["puntosRecargo"], f"LRTI art. 37 — {vr}"],
+        ["Proporción de la base con tarifa incrementada (%)", num["proporcionRecargo"], "Composición societaria informada al SRI"],
+        ["Participación de trabajadores (%)", num["participacion"], f"Código del Trabajo art. 97 — {vr}"],
+        ["Límite anual de amortización de pérdidas (%)", num["limitePerdidas"], f"LRTI art. 11 — {vr}"],
+        ["Plazo para amortizar pérdidas (años)", num["plazoPerdidas"], f"LRTI art. 11 — {vr}"],
+        ["Tasa aprobada para años futuros (%)", num["tasaFutura"], f"{cit['tasa']} — tasa aprobada o prácticamente aprobada al cierre"],
+        ["Año desde el que rige la tasa futura", num["anioTasaFutura"], "Ley publicada al cierre"],
+        ["Ley admite diferido por pérdidas", d["sn"]["perdidasPermitidas"], "Reglamento LRTI art. 28 — VERIFICAR"],
+        ["Probable ganancia fiscal para las pérdidas", d["sn"]["probabilidadPerdidas"], "NIC 12.35–36 — proyecciones fiscales"],
+        ["Retenciones en la fuente del ejercicio", num["retenciones"], "Comprobantes de retención / F-101"],
+        ["Anticipos pagados", num["anticipos"], "F-115 / F-101"],
+        ["Crédito tributario de años anteriores", num["creditoAnterior"], "F-101"],
+        ["Gasto por impuesto corriente registrado", num["impuestoCorrienteRegistrado"], "Mayor"],
+        ["Impuesto por pagar registrado (+) / saldo a favor (−)", num["saldoCorrienteRegistrado"], "Estado de situación financiera"],
+        ["Gasto (ingreso) por impuesto diferido registrado", num["gastoDiferidoRegistrado"], "Estado de resultados"],
+        ["Activo diferido por pérdidas al inicio", num["dtaPerdidasInicial"], "Mayor"],
+        ["Activo diferido por pérdidas al cierre", num["dtaPerdidasRegistrado"], "Mayor"],
+        ["Derecho legal de compensar (misma autoridad)", d["sn"]["derechoCompensar"], cit["comp"]],
+        ["Activo por impuesto diferido presentado", num["dtaPresentado"], "Estado de situación financiera"],
+        ["Pasivo por impuesto diferido presentado", num["dtlPresentado"], "Estado de situación financiera"],
+        ["Diferencia tolerable en la tasa efectiva (p.p.)", num["umbralTasaEfectiva"], "Juicio del auditor (materialidad)"],
+    ]
+
+    # 03 · Conciliación.
+    fin_c = FILA0 + nc - 1
+    c03 = []
+    for i, c in enumerate(conc):
+        r = FILA0 + i
+        c03.append([c["id"], c["concepto"], c["tipo"], c["signo"], n2(c["cliente"]), c["auditor"],
+                    fx(f'IF(F{r}<>"",F{r},E{r})', c["usado"]), fx(f"G{r}-E{r}", c["dif"])])
+    tot_c = ["TOTAL", "", "", "", suma("E", fin_c, cl["base"]), None, suma("G", fin_c, sum(c["usado"] for c in conc)),
+             suma("H", fin_c, sum(c["dif"] for c in conc))]
+
+    # 04 · Impuesto corriente.
+    sb = lambda tp: _sumif(CON, "C", tp, "E", nc)
+    sg = lambda tp: _sumif(CON, "C", tp, "G", nc)
+    B = lambda k: f"B{ICF[k]}"
+    C = lambda k: f"C{ICF[k]}"
+    disp_f = _sum(PER, "G", nl)
+    perd_c = f"-MIN(-{sg('perdidas')},{C('lim')},{C('disp')})" if nl else f"-MIN(-{sg('perdidas')},{C('lim')})"
+    filas04 = [
+        ("u", "Utilidad (pérdida) contable antes de participación e impuesto", sb("utilidad"), sg("utilidad"), "03_Conciliacion"),
+        ("part", "(−) Participación trabajadores", sb("participacion"), f"-MAX({C('u')},0)*{_pb('participacion')}/100", "Recalculada: % × utilidad"),
+        ("ex", "(−) Ingresos exentos", sb("exentos"), sg("exentos"), "LRTI art. 9 — VERIFICAR"),
+        ("nd", "(+) Gastos no deducibles", sb("no_deducibles"), sg("no_deducibles"), "LRTI art. 10 — VERIFICAR"),
+        ("ge", "(+) Gastos atribuibles a ingresos exentos", sb("gastos_exentos"), sg("gastos_exentos"), "Reglamento — VERIFICAR"),
+        ("pe", "(+) Participación atribuible a ingresos exentos", sb("participacion_exentos"),
+         f"IF({C('u')}>0,MAX(-{C('ex')}-{C('ge')},0)*{_pb('participacion')}/100,0)", "% × (exentos − gastos atribuibles)"),
+        ("ded", "(−) Deducciones adicionales", sb("deducciones"), sg("deducciones"), "LRTI art. 10 — VERIFICAR"),
+        ("otros", "(±) Otras partidas de conciliación", sb("otros"), sg("otros"), "03_Conciliacion"),
+        ("b0", "Utilidad gravable antes de amortizar pérdidas", f"SUM({B('u')}:{B('otros')})", f"SUM({C('u')}:{C('otros')})", ""),
+        ("lim", "Límite de amortización de pérdidas", f"MAX({B('b0')},0)*{_pb('limitePerdidas')}/100", f"MAX({C('b0')},0)*{_pb('limitePerdidas')}/100",
+         "LRTI art. 11 — VERIFICAR"),
+        ("disp", "Pérdidas disponibles no vencidas", disp_f if nl else None, disp_f if nl else None, "05_Perdidas"),
+        ("perd", "(−) Amortización de pérdidas", sb("perdidas"), perd_c, "mín(solicitada, límite, disponible)"),
+        ("base", "Base imponible", f"{B('b0')}+{B('perd')}", f"{C('b0')}+{C('perd')}", "Total de control = suma de 03_Conciliacion"),
+        ("tarifa", "Tarifa aplicable (%)", f"{ti}+{_pb('puntosRecargo')}*{_pb('proporcionRecargo')}/100",
+         f"{ti}+{_pb('puntosRecargo')}*{_pb('proporcionRecargo')}/100", "LRTI art. 37 — VERIFICAR"),
+        ("ir", "Impuesto a la renta causado", f"MAX({B('base')},0)*{B('tarifa')}/100", f"MAX({C('base')},0)*{C('tarifa')}/100", cit["corr"]),
+        ("ret", "(−) Retenciones en la fuente", _pb("retenciones"), _pb("retenciones"), "Parámetros"),
+        ("ant", "(−) Anticipos pagados", _pb("anticipos"), _pb("anticipos"), "Parámetros"),
+        ("cred", "(−) Crédito tributario de años anteriores", _pb("creditoAnterior"), _pb("creditoAnterior"), "Parámetros"),
+        ("pagar", "Impuesto por pagar (− saldo a favor)", f"{B('ir')}-{B('ret')}-{B('ant')}-{B('cred')}",
+         f"{C('ir')}-{C('ret')}-{C('ant')}-{C('cred')}", f"{cit['corr']}: pasivo o activo corriente"),
+        ("irReg", "Impuesto corriente registrado (B) frente a recalculado (C)",
+         f'IF({_pb("impuestoCorrienteRegistrado")}="",{B("ir")},{_pb("impuestoCorrienteRegistrado")})', C("ir"), "Vacío: el de la conciliación del cliente"),
+        ("saldoReg", "Saldo corriente registrado (B) frente a recalculado (C)",
+         f'IF({_pb("saldoCorrienteRegistrado")}="",{B("pagar")},{_pb("saldoCorrienteRegistrado")})', C("pagar"), "Vacío: el de la conciliación del cliente"),
+    ]
+    vals04 = {"irReg": (d["irEf"], au["ir"]), "saldoReg": (d["saldoEf"], au["pagar"])}
+    c04 = []
+    for k, txt, fb, fc, rf in filas04:
+        r = ICF[k]
+        vb, vc = vals04[k] if k in vals04 else (cl[k], au[k])
+        if fb is None:
+            c04.append([txt, None, None, None, rf])
+            continue
+        c04.append([txt, fx(fb, vb), fx(fc, vc), fx(f"C{r}-B{r}", vc - vb), rf])
+
+    # 05 · Pérdidas.
+    c05 = []
+    for i, x in enumerate(perd):
+        r = FILA0 + i
+        c05.append([x["origen"], n2(x["importe"]), n2(x["amortizado"]),
+                    x["vence"] if x["venceDato"] else fx(f"A{r}+{_pb('plazoPerdidas')}", x["vence"]),
+                    fx(f"B{r}-C{r}", x["disponible"]), fx(f'IF(D{r}<{yr},"Sí","No")', "Sí" if x["vencida"] else "No"),
+                    fx(f'IF(F{r}="No",E{r},0)', x["noVencido"]), fx(f'IF(F{r}="Sí",E{r},0)', x["saldoVencido"]),
+                    fx(f"MAX(0,MIN(G{r},-{IC}$C${ICF['perd']}-SUM(I${FILA0 - 1}:I{r - 1})))", x["amortAnio"]),
+                    fx(f"G{r}-I{r}", x["remanente"]), fx(f"IF(D{r}>{yr},J{r},0)", x["arrastrable"]),
+                    fx(f'IF(AND({_pb("perdidasPermitidas")}="Sí",{_pb("probabilidadPerdidas")}="Sí"),K{r}*{ti}/100,0)', x["dtaReq"]),
+                    fx(f"K{r}*{ti}/100-L{r}", x["dtaNoRec"])])
+    fin_l = FILA0 + nl - 1
+    sl = lambda k: sum(x[k] for x in perd)
+    tot_l = (["TOTAL", suma("B", fin_l, sl("importe")), suma("C", fin_l, sl("amortizado")), None, suma("E", fin_l, sl("disponible")), "",
+              suma("G", fin_l, sl("noVencido")), suma("H", fin_l, sl("saldoVencido")), suma("I", fin_l, sl("amortAnio")),
+              suma("J", fin_l, sl("remanente")), suma("K", fin_l, sl("arrastrable")), suma("L", fin_l, sl("dtaReq")),
+              suma("M", fin_l, sl("dtaNoRec"))] if perd else None)
+
+    # 06 · Diferencias temporarias · 07 · Tasa de reversión.
+    tf_, af_ = _pb("tasaFutura"), _pb("anioTasaFutura")
+    c06, c07 = [], []
+    for i, x in enumerate(pt):
+        r = FILA0 + i
+        c06.append([x["partida"], x["nat"], n2(x["libros"]), n2(x["base"]),
+                    fx(f'IF(B{r}="Activo",C{r}-D{r},D{r}-C{r})', x["dt"]),
+                    fx(f'IF(E{r}>0,"Imponible",IF(E{r}<0,"Deducible","Sin diferencia"))', x["clase"]),
+                    x["anio"], fx(f"{TR}D{r}", x["tasa"]), fx(f"IF(E{r}>0,E{r}*H{r}/100,0)", x["dtl"]),
+                    fx(f"IF(E{r}<0,-E{r}*H{r}/100,0)", x["dtaBruto"]), x["perm"], x["prob"],
+                    fx(f'IF(AND(K{r}="Sí",L{r}="Sí"),J{r},0)', x["dtaRec"]), fx(f"J{r}-M{r}", x["dtaNoRec"]),
+                    fx(f"M{r}-I{r}", x["req"]), n2(x["ini"]), n2(x["cie"]), fx(f"O{r}-Q{r}", x["aj"]), x["ori"],
+                    fx(f"O{r}-P{r}", x["mov"]), fx(f'IF(S{r}="No",-T{r},0)', x["res"]), fx(f'IF(S{r}="Sí",-T{r},0)', x["movOri"])])
+        c07.append([x["partida"], fx(f'IF({DT}G{r}="","",{DT}G{r})', x["anio"] if x["anio"] is not None else ""),
+                    n2(x["tasaDato"]) if x["tasaDato"] is not None else fx(ti, x["tasaCli"]),
+                    fx(f'IF(AND({tf_}<>"",{af_}<>"",B{r}<>""),IF(B{r}>={af_},{tf_},{ti}),{ti})', x["tasa"]),
+                    fx(f"C{r}-D{r}", x["difTasa"]), fx(f"{DT}E{r}", x["dt"]), fx(f"ABS(F{r})*E{r}/100", x["efectoTasa"])])
+    fin_p = FILA0 + npt - 1
+    s6 = lambda k: sum(x[k] for x in pt)
+    tot6 = (["TOTAL", "", suma("C", fin_p, s6("libros")), suma("D", fin_p, s6("base")), suma("E", fin_p, s6("dt")), "", None, None,
+             suma("I", fin_p, s6("dtl")), suma("J", fin_p, s6("dtaBruto")), "", "", suma("M", fin_p, s6("dtaRec")), suma("N", fin_p, s6("dtaNoRec")),
+             suma("O", fin_p, s6("req")), suma("P", fin_p, s6("ini")), suma("Q", fin_p, s6("cie")), suma("R", fin_p, s6("aj")), "",
+             suma("T", fin_p, s6("mov")), suma("U", fin_p, s6("res")), suma("V", fin_p, s6("movOri"))] if pt else None)
+    tot7 = (["TOTAL", None, None, None, None, None, suma("G", fin_p, s6("efectoTasa"))] if pt else None)
+
+    # 08 · Recuperabilidad.
+    c08 = []
+    for i, x in enumerate(pt):
+        if not (x["dt"] < 0 or x["cie"] > 0):
+            continue
+        r, rd = FILA0 + len(c08), FILA0 + i
+        c08.append([x["partida"], fx(f"{DT}J{rd}", x["dtaBruto"]), fx(f"{DT}K{rd}", x["perm"]), fx(f"{DT}L{rd}", x["prob"]),
+                    fx(f"{DT}M{rd}", x["dtaRec"]), fx(f"MAX({DT}Q{rd},0)", max(x["cie"], 0)),
+                    fx(f"MAX(F{r}-E{r},0)", max(max(x["cie"], 0) - x["dtaRec"], 0)),
+                    fx(f'IF(C{r}="No","No admitido tributariamente",IF(D{r}="No","Sin probabilidad de ganancia fiscal","Reconocible"))',
+                       "No admitido tributariamente" if x["perm"] == "No" else ("Sin probabilidad de ganancia fiscal" if x["prob"] == "No" else "Reconocible"))])
+    r = FILA0 + len(c08)
+    sn = d["sn"]
+    bl = sl("arrastrable") * num["tasaIR"] / 100
+    rl = max(num["dtaPerdidasRegistrado"] or 0, 0)
+    c08.append(["Pérdidas tributarias no utilizadas", fx(f"{_sum(PER, 'K', nl)}*{ti}/100", bl), fx(_pb("perdidasPermitidas"), sn["perdidasPermitidas"]),
+                fx(_pb("probabilidadPerdidas"), sn["probabilidadPerdidas"]), fx(_sum(PER, "L", nl), sl("dtaReq")),
+                fx(f"MAX({_pb('dtaPerdidasRegistrado')},0)", rl), fx(f"MAX(F{r}-E{r},0)", max(rl - sl("dtaReq"), 0)),
+                fx(f'IF(C{r}="No","No admitido tributariamente",IF(D{r}="No","Sin probabilidad de ganancia fiscal","Reconocible"))',
+                   "No admitido tributariamente" if sn["perdidasPermitidas"] == "No" else
+                   ("Sin probabilidad de ganancia fiscal" if sn["probabilidadPerdidas"] == "No" else "Reconocible"))])
+    fin8 = r
+    v8 = lambda j: sum(fila[j]["v"] for fila in c08)
+    tot8 = ["TOTAL", suma("B", fin8, v8(1)), "", "", suma("E", fin8, v8(4)), suma("F", fin8, v8(5)), suma("G", fin8, v8(6)), ""]
+
+    # 09 · Movimiento.
+    c09 = []
+    for i, x in enumerate(mv):
+        r = FILA0 + i
+        if x["k"] == "perd":
+            fi, fq, fc = _pb("dtaPerdidasInicial"), _sum(PER, "L", nl), _pb("dtaPerdidasRegistrado")
+        else:
+            crit = "Sí" if x["ori"] else "No"
+            fi, fq, fc = _sumif(DT, "S", crit, "P", npt), _sumif(DT, "S", crit, "O", npt), _sumif(DT, "S", crit, "Q", npt)
+        c09.append([x["concepto"], fx(fi, x["ini"]), fx(fq, x["req"]), fx(f"C{r}-B{r}", x["mov"]),
+                    fx(f"-D{r}" if not x["ori"] else "0", x["aRes"]), fx(f"-D{r}" if x["ori"] else "0", x["aOri"]),
+                    fx(fc, x["cie"]), fx(f"C{r}-G{r}", x["aj"])])
+    fin9 = FILA0 + 2
+    sm = lambda k: sum(x[k] for x in mv)
+    tot9 = ["TOTAL", suma("B", fin9, sm("ini")), suma("C", fin9, sm("req")), suma("D", fin9, sm("mov")), suma("E", fin9, sm("aRes")),
+            suma("F", fin9, sm("aOri")), suma("G", fin9, sm("cie")), suma("H", fin9, sm("aj"))]
+    fila_tot9 = fin9 + 1
+
+    # 10 · Compensación.
+    der = _pb("derechoCompensar")
+    q = _rg(DT, "Q", npt)
+    dp, lp = num["dtaPresentado"], num["dtlPresentado"]
+    c10 = [
+        ["Activo diferido bruto registrado", fx((f'SUMIF({q},">0")+' if npt else "") + f"MAX({_pb('dtaPerdidasRegistrado')},0)", comp["dtaReg"]), "06_Diferencias_temp Q > 0 + pérdidas"],
+        ["Pasivo diferido bruto registrado", fx(f'-SUMIF({q},"<0")' if npt else "0", comp["dtlReg"]), "06_Diferencias_temp Q < 0"],
+        ["Derecho legal de compensar", fx(der, d["sn"]["derechoCompensar"]), cit["comp"]],
+        ["Activo diferido a presentar (saldos registrados)", fx(f'IF(B7="Sí",MAX(B5-B6,0),B5)', comp["dtaEsp"]), "Neto si hay derecho"],
+        ["Pasivo diferido a presentar (saldos registrados)", fx(f'IF(B7="Sí",MAX(B6-B5,0),B6)', comp["dtlEsp"]), "Neto si hay derecho"],
+        ["Activo diferido presentado", fx(f'IF({_pb("dtaPresentado")}<>"",{_pb("dtaPresentado")},"")', dp if dp is not None else ""), "Parámetros"],
+        ["Pasivo diferido presentado", fx(f'IF({_pb("dtlPresentado")}<>"",{_pb("dtlPresentado")},"")', lp if lp is not None else ""), "Parámetros"],
+        ["Diferencia de presentación del activo", fx('IF(B10="","",B10-B8)', comp["difDta"] if comp["difDta"] is not None else ""), "Compensación indebida o faltante"],
+        ["Diferencia de presentación del pasivo", fx('IF(B11="","",B11-B9)', comp["difDtl"] if comp["difDtl"] is not None else ""), ""],
+        ["Activo diferido requerido (auditado, bruto)", fx(f"{_sum(DT, 'M', npt)}+{_sum(PER, 'L', nl)}", comp["dtaAud"]), "06 + 05"],
+        ["Pasivo diferido requerido (auditado, bruto)", fx(_sum(DT, "I", npt), comp["dtlAud"]), "06"],
+        ["Activo diferido a presentar (auditado)", fx('IF(B7="Sí",MAX(B14-B15,0),B14)', comp["dtaPresAud"]), cit["comp"]],
+        ["Pasivo diferido a presentar (auditado)", fx('IF(B7="Sí",MAX(B15-B14,0),B15)', comp["dtlPresAud"]), cit["comp"]],
+    ]
+
+    # 11 · Tasa efectiva (NIC 12.81 c).
+    E_ = lambda k: f"B{ETRF[k]}"
+    pct = lambda k: fx(f'IF(OR({E_(k)}="",$B${ETRF["rai"]}=0),"",{E_(k)}/$B${ETRF["rai"]})',
+                       None if etr[k] is None or etr["rai"] == 0 else etr[k] / etr["rai"])
+    tar = f"{IC}$C${ICF['tarifa']}/100"
+    etr_f = {
+        "rai": ("Resultado contable antes del impuesto (utilidad − participación)", f"{IC}C{ICF['u']}+{IC}C{ICF['part']}"),
+        "teo": ("Impuesto teórico = resultado × tasa aplicable", f"{E_('rai')}*{tar}"),
+        "nd": ("Efecto de gastos no deducibles y atribuibles a exentos", f"({IC}C{ICF['nd']}+{IC}C{ICF['ge']}+{IC}C{ICF['pe']})*{tar}"),
+        "ex": ("Efecto de ingresos exentos", f"{IC}C{ICF['ex']}*{tar}"),
+        "ded": ("Efecto de deducciones adicionales", f"{IC}C{ICF['ded']}*{tar}"),
+        "perd": ("Efecto de la amortización de pérdidas", f"{IC}C{ICF['perd']}*{tar}"),
+        "otros": ("Efecto de otras partidas de conciliación", f"{IC}C{ICF['otros']}*{tar}"),
+        "neg": ("Efecto de base imponible negativa (sin impuesto causado)", f"{IC}C{ICF['ir']}-SUM({E_('teo')}:{E_('otros')})"),
+        "corr": ("Impuesto corriente recalculado", f"SUM({E_('teo')}:{E_('neg')})"),
+        "dif": ("Gasto (ingreso) por impuesto diferido requerido", f"{MOV}E{fila_tot9}"),
+        "req": ("Gasto total por impuesto requerido", f"{E_('corr')}+{E_('dif')}"),
+        "reg": ("Gasto total por impuesto registrado",
+                f'{IC}B{ICF["irReg"]}+IF({_pb("gastoDiferidoRegistrado")}="",{AJ}B{AJF["gastoDifSaldos"]},{_pb("gastoDiferidoRegistrado")})'),
+        "noexp": ("Gasto registrado no explicado", f'{E_("reg")}-{E_("req")}'),
+    }
+    c11 = []
+    for k in _ETR[:13]:
+        txt, f = etr_f[k]
+        c11.append([txt, fx(f, etr[k] if etr[k] is not None else ""), None if k == "rai" else pct(k)])
+    rai = f"$B${ETRF['rai']}"
+    c11.append(["Tasa efectiva requerida", None, fx(f'IF({rai}=0,"",{E_("req")}/{rai})', etr["tReq"] if etr["tReq"] is not None else "")])
+    c11.append(["Tasa efectiva registrada", None, fx(f'IF({rai}=0,"",{E_("reg")}/{rai})', etr["tReg"] if etr["tReg"] is not None else "")])
+    c11.append(["Tasa aplicable", None, fx(tar, etr["tApl"])])
+
+    # 12 · Ajustes.
+    A = lambda k: f"B{AJF[k]}"
+    gdr = num["gastoDiferidoRegistrado"]
+    aj_f = {
+        "irAud": ("Impuesto corriente recalculado", f"{IC}C{ICF['ir']}", t["impuestoCorrienteAuditado"], "04_Impuesto_corriente"),
+        "irReg": ("Impuesto corriente registrado", f"{IC}B{ICF['irReg']}", t["impuestoCorrienteRegistrado"], "04 (vacío: el de la conciliación)"),
+        "ajCorr": ("Ajuste al impuesto corriente (+ más gasto y pasivo)", f"{A('irAud')}-{A('irReg')}", t["ajusteCorriente"], cit["corr"]),
+        "pagarAud": ("Impuesto por pagar recalculado (− saldo a favor)", f"{IC}C{ICF['pagar']}", t["impuestoPorPagarAuditado"], "04_Impuesto_corriente"),
+        "saldoReg": ("Impuesto por pagar registrado", f"{IC}B{ICF['saldoReg']}", t["saldoCorrienteRegistrado"], "04 (vacío: el de la conciliación)"),
+        "ajSaldo": ("Ajuste al saldo de impuesto corriente", f"{A('pagarAud')}-{A('saldoReg')}", t["ajusteSaldoCorriente"], ""),
+        "excesoPerd": ("Amortización de pérdidas en exceso", f"MAX({IC}C{ICF['perd']}-{sg('perdidas')},0)", t["excesoAmortizacionPerdidas"], "LRTI art. 11"),
+        "vencidas": ("Pérdidas vencidas sin amortizar", _sum(PER, "H", nl), t["perdidasVencidas"], "05_Perdidas"),
+        "dtaRec": ("Activo por impuesto diferido requerido", f"{_sum(DT, 'M', npt)}+{_sum(PER, 'L', nl)}", t["dtaReconocido"], cit["dta"]),
+        "dtl": ("Pasivo por impuesto diferido requerido", _sum(DT, "I", npt), t["dtlRequerido"], "NIC 12.15"),
+        "dtaNoRec": ("Activo diferido no reconocido (revelar)", f"{_sum(DT, 'N', npt)}+{_sum(PER, 'M', nl)}", t["dtaNoReconocido"], "NIC 12.81 e)"),
+        "difReq": ("Impuesto diferido neto requerido (+ activo)", f"{_sum(DT, 'O', npt)}+{_sum(PER, 'L', nl)}", t["diferidoNetoRequerido"], ""),
+        "difReg": ("Impuesto diferido neto registrado (+ activo)", f"{_sum(DT, 'Q', npt)}+{_pb('dtaPerdidasRegistrado')}", t["diferidoNetoRegistrado"], "06 + parámetros"),
+        "ajDif": ("Ajuste al impuesto diferido neto", f"{A('difReq')}-{A('difReg')}", t["ajusteDiferido"], cit["dt"]),
+        "ajDifRes": ("de ello, contra resultados", f"{MOV}H{FILA0}+{MOV}H{FILA0 + 2}", t["ajusteDiferidoResultados"], "09_Movimiento"),
+        "ajDifOri": ("de ello, contra ORI", f"{MOV}H{FILA0 + 1}", t["ajusteDiferidoORI"], cit["ori"]),
+        "gastoDifReq": ("Gasto (ingreso) diferido requerido en resultados", f"{MOV}E{fila_tot9}", t["gastoDiferidoRequerido"], "09_Movimiento"),
+        "gastoDifSaldos": ("Gasto diferido según la variación de los saldos registrados sin ORI",
+                           f"-({MOV}G{FILA0}-{MOV}B{FILA0})-({MOV}G{FILA0 + 2}-{MOV}B{FILA0 + 2})", d["gastoDifSaldos"], "09_Movimiento"),
+        "gastoDifReg": ("Gasto (ingreso) diferido registrado en resultados",
+                        f'IF({_pb("gastoDiferidoRegistrado")}="","",{_pb("gastoDiferidoRegistrado")})', gdr if gdr is not None else "", "Parámetros"),
+        "reclas": ("Gasto diferido en resultados que corresponde a ORI u otro origen",
+                   f'IF({_pb("gastoDiferidoRegistrado")}="",0,{_pb("gastoDiferidoRegistrado")}-{A("gastoDifSaldos")})', t["reclasificacionORI"], cit["ori"]),
+        "gastoReq": ("Gasto total por impuesto requerido", f"{ETR}B{ETRF['req']}", t["gastoTotalRequerido"], "11_Tasa_efectiva"),
+        "gastoReg": ("Gasto total por impuesto registrado", f"{ETR}B{ETRF['reg']}", etr["reg"], "11_Tasa_efectiva"),
+        "noexp": ("Gasto registrado no explicado", f"{ETR}B{ETRF['noexp']}", etr["noexp"], "11_Tasa_efectiva"),
+        "ajRes": ("Ajuste neto al gasto por impuesto en resultados (+ más gasto)", f"{A('ajCorr')}-{A('ajDifRes')}-{A('reclas')}",
+                  t["ajusteResultados"], "Corriente − diferido a resultados − reclasificación"),
+    }
+    c12 = [[aj_f[k][0], fx(aj_f[k][1], aj_f[k][2]), aj_f[k][3]] for k in _AJ]
+
+    # 13 · Asientos.
+    asientos = []
+
+    def asiento(titulo, lineas):
+        for i, (cta, formula, valor, debe) in enumerate(lineas):
+            v = fx(formula, valor)
+            asientos.append([titulo if i == 0 else "", cta, v if debe else None, None if debe else v])
+
+    ajb = lambda k: f"ABS({AJ}B{AJF[k]})"
+    if abs(t["ajusteCorriente"]) > 0.005:
+        pos = t["ajusteCorriente"] > 0
+        asiento("1 · Impuesto corriente", [("Gasto por impuesto a la renta corriente", ajb("ajCorr"), abs(t["ajusteCorriente"]), pos),
+                                           ("Impuesto a la renta por pagar", ajb("ajCorr"), abs(t["ajusteCorriente"]), not pos)])
+    if abs(t["ajusteDiferidoResultados"]) > 0.005:
+        pos = t["ajusteDiferidoResultados"] > 0
+        asiento("2 · Impuesto diferido contra resultados", [
+            ("Activo / pasivo por impuesto diferido", ajb("ajDifRes"), abs(t["ajusteDiferidoResultados"]), pos),
+            ("Ingreso (gasto) por impuesto a la renta diferido", ajb("ajDifRes"), abs(t["ajusteDiferidoResultados"]), not pos)])
+    if abs(t["ajusteDiferidoORI"]) > 0.005:
+        pos = t["ajusteDiferidoORI"] > 0
+        asiento("3 · Impuesto diferido contra ORI", [("Activo / pasivo por impuesto diferido", ajb("ajDifOri"), abs(t["ajusteDiferidoORI"]), pos),
+                                                     ("Otro resultado integral (impuesto diferido)", ajb("ajDifOri"), abs(t["ajusteDiferidoORI"]), not pos)])
+    if abs(t["reclasificacionORI"]) > 0.005:
+        pos = t["reclasificacionORI"] > 0
+        asiento("4 · Reclasificación del diferido llevado a resultados", [
+            ("Otro resultado integral (impuesto diferido)", ajb("reclas"), abs(t["reclasificacionORI"]), pos),
+            ("Gasto por impuesto a la renta diferido", ajb("reclas"), abs(t["reclasificacionORI"]), not pos)])
+
+    ref_res = {"baseImponibleCliente": f"{IC}B{ICF['base']}", "baseImponibleAuditada": f"{IC}C{ICF['base']}",
+               "impuestoCorrienteAuditado": f"{AJ}B{AJF['irAud']}", "impuestoCorrienteRegistrado": f"{AJ}B{AJF['irReg']}",
+               "ajusteCorriente": f"{AJ}B{AJF['ajCorr']}", "impuestoPorPagarAuditado": f"{AJ}B{AJF['pagarAud']}",
+               "saldoCorrienteRegistrado": f"{AJ}B{AJF['saldoReg']}", "ajusteSaldoCorriente": f"{AJ}B{AJF['ajSaldo']}",
+               "excesoAmortizacionPerdidas": f"{AJ}B{AJF['excesoPerd']}", "perdidasVencidas": f"{AJ}B{AJF['vencidas']}",
+               "dtaReconocido": f"{AJ}B{AJF['dtaRec']}", "dtlRequerido": f"{AJ}B{AJF['dtl']}", "dtaNoReconocido": f"{AJ}B{AJF['dtaNoRec']}",
+               "diferidoNetoRequerido": f"{AJ}B{AJF['difReq']}", "diferidoNetoRegistrado": f"{AJ}B{AJF['difReg']}",
+               "ajusteDiferido": f"{AJ}B{AJF['ajDif']}", "ajusteDiferidoResultados": f"{AJ}B{AJF['ajDifRes']}",
+               "ajusteDiferidoORI": f"{AJ}B{AJF['ajDifOri']}", "gastoDiferidoRequerido": f"{AJ}B{AJF['gastoDifReq']}",
+               "gastoDiferidoRegistrado": f"{AJ}B{AJF['gastoDifReg']}", "reclasificacionORI": f"{AJ}B{AJF['reclas']}",
+               "gastoTotalRequerido": f"{AJ}B{AJF['gastoReq']}", "gastoTotalRegistrado": f"{AJ}B{AJF['gastoReg']}",
+               "diferenciaNoExplicada": f"{AJ}B{AJF['noexp']}", "tasaEfectivaRequerida": f"{ETR}C{ETRF['tReq']}*100",
+               "tasaEfectivaRegistrada": f"{ETR}C{ETRF['tReg']}*100", "ajusteResultados": f"{AJ}B{AJF['ajRes']}"}
+    val_res = {k: t[k] for k in res["labels"]}
+    for k, v in (("tasaEfectivaRequerida", etr["tReq"]), ("tasaEfectivaRegistrada", etr["tReg"])):
+        if k in val_res:
+            val_res[k] = v * 100
+    resumen = [[res["labels"][k], fx(ref_res[k], val_res[k])] for k in res["labels"]]
+
+    return [
+        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen),
+        hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
+        hoja("03_Conciliacion", "Conciliación tributaria",
+             [["Renglón", "t"], ["Concepto", "t"], ["Tipo", "t"], ["Signo exigido", "t"], ["Importe según cliente", "n"],
+              ["Importe según auditor", "n"], ["Importe auditado", "n"], ["Diferencia", "n"]], c03, tot_c),
+        hoja("04_Impuesto_corriente", "Impuesto corriente",
+             [["Concepto", "t"], ["Según cliente", "n"], ["Auditado", "n"], ["Diferencia", "n"], ["Referencia", "t"]], c04),
+        hoja("05_Perdidas", "Pérdidas tributarias",
+             [["Año de origen", "i"], ["Pérdida", "n"], ["Amortizado años anteriores", "n"], ["Último año", "i"], ["Disponible", "n"],
+              ["Vencida", "t"], ["Disponible no vencido", "n"], ["Saldo vencido", "n"], ["Amortización del año", "n"], ["Remanente", "n"],
+              ["Arrastrable a años futuros", "n"], ["Activo diferido requerido", "n"], ["Activo diferido no reconocido", "n"]], c05, tot_l),
+        hoja("06_Diferencias_temp", "Diferencias temporarias y diferido",
+             [["Partida", "t"], ["Naturaleza", "t"], ["Libros NIIF", "n"], ["Base fiscal", "n"], ["Diferencia temporaria (+ imponible)", "n"],
+              ["Clase", "t"], ["Año de reversión", "i"], ["Tasa (%)", "x"], ["Pasivo diferido", "n"], ["Activo diferido bruto", "n"],
+              ["Permitido", "t"], ["Probable", "t"], ["Activo diferido reconocido", "n"], ["Activo diferido no reconocido", "n"],
+              ["Diferido requerido (+ activo)", "n"], ["Registrado al inicio", "n"], ["Registrado al cierre", "n"], ["Ajuste", "n"],
+              ["ORI", "t"], ["Movimiento requerido", "n"], ["A resultados (+ gasto)", "n"], ["A ORI (+ cargo)", "n"]], c06, tot6),
+        hoja("07_Tasa_reversion", "Tasa de reversión",
+             [["Partida", "t"], ["Año de reversión", "x"], ["Tasa usada por el cliente (%)", "x"], ["Tasa aprobada esperada (%)", "x"],
+              ["Diferencia de tasa (p.p.)", "x"], ["Diferencia temporaria", "n"], ["Efecto en el diferido", "n"]], c07, tot7),
+        hoja("08_Recuperabilidad", "Recuperabilidad del activo diferido",
+             [["Partida", "t"], ["Activo diferido bruto", "n"], ["Permitido", "t"], ["Probable", "t"], ["Reconocible", "n"],
+              ["Registrado al cierre", "n"], ["Registrado en exceso", "n"], ["Conclusión", "t"]], c08, tot8),
+        hoja("09_Movimiento", "Movimiento: resultados y ORI",
+             [["Concepto", "t"], ["Registrado al inicio", "n"], ["Requerido al cierre", "n"], ["Movimiento", "n"], ["A resultados (+ gasto)", "n"],
+              ["A ORI (+ cargo)", "n"], ["Registrado al cierre", "n"], ["Ajuste", "n"]], c09, tot9),
+        hoja("10_Compensacion", "Compensación y presentación", [["Concepto", "t"], ["Importe", "x"], ["Referencia", "t"]], c10),
+        hoja("11_Tasa_efectiva", "Tasa efectiva (NIC 12.81 c)", [["Concepto", "t"], ["Importe", "n"], ["% del resultado", "p"]], c11),
+        hoja("12_Ajustes", "Ajustes propuestos", [["Concepto", "t"], ["Importe", "n"], ["Referencia", "t"]], c12),
+        hoja("13_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos),
+        hoja("14_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
+             [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
+    ]
+
+
+# --- definición -----------------------------------------------------------------
+
+def definicion() -> dict:
+    conc = ("Una fila por renglón de la conciliación tributaria del formulario 101: renglón o casillero, concepto, tipo (utilidad, "
+            "participación, exentos, no deducibles, gastos exentos, participación exentos, deducciones, pérdidas, otros) e importe con el "
+            "signo con que suma a la base imponible (+ suma, − resta); la suma de la columna es la base imponible declarada. El auditor puede "
+            "completar «importe según auditor» (por ejemplo, gastos no deducibles omitidos, con importe del cliente 0).")
+    part = ("Una fila por partida con diferencia entre libros NIIF y base fiscal: partida, activo o pasivo, importe en libros, base fiscal, "
+            "si la ley admite la deducción futura (Reglamento LRTI art. 28), si es probable la ganancia fiscal futura; y, si existen, año "
+            "esperado de reversión, tasa usada, impuesto diferido registrado al inicio y al cierre (+ activo / − pasivo) y si la partida se "
+            "reconoce en ORI.")
+    perd = "Pérdidas tributarias por año de origen: año, pérdida declarada, amortizado acumulado en años anteriores y, si difiere del plazo legal, último año para amortizar."
+    return {
+        "name": "Impuesto corriente y diferido",
+        "area": "Impuestos",
+        "processor": "impuesto_corriente_diferido",
+        "frameworks": [MARCO_COMPLETAS, MARCO_PYMES],
+        "summary": ("Recalcula la conciliación tributaria del formulario 101 (participación trabajadores, exentos, no deducibles, deducciones y "
+                    "amortización de pérdidas con su límite y vencimiento), el impuesto corriente y el saldo por pagar; mide las diferencias "
+                    "temporarias por partida a la tasa aprobada de reversión, el activo diferido reconocible (permitido por la ley y con "
+                    "probabilidad de ganancia fiscal) y el pasivo diferido; separa el movimiento a resultados y a ORI, prueba la compensación y "
+                    "concilia el gasto con el resultado × tasa (NIC 12.81 c). Tasas y límites de Ecuador como parámetros («vigente al corte; "
+                    "VERIFICAR»). El cálculo es el mismo en NIIF completas y en PYMES; cambian las citas."),
+        "source": {"organization": "IFRS Foundation (texto en español: Reglamento (UE) 2023/1803)", "type": "Norma contable", "date": "",
+                   "document": ("NIC 12 párr. 5 (definiciones), 12–14 (impuesto corriente como pasivo o activo; pérdida retrotraída), 15 "
+                                "(pasivo diferido por diferencias imponibles), 24–25 (activo diferido por diferencias deducibles si es probable "
+                                "la ganancia fiscal), 34–36 (pérdidas y créditos no utilizados; pérdidas recientes como indicio en contra), 46–47 "
+                                "(tasas en vigor o aprobadas al cierre; tasa del ejercicio de reversión), 53 (sin descuento), 56 (revisión del "
+                                "activo diferido), 58–60 y 61A (resultados frente a ORI y patrimonio), 71 y 74 (compensación), 81 c) y e) "
+                                "(conciliación del gasto con el resultado × tasa; diferencias no reconocidas) — leídos en EUR-Lex. Párr. 37 "
+                                "(reconsideración de activos no reconocidos): VERIFICAR. CINIIF 23 (incertidumbres) fuera del alcance de este cálculo."),
+                   "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
+        "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
+                         "document": ("NIIF para las PYMES 2015, Sección 29: 29.9–29.11 (bases fiscales), 29.14–29.19 (diferencias temporarias), "
+                                      "29.15 (reconocimiento), medición con tasas aprobadas y sin descuento; PYMES 2025, Sección 29 revisada y "
+                                      "alineada con la NIC 12. VERIFICAR la numeración y la redacción en el texto oficial de cada edición (no "
+                                      "leídos en esta construcción). El cálculo de esta herramienta es el mismo en ambas ediciones; la PYMES exige "
+                                      "explicar las diferencias significativas entre gasto y resultado × tasa (VERIFICAR párrafo)."),
+                         "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
+        "nia": [
+            {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad de la conciliación tributaria frente al F-101 y al mayor."},
+            {"document": "NIA 540 (Revisada)", "section": "párr. 13", "requirement": "La probabilidad de ganancias fiscales futuras y la tasa de reversión son supuestos de una estimación."},
+            {"document": "NIA 250 (Revisada)", "section": "VERIFICAR párrafos", "requirement": "Cumplimiento de disposiciones legales tributarias (LRTI y Reglamento)."},
+            {"document": "NIA 330", "section": "párr. 18", "requirement": "Procedimientos sustantivos sobre saldos y transacciones materiales."},
+            {"document": "NIA 450", "section": "párr. 5 y 8", "requirement": "Acumular las incorrecciones (ajustes propuestos) y comunicarlas."},
+        ],
+        "calculo": [
+            "Base imponible del cliente = suma algebraica de la conciliación (total de control).",
+            "Participación trabajadores recalculada = % × utilidad contable (si es positiva); participación atribuible a exentos = % × (exentos − gastos atribuibles).",
+            "Utilidad gravable antes de pérdidas = utilidad − participación − exentos + no deducibles + gastos atribuibles + participación atribuible − deducciones ± otros.",
+            "Amortización de pérdidas permitida = mín(solicitada, límite % × utilidad gravable, saldo no vencido); se aplica de la pérdida más antigua a la más reciente.",
+            "Impuesto causado = máx(base, 0) × (tarifa general + puntos × proporción); por pagar = causado − retenciones − anticipos − crédito (negativo: saldo a favor, NIC 12.12).",
+            "Diferencia temporaria: activo = libros − base; pasivo = base − libros; positiva imponible, negativa deducible.",
+            "Tasa de reversión = tasa aprobada para el año de reversión (futura si el año ≥ año de vigencia; si no, la general); sin descuento.",
+            "Pasivo diferido = diferencia imponible × tasa; activo diferido = diferencia deducible × tasa, solo si la ley lo admite y es probable la ganancia fiscal; el resto se revela.",
+            "Activo diferido por pérdidas = remanente no vencido tras la amortización del año × tasa, si se admite y es probable.",
+            "Movimiento = requerido al cierre − registrado al inicio; a resultados salvo las partidas de ORI.",
+            "Compensación: con derecho legal y misma autoridad se presenta el neto; sin él, bruto.",
+            "Tasa efectiva = gasto total por impuesto ÷ resultado antes del impuesto; conciliación resultado × tasa → gasto por efectos de cada partida.",
+            "Ajuste neto al gasto = ajuste corriente − ajuste diferido contra resultados − diferido llevado a resultados que corresponde a ORI.",
+        ],
+        "fields": _CONCILIACION, "rules": [], "control": CONTROL, "primary": "ajusteResultados",
+        "campos": CAMPOS, "tipos": TIPOS, "parametros": dict(PARAMETROS), "etiquetas_parametros": ETIQUETAS_PARAM,
+        "cedulas": [[n, l] for n, l in CEDULAS],
+        "program": [
+            {"code": "TAX-01", "objective": "Conciliación tributaria", "risk": "Base imponible subestimada; no deducibles omitidos", "assertion": "Exactitud / Integridad",
+             "procedure": "Cotejar la conciliación con el F-101 y el mayor; recalcular participación y revisar gastos no deducibles", "evidence": "F-101, mayor, soporte de gastos",
+             "criterion": "Base imponible recalculada igual a la declarada o diferencia ajustada", "source": "LRTI arts. 9, 10 · NIA 500"},
+            {"code": "TAX-02", "objective": "Impuesto corriente", "risk": "Impuesto corriente mal calculado o mal presentado", "assertion": "Valoración",
+             "procedure": "Recalcular el impuesto causado con la tarifa vigente y el saldo por pagar neto de retenciones, anticipos y crédito", "evidence": "F-101, comprobantes de retención",
+             "criterion": "Diferencia cero", "source": "NIC 12.12, 46 · PYMES 29"},
+            {"code": "TAX-03", "objective": "Pérdidas tributarias", "risk": "Amortización sobre el límite o de pérdidas vencidas", "assertion": "Exactitud",
+             "procedure": "Recalcular el límite anual, el plazo y el saldo por año de origen", "evidence": "Declaraciones de años anteriores",
+             "criterion": "Amortización dentro del límite y del plazo", "source": "LRTI art. 11 (VERIFICAR) · NIC 12.34"},
+            {"code": "TAX-04", "objective": "Bases fiscales y diferencias temporarias", "risk": "Diferido mal medido u omitido", "assertion": "Valoración / Integridad",
+             "procedure": "Comparar libros NIIF con la base fiscal por partida y medir activo y pasivo diferidos", "evidence": "Auxiliares NIIF y fiscales",
+             "criterion": "Diferido requerido igual al registrado", "source": "NIC 12.5, 15, 24 · PYMES 29"},
+            {"code": "TAX-05", "objective": "Recuperabilidad del activo diferido", "risk": "Activo diferido sin ganancia fiscal probable o no admitido", "assertion": "Valoración",
+             "procedure": "Evaluar proyecciones fiscales y el Reglamento art. 28; revisar el importe en libros al cierre", "evidence": "Proyecciones, historial de resultados fiscales",
+             "criterion": "Activo diferido solo por lo probable y admitido", "source": "NIC 12.24, 34–36, 56 · Reglamento LRTI art. 28 (VERIFICAR)"},
+            {"code": "TAX-06", "objective": "Tasa de reversión", "risk": "Diferido medido a tasa no aprobada o distinta a la del año de reversión", "assertion": "Valoración",
+             "procedure": "Comparar la tasa usada con la aprobada al cierre para el año de reversión", "evidence": "Ley vigente y reformas publicadas",
+             "criterion": "Tasa aprobada del año de reversión, sin descuento", "source": "NIC 12.47, 53"},
+            {"code": "TAX-07", "objective": "Resultados frente a ORI y compensación", "risk": "Diferido de ORI en resultados; compensación indebida", "assertion": "Presentación",
+             "procedure": "Separar el movimiento por origen y probar la compensación de saldos", "evidence": "Estados financieros",
+             "criterion": "Presentación conforme", "source": "NIC 12.58, 61A, 71, 74"},
+            {"code": "TAX-08", "objective": "Tasa efectiva", "risk": "Gasto por impuesto no explicado", "assertion": "Exactitud / Presentación",
+             "procedure": "Conciliar el gasto con el resultado contable × tasa aplicable", "evidence": "Estado de resultados, nota de impuestos",
+             "criterion": "Diferencia dentro del umbral", "source": "NIC 12.81 c)"},
+        ],
+        "requests": [
+            req("RQ-001", "Conciliación tributaria del ejercicio (renglones del F-101)", "conciliacion", "TAX-01", "Base imponible e impuesto corriente", content=conc),
+            req("RQ-002", "Anexo de diferencias temporarias por partida (libros NIIF, base fiscal, diferido registrado)", "partidas", "TAX-04",
+                "Impuesto diferido", content=part),
+            req("RQ-003", "Pérdidas tributarias por año de origen", "perdidas", "TAX-03", "Límite, plazo y activo diferido por pérdidas",
+                required=False, content=perd),
+            req("RQ-004", "Formulario 101 presentado y declaraciones de años con pérdidas", None, "TAX-01", "Sustento de la conciliación",
+                formats=("pdf",), use="soporte"),
+            req("RQ-005", "Comprobantes de retención, anticipos y crédito tributario", None, "TAX-02", "Sustento del impuesto por pagar",
+                formats=("pdf", "xlsx"), use="soporte"),
+            req("RQ-006", "Proyecciones de ganancias fiscales y análisis de recuperabilidad", None, "TAX-05", "Probabilidad de ganancia fiscal",
+                formats=("xlsx", "pdf"), use="soporte"),
+            req("RQ-007", "Mayor de cuentas de impuesto corriente, diferido y gasto por impuesto", None, "TAX-02", "Datos registrados",
+                formats=("xlsx", "pdf"), use="soporte"),
+        ],
+    }
+
+
+def validar_definicion(d: dict) -> dict:
+    return validar_definicion_generica(d, DATASETS, PRINCIPAL)
+
+
+# --- ejemplo de control (M19) -------------------------------------------------------
+
+def _c(id, concepto, tipo, importe, auditor=None):
+    f = {"id": id, "concepto": concepto, "tipo": tipo, "importe": importe, "_row": 2}
+    if auditor is not None:
+        f["importe_auditor"] = auditor
+    return f
+
+
+def _pt(id, nat, libros, base, perm, prob, inicial, cierre, ori="No", anio=None, tasa=None):
+    f = {"id": id, "naturaleza": nat, "libros": libros, "base_fiscal": base, "permitido": perm, "probable": prob,
+         "inicial": inicial, "cierre": cierre, "ori": ori, "_row": 2}
+    if anio is not None:
+        f["anio_reversion"] = anio
+    if tasa is not None:
+        f["tasa"] = tasa
+    return f
+
+
+def _pl(anio, importe, amortizado, vence=None):
+    f = {"id": anio, "importe": importe, "amortizado": amortizado, "_row": 2}
+    if vence is not None:
+        f["vence"] = vence
+    return f
+
+
+# Corte 2025-12-31; IR 25 %, participación 15 %, límite de pérdidas 25 %, plazo 5 años.
+# Auditado: 1.000.000 − 150.000 − 60.000 + (45.000 + 20.000 omitidos) + 3.000 + 8.550 − 12.000 + 30.000 = 884.550;
+# límite 25 % = 221.137,50 (< solicitadas 240.000 y < disponibles 250.000) → base 663.412,50; IR 165.853,13
+# frente a 156.137,50 registrado (base del cliente 624.550 × 25 %) → ajuste corriente 9.715,63.
+# Pérdidas FIFO: 2020 30.000 + 2021 100.000 + 2023 91.137,50 → remanente 28.862,50 × 25 % = 7.215,63 de activo diferido.
+# Diferido de partidas: activo 71.250, pasivo 92.500 → neto −21.250 frente a −13.700 registrado → ajuste −7.550;
+# con pérdidas: requerido −14.034,38 frente a 6.300 → ajuste −20.334,38 (todo contra resultados).
+# Gasto diferido registrado 19.700 incluye 10.000 de la revaluación en ORI → reclasificación 10.000.
+# Ajuste neto al gasto = 9.715,63 + 20.334,38 − 10.000 = 20.050 = gasto requerido 195.887,50 − registrado 175.837,50.
+EJEMPLO = {
+    "corte": "2025-12-31",
+    "parametros": {"_marco": MARCO_COMPLETAS, "tasaIR": 25, "puntosRecargo": 3, "proporcionRecargo": 0, "participacion": 15,
+                   "limitePerdidas": 25, "plazoPerdidas": 5, "perdidasPermitidas": "Sí", "probabilidadPerdidas": "Sí",
+                   "retenciones": 70000, "anticipos": 10000, "creditoAnterior": 5000, "impuestoCorrienteRegistrado": 156137.50,
+                   "saldoCorrienteRegistrado": 71137.50, "gastoDiferidoRegistrado": 19700, "dtaPerdidasInicial": 45000,
+                   "dtaPerdidasRegistrado": 20000, "derechoCompensar": "Sí", "dtaPresentado": 76300, "dtlPresentado": 70000,
+                   "umbralTasaEfectiva": 1},
+    "datasets": {
+        "conciliacion": [
+            _c("801", "Utilidad del ejercicio", "utilidad", "1000000"),
+            _c("803", "(-) Participación a trabajadores", "participacion", "-150000"),
+            _c("804", "(-) Dividendos exentos", "exentos", "-60000"),
+            _c("806", "(+) Gastos no deducibles locales (multas, intereses)", "no_deducibles", "45000"),
+            _c("807", "(+) Gastos incurridos para generar ingresos exentos", "gastos_exentos", "3000"),
+            _c("808", "(+) Participación atribuible a ingresos exentos", "participacion_exentos", "8550"),
+            _c("811", "(-) Deducción por incremento neto de empleos", "deducciones", "-12000"),
+            _c("814", "(-) Amortización de pérdidas tributarias", "perdidas", "-240000"),
+            _c("816", "(+) Generación de diferencias temporarias (jubilación, garantías)", "otros", "30000"),
+            _c("AUD-1", "Gastos sin comprobante de venta válido (hallazgo)", "no_deducibles", "0", "20000"),
+        ],
+        "partidas": [
+            _pt("PPE — depreciación fiscal acelerada", "Activo", "500000", "420000", "Sí", "Sí", "-15000", "-20000", anio=2028),
+            _pt("Provisión jubilación patronal", "Pasivo", "120000", "0", "Sí", "Sí", "25000", "30000", anio=2030),
+            _pt("Provisión por garantías", "Pasivo", "40000", "0", "Sí", "Sí", "6000", "8800", anio=2026, tasa="22"),
+            _pt("Deterioro de inventarios (VNR)", "Activo", "200000", "230000", "Sí", "Sí", "5000", "7500", anio=2026),
+            _pt("Deterioro de cartera sobre el límite fiscal", "Activo", "300000", "315000", "No", "Sí", "0", "3750"),
+            _pt("Revaluación de terrenos", "Activo", "900000", "700000", "Sí", "Sí", "-40000", "-50000", ori="Sí"),
+            _pt("Activo por derecho de uso", "Activo", "90000", "0", "Sí", "Sí", "0", "0", anio=2027),
+            _pt("Pasivo por arrendamiento", "Pasivo", "95000", "0", "Sí", "Sí", "0", "0", anio=2027),
+            _pt("Provisión por litigio laboral", "Pasivo", "25000", "0", "Sí", "No", "0", "6250"),
+        ],
+        "perdidas": [
+            _pl("2021", "150000", "50000"),
+            _pl("2019", "100000", "60000"),
+            _pl("2023", "120000", "0"),
+            _pl("2020", "60000", "30000"),
+        ],
+    },
+}
+
+_MOD_PERDIDA = {"801": "-300000", "803": "0", "808": "0"}   # pérdida contable: sin participación
+_CONC_PERDIDA = [dict(f, importe=_MOD_PERDIDA[f["id"]]) if f["id"] in _MOD_PERDIDA else f for f in EJEMPLO["datasets"]["conciliacion"]]
+ESCENARIOS = [
+    ("niif_completas", EJEMPLO["datasets"], EJEMPLO["parametros"], EJEMPLO["corte"]),
+    ("pymes_2015_tasa_futura", EJEMPLO["datasets"], {**EJEMPLO["parametros"], "_marco": MARCO_PYMES, "_edicion": "2015", "tasaFutura": 22,
+                                                      "anioTasaFutura": 2027, "derechoCompensar": "No", "probabilidadPerdidas": "No",
+                                                      "impuestoCorrienteRegistrado": None, "gastoDiferidoRegistrado": None}, EJEMPLO["corte"]),
+    ("pymes_2025_perdida_sin_anexos", {"conciliacion": _CONC_PERDIDA},
+     {**EJEMPLO["parametros"], "_marco": MARCO_PYMES, "_edicion": "2025", "dtaPresentado": None, "dtlPresentado": None}, EJEMPLO["corte"]),
+]
