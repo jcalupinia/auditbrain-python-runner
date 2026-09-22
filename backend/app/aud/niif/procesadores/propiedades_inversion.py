@@ -276,7 +276,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         x["enEj"] = "Sin fecha" if it["ftr"] is None else ("Sí" if inicio <= it["ftr"] <= corte_a else "No")
         x["dif"] = None if pymes or correcto != VR or x["lib"] is None or x["vr"] is None else x["vr"] - x["lib"]
         if pymes:
-            x["trat"] = "PYMES 16.9: cambio de uso; medición de la diferencia a la fecha del cambio: VERIFICAR"
+            x["trat"] = "PYMES 16.9: transferir solo cuando cumple o deja de cumplir la definición de PI; la sección 16 no regula la medición de la diferencia (juicio, sección 10)"
         elif correcto != VR:
             x["trat"] = "Modelo del costo: sin cambio del importe en libros (NIC 40.59)"
         elif t == "PPE→PI":
@@ -381,7 +381,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     sf = [i["id"] for i in vr_items if not i["fuente"]]
     if sf:
         pr.append(problema("SIN_FUENTE_VR", f"Valor razonable sin fuente ni tasador en {lista(sf)}: documente la tasación "
-                           f"({n40('NIC 40.32 y 75 e; NIIF 13', 'PYMES 16.10 b')}) y evalúe el trabajo del experto (NIA 500 y 620)."))
+                           f"({n40('NIC 40.32 y 75 e; NIIF 13', 'PYMES 16.10 b')}) y evalúe el trabajo del experto (NIA 500.8; NIA 620 si el experto es del auditor)."))
     if not pymes or edicion == "2025":
         sn = [i["id"] for i in vr_items if not i["nivel"]]
         if sn:
@@ -409,7 +409,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     if abs(t["difAlquileres"]) > 0.005:
         da = [i["id"] for i in its if i["difAlq"] and abs(i["difAlq"]) > 0.005]
         pr.append(problema("ALQUILER_NO_CONCILIADO", f"Ingresos por alquiler según contratos distintos de los registrados en {lista(da)}: {m(t['difAlquileres'])} "
-                           f"({n40('NIIF 16.81 y NIC 40.75 f', 'PYMES 20.25')}; VERIFICAR).", t["difAlquileres"]))
+                           f"({n40('NIIF 16.81 y NIC 40.75 f', 'PYMES 20.25')}).", t["difAlquileres"]))
     sc = [i["id"] for i in its if i["uso"] == "Alquiler" and i["alq"] is None]
     if sc:
         pr.append(problema("ALQUILER_SIN_CONTRATO", f"Inmuebles en alquiler sin ingresos según contrato en {lista(sc)}: no se concilian las rentas."))
@@ -427,7 +427,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     if abs(t["difBajas"]) > 0.005:
         db = [x["id"] for x in bajas if x["dif"] and abs(x["dif"]) > 0.005]
         pr.append(problema("BAJA_RESULTADO", f"Resultado de la baja mal determinado en {lista(db)}: {m(t['difBajas'])}; resultado = producto neto − importe en libros "
-                           f"({n40('NIC 40.69', 'PYMES 17.28-17.30; VERIFICAR')}).", t["difBajas"]))
+                           f"({n40('NIC 40.69', 'PYMES 17.28 y 17.30')}).", t["difBajas"]))
     if p["saldoMayor"] is None:
         pr.append(problema("SIN_MAYOR", "Ingrese el saldo según el mayor: sin él se toma la suma del detalle y no se prueba la conciliación."))
     elif abs(t["difDetalleMayor"]) > 0.005:
@@ -505,11 +505,12 @@ def hojas(res: dict) -> list[dict]:
         ["Inicio del ejercicio", d["inicio"], "Corte − 12 meses + 1 día"],
         ["Marco", "NIIF para las PYMES" if pymes else "NIIF completas", ruta],
         ["¿Es PYMES?", fx(f'IF(ISNUMBER(SEARCH("PYMES",{_pa("marco")})),"Sí","No")', esp_v), "Deriva del marco"],
-        ["Modelo aplicado por la entidad", p["modelo"], "Política contable (NIC 40.30; PYMES 16.7)"],
+        ["Modelo aplicado por la entidad", p["modelo"], "NIC 40.30 (elección); PYMES 16.7 (no es elección: depende de la medición fiable sin costo o esfuerzo desproporcionado)"],
         ["PYMES: VR fiable sin costo o esfuerzo desproporcionado", p["vr_sin_esfuerzo_desproporcionado"], "Juicio documentado (PYMES 16.7-16.8); sin efecto en NIIF completas"],
         ["Modelo con que se mide (ruta)", fx(f'IF({_pa("esPymes")}="Sí",IF({_pa("vr")}="sí","{VR}","costo"),{_pa("modelo")})', d["correcto"]),
          "Completas: el elegido por la entidad; PYMES: VR solo si es fiable sin esfuerzo desproporcionado"],
-        ["Uso propio significativo desde (%)", p["umbral_uso_propio"], "NIC 40.10 exige que la parte de uso propio sea «insignificante»; el umbral es juicio del auditor: VERIFICAR"],
+        ["Uso propio significativo desde (%)", p["umbral_uso_propio"], "NIC 40.10 exige que la parte de uso propio sea «insignificante»; el umbral es juicio del auditor (NIC 40.10 no fija porcentaje); "
+                                                            "solo NIIF completas — en PYMES 16.4 se separan las partes"],
         ["Saldo según el mayor", p["saldoMayor"], "Mayor contable (en blanco: se toma la suma del detalle)"],
     ]
 
@@ -558,7 +559,7 @@ def hojas(res: dict) -> list[dict]:
     for k, x in enumerate(trs):
         r, s = FILA0 + k, FILA0 + x["k"]
         vr_ok = f'OR({_pa("esPymes")}="Sí",{_pa("correcto")}<>"{VR}",F{r}="",G{r}="")'
-        trat = (f'IF({_pa("esPymes")}="Sí","PYMES 16.9: cambio de uso; medición de la diferencia a la fecha del cambio: VERIFICAR",'
+        trat = (f'IF({_pa("esPymes")}="Sí","PYMES 16.9: transferir solo cuando cumple o deja de cumplir la definición de PI; la sección 16 no regula la medición de la diferencia (juicio, sección 10)",'
                 f'IF({_pa("correcto")}<>"{VR}","Modelo del costo: sin cambio del importe en libros (NIC 40.59)",'
                 f'IF(B{r}="PPE→PI","Revaluación según NIC 16 a la fecha del cambio (NIC 40.61-62)",IF(B{r}="Inventario→PI","Diferencia a resultados (NIC 40.63)",'
                 f'IF(OR(B{r}="PI→PPE",B{r}="PI→Inventario"),"Costo atribuido = VR a la fecha del cambio (NIC 40.60)","Transferencia no reconocida")))))')
@@ -686,9 +687,9 @@ def definicion() -> dict:
                    "document": "NIC 40 · párr. 5 (definiciones), 7-14 (clasificación; 10 uso mixto: PI solo si el uso propio es insignificante), "
                                "16-24 (reconocimiento y costo inicial: precio + desembolsos directamente atribuibles), 30-32 (elección de modelo; VR "
                                "siempre medido para valorar o revelar), 33-55 (modelo del VR: cambios a resultados, 35; excepción 53-54), 56 (modelo del "
-                               "costo → NIC 16), 57-65 (transferencias: 59 costo, 60-63 VR), 66-73 (bajas: 69 producto neto − importe en libros), "
+                               "costo → NIC 16), 57-65 (transferencias: 59 costo, 60-65 VR; 65 construcción terminada), 66-73 (bajas: 69 producto neto − importe en libros), "
                                "75-79 (revelación; 79 e VR en el modelo del costo). NIIF 13 · 27-29 (mayor y mejor uso), 72 (jerarquía), 93 (revelación). "
-                               "NIC 36 · 9 (indicios); 59 (VERIFICAR). NIC 16 · depreciación (VERIFICAR párrafos).",
+                               "NIC 36 · 9 (indicios), 59 (reducción al importe recuperable). NIC 16 · 50 (depreciación sistemática), 58 (terrenos no se deprecian).",
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable",
                          "document": "NIIF para las PYMES 2015 · Sección 16: 16.1-16.4 (alcance, definición, uso mixto), 16.5 (costo inicial), 16.7 "
@@ -699,10 +700,10 @@ def definicion() -> dict:
                                      "la Sección 16 de 2025 no se leyó: VERIFICAR.",
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
-            {"document": "NIA 540 (Revisada)", "section": "párr. 13 y 17-30 (VERIFICAR)", "requirement": "El VR, la vida útil y el importe recuperable son estimaciones: evaluar método, datos y supuestos."},
-            {"document": "NIA 620", "section": "párr. 9-12 (VERIFICAR)", "requirement": "Evaluar competencia, objetividad y trabajo del tasador cuando el VR se basa en un experto."},
+            {"document": "NIA 540 (Revisada)", "section": "párr. 13, 18, 22-27 y 28-29", "requirement": "El VR, la vida útil y el importe recuperable son estimaciones: evaluar método, datos y supuestos."},
+            {"document": "NIA 500 / NIA 620", "section": "NIA 500.8 (tasador de la entidad = experto de la dirección); NIA 620.9-12 solo si el auditor contrata su propio tasador", "requirement": "Evaluar competencia, objetividad y trabajo del tasador cuando el VR se basa en un experto."},
             {"document": "NIA 500", "section": "párr. 8-9 (VERIFICAR)", "requirement": "Fiabilidad del registro de inmuebles, escrituras y contratos."},
-            {"document": "NIA 501 / NIA 330", "section": "VERIFICAR", "requirement": "Existencia y titularidad: inspección y certificados del Registro de la Propiedad."},
+            {"document": "NIA 500 / NIA 330", "section": "VERIFICAR", "requirement": "Existencia y titularidad: inspección y certificados del Registro de la Propiedad."},
             {"document": "NIA 520", "section": "párr. 5 (VERIFICAR)", "requirement": "Analítica de ingresos por alquiler frente a contratos y ocupación."},
         ],
         "calculo": [
@@ -710,7 +711,7 @@ def definicion() -> dict:
             "Lo que no es PI se reclasifica fuera de la cuenta por su importe en libros.",
             "Costo inicial = precio de compra + desembolsos directamente atribuibles; diferencia = recalculado − registrado (NIC 40.20-21; PYMES 16.5).",
             "Ruta: completas → modelo elegido; PYMES → VR si es fiable sin costo o esfuerzo desproporcionado, si no costo (16.7-16.8). "
-            "Partida sin VR bajo el modelo de VR → costo (NIC 40.53; PYMES 16.8).",
+            "Partida sin VR bajo el modelo de VR → costo (NIC 40.53, residual cero; PYMES 16.7 si nunca fue medible / 16.8 si dejó de serlo: el importe en libros pasa a ser el costo).",
             "Valor razonable: ajuste = VR al corte − importe en libros, a resultados (NIC 40.35; PYMES 16.7).",
             "Modelo del costo: base = costo − terreno; dep. acumulada = base × MIN(1, meses completos ÷ (vida × 12)); dep. del año = acumulada − la "
             "de 12 meses antes; neto = costo − dep.; deterioro = MAX(0, neto − importe recuperable).",
@@ -756,7 +757,7 @@ def definicion() -> dict:
             req("RQ-005", "Escrituras y certificados del Registro de la Propiedad", None, "IP-03", "Titularidad y costo inicial", formats=("pdf",), use="soporte"),
             req("RQ-006", "Evidencia de cambios de uso (actas, contratos, ocupación)", None, "IP-07", "Soporte de las transferencias",
                 formats=("pdf", "docx"), use="soporte", required=False),
-            req("RQ-007", "Gastos directos de operación por inmueble", None, "IP-06", "Revelación NIC 40.75 f", formats=("xlsx", "pdf"), use="soporte", required=False),
+            req("RQ-007", "Gastos directos de operación por inmueble", None, "IP-06", "Revelación NIC 40.75 f) ii) y iii)", formats=("xlsx", "pdf"), use="soporte", required=False),
             req("RQ-008", "Base fiscal de los inmuebles", None, "IP-04", "Impuesto diferido (fuera del cálculo de esta versión)", formats=("xlsx",),
                 use="soporte", required=False),
         ],

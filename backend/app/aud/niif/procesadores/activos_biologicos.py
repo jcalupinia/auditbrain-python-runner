@@ -246,7 +246,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     svr = ids(lambda a: a["ruta"] == VR and a["vc"] is None)
     if svr:
         pr.append(problema("SIN_VR", f"{len(svr)} lote(s) a valor razonable sin VR unitario al corte ({lista(svr)}): no se midió el VR menos costos de venta "
-                           f"({n12}; NIIF 13).", S(a["vl"] for a in items if a["id"] in svr)))
+                           f"({n12}; {'PYMES 34.6 (2015) / Sección 12 (2025)' if pymes else 'NIIF 13'}).", S(a["vl"] for a in items if a["id"] in svr)))
     scv = ids(lambda a: a["ruta"] == VR and a["cvRaw"] is None)
     if scv:
         pr.append(problema("SIN_COSTO_VENTA", f"Sin costo de venta unitario en {lista(scv)}: se toma 0. Los costos incrementales de venta se restan del VR "
@@ -262,7 +262,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     if abs(t["difConciliacion"]) > 0.005:
         dc = [a["id"] for a in items if a["difConc"] is not None and abs(a["difConc"]) > 0.005]
         pr.append(problema("CONCILIACION_41_50", f"La conciliación de cambios del importe en libros no cuadra en {lista(dc)}: {m(t['difConciliacion'])} "
-                           "(inicial + compras − disminuciones + ganancia ≠ saldo final; NIC 41.50; PYMES 34.7 VERIFICAR).", t["difConciliacion"]))
+                           "(inicial + compras − disminuciones + ganancia ≠ saldo final; NIC 41.50; PYMES 34.7 c).", t["difConciliacion"]))
     sd = ids(lambda a: a["ruta"] == VR and a["cTot"] is None)
     if sd:
         pr.append(problema("SIN_DESGLOSE_FISICO_PRECIO", f"Sin cantidad o VR inicial en {lista(sd)}: no se separó el cambio físico del cambio de precio "
@@ -314,7 +314,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     }
     if pymes:
         etiquetas["cambioFisico"], etiquetas["cambioPrecio"] = "Cambio de VR por cambios físicos", "Cambio de VR por precios"
-        etiquetas["difConciliacion"] = "Diferencia en la conciliación de cambios (34.7 VERIFICAR)"
+        etiquetas["difConciliacion"] = "Diferencia en la conciliación de cambios (34.7 c)"
     filas = [{"id": a["id"], "categoria": a["cat"], "unidad": a["unidad"], "cant_final": str(a["cf"]),
               "cant_contada": "" if a["cc"] is None else str(a["cc"]), "valor_libros": r2(a["vl"]), "modelo_auditado": a["ruta"],
               "valor_auditado": "" if a["aud"] is None else r2(a["aud"]), "ajuste": "" if a["aj"] is None else r2(a["aj"]), "_row": a["_row"]}
@@ -365,10 +365,12 @@ def hojas(res: dict) -> list[dict]:
     p, t, its, cos = d["parametros"], d["tot"], d["items"], d["cos"]
     na, nc = len(its), len(cos)
     pymes = d["pymes"]
-    norma = (f"NIIF para las PYMES {d['edicion']} · sección 34" + (" (+ sección 12 de valor razonable, VERIFICAR)" if d["edicion"] == "2025" else "")
+    norma = (f"NIIF para las PYMES {d['edicion']} · sección 34" + (" (PYMES 2025: Sección 12 para el valor razonable; se elimina 34.6; vigente desde el 1-1-2027; para cortes 2025–2026 solo con adopción anticipada)" if d["edicion"] == "2025" else "")
              if pymes else "NIIF completas · NIC 41 y NIIF 13")
     ruta = ("PYMES: VR menos costos de venta si el VR es fácilmente determinable sin costo o esfuerzo desproporcionado; si no, costo menos "
-            "depreciación y deterioro (34.2, 34.4, 34.8). Plantas productoras dentro de la sección 34 (VERIFICAR texto oficial)" if pymes else
+            "depreciación y deterioro (34.2, 34.4, 34.8). PYMES 2015: plantas productoras dentro de la Sección 34. PYMES 2025: las plantas "
+            "productoras que puedan medirse por separado sin costo o esfuerzo desproporcionado pasan a la Sección 17 (34.2–34.2B; 17.3 a); "
+            "su producto sigue en la Sección 34 — pendiente de implementar en el cálculo" if pymes else
             "NIC 41: VR menos costos de venta (41.12); costo solo si el VR no es fiable y el activo ya estaba al costo (41.30-41.31); "
             "plantas productoras a NIC 16 (41.2 b)")
     parametros = [
@@ -469,7 +471,7 @@ def hojas(res: dict) -> list[dict]:
              tra, ["TOTAL", "", None, None, None, None, _tot("G", na, t["cambioFisico"]), _tot("H", na, t["cambioPrecio"]),
                    _tot("I", na, t["cambioTotal"]), None, None, None, None, _tot("N", na, t["gananciaRecalculada"]), None,
                    _tot("P", na, t["gananciaNoReconocida"])]),
-        hoja("07_Conciliacion", CEDULAS[6][1] if not pymes else "Conciliación de cambios (34.7 VERIFICAR)",
+        hoja("07_Conciliacion", CEDULAS[6][1] if not pymes else "Conciliación de cambios (34.7 c)",
              [["Lote", "t"], ["Categoría", "t"], ["Libros al inicio", n_], ["(+) Compras e incrementos", n_], ["(−) Disminuciones", n_],
               ["(+) Ganancia VR registrada", n_], ["Saldo final calculado", n_], ["Saldo final en libros", n_], ["Diferencia", n_]],
              con, ["TOTAL", "", _tot("C", na, S(a["li"] for a in its)), _tot("D", na, S(a["com"] for a in its)), _tot("E", na, S(a["baj"] for a in its)),
@@ -513,23 +515,24 @@ def definicion() -> dict:
                                "costos de venta, planta productora), 10 (reconocimiento), 12 (VR menos costos de venta), 13 y 32 (producto "
                                "agrícola en el punto de cosecha), 26-29 (ganancias y pérdidas en resultados), 30-31 (presunción de fiabilidad "
                                "refutable solo en el reconocimiento inicial; modelo del costo), 33 (NIC 2, 16 y 36), 40, 46 (cantidades físicas), "
-                               "50 (conciliación de cambios), 51-52 (cambios físicos y de precio, recomendado), 54-55 (revelaciones al costo). "
-                               "NIIF 13 para la medición del VR (jerarquía de datos de entrada: VERIFICAR párrafos)",
+                               "50 (conciliación de cambios), 51 (cambios físicos y de precio, recomendado), 54-55 (revelaciones al costo). "
+                               "NIIF 13 para la medición del VR, párr. 72–90 (jerarquía: nivel 1: 76; nivel 2: 81; nivel 3: 86)",
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable",
                          "document": "NIIF para las PYMES 2015 · Sección 34 Actividades especiales, 34.2-34.10: modelo del valor razonable cuando "
                                      "el VR es fácilmente determinable sin costo o esfuerzo desproporcionado (34.2, 34.4-34.7; producto agrícola a "
                                      "VR menos costos de venta en la cosecha 34.5); en los demás casos modelo del costo, costo menos depreciación y "
-                                     "deterioro (34.8-34.10). PYMES 2025: sección 34 más la sección 12 de medición del valor razonable. VERIFICAR "
-                                     "el texto oficial de ambas ediciones (34.3 reconocimiento, 34.7 conciliación, 34.9 producto al costo y el "
-                                     "tratamiento de las plantas productoras): no se leyó el texto oficial en esta versión",
+                                     "deterioro (34.8-34.10). Conciliación de cambios: 34.7 c). PYMES 2025 (tercera edición): Sección 12 para el valor "
+                                     "razonable; se elimina 34.6; las plantas productoras que puedan medirse por separado sin costo o esfuerzo "
+                                     "desproporcionado pasan a la Sección 17 (34.2–34.2B; 17.3 a) y su producto sigue en la Sección 34; vigente "
+                                     "desde el 1-1-2027; para cortes 2025–2026 solo con adopción anticipada. VERIFICAR 34.3 y 34.9 contra el texto oficial",
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
-            {"document": "NIA 501", "section": "párr. 4 (VERIFICAR)", "requirement": "Presenciar el recuento de los activos biológicos materiales y probar sus resultados."},
-            {"document": "NIA 540 (Revisada)", "section": "párr. 13 y 17-30 (VERIFICAR)", "requirement": "El VR menos costos de venta es una estimación: evaluar método, datos y supuestos."},
-            {"document": "NIA 620", "section": "párr. 7-13 (VERIFICAR)", "requirement": "Evaluar el trabajo del experto (veterinario, ingeniero forestal, biólogo o valuador)."},
-            {"document": "NIA 500", "section": "párr. 9 (VERIFICAR)", "requirement": "Exactitud e integridad del anexo contra el mayor y los registros de campo."},
-            {"document": "NIA 330", "section": "párr. 18 y 20 (VERIFICAR)", "requirement": "Procedimientos sustantivos y conciliación de los estados con los registros."},
+            {"document": "NIA 501", "section": "párr. 4 (aplicada por analogía; el párr. 4 trata de inventarios)", "requirement": "Presenciar el recuento de los activos biológicos materiales y probar sus resultados."},
+            {"document": "NIA 540 (Revisada)", "section": "párr. 13, 16–17 y 18–27 (28–30 VERIFICAR)", "requirement": "El VR menos costos de venta es una estimación: evaluar método, datos y supuestos."},
+            {"document": "NIA 500", "section": "párr. 8 si el perito es del cliente (NIA 620 solo si lo contrata el auditor)", "requirement": "Evaluar el trabajo del experto (veterinario, ingeniero forestal, biólogo o valuador)."},
+            {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad del anexo contra el mayor y los registros de campo."},
+            {"document": "NIA 330", "section": "párr. 18 y 20", "requirement": "Procedimientos sustantivos y conciliación de los estados con los registros."},
         ],
         "calculo": [
             "Cantidad auditada = contada (o según registros si no se contó); diferencia física = (contada − registros) × VR menos costos de venta unitario.",
@@ -563,7 +566,7 @@ def definicion() -> dict:
                  "Evaluar la justificación del modelo del costo y comparar el neto con el importe recuperable", "Análisis de fiabilidad del VR, costeo, tasación",
                  "Costo solo si procede; sin exceso sobre el recuperable", "NIC 41.30-41.33, NIC 36 · PYMES 34.8-34.10, 27"),
             prog("BIO-07", "Conciliación y revelaciones", "Conciliación de cambios incompleta", "Presentación", "Conciliar los cambios del importe en libros y el anexo con el mayor",
-                 "Movimiento del rubro, mayor", "Conciliación cuadrada y revelada", "NIC 41.50 · PYMES 34.7 (VERIFICAR)"),
+                 "Movimiento del rubro, mayor", "Conciliación cuadrada y revelada", "NIC 41.50 · PYMES 34.7 c)"),
         ],
         "requests": [
             req("RQ-001", "Anexo de activos biológicos por lote con conteo, precios y movimiento", "activos", "BIO-02", "Existencia, valoración, cambio de VR y conciliación", content=activos),

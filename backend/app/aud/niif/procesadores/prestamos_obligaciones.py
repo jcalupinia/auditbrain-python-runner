@@ -8,7 +8,7 @@ Versión simple que cumple la norma, préstamo por préstamo (un solo anexo del 
    importe neto recibido = monto − comisiones y costos de transacción.
 3. Tasa de interés efectiva (TIE, Apéndice A): la tasa que iguala los pagos contractuales con el importe neto
    recibido (TIR de Excel sobre los flujos de la tabla; bisección en Python). Las comisiones integran la TIE.
-4. Costo amortizado (5.4.1, 4.2.1 / 11.15–11.20): interés_t = saldo inicial_t × TIE; capital_t = pago_t −
+4. Costo amortizado (NIIF 9 4.2.1, 5.3.1 y Apéndice A / 11.15–11.20): interés_t = saldo inicial_t × TIE; capital_t = pago_t −
    interés_t; saldo final_t = saldo inicial_t − capital_t. Al corte se suma el interés devengado desde el
    último vencimiento (lineal por días dentro del período).
 5. Recálculo del interés nominal y del gasto financiero del ejercicio; interés devengado no registrado;
@@ -423,7 +423,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                                   c["confirmado"] - c["cap_c"]))
         no_reg = c["acc_nom"] - (c["int_reg"] or 0)
         if no_reg > 0.01 and _dif(no_reg):
-            probs.append(problema("INTERES_DEVENGADO_NO_REGISTRADO", f"{pid}: interés devengado desde el último vencimiento {_m(c['acc_nom'])} y registrado {_m(c['int_reg'] or 0)} (devengo, NIIF 9 5.4.1 / {'11.15' if pymes else 'Apéndice A'}).", no_reg))
+            probs.append(problema("INTERES_DEVENGADO_NO_REGISTRADO", f"{pid}: interés devengado desde el último vencimiento {_m(c['acc_nom'])} y registrado {_m(c['int_reg'] or 0)} (devengo, {'PYMES 11.15' if pymes else 'NIIF 9 4.2.1 y Apéndice A'}).", no_reg))
         if _dif(c["efecto_gasto"]):
             probs.append(problema("COMISIONES_A_GASTO", f"{pid}: las comisiones de {_m(c['com'])} se llevaron a gasto; forman parte de la TIE ({'PYMES 11.13 y 11.15–11.20: aunque el cliente use la tasa nominal, con comisiones materiales aplica el interés efectivo' if pymes else 'NIIF 9 5.1.1 y Apéndice A'}). Costo pendiente de amortizar al corte {_m(c['por_amortizar'])}.",
                                   -c["efecto_gasto"]))
@@ -432,7 +432,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         if c["pagos_anio"] is not None and _dif(c["pagos"] - c["pagos_anio"]):
             probs.append(problema("PAGOS_DIFERENCIA", f"{pid}: pagos del año según la tabla {_m(c['pagos'])} vs informados {_m(c['pagos_anio'])}; indague cuotas impagas o prepagos.", c["pagos"] - c["pagos_anio"]))
         if c["exigible"] == "Sí" and c["lp"] == 0 and _dif(c["cp"] - c["cp_venc"]):
-            probs.append(problema("COVENANT_SIN_DISPENSA", f"{pid}: covenant «{c['covenant'] or 'del contrato'}» incumplido al corte sin dispensa obtenida hasta el corte con gracia ≥ 12 meses: toda la deuda es corriente ({'Sección 4.7' if pymes else 'NIC 1 74–75'}).",
+            probs.append(problema("COVENANT_SIN_DISPENSA", f"{pid}: covenant «{c['covenant'] or 'del contrato'}» incumplido al corte sin dispensa obtenida hasta el corte con gracia ≥ 12 meses: toda la deuda es corriente ({'PYMES 4.7 d) (derecho incondicional); la NIC 1 72B/74/75 se usa por analogía (jerarquía 10.6), como juicio del auditor' if pymes else 'NIC 1 74–75'}).",
                                   c["cp"] - c["cp_venc"]))
         if c["incump"] == "Sí" and c["fecha_dispensa"] is not None and c["fecha_dispensa"] > corte_a:
             probs.append(problema("DISPENSA_POSTERIOR", f"{pid}: la dispensa del {c['fecha_dispensa'].isoformat()} es posterior al corte: no cambia la clasificación ({'4.7' if pymes else 'NIC 1 74'}); revele como hecho posterior no ajustante ({'Sección 32' if pymes else 'NIC 1 76, NIC 10'})."))
@@ -512,8 +512,8 @@ def hojas(res: dict) -> list[dict]:
     entre = lambda col, r, a, b: f'SUMIFS({rng(col)},{TA_A},A{r},{TA_B},">"&{a},{TA_B},"<="&{b})'
     niif18 = d["corte"] >= "2027-01-01"
     marco = (f"NIIF para las PYMES {d['edicion']} · Sección 11 (costo amortizado, 11.13–11.20) y Sección 4 (4.7 clasificación)" if pymes else
-             ("NIIF completas · NIIF 9 (5.1.1, 5.4.1, 4.2.1) y NIIF 18 para la presentación (ejercicios desde 2027; VERIFICAR párrafos)" if niif18 else
-              "NIIF completas · NIIF 9 (5.1.1, 5.4.1, 4.2.1) y NIC 1 69–76 (modificaciones 2020/2022, vigentes desde 2024)"))
+             ("NIIF completas · NIIF 9 (5.1.1, 4.2.1, 5.3.1 y Apéndice A) y NIIF 18 párr. 101 para la presentación (ejercicios desde 2027; la guía de covenants está en el Apéndice B, VERIFICAR números)" if niif18 else
+              "NIIF completas · NIIF 9 (5.1.1, 4.2.1, 5.3.1 y Apéndice A) y NIC 1 69–76 (modificaciones 2020/2022, vigentes desde 2024)"))
     sust = {"totalActivos": "Estados financieros al corte", "patrimonio": "Estados financieros al corte (admite negativo)",
             "ebitda": "Estado de resultados; definición según el contrato (VERIFICAR)", "ebit": "Estado de resultados",
             "efectivoServicioDeuda": "Definición del contrato de préstamo (VERIFICAR)", "baseCobertura": "EBITDA o EBIT, según el contrato",
@@ -660,7 +660,7 @@ def hojas(res: dict) -> list[dict]:
         hoja("05_Tabla_amortizacion", "Tabla de amortización",
              [["Operación", "t"], ["Período", "i"], ["Vencimiento", "d"], ["Pago contractual", n_], ["Capital inicial", n_], ["Interés nominal", n_],
               ["Capital amortizado", n_], ["Capital final", n_], ["Flujo para la TIE", n_], ["Costo amortizado inicial", n_],
-              ["Interés a la TIE (5.4.1)", n_], ["Amortización (pago − interés)", n_], ["Costo amortizado final", n_]], tabla,
+              ["Interés a la TIE (Apéndice A)", n_], ["Amortización (pago − interés)", n_], ["Costo amortizado final", n_]], tabla,
              ["TOTAL", None, None, suma("D", fin_t, sum(x["pago"] or 0 for x in tab)), None, suma("F", fin_t, sum(x["int_nom"] or 0 for x in tab)),
               suma("G", fin_t, sum(x["cap"] or 0 for x in tab)), None, None, None, suma("K", fin_t, sum(x["int_tie"] or 0 for x in tab)),
               suma("L", fin_t, sum(x["amort"] or 0 for x in tab)), None]),
@@ -700,7 +700,7 @@ def hojas(res: dict) -> list[dict]:
               ["Dispensa válida al corte (NIC 1 75)", "t"], ["Deuda exigible: toda corriente (74)", "t"]], cov),
         hoja("11_Clasificacion", "Clasificación corriente / no corriente",
              [["Operación", "t"], ["Costo amortizado al corte", n_], ["Período a 12 meses", "i"], ["Capital contractual después de 12 meses", n_],
-              ["Corriente: capital de 12 meses + interés devengado (69 d)", n_], ["Exigible por covenant", "t"], ["Corriente auditado", n_], ["No corriente auditado", n_],
+              ["Corriente: capital de 12 meses + interés devengado (69 c)", n_], ["Exigible por covenant", "t"], ["Corriente auditado", n_], ["No corriente auditado", n_],
               ["Corriente registrado", n_], ["Diferencia corriente", n_]], cla,
              ["TOTAL", S("B", t["pasivo"]), None, None, S("E", sum(c["cp_venc"] for c in cs)), "", S("G", t["corriente"]),
               S("H", t["noCorriente"]), None, None]),
@@ -733,36 +733,36 @@ def definicion() -> dict:
                     "y dispensas, la clasificación corriente / no corriente y los ratios de endeudamiento (NIIF 9, NIC 1 69–76 / Secciones 11 y 4)."),
         "source": {"organization": "IFRS Foundation / Unión Europea", "type": "Norma contable", "date": "",
                    "document": ("NIIF 9 Instrumentos financieros (Reglamento (UE) 2016/2067 y consolidado 2023/1803): 3.3.2 (modificación sustancial), "
-                                "4.2.1 (pasivos a costo amortizado), 5.1.1 (medición inicial con costos de transacción), 5.4.1 (interés efectivo), "
+                                "4.2.1 (pasivos a costo amortizado), 5.1.1 (medición inicial con costos de transacción), 5.3.1 (costo amortizado; método del interés efectivo en el Apéndice A), "
                                 "Apéndice A (tasa de interés efectiva, costo amortizado, costos de transacción); B3.3.6 y B5.4.1–B5.4.3 (VERIFICAR texto). "
-                                "NIIF 7 párr. 7, 18–19 y 39 (VERIFICAR). NIC 1 párr. 69–76 y 76ZA con las modificaciones del Reglamento (UE) 2023/2822, "
-                                "vigentes para ejercicios desde el 1-1-2024 (139U). NIIF 18 para ejercicios desde el 1-1-2027 (VERIFICAR dónde quedan los "
-                                "párrafos de clasificación)."),
+                                "NIIF 7 párr. 7, 18–19 y 39. NIC 1 párr. 69–76 y 76ZA con las modificaciones del Reglamento (UE) 2023/2822, "
+                                "vigentes para ejercicios desde el 1-1-2024 (139U y 139W). NIIF 18 para ejercicios desde el 1-1-2027 (NIIF 18 párr. 101; la guía de covenants "
+                                "está en el Apéndice B (VERIFICAR números))."),
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R2822"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
                          "document": ("NIIF para las PYMES 2015: Sección 11, 11.13 (medición inicial, costos de transacción), 11.14 a) y 11.15–11.20 "
                                       "(costo amortizado y método del interés efectivo); Sección 4, 4.7 (pasivo corriente); Sección 32 (hechos "
-                                      "posteriores). Edición 2025 (tercera): mismo modelo de costo amortizado; VERIFICAR la numeración y si 4.7 recoge "
-                                      "las modificaciones de covenants de la NIC 1."),
+                                      "posteriores). Edición 2025 (tercera): mismo modelo de costo amortizado; rige desde el 1-1-2027; aplicarla antes es "
+                                      "adopción anticipada (VERIFICAR la numeración). Covenants: PYMES 4.7 d) (derecho incondicional); la NIC 1 72B/74/75 se usa por analogía (jerarquía 10.6), como juicio del auditor."),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
             {"document": "NIA 505", "section": "párr. 7", "requirement": "Confirmación externa de saldos, tasas, garantías y covenants con los bancos."},
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad del anexo de préstamos contra el mayor y los contratos."},
             {"document": "NIA 540 (Revisada)", "section": "párr. 13 y 17–30", "requirement": "Método (TIE), datos (contratos) y supuestos del costo amortizado."},
             {"document": "NIA 560", "section": "párr. 6", "requirement": "Dispensas, refinanciaciones y pagos posteriores al cierre."},
-            {"document": "NIA 570 (Revisada)", "section": "párr. 10–16", "requirement": "Incumplimientos de covenants y capacidad de pago como indicios de empresa en marcha."},
+            {"document": "NIA 570 (Revisada)", "section": "párr. 10–16", "requirement": "Incumplimientos de covenants y capacidad de pago como indicios de empresa en marcha. La NIA 570 (Revisada 2024) rige para períodos desde el 15-12-2026."},
         ],
         "calculo": [
             "Tasa periódica nominal = tasa nominal anual × meses del período ÷ 12 (VERIFICAR contra el contrato).",
             "Pago: francés = PAGO(tasa; períodos; −monto); alemán = monto ÷ períodos + interés; bullet = interés y el capital en el último período.",
             "Importe neto recibido = monto − comisiones y costos de transacción (NIIF 9 5.1.1 / PYMES 11.13).",
             "TIE periódica = TIR de los flujos (−neto recibido, pagos contractuales) (Apéndice A: las comisiones integran la TIE).",
-            "Tabla a la TIE: interés_t = saldo inicial_t × TIE; capital_t = pago_t − interés_t; saldo final_t = saldo inicial_t − capital_t (5.4.1 / 11.15–11.20).",
+            "Tabla a la TIE: interés_t = saldo inicial_t × TIE; capital_t = pago_t − interés_t; saldo final_t = saldo inicial_t − capital_t (NIIF 9 4.2.1, 5.3.1 y Apéndice A / PYMES 11.15–11.20).",
             "Al corte: costo amortizado = saldo al último vencimiento + interés a la TIE devengado por días hasta el corte.",
             "Gasto financiero del ejercicio = interés a la TIE de los períodos vencidos en el año + devengo al corte − devengo al inicio.",
             "Comisiones llevadas a gasto: costo por amortizar = capital contractual − costo amortizado al último vencimiento.",
             "Corriente = capital contractual que vence en los 12 meses siguientes + interés devengado (tope: costo amortizado); si un covenant se incumplió al corte sin dispensa "
-            "obtenida hasta el corte con gracia ≥ 12 meses, todo es corriente (NIC 1 74–75 / PYMES 4.7).",
+            "obtenida hasta el corte con gracia ≥ 12 meses, todo es corriente (NIC 1 74–75 / PYMES 4.7 d)).",
             "Ratios (analítica): deuda / activos, deuda / patrimonio, deuda / EBITDA, cobertura = EBITDA o EBIT ÷ gasto financiero, DSCR = efectivo "
             "disponible ÷ servicio de la deuda del ejercicio.",
         ],
@@ -775,7 +775,7 @@ def definicion() -> dict:
              "evidence": "Confirmaciones bancarias, cédula 09", "criterion": "Diferencias explicadas", "source": "NIA 505 · NIIF 9 3.1.1"},
             {"code": "DEU-02", "objective": "Tabla de amortización e intereses", "risk": "Interés o capital mal calculados; interés devengado no registrado",
              "assertion": "Valoración / Corte", "procedure": "Rehacer la tabla contractual, recalcular el interés del ejercicio y el devengado al corte",
-             "evidence": "Contratos, tablas del banco, cédulas 05, 06 y 08", "criterion": "Diferencias cuantificadas", "source": "NIIF 9 5.4.1 · PYMES 11.15–11.20"},
+             "evidence": "Contratos, tablas del banco, cédulas 05, 06 y 08", "criterion": "Diferencias cuantificadas", "source": "NIIF 9 4.2.1, 5.3.1 y Apéndice A (método del interés efectivo) · PYMES 11.15–11.20"},
             {"code": "DEU-03", "objective": "Tasa de interés efectiva y comisiones", "risk": "Comisiones llevadas a gasto en lugar de integrarse a la TIE",
              "assertion": "Valoración", "procedure": "Calcular la TIE con los costos de transacción y comparar el costo amortizado con lo registrado",
              "evidence": "Liquidaciones de desembolso, cédulas 04 y 07", "criterion": "Costo amortizado a la TIE", "source": "NIIF 9 5.1.1 y Apéndice A · PYMES 11.13"},
@@ -784,7 +784,7 @@ def definicion() -> dict:
              "evidence": "Contratos, cartas de dispensa, cédulas 10 y 12", "criterion": "NIC 1 72B, 74–75 y 76ZA", "source": "NIC 1 69–76 · PYMES 4.7"},
             {"code": "DEU-05", "objective": "Clasificación corriente / no corriente", "risk": "Porción corriente mal clasificada",
              "assertion": "Presentación", "procedure": "Recalcular lo que vence en 12 meses y aplicar el efecto de los covenants", "evidence": "Cédula 11",
-             "criterion": "NIC 1 69 d y 74", "source": "NIC 1 69–76 · PYMES 4.7"},
+             "criterion": "NIC 1 69 c), 72B y 74", "source": "NIC 1 69–76 · PYMES 4.7"},
             {"code": "DEU-06", "objective": "Endeudamiento y capacidad de pago", "risk": "Endeudamiento sobre los límites; dudas de empresa en marcha",
              "assertion": "Presentación / Revelación", "procedure": "Analizar deuda/activos, deuda/patrimonio, deuda/EBITDA, cobertura y DSCR (analítica, no requisito NIIF)",
              "evidence": "Estados financieros, cédula 12", "criterion": "Límites contractuales", "source": "NIA 520 · NIA 570 · NIIF 7 18–19"},

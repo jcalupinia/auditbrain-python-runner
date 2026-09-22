@@ -268,13 +268,13 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     conc["prodDif"] = conc["manuf"] - conc["prodCap"]
 
     # Problemas (M22: cada «debe» de la norma que el cálculo no garantiza).
-    vnr_n = "precio de venta menos costos de terminación y venta (PYMES 13.4, 27.2)" if pymes else "valor realizable neto (NIC 2.9)"
+    vnr_n = "precio de venta menos costos de terminación y venta (PYMES 13.4, 27.2)" if pymes else "valor realizable neto (NIC 2.6 y 2.9)"
     lista = lambda xs: ", ".join(xs[:6]) + (" …" if len(xs) > 6 else "")
     pr = []
     fis = [i["id"] for i in items if i["difFis"] not in (None, 0)]
     if fis:
         pr.append(problema("DIFERENCIA_FISICA", f"Diferencias entre el conteo y el kardex en {len(fis)} ítem(s): {lista(fis)}. Neto valorizado {m(t['difFisicas'])}; "
-                           "ajuste las existencias e investigue la causa (pérdidas: gasto del ejercicio, NIC 2.34).", t["difFisicas"]))
+                           f"ajuste las existencias e investigue la causa (pérdidas: gasto del ejercicio, {'PYMES 27.2 / 13.20' if pymes else 'NIC 2.34'}).", t["difFisicas"]))
     sin_conteo = [i["id"] for i in items if i["cc"] is None]
     if sin_conteo:
         pr.append(problema("SIN_CONTEO", f"{len(sin_conteo)} ítem(s) sin cantidad contada ({lista(sin_conteo)}): se usa el kardex. "
@@ -297,12 +297,12 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             pr.append(problema("APERTURA", f"{x['id']}: el inventario inicial ({m(x['ii'])}) no es el cierre auditado anterior ({m(x['ant'])}).", x["apertura"]))
     if t["cifExcesoCapitalizado"] > 0.005:
         pr.append(problema("CIF_NO_ABSORBIDO_CAPITALIZADO", f"La entidad cargó al inventario {m(t['cifExcesoCapitalizado'])} de CIF fijo no absorbido por baja producción: "
-                           "debe ir a gasto del ejercicio (NIC 2.13; PYMES 13.8).", t["cifExcesoCapitalizado"]))
+                           "debe ir a gasto del ejercicio (NIC 2.13; PYMES 13.9).", t["cifExcesoCapitalizado"]))
     if t["cifNoAbsorbido"] > 0.005:
         pr.append(problema("CIF_NO_ABSORBIDO", f"CIF fijo no absorbido (producción bajo la capacidad normal): {m(t['cifNoAbsorbido'])}; se reconoce como gasto, no como inventario.", t["cifNoAbsorbido"]))
     sin_cap = [x["id"] for x in prod if x["tasa"] is None]
     if sin_cap:
-        pr.append(problema("SIN_CAPACIDAD_NORMAL", f"Sin capacidad normal en {lista(sin_cap)}: no se puede medir la absorción del CIF fijo (NIC 2.13)."))
+        pr.append(problema("SIN_CAPACIDAD_NORMAL", f"Sin capacidad normal en {lista(sin_cap)}: no se puede medir la absorción del CIF fijo ({'PYMES 13.9' if pymes else 'NIC 2.13'})."))
     sin_cfc = [x["id"] for x in prod if x["cfc"] is None]
     if sin_cfc:
         pr.append(problema("SIN_CIF_CAPITALIZADO", f"Falta el CIF fijo cargado al inventario por la entidad en {lista(sin_cfc)}: no se prueba si capitalizó CIF no absorbido."))
@@ -319,7 +319,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         pr.append(problema("VNR_BAJO_COSTO", f"El {vnr_n} está por debajo del costo en {lista(bajo)}: rebaja {m(t['rebajaVnr'])}.", t["rebajaVnr"]))
     sin_pv = [i["id"] for i in items if i["pv"] is None]
     if sin_pv:
-        pr.append(problema("SIN_PRECIO_VENTA", f"{len(sin_pv)} ítem(s) sin precio estimado de venta ({lista(sin_pv)}): el {vnr_n} no se midió (NIC 2.30)."))
+        pr.append(problema("SIN_PRECIO_VENTA", f"{len(sin_pv)} ítem(s) sin precio estimado de venta ({lista(sin_pv)}): el {vnr_n} no se midió ({'PYMES 27.2' if pymes else 'NIC 2.30'})."))
     sin_f = [i["id"] for i in items if i["fum"] is None]
     if sin_f:
         pr.append(problema("SIN_FECHA_MOVIMIENTO", f"{len(sin_f)} ítem(s) sin fecha del último movimiento ({lista(sin_f)}): no se evaluó la lenta rotación."))
@@ -398,7 +398,8 @@ def hojas(res: dict) -> list[dict]:
     parametros = [
         ["Corte del ejercicio", d["corte"], "Ficha del encargo"],
         ["Marco y ruta de cálculo", norma, "La medición es la misma en ambos marcos (menor entre costo y VNR / precio de venta menos costos de "
-                                           "terminación y venta); cambian las citas. PYMES: VERIFICAR texto oficial"],
+                                           "terminación y venta); cambian las citas. PYMES 27.3 agrupa solo si es impracticable; sin equivalente a NIC 2.32; "
+                                           "costos por préstamos a gasto (Secc. 25)"],
         ["Tramo 1: días sin movimiento (más de)", p["obsDias1"], "Política de la entidad o juicio del auditor (NIC 2.28; PYMES 27.2)"],
         ["Tramo 1: % de provisión", p["obsPct1"], "Juicio del auditor con sustento"],
         ["Tramo 2: días sin movimiento (más de)", p["obsDias2"], ""], ["Tramo 2: % de provisión", p["obsPct2"], ""],
@@ -563,22 +564,22 @@ def definicion() -> dict:
                     "producción con absorción del CIF fijo sobre la capacidad normal, recálculo del costo de ventas, VNR simplificado, "
                     "obsolescencia por días sin movimiento y corte de compras y ventas; propone el ajuste neto contra el mayor."),
         "source": {"organization": "IFRS Foundation · Reglamento (UE) 2023/1803 (texto en español)", "type": "Norma contable", "date": "",
-                   "document": "NIC 2 Existencias · párr. 9 (menor entre costo y VNR), 10-12 (costo de adquisición y transformación), 13 (capacidad "
+                   "document": "NIC 2 Existencias · párr. 6 (definición de VNR), 9 (menor entre costo y VNR), 10-12 (costo de adquisición y transformación), 13 (capacidad "
                                "normal; CIF fijos no imputados a gasto), 16 (costos excluidos: desperdicio anormal), 25 (FIFO o costo medio "
-                               "ponderado), 28-33 (VNR partida por partida, reversión), 34 (reconocimiento como gasto)",
+                               "ponderado), 28-33 (VNR partida por partida, reversión; 32 materias primas), 34 (reconocimiento como gasto)",
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable",
-                         "document": "NIIF para las PYMES 2015 y 2025 · Sección 13 Inventarios (13.4 medición; 13.5-13.13 costo; 13.8 capacidad "
-                                     "normal y CIF fijos no distribuidos a gasto; 13.18 FIFO o costo promedio ponderado; 13.19-13.20 deterioro y "
-                                     "gasto) y Sección 27 (27.2-27.4 deterioro de inventarios y reversión). VERIFICAR el texto oficial de ambas "
-                                     "ediciones: no se leyó en esta versión",
+                         "document": "NIIF para las PYMES 2015 y 2025 · Sección 13 Inventarios (13.4 medición; 13.5-13.13 costo; 13.8 costos de transformación; "
+                                     "13.9 capacidad normal y CIF fijos no distribuidos a gasto; 13.18 FIFO o costo promedio ponderado; 13.19-13.20 deterioro y "
+                                     "gasto) y Sección 27 (27.2-27.4 deterioro de inventarios y reversión). Numeración 13.4-13.20 igual en 2015 y 2025; "
+                                     "la 3.ª edición rige desde el 1-1-2027",
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
-            {"document": "NIA 501", "section": "párr. 4 (VERIFICAR)", "requirement": "Presenciar el recuento físico de existencias materiales y probar sus resultados finales."},
-            {"document": "NIA 500", "section": "párr. 9 (VERIFICAR)", "requirement": "Evaluar exactitud e integridad del kardex y los anexos contra el mayor."},
-            {"document": "NIA 540 (Revisada)", "section": "párr. 13 y 17-30 (VERIFICAR)", "requirement": "VNR, obsolescencia y capacidad normal son estimaciones: evaluar método, datos y supuestos."},
-            {"document": "NIA 330", "section": "párr. 6-7 y 20 (VERIFICAR)", "requirement": "Procedimientos sustantivos de corte y de conciliación con los registros."},
-            {"document": "NIA 560", "section": "párr. 6 (VERIFICAR)", "requirement": "Precios de venta posteriores al cierre como evidencia del VNR (NIC 2.30)."},
+            {"document": "NIA 501", "section": "párr. 4 y 7", "requirement": "Presenciar el recuento físico de existencias materiales y probar sus resultados finales."},
+            {"document": "NIA 500", "section": "párr. 9", "requirement": "Evaluar exactitud e integridad del kardex y los anexos contra el mayor."},
+            {"document": "NIA 540 (Revisada)", "section": "párr. 13, 16-17, 18-30 y 32", "requirement": "VNR, obsolescencia y capacidad normal son estimaciones: evaluar método, datos y supuestos."},
+            {"document": "NIA 330", "section": "párr. 6-7, 18 y 20", "requirement": "Procedimientos sustantivos de corte y de conciliación con los registros."},
+            {"document": "NIA 560", "section": "párr. 6 · NIA 540 párr. 21", "requirement": "Precios de venta posteriores al cierre como evidencia del VNR (NIC 2.30)."},
         ],
         "calculo": [
             "Cantidad auditada = contada (o kardex si no se contó); costo unitario auditado = soportado (o registrado); costo auditado = cantidad × costo unitario.",
@@ -604,7 +605,7 @@ def definicion() -> dict:
                  "Facturas de compra, hojas de costeo", "Costo soportado = registrado", "NIC 2.10-2.11, 2.25 · PYMES 13.5-13.6, 13.18, INV-08"),
             prog("INV-04", "Costo de producción", "CIF fijo no absorbido capitalizado; desperdicio anormal en el costo", "Valoración",
                  "Recalcular la absorción del CIF fijo sobre la capacidad normal y el costo capitalizable", "Costeo de producción, capacidad normal",
-                 "Solo el CIF absorbido va al inventario", "NIC 2.12-2.13, 2.16 · PYMES 13.8, INV-07, INV-17"),
+                 "Solo el CIF absorbido va al inventario", "NIC 2.12-2.13, 2.16(a) · PYMES 13.8-13.9, 13.13(a), INV-07, INV-17"),
             prog("INV-05", "Costo de ventas", "Costo de ventas mal determinado", "Exactitud", "Recalcular el costo de ventas con inventarios, compras y producción",
                  "Movimiento del inventario, mayor", "Diferencia explicada", "NIC 2.34 · PYMES 13.20"),
             prog("INV-06", "Valor realizable neto", "Inventario por encima de lo recuperable", "Valoración", "Comparar costo con VNR partida por partida con precios posteriores",

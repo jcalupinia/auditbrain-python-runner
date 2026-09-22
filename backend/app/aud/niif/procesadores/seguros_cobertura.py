@@ -5,7 +5,7 @@ devengo de la prima pagada por anticipado.
 Naturaleza (especificación del socio, MÓDULO 09): prueba de auditoría y de riesgo, NO una medición NIIF
 autónoma. La cobertura es evidencia de riesgo y de continuidad operativa (NIA 315/330, NIA 570); nunca
 se concluye cumplimiento normativo solo por cobertura. Lo único contable que se mide es:
-- la prima pagada por anticipado (devengo: NIC 1 párr. 27–28; PYMES 2.36): se reconoce como gasto por el
+- la prima pagada por anticipado (devengo: NIC 1 párr. 27–28; PYMES 2.36 (2015) / 3.16A (2025)): se reconoce como gasto por el
   tiempo transcurrido de la vigencia y el saldo anticipado es la parte no transcurrida al corte;
 - los siniestros pendientes, que se evalúan para revelación de contingencias (NIC 37 párr. 86 y 89; el
   reembolso solo se reconoce cuando es prácticamente seguro, NIC 37 párr. 53; PYMES Sección 21).
@@ -221,7 +221,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         x["calc"] = None if x["prima"] is None else x["prima"] * x["restantes"] / x["dias"]
         x["dif"] = None if x["reg"] is None or x["calc"] is None else x["reg"] - x["calc"]
         x["tiene_sin"] = bool(x["sin"]) or (x["msin"] or 0) > 0
-        x["evaluacion"] = "Revelado" if _si_no(x["rev"]) else "Sin revelación: evaluar NIC 37.86/37.89 · Secc. 21"
+        x["evaluacion"] = "Revelado" if _si_no(x["rev"]) else "Sin revelación: evaluar NIC 16.65–66, NIC 36.12 e), NIC 37.31–35/86/89 · PYMES 17.25 y 21"
 
     s = lambda it, k: sum(x[k] or 0 for x in it)
     sin_cob = [a for a in activos if a["efec"] == 0]
@@ -265,13 +265,13 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                                f"suma asegurada total ({m(x['suma'])}); corrija la asignación.", -x["dif_asig"]))
         if x["dif"] is not None and abs(x["dif"]) > tol:
             pr.append(problema("PRIMA_MAL_DEVENGADA", f"Póliza {x['id']}: prima anticipada registrada {m(x['reg'])} ≠ recalculada {m(x['calc'])} "
-                               f"({x['restantes']} de {x['dias']} días por transcurrir) (devengo: NIC 1.27–28; PYMES 2.36).", x["dif"]))
+                               f"({x['restantes']} de {x['dias']} días por transcurrir) (devengo: NIC 1.27–28; PYMES {'3.16A' if edicion_pymes(p) == '2025' else '2.36'}).", x["dif"]))
         elif x["reg"] is None and (x["calc"] or 0) > 0.005:
             pr.append(problema("PRIMA_ANTICIPADA_NO_INFORMADA", f"Póliza {x['id']}: al corte quedan {m(x['calc'])} de prima por devengar y no se "
                                "informó la prima anticipada registrada.", x["calc"]))
         if x["tiene_sin"] and x["evaluacion"] != "Revelado":
             pr.append(problema("SINIESTRO_SIN_REVELACION", f"Póliza {x['id']}: siniestro pendiente «{x['sin']}» por {m(x['msin'] or 0)} sin revelación; "
-                               "evalúe la pérdida y el reembolso (NIC 37.53, 86, 89; PYMES Sección 21) y la NIA 560 si se resolvió después del corte.",
+                               "evalúe la pérdida y el reembolso (daño al activo propio: NIC 16.65–66 y NIC 36; reclamo de terceros: NIC 37.53 y 86; activo contingente: NIC 37.31–35 y 89; PYMES 17.25 y 21) y la NIA 560 si se resolvió después del corte.",
                                x["msin"] or 0))
     for a in activos:
         if a["clasif"] == "Sin cobertura":
@@ -366,7 +366,7 @@ def hojas(res: dict) -> list[dict]:
     parametros = [
         ["Corte del ejercicio", d["corte"], "Ficha del encargo"],
         ["Marco contable", d["marco"], "Mismo tratamiento en NIIF completas y PYMES: prueba de riesgo, no medición NIIF"],
-        ["Edición PYMES", d["edicion"], "2015 y 2025: sin diferencias para esta prueba (VERIFICAR contra el texto oficial)"],
+        ["Edición PYMES", d["edicion"], "2025: devengo en 3.16A (antes 2.36); la tercera edición rige desde el 1-1-2027"],
         ["Cobertura mínima (%)", pv("coberturaMinima"), "Juicio del auditor / política de seguros de la entidad"],
         ["Sobreseguro desde (%)", pv("sobreseguroDesde"), "Juicio del auditor"],
         ["Alerta por vencer (días)", pv("diasAlerta"), "Juicio del auditor"],
@@ -458,7 +458,7 @@ def hojas(res: dict) -> list[dict]:
         s = FILA0 + i
         sini.append([x["id"], x["aseg"], x["sin"], fx(_si(f"{POL}J{s}"), x["msin"]),
                      x["rev"], fx(f"{VIG}E{s}", x["estado"]),
-                     fx(f'IF(OR({POL}K{s}="Sí",{POL}K{s}="Si"),"Revelado","Sin revelación: evaluar NIC 37.86/37.89 · Secc. 21")', x["evaluacion"])])
+                     fx(f'IF(OR({POL}K{s}="Sí",{POL}K{s}="Si"),"Revelado","Sin revelación: evaluar NIC 16.65–66, NIC 36.12 e), NIC 37.31–35/86/89 · PYMES 17.25 y 21")', x["evaluacion"])])
     nsi = len(SI)
 
     # 12 · indicadores y conclusión.  Columnas: concepto, importe, porcentaje, cantidad.
@@ -488,7 +488,7 @@ def hojas(res: dict) -> list[dict]:
     ajus = [
         ["Prima anticipada registrada (detalle)", fx(f"SUM({_rng(PRI, 'F', npol)})", k["primaRegistrada"]), "", "", "Detalle de pólizas"],
         ["Prima anticipada recalculada (días por transcurrir)", fx(f"SUM({_rng(PRI, 'E', npol)})", k["primaRecalculada"]), "", "",
-         "NIC 1.27–28; PYMES 2.36 (devengo)"],
+         f"NIC 1.27–28; PYMES {'3.16A' if d['edicion'] == '2025' else '2.36'} (devengo)"],
         ["Registrada − recalculada (pólizas con registro)", fx(f"SUM({_rng(PRI, 'G', npol)})", k["difPrima"]), "", "", ""],
         ["Ajuste en resultados = −(registrada − recalculada)", fx(f"-{c(2)}", k["ajustePrima"]), "Seguros pagados por anticipado",
          "Gasto de seguros", "Si es negativo: débito a gasto de seguros y crédito al anticipo"],
@@ -566,19 +566,19 @@ def definicion() -> dict:
                     "deducibles, activos sin cobertura, exposición máxima y siniestros pendientes; recalcula la prima pagada por anticipado. "
                     "Es una prueba de riesgo y continuidad operativa: no concluye cumplimiento de las NIIF por sí sola."),
         "source": {"organization": "IFRS Foundation (texto en español del Reglamento (UE) 2023/1803)", "type": "Norma contable", "date": "",
-                   "document": ("NIC 1 párr. 27–28 (base de acumulación o devengo: prima anticipada); NIC 37 párr. 53 (reembolsos), 86 (revelación "
+                   "document": ("NIC 1 párr. 27–28 (base de acumulación o devengo: prima anticipada; desde 2027 la NIIF 18 reemplaza a la NIC 1 (devengo en NIC 8)); NIC 37 párr. 53 (reembolsos), 86 (revelación "
                                 "de pasivos contingentes), 89 (activos contingentes); NIC 16 párr. 65–66 (compensaciones de terceros por "
-                                "elementos deteriorados o perdidos). Párrafos no leídos en esta versión contra el texto oficial: VERIFICAR."),
+                                "elementos deteriorados o perdidos). NIC 1 27–28, NIC 37 53/86/89 y NIC 16 65–66 leídos el 22-09-2026 (ifrs.org, texto en español de la IFRS Foundation)."),
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
-                         "document": ("NIIF para las PYMES 2015 y 2025: Sección 2 (2.36, devengo), Sección 4 (presentación del anticipo como "
+                         "document": ("NIIF para las PYMES 2015 y 2025: Sección 2 (2.36, devengo; 3.16A en la edición 2025), Sección 4 (presentación del anticipo como "
                                       "activo corriente), Sección 21 (21.9 reembolsos, 21.15 pasivos contingentes, 21.16 activos contingentes), "
-                                      "Sección 17 (compensación de terceros). VERIFICAR la numeración y el texto de cada edición."),
+                                      "Sección 17, 17.25 (compensación de terceros). VERIFICAR la numeración y el texto de cada edición."),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
             {"document": "NIA 315 (Revisada 2019)", "section": "(VERIFICAR párrafos)", "requirement": "Entender el entorno y los riesgos: pérdida de activos no asegurados como factor de riesgo."},
             {"document": "NIA 330", "section": "(VERIFICAR párrafos)", "requirement": "Respuestas a los riesgos valorados; evidencia sobre la cobertura."},
-            {"document": "NIA 570 (Revisada)", "section": "párr. 10–16 (VERIFICAR)", "requirement": "Empresa en marcha: pérdida no asegurada de activos clave."},
+            {"document": "NIA 570 (Revisada)", "section": "párr. 10–16 (VERIFICAR)", "requirement": "Empresa en marcha: pérdida no asegurada de activos clave. La NIA 570 (Revisada 2024) rige para períodos desde el 15-12-2026."},
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad del maestro de activos y del detalle de pólizas."},
             {"document": "NIA 501 / NIA 560", "section": "(VERIFICAR párrafos)", "requirement": "Litigios y reclamaciones (siniestros) y hechos posteriores al cierre."},
         ],
@@ -588,7 +588,7 @@ def definicion() -> dict:
             "% cobertura = suma asegurada ÷ referencia; déficit = max(referencia − suma, 0); infraseguro si % < mínimo; sobreseguro si % > umbral.",
             "Regla proporcional: indemnización = pérdida × min(suma ÷ referencia, 1) − deducible; pérdida no cubierta = referencia − indemnización neta.",
             "Exposición máxima = mayor pérdida total no cubierta de un solo activo (déficit + deducible).",
-            "Prima anticipada al corte = prima × días por transcurrir ÷ días de vigencia (devengo, NIC 1.27–28; PYMES 2.36), frente a la registrada y al mayor.",
+            "Prima anticipada al corte = prima × días por transcurrir ÷ días de vigencia (devengo, NIC 1.27–28; PYMES 2.36 (2015) / 3.16A (2025)), frente a la registrada y al mayor.",
             "Siniestro pendiente sin revelación: evaluar pasivo o activo contingente (NIC 37.86, 89; PYMES 21.15–21.16).",
         ],
         "fields": _ACTIVOS, "rules": [], "control": CONTROL, "primary": "ajustePrima",
@@ -612,7 +612,7 @@ def definicion() -> dict:
              "criterion": "Exposición informada al encargado del gobierno", "source": "NIA 570 · NIA 260"},
             {"code": "INS-06", "objective": "Prima pagada por anticipado", "risk": "Anticipo sobrevalorado o gasto no devengado", "assertion": "Valoración / Corte",
              "procedure": "Recalcular la prima por devengar al corte y conciliar con el mayor", "evidence": "Pólizas, facturas de prima, mayor",
-             "criterion": "Diferencia dentro de tolerancia", "source": "NIC 1.27–28 · PYMES 2.36"},
+             "criterion": "Diferencia dentro de tolerancia", "source": "NIC 1.27–28 · PYMES 2.36 (2015) / 3.16A (2025)"},
             {"code": "INS-07", "objective": "Siniestros pendientes y revelación", "risk": "Contingencia no revelada o reembolso reconocido sin certeza", "assertion": "Presentación y revelación",
              "procedure": "Revisar siniestros pendientes, su estado y su revelación", "evidence": "Reclamos, cartas de la aseguradora, notas",
              "criterion": "Revelado según NIC 37 / Sección 21", "source": "NIC 37.53, 86, 89 · PYMES 21 · NIA 501 · NIA 560"},

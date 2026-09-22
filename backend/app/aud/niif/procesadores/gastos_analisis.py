@@ -26,9 +26,9 @@ pruebas de la matriz). Dos anexos:
 6. Clasificación: cuenta sugerida por el auditor ≠ cuenta registrada = reclasificación.
 7. Partes relacionadas (NIC 24 18–19; PYMES 33.9–33.10): importe del período por categoría (las categorías
    cambian por marco) frente a lo revelado en notas.
-8. Partidas inusuales: las de importe igual o mayor a la materialidad se revelan por separado (NIC 1 97).
-9. Tributario Ecuador (referencia): sin comprobante de venta válido o sin bancarización sobre el umbral →
-   no deducible (umbral como parámetro, vigente al corte; VERIFICAR).
+8. Partidas inusuales: las de importe igual o mayor a la materialidad se revelan por separado (NIC 1 97; se usa la materialidad de ejecución como aproximación (NIC 1.97 se refiere a la importancia relativa)).
+9. Tributario Ecuador (referencia): sin comprobante de venta válido (LRTI art. 10 num. 1) o sin bancarización sobre el
+   umbral (LRTI art. 103, por caso entendido) → no deducible (umbral como parámetro, vigente al corte; VERIFICAR).
 10. Ajuste propuesto al gasto = no registrados + devengados no registrados − otro período − anticipados (M09).
 
 Norma leída (M03): NIC 1 párr. 27–28, 87, 97–99, 102–105; NIC 24 párr. 18–19; NIC 8 párr. 41–42 en el
@@ -81,14 +81,14 @@ CONTROL = "saldo_actual"
 
 METODOS = ("Función", "Naturaleza")
 PARAMETROS = {"metodoEri": "Función", "umbralVarPct": 10, "umbralVarAbs": None, "materialidadEjecucion": None,
-              "umbralBancarizacion": 1000, "gastosSegunEri": None, "rpRevelado": None}
+              "umbralBancarizacion": 500, "gastosSegunEri": None, "rpRevelado": None}
 PARAM_NEGATIVOS = ()
 ETIQUETAS_PARAM = {
     "metodoEri": "Método de desglose del estado de resultados (Función / Naturaleza)",
     "umbralVarPct": "Umbral de variación de la NIA 520 (%)",
     "umbralVarAbs": "Umbral de variación de la NIA 520 (importe; vacío = materialidad de ejecución)",
     "materialidadEjecucion": "Materialidad de ejecución",
-    "umbralBancarizacion": "Umbral de bancarización (USD, vigente al corte; VERIFICAR)",
+    "umbralBancarizacion": "Umbral de bancarización (USD por caso entendido — contrato —, LRTI art. 103; guía SRI; vigente al corte; VERIFICAR)",
     "gastosSegunEri": "Total de gastos según el estado de resultados / mayor",
     "rpRevelado": "Transacciones con partes relacionadas reveladas en notas",
 }
@@ -98,7 +98,7 @@ TOTAL_EJEMPLO = "ajusteGasto"
 CATEGORIAS_RP = {
     "completas": ["Dominante", "Control conjunto o influencia significativa", "Dependiente", "Asociada", "Negocio conjunto",
                   "Personal clave", "Otra"],
-    "pymes": ["Control o influencia significativa sobre la entidad", "Controlada o influida por la entidad", "Personal clave", "Otra"],
+    "pymes": ["Control, control conjunto o influencia significativa sobre la entidad", "Controlada o influida por la entidad", "Personal clave", "Otra"],
 }
 SIN_CATEGORIA = "Sin categoría válida"
 
@@ -371,17 +371,17 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                                       f"{'PYMES (33.10)' if pymes else 'NIIF completas (NIC 24 párr. 19)'}: " + ", ".join(t["comp"] for t in sin_cat)
                                       + ". Use: " + "; ".join(cats) + ".", rp_cat[-1]["importe"]))
     for t in inus:
-        det = ("iguala o supera la materialidad: revele su naturaleza e importe por separado (NIC 1 párr. 97" + ("; PYMES 5.9" if pymes else "") + ")"
+        det = ("iguala o supera la materialidad: revele su naturaleza e importe por separado (NIC 1 párr. 97" + ("; PYMES 5.9" if pymes else "") + "; se usa la materialidad de ejecución como aproximación (NIC 1.97 se refiere a la importancia relativa))"
                if t["revelarSep"] == "Sí" else "evalúe su naturaleza y si requiere revelación separada"
                + (" (materialidad no informada)" if mat is None else ""))
         problemas.append(problema("PARTIDA_INUSUAL", f"{t['comp']} {t['proveedor']}: partida inusual; {det}.", t["importe"]))
     for t in reg:
         if t["ndComp"]:
             problemas.append(problema("SIN_COMPROBANTE_VALIDO", f"{t['comp']} {t['proveedor']}: sin comprobante de venta válido; no deducible "
-                                      "(referencia tributaria Ecuador; VERIFICAR norma vigente).", t["importe"]))
+                                      "(LRTI art. 10 num. 1; VERIFICAR norma vigente).", t["importe"]))
         if t["ndBanco"]:
             problemas.append(problema("SIN_BANCARIZACION", f"{t['comp']} {t['proveedor']}: pago mayor a {m(uban)} sin bancarización; no deducible "
-                                      "(referencia tributaria Ecuador; umbral vigente al corte, VERIFICAR).", t["importe"]))
+                                      "(LRTI art. 103, por caso entendido; umbral vigente al corte, VERIFICAR).", t["importe"]))
     fuera = sorted({t["cuenta"] for t in trans if t["cuenta"].lower() not in idx_cta})
     if fuera:
         problemas.append(problema("CUENTA_FUERA_DE_SUMARIA", "Cuentas de la muestra que no están en la sumaria: " + ", ".join(fuera) + "."))
@@ -453,12 +453,12 @@ def hojas(res: dict) -> list[dict]:
         ["Marco contable", marco, "Ficha del encargo: enruta el requisito de desglose y las categorías de partes relacionadas"],
         ["Método de desglose del estado de resultados", d["metodo"], "NIC 1 párr. 99 / PYMES 5.11"],
         ["Requisito de desglose que aplica", requisito, "Enrutado por marco y método"],
-        ["Umbral de variación (%)", d["upct"], "NIA 520 párr. 5 c) y 7 — juicio del auditor"],
+        ["Umbral de variación (%)", d["upct"], "NIA 520 párr. 5 d) y 7 — juicio del auditor"],
         ["Umbral de variación (importe)", d["uabsIn"], "NIA 520 — vacío: se usa la materialidad de ejecución"],
-        ["Materialidad de ejecución", d["mat"], "NIA 320; revelación separada de partidas materiales (NIC 1 párr. 97)"],
+        ["Materialidad de ejecución", d["mat"], "NIA 320; revelación separada de partidas materiales: se usa la materialidad de ejecución como aproximación (NIC 1.97 se refiere a la importancia relativa)"],
         ["Umbral absoluto aplicado", fx(f'IF(B{PAR["umbralVarAbs"]}<>"",B{PAR["umbralVarAbs"]},B{PAR["materialidadEjecucion"]})', d["uabs"]),
          "Umbral de variación o, si falta, materialidad de ejecución"],
-        ["Umbral de bancarización (USD)", d["uban"], "Referencia tributaria Ecuador — vigente al corte; VERIFICAR"],
+        ["Umbral de bancarización (USD)", d["uban"], "Por caso entendido (contrato), LRTI art. 103; guía SRI — vigente al corte; VERIFICAR"],
         ["Gastos según el estado de resultados / mayor", d["eri"], "Estado de resultados o balance de comprobación"],
         ["Partes relacionadas reveladas en notas", d["rpRev"], "Nota de partes relacionadas (NIC 24 párr. 18 / PYMES 33.9)"],
     ]
@@ -727,13 +727,13 @@ def definicion() -> dict:
                          "document": ("NIIF para las PYMES 2015: párr. 2.23 b) y 2.26 (definición de gasto), 2.36 (base de acumulación o "
                                       "devengo), 5.9 (partidas adicionales), 5.10 (sin partidas extraordinarias), 5.11 (desglose por naturaleza "
                                       "o función; por función, costo de ventas por separado), 33.9–33.10 (partes relacionadas), Sección 10 "
-                                      "(errores). Edición 2025: VERIFICAR numeración y redacción en el texto oficial (no leído)."),
+                                      "(errores). Edición 2025 (tercera edición, vigente desde el 1-1-2027): VERIFICAR numeración y redacción en el texto oficial (no leído)."),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
             {"document": "NIA 520", "section": "párr. 5 y 7", "requirement": "Procedimientos analíticos sustantivos: expectativa, umbral de diferencia aceptable e investigación de las diferencias (VERIFICAR párrafos)."},
             {"document": "NIA 500", "section": "párr. 6 y 9", "requirement": "Evidencia suficiente y adecuada; exactitud e integridad de la sumaria contra el mayor (VERIFICAR párrafos)."},
-            {"document": "NIA 550", "section": "párr. 23–25", "requirement": "Transacciones con partes relacionadas: identificación, contabilización y revelación (VERIFICAR párrafos)."},
-            {"document": "NIA 330", "section": "párr. 18 y 20", "requirement": "Procedimientos sustantivos sobre transacciones materiales, incluido el corte (VERIFICAR párrafos)."},
+            {"document": "NIA 550", "section": "párr. 25", "requirement": "Transacciones con partes relacionadas: evaluación de su contabilización y revelación."},
+            {"document": "NIA 330", "section": "párr. 18", "requirement": "Procedimientos sustantivos sobre transacciones materiales, incluido el corte."},
             {"document": "NIA 450", "section": "párr. 5", "requirement": "Acumular las incorrecciones identificadas (gastos no soportados, corte, devengo) (VERIFICAR párrafo)."},
         ],
         "calculo": [
@@ -748,8 +748,8 @@ def definicion() -> dict:
             "Ajuste propuesto al gasto = no registrados + devengados no registrados − otro período − anticipados.",
             "Reclasificación: cuenta correcta según el auditor distinta de la registrada.",
             "Partes relacionadas: importe del período por categoría (NIC 24 19 / PYMES 33.10) frente a lo revelado en notas.",
-            "Partida inusual con importe ≥ materialidad: revelación por separado (NIC 1 97).",
-            "Referencia tributaria: sin comprobante válido, o importe > umbral de bancarización sin pago por banco = no deducible (VERIFICAR norma vigente).",
+            "Partida inusual con importe ≥ materialidad: revelación por separado (NIC 1 97; se usa la materialidad de ejecución como aproximación (NIC 1.97 se refiere a la importancia relativa)).",
+            "Referencia tributaria: sin comprobante válido (LRTI art. 10 num. 1), o importe > umbral de bancarización sin pago por banco (LRTI art. 103) = no deducible (VERIFICAR norma vigente).",
         ],
         "fields": _CUENTAS, "rules": [], "control": CONTROL, "primary": "ajusteGasto",
         "campos": CAMPOS, "tipos": TIPOS, "parametros": dict(PARAMETROS), "etiquetas_parametros": ETIQUETAS_PARAM,
@@ -815,14 +815,14 @@ def _t(id, fdoc, freg, imp, cta, prov, **extra):
     return {"id": id, "fecha_documento": fdoc, "fecha_registro": freg, "importe": imp, "cuenta": cta, "proveedor": prov, "_row": 2, **base, **extra}
 
 
-# Corte 2025-12-31; umbral 10 % y 5.000; materialidad 20.000; bancarización 1.000.
+# Corte 2025-12-31; umbral 10 % y 5.000; materialidad 20.000; bancarización 500 (ningún importe de la muestra está entre 500 y 1.000).
 # FC-103 seguro 7.300 del 01-07-2025 al 30-06-2026: 365 días, 184 hasta el corte → anticipado 7.300 × 181 ÷ 365 = 3.620,00.
 # FC-107 pauta 12.000 del 01-11-2025 al 30-04-2026: 181 días, 61 hasta el corte → anticipado 12.000 × 120 ÷ 181 = 7.955,80.
 # Ajuste = 4.500 (FC-104) + 3.000 (FC-106) − 3.000 (FC-105) − 3.620,00 − 7.955,80 = −7.075,80.
 EJEMPLO = {
     "corte": "2025-12-31",
     "parametros": {"_marco": MARCO_COMPLETAS, "metodoEri": "Función", "umbralVarPct": 10, "umbralVarAbs": 5000, "materialidadEjecucion": 20000,
-                   "umbralBancarizacion": 1000, "gastosSegunEri": 1005000, "rpRevelado": 10000},
+                   "umbralBancarizacion": 500, "gastosSegunEri": 1005000, "rpRevelado": 10000},
     "datasets": {
         "cuentas": [
             _c("5101", "Costo de ventas", "Costo de ventas", "600000", "550000", "590000", "Consumo de inventarios", "Mayor volumen de ventas (+9 %)"),

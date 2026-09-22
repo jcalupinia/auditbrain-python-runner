@@ -9,8 +9,9 @@ Una sola población (la cartera por factura al corte) alimenta siete pruebas:
 3. Circularización (NIA 505): saldo confirmado − saldo en libros por factura.
 4. Corte de ventas (NIIF 15 31 y 38): período de registro (fecha de emisión) vs
    período de despacho (transferencia del control).
-5. Costo amortizado e intereses implícitos (NIIF 9 5.1.3, B5.1.1, 5.4.1; NIIF 15
-   63; PYMES 11.13): si el plazo de crédito supera el umbral de financiación, la
+5. Costo amortizado e intereses implícitos (NIIF 9 5.1.1 y B5.1.1 —5.1.3 solo para
+   cuentas sin componente de financiación significativo—, 5.4.1; NIIF 15 60–63;
+   PYMES 2015 11.13 / 2025 11.13A–11.13B): si el plazo de crédito supera el umbral de financiación, la
    cuenta se mide al valor presente del cobro a la tasa de mercado; la TIE es esa
    tasa (un solo cobro al vencimiento) y el interés por devengar = nominal − costo
    amortizado al corte.
@@ -247,7 +248,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     if interes_req > 0.005 and abs(ajuste_fin) > 0.005:
         problemas.append(problema("FINANCIACION_NO_RECONOCIDA", f"Intereses implícitos por devengar {m(interes_req)} frente a {m(desc_reg or 0)} registrados"
                                   + (" (dato del mayor no informado)" if desc_reg is None else "") + ": cartera de plazo largo medida por su nominal "
-                                  "(NIIF 9 5.1.3, B5.1.1; NIIF 15 63; PYMES 11.13).", ajuste_fin))
+                                  "(NIIF 9 5.1.1 y B5.1.1; NIIF 15 60–63; PYMES 11.13).", ajuste_fin))
     neg = sum(x["saldo"] for x in filas if x["saldo"] < 0)
     if neg:
         problemas.append(problema("SALDOS_NEGATIVOS", f"Saldos acreedores en la cartera {m(neg)} (anticipos o notas de crédito): evalúe su reclasificación al pasivo.", neg))
@@ -324,7 +325,8 @@ def hojas(res: dict) -> list[dict]:
         ["Marco contable", MARCO_PYMES + (f" {d['edicion']}" if d["pymes"] else "") if d["pymes"] else MARCO_COMPLETAS, "Ficha del encargo: enruta el modelo de deterioro"],
         ["Modelo de deterioro", d["modelo"], "NIIF 9 5.5.15 / PYMES 11.21–11.26"],
         ["Tasa de mercado anual para el valor presente (%)", d["tasaMercado"], "NIIF 9 B5.1.1; PYMES 11.13 — tasa de un instrumento de deuda similar"],
-        ["Plazo que se considera financiación (meses)", d["umbral"], "NIIF 15 63 (un año o menos: solución práctica); PYMES 11.13 — juicio"],
+        ["Plazo que se considera financiación (meses)", d["umbral"], "NIIF 15 63 (solución práctica: más de 12 meses habilita evaluar la financiación con NIIF 15.60–62, no la concluye); "
+                                                      "PYMES 2015 11.13 (pago diferido más allá de los términos comerciales normales) / 2025 11.13A–11.13B — juicio"],
         ["Deterioro registrado al cierre (mayor)", d["provisionRegistrada"], "Mayor contable"],
         ["Intereses implícitos por devengar registrados (mayor)", d["descuentoRegistrado"], "Mayor contable"],
     ]
@@ -445,7 +447,7 @@ def hojas(res: dict) -> list[dict]:
         [nombre_det, fx(f"{MAT}E{fin_mat + 1}", t["deterioroRequerido"]), "Matriz de deterioro + tasas individuales"],
         ["Deterioro registrado (mayor)", fx(_pb("provisionRegistrada"), t["provisionRegistrada"]), "Parámetros"],
         ["Ajuste de deterioro propuesto", fx(f"B{AJF['requerido']}-B{AJF['registrado']}", t["ajuste"]), "Positivo: falta deterioro; negativo: exceso"],
-        ["Intereses implícitos por devengar requeridos", fx(f"SUM({_rango(DET, 'L', nd)})", t["interesNoDevengado"]), "NIIF 9 5.1.3, B5.1.1; PYMES 11.13"],
+        ["Intereses implícitos por devengar requeridos", fx(f"SUM({_rango(DET, 'L', nd)})", t["interesNoDevengado"]), "NIIF 9 5.1.1 y B5.1.1; PYMES 11.13"],
         ["Intereses por devengar registrados (mayor)", fx(_pb("descuentoRegistrado"), t["descuentoRegistrado"]), "Parámetros"],
         ["Ajuste por financiación implícita", fx(f"B{AJF['interesReq']}-B{AJF['descReg']}", t["ajusteFinanciacion"]), "Menor valor de la cartera"],
         ["Ventas registradas antes del despacho", fx(tot_ref(COR, "H", fin_cor, corte), t["corteAnticipado"]), "NIIF 15 31, 38"],
@@ -543,21 +545,23 @@ def definicion() -> dict:
                     "esperada (NIIF 9 5.5.15, B5.5.35, incluido el tramo corriente); en PYMES es pérdida incurrida (Sección 11, solo tramos "
                     "con evidencia objetiva). Para medir las tasas con la historia completa existen las herramientas «Pérdida crediticia "
                     "esperada · enfoque simplificado (NIIF 9)» y «Deterioro de cuentas por cobrar · pérdidas incurridas (PYMES)»."),
-        "source": {"organization": "IFRS Foundation (texto en español: Reglamento (UE) 2016/2067 y Reglamento (UE) 2023/1803)",
+        "source": {"organization": "IFRS Foundation (texto en español: Reglamento (UE) 2023/1803)",
                    "type": "Norma contable", "date": "",
-                   "document": ("NIIF 9 párr. 5.1.1, 5.1.3, 5.4.1, 5.5.15, B5.1.1, B5.1.2, B5.5.35; NIIF 15 párr. 31, 38, 63; "
-                                "NIIF 7 párr. 35H, 35M"),
+                   "document": ("NIIF 9 párr. 5.1.1 y B5.1.1 (5.1.3 solo para cuentas sin componente de financiación significativo), 5.4.1, "
+                                "5.5.15 (con componente de financiación significativo, 5.5.15 a) ii) solo si esa es la política de la entidad), "
+                                "B5.1.2, B5.5.35; NIIF 15 párr. 31, 38, 60–63 (63, solución práctica: más de 12 meses habilita evaluar la "
+                                "financiación con NIIF 15.60–62, no la concluye); NIIF 7 párr. 35H, 35M y 35N"),
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
-                         "document": ("NIIF para las PYMES 2015 y 2025, Sección 11 · párr. 11.13 (transacción de financiación: valor presente "
-                                      "a la tasa de mercado), 11.21–11.26 (pérdida incurrida). VERIFICAR la redacción y numeración en el texto "
-                                      "oficial de cada edición (no leídos en esta construcción)."),
+                         "document": ("NIIF para las PYMES 2015, Sección 11 · párr. 11.13 (financiación = pago diferido más allá de los términos "
+                                      "comerciales normales: valor presente a la tasa de mercado), 11.21–11.26 (pérdida incurrida). "
+                                      "Edición 2025: financiación en párr. 11.13A–11.13B."),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
             {"document": "NIA 505", "section": "párr. 7, 14 y 16", "requirement": "Confirmaciones externas: controlar las solicitudes e investigar las diferencias (VERIFICAR párrafos)."},
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Evaluar exactitud e integridad del anexo de cartera contra el mayor."},
-            {"document": "NIA 540 (Revisada)", "section": "párr. 13 y 17–30", "requirement": "El deterioro es una estimación: evaluar método, datos, supuestos (tasas por tramo, tasa de mercado) y sesgo."},
-            {"document": "NIA 560", "section": "párr. 6", "requirement": "Cobros posteriores al cierre como evidencia sobre la recuperabilidad."},
+            {"document": "NIA 540 (Revisada)", "section": "párr. 13, 16–30 y 32", "requirement": "El deterioro es una estimación: evaluar método, datos, supuestos (tasas por tramo, tasa de mercado) y sesgo."},
+            {"document": "NIA 560", "section": "párr. 6 y NIA 540 párr. 21", "requirement": "Cobros posteriores al cierre como evidencia sobre la recuperabilidad."},
             {"document": "NIA 330", "section": "párr. 18", "requirement": "Procedimientos sustantivos de corte y existencia sobre saldos materiales."},
         ],
         "calculo": [
@@ -565,7 +569,7 @@ def definicion() -> dict:
             "Cobros posteriores: cobro aplicable = cobro con fecha posterior al corte, hasta el saldo; cartera vencida sin cobro = saldo − cobro aplicable.",
             "Circularización: diferencia = saldo confirmado − saldo en libros, por factura.",
             "Corte de ventas: la venta pertenece al período del despacho (NIIF 15 31 y 38); se compara con el período de registro (fecha de emisión).",
-            "Financiación implícita: plazo de crédito (vencimiento − emisión) mayor al umbral (12 meses por defecto, NIIF 15 63; PYMES 11.13).",
+            "Financiación implícita: plazo de crédito (vencimiento − emisión) mayor al umbral (12 meses por defecto; NIIF 15 63: superarlo habilita evaluar la financiación con NIIF 15.60–62, no la concluye; PYMES 2015 11.13 / 2025 11.13A–11.13B).",
             "Costo amortizado al corte = nominal ÷ (1 + tasa de mercado)^(días por vencer ÷ 365); TIE = tasa de mercado (un solo cobro al vencimiento, 5.4.1); interés por devengar = nominal − costo amortizado.",
             "Deterioro requerido = costo amortizado × tasa del tramo (o tasa individual). NIIF completas: tasas esperadas en todos los tramos (5.5.15, B5.5.35). PYMES: corriente 0 % y tramos en mora con evidencia objetiva (11.21–11.24).",
             "Ajuste = deterioro requerido − deterioro registrado; ajuste por financiación = interés por devengar requerido − registrado.",
@@ -580,7 +584,7 @@ def definicion() -> dict:
              "criterion": "Diferencia dentro de tolerancia; antigüedad recalculada", "source": "NIA 500 párr. 9"},
             {"code": "CXCCAR-02", "objective": "Cobros posteriores", "risk": "Cartera vencida no recuperable", "assertion": "Valoración / Existencia",
              "procedure": "Cotejar cobros posteriores al cierre con la cartera, en especial la vencida", "evidence": "Estados de cuenta bancarios y recibos posteriores",
-             "criterion": "Vencido sin cobro evaluado en el deterioro", "source": "NIA 560 párr. 6 · NIA 540"},
+             "criterion": "Vencido sin cobro evaluado en el deterioro", "source": "NIA 560 párr. 6 · NIA 540 párr. 21"},
             {"code": "CXCCAR-03", "objective": "Circularización", "risk": "Saldos inexistentes o mal medidos", "assertion": "Existencia",
              "procedure": "Enviar confirmaciones, comparar saldo confirmado con libros e investigar diferencias", "evidence": "Respuestas de clientes",
              "criterion": "Diferencias conciliadas o ajustadas", "source": "NIA 505"},
@@ -589,13 +593,13 @@ def definicion() -> dict:
              "criterion": "Ventas en el período de la transferencia del control", "source": "NIIF 15 31, 38 · NIA 330"},
             {"code": "CXCCAR-05", "objective": "Costo amortizado e intereses implícitos", "risk": "Cartera de plazo largo medida por su nominal", "assertion": "Valoración",
              "procedure": "Identificar facturas con plazo mayor al umbral y medir su valor presente a la tasa de mercado", "evidence": "Contratos, pagarés, tasas de mercado",
-             "criterion": "Componente de financiación reconocido", "source": "NIIF 9 5.1.3, 5.4.1, B5.1.1 · NIIF 15 63 · PYMES 11.13"},
+             "criterion": "Componente de financiación reconocido", "source": "NIIF 9 5.1.1, B5.1.1 y 5.4.1 (5.1.3 solo sin componente de financiación significativo) · NIIF 15 60–63 · PYMES 2015 11.13 / 2025 11.13A–11.13B"},
             {"code": "CXCCAR-06", "objective": "Deterioro requerido vs registrado", "risk": "Deterioro insuficiente", "assertion": "Valoración",
              "procedure": "Aplicar la matriz de tasas por tramo y las tasas individuales y comparar con el deterioro registrado", "evidence": "Matriz de tasas, política de crédito",
-             "criterion": "Ajuste cuantificado", "source": "NIIF 9 5.5.15, B5.5.35 · PYMES 11.21–11.26 · NIA 540"},
+             "criterion": "Ajuste cuantificado", "source": "NIIF 9 5.5.15 (con componente de financiación significativo, 5.5.15 a) ii) solo si esa es la política de la entidad), B5.5.35 · PYMES 11.21–11.26 · NIA 540"},
             {"code": "CXCCAR-07", "objective": "Revelación", "risk": "Nota de riesgo de crédito incompleta", "assertion": "Presentación",
              "procedure": "Preparar la antigüedad y el movimiento del deterioro para las notas", "evidence": "Aging, mayor del deterioro",
-             "criterion": "Nota completa", "source": "NIIF 7 35H, 35M"},
+             "criterion": "Nota completa", "source": "NIIF 7 35H, 35M y 35N"},
         ],
         "requests": [
             req("RQ-001", "Cartera por factura al corte con cobros posteriores, confirmaciones y despachos", "cartera", "CXCCAR-01",

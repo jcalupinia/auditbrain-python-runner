@@ -287,7 +287,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         if a["total_dep"] == "Sí" and a["estado"] == "En uso":
             pr.append(problema("TOTALMENTE_DEPRECIADO_EN_USO", f"{a['id']}: totalmente depreciado y aún en uso; revise la vida útil y el residual (NIC 16.51; PYMES 17.19).", a["costo"]))
         if (a["res"] or 0) > a["costo"]:
-            pr.append(problema("RESIDUAL_EXCEDE_COSTO", f"{a['id']}: el valor residual supera al costo (NIC 16.53–54).", (a["res"] or 0) - a["costo"]))
+            pr.append(problema("RESIDUAL_EXCEDE_COSTO", f"{a['id']}: el valor residual iguala o supera el importe en libros: la depreciación es nula (NIC 16.54); verifique el soporte de la estimación (NIC 16.51; NIA 540).", (a["res"] or 0) - a["costo"]))
     umbral_rev = _p(p, "umbralRevisarComponentes")
     if umbral_rev is not None:
         for a in vivos:
@@ -302,7 +302,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     for c in sorted(clases_rev):
         faltan = [a["id"] for a in vivos if a["clase"] == c and a["rev"] is None]
         if faltan:
-            pr.append(problema("REVALUACION_CLASE_INCOMPLETA", f"Clase {c}: se revaluó una parte; también deben revaluarse {', '.join(faltan)} (NIC 16.36; PYMES 17.15B).", 0))
+            pr.append(problema("REVALUACION_CLASE_INCOMPLETA", f"Clase {c}: se revaluó una parte; también deben revaluarse {', '.join(faltan)} (NIC 16.36; PYMES 17.15 y 17.15B).", 0))
     for a in deter:
         if a["perdida"]:
             pr.append(problema("DETERIORO", f"{a['id']}: importe en libros {m(a['libros'])} mayor que el importe recuperable {m(a['rec'])} (NIC 36.59; PYMES 27.5).", a["perdida"]))
@@ -318,7 +318,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                 pr.append(problema("INTERESES_DIFERENCIA", f"{x['id']}: intereses capitalizables {m(x['cap'])} ≠ capitalizados {m(x['int'] or 0)} (NIC 23.8, 14).", x["int_dif"]))
     for x in adiciones:
         if x["capitalizable"] != "Sí":
-            pr.append(problema("ADICION_GASTO_CAPITALIZADO", f"{x['id']}: «{x['tipo']}» capitalizado; las reparaciones y el mantenimiento son gasto (NIC 16.12; PYMES 17.6).", x["importe"]))
+            pr.append(problema("ADICION_GASTO_CAPITALIZADO", f"{x['id']}: «{x['tipo']}» capitalizado; las reparaciones y el mantenimiento son gasto (NIC 16.12; PYMES 17.6); el mantenimiento mayor o las inspecciones generales pueden capitalizarse (NIC 16.13–14).", x["importe"]))
         if not x["existe"]:
             pr.append(problema("ADICION_SIN_ACTIVO", f"{x['id']}: el activo {x['activo']} no está en el auxiliar.", x["importe"]))
     if rf["difAd"] is not None and abs(rf["difAd"]) > tol:
@@ -326,7 +326,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     if vp is None:
         pr.append(problema("DESMANTELAMIENTO_NO_EVALUADO", "No se ingresó la estimación de desmantelamiento: documente si existe la obligación (NIC 16.16 c, NIC 37; PYMES 17.10 c, Sección 21).", 0))
     elif vp > 0.005 and not prov_reg:
-        pr.append(problema("DESMANTELAMIENTO_NO_RECONOCIDO", f"Obligación de desmantelamiento no reconocida: valor presente {m(vp)} (NIC 16.16 c, NIC 37.45; PYMES 21).", vp))
+        pr.append(problema("DESMANTELAMIENTO_NO_RECONOCIDO", f"Obligación de desmantelamiento no reconocida: valor presente {m(vp)} (NIC 16.16 c, NIC 37.45; Sección 21 (21.7, VERIFICAR)).", vp))
     elif abs(desm["dif"]) > tol:
         pr.append(problema("DESMANTELAMIENTO_DIFERENCIA", f"Provisión de desmantelamiento registrada {m(prov_reg)} ≠ valor presente {m(vp)}.", desm["dif"]))
     for k, lab in (("difCosto", "del costo"), ("difDep", "de la depreciación acumulada")):
@@ -414,7 +414,8 @@ def hojas(res: dict) -> list[dict]:
         ["Inicio del ejercicio", d["cortes"]["inicio"], "Un año antes del corte + 1 día"],
         ["Días del ejercicio", fx(f"B{FILA0}-B{FILA0 + 1}+1", d["diasAnio"]), "Base de la fracción de tiempo"],
         ["Marco contable", d["marco"], "PYMES: costos por préstamos a gasto (Sección 25.2)" if d["marco"] == MARCO_PYMES else "NIC 23: capitaliza en activos aptos"],
-        ["Edición PYMES", d["edicion"], "2015 y 2025: mismo tratamiento en estas pruebas (VERIFICAR contra el texto oficial)"],
+        ["Edición PYMES", d["edicion"], "2015 y 2025: mismo tratamiento (resumen oficial de cambios 2025: Secc. 25 editorial; Secc. 27 consecuencial; "
+                                      "Secc. 17 sin cambios en revaluación, componentes ni bajas); la 3.ª edición rige desde el 1-1-2027"],
         ["Tolerancia por activo (importe)", pv("tolerancia"), "Juicio del auditor (materialidad de ejecución)"],
         ["Tasa de capitalización (% anual)", pv("tasaCapitalizacion"), "NIC 23.14: media ponderada de los préstamos genéricos"],
         ["Parte significativa desde (% del elemento)", pv("umbralComponente"), "NIC 16.43; juicio del auditor"],
@@ -547,14 +548,14 @@ def hojas(res: dict) -> list[dict]:
     s = lambda col, h, nn: f"SUM({_rng(h, col, nn)})" if nn else "0"
     ajus = [
         ["Depreciación recalculada − registrada", fx(s("G", DEP, n), aj["ajusteDep"]), "Gasto por depreciación", "(−) Depreciación acumulada", "NIC 16.50; PYMES 17.18"],
-        ["Pérdida por deterioro adicional", fx(s("E", DET, len(D)), aj["deterioroAdicional"]), "Pérdida por deterioro", "(−) Deterioro acumulado", "NIC 36.59–60; PYMES 27.5–27.6"],
+        ["Pérdida por deterioro adicional", fx(s("E", DET, len(D)), aj["deterioroAdicional"]), "Pérdida por deterioro", "(−) Deterioro acumulado", "NIC 36.59–61; PYMES 27.5–27.6 (si el activo está revaluado, primero contra el superávit)"],
         ["Resultado de bajas recalculado − registrado", fx(s("J", BAJ, len(B)), aj["ajusteBajas"]), "Resultado en baja de activos", "Propiedad, planta y equipo", "NIC 16.68, 71; PYMES 17.28–17.30"],
         ["Intereses capitalizables − capitalizados", fx(s("K", ADI, nad), aj["ajusteIntereses"]), "Construcciones en curso / Gasto financiero", "Gasto financiero / Construcciones en curso",
          "Sección 25.2 (PYMES: todo a gasto)" if d["marco"] == MARCO_PYMES else "NIC 23.8, 14"],
         ["Revaluación a otro resultado integral", fx(s("G", REV, len(R)), aj["revaluacionORI"]), "Propiedad, planta y equipo", "Superávit de revaluación (ORI)", "NIC 16.39–40; PYMES 17.15C–17.15D"],
         ["Revaluación a resultados", fx(s("H", REV, len(R)), aj["revaluacionResultado"]), "Pérdida por revaluación", "Propiedad, planta y equipo", "NIC 16.40; PYMES 17.15D"],
         ["Desmantelamiento: valor presente − registrado", fx(f"{DES}B{FILA0 + 5}", ds["dif"]) if ds["vp"] is not None else None,
-         "Propiedad, planta y equipo (costo)", "Provisión por desmantelamiento", "NIC 16.16 c; NIC 37.45; CINIIF 1; PYMES 21"],
+         "Propiedad, planta y equipo (costo)", "Provisión por desmantelamiento", "NIC 16.16 c; NIC 37.45; CINIIF 1; Sección 21 (21.7, VERIFICAR)"],
         ["Efecto neto en resultados", fx(f"-B{FILA0}-B{FILA0 + 1}+B{FILA0 + 2}+B{FILA0 + 3}+B{FILA0 + 5}", aj["ajusteResultado"]), "", "",
          "− depreciación − deterioro + bajas + intereses + revaluación a resultados"],
     ]
@@ -631,10 +632,10 @@ def definicion() -> dict:
         "summary": ("Recalcula por activo la depreciación, el valor neto en libros y el resultado de las bajas; evalúa vidas útiles, "
                     "residuales, componentes, revaluación, deterioro, costos por préstamos (NIC 23 / Sección 25) y la provisión de "
                     "desmantelamiento, y concilia el auxiliar con el mayor."),
-        "source": {"organization": "IFRS Foundation (texto en español del Reglamento (UE) 2023/1803)", "type": "Norma contable", "date": "",
+        "source": {"organization": "IFRS Foundation — traducción oficial al español (NIIF 2023)", "type": "Norma contable", "date": "2026-09-22",
                    "document": ("NIC 16 párr. 12, 16 c, 31–42 (39, 40), 43–47, 50–62, 67–72; NIC 23 párr. 8, 12, 14, 20, 22; "
                                 "NIC 36 párr. 18, 59–60; NIC 37 párr. 45, 47, 60; CINIIF 1 párr. 5 y 8"),
-                   "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
+                   "url": "https://www.ifrs.org/content/dam/ifrs/publications/html-standards/spanish/2023/issued/ias16.html"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
                          "document": ("NIIF para las PYMES 2015 y 2025: Sección 17 (17.6, 17.10 c, 17.15–17.15D revaluación, 17.16 componentes, "
                                       "17.18–17.23 depreciación, 17.27–17.30 bajas), Sección 25 (25.2: costos por préstamos a gasto), "
@@ -643,10 +644,10 @@ def definicion() -> dict:
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
             {"document": "NIA 500", "section": "párr. 6–9", "requirement": "Evidencia suficiente y adecuada sobre existencia, integridad y valoración del auxiliar."},
-            {"document": "NIA 510", "section": "párr. 6", "requirement": "Saldos iniciales: el costo y la depreciación acumulada iniciales se concilian con el cierre anterior."},
-            {"document": "NIA 540 (Revisada)", "section": "párr. 13 y 17–30", "requirement": "Estimaciones: vidas útiles, residuales, importe recuperable, valor razonable y desmantelamiento."},
-            {"document": "NIA 501", "section": "párr. 4", "requirement": "Considerar la observación física de activos significativos."},
-            {"document": "NIA 620", "section": "párr. 12", "requirement": "Evaluar el trabajo del perito en revaluaciones y deterioro."},
+            {"document": "NIA 510", "section": "párr. 6", "requirement": "Saldos iniciales: el costo y la depreciación acumulada iniciales se concilian con el cierre anterior; aplica en encargos iniciales; en recurrentes NIA 500/330."},
+            {"document": "NIA 540 (Revisada)", "section": "párr. 13–30 y 32", "requirement": "Estimaciones: vidas útiles, residuales, importe recuperable, valor razonable y desmantelamiento."},
+            {"document": "NIA 500", "section": "párr. A14–A16 (VERIFICAR)", "requirement": "Inspección física de activos tangibles."},
+            {"document": "NIA 500", "section": "párr. 8", "requirement": "Perito de la dirección (NIA 620 solo si lo contrata el auditor): evaluar su trabajo en revaluaciones y deterioro."},
         ],
         "calculo": [
             "Costo = costo inicial + adiciones del año; importe depreciable = costo − valor residual (NIC 16.53; PYMES 17.18).",
@@ -674,7 +675,7 @@ def definicion() -> dict:
              "criterion": "Diferencias dentro de tolerancia", "source": "NIC 16.50–62 · PYMES 17.18–17.23"},
             {"code": "PPE-04", "objective": "Vidas útiles, residual, método y componentes", "risk": "Estimaciones desactualizadas; partes significativas sin separar", "assertion": "Valoración",
              "procedure": "Revisar activos totalmente depreciados en uso, residuales y partes significativas", "evidence": "Política contable, informes técnicos",
-             "criterion": "Estimaciones revisadas al cierre", "source": "NIC 16.43–47, 51, 61 · PYMES 17.16, 17.19"},
+             "criterion": "NIIF: revisadas al cierre (NIC 16.51, 61); PYMES: si hay indicios (17.19)", "source": "NIC 16.43–47, 51, 61 · PYMES 17.16, 17.19"},
             {"code": "PPE-05", "objective": "Bajas", "risk": "Resultado de baja mal calculado u omitido", "assertion": "Exactitud",
              "procedure": "Recalcular el valor neto en libros a la baja y la ganancia o pérdida", "evidence": "Facturas de venta, actas de baja",
              "criterion": "Resultado recalculado igual al registrado", "source": "NIC 16.67–72 · PYMES 17.27–17.30"},
@@ -683,13 +684,13 @@ def definicion() -> dict:
              "criterion": "Tratamiento según NIC 16.39–40", "source": "NIC 16.31–42 · PYMES 17.15–17.15D · NIA 620"},
             {"code": "PPE-07", "objective": "Deterioro", "risk": "Importe en libros superior al recuperable", "assertion": "Valoración",
              "procedure": "Comparar el importe en libros con el importe recuperable", "evidence": "Cálculo de valor en uso o valor razonable",
-             "criterion": "Pérdida reconocida", "source": "NIC 36.59 · PYMES 27.5 · NIA 540"},
+             "criterion": "Pérdida reconocida", "source": "NIC 36.59–61 · PYMES 27.5–27.6 (si el activo está revaluado, primero contra el superávit) · NIA 540"},
             {"code": "PPE-08", "objective": "Costos por préstamos", "risk": "Intereses capitalizados indebidamente", "assertion": "Valoración / Clasificación",
              "procedure": "Recalcular intereses capitalizables en activos aptos (NIIF completas) o reversar lo capitalizado (PYMES)", "evidence": "Contratos de préstamo, tabla de amortización",
              "criterion": "NIC 23.8, 14 / Sección 25.2", "source": "NIC 23 · PYMES 25"},
             {"code": "PPE-09", "objective": "Desmantelamiento", "risk": "Obligación no reconocida o mal medida", "assertion": "Integridad / Valoración",
              "procedure": "Recalcular el valor presente de la obligación y compararlo con la provisión", "evidence": "Contratos, permisos ambientales, estimación técnica",
-             "criterion": "Provisión igual al valor presente", "source": "NIC 16.16 c · NIC 37.45–47 · CINIIF 1 · PYMES 21"},
+             "criterion": "Provisión igual al valor presente", "source": "NIC 16.16 c · NIC 37.45–47 · CINIIF 1 · Sección 21 (21.7, VERIFICAR)"},
         ],
         "requests": [
             req("RQ-001", "Auxiliar de propiedad, planta y equipo por activo al corte", "activos", "PPE-01", "Población a recalcular y conciliar con el mayor", content=aux),

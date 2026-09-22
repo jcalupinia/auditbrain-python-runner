@@ -542,12 +542,12 @@ def hojas(res: dict) -> list[dict]:
     parametros = [
         ["Fecha de corte", d["corte"], "Ficha del encargo"],
         ["Tasa anual del contrato", p["convencionTasa"], "Efectiva: (1 + r)^(meses/12) − 1 · Nominal: r × meses/12"],
-        ["PYMES: plazo ≥ % de la vida útil", float(p["umbralVida"]), "Indicador 20.5 c; umbral de juicio, no fijado por la norma (VERIFICAR)"],
-        ["PYMES: VP de pagos ≥ % del valor razonable", float(p["umbralVP"]), "Indicador 20.5 d; umbral de juicio (VERIFICAR)"],
-        ["Límite de bajo valor del activo nuevo (USD)", float(p["limiteBajoValor"]), "NIIF 16 B3–B8 no fija un importe; referencia de juicio (VERIFICAR)"],
+        ["PYMES: plazo ≥ % de la vida útil", float(p["umbralVida"]), "Indicador 20.5 c; umbral de juicio del auditor; la Sección 20 no fija porcentajes"],
+        ["PYMES: VP de pagos ≥ % del valor razonable", float(p["umbralVP"]), "Indicador 20.5 d; umbral de juicio del auditor; la Sección 20 no fija porcentajes"],
+        ["Límite de bajo valor del activo nuevo (USD)", float(p["limiteBajoValor"]), "NIIF 16 B3–B8 no fija importe; el IASB pensó en activos de unos USD 5.000 o menos cuando son nuevos (Fundamentos BC100, no forman parte de la norma). Un vehículo no es de bajo valor (B6)."],
         ["Marco y ruta de cálculo", ("NIIF para las PYMES " + d["edicion"] + " · Sección 20 (financiero/operativo)") if pymes
          else "NIIF completas · NIIF 16 (modelo único del arrendatario)",
-         "PYMES 2025: la tercera edición no adoptó el modelo de la NIIF 16 (VERIFICAR numeración de la Sección 20 de 2025)" if pymes
+         "Tercera edición: Sección 20 con modificaciones solo editoriales; se mantiene financiero/operativo; vigente desde el 1-1-2027; para cortes 2025–2026 solo con adopción anticipada" if pymes
          else "NIIF 16 párr. 22–46"],
     ]
 
@@ -828,20 +828,20 @@ def definicion() -> dict:
                     "financiero al menor entre valor razonable y VP, operativo como gasto lineal, y detecta el «derecho de uso» indebido."),
         "source": {"organization": "IFRS Foundation / Unión Europea", "type": "Norma contable", "date": "",
                    "document": ("NIIF 16 Arrendamientos (texto en español, Reglamento (UE) 2023/1803): párr. 5–8, 9, 18–21, 22–27, 29–33, 36–38, "
-                                "39–46, 47, 98–103, B3–B8, B34–B41 y Apéndice A (arrendamiento a corto plazo); NIC 1 párr. 69 (corriente)"),
+                                "39–46, 47, 98–103, B3–B8, B34–B41 y Apéndice A (arrendamiento a corto plazo); NIC 1 párr. 69 (corriente; desde 2027 la NIIF 18 sustituye a la NIC 1)"),
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
                          "document": ("NIIF para las PYMES 2015, Sección 20 Arrendamientos: 20.4–20.8 (clasificación), 20.9–20.10 (medición inicial "
                                       "del financiero), 20.11 (carga financiera con tasa constante), 20.12 (depreciación y deterioro, Sección 27), "
                                       "20.15 (operativo: gasto lineal), 20.32–20.34 (venta con arrendamiento posterior). Edición 2025 (tercera): "
-                                      "el IASB no alineó la Sección 20 con la NIIF 16; se mantiene el modelo financiero/operativo (VERIFICAR la "
-                                      "numeración de párrafos en el texto de 2025)."),
+                                      "Sección 20 con modificaciones solo editoriales; se mantiene financiero/operativo; vigente desde el 1-1-2027; "
+                                      "para cortes 2025–2026 solo con adopción anticipada."),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
-            {"document": "NIA 540 (Revisada)", "section": "párr. 13 y 17–30",
+            {"document": "NIA 540 (Revisada)", "section": "párr. 13, 16–17 y 18–27 (28–30 VERIFICAR)",
              "requirement": "Estimación contable: evaluar método (VP, tabla), datos (contratos) y supuestos (tasa incremental, plazo, opciones)."},
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad del anexo de contratos contra el mayor y los contratos firmados."},
-            {"document": "NIA 501 / 505", "section": "NIA 505 párr. 7", "requirement": "Confirmar con arrendadores condiciones y pagos cuando sea significativo."},
+            {"document": "NIA 505", "section": "párr. 7", "requirement": "Confirmar con arrendadores condiciones y pagos cuando sea significativo."},
             {"document": "NIA 560", "section": "párr. 6", "requirement": "Modificaciones, renovaciones o terminaciones posteriores al cierre."},
         ],
         "calculo": [

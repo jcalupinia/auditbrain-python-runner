@@ -447,6 +447,12 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                 param["_marco"] = reg["engagement"].get("framework") or ""
                 param["_edicion"] = str(reg["engagement"].get("edition") or "")
                 run = proc.ejecutar(reg.get("datasets") or {}, param, reg["engagement"]["cutoff"])
+                # La 3.ª edición de la NIIF para las PYMES rige desde el 1-1-2027: antes, solo con adopción anticipada.
+                if "PYMES" in param["_marco"] and param["_edicion"] == "2025" and str(reg["engagement"]["cutoff"]) < "2027-01-01":
+                    run["exceptions"] = [{"code": "PYMES_2025_ANTICIPADA", "amount": "0.00", "message":
+                        "La NIIF para las PYMES 2025 (3.ª edición) rige para períodos desde el 1-1-2027: con corte "
+                        f"{reg['engagement']['cutoff']} solo procede si la entidad la adoptó anticipadamente y lo revela; "
+                        "de lo contrario use la edición 2015."}] + list(run.get("exceptions") or [])
                 run["hojas"] = proc.hojas(run)
                 run["detalle"] = {k: v for k, v in run["detalle"].items() if k in ("tasas", "fiscal", "cortes")}
             else:

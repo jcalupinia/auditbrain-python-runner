@@ -81,7 +81,7 @@ def test_rutas_por_marco():
     codes = {e["code"] for e in pc["exceptions"]}
     assert {"MODELO_VR_SIN_BASE", "SIN_COSTO"} <= codes
     h = {x["name"]: x for x in m.hojas(pc)}
-    assert "sección 12" in h["02_Parametros"]["rows"][1][1]
+    assert "Sección 12" in h["02_Parametros"]["rows"][1][1]
 
 
 def test_vacio_y_parametros_invalidos():

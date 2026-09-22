@@ -9,7 +9,7 @@ Dos anexos alimentan las pruebas:
   aumentos y disminuciones en positivo.
   1. Movimiento recalculado = inicial + aumentos − disminuciones vs final según cliente vs mayor
      (NIC 1 106 d); PYMES Sección 6).
-  2. Reserva legal (Ley de Compañías, parámetros «vigente al corte; VERIFICAR»): requerida =
+  2. Reserva legal (Ley de Compañías arts. 297 y 109, parámetros «vigente al corte»): requerida =
      mín(máx(utilidad líquida, 0) × %, máx(tope % × capital − reserva inicial, 0)) vs apropiada (aumentos
      de la cuenta reserva legal del período).
   3. Capital según cliente vs escritura / Supercias.
@@ -83,8 +83,8 @@ PARAM_NEGATIVOS = ("utilidadNeta",)
 ETIQUETAS_PARAM = {
     "tipoCompania": "Tipo de compañía (Anónima / Limitada)",
     "utilidadNeta": "Utilidad líquida sobre la que se apropia la reserva legal (vacío: saldo inicial del resultado del ejercicio)",
-    "pctReserva": "% de la utilidad para reserva legal (vacío: 10 % anónima, 5 % limitada; vigente al corte; VERIFICAR)",
-    "topeReserva": "Tope de la reserva legal, % del capital (vacío: 50 % anónima, 20 % limitada; vigente al corte; VERIFICAR)",
+    "pctReserva": "% de la utilidad para reserva legal (vacío: mínimo 10 % de la utilidad líquida hasta por lo menos el 50 % del capital (Ley de Compañías art. 297, anónimas); 5 % hasta por lo menos 20 % (art. 109, limitadas); vigente al corte)",
+    "topeReserva": "Tope de la reserva legal, % del capital (vacío: mínimo 10 % de la utilidad líquida hasta por lo menos el 50 % del capital (Ley de Compañías art. 297, anónimas); 5 % hasta por lo menos 20 % (art. 109, limitadas); vigente al corte)",
     "capitalEscritura": "Capital suscrito según escritura inscrita / Supercias",
     "utilidadesDisponibles": "Utilidades líquidas y realizadas disponibles para dividendos (vacío: se calculan)",
 }
@@ -331,18 +331,18 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         problemas.append(problema("SIN_SALDO_MAYOR", "No se informó el saldo final según el mayor: concilie cada cuenta patrimonial con el mayor (NIA 500)."))
     if requerida is None:
         problemas.append(problema("RESERVA_SIN_BASE", "No hay utilidad líquida para medir la reserva legal: ingrésela en parámetros o incluya la cuenta "
-                                  "«resultado del ejercicio» en el movimiento (Ley de Compañías; VERIFICAR)."))
+                                  "«resultado del ejercicio» en el movimiento (Ley de Compañías arts. 297 y 109)."))
     elif aj_res > 0.005:
         problemas.append(problema("RESERVA_LEGAL_NO_APROPIADA", f"Reserva legal requerida {m(requerida)} ({m(pct)} % de la utilidad {m(base)}, hasta el "
-                                  f"{m(tope)} % del capital) frente a {m(apropiada)} apropiada: falta apropiar {m(aj_res)} (Ley de Compañías, "
-                                  f"compañía {tipo_cia.lower()}; vigente al corte; VERIFICAR).", aj_res))
+                                  f"{m(tope)} % del capital) frente a {m(apropiada)} apropiada: falta apropiar {m(aj_res)} (Ley de Compañías arts. 297/109, "
+                                  f"compañía {tipo_cia.lower()}; vigente al corte).", aj_res))
     elif aj_res < -0.005:
         problemas.append(problema("RESERVA_LEGAL_EN_EXCESO", f"Se apropiaron {m(apropiada)} a la reserva legal, más que lo requerido {m(requerida)} "
-                                  f"(exceso {m(-aj_res)}): el exceso es reserva facultativa o requiere decisión de la junta (Ley de Compañías; VERIFICAR).", aj_res))
+                                  f"(exceso {m(-aj_res)}). Apropiación mayor que el mínimo legal (arts. 297/109): no es incumplimiento; verificar que la junta la aprobó.", aj_res))
     if exceso > 0.005:
         problemas.append(problema("DIVIDENDOS_SOBRE_UTILIDADES_NO_DISPONIBLES", f"Dividendos declarados en el período {m(declarados)} superan las utilidades "
-                                  f"disponibles {m(disp)} en {m(exceso)}: solo se distribuyen utilidades líquidas y realizadas (Ley de Compañías; "
-                                  f"VERIFICAR) — evalúe la legalidad y la revelación ({cit['dist']}).", exceso))
+                                  f"disponibles {m(disp)} en {m(exceso)}: Ley de Compañías arts. 208 y 298: solo beneficios realmente obtenidos y percibidos "
+                                  f"o reservas de libre disposición — evalúe la legalidad y la revelación ({cit['dist']}).", exceso))
     for t in txs:
         if t["divPostPasivo"]:
             problemas.append(problema("DIVIDENDO_POSTERIOR_COMO_PASIVO", f"{t['doc']}: dividendo declarado el {t['efectiva'].isoformat()} (después del cierre) "
@@ -359,7 +359,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     for t in txs:
         if t["noInscrito"]:
             problemas.append(problema("AUMENTO_NO_INSCRITO", f"{t['doc']}: aumento de capital de {m(t['importe'])} sin inscripción en el Registro Mercantil al "
-                                      "corte: presentarlo como aporte para futura capitalización hasta la inscripción (Ley de Compañías / Supercias; VERIFICAR).",
+                                      "corte: presentarlo como aporte para futura capitalización hasta la inscripción (Ley de Compañías art. 33: el aumento sigue las solemnidades de la constitución; VERIFICAR registro).",
                                       t["importe"]))
         if t["aportePasivo"]:
             problemas.append(problema("APORTE_ES_PASIVO", f"{t['doc']}: aporte de {m(t['importe'])} con obligación de devolución: es un pasivo financiero, "
@@ -475,10 +475,10 @@ def hojas(res: dict) -> list[dict]:
         ["Tipo de compañía", d["tipoCompania"], "Escritura de constitución"],
         ["Utilidad líquida base de la reserva legal", base_cell,
          "Dato del auditor" if d["baseDada"] is not None else "Saldo inicial del resultado del ejercicio (utilidad que la junta apropia en el período)"],
-        ["% de la utilidad para reserva legal", d["pct"], f"Ley de Compañías — {defecto}vigente al corte; VERIFICAR"],
-        ["Tope de la reserva legal (% del capital)", d["tope"], f"Ley de Compañías — {'por defecto según el tipo de compañía; ' if not d['topeDado'] else ''}vigente al corte; VERIFICAR"],
+        ["% de la utilidad para reserva legal", d["pct"], f"{defecto}mínimo 10 % de la utilidad líquida hasta por lo menos el 50 % del capital (Ley de Compañías art. 297, anónimas); 5 % hasta por lo menos 20 % (art. 109, limitadas); vigente al corte"],
+        ["Tope de la reserva legal (% del capital)", d["tope"], f"{'por defecto según el tipo de compañía; ' if not d['topeDado'] else ''}mínimo 10 % de la utilidad líquida hasta por lo menos el 50 % del capital (Ley de Compañías art. 297, anónimas); 5 % hasta por lo menos 20 % (art. 109, limitadas); vigente al corte"],
         ["Capital suscrito según escritura / Supercias", d["capitalEscritura"], "Escritura inscrita / portal Supercias"],
-        ["Utilidades disponibles según el auditor", d["dispAuditor"], "Vacío: se calculan en 06_Dividendos (utilidades líquidas y realizadas; VERIFICAR)"],
+        ["Utilidades disponibles según el auditor", d["dispAuditor"], "Vacío: se calculan en 06_Dividendos (Ley de Compañías arts. 208 y 298: solo beneficios realmente obtenidos y percibidos o reservas de libre disposición)"],
     ]
 
     # 03 · Movimiento patrimonial.
@@ -522,10 +522,10 @@ def hojas(res: dict) -> list[dict]:
     c_ = lambda k: f"C{RSF[k]}"
     reserva = [
         ["Utilidad líquida base", fx(f'IF({_pb("utilidadNeta")}="","",{_pb("utilidadNeta")})', d["base"]), None, "02_Parametros"],
-        ["% de la utilidad para reserva legal", None, fx(f'{_pb("pctReserva")}/100', d["pct"] / 100), f"Ley de Compañías ({d['tipoCompania'].lower()}); VERIFICAR"],
+        ["% de la utilidad para reserva legal", None, fx(f'{_pb("pctReserva")}/100', d["pct"] / 100), f"Ley de Compañías arts. 297 y 109 ({d['tipoCompania'].lower()})"],
         ["Reserva calculada sobre la utilidad", fx(f'IF({b("base")}="","",MAX({b("base")},0)*{c_("pct")})', rv["calc"]), None, "Utilidad positiva × %"],
         ["Capital según cliente", fx(sumif_c("Capital", "H"), rv["capital"]), None, "03_Movimiento"],
-        ["Tope (% del capital)", None, fx(f'{_pb("topeReserva")}/100', d["tope"] / 100), "Ley de Compañías; VERIFICAR"],
+        ["Tope (% del capital)", None, fx(f'{_pb("topeReserva")}/100', d["tope"] / 100), "Ley de Compañías arts. 297 y 109"],
         ["Tope de la reserva legal", fx(f'{b("capital")}*{c_("tope")}', rv["topeImp"]), None, "Capital × tope"],
         ["Reserva legal inicial", fx(sumif_c("Reserva legal", "D"), rv["inicial"]), None, "03_Movimiento"],
         ["Margen hasta el tope", fx(f'MAX({b("topeImp")}-{b("inicial")},0)', rv["margen"]), None, "Tope − reserva inicial"],
@@ -548,7 +548,7 @@ def hojas(res: dict) -> list[dict]:
          "02_Parametros (líquidas y realizadas)"],
         ["Utilidades disponibles usadas", fx(f'IF({bd("aud")}<>"",{bd("aud")},{bd("calc")})', dv["disp"]), ""],
         ["Dividendos declarados en el período", fx(f"SUM({_rg(TX, 'O', nt)})", dv["declarados"]), f"04_Transacciones · {cit['dist']}"],
-        ["Dividendos en exceso de utilidades disponibles", fx(f'MAX({bd("declarados")}-{bd("disp")},0)', dv["exceso"]), "Ley de Compañías; VERIFICAR"],
+        ["Dividendos en exceso de utilidades disponibles", fx(f'MAX({bd("declarados")}-{bd("disp")},0)', dv["exceso"]), "Ley de Compañías arts. 208 y 298"],
         ["Dividendos declarados después del cierre", fx(f'SUMIFS({_rg(TX, "D", nt)},{_rg(TX, "C", nt)},"Dividendo declarado",{_rg(TX, "N", nt)},"Sí")', dv["post"]),
          f"Revelar · {cit['rev']}"],
         ["De ellos registrados como pasivo al corte", fx(f"SUM({_rg(TX, 'P', nt)})", dv["postPasivo"]), f"Error · {cit['post']}"],
@@ -733,14 +733,14 @@ def definicion() -> dict:
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad del movimiento patrimonial contra el mayor."},
-            {"document": "NIA 330", "section": "párr. 20 (VERIFICAR)", "requirement": "Conciliar el estado de cambios en el patrimonio con los registros."},
-            {"document": "NIA 250 (Revisada)", "section": "VERIFICAR párrafos", "requirement": "Cumplimiento de la Ley de Compañías (reserva legal, dividendos, inscripción de aumentos)."},
-            {"document": "NIA 560", "section": "VERIFICAR párrafos", "requirement": "Hechos posteriores: dividendos declarados después del cierre."},
-            {"document": "NIA 580", "section": "VERIFICAR párrafos", "requirement": "Manifestaciones escritas sobre actas de junta entregadas en su totalidad."},
+            {"document": "NIA 330", "section": "párr. 20", "requirement": "Conciliar el estado de cambios en el patrimonio con los registros."},
+            {"document": "NIA 250 (Revisada)", "section": "párr. 14", "requirement": "Cumplimiento de la Ley de Compañías (reserva legal, dividendos, inscripción de aumentos)."},
+            {"document": "NIA 560", "section": "párr. 6–9", "requirement": "Hechos posteriores: dividendos declarados después del cierre."},
+            {"document": "NIA 580", "section": "párr. 11 y 13", "requirement": "Manifestaciones escritas sobre actas de junta entregadas en su totalidad."},
         ],
         "calculo": [
             "Movimiento: final recalculado = saldo inicial + aumentos − disminuciones; diferencia = final según cliente − recalculado; cliente − mayor.",
-            "Reserva legal: calculada = máx(utilidad líquida, 0) × % (10 % anónima, 5 % limitada por defecto; vigente al corte; VERIFICAR); "
+            "Reserva legal: calculada = máx(utilidad líquida, 0) × % (por defecto: mínimo 10 % de la utilidad líquida hasta por lo menos el 50 % del capital (Ley de Compañías art. 297, anónimas); 5 % hasta por lo menos 20 % (art. 109, limitadas); vigente al corte); "
             "tope = capital × % (50 % / 20 %); requerida = mín(calculada, máx(tope − reserva inicial, 0)); por apropiar = requerida − aumentos de la reserva.",
             "Dividendos: disponibles = máx(resultados acumulados iniciales + resultado del ejercicio anterior, 0) − reserva legal requerida (o el importe "
             "de utilidades líquidas y realizadas que fije el auditor); exceso = declarados del período − disponibles.",
@@ -763,7 +763,7 @@ def definicion() -> dict:
              "source": "NIC 32 16 · PYMES 22.3–22.10 · Ley de Compañías"},
             {"code": "PAT-03", "objective": "Reserva legal y otras reservas", "risk": "Reserva legal no apropiada o en exceso", "assertion": "Exactitud / Cumplimiento",
              "procedure": "Recalcular la reserva legal requerida con el % y el tope del tipo de compañía", "evidence": "Actas de junta, mayor",
-             "criterion": "Apropiado igual a lo requerido", "source": "Ley de Compañías (VERIFICAR artículos vigentes)"},
+             "criterion": "Apropiado igual a lo requerido", "source": "Ley de Compañías arts. 297 y 109"},
             {"code": "PAT-04", "objective": "Dividendos", "risk": "Dividendos sobre utilidades no disponibles; dividendo posterior como pasivo", "assertion": "Ocurrencia / Corte",
              "procedure": "Comparar dividendos declarados con utilidades disponibles y revisar actas posteriores al cierre", "evidence": "Actas, pagos, estados de cuenta",
              "criterion": "Declarados ≤ disponibles; posteriores revelados, no registrados", "source": "NIC 32 35 · NIC 10 12–13 · NIC 1 137 · CINIIF 17 · PYMES 22.17, 32.8"},

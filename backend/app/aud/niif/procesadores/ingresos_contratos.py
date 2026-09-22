@@ -438,15 +438,16 @@ def hojas(res: dict) -> list[dict]:
     marco = (MARCO_PYMES + " " + d["edicion"]) if d["pymes"] else MARCO_COMPLETAS
     parametros = [
         ["Corte del ejercicio", d["cortes"]["actual"], "Ficha del encargo"],
-        ["Marco contable", marco, "Ficha del encargo: enruta el modelo de reconocimiento"],
+        ["Marco contable", marco, "Ficha del encargo: enruta el modelo de reconocimiento"
+         + ("; PYMES 2025 (tercera edición): vigente para períodos desde el 1-1-2027; para cortes anteriores solo con adopción anticipada" if d["pymes"] and not d["s15"] else "")],
         ["Modelo aplicado", d["modelo"], ("«A lo largo del tiempo» = servicios y construcción por grado de terminación (23.14-23.22); "
                                           "«En un momento» = venta de bienes al transferir riesgos y beneficios (23.10)") if d["s15"]
          else "Paso 1 contrato · 2 obligaciones · 3 precio · 4 asignación · 5 satisfacción"],
         [ETIQUETAS_PARAM["tasaDescuento"], d["tasa"], f"{cit['fin']} — tasa de una financiación separada con el cliente al inicio del contrato"],
-        [ETIQUETAS_PARAM["plazoFinanciacion"], d["umbral"], "NIIF 15 63 / PYMES 2025 23.38: solución práctica de un año; PYMES 2015: plazo mayor al normal (11.13)"],
+        [ETIQUETAS_PARAM["plazoFinanciacion"], d["umbral"], "NIIF 15 63 / PYMES 2025 23.38: solución práctica de un año; más de 12 meses habilita evaluar (NIIF 15.61-62); no es concluyente por sí solo; PYMES 2015: plazo mayor al normal (11.13)"],
         [ETIQUETAS_PARAM["umbralAltamenteProbable"], d["uprob"],
          "No se usa en PYMES 2015: allí se incluye si es probable, más de 50 % (23.10 c-d)" if d["s15"]
-         else "«Altamente probable» (NIIF 15 56; PYMES 2025 23.30): la norma no fija un porcentaje; umbral de juicio (VERIFICAR)"],
+         else "«Altamente probable» (NIIF 15 56; PYMES 2025 23.30): la norma no fija un porcentaje; umbral de juicio (VERIFICAR). Simplificación: la variable se incluye si su probabilidad supera el umbral; la NIIF 15.56 exige que sea altamente probable que no haya reversión significativa"],
         [ETIQUETAS_PARAM["metodoVariable"], d["metodo"], "NIIF 15 53; PYMES 2025 23.28"],
         [ETIQUETAS_PARAM["ingresoMayor"], d["mayor"], "Mayor contable (en blanco: se toma el anexo)"],
         [ETIQUETAS_PARAM["activoContratoRegistrado"], d["actReg"], "Mayor contable"],
@@ -707,17 +708,17 @@ def definicion() -> dict:
                     "prueba el corte, determina el activo o pasivo del contrato y concilia con el mayor. NIIF completas y PYMES 2025 siguen el "
                     "modelo de cinco pasos (NIIF 15; Sección 23 revisada); PYMES 2015 sigue riesgos y beneficios y grado de terminación "
                     "(Sección 23 anterior), con la variable incluida si es probable."),
-        "source": {"organization": "IFRS Foundation (texto en español: Reglamento (UE) 2023/1803)", "type": "Norma contable", "date": "",
+        "source": {"organization": "IFRS Foundation (HTML oficial en español)", "type": "Norma contable", "date": "",
                    "document": ("NIIF 15 párr. 9, 15-16 (contrato), 18-21 (modificaciones), 22-30 (obligaciones), 31-38 (satisfacción), "
                                 "39-45 y B14-B19 (medición del avance), 47-59 (precio y variable; restricción 56-58), 60-65 (financiación; "
-                                "solución práctica 63; presentación 65), 73-86 (asignación, 76-80 precio independiente), 105-109 (activo y "
+                                "solución práctica 63; presentación 65), 73-90 (asignación, 76-80 precio independiente), 105-109 (activo y "
                                 "pasivo del contrato), B20-B27 (devoluciones). NIC 37 66-69 (contratos onerosos)."),
-                   "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
+                   "url": "https://www.ifrs.org/content/dam/ifrs/publications/html-standards/spanish/2024/issued/ifrs15.html"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
                          "document": ("NIIF para las PYMES 2015, Sección 23: 23.3-23.5 (valor razonable de la contraprestación, financiación "
                                       "implícita), 23.8 (componentes), 23.10-23.13 (venta de bienes), 23.14-23.16 (servicios), 23.17-23.20 "
                                       "(construcción), 23.21-23.22 (grado de terminación), 23.26 (pérdida esperada), 23.30-23.32 (revelación). "
-                                      "NIIF para las PYMES 2025, Sección 23 revisada «Ingresos de actividades ordinarias procedentes de contratos "
+                                      "NIIF para las PYMES 2025 (tercera edición, vigente para períodos desde el 1-1-2027; para cortes anteriores solo con adopción anticipada), Sección 23 revisada «Ingresos de actividades ordinarias procedentes de contratos "
                                       "con clientes»: 23.6-23.13 (contrato; modificaciones 23.12 y 23A.2-23A.4), 23.14-23.22 (promesas), 23.23-23.38 "
                                       "(precio; variable 23.26-23.31, reembolso 23.33-23.35, financiación 23.36-23.38), 23.39-23.48 (asignación), "
                                       "23.49-23.67 (satisfacción; a lo largo del tiempo 23.54-23.56, en un momento 23.57-23.58, avance 23.62-23.66), "
@@ -725,7 +726,7 @@ def definicion() -> dict:
                                       "(módulos 23 de 2015 y 2025, ifrs.org); VERIFICAR la redacción en la versión en español y el Apéndice 23A."),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
-            {"document": "NIA 240", "section": "párr. 26-27 (VERIFICAR)", "requirement": "Presunción de riesgo de fraude en el reconocimiento de ingresos."},
+            {"document": "NIA 240", "section": "párr. 26-27 (la NIA 240 Revisada 2025 cambia la numeración; VERIFICAR vigencia)", "requirement": "Presunción de riesgo de fraude en el reconocimiento de ingresos."},
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad del anexo de contratos contra el mayor."},
             {"document": "NIA 540 (Revisada)", "section": "párr. 13 y 17-30", "requirement": "Estimaciones: variable, avance por costos, devoluciones y tasa de descuento."},
             {"document": "NIA 560", "section": "párr. 6", "requirement": "Notas de crédito y devoluciones posteriores al cierre."},
@@ -733,12 +734,12 @@ def definicion() -> dict:
         ],
         "calculo": [
             "Contrato válido: sin evidencia de contrato aprobado y con sustancia («No») el ingreso reconocible es cero.",
-            "Variable incluida = importe más probable (o valor esperado = importe × probabilidad) solo si la probabilidad ≥ umbral de «altamente probable»; PYMES 2015: si es mayor a 50 %.",
+            "Variable incluida = importe más probable (o valor esperado = importe × probabilidad) solo si la probabilidad ≥ umbral de «altamente probable» (simplificación: la variable se incluye si su probabilidad supera el umbral; la NIIF 15.56 exige que sea altamente probable que no haya reversión significativa); PYMES 2015: si es mayor a 50 %.",
             "Precio de la transacción del contrato = Σ precios fijos + Σ variable incluida.",
             "Asignado = precio de la transacción × precio independiente ÷ Σ precios independientes del contrato (sin precio independiente se usa el precio del contrato).",
             "Avance = costos incurridos ÷ costos totales estimados (máximo 100 %); en un momento: 100 % si el control se transfirió hasta el corte, 0 % si no.",
             "Reconocible bruto = asignado × avance; pasivo por reembolso = bruto × devolución esperada; neto = bruto − reembolso.",
-            "Financiación significativa si el plazo de cobro supera el umbral: ingreso = neto ÷ (1 + tasa)^(plazo ÷ 12); componente = neto − valor presente; interés devengado = VP × ((1 + tasa)^(días desde la transferencia ÷ 365) − 1).",
+            "Financiación significativa si el plazo de cobro supera el umbral (más de 12 meses habilita evaluar (NIIF 15.61-62); no es concluyente por sí solo): ingreso = neto ÷ (1 + tasa)^(plazo ÷ 12); componente = neto − valor presente; interés devengado = VP × ((1 + tasa)^(días desde la transferencia ÷ 365) − 1).",
             "Reconocible del año = reconocible acumulado − reconocido en años anteriores; ajuste = reconocible del año − registrado.",
             "Por contrato: posición = reconocible bruto − facturado; positiva = activo del contrato; negativa = pasivo del contrato (ingreso diferido).",
             "Corte: registro en el ejercicio con transferencia posterior (anticipado) y transferencia en el ejercicio con registro posterior (omitido).",

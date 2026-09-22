@@ -17,9 +17,9 @@ pruebas de la matriz):
 5. Confirmación (CASH-07/08): saldo confirmado por el banco frente al estado bancario.
 6. Efectivo restringido (CASH-11): el monto restringido sale del efectivo y equivalentes
    (NIC 7.48 / PYMES 7.21 revelar; NIC 1.66 d / PYMES 4.5 d: no corriente si la restricción
-   dura más de 12 meses tras el cierre), salvo que ya se presente por separado.
+   dura al menos doce meses tras el cierre), salvo que ya se presente por separado.
 7. Equivalentes (CASH-10): una inversión califica si su plazo desde la adquisición es de
-   N días o menos (NIC 7.7 / PYMES 7.2: «por ejemplo, tres meses o menos»); si no, se reclasifica.
+   N días o menos (NIC 7.7 / PYMES 7.2: «por ejemplo, tres meses o menos desde la fecha de adquisición»; guía, no límite fijo); si no, se reclasifica.
 8. Ajuste propuesto = efectivo auditado − saldo según libros (M09).
 
 Norma leída (M03): NIC 7 párr. 6–9, 45, 46, 48, 49 y NIC 1 párr. 66 d) en el Reglamento (UE)
@@ -184,7 +184,7 @@ def _opt(v):
 def _refs(p: dict) -> dict:
     if not es_pymes(p):
         return {"marco": "NIIF completas", "def": "NIC 7.6–7.7", "sob": "NIC 7.8", "restr": "NIC 7.48 y NIC 1.66 d)",
-                "comp": "NIC 7.45–7.46", "ifrs18": " (NIIF 18 sustituye a la NIC 1 desde 2027: VERIFICAR vigencia)"}
+                "comp": "NIC 7.45–7.46", "ifrs18": " (al corte 2025 aplica la NIC 1; la NIIF 18 rige para ejercicios desde el 1-1-2027)"}
     ed = edicion_pymes(p)
     v = " (edición 2025: VERIFICAR numeración)" if ed == "2025" else ""
     return {"marco": f"NIIF para las PYMES {ed}", "def": f"Sección 7.2{v}", "sob": f"Sección 7.2{v}",
@@ -414,7 +414,7 @@ def hojas(res: dict) -> list[dict]:
         ["Fecha de corte", d["corte"], "Ficha del encargo"],
         ["Partida antigua desde (días al corte)", p["diasAntiguedad"], "Juicio del auditor (antigüedad de partidas conciliatorias)"],
         ["Días para que el banco acredite un depósito en tránsito", p["diasCorte"], "Juicio del auditor (prueba de corte, NIA 240)"],
-        ["Plazo máximo de un equivalente (días desde la adquisición)", p["plazoEquivalente"], f"{rf['def']}: «tres meses o menos desde la fecha de adquisición»"],
+        ["Plazo máximo de un equivalente (días desde la adquisición)", p["plazoEquivalente"], f"{rf['def']}: «por ejemplo, tres meses o menos desde la fecha de adquisición» (guía, no límite fijo)"],
         ["Meses de restricción que la hacen no corriente", p["mesesRestriccion"], f"{rf['restr']}{rf['ifrs18']}"],
         ["Tolerancia de diferencias (USD)", p["tolerancia"], "Juicio del auditor; 0 = toda diferencia se reporta"],
         ["Marco del encargo", rf["marco"], "El cálculo es el mismo en ambos marcos; cambian las referencias citadas"],
@@ -607,8 +607,8 @@ def definicion() -> dict:
                     "efectivo restringido y de las inversiones que no cumplen la definición de equivalentes de efectivo."),
         "source": {"organization": "IFRS Foundation · Reglamento (UE) 2023/1803", "type": "Norma contable", "date": "",
                    "document": "NIC 7 Estado de flujos de efectivo · párr. 6–9 (definiciones, sobregiros), 45 (componentes y conciliación), "
-                               "46 (política de composición), 48–49 (saldos no disponibles); NIC 1 párr. 66 d) (restringido no corriente; "
-                               "NIIF 18 desde 2027: VERIFICAR); NIIF 9 y NIIF 7 si el depósito exige medir pérdida esperada o revelar riesgo (VERIFICAR párrafos)",
+                               "46 (política de composición), 48–49 (saldos no disponibles); NIC 1 párr. 66 d) (restringido al menos doce meses: no corriente; "
+                               "al corte 2025 aplica la NIC 1; la NIIF 18 rige para ejercicios desde el 1-1-2027); NIIF 9 párr. 5.5.1; NIIF 7 párr. 35H–35M si el depósito exige medir pérdida esperada o revelar riesgo",
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
                          "document": "NIIF para las PYMES 2015: Sección 7 párr. 7.2 (equivalentes y sobregiros), 7.20 (componentes y conciliación), "
@@ -616,12 +616,12 @@ def definicion() -> dict:
                                      "(efectivo, instrumento financiero básico). Edición 2025: mismas secciones, numeración VERIFICAR.",
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
-            {"document": "NIA 505", "section": "párr. 7 y 12 (VERIFICAR edición)",
+            {"document": "NIA 505", "section": "párr. 7 y 12",
              "requirement": "Confirmación bancaria bajo control del auditor; sin respuesta, procedimientos alternativos."},
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad de la información del cliente (conciliaciones y anexos)."},
-            {"document": "NIA 330", "section": "párr. 20 (VERIFICAR)", "requirement": "Conciliar los estados financieros con los registros contables."},
+            {"document": "NIA 330", "section": "párr. 20 a)", "requirement": "Conciliar los estados financieros con los registros contables."},
             {"document": "NIA 240", "section": "(VERIFICAR párrafos)", "requirement": "Corte y movimientos alrededor del cierre como riesgo de fraude."},
-            {"document": "NIA 450", "section": "(VERIFICAR párrafos)", "requirement": "Acumular y evaluar las diferencias no explicadas y los ajustes."},
+            {"document": "NIA 450", "section": "párr. 5 y 11", "requirement": "Acumular y evaluar las diferencias no explicadas y los ajustes."},
         ],
         "calculo": [
             "Conciliación por cuenta: saldo del estado bancario + depósitos en tránsito − cheques pendientes − notas de crédito no registradas "
@@ -631,7 +631,7 @@ def definicion() -> dict:
             "no depurada si no se liquidó después del corte.",
             "Corte: partida con origen posterior al corte, o depósito en tránsito acreditado más de N días después del corte.",
             "Confirmación: saldo confirmado por el banco − saldo del estado bancario (con tolerancia).",
-            "Restringido: el monto restringido sale del efectivo (no corriente si la restricción supera 12 meses tras el cierre) salvo que ya se presente aparte.",
+            "Restringido: el monto restringido sale del efectivo (no corriente si la restricción dura al menos doce meses tras el cierre) salvo que ya se presente aparte.",
             "Equivalentes: una inversión califica si su plazo desde la adquisición es de 90 días o menos; si no, se reclasifica a inversiones.",
             "Ajuste propuesto = efectivo auditado − saldo según libros.",
         ],
@@ -648,7 +648,7 @@ def definicion() -> dict:
              "source": "NIA 500 · NIA 330"},
             {"code": "CAJ-03", "objective": "Partidas conciliatorias y antigüedad", "risk": "Partidas antiguas o inexistentes que ocultan faltantes",
              "assertion": "Existencia", "procedure": "Cotejar cada partida con su liquidación en el estado bancario posterior y medir su antigüedad",
-             "evidence": "Estados bancarios posteriores al corte", "criterion": "Partidas liquidadas y no antiguas", "source": "NIA 500 · NIA 560"},
+             "evidence": "Estados bancarios posteriores al corte", "criterion": "Partidas liquidadas y no antiguas", "source": "NIA 500 · NIA 560 párr. 6"},
             {"code": "CAJ-04", "objective": "Confirmación bancaria", "risk": "Saldos o productos no reales", "assertion": "Existencia / Derechos",
              "procedure": "Confirmar saldos, restricciones y garantías con cada banco bajo control del auditor",
              "evidence": "Respuestas de los bancos", "criterion": "Confirmado = estado bancario", "source": "NIA 505"},
@@ -661,7 +661,7 @@ def definicion() -> dict:
              "source": "NIC 7.48 · NIC 1.66 d) · PYMES 7.21 y 4.5 d)"},
             {"code": "CAJ-07", "objective": "Definición de equivalentes", "risk": "Inversiones de largo plazo presentadas como efectivo",
              "assertion": "Clasificación", "procedure": "Evaluar plazo desde la adquisición, liquidez y riesgo de cada inversión",
-             "evidence": "Certificados y contratos de inversión", "criterion": "Plazo de 3 meses o menos; si no, reclasificar",
+             "evidence": "Certificados y contratos de inversión", "criterion": "Plazo corto (por ejemplo, 3 meses o menos desde la adquisición); si no, reclasificar",
              "source": "NIC 7.6–7.7 · PYMES 7.2"},
             {"code": "CAJ-08", "objective": "Presentación y revelación", "risk": "Composición y política no reveladas", "assertion": "Presentación",
              "procedure": "Cotejar la nota de efectivo con la composición auditada y la política de composición",

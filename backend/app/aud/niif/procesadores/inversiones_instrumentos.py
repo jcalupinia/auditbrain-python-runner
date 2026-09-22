@@ -21,13 +21,13 @@ Versión simple que cumple la norma:
    ejercicio = costo amortizado final − inicial + cupones cobrados.
 3. Valor razonable al corte con su nivel de jerarquía (NIIF 13 72–90; PYMES 2025 Secc. 12
    12.22–12.27; PYMES 2015 11.27) y diferencia contra libros (ganancia o pérdida no registrada).
-4. Intereses devengados (TIE) y dividendos con derecho establecido (5.7.1A; PYMES 2025 11.55)
+4. Intereses devengados (TIE) y dividendos con derecho establecido (5.7.1A; PYMES 2025 11.14A y 11.55)
    contra lo registrado.
 5. Deterioro: NIIF completas, pérdida esperada = exposición × PD × LGD, 12 meses sin aumento
    significativo del riesgo (5.5.5) y vida entera con él (5.5.3); en VR con cambios en ORI la
    corrección va a ORI y no reduce el importe en libros (5.5.2). PYMES: pérdida incurrida solo con
    evidencia objetiva (11.21) = importe en libros − VA de los flujos estimados a la TIE original
-   (11.25 a), que con flujos recortados en proporción es importe en libros × % no recuperable.
+   (11.25 a) costo amortizado; 11.25 b) costo menos deterioro), que con flujos recortados en proporción es importe en libros × % no recuperable.
 6. Reclasificación: NIIF completas solo por cambio del modelo de negocio (4.4.1) con el
    tratamiento de 5.6.1–5.6.7; la elección de ORI para patrimonio es irrevocable (5.7.5).
 7. Conciliación: medición correcta − saldo en libros − ajuste de deterioro = ajuste propuesto.
@@ -58,7 +58,7 @@ _INVERSIONES = [
     campo("frecuencia", "Pagos de cupón por año", "number", False, ("frecuencia", "pagos por ano", "periodicidad")),
     campo("modelo", "Modelo de negocio", "text", False, ("modelo de negocio", "modelo", "intencion", "objetivo"),
           ejemplo="Mantener para cobrar / Cobrar y vender / Negociar"),
-    campo("sppi", "¿Flujos solo principal e intereses? (Sí/No)", "text", False, ("sppi", "solo principal e intereses", "instrumento basico", "basico")),
+    campo("sppi", "¿Flujos solo principal e intereses? (Sí/No) (NIIF completas; en PYMES se evalúan las condiciones de 11.9 a)–d))", "text", False, ("sppi", "solo principal e intereses", "instrumento basico", "basico")),
     campo("clasificacion", "Clasificación del cliente", alias=("clasificacion", "categoria", "clasificacion cliente", "medicion"),
           ejemplo="Costo amortizado / VR con cambios en ORI / VR con cambios en resultados / Costo"),
     campo("valor_razonable", "Valor razonable al corte", "number", False, ("valor razonable", "valor de mercado", "precio de mercado", "vr")),
@@ -249,7 +249,7 @@ def _fundamento(pymes: bool, ed: str, x: dict) -> str:
                 "VRORI": "SPPI y cobrar y vender: VR con cambios en ORI (4.1.2A).",
                 "VRR": "No SPPI o modelo de negociación: VR con cambios en resultados (4.1.4); designación 4.1.5 solo si elimina una asimetría."}[e]
     if t == "Patrimonio":
-        return ("Elección irrevocable de ORI para patrimonio no mantenido para negociar (4.1.4, 5.7.5); dividendos a resultados (5.7.6)."
+        return ("Elección irrevocable de ORI para patrimonio no mantenido para negociar (4.1.4, 5.7.5, B5.7.1); dividendos a resultados (5.7.6)."
                 if e == "VRORI" else "Patrimonio: VR con cambios en resultados (4.1.4).")
     return "Derivado o participación en fondo: VR con cambios en resultados (4.1.4; fondos: flujos no SPPI, VERIFICAR B4.1.7–B4.1.26)."
 
@@ -536,7 +536,7 @@ def hojas(res: dict) -> list[dict]:
         r = FILA0 + len(vrz)
         fila_vr[x["id"]] = r
         ri = fila[x["id"]]
-        dest_ori = "ORI sin reciclaje (5.7.5)" if x["tipo"] == "Patrimonio" else "ORI; intereses y deterioro a resultados (4.1.2A, 5.7.10)"
+        dest_ori = "ORI sin reciclaje (5.7.5, B5.7.1)" if x["tipo"] == "Patrimonio" else "ORI; intereses y deterioro a resultados (4.1.2A, 5.7.10)"
         rec = "Resultados" if x["esperada"] == "VRR" else (dest_ori if x["esperada"] == "VRORI" else "Solo revelación (NIIF 7 25)")
         nivel_txt = ("" if x["esperada"] not in ("VRR", "VRORI") else "Falta nivel" if x["nivel"] is None
                      else "Nivel 3: revisar supuestos (NIIF 13 86, 93)" if x["nivel"] == 3 else "Sí")
@@ -672,21 +672,20 @@ def definicion() -> dict:
                     "y dividendos, el deterioro (pérdida esperada NIIF 9 / incurrida PYMES) y las reclasificaciones, y propone el ajuste."),
         "source": {"organization": "IFRS Foundation · Reglamento (UE) 2023/1803 (texto oficial en español)", "type": "Norma contable", "date": "",
                    "document": ("NIIF 9 párr. 4.1.1, 4.1.2, 4.1.2A, 4.1.4, 4.1.5, 4.4.1, 5.4.1, 5.5.1, 5.5.2, 5.5.3, 5.5.5, 5.5.17, "
-                                "5.6.1–5.6.7, 5.7.1A, 5.7.5, 5.7.6 y apéndice A (tipo de interés efectivo, fecha de reclasificación); "
+                                "5.6.1–5.6.7, 5.7.1A, 5.7.5, 5.7.6, B5.7.1 y apéndice A (tipo de interés efectivo, fecha de reclasificación); "
                                 "NIIF 13 párr. 72, 76, 81, 86, 93"),
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
                          "document": ("NIIF para las PYMES 2015: Secc. 11 párr. 11.8–11.9, 11.14, 11.15–11.20, 11.21–11.26, 11.27 (jerarquía); "
                                       "Secc. 12 párr. 12.8, 12.10. NIIF para las PYMES 2025 (3.ª ed.): Secc. 11 parte I 11.8, 11.9, 11.14, "
-                                      "11.15–11.20, 11.21–11.26; parte II 11.49, 11.54, 11.55, 11.57; Secc. 12 Medición del valor razonable "
-                                      "12.14–12.18, 12.22–12.27 (leídos en los módulos educativos en inglés; texto oficial en español VERIFICAR)"),
+                                      "11.15–11.20, 11.21–11.26; parte II 11.14A, 11.49, 11.54, 11.55, 11.57; Secc. 12 Medición del valor razonable "
+                                      "12.14–12.17 (técnicas) y 12.18–12.21 (medición fiable), 12.22–12.27 (leídos en los módulos educativos en inglés; texto oficial en español VERIFICAR)"),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
-            {"document": "NIA 540 (Revisada)", "section": "párr. 13 y 17–30",
+            {"document": "NIA 540 (Revisada)", "section": "párr. 13, 16–30 y 32",
              "requirement": "Valor razonable de nivel 2–3, TIE y pérdida esperada: evaluar método, datos y supuestos y el posible sesgo."},
             {"document": "NIA 500", "section": "párr. 6 y 9", "requirement": "Integridad y exactitud del anexo de inversiones contra el mayor."},
             {"document": "NIA 505", "section": "párr. 7", "requirement": "Confirmar existencia y tenencia con custodios, casas de valores o emisores."},
-            {"document": "NIA 501", "section": "VERIFICAR párrafos", "requirement": "Evidencia específica sobre valoración y presentación de inversiones."},
             {"document": "NIA 620", "section": "párr. 7", "requirement": "Uso de un experto para valoraciones de nivel 3 cuando corresponda."},
         ],
         "calculo": [
@@ -696,7 +695,7 @@ def definicion() -> dict:
             "Costo amortizado al corte = VA de los flujos restantes a la TIE × (1 + TIE × fracción del período); costo amortizado limpio = menos el cupón corrido.",
             "Interés efectivo del ejercicio = costo amortizado final − inicial (o costo si se compró en el año) + cupones cobrados; contra lo registrado.",
             "Valor razonable: diferencia contra libros en VR con cambios en resultados (a resultados) o en ORI; nivel de jerarquía obligatorio (NIIF 13 72–90).",
-            "Deterioro NIIF 9: exposición × PD × LGD (12 meses 5.5.5 / vida entera 5.5.3); PYMES: con evidencia objetiva, importe en libros × % no recuperable (11.25 a).",
+            "Deterioro NIIF 9: exposición × PD × LGD (12 meses 5.5.5 / vida entera 5.5.3); PYMES: con evidencia objetiva, importe en libros × % no recuperable (11.25 a) costo amortizado; 11.25 b) costo menos deterioro).",
             "Reclasificación: solo por cambio de modelo (4.4.1) con el tratamiento 5.6.2–5.6.7; ORI de patrimonio irrevocable (5.7.5).",
             "Ajuste propuesto = (medición según la norma − saldo en libros) − (deterioro recalculado − registrado) en costo amortizado y costo.",
         ],
@@ -720,7 +719,7 @@ def definicion() -> dict:
              "source": "NIIF 13 72–90 · PYMES 2025 12.22–12.27 · PYMES 2015 11.27 · NIA 540"},
             {"code": "INV-05", "objective": "Intereses y dividendos", "risk": "Ingresos devengados no registrados o en exceso", "assertion": "Integridad",
              "procedure": "Recalcular interés efectivo y dividendos decretados y comparar con lo registrado", "evidence": "Estados de cuenta, actas de dividendos",
-             "criterion": "Diferencia cuantificada", "source": "NIIF 9 5.4.1, 5.7.1A · PYMES 2025 11.55"},
+             "criterion": "Diferencia cuantificada", "source": "NIIF 9 5.4.1, 5.7.1A · PYMES 2025 11.14A y 11.55"},
             {"code": "INV-06", "objective": "Deterioro", "risk": "Pérdida esperada o incurrida no reconocida", "assertion": "Valoración",
              "procedure": "Evaluar indicios y calificaciones y recalcular el deterioro", "evidence": "Calificaciones de riesgo, información del emisor",
              "criterion": "Deterioro recalculado vs registrado", "source": "NIIF 9 5.5.1–5.5.5, 5.5.17 · PYMES 11.21–11.26"},

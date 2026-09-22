@@ -402,10 +402,10 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                                f"{m(r['vp'])} a {r['tasa']:g} % (NIC 37.45–47; PYMES 21.7).", r["descuento"]))
         if r["rev_calc"] is not None and r["reversion_registrada"] is None and r["rev_calc"] > tol:
             pr.append(problema("REVERSION_NO_REGISTRADA", f"{i}: reversión del descuento del período {m(r['rev_calc'])} no registrada como costo "
-                               "financiero (NIC 37.60; PYMES 21.11).", r["rev_calc"]))
+                               "financiero (NIC 37.60; CINIIF 1.8 en desmantelamiento; PYMES 21.11).", r["rev_calc"]))
         elif r["rev_dif"] is not None and abs(r["rev_dif"]) > tol:
             pr.append(problema("REVERSION_DIFERENCIA", f"{i}: reversión del descuento calculada {m(r['rev_calc'])} ≠ registrada "
-                               f"{m(r['reversion_registrada'])}: reclasificar a costo financiero (NIC 37.60; PYMES 21.11).", r["rev_dif"]))
+                               f"{m(r['reversion_registrada'])}: reclasificar a costo financiero (NIC 37.60; CINIIF 1.8 en desmantelamiento; PYMES 21.11).", r["rev_dif"]))
     for g in gars:
         if g["prov"].lower() not in ids:
             pr.append(problema("GARANTIA_SIN_PROVISION", f"Garantía {g['id']} ({g['desc']}): {m(g['calc'])} estimados sin provisión «{g['prov']}» "
@@ -741,13 +741,13 @@ def definicion() -> dict:
                     "(valor esperado, más probable, punto medio, carta del abogado, garantías, onerosos), valor presente a la tasa antes de "
                     "impuestos, reversión del descuento, diferencia con libros (ajuste propuesto) y pasivos y activos contingentes a revelar."),
         "source": {"organization": "IFRS Foundation (texto en español del Reglamento (UE) 2023/1803)", "type": "Norma contable", "date": "",
-                   "document": ("NIC 37 párr. 10 (definiciones: VERIFICAR), 14 (reconocimiento), 15–16 (obligación presente), 23 (probable = más "
+                   "document": ("NIC 37 párr. 10 (definiciones), 14 (reconocimiento), 15–16 (obligación presente), 23 (probable = más "
                                 "probable que no), 24 (obligaciones similares: garantías), 27–28 (pasivo contingente: solo revelación), 31, 33–35 "
                                 "(activo contingente), 36–37 (mejor estimación), 39 (valor esperado; valor intermedio del rango), 40 (desenlace más "
                                 "probable), 45–47 (valor actual, tasa antes de impuestos), 59–60 (revisión; aumento por el paso del tiempo como "
-                                "coste por intereses), 66–69 (contratos onerosos: menor entre costo de cumplir y multa), 86 y 89 (revelación). "
-                                "Apéndice C, ejemplo 1 (garantías): VERIFICAR. NIC 10 párr. 9 a) (litigio resuelto después del cierre). CINIIF 1 "
-                                "(cambios en el pasivo por desmantelamiento contra el costo del activo; párrafos 4–8: VERIFICAR)."),
+                                "coste por intereses), 66–69 (contratos onerosos; 68: costos inevitables = menores costos netos, el menor entre el costo de cumplir neto de los beneficios esperados y las compensaciones o multas), 86 y 89 (revelación). "
+                                "Ejemplos ilustrativos de la NIC 37, Parte C, Ejemplo 1 «Garantías». NIC 10 párr. 9 a) (litigio resuelto después del cierre). CINIIF 1 "
+                                "párr. 5 (modelo del costo: cambios contra el costo del activo) y 8 (reversión del descuento en resultados como costo financiero)."),
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
                          "document": ("NIIF para las PYMES, Sección 21: 21.4 (reconocimiento), 21.6 (obligación presente), 21.7 a) valor esperado "
@@ -757,18 +757,18 @@ def definicion() -> dict:
                                       "en el texto 2009; numeración y cambios de las ediciones 2015 y 2025: VERIFICAR. Mismo cálculo que la NIC 37."),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
-            {"document": "NIA 501", "section": "párr. 9–12 (VERIFICAR)", "requirement": "Litigios y reclamaciones: indagación y carta a los abogados externos; negativa o falta de respuesta → opinión modificada (NIA 705)."},
-            {"document": "NIA 540 (Revisada)", "section": "(VERIFICAR párrafos)", "requirement": "Estimaciones contables: método, supuestos (probabilidades, tasa) y datos; rango del auditor."},
-            {"document": "NIA 560", "section": "párr. 6–9 (VERIFICAR)", "requirement": "Hechos posteriores: sentencias o acuerdos después del corte que confirman la obligación."},
-            {"document": "NIA 580", "section": "(VERIFICAR párrafos)", "requirement": "Manifestaciones escritas sobre litigios, reclamaciones y contingencias conocidas."},
+            {"document": "NIA 501", "section": "párr. 9–12", "requirement": "Litigios y reclamaciones: indagación y carta a los abogados externos; negativa o falta de respuesta → opinión modificada (NIA 705)."},
+            {"document": "NIA 540 (Revisada)", "section": "párr. 13, 22–26, 28–29 y 37", "requirement": "Estimaciones contables: método, supuestos (probabilidades, tasa) y datos; rango del auditor."},
+            {"document": "NIA 560", "section": "párr. 6–9", "requirement": "Hechos posteriores: sentencias o acuerdos después del corte que confirman la obligación."},
+            {"document": "NIA 501 párr. 12; NIA 580", "section": "párr. 13", "requirement": "Manifestaciones escritas sobre litigios, reclamaciones y contingencias conocidas."},
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad del detalle de provisiones frente al mayor."},
         ],
         "calculo": [
             "Clasificación: obligación presente Sí + salida probable → reconocer provisión; posible (u obligación No con salida no remota) → pasivo contingente a revelar; remota → nada (NIC 37.14, 23, 27–28; PYMES 21.4, 21.12).",
             "Probabilidad usada: la del abogado; si falta, la de la gerencia. Diferencia entre ambas se señala.",
-            "Mejor estimación: hecho posterior (NIC 10.9 a) → oneroso = mín(costo de cumplir, penalización) (37.68) → garantías = Σ unidades × % reclamos × costo medio (37.24, 39) → escenarios: valor esperado Σ importe × prob ÷ Σ prob (37.39) o el más probable (37.40) → punto medio del rango (37.39) → carta del abogado → estimación de la gerencia.",
+            "Mejor estimación: hecho posterior (NIC 10.9 a) → oneroso = mín(costo de cumplir, penalización) (NIC 37.68: costos inevitables = menores costos netos (menor entre el costo de cumplir neto de los beneficios esperados y las compensaciones o multas); la herramienta aún no resta los beneficios esperados del contrato — pendiente de decisión del socio) → garantías = Σ unidades × % reclamos × costo medio (37.24, 39) → escenarios: valor esperado Σ importe × prob ÷ Σ prob (37.39) o el más probable (37.40) → punto medio del rango (37.39) → carta del abogado → estimación de la gerencia.",
             "Valor presente = mejor estimación ÷ (1 + tasa)^plazo cuando el plazo supera el parámetro; tasa antes de impuestos de la partida o la tasa por defecto (37.45–47; PYMES 21.7).",
-            "Reversión del descuento del período = saldo inicial × tasa, frente a la registrada como costo financiero (37.60; PYMES 21.11).",
+            "Reversión del descuento del período = saldo inicial × tasa, frente a la registrada como costo financiero (37.60; CINIIF 1.8 en desmantelamiento; PYMES 21.11; 21.10 = uso de la provisión).",
             "Provisión requerida = valor presente si se reconoce; 0 si es contingente o remota. Ajuste = requerida − libros (desmantelamiento: contra el costo del activo, CINIIF 1).",
             "Activo contingente: no se reconoce salvo realización prácticamente cierta; se revela si la entrada es probable (37.31–35, 89; PYMES 21.13, 21.16).",
         ],
