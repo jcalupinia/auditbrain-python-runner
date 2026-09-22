@@ -85,7 +85,7 @@ def test_ruta_por_marco():
     assert comp["totals"] == p15["totals"] == p25["totals"]    # mismo cálculo; cambian las referencias
     assert comp["detalle"]["refs"]["restr"].startswith("NIC 7.48")
     assert p15["detalle"]["refs"]["restr"].startswith("Secciones 7.21")
-    assert "VERIFICAR" in p25["detalle"]["refs"]["def"]
+    assert p25["detalle"]["refs"]["def"] == "Sección 7.2"
 
 
 def test_parametros():

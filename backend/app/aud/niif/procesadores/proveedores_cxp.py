@@ -121,10 +121,10 @@ def _pnum(p, k):
 
 def _citas(pymes: bool, edicion: str = "2015") -> dict:
     if pymes:
-        return {"fin": ("PYMES 11.13–11.13A (modificados en la 3.ª edición; VERIFICAR redacción)" if edicion == "2025" else "PYMES 11.13"), "ca": "PYMES 11.14–11.20", "clas": "PYMES 4.7–4.8", "baja": "PYMES 11.36",
-                "rel": "PYMES Sección 33", "me": "PYMES 30.9"}
-    return {"fin": "NIIF 9 5.1.1, B5.1.1", "ca": "NIIF 9 4.2.1, 5.3.1 y Apéndice A", "clas": "NIC 1 69–70 (NIIF 18 párr. 101 desde 2027)", "baja": "NIIF 9 3.3.1",
-            "rel": "NIC 24", "me": "NIC 21 23 a)"}
+        return {"fin": ("PYMES 11.13 y 11.13B (3.ª edición)" if edicion == "2025" else "PYMES 11.13"), "ca": "PYMES 11.14–11.20", "clas": "PYMES 4.7–4.8", "baja": "PYMES 11.36",
+                "rel": "PYMES Sección 33 (33.9)", "me": "PYMES 30.9"}
+    return {"fin": "NIIF 9 5.1.1, B5.1.1", "ca": "NIIF 9 4.2.1, 5.3.1 y Apéndice A", "clas": "NIC 1 69–70 (NIIF 18 párr. 101 y B96 desde 2027)", "baja": "NIIF 9 3.3.1",
+            "rel": "NIC 24 párr. 18", "me": "NIC 21 23 a)"}
 
 
 def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
@@ -229,7 +229,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     if omitido > 0.005:
         n = sum(1 for b in busqueda if b["omitido"])
         problemas.append(problema("PASIVO_NO_REGISTRADO", f"{n} pago(s) o factura(s) posteriores al corte con recepción del bien o servicio hasta el corte "
-                                  f"y sin registrar: {m(omitido)}. El pasivo existía al cierre (NIIF 9 3.1.1 / PYMES 11.12 (VERIFICAR); NIA 500).", omitido))
+                                  f"y sin registrar: {m(omitido)}. El pasivo existía al cierre (NIIF 9 3.1.1 y B3.1.2 b) / PYMES 11.12; NIA 500).", omitido))
     if not busqueda:
         problemas.append(problema("SIN_BUSQUEDA_PASIVOS", "No se cargó la búsqueda de pasivos no registrados (pagos y facturas posteriores al corte): "
                                   "documente el procedimiento (NIA 330, NIA 500)."))
@@ -342,8 +342,8 @@ def hojas(res: dict) -> list[dict]:
         ["Corte del ejercicio", d["cortes"]["actual"], "Ficha del encargo"],
         ["Marco contable", marco, "Mismo modelo en ambos marcos; cambian las citas"],
         ["Tasa de mercado anual para el valor presente (%)", d["tasaMercado"], f"{cit['fin']} — tasa de un instrumento de deuda similar"],
-        ["Plazo que se considera financiación (meses)", d["umbral"], f"{cit['fin']} — juicio: plazo mayor a las condiciones normales de crédito"],
-        ["Ciclo normal de operación (meses)", d["ciclo"], f"{cit['clas']} — si no es identificable, 12 meses"],
+        ["Plazo que se considera financiación (meses)", d["umbral"], f"{cit['fin']}{'' if d['pymes'] else '; NIC 2.18 / NIC 16.23'} — juicio: plazo mayor a las condiciones normales de crédito"],
+        ["Ciclo normal de operación (meses)", d["ciclo"], f"{'PYMES 4.6–4.8' if d['pymes'] else cit['clas']} — si no es identificable, 12 meses"],
         ["Intereses implícitos por devengar registrados (mayor)", d["descuentoRegistrado"], "Mayor contable"],
         ["Proveedores presentados como no corrientes", d["noCorrienteRegistrado"], "Estado de situación financiera"],
         ["Saldo de proveedores según el mayor", d["saldoMayor"], "Mayor / balance de comprobación"],
@@ -471,7 +471,7 @@ def hojas(res: dict) -> list[dict]:
         ["Proveedores según auxiliar (nominal)", fx(f"SUM({_rango(DET, 'F', nd)})", t["saldo"]), "03_Detalle"],
         ["(-) Intereses implícitos por devengar registrados", fx(_pb("descuentoRegistrado"), t["descuentoRegistrado"]), "Parámetros (mayor)"],
         ["Saldo en libros neto", fx(f"{b('saldo')}-{b('descReg')}", t["saldo"] - t["descuentoRegistrado"]), ""],
-        ["(+) Pasivos no registrados", fx(tot_ref(PNR, "I", fin_pnr, bq), t["pasivoNoRegistrado"]), "06_Pasivos_no_registrados · NIIF 9 3.1.1 / PYMES 11.12 (VERIFICAR); NIA 500"],
+        ["(+) Pasivos no registrados", fx(tot_ref(PNR, "I", fin_pnr, bq), t["pasivoNoRegistrado"]), "06_Pasivos_no_registrados · NIIF 9 3.1.1 y B3.1.2 b) / PYMES 11.12; NIA 500"],
         ["(-) Compras registradas antes de la recepción", fx(tot_ref(COR, "G", fin_cor, cor), t["corteAnticipado"]), "08_Corte_compras"],
         ["Intereses implícitos por devengar requeridos", fx(f"SUM({_rango(DET, 'N', nd)})", t["interesNoDevengado"]), f"{cit['fin']}"],
         ["(-) Ajuste por financiación implícita", fx(f"{b('interesReq')}-{b('descReg')}", t["ajusteFinanciacion"]), "Requerido − registrado"],
@@ -589,21 +589,21 @@ def definicion() -> dict:
                                 "amortizado), 5.1.1 (medición inicial a valor razonable), B5.1.1 (financiación sin intereses: valor actual "
                                 "descontado al tipo de mercado de un instrumento similar); NIC 1 párr. 69 (pasivo corriente) y 70 (partidas "
                                 "del ciclo de explotación); NIIF 7 párr. 39 a) (análisis de vencimientos) — leídos en EUR-Lex. NIC 32 párr. 42 "
-                                "(compensación); NIIF 18 párr. 101 desde 2027 (reemplaza a la NIC 1)."),
+                                "(compensación); NIIF 18 párr. 101 y B96 desde 2027 (reemplaza a la NIC 1)."),
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
                          "document": ("NIIF para las PYMES 2015 y 2025: Sección 11 párr. 11.13 (transacción de financiación: valor presente de "
                                       "los pagos futuros descontados a la tasa de mercado), 11.14–11.20 (costo amortizado y método del interés "
-                                      "efectivo), 11.36 (baja de pasivos); Sección 4 párr. 4.7–4.8 (clasificación corriente/no corriente). En la edición 2025: "
-                                      "11.13–11.13A (modificados en la 3.ª edición; VERIFICAR redacción). "
-                                      "VERIFICAR la redacción y numeración en el texto oficial de cada edición (no leídos en esta construcción)."),
+                                      "efectivo), 11.36 (baja de pasivos); Sección 4 párr. 4.6 (ciclo no identificable: 12 meses) y 4.7–4.8 (clasificación corriente/no corriente). En la edición 2025: "
+                                      "11.13 y 11.13B (financiación; el 11.13A trata las cuentas comerciales por cobrar). "
+                                      "Contrastado con el texto oficial 2015 (ES) y 2025 (EN) el 22-09-2026."),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
             {"document": "NIA 505", "section": "párr. 7 y 14", "requirement": "Confirmaciones externas a proveedores; investigar las diferencias."},
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad del auxiliar contra el mayor."},
-            {"document": "NIA 330", "section": "párr. 18 y 20", "requirement": "Procedimientos sustantivos de corte y conciliación de registros con los estados (VERIFICAR párrafos)."},
-            {"document": "NIA 540 (Revisada)", "section": "párr. 13 y 24 (supuestos; VERIFICAR 24)", "requirement": "La tasa de mercado del valor presente es un supuesto de una estimación."},
-            {"document": "NIA 550", "section": "párr. 13 y 25 (VERIFICAR)", "requirement": "Identificar y revelar saldos con partes relacionadas."},
+            {"document": "NIA 330", "section": "párr. 18 y 20", "requirement": "Procedimientos sustantivos de corte y conciliación de registros con los estados."},
+            {"document": "NIA 540 (Revisada)", "section": "párr. 13 y 24 a) (supuestos significativos)", "requirement": "La tasa de mercado del valor presente es un supuesto de una estimación."},
+            {"document": "NIA 550", "section": "párr. 13 y 25 a)", "requirement": "Identificar y revelar saldos con partes relacionadas."},
         ],
         "calculo": [
             "Aging: días desde el vencimiento = corte − vencimiento; tramos corriente, 1–30, 31–60, 61–90, 91–180, 181–360 y más de 360 días.",
@@ -615,6 +615,7 @@ def definicion() -> dict:
             "Pasivo inicial = nominal ÷ (1 + tasa de mercado)^(plazo ÷ 365); TIE = tasa de mercado (un solo pago al vencimiento); financiación implícita = nominal − valor presente.",
             "Interés devengado = pasivo inicial × ((1 + TIE)^(días transcurridos ÷ 365) − 1); costo amortizado al corte = inicial + interés − pagos (el saldo ya es el pendiente); interés por devengar = nominal − costo amortizado.",
             "No corriente: saldo que vence después de max(12 meses, ciclo normal de operación), a costo amortizado (NIC 1 69–70; PYMES 4.7). Saldos deudores: se reclasifican al activo.",
+            "Nota (pendiente de decisión del socio): el contraste oficial señala que las cuentas comerciales del ciclo normal son corrientes aunque venzan después de 12 meses (NIC 1.70 / NIIF 18 B96), y que la no compensación de anticipos se sustenta en NIC 1.32 / PYMES 2.52 (NIC 32.42 solo para notas de crédito).",
             "Saldo auditado = libros neto + pasivos no registrados − compras antes de la recepción − ajuste por financiación + saldos deudores; ajuste neto = auditado − libros neto.",
         ],
         "fields": _PROVEEDORES, "rules": [], "control": CONTROL, "primary": "ajusteNeto",
@@ -626,7 +627,7 @@ def definicion() -> dict:
              "criterion": "Diferencia cero o explicada", "source": "NIA 500 párr. 9"},
             {"code": "CXP-02", "objective": "Búsqueda de pasivos no registrados", "risk": "Pasivos omitidos al cierre", "assertion": "Integridad",
              "procedure": "Revisar pagos y facturas posteriores al corte y comparar la fecha de recepción con el corte", "evidence": "Egresos y facturas posteriores, actas de recepción",
-             "criterion": "Pasivos con causa hasta el corte registrados", "source": "NIA 330 · NIIF 9 4.2.1 · PYMES 11"},
+             "criterion": "Pasivos con causa hasta el corte registrados", "source": "NIA 330 · NIIF 9 3.1.1 y B3.1.2 b) · PYMES 11.12"},
             {"code": "CXP-03", "objective": "Pagos posteriores", "risk": "Saldos inexistentes o subestimados", "assertion": "Existencia / Exactitud",
              "procedure": "Cotejar los pagos posteriores con el saldo de cada documento", "evidence": "Estados de cuenta bancarios y comprobantes de egreso",
              "criterion": "Pago igual al saldo o diferencia explicada", "source": "NIA 500"},

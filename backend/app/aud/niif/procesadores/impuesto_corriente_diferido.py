@@ -10,14 +10,15 @@ Tres anexos:
   (utilidad, participación, exentos, no deducibles, gastos atribuibles a exentos, participación atribuible a
   exentos, deducciones, pérdidas, otros) decide cómo lo recalcula el auditor; «importe según auditor» (opcional)
   reemplaza al del cliente (así se agregan gastos no deducibles omitidos).
-  1. Participación trabajadores recalculada = 15 % × utilidad contable (Código del Trabajo art. 97).
-  2. Participación atribuible a exentos = 15 % × (ingresos exentos − gastos atribuibles).
+  1. Participación trabajadores recalculada = 15 % × utilidad contable («utilidades líquidas», Código del Trabajo art. 97).
+  2. Participación atribuible a exentos = 15 % × (ingresos exentos − gastos atribuibles) (Reglamento art. 46 num. 5 dice «el
+     15% de tales ingresos», base bruta: pendiente de decisión del socio).
   3. Amortización de pérdidas permitida = mín(la solicitada, 25 % de la utilidad gravable, saldo no vencido).
   4. Base imponible × tarifa (25 % + 3 puntos por la proporción de composición societaria en paraísos fiscales).
   5. Impuesto a pagar = causado − retenciones − anticipos − crédito de años anteriores (negativo: saldo a favor).
 - ``partidas``: diferencias temporarias por partida. Activo: libros − base; pasivo: base − libros
   (positivo imponible → pasivo diferido, NIC 12.15; negativo deducible → activo diferido si es probable la
-  ganancia fiscal, NIC 12.24, y si la ley admite la deducción futura, Reglamento LRTI, art. innumerado a continuación del art. 28 (num. 5 provisiones, incluida jubilación y desahucio; num. 8 pérdidas tributarias)). Tasa de reversión
+  ganancia fiscal, NIC 12.24, y si la ley admite la deducción futura, Reglamento LRTI, art. innumerado a continuación del art. 28 (num. 5: provisiones distintas de cuentas incobrables y desmantelamiento, utilizables cuando se paguen —jubilación y desahucio solo por la parte no deducible, interpretación: LRTI art. 10 num. 13—; num. 8: pérdidas tributarias)). Tasa de reversión
   = tasa aprobada al cierre para el año de reversión (NIC 12.47); sin descuento (NIC 12.53). Movimiento: a
   resultados salvo las partidas de ORI (NIC 12.58, 61A).
 - ``perdidas`` (opcional): pérdidas tributarias por año de origen; se amortizan de la más antigua a la más
@@ -82,14 +83,14 @@ PARAMETROS = {
 PARAM_NEGATIVOS = ("saldoCorrienteRegistrado", "gastoDiferidoRegistrado")
 ETIQUETAS_PARAM = {
     "tasaIR": "Tarifa general del impuesto a la renta (%) — LRTI art. 37; vigente al corte",
-    "puntosRecargo": "Puntos adicionales por paraísos fiscales / composición societaria — LRTI art. 37; vigente al corte",
-    "proporcionRecargo": "Proporción de la base sujeta a la tarifa incrementada (%) (100 si la participación en paraísos fiscales es ≥ 50 % o si se incumplió el deber de informar la composición societaria; LRTI art. 37)",
-    "participacion": "Participación de trabajadores (%) — Código del Trabajo art. 97; vigente al corte",
+    "puntosRecargo": "Puntos adicionales por paraísos fiscales / composición societaria — LRTI art. 37; Reglamento art. 51; vigente al corte",
+    "proporcionRecargo": "Proporción de la base sujeta a la tarifa incrementada (%) (100 si la composición societaria no informada más la ubicada en paraísos fiscales (con beneficiario efectivo residente en Ecuador) suma en conjunto ≥ 50 %; si es menor, ese porcentaje; LRTI art. 37; Reglamento art. 51)",
+    "participacion": "Participación de trabajadores (%) sobre las utilidades líquidas — Código del Trabajo art. 97; vigente al corte",
     "limitePerdidas": "Límite anual de amortización de pérdidas (% de la utilidad gravable) — LRTI art. 11; vigente al corte",
     "plazoPerdidas": "Plazo para amortizar pérdidas (años) — LRTI art. 11; vigente al corte",
     "tasaFutura": "Tasa aprobada para años futuros (%) (vacío: no hay cambio aprobado)",
     "anioTasaFutura": "Año desde el que rige la tasa futura",
-    "perdidasPermitidas": "¿La ley admite diferido por pérdidas tributarias? (Reglamento LRTI, art. innumerado a continuación del art. 28 (num. 5 provisiones, incluida jubilación y desahucio; num. 8 pérdidas tributarias))",
+    "perdidasPermitidas": "¿La ley admite diferido por pérdidas tributarias? (Reglamento LRTI, art. innumerado a continuación del art. 28 (num. 5: provisiones distintas de cuentas incobrables y desmantelamiento, utilizables cuando se paguen —jubilación y desahucio solo por la parte no deducible, interpretación: LRTI art. 10 num. 13—; num. 8: pérdidas tributarias))",
     "probabilidadPerdidas": "¿Es probable la ganancia fiscal para compensar las pérdidas? (NIC 12.35–36)",
     "retenciones": "Retenciones en la fuente del ejercicio",
     "anticipos": "Anticipos de impuesto a la renta pagados",
@@ -204,10 +205,11 @@ def _opc(f, k):
 
 def _citas(pymes: bool, edicion: str) -> dict:
     if pymes:
-        v = "PYMES 2025 Secc. 29 (VERIFICAR numeración)" if edicion == "2025" else "PYMES 2015"
-        return {"marco": v, "corr": f"{v} 29.4–29.8 (VERIFICAR)", "dt": f"{v} 29.9–29.11, 29.14–29.19 (VERIFICAR)",
-                "dta": f"{v} 29.15 y 29.21 (VERIFICAR)", "tasa": f"{v} 29.18 (VERIFICAR)", "ori": f"{v} 29.22 (VERIFICAR)",
-                "comp": f"{v} 29.24A (VERIFICAR)", "etr": f"{v} 29.32 (explicación de diferencias; VERIFICAR existencia del párrafo en 2015)"}
+        v = "PYMES 2025 Secc. 29" if edicion == "2025" else "PYMES 2015 Secc. 29"
+        comp = "29.37A" if edicion == "2025" else "29.37"
+        return {"marco": v, "corr": f"{v} 29.4–29.6, 29.32", "dt": f"{v} 29.9–29.13 (bases fiscales), 29.14–29.20 (diferencias temporarias)",
+                "dta": f"{v} 29.16, 29.21–29.22 y 29.31", "tasa": f"{v} 29.27–29.28 y 29.32", "ori": f"{v} 29.35",
+                "comp": f"{v} {comp}", "etr": f"{v} 29.40 c)"}
     return {"marco": "NIC 12", "corr": "NIC 12.12–14, 46", "dt": "NIC 12.5, 15, 24", "dta": "NIC 12.24, 34–36, 56",
             "tasa": "NIC 12.47, 53", "ori": "NIC 12.58, 61A", "comp": "NIC 12.71, 74", "etr": "NIC 12.81 c)"}
 
@@ -420,10 +422,10 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                            f"({m(cl['base'])} × {m(tarifa)} % = {m(cl['ir'])}).", ir_reg - cl["ir"]))
     if abs(au["part"] - cl["part"]) > 0.005:
         pr.append(problema("PARTICIPACION_MAL_CALCULADA", f"Participación trabajadores {m(-cl['part'])} en la conciliación frente a {m(-au['part'])} "
-                           f"recalculada ({m(part)} % de la utilidad contable; Código del Trabajo art. 97).", au["part"] - cl["part"]))
+                           f"recalculada ({m(part)} % de la utilidad contable; «utilidades líquidas», Código del Trabajo art. 97).", au["part"] - cl["part"]))
     if abs(au["pe"] - cl["pe"]) > 0.005:
         pr.append(problema("PARTICIPACION_EXENTOS", f"Participación atribuible a ingresos exentos {m(cl['pe'])} frente a {m(au['pe'])} recalculada "
-                           f"({m(part)} % × (exentos − gastos atribuibles); Reglamento LRTI art. 46 num. 5 — VERIFICAR base neta o bruta con el instructivo del F-101).", au["pe"] - cl["pe"]))
+                           f"({m(part)} % × (exentos − gastos atribuibles); Reglamento LRTI art. 46 num. 5: el texto literal dice «el 15% de tales ingresos» (base bruta); la base neta aquí usada carece de soporte en la biblioteca — pendiente de decisión del socio).", au["pe"] - cl["pe"]))
     omit = sum(c["dif"] for c in conc if c["tipo"] == "no_deducibles")
     if omit > 0.005:
         pr.append(problema("NO_DEDUCIBLES_OMITIDOS", f"Gastos no deducibles omitidos en la conciliación por {m(omit)}: "
@@ -615,7 +617,7 @@ def hojas(res: dict) -> list[dict]:
         ["Plazo para amortizar pérdidas (años)", num["plazoPerdidas"], f"LRTI art. 11 — {vr}"],
         ["Tasa aprobada para años futuros (%)", num["tasaFutura"], f"{cit['tasa']} — tasa aprobada o prácticamente aprobada al cierre"],
         ["Año desde el que rige la tasa futura", num["anioTasaFutura"], "Ley publicada al cierre"],
-        ["Ley admite diferido por pérdidas", d["sn"]["perdidasPermitidas"], "Reglamento LRTI, art. innumerado a continuación del art. 28 (num. 5 provisiones, incluida jubilación y desahucio; num. 8 pérdidas tributarias)"],
+        ["Ley admite diferido por pérdidas", d["sn"]["perdidasPermitidas"], "Reglamento LRTI, art. innumerado a continuación del art. 28 (num. 5: provisiones distintas de cuentas incobrables y desmantelamiento, utilizables cuando se paguen —jubilación y desahucio solo por la parte no deducible, interpretación: LRTI art. 10 num. 13—; num. 8: pérdidas tributarias)"],
         ["Probable ganancia fiscal para las pérdidas", d["sn"]["probabilidadPerdidas"], "NIC 12.35–36 — proyecciones fiscales"],
         ["Retenciones en la fuente del ejercicio", num["retenciones"], "Comprobantes de retención / F-101"],
         ["Anticipos pagados", num["anticipos"], "F-115 / F-101"],
@@ -651,11 +653,11 @@ def hojas(res: dict) -> list[dict]:
     filas04 = [
         ("u", "Utilidad (pérdida) contable antes de participación e impuesto", sb("utilidad"), sg("utilidad"), "03_Conciliacion"),
         ("part", "(−) Participación trabajadores", sb("participacion"), f"-MAX({C('u')},0)*{_pb('participacion')}/100", "Recalculada: % × utilidad"),
-        ("ex", "(−) Ingresos exentos", sb("exentos"), sg("exentos"), "LRTI art. 9 — VERIFICAR"),
+        ("ex", "(−) Ingresos exentos", sb("exentos"), sg("exentos"), "LRTI art. 9 (texto oficial hasta 2-jul-2021: contrastar reformas posteriores)"),
         ("nd", "(+) Gastos no deducibles", sb("no_deducibles"), sg("no_deducibles"), "LRTI art. 10"),
         ("ge", "(+) Gastos atribuibles a ingresos exentos", sb("gastos_exentos"), sg("gastos_exentos"), "Reglamento LRTI art. 46 num. 4 (y art. 47, prorrateo)"),
         ("pe", "(+) Participación atribuible a ingresos exentos", sb("participacion_exentos"),
-         f"IF({C('u')}>0,MAX(-{C('ex')}-{C('ge')},0)*{_pb('participacion')}/100,0)", "% × (exentos − gastos atribuibles); Reglamento LRTI art. 46 num. 5 — VERIFICAR base neta o bruta con el instructivo del F-101"),
+         f"IF({C('u')}>0,MAX(-{C('ex')}-{C('ge')},0)*{_pb('participacion')}/100,0)", "% × (exentos − gastos atribuibles); Reglamento LRTI art. 46 num. 5: el texto literal dice «el 15% de tales ingresos» (base bruta); la base neta aquí usada carece de soporte en la biblioteca — pendiente de decisión del socio"),
         ("ded", "(−) Deducciones adicionales", sb("deducciones"), sg("deducciones"), "LRTI art. 10"),
         ("otros", "(±) Otras partidas de conciliación", sb("otros"), sg("otros"), "03_Conciliacion"),
         ("b0", "Utilidad gravable antes de amortizar pérdidas", f"SUM({B('u')}:{B('otros')})", f"SUM({C('u')}:{C('otros')})", ""),
@@ -950,7 +952,7 @@ def definicion() -> dict:
             "signo con que suma a la base imponible (+ suma, − resta); la suma de la columna es la base imponible declarada. El auditor puede "
             "completar «importe según auditor» (por ejemplo, gastos no deducibles omitidos, con importe del cliente 0).")
     part = ("Una fila por partida con diferencia entre libros NIIF y base fiscal: partida, activo o pasivo, importe en libros, base fiscal, "
-            "si la ley admite la deducción futura (Reglamento LRTI, art. innumerado a continuación del art. 28 (num. 5 provisiones, incluida jubilación y desahucio; num. 8 pérdidas tributarias)), si es probable la ganancia fiscal futura; y, si existen, año "
+            "si la ley admite la deducción futura (Reglamento LRTI, art. innumerado a continuación del art. 28 (num. 5: provisiones distintas de cuentas incobrables y desmantelamiento, utilizables cuando se paguen —jubilación y desahucio solo por la parte no deducible, interpretación: LRTI art. 10 num. 13—; num. 8: pérdidas tributarias)), si es probable la ganancia fiscal futura; y, si existen, año "
             "esperado de reversión, tasa usada, impuesto diferido registrado al inicio y al cierre (+ activo / − pasivo) y si la partida se "
             "reconoce en ORI.")
     perd = "Pérdidas tributarias por año de origen: año, pérdida declarada, amortizado acumulado en años anteriores y, si difiere del plazo legal, último año para amortizar."
@@ -963,23 +965,23 @@ def definicion() -> dict:
                     "amortización de pérdidas con su límite y vencimiento), el impuesto corriente y el saldo por pagar; mide las diferencias "
                     "temporarias por partida a la tasa aprobada de reversión, el activo diferido reconocible (permitido por la ley y con "
                     "probabilidad de ganancia fiscal) y el pasivo diferido; separa el movimiento a resultados y a ORI, prueba la compensación y "
-                    "concilia el gasto con el resultado × tasa (NIC 12.81 c). Tasas y límites de Ecuador como parámetros («vigente al corte; "
-                    "VERIFICAR»). El cálculo es el mismo en NIIF completas y en PYMES; cambian las citas."),
+                    "concilia el gasto con el resultado × tasa (NIC 12.81 c). Tasas y límites de Ecuador como parámetros («vigente al corte»; la "
+                    "LRTI de la biblioteca es el texto oficial hasta el 2-jul-2021: contrastar reformas posteriores en el Registro Oficial). Pendiente de decisión del socio: la tasa del diferido y del activo por pérdidas no incluye el recargo del art. 37 (NIC 12.47, 49). El cálculo es el mismo en NIIF completas y en PYMES; cambian las citas."),
         "source": {"organization": "IFRS Foundation (texto en español: Reglamento (UE) 2023/1803)", "type": "Norma contable", "date": "",
                    "document": ("NIC 12 párr. 5 (definiciones), 12–14 (impuesto corriente como pasivo o activo; pérdida retrotraída), 15 "
                                 "(pasivo diferido por diferencias imponibles), 24–25 (activo diferido por diferencias deducibles si es probable "
                                 "la ganancia fiscal), 34–36 (pérdidas y créditos no utilizados; pérdidas recientes como indicio en contra), 46–47 "
-                                "(tasas en vigor o aprobadas al cierre; tasa del ejercicio de reversión), 53 (sin descuento), 56 (revisión del "
+                                "(tasas en vigor o aprobadas al cierre; tasa del ejercicio de reversión), 49 (tipos medios si hay tipos distintos por tramos), 53 (sin descuento), 56 (revisión del "
                                 "activo diferido), 58–60 y 61A (resultados frente a ORI y patrimonio), 71 y 74 (compensación), 81 c) y e) "
                                 "(conciliación del gasto con el resultado × tasa; diferencias no reconocidas) — leídos en EUR-Lex. Párr. 37 "
                                 "(reconsideración de activos no reconocidos). CINIIF 23 (incertidumbres) fuera del alcance de este cálculo."),
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
-                         "document": ("NIIF para las PYMES 2015, Sección 29: 29.9–29.11 (bases fiscales), 29.14–29.19 (diferencias temporarias), "
-                                      "29.15 (reconocimiento), medición con tasas aprobadas y sin descuento; PYMES 2025, Sección 29 revisada y "
-                                      "alineada con la NIC 12. VERIFICAR la numeración y la redacción en el texto oficial de cada edición (no "
-                                      "leídos en esta construcción). El cálculo de esta herramienta es el mismo en ambas ediciones; la PYMES exige "
-                                      "explicar las diferencias significativas entre gasto y resultado × tasa (VERIFICAR párrafo)."),
+                         "document": ("NIIF para las PYMES 2015 y 2025, Sección 29: 29.4–29.6 (corriente), 29.9–29.13 (bases fiscales), 29.14 y "
+                                      "29.16 (reconocimiento de pasivo y activo diferido), 29.21–29.22 (pérdidas), 29.27–29.28 (tasas aprobadas), "
+                                      "29.31 (revisión), 29.32 (sin descuento), 29.35 (ORI/patrimonio), 29.37 [2025: 29.37A] (compensación), "
+                                      "29.40 c) (explicación gasto vs resultado × tasa). Numeración igual en ambas ediciones; 2025 añade 29.3A, "
+                                      "29.16A, 29.19A, 29.34A–D (CINIIF 23) y 29.37A. El cálculo de esta herramienta es el mismo en ambas ediciones."),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad de la conciliación tributaria frente al F-101 y al mayor."},
@@ -990,7 +992,7 @@ def definicion() -> dict:
         ],
         "calculo": [
             "Base imponible del cliente = suma algebraica de la conciliación (total de control).",
-            "Participación trabajadores recalculada = % × utilidad contable (si es positiva); participación atribuible a exentos = % × (exentos − gastos atribuibles).",
+            "Participación trabajadores recalculada = % × utilidad contable (si es positiva; «utilidades líquidas», CT art. 97); participación atribuible a exentos = % × (exentos − gastos atribuibles) (Reglamento art. 46 num. 5 dice «el 15% de tales ingresos», base bruta: pendiente de decisión del socio).",
             "Utilidad gravable antes de pérdidas = utilidad − participación − exentos + no deducibles + gastos atribuibles + participación atribuible − deducciones ± otros.",
             "Amortización de pérdidas permitida = mín(solicitada, límite % × utilidad gravable, saldo no vencido); se aplica de la pérdida más antigua a la más reciente.",
             "Impuesto causado = máx(base, 0) × (tarifa general + puntos × proporción); por pagar = causado − retenciones − anticipos − crédito (negativo: saldo a favor, NIC 12.12).",
@@ -1020,8 +1022,8 @@ def definicion() -> dict:
              "procedure": "Comparar libros NIIF con la base fiscal por partida y medir activo y pasivo diferidos", "evidence": "Auxiliares NIIF y fiscales",
              "criterion": "Diferido requerido igual al registrado", "source": "NIC 12.5, 15, 24 · PYMES 29"},
             {"code": "TAX-05", "objective": "Recuperabilidad del activo diferido", "risk": "Activo diferido sin ganancia fiscal probable o no admitido", "assertion": "Valoración",
-             "procedure": "Evaluar proyecciones fiscales y el Reglamento LRTI, art. innumerado a continuación del art. 28 (num. 5 provisiones, incluida jubilación y desahucio; num. 8 pérdidas tributarias); revisar el importe en libros al cierre", "evidence": "Proyecciones, historial de resultados fiscales",
-             "criterion": "Activo diferido solo por lo probable y admitido", "source": "NIC 12.24, 34–36, 56 · Reglamento LRTI, art. innumerado a continuación del art. 28 (num. 5 provisiones, incluida jubilación y desahucio; num. 8 pérdidas tributarias)"},
+             "procedure": "Evaluar proyecciones fiscales y el Reglamento LRTI, art. innumerado a continuación del art. 28 (num. 5: provisiones distintas de cuentas incobrables y desmantelamiento, utilizables cuando se paguen —jubilación y desahucio solo por la parte no deducible, interpretación: LRTI art. 10 num. 13—; num. 8: pérdidas tributarias); revisar el importe en libros al cierre", "evidence": "Proyecciones, historial de resultados fiscales",
+             "criterion": "Activo diferido solo por lo probable y admitido", "source": "NIC 12.24, 34–36, 56 · Reglamento LRTI, art. innumerado a continuación del art. 28 (num. 5: provisiones distintas de cuentas incobrables y desmantelamiento, utilizables cuando se paguen —jubilación y desahucio solo por la parte no deducible, interpretación: LRTI art. 10 num. 13—; num. 8: pérdidas tributarias)"},
             {"code": "TAX-06", "objective": "Tasa de reversión", "risk": "Diferido medido a tasa no aprobada o distinta a la del año de reversión", "assertion": "Valoración",
              "procedure": "Comparar la tasa usada con la aprobada al cierre para el año de reversión", "evidence": "Ley vigente y reformas publicadas",
              "criterion": "Tasa aprobada del año de reversión, sin descuento", "source": "NIC 12.47, 53"},

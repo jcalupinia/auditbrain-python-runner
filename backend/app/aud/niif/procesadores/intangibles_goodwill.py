@@ -11,7 +11,7 @@ Versión simple que cumple la norma, una cédula por prueba de la matriz del soc
 3. Vida finita / indefinida: en NIIF completas un intangible sin vida (en blanco) es de vida indefinida y el
    goodwill no se amortiza (NIC 38.107; NIIF 3.B63 a); ambos exigen prueba anual de deterioro (NIC 36.10, 36.90).
    En PYMES todo intangible y el goodwill tienen vida finita: sin vida fiable se usa la mejor estimación, con
-   máximo de diez años (18.19-18.20, 19.23): parámetro `vidaMaxPymes`.
+   máximo de diez años (18.19-18.20; 19.23 en 2015 / 19.34 en 2025): parámetro `vidaMaxPymes`.
 4. Revisión de vida útil y valor residual: meses transcurridos, vida remanente, amortización acumulada esperada
    vs recalculada, residual distinto de cero (NIC 38.100; PYMES 18.23) y revisión anual (NIC 38.104, 38.109).
 5. Deterioro: recuperable = MAX(valor en uso, VR menos costos de disposición) (NIC 36.18; PYMES 27.11);
@@ -122,7 +122,7 @@ def _parametros(parametros: dict) -> dict:
     p = {**PARAMETROS, **{k: v for k, v in (parametros or {}).items() if v is not None and v != ""}}
     v = a_num(p["vidaMaxPymes"])
     if v is None or v <= 0 or v > 120:
-        raise ValueError(f"{ETIQUETAS_PARAM['vidaMaxPymes']}: indique meses entre 1 y 120 (PYMES 18.20 y 19.23: no más de diez años).")
+        raise ValueError(f"{ETIQUETAS_PARAM['vidaMaxPymes']}: indique meses entre 1 y 120 (PYMES 18.20 y 19.23 (2015) / 19.34 (2025): no más de diez años).")
     p["vidaMaxPymes"] = float(v)
     p["saldoMayor"] = None if p.get("saldoMayor") in (None, "") else a_num(p["saldoMayor"])
     return p
@@ -279,14 +279,14 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             lambda l, i: f"Sin revisión anual de la vida útil y el método en {l} (NIC 38.104; para vida indefinida, 38.109).")
     if pymes:
         add("SIN_AMORTIZAR_PYMES", lambda x: x["cap"] == "Sí" and (x["cat"] == "Goodwill" or x["vida"] is None) and x["aregN"] == 0 and x["amort"] > 0.005,
-            "amort", lambda l, i: f"En PYMES todo intangible y el goodwill tienen vida finita y se amortizan (18.19-18.21, 19.23): {l} sin amortizar; "
+            "amort", lambda l, i: f"En PYMES todo intangible y el goodwill tienen vida finita y se amortizan (18.19-18.21; 19.23 (2015) / 19.34 (2025)): {l} sin amortizar; "
                                   f"amortización calculada {m(i)} (vida: la de la ficha o, si no es fiable, {p['vidaMaxPymes']:.0f} meses).")
     ya = set().union(*(marcados.get(c, set()) for c in ("GOODWILL_AMORTIZADO_NIIF_COMPLETAS", "INDEFINIDA_AMORTIZADA", "SIN_AMORTIZAR_PYMES")))
     add("DIF_AMORTIZACION", lambda x: x["cap"] == "Sí" and x["id"] not in ya and abs(x["difAmort"]) > 0.005, "difAmort",
         lambda l, i: f"La amortización recalculada difiere de la registrada en {l}: {m(i)} (NIC 38.97; PYMES 18.21).")
     add("ACUMULADA_INCONSISTENTE", lambda x: x["difAcum"] is not None and abs(x["difAcum"]) > 0.005, "difAcum",
         lambda l, i: f"La amortización acumulada recalculada no es la esperada por la vida transcurrida en {l}: {m(i)}; revise la vida útil o "
-                     "errores de años anteriores (NIC 8; PYMES Sección 10).")
+                     "errores de años anteriores (NIC 8.42; PYMES 10.21).")
     add("RESIDUAL_NO_NULO", lambda x: x["resNoNulo"] == "Sí", "resN",
         lambda l, i: f"Valor residual distinto de cero en {l} ({m(i)}): se supone nulo salvo compromiso de compra o mercado activo (NIC 38.100; PYMES 18.23).")
     add("DETERIORO_NO_RECONOCIDO", lambda x: x["detCalc"] is not None and x["difDet"] > 0.005, "difDet",
@@ -369,13 +369,14 @@ def hojas(res: dict) -> list[dict]:
 
     parametros = [
         ["Corte del ejercicio", d["corte"], "Ficha del encargo; ejercicio de 12 meses que termina en el corte"],
-        ["Marco contable", norma, "PYMES 2015 y 2025: investigación y desarrollo a gasto y goodwill amortizable con vida no mayor a diez años. "
+        ["Marco contable", norma, "PYMES 2015 y 2025: investigación y desarrollo a gasto y goodwill amortizable en su vida útil; solo si no puede establecerse con fiabilidad, "
+                                  "mejor estimación de la gerencia no mayor a diez años (19.23 en 2015; 19.34 en 2025). "
                                   "2025: 18.22A presume que la amortización basada en ingresos no es apropiada; Sección 19 alineada con NIIF 3; "
                                   "la plusvalía sigue amortizándose; vigente desde el 1-1-2027; para cortes 2025–2026 solo con adopción anticipada"],
         ["Ruta PYMES (1 = sí, 0 = NIIF completas)", 1 if pymes else 0,
          "1: todo intangible y el goodwill se amortizan y el desarrollo va a gasto; 0: vida indefinida y goodwill sin amortizar con prueba anual"],
         ["Edición PYMES", d["edicion"], "Ficha del encargo"],
-        [ETIQUETAS_PARAM["vidaMaxPymes"], p["vidaMaxPymes"], "PYMES: tope de 10 años cuando la vida no se puede estimar con fiabilidad (18.20 / 19.23); la vida debe ser la mejor estimación de la gerencia"],
+        [ETIQUETAS_PARAM["vidaMaxPymes"], p["vidaMaxPymes"], "PYMES: tope de 10 años cuando la vida no se puede estimar con fiabilidad (18.20 / 19.23 en 2015; 19.34 en 2025); la vida debe ser la mejor estimación de la gerencia"],
         [ETIQUETAS_PARAM["saldoMayor"], p["saldoMayor"], "Mayor contable (en blanco: se toma el auxiliar)"],
     ]
 
@@ -528,15 +529,15 @@ def definicion() -> dict:
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable",
                          "document": "NIIF para las PYMES 2015 · Sección 18 (18.4 reconocimiento; 18.14 investigación y desarrollo a gasto; 18.19 "
                                      "toda vida es finita; 18.20 sin estimación fiable, mejor estimación no mayor a diez años; 18.21-18.22 "
-                                     "amortización; 18.23 residual cero; 18.24 revisión con indicios), Sección 19 (19.23 (2015; VERIFICAR número en la tercera edición, la Sección 19 se reescribió) goodwill al costo menos "
-                                     "amortización y deterioro, vida no mayor a diez años) y Sección 27 (27.5-27.7 deterioro e indicios; "
+                                     "amortización; 18.23 residual cero; 18.24 revisión con indicios), Sección 19 (19.23 en 2015 / 19.34 en 2025: goodwill al costo menos "
+                                     "amortización y deterioro; vida útil y, solo si no puede establecerse con fiabilidad, mejor estimación de la gerencia no mayor a diez años) y Sección 27 (27.5-27.7 deterioro e indicios; "
                                      "27.28 sin reversión en plusvalía; 27.29-27.30 reversión). Edición 2025 (tercera): 18.22A presume que la "
                                      "amortización basada en ingresos no es apropiada; Sección 19 alineada con NIIF 3; la plusvalía sigue "
                                      "amortizándose; vigente desde el 1-1-2027; para cortes 2025–2026 solo con adopción anticipada.",
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
-            {"document": "NIA 540 (Revisada)", "section": "párr. 13, 16–17 y 18–27 (28–30 VERIFICAR)", "requirement": "Vida útil, residual, valor en uso y VR menos costos son estimaciones: evaluar método, datos y supuestos."},
-            {"document": "NIA 500", "section": "párr. 8–9", "requirement": "Evidencia suficiente del costo, la fecha de disponibilidad y los criterios de NIC 38.57."},
+            {"document": "NIA 540 (Revisada)", "section": "párr. 13, 16–17, 18–27 y 28–30", "requirement": "Vida útil, residual, valor en uso y VR menos costos son estimaciones: evaluar método, datos y supuestos."},
+            {"document": "NIA 500", "section": "párr. 6 y 9", "requirement": "Evidencia suficiente del costo, la fecha de disponibilidad y los criterios de NIC 38.57."},
             {"document": "NIA 500", "section": "párr. 8 (experto de la dirección; NIA 620 solo si lo contrata el auditor)", "requirement": "Evaluar el trabajo del experto en valoración usado para el importe recuperable y la asignación del precio de compra."},
             {"document": "NIA 330", "section": "párr. 18-20", "requirement": "Procedimientos sustantivos y conciliación del auxiliar con el mayor."},
             {"document": "NIA 560", "section": "párr. 6", "requirement": "Hechos posteriores que evidencien deterioro al cierre."},
@@ -546,7 +547,8 @@ def definicion() -> dict:
             "NIIF completas y si cumple NIC 38.57; en PYMES a gasto (18.14). Lo no capitalizable se da de baja (neto auditado 0).",
             "Importe amortizable = costo auditado − valor residual.",
             "Vida aplicada: la registrada; en blanco = indefinida en NIIF completas (sin amortización) y, en PYMES, la vida máxima del parámetro; el goodwill "
-            "no se amortiza en NIIF completas y en PYMES usa la vida registrada o la máxima.",
+            "no se amortiza en NIIF completas y en PYMES usa la vida registrada o la máxima. En 18.20 / 19.23 (19.34 en 2025) los diez años son un tope "
+            "para la mejor estimación de la gerencia, no una vida por defecto: pendiente de decisión del socio.",
             "Meses en uso del ejercicio = MIN(12, meses desde la fecha disponible hasta el corte, contando entero el mes de disponibilidad).",
             "Amortización = MIN(amortizable ÷ vida × meses en uso, amortizable − amortización acumulada inicial − deterioro acumulado).",
             "Amortización acumulada esperada = MIN(amortizable, amortizable ÷ vida × meses transcurridos); se compara con la recalculada (sin deterioro previo).",
@@ -578,7 +580,7 @@ def definicion() -> dict:
                  "Modelos de flujos, tasas de descuento, tasaciones", "Pérdida reconocida", "NIC 36.10 a y b, 36.18, 36.59, 36.90 · PYMES 27.5-27.7"),
             prog("INT-06", "Goodwill", "Goodwill amortizado en NIIF completas, sin amortizar en PYMES o con reversión de deterioro", "Valoración",
                  "Verificar la medición del goodwill según el marco y la prohibición de revertir su deterioro", "Asignación del precio de compra, pruebas de deterioro",
-                 "Tratamiento según el marco", "NIIF 3.32, B63 a · NIC 36.124 · PYMES 19.23 (2015; VERIFICAR número en la tercera edición, la Sección 19 se reescribió), 27.28, INT-10"),
+                 "Tratamiento según el marco", "NIIF 3.32, B63 a · NIC 36.124 · PYMES 19.23 (2015) / 19.34 (2025), 27.28, INT-10"),
             prog("INT-07", "Reversión del deterioro", "Reversión no reconocida o por encima del límite", "Valoración",
                  "Con indicio, recalcular la reversión limitada al importe en libros sin deterioro", "Nuevas estimaciones del recuperable",
                  "Reversión dentro del límite", "NIC 36.114-119 · PYMES 27.29-27.30"),

@@ -565,22 +565,22 @@ def definicion() -> dict:
         "summary": ("Compara los activos registrados con las pólizas vigentes al corte: % de cobertura, déficit (infraseguro), sobreseguro, "
                     "deducibles, activos sin cobertura, exposición máxima y siniestros pendientes; recalcula la prima pagada por anticipado. "
                     "Es una prueba de riesgo y continuidad operativa: no concluye cumplimiento de las NIIF por sí sola."),
-        "source": {"organization": "IFRS Foundation (texto en español del Reglamento (UE) 2023/1803)", "type": "Norma contable", "date": "",
+        "source": {"organization": "IFRS Foundation (texto en español de las NIIF adoptadas por la UE, Reglamento (UE) 2023/1803)", "type": "Norma contable", "date": "",
                    "document": ("NIC 1 párr. 27–28 (base de acumulación o devengo: prima anticipada; desde 2027 la NIIF 18 reemplaza a la NIC 1 (devengo en NIC 8)); NIC 37 párr. 53 (reembolsos), 86 (revelación "
                                 "de pasivos contingentes), 89 (activos contingentes); NIC 16 párr. 65–66 (compensaciones de terceros por "
-                                "elementos deteriorados o perdidos). NIC 1 27–28, NIC 37 53/86/89 y NIC 16 65–66 leídos el 22-09-2026 (ifrs.org, texto en español de la IFRS Foundation)."),
+                                "elementos deteriorados o perdidos). NIC 1 27–28, NIC 37 53/86/89 y NIC 16 65–66 contrastados el 22-09-2026 con el texto en español de las NIIF adoptadas por la UE (ICAC, actualización dic-2024)."),
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
-                         "document": ("NIIF para las PYMES 2015 y 2025: Sección 2 (2.36, devengo; 3.16A en la edición 2025), Sección 4 (presentación del anticipo como "
+                         "document": ("NIIF para las PYMES 2015 y 2025: Sección 2, párr. 2.36 (2015) / Sección 3, párr. 3.16A (2025): devengo; Sección 4, párr. 4.5 (presentación del anticipo como "
                                       "activo corriente), Sección 21 (21.9 reembolsos, 21.15 pasivos contingentes, 21.16 activos contingentes), "
-                                      "Sección 17, 17.25 (compensación de terceros). VERIFICAR la numeración y el texto de cada edición."),
+                                      "Sección 17, 17.25 (compensación de terceros). Contrastado con el texto oficial 2015 (ES) y 2025 (EN) el 22-09-2026."),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
-            {"document": "NIA 315 (Revisada 2019)", "section": "(VERIFICAR párrafos)", "requirement": "Entender el entorno y los riesgos: pérdida de activos no asegurados como factor de riesgo."},
-            {"document": "NIA 330", "section": "(VERIFICAR párrafos)", "requirement": "Respuestas a los riesgos valorados; evidencia sobre la cobertura."},
-            {"document": "NIA 570 (Revisada)", "section": "párr. 10–16 (VERIFICAR)", "requirement": "Empresa en marcha: pérdida no asegurada de activos clave. La NIA 570 (Revisada 2024) rige para períodos desde el 15-12-2026."},
+            {"document": "NIA 315 (Revisada 2019)", "section": "párr. 19 y 28", "requirement": "Entender el entorno y los riesgos: pérdida de activos no asegurados como factor de riesgo."},
+            {"document": "NIA 330", "section": "párr. 6 y 18", "requirement": "Respuestas a los riesgos valorados; evidencia sobre la cobertura."},
+            {"document": "NIA 570 (Revisada)", "section": "párr. 10–16", "requirement": "Empresa en marcha: pérdida no asegurada de activos clave. La NIA 570 (Revisada 2024) rige para períodos desde el 15-12-2026."},
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad del maestro de activos y del detalle de pólizas."},
-            {"document": "NIA 501 / NIA 560", "section": "(VERIFICAR párrafos)", "requirement": "Litigios y reclamaciones (siniestros) y hechos posteriores al cierre."},
+            {"document": "NIA 501 / NIA 560", "section": "NIA 501 párr. 9 / NIA 560 párr. 6", "requirement": "Litigios y reclamaciones (siniestros) y hechos posteriores al cierre."},
         ],
         "calculo": [
             "Referencia = valor de reposición o tasación; si falta, valor en libros (se señala).",
@@ -590,6 +590,7 @@ def definicion() -> dict:
             "Exposición máxima = mayor pérdida total no cubierta de un solo activo (déficit + deducible).",
             "Prima anticipada al corte = prima × días por transcurrir ÷ días de vigencia (devengo, NIC 1.27–28; PYMES 2.36 (2015) / 3.16A (2025)), frente a la registrada y al mayor.",
             "Siniestro pendiente sin revelación: evaluar pasivo o activo contingente (NIC 37.86, 89; PYMES 21.15–21.16).",
+            "Nota (pendiente de decisión del socio): el contraste oficial sugiere que el reembolso por daño a un activo propio se rige por NIC 16.65–66 / PYMES 17.25 («exigibles») y no por NIC 37.53 (reembolso de provisiones).",
         ],
         "fields": _ACTIVOS, "rules": [], "control": CONTROL, "primary": "ajustePrima",
         "campos": CAMPOS, "tipos": TIPOS, "parametros": dict(PARAMETROS), "etiquetas_parametros": ETIQUETAS_PARAM,
@@ -609,7 +610,7 @@ def definicion() -> dict:
              "criterion": "Sumas razonables frente al valor asegurable", "source": "Especificación MÓDULO 09"},
             {"code": "INS-05", "objective": "Exposición máxima", "risk": "Pérdida no cubierta de un activo clave", "assertion": "Continuidad operativa",
              "procedure": "Determinar la mayor pérdida total no cubierta y evaluar su efecto", "evidence": "Cédula de exposición",
-             "criterion": "Exposición informada al encargado del gobierno", "source": "NIA 570 · NIA 260"},
+             "criterion": "Exposición informada al encargado del gobierno", "source": "NIA 570 párr. 25 · NIA 260 párr. 16"},
             {"code": "INS-06", "objective": "Prima pagada por anticipado", "risk": "Anticipo sobrevalorado o gasto no devengado", "assertion": "Valoración / Corte",
              "procedure": "Recalcular la prima por devengar al corte y conciliar con el mayor", "evidence": "Pólizas, facturas de prima, mayor",
              "criterion": "Diferencia dentro de tolerancia", "source": "NIC 1.27–28 · PYMES 2.36 (2015) / 3.16A (2025)"},

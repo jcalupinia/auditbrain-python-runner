@@ -274,7 +274,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     fis = [i["id"] for i in items if i["difFis"] not in (None, 0)]
     if fis:
         pr.append(problema("DIFERENCIA_FISICA", f"Diferencias entre el conteo y el kardex en {len(fis)} ítem(s): {lista(fis)}. Neto valorizado {m(t['difFisicas'])}; "
-                           f"ajuste las existencias e investigue la causa (pérdidas: gasto del ejercicio, {'PYMES 27.2 / 13.20' if pymes else 'NIC 2.34'}).", t["difFisicas"]))
+                           f"ajuste las existencias e investigue la causa (pérdidas: gasto del ejercicio, {'PYMES no tiene párrafo expreso: por la jerarquía de 10.6 se toma NIC 2.34' if pymes else 'NIC 2.34'}).", t["difFisicas"]))
     sin_conteo = [i["id"] for i in items if i["cc"] is None]
     if sin_conteo:
         pr.append(problema("SIN_CONTEO", f"{len(sin_conteo)} ítem(s) sin cantidad contada ({lista(sin_conteo)}): se usa el kardex. "

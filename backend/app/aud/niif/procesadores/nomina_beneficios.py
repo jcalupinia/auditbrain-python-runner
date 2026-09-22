@@ -3,10 +3,10 @@ fondo de reserva, conciliación nómina–mayor y beneficios post-empleo (jubila
 informe actuarial.
 
 Especificación del socio: MÓDULO 14 (PAY-01 a PAY-20). Norma:
-- NIIF completas, NIC 19: beneficios a corto plazo (párr. 11–24), ausencias remuneradas acumulativas —vacaciones—
+- NIIF completas, NIC 19: beneficios a corto plazo (párr. 9–25; reconocimiento 11), ausencias remuneradas acumulativas —vacaciones—
   (13–18); post-empleo de beneficio definido (55–152) medido con la unidad de crédito proyectada (67) según el
   informe actuarial; componentes del costo (120) y nuevas mediciones en otro resultado integral (120 c, 127–130).
-- NIIF para las PYMES 2015 y 2025 (tercera edición, vigente desde el 1-1-2027), Sección 28: corto plazo (28.3–28.8), post-empleo (28.14–28.28), simplificaciones
+- NIIF para las PYMES 2015 y 2025 (tercera edición, vigente desde el 1-1-2027), Sección 28: principio general (28.3), corto plazo (28.4–28.8), post-empleo (28.14–28.28), simplificaciones
   si el cálculo supone costo o esfuerzo desproporcionado (28.19) y ganancias/pérdidas actuariales en resultados u
   ORI según la política elegida (28.24).
   Ruta: en NIIF completas las nuevas mediciones van a ORI; en PYMES a donde diga el parámetro «actuarialesEn».
@@ -101,17 +101,16 @@ PARAM_NEGATIVOS = ()
 _V = " (vigente al corte; VERIFICAR)"
 ETIQUETAS_PARAM = {
     "sbu": ("Salario básico unificado (USD) · SBU 2025 = 470 (Acuerdo Ministerial MDT-2024-300; vigente al corte; VERIFICAR). "
-            "Décimo cuarto, CT art. 113: se paga con el SBU vigente a la fecha de pago (2026 = 482, MDT-2025-195); la provisión al "
-            "corte usa el parámetro SBU — VERIFICAR con el socio"),
+            "Décimo cuarto, CT art. 113: 1/12 de la RBU por mes; pago acumulado hasta el 15-mar (Costa e Insular) o 15-ago (Sierra y Amazónica). La regla «SBU vigente a la fecha de pago» (2026 = 482, MDT-2025-195) es del instructivo ministerial (no en la biblioteca; VERIFICAR); la provisión al corte usa el parámetro SBU — pendiente de decisión del socio"),
     "aportePersonal": "Aporte personal IESS (%)" + _V,
     "aportePatronal": "Aporte patronal IESS (%)" + _V,
     "aporteIece": "0,5 % ex IECE (COMF disposición general 11.ª; VERIFICAR)",
     "aporteSecap": "SECAP (%)" + _V,
-    "fondoReserva": "Fondo de reserva (% de la remuneración, CT art. 196; Ley para el Pago Mensual del Fondo de Reserva, R.O. 644, 2009)" + _V,
+    "fondoReserva": "Fondo de reserva (% de la remuneración, CT art. 196; CT art. 201; R.O. Suplemento 644 de 29-07-2009)" + _V,
     "diasVacaciones": "Días de vacaciones por año (CT art. 69)" + _V,
     "aniosVacacionAdicional": "Años tras los cuales se gana un día adicional por año (CT art. 69)" + _V,
     "maxDiasAdicionales": "Máximo de días adicionales de vacaciones (CT art. 69)" + _V,
-    "horasMes": "Horas del mes para el valor hora (CT art. 55)" + _V,
+    "horasMes": "Horas del mes para el valor hora = 240 (8 h × 30 días; jornada CT art. 47; cifra expresa en CT art. 224 num. 5)" + _V,
     "recargoSuplementarias": "Recargo horas suplementarias (%)" + _V,
     "recargoExtraordinarias": "Recargo horas extraordinarias (%)" + _V,
     "desahucioPct": "Desahucio: 25 % × última remuneración mensual × años (CT art. 185; remuneración según art. 95)" + _V,
@@ -395,7 +394,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                                f"(sueldo {m(e['sueldo'])} × {e['dias']} días ÷ 30 + horas extras + comisiones).", e["dif_rem"]))
         if e["he_dif"] is not None and abs(e["he_dif"]) > tol:
             pr.append(problema("HORAS_EXTRAS", f"{n}: horas extras registradas {m(e['he'])} ≠ recalculadas {m(e['he_calc'])} "
-                               "(valor hora = sueldo ÷ horas del mes, con recargo; CT art. 55, VERIFICAR).", e["he_dif"]))
+                               "(valor hora = sueldo ÷ horas del mes, con recargo; CT art. 55).", e["he_dif"]))
         if e["neto_dif"] is not None and abs(e["neto_dif"]) > tol:
             pr.append(problema("NETO_NOMINA", f"{n}: neto pagado {m(e['neto_reg'])} ≠ neto recalculado {m(e['neto'])}.", e["neto_dif"]))
         if e["dif_pl"] is not None and abs(e["dif_pl"]) > tol:
@@ -444,7 +443,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                                a["dif_prov"]))
         if a["conforme"] == "No" and not pymes:
             pr.append(problema("NUEVAS_MEDICIONES_EN_RESULTADOS", f"Plan {a['id']}: las nuevas mediciones ({m(a['nm'])}) se registraron en resultados; en NIIF "
-                               "completas van a otro resultado integral y no se reclasifican (NIC 19.120 c, 122, 127–130; VERIFICAR).", a["nm"]))
+                               "completas van a otro resultado integral y no se reclasifican (NIC 19.120 c, 122, 127–130).", a["nm"]))
         elif a["conforme"] == "No":
             pr.append(problema("POLITICA_ACTUARIAL_PYMES", f"Plan {a['id']}: las ganancias/pérdidas actuariales ({m(a['nm'])}) se registraron en {a['reg_en']} y la "
                                f"política elegida es {ruta} (Sección 28.24: aplicar la misma política a todos los planes).", a["nm"]))
@@ -452,7 +451,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             pr.append(problema("CENSO_ACTUARIAL", f"Plan {a['id']}: el estudio incluye {a['n_est']:g} empleados y hay {activos} activos al corte en la nómina.", 0))
         if a["tasa"] is None:
             pr.append(problema("SUPUESTOS_ACTUARIALES", f"Plan {a['id']}: sin tasa de descuento informada; evalúe los supuestos (NIC 19.75–98, tasa 83 · "
-                               "PYMES 28.17; NIA 540).", 0))
+                               "PYMES 28.17 (tasa) y 28.18 (supuestos actuariales); NIA 540).", 0))
     if activos and not A:
         pr.append(problema("SIN_ESTUDIO_ACTUARIAL", f"{activos} empleados activos y ningún informe actuarial: jubilación patronal y desahucio sin medir "
                            "(NIC 19.67; en PYMES evalúe la simplificación de 28.19 solo si hay costo o esfuerzo desproporcionado). Desahucio legal referencial "
@@ -539,28 +538,28 @@ def hojas(res: dict) -> list[dict]:
         ["Corte del ejercicio", d["corte"], "Ficha del encargo"],
         ["Inicio del ejercicio", d["inicio"], "1 de enero del año del corte"],
         ["Marco contable", d["marco"], "Enruta el destino de las nuevas mediciones actuariales"],
-        ["Edición PYMES", d["edicion"], "Sección 28 sin cambios de fondo entre 2015 y 2025 (tercera edición, vigente desde el 1-1-2027) para esta prueba (VERIFICAR)"],
+        ["Edición PYMES", d["edicion"], "Sección 28: igual en 28.3–28.18 y 28.24; cambian 28.19 (2025 añade supuesto de terminación a la fecha y sin descuento) y 28.41 e) (conciliación por componentes)"],
         ["Nuevas mediciones van a", d["ruta"], "NIC 19.120 c y 127–130: ORI" if not d["pymes"] else "Sección 28.24: política elegida (parámetro)"],
-        ["SBU (USD)", pv("sbu"), "SBU 2025 = 470 (Acuerdo Ministerial MDT-2024-300; vigente al corte; VERIFICAR). Décimo cuarto (CT art. 113): se paga "
-                                  "con el SBU vigente a la fecha de pago (2026 = 482, MDT-2025-195); la provisión al corte usa este parámetro — VERIFICAR con el socio"],
+        ["SBU (USD)", pv("sbu"), "SBU 2025 = 470 (Acuerdo Ministerial MDT-2024-300; vigente al corte; VERIFICAR). Décimo cuarto: "
+                                  "CT art. 113: 1/12 de la RBU por mes; pago acumulado hasta el 15-mar (Costa e Insular) o 15-ago (Sierra y Amazónica). La regla «SBU vigente a la fecha de pago» (2026 = 482, MDT-2025-195) es del instructivo ministerial (no en la biblioteca; VERIFICAR); la provisión al corte usa el parámetro SBU — pendiente de decisión del socio"],
         ["Aporte personal IESS (%)", pv("aportePersonal"), "Ley de Seguridad Social / resoluciones IESS" + V],
         ["Aporte patronal IESS (%)", pv("aportePatronal"), "Ley de Seguridad Social" + V],
         ["0,5 % ex IECE (%)", pv("aporteIece"), "COMF disposición general 11.ª; VERIFICAR"],
         ["SECAP (%)", pv("aporteSecap"), V[3:]],
-        ["Fondo de reserva (%)", pv("fondoReserva"), "CT art. 196; Ley para el Pago Mensual del Fondo de Reserva (R.O. 644, 2009)" + V],
+        ["Fondo de reserva (%)", pv("fondoReserva"), "CT arts. 196 y 201; R.O. Suplemento 644 de 29-07-2009" + V],
         ["Días de vacaciones por año", pv("diasVacaciones"), "CT art. 69" + V],
         ["Años para día adicional", pv("aniosVacacionAdicional"), "CT art. 69" + V],
         ["Máximo días adicionales", pv("maxDiasAdicionales"), "CT art. 69" + V],
-        ["Horas del mes (valor hora)", pv("horasMes"), "CT art. 55" + V],
+        ["Horas del mes (valor hora)", pv("horasMes"), "240 = 8 h × 30 días (jornada CT art. 47; cifra expresa en CT art. 224 num. 5)" + V],
         ["Recargo suplementarias (%)", pv("recargoSuplementarias"), "CT art. 55" + V],
         ["Recargo extraordinarias (%)", pv("recargoExtraordinarias"), "CT art. 55" + V],
         ["Desahucio (% por año)", pv("desahucioPct"), "25 % × última remuneración mensual × años (CT art. 185; remuneración según art. 95)" + V],
         ["Región por defecto", p.get("regionPorDefecto"), "Para empleados sin región"],
-        ["Mes de inicio décimo tercero", pv("mesInicioD13"), "CT art. 111 (dic–nov)" + V],
+        ["Mes de inicio décimo tercero", pv("mesInicioD13"), "Período dic–nov: acuerdo ministerial del MDT (no en la biblioteca; VERIFICAR). CT art. 111: doceava parte de lo percibido"],
         ["Inicio del período décimo tercero", d["i13"], "Derivado del corte y del mes de inicio"],
-        ["Mes de inicio décimo cuarto Sierra/Oriente", pv("mesInicioD14Sierra"), "CT art. 113 (ago–jul)" + V],
+        ["Mes de inicio décimo cuarto Sierra/Oriente", pv("mesInicioD14Sierra"), "Período ago–jul (Sierra/Amazonía): acuerdo ministerial (VERIFICAR); fechas de pago: CT art. 113"],
         ["Inicio del período décimo cuarto Sierra/Oriente", d["i14s"], "Derivado del corte y del mes de inicio"],
-        ["Mes de inicio décimo cuarto Costa/Galápagos", pv("mesInicioD14Costa"), "CT art. 113 (mar–feb)" + V],
+        ["Mes de inicio décimo cuarto Costa/Galápagos", pv("mesInicioD14Costa"), "Período mar–feb (Costa/Insular): acuerdo ministerial (VERIFICAR); fechas de pago: CT art. 113"],
         ["Inicio del período décimo cuarto Costa/Galápagos", d["i14c"], "Derivado del corte y del mes de inicio"],
         ["PYMES: actuariales en", p.get("actuarialesEn"), "Política contable (Sección 28.24); en NIIF completas no aplica"],
         ["Tolerancia (importe)", pv("tolerancia"), "Materialidad de ejecución"],
@@ -763,26 +762,26 @@ def definicion() -> dict:
                     "fondo de reserva de cada empleado; concilia nómina y mayor; verifica el movimiento del año (saldo inicial a final) del DBO de jubilación patronal y "
                     "desahucio contra el informe actuarial, la provisión registrada y el destino de las nuevas mediciones según el marco."),
         "source": {"organization": "IFRS Foundation (HTML oficial en español)", "type": "Norma contable", "date": "",
-                   "document": ("NIC 19 Retribuciones a los empleados: párr. 11–24 (corto plazo), 13–18 (ausencias remuneradas acumulativas: "
+                   "document": ("NIC 19 Retribuciones a los empleados: párr. 9–25 (corto plazo; reconocimiento 11), 13–18 (ausencias remuneradas acumulativas: "
                                 "vacaciones), 55–152 (post-empleo de beneficio definido), 67 (unidad de crédito proyectada), 75–98 (suposiciones "
                                 "actuariales), 120 (componentes del costo), 122 y 127–130 (nuevas mediciones en otro resultado integral, sin "
-                                "reclasificación). Párrafos 11–24 y 13–18 leídos en el texto oficial; 120–130 VERIFICAR."),
+                                "reclasificación). Párrafos 11–24, 13–18, 57, 67, 75–98, 120–130 y 140–141 leídos en el texto oficial (NIC 19, versión UE vigente 2025)."),
                    "url": "https://www.ifrs.org/content/dam/ifrs/publications/html-standards/spanish/2023/issued/ias19.html"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
-                         "document": ("NIIF para las PYMES 2015 y 2025 (tercera edición, vigente desde el 1-1-2027), Sección 28 Beneficios a los empleados: 28.3–28.8 (corto plazo, "
+                         "document": ("NIIF para las PYMES 2015 y 2025 (tercera edición, vigente desde el 1-1-2027), Sección 28 Beneficios a los empleados: 28.3 (principio general), 28.4–28.8 (corto plazo, "
                                       "ausencias acumulativas 28.6), 28.14–28.28 (post-empleo; 28.18 unidad de crédito proyectada, 28.19 "
                                       "simplificaciones por costo o esfuerzo desproporcionado, 28.24 ganancias y pérdidas actuariales en "
-                                      "resultados u ORI según política). VERIFICAR la numeración y el texto de cada edición."),
+                                      "resultados u ORI según política). Numeración contrastada con el texto oficial 2015 (ES) y 2025 (EN); en 2025 cambian 28.19 y 28.41 e)."),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "legal": ("Ecuador: Código del Trabajo arts. 55 (horas extras), 69 (vacaciones), 71 (valor 1/24), 111 (décimo tercero), 113 (décimo "
                   "cuarto), 185 (desahucio), 196 (fondo de reserva), 216 (jubilación patronal); Ley de Seguridad Social (aportes). Tasas y "
                   "SBU como parámetros: vigentes al corte; VERIFICAR."),
         "nia": [
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad del anexo de empleados contra roles, planillas IESS y mayor."},
-            {"document": "NIA 500 (recálculo) · NIA 330", "section": "párr. 18", "requirement": "Recálculo sustantivo de la nómina y de las provisiones laborales."},
-            {"document": "NIA 540 (Revisada)", "section": "párr. 13, 18 (VERIFICAR)", "requirement": "Estimación actuarial: método, datos (censo) y supuestos."},
+            {"document": "NIA 500 A23 (recálculo) · NIA 330", "section": "párr. 18", "requirement": "Recálculo sustantivo de la nómina y de las provisiones laborales."},
+            {"document": "NIA 540 (Revisada)", "section": "párr. 13, 18", "requirement": "Estimación actuarial: método, datos (censo) y supuestos."},
             {"document": "NIA 500", "section": "párr. 8 (experto de la dirección; NIA 620 solo si lo contrata el auditor)", "requirement": "Uso del trabajo del actuario (experto de la dirección): competencia, objetividad, datos fuente."},
-            {"document": "NIA 330", "section": "párr. 18 (VERIFICAR)", "requirement": "Procedimientos sustantivos sobre gasto y pasivos laborales materiales."},
+            {"document": "NIA 330", "section": "párr. 18", "requirement": "Procedimientos sustantivos sobre gasto y pasivos laborales materiales."},
         ],
         "calculo": [
             "Días trabajados en el ejercicio en base comercial 30/360 (DAYS360 europeo); activo si no salió hasta el corte.",
@@ -806,7 +805,7 @@ def definicion() -> dict:
              "criterion": "Registrada = recalculada", "source": "NIC 19.11 · PYMES 28.3"},
             {"code": "PAY-03", "objective": "Horas extras", "risk": "Horas extras sobrevaloradas o sin recargo legal", "assertion": "Exactitud",
              "procedure": "Recalcular con valor hora y recargos 50 %/100 %", "evidence": "Marcaciones, autorizaciones", "criterion": "Valor recalculado",
-             "source": "CT art. 55 (VERIFICAR)"},
+             "source": "CT art. 55"},
             {"code": "PAY-05", "objective": "Aportes IESS", "risk": "Aportes mal calculados o no pagados", "assertion": "Exactitud / Integridad",
              "procedure": "Recalcular aportes personal y patronal (con IECE y SECAP) y cruzar la base con las planillas IESS", "evidence": "Planillas y comprobantes IESS",
              "criterion": "Registrado = recalculado; base planilla = nómina", "source": "Ley de Seguridad Social (tasas VERIFICAR)"},
@@ -818,7 +817,7 @@ def definicion() -> dict:
              "criterion": "Provisión = saldo × valor día", "source": "CT art. 69 · NIC 19.13–16 · PYMES 28.6"},
             {"code": "PAY-10", "objective": "Fondo de reserva", "risk": "Fondo de reserva no pagado a quien corresponde", "assertion": "Integridad",
              "procedure": "Recalcular el fondo debido desde el 13.º mes y compararlo con lo pagado o depositado", "evidence": "Planillas IESS de fondos de reserva",
-             "criterion": "Pagado = debido", "source": "CT art. 196 (VERIFICAR)"},
+             "criterion": "Pagado = debido", "source": "CT art. 196"},
             {"code": "PAY-13", "objective": "Jubilación patronal y desahucio", "risk": "Provisión distinta del informe actuarial", "assertion": "Valoración",
              "procedure": "Comparar la provisión registrada con el DBO del informe por plan", "evidence": "Informe actuarial", "criterion": "Registrada = DBO",
              "source": "NIC 19.57, 67 · PYMES 28.18 · CT arts. 185, 216"},
@@ -827,10 +826,10 @@ def definicion() -> dict:
              "source": "NIA 500 (experto de la dirección) · NIA 540"},
             {"code": "PAY-16", "objective": "DBO y movimiento del año", "risk": "Informe internamente inconsistente", "assertion": "Valoración",
              "procedure": "Recalcular DBO final = inicial + servicio + intereses + pasados + nuevas mediciones − pagos", "evidence": "Informe actuarial",
-             "criterion": "Recalculado = informe", "source": "NIC 19.120, 140–141 (VERIFICAR) · PYMES 28.41"},
+             "criterion": "Recalculado = informe", "source": "NIC 19.120, 140–141 · PYMES 28.41"},
             {"code": "PAY-17", "objective": "Supuestos actuariales", "risk": "Supuestos no razonables", "assertion": "Valoración",
              "procedure": "Revisar tasa de descuento, incremento salarial, rotación y mortalidad", "evidence": "Informe actuarial",
-             "criterion": "Supuestos sustentados", "source": "NIC 19.75–98 · PYMES 28.17 · NIA 540"},
+             "criterion": "Supuestos sustentados", "source": "NIC 19.75–98 · PYMES 28.17 (tasa) y 28.18 (supuestos actuariales) · NIA 540"},
             {"code": "PAY-18", "objective": "Resultados y ORI por marco", "risk": "Nuevas mediciones en resultados en NIIF completas", "assertion": "Presentación",
              "procedure": "Verificar el destino de las nuevas mediciones según el marco y la política", "evidence": "Asientos del cierre",
              "criterion": "Completas: ORI; PYMES: política 28.24", "source": "NIC 19.120 c, 127–130 · PYMES 28.24"},

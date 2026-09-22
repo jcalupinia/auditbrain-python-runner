@@ -4,13 +4,14 @@ Una sola población (una fila por obligación o entregable de cada contrato/fact
 
 1. Existencia del contrato (NIIF 15 9, 15-16; PYMES 2025 23.7-23.10): sin contrato válido no se reconoce ingreso.
 2. Precio de la transacción y contraprestación variable (NIIF 15 47-59; PYMES 2025 23.23-23.31): importe más probable
-   o valor esperado, incluido solo si es altamente probable (restricción 56-58; 23.30). PYMES 2015 (23.3, 23.10 c-d):
+   o valor esperado, incluido solo si es altamente probable (NIIF 15 56-57: que no ocurra una reversión significativa; 58 remite a B63,
+   regalías; PYMES 2025 23.30: que la entidad tenga derecho al importe). PYMES 2015 (23.3, 23.10 c-d):
    valor razonable de la contraprestación, se incluye si es probable (> 50 %).
 3. Asignación por precio de venta independiente relativo (NIIF 15 73-80; PYMES 2025 23.39-23.47; PYMES 2015 23.8).
 4. Satisfacción: en un momento (NIIF 15 38; 23.57-23.58) o a lo largo del tiempo con método de insumos
    costos incurridos ÷ costos totales (NIIF 15 35, 39-45, B18-B19; 23.54, 23.62-23.66). PYMES 2015: venta de bienes
    por riesgos y beneficios (23.10-23.13) y servicios/construcción por grado de terminación (23.14-23.22).
-5. Devoluciones: pasivo por reembolso (NIIF 15 B20-B27; PYMES 2025 23.33-23.35) / provisión (PYMES 2015 23.13,
+5. Devoluciones: pasivo por reembolso (NIIF 15 B20-B27; PYMES 2025 23.33-23.35 y 23A.23-23A.27) / provisión (PYMES 2015 23.13,
    Sección 21); notas de crédito posteriores al cierre como evidencia (NIA 560).
 6. Componente de financiación significativo (NIIF 15 60-65; PYMES 2025 23.36-23.38; PYMES 2015 23.5): valor presente
    a la tasa de descuento, interés devengado desde la transferencia.
@@ -308,17 +309,17 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         modelo = ("NIIF para las PYMES 2025 · Sección 23 revisada: modelo de cinco pasos simplificado" if pymes
                   else "NIIF 15 · modelo de cinco pasos")
     cit = {
-        "contrato": "PYMES 23.10 (evidencia del acuerdo; VERIFICAR)" if s15 else ("PYMES 2025 23.7-23.10" if pymes else "NIIF 15 9, 15-16"),
-        "variable": "PYMES 23.3, 23.10 c-d (probable)" if s15 else ("PYMES 2025 23.28-23.31" if pymes else "NIIF 15 53, 56-58"),
-        "asig": "PYMES 23.8 (VERIFICAR método)" if s15 else ("PYMES 2025 23.42-23.47" if pymes else "NIIF 15 73-80"),
+        "contrato": "PYMES 2015: sin criterio de existencia de contrato; aplicar 23.10 a)-e) (bienes) y 23.14 a)-d) (servicios)" if s15 else ("PYMES 2025 23.7-23.10" if pymes else "NIIF 15 9, 15-16"),
+        "variable": "PYMES 23.3, 23.10 c-d (probable)" if s15 else ("PYMES 2025 23.28-23.31" if pymes else "NIIF 15 53, 56-57"),
+        "asig": "PYMES 2015 23.8: separar componentes; método no especificado → política según 10.4 (precio independiente relativo por analogía)" if s15 else ("PYMES 2025 23.42-23.47" if pymes else "NIIF 15 73-80"),
         "avance": "PYMES 23.21-23.22" if s15 else ("PYMES 2025 23.62-23.66" if pymes else "NIIF 15 39-45, B18-B19"),
         "fin": "PYMES 23.5 y 11.13" if s15 else ("PYMES 2025 23.36-23.38" if pymes else "NIIF 15 60-65"),
-        "dev": "PYMES 23.13 y Sección 21 (VERIFICAR)" if s15 else ("PYMES 2025 23.33-23.35" if pymes else "NIIF 15 B20-B27"),
-        "ap": "PYMES 23.32 (VERIFICAR)" if s15 else ("PYMES 2025 23.77-23.80" if pymes else "NIIF 15 105-109"),
+        "dev": "PYMES 23.13 y Sección 21" if s15 else ("PYMES 2025 23.33-23.35 y 23A.23-23A.27" if pymes else "NIIF 15 B20-B27"),
+        "ap": "PYMES 2015 23.32 (presentación, contratos de construcción)" if s15 else ("PYMES 2025 23.77-23.80" if pymes else "NIIF 15 105-109"),
         "corte": "PYMES 23.10 a" if s15 else ("PYMES 2025 23.57-23.58" if pymes else "NIIF 15 31, 38"),
-        "mod": "PYMES 2015 sin guía específica (VERIFICAR; cambio de estimación, Sección 10)" if s15
+        "mod": "PYMES 2015 sin guía específica de modificaciones (revisión de estimaciones, 23.21; Sección 10)" if s15
                else ("PYMES 2025 23.12, 23A.2-23A.4" if pymes else "NIIF 15 18-21"),
-        "perdida": "PYMES 23.26" if s15 else ("PYMES 2025 Sección 21 contratos onerosos (VERIFICAR)" if pymes else "NIC 37 66-69"),
+        "perdida": "PYMES 23.26" if s15 else ("PYMES 2025 21.2 y Apéndice de la Sección 21, Ejemplo 2 (contratos onerosos)" if pymes else "NIC 37 66-69"),
     }
 
     pr = []
@@ -443,11 +444,12 @@ def hojas(res: dict) -> list[dict]:
         ["Modelo aplicado", d["modelo"], ("«A lo largo del tiempo» = servicios y construcción por grado de terminación (23.14-23.22); "
                                           "«En un momento» = venta de bienes al transferir riesgos y beneficios (23.10)") if d["s15"]
          else "Paso 1 contrato · 2 obligaciones · 3 precio · 4 asignación · 5 satisfacción"],
-        [ETIQUETAS_PARAM["tasaDescuento"], d["tasa"], f"{cit['fin']} — tasa de una financiación separada con el cliente al inicio del contrato"],
+        [ETIQUETAS_PARAM["tasaDescuento"], d["tasa"], f"{cit['fin']} — " + ("tasa de mercado de un instrumento de deuda similar al inicio del contrato (23.36); interés por el método "
+         "del interés efectivo (11.15-11.20)" if d["pymes"] and not d["s15"] else "tasa de una financiación separada con el cliente al inicio del contrato")],
         [ETIQUETAS_PARAM["plazoFinanciacion"], d["umbral"], "NIIF 15 63 / PYMES 2025 23.38: solución práctica de un año; más de 12 meses habilita evaluar (NIIF 15.61-62); no es concluyente por sí solo; PYMES 2015: plazo mayor al normal (11.13)"],
         [ETIQUETAS_PARAM["umbralAltamenteProbable"], d["uprob"],
          "No se usa en PYMES 2015: allí se incluye si es probable, más de 50 % (23.10 c-d)" if d["s15"]
-         else "«Altamente probable» (NIIF 15 56; PYMES 2025 23.30): la norma no fija un porcentaje; umbral de juicio (VERIFICAR). Simplificación: la variable se incluye si su probabilidad supera el umbral; la NIIF 15.56 exige que sea altamente probable que no haya reversión significativa"],
+         else "«Altamente probable» (NIIF 15 56: que no ocurra una reversión significativa; PYMES 2025 23.30: que la entidad tenga derecho al importe; criterios distintos): ninguna fija un porcentaje; umbral de juicio (VERIFICAR). Simplificación: la variable se incluye si su probabilidad supera el umbral; la NIIF 15.56 exige que sea altamente probable que no haya reversión significativa"],
         [ETIQUETAS_PARAM["metodoVariable"], d["metodo"], "NIIF 15 53; PYMES 2025 23.28"],
         [ETIQUETAS_PARAM["ingresoMayor"], d["mayor"], "Mayor contable (en blanco: se toma el anexo)"],
         [ETIQUETAS_PARAM["activoContratoRegistrado"], d["actReg"], "Mayor contable"],
@@ -710,30 +712,31 @@ def definicion() -> dict:
                     "(Sección 23 anterior), con la variable incluida si es probable."),
         "source": {"organization": "IFRS Foundation (HTML oficial en español)", "type": "Norma contable", "date": "",
                    "document": ("NIIF 15 párr. 9, 15-16 (contrato), 18-21 (modificaciones), 22-30 (obligaciones), 31-38 (satisfacción), "
-                                "39-45 y B14-B19 (medición del avance), 47-59 (precio y variable; restricción 56-58), 60-65 (financiación; "
+                                "39-45 y B14-B19 (medición del avance), 47-59 (precio y variable; restricción 56-57; 58 remite a B63, regalías), 60-65 (financiación; "
                                 "solución práctica 63; presentación 65), 73-90 (asignación, 76-80 precio independiente), 105-109 (activo y "
                                 "pasivo del contrato), B20-B27 (devoluciones). NIC 37 66-69 (contratos onerosos)."),
                    "url": "https://www.ifrs.org/content/dam/ifrs/publications/html-standards/spanish/2024/issued/ifrs15.html"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
                          "document": ("NIIF para las PYMES 2015, Sección 23: 23.3-23.5 (valor razonable de la contraprestación, financiación "
                                       "implícita), 23.8 (componentes), 23.10-23.13 (venta de bienes), 23.14-23.16 (servicios), 23.17-23.20 "
-                                      "(construcción), 23.21-23.22 (grado de terminación), 23.26 (pérdida esperada), 23.30-23.32 (revelación). "
+                                      "(construcción), 23.21-23.22 (grado de terminación), 23.26 (pérdida esperada), 23.30-23.31 (revelación), 23.32 (presentación, contratos de construcción). "
                                       "NIIF para las PYMES 2025 (tercera edición, vigente para períodos desde el 1-1-2027; para cortes anteriores solo con adopción anticipada), Sección 23 revisada «Ingresos de actividades ordinarias procedentes de contratos "
                                       "con clientes»: 23.6-23.13 (contrato; modificaciones 23.12 y 23A.2-23A.4), 23.14-23.22 (promesas), 23.23-23.38 "
-                                      "(precio; variable 23.26-23.31, reembolso 23.33-23.35, financiación 23.36-23.38), 23.39-23.48 (asignación), "
+                                      "(precio; variable 23.26-23.31, reembolso 23.33-23.35 y 23A.23-23A.27, financiación 23.36-23.38), 23.39-23.48 (asignación), "
                                       "23.49-23.67 (satisfacción; a lo largo del tiempo 23.54-23.56, en un momento 23.57-23.58, avance 23.62-23.66), "
-                                      "23.77-23.80 (activo y pasivo del contrato). Numeración leída en el material educativo oficial en inglés "
-                                      "(módulos 23 de 2015 y 2025, ifrs.org); VERIFICAR la redacción en la versión en español y el Apéndice 23A."),
+                                      "23.77-23.80 (activo y pasivo del contrato). Numeración verificada en el texto oficial IFRS for SMEs 2025 "
+                                      "(Sección 23 y Apéndice 23A) y en el texto oficial en español de 2015."),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
             {"document": "NIA 240", "section": "párr. 26-27 (la NIA 240 Revisada 2025 cambia la numeración; VERIFICAR vigencia)", "requirement": "Presunción de riesgo de fraude en el reconocimiento de ingresos."},
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad del anexo de contratos contra el mayor."},
             {"document": "NIA 540 (Revisada)", "section": "párr. 13 y 17-30", "requirement": "Estimaciones: variable, avance por costos, devoluciones y tasa de descuento."},
             {"document": "NIA 560", "section": "párr. 6", "requirement": "Notas de crédito y devoluciones posteriores al cierre."},
-            {"document": "NIA 330", "section": "párr. 18-20 (VERIFICAR)", "requirement": "Procedimientos sustantivos de corte y ocurrencia."},
+            {"document": "NIA 330", "section": "párr. 18-20", "requirement": "Procedimientos sustantivos de corte y ocurrencia."},
         ],
         "calculo": [
-            "Contrato válido: sin evidencia de contrato aprobado y con sustancia («No») el ingreso reconocible es cero.",
+            "Contrato válido: sin evidencia de contrato aprobado y con sustancia («No») el ingreso reconocible es cero (excepción de la contraprestación "
+            "no reembolsable, NIIF 15.15, y pasivo mientras tanto, 15.16: pendiente de decisión del socio).",
             "Variable incluida = importe más probable (o valor esperado = importe × probabilidad) solo si la probabilidad ≥ umbral de «altamente probable» (simplificación: la variable se incluye si su probabilidad supera el umbral; la NIIF 15.56 exige que sea altamente probable que no haya reversión significativa); PYMES 2015: si es mayor a 50 %.",
             "Precio de la transacción del contrato = Σ precios fijos + Σ variable incluida.",
             "Asignado = precio de la transacción × precio independiente ÷ Σ precios independientes del contrato (sin precio independiente se usa el precio del contrato).",
@@ -750,7 +753,7 @@ def definicion() -> dict:
         "program": [
             _prog("ING-01", "Existencia del contrato (REV-FULL-01 / REV-SME25-01)", "Ingresos sin acuerdo exigible", "Ocurrencia",
                   "Obtener contratos u órdenes aprobadas y evaluar los criterios de existencia", "Contratos, órdenes de compra, adendas",
-                  "Ingreso solo con contrato válido", "NIIF 15 9 · PYMES 2025 23.7 · PYMES 2015 23.10"),
+                  "Ingreso solo con contrato válido", "NIIF 15 9 · PYMES 2025 23.7 · PYMES 2015 23.10 a)-e) y 23.14 a)-d)"),
             _prog("ING-02", "Obligaciones y asignación (REV-FULL-02, 06 / REV-SME25-02, 04)", "Precio mal distribuido entre entregables", "Exactitud",
                   "Identificar obligaciones diferenciadas y recalcular la asignación por precio de venta independiente relativo",
                   "Listas de precios, cotizaciones", "Diferencia de asignación cuantificada", "NIIF 15 22-30, 73-80 · PYMES 2025 23.14-23.22, 23.42"),
@@ -765,7 +768,7 @@ def definicion() -> dict:
                   "Ingreso en el período de la transferencia", "NIIF 15 38 · NIA 330"),
             _prog("ING-06", "Devoluciones y notas de crédito (REV-04 / REV-FULL-11 / REV-SME15-07)", "Devoluciones no provisionadas", "Valoración",
                   "Evaluar la tasa de devolución esperada y cotejar notas de crédito posteriores al cierre", "Estadística de devoluciones, NC posteriores",
-                  "Pasivo por reembolso suficiente", "NIIF 15 B20-B27 · PYMES 2025 23.33-23.35 · NIA 560"),
+                  "Pasivo por reembolso suficiente", "NIIF 15 B20-B27 · PYMES 2025 23.33-23.35 y 23A.23-23A.27 · NIA 560"),
             _prog("ING-07", "Componente de financiación (REV-FULL-05 / REV-SME15-06)", "Financiación presentada como ingreso ordinario", "Clasificación",
                   "Identificar cobros diferidos más allá del umbral y descontar a la tasa de mercado", "Contratos, tasas de mercado",
                   "Interés separado del ingreso", "NIIF 15 60-65 · PYMES 2025 23.36-23.38 · PYMES 2015 23.5"),

@@ -419,11 +419,11 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             probs.append(problema("CONFIRMACION_DIFERENCIA", f"{pid}: el banco confirma {_m(c['confirmado'])} de capital y el cliente registra {_m(c['saldo_reg'])}; diferencia no explicada por costos por amortizar {_m(c['dif_conf'])} (NIA 505).",
                                   c["dif_conf"]))
         if c["confirmado"] is not None and _dif(c["confirmado"] - c["cap_c"]):
-            probs.append(problema("CONFIRMACION_VS_TABLA", f"{pid}: el saldo confirmado {_m(c['confirmado'])} no coincide con el capital de la tabla contractual {_m(c['cap_c'])}; indague prepagos, cuotas vencidas o refinanciaciones (3.3.2, B3.3.6).",
+            probs.append(problema("CONFIRMACION_VS_TABLA", f"{pid}: el saldo confirmado {_m(c['confirmado'])} no coincide con el capital de la tabla contractual {_m(c['cap_c'])}; indague prepagos, cuotas vencidas o refinanciaciones ({'PYMES 11.37; la prueba del 10 % de la NIIF 9 B3.3.6 por analogía, 10.6' if pymes else 'NIIF 9 3.3.2 y B3.3.6'}).",
                                   c["confirmado"] - c["cap_c"]))
         no_reg = c["acc_nom"] - (c["int_reg"] or 0)
         if no_reg > 0.01 and _dif(no_reg):
-            probs.append(problema("INTERES_DEVENGADO_NO_REGISTRADO", f"{pid}: interés devengado desde el último vencimiento {_m(c['acc_nom'])} y registrado {_m(c['int_reg'] or 0)} (devengo, {'PYMES 11.15' if pymes else 'NIIF 9 4.2.1 y Apéndice A'}).", no_reg))
+            probs.append(problema("INTERES_DEVENGADO_NO_REGISTRADO", f"{pid}: interés devengado desde el último vencimiento {_m(c['acc_nom'])} y registrado {_m(c['int_reg'] or 0)} (devengo, {'PYMES 11.15–11.16' if pymes else 'NIIF 9 4.2.1 y Apéndice A'}).", no_reg))
         if _dif(c["efecto_gasto"]):
             probs.append(problema("COMISIONES_A_GASTO", f"{pid}: las comisiones de {_m(c['com'])} se llevaron a gasto; forman parte de la TIE ({'PYMES 11.13 y 11.15–11.20: aunque el cliente use la tasa nominal, con comisiones materiales aplica el interés efectivo' if pymes else 'NIIF 9 5.1.1 y Apéndice A'}). Costo pendiente de amortizar al corte {_m(c['por_amortizar'])}.",
                                   -c["efecto_gasto"]))
@@ -435,7 +435,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             probs.append(problema("COVENANT_SIN_DISPENSA", f"{pid}: covenant «{c['covenant'] or 'del contrato'}» incumplido al corte sin dispensa obtenida hasta el corte con gracia ≥ 12 meses: toda la deuda es corriente ({'PYMES 4.7 d) (derecho incondicional); la NIC 1 72B/74/75 se usa por analogía (jerarquía 10.6), como juicio del auditor' if pymes else 'NIC 1 74–75'}).",
                                   c["cp"] - c["cp_venc"]))
         if c["incump"] == "Sí" and c["fecha_dispensa"] is not None and c["fecha_dispensa"] > corte_a:
-            probs.append(problema("DISPENSA_POSTERIOR", f"{pid}: la dispensa del {c['fecha_dispensa'].isoformat()} es posterior al corte: no cambia la clasificación ({'4.7' if pymes else 'NIC 1 74'}); revele como hecho posterior no ajustante ({'Sección 32' if pymes else 'NIC 1 76, NIC 10'})."))
+            probs.append(problema("DISPENSA_POSTERIOR", f"{pid}: la dispensa del {c['fecha_dispensa'].isoformat()} es posterior al corte: no cambia la clasificación ({'4.7' if pymes else 'NIC 1 74'}); revele como hecho posterior no ajustante ({'Sección 32' if pymes else 'NIC 1 76 b)–c), NIC 10'})."))
         if c["covenant"] and c["cov_cumple"] == "" and c["declarado"] != "Sí":
             probs.append(problema("COVENANT_SIN_EVALUAR", f"{pid}: covenant «{c['covenant']}» sin datos o límite de la entidad para evaluarlo; complete los parámetros."))
         if c["cp_reg"] is not None and _dif(c["cp"] - c["cp_reg"]):
@@ -512,7 +512,7 @@ def hojas(res: dict) -> list[dict]:
     entre = lambda col, r, a, b: f'SUMIFS({rng(col)},{TA_A},A{r},{TA_B},">"&{a},{TA_B},"<="&{b})'
     niif18 = d["corte"] >= "2027-01-01"
     marco = (f"NIIF para las PYMES {d['edicion']} · Sección 11 (costo amortizado, 11.13–11.20) y Sección 4 (4.7 clasificación)" if pymes else
-             ("NIIF completas · NIIF 9 (5.1.1, 4.2.1, 5.3.1 y Apéndice A) y NIIF 18 párr. 101 para la presentación (ejercicios desde 2027; la guía de covenants está en el Apéndice B, VERIFICAR números)" if niif18 else
+             ("NIIF completas · NIIF 9 (5.1.1, 4.2.1, 5.3.1 y Apéndice A) y NIIF 18 párr. 101 y B99–B106 para la presentación (ejercicios desde 2027; covenants: B100, B102–B103, B105–B106)" if niif18 else
               "NIIF completas · NIIF 9 (5.1.1, 4.2.1, 5.3.1 y Apéndice A) y NIC 1 69–76 (modificaciones 2020/2022, vigentes desde 2024)"))
     sust = {"totalActivos": "Estados financieros al corte", "patrimonio": "Estados financieros al corte (admite negativo)",
             "ebitda": "Estado de resultados; definición según el contrato (VERIFICAR)", "ebit": "Estado de resultados",
@@ -734,21 +734,21 @@ def definicion() -> dict:
         "source": {"organization": "IFRS Foundation / Unión Europea", "type": "Norma contable", "date": "",
                    "document": ("NIIF 9 Instrumentos financieros (Reglamento (UE) 2016/2067 y consolidado 2023/1803): 3.3.2 (modificación sustancial), "
                                 "4.2.1 (pasivos a costo amortizado), 5.1.1 (medición inicial con costos de transacción), 5.3.1 (costo amortizado; método del interés efectivo en el Apéndice A), "
-                                "Apéndice A (tasa de interés efectiva, costo amortizado, costos de transacción); B3.3.6 y B5.4.1–B5.4.3 (VERIFICAR texto). "
+                                "Apéndice A (tasa de interés efectiva, costo amortizado, costos de transacción); B3.3.6 (prueba del 10 %) y B5.4.1–B5.4.3 (en especial B5.4.2 c): comisiones de originación en la TIE). "
                                 "NIIF 7 párr. 7, 18–19 y 39. NIC 1 párr. 69–76 y 76ZA con las modificaciones del Reglamento (UE) 2023/2822, "
-                                "vigentes para ejercicios desde el 1-1-2024 (139U y 139W). NIIF 18 para ejercicios desde el 1-1-2027 (NIIF 18 párr. 101; la guía de covenants "
-                                "está en el Apéndice B (VERIFICAR números))."),
+                                "vigentes para ejercicios desde el 1-1-2024 (139U y 139W). NIIF 18 para ejercicios desde el 1-1-2027 (NIIF 18 párr. 101 y B99–B106; covenants "
+                                "en B100, B102–B103, B105–B106)."),
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R2822"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
                          "document": ("NIIF para las PYMES 2015: Sección 11, 11.13 (medición inicial, costos de transacción), 11.14 a) y 11.15–11.20 "
                                       "(costo amortizado y método del interés efectivo); Sección 4, 4.7 (pasivo corriente); Sección 32 (hechos "
-                                      "posteriores). Edición 2025 (tercera): mismo modelo de costo amortizado; rige desde el 1-1-2027; aplicarla antes es "
-                                      "adopción anticipada (VERIFICAR la numeración). Covenants: PYMES 4.7 d) (derecho incondicional); la NIC 1 72B/74/75 se usa por analogía (jerarquía 10.6), como juicio del auditor."),
+                                      "posteriores). Edición 2025 (tercera): mismo modelo de costo amortizado (11.13/11.13B, 11.14 a), 11.15–11.20; 4.7 sin cambios); rige desde el 1-1-2027; aplicarla antes es "
+                                      "adopción anticipada. Covenants: PYMES 4.7 d) (derecho incondicional); la NIC 1 72B/74/75 se usa por analogía (jerarquía 10.6), como juicio del auditor."),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
-            {"document": "NIA 505", "section": "párr. 7", "requirement": "Confirmación externa de saldos, tasas, garantías y covenants con los bancos."},
+            {"document": "NIA 505", "section": "párr. 7 y 14", "requirement": "Confirmación externa de saldos, tasas, garantías y covenants con los bancos."},
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad del anexo de préstamos contra el mayor y los contratos."},
-            {"document": "NIA 540 (Revisada)", "section": "párr. 13 y 17–30", "requirement": "Método (TIE), datos (contratos) y supuestos del costo amortizado."},
+            {"document": "NIA 540 (Revisada)", "section": "párr. 13, 18–30 (22–25: métodos, supuestos significativos y datos)", "requirement": "Método (TIE), datos (contratos) y supuestos del costo amortizado."},
             {"document": "NIA 560", "section": "párr. 6", "requirement": "Dispensas, refinanciaciones y pagos posteriores al cierre."},
             {"document": "NIA 570 (Revisada)", "section": "párr. 10–16", "requirement": "Incumplimientos de covenants y capacidad de pago como indicios de empresa en marcha. La NIA 570 (Revisada 2024) rige para períodos desde el 15-12-2026."},
         ],
@@ -765,6 +765,7 @@ def definicion() -> dict:
             "obtenida hasta el corte con gracia ≥ 12 meses, todo es corriente (NIC 1 74–75 / PYMES 4.7 d)).",
             "Ratios (analítica): deuda / activos, deuda / patrimonio, deuda / EBITDA, cobertura = EBITDA o EBIT ÷ gasto financiero, DSCR = efectivo "
             "disponible ÷ servicio de la deuda del ejercicio.",
+            "Nota (pendiente de decisión del socio): el contraste oficial observa que el devengo lineal por días aproxima el interés efectivo compuesto (simplificación), que DEU-07 cita NIIF 9 3.3.2/B3.3.6 también en PYMES (allí es 11.37 y la prueba del 10 % por analogía, 10.6) y que no hay control de condiciones pactadas posteriores al corte (NIC 1 76ZA).",
         ],
         "fields": _PRESTAMOS, "rules": [], "control": CONTROL, "primary": "ajuste",
         "campos": CAMPOS, "tipos": TIPOS, "parametros": dict(PARAMETROS), "etiquetas_parametros": ETIQUETAS_PARAM,
@@ -787,7 +788,7 @@ def definicion() -> dict:
              "criterion": "NIC 1 69 c), 72B y 74", "source": "NIC 1 69–76 · PYMES 4.7"},
             {"code": "DEU-06", "objective": "Endeudamiento y capacidad de pago", "risk": "Endeudamiento sobre los límites; dudas de empresa en marcha",
              "assertion": "Presentación / Revelación", "procedure": "Analizar deuda/activos, deuda/patrimonio, deuda/EBITDA, cobertura y DSCR (analítica, no requisito NIIF)",
-             "evidence": "Estados financieros, cédula 12", "criterion": "Límites contractuales", "source": "NIA 520 · NIA 570 · NIIF 7 18–19"},
+             "evidence": "Estados financieros, cédula 12", "criterion": "Límites contractuales", "source": "NIA 520 párr. 5–6 · NIA 570 · NIIF 7 18–19"},
             {"code": "DEU-07", "objective": "Modificaciones y refinanciaciones", "risk": "Refinanciación sustancial tratada como continuación",
              "assertion": "Valoración", "procedure": "Indagar diferencias confirmado vs tabla; aplicar la prueba del 10 % a las modificaciones",
              "evidence": "Adendas, confirmaciones", "criterion": "NIIF 9 3.3.2 y B3.3.6", "source": "NIIF 9 3.3.2 · NIA 560"},

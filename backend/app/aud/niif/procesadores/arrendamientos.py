@@ -88,8 +88,8 @@ PARAMETROS = {"convencionTasa": "Efectiva anual", "umbralVida": 75, "umbralVP": 
 PARAM_NEGATIVOS = ()
 ETIQUETAS_PARAM = {
     "convencionTasa": "Tasa anual del contrato (efectiva o nominal)",
-    "umbralVida": "PYMES: plazo ≥ % de la vida útil (indicador 20.5 c)",
-    "umbralVP": "PYMES: VP de pagos ≥ % del valor razonable (indicador 20.5 d)",
+    "umbralVida": "PYMES: plazo ≥ % de la vida económica (indicador 20.5 c)",
+    "umbralVP": "PYMES: VP de los pagos mínimos ≥ % del valor razonable (indicador 20.5 d)",
     "limiteBajoValor": "Límite de «bajo valor» del activo nuevo (USD)",
 }
 
@@ -296,10 +296,10 @@ def _evento(c: dict, corte: date, pymes: bool, conv: str, probs: list):
         return
     if pymes:
         c["nota_evento"] = "No aplica: la Sección 20 no tiene remedición; evalúe reclasificación (20.8)"
-        probs.append(problema("PYMES_EVENTO", f"{c['id']}: evento del {fe.isoformat()} no remedido con el modelo NIIF 16; la Sección 20 exige reevaluar la clasificación si cambian las condiciones (20.8)."))
+        probs.append(problema("PYMES_EVENTO", f"{c['id']}: evento del {fe.isoformat()} no remedido con el modelo NIIF 16; la Sección 20 solo exige reevaluar la clasificación si arrendador y arrendatario acuerdan cambiar las cláusulas, distinto de una simple renovación (20.8)."))
         return
     if c["reconoce"] == "No":
-        c["nota_evento"] = "No aplica: contrato exento (7: tratar como arrendamiento nuevo)"
+        c["nota_evento"] = "No aplica: contrato exento (si es de corto plazo, la modificación lo convierte en arrendamiento nuevo, 7; si es de escaso valor, sigue el párrafo 6)"
         return
     ke = int(_meses(c["inicio"], fe) // c["m"]) if fe >= c["inicio"] else -1
     plazo2 = c["nuevo_plazo"] if c["nuevo_plazo"] is not None else c["plazo_total"]
@@ -542,9 +542,9 @@ def hojas(res: dict) -> list[dict]:
     parametros = [
         ["Fecha de corte", d["corte"], "Ficha del encargo"],
         ["Tasa anual del contrato", p["convencionTasa"], "Efectiva: (1 + r)^(meses/12) − 1 · Nominal: r × meses/12"],
-        ["PYMES: plazo ≥ % de la vida útil", float(p["umbralVida"]), "Indicador 20.5 c; umbral de juicio del auditor; la Sección 20 no fija porcentajes"],
-        ["PYMES: VP de pagos ≥ % del valor razonable", float(p["umbralVP"]), "Indicador 20.5 d; umbral de juicio del auditor; la Sección 20 no fija porcentajes"],
-        ["Límite de bajo valor del activo nuevo (USD)", float(p["limiteBajoValor"]), "NIIF 16 B3–B8 no fija importe; el IASB pensó en activos de unos USD 5.000 o menos cuando son nuevos (Fundamentos BC100, no forman parte de la norma). Un vehículo no es de bajo valor (B6)."],
+        ["PYMES: plazo ≥ % de la vida económica", float(p["umbralVida"]), "Indicador 20.5 c; umbral de juicio del auditor; la Sección 20 no fija porcentajes"],
+        ["PYMES: VP de los pagos mínimos ≥ % del valor razonable", float(p["umbralVP"]), "Indicador 20.5 d; umbral de juicio del auditor; la Sección 20 no fija porcentajes"],
+        ["Límite de bajo valor del activo nuevo (USD)", float(p["limiteBajoValor"]), "NIIF 16 B3–B8 no fija importe; el IASB pensó en activos de unos USD 5.000 o menos cuando son nuevos (Fundamentos BC100, no forman parte de la norma). Un automóvil (coche nuevo) no es de escaso valor (B6)."],
         ["Marco y ruta de cálculo", ("NIIF para las PYMES " + d["edicion"] + " · Sección 20 (financiero/operativo)") if pymes
          else "NIIF completas · NIIF 16 (modelo único del arrendatario)",
          "Tercera edición: Sección 20 con modificaciones solo editoriales; se mantiene financiero/operativo; vigente desde el 1-1-2027; para cortes 2025–2026 solo con adopción anticipada" if pymes
@@ -828,7 +828,7 @@ def definicion() -> dict:
                     "financiero al menor entre valor razonable y VP, operativo como gasto lineal, y detecta el «derecho de uso» indebido."),
         "source": {"organization": "IFRS Foundation / Unión Europea", "type": "Norma contable", "date": "",
                    "document": ("NIIF 16 Arrendamientos (texto en español, Reglamento (UE) 2023/1803): párr. 5–8, 9, 18–21, 22–27, 29–33, 36–38, "
-                                "39–46, 47, 98–103, B3–B8, B34–B41 y Apéndice A (arrendamiento a corto plazo); NIC 1 párr. 69 (corriente; desde 2027 la NIIF 18 sustituye a la NIC 1)"),
+                                "39–46, 47, 98–103, B3–B8, B34–B41 y Apéndice A (arrendamiento a corto plazo); NIC 1 párr. 69 (corriente; desde 2027 la NIIF 18 sustituye a la NIC 1: párr. 101)"),
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
                          "document": ("NIIF para las PYMES 2015, Sección 20 Arrendamientos: 20.4–20.8 (clasificación), 20.9–20.10 (medición inicial "
@@ -838,15 +838,15 @@ def definicion() -> dict:
                                       "para cortes 2025–2026 solo con adopción anticipada."),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
-            {"document": "NIA 540 (Revisada)", "section": "párr. 13, 16–17 y 18–27 (28–30 VERIFICAR)",
+            {"document": "NIA 540 (Revisada)", "section": "párr. 13, 16–17, 18–27 y 28–30 (28: el recálculo del auditor es una estimación puntual propia; 30: NIA 500)",
              "requirement": "Estimación contable: evaluar método (VP, tabla), datos (contratos) y supuestos (tasa incremental, plazo, opciones)."},
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad del anexo de contratos contra el mayor y los contratos firmados."},
-            {"document": "NIA 505", "section": "párr. 7", "requirement": "Confirmar con arrendadores condiciones y pagos cuando sea significativo."},
+            {"document": "NIA 505", "section": "párr. 7 (decisión de confirmar: NIA 330 párr. 19)", "requirement": "Confirmar con arrendadores condiciones y pagos cuando sea significativo."},
             {"document": "NIA 560", "section": "párr. 6", "requirement": "Modificaciones, renovaciones o terminaciones posteriores al cierre."},
         ],
         "calculo": [
             "Exención (NIIF 16 párr. 5–8): corto plazo = plazo ≤ 12 meses sin opción de compra; bajo valor = activo nuevo de escaso valor (B3–B8). Solo vale si el cliente la aplicó y es elegible.",
-            "PYMES: financiero si la compra es razonablemente cierta, el plazo cubre la mayor parte de la vida útil o el VP cubre sustancialmente el valor razonable (20.5); si no, operativo.",
+            "PYMES: financiero si la compra es razonablemente cierta, el plazo cubre la mayor parte de la vida útil o el VP cubre sustancialmente el valor razonable (20.5); si no, operativo. 20.5 c habla de vida económica y el cálculo usa la vida útil del anexo: pendiente de decisión del socio.",
             "Plazo = período no cancelable + meses de renovación razonablemente cierta (18, B37).",
             "Tasa periódica: efectiva (1 + r)^(meses/12) − 1 o nominal r × meses/12. VP = VA(tasa; períodos; −pago; −opción de compra cierta; tipo).",
             "Pasivo inicial = VP − pago hecho en el comienzo (26–27). Derecho de uso = pasivo + pagos al comienzo o antes + costos directos + desmantelamiento − incentivos (24).",

@@ -696,22 +696,22 @@ def definicion() -> dict:
                                      "(VR con cambios en resultados solo si se mide con fiabilidad sin costo o esfuerzo desproporcionado; si no, "
                                      "modelo del costo de la sección 17), 16.8-16.9 (transferencias), 16.10 (revelación); VR con la guía 11.27-11.32; "
                                      "Sección 17.17-17.20 (depreciación) y 27.5-27.7 (deterioro). PYMES 2025 (tercera edición) · Sección 12 Medición "
-                                     "del valor razonable (12.22 jerarquía; 12.28-12.29 revelación), leída en el módulo educativo oficial; el texto de "
-                                     "la Sección 16 de 2025 no se leyó: VERIFICAR.",
+                                     "del valor razonable (12.22 jerarquía; 12.28-12.29 revelación). PYMES 2025 · Sección 16: numeración "
+                                     "16.1-16.10 igual a 2015; 16.7 remite a la Sección 12.",
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
             {"document": "NIA 540 (Revisada)", "section": "párr. 13, 18, 22-27 y 28-29", "requirement": "El VR, la vida útil y el importe recuperable son estimaciones: evaluar método, datos y supuestos."},
             {"document": "NIA 500 / NIA 620", "section": "NIA 500.8 (tasador de la entidad = experto de la dirección); NIA 620.9-12 solo si el auditor contrata su propio tasador", "requirement": "Evaluar competencia, objetividad y trabajo del tasador cuando el VR se basa en un experto."},
-            {"document": "NIA 500", "section": "párr. 8-9 (VERIFICAR)", "requirement": "Fiabilidad del registro de inmuebles, escrituras y contratos."},
-            {"document": "NIA 500 / NIA 330", "section": "VERIFICAR", "requirement": "Existencia y titularidad: inspección y certificados del Registro de la Propiedad."},
-            {"document": "NIA 520", "section": "párr. 5 (VERIFICAR)", "requirement": "Analítica de ingresos por alquiler frente a contratos y ocupación."},
+            {"document": "NIA 500", "section": "párr. 7 y 9", "requirement": "Fiabilidad del registro de inmuebles, escrituras y contratos."},
+            {"document": "NIA 500 / NIA 330", "section": "NIA 500 párr. A18-A20 (inspección; titularidad con certificados) · NIA 330 párr. 18", "requirement": "Existencia y titularidad: inspección y certificados del Registro de la Propiedad."},
+            {"document": "NIA 520", "section": "párr. 5", "requirement": "Analítica de ingresos por alquiler frente a contratos y ocupación."},
         ],
         "calculo": [
             "Clasificación: Venta → inventario; Uso propio → PPE; % de uso propio > umbral → PPE (NIC 40.10); resto → propiedad de inversión. "
             "Lo que no es PI se reclasifica fuera de la cuenta por su importe en libros.",
             "Costo inicial = precio de compra + desembolsos directamente atribuibles; diferencia = recalculado − registrado (NIC 40.20-21; PYMES 16.5).",
             "Ruta: completas → modelo elegido; PYMES → VR si es fiable sin costo o esfuerzo desproporcionado, si no costo (16.7-16.8). "
-            "Partida sin VR bajo el modelo de VR → costo (NIC 40.53, residual cero; PYMES 16.7 si nunca fue medible / 16.8 si dejó de serlo: el importe en libros pasa a ser el costo).",
+            "Partida sin VR bajo el modelo de VR → costo (NIC 40.53, residual cero; PYMES 16.1 y 16.7 si nunca fue medible / 16.8 si dejó de serlo: el importe en libros pasa a ser el costo).",
             "Valor razonable: ajuste = VR al corte − importe en libros, a resultados (NIC 40.35; PYMES 16.7).",
             "Modelo del costo: base = costo − terreno; dep. acumulada = base × MIN(1, meses completos ÷ (vida × 12)); dep. del año = acumulada − la "
             "de 12 meses antes; neto = costo − dep.; deterioro = MAX(0, neto − importe recuperable).",

@@ -13,7 +13,7 @@ Versión simple que cumple la norma, una cédula por prueba de la matriz del soc
    registrada = saldo final en libros.
 5. Modelo del costo cuando procede (NIC 41.30-41.33; PYMES 34.8-34.10): costo − depreciación − deterioro, y
    deterioro adicional = MAX(0, neto − importe recuperable) (NIC 36; PYMES 27).
-6. Producto agrícola (NIC 41.13 y 41.32; PYMES 34.5 / 34.9 VERIFICAR): cantidad × (VR − costo de venta) en el
+6. Producto agrícola (NIC 41.13 y 41.32; PYMES 34.5 activos al VR / 34.9 activos al costo): cantidad × (VR − costo de venta) en el
    punto de cosecha contra el valor registrado en inventario.
 
 Rutas por marco: NIIF completas → plantas productoras fuera de NIC 41 (NIC 16; su producto sí es NIC 41) y el modelo
@@ -297,7 +297,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     if abs(t["difCosecha"]) > 0.005:
         dc = [x["id"] for x in cos if abs(x["dif"]) > 0.005]
         pr.append(problema("COSECHA_NO_A_VR", f"Producto agrícola no medido a VR menos costos de venta en el punto de cosecha en {lista(dc)}: {m(t['difCosecha'])} "
-                           f"({'PYMES 34.5 / 34.9 VERIFICAR' if pymes else 'NIC 41.13 y 41.32'}; ese importe es el costo de la NIC 2).", t["difCosecha"]))
+                           f"({'PYMES 34.5 (activos al VR) / 34.9 (activos al costo)' if pymes else 'NIC 41.13 y 41.32'}; ese importe es el costo de la NIC 2).", t["difCosecha"]))
     if not cos:
         pr.append(problema("SIN_COSECHA", "No se cargó la producción agrícola cosechada: no se probó su medición en el punto de cosecha."))
 
@@ -365,11 +365,11 @@ def hojas(res: dict) -> list[dict]:
     p, t, its, cos = d["parametros"], d["tot"], d["items"], d["cos"]
     na, nc = len(its), len(cos)
     pymes = d["pymes"]
-    norma = (f"NIIF para las PYMES {d['edicion']} · sección 34" + (" (PYMES 2025: Sección 12 para el valor razonable; se elimina 34.6; vigente desde el 1-1-2027; para cortes 2025–2026 solo con adopción anticipada)" if d["edicion"] == "2025" else "")
+    norma = (f"NIIF para las PYMES {d['edicion']} · sección 34" + (" (PYMES 2025: 34.6 remite a la Sección 12 para el valor razonable (se sustituye la guía de 2015); vigente desde el 1-1-2027; para cortes 2025–2026 solo con adopción anticipada)" if d["edicion"] == "2025" else "")
              if pymes else "NIIF completas · NIC 41 y NIIF 13")
     ruta = ("PYMES: VR menos costos de venta si el VR es fácilmente determinable sin costo o esfuerzo desproporcionado; si no, costo menos "
             "depreciación y deterioro (34.2, 34.4, 34.8). PYMES 2015: plantas productoras dentro de la Sección 34. PYMES 2025: las plantas "
-            "productoras que puedan medirse por separado sin costo o esfuerzo desproporcionado pasan a la Sección 17 (34.2–34.2B; 17.3 a); "
+            "productoras que puedan medirse por separado sin costo o esfuerzo desproporcionado pasan a la Sección 17 (34.2 y 34.2A; 17.3 a; si no pueden medirse por separado, toda la planta sigue en la Sección 34); "
             "su producto sigue en la Sección 34 — pendiente de implementar en el cálculo" if pymes else
             "NIC 41: VR menos costos de venta (41.12); costo solo si el VR no es fiable y el activo ya estaba al costo (41.30-41.31); "
             "plantas productoras a NIC 16 (41.2 b)")
@@ -523,13 +523,13 @@ def definicion() -> dict:
                                      "el VR es fácilmente determinable sin costo o esfuerzo desproporcionado (34.2, 34.4-34.7; producto agrícola a "
                                      "VR menos costos de venta en la cosecha 34.5); en los demás casos modelo del costo, costo menos depreciación y "
                                      "deterioro (34.8-34.10). Conciliación de cambios: 34.7 c). PYMES 2025 (tercera edición): Sección 12 para el valor "
-                                     "razonable; se elimina 34.6; las plantas productoras que puedan medirse por separado sin costo o esfuerzo "
-                                     "desproporcionado pasan a la Sección 17 (34.2–34.2B; 17.3 a) y su producto sigue en la Sección 34; vigente "
-                                     "desde el 1-1-2027; para cortes 2025–2026 solo con adopción anticipada. VERIFICAR 34.3 y 34.9 contra el texto oficial",
+                                     "razonable (34.6 remite a ella; se sustituye la guía de 2015); las plantas productoras que puedan medirse por separado sin costo o esfuerzo "
+                                     "desproporcionado pasan a la Sección 17 (34.2 y 34.2A; 17.3 a; si no pueden medirse por separado, toda la planta sigue en la Sección 34) y su producto sigue en la Sección 34; vigente "
+                                     "desde el 1-1-2027; para cortes 2025–2026 solo con adopción anticipada. 34.3 reconocimiento; 34.9 producto agrícola en el modelo del costo",
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
             {"document": "NIA 501", "section": "párr. 4 (aplicada por analogía; el párr. 4 trata de inventarios)", "requirement": "Presenciar el recuento de los activos biológicos materiales y probar sus resultados."},
-            {"document": "NIA 540 (Revisada)", "section": "párr. 13, 16–17 y 18–27 (28–30 VERIFICAR)", "requirement": "El VR menos costos de venta es una estimación: evaluar método, datos y supuestos."},
+            {"document": "NIA 540 (Revisada)", "section": "párr. 13, 16–17, 18–27 y 28–30", "requirement": "El VR menos costos de venta es una estimación: evaluar método, datos y supuestos."},
             {"document": "NIA 500", "section": "párr. 8 si el perito es del cliente (NIA 620 solo si lo contrata el auditor)", "requirement": "Evaluar el trabajo del experto (veterinario, ingeniero forestal, biólogo o valuador)."},
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad del anexo contra el mayor y los registros de campo."},
             {"document": "NIA 330", "section": "párr. 18 y 20", "requirement": "Procedimientos sustantivos y conciliación de los estados con los registros."},
@@ -538,7 +538,8 @@ def definicion() -> dict:
             "Cantidad auditada = contada (o según registros si no se contó); diferencia física = (contada − registros) × VR menos costos de venta unitario.",
             "FVLCTS unitario = VR unitario − costo de venta unitario; FVLCTS total = cantidad auditada × FVLCTS unitario (NIC 41.12; PYMES 34.4).",
             "Ruta: NIIF completas → plantas productoras a NIC 16; costo solo si el VR no es fiable y el cliente ya medía al costo (41.30-41.31). "
-            "PYMES → VR si es fácilmente determinable sin costo o esfuerzo desproporcionado; si no, costo (34.2).",
+            "PYMES → VR si es fácilmente determinable sin costo o esfuerzo desproporcionado; si no, costo (34.2). PYMES 2025: la exclusión de plantas "
+            "productoras separables (34.2A) aún no se aplica en el cálculo: pendiente de decisión del socio.",
             "Modelo del costo: costo − depreciación − deterioro registrado; deterioro adicional = MAX(0, neto − importe recuperable).",
             "Ajuste = valor auditado − valor en libros.",
             "Cambio físico = (cantidad final − inicial) × FVLCTS unitario inicial; cambio de precio = cantidad final × (FVLCTS final − inicial) (NIC 41.51).",

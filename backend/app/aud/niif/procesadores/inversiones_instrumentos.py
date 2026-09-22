@@ -10,7 +10,7 @@ Versión simple que cumple la norma:
      (4.1.4); patrimonio → VR con cambios en resultados, o en ORI por elección irrevocable si no
      se mantiene para negociar (4.1.4, 5.7.5); derivados y fondos → VR con cambios en resultados.
    - NIIF para las PYMES (2015: Secc. 11 y 12; 2025: Secc. 11 partes I y II): deuda básica
-     (11.8 b, 11.9) → costo amortizado (11.14 a); acciones con VR medible → VR con cambios en
+     (11.8 b, 11.9; 2025: 11.9 o 11.9ZA) → costo amortizado (11.14 a); acciones con VR medible → VR con cambios en
      resultados, si no → costo menos deterioro (11.14 c); lo demás → VR con cambios en
      resultados (2015: 12.8; 2025: 11.54). Las PYMES NO tienen la categoría VR con cambios en ORI
      ni clasifican por modelo de negocio.
@@ -26,8 +26,9 @@ Versión simple que cumple la norma:
 5. Deterioro: NIIF completas, pérdida esperada = exposición × PD × LGD, 12 meses sin aumento
    significativo del riesgo (5.5.5) y vida entera con él (5.5.3); en VR con cambios en ORI la
    corrección va a ORI y no reduce el importe en libros (5.5.2). PYMES: pérdida incurrida solo con
-   evidencia objetiva (11.21) = importe en libros − VA de los flujos estimados a la TIE original
-   (11.25 a) costo amortizado; 11.25 b) costo menos deterioro), que con flujos recortados en proporción es importe en libros × % no recuperable.
+   evidencia objetiva (11.21): 11.25 a) (costo amortizado) importe en libros − VA de los flujos estimados a la TIE original;
+   11.25 b) (costo menos deterioro) importe en libros − mejor estimación del importe que se recibiría si se vendiera al cierre;
+   se aproxima como importe en libros × % no recuperable.
 6. Reclasificación: NIIF completas solo por cambio del modelo de negocio (4.4.1) con el
    tratamiento de 5.6.1–5.6.7; la elección de ORI para patrimonio es irrevocable (5.7.5).
 7. Conciliación: medición correcta − saldo en libros − ajuste de deterioro = ajuste propuesto.
@@ -58,7 +59,7 @@ _INVERSIONES = [
     campo("frecuencia", "Pagos de cupón por año", "number", False, ("frecuencia", "pagos por ano", "periodicidad")),
     campo("modelo", "Modelo de negocio", "text", False, ("modelo de negocio", "modelo", "intencion", "objetivo"),
           ejemplo="Mantener para cobrar / Cobrar y vender / Negociar"),
-    campo("sppi", "¿Flujos solo principal e intereses? (Sí/No) (NIIF completas; en PYMES se evalúan las condiciones de 11.9 a)–d))", "text", False, ("sppi", "solo principal e intereses", "instrumento basico", "basico")),
+    campo("sppi", "¿Flujos solo principal e intereses? (Sí/No) (NIIF completas; en PYMES 2015 se evalúan 11.9 a)–d); en 2025, 11.9 a)–d) o 11.9ZA)", "text", False, ("sppi", "solo principal e intereses", "instrumento basico", "basico")),
     campo("clasificacion", "Clasificación del cliente", alias=("clasificacion", "categoria", "clasificacion cliente", "medicion"),
           ejemplo="Costo amortizado / VR con cambios en ORI / VR con cambios en resultados / Costo"),
     campo("valor_razonable", "Valor razonable al corte", "number", False, ("valor razonable", "valor de mercado", "precio de mercado", "vr")),
@@ -235,9 +236,11 @@ def _fundamento(pymes: bool, ed: str, x: dict) -> str:
     if pymes:
         sec = "Secc. 11 parte I" if ed == "2025" else "Secc. 11"
         otros = "11.54 (parte II)" if ed == "2025" else "Secc. 12, 12.8"
+        basica = "11.9 o 11.9ZA" if ed == "2025" else "11.9"
         if t == "Deuda":
-            return {"CA": f"Deuda básica (11.8 b, 11.9): costo amortizado con TIE, 11.14 a ({sec}).",
-                    "VRR": f"Deuda que no cumple 11.9: VR con cambios en resultados ({otros})."}.get(e, "Indique si los flujos cumplen 11.9 (solo principal e intereses).")
+            return {"CA": f"Deuda básica (11.8 b; {basica}): costo amortizado con TIE, 11.14 a ({sec}).",
+                    "VRR": f"Deuda que no cumple {basica.replace(' o ', ' ni ')}: VR con cambios en resultados ({otros})."}.get(
+                        e, f"Indique si los flujos cumplen {basica} (solo principal e intereses).")
         if t == "Patrimonio":
             return ("Acciones con VR medible con fiabilidad: VR con cambios en resultados, 11.14 c i." if e == "VRR"
                     else "Acciones sin VR fiable: costo menos deterioro, 11.14 c ii.")
@@ -677,9 +680,9 @@ def definicion() -> dict:
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
                          "document": ("NIIF para las PYMES 2015: Secc. 11 párr. 11.8–11.9, 11.14, 11.15–11.20, 11.21–11.26, 11.27 (jerarquía); "
-                                      "Secc. 12 párr. 12.8, 12.10. NIIF para las PYMES 2025 (3.ª ed.): Secc. 11 parte I 11.8, 11.9, 11.14, "
+                                      "Secc. 12 párr. 12.8, 12.10. NIIF para las PYMES 2025 (3.ª ed.): Secc. 11 parte I 11.8, 11.9, 11.9ZA, 11.14, "
                                       "11.15–11.20, 11.21–11.26; parte II 11.14A, 11.49, 11.54, 11.55, 11.57; Secc. 12 Medición del valor razonable "
-                                      "12.14–12.17 (técnicas) y 12.18–12.21 (medición fiable), 12.22–12.27 (leídos en los módulos educativos en inglés; texto oficial en español VERIFICAR)"),
+                                      "12.14–12.17 (técnicas) y 12.18–12.21 (medición fiable), 12.22–12.27 (texto oficial IFRS Foundation, 3.ª ed. feb-2025 (inglés); no existe aún traducción oficial al español en la biblioteca)"),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
             {"document": "NIA 540 (Revisada)", "section": "párr. 13, 16–30 y 32",
@@ -689,14 +692,14 @@ def definicion() -> dict:
             {"document": "NIA 620", "section": "párr. 7", "requirement": "Uso de un experto para valoraciones de nivel 3 cuando corresponda."},
         ],
         "calculo": [
-            "Clasificación esperada por marco: NIIF 9 con modelo de negocio y SPPI (4.1.1–4.1.5, 5.7.5); PYMES con instrumento básico (11.9), "
+            "Clasificación esperada por marco: NIIF 9 con modelo de negocio y SPPI (4.1.1–4.1.5, 5.7.5); PYMES con instrumento básico (11.9; 2025: 11.9 o 11.9ZA), "
             "acciones con VR fiable (11.14 c) y el resto a VR con cambios en resultados (2015: 12.8; 2025: 11.54). PYMES no tiene VR con cambios en ORI.",
             "TIE periódica = TASA(períodos; cupón por período; −costo; nominal); control: VA de los flujos a la TIE − costo = 0.",
             "Costo amortizado al corte = VA de los flujos restantes a la TIE × (1 + TIE × fracción del período); costo amortizado limpio = menos el cupón corrido.",
             "Interés efectivo del ejercicio = costo amortizado final − inicial (o costo si se compró en el año) + cupones cobrados; contra lo registrado.",
             "Valor razonable: diferencia contra libros en VR con cambios en resultados (a resultados) o en ORI; nivel de jerarquía obligatorio (NIIF 13 72–90).",
-            "Deterioro NIIF 9: exposición × PD × LGD (12 meses 5.5.5 / vida entera 5.5.3); PYMES: con evidencia objetiva, importe en libros × % no recuperable (11.25 a) costo amortizado; 11.25 b) costo menos deterioro).",
-            "Reclasificación: solo por cambio de modelo (4.4.1) con el tratamiento 5.6.2–5.6.7; ORI de patrimonio irrevocable (5.7.5).",
+            "Deterioro NIIF 9: exposición × PD × LGD (12 meses 5.5.5 / vida entera 5.5.3); PYMES: con evidencia objetiva, importe en libros × % no recuperable, aproximación de 11.25 a) (costo amortizado: VA de los flujos estimados a la TIE original) y 11.25 b) (costo menos deterioro: mejor estimación del importe que se recibiría si se vendiera al cierre). Pendiente de decisión del socio: en costo menos deterioro, derivar el % del precio estimado de venta.",
+            "Reclasificación: solo por cambio de modelo (4.4.1) con el tratamiento 5.6.2–5.6.7; ORI de patrimonio irrevocable (5.7.5). Pendiente de decisión del socio: validar que el cambio de modelo ocurrió en el ejercicio anterior (fecha de reclasificación, apéndice A).",
             "Ajuste propuesto = (medición según la norma − saldo en libros) − (deterioro recalculado − registrado) en costo amortizado y costo.",
         ],
         "fields": _INVERSIONES, "rules": [], "control": CONTROL, "primary": "ajuste",
@@ -709,7 +712,7 @@ def definicion() -> dict:
             {"code": "INV-02", "objective": "Clasificación de instrumentos", "risk": "Categoría inconsistente con el modelo de negocio o el marco",
              "assertion": "Clasificación", "procedure": "Evaluar modelo de negocio y SPPI (NIIF 9) o instrumento básico (PYMES) y comparar con la clasificación del cliente",
              "evidence": "Políticas de inversión, actas, prospectos", "criterion": "Clasificación consistente con la norma",
-             "source": "NIIF 9 4.1.1–4.1.5 · PYMES 11.8–11.9, 11.14"},
+             "source": "NIIF 9 4.1.1–4.1.5 · PYMES 11.8–11.9 (2025: y 11.9ZA), 11.14"},
             {"code": "INV-03", "objective": "Costo amortizado", "risk": "Prima o descuento sin amortizar con la TIE", "assertion": "Valoración",
              "procedure": "Recalcular la TIE y el costo amortizado al corte", "evidence": "Prospectos, liquidaciones de compra",
              "criterion": "Diferencia cuantificada", "source": "NIIF 9 5.4.1, apéndice A · PYMES 11.15–11.20"},

@@ -22,9 +22,9 @@ pruebas de la matriz):
    N días o menos (NIC 7.7 / PYMES 7.2: «por ejemplo, tres meses o menos desde la fecha de adquisición»; guía, no límite fijo); si no, se reclasifica.
 8. Ajuste propuesto = efectivo auditado − saldo según libros (M09).
 
-Norma leída (M03): NIC 7 párr. 6–9, 45, 46, 48, 49 y NIC 1 párr. 66 d) en el Reglamento (UE)
+Norma leída (M03): NIC 7 párr. 6–8, 45, 46, 48, 49 y NIC 1 párr. 66 d) en el Reglamento (UE)
 2023/1803 (EUR-Lex, español); NIIF para las PYMES 2015 párr. 4.5 d), 7.2, 7.20, 7.21 y 11.8 a).
-PYMES 2025: numeración no leída → «VERIFICAR».
+PYMES 2025 (texto oficial en inglés): misma numeración — 4.5 d), 7.2, 7.20, 7.21 y 11.8 a).
 """
 from __future__ import annotations
 
@@ -184,11 +184,10 @@ def _opt(v):
 def _refs(p: dict) -> dict:
     if not es_pymes(p):
         return {"marco": "NIIF completas", "def": "NIC 7.6–7.7", "sob": "NIC 7.8", "restr": "NIC 7.48 y NIC 1.66 d)",
-                "comp": "NIC 7.45–7.46", "ifrs18": " (al corte 2025 aplica la NIC 1; la NIIF 18 rige para ejercicios desde el 1-1-2027)"}
+                "comp": "NIC 7.45–7.46", "ifrs18": " (al corte 2025 aplica la NIC 1; la NIIF 18 rige para ejercicios desde el 1-1-2027; desde 2027 el requisito pasa a NIIF 18 párr. 99 d))"}
     ed = edicion_pymes(p)
-    v = " (edición 2025: VERIFICAR numeración)" if ed == "2025" else ""
-    return {"marco": f"NIIF para las PYMES {ed}", "def": f"Sección 7.2{v}", "sob": f"Sección 7.2{v}",
-            "restr": f"Secciones 7.21 y 4.5 d){v}", "comp": f"Sección 7.20{v}", "ifrs18": ""}
+    return {"marco": f"NIIF para las PYMES {ed}", "def": "Sección 7.2", "sob": "Sección 7.2",
+            "restr": "Secciones 7.21 y 4.5 d)", "comp": "Sección 7.20", "ifrs18": ""}
 
 
 def _parametros(parametros: dict) -> dict:
@@ -318,7 +317,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                 pr.append(problema("SIN_CONFIRMACION", f"{nom}: sin respuesta del banco; aplique procedimientos alternativos (NIA 505).", c["libros"]))
             elif c["estadoConf"] == "No coincide":
                 pr.append(problema("CONFIRMACION_NO_COINCIDE", f"{nom}: el banco confirma {fmt_m(c['conf'])} y el estado bancario muestra "
-                                                               f"{fmt_m(c['banco'])}. Obtenga explicación del banco y del cliente (NIA 505).", c["difConf"]))
+                                                               f"{fmt_m(c['banco'])}. Obtenga explicación del banco y del cliente (NIA 505 párr. 14).", c["difConf"]))
         if c["libros"] < 0:
             pr.append(problema("SALDO_ACREEDOR", f"{nom}: saldo acreedor (sobregiro). Solo integra el efectivo si es exigible a la vista y parte "
                                                  f"integrante de la gestión del efectivo ({rf['sob']}); si no, presentarlo como pasivo financiero.", c["libros"]))
@@ -350,7 +349,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             pr.append(problema("CORTE_POSTERIOR", f"{nom}: originada el {x['origen'].isoformat()}, después del corte; no debe conciliar el saldo al cierre.", x["importe"]))
         elif x["corte"] == "Depósito acreditado tarde":
             pr.append(problema("CORTE_DEPOSITO_TARDIO", f"{nom}: el banco lo acreditó {x['diasPost']} días después del corte (más de {int(dias_corte)}). "
-                                                        "Verifique que el ingreso corresponde al ejercicio (NIA 240).", x["importe"]))
+                                                        "Verifique que el ingreso corresponde al ejercicio (NIA 240 párr. 31 y Anexo 2).", x["importe"]))
         if x["tipo"] == OT:
             pr.append(problema("OTRA_PARTIDA", f"{nom}: partida sin naturaleza definida; requiere investigación.", x["importe"]))
 
@@ -413,7 +412,7 @@ def hojas(res: dict) -> list[dict]:
     parametros = [
         ["Fecha de corte", d["corte"], "Ficha del encargo"],
         ["Partida antigua desde (días al corte)", p["diasAntiguedad"], "Juicio del auditor (antigüedad de partidas conciliatorias)"],
-        ["Días para que el banco acredite un depósito en tránsito", p["diasCorte"], "Juicio del auditor (prueba de corte, NIA 240)"],
+        ["Días para que el banco acredite un depósito en tránsito", p["diasCorte"], "Juicio del auditor (prueba de corte, NIA 240 párr. 31 y Anexo 2)"],
         ["Plazo máximo de un equivalente (días desde la adquisición)", p["plazoEquivalente"], f"{rf['def']}: «por ejemplo, tres meses o menos desde la fecha de adquisición» (guía, no límite fijo)"],
         ["Meses de restricción que la hacen no corriente", p["mesesRestriccion"], f"{rf['restr']}{rf['ifrs18']}"],
         ["Tolerancia de diferencias (USD)", p["tolerancia"], "Juicio del auditor; 0 = toda diferencia se reporta"],
@@ -606,21 +605,21 @@ def definicion() -> dict:
                     "posterior y corte), compara el saldo confirmado por el banco con el estado bancario y propone la reclasificación del "
                     "efectivo restringido y de las inversiones que no cumplen la definición de equivalentes de efectivo."),
         "source": {"organization": "IFRS Foundation · Reglamento (UE) 2023/1803", "type": "Norma contable", "date": "",
-                   "document": "NIC 7 Estado de flujos de efectivo · párr. 6–9 (definiciones, sobregiros), 45 (componentes y conciliación), "
+                   "document": "NIC 7 Estado de flujos de efectivo · párr. 6–8 (definiciones, sobregiros), 45 (componentes y conciliación), "
                                "46 (política de composición), 48–49 (saldos no disponibles); NIC 1 párr. 66 d) (restringido al menos doce meses: no corriente; "
-                               "al corte 2025 aplica la NIC 1; la NIIF 18 rige para ejercicios desde el 1-1-2027); NIIF 9 párr. 5.5.1; NIIF 7 párr. 35H–35M si el depósito exige medir pérdida esperada o revelar riesgo",
+                               "al corte 2025 aplica la NIC 1; la NIIF 18 rige para ejercicios desde el 1-1-2027 y el requisito pasa a su párr. 99 d)); NIIF 9 párr. 5.5.1; NIIF 7 párr. 35H–35M si el depósito exige medir pérdida esperada o revelar riesgo",
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
                          "document": "NIIF para las PYMES 2015: Sección 7 párr. 7.2 (equivalentes y sobregiros), 7.20 (componentes y conciliación), "
                                      "7.21 (saldos no disponibles); Sección 4 párr. 4.5 d) (restringido no corriente); Sección 11 párr. 11.8 a) "
-                                     "(efectivo, instrumento financiero básico). Edición 2025: mismas secciones, numeración VERIFICAR.",
+                                     "(efectivo, instrumento financiero básico). Edición 2025 (texto oficial en inglés): misma numeración — 4.5 d), 7.2, 7.20, 7.21 y 11.8 a).",
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
             {"document": "NIA 505", "section": "párr. 7 y 12",
              "requirement": "Confirmación bancaria bajo control del auditor; sin respuesta, procedimientos alternativos."},
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad de la información del cliente (conciliaciones y anexos)."},
             {"document": "NIA 330", "section": "párr. 20 a)", "requirement": "Conciliar los estados financieros con los registros contables."},
-            {"document": "NIA 240", "section": "(VERIFICAR párrafos)", "requirement": "Corte y movimientos alrededor del cierre como riesgo de fraude."},
+            {"document": "NIA 240", "section": "párr. 27, 31 y Anexo 2 (corte)", "requirement": "Corte y movimientos alrededor del cierre como riesgo de fraude (numeración del Manual IAASB 2023-2024; la NIA 240 revisada de 2025 cambia la numeración)."},
             {"document": "NIA 450", "section": "párr. 5 y 11", "requirement": "Acumular y evaluar las diferencias no explicadas y los ajustes."},
         ],
         "calculo": [
@@ -631,8 +630,8 @@ def definicion() -> dict:
             "no depurada si no se liquidó después del corte.",
             "Corte: partida con origen posterior al corte, o depósito en tránsito acreditado más de N días después del corte.",
             "Confirmación: saldo confirmado por el banco − saldo del estado bancario (con tolerancia).",
-            "Restringido: el monto restringido sale del efectivo (no corriente si la restricción dura al menos doce meses tras el cierre) salvo que ya se presente aparte.",
-            "Equivalentes: una inversión califica si su plazo desde la adquisición es de 90 días o menos; si no, se reclasifica a inversiones.",
+            "Restringido: el monto restringido sale del efectivo (no corriente si la restricción dura al menos doce meses tras el cierre) salvo que ya se presente aparte. Pendiente de decisión del socio: la norma (NIC 7.48 / PYMES 7.21) solo exige revelar la restricción corriente, no reclasificarla.",
+            "Equivalentes: una inversión califica si su plazo desde la adquisición es de 90 días o menos; si no, se reclasifica a inversiones. Pendiente de decisión del socio: expresarlo como N días (por defecto 90 ≈ tres meses).",
             "Ajuste propuesto = efectivo auditado − saldo según libros.",
         ],
         "fields": _CUENTAS, "rules": [], "control": CONTROL, "primary": "ajuste",
@@ -648,13 +647,13 @@ def definicion() -> dict:
              "source": "NIA 500 · NIA 330"},
             {"code": "CAJ-03", "objective": "Partidas conciliatorias y antigüedad", "risk": "Partidas antiguas o inexistentes que ocultan faltantes",
              "assertion": "Existencia", "procedure": "Cotejar cada partida con su liquidación en el estado bancario posterior y medir su antigüedad",
-             "evidence": "Estados bancarios posteriores al corte", "criterion": "Partidas liquidadas y no antiguas", "source": "NIA 500 · NIA 560 párr. 6"},
+             "evidence": "Estados bancarios posteriores al corte", "criterion": "Partidas liquidadas y no antiguas", "source": "NIA 500 párr. 6 · NIA 330 párr. 18 (NIA 560 párr. 6 solo si la partida revela un hecho posterior)"},
             {"code": "CAJ-04", "objective": "Confirmación bancaria", "risk": "Saldos o productos no reales", "assertion": "Existencia / Derechos",
              "procedure": "Confirmar saldos, restricciones y garantías con cada banco bajo control del auditor",
              "evidence": "Respuestas de los bancos", "criterion": "Confirmado = estado bancario", "source": "NIA 505"},
             {"code": "CAJ-05", "objective": "Corte", "risk": "Ingresos o pagos registrados en el período incorrecto", "assertion": "Corte",
              "procedure": "Comparar fechas en libros y en el banco de depósitos en tránsito y cheques alrededor del cierre",
-             "evidence": "Libro bancos y estados bancarios de diciembre y enero", "criterion": "Acreditación dentro de la ventana", "source": "NIA 240 · NIA 330"},
+             "evidence": "Libro bancos y estados bancarios de diciembre y enero", "criterion": "Acreditación dentro de la ventana", "source": "NIA 240 párr. 31 y Anexo 2 · NIA 330"},
             {"code": "CAJ-06", "objective": "Efectivo restringido", "risk": "Efectivo no disponible presentado como disponible",
              "assertion": "Presentación", "procedure": "Identificar restricciones, garantías y embargos; clasificar y revelar",
              "evidence": "Contratos, respuestas bancarias, actas", "criterion": "Restringido reclasificado y revelado",
