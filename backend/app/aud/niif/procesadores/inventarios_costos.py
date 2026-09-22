@@ -101,9 +101,9 @@ PARAMETROS = {
 }
 PARAM_NEGATIVOS = ()
 ETIQUETAS_PARAM = {
-    "obsDias1": "Tramo 1: más de … días sin movimiento", "obsPct1": "Tramo 1: % de provisión",
-    "obsDias2": "Tramo 2: más de … días", "obsPct2": "Tramo 2: % de provisión",
-    "obsDias3": "Tramo 3: más de … días", "obsPct3": "Tramo 3: % de provisión",
+    "obsDias1": "Tramo 1: días sin movimiento (más de)", "obsPct1": "Tramo 1: % de provisión",
+    "obsDias2": "Tramo 2: días sin movimiento (más de)", "obsPct2": "Tramo 2: % de provisión",
+    "obsDias3": "Tramo 3: días sin movimiento (más de)", "obsPct3": "Tramo 3: % de provisión",
     "saldoMayor": "Saldo del inventario según el mayor", "provisionRegistrada": "Provisión registrada (VNR / obsolescencia)",
 }
 TOTAL_EJEMPLO = "ajuste"
@@ -311,7 +311,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                            f"({m(conc['prodCap'])}): {m(conc['prodDif'])}.", conc["prodDif"]))
     if abs(t["difCostoVentas"]) > 0.005:
         dif = [x["id"] for x in mov if abs(x["dif"]) > 0.005]
-        pr.append(problema("COSTO_VENTAS", f"El costo de ventas recalculado difiere del contable en {lista(dif)}: {m(t['difCostoVentas'])} (INV-16).", t["difCostoVentas"]))
+        pr.append(problema("COSTO_VENTAS", f"El costo de ventas recalculado difiere del contable en {lista(dif)}: {m(t['difCostoVentas'])}.", t["difCostoVentas"]))
     if not mov:
         pr.append(problema("SIN_MOVIMIENTO", "No se cargó el movimiento del inventario: no se recalcula el costo de ventas."))
     if t["rebajaVnr"] > 0.005:
@@ -361,7 +361,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
 CEDULAS = [
     ("01_Resumen", "Resumen y ajuste propuesto"), ("02_Parametros", "Parámetros"), ("03_Inventario", "Inventario valorado por ítem"),
     ("04_Conteo", "Existencia: conteo vs kardex"), ("05_Prueba_costo", "Prueba de costo"), ("06_Conciliacion", "Conciliación kardex–mayor"),
-    ("07_Costo_produccion", "Costo de producción (INV-17)"), ("08_Costo_ventas", "Costo de ventas (INV-16)"), ("09_VNR", "Valor realizable neto"),
+    ("07_Costo_produccion", "Costo de producción"), ("08_Costo_ventas", "Costo de ventas"), ("09_VNR", "Valor realizable neto"),
     ("10_Obsolescencia", "Obsolescencia y lenta rotación"), ("11_Corte", "Prueba de corte"), ("12_Problemas", "Problemas encontrados"),
 ]
 PARK = ["corte", "marco", "obsDias1", "obsPct1", "obsDias2", "obsPct2", "obsDias3", "obsPct3", "saldoMayor", "provisionRegistrada"]
@@ -399,10 +399,10 @@ def hojas(res: dict) -> list[dict]:
         ["Corte del ejercicio", d["corte"], "Ficha del encargo"],
         ["Marco y ruta de cálculo", norma, "La medición es la misma en ambos marcos (menor entre costo y VNR / precio de venta menos costos de "
                                            "terminación y venta); cambian las citas. PYMES: VERIFICAR texto oficial"],
-        ["Tramo 1: más de … días sin movimiento", p["obsDias1"], "Política de la entidad o juicio del auditor (NIC 2.28; PYMES 27.2)"],
+        ["Tramo 1: días sin movimiento (más de)", p["obsDias1"], "Política de la entidad o juicio del auditor (NIC 2.28; PYMES 27.2)"],
         ["Tramo 1: % de provisión", p["obsPct1"], "Juicio del auditor con sustento"],
-        ["Tramo 2: más de … días", p["obsDias2"], ""], ["Tramo 2: % de provisión", p["obsPct2"], ""],
-        ["Tramo 3: más de … días", p["obsDias3"], ""], ["Tramo 3: % de provisión", p["obsPct3"], ""],
+        ["Tramo 2: días sin movimiento (más de)", p["obsDias2"], ""], ["Tramo 2: % de provisión", p["obsPct2"], ""],
+        ["Tramo 3: días sin movimiento (más de)", p["obsDias3"], ""], ["Tramo 3: % de provisión", p["obsPct3"], ""],
         ["Saldo del inventario según el mayor", p["saldoMayor"], "Mayor contable (en blanco: se toma el kardex)"],
         ["Provisión registrada (VNR / obsolescencia)", p["provisionRegistrada"], "Mayor contable (en blanco: 0)"],
     ]
@@ -594,26 +594,25 @@ def definicion() -> dict:
         ],
         "fields": _INVENTARIO, "rules": [], "control": CONTROL, "primary": "ajuste",
         "campos": CAMPOS, "tipos": TIPOS, "parametros": dict(PARAMETROS), "etiquetas_parametros": ETIQUETAS_PARAM,
-        "tramos": [{"k": "t1", "tramo": "Más de obsDias1 días"}, {"k": "t2", "tramo": "Más de obsDias2 días"}, {"k": "t3", "tramo": "Más de obsDias3 días"}],
         "cedulas": [[n, l] for n, l in CEDULAS],
         "program": [
             prog("INV-01", "Existencia", "Inventario inexistente o conteo no reflejado", "Existencia", "Presenciar el recuento y comparar cantidades contadas con el kardex",
-                 "Hojas de conteo, acta e instrucciones", "Diferencias valorizadas y ajustadas", "NIA 501 · spec INV-02"),
+                 "Hojas de conteo, acta e instrucciones", "Diferencias valorizadas y ajustadas", "NIA 501"),
             prog("INV-02", "Conciliación kardex–mayor", "Kardex que no respalda el saldo contable", "Integridad", "Conciliar el valor del kardex con el mayor y probar su extensión",
-                 "Kardex valorado y mayor", "Diferencia explicada o ajustada", "NIA 500 · spec INV-01"),
+                 "Kardex valorado y mayor", "Diferencia explicada o ajustada", "NIA 500"),
             prog("INV-03", "Prueba de costo", "Costo unitario sin sustento o mal calculado", "Valoración", "Cotejar el costo unitario con facturas o el costeo (FIFO / promedio)",
-                 "Facturas de compra, hojas de costeo", "Costo soportado = registrado", "NIC 2.10-2.11, 2.25 · PYMES 13.5-13.6, 13.18 · spec INV-05, INV-08"),
+                 "Facturas de compra, hojas de costeo", "Costo soportado = registrado", "NIC 2.10-2.11, 2.25 · PYMES 13.5-13.6, 13.18, INV-08"),
             prog("INV-04", "Costo de producción", "CIF fijo no absorbido capitalizado; desperdicio anormal en el costo", "Valoración",
                  "Recalcular la absorción del CIF fijo sobre la capacidad normal y el costo capitalizable", "Costeo de producción, capacidad normal",
-                 "Solo el CIF absorbido va al inventario", "NIC 2.12-2.13, 2.16 · PYMES 13.8 · spec INV-06, INV-07, INV-17"),
+                 "Solo el CIF absorbido va al inventario", "NIC 2.12-2.13, 2.16 · PYMES 13.8, INV-07, INV-17"),
             prog("INV-05", "Costo de ventas", "Costo de ventas mal determinado", "Exactitud", "Recalcular el costo de ventas con inventarios, compras y producción",
-                 "Movimiento del inventario, mayor", "Diferencia explicada", "NIC 2.34 · PYMES 13.20 · spec INV-16"),
+                 "Movimiento del inventario, mayor", "Diferencia explicada", "NIC 2.34 · PYMES 13.20"),
             prog("INV-06", "Valor realizable neto", "Inventario por encima de lo recuperable", "Valoración", "Comparar costo con VNR partida por partida con precios posteriores",
-                 "Ventas y listas de precios posteriores, costos de terminación y venta", "Rebaja a VNR registrada", "NIC 2.9, 2.28-2.33 · PYMES 27.2-27.4 · spec INV-09"),
+                 "Ventas y listas de precios posteriores, costos de terminación y venta", "Rebaja a VNR registrada", "NIC 2.9, 2.28-2.33 · PYMES 27.2-27.4"),
             prog("INV-07", "Obsolescencia y lenta rotación", "Ítems sin movimiento sin provisión", "Valoración", "Clasificar por días sin movimiento y aplicar los % de la política",
-                 "Kardex con fechas de último movimiento, política", "Provisión suficiente", "NIC 2.28 · PYMES 27.2 · spec INV-10"),
+                 "Kardex con fechas de último movimiento, política", "Provisión suficiente", "NIC 2.28 · PYMES 27.2"),
             prog("INV-08", "Corte", "Compras o ventas registradas en el período equivocado", "Corte", "Comparar la fecha de recepción o despacho con la de registro alrededor del cierre",
-                 "Guías, facturas y asientos antes y después del corte", "Sin errores de corte o ajustados", "NIA 330 · spec INV-03, INV-04"),
+                 "Guías, facturas y asientos antes y después del corte", "Sin errores de corte o ajustados", "NIA 330, INV-04"),
         ],
         "requests": [
             req("RQ-001", "Inventario valorado por ítem (kardex) con resultado del conteo", "inventario", "INV-01", "Población, conteo, costo, VNR y obsolescencia", content=inventario),

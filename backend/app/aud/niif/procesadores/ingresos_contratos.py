@@ -338,7 +338,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         if x["modo"] == TIEMPO and x["avance"] is None and x["valido"] != "No":
             pr.append(problema("AVANCE_SIN_DATOS", f"{x['id']}: sin costos incurridos y totales; el avance no se pudo medir ({cit['avance']}).", x["registrado"]))
         if x["difAvance"] is not None and abs(x["difAvance"]) > 0.005:
-            pr.append(problema("AVANCE_MAL_CALCULADO", f"{x['id']}: avance del cliente {x['avanceCli']:.2%} frente a {x['avance']:.2%} recalculado con costos ({cit['avance']}).",
+            pr.append(problema("AVANCE_MAL_CALCULADO", f"{x['id']}: avance del cliente {m(x['avanceCli'] * 100)} % frente a {m(x['avance'] * 100)} % recalculado con costos ({cit['avance']}).",
                                x["difAvance"] * (x["asignado"] or 0)))
         if x["perdida"] > 0.005:
             pr.append(problema("PERDIDA_ESPERADA", f"{x['id']}: costos totales estimados superan el precio asignado; reconozca la pérdida esperada ({cit['perdida']}).", x["perdida"]))
@@ -385,8 +385,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         "componenteFinanciero": "Componente de financiación a separar", "interesDevengado": "Interés devengado al corte",
         "pasivoReembolso": "Pasivo por reembolso (devoluciones esperadas)" if not s15 else "Provisión por devoluciones esperadas",
         "devolucionesNoProvisionadas": "Notas de crédito posteriores no provisionadas",
-        "activoContrato": n_act + " requerido", "activoRegistrado": n_act + " registrado", "difActivo": n_act + ": diferencia",
-        "pasivoContrato": n_pas + " requerido", "pasivoRegistrado": n_pas + " registrado", "difPasivo": n_pas + ": diferencia",
+        "activoContrato": n_act + " requerido", "activoRegistrado": n_act + (" registrado" if act_reg is not None else " registrado (no informado: se toma 0)"), "difActivo": n_act + ": diferencia",
+        "pasivoContrato": n_pas + " requerido", "pasivoRegistrado": n_pas + (" registrado" if pas_reg is not None else " registrado (no informado: se toma 0)"), "difPasivo": n_pas + ": diferencia",
         "difAsignacion": "Diferencias de asignación (absolutas)", "variableExceso": "Variable incluida sin cumplir la restricción",
     }
     detalle = {"cortes": {"actual": corte_a.isoformat()}, "parametros": p, "pymes": pymes, "edicion": ed, "s15": s15, "modelo": modelo,

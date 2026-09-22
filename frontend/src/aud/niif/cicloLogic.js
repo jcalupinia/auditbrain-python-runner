@@ -246,7 +246,7 @@ export function problemasDe(p) {
   const adv = reg.validation?.warnings || [];
   if (adv.length) lista.push(`${adv.length} advertencia(s) de validación: ${adv.slice(0, 3).map((w) => `fila ${w.row} · ${w.message}`).join("; ")}`);
   const exc = reg.run?.exceptions || [];
-  if (exc.length) lista.push(p.definicion?.processor ? `${exc.length} problema(s) del cálculo para evaluar (detalle abajo).` : `${exc.length} excepción(es) por partida para evaluar.`);
+  if (exc.length) lista.push(p.definicion?.processor ? `${exc.length} ${exc.length === 1 ? "problema" : "problemas"} del cálculo para evaluar (detalle abajo).` : `${exc.length} excepción(es) por partida para evaluar.`);
   return lista;
 }
 

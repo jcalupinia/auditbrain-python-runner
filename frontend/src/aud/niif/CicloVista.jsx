@@ -53,6 +53,22 @@ const FORMATOS_PAPEL = [
   ["pptx", "PowerPoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation"],
   ["html", "HTML sin conexión (y PDF)", "text/html;charset=utf-8"],
 ];
+// Procesadores instalados por ficha (cartera con tramos de mora); los demás son herramientas del catálogo.
+const PROC_FICHA = ["perdidas_incurridas_s11", "pce_simplificada_niif9"];
+// Saldo escrito por el auditor («125.000,00» o «125000.00») al formato del servidor (punto decimal, sin miles).
+export const saldoMayor = (t) => {
+  const x = String(t || "").trim().replace(/\s/g, "");
+  return x.includes(",") ? x.replace(/\./g, "").replace(",", ".") : x;
+};
+const esNumero = (v) => v !== null && v !== "" && !Number.isNaN(Number(v));
+const plural = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
+// Qué alimenta cada cédula de un procesador, según su nombre.
+const fuenteCedula = (nombre, anexos) =>
+  /Resumen/.test(nombre) ? "Resume todas las cédulas"
+    : /Parametros/.test(nombre) ? "Parámetros de la prueba"
+    : /Problemas/.test(nombre) ? "Resultado del cálculo"
+    : /Asientos|Ajuste/.test(nombre) ? "Cédulas de cálculo anteriores"
+    : plural(anexos, "anexo del cliente", "anexos del cliente");
 const TRAMOS_PI = [
   ["pv", "Corriente"], ["t30", "1 a 30 días"], ["t60", "31 a 60 días"], ["t90", "61 a 90 días"],
   ["t180", "91 a 180 días"], ["t360", "181 a 360 días"], ["t730", "361 a 730 días"], ["tmax", "Más de 730 días"],
@@ -121,7 +137,7 @@ function BaseTecnica({ prueba, taxScope, setTaxScope }) {
   const marco = marcoAplicable(d, reg.engagement?.framework);
   const nias = niasDe(d);
   const formulas = d.processor
-    ? (d.calculo || []).map((texto, i) => ({ key: i, texto, principal: i === d.calculo.length - 1 }))
+    ? (d.calculo || []).map((texto, i) => ({ key: i, texto, principal: PROC_FICHA.includes(d.processor) && i === d.calculo.length - 1 }))
     : formulasLegibles(d);
   const etiqueta = (k) => d.fields.find((f) => f.key === k)?.label || d.rules.find((r) => r.key === k)?.label || k;
   return (
@@ -167,6 +183,9 @@ function BaseTecnica({ prueba, taxScope, setTaxScope }) {
         <ol className="nf-vista-lista">
           {formulas.map((f) => <li key={f.key} className={f.principal ? "nf-ok" : ""}>{f.texto}{f.principal ? " · resultado principal" : ""}</li>)}
         </ol>
+        {d.processor && !PROC_FICHA.includes(d.processor) && reg.run?.labels?.[d.primary] && (
+          <p className="nf-ok">Resultado principal: {reg.run.labels[d.primary]}.</p>
+        )}
         <p className="muted">Se concilia con el mayor: {etiqueta(d.control)}.</p>
         {(reg.program || []).length > 0 && (
           <details>
@@ -225,7 +244,8 @@ function CedulaProcesador({ hoja }) {
 function PanelCedula({ prueba, indice, etiqueta, nombre, hojas, notas, calculo }) {
   const reg = prueba.registro;
   const hoja = hojas?.[indice];
-  const fuente = DE_CONTEXTO[nombre] || calculo.map((r) => r.document).join(" · ");
+  const derivada = prueba.definicion.processor && /Resumen|Parametros|Problemas|Asientos|Ajuste/.test(nombre || "");
+  const fuente = DE_CONTEXTO[nombre] || (derivada ? fuenteCedula(nombre, calculo.length) : calculo.map((r) => r.document).join(" · "));
   return (
     <section className="pc-panel">
       <header className="pc-panel-h">
@@ -285,6 +305,8 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
   const [cedula, setCedula] = useState(0);
   const [param, setParam] = useState(() => ({ ...(d.parametros || {}), ...Object.fromEntries(Object.entries(reg.parameters || {}).filter(([k]) => k in (d.parametros || {}))) }));
   const [tasas, setTasas] = useState(reg.parameters?.tasas || {});
+  // Tramos de mora solo en las pruebas de cartera que los usan.
+  const tramosVista = reg.run?.detalle?.tasas || d.tramos || (PROC_FICHA.includes(d.processor) ? TRAMOS_PI : null);
 
   useEffect(() => { cargarSitio().then(setSitio).catch((e) => setError(e.message || String(e))); }, []);
 
@@ -395,7 +417,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
         p = await paso("validate", {
           evidenceReviewed: true,
           evidenceReview: `Procesado desde la vista de trabajo con ${nombres.length} archivo(s): ${nombres.join(", ")}.`,
-          ledger: String(mayor || "").trim() || "0",
+          ledger: saldoMayor(mayor) || "0",
           tolerance: "0",
           acceptance: "Diferencia con el mayor pendiente de análisis al procesar.",
         });
@@ -466,7 +488,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
         >
           ✎ Editar datos
         </button>
-        <span className="muted">{d.name} · {reg.engagement?.client} · corte {reg.engagement?.cutoff}</span>
+        <span className="muted">{d.name} · {reg.engagement?.client} · corte {String(reg.engagement?.cutoff || "").split("-").reverse().join("-")}</span>
         <span style={{ flex: 1 }} />
         {ANTES_DEL_REQUERIMIENTO.includes(prueba.estado) ? (
           <button type="button" className="pc-chip accent" disabled={bloqueado} onClick={confirmar} style={{ fontWeight: 700 }}>
@@ -526,7 +548,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
               {calculo.map((r) => (
                 <button key={r.id} type="button" className="link" onClick={() => bajarModelo(r.id)}>↓ {r.document}</button>
               ))}
-              {" "}· si llega por partes (meses, bodegas), un archivo por parte con el mismo modelo: «Procesar» los une.
+              {" "}· si llega por partes (por ejemplo, meses o sucursales), un archivo por parte con el mismo modelo: «Procesar» los une.
             </p>
           )}
           <div className="nf-vista-progreso"><div style={{ width: `${obligatorios.length ? Math.round((completos / obligatorios.length) * 100) : 0}%` }} /></div>
@@ -554,26 +576,26 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
             {puedeProcesar && (
               <label className="nf-ctx-field">
                 Saldo según el mayor (opcional)
-                <input value={mayor} onChange={(e) => setMayor(e.target.value)} placeholder="Ej.: 470.00" inputMode="decimal" />
+                <input value={mayor} onChange={(e) => setMayor(e.target.value)} placeholder="Ej.: 125.000,00" inputMode="decimal" />
               </label>
             )}
             {d.processor && puedeProcesar && (
               <details className="nf-ctx-field" open={!reg.run}>
                 <summary>Parámetros de la prueba (editables; quedan en la cédula de parámetros)</summary>
                 <div className="nf-rec-row">
-                  {Object.keys(d.parametros || {}).map((k) => (
+                  {Object.keys(d.parametros || {}).filter((k) => typeof d.parametros[k] !== "object" || d.parametros[k] === null).map((k) => (
                     <label key={k} className="nf-ctx-field">
                       {d.etiquetas_parametros?.[k] || ETIQUETA_PARAM[k] || k}
                       <input value={param[k] ?? ""} onChange={(e) => setParam({ ...param, [k]: e.target.value })} style={{ width: 110 }} inputMode="decimal" />
                     </label>
                   ))}
                 </div>
-                <p className="muted">Tasa fijada por el auditor por tramo (%): déjela en blanco para usar la observada. Úsela solo con evidencia de gestión de cobro.</p>
+                {tramosVista && <p className="muted">Tasa fijada por el auditor por tramo (%): déjela en blanco para usar la observada. Úsela solo con evidencia de gestión de cobro.</p>}
                 <div className="nf-rec-row">
-                  {(reg.run?.detalle?.tasas || d.tramos || TRAMOS_PI).map((x) => (
+                  {(tramosVista || []).map((x) => (
                     <label key={x.k} className="nf-ctx-field">
                       {x.tramo}{x.tasa === null && !(x.k in tasas) ? " · no medible" : ""}
-                      <input value={tasas[x.k] ?? ""} placeholder={x.tasa === null || x.tasa === undefined ? "—" : `${(x.tasa * 100).toFixed(2)} observada`}
+                      <input value={tasas[x.k] ?? ""} placeholder={x.tasa === null || x.tasa === undefined ? "—" : `${(x.tasa * 100).toFixed(2).replace(".", ",")} observada`}
                         onChange={(e) => setTasas(Object.fromEntries(Object.entries({ ...tasas, [x.k]: e.target.value }).filter(([, v]) => String(v).trim() !== "")))} style={{ width: 130 }} />
                     </label>
                   ))}
@@ -600,14 +622,14 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
             <section className="pc-panel">
               <header className="pc-panel-h">
                 <span className="pc-panel-t">Resultado</span>
-                <span className="pc-panel-m">{reg.run.rows.length} {d.processor === "perdidas_incurridas_s11" || d.processor === "pce_simplificada_niif9" ? "facturas" : "partidas"} · motor {reg.run.engine}</span>
+                <span className="pc-panel-m">{plural(reg.run.rows.length, PROC_FICHA.includes(d.processor) ? "factura" : "partida", PROC_FICHA.includes(d.processor) ? "facturas" : "partidas")} · versión del cálculo {String(reg.run.engine || "").split(" ").pop()}</span>
               </header>
               <div className="pc-panel-b">
                 <div className="pc-tiles">
-                  {Object.entries(reg.run.totals).map(([k, v]) => (
+                  {Object.entries(reg.run.totals).sort(([a], [b]) => (b === d.primary) - (a === d.primary)).map(([k, v]) => (
                     <div key={k} className={`pc-tile ${k === d.primary ? "on" : "done"}`} style={{ cursor: "default" }}>
                       <div className="pc-tile-txt">
-                        <span className="pc-tile-t">{v}</span>
+                        <span className="pc-tile-t">{esNumero(v) ? FORMATO.n(v) : v}</span>
                         <span className="pc-tile-d">{reg.run.labels?.[k] || d.rules.find((r) => r.key === k)?.label || d.fields.find((f) => f.key === k)?.label || k}</span>
                       </div>
                     </div>
@@ -622,7 +644,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
                 {reg.run.exceptions.length > 0 && (
                   <details open>
                     <summary>{d.processor ? "Problemas del cálculo" : "Excepciones por partida"} ({reg.run.exceptions.length})</summary>
-                    <ul>{reg.run.exceptions.map((e, i) => <li key={i}>{e.row ? `Fila ${e.row} · ${e.id} · ` : ""}{e.message} · {e.amount}</li>)}</ul>
+                    <ul>{reg.run.exceptions.map((e, i) => <li key={i}>{e.row ? `Fila ${e.row} · ${e.id} · ` : ""}{e.message}{Number(e.amount) ? ` · Importe: ${FORMATO.n(e.amount)}` : ""}</li>)}</ul>
                   </details>
                 )}
               </div>
@@ -640,7 +662,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
                     <span className={`pc-tile-n ${reg.run ? "done" : "dim"}`}>{i + 1}</span>
                     <div className="pc-tile-txt">
                       <span className="pc-tile-t">{label}</span>
-                      <span className="pc-tile-d">{DE_CONTEXTO[armado.nombres[i]] || (d.processor ? `${calculo.length} anexos del cliente` : calculo.map((r) => r.document).join(" · "))}</span>
+                      <span className="pc-tile-d">{DE_CONTEXTO[armado.nombres[i]] || (d.processor ? fuenteCedula(armado.nombres[i], calculo.length) : calculo.map((r) => r.document).join(" · "))}</span>
                     </div>
                     <span className="pc-tile-st">{reg.run ? "GENERADA" : "PENDIENTE"}</span>
                   </button>

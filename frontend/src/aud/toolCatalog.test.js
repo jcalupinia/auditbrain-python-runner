@@ -9,3 +9,13 @@ describe("catálogo AUD", () => {
     expect(abrePruebasEncargo(null)).toBe(false);
   });
 });
+
+import { saldoMayor } from "./niif/CicloVista.jsx";
+describe("saldo según el mayor", () => {
+  it("acepta coma decimal y separador de miles", () => {
+    expect(saldoMayor("125.000,50")).toBe("125000.50");
+    expect(saldoMayor("125000.50")).toBe("125000.50");
+    expect(saldoMayor(" 470,00 ")).toBe("470.00");
+    expect(saldoMayor("")).toBe("");
+  });
+});

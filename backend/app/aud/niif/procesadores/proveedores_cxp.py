@@ -77,7 +77,7 @@ TOTAL_EJEMPLO = "ajusteNeto"
 
 CEDULAS = [
     ("01_Resumen", "Resumen"), ("02_Parametros", "Parámetros"), ("03_Detalle", "Detalle por documento"),
-    ("04_Aging", "Antigüedad de proveedores (aging)"), ("05_Pagos_posteriores", "Pagos posteriores al cierre"),
+    ("04_Aging", "Antigüedad de proveedores"), ("05_Pagos_posteriores", "Pagos posteriores al cierre"),
     ("06_Pasivos_no_registrados", "Búsqueda de pasivos no registrados"), ("07_Confirmaciones", "Confirmación de proveedores"),
     ("08_Corte_compras", "Corte de compras"), ("09_Costo_amortizado", "Costo amortizado e intereses implícitos"),
     ("10_Clasificacion", "Clasificación corriente / no corriente"), ("11_Ajuste", "Saldo auditado y ajustes"),
@@ -538,7 +538,7 @@ def hojas(res: dict) -> list[dict]:
               ["Relacionado", "t"], ["Moneda", "t"], ["Días desde vencimiento", "i"], ["Tramo", "t"], ["Plazo de pago (días)", "i"],
               ["Financiación implícita", "t"], ["Costo amortizado", "n"], ["Interés implícito por devengar", "n"], ["Días por vencer", "i"],
               ["No corriente", "t"], ["Importe no corriente", "n"], ["Saldo deudor", "n"]], detalle, tot_det),
-        hoja("04_Aging", "Antigüedad de proveedores (aging)", [["Tramo", "t"], ["Documentos", "i"], ["Saldo", "n"], ["% del saldo", "p"], ["Vencido", "t"]],
+        hoja("04_Aging", "Antigüedad de proveedores", [["Tramo", "t"], ["Documentos", "i"], ["Saldo", "n"], ["% del saldo", "p"], ["Vencido", "t"]],
              aging, ["TOTAL", suma("B", fin_ag, nd), suma("C", fin_ag, t["saldo"]), None, ""]),
         hoja("05_Pagos_posteriores", "Pagos posteriores al cierre",
              [["Documento", "t"], ["Proveedor", "t"], ["Días desde vencimiento", "i"], ["Saldo al corte", "n"], ["Pago informado", "n"], ["Fecha del pago", "d"],

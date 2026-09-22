@@ -440,7 +440,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         if perd and reclamo_aud - au["disp"] > 0.005:
             causa.append(f"supera el saldo no vencido ({m(au['disp'])})")
         pr.append(problema("PERDIDAS_SOBRE_LIMITE", f"Amortización de pérdidas solicitada {m(reclamo_aud)}: " + " y ".join(causa)
-                           + f". Permitida {m(amort)} (LRTI art. 11: {m(lim)} % anual, {m(plazo)} años — VERIFICAR).", exceso_perd))
+                           + f". Permitida {m(amort)} (LRTI art. 11: {m(lim)} % anual, {int(plazo) if float(plazo).is_integer() else m(plazo)} años — VERIFICAR).", exceso_perd))
     if not perd and reclamo_aud > 0.005:
         pr.append(problema("PERDIDAS_SIN_ANEXO", f"Se amortizan pérdidas por {m(reclamo_aud)} sin anexo de pérdidas por año de origen: no se pudo "
                            "verificar el saldo ni el vencimiento."))
@@ -525,7 +525,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
            "dtaReconocido": "Activo por impuesto diferido requerido", "dtlRequerido": "Pasivo por impuesto diferido requerido",
            "dtaNoReconocido": "Activo diferido no reconocido (revelar, NIC 12.81 e)", "diferidoNetoRequerido": "Impuesto diferido neto requerido (+ activo)",
            "diferidoNetoRegistrado": "Impuesto diferido neto registrado (+ activo)", "ajusteDiferido": "Ajuste al impuesto diferido neto",
-           "ajusteDiferidoResultados": "de ello, contra resultados", "ajusteDiferidoORI": "de ello, contra ORI",
+           "ajusteDiferidoResultados": "Ajuste al diferido: parte contra resultados", "ajusteDiferidoORI": "Ajuste al diferido: parte contra ORI",
            "gastoDiferidoRequerido": "Gasto (ingreso) por impuesto diferido requerido en resultados"}
     if gdr is not None:
         tot["gastoDiferidoRegistrado"] = gdr
@@ -840,8 +840,8 @@ def hojas(res: dict) -> list[dict]:
         "difReq": ("Impuesto diferido neto requerido (+ activo)", f"{_sum(DT, 'O', npt)}+{_sum(PER, 'L', nl)}", t["diferidoNetoRequerido"], ""),
         "difReg": ("Impuesto diferido neto registrado (+ activo)", f"{_sum(DT, 'Q', npt)}+{_pb('dtaPerdidasRegistrado')}", t["diferidoNetoRegistrado"], "06 + parámetros"),
         "ajDif": ("Ajuste al impuesto diferido neto", f"{A('difReq')}-{A('difReg')}", t["ajusteDiferido"], cit["dt"]),
-        "ajDifRes": ("de ello, contra resultados", f"{MOV}H{FILA0}+{MOV}H{FILA0 + 2}", t["ajusteDiferidoResultados"], "09_Movimiento"),
-        "ajDifOri": ("de ello, contra ORI", f"{MOV}H{FILA0 + 1}", t["ajusteDiferidoORI"], cit["ori"]),
+        "ajDifRes": ("Ajuste al diferido: parte contra resultados", f"{MOV}H{FILA0}+{MOV}H{FILA0 + 2}", t["ajusteDiferidoResultados"], "09_Movimiento"),
+        "ajDifOri": ("Ajuste al diferido: parte contra ORI", f"{MOV}H{FILA0 + 1}", t["ajusteDiferidoORI"], cit["ori"]),
         "gastoDifReq": ("Gasto (ingreso) diferido requerido en resultados", f"{MOV}E{fila_tot9}", t["gastoDiferidoRequerido"], "09_Movimiento"),
         "gastoDifSaldos": ("Gasto diferido según la variación de los saldos registrados sin ORI",
                            f"-({MOV}G{FILA0}-{MOV}B{FILA0})-({MOV}G{FILA0 + 2}-{MOV}B{FILA0 + 2})", d["gastoDifSaldos"], "09_Movimiento"),

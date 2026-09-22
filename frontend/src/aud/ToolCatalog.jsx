@@ -18,9 +18,14 @@ export default function ToolCatalog({ projectId }) {
   // Fichas NIIF de «Generación de herramientas NIIF»: las enviadas son el catálogo;
   // las probadas se muestran como pendientes de aprobación para poder encontrarlas.
   const [fichas, setFichas] = useState([]);
-  useEffect(() => {
-    api.cicloHerramientas().then((l) => setFichas(l.filter((h) => h.tipo === "ficha NIIF" || h.tipo === "herramienta NIIF"))).catch(() => setFichas([]));
-  }, []);
+  const [carga, setCarga] = useState("cargando");  // cargando · lista · error
+  const cargarFichas = () => {
+    setCarga("cargando");
+    api.cicloHerramientas()
+      .then((l) => { setFichas(l.filter((h) => h.tipo === "ficha NIIF" || h.tipo === "herramienta NIIF")); setCarga("lista"); })
+      .catch(() => { setFichas([]); setCarga("error"); });
+  };
+  useEffect(cargarFichas, []);
 
   if (abrePruebasEncargo(activeTool)) {
     return (
@@ -76,6 +81,13 @@ export default function ToolCatalog({ projectId }) {
   return (
     <div className="aud-catalog">
       <h2>{STRINGS.catalog_title}</h2>
+      {carga === "cargando" && <p className="muted">Cargando las herramientas del catálogo…</p>}
+      {carga === "error" && (
+        <p className="nf-error" role="alert">
+          No se pudieron cargar las herramientas NIIF (el servidor puede estar despertando).{" "}
+          <button type="button" className="link" onClick={cargarFichas}>Reintentar</button>
+        </p>
+      )}
       <div className="aud-cat-grid">
         {CATEGORIES.map((cat) => {
           const suyas = fichas.filter((f) => f.area === cat.id || String(f.area || "").toUpperCase() === cat.label.toUpperCase());
@@ -112,7 +124,7 @@ export default function ToolCatalog({ projectId }) {
                   ))}
                 </div>
               ) : (
-                <div className="aud-cat-soon">{STRINGS.coming_soon}</div>
+                <div className="aud-cat-soon">{carga === "error" ? "Sin cargar" : STRINGS.coming_soon}</div>
               )}
             </div>
           );

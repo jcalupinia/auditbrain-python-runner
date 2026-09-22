@@ -70,6 +70,8 @@ def edicion_pymes(parametros: dict) -> str:
 
 
 def problema(code: str, mensaje: str, importe=0) -> dict:
+    # El auditor ve «pendiente de verificar vigencia», no la marca interna «VERIFICAR».
+    mensaje = mensaje.replace("VERIFICAR", "pendiente de verificar vigencia")
     return {"code": code, "message": mensaje, "amount": r2(importe or 0)}
 
 

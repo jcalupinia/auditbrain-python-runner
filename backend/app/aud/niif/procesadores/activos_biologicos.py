@@ -223,7 +223,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     t["difCosecha"] = S(x["dif"] for x in cos)
 
     # Problemas (M22: cada «debe» de la norma que el cálculo no garantiza).
-    lista = lambda xs: ", ".join(xs[:6]) + (" …" if len(xs) > 6 else "")
+    lista = lambda xs: ", ".join(xs)
     ids = lambda cond: [a["id"] for a in items if cond(a)]
     n12 = "PYMES 34.4" if pymes else "NIC 41.12"
     n26 = "PYMES 34.4" if pymes else "NIC 41.26"
@@ -549,21 +549,21 @@ def definicion() -> dict:
         "program": [
             prog("BIO-01", "Clasificación", "Plantas productoras o activos fuera de alcance medidos con NIC 41", "Clasificación",
                  "Clasificar cada lote: consumo/productor, planta productora (NIC 16) o activo biológico (NIC 41)", "Descripción de lotes, políticas",
-                 "Cada lote en la norma que le corresponde", "NIC 41.1-2, 41.5-5C · PYMES 34.2 · spec BIO-01, BIO-07"),
+                 "Cada lote en la norma que le corresponde", "NIC 41.1-2, 41.5-5C · PYMES 34.2, BIO-07"),
             prog("BIO-02", "Existencia", "Animales o plantas inexistentes, mortalidad no registrada", "Existencia", "Presenciar el conteo o la estimación de biomasa y compararlo con los registros",
-                 "Actas de conteo, registros de campo, informes de mortalidad", "Diferencias valorizadas y ajustadas", "NIA 501 · spec BIO-02"),
+                 "Actas de conteo, registros de campo, informes de mortalidad", "Diferencias valorizadas y ajustadas", "NIA 501"),
             prog("BIO-03", "Valoración", "Activos no medidos a VR menos costos de venta", "Valoración", "Recalcular VR menos costos de venta con precios de mercado y costos de venta",
-                 "Cotizaciones de mercado, informes de peritos, costos de flete y comisiones", "Valor auditado = libros", "NIC 41.12, NIIF 13 · PYMES 34.4 · spec BIO-03"),
+                 "Cotizaciones de mercado, informes de peritos, costos de flete y comisiones", "Valor auditado = libros", "NIC 41.12, NIIF 13 · PYMES 34.4"),
             prog("BIO-04", "Transformación biológica", "Cambio de VR no reconocido en resultados", "Exactitud", "Separar el cambio físico y de precio y recalcular la ganancia del ejercicio",
-                 "Anexo inicial y final, mayor de resultados", "Ganancia registrada = recalculada", "NIC 41.26, 41.50-41.51 · PYMES 34.4 · spec BIO-04, BIO-05"),
+                 "Anexo inicial y final, mayor de resultados", "Ganancia registrada = recalculada", "NIC 41.26, 41.50-41.51 · PYMES 34.4, BIO-05"),
             prog("BIO-05", "Producto agrícola", "Cosecha registrada al costo y no a VR menos costos de venta", "Valoración",
                  "Recalcular la cosecha a VR menos costos de venta en el punto de cosecha", "Reportes de cosecha, precios a la fecha de cosecha",
-                 "Inventario inicial del producto = VR menos costos de venta", "NIC 41.13, 41.32 · PYMES 34.5 · spec BIO-06"),
+                 "Inventario inicial del producto = VR menos costos de venta", "NIC 41.13, 41.32 · PYMES 34.5"),
             prog("BIO-06", "Modelo del costo y deterioro", "Modelo del costo sin justificación; deterioro no reconocido", "Valoración",
                  "Evaluar la justificación del modelo del costo y comparar el neto con el importe recuperable", "Análisis de fiabilidad del VR, costeo, tasación",
-                 "Costo solo si procede; sin exceso sobre el recuperable", "NIC 41.30-41.33, NIC 36 · PYMES 34.8-34.10, 27 · spec BIO-08"),
+                 "Costo solo si procede; sin exceso sobre el recuperable", "NIC 41.30-41.33, NIC 36 · PYMES 34.8-34.10, 27"),
             prog("BIO-07", "Conciliación y revelaciones", "Conciliación de cambios incompleta", "Presentación", "Conciliar los cambios del importe en libros y el anexo con el mayor",
-                 "Movimiento del rubro, mayor", "Conciliación cuadrada y revelada", "NIC 41.50 · PYMES 34.7 (VERIFICAR) · spec BIO-10"),
+                 "Movimiento del rubro, mayor", "Conciliación cuadrada y revelada", "NIC 41.50 · PYMES 34.7 (VERIFICAR)"),
         ],
         "requests": [
             req("RQ-001", "Anexo de activos biológicos por lote con conteo, precios y movimiento", "activos", "BIO-02", "Existencia, valoración, cambio de VR y conciliación", content=activos),

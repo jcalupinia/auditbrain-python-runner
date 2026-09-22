@@ -105,7 +105,7 @@ SIN_CATEGORIA = "Sin categoría válida"
 CEDULAS = [
     ("01_Resumen", "Resumen"), ("02_Parametros", "Parámetros"), ("03_Analisis_global", "Análisis global por cuenta (NIA 520)"),
     ("04_Presentacion_ERI", "Presentación en el estado de resultados"), ("05_Transacciones", "Transacciones de la muestra"),
-    ("06_Vouching", "Vouching (soporte)"), ("07_Corte", "Corte de gastos"), ("08_Devengo", "Devengo y gastos anticipados"),
+    ("06_Vouching", "Verificación del soporte documental"), ("07_Corte", "Corte de gastos"), ("08_Devengo", "Devengo y gastos anticipados"),
     ("09_Reclasificaciones", "Reclasificaciones"), ("10_Partes_relacionadas", "Partes relacionadas"),
     ("11_Inusuales", "Partidas inusuales"), ("12_Tributario", "Referencia tributaria (Ecuador)"),
     ("13_Ajustes", "Ajustes y conciliación"), ("14_Asientos", "Asientos propuestos"), ("15_Problemas", "Problemas encontrados"),
@@ -333,13 +333,13 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         if c["actual"] < 0:
             problemas.append(problema("SALDO_ACREEDOR", f"{c['cuenta']} {c['nombre']}: cuenta de gasto con saldo acreedor; revise su naturaleza.", c["actual"]))
     if not trans:
-        problemas.append(problema("SIN_MUESTRA", "No se cargó la muestra de transacciones: vouching, corte y devengo no se ejecutaron (NIA 500, NIA 330)."))
+        problemas.append(problema("SIN_MUESTRA", "No se cargó la muestra de transacciones: verificación del soporte, corte y devengo no se ejecutaron (NIA 500, NIA 330)."))
     for t in reg:
         if t["noSoportado"]:
             problemas.append(problema("GASTO_NO_SOPORTADO", f"{t['comp']} {t['proveedor']}: gasto registrado sin soporte (NIA 500).", t["importe"]))
     sd = [t for t in reg if t["soporte"] is None]
     if sd:
-        problemas.append(problema("DATO_VOUCHING_FALTANTE", f"{len(sd)} transacción(es) sin resultado del vouching: " + ", ".join(t["comp"] for t in sd)
+        problemas.append(problema("DATO_VOUCHING_FALTANTE", f"{len(sd)} transacción(es) sin resultado de la verificación del soporte: " + ", ".join(t["comp"] for t in sd)
                                   + ". Complete la columna «Tiene soporte».", sum(t["importe"] for t in sd)))
     for t in corte_l:
         if t["otroPeriodo"]:
@@ -668,7 +668,7 @@ def hojas(res: dict) -> list[dict]:
               ["Importe", "n"], ["Cuenta", "t"], ["Proveedor", "t"], ["Soporte", "t"], ["Comprobante válido SRI", "t"],
               ["Pagado por banco", "t"], ["Parte relacionada", "t"], ["Categoría parte relacionada", "t"], ["Cuenta sugerida", "t"],
               ["Inusual", "t"], ["Registrado en el ejercicio", "t"], ["Con período de servicio", "t"]], trans, tot_tr),
-        hoja("06_Vouching", "Vouching (soporte)",
+        hoja("06_Vouching", "Verificación del soporte documental",
              [["Comprobante", "t"], ["Fecha documento", "d"], ["Cuenta", "t"], ["Proveedor", "t"], ["Importe", "n"], ["Tiene soporte", "t"],
               ["Gasto no soportado", "n"], ["Resultado", "t"]], vou, tot_vou),
         hoja("07_Corte", "Corte de gastos",
@@ -707,12 +707,12 @@ def definicion() -> dict:
              "período del servicio (desde/hasta) si es un servicio por tiempo, importe, cuenta, proveedor y las marcas del auditor (soporte, "
              "comprobante válido SRI, pagado por banco, parte relacionada y su categoría, cuenta correcta, inusual).")
     return {
-        "name": "Gastos · análisis global, vouching, corte, devengo, clasificación y partes relacionadas",
+        "name": "Gastos · análisis global, verificación del soporte, corte, devengo, clasificación y partes relacionadas",
         "area": "Costos y gastos",
         "processor": "gastos_analisis",
         "frameworks": [MARCO_COMPLETAS, MARCO_PYMES],
         "summary": ("Compara cada cuenta de gasto con el año anterior y el presupuesto frente a los umbrales de la NIA 520, prueba el soporte "
-                    "de una muestra (vouching), el corte por fechas de documento y registro y el devengo por días del servicio (gastos "
+                    "de una muestra (verificación del soporte), el corte por fechas de documento y registro y el devengo por días del servicio (gastos "
                     "anticipados llevados a resultados y gastos devengados no registrados), cuantifica reclasificaciones, totaliza las "
                     "transacciones con partes relacionadas por categoría frente a lo revelado y señala partidas presentadas como "
                     "«extraordinarias» (prohibido: NIC 1 párr. 87; PYMES 5.10) e inusuales. El requisito de desglose y las categorías de "
@@ -741,7 +741,7 @@ def definicion() -> dict:
             "(o materialidad de ejecución) y, cuando la base no es cero, |variación %| > umbral %. Sin explicación → problema (NIA 520).",
             "Presentación: gasto por línea del estado de resultados; ninguna línea o cuenta puede llamarse «extraordinaria» (NIC 1 87; PYMES 5.10). "
             "Por función: NIIF completas exige naturaleza (NIC 1 104); PYMES exige costo de ventas por separado (5.11 b).",
-            "Vouching: gasto registrado en el ejercicio sin soporte = gasto no soportado.",
+            "Verificación del soporte: gasto registrado en el ejercicio sin soporte = gasto no soportado.",
             "Corte (comprobantes sin período de servicio): documento ≤ corte y registro > corte = gasto no registrado; documento > corte y registro ≤ corte = gasto de otro período.",
             "Devengo (con período de servicio): gasto del período = importe × días del servicio hasta el corte ÷ días del servicio. Registrado en el "
             "ejercicio → anticipado = importe × días posteriores ÷ días del servicio; registrado después → devengado no registrado = gasto del período.",
@@ -761,7 +761,7 @@ def definicion() -> dict:
             {"code": "GAS-02", "objective": "Análisis global", "risk": "Variaciones inusuales no investigadas", "assertion": "Ocurrencia / Integridad",
              "procedure": "Comparar cada cuenta con el año anterior y el presupuesto, fijar el umbral e investigar las variaciones que lo exceden",
              "evidence": "Explicaciones de la gerencia corroboradas", "criterion": "Toda variación sobre el umbral explicada", "source": "NIA 520"},
-            {"code": "GAS-03", "objective": "Vouching", "risk": "Gastos sin sustento", "assertion": "Ocurrencia / Exactitud",
+            {"code": "GAS-03", "objective": "Verificación del soporte documental", "risk": "Gastos sin sustento", "assertion": "Ocurrencia / Exactitud",
              "procedure": "Cotejar la muestra con facturas, contratos, aprobaciones y pagos", "evidence": "Comprobantes de venta y de pago",
              "criterion": "Todo gasto de la muestra soportado", "source": "NIA 500 · NIA 330"},
             {"code": "GAS-04", "objective": "Corte y devengo", "risk": "Gastos de otro período, anticipados en resultados o pasivos no registrados", "assertion": "Corte",
@@ -784,9 +784,9 @@ def definicion() -> dict:
             req("RQ-001", "Sumaria de cuentas de gasto (año actual, anterior y presupuesto)", "cuentas", "GAS-01",
                 "Población a analizar y conciliar con el estado de resultados", content=cuentas),
             req("RQ-002", "Muestra de transacciones de gasto con fechas, período del servicio y marcas del auditor", "transacciones", "GAS-03",
-                "Vouching, corte, devengo, clasificación, partes relacionadas", content=trans),
+                "Verificación del soporte, corte, devengo, clasificación, partes relacionadas", content=trans),
             req("RQ-003", "Mayor de gastos y balance de comprobación al corte", None, "GAS-01", "Conciliación de la sumaria", formats=("xlsx", "pdf"), use="soporte"),
-            req("RQ-004", "Facturas, contratos, aprobaciones y comprobantes de pago de la muestra", None, "GAS-03", "Sustento del vouching",
+            req("RQ-004", "Facturas, contratos, aprobaciones y comprobantes de pago de la muestra", None, "GAS-03", "Sustento de la verificación del soporte",
                 formats=("pdf",), use="soporte"),
             req("RQ-005", "Facturas y pagos posteriores al cierre", None, "GAS-04", "Búsqueda de gastos no registrados", formats=("pdf", "xlsx"), use="soporte"),
             req("RQ-006", "Maestro de partes relacionadas y nota de revelación", None, "GAS-06", "Identificación y revelación", formats=("xlsx", "pdf", "docx"), use="soporte"),

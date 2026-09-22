@@ -756,7 +756,7 @@ def definicion() -> dict:
         "processor": "nomina_beneficios",
         "frameworks": [MARCO_COMPLETAS, MARCO_PYMES],
         "summary": ("Recalcula la nómina (bruto, horas extras, neto), los aportes IESS, el décimo tercero, el décimo cuarto, las vacaciones y el "
-                    "fondo de reserva de cada empleado; concilia nómina y mayor; verifica el roll-forward del DBO de jubilación patronal y "
+                    "fondo de reserva de cada empleado; concilia nómina y mayor; verifica el movimiento del año (saldo inicial a final) del DBO de jubilación patronal y "
                     "desahucio contra el informe actuarial, la provisión registrada y el destino de las nuevas mediciones según el marco."),
         "source": {"organization": "IFRS Foundation (texto en español del Reglamento (UE) 2023/1803)", "type": "Norma contable", "date": "",
                    "document": ("NIC 19 Retribuciones a los empleados: párr. 11–24 (corto plazo), 13–18 (ausencias remuneradas acumulativas: "
@@ -822,7 +822,7 @@ def definicion() -> dict:
             {"code": "PAY-15", "objective": "Censo actuarial", "risk": "Empleados fuera del estudio", "assertion": "Integridad",
              "procedure": "Cruzar los activos de la nómina con el censo del actuario", "evidence": "Censo enviado al actuario", "criterion": "Mismo número y empleados",
              "source": "NIA 500 (experto de la dirección) · NIA 540"},
-            {"code": "PAY-16", "objective": "DBO y roll-forward", "risk": "Informe internamente inconsistente", "assertion": "Valoración",
+            {"code": "PAY-16", "objective": "DBO y movimiento del año", "risk": "Informe internamente inconsistente", "assertion": "Valoración",
              "procedure": "Recalcular DBO final = inicial + servicio + intereses + pasados + nuevas mediciones − pagos", "evidence": "Informe actuarial",
              "criterion": "Recalculado = informe", "source": "NIC 19.120, 140–141 (VERIFICAR) · PYMES 28.41"},
             {"code": "PAY-17", "objective": "Supuestos actuariales", "risk": "Supuestos no razonables", "assertion": "Valoración",
@@ -836,7 +836,7 @@ def definicion() -> dict:
             req("RQ-001", "Anexo de empleados del ejercicio con remuneraciones, aportes, décimos, vacaciones y fondo de reserva", "empleados", "PAY-02",
                 "Población a recalcular y conciliar con el mayor", content=emp),
             req("RQ-002", "Resumen del informe actuarial por plan (jubilación patronal y desahucio)", "actuarial", "PAY-16",
-                "Roll-forward del DBO y comparación con la provisión", content=act),
+                "Movimiento del año de la obligación actuarial (DBO) y comparación con la provisión", content=act),
             req("RQ-003", "Roles de pago mensuales y contratos de trabajo", None, "PAY-02", "Sustento de sueldos, horas extras y comisiones",
                 formats=("xlsx", "pdf"), use="soporte"),
             req("RQ-004", "Planillas y comprobantes de pago del IESS (aportes y fondos de reserva)", None, "PAY-05", "Cruce de bases y pagos",

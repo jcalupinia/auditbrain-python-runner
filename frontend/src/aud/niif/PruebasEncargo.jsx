@@ -209,6 +209,16 @@ function Programa({ prueba, onAccion, ocupado }) {
   );
 }
 
+// Acciones del ciclo en lenguaje del auditor (la bitácora guarda el código).
+const ACCION_BITACORA = {
+  create: "Prueba creada", research: "Investigación de la norma", generate_program: "Programa generado", approve_program: "Programa aprobado",
+  generate_request: "Requerimiento generado", approve_request: "Requerimiento aprobado", upload: "Documento subido", reject_file: "Documento rechazado o restituido",
+  map_validate: "Datos mapeados y validados", validate: "Documentación validada y conciliada", configure: "Parámetros configurados",
+  approve_methodology: "Metodología aprobada", execute: "Prueba ejecutada", save_analysis: "Análisis guardado", return_to_data: "Devuelta a datos",
+  analyze: "Análisis generado", submit: "Enviada a revisión", approve: "Aprobada por el revisor", approve_template: "Plantilla aprobada",
+  add_note: "Nota de revisión", respond_note: "Respuesta a nota de revisión",
+};
+
 export function Prueba({ id, onCambio, onAbrir }) {
   const [prueba, setPrueba] = useState(null);
   const [error, setError] = useState("");
@@ -347,7 +357,7 @@ export function Prueba({ id, onCambio, onAbrir }) {
         <ul>
           {prueba.eventos.map((e, i) => (
             <li key={i}>
-              {e.fecha?.slice(0, 16).replace("T", " ")} · {e.actor} · {e.accion}
+              {e.fecha?.slice(0, 16).replace("T", " ")} · {e.actor} · {ACCION_BITACORA[e.accion] || e.accion}
               {e.estado_nuevo && e.estado_nuevo !== e.estado_anterior ? ` → ${nombreEstado(e.estado_nuevo)}` : ""}
             </li>
           ))}

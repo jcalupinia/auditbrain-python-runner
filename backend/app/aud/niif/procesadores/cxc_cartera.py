@@ -79,7 +79,7 @@ TOTAL_EJEMPLO = "deterioroRequerido"
 
 CEDULAS = [
     ("01_Resumen", "Resumen"), ("02_Parametros", "Parámetros"), ("03_Detalle", "Detalle por factura"),
-    ("04_Aging", "Antigüedad de la cartera (aging)"), ("05_Cobros_posteriores", "Cobros posteriores al cierre"),
+    ("04_Aging", "Antigüedad de la cartera"), ("05_Cobros_posteriores", "Cobros posteriores al cierre"),
     ("06_Circularizacion", "Circularización"), ("07_Corte_ventas", "Corte de ventas"),
     ("08_Costo_amortizado", "Costo amortizado e intereses implícitos"), ("09_Matriz_deterioro", "Matriz de deterioro"),
     ("10_Ajuste", "Deterioro requerido vs registrado"), ("11_Asientos", "Asientos propuestos"),
@@ -502,7 +502,7 @@ def hojas(res: dict) -> list[dict]:
               ["Días de mora", "i"], ["Tramo", "t"], ["Plazo de crédito (días)", "i"], ["Financiación implícita", "t"],
               ["Costo amortizado", "n"], ["Interés implícito por devengar", "n"], ["Tasa individual (%)", "x"], ["Tasa aplicada", "p"],
               ["Deterioro requerido", "n"]], detalle, tot_det),
-        hoja("04_Aging", "Antigüedad de la cartera (aging)", [["Tramo", "t"], ["Facturas", "i"], ["Saldo", "n"], ["% de la cartera", "p"], ["Vencido", "t"]],
+        hoja("04_Aging", "Antigüedad de la cartera", [["Tramo", "t"], ["Facturas", "i"], ["Saldo", "n"], ["% de la cartera", "p"], ["Vencido", "t"]],
              aging, ["TOTAL", suma("B", fin_ag, len(fl)), suma("C", fin_ag, t["saldo"]), None, ""]),
         hoja("05_Cobros_posteriores", "Cobros posteriores al cierre",
              [["Factura", "t"], ["Cliente", "t"], ["Días de mora", "i"], ["Saldo al corte", "n"], ["Cobro informado", "n"], ["Fecha del cobro", "d"],
@@ -575,9 +575,9 @@ def definicion() -> dict:
         "etiquetas_parametros": ETIQUETAS_PARAM, "tramos": [{"k": t["k"], "tramo": t["n"]} for t in TRAMOS],
         "cedulas": [[n, l] for n, l in CEDULAS],
         "program": [
-            {"code": "CXCCAR-01", "objective": "Integridad y antigüedad de la cartera", "risk": "Anexo incompleto o aging mal calculado", "assertion": "Integridad",
+            {"code": "CXCCAR-01", "objective": "Integridad y antigüedad de la cartera", "risk": "Anexo incompleto o antigüedad mal calculada", "assertion": "Integridad",
              "procedure": "Conciliar la cartera por factura con el mayor y recalcular la antigüedad al corte", "evidence": "Cartera por factura y mayor",
-             "criterion": "Diferencia dentro de tolerancia; aging recalculado", "source": "NIA 500 párr. 9"},
+             "criterion": "Diferencia dentro de tolerancia; antigüedad recalculada", "source": "NIA 500 párr. 9"},
             {"code": "CXCCAR-02", "objective": "Cobros posteriores", "risk": "Cartera vencida no recuperable", "assertion": "Valoración / Existencia",
              "procedure": "Cotejar cobros posteriores al cierre con la cartera, en especial la vencida", "evidence": "Estados de cuenta bancarios y recibos posteriores",
              "criterion": "Vencido sin cobro evaluado en el deterioro", "source": "NIA 560 párr. 6 · NIA 540"},

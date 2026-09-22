@@ -326,7 +326,8 @@ def derivar_tasas(cart: dict) -> dict:
 
 def _m(x) -> str:
     """Importe con formato de Ecuador: 1.635,00."""
-    return f"{x:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+    # Mismo redondeo que r2 (comercial), para que el texto y las cifras no difieran en 0,01.
+    return f"{float(r2(x)):,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
 
 
 def r2(x) -> str:

@@ -258,8 +258,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             pr.append(problema("POLIZA_POR_VENCER", f"Póliza {x['id']}: vence en {x['por_vencer']} días ({x['hasta'].isoformat()}); "
                                "verifique la renovación posterior al corte.", x["suma"]))
         if x["clasif"] == "Infraseguro" and x["estado"] == "Vigente":
-            pr.append(problema("INFRASEGURO_POLIZA", f"Póliza {x['id']}: suma asegurada {m(x['suma'])} cubre el {x['cob'] * 100:.2f} % del valor "
-                               f"de referencia {m(x['ref'])}; con la regla proporcional cada siniestro se indemniza al {x['factor'] * 100:.2f} %.", x["deficit"]))
+            pr.append(problema("INFRASEGURO_POLIZA", f"Póliza {x['id']}: suma asegurada {m(x['suma'])} cubre el {m(x['cob'] * 100)} % del valor "
+                               f"de referencia {m(x['ref'])}; con la regla proporcional cada siniestro se indemniza al {m(x['factor'] * 100)} %.", x["deficit"]))
         if x["dif_asig"] < -tol:
             pr.append(problema("SUMAS_ASIGNADAS_EXCEDEN", f"Póliza {x['id']}: las sumas asignadas a los activos ({m(x['asignada'])}) superan la "
                                f"suma asegurada total ({m(x['suma'])}); corrija la asignación.", -x["dif_asig"]))
@@ -280,7 +280,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                 a["estado"], f"la póliza {a['pol']} está {a['estado'].lower()} al corte")
             pr.append(problema("ACTIVO_SIN_COBERTURA", f"{a['id']} ({a['desc']}): {motivo}; exposición total {m(a['ref'])}.", a["ref"]))
         elif a["clasif"] == "Infraseguro":
-            pr.append(problema("INFRASEGURO", f"{a['id']}: cobertura {a['cob'] * 100:.2f} % (< {cmin:g} %); déficit {m(a['deficit'])}.", a["deficit"]))
+            pr.append(problema("INFRASEGURO", f"{a['id']}: cobertura {m(a['cob'] * 100)} % (< {cmin:g} %); déficit {m(a['deficit'])}.", a["deficit"]))
         elif a["clasif"] == "Sobreseguro":
             pr.append(problema("SOBRESEGURO", f"{a['id']}: suma asegurada {m(a['efec'])} supera el valor de referencia {m(a['ref'])}; la aseguradora "
                                "no indemniza más del valor real: prima pagada en exceso.", a["exceso"]))
