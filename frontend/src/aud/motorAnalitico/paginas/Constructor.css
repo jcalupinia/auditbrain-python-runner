@@ -1,0 +1,80 @@
+/* Constructor de reportes — página "reportes" del Motor de auditoría analítica.
+   Prefijo ma-reportes-. Diseño fluido desde 360 px. */
+
+.ma-reportes-encabezado { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin: 6px 0 4px; }
+.ma-reportes-titulo { display: flex; flex-direction: column; gap: 8px; flex-grow: 1; min-width: 240px; }
+.ma-reportes-breadcrumb { font-size: 13px; color: var(--ma-soft); }
+.ma-reportes-link {
+  background: none; border: 0; padding: 0; font: inherit; color: var(--ma-accent);
+  cursor: pointer; text-decoration: none;
+}
+.ma-reportes-link:hover { text-decoration: underline; }
+.ma-reportes-titulo h2 { margin: 0; font-size: 24px; }
+.ma-reportes-titulo p { margin: 0; font-size: 13.5px; color: var(--ma-soft); max-width: 780px; line-height: 1.5; }
+.ma-reportes-badge {
+  padding: 5px 11px; border-radius: 999px; background: var(--ma-p1-bg); color: var(--ma-p1);
+  font-size: 12px; font-weight: 600; white-space: nowrap;
+}
+
+.ma-reportes-layout { display: grid; grid-template-columns: minmax(260px, 400px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.ma-reportes-aside { display: flex; flex-direction: column; gap: 16px; }
+.ma-reportes-seccion { display: flex; flex-direction: column; gap: 10px; }
+.ma-reportes-seccion h3 { margin: 0; font-size: 14px; }
+.ma-reportes-titulo-fila { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.ma-reportes-nota { font-size: 12px; color: var(--ma-soft); }
+
+.ma-reportes-bases { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.ma-reportes-base {
+  min-height: 58px; padding: 9px 11px; border-radius: 10px; display: flex; flex-direction: column; gap: 2px;
+  text-align: left; cursor: not-allowed; font: inherit; color: var(--ma-text);
+  background: var(--ma-bg); border: 1px solid var(--ma-line);
+}
+.ma-reportes-base.activa { background: var(--ma-accent-dim); border-color: rgba(52, 211, 106, 0.5); }
+.ma-reportes-base-nombre { font-size: 13px; font-weight: 600; }
+.ma-reportes-base-fuente { font-size: 11.5px; color: var(--ma-soft); }
+
+.ma-reportes-campo { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--ma-soft); }
+.ma-reportes-campo select {
+  height: 40px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--ma-line);
+  background: var(--ma-bg); color: var(--ma-text); font: 13px var(--ma-sans);
+}
+.ma-reportes-filtros { display: flex; gap: 6px; flex-wrap: wrap; }
+.ma-reportes-filtro {
+  padding: 5px 9px; border-radius: 7px; background: var(--ma-panel); border: 1px solid var(--ma-line);
+  color: var(--ma-text); font-size: 12px;
+}
+.ma-reportes-agregar {
+  padding: 5px 9px; border-radius: 7px; background: transparent; border: 1px dashed var(--ma-accent);
+  color: var(--ma-accent); font: inherit; font-size: 12px; cursor: not-allowed;
+}
+
+.ma-reportes-prueba { display: flex; align-items: center; gap: 9px; min-height: 30px; font-size: 13px; }
+.ma-reportes-prueba input { width: 16px; height: 16px; accent-color: var(--ma-accent); }
+.ma-reportes-prueba-nombre { flex-grow: 1; }
+.ma-reportes-prueba-ref { font-size: 11.5px; color: var(--ma-soft); font-family: var(--ma-mono); }
+
+.ma-reportes-resultado { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.ma-reportes-barra { flex-direction: row; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ma-reportes-reporte-titulo { font-size: 14px; font-weight: 600; }
+.ma-reportes-acciones { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.ma-reportes-ejecutar { border-color: rgba(52, 211, 106, 0.5); color: var(--ma-accent); }
+
+.ma-reportes-cols2 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.ma-reportes-receta {
+  display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 9px;
+  background: var(--ma-panel); border: 1px solid var(--ma-line);
+}
+.ma-reportes-receta-nombre { flex-grow: 1; font-size: 13px; }
+
+.ma-reportes-codigo {
+  display: flex; flex-direction: column; gap: 5px; font-family: var(--ma-mono); font-size: 11.5px;
+  color: var(--ma-text); padding: 11px; border-radius: 9px; background: var(--ma-bg); border: 1px solid var(--ma-line);
+}
+
+@media (max-width: 760px) {
+  .ma-reportes-layout { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .ma-reportes-barra { flex-direction: column; align-items: stretch; }
+  .ma-reportes-acciones { margin-left: 0; }
+}
