@@ -1347,7 +1347,7 @@ const MODULES = [
   { id: "FIN", label: "CFO Intelligence" },
   { id: "CYB", label: "Cybersecurity & IT Audit" },
   { id: "DATA", label: "Data & BI Intelligence" },
-  { id: "AUTM", label: "Automatizaciones (chat)" },
+  { id: "AUT", label: "Automation Core" },
   { id: "GOV", label: "Governance Layer" },
   { id: "MKT", label: "Marketing Intelligence" },
   { id: "CRE", label: "Creative Studio" },
