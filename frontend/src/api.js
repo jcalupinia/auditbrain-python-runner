@@ -175,6 +175,18 @@ export async function motorBalancesEstados(esf, eri) {
   }));
 }
 
+// Motor de Auditoría Analítica: Render solo firma el permiso; los datos van
+// del navegador al motor (formulario AUT-2026-001, decisión X.2).
+export async function motorAnaliticoPermiso(encargo, accion) {
+  return parse(
+    await apiFetch(`${API_BASE}/api/v1/aud/motor-analitico/permiso`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ encargo, accion }),
+    })
+  );
+}
+
 // ---- Fichas de diseño de herramientas NIIF (AUD) ----
 // Viven en el backend, no en el navegador: el circuito exige que quien marca
 // una ficha como «probada» pueda ser alguien distinto de quien la diseñó.

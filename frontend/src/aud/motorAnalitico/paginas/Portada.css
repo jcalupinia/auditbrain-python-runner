@@ -1,0 +1,258 @@
+/* Portada del Motor de Auditoría Analítica — solo esta página (prefijo ma-portada-).
+   Diseño fluido desde 360px; sin anchos fijos (a diferencia del lienzo 1440px). */
+
+.ma-portada-migas {
+  font-size: 12.5px;
+  color: var(--ma-soft);
+  margin-bottom: 6px;
+}
+.ma-portada-migas span {
+  color: var(--ma-dim);
+  margin: 0 4px;
+}
+.ma-portada-migas b {
+  color: var(--ma-text);
+  font-weight: 600;
+}
+
+.ma-portada-cab {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+.ma-portada-titulo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 320px;
+}
+.ma-portada-titulo h1 {
+  margin: 0;
+  font-size: clamp(24px, 4vw, 32px);
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.ma-portada-titulo p {
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--ma-soft);
+  max-width: 720px;
+}
+
+.ma-portada-controles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+}
+.ma-portada-controles label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ma-soft);
+}
+.ma-portada-controles select {
+  height: 40px;
+  min-width: 220px;
+  padding: 0 10px;
+  border-radius: 9px;
+  border: 1px solid var(--ma-line);
+  background: var(--ma-panel);
+  color: var(--ma-text);
+  font-family: inherit;
+  font-size: 13.5px;
+}
+.ma-portada-controles select:disabled,
+.ma-portada-controles button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ma-portada-resumen {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+  gap: 14px;
+  margin: 0 0 20px;
+}
+.ma-portada-resumen .ma-tarjeta > span:first-child {
+  font-size: 12.5px;
+  color: var(--ma-soft);
+}
+.ma-portada-resumen .ma-tarjeta strong {
+  font-size: 26px;
+  font-family: var(--ma-mono);
+  font-weight: 700;
+}
+.ma-portada-prioridad {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+.ma-portada-prioridad .ma-sindatos {
+  font-style: normal;
+}
+
+.ma-portada-areas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 16px;
+  margin: 0 0 20px;
+}
+.ma-portada-areas .ma-portada-area:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+.ma-portada-area {
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  min-height: 220px;
+}
+.ma-portada-area-cab {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ma-portada-icono {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ma-panel);
+  border: 1px solid var(--ma-line);
+  color: var(--ma-soft);
+}
+.ma-portada-area-titulo {
+  font-size: 17px;
+  font-weight: 700;
+  flex-grow: 1;
+}
+.ma-portada-etiqueta {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: var(--ma-p1-bg);
+  color: var(--ma-p1);
+}
+.ma-portada-etiqueta-op {
+  background: var(--ma-accent-dim);
+  color: var(--ma-accent);
+}
+.ma-portada-area p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ma-soft);
+  line-height: 1.5;
+}
+.ma-portada-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.ma-portada-chips span {
+  padding: 4px 9px;
+  border-radius: 7px;
+  background: var(--ma-bg);
+  border: 1px solid var(--ma-line);
+  font-size: 11.5px;
+  color: var(--ma-soft);
+}
+.ma-portada-entrar {
+  margin-top: auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ma-accent);
+}
+
+.ma-portada-excepciones {
+  gap: 10px;
+  margin: 0 0 20px;
+}
+.ma-portada-excepciones-cab {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ma-portada-excepciones-cab h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+.ma-portada-excepciones-cab > span {
+  font-size: 12.5px;
+  color: var(--ma-soft);
+}
+.ma-portada-ver-agentes {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ma-accent);
+}
+.ma-portada-excepcion {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 9px 0;
+  border-top: 1px solid var(--ma-line-soft);
+  font-size: 13.5px;
+}
+.ma-portada-excepcion-reglas {
+  font-family: var(--ma-mono);
+  font-size: 12.5px;
+  color: var(--ma-soft);
+  min-width: 170px;
+}
+
+.ma-portada-pie {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--ma-line);
+  background: var(--ma-panel);
+  font-size: 12.5px;
+  color: var(--ma-soft);
+  margin: 0 0 16px;
+}
+.ma-portada-barra {
+  width: 4px;
+  height: 22px;
+  border-radius: 2px;
+  background: var(--ma-oro);
+  flex-shrink: 0;
+}
+.ma-portada-firma {
+  margin-left: auto;
+  color: var(--ma-oro);
+  font-weight: 600;
+}
+
+.ma-portada-otras {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .ma-portada-areas {
+    grid-template-columns: 1fr;
+  }
+  .ma-portada-areas .ma-portada-area:last-child:nth-child(odd) {
+    grid-column: auto;
+  }
+  .ma-portada-firma {
+    margin-left: 0;
+  }
+}
