@@ -28,7 +28,8 @@ pruebas de la matriz). Dos anexos:
    cambian por marco) frente a lo revelado en notas.
 8. Partidas inusuales: las de importe igual o mayor a la materialidad se revelan por separado (NIC 1 97; se usa la materialidad de ejecución como aproximación (NIC 1.97 se refiere a la importancia relativa)).
 9. Tributario Ecuador (referencia): sin comprobante de venta válido (LRTI art. 10 num. 1) o sin bancarización sobre el
-   umbral (LRTI art. 103, por caso entendido) → no deducible (umbral como parámetro, vigente al corte; VERIFICAR).
+   umbral (Reglamento LRTI art. 27, reforma 2024, por caso entendido; el art. 103 de la LRTI fija el uso del sistema
+   financiero) → no deducible (umbral como parámetro, vigente al corte; VERIFICAR).
 10. Ajuste propuesto al gasto = no registrados + devengados no registrados − otro período − anticipados (M09).
 
 Norma leída (M03): NIC 1 párr. 27–28, 87, 97–99, 102–105; NIC 24 párr. 18–19; NIC 8 párr. 41–42 en el
@@ -88,7 +89,7 @@ ETIQUETAS_PARAM = {
     "umbralVarPct": "Umbral de variación de la NIA 520 (%)",
     "umbralVarAbs": "Umbral de variación de la NIA 520 (importe; vacío = materialidad de ejecución)",
     "materialidadEjecucion": "Materialidad de ejecución",
-    "umbralBancarizacion": "Umbral de bancarización (USD por caso entendido — contrato —, LRTI art. 103; guía SRI; vigente al corte; VERIFICAR)",
+    "umbralBancarizacion": "Umbral de bancarización (USD por caso entendido — contrato —, Reglamento LRTI art. 27; vigente al corte; VERIFICAR)",
     "gastosSegunEri": "Total de gastos según el estado de resultados / mayor",
     "rpRevelado": "Transacciones con partes relacionadas reveladas en notas",
 }
@@ -381,7 +382,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                                       "(LRTI art. 10 num. 1; VERIFICAR norma vigente).", t["importe"]))
         if t["ndBanco"]:
             problemas.append(problema("SIN_BANCARIZACION", f"{t['comp']} {t['proveedor']}: pago mayor a {m(uban)} sin bancarización; no deducible "
-                                      "(LRTI art. 103, por caso entendido; umbral vigente al corte, VERIFICAR).", t["importe"]))
+                                      "(Reglamento LRTI art. 27, por caso entendido; umbral vigente al corte, VERIFICAR).", t["importe"]))
     fuera = sorted({t["cuenta"] for t in trans if t["cuenta"].lower() not in idx_cta})
     if fuera:
         problemas.append(problema("CUENTA_FUERA_DE_SUMARIA", "Cuentas de la muestra que no están en la sumaria: " + ", ".join(fuera) + "."))
@@ -458,7 +459,7 @@ def hojas(res: dict) -> list[dict]:
         ["Materialidad de ejecución", d["mat"], "NIA 320; revelación separada de partidas materiales: se usa la materialidad de ejecución como aproximación (NIC 1.97 se refiere a la importancia relativa)"],
         ["Umbral absoluto aplicado", fx(f'IF(B{PAR["umbralVarAbs"]}<>"",B{PAR["umbralVarAbs"]},B{PAR["materialidadEjecucion"]})', d["uabs"]),
          "Umbral de variación o, si falta, materialidad de ejecución"],
-        ["Umbral de bancarización (USD)", d["uban"], "Por caso entendido (contrato), LRTI art. 103; guía SRI — vigente al corte; VERIFICAR"],
+        ["Umbral de bancarización (USD)", d["uban"], "Por caso entendido (contrato), Reglamento LRTI art. 27 — vigente al corte; VERIFICAR"],
         ["Gastos según el estado de resultados / mayor", d["eri"], "Estado de resultados o balance de comprobación"],
         ["Partes relacionadas reveladas en notas", d["rpRev"], "Nota de partes relacionadas (NIC 24 párr. 18 / PYMES 33.9)"],
     ]
@@ -749,7 +750,7 @@ def definicion() -> dict:
             "Reclasificación: cuenta correcta según el auditor distinta de la registrada.",
             "Partes relacionadas: importe del período por categoría (NIC 24 19 / PYMES 33.10) frente a lo revelado en notas.",
             "Partida inusual con importe ≥ materialidad: revelación por separado (NIC 1 97; se usa la materialidad de ejecución como aproximación (NIC 1.97 se refiere a la importancia relativa)).",
-            "Referencia tributaria: sin comprobante válido (LRTI art. 10 num. 1), o importe > umbral de bancarización sin pago por banco (LRTI art. 103) = no deducible (VERIFICAR norma vigente).",
+            "Referencia tributaria: sin comprobante válido (LRTI art. 10 num. 1), o importe > umbral de bancarización sin pago por banco (Reglamento LRTI art. 27) = no deducible (vigente al corte; VERIFICAR).",
         ],
         "fields": _CUENTAS, "rules": [], "control": CONTROL, "primary": "ajusteGasto",
         "campos": CAMPOS, "tipos": TIPOS, "parametros": dict(PARAMETROS), "etiquetas_parametros": ETIQUETAS_PARAM,
