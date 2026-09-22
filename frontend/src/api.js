@@ -1052,3 +1052,52 @@ export async function downloadIctJob(jobId, suggestedFilename) {
   a.remove();
   URL.revokeObjectURL(url);
 }
+
+// ---------- Automatizaciones · cuentas de clientes (Command Center AUT) ----------
+
+const AUT_BASE = `${API_BASE}/api/v1/staff/automatizaciones/cuentas`;
+
+export async function listAutCuentas(clientId) {
+  const qs = clientId ? `?client_id=${encodeURIComponent(clientId)}` : "";
+  return parse(await apiFetch(`${AUT_BASE}${qs}`, { headers: authHeaders() }));
+}
+
+export async function createAutCuenta(payload) {
+  return parse(
+    await apiFetch(AUT_BASE, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+    })
+  );
+}
+
+export async function reenviarAccesoAut(id) {
+  return parse(
+    await apiFetch(`${AUT_BASE}/${id}/reenviar-acceso`, { method: "POST", headers: authHeaders() })
+  );
+}
+
+export async function suspenderAut(id) {
+  return parse(
+    await apiFetch(`${AUT_BASE}/${id}/suspender`, { method: "POST", headers: authHeaders() })
+  );
+}
+
+export async function reactivarAut(id) {
+  return parse(
+    await apiFetch(`${AUT_BASE}/${id}/reactivar`, { method: "POST", headers: authHeaders() })
+  );
+}
+
+export async function refrescarEmpresaAut(id) {
+  return parse(
+    await apiFetch(`${AUT_BASE}/${id}/refrescar-empresa`, { method: "POST", headers: authHeaders() })
+  );
+}
+
+export async function borrarAutCuenta(id) {
+  return parse(
+    await apiFetch(`${AUT_BASE}/${id}?confirmado=true`, { method: "DELETE", headers: authHeaders() })
+  );
+}

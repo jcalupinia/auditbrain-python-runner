@@ -238,3 +238,76 @@ describe("API de cuentas de recursos (consola REC)", () => {
     expect(JSON.parse(opts.body)).toEqual({ new_password: "Abcdefgh1", enviar_correo: false });
   });
 });
+
+describe("API de cuentas de Automatizaciones (consola AUT)", () => {
+  beforeEach(() => {
+    globalThis.localStorage.store = {};
+    globalThis.localStorage.setItem("ab_token", "token-de-prueba");
+    vi.restoreAllMocks();
+  });
+
+  it("listAutCuentas sin client_id hace GET sin query", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse([]));
+    await api.listAutCuentas();
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/api\/v1\/staff\/automatizaciones\/cuentas$/);
+    expect(opts.headers.Authorization).toBe("Bearer token-de-prueba");
+  });
+
+  it("listAutCuentas con client_id agrega el query param", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse([]));
+    await api.listAutCuentas(9);
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/api\/v1\/staff\/automatizaciones\/cuentas\?client_id=9$/);
+  });
+
+  it("createAutCuenta hace POST con el payload en JSON", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(jsonResponse({ id: 1, estado: "activa" }));
+    const payload = {
+      client_id: 9,
+      herramienta: "PRESUPUESTOS_IA",
+      empresa_nombre: "ACME S.A.",
+      admin_nombre: "Ana",
+      admin_email: "ana@acme.ec",
+      vigencia_hasta: null,
+    };
+    await api.createAutCuenta(payload);
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/api\/v1\/staff\/automatizaciones\/cuentas$/);
+    expect(opts.method).toBe("POST");
+    expect(opts.headers["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(opts.body)).toEqual(payload);
+  });
+
+  it("reenviarAccesoAut, suspenderAut y reactivarAut hacen POST a su acción", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(() => Promise.resolve(jsonResponse({ id: 3 })));
+    await api.reenviarAccesoAut(3);
+    await api.suspenderAut(3);
+    await api.reactivarAut(3);
+    const urls = fetchMock.mock.calls.map((c) => c[0]);
+    expect(urls[0]).toMatch(/\/cuentas\/3\/reenviar-acceso$/);
+    expect(urls[1]).toMatch(/\/cuentas\/3\/suspender$/);
+    expect(urls[2]).toMatch(/\/cuentas\/3\/reactivar$/);
+    fetchMock.mock.calls.forEach((c) => expect(c[1].method).toBe("POST"));
+  });
+
+  it("refrescarEmpresaAut hace POST a refrescar-empresa", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ id: 3 }));
+    await api.refrescarEmpresaAut(3);
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/cuentas\/3\/refrescar-empresa$/);
+    expect(opts.method).toBe("POST");
+  });
+
+  it("borrarAutCuenta hace DELETE con confirmado=true", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }));
+    await api.borrarAutCuenta(3);
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/cuentas\/3\?confirmado=true$/);
+    expect(opts.method).toBe("DELETE");
+  });
+});

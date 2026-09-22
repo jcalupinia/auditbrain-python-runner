@@ -1347,7 +1347,7 @@ const MODULES = [
   { id: "FIN", label: "CFO Intelligence" },
   { id: "CYB", label: "Cybersecurity & IT Audit" },
   { id: "DATA", label: "Data & BI Intelligence" },
-  { id: "AUT", label: "Automation Core" },
+  { id: "AUTM", label: "Automatizaciones (chat)" },
   { id: "GOV", label: "Governance Layer" },
   { id: "MKT", label: "Marketing Intelligence" },
   { id: "CRE", label: "Creative Studio" },
@@ -2348,6 +2348,272 @@ function RecursosCuentas({ isAdmin }) {
   );
 }
 
+/* ---------------- Automatizaciones · cuentas de clientes (AUT) ---------------- */
+const AUT_HERRAMIENTAS = [
+  { value: "PRESUPUESTOS_IA", label: "Presupuestos con IA", enabled: true },
+  { value: "PLANIFICACION_IA", label: "Planificación Estratégica con IA", enabled: false },
+];
+function autHerramientaLabel(code) {
+  return AUT_HERRAMIENTAS.find((h) => h.value === code)?.label || code;
+}
+// El backend nunca expone el detalle real de un 502 (puede traer fragmentos de
+// la respuesta remota); solo manda este mensaje genérico. Lo completamos aquí
+// con la pista operativa que pide el plan (servidor de oficina apagado).
+function autFriendlyError(e) {
+  const m = (e && e.message) || String(e);
+  return m.includes("Presupuestos IA")
+    ? "No se pudo contactar al servidor de Presupuestos IA. Verifique que el servidor de la oficina esté encendido."
+    : m;
+}
+
+const AUT_COLS = {
+  gridTemplateColumns: "1.1fr 1.4fr 1.2fr 1.6fr 0.9fr 1fr 0.9fr 2.1fr",
+};
+
+function AutomatizacionesCuentas({ isAdmin }) {
+  const [rows, setRows] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [busy, setBusy] = useState(true);
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+  // Acciones en curso por control: "id:acceso" | "id:estado" | "id:empresa" | "id:borrar"
+  const [pending, setPending] = useState(() => new Set());
+  const marcar = (k, on) =>
+    setPending((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(k); else next.delete(k);
+      return next;
+    });
+
+  const blank = {
+    client_id: "", herramienta: "PRESUPUESTOS_IA", empresa_nombre: "",
+    admin_nombre: "", admin_email: "", vigencia_hasta: "",
+  };
+  const [form, setForm] = useState(blank);
+  const [creating, setCreating] = useState(false);
+
+  // Borrado con confirmación escrita (el admin debe escribir el correo)
+  const [delTarget, setDelTarget] = useState(null);
+  const [delText, setDelText] = useState("");
+
+  const reload = useCallback(async () => {
+    setBusy(true); setErr("");
+    try { setRows(await api.listAutCuentas()); }
+    catch (e) { setErr(autFriendlyError(e)); }
+    finally { setBusy(false); }
+  }, []);
+  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { api.listClients().then(setClients).catch(() => {}); }, []);
+
+  const patch = (id, cambios) =>
+    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...cambios } : r)));
+
+  async function accion(r, key, fn) {
+    const k = `${r.id}:${key}`;
+    if (pending.has(k)) return;
+    setErr(""); setMsg(""); marcar(k, true);
+    try {
+      patch(r.id, await fn(r.id));
+    } catch (e) { setErr(autFriendlyError(e)); }
+    finally { marcar(k, false); }
+  }
+
+  async function submitAlta(e) {
+    e.preventDefault(); setErr(""); setMsg("");
+    if (!form.client_id) { setErr("Selecciona el cliente."); return; }
+    setCreating(true);
+    try {
+      const nueva = await api.createAutCuenta({
+        client_id: Number(form.client_id),
+        herramienta: form.herramienta,
+        empresa_nombre: form.empresa_nombre.trim(),
+        admin_nombre: form.admin_nombre.trim(),
+        admin_email: form.admin_email.trim(),
+        vigencia_hasta: form.vigencia_hasta || null,
+      });
+      setRows((rs) => [nueva, ...rs]);
+      setMsg(`Cuenta creada para ${nueva.admin_email}. Se envió el correo de acceso.`);
+      setForm(blank);
+    } catch (e) { setErr(autFriendlyError(e)); }
+    finally { setCreating(false); }
+  }
+
+  function askBorrar(r) { setErr(""); setDelText(""); setDelTarget(r); }
+  function closeBorrar() { setDelTarget(null); setDelText(""); }
+  async function confirmBorrar() {
+    const k = `${delTarget.id}:borrar`;
+    if (pending.has(k)) return;
+    if (delText.trim().toLowerCase() !== delTarget.admin_email.toLowerCase()) return;
+    setErr(""); marcar(k, true);
+    try {
+      await api.borrarAutCuenta(delTarget.id);
+      setRows((rs) => rs.filter((r) => r.id !== delTarget.id));
+      closeBorrar();
+    } catch (e) { setErr(autFriendlyError(e)); }
+    finally { marcar(k, false); }
+  }
+
+  const clientLabel = (c) => c?.name ?? c?.razon_social ?? c?.nombre ?? `Cliente #${c?.id}`;
+  const delBusy = delTarget && pending.has(`${delTarget.id}:borrar`);
+  const delOk = delTarget && delText.trim().toLowerCase() === delTarget.admin_email.toLowerCase();
+
+  return (
+    <>
+      <ViewHead code="AUT" title="Automatizaciones · Cuentas de clientes"
+        sub="Alta y ciclo de vida de las cuentas de las herramientas de automatización de los clientes." />
+
+      <div className="notice">
+        El administrador recibe un correo desde <b>no-responder@audit-ia.ec</b> con
+        un enlace para definir su propia contraseña. La firma nunca conoce la clave.
+      </div>
+
+      {delTarget && (
+        <div onClick={() => !delBusy && closeBorrar()}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: "var(--panel, #0a2342)", color: "var(--text, #e8eef6)",
+              border: "1px solid var(--border, #21456e)", borderRadius: 12, padding: 24,
+              width: 460, maxWidth: "92vw", boxShadow: "0 20px 60px rgba(0,0,0,.5)" }}>
+            <h3 style={{ marginTop: 0 }}>⚠️ Borrar cuenta de automatizaciones</h3>
+            <p className="muted">
+              Se borrará el acceso de <b>{delTarget.admin_nombre}</b> ({delTarget.admin_email})
+              a <b>{autHerramientaLabel(delTarget.herramienta)}</b>. La empresa, sus miembros y
+              su histórico de presupuestos <b>no</b> se tocan. Esta acción es irreversible.
+            </p>
+            <label>Escribe el correo del administrador para confirmar</label>
+            <input type="text" value={delText} autoFocus disabled={delBusy}
+              placeholder={delTarget.admin_email}
+              onChange={(e) => setDelText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && delOk) confirmBorrar(); }} />
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <button className="btn" style={{ color: "var(--danger)", borderColor: "var(--danger)" }}
+                onClick={confirmBorrar} disabled={!delOk || delBusy}>
+                {delBusy ? "Borrando…" : "Borrar definitivamente"}
+              </button>
+              <button className="btn ghost" onClick={closeBorrar} disabled={delBusy}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {msg && <div className="ok-msg" style={{ marginTop: 12 }}>{msg}</div>}
+      {err && <div className="err" style={{ marginTop: 12 }}>{err}</div>}
+
+      <Panel title="Nueva cuenta" max={620}>
+        <form onSubmit={submitAlta}>
+          <label>Cliente</label>
+          <select value={form.client_id}
+            onChange={(e) => setForm({ ...form, client_id: e.target.value })} required>
+            <option value="">— Selecciona un cliente —</option>
+            {clients.map((c) => <option key={c.id} value={c.id}>{clientLabel(c)}</option>)}
+          </select>
+          <label>Herramienta</label>
+          <select value={form.herramienta}
+            onChange={(e) => setForm({ ...form, herramienta: e.target.value })}>
+            {AUT_HERRAMIENTAS.map((h) => (
+              <option key={h.value} value={h.value} disabled={!h.enabled}>
+                {h.label}{h.enabled ? "" : " (Próximamente)"}
+              </option>
+            ))}
+          </select>
+          <label>Nombre de la empresa</label>
+          <input value={form.empresa_nombre}
+            onChange={(e) => setForm({ ...form, empresa_nombre: e.target.value })} required />
+          <label>Nombre del administrador</label>
+          <input value={form.admin_nombre}
+            onChange={(e) => setForm({ ...form, admin_nombre: e.target.value })} required />
+          <label>Correo del administrador</label>
+          <input type="email" value={form.admin_email}
+            onChange={(e) => setForm({ ...form, admin_email: e.target.value })} required />
+          <label>Vigencia hasta (opcional)</label>
+          <input type="date" value={form.vigencia_hasta}
+            onChange={(e) => setForm({ ...form, vigencia_hasta: e.target.value })} />
+          <button className="btn primary" disabled={creating} style={{ marginTop: 10 }}>
+            {creating ? "Creando…" : "Crear cuenta"}
+          </button>
+        </form>
+      </Panel>
+
+      <Panel title="Cuentas" meta={`${rows.length} cuenta(s)`}>
+        <div style={{ marginBottom: 12 }}>
+          <button className="btn ghost" onClick={reload} disabled={busy}>
+            {busy ? "Cargando…" : "Actualizar"}
+          </button>
+        </div>
+        {rows.length > 0 ? (
+          <div style={{ overflowX: "auto" }}>
+            <div className="table" style={{ minWidth: 1320 }}>
+              <div className="tr th" style={AUT_COLS}>
+                <span>Cliente</span>
+                <span>Herramienta</span>
+                <span>Empresa</span>
+                <span>Administrador</span>
+                <span>Estado</span>
+                <span>Vigencia</span>
+                <span>Empresa creada</span>
+                <span>Acciones</span>
+              </div>
+              {rows.map((r) => {
+                const kAcc = pending.has(`${r.id}:acceso`);
+                const kEst = pending.has(`${r.id}:estado`);
+                const kEmp = pending.has(`${r.id}:empresa`);
+                const estadoLabel = r.vencida ? "Vencida" : (r.estado === "activa" ? "Activa" : "Suspendida");
+                return (
+                  <div className="tr" key={r.id} style={AUT_COLS}>
+                    <span>{r.client_nombre}</span>
+                    <span className="muted">{r.herramienta_label || autHerramientaLabel(r.herramienta)}</span>
+                    <span>{r.empresa_nombre}</span>
+                    <span className="muted">{r.admin_nombre}<br />{r.admin_email}</span>
+                    <span style={r.estado === "activa" && !r.vencida ? undefined : { color: "var(--danger)" }}>
+                      {estadoLabel}
+                    </span>
+                    <span className="muted">{r.vigencia_hasta || "sin vencimiento"}</span>
+                    <span className="muted">{r.empresa_id_app ? "Sí" : "No"}</span>
+                    <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <button className="btn ghost" disabled={kAcc}
+                        onClick={() => accion(r, "acceso", api.reenviarAccesoAut)}>
+                        {kAcc ? "Enviando…" : "Reenviar acceso"}
+                      </button>
+                      {r.estado === "activa" ? (
+                        <button className="btn ghost" disabled={kEst}
+                          onClick={() => accion(r, "estado", api.suspenderAut)}>
+                          {kEst ? "…" : "Suspender"}
+                        </button>
+                      ) : (
+                        <button className="btn ghost" disabled={kEst}
+                          onClick={() => accion(r, "estado", api.reactivarAut)}>
+                          {kEst ? "…" : "Reactivar"}
+                        </button>
+                      )}
+                      <button className="btn ghost" disabled={kEmp}
+                        onClick={() => accion(r, "empresa", api.refrescarEmpresaAut)}>
+                        {kEmp ? "…" : "Enlazar empresa"}
+                      </button>
+                      {isAdmin && (
+                        <button className="btn ghost" style={{ color: "var(--danger)", borderColor: "var(--danger)" }}
+                          onClick={() => askBorrar(r)}>
+                          Borrar
+                        </button>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          !busy && !err && (
+            <div className="notice">Aún no hay cuentas de automatizaciones.</div>
+          )
+        )}
+      </Panel>
+    </>
+  );
+}
+
 /* ---------------- Command Center Shell ---------------- */
 export default function App() {
   const [user, setUser] = useState(null);
@@ -2411,6 +2677,7 @@ export default function App() {
     { id: "workspaces", code: "WKS", label: "Workspaces", staff: true },
     { id: "inscripciones", code: "INS", label: "Inscripciones", staff: true },
     { id: "recursos", code: "REC", label: "Recursos", staff: true },
+    { id: "automatizaciones", code: "AUT", label: "Automatizaciones", staff: true },
     { id: "users", code: "USR", label: "Cuentas", admin: true },
     { id: "profile", code: "PRF", label: "Mi Perfil", staff: true },
     { id: "security", code: "SEC", label: "Seguridad" },
@@ -2448,6 +2715,8 @@ export default function App() {
         return isStaff ? <Inscripciones /> : <Dashboard user={user} health={hp} />;
       case "recursos":
         return isStaff ? <RecursosCuentas isAdmin={isAdmin} /> : <Dashboard user={user} health={hp} />;
+      case "automatizaciones":
+        return isStaff ? <AutomatizacionesCuentas isAdmin={isAdmin} /> : <Dashboard user={user} health={hp} />;
       case "profile":
         return isStaff ? <Profile user={user} /> : <Dashboard user={user} health={hp} />;
       case "security": return <Security user={user} />;
