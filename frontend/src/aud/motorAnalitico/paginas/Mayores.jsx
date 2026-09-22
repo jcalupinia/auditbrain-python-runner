@@ -44,6 +44,10 @@ const TRABAJO_VENCIDO = "El trabajo ya no existe en el motor (vence a las 8 h o 
 
 const FILTROS_VACIOS = { severidad: "", regla: "", texto: "" };
 
+// El armazón desmonta esta página al navegar a otra; el último trabajo se
+// recuerda por cliente (cambia con el proyecto) para retomarlo al volver.
+const ULTIMO_TRABAJO = new WeakMap();
+
 export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
   const [archivo, setArchivo] = useState(null);
   const [trabajo, setTrabajo] = useState(null);
@@ -67,6 +71,12 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
     setPagina(1);
     setExcepciones({ total: 0, excepciones: [] });
     setSeleccion(null);
+    const id = ULTIMO_TRABAJO.get(cliente);
+    if (id) {
+      cliente.trabajo(id)
+        .then((r) => setTrabajo((t) => t ?? r))
+        .catch(() => ULTIMO_TRABAJO.delete(cliente));
+    }
   }, [cliente]);
 
   // Sondeo del trabajo: setTimeout encadenado (no setInterval), agenda la
@@ -89,6 +99,7 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
         if (!vivo) return;
         if (e instanceof ErrorMotor && e.estado === 404) {
           setTrabajo((t) => (t?.id === id ? null : t));
+          ULTIMO_TRABAJO.delete(cliente);
           setErrorMsg(TRABAJO_VENCIDO);
           return;
         }
@@ -126,7 +137,9 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
     setCargando(true);
     setSeleccion(null);
     try {
-      setTrabajo(await accion());
+      const nuevo = await accion();
+      ULTIMO_TRABAJO.set(cliente, nuevo.id);
+      setTrabajo(nuevo);
       setEntrada({ regla: "", texto: "" });
       setFiltros(FILTROS_VACIOS);
       setPagina(1);
@@ -212,7 +225,7 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
               Descargar plantilla
             </button>
             <div className="ma-mayores-subir">
-              <input type="file" accept=".xlsx" disabled={!disponible || cargando}
+              <input type="file" aria-label="Plantilla del motor (.xlsx)" accept=".xlsx" disabled={!disponible || cargando}
                      onChange={(e) => setArchivo(e.target.files?.[0] || null)} />
               <button className="ma-boton" disabled={!disponible || cargando || !archivo}
                       onClick={() => iniciar(() => cliente.crearConArchivo(archivo))}>
@@ -257,13 +270,13 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
               </div>
 
               <div className="ma-mayores-filtros">
-                <select value={filtros.severidad} onChange={(e) => cambiarSeveridad(e.target.value)}>
+                <select aria-label="Filtrar por severidad" value={filtros.severidad} onChange={(e) => cambiarSeveridad(e.target.value)}>
                   <option value="">Todas</option>
                   {SEVERIDADES.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
-                <input placeholder="Regla" maxLength={MAXLEN_REGLA} value={entrada.regla}
+                <input aria-label="Filtrar por regla" placeholder="Regla" maxLength={MAXLEN_REGLA} value={entrada.regla}
                        onChange={(e) => setEntrada((f) => ({ ...f, regla: e.target.value }))} />
-                <input placeholder="Buscar texto" maxLength={MAXLEN_TEXTO} value={entrada.texto}
+                <input aria-label="Buscar en entidad o descripción" placeholder="Buscar texto" maxLength={MAXLEN_TEXTO} value={entrada.texto}
                        onChange={(e) => setEntrada((f) => ({ ...f, texto: e.target.value }))} />
               </div>
 

@@ -99,7 +99,7 @@
 
 .ma-portada-areas {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
   gap: 16px;
   margin: 0 0 20px;
 }
@@ -139,7 +139,6 @@
   border-radius: 999px;
   font-size: 11.5px;
   font-weight: 600;
-  white-space: nowrap;
   background: var(--ma-p1-bg);
   color: var(--ma-p1);
 }

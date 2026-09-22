@@ -16,7 +16,7 @@
   font-size: 12px; font-weight: 600; white-space: nowrap;
 }
 
-.ma-reportes-layout { display: grid; grid-template-columns: minmax(260px, 400px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.ma-reportes-layout { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 20px; align-items: start; }
 .ma-reportes-aside { display: flex; flex-direction: column; gap: 16px; }
 .ma-reportes-seccion { display: flex; flex-direction: column; gap: 10px; }
 .ma-reportes-seccion h3 { margin: 0; font-size: 14px; }

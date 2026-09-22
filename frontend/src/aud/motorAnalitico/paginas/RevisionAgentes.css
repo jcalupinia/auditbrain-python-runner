@@ -99,7 +99,7 @@
 
 .ma-agentes-grid {
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) minmax(280px, 1.6fr) minmax(220px, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
   gap: 16px;
 }
 
