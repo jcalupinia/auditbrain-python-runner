@@ -1,0 +1,43 @@
+# =====================================================================
+# .htaccess para SPA React (Vite) servida desde public_html en
+# hosting Linux/Apache (cPanel) — dominio audit-ia.ec
+#
+# Vite copia automáticamente todo lo que está en frontend/public/ a
+# dist/, por eso este archivo termina en la raíz del build y se sube
+# tal cual a public_html.
+# =====================================================================
+
+# --- 1. Forzar HTTPS ---
+RewriteEngine On
+RewriteCond %{HTTPS} !=on
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# --- 2. Routing del SPA (React Router) ---
+# Si el archivo o carpeta solicitada NO existe físicamente, servir
+# index.html para que React maneje la ruta del lado del cliente.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.html [L]
+
+# --- 3. Caché de assets con hash (Vite versiona los nombres) ---
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/css "access plus 1 year"
+  ExpiresByType application/javascript "access plus 1 year"
+  ExpiresByType image/svg+xml "access plus 1 month"
+  ExpiresByType image/png "access plus 1 month"
+  ExpiresByType image/jpeg "access plus 1 month"
+  ExpiresByType font/woff2 "access plus 1 year"
+</IfModule>
+
+# index.html NUNCA se cachea (para que un nuevo deploy se vea al instante)
+<Files "index.html">
+  <IfModule mod_headers.c>
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+  </IfModule>
+</Files>
+
+# --- 4. Compresión ---
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json image/svg+xml
+</IfModule>

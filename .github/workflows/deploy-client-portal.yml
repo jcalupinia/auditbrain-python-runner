@@ -1,0 +1,59 @@
+# =====================================================================
+# Despliegue del PORTAL DE CLIENTES a clientes.audit-ia.ec por FTPS.
+#
+# Build especial: frontend-client depende de frontend-shared, por eso se
+# instalan ambos (igual que el buildCommand del render.yaml).
+#
+# Requiere el mismo secret que la app principal:
+#   FTP_PASSWORD = contraseña de auditftp@audit-ia.ec
+#
+# IMPORTANTE: el subdominio clientes.audit-ia.ec debe estar creado en
+# cPanel ANTES del primer deploy. server-dir asume el docroot por defecto
+# de cPanel (public_html/clientes). Si tu cPanel creó el subdominio en
+# otra ruta, ajusta server-dir abajo.
+# =====================================================================
+name: Deploy portal clientes a clientes.audit-ia.ec
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend-client/**"
+      - "frontend-shared/**"
+      - ".github/workflows/deploy-client-portal.yml"
+  workflow_dispatch: {}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Instalar dependencias compartidas (frontend-shared)
+        working-directory: frontend-shared
+        run: npm ci
+
+      - name: Instalar dependencias del portal (frontend-client)
+        working-directory: frontend-client
+        run: npm ci
+
+      - name: Build (usa frontend-client/.env.production -> VITE_API_BASE)
+        working-directory: frontend-client
+        run: npm run build
+
+      - name: Subir dist/ al docroot del subdominio por FTPS
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ftp.audit-ia.ec
+          username: auditftp@audit-ia.ec
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: 21
+          protocol: ftps
+          local-dir: ./frontend-client/dist/
+          server-dir: ./clientes/ # docroot del subdominio dentro de public_html

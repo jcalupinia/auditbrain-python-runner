@@ -1,0 +1,52 @@
+# =====================================================================
+# Despliegue automático del frontend a public_html (audit-ia.ec) por FTPS.
+#
+# En cada push a main que toque frontend/, compila el SPA y sube dist/
+# al hosting por FTP. NO sube el backend Python (ese se queda en Render).
+#
+# Requiere un único secret en GitHub (Settings -> Secrets -> Actions):
+#   FTP_PASSWORD  = contraseña de la cuenta auditftp@audit-ia.ec
+# (host, usuario y puerto NO son secretos, van abajo en texto plano)
+# =====================================================================
+name: Deploy frontend a audit-ia.ec
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy-frontend.yml"
+  workflow_dispatch: {} # permite lanzarlo a mano desde la pestaña Actions
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build (usa frontend/.env.production -> VITE_API_BASE)
+        working-directory: frontend
+        run: npm run build
+
+      - name: Subir dist/ a public_html por FTPS
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ftp.audit-ia.ec
+          username: auditftp@audit-ia.ec
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: 21
+          protocol: ftps # FTPS explícito (AUTH TLS sobre el puerto 21)
+          local-dir: ./frontend/dist/
+          server-dir: ./ # la cuenta FTP ya apunta a /public_html
