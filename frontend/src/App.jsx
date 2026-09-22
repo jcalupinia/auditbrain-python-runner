@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import * as api from "./api.js";
+import Markdown from "./ui/Markdown.jsx";
 import ToolCatalog from "./aud/ToolCatalog.jsx";
 import TaxCatalog from "./tax/TaxCatalog.jsx";
 import FinCatalog from "./fin/FinCatalog.jsx";
@@ -1189,7 +1190,14 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
                   {messages.map((m) => (
                     <div key={m.id} className={`cw-msg ${m.role}`}>
                       <div className="cw-msg-role">{m.role === "user" ? name : "AUDIT-IA"}</div>
-                      <div className="cw-msg-content">{m.content}</div>
+                      {/* Lo que escribe el usuario es texto plano y se respeta
+                          tal cual (pre-wrap). Lo que responde el modelo viene
+                          en markdown y se renderiza. */}
+                      {m.role === "user" ? (
+                        <div className="cw-msg-content">{m.content}</div>
+                      ) : (
+                        <Markdown className="cw-msg-content">{m.content}</Markdown>
+                      )}
                     </div>
                   ))}
                   {sending && (

@@ -179,17 +179,23 @@ services:
         value: "60"
 
       # --- Landing de inscripción a la charla (módulo events) ---
-      # Link de invitación al grupo de WhatsApp donde se comparte el link
-      # de la charla. NO es secreto (se muestra en el QR a los inscritos),
-      # por eso se versiona aquí. El backend lo devuelve en la respuesta de
-      # inscripción y el frontend lo renderiza como código QR.
+      # ESTE REPO ES PÚBLICO: nada que controle el acceso a una reunión o a
+      # un grupo puede versionarse aquí. Ambos links van con sync:false y se
+      # cargan en Render → Environment. Si falta la variable, el backend
+      # devuelve "" (ver backend/app/events/catalog.py) y la landing
+      # simplemente no muestra QR ni link: degrada, no rompe.
+      #
+      # Link de invitación al grupo de WhatsApp. Se entrega al inscrito como
+      # código QR, pero quien tenga la URL entra al grupo sin pasar por la
+      # inscripción — por eso NO se versiona.
       - key: CHARLA_WHATSAPP_GROUP_URL
-        value: "https://chat.whatsapp.com/LTGW1zxsFmYJ0KOgH0GAkn"
+        sync: false
 
-      # Link de Zoom de la charla. NO se expone en la landing (el inscrito se
-      # une vía correo a capacitación); queda server-side para el email privado.
+      # Link de Zoom de la charla, con la contraseña embebida en ?pwd=.
+      # No se expone en la landing (el inscrito lo recibe por correo desde
+      # capacitación); queda server-side para el email privado.
       - key: CHARLA_ZOOM_URL
-        value: "https://us02web.zoom.us/j/86936610773?pwd=rObMqOSvrGeBnGuBZz8hYXYYMgKOZS.1"
+        sync: false
 
       # Casilla que recibe el aviso de cada inscripción (envío real requiere Resend).
       - key: EVENTS_NOTIFY_EMAIL
