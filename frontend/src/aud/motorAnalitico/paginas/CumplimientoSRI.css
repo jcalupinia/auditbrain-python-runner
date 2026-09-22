@@ -40,7 +40,7 @@
 }
 .ma-sri-boton-ejecutar:disabled { opacity: 0.5; cursor: default; background: var(--ma-line); color: var(--ma-soft); }
 
-.ma-sri-cruces { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.ma-sri-cruces { grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); }
 .ma-sri-tarjeta-cruce {
   min-height: 150px; padding: 14px; border-radius: 12px; box-sizing: border-box;
   background: var(--ma-bg); border: 1px solid var(--ma-line); display: flex; flex-direction: column; gap: 7px;
@@ -58,7 +58,7 @@
 .ma-sri-estado-existe { background: rgba(111, 179, 255, 0.14); color: var(--ma-p2); }
 .ma-sri-estado-nuevo { background: var(--ma-p1-bg); color: var(--ma-p1); }
 
-.ma-sri-dos-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+.ma-sri-dos-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 20px; }
 .ma-sri-tabla-bloque { gap: 10px; }
 .ma-sri-tabla-bloque h3 { margin: 0; font-size: 17px; }
 .ma-sri-tabla-nota { font-size: 12.5px; color: var(--ma-soft); }

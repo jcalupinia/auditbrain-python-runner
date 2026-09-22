@@ -16,9 +16,9 @@
 .ma-muestras-seccion { display: flex; flex-direction: column; gap: 12px; }
 .ma-muestras-seccion h3 { margin: 0; font-size: 15px; }
 
-.ma-muestras-cols2 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.ma-muestras-cols2 { grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); }
 
-.ma-muestras-fuentes { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.ma-muestras-fuentes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: 8px; }
 .ma-muestras-fuente {
   min-height: 56px; padding: 9px 11px; border-radius: 10px; display: flex; flex-direction: column; gap: 2px;
   text-align: left; cursor: not-allowed; font: inherit; color: var(--ma-text);
@@ -28,7 +28,7 @@
 .ma-muestras-fuente-nombre { font-size: 13px; font-weight: 600; }
 .ma-muestras-fuente-detalle { font-size: 11.5px; color: var(--ma-soft); }
 
-.ma-muestras-parametros { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.ma-muestras-parametros { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr)); gap: 10px; }
 .ma-muestras-parametros label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--ma-soft); }
 .ma-muestras-parametros input, .ma-muestras-parametros select {
   height: 40px; box-sizing: border-box; padding: 0 10px; border-radius: 9px; border: 1px solid var(--ma-line);
@@ -39,7 +39,7 @@
 .ma-muestras-titulo-fila { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .ma-muestras-nota { font-size: 12px; color: var(--ma-soft); }
 
-.ma-muestras-metodos { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.ma-muestras-metodos { grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); }
 .ma-muestras-metodo { gap: 8px; cursor: not-allowed; }
 .ma-muestras-metodo-fila { display: flex; align-items: center; gap: 8px; }
 .ma-muestras-metodo-fila input { width: 16px; height: 16px; accent-color: var(--ma-accent); }
@@ -62,7 +62,7 @@
 
 .ma-muestras-lista { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; font-size: 13px; }
 
-.ma-muestras-demo { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px 16px; }
+.ma-muestras-demo { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); gap: 8px 16px; }
 .ma-muestras-demo-campo { display: flex; flex-direction: column; gap: 2px; }
 
 .ma-muestras-evaluacion { flex-direction: row; align-items: center; gap: 16px; flex-wrap: wrap; }

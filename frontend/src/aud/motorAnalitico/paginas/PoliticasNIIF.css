@@ -48,7 +48,7 @@
 
 .ma-niif-rubros { display: flex; flex-direction: column; gap: 8px; }
 .ma-niif-rubros-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 4px 14px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); gap: 4px 14px;
 }
 .ma-niif-rubro { display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: 12.5px; }
 .ma-niif-rubro input { width: 15px; height: 15px; accent-color: var(--ma-accent); cursor: not-allowed; }
@@ -56,7 +56,7 @@
   width: 56px; flex-shrink: 0; font-family: var(--ma-mono); font-size: 11.5px; color: var(--ma-soft);
 }
 
-.ma-niif-manual-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+.ma-niif-manual-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 14px; }
 .ma-niif-manual-grid .ma-tarjeta { gap: 10px; }
 .ma-niif-decision { display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .ma-niif-decision span:first-child { flex-grow: 1; color: var(--ma-text); }

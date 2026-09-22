@@ -1,16 +1,24 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { PAGINAS } from "../paginas.js";
 import { ErrorMotor, SONDEO_MS } from "../clienteMotor.js";
-import { SEVERIDADES, dinero, paginas as totalPaginas, resumenSeveridad, terminado } from "../bandeja.js";
+import { SEVERIDADES, filasBandeja, mensajeError, paginas as totalPaginas, resumenSeveridad, terminado } from "../bandeja.js";
 import "./Mayores.css";
 
 // Transcripción de Mayores.dc.html: bloque «Pruebas de asientos» (5 bloques
 // del lienzo → encabezado + 4 secciones). Solo «Pruebas de asientos» es
 // operativa (Task 3); «Asientos manuales», «Explorador» y «Buscar concepto»
 // quedan en construcción (SP7), con sus cifras de ejemplo como «sin datos».
+//
+// Contrato real del motor (motor-auditoria-analitica@sp2a-trabajos,
+// servicio/trabajos.py y motor/nucleo.py::Excepcion.a_dict — ver bandeja.js):
+// GET /trabajos/{id} → {id, estado, origen, creado, terminado, sha256, total, por_severidad, errores}
+// GET /trabajos/{id}/excepciones → {total, pagina, tam, excepciones: [...]}
 
 const META = PAGINAS.find((p) => p.id === "mayores");
 const TAM_PAGINA = 50;
+const DEBOUNCE_MS = 400;
+const MAXLEN_REGLA = 20;
+const MAXLEN_TEXTO = 100;
 
 // Nombres de pruebas y reglas: contenido normativo del lienzo, no cifras de
 // demostración — se conservan tal cual (regla de conversión #4).
@@ -32,46 +40,85 @@ const CUENTAS_EXPLORADOR = ["Ingresos", "Cuenta puente", "Gastos adm.", "Provisi
 const AGRUPACIONES = ["Por cuenta contable", "Por mes", "Por usuario que registró"];
 
 const ESTADO_TEXTO = { en_cola: "En cola", procesando: "Procesando", listo: "Listo", error: "Con errores" };
+const TRABAJO_VENCIDO = "El trabajo ya no existe en el motor (vence a las 8 h o el motor se reinició): vuelve a correrlo.";
 
-function mensajeError(e) {
-  if (e?.name === "AbortError") return "El motor no respondió a tiempo.";
-  if (e instanceof ErrorMotor && e.estado === 429) return "Ya tienes 3 trabajos en curso: espera a que terminen.";
-  return e?.message || "Error al comunicarse con el motor.";
-}
+const FILTROS_VACIOS = { severidad: "", regla: "", texto: "" };
 
 export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
   const [archivo, setArchivo] = useState(null);
   const [trabajo, setTrabajo] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [cargando, setCargando] = useState(false);
-  const [filtros, setFiltros] = useState({ severidad: "", regla: "", texto: "" });
+  const [entrada, setEntrada] = useState({ regla: "", texto: "" }); // valores del input, sin debounce
+  const [filtros, setFiltros] = useState(FILTROS_VACIOS);           // valores aplicados a la consulta
   const [pagina, setPagina] = useState(1);
-  const [excepciones, setExcepciones] = useState({ items: [], total: 0 });
+  const [excepciones, setExcepciones] = useState({ total: 0, excepciones: [] });
   const [seleccion, setSeleccion] = useState(null);
-  const intervaloRef = useRef(null);
+  const secuenciaRef = useRef(0);
 
-  // Sondeo del trabajo hasta que termine (SONDEO_MS: el motor admite 30 peticiones/min).
+  // Al cambiar de cliente (otro proyecto/encargo) se reinicia todo el estado:
+  // un trabajo del cliente anterior no debe seguir vivo en pantalla.
   useEffect(() => {
-    clearInterval(intervaloRef.current);
+    setArchivo(null);
+    setTrabajo(null);
+    setErrorMsg("");
+    setEntrada({ regla: "", texto: "" });
+    setFiltros(FILTROS_VACIOS);
+    setPagina(1);
+    setExcepciones({ total: 0, excepciones: [] });
+    setSeleccion(null);
+  }, [cliente]);
+
+  // Sondeo del trabajo: setTimeout encadenado (no setInterval), agenda la
+  // siguiente consulta solo cuando llega la respuesta. Descarta respuestas
+  // de un trabajo que ya no es el activo (`t?.id === id`). Un 404 (vencido
+  // a las 8 h, o el motor se reinició) detiene el sondeo y limpia el trabajo.
+  useEffect(() => {
     if (!trabajo?.id || terminado(trabajo.estado)) return undefined;
-    intervaloRef.current = setInterval(async () => {
+    const id = trabajo.id;
+    let vivo = true;
+    let temporizador = null;
+
+    async function sondear() {
       try {
-        setTrabajo(await cliente.trabajo(trabajo.id));
+        const r = await cliente.trabajo(id);
+        if (!vivo) return;
+        setTrabajo((t) => (t?.id === id ? r : t));
+        if (!terminado(r.estado)) temporizador = setTimeout(sondear, SONDEO_MS);
       } catch (e) {
+        if (!vivo) return;
+        if (e instanceof ErrorMotor && e.estado === 404) {
+          setTrabajo((t) => (t?.id === id ? null : t));
+          setErrorMsg(TRABAJO_VENCIDO);
+          return;
+        }
         setErrorMsg(mensajeError(e));
+        temporizador = setTimeout(sondear, SONDEO_MS);
       }
-    }, SONDEO_MS);
-    return () => clearInterval(intervaloRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }
+
+    temporizador = setTimeout(sondear, SONDEO_MS);
+    return () => { vivo = false; clearTimeout(temporizador); };
   }, [trabajo?.id, trabajo?.estado, cliente]);
 
+  // Debounce de regla/texto: 400 ms sin escribir antes de aplicar el filtro.
+  useEffect(() => {
+    const h = setTimeout(() => {
+      setFiltros((f) => ({ ...f, regla: entrada.regla, texto: entrada.texto }));
+      setPagina(1);
+    }, DEBOUNCE_MS);
+    return () => clearTimeout(h);
+  }, [entrada.regla, entrada.texto]);
+
   // Excepciones cuando el trabajo está listo, o al cambiar filtros/página.
+  // Contador de secuencia: descarta una respuesta vieja si ya se disparó
+  // una consulta más nueva (filtro cambiado rápido, o cambio de página).
   useEffect(() => {
     if (trabajo?.estado !== "listo") return;
+    const yo = ++secuenciaRef.current;
     cliente.excepciones(trabajo.id, { ...filtros, pagina, tam: TAM_PAGINA })
-      .then(setExcepciones)
-      .catch((e) => setErrorMsg(mensajeError(e)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      .then((r) => { if (secuenciaRef.current === yo) setExcepciones(r); })
+      .catch((e) => { if (secuenciaRef.current === yo) setErrorMsg(mensajeError(e)); });
   }, [trabajo?.estado, trabajo?.id, filtros, pagina, cliente]);
 
   const iniciar = async (accion) => {
@@ -80,8 +127,10 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
     setSeleccion(null);
     try {
       setTrabajo(await accion());
-      setFiltros({ severidad: "", regla: "", texto: "" });
+      setEntrada({ regla: "", texto: "" });
+      setFiltros(FILTROS_VACIOS);
       setPagina(1);
+      setExcepciones({ total: 0, excepciones: [] });
     } catch (e) {
       setErrorMsg(mensajeError(e));
     } finally {
@@ -98,14 +147,14 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
       a.href = url;
       a.download = "plantilla-motor-analitico.xlsx";
       a.click();
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (e) {
       setErrorMsg(mensajeError(e));
     }
   };
 
-  const cambiarFiltro = (campo, valor) => {
-    setFiltros((f) => ({ ...f, [campo]: valor }));
+  const cambiarSeveridad = (valor) => {
+    setFiltros((f) => ({ ...f, severidad: valor }));
     setPagina(1);
   };
 
@@ -114,6 +163,7 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
   };
 
   const totalPag = totalPaginas(excepciones.total, TAM_PAGINA);
+  const filas = filasBandeja(excepciones);
 
   return (
     <section className="ma-pagina ma-mayores">
@@ -197,22 +247,24 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
           {trabajo?.estado === "listo" && (
             <>
               <div className="ma-grid ma-mayores-resumen">
-                {resumenSeveridad(trabajo.resumen).map(([sev, n]) => (
+                {resumenSeveridad(trabajo.por_severidad).map(([sev, n]) => (
                   <div key={sev} className="ma-tarjeta">
                     <span className={`ma-sev-${sev}`}>{sev}</span>
                     <strong>{n}</strong>
                   </div>
                 ))}
-                <div className="ma-tarjeta"><span>Total</span><strong>{excepciones.total}</strong></div>
+                <div className="ma-tarjeta"><span>Total</span><strong>{trabajo.total}</strong></div>
               </div>
 
               <div className="ma-mayores-filtros">
-                <select value={filtros.severidad} onChange={(e) => cambiarFiltro("severidad", e.target.value)}>
+                <select value={filtros.severidad} onChange={(e) => cambiarSeveridad(e.target.value)}>
                   <option value="">Todas</option>
                   {SEVERIDADES.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
-                <input placeholder="Regla" value={filtros.regla} onChange={(e) => cambiarFiltro("regla", e.target.value)} />
-                <input placeholder="Buscar texto" value={filtros.texto} onChange={(e) => cambiarFiltro("texto", e.target.value)} />
+                <input placeholder="Regla" maxLength={MAXLEN_REGLA} value={entrada.regla}
+                       onChange={(e) => setEntrada((f) => ({ ...f, regla: e.target.value }))} />
+                <input placeholder="Buscar texto" maxLength={MAXLEN_TEXTO} value={entrada.texto}
+                       onChange={(e) => setEntrada((f) => ({ ...f, texto: e.target.value }))} />
               </div>
 
               <div className="ma-tabla-wrap">
@@ -221,14 +273,16 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
                     <tr><th>Severidad</th><th>Regla</th><th>NIA</th><th>Entidad</th><th>Descripción</th><th>Monto</th></tr>
                   </thead>
                   <tbody>
-                    {excepciones.items.map((e, i) => (
-                      <tr key={e.id || i} onClick={() => setSeleccion(e)}>
-                        <td><span className={`ma-sev-${e.severidad}`}>{e.severidad}</span></td>
-                        <td>{e.regla}</td>
-                        <td>{e.nia}</td>
-                        <td>{e.entidad}</td>
-                        <td>{e.descripcion}</td>
-                        <td>{dinero(e.monto)}</td>
+                    {filas.map((f, i) => (
+                      <tr key={f.hash || i} onClick={() => setSeleccion(f)}>
+                        <td><span className={`ma-sev-${f.severidad}`}>{f.severidad}</span></td>
+                        <td>{f.reglaId}</td>
+                        <td>{f.nia}</td>
+                        <td>{f.entidad}</td>
+                        <td>{f.descripcion}</td>
+                        <td>{f.monto.sinDatos
+                          ? <span className="ma-sindatos">{f.monto.texto}</span>
+                          : f.monto.texto}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -245,8 +299,8 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
                 <div className="ma-mayores-detalle">
                   <h4>Detalle</h4>
                   <p>{seleccion.descripcion}</p>
-                  {seleccion.reglas_concurrentes?.length > 0 && (
-                    <p>Reglas concurrentes: {seleccion.reglas_concurrentes.join(", ")}</p>
+                  {seleccion.reglasConcurrentes?.length > 0 && (
+                    <p>Reglas concurrentes: {seleccion.reglasConcurrentes.join(", ")}</p>
                   )}
                   <pre>{JSON.stringify(seleccion.evidencia, null, 2)}</pre>
                   {seleccion.hash && (
