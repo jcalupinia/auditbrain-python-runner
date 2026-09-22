@@ -7,6 +7,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, EmailStr, Field, StringConstraints, field_validator
 
+from backend.app.automatizaciones.service import _hoy_ecuador
 from backend.app.client_portal.tool_registry import TOOLS
 
 Nombre = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
@@ -31,7 +32,8 @@ class CuentaCreate(BaseModel):
     @field_validator("vigencia_hasta")
     @classmethod
     def _vigencia_no_pasada(cls, v: datetime.date | None) -> datetime.date | None:
-        if v is not None and v < datetime.date.today():
+        # Fecha de Ecuador, no la del servidor (Render corre en UTC).
+        if v is not None and v < _hoy_ecuador():
             raise ValueError("La vigencia no puede ser una fecha pasada.")
         return v
 

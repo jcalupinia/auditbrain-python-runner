@@ -87,11 +87,18 @@ def _token_bearer(request: Request) -> str:
 
 
 def _actor(token: str = Depends(_token_bearer)) -> tuple[str, str]:
-    """Valida el token contra Supabase y devuelve ``(token, email del actor)``."""
+    """Valida el token contra Supabase y devuelve ``(token, email del actor)``.
+
+    401 solo cuando GoTrue REALMENTE rechaza el token (4xx); un fallo de red
+    o un 5xx es un problema de infraestructura (502), no de sesión expirada.
+    """
     try:
         perfil = sa.usuario_de_token(token)
-    except sa.SupabaseAdminError:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Token inválido o expirado.") from None
+    except sa.SupabaseAdminError as e:
+        if e.status is not None and e.status < 500:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Token inválido o expirado.") from None
+        log.error("aut miembros: fallo Supabase validando el token: %s", e)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=MSG_502) from None
     return token, (perfil or {}).get("email", "")
 
 
@@ -180,7 +187,14 @@ def alta_miembro(payload: MiembroCreate, actor: tuple[str, str] = Depends(_actor
             empresa_id,
             payload.email,
         )
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=MSG_502) from None
+        # La membresía en ``empresa_miembros`` SÍ queda registrada (la base
+        # tiene sus propias reglas; no se borra desde aquí): se documenta
+        # cómo recuperarla en vez de dejar un 502 genérico.
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail="El miembro quedó registrado pero no se pudo enviar el correo. "
+            "Use «Reenviar acceso».",
+        ) from None
 
     log.info("aut miembros alta: actor=%s empresa=%s email=%s", actor_email, empresa_id, payload.email)
 
@@ -223,7 +237,12 @@ def reenviar_acceso(payload: ReenviarAccesoBody, actor: tuple[str, str] = Depend
     try:
         filas = sa.consultar(
             "empresa_miembros",
-            {"empresa_id": f"eq.{empresa_id}", "email": f"eq.{payload.email}", "select": "id", "limit": "1"},
+            {
+                "empresa_id": f"eq.{empresa_id}",
+                "email": f"eq.{payload.email}",
+                "select": "id,nombre",
+                "limit": "1",
+            },
             token_usuario=token,
         )
     except sa.SupabaseAdminError as e:
@@ -231,6 +250,19 @@ def reenviar_acceso(payload: ReenviarAccesoBody, actor: tuple[str, str] = Depend
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=MSG_502) from None
     if not filas:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ese correo no es miembro de esta empresa.")
+
+    # El miembro puede no tener todavía cuenta de autenticación: si el alta
+    # original se quedó a medias (correo fallido, ver alta_miembro) o si es
+    # la primera vez que se le reenvía el acceso, generar el enlace sin
+    # crear antes la cuenta no serviría de nada.
+    nombre = (filas[0] or {}).get("nombre") or payload.email
+    try:
+        sa.crear_usuario(payload.email, nombre)
+    except sa.SupabaseAdminError:
+        # ponytail: mismo patrón que el alta (router_miembros.alta_miembro) —
+        # con el correo ya validado por Pydantic, el único 4xx real de GoTrue
+        # al crear es "ya existe" -> se asume eso y se sigue.
+        log.info("aut miembros reenvio: %s ya tenía cuenta de autenticación", payload.email)
 
     try:
         _enviar_acceso(payload.email, empresa_id)

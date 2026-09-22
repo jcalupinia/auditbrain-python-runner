@@ -53,6 +53,12 @@ torch==2.4.0
 pydantic==2.8.2
 typing_extensions==4.12.2
 
+# === Zonas horarias ===
+# Automatizaciones necesita la fecha de Ecuador (no la UTC del servidor de
+# Render) para vigencia/suspensión. Linux normalmente trae la tz database del
+# sistema, pero se fija explícita para no depender de la imagen del host.
+tzdata>=2024.1
+
 # === LLM / AI motor (ICT audit) ===
 # anthropic 0.49.x es la última que respeta typing_extensions==4.12.2 (pinned arriba)
 # y pydantic==2.8.2. Versiones 0.100+ requieren typing_extensions>=4.14 y rompen

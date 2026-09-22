@@ -43,7 +43,7 @@ class FakeSupabase:
         self.llamadas.append(("usuario_de_token", token))
         self._quiza_fallar("usuario_de_token")
         if token != TOKEN:
-            raise SupabaseAdminError("401 invalid token: detalle-secreto-xyz")
+            raise SupabaseAdminError("401 invalid token: detalle-secreto-xyz", status=401)
         return {"id": "uid-admin", "email": "admin@empresa.ec"}
 
     def rpc(self, nombre, payload, *, token_usuario=None):
@@ -234,6 +234,9 @@ def test_fallo_correo_tras_cuenta_nueva_la_borra(client, monkeypatch):
     assert len(fake.borrados) == 1
     assert fake.usuarios_vivos == set()
     assert fake_correo.enviados == []
+    # [FIX revisión final] el mensaje documenta que la membresía quedó
+    # registrada (la fila en empresa_miembros no se borra) y cómo recuperarla.
+    assert "Reenviar acceso" in r.json()["detail"]
 
 
 def test_fallo_correo_tras_cuenta_existente_no_borra_nada(client, monkeypatch):
@@ -247,6 +250,7 @@ def test_fallo_correo_tras_cuenta_existente_no_borra_nada(client, monkeypatch):
     r = client.post(BASE, json=_payload(), headers=_headers())
     assert r.status_code == 502, r.text
     assert fake.borrados == []
+    assert "Reenviar acceso" in r.json()["detail"]
 
 
 # --- Reenviar acceso ---------------------------------------------------
@@ -287,6 +291,41 @@ def test_reenviar_acceso_correcto_200(client, correo, monkeypatch):
     assert len(correo.enviados) == 1
 
 
+def test_reenviar_acceso_crea_la_cuenta_si_el_miembro_pendiente_no_tenia(client, correo, monkeypatch):
+    """[FIX revisión final] un miembro dado de alta que nunca llegó a tener
+    cuenta de autenticación (p. ej. quedó huérfano por un fallo previo de
+    correo) debe poder recuperarse con Reenviar acceso: antes este endpoint
+    solo generaba el enlace, y ``generate_link`` sobre un email sin cuenta en
+    GoTrue no crea nada."""
+    fake = _parchar_supabase(
+        monkeypatch, FakeSupabase(es_admin=True, miembros=[{"id": "m1", "nombre": "Ana"}])
+    )
+    r = client.post(
+        f"{BASE}/reenviar-acceso",
+        json={"empresa_id": str(uuid.uuid4()), "email": "pendiente-sin-cuenta@x.ec"},
+        headers=_headers(),
+    )
+    assert r.status_code == 200, r.text
+    assert any(l[0] == "crear_usuario" for l in fake.llamadas)
+    assert fake.usuarios_vivos == {"uid-pendiente-sin-cuenta@x.ec"}
+    assert len(correo.enviados) == 1
+
+
+def test_reenviar_acceso_tolera_que_ya_tuviera_cuenta(client, correo, monkeypatch):
+    fake = _parchar_supabase(
+        monkeypatch,
+        FakeSupabase(es_admin=True, miembros=[{"id": "m1"}], usuario_existente=True),
+    )
+    r = client.post(
+        f"{BASE}/reenviar-acceso",
+        json={"empresa_id": str(uuid.uuid4()), "email": "ya-tenia-cuenta@x.ec"},
+        headers=_headers(),
+    )
+    assert r.status_code == 200, r.text
+    assert fake.usuarios_vivos == set()  # no se duplicó
+    assert len(correo.enviados) == 1
+
+
 # --- SupabaseAdminError -> 502 sin cuerpo crudo -----------------------------
 
 
@@ -306,6 +345,35 @@ def test_reenviar_acceso_fallo_supabase_502_sin_texto_crudo(client, correo, monk
     )
     assert r.status_code == 502, r.text
     assert "detalle-secreto-xyz" not in r.text
+
+
+# --- 401 solo cuando GoTrue rechaza el token; red/5xx es 502 ---------------
+
+
+def test_token_rechazado_por_gotrue_da_401(client, sup, correo):
+    """Ya cubierto por test_alta_token_invalido_401, pero explícito: un 4xx
+    real de GoTrue (token inválido/expirado) es 401."""
+    r = client.post(BASE, json=_payload(), headers=_headers("token-que-no-es"))
+    assert r.status_code == 401, r.text
+
+
+def test_token_con_fallo_de_red_da_502_no_401(client, correo, monkeypatch):
+    """[FIX revisión final] si ``usuario_de_token`` falla por red o 5xx (no
+    porque GoTrue rechace el token), el problema es de infraestructura: 502,
+    no 401 (401 le diría al usuario, incorrectamente, que su sesión expiró)."""
+    _parchar_supabase(monkeypatch, FakeSupabase(falla="usuario_de_token"))
+    r = client.post(BASE, json=_payload(), headers=_headers())
+    assert r.status_code == 502, r.text
+
+
+def test_reenviar_token_con_fallo_de_red_da_502_no_401(client, correo, monkeypatch):
+    _parchar_supabase(monkeypatch, FakeSupabase(falla="usuario_de_token"))
+    r = client.post(
+        f"{BASE}/reenviar-acceso",
+        json={"empresa_id": str(uuid.uuid4()), "email": "a@x.ec"},
+        headers=_headers(),
+    )
+    assert r.status_code == 502, r.text
 
 
 # --- Nunca se filtran el token ni el enlace ---------------------------------

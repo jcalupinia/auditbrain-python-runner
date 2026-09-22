@@ -239,6 +239,15 @@ def test_error_4xx_no_reintenta(monkeypatch):
     assert "ya existe" in str(exc.value)
 
 
+def test_error_4xx_expone_el_status_http(monkeypatch):
+    """El router necesita distinguir un 4xx de GoTrue (correo ya registrado)
+    de un fallo de red/5xx para poder devolver 409 en vez de 502."""
+    _falso(monkeypatch, _Resp(422, text='{"msg":"ya existe"}'))
+    with pytest.raises(sa.SupabaseAdminError) as exc:
+        sa.crear_usuario("a@x.ec", "Ana")
+    assert exc.value.status == 422
+
+
 def test_error_5xx_reintenta_dos_veces_y_lanza(monkeypatch):
     llamadas = _falso(monkeypatch, _Resp(503, text="upstream caído"))
 
@@ -247,6 +256,21 @@ def test_error_5xx_reintenta_dos_veces_y_lanza(monkeypatch):
 
     assert len(llamadas) == 3  # intento inicial + 2 reintentos
     assert "503" in str(exc.value)
+
+
+def test_error_5xx_agotado_no_expone_status_4xx(monkeypatch):
+    """Un 5xx agotado es un fallo de infraestructura (502), no un 409."""
+    _falso(monkeypatch, _Resp(503, text="upstream caído"))
+    with pytest.raises(sa.SupabaseAdminError) as exc:
+        sa.crear_usuario("a@x.ec", "Ana")
+    assert exc.value.status is None
+
+
+def test_error_de_red_no_expone_status_4xx(monkeypatch):
+    _falso(monkeypatch, requests.ConnectionError("sin ruta al host"))
+    with pytest.raises(sa.SupabaseAdminError) as exc:
+        sa.borrar_usuario("uuid-1")
+    assert exc.value.status is None
 
 
 def test_error_5xx_se_recupera_en_el_reintento(monkeypatch):
@@ -275,6 +299,27 @@ def test_cuerpo_del_error_truncado_a_200(monkeypatch):
 
     assert "X" * 200 in str(exc.value)
     assert "X" * 201 not in str(exc.value)
+
+
+# --- Token vacío nunca cae silenciosamente en la llave de servicio ---------
+
+
+def test_bearer_vacio_lanza_en_vez_de_usar_la_llave_de_servicio(monkeypatch):
+    """``bearer=""`` (p. ej. un token de sesión vacío) NO debe caer en
+    ``bearer or llave`` y colarse como si fuera la llave de servicio."""
+    llamadas = _falso(monkeypatch, _Resp(200, {"id": "uuid-u"}))
+    with pytest.raises(sa.SupabaseAdminError):
+        sa._pedir("GET", "/auth/v1/user", bearer="")
+    assert llamadas == []  # nunca llegó a golpear la red con la llave de respaldo
+
+
+def test_bearer_none_si_usa_la_llave_de_servicio(monkeypatch):
+    """``bearer=None`` (el default) sigue siendo el uso intencional de la
+    llave de servicio; solo la cadena vacía explícita es el bug."""
+    llamadas = _falso(monkeypatch, _Resp(200, {"id": "uuid-u"}))
+    sa._pedir("GET", "/auth/v1/user", bearer=None)
+    (c,) = llamadas
+    assert c["headers"]["Authorization"] == f"Bearer {LLAVE}"
 
 
 # --- Configuración faltante -------------------------------------------------

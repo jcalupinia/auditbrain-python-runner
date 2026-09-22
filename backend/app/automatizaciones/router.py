@@ -11,6 +11,7 @@ import logging
 from contextlib import contextmanager
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.app.auth.deps import require_admin, require_staff
@@ -25,6 +26,19 @@ router = APIRouter(prefix="/staff/automatizaciones", tags=["automatizaciones"])
 log = logging.getLogger(__name__)
 
 MSG_502 = "No se pudo contactar al servidor de Presupuestos IA."
+MSG_CORREO_DUPLICADO = "Ese correo ya tiene una cuenta en Presupuestos IA."
+
+# Fragmentos con los que GoTrue anuncia un correo ya registrado (el 422 de
+# POST /auth/v1/admin/users, p.ej. "A user with this email address has
+# already been registered" o el código "email_exists"). No es un fallo de
+# infraestructura: es un 409.
+_YA_REGISTRADO = ("already registered", "already been registered", "email_exists")
+
+
+def _correo_ya_registrado(e: SupabaseAdminError) -> bool:
+    return e.status is not None and e.status < 500 and any(
+        frag in str(e).lower() for frag in _YA_REGISTRADO
+    )
 
 
 @contextmanager
@@ -37,10 +51,22 @@ def _mapear_errores(accion: str, actor: str, cuenta_id: int | str):
     try:
         yield
     except SupabaseAdminError as e:
+        if accion == "alta" and _correo_ya_registrado(e):
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=MSG_CORREO_DUPLICADO) from None
         log.error("aut %s: fallo Supabase actor=%s cuenta=%s: %s", accion, actor, cuenta_id, e)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=MSG_502) from None
+    except service.CuentaConEmpresaError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(e)) from None
     except service.AutomatizacionError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
+    except IntegrityError:
+        # Alta concurrente: dos requests pasaron el chequeo de duplicado
+        # (ninguna vio el commit de la otra) y chocan en el INSERT real.
+        log.warning("aut %s: IntegrityError (carrera) actor=%s cuenta=%s", accion, actor, cuenta_id)
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"El cliente {cuenta_id} ya tiene una cuenta de esta herramienta.",
+        ) from None
 
 
 def _con_nombres(db: Session, filas: list[dict]) -> list[dict]:

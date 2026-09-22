@@ -22,6 +22,13 @@ router lo pide con confirmación escrita, como en Cuentas) y el servicio
 **nunca borra en cascada** nada de la app: ni la empresa, ni sus miembros, ni
 su histórico de presupuestos. Suspender es reversible y por eso no necesita
 confirmación aquí.
+
+**Borrado y ``empresas.owner_id`` (revisión final).** ``empresas.owner_id``
+referencia ``auth.users(id) ON DELETE CASCADE``: si la cuenta administradora
+ya creó su empresa en la app, borrar el usuario de auth se llevaría la
+empresa entera (y su histórico) por delante. Por eso ``borrar`` **solo borra
+una cuenta que todavía no creó su empresa**; si ya la creó, se rechaza con un
+error de negocio (409) que indica usar Suspender en su lugar.
 """
 
 from __future__ import annotations
@@ -29,6 +36,7 @@ from __future__ import annotations
 import datetime
 import logging
 import os
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
@@ -41,6 +49,13 @@ from backend.app.recursos.catalog import CONTACTO
 log = logging.getLogger(__name__)
 
 _APP_URL_DEFECTO = "https://presupuestos.audit-ia.ec"
+_TZ_ECUADOR = ZoneInfo("America/Guayaquil")
+
+
+def _hoy_ecuador() -> datetime.date:
+    """La fecha de HOY en Ecuador, no la del servidor (Render corre en UTC:
+    ``datetime.date.today()`` puede estar un día adelantado de madrugada)."""
+    return datetime.datetime.now(_TZ_ECUADOR).date()
 
 
 class AutomatizacionError(RuntimeError):
@@ -48,6 +63,11 @@ class AutomatizacionError(RuntimeError):
 
     ``SupabaseAdminError`` NO se captura aquí: sube tal cual para que el router
     lo traduzca a un mensaje de infraestructura."""
+
+
+class CuentaConEmpresaError(AutomatizacionError):
+    """La cuenta ya creó su empresa en la app: borrar el usuario de auth la
+    borraría en cascada. El router lo traduce a 409 (no a 400)."""
 
 
 def _redirect_nueva_contrasena() -> str:
@@ -195,9 +215,21 @@ def reactivar(db: Session, cuenta_id: int, *, actor: str) -> AutCuenta:
     return _cambiar_estado(db, cuenta_id, actor=actor, suspender_=False)
 
 
+def _empresa_de_owner(admin_user_id_app: str) -> dict | None:
+    filas = sa.consultar(
+        "empresas", {"owner_id": f"eq.{admin_user_id_app}", "select": "nombre", "limit": "1"}
+    )
+    return (filas or [None])[0]
+
+
 def borrar(db: Session, cuenta_id: int, *, actor: str, confirmado: bool) -> None:
     """Borra el usuario administrador y la fila. NO toca la app: la empresa,
-    sus miembros y su histórico de presupuestos quedan intactos."""
+    sus miembros y su histórico de presupuestos quedan intactos.
+
+    Solo se puede borrar una cuenta que TODAVÍA NO creó su empresa: si ya la
+    creó, ``empresas.owner_id`` apunta a este usuario de auth y borrarlo se
+    llevaría la empresa en cascada (``ON DELETE CASCADE``). En ese caso se
+    rechaza y se sugiere Suspender."""
     if not confirmado:
         raise AutomatizacionError(
             "El borrado de una cuenta de automatizaciones requiere confirmación explícita."
@@ -205,6 +237,13 @@ def borrar(db: Session, cuenta_id: int, *, actor: str, confirmado: bool) -> None
     cuenta = _obtener(db, cuenta_id)
     admin_email = cuenta.admin_email
     if cuenta.admin_user_id_app:
+        empresa = _empresa_de_owner(cuenta.admin_user_id_app)
+        if empresa:
+            raise CuentaConEmpresaError(
+                f"Esta cuenta ya creó la empresa «{empresa.get('nombre', '')}» en "
+                "Presupuestos IA. Borrarla eliminaría la empresa y todo su "
+                "histórico. Para quitar el acceso use Suspender."
+            )
         sa.borrar_usuario(cuenta.admin_user_id_app)
     db.delete(cuenta)
     db.commit()
@@ -218,17 +257,15 @@ def esta_vigente(cuenta: AutCuenta) -> bool:
     """Sin fecha, vigente para siempre; el último día cuenta como vigente."""
     if cuenta.vigencia_hasta is None:
         return True
-    return cuenta.vigencia_hasta >= datetime.date.today()
-
-
-def estado_efectivo(cuenta: AutCuenta) -> str:
-    """Una licencia vencida se ve suspendida aunque el dato diga ``activa``."""
-    if cuenta.estado != "activa" or not esta_vigente(cuenta):
-        return "suspendida"
-    return "activa"
+    return cuenta.vigencia_hasta >= _hoy_ecuador()
 
 
 def listar(db: Session, *, client_id: int | None = None) -> list[dict]:
+    """``estado`` es el dato GUARDADO (activa/suspendida), no el efectivo:
+    el frontend decide el botón Suspender/Reactivar por ese dato y muestra
+    "Vencida" como etiqueta aparte a partir de ``vencida``. Colapsar ambos en
+    un solo "estado efectivo" (como se hacía antes) le quitaba al frontend la
+    posibilidad de suspender una cuenta activa-pero-vencida."""
     q = db.query(AutCuenta)
     if client_id is not None:
         q = q.filter_by(client_id=client_id)
@@ -242,7 +279,7 @@ def listar(db: Session, *, client_id: int | None = None) -> list[dict]:
             "empresa_id_app": c.empresa_id_app,
             "admin_email": c.admin_email,
             "admin_nombre": c.admin_nombre,
-            "estado": estado_efectivo(c),
+            "estado": c.estado,
             "vencida": not esta_vigente(c),
             "vigencia_hasta": c.vigencia_hasta,
             "creado_por": c.creado_por,

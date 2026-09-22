@@ -24,7 +24,16 @@ _MAX_CUERPO = 200
 
 
 class SupabaseAdminError(RuntimeError):
-    """Cualquier fallo hablando con el Supabase de la app de presupuestos."""
+    """Cualquier fallo hablando con el Supabase de la app de presupuestos.
+
+    ``status`` es el código HTTP del 4xx que devolvió Supabase/GoTrue, o
+    ``None`` cuando el fallo fue de red o un 5xx agotado (infraestructura,
+    no un rechazo del cliente). El router lo usa para distinguir "correo ya
+    registrado" (409) de "no se pudo contactar" (502)."""
+
+    def __init__(self, message: str, *, status: int | None = None):
+        super().__init__(message)
+        self.status = status
 
 
 def _credenciales() -> tuple[str, str]:
@@ -61,6 +70,12 @@ def _pedir(
     Reintenta SOLO en errores de red y 5xx; un 4xx es definitivo (reintentarlo
     solo duplicaría altas o borrados).
     """
+    if bearer == "":
+        # Un token de sesión vacío NUNCA debe colarse silenciosamente como la
+        # llave de servicio (``bearer or llave``); eso sería escalar
+        # privilegios por un bug del llamador. ``bearer=None`` (el default)
+        # sigue siendo el uso intencional de la llave de servicio.
+        raise SupabaseAdminError("Token vacío: no se puede autenticar la llamada.")
     base, llave = _credenciales()
     headers = {
         "apikey": llave,
@@ -91,7 +106,8 @@ def _pedir(
             cuerpo = (resp.text or "")[:_MAX_CUERPO]
             if resp.status_code < 500:
                 raise SupabaseAdminError(
-                    f"Supabase {resp.status_code} en {metodo} {ruta}: {cuerpo}"
+                    f"Supabase {resp.status_code} en {metodo} {ruta}: {cuerpo}",
+                    status=resp.status_code,
                 )
             ultimo = f"{resp.status_code}: {cuerpo}"
 

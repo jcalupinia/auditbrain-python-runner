@@ -70,9 +70,10 @@ def client_token(db):
 
 
 class FakeSupabase:
-    def __init__(self, falla=None):
+    def __init__(self, falla=None, empresas=None):
         self.llamadas = []
         self.falla = falla
+        self.empresas = empresas if empresas is not None else []
         self.usuarios_vivos = set()
 
     def _quiza_fallar(self, nombre):
@@ -105,6 +106,8 @@ class FakeSupabase:
     def consultar(self, tabla, params):
         self.llamadas.append(("consultar", tabla, params))
         self._quiza_fallar("consultar")
+        if tabla == "empresas":
+            return list(self.empresas)
         return []
 
 
@@ -227,6 +230,29 @@ def test_vigencia_pasada_422(client, staff_token, org_client):
     assert r.status_code == 422, r.text
 
 
+def test_vigencia_usa_la_fecha_de_ecuador_no_la_utc_del_servidor(monkeypatch):
+    """[FIX revisión final] a las 02:00 UTC todavía es 31-dic en Ecuador
+    (UTC-5); una vigencia hasta esa fecha NO debe rechazarse como pasada."""
+    from backend.app.automatizaciones import schemas, service
+
+    class _DatetimeFijo(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            momento_utc = datetime.datetime(2026, 1, 1, 2, 0, tzinfo=datetime.timezone.utc)
+            return momento_utc.astimezone(tz) if tz else momento_utc
+
+    monkeypatch.setattr(service.datetime, "datetime", _DatetimeFijo)
+
+    schemas.CuentaCreate(
+        client_id=1,
+        herramienta="PRESUPUESTOS_IA",
+        empresa_nombre="X",
+        admin_nombre="Y",
+        admin_email="a@x.ec",
+        vigencia_hasta=datetime.date(2025, 12, 31),
+    )
+
+
 def test_vigencia_futura_ok(client, staff_token, org_client, sup, correo):
     manana = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
     r = _alta(client, staff_token, org_client.id, vigencia_hasta=manana)
@@ -323,6 +349,31 @@ def test_borrar_admin_confirmado_200(client, admin_token, staff_token, org_clien
     assert rl.json() == []
 
 
+def test_borrar_admin_409_si_la_cuenta_ya_creo_una_empresa(
+    client, admin_token, staff_token, org_client, sup, correo
+):
+    """CRÍTICO (revisión final): borrar el usuario borraría en cascada la
+    empresa que ya creó en la app. El router debe traducirlo a 409, no dejar
+    borrar."""
+    r = _alta(client, staff_token, org_client.id)
+    cuenta_id = r.json()["id"]
+    sup.empresas = [{"nombre": "Comercial Andina S.A."}]
+
+    rd = client.delete(
+        f"{BASE}/cuentas/{cuenta_id}?confirmado=true",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert rd.status_code == 409, rd.text
+    assert "Comercial Andina S.A." in rd.json()["detail"]
+    assert "Suspender" in rd.json()["detail"]
+
+    rl = client.get(
+        f"{BASE}/cuentas?client_id={org_client.id}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert len(rl.json()) == 1  # sigue ahí
+
+
 # --- SupabaseAdminError -> 502 sin cuerpo crudo -----------------------------
 
 
@@ -357,8 +408,13 @@ def test_suspender_con_fallo_supabase_502(client, staff_token, org_client, sup, 
 # --- Listado muestra vigencia vencida como suspendida -----------------------
 
 
-def test_listado_muestra_suspendida_si_vencida(client, staff_token, org_client, sup, correo):
-    ayer = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+def test_listado_expone_estado_guardado_y_vencida_por_separado(
+    client, staff_token, org_client, sup, correo
+):
+    """[FIX revisión final] el listado ya no colapsa el ``estado`` de una
+    cuenta vencida a "suspendida": el frontend necesita el dato guardado
+    (para decidir Suspender/Reactivar) y ``vencida`` aparte (para la
+    etiqueta)."""
     # vigencia pasada se rechaza en el alta; se crea vigente y se edita
     # directamente en la fila para simular el paso del tiempo.
     r = _alta(client, staff_token, org_client.id)
@@ -379,5 +435,92 @@ def test_listado_muestra_suspendida_si_vencida(client, staff_token, org_client, 
         headers={"Authorization": f"Bearer {staff_token}"},
     )
     fila = rl.json()[0]
-    assert fila["estado"] == "suspendida"
+    assert fila["estado"] == "activa"  # el dato guardado, no el efectivo
     assert fila["vencida"] is True
+
+
+# --- Correo ya registrado en GoTrue -> 409, no 502 --------------------------
+
+
+def test_alta_correo_ya_registrado_en_gotrue_409(client, staff_token, org_client, monkeypatch):
+    """[FIX revisión final] un 422 "already registered" de GoTrue es un error
+    del cliente (409), no un fallo de infraestructura (502)."""
+    from backend.app.automatizaciones.supabase_admin import SupabaseAdminError
+
+    fake = FakeSupabase()
+
+    def crear_usuario_ya_registrado(email, nombre):
+        fake.llamadas.append(("crear_usuario", email, nombre))
+        raise SupabaseAdminError(
+            "422: A user with this email address has already been registered",
+            status=422,
+        )
+
+    monkeypatch.setattr(service.sa, "crear_usuario", crear_usuario_ya_registrado)
+    for nombre in ("enlace_acceso", "bloquear_usuario", "borrar_usuario", "consultar"):
+        monkeypatch.setattr(service.sa, nombre, getattr(fake, nombre))
+    fake_correo = FakeCorreo()
+    monkeypatch.setattr(
+        service.email_mod, "send_automatizacion_acceso", fake_correo.send_automatizacion_acceso
+    )
+
+    r = _alta(client, staff_token, org_client.id)
+    assert r.status_code == 409, r.text
+    assert "Presupuestos IA" in r.json()["detail"]
+    assert fake_correo.enviados == []
+
+
+def test_alta_correo_duplicado_email_exists_409(client, staff_token, org_client, monkeypatch):
+    """Misma regla con el otro texto que usa GoTrue para el mismo caso."""
+    from backend.app.automatizaciones.supabase_admin import SupabaseAdminError
+
+    fake = FakeSupabase()
+
+    def crear_usuario_ya_registrado(email, nombre):
+        raise SupabaseAdminError('{"error_code":"email_exists"}', status=422)
+
+    monkeypatch.setattr(service.sa, "crear_usuario", crear_usuario_ya_registrado)
+    for nombre in ("enlace_acceso", "bloquear_usuario", "borrar_usuario", "consultar"):
+        monkeypatch.setattr(service.sa, nombre, getattr(fake, nombre))
+
+    r = _alta(client, staff_token, org_client.id)
+    assert r.status_code == 409, r.text
+
+
+def test_alta_fallo_5xx_de_supabase_sigue_siendo_502(client, staff_token, org_client, monkeypatch):
+    """Un 5xx/red genuino sigue siendo 502: solo el 4xx "ya existe" cambia."""
+    from backend.app.automatizaciones.supabase_admin import SupabaseAdminError
+
+    fake = FakeSupabase()
+
+    def crear_usuario_5xx(email, nombre):
+        raise SupabaseAdminError("Supabase 503: upstream caído")  # status=None
+
+    monkeypatch.setattr(service.sa, "crear_usuario", crear_usuario_5xx)
+    for nombre in ("enlace_acceso", "bloquear_usuario", "borrar_usuario", "consultar"):
+        monkeypatch.setattr(service.sa, nombre, getattr(fake, nombre))
+
+    r = _alta(client, staff_token, org_client.id)
+    assert r.status_code == 502, r.text
+
+
+# --- Alta concurrente: IntegrityError -> 409 --------------------------------
+
+
+def test_alta_concurrente_integrity_error_da_409(
+    client, staff_token, org_client, sup, correo, monkeypatch
+):
+    """Dos altas concurrentes pueden pasar ambas el chequeo de duplicado
+    (ninguna ve todavía el commit de la otra) y chocar recién en el INSERT
+    real (constraint ``uq_aut_cuenta_cliente_herramienta``). El router debe
+    traducir ese ``IntegrityError`` a 409, no tumbarse con un 500."""
+    from sqlalchemy.exc import IntegrityError
+
+    def crear_que_choca(*a, **kw):
+        raise IntegrityError("INSERT", {}, Exception("uq_aut_cuenta_cliente_herramienta"))
+
+    monkeypatch.setattr(service, "crear", crear_que_choca)
+
+    r = _alta(client, staff_token, org_client.id)
+    assert r.status_code == 409, r.text
+    assert not any(c[0] == "crear_usuario" for c in sup.llamadas)

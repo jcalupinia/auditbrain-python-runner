@@ -36,10 +36,11 @@ def cid():
 class FakeSupabase:
     """Registra las llamadas y permite hacer fallar una en concreto."""
 
-    def __init__(self, falla=None, miembros=None):
+    def __init__(self, falla=None, miembros=None, empresas=None):
         self.llamadas = []
         self.falla = falla
         self.miembros = miembros if miembros is not None else []
+        self.empresas = empresas if empresas is not None else []
         self.usuarios_vivos = set()
 
     def _quiza_fallar(self, nombre):
@@ -70,6 +71,8 @@ class FakeSupabase:
     def consultar(self, tabla, params):
         self.llamadas.append(("consultar", tabla, params))
         self._quiza_fallar("consultar")
+        if tabla == "empresas":
+            return list(self.empresas)
         return list(self.miembros)
 
 
@@ -243,13 +246,31 @@ def test_borrar_sin_confirmar_no_borra_nada(db, cid, sup, correo):
 def test_borrar_confirmado_borra_usuario_y_fila_pero_nada_de_la_app(db, cid, sup, correo):
     cuenta = _alta(db, cid)
     cuenta_id = cuenta.id
+    sup.empresas = []
     sup.llamadas.clear()
 
     service.borrar(db, cuenta_id, actor=OPERADOR, confirmado=True)
 
-    assert [c[0] for c in sup.llamadas] == ["borrar_usuario"]
+    assert [c[0] for c in sup.llamadas] == ["consultar", "borrar_usuario"]
     assert sup.usuarios_vivos == set()
     assert db.get(AutCuenta, cuenta_id) is None
+
+
+def test_borrar_rechaza_si_la_cuenta_ya_creo_una_empresa(db, cid, sup, correo):
+    """CRÍTICO: borrar el usuario de auth borraría la empresa en cascada
+    (``empresas.owner_id`` -> ``auth.users`` ON DELETE CASCADE). Nunca."""
+    cuenta = _alta(db, cid)
+    cuenta_id = cuenta.id
+    sup.empresas = [{"nombre": "Comercial Andina S.A."}]
+    sup.llamadas.clear()
+
+    with pytest.raises(service.AutomatizacionError) as exc:
+        service.borrar(db, cuenta_id, actor=OPERADOR, confirmado=True)
+
+    assert "Comercial Andina S.A." in str(exc.value)
+    assert "Suspender" in str(exc.value)
+    assert not any(c[0] == "borrar_usuario" for c in sup.llamadas)
+    assert db.get(AutCuenta, cuenta_id) is not None
 
 
 # --- Regla 6: vigencia ------------------------------------------------------
@@ -265,12 +286,38 @@ def test_esta_vigente(db, cid):
     )
 
 
-def test_listar_muestra_suspendida_la_cuenta_vencida_sin_tocar_datos(db, cid, sup, correo):
+def test_hoy_ecuador_usa_la_zona_horaria_de_ecuador_no_la_utc_del_servidor(monkeypatch):
+    """Render corre en UTC. A las 02:00 UTC (madrugada), en Ecuador (UTC-5)
+    todavía es el día anterior: ``datetime.date.today()`` (server) diría un
+    día distinto al real en Ecuador. ``_hoy_ecuador`` debe usar la zona."""
+
+    class _DatetimeFijo(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            momento_utc = datetime.datetime(2026, 1, 1, 2, 0, tzinfo=datetime.timezone.utc)
+            return momento_utc.astimezone(tz) if tz else momento_utc
+
+    monkeypatch.setattr(service.datetime, "datetime", _DatetimeFijo)
+
+    assert service._hoy_ecuador() == datetime.date(2025, 12, 31)
+
+
+def test_esta_vigente_usa_la_fecha_de_ecuador(monkeypatch):
+    monkeypatch.setattr(service, "_hoy_ecuador", lambda: datetime.date(2025, 12, 31))
+    assert service.esta_vigente(AutCuenta(vigencia_hasta=datetime.date(2025, 12, 31))) is True
+    assert service.esta_vigente(AutCuenta(vigencia_hasta=datetime.date(2025, 12, 30))) is False
+
+
+def test_listar_expone_el_estado_guardado_y_vencida_por_separado(db, cid, sup, correo):
+    """[FIX revisión final] el listado ya NO colapsa una cuenta vencida a
+    "suspendida": expone el ``estado`` tal como está guardado y ``vencida``
+    aparte, para que el frontend pueda seguir ofreciendo "Suspender" en una
+    cuenta activa-pero-vencida (antes el botón se quedaba en "Reactivar")."""
     ayer = datetime.date.today() - datetime.timedelta(days=1)
     cuenta = _alta(db, cid, vigencia_hasta=ayer)
 
     fila = [f for f in service.listar(db, client_id=cid)][0]
-    assert fila["estado"] == "suspendida"
+    assert fila["estado"] == "activa"  # el dato guardado, no el efectivo
     assert fila["vencida"] is True
 
     db.refresh(cuenta)

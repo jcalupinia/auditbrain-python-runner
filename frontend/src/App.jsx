@@ -2361,7 +2361,10 @@ function autHerramientaLabel(code) {
 // con la pista operativa que pide el plan (servidor de oficina apagado).
 function autFriendlyError(e) {
   const m = (e && e.message) || String(e);
-  return m.includes("Presupuestos IA")
+  // Ojo: no basta con buscar "Presupuestos IA" en el mensaje — el 409 de
+  // "ya creó la empresa... en Presupuestos IA" también la contiene y no debe
+  // pisarse con el aviso de servidor apagado.
+  return m.includes("No se pudo contactar al servidor de Presupuestos IA")
     ? "No se pudo contactar al servidor de Presupuestos IA. Verifique que el servidor de la oficina esté encendido."
     : m;
 }
@@ -2459,7 +2462,7 @@ function AutomatizacionesCuentas({ isAdmin }) {
 
   return (
     <>
-      <ViewHead code="AUT" title="Automatizaciones · Cuentas de clientes"
+      <ViewHead code="AUC" title="Automatizaciones · Cuentas de clientes"
         sub="Alta y ciclo de vida de las cuentas de las herramientas de automatización de los clientes." />
 
       <div className="notice">
@@ -2480,6 +2483,11 @@ function AutomatizacionesCuentas({ isAdmin }) {
               Se borrará el acceso de <b>{delTarget.admin_nombre}</b> ({delTarget.admin_email})
               a <b>{autHerramientaLabel(delTarget.herramienta)}</b>. La empresa, sus miembros y
               su histórico de presupuestos <b>no</b> se tocan. Esta acción es irreversible.
+            </p>
+            <p className="muted">
+              Solo se puede borrar una cuenta que <b>todavía no creó su empresa</b> en
+              Presupuestos IA. Si ya la creó, use <b>Suspender</b> para quitarle el acceso sin
+              perder la empresa ni su histórico.
             </p>
             <label>Escribe el correo del administrador para confirmar</label>
             <input type="text" value={delText} autoFocus disabled={delBusy}
@@ -2677,7 +2685,7 @@ export default function App() {
     { id: "workspaces", code: "WKS", label: "Workspaces", staff: true },
     { id: "inscripciones", code: "INS", label: "Inscripciones", staff: true },
     { id: "recursos", code: "REC", label: "Recursos", staff: true },
-    { id: "automatizaciones", code: "AUT", label: "Automatizaciones", staff: true },
+    { id: "automatizaciones", code: "AUC", label: "Automatizaciones", staff: true },
     { id: "users", code: "USR", label: "Cuentas", admin: true },
     { id: "profile", code: "PRF", label: "Mi Perfil", staff: true },
     { id: "security", code: "SEC", label: "Seguridad" },
