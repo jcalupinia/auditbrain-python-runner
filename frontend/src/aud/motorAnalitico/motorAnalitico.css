@@ -1,0 +1,105 @@
+/* Motor de auditoría analítica · tema oscuro del portal (Navy/Gold), alineado
+   en tono y convenciones a src/aud/motorBalances.css pero con prefijo ma-. */
+.ma-root {
+  --ma-bg: #0a2342;
+  --ma-panel: #0f2d52;
+  --ma-line: #1d4470;
+  --ma-line-soft: rgba(234, 241, 251, 0.08);
+  --ma-text: #eaf1fb;
+  --ma-soft: #a6bbd6;
+  --ma-dim: #6f8bab;
+  --ma-accent: #34d36a;
+  --ma-accent-dim: rgba(52, 211, 106, 0.13);
+  --ma-oro: #c7a83c;
+  --ma-oro-dim: rgba(199, 168, 60, 0.13);
+  --ma-p0: #ff6b6b;
+  --ma-p0-bg: rgba(255, 107, 107, 0.12);
+  --ma-p1: #ffb454;
+  --ma-p1-bg: rgba(255, 180, 84, 0.12);
+  --ma-p2: #6fb3ff;
+  --ma-p2-bg: rgba(111, 179, 255, 0.12);
+  --ma-info-bg: rgba(166, 187, 214, 0.12);
+  --ma-mono: "DM Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --ma-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  background: var(--ma-bg);
+  border: 1px solid var(--ma-line);
+  border-radius: 14px;
+  padding: 16px;
+  color: var(--ma-text);
+  font-family: var(--ma-sans);
+}
+
+/* Navegación entre las 10 páginas: fila con scroll horizontal, sin desbordar. */
+.ma-nav {
+  display: flex; align-items: center; gap: 6px; flex-wrap: nowrap;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  padding-bottom: 10px; margin-bottom: 12px; border-bottom: 1px solid var(--ma-line);
+}
+.ma-tab {
+  flex: 0 0 auto; font-size: 12.5px; padding: 7px 12px; border-radius: 9px; cursor: pointer;
+  background: var(--ma-panel); border: 1px solid var(--ma-line); color: var(--ma-text);
+  white-space: nowrap; transition: filter 0.12s ease, transform 0.1s ease;
+}
+.ma-tab:hover { filter: brightness(1.15); }
+.ma-tab:active { transform: translateY(1px); }
+.ma-tab.activa { background: var(--ma-oro-dim); border-color: rgba(199, 168, 60, 0.5); color: var(--ma-oro); font-weight: 700; }
+
+/* Banda de disponibilidad del motor. */
+.ma-estado {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 12px; border-radius: 9px; font-size: 12.5px; margin-bottom: 14px;
+  background: var(--ma-panel); border: 1px solid var(--ma-line); color: var(--ma-soft);
+}
+.ma-estado-disponible { color: var(--ma-accent); border-color: rgba(52, 211, 106, 0.4); background: var(--ma-accent-dim); }
+.ma-estado-red_local, .ma-estado-sin_permiso { color: var(--ma-p1); border-color: rgba(255, 180, 84, 0.4); background: var(--ma-p1-bg); }
+.ma-estado-caido { color: var(--ma-p0); border-color: rgba(255, 107, 107, 0.4); background: var(--ma-p0-bg); }
+.ma-boton {
+  font-size: 12px; padding: 6px 12px; border-radius: 7px; cursor: pointer;
+  background: var(--ma-panel); border: 1px solid var(--ma-line); color: var(--ma-text);
+}
+.ma-boton:hover { filter: brightness(1.15); }
+.ma-boton:disabled { opacity: 0.45; cursor: default; }
+
+/* Franja «En construcción» de las páginas sin activar. */
+.ma-construccion {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 12px 14px; border-radius: 9px; margin: 10px 0 16px;
+  background: var(--ma-p1-bg); border: 1px dashed rgba(255, 180, 84, 0.5); color: var(--ma-p1);
+  font-size: 12.5px;
+}
+.ma-construccion strong { font-size: 12px; letter-spacing: 0.04em; }
+.ma-construccion span { color: var(--ma-soft); }
+
+.ma-pagina { padding: 4px 2px 12px; }
+.ma-pagina h2 { font-size: 16px; margin: 0 0 4px; }
+
+/* Bloques reutilizables por las páginas. */
+.ma-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin: 12px 0; }
+.ma-tarjeta {
+  background: var(--ma-panel); border: 1px solid var(--ma-line); border-radius: 12px;
+  padding: 14px; display: flex; flex-direction: column; gap: 6px;
+}
+.ma-tarjeta h3 { font-size: 13.5px; margin: 0; }
+.ma-tarjeta p { font-size: 12px; color: var(--ma-soft); margin: 0; }
+
+.ma-tabla-wrap { overflow-x: auto; border-radius: 9px; border: 1px solid var(--ma-line); }
+.ma-tabla { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 480px; }
+.ma-tabla th, .ma-tabla td { padding: 8px 10px; border-bottom: 1px solid var(--ma-line-soft); text-align: left; white-space: nowrap; }
+.ma-tabla th { color: var(--ma-soft); font-weight: 600; background: var(--ma-panel); }
+.ma-tabla tbody tr:hover { background: var(--ma-line-soft); cursor: pointer; }
+
+.ma-sev-P0, .ma-sev-P1, .ma-sev-P2, .ma-sev-INFO {
+  display: inline-block; font: 700 10px var(--ma-mono); letter-spacing: 0.08em;
+  padding: 3px 7px; border-radius: 6px;
+}
+.ma-sev-P0 { color: var(--ma-p0); background: var(--ma-p0-bg); }
+.ma-sev-P1 { color: var(--ma-p1); background: var(--ma-p1-bg); }
+.ma-sev-P2 { color: var(--ma-p2); background: var(--ma-p2-bg); }
+.ma-sev-INFO { color: var(--ma-soft); background: var(--ma-info-bg); }
+
+.ma-sindatos { color: var(--ma-dim); font-style: italic; }
+
+@media (max-width: 480px) {
+  .ma-root { padding: 12px; border-radius: 10px; }
+  .ma-tab { font-size: 12px; padding: 6px 10px; }
+}

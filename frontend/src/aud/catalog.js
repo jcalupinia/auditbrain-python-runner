@@ -16,6 +16,19 @@ export const CATEGORIES = [
       },
     ],
   },
+  {
+    id: "MOTOR_ANALITICO",
+    label: "Motor de auditoría analítica",
+    type: "herramienta",
+    tools: [
+      {
+        id: "AUD.MOTOR_ANALITICO",
+        label: "Motor de auditoría analítica · 38 pruebas forenses",
+        description:
+          "Corre las 38 pruebas deterministas (NIA 240/315/330/500/530) sobre el mayor, comprobantes, ventas, proveedores y nómina. Datos anonimizados hasta SP4; los datos van directo al servidor de la firma.",
+      },
+    ],
+  },
   { id: "PLANIFICACION", label: "Planificación", type: "etapa" },
   { id: "CAJA_BANCOS", label: "Caja y bancos", type: "ciclo" },
   { id: "INVERSIONES", label: "Inversiones", type: "ciclo" },
