@@ -78,7 +78,11 @@ def herramientas_disponibles(db: Session) -> list[dict]:
     ).scalars()
     for f in fichas:
         if f.definicion:
-            lista.append({"origen": f"ficha:{f.id}", "nombre": f.nombre, "area": f.rubro, "tipo": "ficha NIIF"})
+            # `estado` separa lo publicado en el catálogo («enviada») de lo que aún
+            # espera aprobación («probada»); `marcos` dice a qué marco sirve.
+            lista.append({"origen": f"ficha:{f.id}", "nombre": f.nombre, "area": f.rubro, "tipo": "ficha NIIF",
+                          "estado": f.estado, "marcos": f.definicion.get("frameworks") or [],
+                          "resumen": f.definicion.get("summary") or ""})
     return lista
 
 

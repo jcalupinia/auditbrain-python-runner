@@ -15,6 +15,7 @@ import { Ejecucion } from "./CicloEjecucion";
 import { Revision } from "./CicloRevision";
 import { VistaTrabajo } from "./CicloVista";
 import { ContextFields } from "./ContextoEncargo";
+import "./fichaNiif.css";
 
 /*
  * «Pruebas del encargo» — el ciclo real de una prueba sobre el proyecto AUD
@@ -356,11 +357,11 @@ export function Prueba({ id, onCambio, onAbrir }) {
   );
 }
 
-function EncargoTrabajo({ proyecto, cliente }) {
+function EncargoTrabajo({ proyecto, cliente, herramientaInicial = "" }) {
   const [ficha, setFicha] = useState(null);
   const [pruebas, setPruebas] = useState([]);
   const [herramientas, setHerramientas] = useState([]);
-  const [origen, setOrigen] = useState("");
+  const [origen, setOrigen] = useState(herramientaInicial);
   const [tributario, setTributario] = useState(false);
   const [abierta, setAbierta] = useState(null);
   const [error, setError] = useState("");
@@ -527,7 +528,7 @@ function NuevoEncargo({ onCreado, onCancelar }) {
   );
 }
 
-export default function PruebasEncargo({ proyecto: workspace }) {
+export default function PruebasEncargo({ proyecto: workspace, herramienta = "" }) {
   const [encargos, setEncargos] = useState(null);
   const [sel, setSel] = useState(null);
   const [creando, setCreando] = useState(false);
@@ -582,7 +583,7 @@ export default function PruebasEncargo({ proyecto: workspace }) {
         />
       )}
       {!creando && actual && (
-        <EncargoTrabajo key={actual.id} proyecto={{ id: actual.id, name: actual.nombre, module_code: "AUD" }} cliente={{ name: actual.cliente }} />
+        <EncargoTrabajo key={actual.id} proyecto={{ id: actual.id, name: actual.nombre, module_code: "AUD" }} cliente={{ name: actual.cliente }} herramientaInicial={herramienta} />
       )}
     </>
   );

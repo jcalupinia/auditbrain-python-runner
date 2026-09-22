@@ -46,6 +46,9 @@ def test_perdidas_incurridas_de_punta_a_punta(client):
     assert client.put(url, headers=_h(tok), json={"definicion": mala, "filas": []}).status_code == 400
     r = client.put(url, headers=_h(tok), json={"definicion": pi.definicion(), "filas": []})
     assert r.status_code == 200, r.text
+    # El catálogo del módulo la ubica por rubro y distingue probada de enviada.
+    h = next(x for x in client.get(f"{BASE}/herramientas", headers=_h(tok)).json() if x["origen"] == f"ficha:{ficha['id']}")
+    assert h["estado"] == "probada" and h["marcos"] == ["NIIF para las PYMES"]
 
     assert client.put(f"{BASE}/proyectos/{pid}/ficha", headers=_h(tok),
                       json={**FICHA, "framework": "NIIF para las PYMES"}).status_code == 200
