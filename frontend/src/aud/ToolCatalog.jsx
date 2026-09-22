@@ -9,6 +9,9 @@ import VnrTool from "./vnr/VnrTool.jsx";
 
 const PruebasEncargo = lazy(() => import("./niif/PruebasEncargo.jsx"));
 
+// Fichas NIIF («ficha:») y herramientas del catálogo («proc:») se trabajan en Pruebas del encargo.
+export const abrePruebasEncargo = (id) => /^(ficha|proc):/.test(id || "");
+
 export default function ToolCatalog({ projectId }) {
   const [activeTool, setActiveTool] = useState(null);
   const [sharedContext, setSharedContext] = useState(null);
@@ -19,7 +22,7 @@ export default function ToolCatalog({ projectId }) {
     api.cicloHerramientas().then((l) => setFichas(l.filter((h) => h.tipo === "ficha NIIF" || h.tipo === "herramienta NIIF"))).catch(() => setFichas([]));
   }, []);
 
-  if (activeTool?.startsWith("ficha:")) {
+  if (abrePruebasEncargo(activeTool)) {
     return (
       <div className="aud-tool-wrap">
         <button className="link aud-back" onClick={() => setActiveTool(null)}>{STRINGS.back_to_catalog}</button>

@@ -600,7 +600,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
             <section className="pc-panel">
               <header className="pc-panel-h">
                 <span className="pc-panel-t">Resultado</span>
-                <span className="pc-panel-m">{reg.run.rows.length} {d.processor ? "facturas" : "partidas"} · motor {reg.run.engine}</span>
+                <span className="pc-panel-m">{reg.run.rows.length} {d.processor === "perdidas_incurridas_s11" || d.processor === "pce_simplificada_niif9" ? "facturas" : "partidas"} · motor {reg.run.engine}</span>
               </header>
               <div className="pc-panel-b">
                 <div className="pc-tiles">
