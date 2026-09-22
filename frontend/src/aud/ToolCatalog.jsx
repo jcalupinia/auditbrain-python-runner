@@ -16,7 +16,7 @@ export default function ToolCatalog({ projectId }) {
   // las probadas se muestran como pendientes de aprobación para poder encontrarlas.
   const [fichas, setFichas] = useState([]);
   useEffect(() => {
-    api.cicloHerramientas().then((l) => setFichas(l.filter((h) => h.tipo === "ficha NIIF"))).catch(() => setFichas([]));
+    api.cicloHerramientas().then((l) => setFichas(l.filter((h) => h.tipo === "ficha NIIF" || h.tipo === "herramienta NIIF"))).catch(() => setFichas([]));
   }, []);
 
   if (activeTool?.startsWith("ficha:")) {

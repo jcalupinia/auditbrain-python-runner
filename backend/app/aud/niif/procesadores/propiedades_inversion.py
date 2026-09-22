@@ -1,0 +1,833 @@
+"""Propiedades de inversión (NIC 40 y NIIF 13 · NIIF para las PYMES sección 16; 2025 con la sección 12).
+
+Versión simple que cumple la norma, una cédula por prueba de la matriz del socio (MÓDULO 05):
+
+1. Clasificación (NIC 40.5-14; PYMES 16.2-16.4): alquiler, plusvalía, uso futuro no determinado o en
+   construcción → propiedad de inversión; uso propio → PPE; venta en el curso normal → inventario; uso propio
+   por encima del umbral (parámetro) → PPE (NIC 40.10: solo es PI si la parte de uso propio es insignificante).
+2. Costo inicial (NIC 40.20-24; PYMES 16.5): precio de compra + desembolsos directamente atribuibles vs costo
+   registrado.
+3. Valor razonable (NIC 40.33-55, NIIF 13; PYMES 16.7 y, 2025, sección 12): ajuste = VR − importe en libros, a
+   resultados (NIC 40.35). Si una partida no tiene VR fiable → costo (NIC 40.53 / PYMES 16.8).
+4. Modelo del costo (NIC 40.56 → NIC 16; PYMES sección 17 y 27): depreciación en meses completos
+   (costo − terreno) × MIN(1, meses ÷ (vida × 12)); deterioro = MAX(0, neto − importe recuperable).
+5. Transferencias (NIC 40.57-65; PYMES 16.8-16.9): diferencia VR − libros a la fecha del cambio a resultados
+   (desde inventario, 40.63) o como revaluación NIC 16 (desde PPE, 40.61-62); costo atribuido = VR (40.60).
+6. Ingresos por alquiler: según contratos vs registrados.
+7. Bajas (NIC 40.66-73): resultado = producto neto − importe en libros (40.69).
+
+Ruta: NIIF completas → modelo elegido por la entidad (parámetro «modelo»); PYMES → valor razonable solo si
+«vr_sin_esfuerzo_desproporcionado» = sí, si no costo (16.7-16.8).
+Ajuste propuesto = propiedades de inversión auditadas − saldo del mayor.
+"""
+from __future__ import annotations
+
+import re
+from datetime import date, timedelta
+
+from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y filas_mapeadas los usa el ciclo)
+    FILA0, a_num, campo, edicion_pymes, es_pymes, fecha, filas_mapeadas, fx, hoja, m, norm, problema, r2, ref, req,
+    validar_campos, validar_definicion_generica,
+)
+
+VERSION = "propiedades_inversion 1.0"
+RUBRO = "PROPIEDADES_INVERSION"
+
+_INMUEBLES = [
+    campo("id", "Código del inmueble", alias=("codigo", "inmueble", "referencia", "cod"), ejemplo="IP-01"),
+    campo("descripcion", "Descripción", alias=("detalle", "nombre", "ubicacion"), ejemplo="Edificio de oficinas Norte"),
+    campo("uso", "Uso actual (Alquiler / Plusvalía / Uso propio / Venta / Uso futuro no determinado / En construcción)",
+          alias=("uso actual", "destino", "proposito"), ejemplo="Alquiler"),
+    campo("pct_uso_propio", "% de uso propio (0 a 100)", "number", requerido=False, alias=("uso propio", "porcentaje uso propio"), ejemplo=0),
+    campo("separable", "¿Las partes pueden venderse por separado? (Sí/No)", requerido=False, alias=("se puede separar", "partes separables"), ejemplo="No"),
+    campo("costo", "Costo registrado", "number", alias=("costo historico", "costo de adquisicion", "costo original"), ejemplo=500000),
+    campo("fecha_adquisicion", "Fecha de adquisición (disponible para su uso)", "date", requerido=False,
+          alias=("fecha compra", "fecha adquisicion", "fecha de alta"), ejemplo="2018-03-01"),
+    campo("precio_compra", "Precio de compra (escritura)", "number", requerido=False, alias=("precio", "valor escritura"), ejemplo=""),
+    campo("costos_atribuibles", "Desembolsos directamente atribuibles (honorarios, impuestos de transferencia)", "number",
+          requerido=False, alias=("costos de transaccion", "gastos notariales", "alcabalas"), ejemplo=""),
+    campo("terreno", "Parte del costo que es terreno (no depreciable)", "number", requerido=False, alias=("valor terreno", "costo terreno"), ejemplo=100000),
+    campo("vida_util", "Vida útil (años)", "number", requerido=False, alias=("vida", "anos vida util"), ejemplo=40),
+    campo("dep_acumulada", "Depreciación acumulada registrada", "number", requerido=False, alias=("depreciacion acumulada", "dep acum"), ejemplo=""),
+    campo("vr_anterior", "Valor razonable del año anterior", "number", requerido=False, alias=("vr anterior", "valor razonable anterior"), ejemplo=700000),
+    campo("vr_corte", "Valor razonable al corte", "number", requerido=False, alias=("valor razonable", "vr", "avaluo", "tasacion"), ejemplo=720000),
+    campo("fuente_vr", "Fuente del valor razonable / tasador", requerido=False, alias=("tasador", "perito", "fuente"), ejemplo="Perito independiente"),
+    campo("nivel_vr", "Nivel de jerarquía del VR (1, 2 o 3)", requerido=False, alias=("nivel", "jerarquia"), ejemplo="Nivel 2"),
+    campo("importe_libros", "Importe en libros registrado al corte", "number", alias=("saldo", "valor en libros", "importe en libros", "saldo contable"), ejemplo=700000),
+    campo("ingresos_alquiler", "Ingresos por alquiler del año según contratos", "number", requerido=False,
+          alias=("canon anual", "renta anual", "ingresos segun contrato"), ejemplo=48000),
+    campo("ingresos_registrados", "Ingresos por alquiler registrados", "number", requerido=False,
+          alias=("ingresos contables", "ingresos registrados", "renta registrada"), ejemplo=48000),
+    campo("transferencia", "Cambio de uso en el año (PPE→PI, Inventario→PI, PI→PPE, PI→Inventario)", requerido=False,
+          alias=("cambio de uso", "reclasificacion", "traspaso"), ejemplo=""),
+    campo("fecha_transferencia", "Fecha del cambio de uso", "date", requerido=False, alias=("fecha cambio de uso", "fecha traspaso"), ejemplo=""),
+    campo("libros_transferencia", "Importe en libros a la fecha del cambio", "number", requerido=False, alias=("libros al cambio",), ejemplo=""),
+    campo("vr_transferencia", "Valor razonable a la fecha del cambio", "number", requerido=False, alias=("vr al cambio",), ejemplo=""),
+    campo("importe_recuperable", "Importe recuperable (solo si hay indicio de deterioro)", "number", requerido=False,
+          alias=("recuperable", "valor recuperable"), ejemplo=""),
+]
+CAMPOS = {
+    "inmuebles": _INMUEBLES,
+    "bajas": [
+        campo("id", "Código del inmueble dado de baja", alias=("codigo", "inmueble"), ejemplo="B-01"),
+        campo("descripcion", "Descripción", requerido=False, alias=("detalle", "nombre"), ejemplo="Local Quevedo"),
+        campo("fecha_baja", "Fecha de la venta o retiro", "date", alias=("fecha venta", "fecha de baja"), ejemplo="2025-08-31"),
+        campo("producto_neto", "Producto neto de la venta", "number", alias=("precio de venta", "ingreso neto", "producto"), ejemplo=130000),
+        campo("importe_libros", "Importe en libros a la fecha de baja", "number", alias=("valor en libros", "costo neto"), ejemplo=110000),
+        campo("resultado_registrado", "Ganancia (pérdida) registrada", "number", requerido=False, alias=("utilidad registrada", "resultado"), ejemplo=20000),
+    ],
+}
+TIPOS = {"inmuebles": "inmuebles", "bajas": "bajas"}
+DATASETS = tuple(TIPOS)
+PRINCIPAL = "inmuebles"
+CONTROL = "importe_libros"
+
+PARAMETROS = {"modelo": "valor_razonable", "vr_sin_esfuerzo_desproporcionado": "sí", "umbral_uso_propio": 10, "saldoMayor": None}
+PARAM_NEGATIVOS = ()
+ETIQUETAS_PARAM = {
+    "modelo": "Modelo aplicado por la entidad (valor_razonable / costo)",
+    "vr_sin_esfuerzo_desproporcionado": "PYMES: ¿el VR se mide con fiabilidad sin costo o esfuerzo desproporcionado? (sí / no)",
+    "umbral_uso_propio": "Uso propio significativo desde (% del inmueble)",
+    "saldoMayor": "Saldo de propiedades de inversión según el mayor",
+}
+TOTAL_EJEMPLO = "ajuste"
+
+USOS = ("Alquiler", "Plusvalía", "Uso propio", "Venta", "Uso futuro no determinado", "En construcción")
+TRANSFERENCIAS = ("PPE→PI", "Inventario→PI", "PI→PPE", "PI→Inventario")
+PI = "Propiedad de inversión"
+VR = "valor_razonable"
+
+
+def kind(dataset: str) -> str:
+    return TIPOS[dataset]
+
+
+def validar_filas(tipo: str, filas: list) -> dict:
+    return validar_campos(CAMPOS[tipo], filas)
+
+
+# --- normalización ---------------------------------------------------------------
+
+def _opt(v):
+    """Número opcional: vacío → None (M22: lo no medido queda vacío, nunca 0)."""
+    return a_num(v) if str(v if v is not None else "").strip() else None
+
+
+def _txt(v) -> str:
+    return str(v if v is not None else "").strip()
+
+
+def _uso(v) -> str:
+    s = norm(v)
+    for claves, uso in ((("propio", "administr", "oficinaspropias"), "Uso propio"), (("venta", "vender"), "Venta"),
+                        (("plusval",), "Plusvalía"), (("futuro", "nodetermin"), "Uso futuro no determinado"),
+                        (("construc",), "En construcción"), (("alquil", "arrend", "renta"), "Alquiler")):
+        if any(c in s for c in claves):
+            return uso
+    return _txt(v)
+
+
+def _si_no(v) -> str:
+    s = norm(v)
+    return "Sí" if s in ("si", "s", "yes", "x", "true") else ("No" if s in ("no", "n", "false") else _txt(v))
+
+
+def _transf(v) -> str:
+    raw = _txt(v)
+    if not raw:
+        return ""
+    partes = [norm(x) for x in re.split(r"→|->|>|/|\s+a\s+|\s+hacia\s+", raw.lower()) if norm(x)]
+    lado = []
+    for x in partes:
+        if "invent" in x or "existenc" in x:
+            lado.append("Inventario")
+        elif x in ("pi", "ip") or "inversi" in x:
+            lado.append("PI")
+        elif "ppe" in x or "propio" in x or "planta" in x:
+            lado.append("PPE")
+    t = "→".join(lado)
+    return t if t in TRANSFERENCIAS else raw
+
+
+def _meses(a: date | None, b: date) -> int | None:
+    """DATEDIF(a, b, "m") de Excel: meses completos; 0 si a es posterior."""
+    if a is None:
+        return None
+    if a > b:
+        return 0
+    n = (b.year - a.year) * 12 + b.month - a.month
+    return n - 1 if b.day < a.day else n
+
+
+def _parametros(parametros: dict) -> dict:
+    p = {**PARAMETROS, **{k: v for k, v in (parametros or {}).items() if v is not None and v != ""}}
+    mo = norm(p["modelo"])
+    if "cost" in mo:
+        p["modelo"] = "costo"
+    elif "razonable" in mo or mo in ("vr", "valor", "fv"):
+        p["modelo"] = VR
+    else:
+        raise ValueError("Modelo aplicado por la entidad: indique valor_razonable o costo.")
+    s = _si_no(p["vr_sin_esfuerzo_desproporcionado"])
+    if s not in ("Sí", "No"):
+        raise ValueError("PYMES: indique sí o no en «VR sin costo o esfuerzo desproporcionado».")
+    p["vr_sin_esfuerzo_desproporcionado"] = s.lower()
+    u = a_num(p["umbral_uso_propio"])
+    if u is None or not 0 <= u <= 100:
+        raise ValueError(f"{ETIQUETAS_PARAM['umbral_uso_propio']}: use un porcentaje entre 0 y 100.")
+    p["umbral_uso_propio"] = float(u)
+    p["saldoMayor"] = None if p.get("saldoMayor") in (None, "") else a_num(p["saldoMayor"])
+    return p
+
+
+def _inicio(c: date) -> date:
+    try:
+        return date(c.year - 1, c.month, c.day) + timedelta(days=1)
+    except ValueError:                                   # 29 de febrero
+        return date(c.year - 1, c.month, 28) + timedelta(days=1)
+
+
+# --- cálculo -------------------------------------------------------------------
+
+def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
+    p = _parametros(parametros)
+    pymes, edicion = es_pymes(p), edicion_pymes(p)
+    corte_a = fecha(corte)
+    if corte_a is None:
+        raise ValueError("Indique la fecha de corte del encargo.")
+    inicio = _inicio(corte_a)
+    correcto = (VR if p["vr_sin_esfuerzo_desproporcionado"] == "sí" else "costo") if pymes else p["modelo"]
+    umbral = p["umbral_uso_propio"]
+
+    its = []
+    for f in datasets.get("inmuebles") or []:
+        costo, libros = a_num(f.get("costo")), a_num(f.get("importe_libros"))
+        if costo is None or libros is None:
+            continue
+        g = lambda k: _opt(f.get(k))
+        fd = lambda k: fecha(f.get(k)) if _txt(f.get(k)) else None
+        it = {"id": _txt(f.get("id")), "desc": _txt(f.get("descripcion")), "uso": _uso(f.get("uso")), "pct": g("pct_uso_propio"),
+              "sep": _si_no(f.get("separable")), "costo": costo, "fadq": fd("fecha_adquisicion"), "precio": g("precio_compra"),
+              "atrib": g("costos_atribuibles"), "terreno": g("terreno"), "vida": g("vida_util"), "depReg": g("dep_acumulada"),
+              "vrAnt": g("vr_anterior"), "vr": g("vr_corte"), "fuente": _txt(f.get("fuente_vr")), "nivel": _txt(f.get("nivel_vr")),
+              "libros": libros, "alq": g("ingresos_alquiler"), "alqReg": g("ingresos_registrados"),
+              "transf": _transf(f.get("transferencia")), "ftr": fd("fecha_transferencia"), "libTr": g("libros_transferencia"),
+              "vrTr": g("vr_transferencia"), "rec": g("importe_recuperable"), "_row": f.get("_row")}
+        if it["vida"] is not None and it["vida"] <= 0:
+            it["vida"] = None
+        # 1 · clasificación
+        if it["uso"] == "Venta":
+            it["clase"] = "Inventario (NIC 2)" if not pymes else "Inventario (sección 13)"
+        elif it["uso"] == "Uso propio":
+            it["clase"] = "PPE (uso propio)"
+        elif it["pct"] is not None and it["pct"] > umbral:
+            it["clase"] = "PPE (uso propio significativo)"
+        else:
+            it["clase"] = PI
+        it["esPI"] = it["clase"] == PI
+        it["reclas"] = None if it["esPI"] else -libros
+        # 2 · costo inicial
+        it["costoRec"] = None if it["precio"] is None else it["precio"] + (it["atrib"] if it["atrib"] is not None else 0)
+        it["difCosto"] = None if it["costoRec"] is None else it["costoRec"] - costo
+        it["costoAud"] = it["costoRec"] if it["costoRec"] is not None else costo
+        # 3 · valor razonable
+        if not it["esPI"]:
+            it["medida"] = "No es PI"
+        elif correcto == VR:
+            it["medida"] = "Valor razonable" if it["vr"] is not None else "Costo (VR no fiable)"
+        else:
+            it["medida"] = "Costo"
+        it["varVR"] = None if it["vr"] is None or it["vrAnt"] is None else it["vr"] - it["vrAnt"]
+        it["ajVR"] = it["vr"] - libros if it["medida"] == "Valor razonable" else None
+        # 4 · modelo del costo
+        it["aplica"] = it["medida"].startswith("Costo")
+        c = {k: None for k in ("base", "meses", "dep", "depAnio", "difDep", "neto", "det", "medCosto")}
+        if it["aplica"]:
+            c["base"] = it["costoAud"] - (it["terreno"] if it["terreno"] is not None else 0)
+            c["meses"] = _meses(it["fadq"], corte_a)
+            if c["base"] == 0:
+                c["dep"], c["depAnio"] = 0, 0
+            elif it["vida"] is not None and c["meses"] is not None:
+                c["dep"] = c["base"] * min(1, c["meses"] / (it["vida"] * 12))
+                c["depAnio"] = c["dep"] - c["base"] * min(1, max(0, c["meses"] - 12) / (it["vida"] * 12))
+            c["difDep"] = None if c["dep"] is None or it["depReg"] is None else c["dep"] - it["depReg"]
+            usada = c["dep"] if c["dep"] is not None else (it["depReg"] if it["depReg"] is not None else 0)
+            c["neto"] = it["costoAud"] - usada
+            c["det"] = None if it["rec"] is None else max(0, c["neto"] - it["rec"])
+            c["medCosto"] = c["neto"] - (c["det"] if c["det"] is not None else 0)
+        it.update(c)
+        # medición auditada
+        it["aud"] = 0 if not it["esPI"] else (it["vr"] if it["medida"] == "Valor razonable" else it["medCosto"])
+        it["ajuste"] = it["aud"] - libros
+        it["efCosto"] = it["aud"] - libros if it["aplica"] else None
+        # 6 · alquileres
+        it["difAlq"] = None if it["alq"] is None or it["alqReg"] is None else it["alq"] - it["alqReg"]
+        its.append(it)
+    if not its:
+        raise ValueError("Cargue el registro de propiedades de inversión (un inmueble por fila) al corte.")
+
+    # 5 · transferencias
+    trs = []
+    for k, it in enumerate(its):
+        if not it["transf"]:
+            continue
+        t = it["transf"]
+        x = {"k": k, "id": it["id"], "transf": t, "fecha": it["ftr"], "clase": it["clase"], "lib": it["libTr"], "vr": it["vrTr"]}
+        x["enEj"] = "Sin fecha" if it["ftr"] is None else ("Sí" if inicio <= it["ftr"] <= corte_a else "No")
+        x["dif"] = None if pymes or correcto != VR or x["lib"] is None or x["vr"] is None else x["vr"] - x["lib"]
+        if pymes:
+            x["trat"] = "PYMES 16.9: cambio de uso; medición de la diferencia a la fecha del cambio: VERIFICAR"
+        elif correcto != VR:
+            x["trat"] = "Modelo del costo: sin cambio del importe en libros (NIC 40.59)"
+        elif t == "PPE→PI":
+            x["trat"] = "Revaluación según NIC 16 a la fecha del cambio (NIC 40.61-62)"
+        elif t == "Inventario→PI":
+            x["trat"] = "Diferencia a resultados (NIC 40.63)"
+        elif t in ("PI→PPE", "PI→Inventario"):
+            x["trat"] = "Costo atribuido = VR a la fecha del cambio (NIC 40.60)"
+        else:
+            x["trat"] = "Transferencia no reconocida"
+        x["res"] = None if x["dif"] is None else (x["dif"] if t == "Inventario→PI" else (min(0, x["dif"]) if t == "PPE→PI" else 0))
+        x["ori"] = None if x["dif"] is None else (max(0, x["dif"]) if t == "PPE→PI" else 0)
+        if t not in TRANSFERENCIAS:
+            x["estado"] = "Transferencia no reconocida"
+        elif x["fecha"] is None:
+            x["estado"] = "Sin tratamiento: falta la fecha del cambio"
+        elif not pymes and correcto == VR and (x["lib"] is None or x["vr"] is None):
+            x["estado"] = "Sin tratamiento: falta importe en libros o VR a la fecha"
+        elif (t.endswith("PI") and it["clase"] != PI) or (t.startswith("PI") and it["clase"] == PI):
+            x["estado"] = "Incoherente con la clasificación actual"
+        else:
+            x["estado"] = "Completa"
+        trs.append(x)
+
+    # 7 · bajas
+    bajas = []
+    for f in datasets.get("bajas") or []:
+        fb, pn, lb = fecha(f.get("fecha_baja")), a_num(f.get("producto_neto")), a_num(f.get("importe_libros"))
+        if fb is None or pn is None or lb is None:
+            continue
+        rr = _opt(f.get("resultado_registrado"))
+        x = {"id": _txt(f.get("id")), "desc": _txt(f.get("descripcion")), "fecha": fb, "prod": pn, "lib": lb, "res": pn - lb, "reg": rr}
+        x["dif"] = None if rr is None else x["res"] - rr
+        bajas.append(x)
+
+    # Totales (mismo orden de suma que Excel).
+    S = lambda xs: sum(x for x in xs if x is not None)
+    libros_t = S(i["libros"] for i in its)
+    mayor = p["saldoMayor"] if p["saldoMayor"] is not None else libros_t
+    t = {"piAuditado": S(i["aud"] for i in its), "saldoMayor": mayor}
+    t["ajuste"] = t["piAuditado"] - mayor
+    t["libros"] = libros_t
+    t["difDetalleMayor"] = libros_t - mayor
+    t["ajusteVR"] = S(i["ajVR"] for i in its)
+    t["efectoCosto"] = S(i["efCosto"] for i in its)
+    t["reclasificacion"] = S(i["reclas"] for i in its)
+    t["depreciacionAnio"] = S(i["depAnio"] for i in its)
+    t["difDepreciacion"] = S(i["difDep"] for i in its)
+    t["deterioro"] = S(i["det"] for i in its)
+    t["variacionVR"] = S(i["varVR"] for i in its)
+    t["difCostoInicial"] = S(i["difCosto"] for i in its)
+    t["transfResultados"] = S(x["res"] for x in trs)
+    t["transfORI"] = S(x["ori"] for x in trs)
+    t["difAlquileres"] = S(i["difAlq"] for i in its)
+    t["resultadoBajas"] = S(x["res"] for x in bajas)
+    t["difBajas"] = S(x["dif"] for x in bajas)
+    conc = {"mayor": mayor, "libros": libros_t, "dif": libros_t - mayor, "vr": t["ajusteVR"], "costo": t["efectoCosto"],
+            "reclas": t["reclasificacion"]}
+    conc["puente"] = libros_t + conc["vr"] + conc["costo"] + conc["reclas"]
+    conc["control"] = t["piAuditado"]
+    conc["difControl"] = conc["puente"] - conc["control"]
+    conc["ajuste"] = conc["control"] - mayor
+
+    # Problemas (M22: cada «debe» de la norma que el cálculo no garantiza).
+    n40 = lambda c, s: s if pymes else c
+    lista = lambda xs: ", ".join(xs[:6]) + (" …" if len(xs) > 6 else "")
+    pr = []
+    mal = [i for i in its if not i["esPI"]]
+    if mal:
+        pr.append(problema("MAL_CLASIFICADO", f"Inmuebles que no son propiedad de inversión: {lista([i['id'] + ' (' + i['clase'] + ')' for i in mal])}. "
+                           f"Reclasificar {m(-t['reclasificacion'])} fuera de la cuenta y medirlos con su norma "
+                           f"({n40('NIC 40.9 y 40.10; si venían a VR, el costo atribuido es el VR a la fecha del cambio, 40.60', 'PYMES 16.2 y 16.4')}).",
+                           t["reclasificacion"]))
+    sep = [i["id"] for i in mal if i["sep"] == "Sí" and i["clase"].startswith("PPE (uso propio significativo")]
+    if sep:
+        pr.append(problema("USO_MIXTO_SEPARABLE", f"{lista(sep)}: uso mixto con partes separables. Registre por separado la parte arrendada "
+                           f"como propiedad de inversión y la de uso propio como PPE ({n40('NIC 40.10', 'PYMES 16.4')}); divida la fila del anexo."))
+    raro = [i["id"] for i in its if i["uso"] not in USOS]
+    if raro:
+        pr.append(problema("USO_NO_RECONOCIDO", f"Uso no reconocido en {lista(raro)}: se trató como propiedad de inversión. Indique Alquiler, Plusvalía, "
+                           "Uso propio, Venta, Uso futuro no determinado o En construcción."))
+    frac = [i["id"] for i in its if i["pct"] is not None and 0 < i["pct"] < 1]
+    if frac:
+        pr.append(problema("PCT_USO_FRACCION", f"% de uso propio menor a 1 en {lista(frac)}: el anexo pide 0 a 100 (35 = 35 %). Revise si escribió una fracción."))
+    if pymes and p["modelo"] != correcto:
+        msg = ("La entidad aplica valor razonable pero el VR no se mide con fiabilidad sin costo o esfuerzo desproporcionado: debe usar el "
+               "modelo del costo de la sección 17 (PYMES 16.7-16.8)." if p["modelo"] == VR else
+               "La entidad aplica el modelo del costo pero el VR se mide con fiabilidad sin costo o esfuerzo desproporcionado: debe medir al "
+               "valor razonable con cambios en resultados (PYMES 16.7).")
+        pr.append(problema("PYMES_MODELO", msg + " La herramienta mide con el modelo correcto."))
+    if abs(t["ajusteVR"]) > 0.005:
+        dif = [i["id"] for i in its if i["ajVR"] and abs(i["ajVR"]) > 0.005]
+        pr.append(problema("VR_NO_RECONOCIDO", f"Diferencia entre el valor razonable al corte y el importe en libros no reconocida en {lista(dif)}: "
+                           f"{m(t['ajusteVR'])}, a resultados del ejercicio ({n40('NIC 40.35', 'PYMES 16.7')}).", t["ajusteVR"]))
+    nf = [i["id"] for i in its if i["medida"] == "Costo (VR no fiable)"]
+    if nf:
+        pr.append(problema("VR_NO_FIABLE", f"{lista(nf)} sin valor razonable con modelo de VR: se miden al costo. "
+                           + ("Solo procede si al adquirirlo o cambiar su uso el VR no podía medirse de forma fiable y continua (NIC 40.53); "
+                              "el resto sigue a VR (40.54) y se revela 78." if not pymes else
+                              "PYMES 16.8: pasa a la sección 17 hasta que vuelva a haber una medición fiable; revele 16.10(e)(iii).")))
+    vr_items = [i for i in its if i["medida"] == "Valor razonable"]
+    sf = [i["id"] for i in vr_items if not i["fuente"]]
+    if sf:
+        pr.append(problema("SIN_FUENTE_VR", f"Valor razonable sin fuente ni tasador en {lista(sf)}: documente la tasación "
+                           f"({n40('NIC 40.32 y 75 e; NIIF 13', 'PYMES 16.10 b')}) y evalúe el trabajo del experto (NIA 500 y 620)."))
+    if not pymes or edicion == "2025":
+        sn = [i["id"] for i in vr_items if not i["nivel"]]
+        if sn:
+            pr.append(problema("SIN_NIVEL_VR", f"Falta el nivel de la jerarquía del VR en {lista(sn)} "
+                               f"({n40('NIIF 13.72 y 93 b', 'PYMES 2025 12.22 y 12.28 b')})."))
+    if correcto == "costo" and not pymes:
+        sv = [i["id"] for i in its if i["esPI"] and i["vr"] is None]
+        if sv:
+            pr.append(problema("SIN_VR_REVELACION", f"Modelo del costo: falta el valor razonable a revelar de {lista(sv)} (NIC 40.32 y 79 e)."))
+    if abs(t["difCostoInicial"]) > 0.005:
+        dc = [i["id"] for i in its if i["difCosto"] and abs(i["difCosto"]) > 0.005]
+        pr.append(problema("COSTO_INICIAL", f"El costo registrado no es precio de compra + desembolsos directamente atribuibles en {lista(dc)}: "
+                           f"{m(t['difCostoInicial'])} ({n40('NIC 40.20-21', 'PYMES 16.5')}).", t["difCostoInicial"]))
+    if abs(t["difDepreciacion"]) > 0.005:
+        dd = [i["id"] for i in its if i["difDep"] and abs(i["difDep"]) > 0.005]
+        pr.append(problema("DEP_DIFERENCIA", f"La depreciación acumulada recalculada difiere de la registrada en {lista(dd)}: {m(t['difDepreciacion'])} "
+                           f"({n40('NIC 40.56 → NIC 16', 'PYMES 17.17-17.20')}).", t["difDepreciacion"]))
+    sv = [i["id"] for i in its if i["aplica"] and i["dep"] is None]
+    if sv:
+        pr.append(problema("SIN_VIDA_UTIL", f"Sin vida útil o fecha de adquisición en {lista(sv)}: no se recalculó la depreciación (se usa la registrada)."))
+    if t["deterioro"] > 0.005:
+        dt = [i["id"] for i in its if i["det"]]
+        pr.append(problema("DETERIORO", f"Modelo del costo: el importe recuperable es menor que el valor neto en {lista(dt)}: deterioro {m(t['deterioro'])} "
+                           f"({n40('NIC 36.9 y 59', 'PYMES 27.5-27.7')}).", t["deterioro"]))
+    if abs(t["difAlquileres"]) > 0.005:
+        da = [i["id"] for i in its if i["difAlq"] and abs(i["difAlq"]) > 0.005]
+        pr.append(problema("ALQUILER_NO_CONCILIADO", f"Ingresos por alquiler según contratos distintos de los registrados en {lista(da)}: {m(t['difAlquileres'])} "
+                           f"({n40('NIIF 16.81 y NIC 40.75 f', 'PYMES 20.25')}; VERIFICAR).", t["difAlquileres"]))
+    sc = [i["id"] for i in its if i["uso"] == "Alquiler" and i["alq"] is None]
+    if sc:
+        pr.append(problema("ALQUILER_SIN_CONTRATO", f"Inmuebles en alquiler sin ingresos según contrato en {lista(sc)}: no se concilian las rentas."))
+    sr = [i["id"] for i in its if i["alq"] is not None and i["alqReg"] is None]
+    if sr:
+        pr.append(problema("ALQUILER_SIN_REGISTRO", f"Contratos sin ingresos registrados informados en {lista(sr)}: indique lo registrado."))
+    st = [x["id"] for x in trs if x["estado"] != "Completa"]
+    if st:
+        pr.append(problema("TRANSFERENCIA_SIN_TRATAMIENTO", f"Cambios de uso sin tratamiento completo: {lista([x['id'] + ' (' + x['estado'] + ')' for x in trs if x['estado'] != 'Completa'])} "
+                           f"({n40('NIC 40.57-65', 'PYMES 16.8-16.9')})."))
+    if abs(t["transfResultados"]) > 0.005 or abs(t["transfORI"]) > 0.005:
+        pr.append(problema("TRANSFERENCIA", f"Diferencias a la fecha del cambio de uso: a resultados {m(t['transfResultados'])}, a otro resultado integral "
+                           f"(superávit de revaluación) {m(t['transfORI'])}. Verifique que se registraron así (NIC 40.61-63).",
+                           t["transfResultados"] + t["transfORI"]))
+    if abs(t["difBajas"]) > 0.005:
+        db = [x["id"] for x in bajas if x["dif"] and abs(x["dif"]) > 0.005]
+        pr.append(problema("BAJA_RESULTADO", f"Resultado de la baja mal determinado en {lista(db)}: {m(t['difBajas'])}; resultado = producto neto − importe en libros "
+                           f"({n40('NIC 40.69', 'PYMES 17.28-17.30; VERIFICAR')}).", t["difBajas"]))
+    if p["saldoMayor"] is None:
+        pr.append(problema("SIN_MAYOR", "Ingrese el saldo según el mayor: sin él se toma la suma del detalle y no se prueba la conciliación."))
+    elif abs(t["difDetalleMayor"]) > 0.005:
+        pr.append(problema("DETALLE_MAYOR", f"El detalle de inmuebles ({m(libros_t)}) no concilia con el mayor ({m(mayor)}): {m(t['difDetalleMayor'])}.",
+                           t["difDetalleMayor"]))
+    if abs(t["ajuste"]) > 0.005:
+        pr.append(problema("AJUSTE", f"Las propiedades de inversión auditadas ({m(t['piAuditado'])}) difieren del mayor ({m(mayor)}).", t["ajuste"]))
+
+    iso = lambda d: d.isoformat() if isinstance(d, date) else d
+    filas = [{"id": i["id"], "descripcion": i["desc"], "uso": i["uso"], "clasificacion": i["clase"], "medida": i["medida"],
+              "importe_libros": r2(i["libros"]), "auditado": r2(i["aud"]), "ajuste": r2(i["ajuste"]), "_row": i["_row"]} for i in its]
+    etiquetas = {
+        "piAuditado": "Propiedades de inversión auditadas", "saldoMayor": "Saldo según el mayor", "ajuste": "Ajuste propuesto (neto)",
+        "libros": "Importe en libros según el detalle", "difDetalleMayor": "Diferencia detalle − mayor",
+        "ajusteVR": "Ajuste de valor razonable no reconocido (resultados)", "efectoCosto": "Efecto de la medición al costo (depreciación y deterioro)",
+        "reclasificacion": "Reclasificación fuera de propiedades de inversión", "depreciacionAnio": "Depreciación del año (modelo del costo)",
+        "difDepreciacion": "Diferencia de depreciación acumulada", "deterioro": "Deterioro (modelo del costo)",
+        "variacionVR": "Variación del valor razonable del año", "difCostoInicial": "Diferencia en el costo inicial",
+        "transfResultados": "Transferencias: diferencia a resultados", "transfORI": "Transferencias: diferencia a otro resultado integral",
+        "difAlquileres": "Diferencia en ingresos por alquiler", "resultadoBajas": "Resultado recalculado en bajas", "difBajas": "Diferencia en el resultado de bajas",
+    }
+    return {"engine": VERSION, "rows": filas, "totals": {k: r2(t[k]) for k in etiquetas}, "labels": etiquetas, "primary": "ajuste",
+            "exceptions": pr, "schedule": [],
+            "detalle": {"corte": corte_a.isoformat(), "inicio": inicio.isoformat(), "pymes": pymes, "edicion": edicion, "correcto": correcto,
+                        "parametros": p, "tot": t, "conc": conc,
+                        "items": [{k: iso(v) for k, v in i.items()} for i in its],
+                        "transf": [{k: iso(v) for k, v in x.items()} for x in trs],
+                        "bajas": [{k: iso(v) for k, v in x.items()} for x in bajas]}}
+
+
+# --- cédulas con fórmulas ----------------------------------------------------------
+
+CEDULAS = [
+    ("01_Resumen", "Resumen y ajuste propuesto"), ("02_Parametros", "Parámetros y ruta por marco"), ("03_Inmuebles", "Registro de inmuebles"),
+    ("04_Clasificacion", "Clasificación (IP-01)"), ("05_Costo_inicial", "Costo inicial (IP-03)"), ("06_Valor_razonable", "Valor razonable (IP-04)"),
+    ("07_Modelo_costo", "Modelo del costo: depreciación y deterioro (IP-05)"), ("08_Medicion", "Medición auditada por inmueble"),
+    ("09_Transferencias", "Transferencias (IP-07)"), ("10_Alquileres", "Ingresos por alquiler (IP-06)"), ("11_Bajas", "Bajas (IP-08)"),
+    ("12_Conciliacion", "Sumaria y conciliación (IP-02)"), ("13_Problemas", "Problemas encontrados"),
+]
+PARK = ["corte", "inicio", "marco", "esPymes", "modelo", "vr", "correcto", "umbral", "saldoMayor"]
+PAR = {k: FILA0 + i for i, k in enumerate(PARK)}
+P, INM, CLA, COS, VRZ, MCO, MED, TRA, ALQ, BAJ = (ref(n) for n, _ in CEDULAS[1:11])
+
+
+def _pa(k: str) -> str:
+    return f"{P}$B${PAR[k]}"
+
+
+def _rg(hoja_ref: str, col: str, n: int) -> str:
+    return f"{hoja_ref}${col}${FILA0}:${col}${FILA0 + max(n, 1) - 1}"
+
+
+def _tot(col: str, n: int, v):
+    return fx(f"SUM({col}{FILA0}:{col}{FILA0 + max(n, 1) - 1})", v)
+
+
+def _si(celda: str) -> str:
+    """Referencia a un dato opcional: vacío sigue vacío (una referencia simple daría 0)."""
+    return f'IF({celda}="","",{celda})'
+
+
+def hojas(res: dict) -> list[dict]:
+    d = res["detalle"]
+    p, t, c = d["parametros"], d["tot"], d["conc"]
+    its, trs, bajas = d["items"], d["transf"], d["bajas"]
+    ni, nt, nb = len(its), len(trs), len(bajas)
+    pymes = d["pymes"]
+    ruta = (f"NIIF para las PYMES {d['edicion']} · sección 16" + (" y sección 12 (medición del VR)" if d["edicion"] == "2025" else " (VR: 11.27-11.32)")
+            if pymes else "NIIF completas · NIC 40 y NIIF 13")
+    n_ = "n"
+
+    esp_v = "Sí" if pymes else "No"
+    parametros = [
+        ["Corte del ejercicio", d["corte"], "Ficha del encargo"],
+        ["Inicio del ejercicio", d["inicio"], "Corte − 12 meses + 1 día"],
+        ["Marco", "NIIF para las PYMES" if pymes else "NIIF completas", ruta],
+        ["¿Es PYMES?", fx(f'IF(ISNUMBER(SEARCH("PYMES",{_pa("marco")})),"Sí","No")', esp_v), "Deriva del marco"],
+        ["Modelo aplicado por la entidad", p["modelo"], "Política contable (NIC 40.30; PYMES 16.7)"],
+        ["PYMES: VR fiable sin costo o esfuerzo desproporcionado", p["vr_sin_esfuerzo_desproporcionado"], "Juicio documentado (PYMES 16.7-16.8); sin efecto en NIIF completas"],
+        ["Modelo con que se mide (ruta)", fx(f'IF({_pa("esPymes")}="Sí",IF({_pa("vr")}="sí","{VR}","costo"),{_pa("modelo")})', d["correcto"]),
+         "Completas: el elegido por la entidad; PYMES: VR solo si es fiable sin esfuerzo desproporcionado"],
+        ["Uso propio significativo desde (%)", p["umbral_uso_propio"], "NIC 40.10 exige que la parte de uso propio sea «insignificante»; el umbral es juicio del auditor: VERIFICAR"],
+        ["Saldo según el mayor", p["saldoMayor"], "Mayor contable (en blanco: se toma la suma del detalle)"],
+    ]
+
+    inm, cla, cos, vrz, mco, med, alq = [], [], [], [], [], [], []
+    for k, i in enumerate(its):
+        r = FILA0 + k
+        inm.append([i["id"], i["desc"], i["uso"], i["pct"], i["sep"], i["costo"], i["fadq"], i["precio"], i["atrib"], i["terreno"], i["vida"],
+                    i["depReg"], i["vrAnt"], i["vr"], i["fuente"], i["nivel"], i["libros"], i["alq"], i["alqReg"], i["transf"], i["ftr"],
+                    i["libTr"], i["vrTr"], i["rec"]])
+        clase_f = (f'IF(C{r}="Venta",IF({_pa("esPymes")}="Sí","Inventario (sección 13)","Inventario (NIC 2)"),IF(C{r}="Uso propio","PPE (uso propio)",'
+                   f'IF(AND(D{r}<>"",D{r}>F{r}),"PPE (uso propio significativo)","{PI}")))')
+        cla.append([i["id"], i["desc"], fx(f"{INM}C{r}", i["uso"]), fx(_si(f"{INM}D{r}"), i["pct"]), fx(_si(f"{INM}E{r}"), i["sep"] or None),
+                    fx(_pa("umbral"), p["umbral_uso_propio"]), fx(clase_f, i["clase"]), fx(f'IF(G{r}="{PI}","Sí","No")', "Sí" if i["esPI"] else "No"),
+                    fx(f"{INM}Q{r}", i["libros"]), fx(f'IF(H{r}="No",-I{r},"")', i["reclas"])])
+        cos.append([i["id"], i["fadq"], fx(_si(f"{INM}H{r}"), i["precio"]), fx(_si(f"{INM}I{r}"), i["atrib"]),
+                    fx(f'IF(C{r}="","",C{r}+IF(D{r}="",0,D{r}))', i["costoRec"]), fx(f"{INM}F{r}", i["costo"]),
+                    fx(f'IF(E{r}="","",E{r}-F{r})', i["difCosto"]), fx(f'IF(E{r}<>"",E{r},F{r})', i["costoAud"])])
+        vrz.append([i["id"], fx(f"{CLA}H{r}", "Sí" if i["esPI"] else "No"),
+                    fx(f'IF(B{r}="No","No es PI",IF({_pa("correcto")}="{VR}",IF(E{r}<>"","Valor razonable","Costo (VR no fiable)"),"Costo"))', i["medida"]),
+                    fx(_si(f"{INM}M{r}"), i["vrAnt"]), fx(_si(f"{INM}N{r}"), i["vr"]), fx(f'IF(OR(D{r}="",E{r}=""),"",E{r}-D{r})', i["varVR"]),
+                    fx(f"{INM}Q{r}", i["libros"]), fx(f'IF(C{r}="Valor razonable",E{r}-G{r},"")', i["ajVR"]),
+                    fx(_si(f"{INM}O{r}"), i["fuente"] or None), fx(_si(f"{INM}P{r}"), i["nivel"] or None)])
+        ap = "Sí" if i["aplica"] else "No"
+        mco.append([i["id"], fx(f"{VRZ}C{r}", i["medida"]), fx(f'IF(LEFT(B{r},5)="Costo","Sí","No")', ap),
+                    fx(f'IF(C{r}="Sí",{COS}H{r},"")', i["costoAud"] if i["aplica"] else None),
+                    fx(f'IF(C{r}="Sí",IF({INM}J{r}="",0,{INM}J{r}),"")', (i["terreno"] or 0) if i["aplica"] else None),
+                    fx(f'IF(C{r}="Sí",D{r}-E{r},"")', i["base"]),
+                    fx(f'IF(C{r}="Sí",{_si(f"{INM}K{r}")},"")', i["vida"] if i["aplica"] else None),
+                    i["fadq"] if i["aplica"] else None,
+                    fx(f'IF(OR(C{r}="No",H{r}=""),"",IF(H{r}>{_pa("corte")},0,DATEDIF(H{r},{_pa("corte")},"m")))', i["meses"]),
+                    fx(f'IF(C{r}="No","",IF(F{r}=0,0,IF(OR(G{r}="",I{r}=""),"",F{r}*MIN(1,I{r}/(G{r}*12)))))', i["dep"]),
+                    fx(f'IF(J{r}="","",IF(F{r}=0,0,J{r}-F{r}*MIN(1,MAX(0,I{r}-12)/(G{r}*12))))', i["depAnio"]),
+                    fx(f'IF(C{r}="Sí",{_si(f"{INM}L{r}")},"")', i["depReg"] if i["aplica"] else None),
+                    fx(f'IF(OR(J{r}="",L{r}=""),"",J{r}-L{r})', i["difDep"]),
+                    fx(f'IF(C{r}="No","",D{r}-IF(J{r}<>"",J{r},IF(L{r}<>"",L{r},0)))', i["neto"]),
+                    fx(f'IF(C{r}="Sí",{_si(f"{INM}X{r}")},"")', i["rec"] if i["aplica"] else None),
+                    fx(f'IF(OR(C{r}="No",O{r}=""),"",MAX(0,N{r}-O{r}))', i["det"]),
+                    fx(f'IF(C{r}="No","",N{r}-IF(P{r}="",0,P{r}))', i["medCosto"])])
+        med.append([i["id"], fx(f"{CLA}G{r}", i["clase"]), fx(f"{VRZ}C{r}", i["medida"]), fx(f"{INM}Q{r}", i["libros"]),
+                    fx(f'IF({CLA}H{r}="No",0,IF(C{r}="Valor razonable",{VRZ}E{r},{MCO}Q{r}))', i["aud"]), fx(f"E{r}-D{r}", i["ajuste"]),
+                    fx(_si(f"{VRZ}H{r}"), i["ajVR"]), fx(f'IF({MCO}C{r}="Sí",E{r}-D{r},"")', i["efCosto"]), fx(_si(f"{CLA}J{r}"), i["reclas"])])
+        alq.append([i["id"], fx(f"{INM}C{r}", i["uso"]), fx(_si(f"{INM}R{r}"), i["alq"]), fx(_si(f"{INM}S{r}"), i["alqReg"]),
+                    fx(f'IF(OR(C{r}="",D{r}=""),"",C{r}-D{r})', i["difAlq"])])
+
+    tra = []
+    for k, x in enumerate(trs):
+        r, s = FILA0 + k, FILA0 + x["k"]
+        vr_ok = f'OR({_pa("esPymes")}="Sí",{_pa("correcto")}<>"{VR}",F{r}="",G{r}="")'
+        trat = (f'IF({_pa("esPymes")}="Sí","PYMES 16.9: cambio de uso; medición de la diferencia a la fecha del cambio: VERIFICAR",'
+                f'IF({_pa("correcto")}<>"{VR}","Modelo del costo: sin cambio del importe en libros (NIC 40.59)",'
+                f'IF(B{r}="PPE→PI","Revaluación según NIC 16 a la fecha del cambio (NIC 40.61-62)",IF(B{r}="Inventario→PI","Diferencia a resultados (NIC 40.63)",'
+                f'IF(OR(B{r}="PI→PPE",B{r}="PI→Inventario"),"Costo atribuido = VR a la fecha del cambio (NIC 40.60)","Transferencia no reconocida")))))')
+        estado = (f'IF(AND(B{r}<>"PPE→PI",B{r}<>"Inventario→PI",B{r}<>"PI→PPE",B{r}<>"PI→Inventario"),"Transferencia no reconocida",'
+                  f'IF(C{r}="","Sin tratamiento: falta la fecha del cambio",IF(AND({_pa("esPymes")}="No",{_pa("correcto")}="{VR}",OR(F{r}="",G{r}="")),'
+                  f'"Sin tratamiento: falta importe en libros o VR a la fecha",IF(OR(AND(RIGHT(B{r},2)="PI",E{r}<>"{PI}"),AND(LEFT(B{r},2)="PI",E{r}="{PI}")),'
+                  f'"Incoherente con la clasificación actual","Completa"))))')
+        tra.append([x["id"], x["transf"], x["fecha"],
+                    fx(f'IF(C{r}="","Sin fecha",IF(AND(C{r}>={_pa("inicio")},C{r}<={_pa("corte")}),"Sí","No"))', x["enEj"]),
+                    fx(f"{CLA}G{s}", x["clase"]), fx(_si(f"{INM}V{s}"), x["lib"]), fx(_si(f"{INM}W{s}"), x["vr"]),
+                    fx(f'IF({vr_ok},"",G{r}-F{r})', x["dif"]), fx(trat, x["trat"]),
+                    fx(f'IF(H{r}="","",IF(B{r}="Inventario→PI",H{r},IF(B{r}="PPE→PI",MIN(0,H{r}),0)))', x["res"]),
+                    fx(f'IF(H{r}="","",IF(B{r}="PPE→PI",MAX(0,H{r}),0))', x["ori"]), fx(estado, x["estado"])])
+
+    baj = []
+    for k, x in enumerate(bajas):
+        r = FILA0 + k
+        baj.append([x["id"], x["desc"], x["fecha"], x["prod"], x["lib"], fx(f"D{r}-E{r}", x["res"]), x["reg"],
+                    fx(f'IF(G{r}="","",F{r}-G{r})', x["dif"])])
+
+    mayor_f = f'IF({_pa("saldoMayor")}="",SUM({_rg(INM, "Q", ni)}),{_pa("saldoMayor")})'
+    b = lambda i: f"B{FILA0 + i}"
+    conciliacion = [
+        ["Saldo según el mayor", fx(mayor_f, c["mayor"])],
+        ["Importe en libros según el detalle", fx(f"SUM({_rg(INM, 'Q', ni)})", c["libros"])],
+        ["Diferencia detalle − mayor", fx(f"{b(1)}-{b(0)}", c["dif"])],
+        ["(+) Ajuste de valor razonable no reconocido", fx(f"SUM({_rg(VRZ, 'H', ni)})", c["vr"])],
+        ["(+) Efecto de la medición al costo", fx(f"SUM({_rg(MED, 'H', ni)})", c["costo"])],
+        ["(−) Reclasificación fuera de propiedades de inversión", fx(f"SUM({_rg(CLA, 'J', ni)})", c["reclas"])],
+        ["Propiedades de inversión auditadas (puente desde el detalle)", fx(f"{b(1)}+{b(3)}+{b(4)}+{b(5)}", c["puente"])],
+        ["Control: medición auditada según 08", fx(f"SUM({_rg(MED, 'E', ni)})", c["control"])],
+        ["Diferencia de control (debe ser 0)", fx(f"{b(6)}-{b(7)}", c["difControl"])],
+        ["Ajuste propuesto (auditado − mayor)", fx(f"{b(7)}-{b(0)}", c["ajuste"])],
+    ]
+
+    fr = {k: FILA0 + i for i, k in enumerate(res["labels"])}
+    rb = lambda k: f"B{fr[k]}"
+    ref_res = {
+        "piAuditado": f"SUM({_rg(MED, 'E', ni)})", "saldoMayor": mayor_f, "ajuste": f"{rb('piAuditado')}-{rb('saldoMayor')}",
+        "libros": f"SUM({_rg(INM, 'Q', ni)})", "difDetalleMayor": f"{rb('libros')}-{rb('saldoMayor')}",
+        "ajusteVR": f"SUM({_rg(VRZ, 'H', ni)})", "efectoCosto": f"SUM({_rg(MED, 'H', ni)})", "reclasificacion": f"SUM({_rg(CLA, 'J', ni)})",
+        "depreciacionAnio": f"SUM({_rg(MCO, 'K', ni)})", "difDepreciacion": f"SUM({_rg(MCO, 'M', ni)})", "deterioro": f"SUM({_rg(MCO, 'P', ni)})",
+        "variacionVR": f"SUM({_rg(VRZ, 'F', ni)})", "difCostoInicial": f"SUM({_rg(COS, 'G', ni)})",
+        "transfResultados": f"SUM({_rg(TRA, 'J', nt)})", "transfORI": f"SUM({_rg(TRA, 'K', nt)})", "difAlquileres": f"SUM({_rg(ALQ, 'E', ni)})",
+        "resultadoBajas": f"SUM({_rg(BAJ, 'F', nb)})", "difBajas": f"SUM({_rg(BAJ, 'H', nb)})",
+    }
+    resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
+
+    S = lambda xs: sum(x for x in xs if x is not None)
+    return [
+        hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", n_]], resumen),
+        hoja("02_Parametros", CEDULAS[1][1], [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
+        hoja("03_Inmuebles", CEDULAS[2][1],
+             [["Código", "t"], ["Descripción", "t"], ["Uso actual", "t"], ["% uso propio", n_], ["Separable", "t"], ["Costo registrado", n_],
+              ["Fecha de adquisición", "d"], ["Precio de compra", n_], ["Desembolsos atribuibles", n_], ["Terreno", n_], ["Vida útil (años)", n_],
+              ["Dep. acumulada registrada", n_], ["VR año anterior", n_], ["VR al corte", n_], ["Fuente del VR", "t"], ["Nivel VR", "t"],
+              ["Importe en libros", n_], ["Alquiler según contratos", n_], ["Alquiler registrado", n_], ["Cambio de uso", "t"],
+              ["Fecha del cambio", "d"], ["Libros al cambio", n_], ["VR al cambio", n_], ["Importe recuperable", n_]],
+             inm, ["TOTAL", "", "", None, "", _tot("F", ni, S(i["costo"] for i in its)), None, None, None, None, None, None, None, None, "", "",
+                   _tot("Q", ni, t["libros"]), None, None, "", None, None, None, None]),
+        hoja("04_Clasificacion", CEDULAS[3][1],
+             [["Código", "t"], ["Descripción", "t"], ["Uso actual", "t"], ["% uso propio", n_], ["Separable", "t"], ["Umbral (%)", n_],
+              ["Clasificación auditada", "t"], ["¿Propiedad de inversión?", "t"], ["Importe en libros", n_], ["Reclasificación", n_]],
+             cla, ["TOTAL", "", "", None, "", None, "", "", _tot("I", ni, t["libros"]), _tot("J", ni, t["reclasificacion"])]),
+        hoja("05_Costo_inicial", CEDULAS[4][1],
+             [["Código", "t"], ["Fecha de adquisición", "d"], ["Precio de compra", n_], ["Desembolsos atribuibles", n_], ["Costo recalculado", n_],
+              ["Costo registrado", n_], ["Diferencia", n_], ["Costo auditado", n_]],
+             cos, ["TOTAL", None, None, None, None, _tot("F", ni, S(i["costo"] for i in its)), _tot("G", ni, t["difCostoInicial"]),
+                   _tot("H", ni, S(i["costoAud"] for i in its))]),
+        hoja("06_Valor_razonable", CEDULAS[5][1],
+             [["Código", "t"], ["¿PI?", "t"], ["Medición", "t"], ["VR año anterior", n_], ["VR al corte", n_], ["Variación del año", n_],
+              ["Importe en libros", n_], ["Ajuste VR no reconocido (VR − libros)", n_], ["Fuente / tasador", "t"], ["Nivel", "t"]],
+             vrz, ["TOTAL", "", "", None, None, _tot("F", ni, t["variacionVR"]), _tot("G", ni, t["libros"]), _tot("H", ni, t["ajusteVR"]), "", ""]),
+        hoja("07_Modelo_costo", CEDULAS[6][1],
+             [["Código", "t"], ["Medición", "t"], ["¿Aplica?", "t"], ["Costo auditado", n_], ["Terreno", n_], ["Base depreciable", n_],
+              ["Vida útil (años)", n_], ["Fecha de adquisición", "d"], ["Meses completos", "i"], ["Dep. acumulada recalculada", n_],
+              ["Depreciación del año", n_], ["Dep. acumulada registrada", n_], ["Diferencia de depreciación", n_], ["Valor neto", n_],
+              ["Importe recuperable", n_], ["Deterioro", n_], ["Medición al costo", n_]],
+             mco, ["TOTAL", "", "", None, None, None, None, None, None, None, _tot("K", ni, t["depreciacionAnio"]), None,
+                   _tot("M", ni, t["difDepreciacion"]), None, None, _tot("P", ni, t["deterioro"]), _tot("Q", ni, S(i["medCosto"] for i in its))]),
+        hoja("08_Medicion", CEDULAS[7][1],
+             [["Código", "t"], ["Clasificación", "t"], ["Medición", "t"], ["Importe en libros", n_], ["Auditado en la cuenta", n_], ["Ajuste", n_],
+              ["Ajuste VR (resultados)", n_], ["Efecto modelo del costo", n_], ["Reclasificación", n_]],
+             med, ["TOTAL", "", "", _tot("D", ni, t["libros"]), _tot("E", ni, t["piAuditado"]), _tot("F", ni, S(i["ajuste"] for i in its)),
+                   _tot("G", ni, t["ajusteVR"]), _tot("H", ni, t["efectoCosto"]), _tot("I", ni, t["reclasificacion"])]),
+        hoja("09_Transferencias", CEDULAS[8][1],
+             [["Código", "t"], ["Cambio de uso", "t"], ["Fecha del cambio", "d"], ["¿En el ejercicio?", "t"], ["Clasificación actual", "t"],
+              ["Libros a la fecha", n_], ["VR a la fecha", n_], ["Diferencia VR − libros", n_], ["Tratamiento", "t"], ["A resultados", n_],
+              ["A otro resultado integral", n_], ["Estado", "t"]],
+             tra, ["TOTAL", "", None, "", "", None, None, _tot("H", nt, S(x["dif"] for x in trs)), "", _tot("J", nt, t["transfResultados"]),
+                   _tot("K", nt, t["transfORI"]), ""] if nt else None),
+        hoja("10_Alquileres", CEDULAS[9][1],
+             [["Código", "t"], ["Uso actual", "t"], ["Ingresos según contratos", n_], ["Ingresos registrados", n_], ["Diferencia", n_]],
+             alq, ["TOTAL", "", _tot("C", ni, S(i["alq"] for i in its)), _tot("D", ni, S(i["alqReg"] for i in its)), _tot("E", ni, t["difAlquileres"])]),
+        hoja("11_Bajas", CEDULAS[10][1],
+             [["Código", "t"], ["Descripción", "t"], ["Fecha de baja", "d"], ["Producto neto", n_], ["Importe en libros", n_],
+              ["Resultado recalculado", n_], ["Resultado registrado", n_], ["Diferencia", n_]],
+             baj, ["TOTAL", "", None, _tot("D", nb, S(x["prod"] for x in bajas)), _tot("E", nb, S(x["lib"] for x in bajas)),
+                   _tot("F", nb, t["resultadoBajas"]), None, _tot("H", nb, t["difBajas"])] if nb else None),
+        hoja("12_Conciliacion", CEDULAS[11][1], [["Concepto", "t"], ["Importe", n_]], conciliacion),
+        hoja("13_Problemas", CEDULAS[12][1], [["Código", "t"], ["Descripción", "t"], ["Importe", n_]],
+             [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+    ]
+
+
+# --- definición ------------------------------------------------------------------
+
+def definicion() -> dict:
+    inmuebles = ("Una fila por inmueble: código, descripción, uso actual, % de uso propio, costo registrado, fecha de adquisición, terreno, "
+                 "vida útil, depreciación acumulada, VR al corte y del año anterior con su fuente y nivel, importe en libros, ingresos por "
+                 "alquiler según contratos y registrados, cambio de uso del año (tipo, fecha, libros y VR a esa fecha) e importe recuperable si "
+                 "hay indicio de deterioro; sin filas de total.")
+    prog = lambda code, obj, risk, asr, proc, ev, crit, src: {"code": code, "objective": obj, "risk": risk, "assertion": asr, "procedure": proc,
+                                                               "evidence": ev, "criterion": crit, "source": src}
+    return {
+        "name": "Propiedades de inversión",
+        "area": "Propiedades de inversión",
+        "processor": "propiedades_inversion",
+        "frameworks": ["NIIF completas", "NIIF para las PYMES"],
+        "summary": ("Clasifica cada inmueble (inversión, uso propio o venta), prueba el costo inicial, mide al valor razonable con cambios en "
+                    "resultados o al costo con depreciación y deterioro según el marco y el modelo, trata las transferencias por cambio de uso, "
+                    "concilia los ingresos por alquiler, recalcula el resultado de las bajas y propone el ajuste contra el mayor."),
+        "source": {"organization": "IFRS Foundation · Reglamento (UE) 2023/1803 (texto en español: «inversiones inmobiliarias»)", "type": "Norma contable",
+                   "date": "",
+                   "document": "NIC 40 · párr. 5 (definiciones), 7-14 (clasificación; 10 uso mixto: PI solo si el uso propio es insignificante), "
+                               "16-24 (reconocimiento y costo inicial: precio + desembolsos directamente atribuibles), 30-32 (elección de modelo; VR "
+                               "siempre medido para valorar o revelar), 33-55 (modelo del VR: cambios a resultados, 35; excepción 53-54), 56 (modelo del "
+                               "costo → NIC 16), 57-65 (transferencias: 59 costo, 60-63 VR), 66-73 (bajas: 69 producto neto − importe en libros), "
+                               "75-79 (revelación; 79 e VR en el modelo del costo). NIIF 13 · 27-29 (mayor y mejor uso), 72 (jerarquía), 93 (revelación). "
+                               "NIC 36 · 9 (indicios); 59 (VERIFICAR). NIC 16 · depreciación (VERIFICAR párrafos).",
+                   "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
+        "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable",
+                         "document": "NIIF para las PYMES 2015 · Sección 16: 16.1-16.4 (alcance, definición, uso mixto), 16.5 (costo inicial), 16.7 "
+                                     "(VR con cambios en resultados solo si se mide con fiabilidad sin costo o esfuerzo desproporcionado; si no, "
+                                     "modelo del costo de la sección 17), 16.8-16.9 (transferencias), 16.10 (revelación); VR con la guía 11.27-11.32; "
+                                     "Sección 17.17-17.20 (depreciación) y 27.5-27.7 (deterioro). PYMES 2025 (tercera edición) · Sección 12 Medición "
+                                     "del valor razonable (12.22 jerarquía; 12.28-12.29 revelación), leída en el módulo educativo oficial; el texto de "
+                                     "la Sección 16 de 2025 no se leyó: VERIFICAR.",
+                         "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
+        "nia": [
+            {"document": "NIA 540 (Revisada)", "section": "párr. 13 y 17-30 (VERIFICAR)", "requirement": "El VR, la vida útil y el importe recuperable son estimaciones: evaluar método, datos y supuestos."},
+            {"document": "NIA 620", "section": "párr. 9-12 (VERIFICAR)", "requirement": "Evaluar competencia, objetividad y trabajo del tasador cuando el VR se basa en un experto."},
+            {"document": "NIA 500", "section": "párr. 8-9 (VERIFICAR)", "requirement": "Fiabilidad del registro de inmuebles, escrituras y contratos."},
+            {"document": "NIA 501 / NIA 330", "section": "VERIFICAR", "requirement": "Existencia y titularidad: inspección y certificados del Registro de la Propiedad."},
+            {"document": "NIA 520", "section": "párr. 5 (VERIFICAR)", "requirement": "Analítica de ingresos por alquiler frente a contratos y ocupación."},
+        ],
+        "calculo": [
+            "Clasificación: Venta → inventario; Uso propio → PPE; % de uso propio > umbral → PPE (NIC 40.10); resto → propiedad de inversión. "
+            "Lo que no es PI se reclasifica fuera de la cuenta por su importe en libros.",
+            "Costo inicial = precio de compra + desembolsos directamente atribuibles; diferencia = recalculado − registrado (NIC 40.20-21; PYMES 16.5).",
+            "Ruta: completas → modelo elegido; PYMES → VR si es fiable sin costo o esfuerzo desproporcionado, si no costo (16.7-16.8). "
+            "Partida sin VR bajo el modelo de VR → costo (NIC 40.53; PYMES 16.8).",
+            "Valor razonable: ajuste = VR al corte − importe en libros, a resultados (NIC 40.35; PYMES 16.7).",
+            "Modelo del costo: base = costo − terreno; dep. acumulada = base × MIN(1, meses completos ÷ (vida × 12)); dep. del año = acumulada − la "
+            "de 12 meses antes; neto = costo − dep.; deterioro = MAX(0, neto − importe recuperable).",
+            "Transferencias con VR (completas): diferencia = VR − libros a la fecha; desde inventario a resultados (40.63); desde PPE como revaluación "
+            "NIC 16 (aumento a ORI, disminución a resultados, 40.62 — simplificado: no considera superávit previo ni reversión de deterioro); "
+            "hacia PPE o inventario el costo atribuido es el VR (40.60). Con modelo del costo, sin cambio (40.59).",
+            "Alquileres: diferencia = ingresos según contratos − registrados. Bajas: resultado = producto neto − importe en libros (NIC 40.69).",
+            "Ajuste propuesto = propiedades de inversión auditadas − saldo del mayor.",
+        ],
+        "fields": _INMUEBLES, "rules": [], "control": CONTROL, "primary": "ajuste",
+        "campos": CAMPOS, "tipos": TIPOS, "parametros": dict(PARAMETROS), "etiquetas_parametros": ETIQUETAS_PARAM,
+        "cedulas": [[n, l] for n, l in CEDULAS],
+        "program": [
+            prog("IP-01", "Clasificación", "Inmueble de uso propio o para venta registrado como inversión", "Clasificación",
+                 "Revisar uso real, contratos y ocupación de cada inmueble y aplicar el umbral de uso propio", "Contratos, inspección, certificado de uso",
+                 "Solo inmuebles para rentas o plusvalías", "NIC 40.5-14 · PYMES 16.2-16.4 · spec IP-01"),
+            prog("IP-02", "Sumaria y conciliación", "Detalle que no respalda el mayor", "Integridad", "Conciliar el registro de inmuebles con el mayor",
+                 "Registro de propiedades, mayor", "Diferencia explicada o ajustada", "NIA 500 · spec IP-02"),
+            prog("IP-03", "Costo inicial", "Costo sin desembolsos atribuibles o con costos no capitalizables", "Valoración",
+                 "Cotejar precio de escritura y desembolsos directamente atribuibles", "Escrituras, facturas de honorarios, impuestos de transferencia",
+                 "Costo = precio + atribuibles", "NIC 40.20-24 · PYMES 16.5 · spec IP-03"),
+            prog("IP-04", "Valor razonable", "VR no actualizado o cambio no llevado a resultados", "Valoración",
+                 "Comparar el VR de la tasación con el importe en libros y evaluar al tasador", "Informes de tasación, NIA 620",
+                 "Ajuste de VR en resultados", "NIC 40.33-55 · NIIF 13 · PYMES 16.7 (2025: secc. 12) · spec IP-04"),
+            prog("IP-05", "Modelo del costo", "Depreciación o deterioro mal calculados", "Valoración",
+                 "Recalcular depreciación y comparar el valor neto con el importe recuperable", "Vidas útiles, tasaciones, flujos",
+                 "Depreciación y deterioro correctos; VR revelado", "NIC 40.56, 79 e · NIC 16 · NIC 36 · PYMES 16.8, secc. 17 y 27 · spec IP-05"),
+            prog("IP-06", "Ingresos por alquiler", "Rentas no registradas o mal devengadas", "Ocurrencia / Integridad",
+                 "Recalcular las rentas del año con los contratos y compararlas con lo registrado", "Contratos de arrendamiento, facturas",
+                 "Ingresos conciliados", "NIC 40.75 f · NIIF 16 · spec IP-06"),
+            prog("IP-07", "Transferencias", "Cambio de uso sin evidencia o sin tratamiento", "Clasificación / Valoración",
+                 "Verificar evidencia del cambio de uso y la medición a la fecha", "Actas, contratos, tasación a la fecha del cambio",
+                 "Tratamiento según NIC 40.57-65", "NIC 40.57-65 · PYMES 16.8-16.9 · spec IP-07"),
+            prog("IP-08", "Bajas", "Resultado de venta mal determinado", "Exactitud", "Recalcular producto neto − importe en libros",
+                 "Escrituras de venta, cobros", "Resultado correcto", "NIC 40.66-73 · spec IP-08"),
+        ],
+        "requests": [
+            req("RQ-001", "Registro de propiedades de inversión al corte", "inmuebles", "IP-01", "Clasificación, medición y conciliación", content=inmuebles),
+            req("RQ-002", "Bajas de propiedades de inversión del ejercicio", "bajas", "IP-08", "Resultado de las bajas", required=False,
+                content="Una fila por inmueble vendido o retirado: código, descripción, fecha, producto neto, importe en libros y resultado registrado."),
+            req("RQ-003", "Informes de tasación al corte", None, "IP-04", "Soporte del valor razonable y del tasador", formats=("pdf",), use="soporte"),
+            req("RQ-004", "Contratos de arrendamiento vigentes", None, "IP-06", "Soporte de las rentas y del uso", formats=("pdf",), use="soporte"),
+            req("RQ-005", "Escrituras y certificados del Registro de la Propiedad", None, "IP-03", "Titularidad y costo inicial", formats=("pdf",), use="soporte"),
+            req("RQ-006", "Evidencia de cambios de uso (actas, contratos, ocupación)", None, "IP-07", "Soporte de las transferencias",
+                formats=("pdf", "docx"), use="soporte", required=False),
+            req("RQ-007", "Gastos directos de operación por inmueble", None, "IP-06", "Revelación NIC 40.75 f", formats=("xlsx", "pdf"), use="soporte", required=False),
+            req("RQ-008", "Base fiscal de los inmuebles", None, "IP-04", "Impuesto diferido (fuera del cálculo de esta versión)", formats=("xlsx",),
+                use="soporte", required=False),
+        ],
+    }
+
+
+def validar_definicion(d: dict) -> dict:
+    return validar_definicion_generica(d, DATASETS, PRINCIPAL)
+
+
+# --- ejemplo de control (M19) ---------------------------------------------------------
+
+def _im(id, desc, uso, costo, libros, **kw):
+    f = {k["key"]: "" for k in _INMUEBLES}
+    f.update({"id": id, "descripcion": desc, "uso": uso, "costo": costo, "importe_libros": libros, "_row": 2}, **kw)
+    return f
+
+
+# Cifras a mano (corte 31-12-2025, NIIF completas, modelo VR): detalle 2.780.000 vs mayor 2.785.000 (−5.000).
+# Ajuste VR = IP-01 +20.000, IP-03 −20.000, IP-06 +25.000, IP-08 +5.000, IP-09 +5.000 = 35.000.
+# IP-07 sin VR → costo: base 300.000 − 60.000 = 240.000; 120 meses ÷ 600 → dep. 48.000 (registrada 45.000: +3.000);
+# neto 252.000; recuperable 230.000 → deterioro 22.000; medición 230.000 vs libros 255.000 → −25.000.
+# Reclasificación IP-04 (uso propio 35 %) 190.000 + IP-05 (venta) 150.000 = −340.000.
+# Auditado 2.780.000 + 35.000 − 25.000 − 340.000 = 2.450.000; ajuste 2.450.000 − 2.785.000 = −335.000.
+EJEMPLO = {
+    "corte": "2025-12-31",
+    "parametros": {"modelo": "valor_razonable", "vr_sin_esfuerzo_desproporcionado": "sí", "umbral_uso_propio": 10, "saldoMayor": 2785000},
+    "datasets": {
+        "inmuebles": [
+            _im("IP-01", "Edificio de oficinas Norte", "Alquiler", 500000, 700000, pct_uso_propio=0, fecha_adquisicion="2018-03-01",
+                terreno=100000, vida_util=40, vr_anterior=700000, vr_corte=720000, fuente_vr="Perito independiente (tasación dic-2025)",
+                nivel_vr="Nivel 2", ingresos_alquiler=48000, ingresos_registrados=48000),
+            _im("IP-02", "Terreno Samborondón", "Plusvalía", 300000, 380000, terreno=300000, vr_anterior=350000, vr_corte=380000,
+                fuente_vr="Perito independiente", nivel_vr="Nivel 2"),
+            _im("IP-03", "Local comercial Sur", "Alquiler", 250000, 260000, fecha_adquisicion="2020-06-30", terreno=50000, vida_util=30,
+                vr_anterior=260000, vr_corte=240000, fuente_vr="Perito independiente", nivel_vr="Nivel 3", ingresos_alquiler=24000,
+                ingresos_registrados=22000),
+            _im("IP-04", "Bodega Durán (35 % uso propio)", "Alquiler", 180000, 190000, pct_uso_propio=35, separable="Sí",
+                fecha_adquisicion="2019-12-31", terreno=30000, vida_util=30, vr_corte=210000, fuente_vr="Perito independiente", nivel_vr="Nivel 3",
+                ingresos_alquiler=9000, ingresos_registrados=9000),
+            _im("IP-05", "Departamentos para la venta", "Venta", 150000, 150000),
+            _im("IP-06", "Edificio Centro (compra 2025)", "Alquiler", 400000, 400000, fecha_adquisicion="2025-07-01", precio_compra=400000,
+                costos_atribuibles=12000, terreno=80000, vida_util=40, vr_corte=425000, fuente_vr="Tasación interna", nivel_vr="Nivel 3",
+                ingresos_alquiler=18000, ingresos_registrados=12000),
+            _im("IP-07", "Edificio zona sin mercado activo", "Uso futuro no determinado", 300000, 255000, fecha_adquisicion="2015-12-31",
+                terreno=60000, vida_util=50, dep_acumulada=45000, importe_recuperable=230000),
+            _im("IP-08", "Oficina ex uso propio", "Alquiler", 160000, 205000, fecha_adquisicion="2015-01-01", terreno=40000, vida_util=40,
+                dep_acumulada=33000, vr_corte=210000, fuente_vr="Perito independiente", nivel_vr="Nivel 2", ingresos_alquiler=6000,
+                ingresos_registrados=6000, transferencia="PPE → PI", fecha_transferencia="2025-09-30", libros_transferencia=125000,
+                vr_transferencia=205000),
+            _im("IP-09", "Casa arrendada (ex inventario)", "Alquiler", 70000, 90000, fecha_adquisicion="2019-12-31", terreno=10000, vida_util=30,
+                vr_anterior=90000, vr_corte=95000, ingresos_registrados=7000, transferencia="Inventario a PI", fecha_transferencia="2025-05-15"),
+            _im("IP-10", "Galpón industrial arrendado", "Alquiler", 120000, 150000, pct_uso_propio=5, fecha_adquisicion="2017-12-31",
+                terreno=20000, vida_util=25, vr_anterior=150000, vr_corte=150000, fuente_vr="Perito independiente", nivel_vr="Nivel 2",
+                ingresos_alquiler=12000, ingresos_registrados=12000),
+        ],
+        "bajas": [
+            {"id": "B-01", "descripcion": "Local Quevedo", "fecha_baja": "2025-08-31", "producto_neto": 130000, "importe_libros": 110000,
+             "resultado_registrado": 20000, "_row": 2},
+            {"id": "B-02", "descripcion": "Terreno Manta", "fecha_baja": "2025-11-30", "producto_neto": 85000, "importe_libros": 95000,
+             "resultado_registrado": 0, "_row": 3},
+        ],
+    },
+}
+
+_E = EJEMPLO
+ESCENARIOS = [
+    ("niif_completas_vr", _E["datasets"], {**_E["parametros"], "_marco": "NIIF completas"}, _E["corte"]),
+    ("niif_completas_costo", _E["datasets"], {**_E["parametros"], "modelo": "costo", "_marco": "NIIF completas"}, _E["corte"]),
+    ("pymes_2015_sin_vr_fiable", _E["datasets"], {**_E["parametros"], "vr_sin_esfuerzo_desproporcionado": "no", "_marco": "NIIF para las PYMES",
+                                                 "_edicion": "2015"}, _E["corte"]),
+    ("pymes_2025_vr", _E["datasets"], {**_E["parametros"], "_marco": "NIIF para las PYMES", "_edicion": "2025"}, _E["corte"]),
+    ("solo_inmuebles_sin_mayor", {"inmuebles": _E["datasets"]["inmuebles"][:3]}, {"umbral_uso_propio": 5}, _E["corte"]),
+]

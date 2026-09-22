@@ -4,12 +4,31 @@ Una ficha cuya definición declara ``processor`` no corre en el motor
 declarativo (fila por fila): su cálculo compara años, agrega por cliente o
 aplica límites sobre totales, y lo hace el módulo registrado aquí. El resto del
 ciclo (programa, requerimientos, evidencia, revisión) es el mismo.
+
+Los módulos con ``RUBRO`` son herramientas del catálogo del módulo AUD: aparecen
+directamente en la tarjeta de su rubro (contrato en docs/niif/CONTRATO_PROCESADOR.md).
 """
-from backend.app.aud.niif.procesadores import pce_simplificada_niif9, perdidas_incurridas_s11
+import importlib
+
+# Orden = matriz del socio (1–18) tras los dos procesadores instalados por ficha.
+_MODULOS = [
+    "perdidas_incurridas_s11",
+    "pce_simplificada_niif9",
+    "efectivo_equivalentes",
+    "cxc_cartera",
+    "inversiones_instrumentos",
+    "inventarios_costos",
+    "ppe_propiedad_planta",
+    "propiedades_inversion",
+    "arrendamientos",
+    "intangibles_goodwill",
+    "activos_biologicos",
+    "seguros_cobertura",
+    "proveedores_cxp",
+]
 
 PROCESADORES = {
-    "perdidas_incurridas_s11": perdidas_incurridas_s11,
-    "pce_simplificada_niif9": pce_simplificada_niif9,
+    nombre: importlib.import_module(f"backend.app.aud.niif.procesadores.{nombre}") for nombre in _MODULOS
 }
 
 

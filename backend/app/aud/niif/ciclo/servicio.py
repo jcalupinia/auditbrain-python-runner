@@ -83,12 +83,24 @@ def herramientas_disponibles(db: Session) -> list[dict]:
             lista.append({"origen": f"ficha:{f.id}", "nombre": f.nombre, "area": f.rubro, "tipo": "ficha NIIF",
                           "estado": f.estado, "marcos": f.definicion.get("frameworks") or [],
                           "resumen": f.definicion.get("summary") or ""})
+    # Herramientas fabricadas directamente en el catálogo: cada procesador con RUBRO aparece en la
+    # tarjeta de su rubro sin pasar por «Diseñar fichas» (decisión del dueño, 2026-09-22).
+    for pid, mod in procesadores.PROCESADORES.items():
+        if getattr(mod, "RUBRO", None):
+            d = mod.definicion()
+            lista.append({"origen": f"proc:{pid}", "nombre": d["name"], "area": mod.RUBRO, "tipo": "herramienta NIIF",
+                          "estado": getattr(mod, "ESTADO", "probada"), "marcos": d.get("frameworks") or [],
+                          "resumen": d.get("summary") or ""})
     return lista
 
 
 def _definicion_de(db: Session, origen: str) -> dict:
     if origen in reglas.CATALOGO:
         return copy.deepcopy(reglas.CATALOGO[origen])
+    if origen.startswith("proc:"):
+        mod = procesadores.PROCESADORES.get(origen[5:])
+        if mod is not None and getattr(mod, "RUBRO", None):
+            return _definicion_procesador({**mod.definicion(), "id": "custom"})
     if origen.startswith("ficha:") and origen[6:].isdigit():
         f = db.get(NiifFicha, int(origen[6:]))
         if f and f.estado in ESTADOS_FICHA_USABLE and f.definicion:
@@ -304,7 +316,8 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
             p.estado = "DOCUMENTACION_RECIBIDA"
             reg["run"] = None
             if not errores:
-                reg["controlTotal"] = procesadores.perdidas_incurridas_s11.r2(sum(_num_seguro(f.get("saldo")) for f in filas_ds[principal]))
+                control = getattr(proc, "CONTROL", "saldo")
+                reg["controlTotal"] = procesadores.perdidas_incurridas_s11.r2(sum(_num_seguro(f.get(control)) for f in filas_ds[principal]))
             p.registro = reg
             p.revision += 1
             _evento(db, p, accion, anterior, actor, str(datos.get("comment") or ""))
@@ -391,6 +404,8 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                     if n is None or not 0 <= n <= 100:
                         raise ReglaIncumplida(f"Tasa de {proc.NOMBRE_TRAMO[t]}: use un porcentaje entre 0 y 100.")
                 params["tasas"] = {t: proc.a_num(x) for t, x in tasas.items()}
+            elif v is not None and str(v).strip() != "" and isinstance(proc.PARAMETROS[k], str):
+                params[k] = str(v).strip()[:300]          # parámetro de opción o texto
             elif v is not None and str(v).strip() != "":
                 n = proc.a_num(v)
                 if n is None or (n < 0 and k not in getattr(proc, "PARAM_NEGATIVOS", ())):
@@ -428,6 +443,9 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                 # Procesador especializado: el cálculo solo existe en Python;
                 # no hay resultado del navegador que contrastar.
                 param = {k: v for k, v in reg["parameters"].items() if k in proc.PARAMETROS}
+                # El marco y la edición del encargo enrutan el cálculo cuando la norma difiere (M02).
+                param["_marco"] = reg["engagement"].get("framework") or ""
+                param["_edicion"] = str(reg["engagement"].get("edition") or "")
                 run = proc.ejecutar(reg.get("datasets") or {}, param, reg["engagement"]["cutoff"])
                 run["hojas"] = proc.hojas(run)
                 run["detalle"] = {k: v for k, v in run["detalle"].items() if k in ("tasas", "fiscal", "cortes")}

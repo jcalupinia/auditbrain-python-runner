@@ -139,6 +139,8 @@ def _celda(v, fmt) -> str:
     v = _valor(v)
     if v is None or v == "":
         return ""
+    if fmt in ("n", "p", "i") and not isinstance(v, (int, float)):
+        return _html.escape(str(v))          # texto en una columna numérica («No aplica», «—»)
     if fmt == "n" or (fmt == "x" and isinstance(v, (int, float))):
         return f"{float(v):,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
     if fmt == "p":
