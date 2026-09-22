@@ -8,6 +8,7 @@ import MotorBalancesTool from "./MotorBalancesTool.jsx";
 import VnrTool from "./vnr/VnrTool.jsx";
 
 const PruebasEncargo = lazy(() => import("./niif/PruebasEncargo.jsx"));
+const MotorAnaliticoTool = lazy(() => import("./motorAnalitico/MotorAnaliticoTool.jsx"));
 
 // Fichas NIIF («ficha:») y herramientas del catálogo («proc:») se trabajan en Pruebas del encargo.
 export const abrePruebasEncargo = (id) => /^(ficha|proc):/.test(id || "");
@@ -49,6 +50,19 @@ export default function ToolCatalog({ projectId }) {
           {STRINGS.back_to_catalog}
         </button>
         <MotorBalancesTool />
+      </div>
+    );
+  }
+
+  if (activeTool === "AUD.MOTOR_ANALITICO") {
+    return (
+      <div className="aud-tool-wrap">
+        <button className="link aud-back" onClick={() => setActiveTool(null)}>
+          {STRINGS.back_to_catalog}
+        </button>
+        <Suspense fallback={<p>Cargando…</p>}>
+          <MotorAnaliticoTool projectId={projectId} />
+        </Suspense>
       </div>
     );
   }

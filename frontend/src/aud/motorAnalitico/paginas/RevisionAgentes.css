@@ -1,0 +1,335 @@
+/* Revisión con agentes — solo esta página (prefijo ma-agentes-).
+   Diseño fluido desde 360px: el grid de 3 columnas del lienzo (400px / 1fr /
+   320px, fijo a 1440px) se apila en pantallas angostas. */
+
+.ma-agentes-migas {
+  font-size: 12.5px;
+  color: var(--ma-soft);
+  margin-bottom: 8px;
+}
+.ma-agentes-migas .link {
+  color: var(--ma-accent);
+  font-size: inherit;
+}
+.ma-agentes-migas span {
+  color: var(--ma-dim);
+  margin: 0 4px;
+}
+.ma-agentes-migas b {
+  color: var(--ma-text);
+  font-weight: 600;
+}
+
+.ma-agentes-cab {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.ma-agentes-titulo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 320px;
+}
+.ma-agentes-titulo h1 {
+  margin: 0;
+  font-size: clamp(21px, 3.4vw, 26px);
+  font-weight: 700;
+}
+.ma-agentes-titulo p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ma-soft);
+}
+.ma-agentes-chip {
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--ma-p1-bg);
+  color: var(--ma-p1);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ma-agentes-nav {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 4px 0 16px;
+}
+.ma-agentes-agente {
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ma-text);
+  background: var(--ma-panel);
+  border: 1px solid var(--ma-line);
+  cursor: pointer;
+}
+.ma-agentes-agente:disabled {
+  color: var(--ma-dim);
+  cursor: default;
+}
+.ma-agentes-agente.activo {
+  background: var(--ma-accent-dim);
+  border-color: rgba(52, 211, 106, 0.5);
+}
+.ma-agentes-contador {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  background: var(--ma-info-bg);
+  color: var(--ma-soft);
+}
+.ma-agentes-contador.disponible {
+  background: var(--ma-accent-dim);
+  color: var(--ma-accent);
+}
+.ma-agentes-contador .ma-sindatos {
+  font-style: normal;
+}
+
+.ma-agentes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+  gap: 16px;
+}
+
+.ma-agentes-lista {
+  gap: 10px;
+}
+.ma-agentes-lista-cab {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.ma-agentes-lista-cab h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+.ma-agentes-lista-cab span {
+  font-size: 12px;
+  color: var(--ma-soft);
+}
+.ma-agentes-propuesta {
+  padding: 11px;
+  border-radius: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: var(--ma-text);
+  background: var(--ma-bg);
+  border: 1px solid var(--ma-line);
+}
+.ma-agentes-propuesta.activa {
+  background: var(--ma-panel);
+  border-color: rgba(52, 211, 106, 0.5);
+}
+.ma-agentes-propuesta-cab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.ma-agentes-propuesta-reglas {
+  font-family: var(--ma-mono);
+  font-size: 11.5px;
+  color: var(--ma-soft);
+}
+.ma-agentes-accion {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.ma-agentes-accion.elevar {
+  background: var(--ma-accent-dim);
+  color: var(--ma-accent);
+}
+.ma-agentes-accion.descartar {
+  background: var(--ma-info-bg);
+  color: var(--ma-soft);
+}
+.ma-agentes-propuesta-resumen {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.ma-agentes-detalle {
+  gap: 14px;
+  min-width: 0;
+}
+.ma-agentes-detalle-cab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ma-agentes-detalle-cab h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  flex-grow: 1;
+}
+.ma-agentes-bloque {
+  padding: 14px;
+  border-radius: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.ma-agentes-bloque.motor {
+  background: var(--ma-bg);
+  border: 1px solid var(--ma-line);
+}
+.ma-agentes-bloque.propuesta {
+  background: var(--ma-panel);
+  border: 1px solid rgba(52, 211, 106, 0.5);
+}
+.ma-agentes-bloque h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ma-p2);
+}
+.ma-agentes-bloque.propuesta h3 {
+  color: var(--ma-accent);
+}
+.ma-agentes-bloque-cab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ma-agentes-bloque-cab h3 {
+  flex-grow: 1;
+}
+.ma-agentes-bloque-cab > span {
+  font-size: 11.5px;
+  color: var(--ma-soft);
+}
+.ma-agentes-evidencia {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  gap: 7px 18px;
+  font-size: 13px;
+}
+.ma-agentes-evidencia > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ma-agentes-evidencia span:first-child {
+  font-size: 11.5px;
+  color: var(--ma-soft);
+}
+.ma-agentes-evidencia span:last-child {
+  font-family: var(--ma-mono);
+  font-size: 12.5px;
+}
+.ma-agentes-bloque.propuesta p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.ma-agentes-borrador {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.ma-agentes-borrador > span:first-child {
+  font-size: 11.5px;
+  color: var(--ma-soft);
+}
+.ma-agentes-borrador > div {
+  display: flex;
+  gap: 9px;
+}
+.ma-agentes-borrador strong {
+  width: 72px;
+  flex-shrink: 0;
+  color: var(--ma-text);
+}
+.ma-agentes-borrador span {
+  color: var(--ma-soft);
+  line-height: 1.4;
+}
+.ma-agentes-traza {
+  font-size: 11.5px;
+  color: var(--ma-soft);
+  font-family: var(--ma-mono);
+}
+
+.ma-agentes-decision {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ma-agentes-decision .ma-tarjeta {
+  gap: 10px;
+}
+.ma-agentes-decision h2 {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 700;
+}
+.ma-agentes-decision label {
+  font-size: 11.5px;
+  color: var(--ma-soft);
+}
+.ma-agentes-decision textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 9px 11px;
+  border-radius: 9px;
+  border: 1px solid var(--ma-line);
+  background: var(--ma-bg);
+  color: var(--ma-text);
+  font-family: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+.ma-agentes-decision button.ma-boton {
+  width: 100%;
+  height: 40px;
+}
+.ma-agentes-elevar {
+  background: var(--ma-accent-dim);
+  color: var(--ma-accent);
+  border-color: rgba(52, 211, 106, 0.5);
+}
+.ma-agentes-bitacora-linea {
+  display: flex;
+  gap: 9px;
+  font-size: 12px;
+}
+.ma-agentes-bitacora-linea > span:first-child {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ma-dim);
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+.ma-agentes-bitacora-linea > span:last-child {
+  color: var(--ma-soft);
+  line-height: 1.4;
+}
+
+@media (max-width: 900px) {
+  .ma-agentes-grid {
+    grid-template-columns: 1fr;
+  }
+}

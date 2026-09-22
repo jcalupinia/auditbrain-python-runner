@@ -1,0 +1,139 @@
+/* Hoja de ruta del Motor de Auditoría Analítica — solo esta página (prefijo ma-ruta-).
+   Diseño fluido desde 360px; sin anchos fijos (a diferencia del lienzo 1440px). */
+
+.ma-ruta-cab {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 20px;
+  margin-bottom: 18px;
+}
+.ma-ruta-titulo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 320px;
+}
+.ma-ruta-folio {
+  font-size: 12.5px;
+  color: var(--ma-oro);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+.ma-ruta-titulo h2 {
+  margin: 0;
+  font-size: clamp(20px, 3.6vw, 26px);
+  font-weight: 700;
+}
+.ma-ruta-titulo p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ma-soft);
+}
+
+.ma-ruta-leyenda {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: var(--ma-soft);
+}
+.ma-ruta-leyenda span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ma-ruta-punto {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  display: inline-block;
+  font-style: normal;
+}
+.ma-ruta-punto.hecho { background: var(--ma-accent); }
+.ma-ruta-punto.curso { background: var(--ma-p1); }
+.ma-ruta-punto.pend { background: var(--ma-dim); }
+
+.ma-ruta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.ma-ruta-tarjeta {
+  min-height: 172px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--ma-panel);
+  border: 1px solid var(--ma-line);
+  border-top: 4px solid var(--ma-dim);
+}
+.ma-ruta-tarjeta.hecho { border-top-color: var(--ma-accent); }
+.ma-ruta-tarjeta.curso { border-top-color: var(--ma-p1); }
+.ma-ruta-tarjeta.pend { border-top-color: var(--ma-dim); }
+
+.ma-ruta-tarjeta-cab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ma-ruta-id {
+  font-family: var(--ma-mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ma-soft);
+}
+.ma-ruta-etiqueta {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: var(--ma-info-bg);
+  color: var(--ma-soft);
+}
+.ma-ruta-etiqueta.hecho { background: var(--ma-accent-dim); color: var(--ma-accent); }
+.ma-ruta-etiqueta.curso { background: var(--ma-p1-bg); color: var(--ma-p1); }
+
+.ma-ruta-titulo-tarjeta {
+  font-size: 14.5px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.ma-ruta-texto {
+  font-size: 12.5px;
+  color: var(--ma-soft);
+  line-height: 1.45;
+}
+.ma-ruta-salida {
+  margin-top: auto;
+  font-size: 12px;
+  color: var(--ma-text);
+  border-top: 1px solid var(--ma-line-soft);
+  padding-top: 8px;
+}
+
+.ma-ruta-corte {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--ma-panel);
+  border: 1px solid var(--ma-line);
+  font-size: 13px;
+  color: var(--ma-soft);
+}
+.ma-ruta-barra {
+  width: 4px;
+  height: 22px;
+  border-radius: 2px;
+  background: var(--ma-oro);
+  flex-shrink: 0;
+}
+.ma-ruta-corte strong {
+  color: var(--ma-text);
+}

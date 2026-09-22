@@ -1,0 +1,41 @@
+/* Análisis de estados financieros — solo esta página, prefijo ma-estados-. */
+.ma-estados-breadcrumb {
+  display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ma-soft);
+}
+.ma-estados-link {
+  background: none; border: 0; padding: 0; font: inherit; color: var(--ma-accent); cursor: pointer;
+}
+.ma-estados-link:hover { color: #8ff0b2; }
+.ma-estados-sep { color: var(--ma-dim); }
+
+.ma-estados-encabezado {
+  display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px; justify-content: space-between;
+}
+.ma-estados-encabezado h2 { font-size: 24px; margin: 0; flex-grow: 1; }
+
+.ma-estados-fuente {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 12px;
+  padding: 14px 16px; border-radius: 12px; background: var(--ma-panel); border: 1px solid var(--ma-line);
+  font-size: 13px; color: var(--ma-soft);
+}
+.ma-estados-fuente > span:first-child { flex: 1 1 320px; }
+.ma-estados-enlace-inerte {
+  font-size: 13px; font-weight: 600; color: var(--ma-dim); cursor: default; white-space: nowrap;
+}
+
+.ma-estados-tarjeta-cab { display: flex; align-items: center; gap: 8px; }
+.ma-estados-tarjeta-cab h3 { flex-grow: 1; }
+.ma-estados-badge {
+  padding: 3px 10px; border-radius: 999px; background: var(--ma-p1-bg); color: var(--ma-p1);
+  font-size: 11.5px; font-weight: 600; white-space: nowrap;
+}
+.ma-estados-puntos { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--ma-text); }
+.ma-estados-norma { margin-top: auto; font-family: var(--ma-mono); font-size: 12px; color: var(--ma-soft); }
+
+.ma-estados-variaciones { gap: 12px; }
+.ma-estados-variaciones-cab { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; }
+.ma-estados-variaciones-cab h3 { margin: 0; font-size: 16px; }
+.ma-estados-variaciones-cab span { font-size: 12.5px; color: var(--ma-soft); }
+
+.ma-estados-tabla th:not(:first-child), .ma-estados-tabla td:not(:first-child) { text-align: right; }
+.ma-estados-nota { font-size: 12px; color: var(--ma-soft); }
