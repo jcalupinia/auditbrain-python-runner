@@ -11,6 +11,7 @@ from fastapi import APIRouter
 from backend.app.api import canva, documents, health, python, router as router_module, skill_run
 from backend.app.auth import router as auth_router
 from backend.app.automatizaciones import router as automatizaciones_router
+from backend.app.automatizaciones import router_miembros as automatizaciones_miembros_router
 from backend.app.aud.obligaciones_fiscales import router as aud_of_router
 from backend.app.aud.informe_cumplimiento_tributario import router as aud_informe_ict_router
 from backend.app.aud.motor_balances import router as aud_motor_balances_router
@@ -47,6 +48,7 @@ api_router.include_router(ict_router)
 api_router.include_router(events_router.router)
 api_router.include_router(recursos_router.router)
 api_router.include_router(automatizaciones_router.router)
+api_router.include_router(automatizaciones_miembros_router.router)
 
 
 def _montar_forge(router: APIRouter) -> bool:

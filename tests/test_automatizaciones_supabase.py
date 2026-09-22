@@ -152,6 +152,47 @@ def test_consultar_envia_query_params(monkeypatch):
     assert c["params"] == {"email": "eq.a@x.ec", "select": "*"}
 
 
+def test_rpc_con_token_usuario_usa_llave_de_servicio_como_apikey_y_el_token_como_bearer(
+    monkeypatch,
+):
+    """Tarea 9: las operaciones de membresía corren CON el token del propio
+    administrador (para que ``es_admin_empresa`` etc. se apliquen como desde
+    la app), pero el gateway sigue exigiendo una ``apikey`` válida del
+    proyecto -> la de servicio."""
+    llamadas = _falso(monkeypatch, _Resp(200, "miembro-uuid-1"))
+
+    resultado = sa.rpc(
+        "agregar_miembro", {"_empresa_id": "e1"}, token_usuario="token-del-admin"
+    )
+
+    assert resultado == "miembro-uuid-1"
+    (c,) = llamadas
+    assert c["headers"]["apikey"] == LLAVE
+    assert c["headers"]["Authorization"] == "Bearer token-del-admin"
+
+
+def test_rpc_sin_token_usuario_sigue_usando_la_llave_de_servicio(monkeypatch):
+    llamadas = _falso(monkeypatch, _Resp(200, {"empresa_id": "uuid-e"}))
+
+    sa.rpc("crear_empresa_completa", {"nombre": "ACME"})
+
+    (c,) = llamadas
+    assert c["headers"]["Authorization"] == f"Bearer {LLAVE}"
+
+
+def test_consultar_con_token_usuario_usa_el_bearer_del_usuario(monkeypatch):
+    llamadas = _falso(monkeypatch, _Resp(200, [{"id": 1}]))
+
+    filas = sa.consultar(
+        "empresa_miembros", {"select": "*"}, token_usuario="token-del-admin"
+    )
+
+    assert filas == [{"id": 1}]
+    (c,) = llamadas
+    assert c["headers"]["apikey"] == LLAVE
+    assert c["headers"]["Authorization"] == "Bearer token-del-admin"
+
+
 def test_insertar_pide_representacion(monkeypatch):
     llamadas = _falso(monkeypatch, _Resp(201, [{"id": 1}]))
 

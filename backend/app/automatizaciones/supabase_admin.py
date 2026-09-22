@@ -171,15 +171,21 @@ def usuario_de_token(access_token: str) -> dict:
 # --- Datos (PostgREST) ------------------------------------------------------
 
 
-def rpc(nombre: str, payload: dict) -> Any:
+def rpc(nombre: str, payload: dict, *, token_usuario: str | None = None) -> Any:
+    """``token_usuario`` (Tarea 9): ejecuta la función PostgreSQL con el JWT del
+    propio usuario en vez de la llave de servicio, para que reglas como
+    ``es_admin_empresa`` (que leen ``auth.uid()``) se apliquen igual que
+    cuando llama la app. El gateway de Supabase igual exige una ``apikey``
+    válida del proyecto, así que esa sigue siendo la de servicio (la maneja
+    ``_pedir``); solo el ``Authorization`` cambia."""
     ruta = f"/rest/v1/rpc/{nombre}"
-    resp = _pedir("POST", ruta, json=payload)
+    resp = _pedir("POST", ruta, json=payload, bearer=token_usuario)
     return _json(resp, "POST", ruta) if (resp.text or "").strip() else None
 
 
-def consultar(tabla: str, params: dict) -> list:
+def consultar(tabla: str, params: dict, *, token_usuario: str | None = None) -> list:
     ruta = f"/rest/v1/{tabla}"
-    resp = _pedir("GET", ruta, params=params)
+    resp = _pedir("GET", ruta, params=params, bearer=token_usuario)
     return _json(resp, "GET", ruta)
 
 
