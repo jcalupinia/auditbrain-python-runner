@@ -100,21 +100,32 @@ function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, processor
   // modelo en blanco del propio requerimiento, o nada (solo los formatos).
   const ejemplo = ejemploDe(processor, req, undefined, import.meta.env.BASE_URL || "/");
   const formatos = formatosTexto(req);
+  // El selector filtra a los formatos aceptados y permite elegir varios de una.
+  const accept = (req.formats || []).map((f) => `.${String(f).toLowerCase()}`).join(",") || undefined;
 
   async function subir(e) {
-    const archivo = e.target.files?.[0];
+    const archivos = Array.from(e.target.files || []);
     e.target.value = "";
-    if (!archivo) return;
+    if (!archivos.length) return;
     setSubiendo(true);
     setError("");
+    const fallos = [];
+    // Se suben uno por uno (el backend recibe un archivo por request), pero el
+    // auditor puede elegir varios de una en el selector.
+    for (const archivo of archivos) {
+      try {
+        await api.cicloSubirArchivo(prueba.id, prueba.revision, req.id, parte, archivo);
+      } catch (err) {
+        fallos.push(`${archivo.name}: ${err.message || String(err)}`);
+      }
+    }
     try {
-      await api.cicloSubirArchivo(prueba.id, prueba.revision, req.id, parte, archivo);
       await onSubido();
     } catch (err) {
-      setError(err.message || String(err));
-    } finally {
-      setSubiendo(false);
+      fallos.push(err.message || String(err));
     }
+    setError(fallos.join(" · "));
+    setSubiendo(false);
   }
 
   return (
@@ -128,13 +139,13 @@ function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, processor
         type="button"
         className={`pc-chip ${completo ? "on" : req.required !== false ? "warn" : ""}`}
         disabled={!habilitado || subiendo}
-        title={[req.id, req.purpose, ...detalleRequerimiento(req)].filter(Boolean).join(" · ")}
+        title={[req.id, req.purpose, ...detalleRequerimiento(req), "Puede seleccionar varios archivos a la vez"].filter(Boolean).join(" · ")}
         onClick={() => input.current?.click()}
         data-requerimiento={req.id}
       >
         {subiendo ? "Subiendo…" : `${completo ? "✓" : "○"} ${req.document}${n ? ` (${n})` : ""}`}
       </button>
-      <input ref={input} type="file" hidden onChange={subir} data-requerimiento={req.id} />
+      <input ref={input} type="file" multiple accept={accept} hidden onChange={subir} data-requerimiento={req.id} />
       {(formatos || ejemplo) && (
         <small className="nf-doc-formatos">
           {formatos && (
