@@ -2,6 +2,8 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { PAGINAS } from "../paginas.js";
 import { ErrorMotor, SONDEO_MS } from "../clienteMotor.js";
 import { SEVERIDADES, filasBandeja, mensajeError, paginas as totalPaginas, resumenSeveridad, terminado } from "../bandeja.js";
+import { CAMPOS, INICIALES, aEnvio, validar } from "../parametrosEncargo.js";
+import { ESTADOS, filasSuficiencia, resumenLectura } from "../suficiencia.js";
 import "./Mayores.css";
 
 // Transcripción de Mayores.dc.html: bloque «Pruebas de asientos» (5 bloques
@@ -44,12 +46,24 @@ const TRABAJO_VENCIDO = "El trabajo ya no existe en el motor (vence a las 8 h o 
 
 const FILTROS_VACIOS = { severidad: "", regla: "", texto: "" };
 
+// ESTADOS (suficiencia.js) trae frases con espacios y tildes: se mapean a un
+// sufijo de clase CSS estable en vez de derivarlo del texto.
+const CLASE_ESTADO_SUFICIENCIA = {
+  [ESTADOS.corrio]: "corrio",
+  [ESTADOS.noCorrio]: "no-corrio",
+  [ESTADOS.sinDatos]: "sin-datos",
+};
+const MAX_ASIENTOS_MOSTRADOS = 10;
+
 // El armazón desmonta esta página al navegar a otra; el último trabajo se
 // recuerda por cliente (cambia con el proyecto) para retomarlo al volver.
 const ULTIMO_TRABAJO = new WeakMap();
 
 export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
   const [archivo, setArchivo] = useState(null);
+  const [parametros, setParametros] = useState(INICIALES);
+  const [mayorArchivo, setMayorArchivo] = useState(null);
+  const [balanceArchivo, setBalanceArchivo] = useState(null);
   const [trabajo, setTrabajo] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [cargando, setCargando] = useState(false);
@@ -64,6 +78,9 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
   // un trabajo del cliente anterior no debe seguir vivo en pantalla.
   useEffect(() => {
     setArchivo(null);
+    setParametros(INICIALES);
+    setMayorArchivo(null);
+    setBalanceArchivo(null);
     setTrabajo(null);
     setErrorMsg("");
     setEntrada({ regla: "", texto: "" });
@@ -178,6 +195,26 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
   const totalPag = totalPaginas(excepciones.total, TAM_PAGINA);
   const filas = filasBandeja(excepciones);
 
+  // Parámetros del encargo: validación en el navegador en cada cambio
+  // (Task 4, punto 1) y, aparte, los errores por campo que devuelva el
+  // motor (forma {campo, motivo}) cuando el trabajo termina en error.
+  const erroresParametros = validar(parametros);
+  const erroresMotorPorCampo = {};
+  const erroresLectura = [];
+  if (trabajo?.estado === "error") {
+    for (const e of trabajo.errores || []) {
+      if (e.campo) erroresMotorPorCampo[e.campo] = e.motivo;
+      else erroresLectura.push(e);
+    }
+  }
+  const botonMayorDeshabilitado =
+    !disponible || cargando || !mayorArchivo || Object.keys(erroresParametros).length > 0;
+
+  const resumen = resumenLectura(trabajo?.lectura);
+  const filasSufi = filasSuficiencia(trabajo?.suficiencia);
+  const barreraAsientos = trabajo?.barreras?.asientos_descuadrados;
+  const barreraCuadre = trabajo?.barreras?.cuadre_contra_balance;
+
   return (
     <section className="ma-pagina ma-mayores">
       <div className="ma-mayores-crumb">
@@ -235,6 +272,74 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
           </div>
           <span className="ma-mayores-aviso">Solo datos anonimizados hasta SP4.</span>
 
+          <div className="ma-mayores-mayor">
+            <h4>Subir el mayor del cliente</h4>
+            <p className="ma-mayores-nota-fija">
+              Sin estos parámetros ninguna prueba corre: el motor no usa montos por defecto (NIA 320/450/530).
+            </p>
+
+            <details className="ma-mayores-parametros">
+              <summary>Parámetros del encargo</summary>
+              <div className="ma-mayores-campos">
+                {CAMPOS.map((campo) => {
+                  const error = erroresParametros[campo.id] || erroresMotorPorCampo[campo.id];
+                  const inputId = `ma-param-${campo.id}`;
+                  return (
+                    <div key={campo.id} className={`ma-mayores-campo${campo.tipo === "casilla" ? " casilla" : ""}`}>
+                      {campo.tipo === "casilla" ? (
+                        <label htmlFor={inputId}>
+                          <input id={inputId} type="checkbox" checked={!!parametros[campo.id]}
+                                 disabled={!disponible || cargando}
+                                 onChange={(e) => setParametros((p) => ({ ...p, [campo.id]: e.target.checked }))} />
+                          {campo.etiqueta}
+                        </label>
+                      ) : (
+                        <>
+                          <label htmlFor={inputId}>{campo.etiqueta}</label>
+                          {campo.tipo === "opciones" ? (
+                            <select id={inputId} value={parametros[campo.id]} disabled={!disponible || cargando}
+                                    onChange={(e) => setParametros((p) => ({ ...p, [campo.id]: e.target.value }))}>
+                              <option value="">—</option>
+                              {campo.opciones.map((o) => <option key={o} value={o}>{o}</option>)}
+                            </select>
+                          ) : (
+                            <input id={inputId} type={campo.tipo === "date" ? "date" : "text"}
+                                   value={parametros[campo.id]} disabled={!disponible || cargando}
+                                   placeholder={campo.tipo === "fechas" ? "2026-01-01, 2026-05-01" : undefined}
+                                   onChange={(e) => setParametros((p) => ({ ...p, [campo.id]: e.target.value }))} />
+                          )}
+                        </>
+                      )}
+                      <span className="ma-mayores-norma">{campo.nia}</span>
+                      {error && <span className="ma-mayores-campo-error">{error}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
+
+            <div className="ma-mayores-acciones">
+              <label className="ma-mayores-campo-archivo">
+                Mayor (.xlsx, .xlsm, .csv)
+                <input type="file" aria-label="Mayor del cliente" accept=".xlsx,.xlsm,.csv"
+                       disabled={!disponible || cargando}
+                       onChange={(e) => setMayorArchivo(e.target.files?.[0] || null)} />
+              </label>
+              <label className="ma-mayores-campo-archivo">
+                Balance (opcional)
+                <input type="file" aria-label="Balance del cliente" accept=".xlsx,.xlsm,.csv"
+                       disabled={!disponible || cargando}
+                       onChange={(e) => setBalanceArchivo(e.target.files?.[0] || null)} />
+                {erroresMotorPorCampo.balance && <span className="ma-mayores-campo-error">{erroresMotorPorCampo.balance}</span>}
+              </label>
+              <button className="ma-boton accent" disabled={botonMayorDeshabilitado}
+                      onClick={() => iniciar(() => cliente.crearConMayor(mayorArchivo, aEnvio(parametros), balanceArchivo))}>
+                Subir el mayor y correr
+              </button>
+            </div>
+            <span className="ma-mayores-aviso">Solo datos anonimizados hasta SP4.</span>
+          </div>
+
           {errorMsg && <p className="ma-mayores-error">{errorMsg}</p>}
 
           {trabajo && (
@@ -244,16 +349,92 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
             </div>
           )}
 
-          {trabajo?.estado === "error" && (
+          {trabajo?.estado === "error" && erroresLectura.length > 0 && (
             <div className="ma-tabla-wrap">
               <table className="ma-tabla">
                 <thead><tr><th>Hoja</th><th>Fila</th><th>Columna</th><th>Motivo</th></tr></thead>
                 <tbody>
-                  {(trabajo.errores || []).map((e, i) => (
+                  {erroresLectura.map((e, i) => (
                     <tr key={i}><td>{e.hoja}</td><td>{e.fila}</td><td>{e.columna}</td><td>{e.motivo}</td></tr>
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {resumen && (
+            <div className="ma-mayores-lectura">
+              <h4>Lectura del archivo</h4>
+              <ul className="ma-mayores-lectura-lista">
+                <li>{resumen.filas}</li>
+                <li>{resumen.cuentas}</li>
+                {resumen.periodo && <li>Período: {resumen.periodo}</li>}
+                {resumen.hojas && <li>Hojas leídas: {resumen.hojas}</li>}
+                {resumen.columnas && <li>Columnas detectadas: {resumen.columnas}</li>}
+                {resumen.vacias && <li>Columnas detectadas pero vacías: {resumen.vacias}</li>}
+                {resumen.huella && <li className="ma-mayores-mono">Huella: {resumen.huella}</li>}
+              </ul>
+            </div>
+          )}
+
+          {trabajo?.suficiencia && (
+            <div className="ma-mayores-suficiencia">
+              <div className="ma-mayores-titulo">
+                <h4>Suficiencia de la evidencia</h4>
+                <span className="ma-mayores-badge">
+                  {trabajo.suficiencia.estado} · {trabajo.suficiencia.disponibles} de{" "}
+                  {trabajo.suficiencia.disponibles + trabajo.suficiencia.no_disponibles} pruebas disponibles
+                </span>
+              </div>
+              <div className="ma-tabla-wrap">
+                <table className="ma-tabla">
+                  <thead><tr><th>Regla</th><th>Estado</th><th>Detalle</th></tr></thead>
+                  <tbody>
+                    {filasSufi.map((f) => (
+                      <tr key={f.regla}>
+                        <td className="ma-mayores-mono">{f.regla}</td>
+                        <td>
+                          <span className={`ma-mayores-suf ma-mayores-suf-${CLASE_ESTADO_SUFICIENCIA[f.estado]}`}>
+                            {f.estado}
+                          </span>
+                        </td>
+                        <td>{f.detalle}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <span className="ma-mayores-nota-fija">
+                Una prueba que no corrió no significa que no haya excepciones.
+              </span>
+            </div>
+          )}
+
+          {barreraAsientos && !barreraAsientos.pasa && (
+            <div className="ma-mayores-barrera">
+              <strong>
+                {barreraAsientos.total} asiento(s) descuadrado(s): las pruebas de asientos no corrieron.
+              </strong>
+              <ul>
+                {barreraAsientos.asientos.slice(0, MAX_ASIENTOS_MOSTRADOS).map((a) => (
+                  <li key={a.asiento_id}>Asiento {a.asiento_id}: diferencia {a.diferencia}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {barreraCuadre?.evaluada && (
+            <div className={`ma-mayores-cuadre ${barreraCuadre.pasa ? "ok" : "warn"}`}>
+              <strong>Cuadre contra el balance: diferencia total {barreraCuadre.diferencia_total}</strong>
+              {barreraCuadre.diferencias.length > 0 && (
+                <ul>
+                  {barreraCuadre.diferencias.map((d) => (
+                    <li key={d.cuenta}>
+                      Cuenta {d.cuenta}: mayor {d.mayor} vs. balance {d.balance} (diferencia {d.diferencia})
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
 
