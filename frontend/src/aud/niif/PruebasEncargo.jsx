@@ -5,10 +5,12 @@ import {
   CAMPOS_FICHA,
   ETAPAS,
   alternarProcedimiento,
+  estadoTributario,
   etapaDe,
   fichaInicial,
   nombreEstado,
   procedimientosSinFuente,
+  textoTributarioInicial,
 } from "./cicloLogic";
 import { Documentacion, EditorRequerimiento } from "./CicloDocumentacion";
 import { Ejecucion } from "./CicloEjecucion";
@@ -100,18 +102,21 @@ function Programa({ prueba, onAccion, ocupado }) {
   const editable = prueba.estado === "PROGRAMA_PROPUESTO";
   const [programa, setPrograma] = useState(reg.program);
   const [fuentes, setFuentes] = useState(reg.sources);
-  const [taxScope, setTaxScope] = useState(reg.taxScope || "");
+  const [taxScope, setTaxScope] = useState(() => textoTributarioInicial(reg, prueba.definicion));
+  const [taxConforme, setTaxConforme] = useState(false);
+  const sugerido = prueba.definicion?.tributario_sugerido;
 
   useEffect(() => {
     setPrograma(reg.program);
     setFuentes(reg.sources);
-    setTaxScope(reg.taxScope || "");
+    setTaxScope(textoTributarioInicial(reg, prueba.definicion));
   }, [prueba.revision]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setFuente = (i, cambios) => setFuentes(fuentes.map((s, j) => (j === i ? { ...s, ...cambios } : s)));
   const setProc = (i, k, v) => setPrograma(programa.map((p, j) => (j === i ? { ...p, [k]: v } : p)));
   const faltan = procedimientosSinFuente(programa, fuentes);
-  const datos = { program: programa, sources: fuentes, taxScope };
+  const gateTributario = estadoTributario(reg.taxApplicable, taxScope, taxConforme);
+  const datos = { program: programa, sources: fuentes, taxScope, taxAcknowledged: taxConforme };
 
   return (
     <>
@@ -161,10 +166,25 @@ function Programa({ prueba, onAccion, ocupado }) {
         ))}
       </div>
       {reg.taxApplicable && (
-        <label className="nf-ctx-field">
-          Tratamiento tributario revisado y su sustento
-          <textarea rows={3} value={taxScope} disabled={!editable} onChange={(e) => setTaxScope(e.target.value)} />
-        </label>
+        <div className="nf-tributario">
+          <label className="nf-ctx-field">
+            Tratamiento tributario revisado y su sustento
+            {sugerido?.texto && (
+              <small className="muted">
+                Pre-llenado con la base legal sugerida de esta herramienta; revísela y confírmela contra la fuente oficial.
+                {sugerido.tiene_verificar && <> Hay citas «VERIFICAR» por resolver.</>}
+              </small>
+            )}
+            <textarea rows={5} value={taxScope} disabled={!editable} onChange={(e) => setTaxScope(e.target.value)} />
+          </label>
+          {editable && (
+            <label className="nf-ctx-check">
+              <input type="checkbox" checked={!!taxConforme} onChange={(e) => setTaxConforme(e.target.checked)} />{" "}
+              Revisé la base legal sugerida y estoy conforme.
+            </label>
+          )}
+          {editable && !gateTributario.ok && <p className="nf-error" role="status">No se puede aprobar todavía: {gateTributario.motivo}</p>}
+        </div>
       )}
 
       <h5>Procedimientos</h5>
@@ -197,7 +217,8 @@ function Programa({ prueba, onAccion, ocupado }) {
           <button type="button" className="btn sm" disabled={ocupado} onClick={() => onAccion("save_program", datos)}>
             Guardar programa
           </button>
-          <button type="button" className="btn sm primary" disabled={ocupado} onClick={() => onAccion("approve_program", datos)}>
+          <button type="button" className="btn sm primary" disabled={ocupado || !gateTributario.ok}
+            title={gateTributario.ok ? undefined : gateTributario.motivo} onClick={() => onAccion("approve_program", datos)}>
             Aprobar programa
           </button>
           <button type="button" className="link" disabled={ocupado} onClick={() => onAccion("research")}>

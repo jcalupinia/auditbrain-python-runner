@@ -222,12 +222,32 @@ export function fuentesConfirmadas(p) {
   });
 }
 
+// Texto inicial del recuadro «Tratamiento tributario revisado y su sustento»:
+// lo guardado, o la base legal sugerida de la herramienta (pre-llenado). Un solo
+// origen para los dos recuadros (workspace y circuito detallado): no divergen.
+export function textoTributarioInicial(reg, definicion) {
+  return (reg && reg.taxScope) || (definicion && definicion.tributario_sugerido && definicion.tributario_sugerido.texto) || "";
+}
+
+// Gate de «Confirmar base técnica» para el tratamiento tributario: por qué NO se
+// habilita (o {ok:true}). No se confirma solo: exige texto, sin «VERIFICAR» y la
+// casilla de conformidad marcada.
+export function estadoTributario(taxApplicable, taxScope, conforme) {
+  if (!taxApplicable) return { ok: true, motivo: "" };
+  const t = (taxScope || "").trim();
+  if (!t) return { ok: false, motivo: "Describa el tratamiento tributario revisado y su sustento." };
+  if (t.toUpperCase().includes("VERIFICAR"))
+    return { ok: false, motivo: "Resuelva las citas marcadas «VERIFICAR»: confírmelas contra la fuente oficial o quítelas." };
+  if (!conforme) return { ok: false, motivo: "Marque «Revisé la base legal sugerida y estoy conforme»." };
+  return { ok: true, motivo: "" };
+}
+
 // Siguiente paso de «Confirmar base técnica y preparar el requerimiento», o null.
-export function pasoPreparar(p, taxScope = "") {
+export function pasoPreparar(p, taxScope = "", conforme = false) {
   const reg = p.registro;
   switch (p.estado) {
     case "PRUEBA_SELECCIONADA": return reg.researchedAt ? ["generate_program", {}] : ["research", {}];
-    case "PROGRAMA_PROPUESTO": return ["approve_program", { program: reg.program, sources: fuentesConfirmadas(p), taxScope: taxScope || reg.taxScope || "" }];
+    case "PROGRAMA_PROPUESTO": return ["approve_program", { program: reg.program, sources: fuentesConfirmadas(p), taxScope: taxScope || reg.taxScope || "", taxAcknowledged: !!conforme }];
     case "PROGRAMA_APROBADO": return ["generate_request", {}];
     case "REQUERIMIENTO_GENERADO": return ["approve_request", { requests: reg.requests }];
     default: return null;
