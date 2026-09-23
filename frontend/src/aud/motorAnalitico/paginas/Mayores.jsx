@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { PAGINAS } from "../paginas.js";
 import { ErrorMotor, SONDEO_MS } from "../clienteMotor.js";
 import { SEVERIDADES, filasBandeja, mensajeError, paginas as totalPaginas, resumenSeveridad, terminado } from "../bandeja.js";
-import { CAMPOS, INICIALES, aEnvio, validar } from "../parametrosEncargo.js";
+import { CAMPOS, INICIALES, aEnvio, resumenErrores, validar } from "../parametrosEncargo.js";
 import { ESTADOS, filasSuficiencia, resumenLectura } from "../suficiencia.js";
 import "./Mayores.css";
 
@@ -210,6 +210,12 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
   const botonMayorDeshabilitado =
     !disponible || cargando || !mayorArchivo || Object.keys(erroresParametros).length > 0;
 
+  // Un trabajo que falla por parámetros debe decir por qué: el resumen
+  // (campo → motivo, incluido balance) vive fuera del <details> y lo abre
+  // automáticamente si hay algo que revisar (validación local o del motor).
+  const resumenCamposErrores = resumenErrores(erroresParametros, erroresMotorPorCampo, erroresMotorPorCampo.balance);
+  const hayErroresParaRevisar = resumenCamposErrores.length > 0;
+
   const resumen = resumenLectura(trabajo?.lectura);
   const filasSufi = filasSuficiencia(trabajo?.suficiencia);
   const barreraAsientos = trabajo?.barreras?.asientos_descuadrados;
@@ -278,7 +284,18 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
               Sin estos parámetros ninguna prueba corre: el motor no usa montos por defecto (NIA 320/450/530).
             </p>
 
-            <details className="ma-mayores-parametros">
+            {hayErroresParaRevisar && (
+              <div className="ma-mayores-resumen-errores" role="alert">
+                <strong>Revisa estos campos:</strong>
+                <ul>
+                  {resumenCamposErrores.map((e) => (
+                    <li key={e.campo}>{e.etiqueta}: {e.motivo}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <details className="ma-mayores-parametros" open={hayErroresParaRevisar}>
               <summary>Parámetros del encargo</summary>
               <div className="ma-mayores-campos">
                 {CAMPOS.map((campo) => {

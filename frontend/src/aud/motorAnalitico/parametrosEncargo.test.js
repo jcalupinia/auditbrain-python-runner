@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CAMPOS, INICIALES, aEnvio, validar } from "./parametrosEncargo.js";
+import { CAMPOS, INICIALES, aEnvio, resumenErrores, validar } from "./parametrosEncargo.js";
 
 const LLENO = {
   ejercicio_inicio: "2026-01-01", ejercicio_fin: "2026-12-31",
@@ -83,5 +83,25 @@ describe("parámetros del encargo", () => {
       error_tolerable: "37500.00", confianza: 95, semilla: 20260531,
       fecha_registro_es_contable: false,
     });
+  });
+
+  // Un trabajo que falla por parámetros debe decir por qué, no solo
+  // «Estado: Con errores»: resumenErrores arma la lista campo → motivo
+  // que se muestra fuera del <details> plegado (Task 4, punto 1).
+  it("resumenErrores arma campo → motivo, el motor manda sobre la validación local, incluye balance", () => {
+    const r = resumenErrores(
+      { materialidad: "obligatorio", hora_fin: "debe estar entre 0 y 23" },
+      { materialidad: "debe ser mayor que cero" },
+      "el balance no se pudo leer",
+    );
+    expect(r).toEqual([
+      { campo: "materialidad", etiqueta: "Materialidad global", motivo: "debe ser mayor que cero" },
+      { campo: "hora_fin", etiqueta: "Hora de fin de jornada", motivo: "debe estar entre 0 y 23" },
+      { campo: "balance", etiqueta: "Balance", motivo: "el balance no se pudo leer" },
+    ]);
+  });
+
+  it("resumenErrores no inventa nada cuando no hay errores", () => {
+    expect(resumenErrores({}, {}, "")).toEqual([]);
   });
 });

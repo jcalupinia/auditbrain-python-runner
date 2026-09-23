@@ -77,6 +77,12 @@
 }
 .ma-mayores-mayor h4 { margin: 0; font-size: 14px; }
 
+.ma-mayores-resumen-errores {
+  padding: 8px 12px; border-radius: 8px; font-size: 12.5px;
+  background: var(--ma-p0-bg); border: 1px solid rgba(255, 107, 107, 0.4); color: var(--ma-p0);
+}
+.ma-mayores-resumen-errores ul { margin: 4px 0 0; padding: 0 0 0 18px; }
+
 .ma-mayores-parametros {
   border: 1px solid var(--ma-line); border-radius: 10px; background: var(--ma-bg); padding: 4px 12px;
 }

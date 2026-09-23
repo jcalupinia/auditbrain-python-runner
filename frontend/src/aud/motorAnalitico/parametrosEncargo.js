@@ -142,6 +142,20 @@ export function validar(valores) {
   return errores;
 }
 
+// Un trabajo que falla por parámetros debe decir por qué: arma la lista
+// campo → motivo (el error del motor manda sobre la validación local del
+// navegador) para mostrarla fuera del <details> plegado. `balance` no es
+// un CAMPOS del bloque U pero también es un motivo de error del motor.
+export function resumenErrores(erroresParametros = {}, erroresMotorPorCampo = {}, balanceError = "") {
+  const resumen = [];
+  for (const campo of CAMPOS) {
+    const motivo = erroresMotorPorCampo[campo.id] || erroresParametros[campo.id];
+    if (motivo) resumen.push({ campo: campo.id, etiqueta: campo.etiqueta, motivo });
+  }
+  if (balanceError) resumen.push({ campo: "balance", etiqueta: "Balance", motivo: balanceError });
+  return resumen;
+}
+
 export function aEnvio(valores) {
   const salida = {};
   for (const campo of CAMPOS) {
