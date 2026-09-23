@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { PAGINAS } from "../paginas.js";
-import { ErrorMotor, SONDEO_MS } from "../clienteMotor.js";
+import { ErrorMotor, LIMITE_ARCHIVO_BYTES, SONDEO_MS, archivoDemasiadoGrande } from "../clienteMotor.js";
 import { SEVERIDADES, filasBandeja, mensajeError, paginas as totalPaginas, resumenSeveridad, terminado } from "../bandeja.js";
 import { CAMPOS, INICIALES, aEnvio, resumenErrores, validar } from "../parametrosEncargo.js";
 import { ESTADOS, filasSuficiencia, resumenLectura } from "../suficiencia.js";
@@ -45,6 +45,7 @@ const ESTADO_TEXTO = { en_cola: "En cola", procesando: "Procesando", listo: "Lis
 const TRABAJO_VENCIDO = "El trabajo ya no existe en el motor (vence a las 8 h o el motor se reinició): vuelve a correrlo.";
 
 const FILTROS_VACIOS = { severidad: "", regla: "", texto: "" };
+const LIMITE_MB = Math.round(LIMITE_ARCHIVO_BYTES / (1024 * 1024));
 
 // ESTADOS (suficiencia.js) trae frases con espacios y tildes: se mapean a un
 // sufijo de clase CSS estable en vez de derivarlo del texto.
@@ -168,6 +169,20 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
     }
   };
 
+  // Rechaza en el navegador un archivo de más de 50 MB (mismo límite del
+  // motor, servicio/app.py::MAX_BYTES) antes de intentar subirlo: si se deja
+  // pasar, la subida se corta a medio camino y el trabajo queda huérfano.
+  const elegirArchivo = (setter) => (e) => {
+    const f = e.target.files?.[0] || null;
+    if (f && archivoDemasiadoGrande(f)) {
+      setErrorMsg(`El archivo pesa más de ${LIMITE_MB} MB, el límite del motor: elige uno más pequeño.`);
+      setter(null);
+      e.target.value = "";
+      return;
+    }
+    setter(f);
+  };
+
   const descargarPlantilla = async () => {
     setErrorMsg("");
     try {
@@ -269,7 +284,7 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
             </button>
             <div className="ma-mayores-subir">
               <input type="file" aria-label="Plantilla del motor (.xlsx)" accept=".xlsx" disabled={!disponible || cargando}
-                     onChange={(e) => setArchivo(e.target.files?.[0] || null)} />
+                     onChange={elegirArchivo(setArchivo)} />
               <button className="ma-boton" disabled={!disponible || cargando || !archivo}
                       onClick={() => iniciar(() => cliente.crearConArchivo(archivo))}>
                 Subir y correr
@@ -340,13 +355,13 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
                 Mayor (.xlsx, .xlsm, .csv)
                 <input type="file" aria-label="Mayor del cliente" accept=".xlsx,.xlsm,.csv"
                        disabled={!disponible || cargando}
-                       onChange={(e) => setMayorArchivo(e.target.files?.[0] || null)} />
+                       onChange={elegirArchivo(setMayorArchivo)} />
               </label>
               <label className="ma-mayores-campo-archivo">
                 Balance (opcional)
                 <input type="file" aria-label="Balance del cliente" accept=".xlsx,.xlsm,.csv"
                        disabled={!disponible || cargando}
-                       onChange={(e) => setBalanceArchivo(e.target.files?.[0] || null)} />
+                       onChange={elegirArchivo(setBalanceArchivo)} />
                 {erroresMotorPorCampo.balance && <span className="ma-mayores-campo-error">{erroresMotorPorCampo.balance}</span>}
               </label>
               <button className="ma-boton accent" disabled={botonMayorDeshabilitado}

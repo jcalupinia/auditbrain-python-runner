@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { ErrorMotor, crearCliente, disponibilidad, filtrosAQuery } from "./clienteMotor.js";
+import {
+  ErrorMotor, LIMITE_ARCHIVO_BYTES, archivoDemasiadoGrande, crearCliente, disponibilidad, filtrosAQuery,
+} from "./clienteMotor.js";
 
 const URL_MOTOR = "https://motor.test/motor";
 
@@ -106,5 +108,40 @@ describe("envío del mayor", () => {
     const c = crearCliente({ encargo: "p", pedirPermiso: pedir, fetchImpl });
     await c.crearConMayor(new File(["x"], "mayor.csv"), { semilla: 1 });
     expect(fetchImpl.mock.calls[0][1].body.get("balance")).toBeNull();
+  });
+
+  // Si la subida de 50 MB tarda más que el reloj de espera, el navegador
+  // aborta pero el motor ya creó el trabajo: el auditor pierde el id y a
+  // los 3 intentos choca con el límite de trabajos. La creación se manda
+  // sin AbortController (deja que la red maneje la caída); ESPERA_MS queda
+  // solo para las lecturas (trabajo, excepciones, estado).
+  it("crear un trabajo (demo, plantilla o mayor) no lleva reloj de aborto", async () => {
+    const { pedir } = permisos();
+    const fetchImpl = vi.fn(async () => ok({ id: "t9", estado: "en_cola" }));
+    const c = crearCliente({ encargo: "p", pedirPermiso: pedir, fetchImpl });
+    await c.crearDemo();
+    await c.crearConArchivo(new File(["x"], "plantilla.xlsx"));
+    await c.crearConMayor(new File(["x"], "mayor.xlsx"), { semilla: 1 });
+    for (const [, opts] of fetchImpl.mock.calls) expect(opts.signal).toBeUndefined();
+  });
+
+  it("leer un trabajo sí lleva reloj de aborto", async () => {
+    const { pedir } = permisos();
+    const fetchImpl = vi.fn(async () => ok({ id: "t1" }));
+    const c = crearCliente({ encargo: "p", pedirPermiso: pedir, fetchImpl });
+    await c.trabajo("t1");
+    expect(fetchImpl.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+  });
+});
+
+describe("límite de tamaño del archivo (50 MB, el mismo del motor)", () => {
+  it("LIMITE_ARCHIVO_BYTES son 50 MB", () => {
+    expect(LIMITE_ARCHIVO_BYTES).toBe(50 * 1024 * 1024);
+  });
+  it("no rechaza exactamente el límite", () => {
+    expect(archivoDemasiadoGrande({ size: LIMITE_ARCHIVO_BYTES })).toBe(false);
+  });
+  it("rechaza un byte más del límite", () => {
+    expect(archivoDemasiadoGrande({ size: LIMITE_ARCHIVO_BYTES + 1 })).toBe(true);
   });
 });

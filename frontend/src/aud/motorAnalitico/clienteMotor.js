@@ -6,10 +6,17 @@ import { motorAnaliticoPermiso } from "../../api.js";
    autoriza el «acceso a la red local»: eso se ve como una espera sin
    respuesta y se informa como `red_local`. */
 
-export const ESPERA_MS = 8000;        // /estado responde en milisegundos
-export const ESPERA_CARGA_MS = 120000; // subir una plantilla grande
+export const ESPERA_MS = 8000;        // solo lecturas: /estado, /trabajos/{id}, /excepciones
 export const SONDEO_MS = 5000;        // el motor admite 30 peticiones/min por usuario
+export const LIMITE_ARCHIVO_BYTES = 50 * 1024 * 1024; // mismo límite que servicio/app.py::MAX_BYTES
 const MARGEN_MS = 30000;
+
+// Un archivo de más de 50 MB se rechaza en el navegador antes de subir: si
+// la subida tarda más que cualquier reloj, el navegador la corta pero el
+// motor ya creó el trabajo (id perdido, cupo de 3 trabajos gastado en vano).
+export function archivoDemasiadoGrande(archivo, limite = LIMITE_ARCHIVO_BYTES) {
+  return archivo.size > limite;
+}
 
 export class ErrorMotor extends Error {
   constructor(estado, mensaje) {
@@ -63,10 +70,17 @@ export function crearCliente({
     return cache[accion];
   }
 
-  async function llamar(accion, ruta, opts = {}, { blob = false, ms = esperaMs } = {}) {
+  // `sinLimite`: la creación de un trabajo (subida de archivo) se manda sin
+  // AbortController — una subida de 50 MB puede tardar más que cualquier
+  // reloj razonable y el motor ya creó el trabajo cuando el navegador corta
+  // por timeout; mejor dejar que la red maneje la caída. `ms`/ESPERA_MS
+  // queda solo para las lecturas (trabajo, excepciones, estado).
+  async function llamar(accion, ruta, opts = {}, { blob = false, ms = esperaMs, sinLimite = false } = {}) {
     const { token, url } = await permiso(accion);
-    const res = await conEspera(fetchImpl, `${url}${ruta}`,
-      { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` } }, ms);
+    const conAuth = { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` } };
+    const res = sinLimite
+      ? await fetchImpl(`${url}${ruta}`, conAuth)
+      : await conEspera(fetchImpl, `${url}${ruta}`, conAuth, ms);
     if (!res.ok) throw new ErrorMotor(res.status, await detalle(res));
     return blob ? res.blob() : res.json();
   }
@@ -82,12 +96,12 @@ export function crearCliente({
     crearDemo() {
       const fd = new FormData();
       fd.append("demo", "1");
-      return llamar("ejecutar", "/trabajos", { method: "POST", body: fd });
+      return llamar("ejecutar", "/trabajos", { method: "POST", body: fd }, { sinLimite: true });
     },
     crearConArchivo(archivo) {
       const fd = new FormData();
       fd.append("archivo", archivo);
-      return llamar("ejecutar", "/trabajos", { method: "POST", body: fd }, { ms: ESPERA_CARGA_MS });
+      return llamar("ejecutar", "/trabajos", { method: "POST", body: fd }, { sinLimite: true });
     },
     crearConMayor(archivo, parametros, balance) {
       const fd = new FormData();
@@ -95,7 +109,7 @@ export function crearCliente({
       fd.append("archivo", archivo);
       fd.append("parametros", JSON.stringify(parametros));
       if (balance) fd.append("balance", balance);
-      return llamar("ejecutar", "/trabajos", { method: "POST", body: fd }, { ms: ESPERA_CARGA_MS });
+      return llamar("ejecutar", "/trabajos", { method: "POST", body: fd }, { sinLimite: true });
     },
     trabajo: (id) => llamar("leer", `/trabajos/${encodeURIComponent(id)}`),
     excepciones: (id, filtros) =>
