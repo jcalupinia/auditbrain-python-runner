@@ -14,7 +14,10 @@ from datetime import date
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import column_index_from_string, get_column_letter
+from openpyxl.worksheet.properties import PageSetupProperties
+
+from backend.app.aud.niif.procesadores import estilo_ejecutivo as est
 
 NAVY, GOLD, BLANCO, CELESTE = "0A2342", "C7A83C", "FFFFFF", "DCE6F1"
 _FINO = Side(style="thin", color="B7C0CC")
@@ -55,7 +58,7 @@ def _contexto(definicion: dict, reg: dict, eventos: list, version: int, estado: 
         ["Firma", e.get("firm") or "AuditConsulting Auditores Cía. Ltda."], ["Cliente", e.get("client")], ["RUC", e.get("ruc")],
         ["Ejercicio", e.get("year")], ["Fecha de corte", e.get("cutoff")], ["Marco contable", e.get("framework")],
         ["Herramienta", definicion.get("name")], ["Rubro", definicion.get("area")], ["Motor", run.get("engine")],
-        ["Versión del papel", f"v{version}"], ["Estado", estado], ["Preparó", e.get("preparer")], ["Revisó", e.get("reviewer")],
+        ["Versión del papel", f"v{version}"], ["Estado", est.estado_es(estado)], ["Preparó", e.get("preparer")], ["Revisó", e.get("reviewer")],
         ["Aprobó", reg.get("approvedBy") or ""], ["Fecha de aprobación", (reg.get("approvedAt") or "")[:10]],
         ["Huella de la ejecución (SHA-256)", reg.get("runHash") or ""],
     ]
@@ -88,7 +91,8 @@ def _contexto(definicion: dict, reg: dict, eventos: list, version: int, estado: 
         {"name": "13_Conclusion", "label": "Conclusión", "cols": [["Concepto", "t"], ["Detalle", "t"]], "rows": cierre, "total": None},
         {"name": "14_Control_Revision", "label": "Control de revisión", "total": None,
          "cols": [["Fecha", "t"], ["Acción", "t"], ["Estado anterior", "t"], ["Estado nuevo", "t"], ["Actor", "t"], ["Comentario", "t"]],
-         "rows": [[(x.get("fecha") or "")[:19].replace("T", " "), x.get("accion"), x.get("estado_anterior"), x.get("estado_nuevo"),
+         "rows": [[(x.get("fecha") or "")[:19].replace("T", " "), est.accion_es(x.get("accion")),
+                   est.estado_es(x.get("estado_anterior")), est.estado_es(x.get("estado_nuevo")),
                    x.get("actor"), x.get("comentario")] for x in eventos]},
     ]
 
@@ -98,44 +102,243 @@ def cedulas(definicion: dict, reg: dict, eventos: list, version: int, estado: st
     return antes + ((reg.get("run") or {}).get("hojas") or []) + despues
 
 
+def _titulos_unicos(hojas: list[dict]) -> list[str]:
+    """Nombres de hoja (≤31) únicos, en el orden de las cédulas."""
+    titulos, vistos = [], set()
+    for h in hojas:
+        base = h["name"][:31]
+        t, k = base, 1
+        while t in vistos:
+            k += 1
+            t = f"{base[:28]}_{k}"
+        vistos.add(t)
+        titulos.append(t)
+    return titulos
+
+
+def _ref(hoja: str, celda: str = "A1") -> str:
+    return f"#'{hoja}'!{celda}"
+
+
+def _boton(ws, celda: str, texto: str, destino: str, S, nav=False):
+    c = ws[celda]
+    c.value = texto
+    c.hyperlink = destino
+    c.font = S["boton_nav"] if nav else S["boton"]
+    c.fill = S["fill_boton_nav"] if nav else S["fill_boton"]
+    c.alignment = S["centro"]
+    c.border = S["borde"]
+
+
+def _panel_inicio(ws, S, definicion, reg, titulos, hojas, estado, version):
+    e = reg.get("engagement") or {}
+    run = reg.get("run") or {}
+    ws.sheet_view.showGridLines = False
+    ws.column_dimensions["A"].width = 3
+    for col in "BCDEF":
+        ws.column_dimensions[col].width = 22
+    # Banda de marca
+    ws.merge_cells("B2:F3")
+    b = ws["B2"]
+    b.value = "AuditConsulting Auditores Cía. Ltda.  ·  AUDIT-IA"
+    b.font = S["marca"]
+    b.fill = S["fill_marca"]
+    b.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    for r in (2, 3):
+        for col in "BCDEF":
+            ws[f"{col}{r}"].fill = S["fill_marca"]
+    ws.merge_cells("B4:F4")
+    ws["B4"].value = definicion.get("name", "")
+    ws["B4"].font = S["titulo"]
+    # Datos del encargo
+    datos = [("Cliente", e.get("client")), ("RUC", e.get("ruc")), ("Marco contable", e.get("framework")),
+             ("Fecha de corte", e.get("cutoff")), ("Preparó", e.get("preparer")), ("Revisó", e.get("reviewer"))]
+    fila = 6
+    for i, (etq, val) in enumerate(datos):
+        col = "B" if i % 2 == 0 else "D"
+        ecol, vcol = col, chr(ord(col) + 1)
+        ws[f"{ecol}{fila}"].value = etq
+        ws[f"{ecol}{fila}"].font = S["kpi_etq"]
+        ws[f"{vcol}{fila}"].value = _seguro(val)
+        ws[f"{vcol}{fila}"].font = S["dato"]
+        if i % 2 == 1:
+            fila += 1
+    # Tarjetas KPI
+    totales = run.get("totals") or {}
+    etiquetas = run.get("labels") or {}
+    prim = run.get("primary")
+    n_prob = len(run.get("exceptions") or [])
+    kpis = []
+    if prim and prim in totales:
+        kpis.append((etiquetas.get(prim, prim), totales.get(prim), "n", None))
+    for k in ("perdida", "cartera", "provReg", "ajuste"):
+        if k in totales and k != prim:
+            kpis.append((etiquetas.get(k, k), totales.get(k), "n", None))
+    kpis.append(("Problemas encontrados", n_prob, "i", est.color_semaforo(n_prob)))
+    kfila = fila + 1
+    ws[f"B{kfila}"].value = "INDICADORES CLAVE"
+    ws[f"B{kfila}"].font = S["subtitulo"]
+    kfila += 1
+    for i, (etq, val, fmt, semaforo) in enumerate(kpis[:6]):
+        col = "BCD"[i % 3] if i < 3 else "BCD"[i % 3]
+        base_col = ["B", "C", "D"][i % 3]
+        base_row = kfila + (i // 3) * 3
+        _tarjeta_kpi(ws, base_col, base_row, etq, val, fmt, semaforo, S)
+    ultima_kpi = kfila + ((len(kpis[:6]) - 1) // 3) * 3 + 2
+    # Grilla de botones de navegación a cada cédula
+    nav_row = ultima_kpi + 2
+    ws[f"B{nav_row}"].value = "IR A LA CÉDULA"
+    ws[f"B{nav_row}"].font = S["subtitulo"]
+    nav_row += 1
+    for i, (h, t) in enumerate(zip(hojas, titulos)):
+        col = ["B", "C", "D", "E"][i % 4]
+        row = nav_row + (i // 4)
+        _boton(ws, f"{col}{row}", h.get("label", t), _ref(t), S)
+        ws.row_dimensions[row].height = 22
+    ws.print_options.horizontalCentered = True
+    _print_setup(ws, e)
+
+
+def _tarjeta_kpi(ws, col, row, etq, val, fmt, semaforo, S):
+    c2 = chr(ord(col) + 0)
+    ws[f"{col}{row}"].value = etq
+    ws[f"{col}{row}"].font = S["kpi_etq"]
+    v = ws[f"{col}{row + 1}"]
+    if fmt == "i":
+        v.value = int(val) if isinstance(val, (int, float)) else val
+        v.number_format = "#,##0"
+    else:
+        try:
+            v.value = float(str(val).replace(",", "")) if val not in (None, "") else 0
+            v.number_format = est.FMT["n"]
+        except (ValueError, TypeError):
+            v.value = _seguro(val)
+    v.font = S["kpi_valor"]
+    for r in (row, row + 1):
+        ws[f"{col}{r}"].fill = S["fill_panel"]
+        ws[f"{col}{r}"].border = S["borde"]
+    if semaforo:
+        from openpyxl.styles import Font as _F
+        v.font = _F(name=est.FONT_CIFRA, size=18, bold=True, color=semaforo)
+
+
+def _print_setup(ws, e):
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+    firma = e.get("firm") or "AuditConsulting Auditores Cía. Ltda."
+    ws.oddFooter.left.text = firma
+    ws.oddFooter.center.text = str(e.get("client") or "")
+    ws.oddFooter.right.text = "Página &P de &N"
+
+
+def _hoja_ejecutiva(ws, S, h, titulo_prueba, nav):
+    ws.sheet_view.showGridLines = False
+    # Encabezado: título, prueba/corte y botones de navegación
+    ws.merge_cells("A1:F1")
+    ws["A1"].value = _seguro(h["label"])
+    ws["A1"].font = S["titulo"]
+    ws.merge_cells("A2:F2")
+    ws["A2"].value = _seguro(titulo_prueba)
+    ws["A2"].font = S["subtitulo"]
+    if nav.get("inicio"):
+        _boton(ws, "H1", "⟵ Inicio", _ref(nav["inicio"]), S, nav=True)
+    if nav.get("anterior"):
+        _boton(ws, "I1", "◀ Anterior", _ref(nav["anterior"]), S, nav=True)
+    if nav.get("siguiente"):
+        _boton(ws, "J1", "Siguiente ▶", _ref(nav["siguiente"]), S, nav=True)
+    # Cabecera de la tabla
+    fila_enc = 4
+    anchos = [len(c[0]) + 2 for c in h["cols"]]
+    for j, (nombre, _) in enumerate(h["cols"], start=1):
+        c = ws.cell(row=fila_enc, column=j, value=nombre)
+        c.font = S["encabezado"]
+        c.fill = S["fill_encabezado"]
+        c.alignment = S["centro"]
+        c.border = S["borde"]
+    filas = [(r, False) for r in h["rows"]] + ([(h["total"], True)] if h.get("total") else [])
+    for i, (fila, total) in enumerate(filas, start=fila_enc + 1):
+        for j, ((_, fmt), v) in enumerate(zip(h["cols"], fila), start=1):
+            c = ws.cell(row=i, column=j, value=_excel(v, fmt))
+            es_num = fmt in est.FMT or (fmt == "x" and isinstance(_valor(v), (int, float)))
+            c.font = S["total"] if total else (S["cifra"] if es_num else S["dato"])
+            c.border = S["borde_total"] if total else S["borde"]
+            if total:
+                c.fill = S["fill_total"]
+            if isinstance(c.value, date):
+                c.number_format = est.FMT["d"]
+                c.alignment = S["centro"]
+            elif fmt in est.FMT:
+                c.number_format = est.FMT[fmt]
+                c.alignment = S["der"]
+            elif es_num:
+                c.alignment = S["der"]
+            else:
+                c.alignment = S["izq"]
+            vista = _valor(v)
+            anchos[j - 1] = max(anchos[j - 1], min(60, len(str(vista if vista is not None else "")) + 2))
+    for j, w in enumerate(anchos, start=1):
+        ws.column_dimensions[get_column_letter(j)].width = max(12, min(60, w))
+    ws.freeze_panes = f"A{fila_enc + 1}"
+    _bloque_como_se_calcula(ws, S, h, len(filas) + fila_enc + 2)
+    _print_setup(ws, {})
+
+
+def _bloque_como_se_calcula(ws, S, h, fila_inicio):
+    """Escribe, debajo de la tabla, el bloque «ⓘ Cómo se calcula esta hoja» en
+    lenguaje sencillo (una fila por columna con fórmula). No se imprime cortado:
+    va en su propia banda con fondo claro y borde."""
+    bloque = como_se_calcula(h)
+    if not bloque:
+        return
+    r = fila_inicio
+    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=6)
+    t = ws.cell(row=r, column=1, value="ⓘ  Cómo se calcula esta hoja")
+    t.font = S["subtitulo"]
+    t.fill = S["fill_gold"]
+    t.alignment = S["izq"]
+    r += 1
+    encabez = ["Columna", "Fórmula (Excel)", "Cómo se calcula (sencillo)", "Ejemplo (fila 1)", "De dónde viene", "Norma"]
+    for j, txt in enumerate(encabez, start=1):
+        c = ws.cell(row=r, column=j, value=txt)
+        c.font = S["encabezado"]
+        c.fill = S["fill_encabezado"]
+        c.alignment = S["centro"]
+        c.border = S["borde"]
+    for b in bloque:
+        r += 1
+        celdas = [b["columna"], _seguro(b["formula"]), b["explicacion"], b["ejemplo"], b["origen"], b.get("norma") or "—"]
+        for j, val in enumerate(celdas, start=1):
+            c = ws.cell(row=r, column=j, value=val)
+            c.font = S["cifra"] if j == 2 else S["dato"]
+            c.fill = S["fill_panel"]
+            c.alignment = S["izq"]
+            c.border = S["borde"]
+    ws.print_area = None
+
+
 def xlsx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> bytes:
+    """Papel de trabajo ejecutivo: panel 00_Inicio con marca, KPIs y navegación,
+    y cada cédula como hoja «tipo software» (sin cuadrícula, botones de
+    navegación, semáforo, impresión horizontal). Las celdas con fórmula se
+    escriben como fórmula viva (trazable)."""
+    S = est.estilos(Font, PatternFill, Border, Side, Alignment)
     wb = Workbook()
     wb.remove(wb.active)
-    titulo = f"{definicion.get('name', '')} · {(reg.get('engagement') or {}).get('client', '')} · corte {(reg.get('engagement') or {}).get('cutoff', '')}"
-    for h in cedulas(definicion, reg, eventos, version, estado):
-        ws = wb.create_sheet(h["name"][:31])
-        ws.cell(row=1, column=1, value=_seguro(h["label"])).font = Font(name="Calibri", size=11, bold=True, color=NAVY)
-        ws.cell(row=2, column=1, value=_seguro(titulo)).font = Font(name="Calibri", size=9, italic=True, color=GOLD)
-        anchos = [len(c[0]) + 2 for c in h["cols"]]
-        for j, (nombre, _) in enumerate(h["cols"], start=1):
-            c = ws.cell(row=4, column=j, value=nombre)
-            c.font = Font(name="Calibri", size=10, bold=True, color=BLANCO)
-            c.fill = PatternFill("solid", fgColor=NAVY)
-            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            c.border = _BORDE
-        filas = [(r, False) for r in h["rows"]] + ([(h["total"], True)] if h.get("total") else [])
-        for i, (fila, total) in enumerate(filas, start=5):
-            for j, ((_, fmt), v) in enumerate(zip(h["cols"], fila), start=1):
-                c = ws.cell(row=i, column=j, value=_excel(v, fmt))
-                c.font = Font(name="Calibri", size=10 if total else 9, bold=total)
-                c.border = _BORDE_TOTAL if total else _BORDE
-                if total:
-                    c.fill = PatternFill("solid", fgColor=CELESTE)
-                if isinstance(c.value, date):
-                    c.number_format = "yyyy-mm-dd"
-                    c.alignment = Alignment(horizontal="center")
-                elif fmt in _FMT:
-                    c.number_format = _FMT[fmt]
-                    c.alignment = Alignment(horizontal="right")
-                elif fmt == "x" and isinstance(_valor(v), (int, float)):
-                    c.alignment = Alignment(horizontal="right")
-                else:
-                    c.alignment = Alignment(horizontal="left", wrap_text=True, vertical="top")
-                vista = _valor(v)
-                anchos[j - 1] = max(anchos[j - 1], min(60, len(str(vista if vista is not None else "")) + 2))
-        for j, w in enumerate(anchos, start=1):
-            ws.column_dimensions[get_column_letter(j)].width = max(12, min(60, w))
-        ws.freeze_panes = "A5"
+    hojas = cedulas(definicion, reg, eventos, version, estado)
+    titulos = _titulos_unicos(hojas)
+    titulo_prueba = f"{definicion.get('name', '')} · {(reg.get('engagement') or {}).get('client', '')} · corte {(reg.get('engagement') or {}).get('cutoff', '')}"
+
+    inicio = wb.create_sheet("00_Inicio")
+    _panel_inicio(inicio, S, definicion, reg, titulos, hojas, estado, version)
+
+    for idx, (h, t) in enumerate(zip(hojas, titulos)):
+        ws = wb.create_sheet(t)
+        nav = {"inicio": "00_Inicio",
+               "anterior": titulos[idx - 1] if idx > 0 else None,
+               "siguiente": titulos[idx + 1] if idx < len(titulos) - 1 else None}
+        _hoja_ejecutiva(ws, S, h, titulo_prueba, nav)
     salida = io.BytesIO()
     wb.save(salida)
     return salida.getvalue()
@@ -162,6 +365,83 @@ def _filas(h):
     return [(r, False) for r in h["rows"]] + ([(h["total"], True)] if h.get("total") else [])
 
 
+# --- «Cómo se calcula esta hoja» ---------------------------------------------
+# Se GENERA desde la misma definición de la cédula que produce las fórmulas
+# (h["cols"]/h["rows"] con celdas {"f":…,"v":…}). Una sola fuente: si la fórmula
+# cambia, la explicación cambia.
+_REF = re.compile(r"(?:'([^']+)'!)?\$?([A-Z]{1,3})\$?(\d+)")
+_SOLO_ARITMETICA = re.compile(r"^[-+*/().\s0-9]*$")
+
+
+def _fmt_num(v, fmt) -> str:
+    return _celda(v, fmt if fmt in ("n", "p", "i", "a") else "n")
+
+
+def _ejemplo_fila1(formula: str, h: dict, header_por_letra: dict, fmt: str) -> str:
+    """Ejemplo con los números de la PRIMERA fila real. Si la fórmula es pura
+    aritmética entre celdas de la misma hoja, sustituye cada celda por su valor
+    («12.500,00 − 7.500,00 = 5.000,00»); si no, muestra el resultado de la fila 1."""
+    filas = h["rows"]
+    if not filas:
+        return ""
+    # Sustitución solo si no hay funciones (letras fuera de referencias) ni hojas externas.
+    def sustituye(m):
+        sheet, letra, num = m.group(1), m.group(2), int(m.group(3))
+        if sheet:
+            return m.group(0)
+        idx_fila = num - 5           # los datos arrancan en la fila 5 de la hoja
+        col = column_index_from_string(letra) - 1
+        if 0 <= idx_fila < len(filas) and 0 <= col < len(filas[idx_fila]):
+            return _fmt_num(_valor(filas[idx_fila][col]), fmt)
+        return m.group(0)
+    sin_refs = _REF.sub("X", formula)
+    if _SOLO_ARITMETICA.match(sin_refs.replace("X", "")):
+        return _REF.sub(sustituye, formula)
+    return "resultado de la fila 1"
+
+
+def como_se_calcula(h: dict) -> list[dict]:
+    """Filas del bloque explicativo: una por columna CALCULADA (con fórmula).
+    Cada una: columna, fórmula (texto), explicación sencilla, ejemplo de la fila 1,
+    de dónde vienen los datos y la referencia normativa de la hoja."""
+    filas = h.get("rows") or []
+    if not filas:
+        return []
+    cols = [c[0] for c in h["cols"]]
+    header_por_letra = {get_column_letter(j + 1): cols[j] for j in range(len(cols))}
+    bloque = []
+    for j, (nombre, fmt) in enumerate(h["cols"]):
+        v0 = filas[0][j] if j < len(filas[0]) else None
+        if not (isinstance(v0, dict) and "f" in v0):
+            continue
+        formula = v0["f"]
+        refs = _REF.findall(formula)
+        origen_cols, origen_hojas = [], []
+        for sheet, letra, _num in refs:
+            if sheet and sheet not in origen_hojas:
+                origen_hojas.append(sheet)
+            elif not sheet and letra in header_por_letra:
+                col = header_por_letra[letra]
+                if col not in origen_cols:
+                    origen_cols.append(col)
+        partes = []
+        if origen_cols:
+            partes.append("usa " + ", ".join(f"«{c}»" for c in origen_cols))
+        if origen_hojas:
+            partes.append(("y datos de " if partes else "usa datos de ") + ", ".join(origen_hojas))
+        explic = f"«{nombre}» se obtiene con la fórmula indicada" + ((": " + " ".join(partes) + ".") if partes else ".")
+        ejemplo_expr = _ejemplo_fila1(formula, h, header_por_letra, fmt)
+        resultado = _fmt_num(_valor(v0), fmt)
+        ejemplo = (f"Fila 1: {ejemplo_expr} = {resultado}" if ejemplo_expr and ejemplo_expr != "resultado de la fila 1"
+                   else f"Resultado de la fila 1: {resultado}")
+        destino = h.get("label", h["name"])
+        origen = origen_cols + origen_hojas
+        bloque.append({"columna": nombre, "formula": "=" + formula, "explicacion": explic, "ejemplo": ejemplo,
+                       "origen": ", ".join(origen) if origen else "datos cargados del cliente",
+                       "destino": destino, "norma": h.get("norma") or ""})
+    return bloque
+
+
 # Cédulas que van a la presentación (PowerPoint): las de lectura ejecutiva. Se comparan por el nombre sin el número,
 # porque una herramienta puede renumerar sus cédulas al insertar una nueva.
 _EN_PPT = ("Resumen", "Matriz_deterioro", "Por_cliente", "Fiscal", "Asientos", "Problemas", "Conclusion")
@@ -172,8 +452,31 @@ def _en_ppt(nombre: str) -> bool:
 _MAX_FILAS_PPT = 14
 
 
+def _rgb(RGBColor, hex6):
+    return RGBColor(int(hex6[0:2], 16), int(hex6[2:4], 16), int(hex6[4:6], 16))
+
+
+def csv_zip(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> bytes:
+    """Un CSV por cédula dentro de un ZIP. UTF-8 con BOM y separador «;» para que
+    Excel en español lo abra bien; solo datos limpios (valores, no fórmulas)."""
+    import csv
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for h in cedulas(definicion, reg, eventos, version, estado):
+            sio = io.StringIO()
+            w = csv.writer(sio, delimiter=";")
+            w.writerow([c[0] for c in h["cols"]])
+            for fila, _total in _filas(h):
+                w.writerow([_html.unescape(_celda(v, fmt)) for (_, fmt), v in zip(h["cols"], fila)])
+            z.writestr(f"{h['name']}.csv", ("﻿" + sio.getvalue()).encode("utf-8"))
+    return buf.getvalue()
+
+
 def docx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> bytes:
-    """Word del papel: carátula y cada cédula como tabla (valores ya calculados)."""
+    """Word ejecutivo del papel: portada, resumen ejecutivo con KPIs, cada cédula
+    como tabla y un anexo «Cómo se calcula»."""
     from docx import Document
     from docx.enum.section import WD_ORIENT
     from docx.shared import Pt, RGBColor
@@ -183,12 +486,26 @@ def docx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     sec.orientation = WD_ORIENT.LANDSCAPE
     sec.page_width, sec.page_height = sec.page_height, sec.page_width
     estilo = doc.styles["Normal"]
-    estilo.font.name = "Calibri"
+    estilo.font.name = est.FONT_TEXTO
     estilo.font.size = Pt(9)
     e = reg.get("engagement") or {}
+    run = reg.get("run") or {}
     t = doc.add_heading(definicion.get("name", ""), level=0)
-    t.runs[0].font.color.rgb = RGBColor(0x0A, 0x23, 0x42)
-    doc.add_paragraph(f"{e.get('client', '')} · corte {e.get('cutoff', '')} · v{version} · {estado}")
+    t.runs[0].font.color.rgb = _rgb(RGBColor, est.NAVY)
+    doc.add_paragraph(f"AuditConsulting Auditores Cía. Ltda.  ·  {e.get('client', '')} · RUC {e.get('ruc', '')}")
+    doc.add_paragraph(f"Marco {e.get('framework', '')} · corte {e.get('cutoff', '')} · v{version} · {est.estado_es(estado)}")
+    # Resumen ejecutivo con KPIs
+    totales, etiquetas = run.get("totals") or {}, run.get("labels") or {}
+    prim = run.get("primary")
+    n_prob = len(run.get("exceptions") or [])
+    doc.add_heading("Resumen ejecutivo", level=1)
+    if prim in totales:
+        doc.add_paragraph(f"{etiquetas.get(prim, prim)}: {_html.unescape(_celda({'v': totales[prim]}, 'n'))}")
+    doc.add_paragraph(f"Problemas encontrados: {n_prob}")
+    if reg.get("conclusion"):
+        doc.add_paragraph("Conclusión: " + str(reg["conclusion"]))
+    if reg.get("taxApplicable") and reg.get("taxScope"):
+        doc.add_paragraph("Tratamiento tributario revisado: " + str(reg["taxScope"]))
     for h in cedulas(definicion, reg, eventos, version, estado):
         doc.add_heading(h["label"], level=1)
         filas = _filas(h)
@@ -204,6 +521,24 @@ def docx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
                 celda.text = _html.unescape(_celda(v, fmt))
                 if total and celda.paragraphs[0].runs:
                     celda.paragraphs[0].runs[0].font.bold = True
+    # Anexo «Cómo se calcula»
+    doc.add_page_break()
+    doc.add_heading("Anexo · Cómo se calcula cada hoja", level=1)
+    for h in cedulas(definicion, reg, eventos, version, estado):
+        bloque = como_se_calcula(h)
+        if not bloque:
+            continue
+        doc.add_heading(h["label"], level=2)
+        cols = ["Columna", "Fórmula", "Cómo se calcula", "Ejemplo (fila 1)", "De dónde viene"]
+        tabla = doc.add_table(rows=1 + len(bloque), cols=len(cols))
+        tabla.style = "Table Grid"
+        for j, nombre in enumerate(cols):
+            r0 = tabla.rows[0].cells[j]
+            r0.text = nombre
+            r0.paragraphs[0].runs[0].font.bold = True
+        for i, b in enumerate(bloque, start=1):
+            for j, val in enumerate([b["columna"], b["formula"], b["explicacion"], b["ejemplo"], b["origen"]]):
+                tabla.rows[i].cells[j].text = str(val)
     salida = io.BytesIO()
     doc.save(salida)
     return salida.getvalue()
@@ -218,9 +553,33 @@ def pptx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     prs = Presentation()
     prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
     e = reg.get("engagement") or {}
+    run = reg.get("run") or {}
+    navy = _rgb(RGBColor, est.NAVY)
     s = prs.slides.add_slide(prs.slide_layouts[0])
     s.shapes.title.text = definicion.get("name", "")
-    s.placeholders[1].text = f"{e.get('client', '')} · corte {e.get('cutoff', '')} · v{version} · {estado}\nAuditConsulting Auditores Cía. Ltda."
+    s.shapes.title.text_frame.paragraphs[0].runs[0].font.color.rgb = navy
+    s.placeholders[1].text = (f"{e.get('client', '')} · corte {e.get('cutoff', '')} · v{version} · {est.estado_es(estado)}\n"
+                              "AuditConsulting Auditores Cía. Ltda. · AUDIT-IA")
+    # Diapositiva ejecutiva de cifras clave
+    totales, etiquetas, prim = run.get("totals") or {}, run.get("labels") or {}, run.get("primary")
+    n_prob = len(run.get("exceptions") or [])
+    cifras = []
+    if prim in totales:
+        cifras.append((etiquetas.get(prim, prim), _html.unescape(_celda({"v": totales[prim]}, "n"))))
+    for k in ("perdida", "cartera", "provReg"):
+        if k in totales and k != prim:
+            cifras.append((etiquetas.get(k, k), _html.unescape(_celda({"v": totales[k]}, "n"))))
+    cifras.append(("Problemas encontrados", str(n_prob)))
+    sk = prs.slides.add_slide(prs.slide_layouts[5])
+    sk.shapes.title.text = "Cifras clave"
+    sk.shapes.title.text_frame.paragraphs[0].runs[0].font.color.rgb = navy
+    caja = sk.shapes.add_textbox(Inches(0.6), Inches(1.6), Inches(12), Inches(5)).text_frame
+    caja.word_wrap = True
+    for i, (etq, val) in enumerate(cifras[:5]):
+        p = caja.paragraphs[0] if i == 0 else caja.add_paragraph()
+        p.text = f"{etq}:  {val}"
+        p.runs[0].font.size = Pt(20)
+        p.runs[0].font.color.rgb = navy
     for h in cedulas(definicion, reg, eventos, version, estado):
         if not _en_ppt(h["name"]):
             continue
@@ -251,14 +610,22 @@ def pptx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     return salida.getvalue()
 
 
-def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> bytes:
+def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str, para_pdf: bool = False) -> bytes:
     """HTML autónomo: funciona sin internet (sin fuentes, scripts ni estilos
-    externos) y trae dentro el Excel con fórmulas, el Word y el PowerPoint para
-    descargarlos; el PDF se guarda desde la impresión del navegador."""
+    externos) y trae dentro el Excel con fórmulas, el Word, el PowerPoint y el
+    CSV para descargarlos. ``para_pdf=True`` devuelve una versión estática (todo
+    visible, sin pestañas/descargas/JS) para renderizar el PDF en el servidor."""
     import base64
 
-    partes = []
-    for h in cedulas(definicion, reg, eventos, version, estado):
+    hojas = cedulas(definicion, reg, eventos, version, estado)
+    e = reg.get("engagement") or {}
+    run = reg.get("run") or {}
+    # Pestañas tipo botón + secciones
+    tabs, secciones = [], []
+    for idx, h in enumerate(hojas):
+        act = " on" if idx == 0 else ""
+        vis = "" if (para_pdf or idx == 0) else ' hidden'
+        tabs.append(f'<button class="tab{act}" type="button" data-t="t{idx}">{_html.escape(h["label"])}</button>')
         cab = "".join(f"<th>{_html.escape(c[0])}</th>" for c in h["cols"])
         cuerpo = "".join(
             "<tr" + (' class="total"' if total else "") + ">"
@@ -267,39 +634,100 @@ def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
                       + f">{_celda(v, f)}</td>" for (_, f), v in zip(h["cols"], fila))
             + "</tr>"
             for fila, total in _filas(h))
-        partes.append(f"<section><h2>{_html.escape(h['label'])}</h2><table><thead><tr>{cab}</tr></thead><tbody>{cuerpo}</tbody></table></section>")
-    e = reg.get("engagement") or {}
+        bloque = como_se_calcula(h)
+        calc = ""
+        if bloque:
+            filas_c = "".join(
+                f"<tr><td>{_html.escape(b['columna'])}</td><td class='mono'>{_html.escape(b['formula'])}</td>"
+                f"<td>{_html.escape(b['explicacion'])}</td><td>{_html.escape(b['ejemplo'])}</td>"
+                f"<td>{_html.escape(b['origen'])}</td></tr>" for b in bloque)
+            tabla_calc = ("<table class='calc'><thead><tr><th>Columna</th><th>Fórmula</th><th>Cómo se calcula</th>"
+                          f"<th>Ejemplo (fila 1)</th><th>De dónde viene</th></tr></thead><tbody>{filas_c}</tbody></table>")
+            if para_pdf:
+                calc = f"<div class='calc'><p class='calctit'>ⓘ Cómo se calcula esta hoja</p>{tabla_calc}</div>"
+            else:
+                calc = f"<details class='calc'><summary>ⓘ Ver cálculo de esta hoja</summary>{tabla_calc}</details>"
+        secciones.append(f'<section id="t{idx}"{vis}><h2>{_html.escape(h["label"])}</h2>{calc}'
+                         f'<div class="scroll"><table><thead><tr>{cab}</tr></thead><tbody>{cuerpo}</tbody></table></div></section>')
+    # Tarjetas KPI
+    totales, etiquetas, prim = run.get("totals") or {}, run.get("labels") or {}, run.get("primary")
+    n_prob = len(run.get("exceptions") or [])
+    kpi_items = []
+    if prim in totales:
+        kpi_items.append((etiquetas.get(prim, prim), _celda({"v": totales[prim]}, "n"), est.NAVY))
+    for k in ("perdida", "cartera", "provReg"):
+        if k in totales and k != prim:
+            kpi_items.append((etiquetas.get(k, k), _celda({"v": totales[k]}, "n"), est.NAVY))
+    kpi_items.append(("Problemas encontrados", str(n_prob), est.color_semaforo(n_prob)))
+    kpis = "".join(f'<div class="kpi"><small>{_html.escape(etq)}</small><strong style="color:#{col}">{val}</strong></div>'
+                   for etq, val, col in kpi_items[:5])
     base = re.sub(r"[^\w-]+", "_", definicion.get("name", "papel"))[:60] + f"_v{version}"
     adjuntos = (
         ("xlsx", "Excel con fórmulas", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xlsx),
         ("docx", "Word", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", docx),
         ("pptx", "PowerPoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation", pptx),
+        ("zip", "CSV (ZIP)", "application/zip", csv_zip),
     )
     botones = "".join(
         f'<a class="btn" download="{base}.{ext}" href="data:{mime};base64,'
         f'{base64.b64encode(fn(definicion, reg, eventos, version, estado)).decode()}">⬇ {etiqueta}</a>'
         for ext, etiqueta, mime, fn in adjuntos
     ) + '<button class="btn" type="button" onclick="window.print()">⬇ PDF (Guardar como PDF)</button>'
+    css = (
+        f"body{{font-family:'Segoe UI',Calibri,Arial,sans-serif;margin:0;color:#{est.NAVY};background:#{est.LIGHT}}}"
+        f".wrap{{max-width:1200px;margin:0 auto;padding:20px}}"
+        f".marca{{background:#{est.NAVY};color:#fff;padding:14px 20px;border-radius:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}}"
+        ".marca b{font-size:16px}.marca span{font-size:12px;opacity:.85}"
+        ".kpis{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}"
+        f".kpi{{background:#fff;border:1px solid #{est.LINE};border-radius:10px;padding:10px 14px;min-width:150px}}"
+        f".kpi small{{display:block;color:#{est.TURQUOISE};font-weight:700;font-size:11px}}.kpi strong{{font-size:20px}}"
+        ".descargas{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}"
+        f".btn{{background:#{est.TURQUOISE};color:#fff;border:0;border-radius:6px;padding:8px 14px;font:inherit;text-decoration:none;cursor:pointer}}"
+        f".btn:hover{{background:#{est.GOLD};color:#{est.DEEP_BLUE}}}"
+        ".tabs{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 6px}"
+        f".tab{{background:#fff;border:1px solid #{est.LINE};border-radius:999px;padding:5px 12px;font:inherit;cursor:pointer;font-size:13px}}"
+        f".tab.on{{background:#{est.NAVY};color:#fff;border-color:#{est.NAVY};font-weight:700}}"
+        f"h2{{font-size:15px;border-bottom:2px solid #{est.GOLD};padding-bottom:4px}}"
+        ".scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:12px;background:#fff}"
+        f"th{{background:#{est.NAVY};color:#fff;padding:5px 6px}}"
+        f"td{{border:1px solid #{est.LINE};padding:3px 6px;vertical-align:top}}td.num{{text-align:right;white-space:nowrap;font-family:Consolas,monospace}}"
+        f"tr.total td{{font-weight:700;background:#{est.CELESTE};border-top:3px double #{est.NAVY};border-bottom:3px double #{est.NAVY}}}"
+        f"details.calc,div.calc{{margin:8px 0;background:#fff;border:1px solid #{est.LINE};border-radius:8px;padding:6px 10px}}"
+        f"details.calc summary,.calctit{{cursor:pointer;font-weight:700;color:#{est.TURQUOISE};margin:0}}"
+        "table.calc td.mono,td.mono{font-family:Consolas,monospace;font-size:11px}"
+        f".nota{{color:#555;font-size:12px}}"
+        "@media print{.descargas,.tabs,.nota,.btn{display:none}section[hidden]{display:block!important}"
+        "details.calc{display:none}body{background:#fff}.wrap{max-width:none;padding:0}"
+        "section{break-inside:avoid}"
+        "th{-webkit-print-color-adjust:exact;print-color-adjust:exact}@page{size:A4 landscape;margin:12mm}}"
+    )
+    js = ("" if para_pdf else
+          "<script>document.querySelectorAll('.tab').forEach(function(b){b.onclick=function(){"
+          "document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on')});b.classList.add('on');"
+          "document.querySelectorAll('section').forEach(function(s){s.hidden=(s.id!==b.dataset.t)});};});</script>")
+    chrome = "" if para_pdf else (
+        f'<div class="descargas">{botones}</div>'
+        '<p class="nota">Funciona sin conexión. Pase el cursor sobre un importe para ver su fórmula; use «ⓘ Ver cálculo» para la explicación de cada hoja. En el Excel las fórmulas son editables y trazables.</p>'
+        f'<div class="tabs">{"".join(tabs)}</div>')
     doc = (
         "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-        f"<title>{_html.escape(definicion.get('name', ''))}</title><style>"
-        "body{font-family:'DM Sans',Calibri,Arial,sans-serif;margin:24px;color:#0A2342;background:#fff}h1{font-size:20px}"
-        "h2{font-size:15px;margin-top:28px;border-bottom:2px solid #C7A83C}"
-        ".descargas{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 20px}"
-        ".btn{background:#0A2342;color:#fff;border:0;border-radius:6px;padding:8px 14px;font:inherit;text-decoration:none;cursor:pointer}"
-        ".btn:hover{background:#C7A83C;color:#071B2F}.nota{color:#555;font-size:12px}"
-        "section{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:12px}th{background:#0A2342;color:#fff;padding:4px 6px}"
-        "td{border:1px solid #B7C0CC;padding:3px 6px;vertical-align:top}td.num{text-align:right;white-space:nowrap}"
-        "tr.total td{font-weight:700;background:#DCE6F1;border-top:3px double #0A2342;border-bottom:3px double #0A2342}"
-        "@media print{.descargas,.nota{display:none}body{margin:0}section{break-inside:auto;overflow:visible}"
-        "th{-webkit-print-color-adjust:exact;print-color-adjust:exact}@page{size:A4 landscape;margin:12mm}}"
-        "</style></head><body>"
-        f"<h1>{_html.escape(definicion.get('name', ''))}</h1>"
-        f"<p>{_html.escape(str(e.get('client', '')))} · corte {_html.escape(str(e.get('cutoff', '')))} · v{version} · {_html.escape(estado)}</p>"
-        f'<div class="descargas">{botones}</div>'
-        '<p class="nota">Este archivo funciona sin conexión a internet. Pase el cursor sobre un importe para ver su fórmula; '
-        "en el Excel las fórmulas son editables y remiten a Parámetros, Detalle por factura y Matriz de deterioro.</p>"
-        + "".join(partes) + "</body></html>"
+        f"<title>{_html.escape(definicion.get('name', ''))}</title><style>{css}</style></head><body><div class=\"wrap\">"
+        f'<div class="marca"><b>AuditConsulting Auditores Cía. Ltda. · AUDIT-IA</b>'
+        f'<span>{_html.escape(str(e.get("client","")))} · RUC {_html.escape(str(e.get("ruc","")))} · corte {_html.escape(str(e.get("cutoff","")))} · v{version} · {_html.escape(est.estado_es(estado))}</span></div>'
+        f'<h1>{_html.escape(definicion.get("name",""))}</h1>'
+        f'<div class="kpis">{kpis}</div>'
+        + chrome
+        + "".join(secciones) + js + "</div></body></html>"
     )
     return doc.encode("utf-8")
+
+
+def pdf(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> bytes:
+    """PDF ejecutivo generado en el servidor (WeasyPrint) a partir del HTML
+    estático: fiel a la vista, horizontal, con marca, KPIs, cédulas y el bloque
+    «Cómo se calcula». No usa la impresión del navegador."""
+    import weasyprint
+
+    contenido = html(definicion, reg, eventos, version, estado, para_pdf=True)
+    return weasyprint.HTML(string=contenido.decode("utf-8")).write_pdf()

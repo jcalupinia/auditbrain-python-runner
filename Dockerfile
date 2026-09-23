@@ -21,6 +21,14 @@ RUN apt-get update && apt-get install -y \
     zlib1g-dev \
     libjpeg-dev \
     libgl1 \
+    # WeasyPrint (PDF ejecutivo del papel de trabajo NIIF): render nativo Pango/cairo
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libcairo2 \
+    libgdk-pixbuf-2.0-0 \
+    libharfbuzz0b \
+    libharfbuzz-subset0 \
+    fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 # Copiamos dependencias y las instalamos
