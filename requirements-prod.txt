@@ -97,7 +97,10 @@ email-validator==2.2.0
 # Si un script de GPT necesita alguno de los excluidos, evaluar caso a caso.
 # ==========================================================
 stripe==11.1.0
-# WeasyPrint: PDF ejecutivo del papel de trabajo NIIF renderizado en el servidor
-# desde el HTML (fiel a la vista). Requiere libs nativas Pango/cairo/gdk-pixbuf
-# (ver Dockerfile). No usa la impresión del navegador.
-weasyprint==70.0
+# NOTA sobre el PDF ejecutivo del papel NIIF: se genera con WeasyPrint, que
+# necesita librerías nativas (Pango/cairo/gdk-pixbuf). El servicio de Render
+# `auditbrain-python-runner` es `env: python` y NO puede instalarlas, así que
+# WeasyPrint NO se incluye aquí: el endpoint /libro?formato=pdf degrada con un
+# aviso (libro.PDFNoDisponible) y el papel sigue en Excel/Word/HTML (+ «Guardar
+# como PDF» del navegador). Para un PDF real en el servidor, mover este servicio
+# a uno Docker-based (Dockerfile con las libs) e incluir weasyprint allí.
