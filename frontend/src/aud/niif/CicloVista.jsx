@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import * as api from "../../api";
 import "../of/ofWorkspace.css";
+import EjercicioModelo from "./EjercicioModelo";
+import { ejemploDe, formatosTexto } from "./ejemplosRequerimientos";
 import {
   archivosDe,
   detalleRequerimiento,
@@ -85,13 +87,17 @@ function descargar(nombre, contenido, tipo) {
 const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const mostrar = (v) => (v && typeof v === "object" ? String(v.v ?? v.n ?? "") : String(v ?? ""));
 
-function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado }) {
+function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, processor, onModelo }) {
   const input = useRef(null);
   const [parte, setParte] = useState(req.components?.[0] || "");
   const [error, setError] = useState("");
   const [subiendo, setSubiendo] = useState(false);
   const completo = cobertura?.complete;
   const n = (prueba.archivos || []).filter((a) => a.requerimiento === req.id && a.estado !== "rechazado").length;
+  // Flecha para bajar el FORMATO VÁLIDO: un ejemplo lleno del manifiesto, o el
+  // modelo en blanco del propio requerimiento, o nada (solo los formatos).
+  const ejemplo = ejemploDe(processor, req, undefined, import.meta.env.BASE_URL || "/");
+  const formatos = formatosTexto(req);
 
   async function subir(e) {
     const archivo = e.target.files?.[0];
@@ -127,6 +133,38 @@ function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado }) {
         {subiendo ? "Subiendo…" : `${completo ? "✓" : "○"} ${req.document}${n ? ` (${n})` : ""}`}
       </button>
       <input ref={input} type="file" hidden onChange={subir} data-requerimiento={req.id} />
+      {(formatos || ejemplo) && (
+        <small className="nf-doc-formatos">
+          {formatos && (
+            <span title="Formatos aceptados para este documento">
+              {formatos}
+              {req.required === false ? " · opcional" : ""}
+            </span>
+          )}
+          {ejemplo?.tipo === "ejemplo" && (
+            <a
+              className="link nf-doc-ejemplo"
+              href={ejemplo.url}
+              download={ejemplo.archivo}
+              title="Formato válido con datos de ejemplo (ficticios)"
+              data-ejemplo={req.id}
+            >
+              ↓ Ejemplo
+            </a>
+          )}
+          {ejemplo?.tipo === "modelo" && (
+            <button
+              type="button"
+              className="link nf-doc-ejemplo"
+              onClick={() => onModelo?.(req.id)}
+              title="Formato válido (plantilla en blanco para llenar)"
+              data-ejemplo={req.id}
+            >
+              ↓ Ejemplo
+            </button>
+          )}
+        </small>
+      )}
       {error && <small className="nf-error">{error}</small>}
     </span>
   );
@@ -306,6 +344,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
   const [taxScope, setTaxScope] = useState(reg.taxScope || "");
   const [tramos, setTramos] = useState([{ min: "0", max: "30", rate: "" }, { min: "31", max: "", rate: "" }]);
   const [cedula, setCedula] = useState(0);
+  const [modeloAbierto, setModeloAbierto] = useState(false);
   const [param, setParam] = useState(() => ({ ...(d.parametros || {}), ...Object.fromEntries(Object.entries(reg.parameters || {}).filter(([k]) => k in (d.parametros || {}))) }));
   const [tasas, setTasas] = useState(reg.parameters?.tasas || {});
   // Tramos de mora solo en las pruebas de cartera que los usan.
@@ -529,8 +568,18 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
             {etiqueta}
           </button>
         ))}
+        <button
+          type="button"
+          className="pc-chip"
+          disabled={!d.processor}
+          title={d.processor ? "Recorrido de la prueba con datos de ejemplo (solo lectura)" : "Ejercicio modelo pendiente"}
+          onClick={() => setModeloAbierto(true)}
+        >
+          Ejercicio modelo
+        </button>
         <button type="button" className="pc-chip danger" onClick={abrirEncerar}>Encerar</button>
       </div>
+      {modeloAbierto && <EjercicioModelo prueba={prueba} onCerrar={() => setModeloAbierto(false)} />}
       {avance && <p className="muted">{avance}</p>}
       {error && <p role="alert" className="nf-error">{error}</p>}
 
@@ -542,7 +591,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
           <div className="pc-scenarios nf-vista-subir">
             <span className="pc-scenarios-l" style={{ color: "var(--accent)" }}>SUBIR DOCUMENTOS</span>
             {(reg.requests || []).map((r) => (
-              <ChipDocumento key={r.id} prueba={prueba} req={r} cobertura={cobertura[r.id]} onSubido={onRecargar} habilitado={CON_SUBIDA.includes(prueba.estado) && !bloqueado} />
+              <ChipDocumento key={r.id} prueba={prueba} req={r} cobertura={cobertura[r.id]} onSubido={onRecargar} habilitado={CON_SUBIDA.includes(prueba.estado) && !bloqueado} processor={d.processor} onModelo={bajarModelo} />
             ))}
           </div>
           {calculo.length > 0 && (

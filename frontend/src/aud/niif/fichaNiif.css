@@ -221,8 +221,11 @@ a.btn { text-decoration: none; display: inline-block; }
 .nf-vista { display: flex; flex-direction: column; gap: 12px; margin: 8px 0 16px; }
 .nf-vista-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .nf-vista-subir { padding: 12px 14px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.nf-vista-doc { display: inline-flex; gap: 6px; align-items: center; }
+.nf-vista-doc { display: inline-flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+.nf-vista-doc > .pc-chip, .nf-vista-doc > select { align-self: stretch; }
 .nf-vista-doc select { max-width: 160px; }
+.nf-doc-formatos { display: inline-flex; gap: 8px; align-items: center; font-size: 11px; color: var(--muted); letter-spacing: 0.02em; }
+.nf-doc-ejemplo { font-size: 11px; white-space: nowrap; }
 .nf-vista-progreso { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; height: 8px; overflow: hidden; }
 .nf-vista-progreso > div { height: 100%; background: var(--accent); transition: width 0.3s; }
 .nf-vista-lista { margin: 4px 0 8px; padding-left: 18px; }
@@ -232,3 +235,32 @@ a.btn { text-decoration: none; display: inline-block; }
 .nf-vista-marco { display: flex; flex-wrap: wrap; gap: 8px 24px; padding: 8px 12px; margin: 4px 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
 .nf-encargo-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
 .nf-encargo-barra select { min-width: 280px; flex: 1; max-width: 640px; }
+
+/* ===== Ejercicio modelo (panel modal de solo lectura) ===== */
+.nf-em-overlay { position: fixed; inset: 0; z-index: 60; background: rgba(4, 12, 22, 0.72); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.nf-em-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; width: min(1000px, 96vw); max-height: 92vh; overflow: auto; padding: 18px 20px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5); }
+.nf-em-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.nf-em-marca { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: #C7A83C; background: rgba(199, 168, 60, 0.12); border: 1px solid rgba(199, 168, 60, 0.4); border-radius: 6px; padding: 2px 8px; margin-bottom: 6px; }
+.nf-em-pasos { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 0; margin: 0; border-bottom: 1px solid var(--line); }
+.nf-em-pasos button { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); cursor: pointer; }
+.nf-em-pasos button.on { background: var(--accent); color: #071B2F; border-color: var(--accent); font-weight: 700; }
+.nf-em-pasos button > span { font-weight: 700; }
+.nf-em-cuerpo { padding: 14px 0; min-height: 220px; }
+.nf-em-badge { display: inline-block; font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; }
+.nf-em-expl { color: var(--muted); }
+.nf-em-datos { margin: 8px 0; padding-left: 18px; font-size: 13px; line-height: 1.5; }
+.nf-em-req { list-style: none; padding: 0; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.nf-em-formatos { display: block; font-size: 11px; color: var(--muted); }
+.nf-em-metricas { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0; }
+.nf-em-metricas > div { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; min-width: 120px; }
+.nf-em-metricas small { display: block; color: var(--muted); font-size: 11px; }
+.nf-em-metricas strong { font-size: 16px; }
+.nf-em-cedtabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.nf-em-cedtabs button { font-size: 11px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); cursor: pointer; }
+.nf-em-cedtabs button.on { background: var(--accent); color: #071B2F; border-color: var(--accent); font-weight: 700; }
+.nf-em-tabla { max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.nf-em-tabla table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.nf-em-tabla td { border: 1px solid var(--line); padding: 4px 6px; vertical-align: top; }
+.nf-em-tabla code { font-size: 11px; color: var(--muted); }
+.nf-em-descargas { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.nf-em-nav { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
