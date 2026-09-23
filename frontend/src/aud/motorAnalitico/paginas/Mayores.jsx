@@ -142,12 +142,24 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
   // Excepciones cuando el trabajo está listo, o al cambiar filtros/página.
   // Contador de secuencia: descarta una respuesta vieja si ya se disparó
   // una consulta más nueva (filtro cambiado rápido, o cambio de página).
+  //
+  // Bandera `vivo` (mismo patrón que el sondeo): el early return de arriba
+  // significa que al cambiar de cliente (Mayores se reutiliza entre
+  // proyectos), cuando `trabajo` se resetea a null el contador NUNCA se
+  // incrementa en esa corrida — así que una respuesta lenta de excepciones
+  // del cliente anterior sigue viendo secuenciaRef.current === yo y
+  // aterriza en pantalla bajo el nombre del cliente nuevo. Secreto
+  // profesional: datos de un cliente no pueden aparecer bajo el nombre de
+  // otro. La limpieza del efecto corta esa respuesta sin importar si el
+  // contador se movió.
   useEffect(() => {
-    if (trabajo?.estado !== "listo") return;
+    if (trabajo?.estado !== "listo") return undefined;
+    let vivo = true;
     const yo = ++secuenciaRef.current;
     cliente.excepciones(trabajo.id, { ...filtros, pagina, tam: TAM_PAGINA })
-      .then((r) => { if (secuenciaRef.current === yo) setExcepciones(r); })
-      .catch((e) => { if (secuenciaRef.current === yo) setErrorMsg(mensajeError(e)); });
+      .then((r) => { if (vivo && secuenciaRef.current === yo) setExcepciones(r); })
+      .catch((e) => { if (vivo && secuenciaRef.current === yo) setErrorMsg(mensajeError(e)); });
+    return () => { vivo = false; };
   }, [trabajo?.estado, trabajo?.id, filtros, pagina, cliente]);
 
   const iniciar = async (accion) => {
