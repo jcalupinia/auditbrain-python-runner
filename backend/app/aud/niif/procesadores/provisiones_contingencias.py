@@ -13,8 +13,10 @@ Norma leída (texto oficial en español, Reglamento (UE) 2023/1803, NIC 37):
   valor intermedio. 40: obligación aislada → desenlace individual más probable (considerando los demás).
 - 45–47: valor actual cuando el efecto del valor temporal es importante; tasa antes de impuestos.
 - 59: revisión al cierre; 60: el aumento por el paso del tiempo es coste por intereses.
-- 66, 68: contrato oneroso → provisión por los costes inevitables = menor entre coste de cumplir y
-  compensaciones o multas por incumplir; 69: antes, el deterioro de los activos del contrato (NIC 36).
+- 10 y 66: el contrato es oneroso cuando los costes inevitables exceden los beneficios económicos que se esperan
+  recibir; 68: los costes inevitables son los menores costes netos por resolver el contrato = el menor entre el coste
+  de cumplir sus cláusulas (neto de los beneficios esperados) y las compensaciones o multas por incumplirlo;
+  69: antes, el deterioro de los activos del contrato (NIC 36).
 - NIC 10.9 a): el litigio resuelto después del cierre que confirma la obligación ajusta la provisión.
 - CINIIF 1: los cambios en el pasivo por desmantelamiento se suman o restan del costo del activo.
 PYMES (leído en 2015 (ES) y 2025 (EN): misma numeración para los párrafos citados): 21.4, 21.7 a) y b), 21.7 (valor
@@ -26,7 +28,7 @@ Cálculo por partida:
    No con salida probable/posible → pasivo contingente (revelar); remota → nada. Activo contingente: solo se
    reconoce si es prácticamente cierto; si es probable, se revela.
 2. Mejor estimación (sin descontar), en este orden: hecho posterior que confirma (NIC 10.9 a) → oneroso =
-   mín(costo de cumplir, penalización) → garantías = Σ unidades × % reclamos × costo medio → escenarios
+   mín(máx(costo de cumplir − beneficios esperados, 0), penalización) → garantías = Σ unidades × % reclamos × costo medio → escenarios
    (valor esperado Σ importe × prob ÷ Σ prob, o el más probable si así se indica) → punto medio del rango →
    importe de la carta del abogado → estimación de la gerencia.
 3. Valor presente = estimación ÷ (1 + tasa)^plazo cuando el plazo supera el parámetro (tasa de la partida o
@@ -68,6 +70,8 @@ _PROV = [
     campo("metodo", "Método para escenarios (Valor esperado/Más probable)", requerido=False, alias=("metodo", "método", "base de medicion"), ejemplo=""),
     campo("costo_cumplir", "Oneroso: costo de cumplir", "number", False, ("costo de cumplir", "costo cumplir"), ""),
     campo("penalizacion", "Oneroso: penalización por incumplir", "number", False, ("penalizacion", "penalidad", "multa"), ""),
+    campo("beneficios_contrato", "Oneroso: beneficios económicos esperados del contrato", "number", False,
+          ("beneficios esperados", "beneficios economicos", "beneficios del contrato", "ingresos esperados del contrato"), ""),
     campo("importe_posterior", "Importe fijado después del corte (sentencia o acuerdo)", "number", False,
           ("importe posterior", "sentencia", "hecho posterior", "liquidacion posterior"), ""),
     campo("plazo_anios", "Plazo esperado de salida (años)", "number", False, ("plazo", "plazo anios", "años", "anios"), "1"),
@@ -275,8 +279,12 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         r["clasif"] = _clasificar(r["tipo"], r["obligacion_presente"], r["prob"])
         # 06 · mejor estimación.
         r["est_post"] = r["importe_posterior"]
-        cands = [x for x in (r["costo_cumplir"], r["penalizacion"]) if x is not None]
+        # Oneroso (NIC 37.10, 66–68; PYMES 21A.2): costo neto de cumplir = costo de cumplir − beneficios esperados
+        # (mínimo 0); costos inevitables = el menor entre ese costo neto y la penalización por incumplir.
+        r["costo_neto"] = None if r["costo_cumplir"] is None else max(r["costo_cumplir"] - (r["beneficios_contrato"] or 0), 0)
+        cands = [x for x in (r["costo_neto"], r["penalizacion"]) if x is not None]
         r["est_oner"] = min(cands) if r["tipo"] == "Oneroso" and cands else None
+        r["sin_beneficios"] = r["tipo"] == "Oneroso" and r["costo_cumplir"] is not None and r["beneficios_contrato"] is None
         ligadas = [g for g in gars if g["prov"].lower() == r["id"].lower()]
         r["est_gar"] = sum(g["calc"] for g in ligadas) if r["tipo"] == "Garantía" and ligadas else None
         i1, p1, i2, p2, i3, p3 = (r[k] or 0.0 for k in ("importe_1", "prob_1", "importe_2", "prob_2", "importe_3", "prob_3"))
@@ -355,6 +363,10 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         if r["sprob"] > 0 and abs(r["sprob"] - 100) > 0.01:
             pr.append(problema("PROBABILIDADES_NO_SUMAN_100", f"{i}: las probabilidades de los escenarios suman {r['sprob']:g} %; el valor "
                                "esperado se calculó sobre esa suma. Pida escenarios completos.", 0))
+        if r["sin_beneficios"]:
+            pr.append(problema("ONEROSO_SIN_BENEFICIOS", f"{i} ({r['descripcion']}): contrato oneroso sin los beneficios económicos que se esperan "
+                               f"recibir; se usó el costo de cumplir completo {m(r['costo_cumplir'])}, sin restarlos: la provisión puede quedar "
+                               "sobrestimada. Pida los beneficios esperados del contrato (NIC 37.10, 66–68; PYMES 21A.2).", r["costo_cumplir"]))
         if r["tipo"] == "Litigio":
             if r["respuesta_abogado"] != "Sí":
                 pr.append(problema("SIN_RESPUESTA_ABOGADO", f"{i}: no hay respuesta del abogado a la carta de confirmación; posible limitación al "
@@ -378,7 +390,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                                    "(NIC 37.45–47; PYMES 21.7).", r["est"]))
             elif lib <= tol and r["requerida"] > tol:
                 cod = "ONEROSO_NO_PROVISIONADO" if r["tipo"] == "Oneroso" else "PROVISION_NO_REGISTRADA"
-                extra = " Costos inevitables = menor entre costo de cumplir y penalización (NIC 37.66–68; PYMES 21A.2)." if r["tipo"] == "Oneroso" else ""
+                extra = (" Costos inevitables = menor entre el costo neto de cumplir (costo − beneficios esperados) y la penalización "
+                         "(NIC 37.10, 66–68; PYMES 21A.2).") if r["tipo"] == "Oneroso" else ""
                 pr.append(problema(cod, f"{i} ({r['descripcion']}): obligación probable no registrada; provisión requerida {m(r['requerida'])} "
                                    f"({r['base']}).{extra}", r["requerida"]))
             elif abs(r["dif"]) > tol:
@@ -519,7 +532,9 @@ def hojas(res: dict) -> list[dict]:
         nsum = f'N({c("prob_1")})+N({c("prob_2")})+N({c("prob_3")})'
         est.append([
             x["id"], fx(_si(c("importe_posterior")), x["est_post"]),
-            fx(f'IF(AND({c("tipo")}="Oneroso",OR({c("costo_cumplir")}<>"",{c("penalizacion")}<>"")),MIN({c("costo_cumplir")},{c("penalizacion")}),"")', x["est_oner"]),
+            fx(f'IF({c("tipo")}<>"Oneroso","",IF(AND({c("costo_cumplir")}="",{c("penalizacion")}=""),"",'
+               f'IF({c("costo_cumplir")}="",{c("penalizacion")},IF({c("penalizacion")}="",MAX({c("costo_cumplir")}-N({c("beneficios_contrato")}),0),'
+               f'MIN(MAX({c("costo_cumplir")}-N({c("beneficios_contrato")}),0),{c("penalizacion")})))))', x["est_oner"]),
             fx(f'IF({c("tipo")}="Garantía",IF(COUNTIF({gp},A{r})=0,"",SUMIF({gp},A{r},{gc})),"")', x["est_gar"]),
             fx(nsum, x["sprob"]),
             fx(f'IF(E{r}=0,"",(N({c("importe_1")})*N({c("prob_1")})+N({c("importe_2")})*N({c("prob_2")})+N({c("importe_3")})*N({c("prob_3")}))/({nsum}))',
@@ -592,9 +607,11 @@ def hojas(res: dict) -> list[dict]:
     for j, x in enumerate(ON):
         s, r = fila[x["id"]], FILA0 + j
         one.append([
-            x["id"], x["descripcion"], fx(_si(X("costo_cumplir", s)), x["costo_cumplir"]), fx(_si(X("penalizacion", s)), x["penalizacion"]),
-            fx(f'IF(AND(C{r}="",D{r}=""),"",MIN(C{r},D{r}))', x["est_oner"]), fx(f"{VPR}G{s}", x["vp"]),
-            fx(X("saldo_libros", s), x["saldo_libros"]), fx(f"{REC}G{s}", x["dif"]),
+            x["id"], x["descripcion"], fx(_si(X("costo_cumplir", s)), x["costo_cumplir"]),
+            fx(_si(X("beneficios_contrato", s)), x["beneficios_contrato"]),
+            fx(f'IF(C{r}="","",MAX(C{r}-N(D{r}),0))', x["costo_neto"]), fx(_si(X("penalizacion", s)), x["penalizacion"]),
+            fx(f'IF(AND(E{r}="",F{r}=""),"",IF(E{r}="",F{r},IF(F{r}="",E{r},MIN(E{r},F{r}))))', x["est_oner"]),
+            fx(f"{VPR}G{s}", x["vp"]), fx(X("saldo_libros", s), x["saldo_libros"]), fx(f"{REC}G{s}", x["dif"]),
         ])
 
     # 12 · desmantelamiento.
@@ -681,7 +698,7 @@ def hojas(res: dict) -> list[dict]:
              [["Código", "t"], ["Tipo", "t"], ["Obligación presente", "t"], ["Prob. abogado", "t"], ["Prob. gerencia", "t"],
               ["Probabilidad usada", "t"], ["Clasificación (NIC 37.14, 23, 27–35)", "t"], ["Discrepancia", "t"]], obl),
         hoja("06_Mejor_estimacion", "Mejor estimación",
-             [["Código", "t"], ["Hecho posterior", "n"], ["Oneroso: mín(cumplir, penalización)", "n"], ["Garantías", "n"], ["Σ probabilidades %", "n"],
+             [["Código", "t"], ["Hecho posterior", "n"], ["Oneroso: mín(costo neto, penalización)", "n"], ["Garantías", "n"], ["Σ probabilidades %", "n"],
               ["Valor esperado", "n"], ["Más probable", "n"], ["Punto medio del rango", "n"], ["Carta del abogado", "n"], ["Estimación gerencia", "n"],
               ["Base usada", "t"], ["Mejor estimación", "n"]], est),
         hoja("07_Valor_presente", "Valor presente (descuento)",
@@ -701,7 +718,8 @@ def hojas(res: dict) -> list[dict]:
               ["Vínculo", "t"]], gca,
              ["TOTAL", "", None, None, None, suma("F", fin(ng), k["garantiasCalculadas"]), ""] if ng else None),
         hoja("11_Onerosos", "Contratos onerosos",
-             [["Código", "t"], ["Descripción", "t"], ["Costo de cumplir", "n"], ["Penalización", "n"], ["Costos inevitables (37.68)", "n"],
+             [["Código", "t"], ["Descripción", "t"], ["Costo de cumplir", "n"], ["Beneficios esperados (37.10)", "n"],
+              ["Costo neto de cumplir", "n"], ["Penalización", "n"], ["Costos inevitables (37.68)", "n"],
               ["Valor presente", "n"], ["Libros", "n"], ["Ajuste", "n"]], one),
         hoja("12_Desmantelamiento", "Desmantelamiento",
              [["Código", "t"], ["Descripción", "t"], ["Costo estimado", "n"], ["Plazo (años)", "n"], ["Tasa %", "n"], ["Valor presente", "n"],
@@ -727,7 +745,7 @@ def definicion() -> dict:
     prov = ("Una fila por provisión, litigio, garantía, contrato oneroso, desmantelamiento, reestructuración o activo contingente: código, "
             "descripción, tipo, obligación presente (Sí/No), probabilidad según abogado y gerencia (Probable/Posible/Remota/Prácticamente "
             "cierta), importe de la carta, estimación de la gerencia, rango mínimo/máximo, hasta 3 escenarios (importe y probabilidad %), "
-            "método (Valor esperado/Más probable), costo de cumplir y penalización (onerosos), importe fijado después del corte, plazo en años, "
+            "método (Valor esperado/Más probable), costo de cumplir, beneficios económicos esperados y penalización (onerosos), importe fijado después del corte, plazo en años, "
             "tasa antes de impuestos, saldo en libros, saldo inicial, reversión del descuento registrada, respuesta del abogado (Sí/No), fecha "
             "de la carta y si está revelado (Sí/No). Sin filas de total.")
     gar = ("Opcional: una fila por línea de producto con garantía: código, código de la provisión a la que pertenece, descripción, unidades "
@@ -766,7 +784,7 @@ def definicion() -> dict:
         "calculo": [
             "Clasificación: obligación presente Sí + salida probable → reconocer provisión; posible (u obligación No con salida no remota) → pasivo contingente a revelar; remota → nada (NIC 37.14, 23, 27–28; PYMES 21.4, 21.12).",
             "Probabilidad usada: la del abogado; si falta, la de la gerencia. Diferencia entre ambas se señala.",
-            "Mejor estimación: hecho posterior (NIC 10.9 a) → oneroso = mín(costo de cumplir, penalización) (NIC 37.68: costes inevitables = menores costes netos por resolver el contrato = el menor entre el coste de cumplir sus cláusulas y las compensaciones o multas por incumplirlo; 37.68A: coste de cumplir = costes directamente relacionados; la herramienta toma el costo de cumplir bruto y no resta los beneficios esperados del contrato (37.10, 66) — pendiente de decisión del socio) → garantías = Σ unidades × % reclamos × costo medio (37.24, 39) → escenarios: valor esperado Σ importe × prob ÷ Σ prob (37.39) o el más probable (37.40) → punto medio del rango (37.39) → carta del abogado → estimación de la gerencia.",
+            "Mejor estimación: hecho posterior (NIC 10.9 a) → oneroso = mín(máx(costo de cumplir − beneficios económicos esperados, 0), penalización) (NIC 37.10 y 66: el contrato es oneroso cuando los costes inevitables exceden los beneficios económicos que se esperan recibir; 37.68: costes inevitables = menores costes netos por resolver el contrato = el menor entre el coste de cumplir sus cláusulas y las compensaciones o multas por incumplirlo; 37.68A: coste de cumplir = costes directamente relacionados. Si el contrato es oneroso y no se informan los beneficios esperados, se usa el costo de cumplir completo y se emite el problema ONEROSO_SIN_BENEFICIOS) → garantías = Σ unidades × % reclamos × costo medio (37.24, 39) → escenarios: valor esperado Σ importe × prob ÷ Σ prob (37.39) o el más probable (37.40) → punto medio del rango (37.39) → carta del abogado → estimación de la gerencia.",
             "Valor presente = mejor estimación ÷ (1 + tasa)^plazo cuando el plazo supera el parámetro; tasa antes de impuestos de la partida o la tasa por defecto (37.45–47; PYMES 21.7).",
             "Reversión del descuento del período = saldo inicial × tasa, frente a la registrada como costo financiero (37.60; CINIIF 1.8 en desmantelamiento; PYMES 21.11; 21.10 = uso de la provisión).",
             "Provisión requerida = valor presente si se reconoce; 0 si es contingente o remota. Ajuste = requerida − libros (desmantelamiento: contra el costo del activo, CINIIF 1.5; el límite de 5 b) —lo deducido no supera el importe en libros; el exceso, a resultados— no se aplica aún: pendiente de decisión del socio).",
@@ -792,7 +810,8 @@ def definicion() -> dict:
              "procedure": "Recalcular unidades con garantía × % de reclamos × costo medio", "evidence": "Ventas con garantía, reclamos históricos",
              "criterion": "NIC 37.24, 39; PYMES 21A.4", "source": "NIC 37 · Sección 21"},
             {"code": "PROV-06", "objective": "Contratos onerosos", "risk": "Contrato oneroso no provisionado", "assertion": "Integridad / Valoración",
-             "procedure": "Comparar costo de cumplir y penalización y provisionar el menor (previo deterioro de activos, NIC 37.69)", "evidence": "Contratos, presupuestos",
+             "procedure": "Restar los beneficios esperados del costo de cumplir, comparar con la penalización y provisionar el menor (previo deterioro de activos, NIC 37.69)",
+             "evidence": "Contratos, presupuestos, ingresos esperados del contrato",
              "criterion": "NIC 37.66–69; PYMES 21A.2", "source": "NIC 37"},
             {"code": "PROV-07", "objective": "Desmantelamiento y descuento", "risk": "Descuento no aplicado o reversión no registrada", "assertion": "Valoración / Presentación",
              "procedure": "Recalcular el valor presente a la tasa antes de impuestos y la reversión del descuento del período", "evidence": "Estudio técnico, tasas",
@@ -837,7 +856,7 @@ def _g(id, prov, desc, u, pct, costo):
 # LIT-02 punto medio (60.000 + 100.000)/2 = 80.000 a 2,5 años al 8 % → 80.000 ÷ 1,08^2,5 (1,212158) = 65.997,97; no registrada.
 # LIT-03 posible con 40.000 en libros → revertir; LIT-04 posible sin revelar, sin respuesta del abogado.
 # GAR-01 = 12.000×3 %×85 + 5.000×2 %×120 = 30.600 + 12.000 = 42.600; libros 30.000 → 12.600. GA-C sin provisión (5.000).
-# ONE-01 = mín(75.000; 45.000) = 45.000 no provisionado. DES-01 = 500.000 ÷ 1,07^10 = 254.174,65; libros 240.000 → 14.174,65
+# ONE-01: costo neto de cumplir = 75.000 − 40.000 de beneficios esperados = 35.000; mín(35.000; 45.000) = 35.000 no provisionado. DES-01 = 500.000 ÷ 1,07^10 = 254.174,65; libros 240.000 → 14.174,65
 #   contra el costo; reversión 225.000 × 7 % = 15.750 no registrada. AMB-01 200.000 sin descontar (5 años al 9 % = 129.986,28).
 # ACT-01 activo contingente probable registrado por 50.000 → revertir. LIT-05 sentencia posterior 32.000 vs 25.000.
 EJEMPLO = {
@@ -859,7 +878,7 @@ EJEMPLO = {
             _pr("GAR-01", "Garantías de electrodomésticos", "Garantía", "30000", obligacion_presente="Sí", probabilidad_gerencia="Probable",
                 plazo_anios="1"),
             _pr("ONE-01", "Contrato de suministro con pérdida", "Oneroso", "0", obligacion_presente="Sí", probabilidad_gerencia="Probable",
-                costo_cumplir="75000", penalizacion="45000", plazo_anios="0.5"),
+                costo_cumplir="75000", beneficios_contrato="40000", penalizacion="45000", plazo_anios="0.5"),
             _pr("DES-01", "Desmantelamiento de planta en terreno arrendado", "Desmantelamiento", "240000", obligacion_presente="Sí",
                 probabilidad_gerencia="Probable", importe_gerencia="500000", plazo_anios="10", tasa_descuento="7", saldo_inicial="225000"),
             _pr("REE-01", "Reestructuración de la línea textil (plan comunicado)", "Reestructuración", "60000", obligacion_presente="Sí",

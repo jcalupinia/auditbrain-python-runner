@@ -56,20 +56,47 @@ def test_problemas_minimos_completas():
 def test_ruta_pymes_a_mano():
     res = _run(PYM)
     assert res["detalle"]["pymes"]
-    assert _it(res, "MAR-01")["amort"] == 15000        # 150.000 ÷ 120 × 12 (no hay vida indefinida)
-    assert _it(res, "GW-01")["amort"] == 20000         # goodwill se amortiza (19.23)
+    # PYMES 18.20 y 19.23 (2015) / 19.34 (2025): los diez años son el TOPE de la mejor estimación de la gerencia
+    # cuando la vida no puede establecerse con fiabilidad, no una vida por defecto. MAR-01 y GW-01 no traen vida:
+    # no se amortizan (importe vacío, M22) y se pide la estimación de la gerencia.
+    mar, gw = _it(res, "MAR-01"), _it(res, "GW-01")
+    assert mar["amort"] is None and mar["vidaAp"] is None and mar["tipoVida"] == "Sin estimación (18.20)"
+    assert gw["amort"] is None and gw["vidaAp"] is None
+    assert mar["aud"] == 140000        # 150.000 − deterioro 10.000 (libros 150.000 − MAX(140.000; 130.000)), sin amortizar
+    assert gw["aud"] == 170000         # 200.000 − 30.000 de deterioro previo; recuperable 185.000 > 170.000
     assert _it(res, "DES-01")["cap"] == "No"           # desarrollo a gasto (18.14)
     assert _t(res, "bajaNoCapitalizable") == 101250.00  # 18.000 + 41.250 + 12.000 + 30.000
-    assert _t(res, "netoAuditado") == 370800.00
+    # Neto auditado 395.800 = 24.000 (SW-01) + 18.000 (LIC-01) + 140.000 (MAR-01) + 170.000 (GW-01)
+    #                        + 36.800 (PAT-01) + 0 (SW-02) + 7.000 (SW-03); el resto se da de baja.
+    assert _t(res, "netoAuditado") == 395800.00
+    assert _t(res, "ajuste") == -116250.00              # 395.800 − 512.050 (mayor)
+    assert _t(res, "amortCalculada") == 29200.00        # 12.000 + 6.000 + 7.200 + 0 + 4.000 (MAR-01 y GW-01 vacías)
     codes = {e["code"]: e for e in res["exceptions"]}
-    assert float(codes["SIN_AMORTIZAR_PYMES"]["amount"]) == 35000
+    assert float(codes["VIDA_NO_ESTIMADA"]["amount"]) == 320000    # 150.000 + 170.000 en libros sin amortizar
     assert float(codes["DESARROLLO_CAPITALIZADO_PYMES"]["amount"]) == 83250
+    assert "SIN_AMORTIZAR_PYMES" not in codes           # ya no se amortiza con el tope por defecto
     assert "REVERSION_GOODWILL" in codes and "SIN_PRUEBA_DETERIORO" not in codes
-    # La vida máxima es un parámetro: 96 meses.
+    # La vida máxima es un tope, no una vida: PAT-01 trae 120 meses y con tope 96 se limita a 96.
     r96 = _run({**PYM, "vidaMaxPymes": 96, "_edicion": "2025"})
-    assert _it(r96, "MAR-01")["amort"] == 18750 and r96["detalle"]["edicion"] == "2025"
+    pat = _it(r96, "PAT-01")
+    assert pat["vidaAp"] == 96 and pat["amort"] == 9000 and pat["aud"] == 35000   # (80.000 − 8.000) ÷ 96 × 12
+    c96 = {e["code"]: e for e in r96["exceptions"]}
+    assert float(c96["VIDA_EXCEDE_TOPE_PYMES"]["amount"]) == 25000  # 80.000 − 45.000 − 10.000 en libros
+    assert r96["detalle"]["edicion"] == "2025"
     h = {x["name"]: x for x in m.hojas(r96)}
     assert "secciones 18, 19 y 27" in h["02_Parametros"]["rows"][1][1] and h["02_Parametros"]["rows"][2][1] == 1
+
+
+def test_pymes_goodwill_con_vida_estimada_se_amortiza():
+    """Con la mejor estimación de la gerencia en la ficha, el goodwill PYMES sí se amortiza (19.23 / 19.34)."""
+    ds = copy.deepcopy(E["datasets"])
+    gw = next(f for f in ds["intangibles"] if f["id"] == "GW-01")
+    gw["vida_meses"] = 60
+    res = _run(PYM, ds)
+    assert _it(res, "GW-01")["amort"] == 40000          # 200.000 ÷ 60 × 12 (tope del pendiente 170.000)
+    codes = {e["code"]: e for e in res["exceptions"]}
+    assert float(codes["SIN_AMORTIZAR_PYMES"]["amount"]) == 40000
+    assert "MAR-01" in codes["VIDA_NO_ESTIMADA"]["message"] and "GW-01" not in codes["VIDA_NO_ESTIMADA"]["message"]
 
 
 def test_goodwill_amortizado_en_completas():

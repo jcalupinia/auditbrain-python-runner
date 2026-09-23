@@ -37,6 +37,10 @@ def test_ejemplo_niif_completas_cifras_a_mano():
               "NO_CORRIENTE_COMO_CORRIENTE", "SALDOS_DEUDORES", "PAGO_MAYOR_SALDO", "PAGO_NO_POSTERIOR", "VENCIDO_MAS_360",
               "MONEDA_EXTRANJERA", "DIF_MAYOR"):
         assert k in c
+    # Los anticipos no se compensan por NIC 1.32 / PYMES 2.52, no por NIC 32.42 (activos y pasivos financieros).
+    sd = next(e["message"] for e in r["exceptions"] if e["code"] == "SALDOS_DEUDORES")
+    assert "NIC 1.32" in sd and "notas de crédito" in sd
+    assert "PYMES 2.52" in next(e["message"] for e in _run(_marco=m.MARCO_PYMES)["exceptions"] if e["code"] == "SALDOS_DEUDORES")
 
 
 def test_ruta_pymes_mismo_calculo_otras_citas():
@@ -63,9 +67,22 @@ def test_descuento_registrado_y_exceso_no_corriente():
     assert "CORRIENTE_COMO_NO_CORRIENTE" in _codigos(r)
 
 
-def test_ciclo_largo_mantiene_corriente():
-    r = _run(cicloOperacion=24)                           # P-005 vence en 547 días < 730
-    assert r["totals"]["noCorriente"] == "0.00"
+def test_ciclo_solo_aplica_a_partidas_de_explotacion():
+    # NIC 1.70: el plazo del ciclo (24 meses = 730 días) solo alcanza a las partidas de explotación.
+    # P-005 (compra de maquinaria, explotacion="No") conserva el límite de 12 meses: 547 días > 365 → no corriente.
+    r = _run(cicloOperacion=24)
+    f5 = next(x for x in r["detalle"]["filas"] if x["doc"] == "P-005")
+    assert f5["explotacion"] == "No" and f5["limite"] == 365 and f5["noCorr"] is True
+    assert r["totals"]["noCorriente"] == "20978.92"
+    # Marcado como partida de explotación, el ciclo sí le aplica: 547 < 730 → corriente.
+    ds = {**EJ["datasets"], "proveedores": [{**f, "explotacion": "Sí"} if f["id"] == "P-005" else f
+                                            for f in EJ["datasets"]["proveedores"]]}
+    assert _run(ds, cicloOperacion=24)["totals"]["noCorriente"] == "0.00"
+    # Sin la columna y con ciclo > 12 meses: se mantiene el comportamiento actual y se pide el dato (M22).
+    ds = {**EJ["datasets"], "proveedores": [{k: v for k, v in f.items() if k != "explotacion"} for f in EJ["datasets"]["proveedores"]]}
+    r = _run(ds, cicloOperacion=24)
+    assert r["totals"]["noCorriente"] == "0.00" and "PARTIDA_EXPLOTACION_NO_INFORMADA" in _codigos(r)
+    assert "PARTIDA_EXPLOTACION_NO_INFORMADA" not in _codigos(_run(ds))      # ciclo 12: no hay nada que preguntar
 
 
 def test_casos_limite():
@@ -86,6 +103,9 @@ def test_casos_limite():
     assert not v["ok"] and len(v["errors"]) == 3
     v = m.validar_filas("proveedores", [{"id": "TOTAL", "proveedor": "A", "emision": "2025-01-01", "vence": "2025-02-01", "saldo": "1", "_row": 3}])
     assert not v["ok"]
+    v = m.validar_filas("proveedores", [{"id": "P", "proveedor": "A", "emision": "2025-01-01", "vence": "2025-02-01", "saldo": "1",
+                                         "explotacion": "quizás", "_row": 3}])
+    assert not v["ok"] and {e.get("field") for e in v["errors"]} == {"explotacion"}
 
 
 def test_hojas_nombres_y_anchos():

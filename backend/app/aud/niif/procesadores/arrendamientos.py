@@ -3,8 +3,10 @@
 Versión simple que cumple la norma, contrato por contrato:
 
 1. Identificación y exenciones (NIIF 16 párr. 5–8, B3–B8 y definición de «arrendamiento a corto plazo»):
-   corto plazo = plazo ≤ 12 meses y sin opción de compra; bajo valor = declarado por el cliente y valor del
-   activo nuevo dentro del límite del auditor. La exención solo vale si el cliente la aplicó y es elegible.
+   corto plazo = plazo ≤ 12 meses y sin opción de compra; bajo valor = declarado por el cliente, con el valor del
+   activo nuevo dentro del límite del auditor (B3; sin ese dato no es elegible), usable por sí solo y sin depender de
+   otros activos (B5), que no sea un automóvil (B6) y que no se subarriende (B7). La exención solo vale si el cliente
+   la aplicó y es elegible.
    PYMES: clasificación financiero/operativo con los indicadores de 20.5 (20.4–20.8).
 2. Plazo (18–21, B34–B41): período no cancelable + renovación razonablemente cierta.
 3. Medición inicial: pasivo = VP de los pagos no abonados (26–27) con la tasa implícita o incremental;
@@ -57,6 +59,8 @@ _CONTRATOS = [
     campo("vida_util", "Vida útil del activo (meses)", "number", False, ("vida util",)),
     campo("valor_razonable", "Valor razonable del activo (nuevo)", "number", False, ("valor razonable", "valor nuevo")),
     campo("bajo_valor", "Activo de bajo valor (sí/no)", "text", False, ("bajo valor", "escaso valor")),
+    campo("bajo_valor_b5b7", "Bajo valor: se usa por sí solo, no depende de otros activos y no se subarrienda (B5, B7) (sí/no)", "text", False,
+          ("b5 b7", "uso independiente", "bajo valor b5", "no subarrendado")),
     campo("exencion", "El cliente aplicó la exención (sí/no)", "text", False, ("exencion", "exento")),
     campo("clasif_pymes", "Clasificación PYMES del cliente (financiero/operativo)", "text", False, ("clasificacion", "tipo de arrendamiento")),
     campo("pasivo_reg", "Pasivo por arrendamiento registrado al corte", "number", alias=("pasivo registrado", "saldo pasivo"), ejemplo=0),
@@ -124,6 +128,17 @@ def _periodicidad(v) -> str:
 
 def _momento(v) -> str:
     return "Inicio" if norm(v).startswith(("inicio", "anticip", "adelant")) else "Final"
+
+
+# NIIF 16 B6: «los arrendamientos de automóviles no se considerarían arrendamientos de activos de escaso valor, ya
+# que un coche nuevo no tiene habitualmente escaso valor». Se deduce del texto del activo, sin pedir un campo nuevo.
+# Las variantes con y sin tilde están para que la búsqueda de Excel (SEARCH no ignora tildes) dé lo mismo que Python.
+AUTOMOVIL = ("automovil", "automóvil", "vehiculo", "vehículo", "camioneta", "coche", "furgoneta")
+
+
+def _es_automovil(activo: str) -> bool:
+    t = str(activo or "").lower()
+    return any(k in t for k in AUTOMOVIL)
 
 
 def _clasif(v) -> str:
@@ -233,7 +248,8 @@ def _contratos(filas: list, corte: date, p: dict, pymes: bool, probs: list) -> l
              "tasa": g("tasa"), "tipo_tasa": _tipo_tasa(f.get("tipo_tasa")), "anticipados": g("anticipados"),
              "costos": g("costos"), "desmantelamiento": g("desmantelamiento"), "incentivos": g("incentivos"),
              "opcion_compra": g("opcion_compra"), "compra_cierta": _si(f.get("compra_cierta")), "vida_util": g("vida_util"),
-             "valor_razonable": g("valor_razonable"), "bajo_valor": _si(f.get("bajo_valor")), "exencion": _si(f.get("exencion")),
+             "valor_razonable": g("valor_razonable"), "bajo_valor": _si(f.get("bajo_valor")),
+             "bajo_valor_b5b7": _si(f.get("bajo_valor_b5b7")), "exencion": _si(f.get("exencion")),
              "clasif_pymes": _clasif(f.get("clasif_pymes")), "pasivo_reg": n0("pasivo_reg"), "pasivo_cp_reg": g("pasivo_cp_reg"),
              "activo_reg": n0("activo_reg"), "dep_reg": g("dep_reg"), "int_reg": g("int_reg"),
              "fecha_evento": a_fecha(f.get("fecha_evento")), "tipo_evento": _tipo_evento(f.get("tipo_evento")) if a_fecha(f.get("fecha_evento")) else "",
@@ -252,7 +268,12 @@ def _contratos(filas: list, corte: date, p: dict, pymes: bool, probs: list) -> l
         c["opcion"] = "Sí" if (c["opcion_compra"] or 0) > 0 else "No"
         c["corto"] = "Sí" if c["plazo_total"] <= 12 and c["opcion"] == "No" else "No"
         c["bv"] = c["bajo_valor"] or "No"
-        c["bv_limite"] = "No" if c["bv"] == "No" else ("Sí" if c["valor_razonable"] is None or c["valor_razonable"] <= p["limiteBajoValor"] else "No")
+        # B3: el valor se evalúa con el del activo en su estado nuevo (sin ese dato no hay exención, ya no se acepta en
+        # blanco); B5: debe poder usarse por sí solo o con recursos disponibles y no depender de otros activos;
+        # B6: un automóvil (coche nuevo) nunca es de escaso valor; B7: queda excluido si se subarrienda.
+        c["bv_auto"] = "Sí" if _es_automovil(c["activo"]) else "No"
+        c["bv_limite"] = "No" if (c["bv"] == "No" or c["valor_razonable"] is None or c["valor_razonable"] > p["limiteBajoValor"]
+                                  or c["bv_auto"] == "Sí" or c["bajo_valor_b5b7"] == "No") else "Sí"
         c["elegible"] = "Sí" if "Sí" in (c["corto"], c["bv_limite"]) else "No"
         c["ex"] = c["exencion"] or "No"
         # 3 · medición inicial
@@ -433,6 +454,22 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         cid, dif = c["id"], c["pasivo"] - c["pasivo_reg"]
         if abs(dif) > 0.005:
             probs.append(problema("PASIVO_DIFERENCIA", f"{cid}: pasivo recalculado {_m(c['pasivo'])} vs registrado {_m(c['pasivo_reg'])}.", dif))
+        if c["bv"] == "Sí" and not pymes:
+            if c["bv_auto"] == "Sí":
+                probs.append(problema("BAJO_VALOR_VEHICULO", f"{cid}: «{c['activo']}» se declaró de bajo valor, pero un automóvil (coche nuevo) no "
+                                      "tiene habitualmente escaso valor y no puede calificar como tal (B6); reconozca el arrendamiento (22).", c["pasivo"]))
+            elif c["valor_razonable"] is None:
+                probs.append(problema("BAJO_VALOR_SIN_VALOR", f"{cid}: bajo valor declarado sin el valor del activo nuevo. B3 exige evaluarlo sobre el "
+                                      "valor del activo en su estado nuevo, con independencia de su antigüedad: sin ese dato la exención no se acepta. "
+                                      "Indique el valor del bien nuevo (no el del bien usado ni el valor razonable del contrato).", c["pasivo"]))
+            elif c["bajo_valor_b5b7"] == "No":
+                probs.append(problema("BAJO_VALOR_B5_B7", f"{cid}: el activo no se puede usar por sí solo o con recursos fácilmente disponibles, depende "
+                                      "de otros activos o está subarrendado: no califica como de escaso valor (B5, B7); reconozca el arrendamiento (22).",
+                                      c["pasivo"]))
+            elif c["bajo_valor_b5b7"] == "":
+                probs.append(problema("BAJO_VALOR_B5_B7", f"{cid}: exención de bajo valor sin evidencia de B5 y B7. Confirme que el arrendatario puede "
+                                      "beneficiarse del uso del activo por sí solo o junto con recursos fácilmente disponibles, que el activo no depende "
+                                      "en medida apreciable de otros ni está estrechamente interrelacionado con ellos (B5) y que no se subarrienda (B7)."))
         if not pymes and c["ex"] == "Sí" and c["elegible"] == "No":
             probs.append(problema("EXENCION_MAL_APLICADA", f"{cid}: se trató como exento pero no es de corto plazo (≤ 12 meses y sin opción de compra) ni de bajo valor (5, B3–B8); debe reconocerse (22).", c["pasivo"]))
         if c["renov_cierta"] == "Sí" and c["plazo_cliente"] is not None and c["plazo_cliente"] < c["plazo_total"]:
@@ -537,14 +574,14 @@ def hojas(res: dict) -> list[dict]:
     nt = max(len(tab), 1)
     rng = lambda hoja_, col: f"{hoja_}${col}${FILA0}:${col}${FILA0 + nt - 1}"
     TA_A, TA_B = rng(TA, "A"), rng(TA, "B")
-    reconoce_col = "M" if pymes else "K"
+    reconoce_col = "M"
 
     parametros = [
         ["Fecha de corte", d["corte"], "Ficha del encargo"],
         ["Tasa anual del contrato", p["convencionTasa"], "Efectiva: (1 + r)^(meses/12) − 1 · Nominal: r × meses/12"],
         ["PYMES: plazo ≥ % de la vida económica", float(p["umbralVida"]), "Indicador 20.5 c; umbral de juicio del auditor; la Sección 20 no fija porcentajes"],
         ["PYMES: VP de los pagos mínimos ≥ % del valor razonable", float(p["umbralVP"]), "Indicador 20.5 d; umbral de juicio del auditor; la Sección 20 no fija porcentajes"],
-        ["Límite de bajo valor del activo nuevo (USD)", float(p["limiteBajoValor"]), "NIIF 16 B3–B8 no fija importe; el IASB pensó en activos de unos USD 5.000 o menos cuando son nuevos (Fundamentos BC100, no forman parte de la norma). Un automóvil (coche nuevo) no es de escaso valor (B6)."],
+        ["Límite de bajo valor del activo nuevo (USD)", float(p["limiteBajoValor"]), "NIIF 16 B3–B8 no fija importe; el IASB pensó en activos de unos USD 5.000 o menos cuando son nuevos (Fundamentos BC100, no forman parte de la norma). Además de no pasar del límite, el bajo valor exige el valor del activo nuevo (B3), que el arrendatario pueda usarlo por sí solo o con recursos disponibles y que no dependa ni esté interrelacionado con otros activos (B5), que no sea un automóvil (coche nuevo, B6) y que no se subarriende (B7)."],
         ["Marco y ruta de cálculo", ("NIIF para las PYMES " + d["edicion"] + " · Sección 20 (financiero/operativo)") if pymes
          else "NIIF completas · NIIF 16 (modelo único del arrendatario)",
          "Tercera edición: Sección 20 con modificaciones solo editoriales; se mantiene financiero/operativo; vigente desde el 1-1-2027; para cortes 2025–2026 solo con adopción anticipada" if pymes
@@ -588,13 +625,15 @@ def hojas(res: dict) -> list[dict]:
                 fx(f'IF(L{r}="Financiero","Sí","No")', c["reconoce"]),
             ])
         else:
+            auto = "OR(" + ",".join(f'ISNUMBER(SEARCH("{k}",B{r}))' for k in AUTOMOVIL) + ")"
             ident.append([
                 c["id"], c["activo"], fx(f"{PL}E{r}", c["plazo_total"]), fx(f'IF(N({_x("opcion_compra", r)})>0,"Sí","No")', c["opcion"]),
                 fx(f'IF(AND(C{r}<=12,D{r}="No"),"Sí","No")', c["corto"]), _txt("bajo_valor", r, c["bajo_valor"], "No"),
                 fx(f'IF({_x("valor_razonable", r)}="","",{_x("valor_razonable", r)})', c["valor_razonable"]),
-                fx(f'IF(F{r}="No","No",IF(G{r}="","Sí",IF(G{r}<={P}$B${PAR["limiteBajoValor"]},"Sí","No")))', c["bv_limite"]),
-                fx(f'IF(OR(E{r}="Sí",H{r}="Sí"),"Sí","No")', c["elegible"]), _txt("exencion", r, c["exencion"], "No"),
-                fx(f'IF(AND(J{r}="Sí",I{r}="Sí"),"No","Sí")', c["reconoce"]), _txt("tipo_tasa", r, c["tipo_tasa"]),
+                fx(f'IF({auto},"Sí","No")', c["bv_auto"]), _txt("bajo_valor_b5b7", r, c["bajo_valor_b5b7"]),
+                fx(f'IF(OR(F{r}="No",G{r}="",G{r}>{P}$B${PAR["limiteBajoValor"]},H{r}="Sí",I{r}="No"),"No","Sí")', c["bv_limite"]),
+                fx(f'IF(OR(E{r}="Sí",J{r}="Sí"),"Sí","No")', c["elegible"]), _txt("exencion", r, c["exencion"], "No"),
+                fx(f'IF(AND(L{r}="Sí",K{r}="Sí"),"No","Sí")', c["reconoce"]), _txt("tipo_tasa", r, c["tipo_tasa"]),
             ])
         # 06 · medición inicial
         vr = c["valor_razonable"]
@@ -739,7 +778,8 @@ def hojas(res: dict) -> list[dict]:
                    ["Indicador de financiero (20.5)", "t"], ["Clasificación del cliente", "t"], ["Clasificación auditada", "t"], ["Reconoce pasivo", "t"]]
                   if pymes else
                   [["Contrato", "t"], ["Activo", "t"], ["Plazo (meses)", "i"], ["Opción de compra", "t"], ["Corto plazo (≤ 12 m, sin opción)", "t"],
-                   ["Bajo valor declarado", "t"], ["Valor del activo nuevo", n_], ["Bajo valor dentro del límite", "t"], ["Exención elegible (5)", "t"],
+                   ["Bajo valor declarado", "t"], ["Valor del activo nuevo (B3)", n_], ["Automóvil (B6)", "t"],
+                   ["Uso independiente y sin subarriendo (B5, B7)", "t"], ["Bajo valor elegible (B3, B5–B7)", "t"], ["Exención elegible (5)", "t"],
                    ["Exención aplicada por el cliente", "t"], ["Reconoce pasivo", "t"], ["Tipo de tasa (26)", "t"]])
     cols_venta = ([["Contrato", "t"], ["Precio de venta", n_], ["Valor razonable", n_], ["Importe en libros previo", n_], ["Clasificación", "t"],
                    ["Ganancia inmediata (20.33–20.34)", n_], ["Ganancia diferida", n_], ["Ganancia registrada", n_], ["Diferencia", n_]]
@@ -845,7 +885,9 @@ def definicion() -> dict:
             {"document": "NIA 560", "section": "párr. 6", "requirement": "Modificaciones, renovaciones o terminaciones posteriores al cierre."},
         ],
         "calculo": [
-            "Exención (NIIF 16 párr. 5–8): corto plazo = plazo ≤ 12 meses sin opción de compra; bajo valor = activo nuevo de escaso valor (B3–B8). Solo vale si el cliente la aplicó y es elegible.",
+            "Exención (NIIF 16 párr. 5–8): corto plazo = plazo ≤ 12 meses sin opción de compra. Bajo valor = valor del activo en su estado nuevo dentro del "
+            "límite del auditor (B3; sin ese dato no es elegible) y, además, activo utilizable por sí solo o con recursos fácilmente disponibles y no "
+            "dependiente ni interrelacionado con otros (B5), que no sea un automóvil (B6) y que no se subarriende (B7). Solo vale si el cliente la aplicó y es elegible.",
             "PYMES: financiero si la compra es razonablemente cierta, el plazo cubre la mayor parte de la vida útil o el VP cubre sustancialmente el valor razonable (20.5); si no, operativo. 20.5 c habla de vida económica y el cálculo usa la vida útil del anexo: pendiente de decisión del socio.",
             "Plazo = período no cancelable + meses de renovación razonablemente cierta (18, B37).",
             "Tasa periódica: efectiva (1 + r)^(meses/12) − 1 o nominal r × meses/12. VP = VA(tasa; períodos; −pago; −opción de compra cierta; tipo).",
@@ -866,8 +908,10 @@ def definicion() -> dict:
              "assertion": "Integridad", "procedure": "Conciliar el anexo con el mayor; revisar contratos de servicios, actas y gastos de alquiler para identificar arrendamientos (9, B9–B31)",
              "evidence": "Anexo de contratos, contratos firmados, mayor de gastos de alquiler", "criterion": "Universo completo y conciliado", "source": "NIIF 16 párr. 9 · NIA 500"},
             {"code": "ARR-02", "objective": "Exenciones y clasificación", "risk": "Exención de corto plazo o bajo valor mal aplicada; en PYMES, financiero clasificado como operativo",
-             "assertion": "Presentación", "procedure": "Evaluar plazo, opción de compra y valor del activo nuevo; en PYMES, los indicadores de 20.5",
-             "evidence": "Contratos, cotizaciones del activo nuevo", "criterion": "Tratamiento conforme a 5–8 / 20.4–20.8", "source": "NIIF 16 párr. 5–8, B3–B8 · Sección 20.4–20.8"},
+             "assertion": "Presentación", "procedure": "Evaluar plazo, opción de compra, valor del activo nuevo (B3) y las condiciones de B5 a B7 (uso "
+             "independiente, no automóvil, sin subarriendo); en PYMES, los indicadores de 20.5",
+             "evidence": "Contratos, cotizaciones del activo nuevo, contratos de subarriendo", "criterion": "Tratamiento conforme a 5–8, B3–B8 / 20.4–20.8",
+             "source": "NIIF 16 párr. 5–8, B3–B8 · Sección 20.4–20.8"},
             {"code": "ARR-03", "objective": "Plazo y opciones", "risk": "Renovación o compra razonablemente cierta no incluida",
              "assertion": "Valoración", "procedure": "Evaluar incentivos económicos para renovar o comprar (mejoras, penalidades, importancia del activo)",
              "evidence": "Contratos, presupuestos, historial de renovaciones", "criterion": "Plazo conforme a 18–21 y B37", "source": "NIIF 16 párr. 18–21, 27 d, B34–B41"},

@@ -7,8 +7,12 @@ autónoma. La cobertura es evidencia de riesgo y de continuidad operativa (NIA 3
 se concluye cumplimiento normativo solo por cobertura. Lo único contable que se mide es:
 - la prima pagada por anticipado (devengo: NIC 1 párr. 27–28; PYMES 2.36 (2015) / 3.16A (2025)): se reconoce como gasto por el
   tiempo transcurrido de la vigencia y el saldo anticipado es la parte no transcurrida al corte;
-- los siniestros pendientes, que se evalúan para revelación de contingencias (NIC 37 párr. 86 y 89; el
-  reembolso solo se reconoce cuando es prácticamente seguro, NIC 37 párr. 53; PYMES Sección 21).
+- los siniestros pendientes, que se evalúan según su tipo (columnas «Tipo de siniestro» y «Cobro exigible»):
+  · daño a un activo propio: la compensación va a resultados cuando es exigible (NIC 16 párr. 65–66; PYMES 17.25),
+    como hecho separado del deterioro o la baja del activo (NIC 36.12 e); si no es exigible, es un activo
+    contingente que solo se revela si la entrada es probable (NIC 37.31–35 y 89; PYMES 21.16);
+  · reclamo de terceros: provisión y reembolso solo si su recepción es prácticamente segura (NIC 37 párr. 53;
+    PYMES 21.9), con revelación de contingencias (NIC 37 párr. 86 y 89; PYMES Sección 21).
 
 Versión simple (igual en NIIF completas y PYMES 2015/2025):
 1. Referencia del activo = valor de reposición o tasación; si falta, el valor en libros (se señala).
@@ -25,7 +29,7 @@ from __future__ import annotations
 
 from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y filas_mapeadas los usa el ciclo)
     FILA0, MARCO_COMPLETAS, MARCO_PYMES, a_num, campo, edicion_pymes, es_pymes, fecha, filas_mapeadas, fx, hoja,
-    m, problema, r2, ref, req, suma, validar_campos, validar_definicion_generica,
+    m, norm, problema, r2, ref, req, suma, validar_campos, validar_definicion_generica,
 )
 
 VERSION = "seguros_cobertura 1.0"
@@ -56,6 +60,10 @@ _POLIZAS = [
     campo("siniestro", "Siniestro pendiente (descripción)", requerido=False, alias=("siniestro", "reclamo", "siniestro pendiente"), ejemplo=""),
     campo("monto_siniestro", "Monto del siniestro pendiente", "number", False, ("monto siniestro", "valor reclamado", "monto reclamo"), ""),
     campo("siniestro_revelado", "Siniestro revelado en notas (Sí/No)", requerido=False, alias=("revelado", "revelacion", "en notas"), ejemplo=""),
+    campo("tipo_siniestro", "Tipo de siniestro (Daño a activo propio / Reclamo de terceros)", requerido=False,
+          alias=("tipo de siniestro", "tipo siniestro", "naturaleza del siniestro", "clase de siniestro"), ejemplo=""),
+    campo("cobro_exigible", "Cobro del seguro exigible al corte (Sí/No)", requerido=False,
+          alias=("exigible", "cobro exigible", "indemnizacion exigible", "compensacion exigible"), ejemplo=""),
 ]
 CAMPOS = {"activos": _ACTIVOS, "polizas": _POLIZAS}
 TIPOS = {"activos": "activos", "polizas": "polizas"}
@@ -96,6 +104,11 @@ def validar_filas(tipo: str, filas: list) -> dict:
             a, b = fecha(f.get("vigencia_desde")), fecha(f.get("vigencia_hasta"))
             if a and b and b <= a:
                 v["errors"].append({"row": f.get("_row"), "field": "vigencia_hasta", "message": "La vigencia hasta debe ser posterior a la vigencia desde."})
+            if _t(f.get("tipo_siniestro")) and _tipo_sin(f.get("tipo_siniestro")) == "":
+                v["errors"].append({"row": f.get("_row"), "field": "tipo_siniestro",
+                                    "message": "Use «Daño a activo propio» o «Reclamo de terceros»."})
+            if _t(f.get("cobro_exigible")) and _exigible(f.get("cobro_exigible")) == "":
+                v["errors"].append({"row": f.get("_row"), "field": "cobro_exigible", "message": "Responda «Sí» o «No»."})
     v["ok"] = not v["errors"]
     return v
 
@@ -117,6 +130,36 @@ def _p(p, k):
 
 def _si_no(v) -> bool:
     return _t(v).lower() in ("sí", "si")
+
+
+DANO_PROPIO, TERCEROS = "Daño a activo propio", "Reclamo de terceros"
+# Tratamientos del siniestro (mismo texto en Python y en la fórmula de 11_Siniestros).
+TRAT_EXIGIBLE = "Compensación exigible: reconocer en resultados (NIC 16.65–66 · PYMES 17.25)"
+TRAT_CONTINGENTE = "Activo contingente: no se reconoce; revelar si es probable (NIC 37.31–35 y 89 · PYMES 21.16)"
+TRAT_SIN_EXIGIBILIDAD = "Exigibilidad no informada: tratado como activo contingente (NIC 37.31–35)"
+TRAT_TERCEROS = "Reclamo de terceros: provisión y reembolso solo si es prácticamente seguro (NIC 37.53 · PYMES 21.9)"
+TRAT_SIN_TIPO = "Tipo no informado: se mantiene el tratamiento de reclamo de terceros (NIC 37.53)"
+
+
+def _tipo_sin(v) -> str:
+    """«Daño a activo propio» / «Reclamo de terceros»; vacío si no se informó o no se reconoce."""
+    s = norm(v)
+    if not s:
+        return ""
+    if s.startswith(("dano", "danio", "propio", "activopropio", "bienpropio")) or "activopropio" in s:
+        return DANO_PROPIO
+    if s.startswith(("reclamo", "tercero", "responsabilidad")) or "tercero" in s:
+        return TERCEROS
+    return ""
+
+
+def _exigible(v) -> str:
+    s = norm(v)
+    if s in ("si", "s", "x", "yes", "y", "1", "true", "verdadero"):
+        return "Sí"
+    if s in ("no", "n", "0", "false", "falso"):
+        return "No"
+    return ""
 
 
 def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
@@ -143,6 +186,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
              "desde": fecha(f.get("vigencia_desde")), "hasta": fecha(f.get("vigencia_hasta")),
              "suma": _opc(f.get("suma_total")), "prima": _opc(f.get("prima_total")), "reg": _opc(f.get("prima_anticipada")),
              "sin": _t(f.get("siniestro")), "msin": _opc(f.get("monto_siniestro")), "rev": _t(f.get("siniestro_revelado")),
+             "tipo_sin": _tipo_sin(f.get("tipo_siniestro")), "exig": _exigible(f.get("cobro_exigible")),
              "_row": f.get("_row")}
         if x["desde"] is None or x["hasta"] is None or x["hasta"] <= x["desde"]:
             raise ValueError(f"Póliza {x['id']}: indique una vigencia válida (hasta posterior a desde).")
@@ -222,6 +266,16 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         x["dif"] = None if x["reg"] is None or x["calc"] is None else x["reg"] - x["calc"]
         x["tiene_sin"] = bool(x["sin"]) or (x["msin"] or 0) > 0
         x["evaluacion"] = "Revelado" if _si_no(x["rev"]) else "Sin revelación: evaluar NIC 16.65–66, NIC 36.12 e), NIC 37.31–35/86/89 · PYMES 17.25 y 21"
+        # NIC 16.65–66 / PYMES 17.25: la compensación por daño a un activo propio va a resultados cuando es exigible,
+        # y es un hecho separado del deterioro o la baja del activo (NIC 36.12 e). El reembolso «prácticamente seguro»
+        # de la NIC 37.53 solo rige los reclamos de terceros (reembolso del desembolso de una provisión).
+        if x["tipo_sin"] == DANO_PROPIO:
+            x["trat_sin"] = TRAT_EXIGIBLE if x["exig"] == "Sí" else (TRAT_CONTINGENTE if x["exig"] == "No" else TRAT_SIN_EXIGIBILIDAD)
+        elif x["tipo_sin"] == TERCEROS:
+            x["trat_sin"] = TRAT_TERCEROS
+        else:
+            x["trat_sin"] = TRAT_SIN_TIPO
+        x["compensacion"] = (x["msin"] or 0) if x["trat_sin"] == TRAT_EXIGIBLE else 0.0
 
     s = lambda it, k: sum(x[k] or 0 for x in it)
     sin_cob = [a for a in activos if a["efec"] == 0]
@@ -233,6 +287,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         "sobreseguro": sum(a["exceso"] for a in activos if a["clasif"] == "Sobreseguro"),
         "exposicionMaxima": max(a["no_cubierta"] for a in activos),
         "siniestrosSinRevelar": sum(x["msin"] or 0 for x in siniestros if x["evaluacion"] != "Revelado"),
+        "compensacionesExigibles": sum(x["compensacion"] for x in siniestros),
         "primaRegistrada": s(polizas, "reg"), "primaRecalculada": s(polizas, "calc"), "difPrima": s(polizas, "dif"),
     }
     k["coberturaGlobal"] = None if k["valorReferencia"] == 0 else k["sumaAsegurada"] / k["valorReferencia"]
@@ -269,6 +324,25 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         elif x["reg"] is None and (x["calc"] or 0) > 0.005:
             pr.append(problema("PRIMA_ANTICIPADA_NO_INFORMADA", f"Póliza {x['id']}: al corte quedan {m(x['calc'])} de prima por devengar y no se "
                                "informó la prima anticipada registrada.", x["calc"]))
+        if x["tiene_sin"] and x["tipo_sin"] == "":
+            pr.append(problema("SINIESTRO_SIN_TIPO", f"Póliza {x['id']}: indique el tipo del siniestro «{x['sin']}» (daño a un activo propio o reclamo de "
+                               "terceros). De ello depende el tratamiento: la compensación por daño a un activo propio va a resultados cuando es exigible "
+                               "(NIC 16.65–66 · PYMES 17.25) y es un hecho separado del deterioro o la baja del activo (NIC 36.12 e); el reembolso "
+                               "«prácticamente seguro» de la NIC 37.53 solo rige los reclamos de terceros. Se mantuvo el tratamiento de reclamo de terceros.",
+                               x["msin"] or 0))
+        elif x["tiene_sin"] and x["tipo_sin"] == DANO_PROPIO and x["exig"] == "":
+            pr.append(problema("SINIESTRO_SIN_EXIGIBILIDAD", f"Póliza {x['id']}: daño a un activo propio «{x['sin']}» sin indicar si el cobro del seguro es "
+                               "exigible al corte; se trató como activo contingente (NIC 37.31–35 · PYMES 21.16). Obtenga la posición de la aseguradora.",
+                               x["msin"] or 0))
+        if x["tiene_sin"] and x["trat_sin"] == TRAT_EXIGIBLE:
+            pr.append(problema("COMPENSACION_EXIGIBLE", f"Póliza {x['id']}: la compensación por el daño al activo propio «{x['sin']}» por {m(x['msin'] or 0)} "
+                               "es exigible al corte: reconózcala en resultados (NIC 16.65–66 · PYMES 17.25). Es un hecho separado del deterioro o la baja "
+                               "del activo siniestrado, que se evalúa por su cuenta (NIC 36.12 e); no se compensa con la pérdida.", x["msin"] or 0))
+        elif x["tiene_sin"] and x["trat_sin"] in (TRAT_CONTINGENTE, TRAT_SIN_EXIGIBILIDAD):
+            pr.append(problema("COMPENSACION_ACTIVO_CONTINGENTE", f"Póliza {x['id']}: la compensación por el daño al activo propio «{x['sin']}» por "
+                               f"{m(x['msin'] or 0)} no es exigible al corte: no se reconoce; es un activo contingente y se revela solo si la entrada de "
+                               "beneficios es probable (NIC 37.31–35 y 89 · PYMES 21.16). La pérdida o baja del activo sí se contabiliza (NIC 36.12 e).",
+                               x["msin"] or 0))
         if x["tiene_sin"] and x["evaluacion"] != "Revelado":
             pr.append(problema("SINIESTRO_SIN_REVELACION", f"Póliza {x['id']}: siniestro pendiente «{x['sin']}» por {m(x['msin'] or 0)} sin revelación; "
                                "evalúe la pérdida y el reembolso (daño al activo propio: NIC 16.65–66 y NIC 36; reclamo de terceros: NIC 37.53 y 86; activo contingente: NIC 37.31–35 y 89; PYMES 17.25 y 21) y la NIA 560 si se resolvió después del corte.",
@@ -308,6 +382,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         ("sobreseguro", "Sobreseguro (suma sobre el valor de referencia)", k["sobreseguro"]),
         ("exposicionMaxima", "Exposición máxima (pérdida total no cubierta del activo mayor)", k["exposicionMaxima"]),
         ("siniestrosSinRevelar", "Siniestros pendientes sin revelación", k["siniestrosSinRevelar"]),
+        ("compensacionesExigibles", "Compensaciones de seguro exigibles a reconocer en resultados", k["compensacionesExigibles"]),
         ("primaRegistrada", "Prima pagada por anticipado registrada", k["primaRegistrada"]),
         ("primaRecalculada", "Prima pagada por anticipado recalculada", k["primaRecalculada"]),
         ("difMayorPrima", "Diferencia detalle − mayor (prima anticipada)", k["difMayorPrima"]),
@@ -375,7 +450,8 @@ def hojas(res: dict) -> list[dict]:
     ]
 
     act = [[a["id"], a["desc"], a["clase"], a["libros"], a["vref"], a["pol"], a["asig"], a["ded"]] for a in A]
-    pol = [[x["id"], x["aseg"], x["ramo"], x["desde"], x["hasta"], x["suma"], x["prima"], x["reg"], x["sin"], x["msin"], x["rev"]] for x in PO]
+    pol = [[x["id"], x["aseg"], x["ramo"], x["desde"], x["hasta"], x["suma"], x["prima"], x["reg"], x["sin"], x["msin"], x["rev"],
+            x["tipo_sin"], x["exig"]] for x in PO]
 
     # 05 · vigencia (fila alineada con 04).
     vig = []
@@ -458,7 +534,12 @@ def hojas(res: dict) -> list[dict]:
         s = FILA0 + i
         sini.append([x["id"], x["aseg"], x["sin"], fx(_si(f"{POL}J{s}"), x["msin"]),
                      x["rev"], fx(f"{VIG}E{s}", x["estado"]),
-                     fx(f'IF(OR({POL}K{s}="Sí",{POL}K{s}="Si"),"Revelado","Sin revelación: evaluar NIC 16.65–66, NIC 36.12 e), NIC 37.31–35/86/89 · PYMES 17.25 y 21")', x["evaluacion"])])
+                     fx(f'IF(OR({POL}K{s}="Sí",{POL}K{s}="Si"),"Revelado","Sin revelación: evaluar NIC 16.65–66, NIC 36.12 e), NIC 37.31–35/86/89 · PYMES 17.25 y 21")', x["evaluacion"]),
+                     fx(_si(f"{POL}L{s}"), x["tipo_sin"] or None), fx(_si(f"{POL}M{s}"), x["exig"] or None),
+                     fx(f'IF(H{FILA0 + j}="","{TRAT_SIN_TIPO}",IF(H{FILA0 + j}="{DANO_PROPIO}",'
+                        f'IF(I{FILA0 + j}="Sí","{TRAT_EXIGIBLE}",IF(I{FILA0 + j}="No","{TRAT_CONTINGENTE}","{TRAT_SIN_EXIGIBILIDAD}")),'
+                        f'"{TRAT_TERCEROS}"))', x["trat_sin"]),
+                     fx(f'IF(J{FILA0 + j}="{TRAT_EXIGIBLE}",N(D{FILA0 + j}),0)', x["compensacion"])])
     nsi = len(SI)
 
     # 12 · indicadores y conclusión.  Columnas: concepto, importe, porcentaje, cantidad.
@@ -478,6 +559,8 @@ def hojas(res: dict) -> list[dict]:
         ["Pólizas por vencer (cantidad)", None, None, fx(f'COUNTIF({_rng(VIG, "G", npol)},"Por vencer")', k["nPorVencer"])],
         ["Siniestros pendientes sin revelación", fx(f'SUMIF({_rng(SIN, "G", nsi)},"Sin revelación*",{_rng(SIN, "D", nsi)})', k["siniestrosSinRevelar"])
          if nsi else fx("0", 0.0), None, None],
+        ["Compensaciones de seguro exigibles a reconocer en resultados (NIC 16.65–66 · PYMES 17.25)",
+         fx(f'SUM({_rng(SIN, "K", nsi)})', k["compensacionesExigibles"]) if nsi else fx("0", 0.0), None, None],
         ["Ajuste propuesto en resultados (prima anticipada)", fx(f"{AJ}B{FILA0 + 3}", k["ajustePrima"]), None, None],
         ["Conclusión: la cobertura es evidencia de riesgo y continuidad operativa (NIA 315, 330, 570); no concluye cumplimiento de las NIIF.",
          None, None, None],
@@ -499,7 +582,8 @@ def hojas(res: dict) -> list[dict]:
     celda = {"valorReferencia": f"{CON}B{FILA0}", "sumaAsegurada": f"{CON}B{FILA0 + 1}", "coberturaGlobal": f"{CON}C{FILA0 + 2}*100",
              "deficitCobertura": f"{CON}B{FILA0 + 3}", "sinCoberturaLibros": f"{CON}B{FILA0 + 4}",
              "sinCoberturaReferencia": f"{CON}B{FILA0 + 5}", "sobreseguro": f"{CON}B{FILA0 + 7}", "exposicionMaxima": f"{CON}B{FILA0 + 8}",
-             "siniestrosSinRevelar": f"{CON}B{FILA0 + 11}", "primaRegistrada": f"{AJ}B{FILA0}", "primaRecalculada": f"{AJ}B{FILA0 + 1}",
+             "siniestrosSinRevelar": f"{CON}B{FILA0 + 11}", "compensacionesExigibles": f"{CON}B{FILA0 + 12}",
+             "primaRegistrada": f"{AJ}B{FILA0}", "primaRecalculada": f"{AJ}B{FILA0 + 1}",
              "difMayorPrima": f"{AJ}B{FILA0 + 5}", "ajustePrima": f"{AJ}B{FILA0 + 3}"}
     valor = {**k, "coberturaGlobal": None if k["coberturaGlobal"] is None else k["coberturaGlobal"] * 100}
     resumen = [[res["labels"][kk], fx(celda[kk], valor[kk])] for kk in res["labels"]]
@@ -514,7 +598,7 @@ def hojas(res: dict) -> list[dict]:
         hoja("04_Polizas", "Pólizas (datos del cliente)",
              [["Póliza", "t"], ["Aseguradora", "t"], ["Ramo", "t"], ["Vigencia desde", "d"], ["Vigencia hasta", "d"], ["Suma asegurada total", "n"],
               ["Prima total", "n"], ["Prima anticipada registrada", "n"], ["Siniestro pendiente", "t"], ["Monto del siniestro", "n"],
-              ["Revelado", "t"]], pol),
+              ["Revelado", "t"], ["Tipo de siniestro", "t"], ["Cobro exigible", "t"]], pol),
         hoja("05_Vigencia", "Vigencia de pólizas al corte",
              [["Póliza", "t"], ["Desde", "d"], ["Hasta", "d"], ["Días de vigencia", "i"], ["Estado al corte", "t"], ["Días por vencer", "i"],
               ["Alerta", "t"]], vig),
@@ -541,7 +625,8 @@ def hojas(res: dict) -> list[dict]:
               suma("G", fin(npol), k["difPrima"])] if npol else None),
         hoja("11_Siniestros", "Siniestros pendientes y revelación",
              [["Póliza", "t"], ["Aseguradora", "t"], ["Siniestro", "t"], ["Monto", "n"], ["Revelado", "t"], ["Estado de la póliza", "t"],
-              ["Evaluación", "t"]], sini),
+              ["Evaluación", "t"], ["Tipo de siniestro", "t"], ["Cobro exigible", "t"], ["Tratamiento contable", "t"],
+              ["Compensación exigible a reconocer", "n"]], sini),
         hoja("12_Conclusion", "Indicadores y conclusión", [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"]], con),
         hoja("13_Ajustes", "Ajustes propuestos y conciliación",
              [["Concepto", "t"], ["Importe", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]], ajus),
@@ -556,7 +641,8 @@ def definicion() -> dict:
     act = ("Una fila por activo asegurable (excluya terrenos): código, descripción, clase, valor en libros, valor de referencia "
            "(reposición o tasación), póliza asignada, suma asegurada asignada (en blanco: prorrata de la póliza) y deducible %. Sin filas de total.")
     pol = ("Una fila por póliza: número, aseguradora, ramo, vigencia desde y hasta, suma asegurada total, prima total, prima pagada por "
-           "anticipado registrada al corte y, si hay, siniestro pendiente, monto y si está revelado (Sí/No).")
+           "anticipado registrada al corte y, si hay, siniestro pendiente, monto, si está revelado (Sí/No), el tipo de siniestro "
+           "(«Daño a activo propio» o «Reclamo de terceros») y si el cobro del seguro es exigible al corte (Sí/No).")
     return {
         "name": "Cobertura de seguros de activos",
         "area": "Seguros",
@@ -567,8 +653,10 @@ def definicion() -> dict:
                     "Es una prueba de riesgo y continuidad operativa: no concluye cumplimiento de las NIIF por sí sola."),
         "source": {"organization": "IFRS Foundation (texto en español de las NIIF adoptadas por la UE, Reglamento (UE) 2023/1803)", "type": "Norma contable", "date": "",
                    "document": ("NIC 1 párr. 27–28 (base de acumulación o devengo: prima anticipada; desde 2027 la NIIF 18 reemplaza a la NIC 1 (devengo en NIC 8)); NIC 37 párr. 53 (reembolsos), 86 (revelación "
-                                "de pasivos contingentes), 89 (activos contingentes); NIC 16 párr. 65–66 (compensaciones de terceros por "
-                                "elementos deteriorados o perdidos). NIC 1 27–28, NIC 37 53/86/89 y NIC 16 65–66 contrastados el 22-09-2026 con el texto en español de las NIIF adoptadas por la UE (ICAC, actualización dic-2024)."),
+                                "de pasivos contingentes), 89 (activos contingentes) y 31–35 (activos contingentes: no se reconocen); NIC 16 párr. 65–66 "
+                                "(compensaciones de terceros por elementos deteriorados o perdidos: en resultados cuando son exigibles); NIC 36 párr. 12 e) "
+                                "(el deterioro del activo siniestrado se evalúa por separado). NIC 1 27–28, NIC 37 31–35/53/86/89, NIC 16 65–66 y NIC 36 12 e) "
+                                "contrastados el 22-09-2026 con el texto en español de las NIIF adoptadas por la UE (ICAC, actualización dic-2024)."),
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
                          "document": ("NIIF para las PYMES 2015 y 2025: Sección 2, párr. 2.36 (2015) / Sección 3, párr. 3.16A (2025): devengo; Sección 4, párr. 4.5 (presentación del anticipo como "
@@ -590,7 +678,12 @@ def definicion() -> dict:
             "Exposición máxima = mayor pérdida total no cubierta de un solo activo (déficit + deducible).",
             "Prima anticipada al corte = prima × días por transcurrir ÷ días de vigencia (devengo, NIC 1.27–28; PYMES 2.36 (2015) / 3.16A (2025)), frente a la registrada y al mayor.",
             "Siniestro pendiente sin revelación: evaluar pasivo o activo contingente (NIC 37.86, 89; PYMES 21.15–21.16).",
-            "Nota (pendiente de decisión del socio): el contraste oficial sugiere que el reembolso por daño a un activo propio se rige por NIC 16.65–66 / PYMES 17.25 («exigibles») y no por NIC 37.53 (reembolso de provisiones).",
+            "Siniestro por daño a un activo propio con cobro exigible al corte: la compensación se reconoce en resultados (NIC 16.65–66; PYMES 17.25), "
+            "como hecho separado del deterioro o la baja del activo siniestrado (NIC 36.12 e); no se compensa con la pérdida.",
+            "Siniestro por daño a un activo propio sin cobro exigible: activo contingente; no se reconoce y se revela solo si la entrada de beneficios "
+            "es probable (NIC 37.31–35 y 89; PYMES 21.16).",
+            "Siniestro por reclamo de terceros: provisión por la obligación y reembolso reconocido solo si su recepción es prácticamente segura "
+            "(NIC 37.53; PYMES 21.9). Si no se informa el tipo, se mantiene este tratamiento y se pide el dato.",
         ],
         "fields": _ACTIVOS, "rules": [], "control": CONTROL, "primary": "ajustePrima",
         "campos": CAMPOS, "tipos": TIPOS, "parametros": dict(PARAMETROS), "etiquetas_parametros": ETIQUETAS_PARAM,
@@ -614,9 +707,14 @@ def definicion() -> dict:
             {"code": "INS-06", "objective": "Prima pagada por anticipado", "risk": "Anticipo sobrevalorado o gasto no devengado", "assertion": "Valoración / Corte",
              "procedure": "Recalcular la prima por devengar al corte y conciliar con el mayor", "evidence": "Pólizas, facturas de prima, mayor",
              "criterion": "Diferencia dentro de tolerancia", "source": "NIC 1.27–28 · PYMES 2.36 (2015) / 3.16A (2025)"},
-            {"code": "INS-07", "objective": "Siniestros pendientes y revelación", "risk": "Contingencia no revelada o reembolso reconocido sin certeza", "assertion": "Presentación y revelación",
-             "procedure": "Revisar siniestros pendientes, su estado y su revelación", "evidence": "Reclamos, cartas de la aseguradora, notas",
-             "criterion": "Revelado según NIC 37 / Sección 21", "source": "NIC 37.53, 86, 89 · PYMES 21 · NIA 501 · NIA 560"},
+            {"code": "INS-07", "objective": "Siniestros pendientes: tratamiento y revelación",
+             "risk": "Compensación exigible por daño a un activo propio no reconocida; activo contingente reconocido; contingencia no revelada",
+             "assertion": "Presentación y revelación",
+             "procedure": "Clasificar cada siniestro (daño a activo propio o reclamo de terceros), verificar si el cobro es exigible al corte y revisar su revelación",
+             "evidence": "Reclamos, cartas de la aseguradora, liquidaciones de siniestro, notas",
+             "criterion": "Daño a activo propio: compensación en resultados cuando es exigible (NIC 16.65–66 / PYMES 17.25), separada del deterioro (NIC 36.12 e); "
+                          "si no es exigible, activo contingente. Reclamo de terceros: reembolso solo si es prácticamente seguro (NIC 37.53)",
+             "source": "NIC 16.65–66 · NIC 36.12 e) · NIC 37.31–35, 53, 86, 89 · PYMES 17.25 y 21 · NIA 501 · NIA 560"},
         ],
         "requests": [
             req("RQ-001", "Maestro de activos asegurables con póliza, valor de referencia y suma asegurada", "activos", "INS-01",
@@ -648,7 +746,10 @@ def _pz(id, aseg, ramo, desde, hasta, suma_total, **x):
 # POL-01 incendio: suma 700.000 / referencia 950.000 (EDIF-01 650.000 + BOD-01 300.000) = 73,68 % → infraseguro;
 #   prorrata EDIF-01 = 700.000 × 650.000 ÷ 950.000 = 478.947,37; déficit 171.052,63.
 #   Pérdida total EDIF-01: indemnización 478.947,37 − deducible 2 % × 650.000 (13.000) = 465.947,37 → no cubierta 184.052,63 (exposición máxima).
-# POL-02 vehículos: prima 5.475 × 60 ÷ 365 = 900 recalculada vs 2.500 registrada → sobrevaloración 1.600; siniestro 18.000 sin revelar.
+# POL-02 vehículos: prima 5.475 × 60 ÷ 365 = 900 recalculada vs 2.500 registrada → sobrevaloración 1.600; siniestro 18.000 sin revelar,
+#   daño a un activo propio con cobro exigible → compensación exigible a reconocer en resultados 18.000 (NIC 16.65–66 / PYMES 17.25).
+# POL-04 compresor: daño a un activo propio con cobro NO exigible → activo contingente 5.000, no se reconoce (NIC 37.31–35 / PYMES 21.16);
+#   está revelado, por eso no suma a «siniestros pendientes sin revelación» (18.000, solo POL-02).
 # POL-03 vencida el 15-dic-2025 y POL-05 no iniciada: EQC-01, EQC-02 y BOD-02 sin cobertura; MOB-01 sin póliza; GEN-01 póliza inexistente.
 # Totales: referencia 1.499.000; suma vigente 1.050.000 (70,05 %); déficit 482.000; sobreseguro 33.000 (VEH-02 25.000 + VEH-03 8.000).
 EJEMPLO = {
@@ -673,10 +774,12 @@ EJEMPLO = {
         "polizas": [
             _pz("POL-01", "Aseguradora Alfa S.A.", "Incendio y líneas aliadas", "2025-07-01", "2026-07-01", "700000", prima_total="7300", prima_anticipada="3640"),
             _pz("POL-02", "Aseguradora Beta S.A.", "Vehículos", "2025-03-01", "2026-03-01", "150000", prima_total="5475", prima_anticipada="2500",
-                siniestro="Choque del camión VEH-02", monto_siniestro="18000", siniestro_revelado="No"),
+                siniestro="Choque del camión VEH-02", monto_siniestro="18000", siniestro_revelado="No",
+                tipo_siniestro="Daño a activo propio", cobro_exigible="Sí"),
             _pz("POL-03", "Aseguradora Gamma S.A.", "Equipo electrónico", "2024-12-15", "2025-12-15", "40000", prima_total="1200", prima_anticipada="0"),
             _pz("POL-04", "Aseguradora Alfa S.A.", "Rotura de maquinaria", "2025-01-20", "2026-01-20", "200000", prima_total="3650", prima_anticipada="200",
-                siniestro="Daño en compresor", monto_siniestro="5000", siniestro_revelado="Sí"),
+                siniestro="Daño en compresor", monto_siniestro="5000", siniestro_revelado="Sí",
+                tipo_siniestro="Daño a activo propio", cobro_exigible="No"),
             _pz("POL-05", "Aseguradora Beta S.A.", "Incendio bodega norte", "2026-01-15", "2027-01-15", "80000", prima_total="1460", prima_anticipada="1460"),
         ],
     },

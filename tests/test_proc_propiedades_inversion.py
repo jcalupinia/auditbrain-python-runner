@@ -24,16 +24,20 @@ def test_ejemplo_cifras_a_mano():
     res = _run({**E["datasets"]}, {**E["parametros"], "_marco": "NIIF completas"})
     assert _t(res, "libros") == 2780000.00
     assert _t(res, "difDetalleMayor") == -5000.00                 # 2.780.000 − 2.785.000
-    assert _t(res, "ajusteVR") == 35000.00                        # 20.000 − 20.000 + 25.000 + 5.000 + 5.000
+    # IP-04 es de uso mixto con partes separables: NIC 40.10 lo contabiliza por partes (65 % es PI), así que su
+    # ajuste de VR entra a prorrata: (210.000 − 190.000) × 65 % = 13.000.
+    assert _t(res, "ajusteVR") == 48000.00                        # 20.000 − 20.000 + 13.000 + 25.000 + 5.000 + 5.000
     ip7 = _it(res, "IP-07")                                       # sin VR → costo (NIC 40.53)
     assert ip7["medida"] == "Costo (VR no fiable)" and ip7["base"] == 240000 and ip7["meses"] == 120
     assert ip7["dep"] == 48000 and ip7["depAnio"] == 4800 and ip7["difDep"] == 3000
     assert ip7["neto"] == 252000 and ip7["det"] == 22000 and ip7["medCosto"] == 230000
     assert _t(res, "efectoCosto") == -25000.00                    # 230.000 − 255.000
-    assert _t(res, "reclasificacion") == -340000.00               # IP-04 190.000 + IP-05 150.000
-    assert _t(res, "piAuditado") == 2450000.00
-    assert _t(res, "ajuste") == -335000.00 and res["primary"] == "ajuste"
-    assert round(2780000 + 35000 - 25000 - 340000 - 2785000, 2) == _t(res, "ajuste")
+    # Reclasificación: solo la parte de uso propio de IP-04 (190.000 × 35 % = 66.500) + IP-05 (venta) 150.000.
+    assert _t(res, "reclasificacion") == -216500.00
+    assert _it(res, "IP-04")["parte"] == 0.65 and _it(res, "IP-04")["aud"] == 136500.00   # 210.000 × 65 %
+    assert _t(res, "piAuditado") == 2586500.00
+    assert _t(res, "ajuste") == -198500.00 and res["primary"] == "ajuste"
+    assert round(2780000 + 48000 - 25000 - 216500 - 2785000, 2) == _t(res, "ajuste")
     assert _t(res, "difCostoInicial") == 12000.00                 # IP-06: 400.000 + 12.000 − 400.000
     assert _t(res, "difAlquileres") == 8000.00                    # IP-03 2.000 + IP-06 6.000
     assert _t(res, "transfORI") == 80000.00                       # IP-08: 205.000 − 125.000 (40.61-62)
@@ -43,9 +47,9 @@ def test_ejemplo_cifras_a_mano():
 
 def test_clasificacion_y_transferencias():
     res = _run()
-    assert _it(res, "IP-04")["clase"] == "PPE (uso propio significativo)"      # 35 % > umbral 10 %
+    assert _it(res, "IP-04")["clase"] == m.PI_PARTE                            # separable: por partes (NIC 40.10)
     assert _it(res, "IP-05")["clase"] == "Inventario (NIC 2)"
-    assert _it(res, "IP-10")["clase"] == m.PI                                  # 5 % ≤ 10 %
+    assert _it(res, "IP-10")["clase"] == m.PI                                  # 5 % ≤ 10 % y no separable
     tr = {x["id"]: x for x in res["detalle"]["transf"]}
     assert tr["IP-08"]["transf"] == "PPE→PI" and tr["IP-08"]["estado"] == "Completa" and tr["IP-08"]["enEj"] == "Sí"
     assert tr["IP-09"]["transf"] == "Inventario→PI" and tr["IP-09"]["estado"].startswith("Sin tratamiento")
@@ -53,7 +57,7 @@ def test_clasificacion_y_transferencias():
 
 def test_problemas_minimos():
     codes = {e["code"] for e in _run()["exceptions"]}
-    for c in ("MAL_CLASIFICADO", "USO_MIXTO_SEPARABLE", "VR_NO_RECONOCIDO", "VR_NO_FIABLE", "SIN_FUENTE_VR", "SIN_NIVEL_VR", "COSTO_INICIAL",
+    for c in ("MAL_CLASIFICADO", "USO_MIXTO_SEPARADO", "VR_NO_RECONOCIDO", "VR_NO_FIABLE", "SIN_FUENTE_VR", "SIN_NIVEL_VR", "COSTO_INICIAL",
               "DEP_DIFERENCIA", "DETERIORO", "ALQUILER_NO_CONCILIADO", "ALQUILER_SIN_CONTRATO", "TRANSFERENCIA_SIN_TRATAMIENTO", "TRANSFERENCIA",
               "BAJA_RESULTADO", "DETALLE_MAYOR", "AJUSTE"):
         assert c in codes, c
@@ -63,15 +67,28 @@ def test_problemas_minimos():
 def test_rutas_por_marco():
     costo = _run(parametros={**E["parametros"], "modelo": "costo", "_marco": "NIIF completas"})
     pym = _run(parametros={**E["parametros"], "vr_sin_esfuerzo_desproporcionado": "no", "_marco": "NIIF para las PYMES", "_edicion": "2015"})
-    assert costo["totals"] == pym["totals"]                         # ambos al costo
+    # Ambos miden al costo y coinciden en los inmuebles que no son de uso mixto…
     assert _t(costo, "ajusteVR") == 0 and _t(costo, "transfORI") == 0
+    assert _t(pym, "ajusteVR") == 0 and _t(costo, "deterioro") == _t(pym, "deterioro") == 22000
     # IP-01 al costo: base 400.000, 93 meses de 480 → 77.500; neto 422.500.
-    assert _it(costo, "IP-01")["dep"] == 77500 and _it(costo, "IP-01")["medCosto"] == 422500
+    for r in (costo, pym):
+        assert _it(r, "IP-01")["dep"] == 77500 and _it(r, "IP-01")["medCosto"] == 422500
+    # …pero el uso mixto se trata distinto: completas → por partes si es separable (IP-04 65 % PI; IP-10 5 % ≤
+    # umbral 10 % → PI entera) = reclasificación 190.000 × 35 % + 150.000 (venta) = −216.500. PYMES 16.4 no usa
+    # umbral y, como aquí el VR no se mide sin esfuerzo desproporcionado, IP-04 e IP-10 van enteros a PPE
+    # (sección 17): reclasificación 190.000 + 150.000 + 150.000 = −490.000.
+    assert _t(costo, "reclasificacion") == -216500 and _t(pym, "reclasificacion") == -490000
+    assert _t(costo, "piAuditado") == 1945125 and _t(pym, "piAuditado") == 1759625
+    assert _it(pym, "IP-04")["clase"] == m.PPE_MIXTO and _it(pym, "IP-10")["clase"] == m.PPE_MIXTO
+    assert "USO_MIXTO_A_PPE" in {e["code"] for e in pym["exceptions"]}
     assert "SIN_VR_REVELACION" in {e["code"] for e in costo["exceptions"]}
     pc = {e["code"] for e in pym["exceptions"]}
     assert "PYMES_MODELO" in pc and "SIN_VR_REVELACION" not in pc
     pym25 = _run(parametros={**E["parametros"], "_marco": "NIIF para las PYMES", "_edicion": "2025"})
-    assert pym25["detalle"]["correcto"] == "valor_razonable" and _t(pym25, "ajusteVR") == 35000
+    # PYMES con VR medible: IP-04 (65 %) e IP-10 (95 %) se separan sin umbral (16.4); el VR de IP-10 iguala al
+    # importe en libros, así que el ajuste de VR sigue siendo 48.000.
+    assert pym25["detalle"]["correcto"] == "valor_razonable" and _t(pym25, "ajusteVR") == 48000
+    assert _it(pym25, "IP-10")["parte"] == 0.95 and _t(pym25, "reclasificacion") == -224000
     assert "SIN_NIVEL_VR" in {e["code"] for e in pym25["exceptions"]}
     pym15 = _run(parametros={**E["parametros"], "_marco": "NIIF para las PYMES", "_edicion": "2015"})
     assert "SIN_NIVEL_VR" not in {e["code"] for e in pym15["exceptions"]}
@@ -79,9 +96,36 @@ def test_rutas_por_marco():
     # PYMES que aplica costo pudiendo medir el VR sin esfuerzo desproporcionado.
     al_reves = _run(parametros={**E["parametros"], "modelo": "costo", "_marco": "NIIF para las PYMES"})
     msg = next(e["message"] for e in al_reves["exceptions"] if e["code"] == "PYMES_MODELO")
-    assert "16.7" in msg and _t(al_reves, "ajusteVR") == 35000
+    assert "16.7" in msg and _t(al_reves, "ajusteVR") == 48000
     h = {x["name"]: x for x in m.hojas(pym25)}
     assert "sección 12" in h["02_Parametros"]["rows"][2][2]
+
+
+def test_pymes_16_8_deprecia_desde_que_el_vr_dejo_de_medirse():
+    """PYMES 16.8: el importe en libros a la fecha en que el VR dejó de medirse es el nuevo costo y la
+    depreciación corre desde esa fecha, no desde la adquisición.
+
+    Sin la fecha (EJEMPLO): IP-07 no se recalcula (M22, se avisa); se usa la depreciación registrada 45.000 →
+    neto 300.000 − 45.000 = 255.000; recuperable 230.000 → deterioro 25.000; medición 230.000.
+    Con la fecha 30-06-2023 y libros 262.000: base 262.000 − 60.000 = 202.000; de 30-06-2023 a 31-12-2025 hay 30
+    meses completos de los 600 de vida (50 años) → dep. 202.000 × 30 ÷ 600 = 10.100; del año = 10.100 −
+    202.000 × 18 ÷ 600 = 10.100 − 6.060 = 4.040; neto 262.000 − 10.100 = 251.900; deterioro 251.900 − 230.000 =
+    21.900; medición 230.000 (la misma que antes: la topa el importe recuperable).
+    """
+    par = {**E["parametros"], "_marco": "NIIF para las PYMES", "_edicion": "2025"}
+    sin_fecha = _run(parametros=par)
+    i7 = _it(sin_fecha, "IP-07")
+    assert i7["p16_8"] and i7["desdeDep"] is None and i7["dep"] is None and i7["neto"] == 255000 and i7["det"] == 25000
+    assert "SIN_FECHA_FIN_VR" in {e["code"] for e in sin_fecha["exceptions"]}
+    con_fecha = m.ejecutar(m._PYMES_16_8, par, E["corte"])
+    j7 = _it(con_fecha, "IP-07")
+    assert j7["costoDep"] == 262000 and j7["desdeDep"] == "2023-06-30" and j7["meses"] == 30
+    assert j7["base"] == 202000 and j7["dep"] == 10100 and j7["depAnio"] == 4040
+    assert j7["neto"] == 251900 and j7["det"] == 21900 and j7["medCosto"] == 230000
+    assert "SIN_FECHA_FIN_VR" not in {e["code"] for e in con_fecha["exceptions"]}
+    # En NIIF completas la regla no aplica: se sigue depreciando desde la adquisición (120 meses, dep. 48.000).
+    comp = _run({**E["datasets"]}, {**E["parametros"], "_marco": "NIIF completas"})
+    assert not _it(comp, "IP-07")["p16_8"] and _it(comp, "IP-07")["dep"] == 48000
 
 
 def test_vacio_y_parametros_invalidos():

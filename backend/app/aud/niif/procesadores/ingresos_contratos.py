@@ -4,15 +4,16 @@ Una sola población (una fila por obligación o entregable de cada contrato/fact
 
 1. Existencia del contrato (NIIF 15 9, 15-16; PYMES 2025 23.7-23.10): sin contrato válido no se reconoce ingreso.
 2. Precio de la transacción y contraprestación variable (NIIF 15 47-59; PYMES 2025 23.23-23.31): importe más probable
-   o valor esperado, incluido solo si es altamente probable (NIIF 15 56-57: que no ocurra una reversión significativa; 58 remite a B63,
+   o valor esperado, incluido total o parcialmente (importe restringido informado por línea) si es altamente probable (NIIF 15 56-57: que no ocurra una reversión significativa; 58 remite a B63,
    regalías; PYMES 2025 23.30: que la entidad tenga derecho al importe). PYMES 2015 (23.3, 23.10 c-d):
    valor razonable de la contraprestación, se incluye si es probable (> 50 %).
 3. Asignación por precio de venta independiente relativo (NIIF 15 73-80; PYMES 2025 23.39-23.47; PYMES 2015 23.8).
 4. Satisfacción: en un momento (NIIF 15 38; 23.57-23.58) o a lo largo del tiempo con método de insumos
    costos incurridos ÷ costos totales (NIIF 15 35, 39-45, B18-B19; 23.54, 23.62-23.66). PYMES 2015: venta de bienes
    por riesgos y beneficios (23.10-23.13) y servicios/construcción por grado de terminación (23.14-23.22).
-5. Devoluciones: pasivo por reembolso (NIIF 15 B20-B27; PYMES 2025 23.33-23.35 y 23A.23-23A.27) / provisión (PYMES 2015 23.13,
-   Sección 21); notas de crédito posteriores al cierre como evidencia (NIA 560).
+5. Devoluciones: pasivo por reembolso y activo por el derecho a recuperar los productos, con ajuste al costo de ventas
+   (NIIF 15 B20-B27, en especial B21 c y B25; PYMES 2025 23.33-23.35 y 23A.23-23A.27, activo 23A.24 c) / provisión sin activo
+   (PYMES 2015 23.13, Sección 21); notas de crédito posteriores al cierre como evidencia (NIA 560).
 6. Componente de financiación significativo (NIIF 15 60-65; PYMES 2025 23.36-23.38; PYMES 2015 23.5): valor presente
    a la tasa de descuento, interés devengado desde la transferencia.
 7. Ingreso reconocible del año vs registrado (ajuste), corte, activo/pasivo del contrato (NIIF 15 105-109;
@@ -59,6 +60,10 @@ _CONTRATOS = [
     campo("nc_posterior", "Notas de crédito posteriores al cierre", "number", False, ("notas de credito posteriores", "nc posteriores")),
     campo("modificacion", "Modificación (Contrato separado / Prospectivo / Acumulativo)", "text", False, ("tipo modificacion", "adenda")),
     campo("importe_modificacion", "Importe de la modificación", "number", False, ("importe adenda", "valor modificacion")),
+    campo("variable_restringida", "Importe de la variable que supera la restricción (no incluible)", "number", False,
+          ("variable restringida", "importe restringido", "restriccion variable", "variable no incluible", "variable excluida")),
+    campo("costo_bienes", "Costo de los bienes vendidos de la línea (para el activo por devoluciones)", "number", False,
+          ("costo de ventas", "costo bienes", "costo de los bienes", "costo mercaderia", "costo de la venta")),
 ]
 CAMPOS = {"contratos": _CONTRATOS}
 TIPOS = {"contratos": "contratos"}
@@ -90,7 +95,8 @@ CEDULAS = [
     ("14_Asientos", "Asientos propuestos"), ("15_Problemas", "Problemas encontrados"),
 ]
 
-_NO_NEGATIVOS = ("psi", "precio", "variable", "costo_incurrido", "costo_total", "facturado", "cobrado", "plazo_cobro", "nc_posterior")
+_NO_NEGATIVOS = ("psi", "precio", "variable", "costo_incurrido", "costo_total", "facturado", "cobrado", "plazo_cobro", "nc_posterior",
+                 "variable_restringida", "costo_bienes")
 _PORCENTAJES = ("probabilidad", "avance_cliente", "devolucion")
 
 
@@ -177,7 +183,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             raise ValueError(f"Línea {lid or '(sin id)'}: faltan contrato, modo de satisfacción, precio o ingreso registrado.")
         x = {k: _opc(f, k) for k in ("psi", "variable", "probabilidad", "variable_cliente", "costo_incurrido", "costo_total",
                                      "avance_cliente", "anterior", "facturado", "cobrado", "plazo_cobro", "devolucion",
-                                     "nc_posterior", "importe_modificacion")}
+                                     "nc_posterior", "importe_modificacion", "variable_restringida", "costo_bienes")}
         for k in _NO_NEGATIVOS:
             v = precio if k == "precio" else x.get(k)
             if v is not None and v < 0:
@@ -200,10 +206,24 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         x["valido"] = "No" if x["evidencia"] == "No" else ("Sin dato" if x["evidencia"] == "" else "Sí")
         pr = None if x["probabilidad"] is None else x["probabilidad"] / 100
         x["prob"] = pr
-        if x["variable"] is None or pr is None:
+        # Importe estimado por el método elegido (NIIF 15.53 · PYMES 2025 23.28).
+        if x["variable"] is None:
+            x["varBase"] = None
+        elif metodo == "Valor esperado":
+            x["varBase"] = None if pr is None else x["variable"] * pr
+        else:
+            x["varBase"] = x["variable"]
+        # NIIF 15.56-57: la restricción admite incluir «una parte o la totalidad». Si el anexo informa el importe que
+        # supera la restricción, se incluye la diferencia; si no, se mantiene la regla de todo o nada por probabilidad.
+        restr = x["variable_restringida"]
+        if x["varBase"] is None:
+            inc = 0.0
+        elif restr is not None:
+            inc = max(x["varBase"] - restr, 0)
+        elif pr is None:
             inc = 0.0
         elif (pr > 0.5) if s15 else (pr >= uprob / 100):
-            inc = x["variable"] * pr if metodo == "Valor esperado" else x["variable"]
+            inc = x["varBase"]
         else:
             inc = 0.0
         x["varIncluida"] = inc
@@ -241,6 +261,10 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         x["dev"] = dv
         x["reembolso"] = None if x["bruto"] is None else x["bruto"] * dv
         x["neto"] = None if x["bruto"] is None else x["bruto"] - x["reembolso"]
+        # NIIF 15 B21 c) y B25: junto al pasivo por reembolso se reconoce un activo por el derecho a recuperar los
+        # productos, con el ajuste correlativo al costo de ventas. PYMES 2015 no lo reconoce (23.13: provisión, Sección 21).
+        cb = x["costo_bienes"]
+        x["activoDev"] = 0.0 if (s15 or dv == 0) else (None if (cb is None or x["reembolso"] is None) else cb * dv)
         x["ncNoProv"] = 0 if x["nc_posterior"] is None else max(x["nc_posterior"] - (x["reembolso"] or 0), 0)
         x["significativa"] = x["plazo_cobro"] is not None and x["plazo_cobro"] > umbral
         h = None if tasa is None else tasa / 100
@@ -293,7 +317,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         "ingresoReconocible": sm("recAnio"), "ajuste": sm("ajuste"),
         "corteAnticipado": sm("anticipado"), "corteOmitido": sm("omitido"),
         "componenteFinanciero": sm("componente"), "interesDevengado": sm("interes"),
-        "pasivoReembolso": sm("reembolso"), "devolucionesNoProvisionadas": sm("ncNoProv"),
+        "pasivoReembolso": sm("reembolso"), "activoDevoluciones": sm("activoDev"), "devolucionesNoProvisionadas": sm("ncNoProv"),
         "activoContrato": sum(a["activo"] or 0 for a in ap), "activoRegistrado": act_reg or 0,
         "pasivoContrato": sum(a["pasivo"] or 0 for a in ap), "pasivoRegistrado": pas_reg or 0,
         "difAsignacion": sum(abs(x["difAsig"]) for x in L if x["difAsig"] is not None and x["nLineas"] > 1), "variableExceso": sm("varExceso"),
@@ -314,7 +338,9 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         "asig": "PYMES 2015 23.8: separar componentes; método no especificado → política según 10.4 (precio independiente relativo por analogía)" if s15 else ("PYMES 2025 23.42-23.47" if pymes else "NIIF 15 73-80"),
         "avance": "PYMES 23.21-23.22" if s15 else ("PYMES 2025 23.62-23.66" if pymes else "NIIF 15 39-45, B18-B19"),
         "fin": "PYMES 23.5 y 11.13" if s15 else ("PYMES 2025 23.36-23.38" if pymes else "NIIF 15 60-65"),
-        "dev": "PYMES 23.13 y Sección 21" if s15 else ("PYMES 2025 23.33-23.35 y 23A.23-23A.27" if pymes else "NIIF 15 B20-B27"),
+        "dev": "PYMES 2015 23.13 y Sección 21 (provisión; sin activo por recuperar)" if s15
+               else ("PYMES 2025 23.33-23.35 y 23A.23-23A.27 (activo por devoluciones 23A.24 c)" if pymes
+                     else "NIIF 15 B20-B27 (pasivo por reembolso B21 b; activo por el derecho a recuperar los productos B21 c y B25)"),
         "ap": "PYMES 2015 23.32 (presentación, contratos de construcción)" if s15 else ("PYMES 2025 23.77-23.80" if pymes else "NIIF 15 105-109"),
         "corte": "PYMES 23.10 a" if s15 else ("PYMES 2025 23.57-23.58" if pymes else "NIIF 15 31, 38"),
         "mod": "PYMES 2015 sin guía específica de modificaciones (revisión de estimaciones, 23.21; Sección 10)" if s15
@@ -351,11 +377,20 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             pr.append(problema("VARIABLE_SIN_RESTRICCION", f"{x['id']}: contraprestación variable incluida por el cliente sin cumplir la restricción ({cit['variable']}).", x["varExceso"]))
         if x["variable"] is not None and x["prob"] is None:
             pr.append(problema("VARIABLE_SIN_PROBABILIDAD", f"{x['id']}: variable estimada sin probabilidad; no se incluye en el precio ({cit['variable']}).", x["variable"]))
+        if x["activoDev"] is None:
+            pr.append(problema("ACTIVO_DEVOLUCION_SIN_COSTO", f"{x['id']}: con devoluciones esperadas del {m(x['dev'] * 100)} % falta el costo de los bienes "
+                               f"vendidos: el activo por el derecho a recuperar los productos y su ajuste al costo de ventas quedan vacíos ({cit['dev']})."))
         if x["ncNoProv"] > 0.005:
             pr.append(problema("DEVOLUCIONES_NO_PROVISIONADAS", f"{x['id']}: notas de crédito posteriores al cierre superan el pasivo por reembolso estimado ({cit['dev']}; NIA 560).", x["ncNoProv"]))
         if x["modTexto"] or x["importe_modificacion"] is not None:
             if x["modTipo"] is None:
                 pr.append(problema("MODIFICACION_SIN_TRATAMIENTO", f"{x['id']}: modificación sin tratamiento documentado (contrato separado, prospectivo o acumulativo; {cit['mod']}).", x["importe_modificacion"] or 0))
+    sin_restr = [x["id"] for x in L if x["variable"] is not None and x["variable_restringida"] is None]
+    if sin_restr and not s15:
+        pr.append(problema("VARIABLE_RESTRICCION_TODO_O_NADA", f"{len(sin_restr)} línea(s) con contraprestación variable sin el importe que supera la "
+                           f"restricción ({', '.join(sin_restr)}): se aplicó la regla de todo o nada según la probabilidad. La norma permite incluir "
+                           f"solo una parte y exige evaluar también la magnitud de la reversión, no solo su probabilidad ({cit['variable']}); informe el "
+                           "importe restringido por línea para medir la inclusión parcial."))
     fin_st = [x for x in L if x["significativa"] and x["componente"] is None and x["neto"] is not None]
     if fin_st:
         pr.append(problema("FINANCIACION_SIN_TASA", f"{len(fin_st)} línea(s) con plazo de cobro mayor a {m(umbral)} meses sin tasa de descuento: el componente financiero no se pudo medir ({cit['fin']}).",
@@ -385,6 +420,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         "corteAnticipado": "Corte: registrado antes de la transferencia", "corteOmitido": "Corte: transferido sin registrar en el ejercicio",
         "componenteFinanciero": "Componente de financiación a separar", "interesDevengado": "Interés devengado al corte",
         "pasivoReembolso": "Pasivo por reembolso (devoluciones esperadas)" if not s15 else "Provisión por devoluciones esperadas",
+        "activoDevoluciones": ("Devoluciones: PYMES 2015 no reconoce activo por recuperar productos (23.13, Sección 21)" if s15
+                               else "Activo por el derecho a recuperar los productos (contra el costo de ventas)"),
         "devolucionesNoProvisionadas": "Notas de crédito posteriores no provisionadas",
         "activoContrato": n_act + " requerido", "activoRegistrado": n_act + (" registrado" if act_reg is not None else " registrado (no informado: se toma 0)"), "difActivo": n_act + ": diferencia",
         "pasivoContrato": n_pas + " requerido", "pasivoRegistrado": n_pas + (" registrado" if pas_reg is not None else " registrado (no informado: se toma 0)"), "difPasivo": n_pas + ": diferencia",
@@ -405,10 +442,10 @@ DET, PV, ASG, SAT, DEV, FIN, REC, AP, COR, CON = (ref(n) for n in (
     "03_Detalle", "04_Precio_variable", "05_Asignacion", "06_Satisfaccion", "07_Devoluciones", "08_Financiacion",
     "09_Reconocimiento", "10_Activo_pasivo", "11_Corte", "13_Conciliacion"))
 _PAR = ["corte", "marco", "modelo", "tasaDescuento", "plazoFinanciacion", "umbralAltamenteProbable", "metodoVariable",
-        "ingresoMayor", "activoContratoRegistrado", "pasivoContratoRegistrado"]
+        "ingresoMayor", "activoContratoRegistrado", "pasivoContratoRegistrado", "activoDevolucion"]
 PAR = {k: FILA0 + i for i, k in enumerate(_PAR)}
 _CON = ["ingresoRegistrado", "ingresoMayor", "difMayor", "ingresoReconocible", "ajuste", "corteAnticipado", "corteOmitido",
-        "componenteFinanciero", "interesDevengado", "pasivoReembolso", "devolucionesNoProvisionadas", "activoContrato",
+        "componenteFinanciero", "interesDevengado", "pasivoReembolso", "activoDevoluciones", "devolucionesNoProvisionadas", "activoContrato",
         "activoRegistrado", "difActivo", "pasivoContrato", "pasivoRegistrado", "difPasivo", "difAsignacion", "variableExceso"]
 CONF = {k: FILA0 + i for i, k in enumerate(_CON)}
 
@@ -454,6 +491,10 @@ def hojas(res: dict) -> list[dict]:
         [ETIQUETAS_PARAM["ingresoMayor"], d["mayor"], "Mayor contable (en blanco: se toma el anexo)"],
         [ETIQUETAS_PARAM["activoContratoRegistrado"], d["actReg"], "Mayor contable"],
         [ETIQUETAS_PARAM["pasivoContratoRegistrado"], d["pasReg"], "Mayor contable"],
+        ["Activo por derecho a recuperar productos", "No" if d["s15"] else "Sí",
+         ("PYMES 2015: solo provisión por devoluciones (23.13 y Sección 21); no se reconoce activo" if d["s15"]
+          else "NIIF 15 B21 c) y B25 / PYMES 2025 23A.24 c): activo por el derecho a recuperar los productos, medido al importe en libros anterior "
+               "menos los costos de recuperación, con el ajuste correlativo al costo de ventas")],
     ]
 
     # 03 · Detalle (datos del cliente + contrato válido).
@@ -463,11 +504,11 @@ def hojas(res: dict) -> list[dict]:
         det.append([x["id"], x["contrato"], x["cliente"], x["obligacion"], x["evidencia"], x["modo"], x["transferencia"], x["registro"],
                     x["psi"], n2(x["precio"]), x["variable"], x["probabilidad"], x["variable_cliente"], x["costo_incurrido"], x["costo_total"],
                     x["avance_cliente"], n2(x["registrado"]), x["anterior"], x["facturado"], x["cobrado"], x["plazo_cobro"], x["devolucion"],
-                    x["nc_posterior"], x["modTexto"], x["importe_modificacion"],
+                    x["nc_posterior"], x["modTexto"], x["importe_modificacion"], x["variable_restringida"], x["costo_bienes"],
                     fx(f'IF(E{r}="No","No",IF(E{r}="","Sin dato","Sí"))', x["valido"])])
     tot_det = ["TOTAL"] + [""] * 7 + [None, suma("J", fin, sum(x["precio"] for x in L))] + [None] * 6 + \
               [suma("Q", fin, t["ingresoRegistrado"]), None, suma("S", fin, sum(x["facturado"] or 0 for x in L)),
-               suma("T", fin, sum(x["cobrado"] or 0 for x in L))] + [None] * 3 + ["", None, ""]
+               suma("T", fin, sum(x["cobrado"] or 0 for x in L))] + [None] * 3 + ["", None, None, None, ""]
 
     # 04 · Precio y variable.
     pv = []
@@ -476,21 +517,23 @@ def hojas(res: dict) -> list[dict]:
         r = FILA0 + i
         pv.append([x["id"], x["contrato"], fx(f"{DET}J{r}", n2(x["precio"])), fx(_op(DET, f"K{r}"), x["variable"]),
                    fx(f'IF({DET}L{r}<>"",{DET}L{r}/100,"")', x["prob"]),
-                   fx(f'IF(OR(D{r}="",E{r}=""),0,IF({cond(r)},IF({_pb("metodoVariable")}="Valor esperado",D{r}*E{r},D{r}),0))', x["varIncluida"]),
+                   fx(f'IF(D{r}="","",IF({_pb("metodoVariable")}="Valor esperado",IF(E{r}="","",D{r}*E{r}),D{r}))', x["varBase"]),
+                   fx(_op(DET, f"Z{r}"), x["variable_restringida"]),
+                   fx(f'IF(F{r}="",0,IF(G{r}<>"",MAX(F{r}-G{r},0),IF(E{r}="",0,IF({cond(r)},F{r},0))))', x["varIncluida"]),
                    fx(_op(DET, f"M{r}"), x["variable_cliente"]),
-                   fx(f'IF(G{r}="","",MAX(G{r}-F{r},0))', x["varExceso"]),
-                   fx(f"SUMIF($B${FILA0}:$B${fin},B{r},$C${FILA0}:$C${fin})+SUMIF($B${FILA0}:$B${fin},B{r},$F${FILA0}:$F${fin})", x["tp"])])
-    tot_pv = ["TOTAL", "", suma("C", fin, sum(x["precio"] for x in L)), None, None, suma("F", fin, sum(x["varIncluida"] for x in L)),
-              None, suma("H", fin, t["variableExceso"]), None]
+                   fx(f'IF(I{r}="","",MAX(I{r}-H{r},0))', x["varExceso"]),
+                   fx(f"SUMIF($B${FILA0}:$B${fin},B{r},$C${FILA0}:$C${fin})+SUMIF($B${FILA0}:$B${fin},B{r},$H${FILA0}:$H${fin})", x["tp"])])
+    tot_pv = ["TOTAL", "", suma("C", fin, sum(x["precio"] for x in L)), None, None, None, None,
+              suma("H", fin, sum(x["varIncluida"] for x in L)), None, suma("J", fin, t["variableExceso"]), None]
 
     # 05 · Asignación.
     asg = []
     for i, x in enumerate(L):
         r = FILA0 + i
         asg.append([x["id"], x["contrato"], fx(f'IF({DET}I{r}<>"",{DET}I{r},{DET}J{r})', x["psiEf"]),
-                    fx(f"SUMIF($B${FILA0}:$B${fin},B{r},$C${FILA0}:$C${fin})", x["sumPsi"]), fx(f"{PV}I{r}", x["tp"]),
+                    fx(f"SUMIF($B${FILA0}:$B${fin},B{r},$C${FILA0}:$C${fin})", x["sumPsi"]), fx(f"{PV}K{r}", x["tp"]),
                     fx(f'IF(D{r}=0,"",E{r}*C{r}/D{r})', x["asignado"]),
-                    fx(f'{PV}C{r}+IF({PV}G{r}="",0,{PV}G{r})', x["asigCliente"]),
+                    fx(f'{PV}C{r}+IF({PV}I{r}="",0,{PV}I{r})', x["asigCliente"]),
                     fx(f'IF(F{r}="","",F{r}-G{r})', x["difAsig"]),
                     fx(f"COUNTIF($B${FILA0}:$B${fin},B{r})", x["nLineas"]),
                     fx(f'IF(OR(H{r}="",I{r}<2),0,ABS(H{r}))', abs(x["difAsig"]) if x["difAsig"] is not None and x["nLineas"] > 1 else 0)])
@@ -506,7 +549,7 @@ def hojas(res: dict) -> list[dict]:
                     fx(f'IF({DET}P{r}<>"",{DET}P{r}/100,"")', x["avanceCli"]),
                     fx(f'IF(OR(C{r}="",D{r}=""),"",D{r}-C{r})', x["difAvance"]),
                     fx(f'IF(B{r}="{TIEMPO}","",IF({DET}G{r}="","",IF({DET}G{r}<={corte},"Sí","No")))', x["transferido"]),
-                    fx(f'IF({DET}Z{r}="No",0,IF(B{r}="{TIEMPO}",C{r},IF(F{r}="","",IF(F{r}="Sí",1,0))))', x["factor"]),
+                    fx(f'IF({DET}AB{r}="No",0,IF(B{r}="{TIEMPO}",C{r},IF(F{r}="","",IF(F{r}="Sí",1,0))))', x["factor"]),
                     fx(f'IF(OR(G{r}="",{ASG}F{r}=""),"",{ASG}F{r}*G{r})', x["bruto"]),
                     fx(f'IF(AND(B{r}="{TIEMPO}",{DET}O{r}<>"",{ASG}F{r}<>""),MAX({DET}O{r}-{ASG}F{r},0),0)', x["perdida"])])
     tot_sat = ["TOTAL", "", None, None, None, "", None, suma("H", fin, sum(x["bruto"] or 0 for x in L)), suma("I", fin, sum(x["perdida"] for x in L))]
@@ -517,10 +560,13 @@ def hojas(res: dict) -> list[dict]:
         r = FILA0 + i
         dev.append([x["id"], fx(f"{SAT}H{r}", x["bruto"]), fx(f'IF({DET}V{r}<>"",{DET}V{r}/100,0)', x["dev"]),
                     fx(f'IF(B{r}="","",B{r}*C{r})', x["reembolso"]), fx(f'IF(B{r}="","",B{r}-D{r})', x["neto"]),
-                    fx(_op(DET, f"W{r}"), x["nc_posterior"]), fx(f'IF(F{r}="",0,MAX(F{r}-N(D{r}),0))', x["ncNoProv"])])
+                    fx(_op(DET, f"W{r}"), x["nc_posterior"]), fx(f'IF(F{r}="",0,MAX(F{r}-N(D{r}),0))', x["ncNoProv"]),
+                    fx(_op(DET, f"AA{r}"), x["costo_bienes"]),
+                    fx(f'IF({_pb("activoDevolucion")}="No",0,IF(C{r}=0,0,IF(OR(H{r}="",D{r}=""),"",H{r}*C{r})))', x["activoDev"])])
     tot_dev = ["TOTAL", suma("B", fin, sum(x["bruto"] or 0 for x in L)), None, suma("D", fin, t["pasivoReembolso"]),
                suma("E", fin, sum(x["neto"] or 0 for x in L)), suma("F", fin, sum(x["nc_posterior"] or 0 for x in L)),
-               suma("G", fin, t["devolucionesNoProvisionadas"])]
+               suma("G", fin, t["devolucionesNoProvisionadas"]), suma("H", fin, sum(x["costo_bienes"] or 0 for x in L)),
+               suma("I", fin, t["activoDevoluciones"])]
 
     # 08 · Financiación.
     tasa = _pb("tasaDescuento")
@@ -604,6 +650,7 @@ def hojas(res: dict) -> list[dict]:
         "componenteFinanciero": (f"{FIN}G{fin + 1}", cit["fin"]),
         "interesDevengado": (f"{FIN}I{fin + 1}", "Ingreso financiero, separado del ingreso ordinario"),
         "pasivoReembolso": (f"{DEV}D{fin + 1}", cit["dev"]),
+        "activoDevoluciones": (f"{DEV}I{fin + 1}", cit["dev"] + " — contrapartida: costo de ventas"),
         "devolucionesNoProvisionadas": (f"{DEV}G{fin + 1}", "Notas de crédito posteriores (NIA 560)"),
         "activoContrato": (f"{AP}G{fin_ap + 1}", cit["ap"]),
         "activoRegistrado": (_pb("activoContratoRegistrado"), "Parámetros"),
@@ -612,7 +659,7 @@ def hojas(res: dict) -> list[dict]:
         "pasivoRegistrado": (_pb("pasivoContratoRegistrado"), "Parámetros"),
         "difPasivo": (f"{cb('pasivoContrato')}-{cb('pasivoRegistrado')}", "Reclasificación de presentación"),
         "difAsignacion": (f"{ASG}J{fin + 1}", cit["asig"]),
-        "variableExceso": (f"{PV}H{fin + 1}", cit["variable"]),
+        "variableExceso": (f"{PV}J{fin + 1}", cit["variable"]),
     }
     con = [[res["labels"][k], fx(con_def[k][0], t[k]), con_def[k][1]] for k in _CON]
 
@@ -635,6 +682,12 @@ def hojas(res: dict) -> list[dict]:
         asiento("2 · Interés devengado del componente de financiación", [("Cuentas por cobrar (costo amortizado)", ie, t["interesDevengado"], True),
                                                                           ("Ingresos financieros por intereses", ie, t["interesDevengado"], False)])
 
+    if t["activoDevoluciones"] > 0.005:
+        ad = f"{CON}{cb('activoDevoluciones')}"
+        asiento("3 · Activo por el derecho a recuperar los productos (devoluciones esperadas)",
+                [("Activo por derecho a recuperar productos (inventario)", ad, t["activoDevoluciones"], True),
+                 ("Costo de ventas", ad, t["activoDevoluciones"], False)])
+
     ref_res = {k: f"{CON}{cb(k)}" for k in res["labels"]}
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
 
@@ -647,9 +700,11 @@ def hojas(res: dict) -> list[dict]:
               ["Variable estimada", "n"], ["Probabilidad (%)", "x"], ["Variable del cliente", "n"], ["Costos incurridos", "n"], ["Costos totales", "n"],
               ["Avance del cliente (%)", "x"], ["Registrado en el año", "n"], ["Reconocido años anteriores", "n"], ["Facturado acumulado", "n"],
               ["Cobrado acumulado", "n"], ["Plazo de cobro (meses)", "x"], ["Devoluciones esperadas (%)", "x"], ["NC posteriores", "n"],
-              ["Modificación", "t"], ["Importe modificación", "n"], ["Contrato válido", "t"]], det, tot_det),
+              ["Modificación", "t"], ["Importe modificación", "n"], ["Variable que supera la restricción", "n"],
+              ["Costo de los bienes vendidos", "n"], ["Contrato válido", "t"]], det, tot_det),
         hoja("04_Precio_variable", "Precio y contraprestación variable",
              [["Línea", "t"], ["Contrato", "t"], ["Precio fijo", "n"], ["Variable estimada", "n"], ["Probabilidad", "p"],
+              ["Importe estimado por el método", "n"], ["Importe que supera la restricción", "n"],
               ["Variable incluida (restringida)", "n"], ["Variable del cliente", "n"], ["Exceso sobre la restricción", "n"],
               ["Precio de la transacción del contrato", "n"]], pv, tot_pv),
         hoja("05_Asignacion", "Asignación del precio",
@@ -662,7 +717,8 @@ def hojas(res: dict) -> list[dict]:
               ["Pérdida esperada del contrato", "n"]], sat, tot_sat),
         hoja("07_Devoluciones", "Devoluciones y notas de crédito",
              [["Línea", "t"], ["Reconocible bruto", "n"], ["Devolución esperada", "p"], ["Pasivo por reembolso", "n"],
-              ["Reconocible neto de devoluciones", "n"], ["NC posteriores al cierre", "n"], ["NC no provisionadas", "n"]], dev, tot_dev),
+              ["Reconocible neto de devoluciones", "n"], ["NC posteriores al cierre", "n"], ["NC no provisionadas", "n"],
+              ["Costo de los bienes vendidos", "n"], ["Activo por derecho a recuperar productos", "n"]], dev, tot_dev),
         hoja("08_Financiacion", "Componente de financiación",
              [["Línea", "t"], ["Reconocible neto", "n"], ["Plazo de cobro (meses)", "x"], ["Financiación significativa", "t"], ["Tasa anual", "p"],
               ["Valor presente (ingreso ordinario)", "n"], ["Componente de financiación", "n"], ["Días devengados", "x"],
@@ -698,7 +754,8 @@ def definicion() -> dict:
                  "del tiempo), precio del contrato asignado por el cliente e ingreso registrado en el año; y, cuando existan: evidencia del "
                  "contrato, fechas de transferencia del control y de registro, precio de venta independiente, variable estimada con su "
                  "probabilidad y la incluida por el cliente, costos incurridos y totales, avance del cliente, ingreso de años anteriores, "
-                 "facturado y cobrado acumulados, plazo de cobro, devoluciones esperadas, notas de crédito posteriores y modificaciones.")
+                 "facturado y cobrado acumulados, plazo de cobro, devoluciones esperadas, costo de los bienes vendidos (para el activo por "
+                 "devoluciones), importe de la variable que supera la restricción, notas de crédito posteriores y modificaciones.")
     return {
         "name": "Ingresos · contratos con clientes (existencia, precio, asignación, satisfacción, corte y devoluciones)",
         "area": "Ingresos",
@@ -714,7 +771,8 @@ def definicion() -> dict:
                    "document": ("NIIF 15 párr. 9, 15-16 (contrato), 18-21 (modificaciones), 22-30 (obligaciones), 31-38 (satisfacción), "
                                 "39-45 y B14-B19 (medición del avance), 47-59 (precio y variable; restricción 56-57; 58 remite a B63, regalías), 60-65 (financiación; "
                                 "solución práctica 63; presentación 65), 73-90 (asignación, 76-80 precio independiente), 105-109 (activo y "
-                                "pasivo del contrato), B20-B27 (devoluciones). NIC 37 66-69 (contratos onerosos)."),
+                                "pasivo del contrato), B20-B27 (devoluciones; B21 c y B25: activo por el derecho a recuperar los productos y ajuste "
+                                "del costo de las ventas). NIC 37 66-69 (contratos onerosos)."),
                    "url": "https://www.ifrs.org/content/dam/ifrs/publications/html-standards/spanish/2024/issued/ifrs15.html"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
                          "document": ("NIIF para las PYMES 2015, Sección 23: 23.3-23.5 (valor razonable de la contraprestación, financiación "
@@ -737,11 +795,15 @@ def definicion() -> dict:
         "calculo": [
             "Contrato válido: sin evidencia de contrato aprobado y con sustancia («No») el ingreso reconocible es cero (excepción de la contraprestación "
             "no reembolsable, NIIF 15.15, y pasivo mientras tanto, 15.16: pendiente de decisión del socio).",
-            "Variable incluida = importe más probable (o valor esperado = importe × probabilidad) solo si la probabilidad ≥ umbral de «altamente probable» (simplificación: la variable se incluye si su probabilidad supera el umbral; la NIIF 15.56 exige que sea altamente probable que no haya reversión significativa); PYMES 2015: si es mayor a 50 %.",
+            "Variable incluida = importe más probable (o valor esperado = importe × probabilidad) menos el importe que supera la restricción, si el "
+            "anexo lo informa (inclusión parcial, NIIF 15.56-57). Si no se informa, se aplica todo o nada: se incluye solo si la probabilidad ≥ umbral "
+            "de «altamente probable» y se emite un problema, porque la norma exige evaluar también la magnitud de la reversión; PYMES 2015: si es mayor a 50 %.",
             "Precio de la transacción del contrato = Σ precios fijos + Σ variable incluida.",
             "Asignado = precio de la transacción × precio independiente ÷ Σ precios independientes del contrato (sin precio independiente se usa el precio del contrato).",
             "Avance = costos incurridos ÷ costos totales estimados (máximo 100 %); en un momento: 100 % si el control se transfirió hasta el corte, 0 % si no.",
             "Reconocible bruto = asignado × avance; pasivo por reembolso = bruto × devolución esperada; neto = bruto − reembolso.",
+            "Activo por el derecho a recuperar los productos = costo de los bienes vendidos × devolución esperada, con el ajuste correlativo al costo "
+            "de ventas (NIIF 15 B21 c y B25; PYMES 2025 23A.24 c). Sin el costo de los bienes queda vacío y se señala; PYMES 2015 no lo reconoce.",
             "Financiación significativa si el plazo de cobro supera el umbral (más de 12 meses habilita evaluar (NIIF 15.61-62); no es concluyente por sí solo): ingreso = neto ÷ (1 + tasa)^(plazo ÷ 12); componente = neto − valor presente; interés devengado = VP × ((1 + tasa)^(días desde la transferencia ÷ 365) − 1).",
             "Reconocible del año = reconocible acumulado − reconocido en años anteriores; ajuste = reconocible del año − registrado.",
             "Por contrato: posición = reconocible bruto − facturado; positiva = activo del contrato; negativa = pasivo del contrato (ingreso diferido).",
@@ -767,8 +829,9 @@ def definicion() -> dict:
                   "Comparar fecha de registro con fecha de transferencia alrededor del cierre", "Guías de remisión, actas, facturas",
                   "Ingreso en el período de la transferencia", "NIIF 15 38 · NIA 330"),
             _prog("ING-06", "Devoluciones y notas de crédito (REV-04 / REV-FULL-11 / REV-SME15-07)", "Devoluciones no provisionadas", "Valoración",
-                  "Evaluar la tasa de devolución esperada y cotejar notas de crédito posteriores al cierre", "Estadística de devoluciones, NC posteriores",
-                  "Pasivo por reembolso suficiente", "NIIF 15 B20-B27 · PYMES 2025 23.33-23.35 y 23A.23-23A.27 · NIA 560"),
+                  "Evaluar la tasa de devolución esperada, recalcular el pasivo por reembolso y el activo por el derecho a recuperar los productos "
+                  "(con su ajuste al costo de ventas) y cotejar notas de crédito posteriores al cierre", "Estadística de devoluciones, costo de ventas, NC posteriores",
+                  "Pasivo por reembolso y activo por recuperar reconocidos", "NIIF 15 B20-B27 (B21 c, B25) · PYMES 2025 23.33-23.35 y 23A.23-23A.27 (23A.24 c) · NIA 560"),
             _prog("ING-07", "Componente de financiación (REV-FULL-05 / REV-SME15-06)", "Financiación presentada como ingreso ordinario", "Clasificación",
                   "Identificar cobros diferidos más allá del umbral y descontar a la tasa de mercado", "Contratos, tasas de mercado",
                   "Interés separado del ingreso", "NIIF 15 60-65 · PYMES 2025 23.36-23.38 · PYMES 2015 23.5"),
@@ -808,6 +871,9 @@ def _ej(id, contrato, cliente, modo, precio, registrado, **extra):
 # C-01: PVI 100.000 + 25.000, precio 100.000 → equipo 80.000, mantenimiento 20.000 × 25 % = 5.000.
 # C-02: bono 50.000 al 60 % (excluido) → 500.000 × 45 % = 225.000 (cliente 50 % de 550.000 = 275.000).
 # C-05: 121.000 a 24 meses → VP 121.000 ÷ 1,21 = 100.000; componente 21.000.
+# C-04: devolución 5 % de 40.000 → reembolso 2.000 y activo por recuperar = costo 24.000 × 5 % = 1.200 (NIIF 15 B21 c, B25).
+# C-09-1: devolución 2 % sin costo de los bienes → reembolso 120 y activo vacío (M22).
+# C-11: bono 5.000 al 90 % con 1.000 que supera la restricción → se incluye 4.000 (inclusión parcial, NIIF 15.56-57).
 EJEMPLO = {
     "corte": "2025-12-31",
     "parametros": {"_marco": MARCO_COMPLETAS, "tasaDescuento": 10, "plazoFinanciacion": 12, "umbralAltamenteProbable": 75,
@@ -823,7 +889,8 @@ EJEMPLO = {
         _ej("C-03-1", "C-03", "Distribuidora Norte", "En un momento", "30000", "30000", obligacion="Mercadería", evidencia="Sí",
             fecha_transferencia="2026-01-05", fecha_registro="2025-12-28", facturado="30000"),
         _ej("C-04-1", "C-04", "Retail Express", "En un momento", "40000", "40000", obligacion="Mercadería con derecho a devolución", evidencia="Sí",
-            fecha_transferencia="2025-12-10", fecha_registro="2025-12-10", devolucion="5", nc_posterior="3500", facturado="40000", cobrado="20000"),
+            fecha_transferencia="2025-12-10", fecha_registro="2025-12-10", devolucion="5", nc_posterior="3500", facturado="40000", cobrado="20000",
+            costo_bienes="24000"),
         _ej("C-05-1", "C-05", "Agro Plazo", "En un momento", "121000", "121000", obligacion="Maquinaria a 24 meses", evidencia="Sí",
             fecha_transferencia="2025-07-01", fecha_registro="2025-07-01", plazo_cobro="24", facturado="121000"),
         _ej("C-06-1", "C-06", "Servicios Beta", "A lo largo del tiempo", "15000", "15000", obligacion="Consultoría", evidencia="No",
@@ -835,14 +902,14 @@ EJEMPLO = {
             importe_modificacion="8000"),
         _ej("C-09-1", "C-09", "Mantenimientos Épsilon", "En un momento", "6000", "6000", obligacion="Repuestos", evidencia="Sí",
             fecha_transferencia="2025-12-01", fecha_registro="2025-12-01", facturado="6000", cobrado="6000", modificacion="Adenda de precio",
-            importe_modificacion="1000"),
+            importe_modificacion="1000", devolucion="2"),
         _ej("C-09-2", "C-09", "Mantenimientos Épsilon", "A lo largo del tiempo", "4000", "2000", obligacion="Servicio técnico", evidencia="Sí",
             psi="4000", costo_incurrido="1000", costo_total="2000", facturado="4000", cobrado="4000"),
         _ej("C-10-1", "C-10", "Obra Zeta", "A lo largo del tiempo", "80000", "26666.67", obligacion="Obra menor", evidencia="Sí", psi="80000",
             costo_incurrido="30000", costo_total="90000", facturado="20000"),
         _ej("C-11-1", "C-11", "Servicios Theta", "En un momento", "20000", "25000", obligacion="Entrega con bono", evidencia="Sí",
-            variable="5000", probabilidad="90", variable_cliente="5000", fecha_transferencia="2025-10-01", fecha_registro="2025-10-01",
-            facturado="25000", cobrado="25000"),
+            variable="5000", probabilidad="90", variable_cliente="5000", variable_restringida="1000", fecha_transferencia="2025-10-01",
+            fecha_registro="2025-10-01", facturado="25000", cobrado="25000"),
         _ej("C-12-1", "C-12", "Comercial Iota", "En un momento", "9000", "9000", obligacion="Mercadería", evidencia="Sí", facturado="9000"),
     ]},
 }

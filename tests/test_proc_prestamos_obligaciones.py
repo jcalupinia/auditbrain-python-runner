@@ -72,7 +72,41 @@ def test_dispensa_valida_y_ratios():
     rt = r["detalle"]["ratios"]
     assert rt["DSCR"]["ratio"] == pytest.approx(200000 / r["detalle"]["servicio"]) and rt["DSCR"]["cumple"] == "No"
     assert rt["Deuda / EBITDA"]["cumple"] == "No" and rt["Cobertura de intereses"]["cumple"] == "Sí"
-    assert _c(r, "OP-107")["exigible"] == "Sí"                                     # DSCR calculado incumplido, sin dispensa
+    # OP-107: DSCR incumplido y sin dispensa, pero el covenant se mide el 30-06-2026 (después del corte):
+    # NIC 1 72B → no reclasifica; solo exige la revelación del 76ZA.
+    c7 = _c(r, "OP-107")
+    assert c7["incump"] == "Sí" and c7["cov_futuro"] == "Sí" and c7["exigible"] == "No"
+
+
+def test_covenant_medido_despues_del_corte_no_reclasifica():
+    r = _run()
+    c7 = _c(r, "OP-107")
+    # Alemán 100.000 / 12 = 8.333,33 por trimestre; al corte 5 cuotas (58.333,33) y a 12 meses 9 (25.000).
+    assert round(c7["cap_c"], 2) == 58333.33 == round(100000 - 5 * 100000 / 12, 2)
+    assert round(c7["cap_12"], 2) == 25000.00 == round(100000 - 9 * 100000 / 12, 2)
+    assert round(c7["cp"], 2) == 34938.20 == round(58333.33333333333 - 25000 + c7["acc_tie"], 2)   # capital 12 m + interés TIE
+    assert round(c7["lp"], 2) == round(c7["ca_tot"] - c7["cp"], 2) == 24624.90
+    assert "COVENANT_POSTERIOR_AL_CORTE" in _codigos(r) and "COVENANT_SIN_DISPENSA" not in {
+        e["code"] for e in r["exceptions"] if e["message"].startswith("OP-107")}
+    t = {k: float(v) for k, v in r["totals"].items()}
+    assert t["corriente"] == 395633.02 and t["noCorriente"] == 264332.18 and t["reclasificacionCovenant"] == 127760.65
+    # Sin la fecha de medición se mantiene el tratamiento anterior (reclasifica) y se pide el dato (M22).
+    sin_fecha = _run(ds=_ds(**{"OP-107": {"fecha_covenant": ""}}))
+    c7b = _c(sin_fecha, "OP-107")
+    assert c7b["exigible"] == "Sí" and c7b["cp"] == c7b["ca_tot"] and c7b["lp"] == 0
+    assert float(sin_fecha["totals"]["corriente"]) == 420257.92 and float(sin_fecha["totals"]["noCorriente"]) == 239707.28
+    assert "COVENANT_SIN_FECHA_MEDICION" in {e["code"] for e in sin_fecha["exceptions"] if e["message"].startswith("OP-107")}
+    # OP-103 tampoco informa la fecha: se pide, sin cambiar su clasificación.
+    assert "COVENANT_SIN_FECHA_MEDICION" in {e["code"] for e in r["exceptions"] if e["message"].startswith("OP-103")}
+
+
+def test_revelacion_de_incumplimientos_niif7_18_19():
+    r = _run()
+    rev = {e["message"].split(":")[0] for e in r["exceptions"] if e["code"] == "REVELACION_INCUMPLIMIENTO"}
+    assert rev == {"OP-102", "OP-105", "OP-107"}          # covenants incumplidos al corte (OP-107 además con impago)
+    msg = next(e["message"] for e in r["exceptions"] if e["code"] == "REVELACION_INCUMPLIMIENTO" and e["message"].startswith("OP-107"))
+    assert "NIIF 7 18–19" in msg and "1.645,83" in msg    # pagos tabla 41.645,83 − informados 40.000
+    assert "PYMES 11.47" in next(e["message"] for e in _run(PYMES)["exceptions"] if e["code"] == "REVELACION_INCUMPLIMIENTO")
 
 
 def test_problemas_minimos_y_totales():

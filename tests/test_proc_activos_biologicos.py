@@ -66,7 +66,7 @@ def test_rutas_por_marco():
     comp = _run(parametros={**E["parametros"], "_marco": "NIIF completas"})
     pym = _run(parametros={**E["parametros"], "_marco": "NIIF para las PYMES", "_edicion": "2015"})
     assert _it(comp, "F-01")["ruta"] == "NIC 16"
-    assert _it(pym, "F-01")["ruta"] == "Valor razonable"            # PYMES: sin exclusión de plantas productoras (VERIFICAR)
+    assert _it(pym, "F-01")["ruta"] == "Valor razonable"            # PYMES 2015: sin exclusión de plantas productoras
     assert _it(pym, "F-01")["aud"] is None                          # sin VR al corte: M22, vacío
     assert "SIN_VR" in {e["code"] for e in pym["exceptions"]}
     assert _t(pym, "plantasProductoras") == 0
@@ -75,13 +75,43 @@ def test_rutas_por_marco():
     nf = _run(parametros={**E["parametros"], "vr_fiable": "No", "_marco": "NIIF completas"})
     assert _it(nf, "G-01")["ruta"] == "Valor razonable" and _it(nf, "G-04")["ruta"] == "Costo"
     assert _it(nf, "G-04")["aj"] == 0 and "MODELO_COSTO_SIN_JUSTIFICAR" not in {e["code"] for e in nf["exceptions"]}
-    # PYMES con VR que exige esfuerzo desproporcionado: todo al costo.
+    # PYMES con VR que exige esfuerzo desproporcionado: todo al costo, salvo la planta productora de 34.2A.
     pc = _run(parametros={"vr_sin_esfuerzo_desproporcionado": "No", "_marco": "NIIF para las PYMES", "_edicion": "2025"})
-    assert all(a["ruta"] == "Costo" for a in pc["detalle"]["items"])
+    assert all(a["ruta"] == "Costo" for a in pc["detalle"]["items"] if a["id"] != "F-01")
+    assert _it(pc, "F-01")["ruta"] == "Sección 17"
     codes = {e["code"] for e in pc["exceptions"]}
     assert {"MODELO_VR_SIN_BASE", "SIN_COSTO"} <= codes
     h = {x["name"]: x for x in m.hojas(pc)}
     assert "Sección 12" in h["02_Parametros"]["rows"][1][1]
+
+
+def test_planta_productora_pymes_2025_seccion_17():
+    """PYMES 2025 párr. 34.2A y 17.3 a): la planta productora medible por separado sale de la Sección 34."""
+    p25 = {**E["parametros"], "_marco": "NIIF para las PYMES", "_edicion": "2025"}
+    r25 = _run(parametros=p25)
+    f1 = _it(r25, "F-01")
+    assert f1["ruta"] == "Sección 17" and f1["aud"] == 80000        # al valor en libros, como la ruta NIC 16
+    assert _t(r25, "plantasProductoras") == 80000.00
+    # El resto del anexo no cambia: 1.444.120 (PYMES 2015, con F-01 sin medir) + 80.000 de la planta.
+    assert _t(r25, "valorAuditado") == 1524120.00 and _t(r25, "ajuste") == 22320.00
+    codes = {e["code"] for e in r25["exceptions"]}
+    assert "PLANTA_PRODUCTORA" in codes and "SIN_VR" not in codes   # ya no se le exige VR a la planta
+    assert "34.2A" in next(e["message"] for e in r25["exceptions"] if e["code"] == "PLANTA_PRODUCTORA")
+    assert _t(r25, "cosechaRecalculada") == 796000.00               # su producto sigue en la Sección 34
+    # En 2015 no hay exclusión y en NIIF completas la ruta sigue siendo NIC 16.
+    assert _it(_run(parametros={**p25, "_edicion": "2015"}), "F-01")["ruta"] == "Valor razonable"
+    # Sin el dato de 34.2A la planta se queda en la Sección 34 y se pide (M22).
+    ds = copy.deepcopy(E["datasets"])
+    next(a for a in ds["activos"] if a["id"] == "F-01")["medible_por_separado"] = ""
+    sin = m.ejecutar(ds, p25, E["corte"])
+    assert _it(sin, "F-01")["ruta"] == "Valor razonable"
+    ex = next(e for e in sin["exceptions"] if e["code"] == "PLANTA_SIN_EVALUAR_34_2A")
+    assert "F-01" in ex["message"] and float(ex["amount"]) == 80000
+    # Si no puede medirse por separado, toda la planta sigue en la Sección 34 y no se emite el problema.
+    next(a for a in ds["activos"] if a["id"] == "F-01")["medible_por_separado"] = "No"
+    no = m.ejecutar(ds, p25, E["corte"])
+    assert _it(no, "F-01")["ruta"] == "Valor razonable"
+    assert "PLANTA_SIN_EVALUAR_34_2A" not in {e["code"] for e in no["exceptions"]}
 
 
 def test_vacio_y_parametros_invalidos():

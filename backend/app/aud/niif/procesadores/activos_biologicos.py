@@ -18,7 +18,10 @@ Versión simple que cumple la norma, una cédula por prueba de la matriz del soc
 
 Rutas por marco: NIIF completas → plantas productoras fuera de NIC 41 (NIC 16; su producto sí es NIC 41) y el modelo
 del costo solo si el VR no es fiable y el activo ya estaba al costo (41.30-41.31). PYMES → sección 34: VR si es
-fácilmente determinable sin costo o esfuerzo desproporcionado; si no, costo (34.2).
+fácilmente determinable sin costo o esfuerzo desproporcionado; si no, costo (34.2). PYMES edición 2025: las plantas
+productoras que pueden medirse por separado de su producto sin costo o esfuerzo desproporcionado salen de la Sección 34
+y se miden con la Sección 17 (34.2A; 17.3 a), como NIC 16 en NIIF completas; su producto sigue en la Sección 34. En
+PYMES 2015 no hay exclusión: la planta se queda en la Sección 34.
 """
 from __future__ import annotations
 
@@ -35,6 +38,9 @@ _ACTIVOS = [
     campo("categoria", "Categoría (ganado, plantación, camarón, flores…)", alias=("clase", "tipo", "descripcion", "especie"), ejemplo="Ganado lechero"),
     campo("unidad", "Unidad de medida", requerido=False, alias=("unidad", "um", "medida"), ejemplo="cabezas"),
     campo("planta_productora", "¿Es planta productora? (Sí/No)", requerido=False, alias=("planta productora", "bearer plant", "productora"), ejemplo="No"),
+    campo("medible_por_separado", "Planta productora: ¿puede medirse por separado de su producto sin costo o esfuerzo desproporcionado? "
+          "(Sí/No; solo PYMES 2025, 34.2A)", requerido=False,
+          alias=("medible por separado", "separable", "medicion separada", "sin esfuerzo desproporcionado separado"), ejemplo=""),
     campo("modelo_cliente", "Modelo del cliente (Valor razonable / Costo)", requerido=False, alias=("modelo", "medicion", "base de medicion"), ejemplo="Valor razonable"),
     campo("vr_medible", "VR fiable / sin esfuerzo desproporcionado para este activo (Sí/No; en blanco: parámetro general)",
           requerido=False, alias=("vr fiable", "vr medible", "valor razonable fiable"), ejemplo=""),
@@ -82,7 +88,7 @@ ETIQUETAS_PARAM = {
 }
 TOTAL_EJEMPLO = "ajuste"
 
-VR, COSTO, NIC16 = "Valor razonable", "Costo", "NIC 16"
+VR, COSTO, NIC16, S17 = "Valor razonable", "Costo", "NIC 16", "Sección 17"
 
 
 def kind(dataset: str) -> str:
@@ -140,6 +146,12 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     if corte_a is None:
         raise ValueError("Indique la fecha de corte del encargo.")
     general = p["vr_sin_esfuerzo_desproporcionado"] if pymes else p["vr_fiable"]
+    # PYMES 2025 párr. 34.2A y 17.3 a): las plantas productoras que pueden medirse por separado de su producto sin
+    # costo o esfuerzo desproporcionado salen de la Sección 34 y se miden con la Sección 17 (costo y depreciación),
+    # igual que en NIIF completas con NIC 16 (41.2 b). Su producto sigue en la Sección 34. En PYMES 2015 no hay
+    # exclusión: la planta se queda en la Sección 34.
+    s34_2a = pymes and edicion_pymes(p) == "2025"
+    fuera = S17 if s34_2a else NIC16
 
     items = []
     for f in datasets.get("activos") or []:
@@ -147,7 +159,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         if cf is None or vl is None:
             continue
         a = {"id": _txt(f.get("id")), "cat": _txt(f.get("categoria")), "unidad": _txt(f.get("unidad")),
-             "pp": _sino(f.get("planta_productora")), "mc": _modelo(f.get("modelo_cliente")), "vm": _sino(f.get("vr_medible")),
+             "pp": _sino(f.get("planta_productora")), "sep": _sino(f.get("medible_por_separado")),
+             "mc": _modelo(f.get("modelo_cliente")), "vm": _sino(f.get("vr_medible")),
              "qi": _opt(f.get("cant_inicial")), "cf": cf, "cc": _opt(f.get("cant_contada")), "vi": _opt(f.get("vr_inicial")),
              "vc": _opt(f.get("vr_corte")), "cvRaw": _opt(f.get("costo_venta")), "vl": vl, "li": _opt(f.get("libros_inicial")),
              "comRaw": _opt(f.get("compras")), "bajRaw": _opt(f.get("bajas")), "gr": _opt(f.get("ganancia_registrada")),
@@ -158,9 +171,9 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         # 03 · clasificación y ruta.
         a["med"] = a["vm"] or general
         if pymes:
-            a["ruta"] = VR if a["med"] == "Sí" else COSTO
+            a["ruta"] = fuera if (s34_2a and a["pp"] == "Sí" and a["sep"] == "Sí") else (VR if a["med"] == "Sí" else COSTO)
         else:
-            a["ruta"] = NIC16 if a["pp"] == "Sí" else (COSTO if a["med"] == "No" and a["mc"] == COSTO else VR)
+            a["ruta"] = fuera if a["pp"] == "Sí" else (COSTO if a["med"] == "No" and a["mc"] == COSTO else VR)
         a["q"] = a["cc"] if a["cc"] is not None else cf
         a["fu"] = None if a["vc"] is None else a["vc"] - a["cv"]
         a["fi"] = None if a["vi"] is None else a["vi"] - a["cv"]
@@ -174,7 +187,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         a["vCosto"] = None if a["neto"] is None else a["neto"] - (a["detAd"] or 0)
         # 05 · valoración.
         a["ftot"] = None if a["ruta"] != VR or a["fu"] is None else a["q"] * a["fu"]
-        a["aud"] = vl if a["ruta"] == NIC16 else (a["ftot"] if a["ruta"] == VR else a["vCosto"])
+        a["aud"] = vl if a["ruta"] == fuera else (a["ftot"] if a["ruta"] == VR else a["vCosto"])
         a["aj"] = None if a["aud"] is None else a["aud"] - vl
         # 06 · transformación biológica (NIC 41.51) y ganancia por cambio de VR.
         esvr = a["ruta"] == VR
@@ -217,7 +230,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     t["gananciaNoReconocida"] = S(a["noRec"] for a in items)
     t["difConciliacion"] = S(a["difConc"] for a in items)
     t["deterioroAdicional"] = S(a["detAd"] for a in items)
-    t["plantasProductoras"] = S(a["vl"] for a in items if a["ruta"] == NIC16)
+    t["plantasProductoras"] = S(a["vl"] for a in items if a["ruta"] == fuera)
     t["cosechaRecalculada"] = S(x["tot"] for x in cos)
     t["cosechaRegistrada"] = S(x["reg"] for x in cos)
     t["difCosecha"] = S(x["dif"] for x in cos)
@@ -232,7 +245,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     if fis:
         pr.append(problema("DIFERENCIA_FISICA", f"Diferencias entre el conteo y los registros en {len(fis)} lote(s): {lista(fis)}. Neto valorizado {m(t['difFisicas'])}; "
                            "ajuste las unidades e investigue la causa (mortalidad, robo, error de registro).", t["difFisicas"]))
-    sc = ids(lambda a: a["cc"] is None and a["ruta"] != NIC16)
+    sc = ids(lambda a: a["cc"] is None and a["ruta"] != fuera)
     if sc:
         pr.append(problema("SIN_CONTEO", f"{len(sc)} lote(s) sin cantidad contada ({lista(sc)}): se usan los registros. Documente el recuento o la "
                            "estimación de biomasa (NIA 501).", S(a["vl"] for a in items if a["id"] in sc)))
@@ -285,11 +298,22 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         dd = [a["id"] for a in items if a["detAd"]]
         pr.append(problema("DETERIORO_COSTO", f"Activos al costo con importe recuperable menor que su valor neto en {lista(dd)}: deterioro adicional "
                            f"{m(t['deterioroAdicional'])} ({'PYMES 27' if pymes else 'NIC 36 por NIC 41.33'}).", t["deterioroAdicional"]))
-    pp = ids(lambda a: a["ruta"] == NIC16)
+    pp = ids(lambda a: a["ruta"] == fuera)
     if pp:
-        pr.append(problema("PLANTA_PRODUCTORA", f"Plantas productoras fuera de NIC 41 ({lista(pp)}, {m(t['plantasProductoras'])}): se miden con NIC 16 "
-                           "(herramienta de propiedades, planta y equipo); aquí se dejan al valor en libros. Su producto sí es NIC 41 (41.2 b y 41.5C).",
-                           t["plantasProductoras"]))
+        base = ("fuera de la Sección 34 (34.2A): pueden medirse por separado de su producto sin costo o esfuerzo desproporcionado, así que se miden "
+                "con la Sección 17 (costo menos depreciación y deterioro). Su producto sigue en la Sección 34 (34.2A)"
+                if s34_2a else
+                "fuera de NIC 41: se miden con NIC 16. Su producto sí es NIC 41 (41.2 b y 41.5C)")
+        pr.append(problema("PLANTA_PRODUCTORA", f"Plantas productoras {base} ({lista(pp)}, {m(t['plantasProductoras'])}): use la herramienta de "
+                           "propiedades, planta y equipo; aquí se dejan al valor en libros.", t["plantasProductoras"]))
+    if s34_2a:
+        se = ids(lambda a: a["pp"] == "Sí" and a["sep"] == "")
+        if se:
+            pr.append(problema("PLANTA_SIN_EVALUAR_34_2A", f"Plantas productoras sin evaluar la exclusión de la Sección 34 en {lista(se)}: indique si "
+                               "pueden medirse por separado de su producto, al reconocimiento inicial y después, sin costo o esfuerzo desproporcionado "
+                               "(34.2A). Si pueden, la planta se mide con la Sección 17 (17.3 a) y solo su producto queda en la Sección 34; si no "
+                               "pueden, toda la planta sigue en la Sección 34. Mientras falte el dato se mide aquí con la Sección 34.",
+                               S(a["vl"] for a in items if a["id"] in se)))
     if p["saldoMayor"] is None:
         pr.append(problema("SIN_MAYOR", "Ingrese el saldo de activos biológicos según el mayor: sin él se toma la suma del anexo y no se prueba la conciliación."))
     elif abs(t["difAnexoMayor"]) > 0.005:
@@ -315,6 +339,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     if pymes:
         etiquetas["cambioFisico"], etiquetas["cambioPrecio"] = "Cambio de VR por cambios físicos", "Cambio de VR por precios"
         etiquetas["difConciliacion"] = "Diferencia en la conciliación de cambios (34.7 c)"
+        if s34_2a:
+            etiquetas["plantasProductoras"] = "Plantas productoras fuera de la Sección 34 (Sección 17, 34.2A)"
     filas = [{"id": a["id"], "categoria": a["cat"], "unidad": a["unidad"], "cant_final": str(a["cf"]),
               "cant_contada": "" if a["cc"] is None else str(a["cc"]), "valor_libros": r2(a["vl"]), "modelo_auditado": a["ruta"],
               "valor_auditado": "" if a["aud"] is None else r2(a["aud"]), "ajuste": "" if a["aj"] is None else r2(a["aj"]), "_row": a["_row"]}
@@ -365,12 +391,14 @@ def hojas(res: dict) -> list[dict]:
     p, t, its, cos = d["parametros"], d["tot"], d["items"], d["cos"]
     na, nc = len(its), len(cos)
     pymes = d["pymes"]
+    s34_2a = pymes and d["edicion"] == "2025"
+    fuera = S17 if s34_2a else NIC16
     norma = (f"NIIF para las PYMES {d['edicion']} · sección 34" + (" (PYMES 2025: 34.6 remite a la Sección 12 para el valor razonable (se sustituye la guía de 2015); vigente desde el 1-1-2027; para cortes 2025–2026 solo con adopción anticipada)" if d["edicion"] == "2025" else "")
              if pymes else "NIIF completas · NIC 41 y NIIF 13")
     ruta = ("PYMES: VR menos costos de venta si el VR es fácilmente determinable sin costo o esfuerzo desproporcionado; si no, costo menos "
             "depreciación y deterioro (34.2, 34.4, 34.8). PYMES 2015: plantas productoras dentro de la Sección 34. PYMES 2025: las plantas "
             "productoras que puedan medirse por separado sin costo o esfuerzo desproporcionado pasan a la Sección 17 (34.2 y 34.2A; 17.3 a; si no pueden medirse por separado, toda la planta sigue en la Sección 34); "
-            "su producto sigue en la Sección 34 — pendiente de implementar en el cálculo" if pymes else
+            "su producto sigue en la Sección 34" if pymes else
             "NIC 41: VR menos costos de venta (41.12); costo solo si el VR no es fiable y el activo ya estaba al costo (41.30-41.31); "
             "plantas productoras a NIC 16 (41.2 b)")
     parametros = [
@@ -385,12 +413,13 @@ def hojas(res: dict) -> list[dict]:
     act, exi, val, tra, con, cst = [], [], [], [], [], []
     for k, a in enumerate(its):
         r = FILA0 + k
-        f_ruta = (f'IF(V{r}="Sí","{VR}","{COSTO}")' if pymes else
+        f_ruta = (f'IF(AND(D{r}="Sí",AA{r}="Sí"),"{S17}",IF(V{r}="Sí","{VR}","{COSTO}"))' if s34_2a else
+                  f'IF(V{r}="Sí","{VR}","{COSTO}")' if pymes else
                   f'IF(D{r}="Sí","{NIC16}",IF(AND(V{r}="No",E{r}="{COSTO}"),"{COSTO}","{VR}"))')
         act.append([a["id"], a["cat"], a["unidad"], a["pp"] or None, a["mc"] or None, a["vm"] or None, a["qi"], a["cf"], a["cc"], a["vi"], a["vc"],
                     a["cvRaw"], a["vl"], a["li"], a["comRaw"], a["bajRaw"], a["gr"], a["ca"], a["dep"], a["det"], a["rec"],
                     fx(f'IF(F{r}<>"",F{r},{gen})', a["med"]), fx(f_ruta, a["ruta"]), fx(f'IF(I{r}<>"",I{r},H{r})', a["q"]),
-                    fx(f'IF(K{r}="","",K{r}-L{r})', a["fu"]), fx(f'IF(J{r}="","",J{r}-L{r})', a["fi"])])
+                    fx(f'IF(K{r}="","",K{r}-L{r})', a["fu"]), fx(f'IF(J{r}="","",J{r}-L{r})', a["fi"]), a["sep"] or None])
         exi.append([a["id"], a["cat"], a["unidad"], fx(f"{ACT}H{r}", a["cf"]), fx(_si(f"{ACT}I{r}"), a["cc"]),
                     fx(f'IF(E{r}="","",E{r}-D{r})', a["difQ"]),
                     fx(f'IF({ACT}Y{r}<>"",{ACT}Y{r},IF({ACT}H{r}=0,"",{ACT}M{r}/{ACT}H{r}))', a["vu"]),
@@ -399,7 +428,7 @@ def hojas(res: dict) -> list[dict]:
                     fx(f"{ACT}L{r}", a["cv"]), fx(f'IF(E{r}="","",E{r}-F{r})', a["fu"]),
                     fx(f'IF(OR(C{r}<>"{VR}",G{r}=""),"",D{r}*G{r})', a["ftot"]),
                     fx(f'IF(C{r}="{COSTO}",{_si(f"{CST}I{r}")},"")', a["vCosto"] if a["ruta"] == COSTO else None),
-                    fx(f'IF(C{r}="{NIC16}",K{r},IF(C{r}="{VR}",H{r},I{r}))', a["aud"]), fx(f"{ACT}M{r}", a["vl"]),
+                    fx(f'IF(C{r}="{fuera}",K{r},IF(C{r}="{VR}",H{r},I{r}))', a["aud"]), fx(f"{ACT}M{r}", a["vl"]),
                     fx(f'IF(J{r}="","",J{r}-K{r})', a["aj"])])
         tra.append([a["id"], fx(f"{VAL}C{r}", a["ruta"]), fx(_si(f"{ACT}G{r}"), a["qi"]), fx(f"{ACT}X{r}", a["q"]),
                     fx(_si(f"{ACT}Z{r}"), a["fi"]), fx(_si(f"{ACT}Y{r}"), a["fu"]),
@@ -434,7 +463,7 @@ def hojas(res: dict) -> list[dict]:
         "gananciaRecalculada": f"SUM({_rg(TRA, 'N', na)})", "gananciaRegistrada": f"SUM({_rg(ACT, 'Q', na)})",
         "gananciaNoReconocida": f"SUM({_rg(TRA, 'P', na)})", "difConciliacion": f"SUM({_rg(CON, 'I', na)})",
         "deterioroAdicional": f"SUM({_rg(CST, 'H', na)})",
-        "plantasProductoras": f'SUMIF({_rg(VAL, "C", na)},"{NIC16}",{_rg(VAL, "K", na)})',
+        "plantasProductoras": f'SUMIF({_rg(VAL, "C", na)},"{fuera}",{_rg(VAL, "K", na)})',
         "cosechaRecalculada": f"SUM({_rg(COS, 'H', nc)})", "cosechaRegistrada": f"SUM({_rg(COS, 'I', nc)})", "difCosecha": f"SUM({_rg(COS, 'J', nc)})",
     }
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
@@ -450,9 +479,9 @@ def hojas(res: dict) -> list[dict]:
               ["Costo de venta unitario", n_], ["Valor en libros", n_], ["Libros al inicio", n_], ["Compras e incrementos", n_], ["Disminuciones", n_],
               ["Ganancia VR registrada", n_], ["Costo acumulado", n_], ["Depreciación acumulada", n_], ["Deterioro registrado", n_],
               ["Importe recuperable", n_], ["VR medible (aplicado)", "t"], ["Modelo auditado", "t"], ["Cantidad auditada", n_],
-              ["VR − costos de venta unitario", n_], ["VR − costos de venta unitario inicial", n_]],
+              ["VR − costos de venta unitario", n_], ["VR − costos de venta unitario inicial", n_], ["Planta productora medible por separado (34.2A)", "t"]],
              act, ["TOTAL", "", "", "", "", "", None, None, None, None, None, None, _tot("M", na, t["valorLibros"]), None, None, None,
-                   _tot("Q", na, t["gananciaRegistrada"]), None, None, None, None, "", "", None, None, None]),
+                   _tot("Q", na, t["gananciaRegistrada"]), None, None, None, None, "", "", None, None, None, ""]),
         hoja("04_Existencia", CEDULAS[3][1],
              [["Lote", "t"], ["Categoría", "t"], ["Unidad", "t"], ["Cantidad según registros", n_], ["Cantidad contada", n_], ["Diferencia (unidades)", n_],
               ["Valor unitario", n_], ["Diferencia valorizada", n_]],
@@ -498,7 +527,8 @@ def definicion() -> dict:
     activos = ("Una fila por lote o grupo homogéneo (ganado, plantación, camarón, flores…): categoría, unidad, si es planta productora, "
                "modelo del cliente, cantidad inicial, cantidad final según registros, cantidad contada, VR unitario inicial y al corte, costo de "
                "venta unitario, valor en libros al corte y al inicio, compras, disminuciones y ganancia por cambio de VR registrada; si mide al "
-               "costo, costo acumulado, depreciación, deterioro e importe recuperable. Sin filas de total.")
+               "costo, costo acumulado, depreciación, deterioro e importe recuperable; si es planta productora y el marco es PYMES 2025, si "
+               "puede medirse por separado de su producto sin costo o esfuerzo desproporcionado (34.2A). Sin filas de total.")
     prog = lambda code, obj, risk, asr, proc, ev, crit, src: {"code": code, "objective": obj, "risk": risk, "assertion": asr, "procedure": proc,
                                                                "evidence": ev, "criterion": crit, "source": src}
     return {
@@ -524,7 +554,7 @@ def definicion() -> dict:
                                      "VR menos costos de venta en la cosecha 34.5); en los demás casos modelo del costo, costo menos depreciación y "
                                      "deterioro (34.8-34.10). Conciliación de cambios: 34.7 c). PYMES 2025 (tercera edición): Sección 12 para el valor "
                                      "razonable (34.6 remite a ella; se sustituye la guía de 2015); las plantas productoras que puedan medirse por separado sin costo o esfuerzo "
-                                     "desproporcionado pasan a la Sección 17 (34.2 y 34.2A; 17.3 a; si no pueden medirse por separado, toda la planta sigue en la Sección 34) y su producto sigue en la Sección 34; vigente "
+                                     "desproporcionado salen de esta sección y se miden con la Sección 17 (34.2 y 34.2A; 17.3 a; si no pueden medirse por separado, toda la planta sigue en la Sección 34) y su producto sigue en la Sección 34; vigente "
                                      "desde el 1-1-2027; para cortes 2025–2026 solo con adopción anticipada. 34.3 reconocimiento; 34.9 producto agrícola en el modelo del costo",
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
@@ -538,8 +568,10 @@ def definicion() -> dict:
             "Cantidad auditada = contada (o según registros si no se contó); diferencia física = (contada − registros) × VR menos costos de venta unitario.",
             "FVLCTS unitario = VR unitario − costo de venta unitario; FVLCTS total = cantidad auditada × FVLCTS unitario (NIC 41.12; PYMES 34.4).",
             "Ruta: NIIF completas → plantas productoras a NIC 16; costo solo si el VR no es fiable y el cliente ya medía al costo (41.30-41.31). "
-            "PYMES → VR si es fácilmente determinable sin costo o esfuerzo desproporcionado; si no, costo (34.2). PYMES 2025: la exclusión de plantas "
-            "productoras separables (34.2A) aún no se aplica en el cálculo: pendiente de decisión del socio.",
+            "PYMES → VR si es fácilmente determinable sin costo o esfuerzo desproporcionado; si no, costo (34.2). PYMES 2025: las plantas productoras "
+            "que pueden medirse por separado de su producto sin costo o esfuerzo desproporcionado salen de la Sección 34 y se miden con la Sección 17 "
+            "(34.2A; 17.3 a) — aquí se dejan al valor en libros y se remiten a la herramienta de propiedades, planta y equipo; su producto sigue en la "
+            "Sección 34. En PYMES 2015 se quedan en la Sección 34.",
             "Modelo del costo: costo − depreciación − deterioro registrado; deterioro adicional = MAX(0, neto − importe recuperable).",
             "Ajuste = valor auditado − valor en libros.",
             "Cambio físico = (cantidad final − inicial) × FVLCTS unitario inicial; cambio de precio = cantidad final × (FVLCTS final − inicial) (NIC 41.51).",
@@ -552,8 +584,9 @@ def definicion() -> dict:
         "cedulas": [[n, l] for n, l in CEDULAS],
         "program": [
             prog("BIO-01", "Clasificación", "Plantas productoras o activos fuera de alcance medidos con NIC 41", "Clasificación",
-                 "Clasificar cada lote: consumo/productor, planta productora (NIC 16) o activo biológico (NIC 41)", "Descripción de lotes, políticas",
-                 "Cada lote en la norma que le corresponde", "NIC 41.1-2, 41.5-5C · PYMES 34.2, BIO-07"),
+                 "Clasificar cada lote: consumo/productor, planta productora (NIC 16 en NIIF completas; Sección 17 en PYMES 2025 si puede medirse por "
+                 "separado de su producto, 34.2A) o activo biológico", "Descripción de lotes, políticas",
+                 "Cada lote en la norma que le corresponde", "NIC 41.1-2, 41.5-5C · PYMES 34.2, 34.2A, 17.3 a, BIO-07"),
             prog("BIO-02", "Existencia", "Animales o plantas inexistentes, mortalidad no registrada", "Existencia", "Presenciar el conteo o la estimación de biomasa y compararlo con los registros",
                  "Actas de conteo, registros de campo, informes de mortalidad", "Diferencias valorizadas y ajustadas", "NIA 501"),
             prog("BIO-03", "Valoración", "Activos no medidos a VR menos costos de venta", "Valoración", "Recalcular VR menos costos de venta con precios de mercado y costos de venta",
@@ -589,8 +622,9 @@ def validar_definicion(d: dict) -> dict:
 
 # --- ejemplo de control (M19) ---------------------------------------------------------
 
-def _a(id, cat, un, qi, qf, cc, vi, vc, cv, vl, li, com, baj, gr, mc="Valor razonable", pp="No", vm="", ca="", dep="", det="", rec=""):
-    return {"id": id, "categoria": cat, "unidad": un, "planta_productora": pp, "modelo_cliente": mc, "vr_medible": vm, "cant_inicial": qi,
+def _a(id, cat, un, qi, qf, cc, vi, vc, cv, vl, li, com, baj, gr, mc="Valor razonable", pp="No", vm="", ca="", dep="", det="", rec="", sep=""):
+    return {"id": id, "categoria": cat, "unidad": un, "planta_productora": pp, "medible_por_separado": sep,
+            "modelo_cliente": mc, "vr_medible": vm, "cant_inicial": qi,
             "cant_final": qf, "cant_contada": cc, "vr_inicial": vi, "vr_corte": vc, "costo_venta": cv, "valor_libros": vl, "libros_inicial": li,
             "compras": com, "bajas": baj, "ganancia_registrada": gr, "costo_acumulado": ca, "depreciacion": dep, "deterioro": det,
             "recuperable": rec, "_row": 2}
@@ -613,7 +647,7 @@ EJEMPLO = {
             _a("G-02", "Ganado de engorde", "cabezas", 300, 280, 280, 800, 850, 25, 224000, 232500, 40000, 48500, 0),
             _a("P-01", "Plantación de teca", "hectáreas", 50, 50, 50, 12000, 13500, 500, 650000, 575000, 0, 0, 75000),
             _a("C-01", "Camarón en piscinas", "kg", 20000, 45000, "", 3.0, 3.2, 0.2, 130000, 56000, 30000, 0, 44000),
-            _a("F-01", "Rosales en producción", "plantas", 100000, 100000, 100000, "", "", "", 80000, 80000, 0, 0, "", mc="Costo", pp="Sí"),
+            _a("F-01", "Rosales en producción", "plantas", 100000, 100000, 100000, "", "", "", 80000, 80000, 0, 0, "", mc="Costo", pp="Sí", sep="Sí"),
             _a("F-02", "Botones de rosa en crecimiento", "tallos", 200000, 250000, 250000, 0.10, 0.12, 0.02, 25000, 16000, 0, 0, 8000),
             _a("G-03", "Toros reproductores importados", "cabezas", 5, 5, 5, "", "", "", 42000, 48000, 0, 6000, "", mc="Costo", vm="No",
                ca=60000, dep=18000, det=0, rec=38000),
@@ -637,6 +671,7 @@ ESCENARIOS = [
     ("niif_completas", _E["datasets"], {**_E["parametros"], "_marco": "NIIF completas"}, _E["corte"]),
     ("completas_vr_no_fiable", _E["datasets"], {**_E["parametros"], "vr_fiable": "No", "_marco": "NIIF completas"}, _E["corte"]),
     ("pymes_2015", _E["datasets"], {**_E["parametros"], "_marco": "NIIF para las PYMES", "_edicion": "2015"}, _E["corte"]),
+    ("pymes_2025", _E["datasets"], {**_E["parametros"], "_marco": "NIIF para las PYMES", "_edicion": "2025"}, _E["corte"]),
     ("pymes_2025_costo", _E["datasets"], {"vr_sin_esfuerzo_desproporcionado": "No", "_marco": "NIIF para las PYMES", "_edicion": "2025"}, _E["corte"]),
     ("solo_activos_sin_mayor", {"activos": _E["datasets"]["activos"]}, {}, _E["corte"]),
 ]

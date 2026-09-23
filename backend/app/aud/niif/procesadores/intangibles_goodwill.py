@@ -10,8 +10,10 @@ Versión simple que cumple la norma, una cédula por prueba de la matriz del soc
    entero), sin pasar del importe pendiente (amortizable − amortización acumulada − deterioro acumulado).
 3. Vida finita / indefinida: en NIIF completas un intangible sin vida (en blanco) es de vida indefinida y el
    goodwill no se amortiza (NIC 38.107; NIIF 3.B63 a); ambos exigen prueba anual de deterioro (NIC 36.10, 36.90).
-   En PYMES todo intangible y el goodwill tienen vida finita: sin vida fiable se usa la mejor estimación, con
-   máximo de diez años (18.19-18.20; 19.23 en 2015 / 19.34 en 2025): parámetro `vidaMaxPymes`.
+   En PYMES todo intangible y el goodwill tienen vida finita (18.19); si no puede establecerse con fiabilidad se
+   usa la mejor estimación de la gerencia, que no excederá de diez años (18.20; 19.23 en 2015 / 19.34 en 2025):
+   los diez años (parámetro `vidaMaxPymes`) son el TOPE de esa estimación, no una vida por defecto. Sin estimación
+   la partida no se amortiza (importe vacío) y se pide a la gerencia; si la vida viene y excede el tope, se limita.
 4. Revisión de vida útil y valor residual: meses transcurridos, vida remanente, amortización acumulada esperada
    vs recalculada, residual distinto de cero (NIC 38.100; PYMES 18.23) y revisión anual (NIC 38.104, 38.109).
 5. Deterioro: recuperable = MAX(valor en uso, VR menos costos de disposición) (NIC 36.18; PYMES 27.11);
@@ -180,20 +182,27 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         # 2-3 · amortización y vida finita / indefinida.
         x["resN"] = res
         x["amortizable"] = max(x["costoAud"] - res, 0)
-        if x["cap"] == "No":
+        # PYMES 18.20 y 19.23 (2015) / 19.34 (2025): los diez años son el TOPE de la mejor estimación de la
+        # gerencia cuando la vida no se puede establecer con fiabilidad, no una vida por defecto. Sin esa
+        # estimación no se amortiza (importe vacío, M22) y se pide; si viene y excede el tope, se limita.
+        x["sinVida"] = pymes and x["cap"] == "Sí" and x["vida"] is None
+        x["topePymes"] = pymes and x["cap"] == "Sí" and x["vida"] is not None and x["vida"] > p["vidaMaxPymes"]
+        if x["cap"] == "No" or x["sinVida"]:
             x["vidaAp"] = None
-        elif x["cat"] == "Goodwill":
-            x["vidaAp"] = (p["vidaMaxPymes"] if x["vida"] is None else x["vida"]) if pymes else None
+        elif pymes:
+            x["vidaAp"] = min(x["vida"], p["vidaMaxPymes"])
         else:
-            x["vidaAp"] = (p["vidaMaxPymes"] if pymes else None) if x["vida"] is None else x["vida"]
-        x["tipoVida"] = ("No aplica" if x["cap"] == "No" else
-                         ("Goodwill: indefinida (no se amortiza)" if x["cat"] == "Goodwill" else "Indefinida") if x["vidaAp"] is None else "Finita")
+            x["vidaAp"] = None if x["cat"] == "Goodwill" else x["vida"]
+        x["tipoVida"] = ("No aplica" if x["cap"] == "No" else "Finita" if x["vidaAp"] is not None else
+                         "Sin estimación (18.20)" if pymes else
+                         "Goodwill: indefinida (no se amortiza)" if x["cat"] == "Goodwill" else "Indefinida")
         x["mesesEj"] = 0 if x["fd"] is None else max(0, min(12, _meses(corte_a, x["fd"])))
         x["pendiente"] = max(x["amortizable"] - aai - det, 0)
-        x["amort"] = 0 if x["vidaAp"] is None or x["mesesEj"] == 0 else min(x["amortizable"] / x["vidaAp"] * x["mesesEj"], x["pendiente"])
+        x["amort"] = (None if x["sinVida"] else
+                      0 if x["vidaAp"] is None or x["mesesEj"] == 0 else min(x["amortizable"] / x["vidaAp"] * x["mesesEj"], x["pendiente"]))
         x["aregN"] = areg
-        x["difAmort"] = x["amort"] - areg
-        x["acum"] = aai + x["amort"]
+        x["difAmort"] = None if x["amort"] is None else x["amort"] - areg
+        x["acum"] = aai + (x["amort"] or 0)
         # 4 · revisión de vida útil y valor residual.
         x["mesesTot"] = None if x["fd"] is None or x["cap"] == "No" else max(0, _meses(corte_a, x["fd"]))
         ok = x["vidaAp"] is not None and x["mesesTot"] is not None
@@ -278,11 +287,20 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         add("SIN_REVISION_VIDA", lambda x: x["revExig"].startswith("Anual") and not _si(x["rev_vida"]), "librosAntes",
             lambda l, i: f"Sin revisión anual de la vida útil y el método en {l} (NIC 38.104; para vida indefinida, 38.109).")
     if pymes:
-        add("SIN_AMORTIZAR_PYMES", lambda x: x["cap"] == "Sí" and (x["cat"] == "Goodwill" or x["vida"] is None) and x["aregN"] == 0 and x["amort"] > 0.005,
-            "amort", lambda l, i: f"En PYMES todo intangible y el goodwill tienen vida finita y se amortizan (18.19-18.21; 19.23 (2015) / 19.34 (2025)): {l} sin amortizar; "
-                                  f"amortización calculada {m(i)} (vida: la de la ficha o, si no es fiable, {p['vidaMaxPymes']:.0f} meses).")
+        add("VIDA_NO_ESTIMADA", lambda x: x["sinVida"], "librosAntes",
+            lambda l, i: f"Sin vida útil estimada en {l}: en PYMES toda vida es finita (18.19) y, si no puede establecerse con fiabilidad, se usa la mejor "
+                         f"estimación de la gerencia, que no excederá de diez años (18.20; 19.23 (2015) / 19.34 (2025) para el goodwill). Los "
+                         f"{p['vidaMaxPymes']:.0f} meses son el tope de esa estimación, no una vida por defecto: pida la estimación documentada de la "
+                         f"gerencia. Hasta tenerla el papel no amortiza estas partidas; importe en libros sin amortizar {m(i)}.")
+        add("VIDA_EXCEDE_TOPE_PYMES", lambda x: x["topePymes"], "librosAntes",
+            lambda l, i: f"Vida útil mayor que el tope en {l}: si la vida no puede establecerse con fiabilidad, la mejor estimación de la gerencia no "
+                         f"excederá de diez años (18.20; 19.23 (2015) / 19.34 (2025)); se amortizó con {p['vidaMaxPymes']:.0f} meses. Si la vida sí es "
+                         f"fiable, documéntela y suba el parámetro; importe en libros afectado {m(i)}.")
+        add("SIN_AMORTIZAR_PYMES", lambda x: x["cap"] == "Sí" and x["cat"] == "Goodwill" and x["aregN"] == 0 and (x["amort"] or 0) > 0.005,
+            "amort", lambda l, i: f"En PYMES el goodwill tiene vida finita y se amortiza (18.19-18.21; 19.23 (2015) / 19.34 (2025)): {l} sin amortizar; "
+                                  f"amortización calculada {m(i)} con la vida estimada de la ficha.")
     ya = set().union(*(marcados.get(c, set()) for c in ("GOODWILL_AMORTIZADO_NIIF_COMPLETAS", "INDEFINIDA_AMORTIZADA", "SIN_AMORTIZAR_PYMES")))
-    add("DIF_AMORTIZACION", lambda x: x["cap"] == "Sí" and x["id"] not in ya and abs(x["difAmort"]) > 0.005, "difAmort",
+    add("DIF_AMORTIZACION", lambda x: x["cap"] == "Sí" and x["id"] not in ya and x["difAmort"] is not None and abs(x["difAmort"]) > 0.005, "difAmort",
         lambda l, i: f"La amortización recalculada difiere de la registrada en {l}: {m(i)} (NIC 38.97; PYMES 18.21).")
     add("ACUMULADA_INCONSISTENTE", lambda x: x["difAcum"] is not None and abs(x["difAcum"]) > 0.005, "difAcum",
         lambda l, i: f"La amortización acumulada recalculada no es la esperada por la vida transcurrida en {l}: {m(i)}; revise la vida útil o "
@@ -311,7 +329,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         pr.append(problema("AJUSTE", f"Los intangibles netos auditados ({m(t['netoAuditado'])}) difieren del neto según el mayor ({m(t['saldoMayor'])}).", t["ajuste"]))
 
     filas = [{"id": x["id"], "descripcion": x["desc"], "tipo": x["tipo"], "costo": r2(x["costo"]), "vida_aplicada": "" if x["vidaAp"] is None else str(x["vidaAp"]),
-              "amortizacion": r2(x["amort"]), "neto_libros": r2(x["libros"]), "neto_auditado": r2(x["aud"]), "ajuste": r2(x["ajuste"]),
+              "amortizacion": "" if x["amort"] is None else r2(x["amort"]), "neto_libros": r2(x["libros"]), "neto_auditado": r2(x["aud"]), "ajuste": r2(x["ajuste"]),
               "_row": x["_row"]} for x in its]
     etiquetas = {
         "netoAuditado": "Intangibles netos auditados", "saldoMayor": "Intangibles netos según el mayor", "ajuste": "Ajuste propuesto (neto)",
@@ -376,7 +394,9 @@ def hojas(res: dict) -> list[dict]:
         ["Ruta PYMES (1 = sí, 0 = NIIF completas)", 1 if pymes else 0,
          "1: todo intangible y el goodwill se amortizan y el desarrollo va a gasto; 0: vida indefinida y goodwill sin amortizar con prueba anual"],
         ["Edición PYMES", d["edicion"], "Ficha del encargo"],
-        [ETIQUETAS_PARAM["vidaMaxPymes"], p["vidaMaxPymes"], "PYMES: tope de 10 años cuando la vida no se puede estimar con fiabilidad (18.20 / 19.23 en 2015; 19.34 en 2025); la vida debe ser la mejor estimación de la gerencia"],
+        [ETIQUETAS_PARAM["vidaMaxPymes"], p["vidaMaxPymes"], "PYMES: TOPE de la mejor estimación de la gerencia cuando la vida no se puede establecer con "
+                                                              "fiabilidad (18.20 / 19.23 en 2015; 19.34 en 2025). No es una vida por defecto: sin vida en la "
+                                                              "ficha la partida no se amortiza y se pide la estimación; si la vida excede el tope, se limita al tope"],
         [ETIQUETAS_PARAM["saldoMayor"], p["saldoMayor"], "Mayor contable (en blanco: se toma el auxiliar)"],
     ]
 
@@ -402,13 +422,15 @@ def hojas(res: dict) -> list[dict]:
         amo.append([
             x["id"], fx(f"{REC}E{r}", x["cat"]), fx(f"{REC}F{r}", x["cap"]), fx(f"{REC}I{r}", x["costoAud"]), fx(f"{X('H')}+0", x["resN"]),
             fx(f"MAX(D{r}-E{r},0)", x["amortizable"]),
-            fx(f'IF(C{r}="No","",IF(B{r}="Goodwill",IF({PY}=1,IF({X("I")}="",{_pa("vidaMaxPymes")},{X("I")}),""),'
-               f'IF({X("I")}="",IF({PY}=1,{_pa("vidaMaxPymes")},""),{X("I")})))', x["vidaAp"]),
-            fx(f'IF(C{r}="No","No aplica",IF(G{r}="",IF(B{r}="Goodwill","Goodwill: indefinida (no se amortiza)","Indefinida"),"Finita"))', x["tipoVida"]),
+            fx(f'IF(C{r}="No","",IF({PY}=1,IF({X("I")}="","",MIN({X("I")},{_pa("vidaMaxPymes")})),'
+               f'IF(B{r}="Goodwill","",IF({X("I")}="","",{X("I")}))))', x["vidaAp"]),
+            fx(f'IF(C{r}="No","No aplica",IF(G{r}<>"","Finita",IF({PY}=1,"Sin estimación (18.20)",'
+               f'IF(B{r}="Goodwill","Goodwill: indefinida (no se amortiza)","Indefinida"))))', x["tipoVida"]),
             fx(f'IF({X("F")}="",0,MAX(0,MIN(12,{meses})))', x["mesesEj"]),
             fx(f"MAX(F{r}-{X('J')}-{X('L')},0)", x["pendiente"]),
-            fx(f'IF(OR(G{r}="",I{r}=0),0,MIN(F{r}/G{r}*I{r},J{r}))', x["amort"]),
-            fx(f"{X('K')}+0", x["aregN"]), fx(f"K{r}-L{r}", x["difAmort"]), fx(f"{X('J')}+K{r}", x["acum"]),
+            fx(f'IF(AND({PY}=1,C{r}="Sí",G{r}=""),"",IF(OR(G{r}="",I{r}=0),0,MIN(F{r}/G{r}*I{r},J{r})))', x["amort"]),
+            fx(f"{X('K')}+0", x["aregN"]), fx(f'IF(K{r}="","",K{r}-L{r})', x["difAmort"]),
+            fx(f'{X("J")}+IF(K{r}="",0,K{r})', x["acum"]),
         ])
         vid.append([
             x["id"], fx(f"{AMO}B{r}", x["cat"]), fx(_opc(X("I")), x["vida"]), fx(_opc(f"{AMO}G{r}"), x["vidaAp"]), fx(f"{AMO}H{r}", x["tipoVida"]),
@@ -546,9 +568,10 @@ def definicion() -> dict:
             "Categoría por tipo y fase: investigación, desarrollo, goodwill u otro. Investigación: no capitalizable. Desarrollo: capitalizable solo en "
             "NIIF completas y si cumple NIC 38.57; en PYMES a gasto (18.14). Lo no capitalizable se da de baja (neto auditado 0).",
             "Importe amortizable = costo auditado − valor residual.",
-            "Vida aplicada: la registrada; en blanco = indefinida en NIIF completas (sin amortización) y, en PYMES, la vida máxima del parámetro; el goodwill "
-            "no se amortiza en NIIF completas y en PYMES usa la vida registrada o la máxima. En 18.20 / 19.23 (19.34 en 2025) los diez años son un tope "
-            "para la mejor estimación de la gerencia, no una vida por defecto: pendiente de decisión del socio.",
+            "Vida aplicada: en NIIF completas, la registrada; en blanco = indefinida (sin amortización) y el goodwill no se amortiza. En PYMES toda vida "
+            "es finita (18.19): se usa la vida registrada limitada al tope del parámetro, porque en 18.20 / 19.23 (19.34 en 2025) los diez años son el "
+            "tope de la mejor estimación de la gerencia cuando la vida no puede establecerse con fiabilidad, no una vida por defecto; si la vida no "
+            "viene, la partida no se amortiza (importe vacío) y se emite el problema VIDA_NO_ESTIMADA.",
             "Meses en uso del ejercicio = MIN(12, meses desde la fecha disponible hasta el corte, contando entero el mes de disponibilidad).",
             "Amortización = MIN(amortizable ÷ vida × meses en uso, amortizable − amortización acumulada inicial − deterioro acumulado).",
             "Amortización acumulada esperada = MIN(amortizable, amortizable ÷ vida × meses transcurridos); se compara con la recalculada (sin deterioro previo).",

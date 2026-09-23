@@ -15,11 +15,14 @@ pruebas de la matriz):
 4. Corte (CASH-05): partida originada después del corte; depósito en tránsito acreditado por
    el banco más de N días después del corte o nunca.
 5. Confirmación (CASH-07/08): saldo confirmado por el banco frente al estado bancario.
-6. Efectivo restringido (CASH-11): el monto restringido sale del efectivo y equivalentes
-   (NIC 7.48 / PYMES 7.21 revelar; NIC 1.66 d / PYMES 4.5 d: no corriente si la restricción
-   dura al menos doce meses tras el cierre), salvo que ya se presente por separado.
-7. Equivalentes (CASH-10): una inversión califica si su plazo desde la adquisición es de
-   N días o menos (NIC 7.7 / PYMES 7.2: «por ejemplo, tres meses o menos desde la fecha de adquisición»; guía, no límite fijo); si no, se reclasifica.
+6. Efectivo restringido (CASH-11): la restricción no saca el saldo del efectivo (NIC 7.48 y
+   decisión CINIIF abr-2022: solo obliga a revelarlo). Se reclasifica a no corriente únicamente
+   la parte cuya restricción termina en doce meses o más desde el corte (NIC 1.66 d / PYMES 4.5 d,
+   «al menos doce meses»), salvo que ya se presente por separado; sin fecha de fin no se
+   reclasifica nada y se pide la fecha.
+7. Equivalentes (CASH-10): una inversión cumple el plazo si vence en tres meses o menos desde la
+   adquisición —EDATE(adquisición; 3)— (NIC 7.7 / PYMES 7.2). Es una presunción: la definición
+   exige además gran liquidez y riesgo poco significativo de cambios de valor (NIC 7.6).
 8. Ajuste propuesto = efectivo auditado − saldo según libros (M09).
 
 Norma leída (M03): NIC 7 párr. 6–8, 45, 46, 48, 49 y NIC 1 párr. 66 d) en el Reglamento (UE)
@@ -78,12 +81,12 @@ DATASETS = tuple(TIPOS)
 PRINCIPAL = "cuentas"
 CONTROL = "saldo_libros"
 
-PARAMETROS = {"diasAntiguedad": 90, "diasCorte": 5, "plazoEquivalente": 90, "mesesRestriccion": 12, "tolerancia": 0}
+PARAMETROS = {"diasAntiguedad": 90, "diasCorte": 5, "mesesEquivalente": 3, "mesesRestriccion": 12, "tolerancia": 0}
 PARAM_NEGATIVOS = ()
 ETIQUETAS_PARAM = {
     "diasAntiguedad": "Partida antigua desde (días al corte)",
     "diasCorte": "Días para que el banco acredite un depósito en tránsito",
-    "plazoEquivalente": "Plazo máximo de un equivalente (días desde la adquisición)",
+    "mesesEquivalente": "Plazo de un equivalente (meses desde la adquisición)",
     "mesesRestriccion": "Restricción que la hace no corriente (meses tras el cierre)",
     "tolerancia": "Tolerancia de diferencias (USD)",
 }
@@ -183,11 +186,11 @@ def _opt(v):
 
 def _refs(p: dict) -> dict:
     if not es_pymes(p):
-        return {"marco": "NIIF completas", "def": "NIC 7.6–7.7", "sob": "NIC 7.8", "restr": "NIC 7.48 y NIC 1.66 d)",
+        return {"marco": "NIIF completas", "def": "NIC 7.6–7.7", "sob": "NIC 7.8", "restr": "NIC 7.48 y NIC 1.66 d)", "revel": "NIC 7.48",
                 "comp": "NIC 7.45–7.46", "ifrs18": " (al corte 2025 aplica la NIC 1; la NIIF 18 rige para ejercicios desde el 1-1-2027; desde 2027 el requisito pasa a NIIF 18 párr. 99 d))"}
     ed = edicion_pymes(p)
     return {"marco": f"NIIF para las PYMES {ed}", "def": "Sección 7.2", "sob": "Sección 7.2",
-            "restr": "Secciones 7.21 y 4.5 d)", "comp": "Sección 7.20", "ifrs18": ""}
+            "restr": "Secciones 7.21 y 4.5 d)", "revel": "Sección 7.21", "comp": "Sección 7.20", "ifrs18": ""}
 
 
 def _parametros(parametros: dict) -> dict:
@@ -197,11 +200,12 @@ def _parametros(parametros: dict) -> dict:
         if x is None or x < 0:
             raise ValueError(f"{ETIQUETAS_PARAM[k]}: use un número no negativo.")
         p[k] = float(x)
-    for k in ("diasAntiguedad", "plazoEquivalente", "mesesRestriccion"):
+    for k in ("diasAntiguedad", "mesesEquivalente", "mesesRestriccion"):
         if p[k] <= 0:
             raise ValueError(f"{ETIQUETAS_PARAM[k]}: debe ser mayor que cero.")
-    if p["mesesRestriccion"] != int(p["mesesRestriccion"]):
-        raise ValueError(f"{ETIQUETAS_PARAM['mesesRestriccion']}: use meses enteros.")
+    for k in ("mesesEquivalente", "mesesRestriccion"):
+        if p[k] != int(p[k]):
+            raise ValueError(f"{ETIQUETAS_PARAM[k]}: use meses enteros.")
     return p
 
 
@@ -214,6 +218,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         raise ValueError("Indique la fecha de corte del encargo.")
     rf = _refs(p)
     tol, dias_ant, dias_corte = p["tolerancia"], p["diasAntiguedad"], p["diasCorte"]
+    meses_eq = int(p["mesesEquivalente"])
     limite_restr = _edate(corte_a, int(p["mesesRestriccion"]))
 
     cuentas = []
@@ -274,14 +279,17 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             c["estadoConf"] = "Coincide" if abs(c["difConf"]) <= tol else "No coincide"
         # 6 · restringido.
         if c["restr"]:
-            c["clasif"] = "Sin fecha de fin: VERIFICAR" if c["fin"] is None else ("No corriente" if c["fin"] > limite_restr else "Corriente")
-            c["reclasR"] = 0.0 if c["sep"] else c["monto"]
+            # NIC 1.66 d) / PYMES 4.5 d): «al menos doce meses» → la restricción que vence en el límite ya es no corriente.
+            c["clasif"] = "Sin fecha de fin: VERIFICAR" if c["fin"] is None else ("No corriente" if c["fin"] >= limite_restr else "Corriente")
+            c["reclasR"] = c["monto"] if (c["clasif"] == "No corriente" and not c["sep"]) else 0.0
         else:
             c["clasif"], c["reclasR"] = None, None
-        # 7 · equivalentes.
+        # 7 · equivalentes: tres meses desde la adquisición (NIC 7.7), no 90 días.
         if c["tipo"] == INV:
             c["plazo"] = (c["venc"] - c["adq"]).days if (c["adq"] and c["venc"]) else None
-            c["califica"] = "Sin fechas: VERIFICAR" if c["plazo"] is None else ("Sí" if c["plazo"] <= p["plazoEquivalente"] else "No")
+            c["limite"] = _edate(c["adq"], meses_eq) if c["adq"] else None
+            c["califica"] = ("Sin fechas: VERIFICAR" if (c["adq"] is None or c["venc"] is None)
+                             else ("Sí" if c["venc"] <= c["limite"] else "No"))
             c["reclasNE"] = max(c["ajustado"] - (c["reclasR"] or 0), 0) if c["califica"] == "No" else 0.0
         c["auditado"] = c["ajustado"] - (c["reclasR"] or 0) - (c.get("reclasNE") or 0)
 
@@ -324,17 +332,27 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         if c["restr"]:
             if c["monto"] is None:
                 pr.append(problema("RESTRICCION_SIN_MONTO", f"{nom}: marcada como restringida sin monto restringido; cuantifíquelo.", 0))
-            elif c["reclasR"]:
-                pr.append(problema("RESTRINGIDO_COMO_DISPONIBLE", f"{nom}: {fmt_m(c['monto'])} restringidos ({c['motivo'] or 'motivo no indicado'}) "
-                                                                  f"presentados como efectivo disponible. Reclasificar ({c['clasif']}) y revelar ({rf['restr']}).", c["reclasR"]))
+            else:
+                pr.append(problema("RESTRINGIDO_REVELAR", f"{nom}: {fmt_m(c['monto'])} restringidos ({c['motivo'] or 'motivo no indicado'}). "
+                                                          f"La restricción no los saca del efectivo y equivalentes, pero debe revelarse el importe no disponible "
+                                                          f"junto con un comentario de la gerencia ({rf['revel']}).", c["monto"]))
+                if c["reclasR"]:
+                    pr.append(problema("RESTRINGIDO_COMO_DISPONIBLE", f"{nom}: {fmt_m(c['monto'])} restringidos por al menos {int(p['mesesRestriccion'])} meses "
+                                                                      f"(hasta el {c['fin'].isoformat()}) presentados como efectivo disponible. "
+                                                                      f"Reclasificar a no corriente y revelar ({rf['restr']}).", c["reclasR"]))
             if c["fin"] is None:
-                pr.append(problema("RESTRICCION_SIN_FECHA", f"{nom}: restricción sin fecha de fin; no se puede decidir si es corriente o no corriente.", c["monto"] or 0))
+                pr.append(problema("RESTRICCION_SIN_FECHA", f"{nom}: restricción sin fecha de fin; indique hasta cuándo dura para decidir si es corriente "
+                                                            f"o no corriente ({rf['restr']}). Mientras tanto no se reclasifica nada.", c["monto"] or 0))
         if c["tipo"] == INV:
             if c["plazo"] is None:
                 pr.append(problema("INVERSION_SIN_FECHAS", f"{nom}: faltan las fechas de adquisición o vencimiento para evaluar si es equivalente ({rf['def']}).", c["libros"]))
             elif c["califica"] == "No":
-                pr.append(problema("NO_ES_EQUIVALENTE", f"{nom}: plazo de {c['plazo']} días desde la adquisición (más de {int(p['plazoEquivalente'])}); "
-                                                        f"no es equivalente de efectivo ({rf['def']}). Reclasificar a inversiones.", c["reclasNE"]))
+                pr.append(problema("NO_ES_EQUIVALENTE", f"{nom}: vence el {c['venc'].isoformat()}, después de los {meses_eq} meses desde la adquisición "
+                                                        f"(hasta el {c['limite'].isoformat()}); no es equivalente de efectivo ({rf['def']}). Reclasificar a inversiones.", c["reclasNE"]))
+            else:
+                pr.append(problema("EQUIVALENTE_PRESUNCION", f"{nom}: vence dentro de los {meses_eq} meses desde la adquisición, lo que es solo una presunción. "
+                                                             f"La definición exige además que sea de gran liquidez, fácilmente convertible en importes determinados "
+                                                             f"de efectivo y sujeto a un riesgo poco significativo de cambios de valor ({rf['def']}): documéntelo.", c["libros"]))
     if abs(nc - nd) > 0.005:
         pr.append(problema("NOTAS_NO_REGISTRADAS", f"Notas bancarias no registradas en libros: crédito {fmt_m(nc)} y débito {fmt_m(nd)}. Ajustar los libros.", nc - nd))
     for x in partidas:
@@ -360,7 +378,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     claves = ["saldoLibros", "notas", "reclasRestringido", "reclasNoEquivalentes", "auditado", "ajuste",
               "difNoExplicada", "difConfirmacion", "partidasAntiguas", "partidasNoDepuradas"]
     etiquetas = {"saldoLibros": "Efectivo y equivalentes según libros", "notas": "Notas bancarias no registradas (crédito − débito)",
-                 "reclasRestringido": "Reclasificación de efectivo restringido", "reclasNoEquivalentes": "Reclasificación de inversiones que no son equivalentes",
+                 "reclasRestringido": "Reclasificación a no corriente (restricción ≥ 12 meses)", "reclasNoEquivalentes": "Reclasificación de inversiones que no son equivalentes",
                  "auditado": "Efectivo y equivalentes auditado", "ajuste": "Ajuste propuesto (auditado − libros)",
                  "difNoExplicada": "Diferencias de conciliación no explicadas (absolutas)", "difConfirmacion": "Diferencias de confirmación (absolutas)",
                  "partidasAntiguas": "Partidas conciliatorias antiguas", "partidasNoDepuradas": "Partidas no depuradas después del corte"}
@@ -376,7 +394,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
 P = ref("02_Parametros")
 CON_, PAR_, AUD = ref("03_Conciliacion"), ref("04_Partidas"), ref("10_Efectivo_auditado")
 RES_, EQU_, CNF_ = ref("08_Restringido"), ref("09_Equivalentes"), ref("06_Confirmaciones")
-PAR = {k: FILA0 + i for i, k in enumerate(["corte", "diasAntiguedad", "diasCorte", "plazoEquivalente", "mesesRestriccion", "tolerancia"])}
+PAR = {k: FILA0 + i for i, k in enumerate(["corte", "diasAntiguedad", "diasCorte", "mesesEquivalente", "mesesRestriccion", "tolerancia"])}
 CONCEPTOS = ["saldoLibros", "nc", "nd", "notas", "reclasRestringido", "reclasNoCorriente", "reclasNoEquivalentes", "auditado", "ajuste",
              "caja", "bancos", "equivalentes", "difNoExplicada", "difConfirmacion", "partidasAntiguas", "partidasNoDepuradas"]
 FC = {k: f"{AUD}$B${FILA0 + i}" for i, k in enumerate(CONCEPTOS)}
@@ -400,7 +418,7 @@ def hojas(res: dict) -> list[dict]:
     cu, pa = d["cuentas"], d["partidas"]
     nc_, np_ = len(cu), len(pa)
     corte, dant, dcor = f"{P}$B${PAR['corte']}", f"{P}$B${PAR['diasAntiguedad']}", f"{P}$B${PAR['diasCorte']}"
-    plazo, meses, tol = f"{P}$B${PAR['plazoEquivalente']}", f"{P}$B${PAR['mesesRestriccion']}", f"{P}$B${PAR['tolerancia']}"
+    meses_eq, meses, tol = f"{P}$B${PAR['mesesEquivalente']}", f"{P}$B${PAR['mesesRestriccion']}", f"{P}$B${PAR['tolerancia']}"
     fila_cta = {c["id"]: FILA0 + i for i, c in enumerate(cu)}
     restr = [c for c in cu if c["restr"]]
     inv = [c for c in cu if c["tipo"] == INV]
@@ -413,7 +431,7 @@ def hojas(res: dict) -> list[dict]:
         ["Fecha de corte", d["corte"], "Ficha del encargo"],
         ["Partida antigua desde (días al corte)", p["diasAntiguedad"], "Juicio del auditor (antigüedad de partidas conciliatorias)"],
         ["Días para que el banco acredite un depósito en tránsito", p["diasCorte"], "Juicio del auditor (prueba de corte, NIA 240 párr. 31 y Anexo 2)"],
-        ["Plazo máximo de un equivalente (días desde la adquisición)", p["plazoEquivalente"], f"{rf['def']}: «por ejemplo, tres meses o menos desde la fecha de adquisición» (guía, no límite fijo)"],
+        ["Plazo de un equivalente (meses desde la adquisición)", p["mesesEquivalente"], f"{rf['def']}: «tres meses o menos desde la fecha de adquisición» (presunción: la definición exige además gran liquidez y riesgo poco significativo de cambios de valor)"],
         ["Meses de restricción que la hacen no corriente", p["mesesRestriccion"], f"{rf['restr']}{rf['ifrs18']}"],
         ["Tolerancia de diferencias (USD)", p["tolerancia"], "Juicio del auditor; 0 = toda diferencia se reporta"],
         ["Marco del encargo", rf["marco"], "El cálculo es el mismo en ambos marcos; cambian las referencias citadas"],
@@ -482,8 +500,9 @@ def hojas(res: dict) -> list[dict]:
     for i, c in enumerate(restr):
         r, rc = FILA0 + i, fila_cta[c["id"]]
         restringido.append([c["id"], c["nombre"], fx(f"{CON_}M{rc}", n2(c["ajustado"])), n2(c["monto"]), c["motivo"], c["fin"] or None,
-                            fx(f'IF(F{r}="","Sin fecha de fin: VERIFICAR",IF(F{r}>EDATE({corte},{meses}),"No corriente","Corriente"))', c["clasif"]),
-                            "Sí" if c["sep"] else "No", fx(f'IF(H{r}="Sí",0,IF(D{r}="","",D{r}))', n2(c["reclasR"]))])
+                            fx(f'IF(F{r}="","Sin fecha de fin: VERIFICAR",IF(F{r}>=EDATE({corte},{meses}),"No corriente","Corriente"))', c["clasif"]),
+                            "Sí" if c["sep"] else "No",
+                            fx(f'IF(OR(H{r}="Sí",G{r}<>"No corriente"),0,IF(D{r}="","",D{r}))', n2(c["reclasR"]))])
     fin_r = FILA0 + nr - 1
 
     # 09 · Equivalentes.
@@ -491,7 +510,7 @@ def hojas(res: dict) -> list[dict]:
     for i, c in enumerate(inv):
         r, rc = FILA0 + i, fila_cta[c["id"]]
         equiv.append([c["id"], c["nombre"], c["adq"] or None, c["venc"] or None, fx(f'IF(OR(C{r}="",D{r}=""),"",D{r}-C{r})', c["plazo"]),
-                      fx(f'IF(E{r}="","Sin fechas: VERIFICAR",IF(E{r}<={plazo},"Sí","No"))', c["califica"]),
+                      fx(f'IF(OR(C{r}="",D{r}=""),"Sin fechas: VERIFICAR",IF(D{r}<=EDATE(C{r},{meses_eq}),"Sí","No"))', c["califica"]),
                       fx(f"{CON_}M{rc}", n2(c["ajustado"])),
                       fx(f"SUMIF({_rango(RES_, 'A', nr)},A{r},{_rango(RES_, 'I', nr)})", n2(c["reclasR"] or 0)),
                       fx(f'IF(F{r}="No",MAX(G{r}-H{r},0),0)', n2(c["reclasNE"]))])
@@ -514,8 +533,9 @@ def hojas(res: dict) -> list[dict]:
     textos = {
         "saldoLibros": "Efectivo y equivalentes según libros", "nc": "Notas de crédito no registradas en libros",
         "nd": "Notas de débito no registradas en libros", "notas": "Ajuste por notas bancarias (crédito − débito)",
-        "reclasRestringido": f"(−) Efectivo restringido reclasificado ({rf['restr']})", "reclasNoCorriente": "    de lo cual, no corriente",
-        "reclasNoEquivalentes": f"(−) Inversiones que no son equivalentes ({rf['def']})", "auditado": "Efectivo y equivalentes auditado",
+        "reclasRestringido": f"(−) Reclasificación a no corriente (restricción ≥ 12 meses) ({rf['restr']})",
+        "reclasNoCorriente": "    de lo cual, no corriente",
+        "reclasNoEquivalentes": f"(−) Inversiones que no cumplen el plazo de tres meses ({rf['def']})", "auditado": "Efectivo y equivalentes auditado",
         "ajuste": "Ajuste propuesto (auditado − libros)", "caja": f"Composición ({rf['comp']}): caja",
         "bancos": "Composición: bancos (incluye sobregiros)", "equivalentes": "Composición: equivalentes de efectivo",
         "difNoExplicada": "Diferencias de conciliación no explicadas (absolutas)", "difConfirmacion": "Diferencias de confirmación (absolutas)",
@@ -537,7 +557,7 @@ def hojas(res: dict) -> list[dict]:
     asiento("2 · Notas de débito del banco no registradas", [("Gastos bancarios (identificar la cuenta con el soporte)", "d", FC["nd"], con["nd"]),
                                                            ("Bancos", "h", FC["nd"], con["nd"])])
     rc = con["reclasRestringido"] - con["reclasNoCorriente"]
-    asiento("3 · Reclasificación de efectivo restringido", [
+    asiento("3 · Reclasificación del efectivo restringido a no corriente", [
         ("Efectivo restringido — activo no corriente", "d", FC["reclasNoCorriente"], con["reclasNoCorriente"]),
         ("Efectivo restringido — corriente o por clasificar", "d", f"{FC['reclasRestringido']}-{FC['reclasNoCorriente']}", rc),
         ("Efectivo y equivalentes de efectivo", "h", FC["reclasRestringido"], con["reclasRestringido"])])
@@ -583,7 +603,8 @@ def hojas(res: dict) -> list[dict]:
              ["TOTAL", "", None, None, "", None, "", "", tot("I", fin_r, con["reclasRestringido"])] if nr else None),
         hoja("09_Equivalentes", "Equivalentes de efectivo (definición)",
              [["Cuenta", "t"], ["Instrumento", "t"], ["Adquisición", "d"], ["Vencimiento", "d"], ["Plazo original (días)", "i"],
-              ["Califica como equivalente", "t"], ["Saldo ajustado", "n"], ["Ya reclasificado por restricción", "n"], ["Reclasificación propuesta", "n"]],
+              ["Vence en tres meses o menos (presunción)", "t"], ["Saldo ajustado", "n"], ["Ya reclasificado por restricción", "n"],
+              ["Reclasificación propuesta", "n"]],
              equiv, ["TOTAL", "", None, None, None, "", tot("G", fin_e, sum(c["ajustado"] for c in inv)), None,
                      tot("I", fin_e, con["reclasNoEquivalentes"])] if ni else None),
         hoja("10_Efectivo_auditado", "Efectivo auditado y ajuste", [["Concepto", "t"], ["Importe", "n"]], auditado),
@@ -603,7 +624,7 @@ def definicion() -> dict:
         "frameworks": ["NIIF completas", "NIIF para las PYMES"],
         "summary": ("Reejecuta la conciliación bancaria de cada cuenta, analiza las partidas conciliatorias (antigüedad, depuración "
                     "posterior y corte), compara el saldo confirmado por el banco con el estado bancario y propone la reclasificación del "
-                    "efectivo restringido y de las inversiones que no cumplen la definición de equivalentes de efectivo."),
+                    "efectivo restringido de largo plazo y de las inversiones que no cumplen la definición de equivalentes de efectivo."),
         "source": {"organization": "IFRS Foundation · Reglamento (UE) 2023/1803", "type": "Norma contable", "date": "",
                    "document": "NIC 7 Estado de flujos de efectivo · párr. 6–8 (definiciones, sobregiros), 45 (componentes y conciliación), "
                                "46 (política de composición), 48–49 (saldos no disponibles); NIC 1 párr. 66 d) (restringido al menos doce meses: no corriente; "
@@ -630,8 +651,8 @@ def definicion() -> dict:
             "no depurada si no se liquidó después del corte.",
             "Corte: partida con origen posterior al corte, o depósito en tránsito acreditado más de N días después del corte.",
             "Confirmación: saldo confirmado por el banco − saldo del estado bancario (con tolerancia).",
-            "Restringido: el monto restringido sale del efectivo (no corriente si la restricción dura al menos doce meses tras el cierre) salvo que ya se presente aparte. Pendiente de decisión del socio: la norma (NIC 7.48 / PYMES 7.21) solo exige revelar la restricción corriente, no reclasificarla.",
-            "Equivalentes: una inversión califica si su plazo desde la adquisición es de 90 días o menos; si no, se reclasifica a inversiones. Pendiente de decisión del socio: expresarlo como N días (por defecto 90 ≈ tres meses).",
+            "Restringido: la restricción no saca el saldo del efectivo (NIC 7.48 / PYMES 7.21 solo exigen revelarlo y comentarlo). Se reclasifica a no corriente únicamente la parte cuya restricción termina en doce meses o más desde el corte (NIC 1.66 d / PYMES 4.5 d, «al menos doce meses»), salvo que ya se presente aparte; sin fecha de fin no se reclasifica nada y se pide la fecha.",
+            "Equivalentes: la inversión cumple el plazo si vence en tres meses o menos desde la adquisición, EDATE(adquisición; 3) (NIC 7.7 / PYMES 7.2); si no, se reclasifica a inversiones. Cumplir el plazo es solo una presunción: la definición exige además gran liquidez y riesgo poco significativo de cambios de valor (NIC 7.6).",
             "Ajuste propuesto = efectivo auditado − saldo según libros.",
         ],
         "fields": _CUENTAS, "rules": [], "control": CONTROL, "primary": "ajuste",
@@ -656,11 +677,11 @@ def definicion() -> dict:
              "evidence": "Libro bancos y estados bancarios de diciembre y enero", "criterion": "Acreditación dentro de la ventana", "source": "NIA 240 párr. 31 y Anexo 2 · NIA 330"},
             {"code": "CAJ-06", "objective": "Efectivo restringido", "risk": "Efectivo no disponible presentado como disponible",
              "assertion": "Presentación", "procedure": "Identificar restricciones, garantías y embargos; clasificar y revelar",
-             "evidence": "Contratos, respuestas bancarias, actas", "criterion": "Restringido reclasificado y revelado",
+             "evidence": "Contratos, respuestas bancarias, actas", "criterion": "Restringido revelado; no corriente el de al menos doce meses",
              "source": "NIC 7.48 · NIC 1.66 d) · PYMES 7.21 y 4.5 d)"},
             {"code": "CAJ-07", "objective": "Definición de equivalentes", "risk": "Inversiones de largo plazo presentadas como efectivo",
              "assertion": "Clasificación", "procedure": "Evaluar plazo desde la adquisición, liquidez y riesgo de cada inversión",
-             "evidence": "Certificados y contratos de inversión", "criterion": "Plazo corto (por ejemplo, 3 meses o menos desde la adquisición); si no, reclasificar",
+             "evidence": "Certificados y contratos de inversión", "criterion": "Vence en tres meses o menos desde la adquisición, con gran liquidez y riesgo poco significativo; si no, reclasificar",
              "source": "NIC 7.6–7.7 · PYMES 7.2"},
             {"code": "CAJ-08", "objective": "Presentación y revelación", "risk": "Composición y política no reveladas", "assertion": "Presentación",
              "procedure": "Cotejar la nota de efectivo con la composición auditada y la política de composición",
@@ -709,12 +730,14 @@ def _p(id, cuenta, tipo, origen, importe, liq="", ref_=""):
 # Pichincha: 131.210,50 + 8.500 − 12.000 − 1.850 − 300 (NC) + 120 (ND) = 125.680,50 = libros → sin diferencia;
 #   saldo ajustado 125.680,50 + 300 − 120 = 125.860,50.
 # Guayaquil: 45.900 + 2.100 − 300 − 550 = 47.150; libros 47.700 → diferencia no explicada 550,00.
-#   Restricción de 10.000 hasta 2027-06-30 (> 2026-12-31) → no corriente.
-# Produbanco confirma 21.500 frente a 22.000 del estado → −500. Internacional sin respuesta y embargada (1.650).
-# Certificado de 180 días (30.000) no es equivalente. Efectivo auditado = 274.630,50 + 180 − 11.650 − 30.000 = 233.160,50.
+#   Restricción de 10.000 hasta 2027-06-30 (>= 2026-12-31) → no corriente: se reclasifica.
+# Produbanco confirma 21.500 frente a 22.000 del estado → −500. Internacional embargada (1.650) sin fecha de fin:
+#   se revela pero NO se reclasifica (NIC 7.48 solo exige revelar).
+# Certificado: adquirido el 2025-10-01 y vence el 2026-03-30, después de EDATE(2025-10-01;3) = 2026-01-01 → no es
+#   equivalente (30.000). Efectivo auditado = 274.630,50 + 180 − 10.000 − 30.000 = 234.810,50.
 EJEMPLO = {
     "corte": "2025-12-31",
-    "parametros": {"diasAntiguedad": 90, "diasCorte": 5, "plazoEquivalente": 90, "mesesRestriccion": 12, "tolerancia": 0},
+    "parametros": {"diasAntiguedad": 90, "diasCorte": 5, "mesesEquivalente": 3, "mesesRestriccion": 12, "tolerancia": 0},
     "datasets": {
         "cuentas": [
             _c("1.1.01.01", "Caja general", "Caja", "500.00", "500.00"),

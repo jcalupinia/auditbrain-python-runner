@@ -10,9 +10,11 @@ Versión simple que cumple la norma:
      (4.1.4); patrimonio → VR con cambios en resultados, o en ORI por elección irrevocable si no
      se mantiene para negociar (4.1.4, 5.7.5); derivados y fondos → VR con cambios en resultados.
    - NIIF para las PYMES (2015: Secc. 11 y 12; 2025: Secc. 11 partes I y II): deuda básica
-     (11.8 b, 11.9; 2025: 11.9 o 11.9ZA) → costo amortizado (11.14 a); acciones con VR medible → VR con cambios en
-     resultados, si no → costo menos deterioro (11.14 c); lo demás → VR con cambios en
-     resultados (2015: 12.8; 2025: 11.54). Las PYMES NO tienen la categoría VR con cambios en ORI
+     (11.8 b, 11.9) → costo amortizado (11.14 a). En la edición 2025, una deuda que NO cumple
+     11.9 a)–d) sigue siendo básica si sus flujos son solo principal e intereses (11.9ZA), por eso
+     el anexo pregunta ambas cosas y el enrutado depende de la edición. Acciones con VR medible →
+     VR con cambios en resultados, si no → costo menos deterioro (11.14 c); lo demás → VR con
+     cambios en resultados (2015: 12.8; 2025: 11.54). Las PYMES NO tienen la categoría VR con cambios en ORI
      ni clasifican por modelo de negocio.
 2. Costo amortizado con la tasa de interés efectiva (NIIF 9 5.4.1 y apéndice A; PYMES 11.15–11.20):
    calendario regular de cupones desde la fecha de adquisición; la TIE periódica iguala el costo
@@ -26,9 +28,10 @@ Versión simple que cumple la norma:
 5. Deterioro: NIIF completas, pérdida esperada = exposición × PD × LGD, 12 meses sin aumento
    significativo del riesgo (5.5.5) y vida entera con él (5.5.3); en VR con cambios en ORI la
    corrección va a ORI y no reduce el importe en libros (5.5.2). PYMES: pérdida incurrida solo con
-   evidencia objetiva (11.21): 11.25 a) (costo amortizado) importe en libros − VA de los flujos estimados a la TIE original;
-   11.25 b) (costo menos deterioro) importe en libros − mejor estimación del importe que se recibiría si se vendiera al cierre;
-   se aproxima como importe en libros × % no recuperable.
+   evidencia objetiva (11.21). 11.25 a) (costo amortizado): importe en libros − VA de los flujos estimados
+   a la TIE original, aproximado como importe en libros × % no recuperable. 11.25 b) (costo menos deterioro):
+   importe en libros − el importe estimado de venta al cierre que informa el auditor; sin ese dato el deterioro
+   no se mide (queda vacío y se señala, M22).
 6. Reclasificación: NIIF completas solo por cambio del modelo de negocio (4.4.1) con el
    tratamiento de 5.6.1–5.6.7; la elección de ORI para patrimonio es irrevocable (5.7.5).
 7. Conciliación: medición correcta − saldo en libros − ajuste de deterioro = ajuste propuesto.
@@ -59,7 +62,10 @@ _INVERSIONES = [
     campo("frecuencia", "Pagos de cupón por año", "number", False, ("frecuencia", "pagos por ano", "periodicidad")),
     campo("modelo", "Modelo de negocio", "text", False, ("modelo de negocio", "modelo", "intencion", "objetivo"),
           ejemplo="Mantener para cobrar / Cobrar y vender / Negociar"),
-    campo("sppi", "¿Flujos solo principal e intereses? (Sí/No) (NIIF completas; en PYMES 2015 se evalúan 11.9 a)–d); en 2025, 11.9 a)–d) o 11.9ZA)", "text", False, ("sppi", "solo principal e intereses", "instrumento basico", "basico")),
+    campo("sppi", "¿Flujos solo principal e intereses? (Sí/No) (NIIF 9 4.1.2 b; en PYMES 2025 es la condición de 11.9ZA)", "text", False,
+          ("sppi", "solo principal e intereses", "instrumento basico", "basico")),
+    campo("basico_pymes", "¿Cumple las condiciones de instrumento básico 11.9 a)–d)? (Sí/No) (solo PYMES)", "text", False,
+          ("basico 11.9", "instrumento basico 11.9", "cumple 11.9", "basico pymes")),
     campo("clasificacion", "Clasificación del cliente", alias=("clasificacion", "categoria", "clasificacion cliente", "medicion"),
           ejemplo="Costo amortizado / VR con cambios en ORI / VR con cambios en resultados / Costo"),
     campo("valor_razonable", "Valor razonable al corte", "number", False, ("valor razonable", "valor de mercado", "precio de mercado", "vr")),
@@ -72,7 +78,10 @@ _INVERSIONES = [
     campo("calificacion", "Calificación de riesgo", "text", False, ("calificacion", "rating", "calificacion de riesgo")),
     campo("indicio", "¿Indicio de deterioro o aumento significativo del riesgo? (Sí/No)", "text", False, ("indicio", "indicio de deterioro", "deteriorado")),
     campo("pd", "Probabilidad de incumplimiento % (PD)", "number", False, ("pd", "probabilidad de incumplimiento")),
-    campo("lgd", "Pérdida dado el incumplimiento % (LGD) / % no recuperable", "number", False, ("lgd", "severidad", "perdida dado el incumplimiento", "no recuperable")),
+    campo("lgd", "Pérdida dado el incumplimiento % (LGD) / % no recuperable (PYMES 11.25 a)", "number", False,
+          ("lgd", "severidad", "perdida dado el incumplimiento", "no recuperable")),
+    campo("estimado_venta", "Importe estimado de venta al cierre (PYMES 11.25 b)", "number", False,
+          ("estimado de venta", "importe estimado de venta", "valor de realizacion", "precio estimado de venta")),
     campo("clasificacion_anterior", "Clasificación al cierre anterior", "text", False, ("clasificacion anterior", "categoria anterior")),
     campo("cambio_modelo", "¿Cambio documentado del modelo de negocio? (Sí/No)", "text", False, ("cambio de modelo", "cambio modelo")),
 ]
@@ -213,10 +222,16 @@ def _ca_en(x: dict, d: date) -> dict:
     return {"k": k, "frac": frac, "base": base, "sucio": base * (1 + r * frac)}   # interés efectivo lineal dentro del período
 
 
-def _esperada(marco_pymes: bool, tipo: str, modelo: str, sppi: str, cli: str, vr) -> str:
+def _esperada(marco_pymes: bool, tipo: str, modelo: str, sppi: str, cli: str, vr, ed: str = "2015", basico: str = "") -> str:
     if marco_pymes:
         if tipo == "Deuda":
-            return "" if sppi == "" else ("VRR" if sppi == "No" else "CA")
+            if ed == "2025":
+                # 11.9ZA: aunque no cumpla 11.9 a)-d), sigue siendo básica si los flujos son solo principal e intereses.
+                if basico == "Sí" or sppi == "Sí":
+                    return "CA"
+                return "VRR" if sppi == "No" else ""
+            b = basico or sppi          # 2015: la única condición es 11.9 a)-d)
+            return "" if b == "" else ("VRR" if b == "No" else "CA")
         if tipo == "Patrimonio":
             return "VRR" if vr is not None else "COSTO"
         return "VRR"
@@ -238,9 +253,11 @@ def _fundamento(pymes: bool, ed: str, x: dict) -> str:
         otros = "11.54 (parte II)" if ed == "2025" else "Secc. 12, 12.8"
         basica = "11.9 o 11.9ZA" if ed == "2025" else "11.9"
         if t == "Deuda":
+            falta = (f"Indique si los flujos son solo principal e intereses: aunque no cumpla 11.9 a)–d), la deuda sigue siendo "
+                     f"básica a costo amortizado por 11.9ZA." if ed == "2025" else
+                     f"Indique si los flujos cumplen {basica} (solo principal e intereses).")
             return {"CA": f"Deuda básica (11.8 b; {basica}): costo amortizado con TIE, 11.14 a ({sec}).",
-                    "VRR": f"Deuda que no cumple {basica.replace(' o ', ' ni ')}: VR con cambios en resultados ({otros})."}.get(
-                        e, f"Indique si los flujos cumplen {basica} (solo principal e intereses).")
+                    "VRR": f"Deuda que no cumple {basica.replace(' o ', ' ni ')}: VR con cambios en resultados ({otros})."}.get(e, falta)
         if t == "Patrimonio":
             return ("Acciones con VR medible con fiabilidad: VR con cambios en resultados, 11.14 c i." if e == "VRR"
                     else "Acciones sin VR fiable: costo menos deterioro, 11.14 c ii.")
@@ -298,11 +315,12 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
              "detReg": _opt(f, "deterioro_registrado"), "ingReg": _opt(f, "ingreso_registrado"),
              "divid": _opt(f, "dividendos"), "calif": str(f.get("calificacion", "") or "").strip(),
              "indicio": _sino(f.get("indicio")), "pd": _opt(f, "pd"), "lgd": _opt(f, "lgd"),
+             "basico": _sino(f.get("basico_pymes")), "estimado": _opt(f, "estimado_venta"),
              "anterior": _clase(f.get("clasificacion_anterior")), "anteriorTxt": str(f.get("clasificacion_anterior", "") or "").strip(),
              "cambio": _sino(f.get("cambio_modelo"))}
         if x["frec"] not in FRECUENCIAS:
             raise ValueError(f"Instrumento {x['id']}: pagos por año 1, 2, 3, 4, 6 o 12.")
-        x["esperada"] = _esperada(pymes, x["tipo"], x["modelo"], x["sppi"], x["cliente"], x["vr"])
+        x["esperada"] = _esperada(pymes, x["tipo"], x["modelo"], x["sppi"], x["cliente"], x["vr"], ed, x["basico"])
         x["consistente"] = "" if x["esperada"] == "" else ("Sí" if x["esperada"] == x["cliente"] else "No")
         x["fundamento"] = _fundamento(pymes, ed, x)
         x["vencido"] = x["vence"] is not None and x["vence"] <= corte_a
@@ -354,10 +372,14 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                 x["detCalc"] = None
             elif x["indicio"] != "Sí":
                 x["detCalc"] = 0.0
+            elif e == "COSTO":
+                # 11.25 b): importe en libros − la mejor estimación de lo que se recibiría si se vendiera al cierre.
+                x["detCalc"] = None if x["base"] is None or x["estimado"] is None else max(x["base"] - x["estimado"], 0)
             else:
                 x["detCalc"] = None if x["base"] is None or x["lgd"] is None else x["base"] * x["lgd"] / 100
             x["enfoque"] = ("No aplica" if not aplica else
-                            ("Pérdida incurrida (11.21, 11.25)" if x["indicio"] == "Sí" else "Sin evidencia objetiva: sin pérdida (11.21)"))
+                            ("Sin evidencia objetiva: sin pérdida (11.21)" if x["indicio"] != "Sí" else
+                             ("Pérdida incurrida (11.25 b)" if e == "COSTO" else "Pérdida incurrida (11.21, 11.25 a)")))
         else:
             aplica = e == "CA" or (e == "VRORI" and x["tipo"] == "Deuda")   # 5.5.1: el patrimonio no se deteriora
             x["base"] = ca["sucio"] if ca and aplica else None
@@ -424,7 +446,10 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         elif re.match(r"^(BB|B|C|D)", x["calif"].upper()) and not x["calif"].upper().startswith("BBB") and x["enfoque"] != "No aplica":
             probs.append(problema("CALIFICACION_BAJA_SIN_INDICIO", f"{i}: calificación {x['calif']} (bajo grado de inversión) sin indicio marcado; evalúe aumento significativo del riesgo (5.5.9–5.5.11) o evidencia objetiva (11.22).", x["libros"]))
         if x["enfoque"] != "No aplica" and x["detCalc"] is None and not x["vencido"]:
-            probs.append(problema("DETERIORO_SIN_DATOS", f"{i}: faltan {'PD y LGD' if not pymes else '% no recuperable'} o el costo amortizado para medir el deterioro.", x["libros"]))
+            falta = ("PD, LGD o el costo amortizado" if not pymes else
+                     ("el importe estimado de venta al cierre (11.25 b): sin él el deterioro no se mide" if x["esperada"] == "COSTO"
+                      else "el % no recuperable o el costo amortizado"))
+            probs.append(problema("DETERIORO_SIN_DATOS", f"{i}: no se puede medir el deterioro; falta {falta}.", x["libros"]))
         if x["detDif"] is not None and abs(x["detDif"]) > 0.005:
             nota = " (en VR con cambios en ORI la corrección va a ORI, 5.5.2)" if x["esperada"] == "VRORI" else ""
             probs.append(problema("DIFERENCIA_DETERIORO", f"{i}: deterioro recalculado {fmt_m(x['detCalc'])} vs registrado {fmt_m(x['detReg'] or 0)}{nota}.", x["detDif"]))
@@ -493,19 +518,27 @@ def hojas(res: dict) -> list[dict]:
 
     inventario = [[x["id"], x["emisor"], x["tipo"], x["modelo"], x["sppi"], x["clienteTxt"], x["cliente"], x["adq"], x["vence"],
                    x["nominal"], x["costo"], x["cupon"], float(x["frec"]), x["libros"], x["vr"], x["nivel"], x["detReg"], x["ingReg"],
-                   x["divid"], x["indicio"], x["calif"], x["pd"], x["lgd"], x["anterior"], x["cambio"]] for x in xs]
+                   x["divid"], x["indicio"], x["calif"], x["pd"], x["lgd"], x["anterior"], x["cambio"],
+                   x["basico"], x["estimado"]] for x in xs]
 
     clasif = []
     for x in xs:
         r = fila[x["id"]]
+        if pymes and ed == "2025":
+            # 11.9ZA: básica si cumple 11.9 a)-d) (E) o si sus flujos son solo principal e intereses (D).
+            f_deuda = f'IF(OR(E{r}="Sí",D{r}="Sí"),"CA",IF(D{r}="No","VRR",""))'
+        elif pymes:
+            b = f'IF(E{r}<>"",E{r},D{r})'
+            f_deuda = f'IF({b}="","",IF({b}="No","VRR","CA"))'
         if pymes:
-            f_esp = f'IF(B{r}="Deuda",IF(D{r}="","",IF(D{r}="No","VRR","CA")),IF(B{r}="Patrimonio",IF(F{r}="Sí","VRR","COSTO"),"VRR"))'
+            f_esp = f'IF(B{r}="Deuda",{f_deuda},IF(B{r}="Patrimonio",IF(G{r}="Sí","VRR","COSTO"),"VRR"))'
         else:
             f_esp = (f'IF(B{r}="Deuda",IF(D{r}="","",IF(D{r}="No","VRR",IF(C{r}="Mantener para cobrar","CA",IF(C{r}="Cobrar y vender","VRORI",'
-                     f'IF(C{r}="Negociar","VRR",""))))),IF(B{r}="Patrimonio",IF(AND(E{r}="VRORI",C{r}<>"Negociar"),"VRORI","VRR"),"VRR"))')
+                     f'IF(C{r}="Negociar","VRR",""))))),IF(B{r}="Patrimonio",IF(AND(F{r}="VRORI",C{r}<>"Negociar"),"VRORI","VRR"),"VRR"))')
         clasif.append([x["id"], fx(f'{INV}C{r}&""', x["tipo"]), fx(f'{INV}D{r}&""', x["modelo"]), fx(f'{INV}E{r}&""', x["sppi"]),
+                       fx(f'{INV}Z{r}&""', x["basico"]),
                        fx(f'{INV}G{r}&""', x["cliente"]), fx(f'IF({INV}O{r}<>"","Sí","No")', "Sí" if x["vr"] is not None else "No"),
-                       fx(f_esp, x["esperada"]), fx(f'IF(G{r}="","",IF(G{r}=E{r},"Sí","No"))', x["consistente"]), x["fundamento"]])
+                       fx(f_esp, x["esperada"]), fx(f'IF(H{r}="","",IF(H{r}=F{r},"Sí","No"))', x["consistente"]), x["fundamento"]])
 
     # 05 · costo amortizado
     cam, fila_ca = [], {}
@@ -543,7 +576,7 @@ def hojas(res: dict) -> list[dict]:
         rec = "Resultados" if x["esperada"] == "VRR" else (dest_ori if x["esperada"] == "VRORI" else "Solo revelación (NIIF 7 25)")
         nivel_txt = ("" if x["esperada"] not in ("VRR", "VRORI") else "Falta nivel" if x["nivel"] is None
                      else "Nivel 3: revisar supuestos (NIIF 13 86, 93)" if x["nivel"] == 3 else "Sí")
-        vrz.append([x["id"], fx(f"{CLA}G{ri}", x["esperada"]), x["nivel"], x["vr"], fx(f"{INV}N{ri}", x["libros"]),
+        vrz.append([x["id"], fx(f"{CLA}H{ri}", x["esperada"]), x["nivel"], x["vr"], fx(f"{INV}N{ri}", x["libros"]),
                     fx(f'IF(OR(B{r}="VRR",B{r}="VRORI"),IF(D{r}="","",D{r}-E{r}),"")', _v(x["difVR"])),
                     fx(f'IF(B{r}="VRR","Resultados",IF(B{r}="VRORI","{dest_ori}","Solo revelación (NIIF 7 25)"))', rec),
                     fx(f'IF(OR(B{r}="VRR",B{r}="VRORI"),IF(C{r}="","Falta nivel",IF(C{r}=3,"Nivel 3: revisar supuestos (NIIF 13 86, 93)","Sí")),"")', nivel_txt)])
@@ -559,30 +592,32 @@ def hojas(res: dict) -> list[dict]:
             f_esp = f'IF({INV}S{r}="","",{INV}S{r})'
         else:
             f_esp = '""'
-        ingresos.append([x["id"], fx(f'{INV}C{r}&""', x["tipo"]), fx(f"{CLA}G{r}", x["esperada"]), fx(f_esp, _v(x["ingEsp"])),
+        ingresos.append([x["id"], fx(f'{INV}C{r}&""', x["tipo"]), fx(f"{CLA}H{r}", x["esperada"]), fx(f_esp, _v(x["ingEsp"])),
                          fx(f"{INV}R{r}", x["ingReg"] or 0.0), fx(f'IF(D{r}="","",D{r}-E{r})', _v(x["ingDif"]))])
         # 08
         ca_r = fila_ca.get(x["id"])
         if pymes:
             costo_k = f'IF({INV}K{r}="","",{INV}K{r})'
             base = f'IF(B{r}="CA",{CAM}Q{ca_r},IF(B{r}="COSTO",{costo_k},""))' if ca_r else f'IF(B{r}="COSTO",{costo_k},"")'
-            enf = f'IF(OR(B{r}="CA",B{r}="COSTO"),IF(C{r}="Sí","Pérdida incurrida (11.21, 11.25)","Sin evidencia objetiva: sin pérdida (11.21)"),"No aplica")'
-            calc = f'IF(OR(B{r}="CA",B{r}="COSTO"),IF(C{r}<>"Sí",0,IF(OR(E{r}="",G{r}=""),"",E{r}*G{r}/100)),"")'
+            enf = (f'IF(OR(B{r}="CA",B{r}="COSTO"),IF(C{r}="Sí",IF(B{r}="COSTO","Pérdida incurrida (11.25 b)",'
+                   f'"Pérdida incurrida (11.21, 11.25 a)"),"Sin evidencia objetiva: sin pérdida (11.21)"),"No aplica")')
+            calc = (f'IF(OR(B{r}="CA",B{r}="COSTO"),IF(C{r}<>"Sí",0,IF(B{r}="COSTO",IF(OR(E{r}="",H{r}=""),"",MAX(E{r}-H{r},0)),'
+                    f'IF(OR(E{r}="",G{r}=""),"",E{r}*G{r}/100))),"")')
         else:
             ap = f'OR(B{r}="CA",AND(B{r}="VRORI",{INV}C{r}="Deuda"))'
             base = f'IF({ap},{CAM}Q{ca_r},"")' if ca_r else '""'
             enf = f'IF({ap},IF(C{r}="Sí","Vida entera (5.5.3)","12 meses (5.5.5)"),"No aplica")'
             calc = f'IF({ap},IF(OR(E{r}="",F{r}="",G{r}=""),"",E{r}*F{r}/100*G{r}/100),"")'
-        deterioro.append([x["id"], fx(f"{CLA}G{r}", x["esperada"]), x["indicio"], fx(enf, x["enfoque"]), fx(base, _v(x["base"])),
-                          x["pd"], x["lgd"], fx(calc, _v(x["detCalc"])), fx(f"{INV}Q{r}", x["detReg"] or 0.0),
-                          fx(f'IF(H{r}="","",H{r}-I{r})', _v(x["detDif"]))])
+        deterioro.append([x["id"], fx(f"{CLA}H{r}", x["esperada"]), x["indicio"], fx(enf, x["enfoque"]), fx(base, _v(x["base"])),
+                          x["pd"], x["lgd"], x["estimado"], fx(calc, _v(x["detCalc"])), fx(f"{INV}Q{r}", x["detReg"] or 0.0),
+                          fx(f'IF(I{r}="","",I{r}-J{r})', _v(x["detDif"]))])
         # 10
         vr_r = fila_vr.get(x["id"])
         med_ca = f"{CAM}S{ca_r}" if ca_r else '""'
         med_vr = f'IF({VRZ}D{vr_r}="","",{VRZ}D{vr_r})' if vr_r else '""'
         f_med = f'IF(B{r}="CA",{med_ca},IF(OR(B{r}="VRR",B{r}="VRORI"),{med_vr},IF(B{r}="COSTO",IF({INV}K{r}="","",{INV}K{r}),"")))'
-        concil.append([x["id"], fx(f"{CLA}G{r}", x["esperada"]), fx(f_med, _v(x["medicion"])), fx(f"{INV}N{r}", x["libros"]),
-                       fx(f'IF(C{r}="","",C{r}-D{r})', _v(x["difMed"])), fx(f"{DET}H{r}", _v(x["detCalc"])), fx(f"{DET}I{r}", x["detReg"] or 0.0),
+        concil.append([x["id"], fx(f"{CLA}H{r}", x["esperada"]), fx(f_med, _v(x["medicion"])), fx(f"{INV}N{r}", x["libros"]),
+                       fx(f'IF(C{r}="","",C{r}-D{r})', _v(x["difMed"])), fx(f"{DET}I{r}", _v(x["detCalc"])), fx(f"{DET}J{r}", x["detReg"] or 0.0),
                        fx(f'IF(OR(B{r}="CA",B{r}="COSTO"),IF(F{r}="","",F{r}-G{r}),0)', _v(x["ajDet"])),
                        fx(f'IF(OR(E{r}="",H{r}=""),"",E{r}-H{r})', _v(x["ajuste"]))])
     fin = FILA0 + nx - 1
@@ -597,11 +632,11 @@ def hojas(res: dict) -> list[dict]:
             f_perm = (f'IF(C{r}=D{r},"Sin cambio",IF(AND(B{r}="Patrimonio",C{r}="VRORI"),"No: elección irrevocable (5.7.5)",'
                       f'IF(AND(B{r}="Deuda",E{r}="Sí"),"Sí: cambio de modelo de negocio (4.4.1)","No: sin cambio de modelo de negocio (4.4.1)")))')
         recl.append([x["id"], fx(f'{INV}C{ri}&""', x["tipo"]), fx(f"{INV}X{ri}", x["anterior"]), fx(f"{INV}G{ri}", x["cliente"]),
-                     x["cambio"], fx(f"{CLA}G{ri}", x["esperada"]), fx(f_perm, x["permitido"]), x["tratamiento"]])
+                     x["cambio"], fx(f"{CLA}H{ri}", x["esperada"]), fx(f_perm, x["permitido"]), x["tratamiento"]])
 
     t = {k: float(v) for k, v in res["totals"].items()}
     tot_ref = {"saldoLibros": f"{CON}D{fin + 1}", "medicion": f"{CON}C{fin + 1}", "difMedicion": f"{CON}E{fin + 1}",
-               "deterioroCalc": f"{DET}H{fin + 1}", "deterioroReg": f"{DET}I{fin + 1}", "ingresoDif": f"{ING}F{fin + 1}",
+               "deterioroCalc": f"{DET}I{fin + 1}", "deterioroReg": f"{DET}J{fin + 1}", "ingresoDif": f"{ING}F{fin + 1}",
                "difVR": f"{VRZ}F{fin_vr + 1}" if vrz else "0", "ajuste": f"{CON}I{fin + 1}"}
     resumen = [[res["labels"][k], fx(tot_ref[k], n2(t[k]))] for k in res["labels"]]
     s = lambda col, fin_, k: suma(col, fin_, sum(x[k] for x in xs if x[k] is not None))
@@ -616,10 +651,12 @@ def hojas(res: dict) -> list[dict]:
               ["Código cliente", T], ["Adquisición", "d"], ["Vencimiento", "d"], ["Nominal", "n"], ["Costo", "n"], ["Cupón %", "x"],
               ["Pagos por año", "i"], ["Saldo en libros", "n"], ["Valor razonable", "n"], ["Nivel", "i"], ["Deterioro registrado", "n"],
               ["Ingreso registrado", "n"], ["Dividendos decretados", "n"], ["Indicio", T], ["Calificación", T], ["PD %", "x"], ["LGD %", "x"],
-              ["Clasificación anterior", T], ["Cambio de modelo", T]], inventario),
+              ["Clasificación anterior", T], ["Cambio de modelo", T], ["Básico 11.9 a)–d) (PYMES)", T],
+              ["Estimación de venta al cierre (11.25 b)", "n"]], inventario),
         hoja("04_Clasificacion", "Clasificación",
-             [["Instrumento", T], ["Tipo", T], ["Modelo de negocio", T], ["SPPI / básico", T], ["Clasificación del cliente", T],
-              ["¿VR medible?", T], ["Clasificación según la norma", T], ["¿Consistente?", T], ["Fundamento", T]], clasif),
+             [["Instrumento", T], ["Tipo", T], ["Modelo de negocio", T], ["¿Flujos solo principal e intereses?", T],
+              ["¿Básico 11.9 a)–d)? (PYMES)", T], ["Clasificación del cliente", T], ["¿VR medible?", T],
+              ["Clasificación según la norma", T], ["¿Consistente?", T], ["Fundamento", T]], clasif),
         hoja("05_Costo_amortizado", "Costo amortizado y TIE",
              [["Instrumento", T], ["Adquisición", "d"], ["Vencimiento", "d"], ["Nominal", "n"], ["Costo", "n"], ["Cupón %", "x"],
               ["Pagos por año", "i"], ["Meses por período", "i"], ["Períodos totales", "i"], ["Cupón por período", "n"], ["TIE periódica", "p"],
@@ -642,8 +679,10 @@ def hojas(res: dict) -> list[dict]:
              ["TOTAL", "", "", s("D", fin, "ingEsp"), suma("E", fin, sum(x["ingReg"] or 0 for x in xs)), s("F", fin, "ingDif")]),
         hoja("08_Deterioro", "Deterioro",
              [["Instrumento", T], ["Clasificación según la norma", T], ["Indicio", T], ["Enfoque", T], ["Base (CA con cupón corrido / costo)", "n"],
-              ["PD %", "x"], ["LGD / no recuperable %", "x"], ["Deterioro recalculado", "n"], ["Deterioro registrado", "n"], ["Diferencia", "n"]],
-             deterioro, ["TOTAL", "", "", "", None, None, None, s("H", fin, "detCalc"), suma("I", fin, sum(x["detReg"] or 0 for x in xs)), s("J", fin, "detDif")]),
+              ["PD %", "x"], ["LGD / no recuperable %", "x"], ["Estimación de venta al cierre (11.25 b)", "n"],
+              ["Deterioro recalculado", "n"], ["Deterioro registrado", "n"], ["Diferencia", "n"]],
+             deterioro, ["TOTAL", "", "", "", None, None, None, None, s("I", fin, "detCalc"),
+                         suma("J", fin, sum(x["detReg"] or 0 for x in xs)), s("K", fin, "detDif")]),
         hoja("09_Reclasificacion", "Reclasificación",
              [["Instrumento", T], ["Tipo", T], ["Clasificación anterior", T], ["Clasificación actual (cliente)", T], ["Cambio de modelo", T],
               ["Clasificación según la norma", T], ["¿Permitida?", T], ["Tratamiento", T]], recl),
@@ -692,13 +731,14 @@ def definicion() -> dict:
             {"document": "NIA 620", "section": "párr. 7", "requirement": "Uso de un experto para valoraciones de nivel 3 cuando corresponda."},
         ],
         "calculo": [
-            "Clasificación esperada por marco: NIIF 9 con modelo de negocio y SPPI (4.1.1–4.1.5, 5.7.5); PYMES con instrumento básico (11.9; 2025: 11.9 o 11.9ZA), "
+            "Clasificación esperada por marco: NIIF 9 con modelo de negocio y SPPI (4.1.1–4.1.5, 5.7.5); PYMES con instrumento básico: en 2015 solo 11.9 a)–d), "
+            "y en 2025 también 11.9ZA —una deuda que no cumple 11.9 a)–d) sigue siendo básica a costo amortizado si sus flujos son solo principal e intereses—; "
             "acciones con VR fiable (11.14 c) y el resto a VR con cambios en resultados (2015: 12.8; 2025: 11.54). PYMES no tiene VR con cambios en ORI.",
             "TIE periódica = TASA(períodos; cupón por período; −costo; nominal); control: VA de los flujos a la TIE − costo = 0.",
             "Costo amortizado al corte = VA de los flujos restantes a la TIE × (1 + TIE × fracción del período); costo amortizado limpio = menos el cupón corrido.",
             "Interés efectivo del ejercicio = costo amortizado final − inicial (o costo si se compró en el año) + cupones cobrados; contra lo registrado.",
             "Valor razonable: diferencia contra libros en VR con cambios en resultados (a resultados) o en ORI; nivel de jerarquía obligatorio (NIIF 13 72–90).",
-            "Deterioro NIIF 9: exposición × PD × LGD (12 meses 5.5.5 / vida entera 5.5.3); PYMES: con evidencia objetiva, importe en libros × % no recuperable, aproximación de 11.25 a) (costo amortizado: VA de los flujos estimados a la TIE original) y 11.25 b) (costo menos deterioro: mejor estimación del importe que se recibiría si se vendiera al cierre). Pendiente de decisión del socio: en costo menos deterioro, derivar el % del precio estimado de venta.",
+            "Deterioro NIIF 9: exposición × PD × LGD (12 meses 5.5.5 / vida entera 5.5.3). PYMES, solo con evidencia objetiva: a costo amortizado, importe en libros × % no recuperable (aproximación de 11.25 a), que la norma define como importe en libros − VA de los flujos estimados a la TIE original); a costo menos deterioro, 11.25 b): importe en libros − el importe estimado de venta al cierre que informa el auditor, y si ese dato falta el deterioro no se mide (queda vacío y se señala).",
             "Reclasificación: solo por cambio de modelo (4.4.1) con el tratamiento 5.6.2–5.6.7; ORI de patrimonio irrevocable (5.7.5). Pendiente de decisión del socio: validar que el cambio de modelo ocurrió en el ejercicio anterior (fecha de reclasificación, apéndice A).",
             "Ajuste propuesto = (medición según la norma − saldo en libros) − (deterioro recalculado − registrado) en costo amortizado y costo.",
         ],
@@ -799,8 +839,25 @@ EJEMPLO = {
     ]},
 }
 
+# Rutas que solo existen en PYMES y que el ejercicio modelo no tiene: 11.9ZA (2025) y 11.25 b) (costo menos deterioro).
+# OBL-12: no cumple 11.9 a)-d) pero sus flujos son solo principal e intereses → 2025 costo amortizado, 2015 VR con cambios
+#   en resultados. A la par (10.000 al 8 %): TIE 8 %; CA limpio 10.000; interés 10.000 × 8 % × 334/365 = 732,05.
+# ACC-13: acciones sin VR fiable → costo menos deterioro; pérdida 11.25 b) = 9.000 − 7.000 (estimación de venta) = 2.000.
+# ACC-14: igual pero sin la estimación de venta: el deterioro no se mide (M22), no suma al ajuste.
+_PYMES_EXTRA = {"inversiones": EJEMPLO["datasets"]["inversiones"] + [
+    _inv("OBL-12", "Agroindustrial Manabí (ficticio)", "Obligaciones", "Costo amortizado", "10000", fecha_adq="2025-01-31",
+         vence="2028-01-31", nominal="10000", costo="10000", cupon="8", frecuencia="1", modelo="Mantener para cobrar",
+         sppi="Sí", basico_pymes="No", ingreso_registrado="800", calificacion="A", indicio="No", deterioro_registrado="0"),
+    _inv("ACC-13", "Curtiembre Austral (ficticio)", "Acciones", "Costo", "9000", costo="9000", modelo="Mantener",
+         indicio="Sí", calificacion="C", estimado_venta="7000", deterioro_registrado="500"),
+    _inv("ACC-14", "Textiles del Valle (ficticio)", "Acciones", "Costo", "3000", costo="3000", modelo="Mantener",
+         indicio="Sí", calificacion="C", deterioro_registrado="0"),
+]}
+
 ESCENARIOS = [
     ("niif_completas", EJEMPLO["datasets"], EJEMPLO["parametros"], EJEMPLO["corte"]),
     ("pymes_2015", EJEMPLO["datasets"], {**EJEMPLO["parametros"], "_marco": MARCO_PYMES, "_edicion": "2015"}, EJEMPLO["corte"]),
     ("pymes_2025", EJEMPLO["datasets"], {**EJEMPLO["parametros"], "_marco": MARCO_PYMES, "_edicion": "2025"}, EJEMPLO["corte"]),
+    ("pymes_2025_11_9za_y_11_25b", _PYMES_EXTRA, {**EJEMPLO["parametros"], "_marco": MARCO_PYMES, "_edicion": "2025"}, EJEMPLO["corte"]),
+    ("pymes_2015_11_9za_y_11_25b", _PYMES_EXTRA, {**EJEMPLO["parametros"], "_marco": MARCO_PYMES, "_edicion": "2015"}, EJEMPLO["corte"]),
 ]

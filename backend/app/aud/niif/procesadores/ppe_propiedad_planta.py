@@ -12,13 +12,19 @@ Versión simple que cumple la norma (NIC 16 / Sección 17):
    Otros métodos (unidades producidas, saldo decreciente) no se recalculan: quedan en blanco (M22).
 3. Valor neto en libros = costo − depreciación acumulada − deterioro acumulado.
 4. Bajas: ganancia/pérdida = producto − valor neto en libros a la fecha de baja (NIC 16.68, 71; PYMES 17.28–17.30).
-5. Revaluación (fecha de revaluación = corte): aumento a otro resultado integral; disminución a resultados
-   salvo el superávit previo del activo (NIC 16.39–40; PYMES 17.15C–17.15D) y clase completa (16.36; 17.15).
-6. Deterioro: pérdida = max(importe en libros − importe recuperable, 0) (NIC 36.59; PYMES 27.5).
+5. Revaluación (fecha de revaluación = corte): el aumento va a resultados hasta revertir el decremento previo
+   del mismo activo reconocido en resultados y el resto a otro resultado integral (NIC 16.39; PYMES 17.15C);
+   la disminución va a ORI hasta el superávit previo del activo y el resto a resultados (NIC 16.40; PYMES
+   17.15D); clase completa (16.36; 17.15). Sin el dato del decremento previo, todo queda en ORI y se avisa.
+6. Deterioro: pérdida = max(importe en libros − importe recuperable, 0) (NIC 36.59; PYMES 27.5). Si el activo
+   está revaluado, la pérdida se imputa primero contra el superávit de revaluación de ese activo y solo el
+   exceso a resultados (NIC 36.60–61; PYMES 27.6); sin el superávit informado no se reparte y se avisa.
 7. Costos por préstamos: NIIF completas capitaliza en activos aptos con la tasa de capitalización
    (NIC 23.8, 14); en PYMES todo costo por préstamos es gasto (Sección 25.2): lo capitalizado es ajuste.
-8. Desmantelamiento: provisión = costo estimado ÷ (1 + tasa)^años, parte del costo (NIC 16.16 c,
-   NIC 37.45–47, CINIIF 1; PYMES 17.10 c y Sección 21).
+8. Desmantelamiento: provisión = costo estimado ÷ (1 + tasa)^años (NIC 16.16 c, NIC 37.45–47; PYMES 17.10 c
+   y 21.7 b). El ajuste se separa en dos efectos (CINIIF 1): la actualización financiera del período (saldo
+   inicial de la provisión × tasa) es costo financiero de resultados (1.8; NIC 37.60; PYMES 21.11) y el
+   cambio de estimación va contra el costo del activo (1.5 a).
 9. Conciliación auxiliar-mayor del costo y de la depreciación acumulada (roll-forward).
 """
 from __future__ import annotations
@@ -48,6 +54,8 @@ _ACTIVOS = [
     campo("importe_recuperable", "Importe recuperable", "number", requerido=False, alias=("valor recuperable", "recuperable"), ejemplo=""),
     campo("valor_revaluado", "Valor revaluado al corte", "number", requerido=False, alias=("valor razonable", "avaluo", "valor de tasacion"), ejemplo=""),
     campo("superavit_previo", "Superávit de revaluación previo", "number", requerido=False, alias=("superavit", "reserva de revaluacion"), ejemplo=""),
+    campo("decremento_previo", "Decremento previo del mismo activo reconocido en resultados", "number", requerido=False,
+          alias=("decremento previo", "perdida por revaluacion previa", "disminucion previa en resultados"), ejemplo=""),
     campo("fecha_baja", "Fecha de baja", "date", requerido=False, alias=("baja", "fecha venta", "fecha de retiro"), ejemplo=""),
     campo("producto_baja", "Producto de la baja", "number", requerido=False, alias=("precio de venta", "producto", "valor de venta"), ejemplo=""),
     campo("resultado_baja", "Ganancia (pérdida) registrada en la baja", "number", requerido=False, alias=("utilidad en venta", "resultado venta"), ejemplo=""),
@@ -72,7 +80,7 @@ TOTAL_EJEMPLO = "ajusteResultado"
 PARAMETROS = {
     "tolerancia": 1, "tasaCapitalizacion": None, "umbralComponente": 10, "umbralRevisarComponentes": None,
     "costoDesmantelamiento": None, "aniosDesmantelamiento": None, "tasaDesmantelamiento": None,
-    "provisionDesmantelamiento": None, "mayorCosto": None, "mayorDepAcum": None,
+    "provisionDesmantelamiento": None, "provisionDesmantelamientoInicial": None, "mayorCosto": None, "mayorDepAcum": None,
 }
 PARAM_NEGATIVOS = ()
 ETIQUETAS_PARAM = {
@@ -81,8 +89,9 @@ ETIQUETAS_PARAM = {
     "umbralRevisarComponentes": "Revisar componentes de elementos con costo desde",
     "costoDesmantelamiento": "Desmantelamiento: costo estimado futuro", "aniosDesmantelamiento": "Desmantelamiento: años hasta el desembolso",
     "tasaDesmantelamiento": "Desmantelamiento: tasa de descuento antes de impuestos (%)",
-    "provisionDesmantelamiento": "Provisión de desmantelamiento registrada", "mayorCosto": "Mayor: costo al cierre",
-    "mayorDepAcum": "Mayor: depreciación acumulada al cierre",
+    "provisionDesmantelamiento": "Provisión de desmantelamiento registrada (cierre)",
+    "provisionDesmantelamientoInicial": "Provisión de desmantelamiento registrada al inicio del ejercicio",
+    "mayorCosto": "Mayor: costo al cierre", "mayorDepAcum": "Mayor: depreciación acumulada al cierre",
 }
 
 
@@ -153,6 +162,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
              "ad": _opc(f.get("adiciones")), "res": _opc(f.get("residual")), "vida": vida, "metodo": _t(f.get("metodo")),
              "dai": _opc(f.get("dep_acum_inicial")), "dreg": _opc(f.get("dep_registrada")), "det": _opc(f.get("deterioro_acum")),
              "rec": _opc(f.get("importe_recuperable")), "rev": _opc(f.get("valor_revaluado")), "sup": _opc(f.get("superavit_previo")),
+             "decPrev": _opc(f.get("decremento_previo")),
              "baja": fecha(f.get("fecha_baja")) if _t(f.get("fecha_baja")) else None, "prod": _opc(f.get("producto_baja")),
              "resreg": _opc(f.get("resultado_baja")), "_row": f.get("_row")}
         if a["baja"] and not inicio <= a["baja"] <= corte_a:
@@ -205,20 +215,39 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         a["res_calc"] = None if a["nbv_baja"] is None else (a["prod"] or 0) - a["nbv_baja"]
         a["res_dif"] = None if a["res_calc"] is None or a["resreg"] is None else a["res_calc"] - a["resreg"]
 
-    # 5 · revaluación al corte.
+    # 5 · revaluación al corte. NIC 16.39 (2.ª frase) y PYMES 17.15C: el aumento va a resultados hasta revertir un
+    # decremento anterior del mismo activo reconocido en resultados; sin ese dato, todo queda en ORI y se avisa.
     reval = [a for a in vivos if a["rev"] is not None and a["nbv"] is not None]
     for a in reval:
         d = a["rev"] - a["nbv"]
         s = a["sup"] or 0
         a["rev_dif"] = d
-        a["rev_ori"] = d if d >= 0 else -min(-d, s)
-        a["rev_res"] = 0 if d >= 0 else d + min(-d, s)
+        if d >= 0:
+            a["rev_res"] = 0.0 if a["decPrev"] is None else min(d, a["decPrev"])
+            a["rev_ori"] = d - a["rev_res"]
+        else:
+            a["rev_ori"] = -min(-d, s)
+            a["rev_res"] = d + min(-d, s)
 
-    # 6 · deterioro.
+    # 6 · deterioro. NIC 36.60-61 y PYMES 27.6: en un activo revaluado la pérdida es un decremento de revaluación:
+    # primero contra el superávit remanente de ese activo (ORI) y solo el exceso a resultados.
     deter = [a for a in vivos if a["rec"] is not None]
     for a in deter:
         a["libros"] = a["rev"] if a["rev"] is not None else a["nbv"]
         a["perdida"] = None if a["libros"] is None else max(a["libros"] - a["rec"], 0)
+        a["supPrev"] = a["sup"] or 0.0
+        a["revOri"] = a["rev_ori"] if "rev_ori" in a else 0.0
+        a["supRem"] = max(a["supPrev"] + a["revOri"], 0)
+        revaluado = a["rev"] is not None or a["sup"] is not None
+        if a["perdida"] is None:
+            a["detORI"], a["detRes"] = None, None
+        elif not revaluado:
+            a["detORI"], a["detRes"] = 0.0, a["perdida"]
+        elif a["sup"] is None:                       # revaluado sin dato de superávit: no se reparte (M22)
+            a["detORI"], a["detRes"] = None, a["perdida"]
+        else:
+            a["detORI"] = min(a["perdida"], a["supRem"])
+            a["detRes"] = a["perdida"] - a["detORI"]
 
     # 7 · adiciones y costos por préstamos.
     por_id = {a["id"]: a for a in activos}
@@ -243,11 +272,18 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         adiciones.append(x)
 
     # 8 · desmantelamiento.
+    # CINIIF 1.5 a / 1.8 (PYMES 21.7 b y 21.11): el cambio de estimación va contra el costo del activo; la reversión
+    # del descuento del período (saldo inicial de la provisión × tasa) es costo financiero del ejercicio.
     cd, an, td = _p(p, "costoDesmantelamiento"), _p(p, "aniosDesmantelamiento"), _p(p, "tasaDesmantelamiento")
     prov_reg = _p(p, "provisionDesmantelamiento")
+    prov_ini = _p(p, "provisionDesmantelamientoInicial")
+    if prov_ini is None and prov_reg is None:
+        prov_ini = 0.0                               # sin provisión registrada al cierre no hay saldo inicial que actualizar
     vp = None if cd is None or an is None or td is None else cd / (1 + td / 100) ** an
-    desm = {"costo": cd, "anios": an, "tasa": td, "vp": vp, "registrada": prov_reg,
-            "dif": None if vp is None else vp - (prov_reg or 0), "actualizacion": None if vp is None else vp * td / 100}
+    act = None if vp is None or prov_ini is None or td is None else prov_ini * td / 100
+    dif = None if vp is None else vp - (prov_reg or 0)
+    desm = {"costo": cd, "anios": an, "tasa": td, "vp": vp, "registrada": prov_reg, "inicial": prov_ini, "dif": dif,
+            "actualizacion": act, "cambio": None if dif is None or act is None else dif - act}
 
     # 9 · roll-forward y conciliación con el mayor (datos registrados).
     s = lambda it, k: sum(x[k] or 0 for x in it)
@@ -269,11 +305,14 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
 
     aj = {"ajusteDep": sum(a["dif"] for a in activos if a["dif"] is not None),
           "deterioroAdicional": sum(a["perdida"] for a in deter if a["perdida"] is not None),
+          "deterioroORI": sum(a["detORI"] for a in deter if a["detORI"] is not None),
+          "deterioroResultado": sum(a["detRes"] for a in deter if a["detRes"] is not None),
           "ajusteBajas": sum(a["res_dif"] for a in bajas if a["res_dif"] is not None),
           "ajusteIntereses": sum(x["int_dif"] for x in adiciones if x["int_dif"] is not None),
           "revaluacionORI": sum(a["rev_ori"] for a in reval), "revaluacionResultado": sum(a["rev_res"] for a in reval),
-          "ajusteDesmantelamiento": desm["dif"]}
-    aj["ajusteResultado"] = -aj["ajusteDep"] - aj["deterioroAdicional"] + aj["ajusteBajas"] + aj["ajusteIntereses"] + aj["revaluacionResultado"]
+          "ajusteDesmantelamiento": desm["cambio"], "desmantelamientoFinanciero": desm["actualizacion"]}
+    aj["ajusteResultado"] = (-aj["ajusteDep"] - aj["deterioroResultado"] + aj["ajusteBajas"] + aj["ajusteIntereses"]
+                             + aj["revaluacionResultado"] - (desm["actualizacion"] or 0))
 
     # Problemas.
     pr = []
@@ -305,7 +344,21 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             pr.append(problema("REVALUACION_CLASE_INCOMPLETA", f"Clase {c}: se revaluó una parte; también deben revaluarse {', '.join(faltan)} (NIC 16.36; PYMES 17.15 y 17.15B).", 0))
     for a in deter:
         if a["perdida"]:
-            pr.append(problema("DETERIORO", f"{a['id']}: importe en libros {m(a['libros'])} mayor que el importe recuperable {m(a['rec'])} (NIC 36.59; PYMES 27.5).", a["perdida"]))
+            reparto = ("" if a["detORI"] in (None, 0) else
+                       f" Activo revaluado: {m(a['detORI'])} contra el superávit de revaluación y {m(a['detRes'])} a resultados (NIC 36.60-61; PYMES 27.6).")
+            pr.append(problema("DETERIORO", f"{a['id']}: importe en libros {m(a['libros'])} mayor que el importe recuperable {m(a['rec'])} (NIC 36.59; PYMES 27.5).{reparto}", a["perdida"]))
+    sin_sup = [a["id"] for a in deter if a["perdida"] and a["detORI"] is None]
+    if sin_sup:
+        pr.append(problema("DETERIORO_SIN_SUPERAVIT", f"Activos revaluados con deterioro y sin superávit de revaluación previo informado: {', '.join(sin_sup)}. "
+                           "La pérdida debe imputarse primero contra el superávit de ese activo y solo el exceso a resultados (NIC 36.60-61; PYMES 27.6): "
+                           "indique el superávit previo; mientras tanto la pérdida queda íntegra en resultados.",
+                           sum(a["perdida"] for a in deter if a["perdida"] and a["detORI"] is None)))
+    sin_dec = [a["id"] for a in reval if a["decPrev"] is None]
+    if sin_dec:
+        pr.append(problema("REVALUACION_SIN_DECREMENTO_PREVIO", f"Activos revaluados sin el dato «decremento previo del mismo activo reconocido en resultados»: "
+                           f"{', '.join(sin_dec)}. El aumento por revaluación va a resultados hasta revertir ese decremento anterior (NIC 16.39; PYMES 17.15C): "
+                           "indique el importe; mientras tanto el aumento queda íntegro en otro resultado integral.",
+                           sum(a["rev_ori"] for a in reval if a["decPrev"] is None and a["rev_dif"] > 0)))
     if pymes:
         cap_pymes = sum(x["int"] or 0 for x in adiciones)
         if cap_pymes > 0.005:
@@ -328,7 +381,13 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     elif vp > 0.005 and not prov_reg:
         pr.append(problema("DESMANTELAMIENTO_NO_RECONOCIDO", f"Obligación de desmantelamiento no reconocida: valor presente {m(vp)} (NIC 16.16 c, NIC 37.45; Sección 21 (21.7 b)).", vp))
     elif abs(desm["dif"]) > tol:
-        pr.append(problema("DESMANTELAMIENTO_DIFERENCIA", f"Provisión de desmantelamiento registrada {m(prov_reg)} ≠ valor presente {m(vp)}.", desm["dif"]))
+        pr.append(problema("DESMANTELAMIENTO_DIFERENCIA", f"Provisión de desmantelamiento registrada {m(prov_reg)} ≠ valor presente {m(vp)}: diferencia {m(desm['dif'])}"
+                           + ("." if act is None else f", de la que {m(act)} es la actualización financiera del período (a resultados, costo financiero: CINIIF 1.8; "
+                              f"NIC 37.60; PYMES 21.11) y {m(desm['cambio'])} el cambio de estimación contra el costo del activo (CINIIF 1.5 a)."), desm["dif"]))
+    if vp is not None and prov_ini is None:
+        pr.append(problema("SIN_PROVISION_DESMANTELAMIENTO_INICIAL", "Hay provisión de desmantelamiento registrada pero no se informó su saldo al inicio del "
+                           "ejercicio: no se puede separar la actualización financiera del período (saldo inicial × tasa, a resultados: CINIIF 1.8; PYMES 21.11) "
+                           "del cambio de estimación (contra el costo del activo: CINIIF 1.5 a)."))
     for k, lab in (("difCosto", "del costo"), ("difDep", "de la depreciación acumulada")):
         mk = "mayorCosto" if k == "difCosto" else "mayorDep"
         if rf[mk] is None:
@@ -344,12 +403,15 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         ("ajusteDep", "Diferencia de depreciación (recalculada − registrada)", aj["ajusteDep"]),
         ("nbv", "Valor neto en libros recalculado (activos medidos)", rf["nbv"]),
         ("deterioroAdicional", "Pérdida por deterioro adicional", aj["deterioroAdicional"]),
+        ("deterioroORI", "Deterioro contra el superávit de revaluación (ORI)", aj["deterioroORI"]),
+        ("deterioroResultado", "Deterioro a resultados", aj["deterioroResultado"]),
         ("ajusteBajas", "Diferencia en resultado de bajas", aj["ajusteBajas"]),
         ("ajusteIntereses", "Ajuste de intereses capitalizados", aj["ajusteIntereses"]),
         ("revaluacionORI", "Revaluación a otro resultado integral", aj["revaluacionORI"]),
         ("revaluacionResultado", "Revaluación a resultados", aj["revaluacionResultado"]),
         ("provDesmantelamiento", "Provisión de desmantelamiento (valor presente)", vp),
-        ("ajusteDesmantelamiento", "Ajuste de desmantelamiento (contra el costo)", desm["dif"]),
+        ("ajusteDesmantelamiento", "Desmantelamiento: cambio de estimación (contra el costo del activo)", desm["cambio"]),
+        ("desmantelamientoFinanciero", "Desmantelamiento: actualización financiera del período (costo financiero)", desm["actualizacion"]),
         ("difCosto", "Diferencia auxiliar − mayor (costo)", rf["difCosto"]),
         ("difDepAcum", "Diferencia auxiliar − mayor (depreciación acumulada)", rf["difDep"]),
         ("ajusteResultado", "Efecto neto de los ajustes en resultados", aj["ajusteResultado"]),
@@ -386,7 +448,7 @@ AUX, DEP, BAJ, REV, DET, ADI, DES, RF, AJ = (ref(n) for n in ("03_Auxiliar", "04
                                                                "10_Adiciones", "11_Desmantelamiento", "12_Roll_forward", "13_Ajustes"))
 _PAR = ["corte", "inicio", "diasAnio", "marco", "edicion", "tolerancia", "tasaCapitalizacion", "umbralComponente",
         "umbralRevisarComponentes", "costoDesmantelamiento", "aniosDesmantelamiento", "tasaDesmantelamiento",
-        "provisionDesmantelamiento", "mayorCosto", "mayorDepAcum"]
+        "provisionDesmantelamiento", "provisionDesmantelamientoInicial", "mayorCosto", "mayorDepAcum"]
 PAR = {k: f"{P}$B${FILA0 + i}" for i, k in enumerate(_PAR)}
 
 
@@ -423,21 +485,23 @@ def hojas(res: dict) -> list[dict]:
         ["Desmantelamiento: costo estimado futuro", pv("costoDesmantelamiento"), "NIC 16.16 c; PYMES 17.10 c"],
         ["Desmantelamiento: años hasta el desembolso", pv("aniosDesmantelamiento"), "Estimación técnica"],
         ["Desmantelamiento: tasa antes de impuestos (%)", pv("tasaDesmantelamiento"), "NIC 37.47"],
-        ["Provisión de desmantelamiento registrada", pv("provisionDesmantelamiento"), "Mayor contable"],
+        ["Provisión de desmantelamiento registrada (cierre)", pv("provisionDesmantelamiento"), "Mayor contable"],
+        ["Provisión de desmantelamiento registrada al inicio", pv("provisionDesmantelamientoInicial"),
+         "Mayor contable: base de la actualización financiera del período (CINIIF 1.8; NIC 37.60; PYMES 21.11). En blanco y sin provisión al cierre: 0"],
         ["Mayor: costo al cierre", pv("mayorCosto"), "Mayor contable"],
         ["Mayor: depreciación acumulada al cierre", pv("mayorDepAcum"), "Mayor contable"],
     ]
 
     # 03 · auxiliar tal como lo entregó el cliente.
     aux = [[a["id"], a["desc"], a["clase"], a["elemento"], a["uso"] or None, a["ci"], a["ad"], a["res"], a["vida"], a["metodo"],
-            a["dai"], a["dreg"], a["det"], a["rec"], a["rev"], a["sup"], a["baja"] or None, a["prod"], a["resreg"]] for a in A]
+            a["dai"], a["dreg"], a["det"], a["rec"], a["rev"], a["sup"], a["decPrev"], a["baja"] or None, a["prod"], a["resreg"]] for a in A]
 
     # 04 · depreciación y VNL (fila alineada con 03).
     dep = []
     for i, a in enumerate(A):
         r = FILA0 + i
         X = lambda c: f"{AUX}{c}{r}"
-        dias = f'IF({X("E")}="",0,MAX(IF({X("Q")}<>"",MIN({X("Q")},{PAR["corte"]}),{PAR["corte"]})-MAX({X("E")},{PAR["inicio"]})+1,0))'
+        dias = f'IF({X("E")}="",0,MAX(IF({X("R")}<>"",MIN({X("R")},{PAR["corte"]}),{PAR["corte"]})-MAX({X("E")},{PAR["inicio"]})+1,0))'
         dep.append([
             a["id"], fx(f'{X("F")}+{X("G")}', a["costo"]), fx(f'MAX(B{r}-{X("H")},0)', a["depr"]), fx(dias, a["dias"]),
             fx(f'IF(NOT(OR({X("J")}="",ISNUMBER(SEARCH("lineal",{X("J")})))),"",IF(OR({X("I")}="",D{r}=0),0,'
@@ -446,7 +510,7 @@ def hojas(res: dict) -> list[dict]:
             fx(f'IF(E{r}="","",{X("K")}+E{r})', a["acum"]), fx(f'{X("M")}', a["det"] or 0.0),
             fx(f'IF(H{r}="","",B{r}-H{r}-I{r})', a["nbv"]),
             fx(f'IF(H{r}="","",IF(AND(C{r}>0,H{r}>=C{r}-0.005),"Sí","No"))', a["total_dep"]),
-            fx(f'IF({X("Q")}<>"","Baja",IF({X("E")}="","En construcción","En uso"))', a["estado"]),
+            fx(f'IF({X("R")}<>"","Baja",IF({X("E")}="","En construcción","En uso"))', a["estado"]),
         ])
 
     # 05 · vidas útiles, residual y método.
@@ -477,26 +541,32 @@ def hojas(res: dict) -> list[dict]:
     for i, a in enumerate(B):
         r, s = FILA0 + i, fila[a["id"]]
         bajas.append([a["id"], a["baja"], fx(f"{DEP}B{s}", a["costo"]), fx(_si(f"{DEP}H{s}"), a["acum"]), fx(f"{AUX}M{s}", a["det"] or 0.0),
-                      fx(f'IF(D{r}="","",C{r}-D{r}-E{r})', a["nbv_baja"]), fx(f"{AUX}R{s}", a["prod"] or 0.0),
-                      fx(f'IF(F{r}="","",G{r}-F{r})', a["res_calc"]), fx(_si(f"{AUX}S{s}"), a["resreg"]),
+                      fx(f'IF(D{r}="","",C{r}-D{r}-E{r})', a["nbv_baja"]), fx(f"{AUX}S{s}", a["prod"] or 0.0),
+                      fx(f'IF(F{r}="","",G{r}-F{r})', a["res_calc"]), fx(_si(f"{AUX}T{s}"), a["resreg"]),
                       fx(f'IF(OR(H{r}="",I{r}=""),"",H{r}-I{r})', a["res_dif"])])
 
     # 08 · revaluación.
     R = [a for a in A if "rev_dif" in a]
+    frev = {a["id"]: FILA0 + i for i, a in enumerate(R)}
     revs = []
     for i, a in enumerate(R):
         r, s = FILA0 + i, fila[a["id"]]
         revs.append([a["id"], a["clase"], fx(f"{DEP}J{s}", a["nbv"]), fx(f"{AUX}O{s}", a["rev"]), fx(f"D{r}-C{r}", a["rev_dif"]),
-                     fx(f"{AUX}P{s}", a["sup"] or 0.0), fx(f"IF(E{r}>=0,E{r},-MIN(-E{r},F{r}))", a["rev_ori"]),
-                     fx(f"IF(E{r}>=0,0,E{r}+MIN(-E{r},F{r}))", a["rev_res"])])
+                     fx(f"{AUX}P{s}", a["sup"] or 0.0), fx(_si(f"{AUX}Q{s}"), a["decPrev"]),
+                     fx(f'IF(E{r}>=0,IF(G{r}="",E{r},E{r}-MIN(E{r},G{r})),-MIN(-E{r},F{r}))', a["rev_ori"]),
+                     fx(f'IF(E{r}>=0,IF(G{r}="",0,MIN(E{r},G{r})),E{r}+MIN(-E{r},F{r}))', a["rev_res"])])
 
-    # 09 · deterioro.
+    # 09 · deterioro (NIC 36.60-61 / PYMES 27.6: primero contra el superávit del activo revaluado).
     D = [a for a in A if "perdida" in a]
     deter = []
     for i, a in enumerate(D):
         r, s = FILA0 + i, fila[a["id"]]
+        ori_anio = f"{REV}H{frev[a['id']]}" if a["id"] in frev else "0"
         deter.append([a["id"], a["clase"], fx(f'IF({AUX}O{s}<>"",{AUX}O{s},{DEP}J{s})', a["libros"]), fx(f"{AUX}N{s}", a["rec"]),
-                      fx(f'IF(C{r}="","",MAX(C{r}-D{r},0))', a["perdida"])])
+                      fx(f'IF(C{r}="","",MAX(C{r}-D{r},0))', a["perdida"]),
+                      fx(f'IF({AUX}P{s}="",0,{AUX}P{s})', a["supPrev"]), fx(ori_anio, a["revOri"]), fx(f"MAX(F{r}+G{r},0)", a["supRem"]),
+                      fx(f'IF(E{r}="","",IF(AND({AUX}O{s}="",{AUX}P{s}=""),0,IF({AUX}P{s}="","",MIN(E{r},H{r}))))', a["detORI"]),
+                      fx(f'IF(E{r}="","",IF(I{r}="",E{r},E{r}-I{r}))', a["detRes"])])
 
     # 10 · adiciones y costos por préstamos.
     adic = []
@@ -518,9 +588,15 @@ def hojas(res: dict) -> list[dict]:
         ["Años hasta el desembolso", fx(_si(PAR["aniosDesmantelamiento"]), ds["anios"])],
         ["Tasa de descuento antes de impuestos (%)", fx(_si(PAR["tasaDesmantelamiento"]), ds["tasa"])],
         ["Valor presente = costo ÷ (1 + tasa)^años", fx(f'IF(OR({b(0)}="",{b(1)}="",{b(2)}=""),"",{b(0)}/(1+{b(2)}/100)^{b(1)})', ds["vp"])],
-        ["Provisión registrada", fx(_si(PAR["provisionDesmantelamiento"]), ds["registrada"])],
-        ["Ajuste = valor presente − registrada", fx(f'IF({b(3)}="","",{b(3)}-IF({b(4)}="",0,{b(4)}))', ds["dif"])],
-        ["Actualización financiera anual (NIC 37.60; CINIIF 1.8; PYMES 21.11)", fx(f'IF({b(3)}="","",{b(3)}*{b(2)}/100)', ds["actualizacion"])],
+        ["Provisión registrada al cierre", fx(_si(PAR["provisionDesmantelamiento"]), ds["registrada"])],
+        ["Provisión registrada al inicio del ejercicio",
+         fx(f'IF({PAR["provisionDesmantelamientoInicial"]}<>"",{PAR["provisionDesmantelamientoInicial"]},'
+            f'IF({PAR["provisionDesmantelamiento"]}="",0,""))', ds["inicial"])],
+        ["Actualización financiera del período = inicial × tasa → resultados, costo financiero (CINIIF 1.8; NIC 37.60; PYMES 21.11)",
+         fx(f'IF(OR({b(3)}="",{b(5)}="",{b(2)}=""),"",{b(5)}*{b(2)}/100)', ds["actualizacion"])],
+        ["Ajuste total = valor presente − registrada al cierre", fx(f'IF({b(3)}="","",{b(3)}-IF({b(4)}="",0,{b(4)}))', ds["dif"])],
+        ["Cambio de estimación = ajuste total − actualización → costo del activo (CINIIF 1.5 a; PYMES 21.7 b)",
+         fx(f'IF(OR({b(7)}="",{b(6)}=""),"",{b(7)}-{b(6)})', ds["cambio"])],
     ]
 
     # 12 · roll-forward.
@@ -548,24 +624,32 @@ def hojas(res: dict) -> list[dict]:
     s = lambda col, h, nn: f"SUM({_rng(h, col, nn)})" if nn else "0"
     ajus = [
         ["Depreciación recalculada − registrada", fx(s("G", DEP, n), aj["ajusteDep"]), "Gasto por depreciación", "(−) Depreciación acumulada", "NIC 16.50; PYMES 17.18"],
-        ["Pérdida por deterioro adicional", fx(s("E", DET, len(D)), aj["deterioroAdicional"]), "Pérdida por deterioro", "(−) Deterioro acumulado", "NIC 36.59–61; PYMES 27.5–27.6 (si el activo está revaluado, primero contra el superávit)"],
+        ["Deterioro a resultados", fx(s("J", DET, len(D)), aj["deterioroResultado"]), "Pérdida por deterioro", "(−) Deterioro acumulado",
+         "NIC 36.59–61; PYMES 27.5–27.6: en un activo revaluado, primero contra el superávit y solo el exceso a resultados"],
         ["Resultado de bajas recalculado − registrado", fx(s("J", BAJ, len(B)), aj["ajusteBajas"]), "Resultado en baja de activos", "Propiedad, planta y equipo", "NIC 16.68, 71; PYMES 17.28–17.30"],
         ["Intereses capitalizables − capitalizados", fx(s("K", ADI, nad), aj["ajusteIntereses"]), "Construcciones en curso / Gasto financiero", "Gasto financiero / Construcciones en curso",
          "Sección 25.2 (PYMES: todo a gasto)" if d["marco"] == MARCO_PYMES else "NIC 23.8, 14"],
-        ["Revaluación a otro resultado integral", fx(s("G", REV, len(R)), aj["revaluacionORI"]), "Propiedad, planta y equipo", "Superávit de revaluación (ORI)", "NIC 16.39–40; PYMES 17.15C–17.15D"],
-        ["Revaluación a resultados", fx(s("H", REV, len(R)), aj["revaluacionResultado"]), "Pérdida por revaluación", "Propiedad, planta y equipo", "NIC 16.40; PYMES 17.15D"],
-        ["Desmantelamiento: valor presente − registrado", fx(f"{DES}B{FILA0 + 5}", ds["dif"]) if ds["vp"] is not None else None,
-         "Propiedad, planta y equipo (costo)", "Provisión por desmantelamiento", "NIC 16.16 c; NIC 37.45; CINIIF 1; Sección 21 (21.7 b)"],
-        ["Efecto neto en resultados", fx(f"-B{FILA0}-B{FILA0 + 1}+B{FILA0 + 2}+B{FILA0 + 3}+B{FILA0 + 5}", aj["ajusteResultado"]), "", "",
-         "− depreciación − deterioro + bajas + intereses + revaluación a resultados"],
+        ["Revaluación a otro resultado integral", fx(s("H", REV, len(R)), aj["revaluacionORI"]), "Propiedad, planta y equipo", "Superávit de revaluación (ORI)", "NIC 16.39–40; PYMES 17.15C–17.15D"],
+        ["Revaluación a resultados", fx(s("I", REV, len(R)), aj["revaluacionResultado"]), "Pérdida por revaluación / Reversión de decremento previo", "Propiedad, planta y equipo",
+         "NIC 16.39 (aumento que revierte un decremento previo en resultados) y 16.40; PYMES 17.15C–17.15D"],
+        ["Deterioro contra el superávit de revaluación", fx(s("I", DET, len(D)), aj["deterioroORI"]), "Superávit de revaluación (ORI)", "(−) Deterioro acumulado",
+         "NIC 36.60–61; PYMES 27.6"],
+        ["Desmantelamiento: cambio de estimación", fx(f"{DES}B{FILA0 + 8}", ds["cambio"]) if ds["cambio"] is not None else None,
+         "Propiedad, planta y equipo (costo)", "Provisión por desmantelamiento", "CINIIF 1.5 a; NIC 16.16 c; NIC 37.45; PYMES 21.7 b"],
+        ["Desmantelamiento: actualización financiera del período", fx(f"{DES}B{FILA0 + 6}", ds["actualizacion"]) if ds["actualizacion"] is not None else None,
+         "Costo financiero (resultados)", "Provisión por desmantelamiento", "CINIIF 1.8; NIC 37.60; PYMES 21.11"],
+        ["Efecto neto en resultados",
+         fx(f'-B{FILA0}-B{FILA0 + 1}+B{FILA0 + 2}+B{FILA0 + 3}+B{FILA0 + 5}-IF(B{FILA0 + 8}="",0,B{FILA0 + 8})', aj["ajusteResultado"]), "", "",
+         "− depreciación − deterioro a resultados + bajas + intereses + revaluación a resultados − actualización financiera del desmantelamiento"],
     ]
 
     celda = {"costoFinal": f"{RF}B{FILA0 + 3}", "depRecalculada": f"SUM({_rng(DEP, 'E', n)})", "depRegistrada": f"{RF}B{FILA0 + 7}",
-             "ajusteDep": f"{AJ}B{FILA0}", "nbv": f"{RF}B{FILA0 + 13}", "deterioroAdicional": f"{AJ}B{FILA0 + 1}",
+             "ajusteDep": f"{AJ}B{FILA0}", "nbv": f"{RF}B{FILA0 + 13}", "deterioroAdicional": f"SUM({_rng(DET, 'E', len(D))})",
+             "deterioroORI": f"{AJ}B{FILA0 + 6}", "deterioroResultado": f"{AJ}B{FILA0 + 1}",
              "ajusteBajas": f"{AJ}B{FILA0 + 2}", "ajusteIntereses": f"{AJ}B{FILA0 + 3}", "revaluacionORI": f"{AJ}B{FILA0 + 4}",
              "revaluacionResultado": f"{AJ}B{FILA0 + 5}", "provDesmantelamiento": f"{DES}B{FILA0 + 3}",
-             "ajusteDesmantelamiento": f"{AJ}B{FILA0 + 6}", "difCosto": f"{RF}B{FILA0 + 5}", "difDepAcum": f"{RF}B{FILA0 + 11}",
-             "ajusteResultado": f"{AJ}B{FILA0 + 7}"}
+             "ajusteDesmantelamiento": f"{AJ}B{FILA0 + 7}", "desmantelamientoFinanciero": f"{AJ}B{FILA0 + 8}",
+             "difCosto": f"{RF}B{FILA0 + 5}", "difDepAcum": f"{RF}B{FILA0 + 11}", "ajusteResultado": f"{AJ}B{FILA0 + 9}"}
     valor = {"costoFinal": rf["costoFinal"], "depRecalculada": sum(a["dep"] for a in A if a["dep"] is not None), "depRegistrada": rf["dreg"],
              "nbv": rf["nbv"], "provDesmantelamiento": ds["vp"], "difCosto": rf["difCosto"], "difDepAcum": rf["difDep"], **aj}
     resumen = [[res["labels"][k], fx(celda[k], valor[k])] for k in res["labels"]]
@@ -578,7 +662,8 @@ def hojas(res: dict) -> list[dict]:
              [["Código", "t"], ["Descripción", "t"], ["Clase", "t"], ["Elemento", "t"], ["Disponible para uso", "d"], ["Costo inicial", "n"],
               ["Adiciones", "n"], ["Valor residual", "n"], ["Vida útil (meses)", "i"], ["Método", "t"], ["Dep. acum. inicial", "n"],
               ["Dep. del año registrada", "n"], ["Deterioro acumulado", "n"], ["Importe recuperable", "n"], ["Valor revaluado", "n"],
-              ["Superávit previo", "n"], ["Fecha de baja", "d"], ["Producto de la baja", "n"], ["Resultado de baja registrado", "n"]], aux),
+              ["Superávit previo", "n"], ["Decremento previo en resultados", "n"], ["Fecha de baja", "d"], ["Producto de la baja", "n"],
+              ["Resultado de baja registrado", "n"]], aux),
         hoja("04_Depreciacion", "Recálculo de depreciación y VNL",
              [["Código", "t"], ["Costo", "n"], ["Importe depreciable", "n"], ["Días en uso", "i"], ["Depreciación recalculada", "n"],
               ["Depreciación registrada", "n"], ["Diferencia", "n"], ["Dep. acumulada recalculada", "n"], ["Deterioro acumulado", "n"],
@@ -598,11 +683,15 @@ def hojas(res: dict) -> list[dict]:
              ["TOTAL", "", None, None, None, None, None, None, None, suma("J", fin(len(B)), aj["ajusteBajas"])] if B else None),
         hoja("08_Revaluacion", "Revaluación",
              [["Código", "t"], ["Clase", "t"], ["VNL al corte", "n"], ["Valor revaluado", "n"], ["Diferencia", "n"], ["Superávit previo", "n"],
-              ["A otro resultado integral", "n"], ["A resultados", "n"]], revs,
-             ["TOTAL", "", None, None, None, None, suma("G", fin(len(R)), aj["revaluacionORI"]), suma("H", fin(len(R)), aj["revaluacionResultado"])] if R else None),
+              ["Decremento previo en resultados", "n"], ["A otro resultado integral", "n"], ["A resultados", "n"]], revs,
+             ["TOTAL", "", None, None, None, None, None, suma("H", fin(len(R)), aj["revaluacionORI"]),
+              suma("I", fin(len(R)), aj["revaluacionResultado"])] if R else None),
         hoja("09_Deterioro", "Deterioro",
-             [["Código", "t"], ["Clase", "t"], ["Importe en libros", "n"], ["Importe recuperable", "n"], ["Pérdida adicional", "n"]], deter,
-             ["TOTAL", "", None, None, suma("E", fin(len(D)), aj["deterioroAdicional"])] if D else None),
+             [["Código", "t"], ["Clase", "t"], ["Importe en libros", "n"], ["Importe recuperable", "n"], ["Pérdida adicional", "n"],
+              ["Superávit previo", "n"], ["Revaluación del año a ORI", "n"], ["Superávit disponible", "n"],
+              ["Contra el superávit (ORI)", "n"], ["A resultados", "n"]], deter,
+             ["TOTAL", "", None, None, suma("E", fin(len(D)), aj["deterioroAdicional"]), None, None, None,
+              suma("I", fin(len(D)), aj["deterioroORI"]), suma("J", fin(len(D)), aj["deterioroResultado"])] if D else None),
         hoja("10_Adiciones", "Adiciones y costos por préstamos",
              [["Documento", "t"], ["Activo", "t"], ["Fecha", "d"], ["Descripción", "t"], ["Tipo", "t"], ["Importe", "n"], ["Apto", "t"],
               ["Intereses capitalizados", "n"], ["Días de capitalización", "i"], ["Intereses capitalizables", "n"], ["Diferencia", "n"],
@@ -654,10 +743,14 @@ def definicion() -> dict:
             "Depreciación lineal del período = importe depreciable ÷ vida útil (meses) × 12 × días en uso ÷ días del año, sin pasar del importe pendiente (NIC 16.50, 55; PYMES 17.20).",
             "Valor neto en libros = costo − depreciación acumulada − deterioro acumulado.",
             "Baja: ganancia o pérdida = producto − valor neto en libros a la fecha de baja (NIC 16.71; PYMES 17.30).",
-            "Revaluación al corte: aumento a ORI; disminución a ORI hasta el superávit previo y el resto a resultados (NIC 16.39–40; PYMES 17.15C–D).",
-            "Deterioro: pérdida = max(importe en libros − importe recuperable, 0) (NIC 36.59; PYMES 27.5).",
+            "Revaluación al corte: el aumento va a resultados hasta revertir el decremento previo del mismo activo reconocido en resultados y el resto a "
+            "ORI (NIC 16.39; PYMES 17.15C); la disminución va a ORI hasta el superávit previo y el resto a resultados (NIC 16.40; PYMES 17.15D).",
+            "Deterioro: pérdida = max(importe en libros − importe recuperable, 0) (NIC 36.59; PYMES 27.5). En activos revaluados, la pérdida va contra el "
+            "superávit de ese activo (superávit previo + revaluación del año a ORI) y solo el exceso a resultados (NIC 36.60–61; PYMES 27.6).",
             "Intereses capitalizables (solo NIIF completas, activos aptos) = desembolso × tasa de capitalización × días ÷ días del año (NIC 23.14); en PYMES todo es gasto (25.2).",
-            "Desmantelamiento: valor presente = costo estimado ÷ (1 + tasa)^años (NIC 37.45–47; CINIIF 1).",
+            "Desmantelamiento: valor presente = costo estimado ÷ (1 + tasa)^años (NIC 37.45–47; PYMES 21.7 b). Ajuste total = valor presente − provisión "
+            "registrada al cierre; de él, la actualización financiera del período = provisión al inicio × tasa va a resultados como costo financiero "
+            "(CINIIF 1.8; NIC 37.60; PYMES 21.11) y el resto es cambio de estimación contra el costo del activo (CINIIF 1.5 a).",
             "Movimiento del año: costo y depreciación acumulada inicial + movimientos − bajas = cierre, conciliado con el mayor.",
         ],
         "fields": _ACTIVOS, "rules": [], "control": CONTROL, "primary": "ajusteResultado",
@@ -727,7 +820,10 @@ def _ad(id, activo, f, imp, **x):
 #   ganancia = 9.000 − 5.722,19 = 3.277,81 vs 1.500 registrada → +1.777,81.
 # MAQ-01: VNL = 120.000 − 72.000 = 48.000 vs recuperable 40.000 → deterioro 8.000.
 # AD-01: 150.000 × 8 % × 305 ÷ 365 = 10.027,40 capitalizables vs 9.000 → +1.027,40 (NIIF); en PYMES −9.000.
-# Desmantelamiento: 50.000 ÷ 1,06^10 = 27.919,74 no reconocido.
+# Desmantelamiento: 50.000 ÷ 1,06^10 = 27.919,74 no reconocido; sin provisión registrada no hay descuento que
+#   revertir: actualización financiera del período 0 y los 27.919,74 son cambio de estimación al costo (CINIIF 1.5 a).
+# TERR-01 revaluado sin «decremento previo en resultados»: los 60.000 quedan en ORI y se avisa (NIC 16.39).
+# MAQ-01 no está revaluado: los 8.000 de deterioro van íntegros a resultados (NIC 36.60-61 no aplica).
 EJEMPLO = {
     "corte": "2025-12-31",
     "parametros": {"_marco": MARCO_COMPLETAS, "tolerancia": 1, "tasaCapitalizacion": 8, "umbralComponente": 10,
@@ -763,9 +859,31 @@ EJEMPLO = {
 }
 
 _MIN = {"activos": [_a("V-1", "Auto", "Vehículos", "2024-01-01", "10000", vida_meses="60", dep_registrada="2000")]}
+
+# Escenario de activos revaluados (NIC 16.39 · NIC 36.60-61 · CINIIF 1.5 y 1.8), recalculado a mano:
+# EDIF-R: dep. 200.000 ÷ 480 × 12 = 5.000 (= registrada); acum. 25.000; VNL 175.000. Revaluado 185.000 → +10.000
+#   con decremento previo en resultados 12.000 → los 10.000 van a resultados (16.39) y 0 a ORI. Deterioro:
+#   185.000 − 170.000 = 15.000 contra el superávit disponible 30.000 + 0 → 15.000 a ORI y 0 a resultados (36.60-61).
+# MAQ-R: dep. 100.000 ÷ 120 × 12 = 10.000 (= registrada); acum. 60.000; VNL 40.000. Revaluado 42.000 → +2.000 sin
+#   decremento previo informado → todo a ORI y aviso. Deterioro 42.000 − 35.000 = 7.000 sin superávit informado →
+#   no se reparte, queda en resultados y se avisa.
+# Desmantelamiento: VP 27.919,74; registrada al cierre 26.500 → ajuste total 1.419,74; actualización del período
+#   26.000 × 6 % = 1.560 (costo financiero); cambio de estimación 1.419,74 − 1.560 = −140,26 (contra el costo).
+# Efecto neto en resultados = −0 − 7.000 + 0 + 0 + 10.000 − 1.560 = 1.440,00.
+_REVALUADOS = {"activos": [
+    _a("EDIF-R", "Edificio revaluado con deterioro", "Edificios", "2018-01-01", "200000", vida_meses="480", metodo="Lineal",
+       dep_acum_inicial="20000", dep_registrada="5000", valor_revaluado="185000", superavit_previo="30000",
+       decremento_previo="12000", importe_recuperable="170000"),
+    _a("MAQ-R", "Máquina revaluada sin superávit informado", "Maquinaria", "2020-01-01", "100000", vida_meses="120", metodo="Lineal",
+       dep_acum_inicial="50000", dep_registrada="10000", valor_revaluado="42000", importe_recuperable="35000"),
+]}
+PARAMETROS_REVALUADOS = {"_marco": MARCO_COMPLETAS, "tolerancia": 1, "costoDesmantelamiento": 50000, "aniosDesmantelamiento": 10,
+                         "tasaDesmantelamiento": 6, "provisionDesmantelamiento": 26500, "provisionDesmantelamientoInicial": 26000,
+                         "mayorCosto": 300000, "mayorDepAcum": 85000}
 ESCENARIOS = [
     ("niif_completas", EJEMPLO["datasets"], EJEMPLO["parametros"], EJEMPLO["corte"]),
     ("pymes_2015", EJEMPLO["datasets"], {**EJEMPLO["parametros"], "_marco": MARCO_PYMES, "_edicion": "2015"}, EJEMPLO["corte"]),
     ("pymes_2025", EJEMPLO["datasets"], {**EJEMPLO["parametros"], "_marco": MARCO_PYMES, "_edicion": "2025"}, EJEMPLO["corte"]),
+    ("revaluados_desmantelamiento", _REVALUADOS, PARAMETROS_REVALUADOS, "2025-12-31"),
     ("minimo", _MIN, {}, "2025-12-31"),
 ]

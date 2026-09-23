@@ -26,10 +26,14 @@ def test_ejemplo_niif_completas_cifras_a_mano():
     # 128.000 × 10 % = 12.800 ≤ 500.000 × 50 % − 60.000 = 190.000; apropiada 8.000
     assert t["reservaRequerida"] == "12800.00" and t["ajusteReserva"] == "4800.00"
     assert t["dividendosDeclarados"] == "90000.00" and t["excesoDividendos"] == "10000.00"   # disponibles 80.000 (auditor)
-    assert r["detalle"]["div"]["calc"] == 265200          # 150.000 + 128.000 − 12.800
+    # Art. 298: las reservas expresas de libre disposición (25.000) también se pueden repartir.
+    assert r["detalle"]["div"]["calc"] == 290200          # 150.000 + 128.000 − 12.800 + 25.000
+    # Art. 297: mínimo (128.000 − 12.800) × 50 % = 57.600 ≤ 90.000 declarados → sin faltante.
+    assert t["dividendoMinimoLegal"] == "57600.00" and t["dividendosBajoMinimo"] == "0.00"
     assert t["aumentosNoInscritos"] == "40000.00" and t["difCapital"] == "40000.00"
     assert t["resultadoRecompras"] == "-1500.00"
     c = _codigos(r)
+    assert "DIVIDENDO_MINIMO_NO_ASIGNADO" not in _codigos(r)
     for k in ("MOVIMIENTO_NO_CUADRA", "DIF_MAYOR", "RESERVA_LEGAL_NO_APROPIADA", "DIVIDENDOS_SOBRE_UTILIDADES_NO_DISPONIBLES",
               "DIVIDENDO_POSTERIOR_COMO_PASIVO", "DIVIDENDO_POSTERIOR_REVELAR", "CAPITAL_NO_COINCIDE_ESCRITURA", "AUMENTO_NO_INSCRITO",
               "APORTE_ES_PASIVO", "INSTRUMENTO_MAL_CLASIFICADO", "RECOMPRA_CON_RESULTADO", "SIN_ACTA"):
@@ -59,7 +63,8 @@ def test_limitada_por_defecto_sin_transacciones_ni_mayor():
 def test_perdida_no_exige_reserva_y_disponibles_calculadas():
     r = _run(utilidadNeta=-5000, utilidadesDisponibles=None)
     assert r["totals"]["reservaRequerida"] == "0.00" and r["totals"]["ajusteReserva"] == "-8000.00"
-    assert r["totals"]["utilidadesDisponibles"] == "278000.00" and r["totals"]["excesoDividendos"] == "0.00"
+    # 150.000 + 128.000 − 0 de reserva + 25.000 de reservas de libre disposición (art. 298)
+    assert r["totals"]["utilidadesDisponibles"] == "303000.00" and r["totals"]["excesoDividendos"] == "0.00"
 
 
 def test_tope_limita_la_reserva_y_sin_base():
@@ -69,6 +74,40 @@ def test_tope_limita_la_reserva_y_sin_base():
               "transacciones": EJ["datasets"]["transacciones"]}
     r = _run(sin_re)
     assert "reservaRequerida" not in r["totals"] and "RESERVA_SIN_BASE" in _codigos(r)
+
+
+def test_minimo_legal_de_dividendos_art_297():
+    # Utilidad líquida 400.000: reserva requerida 40.000 → base 360.000 × 50 % = 180.000 frente a 90.000 declarados.
+    _, ds, p_, c = next(e for e in m.ESCENARIOS if e[0] == "dividendo_bajo_el_minimo")
+    r = m.ejecutar(ds, p_, c)
+    t = r["totals"]
+    assert r["detalle"]["div"]["minBase"] == 360000 and t["dividendoMinimoLegal"] == "180000.00"
+    assert t["dividendosBajoMinimo"] == "90000.00" and "DIVIDENDO_MINIMO_NO_ASIGNADO" in _codigos(r)
+    # Con resolución unánime de la junta no aplica el mínimo (art. 297).
+    r = _run(utilidadNeta=400000, resolucionUnanime="Sí")
+    assert "dividendoMinimoLegal" not in r["totals"] and "DIVIDENDO_MINIMO_NO_ASIGNADO" not in _codigos(r)
+    # Emisor inscrito en bolsa: 30 % → 108.000, todavía por encima de los 90.000 declarados.
+    r = _run(utilidadNeta=400000, pctDividendoMinimo=30)
+    assert r["totals"]["dividendoMinimoLegal"] == "108000.00" and r["totals"]["dividendosBajoMinimo"] == "18000.00"
+    with pytest.raises(ValueError):
+        _run(pctDividendoMinimo=120)
+    with pytest.raises(ValueError):
+        _run(resolucionUnanime="quizás")
+    with pytest.raises(ValueError):
+        _run(reservasLibreDisposicion=-1)
+
+
+def test_reservas_de_libre_disposicion_art_298():
+    # Sin el parámetro: disponibles calculadas 265.200 y los 90.000 declarados caben igual.
+    r = _run(utilidadesDisponibles=None, reservasLibreDisposicion=None)
+    assert r["totals"]["utilidadesDisponibles"] == "265200.00"
+    # Utilidades agotadas: solo las reservas de libre disposición sostienen el dividendo (art. 298).
+    sin_util = {"movimientos": [f if f["clase"] not in ("Resultados acumulados", "Resultado del ejercicio") else {**f, "inicial": "0"}
+                                for f in EJ["datasets"]["movimientos"]], "transacciones": EJ["datasets"]["transacciones"]}
+    r = _run(sin_util, utilidadesDisponibles=None, utilidadNeta=0, reservasLibreDisposicion=25000)
+    assert r["totals"]["utilidadesDisponibles"] == "25000.00" and r["totals"]["excesoDividendos"] == "65000.00"
+    r = _run(sin_util, utilidadesDisponibles=None, utilidadNeta=0, reservasLibreDisposicion=None)
+    assert r["totals"]["utilidadesDisponibles"] == "0.00" and r["totals"]["excesoDividendos"] == "90000.00"
 
 
 def test_recompra_no_deducida():

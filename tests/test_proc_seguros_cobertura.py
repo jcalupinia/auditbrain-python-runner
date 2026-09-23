@@ -44,11 +44,46 @@ def test_ejemplo_cifras_a_mano():
     assert _p(r, "POL-05")["restantes"] == 365 and _p(r, "POL-04")["por_vencer"] == 20 and _p(r, "POL-04")["alerta"] == "Por vencer"
     assert t["primaRegistrada"] == "7800.00" and t["primaRecalculada"] == "6200.00" and t["ajustePrima"] == "-1600.00"
     assert t["difMayorPrima"] == "-200.00" and t["siniestrosSinRevelar"] == "18000.00"
+    # NIC 16.65–66 / PYMES 17.25: POL-02 daño a activo propio con cobro exigible → 18.000 a resultados;
+    # POL-04 daño a activo propio sin cobro exigible → activo contingente (NIC 37.31–35), no suma.
+    assert t["compensacionesExigibles"] == "18000.00"
+    assert _p(r, "POL-02")["trat_sin"] == m.TRAT_EXIGIBLE and _p(r, "POL-04")["trat_sin"] == m.TRAT_CONTINGENTE
     assert r["primary"] == "ajustePrima" and m.TOTAL_EJEMPLO in t
     assert {"POLIZA_VENCIDA", "POLIZA_NO_INICIADA", "POLIZA_POR_VENCER", "INFRASEGURO", "INFRASEGURO_POLIZA", "SOBRESEGURO",
             "ACTIVO_SIN_COBERTURA", "SINIESTRO_SIN_REVELACION", "PRIMA_MAL_DEVENGADA", "REFERENCIA_EN_LIBROS", "EXPOSICION_MAXIMA",
-            "CONCILIACION_PRIMA_MAYOR"} <= _codigos(r)
+            "CONCILIACION_PRIMA_MAYOR", "COMPENSACION_EXIGIBLE", "COMPENSACION_ACTIVO_CONTINGENTE"} <= _codigos(r)
     assert "SINIESTRO_SIN_REVELACION" not in {e["code"] for e in r["exceptions"] if "POL-04" in e["message"]}
+    assert {"SINIESTRO_SIN_TIPO", "SINIESTRO_SIN_EXIGIBILIDAD"} & _codigos(r) == set()
+
+
+def _pol_sin(**extra):
+    """Un activo y una póliza vigente con un siniestro pendiente, para probar el tipo de siniestro."""
+    ds = {"activos": [m._a("A-1", "Equipo", "Maquinaria", "1000", poliza="P1", suma_asignada="1000")],
+          "polizas": [{"id": "P1", "aseguradora": "Alfa", "vigencia_desde": "2025-01-01", "vigencia_hasta": "2026-01-01",
+                       "suma_total": "1000", "siniestro": "Reclamo", "monto_siniestro": "700", "siniestro_revelado": "Sí",
+                       "_row": 2, **extra}]}
+    return m.ejecutar(ds, {}, "2025-12-31")
+
+
+def test_tipo_de_siniestro_enruta_el_tratamiento():
+    # Sin tipo: se pide el dato y NO cambia el tratamiento actual (reclamo de terceros, NIC 37.53).
+    r = _pol_sin()
+    assert "SINIESTRO_SIN_TIPO" in _codigos(r) and _p(r, "P1")["trat_sin"] == m.TRAT_SIN_TIPO
+    assert r["totals"]["compensacionesExigibles"] == "0.00"
+    # Reclamo de terceros: tratamiento actual, sin problemas de compensación.
+    r = _pol_sin(tipo_siniestro="Reclamo de terceros")
+    assert _p(r, "P1")["trat_sin"] == m.TRAT_TERCEROS
+    assert {"SINIESTRO_SIN_TIPO", "COMPENSACION_EXIGIBLE", "COMPENSACION_ACTIVO_CONTINGENTE"} & _codigos(r) == set()
+    # Daño a activo propio exigible: 700 a resultados (NIC 16.65–66 / PYMES 17.25).
+    r = _pol_sin(tipo_siniestro="Daño a activo propio", cobro_exigible="Sí")
+    assert r["totals"]["compensacionesExigibles"] == "700.00" and "COMPENSACION_EXIGIBLE" in _codigos(r)
+    # Daño a activo propio sin exigibilidad informada: activo contingente y se pide el dato (M22).
+    r = _pol_sin(tipo_siniestro="Daño a activo propio")
+    assert _p(r, "P1")["trat_sin"] == m.TRAT_SIN_EXIGIBILIDAD and r["totals"]["compensacionesExigibles"] == "0.00"
+    assert {"SINIESTRO_SIN_EXIGIBILIDAD", "COMPENSACION_ACTIVO_CONTINGENTE"} <= _codigos(r)
+    v = m.validar_filas("polizas", [{"id": "P", "aseguradora": "x", "vigencia_desde": "2025-01-01", "vigencia_hasta": "2026-01-01",
+                                     "suma_total": "1", "tipo_siniestro": "otra cosa", "cobro_exigible": "tal vez", "_row": 3}])
+    assert not v["ok"] and {e["field"] for e in v["errors"]} == {"tipo_siniestro", "cobro_exigible"}
 
 
 @pytest.mark.parametrize("edicion", ["2015", "2025"])

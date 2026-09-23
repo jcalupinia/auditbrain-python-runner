@@ -15,8 +15,12 @@ Dos anexos alimentan las pruebas:
      tasa de mercado; TIE = esa tasa (un solo pago al vencimiento); interés = pasivo inicial × TIE por el
      tiempo transcurrido; cierre = inicial + interés − pagos (el saldo informado ya es el pendiente);
      financiación implícita = nominal − valor presente.
-  6. Clasificación (NIC 1 69–70; PYMES 4.7–4.8): no corriente la porción que vence después de
-     max(12 meses, ciclo normal de operación); los saldos deudores (anticipos) se reclasifican al activo.
+  6. Clasificación (NIC 1 69–70; PYMES 4.7–4.8): el plazo del ciclo de operación solo alcanza a las
+     partidas de explotación (columna «Partida de explotación»): en ellas es no corriente lo que vence
+     después de max(12 meses, ciclo); en las demás (p. ej. la compra de un activo fijo), después de 12 meses.
+     Si la columna no viene se aplica el ciclo a todas y se emite un problema cuando el ciclo supera 12 meses.
+     Los saldos deudores (anticipos) se reclasifican al activo: no se compensan con el pasivo (NIC 1.32 /
+     PYMES 2.52; la NIC 32.42 solo alcanza a los activos y pasivos financieros, como las notas de crédito).
 - ``pagos_posteriores``: búsqueda de pasivos no registrados. Pago o factura con fecha posterior al corte
   y recepción anterior o igual al corte, no registrado al corte → pasivo omitido.
 
@@ -44,6 +48,8 @@ _PROVEEDORES = [
     campo("pago", "Pago posterior al cierre", "number", False, ("pago posterior", "pagado", "pago")),
     campo("fecha_pago", "Fecha del pago", "date", False, ("fecha pago", "fecha de pago")),
     campo("relacionado", "Parte relacionada (sí/no)", "text", False, ("relacionada", "parte relacionada", "vinculado")),
+    campo("explotacion", "Partida de explotación (sí/no)", "text", False,
+          ("explotacion", "partida de explotacion", "ciclo de operacion", "comercial del giro", "operativa")),
     campo("moneda", "Moneda", "text", False, ("divisa", "moneda original")),
     campo("ruc", "RUC / identificación", "text", False, ("cedula", "identificacion", "codigo proveedor")),
 ]
@@ -99,10 +105,11 @@ def kind(dataset: str) -> str:
 
 def validar_filas(tipo: str, filas: list) -> dict:
     r = validar_campos(CAMPOS[tipo], filas)
-    k = "registrado" if tipo == "pagos_posteriores" else "relacionado"
+    claves = ("registrado",) if tipo == "pagos_posteriores" else ("relacionado", "explotacion")
     for f in filas:
-        if str(f.get(k, "") or "").strip() and _sino(f.get(k)) is None:
-            r["errors"].append({"row": f.get("_row"), "field": k, "message": "Responda «sí» o «no»."})
+        for k in claves:
+            if str(f.get(k, "") or "").strip() and _sino(f.get(k)) is None:
+                r["errors"].append({"row": f.get("_row"), "field": k, "message": "Responda «sí» o «no»."})
     r["ok"] = not r["errors"]
     return r
 
@@ -122,9 +129,9 @@ def _pnum(p, k):
 def _citas(pymes: bool, edicion: str = "2015") -> dict:
     if pymes:
         return {"fin": ("PYMES 11.13 y 11.13B (3.ª edición)" if edicion == "2025" else "PYMES 11.13"), "ca": "PYMES 11.14–11.20", "clas": "PYMES 4.7–4.8", "baja": "PYMES 11.36",
-                "rel": "PYMES Sección 33 (33.9)", "me": "PYMES 30.9"}
+                "rel": "PYMES Sección 33 (33.9)", "me": "PYMES 30.9", "comp": "PYMES 2.52"}
     return {"fin": "NIIF 9 5.1.1, B5.1.1", "ca": "NIIF 9 4.2.1, 5.3.1 y Apéndice A", "clas": "NIC 1 69–70 (NIIF 18 párr. 101 y B96 desde 2027)", "baja": "NIIF 9 3.3.1",
-            "rel": "NIC 24 párr. 18", "me": "NIC 21 23 a)"}
+            "rel": "NIC 24 párr. 18", "me": "NIC 21 23 a)", "comp": "NIC 1.32"}
 
 
 def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
@@ -166,7 +173,11 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         interes_dev = vp * ((1 + t) ** (transcurridos / 365) - 1) if vp is not None else None
         ca = vp * (1 + t) ** (transcurridos / 365) if vp is not None else saldo
         interes = None if financia and t is None else saldo - ca
-        no_corr = saldo > 0 and por_vencer > limite_nc
+        # NIC 1.70 / NIIF 18 B96: el plazo del ciclo de operación solo alcanza a las partidas de explotación
+        # (cuentas comerciales por pagar del giro). Las demás son corrientes solo si vencen dentro de 12 meses.
+        explot = _sino(f.get("explotacion")) if str(f.get("explotacion", "") or "").strip() else None
+        limite = 12 * 365 / 12 if explot == "No" else limite_nc
+        no_corr = saldo > 0 and por_vencer > limite
         pago, fpago = _opc(f, "pago"), fecha(f.get("fecha_pago"))
         posterior = pago is not None and fpago is not None and fpago > corte_a
         recep = fecha(f.get("recepcion"))
@@ -176,6 +187,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             "relacionado": _sino(f.get("relacionado")) or "No", "moneda": str(f.get("moneda", "") or "").strip().upper() or "USD",
             "dv": dv, "tramo": _tramo(dv)["k"], "plazo": plazo, "financia": financia, "transcurridos": transcurridos,
             "porVencer": por_vencer, "vp": vp, "interesDev": interes_dev, "ca": ca, "interes": interes,
+            "explotacion": explot or "", "limite": limite,
             "noCorr": no_corr, "importeNC": ca if no_corr else 0, "deudor": -saldo if saldo < 0 else 0,
             "pago": pago, "fechaPago": fpago, "aplicable": min(pago, saldo) if posterior else 0,
             "exceso": max(pago - saldo, 0) if posterior else 0,
@@ -264,10 +276,20 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     elif reclas < -0.005:
         problemas.append(problema("CORRIENTE_COMO_NO_CORRIENTE", f"Se presenta como no corriente {m(nc_reg or 0)}, más que la porción que vence después de "
                                   f"{m(max(12, ciclo))} meses ({m(no_corr)}) ({cit['clas']}).", reclas))
+    sin_explot = [x for x in filas if not x["explotacion"] and x["saldo"] > 0]
+    if limite_nc > 365 and sin_explot:
+        problemas.append(problema("PARTIDA_EXPLOTACION_NO_INFORMADA",
+                                  f"El ciclo normal de operación informado ({m(ciclo)} meses) supera los 12 meses y {len(sin_explot)} documento(s) no indican "
+                                  f"si son partidas de explotación: el plazo del ciclo solo alcanza a las cuentas comerciales por pagar del giro ({cit['clas']}); "
+                                  "las demás partidas (por ejemplo la compra de activos fijos) son corrientes si vencen dentro de 12 meses. "
+                                  "Complete la columna «Partida de explotación»; entretanto se aplicó el ciclo a todas.",
+                                  sum(x["saldo"] for x in sin_explot)))
     if deudores > 0.005:
         n = sum(1 for x in filas if x["deudor"])
         problemas.append(problema("SALDOS_DEUDORES", f"{n} saldo(s) deudor(es) dentro de proveedores (anticipos o notas de crédito) por {m(deudores)}: "
-                                  "reclasificar al activo; no se compensan con el pasivo salvo derecho legal y intención de liquidar por el neto (NIC 32 42).", deudores))
+                                  f"reclasificar al activo. Un anticipo por bienes o servicios no es un activo financiero: la prohibición de compensarlo con el "
+                                  f"pasivo es {cit['comp']}; la NIC 32.42 (derecho legal exigible e intención de liquidar por el neto) solo alcanza a los activos y "
+                                  "pasivos financieros, como las notas de crédito.", deudores))
     viejos = [x for x in filas if x["dv"] > 360 and x["saldo"] > 0]
     if viejos:
         problemas.append(problema("VENCIDO_MAS_360", f"{len(viejos)} saldo(s) vencido(s) hace más de 360 días por {m(sum(x['saldo'] for x in viejos))}: confirme que la obligación "
@@ -343,7 +365,8 @@ def hojas(res: dict) -> list[dict]:
         ["Marco contable", marco, "Mismo modelo en ambos marcos; cambian las citas"],
         ["Tasa de mercado anual para el valor presente (%)", d["tasaMercado"], f"{cit['fin']} — tasa de un instrumento de deuda similar"],
         ["Plazo que se considera financiación (meses)", d["umbral"], f"{cit['fin']}{'' if d['pymes'] else '; NIC 2.18 / NIC 16.23'} — juicio: plazo mayor a las condiciones normales de crédito"],
-        ["Ciclo normal de operación (meses)", d["ciclo"], f"{'PYMES 4.6–4.8' if d['pymes'] else cit['clas']} — si no es identificable, 12 meses"],
+        ["Ciclo normal de operación (meses)", d["ciclo"],
+         f"{'PYMES 4.6–4.8' if d['pymes'] else cit['clas']} — si no es identificable, 12 meses; el ciclo solo alcanza a las partidas de explotación"],
         ["Intereses implícitos por devengar registrados (mayor)", d["descuentoRegistrado"], "Mayor contable"],
         ["Proveedores presentados como no corrientes", d["noCorrienteRegistrado"], "Estado de situación financiera"],
         ["Saldo de proveedores según el mayor", d["saldoMayor"], "Mayor / balance de comprobación"],
@@ -360,12 +383,14 @@ def hojas(res: dict) -> list[dict]:
             fx(f'IF(AND(L{r}="Sí",{tm}<>""),F{r}/(1+{tm}/100)^(K{r}/365)*(1+{tm}/100)^(MIN(MAX({corte}-C{r},0),K{r})/365),F{r})', x["ca"]),
             fx(f'IF(AND(L{r}="Sí",{tm}=""),"",F{r}-M{r})', x["interes"]),
             fx(f"MAX(E{r}-{corte},0)", x["porVencer"]),
-            fx(f'IF(AND(F{r}>0,O{r}>MAX(12,{_pb("cicloOperacion")})*365/12),"Sí","No")', "Sí" if x["noCorr"] else "No"),
+            # NIC 1.70: el ciclo solo aplica a las partidas de explotación; las demás, 12 meses.
+            fx(f'IF(AND(F{r}>0,O{r}>IF(S{r}="No",12*365/12,MAX(12,{_pb("cicloOperacion")})*365/12)),"Sí","No")', "Sí" if x["noCorr"] else "No"),
             fx(f'IF(P{r}="Sí",M{r},0)', x["importeNC"]),
             fx(f"IF(F{r}<0,-F{r},0)", x["deudor"]),
+            x["explotacion"] or None,
         ])
     tot_det = ["TOTAL", "", "", "", "", suma("F", fin_det, t["saldo"]), "", "", None, "", None, "", suma("M", fin_det, sum(x["ca"] for x in fl)),
-               suma("N", fin_det, t["interesNoDevengado"]), None, "", suma("Q", fin_det, t["noCorriente"]), suma("R", fin_det, t["saldosDeudores"])]
+               suma("N", fin_det, t["interesNoDevengado"]), None, "", suma("Q", fin_det, t["noCorriente"]), suma("R", fin_det, t["saldosDeudores"]), ""]
 
     # 04 · Aging (importe nominal).
     aging = []
@@ -459,10 +484,11 @@ def hojas(res: dict) -> list[dict]:
         cla.append([x["doc"], x["proveedor"], x["vence"], fx(f"{DET}O{r}", x["porVencer"]), fx(f"{DET}M{r}", x["ca"]),
                     fx(f'IF(E{r}<0,"Activo (anticipo)",IF({DET}P{r}="Sí","No corriente","Corriente"))', txt),
                     fx(f'IF(F{r}="Corriente",E{r},0)', x["ca"] if txt == "Corriente" else 0),
-                    fx(f"{DET}Q{r}", x["importeNC"]), fx(f"{DET}R{r}", x["deudor"])])
+                    fx(f"{DET}Q{r}", x["importeNC"]), fx(f"{DET}R{r}", x["deudor"]), fx(f'IF({DET}S{r}="","",{DET}S{r})', x["explotacion"] or None),
+                    fx(f'IF(J{r}="No",12*365/12,MAX(12,{_pb("cicloOperacion")})*365/12)', x["limite"])])
     tot_cla = ["TOTAL", "", None, None, suma("E", fin_det, sum(x["ca"] for x in fl)), "",
                suma("G", fin_det, sum(x["ca"] for x in fl if x["saldo"] > 0 and not x["noCorr"])),
-               suma("H", fin_det, t["noCorriente"]), suma("I", fin_det, t["saldosDeudores"])]
+               suma("H", fin_det, t["noCorriente"]), suma("I", fin_det, t["saldosDeudores"]), "", None]
 
     # 11 · Saldo auditado y ajustes.
     tot_ref = lambda hoja_ref, col, fin, ok: f"{hoja_ref}{col}{fin + 1}" if ok else "0"
@@ -475,7 +501,8 @@ def hojas(res: dict) -> list[dict]:
         ["(-) Compras registradas antes de la recepción", fx(tot_ref(COR, "G", fin_cor, cor), t["corteAnticipado"]), "08_Corte_compras"],
         ["Intereses implícitos por devengar requeridos", fx(f"SUM({_rango(DET, 'N', nd)})", t["interesNoDevengado"]), f"{cit['fin']}"],
         ["(-) Ajuste por financiación implícita", fx(f"{b('interesReq')}-{b('descReg')}", t["ajusteFinanciacion"]), "Requerido − registrado"],
-        ["(+) Saldos deudores reclasificados al activo", fx(f"SUM({_rango(DET, 'R', nd)})", t["saldosDeudores"]), "NIC 32 42 / anticipos"],
+        ["(+) Saldos deudores reclasificados al activo", fx(f"SUM({_rango(DET, 'R', nd)})", t["saldosDeudores"]),
+         f"Anticipos: no se compensan ({cit['comp']}); NIC 32.42 solo para notas de crédito"],
         ["Saldo de proveedores auditado", fx(f"{b('libros')}+{b('omitido')}-{b('anticipado')}-{b('ajusteFin')}+{b('deudores')}", t["saldoAuditado"]), ""],
         ["Ajuste neto propuesto a proveedores", fx(f"{b('auditado')}-{b('libros')}", t["ajusteNeto"]), "Positivo: aumenta el pasivo"],
         ["Porción no corriente requerida", fx(f"SUM({_rango(DET, 'Q', nd)})", t["noCorriente"]), cit["clas"]],
@@ -537,7 +564,7 @@ def hojas(res: dict) -> list[dict]:
              [["Documento", "t"], ["Proveedor", "t"], ["Fecha factura", "d"], ["Recepción", "d"], ["Vencimiento", "d"], ["Saldo", "n"],
               ["Relacionado", "t"], ["Moneda", "t"], ["Días desde vencimiento", "i"], ["Tramo", "t"], ["Plazo de pago (días)", "i"],
               ["Financiación implícita", "t"], ["Costo amortizado", "n"], ["Interés implícito por devengar", "n"], ["Días por vencer", "i"],
-              ["No corriente", "t"], ["Importe no corriente", "n"], ["Saldo deudor", "n"]], detalle, tot_det),
+              ["No corriente", "t"], ["Importe no corriente", "n"], ["Saldo deudor", "n"], ["Partida de explotación", "t"]], detalle, tot_det),
         hoja("04_Aging", "Antigüedad de proveedores", [["Tramo", "t"], ["Documentos", "i"], ["Saldo", "n"], ["% del saldo", "p"], ["Vencido", "t"]],
              aging, ["TOTAL", suma("B", fin_ag, nd), suma("C", fin_ag, t["saldo"]), None, ""]),
         hoja("05_Pagos_posteriores", "Pagos posteriores al cierre",
@@ -558,7 +585,8 @@ def hojas(res: dict) -> list[dict]:
               ["TIE recalculada", "p"], ["Interés devengado al corte", "n"], ["Costo amortizado al corte", "n"], ["Interés por devengar", "n"]], cam, tot_cam),
         hoja("10_Clasificacion", "Clasificación corriente / no corriente",
              [["Documento", "t"], ["Proveedor", "t"], ["Vencimiento", "d"], ["Días por vencer", "i"], ["Costo amortizado", "n"], ["Clasificación requerida", "t"],
-              ["Corriente", "n"], ["No corriente", "n"], ["Saldo deudor (activo)", "n"]], cla, tot_cla),
+              ["Corriente", "n"], ["No corriente", "n"], ["Saldo deudor (activo)", "n"], ["Partida de explotación", "t"],
+              ["Límite aplicado (días)", "i"]], cla, tot_cla),
         hoja("11_Ajuste", "Saldo auditado y ajustes", [["Concepto", "t"], ["Importe", "n"], ["Referencia", "t"]], ajuste),
         hoja("12_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos),
         hoja("13_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
@@ -571,7 +599,7 @@ def hojas(res: dict) -> list[dict]:
 def definicion() -> dict:
     prov = ("Una fila por documento pendiente al corte: documento, proveedor, fecha de factura, vencimiento y saldo (negativo si es deudor); "
             "y, cuando existan, fecha de recepción del bien o servicio, saldo confirmado por el proveedor, pago posterior y su fecha, "
-            "parte relacionada (sí/no) y moneda. Sin filas de total.")
+            "parte relacionada (sí/no), si es una partida de explotación —cuenta comercial por pagar del giro— (sí/no) y moneda. Sin filas de total.")
     pagos = ("Pagos y facturas registrados después del corte (hasta la fecha del informe): documento, proveedor, fecha, fecha de recepción "
              "del bien o servicio, importe y si el pasivo estaba registrado al corte (sí/no).")
     return {
@@ -587,14 +615,17 @@ def definicion() -> dict:
         "source": {"organization": "IFRS Foundation (texto en español: Reglamento (UE) 2023/1803, NIC 1 modificada por el Reglamento (UE) 2023/2822)", "type": "Norma contable", "date": "",
                    "document": ("NIIF 9 párr. 3.3.1 (baja: obligación satisfecha, cancelada o prescrita), 4.2.1 (pasivos financieros a costo "
                                 "amortizado), 5.1.1 (medición inicial a valor razonable), B5.1.1 (financiación sin intereses: valor actual "
-                                "descontado al tipo de mercado de un instrumento similar); NIC 1 párr. 69 (pasivo corriente) y 70 (partidas "
-                                "del ciclo de explotación); NIIF 7 párr. 39 a) (análisis de vencimientos) — leídos en EUR-Lex. NIC 32 párr. 42 "
-                                "(compensación); NIIF 18 párr. 101 y B96 desde 2027 (reemplaza a la NIC 1)."),
+                                "descontado al tipo de mercado de un instrumento similar); NIC 1 párr. 69 (pasivo corriente) y 70 (el plazo del ciclo "
+                                "de explotación solo alcanza a las partidas de explotación, como las cuentas comerciales a pagar); NIC 1 párr. 32 "
+                                "(no compensación de activos y pasivos: base de los anticipos a proveedores); NIIF 7 párr. 39 a) (análisis de "
+                                "vencimientos) — leídos en EUR-Lex. NIC 32 párr. 42 (compensación de activos y pasivos financieros: notas de "
+                                "crédito); NIIF 18 párr. 101 y B96 desde 2027 (reemplaza a la NIC 1)."),
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
                          "document": ("NIIF para las PYMES 2015 y 2025: Sección 11 párr. 11.13 (transacción de financiación: valor presente de "
                                       "los pagos futuros descontados a la tasa de mercado), 11.14–11.20 (costo amortizado y método del interés "
-                                      "efectivo), 11.36 (baja de pasivos); Sección 4 párr. 4.6 (ciclo no identificable: 12 meses) y 4.7–4.8 (clasificación corriente/no corriente). En la edición 2025: "
+                                      "efectivo), 11.36 (baja de pasivos); Sección 2 párr. 2.52 (no compensación: base de los anticipos a proveedores); "
+                                      "Sección 4 párr. 4.6 (ciclo no identificable: 12 meses) y 4.7–4.8 (clasificación corriente/no corriente). En la edición 2025: "
                                       "11.13 y 11.13B (financiación; el 11.13A trata las cuentas comerciales por cobrar). "
                                       "Contrastado con el texto oficial 2015 (ES) y 2025 (EN) el 22-09-2026."),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
@@ -614,8 +645,11 @@ def definicion() -> dict:
             "Financiación implícita: plazo de pago (vencimiento − fecha de factura) mayor al umbral (juicio: plazo mayor a los términos comerciales normales; por defecto 12 meses).",
             "Pasivo inicial = nominal ÷ (1 + tasa de mercado)^(plazo ÷ 365); TIE = tasa de mercado (un solo pago al vencimiento); financiación implícita = nominal − valor presente.",
             "Interés devengado = pasivo inicial × ((1 + TIE)^(días transcurridos ÷ 365) − 1); costo amortizado al corte = inicial + interés − pagos (el saldo ya es el pendiente); interés por devengar = nominal − costo amortizado.",
-            "No corriente: saldo que vence después de max(12 meses, ciclo normal de operación), a costo amortizado (NIC 1 69–70; PYMES 4.7). Saldos deudores: se reclasifican al activo.",
-            "Nota (pendiente de decisión del socio): el contraste oficial señala que las cuentas comerciales del ciclo normal son corrientes aunque venzan después de 12 meses (NIC 1.70 / NIIF 18 B96), y que la no compensación de anticipos se sustenta en NIC 1.32 / PYMES 2.52 (NIC 32.42 solo para notas de crédito).",
+            "No corriente: partidas de explotación (cuentas comerciales por pagar del giro), lo que vence después de max(12 meses, ciclo normal de operación); "
+            "las demás partidas (p. ej. la compra de activos fijos), lo que vence después de 12 meses, porque el plazo del ciclo solo aplica a la explotación "
+            "(NIC 1.70 / NIIF 18 B96; PYMES 4.7–4.8). Si no se informa la columna se aplica el ciclo a todas y se pide el dato cuando el ciclo supera 12 meses.",
+            "Saldos deudores (anticipos): se reclasifican al activo; no se compensan con el pasivo (NIC 1.32 / PYMES 2.52). La NIC 32.42 solo alcanza a los "
+            "activos y pasivos financieros, como las notas de crédito.",
             "Saldo auditado = libros neto + pasivos no registrados − compras antes de la recepción − ajuste por financiación + saldos deudores; ajuste neto = auditado − libros neto.",
         ],
         "fields": _PROVEEDORES, "rules": [], "control": CONTROL, "primary": "ajusteNeto",
@@ -640,9 +674,12 @@ def definicion() -> dict:
             {"code": "CXP-06", "objective": "Costo amortizado e intereses implícitos", "risk": "Proveedores a plazo largo medidos por su nominal", "assertion": "Valoración",
              "procedure": "Identificar documentos con plazo mayor al umbral y medir su valor presente, TIE e interés devengado", "evidence": "Contratos, términos de pago, tasa de mercado",
              "criterion": "Financiación implícita reconocida", "source": "NIIF 9 5.1.1, B5.1.1, 4.2.1 · PYMES 11.13"},
-            {"code": "CXP-07", "objective": "Clasificación y presentación", "risk": "Porción de largo plazo presentada como corriente; anticipos compensados", "assertion": "Presentación",
-             "procedure": "Clasificar por vencimiento frente al ciclo de operación y reclasificar saldos deudores", "evidence": "Auxiliar, estado de situación financiera",
-             "criterion": "Presentación conforme", "source": "NIC 1 69–70 · PYMES 4.7 · NIIF 7 39"},
+            {"code": "CXP-07", "objective": "Clasificación y presentación", "risk": "Porción de largo plazo presentada como corriente; ciclo de operación aplicado a partidas ajenas a la explotación; anticipos compensados",
+             "assertion": "Presentación",
+             "procedure": "Clasificar por vencimiento: ciclo de operación solo en las partidas de explotación, 12 meses en las demás; reclasificar los saldos deudores al activo",
+             "evidence": "Auxiliar con la marca de partida de explotación, estado de situación financiera",
+             "criterion": "NIC 1.70 (el plazo del ciclo solo alcanza a las partidas de explotación) y NIC 1.32 / PYMES 2.52 (no compensación de anticipos)",
+             "source": "NIC 1 69–70 y 32 · PYMES 4.7–4.8 y 2.52 · NIIF 7 39"},
         ],
         "requests": [
             req("RQ-001", "Auxiliar de proveedores por documento al corte con recepciones, confirmaciones y pagos posteriores", "proveedores", "CXP-01",
@@ -677,6 +714,8 @@ def _pp(id, prov, fecha_, recepcion, importe, registrado):
 
 
 # Corte 2025-12-31, tasa de mercado 10 %, umbral 12 meses, ciclo 12 meses.
+# P-005 está marcado como NO partida de explotación: con ciclo 24 meses su límite sigue siendo 12 meses (365 días),
+# así que los 547 días por vencer lo dejan no corriente (NIC 1.70); las partidas de explotación sí usarían el ciclo.
 # P-005: 24.200 a 730 días → pasivo inicial 24.200 ÷ 1,21 = 20.000; financiación implícita 4.200;
 # 183 días transcurridos → interés 20.000 × (1,1^(183/365) − 1) = 978,92; costo amortizado 20.978,92;
 # por devengar 3.221,08; vence en 547 días (> 365) → no corriente 20.978,92.
@@ -688,11 +727,12 @@ EJEMPLO = {
                    "noCorrienteRegistrado": 0, "saldoMayor": 80000},
     "datasets": {
         "proveedores": [
-            _ej("P-001", "Aceros del Pacífico S.A.", "2025-12-05", "2026-01-04", "15000", recepcion="2025-12-05", confirmado="15000", pago="15000", fecha_pago="2026-01-04"),
-            _ej("P-002", "Plásticos Andinos Cía. Ltda.", "2025-12-29", "2026-01-28", "7000", recepcion="2026-01-06"),
-            _ej("P-003", "Servicios Logísticos del Sur", "2025-11-10", "2025-12-10", "4000", recepcion="2025-11-10", confirmado="5200"),
-            _ej("P-004", "Químicos Unidos S.A.", "2025-09-15", "2025-10-15", "3000", pago="3500", fecha_pago="2026-01-20"),
-            _ej("P-005", "Maquinarias Industriales S.A.", "2025-07-01", "2027-07-01", "24200", recepcion="2025-07-01", confirmado="24200"),
+            _ej("P-001", "Aceros del Pacífico S.A.", "2025-12-05", "2026-01-04", "15000", recepcion="2025-12-05", confirmado="15000", pago="15000", fecha_pago="2026-01-04", explotacion="Sí"),
+            _ej("P-002", "Plásticos Andinos Cía. Ltda.", "2025-12-29", "2026-01-28", "7000", recepcion="2026-01-06", explotacion="Sí"),
+            _ej("P-003", "Servicios Logísticos del Sur", "2025-11-10", "2025-12-10", "4000", recepcion="2025-11-10", confirmado="5200", explotacion="Sí"),
+            _ej("P-004", "Químicos Unidos S.A.", "2025-09-15", "2025-10-15", "3000", pago="3500", fecha_pago="2026-01-20", explotacion="Sí"),
+            # Compra de maquinaria: NO es partida de explotación → el plazo del ciclo no le aplica (NIC 1.70).
+            _ej("P-005", "Maquinarias Industriales S.A.", "2025-07-01", "2027-07-01", "24200", recepcion="2025-07-01", confirmado="24200", explotacion="No"),
             _ej("P-006", "Holding Andes S.A.", "2025-06-30", "2026-06-30", "10000", relacionado="Sí"),
             _ej("P-007", "Transportes Rápidos", "2025-12-20", "2026-01-19", "-1800"),
             _ej("P-008", "Empaques Sierra", "2025-05-02", "2025-06-01", "2500"),
@@ -722,4 +762,6 @@ ESCENARIOS = [
                                               "saldoMayor": None, "noCorrienteRegistrado": None}, EJEMPLO["corte"]),
     ("completas_descuento_registrado", EJEMPLO["datasets"], {**EJEMPLO["parametros"], "descuentoRegistrado": 4000, "noCorrienteRegistrado": 30000,
                                                              "saldoMayor": 80300}, EJEMPLO["corte"]),
+    # Ciclo mayor a 12 meses: prueba la rama de «partida de explotación» (NIC 1.70) en la fórmula del Excel.
+    ("ciclo_largo_explotacion", EJEMPLO["datasets"], {**EJEMPLO["parametros"], "cicloOperacion": 24}, EJEMPLO["corte"]),
 ]

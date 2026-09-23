@@ -18,8 +18,10 @@ Una sola población (la cartera por factura al corte) alimenta siete pruebas:
 6. Deterioro con una matriz de tasas por tramo que fija el auditor, sobre el costo
    amortizado. NIIF completas: pérdida crediticia esperada (5.5.15, B5.5.35),
    tasa en todos los tramos, incluido el corriente. PYMES: pérdida incurrida
-   (11.21–11.26): solo tramos con evidencia objetiva (mora, 11.22 b); corriente
-   0 % salvo tasa individual por factura.
+   (11.21–11.26), solo con evidencia objetiva: mora (11.22 b) y, en el tramo
+   corriente, datos observables de una disminución medible de los flujos del
+   grupo (11.22 e, evaluación por grupos 11.24). El tramo corriente conserva la
+   tasa que fija el auditor y se le exige el sustento; no se fuerza a 0 %.
 7. Deterioro requerido vs registrado (ajuste) y ajuste por financiación no
    reconocida; asientos propuestos.
 
@@ -133,12 +135,11 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     prov_reg = _pnum(p, "provisionRegistrada")
     desc_reg = _pnum(p, "descuentoRegistrado")
 
-    # Tasas por tramo (%): PYMES → corriente 0 % (sin evento de pérdida, 11.21–11.22).
+    # Tasas por tramo (%). PYMES: el tramo corriente conserva la tasa observada o la que fije el auditor;
+    # la pérdida incurrida la admite con evidencia objetiva de grupo (11.22 e) evaluada por grupos (11.24).
     manual = {k: float(a_num(v)) for k, v in (p.get("tasas") or {}).items() if k in NOMBRE_TRAMO and a_num(v) is not None}
     tasas = {t["k"]: manual.get(t["k"]) for t in TRAMOS}
-    corriente_ignorada = pymes and manual.get("pv") not in (None, 0.0)
-    if pymes:
-        tasas["pv"] = 0.0
+    corriente_pymes = pymes and tasas["pv"] not in (None, 0.0)
     for k, v in tasas.items():
         if v is not None and not 0 <= v <= 100:
             raise ValueError(f"Tasa de {NOMBRE_TRAMO[k]}: use un porcentaje entre 0 y 100.")
@@ -220,11 +221,16 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     problemas = []
     for mt in matriz:
         if mt["sinTasa"]:
-            causa = "mora con evidencia objetiva (11.22 b)" if pymes else "la pérdida esperada se estima en todos los tramos (5.5.15, B5.5.35)"
+            causa = (("evidencia objetiva del grupo (11.22 e, 11.24)" if mt["k"] == "pv" else "mora con evidencia objetiva (11.22 b)") if pymes
+                     else "la pérdida esperada se estima en todos los tramos (5.5.15, B5.5.35)")
             problemas.append(problema("TASA_FALTANTE", f"{mt['tramo']}: {m(mt['sinTasa'])} sin tasa; {causa}. Fije la tasa del tramo con su sustento.", mt["sinTasa"]))
-    if corriente_ignorada:
-        problemas.append(problema("TASA_CORRIENTE_PYMES", "PYMES: la tasa del tramo corriente se dejó en 0 % (sin evento de pérdida no hay deterioro, 11.21–11.22). "
-                                  "Si una factura corriente tiene evidencia objetiva, use su tasa individual."))
+    if corriente_pymes:
+        pv = next(mt for mt in matriz if mt["k"] == "pv")
+        problemas.append(problema("TASA_CORRIENTE_PYMES", f"PYMES: el tramo corriente lleva una tasa de {tasas['pv']:.2f} % y genera {m(pv['det'])} de pérdida incurrida. "
+                                  "La Sección 11 solo reconoce la pérdida ya incurrida: documente la evidencia objetiva del grupo, es decir, los datos observables "
+                                  "que indican una disminución medible de los flujos de efectivo futuros estimados del grupo de cartera, aunque todavía no pueda "
+                                  "identificarse con facturas individuales (11.22 e), evaluada por grupos con características similares de riesgo crediticio (11.24). "
+                                  "Sin ese sustento, el tramo corriente no lleva deterioro (11.21).", pv["det"]))
     if sin_cobro > 0.005:
         n = sum(1 for x in filas if x["vencidaSinCobro"])
         problemas.append(problema("VENCIDA_SIN_COBRO", f"{n} factura(s) vencidas al corte sin cobro posterior suficiente: {m(sin_cobro)}. "
@@ -280,7 +286,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                "filas": [{k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in x.items()} for x in filas],
                "fin": {"vpInicial": vp_ini, "devengado": devengado, "componente": componente},
                "tasas": [{"k": mt["k"], "tramo": mt["tramo"], "tasa": mt["tasa"],
-                          "origen": "Fija 0 % (PYMES)" if pymes and mt["k"] == "pv" else ("Fijada por el auditor" if mt["tasa"] is not None else "Sin tasa")}
+                          "origen": "Fijada por el auditor" if mt["tasa"] is not None else "Sin tasa"}
                          for mt in matriz]}
     return {"engine": VERSION, "rows": rows, "totals": {k: r2(v) for k, v in totales.items()}, "labels": etiquetas,
             "primary": "ajuste", "exceptions": problemas, "schedule": [], "detalle": detalle}
@@ -332,8 +338,8 @@ def hojas(res: dict) -> list[dict]:
     ]
     for mt in mat:
         v = d["tasasTramo"][mt["k"]]
-        nota = ("PYMES: sin evento de pérdida no hay deterioro (11.21–11.22); 0 % fijo" if d["pymes"] and mt["k"] == "pv"
-                else ("Tasa de pérdida incurrida del tramo (11.22 b, 11.24)" if d["pymes"] else "Tasa esperada del tramo (B5.5.35)"))
+        nota = (("PYMES: solo con evidencia objetiva del grupo (11.22 e) evaluada por grupos (11.24)" if mt["k"] == "pv"
+                 else "Tasa de pérdida incurrida del tramo (11.22 b, 11.24)") if d["pymes"] else "Tasa esperada del tramo (B5.5.35)")
         parametros.append([f"Tasa · {mt['tramo']} (%)", v, nota])
 
     # 03 · Detalle por factura.
@@ -542,8 +548,8 @@ def definicion() -> dict:
         "summary": ("Recalcula la antigüedad de la cartera, contrasta cobros posteriores, confirmaciones y corte de ventas, mide al costo "
                     "amortizado la cartera con financiación implícita (valor presente a la tasa de mercado) y compara el deterioro "
                     "requerido por una matriz de tasas por tramo con el registrado. En NIIF completas el deterioro es pérdida crediticia "
-                    "esperada (NIIF 9 5.5.15, B5.5.35, incluido el tramo corriente); en PYMES es pérdida incurrida (Sección 11, solo tramos "
-                    "con evidencia objetiva). Para medir las tasas con la historia completa existen las herramientas «Pérdida crediticia "
+                    "esperada (NIIF 9 5.5.15, B5.5.35, incluido el tramo corriente); en PYMES es pérdida incurrida (Sección 11, solo con "
+                    "evidencia objetiva: mora 11.22 b o datos observables del grupo 11.22 e evaluados por grupos 11.24). Para medir las tasas con la historia completa existen las herramientas «Pérdida crediticia "
                     "esperada · enfoque simplificado (NIIF 9)» y «Deterioro de cuentas por cobrar · pérdidas incurridas (PYMES)»."),
         "source": {"organization": "IFRS Foundation (texto en español: Reglamento (UE) 2023/1803)",
                    "type": "Norma contable", "date": "",
@@ -571,7 +577,7 @@ def definicion() -> dict:
             "Corte de ventas: la venta pertenece al período del despacho (NIIF 15 31 y 38); se compara con el período de registro (fecha de emisión).",
             "Financiación implícita: plazo de crédito (vencimiento − emisión) mayor al umbral (12 meses por defecto; NIIF 15 63: superarlo habilita evaluar la financiación con NIIF 15.60–62, no la concluye; PYMES 2015 11.13 / 2025 11.13A–11.13B y 23.38).",
             "Costo amortizado al corte = nominal ÷ (1 + tasa de mercado)^(días por vencer ÷ 365); TIE = tasa de mercado (un solo cobro al vencimiento, 5.4.1); interés por devengar = nominal − costo amortizado.",
-            "Deterioro requerido = costo amortizado × tasa del tramo (o tasa individual). NIIF completas: tasas esperadas en todos los tramos (5.5.15, B5.5.35). PYMES: corriente 0 % y tramos en mora con evidencia objetiva (11.21–11.24). Pendiente de decisión del socio: tasa colectiva en el tramo corriente con evidencia de grupo (11.22 e).",
+            "Deterioro requerido = costo amortizado × tasa del tramo (o tasa individual). NIIF completas: tasas esperadas en todos los tramos (5.5.15, B5.5.35). PYMES: pérdida ya incurrida con evidencia objetiva (11.21); la tasa del tramo corriente no se fuerza a 0 % —se conserva la observada o la que fije el auditor— y se exige el sustento de la evidencia objetiva del grupo (11.22 e) evaluada por grupos (11.24).",
             "Ajuste = deterioro requerido − deterioro registrado; ajuste por financiación = interés por devengar requerido − registrado.",
         ],
         "fields": _CARTERA, "rules": [], "control": CONTROL, "primary": "ajuste",
@@ -596,7 +602,7 @@ def definicion() -> dict:
              "criterion": "Componente de financiación reconocido", "source": "NIIF 9 5.1.1, B5.1.1 y 5.4.1 (5.1.3 solo sin componente de financiación significativo o con la solución práctica de NIIF 15.63) · NIIF 15 60–63 · PYMES 2015 11.13 / 2025 11.13A–11.13B y 23.38"},
             {"code": "CXCCAR-06", "objective": "Deterioro requerido vs registrado", "risk": "Deterioro insuficiente", "assertion": "Valoración",
              "procedure": "Aplicar la matriz de tasas por tramo y las tasas individuales y comparar con el deterioro registrado", "evidence": "Matriz de tasas, política de crédito",
-             "criterion": "Ajuste cuantificado", "source": "NIIF 9 5.5.15 (con componente de financiación significativo, 5.5.15 a) ii) solo si esa es la política de la entidad), B5.5.35 · PYMES 11.21–11.26 · NIA 540"},
+             "criterion": "Ajuste cuantificado", "source": "NIIF 9 5.5.15 (con componente de financiación significativo, 5.5.15 a) ii) solo si esa es la política de la entidad), B5.5.35 · PYMES 11.21–11.26 (11.22 b, 11.22 e y 11.24) · NIA 540"},
             {"code": "CXCCAR-07", "objective": "Revelación", "risk": "Nota de riesgo de crédito incompleta", "assertion": "Presentación",
              "procedure": "Preparar la antigüedad y el movimiento del deterioro para las notas", "evidence": "Aging, mayor del deterioro",
              "criterion": "Nota completa", "source": "NIIF 7 35H, 35M y 35N"},

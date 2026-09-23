@@ -14,12 +14,15 @@ Tres anexos:
   2. Participación atribuible a exentos = 15 % × (ingresos exentos − gastos atribuibles) (Reglamento art. 46 num. 5 dice «el
      15% de tales ingresos», base bruta: pendiente de decisión del socio).
   3. Amortización de pérdidas permitida = mín(la solicitada, 25 % de la utilidad gravable, saldo no vencido).
-  4. Base imponible × tarifa (25 % + 3 puntos por la proporción de composición societaria en paraísos fiscales).
+  4. Base imponible × tarifa = tarifa general + puntos de recargo × proporción sujeta (Reglamento LRTI art. 51: la
+     proporción es la composición societaria en paraísos fiscales o no informada; si llega o supera el 50 %, el recargo
+     grava el 100 % de la base).
   5. Impuesto a pagar = causado − retenciones − anticipos − crédito de años anteriores (negativo: saldo a favor).
 - ``partidas``: diferencias temporarias por partida. Activo: libros − base; pasivo: base − libros
   (positivo imponible → pasivo diferido, NIC 12.15; negativo deducible → activo diferido si es probable la
   ganancia fiscal, NIC 12.24, y si la ley admite la deducción futura, Reglamento LRTI, art. innumerado a continuación del art. 28 (num. 5: provisiones distintas de cuentas incobrables y desmantelamiento, utilizables cuando se paguen —jubilación y desahucio solo por la parte no deducible, interpretación: LRTI art. 10 num. 13—; num. 8: pérdidas tributarias)). Tasa de reversión
-  = tasa aprobada al cierre para el año de reversión (NIC 12.47); sin descuento (NIC 12.53). Movimiento: a
+  = tasa que se espera aplicar en el año de reversión (NIC 12.47, 49) = tarifa aprobada al cierre para ese año
+  (general o futura) + el recargo del art. 37 que corresponda a la entidad; sin descuento (NIC 12.53). Movimiento: a
   resultados salvo las partidas de ORI (NIC 12.58, 61A).
 - ``perdidas`` (opcional): pérdidas tributarias por año de origen; se amortizan de la más antigua a la más
   reciente; el remanente no vencido genera activo diferido si es probable (NIC 12.34–36).
@@ -84,7 +87,7 @@ PARAM_NEGATIVOS = ("saldoCorrienteRegistrado", "gastoDiferidoRegistrado")
 ETIQUETAS_PARAM = {
     "tasaIR": "Tarifa general del impuesto a la renta (%) — LRTI art. 37; vigente al corte",
     "puntosRecargo": "Puntos adicionales por paraísos fiscales / composición societaria — LRTI art. 37; Reglamento art. 51; vigente al corte",
-    "proporcionRecargo": "Proporción de la base sujeta a la tarifa incrementada (%) (100 si la composición societaria no informada más la ubicada en paraísos fiscales (con beneficiario efectivo residente en Ecuador) suma en conjunto ≥ 50 %; si es menor, ese porcentaje; LRTI art. 37; Reglamento art. 51)",
+    "proporcionRecargo": "Composición societaria en paraísos fiscales o no informada (%) (la no informada más la ubicada en paraísos fiscales con beneficiario efectivo residente en Ecuador): el recargo se aplica sobre esa misma proporción de la base imponible y, solo cuando en conjunto llega o supera el 50 %, sobre el 100 % (LRTI art. 37; Reglamento art. 51; vigente al corte)",
     "participacion": "Participación de trabajadores (%) sobre las utilidades líquidas — Código del Trabajo art. 97; vigente al corte",
     "limitePerdidas": "Límite anual de amortización de pérdidas (% de la utilidad gravable) — LRTI art. 11; vigente al corte",
     "plazoPerdidas": "Plazo para amortizar pérdidas (años) — LRTI art. 11; vigente al corte",
@@ -244,7 +247,14 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             raise ValueError(f"Responda «sí» o «no» en «{ETIQUETAS_PARAM[k]}».")
     ti, part, lim, plazo = num["tasaIR"], num["participacion"], num["limitePerdidas"], num["plazoPerdidas"]
     tf, af = num["tasaFutura"], num["anioTasaFutura"]
-    tarifa = ti + num["puntosRecargo"] * num["proporcionRecargo"] / 100
+    # Reglamento LRTI art. 51: el recargo grava la base en la misma proporción de la composición societaria en
+    # paraísos fiscales o no informada; solo cuando esa proporción llega o supera el 50 % grava toda la base imponible.
+    prop_rec = 100.0 if num["proporcionRecargo"] >= 50 else num["proporcionRecargo"]
+    recargo = num["puntosRecargo"] * prop_rec / 100
+    tarifa = ti + recargo
+    # NIC 12.47 y 12.49: el diferido se mide a la tasa que se espera aplicar al revertir la diferencia; si la entidad
+    # está sujeta al recargo, la tasa esperada lo incluye (tarifa general o futura + recargo).
+    tf_ef = None if tf is None else tf + recargo
     ret, ant, cred = num["retenciones"] or 0, num["anticipos"] or 0, num["creditoAnterior"] or 0
     ir_reg, saldo_reg = num["impuestoCorrienteRegistrado"], num["saldoCorrienteRegistrado"]
     gdr = num["gastoDiferidoRegistrado"]
@@ -325,8 +335,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         acum += x["amortAnio"]
         x["remanente"] = x["noVencido"] - x["amortAnio"]
         x["arrastrable"] = x["remanente"] if x["vence"] > anio else 0
-        x["dtaReq"] = x["arrastrable"] * ti / 100 if sn["perdidasPermitidas"] == "Sí" and sn["probabilidadPerdidas"] == "Sí" else 0
-        x["dtaNoRec"] = x["arrastrable"] * ti / 100 - x["dtaReq"]
+        x["dtaReq"] = x["arrastrable"] * tarifa / 100 if sn["perdidasPermitidas"] == "Sí" and sn["probabilidadPerdidas"] == "Sí" else 0
+        x["dtaNoRec"] = x["arrastrable"] * tarifa / 100 - x["dtaReq"]
 
     # 4 · Diferencias temporarias por partida.
     part_rows = []
@@ -340,8 +350,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         y = _opc(f, "anio_reversion")
         tc = _opc(f, "tasa")
         dt = lb - bf if nat == "Activo" else bf - lb
-        te = tf if (tf is not None and af is not None and y is not None and y >= af) else ti
-        tcli = tc if tc is not None else ti
+        te = tf_ef if (tf is not None and af is not None and y is not None and y >= af) else tarifa
+        tcli = tc if tc is not None else te
         dtl = dt * te / 100 if dt > 0 else 0
         dtab = -dt * te / 100 if dt < 0 else 0
         rec = dtab if perm == "Sí" and prob == "Sí" else 0
@@ -453,10 +463,11 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                            + "): ya no se amortizan y no sustentan activo diferido.", venc))
     for x in part_rows:
         if x["cie"] > 0.005 and x["dtaBruto"] > 0 and x["perm"] == "No":
-            pr.append(problema("DTA_NO_PERMITIDO", f"{x['partida']}: activo diferido registrado {m(x['cie'])} por una diferencia que la ley no "
-                               "admite deducir en el futuro: no admitida para diferido según la columna 'permitido'; OJO: el num. 5, 2.º inciso, del art. innumerado a "
-                               "continuación del art. 28 admite impuesto diferido por el deterioro de cartera que excede el límite (entidades no "
-                               "financieras) — revisar la marca del ejemplo con el socio.", x["cie"]))
+            pr.append(problema("DTA_NO_PERMITIDO", f"{x['partida']}: activo diferido registrado {m(x['cie'])} por una diferencia marcada como no "
+                               "admitida para deducción futura («permitido» = No): revertirlo o corregir la marca. Recuerde que el art. innumerado a "
+                               "continuación del art. 28 del Reglamento LRTI sí admite diferido en los casos de su num. 5 (provisiones distintas de "
+                               "cuentas incobrables y desmantelamiento y, en su 2.º inciso, el deterioro de cartera que excede el límite en entidades "
+                               "no financieras) y num. 8 (pérdidas tributarias).", x["cie"]))
         elif x["cie"] > 0.005 and x["dtaBruto"] > 0 and x["prob"] == "No":
             pr.append(problema("DTA_SIN_PROBABILIDAD", f"{x['partida']}: activo diferido registrado {m(x['cie'])} sin probabilidad de ganancia "
                                f"fiscal futura ({cit['dta']}).", x["cie"]))
@@ -550,7 +561,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     lab["ajusteResultados"] = "Ajuste neto al gasto por impuesto en resultados (+ más gasto)"
 
     detalle = {"cortes": {"actual": corte_a.isoformat()}, "anio": anio, "parametros": p, "pymes": pymes, "edicion": ed, "citas": cit,
-               "num": num, "sn": sn, "irEf": ir_ef, "saldoEf": saldo_ef, "tarifa": tarifa, "conc": conc, "cl": cl, "au": au, "perd": perd, "partidas": part_rows,
+               "num": num, "sn": sn, "irEf": ir_ef, "saldoEf": saldo_ef, "tarifa": tarifa, "propRecargo": prop_rec,
+               "recargo": recargo, "tarifaFutura": tf_ef, "conc": conc, "cl": cl, "au": au, "perd": perd, "partidas": part_rows,
                "tot": tot, "mov": mv, "comp": comp, "etr": etr, "gastoDifSaldos": gasto_dif_saldos, "reclas": reclas}
     return {"engine": VERSION, "rows": rows, "totals": {k: r2(v) for k, v in tot.items()}, "labels": lab,
             "primary": "ajusteResultados", "exceptions": pr, "schedule": [], "detalle": detalle}
@@ -605,13 +617,18 @@ def hojas(res: dict) -> list[dict]:
     marco = (MARCO_PYMES + f" {d['edicion']}") if d["pymes"] else MARCO_COMPLETAS
     ti, yr = _pb("tasaIR"), f"YEAR({_pb('corte')})"
     vr = "vigente al corte"
+    # Tarifa aplicable (LRTI art. 37; Reglamento art. 51) y recargo, que también mide la tasa esperada del diferido.
+    TARIFA_F = f"{ti}+{_pb('puntosRecargo')}*IF({_pb('proporcionRecargo')}>=50,100,{_pb('proporcionRecargo')})/100"
+    TAR = f"{IC}$C${ICF['tarifa']}"                 # tarifa aplicable ya calculada en 04_Impuesto_corriente
+    REC = f"({TAR}-{ti})"
 
     parametros = [
         ["Corte del ejercicio", d["cortes"]["actual"], "Ficha del encargo"],
         ["Marco contable", marco, f"{cit['marco']} — mismo cálculo en ambos marcos; cambian las citas"],
         ["Tarifa general del impuesto a la renta (%)", num["tasaIR"], f"LRTI art. 37 — {vr}"],
         ["Puntos adicionales (paraísos fiscales / composición societaria)", num["puntosRecargo"], f"LRTI art. 37 — {vr}"],
-        ["Proporción de la base con tarifa incrementada (%)", num["proporcionRecargo"], "Composición societaria informada al SRI"],
+        ["Composición societaria en paraísos fiscales o no informada (%)", num["proporcionRecargo"],
+         f"Reglamento art. 51: el recargo grava esa misma proporción de la base y el 100 % cuando llega al 50 % — aplicada {n2(d['propRecargo'])} %"],
         ["Participación de trabajadores (%)", num["participacion"], f"Código del Trabajo art. 97 — {vr}"],
         ["Límite anual de amortización de pérdidas (%)", num["limitePerdidas"], f"LRTI art. 11 — {vr}"],
         ["Plazo para amortizar pérdidas (años)", num["plazoPerdidas"], f"LRTI art. 11 — {vr}"],
@@ -666,8 +683,8 @@ def hojas(res: dict) -> list[dict]:
         ("disp", "Pérdidas disponibles no vencidas", disp_f if nl else None, disp_f if nl else None, "05_Perdidas"),
         ("perd", "(−) Amortización de pérdidas", sb("perdidas"), perd_c, "mín(solicitada, límite, disponible)"),
         ("base", "Base imponible", f"{B('b0')}+{B('perd')}", f"{C('b0')}+{C('perd')}", "Total de control = suma de 03_Conciliacion"),
-        ("tarifa", "Tarifa aplicable (%)", f"{ti}+{_pb('puntosRecargo')}*{_pb('proporcionRecargo')}/100",
-         f"{ti}+{_pb('puntosRecargo')}*{_pb('proporcionRecargo')}/100", "LRTI art. 37"),
+        ("tarifa", "Tarifa aplicable (%) = general + puntos × proporción (100 % si ≥ 50 %)", TARIFA_F, TARIFA_F,
+         "LRTI art. 37; Reglamento art. 51"),
         ("ir", "Impuesto a la renta causado", f"MAX({B('base')},0)*{B('tarifa')}/100", f"MAX({C('base')},0)*{C('tarifa')}/100", cit["corr"]),
         ("ret", "(−) Retenciones en la fuente", _pb("retenciones"), _pb("retenciones"), "Parámetros"),
         ("ant", "(−) Anticipos pagados", _pb("anticipos"), _pb("anticipos"), "Parámetros"),
@@ -699,8 +716,8 @@ def hojas(res: dict) -> list[dict]:
                     fx(f'IF(F{r}="No",E{r},0)', x["noVencido"]), fx(f'IF(F{r}="Sí",E{r},0)', x["saldoVencido"]),
                     fx(f"MAX(0,MIN(G{r},-{IC}$C${ICF['perd']}-SUM(I${FILA0 - 1}:I{r - 1})))", x["amortAnio"]),
                     fx(f"G{r}-I{r}", x["remanente"]), fx(f"IF(D{r}>{yr},J{r},0)", x["arrastrable"]),
-                    fx(f'IF(AND({_pb("perdidasPermitidas")}="Sí",{_pb("probabilidadPerdidas")}="Sí"),K{r}*{ti}/100,0)', x["dtaReq"]),
-                    fx(f"K{r}*{ti}/100-L{r}", x["dtaNoRec"])])
+                    fx(f'IF(AND({_pb("perdidasPermitidas")}="Sí",{_pb("probabilidadPerdidas")}="Sí"),K{r}*{TAR}/100,0)', x["dtaReq"]),
+                    fx(f"K{r}*{TAR}/100-L{r}", x["dtaNoRec"])])
     fin_l = FILA0 + nl - 1
     sl = lambda k: sum(x[k] for x in perd)
     tot_l = (["TOTAL", suma("B", fin_l, sl("importe")), suma("C", fin_l, sl("amortizado")), None, suma("E", fin_l, sl("disponible")), "",
@@ -710,6 +727,11 @@ def hojas(res: dict) -> list[dict]:
 
     # 06 · Diferencias temporarias · 07 · Tasa de reversión.
     tf_, af_ = _pb("tasaFutura"), _pb("anioTasaFutura")
+    # Fórmula de la tasa esperada (NIC 12.47 y 49; LRTI art. 37; Reglamento art. 51), visible en la cédula:
+    formula_tasa = (f"Tasa esperada = tarifa del año de reversión + recargo = "
+                    f"{n2(num['tasaIR'])} % + {n2(num['puntosRecargo'])} puntos × {n2(d['propRecargo'])} % = {n2(d['tarifa'])} %"
+                    + (f"; desde {int(num['anioTasaFutura'])}: {n2(num['tasaFutura'])} % + recargo = {n2(d['tarifaFutura'])} %"
+                       if num["tasaFutura"] is not None else "") + " (NIC 12.47, 49)")
     c06, c07 = [], []
     for i, x in enumerate(pt):
         r = FILA0 + i
@@ -722,16 +744,17 @@ def hojas(res: dict) -> list[dict]:
                     fx(f"M{r}-I{r}", x["req"]), n2(x["ini"]), n2(x["cie"]), fx(f"O{r}-Q{r}", x["aj"]), x["ori"],
                     fx(f"O{r}-P{r}", x["mov"]), fx(f'IF(S{r}="No",-T{r},0)', x["res"]), fx(f'IF(S{r}="Sí",-T{r},0)', x["movOri"])])
         c07.append([x["partida"], fx(f'IF({DT}G{r}="","",{DT}G{r})', x["anio"] if x["anio"] is not None else ""),
-                    n2(x["tasaDato"]) if x["tasaDato"] is not None else fx(ti, x["tasaCli"]),
-                    fx(f'IF(AND({tf_}<>"",{af_}<>"",B{r}<>""),IF(B{r}>={af_},{tf_},{ti}),{ti})', x["tasa"]),
-                    fx(f"C{r}-D{r}", x["difTasa"]), fx(f"{DT}E{r}", x["dt"]), fx(f"ABS(F{r})*E{r}/100", x["efectoTasa"])])
+                    n2(x["tasaDato"]) if x["tasaDato"] is not None else fx(f"D{r}", x["tasaCli"]),
+                    fx(f'IF(AND({tf_}<>"",{af_}<>"",B{r}<>""),IF(B{r}>={af_},{tf_}+{REC},{TAR}),{TAR})', x["tasa"]),
+                    fx(f"C{r}-D{r}", x["difTasa"]), fx(f"{DT}E{r}", x["dt"]), fx(f"ABS(F{r})*E{r}/100", x["efectoTasa"]),
+                    formula_tasa])
     fin_p = FILA0 + npt - 1
     s6 = lambda k: sum(x[k] for x in pt)
     tot6 = (["TOTAL", "", suma("C", fin_p, s6("libros")), suma("D", fin_p, s6("base")), suma("E", fin_p, s6("dt")), "", None, None,
              suma("I", fin_p, s6("dtl")), suma("J", fin_p, s6("dtaBruto")), "", "", suma("M", fin_p, s6("dtaRec")), suma("N", fin_p, s6("dtaNoRec")),
              suma("O", fin_p, s6("req")), suma("P", fin_p, s6("ini")), suma("Q", fin_p, s6("cie")), suma("R", fin_p, s6("aj")), "",
              suma("T", fin_p, s6("mov")), suma("U", fin_p, s6("res")), suma("V", fin_p, s6("movOri"))] if pt else None)
-    tot7 = (["TOTAL", None, None, None, None, None, suma("G", fin_p, s6("efectoTasa"))] if pt else None)
+    tot7 = (["TOTAL", None, None, None, None, None, suma("G", fin_p, s6("efectoTasa")), ""] if pt else None)
 
     # 08 · Recuperabilidad.
     c08 = []
@@ -746,9 +769,9 @@ def hojas(res: dict) -> list[dict]:
                        "No admitido tributariamente" if x["perm"] == "No" else ("Sin probabilidad de ganancia fiscal" if x["prob"] == "No" else "Reconocible"))])
     r = FILA0 + len(c08)
     sn = d["sn"]
-    bl = sl("arrastrable") * num["tasaIR"] / 100
+    bl = sl("arrastrable") * d["tarifa"] / 100
     rl = max(num["dtaPerdidasRegistrado"] or 0, 0)
-    c08.append(["Pérdidas tributarias no utilizadas", fx(f"{_sum(PER, 'K', nl)}*{ti}/100", bl), fx(_pb("perdidasPermitidas"), sn["perdidasPermitidas"]),
+    c08.append(["Pérdidas tributarias no utilizadas", fx(f"{_sum(PER, 'K', nl)}*{TAR}/100", bl), fx(_pb("perdidasPermitidas"), sn["perdidasPermitidas"]),
                 fx(_pb("probabilidadPerdidas"), sn["probabilidadPerdidas"]), fx(_sum(PER, "L", nl), sl("dtaReq")),
                 fx(f"MAX({_pb('dtaPerdidasRegistrado')},0)", rl), fx(f"MAX(F{r}-E{r},0)", max(rl - sl("dtaReq"), 0)),
                 fx(f'IF(C{r}="No","No admitido tributariamente",IF(D{r}="No","Sin probabilidad de ganancia fiscal","Reconocible"))',
@@ -927,8 +950,10 @@ def hojas(res: dict) -> list[dict]:
               ["Diferido requerido (+ activo)", "n"], ["Registrado al inicio", "n"], ["Registrado al cierre", "n"], ["Ajuste", "n"],
               ["ORI", "t"], ["Movimiento requerido", "n"], ["A resultados (+ gasto)", "n"], ["A ORI (+ cargo)", "n"]], c06, tot6),
         hoja("07_Tasa_reversion", "Tasa de reversión",
-             [["Partida", "t"], ["Año de reversión", "x"], ["Tasa usada por el cliente (%)", "x"], ["Tasa aprobada esperada (%)", "x"],
-              ["Diferencia de tasa (p.p.)", "x"], ["Diferencia temporaria", "n"], ["Efecto en el diferido", "n"]], c07, tot7),
+             [["Partida", "t"], ["Año de reversión", "x"], ["Tasa usada por el cliente (%)", "x"],
+              ["Tasa esperada = aprobada + recargo (%)", "x"],
+              ["Diferencia de tasa (p.p.)", "x"], ["Diferencia temporaria", "n"], ["Efecto en el diferido", "n"],
+              ["Fórmula de la tasa esperada", "t"]], c07, tot7),
         hoja("08_Recuperabilidad", "Recuperabilidad del activo diferido",
              [["Partida", "t"], ["Activo diferido bruto", "n"], ["Permitido", "t"], ["Probable", "t"], ["Reconocible", "n"],
               ["Registrado al cierre", "n"], ["Registrado en exceso", "n"], ["Conclusión", "t"]], c08, tot8),
@@ -966,7 +991,7 @@ def definicion() -> dict:
                     "temporarias por partida a la tasa aprobada de reversión, el activo diferido reconocible (permitido por la ley y con "
                     "probabilidad de ganancia fiscal) y el pasivo diferido; separa el movimiento a resultados y a ORI, prueba la compensación y "
                     "concilia el gasto con el resultado × tasa (NIC 12.81 c). Tasas y límites de Ecuador como parámetros («vigente al corte»; la "
-                    "LRTI de la biblioteca es el texto oficial hasta el 2-jul-2021: contrastar reformas posteriores en el Registro Oficial). Pendiente de decisión del socio: la tasa del diferido y del activo por pérdidas no incluye el recargo del art. 37 (NIC 12.47, 49). El cálculo es el mismo en NIIF completas y en PYMES; cambian las citas."),
+                    "LRTI de la biblioteca es el texto oficial hasta el 2-jul-2021: contrastar reformas posteriores en el Registro Oficial). La tasa esperada del diferido y del activo por pérdidas incluye el recargo del art. 37 que grava a la entidad (NIC 12.47, 49). El cálculo es el mismo en NIIF completas y en PYMES; cambian las citas."),
         "source": {"organization": "IFRS Foundation (texto en español: Reglamento (UE) 2023/1803)", "type": "Norma contable", "date": "",
                    "document": ("NIC 12 párr. 5 (definiciones), 12–14 (impuesto corriente como pasivo o activo; pérdida retrotraída), 15 "
                                 "(pasivo diferido por diferencias imponibles), 24–25 (activo diferido por diferencias deducibles si es probable "
@@ -995,9 +1020,9 @@ def definicion() -> dict:
             "Participación trabajadores recalculada = % × utilidad contable (si es positiva; «utilidades líquidas», CT art. 97); participación atribuible a exentos = % × (exentos − gastos atribuibles) (Reglamento art. 46 num. 5 dice «el 15% de tales ingresos», base bruta: pendiente de decisión del socio).",
             "Utilidad gravable antes de pérdidas = utilidad − participación − exentos + no deducibles + gastos atribuibles + participación atribuible − deducciones ± otros.",
             "Amortización de pérdidas permitida = mín(solicitada, límite % × utilidad gravable, saldo no vencido); se aplica de la pérdida más antigua a la más reciente.",
-            "Impuesto causado = máx(base, 0) × (tarifa general + puntos × proporción); por pagar = causado − retenciones − anticipos − crédito (negativo: saldo a favor, NIC 12.12).",
+            "Impuesto causado = máx(base, 0) × tarifa aplicable; tarifa aplicable = tarifa general + puntos de recargo × proporción de composición societaria en paraísos fiscales o no informada, y el 100 % de la base cuando esa proporción llega o supera el 50 % (LRTI art. 37; Reglamento art. 51). Por pagar = causado − retenciones − anticipos − crédito (negativo: saldo a favor, NIC 12.12).",
             "Diferencia temporaria: activo = libros − base; pasivo = base − libros; positiva imponible, negativa deducible.",
-            "Tasa de reversión = tasa aprobada para el año de reversión (futura si el año ≥ año de vigencia; si no, la general); sin descuento.",
+            "Tasa de reversión = tasa que se espera aplicar (NIC 12.47, 49) = tarifa aprobada para el año de reversión (la futura si el año ≥ año de vigencia; si no, la general) + el recargo del art. 37 que grava a la entidad; la misma tasa mide el activo diferido por pérdidas; sin descuento (NIC 12.53).",
             "Pasivo diferido = diferencia imponible × tasa; activo diferido = diferencia deducible × tasa, solo si la ley lo admite y es probable la ganancia fiscal; el resto se revela.",
             "Activo diferido por pérdidas = remanente no vencido tras la amortización del año × tasa, si se admite y es probable.",
             "Movimiento = requerido al cierre − registrado al inicio; a resultados salvo las partidas de ORI.",
@@ -1026,7 +1051,7 @@ def definicion() -> dict:
              "criterion": "Activo diferido solo por lo probable y admitido", "source": "NIC 12.24, 34–36, 56 · Reglamento LRTI, art. innumerado a continuación del art. 28 (num. 5: provisiones distintas de cuentas incobrables y desmantelamiento, utilizables cuando se paguen —jubilación y desahucio solo por la parte no deducible, interpretación: LRTI art. 10 num. 13—; num. 8: pérdidas tributarias)"},
             {"code": "TAX-06", "objective": "Tasa de reversión", "risk": "Diferido medido a tasa no aprobada o distinta a la del año de reversión", "assertion": "Valoración",
              "procedure": "Comparar la tasa usada con la aprobada al cierre para el año de reversión", "evidence": "Ley vigente y reformas publicadas",
-             "criterion": "Tasa aprobada del año de reversión, sin descuento", "source": "NIC 12.47, 53"},
+             "criterion": "Tasa esperada del año de reversión (aprobada + recargo del art. 37), sin descuento", "source": "NIC 12.47, 49, 53 · LRTI art. 37"},
             {"code": "TAX-07", "objective": "Resultados frente a ORI y compensación", "risk": "Diferido de ORI en resultados; compensación indebida", "assertion": "Presentación",
              "procedure": "Separar el movimiento por origen y probar la compensación de saldos", "evidence": "Estados financieros",
              "criterion": "Presentación conforme", "source": "NIC 12.58, 61A, 71, 74"},
@@ -1087,10 +1112,13 @@ def _pl(anio, importe, amortizado, vence=None):
 # límite 25 % = 221.137,50 (< solicitadas 240.000 y < disponibles 250.000) → base 663.412,50; IR 165.853,13
 # frente a 156.137,50 registrado (base del cliente 624.550 × 25 %) → ajuste corriente 9.715,63.
 # Pérdidas FIFO: 2020 30.000 + 2021 100.000 + 2023 91.137,50 → remanente 28.862,50 × 25 % = 7.215,63 de activo diferido.
-# Diferido de partidas: activo 71.250, pasivo 92.500 → neto −21.250 frente a −13.700 registrado → ajuste −7.550;
-# con pérdidas: requerido −14.034,38 frente a 6.300 → ajuste −20.334,38 (todo contra resultados).
-# Gasto diferido registrado 19.700 incluye 10.000 de la revaluación en ORI → reclasificación 10.000.
-# Ajuste neto al gasto = 9.715,63 + 20.334,38 − 10.000 = 20.050 = gasto requerido 195.887,50 − registrado 175.837,50.
+# Diferido de partidas: activo 75.000 (incluye 3.750 del deterioro de cartera sobre el límite, que el num. 5, 2.º inciso,
+# del art. innumerado a continuación del art. 28 SÍ admite en entidades no financieras), pasivo 92.500 → neto −17.500
+# frente a −13.700 registrado → ajuste −3.800; con pérdidas: requerido −10.284,38 frente a 6.300 → ajuste −16.584,38
+# (todo contra resultados). Gasto diferido registrado 19.700 incluye 10.000 de la revaluación en ORI → reclasificación 10.000.
+# Ajuste neto al gasto = 9.715,63 + 16.584,38 − 10.000 = 16.300 = gasto requerido 192.137,50 − registrado 175.837,50.
+# Tarifa: proporción de recargo 0 → 25 %. En el escenario «recargo_paraisos» la proporción es 60 % ≥ 50 % → 100 % de la
+# base con 25 + 3 = 28 %, y esa misma tasa mide el diferido y el activo por pérdidas (NIC 12.47, 49).
 EJEMPLO = {
     "corte": "2025-12-31",
     "parametros": {"_marco": MARCO_COMPLETAS, "tasaIR": 25, "puntosRecargo": 3, "proporcionRecargo": 0, "participacion": 15,
@@ -1117,7 +1145,7 @@ EJEMPLO = {
             _pt("Provisión jubilación patronal", "Pasivo", "120000", "0", "Sí", "Sí", "25000", "30000", anio=2030),
             _pt("Provisión por garantías", "Pasivo", "40000", "0", "Sí", "Sí", "6000", "8800", anio=2026, tasa="22"),
             _pt("Deterioro de inventarios (VNR)", "Activo", "200000", "230000", "Sí", "Sí", "5000", "7500", anio=2026),
-            _pt("Deterioro de cartera sobre el límite fiscal", "Activo", "300000", "315000", "No", "Sí", "0", "3750"),
+            _pt("Deterioro de cartera sobre el límite fiscal", "Activo", "300000", "315000", "Sí", "Sí", "0", "3750"),
             _pt("Revaluación de terrenos", "Activo", "900000", "700000", "Sí", "Sí", "-40000", "-50000", ori="Sí"),
             _pt("Activo por derecho de uso", "Activo", "90000", "0", "Sí", "Sí", "0", "0", anio=2027),
             _pt("Pasivo por arrendamiento", "Pasivo", "95000", "0", "Sí", "Sí", "0", "0", anio=2027),
@@ -1136,6 +1164,7 @@ _MOD_PERDIDA = {"801": "-300000", "803": "0", "808": "0"}   # pérdida contable:
 _CONC_PERDIDA = [dict(f, importe=_MOD_PERDIDA[f["id"]]) if f["id"] in _MOD_PERDIDA else f for f in EJEMPLO["datasets"]["conciliacion"]]
 ESCENARIOS = [
     ("niif_completas", EJEMPLO["datasets"], EJEMPLO["parametros"], EJEMPLO["corte"]),
+    ("recargo_paraisos", EJEMPLO["datasets"], {**EJEMPLO["parametros"], "proporcionRecargo": 60}, EJEMPLO["corte"]),
     ("pymes_2015_tasa_futura", EJEMPLO["datasets"], {**EJEMPLO["parametros"], "_marco": MARCO_PYMES, "_edicion": "2015", "tasaFutura": 22,
                                                       "anioTasaFutura": 2027, "derechoCompensar": "No", "probabilidadPerdidas": "No",
                                                       "impuestoCorrienteRegistrado": None, "gastoDiferidoRegistrado": None}, EJEMPLO["corte"]),

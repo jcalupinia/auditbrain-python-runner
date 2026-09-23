@@ -38,24 +38,32 @@ def test_ejemplo_diferido_y_tasa_efectiva_a_mano():
     assert [x["origen"] for x in r["detalle"]["perd"]] == [2019, 2020, 2021, 2023]     # FIFO
     assert (perd[2020]["amortAnio"], perd[2021]["amortAnio"], perd[2023]["amortAnio"]) == (30000, 100000, 91137.5)
     assert perd[2023]["dtaReq"] == 28862.5 * 25 / 100                                   # 7.215,625
-    # Partidas: activo reconocido 30.000 + 10.000 (garantías a 25 %, no 22 %) + 7.500 + 23.750; pasivo 20.000 + 50.000 + 22.500
-    assert t["dtaReconocido"] == "78465.63" and t["dtlRequerido"] == "92500.00"
-    assert t["dtaNoReconocido"] == "10000.00"                    # cartera no admitida 3.750 + litigio sin probabilidad 6.250
-    assert t["diferidoNetoRequerido"] == "-14034.38" and t["diferidoNetoRegistrado"] == "6300.00"
-    assert t["ajusteDiferido"] == "-20334.38" and t["ajusteDiferidoORI"] == "0.00"
-    assert t["gastoDiferidoRequerido"] == "30034.38"             # −7.750 partidas + 37.784,375 pérdidas
+    # Partidas: activo reconocido 30.000 + 10.000 (garantías a 25 %, no 22 %) + 7.500 + 3.750 (deterioro de cartera sobre el
+    # límite: el num. 5, 2.º inciso, del art. innumerado tras el art. 28 SÍ lo admite) + 23.750 = 75.000, más 7.215,625 de
+    # pérdidas = 82.215,625; pasivo 20.000 + 50.000 + 22.500 = 92.500.
+    assert t["dtaReconocido"] == "82215.63" and t["dtlRequerido"] == "92500.00"
+    assert t["dtaNoReconocido"] == "6250.00"                     # solo el litigio sin probabilidad (la cartera ya es admitida)
+    # 75.000 − 92.500 + 7.215,625 = −10.284,375
+    assert t["diferidoNetoRequerido"] == "-10284.38" and t["diferidoNetoRegistrado"] == "6300.00"
+    assert t["ajusteDiferido"] == "-16584.38" and t["ajusteDiferidoORI"] == "0.00"
+    assert t["gastoDiferidoRequerido"] == "26284.38"             # −11.500 partidas + 37.784,375 pérdidas
     assert t["reclasificacionORI"] == "10000.00"                 # revaluación de terrenos llevada a resultados
-    assert t["gastoTotalRequerido"] == "195887.50" and t["gastoTotalRegistrado"] == "175837.50"
-    assert t["tasaEfectivaRequerida"] == "23.05"                 # 195.887,50 ÷ 850.000
-    # 9.715,625 + 20.334,375 − 10.000 = gasto requerido − registrado
-    assert t["ajusteResultados"] == "20050.00" and r["primary"] == "ajusteResultados"
+    assert t["gastoTotalRequerido"] == "192137.50" and t["gastoTotalRegistrado"] == "175837.50"
+    assert t["tasaEfectivaRequerida"] == "22.60"                 # 192.137,50 ÷ 850.000
+    # 9.715,625 + 16.584,375 − 10.000 = gasto requerido − registrado = 16.300
+    assert t["ajusteResultados"] == "16300.00" and r["primary"] == "ajusteResultados"
     etr = r["detalle"]["etr"]
     assert etr["teo"] == 212500 and abs(etr["corr"] - 165853.125) < 1e-9 and abs(etr["neg"]) < 1e-9
     c = _codigos(r)
     for k in ("IR_CORRIENTE_MAL_CALCULADO", "NO_DEDUCIBLES_OMITIDOS", "PERDIDAS_SOBRE_LIMITE", "PERDIDAS_VENCIDAS", "DTA_SIN_PROBABILIDAD",
-              "DTA_NO_PERMITIDO", "TASA_REVERSION_INCORRECTA", "ORI_EN_RESULTADOS", "FALTA_COMPENSAR", "TASA_EFECTIVA_INEXPLICADA",
+              "TASA_REVERSION_INCORRECTA", "ORI_EN_RESULTADOS", "FALTA_COMPENSAR", "TASA_EFECTIVA_INEXPLICADA",
               "DIFERIDO_MAL_MEDIDO", "DTA_PERDIDAS_EXCESO"):
         assert k in c, k
+    assert "DTA_NO_PERMITIDO" not in c                           # ninguna partida del ejemplo está fuera del art. innumerado
+    # Si la partida se marca como no admitida, el problema sí se emite (y el activo deja de reconocerse).
+    no_adm = [dict(f, permitido="No") if f["id"].startswith("Deterioro de cartera") else f for f in EJ["datasets"]["partidas"]]
+    r2 = _run({**EJ["datasets"], "partidas": no_adm})
+    assert "DTA_NO_PERMITIDO" in _codigos(r2) and r2["totals"]["dtaReconocido"] == "78465.63"
     json.dumps(r)
 
 
@@ -71,12 +79,13 @@ def test_tasa_futura_sin_compensacion_y_sin_probabilidad_de_perdidas():
     fil = {x["partida"]: x for x in r["detalle"]["partidas"]}
     assert fil["PPE — depreciación fiscal acelerada"]["tasa"] == 22            # revierte en 2028
     assert fil["Provisión por garantías"]["tasa"] == 25                        # revierte en 2026
-    assert r["totals"]["dtaReconocido"] == "64800.00"                          # sin activo por pérdidas
+    # 26.400 (jubilación a 22 %) + 10.000 + 7.500 + 3.750 (cartera) + 20.900 = 68.550; sin activo por pérdidas
+    assert r["totals"]["dtaReconocido"] == "68550.00"
     assert "FALTA_COMPENSAR" not in _codigos(r) and "DTA_SIN_PROBABILIDAD" in _codigos(r)
 
 
 def test_perdida_contable_sin_anexos():
-    _, ds, p, c = m.ESCENARIOS[2]
+    _, ds, p, c = next(e for e in m.ESCENARIOS if e[0] == "pymes_2025_perdida_sin_anexos")
     r = m.ejecutar(ds, p, c)
     assert r["totals"]["impuestoCorrienteAuditado"] == "0.00"
     assert r["detalle"]["au"]["perd"] == 0                                     # sin utilidad gravable no se amortiza
@@ -91,9 +100,24 @@ def test_registrados_vacios_asumen_la_conciliacion_del_cliente():
 
 
 def test_recargo_paraisos_fiscales():
-    r = _run(proporcionRecargo=50)                                             # 25 + 3 × 50 % = 26,5 %
-    assert r["detalle"]["tarifa"] == 26.5
-    assert r["totals"]["impuestoCorrienteAuditado"] == m.r2(663412.5 * 26.5 / 100)
+    # Reglamento art. 51: por debajo del 50 % el recargo grava solo esa proporción → 25 + 3 × 30 % = 25,9 %.
+    r = _run(proporcionRecargo=30)
+    assert r["detalle"]["tarifa"] == 25.9 and r["detalle"]["propRecargo"] == 30
+    assert r["totals"]["impuestoCorrienteAuditado"] == m.r2(663412.5 * 25.9 / 100)
+    # Al llegar al 50 % grava toda la base: 25 + 3 = 28 %, aunque la composición societaria sea del 60 %.
+    for prop in (50, 60):
+        r = _run(proporcionRecargo=prop)
+        assert r["detalle"]["propRecargo"] == 100 and r["detalle"]["tarifa"] == 28
+        assert r["totals"]["impuestoCorrienteAuditado"] == m.r2(663412.5 * 28 / 100)
+    # NIC 12.47 y 49: esa misma tasa esperada mide el diferido y el activo por pérdidas (antes usaban solo el 25 %).
+    fil = {x["partida"]: x for x in r["detalle"]["partidas"]}
+    assert fil["Provisión jubilación patronal"]["tasa"] == 28 and fil["Provisión jubilación patronal"]["dtaRec"] == 120000 * 0.28
+    assert fil["Provisión por garantías"]["difTasa"] == 22 - 28                # tasa del cliente 22 % frente a 28 %
+    assert r["detalle"]["perd"][-1]["dtaReq"] == 28862.5 * 28 / 100                # remanente 2023 × 28 %
+    # Con tasa futura aprobada, la esperada de los años futuros también lleva el recargo.
+    rf = _run(proporcionRecargo=60, tasaFutura=22, anioTasaFutura=2027)
+    assert rf["detalle"]["tarifaFutura"] == 25
+    assert {x["partida"]: x["tasa"] for x in rf["detalle"]["partidas"]}["PPE — depreciación fiscal acelerada"] == 25
 
 
 def test_casos_limite():

@@ -60,7 +60,7 @@ def test_exentos_y_deterioro():
     r = _run()
     assert _c(r, "C-05")["reconoce"] == "No" and _c(r, "C-05")["gasto"] == 1800          # 300 × 12 ÷ 12 × 6
     assert _c(r, "C-04")["reconoce"] == "No" and _c(r, "C-04")["gasto"] == 960           # 80 × 24 ÷ 24 × 12
-    assert _c(r, "C-03")["reconoce"] == "Sí"                                               # vehículo: no es bajo valor (B6)
+    assert _c(r, "C-03")["reconoce"] == "Sí"                                               # automóvil: nunca es de escaso valor (B6)
     c9 = _c(r, "C-09")
     assert round(c9["deterioro"], 2) == 21307.75 and round(c9["neto"], 2) == 50000.00
 
@@ -68,12 +68,41 @@ def test_exentos_y_deterioro():
 def test_problemas_niif_completas():
     r = _run()
     assert {"RENOVACION_NO_INCLUIDA", "EXENCION_MAL_APLICADA", "CLASIFICACION_CP_LP", "MODIFICACION_NO_REMEDIDA",
-            "PASIVO_DIFERENCIA", "VENTA_GANANCIA", "DETERIORO"} <= _codigos(r)
+            "PASIVO_DIFERENCIA", "VENTA_GANANCIA", "DETERIORO", "BAJO_VALOR_VEHICULO", "BAJO_VALOR_B5_B7"} <= _codigos(r)
     assert r["primary"] == "ajuste"
     t = r["totals"]
     assert float(t["ajuste"]) == pytest.approx(float(t["pasivo"]) - float(t["pasivoRegistrado"]), abs=0.011)
     assert float(t["corriente"]) + float(t["noCorriente"]) == pytest.approx(float(t["pasivo"]), abs=0.011)
     assert "PYMES_DERECHO_USO" not in _codigos(r)
+
+
+def test_bajo_valor_b3_b5_b6_b7():
+    """NIIF 16 B3 y B5–B7: el bajo valor exige el valor del activo nuevo, uso independiente, no ser automóvil y no subarrendarse."""
+    r = _run()
+    c3, c4 = _c(r, "C-03"), _c(r, "C-04")
+    assert c3["bv"] == "Sí" and c3["bv_auto"] == "Sí" and c3["bv_limite"] == "No"   # B6: automóvil
+    assert "C-03" in next(e["message"] for e in r["exceptions"] if e["code"] == "BAJO_VALOR_VEHICULO")
+    assert c4["bv_auto"] == "No" and c4["bv_limite"] == "Sí"                        # 1.200 ≤ 5.000 (B3, B8)
+    assert "C-04" in next(e["message"] for e in r["exceptions"] if e["code"] == "BAJO_VALOR_B5_B7")   # B5 y B7 sin evidencia
+    # B3: sin el valor del activo nuevo la exención ya no se acepta (antes bastaba dejarlo en blanco).
+    ds = copy.deepcopy(EJ["datasets"])
+    c = next(x for x in ds["contratos"] if x["id"] == "C-04")
+    c["valor_razonable"] = ""
+    sv = _run(ds=ds)
+    assert _c(sv, "C-04")["bv_limite"] == "No" and _c(sv, "C-04")["reconoce"] == "Sí"
+    assert {"BAJO_VALOR_SIN_VALOR", "EXENCION_MAL_APLICADA"} <= _codigos(sv)
+    # B5 / B7 declarados «no» → tampoco califica; declarados «sí» → califica y se apaga el problema.
+    c["valor_razonable"] = "1200"
+    c["bajo_valor_b5b7"] = "No"
+    no = _run(ds=ds)
+    assert _c(no, "C-04")["bv_limite"] == "No" and _c(no, "C-04")["reconoce"] == "Sí"
+    assert "BAJO_VALOR_B5_B7" in _codigos(no) and "EXENCION_MAL_APLICADA" in _codigos(no)
+    c["bajo_valor_b5b7"] = "Sí"
+    ok = _run(ds=ds)
+    assert _c(ok, "C-04")["bv_limite"] == "Sí" and _c(ok, "C-04")["reconoce"] == "No" and _c(ok, "C-04")["gasto"] == 960
+    assert "BAJO_VALOR_B5_B7" not in _codigos(ok)
+    # La Sección 20 no tiene exenciones: los problemas de bajo valor solo corren en NIIF completas.
+    assert not [x for x in _codigos(_run(PYMES)) if x.startswith("BAJO_VALOR")]
 
 
 def test_ruta_pymes():

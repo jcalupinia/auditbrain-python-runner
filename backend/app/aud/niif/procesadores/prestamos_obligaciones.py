@@ -15,8 +15,11 @@ Versión simple que cumple la norma, préstamo por préstamo (un solo anexo del 
    comisiones llevadas a gasto (costo pendiente de amortizar).
 6. Confirmación bancaria: saldo confirmado vs registrado y vs tabla; pagos del año recalculados vs informados.
 7. Covenants y clasificación (NIC 1 69–76, modificaciones 2020/2022 vigentes desde 2024 / PYMES 4.7):
-   corriente = lo que vence en 12 meses; si un covenant se incumplió al corte y no hubo dispensa obtenida hasta
-   el corte con gracia de al menos 12 meses, toda la deuda es corriente (74–75).
+   corriente = lo que vence en 12 meses; si un covenant que debía cumplirse al cierre o antes (NIC 1 72B,
+   columna «Fecha de medición del covenant») se incumplió al corte y no hubo dispensa obtenida hasta el corte
+   con gracia de al menos 12 meses, toda la deuda es corriente (74–75). Un covenant que se mide después del
+   corte no reclasifica, pero exige la revelación del párrafo 76ZA. Los impagos de principal o intereses y las
+   infracciones de otras cláusulas no subsanadas al cierre se revelan (NIIF 7 18–19 / PYMES 11.47).
 8. Endeudamiento (analítica de auditoría, no requisito NIIF): deuda/activos, deuda/patrimonio, deuda/EBITDA,
    cobertura de intereses y DSCR contra los límites de los contratos.
 
@@ -59,6 +62,8 @@ _PRESTAMOS = [
     campo("incumplido", "Incumplimiento de covenant declarado (sí/no)", "text", False, ("incumplimiento", "incumplido", "covenant incumplido")),
     campo("fecha_dispensa", "Fecha de la dispensa del banco", "date", False, ("fecha dispensa", "waiver", "fecha waiver")),
     campo("gracia_hasta", "Fin del período de gracia de la dispensa", "date", False, ("gracia hasta", "fin de la gracia", "moratoria hasta")),
+    campo("fecha_covenant", "Fecha de medición del covenant", "date", False,
+          ("fecha covenant", "fecha de medicion", "fecha de medicion del covenant", "medicion covenant", "fecha de prueba del covenant")),
 ]
 CAMPOS = {"prestamos": _PRESTAMOS}
 TIPOS = {"prestamos": "prestamos"}
@@ -268,7 +273,8 @@ def _prestamo(f: dict, corte: date, inicio: date, probs: list):
          "trat_comisiones": _trat(f.get("trat_comisiones")), "pagos_anio": g("pagos_anio"), "confirmado": g("confirmado"),
          "saldo_reg": g("saldo_reg"), "int_reg": g("int_reg"), "gasto_reg": g("gasto_reg"), "cp_reg": g("cp_reg"),
          "covenant": _covenant(f.get("covenant")), "incumplido": _si(f.get("incumplido")),
-         "fecha_dispensa": a_fecha(f.get("fecha_dispensa")), "gracia_hasta": a_fecha(f.get("gracia_hasta")), "_row": f.get("_row"), "m": m}
+         "fecha_dispensa": a_fecha(f.get("fecha_dispensa")), "gracia_hasta": a_fecha(f.get("gracia_hasta")),
+         "fecha_covenant": a_fecha(f.get("fecha_covenant")), "_row": f.get("_row"), "m": m}
     c["n"] = c["plazo"] / m
     if c["n"] != int(c["n"]):
         raise ValueError(f"Préstamo {pid}: el plazo de {c['plazo']:g} meses no es múltiplo de la periodicidad ({per}).")
@@ -404,7 +410,10 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         c["incump"] = "Sí" if c["declarado"] == "Sí" or c["cov_cumple"] == "No" else "No"
         fd, gh = c["fecha_dispensa"], c["gracia_hasta"]
         c["disp_valida"] = "Sí" if fd is not None and fd <= corte_a and (gh is None or gh >= lim12) else "No"
-        c["exigible"] = "Sí" if c["incump"] == "Sí" and c["disp_valida"] == "No" else "No"
+        # NIC 1 72B: solo inciden en la clasificación las condiciones pactadas que deben cumplirse al cierre o antes.
+        # Las que se miden después del corte no reclasifican; exigen la revelación del párrafo 76ZA.
+        c["cov_futuro"] = "Sí" if c["fecha_covenant"] is not None and c["fecha_covenant"] > corte_a else "No"
+        c["exigible"] = "Sí" if c["incump"] == "Sí" and c["disp_valida"] == "No" and c["cov_futuro"] == "No" else "No"
         c["cp"] = c["ca_tot"] if c["exigible"] == "Sí" else c["cp_venc"]
         c["lp"] = c["ca_tot"] - c["cp"]
         c["reg_tot"] = c["saldo_reg"] + (c["int_reg"] or 0)
@@ -436,12 +445,35 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                                   c["cp"] - c["cp_venc"]))
         if c["incump"] == "Sí" and c["fecha_dispensa"] is not None and c["fecha_dispensa"] > corte_a:
             probs.append(problema("DISPENSA_POSTERIOR", f"{pid}: la dispensa del {c['fecha_dispensa'].isoformat()} es posterior al corte: no cambia la clasificación ({'4.7' if pymes else 'NIC 1 74'}); revele como hecho posterior no ajustante ({'Sección 32' if pymes else 'NIC 1 76 b)–c), NIC 10'})."))
+        if c["cov_futuro"] == "Sí":
+            probs.append(problema("COVENANT_POSTERIOR_AL_CORTE", f"{pid}: la condición pactada «{c['covenant'] or 'del contrato'}» se mide el "
+                                  f"{c['fecha_covenant'].isoformat()}, después del corte: no incide en la clasificación al cierre y la deuda no se "
+                                  f"reclasifica a corriente ({'PYMES 4.7 d); la NIC 1 72B se usa por analogía (jerarquía 10.6)' if pymes else 'NIC 1 72B'})"
+                                  + (", pese al incumplimiento identificado" if c["incump"] == "Sí" else "") + ". Revele en las notas la información que permita "
+                                  "a los usuarios entender el riesgo de que el pasivo pase a ser reembolsable dentro de los doce meses: el valor en libros, "
+                                  f"la naturaleza y la fecha de la condición y los hechos que indiquen dificultad para cumplirla "
+                                  f"({'NIC 1 76ZA por analogía (10.6)' if pymes else 'NIC 1 76ZA'}).", c["lp"]))
+        elif c["covenant"] and c["fecha_covenant"] is None:
+            probs.append(problema("COVENANT_SIN_FECHA_MEDICION", f"{pid}: covenant «{c['covenant']}» sin fecha de medición. Solo afectan la clasificación "
+                                  f"las condiciones que deben cumplirse al cierre o antes ({'NIC 1 72B por analogía (PYMES 10.6)' if pymes else 'NIC 1 72B'}); "
+                                  "se mantuvo el tratamiento actual (el incumplimiento reclasifica a corriente). Informe la fecha de medición del contrato."))
         if c["covenant"] and c["cov_cumple"] == "" and c["declarado"] != "Sí":
             probs.append(problema("COVENANT_SIN_EVALUAR", f"{pid}: covenant «{c['covenant']}» sin datos o límite de la entidad para evaluarlo; complete los parámetros."))
         if c["cp_reg"] is not None and _dif(c["cp"] - c["cp_reg"]):
             probs.append(problema("CLASIFICACION_CP_LP", f"{pid}: porción corriente auditada {_m(c['cp'])} vs registrada {_m(c['cp_reg'])} ({'4.7' if pymes else 'NIC 1 69–76'}).", c["cp"] - c["cp_reg"]))
         if _dif(c["ajuste"]):
             probs.append(problema("PASIVO_DIFERENCIA", f"{pid}: costo amortizado con intereses devengados {_m(c['ca_tot'])} vs registrado (capital + intereses) {_m(c['reg_tot'])}.", c["ajuste"]))
+        # NIIF 7 18–19 / PYMES 11.47: impagos de principal o intereses e infracciones de otras cláusulas no
+        # subsanados al cierre se revelan aunque no cambien la clasificación.
+        impago = c["pagos"] - c["pagos_anio"] if c["pagos_anio"] is not None else 0
+        if c["incump"] == "Sí" or _dif(impago) and impago > 0:
+            motivos = (["incumplimiento de la condición pactada «" + (c["covenant"] or "del contrato") + "»"] if c["incump"] == "Sí" else []) + \
+                      ([f"impago de principal o intereses por {_m(impago)} (pagos de la tabla {_m(c['pagos'])} vs informados {_m(c['pagos_anio'])})"]
+                       if _dif(impago) and impago > 0 else [])
+            probs.append(problema("REVELACION_INCUMPLIMIENTO", f"{pid}: {' y '.join(motivos)} sin subsanar al cierre. Revele el detalle del "
+                                  f"incumplimiento, el importe en libros del préstamo ({_m(c['ca_tot'])}) y si se subsanó o se renegociaron las "
+                                  f"condiciones antes de la autorización de los estados financieros ({'PYMES 11.47' if pymes else 'NIIF 7 18–19'}).",
+                                  c["ca_tot"]))
 
     T = lambda k: sum(c[k] for c in cs)
     gasto_con_reg = sum(c["gasto_tie"] - c["gasto_reg"] for c in cs if c["gasto_reg"] is not None)
@@ -460,7 +492,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
              "corriente": r2(c["cp"]), "tie_anual": f"{c['tie_anual'] * 100:.4f}", "_row": c["_row"]} for c in cs]
     tabla = [x for c in cs for x in c["tabla"]]
     for c in cs:
-        for k in ("desembolso", "fecha_dispensa", "gracia_hasta"):
+        for k in ("desembolso", "fecha_dispensa", "gracia_hasta", "fecha_covenant"):
             c[k] = c[k].isoformat() if c[k] else None
         del c["tabla"]
     detalle = {"prestamos": cs, "tabla": tabla, "ratios": ratios, "deuda": deuda, "gasto": gasto, "servicio": servicio,
@@ -582,13 +614,14 @@ def hojas(res: dict) -> list[dict]:
                      fx(f'IF(J{r}="","",I{r}-J{r})', None if c["pagos_anio"] is None else c["pagos"] - c["pagos_anio"])])
         rr = f"{EN}$A${FR}:$A${FR + 4}"
         idx = lambda col: f'IF(B{r}="","",INDEX({EN}${col}${FR}:${col}${FR + 4},MATCH(B{r},{rr},0)))'
-        fd, gh = _x("fecha_dispensa", r), _x("gracia_hasta", r)
+        fd, gh, fcv = _x("fecha_dispensa", r), _x("gracia_hasta", r), _x("fecha_covenant", r)
         cov.append([c["id"], _opt("covenant", r, c["covenant"] or None), fx(idx("D"), c["cov_ratio"]), fx(idx("E"), c["cov_lim"]),
                     fx(idx("F"), c["cov_tipo"]), fx(idx("G"), c["cov_cumple"] if c["covenant"] else None),
                     fx(f'IF({_x("incumplido", r)}="","No",{_x("incumplido", r)})', c["declarado"]),
                     fx(f'IF(OR(G{r}="Sí",F{r}="No"),"Sí","No")', c["incump"]), c["fecha_dispensa"], c["gracia_hasta"],
                     fx(f'IF(AND({fd}<>"",{fd}<={CORTE},OR({gh}="",{gh}>=EDATE({CORTE},12))),"Sí","No")', c["disp_valida"]),
-                    fx(f'IF(AND(H{r}="Sí",K{r}="No"),"Sí","No")', c["exigible"])])
+                    fx(f'IF(AND(H{r}="Sí",K{r}="No",N{r}="No"),"Sí","No")', c["exigible"]), c["fecha_covenant"],
+                    fx(f'IF(AND({fcv}<>"",{fcv}>{CORTE}),"Sí","No")', c["cov_futuro"])])
         cla.append([c["id"], fx(f"{CA}I{r}", c["ca_tot"]), fx(f"MIN({CA}C{r}+12/{G},{H})", c["kq"]), fx(en("H", r, f"C{r}"), c["cap_12"]),
                     fx(f"MIN({CA}E{r}-D{r}+{CA}H{r},B{r})", c["cp_venc"]), fx(f"{CV}L{r}", c["exigible"]), fx(f'IF(F{r}="Sí",B{r},E{r})', c["cp"]),
                     fx(f"B{r}-G{r}", c["lp"]), _opt("cp_reg", r, c["cp_reg"]),
@@ -697,7 +730,8 @@ def hojas(res: dict) -> list[dict]:
         hoja("10_Covenants", "Covenants y dispensas",
              [["Operación", "t"], ["Covenant", "t"], ["Ratio de la entidad", "x"], ["Límite", "x"], ["Tipo de límite", "t"], ["Cumple el límite", "t"],
               ["Incumplimiento declarado", "t"], ["Incumplimiento al corte", "t"], ["Fecha de la dispensa", "d"], ["Gracia hasta", "d"],
-              ["Dispensa válida al corte (NIC 1 75)", "t"], ["Deuda exigible: toda corriente (74)", "t"]], cov),
+              ["Dispensa válida al corte (NIC 1 75)", "t"], ["Deuda exigible: toda corriente (74)", "t"],
+              ["Fecha de medición del covenant", "d"], ["Se mide después del corte (72B)", "t"]], cov),
         hoja("11_Clasificacion", "Clasificación corriente / no corriente",
              [["Operación", "t"], ["Costo amortizado al corte", n_], ["Período a 12 meses", "i"], ["Capital contractual después de 12 meses", n_],
               ["Corriente: capital de 12 meses + interés devengado (69 c)", n_], ["Exigible por covenant", "t"], ["Corriente auditado", n_], ["No corriente auditado", n_],
@@ -722,7 +756,7 @@ def definicion() -> dict:
     contenido = ("Una fila por operación: código, banco, fecha de desembolso, monto, plazo en meses, tasa nominal anual, periodicidad, "
                  "sistema (francés, alemán o bullet), comisiones y costos de transacción y su tratamiento, pagos del año, saldo confirmado "
                  "por el banco, saldo de capital registrado, intereses por pagar, gasto financiero del año, porción corriente registrada, "
-                 "covenant, incumplimiento, fecha de la dispensa y fin de la gracia. Sin filas de total.")
+                 "covenant, incumplimiento, fecha de la dispensa, fin de la gracia y la fecha de medición del covenant según el contrato. Sin filas de total.")
     return {
         "name": "Préstamos y obligaciones financieras",
         "area": "Préstamos y obligaciones financieras",
@@ -742,7 +776,8 @@ def definicion() -> dict:
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
                          "document": ("NIIF para las PYMES 2015: Sección 11, 11.13 (medición inicial, costos de transacción), 11.14 a) y 11.15–11.20 "
                                       "(costo amortizado y método del interés efectivo); Sección 4, 4.7 (pasivo corriente); Sección 32 (hechos "
-                                      "posteriores). Edición 2025 (tercera): mismo modelo de costo amortizado (11.13/11.13B, 11.14 a), 11.15–11.20; 4.7 sin cambios); rige desde el 1-1-2027; aplicarla antes es "
+                                      "posteriores); 11.47 (revelación de incumplimientos e infracciones de préstamos por pagar no subsanados al cierre). "
+                                      "Edición 2025 (tercera): mismo modelo de costo amortizado (11.13/11.13B, 11.14 a), 11.15–11.20; 4.7 sin cambios); rige desde el 1-1-2027; aplicarla antes es "
                                       "adopción anticipada. Covenants: PYMES 4.7 d) (derecho incondicional); la NIC 1 72B/74/75 se usa por analogía (jerarquía 10.6), como juicio del auditor."),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
@@ -761,11 +796,15 @@ def definicion() -> dict:
             "Al corte: costo amortizado = saldo al último vencimiento + interés a la TIE devengado por días hasta el corte.",
             "Gasto financiero del ejercicio = interés a la TIE de los períodos vencidos en el año + devengo al corte − devengo al inicio.",
             "Comisiones llevadas a gasto: costo por amortizar = capital contractual − costo amortizado al último vencimiento.",
-            "Corriente = capital contractual que vence en los 12 meses siguientes + interés devengado (tope: costo amortizado); si un covenant se incumplió al corte sin dispensa "
-            "obtenida hasta el corte con gracia ≥ 12 meses, todo es corriente (NIC 1 74–75 / PYMES 4.7 d)).",
+            "Corriente = capital contractual que vence en los 12 meses siguientes + interés devengado (tope: costo amortizado); si un covenant que debía cumplirse al cierre o antes "
+            "(NIC 1 72B) se incumplió al corte sin dispensa obtenida hasta el corte con gracia ≥ 12 meses, todo es corriente (NIC 1 74–75 / PYMES 4.7 d)).",
+            "Covenant cuya fecha de medición es posterior al corte: no reclasifica a corriente (NIC 1 72B); se exige la revelación del riesgo de que el pasivo pase a ser "
+            "reembolsable dentro de los doce meses (NIC 1 76ZA). Si no se informa la fecha de medición, se mantiene el tratamiento anterior y se pide el dato.",
+            "Incumplimientos no subsanados al cierre (principal, intereses u otras cláusulas): se exige revelar el detalle, el importe en libros y si se subsanó o renegoció antes de la "
+            "autorización de los estados financieros (NIIF 7 18–19 / PYMES 11.47).",
             "Ratios (analítica): deuda / activos, deuda / patrimonio, deuda / EBITDA, cobertura = EBITDA o EBIT ÷ gasto financiero, DSCR = efectivo "
             "disponible ÷ servicio de la deuda del ejercicio.",
-            "Nota (pendiente de decisión del socio): el contraste oficial observa que el devengo lineal por días aproxima el interés efectivo compuesto (simplificación), que DEU-07 cita NIIF 9 3.3.2/B3.3.6 también en PYMES (allí es 11.37 y la prueba del 10 % por analogía, 10.6) y que no hay control de condiciones pactadas posteriores al corte (NIC 1 76ZA).",
+            "Nota (pendiente de decisión del socio): el contraste oficial observa que el devengo lineal por días aproxima el interés efectivo compuesto (simplificación) y que DEU-07 cita NIIF 9 3.3.2/B3.3.6 también en PYMES (allí es 11.37 y la prueba del 10 % por analogía, 10.6).",
         ],
         "fields": _PRESTAMOS, "rules": [], "control": CONTROL, "primary": "ajuste",
         "campos": CAMPOS, "tipos": TIPOS, "parametros": dict(PARAMETROS), "etiquetas_parametros": ETIQUETAS_PARAM,
@@ -780,9 +819,19 @@ def definicion() -> dict:
             {"code": "DEU-03", "objective": "Tasa de interés efectiva y comisiones", "risk": "Comisiones llevadas a gasto en lugar de integrarse a la TIE",
              "assertion": "Valoración", "procedure": "Calcular la TIE con los costos de transacción y comparar el costo amortizado con lo registrado",
              "evidence": "Liquidaciones de desembolso, cédulas 04 y 07", "criterion": "Costo amortizado a la TIE", "source": "NIIF 9 5.1.1 y Apéndice A · PYMES 11.13"},
-            {"code": "DEU-04", "objective": "Covenants y dispensas", "risk": "Incumplimiento no revelado; deuda exigible presentada como no corriente",
-             "assertion": "Presentación", "procedure": "Recalcular los ratios pactados, verificar incumplimientos y la fecha y alcance de las dispensas",
-             "evidence": "Contratos, cartas de dispensa, cédulas 10 y 12", "criterion": "NIC 1 72B, 74–75 y 76ZA", "source": "NIC 1 69–76 · PYMES 4.7"},
+            {"code": "DEU-04", "objective": "Covenants y dispensas",
+             "risk": "Incumplimiento no revelado; deuda exigible presentada como no corriente; reclasificación por un covenant que se mide después del corte",
+             "assertion": "Presentación",
+             "procedure": "Recalcular los ratios pactados, verificar la fecha de medición de cada condición, los incumplimientos y la fecha y alcance de las dispensas",
+             "evidence": "Contratos, cartas de dispensa, cédulas 10 y 12",
+             "criterion": "NIC 1 72B (solo inciden las condiciones a cumplir al cierre o antes), 74–75 y 76ZA (revelación de las condiciones futuras)",
+             "source": "NIC 1 69–76 y 76ZA · PYMES 4.7 (NIC 1 72B por analogía, 10.6)"},
+            {"code": "DEU-08", "objective": "Revelación de impagos e incumplimientos",
+             "risk": "Impagos de principal o intereses e infracciones de cláusulas no revelados", "assertion": "Presentación / Revelación",
+             "procedure": "Identificar impagos e infracciones no subsanados al cierre y verificar su revelación en las notas",
+             "evidence": "Contratos, estados de cuenta, cartas del banco, notas a los estados financieros",
+             "criterion": "Detalle del incumplimiento, importe en libros y si se subsanó o renegoció antes de la autorización",
+             "source": "NIIF 7 párr. 18–19 · PYMES 11.47 · NIA 560"},
             {"code": "DEU-05", "objective": "Clasificación corriente / no corriente", "risk": "Porción corriente mal clasificada",
              "assertion": "Presentación", "procedure": "Recalcular lo que vence en 12 meses y aplicar el efecto de los covenants", "evidence": "Cédula 11",
              "criterion": "NIC 1 69 c), 72B y 74", "source": "NIC 1 69–76 · PYMES 4.7"},
@@ -833,19 +882,19 @@ EJEMPLO = {
            trat_comisiones="Gasto", pagos_anio="47143.75", confirmado="47940.12", int_reg="226.81", gasto_reg="7478.25"),
         _p("OP-102", "Produbanco", "2025-03-01", "200000", "60", "10", "Trimestral", "Alemán", "167760.65", comisiones="3000",
            trat_comisiones="TIE", pagos_anio="44250", confirmado="170000", gasto_reg="15010.65", cp_reg="41494.17",
-           covenant="Deuda / EBITDA", incumplido="Sí", fecha_dispensa="2026-01-20", gracia_hasta="2027-06-30"),
+           covenant="Deuda / EBITDA", incumplido="Sí", fecha_dispensa="2026-01-20", gracia_hasta="2027-06-30", fecha_covenant="2025-12-31"),
         _p("OP-103", "Banco Guayaquil", "2023-07-01", "300000", "48", "9.5", "Semestral", "Francés", "163882.07", pagos_anio="91897.18",
            confirmado="163882.07", int_reg="7742.09", gasto_reg="17317.78", cp_reg="70000", covenant="Cobertura de intereses", incumplido="No"),
         _p("OP-104", "Banco del Pacífico", "2025-06-30", "150000", "24", "12", "Semestral", "Bullet", "145000", comisiones="1500",
            trat_comisiones="TIE", pagos_anio="9000", confirmado="150000", int_reg="49.45", gasto_reg="9392.86"),
         _p("OP-105", "Corporación Financiera Nacional", "2022-01-01", "80000", "60", "8", "Mensual", "Francés", "20135.32",
            pagos_anio="19465.34", confirmado="20135.32", int_reg="129.91", gasto_reg="2250.69", cp_reg="18653.85",
-           covenant="Deuda / patrimonio", incumplido="Sí", fecha_dispensa="2025-12-15", gracia_hasta="2027-03-31"),
+           covenant="Deuda / patrimonio", incumplido="Sí", fecha_dispensa="2025-12-15", gracia_hasta="2027-03-31", fecha_covenant="2025-12-31"),
         _p("OP-106", "Banco Internacional", "2025-10-01", "50000", "12", "13", "Mensual", "Francés", "42109.09", pagos_anio="8931.73",
            confirmado="42109.09", int_reg="441.47", gasto_reg="1482.29", cp_reg="42550.56"),
         _p("OP-107", "Banco Bolivariano", "2024-07-01", "100000", "36", "10.5", "Trimestral", "Alemán", "57958.23", comisiones="1000",
            trat_comisiones="TIE", pagos_anio="40000", confirmado="58333.33", int_reg="1514.61", gasto_reg="7881.20", cp_reg="34938.20",
-           covenant="DSCR"),
+           covenant="DSCR", fecha_covenant="2026-06-30"),
         _p("OP-108", "Banco Pichincha", "2026-01-10", "90000", "24", "11", "Mensual", "Francés", "0"),
     ]},
 }
@@ -867,4 +916,12 @@ ESCENARIOS = [
 #   interés devengado 1-dic a 31-dic = 170.000 × 2,5 % × 30/90 = 1.416,67 (no registrado). Covenant incumplido y dispensa del
 #   20-01-2026 (posterior al corte): toda la deuda es corriente (NIC 1 74).
 # · OP-104 bullet 150.000 al 12 % semestral: interés 9.000 por semestre; devengo del 30 al 31-dic = 150.000 × 6 % × 1/182 = 49,45.
-# · DSCR = 200.000 ÷ 262.333,83 = 0,76 < 1,25 → OP-107 incumple sin dispensa: toda su deuda es corriente.
+# · DSCR = 200.000 ÷ 262.333,83 = 0,76 < 1,25 → OP-107 incumple el límite, pero su covenant se mide el 30-06-2026,
+#   después del corte: NIC 1 72B → NO reclasifica (queda con la porción por vencimiento) y exige la revelación del 76ZA.
+#   Alemán 100.000 en 12 trimestres = 8.333,33 de capital cada uno; al corte van 5 cuotas (capital 58.333,33) y a los
+#   12 meses irán 9 (capital 25.000): capital corriente 33.333,33 + interés a la TIE devengado 1.604,87 = 34.938,20
+#   (igual a la porción corriente que registró el cliente). Antes de la regla 72B: corriente 420.257,92 / no corriente
+#   239.707,28; ahora: corriente 395.633,02 / no corriente 264.332,18 (pasan 24.624,90) y reclasificación por covenants 127.760,65
+#   (antes 152.385,55), que corresponde solo a OP-102 (169.254,82 − 41.494,17).
+# · OP-102 y OP-105 informan fecha de medición al corte (31-12-2025): su tratamiento no cambia. OP-103 no la informa:
+#   se mantiene el tratamiento actual y se pide el dato (COVENANT_SIN_FECHA_MEDICION).

@@ -91,7 +91,7 @@ TOTAL_EJEMPLO = "ajustePasivos"
 
 _MAYORES = ("mayorGastoNomina", "mayorAportePatronal", "mayorD13", "mayorD14", "mayorVacaciones", "mayorFondoReserva", "mayorProvisionActuarial")
 PARAMETROS = {
-    "sbu": 470, "aportePersonal": 9.45, "aportePatronal": 11.15, "aporteIece": 0.5, "aporteSecap": 0.5, "fondoReserva": 8.33,
+    "sbu": 470, "sbuPago": None, "aportePersonal": 9.45, "aportePatronal": 11.15, "aporteIece": 0.5, "aporteSecap": 0.5, "fondoReserva": 8.33,
     "diasVacaciones": 15, "aniosVacacionAdicional": 5, "maxDiasAdicionales": 15, "horasMes": 240,
     "recargoSuplementarias": 50, "recargoExtraordinarias": 100, "desahucioPct": 25,
     "regionPorDefecto": SIERRA, "mesInicioD13": 12, "mesInicioD14Sierra": 8, "mesInicioD14Costa": 3,
@@ -101,7 +101,10 @@ PARAM_NEGATIVOS = ()
 _V = " (vigente al corte; VERIFICAR)"
 ETIQUETAS_PARAM = {
     "sbu": ("Salario básico unificado (USD) · SBU 2025 = 470 (Acuerdo Ministerial MDT-2024-300; vigente al corte; VERIFICAR). "
-            "Décimo cuarto, CT art. 113: 1/12 de la RBU por mes; pago acumulado hasta el 15-mar (Costa e Insular) o 15-ago (Sierra y Amazónica). La regla «SBU vigente a la fecha de pago» (2026 = 482, MDT-2025-195) es del instructivo ministerial (no en la biblioteca; VERIFICAR); la provisión al corte usa el parámetro SBU — pendiente de decisión del socio"),
+            "Décimo cuarto, CT art. 113: 1/12 de la RBU por mes; pago acumulado hasta el 15-mar (Costa e Insular) o 15-ago (Sierra y Amazónica). La regla «SBU vigente a la fecha de pago» (2026 = 482, MDT-2025-195) es del instructivo ministerial (no en la biblioteca; VERIFICAR); si se informa el parámetro «SBU vigente a la fecha de pago» la provisión se mide con él, si no con este SBU del corte"),
+    "sbuPago": ("SBU vigente a la fecha de pago del décimo cuarto (USD; opcional) · si se informa, la provisión del décimo cuarto se mide con él "
+                "(NIC 19.11 · PYMES 28.5: importe sin descontar que se espera pagar); si se deja vacío se usa el SBU del corte y se emite un problema"
+                + _V),
     "aportePersonal": "Aporte personal IESS (%)" + _V,
     "aportePatronal": "Aporte patronal IESS (%)" + _V,
     "aporteIece": "0,5 % ex IECE (COMF disposición general 11.ª; VERIFICAR)",
@@ -113,7 +116,8 @@ ETIQUETAS_PARAM = {
     "horasMes": "Horas del mes para el valor hora = 240 (8 h × 30 días; jornada CT art. 47; cifra expresa en CT art. 224 num. 5)" + _V,
     "recargoSuplementarias": "Recargo horas suplementarias (%)" + _V,
     "recargoExtraordinarias": "Recargo horas extraordinarias (%)" + _V,
-    "desahucioPct": "Desahucio: 25 % × última remuneración mensual × años (CT art. 185; remuneración según art. 95)" + _V,
+    "desahucioPct": ("Desahucio: 25 % × última remuneración mensual × años (CT art. 185). Base = sueldo + promedio mensual de horas extras "
+                     "y comisiones del año (remuneración del art. 95)") + _V,
     "regionPorDefecto": "Región por defecto para el décimo cuarto (Sierra/Oriente o Costa/Galápagos)",
     "mesInicioD13": "Mes de inicio del período del décimo tercero (dic = 12)" + _V,
     "mesInicioD14Sierra": "Mes de inicio del décimo cuarto Sierra/Oriente (ago = 8)" + _V,
@@ -232,6 +236,10 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             raise ValueError(f"{ETIQUETAS_PARAM[k].split(' (vigente')[0]}: porcentaje entre 0 y 100.")
     if q["sbu"] is None or q["sbu"] <= 0 or q["horasMes"] is None or q["horasMes"] <= 0:
         raise ValueError("Indique el SBU y las horas del mes (positivos).")
+    sbu_pago = _p(p, "sbuPago")                       # opcional: SBU vigente a la fecha de pago del décimo cuarto
+    if sbu_pago is not None and sbu_pago <= 0:
+        raise ValueError("SBU vigente a la fecha de pago: indique un valor positivo o déjelo vacío.")
+    sbu_d14 = q["sbu"] if sbu_pago is None else sbu_pago
     for k in ("mesInicioD13", "mesInicioD14Sierra", "mesInicioD14Costa"):
         if q[k] is None or q[k] != int(q[k]) or not 1 <= q[k] <= 12:
             raise ValueError("Los meses de inicio de los décimos deben ser enteros entre 1 y 12.")
@@ -317,7 +325,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         # 09 · décimo cuarto (un SBU por año, prorrateado)
         e["d14_ini"] = i14[e["region"]]
         e["d14_dias"] = 0 if e["activo"] == "No" or e["m14"] == "Sí" else d360(max(e["ing"], e["d14_ini"]), corte_a + timedelta(1))
-        e["d14"] = q["sbu"] * e["d14_dias"] / 360
+        e["d14"] = sbu_d14 * e["d14_dias"] / 360
         e["d14_dif"] = None if e["d14_reg"] is None else e["d14_reg"] - e["d14"]
         # 10 · vacaciones
         e["dias_anuales"] = q["diasVacaciones"] + min(max(e["anios"] - q["aniosVacacionAdicional"], 0), q["maxDiasAdicionales"])
@@ -328,8 +336,11 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         # 11 · fondo de reserva (desde el 13.º mes)
         e["fr"] = 0 if e["dias"] == 0 else e["bruto"] * q["fondoReserva"] / 100 * e["dias_fr"] / e["dias"]
         e["fr_dif"] = None if e["fr_reg"] is None else e["fr_reg"] - e["fr"]
-        # 14 · censo y desahucio legal referencial
-        e["des_ref"] = e["sueldo"] * q["desahucioPct"] / 100 * e["anios"]
+        # 14 · censo y desahucio legal referencial. CT art. 185: 25 % de la ÚLTIMA REMUNERACIÓN MENSUAL, que según el
+        # art. 95 incluye horas suplementarias y extraordinarias y comisiones; se promedian a un mes (año ÷ 12).
+        e["accesorias"] = (e["he"] + e["com0"]) / 12
+        e["rem_ult"] = e["sueldo"] + e["accesorias"]
+        e["des_ref"] = e["rem_ult"] * q["desahucioPct"] / 100 * e["anios"]
 
     A = []
     for f in datasets.get("actuarial") or []:
@@ -452,10 +463,16 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         if a["tasa"] is None:
             pr.append(problema("SUPUESTOS_ACTUARIALES", f"Plan {a['id']}: sin tasa de descuento informada; evalúe los supuestos (NIC 19.75–98, tasa 83 · "
                                "PYMES 28.17 (tasa) y 28.18 (supuestos actuariales); NIA 540).", 0))
+    if sbu_pago is None and k["d14Recalculado"] > 0.005:
+        pr.append(problema("D14_SBU_PAGO", f"Décimo cuarto provisionado con el SBU del corte ({m(q['sbu'])}). La bonificación se paga con la "
+                           "remuneración básica unificada vigente a la fecha de pago (acumulada hasta el 15-mar en Costa e Insular y el 15-ago en "
+                           "Sierra y Amazónica del año siguiente; CT art. 113 fija esas fechas y la regla del SBU vigente viene del instructivo "
+                           "ministerial, VERIFICAR). Si ese SBU ya se conoce al cierre, informe el parámetro «SBU vigente a la fecha de pago»: la "
+                           "provisión debe medirse por el importe sin descontar que se espera pagar (NIC 19.11 · PYMES 28.5).", 0))
     if activos and not A:
         pr.append(problema("SIN_ESTUDIO_ACTUARIAL", f"{activos} empleados activos y ningún informe actuarial: jubilación patronal y desahucio sin medir "
                            "(NIC 19.67; en PYMES evalúe la simplificación de 28.19 solo si hay costo o esfuerzo desproporcionado). Desahucio legal referencial "
-                           "(la base legal es la última remuneración mensual, no solo el sueldo).", k["desahucioLegalReferencial"]))
+                           "calculado sobre la última remuneración mensual (CT art. 185 con la base del art. 95).", k["desahucioLegalReferencial"]))
     elif A:
         faltan = {"Jubilación patronal", "Desahucio"} - {a["tipo"] for a in A}
         if faltan:
@@ -475,7 +492,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         ("d14Recalculado", "Décimo cuarto por pagar recalculado"), ("vacacionesRecalculadas", "Provisión de vacaciones recalculada"),
         ("fondoReservaEsperado", "Fondo de reserva debido en el ejercicio"), ("dboInforme", "Obligación post-empleo según informe actuarial"),
         ("provisionActuarialRegistrada", "Provisión post-empleo registrada"), ("gastoActuarialResultados", "Gasto post-empleo en resultados"),
-        ("oriActuarial", "Nuevas mediciones en ORI"), ("desahucioLegalReferencial", "Desahucio legal referencial de los activos (no es el DBO; la base legal es la última remuneración mensual, no solo el sueldo)"),
+        ("oriActuarial", "Nuevas mediciones en ORI"), ("desahucioLegalReferencial", "Desahucio legal referencial de los activos (no es el DBO; base: última remuneración mensual = sueldo + promedio mensual de horas extras y comisiones, CT arts. 185 y 95)"),
         ("ajustePasivos", "Ajuste propuesto a pasivos laborales (+ aumenta el pasivo)"),
     ):
         if k[key] is not None:
@@ -506,7 +523,7 @@ CEDULAS = [
 ]
 P = ref("02_Parametros")
 EMP, ACT, TS, NOM, IE, D13, D14, VAC, FR, DBO, ORIH, CEN, CG, AJ = (ref(n) for n, _ in CEDULAS[2:16])
-_PAR = ["corte", "inicio", "marco", "edicion", "ruta", "sbu", "aportePersonal", "aportePatronal", "aporteIece", "aporteSecap", "fondoReserva",
+_PAR = ["corte", "inicio", "marco", "edicion", "ruta", "sbu", "sbuPago", "sbuD14", "aportePersonal", "aportePatronal", "aporteIece", "aporteSecap", "fondoReserva",
         "diasVacaciones", "aniosVacacionAdicional", "maxDiasAdicionales", "horasMes", "recargoSuplementarias", "recargoExtraordinarias",
         "desahucioPct", "regionPorDefecto", "mesInicioD13", "i13", "mesInicioD14Sierra", "i14s", "mesInicioD14Costa", "i14c",
         "actuarialesEn", "tolerancia", *_MAYORES]
@@ -531,6 +548,7 @@ def hojas(res: dict) -> list[dict]:
     n, na = len(Em), len(Ac)
     fin = lambda nn: FILA0 + nn - 1
     pv = lambda kk: None if p.get(kk) in (None, "") else float(a_num(p.get(kk)))
+    sbu_d14 = pv("sbu") if pv("sbuPago") is None else pv("sbuPago")
     c = PAR["corte"]
     V = " — vigente al corte; VERIFICAR"
 
@@ -541,7 +559,12 @@ def hojas(res: dict) -> list[dict]:
         ["Edición PYMES", d["edicion"], "Sección 28: igual en 28.3–28.18 y 28.24; cambian 28.19 (2025 añade supuesto de terminación a la fecha y sin descuento) y 28.41 e) (conciliación por componentes)"],
         ["Nuevas mediciones van a", d["ruta"], "NIC 19.120 c y 127–130: ORI" if not d["pymes"] else "Sección 28.24: política elegida (parámetro)"],
         ["SBU (USD)", pv("sbu"), "SBU 2025 = 470 (Acuerdo Ministerial MDT-2024-300; vigente al corte; VERIFICAR). Décimo cuarto: "
-                                  "CT art. 113: 1/12 de la RBU por mes; pago acumulado hasta el 15-mar (Costa e Insular) o 15-ago (Sierra y Amazónica). La regla «SBU vigente a la fecha de pago» (2026 = 482, MDT-2025-195) es del instructivo ministerial (no en la biblioteca; VERIFICAR); la provisión al corte usa el parámetro SBU — pendiente de decisión del socio"],
+                                  "CT art. 113: 1/12 de la RBU por mes; pago acumulado hasta el 15-mar (Costa e Insular) o 15-ago (Sierra y Amazónica). La regla «SBU vigente a la fecha de pago» (2026 = 482, MDT-2025-195) es del instructivo ministerial (no en la biblioteca; VERIFICAR)"],
+        ["SBU vigente a la fecha de pago del décimo cuarto (USD)", pv("sbuPago"),
+         "Opcional. Si se informa, la provisión del décimo cuarto se mide con este SBU (NIC 19.11 · PYMES 28.5: importe sin descontar que se espera "
+         "pagar); si se deja vacío se usa el SBU del corte y se emite un problema — vigente al corte; VERIFICAR"],
+        ["SBU aplicado al décimo cuarto", fx(f'IF({PAR["sbuPago"]}="",{PAR["sbu"]},{PAR["sbuPago"]})', sbu_d14),
+         "El de la fecha de pago si se informó; si no, el del corte"],
         ["Aporte personal IESS (%)", pv("aportePersonal"), "Ley de Seguridad Social / resoluciones IESS" + V],
         ["Aporte patronal IESS (%)", pv("aportePatronal"), "Ley de Seguridad Social" + V],
         ["0,5 % ex IECE (%)", pv("aporteIece"), "COMF disposición general 11.ª; VERIFICAR"],
@@ -606,7 +629,7 @@ def hojas(res: dict) -> list[dict]:
                     fx(f"E{r}*D{r}/12", e["d13"]), fx(_si(X("S")), e["d13_reg"]), fx(f'IF(G{r}="","",G{r}-F{r})', e["d13_dif"])])
         t14.append([e["id"], fx(f"{TS}E{r}", e["activo"]), e["m14"], e["region"], e["d14_ini"],
                     fx(f'IF(OR(B{r}="No",C{r}="Sí"),0,DAYS360(MAX({X("C")},IF(D{r}="{COSTA}",{PAR["i14c"]},{PAR["i14s"]})),{c}+1,TRUE))', e["d14_dias"]),
-                    fx(f"{PAR['sbu']}*F{r}/360", e["d14"]), fx(_si(X("T")), e["d14_reg"]), fx(f'IF(H{r}="","",H{r}-G{r})', e["d14_dif"])])
+                    fx(f"{PAR['sbuD14']}*F{r}/360", e["d14"]), fx(_si(X("T")), e["d14_reg"]), fx(f'IF(H{r}="","",H{r}-G{r})', e["d14_dif"])])
         vac.append([
             e["id"], fx(f"{TS}E{r}", e["activo"]), fx(f"{TS}F{r}", e["anios"]),
             fx(f"{PAR['diasVacaciones']}+MIN(MAX(C{r}-{PAR['aniosVacacionAdicional']},0),{PAR['maxDiasAdicionales']})", e["dias_anuales"]),
@@ -637,10 +660,12 @@ def hojas(res: dict) -> list[dict]:
     fa = {e["id"]: FILA0 + i for i, e in enumerate(Em)}
     AC = [e for e in Em if e["activo"] == "Sí"]
     cen = []
-    for e in AC:
-        s_ = fa[e["id"]]
-        cen.append([e["id"], e["nombre"], fx(f"{TS}F{s_}", e["anios"]), fx(f"{EMP}F{s_}", e["sueldo"]), e["estudio"],
-                    fx(f"{EMP}F{s_}*{PAR['desahucioPct']}/100*{TS}F{s_}", e["des_ref"])])
+    for i, e in enumerate(AC):
+        s_, r = fa[e["id"]], FILA0 + i
+        cen.append([e["id"], e["nombre"], fx(f"{TS}F{s_}", e["anios"]), fx(f"{EMP}F{s_}", e["sueldo"]),
+                    fx(f'({_cero(f"{EMP}I{s_}")}+{_cero(f"{EMP}J{s_}")})/12', e["accesorias"]),
+                    fx(f"D{r}+E{r}", e["rem_ult"]), e["estudio"],
+                    fx(f"F{r}*{PAR['desahucioPct']}/100*C{r}", e["des_ref"])])
 
     # 15 · conciliación: registrado, recalculado, mayor.
     fuentes = [(_rng(EMP, "K", n), _rng(NOM, "L", n)), (_rng(EMP, "P", n), _rng(IE, "I", n)), (_rng(EMP, "S", n), _rng(D13, "F", n)),
@@ -662,7 +687,7 @@ def hojas(res: dict) -> list[dict]:
              "d13Recalculado": f"{CG}C{FILA0 + 2}", "d14Recalculado": f"{CG}C{FILA0 + 3}", "vacacionesRecalculadas": f"{CG}C{FILA0 + 4}",
              "fondoReservaEsperado": f"{CG}C{FILA0 + 5}", "dboInforme": f"{CG}C{FILA0 + 6}", "provisionActuarialRegistrada": f"{CG}B{FILA0 + 6}",
              "gastoActuarialResultados": f"SUM({_rng(ORIH, 'B', na)})", "oriActuarial": f"SUM({_rng(ORIH, 'C', na)})",
-             "desahucioLegalReferencial": f"SUM({_rng(CEN, 'F', len(AC))})", "ajustePasivos": f"{AJ}B{FILA0 + naj}"}
+             "desahucioLegalReferencial": f"SUM({_rng(CEN, 'H', len(AC))})", "ajustePasivos": f"{AJ}B{FILA0 + naj}"}
     resumen = [[res["labels"][kk], fx(celda[kk], k[kk])] for kk in res["labels"]]
 
     tot = lambda col, nn, v: suma(col, fin(nn), v)
@@ -728,9 +753,11 @@ def hojas(res: dict) -> list[dict]:
               ["Registrado por el cliente en", "t"], ["Conforme", "t"]], ori,
              ["TOTAL", tot("B", na, k["gastoActuarialResultados"]), tot("C", na, k["oriActuarial"]), "", "", ""] if na else None),
         hoja("14_Censo_actuarial", "Censo actuarial y desahucio legal",
-             [["Cédula/código", "t"], ["Nombre", "t"], ["Años de servicio", "i"], ["Sueldo mensual", "n"], ["En estudio actuarial", "t"],
-              ["Desahucio legal referencial (25 % × sueldo × años; base legal: última remuneración mensual, CT art. 185 y art. 95)", "n"]], cen,
-             ["TOTAL", "", None, None, "", tot("F", len(AC), k["desahucioLegalReferencial"])] if AC else None),
+             [["Cédula/código", "t"], ["Nombre", "t"], ["Años de servicio", "i"], ["Sueldo mensual", "n"],
+              ["Promedio mensual de horas extras y comisiones (año ÷ 12)", "n"],
+              ["Última remuneración mensual (CT art. 95)", "n"], ["En estudio actuarial", "t"],
+              ["Desahucio legal referencial (25 % × última remuneración mensual × años; CT art. 185)", "n"]], cen,
+             ["TOTAL", "", None, None, None, None, "", tot("H", len(AC), k["desahucioLegalReferencial"])] if AC else None),
         hoja("15_Conciliacion_GL", "Conciliación nómina–mayor",
              [["Concepto", "t"], ["Detalle registrado", "n"], ["Recalculado", "n"], ["Mayor", "n"], ["Detalle − mayor", "n"],
               ["Registrado − recalculado", "n"]], cg),
@@ -790,6 +817,10 @@ def definicion() -> dict:
             "Décimo tercero al corte = remuneración diaria × días desde el inicio del período (dic) ÷ 12; décimo cuarto = SBU × días desde el inicio del período por región ÷ 360; cero si se mensualiza o salió.",
             "Vacaciones: días por año (15 + 1 por año sobre 5, máx. 15) × días ÷ 360; saldo = inicial + devengados − gozados; provisión = saldo × remuneración diaria (NIC 19.13–16 · PYMES 28.6).",
             "Fondo de reserva = bruto × 8,33 % × días con derecho (desde el 13.º mes) ÷ días trabajados.",
+            "Décimo cuarto: si se informa el «SBU vigente a la fecha de pago» la provisión se mide con él (NIC 19.11 · PYMES 28.5); si no, con el "
+            "SBU del corte y se señala el problema.",
+            "Desahucio legal referencial = 25 % × última remuneración mensual × años, con la última remuneración mensual = sueldo + (horas extras + "
+            "comisiones del año) ÷ 12 (CT art. 185 con la base del art. 95: incluye suplementarias, extraordinarias y comisiones).",
             "DBO final = inicial + costo del servicio + intereses + servicios pasados + nuevas mediciones − beneficios pagados, frente al informe y a la provisión registrada.",
             "Nuevas mediciones: NIIF completas → ORI (NIC 19.120 c, 127–130); PYMES → resultados u ORI según política (28.24).",
         ],
@@ -916,5 +947,6 @@ ESCENARIOS = [
     ("pymes_2015_resultados", EJEMPLO["datasets"], {**EJEMPLO["parametros"], "_marco": MARCO_PYMES, "_edicion": "2015", "actuarialesEn": RESULTADOS},
      EJEMPLO["corte"]),
     ("pymes_2025_ori", EJEMPLO["datasets"], {**EJEMPLO["parametros"], "_marco": MARCO_PYMES, "_edicion": "2025", "actuarialesEn": ORI}, EJEMPLO["corte"]),
+    ("sbu_pago_informado", EJEMPLO["datasets"], {**EJEMPLO["parametros"], "sbuPago": 482}, EJEMPLO["corte"]),
     ("minimo", _MIN, {}, "2025-12-31"),
 ]

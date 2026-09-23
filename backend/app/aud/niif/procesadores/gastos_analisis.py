@@ -14,8 +14,8 @@ pruebas de la matriz). Dos anexos:
    |variación| > umbral absoluto y, cuando hay base, |variación %| > umbral %. Variación sobre el umbral sin
    explicación = problema. Cobertura de la muestra por cuenta.
 2. Presentación (NIC 1 99, 102–105; PYMES 5.11): gasto por línea del estado de resultados; ninguna partida
-   «extraordinaria» (NIC 1 87; PYMES 5.10). Enrutado por marco: si el método es por función, NIIF completas
-   exige información por naturaleza (NIC 1 104) y PYMES exige el costo de ventas por separado (5.11 b).
+   «extraordinaria» (NIC 1 87; PYMES 5.10). Si el método es por función, los dos marcos exigen revelar el costo
+   de ventas por separado (NIC 1 103 / PYMES 5.11 b) y NIIF completas exige además información por naturaleza (NIC 1 104).
 3. Vouching (NIA 500): gasto registrado sin soporte = gasto no soportado.
 4. Corte (transacciones sin período de servicio): documento del ejercicio registrado después del corte =
    gasto no registrado; documento posterior registrado en el ejercicio = gasto de otro período.
@@ -323,9 +323,11 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                                           + ", ".join(c["cuenta"] for c in sin_nat) + ". Con el método por función la NIC 1 párr. 104 exige "
                                           "información por naturaleza (incluidas amortización y retribuciones a los empleados).",
                                           sum(c["actual"] for c in sin_nat)))
-        elif not any("costo de venta" in g["clas"].lower() or "coste de venta" in g["clas"].lower() for g in eri_l):
-            problemas.append(problema("COSTO_VENTAS_NO_SEPARADO", "Método por función sin línea de costo de ventas: la Sección 5.11 b) exige "
-                                      "revelar el costo de ventas por separado de otros gastos."))
+        # NIC 1.103 lo exige igual que PYMES 5.11 b): con el método por función, el costo de ventas va por separado.
+        if not any("costo de venta" in g["clas"].lower() or "coste de venta" in g["clas"].lower() for g in eri_l):
+            problemas.append(problema("COSTO_VENTAS_NO_SEPARADO", "Método por función sin línea de costo de ventas: "
+                                      + ("la Sección 5.11 b)" if pymes else "la NIC 1 párr. 103")
+                                      + " exige revelar el costo de ventas por separado de otros gastos."))
     if eri is None:
         problemas.append(problema("SIN_CONCILIACION", "Ingrese el total de gastos según el estado de resultados o el mayor para conciliar la sumaria (NIA 500)."))
     elif abs(dif_conc) > 0.005:
@@ -445,7 +447,8 @@ def hojas(res: dict) -> list[dict]:
     marco = (MARCO_PYMES + f" {d['edicion']}") if d["pymes"] else MARCO_COMPLETAS
     if d["metodo"] == "Función":
         requisito = ("Revelar el costo de ventas por separado (PYMES 5.11 b)" if d["pymes"]
-                     else "Revelar información por naturaleza: amortización y retribuciones a los empleados (NIC 1 párr. 104)")
+                     else "Revelar el costo de ventas por separado (NIC 1 párr. 103) e información por naturaleza: "
+                          "amortización y retribuciones a los empleados (NIC 1 párr. 104)")
     else:
         requisito = "Desglose por naturaleza (" + ("PYMES 5.11 a)" if d["pymes"] else "NIC 1 párr. 102") + ")"
 
@@ -717,11 +720,11 @@ def definicion() -> dict:
                     "anticipados llevados a resultados y gastos devengados no registrados), cuantifica reclasificaciones, totaliza las "
                     "transacciones con partes relacionadas por categoría frente a lo revelado y señala partidas presentadas como "
                     "«extraordinarias» (prohibido: NIC 1 párr. 87; PYMES 5.10) e inusuales. El requisito de desglose y las categorías de "
-                    "partes relacionadas se enrutan por marco (NIC 1 párr. 104 y NIC 24 párr. 19; PYMES 5.11 y 33.10). Incluye una "
+                    "partes relacionadas se enrutan por marco (NIC 1 párr. 103–104 y NIC 24 párr. 19; PYMES 5.11 y 33.10). Incluye una "
                     "referencia tributaria de Ecuador (comprobante válido y bancarización)."),
         "source": {"organization": "IFRS Foundation (texto en español: Reglamento (UE) 2023/1803)", "type": "Norma contable", "date": "",
                    "document": ("NIC 1 párr. 27–28 (devengo), 87 (sin partidas extraordinarias), 97–98 (partidas materiales), 99 y 102–105 "
-                                "(desglose por naturaleza o función); NIC 24 párr. 18–19; NIC 8 párr. 41–42 (errores). Marco Conceptual "
+                                "(desglose por naturaleza o función; 103: por función, costo de ventas por separado); NIC 24 párr. 18–19; NIC 8 párr. 41–42 (errores). Marco Conceptual "
                                 "párr. 4.69 y 4.72 (definición de gasto): VERIFICAR, no incluido en el Reglamento leído."),
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
@@ -741,7 +744,7 @@ def definicion() -> dict:
             "Variación = saldo actual − saldo anterior (y − presupuesto); variación % = variación ÷ base. Excede el umbral si |variación| > umbral absoluto "
             "(o materialidad de ejecución) y, cuando la base no es cero, |variación %| > umbral %. Sin explicación → problema (NIA 520).",
             "Presentación: gasto por línea del estado de resultados; ninguna línea o cuenta puede llamarse «extraordinaria» (NIC 1 87; PYMES 5.10). "
-            "Por función: NIIF completas exige naturaleza (NIC 1 104); PYMES exige costo de ventas por separado (5.11 b).",
+            "Por función: los dos marcos exigen el costo de ventas por separado (NIC 1 103 / PYMES 5.11 b) y NIIF completas exige además naturaleza (NIC 1 104).",
             "Verificación del soporte: gasto registrado en el ejercicio sin soporte = gasto no soportado.",
             "Corte (comprobantes sin período de servicio): documento ≤ corte y registro > corte = gasto no registrado; documento > corte y registro ≤ corte = gasto de otro período.",
             "Devengo (con período de servicio): gasto del período = importe × días del servicio hasta el corte ÷ días del servicio. Registrado en el "

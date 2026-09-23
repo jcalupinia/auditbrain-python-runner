@@ -27,8 +27,11 @@ def test_ejemplo_cifras_a_mano():
     # LIT-02 punto medio 80.000 a 2,5 años al 8 % (tasa por defecto): 80.000 ÷ 1,08^2,5.
     l2 = _x(r, "LIT-02")
     assert l2["est"] == 80000 and m.r2(l2["vp"]) == "65997.97" and l2["tasa"] == 8
-    # GAR-01 = 12.000×3 %×85 + 5.000×2 %×120 = 42.600; ONE-01 = mín(75.000; 45.000).
-    assert _x(r, "GAR-01")["est"] == pytest.approx(42600) and _x(r, "ONE-01")["est"] == 45000
+    # GAR-01 = 12.000×3 %×85 + 5.000×2 %×120 = 42.600.
+    assert _x(r, "GAR-01")["est"] == pytest.approx(42600)
+    # ONE-01 (NIC 37.10, 66–68): costo neto = 75.000 − 40.000 de beneficios esperados = 35.000; mín(35.000; 45.000) = 35.000.
+    o1 = _x(r, "ONE-01")
+    assert o1["costo_neto"] == 35000 and o1["est"] == 35000 and o1["base"] == "Oneroso: menor costo (37.68)"
     # DES-01 = 500.000 ÷ 1,07^10 = 254.174,65; reversión 225.000 × 7 % = 15.750.
     d1 = _x(r, "DES-01")
     assert m.r2(d1["vp"]) == "254174.65" and d1["rev_calc"] == pytest.approx(15750) and "CINIIF 1" in d1["contrapartida"]
@@ -41,8 +44,9 @@ def test_ejemplo_cifras_a_mano():
     # Clasificación.
     assert [_x(r, i)["clasif"] for i in ("LIT-03", "LIT-04", "LIT-06", "ACT-01")] == [
         "Pasivo contingente: revelar", "Pasivo contingente: revelar", "Remota: no revelar", "Activo contingente: revelar"]
-    # Totales: requerida = 114.000 + 65.997,97 + 42.600 + 45.000 + 254.174,65 + 60.000 + 129.986,28 + 32.000 + 30.000.
-    assert t["librosProvisiones"] == "725000.00" and t["provisionRequerida"] == "773758.90" and t["ajusteProvisiones"] == "48758.90"
+    # Totales: requerida = 114.000 + 65.997,97 + 42.600 + 35.000 + 254.174,65 + 60.000 + 129.986,28 + 32.000 + 30.000
+    # = 763.758,90 (antes 773.758,90: el oneroso baja 10.000 al restar los beneficios esperados).
+    assert t["librosProvisiones"] == "725000.00" and t["provisionRequerida"] == "763758.90" and t["ajusteProvisiones"] == "38758.90"
     assert t["garantiasCalculadas"] == "47600.00" and t["pasivosContingentes"] == "60000.00" and t["contingentesSinRevelar"] == "20000.00"
     assert t["reversionCalculada"] == "32850.00" and t["activoContingenteReconocido"] == "50000.00" and t["difMayor"] == "-5000.00"
     assert r["primary"] == "ajusteProvisiones" and m.TOTAL_EJEMPLO in t
@@ -50,8 +54,22 @@ def test_ejemplo_cifras_a_mano():
             "PROVISION_NO_REGISTRADA", "PROVISION_POSIBLE_O_REMOTA", "SIN_RESPUESTA_ABOGADO", "CONTINGENCIA_SIN_REVELAR",
             "ONEROSO_NO_PROVISIONADO", "REVERSION_NO_REGISTRADA", "DESCUENTO_NO_APLICADO", "REVERSION_DIFERENCIA",
             "ACTIVO_CONTINGENTE_RECONOCIDO", "ACTIVO_CONTINGENTE_SIN_REVELAR", "GARANTIA_SIN_PROVISION", "CONCILIACION_MAYOR"} <= _codigos(r)
-    assert "AJUSTE_SUPERA_MATERIALIDAD" not in _codigos(r)
-    assert "AJUSTE_SUPERA_MATERIALIDAD" in _codigos(correr(materialidad=40000))
+    assert {"AJUSTE_SUPERA_MATERIALIDAD", "ONEROSO_SIN_BENEFICIOS"}.isdisjoint(_codigos(r))   # 38.758,90 < 50.000; ONE-01 trae beneficios
+    assert "AJUSTE_SUPERA_MATERIALIDAD" in _codigos(correr(materialidad=30000))
+
+
+def test_oneroso_sin_beneficios_usa_el_costo_completo_y_lo_advierte():
+    # Sin beneficios esperados: costo neto = costo de cumplir (75.000) → mín(75.000; 45.000) = 45.000, con advertencia.
+    ds = {**E["datasets"], "provisiones": [{k: v for k, v in f.items() if k != "beneficios_contrato"} if f["id"] == "ONE-01" else f
+                                           for f in E["datasets"]["provisiones"]]}
+    r = correr(ds)
+    o1 = _x(r, "ONE-01")
+    assert o1["costo_neto"] == 75000 and o1["est"] == 45000 and "ONEROSO_SIN_BENEFICIOS" in _codigos(r)
+    assert r["totals"]["provisionRequerida"] == "773758.90"
+    # Beneficios que superan el costo de cumplir: costo neto 0 → no hay contrato oneroso que provisionar.
+    ds2 = {**E["datasets"], "provisiones": [{**f, "beneficios_contrato": "90000"} if f["id"] == "ONE-01" else f
+                                            for f in E["datasets"]["provisiones"]]}
+    assert _x(correr(ds2), "ONE-01")["est"] == 0
 
 
 @pytest.mark.parametrize("edicion", ["2015", "2025"])

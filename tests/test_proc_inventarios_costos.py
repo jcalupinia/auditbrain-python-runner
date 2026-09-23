@@ -26,13 +26,19 @@ def test_ejemplo_cifras_a_mano():
     assert _t(res, "difKardexMayor") == -300.00     # 27.500 − 27.800
     assert _t(res, "rebajaVnr") == 1375.00          # B-010 (350−265)×10 + C-102 (30−26,5)×150
     assert _t(res, "provObsolescencia") == 3050.00  # B-011 25 % (305 d) + B-012 50 % (549 d) + C-100 100 % (945 d)
-    assert _t(res, "provisionEstimada") == 4425.00  # la mayor por ítem, sin sumar VNR y obsolescencia
-    assert _t(res, "inventarioNeto") == 23091.00
+    # NIC 2.9 / PYMES 13.4 miden al MENOR entre costo y VNR: con precio de venta informado manda la rebaja a VNR y
+    # el tramo de obsolescencia no provisiona. B-011 (VNR 1.200−50 = 1.150 > costo 800) y B-012 (VNR 70 > costo 45)
+    # tienen VNR por encima del costo, así que sus tramos (800 y 450) quedan en 0. El tramo solo estima el VNR de
+    # C-100, que no tiene precio de venta (1.800 × 100 %). Estimada = 850 (B-010) + 525 (C-102) + 1.800 (C-100).
+    assert _t(res, "provisionEstimada") == 3175.00
+    assert _t(res, "inventarioNeto") == 24341.00    # 27.516 − 3.175
     assert _t(res, "libroNeto") == 26800.00
-    assert _t(res, "ajuste") == -3709.00
+    assert _t(res, "ajuste") == -2459.00
     assert res["primary"] == "ajuste"
-    # Puente: −100 + 16 + 100 − 300 − (4.425 − 1.000) = −3.709
-    assert round(-100 + 16 + 100 - 300 - (4425 - 1000), 2) == _t(res, "ajuste")
+    # Puente: −100 + 16 + 100 − 300 − (3.175 − 1.000) = −2.459
+    assert round(-100 + 16 + 100 - 300 - (3175 - 1000), 2) == _t(res, "ajuste")
+    prov = {i["id"]: i["prov"] for i in res["detalle"]["items"]}
+    assert prov["B-011"] == 0 and prov["B-012"] == 0 and prov["C-100"] == 1800
 
 
 def test_ejemplo_produccion_costo_ventas_y_corte():
@@ -56,9 +62,22 @@ def test_ejemplo_problemas_minimos():
     codes = {e["code"] for e in _run()["exceptions"]}
     for c in ("DIFERENCIA_FISICA", "KARDEX_MAYOR", "CIF_NO_ABSORBIDO_CAPITALIZADO", "COSTO_VENTAS", "VNR_BAJO_COSTO",
               "LENTA_ROTACION_SIN_PROVISION", "DIF_EXTENSION", "DIF_COSTO_UNITARIO", "APERTURA", "PRODUCCION_NO_CONCILIADA",
-              "SIN_PRECIO_VENTA", "SIN_CONTEO", "CORTE", "AJUSTE"):
+              "SIN_PRECIO_VENTA", "VNR_ESTIMADO_ANTIGUEDAD", "SIN_CONTEO", "CORTE", "AJUSTE"):
         assert c in codes, c
     assert "SIN_MAYOR" not in codes and "SIN_PROVISION_REGISTRADA" not in codes
+    assert "REBAJA_MAYOR_QUE_COSTO" not in codes          # ningún VNR del ejemplo es negativo
+
+
+def test_vnr_negativo_se_limita_al_costo():
+    # Costo 10 × 20 = 200; VNR = 5 − 0 − 30 = −25 → rebaja bruta (20 − (−25)) × 10 = 450 > 200.
+    # La rebaja se limita al costo (200): el inventario no puede quedar negativo. Exceso señalado 250.
+    ds = {"inventario": [m._it("Z-1", "Saldo con VNR negativo", 10, 10, 20, 200, "2025-12-01", 5, "", 30)]}
+    res = m.ejecutar(ds, {"saldoMayor": 200, "provisionRegistrada": 0}, E["corte"])
+    it = res["detalle"]["items"][0]
+    assert it["rebajaBruta"] == 450 and it["rebaja"] == 200 and it["exceso"] == 250 and it["prov"] == 200
+    assert _t(res, "provisionEstimada") == 200.00 and _t(res, "inventarioNeto") == 0.00
+    exc = next(e for e in res["exceptions"] if e["code"] == "REBAJA_MAYOR_QUE_COSTO")
+    assert exc["amount"] == "250.00"
 
 
 def test_rutas_por_marco():

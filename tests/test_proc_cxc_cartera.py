@@ -35,13 +35,27 @@ def test_ejemplo_niif_completas_cifras_a_mano():
         assert k in c
 
 
-def test_ruta_pymes_corriente_cero():
+def test_ruta_pymes_conserva_la_tasa_del_tramo_corriente():
+    """PYMES 11.22 e) y 11.24: la tasa corriente ya no se fuerza a 0 %; se conserva y se exige el sustento."""
     r = _run(_marco=m.MARCO_PYMES, _edicion="2025")
-    # Sin los tramos corrientes (120 + 80 + 173,38).
-    assert r["totals"]["deterioroRequerido"] == "5770.00"
+    # Tramo corriente al 1 %: F-001 12.000 + F-002 8.000 + F-008 17.337,95 (costo amortizado) − F-012 500 = 36.837,95.
+    # Deterioro del tramo = 120 + 80 + 173,38 + 0 (la nota de crédito no genera deterioro) = 373,38.
+    pv = next(x for x in r["detalle"]["matriz"] if x["k"] == "pv")
+    assert pv["tasa"] == 0.01 and round(pv["det"], 2) == 373.38
+    assert r["totals"]["deterioroRequerido"] == "6143.38"      # 5.770,00 de los tramos vencidos + 373,38 del corriente
+    assert r["totals"]["ajuste"] == "4143.38"                  # 6.143,38 − 2.000 registrados
     assert "TASA_CORRIENTE_PYMES" in _codigos(r)
     assert r["labels"]["deterioroRequerido"].startswith("Pérdida incurrida")
-    assert next(x for x in r["detalle"]["tasas"] if x["k"] == "pv")["tasa"] == 0.0
+    assert next(x for x in r["detalle"]["tasas"] if x["k"] == "pv")["origen"] == "Fijada por el auditor"
+
+
+def test_pymes_sin_tasa_corriente_no_inventa_deterioro():
+    """Sin tasa el tramo queda vacío (M22) y se pide la evidencia objetiva del grupo, no 0 por omisión."""
+    tasas = {k: v for k, v in m.EJEMPLO["parametros"]["tasas"].items() if k != "pv"}
+    r = _run(_marco=m.MARCO_PYMES, _edicion="2015", tasas=tasas)
+    assert r["totals"]["deterioroRequerido"] == "5770.00"      # solo los tramos vencidos
+    assert "TASA_CORRIENTE_PYMES" not in _codigos(r) and "TASA_FALTANTE" in _codigos(r)
+    assert next(x for x in r["detalle"]["matriz"] if x["k"] == "pv")["tasa"] is None
 
 
 def test_sin_tasa_de_mercado_y_tramo_sin_tasa_quedan_vacios():

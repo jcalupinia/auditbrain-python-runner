@@ -12,10 +12,13 @@ Versión simple que cumple la norma, una cédula por prueba de la matriz del soc
 5. Costo de ventas (INV-16): COGS = inventario inicial + compras netas (+ COGM) − inventario final;
    COGM = WIP inicial + costos de manufactura − WIP final (NIC 2.34; PYMES 13.20).
 6. VNR (cédula simplificada; la herramienta VNR del catálogo es la completa): VNR = precio estimado de
-   venta − costos de terminación − costos de venta; rebaja = MAX(0, costo − VNR) × cantidad (NIC 2.9,
+   venta − costos de terminación − costos de venta; rebaja = MIN(costo de la partida,
+   MAX(0, costo unitario − VNR) × cantidad) — el inventario no puede quedar negativo (NIC 2.9,
    2.28-2.33; PYMES 13.19 y 27.2-27.4).
-7. Obsolescencia / lenta rotación: % por tramo de días sin movimiento (parámetros); la provisión estimada
-   por ítem es la mayor entre la rebaja a VNR y la de obsolescencia (no se suman: son la misma pérdida).
+7. Obsolescencia / lenta rotación: % por tramo de días sin movimiento (parámetros). NIC 2.9 y PYMES 13.4
+   miden al MENOR entre costo y VNR: si el ítem tiene precio de venta informado, la provisión estimada es
+   solo la rebaja a VNR; el tramo de obsolescencia sustituye al VNR únicamente cuando NO hay precio de venta
+   (estimación del VNR por antigüedad, NIC 2.30) y en ese caso se emite un problema.
 8. Corte: fecha del documento (recepción / despacho) vs fecha de registro respecto al corte.
 
 Ajuste propuesto = (costo auditado − provisión estimada) − (saldo del mayor − provisión registrada).
@@ -188,9 +191,12 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         it["pct"] = _pct_obs(it["dias"], p)
         it["obs"] = None if it["pct"] is None else it["costo"] * it["pct"]
         it["vnr"] = None if pv is None else pv - ct - cv
-        it["rebaja"] = None if it["vnr"] is None else max(0, it["cua"] - it["vnr"]) * it["cant"]
-        vals = [x for x in (it["obs"], it["rebaja"]) if x is not None]
-        it["prov"] = max(vals) if vals else None
+        # NIC 2.9 / PYMES 13.4: se mide al menor entre costo y VNR; la rebaja no puede pasar del costo de la partida.
+        it["rebajaBruta"] = None if it["vnr"] is None else max(0, it["cua"] - it["vnr"]) * it["cant"]
+        it["rebaja"] = None if it["rebajaBruta"] is None else min(it["costo"], it["rebajaBruta"])
+        it["exceso"] = 0.0 if it["rebajaBruta"] is None else it["rebajaBruta"] - it["rebaja"]
+        # Con VNR medido manda el VNR; el tramo de obsolescencia solo estima el VNR cuando falta el precio (NIC 2.30).
+        it["prov"] = it["rebaja"] if it["vnr"] is not None else it["obs"]
         items.append(it)
     if not items:
         raise ValueError("Cargue el inventario valorado por ítem (kardex) al corte.")
@@ -317,9 +323,19 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     if t["rebajaVnr"] > 0.005:
         bajo = [i["id"] for i in items if i["rebaja"]]
         pr.append(problema("VNR_BAJO_COSTO", f"El {vnr_n} está por debajo del costo en {lista(bajo)}: rebaja {m(t['rebajaVnr'])}.", t["rebajaVnr"]))
+    exc = [i["id"] for i in items if i["exceso"] > 0.005]
+    if exc:
+        pr.append(problema("REBAJA_MAYOR_QUE_COSTO", f"El {vnr_n} es negativo en {lista(exc)}: la rebaja calculada supera el costo de la partida y se limitó al costo "
+                           f"(el inventario no puede quedar negativo). Exceso no provisionado {m(S(i['exceso'] for i in items))}: revise el precio de venta y "
+                           "los costos de terminación y venta, y evalúe si hay una provisión por contrato oneroso.", S(i["exceso"] for i in items)))
     sin_pv = [i["id"] for i in items if i["pv"] is None]
     if sin_pv:
         pr.append(problema("SIN_PRECIO_VENTA", f"{len(sin_pv)} ítem(s) sin precio estimado de venta ({lista(sin_pv)}): el {vnr_n} no se midió ({'PYMES 27.2' if pymes else 'NIC 2.30'})."))
+    est = [i["id"] for i in items if i["pv"] is None and i["obs"] not in (None, 0)]
+    if est:
+        pr.append(problema("VNR_ESTIMADO_ANTIGUEDAD", f"Sin precio de venta en {lista(est)}: el {vnr_n} se estimó por antigüedad con los % de los tramos, no con la "
+                           f"evidencia más fiable disponible ({'PYMES 27.2' if pymes else 'NIC 2.30'}). Respalde el precio de venta o el porcentaje aplicado.",
+                           S(i["obs"] for i in items if i["pv"] is None and i["obs"] not in (None, 0))))
     sin_f = [i["id"] for i in items if i["fum"] is None]
     if sin_f:
         pr.append(problema("SIN_FECHA_MOVIMIENTO", f"{len(sin_f)} ítem(s) sin fecha del último movimiento ({lista(sin_f)}): no se evaluó la lenta rotación."))
@@ -339,7 +355,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
               "cant_contada": "" if i["cc"] is None else str(i["cc"]), "costo_unitario": str(i["cu"]), "valor_kardex": r2(i["vk"]),
               "costo_auditado": r2(i["costo"]), "provision": "" if i["prov"] is None else r2(i["prov"]), "_row": i["_row"]} for i in items]
     etiquetas = {
-        "costoAuditado": "Inventario al costo auditado", "provisionEstimada": "Provisión estimada (VNR / obsolescencia)",
+        "costoAuditado": "Inventario al costo auditado",
+        "provisionEstimada": "Provisión estimada (rebaja a VNR; tramo solo sin precio de venta)",
         "inventarioNeto": "Inventario neto auditado", "saldoMayor": "Inventario según el mayor",
         "provisionRegistrada": "Provisión registrada", "libroNeto": "Inventario neto en libros", "ajuste": "Ajuste propuesto (neto)",
         "difFisicas": "Diferencias físicas valorizadas", "difExtension": "Diferencia de extensión (cantidad × costo − kardex)",
@@ -400,7 +417,9 @@ def hojas(res: dict) -> list[dict]:
         ["Marco y ruta de cálculo", norma, "La medición es la misma en ambos marcos (menor entre costo y VNR / precio de venta menos costos de "
                                            "terminación y venta); cambian las citas. PYMES 27.3 agrupa solo si es impracticable; sin equivalente a NIC 2.32; "
                                            "costos por préstamos a gasto (Secc. 25)"],
-        ["Tramo 1: días sin movimiento (más de)", p["obsDias1"], "Política de la entidad o juicio del auditor (NIC 2.28; PYMES 27.2)"],
+        ["Tramo 1: días sin movimiento (más de)", p["obsDias1"], "Política de la entidad o juicio del auditor (NIC 2.28; PYMES 27.2). Los % solo "
+                                                                 "estiman el VNR de los ítems SIN precio de venta (NIC 2.30): con precio informado "
+                                                                 "manda la rebaja a VNR (NIC 2.9; PYMES 13.4)"],
         ["Tramo 1: % de provisión", p["obsPct1"], "Juicio del auditor con sustento"],
         ["Tramo 2: días sin movimiento (más de)", p["obsDias2"], ""], ["Tramo 2: % de provisión", p["obsPct2"], ""],
         ["Tramo 3: días sin movimiento (más de)", p["obsDias3"], ""], ["Tramo 3: % de provisión", p["obsPct3"], ""],
@@ -426,13 +445,13 @@ def hojas(res: dict) -> list[dict]:
         med = "Sin precio" if i["vnr"] is None else ("VNR" if i["vnr"] < i["cua"] else "Costo")
         vnr.append([i["id"], i["desc"], fx(f"{INV}M{r}", i["cant"]), fx(f"{INV}N{r}", i["cua"]), fx(_si(f"{INV}J{r}"), i["pv"]),
                     fx(f"{INV}K{r}", i["ct"]), fx(f"{INV}L{r}", i["cv"]), fx(f'IF(E{r}="","",E{r}-F{r}-G{r})', i["vnr"]),
-                    fx(f'IF(H{r}="","",MAX(0,D{r}-H{r})*C{r})', i["rebaja"]),
+                    fx(f'IF(H{r}="","",MIN(C{r}*D{r},MAX(0,D{r}-H{r})*C{r}))', i["rebaja"]),
                     fx(f'IF(H{r}="","Sin precio",IF(H{r}<D{r},"VNR","Costo"))', med)])
         pct = (f'IF(E{r}="","",IF(E{r}>{_pa("obsDias3")},{_pa("obsPct3")}/100,IF(E{r}>{_pa("obsDias2")},{_pa("obsPct2")}/100,'
                f'IF(E{r}>{_pa("obsDias1")},{_pa("obsPct1")}/100,0))))')
         obs.append([i["id"], i["desc"], fx(f"{INV}O{r}", i["costo"]), i["fum"], fx(f'IF(D{r}="","",{_pa("corte")}-D{r})', i["dias"]),
                     fx(pct, i["pct"]), fx(f'IF(F{r}="","",C{r}*F{r})', i["obs"]), fx(_si(f"{VNR}I{r}"), i["rebaja"]),
-                    fx(f'IF(AND(G{r}="",H{r}=""),"",MAX(G{r},H{r}))', i["prov"])])
+                    fx(f'IF(H{r}<>"",H{r},G{r})', i["prov"])])
 
     # 07 · Costo de producción.
     produccion = []
@@ -535,7 +554,8 @@ def hojas(res: dict) -> list[dict]:
              vnr, ["TOTAL", "", None, None, None, None, None, None, _tot("I", ni, t["rebajaVnr"]), ""]),
         hoja("10_Obsolescencia", CEDULAS[9][1],
              [["Código", "t"], ["Descripción", "t"], ["Costo auditado", n_], ["Último movimiento", "d"], ["Días sin movimiento", "i"],
-              ["% de provisión", "p"], ["Provisión por obsolescencia", n_], ["Rebaja a VNR", n_], ["Provisión estimada (la mayor)", n_]],
+              ["% de provisión", "p"], ["Provisión por obsolescencia", n_], ["Rebaja a VNR", n_],
+              ["Provisión estimada (VNR; el tramo solo si no hay precio)", n_]],
              obs, ["TOTAL", "", _tot("C", ni, t["costoAuditado"]), None, None, None, _tot("G", ni, t["provObsolescencia"]),
                    _tot("H", ni, t["rebajaVnr"]), _tot("I", ni, t["provisionEstimada"])]),
         hoja("11_Corte", CEDULAS[10][1],
@@ -589,8 +609,11 @@ def definicion() -> dict:
             "Costo de producción: tasa CIF fijo = CIF fijo ÷ capacidad normal; absorbido = MIN(CIF fijo, tasa × producción real); no absorbido a gasto; "
             "costo capitalizable = MP + MOD + CIF variable + CIF fijo absorbido − desperdicio anormal (NIC 2.12, 2.13, 2.16 a).",
             "Costo de ventas = inventario inicial + compras netas + COGM − inventario final; COGM = WIP inicial + costos de manufactura − WIP final.",
-            "VNR unitario = precio estimado de venta − costos de terminación − costos de venta; rebaja = MAX(0, costo − VNR) × cantidad (partida por partida, NIC 2.29).",
-            "Obsolescencia: % del tramo de días sin movimiento × costo auditado; provisión estimada por ítem = la mayor entre la rebaja a VNR y la de obsolescencia.",
+            "VNR unitario = precio estimado de venta − costos de terminación − costos de venta; rebaja = MIN(costo de la partida, "
+            "MAX(0, costo unitario − VNR) × cantidad), partida por partida (NIC 2.29); si el VNR es negativo la rebaja se limita al costo y se señala.",
+            "Obsolescencia: % del tramo de días sin movimiento × costo auditado. La medición es al menor entre costo y VNR (NIC 2.9; PYMES 13.4): "
+            "con precio de venta informado la provisión estimada del ítem es solo la rebaja a VNR; sin precio, el tramo estima el VNR por antigüedad "
+            "(NIC 2.30) y se emite un problema.",
             "Ajuste propuesto = (costo auditado − provisión estimada) − (saldo del mayor − provisión registrada).",
         ],
         "fields": _INVENTARIO, "rules": [], "control": CONTROL, "primary": "ajuste",
@@ -652,9 +675,11 @@ def _dc(id, tipo, fd, fr, imp):
     return {"id": id, "tipo": tipo, "fecha_documento": fd, "fecha_registro": fr, "importe": imp, "_row": 2}
 
 
-# Cifras a mano (corte 31-12-2025): costo auditado 27.516,00; provisión estimada 4.425,00 (B-010 850 VNR,
-# B-011 800 y B-012 450 por tramos, C-100 1.800 al 100 %, C-102 525 VNR); neto 23.091,00; libros 27.800 − 1.000
-# = 26.800,00; ajuste −3.709,00. CIF fijo OP-01: tasa 12.000 ÷ 1.000 = 12; absorbido 12 × 800 = 9.600; no
+# Cifras a mano (corte 31-12-2025): costo auditado 27.516,00; provisión estimada 3.175,00 = B-010 850 (VNR 265 <
+# costo 350) + C-102 525 (VNR 26,50 < costo 30) + C-100 1.800 (sin precio de venta: tramo 100 % sobre 1.800).
+# B-011 (VNR 1.150) y B-012 (VNR 70) tienen precio de venta por encima del costo: NIC 2.9 mide al menor entre
+# costo y VNR, así que su tramo de obsolescencia (800 y 450) NO provisiona. Neto 24.341,00; libros 27.800 − 1.000
+# = 26.800,00; ajuste −2.459,00. CIF fijo OP-01: tasa 12.000 ÷ 1.000 = 12; absorbido 12 × 800 = 9.600; no
 # absorbido 2.400, capitalizado por la entidad. Costo de ventas PT: 9.000 + (3.000 + 151.750 − 4.000) − 9.900 =
 # 149.850 vs 148.000 contable → 1.850.
 EJEMPLO = {

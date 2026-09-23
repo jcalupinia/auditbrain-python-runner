@@ -61,6 +61,12 @@ def test_ejemplo_cifras_a_mano():
     assert t["remuneracionRegistrada"] == "95300.00" and t["remuneracionRecalculada"] == "95500.00" and t["difRemuneracion"] == "-200.00"
     assert t["d13Recalculado"] == "575.07" and t["d14Recalculado"] == "1762.50" and t["vacacionesRecalculadas"] == "6296.00"
     assert t["fondoReservaEsperado"] == "7095.55" and t["aportePatronalRecalculado"] == "11578.95" and t["difAportePersonal"] == "-75.23"
+    # Desahucio (CT art. 185 con la base del art. 95: sueldo + (horas extras + comisiones del año) ÷ 12).
+    # E01 1.200 + 250/12 = 1.220,8333 × 25 % × 10 = 3.052,0833; E02 800 + 720/12 = 860 × 25 % × 5 = 1.075;
+    # E03 600 × 25 % × 0 = 0; E05 2.000 + 3.000/12 = 2.250 × 25 % × 15 = 8.437,50; E06 700 + 90/12 = 707,50 × 25 % × 3 = 530,625;
+    # E07 470 × 25 % × 1 = 117,50; E08 1.500 × 25 % × 13 = 4.875 → 18.087,71 (antes, solo con el sueldo, 17.017,50).
+    assert m.r2(a["accesorias"]) == "20.83" and m.r2(a["rem_ult"]) == "1220.83" and m.r2(a["des_ref"]) == "3052.08"
+    assert m.r2(_e(r, "E05")["des_ref"]) == "8437.50" and t["desahucioLegalReferencial"] == "18087.71"
     # Actuarial: JUB 85.000 + 9.500 + 6.800 + 3.200 − 2.500 = 102.000; DES 30.000 + 4.200 + 2.400 − 1.500 − 3.000 = 32.100 vs 32.500.
     assert _a(r, "JUB")["recalc"] == pytest.approx(102000) and _a(r, "DES")["dif_rf"] == pytest.approx(400)
     assert t["gastoActuarialResultados"] == "22900.00" and t["oriActuarial"] == "1700.00" and t["dboInforme"] == "134500.00"
@@ -68,7 +74,8 @@ def test_ejemplo_cifras_a_mano():
     assert t["ajustePasivos"] == "8536.47" and r["primary"] == "ajustePasivos" and m.TOTAL_EJEMPLO in t
     assert {"APORTE_IESS", "DECIMO_TERCERO", "DECIMO_CUARTO", "VACACIONES_NO_PROVISIONADAS", "VACACIONES_DIFERENCIA", "FONDO_RESERVA_NO_PAGADO",
             "RECALCULO_NOMINA", "HORAS_EXTRAS", "NETO_NOMINA", "PLANILLA_IESS", "CONCILIACION_MAYOR", "PROVISION_ACTUARIAL",
-            "NUEVAS_MEDICIONES_EN_RESULTADOS", "DBO_ROLLFORWARD", "CENSO_ACTUARIAL", "EMPLEADO_SIN_ESTUDIO", "SUPUESTOS_ACTUARIALES"} <= _codigos(r)
+            "NUEVAS_MEDICIONES_EN_RESULTADOS", "DBO_ROLLFORWARD", "CENSO_ACTUARIAL", "EMPLEADO_SIN_ESTUDIO", "SUPUESTOS_ACTUARIALES",
+            "D14_SBU_PAGO"} <= _codigos(r)
     # E07 sin provisión informada: la diferencia queda en blanco (M22) y se señala.
     assert g["vac_dif"] is None and any("E07" in e["message"] for e in r["exceptions"] if e["code"] == "VACACIONES_NO_PROVISIONADAS")
 
@@ -84,6 +91,19 @@ def test_rutas_por_marco():
     r = correr(_marco=m.MARCO_PYMES, _edicion="2025", actuarialesEn="ORI")
     assert r["totals"]["oriActuarial"] == "1700.00" and r["detalle"]["edicion"] == "2025"
     assert {kk: v for kk, v in r["totals"].items() if "Actuarial" not in kk} == {kk: v for kk, v in base["totals"].items() if "Actuarial" not in kk}
+
+
+def test_decimo_cuarto_sbu_fecha_de_pago():
+    """Sin el SBU de la fecha de pago se provisiona con el del corte y se señala; con él, la provisión sube."""
+    base = correr()
+    assert "D14_SBU_PAGO" in _codigos(base) and base["totals"]["d14Recalculado"] == "1762.50"
+    # E01 Sierra, 150 días: 470 × 150 ÷ 360 = 195,83 → 482 × 150 ÷ 360 = 200,83 (5,00 más por empleado con derecho pleno).
+    r = correr(sbuPago=482)
+    assert m.r2(_e(r, "E01")["d14"]) == "200.83" and "D14_SBU_PAGO" not in _codigos(r)
+    # Total: 1.762,50 × 482 ÷ 470 = 1.807,50; el ajuste a pasivos sube en los mismos 45,00.
+    assert r["totals"]["d14Recalculado"] == "1807.50" and r["totals"]["ajustePasivos"] == "8581.47"
+    with pytest.raises(ValueError):
+        correr(sbuPago=0)
 
 
 def test_parametros():

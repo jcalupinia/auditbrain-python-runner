@@ -102,3 +102,34 @@ def test_cedulas_declaradas_y_completas():
             assert all(len(f) == len(h["cols"]) for f in h["rows"] + ([h["total"]] if h["total"] else [])), h["name"]
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "inversiones_instrumentos" and len(d["program"]) >= 5
+
+
+def _extra(nombre):
+    _, ds, par, corte = next(e for e in m.ESCENARIOS if e[0] == nombre)
+    return m.ejecutar(ds, par, corte)
+
+
+def test_pymes_2025_11_9za_deuda_no_basica_pero_sppi():
+    """11.9ZA: sin cumplir 11.9 a)-d), la deuda con flujos solo de principal e intereses sigue a costo amortizado."""
+    r25, r15 = _extra("pymes_2025_11_9za_y_11_25b"), _extra("pymes_2015_11_9za_y_11_25b")
+    x25, x15 = inst(r25, "OBL-12"), inst(r15, "OBL-12")
+    assert x25["esperada"] == "CA" and x15["esperada"] == "VRR"      # 2015 solo mira 11.9 a)-d)
+    assert x25["ca"]["r"] == pytest.approx(0.08, abs=1e-12)          # a la par: TIE = cupón
+    assert x25["ca"]["limpio"] == pytest.approx(10000)
+    assert x25["ingEsp"] == pytest.approx(10000 * 0.08 * 334 / 365)  # 732,05 del 31-ene al 31-dic
+    assert "11.9ZA" in x25["fundamento"] and "11.9ZA" not in x15["fundamento"]
+    assert x25["difMed"] == pytest.approx(0) and x25["ajuste"] == pytest.approx(0)
+
+
+def test_pymes_11_25b_usa_la_estimacion_de_venta():
+    """11.25 b): pérdida = importe en libros − mejor estimación de lo que se recibiría si se vendiera al cierre."""
+    r = _extra("pymes_2025_11_9za_y_11_25b")
+    a13 = inst(r, "ACC-13")
+    assert a13["esperada"] == "COSTO" and a13["enfoque"] == "Pérdida incurrida (11.25 b)"
+    assert a13["detCalc"] == pytest.approx(2000)      # 9.000 de costo − 7.000 de estimación de venta
+    assert a13["ajuste"] == pytest.approx(-1500)      # 0 de diferencia de medición − (2.000 − 500 registrados)
+    a14 = inst(r, "ACC-14")                           # sin estimación de venta no se inventa un 0 (M22)
+    assert a14["detCalc"] is None and a14["ajuste"] is None
+    assert "DETERIORO_SIN_DATOS" in codigos(r, "ACC-14")
+    assert "SIN_MEDICION" in codigos(r)
+    assert r["totals"]["ajuste"] == "-6659.35"        # −5.159,35 del ejercicio modelo − 1.500 de ACC-13

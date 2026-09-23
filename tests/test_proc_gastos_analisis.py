@@ -60,8 +60,13 @@ def test_ruta_pymes_categorias_y_desglose():
     assert len(cat) == 5 and cat["Personal clave"] == 3000 and cat[m.SIN_CATEGORIA] == 10200   # «Dominante» no es categoría PYMES
     assert "NATURALEZA_NO_REVELADA" not in _codigos(r)
     sin_cv = [dict(x, clasificacion="Gastos operativos") if x["id"] == "5101" else x for x in EJ["datasets"]["cuentas"]]
-    r2 = _run({"cuentas": sin_cv, "transacciones": EJ["datasets"]["transacciones"]}, _marco=m.MARCO_PYMES, _edicion="2025")
+    ds = {"cuentas": sin_cv, "transacciones": EJ["datasets"]["transacciones"]}
+    r2 = _run(ds, _marco=m.MARCO_PYMES, _edicion="2025")
     assert "COSTO_VENTAS_NO_SEPARADO" in _codigos(r2)
+    # NIC 1.103 lo exige igual en NIIF completas (antes solo se validaba en PYMES).
+    r3 = _run(ds)
+    assert "COSTO_VENTAS_NO_SEPARADO" in _codigos(r3)
+    assert any("NIC 1 párr. 103" in e["message"] for e in r3["exceptions"] if e["code"] == "COSTO_VENTAS_NO_SEPARADO")
 
 
 def test_opcionales_vacios_no_se_llenan_con_cero():
