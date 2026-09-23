@@ -1,7 +1,9 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { PAGINAS } from "../paginas.js";
-import { ErrorMotor, SONDEO_MS } from "../clienteMotor.js";
-import { SEVERIDADES, filasBandeja, mensajeError, paginas as totalPaginas, resumenSeveridad, terminado } from "../bandeja.js";
+import { ErrorMotor, LIMITE_ARCHIVO_BYTES, SONDEO_MS, archivoDemasiadoGrande } from "../clienteMotor.js";
+import { SEVERIDADES, filasBandeja, mensajeError, paginas as totalPaginas, primeras, resumenSeveridad, terminado } from "../bandeja.js";
+import { CAMPOS, INICIALES, aEnvio, resumenErrores, validar } from "../parametrosEncargo.js";
+import { ESTADOS, filasSuficiencia, resumenLectura } from "../suficiencia.js";
 import "./Mayores.css";
 
 // Transcripción de Mayores.dc.html: bloque «Pruebas de asientos» (5 bloques
@@ -43,6 +45,16 @@ const ESTADO_TEXTO = { en_cola: "En cola", procesando: "Procesando", listo: "Lis
 const TRABAJO_VENCIDO = "El trabajo ya no existe en el motor (vence a las 8 h o el motor se reinició): vuelve a correrlo.";
 
 const FILTROS_VACIOS = { severidad: "", regla: "", texto: "" };
+const LIMITE_MB = Math.round(LIMITE_ARCHIVO_BYTES / (1024 * 1024));
+
+// ESTADOS (suficiencia.js) trae frases con espacios y tildes: se mapean a un
+// sufijo de clase CSS estable en vez de derivarlo del texto.
+const CLASE_ESTADO_SUFICIENCIA = {
+  [ESTADOS.corrio]: "corrio",
+  [ESTADOS.noCorrio]: "no-corrio",
+  [ESTADOS.sinDatos]: "sin-datos",
+};
+const MAX_ASIENTOS_MOSTRADOS = 10;
 
 // El armazón desmonta esta página al navegar a otra; el último trabajo se
 // recuerda por cliente (cambia con el proyecto) para retomarlo al volver.
@@ -50,7 +62,15 @@ const ULTIMO_TRABAJO = new WeakMap();
 
 export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
   const [archivo, setArchivo] = useState(null);
+  const [parametros, setParametros] = useState(INICIALES);
+  const [mayorArchivo, setMayorArchivo] = useState(null);
+  const [balanceArchivo, setBalanceArchivo] = useState(null);
   const [trabajo, setTrabajo] = useState(null);
+  // Si el auditor subió un balance pero barreras.cuadre_contra_balance no
+  // se evaluó (motor/barreras.py::cuadre_contra_balance: `if not balance`,
+  // que también es true para un balance ilegible que quedó en {}), hay que
+  // decirlo: una ausencia se lee como "cuadró" y no lo es.
+  const [balanceEnviado, setBalanceEnviado] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [cargando, setCargando] = useState(false);
   const [entrada, setEntrada] = useState({ regla: "", texto: "" }); // valores del input, sin debounce
@@ -64,17 +84,21 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
   // un trabajo del cliente anterior no debe seguir vivo en pantalla.
   useEffect(() => {
     setArchivo(null);
+    setParametros(INICIALES);
+    setMayorArchivo(null);
+    setBalanceArchivo(null);
     setTrabajo(null);
+    setBalanceEnviado(false);
     setErrorMsg("");
     setEntrada({ regla: "", texto: "" });
     setFiltros(FILTROS_VACIOS);
     setPagina(1);
     setExcepciones({ total: 0, excepciones: [] });
     setSeleccion(null);
-    const id = ULTIMO_TRABAJO.get(cliente);
-    if (id) {
-      cliente.trabajo(id)
-        .then((r) => setTrabajo((t) => t ?? r))
+    const guardado = ULTIMO_TRABAJO.get(cliente);
+    if (guardado) {
+      cliente.trabajo(guardado.id)
+        .then((r) => { setTrabajo((t) => t ?? r); setBalanceEnviado(guardado.balanceEnviado); })
         .catch(() => ULTIMO_TRABAJO.delete(cliente));
     }
   }, [cliente]);
@@ -124,22 +148,35 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
   // Excepciones cuando el trabajo está listo, o al cambiar filtros/página.
   // Contador de secuencia: descarta una respuesta vieja si ya se disparó
   // una consulta más nueva (filtro cambiado rápido, o cambio de página).
+  //
+  // Bandera `vivo` (mismo patrón que el sondeo): el early return de arriba
+  // significa que al cambiar de cliente (Mayores se reutiliza entre
+  // proyectos), cuando `trabajo` se resetea a null el contador NUNCA se
+  // incrementa en esa corrida — así que una respuesta lenta de excepciones
+  // del cliente anterior sigue viendo secuenciaRef.current === yo y
+  // aterriza en pantalla bajo el nombre del cliente nuevo. Secreto
+  // profesional: datos de un cliente no pueden aparecer bajo el nombre de
+  // otro. La limpieza del efecto corta esa respuesta sin importar si el
+  // contador se movió.
   useEffect(() => {
-    if (trabajo?.estado !== "listo") return;
+    if (trabajo?.estado !== "listo") return undefined;
+    let vivo = true;
     const yo = ++secuenciaRef.current;
     cliente.excepciones(trabajo.id, { ...filtros, pagina, tam: TAM_PAGINA })
-      .then((r) => { if (secuenciaRef.current === yo) setExcepciones(r); })
-      .catch((e) => { if (secuenciaRef.current === yo) setErrorMsg(mensajeError(e)); });
+      .then((r) => { if (vivo && secuenciaRef.current === yo) setExcepciones(r); })
+      .catch((e) => { if (vivo && secuenciaRef.current === yo) setErrorMsg(mensajeError(e)); });
+    return () => { vivo = false; };
   }, [trabajo?.estado, trabajo?.id, filtros, pagina, cliente]);
 
-  const iniciar = async (accion) => {
+  const iniciar = async (accion, { balanceEnviado: seEnvioBalance = false } = {}) => {
     setErrorMsg("");
     setCargando(true);
     setSeleccion(null);
     try {
       const nuevo = await accion();
-      ULTIMO_TRABAJO.set(cliente, nuevo.id);
+      ULTIMO_TRABAJO.set(cliente, { id: nuevo.id, balanceEnviado: seEnvioBalance });
       setTrabajo(nuevo);
+      setBalanceEnviado(seEnvioBalance);
       setEntrada({ regla: "", texto: "" });
       setFiltros(FILTROS_VACIOS);
       setPagina(1);
@@ -149,6 +186,20 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
     } finally {
       setCargando(false);
     }
+  };
+
+  // Rechaza en el navegador un archivo de más de 50 MB (mismo límite del
+  // motor, servicio/app.py::MAX_BYTES) antes de intentar subirlo: si se deja
+  // pasar, la subida se corta a medio camino y el trabajo queda huérfano.
+  const elegirArchivo = (setter) => (e) => {
+    const f = e.target.files?.[0] || null;
+    if (f && archivoDemasiadoGrande(f)) {
+      setErrorMsg(`El archivo pesa más de ${LIMITE_MB} MB, el límite del motor: elige uno más pequeño.`);
+      setter(null);
+      e.target.value = "";
+      return;
+    }
+    setter(f);
   };
 
   const descargarPlantilla = async () => {
@@ -177,6 +228,41 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
 
   const totalPag = totalPaginas(excepciones.total, TAM_PAGINA);
   const filas = filasBandeja(excepciones);
+
+  // Parámetros del encargo: validación en el navegador en cada cambio
+  // (Task 4, punto 1) y, aparte, los errores por campo que devuelva el
+  // motor (forma {campo, motivo}) cuando el trabajo termina en error.
+  const erroresParametros = validar(parametros);
+  const erroresMotorPorCampo = {};
+  const erroresLectura = [];
+  if (trabajo?.estado === "error") {
+    for (const e of trabajo.errores || []) {
+      if (e.campo) erroresMotorPorCampo[e.campo] = e.motivo;
+      else erroresLectura.push(e);
+    }
+  }
+  const botonMayorDeshabilitado =
+    !disponible || cargando || !mayorArchivo || Object.keys(erroresParametros).length > 0;
+
+  // Un trabajo que falla por parámetros debe decir por qué: el resumen
+  // (campo → motivo, incluido balance) vive fuera del <details> y lo abre
+  // automáticamente si hay algo que revisar (validación local o del motor).
+  const resumenCamposErrores = resumenErrores(erroresParametros, erroresMotorPorCampo, erroresMotorPorCampo.balance);
+  const hayErroresParaRevisar = resumenCamposErrores.length > 0;
+
+  const resumen = resumenLectura(trabajo?.lectura);
+  const filasSufi = filasSuficiencia(trabajo?.suficiencia, trabajo?.bajo_umbral);
+  // El motor nunca esconde lo que ya calculó (regla de oro, SP3-A): avisos
+  // (p. ej. >20% de filas descartadas) y cuántas excepciones se descartaron
+  // por estar bajo el umbral insignificante.
+  const avisos = trabajo?.avisos || [];
+  const totalBajoUmbral = Object.values(trabajo?.bajo_umbral || {}).reduce((a, n) => a + n, 0);
+  const barreraAsientos = trabajo?.barreras?.asientos_descuadrados;
+  const barreraCuadre = trabajo?.barreras?.cuadre_contra_balance;
+  // Un mapeo desalineado puede sacar miles de cuentas/asientos: mismo tope
+  // en ambas listas, con "… y N más" y scroll (ma-mayores-lista-tope).
+  const asientosTope = barreraAsientos ? primeras(barreraAsientos.asientos, MAX_ASIENTOS_MOSTRADOS) : null;
+  const diferenciasTope = barreraCuadre ? primeras(barreraCuadre.diferencias, MAX_ASIENTOS_MOSTRADOS) : null;
 
   return (
     <section className="ma-pagina ma-mayores">
@@ -226,7 +312,7 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
             </button>
             <div className="ma-mayores-subir">
               <input type="file" aria-label="Plantilla del motor (.xlsx)" accept=".xlsx" disabled={!disponible || cargando}
-                     onChange={(e) => setArchivo(e.target.files?.[0] || null)} />
+                     onChange={elegirArchivo(setArchivo)} />
               <button className="ma-boton" disabled={!disponible || cargando || !archivo}
                       onClick={() => iniciar(() => cliente.crearConArchivo(archivo))}>
                 Subir y correr
@@ -235,7 +321,96 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
           </div>
           <span className="ma-mayores-aviso">Solo datos anonimizados hasta SP4.</span>
 
-          {errorMsg && <p className="ma-mayores-error">{errorMsg}</p>}
+          <div className="ma-mayores-mayor">
+            <h4>Subir el mayor del cliente</h4>
+            <p className="ma-mayores-nota-fija">
+              Sin estos parámetros ninguna prueba corre: el motor no usa montos por defecto (NIA 320/450/530).
+            </p>
+
+            {hayErroresParaRevisar && (
+              <div className="ma-mayores-resumen-errores" role="alert">
+                <strong>Revisa estos campos:</strong>
+                <ul>
+                  {resumenCamposErrores.map((e) => (
+                    <li key={e.campo}>{e.etiqueta}: {e.motivo}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <details className="ma-mayores-parametros" open={hayErroresParaRevisar}>
+              <summary>Parámetros del encargo</summary>
+              <div className="ma-mayores-campos">
+                {CAMPOS.map((campo) => {
+                  const error = erroresParametros[campo.id] || erroresMotorPorCampo[campo.id];
+                  const inputId = `ma-param-${campo.id}`;
+                  const errorId = `${inputId}-error`;
+                  return (
+                    <div key={campo.id} className={`ma-mayores-campo${campo.tipo === "casilla" ? " casilla" : ""}`}>
+                      {campo.tipo === "casilla" ? (
+                        <label htmlFor={inputId}>
+                          <input id={inputId} type="checkbox" checked={!!parametros[campo.id]}
+                                 disabled={!disponible || cargando}
+                                 onChange={(e) => setParametros((p) => ({ ...p, [campo.id]: e.target.checked }))} />
+                          {campo.etiqueta}
+                        </label>
+                      ) : (
+                        <>
+                          <label htmlFor={inputId}>{campo.etiqueta}</label>
+                          {campo.tipo === "opciones" ? (
+                            <select id={inputId} value={parametros[campo.id]} disabled={!disponible || cargando}
+                                    aria-invalid={!!error} aria-describedby={error ? errorId : undefined}
+                                    onChange={(e) => setParametros((p) => ({ ...p, [campo.id]: e.target.value }))}>
+                              <option value="">—</option>
+                              {campo.opciones.map((o) => <option key={o} value={o}>{o}</option>)}
+                            </select>
+                          ) : (
+                            <input id={inputId} type={campo.tipo === "date" ? "date" : "text"}
+                                   value={parametros[campo.id]} disabled={!disponible || cargando}
+                                   placeholder={campo.tipo === "fechas" ? "2026-01-01, 2026-05-01" : undefined}
+                                   aria-invalid={!!error} aria-describedby={error ? errorId : undefined}
+                                   onChange={(e) => setParametros((p) => ({ ...p, [campo.id]: e.target.value }))} />
+                          )}
+                        </>
+                      )}
+                      <span className="ma-mayores-norma">{campo.nia}</span>
+                      {error && <span id={errorId} className="ma-mayores-campo-error">{error}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
+
+            <div className="ma-mayores-acciones">
+              <label className="ma-mayores-campo-archivo">
+                Mayor (.xlsx, .xlsm, .csv)
+                <input type="file" aria-label="Mayor del cliente" accept=".xlsx,.xlsm,.csv"
+                       disabled={!disponible || cargando}
+                       onChange={elegirArchivo(setMayorArchivo)} />
+              </label>
+              <label className="ma-mayores-campo-archivo">
+                Balance (opcional)
+                <input type="file" aria-label="Balance del cliente" accept=".xlsx,.xlsm,.csv"
+                       disabled={!disponible || cargando}
+                       aria-invalid={!!erroresMotorPorCampo.balance}
+                       aria-describedby={erroresMotorPorCampo.balance ? "ma-param-balance-error" : undefined}
+                       onChange={elegirArchivo(setBalanceArchivo)} />
+                {erroresMotorPorCampo.balance && (
+                  <span id="ma-param-balance-error" className="ma-mayores-campo-error">{erroresMotorPorCampo.balance}</span>
+                )}
+              </label>
+              <button className="ma-boton accent" disabled={botonMayorDeshabilitado}
+                      onClick={() => iniciar(
+                        () => cliente.crearConMayor(mayorArchivo, aEnvio(parametros), balanceArchivo),
+                        { balanceEnviado: !!balanceArchivo },
+                      )}>
+                Subir el mayor y correr
+              </button>
+            </div>
+            <span className="ma-mayores-aviso">Solo datos anonimizados hasta SP4.</span>
+          </div>
+
+          {errorMsg && <p className="ma-mayores-error" role="alert">{errorMsg}</p>}
 
           {trabajo && (
             <div className="ma-mayores-trabajo">
@@ -244,16 +419,111 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
             </div>
           )}
 
-          {trabajo?.estado === "error" && (
-            <div className="ma-tabla-wrap">
+          {trabajo?.estado === "error" && erroresLectura.length > 0 && (
+            <div className="ma-tabla-wrap" role="alert">
               <table className="ma-tabla">
                 <thead><tr><th>Hoja</th><th>Fila</th><th>Columna</th><th>Motivo</th></tr></thead>
                 <tbody>
-                  {(trabajo.errores || []).map((e, i) => (
+                  {erroresLectura.map((e, i) => (
                     <tr key={i}><td>{e.hoja}</td><td>{e.fila}</td><td>{e.columna}</td><td>{e.motivo}</td></tr>
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {avisos.length > 0 && (
+            <div className="ma-mayores-avisos" role="alert">
+              <ul>
+                {avisos.map((a, i) => <li key={i}>{a}</li>)}
+              </ul>
+            </div>
+          )}
+
+          {resumen && (
+            <div className="ma-mayores-lectura">
+              <h4>Lectura del archivo</h4>
+              <ul className="ma-mayores-lectura-lista">
+                <li>{resumen.filas}</li>
+                <li>{resumen.cuentas}</li>
+                {resumen.periodo && <li>Período: {resumen.periodo}</li>}
+                {resumen.hojas && <li>Hojas leídas: {resumen.hojas}</li>}
+                {resumen.columnas && <li>Columnas detectadas: {resumen.columnas}</li>}
+                {resumen.vacias && <li>Columnas detectadas pero vacías: {resumen.vacias}</li>}
+                {resumen.huella && <li className="ma-mayores-mono">Huella: {resumen.huella}</li>}
+              </ul>
+            </div>
+          )}
+
+          {trabajo?.suficiencia && (
+            <div className="ma-mayores-suficiencia">
+              <div className="ma-mayores-titulo">
+                <h4>Suficiencia de la evidencia</h4>
+                <span className="ma-mayores-badge">
+                  {trabajo.suficiencia.estado} · {trabajo.suficiencia.disponibles} de{" "}
+                  {trabajo.suficiencia.disponibles + trabajo.suficiencia.no_disponibles} pruebas disponibles
+                </span>
+              </div>
+              <div className="ma-tabla-wrap">
+                <table className="ma-tabla">
+                  <thead><tr><th>Regla</th><th>Estado</th><th>Detalle</th></tr></thead>
+                  <tbody>
+                    {filasSufi.map((f) => (
+                      <tr key={f.regla}>
+                        <td className="ma-mayores-mono">{f.regla}</td>
+                        <td>
+                          <span className={`ma-mayores-suf ma-mayores-suf-${CLASE_ESTADO_SUFICIENCIA[f.estado]}`}>
+                            {f.estado}
+                          </span>
+                        </td>
+                        <td>{f.detalle}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <span className="ma-mayores-nota-fija">
+                Una prueba que no corrió no significa que no haya excepciones.
+              </span>
+            </div>
+          )}
+
+          {barreraAsientos && !barreraAsientos.pasa && (
+            <div className="ma-mayores-barrera">
+              <strong>
+                {barreraAsientos.total} asiento(s) descuadrado(s): las pruebas de asientos no corrieron.
+              </strong>
+              <ul className="ma-mayores-lista-tope">
+                {asientosTope.mostradas.map((a) => (
+                  <li key={a.asiento_id}>Asiento {a.asiento_id}: diferencia {a.diferencia}</li>
+                ))}
+                {asientosTope.restantes > 0 && <li>… y {asientosTope.restantes} asiento(s) más</li>}
+              </ul>
+            </div>
+          )}
+
+          {barreraCuadre?.evaluada && (
+            <div className={`ma-mayores-cuadre ${barreraCuadre.pasa ? "ok" : "warn"}`}>
+              <strong>Cuadre contra el balance: diferencia total {barreraCuadre.diferencia_total}</strong>
+              {barreraCuadre.diferencias.length > 0 && (
+                <ul className="ma-mayores-lista-tope">
+                  {diferenciasTope.mostradas.map((d) => (
+                    <li key={d.cuenta}>
+                      Cuenta {d.cuenta}: mayor {d.mayor} vs. balance {d.balance} (diferencia {d.diferencia})
+                    </li>
+                  ))}
+                  {diferenciasTope.restantes > 0 && <li>… y {diferenciasTope.restantes} cuenta(s) más</li>}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {/* Una ausencia se lee como "cuadró": si se subió un balance pero
+              no se evaluó (ilegible o sin cuentas reconocibles), hay que
+              decirlo en vez de no mostrar nada. */}
+          {barreraCuadre && !barreraCuadre.evaluada && balanceEnviado && (
+            <div className="ma-mayores-cuadre warn" role="alert">
+              <strong>No se recibieron saldos del balance: el cuadre contra el balance no se evaluó.</strong>
             </div>
           )}
 
@@ -307,6 +577,13 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
                 <span>Página {pagina} de {totalPag}</span>
                 <button className="ma-boton" disabled={pagina >= totalPag} onClick={() => setPagina((p) => p + 1)}>Siguiente</button>
               </div>
+
+              {totalBajoUmbral > 0 && (
+                <p className="ma-mayores-nota-fija">
+                  {totalBajoUmbral} excepciones no se muestran por estar bajo el umbral de error insignificante
+                  que fijaste (NIA 450).
+                </p>
+              )}
 
               {seleccion && (
                 <div className="ma-mayores-detalle">

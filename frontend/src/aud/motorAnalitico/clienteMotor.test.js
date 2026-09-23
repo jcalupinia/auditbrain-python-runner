@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { ErrorMotor, crearCliente, disponibilidad, filtrosAQuery } from "./clienteMotor.js";
+import {
+  ErrorMotor, LIMITE_ARCHIVO_BYTES, archivoDemasiadoGrande, crearCliente, disponibilidad, filtrosAQuery,
+} from "./clienteMotor.js";
 
 const URL_MOTOR = "https://motor.test/motor";
 
@@ -81,5 +83,65 @@ describe("disponibilidad", () => {
     const pedir = async () => { throw new Error("El Motor de Auditoría Analítica no está configurado."); };
     const r = await disponibilidad(cliente(async () => ok({}), pedir));
     expect(r).toEqual({ estado: "sin_permiso", detalle: "El Motor de Auditoría Analítica no está configurado." });
+  });
+});
+
+describe("envío del mayor", () => {
+  it("manda origen, parámetros y balance en el formulario", async () => {
+    const { pedir } = permisos();
+    const fetchImpl = vi.fn(async () => ok({ id: "t9", estado: "en_cola" }));
+    const c = crearCliente({ encargo: "p", pedirPermiso: pedir, fetchImpl });
+    const mayor = new File(["x"], "mayor.xlsx");
+    const balance = new File(["y"], "balance.xlsx");
+    await c.crearConMayor(mayor, { materialidad: "1000.00", semilla: 7 }, balance);
+    const [url, opts] = fetchImpl.mock.calls[0];
+    expect(url).toBe(`${URL_MOTOR}/trabajos`);
+    expect(opts.body.get("origen")).toBe("mayor");
+    expect(opts.body.get("archivo")).toBe(mayor);
+    expect(opts.body.get("balance")).toBe(balance);
+    expect(JSON.parse(opts.body.get("parametros"))).toEqual({ materialidad: "1000.00", semilla: 7 });
+  });
+
+  it("el balance es opcional", async () => {
+    const { pedir } = permisos();
+    const fetchImpl = vi.fn(async () => ok({ id: "t9", estado: "en_cola" }));
+    const c = crearCliente({ encargo: "p", pedirPermiso: pedir, fetchImpl });
+    await c.crearConMayor(new File(["x"], "mayor.csv"), { semilla: 1 });
+    expect(fetchImpl.mock.calls[0][1].body.get("balance")).toBeNull();
+  });
+
+  // Si la subida de 50 MB tarda más que el reloj de espera, el navegador
+  // aborta pero el motor ya creó el trabajo: el auditor pierde el id y a
+  // los 3 intentos choca con el límite de trabajos. La creación se manda
+  // sin AbortController (deja que la red maneje la caída); ESPERA_MS queda
+  // solo para las lecturas (trabajo, excepciones, estado).
+  it("crear un trabajo (demo, plantilla o mayor) no lleva reloj de aborto", async () => {
+    const { pedir } = permisos();
+    const fetchImpl = vi.fn(async () => ok({ id: "t9", estado: "en_cola" }));
+    const c = crearCliente({ encargo: "p", pedirPermiso: pedir, fetchImpl });
+    await c.crearDemo();
+    await c.crearConArchivo(new File(["x"], "plantilla.xlsx"));
+    await c.crearConMayor(new File(["x"], "mayor.xlsx"), { semilla: 1 });
+    for (const [, opts] of fetchImpl.mock.calls) expect(opts.signal).toBeUndefined();
+  });
+
+  it("leer un trabajo sí lleva reloj de aborto", async () => {
+    const { pedir } = permisos();
+    const fetchImpl = vi.fn(async () => ok({ id: "t1" }));
+    const c = crearCliente({ encargo: "p", pedirPermiso: pedir, fetchImpl });
+    await c.trabajo("t1");
+    expect(fetchImpl.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+  });
+});
+
+describe("límite de tamaño del archivo (50 MB, el mismo del motor)", () => {
+  it("LIMITE_ARCHIVO_BYTES son 50 MB", () => {
+    expect(LIMITE_ARCHIVO_BYTES).toBe(50 * 1024 * 1024);
+  });
+  it("no rechaza exactamente el límite", () => {
+    expect(archivoDemasiadoGrande({ size: LIMITE_ARCHIVO_BYTES })).toBe(false);
+  });
+  it("rechaza un byte más del límite", () => {
+    expect(archivoDemasiadoGrande({ size: LIMITE_ARCHIVO_BYTES + 1 })).toBe(true);
   });
 });

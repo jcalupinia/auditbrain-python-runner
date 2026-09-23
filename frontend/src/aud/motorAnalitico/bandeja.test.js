@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ErrorMotor } from "./clienteMotor.js";
 import {
-  dinero, filasBandeja, mensajeError, montoVisible, paginas, resumenSeveridad, terminado,
+  dinero, filasBandeja, mensajeError, montoVisible, paginas, primeras, resumenSeveridad, terminado,
 } from "./bandeja.js";
 
 // Forma real de motor/nucleo.py::Excepcion.a_dict() (repo motor-auditoria-analitica@sp2a-trabajos).
@@ -87,6 +87,20 @@ describe("bandeja", () => {
     expect(mensajeError(new ErrorMotor(429, "demasiadas solicitudes")))
       .toBe("Demasiadas consultas seguidas: espera un minuto.");
   });
+  // Con un mapeo desalineado, las diferencias del cuadre contra el balance
+  // (o los asientos descuadrados) pueden salir por miles: mismo patrón para
+  // ambas listas, mostrar las primeras y decir cuántas quedan afuera.
+  it("primeras() trunca y dice cuántas quedan afuera", () => {
+    expect(primeras([1, 2, 3, 4, 5], 3)).toEqual({ mostradas: [1, 2, 3], restantes: 2 });
+  });
+  it("primeras() no reporta restantes cuando la lista cabe entera", () => {
+    expect(primeras([1, 2], 10)).toEqual({ mostradas: [1, 2], restantes: 0 });
+  });
+  it("primeras() tolera una lista vacía o indefinida", () => {
+    expect(primeras([], 10)).toEqual({ mostradas: [], restantes: 0 });
+    expect(primeras(undefined, 10)).toEqual({ mostradas: [], restantes: 0 });
+  });
+
   it("mensajeError informa el AbortError y cae al mensaje del backend en otros casos", () => {
     const abortado = new DOMException("abortado", "AbortError");
     expect(mensajeError(abortado)).toBe("El motor no respondió a tiempo.");

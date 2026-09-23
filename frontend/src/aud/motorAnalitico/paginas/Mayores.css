@@ -68,6 +68,83 @@
 .ma-mayores-hash span { min-width: 0; overflow-wrap: anywhere; }
 
 .ma-mayores-nota { font-size: 12.5px; color: var(--ma-soft); line-height: 1.45; }
+.ma-mayores-nota-fija { font-size: 12.5px; color: var(--ma-soft); line-height: 1.45; margin: 0; }
+
+/* Subir el mayor del cliente: parámetros del encargo + carga + panel de suficiencia */
+.ma-mayores-mayor {
+  display: flex; flex-direction: column; gap: 10px; padding-top: 8px; margin-top: 4px;
+  border-top: 1px solid var(--ma-line);
+}
+.ma-mayores-mayor h4 { margin: 0; font-size: 14px; }
+
+.ma-mayores-resumen-errores {
+  padding: 8px 12px; border-radius: 8px; font-size: 12.5px;
+  background: var(--ma-p0-bg); border: 1px solid rgba(255, 107, 107, 0.4); color: var(--ma-p0);
+}
+.ma-mayores-resumen-errores ul { margin: 4px 0 0; padding: 0 0 0 18px; }
+
+.ma-mayores-parametros {
+  border: 1px solid var(--ma-line); border-radius: 10px; background: var(--ma-bg); padding: 4px 12px;
+}
+.ma-mayores-parametros summary {
+  cursor: pointer; padding: 8px 0; font-size: 13px; font-weight: 600; color: var(--ma-text);
+}
+.ma-mayores-campos {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;
+  padding: 4px 0 12px;
+}
+.ma-mayores-campo { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; }
+.ma-mayores-campo label { color: var(--ma-soft); }
+.ma-mayores-campo input, .ma-mayores-campo select {
+  height: 34px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--ma-line);
+  background: var(--ma-panel); color: var(--ma-text); font-size: 12.5px; font-family: inherit;
+}
+.ma-mayores-campo.casilla { flex-direction: row; align-items: center; gap: 8px; }
+.ma-mayores-campo.casilla label { display: flex; align-items: center; gap: 8px; color: var(--ma-text); }
+.ma-mayores-norma { font-size: 11px; color: var(--ma-dim); }
+.ma-mayores-campo-error { font-size: 11.5px; color: var(--ma-p0); }
+
+.ma-mayores-campo-archivo { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--ma-soft); }
+.ma-mayores-campo-archivo input[type="file"] { color: var(--ma-soft); font-size: 12.5px; max-width: 220px; }
+
+/* Avisos del motor (p. ej. >20% de filas descartadas): nunca esconderlos. */
+.ma-mayores-avisos {
+  padding: 8px 12px; border-radius: 8px; font-size: 12.5px;
+  background: var(--ma-p1-bg); border: 1px solid rgba(255, 180, 84, 0.4); color: var(--ma-p1);
+}
+.ma-mayores-avisos ul { margin: 0; padding: 0 0 0 18px; }
+
+.ma-mayores-lectura, .ma-mayores-suficiencia {
+  display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 10px;
+  background: var(--ma-bg); border: 1px solid var(--ma-line);
+}
+.ma-mayores-lectura h4 { margin: 0; font-size: 13.5px; }
+.ma-mayores-lectura-lista { margin: 0; padding: 0 0 0 18px; font-size: 12.5px; color: var(--ma-soft); line-height: 1.6; }
+
+.ma-mayores-suf {
+  display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600;
+}
+.ma-mayores-suf-corrio { color: var(--ma-accent); background: var(--ma-accent-dim); }
+.ma-mayores-suf-no-corrio { color: var(--ma-p1); background: var(--ma-p1-bg); }
+.ma-mayores-suf-sin-datos { color: var(--ma-p0); background: var(--ma-p0-bg); }
+
+.ma-mayores-barrera {
+  display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 10px;
+  background: var(--ma-p0-bg); border: 1px solid rgba(255, 107, 107, 0.4); color: var(--ma-p0); font-size: 13px;
+}
+.ma-mayores-barrera ul { margin: 0; padding: 0 0 0 18px; font-size: 12.5px; }
+
+/* Con un mapeo desalineado la lista puede tener miles de filas: tope +
+   scroll en vez de volcarla entera (barrera de asientos y cuadre). */
+.ma-mayores-lista-tope { max-height: 220px; overflow-y: auto; }
+
+.ma-mayores-cuadre {
+  display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 10px;
+  border: 1px solid var(--ma-line); font-size: 13px; color: var(--ma-text);
+}
+.ma-mayores-cuadre.ok { background: var(--ma-accent-dim); border-color: rgba(52, 211, 106, 0.4); }
+.ma-mayores-cuadre.warn { background: var(--ma-p1-bg); border-color: rgba(255, 180, 84, 0.4); }
+.ma-mayores-cuadre ul { margin: 0; padding: 0 0 0 18px; font-size: 12.5px; color: var(--ma-soft); }
 
 .ma-mayores-cols { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 16px; }
 @media (max-width: 860px) { .ma-mayores-cols { grid-template-columns: 1fr; } }
