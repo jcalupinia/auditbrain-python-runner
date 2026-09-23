@@ -127,6 +127,10 @@
 }
 .ma-mayores-barrera ul { margin: 0; padding: 0 0 0 18px; font-size: 12.5px; }
 
+/* Con un mapeo desalineado la lista puede tener miles de filas: tope +
+   scroll en vez de volcarla entera (barrera de asientos y cuadre). */
+.ma-mayores-lista-tope { max-height: 220px; overflow-y: auto; }
+
 .ma-mayores-cuadre {
   display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 10px;
   border: 1px solid var(--ma-line); font-size: 13px; color: var(--ma-text);

@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { PAGINAS } from "../paginas.js";
 import { ErrorMotor, LIMITE_ARCHIVO_BYTES, SONDEO_MS, archivoDemasiadoGrande } from "../clienteMotor.js";
-import { SEVERIDADES, filasBandeja, mensajeError, paginas as totalPaginas, resumenSeveridad, terminado } from "../bandeja.js";
+import { SEVERIDADES, filasBandeja, mensajeError, paginas as totalPaginas, primeras, resumenSeveridad, terminado } from "../bandeja.js";
 import { CAMPOS, INICIALES, aEnvio, resumenErrores, validar } from "../parametrosEncargo.js";
 import { ESTADOS, filasSuficiencia, resumenLectura } from "../suficiencia.js";
 import "./Mayores.css";
@@ -247,6 +247,10 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
   const filasSufi = filasSuficiencia(trabajo?.suficiencia);
   const barreraAsientos = trabajo?.barreras?.asientos_descuadrados;
   const barreraCuadre = trabajo?.barreras?.cuadre_contra_balance;
+  // Un mapeo desalineado puede sacar miles de cuentas/asientos: mismo tope
+  // en ambas listas, con "… y N más" y scroll (ma-mayores-lista-tope).
+  const asientosTope = barreraAsientos ? primeras(barreraAsientos.asientos, MAX_ASIENTOS_MOSTRADOS) : null;
+  const diferenciasTope = barreraCuadre ? primeras(barreraCuadre.diferencias, MAX_ASIENTOS_MOSTRADOS) : null;
 
   return (
     <section className="ma-pagina ma-mayores">
@@ -459,10 +463,11 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
               <strong>
                 {barreraAsientos.total} asiento(s) descuadrado(s): las pruebas de asientos no corrieron.
               </strong>
-              <ul>
-                {barreraAsientos.asientos.slice(0, MAX_ASIENTOS_MOSTRADOS).map((a) => (
+              <ul className="ma-mayores-lista-tope">
+                {asientosTope.mostradas.map((a) => (
                   <li key={a.asiento_id}>Asiento {a.asiento_id}: diferencia {a.diferencia}</li>
                 ))}
+                {asientosTope.restantes > 0 && <li>… y {asientosTope.restantes} asiento(s) más</li>}
               </ul>
             </div>
           )}
@@ -471,12 +476,13 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
             <div className={`ma-mayores-cuadre ${barreraCuadre.pasa ? "ok" : "warn"}`}>
               <strong>Cuadre contra el balance: diferencia total {barreraCuadre.diferencia_total}</strong>
               {barreraCuadre.diferencias.length > 0 && (
-                <ul>
-                  {barreraCuadre.diferencias.map((d) => (
+                <ul className="ma-mayores-lista-tope">
+                  {diferenciasTope.mostradas.map((d) => (
                     <li key={d.cuenta}>
                       Cuenta {d.cuenta}: mayor {d.mayor} vs. balance {d.balance} (diferencia {d.diferencia})
                     </li>
                   ))}
+                  {diferenciasTope.restantes > 0 && <li>… y {diferenciasTope.restantes} cuenta(s) más</li>}
                 </ul>
               )}
             </div>

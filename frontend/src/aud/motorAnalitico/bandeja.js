@@ -13,6 +13,15 @@ export const terminado = (estado) => estado === "listo" || estado === "error";
 export const resumenSeveridad = (porSev = {}) => SEVERIDADES.map((s) => [s, porSev[s] || 0]);
 export const paginas = (total, tam) => Math.max(1, Math.ceil(total / tam));
 
+// Con un mapeo desalineado, una lista de diferencias (asientos
+// descuadrados, cuadre contra el balance) puede salir por miles: se
+// muestran las primeras y se dice cuántas quedan afuera, en vez de
+// volcarlas todas sin tope ni scroll.
+export function primeras(lista = [], tope) {
+  const l = lista || [];
+  return { mostradas: l.slice(0, tope), restantes: Math.max(0, l.length - tope) };
+}
+
 // null si el valor está vacío o no es numérico: nunca se inventa «0,00».
 export function dinero(texto) {
   if (texto === null || texto === undefined || String(texto).trim() === "") return null;
