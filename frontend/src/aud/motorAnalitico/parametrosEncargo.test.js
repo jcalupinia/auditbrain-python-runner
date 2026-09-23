@@ -38,12 +38,36 @@ describe("parámetros del encargo", () => {
       .toBe("no puede superar la materialidad de ejecución");
     expect(validar({ ...LLENO, ejercicio_fin: "2025-12-31" }).ejercicio_fin)
       .toBe("debe ser posterior al inicio del ejercicio");
-    expect(validar({ ...LLENO, hora_fin: "8" }).hora_fin)
-      .toBe("debe ser mayor que la hora de inicio");
+    expect(validar({ ...LLENO, hora_fin: "8" }).hora_inicio) // se marca en hora_inicio (espejo del motor)
+      .toBe("debe ser anterior a la hora de fin");
     expect(validar({ ...LLENO, feriados: "2027-01-01" }).feriados)
       .toBe("hay feriados fuera del ejercicio");
     expect(validar({ ...LLENO, confianza: "97" }).confianza).toBe("usa 80, 90, 95 o 99");
     expect(validar({ ...LLENO, semilla: "abc" }).semilla).toBe("debe ser un número entero");
+  });
+
+  // Espejo de motor/parametros.py::leer_parametros (motor-auditoria-analitica@main).
+  it("las horas deben estar en el rango 0-23 (motor/parametros.py)", () => {
+    expect(validar({ ...LLENO, hora_inicio: "24" }).hora_inicio).toBe("debe estar entre 0 y 23");
+    expect(validar({ ...LLENO, hora_inicio: "-1" }).hora_inicio).toBe("debe estar entre 0 y 23");
+    expect(validar({ ...LLENO, hora_fin: "24" }).hora_fin).toBe("debe estar entre 0 y 23");
+  });
+
+  it("hora_inicio >= hora_fin se marca en hora_inicio, como el motor", () => {
+    const errores = validar({ ...LLENO, hora_fin: "8" }); // hora_inicio también es "8"
+    expect(errores.hora_inicio).toBe("debe ser anterior a la hora de fin");
+    expect(errores.hora_fin).toBeUndefined();
+  });
+
+  it("materialidad y umbral_aprobacion deben ser mayores que cero (motor/parametros.py)", () => {
+    expect(validar({ ...LLENO, materialidad: "0" }).materialidad).toBe("debe ser mayor que cero");
+    expect(validar({ ...LLENO, materialidad: "-100" }).materialidad).toBe("debe ser mayor que cero");
+    expect(validar({ ...LLENO, umbral_aprobacion: "0" }).umbral_aprobacion).toBe("debe ser mayor que cero");
+  });
+
+  it("rechaza fechas con formato válido pero de calendario inexistente", () => {
+    expect(validar({ ...LLENO, ejercicio_inicio: "2026-02-30" }).ejercicio_inicio).toBe("fecha inválida");
+    expect(validar({ ...LLENO, feriados: "2026-02-30" }).feriados).toBe("fecha inválida");
   });
 
   it("un formulario correcto no tiene errores", () => {

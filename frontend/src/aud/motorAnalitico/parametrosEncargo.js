@@ -30,6 +30,17 @@ const ENTERO = /^-?\d+$/;
 const num = (v) => Number(String(v).replace(",", "."));
 const fechas = (v) => String(v || "").split(",").map((f) => f.trim()).filter(Boolean);
 
+// El motor usa datetime.date.fromisoformat, que rechaza un calendario
+// inexistente ("2026-02-30" tiene formato válido pero no existe). El regex
+// FECHA solo valida el formato; esta función valida que la fecha exista.
+function fechaValida(v) {
+  const t = String(v).trim();
+  if (!FECHA.test(t)) return false;
+  const [y, m, d] = t.split("-").map(Number);
+  const fecha = new Date(Date.UTC(y, m - 1, d));
+  return fecha.getUTCFullYear() === y && fecha.getUTCMonth() === m - 1 && fecha.getUTCDate() === d;
+}
+
 function importeInvalido(v) {
   const t = String(v).trim();
   if (!IMPORTE.test(t)) return true;
@@ -57,7 +68,7 @@ export function validar(valores) {
     if (campo.opcional && vacio(v)) continue;
 
     if (campo.tipo === "date") {
-      if (!FECHA.test(String(v).trim())) errores[campo.id] = "fecha inválida";
+      if (!fechaValida(v)) errores[campo.id] = "fecha inválida";
     } else if (campo.tipo === "importe") {
       if (importeInvalido(v)) errores[campo.id] = "escríbelo sin separador de miles: 50000 o 50000,50";
     } else if (campo.tipo === "entero") {
@@ -68,8 +79,23 @@ export function validar(valores) {
         errores[campo.id] = `usa ${opts.slice(0, -1).join(", ")} o ${opts[opts.length - 1]}`;
       }
     } else if (campo.tipo === "fechas") {
-      if (fechas(v).some((f) => !FECHA.test(f))) errores[campo.id] = "fecha inválida";
+      if (fechas(v).some((f) => !fechaValida(f))) errores[campo.id] = "fecha inválida";
     }
+  }
+
+  // Rango horario del motor (0-23) antes de la regla cruzada hora_inicio/hora_fin.
+  if (!errores.hora_inicio && !(num(valores.hora_inicio) >= 0 && num(valores.hora_inicio) < 24)) {
+    errores.hora_inicio = "debe estar entre 0 y 23";
+  }
+  if (!errores.hora_fin && !(num(valores.hora_fin) >= 0 && num(valores.hora_fin) <= 23)) {
+    errores.hora_fin = "debe estar entre 0 y 23";
+  }
+
+  if (!errores.materialidad && num(valores.materialidad) <= 0) {
+    errores.materialidad = "debe ser mayor que cero";
+  }
+  if (!errores.umbral_aprobacion && num(valores.umbral_aprobacion) <= 0) {
+    errores.umbral_aprobacion = "debe ser mayor que cero";
   }
 
   const sinError = (...ids) => ids.every((id) => !errores[id]);
@@ -101,8 +127,9 @@ export function validar(valores) {
     }
   }
 
-  if (sinError("hora_inicio", "hora_fin") && num(valores.hora_fin) <= num(valores.hora_inicio)) {
-    errores.hora_fin = "debe ser mayor que la hora de inicio";
+  // El motor (motor/parametros.py) marca esta regla en hora_inicio, no en hora_fin.
+  if (sinError("hora_inicio", "hora_fin") && num(valores.hora_inicio) >= num(valores.hora_fin)) {
+    errores.hora_inicio = "debe ser anterior a la hora de fin";
   }
 
   if (sinError("ejercicio_inicio", "ejercicio_fin", "feriados")) {
