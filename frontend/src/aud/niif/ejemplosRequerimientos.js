@@ -21,6 +21,35 @@ export const EJEMPLOS_REQUERIMIENTOS = {
     "RQ-007": "RQ-007_politica_credito_cobranza.docx",
     "RQ-008": "RQ-008_ventas_por_factura_3_ejercicios.xlsx",
   },
+  // --- Lote 1 (data-driven desde scripts/ejemplos_lote.py) ---
+  // Un libro por requerimiento de datos, derivado del EJEMPLO canónico del
+  // procesador (datos ficticios, coherentes, con resultado válido). Los
+  // requerimientos de soporte (PDF/DOCX sin dataset) muestran solo los formatos.
+  efectivo_equivalentes: {
+    "RQ-001": "RQ-001_cuentas.xlsx",
+    "RQ-002": "RQ-002_partidas.xlsx",
+  },
+  cxc_cartera: {
+    "RQ-001": "RQ-001_cartera.xlsx",
+  },
+  inversiones_instrumentos: {
+    "RQ-001": "RQ-001_inversiones.xlsx",
+  },
+  inventarios_costos: {
+    "RQ-001": "RQ-001_inventario.xlsx",
+    "RQ-002": "RQ-002_produccion.xlsx",
+    "RQ-003": "RQ-003_movimiento.xlsx",
+    "RQ-004": "RQ-004_corte.xlsx",
+  },
+  ppe_propiedad_planta: {
+    "RQ-001": "RQ-001_activos.xlsx",
+    "RQ-002": "RQ-002_adiciones.xlsx",
+    "RQ-003": "RQ-003_prestamos.xlsx",
+  },
+  propiedades_inversion: {
+    "RQ-001": "RQ-001_inmuebles.xlsx",
+    "RQ-002": "RQ-002_bajas.xlsx",
+  },
 };
 
 /**
