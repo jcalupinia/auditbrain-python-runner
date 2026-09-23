@@ -264,3 +264,8 @@ a.btn { text-decoration: none; display: inline-block; }
 .nf-em-tabla code { font-size: 11px; color: var(--muted); }
 .nf-em-descargas { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .nf-em-nav { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+
+/* ===== Recuadro «Tratamiento tributario revisado» ===== */
+.nf-tributario { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; }
+.nf-tributario textarea { font-family: inherit; }
+.nf-tributario .nf-ctx-check { font-size: 13px; }

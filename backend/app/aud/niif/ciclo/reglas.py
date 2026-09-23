@@ -216,8 +216,21 @@ def verificar_fuentes(t: dict) -> bool:
     for s in fuentes:
         if s.get("verified") and not permitida(s.get("category"), s.get("url")):
             raise ReglaIncumplida("Para NIIF/NIA use fuentes oficiales IFRS Foundation o IAASB/IFAC.")
-    if t.get("taxApplicable") and not _texto(t.get("taxScope")).strip():
+    validar_tratamiento_tributario(t)
+    return True
+
+
+def validar_tratamiento_tributario(t: dict) -> bool:
+    """Gate del recuadro «Tratamiento tributario revisado»: exige texto y que no
+    queden citas «VERIFICAR» sin resolver. No se confirma solo."""
+    if not t.get("taxApplicable"):
+        return True
+    tax = _texto(t.get("taxScope")).strip()
+    if not tax:
         raise ReglaIncumplida("Describa el tratamiento tributario revisado y su sustento.")
+    if "VERIFICAR" in tax.upper():
+        raise ReglaIncumplida("Resuelva las citas marcadas «VERIFICAR» del tratamiento tributario antes de confirmar: "
+                              "confírmelas contra la fuente oficial o quítelas.")
     return True
 
 

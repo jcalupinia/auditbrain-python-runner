@@ -8,6 +8,7 @@ import {
   archivosDe,
   detalleRequerimiento,
   erroresLegibles,
+  estadoTributario,
   formulasLegibles,
   herramientaDePrueba,
   marcoAplicable,
@@ -16,6 +17,7 @@ import {
   nombreEstado,
   pasoPreparar,
   problemasDe,
+  textoTributarioInicial,
   tramosDeTexto,
 } from "./cicloLogic";
 
@@ -170,8 +172,9 @@ function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, processor
   );
 }
 
-function BaseTecnica({ prueba, taxScope, setTaxScope }) {
+function BaseTecnica({ prueba, taxScope, setTaxScope, taxConforme, setTaxConforme, gate }) {
   const d = prueba.definicion, reg = prueba.registro;
+  const sugerido = d.tributario_sugerido;
   const marco = marcoAplicable(d, reg.engagement?.framework);
   const nias = niasDe(d);
   const formulas = d.processor
@@ -232,10 +235,23 @@ function BaseTecnica({ prueba, taxScope, setTaxScope }) {
           </details>
         )}
         {reg.taxApplicable && ANTES_DEL_REQUERIMIENTO.includes(prueba.estado) && (
-          <label className="nf-ctx-field">
-            Tratamiento tributario revisado y su sustento
-            <textarea rows={2} value={taxScope} onChange={(e) => setTaxScope(e.target.value)} />
-          </label>
+          <div className="nf-tributario">
+            <label className="nf-ctx-field">
+              Tratamiento tributario revisado y su sustento
+              {sugerido?.texto && (
+                <small className="muted">
+                  Viene pre-llenado con la base legal sugerida de esta herramienta. Revísela, edítela y confírmela contra la fuente oficial.
+                  {sugerido.tiene_verificar && <> Hay citas marcadas <strong>«VERIFICAR»</strong>: resuélvalas antes de confirmar.</>}
+                </small>
+              )}
+              <textarea rows={5} value={taxScope} onChange={(e) => setTaxScope(e.target.value)} />
+            </label>
+            <label className="nf-ctx-check">
+              <input type="checkbox" checked={!!taxConforme} onChange={(e) => setTaxConforme(e.target.checked)} />{" "}
+              Revisé la base legal sugerida y estoy conforme.
+            </label>
+            {gate && !gate.ok && <p className="nf-error" role="status">No se puede confirmar todavía: {gate.motivo}</p>}
+          </div>
         )}
       </div>
     </details>
@@ -341,7 +357,8 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
   const [error, setError] = useState("");
   const [trabajando, setTrabajando] = useState(false);
   const [mayor, setMayor] = useState("");
-  const [taxScope, setTaxScope] = useState(reg.taxScope || "");
+  const [taxScope, setTaxScope] = useState(() => textoTributarioInicial(reg, d));
+  const [taxConforme, setTaxConforme] = useState(false);
   const [tramos, setTramos] = useState([{ min: "0", max: "30", rate: "" }, { min: "31", max: "", rate: "" }]);
   const [cedula, setCedula] = useState(0);
   const [modeloAbierto, setModeloAbierto] = useState(false);
@@ -399,11 +416,14 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
   const confirmar = () => correr(async () => {
     let p = await api.cicloLeerPrueba(prueba.id);
     for (let i = 0; i < 8; i++) {
-      const siguiente = pasoPreparar(p, taxScope);
+      const siguiente = pasoPreparar(p, taxScope, taxConforme);
       if (!siguiente) return;
       p = await paso(...siguiente);
     }
   });
+
+  // Gate del tratamiento tributario: por qué NO se habilita «Confirmar base técnica».
+  const gateTributario = estadoTributario(reg.taxApplicable, taxScope, taxConforme);
 
   // Mapea cada archivo de cálculo en el navegador (con el lector del sitio) y
   // manda al servidor la lista para unirla en una sola población.
@@ -533,7 +553,9 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
         <span className="muted">{d.name} · {reg.engagement?.client} · corte {String(reg.engagement?.cutoff || "").split("-").reverse().join("-")}</span>
         <span style={{ flex: 1 }} />
         {ANTES_DEL_REQUERIMIENTO.includes(prueba.estado) ? (
-          <button type="button" className="pc-chip accent" disabled={bloqueado} onClick={confirmar} style={{ fontWeight: 700 }}>
+          <button type="button" className="pc-chip accent" disabled={bloqueado || !gateTributario.ok} onClick={confirmar}
+            title={gateTributario.ok ? "Confirmar la base técnica y preparar el requerimiento" : gateTributario.motivo}
+            style={{ fontWeight: 700 }}>
             ✓ Confirmar base técnica
           </button>
         ) : (
@@ -583,7 +605,8 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
       {avance && <p className="muted">{avance}</p>}
       {error && <p role="alert" className="nf-error">{error}</p>}
 
-      <BaseTecnica prueba={prueba} taxScope={taxScope} setTaxScope={setTaxScope} />
+      <BaseTecnica prueba={prueba} taxScope={taxScope} setTaxScope={setTaxScope}
+        taxConforme={taxConforme} setTaxConforme={setTaxConforme} gate={gateTributario} />
 
       {!ANTES_DEL_REQUERIMIENTO.includes(prueba.estado) && (
         <>

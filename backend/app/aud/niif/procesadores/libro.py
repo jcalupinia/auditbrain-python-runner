@@ -59,6 +59,12 @@ def _contexto(definicion: dict, reg: dict, eventos: list, version: int, estado: 
         ["Aprobó", reg.get("approvedBy") or ""], ["Fecha de aprobación", (reg.get("approvedAt") or "")[:10]],
         ["Huella de la ejecución (SHA-256)", reg.get("runHash") or ""],
     ]
+    if reg.get("taxApplicable"):
+        caratula.append(["Tratamiento tributario revisado", reg.get("taxScope") or ""])
+        meta = reg.get("taxScopeMeta") or {}
+        if meta:
+            caratula.append(["Sustento tributario · revisión",
+                             f"{meta.get('resumen', '')} · {meta.get('actor', '')} · {(meta.get('fecha') or '')[:19].replace('T', ' ')}"])
     fuentes = [[s.get("category"), s.get("document"), s.get("section"), s.get("url"), "Sí" if s.get("verified") else "No"]
                for s in reg.get("sources") or []]
     fuentes += [["NIA · " + x.get("document", ""), x.get("requirement", ""), x.get("section", ""), "", ""]
