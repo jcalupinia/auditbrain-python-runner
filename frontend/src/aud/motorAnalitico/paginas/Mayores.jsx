@@ -332,6 +332,7 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
                 {CAMPOS.map((campo) => {
                   const error = erroresParametros[campo.id] || erroresMotorPorCampo[campo.id];
                   const inputId = `ma-param-${campo.id}`;
+                  const errorId = `${inputId}-error`;
                   return (
                     <div key={campo.id} className={`ma-mayores-campo${campo.tipo === "casilla" ? " casilla" : ""}`}>
                       {campo.tipo === "casilla" ? (
@@ -346,6 +347,7 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
                           <label htmlFor={inputId}>{campo.etiqueta}</label>
                           {campo.tipo === "opciones" ? (
                             <select id={inputId} value={parametros[campo.id]} disabled={!disponible || cargando}
+                                    aria-invalid={!!error} aria-describedby={error ? errorId : undefined}
                                     onChange={(e) => setParametros((p) => ({ ...p, [campo.id]: e.target.value }))}>
                               <option value="">—</option>
                               {campo.opciones.map((o) => <option key={o} value={o}>{o}</option>)}
@@ -354,12 +356,13 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
                             <input id={inputId} type={campo.tipo === "date" ? "date" : "text"}
                                    value={parametros[campo.id]} disabled={!disponible || cargando}
                                    placeholder={campo.tipo === "fechas" ? "2026-01-01, 2026-05-01" : undefined}
+                                   aria-invalid={!!error} aria-describedby={error ? errorId : undefined}
                                    onChange={(e) => setParametros((p) => ({ ...p, [campo.id]: e.target.value }))} />
                           )}
                         </>
                       )}
                       <span className="ma-mayores-norma">{campo.nia}</span>
-                      {error && <span className="ma-mayores-campo-error">{error}</span>}
+                      {error && <span id={errorId} className="ma-mayores-campo-error">{error}</span>}
                     </div>
                   );
                 })}
@@ -377,8 +380,12 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
                 Balance (opcional)
                 <input type="file" aria-label="Balance del cliente" accept=".xlsx,.xlsm,.csv"
                        disabled={!disponible || cargando}
+                       aria-invalid={!!erroresMotorPorCampo.balance}
+                       aria-describedby={erroresMotorPorCampo.balance ? "ma-param-balance-error" : undefined}
                        onChange={elegirArchivo(setBalanceArchivo)} />
-                {erroresMotorPorCampo.balance && <span className="ma-mayores-campo-error">{erroresMotorPorCampo.balance}</span>}
+                {erroresMotorPorCampo.balance && (
+                  <span id="ma-param-balance-error" className="ma-mayores-campo-error">{erroresMotorPorCampo.balance}</span>
+                )}
               </label>
               <button className="ma-boton accent" disabled={botonMayorDeshabilitado}
                       onClick={() => iniciar(() => cliente.crearConMayor(mayorArchivo, aEnvio(parametros), balanceArchivo))}>
@@ -388,7 +395,7 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
             <span className="ma-mayores-aviso">Solo datos anonimizados hasta SP4.</span>
           </div>
 
-          {errorMsg && <p className="ma-mayores-error">{errorMsg}</p>}
+          {errorMsg && <p className="ma-mayores-error" role="alert">{errorMsg}</p>}
 
           {trabajo && (
             <div className="ma-mayores-trabajo">
@@ -398,7 +405,7 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
           )}
 
           {trabajo?.estado === "error" && erroresLectura.length > 0 && (
-            <div className="ma-tabla-wrap">
+            <div className="ma-tabla-wrap" role="alert">
               <table className="ma-tabla">
                 <thead><tr><th>Hoja</th><th>Fila</th><th>Columna</th><th>Motivo</th></tr></thead>
                 <tbody>
