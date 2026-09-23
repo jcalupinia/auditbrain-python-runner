@@ -318,7 +318,10 @@ def descargar_libro(prueba_id: int, formato: str = "xlsx", db: Session = Depends
     p = _prueba(db, user, prueba_id)
     if not p.definicion.get("processor") or not (p.registro.get("run") or {}).get("hojas"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Procese la prueba antes de descargar su papel.")
-    contenido = getattr(libro, funcion)(*servicio.args_papel(db, p))
+    try:
+        contenido = getattr(libro, funcion)(*servicio.args_papel(db, p))
+    except libro.PDFNoDisponible as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
     return Response(contenido, media_type=mime,
                     headers={"Content-Disposition": f'attachment; filename="Papel_v{p.version}.{ext}"'})
 

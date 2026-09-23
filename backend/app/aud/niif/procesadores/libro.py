@@ -723,11 +723,26 @@ def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str, 
     return doc.encode("utf-8")
 
 
+class PDFNoDisponible(ValueError):
+    """WeasyPrint (o sus librerías nativas Pango/cairo) no está disponible en
+    este entorno. El endpoint lo traduce a un aviso, no a un error 500."""
+
+
 def pdf(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> bytes:
     """PDF ejecutivo generado en el servidor (WeasyPrint) a partir del HTML
     estático: fiel a la vista, horizontal, con marca, KPIs, cédulas y el bloque
-    «Cómo se calcula». No usa la impresión del navegador."""
-    import weasyprint
+    «Cómo se calcula». No usa la impresión del navegador.
 
+    En entornos sin las librerías nativas de WeasyPrint (p. ej. un servicio
+    Render ``env: python``) degrada con ``PDFNoDisponible``; el papel sigue
+    disponible en Excel/Word/HTML y el HTML trae «Guardar como PDF»."""
+    try:
+        import weasyprint  # requiere Pango/cairo/gdk-pixbuf nativos
+    except Exception as e:  # ImportError o OSError al cargar las libs nativas
+        raise PDFNoDisponible(
+            "El PDF en el servidor no está disponible en este entorno (faltan las "
+            "librerías nativas de WeasyPrint). Descargue el papel en Excel, Word o "
+            "HTML, o use «Guardar como PDF» desde el HTML."
+        ) from e
     contenido = html(definicion, reg, eventos, version, estado, para_pdf=True)
     return weasyprint.HTML(string=contenido.decode("utf-8")).write_pdf()
