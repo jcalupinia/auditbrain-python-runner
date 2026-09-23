@@ -21,7 +21,7 @@ _FINO = Side(style="thin", color="B7C0CC")
 _DOBLE = Side(style="double", color="0A2342")
 _BORDE = Border(left=_FINO, right=_FINO, top=_FINO, bottom=_FINO)
 _BORDE_TOTAL = Border(left=_FINO, right=_FINO, top=_DOBLE, bottom=_DOBLE)
-_FMT = {"n": "#,##0.00", "p": "0.00%", "i": "#,##0", "d": "yyyy-mm-dd"}
+_FMT = {"n": "#,##0.00", "p": "0.00%", "i": "#,##0", "a": "0", "d": "yyyy-mm-dd"}
 
 
 _ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -139,7 +139,7 @@ def _celda(v, fmt) -> str:
     v = _valor(v)
     if v is None or v == "":
         return ""
-    if fmt in ("n", "p", "i") and not isinstance(v, (int, float)):
+    if fmt in ("n", "p", "i", "a") and not isinstance(v, (int, float)):
         return _html.escape(str(v))          # texto en una columna numérica («No aplica», «—»)
     if fmt == "n" or (fmt == "x" and isinstance(v, (int, float))):
         return f"{float(v):,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
@@ -147,6 +147,8 @@ def _celda(v, fmt) -> str:
         return f"{float(v) * 100:.2f} %".replace(".", ",")
     if fmt == "i":
         return f"{int(v):,}".replace(",", ".")
+    if fmt == "a":                               # año: 2025, nunca «2.025»
+        return str(int(v))
     return _html.escape(str(v))
 
 

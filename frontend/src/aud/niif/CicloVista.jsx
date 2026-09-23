@@ -208,13 +208,16 @@ const FORMATO = {
   n: (v) => Number(v).toLocaleString("es-EC", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
   p: (v) => `${(Number(v) * 100).toLocaleString("es-EC", { maximumFractionDigits: 2 })} %`,
   i: (v) => Number(v).toLocaleString("es-EC"),
+  a: (v) => String(Math.trunc(Number(v))),   // año: 2025, nunca «2.025»
 };
 // Una celda calculada llega como {f: fórmula, v: valor}: se muestra el valor y la fórmula al pasar el cursor.
 const valorDe = (v) => (v && typeof v === "object" ? v.v : v);
-const celda = (v, f) => {
+export const celda = (v, f) => {
   const x = valorDe(v);
   if (x === null || x === undefined || x === "") return "";
-  return FORMATO[f] || (f === "x" && typeof x === "number") ? (FORMATO[f] || FORMATO.n)(x) : String(x);
+  const formato = FORMATO[f] || (f === "x" ? FORMATO.n : null);
+  // Texto dentro de una columna numérica («TOTAL», «No aplica»): se muestra tal cual, igual que en el Excel.
+  return formato && esNumero(x) ? formato(x) : String(x);
 };
 
 function CedulaProcesador({ hoja }) {

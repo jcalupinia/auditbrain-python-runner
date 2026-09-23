@@ -27,12 +27,23 @@ describe("Motor de auditoría analítica", () => {
   });
 });
 
-import { saldoMayor } from "./niif/CicloVista.jsx";
+import { celda, saldoMayor } from "./niif/CicloVista.jsx";
 describe("saldo según el mayor", () => {
   it("acepta coma decimal y separador de miles", () => {
     expect(saldoMayor("125.000,50")).toBe("125000.50");
     expect(saldoMayor("125000.50")).toBe("125000.50");
     expect(saldoMayor(" 470,00 ")).toBe("470.00");
     expect(saldoMayor("")).toBe("");
+  });
+});
+
+describe("celda de una cédula", () => {
+  it("formatea los números y deja el texto tal cual en columnas numéricas", () => {
+    expect(celda({ f: "B5+B6", v: 1234.5 }, "n")).toBe("1.234,50");
+    expect(celda(2025, "i")).toBe("2.025");
+    expect(celda("TOTAL", "i")).toBe("TOTAL");
+    expect(celda("No aplica", "n")).toBe("No aplica");
+    expect(celda(null, "n")).toBe("");
+    expect(celda({ f: "A1", v: null }, "n")).toBe("");
   });
 });
