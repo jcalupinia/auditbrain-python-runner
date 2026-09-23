@@ -107,6 +107,13 @@
 .ma-mayores-campo-archivo { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--ma-soft); }
 .ma-mayores-campo-archivo input[type="file"] { color: var(--ma-soft); font-size: 12.5px; max-width: 220px; }
 
+/* Avisos del motor (p. ej. >20% de filas descartadas): nunca esconderlos. */
+.ma-mayores-avisos {
+  padding: 8px 12px; border-radius: 8px; font-size: 12.5px;
+  background: var(--ma-p1-bg); border: 1px solid rgba(255, 180, 84, 0.4); color: var(--ma-p1);
+}
+.ma-mayores-avisos ul { margin: 0; padding: 0 0 0 18px; }
+
 .ma-mayores-lectura, .ma-mayores-suficiencia {
   display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 10px;
   background: var(--ma-bg); border: 1px solid var(--ma-line);

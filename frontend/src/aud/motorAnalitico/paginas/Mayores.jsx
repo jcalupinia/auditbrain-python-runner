@@ -251,7 +251,12 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
   const hayErroresParaRevisar = resumenCamposErrores.length > 0;
 
   const resumen = resumenLectura(trabajo?.lectura);
-  const filasSufi = filasSuficiencia(trabajo?.suficiencia);
+  const filasSufi = filasSuficiencia(trabajo?.suficiencia, trabajo?.bajo_umbral);
+  // El motor nunca esconde lo que ya calculó (regla de oro, SP3-A): avisos
+  // (p. ej. >20% de filas descartadas) y cuántas excepciones se descartaron
+  // por estar bajo el umbral insignificante.
+  const avisos = trabajo?.avisos || [];
+  const totalBajoUmbral = Object.values(trabajo?.bajo_umbral || {}).reduce((a, n) => a + n, 0);
   const barreraAsientos = trabajo?.barreras?.asientos_descuadrados;
   const barreraCuadre = trabajo?.barreras?.cuadre_contra_balance;
   // Un mapeo desalineado puede sacar miles de cuentas/asientos: mismo tope
@@ -427,6 +432,14 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
             </div>
           )}
 
+          {avisos.length > 0 && (
+            <div className="ma-mayores-avisos" role="alert">
+              <ul>
+                {avisos.map((a, i) => <li key={i}>{a}</li>)}
+              </ul>
+            </div>
+          )}
+
           {resumen && (
             <div className="ma-mayores-lectura">
               <h4>Lectura del archivo</h4>
@@ -564,6 +577,13 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
                 <span>Página {pagina} de {totalPag}</span>
                 <button className="ma-boton" disabled={pagina >= totalPag} onClick={() => setPagina((p) => p + 1)}>Siguiente</button>
               </div>
+
+              {totalBajoUmbral > 0 && (
+                <p className="ma-mayores-nota-fija">
+                  {totalBajoUmbral} excepciones no se muestran por estar bajo el umbral de error insignificante
+                  que fijaste (NIA 450).
+                </p>
+              )}
 
               {seleccion && (
                 <div className="ma-mayores-detalle">

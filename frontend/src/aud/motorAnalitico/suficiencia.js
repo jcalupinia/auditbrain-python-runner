@@ -12,7 +12,13 @@ const ORDEN = [ESTADOS.corrio, ESTADOS.noCorrio, ESTADOS.sinDatos];
 const sinBase = (b) => `Falta cargar ${b.join(", ")}`;
 const sinColumna = (c) => `Falta la columna ${c.map((x) => x.split(".").pop()).join(", ")}`;
 
-export function filasSuficiencia(suficiencia) {
+// motor/programa.py::_correr_sobre_filas descarta excepciones bajo el
+// umbral insignificante y las cuenta aparte en bajo_umbral, sin esconderlas
+// (regla de oro del motor). Solo aplica a una regla que sí corrió: se agrega
+// al detalle que ya tenga (p. ej. evidencia incompleta), no lo reemplaza.
+const bajoUmbralTexto = (n) => `${n} excepciones bajo el umbral insignificante`;
+
+export function filasSuficiencia(suficiencia, bajoUmbral = {}) {
   if (!suficiencia?.reglas) return [];
   const filas = Object.entries(suficiencia.reglas).map(([regla, v]) => {
     let estado = ESTADOS.corrio;
@@ -25,6 +31,9 @@ export function filasSuficiencia(suficiencia) {
       detalle = v.motivo_no_corrida;
     } else if (v.evidencia_incompleta?.length) {
       detalle = `Sin el dato de ${v.evidencia_incompleta.map((x) => x.split(".").pop()).join(", ")} en la evidencia`;
+    }
+    if (estado === ESTADOS.corrio && bajoUmbral[regla] > 0) {
+      detalle = detalle ? `${detalle}; ${bajoUmbralTexto(bajoUmbral[regla])}` : bajoUmbralTexto(bajoUmbral[regla]);
     }
     return { regla, estado, detalle };
   });
