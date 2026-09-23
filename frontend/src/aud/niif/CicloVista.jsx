@@ -2,10 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import * as api from "../../api";
 import "../of/ofWorkspace.css";
+import EjercicioModelo from "./EjercicioModelo";
+import { ejemploDe, formatosTexto } from "./ejemplosRequerimientos";
 import {
   archivosDe,
   detalleRequerimiento,
   erroresLegibles,
+  estadoTributario,
   formulasLegibles,
   herramientaDePrueba,
   marcoAplicable,
@@ -14,6 +17,7 @@ import {
   nombreEstado,
   pasoPreparar,
   problemasDe,
+  textoTributarioInicial,
   tramosDeTexto,
 } from "./cicloLogic";
 
@@ -85,13 +89,17 @@ function descargar(nombre, contenido, tipo) {
 const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const mostrar = (v) => (v && typeof v === "object" ? String(v.v ?? v.n ?? "") : String(v ?? ""));
 
-function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado }) {
+function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, processor, onModelo }) {
   const input = useRef(null);
   const [parte, setParte] = useState(req.components?.[0] || "");
   const [error, setError] = useState("");
   const [subiendo, setSubiendo] = useState(false);
   const completo = cobertura?.complete;
   const n = (prueba.archivos || []).filter((a) => a.requerimiento === req.id && a.estado !== "rechazado").length;
+  // Flecha para bajar el FORMATO VÁLIDO: un ejemplo lleno del manifiesto, o el
+  // modelo en blanco del propio requerimiento, o nada (solo los formatos).
+  const ejemplo = ejemploDe(processor, req, undefined, import.meta.env.BASE_URL || "/");
+  const formatos = formatosTexto(req);
 
   async function subir(e) {
     const archivo = e.target.files?.[0];
@@ -127,13 +135,46 @@ function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado }) {
         {subiendo ? "Subiendo…" : `${completo ? "✓" : "○"} ${req.document}${n ? ` (${n})` : ""}`}
       </button>
       <input ref={input} type="file" hidden onChange={subir} data-requerimiento={req.id} />
+      {(formatos || ejemplo) && (
+        <small className="nf-doc-formatos">
+          {formatos && (
+            <span title="Formatos aceptados para este documento">
+              {formatos}
+              {req.required === false ? " · opcional" : ""}
+            </span>
+          )}
+          {ejemplo?.tipo === "ejemplo" && (
+            <a
+              className="link nf-doc-ejemplo"
+              href={ejemplo.url}
+              download={ejemplo.archivo}
+              title="Formato válido con datos de ejemplo (ficticios)"
+              data-ejemplo={req.id}
+            >
+              ↓ Ejemplo
+            </a>
+          )}
+          {ejemplo?.tipo === "modelo" && (
+            <button
+              type="button"
+              className="link nf-doc-ejemplo"
+              onClick={() => onModelo?.(req.id)}
+              title="Formato válido (plantilla en blanco para llenar)"
+              data-ejemplo={req.id}
+            >
+              ↓ Ejemplo
+            </button>
+          )}
+        </small>
+      )}
       {error && <small className="nf-error">{error}</small>}
     </span>
   );
 }
 
-function BaseTecnica({ prueba, taxScope, setTaxScope }) {
+function BaseTecnica({ prueba, taxScope, setTaxScope, taxConforme, setTaxConforme, gate }) {
   const d = prueba.definicion, reg = prueba.registro;
+  const sugerido = d.tributario_sugerido;
   const marco = marcoAplicable(d, reg.engagement?.framework);
   const nias = niasDe(d);
   const formulas = d.processor
@@ -194,10 +235,23 @@ function BaseTecnica({ prueba, taxScope, setTaxScope }) {
           </details>
         )}
         {reg.taxApplicable && ANTES_DEL_REQUERIMIENTO.includes(prueba.estado) && (
-          <label className="nf-ctx-field">
-            Tratamiento tributario revisado y su sustento
-            <textarea rows={2} value={taxScope} onChange={(e) => setTaxScope(e.target.value)} />
-          </label>
+          <div className="nf-tributario">
+            <label className="nf-ctx-field">
+              Tratamiento tributario revisado y su sustento
+              {sugerido?.texto && (
+                <small className="muted">
+                  Viene pre-llenado con la base legal sugerida de esta herramienta. Revísela, edítela y confírmela contra la fuente oficial.
+                  {sugerido.tiene_verificar && <> Hay citas marcadas <strong>«VERIFICAR»</strong>: resuélvalas antes de confirmar.</>}
+                </small>
+              )}
+              <textarea rows={5} value={taxScope} onChange={(e) => setTaxScope(e.target.value)} />
+            </label>
+            <label className="nf-ctx-check">
+              <input type="checkbox" checked={!!taxConforme} onChange={(e) => setTaxConforme(e.target.checked)} />{" "}
+              Revisé la base legal sugerida y estoy conforme.
+            </label>
+            {gate && !gate.ok && <p className="nf-error" role="status">No se puede confirmar todavía: {gate.motivo}</p>}
+          </div>
         )}
       </div>
     </details>
@@ -303,9 +357,11 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
   const [error, setError] = useState("");
   const [trabajando, setTrabajando] = useState(false);
   const [mayor, setMayor] = useState("");
-  const [taxScope, setTaxScope] = useState(reg.taxScope || "");
+  const [taxScope, setTaxScope] = useState(() => textoTributarioInicial(reg, d));
+  const [taxConforme, setTaxConforme] = useState(false);
   const [tramos, setTramos] = useState([{ min: "0", max: "30", rate: "" }, { min: "31", max: "", rate: "" }]);
   const [cedula, setCedula] = useState(0);
+  const [modeloAbierto, setModeloAbierto] = useState(false);
   const [param, setParam] = useState(() => ({ ...(d.parametros || {}), ...Object.fromEntries(Object.entries(reg.parameters || {}).filter(([k]) => k in (d.parametros || {}))) }));
   const [tasas, setTasas] = useState(reg.parameters?.tasas || {});
   // Tramos de mora solo en las pruebas de cartera que los usan.
@@ -360,11 +416,14 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
   const confirmar = () => correr(async () => {
     let p = await api.cicloLeerPrueba(prueba.id);
     for (let i = 0; i < 8; i++) {
-      const siguiente = pasoPreparar(p, taxScope);
+      const siguiente = pasoPreparar(p, taxScope, taxConforme);
       if (!siguiente) return;
       p = await paso(...siguiente);
     }
   });
+
+  // Gate del tratamiento tributario: por qué NO se habilita «Confirmar base técnica».
+  const gateTributario = estadoTributario(reg.taxApplicable, taxScope, taxConforme);
 
   // Mapea cada archivo de cálculo en el navegador (con el lector del sitio) y
   // manda al servidor la lista para unirla en una sola población.
@@ -494,7 +553,9 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
         <span className="muted">{d.name} · {reg.engagement?.client} · corte {String(reg.engagement?.cutoff || "").split("-").reverse().join("-")}</span>
         <span style={{ flex: 1 }} />
         {ANTES_DEL_REQUERIMIENTO.includes(prueba.estado) ? (
-          <button type="button" className="pc-chip accent" disabled={bloqueado} onClick={confirmar} style={{ fontWeight: 700 }}>
+          <button type="button" className="pc-chip accent" disabled={bloqueado || !gateTributario.ok} onClick={confirmar}
+            title={gateTributario.ok ? "Confirmar la base técnica y preparar el requerimiento" : gateTributario.motivo}
+            style={{ fontWeight: 700 }}>
             ✓ Confirmar base técnica
           </button>
         ) : (
@@ -529,12 +590,23 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
             {etiqueta}
           </button>
         ))}
+        <button
+          type="button"
+          className="pc-chip"
+          disabled={!d.processor}
+          title={d.processor ? "Recorrido de la prueba con datos de ejemplo (solo lectura)" : "Ejercicio modelo pendiente"}
+          onClick={() => setModeloAbierto(true)}
+        >
+          Ejercicio modelo
+        </button>
         <button type="button" className="pc-chip danger" onClick={abrirEncerar}>Encerar</button>
       </div>
+      {modeloAbierto && <EjercicioModelo prueba={prueba} onCerrar={() => setModeloAbierto(false)} />}
       {avance && <p className="muted">{avance}</p>}
       {error && <p role="alert" className="nf-error">{error}</p>}
 
-      <BaseTecnica prueba={prueba} taxScope={taxScope} setTaxScope={setTaxScope} />
+      <BaseTecnica prueba={prueba} taxScope={taxScope} setTaxScope={setTaxScope}
+        taxConforme={taxConforme} setTaxConforme={setTaxConforme} gate={gateTributario} />
 
       {!ANTES_DEL_REQUERIMIENTO.includes(prueba.estado) && (
         <>
@@ -542,7 +614,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
           <div className="pc-scenarios nf-vista-subir">
             <span className="pc-scenarios-l" style={{ color: "var(--accent)" }}>SUBIR DOCUMENTOS</span>
             {(reg.requests || []).map((r) => (
-              <ChipDocumento key={r.id} prueba={prueba} req={r} cobertura={cobertura[r.id]} onSubido={onRecargar} habilitado={CON_SUBIDA.includes(prueba.estado) && !bloqueado} />
+              <ChipDocumento key={r.id} prueba={prueba} req={r} cobertura={cobertura[r.id]} onSubido={onRecargar} habilitado={CON_SUBIDA.includes(prueba.estado) && !bloqueado} processor={d.processor} onModelo={bajarModelo} />
             ))}
           </div>
           {calculo.length > 0 && (

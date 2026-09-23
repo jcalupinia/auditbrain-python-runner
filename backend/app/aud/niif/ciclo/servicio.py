@@ -121,6 +121,12 @@ def _definicion_procesador(d: dict) -> dict:
     except ValueError as e:
         raise ReglaIncumplida(str(e))
     datos._validar_plan(d)
+    # Base legal tributaria sugerida por herramienta (viaja con la ficha): pre-llena
+    # el recuadro «Tratamiento tributario revisado y su sustento» en la vista.
+    from backend.app.aud.niif import base_legal
+    sugerida = base_legal.sugerencia(d.get("processor"))
+    if sugerida is not None:
+        d["tributario_sugerido"] = sugerida
     return d
 
 
@@ -224,6 +230,17 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         reg["taxScope"] = str(datos.get("taxScope") or "")[:10000]
         reg["sourcesVerified"] = False
         if accion == "approve_program":
+            if reg.get("taxApplicable"):
+                if not bool(datos.get("taxAcknowledged")):
+                    raise ReglaIncumplida("Marque «Revisé la base legal sugerida y estoy conforme» antes de confirmar la base técnica.")
+                sugerido = str((p.definicion.get("tributario_sugerido") or {}).get("texto") or "").strip()
+                final = reg["taxScope"].strip()
+                acepto = bool(sugerido) and final == sugerido
+                reg["taxScopeMeta"] = {"aceptadaSugerencia": acepto, "editada": not acepto,
+                                       "actor": actor, "fecha": _ahora_iso(),
+                                       "resumen": ("aceptó la base legal sugerida tal cual" if acepto
+                                                   else "editó el tratamiento tributario respecto de la sugerencia")}
+                datos = {**datos, "comment": f"Tratamiento tributario: {reg['taxScopeMeta']['resumen']}."}
             reglas.validar_ficha_encargo({**reg["engagement"], "country": reg["country"]}, completa=True)
             reg["sourcesVerified"] = reglas.verificar_fuentes(reg)
             aprobado = reglas.vincular_fuentes(reg)

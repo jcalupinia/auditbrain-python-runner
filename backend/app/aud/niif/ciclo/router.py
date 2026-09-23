@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.app.aud.niif import procesadores
 from backend.app.aud.niif.ciclo import almacen, datos, modelo, servicio
 from backend.app.aud.niif.ciclo.models import Prueba, PruebaArchivo
 from backend.app.aud.niif.ciclo.reglas import ReglaIncumplida
@@ -320,3 +321,41 @@ def descargar_libro(prueba_id: int, formato: str = "xlsx", db: Session = Depends
     contenido = getattr(libro, funcion)(*servicio.args_papel(db, p))
     return Response(contenido, media_type=mime,
                     headers={"Content-Disposition": f'attachment; filename="Papel_v{p.version}.{ext}"'})
+
+
+@router.get("/pruebas/{prueba_id}/ejercicio-modelo")
+def ejercicio_modelo_de(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
+    """Recorrido completo de la prueba con datos de ejemplo (SOLO LECTURA): corre
+    el procesador sobre sus ejemplos y devuelve los 9 pasos. No modifica la
+    prueba ni el estado del ciclo."""
+    from backend.app.aud.niif import ejercicio_modelo as em
+
+    p = _prueba(db, user, prueba_id)
+    mod = procesadores.de(p.definicion)
+    if mod is None:
+        return {"disponible": False}
+    return em.recorrido(p.definicion, mod)
+
+
+@router.get("/pruebas/{prueba_id}/ejercicio-modelo/libro")
+def ejercicio_modelo_libro(prueba_id: int, formato: str = "xlsx", db: Session = Depends(get_db),
+                           user: User = Depends(require_staff)) -> Response:
+    """Papel de muestra del ejercicio modelo en Excel/Word/PowerPoint/HTML (SOLO LECTURA)."""
+    from backend.app.aud.niif import ejercicio_modelo as em
+
+    tipos = {"xlsx": almacen.TIPOS["xlsx"],
+             "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+             "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+             "html": "text/html; charset=utf-8"}
+    if formato not in tipos:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Formato no disponible.")
+    p = _prueba(db, user, prueba_id)
+    mod = procesadores.de(p.definicion)
+    if mod is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Esta prueba no tiene ejercicio modelo.")
+    try:
+        contenido = em.libro_modelo(p.definicion, mod, formato)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+    return Response(contenido, media_type=tipos[formato],
+                    headers={"Content-Disposition": f'attachment; filename="Ejercicio_modelo.{formato}"'})
