@@ -15,6 +15,9 @@ from datetime import date
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.properties import PageSetupProperties
+
+from backend.app.aud.niif.procesadores import estilo_ejecutivo as est
 
 NAVY, GOLD, BLANCO, CELESTE = "0A2342", "C7A83C", "FFFFFF", "DCE6F1"
 _FINO = Side(style="thin", color="B7C0CC")
@@ -55,7 +58,7 @@ def _contexto(definicion: dict, reg: dict, eventos: list, version: int, estado: 
         ["Firma", e.get("firm") or "AuditConsulting Auditores Cía. Ltda."], ["Cliente", e.get("client")], ["RUC", e.get("ruc")],
         ["Ejercicio", e.get("year")], ["Fecha de corte", e.get("cutoff")], ["Marco contable", e.get("framework")],
         ["Herramienta", definicion.get("name")], ["Rubro", definicion.get("area")], ["Motor", run.get("engine")],
-        ["Versión del papel", f"v{version}"], ["Estado", estado], ["Preparó", e.get("preparer")], ["Revisó", e.get("reviewer")],
+        ["Versión del papel", f"v{version}"], ["Estado", est.estado_es(estado)], ["Preparó", e.get("preparer")], ["Revisó", e.get("reviewer")],
         ["Aprobó", reg.get("approvedBy") or ""], ["Fecha de aprobación", (reg.get("approvedAt") or "")[:10]],
         ["Huella de la ejecución (SHA-256)", reg.get("runHash") or ""],
     ]
@@ -82,7 +85,8 @@ def _contexto(definicion: dict, reg: dict, eventos: list, version: int, estado: 
         {"name": "13_Conclusion", "label": "Conclusión", "cols": [["Concepto", "t"], ["Detalle", "t"]], "rows": cierre, "total": None},
         {"name": "14_Control_Revision", "label": "Control de revisión", "total": None,
          "cols": [["Fecha", "t"], ["Acción", "t"], ["Estado anterior", "t"], ["Estado nuevo", "t"], ["Actor", "t"], ["Comentario", "t"]],
-         "rows": [[(x.get("fecha") or "")[:19].replace("T", " "), x.get("accion"), x.get("estado_anterior"), x.get("estado_nuevo"),
+         "rows": [[(x.get("fecha") or "")[:19].replace("T", " "), est.accion_es(x.get("accion")),
+                   est.estado_es(x.get("estado_anterior")), est.estado_es(x.get("estado_nuevo")),
                    x.get("actor"), x.get("comentario")] for x in eventos]},
     ]
 
@@ -92,44 +96,209 @@ def cedulas(definicion: dict, reg: dict, eventos: list, version: int, estado: st
     return antes + ((reg.get("run") or {}).get("hojas") or []) + despues
 
 
+def _titulos_unicos(hojas: list[dict]) -> list[str]:
+    """Nombres de hoja (≤31) únicos, en el orden de las cédulas."""
+    titulos, vistos = [], set()
+    for h in hojas:
+        base = h["name"][:31]
+        t, k = base, 1
+        while t in vistos:
+            k += 1
+            t = f"{base[:28]}_{k}"
+        vistos.add(t)
+        titulos.append(t)
+    return titulos
+
+
+def _ref(hoja: str, celda: str = "A1") -> str:
+    return f"#'{hoja}'!{celda}"
+
+
+def _boton(ws, celda: str, texto: str, destino: str, S, nav=False):
+    c = ws[celda]
+    c.value = texto
+    c.hyperlink = destino
+    c.font = S["boton_nav"] if nav else S["boton"]
+    c.fill = S["fill_boton_nav"] if nav else S["fill_boton"]
+    c.alignment = S["centro"]
+    c.border = S["borde"]
+
+
+def _panel_inicio(ws, S, definicion, reg, titulos, hojas, estado, version):
+    e = reg.get("engagement") or {}
+    run = reg.get("run") or {}
+    ws.sheet_view.showGridLines = False
+    ws.column_dimensions["A"].width = 3
+    for col in "BCDEF":
+        ws.column_dimensions[col].width = 22
+    # Banda de marca
+    ws.merge_cells("B2:F3")
+    b = ws["B2"]
+    b.value = "AuditConsulting Auditores Cía. Ltda.  ·  AUDIT-IA"
+    b.font = S["marca"]
+    b.fill = S["fill_marca"]
+    b.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    for r in (2, 3):
+        for col in "BCDEF":
+            ws[f"{col}{r}"].fill = S["fill_marca"]
+    ws.merge_cells("B4:F4")
+    ws["B4"].value = definicion.get("name", "")
+    ws["B4"].font = S["titulo"]
+    # Datos del encargo
+    datos = [("Cliente", e.get("client")), ("RUC", e.get("ruc")), ("Marco contable", e.get("framework")),
+             ("Fecha de corte", e.get("cutoff")), ("Preparó", e.get("preparer")), ("Revisó", e.get("reviewer"))]
+    fila = 6
+    for i, (etq, val) in enumerate(datos):
+        col = "B" if i % 2 == 0 else "D"
+        ecol, vcol = col, chr(ord(col) + 1)
+        ws[f"{ecol}{fila}"].value = etq
+        ws[f"{ecol}{fila}"].font = S["kpi_etq"]
+        ws[f"{vcol}{fila}"].value = _seguro(val)
+        ws[f"{vcol}{fila}"].font = S["dato"]
+        if i % 2 == 1:
+            fila += 1
+    # Tarjetas KPI
+    totales = run.get("totals") or {}
+    etiquetas = run.get("labels") or {}
+    prim = run.get("primary")
+    n_prob = len(run.get("exceptions") or [])
+    kpis = []
+    if prim and prim in totales:
+        kpis.append((etiquetas.get(prim, prim), totales.get(prim), "n", None))
+    for k in ("perdida", "cartera", "provReg", "ajuste"):
+        if k in totales and k != prim:
+            kpis.append((etiquetas.get(k, k), totales.get(k), "n", None))
+    kpis.append(("Problemas encontrados", n_prob, "i", est.color_semaforo(n_prob)))
+    kfila = fila + 1
+    ws[f"B{kfila}"].value = "INDICADORES CLAVE"
+    ws[f"B{kfila}"].font = S["subtitulo"]
+    kfila += 1
+    for i, (etq, val, fmt, semaforo) in enumerate(kpis[:6]):
+        col = "BCD"[i % 3] if i < 3 else "BCD"[i % 3]
+        base_col = ["B", "C", "D"][i % 3]
+        base_row = kfila + (i // 3) * 3
+        _tarjeta_kpi(ws, base_col, base_row, etq, val, fmt, semaforo, S)
+    ultima_kpi = kfila + ((len(kpis[:6]) - 1) // 3) * 3 + 2
+    # Grilla de botones de navegación a cada cédula
+    nav_row = ultima_kpi + 2
+    ws[f"B{nav_row}"].value = "IR A LA CÉDULA"
+    ws[f"B{nav_row}"].font = S["subtitulo"]
+    nav_row += 1
+    for i, (h, t) in enumerate(zip(hojas, titulos)):
+        col = ["B", "C", "D", "E"][i % 4]
+        row = nav_row + (i // 4)
+        _boton(ws, f"{col}{row}", h.get("label", t), _ref(t), S)
+        ws.row_dimensions[row].height = 22
+    ws.print_options.horizontalCentered = True
+    _print_setup(ws, e)
+
+
+def _tarjeta_kpi(ws, col, row, etq, val, fmt, semaforo, S):
+    c2 = chr(ord(col) + 0)
+    ws[f"{col}{row}"].value = etq
+    ws[f"{col}{row}"].font = S["kpi_etq"]
+    v = ws[f"{col}{row + 1}"]
+    if fmt == "i":
+        v.value = int(val) if isinstance(val, (int, float)) else val
+        v.number_format = "#,##0"
+    else:
+        try:
+            v.value = float(str(val).replace(",", "")) if val not in (None, "") else 0
+            v.number_format = est.FMT["n"]
+        except (ValueError, TypeError):
+            v.value = _seguro(val)
+    v.font = S["kpi_valor"]
+    for r in (row, row + 1):
+        ws[f"{col}{r}"].fill = S["fill_panel"]
+        ws[f"{col}{r}"].border = S["borde"]
+    if semaforo:
+        from openpyxl.styles import Font as _F
+        v.font = _F(name=est.FONT_CIFRA, size=18, bold=True, color=semaforo)
+
+
+def _print_setup(ws, e):
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+    firma = e.get("firm") or "AuditConsulting Auditores Cía. Ltda."
+    ws.oddFooter.left.text = firma
+    ws.oddFooter.center.text = str(e.get("client") or "")
+    ws.oddFooter.right.text = "Página &P de &N"
+
+
+def _hoja_ejecutiva(ws, S, h, titulo_prueba, nav):
+    ws.sheet_view.showGridLines = False
+    # Encabezado: título, prueba/corte y botones de navegación
+    ws.merge_cells("A1:F1")
+    ws["A1"].value = _seguro(h["label"])
+    ws["A1"].font = S["titulo"]
+    ws.merge_cells("A2:F2")
+    ws["A2"].value = _seguro(titulo_prueba)
+    ws["A2"].font = S["subtitulo"]
+    if nav.get("inicio"):
+        _boton(ws, "H1", "⟵ Inicio", _ref(nav["inicio"]), S, nav=True)
+    if nav.get("anterior"):
+        _boton(ws, "I1", "◀ Anterior", _ref(nav["anterior"]), S, nav=True)
+    if nav.get("siguiente"):
+        _boton(ws, "J1", "Siguiente ▶", _ref(nav["siguiente"]), S, nav=True)
+    # Cabecera de la tabla
+    fila_enc = 4
+    anchos = [len(c[0]) + 2 for c in h["cols"]]
+    for j, (nombre, _) in enumerate(h["cols"], start=1):
+        c = ws.cell(row=fila_enc, column=j, value=nombre)
+        c.font = S["encabezado"]
+        c.fill = S["fill_encabezado"]
+        c.alignment = S["centro"]
+        c.border = S["borde"]
+    filas = [(r, False) for r in h["rows"]] + ([(h["total"], True)] if h.get("total") else [])
+    for i, (fila, total) in enumerate(filas, start=fila_enc + 1):
+        for j, ((_, fmt), v) in enumerate(zip(h["cols"], fila), start=1):
+            c = ws.cell(row=i, column=j, value=_excel(v, fmt))
+            es_num = fmt in est.FMT or (fmt == "x" and isinstance(_valor(v), (int, float)))
+            c.font = S["total"] if total else (S["cifra"] if es_num else S["dato"])
+            c.border = S["borde_total"] if total else S["borde"]
+            if total:
+                c.fill = S["fill_total"]
+            if isinstance(c.value, date):
+                c.number_format = est.FMT["d"]
+                c.alignment = S["centro"]
+            elif fmt in est.FMT:
+                c.number_format = est.FMT[fmt]
+                c.alignment = S["der"]
+            elif es_num:
+                c.alignment = S["der"]
+            else:
+                c.alignment = S["izq"]
+            vista = _valor(v)
+            anchos[j - 1] = max(anchos[j - 1], min(60, len(str(vista if vista is not None else "")) + 2))
+    for j, w in enumerate(anchos, start=1):
+        ws.column_dimensions[get_column_letter(j)].width = max(12, min(60, w))
+    ws.freeze_panes = f"A{fila_enc + 1}"
+    _print_setup(ws, {})
+
+
 def xlsx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> bytes:
+    """Papel de trabajo ejecutivo: panel 00_Inicio con marca, KPIs y navegación,
+    y cada cédula como hoja «tipo software» (sin cuadrícula, botones de
+    navegación, semáforo, impresión horizontal). Las celdas con fórmula se
+    escriben como fórmula viva (trazable)."""
+    S = est.estilos(Font, PatternFill, Border, Side, Alignment)
     wb = Workbook()
     wb.remove(wb.active)
-    titulo = f"{definicion.get('name', '')} · {(reg.get('engagement') or {}).get('client', '')} · corte {(reg.get('engagement') or {}).get('cutoff', '')}"
-    for h in cedulas(definicion, reg, eventos, version, estado):
-        ws = wb.create_sheet(h["name"][:31])
-        ws.cell(row=1, column=1, value=_seguro(h["label"])).font = Font(name="Calibri", size=11, bold=True, color=NAVY)
-        ws.cell(row=2, column=1, value=_seguro(titulo)).font = Font(name="Calibri", size=9, italic=True, color=GOLD)
-        anchos = [len(c[0]) + 2 for c in h["cols"]]
-        for j, (nombre, _) in enumerate(h["cols"], start=1):
-            c = ws.cell(row=4, column=j, value=nombre)
-            c.font = Font(name="Calibri", size=10, bold=True, color=BLANCO)
-            c.fill = PatternFill("solid", fgColor=NAVY)
-            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            c.border = _BORDE
-        filas = [(r, False) for r in h["rows"]] + ([(h["total"], True)] if h.get("total") else [])
-        for i, (fila, total) in enumerate(filas, start=5):
-            for j, ((_, fmt), v) in enumerate(zip(h["cols"], fila), start=1):
-                c = ws.cell(row=i, column=j, value=_excel(v, fmt))
-                c.font = Font(name="Calibri", size=10 if total else 9, bold=total)
-                c.border = _BORDE_TOTAL if total else _BORDE
-                if total:
-                    c.fill = PatternFill("solid", fgColor=CELESTE)
-                if isinstance(c.value, date):
-                    c.number_format = "yyyy-mm-dd"
-                    c.alignment = Alignment(horizontal="center")
-                elif fmt in _FMT:
-                    c.number_format = _FMT[fmt]
-                    c.alignment = Alignment(horizontal="right")
-                elif fmt == "x" and isinstance(_valor(v), (int, float)):
-                    c.alignment = Alignment(horizontal="right")
-                else:
-                    c.alignment = Alignment(horizontal="left", wrap_text=True, vertical="top")
-                vista = _valor(v)
-                anchos[j - 1] = max(anchos[j - 1], min(60, len(str(vista if vista is not None else "")) + 2))
-        for j, w in enumerate(anchos, start=1):
-            ws.column_dimensions[get_column_letter(j)].width = max(12, min(60, w))
-        ws.freeze_panes = "A5"
+    hojas = cedulas(definicion, reg, eventos, version, estado)
+    titulos = _titulos_unicos(hojas)
+    titulo_prueba = f"{definicion.get('name', '')} · {(reg.get('engagement') or {}).get('client', '')} · corte {(reg.get('engagement') or {}).get('cutoff', '')}"
+
+    inicio = wb.create_sheet("00_Inicio")
+    _panel_inicio(inicio, S, definicion, reg, titulos, hojas, estado, version)
+
+    for idx, (h, t) in enumerate(zip(hojas, titulos)):
+        ws = wb.create_sheet(t)
+        nav = {"inicio": "00_Inicio",
+               "anterior": titulos[idx - 1] if idx > 0 else None,
+               "siguiente": titulos[idx + 1] if idx < len(titulos) - 1 else None}
+        _hoja_ejecutiva(ws, S, h, titulo_prueba, nav)
     salida = io.BytesIO()
     wb.save(salida)
     return salida.getvalue()
