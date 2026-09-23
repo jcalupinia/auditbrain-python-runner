@@ -786,7 +786,7 @@ def definicion() -> dict:
                                       "(Sección 23 y Apéndice 23A) y en el texto oficial en español de 2015."),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
-            {"document": "NIA 240", "section": "párr. 26-27 (la NIA 240 Revisada 2025 cambia la numeración; VERIFICAR vigencia)", "requirement": "Presunción de riesgo de fraude en el reconocimiento de ingresos."},
+            {"document": "NIA 240", "section": "párr. 26-27 (la NIA 240 Revisada rige para períodos que empiecen desde el 15-12-2026 y cambia la numeración; se permite su aplicación anticipada)", "requirement": "Presunción de riesgo de fraude en el reconocimiento de ingresos."},
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad del anexo de contratos contra el mayor."},
             {"document": "NIA 540 (Revisada)", "section": "párr. 13 y 17-30", "requirement": "Estimaciones: variable, avance por costos, devoluciones y tasa de descuento."},
             {"document": "NIA 560", "section": "párr. 6", "requirement": "Notas de crédito y devoluciones posteriores al cierre."},

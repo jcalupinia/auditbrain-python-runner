@@ -10,8 +10,9 @@ Especificación del socio: MÓDULO 14 (PAY-01 a PAY-20). Norma:
   si el cálculo supone costo o esfuerzo desproporcionado (28.19) y ganancias/pérdidas actuariales en resultados u
   ORI según la política elegida (28.24).
   Ruta: en NIIF completas las nuevas mediciones van a ORI; en PYMES a donde diga el parámetro «actuarialesEn».
-- Ecuador (Código del Trabajo y Ley de Seguridad Social): todas las tasas y el SBU son parámetros «vigente al corte;
-  VERIFICAR».
+- Ecuador (Código del Trabajo, tabla de tasas del IESS, acuerdos ministeriales del SBU y COMF): todas las tasas y el SBU
+  son parámetros; su base legal está contrastada con el texto oficial y lo que queda es confirmar que siguen vigentes al
+  corte.
 
 Convenciones del cálculo (iguales en Python y en el Excel):
 - Días trabajados en el ejercicio (1-ene al corte) en base comercial 30/360: DAYS360(desde, hasta + 1, TRUE).
@@ -98,30 +99,33 @@ PARAMETROS = {
     "actuarialesEn": ORI, "tolerancia": 1, **{k: None for k in _MAYORES},
 }
 PARAM_NEGATIVOS = ()
-_V = " (vigente al corte; VERIFICAR)"
+_V = " (confirmar que sigue vigente al corte)"
 ETIQUETAS_PARAM = {
-    "sbu": ("Salario básico unificado (USD) · SBU 2025 = 470 (Acuerdo Ministerial MDT-2024-300; vigente al corte; VERIFICAR). "
-            "Décimo cuarto, CT art. 113: 1/12 de la RBU por mes; pago acumulado hasta el 15-mar (Costa e Insular) o 15-ago (Sierra y Amazónica). La regla «SBU vigente a la fecha de pago» (2026 = 482, MDT-2025-195) es del instructivo ministerial (no en la biblioteca; VERIFICAR); si se informa el parámetro «SBU vigente a la fecha de pago» la provisión se mide con él, si no con este SBU del corte"),
+    "sbu": ("Salario básico unificado (USD) · SBU 2025 = 470,00 (Acuerdo Ministerial MDT-2024-300, desde el 1-1-2025). "
+            "Décimo cuarto, CT art. 113: 1/12 de la RBU por mes; pago acumulado hasta el 15-mar (Costa e Insular) o 15-ago (Sierra y Amazónica). "
+            "El SBU 2026 = 482,00 (Acuerdo Ministerial MDT-2025-195, desde el 1-1-2026). La regla «se paga con el SBU vigente a la fecha de pago» "
+            "es práctica ministerial, no consta en el art. 113: si se informa el parámetro «SBU vigente a la fecha de pago» la provisión se mide "
+            "con él, si no con este SBU del corte"),
     "sbuPago": ("SBU vigente a la fecha de pago del décimo cuarto (USD; opcional) · si se informa, la provisión del décimo cuarto se mide con él "
                 "(NIC 19.11 · PYMES 28.5: importe sin descontar que se espera pagar); si se deja vacío se usa el SBU del corte y se emite un problema"
                 + _V),
-    "aportePersonal": "Aporte personal IESS (%)" + _V,
-    "aportePatronal": "Aporte patronal IESS (%)" + _V,
-    "aporteIece": "0,5 % ex IECE (COMF disposición general 11.ª; VERIFICAR)",
-    "aporteSecap": "SECAP (%)" + _V,
-    "fondoReserva": "Fondo de reserva (% de la remuneración, CT art. 196; CT art. 201; R.O. Suplemento 644 de 29-07-2009)" + _V,
-    "diasVacaciones": "Días de vacaciones por año (CT art. 69)" + _V,
-    "aniosVacacionAdicional": "Años tras los cuales se gana un día adicional por año (CT art. 69)" + _V,
-    "maxDiasAdicionales": "Máximo de días adicionales de vacaciones (CT art. 69)" + _V,
-    "horasMes": "Horas del mes para el valor hora = 240 (8 h × 30 días; jornada CT art. 47; cifra expresa en CT art. 224 num. 5)" + _V,
-    "recargoSuplementarias": "Recargo horas suplementarias (%)" + _V,
-    "recargoExtraordinarias": "Recargo horas extraordinarias (%)" + _V,
+    "aportePersonal": "Aporte personal IESS (%) · 9,45 % del sector privado (tabla oficial de tasas de aportación del IESS)" + _V,
+    "aportePatronal": "Aporte patronal IESS (%) · 11,15 % del sector privado (tabla oficial de tasas de aportación del IESS)" + _V,
+    "aporteIece": "0,5 % ex IECE (COMF, disposición general décima primera: 1 % de las planillas del IESS = 0,5 % IECE + 0,5 % SECAP)" + _V,
+    "aporteSecap": "SECAP (%) (COMF, disposición general décima primera)" + _V,
+    "fondoReserva": "Fondo de reserva (% de la remuneración) · CT art. 196: un mes de sueldo por cada año completo posterior al primero (1/12 = 8,33 %); mensualización CT art. 201 y R.O. Suplemento 644 de 29-07-2009" + _V,
+    "diasVacaciones": "Días de vacaciones por año (CT art. 69: quince días)" + _V,
+    "aniosVacacionAdicional": "Años tras los cuales se gana un día adicional por año (CT art. 69: más de cinco años)" + _V,
+    "maxDiasAdicionales": "Máximo de días adicionales de vacaciones (CT art. 69: no excederán de quince, salvo pacto)" + _V,
+    "horasMes": "Horas del mes para el valor hora = 240 (jornada de 8 h, CT art. 47; las 240 horas mensuales constan expresamente en CT art. 224 num. 5)" + _V,
+    "recargoSuplementarias": "Recargo horas suplementarias (%) · 50 % hasta las 24H00 (CT art. 55 num. 2)" + _V,
+    "recargoExtraordinarias": "Recargo horas extraordinarias (%) · 100 % entre las 24H00 y las 06H00 (CT art. 55 num. 2)" + _V,
     "desahucioPct": ("Desahucio: 25 % × última remuneración mensual × años (CT art. 185). Base = sueldo + promedio mensual de horas extras "
                      "y comisiones del año (remuneración del art. 95)") + _V,
     "regionPorDefecto": "Región por defecto para el décimo cuarto (Sierra/Oriente o Costa/Galápagos)",
-    "mesInicioD13": "Mes de inicio del período del décimo tercero (dic = 12)" + _V,
-    "mesInicioD14Sierra": "Mes de inicio del décimo cuarto Sierra/Oriente (ago = 8)" + _V,
-    "mesInicioD14Costa": "Mes de inicio del décimo cuarto Costa/Galápagos (mar = 3)" + _V,
+    "mesInicioD13": "Mes de inicio del período del décimo tercero (dic = 12) · CT art. 111: doceava parte de lo percibido en el año calendario, pago acumulado hasta el 24 de diciembre" + _V,
+    "mesInicioD14Sierra": "Mes de inicio del décimo cuarto Sierra/Oriente (ago = 8) · CT art. 113: pago acumulado hasta el 15 de agosto" + _V,
+    "mesInicioD14Costa": "Mes de inicio del décimo cuarto Costa/Galápagos (mar = 3) · CT art. 113: pago acumulado hasta el 15 de marzo" + _V,
     "actuarialesEn": "PYMES: ganancias/pérdidas actuariales en (Resultados/ORI), política 28.24",
     "tolerancia": "Tolerancia de diferencias (importe)",
     "mayorGastoNomina": "Mayor: gasto de remuneraciones (sueldos, horas extras, comisiones)",
@@ -414,7 +418,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             if e[key] is not None and abs(e[key]) > tol:
                 rec = e["ap"] if key == "ap_dif" else e["pat"]
                 pr.append(problema("APORTE_IESS", f"{n}: aporte {lab} IESS registrado {m(rec + e[key])} ≠ recalculado {m(rec)} "
-                                   "sobre la remuneración registrada (Ley de Seguridad Social; tasas VERIFICAR).", e[key]))
+                                   "sobre la remuneración registrada (tasas del IESS: 9,45 % personal y 11,15 % patronal, sector privado).", e[key]))
         for key, cod, lab, art in (("d13_dif", "DECIMO_TERCERO", "décimo tercero", "CT art. 111"), ("d14_dif", "DECIMO_CUARTO", "décimo cuarto", "CT art. 113")):
             if e[key] is not None and abs(e[key]) > tol:
                 rec = e[key[:3]]
@@ -467,7 +471,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         pr.append(problema("D14_SBU_PAGO", f"Décimo cuarto provisionado con el SBU del corte ({m(q['sbu'])}). La bonificación se paga con la "
                            "remuneración básica unificada vigente a la fecha de pago (acumulada hasta el 15-mar en Costa e Insular y el 15-ago en "
                            "Sierra y Amazónica del año siguiente; CT art. 113 fija esas fechas y la regla del SBU vigente viene del instructivo "
-                           "ministerial, VERIFICAR). Si ese SBU ya se conoce al cierre, informe el parámetro «SBU vigente a la fecha de pago»: la "
+                           "ministerial, no del art. 113). Si ese SBU ya se conoce al cierre, informe el parámetro «SBU vigente a la fecha de pago»: la "
                            "provisión debe medirse por el importe sin descontar que se espera pagar (NIC 19.11 · PYMES 28.5).", 0))
     if activos and not A:
         pr.append(problema("SIN_ESTUDIO_ACTUARIAL", f"{activos} empleados activos y ningún informe actuarial: jubilación patronal y desahucio sin medir "
@@ -550,7 +554,7 @@ def hojas(res: dict) -> list[dict]:
     pv = lambda kk: None if p.get(kk) in (None, "") else float(a_num(p.get(kk)))
     sbu_d14 = pv("sbu") if pv("sbuPago") is None else pv("sbuPago")
     c = PAR["corte"]
-    V = " — vigente al corte; VERIFICAR"
+    V = " — confirmar que sigue vigente al corte"
 
     parametros = [
         ["Corte del ejercicio", d["corte"], "Ficha del encargo"],
@@ -558,16 +562,18 @@ def hojas(res: dict) -> list[dict]:
         ["Marco contable", d["marco"], "Enruta el destino de las nuevas mediciones actuariales"],
         ["Edición PYMES", d["edicion"], "Sección 28: igual en 28.3–28.18 y 28.24; cambian 28.19 (2025 añade supuesto de terminación a la fecha y sin descuento) y 28.41 e) (conciliación por componentes)"],
         ["Nuevas mediciones van a", d["ruta"], "NIC 19.120 c y 127–130: ORI" if not d["pymes"] else "Sección 28.24: política elegida (parámetro)"],
-        ["SBU (USD)", pv("sbu"), "SBU 2025 = 470 (Acuerdo Ministerial MDT-2024-300; vigente al corte; VERIFICAR). Décimo cuarto: "
-                                  "CT art. 113: 1/12 de la RBU por mes; pago acumulado hasta el 15-mar (Costa e Insular) o 15-ago (Sierra y Amazónica). La regla «SBU vigente a la fecha de pago» (2026 = 482, MDT-2025-195) es del instructivo ministerial (no en la biblioteca; VERIFICAR)"],
+        ["SBU (USD)", pv("sbu"), "SBU 2025 = 470,00 (Acuerdo Ministerial MDT-2024-300, desde el 1-1-2025) y 2026 = 482,00 "
+                                  "(MDT-2025-195, desde el 1-1-2026). Décimo cuarto, CT art. 113: 1/12 de la RBU por mes; pago acumulado hasta el "
+                                  "15-mar (Costa e Insular) o 15-ago (Sierra y Amazónica). La regla «se paga con el SBU vigente a la fecha de pago» "
+                                  "es práctica ministerial, no consta en el art. 113" + V],
         ["SBU vigente a la fecha de pago del décimo cuarto (USD)", pv("sbuPago"),
          "Opcional. Si se informa, la provisión del décimo cuarto se mide con este SBU (NIC 19.11 · PYMES 28.5: importe sin descontar que se espera "
-         "pagar); si se deja vacío se usa el SBU del corte y se emite un problema — vigente al corte; VERIFICAR"],
+         "pagar); si se deja vacío se usa el SBU del corte y se emite un problema" + V],
         ["SBU aplicado al décimo cuarto", fx(f'IF({PAR["sbuPago"]}="",{PAR["sbu"]},{PAR["sbuPago"]})', sbu_d14),
          "El de la fecha de pago si se informó; si no, el del corte"],
-        ["Aporte personal IESS (%)", pv("aportePersonal"), "Ley de Seguridad Social / resoluciones IESS" + V],
-        ["Aporte patronal IESS (%)", pv("aportePatronal"), "Ley de Seguridad Social" + V],
-        ["0,5 % ex IECE (%)", pv("aporteIece"), "COMF disposición general 11.ª; VERIFICAR"],
+        ["Aporte personal IESS (%)", pv("aportePersonal"), "Tabla oficial de tasas de aportación del IESS: 9,45 % del sector privado" + V],
+        ["Aporte patronal IESS (%)", pv("aportePatronal"), "Tabla oficial de tasas de aportación del IESS: 11,15 % del sector privado" + V],
+        ["0,5 % ex IECE (%)", pv("aporteIece"), "COMF, disposición general décima primera: 1 % de las planillas del IESS (0,5 % IECE + 0,5 % SECAP)" + V],
         ["SECAP (%)", pv("aporteSecap"), V[3:]],
         ["Fondo de reserva (%)", pv("fondoReserva"), "CT arts. 196 y 201; R.O. Suplemento 644 de 29-07-2009" + V],
         ["Días de vacaciones por año", pv("diasVacaciones"), "CT art. 69" + V],
@@ -578,11 +584,11 @@ def hojas(res: dict) -> list[dict]:
         ["Recargo extraordinarias (%)", pv("recargoExtraordinarias"), "CT art. 55" + V],
         ["Desahucio (% por año)", pv("desahucioPct"), "25 % × última remuneración mensual × años (CT art. 185; remuneración según art. 95)" + V],
         ["Región por defecto", p.get("regionPorDefecto"), "Para empleados sin región"],
-        ["Mes de inicio décimo tercero", pv("mesInicioD13"), "Período dic–nov: acuerdo ministerial del MDT (no en la biblioteca; VERIFICAR). CT art. 111: doceava parte de lo percibido"],
+        ["Mes de inicio décimo tercero", pv("mesInicioD13"), "CT art. 111: doceava parte de lo percibido en el año calendario; pago acumulado hasta el 24 de diciembre. El período dic–nov es práctica ministerial" + V],
         ["Inicio del período décimo tercero", d["i13"], "Derivado del corte y del mes de inicio"],
-        ["Mes de inicio décimo cuarto Sierra/Oriente", pv("mesInicioD14Sierra"), "Período ago–jul (Sierra/Amazonía): acuerdo ministerial (VERIFICAR); fechas de pago: CT art. 113"],
+        ["Mes de inicio décimo cuarto Sierra/Oriente", pv("mesInicioD14Sierra"), "CT art. 113: pago acumulado hasta el 15 de agosto (Sierra y Amazónica); el período ago–jul es práctica ministerial" + V],
         ["Inicio del período décimo cuarto Sierra/Oriente", d["i14s"], "Derivado del corte y del mes de inicio"],
-        ["Mes de inicio décimo cuarto Costa/Galápagos", pv("mesInicioD14Costa"), "Período mar–feb (Costa/Insular): acuerdo ministerial (VERIFICAR); fechas de pago: CT art. 113"],
+        ["Mes de inicio décimo cuarto Costa/Galápagos", pv("mesInicioD14Costa"), "CT art. 113: pago acumulado hasta el 15 de marzo (Costa e Insular); el período mar–feb es práctica ministerial" + V],
         ["Inicio del período décimo cuarto Costa/Galápagos", d["i14c"], "Derivado del corte y del mes de inicio"],
         ["PYMES: actuariales en", p.get("actuarialesEn"), "Política contable (Sección 28.24); en NIIF completas no aplica"],
         ["Tolerancia (importe)", pv("tolerancia"), "Materialidad de ejecución"],
@@ -801,8 +807,10 @@ def definicion() -> dict:
                                       "resultados u ORI según política). Numeración contrastada con el texto oficial 2015 (ES) y 2025 (EN); en 2025 cambian 28.19 y 28.41 e)."),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "legal": ("Ecuador: Código del Trabajo arts. 55 (horas extras), 69 (vacaciones), 71 (valor 1/24), 111 (décimo tercero), 113 (décimo "
-                  "cuarto), 185 (desahucio), 196 (fondo de reserva), 216 (jubilación patronal); Ley de Seguridad Social (aportes). Tasas y "
-                  "SBU como parámetros: vigentes al corte; VERIFICAR."),
+                  "cuarto), 185 (desahucio), 196 (fondo de reserva), 216 (jubilación patronal); tabla oficial de tasas de aportación del "
+                  "IESS (9,45 % personal y 11,15 % patronal, sector privado); COMF, disposición general décima primera (0,5 % IECE + "
+                  "0,5 % SECAP); SBU: Acuerdos Ministeriales MDT-2024-300 (470,00 para 2025) y MDT-2025-195 (482,00 para 2026). Todo "
+                  "va como parámetro: confirmar que sigue vigente al corte."),
         "nia": [
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad del anexo de empleados contra roles, planillas IESS y mayor."},
             {"document": "NIA 500 A23 (recálculo) · NIA 330", "section": "párr. 18", "requirement": "Recálculo sustantivo de la nómina y de las provisiones laborales."},
@@ -839,7 +847,7 @@ def definicion() -> dict:
              "source": "CT art. 55"},
             {"code": "PAY-05", "objective": "Aportes IESS", "risk": "Aportes mal calculados o no pagados", "assertion": "Exactitud / Integridad",
              "procedure": "Recalcular aportes personal y patronal (con IECE y SECAP) y cruzar la base con las planillas IESS", "evidence": "Planillas y comprobantes IESS",
-             "criterion": "Registrado = recalculado; base planilla = nómina", "source": "Ley de Seguridad Social (tasas VERIFICAR)"},
+             "criterion": "Registrado = recalculado; base planilla = nómina", "source": "Ley de Seguridad Social · tabla oficial de tasas de aportación del IESS (9,45 % / 11,15 %)"},
             {"code": "PAY-07", "objective": "Décimo tercero y décimo cuarto", "risk": "Décimos mal provisionados al corte", "assertion": "Valoración / Integridad",
              "procedure": "Recalcular la parte devengada al corte por empleado, período y región", "evidence": "Nómina, formularios de pago de décimos",
              "criterion": "Provisión = recalculada", "source": "CT arts. 111 y 113 · NIC 19.9, 11 · PYMES 28.3–28.6"},
@@ -895,7 +903,7 @@ def _pl(id, tipo, ini, sc, ic, nm, bp, fin_, prov, **x):
             "beneficios_pagados": bp, "dbo_final": fin_, "provision_registrada": prov, "_row": 2, **x}
 
 
-# Ejemplo de control (M19), corte 2025-12-31, SBU 470 (VERIFICAR):
+# Ejemplo de control (M19), corte 2025-12-31, SBU 470,00 (MDT-2024-300):
 # E01 Ana: 1.200 × 360 ÷ 30 = 14.400 + horas extras 5 × (20 × 1,5 + 10 × 2) = 250 → bruto 14.650; D13 = 14.650 ÷ 360 × 30 ÷ 12 = 101,74;
 #   D14 Sierra (1-ago) = 470 × 150 ÷ 360 = 195,83; 10 años → 20 días; saldo 10 + 20 − 15 = 15 × 40,69 = 610,42; FR 14.650 × 8,33 % = 1.220,35.
 # E02 Bruno (Costa): aporte personal 900 vs 10.320 × 9,45 % = 975,24; D14 desde 1-mar = 470 × 300 ÷ 360 = 391,67 vs 195,83; vacaciones 143,33 sin provisión.

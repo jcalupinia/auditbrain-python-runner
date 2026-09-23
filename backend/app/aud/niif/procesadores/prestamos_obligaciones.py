@@ -547,8 +547,8 @@ def hojas(res: dict) -> list[dict]:
              ("NIIF completas · NIIF 9 (5.1.1, 4.2.1, 5.3.1 y Apéndice A) y NIIF 18 párr. 101 y B99–B106 para la presentación (ejercicios desde 2027; covenants: B100, B102–B103, B105–B106)" if niif18 else
               "NIIF completas · NIIF 9 (5.1.1, 4.2.1, 5.3.1 y Apéndice A) y NIC 1 69–76 (modificaciones 2020/2022, vigentes desde 2024)"))
     sust = {"totalActivos": "Estados financieros al corte", "patrimonio": "Estados financieros al corte (admite negativo)",
-            "ebitda": "Estado de resultados; definición según el contrato (VERIFICAR)", "ebit": "Estado de resultados",
-            "efectivoServicioDeuda": "Definición del contrato de préstamo (VERIFICAR)", "baseCobertura": "EBITDA o EBIT, según el contrato",
+            "ebitda": "Estado de resultados; use la definición del contrato, que manda sobre cualquier otra", "ebit": "Estado de resultados",
+            "efectivoServicioDeuda": "Use la definición del contrato de préstamo, que manda sobre cualquier otra", "baseCobertura": "EBITDA o EBIT, según el contrato",
             "limDeudaActivos": "Contrato de préstamo", "limDeudaPatrimonio": "Contrato de préstamo", "limDeudaEbitda": "Contrato de préstamo",
             "limCobertura": "Contrato de préstamo", "limDSCR": "Contrato de préstamo"}
     parametros = [["Fecha de corte", d["corte"], "Ficha del encargo"],
@@ -788,7 +788,7 @@ def definicion() -> dict:
             {"document": "NIA 570 (Revisada)", "section": "párr. 10–16", "requirement": "Incumplimientos de covenants y capacidad de pago como indicios de empresa en marcha. La NIA 570 (Revisada 2024) rige para períodos desde el 15-12-2026."},
         ],
         "calculo": [
-            "Tasa periódica nominal = tasa nominal anual × meses del período ÷ 12 (VERIFICAR contra el contrato).",
+            "Tasa periódica nominal = tasa nominal anual × meses del período ÷ 12 (cotéjela con el contrato).",
             "Pago: francés = PAGO(tasa; períodos; −monto); alemán = monto ÷ períodos + interés; bullet = interés y el capital en el último período.",
             "Importe neto recibido = monto − comisiones y costos de transacción (NIIF 9 5.1.1 / PYMES 11.13).",
             "TIE periódica = TIR de los flujos (−neto recibido, pagos contractuales) (Apéndice A: las comisiones integran la TIE).",

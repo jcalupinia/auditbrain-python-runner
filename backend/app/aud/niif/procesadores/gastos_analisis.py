@@ -29,12 +29,12 @@ pruebas de la matriz). Dos anexos:
 8. Partidas inusuales: las de importe igual o mayor a la materialidad se revelan por separado (NIC 1 97; se usa la materialidad de ejecución como aproximación (NIC 1.97 se refiere a la importancia relativa)).
 9. Tributario Ecuador (referencia): sin comprobante de venta válido (LRTI art. 10 num. 1) o sin bancarización sobre el
    umbral (Reglamento LRTI art. 27, reforma 2024, por caso entendido; el art. 103 de la LRTI fija el uso del sistema
-   financiero) → no deducible (umbral como parámetro, vigente al corte; VERIFICAR).
+   financiero) → no deducible (umbral como parámetro; confirmar que sigue vigente al corte).
 10. Ajuste propuesto al gasto = no registrados + devengados no registrados − otro período − anticipados (M09).
 
 Norma leída (M03): NIC 1 párr. 27–28, 87, 97–99, 102–105; NIC 24 párr. 18–19; NIC 8 párr. 41–42 en el
 Reglamento (UE) 2023/1803 (EUR-Lex, español); NIIF para las PYMES 2015 párr. 2.23, 2.26, 2.36, 5.9–5.11,
-33.9–33.10. Marco Conceptual (definición de gasto) y PYMES 2025: numeración no leída → «VERIFICAR».
+33.9–33.10. Marco Conceptual 4.69 y 4.72 y la numeración de PYMES 2025 (2.63, 3.16A, 5.9–5.11) están contrastados con el texto oficial.
 """
 from __future__ import annotations
 
@@ -89,7 +89,7 @@ ETIQUETAS_PARAM = {
     "umbralVarPct": "Umbral de variación de la NIA 520 (%)",
     "umbralVarAbs": "Umbral de variación de la NIA 520 (importe; vacío = materialidad de ejecución)",
     "materialidadEjecucion": "Materialidad de ejecución",
-    "umbralBancarizacion": "Umbral de bancarización (USD por caso entendido — contrato —, Reglamento LRTI art. 27; vigente al corte; VERIFICAR)",
+    "umbralBancarizacion": "Umbral de bancarización (USD por caso entendido — contrato —, Reglamento LRTI art. 27; confirmar que sigue vigente al corte)",
     "gastosSegunEri": "Total de gastos según el estado de resultados / mayor",
     "rpRevelado": "Transacciones con partes relacionadas reveladas en notas",
 }
@@ -381,10 +381,10 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     for t in reg:
         if t["ndComp"]:
             problemas.append(problema("SIN_COMPROBANTE_VALIDO", f"{t['comp']} {t['proveedor']}: sin comprobante de venta válido; no deducible "
-                                      "(LRTI art. 10 num. 1; VERIFICAR norma vigente).", t["importe"]))
+                                      "(LRTI art. 10 num. 1, texto oficial del SRI vigente hasta el 2-7-2021: confirmar reformas posteriores).", t["importe"]))
         if t["ndBanco"]:
             problemas.append(problema("SIN_BANCARIZACION", f"{t['comp']} {t['proveedor']}: pago mayor a {m(uban)} sin bancarización; no deducible "
-                                      "(Reglamento LRTI art. 27, por caso entendido; umbral vigente al corte, VERIFICAR).", t["importe"]))
+                                      "(Reglamento LRTI art. 27, por caso entendido; confirmar que el umbral sigue vigente al corte).", t["importe"]))
     fuera = sorted({t["cuenta"] for t in trans if t["cuenta"].lower() not in idx_cta})
     if fuera:
         problemas.append(problema("CUENTA_FUERA_DE_SUMARIA", "Cuentas de la muestra que no están en la sumaria: " + ", ".join(fuera) + "."))
@@ -462,7 +462,7 @@ def hojas(res: dict) -> list[dict]:
         ["Materialidad de ejecución", d["mat"], "NIA 320; revelación separada de partidas materiales: se usa la materialidad de ejecución como aproximación (NIC 1.97 se refiere a la importancia relativa)"],
         ["Umbral absoluto aplicado", fx(f'IF(B{PAR["umbralVarAbs"]}<>"",B{PAR["umbralVarAbs"]},B{PAR["materialidadEjecucion"]})', d["uabs"]),
          "Umbral de variación o, si falta, materialidad de ejecución"],
-        ["Umbral de bancarización (USD)", d["uban"], "Por caso entendido (contrato), Reglamento LRTI art. 27 — vigente al corte; VERIFICAR"],
+        ["Umbral de bancarización (USD)", d["uban"], "Por caso entendido (contrato), Reglamento LRTI art. 27 (reforma de 15-7-2025) — confirmar que sigue vigente al corte"],
         ["Gastos según el estado de resultados / mayor", d["eri"], "Estado de resultados o balance de comprobación"],
         ["Partes relacionadas reveladas en notas", d["rpRev"], "Nota de partes relacionadas (NIC 24 párr. 18 / PYMES 33.9)"],
     ]
@@ -724,21 +724,23 @@ def definicion() -> dict:
                     "referencia tributaria de Ecuador (comprobante válido y bancarización)."),
         "source": {"organization": "IFRS Foundation (texto en español: Reglamento (UE) 2023/1803)", "type": "Norma contable", "date": "",
                    "document": ("NIC 1 párr. 27–28 (devengo), 87 (sin partidas extraordinarias), 97–98 (partidas materiales), 99 y 102–105 "
-                                "(desglose por naturaleza o función; 103: por función, costo de ventas por separado); NIC 24 párr. 18–19; NIC 8 párr. 41–42 (errores). Marco Conceptual "
-                                "párr. 4.69 y 4.72 (definición de gasto): VERIFICAR, no incluido en el Reglamento leído."),
+                                "(desglose por naturaleza o función; 103: por función, costo de ventas por separado); NIC 24 párr. 18–19; NIC 8 párr. 41–42 (errores). Marco "
+                                "Conceptual párr. 4.69 (definición de gasto) y 4.72 (separar ingresos y gastos de distintas características): no forma "
+                                "parte del Reglamento (UE) 2023/1803; contrastado con la traducción oficial al español de la IFRS Foundation."),
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
                          "document": ("NIIF para las PYMES 2015: párr. 2.23 b) y 2.26 (definición de gasto), 2.36 (base de acumulación o "
                                       "devengo), 5.9 (partidas adicionales), 5.10 (sin partidas extraordinarias), 5.11 (desglose por naturaleza "
                                       "o función; por función, costo de ventas por separado), 33.9–33.10 (partes relacionadas), Sección 10 "
-                                      "(errores). Edición 2025 (tercera edición, vigente desde el 1-1-2027): VERIFICAR numeración y redacción en el texto oficial (no leído)."),
+                                      "(errores). Edición 2025 (tercera edición, vigente desde el 1-1-2027), numeración contrastada con el texto "
+                                      "oficial: 2.63 (definición de gasto), 3.16A (devengo), 5.9, 5.10 y 5.11 y 33.9–33.10 sin cambio de número."),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
-            {"document": "NIA 520", "section": "párr. 5 y 7", "requirement": "Procedimientos analíticos sustantivos: expectativa, umbral de diferencia aceptable e investigación de las diferencias (VERIFICAR párrafos)."},
-            {"document": "NIA 500", "section": "párr. 6 y 9", "requirement": "Evidencia suficiente y adecuada; exactitud e integridad de la sumaria contra el mayor (VERIFICAR párrafos)."},
+            {"document": "NIA 520", "section": "párr. 5 y 7", "requirement": "Procedimientos analíticos sustantivos: expectativa y umbral de diferencia aceptable (párr. 5) e investigación de las diferencias (párr. 7)."},
+            {"document": "NIA 500", "section": "párr. 6 y 9", "requirement": "Evidencia suficiente y adecuada (párr. 6); exactitud e integridad de la información producida por la entidad —la sumaria contra el mayor— (párr. 9)."},
             {"document": "NIA 550", "section": "párr. 25", "requirement": "Transacciones con partes relacionadas: evaluación de su contabilización y revelación."},
             {"document": "NIA 330", "section": "párr. 18", "requirement": "Procedimientos sustantivos sobre transacciones materiales, incluido el corte."},
-            {"document": "NIA 450", "section": "párr. 5", "requirement": "Acumular las incorrecciones identificadas (gastos no soportados, corte, devengo) (VERIFICAR párrafo)."},
+            {"document": "NIA 450", "section": "párr. 5", "requirement": "Acumular las incorrecciones identificadas, salvo las claramente triviales (gastos no soportados, corte, devengo)."},
         ],
         "calculo": [
             "Variación = saldo actual − saldo anterior (y − presupuesto); variación % = variación ÷ base. Excede el umbral si |variación| > umbral absoluto "
@@ -753,7 +755,7 @@ def definicion() -> dict:
             "Reclasificación: cuenta correcta según el auditor distinta de la registrada.",
             "Partes relacionadas: importe del período por categoría (NIC 24 19 / PYMES 33.10) frente a lo revelado en notas.",
             "Partida inusual con importe ≥ materialidad: revelación por separado (NIC 1 97; se usa la materialidad de ejecución como aproximación (NIC 1.97 se refiere a la importancia relativa)).",
-            "Referencia tributaria: sin comprobante válido (LRTI art. 10 num. 1), o importe > umbral de bancarización sin pago por banco (Reglamento LRTI art. 27) = no deducible (vigente al corte; VERIFICAR).",
+            "Referencia tributaria: sin comprobante válido (LRTI art. 10 num. 1), o importe > umbral de bancarización sin pago por banco (Reglamento LRTI art. 27) = no deducible (confirmar que sigue vigente al corte).",
         ],
         "fields": _CUENTAS, "rules": [], "control": CONTROL, "primary": "ajusteGasto",
         "campos": CAMPOS, "tipos": TIPOS, "parametros": dict(PARAMETROS), "etiquetas_parametros": ETIQUETAS_PARAM,
@@ -782,7 +784,7 @@ def definicion() -> dict:
             {"code": "GAS-07", "objective": "Partidas inusuales y referencia tributaria", "risk": "Partidas materiales sin revelar; gastos no deducibles",
              "assertion": "Presentación / Cumplimiento", "procedure": "Identificar partidas inusuales y verificar comprobante válido y bancarización",
              "evidence": "Comprobantes SRI, estados de cuenta bancarios", "criterion": "Revelación separada; no deducibles identificados",
-             "source": "NIC 1 párr. 97 · normativa tributaria Ecuador (VERIFICAR)"},
+             "source": "NIC 1 párr. 97 (partidas materiales por separado) · LRTI art. 10 num. 1 y Reglamento LRTI art. 27 (Ecuador)"},
         ],
         "requests": [
             req("RQ-001", "Sumaria de cuentas de gasto (año actual, anterior y presupuesto)", "cuentas", "GAS-01",
