@@ -604,10 +604,11 @@ def pptx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     return salida.getvalue()
 
 
-def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> bytes:
+def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str, para_pdf: bool = False) -> bytes:
     """HTML autónomo: funciona sin internet (sin fuentes, scripts ni estilos
-    externos) y trae dentro el Excel con fórmulas, el Word y el PowerPoint para
-    descargarlos; el PDF se guarda desde la impresión del navegador."""
+    externos) y trae dentro el Excel con fórmulas, el Word, el PowerPoint y el
+    CSV para descargarlos. ``para_pdf=True`` devuelve una versión estática (todo
+    visible, sin pestañas/descargas/JS) para renderizar el PDF en el servidor."""
     import base64
 
     hojas = cedulas(definicion, reg, eventos, version, estado)
@@ -617,7 +618,7 @@ def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     tabs, secciones = [], []
     for idx, h in enumerate(hojas):
         act = " on" if idx == 0 else ""
-        vis = "" if idx == 0 else ' hidden'
+        vis = "" if (para_pdf or idx == 0) else ' hidden'
         tabs.append(f'<button class="tab{act}" type="button" data-t="t{idx}">{_html.escape(h["label"])}</button>')
         cab = "".join(f"<th>{_html.escape(c[0])}</th>" for c in h["cols"])
         cuerpo = "".join(
@@ -634,9 +635,12 @@ def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
                 f"<tr><td>{_html.escape(b['columna'])}</td><td class='mono'>{_html.escape(b['formula'])}</td>"
                 f"<td>{_html.escape(b['explicacion'])}</td><td>{_html.escape(b['ejemplo'])}</td>"
                 f"<td>{_html.escape(b['origen'])}</td></tr>" for b in bloque)
-            calc = ("<details class='calc'><summary>ⓘ Ver cálculo de esta hoja</summary>"
-                    "<table class='calc'><thead><tr><th>Columna</th><th>Fórmula</th><th>Cómo se calcula</th>"
-                    f"<th>Ejemplo (fila 1)</th><th>De dónde viene</th></tr></thead><tbody>{filas_c}</tbody></table></details>")
+            tabla_calc = ("<table class='calc'><thead><tr><th>Columna</th><th>Fórmula</th><th>Cómo se calcula</th>"
+                          f"<th>Ejemplo (fila 1)</th><th>De dónde viene</th></tr></thead><tbody>{filas_c}</tbody></table>")
+            if para_pdf:
+                calc = f"<div class='calc'><p class='calctit'>ⓘ Cómo se calcula esta hoja</p>{tabla_calc}</div>"
+            else:
+                calc = f"<details class='calc'><summary>ⓘ Ver cálculo de esta hoja</summary>{tabla_calc}</details>"
         secciones.append(f'<section id="t{idx}"{vis}><h2>{_html.escape(h["label"])}</h2>{calc}'
                          f'<div class="scroll"><table><thead><tr>{cab}</tr></thead><tbody>{cuerpo}</tbody></table></div></section>')
     # Tarjetas KPI
@@ -682,17 +686,23 @@ def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
         f"th{{background:#{est.NAVY};color:#fff;padding:5px 6px}}"
         f"td{{border:1px solid #{est.LINE};padding:3px 6px;vertical-align:top}}td.num{{text-align:right;white-space:nowrap;font-family:Consolas,monospace}}"
         f"tr.total td{{font-weight:700;background:#{est.CELESTE};border-top:3px double #{est.NAVY};border-bottom:3px double #{est.NAVY}}}"
-        f"details.calc{{margin:8px 0;background:#fff;border:1px solid #{est.LINE};border-radius:8px;padding:6px 10px}}"
-        f"details.calc summary{{cursor:pointer;font-weight:700;color:#{est.TURQUOISE}}}"
+        f"details.calc,div.calc{{margin:8px 0;background:#fff;border:1px solid #{est.LINE};border-radius:8px;padding:6px 10px}}"
+        f"details.calc summary,.calctit{{cursor:pointer;font-weight:700;color:#{est.TURQUOISE};margin:0}}"
         "table.calc td.mono,td.mono{font-family:Consolas,monospace;font-size:11px}"
         f".nota{{color:#555;font-size:12px}}"
         "@media print{.descargas,.tabs,.nota,.btn{display:none}section[hidden]{display:block!important}"
         "details.calc{display:none}body{background:#fff}.wrap{max-width:none;padding:0}"
+        "section{break-inside:avoid}"
         "th{-webkit-print-color-adjust:exact;print-color-adjust:exact}@page{size:A4 landscape;margin:12mm}}"
     )
-    js = ("<script>document.querySelectorAll('.tab').forEach(function(b){b.onclick=function(){"
+    js = ("" if para_pdf else
+          "<script>document.querySelectorAll('.tab').forEach(function(b){b.onclick=function(){"
           "document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on')});b.classList.add('on');"
           "document.querySelectorAll('section').forEach(function(s){s.hidden=(s.id!==b.dataset.t)});};});</script>")
+    chrome = "" if para_pdf else (
+        f'<div class="descargas">{botones}</div>'
+        '<p class="nota">Funciona sin conexión. Pase el cursor sobre un importe para ver su fórmula; use «ⓘ Ver cálculo» para la explicación de cada hoja. En el Excel las fórmulas son editables y trazables.</p>'
+        f'<div class="tabs">{"".join(tabs)}</div>')
     doc = (
         "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
@@ -701,9 +711,17 @@ def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
         f'<span>{_html.escape(str(e.get("client","")))} · RUC {_html.escape(str(e.get("ruc","")))} · corte {_html.escape(str(e.get("cutoff","")))} · v{version} · {_html.escape(est.estado_es(estado))}</span></div>'
         f'<h1>{_html.escape(definicion.get("name",""))}</h1>'
         f'<div class="kpis">{kpis}</div>'
-        f'<div class="descargas">{botones}</div>'
-        '<p class="nota">Funciona sin conexión. Pase el cursor sobre un importe para ver su fórmula; use «ⓘ Ver cálculo» para la explicación de cada hoja. En el Excel las fórmulas son editables y trazables.</p>'
-        f'<div class="tabs">{"".join(tabs)}</div>'
+        + chrome
         + "".join(secciones) + js + "</div></body></html>"
     )
     return doc.encode("utf-8")
+
+
+def pdf(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> bytes:
+    """PDF ejecutivo generado en el servidor (WeasyPrint) a partir del HTML
+    estático: fiel a la vista, horizontal, con marca, KPIs, cédulas y el bloque
+    «Cómo se calcula». No usa la impresión del navegador."""
+    import weasyprint
+
+    contenido = html(definicion, reg, eventos, version, estado, para_pdf=True)
+    return weasyprint.HTML(string=contenido.decode("utf-8")).write_pdf()

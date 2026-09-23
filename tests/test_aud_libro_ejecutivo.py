@@ -143,6 +143,16 @@ def test_html_trae_kpis_pestanas_y_ver_calculo():
     assert "CSV (ZIP)" in html and "Guardar como PDF" in html
 
 
+def test_pdf_ejecutivo_se_genera_en_el_servidor():
+    d, mod, reg = _reg("perdidas_incurridas_s11")
+    pdf = libro.pdf(d, reg, [], 1, "APROBADO")
+    assert pdf[:5] == b"%PDF-" and len(pdf) > 5000
+    # El HTML estático del PDF trae el bloque «Cómo se calcula» visible y sin JS/descargas.
+    est_html = libro.html(d, reg, [], 1, "APROBADO", para_pdf=True).decode("utf-8")
+    assert "<script>" not in est_html and 'class="descargas"' not in est_html
+    assert "Cómo se calcula esta hoja" in est_html
+
+
 def test_tokens_y_etiquetas_cubren_el_vocabulario():
     for e in reglas.ESTADOS:
         assert est.estado_es(e) != e, e  # todos traducidos

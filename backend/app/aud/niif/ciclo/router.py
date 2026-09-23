@@ -305,15 +305,18 @@ def descargar_libro(prueba_id: int, formato: str = "xlsx", db: Session = Depends
     y trae dentro los demás formatos)."""
     from backend.app.aud.niif.procesadores import libro
 
-    tipos = {"xlsx": almacen.TIPOS["xlsx"],
-             "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-             "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-             "html": "text/html; charset=utf-8"}
+    tipos = {"xlsx": (almacen.TIPOS["xlsx"], "xlsx", "xlsx"),
+             "docx": ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx", "docx"),
+             "pptx": ("application/vnd.openxmlformats-officedocument.presentationml.presentation", "pptx", "pptx"),
+             "pdf": ("application/pdf", "pdf", "pdf"),
+             "csv": ("application/zip", "csv_zip", "zip"),   # un CSV por cédula en un ZIP
+             "html": ("text/html; charset=utf-8", "html", "html")}
     if formato not in tipos:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Formato no disponible.")
+    mime, funcion, ext = tipos[formato]
     p = _prueba(db, user, prueba_id)
     if not p.definicion.get("processor") or not (p.registro.get("run") or {}).get("hojas"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Procese la prueba antes de descargar su papel.")
-    contenido = getattr(libro, formato)(*servicio.args_papel(db, p))
-    return Response(contenido, media_type=tipos[formato],
-                    headers={"Content-Disposition": f'attachment; filename="Papel_v{p.version}.{formato}"'})
+    contenido = getattr(libro, funcion)(*servicio.args_papel(db, p))
+    return Response(contenido, media_type=mime,
+                    headers={"Content-Disposition": f'attachment; filename="Papel_v{p.version}.{ext}"'})

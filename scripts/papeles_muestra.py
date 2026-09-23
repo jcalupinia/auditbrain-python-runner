@@ -27,9 +27,9 @@ for pid in ids:
                               "framework": marco, "firm": "AuditConsulting Auditores Cía. Ltda.",
                               "preparer": "Ejercicio modelo", "reviewer": "Pendiente"}}
         base = f"{pid}__{nombre}"
-        for ext in ("xlsx", "docx", "pptx", "html"):
+        for ext, fn in (("xlsx", "xlsx"), ("docx", "docx"), ("pptx", "pptx"), ("pdf", "pdf"), ("html", "html"), ("zip", "csv_zip")):
             with open(os.path.join(salida, f"{base}.{ext}"), "wb") as fh:
-                fh.write(getattr(libro, ext)(d, reg, [], 1, "MUESTRA"))
+                fh.write(getattr(libro, fn)(d, reg, [], 1, "MUESTRA"))
         prim = res["primary"]
         filas.append((m.RUBRO, d["name"], nombre, marco, res["labels"].get(prim, prim), res["totals"].get(prim), len(res["exceptions"]), base))
         print(pid, nombre, res["totals"].get(prim))
@@ -37,7 +37,7 @@ for pid in ids:
 cuerpo = "".join(
     f"<tr><td>{html.escape(r)}</td><td>{html.escape(n)}</td><td>{html.escape(e)}</td><td>{html.escape(mc)}</td>"
     f"<td>{html.escape(str(lp))}</td><td style='text-align:right'>{html.escape(str(v))}</td><td style='text-align:right'>{x}</td>"
-    f"<td><a href='{b}.xlsx'>Excel</a> · <a href='{b}.html'>HTML</a> · <a href='{b}.docx'>Word</a> · <a href='{b}.pptx'>PowerPoint</a></td></tr>"
+    f"<td><a href='{b}.xlsx'>Excel</a> · <a href='{b}.html'>HTML</a> · <a href='{b}.pdf'>PDF</a> · <a href='{b}.docx'>Word</a> · <a href='{b}.pptx'>PowerPoint</a> · <a href='{b}.zip'>CSV</a></td></tr>"
     for r, n, e, mc, lp, v, x, b in filas)
 with open(os.path.join(salida, "INDICE.html"), "w", encoding="utf-8") as fh:
     fh.write("<!doctype html><html lang='es'><head><meta charset='utf-8'><title>Papeles de muestra</title><style>"
