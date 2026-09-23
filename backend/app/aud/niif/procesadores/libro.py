@@ -14,7 +14,7 @@ from datetime import date
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import column_index_from_string, get_column_letter
 from openpyxl.worksheet.properties import PageSetupProperties
 
 from backend.app.aud.niif.procesadores import estilo_ejecutivo as est
@@ -275,7 +275,41 @@ def _hoja_ejecutiva(ws, S, h, titulo_prueba, nav):
     for j, w in enumerate(anchos, start=1):
         ws.column_dimensions[get_column_letter(j)].width = max(12, min(60, w))
     ws.freeze_panes = f"A{fila_enc + 1}"
+    _bloque_como_se_calcula(ws, S, h, len(filas) + fila_enc + 2)
     _print_setup(ws, {})
+
+
+def _bloque_como_se_calcula(ws, S, h, fila_inicio):
+    """Escribe, debajo de la tabla, el bloque «ⓘ Cómo se calcula esta hoja» en
+    lenguaje sencillo (una fila por columna con fórmula). No se imprime cortado:
+    va en su propia banda con fondo claro y borde."""
+    bloque = como_se_calcula(h)
+    if not bloque:
+        return
+    r = fila_inicio
+    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=6)
+    t = ws.cell(row=r, column=1, value="ⓘ  Cómo se calcula esta hoja")
+    t.font = S["subtitulo"]
+    t.fill = S["fill_gold"]
+    t.alignment = S["izq"]
+    r += 1
+    encabez = ["Columna", "Fórmula (Excel)", "Cómo se calcula (sencillo)", "Ejemplo (fila 1)", "De dónde viene", "Norma"]
+    for j, txt in enumerate(encabez, start=1):
+        c = ws.cell(row=r, column=j, value=txt)
+        c.font = S["encabezado"]
+        c.fill = S["fill_encabezado"]
+        c.alignment = S["centro"]
+        c.border = S["borde"]
+    for b in bloque:
+        r += 1
+        celdas = [b["columna"], _seguro(b["formula"]), b["explicacion"], b["ejemplo"], b["origen"], b.get("norma") or "—"]
+        for j, val in enumerate(celdas, start=1):
+            c = ws.cell(row=r, column=j, value=val)
+            c.font = S["cifra"] if j == 2 else S["dato"]
+            c.fill = S["fill_panel"]
+            c.alignment = S["izq"]
+            c.border = S["borde"]
+    ws.print_area = None
 
 
 def xlsx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> bytes:
@@ -323,6 +357,83 @@ def _celda(v, fmt) -> str:
 
 def _filas(h):
     return [(r, False) for r in h["rows"]] + ([(h["total"], True)] if h.get("total") else [])
+
+
+# --- «Cómo se calcula esta hoja» ---------------------------------------------
+# Se GENERA desde la misma definición de la cédula que produce las fórmulas
+# (h["cols"]/h["rows"] con celdas {"f":…,"v":…}). Una sola fuente: si la fórmula
+# cambia, la explicación cambia.
+_REF = re.compile(r"(?:'([^']+)'!)?\$?([A-Z]{1,3})\$?(\d+)")
+_SOLO_ARITMETICA = re.compile(r"^[-+*/().\s0-9]*$")
+
+
+def _fmt_num(v, fmt) -> str:
+    return _celda(v, fmt if fmt in ("n", "p", "i", "a") else "n")
+
+
+def _ejemplo_fila1(formula: str, h: dict, header_por_letra: dict, fmt: str) -> str:
+    """Ejemplo con los números de la PRIMERA fila real. Si la fórmula es pura
+    aritmética entre celdas de la misma hoja, sustituye cada celda por su valor
+    («12.500,00 − 7.500,00 = 5.000,00»); si no, muestra el resultado de la fila 1."""
+    filas = h["rows"]
+    if not filas:
+        return ""
+    # Sustitución solo si no hay funciones (letras fuera de referencias) ni hojas externas.
+    def sustituye(m):
+        sheet, letra, num = m.group(1), m.group(2), int(m.group(3))
+        if sheet:
+            return m.group(0)
+        idx_fila = num - 5           # los datos arrancan en la fila 5 de la hoja
+        col = column_index_from_string(letra) - 1
+        if 0 <= idx_fila < len(filas) and 0 <= col < len(filas[idx_fila]):
+            return _fmt_num(_valor(filas[idx_fila][col]), fmt)
+        return m.group(0)
+    sin_refs = _REF.sub("X", formula)
+    if _SOLO_ARITMETICA.match(sin_refs.replace("X", "")):
+        return _REF.sub(sustituye, formula)
+    return "resultado de la fila 1"
+
+
+def como_se_calcula(h: dict) -> list[dict]:
+    """Filas del bloque explicativo: una por columna CALCULADA (con fórmula).
+    Cada una: columna, fórmula (texto), explicación sencilla, ejemplo de la fila 1,
+    de dónde vienen los datos y la referencia normativa de la hoja."""
+    filas = h.get("rows") or []
+    if not filas:
+        return []
+    cols = [c[0] for c in h["cols"]]
+    header_por_letra = {get_column_letter(j + 1): cols[j] for j in range(len(cols))}
+    bloque = []
+    for j, (nombre, fmt) in enumerate(h["cols"]):
+        v0 = filas[0][j] if j < len(filas[0]) else None
+        if not (isinstance(v0, dict) and "f" in v0):
+            continue
+        formula = v0["f"]
+        refs = _REF.findall(formula)
+        origen_cols, origen_hojas = [], []
+        for sheet, letra, _num in refs:
+            if sheet and sheet not in origen_hojas:
+                origen_hojas.append(sheet)
+            elif not sheet and letra in header_por_letra:
+                col = header_por_letra[letra]
+                if col not in origen_cols:
+                    origen_cols.append(col)
+        partes = []
+        if origen_cols:
+            partes.append("usa " + ", ".join(f"«{c}»" for c in origen_cols))
+        if origen_hojas:
+            partes.append(("y datos de " if partes else "usa datos de ") + ", ".join(origen_hojas))
+        explic = f"«{nombre}» se obtiene con la fórmula indicada" + ((": " + " ".join(partes) + ".") if partes else ".")
+        ejemplo_expr = _ejemplo_fila1(formula, h, header_por_letra, fmt)
+        resultado = _fmt_num(_valor(v0), fmt)
+        ejemplo = (f"Fila 1: {ejemplo_expr} = {resultado}" if ejemplo_expr and ejemplo_expr != "resultado de la fila 1"
+                   else f"Resultado de la fila 1: {resultado}")
+        destino = h.get("label", h["name"])
+        origen = origen_cols + origen_hojas
+        bloque.append({"columna": nombre, "formula": "=" + formula, "explicacion": explic, "ejemplo": ejemplo,
+                       "origen": ", ".join(origen) if origen else "datos cargados del cliente",
+                       "destino": destino, "norma": h.get("norma") or ""})
+    return bloque
 
 
 # Cédulas que van a la presentación (PowerPoint): las de lectura ejecutiva. Se comparan por el nombre sin el número,

@@ -84,6 +84,40 @@ def test_todas_las_herramientas_generan_excel_que_abre_sin_reparar():
         assert wb.sheetnames[0] == "00_Inicio", pid
 
 
+def test_como_se_calcula_una_fila_por_columna_con_formula():
+    d, mod, reg = _reg("perdidas_incurridas_s11")
+    hojas = libro.cedulas(d, reg, [], 1, "APROBADO")
+    detalle = next(h for h in hojas if "Detalle" in h["name"])
+    bloque = libro.como_se_calcula(detalle)
+    # Hay una fila por CADA columna con fórmula, y ninguna por las columnas de datos.
+    cols_con_formula = [c[0] for j, c in enumerate(detalle["cols"])
+                        if detalle["rows"] and isinstance(detalle["rows"][0][j], dict) and "f" in detalle["rows"][0][j]]
+    assert [b["columna"] for b in bloque] == cols_con_formula
+    for b in bloque:
+        assert b["formula"].startswith("=") and b["explicacion"] and b["ejemplo"] and b["origen"]
+
+
+def test_como_se_calcula_ejemplo_coincide_con_el_valor_de_la_fila_1():
+    d, mod, reg = _reg("perdidas_incurridas_s11")
+    hojas = libro.cedulas(d, reg, [], 1, "APROBADO")
+    for h in hojas:
+        cols = [c[0] for c in h["cols"]]
+        for b in libro.como_se_calcula(h):
+            j = cols.index(b["columna"])
+            v0 = h["rows"][0][j]
+            esperado = libro._fmt_num(libro._valor(v0), h["cols"][j][1])
+            assert b["ejemplo"].rstrip().endswith(esperado), (h["name"], b["columna"], b["ejemplo"], esperado)
+
+
+def test_bloque_como_se_calcula_no_rompe_ninguna_herramienta():
+    for pid, mod in PROCESADORES.items():
+        if not getattr(mod, "RUBRO", None):
+            continue
+        d, _, reg = _reg(pid)
+        wb = load_workbook(io.BytesIO(libro.xlsx(d, reg, [], 1, "APROBADO")))  # abre sin reparar con el bloque
+        assert wb.sheetnames[0] == "00_Inicio", pid
+
+
 def test_tokens_y_etiquetas_cubren_el_vocabulario():
     for e in reglas.ESTADOS:
         assert est.estado_es(e) != e, e  # todos traducidos
