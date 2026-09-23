@@ -40,7 +40,11 @@ export function resumenLectura(lectura) {
     cuentas: `${n(lectura.cuentas)} cuentas`,
     periodo: (lectura.rango_fechas || []).join(" a "),
     hojas: (lectura.hojas_leidas || []).join(", "),
-    columnas: Object.keys(lectura.columnas_detectadas || {}).join(", "),
+    // motor/programa.py::correr_sobre_mayor manda `columnas_detectadas` como
+    // `sorted(lectura.columnas_detectadas)`: una LISTA de nombres. NUNCA
+    // Object.keys() aquí: sobre una lista da índices ("0, 1, 2"), una cifra
+    // que el motor no mandó, justo donde el auditor revisa el mapeo del ERP.
+    columnas: (lectura.columnas_detectadas || []).join(", "),
     vacias: (lectura.columnas_vacias || []).join(", "),
     huella: lectura.sha256 ? `${lectura.sha256.slice(0, 16)}…` : "",
   };

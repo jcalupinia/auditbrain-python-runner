@@ -34,9 +34,13 @@ describe("panel de suficiencia", () => {
   });
 
   it("resume la lectura del archivo", () => {
+    // motor/programa.py::correr_sobre_mayor serializa `columnas_detectadas`
+    // como `sorted(lectura.columnas_detectadas)`: una LISTA de nombres, no
+    // un objeto {nombre: índice}. Con la forma vieja (objeto) Object.keys()
+    // tapaba el bug (regresión: mostraba "0, 1, 2" en vez de los nombres).
     const r = resumenLectura({
       filas_leidas: 24890, filas_descartadas: 274, cuentas: 274,
-      hojas_leidas: ["Hoja1"], columnas_detectadas: { codigo: 0, debe: 6, haber: 7 },
+      hojas_leidas: ["Hoja1"], columnas_detectadas: ["codigo", "debe", "haber"],
       columnas_vacias: ["usuario"], rango_fechas: ["2026-01-01", "2026-05-31"],
       sha256: "a".repeat(64),
     });
