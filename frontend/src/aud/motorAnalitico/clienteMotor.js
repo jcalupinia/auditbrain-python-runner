@@ -89,6 +89,14 @@ export function crearCliente({
       fd.append("archivo", archivo);
       return llamar("ejecutar", "/trabajos", { method: "POST", body: fd }, { ms: ESPERA_CARGA_MS });
     },
+    crearConMayor(archivo, parametros, balance) {
+      const fd = new FormData();
+      fd.append("origen", "mayor");
+      fd.append("archivo", archivo);
+      fd.append("parametros", JSON.stringify(parametros));
+      if (balance) fd.append("balance", balance);
+      return llamar("ejecutar", "/trabajos", { method: "POST", body: fd }, { ms: ESPERA_CARGA_MS });
+    },
     trabajo: (id) => llamar("leer", `/trabajos/${encodeURIComponent(id)}`),
     excepciones: (id, filtros) =>
       llamar("leer", `/trabajos/${encodeURIComponent(id)}/excepciones?${filtrosAQuery(filtros)}`),

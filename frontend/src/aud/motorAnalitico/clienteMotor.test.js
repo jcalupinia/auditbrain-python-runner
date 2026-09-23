@@ -83,3 +83,28 @@ describe("disponibilidad", () => {
     expect(r).toEqual({ estado: "sin_permiso", detalle: "El Motor de Auditoría Analítica no está configurado." });
   });
 });
+
+describe("envío del mayor", () => {
+  it("manda origen, parámetros y balance en el formulario", async () => {
+    const { pedir } = permisos();
+    const fetchImpl = vi.fn(async () => ok({ id: "t9", estado: "en_cola" }));
+    const c = crearCliente({ encargo: "p", pedirPermiso: pedir, fetchImpl });
+    const mayor = new File(["x"], "mayor.xlsx");
+    const balance = new File(["y"], "balance.xlsx");
+    await c.crearConMayor(mayor, { materialidad: "1000.00", semilla: 7 }, balance);
+    const [url, opts] = fetchImpl.mock.calls[0];
+    expect(url).toBe(`${URL_MOTOR}/trabajos`);
+    expect(opts.body.get("origen")).toBe("mayor");
+    expect(opts.body.get("archivo")).toBe(mayor);
+    expect(opts.body.get("balance")).toBe(balance);
+    expect(JSON.parse(opts.body.get("parametros"))).toEqual({ materialidad: "1000.00", semilla: 7 });
+  });
+
+  it("el balance es opcional", async () => {
+    const { pedir } = permisos();
+    const fetchImpl = vi.fn(async () => ok({ id: "t9", estado: "en_cola" }));
+    const c = crearCliente({ encargo: "p", pedirPermiso: pedir, fetchImpl });
+    await c.crearConMayor(new File(["x"], "mayor.csv"), { semilla: 1 });
+    expect(fetchImpl.mock.calls[0][1].body.get("balance")).toBeNull();
+  });
+});
