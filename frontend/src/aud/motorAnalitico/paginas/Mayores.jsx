@@ -66,6 +66,11 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
   const [mayorArchivo, setMayorArchivo] = useState(null);
   const [balanceArchivo, setBalanceArchivo] = useState(null);
   const [trabajo, setTrabajo] = useState(null);
+  // Si el auditor subió un balance pero barreras.cuadre_contra_balance no
+  // se evaluó (motor/barreras.py::cuadre_contra_balance: `if not balance`,
+  // que también es true para un balance ilegible que quedó en {}), hay que
+  // decirlo: una ausencia se lee como "cuadró" y no lo es.
+  const [balanceEnviado, setBalanceEnviado] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [cargando, setCargando] = useState(false);
   const [entrada, setEntrada] = useState({ regla: "", texto: "" }); // valores del input, sin debounce
@@ -83,16 +88,17 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
     setMayorArchivo(null);
     setBalanceArchivo(null);
     setTrabajo(null);
+    setBalanceEnviado(false);
     setErrorMsg("");
     setEntrada({ regla: "", texto: "" });
     setFiltros(FILTROS_VACIOS);
     setPagina(1);
     setExcepciones({ total: 0, excepciones: [] });
     setSeleccion(null);
-    const id = ULTIMO_TRABAJO.get(cliente);
-    if (id) {
-      cliente.trabajo(id)
-        .then((r) => setTrabajo((t) => t ?? r))
+    const guardado = ULTIMO_TRABAJO.get(cliente);
+    if (guardado) {
+      cliente.trabajo(guardado.id)
+        .then((r) => { setTrabajo((t) => t ?? r); setBalanceEnviado(guardado.balanceEnviado); })
         .catch(() => ULTIMO_TRABAJO.delete(cliente));
     }
   }, [cliente]);
@@ -162,14 +168,15 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
     return () => { vivo = false; };
   }, [trabajo?.estado, trabajo?.id, filtros, pagina, cliente]);
 
-  const iniciar = async (accion) => {
+  const iniciar = async (accion, { balanceEnviado: seEnvioBalance = false } = {}) => {
     setErrorMsg("");
     setCargando(true);
     setSeleccion(null);
     try {
       const nuevo = await accion();
-      ULTIMO_TRABAJO.set(cliente, nuevo.id);
+      ULTIMO_TRABAJO.set(cliente, { id: nuevo.id, balanceEnviado: seEnvioBalance });
       setTrabajo(nuevo);
+      setBalanceEnviado(seEnvioBalance);
       setEntrada({ regla: "", texto: "" });
       setFiltros(FILTROS_VACIOS);
       setPagina(1);
@@ -388,7 +395,10 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
                 )}
               </label>
               <button className="ma-boton accent" disabled={botonMayorDeshabilitado}
-                      onClick={() => iniciar(() => cliente.crearConMayor(mayorArchivo, aEnvio(parametros), balanceArchivo))}>
+                      onClick={() => iniciar(
+                        () => cliente.crearConMayor(mayorArchivo, aEnvio(parametros), balanceArchivo),
+                        { balanceEnviado: !!balanceArchivo },
+                      )}>
                 Subir el mayor y correr
               </button>
             </div>
@@ -492,6 +502,15 @@ export default function Mayores({ ir, cliente, disponible, EnConstruccion }) {
                   {diferenciasTope.restantes > 0 && <li>… y {diferenciasTope.restantes} cuenta(s) más</li>}
                 </ul>
               )}
+            </div>
+          )}
+
+          {/* Una ausencia se lee como "cuadró": si se subió un balance pero
+              no se evaluó (ilegible o sin cuentas reconocibles), hay que
+              decirlo en vez de no mostrar nada. */}
+          {barreraCuadre && !barreraCuadre.evaluada && balanceEnviado && (
+            <div className="ma-mayores-cuadre warn" role="alert">
+              <strong>No se recibieron saldos del balance: el cuadre contra el balance no se evaluó.</strong>
             </div>
           )}
 
