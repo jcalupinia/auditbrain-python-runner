@@ -574,7 +574,7 @@ def hojas(res: dict) -> list[dict]:
         ["Aporte personal IESS (%)", pv("aportePersonal"), "Tabla oficial de tasas de aportación del IESS: 9,45 % del sector privado" + V],
         ["Aporte patronal IESS (%)", pv("aportePatronal"), "Tabla oficial de tasas de aportación del IESS: 11,15 % del sector privado" + V],
         ["0,5 % ex IECE (%)", pv("aporteIece"), "COMF, disposición general décima primera: 1 % de las planillas del IESS (0,5 % IECE + 0,5 % SECAP)" + V],
-        ["SECAP (%)", pv("aporteSecap"), V[3:]],
+        ["SECAP (%)", pv("aporteSecap"), "COMF, disposición general décima primera: el 0,5 % del SECAP va a la Cuenta Única del Tesoro desde el 1-1-2015" + V],
         ["Fondo de reserva (%)", pv("fondoReserva"), "CT arts. 196 y 201; R.O. Suplemento 644 de 29-07-2009" + V],
         ["Días de vacaciones por año", pv("diasVacaciones"), "CT art. 69" + V],
         ["Años para día adicional", pv("aniosVacacionAdicional"), "CT art. 69" + V],

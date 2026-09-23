@@ -421,8 +421,8 @@ def hojas(res: dict) -> list[dict]:
                                                                  "estiman el VNR de los ítems SIN precio de venta (NIC 2.30): con precio informado "
                                                                  "manda la rebaja a VNR (NIC 2.9; PYMES 13.4)"],
         ["Tramo 1: % de provisión", p["obsPct1"], "Juicio del auditor con sustento"],
-        ["Tramo 2: días sin movimiento (más de)", p["obsDias2"], ""], ["Tramo 2: % de provisión", p["obsPct2"], ""],
-        ["Tramo 3: días sin movimiento (más de)", p["obsDias3"], ""], ["Tramo 3: % de provisión", p["obsPct3"], ""],
+        ["Tramo 2: días sin movimiento (más de)", p["obsDias2"], "Ídem tramo 1"], ["Tramo 2: % de provisión", p["obsPct2"], "Ídem tramo 1"],
+        ["Tramo 3: días sin movimiento (más de)", p["obsDias3"], "Ídem tramo 1"], ["Tramo 3: % de provisión", p["obsPct3"], "Ídem tramo 1"],
         ["Saldo del inventario según el mayor", p["saldoMayor"], "Mayor contable (en blanco: se toma el kardex)"],
         ["Provisión registrada (VNR / obsolescencia)", p["provisionRegistrada"], "Mayor contable (en blanco: 0)"],
     ]
