@@ -477,7 +477,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                            "reversión: " + "; ".join(f"{x['partida']} {m(x['tasaCli'])} % frente a {m(x['tasa'])} %" for x in mal_tasa)
                            + f" ({cit['tasa']}).", sum(x["efectoTasa"] for x in mal_tasa)))
     if dtal_reg > 0.005 and sn["perdidasPermitidas"] == "No":
-        pr.append(problema("DTA_NO_PERMITIDO", f"Activo diferido por pérdidas {m(dtal_reg)} registrado sin que la ley lo admita (VERIFICAR).", dtal_reg))
+        pr.append(problema("DTA_NO_PERMITIDO", f"Activo diferido por pérdidas {m(dtal_reg)} registrado sin que la ley lo admita (revisar el sustento).", dtal_reg))
     elif dtal_reg > 0.005 and sn["probabilidadPerdidas"] == "No":
         pr.append(problema("DTA_SIN_PROBABILIDAD", f"Activo diferido por pérdidas {m(dtal_reg)} sin evidencia convincente de ganancias fiscales "
                            f"({cit['dta']}; NIC 12.35: las pérdidas recientes son indicio de que no las habrá).", dtal_reg))

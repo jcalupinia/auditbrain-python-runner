@@ -271,7 +271,7 @@ def _fundamento(pymes: bool, ed: str, x: dict) -> str:
     if t == "Patrimonio":
         return ("Elección irrevocable de ORI para patrimonio no mantenido para negociar (4.1.4, 5.7.5, B5.7.1); dividendos a resultados (5.7.6)."
                 if e == "VRORI" else "Patrimonio: VR con cambios en resultados (4.1.4).")
-    return "Derivado o participación en fondo: VR con cambios en resultados (4.1.4; fondos: flujos no SPPI, VERIFICAR B4.1.7–B4.1.26)."
+    return "Derivado o participación en fondo: VR con cambios en resultados (4.1.4; fondos: flujos no SPPI, revisar B4.1.7–B4.1.26)."
 
 
 _TRAT = {
@@ -398,7 +398,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             if x["anterior"] == x["cliente"]:
                 x["permitido"] = "Sin cambio"
             elif pymes:
-                x["permitido"] = ("Sí: el instrumento cambió de condiciones (VERIFICAR soporte)" if x["cliente"] == e
+                x["permitido"] = ("Sí: el instrumento cambió de condiciones (revisar el soporte)" if x["cliente"] == e
                                   else "No: la clasificación no corresponde a las condiciones del instrumento")
             elif x["tipo"] == "Patrimonio" and x["anterior"] == "VRORI":
                 x["permitido"] = "No: elección irrevocable (5.7.5)"
@@ -626,7 +626,7 @@ def hojas(res: dict) -> list[dict]:
     for x in [y for y in xs if y["anterior"]]:
         r, ri = FILA0 + len(recl), fila[x["id"]]
         if pymes:
-            f_perm = (f'IF(C{r}=D{r},"Sin cambio",IF(D{r}=F{r},"Sí: el instrumento cambió de condiciones (VERIFICAR soporte)",'
+            f_perm = (f'IF(C{r}=D{r},"Sin cambio",IF(D{r}=F{r},"Sí: el instrumento cambió de condiciones (revisar el soporte)",'
                       f'"No: la clasificación no corresponde a las condiciones del instrumento"))')
         else:
             f_perm = (f'IF(C{r}=D{r},"Sin cambio",IF(AND(B{r}="Patrimonio",C{r}="VRORI"),"No: elección irrevocable (5.7.5)",'

@@ -280,7 +280,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         # 6 · restringido.
         if c["restr"]:
             # NIC 1.66 d) / PYMES 4.5 d): «al menos doce meses» → la restricción que vence en el límite ya es no corriente.
-            c["clasif"] = "Sin fecha de fin: VERIFICAR" if c["fin"] is None else ("No corriente" if c["fin"] >= limite_restr else "Corriente")
+            c["clasif"] = "Sin fecha de fin: revisar el soporte" if c["fin"] is None else ("No corriente" if c["fin"] >= limite_restr else "Corriente")
             c["reclasR"] = c["monto"] if (c["clasif"] == "No corriente" and not c["sep"]) else 0.0
         else:
             c["clasif"], c["reclasR"] = None, None
@@ -288,7 +288,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         if c["tipo"] == INV:
             c["plazo"] = (c["venc"] - c["adq"]).days if (c["adq"] and c["venc"]) else None
             c["limite"] = _edate(c["adq"], meses_eq) if c["adq"] else None
-            c["califica"] = ("Sin fechas: VERIFICAR" if (c["adq"] is None or c["venc"] is None)
+            c["califica"] = ("Sin fechas: revisar el soporte" if (c["adq"] is None or c["venc"] is None)
                              else ("Sí" if c["venc"] <= c["limite"] else "No"))
             c["reclasNE"] = max(c["ajustado"] - (c["reclasR"] or 0), 0) if c["califica"] == "No" else 0.0
         c["auditado"] = c["ajustado"] - (c["reclasR"] or 0) - (c.get("reclasNE") or 0)
@@ -500,7 +500,7 @@ def hojas(res: dict) -> list[dict]:
     for i, c in enumerate(restr):
         r, rc = FILA0 + i, fila_cta[c["id"]]
         restringido.append([c["id"], c["nombre"], fx(f"{CON_}M{rc}", n2(c["ajustado"])), n2(c["monto"]), c["motivo"], c["fin"] or None,
-                            fx(f'IF(F{r}="","Sin fecha de fin: VERIFICAR",IF(F{r}>=EDATE({corte},{meses}),"No corriente","Corriente"))', c["clasif"]),
+                            fx(f'IF(F{r}="","Sin fecha de fin: revisar el soporte",IF(F{r}>=EDATE({corte},{meses}),"No corriente","Corriente"))', c["clasif"]),
                             "Sí" if c["sep"] else "No",
                             fx(f'IF(OR(H{r}="Sí",G{r}<>"No corriente"),0,IF(D{r}="","",D{r}))', n2(c["reclasR"]))])
     fin_r = FILA0 + nr - 1
@@ -510,7 +510,7 @@ def hojas(res: dict) -> list[dict]:
     for i, c in enumerate(inv):
         r, rc = FILA0 + i, fila_cta[c["id"]]
         equiv.append([c["id"], c["nombre"], c["adq"] or None, c["venc"] or None, fx(f'IF(OR(C{r}="",D{r}=""),"",D{r}-C{r})', c["plazo"]),
-                      fx(f'IF(OR(C{r}="",D{r}=""),"Sin fechas: VERIFICAR",IF(D{r}<=EDATE(C{r},{meses_eq}),"Sí","No"))', c["califica"]),
+                      fx(f'IF(OR(C{r}="",D{r}=""),"Sin fechas: revisar el soporte",IF(D{r}<=EDATE(C{r},{meses_eq}),"Sí","No"))', c["califica"]),
                       fx(f"{CON_}M{rc}", n2(c["ajustado"])),
                       fx(f"SUMIF({_rango(RES_, 'A', nr)},A{r},{_rango(RES_, 'I', nr)})", n2(c["reclasR"] or 0)),
                       fx(f'IF(F{r}="No",MAX(G{r}-H{r},0),0)', n2(c["reclasNE"]))])

@@ -486,7 +486,7 @@ def hojas(res: dict) -> list[dict]:
         [ETIQUETAS_PARAM["plazoFinanciacion"], d["umbral"], "NIIF 15 63 / PYMES 2025 23.38: solución práctica de un año; más de 12 meses habilita evaluar (NIIF 15.61-62); no es concluyente por sí solo; PYMES 2015: plazo mayor al normal (11.13)"],
         [ETIQUETAS_PARAM["umbralAltamenteProbable"], d["uprob"],
          "No se usa en PYMES 2015: allí se incluye si es probable, más de 50 % (23.10 c-d)" if d["s15"]
-         else "«Altamente probable» (NIIF 15 56: que no ocurra una reversión significativa; PYMES 2025 23.30: que la entidad tenga derecho al importe; criterios distintos): ninguna fija un porcentaje; umbral de juicio (VERIFICAR). Simplificación: la variable se incluye si su probabilidad supera el umbral; la NIIF 15.56 exige que sea altamente probable que no haya reversión significativa"],
+         else "«Altamente probable» (NIIF 15 56: que no ocurra una reversión significativa; PYMES 2025 23.30: que la entidad tenga derecho al importe; criterios distintos): ninguna fija un porcentaje; umbral de juicio del auditor. Simplificación: la variable se incluye si su probabilidad supera el umbral; la NIIF 15.56 exige que sea altamente probable que no haya reversión significativa"],
         [ETIQUETAS_PARAM["metodoVariable"], d["metodo"], "NIIF 15 53; PYMES 2025 23.28"],
         [ETIQUETAS_PARAM["ingresoMayor"], d["mayor"], "Mayor contable (en blanco: se toma el anexo)"],
         [ETIQUETAS_PARAM["activoContratoRegistrado"], d["actReg"], "Mayor contable"],

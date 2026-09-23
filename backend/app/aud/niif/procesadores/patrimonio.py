@@ -86,7 +86,7 @@ PARAMETROS = {"tipoCompania": "Anónima", "utilidadNeta": None, "pctReserva": No
 PARAM_NEGATIVOS = ("utilidadNeta",)
 # Ley de Compañías art. 297: al menos el 50 % de los beneficios líquidos anuales, luego de las deducciones que
 # correspondieren, salvo resolución unánime del capital concurrente a la junta; 30 % en los emisores cuyas acciones
-# están inscritas en el Catastro Público del Mercado de Valores (vigente al corte; VERIFICAR).
+# están inscritas en el Catastro Público del Mercado de Valores (confirmar que sigue vigente al corte).
 PCT_DIV_MINIMO = 50.0
 ETIQUETAS_PARAM = {
     "tipoCompania": "Tipo de compañía (Anónima / Limitada)",
@@ -393,11 +393,11 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     for t in txs:
         if t["noInscrito"]:
             problemas.append(problema("AUMENTO_NO_INSCRITO", f"{t['doc']}: aumento de capital de {m(t['importe'])} sin inscripción en el Registro Mercantil al "
-                                      "corte: presentarlo como aporte para futura capitalización hasta la inscripción (Ley de Compañías art. 33: el aumento sigue las solemnidades de la constitución; VERIFICAR registro).",
+                                      "corte: presentarlo como aporte para futura capitalización hasta la inscripción (Ley de Compañías art. 33: el aumento sigue las solemnidades de la constitución; confirme la inscripción en el Registro Mercantil).",
                                       t["importe"]))
         if t["aportePasivo"]:
             problemas.append(problema("APORTE_ES_PASIVO", f"{t['doc']}: aporte de {m(t['importe'])} con obligación de devolución: es un pasivo financiero, "
-                                      f"no patrimonio ({cit['clas']}; resolución Supercias vigente — VERIFICAR).", t["importe"]))
+                                      f"no patrimonio ({cit['clas']}; confirme la resolución vigente de la Superintendencia de Compañías).", t["importe"]))
         if t["instrPasivo"]:
             problemas.append(problema("INSTRUMENTO_MAL_CLASIFICADO", f"{t['doc']}: instrumento de {m(t['importe'])} con obligación contractual de entregar "
                                       f"efectivo (p. ej. acciones preferentes rescatables) presentado en patrimonio: reclasificar a pasivo ({cit['clas']}).",
@@ -707,7 +707,7 @@ def hojas(res: dict) -> list[dict]:
             ("Resultados del ejercicio (pérdida por recompra)" if perdida else "Otras reservas / acciones propias (patrimonio)",
              f"ABS({ajb('resultadoRecompras')})", abs(t["resultadoRecompras"]), False)])
     if t["aumentosNoInscritos"] > 0.005:
-        asiento("6 · Aumentos de capital no inscritos (VERIFICAR Supercias)", [
+        asiento("6 · Aumentos de capital no inscritos (pendientes de inscripción)", [
             ("Capital social", ajb("noInscritos"), t["aumentosNoInscritos"], True),
             ("Aportes para futuras capitalizaciones", ajb("noInscritos"), t["aumentosNoInscritos"], False)])
 
