@@ -56,6 +56,79 @@ def test_venta_con_arrendamiento_posterior_ejemplo_24():
     assert round(c["activo_ini"], 2) == 699555.01
 
 
+def test_componente_indexado_niif_completas_a_mano():
+    """27 b y 28: el componente ligado a un índice entra en la medición con el índice de la fecha de comienzo."""
+    c = _c(_run(), "C-10")
+    i = 1.12 ** (1 / 12) - 1
+    assert c["pago_medido"] == 2000 and c["pago_base"] == 1800 and c["pago_ind"] == 200
+    assert round(c["vp"], 2) == 60749.51 == round(2000 * (1 - (1 + i) ** -36) / i, 2)
+    assert round(c["pasivo"], 2) == 22583.03 == round(2000 * (1 - (1 + i) ** -12) / i, 2)
+    assert round(c["interes"], 2) == 3836.58 == round(24000 - (2000 * (1 - (1 + i) ** -24) / i - 2000 * (1 - (1 + i) ** -12) / i), 2)
+    assert round(c["dep"], 2) == 20249.84 == round(60749.51 / 36 * 12, 2)
+    assert c["q_anio"] == 12 and c["gasto_variable"] == 600            # solo el pago variable no ligado al índice (38 b)
+    assert "NIIF 16 párr. 27 b y 28" in c["marco_indexado"]
+    assert "INDEXADO_REMEDICION" in _codigos(_run())                   # 42 b: no se registró remedición por cambio de índice
+
+
+def test_componente_indexado_pymes_se_separa():
+    """20.15 b / 20.11: bajo la Sección 20 el componente indexado no se capitaliza; es gasto del período."""
+    c = _c(_run(PYMES), "C-10")
+    assert c["clasif"] == "Operativo" and c["pago_medido"] == 1800     # se mide solo el pago base
+    assert round(c["gasto"], 2) == 21600.00 == 1800 * 12               # gasto lineal del pago base
+    assert c["gasto_variable"] == 3000 == (200 + 50) * 12              # componente indexado + pago variable
+    assert round(c["gasto"] + c["gasto_variable"], 2) == 24600.00 == (2000 + 50) * 12
+    assert "20.15 b" in c["marco_indexado"] and "Excluido del gasto lineal" in c["trat_indexado"]
+    assert "INDEXADO_PYMES_GASTO" in _codigos(_run(PYMES))
+    assert "INDEXADO_REMEDICION" not in _codigos(_run(PYMES))          # la Sección 20 no tiene remedición por índice
+    # La edición 2025 mantiene la Sección 20 sin cambios de fondo: misma ruta y mismo importe.
+    assert _c(_run({**PYMES, "_edicion": "2025"}), "C-10")["gasto_variable"] == 3000
+
+
+def test_indexado_sin_importe_queda_vacio():
+    """M22: indexación declarada sin importe → pago base y componente vacíos, nunca 0 por omisión."""
+    for param in (NIIF, PYMES):
+        c = _c(_run(param), "C-11")
+        assert c["ind_decl"] == "Sí" and c["pago_ind"] is None and c["pago_base"] is None
+        assert c["gasto_variable"] is None if param is PYMES else c["gasto_variable"] == 0
+        assert c["pago_medido"] == 1000                                # no se puede separar: se usa el pago informado
+        assert "INDEXADO_SIN_IMPORTE" in _codigos(_run(param))
+    # Informado el importe, el componente se separa y el problema se apaga.
+    ds = copy.deepcopy(EJ["datasets"])
+    c11 = next(x for x in ds["contratos"] if x["id"] == "C-11")
+    c11["pago_indexado"] = "150"
+    r = _run(PYMES, ds=ds)
+    assert _c(r, "C-11")["pago_base"] == 850 and _c(r, "C-11")["gasto_variable"] == 150 * 12
+    assert "INDEXADO_SIN_IMPORTE" not in _codigos(r)
+    # El componente no puede superar el pago periódico total.
+    c11["pago_indexado"] = "1500"
+    with pytest.raises(ValueError):
+        _run(PYMES, ds=ds)
+    assert not m.validar_filas("contratos", ds["contratos"])["ok"]
+
+
+def test_venta_posterior_medicion_posterior_102a():
+    """102A: roll-forward del pasivo y del derecho de uso conservado, sin ganancia posterior sobre el derecho retenido."""
+    c = _c(_run(), "C-08")
+    assert round(c["pasivo_ini"], 2) == 1459199.02 and round(c["activo_ini"], 2) == 699555.01
+    assert round(c["interes"], 2) == 65663.96 == round(1459199.02 * 0.045, 2)
+    assert round(c["pagos"], 2) == 120000.00
+    assert round(c["pasivo"], 2) == 1404862.97 == round(c["pasivo_ini"] * 1.045 - 120000, 2)
+    assert abs(c["comprobacion"]) < 1e-6                                # altas + interés − pagos + remedición = pasivo al corte
+    assert round(c["dep"], 2) == 38864.17 == round(699555.01 / 216 * 12, 2)
+    assert round(c["neto"], 2) == 660690.84 == round(699555.01 - 38864.17, 2)
+    e = next(x for x in _run()["exceptions"] if x["code"] == "VENTA_GANANCIA_POSTERIOR")
+    assert float(e["amount"]) == 18500.00 and "102A" in e["message"]
+    # M22: sin el dato del cliente el control del 102A queda VACÍO (nunca 0) y se señala qué papel falta.
+    ds = copy.deepcopy(EJ["datasets"])
+    next(x for x in ds["contratos"] if x["id"] == "C-08")["ganancia_post_reg"] = ""
+    sin = _run(ds=ds)
+    assert "VENTA_GANANCIA_POSTERIOR" not in _codigos(sin) and "VENTA_102A_SIN_DATO" in _codigos(sin)
+    assert _c(sin, "C-08")["ganancia_post_reg"] is None
+    fila = next(f for f in next(h for h in m.hojas(sin) if h["name"] == "14_Venta_medicion_post")["rows"] if f[0] == "C-08")
+    assert fila[14]["v"] is None and fila[15]["v"] is None            # ganancia registrada y control 102A, vacíos
+    assert fila[15]["f"].endswith(',"")')
+
+
 def test_exentos_y_deterioro():
     r = _run()
     assert _c(r, "C-05")["reconoce"] == "No" and _c(r, "C-05")["gasto"] == 1800          # 300 × 12 ÷ 12 × 6

@@ -18,6 +18,11 @@ Versión simple que cumple la norma, una cédula por prueba de la matriz del soc
    se cuentan DESDE esa fecha, no desde la adquisición (16.8); sin la fecha no se recalcula y se avisa.
 5. Transferencias (NIC 40.57-65; PYMES 16.8-16.9): diferencia VR − libros a la fecha del cambio a resultados
    (desde inventario, 40.63) o como revaluación NIC 16 (desde PPE, 40.61-62); costo atribuido = VR (40.60).
+   Desde PPE revaluada: el aumento va a otro resultado integral y acumula superávit de revaluación (40.62 b ii,
+   NIC 16.39); la disminución se imputa primero contra el superávit de ESE mismo inmueble y solo el exceso a
+   resultados (40.62 a, NIC 16.40). El superávit permanece en patrimonio y solo puede transferirse directamente
+   a resultados acumulados, nunca a resultados del ejercicio (NIC 16.41). La cédula 10 lleva el historial por
+   inmueble (saldo inicial, movimiento, uso y saldo final). Sin el dato del superávit el reparto queda vacío (M22).
 6. Ingresos por alquiler: según contratos vs registrados.
 7. Bajas (NIC 40.66-73): resultado = producto neto − importe en libros (40.69).
 
@@ -35,7 +40,7 @@ from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y fil
     validar_campos, validar_definicion_generica,
 )
 
-VERSION = "propiedades_inversion 1.0"
+VERSION = "propiedades_inversion 1.1"
 RUBRO = "PROPIEDADES_INVERSION"
 
 _INMUEBLES = [
@@ -68,6 +73,8 @@ _INMUEBLES = [
     campo("fecha_transferencia", "Fecha del cambio de uso", "date", requerido=False, alias=("fecha cambio de uso", "fecha traspaso"), ejemplo=""),
     campo("libros_transferencia", "Importe en libros a la fecha del cambio", "number", requerido=False, alias=("libros al cambio",), ejemplo=""),
     campo("vr_transferencia", "Valor razonable a la fecha del cambio", "number", requerido=False, alias=("vr al cambio",), ejemplo=""),
+    campo("superavit_revaluacion", "Superávit de revaluación acumulado en otro resultado integral de este inmueble a la fecha del cambio de uso",
+          "number", requerido=False, alias=("superavit de revaluacion", "reserva de revaluacion", "superavit ori", "superavit revaluacion"), ejemplo=""),
     campo("importe_recuperable", "Importe recuperable (solo si hay indicio de deterioro)", "number", requerido=False,
           alias=("recuperable", "valor recuperable"), ejemplo=""),
 ]
@@ -103,6 +110,10 @@ PI = "Propiedad de inversión"
 PI_PARTE = "Propiedad de inversión (parte)"
 PPE_MIXTO = "PPE (uso mixto sin VR fiable: sección 17)"
 VR = "valor_razonable"
+TRAT_PPE = ("Revaluación NIC 16: el aumento a otro resultado integral (superávit de revaluación) y la disminución contra el superávit de ese inmueble, el exceso a resultados (NIC 40.61-62)")
+SIN_SUP = "Sin tratamiento: falta el superávit de revaluación a la fecha"
+DESTINO_SI = "Permanece en patrimonio: transferible a resultados acumulados, nunca a resultados del ejercicio (NIC 40.62 b ii y NIC 16.41)"
+DESTINO_NO = "Sin saldo de superávit al cierre"
 
 
 def kind(dataset: str) -> str:
@@ -219,7 +230,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
               "vrAnt": g("vr_anterior"), "vr": g("vr_corte"), "fuente": _txt(f.get("fuente_vr")), "nivel": _txt(f.get("nivel_vr")),
               "libros": libros, "alq": g("ingresos_alquiler"), "alqReg": g("ingresos_registrados"),
               "transf": _transf(f.get("transferencia")), "ftr": fd("fecha_transferencia"), "libTr": g("libros_transferencia"),
-              "vrTr": g("vr_transferencia"), "rec": g("importe_recuperable"), "_row": f.get("_row")}
+              "vrTr": g("vr_transferencia"), "sup0": g("superavit_revaluacion"), "rec": g("importe_recuperable"), "_row": f.get("_row")}
         if it["vida"] is not None and it["vida"] <= 0:
             it["vida"] = None
         # 1 · clasificación. PYMES 16.4: el uso mixto NO usa el umbral, se separan las partes; si el VR de la parte de
@@ -291,7 +302,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         if not it["transf"]:
             continue
         t = it["transf"]
-        x = {"k": k, "id": it["id"], "transf": t, "fecha": it["ftr"], "clase": it["clase"], "lib": it["libTr"], "vr": it["vrTr"]}
+        x = {"k": k, "id": it["id"], "transf": t, "fecha": it["ftr"], "clase": it["clase"], "lib": it["libTr"], "vr": it["vrTr"],
+             "sup0": it["sup0"]}
         x["enEj"] = "Sin fecha" if it["ftr"] is None else ("Sí" if inicio <= it["ftr"] <= corte_a else "No")
         x["dif"] = None if pymes or correcto != VR or x["lib"] is None or x["vr"] is None else x["vr"] - x["lib"]
         if pymes:
@@ -299,26 +311,61 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         elif correcto != VR:
             x["trat"] = "Modelo del costo: sin cambio del importe en libros (NIC 40.59)"
         elif t == "PPE→PI":
-            x["trat"] = "Revaluación según NIC 16 a la fecha del cambio (NIC 40.61-62)"
+            x["trat"] = TRAT_PPE
         elif t == "Inventario→PI":
             x["trat"] = "Diferencia a resultados (NIC 40.63)"
         elif t in ("PI→PPE", "PI→Inventario"):
             x["trat"] = "Costo atribuido = VR a la fecha del cambio (NIC 40.60)"
         else:
             x["trat"] = "Transferencia no reconocida"
-        x["res"] = None if x["dif"] is None else (x["dif"] if t == "Inventario→PI" else (min(0, x["dif"]) if t == "PPE→PI" else 0))
-        x["ori"] = None if x["dif"] is None else (max(0, x["dif"]) if t == "PPE→PI" else 0)
+        # NIC 40.61-62 · NIC 16.39-40: el aumento va a ORI (superávit de revaluación) y la disminución se imputa
+        # primero contra el superávit de ESE inmueble; solo el exceso va a resultados. Sin el superávit informado
+        # no se puede repartir → vacío y problema (M22), nunca 0 por omisión.
+        if x["dif"] is None:
+            x["uso"] = x["res"] = x["ori"] = None
+        elif t == "Inventario→PI":
+            x["uso"], x["res"], x["ori"] = 0, x["dif"], 0
+        elif t != "PPE→PI":
+            x["uso"], x["res"], x["ori"] = 0, 0, 0
+        elif x["dif"] >= 0:
+            x["uso"], x["res"], x["ori"] = 0, 0, x["dif"]
+        elif x["sup0"] is None:
+            x["uso"] = x["res"] = x["ori"] = None
+        else:
+            x["uso"] = min(x["sup0"], -x["dif"])
+            x["res"], x["ori"] = x["dif"] + x["uso"], -x["uso"]
         if t not in TRANSFERENCIAS:
             x["estado"] = "Transferencia no reconocida"
         elif x["fecha"] is None:
             x["estado"] = "Sin tratamiento: falta la fecha del cambio"
         elif not pymes and correcto == VR and (x["lib"] is None or x["vr"] is None):
             x["estado"] = "Sin tratamiento: falta importe en libros o VR a la fecha"
+        elif t == "PPE→PI" and x["dif"] is not None and x["dif"] < 0 and x["sup0"] is None:
+            x["estado"] = SIN_SUP
         elif (t.endswith("PI") and not it["esPI"]) or (t.startswith("PI") and it["esPI"]):
             x["estado"] = "Incoherente con la clasificación actual"
         else:
             x["estado"] = "Completa"
         trs.append(x)
+
+    # Historial del superávit de revaluación por inmueble (NIC 16.39-41; NIC 40.62).
+    sups = []
+    for k, it in enumerate(its):
+        j = next((n for n, y in enumerate(trs) if y["k"] == k and y["transf"] == "PPE→PI"), None)
+        if it["sup0"] is None and j is None:
+            continue
+        x = trs[j] if j is not None else None
+        sup = {"k": k, "t": j, "id": it["id"], "transf": x["transf"] if x else "", "fecha": x["fecha"] if x else None,
+               "ini": it["sup0"]}
+        if x is None or (not pymes and correcto != VR):
+            sup["mov"], sup["uso"] = 0, 0
+        elif x["ori"] is None:
+            sup["mov"], sup["uso"] = None, None
+        else:
+            sup["mov"], sup["uso"] = max(0, x["ori"]), x["uso"]
+        sup["fin"] = None if sup["ini"] is None or sup["mov"] is None or sup["uso"] is None else sup["ini"] + sup["mov"] - sup["uso"]
+        sup["destino"] = "" if sup["fin"] is None else (DESTINO_SI if sup["fin"] > 0.005 else DESTINO_NO)
+        sups.append(sup)
 
     # 7 · bajas
     bajas = []
@@ -349,6 +396,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     t["difCostoInicial"] = S(i["difCosto"] for i in its)
     t["transfResultados"] = S(x["res"] for x in trs)
     t["transfORI"] = S(x["ori"] for x in trs)
+    t["usoSuperavit"] = S(x["uso"] for x in trs)
+    t["superavitFinal"] = S(x["fin"] for x in sups)
     t["difAlquileres"] = S(i["difAlq"] for i in its)
     t["resultadoBajas"] = S(x["res"] for x in bajas)
     t["difBajas"] = S(x["dif"] for x in bajas)
@@ -459,6 +508,38 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         pr.append(problema("TRANSFERENCIA", f"Diferencias a la fecha del cambio de uso: a resultados {m(t['transfResultados'])}, a otro resultado integral "
                            f"(superávit de revaluación) {m(t['transfORI'])}. Verifique que se registraron así (NIC 40.61-63).",
                            t["transfResultados"] + t["transfORI"]))
+    # Superávit de revaluación (decisión del socio: se mantiene y se arrastra; nunca a resultados del ejercicio).
+    sin_sup = [x["id"] for x in sups if x["ini"] is None]
+    if sin_sup and not pymes and correcto == VR:
+        pr.append(problema("SIN_SUPERAVIT_REVALUACION", f"Falta el superávit de revaluación acumulado en otro resultado integral de {lista(sin_sup)} a la fecha "
+                           "del cambio de uso. Papel a revisar: el auxiliar (mayor) de la cuenta de superávit de revaluación de ese inmueble y el estado de "
+                           "cambios en el patrimonio del ejercicio. Sin ese dato el saldo del historial queda vacío y, en las disminuciones, no se puede "
+                           "repartir entre otro resultado integral y resultados (NIC 40.62 y NIC 16.39-41)."))
+    aum = [x["id"] for x in sups if x["mov"] and x["mov"] > 0.005]
+    if aum:
+        pr.append(problema("SUPERAVIT_AUMENTO", f"Aumento del importe en libros al transferir de propiedad ocupada por el dueño a propiedad de inversión en "
+                           f"{lista(aum)}: {m(S(x['mov'] for x in sups))} se reconoce en otro resultado integral e incrementa el superávit de revaluación, no "
+                           "en resultados (NIC 40.61-62 b ii y NIC 16.39). Revise el auxiliar de deterioros de esos inmuebles: la parte del aumento que "
+                           "revierta una pérdida por deterioro reconocida antes en resultados sí va a resultados (NIC 40.62 b i) y la herramienta no la separa.",
+                           S(x["mov"] for x in sups)))
+    con = [x["id"] for x in sups if x["uso"] and x["uso"] > 0.005]
+    if con:
+        exceso = S(x["res"] for x in trs if x["transf"] == "PPE→PI")
+        pr.append(problema("SUPERAVIT_CONSUMIDO", f"Disminución del importe en libros al transferir a propiedad de inversión en {lista(con)}: se imputa primero "
+                           f"contra el superávit de revaluación de ese mismo inmueble ({m(t['usoSuperavit'])} en otro resultado integral) y solo el exceso a "
+                           f"resultados ({m(exceso)}) (NIC 40.62 a y NIC 16.40).", t["usoSuperavit"]))
+    if t["superavitFinal"] > 0.005:
+        pr.append(problema("SUPERAVIT_EN_PATRIMONIO", f"Superávit de revaluación de propiedades transferidas al cierre: {m(t['superavitFinal'])}. Permanece en "
+                           "patrimonio y solo puede transferirse directamente a resultados acumulados (al dar de baja el inmueble o a medida que se usa); esa "
+                           "transferencia nunca pasa por el resultado del ejercicio (NIC 40.62 b ii y NIC 16.41). Revise el estado de cambios en el patrimonio.",
+                           t["superavitFinal"]))
+    ppe_pi = [x["id"] for x in trs if x["transf"] == "PPE→PI"]
+    if pymes and ppe_pi:
+        pr.append(problema("SUPERAVIT_PYMES", f"{lista(ppe_pi)}: la Sección 16 no regula la medición de la diferencia al transferir a propiedades de inversión "
+                           "(PYMES 16.9), así que la herramienta no la calcula en este marco. Si el inmueble se medía con el modelo de revaluación de la "
+                           "Sección 17, el aumento va a otro resultado integral y acumula superávit de revaluación, y la disminución se reconoce en otro "
+                           "resultado integral en la medida del saldo acreedor del superávit de ese activo (PYMES 17.15C-17.15D); el superávit permanece en "
+                           "patrimonio. Documente el tratamiento aplicado."))
     if abs(t["difBajas"]) > 0.005:
         db = [x["id"] for x in bajas if x["dif"] and abs(x["dif"]) > 0.005]
         pr.append(problema("BAJA_RESULTADO", f"Resultado de la baja mal determinado en {lista(db)}: {m(t['difBajas'])}; resultado = producto neto − importe en libros "
@@ -482,6 +563,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         "difDepreciacion": "Diferencia de depreciación acumulada", "deterioro": "Deterioro (modelo del costo)",
         "variacionVR": "Variación del valor razonable del año", "difCostoInicial": "Diferencia en el costo inicial",
         "transfResultados": "Transferencias: diferencia a resultados", "transfORI": "Transferencias: diferencia a otro resultado integral",
+        "usoSuperavit": "Superávit de revaluación usado contra disminuciones", "superavitFinal": "Superávit de revaluación en patrimonio al cierre",
         "difAlquileres": "Diferencia en ingresos por alquiler", "resultadoBajas": "Resultado recalculado en bajas", "difBajas": "Diferencia en el resultado de bajas",
     }
     return {"engine": VERSION, "rows": filas, "totals": {k: r2(t[k]) for k in etiquetas}, "labels": etiquetas, "primary": "ajuste",
@@ -490,6 +572,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                         "parametros": p, "tot": t, "conc": conc,
                         "items": [{k: iso(v) for k, v in i.items()} for i in its],
                         "transf": [{k: iso(v) for k, v in x.items()} for x in trs],
+                        "sup": [{k: iso(v) for k, v in x.items()} for x in sups],
                         "bajas": [{k: iso(v) for k, v in x.items()} for x in bajas]}}
 
 
@@ -499,12 +582,13 @@ CEDULAS = [
     ("01_Resumen", "Resumen y ajuste propuesto"), ("02_Parametros", "Parámetros y ruta por marco"), ("03_Inmuebles", "Registro de inmuebles"),
     ("04_Clasificacion", "Clasificación"), ("05_Costo_inicial", "Costo inicial"), ("06_Valor_razonable", "Valor razonable"),
     ("07_Modelo_costo", "Modelo del costo: depreciación y deterioro"), ("08_Medicion", "Medición auditada por inmueble"),
-    ("09_Transferencias", "Transferencias"), ("10_Alquileres", "Ingresos por alquiler"), ("11_Bajas", "Bajas"),
-    ("12_Conciliacion", "Sumaria y conciliación"), ("13_Problemas", "Problemas encontrados"),
+    ("09_Transferencias", "Transferencias"), ("10_Superavit", "Historial del superávit de revaluación"),
+    ("11_Alquileres", "Ingresos por alquiler"), ("12_Bajas", "Bajas"),
+    ("13_Conciliacion", "Sumaria y conciliación"), ("14_Problemas", "Problemas encontrados"),
 ]
 PARK = ["corte", "inicio", "marco", "esPymes", "modelo", "vr", "correcto", "umbral", "saldoMayor"]
 PAR = {k: FILA0 + i for i, k in enumerate(PARK)}
-P, INM, CLA, COS, VRZ, MCO, MED, TRA, ALQ, BAJ = (ref(n) for n, _ in CEDULAS[1:11])
+P, INM, CLA, COS, VRZ, MCO, MED, TRA, SUP, ALQ, BAJ = (ref(n) for n, _ in CEDULAS[1:12])
 
 
 def _pa(k: str) -> str:
@@ -527,8 +611,8 @@ def _si(celda: str) -> str:
 def hojas(res: dict) -> list[dict]:
     d = res["detalle"]
     p, t, c = d["parametros"], d["tot"], d["conc"]
-    its, trs, bajas = d["items"], d["transf"], d["bajas"]
-    ni, nt, nb = len(its), len(trs), len(bajas)
+    its, trs, bajas, sups = d["items"], d["transf"], d["bajas"], d["sup"]
+    ni, nt, nb, ns = len(its), len(trs), len(bajas), len(sups)
     pymes = d["pymes"]
     ruta = (f"NIIF para las PYMES {d['edicion']} · sección 16" + (" y sección 12 (medición del VR)" if d["edicion"] == "2025" else " (VR: 11.27-11.32)")
             if pymes else "NIIF completas · NIC 40 y NIIF 13")
@@ -554,7 +638,7 @@ def hojas(res: dict) -> list[dict]:
         r = FILA0 + k
         inm.append([i["id"], i["desc"], i["uso"], i["pct"], i["sep"], i["costo"], i["fadq"], i["precio"], i["atrib"], i["terreno"], i["vida"],
                     i["depReg"], i["vrAnt"], i["vr"], i["fuente"], i["nivel"], i["libros"], i["alq"], i["alqReg"], i["transf"], i["ftr"],
-                    i["libTr"], i["vrTr"], i["rec"]])
+                    i["libTr"], i["vrTr"], i["sup0"], i["rec"]])
         mixto_f = f'AND(D{r}<>"",D{r}>0,D{r}<100)'
         clase_f = (f'IF(C{r}="Venta",IF({_pa("esPymes")}="Sí","Inventario (sección 13)","Inventario (NIC 2)"),IF(C{r}="Uso propio","PPE (uso propio)",'
                    f'IF(AND({_pa("esPymes")}="Sí",{mixto_f}),IF({_pa("vr")}="no","{PPE_MIXTO}","{PI_PARTE}"),'
@@ -585,7 +669,7 @@ def hojas(res: dict) -> list[dict]:
                     fx(f'IF(C{r}="Sí",{_si(f"{INM}L{r}")},"")', i["depReg"] if i["aplica"] else None),
                     fx(f'IF(OR(J{r}="",L{r}=""),"",J{r}-L{r})', i["difDep"]),
                     fx(f'IF(C{r}="No","",D{r}-IF(J{r}<>"",J{r},IF(L{r}<>"",L{r},0)))', i["neto"]),
-                    fx(f'IF(C{r}="Sí",{_si(f"{INM}X{r}")},"")', i["rec"] if i["aplica"] else None),
+                    fx(f'IF(C{r}="Sí",{_si(f"{INM}Y{r}")},"")', i["rec"] if i["aplica"] else None),
                     fx(f'IF(OR(C{r}="No",O{r}=""),"",MAX(0,N{r}-O{r}))', i["det"]),
                     fx(f'IF(C{r}="No","",N{r}-IF(P{r}="",0,P{r}))', i["medCosto"])])
         med.append([i["id"], fx(f"{CLA}G{r}", i["clase"]), fx(f"{VRZ}C{r}", i["medida"]), fx(f"{INM}Q{r}", i["libros"]),
@@ -601,19 +685,37 @@ def hojas(res: dict) -> list[dict]:
         vr_ok = f'OR({_pa("esPymes")}="Sí",{_pa("correcto")}<>"{VR}",F{r}="",G{r}="")'
         trat = (f'IF({_pa("esPymes")}="Sí","PYMES 16.9: transferir solo cuando cumple o deja de cumplir la definición de PI; la sección 16 no regula la medición de la diferencia (juicio, sección 10)",'
                 f'IF({_pa("correcto")}<>"{VR}","Modelo del costo: sin cambio del importe en libros (NIC 40.59)",'
-                f'IF(B{r}="PPE→PI","Revaluación según NIC 16 a la fecha del cambio (NIC 40.61-62)",IF(B{r}="Inventario→PI","Diferencia a resultados (NIC 40.63)",'
+                f'IF(B{r}="PPE→PI","{TRAT_PPE}",IF(B{r}="Inventario→PI","Diferencia a resultados (NIC 40.63)",'
                 f'IF(OR(B{r}="PI→PPE",B{r}="PI→Inventario"),"Costo atribuido = VR a la fecha del cambio (NIC 40.60)","Transferencia no reconocida")))))')
         estado = (f'IF(AND(B{r}<>"PPE→PI",B{r}<>"Inventario→PI",B{r}<>"PI→PPE",B{r}<>"PI→Inventario"),"Transferencia no reconocida",'
                   f'IF(C{r}="","Sin tratamiento: falta la fecha del cambio",IF(AND({_pa("esPymes")}="No",{_pa("correcto")}="{VR}",OR(F{r}="",G{r}="")),'
                   f'"Sin tratamiento: falta importe en libros o VR a la fecha",'
+                  f'IF(AND(B{r}="PPE→PI",H{r}<>"",H{r}<0,I{r}=""),"{SIN_SUP}",'
                   f'IF(OR(AND(RIGHT(B{r},2)="PI",{CLA}H{s}="No"),AND(LEFT(B{r},2)="PI",{CLA}H{s}="Sí")),'
-                  f'"Incoherente con la clasificación actual","Completa"))))')
+                  f'"Incoherente con la clasificación actual","Completa")))))')
+        # NIC 40.62 / NIC 16.39-40: uso del superávit = lo que absorbe la disminución; el exceso va a resultados.
+        uso_f = f'IF(H{r}="","",IF(B{r}<>"PPE→PI",0,IF(H{r}>=0,0,IF(I{r}="","",MIN(I{r},-H{r})))))'
+        res_f = f'IF(OR(H{r}="",J{r}=""),"",IF(B{r}="Inventario→PI",H{r},IF(B{r}="PPE→PI",IF(H{r}>=0,0,H{r}+J{r}),0)))'
+        ori_f = f'IF(OR(H{r}="",J{r}=""),"",IF(B{r}="PPE→PI",IF(H{r}>=0,H{r},-J{r}),0))'
         tra.append([x["id"], x["transf"], x["fecha"],
                     fx(f'IF(C{r}="","Sin fecha",IF(AND(C{r}>={_pa("inicio")},C{r}<={_pa("corte")}),"Sí","No"))', x["enEj"]),
                     fx(f"{CLA}G{s}", x["clase"]), fx(_si(f"{INM}V{s}"), x["lib"]), fx(_si(f"{INM}W{s}"), x["vr"]),
-                    fx(f'IF({vr_ok},"",G{r}-F{r})', x["dif"]), fx(trat, x["trat"]),
-                    fx(f'IF(H{r}="","",IF(B{r}="Inventario→PI",H{r},IF(B{r}="PPE→PI",MIN(0,H{r}),0)))', x["res"]),
-                    fx(f'IF(H{r}="","",IF(B{r}="PPE→PI",MAX(0,H{r}),0))', x["ori"]), fx(estado, x["estado"])])
+                    fx(f'IF({vr_ok},"",G{r}-F{r})', x["dif"]), fx(_si(f"{INM}X{s}"), x["sup0"]),
+                    fx(uso_f, x["uso"]), fx(res_f, x["res"]), fx(ori_f, x["ori"]),
+                    fx(trat, x["trat"]), fx(estado, x["estado"])])
+
+    sup = []
+    for k, x in enumerate(sups):
+        r, si = FILA0 + k, FILA0 + x["k"]
+        tr = None if x["t"] is None else FILA0 + x["t"]
+        costo_f = f'AND({_pa("esPymes")}="No",{_pa("correcto")}<>"{VR}")'
+        mov_f = "0" if tr is None else f'IF({costo_f},0,IF({TRA}L{tr}="","",MAX(0,{TRA}L{tr})))'
+        uso_f = "0" if tr is None else f'IF({costo_f},0,IF({TRA}J{tr}="","",{TRA}J{tr}))'
+        sup.append([x["id"], x["transf"] if tr is None else fx(f"{TRA}B{tr}", x["transf"]),
+                    x["fecha"],                                  # fecha del cambio: mismo dato que 09 (columna de fecha, sin fórmula)
+                    fx(_si(f"{INM}X{si}"), x["ini"]), fx(mov_f, x["mov"]), fx(uso_f, x["uso"]),
+                    fx(f'IF(OR(D{r}="",E{r}="",F{r}=""),"",D{r}+E{r}-F{r})', x["fin"]),
+                    fx(f'IF(G{r}="","",IF(G{r}>0.005,"{DESTINO_SI}","{DESTINO_NO}"))', x["destino"] or None)])
 
     baj = []
     for k, x in enumerate(bajas):
@@ -644,7 +746,8 @@ def hojas(res: dict) -> list[dict]:
         "ajusteVR": f"SUM({_rg(VRZ, 'H', ni)})", "efectoCosto": f"SUM({_rg(MED, 'H', ni)})", "reclasificacion": f"SUM({_rg(CLA, 'J', ni)})",
         "depreciacionAnio": f"SUM({_rg(MCO, 'K', ni)})", "difDepreciacion": f"SUM({_rg(MCO, 'M', ni)})", "deterioro": f"SUM({_rg(MCO, 'P', ni)})",
         "variacionVR": f"SUM({_rg(VRZ, 'F', ni)})", "difCostoInicial": f"SUM({_rg(COS, 'G', ni)})",
-        "transfResultados": f"SUM({_rg(TRA, 'J', nt)})", "transfORI": f"SUM({_rg(TRA, 'K', nt)})", "difAlquileres": f"SUM({_rg(ALQ, 'E', ni)})",
+        "transfResultados": f"SUM({_rg(TRA, 'K', nt)})", "transfORI": f"SUM({_rg(TRA, 'L', nt)})",
+        "usoSuperavit": f"SUM({_rg(TRA, 'J', nt)})", "superavitFinal": f"SUM({_rg(SUP, 'G', ns)})", "difAlquileres": f"SUM({_rg(ALQ, 'E', ni)})",
         "resultadoBajas": f"SUM({_rg(BAJ, 'F', nb)})", "difBajas": f"SUM({_rg(BAJ, 'H', nb)})",
     }
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
@@ -658,9 +761,10 @@ def hojas(res: dict) -> list[dict]:
               ["Fecha de adquisición", "d"], ["Precio de compra", n_], ["Desembolsos atribuibles", n_], ["Terreno", n_], ["Vida útil (años)", n_],
               ["Dep. acumulada registrada", n_], ["VR año anterior", n_], ["VR al corte", n_], ["Fuente del VR", "t"], ["Nivel VR", "t"],
               ["Importe en libros", n_], ["Alquiler según contratos", n_], ["Alquiler registrado", n_], ["Cambio de uso", "t"],
-              ["Fecha del cambio", "d"], ["Libros al cambio", n_], ["VR al cambio", n_], ["Importe recuperable", n_]],
+              ["Fecha del cambio", "d"], ["Libros al cambio", n_], ["VR al cambio", n_], ["Superávit de revaluación a esa fecha", n_],
+              ["Importe recuperable", n_]],
              inm, ["TOTAL", "", "", None, "", _tot("F", ni, S(i["costo"] for i in its)), None, None, None, None, None, None, None, None, "", "",
-                   _tot("Q", ni, t["libros"]), None, None, "", None, None, None, None]),
+                   _tot("Q", ni, t["libros"]), None, None, "", None, None, None, None, None]),
         hoja("04_Clasificacion", CEDULAS[3][1],
              [["Código", "t"], ["Descripción", "t"], ["Uso actual", "t"], ["% uso propio", n_], ["Separable", "t"], ["Umbral (%)", n_],
               ["Clasificación auditada", "t"], ["¿Propiedad de inversión?", "t"], ["Importe en libros", n_], ["Reclasificación", n_],
@@ -690,20 +794,25 @@ def hojas(res: dict) -> list[dict]:
                    _tot("G", ni, t["ajusteVR"]), _tot("H", ni, t["efectoCosto"]), _tot("I", ni, t["reclasificacion"])]),
         hoja("09_Transferencias", CEDULAS[8][1],
              [["Código", "t"], ["Cambio de uso", "t"], ["Fecha del cambio", "d"], ["¿En el ejercicio?", "t"], ["Clasificación actual", "t"],
-              ["Libros a la fecha", n_], ["VR a la fecha", n_], ["Diferencia VR − libros", n_], ["Tratamiento", "t"], ["A resultados", n_],
-              ["A otro resultado integral", n_], ["Estado", "t"]],
-             tra, ["TOTAL", "", None, "", "", None, None, _tot("H", nt, S(x["dif"] for x in trs)), "", _tot("J", nt, t["transfResultados"]),
-                   _tot("K", nt, t["transfORI"]), ""] if nt else None),
-        hoja("10_Alquileres", CEDULAS[9][1],
+              ["Libros a la fecha", n_], ["VR a la fecha", n_], ["Diferencia VR − libros", n_], ["Superávit de revaluación a la fecha", n_],
+              ["Uso del superávit (disminución)", n_], ["A resultados", n_], ["A otro resultado integral", n_], ["Tratamiento", "t"], ["Estado", "t"]],
+             tra, ["TOTAL", "", None, "", "", None, None, _tot("H", nt, S(x["dif"] for x in trs)), _tot("I", nt, S(x["sup0"] for x in trs)),
+                   _tot("J", nt, t["usoSuperavit"]), _tot("K", nt, t["transfResultados"]), _tot("L", nt, t["transfORI"]), "", ""] if nt else None),
+        hoja("10_Superavit", CEDULAS[9][1],
+             [["Código", "t"], ["Cambio de uso", "t"], ["Fecha del cambio", "d"], ["Saldo inicial en otro resultado integral", n_],
+              ["Movimiento de la transferencia (aumento)", n_], ["Uso contra la disminución", n_], ["Saldo final", n_], ["Destino", "t"]],
+             sup, ["TOTAL", "", None, _tot("D", ns, S(x["ini"] for x in sups)), _tot("E", ns, S(x["mov"] for x in sups)),
+                   _tot("F", ns, t["usoSuperavit"]), _tot("G", ns, t["superavitFinal"]), ""] if ns else None),
+        hoja("11_Alquileres", CEDULAS[10][1],
              [["Código", "t"], ["Uso actual", "t"], ["Ingresos según contratos", n_], ["Ingresos registrados", n_], ["Diferencia", n_]],
              alq, ["TOTAL", "", _tot("C", ni, S(i["alq"] for i in its)), _tot("D", ni, S(i["alqReg"] for i in its)), _tot("E", ni, t["difAlquileres"])]),
-        hoja("11_Bajas", CEDULAS[10][1],
+        hoja("12_Bajas", CEDULAS[11][1],
              [["Código", "t"], ["Descripción", "t"], ["Fecha de baja", "d"], ["Producto neto", n_], ["Importe en libros", n_],
               ["Resultado recalculado", n_], ["Resultado registrado", n_], ["Diferencia", n_]],
              baj, ["TOTAL", "", None, _tot("D", nb, S(x["prod"] for x in bajas)), _tot("E", nb, S(x["lib"] for x in bajas)),
                    _tot("F", nb, t["resultadoBajas"]), None, _tot("H", nb, t["difBajas"])] if nb else None),
-        hoja("12_Conciliacion", CEDULAS[11][1], [["Concepto", "t"], ["Importe", n_]], conciliacion),
-        hoja("13_Problemas", CEDULAS[12][1], [["Código", "t"], ["Descripción", "t"], ["Importe", n_]],
+        hoja("13_Conciliacion", CEDULAS[12][1], [["Concepto", "t"], ["Importe", n_]], conciliacion),
+        hoja("14_Problemas", CEDULAS[13][1], [["Código", "t"], ["Descripción", "t"], ["Importe", n_]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
     ]
 
@@ -761,9 +870,14 @@ def definicion() -> dict:
             "Modelo del costo: base = costo del modelo − terreno; dep. acumulada = base × MIN(1, meses completos ÷ (vida × 12)); dep. del año = acumulada "
             "− la de 12 meses antes; neto = costo del modelo − dep.; deterioro = MAX(0, neto − importe recuperable). En PYMES, si el VR dejó de medirse "
             "con fiabilidad, el costo del modelo es el importe en libros a esa fecha y los meses se cuentan desde ella (16.8).",
-            "Transferencias con VR (completas): diferencia = VR − libros a la fecha; desde inventario a resultados (40.63); desde PPE como revaluación "
-            "NIC 16 (aumento a ORI, disminución a resultados, 40.62 — simplificado: no considera superávit previo ni reversión de deterioro); "
-            "hacia PPE o inventario el costo atribuido es el VR (40.60). Con modelo del costo, sin cambio (40.59).",
+            "Transferencias con VR (completas): diferencia = VR − libros a la fecha; desde inventario a resultados (40.63); hacia PPE o inventario el costo "
+            "atribuido es el VR (40.60). Con modelo del costo, sin cambio (40.59).",
+            "Desde PPE revaluada a PI a valor razonable (40.61-62, NIC 16.39-41): el aumento se reconoce en otro resultado integral e incrementa el superávit "
+            "de revaluación de ese inmueble; la disminución se imputa contra el superávit acreedor de ese mismo inmueble (uso = MIN(superávit, −diferencia)) y "
+            "solo el exceso va a resultados. El superávit permanece en patrimonio y solo puede transferirse directamente a resultados acumulados, nunca a "
+            "resultados del ejercicio (NIC 16.41). La cédula 10 lleva el historial por inmueble: saldo inicial + movimiento − uso = saldo final y destino. "
+            "Sin el superávit informado, el reparto y el saldo final quedan vacíos y se emite un problema (M22). No se separa la parte del aumento que "
+            "revierte un deterioro previo (40.62 b i): se señala como problema. En PYMES la Sección 16 no regula esa medición (16.9), así que no se calcula.",
             "Alquileres: diferencia = ingresos según contratos − registrados. Bajas: resultado = producto neto − importe en libros (NIC 40.69).",
             "Ajuste propuesto = propiedades de inversión auditadas − saldo del mayor.",
         ],
@@ -791,6 +905,14 @@ def definicion() -> dict:
             prog("IP-07", "Transferencias", "Cambio de uso sin evidencia o sin tratamiento", "Clasificación / Valoración",
                  "Verificar evidencia del cambio de uso y la medición a la fecha", "Actas, contratos, tasación a la fecha del cambio",
                  "Tratamiento según NIC 40.57-65", "NIC 40.57-65 · PYMES 16.8-16.9"),
+            prog("IP-09", "Superávit de revaluación", "Aumento de la transferencia llevado a resultados o superávit consumido sin saldo acreedor",
+                 "Presentación / Valoración",
+                 "Cotejar el superávit acumulado de cada inmueble transferido con el auxiliar de la cuenta y el estado de cambios en el patrimonio; "
+                 "recalcular el aumento a otro resultado integral, el uso contra la disminución y el saldo final",
+                 "Auxiliar del superávit de revaluación por inmueble, estado de cambios en el patrimonio, auxiliar de deterioros",
+                 "Aumento a otro resultado integral; disminución contra el superávit de ese inmueble y el exceso a resultados; el superávit permanece en "
+                 "patrimonio y solo se transfiere a resultados acumulados",
+                 "NIC 40.61-62 · NIC 16.39-41 · PYMES 17.15C-17.15D"),
             prog("IP-08", "Bajas", "Resultado de venta mal determinado", "Exactitud", "Recalcular producto neto − importe en libros",
                  "Escrituras de venta, cobros", "Resultado correcto", "NIC 40.66-73"),
         ],
@@ -804,6 +926,9 @@ def definicion() -> dict:
             req("RQ-006", "Evidencia de cambios de uso (actas, contratos, ocupación)", None, "IP-07", "Soporte de las transferencias",
                 formats=("pdf", "docx"), use="soporte", required=False),
             req("RQ-007", "Gastos directos de operación por inmueble", None, "IP-06", "Revelación NIC 40.75 f) ii) y iii)", formats=("xlsx", "pdf"), use="soporte", required=False),
+            req("RQ-009", "Auxiliar del superávit de revaluación por inmueble y estado de cambios en el patrimonio", None, "IP-09",
+                "Saldo acreedor del superávit de cada inmueble transferido y su arrastre en patrimonio", formats=("xlsx", "pdf"), use="soporte",
+                required=False),
             req("RQ-008", "Base fiscal de los inmuebles", None, "IP-04", "Impuesto diferido (fuera del cálculo de esta versión)", formats=("xlsx",),
                 use="soporte", required=False),
         ],
@@ -831,6 +956,8 @@ def _im(id, desc, uso, costo, libros, **kw):
 # neto 252.000; recuperable 230.000 → deterioro 22.000; medición 230.000 vs libros 255.000 → −25.000.
 # Reclasificación IP-04 (parte de uso propio) 190.000 × 35 % = 66.500 + IP-05 (venta) 150.000 = −216.500.
 # Auditado 2.780.000 + 48.000 − 25.000 − 216.500 = 2.586.500; ajuste 2.586.500 − 2.785.000 = −198.500.
+# IP-08 (PPE→PI): diferencia 205.000 − 125.000 = +80.000 → todo a ORI (NIC 40.62 b ii); superávit del inmueble
+# 30.000 + 80.000 − 0 = 110.000, que permanece en patrimonio.
 EJEMPLO = {
     "corte": "2025-12-31",
     "parametros": {"modelo": "valor_razonable", "vr_sin_esfuerzo_desproporcionado": "sí", "umbral_uso_propio": 10, "saldoMayor": 2785000},
@@ -856,7 +983,7 @@ EJEMPLO = {
             _im("IP-08", "Oficina ex uso propio", "Alquiler", 160000, 205000, fecha_adquisicion="2015-01-01", terreno=40000, vida_util=40,
                 dep_acumulada=33000, vr_corte=210000, fuente_vr="Perito independiente", nivel_vr="Nivel 2", ingresos_alquiler=6000,
                 ingresos_registrados=6000, transferencia="PPE → PI", fecha_transferencia="2025-09-30", libros_transferencia=125000,
-                vr_transferencia=205000),
+                vr_transferencia=205000, superavit_revaluacion=30000),
             _im("IP-09", "Casa arrendada (ex inventario)", "Alquiler", 70000, 90000, fecha_adquisicion="2019-12-31", terreno=10000, vida_util=30,
                 vr_anterior=90000, vr_corte=95000, ingresos_registrados=7000, transferencia="Inventario a PI", fecha_transferencia="2025-05-15"),
             _im("IP-10", "Galpón industrial arrendado", "Alquiler", 120000, 150000, pct_uso_propio=5, fecha_adquisicion="2017-12-31",
@@ -879,6 +1006,16 @@ _E = EJEMPLO
 _PYMES_16_8 = {"inmuebles": [dict(f, fecha_transferencia="2023-06-30", libros_transferencia=262000) if f["id"] == "IP-07" else f
                              for f in _E["datasets"]["inmuebles"]],
                "bajas": _E["datasets"]["bajas"]}
+# Superávit (decisión del socio): IP-08 pasa a una disminución. Libros al cambio 125.000, VR 100.000 → −25.000.
+# Con superávit 10.000: uso 10.000 (a ORI −10.000) y exceso −15.000 a resultados; saldo final 0.
+# Sin el dato: no se puede repartir → resultados y ORI vacíos y problema SIN_SUPERAVIT_REVALUACION.
+def _ip08(**kw):
+    return {"inmuebles": [dict(f, **kw) if f["id"] == "IP-08" else f for f in _E["datasets"]["inmuebles"]],
+            "bajas": _E["datasets"]["bajas"]}
+
+
+_SUP_BAJA = _ip08(vr_transferencia=100000, superavit_revaluacion=10000)
+_SUP_SIN_DATO = _ip08(vr_transferencia=100000, superavit_revaluacion="")
 ESCENARIOS = [
     ("niif_completas_vr", _E["datasets"], {**_E["parametros"], "_marco": "NIIF completas"}, _E["corte"]),
     ("niif_completas_costo", _E["datasets"], {**_E["parametros"], "modelo": "costo", "_marco": "NIIF completas"}, _E["corte"]),
@@ -886,5 +1023,7 @@ ESCENARIOS = [
                                                  "_edicion": "2015"}, _E["corte"]),
     ("pymes_2025_vr", _E["datasets"], {**_E["parametros"], "_marco": "NIIF para las PYMES", "_edicion": "2025"}, _E["corte"]),
     ("pymes_2025_16_8", _PYMES_16_8, {**_E["parametros"], "_marco": "NIIF para las PYMES", "_edicion": "2025"}, _E["corte"]),
+    ("superavit_disminucion", _SUP_BAJA, {**_E["parametros"], "_marco": "NIIF completas"}, _E["corte"]),
+    ("superavit_sin_dato", _SUP_SIN_DATO, {**_E["parametros"], "_marco": "NIIF completas"}, _E["corte"]),
     ("solo_inmuebles_sin_mayor", {"inmuebles": _E["datasets"]["inmuebles"][:3]}, {"umbral_uso_propio": 5}, _E["corte"]),
 ]

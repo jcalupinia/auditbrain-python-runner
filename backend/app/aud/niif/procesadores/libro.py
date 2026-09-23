@@ -156,8 +156,13 @@ def _filas(h):
     return [(r, False) for r in h["rows"]] + ([(h["total"], True)] if h.get("total") else [])
 
 
-# Cédulas que van a la presentación (PowerPoint): las de lectura ejecutiva.
-_EN_PPT = ("01_Resumen", "04_Matriz_deterioro", "05_Por_cliente", "08_Fiscal", "10_Asientos", "12_Problemas", "13_Conclusion")
+# Cédulas que van a la presentación (PowerPoint): las de lectura ejecutiva. Se comparan por el nombre sin el número,
+# porque una herramienta puede renumerar sus cédulas al insertar una nueva.
+_EN_PPT = ("Resumen", "Matriz_deterioro", "Por_cliente", "Fiscal", "Asientos", "Problemas", "Conclusion")
+
+
+def _en_ppt(nombre: str) -> bool:
+    return nombre.split("_", 1)[-1] in _EN_PPT
 _MAX_FILAS_PPT = 14
 
 
@@ -211,7 +216,7 @@ def pptx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     s.shapes.title.text = definicion.get("name", "")
     s.placeholders[1].text = f"{e.get('client', '')} · corte {e.get('cutoff', '')} · v{version} · {estado}\nAuditConsulting Auditores Cía. Ltda."
     for h in cedulas(definicion, reg, eventos, version, estado):
-        if h["name"] not in _EN_PPT:
+        if not _en_ppt(h["name"]):
             continue
         filas = _filas(h)
         recorte = len(filas) > _MAX_FILAS_PPT

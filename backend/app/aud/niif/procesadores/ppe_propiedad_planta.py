@@ -19,8 +19,14 @@ Versión simple que cumple la norma (NIC 16 / Sección 17):
 6. Deterioro: pérdida = max(importe en libros − importe recuperable, 0) (NIC 36.59; PYMES 27.5). Si el activo
    está revaluado, la pérdida se imputa primero contra el superávit de revaluación de ese activo y solo el
    exceso a resultados (NIC 36.60–61; PYMES 27.6); sin el superávit informado no se reparte y se avisa.
-7. Costos por préstamos: NIIF completas capitaliza en activos aptos con la tasa de capitalización
-   (NIC 23.8, 14); en PYMES todo costo por préstamos es gasto (Sección 25.2): lo capitalizado es ajuste.
+7. Costos por préstamos (NIIF completas). Con el anexo de préstamos para la construcción se calcula por
+   activo: el préstamo específico aporta el costo financiero del período realmente incurrido menos los
+   rendimientos de la inversión temporal de esos fondos (NIC 23.12) y los préstamos generales aportan la
+   tasa de capitalización —media ponderada de sus costos por intereses— aplicada a los desembolsos del
+   activo financiados con ellos (NIC 23.14). Lo capitalizado en el período no excede el total de costos
+   por préstamos incurridos (tope del párrafo 14). Sin el anexo se mantiene la estimación por desembolso
+   con la tasa de capitalización del parámetro y se avisa. En PYMES todo costo por préstamos es gasto
+   (Sección 25.2, ediciones 2015 y 2025): no se capitaliza nada y lo capitalizado es ajuste.
 8. Desmantelamiento: provisión = costo estimado ÷ (1 + tasa)^años (NIC 16.16 c, NIC 37.45–47; PYMES 17.10 c
    y 21.7 b). El ajuste se separa en dos efectos (CINIIF 1): la actualización financiera del período (saldo
    inicial de la provisión × tasa) es costo financiero de resultados (1.8; NIC 37.60; PYMES 21.11) y el
@@ -70,8 +76,22 @@ _ADICIONES = [
     campo("apto", "Activo apto (Sí/No)", requerido=False, alias=("activo apto", "apto"), ejemplo="Sí"),
     campo("intereses", "Intereses capitalizados registrados", "number", requerido=False, alias=("intereses capitalizados", "intereses"), ejemplo="9000"),
 ]
-CAMPOS = {"activos": _ACTIVOS, "adiciones": _ADICIONES}
-TIPOS = {"activos": "activos", "adiciones": "adiciones"}
+_PRESTAMOS = [
+    campo("id", "N° de préstamo o contrato", alias=("prestamo", "préstamo", "contrato", "credito", "crédito", "documento"), ejemplo="PR-01"),
+    campo("tipo", "Tipo (Específico / General)", requerido=False, alias=("tipo", "tipo de prestamo", "naturaleza", "clase de prestamo"), ejemplo="Específico"),
+    campo("activo", "Activo u obra financiada (solo los específicos)", requerido=False,
+          alias=("activo", "obra", "codigo activo", "activo apto", "destino"), ejemplo="OBRA-01"),
+    campo("descripcion", "Descripción", requerido=False, alias=("detalle", "banco", "entidad", "concepto"), ejemplo="Banco X · nave industrial"),
+    campo("importe", "Importe del préstamo vigente en el período", "number", requerido=False,
+          alias=("capital", "principal", "monto", "saldo del prestamo"), ejemplo="120000"),
+    campo("tasa", "Tasa nominal anual (%)", "number", requerido=False, alias=("tasa", "tasa anual", "interes"), ejemplo="9"),
+    campo("costo_financiero", "Costo financiero del período realmente incurrido", "number", requerido=False,
+          alias=("costo financiero", "intereses del periodo", "intereses devengados", "gasto financiero"), ejemplo="9000"),
+    campo("rendimientos", "Rendimientos de la inversión temporal de esos fondos (solo los específicos)", "number", requerido=False,
+          alias=("rendimientos", "rendimiento inversion temporal", "intereses ganados", "rendimientos financieros"), ejemplo="1200"),
+]
+CAMPOS = {"activos": _ACTIVOS, "adiciones": _ADICIONES, "prestamos": _PRESTAMOS}
+TIPOS = {"activos": "activos", "adiciones": "adiciones", "prestamos": "prestamos"}
 DATASETS = tuple(TIPOS)
 PRINCIPAL = "activos"
 CONTROL = "costo_inicial"
@@ -130,6 +150,11 @@ def _hace_un_anio(d):
 
 def _lineal(metodo: str) -> bool:
     return metodo == "" or "lineal" in metodo.lower()
+
+
+def _tot(filas, k):
+    """Total de una columna de la cédula de capitalización: vacío si algún activo quedó sin medir (M22)."""
+    return None if any(f[k] is None for f in filas) else sum(f[k] for f in filas)
 
 
 def _p(p, k):
@@ -271,6 +296,70 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         x["existe"] = act is not None
         adiciones.append(x)
 
+    # 7 bis · anexo de préstamos para la construcción (NIC 23.12 y 14).
+    prestamos = []
+    for f in datasets.get("prestamos") or []:
+        if not _t(f.get("id")):
+            continue
+        tp = _t(f.get("tipo")).lower()
+        y = {"id": _t(f.get("id")), "tipo": "Específico" if tp.startswith("esp") else ("General" if tp.startswith("gen") else ""),
+             "activo": _t(f.get("activo")), "desc": _t(f.get("descripcion")), "importe": _opc(f.get("importe")),
+             "tasa": _opc(f.get("tasa")), "costo": _opc(f.get("costo_financiero")), "rend": _opc(f.get("rendimientos")),
+             "_row": f.get("_row")}
+        # NIC 23.12: en el específico lo capitalizable es el costo realmente asumido menos los rendimientos de la
+        # inversión temporal de esos fondos. Sin uno de los dos datos el importe queda vacío (M22).
+        y["cap_esp"] = None if y["tipo"] != "Específico" or y["costo"] is None or y["rend"] is None else y["costo"] - y["rend"]
+        prestamos.append(y)
+
+    # NIC 23.14: tasa de capitalización = media ponderada de los costos por intereses de los préstamos genéricos.
+    generales = [y for y in prestamos if y["tipo"] == "General"]
+    if not generales:
+        tasa_gen = 0.0
+    elif any(y["importe"] is None or y["costo"] is None for y in generales) or sum(y["importe"] or 0 for y in generales) == 0:
+        tasa_gen = None
+    else:
+        tasa_gen = sum(y["costo"] for y in generales) / sum(y["importe"] for y in generales)
+
+    esp_por_activo = {}
+    for y in prestamos:
+        if y["tipo"] == "Específico" and y["activo"]:
+            esp_por_activo.setdefault(y["activo"], []).append(y)
+    capit = []
+    if prestamos:
+        orden = []
+        for x in adiciones:
+            if (x["dias"] > 0 or (x["int"] or 0) != 0) and x["activo"] not in orden:
+                orden.append(x["activo"])
+        for k in esp_por_activo:
+            if k not in orden:
+                orden.append(k)
+        for k in orden:
+            ads = [x for x in adiciones if x["activo"] == k]
+            esps = esp_por_activo.get(k, [])
+            des = sum(x["importe"] for x in ads if x["dias"] > 0)
+            base = sum(x["importe"] * x["dias"] for x in ads) / dias_anio
+            imp = None if any(y["importe"] is None for y in esps) else sum(y["importe"] for y in esps)
+            cap_e = 0.0 if pymes else (None if any(y["cap_esp"] is None for y in esps) else sum(y["cap_esp"] for y in esps))
+            pct = None if imp is None else (0.0 if des == 0 else max(1 - imp / des, 0))
+            bg = None if pct is None else base * pct
+            cg = 0.0 if pymes else (None if bg is None or tasa_gen is None else bg * tasa_gen)
+            capit.append({"activo": k, "desemb": des, "base": base, "esp_imp": imp, "esp_cap": cap_e, "pct": pct,
+                          "base_gen": bg, "tasa": 0.0 if pymes else tasa_gen, "cap_gen": cg,
+                          "antes": None if cap_e is None or cg is None else cap_e + cg,
+                          "reg": sum(x["int"] or 0 for x in ads)})
+    # Tope del párrafo 14: lo capitalizado en el período no excede los costos por préstamos incurridos.
+    tope_inc = sum(y["costo"] for y in prestamos if y["costo"] is not None)
+    tope_antes = sum(a["antes"] for a in capit if a["antes"] is not None)
+    tope_completo = bool(prestamos) and all(y["costo"] is not None for y in prestamos) and all(a["antes"] is not None for a in capit)
+    factor = None if not tope_completo else (1.0 if tope_antes <= tope_inc else tope_inc / tope_antes)
+    for a in capit:
+        a["factor"] = factor
+        a["final"] = None if a["antes"] is None else (a["antes"] if factor is None else a["antes"] * factor)
+        a["dif"] = None if a["final"] is None else a["final"] - a["reg"]
+    if prestamos:                    # con anexo el capitalizable se mide por activo, no por desembolso
+        for x in adiciones:
+            x["cap"], x["int_dif"] = None, None
+
     # 8 · desmantelamiento.
     # CINIIF 1.5 a / 1.8 (PYMES 21.7 b y 21.11): el cambio de estimación va contra el costo del activo; la reversión
     # del descuento del período (saldo inicial de la provisión × tasa) es costo financiero del ejercicio.
@@ -308,7 +397,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
           "deterioroORI": sum(a["detORI"] for a in deter if a["detORI"] is not None),
           "deterioroResultado": sum(a["detRes"] for a in deter if a["detRes"] is not None),
           "ajusteBajas": sum(a["res_dif"] for a in bajas if a["res_dif"] is not None),
-          "ajusteIntereses": sum(x["int_dif"] for x in adiciones if x["int_dif"] is not None),
+          "ajusteIntereses": (sum(a["dif"] for a in capit if a["dif"] is not None) if prestamos
+                             else sum(x["int_dif"] for x in adiciones if x["int_dif"] is not None)),
           "revaluacionORI": sum(a["rev_ori"] for a in reval), "revaluacionResultado": sum(a["rev_res"] for a in reval),
           "ajusteDesmantelamiento": desm["cambio"], "desmantelamientoFinanciero": desm["actualizacion"]}
     aj["ajusteResultado"] = (-aj["ajusteDep"] - aj["deterioroResultado"] + aj["ajusteBajas"] + aj["ajusteIntereses"]
@@ -363,12 +453,54 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         cap_pymes = sum(x["int"] or 0 for x in adiciones)
         if cap_pymes > 0.005:
             pr.append(problema("INTERESES_CAPITALIZADOS_PYMES", f"En NIIF para las PYMES los costos por préstamos son gasto (Sección 25.2): se capitalizaron {m(cap_pymes)}.", -cap_pymes))
+        if prestamos:
+            pr.append(problema("PRESTAMOS_NO_SE_CAPITALIZAN_PYMES", "Se cargó el anexo de préstamos para la construcción, pero en NIIF para las PYMES todos los costos por "
+                               "préstamos se reconocen como gasto del período (Sección 25.2, igual en las ediciones 2015 y 2025): no hay tasa de capitalización ni "
+                               "préstamo específico que capitalizar. El anexo sirve para identificar el costo financiero del período y su presentación en resultados."))
     else:
-        if tasa_cap is None and any(x["apto"].lower() in ("sí", "si") for x in adiciones):
-            pr.append(problema("TASA_CAPITALIZACION_FALTANTE", "Hay adiciones de activos aptos: ingrese la tasa de capitalización (NIC 23.14).", 0))
-        for x in adiciones:
-            if x["int_dif"] is not None and abs(x["int_dif"]) > tol:
-                pr.append(problema("INTERESES_DIFERENCIA", f"{x['id']}: intereses capitalizables {m(x['cap'])} ≠ capitalizados {m(x['int'] or 0)} (NIC 23.8, 14).", x["int_dif"]))
+        if not prestamos:
+            if tasa_cap is None and any(x["apto"].lower() in ("sí", "si") for x in adiciones):
+                pr.append(problema("TASA_CAPITALIZACION_FALTANTE", "Hay adiciones de activos aptos: ingrese la tasa de capitalización (NIC 23.14).", 0))
+            if any(a["estado"] == "En construcción" for a in activos) or any(x["apto"].lower() in ("sí", "si") for x in adiciones):
+                pr.append(problema("SIN_ANEXO_PRESTAMOS", "Hay activos en construcción o adiciones de activos aptos y no se cargó el anexo de préstamos para la "
+                                   "construcción: no se puede separar el préstamo específico —costo financiero realmente incurrido menos los rendimientos de la inversión "
+                                   "temporal de esos fondos (NIC 23.12)— de los préstamos generales —tasa de capitalización (NIC 23.14)— ni comprobar el tope de los "
+                                   "costos por préstamos incurridos en el período (NIC 23.14). Pida los contratos y la tabla de amortización de cada préstamo; mientras "
+                                   "tanto se aplica la tasa de capitalización del parámetro a cada desembolso.", 0))
+            for x in adiciones:
+                if x["int_dif"] is not None and abs(x["int_dif"]) > tol:
+                    pr.append(problema("INTERESES_DIFERENCIA", f"{x['id']}: intereses capitalizables {m(x['cap'])} ≠ capitalizados {m(x['int'] or 0)} (NIC 23.8, 14).", x["int_dif"]))
+        else:
+            if tasa_cap is not None and tasa_gen is not None and abs(tasa_gen * 100 - tasa_cap) > 0.005:
+                pr.append(problema("TASA_CAPITALIZACION_DIFIERE", f"La tasa de capitalización del parámetro ({tasa_cap:.4f} %) no coincide con la media ponderada de los "
+                                   f"préstamos generales del anexo ({tasa_gen * 100:.4f} %): se usa la del anexo (NIC 23.14).", 0))
+            if factor is None:
+                pr.append(problema("TOPE_NO_VERIFICABLE", "No se puede comprobar el tope del párrafo 14 (lo capitalizado no excede los costos por préstamos incurridos en "
+                                   "el período): falta el costo financiero de algún préstamo o el capitalizable de algún activo. Complete el anexo de préstamos.", 0))
+            elif factor < 1:
+                pr.append(problema("TOPE_COSTOS_PRESTAMOS", f"El capitalizable calculado {m(tope_antes)} excede los costos por préstamos incurridos en el período "
+                                   f"{m(tope_inc)}: se limita a estos últimos (NIC 23.14). Exceso que no se capitaliza: {m(tope_antes - tope_inc)}.", tope_antes - tope_inc))
+            for a in capit:
+                if a["dif"] is not None and abs(a["dif"]) > tol:
+                    pr.append(problema("INTERESES_DIFERENCIA", f"{a['activo']}: costos por préstamos capitalizables {m(a['final'])} ≠ capitalizados {m(a['reg'])} "
+                                       "(NIC 23.12 el específico, 23.14 los generales y el tope).", a["dif"]))
+    for y in prestamos:
+        if not y["tipo"]:
+            pr.append(problema("PRESTAMO_SIN_TIPO", f"{y['id']}: indique si el préstamo es específico (NIC 23.12) o general (NIC 23.14); sin el tipo no entra en el cálculo.", 0))
+        if y["costo"] is None:
+            pr.append(problema("PRESTAMO_SIN_COSTO_FINANCIERO", f"{y['id']}: falta el costo financiero del período realmente incurrido; sin él no se mide el capitalizable "
+                               "ni el tope del párrafo 14 (NIC 23.12 y 14). Revise la tabla de amortización del préstamo y el mayor de gasto financiero.", 0))
+        if y["tipo"] == "Específico":
+            if y["rend"] is None:
+                pr.append(problema("PRESTAMO_SIN_RENDIMIENTOS", f"{y['id']}: préstamo específico sin el dato de rendimientos de la inversión temporal de esos fondos; lo "
+                                   "capitalizable es el costo realmente incurrido menos esos rendimientos (NIC 23.12). Si no hubo inversión temporal, informe 0: no se asume.", 0))
+            if not y["activo"]:
+                pr.append(problema("PRESTAMO_SIN_ACTIVO", f"{y['id']}: préstamo específico sin el activo u obra financiada; indíquelo para asignarle el costo capitalizable (NIC 23.12).", 0))
+            elif y["activo"] not in por_id:
+                pr.append(problema("PRESTAMO_ACTIVO_NO_EXISTE", f"{y['id']}: el activo {y['activo']} que financia no está en el auxiliar.", 0))
+        if y["tipo"] == "General" and (y["importe"] is None or y["costo"] is None):
+            pr.append(problema("PRESTAMO_GENERAL_INCOMPLETO", f"{y['id']}: préstamo general sin importe o sin costo financiero del período; sin ambos no se calcula la tasa "
+                               "de capitalización, que es la media ponderada de los costos de todos los préstamos genéricos (NIC 23.14).", 0))
     for x in adiciones:
         if x["capitalizable"] != "Sí":
             pr.append(problema("ADICION_GASTO_CAPITALIZADO", f"{x['id']}: «{x['tipo']}» capitalizado; las reparaciones y el mantenimiento son gasto (NIC 16.12; PYMES 17.15); el mantenimiento mayor o las inspecciones generales pueden capitalizarse (NIC 16.13–14).", x["importe"]))
@@ -406,6 +538,13 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         ("deterioroORI", "Deterioro contra el superávit de revaluación (ORI)", aj["deterioroORI"]),
         ("deterioroResultado", "Deterioro a resultados", aj["deterioroResultado"]),
         ("ajusteBajas", "Diferencia en resultado de bajas", aj["ajusteBajas"]),
+        # M22: si algún activo quedó sin medir, el total no se presenta (no es cero, es desconocido).
+        ("capitalizableEspecificos", "Capitalizable de préstamos específicos (NIC 23.12)", _tot(capit, "esp_cap") if prestamos else None),
+        ("capitalizableGenerales", "Capitalizable de préstamos generales (NIC 23.14)", _tot(capit, "cap_gen") if prestamos else None),
+        ("costosPrestamosIncurridos", "Costos por préstamos incurridos en el período (tope NIC 23.14)",
+         tope_inc if prestamos and all(y["costo"] is not None for y in prestamos) else None),
+        ("capitalizablePeriodo", "Costos por préstamos capitalizables del período (después del tope)",
+         _tot(capit, "final") if prestamos else None),
         ("ajusteIntereses", "Ajuste de intereses capitalizados", aj["ajusteIntereses"]),
         ("revaluacionORI", "Revaluación a otro resultado integral", aj["revaluacionORI"]),
         ("revaluacionResultado", "Revaluación a resultados", aj["revaluacionResultado"]),
@@ -427,8 +566,9 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     limpia = lambda it: [{k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in x.items()} for x in it]
     detalle = {"cortes": {"actual": corte_a.isoformat(), "inicio": inicio.isoformat()}, "diasAnio": dias_anio,
                "marco": MARCO_PYMES if pymes else MARCO_COMPLETAS, "edicion": edicion_pymes(p) if pymes else "",
-               "activos": limpia(activos), "adiciones": limpia(adiciones), "desmantelamiento": desm, "rollforward": rf,
-               "ajustes": aj, "parametros": p}
+               "activos": limpia(activos), "adiciones": limpia(adiciones), "prestamos": limpia(prestamos),
+               "capitalizacion": limpia(capit), "tope": {"incurridos": tope_inc, "antes": tope_antes, "factor": factor},
+               "desmantelamiento": desm, "rollforward": rf, "ajustes": aj, "parametros": p}
     return {"engine": VERSION, "rows": filas, "totals": totales, "labels": etiquetas, "primary": "ajusteResultado",
             "exceptions": pr, "schedule": [], "detalle": detalle}
 
@@ -439,13 +579,15 @@ CEDULAS = [
     ("01_Resumen", "Resumen"), ("02_Parametros", "Parámetros"), ("03_Auxiliar", "Auxiliar de activos (datos del cliente)"),
     ("04_Depreciacion", "Recálculo de depreciación y VNL"), ("05_Vidas_residual", "Vidas útiles, residual y método"),
     ("06_Componentes", "Componentes"), ("07_Bajas", "Bajas"), ("08_Revaluacion", "Revaluación"), ("09_Deterioro", "Deterioro"),
-    ("10_Adiciones", "Adiciones y costos por préstamos"), ("11_Desmantelamiento", "Desmantelamiento"),
-    ("12_Roll_forward", "Movimiento del año y conciliación auxiliar-mayor"), ("13_Ajustes", "Ajustes propuestos"),
-    ("14_Problemas", "Problemas encontrados"),
+    ("10_Adiciones", "Adiciones y costos por préstamos"), ("11_Prestamos", "Préstamos para la construcción"),
+    ("12_Capitalizacion", "Capitalización de costos por préstamos por activo"), ("13_Desmantelamiento", "Desmantelamiento"),
+    ("14_Roll_forward", "Movimiento del año y conciliación auxiliar-mayor"), ("15_Ajustes", "Ajustes propuestos"),
+    ("16_Problemas", "Problemas encontrados"),
 ]
 P = ref("02_Parametros")
-AUX, DEP, BAJ, REV, DET, ADI, DES, RF, AJ = (ref(n) for n in ("03_Auxiliar", "04_Depreciacion", "07_Bajas", "08_Revaluacion", "09_Deterioro",
-                                                               "10_Adiciones", "11_Desmantelamiento", "12_Roll_forward", "13_Ajustes"))
+AUX, DEP, BAJ, REV, DET, ADI, PRE, CAP, DES, RF, AJ = (
+    ref(n) for n in ("03_Auxiliar", "04_Depreciacion", "07_Bajas", "08_Revaluacion", "09_Deterioro", "10_Adiciones",
+                     "11_Prestamos", "12_Capitalizacion", "13_Desmantelamiento", "14_Roll_forward", "15_Ajustes"))
 _PAR = ["corte", "inicio", "diasAnio", "marco", "edicion", "tolerancia", "tasaCapitalizacion", "umbralComponente",
         "umbralRevisarComponentes", "costoDesmantelamiento", "aniosDesmantelamiento", "tasaDesmantelamiento",
         "provisionDesmantelamiento", "provisionDesmantelamientoInicial", "mayorCosto", "mayorDepAcum"]
@@ -466,8 +608,9 @@ def hojas(res: dict) -> list[dict]:
     p = d["parametros"]
     A = d["activos"]
     AD = d["adiciones"]
+    PRS, CP = d["prestamos"], d["capitalizacion"]
     rf, aj, ds = d["rollforward"], d["ajustes"], d["desmantelamiento"]
-    n, nad = len(A), len(AD)
+    n, nad, npr, ncap = len(A), len(AD), len(PRS), len(CP)
     fila = {a["id"]: FILA0 + i for i, a in enumerate(A)}
     pv = lambda k: None if p.get(k) in (None, "") else float(a_num(p.get(k)))
 
@@ -575,13 +718,53 @@ def hojas(res: dict) -> list[dict]:
         r = FILA0 + i
         mt = f"MATCH(B{r},{ra},0)"
         fin = f'IF(ISNA({mt}),{PAR["corte"]},IF(INDEX({re_},{mt})="",{PAR["corte"]},MIN(INDEX({re_},{mt}),{PAR["corte"]})))'
+        # Con anexo de préstamos el capitalizable se mide por activo en la cédula 12 (NIC 23.12 y 14).
+        cap_f = '""' if npr else f'IF(I{r}=0,0,IF({PAR["tasaCapitalizacion"]}="","",F{r}*{PAR["tasaCapitalizacion"]}/100*I{r}/{PAR["diasAnio"]}))'
         adic.append([x["id"], x["activo"], x["fecha"], x["desc"], x["tipo"], x["importe"], x["apto"], x["int"],
                      fx(f'IF(OR({PAR["marco"]}="{MARCO_PYMES}",NOT(OR(G{r}="Sí",G{r}="Si"))),0,MAX({fin}-MAX(C{r},{PAR["inicio"]}),0))', x["dias"]),
-                     fx(f'IF(I{r}=0,0,IF({PAR["tasaCapitalizacion"]}="","",F{r}*{PAR["tasaCapitalizacion"]}/100*I{r}/{PAR["diasAnio"]}))', x["cap"]),
-                     fx(f'IF(J{r}="","",J{r}-H{r})', x["int_dif"]),
+                     fx(cap_f, x["cap"]), fx(f'IF(J{r}="","",J{r}-H{r})', x["int_dif"]),
                      fx(f'IF(OR(ISNUMBER(SEARCH("repar",E{r})),ISNUMBER(SEARCH("manten",E{r}))),"No: gasto (NIC 16.12)","Sí")', x["capitalizable"])])
 
-    # 11 · desmantelamiento.
+    # 11 · préstamos para la construcción (datos del cliente).
+    prest = []
+    for i, y in enumerate(PRS):
+        r = FILA0 + i
+        prest.append([y["id"], y["tipo"], y["activo"], y["desc"], y["importe"], y["tasa"], y["costo"], y["rend"],
+                      fx(f'IF(B{r}<>"Específico","",IF(OR(G{r}="",H{r}=""),"",G{r}-H{r}))', y["cap_esp"])])
+
+    # 12 · capitalización por activo: específico (NIC 23.12) + generales (NIC 23.14) y tope del párrafo 14.
+    PB, PC, PE, PG, PI = (_rng(PRE, c, npr) for c in ("B", "C", "E", "G", "I"))
+    ADB, ADF, ADH, ADD = (_rng(ADI, c, nad) for c in ("B", "F", "H", "I"))
+    ngen, pym = f'COUNTIF({PB},"General")', f'{PAR["marco"]}="{MARCO_PYMES}"'
+    okgen = f'SUMPRODUCT(({PB}="General")*ISNUMBER({PE})*ISNUMBER({PG}))'
+    tasa_f = (f'IF({pym},0,IF({ngen}=0,0,IF(OR({okgen}<{ngen},SUMIFS({PE},{PB},"General")=0),"",'
+              f'SUMIFS({PG},{PB},"General")/SUMIFS({PE},{PB},"General"))))')
+    rj = f"$J${FILA0}:$J${FILA0 + max(ncap, 1) - 1}"
+    factor_f = (f'IF(OR(SUMPRODUCT(--ISNUMBER({PG}))<{npr},COUNT({rj})<{ncap}),"",'
+                f'IF(SUM({rj})<=SUM({PG}),1,SUM({PG})/SUM({rj})))')
+    capit = []
+    for i, a in enumerate(CP):
+        r = FILA0 + i
+        nesp = f'SUMPRODUCT(({PB}="Específico")*({PC}=A{r}))'
+        okimp = f'SUMPRODUCT(({PB}="Específico")*({PC}=A{r})*ISNUMBER({PE}))'
+        okcap = f'SUMPRODUCT(({PB}="Específico")*({PC}=A{r})*ISNUMBER({PI}))'
+        capit.append([
+            a["activo"],
+            fx(f'SUMIFS({ADF},{ADB},A{r},{ADD},">0")' if nad else "0", a["desemb"]),
+            fx(f'SUMPRODUCT(({ADB}=A{r})*{ADF}*{ADD})/{PAR["diasAnio"]}' if nad else "0", a["base"]),
+            fx(f'IF({nesp}=0,0,IF({okimp}<{nesp},"",SUMIFS({PE},{PB},"Específico",{PC},A{r})))', a["esp_imp"]),
+            fx(f'IF({pym},0,IF({nesp}=0,0,IF({okcap}<{nesp},"",SUMIFS({PI},{PB},"Específico",{PC},A{r}))))', a["esp_cap"]),
+            fx(f'IF(D{r}="","",IF(B{r}=0,0,MAX(1-D{r}/B{r},0)))', a["pct"]),
+            fx(f'IF(F{r}="","",C{r}*F{r})', a["base_gen"]), fx(tasa_f, a["tasa"]),
+            fx(f'IF(OR(G{r}="",H{r}=""),"",G{r}*H{r})', a["cap_gen"]),
+            fx(f'IF(OR(E{r}="",I{r}=""),"",E{r}+I{r})', a["antes"]), fx(factor_f, a["factor"]),
+            fx(f'IF(J{r}="","",IF(K{r}="",J{r},J{r}*K{r}))', a["final"]),
+            fx(f'SUMIFS({ADH},{ADB},A{r})' if nad else "0", a["reg"]),
+            fx(f'IF(L{r}="","",L{r}-M{r})', a["dif"]),
+        ])
+    sc = lambda k: sum(a[k] for a in CP if a[k] is not None)
+
+    # 13 · desmantelamiento.
     b = lambda k: f"B{FILA0 + k}"
     desm = [
         ["Costo estimado futuro", fx(_si(PAR["costoDesmantelamiento"]), ds["costo"])],
@@ -599,7 +782,7 @@ def hojas(res: dict) -> list[dict]:
          fx(f'IF(OR({b(7)}="",{b(6)}=""),"",{b(7)}-{b(6)})', ds["cambio"])],
     ]
 
-    # 12 · roll-forward.
+    # 14 · roll-forward.
     c = lambda k: f"B{FILA0 + k}"
     rfw = [
         ["Costo al inicio (auxiliar)", fx(f"SUM({_rng(AUX, 'F', n)})", rf["ci"])],
@@ -620,15 +803,19 @@ def hojas(res: dict) -> list[dict]:
         ["Diferencia adiciones auxiliar − detalle", fx(f"{c(1)}-{c(14)}", rf["difAd"]) if nad else None],
     ]
 
-    # 13 · ajustes propuestos.
+    # 15 · ajustes propuestos.
     s = lambda col, h, nn: f"SUM({_rng(h, col, nn)})" if nn else "0"
     ajus = [
         ["Depreciación recalculada − registrada", fx(s("G", DEP, n), aj["ajusteDep"]), "Gasto por depreciación", "(−) Depreciación acumulada", "NIC 16.50; PYMES 17.18"],
         ["Deterioro a resultados", fx(s("J", DET, len(D)), aj["deterioroResultado"]), "Pérdida por deterioro", "(−) Deterioro acumulado",
          "NIC 36.59–61; PYMES 27.5–27.6: en un activo revaluado, primero contra el superávit y solo el exceso a resultados"],
         ["Resultado de bajas recalculado − registrado", fx(s("J", BAJ, len(B)), aj["ajusteBajas"]), "Resultado en baja de activos", "Propiedad, planta y equipo", "NIC 16.68, 71; PYMES 17.28–17.30"],
-        ["Intereses capitalizables − capitalizados", fx(s("K", ADI, nad), aj["ajusteIntereses"]), "Construcciones en curso / Gasto financiero", "Gasto financiero / Construcciones en curso",
-         "Sección 25.2 (PYMES: todo a gasto)" if d["marco"] == MARCO_PYMES else "NIC 23.8, 14"],
+        ["Costos por préstamos capitalizables − capitalizados",
+         fx(s("N", CAP, ncap) if npr else s("K", ADI, nad), aj["ajusteIntereses"]),
+         "Construcciones en curso / Gasto financiero", "Gasto financiero / Construcciones en curso",
+         "Sección 25.2 (PYMES: todo a gasto)" if d["marco"] == MARCO_PYMES else
+         ("NIC 23.12 (específico: costo real − rendimientos), 23.14 (generales: tasa de capitalización) y el tope del 23.14"
+          if npr else "NIC 23.8, 14 (estimación por desembolso: falta el anexo de préstamos)")],
         ["Revaluación a otro resultado integral", fx(s("H", REV, len(R)), aj["revaluacionORI"]), "Propiedad, planta y equipo", "Superávit de revaluación (ORI)", "NIC 16.39–40; PYMES 17.15C–17.15D"],
         ["Revaluación a resultados", fx(s("I", REV, len(R)), aj["revaluacionResultado"]), "Pérdida por revaluación / Reversión de decremento previo", "Propiedad, planta y equipo",
          "NIC 16.39 (aumento que revierte un decremento previo en resultados) y 16.40; PYMES 17.15C–17.15D"],
@@ -646,12 +833,16 @@ def hojas(res: dict) -> list[dict]:
     celda = {"costoFinal": f"{RF}B{FILA0 + 3}", "depRecalculada": f"SUM({_rng(DEP, 'E', n)})", "depRegistrada": f"{RF}B{FILA0 + 7}",
              "ajusteDep": f"{AJ}B{FILA0}", "nbv": f"{RF}B{FILA0 + 13}", "deterioroAdicional": f"SUM({_rng(DET, 'E', len(D))})",
              "deterioroORI": f"{AJ}B{FILA0 + 6}", "deterioroResultado": f"{AJ}B{FILA0 + 1}",
+             "capitalizableEspecificos": f"{CAP}E{FILA0 + ncap}", "capitalizableGenerales": f"{CAP}I{FILA0 + ncap}",
+             "costosPrestamosIncurridos": f"{PRE}G{FILA0 + npr}", "capitalizablePeriodo": f"{CAP}L{FILA0 + ncap}",
              "ajusteBajas": f"{AJ}B{FILA0 + 2}", "ajusteIntereses": f"{AJ}B{FILA0 + 3}", "revaluacionORI": f"{AJ}B{FILA0 + 4}",
              "revaluacionResultado": f"{AJ}B{FILA0 + 5}", "provDesmantelamiento": f"{DES}B{FILA0 + 3}",
              "ajusteDesmantelamiento": f"{AJ}B{FILA0 + 7}", "desmantelamientoFinanciero": f"{AJ}B{FILA0 + 8}",
              "difCosto": f"{RF}B{FILA0 + 5}", "difDepAcum": f"{RF}B{FILA0 + 11}", "ajusteResultado": f"{AJ}B{FILA0 + 9}"}
     valor = {"costoFinal": rf["costoFinal"], "depRecalculada": sum(a["dep"] for a in A if a["dep"] is not None), "depRegistrada": rf["dreg"],
-             "nbv": rf["nbv"], "provDesmantelamiento": ds["vp"], "difCosto": rf["difCosto"], "difDepAcum": rf["difDep"], **aj}
+             "nbv": rf["nbv"], "provDesmantelamiento": ds["vp"], "difCosto": rf["difCosto"], "difDepAcum": rf["difDep"],
+             "capitalizableEspecificos": sc("esp_cap"), "capitalizableGenerales": sc("cap_gen"),
+             "costosPrestamosIncurridos": d["tope"]["incurridos"], "capitalizablePeriodo": sc("final"), **aj}
     resumen = [[res["labels"][k], fx(celda[k], valor[k])] for k in res["labels"]]
 
     fin = lambda nn: FILA0 + nn - 1
@@ -697,11 +888,29 @@ def hojas(res: dict) -> list[dict]:
               ["Intereses capitalizados", "n"], ["Días de capitalización", "i"], ["Intereses capitalizables", "n"], ["Diferencia", "n"],
               ["Capitalizable", "t"]], adic,
              ["TOTAL", "", "", "", "", suma("F", fin(nad), rf["adDetalle"] or 0), "", suma("H", fin(nad), sum(x["int"] or 0 for x in AD)), None,
-              None, suma("K", fin(nad), aj["ajusteIntereses"]), ""] if nad else None),
-        hoja("11_Desmantelamiento", "Desmantelamiento", [["Concepto", "t"], ["Importe", "n"]], desm),
-        hoja("12_Roll_forward", "Movimiento del año y conciliación auxiliar-mayor", [["Concepto", "t"], ["Importe", "n"]], rfw),
-        hoja("13_Ajustes", "Ajustes propuestos", [["Ajuste", "t"], ["Importe", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]], ajus),
-        hoja("14_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
+              None, suma("K", fin(nad), 0 if npr else aj["ajusteIntereses"]), ""] if nad else None),
+        hoja("11_Prestamos", "Préstamos para la construcción",
+             [["Préstamo", "t"], ["Tipo", "t"], ["Activo u obra", "t"], ["Descripción", "t"], ["Importe del préstamo", "n"],
+              ["Tasa nominal anual (%)", "n"], ["Costo financiero del período", "n"], ["(−) Rendimientos de la inversión temporal", "n"],
+              ["Capitalizable del específico (NIC 23.12)", "n"]], prest,
+             ["TOTAL", "", "", "", suma("E", fin(npr), sum(y["importe"] or 0 for y in PRS)), None,
+              suma("G", fin(npr), d["tope"]["incurridos"]), suma("H", fin(npr), sum(y["rend"] or 0 for y in PRS)),
+              suma("I", fin(npr), sum(y["cap_esp"] for y in PRS if y["cap_esp"] is not None))] if npr else None),
+        hoja("12_Capitalizacion", "Capitalización de costos por préstamos por activo",
+             [["Activo", "t"], ["Desembolsos aptos del período", "n"], ["Base ponderada por tiempo", "n"],
+              ["Préstamo específico: importe", "n"], ["Capitalizable del específico (NIC 23.12)", "n"],
+              ["% financiado con préstamos generales", "p"], ["Base financiada con generales", "n"],
+              ["Tasa de capitalización (NIC 23.14)", "p"], ["Capitalizable de los generales", "n"],
+              ["Capitalizable antes del tope", "n"], ["Factor del tope (NIC 23.14)", "p"], ["Capitalizable del período", "n"],
+              ["Intereses capitalizados registrados", "n"], ["Diferencia", "n"]], capit,
+             ["TOTAL", suma("B", fin(ncap), sc("desemb")), suma("C", fin(ncap), sc("base")), suma("D", fin(ncap), sc("esp_imp")),
+              suma("E", fin(ncap), sc("esp_cap")), None, suma("G", fin(ncap), sc("base_gen")), None,
+              suma("I", fin(ncap), sc("cap_gen")), suma("J", fin(ncap), sc("antes")), None,
+              suma("L", fin(ncap), sc("final")), suma("M", fin(ncap), sc("reg")), suma("N", fin(ncap), sc("dif"))] if ncap else None),
+        hoja("13_Desmantelamiento", "Desmantelamiento", [["Concepto", "t"], ["Importe", "n"]], desm),
+        hoja("14_Roll_forward", "Movimiento del año y conciliación auxiliar-mayor", [["Concepto", "t"], ["Importe", "n"]], rfw),
+        hoja("15_Ajustes", "Ajustes propuestos", [["Ajuste", "t"], ["Importe", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]], ajus),
+        hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
     ]
 
@@ -719,8 +928,9 @@ def definicion() -> dict:
         "processor": "ppe_propiedad_planta",
         "frameworks": [MARCO_COMPLETAS, MARCO_PYMES],
         "summary": ("Recalcula por activo la depreciación, el valor neto en libros y el resultado de las bajas; evalúa vidas útiles, "
-                    "residuales, componentes, revaluación, deterioro, costos por préstamos (NIC 23 / Sección 25) y la provisión de "
-                    "desmantelamiento, y concilia el auxiliar con el mayor."),
+                    "residuales, componentes, revaluación, deterioro y la provisión de desmantelamiento; con el anexo de préstamos separa los "
+                    "específicos (costo real menos los rendimientos de la inversión temporal) de los generales (tasa de capitalización) y aplica "
+                    "el tope de los costos incurridos (NIC 23.12 y 14; en PYMES todo es gasto, Sección 25.2), y concilia el auxiliar con el mayor."),
         "source": {"organization": "IFRS Foundation — traducción oficial al español (NIIF 2023)", "type": "Norma contable", "date": "2026-09-22",
                    "document": ("NIC 16 párr. 12, 16 c, 31–42 (39, 40), 43–47, 50–62, 67–72; NIC 23 párr. 8, 12, 14, 20, 22; "
                                 "NIC 36 párr. 18, 59–60; NIC 37 párr. 45, 47, 60; CINIIF 1 párr. 5 y 8"),
@@ -747,7 +957,16 @@ def definicion() -> dict:
             "ORI (NIC 16.39; PYMES 17.15C); la disminución va a ORI hasta el superávit previo y el resto a resultados (NIC 16.40; PYMES 17.15D).",
             "Deterioro: pérdida = max(importe en libros − importe recuperable, 0) (NIC 36.59; PYMES 27.5). En activos revaluados, la pérdida va contra el "
             "superávit de ese activo (superávit previo + revaluación del año a ORI) y solo el exceso a resultados (NIC 36.60–61; PYMES 27.6).",
-            "Intereses capitalizables (solo NIIF completas, activos aptos) = desembolso × tasa de capitalización × días ÷ días del año (NIC 23.14); en PYMES todo es gasto (25.2).",
+            "Costos por préstamos con el anexo de préstamos (solo NIIF completas): por activo, capitalizable = (costo financiero del período realmente "
+            "incurrido en el préstamo específico − rendimientos de la inversión temporal de esos fondos, NIC 23.12) + (tasa de capitalización de los "
+            "préstamos generales × desembolsos del activo financiados con ellos, NIC 23.14). La tasa de capitalización es la media ponderada de los costos "
+            "por intereses de los préstamos genéricos (costo del período ÷ importe). Los desembolsos financiados con generales son los desembolsos aptos del "
+            "activo ponderados por los días del período, por la proporción no cubierta por el préstamo específico = máx(1 − importe del específico ÷ "
+            "desembolsos aptos, 0). Tope: lo capitalizado en el período no excede los costos por préstamos incurridos (NIC 23.14, última frase); si excede, "
+            "se prorratea entre los activos.",
+            "Costos por préstamos sin el anexo (estimación de respaldo): desembolso × tasa de capitalización del parámetro × días ÷ días del año (NIC 23.14), "
+            "y se avisa que falta el anexo. En NIIF para las PYMES todo costo por préstamos es gasto del período (Sección 25.2, ediciones 2015 y 2025): no se "
+            "capitaliza nada y lo capitalizado por el cliente es ajuste.",
             "Desmantelamiento: valor presente = costo estimado ÷ (1 + tasa)^años (NIC 37.45–47; PYMES 21.7 b). Ajuste total = valor presente − provisión "
             "registrada al cierre; de él, la actualización financiera del período = provisión al inicio × tasa va a resultados como costo financiero "
             "(CINIIF 1.8; NIC 37.60; PYMES 21.11) y el resto es cambio de estimación contra el costo del activo (CINIIF 1.5 a).",
@@ -778,9 +997,13 @@ def definicion() -> dict:
             {"code": "PPE-07", "objective": "Deterioro", "risk": "Importe en libros superior al recuperable", "assertion": "Valoración",
              "procedure": "Comparar el importe en libros con el importe recuperable", "evidence": "Cálculo de valor en uso o valor razonable",
              "criterion": "Pérdida reconocida", "source": "NIC 36.59–61 · PYMES 27.5–27.6 (si el activo está revaluado, primero contra el superávit) · NIA 540"},
-            {"code": "PPE-08", "objective": "Costos por préstamos", "risk": "Intereses capitalizados indebidamente", "assertion": "Valoración / Clasificación",
-             "procedure": "Recalcular intereses capitalizables en activos aptos (NIIF completas) o reversar lo capitalizado (PYMES)", "evidence": "Contratos de préstamo, tabla de amortización",
-             "criterion": "NIC 23.8, 14 / Sección 25.2", "source": "NIC 23 · PYMES 25"},
+            {"code": "PPE-08", "objective": "Costos por préstamos", "risk": "Intereses capitalizados indebidamente o por encima de los incurridos",
+             "assertion": "Valoración / Clasificación",
+             "procedure": "Separar préstamos específicos y generales; recalcular por activo el capitalizable (específico: costo real menos los rendimientos de la "
+                          "inversión temporal; generales: tasa de capitalización) y comprobar el tope de los costos incurridos en el período (NIIF completas); en "
+                          "PYMES reversar lo capitalizado",
+             "evidence": "Contratos de préstamo, tablas de amortización, mayor de gasto financiero y de rendimientos de inversiones temporales",
+             "criterion": "NIC 23.12, 14 (incluido el tope) / Sección 25.2", "source": "NIC 23 · PYMES 25"},
             {"code": "PPE-09", "objective": "Desmantelamiento", "risk": "Obligación no reconocida o mal medida", "assertion": "Integridad / Valoración",
              "procedure": "Recalcular el valor presente de la obligación y compararlo con la provisión", "evidence": "Contratos, permisos ambientales, estimación técnica",
              "criterion": "Provisión igual al valor presente", "source": "NIC 16.16 c · NIC 37.45–47 · CINIIF 1 · Sección 21 (21.7 b)"},
@@ -789,15 +1012,21 @@ def definicion() -> dict:
             req("RQ-001", "Auxiliar de propiedad, planta y equipo por activo al corte", "activos", "PPE-01", "Población a recalcular y conciliar con el mayor", content=aux),
             req("RQ-002", "Detalle de adiciones del año por documento", "adiciones", "PPE-02", "Examen de adiciones y costos por préstamos", required=False,
                 content="Una fila por documento: N° de documento, código del activo, fecha, descripción, tipo, importe, activo apto (Sí/No) e intereses capitalizados."),
-            req("RQ-003", "Política contable de vidas útiles, residuales y métodos", None, "PPE-04", "Sustento de estimaciones", formats=("pdf", "docx"), use="soporte"),
-            req("RQ-004", "Informe del perito de la revaluación", None, "PPE-06", "Sustento del valor revaluado", required=False, formats=("pdf",), use="soporte"),
-            req("RQ-005", "Cálculo del importe recuperable (valor en uso o valor razonable)", None, "PPE-07", "Sustento del deterioro", required=False,
+            req("RQ-003", "Detalle de los préstamos para la construcción del período", "prestamos", "PPE-08",
+                "Separar préstamos específicos y generales y medir el capitalizable por activo", required=False,
+                content="Una fila por préstamo vigente en el período: N° de préstamo o contrato, tipo (Específico o General), activo u obra financiada "
+                        "(solo los específicos), descripción, importe del préstamo, tasa nominal anual, costo financiero del período realmente incurrido y, "
+                        "en los específicos, los rendimientos de la inversión temporal de esos fondos. Si no hubo inversión temporal, escriba 0."),
+            req("RQ-004", "Política contable de vidas útiles, residuales y métodos", None, "PPE-04", "Sustento de estimaciones", formats=("pdf", "docx"), use="soporte"),
+            req("RQ-005", "Informe del perito de la revaluación", None, "PPE-06", "Sustento del valor revaluado", required=False, formats=("pdf",), use="soporte"),
+            req("RQ-006", "Cálculo del importe recuperable (valor en uso o valor razonable)", None, "PPE-07", "Sustento del deterioro", required=False,
                 formats=("xlsx", "pdf"), use="soporte"),
-            req("RQ-006", "Contratos de préstamo y cálculo de intereses capitalizados", None, "PPE-08", "Sustento de la tasa de capitalización", required=False,
+            req("RQ-007", "Contratos de préstamo, tablas de amortización y mayor de rendimientos de inversiones temporales", None, "PPE-08",
+                "Sustento del costo financiero incurrido, de la tasa de capitalización y de los rendimientos del párrafo 23.12", required=False,
                 formats=("pdf", "xlsx"), use="soporte"),
-            req("RQ-007", "Estimación técnica de desmantelamiento o restauración", None, "PPE-09", "Sustento de la provisión", required=False,
+            req("RQ-008", "Estimación técnica de desmantelamiento o restauración", None, "PPE-09", "Sustento de la provisión", required=False,
                 formats=("pdf", "xlsx"), use="soporte"),
-            req("RQ-008", "Facturas de venta y actas de baja del año", None, "PPE-05", "Sustento de las bajas", required=False, formats=("pdf",), use="soporte"),
+            req("RQ-009", "Facturas de venta y actas de baja del año", None, "PPE-05", "Sustento de las bajas", required=False, formats=("pdf",), use="soporte"),
         ],
     }
 
@@ -814,12 +1043,22 @@ def _ad(id, activo, f, imp, **x):
     return {"id": id, "activo": activo, "fecha": f, "importe": imp, "_row": 2, **x}
 
 
+def _pr(id, tipo, **x):
+    return {"id": id, "tipo": tipo, "_row": 2, **x}
+
+
 # Ejemplo de control (M19), corte 2025-12-31, año de 365 días:
 # VEH-01: (40.000 − 4.000) ÷ 60 × 12 = 7.200 recalculado vs 6.000 registrado → +1.200.
 # VEH-02 (baja 30-jun): 27.000 ÷ 60 × 12 × 181 ÷ 365 = 2.677,81; VNL = 30.000 − 21.600 − 2.677,81 = 5.722,19;
 #   ganancia = 9.000 − 5.722,19 = 3.277,81 vs 1.500 registrada → +1.777,81.
 # MAQ-01: VNL = 120.000 − 72.000 = 48.000 vs recuperable 40.000 → deterioro 8.000.
-# AD-01: 150.000 × 8 % × 305 ÷ 365 = 10.027,40 capitalizables vs 9.000 → +1.027,40 (NIIF); en PYMES −9.000.
+# Costos por préstamos con el anexo (NIC 23.12 y 14), OBRA-01:
+#   desembolsos aptos 150.000 + 45.000 = 195.000; base ponderada (150.000 × 305 + 45.000 × 121) ÷ 365 = 140.260,27.
+#   PR-01 específico: 9.000 de costo real − 1.200 de rendimientos = 7.800 (23.12).
+#   Tasa de capitalización de los generales = (32.000 + 12.000) ÷ (400.000 + 100.000) = 8,80 % (23.14).
+#   Proporción financiada con generales = 1 − 120.000 ÷ 195.000 = 38,4615 %; base 53.946,26 × 8,80 % = 4.747,27.
+#   Capitalizable = 7.800 + 4.747,27 = 12.547,27; costos incurridos 53.000 → el tope no muerde (factor 1).
+#   Capitalizado por el cliente 9.000 → ajuste +3.547,27. En PYMES no se capitaliza nada: −9.000 (Sección 25.2).
 # Desmantelamiento: 50.000 ÷ 1,06^10 = 27.919,74 no reconocido; sin provisión registrada no hay descuento que
 #   revertir: actualización financiera del período 0 y los 27.919,74 son cambio de estimación al costo (CINIIF 1.5 a).
 # TERR-01 revaluado sin «decremento previo en resultados»: los 60.000 quedan en ORI y se avisa (NIC 16.39).
@@ -855,10 +1094,35 @@ EJEMPLO = {
             _ad("AD-03", "OBRA-01", "2025-10-15", "5000", descripcion="Cubierta provisional", tipo="Reparación", apto="No"),
             _ad("AD-04", "MOB-01", "2025-04-01", "12000", descripcion="Escritorios y sillas", tipo="Capitalizable", apto="No"),
         ],
+        "prestamos": [
+            _pr("PR-01", "Específico", activo="OBRA-01", descripcion="Banco del Pacífico · nave industrial", importe="120000",
+                tasa="9", costo_financiero="9000", rendimientos="1200"),
+            _pr("PR-02", "General", descripcion="Banco Pichincha · capital de trabajo", importe="400000", tasa="8", costo_financiero="32000"),
+            _pr("PR-03", "General", descripcion="Produbanco · línea de crédito", importe="100000", tasa="12", costo_financiero="12000"),
+        ],
     },
 }
 
-_MIN = {"activos": [_a("V-1", "Auto", "Vehículos", "2024-01-01", "10000", vida_meses="60", dep_registrada="2000")]}
+# Sin el anexo de préstamos la herramienta sigue funcionando con la tasa del parámetro y avisa (SIN_ANEXO_PRESTAMOS):
+# AD-01: 150.000 × 8 % × 305 ÷ 365 = 10.027,40 y AD-02: 45.000 × 8 % × 121 ÷ 365 = 1.193,42; capitalizado 9.000 → +2.220,82.
+_SIN_PRESTAMOS = {k: v for k, v in EJEMPLO["datasets"].items() if k != "prestamos"}
+
+# El tope del párrafo 14 muerde: mismo anexo pero un solo préstamo general de 40.000 con 6.000 de costo (tasa 15 %).
+#   Capitalizable de los generales = 53.946,26 × 15 % = 8.091,94; con el específico 7.800 → 15.891,94 antes del tope.
+#   Costos por préstamos incurridos en el período = 9.000 + 6.000 = 15.000 → factor 15.000 ÷ 15.891,94 = 0,943876…
+#   Capitalizable del período = 15.000,00 (exceso no capitalizable 891,94); capitalizado 9.000 → ajuste +6.000,00.
+_PRESTAMOS_TOPE = [
+    _pr("PR-01", "Específico", activo="OBRA-01", descripcion="Banco del Pacífico · nave industrial", importe="120000",
+        tasa="9", costo_financiero="9000", rendimientos="1200"),
+    _pr("PR-02", "General", descripcion="Banco Pichincha · capital de trabajo", importe="40000", tasa="15", costo_financiero="6000"),
+]
+_TOPE = {**EJEMPLO["datasets"], "prestamos": _PRESTAMOS_TOPE}
+
+# Anexo incompleto: el específico sin rendimientos y el general sin importe → los importes quedan vacíos (M22) y
+# el tope no se puede comprobar; se emiten PRESTAMO_SIN_RENDIMIENTOS, PRESTAMO_GENERAL_INCOMPLETO y TOPE_NO_VERIFICABLE.
+_MIN = {"activos": [_a("V-1", "Auto", "Vehículos", "2024-01-01", "10000", vida_meses="60", dep_registrada="2000")],
+        "prestamos": [_pr("PR-X", "Específico", activo="V-1", importe="5000", tasa="9", costo_financiero="400"),
+                      _pr("PR-Y", "General", descripcion="Línea sin importe informado", costo_financiero="800")]}
 
 # Escenario de activos revaluados (NIC 16.39 · NIC 36.60-61 · CINIIF 1.5 y 1.8), recalculado a mano:
 # EDIF-R: dep. 200.000 ÷ 480 × 12 = 5.000 (= registrada); acum. 25.000; VNL 175.000. Revaluado 185.000 → +10.000
@@ -884,6 +1148,8 @@ ESCENARIOS = [
     ("niif_completas", EJEMPLO["datasets"], EJEMPLO["parametros"], EJEMPLO["corte"]),
     ("pymes_2015", EJEMPLO["datasets"], {**EJEMPLO["parametros"], "_marco": MARCO_PYMES, "_edicion": "2015"}, EJEMPLO["corte"]),
     ("pymes_2025", EJEMPLO["datasets"], {**EJEMPLO["parametros"], "_marco": MARCO_PYMES, "_edicion": "2025"}, EJEMPLO["corte"]),
+    ("sin_anexo_prestamos", _SIN_PRESTAMOS, EJEMPLO["parametros"], EJEMPLO["corte"]),
+    ("tope_costos_prestamos", _TOPE, EJEMPLO["parametros"], EJEMPLO["corte"]),
     ("revaluados_desmantelamiento", _REVALUADOS, PARAMETROS_REVALUADOS, "2025-12-31"),
     ("minimo", _MIN, {}, "2025-12-31"),
 ]

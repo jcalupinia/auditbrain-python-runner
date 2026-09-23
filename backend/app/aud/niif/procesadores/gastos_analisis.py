@@ -25,14 +25,21 @@ pruebas de la matriz). Dos anexos:
    devengado no registrado (pasivo).
 6. Clasificación: cuenta sugerida por el auditor ≠ cuenta registrada = reclasificación.
 7. Partes relacionadas (NIC 24 18–19; PYMES 33.9–33.10): importe del período por categoría (las categorías
-   cambian por marco) frente a lo revelado en notas.
+   cambian por marco) frente a lo revelado en notas. El maestro completo de partes relacionadas es un
+   requerimiento obligatorio. La herramienta procesa la población que reciba, pero **no concluye** sobre la
+   integridad de la revelación mientras no conste la evidencia de población completa (manifestación escrita de
+   la administración, NIA 550 párr. 26, o corte certificado del maestro): la conclusión queda «no concluida por
+   falta de evidencia de población completa» y se pide el papel (decisión del socio).
 8. Partidas inusuales: las de importe igual o mayor a la materialidad se revelan por separado (NIC 1 97; se usa la materialidad de ejecución como aproximación (NIC 1.97 se refiere a la importancia relativa)).
 9. Tributario Ecuador (referencia): sin comprobante de venta válido (LRTI art. 10 num. 1) o sin bancarización sobre el
    umbral (Reglamento LRTI art. 27, reforma 2024, por caso entendido; el art. 103 de la LRTI fija el uso del sistema
    financiero) → no deducible (umbral como parámetro; confirmar que sigue vigente al corte).
 10. Ajuste propuesto al gasto = no registrados + devengados no registrados − otro período − anticipados (M09).
 
-Norma leída (M03): NIC 1 párr. 27–28, 87, 97–99, 102–105; NIC 24 párr. 18–19; NIC 8 párr. 41–42 en el
+Norma leída (M03): NIA 550 párr. 13 (preguntar a la dirección la identidad de las partes relacionadas), 25
+(evaluar contabilización y revelación) y 26 (manifestaciones escritas: la dirección ha revelado la identidad de
+todas las partes relacionadas y todas las transacciones de las que tiene conocimiento).
+NIC 1 párr. 27–28, 87, 97–99, 102–105; NIC 24 párr. 18–19; NIC 8 párr. 41–42 en el
 Reglamento (UE) 2023/1803 (EUR-Lex, español); NIIF para las PYMES 2015 párr. 2.23, 2.26, 2.36, 5.9–5.11,
 33.9–33.10. Marco Conceptual 4.69 y 4.72 y la numeración de PYMES 2025 (2.63, 3.16A, 5.9–5.11) están contrastados con el texto oficial.
 """
@@ -71,6 +78,8 @@ _TRANS = [
     campo("bancarizado", "Pagado por banco (Sí/No)", requerido=False, alias=("bancarizado", "pagado por banco", "medio de pago"), ejemplo="Sí"),
     campo("parte_relacionada", "Parte relacionada (Sí/No)", requerido=False, alias=("parte relacionada", "relacionada", "rp"), ejemplo="No"),
     campo("categoria_rp", "Categoría de parte relacionada", requerido=False, alias=("categoria rp", "categoria parte relacionada", "tipo de relacion"), ejemplo=""),
+    campo("revelada_rp", "Incluida en la nota de partes relacionadas (Sí/No)", requerido=False,
+          alias=("revelada", "revelada rp", "en la nota", "incluida en la nota", "revelada en notas"), ejemplo=""),
     campo("cuenta_sugerida", "Cuenta correcta según el auditor", requerido=False, alias=("cuenta sugerida", "cuenta correcta", "reclasificar a"), ejemplo=""),
     campo("inusual", "Partida inusual o no recurrente (Sí/No)", requerido=False, alias=("inusual", "extraordinaria", "no recurrente"), ejemplo="No"),
 ]
@@ -82,7 +91,7 @@ CONTROL = "saldo_actual"
 
 METODOS = ("Función", "Naturaleza")
 PARAMETROS = {"metodoEri": "Función", "umbralVarPct": 10, "umbralVarAbs": None, "materialidadEjecucion": None,
-              "umbralBancarizacion": 500, "gastosSegunEri": None, "rpRevelado": None}
+              "umbralBancarizacion": 500, "gastosSegunEri": None, "rpRevelado": None, "rpEvidenciaIntegridad": ""}
 PARAM_NEGATIVOS = ()
 ETIQUETAS_PARAM = {
     "metodoEri": "Método de desglose del estado de resultados (Función / Naturaleza)",
@@ -92,6 +101,9 @@ ETIQUETAS_PARAM = {
     "umbralBancarizacion": "Umbral de bancarización (USD por caso entendido — contrato —, Reglamento LRTI art. 27; confirmar que sigue vigente al corte)",
     "gastosSegunEri": "Total de gastos según el estado de resultados / mayor",
     "rpRevelado": "Transacciones con partes relacionadas reveladas en notas",
+    "rpEvidenciaIntegridad": ("Evidencia de que el maestro de partes relacionadas es la población completa (referencia del papel: "
+                              "manifestación escrita de la administración — NIA 550 párr. 26 — o corte certificado del maestro). "
+                              "Vacío: la integridad de la revelación no se concluye"),
 }
 TOTAL_EJEMPLO = "ajusteGasto"
 
@@ -108,13 +120,14 @@ CEDULAS = [
     ("04_Presentacion_ERI", "Presentación en el estado de resultados"), ("05_Transacciones", "Transacciones de la muestra"),
     ("06_Vouching", "Verificación del soporte documental"), ("07_Corte", "Corte de gastos"), ("08_Devengo", "Devengo y gastos anticipados"),
     ("09_Reclasificaciones", "Reclasificaciones"), ("10_Partes_relacionadas", "Partes relacionadas"),
-    ("11_Inusuales", "Partidas inusuales"), ("12_Tributario", "Referencia tributaria (Ecuador)"),
-    ("13_Ajustes", "Ajustes y conciliación"), ("14_Asientos", "Asientos propuestos"), ("15_Problemas", "Problemas encontrados"),
+    ("11_RP_Integridad", "Integridad de la revelación de partes relacionadas"),
+    ("12_Inusuales", "Partidas inusuales"), ("13_Tributario", "Referencia tributaria (Ecuador)"),
+    ("14_Ajustes", "Ajustes y conciliación"), ("15_Asientos", "Asientos propuestos"), ("16_Problemas", "Problemas encontrados"),
 ]
 
 _SI = {"si", "s", "x", "yes", "y", "1", "true", "verdadero"}
 _NO = {"no", "n", "0", "false", "falso"}
-_BOOL = ("soporte", "comprobante_valido", "bancarizado", "parte_relacionada", "inusual")
+_BOOL = ("soporte", "comprobante_valido", "bancarizado", "parte_relacionada", "inusual", "revelada_rp")
 
 
 def kind(dataset: str) -> str:
@@ -176,6 +189,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         raise ValueError("Método de desglose del estado de resultados: use Función o Naturaleza.")
     upct, uabs_in, mat = _pnum(p, "umbralVarPct"), _pnum(p, "umbralVarAbs"), _pnum(p, "materialidadEjecucion")
     uban, eri, rp_rev = _pnum(p, "umbralBancarizacion"), _pnum(p, "gastosSegunEri"), _pnum(p, "rpRevelado")
+    rp_evid = str(p.get("rpEvidenciaIntegridad") or "").strip()
     if upct is None or upct < 0:
         raise ValueError("Indique el umbral de variación en % (cero o positivo).")
     if any(x is not None and x < 0 for x in (uabs_in, mat, uban)):
@@ -267,6 +281,9 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     validas = {c.lower() for c in cats}
     sin_cat = [t for t in rp if t["categoria"].lower() not in validas]
     rp_cat.append({"cat": SIN_CATEGORIA, "n": len(sin_cat), "importe": rp_tot - sum(x["importe"] for x in rp_cat)})
+    for t in rp:
+        t["catValida"] = "Sí" if t["categoria"].lower() in validas else "No"
+        t["noReveladaMarca"] = t["importe"] if t["revelada_rp"] == "No" else 0
 
     inus = [t for t in reg if t["inusual"] == "Sí"]
     for t in inus:
@@ -301,6 +318,18 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     inus_tot = sum(t["importe"] for t in inus)
     dif_conc = None if eri is None else total - eri
     rp_nr = max(rp_tot - (rp_rev or 0), 0)   # identificadas en la muestra y no cubiertas por la nota
+    rp_nr_marca = sum(t["noReveladaMarca"] for t in rp)
+    # Integridad de la revelación (decisión del socio): sin evidencia de población completa no se concluye.
+    if not rp_evid:
+        rp_estado = "No concluida por falta de evidencia de población completa"
+    elif rp_tot == 0:
+        rp_estado = "Sin transacciones con partes relacionadas en la muestra"
+    elif rp_rev is None:
+        rp_estado = "No concluida: falta el importe revelado en notas"
+    elif rp_nr > 0.005 or rp_nr_marca > 0.005:
+        rp_estado = "Revelación incompleta: hay transacciones sin revelar"
+    else:
+        rp_estado = "Revelación completa según la evidencia examinada"
 
     # --- problemas ---
     ns = lambda n: f"{n} " + ("cuenta" if n == 1 else "cuentas")
@@ -373,6 +402,23 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             problemas.append(problema("RP_SIN_CATEGORIA", f"{len(sin_cat)} transacción(es) con partes relacionadas sin categoría válida para "
                                       f"{'PYMES (33.10)' if pymes else 'NIIF completas (NIC 24 párr. 19)'}: " + ", ".join(t["comp"] for t in sin_cat)
                                       + ". Use: " + "; ".join(cats) + ".", rp_cat[-1]["importe"]))
+        for t in rp:
+            if t["noReveladaMarca"]:
+                problemas.append(problema("RP_TRANSACCION_NO_REVELADA", f"{t['comp']} {t['proveedor']}: transacción con parte relacionada marcada como "
+                                          "no incluida en la nota; revélela con la naturaleza de la relación y el importe "
+                                          + ("(Sección 33.9–33.10)." if pymes else "(NIC 24 párr. 18–19)."), t["importe"]))
+        sm = [t for t in rp if t["revelada_rp"] is None]
+        if sm:
+            problemas.append(problema("DATO_RP_REVELADA_FALTANTE", f"{len(sm)} transacción(es) con partes relacionadas sin indicar si están en la nota: "
+                                      + ", ".join(t["comp"] for t in sm) + ". Complete la columna «Incluida en la nota de partes relacionadas».",
+                                      sum(t["importe"] for t in sm)))
+    if not rp_evid:
+        problemas.append(problema("RP_INTEGRIDAD_NO_CONCLUIDA", "No se concluye sobre la integridad de la revelación de partes relacionadas: no consta "
+                                  "evidencia de que el maestro recibido sea la población completa. Obtenga la manifestación escrita de la administración "
+                                  "sobre la identidad de todas las partes relacionadas y de todas las transacciones de las que tiene conocimiento "
+                                  "(NIA 550 párr. 26) o el corte certificado del maestro (nombre, relación y período) y regístrelo en el parámetro "
+                                  "«Evidencia de integridad de la población de partes relacionadas». La herramienta procesa la población recibida, pero "
+                                  "la conclusión de integridad queda «no concluida».", rp_tot))
     for t in inus:
         det = ("iguala o supera la materialidad: revele su naturaleza e importe por separado (NIC 1 párr. 97" + ("; PYMES 5.9" if pymes else "") + "; se usa la materialidad de ejecución como aproximación (NIC 1.97 se refiere a la importancia relativa))"
                if t["revelarSep"] == "Sí" else "evalúe su naturaleza y si requiere revelación separada"
@@ -395,20 +441,22 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
              "variacionPct": "" if c["pct"] is None else f"{c['pct']:.6f}", "excedeUmbral": c["excede"] or "", "_row": c["_row"]} for c in cuentas]
     totales = {"gastoTotal": total, "gastoAnterior": sum(c["anterior"] or 0 for c in cuentas), "noRegistradoCorte": no_reg,
                "devengadoNoRegistrado": dev_nr, "otroPeriodo": otro, "anticipado": antic, "ajusteGasto": ajuste, "noSoportado": no_sop,
-               "reclasificaciones": rec_tot, "partesRelacionadas": rp_tot, "rpNoReveladas": rp_nr, "inusuales": inus_tot, "noDeducible": no_ded}
+               "reclasificaciones": rec_tot, "partesRelacionadas": rp_tot, "rpNoReveladas": rp_nr, "rpNoReveladaMarcada": rp_nr_marca,
+               "inusuales": inus_tot, "noDeducible": no_ded}
     etiquetas = {"gastoTotal": "Gastos según la sumaria (año actual)", "gastoAnterior": "Gastos año anterior",
                  "noRegistradoCorte": "Gastos del ejercicio no registrados (corte)", "devengadoNoRegistrado": "Gastos devengados no registrados",
                  "otroPeriodo": "Gastos de otro período registrados (corte)", "anticipado": "Gastos anticipados llevados a resultados",
                  "ajusteGasto": "Ajuste propuesto al gasto (neto)", "noSoportado": "Gastos no soportados",
                  "reclasificaciones": "Reclasificaciones entre cuentas", "partesRelacionadas": "Transacciones con partes relacionadas",
-                 "rpNoReveladas": "Partes relacionadas no reveladas", "inusuales": "Partidas inusuales",
+                 "rpNoReveladas": "Partes relacionadas no reveladas", "rpNoReveladaMarcada": "Partes relacionadas marcadas como no incluidas en la nota",
+                 "inusuales": "Partidas inusuales",
                  "noDeducible": "No deducible (referencia tributaria)"}
     if dif_conc is not None:
         totales["difConciliacion"] = dif_conc
         etiquetas["difConciliacion"] = "Diferencia sumaria vs estado de resultados"
     detalle = {"cortes": {"actual": corte_a.isoformat()}, "parametros": p, "pymes": pymes, "edicion": edicion_pymes(p) if pymes else "",
                "metodo": metodo, "upct": upct, "uabsIn": uabs_in, "mat": mat, "uabs": uabs, "uban": uban, "eri": eri, "rpRev": rp_rev,
-               "cuentas": cuentas, "eri_l": eri_l, "rpCat": rp_cat, "categorias": cats,
+               "cuentas": cuentas, "eri_l": eri_l, "rpCat": rp_cat, "categorias": cats, "rpEvid": rp_evid, "rpEstado": rp_estado,
                "trans": [{k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in t.items()} for t in trans]}
     return {"engine": VERSION, "rows": rows, "totals": {k: r2(v) for k, v in totales.items()}, "labels": etiquetas,
             "primary": "ajusteGasto", "exceptions": problemas, "schedule": [], "detalle": detalle}
@@ -417,11 +465,11 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
 # --- cédulas con fórmulas ---------------------------------------------------------
 
 P = ref("02_Parametros")
-CTA, TRX, VOU, COR, DEV, REC, RPS, INU, TRI, AJ = (ref(n) for n in (
+CTA, TRX, VOU, COR, DEV, REC, RPS, RPI, INU, TRI, AJ = (ref(n) for n in (
     "03_Analisis_global", "05_Transacciones", "06_Vouching", "07_Corte", "08_Devengo", "09_Reclasificaciones",
-    "10_Partes_relacionadas", "11_Inusuales", "12_Tributario", "13_Ajustes"))
+    "10_Partes_relacionadas", "11_RP_Integridad", "12_Inusuales", "13_Tributario", "14_Ajustes"))
 _PAR = ["corte", "marco", "metodoEri", "requisito", "umbralVarPct", "umbralVarAbs", "materialidadEjecucion", "umbralAbs",
-        "umbralBancarizacion", "gastosSegunEri", "rpRevelado"]
+        "umbralBancarizacion", "gastosSegunEri", "rpRevelado", "rpEvidencia"]
 PAR = {k: FILA0 + i for i, k in enumerate(_PAR)}
 _AJ = ["noReg", "devNoReg", "otro", "antic", "ajuste", "noSop", "reclas", "rp", "rpRev", "rpNr", "sumaria", "eri", "difConc", "noDed", "inus"]
 AJF = {k: FILA0 + i for i, k in enumerate(_AJ)}
@@ -465,6 +513,8 @@ def hojas(res: dict) -> list[dict]:
         ["Umbral de bancarización (USD)", d["uban"], "Por caso entendido (contrato), Reglamento LRTI art. 27 (reforma de 15-7-2025) — confirmar que sigue vigente al corte"],
         ["Gastos según el estado de resultados / mayor", d["eri"], "Estado de resultados o balance de comprobación"],
         ["Partes relacionadas reveladas en notas", d["rpRev"], "Nota de partes relacionadas (NIC 24 párr. 18 / PYMES 33.9)"],
+        ["Evidencia de integridad de la población de partes relacionadas", d["rpEvid"] or None,
+         "Manifestación escrita de la administración (NIA 550 párr. 26) o corte certificado del maestro. Vacío: la integridad no se concluye"],
     ]
 
     # 03 · Análisis global.
@@ -583,6 +633,26 @@ def hojas(res: dict) -> list[dict]:
     fin_rp = FILA0 + nrp - 1
     tot_rp = ["TOTAL", suma("B", fin_rp, sum(x["n"] for x in d["rpCat"])), suma("C", fin_rp, t["partesRelacionadas"]), ""]
 
+    # 11 · Integridad de la revelación: detalle por transacción y estado de la conclusión (decisión del socio).
+    rpl = [x for x in reg if x["parte_relacionada"] == "Sí"]
+    cat_val = _rng(RPS, "A", nrp - 1)       # categorías del marco, sin la fila «Sin categoría válida»
+    rpi = []
+    for j, x in enumerate(rpl):
+        r = FILA0 + j
+        rpi.append([x["comp"], x["proveedor"], x["cuenta"], imp(x), x["categoria"] or None,
+                    fx(f'IF(E{r}="","No",IF(COUNTIF({cat_val},E{r})>0,"Sí","No"))', x["catValida"]),
+                    x["revelada_rp"], fx(f'IF(G{r}="No",D{r},0)', n2(x["noReveladaMarca"])), ""])
+    fin_rpi = FILA0 + len(rpl) - 1
+    trp = FILA0 + len(rpl)                  # fila TOTAL de esta cédula
+    ev, rv = _pb("rpEvidencia"), _pb("rpRevelado")
+    conclusion = (f'IF({ev}="","No concluida por falta de evidencia de población completa",'
+                  f'IF(D{trp}=0,"Sin transacciones con partes relacionadas en la muestra",'
+                  f'IF({rv}="","No concluida: falta el importe revelado en notas",'
+                  f'IF(OR(MAX(D{trp}-{rv},0)>0.005,H{trp}>0.005),"Revelación incompleta: hay transacciones sin revelar",'
+                  '"Revelación completa según la evidencia examinada"))))')
+    tot_rpi = ["TOTAL", "", "", suma("D", fin_rpi, t["partesRelacionadas"]) if rpl else 0, "", "",
+               "", suma("H", fin_rpi, t["rpNoReveladaMarcada"]) if rpl else 0, fx(conclusion, d["rpEstado"])]
+
     # 11 · Partidas inusuales.
     il = [x for x in reg if x["inusual"] == "Sí"]
     inu = []
@@ -622,8 +692,8 @@ def hojas(res: dict) -> list[dict]:
         ["Gastos según la sumaria", fx(f"SUM({_rng(CTA, 'E', nc)})", t["gastoTotal"]), "03_Analisis_global"],
         ["Gastos según el estado de resultados / mayor", fx(f'IF({_pb("gastosSegunEri")}="","",{_pb("gastosSegunEri")})', eri_v), "Parámetros"],
         ["Diferencia sumaria vs estado de resultados", fx(f'IF(B{AJF["eri"]}="","",B{AJF["sumaria"]}-B{AJF["eri"]})', t.get("difConciliacion")), "Conciliación (NIA 500)"],
-        ["No deducible (referencia tributaria)", fx(tot_ref(TRI, "I", len(reg)), t["noDeducible"]), "12_Tributario"],
-        ["Partidas inusuales", fx(tot_ref(INU, "E", len(il)), t["inusuales"]), "11_Inusuales"],
+        ["No deducible (referencia tributaria)", fx(tot_ref(TRI, "I", len(reg)), t["noDeducible"]), "13_Tributario"],
+        ["Partidas inusuales", fx(tot_ref(INU, "E", len(il)), t["inusuales"]), "12_Inusuales"],
     ]
 
     # 14 · Asientos.
@@ -652,7 +722,7 @@ def hojas(res: dict) -> list[dict]:
     ref_res = {"gastoTotal": ajb("sumaria"), "gastoAnterior": f"SUM({_rng(CTA, 'F', nc)})", "noRegistradoCorte": ajb("noReg"),
                "devengadoNoRegistrado": ajb("devNoReg"), "otroPeriodo": ajb("otro"), "anticipado": ajb("antic"), "ajusteGasto": ajb("ajuste"),
                "noSoportado": ajb("noSop"), "reclasificaciones": ajb("reclas"), "partesRelacionadas": ajb("rp"), "rpNoReveladas": ajb("rpNr"),
-               "inusuales": ajb("inus"), "noDeducible": ajb("noDed"), "difConciliacion": ajb("difConc")}
+               "rpNoReveladaMarcada": f"{RPI}H{trp}", "inusuales": ajb("inus"), "noDeducible": ajb("noDed"), "difConciliacion": ajb("difConc")}
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
 
     return [
@@ -688,16 +758,20 @@ def hojas(res: dict) -> list[dict]:
               ["Línea registrada", "t"], ["Línea correcta", "t"], ["Cambia la línea del estado de resultados", "t"]], rec, tot_rec),
         hoja("10_Partes_relacionadas", "Partes relacionadas",
              [["Categoría", "t"], ["Transacciones", "i"], ["Importe del período", "n"], ["Referencia", "t"]], rps, tot_rp),
-        hoja("11_Inusuales", "Partidas inusuales",
+        hoja("11_RP_Integridad", "Integridad de la revelación de partes relacionadas",
+             [["Comprobante", "t"], ["Proveedor", "t"], ["Cuenta", "t"], ["Importe", "n"], ["Categoría informada", "t"],
+              ["Categoría válida para el marco", "t"], ["Incluida en la nota", "t"], ["Importe no revelado (marca)", "n"],
+              ["Conclusión de integridad de la revelación", "t"]], rpi, tot_rpi),
+        hoja("12_Inusuales", "Partidas inusuales",
              [["Comprobante", "t"], ["Fecha documento", "d"], ["Cuenta", "t"], ["Proveedor", "t"], ["Importe", "n"],
               ["Revelar por separado (≥ materialidad)", "t"]], inu, tot_inu),
-        hoja("12_Tributario", "Referencia tributaria (Ecuador)",
+        hoja("13_Tributario", "Referencia tributaria (Ecuador)",
              [["Comprobante", "t"], ["Proveedor", "t"], ["Importe", "n"], ["Comprobante válido", "t"], ["Pagado por banco", "t"],
               ["Supera el umbral de bancarización", "t"], ["No deducible: comprobante", "n"], ["No deducible: bancarización", "n"],
               ["No deducible total", "n"]], tri, tot_tri),
-        hoja("13_Ajustes", "Ajustes y conciliación", [["Concepto", "t"], ["Importe", "n"], ["Referencia", "t"]], ajustes),
-        hoja("14_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos),
-        hoja("15_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
+        hoja("14_Ajustes", "Ajustes y conciliación", [["Concepto", "t"], ["Importe", "n"], ["Referencia", "t"]], ajustes),
+        hoja("15_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos),
+        hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
     ]
 
@@ -709,7 +783,11 @@ def definicion() -> dict:
                "actual y, si existen, saldo del año anterior, presupuesto, naturaleza del gasto y explicación de la variación. Sin filas de total.")
     trans = ("Una fila por comprobante de la muestra (del ejercicio y posteriores al corte): comprobante, fecha del documento, fecha de registro, "
              "período del servicio (desde/hasta) si es un servicio por tiempo, importe, cuenta, proveedor y las marcas del auditor (soporte, "
-             "comprobante válido SRI, pagado por banco, parte relacionada y su categoría, cuenta correcta, inusual).")
+             "comprobante válido SRI, pagado por banco, parte relacionada y su categoría, si la transacción está incluida en la nota de partes "
+             "relacionadas, cuenta correcta, inusual).")
+    maestro = ("Población COMPLETA de partes relacionadas al corte: una fila por parte relacionada con su nombre o razón social, la naturaleza "
+               "de la relación (controladora, controlada, asociada, negocio conjunto, personal clave de la gerencia, otras) y el período en que "
+               "tuvo esa condición durante el ejercicio. Sin este maestro no se puede concluir sobre la integridad de la revelación.")
     return {
         "name": "Gastos · análisis global, verificación del soporte, corte, devengo, clasificación y partes relacionadas",
         "area": "Costos y gastos",
@@ -718,7 +796,8 @@ def definicion() -> dict:
         "summary": ("Compara cada cuenta de gasto con el año anterior y el presupuesto frente a los umbrales de la NIA 520, prueba el soporte "
                     "de una muestra (verificación del soporte), el corte por fechas de documento y registro y el devengo por días del servicio (gastos "
                     "anticipados llevados a resultados y gastos devengados no registrados), cuantifica reclasificaciones, totaliza las "
-                    "transacciones con partes relacionadas por categoría frente a lo revelado y señala partidas presentadas como "
+                    "transacciones con partes relacionadas por categoría frente a lo revelado —exige el maestro completo de partes relacionadas y "
+                    "no concluye sobre la integridad de la revelación sin evidencia de población completa (NIA 550 párr. 26)— y señala partidas presentadas como "
                     "«extraordinarias» (prohibido: NIC 1 párr. 87; PYMES 5.10) e inusuales. El requisito de desglose y las categorías de "
                     "partes relacionadas se enrutan por marco (NIC 1 párr. 103–104 y NIC 24 párr. 19; PYMES 5.11 y 33.10). Incluye una "
                     "referencia tributaria de Ecuador (comprobante válido y bancarización)."),
@@ -738,7 +817,9 @@ def definicion() -> dict:
         "nia": [
             {"document": "NIA 520", "section": "párr. 5 y 7", "requirement": "Procedimientos analíticos sustantivos: expectativa y umbral de diferencia aceptable (párr. 5) e investigación de las diferencias (párr. 7)."},
             {"document": "NIA 500", "section": "párr. 6 y 9", "requirement": "Evidencia suficiente y adecuada (párr. 6); exactitud e integridad de la información producida por la entidad —la sumaria contra el mayor— (párr. 9)."},
+            {"document": "NIA 550", "section": "párr. 13", "requirement": "Preguntar a la dirección la identidad de las partes relacionadas (y sus cambios), la naturaleza de cada relación y si hubo transacciones en el período."},
             {"document": "NIA 550", "section": "párr. 25", "requirement": "Transacciones con partes relacionadas: evaluación de su contabilización y revelación."},
+            {"document": "NIA 550", "section": "párr. 26", "requirement": "Manifestaciones escritas de la administración de que reveló la identidad de todas las partes relacionadas y todas las transacciones de las que tiene conocimiento, y de que las contabilizó y reveló conforme al marco."},
             {"document": "NIA 330", "section": "párr. 18", "requirement": "Procedimientos sustantivos sobre transacciones materiales, incluido el corte."},
             {"document": "NIA 450", "section": "párr. 5", "requirement": "Acumular las incorrecciones identificadas, salvo las claramente triviales (gastos no soportados, corte, devengo)."},
         ],
@@ -753,7 +834,10 @@ def definicion() -> dict:
             "ejercicio → anticipado = importe × días posteriores ÷ días del servicio; registrado después → devengado no registrado = gasto del período.",
             "Ajuste propuesto al gasto = no registrados + devengados no registrados − otro período − anticipados.",
             "Reclasificación: cuenta correcta según el auditor distinta de la registrada.",
-            "Partes relacionadas: importe del período por categoría (NIC 24 19 / PYMES 33.10) frente a lo revelado en notas.",
+            "Partes relacionadas: importe del período por categoría (NIC 24 19 / PYMES 33.10) frente a lo revelado en notas. El maestro completo "
+            "de partes relacionadas es obligatorio; la herramienta procesa la población que reciba, pero solo concluye sobre la integridad de la "
+            "revelación si consta la evidencia de población completa (manifestación escrita de la administración, NIA 550 párr. 26, o corte "
+            "certificado del maestro). Sin esa evidencia la conclusión queda «no concluida por falta de evidencia de población completa».",
             "Partida inusual con importe ≥ materialidad: revelación por separado (NIC 1 97; se usa la materialidad de ejecución como aproximación (NIC 1.97 se refiere a la importancia relativa)).",
             "Referencia tributaria: sin comprobante válido (LRTI art. 10 num. 1), o importe > umbral de bancarización sin pago por banco (Reglamento LRTI art. 27) = no deducible (confirmar que sigue vigente al corte).",
         ],
@@ -778,9 +862,16 @@ def definicion() -> dict:
              "assertion": "Clasificación / Presentación", "procedure": "Revisar la cuenta de cada gasto de la muestra y el desglose del estado de resultados",
              "evidence": "Plan de cuentas, estado de resultados", "criterion": "Desglose conforme; sin partidas extraordinarias",
              "source": "NIC 1 párr. 87, 97–105 · PYMES 5.10–5.11"},
-            {"code": "GAS-06", "objective": "Partes relacionadas", "risk": "Transacciones con partes relacionadas no reveladas", "assertion": "Presentación",
-             "procedure": "Cruzar proveedores con el maestro de partes relacionadas y comparar con la nota", "evidence": "Maestro de partes relacionadas, nota",
-             "criterion": "Todo lo del período revelado por categoría", "source": "NIC 24 párr. 18–19 · PYMES 33.9–33.10 · NIA 550"},
+            {"code": "GAS-06", "objective": "Partes relacionadas: identificación, integridad de la población y revelación",
+             "risk": "Maestro incompleto y transacciones con partes relacionadas no reveladas", "assertion": "Integridad / Presentación",
+             "procedure": "Obtener el maestro COMPLETO de partes relacionadas (nombre, relación y período), preguntar a la dirección por la identidad "
+                          "de las partes relacionadas y sus cambios (NIA 550 párr. 13), cruzar los proveedores de la muestra con ese maestro, "
+                          "clasificar por categoría y comparar con la nota; obtener la manifestación escrita de la administración (NIA 550 párr. 26) "
+                          "antes de concluir sobre la integridad de la revelación",
+             "evidence": "Maestro completo de partes relacionadas, manifestación escrita de la administración, nota de revelación",
+             "criterion": "Población completa evidenciada y todo lo del período revelado por categoría; sin la manifestación escrita o el corte "
+                          "certificado del maestro, la integridad queda no concluida",
+             "source": "NIC 24 párr. 18–19 · PYMES 33.9–33.10 · NIA 550 párr. 13, 25 y 26"},
             {"code": "GAS-07", "objective": "Partidas inusuales y referencia tributaria", "risk": "Partidas materiales sin revelar; gastos no deducibles",
              "assertion": "Presentación / Cumplimiento", "procedure": "Identificar partidas inusuales y verificar comprobante válido y bancarización",
              "evidence": "Comprobantes SRI, estados de cuenta bancarios", "criterion": "Revelación separada; no deducibles identificados",
@@ -795,8 +886,17 @@ def definicion() -> dict:
             req("RQ-004", "Facturas, contratos, aprobaciones y comprobantes de pago de la muestra", None, "GAS-03", "Sustento de la verificación del soporte",
                 formats=("pdf",), use="soporte"),
             req("RQ-005", "Facturas y pagos posteriores al cierre", None, "GAS-04", "Búsqueda de gastos no registrados", formats=("pdf", "xlsx"), use="soporte"),
-            req("RQ-006", "Maestro de partes relacionadas y nota de revelación", None, "GAS-06", "Identificación y revelación", formats=("xlsx", "pdf", "docx"), use="soporte"),
+            req("RQ-006", "Maestro COMPLETO de partes relacionadas al corte (nombre, relación y período) y nota de revelación", None, "GAS-06",
+                "Población de partes relacionadas: identificación, categorías de NIC 24 párr. 19 / Sección 33.10 y revelación",
+                formats=("xlsx", "pdf", "docx"), use="soporte", required=True, content=maestro),
             req("RQ-007", "Presupuesto aprobado del ejercicio", None, "GAS-02", "Base de la expectativa", formats=("xlsx", "pdf"), use="soporte", required=False),
+            req("RQ-008", "Manifestación escrita de la administración sobre partes relacionadas (o corte certificado del maestro)", None, "GAS-06",
+                "Evidencia de que el maestro es la población completa; sin ella la integridad de la revelación no se concluye",
+                formats=("pdf", "docx"), use="soporte", required=True,
+                content=("Declaración firmada por la administración de que ha revelado al auditor la identidad de todas las partes relacionadas "
+                         "de la entidad y todas las relaciones y transacciones con partes relacionadas de las que tiene conocimiento, y de que "
+                         "las ha contabilizado y revelado conforme al marco aplicable (NIA 550 párr. 26). Alternativa: corte del maestro "
+                         "certificado por la administración, con la fecha de corte y el responsable.")),
         ],
     }
 
@@ -825,10 +925,16 @@ def _t(id, fdoc, freg, imp, cta, prov, **extra):
 # FC-103 seguro 7.300 del 01-07-2025 al 30-06-2026: 365 días, 184 hasta el corte → anticipado 7.300 × 181 ÷ 365 = 3.620,00.
 # FC-107 pauta 12.000 del 01-11-2025 al 30-04-2026: 181 días, 61 hasta el corte → anticipado 12.000 × 120 ÷ 181 = 7.955,80.
 # Ajuste = 4.500 (FC-104) + 3.000 (FC-106) − 3.000 (FC-105) − 3.620,00 − 7.955,80 = −7.075,80.
+# Partes relacionadas registradas en el ejercicio: FC-111 9.000 (Dominante, en la nota), FC-114 3.000 (Personal clave, sin
+# informar si está en la nota) y FC-115 1.200 (sin categoría, marcada como no incluida en la nota) = 13.200. La nota revela
+# 10.000 (incluye una transacción fuera de la muestra) → 3.200 sin revelar. Con la manifestación escrita de la administración
+# la integridad SÍ se concluye; el escenario «sin_evidencia_integridad» la deja vacía y la conclusión queda no concluida.
 EJEMPLO = {
     "corte": "2025-12-31",
     "parametros": {"_marco": MARCO_COMPLETAS, "metodoEri": "Función", "umbralVarPct": 10, "umbralVarAbs": 5000, "materialidadEjecucion": 20000,
-                   "umbralBancarizacion": 500, "gastosSegunEri": 1005000, "rpRevelado": 10000},
+                   "umbralBancarizacion": 500, "gastosSegunEri": 1005000, "rpRevelado": 10000,
+                   "rpEvidenciaIntegridad": "MR-05 manifestación escrita de la administración del 15-01-2026 (NIA 550 párr. 26) y maestro de "
+                                            "partes relacionadas certificado al 31-12-2025"},
     "datasets": {
         "cuentas": [
             _c("5101", "Costo de ventas", "Costo de ventas", "600000", "550000", "590000", "Consumo de inventarios", "Mayor volumen de ventas (+9 %)"),
@@ -849,16 +955,17 @@ EJEMPLO = {
             _t("FC-104", "2025-12-20", "2026-01-08", "4500", "5202", "Consultores Delta"),
             _t("FC-105", "2026-01-05", "2025-12-30", "3000", "5302", "Comisionistas Unidos"),
             _t("FC-106", "2026-01-15", "2026-01-16", "3000", "5203", "Inmobiliaria Norte", servicio_desde="2025-12-01", servicio_hasta="2025-12-31",
-               parte_relacionada="Sí", categoria_rp="Otra"),
+               parte_relacionada="Sí", categoria_rp="Otra", revelada_rp="Sí"),
             _t("FC-107", "2025-11-01", "2025-11-03", "12000", "5301", "Radio Andina", servicio_desde="2025-11-01", servicio_hasta="2026-04-30"),
             _t("FC-108", "2025-09-10", "2025-09-12", "1500", "5202", "Juan Pérez", comprobante_valido="No", bancarizado="No"),
             _t("FC-109", "2025-10-05", "2025-10-06", "2500", "5301", "Publicistas XYZ", bancarizado="No"),
             _t("FC-110", "2025-08-20", "2025-08-21", "2200", "5201", "Taller Mecánico Ruta", cuenta_sugerida="5302"),
-            _t("FC-111", "2025-05-10", "2025-05-11", "9000", "5202", "Holding Andes S.A.", parte_relacionada="Sí", categoria_rp="Dominante"),
+            _t("FC-111", "2025-05-10", "2025-05-11", "9000", "5202", "Holding Andes S.A.", parte_relacionada="Sí", categoria_rp="Dominante",
+               revelada_rp="Sí"),
             _t("FC-112", "2025-04-02", "2025-04-03", "8000", "5601", "Constructora Rápida", inusual="Sí"),
             _t("FC-113", "2025-11-20", "2025-11-21", "22000", "5202", "Acuerdo judicial ex trabajador", inusual="Sí"),
             _t("FC-114", "2025-02-01", "2025-02-02", "3000", "5201", "Gerente General", parte_relacionada="Sí", categoria_rp="Personal clave", soporte=""),
-            _t("FC-115", "2025-06-30", "2025-07-01", "1200", "5501", "Banco Relacionado S.A.", parte_relacionada="Sí"),
+            _t("FC-115", "2025-06-30", "2025-07-01", "1200", "5501", "Banco Relacionado S.A.", parte_relacionada="Sí", revelada_rp="No"),
         ],
     },
 }
@@ -866,6 +973,11 @@ EJEMPLO = {
 _P = EJEMPLO["parametros"]
 ESCENARIOS = [
     ("niif_completas", EJEMPLO["datasets"], _P, EJEMPLO["corte"]),
+    ("sin_evidencia_integridad", EJEMPLO["datasets"], {**_P, "rpEvidenciaIntegridad": None}, EJEMPLO["corte"]),
+    ("rp_revelacion_completa", {"cuentas": EJEMPLO["datasets"]["cuentas"],
+                                "transacciones": [dict(x, revelada_rp="Sí") if x.get("parte_relacionada") == "Sí" else x
+                                                  for x in EJEMPLO["datasets"]["transacciones"]]},
+     {**_P, "rpRevelado": 13200}, EJEMPLO["corte"]),
     ("pymes_2015", EJEMPLO["datasets"], {**_P, "_marco": MARCO_PYMES, "_edicion": "2015"}, EJEMPLO["corte"]),
     ("pymes_2025_sin_opcionales", EJEMPLO["datasets"], {**_P, "_marco": MARCO_PYMES, "_edicion": "2025", "metodoEri": "Naturaleza",
                                                         "umbralVarAbs": None, "gastosSegunEri": None, "rpRevelado": None}, EJEMPLO["corte"]),

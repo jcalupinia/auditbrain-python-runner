@@ -19,26 +19,32 @@ def _t(res, k):
 def test_ejemplo_cifras_a_mano():
     res = _run()
     # Costo auditado: 2.500 + 480×1,2 + 2.000×0,55 + 3.500 + 3.200 + 900 + 1.800 + 305×18 + 4.500 + 790×5
-    assert _t(res, "costoAuditado") == 27516.00
+    # + 200×40 (E-300) + 100×25 (E-301) + 50×60 (E-302) = 27.516 + 13.500
+    assert _t(res, "costoAuditado") == 41016.00
     assert _t(res, "difFisicas") == 16.00           # −20×1,2 + 5×18 − 10×5
     assert _t(res, "difExtension") == -100.00       # B-010: 10×350 − 3.600
     assert _t(res, "difCosto") == 100.00            # A-003: (0,55 − 0,50) × 2.000
-    assert _t(res, "difKardexMayor") == -300.00     # 27.500 − 27.800
-    assert _t(res, "rebajaVnr") == 1375.00          # B-010 (350−265)×10 + C-102 (30−26,5)×150
+    assert _t(res, "difKardexMayor") == -300.00     # 41.000 − 41.300
+    # B-010 (350−265)×10 + C-102 (30−26,5)×150 + E-300 (40−33)×200 + E-301 (25−20)×100 + E-302 (60−50)×50
+    assert _t(res, "rebajaVnr") == 3775.00
     assert _t(res, "provObsolescencia") == 3050.00  # B-011 25 % (305 d) + B-012 50 % (549 d) + C-100 100 % (945 d)
     # NIC 2.9 / PYMES 13.4 miden al MENOR entre costo y VNR: con precio de venta informado manda la rebaja a VNR y
     # el tramo de obsolescencia no provisiona. B-011 (VNR 1.200−50 = 1.150 > costo 800) y B-012 (VNR 70 > costo 45)
     # tienen VNR por encima del costo, así que sus tramos (800 y 450) quedan en 0. El tramo solo estima el VNR de
-    # C-100, que no tiene precio de venta (1.800 × 100 %). Estimada = 850 (B-010) + 525 (C-102) + 1.800 (C-100).
-    assert _t(res, "provisionEstimada") == 3175.00
-    assert _t(res, "inventarioNeto") == 24341.00    # 27.516 − 3.175
-    assert _t(res, "libroNeto") == 26800.00
-    assert _t(res, "ajuste") == -2459.00
+    # C-100, que no tiene precio de venta (1.800 × 100 %). Provisión antes de la excepción de NIC 2.32 = 850
+    # (B-010) + 525 (C-102) + 1.800 (C-100) + 1.400 (E-300) + 500 (E-301) + 500 (E-302) = 5.575.
+    assert res["detalle"]["conc"]["provBase"] == 5575.00
+    assert _t(res, "excepcionNic232") == 1400.00    # E-300: el producto terminado se vende con margen (330 − 300)
+    assert _t(res, "provisionEstimada") == 4175.00  # 5.575 − 1.400
+    assert _t(res, "inventarioNeto") == 36841.00    # 41.016 − 4.175
+    assert _t(res, "libroNeto") == 40300.00         # 41.300 − 1.000
+    assert _t(res, "ajuste") == -3459.00
     assert res["primary"] == "ajuste"
-    # Puente: −100 + 16 + 100 − 300 − (3.175 − 1.000) = −2.459
-    assert round(-100 + 16 + 100 - 300 - (3175 - 1000), 2) == _t(res, "ajuste")
+    # Puente: −100 + 16 + 100 − 300 − (4.175 − 1.000) = −3.459
+    assert round(-100 + 16 + 100 - 300 - (4175 - 1000), 2) == _t(res, "ajuste")
     prov = {i["id"]: i["prov"] for i in res["detalle"]["items"]}
     assert prov["B-011"] == 0 and prov["B-012"] == 0 and prov["C-100"] == 1800
+    assert prov["E-300"] == 0 and prov["E-301"] == 500 and prov["E-302"] == 500
 
 
 def test_ejemplo_produccion_costo_ventas_y_corte():
@@ -62,7 +68,8 @@ def test_ejemplo_problemas_minimos():
     codes = {e["code"] for e in _run()["exceptions"]}
     for c in ("DIFERENCIA_FISICA", "KARDEX_MAYOR", "CIF_NO_ABSORBIDO_CAPITALIZADO", "COSTO_VENTAS", "VNR_BAJO_COSTO",
               "LENTA_ROTACION_SIN_PROVISION", "DIF_EXTENSION", "DIF_COSTO_UNITARIO", "APERTURA", "PRODUCCION_NO_CONCILIADA",
-              "SIN_PRECIO_VENTA", "VNR_ESTIMADO_ANTIGUEDAD", "SIN_CONTEO", "CORTE", "AJUSTE"):
+              "SIN_PRECIO_VENTA", "VNR_ESTIMADO_ANTIGUEDAD", "SIN_CONTEO", "CORTE", "AJUSTE",
+              "EXCEPCION_NIC232", "MP_MARGEN_NEGATIVO", "MP_SIN_DEMOSTRACION_PT"):
         assert c in codes, c
     assert "SIN_MAYOR" not in codes and "SIN_PROVISION_REGISTRADA" not in codes
     assert "REBAJA_MAYOR_QUE_COSTO" not in codes          # ningún VNR del ejemplo es negativo
@@ -80,10 +87,55 @@ def test_vnr_negativo_se_limita_al_costo():
     assert exc["amount"] == "250.00"
 
 
+def test_excepcion_nic232_tres_rutas():
+    res = _run()
+    it = {i["id"]: i for i in res["detalle"]["items"]}
+    # 1) Demostrada: margen 330 − 300 = 30 ≥ 0 → la materia prima no se rebaja por debajo del costo (NIC 2.32).
+    assert it["E-300"]["ptMargen"] == 30 and it["E-300"]["excepcion"]
+    assert it["E-300"]["provBase"] == 1400 and it["E-300"]["prov"] == 0 and it["E-300"]["efectoExc"] == 1400
+    # 2) Margen negativo (560 − 600 = −40): no aplica, se rebaja a VNR (25 − 20) × 100 = 500.
+    assert it["E-301"]["ptMargen"] == -40 and not it["E-301"]["excepcion"] and it["E-301"]["prov"] == 500
+    # 3) Sin el costo ni el precio esperados del producto terminado: no aplica, rebaja (60 − 50) × 50 = 500.
+    assert it["E-302"]["ptMargen"] is None and not it["E-302"]["excepcion"] and it["E-302"]["prov"] == 500
+    # D-200 cumple la excepción pero su provisión base ya era 0 (VNR 5,50 > costo 5): efecto 0.
+    assert it["D-200"]["excepcion"] and it["D-200"]["efectoExc"] == 0
+    assert it["A-001"]["esMp"] is False and it["A-001"]["motivoExc"] == m._MOT_NO_MP
+    assert _t(res, "excepcionNic232") == 1400.00
+    imp = {e["code"]: e["amount"] for e in res["exceptions"]}
+    assert imp["EXCEPCION_NIC232"] == "1400.00" and imp["MP_MARGEN_NEGATIVO"] == "500.00"
+    assert imp["MP_SIN_DEMOSTRACION_PT"] == "500.00"
+    h = {x["name"]: x for x in m.hojas(res)}["11_Excepcion_MP"]
+    fila = {f[0]: f for f in h["rows"]}
+    assert [fila[k][7]["v"] for k in ("E-300", "E-301", "E-302", "D-200")] == ["Sí", "No", "No", "Sí"]
+    assert fila["E-301"][8]["v"] == m._MOT_NEG and fila["E-302"][8]["v"] == m._MOT_FALTA
+    assert fila["E-300"][9]["v"] == 1400 and fila["E-300"][10]["v"] == 1400
+    assert h["total"][9]["v"] == 5575.00 and h["total"][10]["v"] == 1400.00
+
+
+def test_excepcion_nic232_sin_demostracion_y_margen_negativo():
+    esc = {n: (ds, par, c) for n, ds, par, c in m.ESCENARIOS}
+    for n in ("mp_sin_demostracion", "mp_margen_negativo"):
+        ds, par, c = esc[n]
+        res = m.ejecutar(ds, par, c)
+        assert _t(res, "excepcionNic232") == 0.00, n          # ninguna excepción se aplica
+        assert _t(res, "provisionEstimada") == 5575.00, n     # se provisiona la rebaja completa
+        assert _t(res, "ajuste") == -4859.00, n
+    assert "MP_SIN_DEMOSTRACION_PT" in {e["code"] for e in m.ejecutar(*esc["mp_sin_demostracion"])["exceptions"]}
+    assert "MP_MARGEN_NEGATIVO" in {e["code"] for e in m.ejecutar(*esc["mp_margen_negativo"])["exceptions"]}
+
+
 def test_rutas_por_marco():
     comp = _run(parametros={**E["parametros"], "_marco": "NIIF completas"})
     pym = _run(parametros={**E["parametros"], "_marco": "NIIF para las PYMES", "_edicion": "2025"})
-    assert comp["totals"] == pym["totals"]                     # la medición es la misma
+    # La medición base es la misma; lo único que cambia por marco es la excepción de NIC 2.32, que las
+    # Secciones 13.19 y 27.2-27.4 de la NIIF para las PYMES no recogen.
+    assert {k for k in comp["totals"] if comp["totals"][k] != pym["totals"][k]} == {
+        "excepcionNic232", "provisionEstimada", "inventarioNeto", "ajuste"}
+    assert float(pym["totals"]["excepcionNic232"]) == 0 and float(pym["totals"]["provisionEstimada"]) == 5575.00
+    assert float(pym["totals"]["ajuste"]) == -4859.00
+    codes = {e["code"] for e in pym["exceptions"]}
+    assert "EXCEPCION_NIC232_NO_EN_PYMES" in codes and "EXCEPCION_NIC232" not in codes
+    assert not any(i["excepcion"] for i in pym["detalle"]["items"])
     assert pym["detalle"]["pymes"] and pym["detalle"]["edicion"] == "2025"
     assert "27.2" in pym["labels"]["rebajaVnr"]
     msg = next(e["message"] for e in pym["exceptions"] if e["code"] == "VNR_BAJO_COSTO")

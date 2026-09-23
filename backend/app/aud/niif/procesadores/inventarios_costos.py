@@ -15,6 +15,13 @@ Versión simple que cumple la norma, una cédula por prueba de la matriz del soc
    venta − costos de terminación − costos de venta; rebaja = MIN(costo de la partida,
    MAX(0, costo unitario − VNR) × cantidad) — el inventario no puede quedar negativo (NIC 2.9,
    2.28-2.33; PYMES 13.19 y 27.2-27.4).
+6.b Excepción de NIC 2.32 (materias primas): los materiales y suministros para la producción no se rebajan
+   por debajo del costo si el producto terminado al que se incorporan se venderá al costo o por encima.
+   La excepción solo se aplica cuando el cliente informa el producto terminado asociado y su costo y precio
+   esperados y el margen (precio − costo) es cero o positivo; si faltan esos datos o el margen es negativo
+   se mide al menor entre costo y VNR como cualquier partida y se emite un problema con el papel que falta.
+   La NIIF para las PYMES (Secc. 13.19 y 27.2-27.4, igual en 2015 y 2025) no recoge esta excepción: en ese
+   marco nunca se aplica.
 7. Obsolescencia / lenta rotación: % por tramo de días sin movimiento (parámetros). NIC 2.9 y PYMES 13.4
    miden al MENOR entre costo y VNR: si el ítem tiene precio de venta informado, la provisión estimada es
    solo la rebaja a VNR; el tramo de obsolescencia sustituye al VNR únicamente cuando NO hay precio de venta
@@ -56,6 +63,14 @@ _INVENTARIO = [
           alias=("terminacion", "costo para terminar"), ejemplo=0),
     campo("costo_venta", "Costos de venta unitarios", "number", requerido=False,
           alias=("gastos de venta", "comision", "costo de venta unitario"), ejemplo=0.3),
+    campo("materia_prima", "¿Es materia prima o suministro para la producción? (Sí/No)", requerido=False,
+          alias=("materia prima", "mp", "es materia prima", "clase de inventario", "tipo de inventario"), ejemplo="No"),
+    campo("pt_producto", "Producto terminado asociado (solo materias primas)", requerido=False,
+          alias=("producto terminado", "pt", "producto final", "articulo terminado", "producto asociado"), ejemplo="Tanque 200 L"),
+    campo("pt_costo_esperado", "Costo esperado del producto terminado (unitario)", "number", requerido=False,
+          alias=("costo producto terminado", "costo esperado", "costo pt", "costo esperado pt"), ejemplo=300),
+    campo("pt_precio_esperado", "Precio de venta esperado del producto terminado (unitario)", "number", requerido=False,
+          alias=("precio producto terminado", "precio esperado", "precio pt", "precio venta pt"), ejemplo=330),
 ]
 CAMPOS = {
     "inventario": _INVENTARIO,
@@ -148,6 +163,20 @@ def _parametros(parametros: dict) -> dict:
     return p
 
 
+# Motivos de la excepción de NIC 2.32 (el mismo texto lo arma la fórmula de la cédula 11: no tocar uno sin el otro).
+_MOT_NO_MP = "No es materia prima"
+_MOT_PYMES = "La NIIF para las PYMES no recoge la excepción de la NIC 2.32: se mide al menor entre costo y precio de venta menos costos (27.2)"
+_MOT_FALTA = "Faltan el costo o el precio esperados del producto terminado"
+_MOT_SI = "El producto terminado se vendería al costo o por encima (NIC 2.32)"
+_MOT_NEG = "Margen esperado negativo: el costo del producto terminado excedería su valor realizable neto (NIC 2.32)"
+_NO = ("", "no", "n", "0", "false", "falso")
+
+
+def _es_mp(txt: str, pt_id: str, pt_c, pt_p) -> bool:
+    """Materia prima: la marca del anexo, o el hecho de que informen el producto terminado asociado."""
+    return txt.strip().lower() not in _NO or bool(pt_id) or pt_c is not None or pt_p is not None
+
+
 def _pct_obs(dv, p):
     if dv is None:
         return None
@@ -176,8 +205,11 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         cc, sop = _opt(f.get("cant_contada")), _opt(f.get("costo_soportado"))
         pv, ct, cv = _opt(f.get("precio_venta")), _opt(f.get("costo_terminacion")) or 0.0, _opt(f.get("costo_venta")) or 0.0
         fum = fecha(f.get("fecha_ult_mov")) if _txt(f.get("fecha_ult_mov")) else None
+        pt_id, pt_c, pt_p = _txt(f.get("pt_producto")), _opt(f.get("pt_costo_esperado")), _opt(f.get("pt_precio_esperado"))
+        es_mp = _es_mp(_txt(f.get("materia_prima")), pt_id, pt_c, pt_p)
         it = {"id": _txt(f.get("id")), "desc": _txt(f.get("descripcion")), "bodega": _txt(f.get("bodega")), "kx": kx, "cc": cc,
-              "cu": cu, "vk": vk, "sop": sop, "fum": fum, "pv": pv, "ct": ct, "cv": cv, "_row": f.get("_row")}
+              "cu": cu, "vk": vk, "sop": sop, "fum": fum, "pv": pv, "ct": ct, "cv": cv, "_row": f.get("_row"),
+              "esMp": es_mp, "mpTxt": "Sí" if es_mp else "No", "ptId": pt_id, "ptC": pt_c, "ptP": pt_p}
         it["cant"] = cc if cc is not None else kx
         it["cua"] = sop if sop is not None else cu
         it["costo"] = it["cant"] * it["cua"]
@@ -196,7 +228,16 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         it["rebaja"] = None if it["rebajaBruta"] is None else min(it["costo"], it["rebajaBruta"])
         it["exceso"] = 0.0 if it["rebajaBruta"] is None else it["rebajaBruta"] - it["rebaja"]
         # Con VNR medido manda el VNR; el tramo de obsolescencia solo estima el VNR cuando falta el precio (NIC 2.30).
-        it["prov"] = it["rebaja"] if it["vnr"] is not None else it["obs"]
+        it["provBase"] = it["rebaja"] if it["vnr"] is not None else it["obs"]
+        # NIC 2.32: la materia prima no se rebaja por debajo del costo si el producto terminado al que se incorpora
+        # se venderá al costo o por encima. Sin esa demostración (o con margen negativo) NO hay excepción: menor
+        # entre costo y VNR. PYMES 13.19 y 27.2-27.4 no tienen equivalente, así que en ese marco nunca se aplica.
+        it["ptMargen"] = None if (pt_c is None or pt_p is None) else pt_p - pt_c
+        it["excepcion"] = bool(es_mp and not pymes and it["ptMargen"] is not None and it["ptMargen"] >= 0)
+        it["motivoExc"] = (_MOT_NO_MP if not es_mp else _MOT_PYMES if pymes else _MOT_FALTA if it["ptMargen"] is None
+                           else _MOT_SI if it["ptMargen"] >= 0 else _MOT_NEG)
+        it["prov"] = 0.0 if it["excepcion"] else it["provBase"]
+        it["efectoExc"] = (it["provBase"] or 0.0) if it["excepcion"] else 0.0
         items.append(it)
     if not items:
         raise ValueError("Cargue el inventario valorado por ítem (kardex) al corte.")
@@ -260,6 +301,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     t["difCosto"] = S(i["difCosto"] for i in items)
     t["difKardexMayor"] = vk_t - mayor
     t["rebajaVnr"] = S(i["rebaja"] for i in items)
+    t["excepcionNic232"] = S(i["efectoExc"] for i in items)
     t["provObsolescencia"] = S(i["obs"] for i in items)
     t["cifNoAbsorbido"] = S(x["noAbs"] for x in prod)
     t["cifExcesoCapitalizado"] = S(x["exceso"] for x in prod)
@@ -272,6 +314,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     conc["prodCap"] = S(x["costo"] for x in prod)
     conc["manuf"] = S(x["cm"] for x in mov)
     conc["prodDif"] = conc["manuf"] - conc["prodCap"]
+    conc["provBase"] = S(i["provBase"] for i in items)          # provisión antes de la excepción de NIC 2.32
 
     # Problemas (M22: cada «debe» de la norma que el cálculo no garantiza).
     vnr_n = "precio de venta menos costos de terminación y venta (PYMES 13.4, 27.2)" if pymes else "valor realizable neto (NIC 2.6 y 2.9)"
@@ -328,6 +371,26 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         pr.append(problema("REBAJA_MAYOR_QUE_COSTO", f"El {vnr_n} es negativo en {lista(exc)}: la rebaja calculada supera el costo de la partida y se limitó al costo "
                            f"(el inventario no puede quedar negativo). Exceso no provisionado {m(S(i['exceso'] for i in items))}: revise el precio de venta y "
                            "los costos de terminación y venta, y evalúe si hay una provisión por contrato oneroso.", S(i["exceso"] for i in items)))
+    mps = [i for i in items if i["esMp"]]
+    aplic = [i for i in mps if i["excepcion"]]
+    if aplic:
+        pr.append(problema("EXCEPCION_NIC232", f"Excepción de NIC 2.32 aplicada en {len(aplic)} materia(s) prima(s): {lista([i['id'] for i in aplic])}. No se rebajan por debajo del costo "
+                           f"porque el producto terminado asociado se vendería al costo o por encima; provisión no reconocida {m(t['excepcionNic232'])}. Revise el costeo del producto "
+                           "terminado y la lista de precios que sustentan el costo y el precio esperados informados.", t["excepcionNic232"]))
+    if pymes and mps:
+        pr.append(problema("EXCEPCION_NIC232_NO_EN_PYMES", f"{len(mps)} materia(s) prima(s) en un encargo bajo NIIF para las PYMES: las Secciones 13.19 y 27.2-27.4 no recogen la excepción "
+                           "de la NIC 2.32, así que se mide al menor entre costo y precio de venta menos costos de terminación y venta aunque el producto terminado se venda con margen.",
+                           S(i["provBase"] for i in mps)))
+    sin_dem = [i for i in mps if i["ptMargen"] is None]
+    if sin_dem and not pymes:
+        pr.append(problema("MP_SIN_DEMOSTRACION_PT", f"{len(sin_dem)} materia(s) prima(s) sin el costo o el precio esperados del producto terminado asociado ({lista([i['id'] for i in sin_dem])}): "
+                           "no se puede demostrar que el producto terminado se venderá al costo o por encima, así que NO se aplica la excepción de la NIC 2.32 y se mide al menor entre costo y "
+                           "VNR. Pida el costeo estándar del producto terminado y su lista de precios de venta.", S(i["provBase"] for i in sin_dem)))
+    mp_neg = [i for i in mps if i["ptMargen"] is not None and i["ptMargen"] < 0]
+    if mp_neg and not pymes:
+        pr.append(problema("MP_MARGEN_NEGATIVO", f"El costo esperado del producto terminado supera su precio esperado en {lista([i['id'] for i in mp_neg])}: no aplica la excepción de la "
+                           "NIC 2.32 (el costo del producto terminado excedería su valor realizable neto) y la materia prima se rebaja hasta su VNR. Evalúe además el costo de reposición como "
+                           "mejor estimación del VNR (NIC 2.32) y si hay un contrato oneroso.", S(i["provBase"] for i in mp_neg)))
     sin_pv = [i["id"] for i in items if i["pv"] is None]
     if sin_pv:
         pr.append(problema("SIN_PRECIO_VENTA", f"{len(sin_pv)} ítem(s) sin precio estimado de venta ({lista(sin_pv)}): el {vnr_n} no se midió ({'PYMES 27.2' if pymes else 'NIC 2.30'})."))
@@ -356,12 +419,13 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
               "costo_auditado": r2(i["costo"]), "provision": "" if i["prov"] is None else r2(i["prov"]), "_row": i["_row"]} for i in items]
     etiquetas = {
         "costoAuditado": "Inventario al costo auditado",
-        "provisionEstimada": "Provisión estimada (rebaja a VNR; tramo solo sin precio de venta)",
+        "provisionEstimada": "Provisión estimada (rebaja a VNR; tramo solo sin precio; neta de la excepción NIC 2.32)",
         "inventarioNeto": "Inventario neto auditado", "saldoMayor": "Inventario según el mayor",
         "provisionRegistrada": "Provisión registrada", "libroNeto": "Inventario neto en libros", "ajuste": "Ajuste propuesto (neto)",
         "difFisicas": "Diferencias físicas valorizadas", "difExtension": "Diferencia de extensión (cantidad × costo − kardex)",
         "difCosto": "Diferencia de costo unitario", "difKardexMayor": "Diferencia kardex − mayor",
         "rebajaVnr": "Rebaja a VNR" if not pymes else "Deterioro: precio de venta menos costos (27.2)",
+        "excepcionNic232": "Provisión no reconocida por la excepción de NIC 2.32 (materias primas)",
         "provObsolescencia": "Provisión por obsolescencia (tramos)", "cifNoAbsorbido": "CIF fijo no absorbido (gasto)",
         "cifExcesoCapitalizado": "CIF no absorbido capitalizado por la entidad", "difCostoVentas": "Diferencia en costo de ventas",
         "corte": "Importe con error de corte",
@@ -379,12 +443,14 @@ CEDULAS = [
     ("01_Resumen", "Resumen y ajuste propuesto"), ("02_Parametros", "Parámetros"), ("03_Inventario", "Inventario valorado por ítem"),
     ("04_Conteo", "Existencia: conteo vs kardex"), ("05_Prueba_costo", "Prueba de costo"), ("06_Conciliacion", "Conciliación kardex–mayor"),
     ("07_Costo_produccion", "Costo de producción"), ("08_Costo_ventas", "Costo de ventas"), ("09_VNR", "Valor realizable neto"),
-    ("10_Obsolescencia", "Obsolescencia y lenta rotación"), ("11_Corte", "Prueba de corte"), ("12_Problemas", "Problemas encontrados"),
+    ("10_Obsolescencia", "Obsolescencia y lenta rotación"), ("11_Excepcion_MP", "Materias primas: excepción de NIC 2.32"),
+    ("12_Corte", "Prueba de corte"), ("13_Problemas", "Problemas encontrados"),
 ]
 PARK = ["corte", "marco", "obsDias1", "obsPct1", "obsDias2", "obsPct2", "obsDias3", "obsPct3", "saldoMayor", "provisionRegistrada"]
 PAR = {k: FILA0 + i for i, k in enumerate(PARK)}
-P, INV, CON, COS, PRO, VEN, VNR, OBS, COR = (ref(n) for n in ("02_Parametros", "03_Inventario", "04_Conteo", "05_Prueba_costo",
-                                                              "07_Costo_produccion", "08_Costo_ventas", "09_VNR", "10_Obsolescencia", "11_Corte"))
+P, INV, CON, COS, PRO, VEN, VNR, OBS, MP, COR = (ref(n) for n in ("02_Parametros", "03_Inventario", "04_Conteo", "05_Prueba_costo",
+                                                                  "07_Costo_produccion", "08_Costo_ventas", "09_VNR", "10_Obsolescencia",
+                                                                  "11_Excepcion_MP", "12_Corte"))
 
 
 def _pa(k: str) -> str:
@@ -414,9 +480,10 @@ def hojas(res: dict) -> list[dict]:
 
     parametros = [
         ["Corte del ejercicio", d["corte"], "Ficha del encargo"],
-        ["Marco y ruta de cálculo", norma, "La medición es la misma en ambos marcos (menor entre costo y VNR / precio de venta menos costos de "
-                                           "terminación y venta); cambian las citas. PYMES 27.3 agrupa solo si es impracticable; sin equivalente a NIC 2.32; "
-                                           "costos por préstamos a gasto (Secc. 25)"],
+        ["Marco y ruta de cálculo", norma, "La medición base es la misma en ambos marcos (menor entre costo y VNR / precio de venta menos costos de "
+                                           "terminación y venta); cambian las citas. Ruta por marco: la excepción de NIC 2.32 para materias primas solo "
+                                           "existe en NIIF completas; PYMES 13.19 y 27.2-27.4 no la recogen, así que en PYMES la cédula 11 la deniega "
+                                           "siempre. PYMES 27.3 agrupa solo si es impracticable; costos por préstamos a gasto (Secc. 25)"],
         ["Tramo 1: días sin movimiento (más de)", p["obsDias1"], "Política de la entidad o juicio del auditor (NIC 2.28; PYMES 27.2). Los % solo "
                                                                  "estiman el VNR de los ítems SIN precio de venta (NIC 2.30): con precio informado "
                                                                  "manda la rebaja a VNR (NIC 2.9; PYMES 13.4)"],
@@ -433,8 +500,11 @@ def hojas(res: dict) -> list[dict]:
         r = FILA0 + k
         inventario.append([i["id"], i["desc"], i["bodega"], i["kx"], i["cc"], i["cu"], i["vk"], i["sop"], i["fum"], i["pv"],
                            i["ct"] or None, i["cv"] or None,
-                           fx(f'IF(E{r}<>"",E{r},D{r})', i["cant"]), fx(f'IF(H{r}<>"",H{r},F{r})', i["cua"]), fx(f"M{r}*N{r}", i["costo"])])
-    conteo, costo, vnr, obs = [], [], [], []
+                           fx(f'IF(E{r}<>"",E{r},D{r})', i["cant"]), fx(f'IF(H{r}<>"",H{r},F{r})', i["cua"]), fx(f"M{r}*N{r}", i["costo"]),
+                           i["mpTxt"], i["ptId"] or None, i["ptC"], i["ptP"],
+                           fx(f'IF(OR(R{r}="",S{r}=""),"",S{r}-R{r})', i["ptMargen"])])
+    pymes_f = f'ISNUMBER(SEARCH("PYMES",{_pa("marco")}))'
+    conteo, costo, vnr, mp, obs = [], [], [], [], []
     for k, i in enumerate(its):
         r = FILA0 + k
         conteo.append([i["id"], i["desc"], i["bodega"], fx(f"{INV}D{r}", i["kx"]), fx(_si(f"{INV}E{r}"), i["cc"]),
@@ -447,11 +517,18 @@ def hojas(res: dict) -> list[dict]:
                     fx(f"{INV}K{r}", i["ct"]), fx(f"{INV}L{r}", i["cv"]), fx(f'IF(E{r}="","",E{r}-F{r}-G{r})', i["vnr"]),
                     fx(f'IF(H{r}="","",MIN(C{r}*D{r},MAX(0,D{r}-H{r})*C{r}))', i["rebaja"]),
                     fx(f'IF(H{r}="","Sin precio",IF(H{r}<D{r},"VNR","Costo"))', med)])
+        aplica_f = f'IF(AND(C{r}="Sí",NOT({pymes_f}),G{r}<>"",G{r}>=0),"Sí","No")'
+        motivo_f = (f'IF(C{r}<>"Sí","{_MOT_NO_MP}",IF({pymes_f},"{_MOT_PYMES}",IF(G{r}="","{_MOT_FALTA}",'
+                    f'IF(G{r}>=0,"{_MOT_SI}","{_MOT_NEG}"))))')
+        mp.append([i["id"], i["desc"], fx(f'IF({INV}P{r}="Sí","Sí","No")', i["mpTxt"]), fx(_si(f"{INV}Q{r}"), i["ptId"]),
+                   fx(_si(f"{INV}R{r}"), i["ptC"]), fx(_si(f"{INV}S{r}"), i["ptP"]), fx(_si(f"{INV}T{r}"), i["ptMargen"]),
+                   fx(aplica_f, "Sí" if i["excepcion"] else "No"), fx(motivo_f, i["motivoExc"]),
+                   fx(_si(f"{OBS}I{r}"), i["provBase"]), fx(f'IF(AND(H{r}="Sí",J{r}<>""),J{r},0)', i["efectoExc"])])
         pct = (f'IF(E{r}="","",IF(E{r}>{_pa("obsDias3")},{_pa("obsPct3")}/100,IF(E{r}>{_pa("obsDias2")},{_pa("obsPct2")}/100,'
                f'IF(E{r}>{_pa("obsDias1")},{_pa("obsPct1")}/100,0))))')
         obs.append([i["id"], i["desc"], fx(f"{INV}O{r}", i["costo"]), i["fum"], fx(f'IF(D{r}="","",{_pa("corte")}-D{r})', i["dias"]),
                     fx(pct, i["pct"]), fx(f'IF(F{r}="","",C{r}*F{r})', i["obs"]), fx(_si(f"{VNR}I{r}"), i["rebaja"]),
-                    fx(f'IF(H{r}<>"",H{r},G{r})', i["prov"])])
+                    fx(f'IF(H{r}<>"",H{r},G{r})', i["provBase"]), fx(f'IF({MP}H{r}="Sí",0,IF(I{r}="","",I{r}))', i["prov"])])
 
     # 07 · Costo de producción.
     produccion = []
@@ -503,13 +580,13 @@ def hojas(res: dict) -> list[dict]:
     fr = {k: FILA0 + i for i, k in enumerate(res["labels"])}
     rb = lambda k: f"B{fr[k]}"
     ref_res = {
-        "costoAuditado": f"SUM({_rg(INV, 'O', ni)})", "provisionEstimada": f"SUM({_rg(OBS, 'I', ni)})",
+        "costoAuditado": f"SUM({_rg(INV, 'O', ni)})", "provisionEstimada": f"SUM({_rg(OBS, 'J', ni)})",
         "inventarioNeto": f"{rb('costoAuditado')}-{rb('provisionEstimada')}", "saldoMayor": mayor_f,
         "provisionRegistrada": f'IF({_pa("provisionRegistrada")}="",0,{_pa("provisionRegistrada")})',
         "libroNeto": f"{rb('saldoMayor')}-{rb('provisionRegistrada')}", "ajuste": f"{rb('inventarioNeto')}-{rb('libroNeto')}",
         "difFisicas": f"SUM({_rg(CON, 'H', ni)})", "difExtension": f"SUM({_rg(COS, 'G', ni)})", "difCosto": f"SUM({_rg(COS, 'J', ni)})",
         "difKardexMayor": f"SUM({_rg(INV, 'G', ni)})-{rb('saldoMayor')}", "rebajaVnr": f"SUM({_rg(VNR, 'I', ni)})",
-        "provObsolescencia": f"SUM({_rg(OBS, 'G', ni)})", "cifNoAbsorbido": f"SUM({_rg(PRO, 'K', npd)})",
+        "excepcionNic232": f"SUM({_rg(MP, 'K', ni)})", "provObsolescencia": f"SUM({_rg(OBS, 'G', ni)})", "cifNoAbsorbido": f"SUM({_rg(PRO, 'K', npd)})",
         "cifExcesoCapitalizado": f"SUM({_rg(PRO, 'O', npd)})", "difCostoVentas": f"SUM({_rg(VEN, 'M', nm)})", "corte": f"SUM({_rg(COR, 'I', nc)})",
     }
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
@@ -522,8 +599,11 @@ def hojas(res: dict) -> list[dict]:
         hoja("03_Inventario", CEDULAS[2][1],
              [["Código", "t"], ["Descripción", "t"], ["Bodega", "t"], ["Cantidad kardex", n_], ["Cantidad contada", n_], ["Costo unitario", n_],
               ["Valor kardex", n_], ["Costo unitario soportado", n_], ["Último movimiento", "d"], ["Precio de venta", n_],
-              ["Costos de terminación", n_], ["Costos de venta", n_], ["Cantidad auditada", n_], ["Costo unitario auditado", n_], ["Costo auditado", n_]],
-             inventario, ["TOTAL", "", "", None, None, None, _tot("G", ni, c["vk"]), None, None, None, None, None, None, None, _tot("O", ni, t["costoAuditado"])]),
+              ["Costos de terminación", n_], ["Costos de venta", n_], ["Cantidad auditada", n_], ["Costo unitario auditado", n_], ["Costo auditado", n_],
+              ["¿Materia prima?", "t"], ["Producto terminado asociado", "t"], ["Costo esperado del producto terminado", n_],
+              ["Precio esperado del producto terminado", n_], ["Margen esperado del producto terminado", n_]],
+             inventario, ["TOTAL", "", "", None, None, None, _tot("G", ni, c["vk"]), None, None, None, None, None, None, None,
+                          _tot("O", ni, t["costoAuditado"]), "", "", None, None, None]),
         hoja("04_Conteo", CEDULAS[3][1],
              [["Código", "t"], ["Descripción", "t"], ["Bodega", "t"], ["Cantidad kardex", n_], ["Cantidad contada", n_], ["Diferencia (unidades)", n_],
               ["Costo unitario", n_], ["Diferencia valorizada", n_]],
@@ -555,14 +635,21 @@ def hojas(res: dict) -> list[dict]:
         hoja("10_Obsolescencia", CEDULAS[9][1],
              [["Código", "t"], ["Descripción", "t"], ["Costo auditado", n_], ["Último movimiento", "d"], ["Días sin movimiento", "i"],
               ["% de provisión", "p"], ["Provisión por obsolescencia", n_], ["Rebaja a VNR", n_],
-              ["Provisión estimada (VNR; el tramo solo si no hay precio)", n_]],
+              ["Provisión antes de la excepción (VNR; el tramo solo si no hay precio)", n_],
+              ["Provisión estimada (neta de la excepción NIC 2.32)", n_]],
              obs, ["TOTAL", "", _tot("C", ni, t["costoAuditado"]), None, None, None, _tot("G", ni, t["provObsolescencia"]),
-                   _tot("H", ni, t["rebajaVnr"]), _tot("I", ni, t["provisionEstimada"])]),
-        hoja("11_Corte", CEDULAS[10][1],
+                   _tot("H", ni, t["rebajaVnr"]), _tot("I", ni, c["provBase"]), _tot("J", ni, t["provisionEstimada"])]),
+        hoja("11_Excepcion_MP", CEDULAS[10][1],
+             [["Código", "t"], ["Descripción", "t"], ["¿Materia prima?", "t"], ["Producto terminado asociado", "t"],
+              ["Costo esperado del producto terminado", n_], ["Precio esperado del producto terminado", n_], ["Margen esperado", n_],
+              ["¿Aplica la excepción de NIC 2.32?", "t"], ["Motivo", "t"], ["Provisión antes de la excepción", n_],
+              ["Efecto: provisión no reconocida", n_]],
+             mp, ["TOTAL", "", "", "", None, None, None, "", "", _tot("J", ni, c["provBase"]), _tot("K", ni, t["excepcionNic232"])]),
+        hoja("12_Corte", CEDULAS[11][1],
              [["Documento", "t"], ["Tipo", "t"], ["Recepción / despacho", "d"], ["Registro contable", "d"], ["Importe", n_], ["Período del hecho", "t"],
               ["Período del registro", "t"], ["Error de corte", "t"], ["Importe mal cortado", n_], ["Efecto", "t"]],
              corte, ["TOTAL", "", None, None, _tot("E", nc, S(x["imp"] for x in cor)), "", "", "", _tot("I", nc, t["corte"]), ""] if nc else None),
-        hoja("12_Problemas", CEDULAS[11][1], [["Código", "t"], ["Descripción", "t"], ["Importe", n_]],
+        hoja("13_Problemas", CEDULAS[12][1], [["Código", "t"], ["Descripción", "t"], ["Importe", n_]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
     ]
 
@@ -572,7 +659,9 @@ def hojas(res: dict) -> list[dict]:
 def definicion() -> dict:
     inventario = ("Una fila por ítem y bodega: código, descripción, cantidad del kardex, cantidad contada (en blanco si no se contó), "
                   "costo unitario, valor del kardex, fecha del último movimiento y, si los tiene, costo soportado, precio estimado de venta "
-                  "y costos unitarios de terminación y de venta; sin filas de total.")
+                  "y costos unitarios de terminación y de venta. En las materias primas y suministros marque «Sí» en la columna de materia "
+                  "prima e informe el producto terminado asociado con su costo y su precio de venta esperados (unitarios): sin esos tres "
+                  "datos no se puede aplicar la excepción de la NIC 2.32 y la materia prima se rebaja a VNR. Sin filas de total.")
     prog = lambda code, obj, risk, asr, proc, ev, crit, src: {"code": code, "objective": obj, "risk": risk, "assertion": asr, "procedure": proc,
                                                                "evidence": ev, "criterion": crit, "source": src}
     return {
@@ -591,8 +680,9 @@ def definicion() -> dict:
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable",
                          "document": "NIIF para las PYMES 2015 y 2025 · Sección 13 Inventarios (13.4 medición; 13.5-13.13 costo; 13.8 costos de transformación; "
                                      "13.9 capacidad normal y CIF fijos no distribuidos a gasto; 13.18 FIFO o costo promedio ponderado; 13.19-13.20 deterioro y "
-                                     "gasto) y Sección 27 (27.2-27.4 deterioro de inventarios y reversión). Numeración 13.4-13.20 igual en 2015 y 2025; "
-                                     "la 3.ª edición rige desde el 1-1-2027",
+                                     "gasto) y Sección 27 (27.2-27.4 deterioro de inventarios y reversión). Ni la Sección 13 ni la 27 recogen la excepción "
+                                     "de la NIC 2.32 para materias primas, así que en PYMES no se aplica. Numeración 13.4-13.20 y 27.2-27.4 igual en 2015 y "
+                                     "2025; la 3.ª edición rige desde el 1-1-2027",
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
         "nia": [
             {"document": "NIA 501", "section": "párr. 4 y 7", "requirement": "Presenciar el recuento físico de existencias materiales y probar sus resultados finales."},
@@ -614,6 +704,10 @@ def definicion() -> dict:
             "Obsolescencia: % del tramo de días sin movimiento × costo auditado. La medición es al menor entre costo y VNR (NIC 2.9; PYMES 13.4): "
             "con precio de venta informado la provisión estimada del ítem es solo la rebaja a VNR; sin precio, el tramo estima el VNR por antigüedad "
             "(NIC 2.30) y se emite un problema.",
+            "Materias primas (NIC 2.32, solo NIIF completas): margen esperado = precio esperado del producto terminado − costo esperado del producto "
+            "terminado. Si la partida es materia prima y el margen es cero o positivo, no se rebaja por debajo del costo (provisión estimada = 0) y se "
+            "informa la provisión no reconocida; si faltan el costo o el precio esperados, o el margen es negativo, la excepción NO se aplica y se mide al "
+            "menor entre costo y VNR. En NIIF para las PYMES la excepción no existe (13.19 y 27.2-27.4) y nunca se aplica.",
             "Ajuste propuesto = (costo auditado − provisión estimada) − (saldo del mayor − provisión registrada).",
         ],
         "fields": _INVENTARIO, "rules": [], "control": CONTROL, "primary": "ajuste",
@@ -635,6 +729,12 @@ def definicion() -> dict:
                  "Ventas y listas de precios posteriores, costos de terminación y venta", "Rebaja a VNR registrada", "NIC 2.9, 2.28-2.33 · PYMES 27.2-27.4"),
             prog("INV-07", "Obsolescencia y lenta rotación", "Ítems sin movimiento sin provisión", "Valoración", "Clasificar por días sin movimiento y aplicar los % de la política",
                  "Kardex con fechas de último movimiento, política", "Provisión suficiente", "NIC 2.28 · PYMES 27.2"),
+            prog("INV-09", "Materias primas: excepción de NIC 2.32", "Materia prima no rebajada apoyándose en una excepción que no se demuestra", "Valoración",
+                 "Para cada materia prima con VNR bajo el costo, obtener el costeo del producto terminado asociado y su precio de venta esperado, recalcular "
+                 "el margen y aplicar la excepción solo si el producto terminado se venderá al costo o por encima",
+                 "Costeo estándar del producto terminado, lista de precios y pedidos en firme; costo de reposición de los materiales",
+                 "Excepción aplicada solo con margen demostrado; en caso contrario, rebaja a VNR registrada",
+                 "NIC 2.32 · PYMES: sin equivalente (13.19, 27.2-27.4), la excepción no se aplica"),
             prog("INV-08", "Corte", "Compras o ventas registradas en el período equivocado", "Corte", "Comparar la fecha de recepción o despacho con la de registro alrededor del cierre",
                  "Guías, facturas y asientos antes y después del corte", "Sin errores de corte o ajustados", "NIA 330, INV-04"),
         ],
@@ -651,6 +751,8 @@ def definicion() -> dict:
             req("RQ-007", "Sustento de la capacidad normal de planta", None, "INV-04", "Soporte de la tasa de CIF fijo", formats=("pdf", "xlsx"), use="soporte", required=False),
             req("RQ-008", "Política de obsolescencia y lenta rotación", None, "INV-07", "Soporte de los tramos y porcentajes", formats=("pdf", "docx"), use="soporte"),
             req("RQ-009", "Inventario de terceros o en consignación", None, "INV-01", "Excluir lo que no es de la entidad", formats=("xlsx", "pdf"), use="soporte", required=False),
+            req("RQ-010", "Costeo estándar y lista de precios de los productos terminados que consumen las materias primas", None, "INV-09",
+                "Demostrar si el producto terminado se venderá al costo o por encima (excepción de NIC 2.32)", formats=("xlsx", "pdf"), use="soporte", required=False),
         ],
     }
 
@@ -661,9 +763,10 @@ def validar_definicion(d: dict) -> dict:
 
 # --- ejemplo de control (M19) ---------------------------------------------------------
 
-def _it(id, desc, kx, cc, cu, vk, fum, pv="", ct="", cv="", sop="", bod="BOD1"):
+def _it(id, desc, kx, cc, cu, vk, fum, pv="", ct="", cv="", sop="", bod="BOD1", mp="", pt="", ptc="", ptp=""):
     return {"id": id, "descripcion": desc, "bodega": bod, "cant_kardex": kx, "cant_contada": cc, "costo_unitario": cu, "valor_kardex": vk,
-            "costo_soportado": sop, "fecha_ult_mov": fum, "precio_venta": pv, "costo_terminacion": ct, "costo_venta": cv, "_row": 2}
+            "costo_soportado": sop, "fecha_ult_mov": fum, "precio_venta": pv, "costo_terminacion": ct, "costo_venta": cv,
+            "materia_prima": mp, "pt_producto": pt, "pt_costo_esperado": ptc, "pt_precio_esperado": ptp, "_row": 2}
 
 
 def _op(id, mp, mod, cv, cf, un, cap, desp, cfc):
@@ -675,17 +778,22 @@ def _dc(id, tipo, fd, fr, imp):
     return {"id": id, "tipo": tipo, "fecha_documento": fd, "fecha_registro": fr, "importe": imp, "_row": 2}
 
 
-# Cifras a mano (corte 31-12-2025): costo auditado 27.516,00; provisión estimada 3.175,00 = B-010 850 (VNR 265 <
-# costo 350) + C-102 525 (VNR 26,50 < costo 30) + C-100 1.800 (sin precio de venta: tramo 100 % sobre 1.800).
-# B-011 (VNR 1.150) y B-012 (VNR 70) tienen precio de venta por encima del costo: NIC 2.9 mide al menor entre
-# costo y VNR, así que su tramo de obsolescencia (800 y 450) NO provisiona. Neto 24.341,00; libros 27.800 − 1.000
-# = 26.800,00; ajuste −2.459,00. CIF fijo OP-01: tasa 12.000 ÷ 1.000 = 12; absorbido 12 × 800 = 9.600; no
-# absorbido 2.400, capitalizado por la entidad. Costo de ventas PT: 9.000 + (3.000 + 151.750 − 4.000) − 9.900 =
-# 149.850 vs 148.000 contable → 1.850.
+# Cifras a mano (corte 31-12-2025): costo auditado 41.016,00. Provisión antes de la excepción 5.575,00 = B-010 850
+# (VNR 265 < costo 350) + C-102 525 (VNR 26,50 < costo 30) + C-100 1.800 (sin precio de venta: tramo 100 % sobre
+# 1.800) + E-300 1.400 + E-301 500 + E-302 500. B-011 (VNR 1.150) y B-012 (VNR 70) tienen precio de venta por
+# encima del costo: NIC 2.9 mide al menor entre costo y VNR, así que su tramo de obsolescencia (800 y 450) NO
+# provisiona. Excepción de NIC 2.32 (materias primas), tres rutas: E-300 la aplica (margen 330 − 300 = 30 ≥ 0 →
+# no se rebaja: 1.400 no reconocidos), E-301 NO la aplica (margen 560 − 600 = −40 → provisión 500), E-302 NO la
+# aplica por falta del costo y el precio esperados del producto terminado (provisión 500); D-200 la aplica pero su
+# provisión base es 0 (VNR 5,50 > costo 5), efecto 0. Provisión estimada 5.575 − 1.400 = 4.175,00; neto 36.841,00;
+# libros 41.300 − 1.000 = 40.300,00; ajuste −3.459,00. Bajo PYMES no hay excepción: provisión 5.575 y ajuste
+# −4.859,00. CIF fijo OP-01: tasa 12.000 ÷ 1.000 = 12; absorbido 12 × 800 = 9.600; no absorbido 2.400,
+# capitalizado por la entidad. Costo de ventas PT: 9.000 + (3.000 + 151.750 − 4.000) − 9.900 = 149.850 vs 148.000
+# contable → 1.850.
 EJEMPLO = {
     "corte": "2025-12-31",
     "parametros": {"obsDias1": 180, "obsPct1": 25, "obsDias2": 365, "obsPct2": 50, "obsDias3": 730, "obsPct3": 100,
-                   "saldoMayor": 27800, "provisionRegistrada": 1000},
+                   "saldoMayor": 41300, "provisionRegistrada": 1000},
     "datasets": {
         "inventario": [
             _it("A-001", "Tornillo 1/4", 1000, 1000, 2.50, 2500, "2025-12-10", 4.00, "", 0.30),
@@ -697,7 +805,14 @@ EJEMPLO = {
             _it("C-100", "Repuesto modelo descontinuado", 15, 15, 120, 1800, "2023-05-31", bod="BOD3"),
             _it("C-101", "Producto terminado X", 300, 305, 18, 5400, "2025-12-28", 25, "", 2, bod="BOD3"),
             _it("C-102", "Producto terminado Y", 150, 150, 30, 4500, "2025-12-15", 28, "", 1.5, bod="BOD3"),
-            _it("D-200", "Materia prima Z", 800, 790, 5, 4000, "2025-12-05", 7, 1.5, bod="BOD4"),
+            _it("D-200", "Materia prima Z", 800, 790, 5, 4000, "2025-12-05", 7, 1.5, bod="BOD4",
+                mp="Sí", pt="Ensamble Z-1", ptc=60, ptp=72),
+            _it("E-300", "Lámina de acero", 200, 200, 40, 8000, "2025-11-20", 34, "", 1, bod="BOD4",
+                mp="Sí", pt="Tanque 200 L", ptc=300, ptp=330),
+            _it("E-301", "Perfil de aluminio", 100, 100, 25, 2500, "2025-12-01", 20, bod="BOD4",
+                mp="Sí", pt="Estructura AL-2", ptc=600, ptp=560),
+            _it("E-302", "Resina industrial", 50, 50, 60, 3000, "2025-12-08", 52, "", 2, bod="BOD4",
+                mp="Sí", pt="Envase EX-9"),
         ],
         "produccion": [
             _op("OP-01", 20000, 8000, 3000, 12000, 800, 1000, "", 12000),
@@ -722,9 +837,16 @@ EJEMPLO = {
 
 _E = EJEMPLO
 _SOLO_INV = {"inventario": [dict(f, cant_contada="", costo_soportado="") for f in _E["datasets"]["inventario"]]}
+# Sin el costeo del producto terminado no hay demostración: ninguna excepción de NIC 2.32.
+_SIN_PT = {**_E["datasets"], "inventario": [dict(f, pt_costo_esperado="", pt_precio_esperado="") for f in _E["datasets"]["inventario"]]}
+# Producto terminado que se vendería por debajo de su costo: la excepción se deniega en todas las materias primas.
+_MP_NEG = {**_E["datasets"], "inventario": [dict(f, pt_precio_esperado=(1 if f.get("pt_costo_esperado") not in ("", None) else ""))
+                                            for f in _E["datasets"]["inventario"]]}
 ESCENARIOS = [
     ("niif_completas", _E["datasets"], {**_E["parametros"], "_marco": "NIIF completas"}, _E["corte"]),
     ("pymes_2015", _E["datasets"], {**_E["parametros"], "_marco": "NIIF para las PYMES", "_edicion": "2015"}, _E["corte"]),
     ("pymes_2025", _E["datasets"], {**_E["parametros"], "_marco": "NIIF para las PYMES", "_edicion": "2025"}, _E["corte"]),
+    ("mp_sin_demostracion", _SIN_PT, {**_E["parametros"], "_marco": "NIIF completas"}, _E["corte"]),
+    ("mp_margen_negativo", _MP_NEG, {**_E["parametros"], "_marco": "NIIF completas"}, _E["corte"]),
     ("solo_inventario_sin_mayor", _SOLO_INV, {"obsDias1": 90, "obsPct1": 10, "obsDias2": 300, "obsPct2": 40, "obsDias3": 600, "obsPct3": 90}, _E["corte"]),
 ]

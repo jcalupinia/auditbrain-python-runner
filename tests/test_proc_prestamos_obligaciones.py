@@ -29,6 +29,9 @@ def _ds(**cambios):
     return ds
 
 
+SIN_DEF_DSCR = {k: v for k, v in NIIF.items() if k != "defDSCR"}
+
+
 def test_frances_con_comision_a_gasto_a_mano():
     c = _c(_run(), "OP-101")
     i = 0.11 / 12
@@ -109,11 +112,90 @@ def test_revelacion_de_incumplimientos_niif7_18_19():
     assert "PYMES 11.47" in next(e["message"] for e in _run(PYMES)["exceptions"] if e["code"] == "REVELACION_INCUMPLIMIENTO")
 
 
+def test_prueba_10_por_ciento_con_flujos_concluye():
+    """NIIF 9 3.3.2 y B3.3.6: valor presente descontado a la TIE original. Cifras recalculadas a mano."""
+    c = _c(_run(), "OP-103")
+    tie = (1 + 0.095 * 6 / 12) ** 2 - 1                                            # semestral 4,75 % → anual efectiva
+    assert tie == pytest.approx(0.09725625, abs=1e-12) == pytest.approx(c["tie_anual"], abs=1e-9)
+    vp = lambda imp, dias: sum(imp / (1 + tie) ** (d / 365) for d in dias)
+    vp_orig = vp(45948.59, (31, 212, 396, 577))                                    # 4 cuotas que restaban desde el 1-12-2025
+    vp_mod = vp(30000, (396, 577, 761, 943, 1127, 1308))                           # 6 cuotas de la adenda
+    assert round(vp_orig, 2) == 170350.33 == round(c["vp_orig"], 2)
+    assert round(vp_mod, 2) == 145394.68 == round(c["vp_mod"], 2)
+    assert c["com_mod_n"] == 1500 and round(c["vp_nuevo"], 2) == 146894.68 == round(vp_mod + 1500, 2)
+    assert round(c["dif_vp"], 2) == -23455.66 == round(vp_mod + 1500 - vp_orig, 2)
+    assert round(c["pct_vp"] * 100, 4) == -13.7691 and c["sustancial"] == "Sí"     # |13,77 %| ≥ 10 % → sustancial
+    assert c["conclusion"].startswith("Sustancial")
+    msg = next(e["message"] for e in _run()["exceptions"] if e["code"] == "MODIFICACION_SUSTANCIAL")
+    assert "13,77 %" in msg and "23.455,66" in msg and "no remide el pasivo" in msg
+    # la prueba no remide el pasivo: el total auditado no cambia por la modificación
+    assert float(_run()["totals"]["pasivo"]) == 659965.19
+
+
+def test_prueba_10_bloqueada_sin_flujos():
+    """Sin flujos comparables la prueba NO concluye: «dato insuficiente: conclusión bloqueada» (decisión del socio)."""
+    r = _run()
+    c5 = _c(r, "OP-105")                                                           # declara adenda y no entrega flujos
+    assert c5["prueba10"] == "Sí" and (c5["n_orig"], c5["n_mod"]) == (0, 0)
+    assert c5["sustancial"] == "" and c5["vp_nuevo"] is None and c5["pct_vp"] is None
+    assert c5["conclusion"] == "Dato insuficiente: conclusión bloqueada"
+    bloq = next(e["message"] for e in r["exceptions"] if e["code"] == "MODIFICACION_DATO_INSUFICIENTE")
+    assert "dato insuficiente: conclusión bloqueada" in bloq and "adenda" in bloq and "no se presume «no sustancial»" in bloq
+    # quitar el anexo de flujos bloquea también a OP-103, que antes concluía
+    sin = m.ejecutar({"prestamos": EJ["datasets"]["prestamos"]}, NIIF, EJ["corte"])
+    c3 = _c(sin, "OP-103")
+    assert c3["sustancial"] == "" and c3["conclusion"] == "Dato insuficiente: conclusión bloqueada"
+    assert {e["message"].split(":")[0] for e in sin["exceptions"] if e["code"] == "MODIFICACION_DATO_INSUFICIENTE"} == {"OP-103", "OP-105"}
+    assert "MODIFICACION_SUSTANCIAL" not in _codigos(sin) and "MODIFICACION_NO_SUSTANCIAL" not in _codigos(sin)
+    # sin adenda declarada no hay prueba (ni conclusión ni problema)
+    assert _c(r, "OP-101")["prueba10"] == "No"
+    # flujo de una operación inexistente o ilegible: se avisa y no se usa
+    raro = m.ejecutar({**_ds(), "flujos": [m._f("OP-999", "Original", "2026-01-01", "100", 2),
+                                           m._f("OP-103", "", "2026-01-01", "100", 3)]}, NIIF, EJ["corte"])
+    assert {"FLUJOS_SIN_PRESTAMO", "FLUJO_INCOMPLETO"} <= _codigos(raro)
+
+
+def test_prueba_10_pymes_es_analogia():
+    """PYMES 11.37 exige condiciones «sustancialmente diferentes» sin umbral: el 10 % se aplica por analogía (10.6)."""
+    rp = _run(PYMES)
+    msg = next(e["message"] for e in rp["exceptions"] if e["code"] == "MODIFICACION_SUSTANCIAL")
+    assert "esta prueba del 10 % no existe" in msg and "11.37" in msg and "por analogía" in msg and "10.6" in msg
+    assert "PYMES 11.37" in next(e["message"] for e in rp["exceptions"] if e["code"] == "MODIFICACION_DATO_INSUFICIENTE")
+    marco = next(f for f in m.hojas(rp)[14]["rows"] if f[0] == "OP-103")[14]        # 15_Prueba_10pct, columna «Marco aplicado»
+    assert "no existe en PYMES" in marco and "10.6" in marco
+    assert "NIIF 9 3.3.2 y B3.3.6" in next(f for f in m.hojas(_run())[14]["rows"] if f[0] == "OP-103")[14]
+
+
+def test_dscr_contractual_vs_analitico_de_la_firma():
+    """El contrato manda: sin definición contractual el DSCR es un indicador y no concluye incumplimiento."""
+    r, a = _run(), _run(SIN_DEF_DSCR)
+    dc, da = r["detalle"]["ratios"]["DSCR"], a["detalle"]["ratios"]["DSCR"]
+    assert dc["ratio"] == da["ratio"] == pytest.approx(200000 / r["detalle"]["servicio"])
+    assert dc["cumple"] == "No" and dc["definicion"] == m._DEF_DSCR                 # con definición contractual sí concluye
+    assert da["cumple"] == "" and da["definicion"] == "DSCR analítico de la firma"  # sin ella, solo indicador
+    assert "DSCR_ANALITICO_SIN_DEFINICION" in _codigos(a) and "DSCR_ANALITICO_SIN_DEFINICION" not in _codigos(r)
+    assert "COVENANT_DSCR_SIN_DEFINICION" in _codigos(a)
+    assert "ENDEUDAMIENTO_SOBRE_LIMITE" not in {e["code"] for e in a["exceptions"] if e["message"].startswith("DSCR")}
+    # el indicador nunca reclasifica: sin el escudo del 72B, el contractual sí exige y el analítico no
+    ds = _ds(**{"OP-107": {"fecha_covenant": ""}})
+    cc, ca = _c(_run(ds=ds), "OP-107"), _c(_run(SIN_DEF_DSCR, ds=ds), "OP-107")
+    assert cc["incump"] == "Sí" and cc["exigible"] == "Sí" and cc["lp"] == 0
+    assert ca["incump"] == "No" and ca["exigible"] == "No" and round(ca["cp"], 2) == 34938.20
+    # el denominador del DSCR también sale del contrato cuando se informa
+    d2 = _run({**NIIF, "servicioDSCRContrato": 150000})["detalle"]["ratios"]["DSCR"]
+    assert d2["den"] == 150000 and d2["ratio"] == pytest.approx(200000 / 150000) and d2["cumple"] == "Sí"
+    # la cédula 12 muestra la definición aplicada y la 10 la traslada a cada préstamo
+    fila = next(f for f in m.hojas(a)[11]["rows"] if f[0] == "DSCR")
+    assert fila[7]["v"] == "DSCR analítico de la firma" and fila[6]["v"] is None
+    assert next(f for f in m.hojas(a)[9]["rows"] if f[0] == "OP-107")[14]["v"] == "DSCR analítico de la firma"
+
+
 def test_problemas_minimos_y_totales():
     r = _run()
     assert {"CONFIRMACION_DIFERENCIA", "INTERES_DEVENGADO_NO_REGISTRADO", "COMISIONES_A_GASTO", "CLASIFICACION_CP_LP",
             "COVENANT_SIN_DISPENSA", "ENDEUDAMIENTO_SOBRE_LIMITE", "DISPENSA_POSTERIOR", "NO_DESEMBOLSADO",
-            "GASTO_FINANCIERO_DIFERENCIA", "PAGOS_DIFERENCIA", "PASIVO_DIFERENCIA"} <= _codigos(r)
+            "GASTO_FINANCIERO_DIFERENCIA", "PAGOS_DIFERENCIA", "PASIVO_DIFERENCIA",
+            "MODIFICACION_SUSTANCIAL", "MODIFICACION_DATO_INSUFICIENTE"} <= _codigos(r)
     assert r["primary"] == "ajuste"
     t = {k: float(v) for k, v in r["totals"].items()}
     assert t["ajuste"] == pytest.approx(t["pasivo"] - t["pasivoRegistrado"], abs=0.011)
@@ -173,6 +255,12 @@ def test_errores_de_entrada():
         _run({**NIIF, "totalActivos": -1})
     with pytest.raises(ValueError):
         _run(ds=_ds(**{"OP-103": {"id": "OP-101"}}))                               # operación repetida
+    with pytest.raises(ValueError):
+        _run({**SIN_DEF_DSCR, "servicioDSCRContrato": 150000})                     # denominador del contrato sin la definición
+    vf = m.validar_filas("flujos", [{"_row": 2, "id": "OP-103", "escenario": "quincenal", "fecha": "2026-01-01", "importe": "100"},
+                                    {"_row": 3, "id": "OP-103", "escenario": "Original", "fecha": "no es fecha", "importe": ""}])
+    assert not vf["ok"] and {"escenario", "fecha", "importe"} <= {e.get("field") for e in vf["errors"]}
+    assert not vf["warnings"]                                                      # un préstamo tiene muchos flujos: no es repetición
     v = m.validar_filas("prestamos", [{"_row": 2, "id": "X", "banco": "B", "desembolso": "2025-01-01", "monto": "-5", "plazo": "12",
                                        "tasa": "150", "periodicidad": "quincenal", "sistema": "otro", "saldo_reg": "1",
                                        "covenant": "ventas", "incumplido": "tal vez"}])

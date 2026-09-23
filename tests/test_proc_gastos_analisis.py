@@ -38,6 +38,7 @@ def test_ejemplo_niif_completas_cifras_a_mano():
     assert t["noSoportado"] == "18000.00" and t["reclasificaciones"] == "2200.00"
     assert t["noDeducible"] == "4000.00"                     # FC-108 comprobante 1.500 + FC-109 bancarización 2.500
     assert t["partesRelacionadas"] == "13200.00" and t["rpNoReveladas"] == "3200.00"   # 9.000 + 3.000 + 1.200 − 10.000
+    assert t["rpNoReveladaMarcada"] == "1200.00"             # solo FC-115 está marcada «No» en la nota
     assert t["inusuales"] == "30000.00"
     # Análisis global: 5201 +30.000 (20 %) sin explicar; 5101 +50.000 (9,09 %) no excede; 5601 base 0 excede.
     c1, c2, c6 = _cta(r, "5201"), _cta(r, "5101"), _cta(r, "5601")
@@ -49,9 +50,59 @@ def test_ejemplo_niif_completas_cifras_a_mano():
     for k in ("VARIACION_SIN_EXPLICAR", "PARTIDA_EXTRAORDINARIA", "NATURALEZA_NO_REVELADA", "DIF_CONCILIACION", "GASTO_NO_SOPORTADO",
               "DATO_VOUCHING_FALTANTE", "CORTE_OTRO_PERIODO", "CORTE_NO_REGISTRADO", "GASTO_ANTICIPADO_EN_RESULTADOS",
               "DEVENGADO_NO_REGISTRADO", "CLASIFICACION_INCORRECTA", "RP_NO_REVELADAS", "RP_SIN_CATEGORIA", "PARTIDA_INUSUAL",
-              "SIN_COMPROBANTE_VALIDO", "SIN_BANCARIZACION"):
+              "SIN_COMPROBANTE_VALIDO", "SIN_BANCARIZACION", "RP_TRANSACCION_NO_REVELADA", "DATO_RP_REVELADA_FALTANTE"):
         assert k in c
     assert "COSTO_VENTAS_NO_SEPARADO" not in c
+    # Con la manifestación escrita de la administración sí se concluye sobre la integridad.
+    assert "RP_INTEGRIDAD_NO_CONCLUIDA" not in c
+    assert r["detalle"]["rpEstado"] == "Revelación incompleta: hay transacciones sin revelar"
+
+
+def test_integridad_partes_relacionadas_sin_evidencia_no_concluye():
+    """Decisión del socio: sin evidencia de población completa se procesa, pero no se concluye."""
+    r = _run(rpEvidenciaIntegridad=None)
+    # La población se procesa igual: 9.000 (FC-111) + 3.000 (FC-114) + 1.200 (FC-115) = 13.200.
+    assert r["totals"]["partesRelacionadas"] == "13200.00" and r["totals"]["rpNoReveladas"] == "3200.00"
+    assert r["detalle"]["rpEstado"] == "No concluida por falta de evidencia de población completa"
+    e = next(x for x in r["exceptions"] if x["code"] == "RP_INTEGRIDAD_NO_CONCLUIDA")
+    assert e["amount"] == "13200.00" and "NIA 550 párr. 26" in e["message"]
+    # Con evidencia pero sin el importe revelado en notas tampoco se concluye.
+    assert _run(rpRevelado=None)["detalle"]["rpEstado"] == "No concluida: falta el importe revelado en notas"
+    # Todas las transacciones marcadas en la nota y nota = 13.200 → concluye completa.
+    ds = {"cuentas": EJ["datasets"]["cuentas"],
+          "transacciones": [dict(x, revelada_rp="Sí") if x.get("parte_relacionada") == "Sí" else x
+                            for x in EJ["datasets"]["transacciones"]]}
+    r2 = _run(ds, rpRevelado=13200)
+    assert r2["totals"]["rpNoReveladaMarcada"] == "0.00"
+    assert r2["detalle"]["rpEstado"] == "Revelación completa según la evidencia examinada"
+    assert {"RP_TRANSACCION_NO_REVELADA", "DATO_RP_REVELADA_FALTANTE", "RP_INTEGRIDAD_NO_CONCLUIDA"}.isdisjoint(_codigos(r2))
+    # Sin transacciones con partes relacionadas: no hay nada que revelar, pero la evidencia sigue haciendo falta.
+    sin_rp = [{k: ("No" if k == "parte_relacionada" else v) for k, v in x.items()} for x in EJ["datasets"]["transacciones"]]
+    r3 = _run({"cuentas": EJ["datasets"]["cuentas"], "transacciones": sin_rp})
+    assert r3["totals"]["partesRelacionadas"] == "0.00"
+    assert r3["detalle"]["rpEstado"] == "Sin transacciones con partes relacionadas en la muestra"
+    assert _run({"cuentas": EJ["datasets"]["cuentas"], "transacciones": sin_rp},
+                rpEvidenciaIntegridad=None)["detalle"]["rpEstado"] == "No concluida por falta de evidencia de población completa"
+
+
+def test_cedula_integridad_y_maestro_obligatorio():
+    r = _run()
+    h = next(x for x in m.hojas(r) if x["name"] == "11_RP_Integridad")
+    assert [c[0] for c in h["cols"]][:5] == ["Comprobante", "Proveedor", "Cuenta", "Importe", "Categoría informada"]
+    assert [f[0] for f in h["rows"]] == ["FC-111", "FC-114", "FC-115"]
+    # Categoría válida para NIIF completas: «Dominante» y «Personal clave» sí; FC-115 no trae categoría.
+    assert [f[5]["v"] for f in h["rows"]] == ["Sí", "Sí", "No"]
+    assert [f[6] for f in h["rows"]] == ["Sí", None, "No"]          # incluida en la nota (vacío = no informado, M22)
+    assert [f[7]["v"] for f in h["rows"]] == [0.0, 0.0, 1200.0]     # importe no revelado según la marca
+    assert h["total"][3]["v"] == 13200.0 and h["total"][7]["v"] == 1200.0
+    assert h["total"][8]["v"] == "Revelación incompleta: hay transacciones sin revelar"
+    # En PYMES «Dominante» no es categoría de la Sección 33.10.
+    hp = next(x for x in m.hojas(_run(_marco=m.MARCO_PYMES, _edicion="2015")) if x["name"] == "11_RP_Integridad")
+    assert [f[5]["v"] for f in hp["rows"]] == ["No", "Sí", "No"]
+    # El maestro completo de partes relacionadas y la manifestación escrita son PBC obligatorios.
+    rq = {x["id"]: x for x in m.definicion()["requests"]}
+    assert rq["RQ-006"]["required"] and "COMPLETO" in rq["RQ-006"]["document"] and "población" in rq["RQ-006"]["content"].lower()
+    assert rq["RQ-008"]["required"] and "NIA 550 párr. 26" in rq["RQ-008"]["content"]
 
 
 def test_ruta_pymes_categorias_y_desglose():

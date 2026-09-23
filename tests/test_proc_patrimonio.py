@@ -26,17 +26,21 @@ def test_ejemplo_niif_completas_cifras_a_mano():
     # 128.000 × 10 % = 12.800 ≤ 500.000 × 50 % − 60.000 = 190.000; apropiada 8.000
     assert t["reservaRequerida"] == "12800.00" and t["ajusteReserva"] == "4800.00"
     assert t["dividendosDeclarados"] == "90000.00" and t["excesoDividendos"] == "10000.00"   # disponibles 80.000 (auditor)
+    # (B) Los 18.000 de la adopción por primera vez de NIIF salen del resultado disponible y se muestran aparte.
+    d = r["detalle"]["div"]
+    assert t["resultadosTransicionNIIF"] == "18000.00" and d["transicionRA"] == 18000
+    assert d["antes"] == 278000 and d["antesNeto"] == 260000          # 150.000 + 128.000 − 18.000
     # Art. 298: las reservas expresas de libre disposición (25.000) también se pueden repartir.
-    assert r["detalle"]["div"]["calc"] == 290200          # 150.000 + 128.000 − 12.800 + 25.000
+    assert d["calc"] == 272200                                        # 260.000 − 12.800 + 25.000
     # Art. 297: mínimo (128.000 − 12.800) × 50 % = 57.600 ≤ 90.000 declarados → sin faltante.
     assert t["dividendoMinimoLegal"] == "57600.00" and t["dividendosBajoMinimo"] == "0.00"
     assert t["aumentosNoInscritos"] == "40000.00" and t["difCapital"] == "40000.00"
     assert t["resultadoRecompras"] == "-1500.00"
     c = _codigos(r)
-    assert "DIVIDENDO_MINIMO_NO_ASIGNADO" not in _codigos(r)
+    assert "DIVIDENDO_MINIMO_NO_ASIGNADO" not in c and "DIVIDENDO_MINIMO_NO_MEDIDO" not in c
     for k in ("MOVIMIENTO_NO_CUADRA", "DIF_MAYOR", "RESERVA_LEGAL_NO_APROPIADA", "DIVIDENDOS_SOBRE_UTILIDADES_NO_DISPONIBLES",
               "DIVIDENDO_POSTERIOR_COMO_PASIVO", "DIVIDENDO_POSTERIOR_REVELAR", "CAPITAL_NO_COINCIDE_ESCRITURA", "AUMENTO_NO_INSCRITO",
-              "APORTE_ES_PASIVO", "INSTRUMENTO_MAL_CLASIFICADO", "RECOMPRA_CON_RESULTADO", "SIN_ACTA"):
+              "APORTE_ES_PASIVO", "INSTRUMENTO_MAL_CLASIFICADO", "RECOMPRA_CON_RESULTADO", "SIN_ACTA", "TRANSICION_NIIF_NO_DISTRIBUIBLE"):
         assert k in c
 
 
@@ -50,21 +54,82 @@ def test_ruta_pymes_mismo_calculo_otras_citas():
 
 
 def test_limitada_por_defecto_sin_transacciones_ni_mayor():
+    """(A) «Cía. Ltda.» enruta el art. 109 (5 % hasta el 20 %) y (B) sin el dato de transición el importe queda vacío."""
     esc = next(e for e in m.ESCENARIOS if e[0] == "pymes_2025_limitada")
     r = m.ejecutar(esc[1], esc[2], esc[3])
     t = r["totals"]
+    assert r["detalle"]["tipoCompania"] == "Limitada" and r["detalle"]["pct"] == 5.0 and r["detalle"]["tope"] == 20.0
     # 128.000 × 5 % = 6.400 ≤ 500.000 × 20 % − 60.000 = 40.000; apropiada 8.000 → exceso 1.600
     assert t["reservaRequerida"] == "6400.00" and t["ajusteReserva"] == "-1600.00"
-    assert t["utilidadesDisponibles"] == "271600.00"      # 150.000 + 128.000 − 6.400
-    assert "saldoMayor" not in t and "capitalEscritura" not in t
-    assert {"RESERVA_LEGAL_EN_EXCESO", "SIN_SALDO_MAYOR", "SIN_CAPITAL_ESCRITURA", "SIN_TRANSACCIONES"} <= _codigos(r)
+    assert t["utilidadesDisponibles"] == "271600.00"      # 150.000 + 128.000 − 6.400 (sin dato de transición)
+    assert "saldoMayor" not in t and "capitalEscritura" not in t and "resultadosTransicionNIIF" not in t
+    assert r["detalle"]["div"]["transicionRA"] is None
+    assert {"RESERVA_LEGAL_EN_EXCESO", "SIN_SALDO_MAYOR", "SIN_CAPITAL_ESCRITURA", "SIN_TRANSACCIONES",
+            "TRANSICION_NIIF_SIN_DATO", "DIVIDENDO_MINIMO_NO_MEDIDO"} <= _codigos(r)
+
+
+def test_sas_no_dispara_la_prueba_de_reserva_legal():
+    """(A) SAS: la reserva legal no es obligatoria; la prueba no se ejecuta y no hay mínimo legal del art. 297."""
+    _, ds, p_, c = next(e for e in m.ESCENARIOS if e[0] == "sas_sin_reserva_legal")
+    r = m.ejecutar(ds, p_, c)
+    t, d = r["totals"], r["detalle"]
+    assert d["tipoCompania"] == "SAS" and d["pct"] is None and d["tope"] is None and d["obligatoria"] is False
+    assert "reservaRequerida" not in t and "ajusteReserva" not in t and "dividendoMinimoLegal" not in t
+    # Disponibles = máx(150.000 + 128.000 − 18.000, 0) − 0 de reserva + 25.000 de libre disposición.
+    assert t["utilidadesDisponibles"] == "285000.00" and t["excesoDividendos"] == "0.00"
+    c_ = _codigos(r)
+    assert {"RESERVA_LEGAL_NO_OBLIGATORIA_SAS", "DIVIDENDO_MINIMO_NO_MEDIDO"} <= c_
+    assert not ({"RESERVA_LEGAL_NO_APROPIADA", "RESERVA_LEGAL_EN_EXCESO", "RESERVA_SIN_BASE"} & c_)
+    msg = next(e["message"] for e in r["exceptions"] if e["code"] == "RESERVA_LEGAL_NO_OBLIGATORIA_SAS")
+    assert "Constitución opcional de reservas" in msg and "no es obligatoria" in msg
+    # Si el estatuto o la asamblea acordaron una reserva, el auditor informa el % y la prueba sí se ejecuta.
+    r2 = m.ejecutar(ds, {**p_, "pctReserva": 5, "topeReserva": 20}, c)
+    assert r2["totals"]["reservaRequerida"] == "6400.00"
+    assert "RESERVA_LEGAL_NO_OBLIGATORIA_SAS" not in _codigos(r2) and "RESERVA_LEGAL_EN_EXCESO" in _codigos(r2)
+
+
+def test_tipo_de_compania_no_fijado_o_no_enrutado():
+    """(A) «Por definir» y otras formas societarias: la prueba de reserva legal no concluye."""
+    r = _run(tipoCompania="")                       # vacío → «Por definir» (valor por defecto del parámetro)
+    assert r["detalle"]["tipoCompania"] == "Por definir" and "reservaRequerida" not in r["totals"]
+    assert "TIPO_COMPANIA_NO_FIJADO" in _codigos(r)
+    assert m.PARAMETROS["tipoCompania"] == "Por definir"
+    r = _run(tipoCompania="Compañía en nombre colectivo")
+    assert r["detalle"]["tipoCompania"] == "Otra" and "reservaRequerida" not in r["totals"]
+    assert "TIPO_COMPANIA_SIN_REGIMEN_DE_RESERVA" in _codigos(r)
+    # Sinónimos del router societario.
+    for texto, esperado in (("S.A.", "Anónima"), ("Sociedad Anónima", "Anónima"), ("Cía. Ltda.", "Limitada"),
+                            ("Ltda", "Limitada"), ("S.A.S.", "SAS"), ("Sociedad por Acciones Simplificada", "SAS")):
+        assert m._tipo_cia(texto) == esperado, texto
+
+
+def test_transicion_niif_separada_de_la_utilidad_distribuible():
+    """(B) Los ajustes de transición no se mezclan con el resultado disponible para dividendos."""
+    # Sin el parámetro del auditor: 150.000 + 128.000 = 278.000 − 18.000 de transición − 12.800 de reserva = 247.200.
+    r = _run(utilidadesDisponibles=None, reservasLibreDisposicion=None)
+    assert r["totals"]["utilidadesDisponibles"] == "247200.00"
+    # Sin los 18.000 de transición serían 265.200: la diferencia es exactamente el ajuste separado.
+    sin_tr = {"movimientos": [{k: v for k, v in f.items() if k != "transicion"} for f in EJ["datasets"]["movimientos"]],
+              "transacciones": EJ["datasets"]["transacciones"]}
+    r2 = _run(sin_tr, utilidadesDisponibles=None, reservasLibreDisposicion=None)
+    assert r2["totals"]["utilidadesDisponibles"] == "265200.00"
+    assert float(r2["totals"]["utilidadesDisponibles"]) - float(r["totals"]["utilidadesDisponibles"]) == 18000.0
+    assert "TRANSICION_NIIF_SIN_DATO" in _codigos(r2) and "TRANSICION_NIIF_NO_DISTRIBUIBLE" not in _codigos(r2)
+    msg = next(e["message"] for e in r["exceptions"] if e["code"] == "TRANSICION_NIIF_NO_DISTRIBUIBLE")
+    assert "no se mezclan automáticamente con la utilidad distribuible" in msg
+    # La transición informada fuera de resultados acumulados se presenta, pero no reduce lo distribuible.
+    en_reserva = {"movimientos": [{**f, "transicion": "7000"} if f["id"] == "305" else {k: v for k, v in f.items() if k != "transicion"}
+                                  for f in EJ["datasets"]["movimientos"]], "transacciones": EJ["datasets"]["transacciones"]}
+    r3 = _run(en_reserva, utilidadesDisponibles=None, reservasLibreDisposicion=None)
+    assert r3["totals"]["resultadosTransicionNIIF"] == "7000.00" and r3["detalle"]["div"]["transicionRA"] == 0
+    assert r3["totals"]["utilidadesDisponibles"] == "265200.00"
 
 
 def test_perdida_no_exige_reserva_y_disponibles_calculadas():
     r = _run(utilidadNeta=-5000, utilidadesDisponibles=None)
     assert r["totals"]["reservaRequerida"] == "0.00" and r["totals"]["ajusteReserva"] == "-8000.00"
-    # 150.000 + 128.000 − 0 de reserva + 25.000 de reservas de libre disposición (art. 298)
-    assert r["totals"]["utilidadesDisponibles"] == "303000.00" and r["totals"]["excesoDividendos"] == "0.00"
+    # 150.000 + 128.000 − 18.000 de transición − 0 de reserva + 25.000 de reservas de libre disposición (art. 298)
+    assert r["totals"]["utilidadesDisponibles"] == "285000.00" and r["totals"]["excesoDividendos"] == "0.00"
 
 
 def test_tope_limita_la_reserva_y_sin_base():
@@ -98,9 +163,9 @@ def test_minimo_legal_de_dividendos_art_297():
 
 
 def test_reservas_de_libre_disposicion_art_298():
-    # Sin el parámetro: disponibles calculadas 265.200 y los 90.000 declarados caben igual.
+    # Sin el parámetro: disponibles calculadas 247.200 (ya netas de los 18.000 de transición) y los 90.000 caben igual.
     r = _run(utilidadesDisponibles=None, reservasLibreDisposicion=None)
-    assert r["totals"]["utilidadesDisponibles"] == "265200.00"
+    assert r["totals"]["utilidadesDisponibles"] == "247200.00"
     # Utilidades agotadas: solo las reservas de libre disposición sostienen el dividendo (art. 298).
     sin_util = {"movimientos": [f if f["clase"] not in ("Resultados acumulados", "Resultado del ejercicio") else {**f, "inicial": "0"}
                                 for f in EJ["datasets"]["movimientos"]], "transacciones": EJ["datasets"]["transacciones"]}
@@ -123,8 +188,8 @@ def test_casos_limite():
         m.ejecutar(EJ["datasets"], {}, "")
     with pytest.raises(ValueError):
         _run(pctReserva=120)
-    with pytest.raises(ValueError):
-        _run(tipoCompania="Colectiva")
+    # Una forma societaria no enrutada ya no rompe la corrida: no concluye y emite problema.
+    assert "TIPO_COMPANIA_SIN_REGIMEN_DE_RESERVA" in _codigos(_run(tipoCompania="Colectiva"))
     with pytest.raises(ValueError):
         _run(capitalEscritura=-1)
     neg = {"movimientos": [{**EJ["datasets"]["movimientos"][0], "aumentos": "-5"}]}

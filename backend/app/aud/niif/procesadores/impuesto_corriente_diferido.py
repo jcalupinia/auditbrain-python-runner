@@ -11,8 +11,12 @@ Tres anexos:
   exentos, deducciones, pérdidas, otros) decide cómo lo recalcula el auditor; «importe según auditor» (opcional)
   reemplaza al del cliente (así se agregan gastos no deducibles omitidos).
   1. Participación trabajadores recalculada = 15 % × utilidad contable («utilidades líquidas», Código del Trabajo art. 97).
-  2. Participación atribuible a exentos = 15 % × (ingresos exentos − gastos atribuibles) (Reglamento art. 46 num. 5 dice «el
-     15% de tales ingresos», base bruta: pendiente de decisión del socio).
+  2. Participación atribuible a exentos = 15 % del ingreso exento BRUTO informado por el cliente (Reglamento LRTI
+     art. 46 num. 5, texto vigente al 15-jul-2025: «Se sumará también el porcentaje de participación laboral en las
+     utilidades de las empresas atribuibles a los ingresos exentos; esto es, el 15% de tales ingresos»). Si el cliente
+     solo entrega el importe neto, la herramienta **no reconstruye** la base bruta: el importe recalculado queda vacío,
+     el renglón conserva el del cliente, ese tramo del cálculo normativo queda bloqueado y se emite un problema que
+     pide el ingreso exento bruto y la participación atribuible (cédula 13_Partic_exentos).
   3. Amortización de pérdidas permitida = mín(la solicitada, 25 % de la utilidad gravable, saldo no vencido).
   4. Base imponible × tarifa = tarifa general + puntos de recargo × proporción sujeta (Reglamento LRTI art. 51: la
      proporción es la composición societaria en paraísos fiscales o no informada; si llega o supera el 50 %, el recargo
@@ -78,6 +82,7 @@ CONTROL = "importe"
 
 PARAMETROS = {
     "tasaIR": 25, "puntosRecargo": 3, "proporcionRecargo": 0, "participacion": 15, "limitePerdidas": 25, "plazoPerdidas": 5,
+    "ingresoExentoBruto": None, "participacionExentosInformada": None,
     "tasaFutura": None, "anioTasaFutura": None, "perdidasPermitidas": "Sí", "probabilidadPerdidas": "Sí",
     "retenciones": None, "anticipos": None, "creditoAnterior": None, "impuestoCorrienteRegistrado": None,
     "saldoCorrienteRegistrado": None, "gastoDiferidoRegistrado": None, "dtaPerdidasInicial": None, "dtaPerdidasRegistrado": None,
@@ -89,6 +94,10 @@ ETIQUETAS_PARAM = {
     "puntosRecargo": "Puntos adicionales por paraísos fiscales / composición societaria — LRTI art. 37; Reglamento art. 51; vigente al corte",
     "proporcionRecargo": "Composición societaria en paraísos fiscales o no informada (%) (la no informada más la ubicada en paraísos fiscales con beneficiario efectivo residente en Ecuador): el recargo se aplica sobre esa misma proporción de la base imponible y, solo cuando en conjunto llega o supera el 50 %, sobre el 100 % (LRTI art. 37; Reglamento art. 51; vigente al corte)",
     "participacion": "Participación de trabajadores (%) sobre las utilidades líquidas — Código del Trabajo art. 97; vigente al corte",
+    "ingresoExentoBruto": "Ingreso exento BRUTO del ejercicio, antes de restar los gastos atribuibles (opcional): base del «15% de tales "
+                          "ingresos» del Reglamento LRTI art. 46 num. 5. Si no se informa, la participación atribuible no se recalcula",
+    "participacionExentosInformada": "Participación atribuible a ingresos exentos informada por el cliente en su papel de trabajo (opcional; "
+                                     "se contrasta con el renglón de la conciliación)",
     "limitePerdidas": "Límite anual de amortización de pérdidas (% de la utilidad gravable) — LRTI art. 11; vigente al corte",
     "plazoPerdidas": "Plazo para amortizar pérdidas (años) — LRTI art. 11; vigente al corte",
     "tasaFutura": "Tasa aprobada para años futuros (%) (vacío: no hay cambio aprobado)",
@@ -116,7 +125,8 @@ CEDULAS = [
     ("06_Diferencias_temp", "Diferencias temporarias y diferido"), ("07_Tasa_reversion", "Tasa de reversión"),
     ("08_Recuperabilidad", "Recuperabilidad del activo diferido"), ("09_Movimiento", "Movimiento: resultados y ORI"),
     ("10_Compensacion", "Compensación y presentación"), ("11_Tasa_efectiva", "Tasa efectiva (NIC 12.81 c)"),
-    ("12_Ajustes", "Ajustes propuestos"), ("13_Asientos", "Asientos propuestos"), ("14_Problemas", "Problemas encontrados"),
+    ("12_Ajustes", "Ajustes propuestos"), ("13_Partic_exentos", "Participación atribuible a exentos"),
+    ("14_Asientos", "Asientos propuestos"), ("15_Problemas", "Problemas encontrados"),
 ]
 
 # Tipo → (signo exigido: 1 suma, -1 resta, 0 cualquiera; etiqueta).
@@ -227,6 +237,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     ed = edicion_pymes(p) if pymes else ""
     cit = _citas(pymes, ed)
     num = {k: _pnum(p, k) for k in ("tasaIR", "puntosRecargo", "proporcionRecargo", "participacion", "limitePerdidas", "plazoPerdidas",
+                                    "ingresoExentoBruto", "participacionExentosInformada",
                                     "tasaFutura", "anioTasaFutura", "retenciones", "anticipos", "creditoAnterior",
                                     "impuestoCorrienteRegistrado", "saldoCorrienteRegistrado", "gastoDiferidoRegistrado",
                                     "dtaPerdidasInicial", "dtaPerdidasRegistrado", "dtaPresentado", "dtlPresentado", "umbralTasaEfectiva")}
@@ -311,7 +322,24 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     au = {k: sc(t, "usado") for k, t in (("u", "utilidad"), ("ex", "exentos"), ("nd", "no_deducibles"), ("ge", "gastos_exentos"),
                                          ("ded", "deducciones"), ("otros", "otros"))}
     au["part"] = -max(au["u"], 0) * part / 100
-    au["pe"] = max(-au["ex"] - au["ge"], 0) * part / 100 if au["u"] > 0 else 0
+    # Reglamento LRTI art. 46 num. 5 (texto vigente al 15-jul-2025, leído en la biblioteca oficial): «Se sumará también el
+    # porcentaje de participación laboral en las utilidades de las empresas atribuibles a los ingresos exentos; esto es, el
+    # 15% de tales ingresos» → base BRUTA. Los gastos atribuibles se suman aparte por el num. 4, no minoran esta base.
+    # Decisión del socio: sin el ingreso exento bruto informado no se reconstruye la base; el importe queda vacío (M22) y el
+    # renglón conserva el del cliente, sin asumir cero.
+    ex_bruto, pe_inf = num["ingresoExentoBruto"], num["participacionExentosInformada"]
+    ex_neto = -au["ex"]
+    if ex_neto <= 0.005:
+        pe_calc, pe_estado = 0.0, "Sin ingresos exentos"
+    elif au["u"] <= 0:
+        pe_calc, pe_estado = 0.0, "Calculado"          # sin utilidad contable no hay participación que atribuir
+    elif ex_bruto is None:
+        pe_calc, pe_estado = None, "Bloqueado por falta de soporte"
+    else:
+        pe_calc, pe_estado = ex_bruto * part / 100, "Calculado"
+    au["pe"] = cl["pe"] if pe_calc is None else pe_calc
+    pex = {"bruto": ex_bruto, "neto": ex_neto, "gastos": au["ge"], "calc": pe_calc, "registrado": cl["pe"], "informado": pe_inf,
+           "dif": None if pe_calc is None else pe_calc - cl["pe"], "estado": pe_estado}
     orden = ("u", "part", "ex", "nd", "ge", "pe", "ded", "otros")
     for d in (cl, au):
         d["b0"] = sum(d[k] for k in orden)
@@ -433,9 +461,25 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     if abs(au["part"] - cl["part"]) > 0.005:
         pr.append(problema("PARTICIPACION_MAL_CALCULADA", f"Participación trabajadores {m(-cl['part'])} en la conciliación frente a {m(-au['part'])} "
                            f"recalculada ({m(part)} % de la utilidad contable; «utilidades líquidas», Código del Trabajo art. 97).", au["part"] - cl["part"]))
-    if abs(au["pe"] - cl["pe"]) > 0.005:
-        pr.append(problema("PARTICIPACION_EXENTOS", f"Participación atribuible a ingresos exentos {m(cl['pe'])} frente a {m(au['pe'])} recalculada "
-                           f"({m(part)} % × (exentos − gastos atribuibles); Reglamento LRTI art. 46 num. 5: el texto literal dice «el 15% de tales ingresos» (base bruta); la base neta aquí usada carece de soporte en la biblioteca — pendiente de decisión del socio).", au["pe"] - cl["pe"]))
+    if pex["calc"] is None:
+        pr.append(problema("PARTICIPACION_EXENTOS_SIN_BASE_BRUTA",
+                           "No se recalculó la participación de trabajadores atribuible a ingresos exentos: el cálculo normativo de ese renglón "
+                           f"queda bloqueado. El Reglamento LRTI art. 46 num. 5 la fija en «el 15% de tales ingresos», esto es sobre el ingreso "
+                           f"exento BRUTO, y del cliente solo consta el importe restado en la conciliación ({m(ex_neto)}), que puede venir neto de "
+                           f"los gastos atribuibles ({m(au['ge'])}, que el num. 4 suma por separado). La herramienta no reconstruye la base bruta sin "
+                           "soporte: el importe recalculado queda vacío y el renglón conserva el declarado por el cliente "
+                           f"({m(cl['pe'])}). Solicite al cliente: (1) el ingreso exento bruto del ejercicio, antes de restar los gastos "
+                           "atribuibles, y (2) el cálculo de la participación atribuible a esos ingresos, con el papel de trabajo que lo sustente. "
+                           "Confirmar además que el art. 46 num. 5 sigue vigente al corte."))
+    elif abs(au["pe"] - cl["pe"]) > 0.005:
+        pr.append(problema("PARTICIPACION_EXENTOS", f"Participación atribuible a ingresos exentos {m(cl['pe'])} en la conciliación frente a "
+                           f"{m(au['pe'])} recalculada: {m(part)} % del ingreso exento bruto informado ({m(ex_bruto)}). Reglamento LRTI art. 46 "
+                           "num. 5: «el 15% de tales ingresos» (base bruta; los gastos atribuibles se suman aparte por el num. 4, no la minoran). "
+                           "Confirmar que el art. 46 num. 5 sigue vigente al corte.", au["pe"] - cl["pe"]))
+    if pe_inf is not None and abs(pe_inf - cl["pe"]) > 0.005:
+        pr.append(problema("PARTICIPACION_EXENTOS_NO_CUADRA", f"La participación atribuible a exentos informada por el cliente ({m(pe_inf)}) no "
+                           f"coincide con el renglón de la conciliación ({m(cl['pe'])}): diferencia {m(pe_inf - cl['pe'])}. Revise el papel de "
+                           "trabajo del cliente y el casillero del formulario 101.", pe_inf - cl["pe"]))
     omit = sum(c["dif"] for c in conc if c["tipo"] == "no_deducibles")
     if omit > 0.005:
         pr.append(problema("NO_DEDUCIBLES_OMITIDOS", f"Gastos no deducibles omitidos en la conciliación por {m(omit)}: "
@@ -562,7 +606,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
 
     detalle = {"cortes": {"actual": corte_a.isoformat()}, "anio": anio, "parametros": p, "pymes": pymes, "edicion": ed, "citas": cit,
                "num": num, "sn": sn, "irEf": ir_ef, "saldoEf": saldo_ef, "tarifa": tarifa, "propRecargo": prop_rec,
-               "recargo": recargo, "tarifaFutura": tf_ef, "conc": conc, "cl": cl, "au": au, "perd": perd, "partidas": part_rows,
+               "recargo": recargo, "tarifaFutura": tf_ef, "conc": conc, "cl": cl, "au": au, "pex": pex, "perd": perd, "partidas": part_rows,
                "tot": tot, "mov": mv, "comp": comp, "etr": etr, "gastoDifSaldos": gasto_dif_saldos, "reclas": reclas}
     return {"engine": VERSION, "rows": rows, "totals": {k: r2(v) for k, v in tot.items()}, "labels": lab,
             "primary": "ajusteResultados", "exceptions": pr, "schedule": [], "detalle": detalle}
@@ -573,7 +617,11 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
 P = ref("02_Parametros")
 CON, IC, PER, DT, TR, MOV, ETR, AJ = (ref(n) for n in ("03_Conciliacion", "04_Impuesto_corriente", "05_Perdidas", "06_Diferencias_temp",
                                                       "07_Tasa_reversion", "09_Movimiento", "11_Tasa_efectiva", "12_Ajustes"))
-_PAR = ["corte", "marco", "tasaIR", "puntosRecargo", "proporcionRecargo", "participacion", "limitePerdidas", "plazoPerdidas", "tasaFutura",
+PE = ref("13_Partic_exentos")
+_PEX = ["bruto", "neto", "gastos", "calc", "reg", "inf", "dif", "estado"]
+PEF = {k: FILA0 + i for i, k in enumerate(_PEX)}
+_PAR = ["corte", "marco", "tasaIR", "puntosRecargo", "proporcionRecargo", "participacion", "ingresoExentoBruto",
+        "participacionExentosInformada", "limitePerdidas", "plazoPerdidas", "tasaFutura",
         "anioTasaFutura", "perdidasPermitidas", "probabilidadPerdidas", "retenciones", "anticipos", "creditoAnterior",
         "impuestoCorrienteRegistrado", "saldoCorrienteRegistrado", "gastoDiferidoRegistrado", "dtaPerdidasInicial", "dtaPerdidasRegistrado",
         "derechoCompensar", "dtaPresentado", "dtlPresentado", "umbralTasaEfectiva"]
@@ -612,6 +660,7 @@ def _sumif(h, ccol, crit, col, n):
 def hojas(res: dict) -> list[dict]:
     d = res["detalle"]
     conc, cl, au, perd, pt, mv, comp, etr, cit, num = (d[k] for k in ("conc", "cl", "au", "perd", "partidas", "mov", "comp", "etr", "citas", "num"))
+    pex = d["pex"]
     t = d["tot"]                       # sin redondear: Excel calcula con todos los decimales
     nc, nl, npt = len(conc), len(perd), len(pt)
     marco = (MARCO_PYMES + f" {d['edicion']}") if d["pymes"] else MARCO_COMPLETAS
@@ -630,6 +679,10 @@ def hojas(res: dict) -> list[dict]:
         ["Composición societaria en paraísos fiscales o no informada (%)", num["proporcionRecargo"],
          f"Reglamento art. 51: el recargo grava esa misma proporción de la base y el 100 % cuando llega al 50 % — aplicada {n2(d['propRecargo'])} %"],
         ["Participación de trabajadores (%)", num["participacion"], f"Código del Trabajo art. 97 — {vr}"],
+        ["Ingreso exento bruto del ejercicio (antes de gastos atribuibles)", num["ingresoExentoBruto"],
+         f"Reglamento LRTI art. 46 num. 5: «el 15% de tales ingresos» — {vr}; vacío: no se recalcula la participación atribuible"],
+        ["Participación atribuible a exentos informada por el cliente", num["participacionExentosInformada"],
+         "Papel de trabajo del cliente / casillero del F-101"],
         ["Límite anual de amortización de pérdidas (%)", num["limitePerdidas"], f"LRTI art. 11 — {vr}"],
         ["Plazo para amortizar pérdidas (años)", num["plazoPerdidas"], f"LRTI art. 11 — {vr}"],
         ["Tasa aprobada para años futuros (%)", num["tasaFutura"], f"{cit['tasa']} — tasa aprobada o prácticamente aprobada al cierre"],
@@ -674,7 +727,9 @@ def hojas(res: dict) -> list[dict]:
         ("nd", "(+) Gastos no deducibles", sb("no_deducibles"), sg("no_deducibles"), "LRTI art. 10"),
         ("ge", "(+) Gastos atribuibles a ingresos exentos", sb("gastos_exentos"), sg("gastos_exentos"), "Reglamento LRTI art. 46 num. 4 (y art. 47, prorrateo)"),
         ("pe", "(+) Participación atribuible a ingresos exentos", sb("participacion_exentos"),
-         f"IF({C('u')}>0,MAX(-{C('ex')}-{C('ge')},0)*{_pb('participacion')}/100,0)", "% × (exentos − gastos atribuibles); Reglamento LRTI art. 46 num. 5: el texto literal dice «el 15% de tales ingresos» (base bruta); la base neta aquí usada carece de soporte en la biblioteca — pendiente de decisión del socio"),
+         f'IF({PE}B{PEF["calc"]}="",B{ICF["pe"]},{PE}B{PEF["calc"]})',
+         "Reglamento LRTI art. 46 num. 5: «el 15% de tales ingresos» (base bruta) — ver 13_Partic_exentos; sin el ingreso exento bruto "
+         "informado el recálculo queda bloqueado y se conserva el importe del cliente"),
         ("ded", "(−) Deducciones adicionales", sb("deducciones"), sg("deducciones"), "LRTI art. 10"),
         ("otros", "(±) Otras partidas de conciliación", sb("otros"), sg("otros"), "03_Conciliacion"),
         ("b0", "Utilidad gravable antes de amortizar pérdidas", f"SUM({B('u')}:{B('otros')})", f"SUM({C('u')}:{C('otros')})", ""),
@@ -884,7 +939,29 @@ def hojas(res: dict) -> list[dict]:
     }
     c12 = [[aj_f[k][0], fx(aj_f[k][1], aj_f[k][2]), aj_f[k][3]] for k in _AJ]
 
-    # 13 · Asientos.
+    # 13 · Participación atribuible a ingresos exentos (Reglamento LRTI art. 46 num. 5: base bruta).
+    pb_, pn_, pc_, pr_ = (f"B{PEF[k]}" for k in ("bruto", "neto", "calc", "reg"))
+    vac = lambda x: "" if x is None else x
+    c13 = [
+        ["Ingreso exento bruto informado por el cliente", fx(f'IF({_pb("ingresoExentoBruto")}<>"",{_pb("ingresoExentoBruto")},"")', vac(pex["bruto"])),
+         "Parámetros — base del «15% de tales ingresos» (Reglamento LRTI art. 46 num. 5); vacío: no informado"],
+        ["Ingresos exentos restados en la conciliación (renglón del cliente)", fx(f"-{IC}C{ICF['ex']}", pex["neto"]),
+         "04_Impuesto_corriente — puede venir neto de los gastos atribuibles"],
+        ["Gastos atribuibles a ingresos exentos sumados en la conciliación", fx(f"{IC}C{ICF['ge']}", pex["gastos"]),
+         "Reglamento LRTI art. 46 num. 4 y art. 47 (prorrateo): se suman aparte, no minoran la base del num. 5"],
+        [f"Participación atribuible recalculada = {n2(num['participacion'])} % del ingreso exento bruto",
+         fx(f'IF(OR({pn_}<=0.005,{IC}C{ICF["u"]}<=0),0,IF({pb_}="","",{pb_}*{_pb("participacion")}/100))', vac(pex["calc"])),
+         "Reglamento LRTI art. 46 num. 5: «el 15% de tales ingresos» — vacío si falta el ingreso exento bruto"],
+        ["Participación atribuible registrada por el cliente en la conciliación", fx(f"{IC}B{ICF['pe']}", pex["registrado"]), "03_Conciliacion"],
+        ["Participación atribuible informada por el cliente en su papel de trabajo",
+         fx(f'IF({_pb("participacionExentosInformada")}<>"",{_pb("participacionExentosInformada")},"")', vac(pex["informado"])), "Parámetros"],
+        ["Diferencia (recalculada − registrada)", fx(f'IF({pc_}="","",{pc_}-{pr_})', vac(pex["dif"])), "Ajuste al renglón de la conciliación"],
+        ["Estado del cálculo normativo",
+         fx(f'IF({pn_}<=0.005,"Sin ingresos exentos",IF({pc_}="","Bloqueado por falta de soporte","Calculado"))', pex["estado"]),
+         "Bloqueado: la herramienta no reconstruye la base bruta sin soporte del cliente"],
+    ]
+
+    # 14 · Asientos.
     asientos = []
 
     def asiento(titulo, lineas):
@@ -963,8 +1040,10 @@ def hojas(res: dict) -> list[dict]:
         hoja("10_Compensacion", "Compensación y presentación", [["Concepto", "t"], ["Importe", "x"], ["Referencia", "t"]], c10),
         hoja("11_Tasa_efectiva", "Tasa efectiva (NIC 12.81 c)", [["Concepto", "t"], ["Importe", "n"], ["% del resultado", "p"]], c11),
         hoja("12_Ajustes", "Ajustes propuestos", [["Concepto", "t"], ["Importe", "n"], ["Referencia", "t"]], c12),
-        hoja("13_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos),
-        hoja("14_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
+        hoja("13_Partic_exentos", "Participación atribuible a exentos",
+             [["Concepto", "t"], ["Importe / estado", "x"], ["Sustento", "t"]], c13),
+        hoja("14_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos),
+        hoja("15_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
     ]
 
@@ -975,7 +1054,9 @@ def definicion() -> dict:
     conc = ("Una fila por renglón de la conciliación tributaria del formulario 101: renglón o casillero, concepto, tipo (utilidad, "
             "participación, exentos, no deducibles, gastos exentos, participación exentos, deducciones, pérdidas, otros) e importe con el "
             "signo con que suma a la base imponible (+ suma, − resta); la suma de la columna es la base imponible declarada. El auditor puede "
-            "completar «importe según auditor» (por ejemplo, gastos no deducibles omitidos, con importe del cliente 0).")
+            "completar «importe según auditor» (por ejemplo, gastos no deducibles omitidos, con importe del cliente 0). Si el renglón de "
+            "ingresos exentos viene neto de los gastos atribuibles, informe además el ingreso exento bruto en los parámetros: sin él no se "
+            "recalcula la participación atribuible del Reglamento LRTI art. 46 num. 5.")
     part = ("Una fila por partida con diferencia entre libros NIIF y base fiscal: partida, activo o pasivo, importe en libros, base fiscal, "
             "si la ley admite la deducción futura (Reglamento LRTI, art. innumerado a continuación del art. 28 (num. 5: provisiones distintas de cuentas incobrables y desmantelamiento, utilizables cuando se paguen —jubilación y desahucio solo por la parte no deducible, interpretación: LRTI art. 10 num. 13—; num. 8: pérdidas tributarias)), si es probable la ganancia fiscal futura; y, si existen, año "
             "esperado de reversión, tasa usada, impuesto diferido registrado al inicio y al cierre (+ activo / − pasivo) y si la partida se "
@@ -1017,7 +1098,8 @@ def definicion() -> dict:
         ],
         "calculo": [
             "Base imponible del cliente = suma algebraica de la conciliación (total de control).",
-            "Participación trabajadores recalculada = % × utilidad contable (si es positiva; «utilidades líquidas», CT art. 97); participación atribuible a exentos = % × (exentos − gastos atribuibles) (Reglamento art. 46 num. 5 dice «el 15% de tales ingresos», base bruta: pendiente de decisión del socio).",
+            "Participación trabajadores recalculada = % × utilidad contable (si es positiva; «utilidades líquidas», CT art. 97).",
+            "Participación atribuible a ingresos exentos = % del ingreso exento BRUTO informado por el cliente (Reglamento LRTI art. 46 num. 5: «el 15% de tales ingresos»; los gastos atribuibles se suman aparte por el num. 4 y no minoran esa base). Si el cliente solo entrega el importe neto, la herramienta no reconstruye la base bruta: el recálculo queda vacío, ese tramo del cálculo normativo se bloquea, el renglón conserva el importe del cliente y se pide el ingreso exento bruto y la participación atribuible (cédula 13_Partic_exentos).",
             "Utilidad gravable antes de pérdidas = utilidad − participación − exentos + no deducibles + gastos atribuibles + participación atribuible − deducciones ± otros.",
             "Amortización de pérdidas permitida = mín(solicitada, límite % × utilidad gravable, saldo no vencido); se aplica de la pérdida más antigua a la más reciente.",
             "Impuesto causado = máx(base, 0) × tarifa aplicable; tarifa aplicable = tarifa general + puntos de recargo × proporción de composición societaria en paraísos fiscales o no informada, y el 100 % de la base cuando esa proporción llega o supera el 50 % (LRTI art. 37; Reglamento art. 51). Por pagar = causado − retenciones − anticipos − crédito (negativo: saldo a favor, NIC 12.12).",
@@ -1073,6 +1155,10 @@ def definicion() -> dict:
                 formats=("xlsx", "pdf"), use="soporte"),
             req("RQ-007", "Mayor de cuentas de impuesto corriente, diferido y gasto por impuesto", None, "TAX-02", "Datos registrados",
                 formats=("xlsx", "pdf"), use="soporte"),
+            req("RQ-008", "Detalle del ingreso exento bruto del ejercicio (antes de restar los gastos atribuibles) y cálculo de la participación "
+                "de trabajadores atribuible a esos ingresos", None, "TAX-01",
+                "Base bruta del Reglamento LRTI art. 46 num. 5: sin ella ese renglón no se recalcula", required=False,
+                formats=("xlsx", "pdf"), use="soporte"),
         ],
     }
 
@@ -1108,20 +1194,23 @@ def _pl(anio, importe, amortizado, vence=None):
 
 
 # Corte 2025-12-31; IR 25 %, participación 15 %, límite de pérdidas 25 %, plazo 5 años.
-# Auditado: 1.000.000 − 150.000 − 60.000 + (45.000 + 20.000 omitidos) + 3.000 + 8.550 − 12.000 + 30.000 = 884.550;
-# límite 25 % = 221.137,50 (< solicitadas 240.000 y < disponibles 250.000) → base 663.412,50; IR 165.853,13
-# frente a 156.137,50 registrado (base del cliente 624.550 × 25 %) → ajuste corriente 9.715,63.
-# Pérdidas FIFO: 2020 30.000 + 2021 100.000 + 2023 91.137,50 → remanente 28.862,50 × 25 % = 7.215,63 de activo diferido.
+# Participación atribuible a exentos: el cliente declaró 8.550 (15 % de 60.000 − 3.000, base neta) y el ingreso exento
+# bruto informado es 60.000 → recalculada 15 % × 60.000 = 9.000 (Reglamento LRTI art. 46 num. 5) → diferencia +450.
+# Auditado: 1.000.000 − 150.000 − 60.000 + (45.000 + 20.000 omitidos) + 3.000 + 9.000 − 12.000 + 30.000 = 885.000;
+# límite 25 % = 221.250 (< solicitadas 240.000 y < disponibles 250.000) → base 663.750; IR 165.937,50
+# frente a 156.137,50 registrado (base del cliente 624.550 × 25 %) → ajuste corriente 9.800,00.
+# Pérdidas FIFO: 2020 30.000 + 2021 100.000 + 2023 91.250 → remanente 28.750 × 25 % = 7.187,50 de activo diferido.
 # Diferido de partidas: activo 75.000 (incluye 3.750 del deterioro de cartera sobre el límite, que el num. 5, 2.º inciso,
 # del art. innumerado a continuación del art. 28 SÍ admite en entidades no financieras), pasivo 92.500 → neto −17.500
-# frente a −13.700 registrado → ajuste −3.800; con pérdidas: requerido −10.284,38 frente a 6.300 → ajuste −16.584,38
+# frente a −13.700 registrado → ajuste −3.800; con pérdidas: requerido −10.312,50 frente a 6.300 → ajuste −16.612,50
 # (todo contra resultados). Gasto diferido registrado 19.700 incluye 10.000 de la revaluación en ORI → reclasificación 10.000.
-# Ajuste neto al gasto = 9.715,63 + 16.584,38 − 10.000 = 16.300 = gasto requerido 192.137,50 − registrado 175.837,50.
+# Ajuste neto al gasto = 9.800,00 + 16.612,50 − 10.000 = 16.412,50 = gasto requerido 192.250 − registrado 175.837,50.
 # Tarifa: proporción de recargo 0 → 25 %. En el escenario «recargo_paraisos» la proporción es 60 % ≥ 50 % → 100 % de la
 # base con 25 + 3 = 28 %, y esa misma tasa mide el diferido y el activo por pérdidas (NIC 12.47, 49).
 EJEMPLO = {
     "corte": "2025-12-31",
     "parametros": {"_marco": MARCO_COMPLETAS, "tasaIR": 25, "puntosRecargo": 3, "proporcionRecargo": 0, "participacion": 15,
+                   "ingresoExentoBruto": 60000, "participacionExentosInformada": 8550,
                    "limitePerdidas": 25, "plazoPerdidas": 5, "perdidasPermitidas": "Sí", "probabilidadPerdidas": "Sí",
                    "retenciones": 70000, "anticipos": 10000, "creditoAnterior": 5000, "impuestoCorrienteRegistrado": 156137.50,
                    "saldoCorrienteRegistrado": 71137.50, "gastoDiferidoRegistrado": 19700, "dtaPerdidasInicial": 45000,
@@ -1162,12 +1251,19 @@ EJEMPLO = {
 
 _MOD_PERDIDA = {"801": "-300000", "803": "0", "808": "0"}   # pérdida contable: sin participación
 _CONC_PERDIDA = [dict(f, importe=_MOD_PERDIDA[f["id"]]) if f["id"] in _MOD_PERDIDA else f for f in EJEMPLO["datasets"]["conciliacion"]]
+# Sin ingresos exentos: se quitan los renglones de exentos, gastos atribuibles y participación atribuible.
+_CONC_SIN_EXENTOS = [f for f in EJEMPLO["datasets"]["conciliacion"] if f["tipo"] not in ("exentos", "gastos_exentos", "participacion_exentos")]
 ESCENARIOS = [
     ("niif_completas", EJEMPLO["datasets"], EJEMPLO["parametros"], EJEMPLO["corte"]),
+    # El cliente solo entrega el importe neto: no se reconstruye la base bruta y el tramo queda bloqueado.
+    ("exentos_solo_neto", EJEMPLO["datasets"], {**EJEMPLO["parametros"], "ingresoExentoBruto": None}, EJEMPLO["corte"]),
+    ("sin_ingresos_exentos", {**EJEMPLO["datasets"], "conciliacion": _CONC_SIN_EXENTOS},
+     {**EJEMPLO["parametros"], "ingresoExentoBruto": None, "participacionExentosInformada": None}, EJEMPLO["corte"]),
     ("recargo_paraisos", EJEMPLO["datasets"], {**EJEMPLO["parametros"], "proporcionRecargo": 60}, EJEMPLO["corte"]),
     ("pymes_2015_tasa_futura", EJEMPLO["datasets"], {**EJEMPLO["parametros"], "_marco": MARCO_PYMES, "_edicion": "2015", "tasaFutura": 22,
                                                       "anioTasaFutura": 2027, "derechoCompensar": "No", "probabilidadPerdidas": "No",
                                                       "impuestoCorrienteRegistrado": None, "gastoDiferidoRegistrado": None}, EJEMPLO["corte"]),
     ("pymes_2025_perdida_sin_anexos", {"conciliacion": _CONC_PERDIDA},
-     {**EJEMPLO["parametros"], "_marco": MARCO_PYMES, "_edicion": "2025", "dtaPresentado": None, "dtlPresentado": None}, EJEMPLO["corte"]),
+     {**EJEMPLO["parametros"], "_marco": MARCO_PYMES, "_edicion": "2025", "participacionExentosInformada": None,
+      "dtaPresentado": None, "dtlPresentado": None}, EJEMPLO["corte"]),
 ]

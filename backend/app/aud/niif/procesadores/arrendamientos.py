@@ -20,6 +20,16 @@ Versión simple que cumple la norma, contrato por contrato:
    y pagos del ejercicio, depreciación del derecho de uso (31–32 / 20.12) y deterioro (33 / Sección 27).
 7. Exentos y operativos PYMES: gasto lineal (6 / 20.15). Venta con arrendamiento posterior (98–103 /
    20.32–20.34).
+8. Pago base y componente ligado a un índice de inflación, separados y enrutados por marco:
+   · NIIF completas: el componente indexado SÍ entra en la medición del pasivo, con el índice de la fecha
+     de comienzo (27 b y 28); solo se remide cuando cambian los flujos (42 b), con la tasa sin cambios (43).
+   · NIIF para las PYMES (2015 y 2025, Sección 20 sin cambios de fondo): NO se capitaliza como pago fijo.
+     En el financiero es una cuota contingente que se carga como gasto en los períodos en que se incurre
+     (20.11) y en el operativo queda fuera del gasto lineal (20.15 b); se revela en 20.13 c / 20.16 c.
+   Los pagos variables no ligados a un índice son gasto del período en los dos marcos (38 b / 20.11).
+9. Venta con arrendamiento posterior, medición posterior (102A): el pasivo sigue los párrafos 36–46 y el
+   derecho de uso conservado los párrafos 29–35, con el control de que después de la fecha de inicio no se
+   reconozca ninguna ganancia o pérdida atribuible al derecho de uso conservado.
 
 Cada importe del libro Excel es una fórmula viva que remite a 02_Parametros y 03_Contratos.
 """
@@ -45,9 +55,17 @@ _CONTRATOS = [
     campo("renov_meses", "Meses de la opción de renovación", "number", False, ("meses adicionales", "renovacion meses")),
     campo("renov_cierta", "Renovación razonablemente cierta (sí/no)", "text", False, ("renovacion cierta", "razonablemente cierta")),
     campo("plazo_cliente", "Plazo usado por el cliente (meses)", "number", False, ("plazo cliente", "plazo registrado")),
-    campo("pago", "Pago periódico", "number", alias=("pago", "cuota", "canon", "pago periodico"), ejemplo=1500),
+    campo("pago", "Pago periódico total del contrato (incluye el componente indexado)", "number",
+          alias=("pago", "cuota", "canon", "pago periodico"), ejemplo=1500),
     campo("periodicidad", "Periodicidad (mensual/trimestral/semestral/anual)", alias=("periodicidad", "frecuencia"), ejemplo="Mensual"),
     campo("momento", "Pago al inicio o al final del período", "text", False, ("momento", "pago anticipado o vencido")),
+    campo("indexado", "El pago se ajusta por un índice de inflación (sí/no)", "text", False,
+          ("indexado", "ajuste por inflacion", "pago indexado", "ligado a indice")),
+    campo("pago_indexado", "Componente del pago ligado al índice (importe por período)", "number", False,
+          ("componente indexado", "importe indexado", "ajuste inflacion", "parte variable indexada")),
+    campo("indice", "Índice o referencia del ajuste", "text", False, ("indice", "referencia del ajuste", "indice de inflacion")),
+    campo("pago_variable", "Pago variable del período no ligado a un índice", "number", False,
+          ("pago variable", "renta variable", "cuota contingente")),
     campo("tasa", "Tasa anual (%)", "number", alias=("tasa", "tasa anual", "tasa de descuento"), ejemplo=12),
     campo("tipo_tasa", "Tipo de tasa (implícita/incremental)", "text", False, ("tipo de tasa",)),
     campo("anticipados", "Pagos anticipados antes del comienzo", "number", False, ("pagos anticipados", "anticipos")),
@@ -79,6 +97,8 @@ _CONTRATOS = [
     campo("precio_venta", "Precio de venta", "number", False, ("precio de venta",)),
     campo("libros_previo", "Importe en libros antes de la venta", "number", False, ("importe en libros", "valor en libros")),
     campo("ganancia_reg", "Ganancia registrada en la venta", "number", False, ("ganancia registrada", "utilidad en venta")),
+    campo("ganancia_post_reg", "Ganancia o pérdida reconocida después de la venta por la medición posterior del arrendamiento",
+          "number", False, ("ganancia posterior", "ganancia remedicion", "resultado posterior venta")),
 ]
 CAMPOS = {"contratos": _CONTRATOS}
 TIPOS = {"contratos": "contratos"}
@@ -162,10 +182,14 @@ def validar_filas(tipo: str, filas: list) -> dict:
         fila = f.get("_row")
         if str(f.get("periodicidad", "") or "").strip() and not _periodicidad(f.get("periodicidad")):
             r["errors"].append({"row": fila, "field": "periodicidad", "message": "Periodicidad: use mensual, trimestral, semestral o anual."})
-        for k in ("plazo", "pago", "tasa"):
+        for k in ("plazo", "pago", "tasa", "pago_indexado", "pago_variable"):
             x = a_num(f.get(k))
             if x is not None and (x < 0 or (k == "plazo" and x == 0) or (k == "tasa" and x > 100)):
                 r["errors"].append({"row": fila, "field": k, "message": f"{next(c['label'] for c in _CONTRATOS if c['key'] == k)}: valor fuera de rango."})
+        pi, pg = a_num(f.get("pago_indexado")), a_num(f.get("pago"))
+        if pi is not None and pg is not None and pi > pg:
+            r["errors"].append({"row": fila, "field": "pago_indexado",
+                                "message": "El componente ligado al índice no puede superar el pago periódico total del contrato."})
         for c in _CONTRATOS:
             if "(sí/no)" in c["label"] and _si(f.get(c["key"])) == "?":
                 r["errors"].append({"row": fila, "field": c["key"], "message": f"{c['label']}: responda sí o no."})
@@ -245,6 +269,8 @@ def _contratos(filas: list, corte: date, p: dict, pymes: bool, probs: list) -> l
         c = {"id": cid, "activo": str(f.get("activo", "") or "").strip(), "inicio": inicio, "per": per, "periodicidad": per, "m": m,
              "plazo": g("plazo"), "renov_meses": g("renov_meses"), "renov_cierta": _si(f.get("renov_cierta")),
              "plazo_cliente": g("plazo_cliente"), "pago": g("pago"), "momento": _momento(f.get("momento")),
+             "indexado": _si(f.get("indexado")), "pago_indexado": g("pago_indexado"), "pago_variable": g("pago_variable"),
+             "indice": str(f.get("indice", "") or "").strip(), "ganancia_post_reg": g("ganancia_post_reg"),
              "tasa": g("tasa"), "tipo_tasa": _tipo_tasa(f.get("tipo_tasa")), "anticipados": g("anticipados"),
              "costos": g("costos"), "desmantelamiento": g("desmantelamiento"), "incentivos": g("incentivos"),
              "opcion_compra": g("opcion_compra"), "compra_cierta": _si(f.get("compra_cierta")), "vida_util": g("vida_util"),
@@ -276,12 +302,25 @@ def _contratos(filas: list, corte: date, p: dict, pymes: bool, probs: list) -> l
                                   or c["bv_auto"] == "Sí" or c["bajo_valor_b5b7"] == "No") else "Sí"
         c["elegible"] = "Sí" if "Sí" in (c["corto"], c["bv_limite"]) else "No"
         c["ex"] = c["exencion"] or "No"
+        # 8 · pago base y componente ligado a un índice de inflación (27 b y 28 / 20.11 y 20.15 b)
+        if c["pago_indexado"] is not None and c["pago_indexado"] > c["pago"]:
+            raise ValueError(f"Contrato {cid}: el componente ligado al índice ({c['pago_indexado']:g}) supera el pago periódico "
+                             f"total del contrato ({c['pago']:g}).")
+        c["ind_decl"] = "Sí" if (c["indexado"] == "Sí" or c["pago_indexado"] is not None) else "No"
+        if c["ind_decl"] == "Sí" and c["pago_indexado"] is None:
+            # M22: sin el importe no se puede separar; base y componente quedan vacíos y se emite el problema.
+            c["pago_ind"] = c["pago_base"] = None
+            c["pago_medido"] = c["pago"]
+        else:
+            c["pago_ind"] = c["pago_indexado"] or 0.0
+            c["pago_base"] = c["pago"] - c["pago_ind"]
+            c["pago_medido"] = c["pago_base"] if pymes else c["pago"]
         # 3 · medición inicial
         c["i"] = _tasa_per(c["tasa"], m, conv)
         c["tipo"] = 1 if c["momento"] == "Inicio" else 0
         c["opt"] = (c["opcion_compra"] or 0) if c["compra_cierta"] == "Sí" else 0
-        c["vp"] = _vp(c["i"], c["n"], c["pago"], c["opt"], c["tipo"])
-        c["p0"] = c["tipo"] * c["pago"]
+        c["vp"] = _vp(c["i"], c["n"], c["pago_medido"], c["opt"], c["tipo"])
+        c["p0"] = c["tipo"] * c["pago_medido"]
         vr = c["valor_razonable"]
         if pymes:
             c["pv_vida"] = None if vu is None else c["plazo_total"] / vu
@@ -293,7 +332,7 @@ def _contratos(filas: list, corte: date, p: dict, pymes: bool, probs: list) -> l
             c["clasif"] = "Financiero" if ind or c["clasif_pymes"] == "Financiero" else "Operativo"
             c["reconoce"] = "Sí" if c["clasif"] == "Financiero" else "No"
             c["base"] = c["vp"] if vr is None else min(vr, c["vp"])
-            c["i_used"] = c["i"] if vr is None or vr >= c["vp"] else _tasa_rate(c["n"], c["pago"], vr, c["opt"], c["tipo"])
+            c["i_used"] = c["i"] if vr is None or vr >= c["vp"] else _tasa_rate(c["n"], c["pago_medido"], vr, c["opt"], c["tipo"])
             c["pasivo_ini"] = c["base"] - c["p0"]
             c["activo_ini"] = c["base"] + (c["costos"] or 0)
         else:
@@ -303,11 +342,31 @@ def _contratos(filas: list, corte: date, p: dict, pymes: bool, probs: list) -> l
             c["pasivo_ini"] = c["vp"] - c["p0"]
             c["activo_ini"] = c["pasivo_ini"] + c["p0"] + (c["anticipados"] or 0) + (c["costos"] or 0) \
                 + (c["desmantelamiento"] or 0) - (c["incentivos"] or 0)
+        c["trat_indexado"], c["marco_indexado"] = _trato_indexado(c, pymes, edicion_pymes(p))
         c["ev"] = None
         c["nota_evento"] = ""
         c["slb"] = None
         out.append(c)
     return out
+
+
+def _trato_indexado(c: dict, pymes: bool, edicion: str) -> tuple:
+    """Tratamiento del componente ligado a un índice y el marco que lo manda (para la cédula 07)."""
+    if c["ind_decl"] == "No":
+        return "Sin componente ligado a un índice", ""
+    if c["pago_ind"] is None:
+        return ("No medible: falta el importe del componente",
+                "El pago base y el componente quedan vacíos hasta que el cliente informe el importe")
+    if not pymes:
+        return ("Incluido en la medición del pasivo con el índice de la fecha de comienzo",
+                "NIIF completas · NIIF 16 párr. 27 b y 28; se remide solo cuando cambian los flujos (42 b), "
+                "con la tasa de descuento sin cambios (43)")
+    marco = f"NIIF para las PYMES {edicion} · Sección 20"
+    if c["clasif"] == "Financiero":
+        return ("Excluido de los pagos mínimos: cuota contingente, gasto del período en que se incurre",
+                f"{marco}.11 (medición posterior) y 20.9–20.10 (pagos mínimos); se revela en 20.13 c")
+    return ("Excluido del gasto lineal: gasto del período por el importe devengado",
+            f"{marco}.15 b (pagos estructurados para seguir la inflación general esperada); se revela en 20.16 b y c")
 
 
 def _evento(c: dict, corte: date, pymes: bool, conv: str, probs: list):
@@ -329,7 +388,7 @@ def _evento(c: dict, corte: date, pymes: bool, conv: str, probs: list):
         c["nota_evento"] = "No aplica: fecha fuera del plazo, posterior al corte o plazo revisado no múltiplo de la periodicidad"
         probs.append(problema("EVENTO_NO_APLICADO", f"{c['id']}: el evento del {fe.isoformat()} no se aplicó (debe ocurrir al menos un período después del comienzo, dentro del plazo y hasta el corte)."))
         return
-    p2 = c["nuevo_pago"] if c["nuevo_pago"] is not None else c["pago"]
+    p2 = c["nuevo_pago"] if c["nuevo_pago"] is not None else c["pago_medido"]
     t2 = c["nueva_tasa"] if c["nueva_tasa"] is not None else c["tasa"]
     i2 = _tasa_per(t2, c["m"], conv)
     revisado = _vp(i2, n2 - ke, p2, c["opt"], c["tipo"]) - c["tipo"] * p2
@@ -347,7 +406,7 @@ def _tabla(c: dict) -> list:
     for j in range(1, nmax + 1):
         nuevo = ev is not None and j > ev["ke"]
         i = ev["i2"] if nuevo else c["i_used"]
-        pg = ev["p2"] if nuevo else c["pago"]
+        pg = ev["p2"] if nuevo else c["pago_medido"]
         ne = ev["n2"] if nuevo else c["n"]
         ini = saldo
         inte = ini * i
@@ -445,9 +504,13 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             for k in ("pasivo", "interes", "pagos", "remedicion", "cp", "lp", "devengo", "dep", "deterioro", "neto"):
                 c[k] = 0.0
             # 7 · gasto lineal de exentos y operativos
-            c["pagos_tot"] = c["pago"] * c["n"]
+            c["pagos_tot"] = c["pago_medido"] * c["n"]
             c["meses_anio"] = min(max(M, 0), c["plazo_total"]) - min(max(M - 12, 0), c["plazo_total"])
             c["gasto"] = c["pagos_tot"] / c["plazo_total"] * c["meses_anio"]
+        # 8 · gasto del ejercicio por pagos variables (38 b / 20.11 y 20.15 b)
+        c["q_anio"] = (c["k"] - c["kp"]) if c["reconoce"] == "Sí" else c["meses_anio"] / c["m"]
+        var_ind = c["pago_ind"] if pymes else 0.0
+        c["gasto_variable"] = None if var_ind is None else ((var_ind or 0.0) + (c["pago_variable"] or 0.0)) * c["q_anio"]
 
     # problemas
     for c in cs:
@@ -494,6 +557,38 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             probs.append(problema("VIDA_UTIL_FALTANTE", f"{cid}: compra razonablemente cierta sin vida útil: se depreció en el plazo; la norma exige la vida útil del activo (32 / 20.12)."))
         if c["reconoce"] == "Sí" and c["devengo"] > 0.005:
             probs.append(problema("INTERES_DEVENGADO_NO_VENCIDO", f"{cid}: el corte cae dentro de un período de pago; interés devengado no incluido en el recálculo ≈ {_m(c['devengo'])} (37). Evalúe si es material.", c["devengo"]))
+        if c["ind_decl"] == "Sí" and c["pago_ind"] is None:
+            probs.append(problema("INDEXADO_SIN_IMPORTE", f"{cid}: el pago se declaró ajustado por un índice de inflación pero no se informó el "
+                                  "importe del componente: el pago base y el componente quedan vacíos. Bajo la NIIF para las PYMES no se puede "
+                                  "separar la cuota contingente del pago mínimo (20.11) ni del gasto lineal (20.15 b), y bajo NIIF completas no se "
+                                  "puede comprobar la medición con el índice del comienzo (27 b) ni la remedición por cambio de índice (42 b). "
+                                  "Pida al cliente el detalle de la factura o liquidación del período que separa la renta base del reajuste."))
+        elif pymes and (c["pago_ind"] or 0) > 0:
+            probs.append(problema("INDEXADO_PYMES_GASTO", f"{cid}: el componente ligado a «{c['indice'] or 'un índice de inflación'}» "
+                                  f"({_m(c['pago_ind'])} por período) se excluyó de la medición y se reconoce como gasto del ejercicio por "
+                                  f"{_m(c['gasto_variable'])} ({'cuota contingente, 20.11' if c['clasif'] == 'Financiero' else '20.15 b'}). "
+                                  f"Revise el mayor de gastos de arrendamiento y la nota de revelación: la Sección 20 exige describir las cuotas "
+                                  f"contingentes y las cláusulas de revisión ({'20.13 c' if c['clasif'] == 'Financiero' else '20.16 b y c'}).",
+                                  c["gasto_variable"]))
+        elif not pymes and (c["pago_ind"] or 0) > 0 and c["ev"] is None:
+            probs.append(problema("INDEXADO_REMEDICION", f"{cid}: el pago incluye un componente ligado a «{c['indice'] or 'un índice'}» "
+                                  f"({_m(c['pago_ind'])} por período) medido con el índice de la fecha de comienzo (27 b, 28) y en el ejercicio no "
+                                  "se registró ninguna remedición. Revise las notificaciones de reajuste del arrendador y las facturas del período: "
+                                  "si el ajuste de los pagos surtió efecto, el párrafo 42 b exige remedir el pasivo con la tasa de descuento sin "
+                                  "cambios (43).", c["pago_ind"] * c["q_anio"]))
+        if c["venta_posterior"] == "Sí" and c["ganancia_post_reg"] is None:
+            probs.append(problema("VENTA_102A_SIN_DATO", f"{cid}: venta con arrendamiento posterior sin el resultado reconocido después de la "
+                                  "venta por la medición posterior del arrendamiento. El control del párrafo 102A queda vacío y no se puede "
+                                  "concluir: no se asume que sea cero. Solicite el mayor de la cuenta de resultados donde se registró la "
+                                  "ganancia o pérdida de la operación (o la nota de la venta con arrendamiento posterior) y confirme si después "
+                                  "de la fecha de inicio se llevó a resultados algún importe atribuible al derecho de uso conservado."))
+        if c["venta_posterior"] == "Sí" and c["ganancia_post_reg"] is not None and abs(c["ganancia_post_reg"]) > 0.005:
+            probs.append(problema("VENTA_GANANCIA_POSTERIOR", f"{cid}: después de la fecha de inicio se reconoció en resultados "
+                                  f"{_m(c['ganancia_post_reg'])} por la medición posterior de la venta con arrendamiento posterior. El párrafo 102A "
+                                  "exige determinar los pagos (y los pagos revisados) de forma que no se reconozca ningún importe de ganancia o "
+                                  "pérdida relacionado con el derecho de uso que el vendedor-arrendatario conserva; la remedición va contra el "
+                                  "derecho de uso (39). Solo se admite el resultado de una terminación parcial o total del arrendamiento (46 a): "
+                                  "revise el detalle del asiento y el soporte de la terminación.", c["ganancia_post_reg"]))
         if c["slb"] and c["ganancia_reg"] is not None and abs(c["slb"]["inmediata"] - c["ganancia_reg"]) > 0.005:
             probs.append(problema("VENTA_GANANCIA", f"{cid}: ganancia a reconocer en la venta {_m(c['slb']['inmediata'])} vs registrada {_m(c['ganancia_reg'])} ({'20.33–20.34' if pymes else '100 a'}).", c["slb"]["inmediata"] - c["ganancia_reg"]))
 
@@ -503,12 +598,13 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     totales = {"pasivoRegistrado": reg, "pasivo": pasivo, "ajuste": pasivo - reg, "corriente": T("cp"), "noCorriente": T("lp"),
                "activo": activo, "activoRegistrado": activo_reg, "ajusteActivo": activo - activo_reg, "depreciacion": T("dep"),
                "intereses": T("interes"), "deterioro": T("deterioro"), "gastoLineal": T("gasto"),
-               "remedicion": sum(c["ev"]["ajuste"] for c in cs if c["ev"])}
+               "gastoVariable": T("gasto_variable"), "remedicion": sum(c["ev"]["ajuste"] for c in cs if c["ev"])}
     etiquetas = {"pasivoRegistrado": "Pasivo por arrendamiento registrado (mayor)", "pasivo": "Pasivo por arrendamiento recalculado",
                  "ajuste": "Ajuste propuesto al pasivo", "corriente": "Pasivo corriente recalculado", "noCorriente": "Pasivo no corriente recalculado",
                  "activo": ("Activo arrendado neto recalculado" if pymes else "Derecho de uso neto recalculado"), "activoRegistrado": "Activo registrado neto",
                  "ajusteActivo": "Ajuste propuesto al activo", "depreciacion": "Depreciación del ejercicio", "intereses": "Interés del ejercicio",
-                 "deterioro": "Deterioro del activo", "gastoLineal": "Gasto lineal (exentos / operativos)", "remedicion": "Remedición del pasivo"}
+                 "deterioro": "Deterioro del activo", "gastoLineal": "Gasto lineal (exentos / operativos)",
+                 "gastoVariable": "Gasto del ejercicio por pagos variables (38 b / 20.11 y 20.15 b)", "remedicion": "Remedición del pasivo"}
     rows = [{"id": c["id"], "activo": c["activo"], "inicio": c["inicio"].isoformat(), "plazo": f"{c['plazo_total']:g}",
              "reconoce": c["reconoce"], "pasivo": r2(c["pasivo"]), "pasivo_reg": r2(c["pasivo_reg"]), "ajuste": r2(c["pasivo"] - c["pasivo_reg"]),
              "cp": r2(c["cp"]), "activo_neto": r2(c["neto"]), "_row": c["_row"]} for c in cs]
@@ -532,16 +628,20 @@ def _fin_ke(c: dict) -> float:
 CEDULAS = [
     ("01_Resumen", "Resumen"), ("02_Parametros", "Parámetros"), ("03_Contratos", "Universo de contratos"),
     ("04_Identificacion", "Identificación, clasificación y exenciones"), ("05_Plazo", "Plazo y opciones"),
-    ("06_Medicion_inicial", "Medición inicial: pasivo y activo"), ("07_Remedicion", "Remedición y modificaciones"),
-    ("08_Tabla_amortizacion", "Tabla de amortización"), ("09_Pasivo_corte", "Pasivo al corte: corriente y no corriente"),
-    ("10_Derecho_uso", "Depreciación y deterioro del activo"), ("11_Gasto_lineal", "Gasto lineal: exentos y operativos"),
-    ("12_Venta_arr_posterior", "Venta con arrendamiento posterior"), ("13_Conciliacion", "Conciliación y ajuste"),
-    ("14_Problemas", "Problemas encontrados"),
+    ("06_Medicion_inicial", "Medición inicial: pasivo y activo"),
+    ("07_Pagos_variables", "Pago base, componente indexado y pagos variables"),
+    ("08_Remedicion", "Remedición y modificaciones"), ("09_Tabla_amortizacion", "Tabla de amortización"),
+    ("10_Pasivo_corte", "Pasivo al corte: corriente y no corriente"), ("11_Derecho_uso", "Depreciación y deterioro del activo"),
+    ("12_Gasto_lineal", "Gasto lineal: exentos y operativos"),
+    ("13_Venta_arr_posterior", "Venta con arrendamiento posterior: medición inicial"),
+    ("14_Venta_medicion_post", "Venta con arrendamiento posterior: medición posterior"),
+    ("15_Conciliacion", "Conciliación y ajuste"), ("16_Problemas", "Problemas encontrados"),
 ]
 P = ref("02_Parametros")
-CT, ID, PL, MI, RE, TA, PC, DU, GL, VA = (ref(n) for n in ("03_Contratos", "04_Identificacion", "05_Plazo", "06_Medicion_inicial",
-                                                         "07_Remedicion", "08_Tabla_amortizacion", "09_Pasivo_corte",
-                                                         "10_Derecho_uso", "11_Gasto_lineal", "12_Venta_arr_posterior"))
+CT, ID, PL, MI, PG, RE, TA, PC, DU, GL, VA = (ref(n) for n in ("03_Contratos", "04_Identificacion", "05_Plazo", "06_Medicion_inicial",
+                                                              "07_Pagos_variables", "08_Remedicion", "09_Tabla_amortizacion",
+                                                              "10_Pasivo_corte", "11_Derecho_uso", "12_Gasto_lineal",
+                                                              "13_Venta_arr_posterior"))
 PAR = {k: FILA0 + i for i, k in enumerate(["corte", "conv", "umbralVida", "umbralVP", "limiteBajoValor", "marco"])}
 
 
@@ -599,7 +699,7 @@ def hojas(res: dict) -> list[dict]:
     fmt03 = {"text": "t", "number": "n", "date": "d"}
     cols03 = [[cc["label"], fmt03[cc["type"]]] for cc in _CONTRATOS]
 
-    ident, plazo, medi, reme, pasi, rou, gasto, venta, conc = [], [], [], [], [], [], [], [], []
+    ident, plazo, medi, pagvar, reme, pasi, rou, gasto, venta, slbpost, conc = ([] for _ in range(11))
     for i, c in enumerate(cs):
         r = FILA0 + i
         # 05 · plazo
@@ -640,14 +740,14 @@ def hojas(res: dict) -> list[dict]:
         fila = [c["id"], _txt("tipo_tasa", r, c["tipo_tasa"]), fx(_x("tasa", r), c["tasa"]), fx(_conv(f"C{r}", f"{PL}G{r}"), c["i"]),
                 fx(f'IF({_x("momento", r)}="Inicio",1,0)', c["tipo"]),
                 fx(f'IF({_x("compra_cierta", r)}="Sí",N({_x("opcion_compra", r)}),0)', c["opt"]),
-                fx(f"PV(D{r},{PL}H{r},-{_x('pago', r)},-F{r},E{r})", c["vp"]),
+                fx(f"PV(D{r},{PL}H{r},-{PG}G{r},-F{r},E{r})", c["vp"]),
                 fx(f'IF({_x("valor_razonable", r)}="","",{_x("valor_razonable", r)})', vr)]
         if pymes:
             fila += [fx(f'IF(H{r}="",G{r},MIN(H{r},G{r}))', c["base"]),
-                     fx(f'IF(OR(H{r}="",H{r}>=G{r}),D{r},RATE({PL}H{r},-{_x("pago", r)},H{r},-F{r},E{r}))', c["i_used"])]
+                     fx(f'IF(OR(H{r}="",H{r}>=G{r}),D{r},RATE({PL}H{r},-{PG}G{r},H{r},-F{r},E{r}))', c["i_used"])]
         else:
             fila += [fx(f"G{r}", c["base"]), fx(f"D{r}", c["i_used"])]
-        fila += [fx(f"E{r}*{_x('pago', r)}", c["p0"]), fx(f"I{r}-K{r}", c["pasivo_ini"]),
+        fila += [fx(f"E{r}*{PG}G{r}", c["p0"]), fx(f"I{r}-K{r}", c["pasivo_ini"]),
                  fx(f"N({_x('anticipados', r)})", c["anticipados"] or 0), fx(f"N({_x('costos', r)})", c["costos"] or 0),
                  fx(f"N({_x('desmantelamiento', r)})", c["desmantelamiento"] or 0), fx(f"N({_x('incentivos', r)})", c["incentivos"] or 0)]
         if pymes:
@@ -657,13 +757,25 @@ def hojas(res: dict) -> list[dict]:
         else:
             fila.append(fx(f"L{r}+K{r}+M{r}+N{r}+O{r}-P{r}", c["activo_ini"]))
         medi.append(fila)
-        # 07 · remedición
+        # 07 · pago base, componente indexado y pagos variables
+        ix, pi_, pv_c = _x("indexado", r), _x("pago_indexado", r), _x("pago_variable", r)
+        q_f = f"{PC}E{r}-{PC}F{r}" if c["reconoce"] == "Sí" else f"{GL}E{r}/{PL}G{r}"
+        gv_f = (f'IF(AND(C{r}="Sí",E{r}=""),"",(N(E{r})+N(J{r}))*K{r})' if pymes else f"N(J{r})*K{r}")
+        pagvar.append([
+            c["id"], fx(_x("pago", r), c["pago"]), fx(f'IF(OR({ix}="Sí",{pi_}<>""),"Sí","No")', c["ind_decl"]),
+            _txt("indice", r, c["indice"]), fx(f'IF(C{r}="No",0,IF({pi_}="","",{pi_}))', c["pago_ind"]),
+            fx(f'IF(E{r}="","",B{r}-E{r})', c["pago_base"]),
+            fx(f'IF(F{r}="",B{r},F{r})' if pymes else f"B{r}", c["pago_medido"]),
+            c["trat_indexado"], c["marco_indexado"], fx(f'IF({pv_c}="","",{pv_c})', c["pago_variable"]),
+            fx(q_f, c["q_anio"]), fx(gv_f, c["gasto_variable"]),
+        ])
+        # 08 · remedición
         ev = c["ev"]
         if ev:
             reme.append([c["id"], c["fecha_evento"], c["tipo_evento"],
                          fx(f'INT(DATEDIF({_x("inicio", r)},B{r},"m")/{PL}G{r})', ev["ke"]),
                          fx(f'IF({_x("nuevo_plazo", r)}="",{PL}E{r},{_x("nuevo_plazo", r)})', ev["plazo2"]), fx(f"E{r}/{PL}G{r}", ev["n2"]),
-                         fx(f'IF({_x("nuevo_pago", r)}="",{_x("pago", r)},{_x("nuevo_pago", r)})', ev["p2"]),
+                         fx(f'IF({_x("nuevo_pago", r)}="",{PG}G{r},{_x("nuevo_pago", r)})', ev["p2"]),
                          fx(f'IF({_x("nueva_tasa", r)}="",{MI}C{r},{_x("nueva_tasa", r)})', ev["t2"]), fx(_conv(f"H{r}", f"{PL}G{r}"), ev["i2"]),
                          fx(f"SUMIFS({rng(TA, 'H')},{TA_A},A{r},{TA_B},D{r})", ev["antes"]),
                          fx(f"PV(I{r},F{r}-D{r},-G{r},-{MI}F{r},{MI}E{r})-{MI}E{r}*G{r}", ev["revisado"]),
@@ -714,7 +826,7 @@ def hojas(res: dict) -> list[dict]:
                          fx(f'IF({_x("pasivo_cp_reg", r)}="","",{_x("pasivo_cp_reg", r)})', c["pasivo_cp_reg"]), None, None, None, None])
             rou.append([c["id"], fx(f"{ID}{reconoce_col}{r}", "No"), None, None, None, None, None, None, None, None, 0, None, None, 0, 0,
                         fx(f"N({_x('activo_reg', r)})", c["activo_reg"]), fx(f"O{r}-P{r}", -c["activo_reg"]), None, None])
-            gasto.append([c["id"], trat, fx(f"{_x('pago', r)}*{PL}H{r}", c["pagos_tot"]), fx(f"{PL}E{r}", c["plazo_total"]),
+            gasto.append([c["id"], trat, fx(f"{PG}G{r}*{PL}H{r}", c["pagos_tot"]), fx(f"{PL}E{r}", c["plazo_total"]),
                           fx(f"MIN(MAX({PL}I{r},0),D{r})-MIN(MAX({PL}I{r}-12,0),D{r})", c["meses_anio"]), fx(f"C{r}/D{r}*E{r}", c["gasto"])])
         # 12 · venta con arrendamiento posterior
         s = c["slb"]
@@ -735,7 +847,27 @@ def hojas(res: dict) -> list[dict]:
                           fx(f'IF(L{r}="","",K{r}-L{r})', None if c["ganancia_reg"] is None else s["inmediata"] - c["ganancia_reg"])])
         else:
             venta.append([c["id"], "No aplica"] + [None] * ((7 if pymes else 11)))
-        # 13 · conciliación
+        # 14 · venta con arrendamiento posterior: medición posterior (102A)
+        gp = _x("ganancia_post_reg", r)
+        # M22: sin el dato del cliente el control del 102A queda vacío, nunca en cero.
+        ctrl = [fx(f'IF({gp}="","",{gp})', c["ganancia_post_reg"]), fx(f'IF(O{r}<>"",O{r},"")', c["ganancia_post_reg"])]
+        if c["venta_posterior"] != "Sí":
+            slbpost.append([c["id"], "No aplica"] + [None] * 14)
+        elif s and c["reconoce"] == "Sí":
+            slbpost.append([
+                c["id"], ("Sección 20.32–20.34: el activo y el pasivo siguen el arrendamiento financiero (20.11, 20.12)" if pymes
+                          else "NIIF 16 párr. 102A: párr. 29–35 al derecho de uso conservado y 36–46 al pasivo"),
+                fx(f"{PC}H{r}", c["pasivo_ia"]), fx(f"{PC}I{r}", c["altas"]), fx(f"{PC}J{r}", c["interes"]),
+                fx(f"{PC}K{r}", c["pagos"]), fx(f'IF({PG}L{r}="","",{PG}L{r})', c["gasto_variable"]),
+                fx(f"{PC}L{r}", c["remedicion"]), fx(f"{PC}G{r}", c["pasivo"]), fx(f"{PC}M{r}", c["comprobacion"]),
+                fx(f"{DU}C{r}", c["activo_ini"]), fx(f"{DU}K{r}", c["dep"]), fx(f"{DU}O{r}", c["neto"]),
+                fx(f"{VA}F{r}" if pymes else f"{VA}K{r}", s["inmediata"]),
+            ] + ctrl)
+        else:
+            nota = ("Operativo en la Sección 20: no hay derecho de uso ni pasivo que medir después (20.15, 20.34)" if pymes
+                    else "Sin medición posterior: faltan precio, valor razonable o importe en libros previo, o el contrato no se reconoce")
+            slbpost.append([c["id"], nota] + [None] * 12 + ctrl)
+        # 15 · conciliación
         conc.append([c["id"], fx(f"{PC}G{r}", c["pasivo"]), fx(f"{PC}Q{r}", c["pasivo_reg"]), fx(f"B{r}-C{r}", c["pasivo"] - c["pasivo_reg"]),
                      fx(f"{DU}O{r}", c["neto"]), fx(f"{DU}P{r}", c["activo_reg"]), fx(f"E{r}-F{r}", c["neto"] - c["activo_reg"]),
                      fx(f"{DU}K{r}" if c["reconoce"] == "Sí" else "0", c["dep"]),
@@ -750,7 +882,7 @@ def hojas(res: dict) -> list[dict]:
         c = next(y for y in cs if y["id"] == x["id"])
         ev = c["ev"]
         tasa = f"{RE}I{rc}" if x["nuevo"] else f"{MI}J{rc}"
-        pg = f"{RE}G{rc}" if x["nuevo"] else _x("pago", rc)
+        pg = f"{RE}G{rc}" if x["nuevo"] else f"{PG}G{rc}"
         ne = f"{RE}F{rc}" if x["nuevo"] else f"{PL}H{rc}"
         ini = f"{MI}L{rc}" if x["j"] == 1 else f"J{rr - 1}"
         es_ev = ev is not None and x["j"] == ev["ke"]
@@ -764,12 +896,13 @@ def hojas(res: dict) -> list[dict]:
     fin_t = FILA0 + len(tab) - 1
     tot = FILA0 + N  # fila TOTAL de las cédulas por contrato
     fila_res = {k: FILA0 + i for i, k in enumerate(res["labels"])}
-    CO = ref("13_Conciliacion")
+    CO = ref("15_Conciliacion")
     ref_res = {"pasivoRegistrado": f"{CO}C{tot}", "pasivo": f"{CO}B{tot}", "ajuste": f"B{fila_res['pasivo']}-B{fila_res['pasivoRegistrado']}",
                "corriente": f"SUM({PC}O{FILA0}:O{fin})", "noCorriente": f"SUM({PC}P{FILA0}:P{fin})", "activo": f"{CO}E{tot}",
                "activoRegistrado": f"{CO}F{tot}", "ajusteActivo": f"B{fila_res['activo']}-B{fila_res['activoRegistrado']}",
                "depreciacion": f"{CO}H{tot}", "intereses": f"{CO}I{tot}", "deterioro": f"SUM({DU}N{FILA0}:N{fin})",
-               "gastoLineal": f"SUM({GL}F{FILA0}:F{fin})", "remedicion": f"SUM({RE}L{FILA0}:L{fin})"}
+               "gastoLineal": f"SUM({GL}F{FILA0}:F{fin})", "gastoVariable": f"SUM({PG}L{FILA0}:L{fin})",
+               "remedicion": f"SUM({RE}L{FILA0}:L{fin})"}
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
 
     n_ = "n"
@@ -806,17 +939,26 @@ def hojas(res: dict) -> list[dict]:
               ["Desmantelamiento", n_], ["Incentivos", n_], ["Activo arrendado (20.9)" if pymes else "Derecho de uso (24)", n_]], medi,
              ["TOTAL", "", None, None, None, None, S("G", sum(c["vp"] for c in cs)), None, None, None, None,
               S("L", sum(c["pasivo_ini"] for c in cs)), None, None, None, None, S("Q", sum(c["activo_ini"] for c in cs))]),
-        hoja("07_Remedicion", "Remedición y modificaciones",
+        hoja("07_Pagos_variables", "Pago base, componente indexado y pagos variables",
+             [["Contrato", "t"], ["Pago periódico total del contrato", n_], ["Ligado a un índice de inflación", "t"],
+              ["Índice o referencia", "t"], ["Componente ligado al índice", n_], ["Pago base", n_],
+              ["Pago usado en la medición del pasivo", n_], ["Tratamiento del componente indexado", "t"],
+              ["Marco que lo manda", "t"], ["Pago variable no ligado a un índice (38 b)", n_],
+              ["Períodos del ejercicio", "x"], ["Gasto del ejercicio por pagos variables", n_]], pagvar,
+             ["TOTAL", S("B", sum(c["pago"] for c in cs)), "", "", S("E", sum(c["pago_ind"] or 0 for c in cs)),
+              S("F", sum(c["pago_base"] or 0 for c in cs)), S("G", sum(c["pago_medido"] for c in cs)), "", "",
+              S("J", sum(c["pago_variable"] or 0 for c in cs)), None, S("L", t["gastoVariable"])]),
+        hoja("08_Remedicion", "Remedición y modificaciones",
              [["Contrato", "t"], ["Fecha del evento", "d"], ["Tipo / nota", "t"], ["Períodos al evento", "i"], ["Plazo revisado (meses)", "i"],
               ["Períodos revisados", "i"], ["Pago revisado", n_], ["Tasa anual revisada (%)", "x"], ["Tasa periódica revisada", "p"],
               ["Pasivo antes del evento", n_], ["Pasivo remedido (40–45)", n_], ["Ajuste al pasivo y al derecho de uso", n_], ["Remedido por el cliente", "t"]],
              reme, ["TOTAL", None, "", None, None, None, None, None, None, None, None, S("L", t["remedicion"]), ""]),
-        hoja("08_Tabla_amortizacion", "Tabla de amortización",
+        hoja("09_Tabla_amortizacion", "Tabla de amortización",
              [["Contrato", "t"], ["Período", "i"], ["Vencimiento", "d"], ["Tasa periódica", "p"], ["Saldo inicial", n_], ["Interés (37)", n_],
               ["Pago", n_], ["Saldo final", n_], ["Remedición", n_], ["Saldo final ajustado", n_]], tabla,
              ["TOTAL", None, None, None, None, suma("F", fin_t, sum(x["interes"] for x in tab)), suma("G", fin_t, sum(x["pago"] for x in tab)),
               None, suma("I", fin_t, sum(x["ajuste"] for x in tab)), None] if tab else None),
-        hoja("09_Pasivo_corte", "Pasivo al corte: corriente y no corriente",
+        hoja("10_Pasivo_corte", "Pasivo al corte: corriente y no corriente",
              [["Contrato", "t"], ["Reconoce", "t"], ["Períodos finales", "i"], ["Meses transcurridos", "i"], ["Períodos vencidos al corte", "i"],
               ["Períodos vencidos al inicio del año", "i"], ["Pasivo al corte", n_], ["Pasivo al inicio del año", n_], ["Altas del año", n_],
               ["Interés del ejercicio", n_], ["Pagos del ejercicio", n_], ["Remedición del ejercicio", n_], ["Comprobación (0)", n_],
@@ -827,7 +969,7 @@ def hojas(res: dict) -> list[dict]:
               S("I", sum(c.get("altas") or 0 for c in cs)), S("J", t["intereses"]), S("K", sum(c["pagos"] for c in cs)),
               S("L", sum(c["remedicion"] for c in cs)), None, None, S("O", t["corriente"]), S("P", t["noCorriente"]), S("Q", t["pasivoRegistrado"]),
               S("R", t["ajuste"]), None, None, None, None, S("W", sum(c["devengo"] for c in cs))]),
-        hoja("10_Derecho_uso", "Depreciación y deterioro del activo",
+        hoja("11_Derecho_uso", "Depreciación y deterioro del activo",
              [["Contrato", "t"], ["Reconoce", "t"], ["Costo inicial", n_], ["Meses de depreciación", "i"], ["Meses transcurridos", "i"],
               ["Meses al evento", "i"], ["Ajuste por remedición", n_], ["Meses de depreciación revisados", "i"], ["Depreciación acumulada al corte", n_],
               ["Depreciación acumulada al inicio del año", n_], ["Depreciación del ejercicio", n_], ["Neto antes de deterioro", n_],
@@ -835,17 +977,27 @@ def hojas(res: dict) -> list[dict]:
               ["Depreciación registrada", n_], ["Diferencia depreciación", n_]], rou,
              ["TOTAL", "", None, None, None, None, None, None, None, None, S("K", t["depreciacion"]), None, None, S("N", t["deterioro"]),
               S("O", t["activo"]), S("P", t["activoRegistrado"]), S("Q", t["ajusteActivo"]), None, None]),
-        hoja("11_Gasto_lineal", "Gasto lineal: exentos y operativos",
+        hoja("12_Gasto_lineal", "Gasto lineal: exentos y operativos",
              [["Contrato", "t"], ["Tratamiento", "t"], ["Pagos totales del plazo", n_], ["Plazo (meses)", "i"], ["Meses del contrato en el año", "i"],
               ["Gasto lineal del ejercicio (6 / 20.15)", n_]], gasto,
              ["TOTAL", "", None, None, None, S("F", t["gastoLineal"])]),
-        hoja("12_Venta_arr_posterior", "Venta con arrendamiento posterior", cols_venta, venta),
-        hoja("13_Conciliacion", "Conciliación y ajuste",
+        hoja("13_Venta_arr_posterior", "Venta con arrendamiento posterior: medición inicial", cols_venta, venta),
+        hoja("14_Venta_medicion_post", "Venta con arrendamiento posterior: medición posterior",
+             [["Contrato", "t"], ["Tratamiento y marco", "t"], ["Pasivo al inicio del ejercicio", n_], ["Altas del ejercicio", n_],
+              ["Interés del ejercicio (36–37)", n_], ["Pagos fijos del ejercicio", n_], ["Pagos variables del ejercicio (38 b)", n_],
+              ["Remedición del ejercicio (40–43)", n_], ["Pasivo al corte", n_], ["Comprobación del pasivo (0)", n_],
+              ["Derecho de uso conservado inicial (100 a)", n_], ["Depreciación del ejercicio (29–35)", n_],
+              ["Derecho de uso neto al corte", n_], ["Ganancia reconocida en la venta", n_],
+              ["Ganancia posterior registrada", n_], ["Control 102A: ganancia sobre el derecho de uso conservado (0)", n_]], slbpost,
+             ["TOTAL", "", None, None, None, None, None, None, S("I", sum(c["pasivo"] for c in cs if c["venta_posterior"] == "Sí" and c["slb"] and c["reconoce"] == "Sí")),
+              None, None, None, S("M", sum(c["neto"] for c in cs if c["venta_posterior"] == "Sí" and c["slb"] and c["reconoce"] == "Sí")),
+              None, None, S("P", sum(c["ganancia_post_reg"] or 0 for c in cs if c["venta_posterior"] == "Sí"))]),
+        hoja("15_Conciliacion", "Conciliación y ajuste",
              [["Contrato", "t"], ["Pasivo recalculado", n_], ["Pasivo registrado", n_], ["Ajuste pasivo", n_], ["Activo recalculado", n_],
               ["Activo registrado", n_], ["Ajuste activo", n_], ["Depreciación del ejercicio", n_], ["Interés del ejercicio", n_], ["Pasivo corriente", n_]],
              conc, ["TOTAL", S("B", t["pasivo"]), S("C", t["pasivoRegistrado"]), S("D", t["ajuste"]), S("E", t["activo"]),
                     S("F", t["activoRegistrado"]), S("G", t["ajusteActivo"]), S("H", t["depreciacion"]), S("I", t["intereses"]), S("J", t["corriente"])]),
-        hoja("14_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
+        hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
     ]
 
@@ -856,7 +1008,10 @@ def definicion() -> dict:
     contenido = ("Una fila por contrato: código, activo, fecha de comienzo, plazo no cancelable, renovación (meses y si es razonablemente "
                  "cierta), pago y periodicidad, tasa anual, pagos anticipados, costos directos, desmantelamiento, incentivos, opción de compra, "
                  "vida útil, valor razonable, bajo valor y exención, clasificación PYMES, saldos registrados (pasivo, corriente, activo, "
-                 "depreciación e interés del año) y, si hubo, modificación, deterioro o venta con arrendamiento posterior. Sin filas de total.")
+                 "depreciación e interés del año) y, si hubo, modificación, deterioro o venta con arrendamiento posterior. Si la renta se "
+                 "ajusta por un índice, indique además si está indexada, el importe del componente ligado al índice por período, el índice de "
+                 "referencia y el pago variable no ligado a un índice; en la venta con arrendamiento posterior, la ganancia o pérdida "
+                 "reconocida después de la venta por la medición posterior. Sin filas de total.")
     return {
         "name": "Arrendamientos",
         "area": "Arrendamientos",
@@ -864,16 +1019,26 @@ def definicion() -> dict:
         "frameworks": ["NIIF completas", "NIIF para las PYMES"],
         "summary": ("Recalcula por contrato el pasivo por arrendamiento (VP de los pagos con la tasa implícita o incremental), el derecho de uso, "
                     "la tabla de amortización, el interés, la depreciación, la porción corriente, las remediciones y modificaciones, las exenciones "
-                    "y la venta con arrendamiento posterior (NIIF 16). En PYMES aplica la Sección 20: clasificación financiero/operativo, "
-                    "financiero al menor entre valor razonable y VP, operativo como gasto lineal, y detecta el «derecho de uso» indebido."),
+                    "y la venta con arrendamiento posterior con su medición posterior y el control del párrafo 102A (NIIF 16). Separa el pago "
+                    "base del componente ligado a un índice de inflación y lo enruta por marco: en NIIF completas entra en la medición con el "
+                    "índice del comienzo (27 b) y en PYMES queda fuera, como gasto del período (20.11 / 20.15 b). En PYMES aplica la Sección 20: "
+                    "clasificación financiero/operativo, financiero al menor entre valor razonable y VP, operativo como gasto lineal, y detecta "
+                    "el «derecho de uso» indebido."),
         "source": {"organization": "IFRS Foundation / Unión Europea", "type": "Norma contable", "date": "",
-                   "document": ("NIIF 16 Arrendamientos (texto en español, Reglamento (UE) 2023/1803): párr. 5–8, 9, 18–21, 22–27, 29–33, 36–38, "
-                                "39–46, 47, 98–103, B3–B8, B34–B41 y Apéndice A (arrendamiento a corto plazo); NIC 1 párr. 69 (corriente; desde 2027 la NIIF 18 sustituye a la NIC 1: párr. 101)"),
+                   "document": ("NIIF 16 Arrendamientos (texto en español, Reglamento (UE) 2023/1803): párr. 5–8, 9, 18–21, 22–27 (27 b: pagos "
+                                "variables que dependen de un índice, medidos con el índice de la fecha de comienzo), 28, 29–33, 36–38 (38 b: "
+                                "pagos variables no incluidos en la medición), 39–46 (42 b y 43: remedición por cambio de índice con la tasa sin "
+                                "cambios), 47, 98–103 y 102A (medición posterior de la venta con arrendamiento posterior, incorporado por la "
+                                "modificación de 2022 «Pasivo por arrendamiento en una venta con arrendamiento posterior»), B3–B8, B34–B41 y "
+                                "Apéndice A (arrendamiento a corto plazo); NIC 1 párr. 69 (corriente; desde 2027 la NIIF 18 sustituye a la NIC 1: párr. 101)"),
                    "url": "https://eur-lex.europa.eu/legal-content/ES/TXT/HTML/?uri=CELEX:32023R1803"},
         "source_pymes": {"organization": "IFRS Foundation", "type": "Norma contable", "date": "",
                          "document": ("NIIF para las PYMES 2015, Sección 20 Arrendamientos: 20.4–20.8 (clasificación), 20.9–20.10 (medición inicial "
-                                      "del financiero), 20.11 (carga financiera con tasa constante), 20.12 (depreciación y deterioro, Sección 27), "
-                                      "20.15 (operativo: gasto lineal), 20.32–20.34 (venta con arrendamiento posterior). Edición 2025 (tercera): "
+                                      "del financiero, por los pagos mínimos), 20.11 (carga financiera con tasa constante; las cuotas contingentes "
+                                      "se cargan como gasto en los períodos en que se incurren), 20.12 (depreciación y deterioro, Sección 27), "
+                                      "20.13 c y 20.16 c (revelación de las cuotas contingentes y las cláusulas de revisión), 20.15 (operativo: "
+                                      "gasto lineal; 20.15 b: pagos estructurados para seguir la inflación general esperada según índices o "
+                                      "estadísticas publicadas), 20.32–20.34 (venta con arrendamiento posterior). Edición 2025 (tercera): "
                                       "Sección 20 con modificaciones solo editoriales; se mantiene financiero/operativo; vigente desde el 1-1-2027; "
                                       "para cortes 2025–2026 solo con adopción anticipada."),
                          "url": "https://www.ifrs.org/issued-standards/ifrs-for-smes/"},
@@ -899,6 +1064,17 @@ def definicion() -> dict:
             "Depreciación lineal desde el comienzo hasta el menor entre plazo y vida útil, o la vida útil si la compra es cierta (31–32 / 20.12); deterioro = neto − importe recuperable (33 / Sección 27).",
             "Exentos y operativos: gasto lineal = pagos del plazo ÷ plazo × meses del año (6 / 20.15).",
             "Venta con arrendamiento posterior: derecho de uso conservado = libros × (pasivo − financiación adicional + prepago) ÷ valor razonable; ganancia reconocida = (VR − libros) × (VR − parte del arrendamiento) ÷ VR (100–102). PYMES: 20.33–20.34.",
+            "Venta con arrendamiento posterior, medición posterior (102A): el pasivo sigue los párrafos 36 a 46 (interés, pagos fijos, pagos "
+            "variables, remedición) y el derecho de uso conservado los párrafos 29 a 35 (depreciación y deterioro); el control comprueba que "
+            "después de la fecha de inicio no se reconozca ninguna ganancia o pérdida relacionada con el derecho de uso conservado, salvo la de "
+            "una terminación parcial o total (46 a).",
+            "Pago base y componente ligado a un índice de inflación: pago base = pago periódico total − componente indexado. En NIIF completas el "
+            "componente entra en la medición del pasivo con el índice de la fecha de comienzo (27 b, 28) y solo se remide cuando cambian los "
+            "flujos (42 b), con la tasa de descuento sin cambios (43). En la NIIF para las PYMES no se capitaliza como pago fijo: en el "
+            "financiero es una cuota contingente que se carga como gasto en los períodos en que se incurre (20.11) y en el operativo queda fuera "
+            "del gasto lineal (20.15 b); en ambos casos se revela (20.13 c / 20.16 b y c). Los pagos variables no ligados a un índice son gasto "
+            "del período en los dos marcos (38 b / 20.11). Si el cliente declara la indexación pero no informa el importe del componente, el pago "
+            "base y el componente quedan vacíos y se emite un problema.",
         ],
         "fields": _CONTRATOS, "rules": [], "control": CONTROL, "primary": "ajuste",
         "campos": CAMPOS, "tipos": TIPOS, "parametros": dict(PARAMETROS), "etiquetas_parametros": ETIQUETAS_PARAM,
@@ -934,6 +1110,18 @@ def definicion() -> dict:
              "procedure": "Verificar que la transferencia es venta (NIIF 15), medir el derecho de uso conservado y la ganancia de los derechos transferidos",
              "evidence": "Contrato de compraventa, tasación, contrato de arrendamiento", "criterion": "Ganancia conforme a 99–103 / 20.32–20.34",
              "source": "NIIF 16 párr. 98–103 · Sección 20.32–20.34"},
+            {"code": "ARR-10", "objective": "Pago base y componente ligado a un índice de inflación",
+             "risk": "El componente indexado se capitaliza como pago fijo bajo la Sección 20, o se excluye de la medición bajo NIIF completas, o no se revela",
+             "assertion": "Valoración", "procedure": "Separar en la factura o liquidación del período la renta base del reajuste por índice; "
+             "comprobar que en NIIF completas el componente se midió con el índice de la fecha de comienzo y que en PYMES se cargó como gasto del período",
+             "evidence": "Facturas y liquidaciones de renta, cláusula de revisión del contrato, índice publicado (INEC u organismo oficial)",
+             "criterion": "Componente medido o expensado según el marco y revelado", "source": "NIIF 16 párr. 27 b, 28, 38 b, 42 b y 43 · Sección 20.11, 20.13 c, 20.15 b y 20.16 c"},
+            {"code": "ARR-11", "objective": "Medición posterior de la venta con arrendamiento posterior",
+             "risk": "Se reconoce en resultados una ganancia atribuible al derecho de uso conservado después de la fecha de inicio",
+             "assertion": "Valoración", "procedure": "Recorrer el movimiento del pasivo (saldo inicial, interés, pagos fijos y variables, remedición, "
+             "saldo final) y del derecho de uso conservado (costo, depreciación, neto); revisar los asientos posteriores a la venta que afecten resultados",
+             "evidence": "Mayor del pasivo y del derecho de uso, asientos de remedición, contrato de arrendamiento",
+             "criterion": "Sin ganancia ni pérdida sobre el derecho de uso conservado, salvo terminación (46 a)", "source": "NIIF 16 párr. 102A, 29–35 y 36–46"},
         ],
         "requests": [
             req("RQ-001", "Anexo de contratos de arrendamiento al corte", "contratos", "ARR-01", "Población a recalcular y conciliar con el mayor", content=contenido),
@@ -947,6 +1135,12 @@ def definicion() -> dict:
                 formats=("pdf", "xlsx"), use="soporte", required=False),
             req("RQ-006", "Contrato de compraventa de la venta con arrendamiento posterior", None, "ARR-09", "Precio, valor razonable e importe en libros",
                 formats=("pdf",), use="soporte", required=False),
+            req("RQ-007", "Facturas o liquidaciones de renta del ejercicio y cláusula de revisión por índice", None, "ARR-10",
+                "Separar la renta base del componente ligado al índice y de los pagos variables (27 b, 38 b / 20.11, 20.15 b)",
+                formats=("pdf", "xlsx"), use="soporte", required=False),
+            req("RQ-008", "Mayor y asientos posteriores a la venta con arrendamiento posterior", None, "ARR-11",
+                "Movimiento del pasivo y del derecho de uso conservado y control del párrafo 102A",
+                formats=("xlsx", "pdf"), use="soporte", required=False),
         ],
     }
 
@@ -971,8 +1165,15 @@ def _k(id, activo, inicio, plazo, pago, per, tasa, pasivo_reg, **x):
 # · C-08 venta con arrendamiento posterior (NIIF 16 Ejemplo ilustrativo 24): 18 pagos anuales de 120.000 al 4,5 %
 #   = 1.459.199,02; financiación adicional 200.000; derecho de uso = 1.000.000 × 1.259.199,02 ÷ 1.800.000 = 699.555,01;
 #   ganancia = 800.000 × 540.800,98 ÷ 1.800.000 = 240.355,99 (el cliente registró 800.000).
+# · C-08 medición posterior (102A): el cliente reconoció 18.500 en resultados después de la venta → problema con ese importe.
 # · C-09 local cerrado: neto 71.307,75 vs importe recuperable 50.000 → deterioro 21.307,75.
 # · C-05 parqueo 12 meses exento: gasto 2025 = 300 × 12 ÷ 12 × 6 = 1.800. C-03 vehículo: exención mal aplicada.
+# · C-10 bodega sur, 36 pagos mensuales de 2.000 (200 ligados al IPC) + 50 variables, 12 % efectivo → i = 1,12^(1/12) − 1 =
+#   0,00948879. NIIF completas: el componente indexado entra en la medición (27 b) → VP con 2.000 = 60.749,51; tras 24 meses
+#   pasivo = 2.000 × (1 − (1 + i)^−12) ÷ i = 22.583,03, interés 2025 = 24.000 − (42.746,45 − 22.583,03) = 3.836,58,
+#   depreciación = 60.749,51 ÷ 36 × 12 = 20.249,84 y gasto variable del año = 50 × 12 = 600.
+#   PYMES (operativo): se mide con el pago base 1.800 → gasto lineal 1.800 × 12 = 21.600 y gasto variable (200 + 50) × 12 = 3.000.
+# · C-11 oficina regional: indexación declarada sin el importe → pago base y componente vacíos y problema (M22).
 EJEMPLO = {
     "corte": "2025-12-31",
     "parametros": {"convencionTasa": "Efectiva anual", "umbralVida": 75, "umbralVP": 90, "limiteBajoValor": 5000},
@@ -994,9 +1195,13 @@ EJEMPLO = {
            activo_reg="19165.01", int_reg="2474.01"),
         _k("C-08", "Edificio administrativo (venta con arrendamiento posterior)", "2025-01-01", "216", "120000", "Anual", "4.5", "1404862.97",
            valor_razonable="1800000", venta_posterior="Sí", precio_venta="2000000", libros_previo="1000000", ganancia_reg="800000",
-           clasif_pymes="Operativo", activo_reg="660690.84"),
+           ganancia_post_reg="18500", clasif_pymes="Operativo", activo_reg="660690.84"),
         _k("C-09", "Local cerrado en centro comercial", "2024-01-01", "60", "2500", "Mensual", "10", "77966.15", recuperable="50000",
            clasif_pymes="Operativo", activo_reg="71307.75"),
+        _k("C-10", "Bodega sur con renta ajustada por inflación", "2024-01-01", "36", "2000", "Mensual", "12", "0",
+           indexado="Sí", pago_indexado="200", indice="IPC del INEC (Ecuador)", pago_variable="50", clasif_pymes="Operativo"),
+        _k("C-11", "Oficina regional con reajuste sin detalle", "2025-01-01", "24", "1000", "Mensual", "10", "0",
+           indexado="Sí", indice="Índice de precios del contrato", clasif_pymes="Operativo"),
     ]},
 }
 

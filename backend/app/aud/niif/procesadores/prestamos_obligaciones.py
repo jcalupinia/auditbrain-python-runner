@@ -21,7 +21,18 @@ Versión simple que cumple la norma, préstamo por préstamo (un solo anexo del 
    corte no reclasifica, pero exige la revelación del párrafo 76ZA. Los impagos de principal o intereses y las
    infracciones de otras cláusulas no subsanadas al cierre se revelan (NIIF 7 18–19 / PYMES 11.47).
 8. Endeudamiento (analítica de auditoría, no requisito NIIF): deuda/activos, deuda/patrimonio, deuda/EBITDA,
-   cobertura de intereses y DSCR contra los límites de los contratos.
+   cobertura de intereses y DSCR contra los límites de los contratos. **El DSCR se calcula con la definición del
+   contrato cuando el cliente la informa (parámetros «Definición contractual del DSCR» y «Servicio de la deuda del
+   DSCR según el contrato»). Si no hay definición contractual, la herramienta muestra su propia métrica, etiquetada
+   «DSCR analítico de la firma», que NO concluye incumplimiento del covenant ni reclasifica deuda: es solo un
+   indicador para el auditor.**
+9. Modificación de condiciones (adenda): prueba del 10 % de la NIIF 9 3.3.2 y B3.3.6 sobre el anexo opcional de
+   flujos («Original» / «Modificado»), descontados a la tasa de interés efectiva original. **Sin los flujos
+   contractuales originales restantes y los modificados, más la fecha de la modificación, la prueba no concluye:
+   el resultado queda vacío y se emite «dato insuficiente: conclusión bloqueada».** En la NIIF para las PYMES la
+   Sección 11 (11.37) exige condiciones «sustancialmente diferentes» sin umbral cuantitativo: esa prueba del 10 %
+   no existe en PYMES y el módulo la aplica por analogía (jerarquía 10.6), como juicio del auditor. El módulo NO
+   remide el pasivo después de la modificación: las cédulas 04 a 13 siguen el contrato original.
 
 Cada importe del libro Excel es una fórmula viva que remite a 02_Parametros, 03_Prestamos y 05_Tabla_amortizacion.
 """
@@ -64,9 +75,23 @@ _PRESTAMOS = [
     campo("gracia_hasta", "Fin del período de gracia de la dispensa", "date", False, ("gracia hasta", "fin de la gracia", "moratoria hasta")),
     campo("fecha_covenant", "Fecha de medición del covenant", "date", False,
           ("fecha covenant", "fecha de medicion", "fecha de medicion del covenant", "medicion covenant", "fecha de prueba del covenant")),
+    campo("modificado", "Modificación de condiciones en el ejercicio (sí/no)", "text", False,
+          ("modificado", "modificacion", "adenda", "refinanciacion", "reestructuracion", "modificacion de condiciones")),
+    campo("fecha_modificacion", "Fecha de la modificación (adenda)", "date", False,
+          ("fecha modificacion", "fecha de la adenda", "fecha adenda", "fecha de refinanciacion")),
+    campo("comision_modificacion", "Comisiones pagadas al prestamista netas de las recibidas por la modificación", "number", False,
+          ("comisiones modificacion", "comisiones adenda", "comision de reestructuracion", "comisiones netas de la modificacion")),
 ]
-CAMPOS = {"prestamos": _PRESTAMOS}
-TIPOS = {"prestamos": "prestamos"}
+
+# Anexo opcional: flujos contractuales para la prueba del 10 % (NIIF 9 3.3.2 y B3.3.6). Una fila por flujo.
+_FLUJOS = [
+    campo("id", "Operación", alias=("operacion", "numero de operacion", "prestamo", "credito", "codigo"), ejemplo="OP-103"),
+    campo("escenario", "Escenario (original / modificado)", alias=("escenario", "condiciones", "version", "tipo de flujo", "tipo"), ejemplo="Original"),
+    campo("fecha", "Fecha del flujo", "date", alias=("fecha", "fecha de pago", "vencimiento", "fecha del flujo"), ejemplo="2026-01-01"),
+    campo("importe", "Importe del flujo (pago del prestatario)", "number", alias=("importe", "flujo", "pago", "valor", "cuota"), ejemplo=45948.59),
+]
+CAMPOS = {"prestamos": _PRESTAMOS, "flujos": _FLUJOS}
+TIPOS = {"prestamos": "prestamos", "flujos": "flujos"}
 DATASETS = tuple(TIPOS)
 PRINCIPAL = "prestamos"
 CONTROL = "saldo_reg"
@@ -74,7 +99,7 @@ TOTAL_EJEMPLO = "pasivo"
 
 PARAMETROS = {"totalActivos": None, "patrimonio": None, "ebitda": None, "ebit": None, "efectivoServicioDeuda": None,
               "baseCobertura": "EBITDA", "limDeudaActivos": None, "limDeudaPatrimonio": None, "limDeudaEbitda": None,
-              "limCobertura": None, "limDSCR": None}
+              "limCobertura": None, "limDSCR": None, "defDSCR": "", "servicioDSCRContrato": None}
 PARAM_NEGATIVOS = ("patrimonio", "ebitda", "ebit", "efectivoServicioDeuda")
 ETIQUETAS_PARAM = {
     "totalActivos": "Total de activos de la entidad al corte",
@@ -88,8 +113,12 @@ ETIQUETAS_PARAM = {
     "limDeudaEbitda": "Límite máximo deuda / EBITDA (veces)",
     "limCobertura": "Límite mínimo de cobertura de intereses (veces)",
     "limDSCR": "Límite mínimo DSCR (veces)",
+    "defDSCR": "Definición contractual del DSCR (numerador ÷ denominador, según el contrato)",
+    "servicioDSCRContrato": "Servicio de la deuda del DSCR según el contrato",
 }
-_NUM_PARAM = [k for k in PARAMETROS if k != "baseCobertura"]
+_TXT_PARAM = ("baseCobertura", "defDSCR")
+_NUM_PARAM = [k for k in PARAMETROS if k not in _TXT_PARAM]
+DSCR_ANALITICO = "DSCR analítico de la firma"
 
 COL = {c["key"]: get_column_letter(i + 1) for i, c in enumerate(_PRESTAMOS)}
 MESES = {"Mensual": 1, "Trimestral": 3, "Semestral": 6, "Anual": 12}
@@ -160,7 +189,25 @@ def _covenant(v) -> str:
     return "?"
 
 
+def _escenario(v) -> str:
+    s = norm(v)
+    if not s:
+        return ""
+    if s.startswith(("orig", "contract", "anter", "previ")):
+        return "Original"
+    if s.startswith(("modif", "nuev", "adend", "reestruct", "refinan")):
+        return "Modificado"
+    return "?"
+
+
 def validar_filas(tipo: str, filas: list) -> dict:
+    if tipo == "flujos":
+        r = validar_campos(_FLUJOS, filas, unico=None)     # el mismo préstamo tiene muchos flujos
+        for f in filas:
+            if str(f.get("escenario", "") or "").strip() and _escenario(f.get("escenario")) == "?":
+                r["errors"].append({"row": f.get("_row"), "field": "escenario", "message": "Escenario: use «original» o «modificado»."})
+        r["ok"] = not r["errors"]
+        return r
     r = validar_campos(CAMPOS[tipo], filas)
     lbl = {c["key"]: c["label"] for c in _PRESTAMOS}
     for f in filas:
@@ -176,6 +223,8 @@ def validar_filas(tipo: str, filas: list) -> dict:
             err("covenant", "use deuda/activos, deuda/patrimonio, deuda/EBITDA, cobertura de intereses o DSCR.")
         if _si(f.get("incumplido")) == "?":
             err("incumplido", "responda sí o no.")
+        if _si(f.get("modificado")) == "?":
+            err("modificado", "responda sí o no.")
         monto, plazo, tasa, com = (a_num(f.get(k)) for k in ("monto", "plazo", "tasa", "comisiones"))
         if monto is not None and monto <= 0:
             err("monto", "debe ser mayor que cero.")
@@ -274,7 +323,9 @@ def _prestamo(f: dict, corte: date, inicio: date, probs: list):
          "saldo_reg": g("saldo_reg"), "int_reg": g("int_reg"), "gasto_reg": g("gasto_reg"), "cp_reg": g("cp_reg"),
          "covenant": _covenant(f.get("covenant")), "incumplido": _si(f.get("incumplido")),
          "fecha_dispensa": a_fecha(f.get("fecha_dispensa")), "gracia_hasta": a_fecha(f.get("gracia_hasta")),
-         "fecha_covenant": a_fecha(f.get("fecha_covenant")), "_row": f.get("_row"), "m": m}
+         "fecha_covenant": a_fecha(f.get("fecha_covenant")), "modificado": _si(f.get("modificado")) or "No",
+         "fecha_modificacion": a_fecha(f.get("fecha_modificacion")), "comision_modificacion": g("comision_modificacion"),
+         "_row": f.get("_row"), "m": m}
     c["n"] = c["plazo"] / m
     if c["n"] != int(c["n"]):
         raise ValueError(f"Préstamo {pid}: el plazo de {c['plazo']:g} meses no es múltiplo de la periodicidad ({per}).")
@@ -336,6 +387,39 @@ def _prestamo(f: dict, corte: date, inicio: date, probs: list):
     return c
 
 
+_CONCL_BLOQ = "Dato insuficiente: conclusión bloqueada"
+_CONCL_SUST = "Sustancial: baja del pasivo original y reconocimiento de uno nuevo (3.3.2)"
+_CONCL_NO = "No sustancial: el pasivo continúa; costos y comisiones se amortizan (B3.3.6A)"
+
+
+def _prueba10(c: dict, filas: list) -> list:
+    """Prueba del 10 % (NIIF 9 3.3.2 y B3.3.6): valor presente de los flujos descontado a la TIE original.
+
+    Sin fecha de la modificación, sin flujos originales restantes o sin flujos modificados la prueba NO concluye
+    (resultado vacío). Devuelve las filas de la cédula 14 con el valor presente de cada flujo.
+    """
+    fm, tie = c["fecha_modificacion"], c["tie_anual"]
+    c["n_orig"] = sum(1 for x in filas if x["escenario"] == "Original")
+    c["n_mod"] = sum(1 for x in filas if x["escenario"] == "Modificado")
+    c["com_mod_n"] = c["comision_modificacion"] or 0
+    detalle = []
+    for x in filas:
+        anios = None if fm is None else (x["fecha"] - fm).days / 365
+        detalle.append({**x, "anios": anios, "tie": tie, "vp": None if anios is None else x["importe"] / (1 + tie) ** anios})
+    suma_vp = lambda e: sum(x["vp"] for x in detalle if x["escenario"] == e and x["vp"] is not None)
+    c["vp_orig"], c["vp_mod"] = suma_vp("Original"), suma_vp("Modificado")
+    if fm is None or not c["n_orig"] or not c["n_mod"] or c["vp_orig"] <= 0:
+        c["vp_nuevo"] = c["dif_vp"] = c["pct_vp"] = None
+        c["sustancial"], c["conclusion"] = "", _CONCL_BLOQ
+        return detalle
+    c["vp_nuevo"] = c["vp_mod"] + c["com_mod_n"]
+    c["dif_vp"] = c["vp_nuevo"] - c["vp_orig"]
+    c["pct_vp"] = c["dif_vp"] / c["vp_orig"]
+    c["sustancial"] = "Sí" if abs(c["pct_vp"]) >= 0.10 else "No"
+    c["conclusion"] = _CONCL_SUST if c["sustancial"] == "Sí" else _CONCL_NO
+    return detalle
+
+
 def _dif(x) -> bool:
     """Diferencia mayor que un centavo (los datos del cliente vienen redondeados a centavos)."""
     return x is not None and abs(round(x, 2)) > 0.01
@@ -366,6 +450,11 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     if base not in ("EBITDA", "EBIT"):
         raise ValueError("Base de la cobertura de intereses: elija «EBITDA» o «EBIT».")
     p["baseCobertura"] = base
+    # (B) El contrato manda: solo con la definición contractual del DSCR la herramienta concluye sobre el covenant.
+    p["defDSCR"] = str(p.get("defDSCR") or "").strip() or None
+    if p["servicioDSCRContrato"] is not None and not p["defDSCR"]:
+        raise ValueError("Informó el servicio de la deuda del DSCR según el contrato sin la definición contractual del DSCR: "
+                         "transcriba la definición del contrato (numerador ÷ denominador) o deje ambos vacíos.")
     pymes = es_pymes(p)
     if not datasets.get("prestamos"):
         raise ValueError("Cargue el anexo de préstamos y obligaciones financieras.")
@@ -380,32 +469,71 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             raise ValueError(f"Operación repetida: {c['id']}. Cada préstamo debe tener un código único.")
         vistos.add(c["id"].lower())
 
+    # (A) prueba del 10 % (NIIF 9 3.3.2 y B3.3.6): anexo opcional de flujos de la adenda
+    por_prestamo = {c["id"].lower(): [] for c in cs}
+    for f in datasets.get("flujos") or []:
+        pid = str(f.get("id", "") or "").strip()
+        esc, fch, imp = _escenario(f.get("escenario")), a_fecha(f.get("fecha")), a_num(f.get("importe"))
+        if pid.lower() not in por_prestamo:
+            probs.append(problema("FLUJOS_SIN_PRESTAMO", f"Flujo de la fila {f.get('_row')}: la operación «{pid or '(sin código)'}» no está en el "
+                                                         "anexo de préstamos al corte; no se usó en la prueba del 10 %."))
+            continue
+        if esc in ("", "?") or fch is None or imp is None:
+            probs.append(problema("FLUJO_INCOMPLETO", f"{pid}: el flujo de la fila {f.get('_row')} no tiene escenario (original / modificado), "
+                                                      "fecha o importe legibles; no se usó en la prueba del 10 %."))
+            continue
+        por_prestamo[pid.lower()].append({"id": pid, "escenario": esc, "fecha": fch, "importe": imp, "_row": f.get("_row")})
+    flujos_det = []
+    for c in cs:
+        fl = sorted(por_prestamo[c["id"].lower()], key=lambda x: (x["escenario"], x["fecha"]))
+        c["prueba10"] = "Sí" if (c["modificado"] == "Sí" or c["fecha_modificacion"] is not None or fl) else "No"
+        if c["prueba10"] == "No":
+            continue
+        flujos_det += _prueba10(c, fl)
+    mods = [c for c in cs if c["prueba10"] == "Sí"]
+
     # endeudamiento (analítica, cédula 12)
     deuda = sum(c["ca_tot"] for c in cs)
     gasto = sum(c["gasto_tie"] for c in cs)
     servicio = sum(c["pagos"] for c in cs)
     base_cob = p["ebit"] if base == "EBIT" else p["ebitda"]
-    defs = [("Deuda / activos", deuda, p["totalActivos"], p["limDeudaActivos"], "Máximo"),
-            ("Deuda / patrimonio", deuda, p["patrimonio"], p["limDeudaPatrimonio"], "Máximo"),
-            ("Deuda / EBITDA", deuda, p["ebitda"], p["limDeudaEbitda"], "Máximo"),
-            ("Cobertura de intereses", base_cob, gasto, p["limCobertura"], "Mínimo"),
-            ("DSCR", p["efectivoServicioDeuda"], servicio, p["limDSCR"], "Mínimo")]
+    analitico = "Analítica de auditoría (no es un requisito NIIF)"
+    dscr_contractual = p["defDSCR"] is not None
+    servicio_dscr = p["servicioDSCRContrato"] if p["servicioDSCRContrato"] is not None else servicio
+    defs = [("Deuda / activos", deuda, p["totalActivos"], p["limDeudaActivos"], "Máximo", analitico),
+            ("Deuda / patrimonio", deuda, p["patrimonio"], p["limDeudaPatrimonio"], "Máximo", analitico),
+            ("Deuda / EBITDA", deuda, p["ebitda"], p["limDeudaEbitda"], "Máximo", analitico),
+            ("Cobertura de intereses", base_cob, gasto, p["limCobertura"], "Mínimo", analitico),
+            ("DSCR", p["efectivoServicioDeuda"], servicio_dscr, p["limDSCR"], "Mínimo",
+             p["defDSCR"] if dscr_contractual else DSCR_ANALITICO)]
     ratios = {}
-    for nombre, num, den, lim, tipo in defs:
+    for nombre, num, den, lim, tipo, definicion in defs:
         r = _ratio(num, den)
         cumple = "" if r is None or lim is None else ("Sí" if (r <= lim if tipo == "Máximo" else r >= lim) else "No")
-        ratios[nombre] = {"num": num, "den": den, "ratio": r, "lim": lim, "tipo": tipo, "cumple": cumple}
+        if nombre == "DSCR" and not dscr_contractual:
+            cumple = ""      # sin definición contractual el DSCR no concluye incumplimiento (decisión del socio)
+        ratios[nombre] = {"num": num, "den": den, "ratio": r, "lim": lim, "tipo": tipo, "cumple": cumple, "definicion": definicion}
         if cumple == "No":
             probs.append(problema("ENDEUDAMIENTO_SOBRE_LIMITE", f"{nombre}: {r:.2f} veces frente al límite {tipo.lower()} de {lim:g} veces. ".replace(".", ",", 2) + (
                                   "Analítica de auditoría (no es un requisito NIIF): revise el efecto en covenants, empresa en marcha (NIA 570) y revelaciones (NIIF 7 18–19).")))
         elif lim is not None and r is None:
             probs.append(problema("RATIO_NO_CALCULABLE", f"{nombre}: hay límite pactado pero faltan datos de la entidad o el denominador no es positivo; no se evaluó."))
+    d_ = ratios["DSCR"]
+    if not dscr_contractual and d_["ratio"] is not None:
+        probs.append(problema("DSCR_ANALITICO_SIN_DEFINICION",
+                              f"{DSCR_ANALITICO}: {d_['ratio']:.2f}".replace(".", ",") + " veces (efectivo disponible para el servicio de la deuda "
+                              f"÷ servicio de la deuda del ejercicio según las tablas {_m(servicio_dscr)})"
+                              + (f", frente al límite mínimo de {d_['lim']:g} veces".replace(".", ",") if d_["lim"] is not None else "") +
+                              ". No se informó la definición contractual del DSCR, así que esta métrica NO concluye incumplimiento del covenant "
+                              "ni reclasifica la deuda: es solo un indicador para el auditor. Transcriba del contrato la definición del DSCR "
+                              "(numerador y denominador) en los parámetros; el contrato manda sobre cualquier definición contable."))
 
     # covenants y clasificación
     lim12 = _edate(corte_a, 12)
     for c in cs:
         rt = ratios.get(c["covenant"]) if c["covenant"] else None
-        c["cov_ratio"], c["cov_lim"], c["cov_tipo"], c["cov_cumple"] = (rt["ratio"], rt["lim"], rt["tipo"], rt["cumple"]) if rt else (None, None, None, "")
+        c["cov_ratio"], c["cov_lim"], c["cov_tipo"], c["cov_cumple"], c["cov_def"] = (
+            (rt["ratio"], rt["lim"], rt["tipo"], rt["cumple"], rt["definicion"]) if rt else (None, None, None, "", None))
         c["declarado"] = c["incumplido"] or "No"
         c["incump"] = "Sí" if c["declarado"] == "Sí" or c["cov_cumple"] == "No" else "No"
         fd, gh = c["fecha_dispensa"], c["gracia_hasta"]
@@ -457,8 +585,46 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             probs.append(problema("COVENANT_SIN_FECHA_MEDICION", f"{pid}: covenant «{c['covenant']}» sin fecha de medición. Solo afectan la clasificación "
                                   f"las condiciones que deben cumplirse al cierre o antes ({'NIC 1 72B por analogía (PYMES 10.6)' if pymes else 'NIC 1 72B'}); "
                                   "se mantuvo el tratamiento actual (el incumplimiento reclasifica a corriente). Informe la fecha de medición del contrato."))
-        if c["covenant"] and c["cov_cumple"] == "" and c["declarado"] != "Sí":
+        if c["covenant"] == "DSCR" and not dscr_contractual and c["declarado"] != "Sí":
+            probs.append(problema("COVENANT_DSCR_SIN_DEFINICION", f"{pid}: el covenant pactado es el DSCR y no se informó su definición contractual. "
+                                  f"El «{DSCR_ANALITICO}» es solo un indicador para el auditor: no concluye incumplimiento del covenant ni "
+                                  f"reclasifica la deuda a corriente ({'PYMES 4.7 d)' if pymes else 'NIC 1 74–75'}). Revise el contrato de préstamo "
+                                  "y transcriba en los parámetros la definición del DSCR (numerador y denominador) y, si el contrato lo define "
+                                  "distinto del servicio de la deuda de las tablas, su denominador."))
+        elif c["covenant"] and c["cov_cumple"] == "" and c["declarado"] != "Sí":
             probs.append(problema("COVENANT_SIN_EVALUAR", f"{pid}: covenant «{c['covenant']}» sin datos o límite de la entidad para evaluarlo; complete los parámetros."))
+        if c["prueba10"] == "Sí":
+            analogia = (" En la NIIF para las PYMES esta prueba del 10 % no existe: la Sección 11 (11.37) exige condiciones «sustancialmente "
+                        "diferentes» sin umbral cuantitativo, y el umbral del 10 % de la NIIF 9 B3.3.6 se aplica por analogía (jerarquía 10.6), "
+                        "como juicio del auditor.") if pymes else ""
+            if c["sustancial"] == "":
+                falta = [] if c["fecha_modificacion"] is not None else ["la fecha de la modificación"]
+                falta += ([] if c["n_orig"] else ["los flujos contractuales originales que restaban a esa fecha"])
+                falta += ([] if c["n_mod"] else ["los flujos de la adenda (fecha e importe de cada pago)"])
+                lista = " y ".join([", ".join(falta[:-1]), falta[-1]]).strip(" ,") if falta else "el anexo de flujos de la modificación"
+                probs.append(problema("MODIFICACION_DATO_INSUFICIENTE", f"{pid}: dato insuficiente: conclusión bloqueada. No se puede resolver la "
+                                      f"prueba del 10 % ({'PYMES 11.37; NIIF 9 3.3.2 y B3.3.6 por analogía (10.6)' if pymes else 'NIIF 9 3.3.2 y B3.3.6'}) "
+                                      f"porque falta{'n' if len(falta) > 1 else ''} {lista}. "
+                                      "Papel que hay que revisar: la adenda del préstamo con su tabla de flujos; cargue en el anexo de flujos una fila "
+                                      "por pago, con escenario «Original» o «Modificado», fecha e importe. Mientras falte, la herramienta no concluye "
+                                      "si la modificación es sustancial: no se presume «no sustancial»." + analogia))
+            else:
+                cual = "sustancialmente diferentes" if c["sustancial"] == "Sí" else "no sustancialmente diferentes"
+                accion = ("Dé de baja el pasivo original y reconozca uno nuevo a valor razonable; la diferencia va a resultados (3.3.3) y los costos "
+                          "y comisiones se reconocen en la pérdida o ganancia de la extinción (B3.3.6A)." if c["sustancial"] == "Sí" else
+                          "El pasivo continúa: ajuste el importe en libros por los costos y comisiones y amortícelos en la vida restante (B3.3.6A).")
+                pct = f"{abs(c['pct_vp']) * 100:.2f}".replace(".", ",")
+                tie_txt = f"{c['tie_anual'] * 100:.4f}".replace(".", ",")
+                probs.append(problema("MODIFICACION_SUSTANCIAL" if c["sustancial"] == "Sí" else "MODIFICACION_NO_SUSTANCIAL",
+                                      f"{pid}: las condiciones de la adenda del {c['fecha_modificacion'].isoformat()} son {cual}: el valor presente de "
+                                      f"las nuevas condiciones {_m(c['vp_nuevo'])} difiere en {pct} % ({_m(c['dif_vp'])}) del valor presente de los "
+                                      f"flujos originales restantes {_m(c['vp_orig'])}, descontados a la tasa de interés efectiva original "
+                                      f"({tie_txt} %). {accion} La herramienta no remide el pasivo después de la modificación: las cédulas 04 a 13 "
+                                      f"siguen el contrato original.{analogia}", c["dif_vp"]))
+            if c["sustancial"] != "" and c["comision_modificacion"] is None:
+                probs.append(problema("MODIFICACION_SIN_COMISIONES", f"{pid}: no se informaron las comisiones pagadas al prestamista netas de las "
+                                      "recibidas por la modificación (NIIF 9 B3.3.6), así que la prueba se resolvió solo con los flujos. Papel que hay "
+                                      "que revisar: la liquidación de la adenda; si hubo comisiones, infórmelas y vuelva a correr la prueba."))
         if c["cp_reg"] is not None and _dif(c["cp"] - c["cp_reg"]):
             probs.append(problema("CLASIFICACION_CP_LP", f"{pid}: porción corriente auditada {_m(c['cp'])} vs registrada {_m(c['cp_reg'])} ({'4.7' if pymes else 'NIC 1 69–76'}).", c["cp"] - c["cp_reg"]))
         if _dif(c["ajuste"]):
@@ -491,11 +657,14 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
              "capital": r2(c["cap_c"]), "costo_amortizado": r2(c["ca_tot"]), "registrado": r2(c["reg_tot"]), "ajuste": r2(c["ajuste"]),
              "corriente": r2(c["cp"]), "tie_anual": f"{c['tie_anual'] * 100:.4f}", "_row": c["_row"]} for c in cs]
     tabla = [x for c in cs for x in c["tabla"]]
+    flujos = [{**x, "fecha": x["fecha"].isoformat()} for x in flujos_det]
+    ids_mod = [c["id"] for c in mods]
     for c in cs:
-        for k in ("desembolso", "fecha_dispensa", "gracia_hasta", "fecha_covenant"):
+        for k in ("desembolso", "fecha_dispensa", "gracia_hasta", "fecha_covenant", "fecha_modificacion"):
             c[k] = c[k].isoformat() if c[k] else None
         del c["tabla"]
     detalle = {"prestamos": cs, "tabla": tabla, "ratios": ratios, "deuda": deuda, "gasto": gasto, "servicio": servicio,
+               "servicio_dscr": servicio_dscr, "dscr_contractual": dscr_contractual, "flujos": flujos, "ids_mod": ids_mod,
                "parametros": p, "pymes": pymes, "edicion": edicion_pymes(p) if pymes else "", "corte": corte_a.isoformat(),
                "inicio": inicio.isoformat(), "totales": totales}
     return {"engine": VERSION, "rows": rows, "totals": {k: r2(v) for k, v in totales.items()}, "labels": etiquetas,
@@ -511,13 +680,16 @@ CEDULAS = [
     ("08_Intereses", "Recálculo de intereses"), ("09_Confirmacion", "Confirmación bancaria y pagos"),
     ("10_Covenants", "Covenants y dispensas"), ("11_Clasificacion", "Clasificación corriente / no corriente"),
     ("12_Endeudamiento", "Endeudamiento y ratios de covenants"), ("13_Conciliacion", "Conciliación y ajuste"),
-    ("14_Problemas", "Problemas encontrados"),
+    ("14_Flujos_modificacion", "Flujos de la modificación (adenda)"), ("15_Prueba_10pct", "Prueba del 10 % (NIIF 9 3.3.2 y B3.3.6)"),
+    ("16_Problemas", "Problemas encontrados"),
 ]
 P = ref("02_Parametros")
-PR, CO, TA, CA, CM, IN, CV, CL, EN = (ref(n) for n in ("03_Prestamos", "04_Condiciones_TIE", "05_Tabla_amortizacion", "06_Costo_amortizado",
-                                                      "07_Comisiones", "08_Intereses", "10_Covenants", "11_Clasificacion", "12_Endeudamiento"))
+PR, CO, TA, CA, CM, IN, CV, CL, EN, FL = (ref(n) for n in ("03_Prestamos", "04_Condiciones_TIE", "05_Tabla_amortizacion", "06_Costo_amortizado",
+                                                           "07_Comisiones", "08_Intereses", "10_Covenants", "11_Clasificacion", "12_Endeudamiento",
+                                                           "14_Flujos_modificacion"))
 PAR = {k: FILA0 + i for i, k in enumerate(["corte", "inicio", "marco"] + list(PARAMETROS))}
 CORTE, INICIO = f"{P}$B${PAR['corte']}", f"{P}$B${PAR['inicio']}"
+DEFD, SDC = f"{P}$B${PAR['defDSCR']}", f"{P}$B${PAR['servicioDSCRContrato']}"
 FR = FILA0 + 3  # primera fila de ratios en 12_Endeudamiento
 
 
@@ -550,11 +722,14 @@ def hojas(res: dict) -> list[dict]:
             "ebitda": "Estado de resultados; use la definición del contrato, que manda sobre cualquier otra", "ebit": "Estado de resultados",
             "efectivoServicioDeuda": "Use la definición del contrato de préstamo, que manda sobre cualquier otra", "baseCobertura": "EBITDA o EBIT, según el contrato",
             "limDeudaActivos": "Contrato de préstamo", "limDeudaPatrimonio": "Contrato de préstamo", "limDeudaEbitda": "Contrato de préstamo",
-            "limCobertura": "Contrato de préstamo", "limDSCR": "Contrato de préstamo"}
+            "limCobertura": "Contrato de préstamo", "limDSCR": "Contrato de préstamo",
+            "defDSCR": ("Transcriba la definición del contrato (numerador ÷ denominador). El contrato manda: sin esta definición el DSCR se muestra "
+                        f"como «{DSCR_ANALITICO}» y no concluye incumplimiento del covenant"),
+            "servicioDSCRContrato": "Contrato de préstamo; vacío = servicio de la deuda del ejercicio según las tablas (cédula 12)"}
     parametros = [["Fecha de corte", d["corte"], "Ficha del encargo"],
                   ["Inicio del ejercicio (corte − 12 meses)", d["inicio"], "Base del gasto financiero del ejercicio"],
                   ["Marco y ruta de cálculo", marco, "El modelo de costo amortizado es el mismo en ambos marcos; cambian las citas"]]
-    parametros += [[ETIQUETAS_PARAM[k], p[k] if k == "baseCobertura" else (None if p[k] is None else float(p[k])), sust[k]] for k in PARAMETROS]
+    parametros += [[ETIQUETAS_PARAM[k], p[k] if k in _TXT_PARAM else (None if p[k] is None else float(p[k])), sust[k]] for k in PARAMETROS]
 
     fmt03 = {"text": "t", "number": "n", "date": "d"}
     cols03 = [[cc["label"], fmt03[cc["type"]]] for cc in _PRESTAMOS]
@@ -621,7 +796,7 @@ def hojas(res: dict) -> list[dict]:
                     fx(f'IF(OR(G{r}="Sí",F{r}="No"),"Sí","No")', c["incump"]), c["fecha_dispensa"], c["gracia_hasta"],
                     fx(f'IF(AND({fd}<>"",{fd}<={CORTE},OR({gh}="",{gh}>=EDATE({CORTE},12))),"Sí","No")', c["disp_valida"]),
                     fx(f'IF(AND(H{r}="Sí",K{r}="No",N{r}="No"),"Sí","No")', c["exigible"]), c["fecha_covenant"],
-                    fx(f'IF(AND({fcv}<>"",{fcv}>{CORTE}),"Sí","No")', c["cov_futuro"])])
+                    fx(f'IF(AND({fcv}<>"",{fcv}>{CORTE}),"Sí","No")', c["cov_futuro"]), fx(idx("H"), c["cov_def"])])
         cla.append([c["id"], fx(f"{CA}I{r}", c["ca_tot"]), fx(f"MIN({CA}C{r}+12/{G},{H})", c["kq"]), fx(en("H", r, f"C{r}"), c["cap_12"]),
                     fx(f"MIN({CA}E{r}-D{r}+{CA}H{r},B{r})", c["cp_venc"]), fx(f"{CV}L{r}", c["exigible"]), fx(f'IF(F{r}="Sí",B{r},E{r})', c["cp"]),
                     fx(f"B{r}-G{r}", c["lp"]), _opt("cp_reg", r, c["cp_reg"]),
@@ -653,17 +828,52 @@ def hojas(res: dict) -> list[dict]:
     num_f = {"Deuda / activos": f"B{FILA0}", "Deuda / patrimonio": f"B{FILA0}", "Deuda / EBITDA": f"B{FILA0}",
              "Cobertura de intereses": f'IF({P}$B${PAR["baseCobertura"]}="EBIT",{_pp("ebit")},{_pp("ebitda")})', "DSCR": _pp("efectivoServicioDeuda")}
     den_f = {"Deuda / activos": _pp("totalActivos"), "Deuda / patrimonio": _pp("patrimonio"), "Deuda / EBITDA": _pp("ebitda"),
-             "Cobertura de intereses": f"B{FILA0 + 1}", "DSCR": f"B{FILA0 + 2}"}
+             "Cobertura de intereses": f"B{FILA0 + 1}", "DSCR": f'IF({SDC}="",B{FILA0 + 2},{SDC})'}
     lim_k = {"Deuda / activos": "limDeudaActivos", "Deuda / patrimonio": "limDeudaPatrimonio", "Deuda / EBITDA": "limDeudaEbitda",
              "Cobertura de intereses": "limCobertura", "DSCR": "limDSCR"}
-    endeu = [["Deuda financiera auditada (costo amortizado)", fx(f"SUM({CA}I{FILA0}:I{fin})", d["deuda"]), None, None, None, None, None],
-             ["Gasto financiero del ejercicio (TIE)", fx(f"SUM({CA}U{FILA0}:U{fin})", d["gasto"]), None, None, None, None, None],
-             ["Servicio de la deuda del ejercicio (pagos)", fx(f"SUM({CA}S{FILA0}:S{fin})", d["servicio"]), None, None, None, None, None]]
+    endeu = [["Deuda financiera auditada (costo amortizado)", fx(f"SUM({CA}I{FILA0}:I{fin})", d["deuda"]), None, None, None, None, None, None],
+             ["Gasto financiero del ejercicio (TIE)", fx(f"SUM({CA}U{FILA0}:U{fin})", d["gasto"]), None, None, None, None, None, None],
+             ["Servicio de la deuda del ejercicio (pagos)", fx(f"SUM({CA}S{FILA0}:S{fin})", d["servicio"]), None, None, None, None, None, None]]
     for j, nombre in enumerate(RATIOS):
         r, x = FR + j, rt[nombre]
+        # (B) El DSCR solo concluye si el contrato lo define; sin definición es el «DSCR analítico de la firma» (indicador, no conclusión).
+        puerta = f',{DEFD}=""' if nombre == "DSCR" else ""
+        deff = fx(f'IF({DEFD}="","{DSCR_ANALITICO}",{DEFD})', x["definicion"]) if nombre == "DSCR" else x["definicion"]
         endeu.append([nombre, fx(num_f[nombre], x["num"]), fx(den_f[nombre], x["den"]),
                       fx(f'IF(OR(B{r}="",C{r}="",C{r}<=0),"",B{r}/C{r})', x["ratio"]), fx(_pp(lim_k[nombre]), x["lim"]), x["tipo"],
-                      fx(f'IF(OR(D{r}="",E{r}=""),"",IF(F{r}="Máximo",IF(D{r}<=E{r},"Sí","No"),IF(D{r}>=E{r},"Sí","No")))', x["cumple"] or None)])
+                      fx(f'IF(OR(D{r}="",E{r}=""{puerta}),"",IF(F{r}="Máximo",IF(D{r}<=E{r},"Sí","No"),IF(D{r}>=E{r},"Sí","No")))',
+                         x["cumple"] or None), deff])
+
+    # 14 y 15 · flujos de la adenda y prueba del 10 % (NIIF 9 3.3.2 y B3.3.6)
+    fl = d["flujos"]
+    nf = max(len(fl), 1)
+    rf = lambda col: f"{FL}${col}${FILA0}:${col}${FILA0 + nf - 1}"
+    flujos = []
+    for k, x in enumerate(fl):
+        r, rc = FILA0 + k, fila_c[x["id"]]
+        fm = _x("fecha_modificacion", rc)
+        flujos.append([x["id"], x["escenario"], x["fecha"], x["importe"],
+                       fx(f'IF({fm}="","",(C{r}-{fm})/365)', x["anios"]), fx(f"{CO}M{rc}", x["tie"]),
+                       fx(f'IF(E{r}="","",D{r}/(1+F{r})^E{r})', x["vp"])])
+    prueba = []
+    for c in (x for x in cs if x["id"] in d["ids_mod"]):
+        r, rc = FILA0 + len(prueba), fila_c[c["id"]]
+        fm, mdc = _x("fecha_modificacion", rc), _x("modificado", rc)
+        cnt = lambda e: f'COUNTIFS({rf("A")},A{r},{rf("B")},"{e}")'
+        vp = lambda e: f'SUMIFS({rf("G")},{rf("A")},A{r},{rf("B")},"{e}")'
+        bloq = f'OR(E{r}=0,F{r}=0,{fm}="",G{r}<=0)'
+        prueba.append([
+            c["id"], fx(f'IF({mdc}="","No",{mdc})', c["modificado"]), c["fecha_modificacion"], fx(f"{CO}M{rc}", c["tie_anual"]),
+            fx(cnt("Original"), c["n_orig"]), fx(cnt("Modificado"), c["n_mod"]), fx(vp("Original"), c["vp_orig"]),
+            fx(vp("Modificado"), c["vp_mod"]), fx(f"N({_x('comision_modificacion', rc)})", c["com_mod_n"]),
+            fx(f'IF({bloq},"",H{r}+I{r})', c["vp_nuevo"]), fx(f'IF(J{r}="","",J{r}-G{r})', c["dif_vp"]),
+            fx(f'IF(J{r}="","",K{r}/G{r})', c["pct_vp"]),
+            fx(f'IF(L{r}="","",IF(ABS(L{r})>=0.1,"Sí","No"))', c["sustancial"] or None),
+            fx(f'IF(M{r}="","{_CONCL_BLOQ}",IF(M{r}="Sí","{_CONCL_SUST}","{_CONCL_NO}"))', c["conclusion"]),
+            ("NIIF para las PYMES: la Sección 11 (11.37) exige condiciones «sustancialmente diferentes» sin umbral cuantitativo; esta prueba del "
+             "10 % no existe en PYMES y se aplica por analogía con la NIIF 9 B3.3.6 (jerarquía 10.6), como juicio del auditor."
+             if pymes else "NIIF 9 3.3.2 y B3.3.6: prueba del 10 % sobre el valor presente descontado a la tasa de interés efectiva original."),
+        ])
 
     t = d["totales"]
     tot = FILA0 + N
@@ -731,7 +941,8 @@ def hojas(res: dict) -> list[dict]:
              [["Operación", "t"], ["Covenant", "t"], ["Ratio de la entidad", "x"], ["Límite", "x"], ["Tipo de límite", "t"], ["Cumple el límite", "t"],
               ["Incumplimiento declarado", "t"], ["Incumplimiento al corte", "t"], ["Fecha de la dispensa", "d"], ["Gracia hasta", "d"],
               ["Dispensa válida al corte (NIC 1 75)", "t"], ["Deuda exigible: toda corriente (74)", "t"],
-              ["Fecha de medición del covenant", "d"], ["Se mide después del corte (72B)", "t"]], cov),
+              ["Fecha de medición del covenant", "d"], ["Se mide después del corte (72B)", "t"],
+              ["Definición aplicada del covenant", "t"]], cov),
         hoja("11_Clasificacion", "Clasificación corriente / no corriente",
              [["Operación", "t"], ["Costo amortizado al corte", n_], ["Período a 12 meses", "i"], ["Capital contractual después de 12 meses", n_],
               ["Corriente: capital de 12 meses + interés devengado (69 c)", n_], ["Exigible por covenant", "t"], ["Corriente auditado", n_], ["No corriente auditado", n_],
@@ -739,13 +950,24 @@ def hojas(res: dict) -> list[dict]:
              ["TOTAL", S("B", t["pasivo"]), None, None, S("E", sum(c["cp_venc"] for c in cs)), "", S("G", t["corriente"]),
               S("H", t["noCorriente"]), None, None]),
         hoja("12_Endeudamiento", "Endeudamiento y ratios de covenants (analítica, no requisito NIIF)",
-             [["Concepto", "t"], ["Numerador", n_], ["Denominador", n_], ["Ratio (veces)", "x"], ["Límite (veces)", "x"], ["Tipo", "t"], ["Cumple", "t"]], endeu),
+             [["Concepto", "t"], ["Numerador", n_], ["Denominador", n_], ["Ratio (veces)", "x"], ["Límite (veces)", "x"], ["Tipo", "t"],
+              ["Cumple (solo con definición contractual)", "t"], ["Definición aplicada", "t"]], endeu),
         hoja("13_Conciliacion", "Conciliación y ajuste",
              [["Operación", "t"], ["Costo amortizado auditado", n_], ["Capital registrado", n_], ["Intereses registrados", n_], ["Total registrado", n_],
               ["Ajuste propuesto", n_], ["Corriente auditado", n_], ["No corriente auditado", n_], ["Gasto financiero (TIE)", n_]], conc,
              ["TOTAL", S("B", t["pasivo"]), S("C", sum(c["saldo_reg"] for c in cs)), S("D", t["interesesRegistrados"]), S("E", t["pasivoRegistrado"]),
               S("F", t["ajuste"]), S("G", t["corriente"]), S("H", t["noCorriente"]), S("I", t["gastoFinanciero"])]),
-        hoja("14_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
+        hoja("14_Flujos_modificacion", "Flujos de la modificación (adenda) descontados a la TIE original",
+             [["Operación", "t"], ["Escenario", "t"], ["Fecha del flujo", "d"], ["Importe del flujo", n_], ["Años al descuento (días ÷ 365)", "x"],
+              ["TIE anual original", "p"], ["Valor presente a la TIE original", n_]], flujos),
+        hoja("15_Prueba_10pct", "Prueba del 10 % (NIIF 9 3.3.2 y B3.3.6)",
+             [["Operación", "t"], ["Modificación declarada", "t"], ["Fecha de la modificación", "d"], ["TIE anual original", "p"],
+              ["Flujos originales restantes informados", "i"], ["Flujos modificados informados", "i"],
+              ["Valor presente de los flujos originales restantes", n_], ["Valor presente de los flujos modificados", n_],
+              ["Comisiones netas pagadas por la modificación", n_], ["Valor presente de las nuevas condiciones", n_], ["Diferencia", n_],
+              ["Diferencia / valor presente original", "p"], ["¿Condiciones sustancialmente diferentes (≥ 10 %)?", "t"], ["Conclusión", "t"],
+              ["Marco aplicado", "t"]], prueba),
+        hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
     ]
 
@@ -756,7 +978,11 @@ def definicion() -> dict:
     contenido = ("Una fila por operación: código, banco, fecha de desembolso, monto, plazo en meses, tasa nominal anual, periodicidad, "
                  "sistema (francés, alemán o bullet), comisiones y costos de transacción y su tratamiento, pagos del año, saldo confirmado "
                  "por el banco, saldo de capital registrado, intereses por pagar, gasto financiero del año, porción corriente registrada, "
-                 "covenant, incumplimiento, fecha de la dispensa, fin de la gracia y la fecha de medición del covenant según el contrato. Sin filas de total.")
+                 "covenant, incumplimiento, fecha de la dispensa, fin de la gracia, la fecha de medición del covenant según el contrato y, si hubo "
+                 "adenda, la modificación de condiciones (sí/no), su fecha y las comisiones pagadas al prestamista netas de las recibidas. Sin filas de total.")
+    flujos = ("Anexo opcional, solo para los préstamos con adenda: una fila por flujo con la operación, el escenario («Original» para los flujos "
+              "contractuales que restaban a la fecha de la modificación y «Modificado» para los de la adenda), la fecha y el importe del pago. "
+              "Sin los dos escenarios completos la prueba del 10 % no concluye.")
     return {
         "name": "Préstamos y obligaciones financieras",
         "area": "Préstamos y obligaciones financieras",
@@ -802,9 +1028,20 @@ def definicion() -> dict:
             "reembolsable dentro de los doce meses (NIC 1 76ZA). Si no se informa la fecha de medición, se mantiene el tratamiento anterior y se pide el dato.",
             "Incumplimientos no subsanados al cierre (principal, intereses u otras cláusulas): se exige revelar el detalle, el importe en libros y si se subsanó o renegoció antes de la "
             "autorización de los estados financieros (NIIF 7 18–19 / PYMES 11.47).",
-            "Ratios (analítica): deuda / activos, deuda / patrimonio, deuda / EBITDA, cobertura = EBITDA o EBIT ÷ gasto financiero, DSCR = efectivo "
-            "disponible ÷ servicio de la deuda del ejercicio.",
-            "Nota (pendiente de decisión del socio): el contraste oficial observa que el devengo lineal por días aproxima el interés efectivo compuesto (simplificación) y que DEU-07 cita NIIF 9 3.3.2/B3.3.6 también en PYMES (allí es 11.37 y la prueba del 10 % por analogía, 10.6).",
+            "Ratios (analítica): deuda / activos, deuda / patrimonio, deuda / EBITDA, cobertura = EBITDA o EBIT ÷ gasto financiero.",
+            "DSCR: se calcula con la definición del contrato cuando el cliente la informa (parámetros «Definición contractual del DSCR» y, si el "
+            "contrato lo define distinto, «Servicio de la deuda del DSCR según el contrato»). El contrato manda: no se impone ninguna definición "
+            f"contable universal. Sin definición contractual la herramienta muestra el «{DSCR_ANALITICO}» = efectivo disponible ÷ servicio de la "
+            "deuda del ejercicio según las tablas, que es solo un indicador para el auditor y NO concluye incumplimiento del covenant ni reclasifica deuda.",
+            "Prueba del 10 % (NIIF 9 3.3.2 y B3.3.6), solo con el anexo de flujos: valor presente de las nuevas condiciones (flujos «Modificado» más "
+            "las comisiones pagadas netas de las recibidas) frente al valor presente de los flujos originales que restaban, ambos descontados a la "
+            "tasa de interés efectiva original. Si difiere al menos un 10 %, las condiciones son sustancialmente diferentes. Sin la fecha de la "
+            "modificación, sin los flujos originales restantes o sin los de la adenda la prueba NO concluye: el resultado queda vacío y se emite "
+            "«dato insuficiente: conclusión bloqueada». Nunca se presume «no sustancial».",
+            "En la NIIF para las PYMES la Sección 11 (11.37) exige condiciones «sustancialmente diferentes» sin umbral cuantitativo: la prueba del "
+            "10 % no existe en PYMES y el módulo la aplica por analogía con la NIIF 9 B3.3.6 (jerarquía 10.6), como juicio del auditor.",
+            "Alcance: el módulo no remide el pasivo después de la modificación; las cédulas 04 a 13 siguen el contrato original.",
+            "Nota (pendiente de decisión del socio): el contraste oficial observa que el devengo lineal por días aproxima el interés efectivo compuesto (simplificación).",
         ],
         "fields": _PRESTAMOS, "rules": [], "control": CONTROL, "primary": "ajuste",
         "campos": CAMPOS, "tipos": TIPOS, "parametros": dict(PARAMETROS), "etiquetas_parametros": ETIQUETAS_PARAM,
@@ -836,26 +1073,37 @@ def definicion() -> dict:
              "assertion": "Presentación", "procedure": "Recalcular lo que vence en 12 meses y aplicar el efecto de los covenants", "evidence": "Cédula 11",
              "criterion": "NIC 1 69 c), 72B y 74", "source": "NIC 1 69–76 · PYMES 4.7"},
             {"code": "DEU-06", "objective": "Endeudamiento y capacidad de pago", "risk": "Endeudamiento sobre los límites; dudas de empresa en marcha",
-             "assertion": "Presentación / Revelación", "procedure": "Analizar deuda/activos, deuda/patrimonio, deuda/EBITDA, cobertura y DSCR (analítica, no requisito NIIF)",
-             "evidence": "Estados financieros, cédula 12", "criterion": "Límites contractuales", "source": "NIA 520 párr. 5–6 · NIA 570 · NIIF 7 18–19"},
+             "assertion": "Presentación / Revelación",
+             "procedure": "Analizar deuda/activos, deuda/patrimonio, deuda/EBITDA y cobertura (analítica, no requisito NIIF). Para el DSCR, obtener "
+                          "del contrato su definición (numerador y denominador) y usarla; sin definición contractual el DSCR se presenta como "
+                          f"«{DSCR_ANALITICO}», como indicador",
+             "evidence": "Estados financieros, contratos de préstamo, cédula 12",
+             "criterion": f"El contrato manda: el «{DSCR_ANALITICO}» no concluye incumplimiento del covenant",
+             "source": "NIA 520 párr. 5–6 · NIA 570 · NIIF 7 18–19"},
             {"code": "DEU-07", "objective": "Modificaciones y refinanciaciones", "risk": "Refinanciación sustancial tratada como continuación",
-             "assertion": "Valoración", "procedure": "Indagar diferencias confirmado vs tabla; aplicar la prueba del 10 % a las modificaciones",
-             "evidence": "Adendas, confirmaciones", "criterion": "NIIF 9 3.3.2 y B3.3.6", "source": "NIIF 9 3.3.2 · NIA 560"},
+             "assertion": "Valoración",
+             "procedure": "Obtener la adenda con sus flujos, cargar en el anexo de flujos los contractuales originales restantes y los modificados "
+                          "y resolver la prueba del 10 % descontando a la tasa de interés efectiva original",
+             "evidence": "Adendas con su tabla de flujos, liquidaciones de comisiones, confirmaciones, cédulas 14 y 15",
+             "criterion": "Sin flujos comparables la prueba no concluye: «dato insuficiente: conclusión bloqueada»; nunca se presume «no sustancial»",
+             "source": "NIIF 9 3.3.2 y B3.3.6 · PYMES 11.37 (sin umbral; el 10 % por analogía, 10.6) · NIA 560"},
         ],
         "requests": [
             req("RQ-001", "Anexo de préstamos y obligaciones financieras al corte", "prestamos", "DEU-01", "Población a recalcular y conciliar con el mayor", content=contenido),
-            req("RQ-002", "Contratos de préstamo, tablas de amortización del banco y adendas", None, "DEU-02", "Condiciones, pagos y modificaciones",
+            req("RQ-002", "Anexo de flujos de la modificación (adenda): originales restantes y modificados", "flujos", "DEU-07",
+                "Prueba del 10 % (NIIF 9 3.3.2 y B3.3.6); sin él la prueba no concluye", required=False, content=flujos),
+            req("RQ-003", "Contratos de préstamo, tablas de amortización del banco y adendas", None, "DEU-02", "Condiciones, pagos y modificaciones",
                 formats=("pdf", "xlsx"), use="soporte"),
-            req("RQ-003", "Confirmaciones bancarias", None, "DEU-01", "Saldo confirmado, tasas, garantías y covenants", formats=("pdf",), use="soporte"),
-            req("RQ-004", "Liquidaciones de desembolso con comisiones y costos de transacción", None, "DEU-03", "Importe neto recibido y TIE",
+            req("RQ-004", "Confirmaciones bancarias", None, "DEU-01", "Saldo confirmado, tasas, garantías y covenants", formats=("pdf",), use="soporte"),
+            req("RQ-005", "Liquidaciones de desembolso con comisiones y costos de transacción", None, "DEU-03", "Importe neto recibido y TIE",
                 formats=("pdf", "xlsx"), use="soporte"),
-            req("RQ-005", "Cálculo de covenants del cliente y cartas de dispensa", None, "DEU-04", "Incumplimientos, dispensas y gracia",
+            req("RQ-006", "Cláusula del contrato que define el DSCR y demás covenants, cálculo del cliente y cartas de dispensa", None, "DEU-04",
+                "Definición contractual del DSCR (el contrato manda), incumplimientos, dispensas y gracia", formats=("pdf", "xlsx"), use="soporte"),
+            req("RQ-007", "Estados financieros al corte (activos, patrimonio, EBITDA, EBIT)", None, "DEU-06", "Parámetros de los ratios",
                 formats=("pdf", "xlsx"), use="soporte"),
-            req("RQ-006", "Estados financieros al corte (activos, patrimonio, EBITDA, EBIT)", None, "DEU-06", "Parámetros de los ratios",
-                formats=("pdf", "xlsx"), use="soporte"),
-            req("RQ-007", "Mayor y auxiliares de préstamos, intereses por pagar y gasto financiero", None, "DEU-02", "Saldos registrados",
+            req("RQ-008", "Mayor y auxiliares de préstamos, intereses por pagar y gasto financiero", None, "DEU-02", "Saldos registrados",
                 formats=("xlsx", "pdf"), use="soporte"),
-            req("RQ-008", "Garantías y refinanciaciones del ejercicio", None, "DEU-07", "Revelaciones (NIIF 7) y modificaciones (3.3.2)",
+            req("RQ-009", "Garantías y refinanciaciones del ejercicio", None, "DEU-07", "Revelaciones (NIIF 7) y modificaciones (3.3.2)",
                 formats=("pdf",), use="soporte", required=False),
         ],
     }
@@ -872,11 +1120,17 @@ def _p(id, banco, desembolso, monto, plazo, tasa, per, sistema, saldo_reg, **x):
             "sistema": sistema, "saldo_reg": saldo_reg, "_row": 2, **x}
 
 
+def _f(id, escenario, fecha, importe, fila=2):
+    return {"id": id, "escenario": escenario, "fecha": fecha, "importe": importe, "_row": fila}
+
+
+_DEF_DSCR = "Flujo de caja operativo antes de intereses ÷ servicio de la deuda del ejercicio (cláusula 8.2 del contrato)"
+
 EJEMPLO = {
     "corte": "2025-12-31",
     "parametros": {"totalActivos": 2500000, "patrimonio": 800000, "ebitda": 300000, "ebit": 220000, "efectivoServicioDeuda": 200000,
                    "baseCobertura": "EBITDA", "limDeudaActivos": 0.6, "limDeudaPatrimonio": 1.2, "limDeudaEbitda": 1.8,
-                   "limCobertura": 3, "limDSCR": 1.25},
+                   "limCobertura": 3, "limDSCR": 1.25, "defDSCR": _DEF_DSCR},
     "datasets": {"prestamos": [
         _p("OP-101", "Banco Pichincha", "2024-01-15", "120000", "36", "11", "Mensual", "Francés", "47940.12", comisiones="2400",
            trat_comisiones="Gasto", pagos_anio="47143.75", confirmado="47940.12", int_reg="226.81", gasto_reg="7478.25"),
@@ -884,28 +1138,46 @@ EJEMPLO = {
            trat_comisiones="TIE", pagos_anio="44250", confirmado="170000", gasto_reg="15010.65", cp_reg="41494.17",
            covenant="Deuda / EBITDA", incumplido="Sí", fecha_dispensa="2026-01-20", gracia_hasta="2027-06-30", fecha_covenant="2025-12-31"),
         _p("OP-103", "Banco Guayaquil", "2023-07-01", "300000", "48", "9.5", "Semestral", "Francés", "163882.07", pagos_anio="91897.18",
-           confirmado="163882.07", int_reg="7742.09", gasto_reg="17317.78", cp_reg="70000", covenant="Cobertura de intereses", incumplido="No"),
+           confirmado="163882.07", int_reg="7742.09", gasto_reg="17317.78", cp_reg="70000", covenant="Cobertura de intereses", incumplido="No",
+           modificado="Sí", fecha_modificacion="2025-12-01", comision_modificacion="1500"),
         _p("OP-104", "Banco del Pacífico", "2025-06-30", "150000", "24", "12", "Semestral", "Bullet", "145000", comisiones="1500",
            trat_comisiones="TIE", pagos_anio="9000", confirmado="150000", int_reg="49.45", gasto_reg="9392.86"),
         _p("OP-105", "Corporación Financiera Nacional", "2022-01-01", "80000", "60", "8", "Mensual", "Francés", "20135.32",
            pagos_anio="19465.34", confirmado="20135.32", int_reg="129.91", gasto_reg="2250.69", cp_reg="18653.85",
-           covenant="Deuda / patrimonio", incumplido="Sí", fecha_dispensa="2025-12-15", gracia_hasta="2027-03-31", fecha_covenant="2025-12-31"),
+           covenant="Deuda / patrimonio", incumplido="Sí", fecha_dispensa="2025-12-15", gracia_hasta="2027-03-31", fecha_covenant="2025-12-31",
+           modificado="Sí"),   # declara adenda pero no entrega los flujos: la prueba del 10 % queda bloqueada
         _p("OP-106", "Banco Internacional", "2025-10-01", "50000", "12", "13", "Mensual", "Francés", "42109.09", pagos_anio="8931.73",
            confirmado="42109.09", int_reg="441.47", gasto_reg="1482.29", cp_reg="42550.56"),
         _p("OP-107", "Banco Bolivariano", "2024-07-01", "100000", "36", "10.5", "Trimestral", "Alemán", "57958.23", comisiones="1000",
            trat_comisiones="TIE", pagos_anio="40000", confirmado="58333.33", int_reg="1514.61", gasto_reg="7881.20", cp_reg="34938.20",
            covenant="DSCR", fecha_covenant="2026-06-30"),
         _p("OP-108", "Banco Pichincha", "2026-01-10", "90000", "24", "11", "Mensual", "Francés", "0"),
+    ], "flujos": [
+        # OP-103: adenda del 1-12-2025. «Original» = las 4 cuotas semestrales que restaban (45.948,59 cada una);
+        # «Modificado» = 6 cuotas de 30.000 con un semestre de gracia. Con estos dos escenarios la prueba concluye.
+        _f("OP-103", "Original", "2026-01-01", "45948.59", 2), _f("OP-103", "Original", "2026-07-01", "45948.59", 3),
+        _f("OP-103", "Original", "2027-01-01", "45948.59", 4), _f("OP-103", "Original", "2027-07-01", "45948.59", 5),
+        _f("OP-103", "Modificado", "2027-01-01", "30000", 6), _f("OP-103", "Modificado", "2027-07-01", "30000", 7),
+        _f("OP-103", "Modificado", "2028-01-01", "30000", 8), _f("OP-103", "Modificado", "2028-07-01", "30000", 9),
+        _f("OP-103", "Modificado", "2029-01-01", "30000", 10), _f("OP-103", "Modificado", "2029-07-01", "30000", 11),
     ]},
 }
 
 _BASE = EJEMPLO["parametros"]
+_SIN_DEF_DSCR = {k: v for k, v in _BASE.items() if k != "defDSCR"}
 ESCENARIOS = [
     ("niif_completas", EJEMPLO["datasets"], {**_BASE, "_marco": "NIIF completas"}, EJEMPLO["corte"]),
     ("pymes_2015", EJEMPLO["datasets"], {**_BASE, "_marco": "NIIF para las PYMES", "_edicion": "2015"}, EJEMPLO["corte"]),
     ("pymes_2025", EJEMPLO["datasets"], {**_BASE, "_marco": "NIIF para las PYMES", "_edicion": "2025"}, EJEMPLO["corte"]),
     ("sin_datos_entidad", EJEMPLO["datasets"], {"_marco": "NIIF completas"}, EJEMPLO["corte"]),       # M22: ratios vacíos
     ("niif18_ebit", EJEMPLO["datasets"], {**_BASE, "baseCobertura": "EBIT", "patrimonio": -50000, "_marco": "NIIF completas"}, "2027-12-31"),
+    # (B) DSCR analítico de la firma: sin definición contractual no concluye incumplimiento del covenant.
+    ("dscr_analitico", EJEMPLO["datasets"], {**_SIN_DEF_DSCR, "_marco": "NIIF completas"}, EJEMPLO["corte"]),
+    # (B) DSCR contractual con el denominador que define el contrato.
+    ("dscr_contractual_denominador", EJEMPLO["datasets"],
+     {**_BASE, "servicioDSCRContrato": 150000, "_marco": "NIIF completas"}, EJEMPLO["corte"]),
+    # (A) sin el anexo de flujos: la prueba del 10 % queda bloqueada en los dos préstamos con adenda.
+    ("sin_flujos_adenda", {"prestamos": EJEMPLO["datasets"]["prestamos"]}, {**_BASE, "_marco": "NIIF completas"}, EJEMPLO["corte"]),
 ]
 
 # Cifras de control resueltas a mano (corte 31-12-2025):
@@ -925,3 +1197,15 @@ ESCENARIOS = [
 #   (antes 152.385,55), que corresponde solo a OP-102 (169.254,82 − 41.494,17).
 # · OP-102 y OP-105 informan fecha de medición al corte (31-12-2025): su tratamiento no cambia. OP-103 no la informa:
 #   se mantiene el tratamiento actual y se pide el dato (COVENANT_SIN_FECHA_MEDICION).
+# · (A) Prueba del 10 % de OP-103 (adenda del 1-12-2025; NIIF 9 3.3.2 y B3.3.6). TIE anual original = 1,0475² − 1 =
+#   9,725625 % (semestral 4,75 %, sin comisiones). Días desde el 1-12-2025: 31, 212, 396 y 577 para las 4 cuotas
+#   originales de 45.948,59, y 396, 577, 761, 943, 1.127 y 1.308 para las 6 cuotas de 30.000 de la adenda.
+#   VP originales = 170.350,33; VP modificados = 145.394,68; + comisiones 1.500 = 146.894,68. Diferencia −23.455,66
+#   = −13,7691 % → |13,77 %| ≥ 10 % → condiciones sustancialmente diferentes (MODIFICACION_SUSTANCIAL). El pasivo
+#   auditado NO cambia (659.965,19): el módulo no remide después de la modificación.
+# · OP-105 declara adenda y no entrega flujos: la prueba queda vacía y se emite «dato insuficiente: conclusión
+#   bloqueada» (MODIFICACION_DATO_INSUFICIENTE). Nunca se concluye «no sustancial» por omisión.
+# · (B) DSCR = 200.000 ÷ 262.333,83 = 0,76. Con la definición contractual informada concluye «No cumple» y, sin el
+#   escudo del 72B, OP-107 sería toda corriente (420.257,92). Sin definición contractual es el «DSCR analítico de la
+#   firma»: no concluye (cumple vacío), OP-107 queda con incump = No y su porción corriente por vencimiento
+#   34.938,20 (corriente 395.633,02 / no corriente 264.332,18).

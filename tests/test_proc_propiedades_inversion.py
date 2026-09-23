@@ -41,6 +41,8 @@ def test_ejemplo_cifras_a_mano():
     assert _t(res, "difCostoInicial") == 12000.00                 # IP-06: 400.000 + 12.000 − 400.000
     assert _t(res, "difAlquileres") == 8000.00                    # IP-03 2.000 + IP-06 6.000
     assert _t(res, "transfORI") == 80000.00                       # IP-08: 205.000 − 125.000 (40.61-62)
+    assert _t(res, "transfResultados") == 0.00 and _t(res, "usoSuperavit") == 0.00
+    assert _t(res, "superavitFinal") == 110000.00                 # 30.000 + 80.000 − 0 (NIC 16.41: sigue en patrimonio)
     assert _t(res, "resultadoBajas") == 10000.00 and _t(res, "difBajas") == -10000.00
     assert res["detalle"]["conc"]["difControl"] == pytest.approx(0, abs=1e-9)
 
@@ -59,9 +61,10 @@ def test_problemas_minimos():
     codes = {e["code"] for e in _run()["exceptions"]}
     for c in ("MAL_CLASIFICADO", "USO_MIXTO_SEPARADO", "VR_NO_RECONOCIDO", "VR_NO_FIABLE", "SIN_FUENTE_VR", "SIN_NIVEL_VR", "COSTO_INICIAL",
               "DEP_DIFERENCIA", "DETERIORO", "ALQUILER_NO_CONCILIADO", "ALQUILER_SIN_CONTRATO", "TRANSFERENCIA_SIN_TRATAMIENTO", "TRANSFERENCIA",
-              "BAJA_RESULTADO", "DETALLE_MAYOR", "AJUSTE"):
+              "BAJA_RESULTADO", "DETALLE_MAYOR", "AJUSTE", "SUPERAVIT_AUMENTO", "SUPERAVIT_EN_PATRIMONIO"):
         assert c in codes, c
     assert "SIN_MAYOR" not in codes and "PYMES_MODELO" not in codes
+    assert "SIN_SUPERAVIT_REVALUACION" not in codes and "SUPERAVIT_CONSUMIDO" not in codes
 
 
 def test_rutas_por_marco():
@@ -81,6 +84,11 @@ def test_rutas_por_marco():
     assert _t(costo, "piAuditado") == 1945125 and _t(pym, "piAuditado") == 1759625
     assert _it(pym, "IP-04")["clase"] == m.PPE_MIXTO and _it(pym, "IP-10")["clase"] == m.PPE_MIXTO
     assert "USO_MIXTO_A_PPE" in {e["code"] for e in pym["exceptions"]}
+    # PYMES 16.9 no regula la medición de la diferencia: no se calcula y el historial del superávit queda vacío.
+    assert "SUPERAVIT_PYMES" in {e["code"] for e in pym["exceptions"]}
+    assert pym["detalle"]["sup"][0]["fin"] is None and _t(pym, "superavitFinal") == 0
+    # Modelo del costo (NIC 40.59): la transferencia no mueve el importe en libros ni el superávit (30.000 se arrastra).
+    assert _t(costo, "superavitFinal") == 30000 and costo["detalle"]["sup"][0]["mov"] == 0
     assert "SIN_VR_REVELACION" in {e["code"] for e in costo["exceptions"]}
     pc = {e["code"] for e in pym["exceptions"]}
     assert "PYMES_MODELO" in pc and "SIN_VR_REVELACION" not in pc
@@ -99,6 +107,57 @@ def test_rutas_por_marco():
     assert "16.7" in msg and _t(al_reves, "ajusteVR") == 48000
     h = {x["name"]: x for x in m.hojas(pym25)}
     assert "sección 12" in h["02_Parametros"]["rows"][2][2]
+
+
+def test_superavit_aumento_se_mantiene_en_patrimonio():
+    """NIC 40.61-62 b) ii) y NIC 16.39: el aumento al transferir de PPE revaluada a PI a valor razonable va a
+    otro resultado integral y engrosa el superávit de revaluación del inmueble; no pasa por resultados.
+
+    IP-08 a mano: VR al cambio 205.000 − libros al cambio 125.000 = +80.000 → todo a ORI, nada a resultados.
+    Superávit: 30.000 (saldo inicial informado) + 80.000 − 0 = 110.000, que permanece en patrimonio.
+    """
+    res = _run({**E["datasets"]}, {**E["parametros"], "_marco": "NIIF completas"})
+    tr = next(x for x in res["detalle"]["transf"] if x["id"] == "IP-08")
+    assert tr["dif"] == 80000 and tr["ori"] == 80000 and tr["res"] == 0 and tr["uso"] == 0 and tr["estado"] == "Completa"
+    s = res["detalle"]["sup"]
+    assert len(s) == 1 and s[0]["id"] == "IP-08" and s[0]["ini"] == 30000 and s[0]["mov"] == 80000
+    assert s[0]["uso"] == 0 and s[0]["fin"] == 110000 and s[0]["destino"] == m.DESTINO_SI
+    codes = {e["code"] for e in res["exceptions"]}
+    assert {"SUPERAVIT_AUMENTO", "SUPERAVIT_EN_PATRIMONIO"} <= codes and "SIN_SUPERAVIT_REVALUACION" not in codes
+    msg = next(e["message"] for e in res["exceptions"] if e["code"] == "SUPERAVIT_AUMENTO")
+    assert "40.62 b i" in msg                                      # reversión de deterioro: no se separa, se avisa
+
+
+def test_superavit_disminucion_consume_y_solo_el_exceso_a_resultados():
+    """NIC 40.62 a) y NIC 16.40: la disminución se reconoce en ORI hasta agotar el superávit de ESE inmueble.
+
+    IP-08 modificado: VR al cambio 100.000 − libros 125.000 = −25.000; superávit 10.000.
+    Uso del superávit = MIN(10.000; 25.000) = 10.000 → a ORI −10.000; exceso a resultados −25.000 + 10.000 = −15.000.
+    Saldo final del superávit = 10.000 + 0 − 10.000 = 0.
+    """
+    res = m.ejecutar(m._SUP_BAJA, {**E["parametros"], "_marco": "NIIF completas"}, E["corte"])
+    tr = next(x for x in res["detalle"]["transf"] if x["id"] == "IP-08")
+    assert tr["dif"] == -25000 and tr["uso"] == 10000 and tr["ori"] == -10000 and tr["res"] == -15000
+    assert _t(res, "transfResultados") == -15000.00 and _t(res, "transfORI") == -10000.00
+    assert _t(res, "usoSuperavit") == 10000.00 and _t(res, "superavitFinal") == 0.00
+    s = res["detalle"]["sup"][0]
+    assert s["ini"] == 10000 and s["mov"] == 0 and s["uso"] == 10000 and s["fin"] == 0 and s["destino"] == m.DESTINO_NO
+    codes = {e["code"] for e in res["exceptions"]}
+    assert "SUPERAVIT_CONSUMIDO" in codes and "SUPERAVIT_EN_PATRIMONIO" not in codes
+
+
+def test_superavit_sin_dato_queda_vacio_y_avisa():
+    """M22: sin el superávit informado no se puede repartir la disminución → importes vacíos, nunca 0."""
+    res = m.ejecutar(m._SUP_SIN_DATO, {**E["parametros"], "_marco": "NIIF completas"}, E["corte"])
+    tr = next(x for x in res["detalle"]["transf"] if x["id"] == "IP-08")
+    assert tr["dif"] == -25000 and tr["uso"] is None and tr["res"] is None and tr["ori"] is None
+    assert tr["estado"] == m.SIN_SUP
+    s = res["detalle"]["sup"][0]
+    assert s["ini"] is None and s["fin"] is None and s["destino"] == ""
+    assert _t(res, "transfResultados") == 0 and _t(res, "transfORI") == 0 and _t(res, "superavitFinal") == 0
+    msg = next(e["message"] for e in res["exceptions"] if e["code"] == "SIN_SUPERAVIT_REVALUACION")
+    assert "superávit de revaluación" in msg and "estado de cambios en el patrimonio" in msg
+    assert "TRANSFERENCIA_SIN_TRATAMIENTO" in {e["code"] for e in res["exceptions"]}
 
 
 def test_pymes_16_8_deprecia_desde_que_el_vr_dejo_de_medirse():

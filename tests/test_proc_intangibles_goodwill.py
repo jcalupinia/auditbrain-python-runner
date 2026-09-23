@@ -24,11 +24,18 @@ def _it(res, id):
 
 def test_ejemplo_niif_completas_a_mano():
     res = _run()
-    # Neto en libros del auxiliar: 24.000 + 16.000 + 150.000 + 185.000 + 18.000 + 41.250 + 12.000 + 30.000 + 26.800 + 0 + 7.000
-    assert _t(res, "netoAuxiliar") == 510050.00
-    assert _t(res, "netoAuditado") == 467050.00
-    assert _t(res, "ajuste") == -45000.00           # 467.050 − 512.050 (mayor)
-    assert round(2000 - 10000 - 15000 - 18000 - 12000 + 10000 - 2000, 2) == _t(res, "ajuste")
+    # Neto en libros del auxiliar: 24.000 + 16.000 + 150.000 + 185.000 + 18.000 + 41.250 + 12.000 + 30.000 + 26.800 + 0
+    #                              + 7.000 + 24.000 (CON-01) + 55.000 (CON-02)
+    assert _t(res, "netoAuxiliar") == 589050.00
+    assert _t(res, "netoAuditado") == 549050.00
+    assert _t(res, "ajuste") == -42000.00           # 549.050 − 591.050 (mayor)
+    assert round(2000 - 10000 - 15000 - 18000 - 12000 + 10000 + 3000 - 2000, 2) == _t(res, "ajuste")
+    # Amortización del año: recalculada por la herramienta 41.950 (12.000 + 6.000 + 3.750 + 7.200 + 4.000 + 9.000 de CON-01);
+    # auditada 66.950 = esas 41.950 + las 25.000 de CON-02, aceptadas por la excepción documentada; registrada 71.950.
+    assert _t(res, "amortCalculada") == 41950.00
+    assert _t(res, "amortAuditada") == 66950.00
+    assert _t(res, "amortRegistrada") == 71950.00
+    assert _t(res, "difAmortizacion") == -5000.00   # −2.000 (LIC-01) − 3.000 (CON-01)
     assert _t(res, "bajaNoCapitalizable") == 30000.00  # INV-01 18.000 + DES-02 12.000
     assert _it(res, "LIC-01")["amort"] == 6000         # 24.000 ÷ 36 × 9 meses (abr-dic)
     assert _it(res, "DES-01")["amort"] == 3750         # 45.000 ÷ 36 × 3 meses
@@ -42,6 +49,59 @@ def test_ejemplo_niif_completas_a_mano():
     assert pat["aud"] == 36800 == pat["limite"]        # tope NIC 36.117: 80.000 − 43.200
     assert _it(res, "SW-03")["difAcum"] == 1000        # esperada 12.000 ÷ 36 × 18 = 6.000 vs 1.000 + 4.000
     assert res["primary"] == "ajuste"
+
+
+def test_metodo_por_ingresos_bloqueado_y_excepcion_documentada():
+    """NIC 38.98A: bloqueado sin justificación; 98C: aceptado con la circunstancia documentada."""
+    res = _run()
+    con1, con2 = _it(res, "CON-01"), _it(res, "CON-02")
+    # CON-01: método por ingresos sin justificación → se recalcula lineal 36.000 ÷ 48 × 12 = 9.000 (registró 12.000).
+    assert con1["metAp"] == "Lineal (presunción no refutada)" and con1["recalc"]
+    assert con1["amort"] == 9000 and con1["amortAud"] == 9000 and con1["difAmort"] == -3000
+    assert con1["aud"] == 27000 and con1["ajuste"] == 3000      # 36.000 − 9.000 vs libros 36.000 − 12.000
+    # CON-02: circunstancia «a» documentada → se acepta lo registrado y la herramienta no recalcula (M22).
+    assert con2["metAp"] == "Ingresos (excepción documentada)" and not con2["recalc"]
+    assert con2["circ"] == "a" and con2["circLab"].startswith("a) el intangible se expresa")
+    assert con2["amort"] is None and con2["amortAud"] == 25000 and con2["difAmort"] is None
+    assert con2["aud"] == 55000 and con2["ajuste"] == 0 and con2["difAcum"] is None
+    codes = {e["code"]: e for e in res["exceptions"]}
+    assert float(codes["METODO_INGRESOS_SIN_JUSTIFICAR"]["amount"]) == -3000     # efecto en resultados
+    assert "CON-01" in codes["METODO_INGRESOS_SIN_JUSTIFICAR"]["message"] and "98C" in codes["METODO_INGRESOS_SIN_JUSTIFICAR"]["message"]
+    assert float(codes["METODO_INGRESOS_EXCEPCION"]["amount"]) == 25000
+    assert "CON-01" not in codes["DIF_AMORTIZACION"]["message"]   # el hallazgo del método no se duplica
+
+
+def test_metodo_normal_y_justificacion_que_no_invoca_circunstancia():
+    ds = copy.deepcopy(E["datasets"])
+    con1 = next(f for f in ds["intangibles"] if f["id"] == "CON-01")
+    con1["metodo_amortizacion"] = "Lineal"              # método normal: se recalcula igual que sin método informado
+    res = _run(datasets=ds)
+    assert _it(res, "CON-01")["metAp"] == "Lineal" and _it(res, "CON-01")["amort"] == 9000
+    assert "METODO_INGRESOS_SIN_JUSTIFICAR" not in {e["code"] for e in res["exceptions"]}
+    assert "CON-01" in next(e for e in res["exceptions"] if e["code"] == "DIF_AMORTIZACION")["message"]
+    # Justificación que no invoca ninguna de las dos circunstancias de la norma: sigue bloqueado.
+    ds2 = copy.deepcopy(E["datasets"])
+    con2 = next(f for f in ds2["intangibles"] if f["id"] == "CON-02")
+    con2["justificacion_ingresos"] = "Política contable del grupo"
+    r2 = _run(datasets=ds2)
+    x = _it(r2, "CON-02")
+    assert x["circLab"] == "No invoca ninguna de las dos circunstancias"
+    assert x["metAp"] == "Lineal (presunción no refutada)"
+    # (100.000 − 0) ÷ 96 × 12 = 12.500, con tope en el pendiente 80.000
+    assert x["amort"] == 12500 and x["difAmort"] == -12500
+    assert "CON-02" in next(e for e in r2["exceptions"] if e["code"] == "METODO_INGRESOS_SIN_JUSTIFICAR")["message"]
+
+
+def test_metodo_distinto_del_lineal_no_se_recalcula():
+    ds = copy.deepcopy(E["datasets"])
+    sw = next(f for f in ds["intangibles"] if f["id"] == "SW-01")
+    sw["metodo_amortizacion"] = "Unidades producidas"
+    res = _run(datasets=ds)
+    x = _it(res, "SW-01")
+    assert x["metAp"] == "Otro método informado (no recalculado)" and x["amort"] is None
+    assert x["amortAud"] == 12000 and x["aud"] == 24000          # se acepta lo registrado: el neto no cambia
+    assert float({e["code"]: e for e in res["exceptions"]}["METODO_NO_RECALCULADO"]["amount"]) == 12000
+    assert _t(res, "netoAuditado") == 549050.00
 
 
 def test_problemas_minimos_completas():
@@ -66,11 +126,17 @@ def test_ruta_pymes_a_mano():
     assert gw["aud"] == 170000         # 200.000 − 30.000 de deterioro previo; recuperable 185.000 > 170.000
     assert _it(res, "DES-01")["cap"] == "No"           # desarrollo a gasto (18.14)
     assert _t(res, "bajaNoCapitalizable") == 101250.00  # 18.000 + 41.250 + 12.000 + 30.000
-    # Neto auditado 395.800 = 24.000 (SW-01) + 18.000 (LIC-01) + 140.000 (MAR-01) + 170.000 (GW-01)
-    #                        + 36.800 (PAT-01) + 0 (SW-02) + 7.000 (SW-03); el resto se da de baja.
-    assert _t(res, "netoAuditado") == 395800.00
-    assert _t(res, "ajuste") == -116250.00              # 395.800 − 512.050 (mayor)
+    # Neto auditado 474.800 = 24.000 (SW-01) + 18.000 (LIC-01) + 140.000 (MAR-01) + 170.000 (GW-01)
+    #                        + 36.800 (PAT-01) + 0 (SW-02) + 7.000 (SW-03) + 24.000 (CON-01) + 55.000 (CON-02);
+    # el resto se da de baja. En la edición 2015 no existe la presunción del 18.22A: CON-01 y CON-02 conservan
+    # su amortización registrada (12.000 y 25.000) y la herramienta no las recalcula.
+    assert _t(res, "netoAuditado") == 474800.00
+    assert _t(res, "ajuste") == -116250.00              # 474.800 − 591.050 (mayor)
     assert _t(res, "amortCalculada") == 29200.00        # 12.000 + 6.000 + 7.200 + 0 + 4.000 (MAR-01 y GW-01 vacías)
+    assert _t(res, "amortAuditada") == 66200.00         # + 12.000 (CON-01) + 25.000 (CON-02) aceptadas
+    con1 = _it(res, "CON-01")
+    assert con1["metAp"] == "Ingresos (sin presunción: PYMES 2015)" and con1["amort"] is None and con1["amortAud"] == 12000
+    assert float({e["code"]: e for e in res["exceptions"]}["METODO_INGRESOS_PYMES_2015"]["amount"]) == 37000  # 12.000 + 25.000
     codes = {e["code"]: e for e in res["exceptions"]}
     assert float(codes["VIDA_NO_ESTIMADA"]["amount"]) == 320000    # 150.000 + 170.000 en libros sin amortizar
     assert float(codes["DESARROLLO_CAPITALIZADO_PYMES"]["amount"]) == 83250
@@ -83,8 +149,13 @@ def test_ruta_pymes_a_mano():
     c96 = {e["code"]: e for e in r96["exceptions"]}
     assert float(c96["VIDA_EXCEDE_TOPE_PYMES"]["amount"]) == 25000  # 80.000 − 45.000 − 10.000 en libros
     assert r96["detalle"]["edicion"] == "2025"
+    # La edición 2025 sí trae la presunción del 18.22A: CON-01 vuelve a bloquearse y se recalcula lineal.
+    assert r96["detalle"]["presuncion"] and _it(r96, "CON-01")["amort"] == 9000
+    assert float({e["code"]: e for e in r96["exceptions"]}["METODO_INGRESOS_SIN_JUSTIFICAR"]["amount"]) == -3000
+    assert _it(r96, "CON-02")["metAp"] == "Ingresos (excepción documentada)"
     h = {x["name"]: x for x in m.hojas(r96)}
     assert "secciones 18, 19 y 27" in h["02_Parametros"]["rows"][1][1] and h["02_Parametros"]["rows"][2][1] == 1
+    assert h["02_Parametros"]["rows"][4][1] == 1 and "18.22A" in h["02_Parametros"]["rows"][4][2]
 
 
 def test_pymes_goodwill_con_vida_estimada_se_amortiza():
