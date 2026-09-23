@@ -118,6 +118,31 @@ def test_bloque_como_se_calcula_no_rompe_ninguna_herramienta():
         assert wb.sheetnames[0] == "00_Inicio", pid
 
 
+def test_todos_los_formatos_se_generan_en_las_18():
+    import zipfile
+
+    for pid, mod in PROCESADORES.items():
+        if not getattr(mod, "RUBRO", None):
+            continue
+        d, _, reg = _reg(pid)
+        docx = libro.docx(d, reg, [], 1, "APROBADO")
+        pptx = libro.pptx(d, reg, [], 1, "APROBADO")
+        html = libro.html(d, reg, [], 1, "APROBADO")
+        czip = libro.csv_zip(d, reg, [], 1, "APROBADO")
+        assert docx[:2] == b"PK" and pptx[:2] == b"PK", pid
+        assert html.startswith(b"<!doctype html") and b"http://" not in html, pid  # HTML sin conexión
+        z = zipfile.ZipFile(io.BytesIO(czip))
+        assert z.namelist() and all(n.endswith(".csv") for n in z.namelist()), pid
+        assert z.read(z.namelist()[0]).startswith("﻿".encode("utf-8")), pid  # UTF-8 con BOM
+
+
+def test_html_trae_kpis_pestanas_y_ver_calculo():
+    d, mod, reg = _reg("perdidas_incurridas_s11")
+    html = libro.html(d, reg, [], 1, "APROBADO").decode("utf-8")
+    assert 'class="kpi"' in html and 'class="tab' in html and "Ver cálculo" in html
+    assert "CSV (ZIP)" in html and "Guardar como PDF" in html
+
+
 def test_tokens_y_etiquetas_cubren_el_vocabulario():
     for e in reglas.ESTADOS:
         assert est.estado_es(e) != e, e  # todos traducidos

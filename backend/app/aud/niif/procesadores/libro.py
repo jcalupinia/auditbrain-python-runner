@@ -446,8 +446,31 @@ def _en_ppt(nombre: str) -> bool:
 _MAX_FILAS_PPT = 14
 
 
+def _rgb(RGBColor, hex6):
+    return RGBColor(int(hex6[0:2], 16), int(hex6[2:4], 16), int(hex6[4:6], 16))
+
+
+def csv_zip(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> bytes:
+    """Un CSV por cédula dentro de un ZIP. UTF-8 con BOM y separador «;» para que
+    Excel en español lo abra bien; solo datos limpios (valores, no fórmulas)."""
+    import csv
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for h in cedulas(definicion, reg, eventos, version, estado):
+            sio = io.StringIO()
+            w = csv.writer(sio, delimiter=";")
+            w.writerow([c[0] for c in h["cols"]])
+            for fila, _total in _filas(h):
+                w.writerow([_html.unescape(_celda(v, fmt)) for (_, fmt), v in zip(h["cols"], fila)])
+            z.writestr(f"{h['name']}.csv", ("﻿" + sio.getvalue()).encode("utf-8"))
+    return buf.getvalue()
+
+
 def docx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> bytes:
-    """Word del papel: carátula y cada cédula como tabla (valores ya calculados)."""
+    """Word ejecutivo del papel: portada, resumen ejecutivo con KPIs, cada cédula
+    como tabla y un anexo «Cómo se calcula»."""
     from docx import Document
     from docx.enum.section import WD_ORIENT
     from docx.shared import Pt, RGBColor
@@ -457,12 +480,26 @@ def docx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     sec.orientation = WD_ORIENT.LANDSCAPE
     sec.page_width, sec.page_height = sec.page_height, sec.page_width
     estilo = doc.styles["Normal"]
-    estilo.font.name = "Calibri"
+    estilo.font.name = est.FONT_TEXTO
     estilo.font.size = Pt(9)
     e = reg.get("engagement") or {}
+    run = reg.get("run") or {}
     t = doc.add_heading(definicion.get("name", ""), level=0)
-    t.runs[0].font.color.rgb = RGBColor(0x0A, 0x23, 0x42)
-    doc.add_paragraph(f"{e.get('client', '')} · corte {e.get('cutoff', '')} · v{version} · {estado}")
+    t.runs[0].font.color.rgb = _rgb(RGBColor, est.NAVY)
+    doc.add_paragraph(f"AuditConsulting Auditores Cía. Ltda.  ·  {e.get('client', '')} · RUC {e.get('ruc', '')}")
+    doc.add_paragraph(f"Marco {e.get('framework', '')} · corte {e.get('cutoff', '')} · v{version} · {est.estado_es(estado)}")
+    # Resumen ejecutivo con KPIs
+    totales, etiquetas = run.get("totals") or {}, run.get("labels") or {}
+    prim = run.get("primary")
+    n_prob = len(run.get("exceptions") or [])
+    doc.add_heading("Resumen ejecutivo", level=1)
+    if prim in totales:
+        doc.add_paragraph(f"{etiquetas.get(prim, prim)}: {_html.unescape(_celda({'v': totales[prim]}, 'n'))}")
+    doc.add_paragraph(f"Problemas encontrados: {n_prob}")
+    if reg.get("conclusion"):
+        doc.add_paragraph("Conclusión: " + str(reg["conclusion"]))
+    if reg.get("taxApplicable") and reg.get("taxScope"):
+        doc.add_paragraph("Tratamiento tributario revisado: " + str(reg["taxScope"]))
     for h in cedulas(definicion, reg, eventos, version, estado):
         doc.add_heading(h["label"], level=1)
         filas = _filas(h)
@@ -478,6 +515,24 @@ def docx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
                 celda.text = _html.unescape(_celda(v, fmt))
                 if total and celda.paragraphs[0].runs:
                     celda.paragraphs[0].runs[0].font.bold = True
+    # Anexo «Cómo se calcula»
+    doc.add_page_break()
+    doc.add_heading("Anexo · Cómo se calcula cada hoja", level=1)
+    for h in cedulas(definicion, reg, eventos, version, estado):
+        bloque = como_se_calcula(h)
+        if not bloque:
+            continue
+        doc.add_heading(h["label"], level=2)
+        cols = ["Columna", "Fórmula", "Cómo se calcula", "Ejemplo (fila 1)", "De dónde viene"]
+        tabla = doc.add_table(rows=1 + len(bloque), cols=len(cols))
+        tabla.style = "Table Grid"
+        for j, nombre in enumerate(cols):
+            r0 = tabla.rows[0].cells[j]
+            r0.text = nombre
+            r0.paragraphs[0].runs[0].font.bold = True
+        for i, b in enumerate(bloque, start=1):
+            for j, val in enumerate([b["columna"], b["formula"], b["explicacion"], b["ejemplo"], b["origen"]]):
+                tabla.rows[i].cells[j].text = str(val)
     salida = io.BytesIO()
     doc.save(salida)
     return salida.getvalue()
@@ -492,9 +547,33 @@ def pptx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     prs = Presentation()
     prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
     e = reg.get("engagement") or {}
+    run = reg.get("run") or {}
+    navy = _rgb(RGBColor, est.NAVY)
     s = prs.slides.add_slide(prs.slide_layouts[0])
     s.shapes.title.text = definicion.get("name", "")
-    s.placeholders[1].text = f"{e.get('client', '')} · corte {e.get('cutoff', '')} · v{version} · {estado}\nAuditConsulting Auditores Cía. Ltda."
+    s.shapes.title.text_frame.paragraphs[0].runs[0].font.color.rgb = navy
+    s.placeholders[1].text = (f"{e.get('client', '')} · corte {e.get('cutoff', '')} · v{version} · {est.estado_es(estado)}\n"
+                              "AuditConsulting Auditores Cía. Ltda. · AUDIT-IA")
+    # Diapositiva ejecutiva de cifras clave
+    totales, etiquetas, prim = run.get("totals") or {}, run.get("labels") or {}, run.get("primary")
+    n_prob = len(run.get("exceptions") or [])
+    cifras = []
+    if prim in totales:
+        cifras.append((etiquetas.get(prim, prim), _html.unescape(_celda({"v": totales[prim]}, "n"))))
+    for k in ("perdida", "cartera", "provReg"):
+        if k in totales and k != prim:
+            cifras.append((etiquetas.get(k, k), _html.unescape(_celda({"v": totales[k]}, "n"))))
+    cifras.append(("Problemas encontrados", str(n_prob)))
+    sk = prs.slides.add_slide(prs.slide_layouts[5])
+    sk.shapes.title.text = "Cifras clave"
+    sk.shapes.title.text_frame.paragraphs[0].runs[0].font.color.rgb = navy
+    caja = sk.shapes.add_textbox(Inches(0.6), Inches(1.6), Inches(12), Inches(5)).text_frame
+    caja.word_wrap = True
+    for i, (etq, val) in enumerate(cifras[:5]):
+        p = caja.paragraphs[0] if i == 0 else caja.add_paragraph()
+        p.text = f"{etq}:  {val}"
+        p.runs[0].font.size = Pt(20)
+        p.runs[0].font.color.rgb = navy
     for h in cedulas(definicion, reg, eventos, version, estado):
         if not _en_ppt(h["name"]):
             continue
@@ -531,8 +610,15 @@ def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     descargarlos; el PDF se guarda desde la impresión del navegador."""
     import base64
 
-    partes = []
-    for h in cedulas(definicion, reg, eventos, version, estado):
+    hojas = cedulas(definicion, reg, eventos, version, estado)
+    e = reg.get("engagement") or {}
+    run = reg.get("run") or {}
+    # Pestañas tipo botón + secciones
+    tabs, secciones = [], []
+    for idx, h in enumerate(hojas):
+        act = " on" if idx == 0 else ""
+        vis = "" if idx == 0 else ' hidden'
+        tabs.append(f'<button class="tab{act}" type="button" data-t="t{idx}">{_html.escape(h["label"])}</button>')
         cab = "".join(f"<th>{_html.escape(c[0])}</th>" for c in h["cols"])
         cuerpo = "".join(
             "<tr" + (' class="total"' if total else "") + ">"
@@ -541,39 +627,83 @@ def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
                       + f">{_celda(v, f)}</td>" for (_, f), v in zip(h["cols"], fila))
             + "</tr>"
             for fila, total in _filas(h))
-        partes.append(f"<section><h2>{_html.escape(h['label'])}</h2><table><thead><tr>{cab}</tr></thead><tbody>{cuerpo}</tbody></table></section>")
-    e = reg.get("engagement") or {}
+        bloque = como_se_calcula(h)
+        calc = ""
+        if bloque:
+            filas_c = "".join(
+                f"<tr><td>{_html.escape(b['columna'])}</td><td class='mono'>{_html.escape(b['formula'])}</td>"
+                f"<td>{_html.escape(b['explicacion'])}</td><td>{_html.escape(b['ejemplo'])}</td>"
+                f"<td>{_html.escape(b['origen'])}</td></tr>" for b in bloque)
+            calc = ("<details class='calc'><summary>ⓘ Ver cálculo de esta hoja</summary>"
+                    "<table class='calc'><thead><tr><th>Columna</th><th>Fórmula</th><th>Cómo se calcula</th>"
+                    f"<th>Ejemplo (fila 1)</th><th>De dónde viene</th></tr></thead><tbody>{filas_c}</tbody></table></details>")
+        secciones.append(f'<section id="t{idx}"{vis}><h2>{_html.escape(h["label"])}</h2>{calc}'
+                         f'<div class="scroll"><table><thead><tr>{cab}</tr></thead><tbody>{cuerpo}</tbody></table></div></section>')
+    # Tarjetas KPI
+    totales, etiquetas, prim = run.get("totals") or {}, run.get("labels") or {}, run.get("primary")
+    n_prob = len(run.get("exceptions") or [])
+    kpi_items = []
+    if prim in totales:
+        kpi_items.append((etiquetas.get(prim, prim), _celda({"v": totales[prim]}, "n"), est.NAVY))
+    for k in ("perdida", "cartera", "provReg"):
+        if k in totales and k != prim:
+            kpi_items.append((etiquetas.get(k, k), _celda({"v": totales[k]}, "n"), est.NAVY))
+    kpi_items.append(("Problemas encontrados", str(n_prob), est.color_semaforo(n_prob)))
+    kpis = "".join(f'<div class="kpi"><small>{_html.escape(etq)}</small><strong style="color:#{col}">{val}</strong></div>'
+                   for etq, val, col in kpi_items[:5])
     base = re.sub(r"[^\w-]+", "_", definicion.get("name", "papel"))[:60] + f"_v{version}"
     adjuntos = (
         ("xlsx", "Excel con fórmulas", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xlsx),
         ("docx", "Word", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", docx),
         ("pptx", "PowerPoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation", pptx),
+        ("zip", "CSV (ZIP)", "application/zip", csv_zip),
     )
     botones = "".join(
         f'<a class="btn" download="{base}.{ext}" href="data:{mime};base64,'
         f'{base64.b64encode(fn(definicion, reg, eventos, version, estado)).decode()}">⬇ {etiqueta}</a>'
         for ext, etiqueta, mime, fn in adjuntos
     ) + '<button class="btn" type="button" onclick="window.print()">⬇ PDF (Guardar como PDF)</button>'
+    css = (
+        f"body{{font-family:'Segoe UI',Calibri,Arial,sans-serif;margin:0;color:#{est.NAVY};background:#{est.LIGHT}}}"
+        f".wrap{{max-width:1200px;margin:0 auto;padding:20px}}"
+        f".marca{{background:#{est.NAVY};color:#fff;padding:14px 20px;border-radius:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}}"
+        ".marca b{font-size:16px}.marca span{font-size:12px;opacity:.85}"
+        ".kpis{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}"
+        f".kpi{{background:#fff;border:1px solid #{est.LINE};border-radius:10px;padding:10px 14px;min-width:150px}}"
+        f".kpi small{{display:block;color:#{est.TURQUOISE};font-weight:700;font-size:11px}}.kpi strong{{font-size:20px}}"
+        ".descargas{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}"
+        f".btn{{background:#{est.TURQUOISE};color:#fff;border:0;border-radius:6px;padding:8px 14px;font:inherit;text-decoration:none;cursor:pointer}}"
+        f".btn:hover{{background:#{est.GOLD};color:#{est.DEEP_BLUE}}}"
+        ".tabs{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 6px}"
+        f".tab{{background:#fff;border:1px solid #{est.LINE};border-radius:999px;padding:5px 12px;font:inherit;cursor:pointer;font-size:13px}}"
+        f".tab.on{{background:#{est.NAVY};color:#fff;border-color:#{est.NAVY};font-weight:700}}"
+        f"h2{{font-size:15px;border-bottom:2px solid #{est.GOLD};padding-bottom:4px}}"
+        ".scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:12px;background:#fff}"
+        f"th{{background:#{est.NAVY};color:#fff;padding:5px 6px}}"
+        f"td{{border:1px solid #{est.LINE};padding:3px 6px;vertical-align:top}}td.num{{text-align:right;white-space:nowrap;font-family:Consolas,monospace}}"
+        f"tr.total td{{font-weight:700;background:#{est.CELESTE};border-top:3px double #{est.NAVY};border-bottom:3px double #{est.NAVY}}}"
+        f"details.calc{{margin:8px 0;background:#fff;border:1px solid #{est.LINE};border-radius:8px;padding:6px 10px}}"
+        f"details.calc summary{{cursor:pointer;font-weight:700;color:#{est.TURQUOISE}}}"
+        "table.calc td.mono,td.mono{font-family:Consolas,monospace;font-size:11px}"
+        f".nota{{color:#555;font-size:12px}}"
+        "@media print{.descargas,.tabs,.nota,.btn{display:none}section[hidden]{display:block!important}"
+        "details.calc{display:none}body{background:#fff}.wrap{max-width:none;padding:0}"
+        "th{-webkit-print-color-adjust:exact;print-color-adjust:exact}@page{size:A4 landscape;margin:12mm}}"
+    )
+    js = ("<script>document.querySelectorAll('.tab').forEach(function(b){b.onclick=function(){"
+          "document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on')});b.classList.add('on');"
+          "document.querySelectorAll('section').forEach(function(s){s.hidden=(s.id!==b.dataset.t)});};});</script>")
     doc = (
         "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-        f"<title>{_html.escape(definicion.get('name', ''))}</title><style>"
-        "body{font-family:'DM Sans',Calibri,Arial,sans-serif;margin:24px;color:#0A2342;background:#fff}h1{font-size:20px}"
-        "h2{font-size:15px;margin-top:28px;border-bottom:2px solid #C7A83C}"
-        ".descargas{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 20px}"
-        ".btn{background:#0A2342;color:#fff;border:0;border-radius:6px;padding:8px 14px;font:inherit;text-decoration:none;cursor:pointer}"
-        ".btn:hover{background:#C7A83C;color:#071B2F}.nota{color:#555;font-size:12px}"
-        "section{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:12px}th{background:#0A2342;color:#fff;padding:4px 6px}"
-        "td{border:1px solid #B7C0CC;padding:3px 6px;vertical-align:top}td.num{text-align:right;white-space:nowrap}"
-        "tr.total td{font-weight:700;background:#DCE6F1;border-top:3px double #0A2342;border-bottom:3px double #0A2342}"
-        "@media print{.descargas,.nota{display:none}body{margin:0}section{break-inside:auto;overflow:visible}"
-        "th{-webkit-print-color-adjust:exact;print-color-adjust:exact}@page{size:A4 landscape;margin:12mm}}"
-        "</style></head><body>"
-        f"<h1>{_html.escape(definicion.get('name', ''))}</h1>"
-        f"<p>{_html.escape(str(e.get('client', '')))} · corte {_html.escape(str(e.get('cutoff', '')))} · v{version} · {_html.escape(estado)}</p>"
+        f"<title>{_html.escape(definicion.get('name', ''))}</title><style>{css}</style></head><body><div class=\"wrap\">"
+        f'<div class="marca"><b>AuditConsulting Auditores Cía. Ltda. · AUDIT-IA</b>'
+        f'<span>{_html.escape(str(e.get("client","")))} · RUC {_html.escape(str(e.get("ruc","")))} · corte {_html.escape(str(e.get("cutoff","")))} · v{version} · {_html.escape(est.estado_es(estado))}</span></div>'
+        f'<h1>{_html.escape(definicion.get("name",""))}</h1>'
+        f'<div class="kpis">{kpis}</div>'
         f'<div class="descargas">{botones}</div>'
-        '<p class="nota">Este archivo funciona sin conexión a internet. Pase el cursor sobre un importe para ver su fórmula; '
-        "en el Excel las fórmulas son editables y remiten a Parámetros, Detalle por factura y Matriz de deterioro.</p>"
-        + "".join(partes) + "</body></html>"
+        '<p class="nota">Funciona sin conexión. Pase el cursor sobre un importe para ver su fórmula; use «ⓘ Ver cálculo» para la explicación de cada hoja. En el Excel las fórmulas son editables y trazables.</p>'
+        f'<div class="tabs">{"".join(tabs)}</div>'
+        + "".join(secciones) + js + "</div></body></html>"
     )
     return doc.encode("utf-8")
