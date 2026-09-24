@@ -187,6 +187,7 @@ def init_db() -> None:
     from backend.app.recursos import models as _recursos_models  # noqa: F401
     from backend.app.forge import models as _forge_models  # noqa: F401
     from backend.app.execution import models as _execution_models  # noqa: F401
+    from backend.app.audit_apps import models as _audit_apps_models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
 

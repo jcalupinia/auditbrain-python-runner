@@ -32,12 +32,28 @@ Reglas del registro (a implementar y probar en el servidor):
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import TYPE_CHECKING
 
 from .manifest import AuditAppManifest
 
 if TYPE_CHECKING:  # evita importar SQLAlchemy/DB en un contenedor sin dependencias
     from sqlalchemy.orm import Session
+
+
+def manifest_hash(manifest: AuditAppManifest) -> str:
+    """sha256 canónico del contenido del manifest (huella para idempotencia)."""
+    blob = json.dumps(manifest.to_dict(), sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False, default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _clave_semver(version: str) -> tuple:
+    partes = []
+    for p in str(version).split("."):
+        partes.append(int(p) if p.isdigit() else 0)
+    return tuple(partes)
 
 
 class AuditAppRegistryError(RuntimeError):
@@ -82,29 +98,68 @@ class AuditAppRegistry:
 
         ``owner_user_id``/``organization_id`` salen de la sesión, no del cliente.
         """
-        raise NotImplementedError(
-            "audit_apps.registry.register: implementar contra PostgreSQL en el servidor"
+        from backend.app.audit_apps.models import AuditApp
+
+        manifest.validate()
+        h = manifest_hash(manifest)
+        existente = (
+            self._db.query(AuditApp)
+            .filter(AuditApp.app_id == manifest.id, AuditApp.version == manifest.version)
+            .first()
         )
+        if existente is not None:
+            if existente.manifest_hash == h:
+                return manifest, False  # idempotente: misma versión, mismo contenido
+            raise AppVersionConflictError(
+                f"{manifest.id} v{manifest.version} ya existe con otro contenido "
+                "(una versión publicada es inmutable: suba una versión nueva)"
+            )
+        fila = AuditApp(
+            app_id=manifest.id, version=manifest.version, name=manifest.name,
+            manifest=manifest.to_dict(), manifest_hash=h,
+            owner_user_id=owner_user_id, organization_id=organization_id,
+        )
+        self._db.add(fila)
+        self._db.flush()  # queryable en la misma transacción; el router hace commit
+        return manifest, True
 
     def get(self, app_id: str, version: str | None = None) -> AuditAppManifest:
         """Devuelve el manifest de una app. Sin ``version`` da la vigente (mayor
         semver publicada). Lanza ``AppNotFoundError`` si no existe."""
-        raise NotImplementedError(
-            "audit_apps.registry.get: implementar contra PostgreSQL en el servidor"
-        )
+        from backend.app.audit_apps.models import AuditApp
+
+        q = self._db.query(AuditApp).filter(AuditApp.app_id == app_id)
+        if version is not None:
+            fila = q.filter(AuditApp.version == version).first()
+            if fila is None:
+                raise AppNotFoundError(f"{app_id} v{version} no existe en el catálogo")
+            return AuditAppManifest.from_dict(fila.manifest)
+        filas = q.all()
+        if not filas:
+            raise AppNotFoundError(f"{app_id} no existe en el catálogo")
+        vigente = max(filas, key=lambda f: _clave_semver(f.version))
+        return AuditAppManifest.from_dict(vigente.manifest)
 
     def versions(self, app_id: str) -> list[str]:
         """Lista las versiones publicadas de una app, ordenadas ascendente por
         semver. Lista vacía si la app no existe (no lanza)."""
-        raise NotImplementedError(
-            "audit_apps.registry.versions: implementar contra PostgreSQL en el servidor"
-        )
+        from backend.app.audit_apps.models import AuditApp
+
+        filas = self._db.query(AuditApp).filter(AuditApp.app_id == app_id).all()
+        return sorted((f.version for f in filas), key=_clave_semver)
 
     def list(
         self, *, organization_id: int | None = None
     ) -> list[tuple[str, str]]:
         """Cataloga las apps visibles como ``(app_id, version_vigente)``, una por
         app, filtradas por tenant. Base del ``GET /audit-apps`` de la UI."""
-        raise NotImplementedError(
-            "audit_apps.registry.list: implementar contra PostgreSQL en el servidor"
-        )
+        from backend.app.audit_apps.models import AuditApp
+
+        q = self._db.query(AuditApp)
+        if organization_id is not None:
+            q = q.filter(AuditApp.organization_id == organization_id)
+        vigentes: dict[str, str] = {}
+        for f in q.all():
+            if f.app_id not in vigentes or _clave_semver(f.version) > _clave_semver(vigentes[f.app_id]):
+                vigentes[f.app_id] = f.version
+        return sorted(vigentes.items())

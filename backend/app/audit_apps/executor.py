@@ -29,10 +29,24 @@ Contrato de resolución de ``engine_ref`` (a implementar):
 
 from __future__ import annotations
 
+import hashlib
+import importlib
+import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
 
 from .manifest import AuditAppManifest, StepSpec
+
+
+def _hash_bytes(b: bytes) -> str:
+    return hashlib.sha256(b).hexdigest()
+
+
+def _hash_valor(v: Any) -> str:
+    if isinstance(v, (bytes, bytearray)):
+        return _hash_bytes(bytes(v))
+    blob = json.dumps(v, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 #: Raíces de import permitidas para ``engine_ref`` (defensa contra RCE por manifest).
 ENGINE_ALLOWLIST = ("motor.", "backend.app.aud.")
@@ -95,8 +109,18 @@ class ExecutionResult:
 class AuditAppExecutor:
     """Corre una Audit App validada contra el motor determinista. SCAFFOLD."""
 
-    def __init__(self, *, engine_version: str = "") -> None:
+    def __init__(
+        self,
+        *,
+        engine_version: str = "",
+        resolver: Callable[[StepSpec], Callable[..., Any]] | None = None,
+    ) -> None:
         self._engine_version = engine_version
+        # Inyección de dependencia: en producción se cablea el motor
+        # (import co-localizado o proxy HTTP al servicio del motor); en tests se
+        # inyectan funciones deterministas. Sin resolver, se usa el import con
+        # allow-list de `resolve_engine_ref`.
+        self._resolver = resolver
 
     def run(
         self,
@@ -126,9 +150,93 @@ class AuditAppExecutor:
 
         No hace ``commit`` ni encola: eso lo orquesta el Execution engine (D),
         que envuelve esta corrida en un ``ExecutionRun`` inmutable.
+
+        Convención de llamada de cada paso: el callable resuelto se invoca como
+        ``fn(ctx)`` con ``ctx = {"inputs", "intermediates", "parameters"}`` y
+        devuelve el valor que el paso ``produces``. En producción el callable es
+        un adaptador delgado sobre una función del motor; en tests se inyecta.
         """
-        raise NotImplementedError(
-            "audit_apps.executor.run: implementar contra el motor/execution engine en el servidor"
+        # 1. Manifest válido.
+        manifest.validate()
+
+        # 2. Parámetros: los requeridos deben venir; se congelan tal cual.
+        parameter_snapshot: dict[str, Any] = dict(parameters)
+        for par in manifest.parameters:
+            if par.required and par.id not in parameter_snapshot:
+                raise InsufficientInputError(f"falta el parámetro requerido '{par.id}'")
+
+        # 3. Insumos por hash + suficiencia (presencia; las columnas las evalúa el lector).
+        input_hashes: dict[str, str] = {
+            k: _hash_bytes(v) for k, v in inputs.items()
+        }
+        disponibles: list[str] = []
+        no_disponibles: list[str] = []
+        for inp in manifest.inputs:
+            if inp.id in inputs:
+                disponibles.append(inp.id)
+            elif inp.required:
+                no_disponibles.append(inp.id)
+
+        # 4. Pasos en orden; cada paso consume insumos/intermedios/parámetros.
+        intermedios: dict[str, Any] = {}
+        steps_result: list[StepResult] = []
+        for st in manifest.steps:
+            faltan = [
+                ref for ref in st.inputs
+                if ref not in inputs and ref not in intermedios
+            ]
+            if faltan:
+                # No se fuerza: el paso queda no disponible y se informa.
+                if st.produces:
+                    no_disponibles.append(st.produces)
+                continue
+            fn = self._resolver(st) if self._resolver is not None else self.resolve_engine_ref(st)
+            ctx = {
+                "inputs": {ref: inputs[ref] for ref in st.inputs if ref in inputs},
+                "intermediates": {ref: intermedios[ref] for ref in st.inputs if ref in intermedios},
+                "parameters": {pid: parameter_snapshot.get(pid) for pid in st.parameters},
+            }
+            valor = fn(ctx)
+            if st.produces:
+                intermedios[st.produces] = valor
+            steps_result.append(StepResult(
+                step_id=st.id, produces=st.produces, value=valor,
+                output_hash=_hash_valor(valor),
+            ))
+
+        # 5. Salidas declaradas desde los pasos que produjeron.
+        outputs: dict[str, bytes] = {}
+        output_hashes: dict[str, str] = {}
+        for out in manifest.outputs:
+            paso = next((s for s in manifest.steps if s.id == out.from_step), None)
+            if paso is None or not paso.produces or paso.produces not in intermedios:
+                continue
+            valor = intermedios[paso.produces]
+            crudo = valor if isinstance(valor, (bytes, bytearray)) else json.dumps(
+                valor, ensure_ascii=False, default=str).encode("utf-8")
+            outputs[out.id] = bytes(crudo)
+            output_hashes[out.id] = _hash_bytes(bytes(crudo))
+
+        # 6. Aceptaciones: se dejan en el trace (evaluación declarativa pendiente
+        #    de un evaluador de expresiones; nunca se marcan "cumplidas" a ciegas).
+        acceptance = tuple(
+            {"id": at.id, "description": at.description, "expects": at.expects,
+             "evaluado": False, "resultado": "pendiente de evaluación humana/servidor"}
+            for at in manifest.acceptance_tests
+        )
+
+        return ExecutionResult(
+            app_id=manifest.id,
+            app_version=manifest.version,
+            engine_version=self._engine_version,
+            input_hashes=input_hashes,
+            parameter_snapshot=parameter_snapshot,
+            output_hashes=output_hashes,
+            steps=tuple(steps_result),
+            outputs=outputs,
+            acceptance=acceptance,
+            disponibles=tuple(disponibles),
+            no_disponibles=tuple(no_disponibles),
         )
 
     def resolve_engine_ref(self, step: StepSpec) -> Callable[..., Any]:
@@ -136,6 +244,17 @@ class AuditAppExecutor:
         allow-list ANTES de importar. Lanza ``EngineRefNotAllowedError`` si la
         ruta cae fuera de ``ENGINE_ALLOWLIST`` (evita ejecución arbitraria por un
         manifest hostil)."""
-        raise NotImplementedError(
-            "audit_apps.executor.resolve_engine_ref: implementar import diferido con allow-list"
-        )
+        ref = step.engine_ref or ""
+        if not any(ref.startswith(prefijo) for prefijo in ENGINE_ALLOWLIST):
+            raise EngineRefNotAllowedError(
+                f"engine_ref '{ref}' fuera de la allow-list {ENGINE_ALLOWLIST}"
+            )
+        modulo_path, _, attr = ref.rpartition(".")
+        try:
+            modulo = importlib.import_module(modulo_path)
+            fn = getattr(modulo, attr)
+        except (ImportError, AttributeError) as e:
+            raise ExecutorError(f"no se pudo resolver engine_ref '{ref}': {e}") from e
+        if not callable(fn):
+            raise ExecutorError(f"engine_ref '{ref}' no es un callable")
+        return fn
