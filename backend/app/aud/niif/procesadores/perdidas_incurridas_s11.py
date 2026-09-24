@@ -28,6 +28,8 @@ import unicodedata
 from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
+from backend.app.aud.niif.procesadores import problemas
+
 VERSION = "pi-s11 1.0"
 
 TRAMOS = [
@@ -726,6 +728,29 @@ def _tramo_formula(celda: str) -> str:
     for t in reversed(TRAMOS[:-1]):
         f = f'IF({celda}<={t["max"]},"{t["n"]}",{f})'
     return f'IF({celda}="","",{f})'
+
+
+def _conciliacion_inicial(hojas, e):
+    """Provisión inicial por factura (TOTAL de 06) − saldo inicial del mayor del último año (07)."""
+    mov = next(h for h in hojas if h["name"] == "06_Movimiento_provision")
+    may = next(h for h in hojas if h["name"] == "07_Mayor")
+    if not mov.get("total") or not may.get("rows"):
+        return None
+    formula = (f"{problemas.celda(hojas, '06_Movimiento_provision', 'Provisión inicial', len(mov['rows']))}"
+               f"-{problemas.celda(hojas, '07_Mayor', 'Inicial', len(may['rows']) - 1)}")
+    valor = problemas._num(mov["total"][2]) - (problemas._num(may["rows"][-1][1]) or 0)
+    return formula, valor
+
+
+# De qué celda sale el importe de cada problema (ver procesadores/problemas.py).
+REF_PROBLEMAS = {
+    "TRAMO_NO_MEDIBLE": ("04_Matriz_deterioro", "Saldo"),          # saldo del tramo sin tasa
+    "EVALUACION_INDIVIDUAL": ("05_Por_cliente", "Pérdida"),        # pérdida del cliente a evaluar
+    "PROVISION_PENDIENTE": ("06_Movimiento_provision", "Provisión inicial"),  # fila de la factura
+    "AJUSTE": ("01_Resumen", "Importe"),                           # «Ajuste propuesto»
+    "NO_DEDUCIBLE": ("08_Fiscal", "Importe"),                      # «Gasto no deducible»
+    "CONCILIACION_INICIAL": _conciliacion_inicial,
+}
 
 
 def hojas(res: dict) -> list[dict]:

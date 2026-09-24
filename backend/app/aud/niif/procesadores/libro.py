@@ -20,6 +20,7 @@ from openpyxl.worksheet.properties import PageSetupProperties
 
 from backend.app.aud.niif.procesadores import estilo_ejecutivo as est
 from backend.app.aud.niif.procesadores import graficos
+from backend.app.aud.niif.procesadores import problemas
 
 NAVY, GOLD, BLANCO, CELESTE = "0A2342", "C7A83C", "FFFFFF", "DCE6F1"
 _FINO = Side(style="thin", color="B7C0CC")
@@ -75,9 +76,14 @@ def _contexto(definicion: dict, reg: dict, eventos: list, version: int, estado: 
     fuentes += [["NIA · " + x.get("document", ""), x.get("requirement", ""), x.get("section", ""), "", ""]
                 for x in definicion.get("nia") or [] if isinstance(x, dict)]
     c = reg.get("reconciliation") or {}
+    if c.get("total") is None and c.get("ledger") is None:
+        # Aún no se registra (se hace al revisar la cobertura): nunca «None».
+        conciliacion = "Pendiente: se registra al revisar la cobertura (población según el papel vs saldo del mayor)."
+    else:
+        conciliacion = (f"Población {c.get('total')} · mayor {c.get('ledger')} · diferencia {c.get('difference')}"
+                        + (f" · aceptación: {c.get('acceptance')}" if c.get("acceptance") and not c.get("within") else ""))
     cierre = [
-        ["Conciliación con el mayor", f"Población {c.get('total')} · mayor {c.get('ledger')} · diferencia {c.get('difference')}"
-         + (f" · aceptación: {c.get('acceptance')}" if c.get("acceptance") and not c.get("within") else "")],
+        ["Conciliación con el mayor", conciliacion],
         ["Evaluación de excepciones", reg.get("exceptionReview") or ""],
         ["Análisis", reg.get("analysis") or ""], ["Conclusión", reg.get("conclusion") or ""],
     ]
@@ -101,7 +107,10 @@ def _contexto(definicion: dict, reg: dict, eventos: list, version: int, estado: 
 
 def cedulas(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> list[dict]:
     antes, despues = _contexto(definicion, reg, eventos, version, estado)
-    return antes + ((reg.get("run") or {}).get("hojas") or []) + despues
+    run = reg.get("run") or {}
+    # El importe de cada problema remite por fórmula a la celda de la cédula que lo calcula.
+    propias, _ = problemas.enlazar(run.get("hojas") or [], problemas.refs_de(definicion), run.get("exceptions"))
+    return antes + propias + despues
 
 
 def _titulos_unicos(hojas: list[dict]) -> list[str]:
@@ -177,15 +186,16 @@ def _panel_inicio(ws, S, definicion, reg, titulos, hojas, estado, version):
         if k in totales and k != prim:
             kpis.append((etiquetas.get(k, k), totales.get(k), "n", None))
     kpis.append(("Problemas encontrados", n_prob, "i", est.color_semaforo(n_prob)))
+    # Cada indicador es una fórmula a la cédula que lo calcula (nunca un valor pegado).
+    kpis = [(etq, val, fmt, sem, _formula_kpi(hojas, titulos, etq, val, fmt)) for etq, val, fmt, sem in kpis]
     kfila = fila + 1
     ws[f"B{kfila}"].value = "INDICADORES CLAVE"
     ws[f"B{kfila}"].font = S["subtitulo"]
     kfila += 1
-    for i, (etq, val, fmt, semaforo) in enumerate(kpis[:6]):
-        col = "BCD"[i % 3] if i < 3 else "BCD"[i % 3]
+    for i, (etq, val, fmt, semaforo, formula) in enumerate(kpis[:6]):
         base_col = ["B", "C", "D"][i % 3]
         base_row = kfila + (i // 3) * 3
-        _tarjeta_kpi(ws, base_col, base_row, etq, val, fmt, semaforo, S)
+        _tarjeta_kpi(ws, base_col, base_row, etq, val, fmt, semaforo, S, formula)
     ultima_kpi = kfila + ((len(kpis[:6]) - 1) // 3) * 3 + 2
     # Grilla de botones de navegación a cada cédula
     nav_row = ultima_kpi + 2
@@ -202,8 +212,30 @@ def _panel_inicio(ws, S, definicion, reg, titulos, hojas, estado, version):
     return nav_row + max(0, (len(hojas) - 1) // 4)
 
 
-def _tarjeta_kpi(ws, col, row, etq, val, fmt, semaforo, S):
-    c2 = chr(ord(col) + 0)
+def _formula_kpi(hojas, titulos, etiqueta, valor, fmt):
+    """Fórmula del indicador de la portada: el conteo de la hoja de problemas o la
+    fila del Resumen con el mismo rótulo e importe. None si no hay celda de origen."""
+    if fmt == "i":
+        ip = next((i for i, h in enumerate(hojas) if problemas.es_hoja_problemas(h)), None)
+        if ip is None:
+            return None
+        n = len(hojas[ip].get("rows") or [])
+        return f"=COUNTA({_q(titulos[ip])}A5:A{4 + max(n, 1)})"
+    try:
+        objetivo = float(str(valor).replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+    for i, h in enumerate(hojas):
+        if [c[1] for c in h.get("cols", [])] != ["t", "n"]:
+            continue
+        for k, f in enumerate(h.get("rows") or []):
+            if len(f) > 1 and _valor(f[0]) == etiqueta and graficos._num(f[1]) is not None \
+                    and abs(graficos._num(f[1]) - objetivo) < 0.006:
+                return f"={_q(titulos[i])}B{5 + k}"
+    return None
+
+
+def _tarjeta_kpi(ws, col, row, etq, val, fmt, semaforo, S, formula=None):
     ws[f"{col}{row}"].value = etq
     ws[f"{col}{row}"].font = S["kpi_etq"]
     ws[f"{col}{row}"].alignment = Alignment(wrap_text=True, vertical="bottom")
@@ -218,6 +250,8 @@ def _tarjeta_kpi(ws, col, row, etq, val, fmt, semaforo, S):
             v.number_format = est.FMT["n"]
         except (ValueError, TypeError):
             v.value = _seguro(val)
+    if formula:
+        v.value = formula
     v.font = S["kpi_valor"]
     for r in (row, row + 1):
         ws[f"{col}{r}"].fill = S["fill_panel"]

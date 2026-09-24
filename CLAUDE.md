@@ -515,6 +515,18 @@ fórmula con el valor que calculó Python (diferencia 0). Referencia:
 `scripts/verificar_formulas_pi.py` (pérdidas incurridas). Implementación de referencia:
 `backend/app/aud/niif/procesadores/libro.py` (celdas `{"f": fórmula, "v": valor}`).
 
+**Sin cifras calculadas pegadas (decisión del dueño, 2026-09-24):** ninguna cifra que resulte
+de un cálculo puede ir como valor fijo en el Excel. Los datos que entrega el cliente y los
+parámetros del auditor sí son valores (entradas); todo lo demás es fórmula:
+- Indicadores de la portada `00_Inicio`: fórmula a la fila del Resumen / `COUNTA` de Problemas
+  (`libro._formula_kpi`).
+- Importe de cada problema: fórmula a la celda de la cédula donde se origina. Cada procesador
+  declara `REF_PROBLEMAS = {código: (hoja, columna) | (hoja, columna, "total") | función}`
+  (`procesadores/problemas.py`). Solo se enlaza si la celda tiene ese mismo importe; si no, queda
+  como valor y lo reporta `python scripts/verificar_problemas_enlazados.py` (debe dar «PENDIENTES: 0»).
+- Un código de problema nuevo exige su entrada en `REF_PROBLEMAS`; lo vigila
+  `tests/test_aud_sin_datos_fijos.py`.
+
 Pruebas declarativas (catálogo y fichas sin procesador): el papel lo arma el navegador con
 `frontend/src/aud/niif/papelDeclarativo.js` a partir de las mismas cédulas del exportador del
 sitio (`workbookSheets`): Excel con fórmulas, Word, PowerPoint y el HTML del sitio con los tres
