@@ -430,6 +430,123 @@ def _si(celda: str) -> str:
     return f'IF({celda}="","",{celda})'
 
 
+_H03, _H04 = "la hoja 03 (Activos asegurables)", "la hoja 04 (Pólizas)"
+
+# Dashboard: el valor de referencia de los activos es la población; la prima anticipada recalculada vs la registrada da el ajuste principal.
+PANEL = {
+    "poblacion":    {"rotulo": "Valor asegurable de referencia", "hoja": "06_Cobertura_activo", "col": "Valor de referencia"},
+    "recalculado":  {"rotulo": "Prima anticipada recalculada", "total": "primaRecalculada"},
+    "registrado":   {"rotulo": "Prima anticipada registrada", "total": "primaRegistrada"},
+    "composicion":  {"rotulo": "Prima recalculada por póliza", "hoja": "10_Prima_anticipada", "etiqueta": "Póliza",
+                     "valor": "Anticipada recalculada"},
+    "distribucion": {"rotulo": "Valor asegurable por cobertura", "hoja": "06_Cobertura_activo", "etiqueta": "Clasificación",
+                     "valor": "Valor de referencia"},
+}
+
+# Explicación HUMANA de cada columna calculada («Cómo se calcula esta hoja»).
+_EXPLICA = {
+    "01_Resumen": {
+        "Importe": ("Trae cada importe de la hoja que lo calcula, concepto por concepto: los indicadores de cobertura, siniestros y "
+                    "exposición salen de la hoja 12 (Indicadores y conclusión) y los de prima anticipada y el ajuste, de la hoja 13 "
+                    "(Ajustes propuestos y conciliación). La cobertura global se muestra multiplicada por 100 (en %)."),
+    },
+    "05_Vigencia": {
+        "Días de vigencia": f"Resta la fecha «desde» a la fecha «hasta» de la póliza en {_H04}: son los días que dura la cobertura.",
+        "Estado al corte": (f"Compara las fechas de {_H04} con el corte de la hoja 02 (Parámetros): «Vencida» si terminó antes del corte, "
+                            "«No iniciada» si empieza después y «Vigente» en los demás casos."),
+        "Días por vencer": f"Solo para pólizas vigentes, resta la fecha de corte a la fecha «hasta» de {_H04}; en las demás queda en blanco.",
+        "Alerta": ("Marca «Por vencer» cuando los días por vencer no superan el umbral de alerta de la hoja 02 (Parámetros); si la "
+                   "póliza no está vigente o vence más tarde, queda en blanco."),
+    },
+    "06_Cobertura_activo": {
+        "Valor de referencia": (f"Usa el valor de reposición o tasación del activo en {_H03}; si el cliente no lo informó, toma el valor "
+                                "en libros."),
+        "Base de referencia": f"Indica qué valor se usó como referencia: «Reposición/tasación» si existe en {_H03}; si no, «Valor en libros».",
+        "Estado de la póliza": (f"Busca la póliza del activo en {_H04} y trae su estado al corte de la hoja 05 (Vigencia). Si el activo no "
+                                "tiene póliza dice «Sin póliza»; si la póliza no está en la lista, «Póliza no encontrada»."),
+        "Suma asegurada asignada": (f"Usa la suma asignada por el cliente al activo en {_H03}. Si no la hay, reparte la suma asegurada de "
+                                    "la póliza (hoja 04) entre sus activos en proporción a su valor de referencia. Es cero sin póliza o si "
+                                    "la póliza no se encuentra."),
+        "Suma asegurada vigente": "Mantiene la suma asegurada asignada solo si la póliza está vigente al corte; si está vencida o no iniciada, es cero.",
+        "% cobertura": "Divide la suma asegurada vigente entre el valor de referencia del activo; en blanco si la referencia es cero.",
+        "Déficit": "Resta la suma asegurada vigente al valor de referencia: es la parte del activo que no está asegurada (nunca menos de cero).",
+        "Exceso": "Resta el valor de referencia a la suma asegurada vigente: es lo asegurado por encima del valor del activo (mínimo cero).",
+        "Clasificación": ("Califica la cobertura del activo: «Sin cobertura» si la suma vigente es cero; «Infraseguro» bajo la cobertura "
+                          "mínima y «Sobreseguro» sobre el umbral de la hoja 02 (Parámetros); si no, «Adecuada»."),
+    },
+    "07_Cobertura_poliza": {
+        "Estado": "Trae el estado de la póliza al corte (vigente, vencida o no iniciada) desde la hoja 05 (Vigencia de pólizas).",
+        "Suma asegurada total": f"Trae la suma asegurada total contratada en la póliza, según {_H04}.",
+        "Referencia asignada": ("Suma el valor de referencia de todos los activos que el cliente asignó a esta póliza, tomado de la "
+                                "hoja 06 (Universo y cobertura por activo)."),
+        "Activos": f"Cuenta cuántos activos de {_H03} están asignados a esta póliza.",
+        "% cobertura": "Divide la suma asegurada total de la póliza entre el valor de referencia asignado; en blanco si no tiene activos asignados.",
+        "Factor proporcional": ("Toma el % de cobertura con un máximo de 100 %: es la proporción del daño que pagaría la aseguradora "
+                                "si aplica la regla proporcional por infraseguro."),
+        "Déficit": "Resta la suma asegurada total al valor de referencia asignado: lo que falta asegurar en la póliza (mínimo cero).",
+        "Sumas asignadas": "Suma las sumas aseguradas asignadas a los activos de esta póliza en la hoja 06 (Universo y cobertura por activo).",
+        "Total − asignadas": ("Resta las sumas asignadas a los activos a la suma asegurada total: distinto de cero indica que la "
+                              "asignación por activo no cuadra con la póliza."),
+        "Clasificación": ("Califica la póliza con su % de cobertura y los umbrales de la hoja 02 (Parámetros): infraseguro, sobreseguro "
+                          "o adecuada; si no tiene activos asignados, lo indica."),
+    },
+    "08_Deducibles_exposicion": {
+        "Pérdida total (referencia)": ("Supone la pérdida total del activo: trae su valor de referencia de la hoja 06 (Universo y "
+                                       "cobertura por activo)."),
+        "Factor proporcional": ("Divide la suma asegurada vigente del activo (hoja 06) entre la pérdida total, con un máximo de 100 %; "
+                                "si la pérdida es cero, el factor es cero."),
+        "Indemnización bruta": "Multiplica la pérdida total por el factor proporcional: lo que pagaría la aseguradora antes del deducible.",
+        "Deducible %": f"Trae el porcentaje de deducible del activo informado en {_H03}; si está en blanco, se toma como cero.",
+        "Deducible": ("Aplica el porcentaje de deducible sobre la pérdida total, sin pasar de la indemnización bruta; si no hay "
+                      "indemnización, es cero."),
+        "Indemnización neta": "Resta el deducible a la indemnización bruta: es lo que efectivamente cobraría la entidad.",
+        "Pérdida no cubierta": "Resta la indemnización neta a la pérdida total: es lo que la entidad perdería de su bolsillo.",
+    },
+    "09_Sin_cobertura": {
+        "Motivo": ("Trae de la hoja 06 (Universo y cobertura por activo) el estado de la póliza del activo: sin póliza, póliza no "
+                   "encontrada, vencida o no iniciada."),
+        "Valor en libros": f"Trae el valor en libros del activo sin cobertura vigente, tomado de {_H03}.",
+        "Valor de referencia": "Trae el valor de referencia (reposición, tasación o libros) del activo desde la hoja 06 (Cobertura por activo).",
+    },
+    "10_Prima_anticipada": {
+        "Prima total": f"Trae la prima total de la póliza informada en {_H04}; si no se informó, queda en blanco.",
+        "Días de vigencia": "Trae los días que dura la póliza, calculados en la hoja 05 (Vigencia de pólizas al corte).",
+        "Días por transcurrir": (f"Resta la fecha de corte (hoja 02) a la fecha «hasta» de {_H04}, sin pasar de los días de vigencia; "
+                                 "si la póliza ya venció, es cero."),
+        "Anticipada recalculada": ("Multiplica la prima total por los días por transcurrir y la divide para los días de vigencia: es "
+                                   "la parte de la prima que aún no se ha devengado."),
+        "Anticipada registrada": f"Trae la prima pagada por anticipado que registró el cliente para la póliza en {_H04}; en blanco si falta.",
+        "Registrada − recalculada": ("Resta la anticipada recalculada a la registrada: positivo es anticipo de más (falta llevar a "
+                                     "gasto); en blanco si falta alguna de las dos."),
+    },
+    "11_Siniestros": {
+        "Monto": f"Trae el monto del siniestro pendiente informado en {_H04}; en blanco si no se informó.",
+        "Estado de la póliza": "Trae el estado al corte de la póliza del siniestro desde la hoja 05 (Vigencia de pólizas al corte).",
+        "Evaluación": (f"Si el cliente indicó en {_H04} que el siniestro está revelado (Sí), dice «Revelado»; si no, advierte que falta "
+                       "la revelación y qué normas evaluar."),
+        "Tipo de siniestro": f"Trae el tipo de siniestro (daño a activo propio o reclamo de terceros) informado en {_H04}.",
+        "Cobro exigible": f"Trae la respuesta del cliente (Sí/No) sobre si el cobro a la aseguradora ya es exigible, según {_H04}.",
+        "Tratamiento contable": ("Decide el tratamiento con el tipo y la exigibilidad: daño propio con cobro exigible se reconoce en "
+                                 "resultados; sin cobro exigible o sin ese dato, activo contingente; el reclamo de terceros (o tipo no "
+                                 "informado) va como provisión y el reembolso solo si es prácticamente seguro."),
+        "Compensación exigible a reconocer": ("Trae el monto del siniestro solo cuando el tratamiento es «compensación exigible»; en "
+                                              "los demás casos es cero."),
+    },
+    "12_Conclusion": {
+        "Importe": ("Cada indicador resume otra hoja: valor de referencia, suma vigente, déficit y sobreseguro salen de la hoja 06; los "
+                    "activos sin cobertura, de las hojas 03 y 06; la exposición máxima es la mayor pérdida no cubierta de la hoja 08; "
+                    "los siniestros, de la 11, y el ajuste, de la 13."),
+        "Porcentaje": "Divide la suma asegurada vigente entre el valor de referencia de los activos (dos primeras filas de esta hoja).",
+        "Cantidad": ("Cuenta casos en otras hojas: activos con suma vigente cero o con infraseguro (hoja 06) y pólizas vencidas o por "
+                     "vencer (hoja 05)."),
+    },
+    "13_Ajustes": {
+        "Importe": ("Suma la prima anticipada registrada, la recalculada y su diferencia de la hoja 10 (Prima pagada por anticipado); el "
+                    "ajuste es esa diferencia con signo contrario; el saldo del mayor viene de la hoja 02 y se compara con el detalle."),
+    },
+}
+
+
 def hojas(res: dict) -> list[dict]:
     d = res["detalle"]
     p, A, PO, k = d["parametros"], d["activos"], d["polizas"], d["kpi"]
@@ -589,7 +706,7 @@ def hojas(res: dict) -> list[dict]:
     resumen = [[res["labels"][kk], fx(celda[kk], valor[kk])] for kk in res["labels"]]
 
     return [
-        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen),
+        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=_EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
         hoja("03_Activos", "Activos asegurables (datos del cliente)",
              [["Código", "t"], ["Descripción", "t"], ["Clase", "t"], ["Valor en libros", "n"], ["Valor de referencia", "n"], ["Póliza", "t"],
@@ -601,35 +718,39 @@ def hojas(res: dict) -> list[dict]:
               ["Revelado", "t"], ["Tipo de siniestro", "t"], ["Cobro exigible", "t"]], pol),
         hoja("05_Vigencia", "Vigencia de pólizas al corte",
              [["Póliza", "t"], ["Desde", "d"], ["Hasta", "d"], ["Días de vigencia", "i"], ["Estado al corte", "t"], ["Días por vencer", "i"],
-              ["Alerta", "t"]], vig),
+              ["Alerta", "t"]], vig, explica=_EXPLICA["05_Vigencia"]),
         hoja("06_Cobertura_activo", "Universo y cobertura por activo",
              [["Código", "t"], ["Póliza", "t"], ["Valor de referencia", "n"], ["Base de referencia", "t"], ["Estado de la póliza", "t"],
               ["Suma asegurada asignada", "n"], ["Suma asegurada vigente", "n"], ["% cobertura", "p"], ["Déficit", "n"], ["Exceso", "n"],
               ["Clasificación", "t"]], cob,
              ["TOTAL", "", suma("C", fin(n), k["valorReferencia"]), "", "", None, suma("G", fin(n), k["sumaAsegurada"]), None,
-              suma("I", fin(n), k["deficitCobertura"]), None, ""]),
+              suma("I", fin(n), k["deficitCobertura"]), None, ""], explica=_EXPLICA["06_Cobertura_activo"]),
         hoja("07_Cobertura_poliza", "Cobertura por póliza (infraseguro)",
              [["Póliza", "t"], ["Estado", "t"], ["Suma asegurada total", "n"], ["Referencia asignada", "n"], ["Activos", "i"], ["% cobertura", "p"],
-              ["Factor proporcional", "p"], ["Déficit", "n"], ["Sumas asignadas", "n"], ["Total − asignadas", "n"], ["Clasificación", "t"]], cpo),
+              ["Factor proporcional", "p"], ["Déficit", "n"], ["Sumas asignadas", "n"], ["Total − asignadas", "n"], ["Clasificación", "t"]], cpo,
+             explica=_EXPLICA["07_Cobertura_poliza"]),
         hoja("08_Deducibles_exposicion", "Deducibles y exposición máxima",
              [["Código", "t"], ["Pérdida total (referencia)", "n"], ["Factor proporcional", "p"], ["Indemnización bruta", "n"], ["Deducible %", "n"],
               ["Deducible", "n"], ["Indemnización neta", "n"], ["Pérdida no cubierta", "n"]], ded,
-             ["TOTAL", None, None, None, None, suma("F", fin(n), sum(a["deducible"] for a in A)), None, suma("H", fin(n), sum(a["no_cubierta"] for a in A))]),
+             ["TOTAL", None, None, None, None, suma("F", fin(n), sum(a["deducible"] for a in A)), None, suma("H", fin(n), sum(a["no_cubierta"] for a in A))],
+             explica=_EXPLICA["08_Deducibles_exposicion"]),
         hoja("09_Sin_cobertura", "Activos sin cobertura",
              [["Código", "t"], ["Descripción", "t"], ["Póliza", "t"], ["Motivo", "t"], ["Valor en libros", "n"], ["Valor de referencia", "n"]], sin_cob,
-             ["TOTAL", "", "", "", suma("E", fin(len(S)), k["sinCoberturaLibros"]), suma("F", fin(len(S)), k["sinCoberturaReferencia"])] if S else None),
+             ["TOTAL", "", "", "", suma("E", fin(len(S)), k["sinCoberturaLibros"]), suma("F", fin(len(S)), k["sinCoberturaReferencia"])] if S else None,
+             explica=_EXPLICA["09_Sin_cobertura"]),
         hoja("10_Prima_anticipada", "Prima pagada por anticipado",
              [["Póliza", "t"], ["Prima total", "n"], ["Días de vigencia", "i"], ["Días por transcurrir", "i"], ["Anticipada recalculada", "n"],
               ["Anticipada registrada", "n"], ["Registrada − recalculada", "n"]], pri,
              ["TOTAL", None, None, None, suma("E", fin(npol), k["primaRecalculada"]), suma("F", fin(npol), k["primaRegistrada"]),
-              suma("G", fin(npol), k["difPrima"])] if npol else None),
+              suma("G", fin(npol), k["difPrima"])] if npol else None, explica=_EXPLICA["10_Prima_anticipada"]),
         hoja("11_Siniestros", "Siniestros pendientes y revelación",
              [["Póliza", "t"], ["Aseguradora", "t"], ["Siniestro", "t"], ["Monto", "n"], ["Revelado", "t"], ["Estado de la póliza", "t"],
               ["Evaluación", "t"], ["Tipo de siniestro", "t"], ["Cobro exigible", "t"], ["Tratamiento contable", "t"],
-              ["Compensación exigible a reconocer", "n"]], sini),
-        hoja("12_Conclusion", "Indicadores y conclusión", [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"]], con),
+              ["Compensación exigible a reconocer", "n"]], sini, explica=_EXPLICA["11_Siniestros"]),
+        hoja("12_Conclusion", "Indicadores y conclusión", [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"]], con,
+             explica=_EXPLICA["12_Conclusion"]),
         hoja("13_Ajustes", "Ajustes propuestos y conciliación",
-             [["Concepto", "t"], ["Importe", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]], ajus),
+             [["Concepto", "t"], ["Importe", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]], ajus, explica=_EXPLICA["13_Ajustes"]),
         hoja("14_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
     ]
