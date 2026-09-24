@@ -162,8 +162,11 @@ Se hace una vez al año, típicamente entre noviembre y febrero. Pasos:
   `sqlalchemy.exc.IntegrityError` por estado compartido en la base SQLite de
   desarrollo. `test_sandbox` sí falla también en aislamiento.
   Investigar y arreglar antes de cualquier release a producción de esos módulos.
-- **API keys pendientes de rotar**: revocar Render API key
-  `rnd_CXjUFxFmYQNZ2l2lAy8Ho2ebthhw` y configurar Resend email API key.
+- **API keys pendientes de rotar**: revocar en el panel de Render la API key que
+  estuvo escrita en este archivo (retirada del texto el 2026-09-24; sigue en el
+  historial de git, por eso hay que revocarla) y configurar Resend email API key.
+  Nunca escribir claves ni tokens en archivos del repo: van en variables de
+  entorno de Render.
 - **QA pendiente**: re-habilitar checks estrictos de device/session una vez
   terminada la fase de QA con clientes piloto.
 
