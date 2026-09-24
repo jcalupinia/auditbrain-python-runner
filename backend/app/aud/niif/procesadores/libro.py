@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import html as _html
 import io
+import math
 import re
 from datetime import date
 
@@ -18,6 +19,7 @@ from openpyxl.utils import column_index_from_string, get_column_letter
 from openpyxl.worksheet.properties import PageSetupProperties
 
 from backend.app.aud.niif.procesadores import estilo_ejecutivo as est
+from backend.app.aud.niif.procesadores import graficos
 
 NAVY, GOLD, BLANCO, CELESTE = "0A2342", "C7A83C", "FFFFFF", "DCE6F1"
 _FINO = Side(style="thin", color="B7C0CC")
@@ -136,7 +138,7 @@ def _panel_inicio(ws, S, definicion, reg, titulos, hojas, estado, version):
     ws.sheet_view.showGridLines = False
     ws.column_dimensions["A"].width = 3
     for col in "BCDEF":
-        ws.column_dimensions[col].width = 22
+        ws.column_dimensions[col].width = 27  # botones con rótulos largos sin truncar
     # Banda de marca
     ws.merge_cells("B2:F3")
     b = ws["B2"]
@@ -194,15 +196,18 @@ def _panel_inicio(ws, S, definicion, reg, titulos, hojas, estado, version):
         col = ["B", "C", "D", "E"][i % 4]
         row = nav_row + (i // 4)
         _boton(ws, f"{col}{row}", h.get("label", t), _ref(t), S)
-        ws.row_dimensions[row].height = 22
+        ws.row_dimensions[row].height = 32  # rótulos largos en dos líneas, sin truncar
     ws.print_options.horizontalCentered = True
     _print_setup(ws, e)
+    return nav_row + max(0, (len(hojas) - 1) // 4)
 
 
 def _tarjeta_kpi(ws, col, row, etq, val, fmt, semaforo, S):
     c2 = chr(ord(col) + 0)
     ws[f"{col}{row}"].value = etq
     ws[f"{col}{row}"].font = S["kpi_etq"]
+    ws[f"{col}{row}"].alignment = Alignment(wrap_text=True, vertical="bottom")
+    ws.row_dimensions[row].height = max(ws.row_dimensions[row].height or 0, 30)
     v = ws[f"{col}{row + 1}"]
     if fmt == "i":
         v.value = int(val) if isinstance(val, (int, float)) else val
@@ -256,16 +261,22 @@ def _hoja_ejecutiva(ws, S, h, titulo_prueba, nav):
         c.font = S["encabezado"]
         c.fill = S["fill_encabezado"]
         c.alignment = S["centro"]
-        c.border = S["borde"]
+        c.border = S["borde_enc"]
+    ws.row_dimensions[fila_enc].height = 30
+    # Subrayado dorado bajo el título de la cédula
+    for j in range(1, max(6, len(h["cols"])) + 1):
+        ws.cell(row=2, column=j).border = S["filete_oro"]
     filas = [(r, False) for r in h["rows"]] + ([(h["total"], True)] if h.get("total") else [])
     for i, (fila, total) in enumerate(filas, start=fila_enc + 1):
         for j, ((_, fmt), v) in enumerate(zip(h["cols"], fila), start=1):
             c = ws.cell(row=i, column=j, value=_excel(v, fmt))
             es_num = fmt in est.FMT or (fmt == "x" and isinstance(_valor(v), (int, float)))
             c.font = S["total"] if total else (S["cifra"] if es_num else S["dato"])
-            c.border = S["borde_total"] if total else S["borde"]
+            c.border = S["borde_total"] if total else S["borde_fila"]
             if total:
                 c.fill = S["fill_total"]
+            elif (i - fila_enc) % 2 == 0:
+                c.fill = S["fill_zebra"]   # filas alternas
             if isinstance(c.value, date):
                 c.number_format = est.FMT["d"]
                 c.alignment = S["centro"]
@@ -284,6 +295,114 @@ def _hoja_ejecutiva(ws, S, h, titulo_prueba, nav):
     _bloque_como_se_calcula(ws, S, h, len(filas) + fila_enc + 2)
     _print_setup(ws, {})
 
+
+
+def _q(titulo: str) -> str:
+    """Nombre de hoja citado para una fórmula: 'Hoja con espacios'!"""
+    return "'" + titulo.replace("'", "''") + "'!"
+
+
+def _barras_excel(ws, titulo, cat_ref, val_ref, alto_items, ancla):
+    """Gráfico de barras nativo con el estilo del papel (una serie, sin cuadrícula,
+    solo el valor como etiqueta, rótulos al borde para no pisar negativos)."""
+    from openpyxl.chart import BarChart
+    from openpyxl.chart.label import DataLabelList
+
+    ch = BarChart()
+    ch.type = "bar"
+    ch.title = titulo
+    ch.legend = None
+    ch.gapWidth = 60
+    ch.add_data(val_ref, titles_from_data=True)
+    ch.set_categories(cat_ref)
+    serie = ch.series[0]
+    serie.graphicalProperties.solidFill = est.SERIE
+    serie.graphicalProperties.line.noFill = True
+    serie.invertIfNegative = False
+    ch.x_axis.scaling.orientation = "maxMin"   # primer concepto arriba, como en la tabla
+    ch.x_axis.tickLblPos = "low"               # rótulos al borde: no pisan barras negativas
+    ch.x_axis.delete = False
+    ch.y_axis.delete = False
+    ch.y_axis.numFmt = "#,##0"
+    ch.y_axis.majorGridlines = None
+    ch.dataLabels = DataLabelList()
+    ch.dataLabels.showVal = True
+    # Explícitos: si faltan, algunos lectores (LibreOffice) añaden categoría y serie.
+    ch.dataLabels.showCatName = False
+    ch.dataLabels.showSerName = False
+    ch.dataLabels.showLegendKey = False
+    ch.dataLabels.showPercent = False
+    ch.dataLabels.numFmt = "#,##0.00"
+    ch.height = max(7.0, 0.72 * alto_items + 3.0)
+    ch.width = 21.5  # ancho del panel (B:F): rótulos completos en una línea
+    ws.add_chart(ch, ancla)
+    return ch.height
+
+
+def _graficos_dashboard(ws, S, hojas, titulos, fila):
+    """Sección «PANORAMA» del panel 00_Inicio (el ÚNICO dashboard del libro).
+    Los datos de cada gráfico son fórmulas a las cédulas (trazables y vivos):
+    - Cifras del resumen: ='<Resumen>'!A5 / !B5 … (sin las tasas %, para no
+      mezclar unidades en el eje de USD).
+    - Hallazgos de mayor impacto: SUMIFS sobre la hoja de problemas por código
+      (positivos − negativos = importe absoluto); el resto en «Otros»."""
+    from openpyxl.chart import Reference
+
+    ws[f"B{fila}"].value = "PANORAMA"
+    ws[f"B{fila}"].font = S["subtitulo"]
+    ancla_fila = fila + 2  # una fila de aire: el título no queda bajo el borde del gráfico
+    col_a = 14  # N:O … bloque de datos de los gráficos (a la derecha del panel)
+    ws.column_dimensions[get_column_letter(col_a)].width = 34
+    ws.column_dimensions[get_column_letter(col_a + 1)].width = 16
+    ws.cell(row=fila, column=col_a, value="Datos de los gráficos (fórmulas a las cédulas)").font = S["nota"]
+    r = fila + 1
+    fuente = Font(name=est.FONT_TEXTO, size=8, color="8A94A6")
+
+    def bloque(titulo, filas_formula):
+        nonlocal r
+        cab = r
+        ws.cell(row=cab, column=col_a, value=titulo).font = fuente
+        ws.cell(row=cab, column=col_a + 1, value="Importe (USD)").font = fuente
+        for etq, val in filas_formula:
+            r += 1
+            ws.cell(row=r, column=col_a, value=etq).font = fuente
+            c = ws.cell(row=r, column=col_a + 1, value=val)
+            c.font = fuente
+            c.number_format = est.FMT["n"]
+        ini, fin = cab + 1, r
+        r += 2
+        return (Reference(ws, min_col=col_a, min_row=ini, max_row=fin),
+                Reference(ws, min_col=col_a + 1, min_row=cab, max_row=fin), fin - ini + 1)
+
+    idx_res = next((i for i, h in enumerate(hojas) if [c[1] for c in h.get("cols", [])] == ["t", "n"]), None)
+    if idx_res is not None:
+        h, q = hojas[idx_res], _q(titulos[idx_res])
+        filas = [(f"={q}A{5 + i}", f"={q}B{5 + i}") for i, f in enumerate(h.get("rows", []))
+                 if len(f) > 1 and "%" not in str(f[0]) and isinstance(graficos._num(f[1]), float)]
+        if filas:
+            cats, vals, n = bloque("Cifras del resumen", filas)
+            alto_cm = _barras_excel(ws, "Cifras del resumen (USD)", cats, vals, n, f"B{ancla_fila}")
+            ancla_fila += math.ceil(alto_cm / 0.53) + 2  # filas de 15 pt ≈ 0,53 cm
+
+    idx_p = next((i for i, h in enumerate(hojas) if [c[0] for c in h.get("cols", [])] == ["Código", "Descripción", "Importe"]), None)
+    if idx_p is not None and hojas[idx_p].get("rows"):
+        h, q = hojas[idx_p], _q(titulos[idx_p])
+        n_rows = len(h["rows"])
+        A, C = f"{q}$A$5:$A${4 + n_rows}", f"{q}$C$5:$C${4 + n_rows}"
+        abs_de = lambda crit: f'SUMIFS({C},{A},{crit},{C},">0")-SUMIFS({C},{A},{crit},{C},"<0")'  # noqa: E731
+        run_like = {"exceptions": [{"code": f[0], "amount": graficos._num(f[2])} for f in h["rows"]]}
+        top = graficos.codigos_top(run_like)
+        if top:
+            filas = [(etq, "=" + abs_de(f'"{codigo}"')) for codigo, etq in top["top"]]
+            if top["otros"]:
+                total = f'SUMIF({C},">0")-SUMIF({C},"<0")'
+                suma_top = "+".join(f"({abs_de(chr(34) + c + chr(34))})" for c, _ in top["top"])
+                filas.append((top["otros"], f"={total}-({suma_top})"))
+            cats, vals, n = bloque("Hallazgos de mayor impacto", filas)
+            alto_cm = _barras_excel(ws, "Hallazgos de mayor impacto (USD)", cats, vals, n, f"B{ancla_fila}")
+            ancla_fila += math.ceil(alto_cm / 0.53) + 2
+    # Se imprime el panel (A:L); el bloque de datos de los gráficos (N:O) queda fuera.
+    ws.print_area = f"A1:L{max(ancla_fila, r)}"
 
 def _bloque_como_se_calcula(ws, S, h, fila_inicio):
     """Escribe, debajo de la tabla, el bloque «ⓘ Cómo se calcula esta hoja» en
@@ -331,7 +450,8 @@ def xlsx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     titulo_prueba = f"{definicion.get('name', '')} · {(reg.get('engagement') or {}).get('client', '')} · corte {(reg.get('engagement') or {}).get('cutoff', '')}"
 
     inicio = wb.create_sheet("00_Inicio")
-    _panel_inicio(inicio, S, definicion, reg, titulos, hojas, estado, version)
+    fin_panel = _panel_inicio(inicio, S, definicion, reg, titulos, hojas, estado, version)
+    _graficos_dashboard(inicio, S, hojas, titulos, fin_panel + 2)
 
     for idx, (h, t) in enumerate(zip(hojas, titulos)):
         ws = wb.create_sheet(t)
@@ -339,6 +459,7 @@ def xlsx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
                "anterior": titulos[idx - 1] if idx > 0 else None,
                "siguiente": titulos[idx + 1] if idx < len(titulos) - 1 else None}
         _hoja_ejecutiva(ws, S, h, titulo_prueba, nav)
+    wb.calculation.fullCalcOnLoad = True  # el gráfico y las fórmulas se calculan al abrir
     salida = io.BytesIO()
     wb.save(salida)
     return salida.getvalue()
@@ -544,6 +665,58 @@ def docx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     return salida.getvalue()
 
 
+
+_MAX_BARRAS_PPT = 14
+
+
+def _diapositiva_grafico(prs, g: dict, navy):
+    """Diapositiva con un gráfico de barras NATIVO (editable en PowerPoint)."""
+    from pptx.chart.data import CategoryChartData
+    from pptx.dml.color import RGBColor
+    from pptx.enum.chart import XL_CHART_TYPE, XL_LABEL_POSITION, XL_TICK_LABEL_POSITION
+    from pptx.util import Inches, Pt
+
+    items = g["items"]
+    nota = ""
+    if len(items) > _MAX_BARRAS_PPT:
+        # Los de mayor importe absoluto, conservando el orden de la cédula.
+        top = sorted(range(len(items)), key=lambda i: -abs(items[i][1]))[:_MAX_BARRAS_PPT]
+        items = [items[i] for i in sorted(top)]
+        nota = f" ({_MAX_BARRAS_PPT} conceptos de mayor importe; el resto en la tabla)"
+    s = prs.slides.add_slide(prs.slide_layouts[5])
+    s.shapes.title.text = g["titulo"] + nota
+    tf = s.shapes.title.text_frame.paragraphs[0].runs[0].font
+    tf.size, tf.color.rgb = Pt(26), navy
+    datos = CategoryChartData()
+    datos.categories = [graficos._recorta(e) for e, _ in items]
+    datos.add_series("USD", [round(v, 2) for _, v in items])
+    ch = s.shapes.add_chart(XL_CHART_TYPE.BAR_CLUSTERED, Inches(0.5), Inches(1.35), Inches(12.3), Inches(5.6), datos).chart
+    ch.has_legend = False
+    ch.has_title = False  # el título de la diapositiva ya dice qué se grafica
+    ch.font.size = Pt(10)
+    plot = ch.plots[0]
+    plot.gap_width = 60
+    plot.has_data_labels = True
+    dl = plot.data_labels
+    dl.number_format, dl.number_format_is_linked = "#,##0.00", False
+    dl.position = XL_LABEL_POSITION.OUTSIDE_END
+    dl.font.size = Pt(10)
+    dl.font.color.rgb = RGBColor.from_string(est.TINTA_2)
+    serie = plot.series[0]
+    serie.invert_if_negative = False
+    serie.format.fill.solid()
+    serie.format.fill.fore_color.rgb = RGBColor.from_string(est.SERIE)
+    ch.category_axis.reverse_order = True
+    # Rótulos al borde izquierdo del área, no en el cero: así no pisan las barras negativas.
+    ch.category_axis.tick_label_position = XL_TICK_LABEL_POSITION.LOW
+    ch.category_axis.tick_labels.font.color.rgb = RGBColor.from_string(est.TINTA)
+    ch.value_axis.has_major_gridlines = False
+    ch.value_axis.visible = False
+    pie = s.shapes.add_textbox(Inches(0.5), Inches(6.95), Inches(12.3), Inches(0.4)).text_frame
+    pie.text = g["subtitulo"]
+    pie.paragraphs[0].runs[0].font.size = Pt(10)
+    pie.paragraphs[0].runs[0].font.color.rgb = RGBColor.from_string(est.TINTA_2)
+
 def pptx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> bytes:
     """Presentación ejecutiva: portada y las cédulas de lectura (las largas, recortadas)."""
     from pptx import Presentation
@@ -580,7 +753,10 @@ def pptx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
         p.text = f"{etq}:  {val}"
         p.runs[0].font.size = Pt(20)
         p.runs[0].font.color.rgb = navy
-    for h in cedulas(definicion, reg, eventos, version, estado):
+    hojas_ppt = cedulas(definicion, reg, eventos, version, estado)
+    for g in graficos.paneles(hojas_ppt, run):
+        _diapositiva_grafico(prs, g, navy)
+    for h in hojas_ppt:
         if not _en_ppt(h["name"]):
             continue
         filas = _filas(h)
@@ -647,20 +823,27 @@ def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str, 
                 calc = f"<div class='calc'><p class='calctit'>ⓘ Cómo se calcula esta hoja</p>{tabla_calc}</div>"
             else:
                 calc = f"<details class='calc'><summary>ⓘ Ver cálculo de esta hoja</summary>{tabla_calc}</details>"
-        secciones.append(f'<section id="t{idx}"{vis}><h2>{_html.escape(h["label"])}</h2>{calc}'
+        secciones.append(f'<section class="hoja" id="t{idx}"{vis}><h2>{_html.escape(h["label"])}</h2>{calc}'
                          f'<div class="scroll"><table><thead><tr>{cab}</tr></thead><tbody>{cuerpo}</tbody></table></div></section>')
     # Tarjetas KPI
     totales, etiquetas, prim = run.get("totals") or {}, run.get("labels") or {}, run.get("primary")
     n_prob = len(run.get("exceptions") or [])
     kpi_items = []
     if prim in totales:
-        kpi_items.append((etiquetas.get(prim, prim), _celda({"v": totales[prim]}, "n"), est.NAVY))
+        kpi_items.append((etiquetas.get(prim, prim), graficos.cifra(totales[prim]), est.NAVY))
     for k in ("perdida", "cartera", "provReg"):
         if k in totales and k != prim:
-            kpi_items.append((etiquetas.get(k, k), _celda({"v": totales[k]}, "n"), est.NAVY))
+            kpi_items.append((etiquetas.get(k, k), graficos.cifra(totales[k]), est.NAVY))
     kpi_items.append(("Problemas encontrados", str(n_prob), est.color_semaforo(n_prob)))
-    kpis = "".join(f'<div class="kpi"><small>{_html.escape(etq)}</small><strong style="color:#{col}">{val}</strong></div>'
-                   for etq, val, col in kpi_items[:5])
+    kpis = "".join(f'<div class="kpi{" hero" if i == 0 else ""}"><small>{_html.escape(etq)}</small>'
+                   f'<strong style="color:#{col}">{val}</strong></div>'
+                   for i, (etq, val, col) in enumerate(kpi_items[:5]))
+    # Panorama: gráficos SVG inline (autónomos, imprimibles en el PDF)
+    panorama = "".join(
+        f'<figure class="chart"><figcaption><b>{_html.escape(g["titulo"])}</b>'
+        f'<span>{_html.escape(g["subtitulo"])}</span></figcaption>{g["svg"]}</figure>'
+        for g in graficos.paneles(hojas, run))
+    panorama = f'<section class="panorama">{panorama}</section>' if panorama else ""
     base = re.sub(r"[^\w-]+", "_", definicion.get("name", "papel"))[:60] + f"_v{version}"
     adjuntos = (
         ("xlsx", "Excel con fórmulas", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xlsx),
@@ -674,37 +857,67 @@ def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str, 
         for ext, etiqueta, mime, fn in adjuntos
     ) + '<button class="btn" type="button" onclick="window.print()">⬇ PDF (Guardar como PDF)</button>'
     css = (
-        f"body{{font-family:'Segoe UI',Calibri,Arial,sans-serif;margin:0;color:#{est.NAVY};background:#{est.LIGHT}}}"
-        f".wrap{{max-width:1200px;margin:0 auto;padding:20px}}"
-        f".marca{{background:#{est.NAVY};color:#fff;padding:14px 20px;border-radius:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}}"
-        ".marca b{font-size:16px}.marca span{font-size:12px;opacity:.85}"
-        ".kpis{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}"
-        f".kpi{{background:#fff;border:1px solid #{est.LINE};border-radius:10px;padding:10px 14px;min-width:150px}}"
-        f".kpi small{{display:block;color:#{est.TURQUOISE};font-weight:700;font-size:11px}}.kpi strong{{font-size:20px}}"
+        ":root{color-scheme:light}"
+        f"body{{font-family:'Segoe UI',Calibri,Arial,sans-serif;margin:0;color:#{est.NAVY};background:#EEF2F7;"
+        "-webkit-font-smoothing:antialiased}"
+        ".wrap{max-width:1200px;margin:0 auto;padding:24px 20px 40px}"
+        f".marca{{background:linear-gradient(135deg,#{est.DEEP_BLUE} 0%,#{est.NAVY} 70%);color:#fff;padding:16px 22px;"
+        f"border-radius:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;"
+        f"border-bottom:3px solid #{est.GOLD};box-shadow:0 10px 24px -12px rgba(7,27,47,.55)}}"
+        ".marca b{font-size:15px;letter-spacing:.02em}.marca span{font-size:12px;opacity:.85}"
+        "h1{font-size:24px;line-height:1.25;margin:22px 0 4px;letter-spacing:-.01em}"
+        ".kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr));gap:12px;margin:16px 0}"
+        "@media (max-width:640px){.kpi.hero{grid-column:auto}.kpi.hero strong{font-size:38px}h1{font-size:20px}}"
+        ".kpi{background:#fff;border:1px solid #E3E8EF;border-radius:12px;padding:12px 16px;"
+        "box-shadow:0 1px 2px rgba(10,35,66,.05),0 6px 16px -8px rgba(10,35,66,.18)}"
+        f".kpi small{{display:block;color:#{est.TURQUOISE};font-weight:700;font-size:11px;letter-spacing:.03em;text-transform:uppercase}}"
+        ".kpi strong{display:block;font-size:22px;font-weight:600;margin-top:4px}"
+        f".kpi.hero{{grid-column:span 2;background:linear-gradient(180deg,#fff 0%,#F7F9FC 100%);border-top:3px solid #{est.GOLD}}}"
+        ".kpi.hero strong{font-size:48px;line-height:1.05;letter-spacing:-.02em}"
+        ".panorama{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(460px,100%),1fr));gap:14px;margin:6px 0 10px}"
+        ".chart{margin:0;background:#fff;border:1px solid #E3E8EF;border-radius:12px;padding:14px 16px 10px;"
+        "box-shadow:0 1px 2px rgba(10,35,66,.05),0 6px 16px -8px rgba(10,35,66,.18);break-inside:avoid}"
+        ".chart figcaption{margin-bottom:8px}.chart figcaption b{display:block;font-size:14px}"
+        ".chart figcaption span{display:block;font-size:11.5px;color:#4B5563;margin-top:2px}"
+        ".grafico{display:block;max-width:100%;height:auto}"
         ".descargas{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}"
-        f".btn{{background:#{est.TURQUOISE};color:#fff;border:0;border-radius:6px;padding:8px 14px;font:inherit;text-decoration:none;cursor:pointer}}"
-        f".btn:hover{{background:#{est.GOLD};color:#{est.DEEP_BLUE}}}"
-        ".tabs{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 6px}"
-        f".tab{{background:#fff;border:1px solid #{est.LINE};border-radius:999px;padding:5px 12px;font:inherit;cursor:pointer;font-size:13px}}"
-        f".tab.on{{background:#{est.NAVY};color:#fff;border-color:#{est.NAVY};font-weight:700}}"
-        f"h2{{font-size:15px;border-bottom:2px solid #{est.GOLD};padding-bottom:4px}}"
+        f".btn{{background:linear-gradient(180deg,#14898E 0%,#{est.TURQUOISE} 100%);color:#fff;border:0;border-radius:8px;"
+        "padding:9px 15px;font:inherit;font-weight:600;text-decoration:none;cursor:pointer;"
+        "box-shadow:0 1px 0 rgba(255,255,255,.25) inset,0 3px 0 #08494C,0 6px 12px -6px rgba(7,27,47,.5);"
+        "transition:transform .12s ease,box-shadow .12s ease}"
+        ".btn:hover{transform:translateY(-1px);box-shadow:0 1px 0 rgba(255,255,255,.25) inset,0 4px 0 #08494C,0 10px 16px -8px rgba(7,27,47,.55)}"
+        ".btn:active{transform:translateY(3px);box-shadow:0 1px 0 rgba(255,255,255,.15) inset,0 0 0 #08494C,0 2px 4px -2px rgba(7,27,47,.5)}"
+        f".btn:focus-visible,.tab:focus-visible{{outline:3px solid #{est.GOLD};outline-offset:2px}}"
+        ".tabs{display:flex;flex-wrap:wrap;gap:6px;margin:16px 0 8px}"
+        ".tab{background:#fff;border:1px solid #D5DCE6;border-radius:999px;padding:6px 13px;font:inherit;cursor:pointer;"
+        "font-size:13px;box-shadow:0 2px 0 #D5DCE6;transition:transform .12s ease}"
+        ".tab:hover{transform:translateY(-1px)}"
+        f".tab.on{{background:linear-gradient(180deg,#123560 0%,#{est.NAVY} 100%);color:#fff;border-color:#{est.NAVY};"
+        "font-weight:700;box-shadow:0 2px 0 #051322}"
+        "section.hoja{background:#fff;border:1px solid #E3E8EF;border-radius:12px;padding:6px 16px 14px;margin:0 0 14px;"
+        "box-shadow:0 1px 2px rgba(10,35,66,.05)}"
+        f"h2{{font-size:15px;border-bottom:2px solid #{est.GOLD};padding-bottom:5px}}"
         ".scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:12px;background:#fff}"
-        f"th{{background:#{est.NAVY};color:#fff;padding:5px 6px}}"
-        f"td{{border:1px solid #{est.LINE};padding:3px 6px;vertical-align:top}}td.num{{text-align:right;white-space:nowrap;font-family:Consolas,monospace}}"
+        f"th{{background:#{est.NAVY};color:#fff;padding:6px 7px;text-align:left;font-weight:600}}"
+        "td{border-bottom:1px solid #E6EAF0;padding:4px 7px;vertical-align:top}"
+        "tbody tr:nth-child(even) td{background:#F8FAFC}"
+        "td.num{text-align:right;white-space:nowrap;font-family:Consolas,monospace;font-variant-numeric:tabular-nums}"
         f"tr.total td{{font-weight:700;background:#{est.CELESTE};border-top:3px double #{est.NAVY};border-bottom:3px double #{est.NAVY}}}"
-        f"details.calc,div.calc{{margin:8px 0;background:#fff;border:1px solid #{est.LINE};border-radius:8px;padding:6px 10px}}"
+        f"details.calc,div.calc{{margin:8px 0;background:#F8FAFC;border:1px solid #E3E8EF;border-radius:8px;padding:6px 10px}}"
         f"details.calc summary,.calctit{{cursor:pointer;font-weight:700;color:#{est.TURQUOISE};margin:0}}"
         "table.calc td.mono,td.mono{font-family:Consolas,monospace;font-size:11px}"
-        f".nota{{color:#555;font-size:12px}}"
+        ".nota{color:#4B5563;font-size:12px}"
+        "@media (prefers-reduced-motion:reduce){.btn,.tab{transition:none}.btn:hover,.tab:hover{transform:none}}"
         "@media print{.descargas,.tabs,.nota,.btn{display:none}section[hidden]{display:block!important}"
         "details.calc{display:none}body{background:#fff}.wrap{max-width:none;padding:0}"
-        "section{break-inside:avoid}"
-        "th{-webkit-print-color-adjust:exact;print-color-adjust:exact}@page{size:A4 landscape;margin:12mm}}"
+        ".kpi,.chart,section.hoja,.marca{box-shadow:none}section.hoja{break-inside:auto}"
+        ".panorama{grid-template-columns:1fr 1fr}.chart{break-inside:avoid}"
+        "th,.marca,.kpi,.grafico,tr.total td{-webkit-print-color-adjust:exact;print-color-adjust:exact}@page{size:A4 landscape;margin:12mm}}"
     )
     js = ("" if para_pdf else
           "<script>document.querySelectorAll('.tab').forEach(function(b){b.onclick=function(){"
           "document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on')});b.classList.add('on');"
-          "document.querySelectorAll('section').forEach(function(s){s.hidden=(s.id!==b.dataset.t)});};});</script>")
+          "document.querySelectorAll('section.hoja').forEach(function(s){s.hidden=(s.id!==b.dataset.t)});};});</script>")
     chrome = "" if para_pdf else (
         f'<div class="descargas">{botones}</div>'
         '<p class="nota">Funciona sin conexión. Pase el cursor sobre un importe para ver su fórmula; use «ⓘ Ver cálculo» para la explicación de cada hoja. En el Excel las fórmulas son editables y trazables.</p>'
@@ -717,6 +930,7 @@ def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str, 
         f'<span>{_html.escape(str(e.get("client","")))} · RUC {_html.escape(str(e.get("ruc","")))} · corte {_html.escape(str(e.get("cutoff","")))} · v{version} · {_html.escape(est.estado_es(estado))}</span></div>'
         f'<h1>{_html.escape(definicion.get("name",""))}</h1>'
         f'<div class="kpis">{kpis}</div>'
+        + panorama
         + chrome
         + "".join(secciones) + js + "</div></body></html>"
     )

@@ -108,10 +108,13 @@ def test_endpoint_ejercicio_modelo_no_escribe(client):
         tok, pid = _staff_con_proyecto(client)
     except AssertionError as e:
         pytest.skip(f"stack HTTP no disponible en este entorno: {str(e)[:80]}")
+    # Ficha completa (la validación exige país, moneda, visita, edición y nombres reales)
     assert client.put(f"{BASE}/proyectos/{pid}/ficha", headers=_h(tok),
-                      json={"client": "C", "ruc": "1790000000001", "activity": "x", "year": "2025",
-                            "cutoff": "2025-12-31", "preparer": "p", "reviewer": "r", "firm": "f",
-                            "framework": "NIIF para las PYMES"}).status_code in (200, 422)
+                      json={"client": "Empresa Ejemplo S.A.", "ruc": "1791961048001", "activity": "Comercio",
+                            "year": 2025, "cutoff": "2025-12-31", "preparer": "Ana Preparadora",
+                            "reviewer": "Luis Revisor", "firm": "Audit Consulting",
+                            "framework": "NIIF para las PYMES", "country": "Ecuador", "currency": "USD",
+                            "visit": "Final", "edition": "2025", "adoption": "", "reuseScope": "one"}).status_code == 200
     r = client.post(f"{BASE}/proyectos/{pid}/pruebas", headers=_h(tok), json={"origen": "proc:perdidas_incurridas_s11"})
     if r.status_code != 200:
         pytest.skip(f"no se pudo crear la prueba proc: {r.status_code} {r.text[:120]}")

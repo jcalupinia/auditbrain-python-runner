@@ -137,13 +137,17 @@ function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, processor
       )}
       <button
         type="button"
-        className={`pc-chip ${completo ? "on" : req.required !== false ? "warn" : ""}`}
+        className={`pc-chip nf-req ${completo ? "on" : req.required !== false ? "warn" : ""}`}
         disabled={!habilitado || subiendo}
         title={[req.id, req.purpose, ...detalleRequerimiento(req), "Puede seleccionar varios archivos a la vez"].filter(Boolean).join(" · ")}
         onClick={() => input.current?.click()}
         data-requerimiento={req.id}
       >
-        {subiendo ? "Subiendo…" : `${completo ? "✓" : "○"} ${req.document}${n ? ` (${n})` : ""}`}
+        <span className="nf-req-ico" aria-hidden="true">{subiendo ? "…" : completo ? "✓" : "○"}</span>
+        <span className="nf-req-txt">{subiendo ? "Subiendo…" : req.document}</span>
+        {n > 0 && !subiendo && (
+          <span className="nf-req-n" aria-label={`${n} archivo${n === 1 ? "" : "s"} subido${n === 1 ? "" : "s"}`}>{n}</span>
+        )}
       </button>
       <input ref={input} type="file" multiple accept={accept} hidden onChange={subir} data-requerimiento={req.id} />
       {(formatos || ejemplo) && (
