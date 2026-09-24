@@ -264,6 +264,12 @@ def tabla(pid, rid, req):
                 [["Resultados acumulados", 300000, 25000, 325000],
                  ["Propiedad, planta y equipo", 1044000, -8000, 1036000]])
 
+    if pid == "pce_simplificada_niif9" and rid == "RQ-006":
+        return ("Cobros posteriores al cierre",
+                ["Fecha de cobro", "N° de factura", "Cliente", "Valor cobrado", "Referencia bancaria"],
+                [["08/01/2026", "F-001", "Comercial Alfa", 12000, "TRF-88120"],
+                 ["22/01/2026", "F-004", "Distribuidora Beta", 5400, "TRF-88245"]])
+
     # genérica: eco del contenido pedido
     return (req.get("document", "Documento de sustento"),
             ["Concepto", "Detalle", "Importe"],

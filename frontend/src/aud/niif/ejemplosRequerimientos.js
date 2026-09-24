@@ -21,6 +21,14 @@ export const EJEMPLOS_REQUERIMIENTOS = {
     "RQ-007": "RQ-007_politica_credito_cobranza.docx",
     "RQ-008": "RQ-008_ventas_por_factura_3_ejercicios.xlsx",
   },
+  pce_simplificada_niif9: {
+    "RQ-001": "RQ-001_actual.xlsx",
+    "RQ-002": "RQ-002_anterior.xlsx",
+    "RQ-003": "RQ-003_castigos.xlsx",
+    "RQ-004": "RQ-004_informacion_prospectiva_usada_para_el_ajuste_pro.pdf",
+    "RQ-005": "RQ-005_politica_de_credito_y_cobranza_y_gestion_de_clie.pdf",
+    "RQ-006": "RQ-006_cobros_posteriores_al_cierre.xlsx",
+  },
   // --- Lote 1 ---
   // Datos que alimentan el cálculo: un libro derivado del EJEMPLO canónico del
   // procesador (scripts/ejemplos_lote.py). Requerimientos de soporte: documento
