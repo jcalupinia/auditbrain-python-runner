@@ -912,7 +912,9 @@ def hojas(res: dict) -> list[dict]:
     tot = lambda col, nn, v: suma(col, fin(nn), v)
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=ex["01_Resumen"]),
-        hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
+        hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros,
+             explica={"Valor": "Casi todos son datos del encargo; la fila del SBU aplicado al décimo cuarto es una fórmula: "
+                               "usa el «SBU vigente a la fecha de pago del décimo cuarto» (fila anterior) y, si está vacío, el «SBU (USD)» del ejercicio."}),
         hoja("03_Empleados", "Empleados (datos del cliente)",
              [["Cédula/código", "t"], ["Nombre", "t"], ["Ingreso", "d"], ["Salida", "d"], ["Región", "t"], ["Sueldo mensual", "n"],
               ["Horas 50 %", "n"], ["Horas 100 %", "n"], ["Horas extras registradas", "n"], ["Comisiones y bonos", "n"],

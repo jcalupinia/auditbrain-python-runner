@@ -238,7 +238,7 @@ def _print_setup(ws, e):
     ws.oddFooter.right.text = "Página &P de &N"
 
 
-def _hoja_ejecutiva(ws, S, h, titulo_prueba, nav):
+def _hoja_ejecutiva(ws, S, h, titulo_prueba, nav, hojas=None):
     ws.sheet_view.showGridLines = False
     # Encabezado: título, prueba/corte y botones de navegación
     ws.merge_cells("A1:F1")
@@ -292,7 +292,7 @@ def _hoja_ejecutiva(ws, S, h, titulo_prueba, nav):
     for j, w in enumerate(anchos, start=1):
         ws.column_dimensions[get_column_letter(j)].width = max(12, min(60, w))
     ws.freeze_panes = f"A{fila_enc + 1}"
-    _bloque_como_se_calcula(ws, S, h, len(filas) + fila_enc + 2)
+    _bloque_como_se_calcula(ws, S, h, len(filas) + fila_enc + 2, hojas)
     _print_setup(ws, {})
 
 
@@ -404,11 +404,11 @@ def _graficos_dashboard(ws, S, hojas, titulos, fila):
     # Se imprime el panel (A:L); el bloque de datos de los gráficos (N:O) queda fuera.
     ws.print_area = f"A1:L{max(ancla_fila, r)}"
 
-def _bloque_como_se_calcula(ws, S, h, fila_inicio):
+def _bloque_como_se_calcula(ws, S, h, fila_inicio, hojas=None):
     """Escribe, debajo de la tabla, el bloque «ⓘ Cómo se calcula esta hoja» en
     lenguaje sencillo (una fila por columna con fórmula). No se imprime cortado:
     va en su propia banda con fondo claro y borde."""
-    bloque = como_se_calcula(h)
+    bloque = como_se_calcula(h, hojas)
     if not bloque:
         return
     r = fila_inicio
@@ -418,7 +418,7 @@ def _bloque_como_se_calcula(ws, S, h, fila_inicio):
     t.fill = S["fill_gold"]
     t.alignment = S["izq"]
     r += 1
-    encabez = ["Columna", "Fórmula (Excel)", "Cómo se calcula (sencillo)", "Ejemplo (fila 1)", "De dónde viene", "Norma"]
+    encabez = ["Columna", "Fórmula (Excel)", "Cómo se calcula (sencillo)", "Ejemplo con números reales", "De dónde viene", "Norma"]
     for j, txt in enumerate(encabez, start=1):
         c = ws.cell(row=r, column=j, value=txt)
         c.font = S["encabezado"]
@@ -458,7 +458,7 @@ def xlsx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
         nav = {"inicio": "00_Inicio",
                "anterior": titulos[idx - 1] if idx > 0 else None,
                "siguiente": titulos[idx + 1] if idx < len(titulos) - 1 else None}
-        _hoja_ejecutiva(ws, S, h, titulo_prueba, nav)
+        _hoja_ejecutiva(ws, S, h, titulo_prueba, nav, hojas)
     wb.calculation.fullCalcOnLoad = True  # el gráfico y las fórmulas se calculan al abrir
     salida = io.BytesIO()
     wb.save(salida)
@@ -494,6 +494,7 @@ _REF = re.compile(r"(?:'([^']+)'!)?\$?([A-Z]{1,3})\$?(\d+)")
 # Referencia a celda o a rango, con hoja opcional: 'Hoja'!$A$5:$A$24 · B5 · $B$8
 _REF_RANGO = re.compile(r"(?:'([^']+)'!)?\$?([A-Z]{1,3})\$?(\d+)(?::\$?([A-Z]{1,3})\$?(\d+))?")
 _TEXTO_FORMULA = re.compile(r'"[^"]*"')
+_COLUMNA_COMPLETA = re.compile(r"(?:'([^']+)'!)?\$?([A-Z]{1,3}):\$?([A-Z]{1,3})(?![0-9A-Za-z])")
 FILA_DATOS = 5  # los datos de toda cédula arrancan en la fila 5 (fila 4 = encabezado)
 
 # Plantilla de respaldo cuando una columna calculada NO tiene explicación escrita en
@@ -568,6 +569,14 @@ def _ejemplo_fila1(formula: str, h: dict, mapa: dict, fmt: str) -> str:
             return m.group(0)
         return _muestra(v, f_cel)
 
+    def columna_completa(m):  # 'Hoja'!$F:$F → [«Columna» de «Hoja», columna completa]
+        hoja_ref, l1 = m.group(1), m.group(2)
+        destino = mapa.get(hoja_ref, h) if hoja_ref else h
+        _, _, enc = _celda_de(destino, l1, FILA_DATOS)
+        donde = f" de «{destino.get('label') or hoja_ref}»" if hoja_ref else ""
+        return f"[«{enc}»{donde}, columna completa]"
+
+    expr = _COLUMNA_COMPLETA.sub(columna_completa, expr)
     expr = _REF_RANGO.sub(sustituye, expr)
     expr = re.sub("\x00(\\d+)\x00", lambda m: textos[int(m.group(1))], expr)
     return expr
@@ -594,9 +603,12 @@ def como_se_calcula(h: dict, hojas: list | None = None) -> list[dict]:
     escritas = h.get("explica") or {}
     bloque = []
     for j, (nombre, fmt) in enumerate(h["cols"]):
-        v0 = filas[0][j] if j < len(filas[0]) else None
-        if not (isinstance(v0, dict) and "f" in v0):
+        # La primera fila donde la columna tiene fórmula (en casi todas es la fila 1;
+        # en otras —p. ej. «Haber» de los asientos— la fila 1 es un dato).
+        k = next((i for i, f in enumerate(filas) if j < len(f) and isinstance(f[j], dict) and "f" in f[j]), None)
+        if k is None:
             continue
+        v0 = filas[k][j]
         formula = v0["f"]
         origen_cols, origen_hojas = [], []
         for m in _REF_RANGO.finditer(_TEXTO_FORMULA.sub('""', formula)):
@@ -617,7 +629,7 @@ def como_se_calcula(h: dict, hojas: list | None = None) -> list[dict]:
             res_txt = _fmt_num(resultado, fmt)
         else:
             res_txt = _muestra(resultado, fmt).strip("«»")
-        ejemplo = f"Fila 1: {_ejemplo_fila1(formula, h, mapa, fmt)} → {res_txt}"
+        ejemplo = f"Fila {k + 1}: {_ejemplo_fila1(formula, h, mapa, fmt)} → {res_txt}"
         origen = [f"«{c}» (esta hoja)" for c in origen_cols] + [f"hoja «{x}»" for x in origen_hojas]
         bloque.append({"columna": nombre, "formula": "=" + formula, "explicacion": explic, "ejemplo": ejemplo,
                        "origen": ", ".join(origen) if origen else "datos cargados del cliente",
@@ -708,12 +720,13 @@ def docx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     # Anexo «Cómo se calcula»
     doc.add_page_break()
     doc.add_heading("Anexo · Cómo se calcula cada hoja", level=1)
-    for h in cedulas(definicion, reg, eventos, version, estado):
-        bloque = como_se_calcula(h)
+    hojas_doc = cedulas(definicion, reg, eventos, version, estado)
+    for h in hojas_doc:
+        bloque = como_se_calcula(h, hojas_doc)
         if not bloque:
             continue
         doc.add_heading(h["label"], level=2)
-        cols = ["Columna", "Fórmula", "Cómo se calcula", "Ejemplo (fila 1)", "De dónde viene"]
+        cols = ["Columna", "Fórmula", "Cómo se calcula", "Ejemplo con números reales", "De dónde viene"]
         tabla = doc.add_table(rows=1 + len(bloque), cols=len(cols))
         tabla.style = "Table Grid"
         for j, nombre in enumerate(cols):
@@ -850,154 +863,24 @@ def pptx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
 
 
 def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str, para_pdf: bool = False) -> bytes:
-    """HTML autónomo: funciona sin internet (sin fuentes, scripts ni estilos
-    externos) y trae dentro el Excel con fórmulas, el Word, el PowerPoint y el
-    CSV para descargarlos. ``para_pdf=True`` devuelve una versión estática (todo
-    visible, sin pestañas/descargas/JS) para renderizar el PDF en el servidor."""
-    import base64
+    """HTML autónomo con el dashboard ejecutivo (``html_ejecutivo``): funciona sin
+    internet (sin fuentes, scripts ni estilos externos) y trae dentro el Excel con
+    fórmulas, el Word, el PowerPoint y el CSV para descargarlos. ``para_pdf=True``
+    devuelve la versión estática (tema Claro, todo visible, sin JS) para el PDF."""
+    from backend.app.aud.niif.procesadores import html_ejecutivo
 
     hojas = cedulas(definicion, reg, eventos, version, estado)
-    e = reg.get("engagement") or {}
-    run = reg.get("run") or {}
-    # Pestañas tipo botón + secciones
-    tabs, secciones = [], []
-    for idx, h in enumerate(hojas):
-        act = " on" if idx == 0 else ""
-        vis = "" if (para_pdf or idx == 0) else ' hidden'
-        tabs.append(f'<button class="tab{act}" type="button" data-t="t{idx}">{_html.escape(h["label"])}</button>')
-        cab = "".join(f"<th>{_html.escape(c[0])}</th>" for c in h["cols"])
-        cuerpo = "".join(
-            "<tr" + (' class="total"' if total else "") + ">"
-            + "".join(f'<td class="{"num" if f in _FMT else ""}"'
-                      + (f' title="={_html.escape(v["f"])}"' if isinstance(v, dict) else "")
-                      + f">{_celda(v, f)}</td>" for (_, f), v in zip(h["cols"], fila))
-            + "</tr>"
-            for fila, total in _filas(h))
-        bloque = como_se_calcula(h)
-        calc = ""
-        if bloque:
-            filas_c = "".join(
-                f"<tr><td>{_html.escape(b['columna'])}</td><td class='mono'>{_html.escape(b['formula'])}</td>"
-                f"<td>{_html.escape(b['explicacion'])}</td><td>{_html.escape(b['ejemplo'])}</td>"
-                f"<td>{_html.escape(b['origen'])}</td></tr>" for b in bloque)
-            tabla_calc = ("<table class='calc'><thead><tr><th>Columna</th><th>Fórmula</th><th>Cómo se calcula</th>"
-                          f"<th>Ejemplo (fila 1)</th><th>De dónde viene</th></tr></thead><tbody>{filas_c}</tbody></table>")
-            if para_pdf:
-                calc = f"<div class='calc'><p class='calctit'>ⓘ Cómo se calcula esta hoja</p>{tabla_calc}</div>"
-            else:
-                calc = f"<details class='calc'><summary>ⓘ Ver cálculo de esta hoja</summary>{tabla_calc}</details>"
-        secciones.append(f'<section class="hoja" id="t{idx}"{vis}><h2>{_html.escape(h["label"])}</h2>{calc}'
-                         f'<div class="scroll"><table><thead><tr>{cab}</tr></thead><tbody>{cuerpo}</tbody></table></div></section>')
-    # Tarjetas KPI
-    totales, etiquetas, prim = run.get("totals") or {}, run.get("labels") or {}, run.get("primary")
-    n_prob = len(run.get("exceptions") or [])
-    kpi_items = []
-    if prim in totales:
-        kpi_items.append((etiquetas.get(prim, prim), graficos.cifra(totales[prim]), est.NAVY))
-    for k in ("perdida", "cartera", "provReg"):
-        if k in totales and k != prim:
-            kpi_items.append((etiquetas.get(k, k), graficos.cifra(totales[k]), est.NAVY))
-    kpi_items.append(("Problemas encontrados", str(n_prob), est.color_semaforo(n_prob)))
-    kpis = "".join(f'<div class="kpi{" hero" if i == 0 else ""}"><small>{_html.escape(etq)}</small>'
-                   f'<strong style="color:#{col}">{val}</strong></div>'
-                   for i, (etq, val, col) in enumerate(kpi_items[:5]))
-    # Panorama: gráficos SVG inline (autónomos, imprimibles en el PDF)
-    panorama = "".join(
-        f'<figure class="chart"><figcaption><b>{_html.escape(g["titulo"])}</b>'
-        f'<span>{_html.escape(g["subtitulo"])}</span></figcaption>{g["svg"]}</figure>'
-        for g in graficos.paneles(hojas, run))
-    panorama = f'<section class="panorama">{panorama}</section>' if panorama else ""
-    base = re.sub(r"[^\w-]+", "_", definicion.get("name", "papel"))[:60] + f"_v{version}"
-    adjuntos = (
-        ("xlsx", "Excel con fórmulas", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xlsx),
-        ("docx", "Word", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", docx),
-        ("pptx", "PowerPoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation", pptx),
-        ("zip", "CSV (ZIP)", "application/zip", csv_zip),
-    )
-    botones = "".join(
-        f'<a class="btn" download="{base}.{ext}" href="data:{mime};base64,'
-        f'{base64.b64encode(fn(definicion, reg, eventos, version, estado)).decode()}">⬇ {etiqueta}</a>'
-        for ext, etiqueta, mime, fn in adjuntos
-    ) + '<button class="btn" type="button" onclick="window.print()">⬇ PDF (Guardar como PDF)</button>'
-    css = (
-        ":root{color-scheme:light}"
-        f"body{{font-family:'Segoe UI',Calibri,Arial,sans-serif;margin:0;color:#{est.NAVY};background:#EEF2F7;"
-        "-webkit-font-smoothing:antialiased}"
-        ".wrap{max-width:1200px;margin:0 auto;padding:24px 20px 40px}"
-        f".marca{{background:linear-gradient(135deg,#{est.DEEP_BLUE} 0%,#{est.NAVY} 70%);color:#fff;padding:16px 22px;"
-        f"border-radius:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;"
-        f"border-bottom:3px solid #{est.GOLD};box-shadow:0 10px 24px -12px rgba(7,27,47,.55)}}"
-        ".marca b{font-size:15px;letter-spacing:.02em}.marca span{font-size:12px;opacity:.85}"
-        "h1{font-size:24px;line-height:1.25;margin:22px 0 4px;letter-spacing:-.01em}"
-        ".kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr));gap:12px;margin:16px 0}"
-        "@media (max-width:640px){.kpi.hero{grid-column:auto}.kpi.hero strong{font-size:38px}h1{font-size:20px}}"
-        ".kpi{background:#fff;border:1px solid #E3E8EF;border-radius:12px;padding:12px 16px;"
-        "box-shadow:0 1px 2px rgba(10,35,66,.05),0 6px 16px -8px rgba(10,35,66,.18)}"
-        f".kpi small{{display:block;color:#{est.TURQUOISE};font-weight:700;font-size:11px;letter-spacing:.03em;text-transform:uppercase}}"
-        ".kpi strong{display:block;font-size:22px;font-weight:600;margin-top:4px}"
-        f".kpi.hero{{grid-column:span 2;background:linear-gradient(180deg,#fff 0%,#F7F9FC 100%);border-top:3px solid #{est.GOLD}}}"
-        ".kpi.hero strong{font-size:48px;line-height:1.05;letter-spacing:-.02em}"
-        ".panorama{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(460px,100%),1fr));gap:14px;margin:6px 0 10px}"
-        ".chart{margin:0;background:#fff;border:1px solid #E3E8EF;border-radius:12px;padding:14px 16px 10px;"
-        "box-shadow:0 1px 2px rgba(10,35,66,.05),0 6px 16px -8px rgba(10,35,66,.18);break-inside:avoid}"
-        ".chart figcaption{margin-bottom:8px}.chart figcaption b{display:block;font-size:14px}"
-        ".chart figcaption span{display:block;font-size:11.5px;color:#4B5563;margin-top:2px}"
-        ".grafico{display:block;max-width:100%;height:auto}"
-        ".descargas{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}"
-        f".btn{{background:linear-gradient(180deg,#14898E 0%,#{est.TURQUOISE} 100%);color:#fff;border:0;border-radius:8px;"
-        "padding:9px 15px;font:inherit;font-weight:600;text-decoration:none;cursor:pointer;"
-        "box-shadow:0 1px 0 rgba(255,255,255,.25) inset,0 3px 0 #08494C,0 6px 12px -6px rgba(7,27,47,.5);"
-        "transition:transform .12s ease,box-shadow .12s ease}"
-        ".btn:hover{transform:translateY(-1px);box-shadow:0 1px 0 rgba(255,255,255,.25) inset,0 4px 0 #08494C,0 10px 16px -8px rgba(7,27,47,.55)}"
-        ".btn:active{transform:translateY(3px);box-shadow:0 1px 0 rgba(255,255,255,.15) inset,0 0 0 #08494C,0 2px 4px -2px rgba(7,27,47,.5)}"
-        f".btn:focus-visible,.tab:focus-visible{{outline:3px solid #{est.GOLD};outline-offset:2px}}"
-        ".tabs{display:flex;flex-wrap:wrap;gap:6px;margin:16px 0 8px}"
-        ".tab{background:#fff;border:1px solid #D5DCE6;border-radius:999px;padding:6px 13px;font:inherit;cursor:pointer;"
-        "font-size:13px;box-shadow:0 2px 0 #D5DCE6;transition:transform .12s ease}"
-        ".tab:hover{transform:translateY(-1px)}"
-        f".tab.on{{background:linear-gradient(180deg,#123560 0%,#{est.NAVY} 100%);color:#fff;border-color:#{est.NAVY};"
-        "font-weight:700;box-shadow:0 2px 0 #051322}"
-        "section.hoja{background:#fff;border:1px solid #E3E8EF;border-radius:12px;padding:6px 16px 14px;margin:0 0 14px;"
-        "box-shadow:0 1px 2px rgba(10,35,66,.05)}"
-        f"h2{{font-size:15px;border-bottom:2px solid #{est.GOLD};padding-bottom:5px}}"
-        ".scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:12px;background:#fff}"
-        f"th{{background:#{est.NAVY};color:#fff;padding:6px 7px;text-align:left;font-weight:600}}"
-        "td{border-bottom:1px solid #E6EAF0;padding:4px 7px;vertical-align:top}"
-        "tbody tr:nth-child(even) td{background:#F8FAFC}"
-        "td.num{text-align:right;white-space:nowrap;font-family:Consolas,monospace;font-variant-numeric:tabular-nums}"
-        f"tr.total td{{font-weight:700;background:#{est.CELESTE};border-top:3px double #{est.NAVY};border-bottom:3px double #{est.NAVY}}}"
-        f"details.calc,div.calc{{margin:8px 0;background:#F8FAFC;border:1px solid #E3E8EF;border-radius:8px;padding:6px 10px}}"
-        f"details.calc summary,.calctit{{cursor:pointer;font-weight:700;color:#{est.TURQUOISE};margin:0}}"
-        "table.calc td.mono,td.mono{font-family:Consolas,monospace;font-size:11px}"
-        ".nota{color:#4B5563;font-size:12px}"
-        "@media (prefers-reduced-motion:reduce){.btn,.tab{transition:none}.btn:hover,.tab:hover{transform:none}}"
-        "@media print{.descargas,.tabs,.nota,.btn{display:none}section[hidden]{display:block!important}"
-        "details.calc{display:none}body{background:#fff}.wrap{max-width:none;padding:0}"
-        ".kpi,.chart,section.hoja,.marca{box-shadow:none}section.hoja{break-inside:auto}"
-        ".panorama{grid-template-columns:1fr 1fr}.chart{break-inside:avoid}"
-        "th,.marca,.kpi,.grafico,tr.total td{-webkit-print-color-adjust:exact;print-color-adjust:exact}@page{size:A4 landscape;margin:12mm}}"
-    )
-    js = ("" if para_pdf else
-          "<script>document.querySelectorAll('.tab').forEach(function(b){b.onclick=function(){"
-          "document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on')});b.classList.add('on');"
-          "document.querySelectorAll('section.hoja').forEach(function(s){s.hidden=(s.id!==b.dataset.t)});};});</script>")
-    chrome = "" if para_pdf else (
-        f'<div class="descargas">{botones}</div>'
-        '<p class="nota">Funciona sin conexión. Pase el cursor sobre un importe para ver su fórmula; use «ⓘ Ver cálculo» para la explicación de cada hoja. En el Excel las fórmulas son editables y trazables.</p>'
-        f'<div class="tabs">{"".join(tabs)}</div>')
-    doc = (
-        "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\">"
-        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-        f"<title>{_html.escape(definicion.get('name', ''))}</title><style>{css}</style></head><body><div class=\"wrap\">"
-        f'<div class="marca"><b>AuditConsulting Auditores Cía. Ltda. · AUDIT-IA</b>'
-        f'<span>{_html.escape(str(e.get("client","")))} · RUC {_html.escape(str(e.get("ruc","")))} · corte {_html.escape(str(e.get("cutoff","")))} · v{version} · {_html.escape(est.estado_es(estado))}</span></div>'
-        f'<h1>{_html.escape(definicion.get("name",""))}</h1>'
-        f'<div class="kpis">{kpis}</div>'
-        + panorama
-        + chrome
-        + "".join(secciones) + js + "</div></body></html>"
-    )
-    return doc.encode("utf-8")
+    adjuntos = [] if para_pdf else [
+        ("xlsx", "Excel con fórmulas", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+         xlsx(definicion, reg, eventos, version, estado)),
+        ("docx", "Word", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+         docx(definicion, reg, eventos, version, estado)),
+        ("pptx", "PowerPoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+         pptx(definicion, reg, eventos, version, estado)),
+        ("zip", "CSV (ZIP)", "application/zip", csv_zip(definicion, reg, eventos, version, estado)),
+    ]
+    return html_ejecutivo.render(definicion, reg, eventos, version, estado, hojas, adjuntos, _celda, como_se_calcula,
+                                 para_pdf=para_pdf).encode("utf-8")
 
 
 class PDFNoDisponible(ValueError):

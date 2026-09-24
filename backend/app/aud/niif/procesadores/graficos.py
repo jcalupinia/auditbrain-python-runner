@@ -45,7 +45,7 @@ def _num(v):
 
 
 def _fmt(v: float) -> str:
-    s = f"{abs(v):,.2f}"
+    s = f"{abs(v):,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")  # es-EC: 1.234,56
     return ("−" if v < 0 else "") + s
 
 

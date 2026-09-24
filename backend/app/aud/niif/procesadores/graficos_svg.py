@@ -95,6 +95,25 @@ def _lineas_texto(t: str, maximo: int = 16) -> list[str]:
     return [(x[: maximo - 1] + "…") if len(x) > maximo else x for x in lineas] or [""]
 
 
+def _una_linea(t: str, maximo: int) -> str:
+    """Primera línea del rótulo; «…» si se recortó (el texto completo va en <title>)."""
+    ls = _lineas_texto(t, maximo)
+    return ls[0] if len(ls) == 1 or ls[0].endswith("…") else ls[0] + "…"
+
+
+# Tamaño y peso como atributos de presentación: el navegador aplica el CSS de la
+# página (que manda), y WeasyPrint, que no resuelve el atajo «font:» con var()
+# dentro del SVG, usa estos (sin ellos el texto sale a 16 px y se encima).
+_TEXTO = {"val": ("11", "600"), "cat": ("11", "400"), "centro": ("26", "700"),
+          "centro-etq": ("11", "400"), "ley": ("12", "600"), "ley2": ("11", "400")}
+
+
+def _tamanos(svg: str) -> str:
+    for c, (t, w) in _TEXTO.items():
+        svg = svg.replace(f'class="{c}"', f'class="{c}" font-size="{t}" font-weight="{w}"')
+    return svg
+
+
 def columnas(items: list[tuple[str, float]], variante: str, roles: list[str] | str, descripcion: str,
              hex_: dict | None = None, enteros: bool = False) -> str:
     """Gráfico de categorías (una medida). ``roles``: un rol para todas las marcas
@@ -155,13 +174,14 @@ def columnas(items: list[tuple[str, float]], variante: str, roles: list[str] | s
         elif variante == "barras_linea":
             for px, py in puntos:
                 partes.append(f'<circle cx="{px:.1f}" cy="{py:.1f}" r="3.5" {P.fill("linea")}/>')
+    max_car = max(6, int(banda / 6.4))  # rótulo partido al ancho real de su banda: no se enciman
     for i, (etq, _) in enumerate(items):
-        lineas = _lineas_texto(etq)
+        lineas = _lineas_texto(etq, max_car)
         tsp = "".join(f'<tspan x="{cx[i] + (PROF / 2 if barras else 0):.1f}" dy="{0 if k == 0 else 13}">{_html.escape(t)}</tspan>'
                       for k, t in enumerate(lineas))
         partes.append(f'<text y="{ALTO - M_INF + 18}" text-anchor="middle" class="cat" {P.fill("texto2")}>{tsp}</text>')
-    return (f'<svg class="grafico" viewBox="0 0 {ANCHO} {ALTO}" role="img" aria-label="{_html.escape(descripcion)}">'
-            f"<title>{_html.escape(descripcion)}</title>" + "".join(partes) + "</svg>")
+    return _tamanos(f'<svg class="grafico" viewBox="0 0 {ANCHO} {ALTO}" role="img" aria-label="{_html.escape(descripcion)}">'
+                    f"<title>{_html.escape(descripcion)}</title>" + "".join(partes) + "</svg>")
 
 
 def _arco(cx, cy, r_ext, r_int, a0, a1) -> str:
@@ -200,14 +220,14 @@ def dona(items: list[tuple[str, float]], descripcion: str, hex_: dict | None = N
                           f'<path d="{_arco(cx, cy, r_ext, r_int, a0, max(a1, a0 + 0.002))}" {P.fill(rol)}/></g>')
         a += ang
     mayor = max(items, key=lambda kv: kv[1])
-    centro_etq = _lineas_texto(mayor[0], 18)[0]
+    centro_etq = _una_linea(mayor[0], 18)
     partes.append(f'<text x="{cx}" y="{cy + 4}" text-anchor="middle" class="centro" {P.fill("texto")}>{pct(mayor[1] / total)}</text>'
                   f'<text x="{cx}" y="{cy + 24}" text-anchor="middle" class="centro-etq" {P.fill("texto2")}>{_html.escape(centro_etq)}</text>')
     ly = max(28, cy - len(items) * 13)
     for i, ((etq, v), rol) in enumerate(zip(items, roles)):
         yy = ly + i * 27
         partes.append(f'<rect x="290" y="{yy - 10}" width="12" height="12" rx="3" {P.fill(rol)}/>'
-                      f'<text x="310" y="{yy}" class="ley" {P.fill("texto")}>{_html.escape(_lineas_texto(etq, 26)[0])}</text>'
+                      f'<text x="310" y="{yy}" class="ley" {P.fill("texto")}><title>{_html.escape(etq)}</title>{_html.escape(_una_linea(etq, 26))}</text>'
                       f'<text x="310" y="{yy + 13}" class="ley2" {P.fill("texto2")}>{es_ec(v)} · {pct(v / total)}</text>')
-    return (f'<svg class="grafico" viewBox="0 0 {ANCHO} {ALTO}" role="img" aria-label="{_html.escape(descripcion)}">'
-            f"<title>{_html.escape(descripcion)}</title>" + "".join(partes) + "</svg>")
+    return _tamanos(f'<svg class="grafico" viewBox="0 0 {ANCHO} {ALTO}" role="img" aria-label="{_html.escape(descripcion)}">'
+                    f"<title>{_html.escape(descripcion)}</title>" + "".join(partes) + "</svg>")
