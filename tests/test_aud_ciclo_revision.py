@@ -103,6 +103,33 @@ def test_revision_aprobacion_y_papel_inmutable(client):
     assert client.get(f"{BASE}/pruebas/{p['id']}", headers=_h(tok)).status_code == 404
 
 
+def test_papel_declarativo_guarda_tambien_word_y_powerpoint(client):
+    """Una prueba declarativa guarda su papel completo: Excel, HTML, Word y PowerPoint."""
+    tok, p = _analizada(client)
+    p = _accion(client, tok, p, "submit", {"analysis": "Dos partidas bajo costo.", "conclusion": "Ajuste de 82,00."}).json()
+    p = _accion(client, tok, p, "approve", {"conclusion": "Se propone ajuste de 82,00.", "conclusionReviewed": True,
+                                             "exceptionReview": "Las dos excepciones son deterioro por precio; se registran."}).json()
+    assert p["estado"] == "APROBADO", p
+
+    def subir(docx=b"PK\x03\x04word", pptx=b"PK\x03\x04ppt"):
+        return client.post(f"{BASE}/pruebas/{p['id']}/papel", headers=_h(tok), data={"revision": str(p["revision"])},
+                           files={"xlsx": ("p.xlsx", b"PK\x03\x04excel"), "html": ("p.html", b"<!doctype html><html></html>"),
+                                  "docx": ("p.docx", docx), "pptx": ("p.pptx", pptx)})
+
+    r = subir(docx=b"no es word")
+    assert r.status_code == 400 and "Word" in r.json()["detail"]
+    r = subir(pptx=b"no es ppt")
+    assert r.status_code == 400 and "PowerPoint" in r.json()["detail"]
+    assert subir().status_code == 200
+    p = _leer(client, tok, p)
+    arts = p["registro"]["artifacts"]
+    assert set(arts) == {"xlsx", "html", "docx", "pptx"}
+    assert len(p["papeles"]) == 4 and all(len(x["sha256"]) == 64 for x in p["papeles"])
+    for ext, esperado in (("docx", b"PK\x03\x04word"), ("pptx", b"PK\x03\x04ppt")):
+        bajado = client.get(f"{BASE}/pruebas/{p['id']}/archivos/{arts[ext]['id']}", headers=_h(tok))
+        assert bajado.content == esperado and arts[ext]["nombre"].endswith(f".{ext}")
+
+
 def test_devolver_a_datos_reabre_los_puntos(client):
     tok, p = _analizada(client)
     p = _accion(client, tok, p, "submit", {"analysis": "a", "conclusion": "c"}).json()

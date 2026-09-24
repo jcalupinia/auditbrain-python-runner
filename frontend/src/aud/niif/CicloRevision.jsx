@@ -12,6 +12,8 @@ import { ContextFields } from "./ContextoEncargo";
  */
 
 const cargarExportador = () => import("./sitio/tools/exports.mjs");
+// Papel completo de una prueba declarativa: Excel, Word, PowerPoint y HTML con los tres dentro.
+const cargarPapel = () => import("./papelDeclarativo");
 
 function descargar(nombre, contenido, tipo) {
   const url = URL.createObjectURL(new Blob([contenido], { type: tipo }));
@@ -136,9 +138,9 @@ function Papel({ prueba, onRecargar }) {
     setGuardando(true);
     setError("");
     try {
-      const exp = await cargarExportador();
-      const t = herramientaDePrueba(prueba);
-      await api.cicloSubirPapel(prueba.id, prueba.revision, exp.buildWorkbook(t), exp.buildHtml(t));
+      const { papelDeclarativo } = await cargarPapel();
+      const papel = await papelDeclarativo(herramientaDePrueba(prueba));
+      await api.cicloSubirPapel(prueba.id, prueba.revision, papel.xlsx, papel.html, { docx: papel.docx, pptx: papel.pptx });
       await onRecargar();
     } catch (e) {
       setError(e.message || String(e));
@@ -157,7 +159,8 @@ function Papel({ prueba, onRecargar }) {
 
   async function bajar(a) {
     const bytes = await api.cicloBajarArchivo(prueba.id, a.id);
-    descargar(a.nombre, bytes, a.nombre.endsWith(".xlsx") ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "text/html;charset=utf-8");
+    const { MIME } = await cargarPapel();
+    descargar(a.nombre, bytes, MIME[a.nombre.split(".").pop()] || "application/octet-stream");
   }
 
   return (

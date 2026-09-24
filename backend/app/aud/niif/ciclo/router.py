@@ -184,13 +184,17 @@ async def guardar_papel(
     revision: int = Form(...),
     xlsx: UploadFile = File(...),
     html: UploadFile = File(...),
+    docx: UploadFile | None = File(None),
+    pptx: UploadFile | None = File(None),
     db: Session = Depends(get_db),
     user: User = Depends(require_staff),
 ) -> dict:
     p = _prueba(db, user, prueba_id)
     a = await xlsx.read(almacen.MAX_ARCHIVO + 1)
     b = await html.read(almacen.MAX_ARCHIVO + 1)
-    return _salida(_regla(lambda: servicio.guardar_papel(db, p, revision, a, b, user.email)))
+    w = await docx.read(almacen.MAX_ARCHIVO + 1) if docx else None
+    s = await pptx.read(almacen.MAX_ARCHIVO + 1) if pptx else None
+    return _salida(_regla(lambda: servicio.guardar_papel(db, p, revision, a, b, user.email, docx=w, pptx=s)))
 
 
 @router.get("/bandejas")

@@ -470,4 +470,8 @@ fórmula con el valor que calculó Python (diferencia 0). Referencia:
 `scripts/verificar_formulas_pi.py` (pérdidas incurridas). Implementación de referencia:
 `backend/app/aud/niif/procesadores/libro.py` (celdas `{"f": fórmula, "v": valor}`).
 
-Pendiente: las pruebas declarativas (exportador del sitio) aún no traen Word ni PowerPoint.
+Pruebas declarativas (catálogo y fichas sin procesador): el papel lo arma el navegador con
+`frontend/src/aud/niif/papelDeclarativo.js` a partir de las mismas cédulas del exportador del
+sitio (`workbookSheets`): Excel con fórmulas, Word, PowerPoint y el HTML del sitio con los tres
+dentro y «Guardar como PDF». Al aprobar se guardan los cuatro archivos con su huella
+(`servicio.guardar_papel`). La copia `sitio/` no se edita: ese módulo la consume.
