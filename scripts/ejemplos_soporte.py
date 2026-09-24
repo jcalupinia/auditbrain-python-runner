@@ -186,6 +186,84 @@ def tabla(pid, rid, req):
                 ["Operación", "Banco", "Saldo al corte", "Interés del año", "Gasto financiero", "Porción corriente"],
                 [[x["id"], x["banco"], x.get("saldo_reg", 0), x.get("int_reg", 0) or 0, x.get("gasto_reg", 0), x.get("cp_reg", 0) or 0] for x in r])
 
+    # --- Lote 3 ---
+    if pid == "nomina_beneficios" and rid == "RQ-003":
+        r = _rows(pid, "empleados", 3)
+        return ("Roles de pago mensuales y datos del contrato de trabajo",
+                ["Empleado", "Fecha de ingreso", "Sueldo mensual", "Remuneración anual", "Neto pagado"],
+                [[x["nombre"], x.get("fecha_ingreso", ""), x.get("sueldo_mensual", 0), x.get("remuneracion_anual", 0), x.get("neto_pagado", 0)] for x in r])
+    if pid == "nomina_beneficios" and rid == "RQ-006":
+        return ("Mayores del gasto de nómina y de los pasivos laborales",
+                ["Concepto", "Gasto del año", "Pasivo al corte"],
+                [["Sueldos y salarios", 145000, 0], ["Aporte patronal IESS", 17800, 1480],
+                 ["Décimo tercero / cuarto", 12100, 3600], ["Vacaciones", 6100, 6100],
+                 ["Jubilación patronal y desahucio", 16300, 102000]])
+    if pid == "nomina_beneficios" and rid == "RQ-007":
+        r = _rows(pid, "empleados", 3)
+        return ("Registro de vacaciones y comprobantes de pago",
+                ["Empleado", "Saldo inicial (días)", "Gozados (días)", "Provisión de vacaciones"],
+                [[x["nombre"], x.get("vac_saldo_inicial", 0), x.get("vac_gozados", 0), x.get("vacaciones_provisionadas", 0)] for x in r])
+    if pid == "ingresos_contratos" and rid == "RQ-002":
+        r = _rows(pid, "contratos", 3)
+        return ("Mayor de ingresos y activo/pasivo del contrato",
+                ["Contrato", "Cliente", "Ingreso reconocido", "Facturado", "Cobrado"],
+                [[x["id"], x.get("cliente", ""), x.get("registrado", 0), x.get("facturado", 0), x.get("cobrado", 0)] for x in r])
+    if pid == "ingresos_contratos" and rid == "RQ-005":
+        return ("Presupuestos y costos incurridos de los contratos a lo largo del tiempo",
+                ["Contrato", "Costo presupuestado", "Costo incurrido", "% de avance", "Ingreso a reconocer"],
+                [["C-02 Servicio anual", 60000, 30000, 50, 45000], ["C-03 Construcción", 200000, 150000, 75, 225000]])
+    if pid == "ingresos_contratos" and rid == "RQ-006":
+        return ("Notas de crédito posteriores al cierre y estimación de devoluciones",
+                ["Documento", "Fecha", "Motivo", "Importe"],
+                [["NC-0455", "12/01/2026", "Devolución de mercadería", 3500],
+                 ["NC-0461", "20/01/2026", "Descuento por pronto pago", 1200]])
+    if pid == "gastos_analisis" and rid == "RQ-003":
+        r = _rows(pid, "cuentas", 4)
+        return ("Mayor de gastos y balance de comprobación al corte",
+                ["Cuenta", "Nombre", "Saldo actual", "Saldo anterior", "Presupuesto"],
+                [[x["id"], x.get("nombre", ""), x.get("saldo_actual", 0), x.get("saldo_anterior", 0), x.get("presupuesto", 0)] for x in r])
+    if pid == "gastos_analisis" and rid == "RQ-006":
+        return ("Maestro completo de partes relacionadas al corte",
+                ["Parte relacionada", "Relación", "RUC", "Tipo de transacción", "Importe del año"],
+                [["Servicios Corporativos Matriz S.A.", "Matriz", "1790000000002", "Honorarios de gestión", 48000],
+                 ["Inmobiliaria del Grupo S.A.", "Vinculada", "1790000000003", "Arriendo", 36000]])
+    if pid == "gastos_analisis" and rid == "RQ-007":
+        r = _rows(pid, "cuentas", 4)
+        return ("Presupuesto aprobado del ejercicio y su ejecución",
+                ["Cuenta", "Presupuesto aprobado", "Ejecutado", "Variación"],
+                [[x.get("nombre", x["id"]), x.get("presupuesto", 0), x.get("saldo_actual", 0),
+                  (float(x.get("saldo_actual", 0) or 0) - float(x.get("presupuesto", 0) or 0))] for x in r])
+    if pid == "provisiones_contingencias" and rid == "RQ-006":
+        r = _rows(pid, "provisiones", 3)
+        return ("Mayor de provisiones y de gastos financieros por descuento",
+                ["Provisión", "Descripción", "Saldo al corte", "Importe estimado (abogado)", "Plazo (años)"],
+                [[x["id"], x.get("descripcion", ""), x.get("saldo_libros", 0), x.get("importe_abogado", 0), x.get("plazo_anios", "")] for x in r])
+    if pid == "impuesto_corriente_diferido" and rid == "RQ-006":
+        return ("Proyecciones de ganancias fiscales y análisis de recuperabilidad",
+                ["Año", "Ganancia fiscal proyectada", "Uso de diferencias/pérdidas", "¿Recuperable?"],
+                [[2026, 900000, 120000, "Sí"], [2027, 1050000, 140000, "Sí"], [2028, 1200000, 160000, "Sí"]])
+    if pid == "impuesto_corriente_diferido" and rid == "RQ-007":
+        return ("Mayor de las cuentas de impuesto corriente y diferido",
+                ["Cuenta", "Saldo al corte", "Naturaleza"],
+                [["Impuesto a la renta por pagar", 187500, "Pasivo corriente"],
+                 ["Activo por impuesto diferido", 5000, "Activo no corriente"],
+                 ["Pasivo por impuesto diferido", 20000, "Pasivo no corriente"]])
+    if pid == "impuesto_corriente_diferido" and rid == "RQ-008":
+        return ("Detalle del ingreso exento bruto del ejercicio",
+                ["Concepto", "Ingreso exento bruto", "Base legal"],
+                [["Dividendos de sociedades residentes", 40000, "LRTI Art. 9 núm. 1 (VERIFICAR)"],
+                 ["Ingresos por enajenación ocasional", 0, "LRTI Art. 9 (VERIFICAR)"]])
+    if pid == "patrimonio" and rid == "RQ-006":
+        r = _rows(pid, "movimientos", 5)
+        return ("Estado de cambios en el patrimonio y nota de patrimonio",
+                ["Cuenta", "Saldo inicial", "Aumentos", "Disminuciones", "Saldo final"],
+                [[x.get("cuenta", x["id"]), x.get("inicial", 0), x.get("aumentos", 0), x.get("disminuciones", 0), x.get("final", 0)] for x in r])
+    if pid == "patrimonio" and rid == "RQ-007":
+        return ("Conciliación de la adopción por primera vez de las NIIF",
+                ["Rubro", "Saldo marco anterior", "Ajuste de transición", "Saldo NIIF"],
+                [["Resultados acumulados", 300000, 25000, 325000],
+                 ["Propiedad, planta y equipo", 1044000, -8000, 1036000]])
+
     # genérica: eco del contenido pedido
     return (req.get("document", "Documento de sustento"),
             ["Concepto", "Detalle", "Importe"],
