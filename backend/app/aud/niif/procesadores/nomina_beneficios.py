@@ -525,6 +525,16 @@ CEDULAS = [
     ("13_Resultados_ORI", "Costo post-empleo: resultados y ORI"), ("14_Censo_actuarial", "Censo actuarial y desahucio legal"),
     ("15_Conciliacion_GL", "Conciliación nómina–mayor"), ("16_Ajustes", "Ajustes propuestos"), ("17_Problemas", "Problemas encontrados"),
 ]
+# Dashboard (graficos.panel): población = nómina anual registrada; recalculado vs registrado = los conceptos de la
+# conciliación nómina–mayor (remuneraciones, aportes, décimos, vacaciones, fondo de reserva y provisión actuarial).
+PANEL = {
+    "poblacion": {"rotulo": "Nómina anual registrada", "hoja": "03_Empleados", "col": "Remuneración anual registrada"},
+    "recalculado": {"rotulo": "Nómina y beneficios recalculados", "hoja": "15_Conciliacion_GL", "col": "Recalculado"},
+    "registrado": {"rotulo": "Nómina y beneficios registrados", "hoja": "15_Conciliacion_GL", "col": "Detalle registrado"},
+    "composicion": {"rotulo": "Recalculado por concepto", "hoja": "15_Conciliacion_GL", "etiqueta": "Concepto", "valor": "Recalculado"},
+    "distribucion": {"rotulo": "Nómina por región", "hoja": "03_Empleados", "etiqueta": "Región", "valor": "Remuneración anual registrada"},
+}
+
 P = ref("02_Parametros")
 EMP, ACT, TS, NOM, IE, D13, D14, VAC, FR, DBO, ORIH, CEN, CG, AJ = (ref(n) for n, _ in CEDULAS[2:16])
 _PAR = ["corte", "inicio", "marco", "edicion", "ruta", "sbu", "sbuPago", "sbuD14", "aportePersonal", "aportePatronal", "aporteIece", "aporteSecap", "fondoReserva",
@@ -696,9 +706,212 @@ def hojas(res: dict) -> list[dict]:
              "desahucioLegalReferencial": f"SUM({_rng(CEN, 'H', len(AC))})", "ajustePasivos": f"{AJ}B{FILA0 + naj}"}
     resumen = [[res["labels"][kk], fx(celda[kk], k[kk])] for kk in res["labels"]]
 
+    # «Cómo se calcula esta hoja»: explicación humana de cada columna calculada.
+    ex = {
+        "01_Resumen": {
+            "Importe": ("Trae cada total de la hoja donde se calcula, concepto por concepto: remuneraciones, aportes, décimos, vacaciones, "
+                        "fondo de reserva y obligación actuarial salen de la hoja 15 (Conciliación nómina–mayor); la diferencia de aporte "
+                        "personal suma la hoja 07 (Aportes IESS), el gasto y el ORI suman la hoja 13, el desahucio referencial suma la "
+                        "hoja 14 y el ajuste es el total de la hoja 16 (Ajustes propuestos)."),
+        },
+        "05_Tiempo_servicio": {
+            "Días trabajados (30/360)": ("Cuenta los días trabajados en el ejercicio en base comercial 30/360: desde la fecha de ingreso "
+                                         "(hoja 03, Empleados) o el 1 de enero si ingresó antes, hasta la fecha de salida o el corte "
+                                         "(hoja 02, Parámetros), lo que ocurra primero. Si no trabajó en el año, da cero."),
+            "Activo al corte": ("Marca «Sí» cuando el empleado ya había ingresado al corte y no tiene fecha de salida o salió después "
+                                "del corte (fechas de la hoja 03, Empleados); en otro caso marca «No»."),
+            "Años de servicio": ("Cuenta los años completos de servicio en base 30/360, desde la fecha de ingreso (hoja 03) hasta la "
+                                 "fecha de salida o el corte (hoja 02), lo que ocurra primero; las fracciones de año no se cuentan."),
+            "Días con derecho a fondo de reserva": ("Cuenta los días del ejercicio, en base 30/360, desde que el empleado cumplió su "
+                                                    "13.º mes (ingreso de la hoja 03 más 12 meses) o desde el 1 de enero si ya lo "
+                                                    "había cumplido, hasta la salida o el corte; cero si todavía no llega al 13.º mes."),
+        },
+        "06_Recalculo_nomina": {
+            "Sueldo mensual": "Trae el sueldo mensual del empleado tal como lo informó el cliente en la hoja 03 (Empleados).",
+            "Días": "Trae los días trabajados en el ejercicio (base 30/360) calculados en la hoja 05 (Tiempo de servicio).",
+            "Sueldo del período": ("Multiplica el sueldo mensual por los días trabajados y divide para 30: es el sueldo que "
+                                   "corresponde al tiempo trabajado en el año."),
+            "Valor hora": ("Divide el sueldo mensual para las horas del mes de la hoja 02 (Parámetros), normalmente 240, "
+                           "para obtener el valor de una hora ordinaria."),
+            "Horas 50 %": ("Trae las horas suplementarias del año informadas en la hoja 03 (Empleados); queda en blanco si el "
+                           "cliente no las informó."),
+            "Horas 100 %": ("Trae las horas extraordinarias del año informadas en la hoja 03 (Empleados); queda en blanco si el "
+                            "cliente no las informó."),
+            "Horas extras recalculadas": ("Valora las horas del año con el valor hora: las suplementarias con su recargo y las "
+                                          "extraordinarias con el suyo (recargos de la hoja 02). Si no se informó ninguna hora, "
+                                          "queda en blanco."),
+            "Horas extras registradas": ("Trae el valor de horas extras que registró el cliente en la hoja 03 (Empleados); "
+                                         "si lo dejó vacío se toma cero."),
+            "Dif. horas extras": ("Resta las horas extras recalculadas del valor registrado por el cliente; queda en blanco "
+                                  "cuando no hubo horas para recalcular."),
+            "Comisiones y bonos": "Trae las comisiones y bonos del año de la hoja 03 (Empleados); si están vacíos se toma cero.",
+            "Bruto recalculado": ("Suma el sueldo del período, las horas extras REGISTRADAS por el cliente (no las recalculadas) "
+                                  "y las comisiones y bonos: es la remuneración bruta del año según el auditor."),
+            "Remuneración registrada": ("Trae la remuneración total anual que registró el cliente (materia gravada del IESS) "
+                                        "en la hoja 03 (Empleados)."),
+            "Registrada − recalculada": ("Resta el bruto recalculado de la remuneración registrada: una cifra positiva indica "
+                                         "que el cliente registró más de lo que corresponde."),
+            "Aporte personal s/ bruto": ("Aplica el porcentaje de aporte personal al IESS de la hoja 02 (Parámetros) sobre el "
+                                         "bruto recalculado de esta hoja."),
+            "Otras deducciones": ("Trae las otras deducciones del año (préstamos, impuesto retenido, etc.) de la hoja 03; "
+                                  "si están vacías se toma cero."),
+            "Neto recalculado": ("Parte del bruto recalculado y le resta el aporte personal y las otras deducciones: es lo que "
+                                 "el empleado debió recibir en el año."),
+            "Neto pagado": "Trae el neto que el cliente dice haber pagado en el año (hoja 03); queda en blanco si no lo informó.",
+            "Dif. neto": ("Resta el neto recalculado del neto pagado por el cliente; queda en blanco cuando el neto pagado "
+                          "no fue informado."),
+        },
+        "07_IESS": {
+            "Base (remuneración registrada)": ("Trae la remuneración anual registrada del empleado de la hoja 03 (Empleados); "
+                                               "es la base sobre la que se recalculan los aportes."),
+            "Base planillas IESS": ("Trae la base de aportación que figura en las planillas del IESS (hoja 03); queda en blanco "
+                                    "si no se informó."),
+            "Dif. planilla − nómina": ("Resta la remuneración de la nómina de la base declarada en las planillas del IESS; queda "
+                                       "en blanco si falta la base de planillas."),
+            "Aporte personal recalculado": ("Multiplica la base (remuneración registrada) por el porcentaje de aporte personal "
+                                            "de la hoja 02 (Parámetros)."),
+            "Aporte personal registrado": ("Trae el aporte personal al IESS que registró el cliente en la hoja 03; queda en "
+                                           "blanco si no lo informó."),
+            "Dif. personal": ("Resta el aporte personal recalculado del registrado por el cliente; queda en blanco si el "
+                              "cliente no informó su aporte."),
+            "Tasa patronal total": ("Suma los porcentajes de aporte patronal, ex IECE y SECAP de la hoja 02 (Parámetros) y los "
+                                    "expresa como tasa única."),
+            "Aporte patronal recalculado": "Multiplica la base (remuneración registrada) por la tasa patronal total de esta hoja.",
+            "Aporte patronal registrado": ("Trae el aporte patronal (con IECE y SECAP) que registró el cliente en la hoja 03; "
+                                           "queda en blanco si no se informó."),
+            "Dif. patronal": ("Resta el aporte patronal recalculado del registrado por el cliente; queda en blanco si el "
+                              "cliente no informó su aporte patronal."),
+        },
+        "08_Decimo_tercero": {
+            "Activo": "Trae si el empleado está activo al corte, según la hoja 05 (Tiempo de servicio).",
+            "Días del período al corte": ("Cuenta los días, en base 30/360, desde el inicio del período del décimo tercero "
+                                          "(hoja 02) o desde el ingreso si fue posterior, hasta el corte. Da cero si el empleado "
+                                          "ya no está activo o si cobra el décimo mensualizado."),
+            "Remuneración diaria": ("Divide el bruto recalculado de la hoja 06 (Recálculo de nómina) para los días trabajados "
+                                    "de la hoja 05; cero si no trabajó días en el año."),
+            "Provisión recalculada (1/12)": ("Multiplica la remuneración diaria por los días del período al corte y divide "
+                                             "para 12: es la doceava parte de lo ganado en el período, lo que debería estar provisionado."),
+            "Provisionado": ("Trae el décimo tercero que el cliente tiene provisionado al corte (hoja 03); queda en blanco si "
+                             "no lo informó."),
+            "Provisionado − recalculado": ("Resta la provisión recalculada de la provisionada por el cliente: negativa significa "
+                                           "que falta provisión; queda en blanco si no hay dato del cliente."),
+        },
+        "09_Decimo_cuarto": {
+            "Activo": "Trae si el empleado está activo al corte, según la hoja 05 (Tiempo de servicio).",
+            "Días del período al corte": ("Cuenta los días, en base 30/360, desde el inicio del período del décimo cuarto de la "
+                                          "región del empleado (Costa/Galápagos o Sierra/Oriente, hoja 02) o desde el ingreso si "
+                                          "fue posterior, hasta el corte; cero si no está activo o lo cobra mensualizado."),
+            "Provisión recalculada (SBU × días ÷ 360)": ("Multiplica el SBU aplicado al décimo cuarto (hoja 02: el de la fecha "
+                                                          "de pago si se informó, si no el del corte) por los días del período "
+                                                          "y divide para 360."),
+            "Provisionado": ("Trae el décimo cuarto que el cliente tiene provisionado al corte (hoja 03); queda en blanco si "
+                             "no lo informó."),
+            "Provisionado − recalculado": ("Resta la provisión recalculada de la provisionada por el cliente: negativa significa "
+                                           "que falta provisión; en blanco si el cliente no informó el dato."),
+        },
+        "10_Vacaciones": {
+            "Activo": "Trae si el empleado está activo al corte, según la hoja 05 (Tiempo de servicio).",
+            "Años de servicio": "Trae los años completos de servicio del empleado calculados en la hoja 05 (Tiempo de servicio).",
+            "Días por año": ("Parte de los días de vacaciones por año de la hoja 02 y suma un día por cada año de servicio que "
+                             "exceda los años requeridos para el día adicional, sin pasar del máximo de días adicionales."),
+            "Días devengados en el año": ("Multiplica los días de vacaciones por año por los días trabajados en el ejercicio "
+                                          "(hoja 05) y divide para 360: son los días ganados en el año."),
+            "Saldo inicial días": ("Trae el saldo de días de vacaciones pendientes al inicio del año (hoja 03); si está vacío "
+                                   "se toma cero."),
+            "Días gozados": "Trae los días de vacaciones gozados en el año (hoja 03); si están vacíos se toma cero.",
+            "Saldo final días": ("Suma al saldo inicial los días devengados en el año y resta los días gozados: son los días "
+                                 "pendientes al corte."),
+            "Valor por día": ("Divide el bruto recalculado de la hoja 06 (Recálculo de nómina) para los días trabajados de la "
+                              "hoja 05; es el valor de un día de vacaciones (cero si no trabajó en el año)."),
+            "Provisión recalculada": ("Multiplica el saldo final de días (si es negativo se toma cero) por el valor por día; "
+                                      "da cero cuando el empleado ya no está activo al corte."),
+            "Provisionado": ("Trae la provisión de vacaciones que el cliente tiene registrada al corte (hoja 03); queda en "
+                             "blanco si no la informó."),
+            "Provisionado − recalculado": ("Resta la provisión recalculada de la registrada por el cliente: negativa significa "
+                                           "que falta provisión; en blanco si el cliente no informó el dato."),
+        },
+        "11_Fondo_reserva": {
+            "Días trabajados": "Trae los días trabajados en el ejercicio (base 30/360) de la hoja 05 (Tiempo de servicio).",
+            "Días con derecho": ("Trae los días del ejercicio posteriores al 13.º mes del empleado, calculados en la hoja 05 "
+                                 "(Tiempo de servicio)."),
+            "Bruto recalculado": "Trae el bruto recalculado del año de la hoja 06 (Recálculo de nómina: bruto y neto).",
+            "Fondo de reserva debido": ("Aplica el porcentaje de fondo de reserva de la hoja 02 al bruto recalculado y lo "
+                                        "prorratea por los días con derecho sobre los días trabajados; cero si no trabajó en el año."),
+            "Pagado o depositado": ("Trae el fondo de reserva que el cliente pagó o depositó en el año (hoja 03); queda en blanco "
+                                    "si no lo informó."),
+            "Pagado − debido": ("Resta el fondo debido de lo pagado o depositado: negativa significa fondo de reserva no pagado; "
+                                "en blanco si el cliente no informó el pago."),
+        },
+        "12_DBO_actuarial": {
+            "DBO inicial": "Trae la obligación actuarial (DBO) al inicio del año del plan, según la hoja 04 (Informe actuarial).",
+            "Costo del servicio": "Trae el costo del servicio del período que reporta el actuario para el plan en la hoja 04.",
+            "Intereses": "Trae el costo por intereses del período que reporta el actuario para el plan en la hoja 04.",
+            "Servicios pasados": ("Trae el costo de servicios pasados (modificaciones del plan) de la hoja 04; si no se informó "
+                                  "se toma cero."),
+            "Nuevas mediciones": ("Trae las nuevas mediciones del informe actuarial (hoja 04): pérdida actuarial en positivo, "
+                                  "ganancia en negativo."),
+            "Beneficios pagados": "Trae los beneficios pagados en el año a los empleados del plan, según la hoja 04.",
+            "DBO final recalculado": ("Rehace el movimiento del año: DBO inicial más costo del servicio, intereses, servicios "
+                                      "pasados y nuevas mediciones, menos los beneficios pagados."),
+            "DBO final (informe)": "Trae el DBO final que reporta el informe actuarial para el plan (hoja 04).",
+            "Informe − recalculado": ("Resta el DBO final recalculado del DBO final del informe: si no es cero, el informe no "
+                                      "cuadra internamente y hay que pedir la conciliación al actuario."),
+            "Provisión registrada": "Trae la provisión que el cliente tiene registrada al cierre para el plan (hoja 04).",
+            "Registrada − informe": ("Resta el DBO del informe de la provisión registrada: negativa significa que al cliente "
+                                     "le falta provisión frente al informe actuarial."),
+            "Activos al corte (nómina)": ("Cuenta cuántos empleados figuran como activos al corte en la hoja 05 (Tiempo de "
+                                          "servicio); es el censo esperado según la nómina."),
+            "Empleados en el estudio": ("Trae cuántos empleados incluyó el actuario en el estudio (hoja 04); queda en blanco si "
+                                        "no se informó."),
+            "Estudio − nómina": ("Resta los activos de la nómina de los empleados del estudio actuarial: negativa significa "
+                                 "que faltan empleados en el estudio; en blanco si no hay dato del estudio."),
+        },
+        "13_Resultados_ORI": {
+            "Gasto en resultados": ("Suma el costo del servicio, los intereses y los servicios pasados de la hoja 12 y, solo si "
+                                    "las nuevas mediciones van a resultados según la hoja 02, también las nuevas mediciones."),
+            "Otro resultado integral": ("Toma las nuevas mediciones de la hoja 12 cuando, según la hoja 02 (Parámetros), deben ir "
+                                        "a otro resultado integral (ORI); si van a resultados, pone cero."),
+            "Destino según marco": ("Trae de la hoja 02 (Parámetros) a dónde deben ir las nuevas mediciones según el marco "
+                                    "contable y la política elegida (ORI o Resultados)."),
+            "Conforme": ("Compara dónde registró el cliente las nuevas mediciones con el destino según el marco: «Sí» si "
+                         "coinciden, «No» si difieren y «Sin dato» si el cliente no lo informó."),
+        },
+        "14_Censo_actuarial": {
+            "Años de servicio": "Trae los años completos de servicio del empleado activo de la hoja 05 (Tiempo de servicio).",
+            "Sueldo mensual": "Trae el sueldo mensual del empleado activo informado en la hoja 03 (Empleados).",
+            "Promedio mensual de horas extras y comisiones (año ÷ 12)": (
+                "Suma las horas extras registradas y las comisiones y bonos del año (hoja 03; vacíos cuentan como cero) y "
+                "divide para 12 para llevarlas a un promedio mensual."),
+            "Última remuneración mensual (CT art. 95)": ("Suma el sueldo mensual y el promedio mensual de horas extras y "
+                                                         "comisiones: es la última remuneración mensual del empleado."),
+            "Desahucio legal referencial (25 % × última remuneración mensual × años; CT art. 185)": (
+                "Multiplica la última remuneración mensual por el porcentaje de desahucio de la hoja 02 y por los años de "
+                "servicio; es una referencia legal, no reemplaza el DBO del actuario."),
+        },
+        "15_Conciliacion_GL": {
+            "Detalle registrado": ("Suma lo que registró el cliente para cada concepto: remuneraciones, aportes, décimos, "
+                                   "vacaciones y fondo de reserva salen de la hoja 03 (Empleados) y la provisión actuarial de "
+                                   "la hoja 04 (Informe actuarial)."),
+            "Recalculado": ("Suma lo recalculado por el auditor para cada concepto en su hoja: 06 (bruto), 07 (aporte patronal), "
+                            "08 y 09 (décimos), 10 (vacaciones) y 11 (fondo de reserva); para la provisión actuarial toma el "
+                            "DBO final del informe (hoja 04)."),
+            "Mayor": ("Trae el saldo del mayor contable del concepto que se ingresó en la hoja 02 (Parámetros); queda en blanco "
+                      "si no se informó."),
+            "Detalle − mayor": ("Resta el saldo del mayor del detalle registrado: muestra si la nómina cuadra con la "
+                                "contabilidad; en blanco si falta el mayor."),
+            "Registrado − recalculado": ("Resta lo recalculado de lo registrado en el detalle del cliente: positiva significa "
+                                         "que el cliente registró más de lo que corresponde."),
+        },
+        "16_Ajustes": {
+            "Importe (+ aumenta el pasivo)": (
+                "Suma, con el signo cambiado, las diferencias registrado − recalculado de la hoja de cada concepto: décimo "
+                "tercero (08), décimo cuarto (09), vacaciones (10), fondo de reserva (11), aporte patronal (07) y provisión "
+                "actuarial frente al informe (12). Positivo significa que hay que aumentar el pasivo."),
+        },
+    }
     tot = lambda col, nn, v: suma(col, fin(nn), v)
     return [
-        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen),
+        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=ex["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
         hoja("03_Empleados", "Empleados (datos del cliente)",
              [["Cédula/código", "t"], ["Nombre", "t"], ["Ingreso", "d"], ["Salida", "d"], ["Región", "t"], ["Sueldo mensual", "n"],
@@ -715,61 +928,61 @@ def hojas(res: dict) -> list[dict]:
               ["Tasa de descuento %", "n"], ["Incremento salarial %", "n"], ["Fecha del informe", "d"]], act),
         hoja("05_Tiempo_servicio", "Tiempo de servicio",
              [["Cédula/código", "t"], ["Desde (en el ejercicio)", "d"], ["Hasta", "d"], ["Días trabajados (30/360)", "i"], ["Activo al corte", "t"],
-              ["Años de servicio", "i"], ["Derecho a fondo de reserva desde (13.º mes)", "d"], ["Días con derecho a fondo de reserva", "i"]], ts),
+              ["Años de servicio", "i"], ["Derecho a fondo de reserva desde (13.º mes)", "d"], ["Días con derecho a fondo de reserva", "i"]], ts, explica=ex["05_Tiempo_servicio"]),
         hoja("06_Recalculo_nomina", "Recálculo de nómina: bruto y neto",
              [["Cédula/código", "t"], ["Sueldo mensual", "n"], ["Días", "i"], ["Sueldo del período", "n"], ["Valor hora", "n"], ["Horas 50 %", "n"],
               ["Horas 100 %", "n"], ["Horas extras recalculadas", "n"], ["Horas extras registradas", "n"], ["Dif. horas extras", "n"],
               ["Comisiones y bonos", "n"], ["Bruto recalculado", "n"], ["Remuneración registrada", "n"], ["Registrada − recalculada", "n"],
               ["Aporte personal s/ bruto", "n"], ["Otras deducciones", "n"], ["Neto recalculado", "n"], ["Neto pagado", "n"], ["Dif. neto", "n"]], nom,
              ["TOTAL", None, None, None, None, None, None, None, None, None, None, tot("L", n, k["remuneracionRecalculada"]),
-              tot("M", n, k["remuneracionRegistrada"]), tot("N", n, k["difRemuneracion"]), None, None, None, None, None]),
+              tot("M", n, k["remuneracionRegistrada"]), tot("N", n, k["difRemuneracion"]), None, None, None, None, None], explica=ex["06_Recalculo_nomina"]),
         hoja("07_IESS", "Aportes IESS y planillas",
              [["Cédula/código", "t"], ["Base (remuneración registrada)", "n"], ["Base planillas IESS", "n"], ["Dif. planilla − nómina", "n"],
               ["Aporte personal recalculado", "n"], ["Aporte personal registrado", "n"], ["Dif. personal", "n"], ["Tasa patronal total", "p"],
               ["Aporte patronal recalculado", "n"], ["Aporte patronal registrado", "n"], ["Dif. patronal", "n"]], ies,
              ["TOTAL", None, None, None, tot("E", n, sum(e["ap"] for e in Em)), None, tot("G", n, k["difAportePersonal"]), None,
-              tot("I", n, k["aportePatronalRecalculado"]), None, tot("K", n, sum(e["pat_dif"] or 0 for e in Em))]),
+              tot("I", n, k["aportePatronalRecalculado"]), None, tot("K", n, sum(e["pat_dif"] or 0 for e in Em))], explica=ex["07_IESS"]),
         hoja("08_Decimo_tercero", "Décimo tercero",
              [["Cédula/código", "t"], ["Activo", "t"], ["Mensualizado", "t"], ["Días del período al corte", "i"], ["Remuneración diaria", "n"],
               ["Provisión recalculada (1/12)", "n"], ["Provisionado", "n"], ["Provisionado − recalculado", "n"]], t13,
-             ["TOTAL", "", "", None, None, tot("F", n, k["d13Recalculado"]), None, tot("H", n, sum(e["d13_dif"] or 0 for e in Em))]),
+             ["TOTAL", "", "", None, None, tot("F", n, k["d13Recalculado"]), None, tot("H", n, sum(e["d13_dif"] or 0 for e in Em))], explica=ex["08_Decimo_tercero"]),
         hoja("09_Decimo_cuarto", "Décimo cuarto",
              [["Cédula/código", "t"], ["Activo", "t"], ["Mensualizado", "t"], ["Región", "t"], ["Inicio del período", "d"], ["Días del período al corte", "i"],
               ["Provisión recalculada (SBU × días ÷ 360)", "n"], ["Provisionado", "n"], ["Provisionado − recalculado", "n"]], t14,
-             ["TOTAL", "", "", "", None, None, tot("G", n, k["d14Recalculado"]), None, tot("I", n, sum(e["d14_dif"] or 0 for e in Em))]),
+             ["TOTAL", "", "", "", None, None, tot("G", n, k["d14Recalculado"]), None, tot("I", n, sum(e["d14_dif"] or 0 for e in Em))], explica=ex["09_Decimo_cuarto"]),
         hoja("10_Vacaciones", "Vacaciones",
              [["Cédula/código", "t"], ["Activo", "t"], ["Años de servicio", "i"], ["Días por año", "n"], ["Días devengados en el año", "n"],
               ["Saldo inicial días", "n"], ["Días gozados", "n"], ["Saldo final días", "n"], ["Valor por día", "n"], ["Provisión recalculada", "n"],
               ["Provisionado", "n"], ["Provisionado − recalculado", "n"]], vac,
              ["TOTAL", "", None, None, None, None, None, None, None, tot("J", n, k["vacacionesRecalculadas"]), None,
-              tot("L", n, sum(e["vac_dif"] or 0 for e in Em))]),
+              tot("L", n, sum(e["vac_dif"] or 0 for e in Em))], explica=ex["10_Vacaciones"]),
         hoja("11_Fondo_reserva", "Fondo de reserva",
              [["Cédula/código", "t"], ["Días trabajados", "i"], ["Días con derecho", "i"], ["Bruto recalculado", "n"], ["Fondo de reserva debido", "n"],
               ["Pagado o depositado", "n"], ["Pagado − debido", "n"]], frs,
-             ["TOTAL", None, None, None, tot("E", n, k["fondoReservaEsperado"]), None, tot("G", n, sum(e["fr_dif"] or 0 for e in Em))]),
+             ["TOTAL", None, None, None, tot("E", n, k["fondoReservaEsperado"]), None, tot("G", n, sum(e["fr_dif"] or 0 for e in Em))], explica=ex["11_Fondo_reserva"]),
         hoja("12_DBO_actuarial", "Jubilación patronal y desahucio: DBO",
              [["Plan", "t"], ["Tipo", "t"], ["DBO inicial", "n"], ["Costo del servicio", "n"], ["Intereses", "n"], ["Servicios pasados", "n"],
               ["Nuevas mediciones", "n"], ["Beneficios pagados", "n"], ["DBO final recalculado", "n"], ["DBO final (informe)", "n"],
               ["Informe − recalculado", "n"], ["Provisión registrada", "n"], ["Registrada − informe", "n"], ["Activos al corte (nómina)", "i"],
               ["Empleados en el estudio", "i"], ["Estudio − nómina", "i"]], dbo,
              ["TOTAL", "", None, None, None, None, None, None, None, tot("J", na, k["dboInforme"]), None,
-              tot("L", na, k["provisionActuarialRegistrada"]), tot("M", na, sum(a["dif_prov"] for a in Ac)), None, None, None] if na else None),
+              tot("L", na, k["provisionActuarialRegistrada"]), tot("M", na, sum(a["dif_prov"] for a in Ac)), None, None, None] if na else None, explica=ex["12_DBO_actuarial"]),
         hoja("13_Resultados_ORI", "Costo post-empleo: resultados y ORI",
              [["Plan", "t"], ["Gasto en resultados", "n"], ["Otro resultado integral", "n"], ["Destino según marco", "t"],
               ["Registrado por el cliente en", "t"], ["Conforme", "t"]], ori,
-             ["TOTAL", tot("B", na, k["gastoActuarialResultados"]), tot("C", na, k["oriActuarial"]), "", "", ""] if na else None),
+             ["TOTAL", tot("B", na, k["gastoActuarialResultados"]), tot("C", na, k["oriActuarial"]), "", "", ""] if na else None, explica=ex["13_Resultados_ORI"]),
         hoja("14_Censo_actuarial", "Censo actuarial y desahucio legal",
              [["Cédula/código", "t"], ["Nombre", "t"], ["Años de servicio", "i"], ["Sueldo mensual", "n"],
               ["Promedio mensual de horas extras y comisiones (año ÷ 12)", "n"],
               ["Última remuneración mensual (CT art. 95)", "n"], ["En estudio actuarial", "t"],
               ["Desahucio legal referencial (25 % × última remuneración mensual × años; CT art. 185)", "n"]], cen,
-             ["TOTAL", "", None, None, None, None, "", tot("H", len(AC), k["desahucioLegalReferencial"])] if AC else None),
+             ["TOTAL", "", None, None, None, None, "", tot("H", len(AC), k["desahucioLegalReferencial"])] if AC else None, explica=ex["14_Censo_actuarial"]),
         hoja("15_Conciliacion_GL", "Conciliación nómina–mayor",
              [["Concepto", "t"], ["Detalle registrado", "n"], ["Recalculado", "n"], ["Mayor", "n"], ["Detalle − mayor", "n"],
-              ["Registrado − recalculado", "n"]], cg),
+              ["Registrado − recalculado", "n"]], cg, explica=ex["15_Conciliacion_GL"]),
         hoja("16_Ajustes", "Ajustes propuestos",
              [["Concepto", "t"], ["Importe (+ aumenta el pasivo)", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]],
-             ajus, ["TOTAL", tot("B", naj, k["ajustePasivos"]), "", "", ""]),
+             ajus, ["TOTAL", tot("B", naj, k["ajustePasivos"]), "", "", ""], explica=ex["16_Ajustes"]),
         hoja("17_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
     ]
