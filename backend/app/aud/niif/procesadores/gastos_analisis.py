@@ -632,11 +632,13 @@ EXPLICA = {
 }
 
 # Panel del dashboard (formato en graficos.py): la población es el gasto de la sumaria; el auditor recalcula por días
-# el gasto devengado de los servicios con período y lo compara con lo facturado por esos servicios.
+# el gasto devengado de los servicios con período y lo compara con lo que el cliente llevó a gasto en el ejercicio
+# (las facturas contabilizadas; una registrada después del corte queda fuera del registrado).
 PANEL = {
     "poblacion": {"rotulo": "Gasto total de la sumaria", "hoja": "03_Analisis_global", "col": "Saldo actual"},
-    "recalculado": {"rotulo": "Gasto devengado recalculado", "hoja": "08_Devengo", "col": "Gasto del período"},
-    "registrado": {"rotulo": "Facturado por servicios", "hoja": "08_Devengo", "col": "Importe"},
+    "recalculado": {"rotulo": "Gasto devengado del período (muestra)", "hoja": "08_Devengo", "col": "Gasto del período"},
+    "registrado": {"rotulo": "Gasto registrado en el período (muestra)", "hoja": "08_Devengo", "col": "Importe",
+                   "donde": {"Registrado en el ejercicio": ["Sí"]}},
     "composicion": {"rotulo": "Gasto devengado por proveedor", "hoja": "08_Devengo", "etiqueta": "Proveedor",
                     "valor": "Gasto del período"},
     "distribucion": {"rotulo": "Gasto por línea del ERI", "hoja": "04_Presentacion_ERI",

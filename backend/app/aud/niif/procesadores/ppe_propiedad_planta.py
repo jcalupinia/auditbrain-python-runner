@@ -98,11 +98,13 @@ CONTROL = "costo_inicial"
 TOTAL_EJEMPLO = "ajusteResultado"
 
 # Dashboard (formato en graficos.py): la población es el costo de los activos del auxiliar; la cifra
-# que el auditor recalcula frente a la registrada es la depreciación del año.
+# que el auditor recalcula frente a la registrada es la depreciación del año, comparada solo en los activos
+# que se pudieron recalcular (un método no lineal queda sin recálculo), así la brecha es el ajuste de depreciación.
 PANEL = {
     "poblacion":    {"rotulo": "Costo de activos evaluados", "hoja": "04_Depreciacion", "col": "Costo"},
     "recalculado":  {"rotulo": "Depreciación recalculada", "total": "depRecalculada"},
-    "registrado":   {"rotulo": "Depreciación registrada", "total": "depRegistrada"},
+    "registrado":   {"rotulo": "Depreciación registrada (activos recalculados)", "hoja": "04_Depreciacion",
+                     "col": "Depreciación registrada", "con_valor": "Depreciación recalculada"},
     "composicion":  {"rotulo": "Depreciación por activo", "hoja": "04_Depreciacion", "etiqueta": "Código",
                      "valor": "Depreciación recalculada"},
     "distribucion": {"rotulo": "Costo por clase de activo", "hoja": "05_Vidas_residual", "etiqueta": "Clase", "valor": "Costo"},

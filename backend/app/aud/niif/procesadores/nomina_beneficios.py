@@ -525,13 +525,20 @@ CEDULAS = [
     ("13_Resultados_ORI", "Costo post-empleo: resultados y ORI"), ("14_Censo_actuarial", "Censo actuarial y desahucio legal"),
     ("15_Conciliacion_GL", "Conciliación nómina–mayor"), ("16_Ajustes", "Ajustes propuestos"), ("17_Problemas", "Problemas encontrados"),
 ]
-# Dashboard (graficos.panel): población = nómina anual registrada; recalculado vs registrado = los conceptos de la
-# conciliación nómina–mayor (remuneraciones, aportes, décimos, vacaciones, fondo de reserva y provisión actuarial).
+# Dashboard (graficos.panel): población = nómina anual registrada; recalculado vs registrado = solo los PASIVOS
+# laborales de la conciliación nómina–mayor (décimos, vacaciones, fondo de reserva y provisión actuarial), la misma
+# naturaleza que el ajuste principal. Remuneraciones y aporte patronal son gasto del año y no entran en el comparativo.
+# La brecha puede exceder al ajuste en las provisiones sin registro informado: esas se reportan como problema
+# (VACACIONES_NO_PROVISIONADAS) y no se ajustan solas (hoja 16: «filas con registro informado»).
+_PASIVOS_LABORALES = {"donde": {"Concepto": [
+    "Décimo tercero por pagar", "Décimo cuarto por pagar", "Provisión de vacaciones", "Fondo de reserva",
+    "Provisión jubilación patronal y desahucio (recalculado = informe)"]}}
 PANEL = {
     "poblacion": {"rotulo": "Nómina anual registrada", "hoja": "03_Empleados", "col": "Remuneración anual registrada"},
-    "recalculado": {"rotulo": "Nómina y beneficios recalculados", "hoja": "15_Conciliacion_GL", "col": "Recalculado"},
-    "registrado": {"rotulo": "Nómina y beneficios registrados", "hoja": "15_Conciliacion_GL", "col": "Detalle registrado"},
-    "composicion": {"rotulo": "Recalculado por concepto", "hoja": "15_Conciliacion_GL", "etiqueta": "Concepto", "valor": "Recalculado"},
+    "recalculado": {"rotulo": "Pasivos laborales recalculados", "hoja": "15_Conciliacion_GL", "col": "Recalculado", **_PASIVOS_LABORALES},
+    "registrado": {"rotulo": "Pasivos laborales registrados", "hoja": "15_Conciliacion_GL", "col": "Detalle registrado", **_PASIVOS_LABORALES},
+    "composicion": {"rotulo": "Pasivos laborales recalculados por concepto", "hoja": "15_Conciliacion_GL", "etiqueta": "Concepto",
+                    "valor": "Recalculado", **_PASIVOS_LABORALES},
     "distribucion": {"rotulo": "Nómina por región", "hoja": "03_Empleados", "etiqueta": "Región", "valor": "Remuneración anual registrada"},
 }
 

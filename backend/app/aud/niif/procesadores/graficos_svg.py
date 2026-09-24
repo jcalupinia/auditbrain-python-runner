@@ -46,10 +46,13 @@ def es_ec(v: float, dec: int = 2) -> str:
 
 
 def corto(v: float) -> str:
-    """Rótulo compacto para marcas: 1,2 M · 90,4 mil · 850,00."""
+    """Rótulo compacto para marcas: 1,20 M · 240 mil · 90,4 mil · 850,00 (desde 100 mil sin
+    decimal, para que la cifra quepa en su columna aunque lleve signo)."""
     a = abs(v)
-    if a >= 1_000_000:
+    if a >= 999_500:
         s = es_ec(a / 1_000_000, 2) + " M"
+    elif a >= 99_950:
+        s = es_ec(a / 1_000, 0) + " mil"
     elif a >= 10_000:
         s = es_ec(a / 1_000, 1) + " mil"
     else:
@@ -149,7 +152,8 @@ def columnas(items: list[tuple[str, float]], variante: str, roles: list[str] | s
                      f'{P.fill(rol(i))}/><polygon points="{x0:.1f},{top:.1f} {x0 + PROF:.1f},{top - PROF:.1f} {x0 + w + PROF:.1f},{top - PROF:.1f} {x0 + w:.1f},{top:.1f}" fill="#FFFFFF" fill-opacity="0.32"/>')
             lado = (f'<polygon points="{x0 + w:.1f},{top:.1f} {x0 + w + PROF:.1f},{top - PROF:.1f} {x0 + w + PROF:.1f},{bot - PROF:.1f} {x0 + w:.1f},{bot:.1f}" '
                     f'{P.fill(rol(i))}/><polygon points="{x0 + w:.1f},{top:.1f} {x0 + w + PROF:.1f},{top - PROF:.1f} {x0 + w + PROF:.1f},{bot - PROF:.1f} {x0 + w:.1f},{bot:.1f}" fill="#000000" fill-opacity="0.28"/>')
-            ly = (top - PROF - 6) if v >= 0 else (bot + 14)
+            # Negativa: la cifra va sobre la línea de cero (debajo de la barra chocaría con el rótulo del eje).
+            ly = (top - PROF - 6) if v >= 0 else (y0 - 6)
             partes.append(f'<g class="marca">{tt}{cara}{lado}{techo}'
                           f'<text x="{xc + PROF / 2:.1f}" y="{ly:.1f}" text-anchor="middle" class="val" {P.fill("texto")}>{fmt(v)}</text></g>')
             puntos.append((xc + PROF / 2, top - PROF / 2 if v >= 0 else bot))
@@ -166,7 +170,7 @@ def columnas(items: list[tuple[str, float]], variante: str, roles: list[str] | s
         if not barras:
             for i, ((px, py), (etq, v)) in enumerate(zip(puntos, items)):
                 r = 6 if variante == "puntos" else 4.5
-                ly = py - 12 if v >= 0 else py + 18
+                ly = py - 12 if v >= 0 or py + 18 > ALTO - M_INF - 4 else py + 18
                 partes.append(f'<g class="marca"><title>{_html.escape(etq)}: {completo(v)}</title>'
                               f'<circle cx="{px:.1f}" cy="{py:.1f}" r="{r + 2}" {P.fill("superficie")}/>'
                               f'<circle cx="{px:.1f}" cy="{py:.1f}" r="{r}" {P.fill(rol(i))}/>'

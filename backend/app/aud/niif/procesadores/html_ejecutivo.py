@@ -246,8 +246,11 @@ def _kpis(p: dict) -> str:
     return "".join([
         _kpi("k-oro", "principal", pr["rotulo"], "USD " + _num(pr["valor"]), _num(pr["valor"], False),
              _flecha(var_pr, "de la población")),
-        _kpi("k-azul", "poblacion", po["rotulo"], "USD " + _num(po["valor"]), _num(po["valor"], False),
-             f'{po["n"]} registros' if po.get("n") else ""),
+        (_kpi("k-azul", "poblacion", po["rotulo"], f'{po["n"]} partidas', "USD " + _num(po["valor"], False),
+              "misma base que el saldo registrado")
+         if po.get("igual_registrado") and po.get("n") else
+         _kpi("k-azul", "poblacion", po["rotulo"], "USD " + _num(po["valor"]), _num(po["valor"], False),
+              f'{po["n"]} registros' if po.get("n") else "")),
         _kpi("k-verde", "recalculado", rc["rotulo"], "USD " + _num(rc["valor"]), _num(rc["valor"], False),
              _flecha(rc["variacion"], "vs registrado")),
         _kpi("k-ambar", "registrado", rg["rotulo"], "USD " + _num(rg["valor"]), _num(rg["valor"], False), "según el cliente"),

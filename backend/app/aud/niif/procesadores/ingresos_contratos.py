@@ -438,12 +438,13 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
 # --- cédulas con fórmulas ---------------------------------------------------------
 
 # Dashboard (graficos.panel): población = ingreso registrado del año por obligación; recalculado = ingreso reconocible
-# del año (líneas medidas) frente al registrado; la dona reparte el reconocible por contrato y las barras el registrado
-# por modo de satisfacción.
+# del año frente al registrado EN LAS MISMAS líneas medidas (sin reconocible en blanco), así la brecha del comparativo
+# es el ajuste propuesto; la dona reparte el reconocible por contrato y las barras el registrado por modo de satisfacción.
 PANEL = {
     "poblacion": {"rotulo": "Ingreso registrado del año", "hoja": "03_Detalle", "col": "Registrado en el año"},
     "recalculado": {"rotulo": "Ingreso reconocible del año", "total": "ingresoReconocible"},
-    "registrado": {"rotulo": "Ingreso registrado del año", "total": "ingresoRegistrado"},
+    "registrado": {"rotulo": "Ingreso registrado (líneas medidas)", "hoja": "09_Reconocimiento", "col": "Registrado en el año",
+                   "con_valor": "Reconocible del año"},
     "composicion": {"rotulo": "Reconocible por contrato", "hoja": "09_Reconocimiento", "etiqueta": "Contrato",
                     "valor": "Reconocible del año"},
     "distribucion": {"rotulo": "Ingreso por modo de satisfacción", "hoja": "03_Detalle", "etiqueta": "Modo",
