@@ -793,10 +793,10 @@ _EX_COMUN = {
                                     "del ejercicio.",
         "Comprobación (0)": "Cuadra el movimiento del año: pasivo al inicio + altas + interés − pagos + remedición − pasivo al corte. "
                             "Debe dar 0.",
-        "Pasivo dentro de 12 meses": "Busca en la hoja 09 el saldo que quedará después de 12 meses más de cuotas (o al final del plazo, "
+        "Saldo después de 12 meses": "Busca en la hoja 09 el saldo que quedará después de 12 meses más de cuotas (o al final del plazo, "
                                      "si llega antes): es el capital que no se paga en los próximos 12 meses.",
         "Corriente": "Pasivo al corte menos el saldo que quedará dentro de 12 meses: es el capital que se paga en los próximos 12 meses.",
-        "No corriente": "Es el saldo que quedará después de los próximos 12 meses (columna «Pasivo dentro de 12 meses»): la parte no "
+        "No corriente": "Es el saldo que quedará después de los próximos 12 meses (columna «Saldo después de 12 meses»): la parte no "
                         "corriente del pasivo.",
         "Pasivo registrado": "Trae el pasivo por arrendamiento que el cliente registró al corte, de la hoja 03 (Universo de "
                              "contratos); sin dato cuenta cero.",
@@ -1311,7 +1311,7 @@ def hojas(res: dict) -> list[dict]:
              [["Contrato", "t"], ["Reconoce", "t"], ["Períodos finales", "i"], ["Meses transcurridos", "i"], ["Períodos vencidos al corte", "i"],
               ["Períodos vencidos al inicio del año", "i"], ["Pasivo al corte", n_], ["Pasivo al inicio del año", n_], ["Altas del año", n_],
               ["Interés del ejercicio", n_], ["Pagos del ejercicio", n_], ["Remedición del ejercicio", n_], ["Comprobación (0)", n_],
-              ["Pasivo dentro de 12 meses", n_], ["Corriente", n_], ["No corriente", n_], ["Pasivo registrado", n_], ["Diferencia", n_],
+              ["Saldo después de 12 meses", n_], ["Corriente", n_], ["No corriente", n_], ["Pasivo registrado", n_], ["Diferencia", n_],
               ["Corriente registrado", n_], ["Diferencia corriente", n_], ["Interés registrado", n_], ["Diferencia interés", n_],
               ["Interés devengado no vencido (informativo)", n_]], pasi,
              ["TOTAL", "", None, None, None, None, S("G", t["pasivo"]), S("H", sum(c.get("pasivo_ia") or 0 for c in cs)),
