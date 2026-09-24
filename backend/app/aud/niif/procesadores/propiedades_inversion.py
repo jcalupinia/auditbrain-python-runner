@@ -39,6 +39,7 @@ from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y fil
     FILA0, a_num, campo, edicion_pymes, es_pymes, fecha, filas_mapeadas, fx, hoja, m, norm, problema, r2, ref, req,
     validar_campos, validar_definicion_generica,
 )
+from backend.app.aud.niif.procesadores import problemas
 
 VERSION = "propiedades_inversion 1.1"
 RUBRO = "PROPIEDADES_INVERSION"
@@ -796,6 +797,63 @@ PANEL = {
     "registrado": {"rotulo": "Saldo según el mayor", "total": "saldoMayor"},
     "composicion": {"rotulo": "Auditado por medición", "hoja": "08_Medicion", "etiqueta": "Medición", "valor": "Auditado en la cuenta"},
     "distribucion": {"rotulo": "Libros por clasificación", "hoja": "08_Medicion", "etiqueta": "Clasificación", "valor": "Importe en libros"},
+}
+
+
+def _concepto(hoja_n: str, etiqueta: str):
+    """Celda «Importe» de la fila cuyo concepto es ``etiqueta`` (hojas de concepto/importe)."""
+    def f(hojas, e):
+        h = next((x for x in hojas if x["name"] == hoja_n), None)
+        for i, fila in enumerate((h or {}).get("rows") or []):
+            if fila[0] == etiqueta:
+                return problemas.celda(hojas, hoja_n, "Importe", i), problemas._num(fila[1])
+        return None
+    return f
+
+
+def _reclas_uso_mixto(hojas, e):
+    """SUMIF de la reclasificación (04) de los inmuebles clasificados «Propiedad de inversión (parte)»."""
+    h = next((x for x in hojas if x["name"] == "04_Clasificacion"), None)
+    n = len((h or {}).get("rows") or [])
+    if not n:
+        return None
+    rango = lambda col: (f"{problemas.celda(hojas, '04_Clasificacion', col, 0)}:"
+                         f"{problemas.celda(hojas, '04_Clasificacion', col, n - 1).split('!')[1]}")
+    cols = [c[0] for c in h["cols"]]
+    g, j = cols.index("Clasificación auditada"), cols.index("Reclasificación")
+    valor = sum(problemas._num(f[j]) or 0 for f in h["rows"] if problemas._texto(f[g]) == PI_PARTE)
+    return f'SUMIF({rango("Clasificación auditada")},"{PI_PARTE}",{rango("Reclasificación")})', valor
+
+
+def _transferencias(hojas, e):
+    """Diferencias al cambio de uso: TOTAL «A resultados» + TOTAL «A otro resultado integral» (09)."""
+    h = next((x for x in hojas if x["name"] == "09_Transferencias"), None)
+    if not h or not h.get("total"):
+        return None
+    n = len(h["rows"])
+    cols = [c[0] for c in h["cols"]]
+    k, l_ = cols.index("A resultados"), cols.index("A otro resultado integral")
+    formula = (f"{problemas.celda(hojas, '09_Transferencias', 'A resultados', n)}"
+               f"+{problemas.celda(hojas, '09_Transferencias', 'A otro resultado integral', n)}")
+    return formula, (problemas._num(h["total"][k]) or 0) + (problemas._num(h["total"][l_]) or 0)
+
+
+# De qué celda sale el importe de cada problema (ver procesadores/problemas.py).
+REF_PROBLEMAS = {
+    "MAL_CLASIFICADO": ("04_Clasificacion", "Reclasificación", "total"),            # reclasificación total fuera de PI
+    "USO_MIXTO_SEPARADO": _reclas_uso_mixto,                                         # reclasificación de las partes de uso propio
+    "VR_NO_RECONOCIDO": ("06_Valor_razonable", "Ajuste VR no reconocido (VR − libros)", "total"),  # ajuste de VR a resultados
+    "COSTO_INICIAL": ("05_Costo_inicial", "Diferencia", "total"),                    # costo recalculado − registrado
+    "DEP_DIFERENCIA": ("07_Modelo_costo", "Diferencia de depreciación", "total"),    # dep. recalculada − registrada
+    "DETERIORO": ("07_Modelo_costo", "Deterioro", "total"),                          # deterioro del modelo del costo
+    "ALQUILER_NO_CONCILIADO": ("11_Alquileres", "Diferencia", "total"),              # contratos − registrados
+    "TRANSFERENCIA": _transferencias,                                                # a resultados + a ORI al cambio de uso
+    "SUPERAVIT_AUMENTO": ("10_Superavit", "Movimiento de la transferencia (aumento)", "total"),  # aumento a ORI
+    "SUPERAVIT_CONSUMIDO": ("09_Transferencias", "Uso del superávit (disminución)", "total"),   # superávit usado
+    "SUPERAVIT_EN_PATRIMONIO": ("10_Superavit", "Saldo final", "total"),             # superávit al cierre
+    "BAJA_RESULTADO": ("12_Bajas", "Diferencia", "total"),                           # resultado recalculado − registrado
+    "DETALLE_MAYOR": _concepto("13_Conciliacion", "Diferencia detalle − mayor"),     # detalle − mayor
+    "AJUSTE": _concepto("13_Conciliacion", "Ajuste propuesto (auditado − mayor)"),   # auditado − mayor
 }
 
 
