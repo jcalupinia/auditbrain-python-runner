@@ -141,6 +141,51 @@ def tabla(pid, rid, req):
         return ("Auxiliar del superávit de revaluación por inmueble y su arrastre en patrimonio",
                 ["Inmueble", "Superávit inicial", "Movimiento del año", "Superávit final"],
                 [["IP-01 Edificio de oficinas Norte", 200000, 20000, 220000]])
+    # --- Lote 2 ---
+    if pid == "arrendamientos" and rid == "RQ-004":
+        r = _rows(pid, "contratos", 2)
+        return ("Mayor y auxiliares del pasivo, derecho de uso, depreciación e intereses",
+                ["Contrato", "Activo", "Pasivo por arrendamiento", "Derecho de uso", "Depreciación del año", "Interés del año"],
+                [[x["id"], x["activo"], x.get("pasivo_reg", 0), x.get("activo_reg", 0), x.get("dep_reg", 0) or 0, x.get("int_reg", 0)] for x in r])
+    if pid == "arrendamientos" and rid == "RQ-008":
+        return ("Mayor y asientos posteriores a la venta con arrendamiento",
+                ["Cuenta", "Debe", "Haber", "Referencia"],
+                [["Efectivo (precio de venta)", 40000, 0, "Escritura de compraventa"],
+                 ["Activo dado de baja", 0, 30000, "Mayor de PPE"],
+                 ["Derecho de uso retenido", 12000, 0, "NIIF 16.100 / PYMES 20.16"],
+                 ["Ganancia por la parte transferida", 0, 22000, "Cálculo de la prueba"]])
+    if pid == "intangibles_goodwill" and rid == "RQ-003":
+        return ("Pruebas de deterioro (mayor entre valor en uso y valor razonable menos costos)",
+                ["Intangible / UGE", "Valor en libros", "Valor en uso", "VR menos costos", "Importe recuperable", "Deterioro"],
+                [["SW-01 Software ERP", 36000, 40000, 38000, 40000, 0],
+                 ["Goodwill — UGE Comercial", 150000, 165000, 158000, 165000, 0]])
+    if pid == "activos_biologicos" and rid == "RQ-004":
+        r = _rows(pid, "activos", 2)
+        return ("Detalle de costos de venta (fletes, comisiones, tasas)",
+                ["Activo biológico", "Flete", "Comisión", "Otros", "Total costo de venta"],
+                [[x["categoria"], 15, 20, 5, x.get("costo_venta", 0)] for x in r])
+    if pid == "activos_biologicos" and rid == "RQ-007":
+        r = _rows(pid, "activos", 2)
+        return ("Mayor de activos biológicos y resultados por cambio de valor razonable",
+                ["Activo biológico", "Saldo inicial", "Compras", "Bajas", "Cambio de VR", "Saldo final"],
+                [[x["categoria"], x.get("libros_inicial", 0), x.get("compras", 0), x.get("bajas", 0),
+                  x.get("ganancia_registrada", 0), x.get("valor_libros", 0)] for x in r])
+    if pid == "seguros_cobertura" and rid == "RQ-006":
+        return ("Mayor de seguros pagados por anticipado y facturas",
+                ["Póliza", "Prima total", "Devengado al corte", "Prepagado (activo)", "Cuenta contable"],
+                [["POL-01 Multirriesgo", 12000, 9000, 3000, "1.1.05 Seguros prepagados"],
+                 ["POL-02 Equipo electrónico", 3600, 2400, 1200, "1.1.05 Seguros prepagados"]])
+    if pid == "proveedores_cxp" and rid == "RQ-003":
+        r = _rows(pid, "proveedores", 3)
+        return ("Mayor / balance de comprobación de proveedores e importaciones en tránsito",
+                ["Proveedor", "Documento", "Saldo al corte", "Fecha de recepción", "¿De explotación?"],
+                [[x["proveedor"], x["id"], x.get("saldo", 0), x.get("recepcion", ""), x.get("explotacion", "")] for x in r])
+    if pid == "prestamos_obligaciones" and rid == "RQ-008":
+        r = _rows(pid, "prestamos", 2)
+        return ("Mayor y auxiliares de préstamos e intereses por pagar",
+                ["Operación", "Banco", "Saldo al corte", "Interés del año", "Gasto financiero", "Porción corriente"],
+                [[x["id"], x["banco"], x.get("saldo_reg", 0), x.get("int_reg", 0) or 0, x.get("gasto_reg", 0), x.get("cp_reg", 0) or 0] for x in r])
+
     # genérica: eco del contenido pedido
     return (req.get("document", "Documento de sustento"),
             ["Concepto", "Detalle", "Importe"],
