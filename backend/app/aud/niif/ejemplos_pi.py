@@ -172,3 +172,32 @@ def ejercicio_modelo() -> dict:
     """Forma ``{corte, datasets, parametros}`` que consumen ``ejecutar`` y el
     recorrido del ejercicio modelo (misma firma que ``EJEMPLO``/``ESCENARIOS``)."""
     return {"corte": CORTE, "datasets": datasets(), "parametros": dict(PARAMETROS)}
+
+
+def pce_ejemplo() -> dict:
+    """Ejemplo REALISTA de la herramienta PCE simplificada (NIIF 9), sacado de la
+    MISMA cartera ficticia de pérdidas incurridas (6 clientes con sus RUC): así las
+    dos herramientas de deterioro de cartera se ilustran con los mismos clientes.
+
+    - actual   = cartera por factura al 31/12/2025;
+    - anterior = cartera por factura al 31/12/2024 (base de la tasa histórica);
+    - castigos = facturas que al cierre de 2024 tenían más de 360 días de mora y ya
+      no están en la cartera 2025: se castigan por su saldo de 2024.
+    Los parámetros de escenarios prospectivos son los del EJEMPLO del procesador."""
+    from backend.app.aud.niif.procesadores import pce_simplificada_niif9 as pce
+
+    f = generar_facturas()
+
+    def cartera(anio):
+        return [{"id": x["numero"], "cliente": x["cliente"], "ruc": x["ruc"], "vence": x["vence"].isoformat(),
+                 "saldo": x["saldos"][anio]} for x in sorted(f, key=lambda z: z["numero"]) if x["saldos"].get(anio)]
+
+    castigos = [{"id": x["numero"], "cliente": x["cliente"], "importe": x["saldos"][2024]}
+                for x in sorted(f, key=lambda z: z["numero"])
+                if x["saldos"].get(2024) and not x["saldos"].get(2025) and (CORTES[2024] - x["vence"]).days > 360]
+    par = dict(pce.EJEMPLO.get("parametros", {}))
+    # Provisión registrada en el mayor: la misma provisión inicial del ejemplo de PI
+    # (RQ-004), para que ambas herramientas partan del mismo saldo contable.
+    par["provisionRegistrada"] = _r2(sum(p["Provisión / deterioro"] for p in provision_inicial(f)))
+    return {"datasets": {"actual": cartera(2025), "anterior": cartera(2024), "castigos": castigos},
+            "parametros": par, "corte": CORTE}

@@ -15,19 +15,26 @@ databases:
 services:
   - type: web
     name: auditbrain-python-runner
-    env: python
+    # Runtime DOCKER (antes `env: python`). Motivo: el PDF ejecutivo del papel de
+    # trabajo NIIF se genera en el servidor con WeasyPrint, que necesita
+    # librerías nativas (Pango, HarfBuzz, fontconfig) que un servicio nativo de
+    # Python no puede instalar. Dockerfile.render las instala con apt.
+    # Render permite cambiar el runtime de un servicio EXISTENTE editando este
+    # campo y sincronizando el Blueprint (no desde el Dashboard); el servicio, su
+    # URL, el disco y las variables se conservan.
+    # La imagen sigue siendo liviana (plan starter, sin OOM): Python 3.12 (base
+    # python:3.12-slim; pandas/numpy fijados necesitan 3.12, no 3.14) +
+    # requirements-prod.txt + requirements-pdf.txt (weasyprint). NO usa el
+    # requirements.txt legacy. .dockerignore deja fuera node_modules, .git y el
+    # resto del frontend, salvo los ejemplos por requerimiento y su manifiesto,
+    # que el backend lee para el ejercicio modelo.
+    # El arranque (uvicorn en $PORT) está en el CMD del Dockerfile.
+    # Si el PDF faltara igual (libs ausentes), el endpoint degrada con un aviso
+    # (libro.PDFNoDisponible), nunca un 500.
+    runtime: docker
+    dockerfilePath: ./Dockerfile.render
+    dockerContext: .
     plan: starter
-    # Python 3.12.3 OBLIGATORIO: con el 3.14 por defecto de Render,
-    # pandas==2.1.4 / numpy==1.26.4 no tienen wheel y fallan al compilar
-    # (_PyLong_AsByteArray cambió en CPython 3.14). 3.12 usa wheels binarios.
-    # Python 3.12.3 se fija vía .python-version y runtime.txt (el campo
-    # pythonVersion NO existe en el schema de Blueprint de Render).
-    # Producción usa requirements-prod.txt (liviano, sin OOM en starter).
-    # requirements.txt legacy queda intacto para uso local/otros entornos.
-    buildCommand: |
-      pip install --upgrade pip setuptools wheel
-      pip install -r requirements-prod.txt
-    startCommand: "uvicorn app:app --host 0.0.0.0 --port $PORT"
     autoDeploy: true
 
     # Disco persistente: los archivos ICT (PDFs de origen + Excel generados:

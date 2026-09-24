@@ -1,9 +1,9 @@
 """Ejercicio modelo (solo lectura) de una herramienta NIIF del Command Center.
 
-Corre el procesador sobre sus datos de ejemplo (los del módulo ``ejemplos_pi``
-para pérdidas incurridas; el ``ESCENARIOS``/``EJEMPLO`` del propio procesador
-para las demás) y arma el recorrido completo de la prueba paso por paso, para
-mostrarlo en un panel de solo lectura.
+Corre el procesador sobre el ejemplo REALISTA del manifiesto (los archivos que el
+cliente descarga con «↓ Ejemplo»; ver ``ejemplos_manifiesto``) y arma el
+recorrido completo de la prueba paso por paso, para mostrarlo en un panel de
+solo lectura.
 
 No toca la base de datos, no crea ni modifica encargos ni pruebas y no consume
 el estado del ciclo: solo calcula en memoria y devuelve el recorrido. Reutiliza
@@ -42,7 +42,16 @@ PASOS_NORMA = {
 
 def escenario(mod):
     """(datasets, parametros, corte) del ejemplo de la herramienta, o None si no
-    tiene ninguno. Pérdidas incurridas usa el ejemplo rico de ``ejemplos_pi``."""
+    tiene ninguno.
+
+    Primero, el ejemplo REALISTA del manifiesto: los mismos archivos que el cliente
+    descarga con «↓ Ejemplo», leídos con el lector del ciclo (``ejemplos_manifiesto``).
+    Solo si una herramienta no los tuviera se cae al ejemplo interno del procesador."""
+    from backend.app.aud.niif import ejemplos_manifiesto
+
+    desde_manifiesto = ejemplos_manifiesto.datasets(mod)
+    if desde_manifiesto is not None:
+        return desde_manifiesto
     if getattr(mod, "__name__", "").endswith("perdidas_incurridas_s11"):
         from backend.app.aud.niif import ejemplos_pi
         e = ejemplos_pi.ejercicio_modelo()

@@ -88,7 +88,12 @@ def _celda(campo, valor):
 
 
 def _ejemplo_de(mod):
-    """Devuelve (datasets, parametros, corte) del ejemplo canónico del procesador."""
+    """Devuelve (datasets, parametros, corte) del ejemplo canónico del procesador.
+    PCE usa el ejemplo REALISTA compartido con pérdidas incurridas (6 clientes)."""
+    if getattr(mod, "__name__", "").endswith("pce_simplificada_niif9"):
+        from backend.app.aud.niif import ejemplos_pi
+        e = ejemplos_pi.pce_ejemplo()
+        return e["datasets"], e["parametros"], e["corte"]
     E = getattr(mod, "EJEMPLO", None)
     if E:
         return E["datasets"], E.get("parametros", {}), E["corte"]
