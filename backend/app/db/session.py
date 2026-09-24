@@ -302,6 +302,19 @@ def init_db() -> None:
     _ensure_bitacora_append_only_trigger()
     _ensure_execution_idempotency_index()
 
+    # Catálogo de Audit Apps: publica los manifests de ejemplo (AUD-INV-VNR) si
+    # faltan, para que el catálogo no arranque vacío. Idempotente y falla suave.
+    try:
+        from backend.app.audit_apps.seed import seed_ejemplos
+        _seed_apps_db = SessionLocal()
+        try:
+            seed_ejemplos(_seed_apps_db)
+        finally:
+            _seed_apps_db.close()
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("seed_ejemplos de audit_apps falló en init_db")
+
     # Migración aditiva en ``users``: añade columnas si faltan.
     inspector = inspect(engine)
     if "users" not in inspector.get_table_names():
