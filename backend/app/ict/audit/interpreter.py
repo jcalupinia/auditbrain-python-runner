@@ -201,6 +201,49 @@ async def interpret_anexo(
     return _fallback_interpretation(anexo_codigo, anexo_nombre)
 
 
+def construir_trail_ia(
+    wb: Workbook,
+    contexto: dict[str, Any],
+    interpretaciones: dict[str, AnexoInterpretation],
+) -> list:
+    """Arma el audit trail verificable de las interpretaciones (control 3).
+
+    Un registro firmado por anexo (en orden A1..A9), encadenado: modelo, tokens,
+    huella del prompt (``hash_input``), huella de la salida (``hash_output``),
+    confianza y si pide revisión humana. Registra también los fallback (evidencia
+    de que la IA NO estuvo disponible para ese anexo). Devuelve ``list[RegistroIA]``.
+    """
+    from backend.app.ict.audit.audit_trail import (
+        construir_trail,
+        hash_input_de,
+        hash_output_de,
+    )
+
+    codes = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9"]
+    entradas: list[dict[str, Any]] = []
+    for c in codes:
+        interp = interpretaciones.get(c)
+        if interp is None:
+            continue
+        nombre = contexto.get(f"nombre_{c}", c)
+        try:
+            prompt = _render_prompt(c, nombre, extract_anexo_data(wb, c), contexto)
+        except Exception:
+            prompt = ""  # el hash_input queda como el del prompt vacío; nunca rompe el trail
+        ts = getattr(interp, "timestamp_analisis", None)
+        entradas.append({
+            "anexo_codigo": c,
+            "modelo": getattr(interp, "modelo_usado", ""),
+            "tokens": getattr(interp, "tokens_consumidos", 0),
+            "hash_input": hash_input_de(prompt),
+            "hash_output": hash_output_de(interp),
+            "confianza": getattr(interp, "confianza_modelo", ""),
+            "requiere_revision": getattr(interp, "requiere_revision_humana", False),
+            "ts": ts.isoformat() if hasattr(ts, "isoformat") else str(ts or ""),
+        })
+    return construir_trail(entradas)
+
+
 async def interpret_all_anexos(
     wb: Workbook,
     contexto: dict[str, Any],
@@ -233,4 +276,46 @@ async def interpret_all_anexos(
             out[code] = _fallback_interpretation(code)
         else:
             out[code] = result
+    _registrar_audit_trail(wb, contexto, out)
     return out
+
+
+def _registrar_audit_trail(
+    wb: Workbook,
+    contexto: dict[str, Any],
+    interpretaciones: dict[str, AnexoInterpretation],
+) -> None:
+    """Control 3 (CLAUDE.md): registra cada llamada IA en el log estructurado.
+
+    Se invoca en cada corrida de ``interpret_all_anexos`` (la interpretación IA
+    del ICT está hoy desactivada en el flujo principal por decisión del cliente,
+    pero este registro cubre cualquier reactivación, test o llamada directa). El
+    artefacto encadenado verificable se obtiene con ``construir_trail_ia`` /
+    ``interpret_all_anexos_con_trail``. Falla suave: nunca tumba la interpretación.
+    """
+    try:
+        trail = construir_trail_ia(wb, contexto, interpretaciones)
+        for r in trail:
+            log.info(
+                "audit_trail_ia anexo=%s modelo=%s tokens=%s confianza=%s "
+                "revision=%s hash_input=%s hash_output=%s hash=%s",
+                r.anexo_codigo, r.modelo, r.tokens, r.confianza, r.requiere_revision,
+                r.hash_input[:12], r.hash_output[:12], r.hash[:12],
+            )
+    except Exception:  # pragma: no cover - el trail nunca debe romper la corrida
+        log.exception("no se pudo registrar el audit trail IA")
+
+
+async def interpret_all_anexos_con_trail(
+    wb: Workbook,
+    contexto: dict[str, Any],
+    *,
+    anthropic_client: Any = None,
+) -> tuple[dict[str, AnexoInterpretation], list]:
+    """Como ``interpret_all_anexos`` pero devuelve además el audit trail firmado
+    y verificable (``list[RegistroIA]``), para que el servicio lo persista/renderice
+    en el papel de trabajo cuando la interpretación IA esté activa."""
+    interpretaciones = await interpret_all_anexos(
+        wb, contexto, anthropic_client=anthropic_client
+    )
+    return interpretaciones, construir_trail_ia(wb, contexto, interpretaciones)
