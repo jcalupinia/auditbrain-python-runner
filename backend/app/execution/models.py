@@ -179,11 +179,32 @@ class ExecutionRun(Base):
     def resumen(self) -> dict:
         """Vista liviana para el historial (AUT-007). No incluye insumos.
 
-        Implementación en Task 4 del plan.
+        Deliberadamente NO expone ``input_hashes`` ni el
+        ``parameter_snapshot`` completo: el historial/tarjeta es liviano y no
+        debe filtrar el detalle sellado de la corrida (se consulta aparte con
+        ``run_history.run_lineage``).
         """
-        raise NotImplementedError(
-            "ExecutionRun.resumen: implementar en Task 4 (run_history)."
-        )
+        def _iso(dt: datetime.datetime | None) -> str | None:
+            return dt.isoformat() if dt is not None else None
+
+        return {
+            "run_id": self.run_id,
+            "engagement_id": self.engagement_id,
+            "app_id": self.app_id,
+            "app_version": self.app_version,
+            "engine_version": self.engine_version,
+            "status": self.status,
+            "trigger_source": self.trigger_source,
+            "attempts": self.attempts,
+            "max_attempts": self.max_attempts,
+            "created_at": _iso(self.created_at),
+            "started_at": _iso(self.started_at),
+            "completed_at": _iso(self.completed_at),
+            "executed_by": self.executed_by,
+            "worker_id": self.worker_id,
+            "output_hashes": self.output_hashes,
+            "previous_run_id": self.previous_run_id,
+        }
 
 
 # ---------------------------------------------------------------------------

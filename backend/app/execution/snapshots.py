@@ -22,7 +22,8 @@ El snapshot es un dict JSON-serializable que se guarda en
 ``ExecutionRun.parameter_snapshot``. Su ``snapshot_hash`` entra en la
 idempotency_key (ver ``queue.build_idempotency_key``).
 
-ESTADO: SCAFFOLD. Firmas + docstrings; lógica levanta NotImplementedError.
+ESTADO: IMPLEMENTADO a verde con TDD (Task P1-D). Pruebas en
+tests/test_execution_*.py.
 """
 
 from __future__ import annotations
@@ -56,7 +57,9 @@ def compute_ruleset_hash(rules: list[tuple[str, str]]) -> str:
         blob = json.dumps(canon, separators=(",", ":"), ensure_ascii=False)
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()
     """
-    raise NotImplementedError("compute_ruleset_hash: implementar en Task 8.")
+    canon = sorted((str(rid), str(ver)) for rid, ver in rules)
+    blob = json.dumps(canon, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 def build_snapshot(
@@ -88,7 +91,17 @@ def build_snapshot(
     El ``snapshot_hash`` se calcula sobre el contenido SIN incluirse a sí
     mismo (se agrega al final). Implementar en Task 8.
     """
-    raise NotImplementedError("build_snapshot: implementar el sellado en Task 8.")
+    payload = {
+        "schema_version": "1",
+        "app_id": app_id,
+        "app_version": app_version,
+        "engine_version": engine_version,
+        "ruleset_hash": ruleset.ruleset_hash,
+        "rules": [[str(rid), str(ver)] for rid, ver in ruleset.rules],
+        "parameters": parameters,
+    }
+    payload["snapshot_hash"] = snapshot_hash(payload)
+    return payload
 
 
 def snapshot_hash(payload: dict) -> str:
@@ -97,7 +110,11 @@ def snapshot_hash(payload: dict) -> str:
     JSON con sort_keys + separadores fijos para determinismo. Implementar en
     Task 8.
     """
-    raise NotImplementedError("snapshot_hash: implementar en Task 8.")
+    material = {k: v for k, v in payload.items() if k != "snapshot_hash"}
+    blob = json.dumps(
+        material, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str
+    )
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 def verify_snapshot(payload: dict) -> bool:
@@ -107,4 +124,7 @@ def verify_snapshot(payload: dict) -> bool:
     antes de reproducir o de mostrar la ficha de lineage; una discrepancia es
     un incidente de integridad, no un warning. Implementar en Task 8.
     """
-    raise NotImplementedError("verify_snapshot: implementar la verificación en Task 8.")
+    guardado = payload.get("snapshot_hash")
+    if not guardado:
+        return False
+    return guardado == snapshot_hash(payload)

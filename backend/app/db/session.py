@@ -133,6 +133,37 @@ def _ensure_forge_append_only_triggers() -> None:
         )
 
 
+def _ensure_execution_idempotency_index() -> None:
+    """Índice único PARCIAL de idempotencia de ``execution_runs`` (AUT-004).
+
+    No puede haber DOS corridas "vivas" con la misma ``idempotency_key``. La
+    garantía dura se expresa como índice único parcial en Postgres (no
+    portable a ``__table_args__``); en SQLite (CI/tests) se emula dentro de
+    ``execution.queue.enqueue`` con un SELECT previo en la misma transacción,
+    así que aquí es un no-op. Falla suave: si algo revienta se registra pero
+    no se tumba el arranque (patrón de ``_ensure_forge_append_only_triggers``).
+    """
+    from sqlalchemy import text
+
+    if engine.dialect.name != "postgresql":
+        return
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_execution_runs_idem_live "
+                    "ON execution_runs (idempotency_key) "
+                    "WHERE status NOT IN ('canceled', 'dead_letter');"
+                )
+            )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "No se pudo crear el índice parcial de idempotencia de execution_runs"
+        )
+
+
 def init_db() -> None:
     """Crea las tablas si no existen y aplica migraciones ligeras.
 
@@ -155,10 +186,12 @@ def init_db() -> None:
     from backend.app.events import models as _events_models  # noqa: F401
     from backend.app.recursos import models as _recursos_models  # noqa: F401
     from backend.app.forge import models as _forge_models  # noqa: F401
+    from backend.app.execution import models as _execution_models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
 
     _ensure_forge_append_only_triggers()
+    _ensure_execution_idempotency_index()
 
     # Migración aditiva en ``users``: añade columnas si faltan.
     inspector = inspect(engine)

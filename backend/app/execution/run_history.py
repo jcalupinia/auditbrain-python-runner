@@ -9,7 +9,8 @@ No muta nada: solo lee. La escritura la hace ``queue.py``. Devuelve vistas
 livianas (sin insumos ni salidas por contenido, solo por hash) aptas para
 tablas/tarjetas.
 
-ESTADO: SCAFFOLD. Firmas + docstrings; lógica levanta NotImplementedError.
+ESTADO: IMPLEMENTADO a verde con TDD (Task P1-D). Pruebas en
+tests/test_execution_*.py.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from backend.app.execution.models import ExecutionRun
+from backend.app.execution.models import ExecutionRun, STATUS_SUCCEEDED
 
 
 @dataclass(frozen=True)
@@ -57,12 +58,37 @@ def list_runs(
     Cada elemento es ``ExecutionRun.resumen()`` (vista liviana). Paginada.
     AUT-007. Implementar en Task 7 del plan.
     """
-    raise NotImplementedError("list_runs: implementar la consulta paginada en Task 7.")
+    q = db.query(ExecutionRun)
+    if flt.engagement_id is not None:
+        q = q.filter(ExecutionRun.engagement_id == flt.engagement_id)
+    if flt.app_id is not None:
+        q = q.filter(ExecutionRun.app_id == flt.app_id)
+    if flt.status is not None:
+        q = q.filter(ExecutionRun.status == flt.status)
+    if flt.executed_by is not None:
+        q = q.filter(ExecutionRun.executed_by == flt.executed_by)
+    if flt.trigger_source is not None:
+        q = q.filter(ExecutionRun.trigger_source == flt.trigger_source)
+    if flt.since is not None:
+        q = q.filter(ExecutionRun.created_at >= flt.since)
+    if flt.until is not None:
+        q = q.filter(ExecutionRun.created_at <= flt.until)
+
+    total = q.count()
+    page = max(page, 1)
+    size = max(size, 1)
+    runs = (
+        q.order_by(ExecutionRun.created_at.desc(), ExecutionRun.id.desc())
+        .offset((page - 1) * size)
+        .limit(size)
+        .all()
+    )
+    return Page(total=total, page=page, size=size, runs=[r.resumen() for r in runs])
 
 
 def get_run(db: Session, run_id: str) -> ExecutionRun | None:
     """Devuelve una corrida por su ``run_id`` público, o None. Task 7."""
-    raise NotImplementedError("get_run: implementar en Task 7.")
+    return db.query(ExecutionRun).filter(ExecutionRun.run_id == run_id).first()
 
 
 def latest_successful_run(
@@ -73,7 +99,16 @@ def latest_successful_run(
     Es el ancla del continuous auditing: ``scheduler/continuo.py`` la usa como
     ``previous_run_id`` para el diff. Implementar en Task 7.
     """
-    raise NotImplementedError("latest_successful_run: implementar en Task 7.")
+    return (
+        db.query(ExecutionRun)
+        .filter(
+            ExecutionRun.engagement_id == engagement_id,
+            ExecutionRun.app_id == app_id,
+            ExecutionRun.status == STATUS_SUCCEEDED,
+        )
+        .order_by(ExecutionRun.completed_at.desc(), ExecutionRun.id.desc())
+        .first()
+    )
 
 
 def run_lineage(db: Session, run_id: str) -> dict:
@@ -85,4 +120,17 @@ def run_lineage(db: Session, run_id: str) -> dict:
     re-ejecutar de forma idéntica. DATA-011/012 sobre la cara de lectura.
     Implementar en Task 7.
     """
-    raise NotImplementedError("run_lineage: implementar la ficha de lineage en Task 7.")
+    run = get_run(db, run_id)
+    if run is None:
+        return {}
+    return {
+        "run_id": run.run_id,
+        "engagement_id": run.engagement_id,
+        "app_id": run.app_id,
+        "app_version": run.app_version,
+        "engine_version": run.engine_version,
+        "input_hashes": run.input_hashes,
+        "parameter_snapshot": run.parameter_snapshot,
+        "output_hashes": run.output_hashes,
+        "previous_run_id": run.previous_run_id,
+    }
