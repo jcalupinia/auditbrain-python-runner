@@ -73,30 +73,25 @@ class ConfianzaCampo:
 
     @property
     def nivel_extraccion(self) -> NivelConfianza:
-        raise NotImplementedError("P1-E: implementar en el servidor")
+        return nivel_de(self.confianza_extraccion)
 
     @property
     def nivel_interpretacion(self) -> NivelConfianza:
-        raise NotImplementedError("P1-E: implementar en el servidor")
+        return nivel_de(self.confianza_interpretacion)
 
     @property
     def confianza_global(self) -> float:
-        """Combinación conservadora de ambos ejes.
-
-        Se usa el MÍNIMO (la cadena es tan fuerte como su eslabón más débil):
-        un dato bien extraído pero mal interpretado NO es un dato confiable.
-        Se expone además cada eje por separado para el papel de trabajo.
-        """
-        raise NotImplementedError("P1-E: implementar en el servidor")
+        """Combinación conservadora de ambos ejes: el MÍNIMO (la cadena es tan
+        fuerte como su eslabón más débil)."""
+        return min(self.confianza_extraccion, self.confianza_interpretacion)
 
     @property
     def requiere_revision_humana(self) -> bool:
-        """True si cualquiera de los dos ejes cae bajo ``UMBRAL_MEDIA``.
-
-        Alimenta el control 6 del CLAUDE.md (``requiere_revision_humana`` →
-        ícono dedicado) y el estado inicial de la matriz de evidencia.
-        """
-        raise NotImplementedError("P1-E: implementar en el servidor")
+        """True si cualquiera de los dos ejes cae bajo ``UMBRAL_MEDIA``."""
+        return (
+            self.confianza_extraccion < UMBRAL_MEDIA
+            or self.confianza_interpretacion < UMBRAL_MEDIA
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +125,31 @@ def confianza_extraccion(
       - ``parseo_limpio=False`` (formato numérico no reconocido, texto raro) →
         penaliza.
     """
-    raise NotImplementedError("P1-E: implementar en el servidor")
+    aportes: list[AporteConfianza] = []
+    base = CONFIANZA_BASE_METODO.get(metodo, 0.50)
+    score = base
+    aportes.append(AporteConfianza("base_metodo", base, f"método de extracción: {metodo}"))
+
+    if metodo == "ocr" and ocr_word_confidence is not None:
+        nuevo = base * float(ocr_word_confidence)
+        aportes.append(AporteConfianza(
+            "ocr_word_confidence", nuevo - score,
+            f"confianza OCR de Vision = {float(ocr_word_confidence):.2f}"))
+        score = nuevo
+
+    if source_ref is not None and getattr(source_ref, "page", None) is not None \
+            and getattr(source_ref, "bounding_box", None) is None:
+        aportes.append(AporteConfianza("bbox_ausente", -0.20,
+                                       "no se pudo localizar el dato en la página"))
+        score -= 0.20
+
+    if not parseo_limpio:
+        aportes.append(AporteConfianza("parseo_sucio", -0.15,
+                                       "el valor no parseó con un formato reconocido"))
+        score -= 0.15
+
+    score = max(0.0, min(1.0, score))
+    return score, aportes
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +172,36 @@ def confianza_interpretacion(
       - ``mapeo_conocido=False`` (casillero/cuenta resuelto por heurística, no
         por catálogo oficial) → penaliza.
     """
-    raise NotImplementedError("P1-E: implementar en el servidor")
+    from backend.app.evidence.matcher import EstadoEmparejamiento
+
+    aportes: list[AporteConfianza] = []
+    if resultado_match is None:
+        score = 0.50
+        aportes.append(AporteConfianza("sin_match", 0.50, "sin emparejamiento contra otra fuente"))
+    else:
+        estado = resultado_match.estado
+        mejor = resultado_match.mejor
+        if estado is EstadoEmparejamiento.UNICA and mejor is not None:
+            score = float(mejor.score)
+            aportes.append(AporteConfianza("match_unico", score,
+                                           f"match único (score {score:.2f})"))
+        elif estado is EstadoEmparejamiento.AMBIGUA:
+            base = float(mejor.score) if mejor is not None else 0.50
+            score = base * 0.5
+            aportes.append(AporteConfianza("match_ambiguo", score,
+                                           "casó con más de un candidato (revisar)"))
+        else:  # SIN_COINCIDENCIA
+            score = 0.30
+            aportes.append(AporteConfianza("sin_coincidencia", 0.30,
+                                           "el dato existe pero no encontró par"))
+
+    if not mapeo_conocido:
+        aportes.append(AporteConfianza("mapeo_heuristico", -0.15,
+                                       "casillero/cuenta resuelto por heurística, no por catálogo"))
+        score -= 0.15
+
+    score = max(0.0, min(1.0, score))
+    return score, aportes
 
 
 def evaluar_campo(
@@ -166,14 +214,28 @@ def evaluar_campo(
     resultado_match: "ResultadoEmparejamiento | None" = None,
     mapeo_conocido: bool = True,
 ) -> ConfianzaCampo:
-    """Arma la ``ConfianzaCampo`` completa combinando ambos ejes.
-
-    Punto de entrada único del módulo: el resto de la plataforma llama a esto
-    por cada dato extraído y guarda el resultado en la matriz de evidencia.
-    """
-    raise NotImplementedError("P1-E: implementar en el servidor")
+    """Arma la ``ConfianzaCampo`` completa combinando ambos ejes."""
+    ce, aportes_e = confianza_extraccion(
+        metodo, source_ref=source_ref, ocr_word_confidence=ocr_word_confidence,
+        parseo_limpio=parseo_limpio,
+    )
+    ci, aportes_i = confianza_interpretacion(
+        resultado_match=resultado_match, mapeo_conocido=mapeo_conocido,
+    )
+    return ConfianzaCampo(
+        campo=campo,
+        metodo_extraccion=metodo,
+        confianza_extraccion=ce,
+        confianza_interpretacion=ci,
+        aportes_extraccion=aportes_e,
+        aportes_interpretacion=aportes_i,
+    )
 
 
 def nivel_de(score: float) -> NivelConfianza:
     """Traduce un score 0..1 a ALTA/MEDIA/BAJA con los umbrales del módulo."""
-    raise NotImplementedError("P1-E: implementar en el servidor")
+    if score >= UMBRAL_ALTA:
+        return NivelConfianza.ALTA
+    if score >= UMBRAL_MEDIA:
+        return NivelConfianza.MEDIA
+    return NivelConfianza.BAJA

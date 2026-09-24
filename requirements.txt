@@ -62,3 +62,6 @@ typing_extensions==4.12.2
 # el resolve en Render. Tiene tool_use + AsyncAnthropic, suficiente para nuestro motor.
 anthropic>=0.40.0,<0.50.0
 pytest-asyncio>=0.23.0,<2.0
+
+# Evidence engine (P1-E) — emparejamiento difuso de evidencia
+rapidfuzz>=3.9,<4

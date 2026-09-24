@@ -10,16 +10,14 @@ que capturan la geometría desde las dos fuentes que ya usa la plataforma:
     Vision trae un ``bounding_poly`` (4 vértices) que se pierde. Aquí lo
     recuperamos SIN tocar ocr.py: reutilizamos su cliente cacheado
     (``ocr._get_client``) y hacemos una segunda lectura que conserva la
-    geometría. Ver el plan (tarea "Geometría de Vision sin romper ocr.py").
+    geometría.
 
   - **pdfplumber** (`backend/app/ict/parsers/f101_pdf.py`, `f103_pdf.py`):
     hoy los parsers hacen ``"\n".join(p.extract_text() for p in pdf.pages)``,
     lo que borra la frontera de páginas y toda coordenada. Aquí ofrecemos un
     WRAPPER paralelo (``extraer_paginas_pdfplumber``) que itera
     ``enumerate(pdf.pages)`` conservando el índice de página y las palabras con
-    sus coordenadas (``pdfplumber`` expone ``page.extract_words()`` con
-    ``x0/x1/top/bottom``). Los parsers actuales NO se modifican; este camino es
-    el que consumirá el futuro refactor y el crossref.
+    sus coordenadas. Los parsers actuales NO se modifican.
 
 Regla de oro (CLAUDE.md · verificación previa): una cita nunca se inventa. Si
 no se pudo localizar el dato en la página, ``bounding_box`` queda en ``None`` y
@@ -29,8 +27,29 @@ la confianza de extracción baja en consecuencia (ver ``confidence.py``).
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field
+import io
+import math
+import unicodedata
+from dataclasses import dataclass, field, replace
 from typing import Any, Protocol, Sequence
+
+
+def _norm_cmp(texto: Any) -> str:
+    """Normalización ligera para comparar palabras (minúsculas, sin espacios
+    redundantes ni tildes). No quita puntuación: un importe "1,234.56" debe
+    seguir siendo comparable tal cual."""
+    s = unicodedata.normalize("NFKD", str(texto or ""))
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return " ".join(s.lower().split())
+
+
+def _centro(b: "BoundingBox") -> tuple[float, float]:
+    return ((b.x0 + b.x1) / 2.0, (b.y0 + b.y1) / 2.0)
+
+
+def _dist(a: tuple[float, float], b: tuple[float, float]) -> float:
+    return math.hypot(a[0] - b[0], a[1] - b[1])
+
 
 # ---------------------------------------------------------------------------
 # Geometría
@@ -39,19 +58,7 @@ from typing import Any, Protocol, Sequence
 
 @dataclass(frozen=True)
 class BoundingBox:
-    """Rectángulo que encierra un dato dentro de una página.
-
-    Unifica las dos fuentes de coordenadas de la plataforma:
-
-      - pdfplumber: puntos PDF (72 pt = 1 pulgada), origen arriba-izquierda,
-        ``top``/``bottom`` crecen hacia abajo → ``unidad="pt"``.
-      - Google Vision: vértices en píxeles del render, o normalizados 0..1
-        según el response → ``unidad="px"`` o ``unidad="norm"``.
-
-    Se guarda ``ancho_pagina``/``alto_pagina`` cuando se conocen para poder
-    normalizar a 0..1 (útil para dibujar el resaltado sobre cualquier render,
-    independiente del DPI).
-    """
+    """Rectángulo que encierra un dato dentro de una página."""
 
     x0: float
     y0: float
@@ -70,11 +77,22 @@ class BoundingBox:
         return abs(self.y1 - self.y0)
 
     def normalizado(self) -> "BoundingBox":
-        """Devuelve una copia con coordenadas en 0..1.
-
-        Requiere ``ancho_pagina``/``alto_pagina`` salvo que ya sea ``norm``.
-        """
-        raise NotImplementedError("P1-E: implementar en el servidor")
+        """Devuelve una copia con coordenadas en 0..1."""
+        if self.unidad == "norm":
+            return self
+        if not self.ancho_pagina or not self.alto_pagina:
+            raise ValueError(
+                "normalizado() requiere ancho_pagina y alto_pagina salvo unidad='norm'"
+            )
+        return BoundingBox(
+            x0=self.x0 / self.ancho_pagina,
+            y0=self.y0 / self.alto_pagina,
+            x1=self.x1 / self.ancho_pagina,
+            y1=self.y1 / self.alto_pagina,
+            unidad="norm",
+            ancho_pagina=self.ancho_pagina,
+            alto_pagina=self.alto_pagina,
+        )
 
     @classmethod
     def desde_palabra_pdfplumber(cls, palabra: dict[str, Any]) -> "BoundingBox":
@@ -83,7 +101,13 @@ class BoundingBox:
         pdfplumber entrega ``{"text", "x0", "x1", "top", "bottom", ...}`` en
         puntos PDF. Mapea ``top→y0`` y ``bottom→y1``.
         """
-        raise NotImplementedError("P1-E: implementar en el servidor")
+        return cls(
+            x0=float(palabra["x0"]),
+            y0=float(palabra["top"]),
+            x1=float(palabra["x1"]),
+            y1=float(palabra["bottom"]),
+            unidad="pt",
+        )
 
     @classmethod
     def desde_bounding_poly_vision(
@@ -95,12 +119,26 @@ class BoundingBox:
     ) -> "BoundingBox":
         """Construye la caja desde un ``bounding_poly`` de Vision.
 
-        Vision da 4 vértices (``vertices`` en px o ``normalized_vertices`` en
-        0..1). Se toma el rectángulo envolvente (min/max de x e y). Si vienen
+        Toma el rectángulo envolvente (min/max de x e y). Si vienen
         ``normalized_vertices`` la unidad es ``"norm"``; si vienen ``vertices``
         la unidad es ``"px"``.
         """
-        raise NotImplementedError("P1-E: implementar en el servidor")
+        norms = list(getattr(bounding_poly, "normalized_vertices", None) or [])
+        verts = list(getattr(bounding_poly, "vertices", None) or [])
+        if norms:
+            pts = [(float(v.x), float(v.y)) for v in norms]
+            unidad = "norm"
+        elif verts:
+            pts = [(float(v.x), float(v.y)) for v in verts]
+            unidad = "px"
+        else:
+            raise ValueError("bounding_poly sin vértices")
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        return cls(
+            x0=min(xs), y0=min(ys), x1=max(xs), y1=max(ys),
+            unidad=unidad, ancho_pagina=ancho_pagina, alto_pagina=alto_pagina,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -110,45 +148,31 @@ class BoundingBox:
 
 @dataclass(frozen=True)
 class SourceReference:
-    """Referencia trazable de un dato a su origen exacto (contrato §2).
-
-    Todos los campos del contrato: identidad del archivo (hash + nombre),
-    ubicación tabular (hoja/tabla, fila, columna), ubicación documental
-    (página + bounding-box) y el par de valores original/normalizado. Un dato
-    puede tener VARIAS ``SourceReference`` (p.ej. la factura aparece en el
-    auxiliar y en el XML SRI): eso lo modela ``crossref.MatrizEvidencia``.
-    """
+    """Referencia trazable de un dato a su origen exacto (contrato §2)."""
 
     source_id: str
     file_hash: str
     filename: str
-    # Ubicación tabular (Excel/CSV/mayor). None si el origen es documental.
     sheet_or_table: str | None = None
     row_id: str | None = None
     column: str | None = None
-    # Ubicación documental (PDF/imagen). None si el origen es tabular.
     page: int | None = None
     bounding_box: BoundingBox | None = None
-    # Valores. ``original`` es tal cual aparece en la fuente (texto crudo);
-    # ``normalized`` es el valor tras el parseo (Decimal/fecha/RUC limpio).
     original_value: str | None = None
     normalized_value: Any = None
-    # Cómo se obtuvo el dato: "pdfplumber" | "ocr" | "excel" | "csv" | "manual".
     metodo: str = ""
 
     def con_cita_documental(self, page: int, bbox: BoundingBox | None) -> "SourceReference":
         """Devuelve una copia con página y bounding-box (DOC-008/009)."""
-        raise NotImplementedError("P1-E: implementar en el servidor")
+        return replace(self, page=page, bounding_box=bbox)
 
 
 def source_id_de(file_hash: str, ubicacion: str) -> str:
     """ID estable y determinista de una referencia.
 
-    ``ubicacion`` es algo como ``"p3#cas550"`` o ``"Enero!F12"``. El id combina
-    hash de archivo + ubicación para que dos corridas produzcan el MISMO id
-    (reproducibilidad, principio no negociable de la arquitectura).
+    ``ubicacion`` es algo como ``"p3#cas550"`` o ``"Enero!F12"``.
     """
-    raise NotImplementedError("P1-E: implementar en el servidor")
+    return hashlib.sha256(f"{file_hash}|{ubicacion}".encode("utf-8")).hexdigest()[:16]
 
 
 def hash_de_archivo(contenido: bytes) -> str:
@@ -171,11 +195,7 @@ class PalabraUbicada:
 
 @dataclass
 class PaginaTexto:
-    """Texto de UNA página con sus palabras geolocalizadas.
-
-    Reemplaza al ``"\\n".join(...)`` de los parsers: conserva ``numero`` (1-based,
-    como espera el auditor) y ``palabras`` para poder citar cada dato.
-    """
+    """Texto de UNA página con sus palabras geolocalizadas."""
 
     numero: int
     ancho: float
@@ -185,17 +205,30 @@ class PaginaTexto:
 
 
 def extraer_paginas_pdfplumber(pdf_bytes: bytes) -> list[PaginaTexto]:
-    """Itera ``enumerate(pdf.pages)`` conservando página y geometría.
+    """Itera ``enumerate(pdf.pages)`` conservando página y geometría."""
+    import pdfplumber
 
-    Wrapper paralelo a los parsers F-101/F-103 (que hoy pierden la página).
-    Para cada página: ``page.extract_text()`` (texto) y ``page.extract_words()``
-    (palabras con ``x0/x1/top/bottom``). Es el reemplazo geometría-consciente
-    del ``"\\n".join(p.extract_text() ...)``.
-
-    NO modifica los parsers: es un segundo camino que el crossref y el futuro
-    refactor consumen.
-    """
-    raise NotImplementedError("P1-E: implementar en el servidor")
+    paginas: list[PaginaTexto] = []
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        for i, page in enumerate(pdf.pages, start=1):
+            texto = page.extract_text() or ""
+            palabras = [
+                PalabraUbicada(
+                    texto=w.get("text", ""),
+                    bbox=BoundingBox.desde_palabra_pdfplumber(w),
+                )
+                for w in page.extract_words()
+            ]
+            paginas.append(
+                PaginaTexto(
+                    numero=i,
+                    ancho=float(page.width),
+                    alto=float(page.height),
+                    texto=texto,
+                    palabras=palabras,
+                )
+            )
+    return paginas
 
 
 def localizar_en_pagina(
@@ -204,13 +237,19 @@ def localizar_en_pagina(
     *,
     cerca_de: str | None = None,
 ) -> BoundingBox | None:
-    """Ubica ``valor`` dentro de una página y devuelve su bounding-box.
-
-    ``cerca_de`` (p.ej. el número de casillero "550") desambigua cuando el
-    mismo valor aparece varias veces: se prefiere la ocurrencia más cercana al
-    ancla. Si no se encuentra, devuelve ``None`` (nunca se inventa la caja).
-    """
-    raise NotImplementedError("P1-E: implementar en el servidor")
+    """Ubica ``valor`` dentro de una página y devuelve su bounding-box."""
+    objetivo = _norm_cmp(valor)
+    candidatas = [w for w in pagina.palabras if _norm_cmp(w.texto) == objetivo]
+    if not candidatas:
+        return None
+    if len(candidatas) == 1 or not cerca_de:
+        return candidatas[0].bbox
+    anclas = [w for w in pagina.palabras if _norm_cmp(w.texto) == _norm_cmp(cerca_de)]
+    if not anclas:
+        return candidatas[0].bbox
+    centro_ancla = _centro(anclas[0].bbox)
+    mejor = min(candidatas, key=lambda w: _dist(_centro(w.bbox), centro_ancla))
+    return mejor.bbox
 
 
 def source_reference_desde_pdfplumber(
@@ -223,13 +262,21 @@ def source_reference_desde_pdfplumber(
     normalized_value: Any,
     ancla: str | None = None,
 ) -> SourceReference:
-    """Arma una ``SourceReference`` documental para un dato de un PDF digital.
-
-    Usa ``localizar_en_pagina`` para la caja. ``column`` identifica el dato
-    (p.ej. el casillero "550"). Camino DOC-008/009 para F-101/F-103 sin tocar
-    los parsers.
-    """
-    raise NotImplementedError("P1-E: implementar en el servidor")
+    """Arma una ``SourceReference`` documental para un dato de un PDF digital."""
+    file_hash = hash_de_archivo(pdf_bytes)
+    bbox = localizar_en_pagina(pagina, original_value, cerca_de=ancla)
+    ubic = f"p{pagina.numero}#{column}"
+    return SourceReference(
+        source_id=source_id_de(file_hash, ubic),
+        file_hash=file_hash,
+        filename=filename,
+        page=pagina.numero,
+        bounding_box=bbox,
+        column=column,
+        original_value=original_value,
+        normalized_value=normalized_value,
+        metodo="pdfplumber",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +290,7 @@ class PalabraVision:
 
     texto: str
     bbox: BoundingBox
-    confianza: float  # Vision reporta confidence 0..1 por símbolo/palabra
+    confianza: float
 
 
 @dataclass
@@ -257,19 +304,70 @@ class PaginaVision:
     palabras: list[PalabraVision] = field(default_factory=list)
 
 
-def ocr_pdf_con_geometria(pdf_bytes: bytes) -> list[PaginaVision]:
-    """OCR que CONSERVA la geometría, reutilizando el cliente de ocr.py.
+def _pedir_anotaciones(client, chunks: list[bytes]) -> list:
+    """Llama a Vision por cada chunk y devuelve los ``file_response``.
 
-    ``ocr.ocr_pdf`` descarta ``bounding_poly``. Aquí reutilizamos
-    ``ocr._get_client()`` (mismo split de 5 páginas, mismas credenciales) pero
-    recorremos ``full_text_annotation.pages[].blocks[].paragraphs[].words[]``
-    quedándonos con ``word.bounding_box`` y ``symbol.confidence``. ocr.py NO se
-    modifica; este wrapper vive en el paquete evidence.
-
-    Depende de que ``ocr.is_available()`` sea True; si no, se cae con la misma
-    ``OCRUnavailable`` que el resto de la plataforma.
+    Aislado para poder inyectarlo/mockearlo en tests sin la librería
+    ``google.cloud.vision`` ni red.
     """
-    raise NotImplementedError("P1-E: implementar en el servidor")
+    from google.cloud import vision
+
+    feature = vision.Feature(type_=vision.Feature.Type.DOCUMENT_TEXT_DETECTION)
+    respuestas = []
+    for chunk in chunks:
+        input_config = vision.InputConfig(content=chunk, mime_type="application/pdf")
+        request = vision.AnnotateFileRequest(input_config=input_config, features=[feature])
+        response = client.batch_annotate_files(requests=[request])
+        if not getattr(response, "responses", None):
+            continue
+        respuestas.append(response.responses[0])
+    return respuestas
+
+
+def _paginas_desde_respuestas(file_responses: list) -> list[PaginaVision]:
+    """Parseo PURO de los ``file_response`` de Vision a ``PaginaVision``."""
+    paginas: list[PaginaVision] = []
+    numero = 0
+    for fr in file_responses:
+        for page_resp in getattr(fr, "responses", []) or []:
+            fta = getattr(page_resp, "full_text_annotation", None)
+            if not fta:
+                continue
+            texto = getattr(fta, "text", "") or ""
+            for page in getattr(fta, "pages", []) or []:
+                numero += 1
+                ancho = float(getattr(page, "width", 0) or 0)
+                alto = float(getattr(page, "height", 0) or 0)
+                palabras: list[PalabraVision] = []
+                for block in getattr(page, "blocks", []) or []:
+                    for para in getattr(block, "paragraphs", []) or []:
+                        for word in getattr(para, "words", []) or []:
+                            simbolos = list(getattr(word, "symbols", []) or [])
+                            wtexto = "".join(getattr(s, "text", "") for s in simbolos)
+                            confs = [float(getattr(s, "confidence", 0) or 0) for s in simbolos]
+                            conf = sum(confs) / len(confs) if confs else 0.0
+                            bbox = BoundingBox.desde_bounding_poly_vision(
+                                word.bounding_box,
+                                ancho_pagina=ancho or None,
+                                alto_pagina=alto or None,
+                            )
+                            palabras.append(PalabraVision(texto=wtexto, bbox=bbox, confianza=conf))
+                paginas.append(
+                    PaginaVision(numero=numero, ancho=ancho, alto=alto, texto=texto, palabras=palabras)
+                )
+    return paginas
+
+
+def ocr_pdf_con_geometria(pdf_bytes: bytes) -> list[PaginaVision]:
+    """OCR que CONSERVA la geometría, reutilizando el cliente de ocr.py."""
+    from backend.app.utils import ocr
+
+    if not ocr.is_available():
+        raise ocr.OCRUnavailable("OCR no disponible: falta credencial de Google Vision.")
+    client = ocr._get_client()
+    chunks = ocr._split_pdf_pages(pdf_bytes, getattr(ocr, "_MAX_PAGES_PER_BATCH", 5))
+    respuestas = _pedir_anotaciones(client, chunks)
+    return _paginas_desde_respuestas(respuestas)
 
 
 def source_reference_desde_vision(
@@ -282,7 +380,24 @@ def source_reference_desde_vision(
     normalized_value: Any,
 ) -> SourceReference:
     """Arma una ``SourceReference`` documental para un dato de un PDF escaneado."""
-    raise NotImplementedError("P1-E: implementar en el servidor")
+    objetivo = _norm_cmp(valor)
+    bbox = None
+    for w in pagina.palabras:
+        if _norm_cmp(w.texto) == objetivo:
+            bbox = w.bbox
+            break
+    ubic = f"p{pagina.numero}#{column}"
+    return SourceReference(
+        source_id=source_id_de(file_hash, ubic),
+        file_hash=file_hash,
+        filename=filename,
+        page=pagina.numero,
+        bounding_box=bbox,
+        column=column,
+        original_value=valor,
+        normalized_value=normalized_value,
+        metodo="ocr",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -301,13 +416,19 @@ def source_reference_tabular(
     normalized_value: Any,
     metodo: str = "excel",
 ) -> SourceReference:
-    """Referencia a una celda de una hoja/tabla (mayor, auxiliar, balance).
-
-    Para las fuentes tabulares la "cita" es la celda (hoja + fila + columna),
-    no un bounding-box. Complementa a la ingesta del mayor (``LecturaMayor``
-    ya trae ``sha256`` y el número de fila del ``Movimiento``).
-    """
-    raise NotImplementedError("P1-E: implementar en el servidor")
+    """Referencia a una celda de una hoja/tabla (mayor, auxiliar, balance)."""
+    ubic = f"{sheet_or_table}!{row_id}:{column}"
+    return SourceReference(
+        source_id=source_id_de(file_hash, ubic),
+        file_hash=file_hash,
+        filename=filename,
+        sheet_or_table=sheet_or_table,
+        row_id=row_id,
+        column=column,
+        original_value=original_value,
+        normalized_value=normalized_value,
+        metodo=metodo,
+    )
 
 
 class ProveedorOCRConGeometria(Protocol):

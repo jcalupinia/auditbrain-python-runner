@@ -104,3 +104,6 @@ stripe==11.1.0
 # aviso (libro.PDFNoDisponible) y el papel sigue en Excel/Word/HTML (+ «Guardar
 # como PDF» del navegador). Para un PDF real en el servidor, mover este servicio
 # a uno Docker-based (Dockerfile con las libs) e incluir weasyprint allí.
+
+# Evidence engine (P1-E) — emparejamiento difuso de evidencia
+rapidfuzz>=3.9,<4
