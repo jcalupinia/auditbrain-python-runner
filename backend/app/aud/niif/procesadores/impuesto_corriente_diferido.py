@@ -657,9 +657,168 @@ def _sumif(h, ccol, crit, col, n):
     return f'SUMIF({_rg(h, ccol, n)},"{crit}",{_rg(h, col, n)})' if n else "0"
 
 
+# Explicaciones humanas de «Cómo se calcula esta hoja» (una por columna calculada).
+EXPLICA = {
+    "01_Resumen": {
+        "Importe": ("Trae cada importe de la hoja 12 (Ajustes propuestos), concepto por concepto; las bases imponibles vienen "
+                    "de la hoja 04 (Impuesto corriente) y las tasas efectivas de la hoja 11 (Tasa efectiva), multiplicadas "
+                    "por 100 para mostrarlas en %."),
+    },
+    "03_Conciliacion": {
+        "Importe auditado": ("Usa el importe según el auditor cuando lo hay y, si está vacío, conserva el importe según el "
+                             "cliente."),
+        "Diferencia": ("Resta el importe según el cliente al importe auditado: muestra cuánto cambió el auditor en cada "
+                       "renglón."),
+    },
+    "04_Impuesto_corriente": {
+        "Según cliente": ("Arma la liquidación con los importes del cliente: cada renglón suma en la hoja 03 (Conciliación "
+                          "tributaria) el «Importe según cliente» de su tipo y luego calcula subtotales, límite de pérdidas, "
+                          "base, tarifa, impuesto y saldo con los parámetros de la hoja 02 y las pérdidas disponibles de la "
+                          "hoja 05; las dos últimas filas usan lo registrado en la hoja 02 y, si está vacío, lo calculado."),
+        "Auditado": ("Hace la misma liquidación con el «Importe auditado» de la hoja 03, pero recalcula la participación "
+                     "trabajadores (% × utilidad), la participación atribuible a exentos (hoja 13, o la del cliente si no "
+                     "se puede recalcular) y la amortización de pérdidas como el menor entre la solicitada, el límite y lo "
+                     "disponible en la hoja 05."),
+        "Diferencia": ("Resta el valor según cliente al valor auditado en cada renglón, para ver en qué punto cambia la "
+                       "liquidación."),
+    },
+    "05_Perdidas": {
+        "Último año": ("Suma al año de origen de la pérdida el plazo para amortizarla de la hoja 02 (Parámetros); si el "
+                       "cliente informó el año de vencimiento, se usa ese dato."),
+        "Disponible": "Resta a la pérdida lo ya amortizado en años anteriores: es lo que queda por amortizar.",
+        "Vencida": "Marca «Sí» si el último año para amortizar es anterior al año del corte de la hoja 02 (Parámetros).",
+        "Disponible no vencido": "Si la pérdida no está vencida, toma su saldo disponible; si está vencida, cero.",
+        "Saldo vencido": ("Si la pérdida está vencida, toma su saldo disponible, que ya no se puede amortizar; si no, "
+                          "cero."),
+        "Amortización del año": ("Reparte la amortización auditada de la hoja 04 (Impuesto corriente) entre las pérdidas, "
+                                 "de la más antigua a la más reciente, sin pasar del saldo no vencido de cada una."),
+        "Remanente": "Resta la amortización del año al disponible no vencido: es lo que sigue pendiente de cada pérdida.",
+        "Arrastrable a años futuros": ("Si el último año para amortizar es posterior al año del corte, el remanente se "
+                                       "puede usar en años futuros; si no, cero."),
+        "Activo diferido requerido": ("Si la ley admite diferido por pérdidas y hay probable ganancia fiscal (ambos «Sí» en "
+                                      "la hoja 02), multiplica lo arrastrable por la tarifa aplicable de la hoja 04; si no, "
+                                      "cero."),
+        "Activo diferido no reconocido": ("Multiplica lo arrastrable por la tarifa aplicable de la hoja 04 y le resta el "
+                                          "activo diferido requerido: es el activo que no se reconoce y se revela."),
+    },
+    "06_Diferencias_temp": {
+        "Diferencia temporaria (+ imponible)": ("En un activo resta la base fiscal al valor en libros; en un pasivo, resta "
+                                                "el valor en libros a la base fiscal. Positiva es imponible y negativa, "
+                                                "deducible."),
+        "Clase": "Clasifica la diferencia: mayor que cero es «Imponible», menor que cero «Deducible» y cero «Sin diferencia».",
+        "Tasa (%)": "Trae la tasa esperada para el año de reversión desde la hoja 07 (Tasa de reversión).",
+        "Pasivo diferido": ("Si la diferencia es imponible, la multiplica por la tasa: es el pasivo por impuesto diferido; "
+                            "si no, cero."),
+        "Activo diferido bruto": ("Si la diferencia es deducible, multiplica su valor absoluto por la tasa: es el activo "
+                                  "diferido antes de evaluar si se recupera; si no, cero."),
+        "Activo diferido reconocido": ("Reconoce el activo diferido bruto solo si la ley lo permite y es probable "
+                                       "recuperarlo (columnas «Permitido» y «Probable» en «Sí»); si no, cero."),
+        "Activo diferido no reconocido": "Resta el activo reconocido al activo bruto: es la parte que no se registra y se revela.",
+        "Diferido requerido (+ activo)": ("Resta el pasivo diferido al activo diferido reconocido: positivo es activo neto "
+                                          "y negativo, pasivo neto."),
+        "Ajuste": ("Resta el saldo registrado al cierre al diferido requerido: es lo que falta (+) o sobra (−) en los "
+                   "libros."),
+        "Movimiento requerido": ("Resta el saldo registrado al inicio al diferido requerido: es cuánto debió moverse el "
+                                 "diferido en el año."),
+        "A resultados (+ gasto)": ("Si la partida no es de ORI, lleva el movimiento a resultados con el signo cambiado (un "
+                                   "aumento del activo es ingreso y se muestra negativo); si es de ORI, cero."),
+        "A ORI (+ cargo)": ("Si la partida es de ORI, lleva el movimiento al otro resultado integral con el signo "
+                            "cambiado; si no, cero."),
+    },
+    "07_Tasa_reversion": {
+        "Año de reversión": ("Trae el año en que se revierte la diferencia desde la hoja 06 (Diferencias temporarias); "
+                             "vacío si no se informó."),
+        "Tasa usada por el cliente (%)": ("Es la tasa que informó el cliente; si no la informó, repite la tasa esperada, "
+                                          "de modo que la diferencia de tasa queda en cero."),
+        "Tasa esperada = aprobada + recargo (%)": (
+            "Si hay tasa futura aprobada, su año de inicio y año de reversión, y la reversión cae desde ese año, suma a la "
+            "tasa futura el recargo (tarifa aplicable − tarifa general); en los demás casos usa la tarifa aplicable de la "
+            "hoja 04 (Impuesto corriente)."),
+        "Diferencia de tasa (p.p.)": "Resta la tasa esperada a la tasa usada por el cliente, en puntos porcentuales.",
+        "Diferencia temporaria": "Trae la diferencia temporaria de la partida desde la hoja 06 (Diferencias temporarias).",
+        "Efecto en el diferido": ("Multiplica el valor absoluto de la diferencia temporaria por la diferencia de tasa: es "
+                                  "el error en el diferido por usar una tasa distinta."),
+    },
+    "08_Recuperabilidad": {
+        "Activo diferido bruto": ("Trae el activo diferido bruto de la partida desde la hoja 06; en la fila de pérdidas, "
+                                  "multiplica lo arrastrable de la hoja 05 por la tarifa aplicable."),
+        "Permitido": ("Trae de la hoja 06 si la ley admite el diferido de la partida; en la fila de pérdidas, el "
+                      "parámetro de la hoja 02 (Parámetros)."),
+        "Probable": ("Trae de la hoja 06 si es probable recuperar el activo; en la fila de pérdidas, el parámetro de "
+                     "probable ganancia fiscal de la hoja 02."),
+        "Reconocible": ("Trae el activo diferido reconocido de la hoja 06; en la fila de pérdidas, suma el activo diferido "
+                        "requerido de la hoja 05 (Pérdidas tributarias)."),
+        "Registrado al cierre": ("Toma el saldo registrado al cierre de la hoja 06 (en pérdidas, el parámetro de la hoja "
+                                 "02) y lo deja en cero si es negativo, porque aquí solo cuenta el activo."),
+        "Registrado en exceso": ("Resta lo reconocible a lo registrado al cierre, sin bajar de cero: es el activo "
+                                 "registrado que no se puede sostener."),
+        "Conclusión": ("Si la ley no lo admite, «No admitido tributariamente»; si no hay probable ganancia fiscal, «Sin "
+                       "probabilidad de ganancia fiscal»; en otro caso, «Reconocible»."),
+    },
+    "09_Movimiento": {
+        "Registrado al inicio": ("Suma el saldo registrado al inicio de la hoja 06 para las partidas sin ORI (primera fila) "
+                                 "o con ORI (segunda); la fila de pérdidas toma el activo por pérdidas al inicio de la hoja "
+                                 "02."),
+        "Requerido al cierre": ("Suma el diferido requerido de la hoja 06 para las partidas sin ORI o con ORI; la fila de "
+                                "pérdidas suma el activo diferido requerido de la hoja 05 (Pérdidas tributarias)."),
+        "Movimiento": ("Resta lo registrado al inicio a lo requerido al cierre: es el movimiento del diferido que "
+                       "corresponde al año."),
+        "A resultados (+ gasto)": ("Lleva el movimiento a resultados con el signo cambiado en la fila sin ORI y en la de "
+                                   "pérdidas; en la fila de ORI, cero."),
+        "A ORI (+ cargo)": ("Lleva el movimiento al otro resultado integral con el signo cambiado solo en la fila de "
+                            "partidas de ORI; en las demás, cero."),
+        "Registrado al cierre": ("Suma el saldo registrado al cierre de la hoja 06 para las partidas sin ORI o con ORI; la "
+                                 "fila de pérdidas toma el activo por pérdidas al cierre de la hoja 02."),
+        "Ajuste": ("Resta lo registrado al cierre a lo requerido al cierre: es la corrección que necesita el saldo del "
+                   "diferido (+ más activo o menos pasivo)."),
+    },
+    "10_Compensacion": {
+        "Importe": ("Suma los saldos registrados de la hoja 06 (activos, más el activo por pérdidas de la hoja 02, y "
+                    "pasivos por separado) y los requeridos de las hojas 06 y 05; con derecho legal de compensar presenta "
+                    "solo el neto, y compara lo presentado según la hoja 02 con lo que corresponde."),
+    },
+    "11_Tasa_efectiva": {
+        "Importe": ("Parte del resultado antes del impuesto (hoja 04) por la tarifa aplicable, suma el efecto de cada "
+                    "partida de conciliación de la hoja 04 × tarifa hasta llegar al impuesto corriente recalculado, añade "
+                    "el diferido de la hoja 09 y lo compara con el gasto registrado."),
+        "% del resultado": ("Divide cada importe para el resultado contable antes del impuesto; las tres últimas filas "
+                            "muestran la tasa efectiva requerida, la registrada y la tarifa aplicable."),
+    },
+    "12_Ajustes": {
+        "Importe": ("Trae los importes recalculados y registrados de las hojas 04, 05, 06, 09 y 11 y de la hoja 02 "
+                    "(Parámetros); cada ajuste es recalculado − registrado y el ajuste neto al gasto = ajuste corriente − "
+                    "ajuste del diferido a resultados − reclasificación."),
+    },
+    "13_Partic_exentos": {
+        "Importe / estado": ("Toma el ingreso exento bruto de la hoja 02 y los renglones de la hoja 04; recalcula la "
+                             "participación atribuible como % de participación × ingreso exento bruto (cero si no hay "
+                             "exentos o la utilidad no es positiva; vacío si falta el ingreso bruto), la compara con la "
+                             "registrada e indica si el cálculo quedó hecho o bloqueado."),
+    },
+    "14_Asientos": {
+        "Debe": ("Trae de la hoja 12 (Ajustes propuestos), en valor absoluto, el ajuste de cada asiento en la cuenta que se "
+                 "debita según su signo."),
+        "Haber": ("Trae el mismo ajuste de la hoja 12 (Ajustes propuestos), en valor absoluto, en la cuenta que se "
+                  "acredita, para que el asiento cuadre."),
+    },
+}
+
+# Panel del dashboard (formato en graficos.py): la población es la conciliación tributaria del cliente (su base
+# imponible); el auditor recalcula el gasto total por impuesto (corriente + diferido) y lo compara con el registrado.
+PANEL = {
+    "poblacion": {"rotulo": "Base imponible del cliente", "hoja": "03_Conciliacion", "col": "Importe según cliente"},
+    "recalculado": {"rotulo": "Gasto por impuesto recalculado", "total": "gastoTotalRequerido"},
+    "registrado": {"rotulo": "Gasto por impuesto registrado", "total": "gastoTotalRegistrado"},
+    "composicion": {"rotulo": "Base auditada por concepto", "hoja": "03_Conciliacion", "etiqueta": "Concepto",
+                    "valor": "Importe auditado"},
+    "distribucion": {"rotulo": "Conciliación cliente por tipo", "hoja": "03_Conciliacion", "etiqueta": "Tipo",
+                     "valor": "Importe según cliente"},
+}
+
+
 def hojas(res: dict) -> list[dict]:
     d = res["detalle"]
-    conc, cl, au, perd, pt, mv, comp, etr, cit, num = (d[k] for k in ("conc", "cl", "au", "perd", "partidas", "mov", "comp", "etr", "citas", "num"))
+    conc, cl, au, perd, pt, mv, comp, etr, cit, num =(d[k] for k in ("conc", "cl", "au", "perd", "partidas", "mov", "comp", "etr", "citas", "num"))
     pex = d["pex"]
     t = d["tot"]                       # sin redondear: Excel calcula con todos los decimales
     nc, nl, npt = len(conc), len(perd), len(pt)
@@ -1009,40 +1168,40 @@ def hojas(res: dict) -> list[dict]:
     resumen = [[res["labels"][k], fx(ref_res[k], val_res[k])] for k in res["labels"]]
 
     return [
-        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen),
+        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
         hoja("03_Conciliacion", "Conciliación tributaria",
              [["Renglón", "t"], ["Concepto", "t"], ["Tipo", "t"], ["Signo exigido", "t"], ["Importe según cliente", "n"],
-              ["Importe según auditor", "n"], ["Importe auditado", "n"], ["Diferencia", "n"]], c03, tot_c),
+              ["Importe según auditor", "n"], ["Importe auditado", "n"], ["Diferencia", "n"]], c03, tot_c, explica=EXPLICA["03_Conciliacion"]),
         hoja("04_Impuesto_corriente", "Impuesto corriente",
-             [["Concepto", "t"], ["Según cliente", "n"], ["Auditado", "n"], ["Diferencia", "n"], ["Referencia", "t"]], c04),
+             [["Concepto", "t"], ["Según cliente", "n"], ["Auditado", "n"], ["Diferencia", "n"], ["Referencia", "t"]], c04, explica=EXPLICA["04_Impuesto_corriente"]),
         hoja("05_Perdidas", "Pérdidas tributarias",
              [["Año de origen", "a"], ["Pérdida", "n"], ["Amortizado años anteriores", "n"], ["Último año", "a"], ["Disponible", "n"],
               ["Vencida", "t"], ["Disponible no vencido", "n"], ["Saldo vencido", "n"], ["Amortización del año", "n"], ["Remanente", "n"],
-              ["Arrastrable a años futuros", "n"], ["Activo diferido requerido", "n"], ["Activo diferido no reconocido", "n"]], c05, tot_l),
+              ["Arrastrable a años futuros", "n"], ["Activo diferido requerido", "n"], ["Activo diferido no reconocido", "n"]], c05, tot_l, explica=EXPLICA["05_Perdidas"]),
         hoja("06_Diferencias_temp", "Diferencias temporarias y diferido",
              [["Partida", "t"], ["Naturaleza", "t"], ["Libros NIIF", "n"], ["Base fiscal", "n"], ["Diferencia temporaria (+ imponible)", "n"],
               ["Clase", "t"], ["Año de reversión", "a"], ["Tasa (%)", "x"], ["Pasivo diferido", "n"], ["Activo diferido bruto", "n"],
               ["Permitido", "t"], ["Probable", "t"], ["Activo diferido reconocido", "n"], ["Activo diferido no reconocido", "n"],
               ["Diferido requerido (+ activo)", "n"], ["Registrado al inicio", "n"], ["Registrado al cierre", "n"], ["Ajuste", "n"],
-              ["ORI", "t"], ["Movimiento requerido", "n"], ["A resultados (+ gasto)", "n"], ["A ORI (+ cargo)", "n"]], c06, tot6),
+              ["ORI", "t"], ["Movimiento requerido", "n"], ["A resultados (+ gasto)", "n"], ["A ORI (+ cargo)", "n"]], c06, tot6, explica=EXPLICA["06_Diferencias_temp"]),
         hoja("07_Tasa_reversion", "Tasa de reversión",
              [["Partida", "t"], ["Año de reversión", "x"], ["Tasa usada por el cliente (%)", "x"],
               ["Tasa esperada = aprobada + recargo (%)", "x"],
               ["Diferencia de tasa (p.p.)", "x"], ["Diferencia temporaria", "n"], ["Efecto en el diferido", "n"],
-              ["Fórmula de la tasa esperada", "t"]], c07, tot7),
+              ["Fórmula de la tasa esperada", "t"]], c07, tot7, explica=EXPLICA["07_Tasa_reversion"]),
         hoja("08_Recuperabilidad", "Recuperabilidad del activo diferido",
              [["Partida", "t"], ["Activo diferido bruto", "n"], ["Permitido", "t"], ["Probable", "t"], ["Reconocible", "n"],
-              ["Registrado al cierre", "n"], ["Registrado en exceso", "n"], ["Conclusión", "t"]], c08, tot8),
+              ["Registrado al cierre", "n"], ["Registrado en exceso", "n"], ["Conclusión", "t"]], c08, tot8, explica=EXPLICA["08_Recuperabilidad"]),
         hoja("09_Movimiento", "Movimiento: resultados y ORI",
              [["Concepto", "t"], ["Registrado al inicio", "n"], ["Requerido al cierre", "n"], ["Movimiento", "n"], ["A resultados (+ gasto)", "n"],
-              ["A ORI (+ cargo)", "n"], ["Registrado al cierre", "n"], ["Ajuste", "n"]], c09, tot9),
-        hoja("10_Compensacion", "Compensación y presentación", [["Concepto", "t"], ["Importe", "x"], ["Referencia", "t"]], c10),
-        hoja("11_Tasa_efectiva", "Tasa efectiva (NIC 12.81 c)", [["Concepto", "t"], ["Importe", "n"], ["% del resultado", "p"]], c11),
-        hoja("12_Ajustes", "Ajustes propuestos", [["Concepto", "t"], ["Importe", "n"], ["Referencia", "t"]], c12),
+              ["A ORI (+ cargo)", "n"], ["Registrado al cierre", "n"], ["Ajuste", "n"]], c09, tot9, explica=EXPLICA["09_Movimiento"]),
+        hoja("10_Compensacion", "Compensación y presentación", [["Concepto", "t"], ["Importe", "x"], ["Referencia", "t"]], c10, explica=EXPLICA["10_Compensacion"]),
+        hoja("11_Tasa_efectiva", "Tasa efectiva (NIC 12.81 c)", [["Concepto", "t"], ["Importe", "n"], ["% del resultado", "p"]], c11, explica=EXPLICA["11_Tasa_efectiva"]),
+        hoja("12_Ajustes", "Ajustes propuestos", [["Concepto", "t"], ["Importe", "n"], ["Referencia", "t"]], c12, explica=EXPLICA["12_Ajustes"]),
         hoja("13_Partic_exentos", "Participación atribuible a exentos",
-             [["Concepto", "t"], ["Importe / estado", "x"], ["Sustento", "t"]], c13),
-        hoja("14_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos),
+             [["Concepto", "t"], ["Importe / estado", "x"], ["Sustento", "t"]], c13, explica=EXPLICA["13_Partic_exentos"]),
+        hoja("14_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos, explica=EXPLICA["14_Asientos"]),
         hoja("15_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
     ]
