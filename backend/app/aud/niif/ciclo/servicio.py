@@ -702,11 +702,18 @@ def guardar_definicion_ficha(db: Session, ficha: NiifFicha, definicion: dict, fi
 
 # --- E9: papel aprobado, versiones, contexto, encerar y eliminar -------------
 
-def guardar_papel(db: Session, p: Prueba, revision: int, xlsx: bytes, html: bytes, actor: str) -> Prueba:
+# Tipos del papel aprobado que no son evidencia admitida (almacen.TIPOS decide qué sube el cliente).
+_TIPO_PAPEL = {"pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"}
+
+
+def guardar_papel(db: Session, p: Prueba, revision: int, xlsx: bytes, html: bytes, actor: str,
+                  docx: bytes | None = None, pptx: bytes | None = None) -> Prueba:
     """El papel aprobado se guarda una sola vez, con su huella, y ya no cambia.
 
     Lo arma el navegador con el exportador del sitio a partir del registro que
-    el servidor ya aprobó (en Render no corre Node).
+    el servidor ya aprobó (en Render no corre Node). En una prueba declarativa
+    el navegador envía además el Word y el PowerPoint del papel (el HTML ya los
+    lleva dentro); son opcionales para no romper clientes anteriores.
     """
     if revision != p.revision:
         raise Conflicto("La prueba cambió mientras la editaba. Actualice y vuelva a intentarlo.")
@@ -719,8 +726,12 @@ def guardar_papel(db: Session, p: Prueba, revision: int, xlsx: bytes, html: byte
         raise ReglaIncumplida("El Excel del papel aprobado no es válido.")
     if b"<html" not in html[:2000].lower() or len(html) > almacen.MAX_ARCHIVO:
         raise ReglaIncumplida("El HTML del papel aprobado no es válido.")
+    extra = [(ext, c) for ext, c in (("docx", docx), ("pptx", pptx)) if c is not None]
+    for ext, contenido in extra:
+        if not contenido.startswith(b"PK") or not 0 < len(contenido) <= almacen.MAX_ARCHIVO:
+            raise ReglaIncumplida(f"El {'Word' if ext == 'docx' else 'PowerPoint'} del papel aprobado no es válido.")
     artefactos = {}
-    for ext, contenido in (("xlsx", xlsx), ("html", html)):
+    for ext, contenido in (("xlsx", xlsx), ("html", html), *extra):
         huella = hashlib.sha256(contenido).hexdigest()
         nombre = f"Papel_aprobado_v{p.version}.{ext}"
         try:
@@ -728,7 +739,7 @@ def guardar_papel(db: Session, p: Prueba, revision: int, xlsx: bytes, html: byte
         except almacen.SinEspacio as e:
             raise ReglaIncumplida(str(e))
         a = PruebaArchivo(prueba_id=p.id, requerimiento="PAPEL", nombre=nombre,
-                          tipo=almacen.TIPOS.get(ext, "text/html"), tamano=len(contenido), sha256=huella,
+                          tipo=almacen.TIPOS.get(ext, _TIPO_PAPEL.get(ext, "text/html")), tamano=len(contenido), sha256=huella,
                           ruta=ruta, clase="workpaper", subido_por=actor)
         db.add(a)
         db.flush()
