@@ -31,6 +31,7 @@ La medición histórica completa la hacen las otras dos herramientas del rubro:
 """
 from __future__ import annotations
 
+from backend.app.aud.niif.procesadores import problemas
 from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y filas_mapeadas los usa el ciclo)
     FILA0, MARCO_COMPLETAS, MARCO_PYMES, a_num, campo, edicion_pymes, es_pymes, fecha, filas_mapeadas, fx, hoja, m,
     n2, problema, r2, ref, req, suma, validar_campos, validar_definicion_generica,
@@ -427,6 +428,93 @@ def _tramo_formula(celda: str) -> str:
 
 def _rango(hoja_ref: str, col: str, n: int) -> str:
     return f"{hoja_ref}${col}${FILA0}:${col}${FILA0 + max(n, 1) - 1}"
+
+
+# --- origen del importe de cada problema (ver procesadores/problemas.py) --------------
+
+def _pr_hoja(hojas, nombre):
+    return next((x for x in hojas if x["name"] == nombre), None)
+
+
+def _pr_rango(hojas, hoja_: str, col: str) -> str:
+    """Rango de la columna sobre las filas de datos de la cédula (sin la fila TOTAL)."""
+    n = max(len(_pr_hoja(hojas, hoja_)["rows"]), 1)
+    return f"{problemas.celda(hojas, hoja_, col, 0)}:{problemas.celda(hojas, hoja_, col, n - 1).split('!')[1]}"
+
+
+def _por_fila(hoja_: str, columna, prefijo=lambda f: f"{problemas._texto(f[0])}:"):
+    """Celda de la columna en la fila (factura o tramo) que abre la descripción del problema.
+    ``columna`` puede ser una función (fila, columnas) -> título, para elegirla según la fila."""
+    def f(hojas, e):
+        h = _pr_hoja(hojas, hoja_)
+        if h is None:
+            return None
+        msg = e.get("message") or ""
+        cols = [c[0] for c in h["cols"]]
+        for i, fila in enumerate(h["rows"]):
+            if msg.startswith(prefijo(fila)):
+                col = columna(fila, cols) if callable(columna) else columna
+                return problemas.celda(hojas, hoja_, col, i), fila[cols.index(col)]
+        return None
+    return f
+
+
+def _fila_ajuste(clave: str):
+    """Fila de la hoja 10 (Deterioro requerido vs registrado) donde se calcula el concepto."""
+    def f(hojas, e):
+        i = _AJ.index(clave)
+        return problemas.celda(hojas, "10_Ajuste", "Importe", i), _pr_hoja(hojas, "10_Ajuste")["rows"][i][1]
+    return f
+
+
+def _tasa_faltante(hojas, e):
+    """Costo amortizado de las facturas del tramo sin tasa aplicada (hoja 03), tramo citado en la descripción."""
+    mat, det = _pr_hoja(hojas, "09_Matriz_deterioro"), _pr_hoja(hojas, "03_Detalle")
+    msg = e.get("message") or ""
+    i = next((k for k, f in enumerate(mat["rows"]) if msg.startswith(f"{problemas._texto(f[0])}:")), None)
+    if i is None:
+        return None
+    tramo = problemas._texto(mat["rows"][i][0])
+    valor = sum(problemas._num(f[10]) or 0 for f in det["rows"]
+                if problemas._texto(f[7]) == tramo and problemas._num(f[13]) is None)
+    return (f"SUMIFS({_pr_rango(hojas, '03_Detalle', 'Costo amortizado')},{_pr_rango(hojas, '03_Detalle', 'Tramo')},"
+            f"{problemas.celda(hojas, '09_Matriz_deterioro', 'Tramo', i)},{_pr_rango(hojas, '03_Detalle', 'Tasa aplicada')},\"\")"), valor
+
+
+def _saldos_negativos(hojas, e):
+    """Suma de los saldos acreedores del detalle por factura (hoja 03)."""
+    det = _pr_hoja(hojas, "03_Detalle")
+    valor = sum(v for v in (problemas._num(f[4]) for f in det["rows"]) if v is not None and v < 0)
+    return f'SUMIF({_pr_rango(hojas, "03_Detalle", "Saldo")},"<0")', valor
+
+
+def _col_corte(fila, cols):
+    """«Registrada antes del despacho» o «Despachada sin registrar», la que tenga importe en la fila."""
+    anticipada = problemas._num(fila[cols.index("Registrada antes del despacho")]) or 0
+    return "Registrada antes del despacho" if abs(anticipada) >= problemas.TOL else "Despachada sin registrar"
+
+
+def _tramo_corriente(hojas, e):
+    """Deterioro requerido del tramo «Corriente / por vencer» en la matriz (hoja 09)."""
+    mat = _pr_hoja(hojas, "09_Matriz_deterioro")
+    i = next((k for k, f in enumerate(mat["rows"]) if problemas._texto(f[0]) == NOMBRE_TRAMO["pv"]), None)
+    return None if i is None else (problemas.celda(hojas, "09_Matriz_deterioro", "Deterioro requerido", i), mat["rows"][i][4])
+
+
+# De qué celda sale el importe de cada problema.
+REF_PROBLEMAS = {
+    "TASA_FALTANTE": _tasa_faltante,                                                   # costo amortizado del tramo sin tasa
+    "TASA_CORRIENTE_PYMES": _tramo_corriente,                                          # deterioro del tramo corriente
+    "VENCIDA_SIN_COBRO": ("05_Cobros_posteriores", "Vencido sin cobro", "total"),      # saldo vencido sin cobro posterior
+    "COBRO_NO_POSTERIOR": _por_fila("05_Cobros_posteriores", "Cobro informado"),       # cobro sin fecha posterior al corte
+    "DIF_CIRCULARIZACION": ("06_Circularizacion", "Diferencia absoluta", "total"),     # |confirmado − libros|
+    "ERROR_CORTE": _por_fila("07_Corte_ventas", _col_corte),                           # importe de la venta mal cortada
+    "FINANCIACION_SIN_TASA": ("08_Costo_amortizado", "Nominal", "total"),              # nominal de facturas con financiación
+    "FINANCIACION_NO_RECONOCIDA": _fila_ajuste("ajusteFin"),                           # intereses por devengar − registrados
+    "SALDOS_NEGATIVOS": _saldos_negativos,                                             # saldos acreedores de la cartera
+    "DETERIORO_INSUFICIENTE": _fila_ajuste("ajuste"),                                  # requerido − registrado (> 0)
+    "DETERIORO_EXCESIVO": _fila_ajuste("ajuste"),                                      # requerido − registrado (< 0)
+}
 
 
 def hojas(res: dict) -> list[dict]:
