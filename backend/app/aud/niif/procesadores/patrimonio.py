@@ -38,6 +38,7 @@ El cálculo es el mismo en ambos marcos; solo cambian las citas (se enruta con e
 """
 from __future__ import annotations
 
+from backend.app.aud.niif.procesadores import problemas
 from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y filas_mapeadas los usa el ciclo)
     FILA0, MARCO_COMPLETAS, MARCO_PYMES, a_num, campo, edicion_pymes, es_pymes, fecha, filas_mapeadas, fx, hoja, m,
     n2, norm, problema, r2, ref, req, suma, validar_campos, validar_definicion_generica,
@@ -688,6 +689,57 @@ def _pb(k):
 
 def _rg(hoja_ref, col, n):
     return f"{hoja_ref}${col}${FILA0}:${col}${FILA0 + max(n, 1) - 1}"
+
+
+def _celda_fila(hoja, columna, es_fila):
+    """Celda de «columna» en la fila que cumple ``es_fila(texto de la primera columna, descripción)``.
+    Si varias filas cumplen, prefiere la que tiene el importe del problema."""
+    def ref(hojas, e):
+        h = next((x for x in hojas if x["name"] == hoja), None)
+        if not h:
+            return None
+        msg, imp = e.get("message") or "", problemas._num(e.get("amount"))
+        j = [c[0] for c in h["cols"]].index(columna)
+        hallados = [(i, f) for i, f in enumerate(h.get("rows") or []) if es_fila(problemas._texto(f[0]), msg)]
+        for i, f in hallados:
+            v = problemas._num(f[j])
+            if imp is None or (v is not None and abs(abs(v) - abs(imp)) < problemas.TOL):
+                return problemas.celda(hojas, hoja, columna, i), f[j]
+        return (problemas.celda(hojas, hoja, columna, hallados[0][0]), hallados[0][1][j]) if hallados else None
+    return ref
+
+
+def _concepto(hoja, etiqueta, columna="Importe"):
+    """Fila de la cédula cuyo «Concepto» es ``etiqueta``."""
+    return _celda_fila(hoja, columna, lambda t, msg: t == etiqueta)
+
+
+def _referencia(hoja, columna):
+    """Fila de la cuenta (código) o del documento (referencia) con que abre la descripción del problema."""
+    return _celda_fila(hoja, columna, lambda t, msg: bool(t) and (msg.startswith(t + ":") or msg.startswith(t + " ")))
+
+
+# De qué celda sale el importe de cada problema (ver procesadores/problemas.py).
+REF_PROBLEMAS = {
+    "MOVIMIENTO_NO_CUADRA": _referencia("03_Movimiento", "Diferencia"),            # final según cliente − final recalculado
+    "DIF_MAYOR": _referencia("03_Movimiento", "Cliente − mayor"),                   # saldo del cliente − saldo del mayor
+    "RESERVA_LEGAL_NO_APROPIADA": _concepto("05_Reserva_legal", "Por apropiar (+) / exceso (−)"),  # requerida − apropiada
+    "RESERVA_LEGAL_EN_EXCESO": _concepto("05_Reserva_legal", "Por apropiar (+) / exceso (−)"),     # requerida − apropiada (negativo)
+    "TRANSICION_NIIF_NO_DISTRIBUIBLE": _concepto(                                    # ajustes de transición en resultados
+        "06_Dividendos", "(−) De ellos en resultados acumulados y del ejercicio (no distribuibles)"),
+    "DIVIDENDOS_SOBRE_UTILIDADES_NO_DISPONIBLES": _concepto(                         # declarados − utilidades disponibles
+        "06_Dividendos", "Dividendos en exceso de utilidades disponibles"),
+    "DIVIDENDO_MINIMO_NO_ASIGNADO": _concepto("06_Dividendos", "Dividendos por debajo del mínimo legal"),  # mínimo − declarados
+    "DIVIDENDO_POSTERIOR_COMO_PASIVO": _referencia("04_Transacciones", "Dividendo posterior como pasivo"),  # dividendo a revertir
+    "DIVIDENDO_POSTERIOR_REVELAR": _concepto("06_Dividendos", "Dividendos declarados después del cierre"),  # a revelar en notas
+    "CAPITAL_NO_COINCIDE_ESCRITURA": _concepto("07_Capital", "Diferencia cliente − escritura"),  # capital cliente − escritura
+    "AUMENTO_NO_INSCRITO": _referencia("04_Transacciones", "Aumento no inscrito"),  # aumento sin inscripción al corte
+    "APORTE_ES_PASIVO": _referencia("04_Transacciones", "Aporte a pasivo"),         # aporte con devolución a reclasificar
+    "INSTRUMENTO_MAL_CLASIFICADO": _referencia("04_Transacciones", "Instrumento a pasivo"),  # instrumento a reclasificar
+    "RECOMPRA_CON_RESULTADO": _referencia("09_Recompra", "A reclasificar al patrimonio"),     # |resultado| de la recompra
+    "RECOMPRA_NO_DEDUCIDA": _referencia("09_Recompra", "Costo"),                    # costo de la recompra mal presentada
+    "SIN_ACTA": _referencia("04_Transacciones", "Importe"),                         # importe de la transacción sin acta
+}
 
 
 def hojas(res: dict) -> list[dict]:

@@ -25,6 +25,7 @@ from __future__ import annotations
 from calendar import monthrange
 from datetime import date, timedelta
 
+from backend.app.aud.niif.procesadores import problemas
 from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y filas_mapeadas los usa el ciclo)
     FILA0, MARCO_COMPLETAS, MARCO_PYMES, a_num, campo, edicion_pymes, es_pymes, fecha, filas_mapeadas, fx, hoja,
     m, problema, r2, ref, req, suma, validar_campos, validar_definicion_generica,
@@ -561,6 +562,61 @@ def _si(celda: str) -> str:
 
 def _cero(celda: str) -> str:
     return f'IF({celda}="",0,{celda})'
+
+
+def _por_fila(hoja, columna):
+    """Celda de «columna» en la fila del empleado, plan o concepto con que abre la descripción del problema."""
+    def ref(hojas, e):
+        h = next((x for x in hojas if x["name"] == hoja), None)
+        if not h:
+            return None
+        msg = e.get("message") or ""
+        j = [c[0] for c in h["cols"]].index(columna)
+        for i, f in enumerate(h.get("rows") or []):
+            t = problemas._texto(f[0])
+            if t and any(msg.startswith(pre + suf) for pre in (t, f"Plan {t}") for suf in (" (", ":")):
+                return problemas.celda(hojas, hoja, columna, i), f[j]
+        return None
+    return ref
+
+
+def _aporte_iess(hojas, e):
+    """Diferencia registrado − recalculado del aporte (personal o patronal, según la descripción) del empleado (07)."""
+    col = "Dif. patronal" if "aporte patronal" in (e.get("message") or "") else "Dif. personal"
+    return _por_fila("07_IESS", col)(hojas, e)
+
+
+def _desahucio_total(hojas, e):
+    """Desahucio legal referencial de todos los activos: TOTAL de la hoja 14."""
+    h = next((x for x in hojas if x["name"] == "14_Censo_actuarial"), None)
+    if not h or not h.get("total"):
+        return None
+    col = h["cols"][7][0]
+    return problemas.celda(hojas, h["name"], col, len(h["rows"])), h["total"][7]
+
+
+# De qué celda sale el importe de cada problema (ver procesadores/problemas.py).
+REF_PROBLEMAS = {
+    "RECALCULO_NOMINA": _por_fila("06_Recalculo_nomina", "Registrada − recalculada"),   # remuneración registrada − recalculada
+    "HORAS_EXTRAS": _por_fila("06_Recalculo_nomina", "Dif. horas extras"),              # horas extras registradas − recalculadas
+    "NETO_NOMINA": _por_fila("06_Recalculo_nomina", "Dif. neto"),                       # neto pagado − neto recalculado
+    "PLANILLA_IESS": _por_fila("07_IESS", "Dif. planilla − nómina"),                    # base planillas IESS − remuneración
+    "APORTE_IESS": _aporte_iess,                                                        # aporte registrado − recalculado
+    "DECIMO_TERCERO": _por_fila("08_Decimo_tercero", "Provisionado − recalculado"),     # décimo tercero provisionado − recalculado
+    "DECIMO_CUARTO": _por_fila("09_Decimo_cuarto", "Provisionado − recalculado"),       # décimo cuarto provisionado − recalculado
+    "VACACIONES_NO_PROVISIONADAS": _por_fila("10_Vacaciones", "Provisión recalculada"),  # provisión que falta registrar
+    "VACACIONES_DIFERENCIA": _por_fila("10_Vacaciones", "Provisionado − recalculado"),  # vacaciones provisionadas − recalculadas
+    "FONDO_RESERVA_NO_PAGADO": _por_fila("11_Fondo_reserva", "Pagado − debido"),        # debido − pagado (se enlaza con «-»)
+    "FONDO_RESERVA_EXCESO": _por_fila("11_Fondo_reserva", "Pagado − debido"),           # pagado en exceso sobre lo debido
+    "EMPLEADO_SIN_ESTUDIO": _por_fila(                                                  # desahucio legal referencial del empleado
+        "14_Censo_actuarial", "Desahucio legal referencial (25 % × última remuneración mensual × años; CT art. 185)"),
+    "SIN_ESTUDIO_ACTUARIAL": _desahucio_total,                                          # desahucio referencial de todos los activos
+    "DBO_ROLLFORWARD": _por_fila("12_DBO_actuarial", "Informe − recalculado"),          # DBO del informe − DBO recalculado
+    "PROVISION_ACTUARIAL": _por_fila("12_DBO_actuarial", "Registrada − informe"),       # provisión registrada − DBO del informe
+    "NUEVAS_MEDICIONES_EN_RESULTADOS": _por_fila("12_DBO_actuarial", "Nuevas mediciones"),  # nuevas mediciones del plan mal destinadas
+    "POLITICA_ACTUARIAL_PYMES": _por_fila("12_DBO_actuarial", "Nuevas mediciones"),     # ganancias/pérdidas actuariales del plan
+    "CONCILIACION_MAYOR": _por_fila("15_Conciliacion_GL", "Detalle − mayor"),           # detalle registrado − mayor
+}
 
 
 def hojas(res: dict) -> list[dict]:

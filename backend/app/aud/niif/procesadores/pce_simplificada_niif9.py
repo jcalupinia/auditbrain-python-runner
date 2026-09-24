@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from datetime import date
 
+from backend.app.aud.niif.procesadores import problemas
 from backend.app.aud.niif.procesadores.perdidas_incurridas_s11 import (
     FILA0, _fx, _m, _n, a_fecha, a_num, filas_mapeadas, r2,
 )
@@ -447,6 +448,81 @@ def _tramo_formula(celda: str) -> str:
 
 def _rango(hoja: str, col: str, n: int) -> str:
     return f"{hoja}${col}${FILA0}:${col}${FILA0 + max(n, 1) - 1}"
+
+
+def _hoja(hojas, nombre):
+    return next((h for h in hojas if h["name"] == nombre), None)
+
+
+def _fila_concepto(hoja, columna, concepto):
+    """Celda de «columna» en la fila cuya primera columna es «concepto»."""
+    def ref(hojas, e):
+        h = _hoja(hojas, hoja)
+        if not h:
+            return None
+        j = [c[0] for c in h["cols"]].index(columna)
+        for i, f in enumerate(h["rows"]):
+            if problemas._texto(f[0]) == concepto:
+                return problemas.celda(hojas, hoja, columna, i), f[j]
+        return None
+    return ref
+
+
+def _fila_tramo(hojas, e):
+    """Índice de la fila de la matriz cuyo «Segmento · Tramo:» abre la descripción."""
+    h = _hoja(hojas, "04_Matriz_provisiones")
+    msg = e.get("message") or ""
+    for i, f in enumerate(h["rows"] if h else []):
+        if msg.startswith(f"{problemas._texto(f[0])} · {problemas._texto(f[1])}:"):
+            return h, i
+    return h, None
+
+
+def _tasa_cero(hojas, e):
+    """Saldo al corte del tramo con tasa 0 % (04, fila del segmento y tramo)."""
+    h, i = _fila_tramo(hojas, e)
+    if i is None:
+        return None
+    return problemas.celda(hojas, "04_Matriz_provisiones", "Saldo al corte", i), h["rows"][i][8]
+
+
+def _tasa_faltante(hojas, e):
+    """Saldo del tramo que quedó sin tasa: facturas de esa clave sin «Tasa aplicada» en el Detalle (09)."""
+    h, i = _fila_tramo(hojas, e)
+    det = _hoja(hojas, "09_Detalle")
+    if i is None or not det or not det["rows"]:
+        return None
+    clave = problemas._texto(h["rows"][i][2])
+    n = len(det["rows"]) - 1
+    rango = lambda col: (f"{problemas.celda(hojas, '09_Detalle', col, 0)}:"
+                         f"{problemas.celda(hojas, '09_Detalle', col, n).split('!')[1]}")
+    valor = sum(problemas._num(f[7]) or 0 for f in det["rows"]
+                if problemas._texto(f[6]) == clave and problemas._num(f[9]) is None)
+    formula = (f'SUMIFS({rango("Saldo")},{rango("Clave")},'
+               f'{problemas.celda(hojas, "04_Matriz_provisiones", "Clave", i)},{rango("Tasa aplicada")},"")')
+    return formula, valor
+
+
+def _en_impago(hojas, e):
+    """Saldo de las facturas marcadas «En impago» (más de 90 días) en el Detalle (09)."""
+    det = _hoja(hojas, "09_Detalle")
+    if not det or not det["rows"]:
+        return None
+    n = len(det["rows"]) - 1
+    rango = lambda col: (f"{problemas.celda(hojas, '09_Detalle', col, 0)}:"
+                         f"{problemas.celda(hojas, '09_Detalle', col, n).split('!')[1]}")
+    valor = sum(problemas._num(f[7]) or 0 for f in det["rows"] if problemas._texto(f[11]) == "Sí")
+    return f'SUMIF({rango("En impago")},"Sí",{rango("Saldo")})', valor
+
+
+# De qué celda sale el importe de cada problema (ver procesadores/problemas.py).
+REF_PROBLEMAS = {
+    "TASA_FALTANTE": _tasa_faltante,                                   # saldo del tramo sin tasa (SUMIFS del 09)
+    "TASA_CERO": _tasa_cero,                                           # saldo al corte del tramo con tasa 0 %
+    "AJUSTE": _fila_concepto("01_Resumen", "Importe", "Ajuste propuesto"),      # pérdida esperada − provisión registrada
+    "EN_IMPAGO": _en_impago,                                           # cartera con más de 90 días de mora
+    "NO_DEDUCIBLE": _fila_concepto("07_Fiscal", "Importe", "Gasto no deducible"),  # exceso sobre los límites LRTI
+}
 
 
 def hojas(res: dict) -> list[dict]:
