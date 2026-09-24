@@ -1,0 +1,8 @@
+# ==========================================================
+# requirements-pdf.txt — PDF ejecutivo del papel de trabajo NIIF (servidor)
+# Solo para la imagen Docker de producción (Dockerfile.render), que instala las
+# librerías nativas que WeasyPrint necesita (Pango, HarfBuzz, fontconfig).
+# En un servicio `env: python` (sin librerías nativas) NO instalar: el endpoint
+# degrada con libro.PDFNoDisponible.
+# ==========================================================
+weasyprint==70.0

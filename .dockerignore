@@ -1,0 +1,24 @@
+# Imagen del backend (Dockerfile.render / Dockerfile): solo lo que el servidor usa.
+.git
+**/__pycache__
+**/*.pyc
+**/node_modules
+frontend/dist
+frontend-client/
+frontend-shared/
+e2e/
+e2e-portal-cliente/
+papeles_muestra/
+# Del frontend el backend SOLO lee los ejemplos por requerimiento y su manifiesto
+# (ejercicio modelo y papeles de muestra: backend/app/aud/niif/ejemplos_manifiesto.py).
+frontend/*
+!frontend/public/
+frontend/public/*
+!frontend/public/ejemplos/
+!frontend/src/
+frontend/src/*
+!frontend/src/aud/
+frontend/src/aud/*
+!frontend/src/aud/niif/
+frontend/src/aud/niif/*
+!frontend/src/aud/niif/ejemplosRequerimientos.js

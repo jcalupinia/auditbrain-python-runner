@@ -608,6 +608,197 @@ def _si(celda: str) -> str:
     return f'IF({celda}="","",{celda})'
 
 
+# --- explicaciones humanas de «Cómo se calcula esta hoja» y panel del dashboard ----------
+
+EXPLICA = {
+    "01_Resumen": {
+        "Importe": "Trae cada importe de su hoja de origen, concepto por concepto, sumando la columna que corresponde de las hojas 03 a 12 "
+                   "(por ejemplo, la medición auditada de la hoja 08 o la depreciación de la hoja 07). El saldo del mayor sale de la hoja 02 "
+                   "(Parámetros) o, si no se informó, de la suma del detalle; el ajuste propuesto es auditado menos mayor.",
+    },
+    "02_Parametros": {
+        "Valor": "Muestra cada parámetro del encargo tal como se fijó; solo dos se calculan: «¿Es PYMES?» sale del marco, y el modelo "
+                 "con que se mide es el elegido por la entidad en NIIF completas y, en PYMES, valor razonable solo si es fiable sin "
+                 "costo o esfuerzo desproporcionado (si no, costo).",
+    },
+    "04_Clasificacion": {
+        "Uso actual": "Trae el uso actual del inmueble declarado por el cliente en la hoja 03 (Registro de inmuebles): alquiler, "
+                      "plusvalía, uso propio, venta, uso futuro no determinado o en construcción.",
+        "% uso propio": "Trae de la hoja 03 (Registro de inmuebles) el porcentaje del inmueble que la entidad ocupa para sí misma; "
+                        "si el cliente no lo informó, queda en blanco.",
+        "Separable": "Trae de la hoja 03 (Registro de inmuebles) si las partes del inmueble pueden venderse por separado (Sí/No); "
+                     "queda en blanco si no se informó.",
+        "Umbral (%)": "Repite en cada fila el porcentaje de uso propio desde el cual el auditor lo considera significativo, "
+                      "fijado en la hoja 02 (Parámetros).",
+        "Clasificación auditada": "Si el inmueble es para la venta va a inventario y si es de uso propio a PPE. Con uso mixto (uso propio "
+                                  "entre 0 % y 100 %) en PYMES se separa la parte de inversión, salvo que el VR no sea fiable según la "
+                                  "hoja 02 (entonces todo va a PPE), y en NIIF completas solo se separa si las partes son vendibles por "
+                                  "separado; si el uso propio supera el umbral va a PPE y, en los demás casos, es propiedad de inversión.",
+        "¿Propiedad de inversión?": "Marca «Sí» cuando la parte que es propiedad de inversión (última columna de esta hoja) es mayor "
+                                    "que cero, y «No» en caso contrario.",
+        "Importe en libros": "Trae de la hoja 03 (Registro de inmuebles) el importe en libros que el cliente tiene registrado al corte "
+                             "para este inmueble.",
+        "Reclasificación": "Si el inmueble no es propiedad de inversión en su totalidad, calcula con signo negativo la parte del importe "
+                           "en libros que debe salir de la cuenta: importe en libros × (1 − parte que es PI). Si todo es PI, queda en blanco.",
+        "Parte que es propiedad de inversión": "Es 100 % si la clasificación auditada es propiedad de inversión, 100 % menos el porcentaje "
+                                               "de uso propio si solo una parte lo es, y 0 % en cualquier otra clasificación.",
+    },
+    "05_Costo_inicial": {
+        "Precio de compra": "Trae el precio de compra según escritura de la hoja 03 (Registro de inmuebles); si el cliente no lo "
+                            "informó, queda en blanco.",
+        "Desembolsos atribuibles": "Trae de la hoja 03 (Registro de inmuebles) los honorarios, impuestos de transferencia y demás "
+                                   "desembolsos directamente atribuibles; en blanco si no se informaron.",
+        "Costo recalculado": "Suma el precio de compra y los desembolsos atribuibles (sin desembolsos cuenta cero). Si falta el precio "
+                             "de compra queda en blanco, porque no se puede recalcular.",
+        "Costo registrado": "Trae de la hoja 03 (Registro de inmuebles) el costo que el cliente tiene registrado para el inmueble.",
+        "Diferencia": "Resta el costo registrado del costo recalculado; queda en blanco cuando no hubo costo recalculado.",
+        "Costo auditado": "Toma el costo recalculado cuando existe y, si no se pudo recalcular, acepta el costo registrado por el cliente.",
+    },
+    "06_Valor_razonable": {
+        "¿PI?": "Trae de la hoja 04 (Clasificación) si el inmueble es, total o parcialmente, propiedad de inversión.",
+        "Medición": "Si el inmueble no es propiedad de inversión indica «No es PI». Si la ruta de la hoja 02 (Parámetros) es valor "
+                    "razonable, usa «Valor razonable» cuando hay VR al corte y «Costo (VR no fiable)» cuando falta; si la ruta es el "
+                    "costo, indica «Costo».",
+        "VR año anterior": "Trae el valor razonable del año anterior de la hoja 03 (Registro de inmuebles); en blanco si el cliente "
+                           "no lo informó.",
+        "VR al corte": "Trae el valor razonable a la fecha de corte (avalúo o tasación) de la hoja 03 (Registro de inmuebles); "
+                       "en blanco si no existe.",
+        "Variación del año": "Resta el VR del año anterior del VR al corte; si falta cualquiera de los dos, queda en blanco.",
+        "Importe en libros": "Trae de la hoja 03 (Registro de inmuebles) el importe en libros al corte, para compararlo con el valor "
+                             "razonable.",
+        "Ajuste VR no reconocido (VR − libros)": "Solo para inmuebles medidos a valor razonable: resta el importe en libros del VR al "
+                                                 "corte y lo multiplica por la parte que es propiedad de inversión (hoja 04, "
+                                                 "Clasificación). En los demás queda en blanco.",
+        "Fuente / tasador": "Trae de la hoja 03 (Registro de inmuebles) quién determinó el valor razonable (perito, tasador u otra "
+                            "fuente); en blanco si no se informó.",
+        "Nivel": "Trae el nivel de jerarquía del valor razonable (1, 2 o 3) declarado en la hoja 03 (Registro de inmuebles); "
+                 "en blanco si falta.",
+    },
+    "07_Modelo_costo": {
+        "Medición": "Trae la medición que corresponde al inmueble según la hoja 06 (Valor razonable): valor razonable, costo, "
+                    "costo por VR no fiable o no es PI.",
+        "¿Aplica?": "Marca «Sí» cuando la medición empieza por «Costo» (modelo del costo o VR no fiable); solo en esos inmuebles "
+                    "se recalculan la depreciación y el deterioro.",
+        "Costo del modelo (PYMES 16.8: libros al cesar el VR)": "Si aplica el modelo del costo, toma el costo auditado de la hoja 05 "
+                                                                "(Costo inicial). En PYMES, cuando el VR dejó de ser fiable y la hoja 03 "
+                                                                "trae el importe en libros a esa fecha («Libros al cambio»), usa ese "
+                                                                "importe como nuevo costo. Si no aplica, queda en blanco.",
+        "Terreno": "Si aplica el modelo del costo, trae de la hoja 03 (Registro de inmuebles) la parte del costo que es terreno, que "
+                   "no se deprecia; sin dato cuenta cero.",
+        "Base depreciable": "Resta el terreno del costo del modelo: es la parte del inmueble que sí se deprecia. En blanco si no "
+                            "aplica el modelo del costo.",
+        "Vida útil (años)": "Si aplica el modelo del costo, trae la vida útil en años de la hoja 03 (Registro de inmuebles); en blanco "
+                            "si falta el dato o si no aplica.",
+        "Meses completos": "Cuenta los meses completos desde la fecha base de depreciación hasta el corte de la hoja 02 (Parámetros); "
+                           "si la fecha base es posterior al corte da 0, y queda en blanco si no aplica o falta la fecha.",
+        "Dep. acumulada recalculada": "Deprecia la base en línea recta: base depreciable × meses completos ÷ (vida útil × 12), sin "
+                                      "pasar del 100 % de la base. Si la base es cero da 0; si falta la vida útil o los meses, queda en blanco.",
+        "Depreciación del año": "A la depreciación acumulada recalculada le resta la que ya existía 12 meses antes (la misma cuenta con "
+                                "12 meses menos): es el gasto de depreciación del año. En blanco si no hay acumulada recalculada.",
+        "Dep. acumulada registrada": "Si aplica el modelo del costo, trae la depreciación acumulada que el cliente tiene registrada, "
+                                     "de la hoja 03 (Registro de inmuebles); en blanco si no la informó.",
+        "Diferencia de depreciación": "Resta la depreciación acumulada registrada de la recalculada; queda en blanco si falta "
+                                      "alguna de las dos.",
+        "Valor neto": "Resta al costo del modelo la depreciación acumulada recalculada; si no se pudo recalcular usa la registrada "
+                      "por el cliente y, si tampoco hay, no resta nada.",
+        "Importe recuperable": "Si aplica el modelo del costo, trae el importe recuperable que el cliente informó por indicios de "
+                               "deterioro en la hoja 03 (Registro de inmuebles); en blanco si no lo informó.",
+        "Deterioro": "Compara el valor neto con el importe recuperable: si el neto es mayor, la diferencia es el deterioro; si no, 0. "
+                     "En blanco si no hay importe recuperable o no aplica.",
+        "Medición al costo": "Valor neto menos el deterioro (sin deterioro no resta nada): es el importe por el que el inmueble debe "
+                             "quedar medido con el modelo del costo.",
+    },
+    "08_Medicion": {
+        "Clasificación": "Trae de la hoja 04 (Clasificación) la clasificación auditada del inmueble.",
+        "Medición": "Trae de la hoja 06 (Valor razonable) la base con que se mide el inmueble: valor razonable, costo o no es PI.",
+        "Importe en libros": "Trae de la hoja 03 (Registro de inmuebles) el importe en libros que el cliente registró al corte.",
+        "Auditado en la cuenta": "Si el inmueble no es propiedad de inversión pone 0. Si lo es, toma el VR al corte (hoja 06) o la "
+                                 "medición al costo (hoja 07), según su medición, y lo multiplica por la parte que es propiedad de "
+                                 "inversión (hoja 04).",
+        "Ajuste": "Resta el importe en libros del importe auditado en la cuenta: lo que hay que subir o bajar en propiedades de "
+                  "inversión por este inmueble.",
+        "Ajuste VR (resultados)": "Trae el ajuste de valor razonable no reconocido calculado en la hoja 06 (Valor razonable); en "
+                                  "blanco cuando el inmueble no se mide a valor razonable.",
+        "Efecto modelo del costo": "Si aplica el modelo del costo, resta el importe en libros de la medición al costo (hoja 07) y lo "
+                                   "multiplica por la parte que es propiedad de inversión (hoja 04); en blanco en los demás casos.",
+        "Reclasificación": "Trae de la hoja 04 (Clasificación) el importe que sale de propiedades de inversión por uso propio, venta "
+                           "o uso mixto; en blanco si no hay reclasificación.",
+    },
+    "09_Transferencias": {
+        "¿En el ejercicio?": "Revisa si la fecha del cambio de uso cae entre el inicio y el corte del ejercicio (hoja 02, "
+                             "Parámetros) y marca «Sí» o «No»; si falta la fecha, indica «Sin fecha».",
+        "Clasificación actual": "Trae de la hoja 04 (Clasificación) la clasificación auditada al corte del inmueble transferido, "
+                                "para compararla con el sentido del cambio de uso.",
+        "Libros a la fecha": "Trae de la hoja 03 (Registro de inmuebles) el importe en libros a la fecha del cambio de uso; en blanco "
+                             "si no se informó.",
+        "VR a la fecha": "Trae de la hoja 03 (Registro de inmuebles) el valor razonable a la fecha del cambio de uso; en blanco si "
+                         "no se informó.",
+        "Diferencia VR − libros": "Resta los libros del VR a la fecha del cambio. Solo se calcula en NIIF completas con la ruta de "
+                                  "valor razonable (hoja 02) y con ambos datos; en PYMES, con modelo del costo o sin datos, queda en blanco.",
+        "Superávit de revaluación a la fecha": "Trae de la hoja 03 (Registro de inmuebles) el superávit de revaluación acumulado de "
+                                               "este inmueble a la fecha del cambio; en blanco si no se informó.",
+        "Uso del superávit (disminución)": "Solo en cambios PPE→PI con disminución (diferencia negativa): usa el superávit del "
+                                           "inmueble hasta cubrir la disminución, sin pasar de lo disponible. En otros cambios o con "
+                                           "aumento es 0; en blanco si no hay diferencia o falta el superávit que se necesita.",
+        "A resultados": "Desde inventario, toda la diferencia va a resultados. Desde PPE, un aumento no va a resultados (0) y una "
+                        "disminución solo por el exceso no cubierto con el superávit (diferencia + uso del superávit); en los demás "
+                        "cambios es 0.",
+        "A otro resultado integral": "Solo en cambios PPE→PI: el aumento va completo a otro resultado integral y, si es disminución, "
+                                     "registra con signo negativo el superávit usado. En otros cambios es 0; en blanco si falta la "
+                                     "diferencia o el uso del superávit.",
+        "Tratamiento": "Escribe el tratamiento contable que corresponde: en PYMES, la regla de transferencias de la sección 16; con "
+                       "modelo del costo, sin cambio del importe en libros; y con valor razonable, según el sentido del cambio "
+                       "(desde PPE, desde inventario o al salir de propiedades de inversión).",
+        "Estado": "Revisa si la transferencia se puede tratar: señala si el tipo de cambio no se reconoce, si falta la fecha, los "
+                  "importes a la fecha o el superávit necesario, o si es incoherente con la clasificación actual de la hoja 04; "
+                  "si todo cuadra, indica «Completa».",
+    },
+    "10_Superavit": {
+        "Cambio de uso": "Trae de la hoja 09 (Transferencias) el cambio de uso de este inmueble, para seguir su superávit de "
+                         "revaluación.",
+        "Saldo inicial en otro resultado integral": "Trae de la hoja 03 (Registro de inmuebles) el superávit de revaluación acumulado "
+                                                    "del inmueble a la fecha del cambio; en blanco si no se informó.",
+        "Movimiento de la transferencia (aumento)": "Toma lo que la hoja 09 (Transferencias) envió a otro resultado integral, solo si "
+                                                    "es positivo (un aumento). En NIIF completas con modelo del costo, o si no hubo "
+                                                    "transferencia, es 0.",
+        "Uso contra la disminución": "Trae de la hoja 09 (Transferencias) el superávit usado para absorber una disminución. En NIIF "
+                                     "completas con modelo del costo, o si no hubo transferencia, es 0.",
+        "Saldo final": "Saldo inicial más el aumento menos el uso contra disminuciones: es el superávit que queda en patrimonio al "
+                       "cierre. En blanco si falta alguno de los tres datos.",
+        "Destino": "Si queda saldo de superávit al cierre, recuerda que permanece en patrimonio y solo puede pasar a resultados "
+                   "acumulados, nunca al resultado del ejercicio; si no queda saldo, lo indica.",
+    },
+    "11_Alquileres": {
+        "Uso actual": "Trae el uso actual del inmueble de la hoja 03 (Registro de inmuebles), para ver cuáles deberían generar "
+                      "ingresos por alquiler.",
+        "Ingresos según contratos": "Trae de la hoja 03 (Registro de inmuebles) los ingresos por alquiler del año según los "
+                                    "contratos; en blanco si no se informaron.",
+        "Ingresos registrados": "Trae de la hoja 03 (Registro de inmuebles) los ingresos por alquiler que el cliente registró en "
+                                "contabilidad; en blanco si no hay dato.",
+        "Diferencia": "Resta los ingresos registrados de los ingresos según contratos; queda en blanco si falta alguno de los dos.",
+    },
+    "12_Bajas": {
+        "Resultado recalculado": "Resta el importe en libros a la fecha de baja del producto neto de la venta: ganancia (positivo) "
+                                 "o pérdida (negativo) que debió reconocerse.",
+        "Diferencia": "Resta el resultado registrado por el cliente del resultado recalculado; en blanco si el cliente no informó "
+                      "su resultado.",
+    },
+    "13_Conciliacion": {
+        "Importe": "Arma el puente concepto por concepto: compara el saldo del mayor (hoja 02, o la suma del detalle si no se informó) "
+                   "con el importe en libros de la hoja 03, le suma los ajustes de las hojas 06, 08 y 04, controla que el puente iguale "
+                   "la medición auditada de la hoja 08 y calcula el ajuste propuesto (auditado − mayor).",
+    },
+}
+
+PANEL = {
+    "poblacion": {"rotulo": "Importe en libros (detalle)", "total": "libros"},
+    "recalculado": {"rotulo": "Propiedades auditadas", "total": "piAuditado"},
+    "registrado": {"rotulo": "Saldo según el mayor", "total": "saldoMayor"},
+    "composicion": {"rotulo": "Auditado por medición", "hoja": "08_Medicion", "etiqueta": "Medición", "valor": "Auditado en la cuenta"},
+    "distribucion": {"rotulo": "Libros por clasificación", "hoja": "08_Medicion", "etiqueta": "Clasificación", "valor": "Importe en libros"},
+}
+
+
 def hojas(res: dict) -> list[dict]:
     d = res["detalle"]
     p, t, c = d["parametros"], d["tot"], d["conc"]
@@ -754,8 +945,9 @@ def hojas(res: dict) -> list[dict]:
 
     S = lambda xs: sum(x for x in xs if x is not None)
     return [
-        hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", n_]], resumen),
-        hoja("02_Parametros", CEDULAS[1][1], [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
+        hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", n_]], resumen, explica=EXPLICA["01_Resumen"]),
+        hoja("02_Parametros", CEDULAS[1][1], [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros,
+             explica=EXPLICA["02_Parametros"]),
         hoja("03_Inmuebles", CEDULAS[2][1],
              [["Código", "t"], ["Descripción", "t"], ["Uso actual", "t"], ["% uso propio", n_], ["Separable", "t"], ["Costo registrado", n_],
               ["Fecha de adquisición", "d"], ["Precio de compra", n_], ["Desembolsos atribuibles", n_], ["Terreno", n_], ["Vida útil (años)", n_],
@@ -769,16 +961,16 @@ def hojas(res: dict) -> list[dict]:
              [["Código", "t"], ["Descripción", "t"], ["Uso actual", "t"], ["% uso propio", n_], ["Separable", "t"], ["Umbral (%)", n_],
               ["Clasificación auditada", "t"], ["¿Propiedad de inversión?", "t"], ["Importe en libros", n_], ["Reclasificación", n_],
               ["Parte que es propiedad de inversión", "p"]],
-             cla, ["TOTAL", "", "", None, "", None, "", "", _tot("I", ni, t["libros"]), _tot("J", ni, t["reclasificacion"]), None]),
+             cla, ["TOTAL", "", "", None, "", None, "", "", _tot("I", ni, t["libros"]), _tot("J", ni, t["reclasificacion"]), None], explica=EXPLICA["04_Clasificacion"]),
         hoja("05_Costo_inicial", CEDULAS[4][1],
              [["Código", "t"], ["Fecha de adquisición", "d"], ["Precio de compra", n_], ["Desembolsos atribuibles", n_], ["Costo recalculado", n_],
               ["Costo registrado", n_], ["Diferencia", n_], ["Costo auditado", n_]],
              cos, ["TOTAL", None, None, None, None, _tot("F", ni, S(i["costo"] for i in its)), _tot("G", ni, t["difCostoInicial"]),
-                   _tot("H", ni, S(i["costoAud"] for i in its))]),
+                   _tot("H", ni, S(i["costoAud"] for i in its))], explica=EXPLICA["05_Costo_inicial"]),
         hoja("06_Valor_razonable", CEDULAS[5][1],
              [["Código", "t"], ["¿PI?", "t"], ["Medición", "t"], ["VR año anterior", n_], ["VR al corte", n_], ["Variación del año", n_],
               ["Importe en libros", n_], ["Ajuste VR no reconocido (VR − libros)", n_], ["Fuente / tasador", "t"], ["Nivel", "t"]],
-             vrz, ["TOTAL", "", "", None, None, _tot("F", ni, t["variacionVR"]), _tot("G", ni, t["libros"]), _tot("H", ni, t["ajusteVR"]), "", ""]),
+             vrz, ["TOTAL", "", "", None, None, _tot("F", ni, t["variacionVR"]), _tot("G", ni, t["libros"]), _tot("H", ni, t["ajusteVR"]), "", ""], explica=EXPLICA["06_Valor_razonable"]),
         hoja("07_Modelo_costo", CEDULAS[6][1],
              [["Código", "t"], ["Medición", "t"], ["¿Aplica?", "t"], ["Costo del modelo (PYMES 16.8: libros al cesar el VR)", n_], ["Terreno", n_],
               ["Base depreciable", n_],
@@ -786,32 +978,32 @@ def hojas(res: dict) -> list[dict]:
               ["Depreciación del año", n_], ["Dep. acumulada registrada", n_], ["Diferencia de depreciación", n_], ["Valor neto", n_],
               ["Importe recuperable", n_], ["Deterioro", n_], ["Medición al costo", n_]],
              mco, ["TOTAL", "", "", None, None, None, None, None, None, None, _tot("K", ni, t["depreciacionAnio"]), None,
-                   _tot("M", ni, t["difDepreciacion"]), None, None, _tot("P", ni, t["deterioro"]), _tot("Q", ni, S(i["medCosto"] for i in its))]),
+                   _tot("M", ni, t["difDepreciacion"]), None, None, _tot("P", ni, t["deterioro"]), _tot("Q", ni, S(i["medCosto"] for i in its))], explica=EXPLICA["07_Modelo_costo"]),
         hoja("08_Medicion", CEDULAS[7][1],
              [["Código", "t"], ["Clasificación", "t"], ["Medición", "t"], ["Importe en libros", n_], ["Auditado en la cuenta", n_], ["Ajuste", n_],
               ["Ajuste VR (resultados)", n_], ["Efecto modelo del costo", n_], ["Reclasificación", n_]],
              med, ["TOTAL", "", "", _tot("D", ni, t["libros"]), _tot("E", ni, t["piAuditado"]), _tot("F", ni, S(i["ajuste"] for i in its)),
-                   _tot("G", ni, t["ajusteVR"]), _tot("H", ni, t["efectoCosto"]), _tot("I", ni, t["reclasificacion"])]),
+                   _tot("G", ni, t["ajusteVR"]), _tot("H", ni, t["efectoCosto"]), _tot("I", ni, t["reclasificacion"])], explica=EXPLICA["08_Medicion"]),
         hoja("09_Transferencias", CEDULAS[8][1],
              [["Código", "t"], ["Cambio de uso", "t"], ["Fecha del cambio", "d"], ["¿En el ejercicio?", "t"], ["Clasificación actual", "t"],
               ["Libros a la fecha", n_], ["VR a la fecha", n_], ["Diferencia VR − libros", n_], ["Superávit de revaluación a la fecha", n_],
               ["Uso del superávit (disminución)", n_], ["A resultados", n_], ["A otro resultado integral", n_], ["Tratamiento", "t"], ["Estado", "t"]],
              tra, ["TOTAL", "", None, "", "", None, None, _tot("H", nt, S(x["dif"] for x in trs)), _tot("I", nt, S(x["sup0"] for x in trs)),
-                   _tot("J", nt, t["usoSuperavit"]), _tot("K", nt, t["transfResultados"]), _tot("L", nt, t["transfORI"]), "", ""] if nt else None),
+                   _tot("J", nt, t["usoSuperavit"]), _tot("K", nt, t["transfResultados"]), _tot("L", nt, t["transfORI"]), "", ""] if nt else None, explica=EXPLICA["09_Transferencias"]),
         hoja("10_Superavit", CEDULAS[9][1],
              [["Código", "t"], ["Cambio de uso", "t"], ["Fecha del cambio", "d"], ["Saldo inicial en otro resultado integral", n_],
               ["Movimiento de la transferencia (aumento)", n_], ["Uso contra la disminución", n_], ["Saldo final", n_], ["Destino", "t"]],
              sup, ["TOTAL", "", None, _tot("D", ns, S(x["ini"] for x in sups)), _tot("E", ns, S(x["mov"] for x in sups)),
-                   _tot("F", ns, t["usoSuperavit"]), _tot("G", ns, t["superavitFinal"]), ""] if ns else None),
+                   _tot("F", ns, t["usoSuperavit"]), _tot("G", ns, t["superavitFinal"]), ""] if ns else None, explica=EXPLICA["10_Superavit"]),
         hoja("11_Alquileres", CEDULAS[10][1],
              [["Código", "t"], ["Uso actual", "t"], ["Ingresos según contratos", n_], ["Ingresos registrados", n_], ["Diferencia", n_]],
-             alq, ["TOTAL", "", _tot("C", ni, S(i["alq"] for i in its)), _tot("D", ni, S(i["alqReg"] for i in its)), _tot("E", ni, t["difAlquileres"])]),
+             alq, ["TOTAL", "", _tot("C", ni, S(i["alq"] for i in its)), _tot("D", ni, S(i["alqReg"] for i in its)), _tot("E", ni, t["difAlquileres"])], explica=EXPLICA["11_Alquileres"]),
         hoja("12_Bajas", CEDULAS[11][1],
              [["Código", "t"], ["Descripción", "t"], ["Fecha de baja", "d"], ["Producto neto", n_], ["Importe en libros", n_],
               ["Resultado recalculado", n_], ["Resultado registrado", n_], ["Diferencia", n_]],
              baj, ["TOTAL", "", None, _tot("D", nb, S(x["prod"] for x in bajas)), _tot("E", nb, S(x["lib"] for x in bajas)),
-                   _tot("F", nb, t["resultadoBajas"]), None, _tot("H", nb, t["difBajas"])] if nb else None),
-        hoja("13_Conciliacion", CEDULAS[12][1], [["Concepto", "t"], ["Importe", n_]], conciliacion),
+                   _tot("F", nb, t["resultadoBajas"]), None, _tot("H", nb, t["difBajas"])] if nb else None, explica=EXPLICA["12_Bajas"]),
+        hoja("13_Conciliacion", CEDULAS[12][1], [["Concepto", "t"], ["Importe", n_]], conciliacion, explica=EXPLICA["13_Conciliacion"]),
         hoja("14_Problemas", CEDULAS[13][1], [["Código", "t"], ["Descripción", "t"], ["Importe", n_]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
     ]

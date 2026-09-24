@@ -683,6 +683,17 @@ CEDULAS = [
     ("14_Flujos_modificacion", "Flujos de la modificación (adenda)"), ("15_Prueba_10pct", "Prueba del 10 % (NIIF 9 3.3.2 y B3.3.6)"),
     ("16_Problemas", "Problemas encontrados"),
 ]
+# Panel del dashboard (formato en graficos.py): capital registrado de los préstamos evaluados; pasivo recalculado al costo
+# amortizado frente al registrado (capital + intereses); composición del pasivo recalculado por operación y deuda por banco.
+PANEL = {
+    "poblacion":   {"rotulo": "Capital registrado evaluado", "hoja": "13_Conciliacion", "col": "Capital registrado"},
+    "recalculado": {"rotulo": "Costo amortizado recalculado", "total": "pasivo"},
+    "registrado":  {"rotulo": "Pasivo registrado", "total": "pasivoRegistrado"},
+    "composicion": {"rotulo": "Costo amortizado por operación", "hoja": "13_Conciliacion", "etiqueta": "Operación",
+                    "valor": "Costo amortizado auditado"},
+    "distribucion": {"rotulo": "Capital registrado por banco", "hoja": "09_Confirmacion", "etiqueta": "Banco", "valor": "Capital registrado"},
+}
+
 P = ref("02_Parametros")
 PR, CO, TA, CA, CM, IN, CV, CL, EN, FL = (ref(n) for n in ("03_Prestamos", "04_Condiciones_TIE", "05_Tabla_amortizacion", "06_Costo_amortizado",
                                                            "07_Comisiones", "08_Intereses", "10_Covenants", "11_Clasificacion", "12_Endeudamiento",
@@ -889,8 +900,228 @@ def hojas(res: dict) -> list[dict]:
     n_ = "n"
     S = lambda col, v: suma(col, fin, v)
     fin_t = FILA0 + len(tab) - 1
+
+    # Explicaciones humanas de «Cómo se calcula esta hoja» (una por columna calculada).
+    ex01 = {"Importe": ("Trae cada importe de la cédula donde se calcula, concepto por concepto: los saldos auditados, registrados, el "
+                        "ajuste, la clasificación y el gasto salen de los totales de la hoja 13 (Conciliación y ajuste); el capital y el "
+                        "interés devengado, de la hoja 06 (Costo amortizado); la diferencia de gasto, de la hoja 08; los costos por "
+                        "amortizar, de la hoja 07; la reclasificación por covenants, de la hoja 11. El ajuste es el pasivo recalculado "
+                        "menos el registrado de este mismo resumen.")}
+    ex04 = {
+        "Sistema": "Copia el sistema de amortización del préstamo (francés, alemán o bullet) tal como quedó en la hoja 03 (Universo de préstamos).",
+        "Monto": "Copia el monto desembolsado por el banco para esta operación desde la hoja 03 (Universo de préstamos).",
+        "Comisiones y costos": ("Trae las comisiones y costos de transacción pagados al obtener el préstamo desde la hoja 03 (Universo de "
+                                "préstamos); si el cliente no los informó, se toman como cero."),
+        "Importe neto recibido (5.1.1 / 11.13)": ("Resta al monto desembolsado las comisiones y costos de transacción: es el dinero que "
+                                                  "realmente recibió la entidad y el punto de partida del costo amortizado."),
+        "Plazo (meses)": "Copia el plazo total del préstamo, en meses, informado en la hoja 03 (Universo de préstamos).",
+        "Meses por período": ("Convierte la periodicidad de pago de la hoja 03 en meses: mensual = 1, trimestral = 3, semestral = 6 y "
+                              "cualquier otra (anual) = 12."),
+        "Períodos": "Divide el plazo en meses para los meses de cada período: es el número de cuotas que tiene el préstamo.",
+        "Tasa nominal anual (%)": "Copia la tasa de interés nominal anual pactada en el contrato, tal como figura en la hoja 03 (Universo de préstamos).",
+        "Tasa periódica nominal": ("Pasa la tasa nominal anual a la tasa de cada período: la divide para 100 y la multiplica por los meses "
+                                   "del período sobre 12."),
+        "Cuota fija (francés)": ("Solo para el sistema francés: calcula con la función PAGO la cuota constante que amortiza el monto en el "
+                                 "número de períodos a la tasa periódica nominal. En alemán o bullet queda en blanco."),
+        "TIE periódica (TIR de los flujos)": ("Calcula la TIR de los flujos de esta operación en la hoja 05 (Tabla de amortización): el "
+                                              "importe neto recibido en negativo y luego cada pago. Es la tasa que iguala los pagos con "
+                                              "lo recibido, e incluye el efecto de las comisiones."),
+        "TIE anual efectiva": "Convierte la TIE periódica a tasa anual compuesta: (1 + TIE periódica) elevado al número de períodos del año, menos 1.",
+        "Tasa efectiva anual contractual": ("Convierte la tasa periódica nominal del contrato a tasa anual compuesta, sin comisiones, para "
+                                            "compararla con la TIE anual."),
+        "Efecto de las comisiones en la tasa": ("Resta la tasa efectiva anual contractual de la TIE anual efectiva: muestra cuántos puntos "
+                                                "de tasa suman las comisiones y costos de transacción."),
+    }
+    ex05 = {
+        "Pago contractual": ("Pago de cada período según el sistema de la hoja 04: en francés, la cuota fija; en alemán, el monto dividido "
+                             "para los períodos más el interés nominal; en bullet, solo el interés y, en el último período, el interés más "
+                             "todo el capital."),
+        "Capital inicial": "Toma el capital final de la fila anterior de esta misma tabla: es lo que se debe al empezar el período.",
+        "Interés nominal": "Multiplica el capital inicial del período por la tasa periódica nominal de la hoja 04 (Condiciones y TIE).",
+        "Capital amortizado": "Resta al pago contractual el interés nominal: es la parte del pago que reduce la deuda de capital.",
+        "Capital final": ("En el período 0 es el monto desembolsado (hoja 04); en los demás, el capital inicial menos el capital amortizado "
+                          "en el período."),
+        "Flujo para la TIE": ("En el período 0 es el importe neto recibido con signo negativo (hoja 04); en los demás, el pago contractual. "
+                              "Con esta columna se calcula la TIR que da la TIE."),
+        "Costo amortizado inicial": "Toma el costo amortizado final de la fila anterior de esta misma tabla.",
+        "Interés a la TIE (Apéndice A)": ("Multiplica el costo amortizado inicial del período por la TIE periódica de la hoja 04: es el "
+                                          "gasto financiero que corresponde reconocer en el período."),
+        "Amortización (pago − interés)": "Resta al pago contractual el interés a la TIE: es lo que el pago reduce el costo amortizado.",
+        "Costo amortizado final": ("En el período 0 es el importe neto recibido (hoja 04); en los demás, el costo amortizado inicial menos "
+                                   "la amortización del período."),
+    }
+    ex06 = {
+        "Meses al corte": "Cuenta los meses completos transcurridos entre la fecha de desembolso (hoja 03) y la fecha de corte (hoja 02).",
+        "Períodos vencidos al corte": ("Divide los meses al corte para los meses de cada período (hoja 04) y toma la parte entera, sin "
+                                       "pasar del número total de períodos: son las cuotas ya vencidas al corte."),
+        "Fracción del período en curso": ("Mide qué parte del período en curso ya pasó al corte: días desde el último vencimiento hasta el "
+                                          "corte divididos para los días del período. Si el préstamo ya venció por completo, es cero."),
+        "Capital contractual al corte": ("Busca en la hoja 05 (Tabla de amortización) el capital final de esta operación en el último "
+                                         "período vencido al corte."),
+        "Interés nominal devengado": ("Multiplica el capital contractual al corte por la tasa periódica nominal (hoja 04) y por la fracción "
+                                      "del período en curso: es el interés del contrato devengado y aún no vencido."),
+        "Costo amortizado al último vencimiento": ("Busca en la hoja 05 (Tabla de amortización) el costo amortizado final de esta "
+                                                   "operación en el último período vencido al corte."),
+        "Interés a la TIE devengado": ("Multiplica el costo amortizado al último vencimiento por la TIE periódica (hoja 04) y por la "
+                                       "fracción del período en curso ya transcurrida."),
+        "Costo amortizado al corte": "Suma el costo amortizado al último vencimiento y el interés a la TIE devengado hasta el corte: es el pasivo auditado.",
+        "Meses al inicio del ejercicio": ("Cuenta los meses completos entre el desembolso y el inicio del ejercicio (hoja 02); si el "
+                                          "préstamo se desembolsó después del inicio, marca −1 (préstamo nuevo del año)."),
+        "Períodos vencidos al inicio": ("Cuotas ya vencidas al inicio del ejercicio: meses al inicio divididos para los meses del período, "
+                                        "parte entera y sin pasar del total. En un préstamo nuevo del año es cero."),
+        "Fracción al inicio": ("Parte del período que estaba en curso al inicio del ejercicio y que ya había transcurrido; es cero si el "
+                               "préstamo es nuevo del año o ya había vencido por completo."),
+        "Capital contractual al inicio": ("Busca en la hoja 05 el capital final de esta operación en el último período vencido al inicio "
+                                          "del ejercicio; cero si el préstamo es nuevo del año."),
+        "Interés nominal devengado al inicio": ("Multiplica el capital contractual al inicio por la tasa periódica nominal (hoja 04) y por "
+                                                "la fracción al inicio: interés del contrato devengado al empezar el ejercicio."),
+        "Costo amortizado al vencimiento previo al inicio": ("Busca en la hoja 05 el costo amortizado final de esta operación en el último "
+                                                             "período vencido al inicio del ejercicio; cero si el préstamo es nuevo del año."),
+        "Interés a la TIE devengado al inicio": ("Multiplica el costo amortizado al vencimiento previo al inicio por la TIE periódica "
+                                                 "(hoja 04) y por la fracción al inicio."),
+        "Costo amortizado al inicio": "Suma el costo amortizado al vencimiento previo al inicio y el interés a la TIE devengado a esa fecha: es el saldo de apertura.",
+        "Desembolso neto del ejercicio": ("Si el préstamo se desembolsó dentro del ejercicio, trae el importe neto recibido de la hoja 04; "
+                                          "si ya existía al inicio, es cero."),
+        "Pagos del ejercicio": ("Suma en la hoja 05 los pagos contractuales de esta operación de los períodos que vencieron dentro del "
+                                "ejercicio (después del último vencido al inicio y hasta el último vencido al corte)."),
+        "Interés nominal del ejercicio": ("Suma el interés nominal de los períodos vencidos en el ejercicio (hoja 05), más el devengado al "
+                                          "corte y menos el que ya estaba devengado al inicio."),
+        "Gasto financiero a la TIE del ejercicio": ("Suma el interés a la TIE de los períodos vencidos en el ejercicio (hoja 05), más el "
+                                                    "devengado a la TIE al corte y menos el devengado al inicio: es el gasto financiero que "
+                                                    "corresponde al año."),
+        "Comprobación del movimiento (0)": ("Cuadra el movimiento del año: costo amortizado al inicio + desembolso + gasto a la TIE − pagos "
+                                            "− costo amortizado al corte. Debe dar cero; otro valor indica un error en la tabla."),
+    }
+    ex07 = {
+        "Comisiones y costos": "Trae las comisiones y costos de transacción de la operación desde la hoja 04 (Condiciones y TIE).",
+        "Tratamiento del cliente": ("Usa el tratamiento que informó el cliente en la hoja 03; si no lo informó: sin comisiones, «Sin "
+                                    "comisiones»; si el capital registrado es igual al capital contractual al corte (hoja 06), «Gasto "
+                                    "(inferido)»; en otro caso, «TIE»."),
+        "Interés nominal del ejercicio": "Trae el interés nominal del ejercicio de esta operación desde la hoja 06 (Costo amortizado).",
+        "Gasto a la TIE del ejercicio": "Trae el gasto financiero a la TIE del ejercicio de esta operación desde la hoja 06 (Costo amortizado).",
+        "Amortización de costos del ejercicio": ("Resta el interés nominal del gasto a la TIE: es la parte de las comisiones que se lleva a "
+                                                 "resultados en este ejercicio."),
+        "Costo por amortizar al corte": ("Resta al capital contractual al corte el costo amortizado al último vencimiento (ambos de la "
+                                         "hoja 06): son las comisiones que aún quedan por llevar a gasto."),
+        "Llevado a gasto indebidamente (por amortizar)": ("Si el tratamiento del cliente empieza por «Gasto», toma el costo por amortizar "
+                                                          "al corte: es lo que el cliente ya llevó a resultados antes de tiempo. En otro "
+                                                          "caso, cero."),
+    }
+    ex08 = {
+        "Tasa nominal anual (%)": "Trae la tasa nominal anual del contrato desde la hoja 04 (Condiciones y tasa de interés efectiva).",
+        "TIE anual efectiva": "Trae la TIE anual efectiva de la operación, calculada en la hoja 04 (Condiciones y tasa de interés efectiva).",
+        "Interés nominal del ejercicio": "Trae de la hoja 06 (Costo amortizado) el interés del ejercicio calculado a la tasa del contrato.",
+        "Gasto financiero a la TIE": "Trae de la hoja 06 (Costo amortizado) el gasto financiero del ejercicio calculado a la TIE.",
+        "Gasto financiero registrado": "Copia el gasto financiero del año que registró el cliente (hoja 03); si no lo informó, queda en blanco.",
+        "Diferencia de gasto": ("Resta el gasto registrado del gasto a la TIE recalculado; solo se calcula si el cliente informó su gasto. "
+                                "Positivo: el cliente registró menos gasto."),
+        "Interés contractual devengado al corte": "Trae de la hoja 06 el interés nominal devengado desde el último vencimiento hasta el corte.",
+        "Intereses por pagar registrados": "Copia los intereses por pagar que registró el cliente (hoja 03); si no los informó, cuenta cero.",
+        "Interés devengado no registrado": ("Resta los intereses por pagar registrados del interés contractual devengado al corte: es el "
+                                            "interés que falta provisionar."),
+    }
+    ex09 = {
+        "Capital según tabla": "Trae el capital contractual al corte de esta operación calculado en la hoja 06 (Costo amortizado).",
+        "Saldo confirmado por el banco": "Copia el saldo de capital que confirmó el banco (hoja 03); si no hay confirmación, queda en blanco.",
+        "Capital registrado": "Copia el saldo de capital registrado por el cliente (hoja 03); si no lo informó, cuenta cero.",
+        "Costos por amortizar (cliente a la TIE)": ("Si el cliente aplica la TIE a las comisiones (hoja 07), trae el costo por amortizar "
+                                                    "al corte, porque su saldo contable está neto de esas comisiones; si no, cero."),
+        "Diferencia no explicada": ("Resta al saldo confirmado el capital registrado y los costos por amortizar: lo que queda no tiene "
+                                    "explicación. Solo se calcula si hay saldo confirmado."),
+        "Confirmado − tabla": "Resta al saldo confirmado por el banco el capital según la tabla recalculada; en blanco si no hay confirmación.",
+        "Pagos del ejercicio (tabla)": "Trae de la hoja 06 los pagos contractuales que vencieron en el ejercicio según la tabla de amortización.",
+        "Pagos informados": "Copia los pagos del año (capital más interés) que informó el cliente en la hoja 03; en blanco si no los informó.",
+        "Diferencia de pagos": "Resta los pagos informados de los pagos según la tabla; solo se calcula si el cliente informó sus pagos.",
+    }
+    ex10 = {
+        "Covenant": "Copia el ratio pactado como covenant (deuda/activos, deuda/EBITDA, DSCR…) de la hoja 03; en blanco si no hay covenant.",
+        "Ratio de la entidad": ("Busca el covenant de esta operación en la hoja 12 (Endeudamiento) y trae el ratio calculado para la "
+                                "entidad; en blanco si no hay covenant."),
+        "Límite": "Busca el covenant en la hoja 12 (Endeudamiento) y trae el límite pactado en el contrato, tomado de los parámetros.",
+        "Tipo de límite": "Busca el covenant en la hoja 12 (Endeudamiento) y trae si el límite es un máximo o un mínimo.",
+        "Cumple el límite": ("Busca el covenant en la hoja 12 (Endeudamiento) y trae si la entidad cumple el límite; queda en blanco si "
+                             "falta el ratio, el límite o, en el DSCR, la definición contractual."),
+        "Incumplimiento declarado": "Copia si el cliente declaró incumplimiento del covenant (hoja 03); si no dijo nada, se toma como «No».",
+        "Incumplimiento al corte": "Marca «Sí» si el cliente declaró el incumplimiento o si el recálculo muestra que no cumple el límite.",
+        "Dispensa válida al corte (NIC 1 75)": ("«Sí» cuando hay fecha de dispensa, es anterior o igual al corte y la gracia no tiene fecha "
+                                                "o llega al menos 12 meses después del corte (hojas 02 y 03)."),
+        "Deuda exigible: toda corriente (74)": ("«Sí» cuando hay incumplimiento al corte, no hay dispensa válida y el covenant no se mide "
+                                                "después del corte: entonces toda la deuda pasa a corriente."),
+        "Se mide después del corte (72B)": ("«Sí» si la fecha de medición del covenant informada en la hoja 03 es posterior al corte: ese "
+                                            "covenant no reclasifica la deuda, solo se revela."),
+        "Definición aplicada del covenant": ("Busca el covenant en la hoja 12 (Endeudamiento) y trae la definición con la que se midió "
+                                             "(la del contrato o, en el DSCR sin definición, la analítica de la firma)."),
+    }
+    ex11 = {
+        "Costo amortizado al corte": "Trae el costo amortizado al corte de esta operación calculado en la hoja 06 (Costo amortizado).",
+        "Período a 12 meses": ("Suma a los períodos vencidos al corte (hoja 06) los períodos que caben en 12 meses, sin pasar del total "
+                               "de períodos: es la cuota que vence un año después del corte."),
+        "Capital contractual después de 12 meses": ("Busca en la hoja 05 (Tabla de amortización) el capital final de esta operación en el "
+                                                    "período a 12 meses: es lo que se seguirá debiendo dentro de un año."),
+        "Corriente: capital de 12 meses + interés devengado (69 c)": ("Capital contractual al corte (hoja 06) menos el que queda después "
+                                                                      "de 12 meses, más el interés a la TIE devengado; sin superar el "
+                                                                      "costo amortizado al corte."),
+        "Exigible por covenant": "Trae de la hoja 10 (Covenants) si la deuda es exigible por un covenant incumplido sin dispensa válida.",
+        "Corriente auditado": ("Si la deuda es exigible por covenant, todo el costo amortizado es corriente; si no, la porción que vence "
+                               "en 12 meses más el interés devengado."),
+        "No corriente auditado": "Resta el corriente auditado del costo amortizado al corte: es la parte que vence después de 12 meses.",
+        "Corriente registrado": "Copia la porción corriente que presentó el cliente (hoja 03); en blanco si no la informó.",
+        "Diferencia corriente": ("Resta el corriente registrado del corriente auditado; solo se calcula si el cliente informó su porción "
+                                 "corriente. Positivo: falta reclasificar a corriente."),
+    }
+    ex12 = {
+        "Numerador": ("Cambia por fila: la deuda auditada es la suma del costo amortizado al corte (hoja 06), el gasto financiero la suma "
+                      "del gasto a la TIE y el servicio de la deuda la suma de los pagos del ejercicio; en los ratios, la deuda auditada, "
+                      "el EBITDA o EBIT según la base elegida, o el efectivo para el servicio de la deuda (hoja 02)."),
+        "Denominador": ("En cada ratio trae la base de la hoja 02 (Parámetros): total de activos, patrimonio o EBITDA; en la cobertura, "
+                        "el gasto financiero del ejercicio; en el DSCR, el servicio de la deuda del contrato o, si falta, el del ejercicio."),
+        "Ratio (veces)": "Divide el numerador para el denominador; queda en blanco si falta alguno o si el denominador es cero o negativo.",
+        "Límite (veces)": "Trae el límite pactado para este ratio desde la hoja 02 (Parámetros); en blanco si el contrato no lo fija.",
+        "Cumple (solo con definición contractual)": ("Compara el ratio con el límite: si es un máximo, cumple cuando no lo supera; si es un "
+                                                     "mínimo, cuando lo alcanza. En el DSCR solo concluye si hay definición contractual."),
+        "Definición aplicada": ("En el DSCR muestra la definición contractual de la hoja 02 o, si falta, «DSCR analítico de la firma», que "
+                                "no concluye incumplimiento."),
+    }
+    ex13 = {
+        "Costo amortizado auditado": "Trae el costo amortizado al corte de esta operación, calculado en la hoja 06 (Costo amortizado).",
+        "Capital registrado": "Copia el saldo de capital que registró el cliente en la hoja 03 (Universo de préstamos); vacío cuenta cero.",
+        "Intereses registrados": "Copia los intereses por pagar que registró el cliente en la hoja 03 (Universo de préstamos); vacío cuenta cero.",
+        "Total registrado": "Suma el capital registrado y los intereses registrados: es el pasivo según los libros del cliente.",
+        "Ajuste propuesto": "Resta el total registrado del costo amortizado auditado. Positivo: el pasivo del cliente está subestimado.",
+        "Corriente auditado": "Trae la porción corriente auditada de la operación desde la hoja 11 (Clasificación corriente / no corriente).",
+        "No corriente auditado": "Trae la porción no corriente auditada de la operación desde la hoja 11 (Clasificación corriente / no corriente).",
+        "Gasto financiero (TIE)": "Trae el gasto financiero del ejercicio a la TIE de esta operación desde la hoja 06 (Costo amortizado).",
+    }
+    ex14 = {
+        "Años al descuento (días ÷ 365)": ("Cuenta los días entre la fecha de la modificación (hoja 03) y la fecha del flujo y los divide "
+                                           "para 365; en blanco si no hay fecha de modificación."),
+        "TIE anual original": "Trae la TIE anual efectiva original del préstamo desde la hoja 04 (Condiciones y tasa de interés efectiva).",
+        "Valor presente a la TIE original": ("Descuenta el importe del flujo a la TIE anual original por los años al descuento: importe ÷ "
+                                             "(1 + TIE) elevado a los años. En blanco si no hay años."),
+    }
+    ex15 = {
+        "Modificación declarada": "Copia si el cliente declaró una modificación de condiciones en el año (hoja 03); si no dijo nada, «No».",
+        "TIE anual original": "Trae la TIE anual efectiva original de la operación desde la hoja 04 (Condiciones y TIE).",
+        "Flujos originales restantes informados": "Cuenta cuántos flujos «Original» de esta operación hay en la hoja 14 (Flujos de la modificación).",
+        "Flujos modificados informados": "Cuenta cuántos flujos «Modificado» de esta operación hay en la hoja 14 (Flujos de la modificación).",
+        "Valor presente de los flujos originales restantes": ("Suma en la hoja 14 el valor presente a la TIE original de los flujos "
+                                                              "«Original» de esta operación."),
+        "Valor presente de los flujos modificados": "Suma en la hoja 14 el valor presente a la TIE original de los flujos «Modificado» de esta operación.",
+        "Comisiones netas pagadas por la modificación": ("Copia las comisiones pagadas al prestamista netas de las recibidas por la "
+                                                         "adenda (hoja 03); vacío cuenta cero."),
+        "Valor presente de las nuevas condiciones": ("Suma el valor presente de los flujos modificados y las comisiones netas. Queda en "
+                                                     "blanco si faltan flujos originales o modificados, la fecha de modificación o el "
+                                                     "valor presente original."),
+        "Diferencia": "Resta el valor presente de los flujos originales restantes del valor presente de las nuevas condiciones.",
+        "Diferencia / valor presente original": "Divide la diferencia para el valor presente de los flujos originales restantes: es el porcentaje de cambio.",
+        "¿Condiciones sustancialmente diferentes (≥ 10 %)?": ("«Sí» si la diferencia, en valor absoluto, llega al 10 % del valor presente "
+                                                              "original; en blanco si la prueba no se pudo calcular."),
+        "Conclusión": ("Redacta la conclusión: sin resultado, «Dato insuficiente: conclusión bloqueada»; si es sustancial, baja del pasivo "
+                       "original y alta de uno nuevo; si no, el pasivo continúa y los costos se amortizan."),
+    }
+
     return [
-        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen),
+        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=ex01),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
         hoja("03_Prestamos", "Universo de préstamos", cols03, universo),
         hoja("04_Condiciones_TIE", "Condiciones y tasa de interés efectiva",
@@ -899,14 +1130,14 @@ def hojas(res: dict) -> list[dict]:
               ["Cuota fija (francés)", n_], ["TIE periódica (TIR de los flujos)", "p"], ["TIE anual efectiva", "p"],
               ["Tasa efectiva anual contractual", "p"], ["Efecto de las comisiones en la tasa", "p"]], cond,
              ["TOTAL", "", S("C", sum(c["monto"] for c in cs)), S("D", sum(c["com"] for c in cs)), S("E", sum(c["neto"] for c in cs)),
-              None, None, None, None, None, None, None, None, None, None]),
+              None, None, None, None, None, None, None, None, None, None], explica=ex04),
         hoja("05_Tabla_amortizacion", "Tabla de amortización",
              [["Operación", "t"], ["Período", "i"], ["Vencimiento", "d"], ["Pago contractual", n_], ["Capital inicial", n_], ["Interés nominal", n_],
               ["Capital amortizado", n_], ["Capital final", n_], ["Flujo para la TIE", n_], ["Costo amortizado inicial", n_],
               ["Interés a la TIE (Apéndice A)", n_], ["Amortización (pago − interés)", n_], ["Costo amortizado final", n_]], tabla,
              ["TOTAL", None, None, suma("D", fin_t, sum(x["pago"] or 0 for x in tab)), None, suma("F", fin_t, sum(x["int_nom"] or 0 for x in tab)),
               suma("G", fin_t, sum(x["cap"] or 0 for x in tab)), None, None, None, suma("K", fin_t, sum(x["int_tie"] or 0 for x in tab)),
-              suma("L", fin_t, sum(x["amort"] or 0 for x in tab)), None]),
+              suma("L", fin_t, sum(x["amort"] or 0 for x in tab)), None], explica=ex05),
         hoja("06_Costo_amortizado", "Costo amortizado al corte y del ejercicio",
              [["Operación", "t"], ["Meses al corte", "i"], ["Períodos vencidos al corte", "i"], ["Fracción del período en curso", "p"],
               ["Capital contractual al corte", n_], ["Interés nominal devengado", n_], ["Costo amortizado al último vencimiento", n_],
@@ -918,55 +1149,56 @@ def hojas(res: dict) -> list[dict]:
               ["Comprobación del movimiento (0)", n_]], cam,
              ["TOTAL", None, None, None, S("E", t["capitalContractual"]), S("F", t["interesesDevengados"]), None, None, S("I", t["pasivo"]),
               None, None, None, None, None, None, None, S("Q", sum(c["ca_tot_i"] for c in cs)), S("R", sum(c["alta"] for c in cs)),
-              S("S", d["servicio"]), S("T", sum(c["int_anio"] for c in cs)), S("U", t["gastoFinanciero"]), None]),
+              S("S", d["servicio"]), S("T", sum(c["int_anio"] for c in cs)), S("U", t["gastoFinanciero"]), None], explica=ex06),
         hoja("07_Comisiones", "Comisiones y costos de transacción",
              [["Operación", "t"], ["Comisiones y costos", n_], ["Tratamiento del cliente", "t"], ["Interés nominal del ejercicio", n_],
               ["Gasto a la TIE del ejercicio", n_], ["Amortización de costos del ejercicio", n_], ["Costo por amortizar al corte", n_],
               ["Llevado a gasto indebidamente (por amortizar)", n_]], com,
              ["TOTAL", S("B", sum(c["com"] for c in cs)), "", None, None, S("F", sum(c["amort_costos"] for c in cs)),
-              S("G", t["comisionesPorAmortizar"]), S("H", sum(c["efecto_gasto"] for c in cs))]),
+              S("G", t["comisionesPorAmortizar"]), S("H", sum(c["efecto_gasto"] for c in cs))], explica=ex07),
         hoja("08_Intereses", "Recálculo de intereses",
              [["Operación", "t"], ["Tasa nominal anual (%)", "x"], ["TIE anual efectiva", "p"], ["Interés nominal del ejercicio", n_],
               ["Gasto financiero a la TIE", n_], ["Gasto financiero registrado", n_], ["Diferencia de gasto", n_],
               ["Interés contractual devengado al corte", n_], ["Intereses por pagar registrados", n_], ["Interés devengado no registrado", n_]], inte,
              ["TOTAL", None, None, S("D", sum(c["int_anio"] for c in cs)), S("E", t["gastoFinanciero"]), None, S("G", t["diferenciaGasto"]),
-              S("H", t["interesesDevengados"]), S("I", t["interesesRegistrados"]), S("J", t["interesesDevengados"] - t["interesesRegistrados"])]),
+              S("H", t["interesesDevengados"]), S("I", t["interesesRegistrados"]), S("J", t["interesesDevengados"] - t["interesesRegistrados"])],
+             explica=ex08),
         hoja("09_Confirmacion", "Confirmación bancaria y pagos",
              [["Operación", "t"], ["Banco", "t"], ["Capital según tabla", n_], ["Saldo confirmado por el banco", n_], ["Capital registrado", n_],
               ["Costos por amortizar (cliente a la TIE)", n_], ["Diferencia no explicada", n_], ["Confirmado − tabla", n_],
               ["Pagos del ejercicio (tabla)", n_], ["Pagos informados", n_], ["Diferencia de pagos", n_]], conf,
              ["TOTAL", "", S("C", t["capitalContractual"]), None, S("E", sum(c["saldo_reg"] for c in cs)), S("F", sum(c["explicado"] for c in cs)),
-              None, None, S("I", d["servicio"]), None, None]),
+              None, None, S("I", d["servicio"]), None, None], explica=ex09),
         hoja("10_Covenants", "Covenants y dispensas",
              [["Operación", "t"], ["Covenant", "t"], ["Ratio de la entidad", "x"], ["Límite", "x"], ["Tipo de límite", "t"], ["Cumple el límite", "t"],
               ["Incumplimiento declarado", "t"], ["Incumplimiento al corte", "t"], ["Fecha de la dispensa", "d"], ["Gracia hasta", "d"],
               ["Dispensa válida al corte (NIC 1 75)", "t"], ["Deuda exigible: toda corriente (74)", "t"],
               ["Fecha de medición del covenant", "d"], ["Se mide después del corte (72B)", "t"],
-              ["Definición aplicada del covenant", "t"]], cov),
+              ["Definición aplicada del covenant", "t"]], cov, explica=ex10),
         hoja("11_Clasificacion", "Clasificación corriente / no corriente",
              [["Operación", "t"], ["Costo amortizado al corte", n_], ["Período a 12 meses", "i"], ["Capital contractual después de 12 meses", n_],
               ["Corriente: capital de 12 meses + interés devengado (69 c)", n_], ["Exigible por covenant", "t"], ["Corriente auditado", n_], ["No corriente auditado", n_],
               ["Corriente registrado", n_], ["Diferencia corriente", n_]], cla,
              ["TOTAL", S("B", t["pasivo"]), None, None, S("E", sum(c["cp_venc"] for c in cs)), "", S("G", t["corriente"]),
-              S("H", t["noCorriente"]), None, None]),
+              S("H", t["noCorriente"]), None, None], explica=ex11),
         hoja("12_Endeudamiento", "Endeudamiento y ratios de covenants (analítica, no requisito NIIF)",
              [["Concepto", "t"], ["Numerador", n_], ["Denominador", n_], ["Ratio (veces)", "x"], ["Límite (veces)", "x"], ["Tipo", "t"],
-              ["Cumple (solo con definición contractual)", "t"], ["Definición aplicada", "t"]], endeu),
+              ["Cumple (solo con definición contractual)", "t"], ["Definición aplicada", "t"]], endeu, explica=ex12),
         hoja("13_Conciliacion", "Conciliación y ajuste",
              [["Operación", "t"], ["Costo amortizado auditado", n_], ["Capital registrado", n_], ["Intereses registrados", n_], ["Total registrado", n_],
               ["Ajuste propuesto", n_], ["Corriente auditado", n_], ["No corriente auditado", n_], ["Gasto financiero (TIE)", n_]], conc,
              ["TOTAL", S("B", t["pasivo"]), S("C", sum(c["saldo_reg"] for c in cs)), S("D", t["interesesRegistrados"]), S("E", t["pasivoRegistrado"]),
-              S("F", t["ajuste"]), S("G", t["corriente"]), S("H", t["noCorriente"]), S("I", t["gastoFinanciero"])]),
+              S("F", t["ajuste"]), S("G", t["corriente"]), S("H", t["noCorriente"]), S("I", t["gastoFinanciero"])], explica=ex13),
         hoja("14_Flujos_modificacion", "Flujos de la modificación (adenda) descontados a la TIE original",
              [["Operación", "t"], ["Escenario", "t"], ["Fecha del flujo", "d"], ["Importe del flujo", n_], ["Años al descuento (días ÷ 365)", "x"],
-              ["TIE anual original", "p"], ["Valor presente a la TIE original", n_]], flujos),
+              ["TIE anual original", "p"], ["Valor presente a la TIE original", n_]], flujos, explica=ex14),
         hoja("15_Prueba_10pct", "Prueba del 10 % (NIIF 9 3.3.2 y B3.3.6)",
              [["Operación", "t"], ["Modificación declarada", "t"], ["Fecha de la modificación", "d"], ["TIE anual original", "p"],
               ["Flujos originales restantes informados", "i"], ["Flujos modificados informados", "i"],
               ["Valor presente de los flujos originales restantes", n_], ["Valor presente de los flujos modificados", n_],
               ["Comisiones netas pagadas por la modificación", n_], ["Valor presente de las nuevas condiciones", n_], ["Diferencia", n_],
               ["Diferencia / valor presente original", "p"], ["¿Condiciones sustancialmente diferentes (≥ 10 %)?", "t"], ["Conclusión", "t"],
-              ["Marco aplicado", "t"]], prueba),
+              ["Marco aplicado", "t"]], prueba, explica=ex15),
         hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
     ]

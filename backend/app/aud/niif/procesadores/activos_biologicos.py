@@ -386,6 +386,128 @@ def _z(celda: str) -> str:
     return f'IF({celda}="",0,{celda})'
 
 
+_H03 = "la hoja 03 (Activos biológicos: clasificación y datos)"
+
+# Dashboard: el valor en libros de los lotes es la población y lo registrado; el valor auditado es lo recalculado (ajuste principal).
+PANEL = {
+    "poblacion":    {"rotulo": "Activos biológicos en libros", "hoja": "03_Activos", "col": "Valor en libros"},
+    "recalculado":  {"rotulo": "Valor auditado", "total": "valorAuditado"},
+    "registrado":   {"rotulo": "Valor en libros (cliente)", "total": "valorLibros"},
+    "composicion":  {"rotulo": "Valor auditado por modelo", "hoja": "05_Valoracion", "etiqueta": "Modelo auditado", "valor": "Valor auditado"},
+    "distribucion": {"rotulo": "Valor en libros por categoría", "hoja": "05_Valoracion", "etiqueta": "Categoría", "valor": "Valor en libros"},
+}
+
+
+def _explica(pymes: bool, s34_2a: bool, fuera: str) -> dict:
+    """Explicación HUMANA de cada columna calculada; algunas dependen del marco (ruta de medición)."""
+    if s34_2a:
+        ruta = ("Decide cómo se mide el lote: si es planta productora medible por separado (34.2A) va a la Sección 17; si no, a valor "
+                "razonable cuando el VR es medible y, si no lo es, al costo.")
+    elif pymes:
+        ruta = "Decide cómo se mide el lote: a valor razonable cuando el VR es medible sin esfuerzo desproporcionado; si no, al costo."
+    else:
+        ruta = ("Decide cómo se mide el lote: las plantas productoras van a NIC 16; queda al costo solo si el VR no es fiable y el cliente "
+                "ya lo tenía al costo; en los demás casos, a valor razonable.")
+    param = ("«VR sin costo o esfuerzo desproporcionado» (PYMES)" if pymes else "«VR fiable» (NIIF completas)")
+    if pymes and not s34_2a:
+        modelos = "valor razonable o costo"
+        auditado = ("Elige el valor según el modelo: a valor razonable, el VR menos costos de venta total; al costo, el valor "
+                    "auditado de la hoja 08 (Modelo del costo y deterioro).")
+    else:
+        modelos = f"valor razonable, costo o {fuera} para plantas productoras"
+        auditado = (f"Elige el valor según el modelo: para plantas productoras medidas con {fuera} acepta el valor en libros; a "
+                    "valor razonable, el VR menos costos de venta total; al costo, el valor de la hoja 08 (Modelo del costo).")
+    return {
+        "01_Resumen": {
+            "Importe": ("Trae cada importe de la hoja de cálculo que le corresponde, concepto por concepto: valor auditado y ajuste de la "
+                        "hoja 05, valor en libros y ganancia registrada de la 03, diferencias físicas de la 04, cambios y ganancia de la 06, "
+                        "conciliación de la 07, deterioro de la 08 y cosecha de la 09. El saldo del mayor es el del parámetro o, si está en "
+                        "blanco, el valor en libros del anexo."),
+        },
+        "03_Activos": {
+            "VR medible (aplicado)": (f"Usa la respuesta del lote en la columna «VR fiable (lote)»; si está en blanco, aplica el parámetro "
+                                      f"general {param} de la hoja 02 (Parámetros)."),
+            "Modelo auditado": ruta,
+            "Cantidad auditada": "Usa la cantidad contada por el auditor; si no hubo conteo del lote, toma la cantidad según los registros.",
+            "VR − costos de venta unitario": ("Resta el costo de venta unitario al valor razonable unitario al corte; queda en blanco si "
+                                              "no hay valor razonable al corte."),
+            "VR − costos de venta unitario inicial": ("Resta el costo de venta unitario al valor razonable unitario inicial; queda en "
+                                                      "blanco si no hay valor razonable inicial."),
+        },
+        "04_Existencia": {
+            "Cantidad según registros": f"Trae la cantidad de unidades que muestran los registros del cliente en {_H03}.",
+            "Cantidad contada": f"Trae la cantidad contada físicamente en {_H03}; si el lote no se contó, queda en blanco.",
+            "Diferencia (unidades)": "Resta la cantidad según registros a la contada: negativo es faltante, positivo sobrante; en blanco sin conteo.",
+            "Valor unitario": (f"Usa el VR menos costos de venta unitario de {_H03}; si no lo hay, divide el valor en libros entre la "
+                               "cantidad según registros (en blanco si esa cantidad es cero)."),
+            "Diferencia valorizada": "Multiplica la diferencia en unidades por el valor unitario; en blanco si falta alguno de los dos.",
+        },
+        "05_Valoracion": {
+            "Modelo auditado": f"Trae de {_H03} el modelo con que el auditor mide el lote ({modelos}).",
+            "Cantidad auditada": f"Trae la cantidad auditada de {_H03}: la contada o, sin conteo, la de los registros.",
+            "VR unitario al corte": f"Trae el valor razonable unitario al corte informado en {_H03}; en blanco si no se informó.",
+            "Costo de venta unitario": f"Trae el costo de venta unitario del lote (por ejemplo, comisiones) informado en {_H03}.",
+            "VR − costos de venta unitario": "Resta el costo de venta unitario al VR unitario al corte; queda en blanco si no hay VR al corte.",
+            "VR − costos de venta total": ("Multiplica la cantidad auditada por el VR menos costos de venta unitario. Solo se calcula "
+                                           "para lotes medidos a valor razonable; en los demás queda en blanco."),
+            "Valor modelo del costo": ("Para lotes medidos al costo, trae el valor auditado al costo de la hoja 08 (Modelo del costo y "
+                                       "deterioro); en los demás modelos queda en blanco."),
+            "Valor auditado": auditado,
+            "Valor en libros": f"Trae el valor en libros del lote al corte registrado por el cliente en {_H03}.",
+            "Ajuste": "Resta el valor en libros al valor auditado: positivo aumenta el activo y negativo lo disminuye; en blanco sin valor auditado.",
+        },
+        "06_Transformacion": {
+            "Modelo auditado": "Trae de la hoja 05 (Valoración) el modelo del lote; los cambios de VR solo se calculan a valor razonable.",
+            "Cantidad inicial": f"Trae la cantidad de unidades al inicio del ejercicio informada en {_H03}; en blanco si falta.",
+            "Cantidad final auditada": f"Trae de {_H03} la cantidad auditada al corte: la contada o, si no hubo conteo, la de los registros.",
+            "VR − CV unitario inicial": f"Trae el VR menos costos de venta unitario al inicio calculado en {_H03}; en blanco si no hay.",
+            "VR − CV unitario final": f"Trae el VR menos costos de venta unitario al corte calculado en {_H03}; en blanco si no hay.",
+            "Cambio físico": ("Multiplica el aumento o disminución de unidades (final menos inicial) por el VR menos costos de venta "
+                              "unitario inicial. Solo para lotes a valor razonable con cantidad y precio inicial."),
+            "Cambio de precio": ("Multiplica la cantidad final por la variación del VR menos costos de venta unitario (final menos "
+                                 "inicial). Solo para lotes a valor razonable con ambos precios."),
+            "Cambio total": "Suma el cambio físico y el cambio de precio; en blanco si falta alguno de los dos.",
+            "Libros al inicio": f"Trae el valor en libros del lote al inicio del ejercicio desde {_H03}; en blanco si falta.",
+            "Compras": f"Trae las compras e incrementos del año informados en {_H03}; si están en blanco, cuenta cero.",
+            "Disminuciones": f"Trae las disminuciones del año (ventas, cosecha, depreciación) informadas en {_H03}; en blanco cuenta cero.",
+            "VR − CV final total": "Trae el VR menos costos de venta total al corte de la hoja 05 (Valoración); en blanco si no se calculó.",
+            "Ganancia recalculada": ("Parte del VR menos costos de venta final, resta los libros al inicio y las compras y suma las "
+                                     "disminuciones: es la ganancia por cambio de valor razonable del año según el auditor."),
+            "Ganancia registrada": f"Trae la ganancia por cambio de valor razonable que registró el cliente en {_H03}; en blanco si falta.",
+            "No reconocido": ("Resta la ganancia registrada a la recalculada: positivo es ganancia no reconocida, negativo exceso "
+                              "reconocido; en blanco si falta alguna."),
+        },
+        "07_Conciliacion": {
+            "Libros al inicio": f"Trae el saldo del lote al inicio del ejercicio, tal como lo informó el cliente en {_H03}.",
+            "(+) Compras e incrementos": f"Trae las compras e incrementos del año de {_H03}; en blanco se toma como cero.",
+            "(−) Disminuciones": f"Trae las disminuciones del año al valor en libros (ventas, cosecha, depreciación) de {_H03}; en blanco, cero.",
+            "(+) Ganancia VR registrada": f"Trae la ganancia por cambio de valor razonable registrada por el cliente en {_H03}.",
+            "Saldo final calculado": ("Suma libros al inicio y compras, resta disminuciones y suma la ganancia registrada (cero si está en "
+                                      "blanco); si no hay saldo inicial, queda en blanco."),
+            "Saldo final en libros": f"Trae el valor en libros del lote al corte registrado por el cliente en {_H03}.",
+            "Diferencia": ("Resta el saldo final calculado al saldo en libros: distinto de cero indica que el movimiento del año no "
+                           "explica el saldo; en blanco sin saldo calculado."),
+        },
+        "08_Modelo_costo": {
+            "Modelo auditado": f"Trae el modelo del lote desde {_H03}; esta hoja solo calcula los lotes medidos al costo.",
+            "Costo acumulado": f"Trae el costo acumulado del lote informado en {_H03}; en blanco si no se informó.",
+            "Depreciación acumulada": f"Trae la depreciación acumulada del lote informada en {_H03}; en blanco si no se informó.",
+            "Deterioro registrado": f"Trae el deterioro acumulado que registró el cliente para el lote en {_H03}; en blanco si falta.",
+            "Valor neto al costo": ("Para lotes al costo, resta al costo acumulado la depreciación y el deterioro registrados (cero si "
+                                    "están en blanco); en otros modelos o sin costo, queda en blanco."),
+            "Importe recuperable": f"Trae el importe recuperable del lote informado en {_H03}; en blanco si no se informó.",
+            "Deterioro adicional": ("Si el valor neto al costo supera al importe recuperable, la diferencia es deterioro adicional (si no, "
+                                    "cero); en blanco si falta alguno de los dos."),
+            "Valor auditado al costo": "Resta al valor neto al costo el deterioro adicional (cero si está en blanco); en blanco sin valor neto.",
+        },
+        "09_Cosecha": {
+            "VR − costos de venta unitario": "Resta el costo de venta unitario al valor razonable unitario en el punto de cosecha.",
+            "VR − costos de venta total": "Multiplica la cantidad cosechada por el VR menos costos de venta unitario: es el valor de la cosecha.",
+            "Diferencia": "Resta el valor registrado por el cliente al valor de la cosecha recalculado (VR menos costos de venta total).",
+        },
+    }
+
+
 def hojas(res: dict) -> list[dict]:
     d = res["detalle"]
     p, t, its, cos = d["parametros"], d["tot"], d["items"], d["cos"]
@@ -470,8 +592,9 @@ def hojas(res: dict) -> list[dict]:
 
     S = lambda xs: sum(x for x in xs if x is not None)
     n_ = "n"
+    ex = _explica(pymes, s34_2a, fuera)
     return [
-        hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", n_]], resumen),
+        hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", n_]], resumen, explica=ex["01_Resumen"]),
         hoja("02_Parametros", CEDULAS[1][1], [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
         hoja("03_Activos", CEDULAS[2][1],
              [["Lote", "t"], ["Categoría", "t"], ["Unidad", "t"], ["Planta productora", "t"], ["Modelo del cliente", "t"], ["VR fiable (lote)", "t"],
@@ -481,17 +604,17 @@ def hojas(res: dict) -> list[dict]:
               ["Importe recuperable", n_], ["VR medible (aplicado)", "t"], ["Modelo auditado", "t"], ["Cantidad auditada", n_],
               ["VR − costos de venta unitario", n_], ["VR − costos de venta unitario inicial", n_], ["Planta productora medible por separado (34.2A)", "t"]],
              act, ["TOTAL", "", "", "", "", "", None, None, None, None, None, None, _tot("M", na, t["valorLibros"]), None, None, None,
-                   _tot("Q", na, t["gananciaRegistrada"]), None, None, None, None, "", "", None, None, None, ""]),
+                   _tot("Q", na, t["gananciaRegistrada"]), None, None, None, None, "", "", None, None, None, ""], explica=ex["03_Activos"]),
         hoja("04_Existencia", CEDULAS[3][1],
              [["Lote", "t"], ["Categoría", "t"], ["Unidad", "t"], ["Cantidad según registros", n_], ["Cantidad contada", n_], ["Diferencia (unidades)", n_],
               ["Valor unitario", n_], ["Diferencia valorizada", n_]],
-             exi, ["TOTAL", "", "", None, None, None, None, _tot("H", na, t["difFisicas"])]),
+             exi, ["TOTAL", "", "", None, None, None, None, _tot("H", na, t["difFisicas"])], explica=ex["04_Existencia"]),
         hoja("05_Valoracion", CEDULAS[4][1],
              [["Lote", "t"], ["Categoría", "t"], ["Modelo auditado", "t"], ["Cantidad auditada", n_], ["VR unitario al corte", n_],
               ["Costo de venta unitario", n_], ["VR − costos de venta unitario", n_], ["VR − costos de venta total", n_], ["Valor modelo del costo", n_],
               ["Valor auditado", n_], ["Valor en libros", n_], ["Ajuste", n_]],
              val, ["TOTAL", "", "", None, None, None, None, _tot("H", na, S(a["ftot"] for a in its)), _tot("I", na, S(a["vCosto"] for a in its)),
-                   _tot("J", na, t["valorAuditado"]), _tot("K", na, t["valorLibros"]), _tot("L", na, t["ajuste"])]),
+                   _tot("J", na, t["valorAuditado"]), _tot("K", na, t["valorLibros"]), _tot("L", na, t["ajuste"])], explica=ex["05_Valoracion"]),
         hoja("06_Transformacion", CEDULAS[5][1],
              [["Lote", "t"], ["Modelo auditado", "t"], ["Cantidad inicial", n_], ["Cantidad final auditada", n_], ["VR − CV unitario inicial", n_],
               ["VR − CV unitario final", n_], ["Cambio físico", n_], ["Cambio de precio", n_], ["Cambio total", n_], ["Libros al inicio", n_],
@@ -499,23 +622,23 @@ def hojas(res: dict) -> list[dict]:
               ["No reconocido", n_]],
              tra, ["TOTAL", "", None, None, None, None, _tot("G", na, t["cambioFisico"]), _tot("H", na, t["cambioPrecio"]),
                    _tot("I", na, t["cambioTotal"]), None, None, None, None, _tot("N", na, t["gananciaRecalculada"]), None,
-                   _tot("P", na, t["gananciaNoReconocida"])]),
+                   _tot("P", na, t["gananciaNoReconocida"])], explica=ex["06_Transformacion"]),
         hoja("07_Conciliacion", CEDULAS[6][1] if not pymes else "Conciliación de cambios (34.7 c)",
              [["Lote", "t"], ["Categoría", "t"], ["Libros al inicio", n_], ["(+) Compras e incrementos", n_], ["(−) Disminuciones", n_],
               ["(+) Ganancia VR registrada", n_], ["Saldo final calculado", n_], ["Saldo final en libros", n_], ["Diferencia", n_]],
              con, ["TOTAL", "", _tot("C", na, S(a["li"] for a in its)), _tot("D", na, S(a["com"] for a in its)), _tot("E", na, S(a["baj"] for a in its)),
                    _tot("F", na, t["gananciaRegistrada"]), _tot("G", na, S(a["finCalc"] for a in its)), _tot("H", na, t["valorLibros"]),
-                   _tot("I", na, t["difConciliacion"])]),
+                   _tot("I", na, t["difConciliacion"])], explica=ex["07_Conciliacion"]),
         hoja("08_Modelo_costo", CEDULAS[7][1],
              [["Lote", "t"], ["Modelo auditado", "t"], ["Costo acumulado", n_], ["Depreciación acumulada", n_], ["Deterioro registrado", n_],
               ["Valor neto al costo", n_], ["Importe recuperable", n_], ["Deterioro adicional", n_], ["Valor auditado al costo", n_]],
              cst, ["TOTAL", "", None, None, None, _tot("F", na, S(a["neto"] for a in its)), None, _tot("H", na, t["deterioroAdicional"]),
-                   _tot("I", na, S(a["vCosto"] for a in its))]),
+                   _tot("I", na, S(a["vCosto"] for a in its))], explica=ex["08_Modelo_costo"]),
         hoja("09_Cosecha", CEDULAS[8][1],
              [["Lote / documento", "t"], ["Producto", "t"], ["Fecha", "d"], ["Cantidad", n_], ["VR unitario en cosecha", n_], ["Costo de venta unitario", n_],
               ["VR − costos de venta unitario", n_], ["VR − costos de venta total", n_], ["Valor registrado", n_], ["Diferencia", n_]],
              cosecha, ["TOTAL", "", None, None, None, None, None, _tot("H", nc, t["cosechaRecalculada"]), _tot("I", nc, t["cosechaRegistrada"]),
-                       _tot("J", nc, t["difCosecha"])] if nc else None),
+                       _tot("J", nc, t["difCosecha"])] if nc else None, explica=ex["09_Cosecha"]),
         hoja("10_Problemas", CEDULAS[9][1], [["Código", "t"], ["Descripción", "t"], ["Importe", n_]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
     ]

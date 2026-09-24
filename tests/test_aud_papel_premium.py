@@ -27,7 +27,7 @@ def test_html_trae_panorama_svg_en_las_20():
         d, _, reg = _reg(pid)
         h = libro.html(d, reg, [], 1, "APROBADO").decode("utf-8")
         assert h.count("<svg") >= 1, pid
-        assert 'class="panorama"' in h and 'role="img"' in h, pid
+        assert 'class="graficos"' in h and 'role="img"' in h, pid
         assert "http://" not in h and "https://" not in h, pid  # autónomo
 
 
@@ -68,8 +68,8 @@ def test_barra_con_extremo_redondeado_y_linea_base():
 
 
 def test_cifra_heroe_con_separador_de_miles():
-    assert graficos.cifra(-39820) == "−39,820.00"
-    assert graficos.cifra({"v": 1234567.891}) == "1,234,567.89"
+    assert graficos.cifra(-39820) == "−39.820,00"  # es-EC
+    assert graficos.cifra({"v": 1234567.891}) == "1.234.567,89"
 
 
 def test_excel_un_solo_dashboard_con_graficos_por_formula():

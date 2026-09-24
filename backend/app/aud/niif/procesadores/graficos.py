@@ -45,7 +45,7 @@ def _num(v):
 
 
 def _fmt(v: float) -> str:
-    s = f"{abs(v):,.2f}"
+    s = f"{abs(v):,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")  # es-EC: 1.234,56
     return ("−" if v < 0 else "") + s
 
 
@@ -201,3 +201,155 @@ def cifra(v) -> str:
     tipográfico (−). Sin «tabular-nums»: en tamaño grande van cifras proporcionales."""
     n = _num(v)
     return "—" if n is None else _fmt(n)
+
+
+# --- Panel ejecutivo por herramienta ------------------------------------------
+# Cada procesador declara en su módulo:
+#
+#   PANEL = {
+#       "poblacion":   {"rotulo": "Cartera evaluada",     "total": "cartera"},
+#       "recalculado": {"rotulo": "Pérdida recalculada",  "total": "perdida"},
+#       "registrado":  {"rotulo": "Provisión registrada", "total": "provReg"},
+#       "composicion": {"rotulo": "Pérdida por tramo",  "hoja": "04_Matriz_deterioro", "etiqueta": "Tramo", "valor": "Pérdida"},
+#       "distribucion":{"rotulo": "Cartera por tramo",  "hoja": "04_Matriz_deterioro", "etiqueta": "Tramo", "valor": "Saldo"},
+#   }
+#
+# Un importe se toma de ``run["totals"][total]`` o, con {"hoja", "col"}, como la
+# suma de esa columna en esa cédula (filas de datos, sin la fila TOTAL). Las series
+# (composición, distribución) agrupan por la columna ``etiqueta`` y suman ``valor``.
+# El resultado principal es siempre ``run["primary"]``.
+
+UMBRAL_ALTA, UMBRAL_MEDIA = 0.05, 0.01
+SEVERIDADES = ("Alta", "Media", "Baja", "Informativa")
+REGLA_SEVERIDAD = ("Severidad según el importe del hallazgo frente a la población: "
+                   "≥ 5 % alta, ≥ 1 % media, menor baja; sin importe, informativa.")
+
+
+def _cols_idx(h: dict, nombre: str):
+    for j, c in enumerate(h.get("cols") or []):
+        if c[0] == nombre:
+            return j
+    return None
+
+
+def _suma_col(h: dict, col: str):
+    j = _cols_idx(h, col)
+    if j is None:
+        return None
+    vals = [_num(f[j]) for f in h.get("rows") or [] if j < len(f)]
+    vals = [v for v in vals if v is not None]
+    return sum(vals) if vals else 0.0
+
+
+def valor_spec(spec: dict | None, run: dict, mapa: dict):
+    if not spec:
+        return None
+    if "total" in spec:
+        return _num((run.get("totals") or {}).get(spec["total"]))
+    h = mapa.get(spec.get("hoja"))
+    return _suma_col(h, spec.get("col")) if h else None
+
+
+def filas_spec(spec: dict | None, mapa: dict):
+    if not spec:
+        return None
+    if "hoja" in spec:
+        h = mapa.get(spec["hoja"])
+        return len(h.get("rows") or []) if h else None
+    return None
+
+
+def serie_spec(spec: dict | None, mapa: dict, absoluto: bool = False) -> list[tuple[str, float]]:
+    """Agrupa la cédula ``spec["hoja"]`` por ``etiqueta`` y suma ``valor``; los 7
+    mayores (por importe absoluto) y el resto en «Otros». Sin ceros."""
+    if not spec:
+        return []
+    h = mapa.get(spec.get("hoja"))
+    if not h:
+        return []
+    je, jv = _cols_idx(h, spec.get("etiqueta")), _cols_idx(h, spec.get("valor"))
+    if je is None or jv is None:
+        return []
+    acum: dict[str, float] = {}
+    for f in h.get("rows") or []:
+        v = _num(f[jv]) if jv < len(f) else None
+        if v is None:
+            continue
+        e = f[je] if je < len(f) else ""
+        e = e.get("v") if isinstance(e, dict) else e
+        e = " ".join(str(e if e not in (None, "") else "(sin rótulo)").split())
+        acum[e] = acum.get(e, 0.0) + (abs(v) if absoluto else v)
+    items = [(e, v) for e, v in acum.items() if abs(v) >= 0.005]
+    if len(items) > TOP_HALLAZGOS + 1:
+        orden = sorted(items, key=lambda kv: -abs(kv[1]))
+        items = orden[:TOP_HALLAZGOS] + [(f"Otros ({len(orden) - TOP_HALLAZGOS})", sum(v for _, v in orden[TOP_HALLAZGOS:]))]
+    return items
+
+
+def severidad(run: dict, base: float | None) -> dict:
+    cuenta = {s: 0 for s in SEVERIDADES}
+    b = abs(base or 0.0)
+    for e in run.get("exceptions") or []:
+        v = abs(_num(e.get("amount")) or 0.0)
+        if v < 0.005:
+            cuenta["Informativa"] += 1
+        elif b and v / b >= UMBRAL_ALTA:
+            cuenta["Alta"] += 1
+        elif b and v / b >= UMBRAL_MEDIA:
+            cuenta["Media"] += 1
+        else:
+            cuenta["Baja"] += 1
+    return cuenta
+
+
+def riesgo(cuenta: dict) -> str:
+    return "alto" if cuenta.get("Alta") else "medio" if cuenta.get("Media") else "bajo"
+
+
+def variacion(nuevo, base):
+    """Variación relativa (nuevo − base) / |base|, o None si no se puede medir."""
+    if nuevo is None or base in (None, 0):
+        return None
+    return (nuevo - base) / abs(base)
+
+
+def panel(mod, run: dict, hojas: list[dict]) -> dict:
+    """Datos del dashboard de una prueba a partir de ``mod.PANEL``.
+    ``faltan`` lista lo que no se pudo resolver (el verificador y los tests lo exigen vacío)."""
+    spec = getattr(mod, "PANEL", None) or {}
+    mapa = {h["name"]: h for h in hojas}
+    tot, etq = run.get("totals") or {}, run.get("labels") or {}
+    prim = run.get("primary")
+    faltan = []
+    if not spec:
+        faltan.append("PANEL")
+    val = {}
+    for k in ("poblacion", "recalculado", "registrado"):
+        val[k] = valor_spec(spec.get(k), run, mapa)
+        if val[k] is None:
+            faltan.append(k)
+    series = {}
+    for k in ("composicion", "distribucion"):
+        series[k] = serie_spec(spec.get(k), mapa, absoluto=(k == "composicion"))
+        if not series[k]:
+            faltan.append(k)
+    sev = severidad(run, val["poblacion"])
+    principal = _num(tot.get(prim))
+    return {
+        "principal": {"rotulo": etq.get(prim, prim or "Resultado"), "valor": principal,
+                      "variacion": variacion((principal or 0) + (val["poblacion"] or 0), val["poblacion"]) if principal is not None else None},
+        "poblacion": {"rotulo": (spec.get("poblacion") or {}).get("rotulo", "Población"), "valor": val["poblacion"],
+                      "n": filas_spec(spec.get("poblacion"), mapa)},
+        "recalculado": {"rotulo": (spec.get("recalculado") or {}).get("rotulo", "Recalculado"), "valor": val["recalculado"],
+                        "variacion": variacion(val["recalculado"], val["registrado"])},
+        "registrado": {"rotulo": (spec.get("registrado") or {}).get("rotulo", "Registrado"), "valor": val["registrado"]},
+        "problemas": {"rotulo": "Problemas encontrados", "valor": len(run.get("exceptions") or []), "severidad": sev},
+        "riesgo": riesgo(sev),
+        "composicion": {"rotulo": (spec.get("composicion") or {}).get("rotulo", "Composición del resultado"), "items": series["composicion"]},
+        "comparativo": {"rotulo": "Registrado vs recalculado",
+                        "items": [((spec.get("registrado") or {}).get("rotulo", "Registrado"), val["registrado"] or 0.0),
+                                  ((spec.get("recalculado") or {}).get("rotulo", "Recalculado"), val["recalculado"] or 0.0)]},
+        "distribucion": {"rotulo": (spec.get("distribucion") or {}).get("rotulo", "Distribución"), "items": series["distribucion"]},
+        "severidad": {"rotulo": "Problemas por severidad", "items": [(s, float(sev[s])) for s in SEVERIDADES], "regla": REGLA_SEVERIDAD},
+        "faltan": faltan,
+    }

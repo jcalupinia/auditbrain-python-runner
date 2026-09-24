@@ -140,7 +140,7 @@ def test_todos_los_formatos_se_generan_en_las_18():
 def test_html_trae_kpis_pestanas_y_ver_calculo():
     d, mod, reg = _reg("perdidas_incurridas_s11")
     html = libro.html(d, reg, [], 1, "APROBADO").decode("utf-8")
-    assert 'class="kpi"' in html and 'class="tab' in html and "Ver cálculo" in html
+    assert 'class="kpi ' in html and 'class="tab' in html and "Cómo se calcula esta hoja" in html
     assert "CSV (ZIP)" in html and "Guardar como PDF" in html
 
 

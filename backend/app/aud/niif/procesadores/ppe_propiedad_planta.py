@@ -97,6 +97,17 @@ PRINCIPAL = "activos"
 CONTROL = "costo_inicial"
 TOTAL_EJEMPLO = "ajusteResultado"
 
+# Dashboard (formato en graficos.py): la población es el costo de los activos del auxiliar; la cifra
+# que el auditor recalcula frente a la registrada es la depreciación del año.
+PANEL = {
+    "poblacion":    {"rotulo": "Costo de activos evaluados", "hoja": "04_Depreciacion", "col": "Costo"},
+    "recalculado":  {"rotulo": "Depreciación recalculada", "total": "depRecalculada"},
+    "registrado":   {"rotulo": "Depreciación registrada", "total": "depRegistrada"},
+    "composicion":  {"rotulo": "Depreciación por activo", "hoja": "04_Depreciacion", "etiqueta": "Código",
+                     "valor": "Depreciación recalculada"},
+    "distribucion": {"rotulo": "Costo por clase de activo", "hoja": "05_Vidas_residual", "etiqueta": "Clase", "valor": "Costo"},
+}
+
 PARAMETROS = {
     "tolerancia": 1, "tasaCapitalizacion": None, "umbralComponente": 10, "umbralRevisarComponentes": None,
     "costoDesmantelamiento": None, "aniosDesmantelamiento": None, "tasaDesmantelamiento": None,
@@ -845,10 +856,167 @@ def hojas(res: dict) -> list[dict]:
              "costosPrestamosIncurridos": d["tope"]["incurridos"], "capitalizablePeriodo": sc("final"), **aj}
     resumen = [[res["labels"][k], fx(celda[k], valor[k])] for k in res["labels"]]
 
+    # --- «Cómo se calcula esta hoja»: explicación humana por columna calculada -------------
+    ex_resumen = {"Importe": "Trae cada concepto de su hoja: costo y diferencias con el mayor de la hoja 14 (Movimiento del año), "
+                             "depreciación de las hojas 04 y 14, ajustes de la hoja 15 (Ajustes propuestos), deterioro de la hoja 09, "
+                             "costos por préstamos de las hojas 11 y 12 y desmantelamiento de la hoja 13."}
+    ex_par = {"Valor": "Son los datos de la ficha del encargo y del mayor; la única fila calculada es «Días del ejercicio»: fecha de "
+                       "corte menos fecha de inicio, más un día."}
+    ex_dep = {
+        "Costo": "Suma el costo inicial y las adiciones del año del activo, tomados de la hoja 03 (Auxiliar de activos).",
+        "Importe depreciable": "Costo menos el valor residual de la hoja 03 (Auxiliar de activos), sin bajar de cero: es lo que se "
+                               "reparte durante la vida útil.",
+        "Días en uso": "Cuenta los días del ejercicio en que el activo estuvo disponible: desde su fecha de disponibilidad (o el "
+                       "inicio del ejercicio) hasta el corte o la fecha de baja. Si no tiene fecha de disponibilidad (en "
+                       "construcción), es cero.",
+        "Depreciación recalculada": "Solo para el método lineal: importe depreciable ÷ vida útil en meses × 12 × días en uso ÷ días "
+                                    "del ejercicio, sin pasar de lo que queda por depreciar. Otros métodos quedan en blanco; sin "
+                                    "vida útil o sin días en uso da cero.",
+        "Depreciación registrada": "Trae la depreciación del año que registró el cliente, desde la hoja 03 (Auxiliar de activos); "
+                                   "en blanco si no la informó.",
+        "Diferencia": "Depreciación recalculada menos registrada; en blanco si falta alguna de las dos.",
+        "Dep. acumulada recalculada": "Suma la depreciación acumulada al inicio de la hoja 03 (Auxiliar de activos) y la "
+                                      "depreciación recalculada del año; en blanco si no se recalculó.",
+        "Deterioro acumulado": "Trae el deterioro acumulado que registró el cliente para el activo, desde la hoja 03 (Auxiliar de "
+                               "activos).",
+        "Valor neto en libros": "Costo menos depreciación acumulada recalculada menos deterioro acumulado; en blanco si la "
+                                "depreciación no se recalculó.",
+        "Totalmente depreciado": "«Sí» cuando la depreciación acumulada recalculada ya cubre todo el importe depreciable; «No» si "
+                                 "no; en blanco si no se recalculó.",
+        "Estado": "«Baja» si el activo tiene fecha de baja en la hoja 03, «En construcción» si aún no tiene fecha de disponibilidad "
+                  "para uso y «En uso» en los demás casos.",
+    }
+    ex_vidas = {
+        "Vida útil (meses)": "Trae la vida útil en meses informada en la hoja 03 (Auxiliar de activos); en blanco si no se informó.",
+        "Valor residual": "Trae el valor residual del activo desde la hoja 03 (Auxiliar de activos); si está vacío, cero.",
+        "Costo": "Trae el costo del activo (costo inicial más adiciones) desde la hoja 04 (Recálculo de depreciación y VNL).",
+        "Residual % del costo": "Divide el valor residual para el costo, para ver si el residual es razonable; en blanco si el "
+                                "costo es cero.",
+        "Dep. acumulada recalculada": "Trae la depreciación acumulada recalculada desde la hoja 04 (Recálculo de depreciación y "
+                                      "VNL); en blanco si allí no se recalculó.",
+        "Vida remanente (meses)": "Parte de la vida útil que queda: importe depreciable pendiente (hoja 04) sobre el importe "
+                                  "depreciable total, por la vida útil en meses. En blanco si falta la vida útil o la depreciación.",
+        "Totalmente depreciado en uso": "«Sí» cuando en la hoja 04 el activo figura totalmente depreciado y sigue en uso: señal "
+                                        "de que la vida útil estimada fue corta.",
+        "Residual mayor que el costo": "«Sí» si el valor residual supera al costo del activo, lo que no es razonable; «No» en "
+                                       "caso contrario.",
+    }
+    ex_comp = {
+        "Costo de la parte": "Trae el costo de esta parte (componente) desde la hoja 04 (Recálculo de depreciación y VNL).",
+        "Costo del elemento": "Suma el costo de todas las partes de esta hoja que pertenecen al mismo elemento: es el costo total "
+                              "del elemento.",
+        "% del elemento": "Divide el costo de la parte para el costo total del elemento; en blanco si el elemento no tiene costo.",
+        "Parte significativa": "«Sí» si el % del elemento alcanza el umbral de parte significativa de la hoja 02 (Parámetros), por "
+                               "lo que debe depreciarse por separado; «No» si no llega.",
+        "Vida útil (meses)": "Trae la vida útil en meses de la parte desde la hoja 03 (Auxiliar de activos); en blanco si no se "
+                             "informó.",
+    }
+    ex_bajas = {
+        "Costo": "Trae el costo del activo dado de baja desde la hoja 04 (Recálculo de depreciación y VNL).",
+        "Dep. acumulada a la baja": "Trae la depreciación acumulada recalculada hasta la fecha de baja, desde la hoja 04; en blanco "
+                                    "si no se pudo recalcular.",
+        "Deterioro": "Trae el deterioro acumulado del activo desde la hoja 03 (Auxiliar de activos).",
+        "VNL a la baja": "Costo menos depreciación acumulada a la baja menos deterioro: es el valor en libros que sale con la baja "
+                         "(en blanco si falta la depreciación acumulada).",
+        "Producto": "Trae lo que se cobró por la baja (venta o indemnización) desde la hoja 03 (Auxiliar de activos); si está "
+                    "vacío, cero.",
+        "Resultado recalculado": "Producto de la baja menos el valor neto en libros a la baja: positivo es ganancia y negativo "
+                                 "pérdida.",
+        "Resultado registrado": "Trae la ganancia o pérdida en la baja que registró el cliente, desde la hoja 03; en blanco si no "
+                                "la informó.",
+        "Diferencia": "Resultado recalculado menos resultado registrado; en blanco si falta alguno de los dos.",
+    }
+    ex_rev = {
+        "VNL al corte": "Trae el valor neto en libros recalculado al corte desde la hoja 04 (Recálculo de depreciación y VNL).",
+        "Valor revaluado": "Trae el valor revaluado del activo (según el perito) desde la hoja 03 (Auxiliar de activos).",
+        "Diferencia": "Valor revaluado menos valor neto en libros: positivo es aumento y negativo disminución por revaluación.",
+        "Superávit previo": "Trae el superávit de revaluación que ya tenía el activo, desde la hoja 03 (Auxiliar de activos).",
+        "Decremento previo en resultados": "Trae la disminución por revaluación que se llevó antes a resultados, desde la hoja 03; "
+                                           "en blanco si no se informó.",
+        "A otro resultado integral": "Si es aumento, va a ORI lo que excede al decremento previo llevado a resultados (todo, si ese "
+                                     "dato está vacío). Si es disminución, se carga a ORI solo hasta el superávit previo.",
+        "A resultados": "Si es aumento, va a resultados solo lo que revierte el decremento previo (cero si ese dato está vacío). "
+                        "Si es disminución, va a resultados lo que excede al superávit previo.",
+    }
+    ex_det = {
+        "Importe en libros": "Usa el valor revaluado de la hoja 03 si el activo se revaluó; si no, el valor neto en libros de la "
+                             "hoja 04 (Recálculo de depreciación y VNL).",
+        "Importe recuperable": "Trae el importe recuperable estimado del activo desde la hoja 03 (Auxiliar de activos).",
+        "Pérdida adicional": "Importe en libros menos importe recuperable, sin bajar de cero: es la pérdida por deterioro. En "
+                             "blanco si no hay importe en libros.",
+        "Superávit previo": "Trae el superávit de revaluación previo del activo desde la hoja 03 (Auxiliar de activos); si está "
+                            "vacío, cero.",
+        "Revaluación del año a ORI": "Trae lo que la revaluación del año llevó a ORI en la hoja 08 (Revaluación); cero si el "
+                                     "activo no se revaluó este año.",
+        "Superávit disponible": "Suma el superávit previo y la revaluación del año a ORI, sin bajar de cero: es el colchón contra "
+                                "el que se carga primero el deterioro.",
+        "Contra el superávit (ORI)": "Carga la pérdida contra el superávit disponible, hasta agotarlo. Si el activo no está "
+                                     "revaluado ni tiene superávit, es cero; si está revaluado pero falta el superávit, queda en "
+                                     "blanco.",
+        "A resultados": "La pérdida que no se cargó al superávit va a resultados; si no se pudo repartir (celda anterior en "
+                        "blanco), va toda la pérdida.",
+    }
+    if npr:
+        ex_ad_int = ("Con el anexo de préstamos los intereses capitalizables se miden por activo en la hoja 12 (Capitalización de "
+                     "costos por préstamos), por eso aquí quedan en blanco.")
+        ex_ad_dif = ("Intereses capitalizables menos intereses capitalizados por el cliente; con el anexo de préstamos queda en "
+                     "blanco porque la comparación se hace en la hoja 12.")
+    else:
+        ex_ad_int = ("Importe de la adición × tasa de capitalización de la hoja 02 (Parámetros) × días de capitalización ÷ días del "
+                     "ejercicio. Cero si no hay días; en blanco si no hay tasa.")
+        ex_ad_dif = "Intereses capitalizables recalculados menos los intereses que el cliente capitalizó en esta adición."
+    ex_adic = {
+        "Días de capitalización": "Para adiciones de activos aptos (y solo en NIIF completas): días desde la fecha de la adición (o "
+                                  "el inicio del ejercicio) hasta que el activo está disponible para uso según la hoja 03, o hasta el "
+                                  "corte. Si no, cero.",
+        "Intereses capitalizables": ex_ad_int,
+        "Diferencia": ex_ad_dif,
+        "Capitalizable": "«No: gasto» si el tipo de adición es una reparación o un mantenimiento, que no se capitalizan; «Sí» en "
+                         "los demás casos.",
+    }
+    ex_pre = {"Capitalizable del específico (NIC 23.12)": "Solo para préstamos específicos: costo financiero del período menos "
+                                                          "los rendimientos de la inversión temporal de esos fondos. En blanco "
+                                                          "para préstamos generales o si falta un dato."}
+    ex_cap = {
+        "Desembolsos aptos del período": "Suma las adiciones de este activo en la hoja 10 (Adiciones) que tienen días de "
+                                         "capitalización.",
+        "Base ponderada por tiempo": "Suma cada adición del activo en la hoja 10 multiplicada por sus días de capitalización y la "
+                                     "divide para los días del ejercicio: es el desembolso promedio del año.",
+        "Préstamo específico: importe": "Suma el importe de los préstamos específicos de este activo en la hoja 11 (Préstamos); "
+                                        "cero si no tiene y en blanco si alguno no trae importe.",
+        "Capitalizable del específico (NIC 23.12)": "Suma lo capitalizable de los préstamos específicos del activo en la hoja 11. "
+                                                    "Es cero en PYMES o sin préstamo específico, y en blanco si falta un dato.",
+        "% financiado con préstamos generales": "Parte de los desembolsos que no cubre el préstamo específico: 1 − importe "
+                                                "específico ÷ desembolsos, sin bajar de cero. Cero si no hubo desembolsos.",
+        "Base financiada con generales": "Multiplica la base ponderada por tiempo por el % financiado con préstamos generales.",
+        "Tasa de capitalización (NIC 23.14)": "Media ponderada de los préstamos generales de la hoja 11: su costo financiero total "
+                                              "÷ su importe total. Cero en PYMES o sin generales; en blanco si falta un dato.",
+        "Capitalizable de los generales": "Multiplica la base financiada con generales por la tasa de capitalización; en blanco si "
+                                          "falta alguno de los dos.",
+        "Capitalizable antes del tope": "Suma lo capitalizable del préstamo específico y de los generales para este activo.",
+        "Factor del tope (NIC 23.14)": "Si lo capitalizable de todos los activos no supera el costo financiero incurrido de la hoja "
+                                       "11, es 1; si lo supera, es costo incurrido ÷ capitalizable total, para no pasar del tope. "
+                                       "En blanco si falta algún dato.",
+        "Capitalizable del período": "Capitalizable antes del tope multiplicado por el factor del tope (si el factor está en "
+                                     "blanco, se deja sin reducir).",
+        "Intereses capitalizados registrados": "Suma los intereses que el cliente capitalizó en las adiciones de este activo, según "
+                                               "la hoja 10 (Adiciones).",
+        "Diferencia": "Capitalizable del período menos intereses capitalizados registrados: positivo falta capitalizar y negativo "
+                      "se capitalizó de más.",
+    }
+    ex_desm = {"Importe": "Toma de la hoja 02 (Parámetros) el costo futuro, los años, la tasa y la provisión registrada; calcula el "
+                          "valor presente (costo ÷ (1 + tasa)^años), la actualización del año (provisión inicial × tasa) y separa "
+                          "el ajuste total en actualización y cambio de estimación."}
+    ex_rf = {"Importe": "Arma el movimiento del año con las sumas de la hoja 03 (costo, adiciones, depreciación) y de la hoja 04 "
+                        "(bajas y valores recalculados), lo compara con el mayor de la hoja 02 y cuadra las adiciones con la hoja 10."}
+    ex_aj = {"Importe": "Suma la diferencia de cada prueba desde su hoja (04 depreciación, 09 deterioro, 07 bajas, 12 o 10 intereses, "
+                        "08 revaluación, 13 desmantelamiento); la última fila combina esos ajustes para dar el efecto neto en "
+                        "resultados."}
+
     fin = lambda nn: FILA0 + nn - 1
     return [
-        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen),
-        hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
+        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=ex_resumen),
+        hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros, explica=ex_par),
         hoja("03_Auxiliar", "Auxiliar de activos (datos del cliente)",
              [["Código", "t"], ["Descripción", "t"], ["Clase", "t"], ["Elemento", "t"], ["Disponible para uso", "d"], ["Costo inicial", "n"],
               ["Adiciones", "n"], ["Valor residual", "n"], ["Vida útil (meses)", "i"], ["Método", "t"], ["Dep. acum. inicial", "n"],
@@ -860,42 +1028,42 @@ def hojas(res: dict) -> list[dict]:
               ["Depreciación registrada", "n"], ["Diferencia", "n"], ["Dep. acumulada recalculada", "n"], ["Deterioro acumulado", "n"],
               ["Valor neto en libros", "n"], ["Totalmente depreciado", "t"], ["Estado", "t"]], dep,
              ["TOTAL", suma("B", fin(n), sum(a["costo"] for a in A)), None, None, suma("E", fin(n), valor["depRecalculada"]),
-              suma("F", fin(n), rf["dreg"]), suma("G", fin(n), aj["ajusteDep"]), None, None, None, "", ""]),
+              suma("F", fin(n), rf["dreg"]), suma("G", fin(n), aj["ajusteDep"]), None, None, None, "", ""], explica=ex_dep),
         hoja("05_Vidas_residual", "Vidas útiles, residual y método",
              [["Código", "t"], ["Clase", "t"], ["Método", "t"], ["Vida útil (meses)", "i"], ["Valor residual", "n"], ["Costo", "n"],
               ["Residual % del costo", "p"], ["Dep. acumulada recalculada", "n"], ["Vida remanente (meses)", "n"],
-              ["Totalmente depreciado en uso", "t"], ["Residual mayor que el costo", "t"]], vidas),
+              ["Totalmente depreciado en uso", "t"], ["Residual mayor que el costo", "t"]], vidas, explica=ex_vidas),
         hoja("06_Componentes", "Componentes",
              [["Código", "t"], ["Elemento", "t"], ["Costo de la parte", "n"], ["Costo del elemento", "n"], ["% del elemento", "p"],
-              ["Parte significativa", "t"], ["Vida útil (meses)", "i"], ["Método", "t"]], componentes),
+              ["Parte significativa", "t"], ["Vida útil (meses)", "i"], ["Método", "t"]], componentes, explica=ex_comp),
         hoja("07_Bajas", "Bajas",
              [["Código", "t"], ["Fecha de baja", "d"], ["Costo", "n"], ["Dep. acumulada a la baja", "n"], ["Deterioro", "n"],
               ["VNL a la baja", "n"], ["Producto", "n"], ["Resultado recalculado", "n"], ["Resultado registrado", "n"], ["Diferencia", "n"]], bajas,
-             ["TOTAL", "", None, None, None, None, None, None, None, suma("J", fin(len(B)), aj["ajusteBajas"])] if B else None),
+             ["TOTAL", "", None, None, None, None, None, None, None, suma("J", fin(len(B)), aj["ajusteBajas"])] if B else None, explica=ex_bajas),
         hoja("08_Revaluacion", "Revaluación",
              [["Código", "t"], ["Clase", "t"], ["VNL al corte", "n"], ["Valor revaluado", "n"], ["Diferencia", "n"], ["Superávit previo", "n"],
               ["Decremento previo en resultados", "n"], ["A otro resultado integral", "n"], ["A resultados", "n"]], revs,
              ["TOTAL", "", None, None, None, None, None, suma("H", fin(len(R)), aj["revaluacionORI"]),
-              suma("I", fin(len(R)), aj["revaluacionResultado"])] if R else None),
+              suma("I", fin(len(R)), aj["revaluacionResultado"])] if R else None, explica=ex_rev),
         hoja("09_Deterioro", "Deterioro",
              [["Código", "t"], ["Clase", "t"], ["Importe en libros", "n"], ["Importe recuperable", "n"], ["Pérdida adicional", "n"],
               ["Superávit previo", "n"], ["Revaluación del año a ORI", "n"], ["Superávit disponible", "n"],
               ["Contra el superávit (ORI)", "n"], ["A resultados", "n"]], deter,
              ["TOTAL", "", None, None, suma("E", fin(len(D)), aj["deterioroAdicional"]), None, None, None,
-              suma("I", fin(len(D)), aj["deterioroORI"]), suma("J", fin(len(D)), aj["deterioroResultado"])] if D else None),
+              suma("I", fin(len(D)), aj["deterioroORI"]), suma("J", fin(len(D)), aj["deterioroResultado"])] if D else None, explica=ex_det),
         hoja("10_Adiciones", "Adiciones y costos por préstamos",
              [["Documento", "t"], ["Activo", "t"], ["Fecha", "d"], ["Descripción", "t"], ["Tipo", "t"], ["Importe", "n"], ["Apto", "t"],
               ["Intereses capitalizados", "n"], ["Días de capitalización", "i"], ["Intereses capitalizables", "n"], ["Diferencia", "n"],
               ["Capitalizable", "t"]], adic,
              ["TOTAL", "", "", "", "", suma("F", fin(nad), rf["adDetalle"] or 0), "", suma("H", fin(nad), sum(x["int"] or 0 for x in AD)), None,
-              None, suma("K", fin(nad), 0 if npr else aj["ajusteIntereses"]), ""] if nad else None),
+              None, suma("K", fin(nad), 0 if npr else aj["ajusteIntereses"]), ""] if nad else None, explica=ex_adic),
         hoja("11_Prestamos", "Préstamos para la construcción",
              [["Préstamo", "t"], ["Tipo", "t"], ["Activo u obra", "t"], ["Descripción", "t"], ["Importe del préstamo", "n"],
               ["Tasa nominal anual (%)", "n"], ["Costo financiero del período", "n"], ["(−) Rendimientos de la inversión temporal", "n"],
               ["Capitalizable del específico (NIC 23.12)", "n"]], prest,
              ["TOTAL", "", "", "", suma("E", fin(npr), sum(y["importe"] or 0 for y in PRS)), None,
               suma("G", fin(npr), d["tope"]["incurridos"]), suma("H", fin(npr), sum(y["rend"] or 0 for y in PRS)),
-              suma("I", fin(npr), sum(y["cap_esp"] for y in PRS if y["cap_esp"] is not None))] if npr else None),
+              suma("I", fin(npr), sum(y["cap_esp"] for y in PRS if y["cap_esp"] is not None))] if npr else None, explica=ex_pre),
         hoja("12_Capitalizacion", "Capitalización de costos por préstamos por activo",
              [["Activo", "t"], ["Desembolsos aptos del período", "n"], ["Base ponderada por tiempo", "n"],
               ["Préstamo específico: importe", "n"], ["Capitalizable del específico (NIC 23.12)", "n"],
@@ -906,10 +1074,11 @@ def hojas(res: dict) -> list[dict]:
              ["TOTAL", suma("B", fin(ncap), sc("desemb")), suma("C", fin(ncap), sc("base")), suma("D", fin(ncap), sc("esp_imp")),
               suma("E", fin(ncap), sc("esp_cap")), None, suma("G", fin(ncap), sc("base_gen")), None,
               suma("I", fin(ncap), sc("cap_gen")), suma("J", fin(ncap), sc("antes")), None,
-              suma("L", fin(ncap), sc("final")), suma("M", fin(ncap), sc("reg")), suma("N", fin(ncap), sc("dif"))] if ncap else None),
-        hoja("13_Desmantelamiento", "Desmantelamiento", [["Concepto", "t"], ["Importe", "n"]], desm),
-        hoja("14_Roll_forward", "Movimiento del año y conciliación auxiliar-mayor", [["Concepto", "t"], ["Importe", "n"]], rfw),
-        hoja("15_Ajustes", "Ajustes propuestos", [["Ajuste", "t"], ["Importe", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]], ajus),
+              suma("L", fin(ncap), sc("final")), suma("M", fin(ncap), sc("reg")), suma("N", fin(ncap), sc("dif"))] if ncap else None,
+             explica=ex_cap),
+        hoja("13_Desmantelamiento", "Desmantelamiento", [["Concepto", "t"], ["Importe", "n"]], desm, explica=ex_desm),
+        hoja("14_Roll_forward", "Movimiento del año y conciliación auxiliar-mayor", [["Concepto", "t"], ["Importe", "n"]], rfw, explica=ex_rf),
+        hoja("15_Ajustes", "Ajustes propuestos", [["Ajuste", "t"], ["Importe", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]], ajus, explica=ex_aj),
         hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
     ]

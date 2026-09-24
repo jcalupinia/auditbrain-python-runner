@@ -632,6 +632,92 @@ DIF = "'09_Impuesto_diferido'!"
 DESC = f"(1+{P}$B${PAR['tasaDesc']}/100)^({P}$B${PAR['plazoBase']}/12)"
 
 
+# Explicación humana de cada columna calculada («Cómo se calcula esta hoja»).
+EXPLICA = {
+    "01_Resumen": {
+        "Importe": ("Trae cada importe de la hoja donde se calculó: cartera, pérdida, gasto deducible y no deducible y "
+                    "diferido de la hoja 08 (Fiscal); provisión registrada del último año de la hoja 07 (Provisión según "
+                    "el mayor); reversión y bajas de los totales de la hoja 06 (Movimiento de la provisión). El ajuste "
+                    "propuesto es la pérdida recalculada menos la provisión registrada."),
+    },
+    "03_Evidencia_historica": {
+        "No recuperación": ("Divide el saldo del tramo que seguía sin cobrarse al año siguiente para su saldo inicial en "
+                            "esa ventana: es la parte que no se recuperó. Si el saldo inicial es cero, queda en blanco."),
+    },
+    "04_Matriz_deterioro": {
+        "Documentos": "Cuenta cuántas facturas del detalle (hoja 11, Detalle por factura) caen en este tramo de mora.",
+        "Saldo": "Suma el saldo de todas las facturas del detalle (hoja 11, Detalle por factura) que caen en este tramo.",
+        "Tasa aplicada": ("Si el auditor fijó la tasa del tramo, la toma de la hoja 02 (Parámetros) y la divide para 100; "
+                          "si viene de la migración observada, divide el saldo que siguió vivo para el saldo inicial del "
+                          "tramo, sumando solo las ventanas marcadas «Sí» como usables en la hoja 03 (Evidencia histórica)."),
+        "Pérdida": ("Suma la pérdida calculada factura por factura en la hoja 11 (Detalle por factura) para las facturas "
+                    "de este tramo."),
+    },
+    "05_Por_cliente": {
+        "Documentos": "Cuenta cuántas facturas del cliente hay en el detalle de la hoja 11 (Detalle por factura).",
+        "Saldo": "Suma el saldo de todas las facturas del cliente que figuran en la hoja 11 (Detalle por factura).",
+        "Corriente": ("Suma el saldo de las facturas del cliente que al corte no están vencidas (días de mora cero o "
+                      "negativos) según la hoja 11 (Detalle por factura)."),
+        "Vencido": "Resta al saldo total del cliente la parte corriente: lo que queda es la cartera ya vencida del cliente.",
+        "Pérdida": ("Aplica la tasa ponderada del cliente: al saldo le resta el valor presente de la parte que se espera "
+                    "cobrar, descontada con la tasa y el plazo de la hoja 02 (Parámetros). Sin tasa ponderada, queda en blanco."),
+    },
+    "06_Movimiento_provision": {
+        "Provisión del año": ("Trae la pérdida recalculada de esta misma factura desde la hoja 11 (Detalle por factura); "
+                              "es la provisión que debería constituirse en el año."),
+        "Saldo final": ("Parte de la provisión inicial, resta la reversión y las bajas del año y suma la provisión del año: "
+                        "es el saldo que debería quedar en la provisión de la factura."),
+    },
+    "07_Mayor": {
+        "Final": ("Parte del saldo inicial del mayor, suma el gasto del año, resta los castigos y suma las recuperaciones: "
+                  "es el saldo de la provisión al cierre de ese año."),
+    },
+    "08_Fiscal": {
+        "Importe": ("Cada concepto tiene su propio cálculo: la cartera, la parte corriente y la pérdida se suman del "
+                    "detalle de la hoja 11; la provisión anterior viene de la hoja 07 (Provisión según el mayor); los "
+                    "límites y el diferido aplican los porcentajes de la hoja 02 (Parámetros); el resto combina las "
+                    "filas anteriores de esta hoja (gasto, margen, parte deducible y no deducible)."),
+    },
+    "09_Impuesto_diferido": {
+        "Deterioro": "Trae la pérdida recalculada de esta factura desde la hoja 11 (Detalle por factura).",
+        "Deducible": ("Reparte la provisión fiscal acumulada al cierre (hoja 08, Fiscal) entre las facturas en proporción a "
+                      "su deterioro, sin pasar del deterioro total; si no hay deterioro, es cero."),
+        "No deducible": "Resta al deterioro de la factura su parte deducible: lo que queda no se acepta como gasto fiscal.",
+        "Diferido nuevo": ("Multiplica la parte no deducible por la tasa del impuesto de la hoja 02 (Parámetros): es el "
+                           "activo por impuesto diferido que genera la factura."),
+        "Diferido final": ("Parte del diferido inicial, resta su reversión y suma el diferido nuevo: es el activo por "
+                           "impuesto diferido que queda al cierre para la factura."),
+    },
+    "10_Asientos": {
+        "Debe": ("Toma el importe del asiento del total de su cédula: provisión del año, reversión o bajas de la hoja 06 "
+                 "(Movimiento de la provisión); diferido nuevo o su reversión de la hoja 09 (Impuesto diferido por factura)."),
+        "Haber": ("Lleva a la contrapartida el mismo importe del asiento, tomado del total de la hoja 06 (Movimiento de la "
+                  "provisión) o de la hoja 09 (Impuesto diferido por factura), para que debe y haber cuadren."),
+    },
+    "11_Detalle": {
+        "Días de mora": ("Resta la fecha de vencimiento de la fecha de corte de la hoja 02 (Parámetros); si la factura no "
+                         "tiene vencimiento, queda en blanco. Cero o negativo significa que aún no vence."),
+        "Tramo": ("Clasifica la factura por sus días de mora: corriente/por vencer si no tiene mora, luego 1 a 30, 31 a 60, "
+                  "61 a 90, 91 a 180, 181 a 360, 361 a 730 y más de 730 días. Sin días de mora queda en blanco."),
+        "Tasa": ("Busca la tasa aplicada al tramo de esta factura en la hoja 04 (Matriz de deterioro). Si la factura no "
+                 "tiene tramo o el tramo no tiene tasa medible, queda en blanco."),
+        "Valor presente": ("Toma la parte del saldo que se espera cobrar (saldo por uno menos la tasa) y la descuenta con "
+                           "la tasa y el plazo de cobro de la hoja 02 (Parámetros). Sin tasa, queda en blanco."),
+        "Pérdida": ("Resta al saldo el valor presente de lo que se espera cobrar; nunca es negativa. Si no hay valor "
+                    "presente, queda en blanco."),
+    },
+}
+
+# Panel del dashboard (formato en graficos.py).
+PANEL = {
+    "poblacion": {"rotulo": "Cartera al corte", "total": "saldo"},
+    "recalculado": {"rotulo": "Pérdida recalculada", "total": "perdida"},
+    "registrado": {"rotulo": "Provisión registrada", "total": "provisionRegistrada"},
+    "composicion": {"rotulo": "Pérdida por tramo", "hoja": "04_Matriz_deterioro", "etiqueta": "Tramo", "valor": "Pérdida"},
+    "distribucion": {"rotulo": "Cartera por tramo", "hoja": "04_Matriz_deterioro", "etiqueta": "Tramo", "valor": "Saldo"},
+}
+
+
 def _tramo_formula(celda: str) -> str:
     """Tramo de mora con IF anidados, en el orden de TRAMOS."""
     f = f'"{TRAMOS[-1]["n"]}"'
@@ -808,42 +894,50 @@ def hojas(res: dict) -> list[dict]:
                "noDeducible": F_["noDeducible"], "dtaFin": F_["dtaFin"], "dtaMov": F_["dtaMov"]}
     resumen = [[res["labels"][k], _fx(ref_res[k], _n(t[k]))] for k in res["labels"]]
 
-    hoja = lambda name, label, cols, rows, total=None: {"name": name, "label": label, "cols": cols, "rows": rows, "total": total}
+    hoja = lambda name, label, cols, rows, total=None, explica=None: {"name": name, "label": label, "cols": cols, "rows": rows,
+                                                                      "total": total, "explica": dict(explica or {})}
     return [
-        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen),
+        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
         hoja("03_Evidencia_historica", "Evidencia histórica",
              [["Ventana", "t"], ["Tramo", "t"], ["Documentos", "i"], ["Emparejados", "i"], ["Saldo inicial", "n"],
-              ["Sigue vivo al año siguiente", "n"], ["No recuperación", "p"], ["Usable", "t"]], evidencia),
+              ["Sigue vivo al año siguiente", "n"], ["No recuperación", "p"], ["Usable", "t"]], evidencia,
+             explica=EXPLICA["03_Evidencia_historica"]),
         hoja("04_Matriz_deterioro", "Matriz de deterioro",
              [["Tramo", "t"], ["Documentos", "i"], ["Saldo", "n"], ["Tasa aplicada", "p"], ["Origen", "t"],
               ["Pérdida", "n"], ["Base de la tasa", "t"]], matriz,
-             ["TOTAL", s("B", m_fin, n_det), s("C", m_fin, _n(t["saldo"])), None, "", s("F", m_fin, _n(t["perdida"])), ""]),
+             ["TOTAL", s("B", m_fin, n_det), s("C", m_fin, _n(t["saldo"])), None, "", s("F", m_fin, _n(t["perdida"])), ""],
+             explica=EXPLICA["04_Matriz_deterioro"]),
         hoja("05_Por_cliente", "Por cliente",
              [["Cliente", "t"], ["RUC", "t"], ["Documentos", "i"], ["Saldo", "n"], ["Corriente", "n"], ["Vencido", "n"],
               ["Mora máxima (días)", "i"], ["Tasa ponderada", "p"], ["Pérdida", "n"], ["Evaluación", "t"]], clientes,
              ["TOTAL", "", s("C", fin_cli, n_det), s("D", fin_cli, _n(t["saldo"])), s("E", fin_cli, _n(f["corriente"])),
               s("F", fin_cli, _n(t["saldo"] - f["corriente"])), None, None,
-              s("I", fin_cli, _n(sum(c["perdida"] or 0 for c in d["clientes"]))), ""]),
+              s("I", fin_cli, _n(sum(c["perdida"] or 0 for c in d["clientes"]))), ""], explica=EXPLICA["05_Por_cliente"]),
         hoja("06_Movimiento_provision", "Movimiento de la provisión",
              [["Cliente", "t"], ["Factura", "t"], ["Provisión inicial", "n"], ["Reversión", "n"], ["Bajas", "n"],
               ["Provisión del año", "n"], ["Saldo final", "n"], ["Tipo", "t"]], movimiento,
-             ["TOTAL", "", *[s(c, fin_mov, _n(mt[k])) for c, k in zip("CDEFG", ("provIni", "reversion", "bajas", "provAnio", "saldoFin"))], ""]),
+             ["TOTAL", "", *[s(c, fin_mov, _n(mt[k])) for c, k in zip("CDEFG", ("provIni", "reversion", "bajas", "provAnio", "saldoFin"))], ""],
+             explica=EXPLICA["06_Movimiento_provision"]),
         hoja("07_Mayor", "Provisión según el mayor",
-             [["Año", "t"], ["Inicial", "n"], ["Gasto", "n"], ["Castigos", "n"], ["Recuperaciones", "n"], ["Final", "n"]], mayor),
-        hoja("08_Fiscal", "Fiscal", [["Concepto", "t"], ["Importe", "n"]], fiscal),
+             [["Año", "t"], ["Inicial", "n"], ["Gasto", "n"], ["Castigos", "n"], ["Recuperaciones", "n"], ["Final", "n"]], mayor,
+             explica=EXPLICA["07_Mayor"]),
+        hoja("08_Fiscal", "Fiscal", [["Concepto", "t"], ["Importe", "n"]], fiscal, explica=EXPLICA["08_Fiscal"]),
         hoja("09_Impuesto_diferido", "Impuesto diferido por factura",
              [["Cliente", "t"], ["Factura", "t"], ["Deterioro", "n"], ["Deducible", "n"], ["No deducible", "n"],
               ["Diferido inicial", "n"], ["Reversión", "n"], ["Diferido nuevo", "n"], ["Diferido final", "n"]], diferido,
              ["TOTAL", "", s("C", fin_dif, _n(tot_det_dif)), s("D", fin_dif, _n(sum(x["deducible"] for x in dif_f))),
               s("E", fin_dif, _n(sum(x["noDeducible"] for x in dif_f))),
-              *[s(c, fin_dif, _n(dt[k])) for c, k in zip("FGHI", ("ini", "rev", "nuevo", "fin"))]]),
-        hoja("10_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos),
+              *[s(c, fin_dif, _n(dt[k])) for c, k in zip("FGHI", ("ini", "rev", "nuevo", "fin"))]],
+             explica=EXPLICA["09_Impuesto_diferido"]),
+        hoja("10_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos,
+             explica=EXPLICA["10_Asientos"]),
         hoja("11_Detalle", "Detalle por factura",
              [["Factura", "t"], ["Cliente", "t"], ["Emisión", "d"], ["Vencimiento", "d"], ["Días de mora", "i"], ["Tramo", "t"],
               ["Saldo", "n"], ["Tasa", "p"], ["Valor presente", "n"], ["Pérdida", "n"], ["Provisión inicial", "n"]], detalle,
              ["TOTAL", "", "", "", None, "", s("G", det_fin, _n(t["saldo"])), None, s("I", det_fin, _n(sum(_f(x["vp"]) or 0 for x in filas))),
-              s("J", det_fin, _n(t["perdida"])), s("K", det_fin, _n(sum(float(x["provIni"]) for x in filas)))]),
+              s("J", det_fin, _n(t["perdida"])), s("K", det_fin, _n(sum(float(x["provIni"]) for x in filas)))],
+             explica=EXPLICA["11_Detalle"]),
         hoja("12_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], _n(e["amount"])] for e in res["exceptions"]]),
     ]
