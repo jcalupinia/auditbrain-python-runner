@@ -10,7 +10,7 @@ La tabla de archivos de evidencia llega con E7.
 """
 import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
 
@@ -71,9 +71,20 @@ class Prueba(Base):
 
 
 class PruebaEvento(Base):
-    """Bitácora: quién hizo qué y cuándo. Alimenta la cédula 12."""
+    """Bitácora: quién hizo qué y cuándo. Alimenta la cédula 12.
+
+    Desde P2-G es una **cadena append-only verificable** (ENG-020): cada evento
+    firma su contenido y encadena con el hash del anterior (ver
+    ``gobernanza.py``). Las columnas de la cadena son aditivas y nullable para
+    no romper filas históricas ni otros caminos de escritura; ``servicio._evento``
+    (único escritor) las puebla. La cadena es por ``prueba_id`` (arranca en
+    GENESIS por prueba).
+    """
 
     __tablename__ = "aud_prueba_eventos"
+    __table_args__ = (
+        UniqueConstraint("prueba_id", "seq", name="uq_prueba_evento_seq"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     prueba_id: Mapped[int] = mapped_column(
@@ -86,6 +97,19 @@ class PruebaEvento(Base):
     actor: Mapped[str | None] = mapped_column(String(320), nullable=True)
     comentario: Mapped[str | None] = mapped_column(Text, nullable=True)
     creado_en: Mapped[datetime.datetime] = mapped_column(DateTime, default=_ahora, nullable=False)
+
+    # --- Cadena de auditoría (P2-G, ENG-020). Aditivas/nullable: la bitácora
+    #     histórica se sella en la migración; los eventos nuevos ya la traen. ---
+    #: Posición en la cadena de la prueba (1..n). NULL solo en filas pre-migración.
+    seq: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: Rol real del actor (segregación de funciones). "" hasta el cableado de roles.
+    rol: Mapped[str | None] = mapped_column(String(16), nullable=True, default="")
+    #: Huella del contenido asociado (evidencia/artefacto). "" si no aplica.
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, default="")
+    #: Hash del evento anterior de la MISMA prueba (GENESIS para el primero).
+    prev_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: Hash firmado de este evento (ver ``gobernanza.compute_hash_evento``).
+    hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class PruebaArchivo(Base):

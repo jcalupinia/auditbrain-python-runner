@@ -137,11 +137,68 @@ def _num_seguro(v) -> float:
 
 # --- pruebas -----------------------------------------------------------------
 
-def _evento(db: Session, p: Prueba, accion: str, anterior: str | None, actor: str, comentario: str = "") -> None:
+def _evento(db: Session, p: Prueba, accion: str, anterior: str | None, actor: str,
+            comentario: str = "", *, rol: str = "", content_hash: str = "") -> None:
+    """Registra un evento en la bitácora ENCADENANDO la cadena de la prueba.
+
+    Único punto de escritura de ``PruebaEvento``: aquí —y solo aquí— se calcula
+    ``seq``/``prev_hash``/``hash`` (ver ``gobernanza.py``). ``rol``/``content_hash``
+    quedan preparados para el cableado de roles y de checkpoints de IA.
+    """
+    from backend.app.aud.niif.ciclo.gobernanza import (
+        GENESIS, compute_hash_evento, entrada_firmada,
+    )
+
+    # El último evento insertado de la prueba es la punta de la cadena (los
+    # eventos se agregan en orden). Ordenar por id evita depender de NULLS LAST
+    # (no portable a SQLite) cuando conviven filas históricas sin seq.
+    ultimo = (
+        db.query(PruebaEvento)
+        .filter(PruebaEvento.prueba_id == p.id)
+        .order_by(PruebaEvento.id.desc())
+        .first()
+    )
+    seq = (ultimo.seq + 1) if (ultimo is not None and ultimo.seq) else 1
+    prev = ultimo.hash if (ultimo is not None and ultimo.hash) else GENESIS
+    ts = _ahora_evento()
+    entrada = entrada_firmada(
+        seq=seq, ts=ts.isoformat(), actor=actor, rol=rol, accion=accion,
+        prueba_id=p.id, revision=p.revision, estado_anterior=anterior,
+        estado_nuevo=p.estado, content_hash=content_hash, comentario=comentario or "",
+    )
+    h = compute_hash_evento(entrada, prev)
     db.add(PruebaEvento(
         prueba_id=p.id, revision=p.revision, accion=accion, estado_anterior=anterior,
-        estado_nuevo=p.estado, actor=actor, comentario=comentario or None,
+        estado_nuevo=p.estado, actor=actor, comentario=comentario or None, creado_en=ts,
+        seq=seq, rol=rol, content_hash=content_hash, prev_hash=prev, hash=h,
     ))
+    # Flush para que un segundo evento en la misma transacción vea este (la
+    # sesión es autoflush=False): sin esto, dos eventos seguidos colisionarían
+    # en seq=1. Solo emite el INSERT del evento; no cambia el resto del flujo.
+    db.flush()
+
+
+def _ahora_evento() -> datetime.datetime:
+    """Timestamp del evento (UTC naive), fijado ANTES de firmar para que el ts
+    que se firma coincida con el ``creado_en`` almacenado."""
+    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+
+
+def verificar_bitacora(db: Session, prueba_id: int) -> list[PruebaEvento]:
+    """Verifica la cadena de la bitácora de una prueba (ENG-020).
+
+    Devuelve los eventos ordenados si la cadena es íntegra; lanza
+    ``gobernanza.CadenaCorrupta`` si un evento fue alterado o borrado.
+    """
+    from backend.app.aud.niif.ciclo.gobernanza import verificar_cadena
+
+    eventos = (
+        db.query(PruebaEvento)
+        .filter(PruebaEvento.prueba_id == prueba_id)
+        .order_by(PruebaEvento.seq)
+        .all()
+    )
+    return verificar_cadena(eventos)
 
 
 def crear_prueba(db: Session, project_id: int, origen: str, tributario: bool, actor: str) -> Prueba:
