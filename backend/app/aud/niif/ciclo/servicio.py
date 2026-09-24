@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import datetime
 import json
+import os
 from pathlib import Path
 
 from sqlalchemy import func, select
@@ -201,7 +202,68 @@ def verificar_bitacora(db: Session, prueba_id: int) -> list[PruebaEvento]:
     return verificar_cadena(eventos)
 
 
-def crear_prueba(db: Session, project_id: int, origen: str, tributario: bool, actor: str) -> Prueba:
+def registrar_checkpoint_ia(db: Session, p: Prueba, actor: str, artefacto_hash: str,
+                            *, comentario: str = "", rol: str = "") -> PruebaEvento:
+    """Sella en la bitácora una interpretación de IA con su huella (ENG-020).
+
+    ``artefacto_hash`` es el sha256 del contenido interpretado que se renderizó:
+    queda en la cadena como ``content_hash``, de modo que la bitácora traza qué
+    salida de IA se usó y cuándo (control 3 —audit trail— de la interpretación
+    IA del CLAUDE.md). No cambia el estado del ciclo. Devuelve el evento creado.
+    """
+    _evento(db, p, "checkpoint_ia", p.estado, actor,
+            comentario or "Checkpoint de interpretación IA.",
+            rol=rol, content_hash=str(artefacto_hash or ""))
+    db.commit()
+    return (
+        db.query(PruebaEvento)
+        .filter(PruebaEvento.prueba_id == p.id)
+        .order_by(PruebaEvento.id.desc())
+        .first()
+    )
+
+
+def sellar_bitacora_historica(db: Session) -> int:
+    """Numera y encadena la bitácora previa a P2-G (migración/backfill, ENG-020).
+
+    Los eventos escritos antes de esta versión no tienen ``hash``. Aquí se
+    re-sella, prueba por prueba y en orden de ``id``, TODA la cadena de cada
+    prueba que tenga algún evento sin hash: asigna ``seq`` contiguo desde 1,
+    encadena ``prev_hash``/``hash`` desde GENESIS y normaliza ``rol``/
+    ``content_hash`` nulos a ``""``. Idempotente: si no hay eventos sin sellar,
+    no toca nada. Devuelve cuántos eventos selló.
+
+    Debe correr ANTES de crear el trigger append-only (el sellado hace UPDATE
+    sobre filas históricas); ``init_db`` respeta ese orden.
+    """
+    from backend.app.aud.niif.ciclo import gobernanza
+
+    pids = [
+        r[0] for r in db.execute(
+            select(PruebaEvento.prueba_id).where(PruebaEvento.hash.is_(None)).distinct()
+        ).all()
+    ]
+    sellados = 0
+    for pid in pids:
+        cadena = list(db.execute(
+            select(PruebaEvento).where(PruebaEvento.prueba_id == pid).order_by(PruebaEvento.id)
+        ).scalars())
+        prev = gobernanza.GENESIS
+        for i, ev in enumerate(cadena, start=1):
+            ev.seq = i
+            ev.rol = ev.rol or ""
+            ev.content_hash = ev.content_hash or ""
+            ev.prev_hash = prev
+            ev.hash = gobernanza.compute_hash_evento(gobernanza.entrada_de_evento(ev), prev)
+            prev = ev.hash
+            sellados += 1
+    if sellados:
+        db.flush()
+    return sellados
+
+
+def crear_prueba(db: Session, project_id: int, origen: str, tributario: bool, actor: str,
+                 *, rol: str = "") -> Prueba:
     """Registro inicial igual al del sitio (POST /api/tools)."""
     encargo = leer_ficha(db, project_id)
     if not encargo:
@@ -241,7 +303,7 @@ def crear_prueba(db: Session, project_id: int, origen: str, tributario: bool, ac
     )
     db.add(p)
     db.flush()
-    _evento(db, p, "create", None, actor)
+    _evento(db, p, "create", None, actor, rol=rol)
     db.commit()
     db.refresh(p)
     return p
@@ -252,8 +314,27 @@ def _t(p: Prueba) -> dict:
     return {**p.registro, "state": p.estado, "definition": p.definicion}
 
 
-def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: dict, actor: str) -> Prueba:
-    """Acciones de E6. Cada rama replica la del mismo nombre en route.ts."""
+def _segregacion_activa() -> bool:
+    """¿Se exige el rol REAL en las transiciones de aprobación? (ENG-005/018).
+
+    Por defecto **no** (decisión del dueño 2026-09-21: el portal opera como ADMIN
+    y los operadores aprueban). Con ``CICLO_SEGREGACION_ENABLED`` en verdadero, la
+    segregación de funciones queda dura: quien no tenga rol aprobador (``reglas.
+    PUEDEN_APROBAR``) no puede cerrar la etapa. Toggle, para no cambiar el
+    comportamiento vigente sin que el dueño lo active.
+    """
+    return os.getenv("CICLO_SEGREGACION_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
+
+
+def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: dict, actor: str,
+                   *, rol: str = "") -> Prueba:
+    """Acciones de E6. Cada rama replica la del mismo nombre en route.ts.
+
+    ``rol`` es el rol REAL del actor (``gobernanza.rol_de_usuario``): se graba en
+    la bitácora como evidencia de segregación de funciones y, si
+    ``CICLO_SEGREGACION_ENABLED`` está activo, condiciona las transiciones de
+    aprobación.
+    """
     if revision != p.revision:
         raise Conflicto("La prueba cambió mientras la editaba. Actualice y vuelva a intentarlo.")
     if p.estado == "APROBADO":
@@ -261,6 +342,12 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
     t = _t(p)
     reg = copy.deepcopy(p.registro)
     anterior = p.estado
+    # Rol con el que se evalúan las transiciones: el real solo cuando la
+    # segregación está activa; si no, ADMIN (comportamiento vigente).
+    _rol_efectivo = rol if (rol and _segregacion_activa()) else "ADMIN"
+
+    def _sig(estado_dict: dict, acc: str) -> str:
+        return reglas.transicion(estado_dict, acc, _rol_efectivo)
 
     if accion == "research":
         if p.estado not in ("PRUEBA_SELECCIONADA", "PROGRAMA_PROPUESTO"):
@@ -275,7 +362,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
     elif accion == "generate_program":
         if not reg.get("researchedAt"):
             raise ReglaIncumplida("Consulte primero las fuentes oficiales.")
-        p.estado = reglas.transicion(t, accion)
+        p.estado = _sig(t, accion)
         reg["program"] = reglas.crear_programa(p.definicion, reg["engagement"])
 
     elif accion in ("save_program", "approve_program"):
@@ -301,10 +388,10 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
             reglas.validar_ficha_encargo({**reg["engagement"], "country": reg["country"]}, completa=True)
             reg["sourcesVerified"] = reglas.verificar_fuentes(reg)
             aprobado = reglas.vincular_fuentes(reg)
-            p.estado = reglas.transicion({**reg, "state": p.estado}, accion)
+            p.estado = _sig({**reg, "state": p.estado}, accion)
             reg["program"] = aprobado
     elif accion == "generate_request":
-        p.estado = reglas.transicion(t, accion)
+        p.estado = _sig(t, accion)
         reg["requests"] = datos_mod.create_requests(reg["program"], reg["engagement"]["cutoff"], p.definicion)
 
     elif accion in ("save_request", "approve_request"):
@@ -322,7 +409,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
             raise ReglaIncumplida("Identificadores duplicados.")
         reg["requests"] = [{**r, "status": "PENDIENTE"} for r in reqs]
         if accion == "approve_request":
-            p.estado = reglas.transicion({**reg, "state": p.estado}, accion)
+            p.estado = _sig({**reg, "state": p.estado}, accion)
 
     elif accion == "reject_file":
         # En el sitio el rechazo se envía al validar; aquí queda guardado en el
@@ -394,7 +481,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                 reg["controlTotal"] = procesadores.perdidas_incurridas_s11.r2(sum(_num_seguro(f.get(control)) for f in filas_ds[principal]))
             p.registro = reg
             p.revision += 1
-            _evento(db, p, accion, anterior, actor, str(datos.get("comment") or ""))
+            _evento(db, p, accion, anterior, actor, str(datos.get("comment") or ""), rol=rol)
             db.commit()
             db.refresh(p)
             return p
@@ -460,7 +547,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         reg["reconciliation"] = datos_mod.reconcile(
             reg.get("controlTotal"), datos.get("ledger"), datos.get("tolerance"), str(datos.get("acceptance") or "")
         )
-        p.estado = reglas.transicion({**reg, "state": p.estado}, accion)
+        p.estado = _sig({**reg, "state": p.estado}, accion)
         con_archivo = {a.requerimiento for a in recibidos_}
         reg["requests"] = [{**r, "status": "RECIBIDO" if r["id"] in con_archivo else "NO REQUERIDO"} for r in reg["requests"]]
 
@@ -489,7 +576,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                              "basis": str(datos.get("basis") or "").strip()[:10000], **params}
         if not reg["parameters"]["basis"]:
             raise ReglaIncumplida("Documente el sustento de parámetros y metodología.")
-        p.estado = reglas.transicion({**reg, "state": p.estado}, "configure")
+        p.estado = _sig({**reg, "state": p.estado}, "configure")
 
     elif accion == "configure":
         reg["parameters"] = {
@@ -501,13 +588,13 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
             raise ReglaIncumplida("Documente el sustento de parámetros y metodología.")
         if p.definicion.get("id") == "pce":
             datos_mod.check_buckets(reg["parameters"])
-        p.estado = reglas.transicion({**reg, "state": p.estado}, accion)
+        p.estado = _sig({**reg, "state": p.estado}, accion)
 
     elif accion == "approve_methodology":
-        p.estado = reglas.transicion({**reg, "state": p.estado}, accion)
+        p.estado = _sig({**reg, "state": p.estado}, accion)
 
     elif accion == "execute":
-        siguiente = reglas.transicion({**reg, "state": p.estado}, accion)
+        siguiente = _sig({**reg, "state": p.estado}, accion)
         # Aquí la autoridad es el motor Python (el mismo archivo del sitio); el
         # navegador corre domain.mjs y manda su resultado para contrastarlo.
         from backend.app.aud.niif import estudio
@@ -550,7 +637,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         p.estado = siguiente
 
     elif accion == "analyze":
-        p.estado = reglas.transicion({**reg, "state": p.estado}, accion)
+        p.estado = _sig({**reg, "state": p.estado}, accion)
         reg["analysis"] = datos_mod.preliminary({**reg, "definition": p.definicion})
 
     elif accion in ("save_analysis", "submit"):
@@ -563,7 +650,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         if accion == "submit":
             if not reg["conclusion"].strip():
                 raise ReglaIncumplida("Redacte la conclusión preliminar antes de enviar.")
-            p.estado = reglas.transicion({**reg, "state": p.estado, "definition": p.definicion}, accion)
+            p.estado = _sig({**reg, "state": p.estado, "definition": p.definicion}, accion)
 
     # --- E9: revisión y aprobación (route.ts) ---------------------------------
     elif accion == "return_to_data":
@@ -611,7 +698,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         if (reg.get("run") or {}).get("exceptions") and len(reg["exceptionReview"]) < 10:
             raise ReglaIncumplida("Documente la evaluación de excepciones antes de cerrar.")
         reg["conclusionReviewed"] = True
-        p.estado = reglas.transicion({**reg, "state": p.estado, "definition": p.definicion}, accion)
+        p.estado = _sig({**reg, "state": p.estado, "definition": p.definicion}, accion)
         reg["approvedBy"] = actor
         reg["approvedAt"] = _ahora_iso()
         # El papel final (Excel y HTML) lo arma el navegador con el exportador
@@ -635,7 +722,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
 
     p.registro = reg
     p.revision += 1
-    _evento(db, p, accion, anterior, actor, str(datos.get("comment") or ""))
+    _evento(db, p, accion, anterior, actor, str(datos.get("comment") or ""), rol=rol)
     db.commit()
     db.refresh(p)
     if accion == "approve" and procesadores.de(p.definicion):
@@ -686,7 +773,7 @@ def archivos(db: Session, prueba_id: int) -> list[PruebaArchivo]:
 
 
 def subir_archivo(db: Session, p: Prueba, revision: int, requerimiento: str, componente: str,
-                  nombre: str, contenido: bytes, actor: str) -> PruebaArchivo:
+                  nombre: str, contenido: bytes, actor: str, *, rol: str = "") -> PruebaArchivo:
     """Puerto de POST /api/tool-files del sitio, sobre el disco del portal."""
     if revision != p.revision:
         raise Conflicto("La prueba cambió mientras la editaba. Actualice y vuelva a intentarlo.")
@@ -719,7 +806,7 @@ def subir_archivo(db: Session, p: Prueba, revision: int, requerimiento: str, com
     p.registro = reg
     p.estado = "DOCUMENTACION_RECIBIDA"
     p.revision += 1
-    _evento(db, p, "upload", anterior, actor, f"{requerimiento}{' · ' + componente if componente else ''}: {limpio}")
+    _evento(db, p, "upload", anterior, actor, f"{requerimiento}{' · ' + componente if componente else ''}: {limpio}", rol=rol)
     db.commit()
     db.refresh(a)
     return a
@@ -759,7 +846,8 @@ def guardar_definicion_ficha(db: Session, ficha: NiifFicha, definicion: dict, fi
 
 # --- E9: papel aprobado, versiones, contexto, encerar y eliminar -------------
 
-def guardar_papel(db: Session, p: Prueba, revision: int, xlsx: bytes, html: bytes, actor: str) -> Prueba:
+def guardar_papel(db: Session, p: Prueba, revision: int, xlsx: bytes, html: bytes, actor: str,
+                  *, rol: str = "") -> Prueba:
     """El papel aprobado se guarda una sola vez, con su huella, y ya no cambia.
 
     Lo arma el navegador con el exportador del sitio a partir del registro que
@@ -793,13 +881,13 @@ def guardar_papel(db: Session, p: Prueba, revision: int, xlsx: bytes, html: byte
     reg["artifacts"] = artefactos
     p.registro = reg
     p.revision += 1
-    _evento(db, p, "workpaper", "APROBADO", actor, "Papel aprobado guardado con su huella.")
+    _evento(db, p, "workpaper", "APROBADO", actor, "Papel aprobado guardado con su huella.", rol=rol)
     db.commit()
     db.refresh(p)
     return p
 
 
-def nueva_version(db: Session, old: Prueba, revision: int, actor: str) -> Prueba:
+def nueva_version(db: Session, old: Prueba, revision: int, actor: str, *, rol: str = "") -> Prueba:
     """Puerto de la acción ``new_version`` de route.ts."""
     if revision != old.revision:
         raise Conflicto("La prueba cambió mientras la editaba. Actualice y vuelva a intentarlo.")
@@ -820,7 +908,7 @@ def nueva_version(db: Session, old: Prueba, revision: int, actor: str) -> Prueba
                origen=old.origen, definicion=old.definicion, registro=registro, revision=1, creada_por=actor)
     db.add(p)
     db.flush()
-    _evento(db, p, "new_version", None, actor, f"Versión anterior: v{old.version} (prueba {old.id})")
+    _evento(db, p, "new_version", None, actor, f"Versión anterior: v{old.version} (prueba {old.id})", rol=rol)
     db.commit()
     db.refresh(p)
     return p
@@ -830,7 +918,7 @@ def _confirma_cliente(p: Prueba, datos: dict) -> bool:
     return str(datos.get("confirmClient") or "") == str(p.registro["engagement"].get("client") or "")
 
 
-def encerar(db: Session, p: Prueba, revision: int, datos: dict, actor: str) -> Prueba:
+def encerar(db: Session, p: Prueba, revision: int, datos: dict, actor: str, *, rol: str = "") -> Prueba:
     """Puerto de ``eraseTool``: borra evidencia, resultados e historial; la
     prueba queda en la lista, lista para empezar de nuevo."""
     if revision != p.revision:
@@ -854,8 +942,13 @@ def encerar(db: Session, p: Prueba, revision: int, datos: dict, actor: str) -> P
         db.delete(a)
     for e in eventos(db, p.id):
         db.delete(e)
+    # Encerar reinicia la prueba: la bitácora previa se borra por diseño
+    # (``eraseTool`` borra el historial). El flush aplica esos DELETE antes de
+    # emitir el evento, para que la cadena reinicie limpia en GENESIS/seq=1 y no
+    # herede el ``prev_hash`` de un evento que ya no existe.
+    db.flush()
     p.revision += 1
-    _evento(db, p, "erase", anterior, actor)
+    _evento(db, p, "erase", anterior, actor, rol=rol)
     db.commit()
     # Los archivos se borran del disco después de confirmar la base: si esto
     # fallara quedaría una carpeta huérfana, nunca una fila sin su archivo.
@@ -886,7 +979,8 @@ def eliminar(db: Session, p: Prueba, revision: int, datos: dict) -> dict:
     return salida
 
 
-def editar_contexto(db: Session, old: Prueba, revision: int, datos: dict, actor: str) -> Prueba:
+def editar_contexto(db: Session, old: Prueba, revision: int, datos: dict, actor: str,
+                    *, rol: str = "") -> Prueba:
     """Puerto de ``editContext``: cambiar la ficha del encargo para esta prueba,
     para varias o para todas las abiertas del proyecto. Las afectadas vuelven a
     empezar: la ficha cambia fuentes, requerimientos y datos."""
@@ -928,7 +1022,7 @@ def editar_contexto(db: Session, old: Prueba, revision: int, datos: dict, actor:
         c.registro = reg
         c.estado = "PRUEBA_SELECCIONADA"
         c.revision += 1
-        _evento(db, c, "edit_context", anterior, actor, f"Alcance {alcance}; pruebas afectadas: {afectadas}")
+        _evento(db, c, "edit_context", anterior, actor, f"Alcance {alcance}; pruebas afectadas: {afectadas}", rol=rol)
     if alcance == "all":
         f = db.get(FichaEncargo, old.project_id)
         if f is not None:

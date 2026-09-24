@@ -133,6 +133,95 @@ def _ensure_forge_append_only_triggers() -> None:
         )
 
 
+def _ensure_bitacora_append_only_trigger() -> None:
+    """Hace ``aud_prueba_eventos`` **inmutable a nivel de motor** (P2-G, ENG-020).
+
+    A diferencia de ``forge_decisions`` (que bloquea UPDATE y DELETE), aquí el
+    trigger bloquea **solo UPDATE**: el DELETE es legítimo en dos lugares del
+    ciclo —``servicio.encerar`` (reinicia la prueba) y ``servicio.eliminar``
+    (quita la prueba con su historial)—, ambos operaciones de ciclo de vida
+    confirmadas por el usuario. El vector de manipulación real es *alterar en
+    sitio* el contenido de un evento ya escrito, y eso es lo que el UPDATE
+    imposibilita a nivel de motor, aun contra SQL crudo. El borrado parcial de un
+    evento intermedio lo delata ``gobernanza.verificar_cadena`` (rompe la
+    contigüidad de ``seq`` y el ``prev_hash``).
+
+    Misma filosofía que los triggers de Forge: idempotente, misma semántica en
+    Postgres y SQLite (se prueba en CI sobre SQLite) y falla suave —si algo
+    revienta se registra pero no se tumba el arranque; el servicio nunca emite
+    UPDATE sobre la bitácora, así que el trigger es la garantía dura contra un
+    bug o código rogue, no la única barrera.
+    """
+    from sqlalchemy import text
+
+    dialect = engine.dialect.name
+    try:
+        with engine.begin() as conn:
+            if dialect == "postgresql":
+                conn.execute(
+                    text(
+                        "CREATE OR REPLACE FUNCTION aud_prueba_eventos_append_only() "
+                        "RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
+                        "RAISE EXCEPTION 'aud_prueba_eventos es append-only: los eventos no se modifican'; "
+                        "END; $$;"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "DROP TRIGGER IF EXISTS aud_prueba_eventos_no_update "
+                        "ON aud_prueba_eventos;"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE TRIGGER aud_prueba_eventos_no_update "
+                        "BEFORE UPDATE ON aud_prueba_eventos "
+                        "FOR EACH ROW EXECUTE FUNCTION aud_prueba_eventos_append_only();"
+                    )
+                )
+            elif dialect == "sqlite":
+                conn.execute(
+                    text(
+                        "CREATE TRIGGER IF NOT EXISTS aud_prueba_eventos_no_update "
+                        "BEFORE UPDATE ON aud_prueba_eventos BEGIN "
+                        "SELECT RAISE(ABORT, 'aud_prueba_eventos es append-only: los eventos no se modifican'); END;"
+                    )
+                )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "No se pudo crear el trigger append-only de aud_prueba_eventos"
+        )
+
+
+def _drop_bitacora_append_only_trigger() -> None:
+    """Quita el trigger append-only de ``aud_prueba_eventos`` (idempotente).
+
+    El sellado histórico (``servicio.sellar_bitacora_historica``) hace UPDATE
+    sobre filas viejas, así que si en un arranque anterior ya se creó el trigger,
+    hay que retirarlo mientras se sella y volver a crearlo justo después. Falla
+    suave, igual que el resto de la orquestación de arranque.
+    """
+    from sqlalchemy import text
+
+    dialect = engine.dialect.name
+    try:
+        with engine.begin() as conn:
+            if dialect == "postgresql":
+                conn.execute(text(
+                    "DROP TRIGGER IF EXISTS aud_prueba_eventos_no_update ON aud_prueba_eventos;"
+                ))
+            elif dialect == "sqlite":
+                conn.execute(text("DROP TRIGGER IF EXISTS aud_prueba_eventos_no_update;"))
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "No se pudo retirar el trigger append-only de aud_prueba_eventos para sellar"
+        )
+
+
 def _ensure_execution_idempotency_index() -> None:
     """Índice único PARCIAL de idempotencia de ``execution_runs`` (AUT-004).
 
@@ -192,6 +281,25 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
 
     _ensure_forge_append_only_triggers()
+    # Sellado histórico de la bitácora del ciclo: numera y encadena los eventos
+    # previos a P2-G. Corre ANTES del trigger append-only porque hace UPDATE
+    # sobre esas filas. Falla suave (no tumba el arranque); si algo revienta, la
+    # cadena sin sellar la delata luego ``verificar_bitacora``.
+    try:
+        from backend.app.aud.niif.ciclo import servicio as _ciclo_srv
+        # Retirar el trigger (si un arranque previo lo creó) para poder sellar con
+        # UPDATE; se recrea inmediatamente después con _ensure_...().
+        _drop_bitacora_append_only_trigger()
+        _seal_db = SessionLocal()
+        try:
+            if _ciclo_srv.sellar_bitacora_historica(_seal_db):
+                _seal_db.commit()
+        finally:
+            _seal_db.close()
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("sellar_bitacora_historica falló en init_db")
+    _ensure_bitacora_append_only_trigger()
     _ensure_execution_idempotency_index()
 
     # Migración aditiva en ``users``: añade columnas si faltan.

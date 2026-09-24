@@ -13,7 +13,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.aud.niif import procesadores
-from backend.app.aud.niif.ciclo import almacen, datos, modelo, servicio
+from backend.app.aud.niif.ciclo import almacen, datos, gobernanza, modelo, servicio
+from backend.app.aud.niif.ciclo.gobernanza import CadenaCorrupta
 from backend.app.aud.niif.ciclo.models import Prueba, PruebaArchivo
 from backend.app.aud.niif.ciclo.reglas import ReglaIncumplida
 from backend.app.aud.niif.models import NiifFicha
@@ -124,7 +125,8 @@ def listar(project_id: int, db: Session = Depends(get_db), user: User = Depends(
 @router.post("/proyectos/{project_id}/pruebas", status_code=status.HTTP_201_CREATED)
 def crear(project_id: int, body: NuevaPruebaIn, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
     _proyecto(db, user, project_id)
-    return _salida(_regla(lambda: servicio.crear_prueba(db, project_id, body.origen, body.tributario, user.email)))
+    rol = gobernanza.rol_de_usuario(user)
+    return _salida(_regla(lambda: servicio.crear_prueba(db, project_id, body.origen, body.tributario, user.email, rol=rol)))
 
 
 @router.get("/pruebas/{prueba_id}")
@@ -166,16 +168,36 @@ def leer(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(req
 @router.post("/pruebas/{prueba_id}/acciones")
 def accion(prueba_id: int, body: AccionIn, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
     p = _prueba(db, user, prueba_id)
+    rol = gobernanza.rol_de_usuario(user)
     # Acciones que no son un paso del circuito (route.ts las atiende antes).
     especiales = {
-        "new_version": lambda: _salida(servicio.nueva_version(db, p, body.revision, user.email)),
-        "erase": lambda: _salida(servicio.encerar(db, p, body.revision, body.datos, user.email)),
+        "new_version": lambda: _salida(servicio.nueva_version(db, p, body.revision, user.email, rol=rol)),
+        "erase": lambda: _salida(servicio.encerar(db, p, body.revision, body.datos, user.email, rol=rol)),
         "delete": lambda: servicio.eliminar(db, p, body.revision, body.datos),
-        "edit_context": lambda: _salida(servicio.editar_contexto(db, p, body.revision, body.datos, user.email)),
+        "edit_context": lambda: _salida(servicio.editar_contexto(db, p, body.revision, body.datos, user.email, rol=rol)),
     }
     if body.accion in especiales:
         return _regla(especiales[body.accion])
-    return _salida(_regla(lambda: servicio.aplicar_accion(db, p, body.accion, body.revision, body.datos, user.email)))
+    return _salida(_regla(lambda: servicio.aplicar_accion(db, p, body.accion, body.revision, body.datos, user.email, rol=rol)))
+
+
+@router.get("/pruebas/{prueba_id}/bitacora/verificar")
+def verificar_bitacora(prueba_id: int, db: Session = Depends(get_db),
+                       user: User = Depends(require_staff)) -> dict:
+    """Verifica la cadena append-only de la bitácora de la prueba (ENG-020).
+
+    Recomputa el hash de cada evento y comprueba el encadenado. Devuelve
+    ``{"integra": true, ...}`` si la cadena está intacta; si un evento fue
+    alterado o borrado, ``{"integra": false, "seq": <n>, "motivo": <texto>}``
+    (no lanza 500: la corrupción es un resultado válido de la verificación).
+    """
+    p = _prueba(db, user, prueba_id)
+    try:
+        filas = servicio.verificar_bitacora(db, p.id)
+    except CadenaCorrupta as e:
+        return {"integra": False, "seq": e.seq, "motivo": str(e), "eventos": len(servicio.eventos(db, p.id))}
+    return {"integra": True, "eventos": len(filas),
+            "ultimo_hash": filas[-1].hash if filas else gobernanza.GENESIS}
 
 
 @router.post("/pruebas/{prueba_id}/papel")
@@ -190,7 +212,8 @@ async def guardar_papel(
     p = _prueba(db, user, prueba_id)
     a = await xlsx.read(almacen.MAX_ARCHIVO + 1)
     b = await html.read(almacen.MAX_ARCHIVO + 1)
-    return _salida(_regla(lambda: servicio.guardar_papel(db, p, revision, a, b, user.email)))
+    rol = gobernanza.rol_de_usuario(user)
+    return _salida(_regla(lambda: servicio.guardar_papel(db, p, revision, a, b, user.email, rol=rol)))
 
 
 @router.get("/bandejas")
@@ -264,7 +287,8 @@ async def subir(
 ) -> dict:
     p = _prueba(db, user, prueba_id)
     contenido = await archivo.read(almacen.MAX_ARCHIVO + 1)
-    a = _regla(lambda: servicio.subir_archivo(db, p, revision, requerimiento, componente, archivo.filename or "", contenido, user.email))
+    rol = gobernanza.rol_de_usuario(user)
+    a = _regla(lambda: servicio.subir_archivo(db, p, revision, requerimiento, componente, archivo.filename or "", contenido, user.email, rol=rol))
     return {"id": a.id, "sha256": a.sha256, "revision": p.revision}
 
 
