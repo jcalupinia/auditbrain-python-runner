@@ -334,6 +334,110 @@ FISC = ["total", "corriente", "pce", "provIni", "castigos", "dotacion", "limite1
 F_ = {k: f"{FIS}$B${FILA0 + i}" for i, k in enumerate(FISC)}
 
 
+# Explicación humana de cada columna calculada («Cómo se calcula esta hoja»).
+EXPLICA = {
+    "01_Resumen": {
+        "Importe": ("Trae cada importe de la hoja donde se calculó: cartera, pérdida esperada, dotación, castigos, gasto "
+                    "deducible y no deducible y diferido de la hoja 07 (Fiscal e impuesto diferido); la provisión "
+                    "registrada de la hoja 02 (Parámetros). El ajuste propuesto es la pérdida esperada menos la provisión registrada."),
+    },
+    "02_Parametros": {
+        "Valor": ("Los parámetros son datos del encargo o juicio del auditor; solo el factor prospectivo ponderado se "
+                  "calcula: suma peso × (1 + ajuste) de los tres escenarios y lo divide para la suma de los pesos."),
+    },
+    "03_Tasas_historicas": {
+        "Facturas": ("Cuenta cuántas facturas de la cartera del corte anterior (hoja 10) tienen este mismo segmento y "
+                     "tramo de mora."),
+        "Saldo al corte anterior": ("Suma el saldo que tenían, al corte anterior, las facturas de este segmento y tramo en "
+                                    "la hoja 10 (Cartera del corte anterior)."),
+        "Impago o castigado un año después": ("Suma la pérdida observada de esas mismas facturas en la hoja 10: lo que un "
+                                              "año después seguía impago más lo que se castigó."),
+        "Tasa histórica": ("Divide lo impago o castigado un año después para el saldo al corte anterior: es la tasa de "
+                           "pérdida que mostró la historia. Si no hubo saldo anterior, queda en blanco."),
+    },
+    "04_Matriz_provisiones": {
+        "Tasa histórica": "Trae la tasa histórica del mismo segmento y tramo desde la hoja 03 (Tasas históricas).",
+        "Tasa fijada": ("Solo si el auditor fijó una tasa para el tramo: la toma de la hoja 02 (Parámetros) y la divide "
+                        "para 100. Si no la fijó, queda en blanco."),
+        "Tasa base": ("Usa la tasa histórica si existe; si no hay historia, usa la tasa fijada por el auditor; si no hay "
+                      "ninguna de las dos, queda en blanco."),
+        "Factor prospectivo": ("Trae el factor prospectivo ponderado de la hoja 02 (Parámetros), que ajusta la historia "
+                               "con los escenarios base, optimista y pesimista."),
+        "Tasa aplicada": ("Multiplica la tasa base por el factor prospectivo, con un tope de 100 %. Si el tramo no tiene "
+                          "tasa base, queda en blanco."),
+        "Saldo al corte": ("Suma el saldo de las facturas del detalle (hoja 09) que tienen este mismo segmento y tramo "
+                           "de mora."),
+        "Pérdida esperada": ("Suma la pérdida esperada calculada factura por factura en la hoja 09 (Detalle por factura) "
+                             "para este segmento y tramo."),
+    },
+    "05_Revelacion_NIIF7": {
+        "Importe en libros bruto": ("Suma el saldo de todas las facturas del detalle (hoja 09) que caen en este tramo de "
+                                    "mora, sin importar el segmento."),
+        "Tasa esperada promedio": ("Divide la pérdida esperada del tramo para su importe en libros bruto: es la tasa "
+                                   "promedio del tramo. Si el tramo no tiene saldo, queda en blanco."),
+        "Pérdida esperada": ("Suma la pérdida esperada de todas las facturas del detalle (hoja 09) que caen en este "
+                             "tramo de mora, de todos los segmentos."),
+    },
+    "06_Movimiento": {
+        "Importe": ("Trae la provisión inicial, los castigos y la dotación neta de la hoja 07 (Fiscal e impuesto "
+                    "diferido); la última fila parte de la provisión inicial, resta los castigos y suma la dotación, y "
+                    "debe igualar la pérdida esperada al cierre."),
+    },
+    "07_Fiscal": {
+        "Importe": ("Cada concepto tiene su propio cálculo: cartera, parte corriente y pérdida esperada se suman del "
+                    "detalle (hoja 09); la provisión inicial viene de la hoja 02 (Parámetros) y los castigos de la hoja "
+                    "11; la dotación es pérdida esperada − provisión inicial + castigos; los límites y el diferido aplican "
+                    "los porcentajes de la hoja 02; el resto combina las filas anteriores de esta hoja."),
+    },
+    "08_Asientos": {
+        "Debe": ("Toma el importe del asiento de la hoja 07 (Fiscal e impuesto diferido): la dotación neta y el "
+                 "movimiento del diferido en valor absoluto, y los castigos del ejercicio."),
+        "Haber": ("Lleva a la contrapartida el mismo importe del asiento, tomado de la hoja 07 (Fiscal e impuesto "
+                  "diferido), para que debe y haber cuadren."),
+    },
+    "09_Detalle": {
+        "Días de mora": ("Resta la fecha de vencimiento de la fecha de corte de la hoja 02 (Parámetros); si la factura no "
+                         "tiene vencimiento, queda en blanco. Cero o negativo significa que aún no vence."),
+        "Tramo": ("Clasifica la factura por sus días de mora: corriente/por vencer si no tiene mora, luego 1 a 30, 31 a 60, "
+                  "61 a 90, 91 a 180, 181 a 360 y más de 360 días. Sin días de mora queda en blanco."),
+        "Clave": ("Une el segmento y el tramo de la factura (segmento|tramo) para buscar su tasa en la hoja 04 (Matriz "
+                  "de provisiones)."),
+        "Tasa aplicada": ("Si la factura tiene tasa individual, usa esa tasa dividida para 100; si no, busca la tasa "
+                          "aplicada de su segmento y tramo en la hoja 04 (Matriz de provisiones). Si no la encuentra o "
+                          "está vacía, queda en blanco."),
+        "Pérdida esperada": ("Multiplica el saldo por la tasa aplicada y lo descuenta con la tasa y el plazo de cobro de la "
+                             "hoja 02 (Parámetros); nunca es negativa. Sin tasa, queda en blanco."),
+        "En impago": ("Marca «Sí» si la factura tiene más de 90 días de mora y «No» en caso contrario; sin días de mora "
+                      "queda en blanco."),
+    },
+    "10_Cartera_anterior": {
+        "Días de mora": ("Resta la fecha de vencimiento de la fecha del corte anterior de la hoja 02 (Parámetros); sin "
+                         "vencimiento, queda en blanco."),
+        "Tramo": ("Clasifica la factura en su tramo de mora al corte anterior (corriente, 1 a 30, 31 a 60, 61 a 90, 91 a "
+                  "180, 181 a 360 o más de 360 días). Sin días de mora queda en blanco."),
+        "Clave": ("Une el segmento y el tramo al corte anterior (segmento|tramo) para agruparla en la hoja 03 (Tasas "
+                  "históricas)."),
+        "Sigue impago al corte": ("Busca la misma factura en el detalle actual (hoja 09) y toma su saldo, sin pasar del "
+                                  "saldo que tenía al corte anterior ni bajar de cero: es lo que sigue sin cobrarse."),
+        "Castigado": ("Suma lo castigado de la misma factura en la hoja 11 (Castigos del ejercicio), limitado al saldo "
+                      "anterior que no sigue impago y nunca negativo."),
+        "Pérdida observada": ("Suma lo que sigue impago al corte y lo castigado: es lo que no se recuperó de esa factura "
+                              "en el año."),
+    },
+}
+
+# Panel del dashboard (formato en graficos.py).
+PANEL = {
+    "poblacion": {"rotulo": "Cartera al corte", "total": "saldo"},
+    "recalculado": {"rotulo": "Pérdida esperada recalculada", "total": "pce"},
+    "registrado": {"rotulo": "Provisión registrada", "total": "provisionRegistrada"},
+    "composicion": {"rotulo": "Pérdida esperada por tramo", "hoja": "05_Revelacion_NIIF7", "etiqueta": "Tramo de mora",
+                    "valor": "Pérdida esperada"},
+    "distribucion": {"rotulo": "Cartera por tramo", "hoja": "05_Revelacion_NIIF7", "etiqueta": "Tramo de mora",
+                     "valor": "Importe en libros bruto"},
+}
+
+
 def _tramo_formula(celda: str) -> str:
     f = f'"{TRAMOS[-1]["n"]}"'
     for t in reversed(TRAMOS[:-1]):
@@ -486,33 +590,42 @@ def hojas(res: dict) -> list[dict]:
                "dtaFin": F_["dtaFin"], "dtaMov": F_["dtaMov"]}
     resumen = [[res["labels"][k], _fx(ref_res[k], _n(t[k]))] for k in res["labels"]]
 
-    hoja = lambda name, label, cols, rows, total=None: {"name": name, "label": label, "cols": cols, "rows": rows, "total": total}
+    hoja = lambda name, label, cols, rows, total=None, explica=None: {"name": name, "label": label, "cols": cols, "rows": rows,
+                                                                      "total": total, "explica": dict(explica or {})}
     fin_ant, fin_cas = FILA0 + na - 1, FILA0 + nc - 1
     return [
-        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen),
-        hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
+        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
+        hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros,
+             explica=EXPLICA["02_Parametros"]),
         hoja("03_Tasas_historicas", "Tasas históricas",
              [["Segmento", "t"], ["Tramo", "t"], ["Clave", "t"], ["Facturas", "i"], ["Saldo al corte anterior", "n"],
-              ["Impago o castigado un año después", "n"], ["Tasa histórica", "p"]], historicas),
+              ["Impago o castigado un año después", "n"], ["Tasa histórica", "p"]], historicas,
+             explica=EXPLICA["03_Tasas_historicas"]),
         hoja("04_Matriz_provisiones", "Matriz de provisiones",
              [["Segmento", "t"], ["Tramo", "t"], ["Clave", "t"], ["Tasa histórica", "p"], ["Tasa fijada", "p"], ["Tasa base", "p"],
               ["Factor prospectivo", "x"], ["Tasa aplicada", "p"], ["Saldo al corte", "n"], ["Pérdida esperada", "n"]], matriz,
-             ["TOTAL", "", "", None, None, None, None, None, s("I", fin_mat, _n(t["saldo"])), s("J", fin_mat, _n(t["pce"]))]),
+             ["TOTAL", "", "", None, None, None, None, None, s("I", fin_mat, _n(t["saldo"])), s("J", fin_mat, _n(t["pce"]))],
+             explica=EXPLICA["04_Matriz_provisiones"]),
         hoja("05_Revelacion_NIIF7", "Revelación NIIF 7 (35M/35N)",
              [["Tramo de mora", "t"], ["Importe en libros bruto", "n"], ["Tasa esperada promedio", "p"], ["Pérdida esperada", "n"],
-              ["En impago (B5.5.37)", "t"]], revel, ["TOTAL", s("B", fin_rev, _n(t["saldo"])), None, s("D", fin_rev, _n(t["pce"])), ""]),
-        hoja("06_Movimiento", "Movimiento de la provisión (NIIF 7 35H)", [["Concepto", "t"], ["Importe", "n"]], movimiento),
-        hoja("07_Fiscal", "Fiscal e impuesto diferido", [["Concepto", "t"], ["Importe", "n"]], fiscal),
-        hoja("08_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos),
+              ["En impago (B5.5.37)", "t"]], revel, ["TOTAL", s("B", fin_rev, _n(t["saldo"])), None, s("D", fin_rev, _n(t["pce"])), ""],
+             explica=EXPLICA["05_Revelacion_NIIF7"]),
+        hoja("06_Movimiento", "Movimiento de la provisión (NIIF 7 35H)", [["Concepto", "t"], ["Importe", "n"]], movimiento,
+             explica=EXPLICA["06_Movimiento"]),
+        hoja("07_Fiscal", "Fiscal e impuesto diferido", [["Concepto", "t"], ["Importe", "n"]], fiscal, explica=EXPLICA["07_Fiscal"]),
+        hoja("08_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos,
+             explica=EXPLICA["08_Asientos"]),
         hoja("09_Detalle", "Detalle por factura",
              [["Factura", "t"], ["Cliente", "t"], ["Segmento", "t"], ["Vencimiento", "d"], ["Días de mora", "i"], ["Tramo", "t"],
               ["Clave", "t"], ["Saldo", "n"], ["Tasa individual (%)", "x"], ["Tasa aplicada", "p"], ["Pérdida esperada", "n"], ["En impago", "t"]],
-             detalle, ["TOTAL", "", "", "", None, "", "", s("H", fin_det, _n(t["saldo"])), None, None, s("K", fin_det, _n(t["pce"])), ""]),
+             detalle, ["TOTAL", "", "", "", None, "", "", s("H", fin_det, _n(t["saldo"])), None, None, s("K", fin_det, _n(t["pce"])), ""],
+             explica=EXPLICA["09_Detalle"]),
         hoja("10_Cartera_anterior", "Cartera del corte anterior",
              [["Factura", "t"], ["Cliente", "t"], ["Segmento", "t"], ["Vencimiento", "d"], ["Días de mora", "i"], ["Tramo", "t"], ["Clave", "t"],
               ["Saldo", "n"], ["Sigue impago al corte", "n"], ["Castigado", "n"], ["Pérdida observada", "n"]], anterior,
              ["TOTAL", "", "", "", None, "", "", s("H", fin_ant, _n(sum(x["saldo"] for x in ant))), s("I", fin_ant, _n(sum(x["sigue"] for x in ant))),
-              s("J", fin_ant, _n(sum(x["castigado"] for x in ant))), s("K", fin_ant, _n(sum(x["perdida"] for x in ant)))] if na else None),
+              s("J", fin_ant, _n(sum(x["castigado"] for x in ant))), s("K", fin_ant, _n(sum(x["perdida"] for x in ant)))] if na else None,
+             explica=EXPLICA["10_Cartera_anterior"]),
         hoja("11_Castigos", "Castigos del ejercicio", [["Factura", "t"], ["Cliente", "t"], ["Importe castigado", "n"]],
              [[c["id"], c["cliente"], _n(c["importe"])] for c in cas],
              ["TOTAL", "", s("C", fin_cas, _n(f["castigos"]))] if nc else None),

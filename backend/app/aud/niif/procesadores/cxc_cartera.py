@@ -303,6 +303,117 @@ _AJ = ["requerido", "registrado", "ajuste", "interesReq", "descReg", "ajusteFin"
 AJF = {k: FILA0 + i for i, k in enumerate(_AJ)}
 
 
+# Explicación humana de cada columna calculada («Cómo se calcula esta hoja»).
+EXPLICA = {
+    "01_Resumen": {
+        "Importe": ("La cartera nominal y a costo amortizado se suman del detalle (hoja 03, Detalle por factura); los demás "
+                    "conceptos se traen, uno por uno, de la hoja 10 (Deterioro requerido vs registrado)."),
+    },
+    "03_Detalle": {
+        "Días de mora": ("Resta la fecha de vencimiento de la fecha de corte de la hoja 02 (Parámetros): positivo son días "
+                         "vencidos; cero o negativo, la factura todavía está por vencer."),
+        "Tramo": ("Clasifica la factura por sus días de mora: corriente/por vencer si no tiene mora, luego 1 a 30, 31 a 60, "
+                  "61 a 90, 91 a 180, 181 a 360 y más de 360 días."),
+        "Plazo de crédito (días)": "Cuenta los días que hay entre la emisión y el vencimiento de la factura: es el plazo que se dio al cliente.",
+        "Financiación implícita": ("Marca «Sí» si la factura tiene saldo y su plazo de crédito supera los meses que la hoja "
+                                   "02 (Parámetros) considera financiación, convertidos a días; si no, «No»."),
+        "Costo amortizado": ("Si la factura tiene financiación implícita y hay tasa de mercado en la hoja 02, descuenta el "
+                             "saldo por los días que faltan desde el corte hasta el vencimiento; si no, deja el saldo nominal."),
+        "Interés implícito por devengar": ("Resta al saldo nominal su costo amortizado: el interés implícito que aún no se "
+                                           "gana. Si hay financiación pero falta la tasa de mercado, queda en blanco."),
+        "Tasa aplicada": ("Si la factura tiene tasa individual, usa esa tasa dividida para 100; si no, busca la tasa de su "
+                          "tramo en la hoja 09 (Matriz de deterioro). Si el tramo no tiene tasa, queda en blanco."),
+        "Deterioro requerido": ("Multiplica el costo amortizado de la factura por la tasa aplicada; nunca es negativo. Sin "
+                                "tasa, queda en blanco."),
+    },
+    "04_Aging": {
+        "Facturas": "Cuenta cuántas facturas del detalle (hoja 03, Detalle por factura) caen en este tramo de antigüedad.",
+        "Saldo": "Suma el saldo nominal de las facturas del detalle (hoja 03) que caen en este tramo de antigüedad.",
+        "% de la cartera": ("Divide el saldo del tramo para el saldo total de la cartera de la hoja 03 (Detalle por "
+                            "factura); si la cartera total es cero, queda en blanco."),
+    },
+    "05_Cobros_posteriores": {
+        "Días de mora": "Trae los días de mora de la misma factura desde la hoja 03 (Detalle por factura).",
+        "Saldo al corte": "Trae el saldo al corte de la misma factura desde la hoja 03 (Detalle por factura).",
+        "Cobro posterior aplicable": ("Si el cobro informado tiene fecha posterior al corte de la hoja 02 (Parámetros), "
+                                      "toma ese cobro sin pasar del saldo al corte; si falta el cobro o la fecha, o es "
+                                      "anterior al corte, es cero."),
+        "Saldo sin cobro posterior": "Resta al saldo al corte el cobro posterior aplicable: lo que queda sin evidencia de cobro.",
+        "Vencida sin cobro": ("Marca «Sí» si la factura está vencida (días de mora mayores que cero) y le queda saldo sin "
+                              "cobro posterior; si no, «No»."),
+        "Vencido sin cobro": "Si la factura está marcada como vencida sin cobro, toma su saldo sin cobro posterior; si no, pone cero.",
+    },
+    "06_Circularizacion": {
+        "Saldo en libros": "Trae el saldo en libros de la misma factura desde la hoja 03 (Detalle por factura).",
+        "Diferencia": "Resta al saldo que confirmó el cliente el saldo en libros: positivo si el cliente confirma más que los libros.",
+        "Diferencia absoluta": "Toma la diferencia sin signo, para sumar las diferencias sin que se compensen entre sí.",
+        "Estado": "Dice «Conforme» si la diferencia no pasa de medio centavo y «Diferencia» en caso contrario.",
+    },
+    "07_Corte_ventas": {
+        "Importe": ("Trae el importe facturado de la misma factura desde la hoja 03 (Detalle por factura); si no se informó, "
+                    "usa su saldo."),
+        "Registrada en el ejercicio": ("Marca «Sí» si la fecha de emisión (registro) es igual o anterior a la fecha de "
+                                       "corte de la hoja 02 (Parámetros)."),
+        "Despachada en el ejercicio": ("Marca «Sí» si la fecha de despacho es igual o anterior a la fecha de corte de la "
+                                       "hoja 02 (Parámetros)."),
+        "Registrada antes del despacho": ("Si la venta se registró en el ejercicio pero se despachó después del corte, "
+                                          "toma su importe; si no, cero."),
+        "Despachada sin registrar": ("Si la mercadería se despachó en el ejercicio pero la venta se registró después del "
+                                     "corte, toma su importe; si no, cero."),
+    },
+    "08_Costo_amortizado": {
+        "Nominal": "Trae el saldo nominal de la misma factura desde la hoja 03 (Detalle por factura).",
+        "Plazo (días)": "Cuenta los días entre la emisión y el vencimiento de la factura.",
+        "Días por vencer": ("Cuenta los días que faltan desde la fecha de corte de la hoja 02 (Parámetros) hasta el "
+                            "vencimiento; si ya venció, es cero."),
+        "TIE = tasa de mercado": ("Toma la tasa de mercado anual de la hoja 02 (Parámetros) dividida para 100; si no se "
+                                  "indicó, queda en blanco."),
+        "Valor presente inicial (ingreso)": ("Descuenta el nominal con la tasa de mercado por todo el plazo de la factura: "
+                                             "es el ingreso por la venta sin el componente financiero. Sin tasa, en blanco."),
+        "Componente de financiación": ("Resta al nominal su valor presente inicial: el interés implícito total de la "
+                                       "factura. Sin tasa, queda en blanco."),
+        "Costo amortizado al corte": ("Descuenta el nominal con la tasa de mercado solo por los días que faltan para el "
+                                      "vencimiento: el valor de la factura al corte. Sin tasa, en blanco."),
+        "Interés devengado al corte": ("Resta al costo amortizado al corte el valor presente inicial: el interés implícito "
+                                       "ya ganado hasta el corte. Sin tasa, queda en blanco."),
+        "Interés por devengar": ("Resta al nominal el costo amortizado al corte: el interés implícito que falta ganar "
+                                 "después del corte. Sin tasa, queda en blanco."),
+    },
+    "09_Matriz_deterioro": {
+        "Facturas": "Cuenta cuántas facturas del detalle (hoja 03, Detalle por factura) están en este tramo.",
+        "Costo amortizado": "Suma el costo amortizado de las facturas del detalle (hoja 03) que caen en este tramo.",
+        "Tasa del tramo": ("Toma la tasa del tramo de la hoja 02 (Parámetros) y la divide para 100; si no se fijó, queda "
+                           "en blanco."),
+        "Deterioro requerido": ("Suma el deterioro requerido calculado factura por factura en la hoja 03 para este tramo, "
+                                "incluidas las facturas con tasa individual."),
+        "Tasa promedio aplicada": ("Divide el deterioro requerido del tramo para su costo amortizado; si el tramo no tiene "
+                                   "costo amortizado, queda en blanco."),
+    },
+    "10_Ajuste": {
+        "Importe": ("El deterioro requerido sale del total de la hoja 09 (Matriz de deterioro); lo registrado, de la hoja 02 "
+                    "(Parámetros); los ajustes son requerido − registrado; los intereses se suman de la hoja 03; el corte, "
+                    "la cartera sin cobro y la circularización son los totales de las hojas 07, 05 y 06."),
+    },
+    "11_Asientos": {
+        "Debe": ("Toma cada importe de la hoja 10 (Deterioro requerido vs registrado) —ajuste de deterioro, de financiación "
+                 "o de corte— o, para el componente de financiación, de los totales de la hoja 08 (Costo amortizado e "
+                 "intereses implícitos)."),
+        "Haber": ("Lleva a la contrapartida los importes del asiento, tomados de la hoja 10 o de los totales de la hoja 08 "
+                  "(interés por devengar e interés devengado), para que debe y haber cuadren."),
+    },
+}
+
+# Panel del dashboard (formato en graficos.py).
+PANEL = {
+    "poblacion": {"rotulo": "Cartera al corte (nominal)", "hoja": "03_Detalle", "col": "Saldo"},
+    "recalculado": {"rotulo": "Deterioro requerido", "total": "deterioroRequerido"},
+    "registrado": {"rotulo": "Deterioro registrado", "total": "provisionRegistrada"},
+    "composicion": {"rotulo": "Deterioro por tramo", "hoja": "09_Matriz_deterioro", "etiqueta": "Tramo",
+                    "valor": "Deterioro requerido"},
+    "distribucion": {"rotulo": "Cartera por tramo", "hoja": "04_Aging", "etiqueta": "Tramo", "valor": "Saldo"},
+}
+
+
 def _pb(k):
     return f"{P}$B${PAR[k]}"
 
@@ -503,33 +614,38 @@ def hojas(res: dict) -> list[dict]:
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
 
     return [
-        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen),
+        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
         hoja("03_Detalle", "Detalle por factura",
              [["Factura", "t"], ["Cliente", "t"], ["Emisión", "d"], ["Vencimiento", "d"], ["Saldo", "n"], ["Importe facturado", "n"],
               ["Días de mora", "i"], ["Tramo", "t"], ["Plazo de crédito (días)", "i"], ["Financiación implícita", "t"],
               ["Costo amortizado", "n"], ["Interés implícito por devengar", "n"], ["Tasa individual (%)", "x"], ["Tasa aplicada", "p"],
-              ["Deterioro requerido", "n"]], detalle, tot_det),
+              ["Deterioro requerido", "n"]], detalle, tot_det, explica=EXPLICA["03_Detalle"]),
         hoja("04_Aging", "Antigüedad de la cartera", [["Tramo", "t"], ["Facturas", "i"], ["Saldo", "n"], ["% de la cartera", "p"], ["Vencido", "t"]],
-             aging, ["TOTAL", suma("B", fin_ag, len(fl)), suma("C", fin_ag, t["saldo"]), None, ""]),
+             aging, ["TOTAL", suma("B", fin_ag, len(fl)), suma("C", fin_ag, t["saldo"]), None, ""], explica=EXPLICA["04_Aging"]),
         hoja("05_Cobros_posteriores", "Cobros posteriores al cierre",
              [["Factura", "t"], ["Cliente", "t"], ["Días de mora", "i"], ["Saldo al corte", "n"], ["Cobro informado", "n"], ["Fecha del cobro", "d"],
-              ["Cobro posterior aplicable", "n"], ["Saldo sin cobro posterior", "n"], ["Vencida sin cobro", "t"], ["Vencido sin cobro", "n"]], cobros, tot_cob),
+              ["Cobro posterior aplicable", "n"], ["Saldo sin cobro posterior", "n"], ["Vencida sin cobro", "t"], ["Vencido sin cobro", "n"]], cobros, tot_cob,
+             explica=EXPLICA["05_Cobros_posteriores"]),
         hoja("06_Circularizacion", "Circularización",
              [["Factura", "t"], ["Cliente", "t"], ["Saldo en libros", "n"], ["Saldo confirmado", "n"], ["Diferencia", "n"], ["Diferencia absoluta", "n"], ["Estado", "t"]],
-             circ, tot_cir),
+             circ, tot_cir, explica=EXPLICA["06_Circularizacion"]),
         hoja("07_Corte_ventas", "Corte de ventas",
              [["Factura", "t"], ["Cliente", "t"], ["Emisión (registro)", "d"], ["Despacho", "d"], ["Importe", "n"], ["Registrada en el ejercicio", "t"],
-              ["Despachada en el ejercicio", "t"], ["Registrada antes del despacho", "n"], ["Despachada sin registrar", "n"]], corte, tot_cor),
+              ["Despachada en el ejercicio", "t"], ["Registrada antes del despacho", "n"], ["Despachada sin registrar", "n"]], corte, tot_cor,
+             explica=EXPLICA["07_Corte_ventas"]),
         hoja("08_Costo_amortizado", "Costo amortizado e intereses implícitos",
              [["Factura", "t"], ["Cliente", "t"], ["Emisión", "d"], ["Vencimiento", "d"], ["Nominal", "n"], ["Plazo (días)", "i"], ["Días por vencer", "i"],
               ["TIE = tasa de mercado", "p"], ["Valor presente inicial (ingreso)", "n"], ["Componente de financiación", "n"],
-              ["Costo amortizado al corte", "n"], ["Interés devengado al corte", "n"], ["Interés por devengar", "n"]], cam, tot_cam),
+              ["Costo amortizado al corte", "n"], ["Interés devengado al corte", "n"], ["Interés por devengar", "n"]], cam, tot_cam,
+             explica=EXPLICA["08_Costo_amortizado"]),
         hoja("09_Matriz_deterioro", "Matriz de deterioro",
              [["Tramo", "t"], ["Facturas", "i"], ["Costo amortizado", "n"], ["Tasa del tramo", "p"], ["Deterioro requerido", "n"], ["Tasa promedio aplicada", "p"]],
-             matriz, tot_mat),
-        hoja("10_Ajuste", "Deterioro requerido vs registrado", [["Concepto", "t"], ["Importe", "n"], ["Referencia", "t"]], ajuste),
-        hoja("11_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos),
+             matriz, tot_mat, explica=EXPLICA["09_Matriz_deterioro"]),
+        hoja("10_Ajuste", "Deterioro requerido vs registrado", [["Concepto", "t"], ["Importe", "n"], ["Referencia", "t"]], ajuste,
+             explica=EXPLICA["10_Ajuste"]),
+        hoja("11_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos,
+             explica=EXPLICA["11_Asientos"]),
         hoja("12_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
     ]
