@@ -27,6 +27,7 @@ from backend.app.staff_portal import router as staff_portal_router
 from backend.app.ict.router import router as ict_router
 from backend.app.execution.router import router as execution_router
 from backend.app.audit_apps.router import router as audit_apps_router
+from backend.app.evidence.router import router as evidence_router
 from backend.app.core.config import settings
 
 _log = logging.getLogger(__name__)
@@ -57,6 +58,7 @@ api_router.include_router(events_router.router)
 api_router.include_router(recursos_router.router)
 api_router.include_router(execution_router)
 api_router.include_router(audit_apps_router)
+api_router.include_router(evidence_router)
 
 
 def _montar_forge(router: APIRouter) -> bool:
