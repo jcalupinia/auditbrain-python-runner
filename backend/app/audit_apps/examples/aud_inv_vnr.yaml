@@ -3,7 +3,7 @@
 # Cargar con: AuditAppManifest.from_dict(yaml.safe_load(...)).validate()
 id: AUD-INV-VNR
 name: Valor Neto de Realización de inventarios (NIC 2)
-version: 1.0.0
+version: 1.1.0
 owner: AuditConsulting Auditores Cía. Ltda.
 frameworks:
   - NIC 2 (6, 9, 28-34)
@@ -48,23 +48,23 @@ parameters:
     constraints: {gt: "0", le: "1"}
 steps:
   - id: extraer_inventario
-    engine_ref: backend.app.aud.inventarios_vnr.parsers.extract
+    engine_ref: backend.app.aud.inventarios_vnr.app_adapters.extraer_inventario
     inputs: [inventario]
     produces: filas_inventario
     description: Extracción acotada (anti-zip-bomb) del archivo cargado a filas.
   - id: calcular_vnr
-    engine_ref: backend.app.aud.inventarios_vnr.engine.calculate
-    inputs: [filas_inventario, balance]
+    engine_ref: backend.app.aud.inventarios_vnr.app_adapters.calcular_vnr
+    inputs: [filas_inventario]
     parameters: [framework, selling_method, tax_rate]
     produces: resultado_vnr
     description: "VNR unitario = MAX(0, precio - terminación - venta); deterioro = MAX(0, costo - VNR). Decimal."
   - id: papel_trabajo_excel
-    engine_ref: backend.app.aud.inventarios_vnr.exports.build_xlsx
+    engine_ref: backend.app.aud.inventarios_vnr.app_adapters.papel_trabajo_excel
     inputs: [resultado_vnr]
     produces: xlsx_bytes
     description: Papel de trabajo con fórmulas editables y trazables (12 hojas).
   - id: papel_trabajo_html
-    engine_ref: backend.app.aud.inventarios_vnr.exports.build_html
+    engine_ref: backend.app.aud.inventarios_vnr.app_adapters.papel_trabajo_html
     inputs: [resultado_vnr]
     produces: html_bytes
     description: HTML autónomo sin internet, con los descargables embebidos.

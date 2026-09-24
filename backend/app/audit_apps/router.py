@@ -14,6 +14,8 @@ siguiente documentado.
 """
 from __future__ import annotations
 
+import base64
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -32,6 +34,10 @@ from .registry import (
 )
 
 router = APIRouter(prefix="/audit-apps", tags=["audit-apps"])
+
+#: Tope para incrustar una salida en base64 en la respuesta JSON de /run (8 MB de
+#: bytes crudos). Por encima, se informa el hash/size y se marca truncado.
+_MAX_OUTPUT_B64 = 8 * 1024 * 1024
 
 
 class RegistrarIn(BaseModel):
@@ -117,8 +123,21 @@ def correr(app_id: str, body: CorridaIn, db: Session = Depends(get_db),
         res = AuditAppExecutor().run(
             manifest, inputs=inputs, parameters=body.parameters, executed_by=user.email,
         )
-    except ExecutorError as e:
+    except (ExecutorError, ValueError) as e:
+        # ValueError = validación del motor/adaptador (datos del cliente incompletos
+        # o inválidos): es un 400, no un error del servidor.
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+    # Salidas materializadas en base64 (acotadas): el cliente recibe el papel
+    # (Excel/HTML) y las excepciones directamente del /run. Se omite lo que exceda
+    # el tope para no inflar la respuesta JSON.
+    outputs = []
+    for oid, contenido in res.outputs.items():
+        entrada = {"id": oid, "size": len(contenido), "sha256": res.output_hashes.get(oid, "")}
+        if len(contenido) <= _MAX_OUTPUT_B64:
+            entrada["content_b64"] = base64.b64encode(contenido).decode("ascii")
+        else:
+            entrada["truncado"] = True  # descargar por un endpoint dedicado (paso siguiente)
+        outputs.append(entrada)
     return {
         "app_id": res.app_id, "app_version": res.app_version,
         "engine_version": res.engine_version,
@@ -129,5 +148,6 @@ def correr(app_id: str, body: CorridaIn, db: Session = Depends(get_db),
         "no_disponibles": list(res.no_disponibles),
         "steps": [{"step_id": s.step_id, "produces": s.produces, "output_hash": s.output_hash}
                   for s in res.steps],
+        "outputs": outputs,
         "acceptance": list(res.acceptance),
     }
