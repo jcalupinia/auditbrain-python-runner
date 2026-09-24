@@ -110,6 +110,7 @@ def test_formato_es_ec_de_las_cifras():
     assert graficos_svg.es_ec(-150).endswith("150,00") and graficos_svg.es_ec(-150)[0] in "-−"
     assert graficos_svg.corto(14932.98) == "14,9 mil"
     assert graficos_svg.corto(1500000) == "1,50 M"
+    assert graficos_svg.corto(-240000) == "−240 mil" and graficos_svg.corto(99_960) == "100 mil"
     assert graficos_svg.pct(0.386) == "38,6 %"
 
 

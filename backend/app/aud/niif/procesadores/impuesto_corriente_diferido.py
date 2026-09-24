@@ -809,10 +809,12 @@ PANEL = {
     "poblacion": {"rotulo": "Base imponible del cliente", "hoja": "03_Conciliacion", "col": "Importe según cliente"},
     "recalculado": {"rotulo": "Gasto por impuesto recalculado", "total": "gastoTotalRequerido"},
     "registrado": {"rotulo": "Gasto por impuesto registrado", "total": "gastoTotalRegistrado"},
-    "composicion": {"rotulo": "Base auditada por concepto", "hoja": "03_Conciliacion", "etiqueta": "Concepto",
-                    "valor": "Importe auditado"},
-    "distribucion": {"rotulo": "Conciliación cliente por tipo", "hoja": "03_Conciliacion", "etiqueta": "Tipo",
-                     "valor": "Importe según cliente"},
+    # La dona reparte el gasto recalculado (partes que suman); la conciliación, con partidas que suman y restan,
+    # va en barras con su signo y el nombre de cada concepto.
+    "composicion": {"rotulo": "Gasto por impuesto recalculado", "totales": [
+        ["Impuesto corriente", "impuestoCorrienteAuditado"], ["Impuesto diferido", "gastoDiferidoRequerido"]]},
+    "distribucion": {"rotulo": "Conciliación tributaria auditada por concepto", "hoja": "03_Conciliacion", "etiqueta": "Concepto",
+                     "valor": "Importe auditado"},
 }
 
 

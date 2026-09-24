@@ -216,7 +216,12 @@ def cifra(v) -> str:
 #
 # Un importe se toma de ``run["totals"][total]`` o, con {"hoja", "col"}, como la
 # suma de esa columna en esa cédula (filas de datos, sin la fila TOTAL). Las series
-# (composición, distribución) agrupan por la columna ``etiqueta`` y suman ``valor``.
+# (composición, distribución) agrupan por la columna ``etiqueta`` y suman ``valor``,
+# o se arman con ``"totales": [[rótulo, clave de run["totals"]], ...]``.
+# Filtros de filas (importes y series): ``"donde": {columna: [valores admitidos]}``
+# y ``"con_valor": columna`` (solo filas con esa columna calculada). Sirven para que
+# registrado y recalculado midan lo mismo (p. ej. solo las líneas medidas) y la
+# brecha del comparativo sea el ajuste.
 # El resultado principal es siempre ``run["primary"]``.
 
 UMBRAL_ALTA, UMBRAL_MEDIA = 0.05, 0.01
@@ -232,11 +237,28 @@ def _cols_idx(h: dict, nombre: str):
     return None
 
 
-def _suma_col(h: dict, col: str):
+def _filas(h: dict, spec: dict) -> list:
+    """Filas de datos de la cédula que cumplen los filtros ``donde`` y ``con_valor``."""
+    filas = list(h.get("rows") or [])
+    for col, admitidos in (spec.get("donde") or {}).items():
+        j = _cols_idx(h, col)
+        if j is None:
+            return []
+        adm = {str(a) for a in admitidos}
+        filas = [f for f in filas if j < len(f) and str(f[j].get("v") if isinstance(f[j], dict) else f[j]) in adm]
+    if spec.get("con_valor"):
+        j = _cols_idx(h, spec["con_valor"])
+        if j is None:
+            return []
+        filas = [f for f in filas if j < len(f) and _num(f[j]) is not None]
+    return filas
+
+
+def _suma_col(h: dict, col: str, spec: dict | None = None):
     j = _cols_idx(h, col)
     if j is None:
         return None
-    vals = [_num(f[j]) for f in h.get("rows") or [] if j < len(f)]
+    vals = [_num(f[j]) for f in _filas(h, spec or {}) if j < len(f)]
     vals = [v for v in vals if v is not None]
     return sum(vals) if vals else 0.0
 
@@ -247,7 +269,7 @@ def valor_spec(spec: dict | None, run: dict, mapa: dict):
     if "total" in spec:
         return _num((run.get("totals") or {}).get(spec["total"]))
     h = mapa.get(spec.get("hoja"))
-    return _suma_col(h, spec.get("col")) if h else None
+    return _suma_col(h, spec.get("col"), spec) if h else None
 
 
 def filas_spec(spec: dict | None, mapa: dict):
@@ -255,34 +277,50 @@ def filas_spec(spec: dict | None, mapa: dict):
         return None
     if "hoja" in spec:
         h = mapa.get(spec["hoja"])
-        return len(h.get("rows") or []) if h else None
+        return len(_filas(h, spec)) if h else None
     return None
 
 
-def serie_spec(spec: dict | None, mapa: dict, absoluto: bool = False) -> list[tuple[str, float]]:
-    """Agrupa la cédula ``spec["hoja"]`` por ``etiqueta`` y suma ``valor``; los 7
-    mayores (por importe absoluto) y el resto en «Otros». Sin ceros."""
+def serie_spec(spec: dict | None, mapa: dict, absoluto: bool = False, run: dict | None = None) -> list[tuple[str, float]]:
+    """Agrupa la cédula ``spec["hoja"]`` por ``etiqueta`` y suma ``valor`` (o toma
+    ``spec["totales"]``); los 7 mayores (por importe absoluto) y el resto en «Otros».
+    Sin ceros. Con ``absoluto`` (dona) el tamaño es el valor absoluto y las partidas
+    que restan llevan «(−)» delante del rótulo, para no presentarlas como si sumaran."""
     if not spec:
         return []
-    h = mapa.get(spec.get("hoja"))
-    if not h:
-        return []
-    je, jv = _cols_idx(h, spec.get("etiqueta")), _cols_idx(h, spec.get("valor"))
-    if je is None or jv is None:
-        return []
     acum: dict[str, float] = {}
-    for f in h.get("rows") or []:
-        v = _num(f[jv]) if jv < len(f) else None
-        if v is None:
-            continue
-        e = f[je] if je < len(f) else ""
-        e = e.get("v") if isinstance(e, dict) else e
-        e = " ".join(str(e if e not in (None, "") else "(sin rótulo)").split())
-        acum[e] = acum.get(e, 0.0) + (abs(v) if absoluto else v)
+    if spec.get("totales"):
+        tot = (run or {}).get("totals") or {}
+        for rotulo, clave in spec["totales"]:
+            v = _num(tot.get(clave))
+            if v is not None:
+                acum[rotulo] = acum.get(rotulo, 0.0) + v
+    else:
+        h = mapa.get(spec.get("hoja"))
+        if not h:
+            return []
+        je, jv = _cols_idx(h, spec.get("etiqueta")), _cols_idx(h, spec.get("valor"))
+        if je is None or jv is None:
+            return []
+        for f in _filas(h, spec):
+            v = _num(f[jv]) if jv < len(f) else None
+            if v is None:
+                continue
+            e = f[je] if je < len(f) else ""
+            e = e.get("v") if isinstance(e, dict) else e
+            e = " ".join(str(e if e not in (None, "") else "(sin rótulo)").split())
+            acum[e] = acum.get(e, 0.0) + v
+    restan = {f"(−) {e}" for e, v in acum.items() if v < 0} if absoluto else set()
+    if absoluto:
+        acum = {(f"(−) {e}" if v < 0 else e): abs(v) for e, v in acum.items()}
     items = [(e, v) for e, v in acum.items() if abs(v) >= 0.005]
     if len(items) > TOP_HALLAZGOS + 1:
         orden = sorted(items, key=lambda kv: -abs(kv[1]))
-        items = orden[:TOP_HALLAZGOS] + [(f"Otros ({len(orden) - TOP_HALLAZGOS})", sum(v for _, v in orden[TOP_HALLAZGOS:]))]
+        # Una partida que resta nunca se esconde en «Otros» (sumaría como si fuera positiva).
+        cabeza = [kv for kv in orden[:TOP_HALLAZGOS] if kv[0] not in restan][:max(0, TOP_HALLAZGOS - len(restan))]
+        cabeza += [kv for kv in orden if kv[0] in restan]
+        resto = [kv for kv in orden if kv not in cabeza]
+        items = cabeza + ([(f"Otros ({len(resto)})", sum(v for _, v in resto))] if resto else [])
     return items
 
 
@@ -330,7 +368,7 @@ def panel(mod, run: dict, hojas: list[dict]) -> dict:
             faltan.append(k)
     series = {}
     for k in ("composicion", "distribucion"):
-        series[k] = serie_spec(spec.get(k), mapa, absoluto=(k == "composicion"))
+        series[k] = serie_spec(spec.get(k), mapa, absoluto=(k == "composicion"), run=run)
         if not series[k]:
             faltan.append(k)
     sev = severidad(run, val["poblacion"])
@@ -339,7 +377,11 @@ def panel(mod, run: dict, hojas: list[dict]) -> dict:
         "principal": {"rotulo": etq.get(prim, prim or "Resultado"), "valor": principal,
                       "variacion": variacion((principal or 0) + (val["poblacion"] or 0), val["poblacion"]) if principal is not None else None},
         "poblacion": {"rotulo": (spec.get("poblacion") or {}).get("rotulo", "Población"), "valor": val["poblacion"],
-                      "n": filas_spec(spec.get("poblacion"), mapa)},
+                      "n": filas_spec(spec.get("poblacion"), mapa),
+                      # En pruebas de saldo la población ES el saldo registrado: la tarjeta
+                      # muestra entonces cuántas partidas lo componen, no el mismo importe.
+                      "igual_registrado": (val["poblacion"] is not None and val["registrado"] is not None
+                                           and abs(val["poblacion"] - val["registrado"]) < 0.005)},
         "recalculado": {"rotulo": (spec.get("recalculado") or {}).get("rotulo", "Recalculado"), "valor": val["recalculado"],
                         "variacion": variacion(val["recalculado"], val["registrado"])},
         "registrado": {"rotulo": (spec.get("registrado") or {}).get("rotulo", "Registrado"), "valor": val["registrado"]},
