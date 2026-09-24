@@ -579,7 +579,9 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                           "base": der["tasas"][t["k"]]["base"]} for t in TRAMOS],
                "migracion": der["historia"]["mig"], "clientes": clientes, "fiscal": fiscal, "movimiento": movimiento,
                "movimientoTotales": tot, "mayor": mov, "diferido": diferido, "asientos": asientos,
-               "bajasAnexo": bajas, "pendientesAnexo": pendientes, "parametros": p}
+               "bajasAnexo": bajas, "pendientesAnexo": pendientes, "parametros": p,
+               # Total del valor presente sin redondear por fila, como lo suma el Excel (SUM de la columna I).
+               "vpTotal": r2(sum(f["vp"] for f in facturas if f["vp"] is not None))}
     return {"engine": VERSION, "rows": filas, "totals": totales, "labels": etiquetas, "primary": "ajuste",
             "exceptions": problemas, "schedule": [], "detalle": detalle}
 
@@ -935,7 +937,7 @@ def hojas(res: dict) -> list[dict]:
         hoja("11_Detalle", "Detalle por factura",
              [["Factura", "t"], ["Cliente", "t"], ["Emisión", "d"], ["Vencimiento", "d"], ["Días de mora", "i"], ["Tramo", "t"],
               ["Saldo", "n"], ["Tasa", "p"], ["Valor presente", "n"], ["Pérdida", "n"], ["Provisión inicial", "n"]], detalle,
-             ["TOTAL", "", "", "", None, "", s("G", det_fin, _n(t["saldo"])), None, s("I", det_fin, _n(sum(_f(x["vp"]) or 0 for x in filas))),
+             ["TOTAL", "", "", "", None, "", s("G", det_fin, _n(t["saldo"])), None, s("I", det_fin, _n(d.get("vpTotal", sum(_f(x["vp"]) or 0 for x in filas)))),
               s("J", det_fin, _n(t["perdida"])), s("K", det_fin, _n(sum(float(x["provIni"]) for x in filas)))],
              explica=EXPLICA["11_Detalle"]),
         hoja("12_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
