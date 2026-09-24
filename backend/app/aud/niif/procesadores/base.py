@@ -75,9 +75,15 @@ def problema(code: str, mensaje: str, importe=0) -> dict:
     return {"code": code, "message": mensaje, "amount": r2(importe or 0)}
 
 
-def hoja(name: str, label: str, cols: list, rows: list, total=None) -> dict:
-    """Cédula: cols = [[título, formato]] con formato t/n/p/i/d/x; celdas calculadas con fx()."""
-    return {"name": name, "label": label, "cols": cols, "rows": rows, "total": total}
+def hoja(name: str, label: str, cols: list, rows: list, total=None, explica: dict | None = None) -> dict:
+    """Cédula: cols = [[título, formato]] con formato t/n/p/i/d/x; celdas calculadas con fx().
+
+    ``explica`` = {título de columna calculada: explicación en lenguaje sencillo}.
+    Es la explicación HUMANA que muestra el bloque «Cómo se calcula esta hoja»
+    (Excel, Word, HTML y PDF): qué hace la columna, con qué datos y de qué hoja,
+    como se lo contaría el auditor a un cliente. Toda columna con fórmula debe
+    tenerla (lo exige tests/test_aud_explicaciones_humanas.py)."""
+    return {"name": name, "label": label, "cols": cols, "rows": rows, "total": total, "explica": dict(explica or {})}
 
 
 def suma(col: str, fin_fila: int, valor) -> dict:

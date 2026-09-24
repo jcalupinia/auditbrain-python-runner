@@ -491,75 +491,138 @@ def _filas(h):
 # (h["cols"]/h["rows"] con celdas {"f":…,"v":…}). Una sola fuente: si la fórmula
 # cambia, la explicación cambia.
 _REF = re.compile(r"(?:'([^']+)'!)?\$?([A-Z]{1,3})\$?(\d+)")
-_SOLO_ARITMETICA = re.compile(r"^[-+*/().\s0-9]*$")
+# Referencia a celda o a rango, con hoja opcional: 'Hoja'!$A$5:$A$24 · B5 · $B$8
+_REF_RANGO = re.compile(r"(?:'([^']+)'!)?\$?([A-Z]{1,3})\$?(\d+)(?::\$?([A-Z]{1,3})\$?(\d+))?")
+_TEXTO_FORMULA = re.compile(r'"[^"]*"')
+FILA_DATOS = 5  # los datos de toda cédula arrancan en la fila 5 (fila 4 = encabezado)
+
+# Plantilla de respaldo cuando una columna calculada NO tiene explicación escrita en
+# la definición de su cédula. Nunca debe llegar al papel: el test
+# tests/test_aud_explicaciones_humanas.py falla si alguna la usa.
+PLANTILLA_GENERICA = "se obtiene con la fórmula indicada"
 
 
 def _fmt_num(v, fmt) -> str:
     return _celda(v, fmt if fmt in ("n", "p", "i", "a") else "n")
 
 
-def _ejemplo_fila1(formula: str, h: dict, header_por_letra: dict, fmt: str) -> str:
-    """Ejemplo con los números de la PRIMERA fila real. Si la fórmula es pura
-    aritmética entre celdas de la misma hoja, sustituye cada celda por su valor
-    («12.500,00 − 7.500,00 = 5.000,00»); si no, muestra el resultado de la fila 1."""
-    filas = h["rows"]
-    if not filas:
-        return ""
-    # Sustitución solo si no hay funciones (letras fuera de referencias) ni hojas externas.
+def _mapa_hojas(hojas) -> dict:
+    return {h["name"]: h for h in (hojas or [])}
+
+
+def _celda_de(h: dict, letra: str, num: int):
+    """(valor, formato, encabezado) de la celda letra+num de la cédula h."""
+    j = column_index_from_string(letra) - 1
+    cols = h.get("cols") or []
+    fmt = cols[j][1] if 0 <= j < len(cols) else "n"
+    enc = cols[j][0] if 0 <= j < len(cols) else letra
+    i = num - FILA_DATOS
+    filas = h.get("rows") or []
+    if 0 <= i < len(filas):
+        fila = filas[i]
+    elif i == len(filas) and h.get("total"):
+        fila = h["total"]
+    else:
+        return None, fmt, enc
+    return (_valor(fila[j]) if 0 <= j < len(fila) else None), fmt, enc
+
+
+def _muestra(v, fmt) -> str:
+    """Valor de una celda para leerlo dentro del ejemplo (texto entre comillas)."""
+    if v is None or v == "":
+        return "(vacío)"
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return _fmt_num(v, fmt)
+    if isinstance(v, date):
+        return v.strftime("%d/%m/%Y")
+    return f"«{_html.unescape(str(v))}»"
+
+
+def _ejemplo_fila1(formula: str, h: dict, mapa: dict, fmt: str) -> str:
+    """El cálculo de la FILA 1 con sus números reales: cada celda de la fórmula se
+    reemplaza por su valor (de esta hoja o de la hoja citada) y cada rango por el
+    nombre de la columna y la hoja de donde sale. Siempre devuelve el cálculo y el
+    resultado; nunca queda vacío."""
+    textos = []
+
+    def guarda(m):  # protege los textos literales ("<=0", "Sí") de la sustitución
+        textos.append(m.group(0))
+        return f"\x00{len(textos) - 1}\x00"
+
+    expr = _TEXTO_FORMULA.sub(guarda, formula)
+    # Separador de argumentos «;» (como Excel en español): con decimales es-EC la
+    # coma ya es parte de los números. Se hace ANTES de sustituir los valores.
+    expr = expr.replace(",", "; ")
+
     def sustituye(m):
-        sheet, letra, num = m.group(1), m.group(2), int(m.group(3))
-        if sheet:
+        hoja_ref, l1, n1, l2, n2_ = m.group(1), m.group(2), int(m.group(3)), m.group(4), m.group(5)
+        destino = mapa.get(hoja_ref, h) if hoja_ref else h
+        nombre_hoja = (destino.get("label") or hoja_ref) if hoja_ref else None
+        if l2:  # rango → «Columna» de Hoja (n filas)
+            _, _, enc = _celda_de(destino, l1, n1)
+            n = int(n2_) - n1 + 1
+            donde = f" de «{nombre_hoja}»" if nombre_hoja else ""
+            return f"[«{enc}»{donde}, {n} fila{'s' if n != 1 else ''}]"
+        v, f_cel, _ = _celda_de(destino, l1, n1)
+        if v is None and hoja_ref and hoja_ref not in mapa:
             return m.group(0)
-        idx_fila = num - 5           # los datos arrancan en la fila 5 de la hoja
-        col = column_index_from_string(letra) - 1
-        if 0 <= idx_fila < len(filas) and 0 <= col < len(filas[idx_fila]):
-            return _fmt_num(_valor(filas[idx_fila][col]), fmt)
-        return m.group(0)
-    sin_refs = _REF.sub("X", formula)
-    if _SOLO_ARITMETICA.match(sin_refs.replace("X", "")):
-        return _REF.sub(sustituye, formula)
-    return "resultado de la fila 1"
+        return _muestra(v, f_cel)
+
+    expr = _REF_RANGO.sub(sustituye, expr)
+    expr = re.sub("\x00(\\d+)\x00", lambda m: textos[int(m.group(1))], expr)
+    return expr
 
 
-def como_se_calcula(h: dict) -> list[dict]:
-    """Filas del bloque explicativo: una por columna CALCULADA (con fórmula).
-    Cada una: columna, fórmula (texto), explicación sencilla, ejemplo de la fila 1,
-    de dónde vienen los datos y la referencia normativa de la hoja."""
+def como_se_calcula(h: dict, hojas: list | None = None) -> list[dict]:
+    """Filas del bloque «Cómo se calcula esta hoja»: una por columna CALCULADA.
+
+    - ``explicacion``: la escrita por una persona en la definición de la cédula
+      (``hoja(..., explica={...})``). Si falta, se usa la plantilla genérica, que
+      los tests rechazan.
+    - ``ejemplo``: el cálculo de la fila 1 con sus números reales y el resultado.
+    - ``origen``: las columnas de ESTA hoja y las hojas de donde salen los datos
+      (una referencia a otra hoja se nombra por esa hoja, no por una columna de
+      esta, que era el error anterior).
+    ``hojas`` (todas las cédulas del papel) permite leer valores de otras hojas."""
     filas = h.get("rows") or []
     if not filas:
         return []
+    mapa = _mapa_hojas(hojas)
+    mapa.setdefault(h["name"], h)
     cols = [c[0] for c in h["cols"]]
     header_por_letra = {get_column_letter(j + 1): cols[j] for j in range(len(cols))}
+    escritas = h.get("explica") or {}
     bloque = []
     for j, (nombre, fmt) in enumerate(h["cols"]):
         v0 = filas[0][j] if j < len(filas[0]) else None
         if not (isinstance(v0, dict) and "f" in v0):
             continue
         formula = v0["f"]
-        refs = _REF.findall(formula)
         origen_cols, origen_hojas = [], []
-        for sheet, letra, _num in refs:
-            if sheet and sheet not in origen_hojas:
-                origen_hojas.append(sheet)
-            elif not sheet and letra in header_por_letra:
-                col = header_por_letra[letra]
-                if col not in origen_cols:
-                    origen_cols.append(col)
-        partes = []
-        if origen_cols:
-            partes.append("usa " + ", ".join(f"«{c}»" for c in origen_cols))
-        if origen_hojas:
-            partes.append(("y datos de " if partes else "usa datos de ") + ", ".join(origen_hojas))
-        explic = f"«{nombre}» se obtiene con la fórmula indicada" + ((": " + " ".join(partes) + ".") if partes else ".")
-        ejemplo_expr = _ejemplo_fila1(formula, h, header_por_letra, fmt)
-        resultado = _fmt_num(_valor(v0), fmt)
-        ejemplo = (f"Fila 1: {ejemplo_expr} = {resultado}" if ejemplo_expr and ejemplo_expr != "resultado de la fila 1"
-                   else f"Resultado de la fila 1: {resultado}")
-        destino = h.get("label", h["name"])
-        origen = origen_cols + origen_hojas
+        for m in _REF_RANGO.finditer(_TEXTO_FORMULA.sub('""', formula)):
+            hoja_ref, letra = m.group(1), m.group(2)
+            if hoja_ref:
+                etq = (mapa.get(hoja_ref) or {}).get("label") or hoja_ref
+                if etq not in origen_hojas:
+                    origen_hojas.append(etq)
+            elif letra in header_por_letra and header_por_letra[letra] not in origen_cols:
+                origen_cols.append(header_por_letra[letra])
+        explic = escritas.get(nombre)
+        if not explic:
+            explic = f"«{nombre}» {PLANTILLA_GENERICA}."
+        resultado = _valor(v0)
+        if resultado in (None, ""):
+            res_txt = "(en blanco)"
+        elif isinstance(resultado, (int, float)) and not isinstance(resultado, bool):
+            res_txt = _fmt_num(resultado, fmt)
+        else:
+            res_txt = _muestra(resultado, fmt).strip("«»")
+        ejemplo = f"Fila 1: {_ejemplo_fila1(formula, h, mapa, fmt)} → {res_txt}"
+        origen = [f"«{c}» (esta hoja)" for c in origen_cols] + [f"hoja «{x}»" for x in origen_hojas]
         bloque.append({"columna": nombre, "formula": "=" + formula, "explicacion": explic, "ejemplo": ejemplo,
                        "origen": ", ".join(origen) if origen else "datos cargados del cliente",
-                       "destino": destino, "norma": h.get("norma") or ""})
+                       "destino": h.get("label", h["name"]), "norma": h.get("norma") or "",
+                       "escrita": nombre in escritas})
     return bloque
 
 
