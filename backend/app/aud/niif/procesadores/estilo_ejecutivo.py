@@ -20,6 +20,17 @@ LIGHT = "F4F6F9"       # gris muy claro (paneles)
 LINE = "B7C0CC"        # líneas
 CELESTE = "DCE6F1"     # relleno de totales
 
+# --- gráficos (marcas de datos) ---------------------------------------------
+# Serie única de los gráficos SVG/PPT/Excel. Es un paso más saturado de la familia
+# turquesa: la turquesa de marca (0D7377) FALLA el piso de croma OKLCH 0.10 (se lee
+# grisácea como marca de datos). 0093A3 pasa banda de luminosidad, croma y contraste
+# >= 3:1 sobre blanco (validado con validate_palette.js de la skill dataviz).
+# La turquesa de marca sigue para texto y cromo; los textos NUNCA usan este color.
+SERIE = "0093A3"
+TINTA = "0A2342"        # texto primario de gráficos
+TINTA_2 = "4B5563"      # texto secundario (valores)
+REGLA = "D1D5DB"        # línea base / ejes (hairline)
+
 # semáforo
 RED = "C0392B"
 AMBER = "D68910"
@@ -130,6 +141,12 @@ def estilos(Font, PatternFill, Border, Side, Alignment) -> dict:
         "fill_gold": PatternFill("solid", fgColor=GOLD),
         "borde": Border(left=fino, right=fino, top=fino, bottom=fino),
         "borde_total": Border(left=fino, right=fino, top=doble, bottom=doble),
+        # Tablas premium: filetes horizontales finos (sin cuadrícula completa),
+        # filas alternas, cabecera con filete dorado y subrayado dorado del título.
+        "borde_fila": Border(bottom=Side(style="thin", color="E3E8EF")),
+        "borde_enc": Border(bottom=Side(style="medium", color=GOLD)),
+        "filete_oro": Border(bottom=Side(style="medium", color=GOLD)),
+        "fill_zebra": PatternFill("solid", fgColor="F7F9FC"),
         "centro": Alignment(horizontal="center", vertical="center", wrap_text=True),
         "izq": Alignment(horizontal="left", vertical="top", wrap_text=True),
         "der": Alignment(horizontal="right", vertical="center"),
