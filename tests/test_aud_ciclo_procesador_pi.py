@@ -132,7 +132,13 @@ def test_perdidas_incurridas_de_punta_a_punta(client):
     assert set(art) == {"xlsx", "html"}
     x = client.get(f"{BASE}/pruebas/{p['id']}/archivos/{art['xlsx']['id']}", headers=_h(tok))
     wb = load_workbook(io.BytesIO(x.content))
-    assert wb.sheetnames[0] == "00_Caratula" and "04_Matriz_deterioro" in wb.sheetnames and wb.sheetnames[-1] == "14_Control_Revision"
+    # El papel ejecutivo antepone el panel "00_Inicio" (marca + KPIs + navegación)
+    # a la carátula; "00_Caratula" sigue presente como cédula (libro.xlsx, 2026).
+    assert wb.sheetnames[0] == "00_Inicio" and "00_Caratula" in wb.sheetnames \
+        and "04_Matriz_deterioro" in wb.sheetnames and wb.sheetnames[-1] == "14_Control_Revision"
     detalle = wb["11_Detalle"]
     assert detalle.cell(row=4, column=1).value == "Factura"
-    assert [c.value for c in detalle[detalle.max_row]][0] == "TOTAL"
+    # La hoja ejecutiva anexa una sección "Notas de fórmulas" tras la fila TOTAL,
+    # así que TOTAL ya no es la última fila: se busca donde esté (libro.xlsx 2026).
+    primeras = [detalle.cell(row=r, column=1).value for r in range(1, detalle.max_row + 1)]
+    assert "TOTAL" in primeras

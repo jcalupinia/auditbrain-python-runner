@@ -103,13 +103,15 @@ Se hace una vez al año, típicamente entre noviembre y febrero. Pasos:
    - F-104: "FORMULARIO IVA.xlsx" (Excel oficial, hoja "1 Disenio",
      cols 9/11/13 = Valor Bruto / Valor Neto / Impuesto Generado)
 
-2. **Ejecutar los extractores** (cuando se muevan a `scripts/extractors/`,
-   ejecutarlos desde ahí; mientras tanto viven en la raíz del repo como
-   `extract_f101_*.py`, `extract_f103_*.py`, `extract_f104_*.py`):
+2. **Ejecutar los extractores.** OJO: los scripts `extract_f101_oficial.py`,
+   `extract_f103_oficial.py`, `extract_f104_oficial.py` fueron one-shot y **no
+   están versionados** (ver "Deuda técnica → Action Item 5"). Si hace falta
+   re-extraer, **recrearlos** desde la guía oficial del SRI y dejarlos en
+   `scripts/extractors/` con docstring. Cada uno regenera su catálogo:
    ```bash
-   python extract_f101_oficial.py    # genera catalogo_f101.py
-   python extract_f103_oficial.py    # genera catalogo_f103.py
-   python extract_f104_oficial.py    # genera catalogo_f104.py
+   python scripts/extractors/extract_f101_oficial.py    # genera catalogo_f101.py
+   python scripts/extractors/extract_f103_oficial.py    # genera catalogo_f103.py
+   python scripts/extractors/extract_f104_oficial.py    # genera catalogo_f104.py
    ```
 
 3. **Aplicar correcciones manuales conocidas** (parche `CORRECCIONES`
@@ -144,24 +146,36 @@ Se hace una vez al año, típicamente entre noviembre y febrero. Pasos:
    (sección "Historial de cambios SRI").
 
 ### Deuda técnica conocida (a ejecutar cuando haya tiempo)
-- **Action Item 5**: Mover `extract_f101_oficial.py`, `extract_f103_oficial.py`,
-  `extract_f104_oficial.py` desde la raíz del repo a `scripts/extractors/` con
-  docstring explicando cuándo correrlos. Razón: hoy contaminan el root y un
-  developer nuevo no sabe que son one-shot tools, no parte del runtime.
-- **Tests legacy fallando** (6 fallos pre-existentes, NO bloquean ICT). Lista
-  actualizada y verificada el 2026-08-05 (el PR de operadores renombró dos y
-  agregó uno; la nota anterior listaba 5 con nombres viejos):
-  `test_chat.py::test_conversation_with_cross_org_project_rejected`,
-  `test_context.py::test_operator_can_create_clients`,
-  `test_context.py::test_admin_creates_client_and_project_and_user_is_scoped`,
-  `test_context.py::test_operator_can_set_same_org_but_not_cross_org_project_active`,
-  `test_context.py::test_cross_org_isolation`,
-  `test_sandbox.py::test_make_rlimit_preexec_optin`.
-  **Diagnóstico:** los 5 primeros son de AISLAMIENTO, no de lógica: pasan al
-  ejecutarlos solos y fallan al correr la suite completa, con
-  `sqlalchemy.exc.IntegrityError` por estado compartido en la base SQLite de
-  desarrollo. `test_sandbox` sí falla también en aislamiento.
-  Investigar y arreglar antes de cualquier release a producción de esos módulos.
+- **Action Item 5 (CERRADO/obsoleto 2026-09-24)**: los extractores
+  `extract_f101_oficial.py`, `extract_f103_oficial.py`, `extract_f104_oficial.py`
+  eran herramientas **one-shot que nunca se versionaron** (no están en git ni en
+  la raíz del repo). Ya cumplieron su función: generaron los catálogos canónicos
+  `backend/app/ict/catalogo_f10{1,3,4}.py`, que SÍ están versionados y son la
+  fuente de verdad. No hay nada que mover. Si en la actualización anual (ver
+  arriba) hace falta re-extraer, hay que **recrear** el extractor desde la guía
+  oficial del SRI y dejarlo en `scripts/extractors/` con docstring; el paso 2 de
+  ese procedimiento lo aclara.
+- **Tests legacy (estado 2026-09-24, re-verificado con la suite completa:
+  `2 failed, 2187 passed, 38 skipped`).** La lista de 6 fallos del 2026-08-05
+  quedó **desactualizada**: los 5 de aislamiento
+  (`test_chat::test_conversation_with_cross_org_project_rejected`,
+  `test_context::{test_operator_can_create_clients,
+  test_admin_creates_client_and_project_and_user_is_scoped,
+  test_operator_can_set_same_org_but_not_cross_org_project_active,
+  test_cross_org_isolation}`) y `test_sandbox::test_make_rlimit_preexec_optin`
+  **ya PASAN** (se resolvieron en el interín; el `conftest` fuerza esquema por
+  sesión y las fixtures usan slugs únicos).
+  Los 2 fallos reales que quedaban eran **drift del rediseño del libro**, ambos
+  pre-existentes y arreglados el 2026-09-24 (solo se actualizaron aserciones de
+  test; sin tocar código de runtime):
+  - `test_aud_ciclo_procesador_pi::test_perdidas_incurridas_de_punta_a_punta`:
+    el papel ejecutivo antepone la hoja `00_Inicio` a `00_Caratula` y anexa una
+    sección "Notas de fórmulas" tras la fila `TOTAL`; se actualizó la aserción de
+    orden de hojas y la de la fila TOTAL (se busca donde esté, no en `max_row`).
+  - `test_aud_ejercicio_modelo::test_endpoint_ejercicio_modelo_no_escribe`: la
+    ficha del setup era inválida (`client="C"`, `firm="f"`) y el `origen`
+    `proc:perdidas_incurridas_s11` no resuelve (PI no tiene RUBRO: se instala en
+    ficha); se corrigió a una ficha válida, `proc:cxc_cartera` y el status 201.
 - **API keys pendientes de rotar**: revocar Render API key
   `rnd_CXjUFxFmYQNZ2l2lAy8Ho2ebthhw` y configurar Resend email API key.
 - **QA pendiente**: re-habilitar checks estrictos de device/session una vez
