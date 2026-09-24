@@ -403,6 +403,111 @@ TRAMOS = [("Posterior al corte", '"<0"', None), ("0 a 30 días", '">=0"', '"<=30
 TRAMOS_PY = [(None, -1), (0, 30), (31, 60), (61, 90), (91, 180), (181, None)]
 
 
+# Explicación humana de cada columna calculada («Cómo se calcula esta hoja»).
+_TIPO_PARTIDA = ("Suma el importe de las partidas conciliatorias de esta cuenta que en la hoja 04 (Partidas "
+                 "conciliatorias) están clasificadas como «{}».")
+EXPLICA = {
+    "01_Resumen": {
+        "Importe": ("Trae cada importe, concepto por concepto, de la hoja 10 (Efectivo auditado y ajuste), donde se "
+                    "calcula el efectivo auditado, las reclasificaciones y las diferencias encontradas."),
+    },
+    "03_Conciliacion": {
+        "(+) Depósitos en tránsito": _TIPO_PARTIDA.format(DT),
+        "(−) Cheques pendientes": _TIPO_PARTIDA.format(CP),
+        "(−) Notas de crédito no registradas": _TIPO_PARTIDA.format(NC),
+        "(+) Notas de débito no registradas": _TIPO_PARTIDA.format(ND),
+        "(±) Otras partidas": _TIPO_PARTIDA.format(OT),
+        "Saldo que explica la conciliación": ("Parte del saldo del estado bancario o arqueo, suma los depósitos en tránsito, "
+                                              "resta los cheques pendientes y las notas de crédito, y suma las notas de "
+                                              "débito y otras partidas. Sin saldo bancario, queda en blanco."),
+        "Diferencia no explicada": ("Resta al saldo según libros el saldo que explica la conciliación, redondeado a "
+                                    "centavos: lo que la conciliación no alcanza a justificar. Sin saldo bancario, queda en blanco."),
+        "Saldo ajustado de libros": ("Parte del saldo según libros, suma las notas de crédito y resta las notas de débito "
+                                     "que el banco registró y los libros todavía no."),
+        "Efectivo auditado": ("Al saldo ajustado de libros le resta lo que se reclasifica por restricción (hoja 08, "
+                              "Efectivo restringido) y por inversiones que no son equivalentes (hoja 09) para esta cuenta."),
+    },
+    "04_Partidas": {
+        "Días al corte": ("Resta la fecha de origen de la partida de la fecha de corte de la hoja 02 (Parámetros). Negativo "
+                          "significa que se originó después del corte; sin fecha de origen, queda en blanco."),
+        "Días hasta la liquidación": ("Cuenta los días entre la fecha de origen y la liquidación posterior de la partida; "
+                                      "si falta cualquiera de las dos fechas, queda en blanco."),
+        "Antigua": ("Marca «Sí» si los días al corte superan el umbral de antigüedad de la hoja 02 (Parámetros); sin "
+                    "días al corte, o dentro del umbral, marca «No»."),
+        "Depurada": ("Marca «Sí» si la partida tiene fecha de liquidación posterior al corte y «No» si todavía no se ha "
+                     "liquidado."),
+        "Cuenta en el anexo": ("Marca «Sí» si la cuenta de la partida figura en la hoja 03 (Conciliación bancaria por "
+                               "cuenta) y «No» si no está en el anexo de cuentas."),
+    },
+    "05_Antiguedad": {
+        "Partidas": ("Cuenta cuántas partidas de la hoja 04 (Partidas conciliatorias) tienen días al corte dentro de este "
+                     "tramo; «Posterior al corte» son las de días negativos."),
+        "Importe": "Suma el importe de las partidas de la hoja 04 (Partidas conciliatorias) cuyos días al corte caen en este tramo.",
+        "No depurado": ("Suma solo el importe de las partidas de este tramo que en la hoja 04 siguen marcadas como no "
+                        "depuradas (sin liquidación posterior)."),
+    },
+    "06_Confirmaciones": {
+        "Saldo según estado bancario": ("Trae el saldo del estado bancario de la misma cuenta desde la hoja 03 "
+                                        "(Conciliación bancaria por cuenta); si no hay, queda en blanco."),
+        "Diferencia (confirmado − estado)": ("Resta al saldo que confirmó el banco el saldo del estado bancario, redondeado "
+                                             "a centavos; si falta cualquiera de los dos, queda en blanco."),
+        "Resultado": ("Sin respuesta del banco indica aplicar un procedimiento alternativo; sin estado bancario lo avisa; "
+                      "si la diferencia está dentro de la tolerancia de la hoja 02 (Parámetros) dice «Coincide» y, si no, «No coincide»."),
+    },
+    "07_Corte": {
+        "Días después del corte": ("Resta la fecha de corte de la hoja 02 (Parámetros) de la fecha en que el banco "
+                                   "registró la partida; sin fecha en el banco, queda en blanco."),
+        "Resultado": ("Si la partida se registró en libros después del corte lo marca; si el banco no la registró después, "
+                      "dice «Sin liquidación posterior»; un depósito en tránsito acreditado después de los días permitidos "
+                      "en la hoja 02 es «Depósito acreditado tarde»; lo demás es «Correcto»."),
+        "Importe": "Trae el importe de la misma partida desde la hoja 04 (Partidas conciliatorias).",
+    },
+    "08_Restringido": {
+        "Saldo ajustado": "Trae el saldo ajustado de libros de la misma cuenta desde la hoja 03 (Conciliación bancaria por cuenta).",
+        "Clasificación": ("Sin fecha de fin pide revisar el soporte; si la restricción termina en la fecha límite (corte más "
+                          "los meses de la hoja 02, Parámetros) o después, es «No corriente»; si termina antes, «Corriente»."),
+        "Reclasificación propuesta": ("Propone reclasificar el monto restringido solo si es no corriente y todavía no se "
+                                      "presenta aparte; en los demás casos es cero."),
+    },
+    "09_Equivalentes": {
+        "Plazo original (días)": ("Cuenta los días entre la adquisición y el vencimiento de la inversión; si falta alguna "
+                                  "de las dos fechas, queda en blanco."),
+        "Vence en tres meses o menos (presunción)": ("Marca «Sí» si el vencimiento no pasa de los meses de la hoja 02 "
+                                                     "(Parámetros) contados desde la adquisición y «No» si pasa; sin fechas, "
+                                                     "pide revisar el soporte."),
+        "Saldo ajustado": ("Trae el saldo ajustado de libros de la misma inversión desde la hoja 03 (Conciliación "
+                           "bancaria por cuenta)."),
+        "Ya reclasificado por restricción": ("Suma lo que la hoja 08 (Efectivo restringido) ya propone reclasificar para "
+                                             "esta misma cuenta, para no reclasificarlo dos veces."),
+        "Reclasificación propuesta": ("Si la inversión no vence dentro del plazo, propone reclasificar su saldo ajustado "
+                                      "menos lo ya reclasificado por restricción (nunca negativo); si califica, es cero."),
+    },
+    "10_Efectivo_auditado": {
+        "Importe": ("Cada concepto tiene su cálculo: libros y notas bancarias se suman de la hoja 03 (Conciliación); las "
+                    "reclasificaciones, de las hojas 08 y 09; el auditado es libros + notas − reclasificaciones y el "
+                    "ajuste, auditado − libros; la composición suma el efectivo auditado por tipo de cuenta; las "
+                    "diferencias y partidas salen de las hojas 03, 04 y 06."),
+    },
+    "11_Asientos": {
+        "Debe": ("Toma cada importe de la hoja 10 (Efectivo auditado y ajuste): notas de crédito y de débito no registradas "
+                 "y las reclasificaciones por restricción y por inversiones que no son equivalentes."),
+        "Haber": ("Lleva a la contrapartida el mismo importe del asiento, tomado de la hoja 10 (Efectivo auditado y "
+                  "ajuste), para que debe y haber cuadren."),
+    },
+}
+
+# Panel del dashboard (formato en graficos.py).
+PANEL = {
+    "poblacion": {"rotulo": "Cuentas según libros", "hoja": "03_Conciliacion", "col": "Saldo según libros"},
+    "recalculado": {"rotulo": "Efectivo auditado", "total": "auditado"},
+    "registrado": {"rotulo": "Efectivo según libros", "total": "saldoLibros"},
+    "composicion": {"rotulo": "Efectivo auditado por tipo", "hoja": "03_Conciliacion", "etiqueta": "Tipo",
+                    "valor": "Efectivo auditado"},
+    "distribucion": {"rotulo": "Saldo en libros por cuenta", "hoja": "03_Conciliacion", "etiqueta": "Banco / caja",
+                     "valor": "Saldo según libros"},
+}
+
+
 def _rango(h: str, col: str, n: int) -> str:
     return f"{h}${col}${FILA0}:${col}${FILA0 + max(n, 1) - 1}"
 
@@ -570,7 +675,7 @@ def hojas(res: dict) -> list[dict]:
     tot = lambda col, fin, v: suma(col, fin, n2(v))
 
     return [
-        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen),
+        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
         hoja("03_Conciliacion", "Conciliación bancaria por cuenta",
              [["Cuenta", "t"], ["Banco / caja", "t"], ["Tipo", "t"], ["Saldo estado bancario / arqueo", "n"], ["(+) Depósitos en tránsito", "n"],
@@ -579,36 +684,43 @@ def hojas(res: dict) -> list[dict]:
               ["Diferencia no explicada", "n"], ["Saldo ajustado de libros", "n"], ["Efectivo auditado", "n"]], concil,
              ["TOTAL", "", "", None, tot("E", fin_c, sum(c["dt"] for c in cu)), tot("F", fin_c, sum(c["cp"] for c in cu)),
               tot("G", fin_c, con["nc"]), tot("H", fin_c, con["nd"]), tot("I", fin_c, sum(c["ot"] for c in cu)), None,
-              tot("K", fin_c, con["saldoLibros"]), None, tot("M", fin_c, sum(c["ajustado"] for c in cu)), tot("N", fin_c, con["auditado"])]),
+              tot("K", fin_c, con["saldoLibros"]), None, tot("M", fin_c, sum(c["ajustado"] for c in cu)), tot("N", fin_c, con["auditado"])],
+             explica=EXPLICA["03_Conciliacion"]),
         hoja("04_Partidas", "Partidas conciliatorias",
              [["Partida", "t"], ["Cuenta", "t"], ["Tipo", "t"], ["Referencia", "t"], ["Fecha de origen", "d"], ["Importe", "n"],
               ["Liquidación posterior", "d"], ["Días al corte", "i"], ["Días hasta la liquidación", "i"], ["Antigua", "t"],
               ["Depurada", "t"], ["Cuenta en el anexo", "t"]], partidas,
-             ["TOTAL", "", "", "", None, tot("F", fin_p, sum(x["importe"] for x in pa)), None, None, None, "", "", ""] if np_ else None),
+             ["TOTAL", "", "", "", None, tot("F", fin_p, sum(x["importe"] for x in pa)), None, None, None, "", "", ""] if np_ else None,
+             explica=EXPLICA["04_Partidas"]),
         hoja("05_Antiguedad", "Antigüedad de partidas",
              [["Tramo (días al corte)", "t"], ["Partidas", "i"], ["Importe", "n"], ["No depurado", "n"]], antig,
              ["TOTAL", fx(f"SUM(B{FILA0}:B{fin_a})", sum(1 for x in pa if x["diasCorte"] is not None)),
               tot("C", fin_a, sum(x["importe"] for x in pa if x["diasCorte"] is not None)),
-              tot("D", fin_a, sum(x["importe"] for x in pa if x["diasCorte"] is not None and not x["depurada"]))]),
+              tot("D", fin_a, sum(x["importe"] for x in pa if x["diasCorte"] is not None and not x["depurada"]))],
+             explica=EXPLICA["05_Antiguedad"]),
         hoja("06_Confirmaciones", "Confirmación bancaria",
              [["Cuenta", "t"], ["Banco", "t"], ["Saldo según estado bancario", "n"], ["Saldo confirmado por el banco", "n"],
-              ["Diferencia (confirmado − estado)", "n"], ["Resultado", "t"]], confir),
+              ["Diferencia (confirmado − estado)", "n"], ["Resultado", "t"]], confir, explica=EXPLICA["06_Confirmaciones"]),
         hoja("07_Corte", "Prueba de corte",
              [["Partida", "t"], ["Cuenta", "t"], ["Tipo", "t"], ["Fecha en libros", "d"], ["Fecha en el banco", "d"],
               ["Días después del corte", "i"], ["Resultado", "t"], ["Importe", "n"]], corte_filas,
-             ["TOTAL", "", "", None, None, None, "", tot("H", fin_k, sum(x["importe"] for _, x in sel))] if sel else None),
+             ["TOTAL", "", "", None, None, None, "", tot("H", fin_k, sum(x["importe"] for _, x in sel))] if sel else None,
+             explica=EXPLICA["07_Corte"]),
         hoja("08_Restringido", "Efectivo restringido",
              [["Cuenta", "t"], ["Banco", "t"], ["Saldo ajustado", "n"], ["Monto restringido", "n"], ["Motivo", "t"], ["Fin de la restricción", "d"],
               ["Clasificación", "t"], ["Ya presentado aparte", "t"], ["Reclasificación propuesta", "n"]], restringido,
-             ["TOTAL", "", None, None, "", None, "", "", tot("I", fin_r, con["reclasRestringido"])] if nr else None),
+             ["TOTAL", "", None, None, "", None, "", "", tot("I", fin_r, con["reclasRestringido"])] if nr else None,
+             explica=EXPLICA["08_Restringido"]),
         hoja("09_Equivalentes", "Equivalentes de efectivo (definición)",
              [["Cuenta", "t"], ["Instrumento", "t"], ["Adquisición", "d"], ["Vencimiento", "d"], ["Plazo original (días)", "i"],
               ["Vence en tres meses o menos (presunción)", "t"], ["Saldo ajustado", "n"], ["Ya reclasificado por restricción", "n"],
               ["Reclasificación propuesta", "n"]],
              equiv, ["TOTAL", "", None, None, None, "", tot("G", fin_e, sum(c["ajustado"] for c in inv)), None,
-                     tot("I", fin_e, con["reclasNoEquivalentes"])] if ni else None),
-        hoja("10_Efectivo_auditado", "Efectivo auditado y ajuste", [["Concepto", "t"], ["Importe", "n"]], auditado),
-        hoja("11_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos),
+                     tot("I", fin_e, con["reclasNoEquivalentes"])] if ni else None, explica=EXPLICA["09_Equivalentes"]),
+        hoja("10_Efectivo_auditado", "Efectivo auditado y ajuste", [["Concepto", "t"], ["Importe", "n"]], auditado,
+             explica=EXPLICA["10_Efectivo_auditado"]),
+        hoja("11_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos,
+             explica=EXPLICA["11_Asientos"]),
         hoja("12_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
     ]
