@@ -20,7 +20,7 @@ import hashlib
 import re
 import uuid
 
-from backend.app.aud.niif.ciclo import almacen, datos, reglas
+from backend.app.aud.niif.ciclo import almacen, datos, insights, reglas
 # Dentro de aplicar_accion el parámetro `datos` (cuerpo de la acción) tapa al
 # módulo: ahí se usa este alias.
 from backend.app.aud.niif.ciclo import datos as datos_mod
@@ -550,6 +550,9 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         p.estado = _sig({**reg, "state": p.estado}, accion)
         con_archivo = {a.requerimiento for a in recibidos_}
         reg["requests"] = [{**r, "status": "RECIBIDO" if r["id"] in con_archivo else "NO REQUERIDO"} for r in reg["requests"]]
+        # Enriquecimiento aditivo: matriz de evidencia requerimientos ↔ archivos
+        # (cobertura y corroboración). No cambia el estado ni las reglas.
+        reg["evidenceMatrix"] = insights.matriz_evidencia(reg["requests"], recibidos_)
 
     # --- E8: ejecución y análisis (route.ts: configure … save_analysis) --------
     elif accion == "configure" and procesadores.de(p.definicion):
@@ -639,6 +642,9 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
     elif accion == "analyze":
         p.estado = _sig({**reg, "state": p.estado}, accion)
         reg["analysis"] = datos_mod.preliminary({**reg, "definition": p.definicion})
+        # Enriquecimiento aditivo: scoring de riesgo (anomalías explicables) sobre
+        # la población validada. No cambia el estado ni el texto del análisis.
+        reg["riskScoring"] = insights.scoring_riesgo(p.definicion, reg.get("rows") or [])
 
     elif accion in ("save_analysis", "submit"):
         if p.estado != "RESULTADOS_ANALIZADOS":
