@@ -46,6 +46,8 @@ from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y fil
     hoja, m as fmt_m, n2, norm, problema, r2, ref, req, suma, validar_campos, validar_definicion_generica,
 )
 
+from backend.app.aud.niif.procesadores import problemas
+
 VERSION = "inversiones_instrumentos 1.0"
 RUBRO = "INVERSIONES"
 
@@ -507,6 +509,54 @@ CORTE, INICIO = f"{P}$B${FILA0}", f"{P}$B${FILA0 + 1}"
 
 def _v(x):
     return "" if x is None else x
+
+
+# --- origen del importe de cada problema (ver procesadores/problemas.py) ----------------------------------------------
+
+def _por_instrumento(nombre, columna):
+    """Celda de la columna en la fila del instrumento que abre el mensaje del problema («ID: …»)."""
+    def f(hojas, e):
+        h = next(x for x in hojas if x["name"] == nombre)
+        msg = e.get("message") or ""
+        i = next((k for k, r in enumerate(h.get("rows") or []) if problemas._texto(r[0]) and msg.startswith(problemas._texto(r[0]) + ":")), None)
+        if i is None:
+            return None
+        return problemas.celda(hojas, nombre, columna, i), problemas._num(h["rows"][i][[c[0] for c in h["cols"]].index(columna)])
+    return f
+
+
+_LIBROS = _por_instrumento("03_Inventario", "Saldo en libros")
+
+REF_PROBLEMAS = {
+    # Saldo en libros del instrumento expuesto al problema (03_Inventario): vencido, clasificación ilegible, no
+    # determinable o inconsistente, costo amortizado sin datos, VR faltante, calificación baja, deterioro sin datos,
+    # reclasificación no permitida.
+    "INSTRUMENTO_VENCIDO": _LIBROS,
+    "CLASIFICACION_ILEGIBLE": _LIBROS,
+    "CLASIFICACION_NO_DETERMINABLE": _LIBROS,
+    "CLASIFICACION_INCONSISTENTE": _LIBROS,
+    "CA_SIN_DATOS": _LIBROS,
+    "VR_FALTANTE": _LIBROS,
+    "CALIFICACION_BAJA_SIN_INDICIO": _LIBROS,
+    "DETERIORO_SIN_DATOS": _LIBROS,
+    "RECLASIFICACION_NO_PERMITIDA": _LIBROS,
+    # Costo amortizado recalculado − saldo en libros («Diferencia de medición» de 10_Conciliacion).
+    "DIFERENCIA_COSTO_AMORTIZADO": _por_instrumento("10_Conciliacion", "Diferencia de medición"),
+    # Valor razonable sin nivel o de nivel 3 (06_Valor_razonable).
+    "VR_SIN_NIVEL": _por_instrumento("06_Valor_razonable", "Valor razonable al corte"),
+    "VR_NIVEL_3": _por_instrumento("06_Valor_razonable", "Valor razonable al corte"),
+    # Valor razonable − saldo en libros (06_Valor_razonable).
+    "DIFERENCIA_VR": _por_instrumento("06_Valor_razonable", "Diferencia (ganancia/pérdida no registrada)"),
+    # Ingreso según la norma (interés TIE o dividendo) − ingreso registrado (07_Intereses_dividendos).
+    "INTERES_NO_REGISTRADO": _por_instrumento("07_Intereses_dividendos", "Diferencia"),
+    "DIVIDENDO_NO_REGISTRADO": _por_instrumento("07_Intereses_dividendos", "Diferencia"),
+    "INGRESO_EN_EXCESO": _por_instrumento("07_Intereses_dividendos", "Diferencia"),
+    # Deterioro recalculado del instrumento con indicio, y recalculado − registrado (08_Deterioro).
+    "INDICIO_DETERIORO": _por_instrumento("08_Deterioro", "Deterioro recalculado"),
+    "DIFERENCIA_DETERIORO": _por_instrumento("08_Deterioro", "Diferencia"),
+    # Ajuste propuesto al importe neto (TOTAL de 10_Conciliacion).
+    "AJUSTE": ("10_Conciliacion", "Ajuste propuesto (importe neto)", "total"),
+}
 
 
 def hojas(res: dict) -> list[dict]:

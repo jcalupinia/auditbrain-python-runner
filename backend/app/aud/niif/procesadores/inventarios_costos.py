@@ -40,6 +40,8 @@ from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y fil
     validar_campos, validar_definicion_generica,
 )
 
+from backend.app.aud.niif.procesadores import problemas
+
 VERSION = "inventarios_costos 1.0"
 RUBRO = "INVENTARIOS"
 
@@ -479,6 +481,133 @@ def _tot(col: str, n: int, v):
 def _si(celda: str) -> str:
     """Referencia a un dato opcional: vacío sigue vacío (una referencia simple daría 0)."""
     return f'IF({celda}="","",{celda})'
+
+
+# --- origen del importe de cada problema (ver procesadores/problemas.py) ----------------------------------------------
+# Los problemas por ítem suman un importe de los ítems que cumplen la condición. La condición se evalúa sobre las
+# celdas de las cédulas (03, 04, 05, 09, 10 y 11 tienen una fila por ítem, en el mismo orden) y el importe remite a
+# la suma de las celdas de esos ítems en la cédula donde se calcula.
+
+def _h(hojas, nombre):
+    return next(x for x in hojas if x["name"] == nombre)
+
+
+def _dato(hojas, i):
+    """Lector de la fila i de las cédulas por ítem: v(hoja, columna) → número o texto de la celda."""
+    def v(hoja_, columna):
+        h = _h(hojas, hoja_)
+        c = h["rows"][i][[k[0] for k in h["cols"]].index(columna)]
+        n = problemas._num(c)
+        return n if n is not None else problemas._texto(c)
+    return v
+
+
+def _n(x) -> float:
+    return x if isinstance(x, (int, float)) else 0.0
+
+
+def _vacio(x) -> bool:
+    return not isinstance(x, (int, float)) and x == ""
+
+
+def _suma_items(hoja_, columna, cond, termino=None):
+    """Suma de la columna (o del término armado con celdas de la fila) de los ítems que cumplen cond(v)."""
+    def f(hojas, e):
+        h = _h(hojas, hoja_)
+        idx = [i for i in range(len(h["rows"])) if cond(_dato(hojas, i))]
+        if not idx:
+            return None
+        if termino is None:
+            partes = [problemas.celda(hojas, hoja_, columna, i) for i in idx]
+            valor = sum(_n(_dato(hojas, i)(hoja_, columna)) for i in idx)
+        else:
+            pares = [termino(lambda col, i=i: problemas.celda(hojas, hoja_, col, i), _dato(hojas, i)) for i in idx]
+            partes, valor = [p[0] for p in pares], sum(p[1] for p in pares)
+        return (partes[0] if len(partes) == 1 else "+".join(f"({p})" if termino else p for p in partes)), valor
+    return f
+
+
+def _concepto(hoja_, concepto, menos=None):
+    """Fila con ese concepto (y, si se indica, menos la fila del concepto «menos») en una cédula Concepto / Importe."""
+    def f(hojas, e):
+        h = _h(hojas, hoja_)
+        fila = lambda c: next((k for k, r in enumerate(h["rows"]) if problemas._texto(r[0]) == c), None)
+        i = fila(concepto)
+        if i is None:
+            return None
+        ref, val = problemas.celda(hojas, hoja_, "Importe", i), problemas._num(h["rows"][i][1])
+        if menos is None:
+            return ref, val
+        j = fila(menos)
+        if j is None or val is None:
+            return None
+        return f"{ref}-{problemas.celda(hojas, hoja_, 'Importe', j)}", val - (problemas._num(h["rows"][j][1]) or 0)
+    return f
+
+
+def _apertura(hojas, e):
+    """Diferencia de apertura de la línea de 08_Costo_ventas que abre el mensaje («Línea: …»)."""
+    h, msg = _h(hojas, "08_Costo_ventas"), e.get("message") or ""
+    j = [c[0] for c in h["cols"]].index("Diferencia de apertura")
+    i = next((k for k, r in enumerate(h["rows"]) if problemas._texto(r[0]) and msg.startswith(problemas._texto(r[0]) + ":")), None)
+    return None if i is None else (problemas.celda(hojas, h["name"], "Diferencia de apertura", i), problemas._num(h["rows"][i][j]))
+
+
+def _exceso_vnr(v) -> float:
+    """Rebaja calculada (costo − VNR) × cantidad menos la rebaja limitada al costo, de un ítem de 09_VNR."""
+    return (max(0, _n(v("09_VNR", "Costo unitario auditado")) - _n(v("09_VNR", "VNR unitario"))) * _n(v("09_VNR", "Cantidad auditada"))
+            - _n(v("09_VNR", "Rebaja a VNR")))
+
+
+_EXCESO_VNR = lambda c, v: (f"MAX(0,{c('Costo unitario auditado')}-{c('VNR unitario')})*{c('Cantidad auditada')}-{c('Rebaja a VNR')}",
+                            _exceso_vnr(v))
+
+REF_PROBLEMAS = {
+    # Diferencias entre conteo y kardex valorizadas (TOTAL de 04_Conteo).
+    "DIFERENCIA_FISICA": ("04_Conteo", "Diferencia valorizada", "total"),
+    # Costo auditado de los ítems sin cantidad contada (03_Inventario).
+    "SIN_CONTEO": _suma_items("03_Inventario", "Costo auditado", lambda v: _vacio(v("03_Inventario", "Cantidad contada"))),
+    # Valor kardex de los ítems con cantidad o costo negativos (03_Inventario).
+    "KARDEX_NEGATIVO": _suma_items("03_Inventario", "Valor kardex",
+                                   lambda v: _n(v("03_Inventario", "Cantidad kardex")) < 0 or _n(v("03_Inventario", "Costo unitario")) < 0),
+    # Recalculado − kardex y efecto del costo unitario soportado (TOTALES de 05_Prueba_costo).
+    "DIF_EXTENSION": ("05_Prueba_costo", "Diferencia de extensión", "total"),
+    "DIF_COSTO_UNITARIO": ("05_Prueba_costo", "Efecto en el costo auditado", "total"),
+    # Kardex − mayor y manufactura registrada − producción recalculada (06_Conciliacion).
+    "KARDEX_MAYOR": _concepto("06_Conciliacion", "Diferencia kardex − mayor"),
+    "PRODUCCION_NO_CONCILIADA": _concepto("06_Conciliacion", "Producción no conciliada (registrado − recalculado)"),
+    # Inventario inicial − cierre auditado anterior de la línea (08_Costo_ventas).
+    "APERTURA": _apertura,
+    # CIF fijo no absorbido capitalizado por la entidad y CIF no absorbido a gasto (TOTALES de 07_Costo_produccion).
+    "CIF_NO_ABSORBIDO_CAPITALIZADO": ("07_Costo_produccion", "No absorbido capitalizado", "total"),
+    "CIF_NO_ABSORBIDO": ("07_Costo_produccion", "CIF fijo no absorbido (gasto)", "total"),
+    # Costo de ventas recalculado − contable (TOTAL de 08_Costo_ventas).
+    "COSTO_VENTAS": ("08_Costo_ventas", "Diferencia", "total"),
+    # Rebaja a VNR (TOTAL de 09_VNR).
+    "VNR_BAJO_COSTO": ("09_VNR", "Rebaja a VNR", "total"),
+    # Rebaja calculada − rebaja limitada al costo, en los ítems con VNR negativo (09_VNR).
+    "REBAJA_MAYOR_QUE_COSTO": _suma_items("09_VNR", None, lambda v: not _vacio(v("09_VNR", "VNR unitario")) and _exceso_vnr(v) > 0.005, _EXCESO_VNR),
+    # Provisión no reconocida por la excepción de NIC 2.32 (TOTAL de 11_Excepcion_MP).
+    "EXCEPCION_NIC232": ("11_Excepcion_MP", "Efecto: provisión no reconocida", "total"),
+    # Provisión antes de la excepción de las materias primas: todas (PYMES), sin demostración o con margen negativo (11).
+    "EXCEPCION_NIC232_NO_EN_PYMES": _suma_items("11_Excepcion_MP", "Provisión antes de la excepción",
+                                                lambda v: v("11_Excepcion_MP", "¿Materia prima?") == "Sí"),
+    "MP_SIN_DEMOSTRACION_PT": _suma_items("11_Excepcion_MP", "Provisión antes de la excepción",
+                                          lambda v: v("11_Excepcion_MP", "¿Materia prima?") == "Sí" and _vacio(v("11_Excepcion_MP", "Margen esperado"))),
+    "MP_MARGEN_NEGATIVO": _suma_items("11_Excepcion_MP", "Provisión antes de la excepción",
+                                      lambda v: v("11_Excepcion_MP", "¿Materia prima?") == "Sí" and _n(v("11_Excepcion_MP", "Margen esperado")) < 0),
+    # Provisión por tramos de antigüedad de los ítems sin precio de venta (10_Obsolescencia).
+    "VNR_ESTIMADO_ANTIGUEDAD": _suma_items("10_Obsolescencia", "Provisión por obsolescencia",
+                                           lambda v: _vacio(v("09_VNR", "Precio estimado de venta"))
+                                           and _n(v("10_Obsolescencia", "Provisión por obsolescencia")) != 0),
+    # Provisión estimada − provisión registrada (01_Resumen).
+    "LENTA_ROTACION_SIN_PROVISION": _concepto("01_Resumen", "Provisión estimada (rebaja a VNR; tramo solo sin precio; neta de la excepción NIC 2.32)",
+                                              "Provisión registrada"),
+    # Importe mal cortado (TOTAL de 12_Corte).
+    "CORTE": ("12_Corte", "Importe mal cortado", "total"),
+    # Inventario neto auditado − neto en libros (01_Resumen).
+    "AJUSTE": _concepto("01_Resumen", "Ajuste propuesto (neto)"),
+}
 
 
 def hojas(res: dict) -> list[dict]:

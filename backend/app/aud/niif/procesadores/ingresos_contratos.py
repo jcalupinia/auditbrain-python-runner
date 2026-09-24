@@ -26,6 +26,8 @@ from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y fil
     n2, norm, problema, r2, ref, req, suma, validar_campos, validar_definicion_generica,
 )
 
+from backend.app.aud.niif.procesadores import problemas
+
 VERSION = "ingresos_contratos 1.0"
 RUBRO = "INGRESOS"
 
@@ -475,6 +477,116 @@ def _rango(hoja_ref: str, col: str, n: int) -> str:
 def _op(hoja_ref, celda):
     """Dato opcional: vacío si la celda está en blanco (M22)."""
     return f'IF({hoja_ref}{celda}<>"",{hoja_ref}{celda},"")'
+
+
+# --- origen del importe de cada problema (ver procesadores/problemas.py) ----------------------------------------------
+
+def _hoja(hojas, nombre):
+    return next(x for x in hojas if x["name"] == nombre)
+
+
+def _idx_linea(h, msg):
+    """Fila cuya «Línea» abre el mensaje del problema («C-01-1: …» o «C-06-1 (C-06): …»)."""
+    for i, f in enumerate(h.get("rows") or []):
+        t = problemas._texto(f[0])
+        if t and (msg.startswith(t + ":") or msg.startswith(t + " (")):
+            return i
+    return None
+
+
+def _valor(h, columna, i):
+    return problemas._num(h["rows"][i][[c[0] for c in h["cols"]].index(columna)])
+
+
+def _por_linea(nombre, columna):
+    """Celda de la columna en la fila de la línea que nombra el problema."""
+    def f(hojas, e):
+        h = _hoja(hojas, nombre)
+        i = _idx_linea(h, e.get("message") or "")
+        if i is None:
+            return None
+        return problemas.celda(hojas, nombre, columna, i), _valor(h, columna, i)
+    return f
+
+
+def _error_corte(hojas, e):
+    """11_Corte: «Registrado antes de transferir» o «Transferido sin registrar» de la línea, según el sentido del error."""
+    msg = e.get("message") or ""
+    col = "Registrado antes de transferir" if ": ingreso registrado en el ejercicio" in msg else "Transferido sin registrar"
+    return _por_linea("11_Corte", col)(hojas, e)
+
+
+def _avance_mal_calculado(hojas, e):
+    """Diferencia de avance (06_Satisfaccion) × importe asignado a la obligación (05_Asignacion), misma línea."""
+    sat, asg = _hoja(hojas, "06_Satisfaccion"), _hoja(hojas, "05_Asignacion")
+    msg = e.get("message") or ""
+    i, j = _idx_linea(sat, msg), _idx_linea(asg, msg)
+    if i is None or j is None:
+        return None
+    dif, asig = _valor(sat, "Diferencia de avance", i), _valor(asg, "Asignado (relativo)", j)
+    if dif is None:
+        return None
+    return (f"{problemas.celda(hojas, sat['name'], 'Diferencia de avance', i)}"
+            f"*{problemas.celda(hojas, asg['name'], 'Asignado (relativo)', j)}"), dif * (asig or 0)
+
+
+def _financiacion_sin_tasa(hojas, e):
+    """Reconocible neto de las líneas con financiación significativa (08_Financiacion), medidas sin tasa."""
+    h = _hoja(hojas, "08_Financiacion")
+    n = len(h["rows"])
+    if not n:
+        return None
+    rango = lambda col: (f"{problemas.celda(hojas, h['name'], col, 0)}:"
+                         f"{problemas.celda(hojas, h['name'], col, n - 1).split('!')[1]}")
+    cols = [c[0] for c in h["cols"]]
+    js, jn = cols.index("Financiación significativa"), cols.index("Reconocible neto")
+    valor = sum(problemas._num(f[jn]) or 0 for f in h["rows"] if problemas._texto(f[js]) == "Sí")
+    return f'SUMIF({rango("Financiación significativa")},"Sí",{rango("Reconocible neto")})', valor
+
+
+def _conciliacion(clave):
+    """Fila fija de 13_Conciliacion."""
+    def f(hojas, e):
+        h = _hoja(hojas, "13_Conciliacion")
+        i = CONF[clave] - FILA0
+        return problemas.celda(hojas, h["name"], "Importe", i), _valor(h, "Importe", i)
+    return f
+
+
+REF_PROBLEMAS = {
+    # Ingreso registrado en el año de la línea sin contrato válido (09_Reconocimiento).
+    "SIN_CONTRATO": _por_linea("09_Reconocimiento", "Registrado en el año"),
+    # Registrado antes de transferir el control / transferido sin registrar, por línea (11_Corte).
+    "ERROR_CORTE": _error_corte,
+    # Ingreso registrado de la línea que no se pudo medir (09_Reconocimiento: reconocible vacío).
+    "SIN_FECHA_TRANSFERENCIA": _por_linea("09_Reconocimiento", "Registrado en el año"),
+    "AVANCE_SIN_DATOS": _por_linea("09_Reconocimiento", "Registrado en el año"),
+    # Diferencia de avance × precio asignado a la obligación.
+    "AVANCE_MAL_CALCULADO": _avance_mal_calculado,
+    # Pérdida esperada del contrato: costos totales − precio asignado (06_Satisfaccion).
+    "PERDIDA_ESPERADA": _por_linea("06_Satisfaccion", "Pérdida esperada del contrato"),
+    # Asignado por precio independiente relativo − asignación del cliente (05_Asignacion).
+    "ASIGNACION_INCORRECTA": _por_linea("05_Asignacion", "Diferencia"),
+    # Variable del cliente que excede la incluida tras la restricción (04_Precio_variable).
+    "VARIABLE_SIN_RESTRICCION": _por_linea("04_Precio_variable", "Exceso sobre la restricción"),
+    # Variable estimada que queda fuera del precio por no tener probabilidad (04_Precio_variable).
+    "VARIABLE_SIN_PROBABILIDAD": _por_linea("04_Precio_variable", "Variable estimada"),
+    # Notas de crédito posteriores que exceden el pasivo por reembolso (07_Devoluciones).
+    "DEVOLUCIONES_NO_PROVISIONADAS": _por_linea("07_Devoluciones", "NC no provisionadas"),
+    # Importe de la modificación sin tratamiento documentado (12_Modificaciones).
+    "MODIFICACION_SIN_TRATAMIENTO": _por_linea("12_Modificaciones", "Importe"),
+    # Reconocible neto de las líneas con financiación significativa sin tasa (08_Financiacion).
+    "FINANCIACION_SIN_TASA": _financiacion_sin_tasa,
+    # Componente de financiación a separar (TOTAL de 08_Financiacion).
+    "FINANCIACION_NO_SEPARADA": ("08_Financiacion", "Componente de financiación", "total"),
+    # Activo / pasivo del contrato requerido − registrado (13_Conciliacion).
+    "ACTIVO_CONTRATO_NO_PRESENTADO": _conciliacion("difActivo"),
+    "PASIVO_CONTRATO_NO_PRESENTADO": _conciliacion("difPasivo"),
+    # Ingreso del anexo − ingreso según el mayor (13_Conciliacion).
+    "DIF_MAYOR": _conciliacion("difMayor"),
+    # Ajuste propuesto: reconocible del año − registrado (TOTAL de 09_Reconocimiento).
+    "AJUSTE_INGRESOS": ("09_Reconocimiento", "Ajuste", "total"),
+}
 
 
 def hojas(res: dict) -> list[dict]:
