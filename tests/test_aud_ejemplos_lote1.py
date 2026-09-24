@@ -65,15 +65,39 @@ def _esperados(pid):
     return mod, d, par, corte, out
 
 
-def test_manifiesto_y_disco_en_sync():
+def _manifiesto_tool(pid):
+    """{RQ-id: archivo} del bloque del procesador en ejemplosRequerimientos.js."""
     js = open(MANIFIESTO, encoding="utf-8").read()
+    m = re.search(rf"\b{pid}:\s*\{{(.*?)\}}", js, re.S)
+    assert m, f"{pid} no está en el manifiesto"
+    return dict(re.findall(r'"(RQ-\d+)":\s*"([^"]+)"', m.group(1)))
+
+
+def test_manifiesto_y_disco_en_sync():
     for pid in LOTE1:
         _mod, _d, _par, _corte, esperados = _esperados(pid)
         assert esperados, f"{pid}: sin requerimientos de datos"
-        assert f"{pid}:" in js, f"{pid} no está en el manifiesto"
+        entradas = _manifiesto_tool(pid)
         for _r, _ds, _k, _c, _f, nombre in esperados:
             assert os.path.exists(os.path.join(PUB, pid, nombre)), f"falta {pid}/{nombre} (corra scripts/ejemplos_lote.py)"
-            assert nombre in js, f"{pid}/{nombre} no está en el manifiesto"
+            assert nombre in entradas.values(), f"{pid}/{nombre} no está en el manifiesto"
+
+
+def test_manifiesto_cubre_todos_los_requerimientos_y_los_archivos_existen():
+    # Cada requerimiento (datos y soporte) de las 6 tiene ejemplo en el manifiesto
+    # y su archivo en disco: ninguno queda sin modelo descargable.
+    firmas = {".pdf": b"%PDF-", ".xlsx": b"PK", ".docx": b"PK", ".csv": b""}
+    for pid in LOTE1:
+        d = PROCESADORES[pid].definicion()
+        entradas = _manifiesto_tool(pid)
+        for r in d.get("requests", []):
+            assert r["id"] in entradas, f"{pid}/{r['id']} sin ejemplo en el manifiesto"
+            ruta = os.path.join(PUB, pid, entradas[r["id"]])
+            assert os.path.exists(ruta), f"falta el archivo {pid}/{entradas[r['id']]}"
+            ext = os.path.splitext(ruta)[1]
+            data = open(ruta, "rb").read()
+            assert len(data) > 500, f"{pid}/{entradas[r['id']]} demasiado pequeño"
+            assert data.startswith(firmas.get(ext, b"")), f"{pid}/{entradas[r['id']]}: firma {ext} inválida"
 
 
 def test_cada_ejemplo_se_lee_automapea_y_corre():
