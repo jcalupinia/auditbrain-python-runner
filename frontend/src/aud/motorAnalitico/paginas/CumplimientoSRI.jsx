@@ -30,6 +30,33 @@ const ESTADOS_EMITIDOS = ["Todos", "Autorizado", "No autorizado"];
 // Vista en vivo del robot (noVNC, solo lectura, tailnet-only).
 const VNC_URL = "https://auditia.tail70d973.ts.net:8446/vnc.html?autoconnect=1&resize=scale&view_only=1&reconnect=1";
 
+// Resumen legible del resultado del robot (en vez del JSON crudo).
+function ResumenResultado({ r, titulo }) {
+  if (!r || typeof r !== "object") {
+    return <div className="ma-sri-resumen"><div className="ma-sri-resumen-titulo">{titulo}</div></div>;
+  }
+  const n = (k) => (typeof r[k] === "number" ? r[k] : null);
+  const total = n("n_registros") ?? n("registros_esperados") ?? n("total");
+  const pdfOk = n("descargados_pdf_verificados") ?? n("n_pdf");
+  const pdfEsp = n("esperados_pdf");
+  const xmlOk = n("descargados_xml_verificados") ?? n("n_xml");
+  const xmlEsp = n("esperados_xml");
+  const ctx = [r.tipo_visible, r.estado_autorizacion, r.fecha_filtro].filter(Boolean).join(" · ");
+  const conteos = [];
+  if (pdfEsp != null) conteos.push(`PDF ${pdfOk ?? 0}/${pdfEsp}`);
+  if (xmlEsp != null) conteos.push(`XML ${xmlOk ?? 0}/${xmlEsp}`);
+  return (
+    <div className="ma-sri-resumen">
+      <div className="ma-sri-resumen-titulo">{titulo}</div>
+      {ctx && <div>{ctx}</div>}
+      {total != null && <div><strong>{total}</strong> comprobantes</div>}
+      {conteos.length > 0 && <div className="ma-sri-resumen-conteos">{conteos.join("  ·  ")}</div>}
+      {r.mensaje && <div className="ma-sri-resumen-msg">{r.mensaje}</div>}
+      <details className="ma-sri-detalle"><summary>Ver detalle técnico</summary><pre>{JSON.stringify(r, null, 2)}</pre></details>
+    </div>
+  );
+}
+
 // ---------- Subpágina 1: Descarga (login + filtros + captcha relay) ----------
 function SubDescarga() {
   const [form, setForm] = useState({
@@ -209,7 +236,7 @@ function SubDescarga() {
         </div>
       )}
       {progreso.length > 0 && <ul className="ma-sri-progreso">{progreso.slice(-8).map((m, i) => <li key={i}>{m}</li>)}</ul>}
-      {fase === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><strong>Descarga completada.</strong><pre>{JSON.stringify(resultado, null, 2)}</pre></div>}
+      {fase === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenResultado r={resultado} titulo="✅ Descarga completada" /></div>}
       {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
     </section>
   );
@@ -312,7 +339,7 @@ function SubConsolidacion() {
       <div className="ma-sri-descarga-acciones">
         <button type="button" className="ma-sri-boton-ejecutar" onClick={consolidar} disabled={estado === "procesando"}>{estado === "procesando" ? "Consolidando…" : "Consolidar"}</button>
       </div>
-      {estado === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><strong>Consolidación lista.</strong><pre>{JSON.stringify(resultado, null, 2)}</pre></div>}
+      {estado === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenResultado r={resultado} titulo="✅ Consolidación lista" /></div>}
       {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
     </section>
   );
