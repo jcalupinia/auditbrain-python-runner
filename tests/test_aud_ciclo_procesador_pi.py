@@ -134,8 +134,11 @@ def test_perdidas_incurridas_de_punta_a_punta(client):
     wb = load_workbook(io.BytesIO(x.content))
     # El papel ejecutivo antepone el panel "00_Inicio" (marca + KPIs + navegación)
     # a la carátula; "00_Caratula" sigue presente como cédula (libro.xlsx, 2026).
+    # Tras "14_Control_Revision" se anexa el panel "16_Evidencia" (cobertura de
+    # requerimientos ↔ archivos, del enriquecimiento del ciclo).
     assert wb.sheetnames[0] == "00_Inicio" and "00_Caratula" in wb.sheetnames \
-        and "04_Matriz_deterioro" in wb.sheetnames and wb.sheetnames[-1] == "14_Control_Revision"
+        and "04_Matriz_deterioro" in wb.sheetnames and "14_Control_Revision" in wb.sheetnames \
+        and "16_Evidencia" in wb.sheetnames
     detalle = wb["11_Detalle"]
     assert detalle.cell(row=4, column=1).value == "Factura"
     # La hoja ejecutiva anexa una sección "Notas de fórmulas" tras la fila TOTAL,

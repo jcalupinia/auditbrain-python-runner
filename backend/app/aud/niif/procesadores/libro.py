@@ -97,9 +97,52 @@ def _contexto(definicion: dict, reg: dict, eventos: list, version: int, estado: 
     ]
 
 
+def _paneles_analiticos(reg: dict) -> list[dict]:
+    """Cédulas opcionales con el enriquecimiento del ciclo (evidence/risk):
+    "15_Riesgo" (scoring de anomalías) y "16_Evidencia" (cobertura de
+    requerimientos ↔ archivos). Solo se agregan cuando el registro trae los
+    datos (``riskScoring``/``evidenceMatrix`` que puebla ``ciclo.insights``);
+    si no, no aparecen — así una prueba sin scoring no gana hojas vacías."""
+    paneles: list[dict] = []
+
+    rs = reg.get("riskScoring") or {}
+    anomalias = rs.get("anomalias") or []
+    if anomalias or (rs.get("resumen") or {}).get("total"):
+        res = rs.get("resumen") or {}
+        filas = [
+            [a.get("indice"), a.get("score"), a.get("nivel"),
+             "; ".join(f"{f.get('variable')} (z={f.get('z')})"
+                       for f in (a.get("factores") or [])[:3])]
+            for a in anomalias
+        ] or [["—", "—", "sin filas marcadas", f"revisadas {res.get('total', 0)}"]]
+        paneles.append({
+            "name": "15_Riesgo", "label": "Scoring de riesgo", "total": None,
+            "cols": [["Fila", "i"], ["Score (0-100)", "n"], ["Nivel", "t"], ["Factores (top 3)", "t"]],
+            "rows": filas,
+        })
+
+    em = reg.get("evidenceMatrix") or {}
+    entradas = em.get("entradas") or []
+    if entradas:
+        filas = [
+            [e.get("requerimiento"), e.get("documento"), e.get("fuentes"),
+             "Sí" if e.get("corroborado") else "No", e.get("estado")]
+            for e in entradas
+        ]
+        paneles.append({
+            "name": "16_Evidencia", "label": "Cobertura de evidencia", "total": None,
+            "cols": [["Requerimiento", "t"], ["Documento", "t"], ["Fuentes", "i"],
+                     ["Corroborado (≥2)", "t"], ["Estado", "t"]],
+            "rows": filas,
+        })
+
+    return paneles
+
+
 def cedulas(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> list[dict]:
     antes, despues = _contexto(definicion, reg, eventos, version, estado)
-    return antes + ((reg.get("run") or {}).get("hojas") or []) + despues
+    return (antes + ((reg.get("run") or {}).get("hojas") or [])
+            + despues + _paneles_analiticos(reg))
 
 
 def _titulos_unicos(hojas: list[dict]) -> list[str]:
