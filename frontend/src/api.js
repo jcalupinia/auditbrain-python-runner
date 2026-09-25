@@ -315,14 +315,17 @@ export async function cicloBajarArchivo(pruebaId, archivoId) {
 // E9: el papel aprobado lo arma el navegador con el exportador del sitio y el
 // servidor lo guarda una sola vez, con su huella.
 // En una prueba declarativa van también el Word y el PowerPoint (`extra`).
-export async function cicloSubirPapel(pruebaId, revision, xlsx, html, extra = {}) {
-  const fd = new FormData();
-  fd.append("revision", String(revision));
-  fd.append("xlsx", new Blob([xlsx], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), "papel.xlsx");
-  fd.append("html", new Blob([html], { type: "text/html" }), "papel.html");
-  if (extra.docx) fd.append("docx", new Blob([extra.docx], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }), "papel.docx");
-  if (extra.pptx) fd.append("pptx", new Blob([extra.pptx], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }), "papel.pptx");
-  return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/papel`, { method: "POST", headers: authHeaders(), body: fd }));
+// Papel de una prueba DECLARATIVA con el diseño de los procesadores: el navegador
+// envía las cédulas con fórmulas del sitio (cargaPapel) y el servidor arma el
+// Excel, HTML, Word, PowerPoint o PDF. No lee ni guarda nada.
+export async function cicloPapelDeclarativo(carga, formato = "xlsx") {
+  const res = await apiFetch(`${CICLO}/papel-declarativo?formato=${formato}`, jsonPost("POST", carga), { timeoutMs: 180000 });
+  if (!res.ok) await parse(res);
+  return new Uint8Array(await res.arrayBuffer());
+}
+// Papel aprobado de una prueba declarativa: el servidor lo arma y lo guarda con su huella.
+export async function cicloGuardarPapelDeclarativo(pruebaId, revision, carga) {
+  return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/papel-declarativo`, jsonPost("POST", { revision, ...carga }), { timeoutMs: 180000 }));
 }
 // E10: modelo Excel de un requerimiento de cálculo, para enviarlo al cliente.
 export async function cicloBajarModelo(pruebaId, requerimiento) {

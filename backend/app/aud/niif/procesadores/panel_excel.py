@@ -268,12 +268,13 @@ def severidad_formulas(hojas, titulos, base_ref, run, base_val):
     from backend.app.aud.niif.procesadores import libro as L
     from backend.app.aud.niif.procesadores import problemas
 
-    ip = next((i for i, h in enumerate(hojas) if problemas.es_hoja_problemas(h)), None)
-    if ip is None:
+    hp = problemas.hoja_problemas(hojas)
+    if hp is None:
         return None
+    ip, imp = hp
     n = max(len(hojas[ip].get("rows") or []), 1)
     q = L._q(titulos[ip])
-    A, C = f"{q}$A$5:$A${4 + n}", f"{q}$C$5:$C${4 + n}"
+    A, C = f"{q}$A$5:$A${4 + n}", f"{q}${imp}$5:${imp}${4 + n}"
     b = base_ref or "0"
 
     def cuenta(pct):
@@ -327,12 +328,11 @@ def boton_html(cel, texto, destino, primario=False):
 
 def portada(ws, wd, definicion, reg, hojas, titulos, estado, version, grupos_nav, secciones):
     """Arma ``00_Inicio`` como el panel del HTML. Devuelve la última fila usada."""
-    from backend.app.aud.niif.procesadores import PROCESADORES
     from backend.app.aud.niif.procesadores import libro as L
 
     e = reg.get("engagement") or {}
     run = reg.get("run") or {}
-    mod = PROCESADORES.get(definicion.get("processor", ""))
+    mod = graficos.modulo(definicion)
     spec = getattr(mod, "PANEL", None) or {}
     p = graficos.panel(mod, run, run.get("hojas") or [])
     ws.sheet_view.showGridLines = False
@@ -369,8 +369,8 @@ def portada(ws, wd, definicion, reg, hojas, titulos, estado, version, grupos_nav
     ws["B7"].value = L._seguro(f"{e.get('client', '')} · RUC {e.get('ruc', '')} · {definicion.get('area', '')}")
     ws["B7"].font = _f(10, TEXTO2)
     riesgo = {"alto": "▲ Riesgo alto", "medio": "▲ Riesgo medio", "bajo": "▲ Riesgo bajo"}[p["riesgo"]]
-    chips = [(riesgo, KPI_COLOR[p["riesgo"]]), (f"Corte {hx._fecha(e.get('cutoff'))}", TEXTO2), (f"Versión {version}", TEXTO2),
-             (est.estado_es(estado), TEXTO2), (str(e.get("framework") or ""), TEXTO2)]
+    chips = [(riesgo, KPI_COLOR[p["riesgo"]]), (f"Corte {hx._fecha(e.get('cutoff')) or 'pendiente'}", TEXTO2), (f"Versión {version}", TEXTO2),
+             (est.estado_es(estado), TEXTO2), (str(e.get("framework") or "Marco pendiente"), TEXTO2)]
     ws.row_dimensions[9].height = 20
     for col, (txt, color) in zip(COLS, chips):
         c = ws[f"{col}9"]

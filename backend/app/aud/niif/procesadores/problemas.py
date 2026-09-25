@@ -54,6 +54,20 @@ def es_hoja_problemas(h: dict) -> bool:
     return [c[0] for c in h.get("cols") or []] == COLS
 
 
+def hoja_problemas(hojas: list[dict]) -> tuple[int, str] | None:
+    """(índice, columna del importe) de la hoja de problemas del papel: la de un procesador
+    (columnas ``COLS``) o la que una prueba declarativa marca con ``"problemas": True`` (la
+    cédula «Excepciones» del sitio, con el importe en su columna «Importe»)."""
+    for i, h in enumerate(hojas):
+        if es_hoja_problemas(h):
+            return i, "C"
+        if h.get("problemas"):
+            nombres = [c[0] for c in h.get("cols") or []]
+            if "Importe" in nombres:
+                return i, get_column_letter(nombres.index("Importe") + 1)
+    return None
+
+
 def _q(nombre: str) -> str:
     return "'" + nombre[:31].replace("'", "''") + "'!"
 

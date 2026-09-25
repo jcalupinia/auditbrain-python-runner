@@ -197,6 +197,49 @@ async def guardar_papel(
     return _salida(_regla(lambda: servicio.guardar_papel(db, p, revision, a, b, user.email, docx=w, pptx=s)))
 
 
+class PapelDeclarativoIn(BaseModel):
+    # Lo que arma ``cargaPapel`` (frontend/src/aud/niif/papelDeclarativo.js).
+    herramienta: dict
+    cedulas: dict
+
+
+class PapelDeclarativoGuardarIn(PapelDeclarativoIn):
+    revision: int
+
+
+_TIPOS_PAPEL = {"xlsx": almacen.TIPOS["xlsx"], "html": "text/html; charset=utf-8", "pdf": "application/pdf",
+                "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"}
+
+
+@router.post("/papel-declarativo")
+def papel_declarativo(body: PapelDeclarativoIn, formato: str = "xlsx", user: User = Depends(require_staff)) -> Response:
+    """Papel de una prueba declarativa (catálogo o ficha sin procesador) con el diseño de las
+    pruebas con procesador: Excel con fórmulas (portada = panel del HTML), HTML autónomo, Word,
+    PowerPoint o PDF. Sirve al papel en curso y al estudio de una ficha: no lee ni guarda nada."""
+    from backend.app.aud.niif.procesadores import declarativo, libro
+
+    if formato not in _TIPOS_PAPEL:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Formato no disponible.")
+    try:
+        contenido = declarativo.archivo(body.model_dump(), formato)
+    except declarativo.CargaInvalida as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except libro.PDFNoDisponible as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+    return Response(contenido, media_type=_TIPOS_PAPEL[formato],
+                    headers={"Content-Disposition": f'attachment; filename="Papel.{formato}"'})
+
+
+@router.post("/pruebas/{prueba_id}/papel-declarativo")
+def guardar_papel_declarativo(prueba_id: int, body: PapelDeclarativoGuardarIn, db: Session = Depends(get_db),
+                              user: User = Depends(require_staff)) -> dict:
+    """Guarda el papel aprobado de una prueba declarativa, armado por el servidor con el diseño nuevo."""
+    p = _prueba(db, user, prueba_id)
+    carga = {"herramienta": body.herramienta, "cedulas": body.cedulas}
+    return _salida(_regla(lambda: servicio.guardar_papel_declarativo(db, p, body.revision, carga, user.email)))
+
+
 @router.get("/bandejas")
 def bandejas(db: Session = Depends(get_db), user: User = Depends(require_staff)) -> list[dict]:
     """Pruebas en revisión y aprobadas de los proyectos AUD que el usuario ve."""

@@ -753,6 +753,35 @@ def guardar_papel(db: Session, p: Prueba, revision: int, xlsx: bytes, html: byte
     return p
 
 
+def guardar_papel_declarativo(db: Session, p: Prueba, revision: int, carga: dict, actor: str) -> Prueba:
+    """Papel aprobado de una prueba DECLARATIVA con el diseño de los procesadores.
+
+    El navegador envía las cédulas con fórmulas del exportador del sitio (``cargaPapel``); el
+    servidor arma aquí el Excel, el HTML, el Word y el PowerPoint (``procesadores.declarativo``)
+    y los guarda con su huella. La definición, la versión y el estado salen de la prueba, no del
+    navegador."""
+    from backend.app.aud.niif.procesadores import declarativo
+
+    if procesadores.de(p.definicion):
+        raise ReglaIncumplida("El papel de una prueba con procesador lo arma el servidor al aprobarla.")
+    # Las mismas reglas de guardar_papel, antes de armar nada.
+    if revision != p.revision:
+        raise Conflicto("La prueba cambió mientras la editaba. Actualice y vuelva a intentarlo.")
+    if p.estado != "APROBADO":
+        raise ReglaIncumplida("Solo una versión aprobada tiene papel final.")
+    if (p.registro or {}).get("artifacts"):
+        raise ReglaIncumplida("El papel aprobado ya está guardado y no se reemplaza.")
+    if not isinstance(carga, dict) or not isinstance(carga.get("herramienta"), dict):
+        raise ReglaIncumplida("Faltan las cédulas del papel.")
+    carga = {**carga, "herramienta": {**carga["herramienta"], "definition": p.definicion, "version": p.version,
+                                      "state": p.estado, "demo": False}}
+    try:
+        a = declarativo.papel(carga)
+    except declarativo.CargaInvalida as e:
+        raise ReglaIncumplida(str(e))
+    return guardar_papel(db, p, revision, a["xlsx"], a["html"], actor, docx=a["docx"], pptx=a["pptx"])
+
+
 def nueva_version(db: Session, old: Prueba, revision: int, actor: str) -> Prueba:
     """Puerto de la acción ``new_version`` de route.ts."""
     if revision != old.revision:

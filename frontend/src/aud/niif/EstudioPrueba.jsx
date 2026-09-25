@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { cicloProcesadores, niifCobertura, niifEjecutarMotor, niifGuardarDefinicion } from "../../api";
+import { cicloPapelDeclarativo, cicloProcesadores, niifCobertura, niifEjecutarMotor, niifGuardarDefinicion } from "../../api";
 import { herramientaDeEstudio, motivoDiscrepancia } from "./contraste";
 import {
   EJEMPLO_NIIF16,
@@ -171,15 +171,15 @@ export default function EstudioPrueba({ ficha, onDefinicionGuardada }) {
     }
   }
 
+  // Excel y HTML del borrador con el diseño de los procesadores: los arma el servidor
+  // a partir de las cédulas del sitio (papelDeclarativo.js).
   async function bajarCedulas(formato) {
     try {
-      const [, exp] = await cargarSitio();
+      const m = await import("./papelDeclarativo");
       const t = herramientaDeEstudio({ ficha, ...corrida });
       const base = `${(ficha.nombre || "prueba").replace(/[^\w-]+/g, "_").slice(0, 60)}_BORRADOR`;
-      if (formato === "excel")
-        descargar(`${base}.xlsx`, exp.buildWorkbook(t),
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-      else descargar(`${base}.html`, exp.buildHtml(t), "text/html;charset=utf-8");
+      const ext = formato === "excel" ? "xlsx" : "html";
+      descargar(`${base}.${ext}`, await cicloPapelDeclarativo(m.cargaPapel(t), ext), m.MIME[ext]);
     } catch (e) {
       setErrorMotor(e.message || String(e));
     }

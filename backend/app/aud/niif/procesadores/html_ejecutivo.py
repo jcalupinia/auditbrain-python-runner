@@ -323,7 +323,7 @@ def _tabla(h: dict, celda) -> str:
     filas = [(r, False) for r in h.get("rows") or []] + ([(h["total"], True)] if h.get("total") else [])
     cuerpo = "".join(
         "<tr" + (' class="total"' if total else "") + ">"
-        + "".join(f'<td class="{"num" if f in ("n", "p", "i") else ""}"'
+        + "".join(f'<td class="{"num" if f in ("n", "p", "i", "g") else ""}"'
                   + (f' title="={E(v["f"])}"' if isinstance(v, dict) and "f" in v else "")
                   + f">{celda(v, f)}</td>" for (_, f), v in zip(h["cols"], fila))
         + "</tr>" for fila, total in filas)
@@ -366,19 +366,17 @@ document.querySelectorAll('[data-pdf]').forEach(function(x){x.addEventListener('
 
 def render(definicion: dict, reg: dict, eventos: list, version: int, estado: str, hojas: list[dict],
            adjuntos: list[tuple[str, str, str, bytes]], celda, como_se_calcula, para_pdf: bool = False) -> str:
-    from backend.app.aud.niif.procesadores import PROCESADORES
-
     e = reg.get("engagement") or {}
     run = reg.get("run") or {}
-    mod = PROCESADORES.get(definicion.get("processor", ""))
+    mod = graficos.modulo(definicion)
     proc_hojas = run.get("hojas") or []
     p = graficos.panel(mod, run, proc_hojas)
     hex_ = gs.CLARO if para_pdf else None
     nombre = definicion.get("name", "")
     riesgo_txt = {"alto": "Riesgo alto", "medio": "Riesgo medio", "bajo": "Riesgo bajo"}[p["riesgo"]]
     chips = (f'<span class="chip riesgo-{p["riesgo"]}">▲ {riesgo_txt}</span>'
-             f'<span class="chip">Corte {E(_fecha(e.get("cutoff")))}</span><span class="chip">Versión {version}</span>'
-             f'<span class="chip">{E(est.estado_es(estado))}</span><span class="chip">{E(str(e.get("framework", "")))}</span>')
+             f'<span class="chip">Corte {E(_fecha(e.get("cutoff")) or "pendiente")}</span><span class="chip">Versión {version}</span>'
+             f'<span class="chip">{E(est.estado_es(estado))}</span><span class="chip">{E(str(e.get("framework") or "Marco pendiente"))}</span>')
     boton_pdf = lambda sid: "" if para_pdf else f'<button class="btn acciones" type="button" data-pdf="{sid}">⬇ Guardar como PDF · esta sección</button>'  # noqa: E731
 
     secciones = [(

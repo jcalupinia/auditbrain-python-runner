@@ -573,8 +573,19 @@ Si cambia una regla de esta sección, actualizar también:
 encabezado del Word, portada y pie del PowerPoint, barra del HTML y membrete de impresión/PDF.
 En el HTML van incrustados en base64 (nunca una URL externa). Prueba: `tests/test_aud_marca_logos.py`.
 
-Pruebas declarativas (catálogo y fichas sin procesador): el papel lo arma el navegador con
-`frontend/src/aud/niif/papelDeclarativo.js` a partir de las mismas cédulas del exportador del
-sitio (`workbookSheets`): Excel con fórmulas, Word, PowerPoint y el HTML del sitio con los tres
-dentro y «Guardar como PDF». Al aprobar se guardan los cuatro archivos con su huella
-(`servicio.guardar_papel`). La copia `sitio/` no se edita: ese módulo la consume.
+**Pruebas declarativas (catálogo y fichas sin procesador) = el mismo diseño (decisión del dueño,
+2026-09-25: «haz las pruebas declarativas con el diseño nuevo»).** El navegador solo aporta las
+cédulas con fórmulas del exportador del sitio (`workbookSheets`, vía `cargaPapel` en
+`frontend/src/aud/niif/papelDeclarativo.js`); el servidor arma Excel, HTML, Word, PowerPoint y PDF
+con `libro` a través de `procesadores/declarativo.py` (endpoints `POST /aud/ciclo/papel-declarativo`
+y, al aprobar, `POST /aud/ciclo/pruebas/{id}/papel-declarativo`, que guarda los cuatro con su huella).
+El adaptador no mueve ninguna celda (la fila k del sitio es la fila k del Excel), reemplaza la portada
+del sitio por `00_Inicio`, deriva el `PANEL` de la definición (población = columna de conciliación;
+registrado vs recalculado = saldo del mayor vs población; composición = resultado principal por
+partida), enlaza el importe de cada excepción a su celda, pasa a fórmula el conteo de registros y el
+«Cuadro de períodos» de una serie, y hace que las reglas con agregados (`clave_inicial/_final/_total`)
+lean el cuadro (el sitio las dejaba apuntando a la columna A: #¡VALOR!). Verificación:
+`python scripts/verificar_papel_declarativo.py` (LibreOffice, debe dar «DIFERENCIAS: 0»); pruebas
+`tests/test_aud_papel_declarativo.py` y `papelDeclarativo.test.js` (esta falla si los ejemplos de
+`tests/fixtures/papel_declarativo` se desactualizan: regenerarlos con
+`node frontend/scripts/fixture_papel_declarativo.mjs`). La copia `sitio/` no se edita.
