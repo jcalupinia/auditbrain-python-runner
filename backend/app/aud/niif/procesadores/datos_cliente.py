@@ -109,14 +109,24 @@ def hojas_datos(mod, datasets: dict) -> list[dict]:
 
 # --- Enlace de las cédulas con los datos del cliente -----------------------------------------------
 
+def _clave(v):
+    """Identificador comparable: texto recortado o número entero como texto (años, números de lote)."""
+    v = _v(v)
+    if isinstance(v, str) and v.strip() and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v.strip()):
+        return v.strip()
+    if isinstance(v, (int, float)) and not isinstance(v, bool) and float(v).is_integer() and abs(v) >= 100:
+        return str(int(v))
+    return None
+
+
 def _indice(datos: list[dict]) -> dict:
-    """identificador (texto de la 1.ª columna) → [(hoja, fila)]."""
+    """identificador de la partida (1.ª columna de la hoja de datos) → [(hoja, fila)]."""
     idx: dict = {}
     for h in datos:
         for i, f in enumerate(h["rows"]):
-            ident = f[0] if f else None
-            if isinstance(ident, str) and ident.strip():
-                idx.setdefault(ident.strip(), []).append((h, i))
+            k = _clave(f[0]) if f else None
+            if k:
+                idx.setdefault(k, []).append((h, i))
     return idx
 
 
@@ -125,62 +135,84 @@ def _norm(t) -> str:
     return re.sub(r"[^a-z0-9]+", " ", t).strip()
 
 
+def _texto_numero(v) -> bool:
+    """Un número que el cliente entregó en una columna de texto (el año de una pérdida: «2019»)."""
+    return isinstance(v, str) and bool(re.fullmatch(r"-?[1-9]\d*", v.strip()))
+
+
 def _igual(a, b) -> bool:
     na, nb = _num(a), _num(b)
+    if na is not None and nb is None and _texto_numero(b):
+        nb = float(b)
     if na is not None and nb is not None:
         return abs(na - nb) < TOL
-    if isinstance(a, str) and isinstance(b, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", a):
-        return a == b
+    if isinstance(a, str) and isinstance(b, str):
+        return a.strip() == b.strip() and bool(a.strip())
     return False
 
 
 def _enlazable(v) -> bool:
-    """Datos que se enlazan: números distintos de cero y fechas (los textos quedan como están)."""
+    """Datos que se enlazan: números distintos de cero, fechas y textos (el identificador de la partida,
+    que es la clave con que se busca la fila, queda como está: ver ``enlazar``)."""
     if isinstance(v, bool):
         return False
     if isinstance(v, (int, float)):
         return abs(v) >= TOL
-    return isinstance(v, str) and bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", v))
+    return isinstance(v, str) and bool(v.strip())
 
 
 _VACIAS = {"de", "del", "la", "las", "el", "los", "en", "y", "o", "a", "al", "por", "para", "con", "sin", "segun", "que",
            "si", "se", "un", "una", "es", "su", "sus", "lo"}
 
 
-def _palabras(t) -> set:
-    return {w[:-1] if len(w) > 4 and w.endswith("s") else w for w in _norm(t).split() if w not in _VACIAS and len(w) > 1}
+def _palabras(t) -> list:
+    return [w for w in _norm(t).split() if w not in _VACIAS and len(w) > 1]
+
+
+def _misma(a: str, b: str) -> bool:
+    """Dos palabras del encabezado son la misma: iguales o con la misma raíz (amort ~ amortización,
+    registrado ~ registrada, inicial ~ inicio)."""
+    if a == b:
+        return True
+    n = 0
+    while n < min(len(a), len(b)) and a[n] == b[n]:
+        n += 1
+    return n >= 4 and n >= min(len(a), len(b)) - 2
 
 
 def _parecido(a: str, b: str) -> int:
-    """Qué tanto se parecen dos encabezados: 100 si son iguales; si no, las palabras que comparten."""
+    """Qué tanto se parecen dos encabezados: 100 si son iguales; si no, cuántas palabras de uno tienen
+    su par en el otro (misma raíz). Una sigla («MOD») vale por las iniciales de las palabras del otro."""
     if _norm(a) == _norm(b):
         return 100
-    return len(_palabras(a) & _palabras(b))
+    pa, pb = _palabras(a), _palabras(b)
+    n = sum(1 for x in pa if any(_misma(x, y) for y in pb))
+    for x, otras in ((pa, pb), (pb, pa)):
+        for w in x:
+            if len(w) >= 2 and len(w) == len(otras) and w == "".join(y[0] for y in otras):
+                n = max(n, len(otras))
+    return n
 
 
-def _eleccion(c, enc_j, candidatos):
-    """(hoja, fila, columna) de la hoja de datos con ese mismo valor y el encabezado más parecido, o None."""
-    hit = []
-    for dh, i in candidatos:
-        for jj, dc in enumerate(dh["rows"][i][:-1]):
-            if _igual(c, dc):
-                hit.append((_parecido(enc_j, dh["cols"][jj][0]), dh, i, jj))
-    if not hit:
-        return None
-    mejor = max(h[0] for h in hit)
-    top = [h for h in hit if h[0] == mejor]
-    if mejor == 0 or len({(h[1]["name"], h[3]) for h in top}) != 1 or len(top) != 1:
-        return None
-    return top[0][1:]
+def _filas_parejas(fila: list, candidatos: list) -> list:
+    """De las filas de datos con el mismo identificador, las que más valores comparten con la fila de la
+    cédula (una partida con varias filas —los flujos de un préstamo— se alinea fila con fila)."""
+    if len(candidatos) <= 1:
+        return candidatos
+    vals = [c for c in fila if not isinstance(c, dict) and _enlazable(c)]
+    puntaje = [(sum(1 for c in vals if any(_igual(c, d) for d in dh["rows"][i][:-1])), dh, i) for dh, i in candidatos]
+    mejor = max(p[0] for p in puntaje)
+    return [(dh, i) for p, dh, i in puntaje if p == mejor]
 
 
 def enlazar(cedulas: list[dict], datos: list[dict]) -> tuple[list[dict], int]:
     """Cédulas con los datos del cliente como fórmula a su hoja de datos, y cuántas celdas se enlazaron.
 
-    Una columna de la cédula se enlaza solo si TODAS sus celdas con dato (en filas de una partida del
-    cliente) encuentran su celda en la MISMA columna de la misma hoja de datos, con encabezados
-    parecidos. Si alguna no coincide, la columna es un cálculo que a veces da igual al dato, y queda
-    como estaba."""
+    Por cada columna de la cédula se elige UNA columna de una hoja de datos (encabezado parecido) que
+    tenga el mismo valor en las filas de la misma partida. Se enlaza solo si ninguna fila la contradice:
+    si en alguna partida la hoja de datos tiene otro valor, la columna de la cédula es un cálculo que a
+    veces coincide con el dato, y queda como estaba. Las filas donde el cliente dejó el dato en blanco
+    (la herramienta usó un valor por defecto) conservan su valor."""
     idx = _indice(datos)
     if not idx:
         return cedulas, 0
@@ -196,34 +228,104 @@ def enlazar(cedulas: list[dict], datos: list[dict]) -> tuple[list[dict], int]:
         for fila in filas:
             cs = []
             for c in fila:
-                t = _v(c)
-                if isinstance(t, str) and t.strip() in idx:
-                    cs += idx[t.strip()]
-            cand.append(cs)
+                k = _clave(c)
+                if k and k in idx:
+                    cs += [x for x in idx[k] if x not in cs]
+            cand.append(_filas_parejas(fila, cs))
         explica, origen, hechos = dict(h.get("explica") or {}), dict(h.get("origen") or {}), {}
         for j in range(len(enc)):
-            elecciones, destinos = [], set()
+            filas_j = [k for k, fila in enumerate(filas)
+                       if cand[k] and j < len(fila) and not isinstance(fila[j], dict) and _enlazable(fila[j])
+                       and not (isinstance(fila[j], str) and fila[j].strip() in idx)]
+            if not filas_j:
+                continue
+            # Columnas de datos candidatas: (hoja, columna) con encabezado parecido y el valor en alguna fila.
+            destinos = {}
+            for k in filas_j:
+                for dh, i in cand[k]:
+                    for jj, dv in enumerate(dh["rows"][i][:-1]):
+                        if _igual(filas[k][j], dv):
+                            sc = _parecido(enc[j], dh["cols"][jj][0])
+                            if sc:
+                                destinos[(dh["name"], jj)] = (sc, dh)
+            elegido, mejor = None, None
+            for (nombre, jj), (sc, dh) in destinos.items():
+                aciertos, contra = [], 0
+                for k in filas_j:
+                    filas_d = [(d, i) for d, i in cand[k] if d["name"] == nombre]
+                    if not filas_d:
+                        continue
+                    ok = [(d, i) for d, i in filas_d if _igual(filas[k][j], d["rows"][i][jj])]
+                    if ok:
+                        aciertos.append((k, ok[0][1]))
+                    elif any(d["rows"][i][jj] not in (None, "") for d, i in filas_d):
+                        contra += 1
+                if contra or not aciertos:
+                    continue
+                extra = len(_palabras(dh["cols"][jj][0])) - sc
+                clave_orden = (sc, len(aciertos), -extra)
+                if mejor is None or clave_orden > mejor:
+                    elegido, mejor, empate = (dh, jj, aciertos), clave_orden, False
+                elif clave_orden == mejor:
+                    empate = True
+            if not elegido or empate:
+                continue
+            dh, jj, aciertos = elegido
+            hoja_d = dh["name"][:31]
+
+            def ref(i, c, hoja_d=hoja_d):
+                return f"'{hoja_d}'!{get_column_letter(c + 1)}{FILA0 + i}"
+
+            # Filas donde el cliente dejó el dato en blanco: la herramienta usó otro dato de la misma fila
+            # (fecha efectiva = acta o, si no hay acta, el registro) o un valor por defecto.
+            con_acierto = {k for k, _ in aciertos}
+            vacias = []
+            for k in filas_j:
+                if k in con_acierto:
+                    continue
+                filas_d = [i for d, i in cand[k] if d["name"] == dh["name"]]
+                if filas_d and all(dh["rows"][i][jj] in (None, "") for i in filas_d):
+                    vacias.append((k, filas_d[0]))
+            alterna = defecto = None
+            if vacias:
+                otras = [{c for c, dv in enumerate(dh["rows"][i][:-1])
+                          if c != jj and _igual(filas[k][j], dv) and _parecido(enc[j], dh["cols"][c][0])} for k, i in vacias]
+                comunes = set.intersection(*otras)
+                if len(comunes) == 1:
+                    alterna = comunes.pop()
+                elif all(_num(filas[k][j]) is not None and _num(filas[k][j]) == _num(filas[vacias[0][0]][j]) for k, _ in vacias):
+                    defecto = filas[vacias[0][0]][j]
+            # Ceros que el cliente escribió como cero en la columna elegida (no se usan para elegirla: un cero
+            # coincide con cualquier columna vacía de importes).
             for k, fila in enumerate(filas):
                 c = fila[j] if j < len(fila) else None
-                if not cand[k] or isinstance(c, dict) or not _enlazable(c):
+                if k in con_acierto or isinstance(c, (bool, dict)) or not isinstance(c, (int, float)) or c != 0:
                     continue
-                e = _eleccion(c, enc[j], cand[k])
-                if e is None:
-                    elecciones = None
-                    break
-                elecciones.append((k, e))
-                destinos.add((e[0]["name"], e[2]))
-            if not elecciones or len(destinos) != 1:
-                continue
-            for k, (dh, i, jj) in elecciones:
-                filas[k][j] = {"f": f"'{dh['name'][:31]}'!{get_column_letter(jj + 1)}{FILA0 + i}", "v": filas[k][j]}
+                fd = [i for d, i in cand[k] if d["name"] == dh["name"]]
+                if len(fd) == 1 and isinstance(dh["rows"][fd[0]][jj], (int, float)) and dh["rows"][fd[0]][jj] == 0:
+                    aciertos.append((k, fd[0]))
+            texto = {k for k, i in aciertos if _texto_numero(dh["rows"][i][jj])}
+            for k, i in aciertos + (vacias if alterna is not None or defecto is not None else []):
+                r = ref(i, jj)
+                if alterna is not None:
+                    f = f'IF({r}="",{ref(i, alterna)},{r})'
+                elif defecto is not None:
+                    f = f'IF({r}="",{defecto:g},{r})'
+                else:
+                    f = f"VALUE({r})" if k in texto else r
+                filas[k][j] = {"f": f, "v": filas[k][j]}
                 total += 1
-            hechos[enc[j]] = (dh["label"], dh["cols"][jj][0])
-        for col, (lbl, dcol) in hechos.items():
+            nota = ""
+            if alterna is not None:
+                nota = f" Si el cliente lo dejó en blanco, se toma «{dh['cols'][alterna][0]}» de la misma fila."
+            elif defecto is not None:
+                nota = f" Si el cliente lo dejó en blanco, la herramienta usa {defecto:g}."
+            hechos[enc[j]] = (dh["label"], dh["cols"][jj][0], nota)
+        for col, (lbl, dcol, nota) in hechos.items():
             hoja_txt = f"«{lbl.replace('Datos del cliente · ', '')}»"
             if col not in explica:
                 explica[col] = (f"Es el dato que entregó el cliente («{dcol}»): la fórmula lo trae de la hoja de datos {hoja_txt}, "
-                                "de la fila de la misma partida. Si el dato del cliente cambia, esta cédula cambia con él.")
+                                f"de la fila de la misma partida.{nota} Si el dato del cliente cambia, esta cédula cambia con él.")
             origen.setdefault(col, f"hoja «Datos del cliente» {hoja_txt}, columna «{dcol}»")
         salida.append({**h, "rows": filas, "explica": explica, "origen": origen} if hechos else h)
     return salida, total

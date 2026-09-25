@@ -39,7 +39,9 @@ lo arma el sistema. En ese caso:
      fórmula que remite a su origen, incluidos los indicadores de la portada y el importe de cada problema
      (`REF_PROBLEMAS`).
    - **Datos del cliente dentro del libro:** una hoja `D1_…` por documento entregado, con «Origen del dato» y
-     la guía «¿De dónde saco este dato?»; las cédulas calculan desde ahí.
+     la guía «¿De dónde saco este dato?»; las cédulas calculan desde ahí. Ninguna cifra ni fecha queda pegada
+     en una cédula (solo `02_Parametros` y `00_…`): índices de período y vencimientos también son fórmula
+     (`COUNTIF`, `EDATE`); lo vigila `test_ninguna_cifra_ni_fecha_queda_pegada`.
    - **Explicación humana por columna calculada** (`explica`), para que la entienda un contador o un gerente
      financiero; la fórmula técnica va sola al Anexo técnico.
    - **`PANEL`:** declara población, recalculado, registrado, composición y distribución. De ahí salen las

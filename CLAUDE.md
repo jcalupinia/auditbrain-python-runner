@@ -545,9 +545,16 @@ parámetros del auditor sí son valores (entradas); todo lo demás es fórmula:
     `A…`, `C…` en columnas agrupadas y ocultas).
   - Las otras 19: `procesadores/datos_cliente.py` (`con_datos`, llamado al procesar la prueba y en el
     ejercicio modelo) arma una hoja por requerimiento entregado y cambia cada dato del cliente que una
-    cédula traía pegado por una fórmula a su celda. Solo enlaza una columna si TODAS sus celdas encuentran
-    la misma partida, el mismo valor y un encabezado parecido; si no, la columna es un cálculo y queda como
-    estaba. Un enlace nunca cambia una cifra. Verificación: `python scripts/verificar_datos_cliente.py`
+    cédula traía pegado (importes, fechas y textos) por una fórmula a su celda. Por cada columna elige UNA
+    columna de datos con encabezado parecido (misma raíz o sigla: «Amort. acum.» = «Amortización acumulada»,
+    «MOD» = «Mano de obra directa») y el mismo valor en la fila de la misma partida; si alguna partida la
+    contradice, la columna es un cálculo y queda como estaba. Si el cliente dejó el dato en blanco, la fórmula
+    es `IF(dato="",otro dato de la fila|valor por defecto,dato)`; un número entregado como texto (año) va con
+    `VALUE(...)`. Un enlace nunca cambia una cifra. Lo que no es dato del cliente se escribe como fórmula en el
+    procesador (p. ej. «Período» y «Vencimiento» de las tablas de amortización: `COUNTIF` y `EDATE`).
+    **Ninguna cifra ni fecha queda pegada en las cédulas** (decisión del dueño, 2026-09-25, «hazlo de todo»):
+    solo son valores `02_Parametros` y la carátula/documentación `00_…`; lo vigila
+    `test_ninguna_cifra_ni_fecha_queda_pegada`. Verificación: `python scripts/verificar_datos_cliente.py`
     (LibreOffice, «DIFERENCIAS: 0»); prueba `tests/test_aud_datos_cliente.py`.
 
 **Diseño del libro (todas las herramientas, 2026-09-25):** portada con botones por sección

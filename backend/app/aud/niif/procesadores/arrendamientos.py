@@ -757,6 +757,10 @@ _EX_COMUN = {
                                    "blanco si no lo indicó.",
     },
     "09_Tabla_amortizacion": {
+        "Período": "Numera las cuotas de cada contrato: cuenta cuántas filas del mismo contrato hay desde la primera de la tabla "
+                   "hasta esta.",
+        "Vencimiento": "Suma a la fecha de comienzo del contrato (hoja 03) el número de período por los meses por período de la "
+                       "hoja 05 (Plazo y opciones): es la fecha en que vence la cuota.",
         "Tasa periódica": "Trae la tasa por período del contrato: la tasa usada de la hoja 06 (Medición inicial) o, en los períodos "
                           "posteriores a una remedición, la tasa revisada de la hoja 08.",
         "Saldo inicial": "En el primer período es el pasivo inicial de la hoja 06; en los siguientes, el saldo final ajustado de la "
@@ -1290,7 +1294,8 @@ def hojas(res: dict) -> list[dict]:
         ne = f"{RE}F{rc}" if x["nuevo"] else f"{PL}H{rc}"
         ini = f"{MI}L{rc}" if x["j"] == 1 else f"J{rr - 1}"
         es_ev = ev is not None and x["j"] == ev["ke"]
-        tabla.append([x["id"], x["j"], x["vence"], fx(tasa, x["tasa"]), fx(ini, x["ini"]), fx(f"E{rr}*D{rr}", x["interes"]),
+        tabla.append([x["id"], fx(f"COUNTIF(A${FILA0}:A{rr},A{rr})", x["j"]),
+                      fx(f"EDATE({_x('inicio', rc)},B{rr}*{PL}G{rc})", x["vence"]), fx(tasa, x["tasa"]), fx(ini, x["ini"]), fx(f"E{rr}*D{rr}", x["interes"]),
                       fx(f"IF(B{rr}<{ne},{pg},IF(B{rr}={ne},{MI}F{rc}+(1-{MI}E{rc})*{pg},0))", x["pago"]),
                       fx(f"E{rr}+F{rr}-G{rr}", x["fin"]), fx(f"{RE}K{rc}-H{rr}", x["ajuste"]) if es_ev else 0,
                       fx(f"H{rr}+I{rr}", x["saldo"])])

@@ -15,7 +15,14 @@ from backend.app.aud.niif import ejercicio_modelo as em
 from backend.app.aud.niif.procesadores import PROCESADORES, datos_cliente, libro
 
 IDS = [p for p in PROCESADORES if p not in datos_cliente.PROPIAS]
-REF = re.compile(r"^'(D\d+_[^']+)'!([A-Z]+)(\d+)$")
+CELDA = r"'(D\d+_[^']+)'!([A-Z]+)(\d+)"
+# Formas de un enlace: la celda, VALUE(celda) si el cliente entregó el número como texto, o
+# IF(celda="",otra,celda) cuando la herramienta usa otro dato de la fila o un valor por defecto.
+REF = re.compile(rf"^(?:{CELDA}|VALUE\({CELDA}\)|IF\({CELDA}=\"\",(?:{CELDA}|-?[\d.]+),{CELDA}\))$")
+
+
+def _valor_de(datos, hoja, col, fila):
+    return datos[hoja]["rows"][int(fila) - 5][column_index_from_string(col) - 1]
 
 
 def _papel(pid):
@@ -56,8 +63,18 @@ def test_las_cedulas_leen_los_datos_del_cliente(pid):
                 if isinstance(b, dict) and not isinstance(a, dict):
                     m = REF.match(b["f"])
                     assert m, b["f"]
-                    celda = datos[m.group(1)]["rows"][int(m.group(3)) - 5][column_index_from_string(m.group(2)) - 1]
-                    assert b["v"] == a and datos_cliente._igual(a, celda), (h["name"], b["f"], a, celda)
+                    g = [x for x in m.groups()]
+                    assert b["v"] == a
+                    if g[0]:
+                        celda = _valor_de(datos, *g[0:3])
+                    elif g[3]:
+                        celda = _valor_de(datos, *g[3:6])
+                    else:
+                        assert g[6:9] == g[12:15], b["f"]
+                        celda = _valor_de(datos, *g[6:9])
+                        if celda in (None, ""):
+                            celda = _valor_de(datos, *g[9:12]) if g[9] else float(b["f"].split(",")[1])
+                    assert datos_cliente._igual(a, celda), (h["name"], b["f"], a, celda)
                     n += 1
                 else:
                     assert a == b, "una celda que no se enlaza no cambia"
@@ -84,6 +101,22 @@ def test_una_columna_con_un_calculo_que_a_veces_coincide_no_se_enlaza():
     assert filas[0][2] == 100.0 and filas[1][2] == 45.0, "«Saldo ajustado» es un cálculo: queda como estaba"
 
 
+def test_dato_en_blanco_usa_otro_dato_de_la_fila_o_el_valor_por_defecto():
+    datos = [{"name": "D1_X", "label": "Datos del cliente · X",
+              "cols": [["Id", "t"], ["Fecha del acta", "d"], ["Fecha de registro", "d"], ["Pagos por año", "n"], ["Año", "t"],
+                       ["Origen del dato", "t"]],
+              "rows": [["A1", "2025-03-20", "2025-03-28", 2.0, "2019", "o"], ["A2", None, "2025-11-30", None, "2020", "o"]]}]
+    ced = [{"name": "03_Detalle", "label": "Detalle",
+            "cols": [["Id", "t"], ["Fecha efectiva (acta o registro)", "d"], ["Pagos por año", "i"], ["Año de origen", "i"]],
+            "rows": [["A1", "2025-03-20", 2, 2019], ["A2", "2025-11-30", 1, 2020]]}]
+    out, n = datos_cliente.enlazar(ced, datos)
+    f = out[0]["rows"]
+    assert n == 6
+    assert f[1][1] == {"f": "IF('D1_X'!B6=\"\",'D1_X'!C6,'D1_X'!B6)", "v": "2025-11-30"}
+    assert f[1][2] == {"f": "IF('D1_X'!D6=\"\",1,'D1_X'!D6)", "v": 1}
+    assert f[0][3] == {"f": "VALUE('D1_X'!E5)", "v": 2019}
+
+
 def test_sin_datos_no_cambia_nada():
     mod = PROCESADORES["cxc_cartera"]
     ds, par, corte = em.escenario(mod)
@@ -108,3 +141,25 @@ def test_html_y_word_muestran_la_guia():
     assert h.count('<p class="guia"><b>¿De dónde saco este dato?</b>') >= 2
     doc = Document(io.BytesIO(libro.docx(d, reg, [], 1, "APROBADO")))
     assert sum(p.text.startswith("¿De dónde saco este dato?") for p in doc.paragraphs) >= 2
+
+
+@pytest.mark.parametrize("pid", list(PROCESADORES))
+def test_ninguna_cifra_ni_fecha_queda_pegada(pid):
+    """Pedido del dueño (2026-09-25, «hazlo de todo»): en las cédulas no queda ningún importe ni fecha
+    como valor fijo. Los datos del cliente son fórmulas a su hoja «Datos del cliente», los cálculos son
+    fórmulas y los importes de «Problemas» remiten a su cédula. Solo son valores los parámetros del
+    auditor (02_Parametros) y la carátula/documentación (00_…)."""
+    mod = PROCESADORES[pid]
+    d = mod.definicion()
+    ds, par, corte = em.escenario(mod)
+    fijos = []
+    for h in libro.cedulas(d, em._reg(d, mod, ds, par, corte), [], 1, "APROBADO"):
+        if re.match(r"(D\d+|00)_", h["name"]) or h["name"] == "02_Parametros":
+            continue
+        for i, fila in enumerate(h["rows"]):
+            for j, v in enumerate(fila):
+                if isinstance(v, (bool, dict)):
+                    continue
+                if (isinstance(v, (int, float)) and abs(v) > 1e-9) or (isinstance(v, str) and re.fullmatch(r"\d{4}-\d\d-\d\d", v)):
+                    fijos.append((h["name"], i + 5, h["cols"][j][0] if j < len(h["cols"]) else j, v))
+    assert not fijos, fijos[:10]

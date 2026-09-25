@@ -168,8 +168,11 @@ más la columna «Origen del dato» (archivo · hoja · fila) y `guia`.
   `CAMPOS` y `kind()`, arma una hoja por requerimiento entregado y cambia cada dato del cliente que tus cédulas
   traen pegado por una fórmula a su celda. Para que el enlace funcione: en cada fila de una cédula de detalle va
   el **identificador de la partida** tal como lo entregó el cliente (1.ª columna del anexo), y el dato con el
-  **mismo valor** bajo un **encabezado parecido** al del campo. Una columna solo se enlaza si todas sus celdas
-  coinciden; si es un cálculo, escríbelo como fórmula (`fx`).
+  **mismo valor** bajo un **encabezado parecido** al del campo (misma raíz o sigla). Una columna se enlaza si
+  ninguna partida la contradice; si el cliente dejó el dato en blanco y usas otro dato de la fila o un valor por
+  defecto, el enlazador escribe `IF(dato="",…,dato)`. Si es un cálculo (índices de período, vencimientos, fechas
+  derivadas), escríbelo como fórmula (`fx`): **ninguna cifra ni fecha puede quedar pegada** en una cédula
+  (solo `02_Parametros` y `00_…`); lo vigila `tests/test_aud_datos_cliente.py::test_ninguna_cifra_ni_fecha_queda_pegada`.
 - **Si la herramienta necesita cruces propios** (varios anexos por clave, como pérdidas incurridas), arma sus
   hojas `D…` a mano en `hojas()` (con claves de cruce `F…`, `A…`, `C…` en columnas `ocultas`) y agrega su id a
   `datos_cliente.PROPIAS`.

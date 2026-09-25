@@ -63,7 +63,7 @@ def verificar(pid: str, tmp: str) -> tuple[int, int, int]:
                 if not isinstance(c, dict) or "f" not in c:
                     continue
                 n += 1
-                if re.fullmatch(r"'D\d+_[^']+'![A-Z]+\d+", c["f"]):
+                if re.fullmatch(r"(?:VALUE\(|IF\()?'D\d+_[^']+'![A-Z]+\d+.*", c["f"]):
                     enlazadas += 1
                 xl = ws.cell(row=FILA0 + i, column=j + 1).value
                 if not igual(c["v"], xl):
