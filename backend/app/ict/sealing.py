@@ -6,11 +6,16 @@ la salida determinista. Da a cualquier revisor (auditor, SRI, socio) una
 huella verificable de QUÉ motor, con QUÉ parámetros y CUÁNDO se generó el
 papel de trabajo.
 
-CONTRATO CON EL MOTOR (Agente C · `motor/exportar_excepciones.py`, aún NO
-existe). Este módulo asume como ENTRADA el dict que devolverá
-`motor.exportar_excepciones.sellar_salida(...)`. Ese sello se calcula sobre
-la SALIDA DETERMINISTA del motor (excepciones + parámetros + input_hashes del
-ExecutionRun), NO sobre los bytes del .xlsx. Ver nota de circularidad abajo.
+CONTRATO CON EL MOTOR (`motor/exportar_excepciones.py`, YA existe). Este
+módulo asume como ENTRADA el `SelloSalida`. OJO: el `sellar_salida(...)` del
+motor devuelve hoy un `Sello` con claves distintas
+(`version`/`sha256_contenido`/`hash_ruleset`/`hash_parametros`) y sella sobre
+los BYTES del entregable, mientras que la NOTA DE CIRCULARIDAD (abajo) asume
+`hash_salida` = hash de la SALIDA DETERMINISTA del motor (no del .xlsx),
+embebido en el libro. Reconciliar ambos es una decisión de diseño PENDIENTE
+(qué se sella y dónde se registra el hash del .xlsx); por eso el puente
+`motor_adapter` aún NO traduce el sello (solo la hoja EXCEPCIONES). Ese dict
+es datos puros.
 
 NOTA DE CIRCULARIDAD (crítica):
     No se puede escribir dentro del libro el hash de ESE MISMO libro ya

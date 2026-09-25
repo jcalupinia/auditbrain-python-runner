@@ -4,13 +4,15 @@ Vuelca la especificación de excepciones que produce el motor
 (`motor-auditoria-analitica`) a una hoja Excel con una fila por excepción,
 mostrando el hash de trazabilidad, la NIA aplicable y el monto involucrado.
 
-CONTRATO CON EL MOTOR (Agente C · `motor/exportar_excepciones.py`, aún NO
-existe en el repo del motor). Este módulo asume como ENTRADA el dict que
-devolverá `motor.exportar_excepciones.especificar_hoja_excepciones(...)`.
-Ese dict es datos puros (sin openpyxl): describe columnas y filas ya
-formateadas y sus totales. La responsabilidad de esta capa es SOLO
-presentarlo en Excel; NO recalcula montos ni severidades (principio
-"Python calcula, la capa de presentación no recalcula").
+CONTRATO CON EL MOTOR (`motor/exportar_excepciones.py`, YA existe). Este
+módulo asume como ENTRADA un `EspecHojaExcepciones` (columnas como objetos
+`{clave, titulo, tipo}` + filas + resumen). El motor
+(`especificar_hoja_excepciones(...)`) devuelve las columnas como nombres
+planos y el resumen ya calculado; el puente `motor_adapter.spec_motor_a_espec`
+enriquece esas columnas al contrato de esta capa. Todo es datos puros (sin
+openpyxl). La responsabilidad de esta capa es SOLO presentarlo en Excel; NO
+recalcula montos ni severidades (principio "Python calcula, la capa de
+presentación no recalcula").
 
 REGLAS DE CLAUDE.md aplicadas al scaffold:
   - El Excel NO puede levantar el cuadro "Reparaciones" al abrirse: todo
