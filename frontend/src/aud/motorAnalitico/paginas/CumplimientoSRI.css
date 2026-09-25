@@ -154,3 +154,12 @@
 .ma-sri-vivo-cab > span:first-child { color: var(--ma-oro); font-weight: 600; }
 .ma-sri-vivo-nota { color: var(--ma-dim); font-size: 0.8rem; }
 .ma-sri-vivo-frame { width: 100%; height: 520px; border: 0; display: block; background: #000; }
+
+/* --- Resumen legible del resultado --- */
+.ma-sri-resumen { display: flex; flex-direction: column; gap: 3px; }
+.ma-sri-resumen-titulo { font-weight: 600; color: var(--ma-accent); font-size: 1rem; }
+.ma-sri-resumen-conteos { color: var(--ma-text); }
+.ma-sri-resumen-msg { color: var(--ma-dim); font-style: italic; }
+.ma-sri-detalle { margin-top: 6px; }
+.ma-sri-detalle summary { cursor: pointer; color: var(--ma-dim); font-size: 0.82rem; }
+.ma-sri-detalle pre { margin: 6px 0 0; font-family: var(--ma-mono); font-size: 0.75rem; max-height: 200px; overflow: auto; }
