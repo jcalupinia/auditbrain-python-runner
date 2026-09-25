@@ -27,6 +27,8 @@ const ANIOS = Array.from({ length: 10 }, (_, i) => ANIO_ACTUAL - i);
 const TIPOS = ["Todos", "Facturas", "Notas de crédito", "Notas de débito", "Retenciones", "Liquidaciones"];
 const MODOS_FECHA = ["Mes", "Rango de meses", "Año completo"];
 const ESTADOS_EMITIDOS = ["Todos", "Autorizado", "No autorizado"];
+// Vista en vivo del robot (noVNC, solo lectura, tailnet-only).
+const VNC_URL = "https://auditia.tail70d973.ts.net:8446/vnc.html?autoconnect=1&resize=scale&view_only=1&reconnect=1";
 
 // ---------- Subpágina 1: Descarga (login + filtros + captcha relay) ----------
 function SubDescarga() {
@@ -43,6 +45,7 @@ function SubDescarga() {
   const [error, setError] = useState("");
   const [bajando, setBajando] = useState(false);
   const [segundos, setSegundos] = useState(0);
+  const [verVivo, setVerVivo] = useState(false);
   const ctx = useRef({ url: "", token: "", id: "", vivo: false });
   useEffect(() => () => { ctx.current.vivo = false; }, []);
   useEffect(() => {
@@ -170,8 +173,21 @@ function SubDescarga() {
             {bajando ? "Preparando ZIP…" : "Descargar archivos (ZIP)"}
           </button>
         )}
+        <button type="button" className="ma-boton" onClick={() => setVerVivo((v) => !v)}>
+          {verVivo ? "Ocultar vista en vivo" : "🔴 Ver el robot en vivo"}
+        </button>
         <span className="ma-sri-descarga-clave-nota">La clave va directo al motor de la firma; no se guarda ni pasa por el servidor web.</span>
       </div>
+
+      {verVivo && (
+        <div className="ma-sri-vivo">
+          <div className="ma-sri-vivo-cab">
+            <span>🔴 Robot en vivo — solo lectura</span>
+            <span className="ma-sri-vivo-nota">Requiere estar en la red Tailscale de la firma. Verás el navegador del robot navegando el SRI en tiempo real.</span>
+          </div>
+          <iframe title="Robot SRI en vivo" src={VNC_URL} className="ma-sri-vivo-frame" allow="fullscreen" />
+        </div>
+      )}
 
       {captchaImg && (
         <div className="ma-sri-captcha" role="dialog" aria-label="Resolver captcha">
