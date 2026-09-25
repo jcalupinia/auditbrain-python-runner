@@ -589,3 +589,8 @@ lean el cuadro (el sitio las dejaba apuntando a la columna A: #¡VALOR!). Verifi
 `tests/test_aud_papel_declarativo.py` y `papelDeclarativo.test.js` (esta falla si los ejemplos de
 `tests/fixtures/papel_declarativo` se desactualizan: regenerarlos con
 `node frontend/scripts/fixture_papel_declarativo.mjs`). La copia `sitio/` no se edita.
+**Calculadora reutilizable (2026-09-25):** el HTML de una prueba declarativa trae la pestaña
+«Calculadora» con el MISMO motor portable del sitio (`sitio/tools/portable-engine.mjs`, leído por
+`declarativo.motor_portable()`; el `.dockerignore` lo deja entrar a la imagen) y la población de la
+versión: editar, agregar/quitar filas, recalcular, restablecer. Es una simulación: no cambia el papel,
+no se imprime ni va al PDF. Prueba en el navegador: `node scripts/probar_calculadora.mjs <papel.html> <total>`.

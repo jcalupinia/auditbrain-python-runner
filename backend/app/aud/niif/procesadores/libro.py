@@ -864,8 +864,14 @@ def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str, 
          pptx(definicion, reg, eventos, version, estado)),
         ("zip", "CSV (ZIP)", "application/zip", csv_zip(definicion, reg, eventos, version, estado)),
     ]
+    calculadora = None
+    if definicion.get("declarativa") and not para_pdf:
+        # Prueba declarativa: la «Calculadora reutilizable» del sitio, con su motor portable.
+        from backend.app.aud.niif.procesadores import declarativo
+
+        calculadora = declarativo.calculadora(definicion, reg)
     return html_ejecutivo.render(definicion, reg, eventos, version, estado, hojas, adjuntos, _celda, como_se_calcula,
-                                 para_pdf=para_pdf).encode("utf-8")
+                                 para_pdf=para_pdf, calculadora=calculadora).encode("utf-8")
 
 
 class PDFNoDisponible(ValueError):
