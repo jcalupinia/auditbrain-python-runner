@@ -550,6 +550,15 @@ gráficos con título sin superponer (`overlay=False`), rótulos como texto (`st
 hoja oculta `00_Datos_graficos`; «Cómo se calcula» en lenguaje sencillo (columna, cómo se calcula,
 de dónde viene) y la fórmula de Excel con su ejemplo en la hoja `00_Anexo_tecnico`.
 
+**Word y PowerPoint = el HTML (decisión del dueño, 2026-09-25):** `procesadores/papel_office.py`.
+El PowerPoint es el HTML en pantalla (tema «Ejecutivo»: fondo #071B2F, portada con logos y chips,
+las 5 tarjetas y los 4 gráficos del panel, cédulas en tablas oscuras). El Word es el HTML impreso
+(tema «Claro», el mismo del PDF: un Word no imprime el color de página). Los gráficos son los
+MISMOS SVG del HTML dibujados como imagen con matplotlib (`procesadores/svg_png.py`) y las
+tarjetas salen de `html_ejecutivo.kpis_datos`: si cambia el HTML, cambian el Word y el PowerPoint.
+Sin gráficos nativos distintos en el PowerPoint. Prueba: `tests/test_aud_office_como_html.py`
+(incluye el orden del XML de Word, que si falla dispara «contenido ilegible»).
+
 **Logotipos (2026-09-25):** todo papel lleva el logo de AuditConsulting y el de AUDIT-IA
 (`procesadores/marca.py`, archivos en `backend/app/aud/niif/assets/`): banda navy de `00_Inicio`,
 encabezado del Word, portada y pie del PowerPoint, barra del HTML y membrete de impresión/PDF.
