@@ -120,3 +120,17 @@
 .ma-sri-resultado-ok { border: 1px solid var(--ma-accent); background: var(--ma-p1-bg); }
 .ma-sri-resultado-ok pre { margin: 6px 0 0; font-family: var(--ma-mono); font-size: 0.8rem; overflow: auto; }
 .ma-sri-resultado-error { border: 1px solid var(--ma-p1); color: var(--ma-p1); background: var(--ma-p1-bg); }
+
+/* --- Sub-navegación de pantallas del robot --- */
+.ma-sri-subnav { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 16px; border-bottom: 1px solid var(--ma-line); }
+.ma-sri-subnav-tab {
+  background: transparent; color: var(--ma-dim); border: 0; border-bottom: 2px solid transparent;
+  padding: 8px 14px; cursor: pointer; font-size: 0.92rem; border-radius: 6px 6px 0 0;
+}
+.ma-sri-subnav-tab:hover { color: var(--ma-text); background: var(--ma-panel); }
+.ma-sri-subnav-tab.activo { color: var(--ma-oro); border-bottom-color: var(--ma-oro); font-weight: 600; }
+.ma-sri-check { justify-content: flex-start; }
+.ma-sri-check-fila { display: flex; gap: 14px; align-items: center; color: var(--ma-text); font-size: 0.9rem; }
+.ma-sri-check-fila label { flex-direction: row; align-items: center; gap: 6px; color: var(--ma-text); }
+.ma-sri-ayuda { display: flex; flex-direction: column; gap: 16px; }
+.ma-sri-ayuda-lista { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; color: var(--ma-text); }

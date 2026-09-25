@@ -221,6 +221,41 @@ export async function sriEnviarCaptcha(url, token, id, codigo) {
     })
   );
 }
+export async function sriConsolidar(url, token, params) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/consolidar`, {
+      method: "POST",
+      headers: _motorHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    })
+  );
+}
+export async function sriHistorial(url, token) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/historial`, {
+      headers: _motorHeaders(token),
+    })
+  );
+}
+// Descarga el ZIP de resultados: pide con el token, lo baja como blob.
+export async function sriDescargarZip(url, token, id) {
+  const res = await apiFetch(`${_motorBase(url)}/motor/sri/trabajos/${id}/zip`, {
+    headers: _motorHeaders(token),
+  });
+  if (!res.ok) throw new Error("No hay archivos para descargar todavía.");
+  const blob = await res.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `sri_${id}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+}
+// Un permiso "ejecutar" sirve para todos los endpoints SRI (leer y ejecutar).
+export async function sriPermiso(encargo) {
+  return motorAnaliticoPermiso(encargo, "ejecutar");
+}
 
 // ---- Fichas de diseño de herramientas NIIF (AUD) ----
 // Viven en el backend, no en el navegador: el circuito exige que quien marca
