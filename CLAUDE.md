@@ -539,6 +539,11 @@ gráficos con título sin superponer (`overlay=False`), rótulos como texto (`st
 hoja oculta `00_Datos_graficos`; «Cómo se calcula» en lenguaje sencillo (columna, cómo se calcula,
 de dónde viene) y la fórmula de Excel con su ejemplo en la hoja `00_Anexo_tecnico`.
 
+**Logotipos (2026-09-25):** todo papel lleva el logo de AuditConsulting y el de AUDIT-IA
+(`procesadores/marca.py`, archivos en `backend/app/aud/niif/assets/`): banda navy de `00_Inicio`,
+encabezado del Word, portada y pie del PowerPoint, barra del HTML y membrete de impresión/PDF.
+En el HTML van incrustados en base64 (nunca una URL externa). Prueba: `tests/test_aud_marca_logos.py`.
+
 Pruebas declarativas (catálogo y fichas sin procesador): el papel lo arma el navegador con
 `frontend/src/aud/niif/papelDeclarativo.js` a partir de las mismas cédulas del exportador del
 sitio (`workbookSheets`): Excel con fórmulas, Word, PowerPoint y el HTML del sitio con los tres

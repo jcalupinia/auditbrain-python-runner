@@ -20,6 +20,7 @@ from openpyxl.worksheet.properties import PageSetupProperties
 
 from backend.app.aud.niif.procesadores import estilo_ejecutivo as est
 from backend.app.aud.niif.procesadores import graficos
+from backend.app.aud.niif.procesadores import marca
 from backend.app.aud.niif.procesadores import problemas
 
 NAVY, GOLD, BLANCO, CELESTE = "0A2342", "C7A83C", "FFFFFF", "DCE6F1"
@@ -185,6 +186,27 @@ def _boton(ws, celda: str, texto: str, destino: str, S, nav=False):
     c.border = S["borde"]
 
 
+def _ancla(ws, img, col: int, fila: int, dx_px: int, dy_px: int):
+    """Coloca la imagen con desplazamiento dentro de la celda (col y fila 0-based)."""
+    from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor
+    from openpyxl.drawing.xdr import XDRPositiveSize2D
+    from openpyxl.utils.units import pixels_to_EMU
+
+    img.anchor = OneCellAnchor(
+        _from=AnchorMarker(col=col, colOff=pixels_to_EMU(dx_px), row=fila, rowOff=pixels_to_EMU(dy_px)),
+        ext=XDRPositiveSize2D(pixels_to_EMU(img.width), pixels_to_EMU(img.height)))
+    ws.add_image(img)
+
+
+def _logos_banda(ws):
+    """Logotipos de la firma (izquierda) y de AUDIT-IA (derecha) sobre la banda navy B2:F3
+    (dos filas de 27 pt = 72 px; columnas B..F de 27 caracteres ≈ 194 px)."""
+    alto = 58
+    _ancla(ws, marca.imagen_excel("auditconsulting_blanco", alto), 1, 1, 10, 7)
+    ia = marca.imagen_excel("audit_ia", alto)
+    _ancla(ws, ia, 5, 1, 194 - ia.width - 10, 7)
+
+
 def _panel_inicio(ws, S, definicion, reg, titulos, hojas, estado, version, extra=()):
     e = reg.get("engagement") or {}
     run = reg.get("run") or {}
@@ -198,10 +220,12 @@ def _panel_inicio(ws, S, definicion, reg, titulos, hojas, estado, version, extra
     b.value = "AuditConsulting Auditores Cía. Ltda.  ·  AUDIT-IA"
     b.font = S["marca"]
     b.fill = S["fill_marca"]
-    b.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    b.alignment = Alignment(horizontal="center", vertical="center")
     for r in (2, 3):
+        ws.row_dimensions[r].height = 27
         for col in "BCDEF":
             ws[f"{col}{r}"].fill = S["fill_marca"]
+    _logos_banda(ws)
     ws.merge_cells("B4:F4")
     ws["B4"].value = definicion.get("name", "")
     ws["B4"].font = S["titulo"]
@@ -869,7 +893,7 @@ def docx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     como tabla y un anexo «Cómo se calcula»."""
     from docx import Document
     from docx.enum.section import WD_ORIENT
-    from docx.shared import Pt, RGBColor
+    from docx.shared import Inches, Pt, RGBColor
 
     doc = Document()
     sec = doc.sections[0]
@@ -880,6 +904,12 @@ def docx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     estilo.font.size = Pt(9)
     e = reg.get("engagement") or {}
     run = reg.get("run") or {}
+    # Encabezado de cada página: logotipo de la firma y la plataforma.
+    enc = sec.header.paragraphs[0]
+    enc.add_run().add_picture(marca.flujo("auditconsulting_oscuro"), height=Inches(0.42))
+    r = enc.add_run("\tAUDIT-IA · Papel de trabajo NIIF")
+    r.font.size = Pt(8)
+    r.font.color.rgb = _rgb(RGBColor, est.NAVY)
     t = doc.add_heading(definicion.get("name", ""), level=0)
     t.runs[0].font.color.rgb = _rgb(RGBColor, est.NAVY)
     doc.add_paragraph(f"AuditConsulting Auditores Cía. Ltda.  ·  {e.get('client', '')} · RUC {e.get('ruc', '')}")
@@ -1003,6 +1033,10 @@ def pptx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     s.shapes.title.text_frame.paragraphs[0].runs[0].font.color.rgb = navy
     s.placeholders[1].text = (f"{e.get('client', '')} · corte {e.get('cutoff', '')} · v{version} · {est.estado_es(estado)}\n"
                               "AuditConsulting Auditores Cía. Ltda. · AUDIT-IA")
+    # Portada con los dos logotipos (firma y plataforma).
+    s.shapes.add_picture(marca.flujo("auditconsulting_oscuro"), Inches(0.6), Inches(0.45), height=Inches(0.9))
+    s.shapes.add_picture(marca.flujo("audit_ia"), prs.slide_width - Inches(0.6) - Inches(marca.ancho_para("audit_ia", 0.9)),
+                         Inches(0.45), height=Inches(0.9))
     # Diapositiva ejecutiva de cifras clave
     totales, etiquetas, prim = run.get("totals") or {}, run.get("labels") or {}, run.get("primary")
     n_prob = len(run.get("exceptions") or [])
@@ -1051,6 +1085,19 @@ def pptx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
         for j in range(len(h["cols"])):
             tabla.cell(0, j).fill.solid()
             tabla.cell(0, j).fill.fore_color.rgb = RGBColor(0x0A, 0x23, 0x42)
+    # Logotipo de la firma al pie de cada diapositiva (la portada ya lleva los dos).
+    alto = 0.32
+    for k, diap in enumerate(prs.slides):
+        # La plantilla por defecto es 4:3: los marcadores se ensanchan al 16:9 para centrarlos.
+        # Se fijan las cuatro medidas: al tocar solo el ancho, python-pptx deja arriba y alto en 0.
+        for ph in diap.placeholders:
+            arriba, alto_ph = ph.top, ph.height
+            ph.left, ph.top, ph.width, ph.height = Inches(0.6), arriba, prs.slide_width - Inches(1.2), alto_ph
+        if k == 0:
+            continue
+        diap.shapes.add_picture(marca.flujo("auditconsulting_oscuro"),
+                                prs.slide_width - Inches(0.3) - Inches(marca.ancho_para("auditconsulting_oscuro", alto)),
+                                prs.slide_height - Inches(0.14) - Inches(alto), height=Inches(alto))
     salida = io.BytesIO()
     prs.save(salida)
     return salida.getvalue()
