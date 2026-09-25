@@ -72,6 +72,10 @@ def test_cifra_heroe_con_separador_de_miles():
     assert graficos.cifra({"v": 1234567.891}) == "1.234.567,89"
 
 
+def _titulo(ch):
+    return "".join(r.t for p in ch.title.tx.rich.p for r in (p.r or []))
+
+
 def test_excel_un_solo_dashboard_con_graficos_por_formula():
     """El Excel tiene UNA sola sección de dashboard (00_Inicio): los gráficos viven
     ahí y sus datos son fórmulas a las cédulas; ninguna otra hoja lleva gráficos."""
@@ -80,7 +84,13 @@ def test_excel_un_solo_dashboard_con_graficos_por_formula():
         wb = load_workbook(io.BytesIO(libro.xlsx(d, reg, [], 1, "APROBADO")))  # abre sin «reparar»
         con_grafico = [ws.title for ws in wb.worksheets if ws._charts]
         assert con_grafico == ["00_Inicio"], (pid, con_grafico)
-        assert len(wb["00_Inicio"]._charts) == 2, pid  # resumen + hallazgos
+        # Registrado vs recalculado, composición, distribución y hallazgos: pocas barras con
+        # rótulo. Nunca «Cifras del resumen» (todas las filas del Resumen con escalas muy
+        # distintas: se veía como un código de barras).
+        titulos = [_titulo(ch) for ch in wb["00_Inicio"]._charts]
+        assert titulos[0] == "Registrado vs recalculado (USD)", (pid, titulos)
+        assert not any("Cifras del resumen" in t for t in titulos), (pid, titulos)
+        assert 3 <= len(titulos) <= 4, (pid, titulos)
         # Los datos de los gráficos viven en una hoja oculta (el panel queda limpio) y son fórmulas.
         datos = wb[libro.HOJA_DATOS_GRAFICOS]
         assert datos.sheet_state == "hidden", pid
@@ -89,7 +99,8 @@ def test_excel_un_solo_dashboard_con_graficos_por_formula():
         # Títulos que no se montan sobre las barras y rótulos de categoría como texto.
         for ch in wb["00_Inicio"]._charts:
             assert ch.title.overlay is False and ch.series[0].cat.strRef is not None, pid
-        assert any(re.match(r"^='[^']+'!B\d+$", f) for f in formulas), pid      # resumen → celda de la cédula
+        assert any(re.match(r"^='00_Inicio'!\$[B-F]\$\d+$", f) for f in formulas), pid  # registrado/recalculado → tarjetas
+        assert sum("SUMIFS(" in f and "Problemas" not in f for f in formulas) >= 2, pid  # composición/distribución → cédulas
         assert any("SUMIFS(" in f and "Problemas" in f for f in formulas), pid  # hallazgos → hoja de problemas
 
 

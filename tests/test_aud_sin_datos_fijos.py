@@ -81,3 +81,23 @@ def test_conclusion_sin_none_cuando_aun_no_hay_conciliacion():
     wb = _libro("perdidas_incurridas_s11")
     texto = " ".join(str(c.value) for r in wb["13_Conclusion"].iter_rows() for c in r if c.value)
     assert "None" not in texto and "Pendiente" in texto
+
+
+# --- Portada («consola») ------------------------------------------------------------------------
+# Las tarjetas de 00_Inicio son las del panel del HTML (resultado principal, población,
+# recalculado, registrado, problemas) y cada cifra es una fórmula a la cédula que la calcula.
+# La tarjeta que no tiene celda de origen no se muestra: nunca un valor pegado.
+
+@pytest.mark.parametrize("pid", list(PROCESADORES))
+def test_portada_tarjetas_son_formulas(pid):
+    m = PROCESADORES[pid]
+    d = m.definicion()
+    ds, par, corte = em.escenario(m)
+    reg = em._reg(d, m, ds, par, corte)
+    ws = load_workbook(io.BytesIO(libro.xlsx(d, reg, [], 1, "MUESTRA")))["00_Inicio"]
+    r0 = next(c.row for c in ws["B"] if c.value == "INDICADORES CLAVE")
+    tarjetas = [(ws[f"{c}{r0 + 1}"].value, ws[f"{c}{r0 + 2}"].value) for c in "BCDEF" if ws[f"{c}{r0 + 1}"].value]
+    assert 4 <= len(tarjetas) <= 5, (pid, tarjetas)
+    assert tarjetas[-1][0] == "Problemas encontrados", pid
+    for rotulo, v in tarjetas:
+        assert isinstance(v, str) and v.startswith("="), (pid, rotulo, v)

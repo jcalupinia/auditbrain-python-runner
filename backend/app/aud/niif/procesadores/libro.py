@@ -209,7 +209,6 @@ def _logos_banda(ws):
 
 def _panel_inicio(ws, S, definicion, reg, titulos, hojas, estado, version, extra=()):
     e = reg.get("engagement") or {}
-    run = reg.get("run") or {}
     ws.sheet_view.showGridLines = False
     ws.column_dimensions["A"].width = 3
     for col in "BCDEF":
@@ -242,29 +241,33 @@ def _panel_inicio(ws, S, definicion, reg, titulos, hojas, estado, version, extra
         ws[f"{vcol}{fila}"].font = S["dato"]
         if i % 2 == 1:
             fila += 1
-    # Tarjetas KPI
-    totales = run.get("totals") or {}
-    etiquetas = run.get("labels") or {}
-    prim = run.get("primary")
-    n_prob = len(run.get("exceptions") or [])
-    kpis = []
-    if prim and prim in totales:
-        kpis.append((etiquetas.get(prim, prim), totales.get(prim), "n", None))
-    for k in ("perdida", "cartera", "provReg", "ajuste"):
-        if k in totales and k != prim:
-            kpis.append((etiquetas.get(k, k), totales.get(k), "n", None))
-    kpis.append(("Problemas encontrados", n_prob, "i", est.color_semaforo(n_prob)))
-    # Cada indicador es una fórmula a la cédula que lo calcula (nunca un valor pegado).
-    kpis = [(etq, val, fmt, sem, _formula_kpi(hojas, titulos, etq, val, fmt)) for etq, val, fmt, sem in kpis]
+    # Tarjetas KPI: las mismas del panel del HTML, cada una fórmula a la cédula que la calcula.
+    kpis = _kpis_panel(definicion, reg, hojas, titulos)
     kfila = fila + 1
     ws[f"B{kfila}"].value = "INDICADORES CLAVE"
     ws[f"B{kfila}"].font = S["subtitulo"]
     kfila += 1
-    for i, (etq, val, fmt, semaforo, formula) in enumerate(kpis[:6]):
-        base_col = ["B", "C", "D"][i % 3]
-        base_row = kfila + (i // 3) * 3
-        _tarjeta_kpi(ws, base_col, base_row, etq, val, fmt, semaforo, S, formula)
-    ultima_kpi = kfila + ((len(kpis[:6]) - 1) // 3) * 3 + 2
+    celdas = {}
+    for i, k in enumerate(kpis):
+        col = "BCDEF"[i]
+        _tarjeta_kpi(ws, col, kfila, k["rotulo"], k["valor"], k["fmt"], k.get("semaforo"), S, "=" + k["f"])
+        celdas[k["clave"]] = f"${col}${kfila + 1}"
+    # Tercera línea de la tarjeta: variación calculada con fórmula entre tarjetas.
+    for i, k in enumerate(kpis):
+        col = "BCDEF"[i]
+        c = ws[f"{col}{kfila + 2}"]
+        c.fill = S["fill_panel"]
+        c.border = S["borde"]
+        c.font = S["nota"]
+        c.alignment = Alignment(horizontal="right", vertical="top", indent=1)
+        if k["clave"] == "principal" and "poblacion" in celdas:
+            c.value = f"=IFERROR({celdas['principal']}/{celdas['poblacion']},0)"
+            c.number_format = '0.0 %" de la población";-0.0 %" de la población"'
+        elif k["clave"] == "recalculado" and "registrado" in celdas:
+            c.value = f"=IFERROR(({celdas['recalculado']}-{celdas['registrado']})/ABS({celdas['registrado']}),0)"
+            c.number_format = '+0.0 %" vs registrado";-0.0 %" vs registrado";"igual al registrado"'
+    ws._celdas_kpi = celdas  # las usa el gráfico «Registrado vs recalculado» del panorama
+    ultima_kpi = kfila + 2
     # Navegación por sección: una banda de color por sección y un botón por hoja.
     fila = ultima_kpi + 2
     ws[f"B{fila}"].value = "NAVEGAR POR SECCIÓN"
@@ -299,6 +302,138 @@ def _panel_inicio(ws, S, definicion, reg, titulos, hojas, estado, version, extra
     ws.print_options.horizontalCentered = True
     _print_setup(ws, e)
     return fila - 1
+
+
+def _formula_por_valor(hojas, titulos, valor, etiqueta=None):
+    """Fórmula (sin «=») a la celda que ya tiene ese importe: primero la fila del Resumen con
+    el mismo rótulo, luego cualquier fila del Resumen con el mismo importe y, por último, la fila
+    TOTAL de una cédula. None si ninguna celda lo tiene (nunca se pega el valor)."""
+    if valor is None:
+        return None
+    if etiqueta:
+        f = _formula_kpi(hojas, titulos, etiqueta, valor, "n")
+        if f:
+            return f[1:]
+    for i, h in enumerate(hojas):
+        if [c[1] for c in h.get("cols", [])] != ["t", "n"]:
+            continue
+        for k, fila in enumerate(h.get("rows") or []):
+            if len(fila) > 1 and graficos._num(fila[1]) is not None and abs(graficos._num(fila[1]) - valor) < 0.006:
+                return f"{_q(titulos[i])}B{5 + k}"
+    for i, h in enumerate(hojas):
+        tot = h.get("total")
+        if not tot:
+            continue
+        n = len(h.get("rows") or [])
+        for j, v in enumerate(tot):
+            if graficos._num(v) is not None and abs(graficos._num(v) - valor) < 0.006:
+                return f"{_q(titulos[i])}{get_column_letter(j + 1)}{5 + n}"
+    return None
+
+
+def _crit(v) -> str:
+    """Criterio de SUMIFS que iguala el contenido tal cual (sin comodines)."""
+    if v in (None, ""):
+        return '"="'
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    t = str(v).replace("~", "~~").replace("*", "~*").replace("?", "~?").replace('"', '""')
+    return f'"={t}"'
+
+
+def _rango_col(hojas, titulos, i, col):
+    h = hojas[i]
+    j = next((k for k, c in enumerate(h.get("cols") or []) if c[0] == col), None)
+    n = len(h.get("rows") or [])
+    if j is None or n == 0:
+        return None
+    L = get_column_letter(j + 1)
+    return f"{_q(titulos[i])}${L}$5:${L}${4 + n}"
+
+
+def _criterios(spec, hojas, titulos, i):
+    """Pares (rango, criterio) de ``donde`` y ``con_valor``, y si hace falta envolver en SUM
+    (lista de admitidos como constante matricial). None si no se puede expresar."""
+    pares, matriz, sep = [], False, [",", ";"]
+    for col, admitidos in (spec.get("donde") or {}).items():
+        rng = _rango_col(hojas, titulos, i, col)
+        if rng is None:
+            return None
+        adm = list(admitidos)
+        if len(adm) == 1:
+            pares.append((rng, _crit(adm[0])))
+        else:
+            if not sep:
+                return None            # más de dos listas: no cabe en una constante 2D
+            pares.append((rng, "{" + sep.pop(0).join(_crit(a) for a in adm) + "}"))
+            matriz = True
+    if spec.get("con_valor"):
+        rng = _rango_col(hojas, titulos, i, spec["con_valor"])
+        if rng is None:
+            return None
+        pares.append((rng, '">-1E+307"'))  # solo filas con número en esa columna
+    return pares, matriz
+
+
+def _suma_si(rng_val, pares, matriz, extra=()):
+    todos = list(pares) + list(extra)
+    if not todos:
+        return f"SUM({rng_val})"
+    f = f"SUMIFS({rng_val}," + ",".join(f"{r},{c}" for r, c in todos) + ")"
+    return f"SUM({f})" if matriz else f
+
+
+def _formula_spec(spec, run, hojas, titulos):
+    """(fórmula sin «=», valor) de un indicador del ``PANEL`` o None."""
+    if not spec:
+        return None
+    if "total" in spec:
+        v = graficos._num((run.get("totals") or {}).get(spec["total"]))
+        f = _formula_por_valor(hojas, titulos, v, (run.get("labels") or {}).get(spec["total"]))
+        return (f, v) if f else None
+    i = next((k for k, h in enumerate(hojas) if h["name"] == spec.get("hoja")), None)
+    if i is None:
+        return None
+    rng = _rango_col(hojas, titulos, i, spec.get("col"))
+    cr = _criterios(spec, hojas, titulos, i)
+    if rng is None or cr is None:
+        return None
+    v = graficos._suma_col(hojas[i], spec.get("col"), spec)
+    return _suma_si(rng, *cr), v
+
+
+def _kpis_panel(definicion, reg, hojas, titulos):
+    """Indicadores de la portada = los del panel del HTML (resultado principal, población,
+    recalculado, registrado y problemas). Cada uno es una fórmula; el que no tiene celda de
+    origen no se muestra (nunca un valor pegado)."""
+    from backend.app.aud.niif.procesadores import PROCESADORES
+
+    run = reg.get("run") or {}
+    mod = PROCESADORES.get(definicion.get("processor", ""))
+    spec = getattr(mod, "PANEL", None) or {}
+    tot, etq = run.get("totals") or {}, run.get("labels") or {}
+    prim = run.get("primary")
+    out = []
+    if prim in tot:
+        v = graficos._num(tot[prim])
+        f = _formula_por_valor(hojas, titulos, v, etq.get(prim, prim))
+        if f:
+            out.append({"clave": "principal", "rotulo": etq.get(prim, prim), "valor": v, "fmt": "n", "f": f})
+    for clave, defecto in (("poblacion", "Población"), ("recalculado", "Recalculado"), ("registrado", "Registrado")):
+        r = _formula_spec(spec.get(clave), run, hojas, titulos)
+        if not r or r[1] is None:
+            continue
+        # La población de una prueba de saldo es el mismo saldo registrado: no se repite la tarjeta.
+        if clave == "registrado" and any(k["clave"] == "poblacion" and abs(k["valor"] - r[1]) < 0.005 for k in out):
+            out = [k for k in out if k["clave"] != "poblacion"]
+        out.append({"clave": clave, "rotulo": (spec.get(clave) or {}).get("rotulo", defecto), "valor": r[1], "fmt": "n", "f": r[0]})
+    n_prob = len(run.get("exceptions") or [])
+    ip = next((i for i, h in enumerate(hojas) if problemas.es_hoja_problemas(h)), None)
+    if ip is not None:
+        n = len(hojas[ip].get("rows") or [])
+        out.append({"clave": "problemas", "rotulo": "Problemas encontrados", "valor": n_prob, "fmt": "i",
+                    "semaforo": est.color_semaforo(n_prob), "f": f"COUNTA({_q(titulos[ip])}A5:A{4 + max(n, 1)})"})
+    return out[:5]
 
 
 def _formula_kpi(hojas, titulos, etiqueta, valor, fmt):
@@ -446,7 +581,7 @@ def _q(titulo: str) -> str:
     return "'" + titulo.replace("'", "''") + "'!"
 
 
-def _barras_excel(ws, titulo, cat_ref, val_ref, alto_items, ancla):
+def _barras_excel(ws, titulo, cat_ref, val_ref, alto_items, ancla, desde_cero=False):
     """Gráfico de barras nativo con el estilo del papel (una serie, sin cuadrícula,
     solo el valor como etiqueta, rótulos al borde para no pisar negativos)."""
     from openpyxl.chart import BarChart
@@ -473,6 +608,8 @@ def _barras_excel(ws, titulo, cat_ref, val_ref, alto_items, ancla):
     ch.y_axis.delete = False
     ch.y_axis.numFmt = "#,##0"
     ch.y_axis.majorGridlines = None
+    if desde_cero:
+        ch.y_axis.scaling.min = 0  # un eje que no empieza en 0 exagera la diferencia
     ch.dataLabels = DataLabelList()
     ch.dataLabels.showVal = True
     # Explícitos: si faltan, algunos lectores (LibreOffice) añaden categoría y serie.
@@ -487,11 +624,67 @@ def _barras_excel(ws, titulo, cat_ref, val_ref, alto_items, ancla):
     return ch.height
 
 
-def _graficos_dashboard(ws, S, hojas, titulos, fila, wd):
+def _spec_panel(definicion) -> dict:
+    from backend.app.aud.niif.procesadores import PROCESADORES
+
+    mod = PROCESADORES.get((definicion or {}).get("processor", ""))
+    return getattr(mod, "PANEL", None) or {}
+
+
+def _serie_formulas(spec, reg, hojas, titulos):
+    """[(rótulo, «=fórmula»)] de una serie del ``PANEL``: suma por rótulo con SUMIFS sobre la
+    cédula (o, con ``totales``, la celda de cada total). Los 7 de mayor importe y el resto en
+    «Otros». None si no se puede expresar con fórmulas."""
+    run = (reg or {}).get("run") or {}
+    if spec.get("totales"):
+        filas = []
+        for rotulo, clave in spec["totales"]:
+            v = graficos._num((run.get("totals") or {}).get(clave))
+            if v is None or abs(v) < 0.005:
+                continue
+            f = _formula_por_valor(hojas, titulos, v, (run.get("labels") or {}).get(clave))
+            if not f:
+                return None
+            filas.append((rotulo, "=" + f))
+        return filas or None
+    i = next((k for k, h in enumerate(hojas) if h["name"] == spec.get("hoja")), None)
+    if i is None:
+        return None
+    h = hojas[i]
+    rng_e, rng_v = _rango_col(hojas, titulos, i, spec.get("etiqueta")), _rango_col(hojas, titulos, i, spec.get("valor"))
+    cr = _criterios(spec, hojas, titulos, i)
+    if rng_e is None or rng_v is None or cr is None:
+        return None
+    je = next(k for k, c in enumerate(h["cols"]) if c[0] == spec["etiqueta"])
+    jv = next(k for k, c in enumerate(h["cols"]) if c[0] == spec["valor"])
+    grupos: dict[str, list] = {}
+    for f in graficos._filas(h, spec):
+        v = graficos._num(f[jv]) if jv < len(f) else None
+        if v is None:
+            continue
+        crudo = _valor(f[je]) if je < len(f) else None
+        rot = " ".join(str(crudo if crudo not in (None, "") else "(sin rótulo)").split())
+        g = grupos.setdefault(rot, [set(), 0.0])
+        g[0].add(crudo if crudo not in (None, "") else None)
+        g[1] += v
+    items = sorted(((r, g) for r, g in grupos.items() if abs(g[1]) >= 0.005), key=lambda x: -abs(x[1][1]))
+    if not items:
+        return None
+    cab = items if len(items) <= graficos.TOP_HALLAZGOS + 1 else items[:graficos.TOP_HALLAZGOS]
+    formula = lambda crudos: "+".join(_suma_si(rng_v, cr[0], cr[1], [(rng_e, _crit(c))]) for c in sorted(crudos, key=str))  # noqa: E731
+    filas = [(rot, "=" + formula(g[0])) for rot, g in cab]
+    if len(cab) < len(items):
+        todos = _suma_si(rng_v, *cr)
+        filas.append((f"Otros ({len(items) - len(cab)})", f"={todos}-(" + "+".join(formula(g[0]) for _, g in cab) + ")"))
+    return filas
+
+
+def _graficos_dashboard(ws, S, hojas, titulos, fila, wd, definicion=None, reg=None):
     """Sección «PANORAMA» del panel 00_Inicio (el ÚNICO dashboard del libro).
     Los datos de cada gráfico son fórmulas a las cédulas (trazables y vivos):
-    - Cifras del resumen: ='<Resumen>'!A5 / !B5 … (sin las tasas %, para no
-      mezclar unidades en el eje de USD).
+    - Registrado vs recalculado: remite a las tarjetas de la portada.
+    - Composición y distribución (``PANEL`` del procesador): SUMIFS por rótulo sobre la
+      cédula; los 7 mayores y el resto en «Otros» (total − los 7).
     - Hallazgos de mayor impacto: SUMIFS sobre la hoja de problemas por código
       (positivos − negativos = importe absoluto); el resto en «Otros»."""
     from openpyxl.chart import Reference
@@ -523,15 +716,26 @@ def _graficos_dashboard(ws, S, hojas, titulos, fila, wd):
         return (Reference(wd, min_col=col_a, min_row=ini, max_row=fin),
                 Reference(wd, min_col=col_a + 1, min_row=cab, max_row=fin), fin - ini + 1)
 
-    idx_res = next((i for i, h in enumerate(hojas) if [c[1] for c in h.get("cols", [])] == ["t", "n"]), None)
-    if idx_res is not None:
-        h, q = hojas[idx_res], _q(titulos[idx_res])
-        filas = [(f"={q}A{5 + i}", f"={q}B{5 + i}") for i, f in enumerate(h.get("rows", []))
-                 if len(f) > 1 and "%" not in str(f[0]) and isinstance(graficos._num(f[1]), float)]
+    # Pocas barras, cada una con su rótulo: lo que el HTML muestra en su panel. (Antes el panel
+    # volcaba todas las filas del Resumen —registrado, recalculado, diferencias, décimos…— con
+    # escalas muy distintas y se veía como un código de barras.)
+    celdas = getattr(ws, "_celdas_kpi", {}) or {}
+    q_ini = _q(ws.title)
+    if "registrado" in celdas and "recalculado" in celdas:
+        spec = _spec_panel(definicion)
+        filas = [((spec.get("registrado") or {}).get("rotulo", "Registrado"), f"={q_ini}{celdas['registrado']}"),
+                 ((spec.get("recalculado") or {}).get("rotulo", "Recalculado"), f"={q_ini}{celdas['recalculado']}")]
+        cats, vals, n = bloque("Registrado vs recalculado", filas)
+        alto_cm = _barras_excel(ws, "Registrado vs recalculado (USD)", cats, vals, n, f"B{ancla_fila}", desde_cero=True)
+        ancla_fila += math.ceil(alto_cm / 0.53) + 2  # filas de 15 pt ≈ 0,53 cm
+    for clave, defecto in (("composicion", "Composición del resultado"), ("distribucion", "Distribución")):
+        spec = _spec_panel(definicion).get(clave)
+        filas = _serie_formulas(spec, reg, hojas, titulos) if spec else None
         if filas:
-            cats, vals, n = bloque("Cifras del resumen", filas)
-            alto_cm = _barras_excel(ws, "Cifras del resumen (USD)", cats, vals, n, f"B{ancla_fila}")
-            ancla_fila += math.ceil(alto_cm / 0.53) + 2  # filas de 15 pt ≈ 0,53 cm
+            titulo = spec.get("rotulo", defecto)
+            cats, vals, n = bloque(titulo, filas)
+            alto_cm = _barras_excel(ws, f"{titulo} (USD)", cats, vals, n, f"B{ancla_fila}")
+            ancla_fila += math.ceil(alto_cm / 0.53) + 2
 
     idx_p = next((i for i, h in enumerate(hojas) if [c[0] for c in h.get("cols", [])] == ["Código", "Descripción", "Importe"]), None)
     if idx_p is not None and hojas[idx_p].get("rows"):
@@ -660,7 +864,7 @@ def xlsx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     _print_setup(datos_graf, {})
     fin_panel = _panel_inicio(inicio, S, definicion, reg, titulos, hojas, estado, version,
                               extra=[("Anexo técnico (fórmulas)", HOJA_ANEXO, 3)])
-    _graficos_dashboard(inicio, S, hojas, titulos, fin_panel + 2, datos_graf)
+    _graficos_dashboard(inicio, S, hojas, titulos, fin_panel + 2, datos_graf, definicion, reg)
 
     anexo = []
     secciones = _secciones_de(hojas)
@@ -1012,6 +1216,8 @@ def _diapositiva_grafico(prs, g: dict, navy):
     ch.category_axis.tick_labels.font.color.rgb = RGBColor.from_string(est.TINTA)
     ch.value_axis.has_major_gridlines = False
     ch.value_axis.visible = False
+    if all(v >= 0 for _, v in items):
+        ch.value_axis.minimum_scale = 0  # un eje que no empieza en 0 exagera las diferencias
     pie = s.shapes.add_textbox(Inches(0.5), Inches(6.95), Inches(12.3), Inches(0.4)).text_frame
     pie.text = g["subtitulo"]
     pie.paragraphs[0].runs[0].font.size = Pt(10)
@@ -1037,16 +1243,10 @@ def pptx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     s.shapes.add_picture(marca.flujo("auditconsulting_oscuro"), Inches(0.6), Inches(0.45), height=Inches(0.9))
     s.shapes.add_picture(marca.flujo("audit_ia"), prs.slide_width - Inches(0.6) - Inches(marca.ancho_para("audit_ia", 0.9)),
                          Inches(0.45), height=Inches(0.9))
-    # Diapositiva ejecutiva de cifras clave
-    totales, etiquetas, prim = run.get("totals") or {}, run.get("labels") or {}, run.get("primary")
-    n_prob = len(run.get("exceptions") or [])
-    cifras = []
-    if prim in totales:
-        cifras.append((etiquetas.get(prim, prim), _html.unescape(_celda({"v": totales[prim]}, "n"))))
-    for k in ("perdida", "cartera", "provReg"):
-        if k in totales and k != prim:
-            cifras.append((etiquetas.get(k, k), _html.unescape(_celda({"v": totales[k]}, "n"))))
-    cifras.append(("Problemas encontrados", str(n_prob)))
+    # Diapositiva ejecutiva de cifras clave: los mismos indicadores de la portada del Excel y del HTML.
+    hojas_ppt = cedulas(definicion, reg, eventos, version, estado)
+    cifras = [(k["rotulo"], str(k["valor"]) if k["fmt"] == "i" else _html.unescape(_celda({"v": k["valor"]}, "n")))
+              for k in _kpis_panel(definicion, reg, hojas_ppt, _titulos_unicos(hojas_ppt))]
     sk = prs.slides.add_slide(prs.slide_layouts[5])
     sk.shapes.title.text = "Cifras clave"
     sk.shapes.title.text_frame.paragraphs[0].runs[0].font.color.rgb = navy
@@ -1057,8 +1257,9 @@ def pptx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
         p.text = f"{etq}:  {val}"
         p.runs[0].font.size = Pt(20)
         p.runs[0].font.color.rgb = navy
-    hojas_ppt = cedulas(definicion, reg, eventos, version, estado)
-    for g in graficos.paneles(hojas_ppt, run):
+    from backend.app.aud.niif.procesadores import PROCESADORES
+
+    for g in graficos.paneles(hojas_ppt, run, PROCESADORES.get(definicion.get("processor", ""))):
         _diapositiva_grafico(prs, g, navy)
     for h in hojas_ppt:
         if not _en_ppt(h["name"]):

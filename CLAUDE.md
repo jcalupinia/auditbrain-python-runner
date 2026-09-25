@@ -518,8 +518,13 @@ fórmula con el valor que calculó Python (diferencia 0). Referencia:
 **Sin cifras calculadas pegadas (decisión del dueño, 2026-09-24):** ninguna cifra que resulte
 de un cálculo puede ir como valor fijo en el Excel. Los datos que entrega el cliente y los
 parámetros del auditor sí son valores (entradas); todo lo demás es fórmula:
-- Indicadores de la portada `00_Inicio`: fórmula a la fila del Resumen / `COUNTA` de Problemas
-  (`libro._formula_kpi`).
+- Indicadores de la portada `00_Inicio` («consola»): los mismos 5 del panel del HTML (resultado
+  principal, población, recalculado, registrado, problemas), cada uno fórmula a su cédula
+  (`libro._kpis_panel`: fila del Resumen, `SUMIFS` sobre la columna del `PANEL` o `COUNTA` de
+  Problemas). La tarjeta sin celda de origen no se muestra. Prueba: `test_portada_tarjetas_son_formulas`.
+- Gráficos del panel: pocas barras con rótulo (registrado vs recalculado con eje desde 0,
+  composición, distribución, hallazgos). **Nunca** volcar todas las filas del Resumen en un
+  gráfico: mezcla escalas y se ve como un código de barras (queja del dueño, 2026-09-25).
 - Importe de cada problema: fórmula a la celda de la cédula donde se origina. Cada procesador
   declara `REF_PROBLEMAS = {código: (hoja, columna) | (hoja, columna, "total") | función}`
   (`procesadores/problemas.py`). Solo se enlaza si la celda tiene ese mismo importe; si no, queda

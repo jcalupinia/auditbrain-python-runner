@@ -192,10 +192,26 @@ def svg_barras(items: list[tuple[str, float]], descripcion: str) -> str:
     )
 
 
-def paneles(hojas: list[dict], run: dict) -> list[dict]:
-    """Los gráficos del papel: [{titulo, subtitulo, svg, items}] (solo los que tienen datos)."""
+def paneles(hojas: list[dict], run: dict, mod=None) -> list[dict]:
+    """Los gráficos del papel: [{titulo, subtitulo, svg, items}] (solo los que tienen datos).
+
+    Con el procesador (``mod`` con ``PANEL``) son los del panel del HTML: registrado vs
+    recalculado, composición y distribución, más los hallazgos. Sin él, las cifras del
+    resumen (todas sus filas, con escalas muy distintas: solo como último recurso)."""
     out = []
-    res = datos_resumen(hojas)
+    if getattr(mod, "PANEL", None):
+        p = panel(mod, run, run.get("hojas") or hojas)
+        graf = []
+        if p["registrado"]["valor"] is not None and p["recalculado"]["valor"] is not None:
+            graf.append(("Registrado vs recalculado", "Cifra del cliente frente a la recalculada por el auditor (USD).",
+                         p["comparativo"]["items"]))
+        for k in ("composicion", "distribucion"):
+            graf.append((p[k]["rotulo"], f"Importes en USD; los {TOP_HALLAZGOS} mayores y el resto en «Otros».", p[k]["items"]))
+        for titulo, sub, items in graf:
+            svg = svg_barras(items, f"{titulo} en USD")
+            if svg:
+                out.append({"titulo": titulo, "subtitulo": sub, "svg": svg, "items": items})
+    res = [] if out else datos_resumen(hojas)
     svg = svg_barras(res, "Cifras del resumen en USD")
     if svg:
         out.append({"titulo": "Cifras del resumen",
