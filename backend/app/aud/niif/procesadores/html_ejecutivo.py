@@ -208,7 +208,9 @@ def _css() -> str:
         "table.calc td.mono{font:11.5px var(--f-cifra);white-space:pre-wrap;word-break:break-all}"
         "footer{max-width:1320px;margin:0 auto;padding:0 20px 30px;color:var(--muted);font-size:11.5px}"
         # Calculadora reutilizable (pruebas declarativas): simulación que no toca el papel conservado
-        ".calc-aviso{margin:0 0 12px;padding:10px 14px;border-radius:10px;border:1px solid var(--borde);"
+        ".guia{margin:0 0 12px;padding:8px 12px;border-radius:10px;background:var(--card2);border:1px solid var(--borde);"
+        "color:var(--texto2);font-size:12.5px}.guia b{color:var(--oro-txt);margin-right:4px}"
+                ".calc-aviso{margin:0 0 12px;padding:10px 14px;border-radius:10px;border:1px solid var(--borde);"
         "border-left:4px solid var(--k-ambar);background:var(--card2);color:var(--texto2);font-size:12.5px}"
         ".calc-aviso.ok{border-left-color:var(--k-verde)}.calc-aviso.error{border-left-color:var(--alta)}"
         ".calc-botones{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}"
@@ -339,6 +341,11 @@ def _tabla(h: dict, celda) -> str:
                   + f">{celda(v, f)}</td>" for (_, f), v in zip(h["cols"], fila))
         + "</tr>" for fila, total in filas)
     return f'<div class="scroll"><table><thead><tr>{cab}</tr></thead><tbody>{cuerpo}</tbody></table></div>'
+
+
+def _guia(h: dict) -> str:
+    """«¿De dónde saco este dato?»: qué documento, reporte o cuenta alimenta la hoja (como en el Excel)."""
+    return (f'<p class="guia"><b>¿De dónde saco este dato?</b> {E(h["guia"])}</p>' if h.get("guia") else "")
 
 
 def _calc(bloque: list[dict], abierto: bool) -> str:
@@ -477,7 +484,7 @@ def render(definicion: dict, reg: dict, eventos: list, version: int, estado: str
     for i, h in enumerate(hojas):
         sid = f"s-{i}"
         cuerpo = (f'<div class="cedula-cab"><h2>{E(h["label"])}</h2>{boton_pdf(sid)}</div>'
-                  f'<div class="panel">{_calc(como_se_calcula(h, hojas), para_pdf)}{_tabla(h, celda)}</div>')
+                  f'<div class="panel">{_guia(h)}{_calc(como_se_calcula(h, hojas), para_pdf)}{_tabla(h, celda)}</div>')
         secciones.append((sid, h["label"], cuerpo))
     calc = calculadora if (calculadora and not para_pdf) else None
     if calc:

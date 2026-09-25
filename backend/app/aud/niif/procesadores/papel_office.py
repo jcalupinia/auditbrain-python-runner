@@ -301,6 +301,10 @@ def docx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
         doc.add_page_break()
         cab = _parrafo(doc, h["label"], 15, C["texto"], True, despues=6)
         _filete(cab, C["oro"], 16)
+        if h.get("guia"):
+            # «¿De dónde saco este dato?»: qué documento, reporte o cuenta alimenta la hoja (como en el Excel).
+            g = _parrafo(doc, "¿De dónde saco este dato?  ", 9, C["oro-txt"], True, despues=6)
+            _texto(g, h["guia"], 9, C["texto2"])
         bloque = L.como_se_calcula(h, hojas)
         if bloque:
             _calc_word(doc, bloque, ancho)

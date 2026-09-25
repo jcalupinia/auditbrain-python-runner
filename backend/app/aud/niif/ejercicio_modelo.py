@@ -76,7 +76,9 @@ def _engagement(d, param, corte):
 def _reg(d, mod, datasets, param, corte):
     """El ``reg`` que consumen ``libro.{ext}`` (igual que papeles_muestra.py)."""
     res = mod.ejecutar(datasets, param, corte)
-    res["hojas"] = mod.hojas(res)
+    from backend.app.aud.niif.procesadores import datos_cliente
+
+    res["hojas"] = datos_cliente.con_datos(mod, res, datasets)
     reg = {"run": res, "datasets": datasets, "parameters": param,
            "program": [{**x, "reference": x.get("source", "")} for x in d.get("program", [])],
            "sources": [], "engagement": _engagement(d, param, corte)}
