@@ -73,7 +73,8 @@ def test_cifra_heroe_con_separador_de_miles():
 
 
 def _titulo(ch):
-    return "".join(r.t for p in ch.title.tx.rich.p for r in (p.r or []))
+    """Primer párrafo del título (el segundo es el subtítulo de la tarjeta, como en el HTML)."""
+    return "".join(r.t for r in (ch.title.tx.rich.p[0].r or []))
 
 
 def test_excel_un_solo_dashboard_con_graficos_por_formula():
@@ -84,13 +85,15 @@ def test_excel_un_solo_dashboard_con_graficos_por_formula():
         wb = load_workbook(io.BytesIO(libro.xlsx(d, reg, [], 1, "APROBADO")))  # abre sin «reparar»
         con_grafico = [ws.title for ws in wb.worksheets if ws._charts]
         assert con_grafico == ["00_Inicio"], (pid, con_grafico)
-        # Registrado vs recalculado, composición, distribución y hallazgos: pocas barras con
-        # rótulo. Nunca «Cifras del resumen» (todas las filas del Resumen con escalas muy
-        # distintas: se veía como un código de barras).
-        titulos = [_titulo(ch) for ch in wb["00_Inicio"]._charts]
-        assert titulos[0] == "Registrado vs recalculado (USD)", (pid, titulos)
-        assert not any("Cifras del resumen" in t for t in titulos), (pid, titulos)
-        assert 3 <= len(titulos) <= 4, (pid, titulos)
+        # Los MISMOS 4 gráficos del panel del HTML (pedido del dueño, 2026-09-25), nunca otros:
+        # dona de composición, registrado vs recalculado, distribución y problemas por severidad.
+        graf = wb["00_Inicio"]._charts
+        titulos = [_titulo(ch) for ch in graf]
+        assert titulos[0] == "Composición del resultado" and titulos[1] == "Registrado vs recalculado", (pid, titulos)
+        assert titulos[3] == "Problemas por severidad" and len(titulos) == 4, (pid, titulos)
+        assert graf[0].tagname == "doughnutChart" and all(ch.tagname == "barChart" for ch in graf[1:]), pid
+        assert all(len(ch._charts) == 2 for ch in graf[1:]), pid       # barras + línea, como el HTML
+        assert all(str(ch.graphical_properties.solidFill.srgbClr) == "0A2342" for ch in graf), pid  # tarjeta del HTML
         # Los datos de los gráficos viven en una hoja oculta (el panel queda limpio) y son fórmulas.
         datos = wb[libro.HOJA_DATOS_GRAFICOS]
         assert datos.sheet_state == "hidden", pid
@@ -101,7 +104,7 @@ def test_excel_un_solo_dashboard_con_graficos_por_formula():
             assert ch.title.overlay is False and ch.series[0].cat.strRef is not None, pid
         assert any(re.match(r"^='00_Inicio'!\$[B-F]\$\d+$", f) for f in formulas), pid  # registrado/recalculado → tarjetas
         assert sum("SUMIFS(" in f and "Problemas" not in f for f in formulas) >= 2, pid  # composición/distribución → cédulas
-        assert any("SUMIFS(" in f and "Problemas" in f for f in formulas), pid  # hallazgos → hoja de problemas
+        assert any("COUNTIFS(" in f and "Problemas" in f for f in formulas), pid  # severidad → hoja de problemas
 
 
 def test_excel_tablas_premium():

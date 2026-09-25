@@ -160,30 +160,8 @@ def _secciones_de(hojas: list[dict]) -> list[int]:
     return [_seccion(h, i == i_res) for i, h in enumerate(hojas)]
 
 
-def _boton_seccion(ws, celda: str, texto: str, destino: str, color: str, tinta: str):
-    """Botón con relieve: fondo de la sección, borde claro arriba/izquierda y oscuro abajo/derecha."""
-    c = ws[celda]
-    c.value = texto
-    c.hyperlink = destino
-    c.font = Font(name=est.FONT_TITULO, size=10, bold=True, color=tinta)
-    c.fill = PatternFill("solid", fgColor=color)
-    c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    claro, oscuro = Side(style="thin", color="FFFFFF"), Side(style="medium", color="071B2F")
-    c.border = Border(left=claro, top=claro, right=oscuro, bottom=oscuro)
-
-
 def _ref(hoja: str, celda: str = "A1") -> str:
     return f"#'{hoja}'!{celda}"
-
-
-def _boton(ws, celda: str, texto: str, destino: str, S, nav=False):
-    c = ws[celda]
-    c.value = texto
-    c.hyperlink = destino
-    c.font = S["boton_nav"] if nav else S["boton"]
-    c.fill = S["fill_boton_nav"] if nav else S["fill_boton"]
-    c.alignment = S["centro"]
-    c.border = S["borde"]
 
 
 def _ancla(ws, img, col: int, fila: int, dx_px: int, dy_px: int):
@@ -198,81 +176,8 @@ def _ancla(ws, img, col: int, fila: int, dx_px: int, dy_px: int):
     ws.add_image(img)
 
 
-def _logos_banda(ws):
-    """Logotipos de la firma (izquierda) y de AUDIT-IA (derecha) sobre la banda navy B2:F3
-    (dos filas de 27 pt = 72 px; columnas B..F de 27 caracteres ≈ 194 px)."""
-    alto = 58
-    _ancla(ws, marca.imagen_excel("auditconsulting_blanco", alto), 1, 1, 10, 7)
-    ia = marca.imagen_excel("audit_ia", alto)
-    _ancla(ws, ia, 5, 1, 194 - ia.width - 10, 7)
-
-
-def _panel_inicio(ws, S, definicion, reg, titulos, hojas, estado, version, extra=()):
-    e = reg.get("engagement") or {}
-    ws.sheet_view.showGridLines = False
-    ws.column_dimensions["A"].width = 3
-    for col in "BCDEF":
-        ws.column_dimensions[col].width = 27  # botones con rótulos largos sin truncar
-    # Banda de marca
-    ws.merge_cells("B2:F3")
-    b = ws["B2"]
-    b.value = "AuditConsulting Auditores Cía. Ltda.  ·  AUDIT-IA"
-    b.font = S["marca"]
-    b.fill = S["fill_marca"]
-    b.alignment = Alignment(horizontal="center", vertical="center")
-    for r in (2, 3):
-        ws.row_dimensions[r].height = 27
-        for col in "BCDEF":
-            ws[f"{col}{r}"].fill = S["fill_marca"]
-    _logos_banda(ws)
-    ws.merge_cells("B4:F4")
-    ws["B4"].value = definicion.get("name", "")
-    ws["B4"].font = S["titulo"]
-    # Datos del encargo
-    datos = [("Cliente", e.get("client")), ("RUC", e.get("ruc")), ("Marco contable", e.get("framework")),
-             ("Fecha de corte", e.get("cutoff")), ("Preparó", e.get("preparer")), ("Revisó", e.get("reviewer"))]
-    fila = 6
-    for i, (etq, val) in enumerate(datos):
-        col = "B" if i % 2 == 0 else "D"
-        ecol, vcol = col, chr(ord(col) + 1)
-        ws[f"{ecol}{fila}"].value = etq
-        ws[f"{ecol}{fila}"].font = S["kpi_etq"]
-        ws[f"{vcol}{fila}"].value = _seguro(val)
-        ws[f"{vcol}{fila}"].font = S["dato"]
-        if i % 2 == 1:
-            fila += 1
-    # Tarjetas KPI: las mismas del panel del HTML, cada una fórmula a la cédula que la calcula.
-    kpis = _kpis_panel(definicion, reg, hojas, titulos)
-    kfila = fila + 1
-    ws[f"B{kfila}"].value = "INDICADORES CLAVE"
-    ws[f"B{kfila}"].font = S["subtitulo"]
-    kfila += 1
-    celdas = {}
-    for i, k in enumerate(kpis):
-        col = "BCDEF"[i]
-        _tarjeta_kpi(ws, col, kfila, k["rotulo"], k["valor"], k["fmt"], k.get("semaforo"), S, "=" + k["f"])
-        celdas[k["clave"]] = f"${col}${kfila + 1}"
-    # Tercera línea de la tarjeta: variación calculada con fórmula entre tarjetas.
-    for i, k in enumerate(kpis):
-        col = "BCDEF"[i]
-        c = ws[f"{col}{kfila + 2}"]
-        c.fill = S["fill_panel"]
-        c.border = S["borde"]
-        c.font = S["nota"]
-        c.alignment = Alignment(horizontal="right", vertical="top", indent=1)
-        if k["clave"] == "principal" and "poblacion" in celdas:
-            c.value = f"=IFERROR({celdas['principal']}/{celdas['poblacion']},0)"
-            c.number_format = '0.0 %" de la población";-0.0 %" de la población"'
-        elif k["clave"] == "recalculado" and "registrado" in celdas:
-            c.value = f"=IFERROR(({celdas['recalculado']}-{celdas['registrado']})/ABS({celdas['registrado']}),0)"
-            c.number_format = '+0.0 %" vs registrado";-0.0 %" vs registrado";"igual al registrado"'
-    ws._celdas_kpi = celdas  # las usa el gráfico «Registrado vs recalculado» del panorama
-    ultima_kpi = kfila + 2
-    # Navegación por sección: una banda de color por sección y un botón por hoja.
-    fila = ultima_kpi + 2
-    ws[f"B{fila}"].value = "NAVEGAR POR SECCIÓN"
-    ws[f"B{fila}"].font = S["subtitulo"]
-    fila += 1
+def _grupos_nav(hojas, titulos, extra=()):
+    """Botones de la portada agrupados por sección: {sección: [(rótulo, hoja destino, nombre)]}."""
     grupos = {i: [] for i in range(len(SECCIONES))}
     for (h, t), sec in zip(zip(hojas, titulos), _secciones_de(hojas)):
         etq = h.get("label", t)
@@ -281,27 +186,7 @@ def _panel_inicio(ws, S, definicion, reg, titulos, hojas, estado, version, extra
         grupos[sec].append((etq, t, t))
     orden_res = lambda x: (0 if x[2][:3] in ("01_",) else 1 if "Problema" in x[0] else 3 if x[2].startswith("13_") else 2)  # noqa: E731
     grupos[0].sort(key=orden_res)
-    for sec, items in grupos.items():
-        if not items:
-            continue
-        nombre, color, tinta, desc = SECCIONES[sec]
-        ws.merge_cells(f"B{fila}:E{fila}")
-        banda = ws[f"B{fila}"]
-        banda.value = f"{nombre}  ·  {desc}"
-        banda.font = Font(name=est.FONT_TITULO, size=11, bold=True, color=tinta)
-        banda.alignment = Alignment(horizontal="left", vertical="center", indent=1)
-        for col in "BCDE":
-            ws[f"{col}{fila}"].fill = PatternFill("solid", fgColor=color)
-        ws.row_dimensions[fila].height = 22
-        fila += 1
-        for i, (etq, t, _) in enumerate(items):
-            row = fila + i // 4
-            _boton_seccion(ws, f"{'BCDE'[i % 4]}{row}", etq, _ref(t), color, tinta)
-            ws.row_dimensions[row].height = 32  # rótulos largos en dos líneas, sin truncar
-        fila += (len(items) - 1) // 4 + 2      # una fila de aire entre secciones
-    ws.print_options.horizontalCentered = True
-    _print_setup(ws, e)
-    return fila - 1
+    return grupos
 
 
 def _formula_por_valor(hojas, titulos, valor, etiqueta=None):
@@ -459,32 +344,6 @@ def _formula_kpi(hojas, titulos, etiqueta, valor, fmt):
     return None
 
 
-def _tarjeta_kpi(ws, col, row, etq, val, fmt, semaforo, S, formula=None):
-    ws[f"{col}{row}"].value = etq
-    ws[f"{col}{row}"].font = S["kpi_etq"]
-    ws[f"{col}{row}"].alignment = Alignment(wrap_text=True, vertical="bottom")
-    ws.row_dimensions[row].height = max(ws.row_dimensions[row].height or 0, 30)
-    v = ws[f"{col}{row + 1}"]
-    if fmt == "i":
-        v.value = int(val) if isinstance(val, (int, float)) else val
-        v.number_format = "#,##0"
-    else:
-        try:
-            v.value = float(str(val).replace(",", "")) if val not in (None, "") else 0
-            v.number_format = est.FMT["n"]
-        except (ValueError, TypeError):
-            v.value = _seguro(val)
-    if formula:
-        v.value = formula
-    v.font = S["kpi_valor"]
-    for r in (row, row + 1):
-        ws[f"{col}{r}"].fill = S["fill_panel"]
-        ws[f"{col}{r}"].border = S["borde"]
-    if semaforo:
-        from openpyxl.styles import Font as _F
-        v.font = _F(name=est.FONT_CIFRA, size=18, bold=True, color=semaforo)
-
-
 def _print_setup(ws, e):
     ws.page_setup.orientation = "landscape"
     ws.page_setup.fitToWidth = 1
@@ -500,26 +359,33 @@ def _hoja_ejecutiva(ws, S, h, titulo_prueba, nav, hojas=None, anexo=None):
     ws.sheet_view.showGridLines = False
     ancho = max(6, len(h["cols"]))
     # Fila 1: botonera arriba a la izquierda (siempre visible: el panel se congela hasta la fila 4) y la prueba.
+    # Filas 1-3: la franja del HTML (fondo azul marino, título claro y botones del HTML).
+    from backend.app.aud.niif.procesadores import panel_excel as px
+
+    for r in (1, 2, 3):
+        for j in range(1, ancho + 1):
+            ws.cell(row=r, column=j).fill = PatternFill("solid", fgColor=px.BG)
     for col, clave, texto in (("A", "inicio", "⟵ Inicio"), ("B", "anterior", "◀ Anterior"), ("C", "siguiente", "Siguiente ▶")):
         if nav.get(clave):
-            _boton(ws, f"{col}1", texto, _ref(nav[clave]), S, nav=True)
+            px.boton_html(ws[f"{col}1"], texto, _ref(nav[clave]), primario=(clave == "inicio"))
     ws.merge_cells(start_row=1, start_column=4, end_row=1, end_column=ancho)
     ws["D1"].value = _seguro(titulo_prueba)
-    ws["D1"].font = S["nota"]
-    ws["D1"].alignment = Alignment(horizontal="right", vertical="center")
-    ws.row_dimensions[1].height = 22
+    ws["D1"].font = Font(name=est.FONT_TEXTO, size=9, color=px.TEXTO2)
+    ws["D1"].alignment = Alignment(horizontal="right", vertical="center", indent=1)
+    ws.row_dimensions[1].height = 24
     # Fila 2: título de la cédula.
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=ancho)
     ws["A2"].value = _seguro(h["label"])
-    ws["A2"].font = S["titulo"]
-    ws.row_dimensions[2].height = 24
+    ws["A2"].font = Font(name=est.FONT_TITULO, size=15, bold=True, color=px.TEXTO)
+    ws["A2"].alignment = Alignment(vertical="center", indent=1)
+    ws.row_dimensions[2].height = 28
     if h.get("guia"):
         # «¿De dónde saco este dato?»: qué documento, reporte o cuenta alimenta la hoja.
         ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=max(6, len(h["cols"])))
         g = ws["A3"]
         g.value = _seguro("¿De dónde saco este dato?  " + h["guia"])
-        g.font = S["nota"]
-        g.alignment = Alignment(wrap_text=True, vertical="top")
+        g.font = Font(name=est.FONT_TEXTO, size=9, italic=True, color=px.TEXTO2)
+        g.alignment = Alignment(wrap_text=True, vertical="top", indent=1)
         ws.row_dimensions[3].height = 15 * max(2, math.ceil(len(h["guia"]) / 150))
     # Cabecera de la tabla
     fila_enc = 4
@@ -581,181 +447,6 @@ def _q(titulo: str) -> str:
     return "'" + titulo.replace("'", "''") + "'!"
 
 
-def _barras_excel(ws, titulo, cat_ref, val_ref, alto_items, ancla, desde_cero=False):
-    """Gráfico de barras nativo con el estilo del papel (una serie, sin cuadrícula,
-    solo el valor como etiqueta, rótulos al borde para no pisar negativos)."""
-    from openpyxl.chart import BarChart
-    from openpyxl.chart.data_source import AxDataSource, StrRef
-    from openpyxl.chart.label import DataLabelList
-
-    ch = BarChart()
-    ch.type = "bar"
-    ch.title = titulo
-    ch.legend = None
-    ch.gapWidth = 60
-    ch.add_data(val_ref, titles_from_data=True)
-    serie = ch.series[0]
-    # Rótulos como TEXTO (strRef): con numRef, Excel los toma por números y muestra 1, 2, 3…
-    serie.cat = AxDataSource(strRef=StrRef(f=str(cat_ref)))
-    # El título va encima del gráfico, no superpuesto a las barras y sus cifras.
-    ch.title.overlay = False
-    serie.graphicalProperties.solidFill = est.SERIE
-    serie.graphicalProperties.line.noFill = True
-    serie.invertIfNegative = False
-    ch.x_axis.scaling.orientation = "maxMin"   # primer concepto arriba, como en la tabla
-    ch.x_axis.tickLblPos = "low"               # rótulos al borde: no pisan barras negativas
-    ch.x_axis.delete = False
-    ch.y_axis.delete = False
-    ch.y_axis.numFmt = "#,##0"
-    ch.y_axis.majorGridlines = None
-    if desde_cero:
-        ch.y_axis.scaling.min = 0  # un eje que no empieza en 0 exagera la diferencia
-    ch.dataLabels = DataLabelList()
-    ch.dataLabels.showVal = True
-    # Explícitos: si faltan, algunos lectores (LibreOffice) añaden categoría y serie.
-    ch.dataLabels.showCatName = False
-    ch.dataLabels.showSerName = False
-    ch.dataLabels.showLegendKey = False
-    ch.dataLabels.showPercent = False
-    ch.dataLabels.numFmt = "#,##0.00"
-    ch.height = max(7.0, 0.72 * alto_items + 3.0)
-    ch.width = 21.5  # ancho del panel (B:F): rótulos completos en una línea
-    ws.add_chart(ch, ancla)
-    return ch.height
-
-
-def _spec_panel(definicion) -> dict:
-    from backend.app.aud.niif.procesadores import PROCESADORES
-
-    mod = PROCESADORES.get((definicion or {}).get("processor", ""))
-    return getattr(mod, "PANEL", None) or {}
-
-
-def _serie_formulas(spec, reg, hojas, titulos):
-    """[(rótulo, «=fórmula»)] de una serie del ``PANEL``: suma por rótulo con SUMIFS sobre la
-    cédula (o, con ``totales``, la celda de cada total). Los 7 de mayor importe y el resto en
-    «Otros». None si no se puede expresar con fórmulas."""
-    run = (reg or {}).get("run") or {}
-    if spec.get("totales"):
-        filas = []
-        for rotulo, clave in spec["totales"]:
-            v = graficos._num((run.get("totals") or {}).get(clave))
-            if v is None or abs(v) < 0.005:
-                continue
-            f = _formula_por_valor(hojas, titulos, v, (run.get("labels") or {}).get(clave))
-            if not f:
-                return None
-            filas.append((rotulo, "=" + f))
-        return filas or None
-    i = next((k for k, h in enumerate(hojas) if h["name"] == spec.get("hoja")), None)
-    if i is None:
-        return None
-    h = hojas[i]
-    rng_e, rng_v = _rango_col(hojas, titulos, i, spec.get("etiqueta")), _rango_col(hojas, titulos, i, spec.get("valor"))
-    cr = _criterios(spec, hojas, titulos, i)
-    if rng_e is None or rng_v is None or cr is None:
-        return None
-    je = next(k for k, c in enumerate(h["cols"]) if c[0] == spec["etiqueta"])
-    jv = next(k for k, c in enumerate(h["cols"]) if c[0] == spec["valor"])
-    grupos: dict[str, list] = {}
-    for f in graficos._filas(h, spec):
-        v = graficos._num(f[jv]) if jv < len(f) else None
-        if v is None:
-            continue
-        crudo = _valor(f[je]) if je < len(f) else None
-        rot = " ".join(str(crudo if crudo not in (None, "") else "(sin rótulo)").split())
-        g = grupos.setdefault(rot, [set(), 0.0])
-        g[0].add(crudo if crudo not in (None, "") else None)
-        g[1] += v
-    items = sorted(((r, g) for r, g in grupos.items() if abs(g[1]) >= 0.005), key=lambda x: -abs(x[1][1]))
-    if not items:
-        return None
-    cab = items if len(items) <= graficos.TOP_HALLAZGOS + 1 else items[:graficos.TOP_HALLAZGOS]
-    formula = lambda crudos: "+".join(_suma_si(rng_v, cr[0], cr[1], [(rng_e, _crit(c))]) for c in sorted(crudos, key=str))  # noqa: E731
-    filas = [(rot, "=" + formula(g[0])) for rot, g in cab]
-    if len(cab) < len(items):
-        todos = _suma_si(rng_v, *cr)
-        filas.append((f"Otros ({len(items) - len(cab)})", f"={todos}-(" + "+".join(formula(g[0]) for _, g in cab) + ")"))
-    return filas
-
-
-def _graficos_dashboard(ws, S, hojas, titulos, fila, wd, definicion=None, reg=None):
-    """Sección «PANORAMA» del panel 00_Inicio (el ÚNICO dashboard del libro).
-    Los datos de cada gráfico son fórmulas a las cédulas (trazables y vivos):
-    - Registrado vs recalculado: remite a las tarjetas de la portada.
-    - Composición y distribución (``PANEL`` del procesador): SUMIFS por rótulo sobre la
-      cédula; los 7 mayores y el resto en «Otros» (total − los 7).
-    - Hallazgos de mayor impacto: SUMIFS sobre la hoja de problemas por código
-      (positivos − negativos = importe absoluto); el resto en «Otros»."""
-    from openpyxl.chart import Reference
-
-    ws[f"B{fila}"].value = "PANORAMA"
-    ws[f"B{fila}"].font = S["subtitulo"]
-    ancla_fila = fila + 2  # una fila de aire: el título no queda bajo el borde del gráfico
-    # Los datos de los gráficos (fórmulas a las cédulas) van en una hoja oculta: el panel queda limpio.
-    col_a = 1
-    wd.column_dimensions["A"].width = 44
-    wd.column_dimensions["B"].width = 18
-    wd.cell(row=1, column=1, value="Datos de los gráficos del panel (fórmulas a las cédulas)").font = S["nota"]
-    r = 3
-    fuente = Font(name=est.FONT_TEXTO, size=9, color="4B5563")
-
-    def bloque(titulo, filas_formula):
-        nonlocal r
-        cab = r
-        wd.cell(row=cab, column=col_a, value=titulo).font = fuente
-        wd.cell(row=cab, column=col_a + 1, value="Importe (USD)").font = fuente
-        for etq, val in filas_formula:
-            r += 1
-            wd.cell(row=r, column=col_a, value=etq).font = fuente
-            c = wd.cell(row=r, column=col_a + 1, value=val)
-            c.font = fuente
-            c.number_format = est.FMT["n"]
-        ini, fin = cab + 1, r
-        r += 2
-        return (Reference(wd, min_col=col_a, min_row=ini, max_row=fin),
-                Reference(wd, min_col=col_a + 1, min_row=cab, max_row=fin), fin - ini + 1)
-
-    # Pocas barras, cada una con su rótulo: lo que el HTML muestra en su panel. (Antes el panel
-    # volcaba todas las filas del Resumen —registrado, recalculado, diferencias, décimos…— con
-    # escalas muy distintas y se veía como un código de barras.)
-    celdas = getattr(ws, "_celdas_kpi", {}) or {}
-    q_ini = _q(ws.title)
-    if "registrado" in celdas and "recalculado" in celdas:
-        spec = _spec_panel(definicion)
-        filas = [((spec.get("registrado") or {}).get("rotulo", "Registrado"), f"={q_ini}{celdas['registrado']}"),
-                 ((spec.get("recalculado") or {}).get("rotulo", "Recalculado"), f"={q_ini}{celdas['recalculado']}")]
-        cats, vals, n = bloque("Registrado vs recalculado", filas)
-        alto_cm = _barras_excel(ws, "Registrado vs recalculado (USD)", cats, vals, n, f"B{ancla_fila}", desde_cero=True)
-        ancla_fila += math.ceil(alto_cm / 0.53) + 2  # filas de 15 pt ≈ 0,53 cm
-    for clave, defecto in (("composicion", "Composición del resultado"), ("distribucion", "Distribución")):
-        spec = _spec_panel(definicion).get(clave)
-        filas = _serie_formulas(spec, reg, hojas, titulos) if spec else None
-        if filas:
-            titulo = spec.get("rotulo", defecto)
-            cats, vals, n = bloque(titulo, filas)
-            alto_cm = _barras_excel(ws, f"{titulo} (USD)", cats, vals, n, f"B{ancla_fila}")
-            ancla_fila += math.ceil(alto_cm / 0.53) + 2
-
-    idx_p = next((i for i, h in enumerate(hojas) if [c[0] for c in h.get("cols", [])] == ["Código", "Descripción", "Importe"]), None)
-    if idx_p is not None and hojas[idx_p].get("rows"):
-        h, q = hojas[idx_p], _q(titulos[idx_p])
-        n_rows = len(h["rows"])
-        A, C = f"{q}$A$5:$A${4 + n_rows}", f"{q}$C$5:$C${4 + n_rows}"
-        abs_de = lambda crit: f'SUMIFS({C},{A},{crit},{C},">0")-SUMIFS({C},{A},{crit},{C},"<0")'  # noqa: E731
-        run_like = {"exceptions": [{"code": f[0], "amount": graficos._num(f[2])} for f in h["rows"]]}
-        top = graficos.codigos_top(run_like)
-        if top:
-            filas = [(etq, "=" + abs_de(f'"{codigo}"')) for codigo, etq in top["top"]]
-            if top["otros"]:
-                total = f'SUMIF({C},">0")-SUMIF({C},"<0")'
-                suma_top = "+".join(f"({abs_de(chr(34) + c + chr(34))})" for c, _ in top["top"])
-                filas.append((top["otros"], f"={total}-({suma_top})"))
-            cats, vals, n = bloque("Hallazgos de mayor impacto", filas)
-            alto_cm = _barras_excel(ws, "Hallazgos de mayor impacto (USD)", cats, vals, n, f"B{ancla_fila}")
-            ancla_fila += math.ceil(alto_cm / 0.53) + 2
-    ws.print_area = f"A1:F{ancla_fila}"
-
 def _bloque_como_se_calcula(ws, S, h, fila_inicio, hojas=None, anexo=None, titulo_hoja=None):
     """Debajo de la tabla, «ⓘ Cómo se calcula esta hoja» en lenguaje sencillo: por cada columna
     calculada, qué hace y de dónde viene el dato. La fórmula de Excel y el ejemplo con números van
@@ -809,15 +500,23 @@ def _bloque_como_se_calcula(ws, S, h, fila_inicio, hojas=None, anexo=None, titul
 def _anexo_tecnico(ws, S, anexo, titulo_prueba):
     """Hoja «Anexo técnico»: la fórmula de Excel de cada columna calculada, con un ejemplo con
     números reales y la norma, para el auditor que revisa el papel (el resto del libro va en sencillo)."""
+    from backend.app.aud.niif.procesadores import panel_excel as px
+
     ws.sheet_view.showGridLines = False
-    _boton(ws, "A1", "⟵ Inicio", _ref("00_Inicio"), S, nav=True)
+    for r in (1, 2, 3):
+        for j in range(1, 6):
+            ws.cell(row=r, column=j).fill = PatternFill("solid", fgColor=px.BG)
+    px.boton_html(ws["A1"], "⟵ Inicio", _ref("00_Inicio"), primario=True)
+    ws.row_dimensions[1].height = 24
     ws.merge_cells("B1:E1")
     ws["B1"].value = _seguro(titulo_prueba)
-    ws["B1"].font = S["nota"]
-    ws["B1"].alignment = Alignment(horizontal="right", vertical="center")
+    ws["B1"].font = Font(name=est.FONT_TEXTO, size=9, color=px.TEXTO2)
+    ws["B1"].alignment = Alignment(horizontal="right", vertical="center", indent=1)
     ws.merge_cells("A2:E2")
     ws["A2"].value = "Anexo técnico · fórmulas de Excel de cada cédula"
-    ws["A2"].font = S["titulo"]
+    ws["A2"].font = Font(name=est.FONT_TITULO, size=15, bold=True, color=px.TEXTO)
+    ws["A2"].alignment = Alignment(vertical="center", indent=1)
+    ws.row_dimensions[2].height = 28
     for j in range(1, 6):
         ws.cell(row=2, column=j).border = S["filete_oro"]
     cab = ["Hoja", "Columna", "Fórmula de Excel (primera fila)", "Ejemplo con números reales", "Norma"]
@@ -862,9 +561,14 @@ def xlsx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     datos_graf = wb.create_sheet(HOJA_DATOS_GRAFICOS)
     datos_graf.sheet_state = "hidden"
     _print_setup(datos_graf, {})
-    fin_panel = _panel_inicio(inicio, S, definicion, reg, titulos, hojas, estado, version,
-                              extra=[("Anexo técnico (fórmulas)", HOJA_ANEXO, 3)])
-    _graficos_dashboard(inicio, S, hojas, titulos, fin_panel + 2, datos_graf, definicion, reg)
+    # Portada = el panel del HTML (tema «Ejecutivo»): mismos KPI, gráficos, colores y botones.
+    from backend.app.aud.niif.procesadores import panel_excel
+
+    fin_panel = panel_excel.portada(inicio, datos_graf, definicion, reg, hojas, titulos, estado, version,
+                                    _grupos_nav(hojas, titulos, [("Anexo técnico (fórmulas)", HOJA_ANEXO, 3)]), SECCIONES)
+    inicio.print_options.horizontalCentered = True
+    _print_setup(inicio, reg.get("engagement") or {})
+    inicio.print_area = f"A1:G{fin_panel}"
 
     anexo = []
     secciones = _secciones_de(hojas)
@@ -884,7 +588,34 @@ def xlsx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     wb.calculation.fullCalcOnLoad = True  # el gráfico y las fórmulas se calculan al abrir
     salida = io.BytesIO()
     wb.save(salida)
-    return salida.getvalue()
+    return _imagenes_con_marco(salida.getvalue())
+
+
+_A = "http://schemas.openxmlformats.org/drawingml/2006/main"
+
+
+def _imagenes_con_marco(datos: bytes) -> bytes:
+    """Los logotipos con posición y tamaño explícitos (``<a:xfrm>``), como los guarda Excel.
+
+    openpyxl escribe la imagen solo con su ancla; Excel la muestra, pero varios visores
+    (vista previa del celular, visores web) necesitan el marco dentro de ``spPr`` y, sin él,
+    no la dibujan: el usuario veía el Excel «sin logos»."""
+    import zipfile
+
+    patron = re.compile(r'(<ext cx="(\d+)" cy="(\d+)"/><pic>.*?<spPr>)', re.S)
+
+    def marco(m):
+        return (m.group(1) + f'<a:xfrm xmlns:a="{_A}"><a:off x="0" y="0"/>'
+                f'<a:ext cx="{m.group(2)}" cy="{m.group(3)}"/></a:xfrm>')
+
+    ent, sal = io.BytesIO(datos), io.BytesIO()
+    with zipfile.ZipFile(ent) as zin, zipfile.ZipFile(sal, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            contenido = zin.read(item.filename)
+            if item.filename.startswith("xl/drawings/drawing") and item.filename.endswith(".xml"):
+                contenido = patron.sub(marco, contenido.decode("utf-8")).encode("utf-8")
+            zout.writestr(item, contenido)
+    return sal.getvalue()
 
 
 def _celda(v, fmt) -> str:

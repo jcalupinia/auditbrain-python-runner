@@ -39,11 +39,14 @@ def test_excel_portada_con_los_dos_logos(papel):
     ws = wb.worksheets[0]
     assert ws.title == "00_Inicio"
     assert len(ws._images) == 2
-    # Sobre la banda navy B2:F3 (fila 2, 0-based 1), sin taparse entre sí.
+    # En la barra superior (fila 2, 0-based 1), como en el HTML: la firma en B y AUDIT-IA en C.
     anclas = sorted((img.anchor._from.col, img.anchor._from.row) for img in ws._images)
-    assert anclas == [(1, 1), (5, 1)]
+    assert anclas == [(1, 1), (2, 1)]
     with zipfile.ZipFile(io.BytesIO(libro.xlsx(*papel, [], 1, "MUESTRA"))) as z:
         assert sum(n.startswith("xl/media/") for n in z.namelist()) == 2
+        # Cada logotipo con su marco (<a:xfrm>): sin él varios visores no lo dibujan.
+        dib = "".join(z.read(n).decode() for n in z.namelist() if n.startswith("xl/drawings/drawing"))
+        assert dib.count("<pic>") == 2 and dib.count("<spPr><a:xfrm") == 2
 
 
 def test_word_con_logo_en_el_encabezado(papel):

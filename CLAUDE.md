@@ -522,9 +522,15 @@ parámetros del auditor sí son valores (entradas); todo lo demás es fórmula:
   principal, población, recalculado, registrado, problemas), cada uno fórmula a su cédula
   (`libro._kpis_panel`: fila del Resumen, `SUMIFS` sobre la columna del `PANEL` o `COUNTA` de
   Problemas). La tarjeta sin celda de origen no se muestra. Prueba: `test_portada_tarjetas_son_formulas`.
-- Gráficos del panel: pocas barras con rótulo (registrado vs recalculado con eje desde 0,
-  composición, distribución, hallazgos). **Nunca** volcar todas las filas del Resumen en un
-  gráfico: mezcla escalas y se ve como un código de barras (queja del dueño, 2026-09-25).
+- **La portada del Excel ES el panel del HTML** (decisión del dueño, 2026-09-25:
+  «los mismos gráficos del HTML, no otros; mismos colores de fondo y botones»):
+  `procesadores/panel_excel.py` usa los colores de `html_ejecutivo.TEMAS["ejecutivo"]`
+  (fondo #071B2F, tarjetas #0A2342, botones #0E2C50), las 5 tarjetas con sus colores y los 4
+  gráficos del HTML como gráficos nativos: dona de composición, registrado vs recalculado,
+  distribución y problemas por severidad (barras + línea dorada). Sus datos son fórmulas
+  (SUMIFS/COUNTIFS) con la misma agrupación que el HTML (`graficos.serie_spec`,
+  `graficos.severidad`). **Nunca** volcar todas las filas del Resumen en un gráfico: mezcla
+  escalas y se ve como un código de barras. Si cambia el panel del HTML, cambia el Excel.
 - Importe de cada problema: fórmula a la celda de la cédula donde se origina. Cada procesador
   declara `REF_PROBLEMAS = {código: (hoja, columna) | (hoja, columna, "total") | función}`
   (`procesadores/problemas.py`). Solo se enlaza si la celda tiene ese mismo importe; si no, queda
