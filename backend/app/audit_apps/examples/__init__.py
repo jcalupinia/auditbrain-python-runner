@@ -9,6 +9,7 @@ copia canónica para pruebas: no depende de PyYAML.
 
 from __future__ import annotations
 
+from .aud_cxc_cartera import AUD_CXC_CARTERA
 from .aud_inv_vnr import AUD_INV_VNR
 
-__all__ = ["AUD_INV_VNR"]
+__all__ = ["AUD_INV_VNR", "AUD_CXC_CARTERA"]

@@ -12,12 +12,12 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from .examples import AUD_INV_VNR
+from .examples import AUD_CXC_CARTERA, AUD_INV_VNR
 from .manifest import AuditAppManifest
 from .registry import AuditAppRegistry
 
 #: Manifests de ejemplo que la firma publica de fábrica.
-EJEMPLOS: tuple[dict, ...] = (AUD_INV_VNR,)
+EJEMPLOS: tuple[dict, ...] = (AUD_INV_VNR, AUD_CXC_CARTERA)
 
 
 def seed_ejemplos(db: Session) -> int:
