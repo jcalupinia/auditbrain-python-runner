@@ -471,6 +471,38 @@ export function textoEncargo(ficha, rubros) {
   );
   L.push("");
 
+  L.push("## 7 · Papel de trabajo (reglas vigentes del dueño)");
+  L.push("");
+  L.push(
+    "Las reglas completas están en `CLAUDE.md` › «Papeles de trabajo de las herramientas NIIF». " +
+      "Lo esencial:"
+  );
+  L.push("");
+  L.push(
+    "- **Excel con fórmulas trazables y sin cifras calculadas pegadas:** los datos del cliente y los " +
+      "parámetros del auditor son valores; todo lo demás es fórmula que remite a su origen, incluidos " +
+      "los indicadores de la portada y el importe de cada problema."
+  );
+  L.push(
+    "- **Datos del cliente dentro del libro:** una hoja por documento entregado, con «Origen del dato» " +
+      "(archivo · hoja · fila) y la guía «¿De dónde saco este dato?»; las cédulas calculan desde ahí."
+  );
+  L.push(
+    "- **Explicación humana** de cada columna calculada («Cómo se calcula esta hoja»), en lenguaje " +
+      "sencillo para un contador o un gerente financiero."
+  );
+  L.push(
+    "- **Mismo diseño en todos los formatos:** la portada del Excel, el Word y el PowerPoint muestran las " +
+      "5 tarjetas y los 4 gráficos del panel del HTML; logotipos de AuditConsulting y AUDIT-IA en todos."
+  );
+  L.push(
+    "- **Si la prueba es una herramienta NIIF con procesador** " +
+      "(`backend/app/aud/niif/procesadores/<id>.py`), sigue **`docs/niif/CONTRATO_PROCESADOR.md`** en lugar " +
+      "de la lista de archivos del punto 5: declara `PANEL`, `REF_PROBLEMAS` y `explica`, y los formatos los " +
+      "arma `libro.py` (no se toca). Antes de entregar corre los verificadores que indica el contrato."
+  );
+  L.push("");
+
   L.push("---");
   L.push("");
   L.push(

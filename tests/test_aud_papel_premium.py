@@ -9,7 +9,6 @@ import io
 import re
 
 from openpyxl import load_workbook
-from pptx import Presentation
 
 from backend.app.aud.niif import ejercicio_modelo as em
 from backend.app.aud.niif.procesadores import PROCESADORES, graficos, libro
@@ -121,9 +120,5 @@ def test_excel_tablas_premium():
     assert ws.cell(row=5, column=1).border.bottom.style == "thin"
 
 
-def test_pptx_diapositivas_con_grafico_nativo():
-    for pid in PROCESADORES:
-        d, _, reg = _reg(pid)
-        prs = Presentation(io.BytesIO(libro.pptx(d, reg, [], 1, "APROBADO")))
-        n = sum(1 for s in prs.slides for sh in s.shapes if sh.has_chart)
-        assert n >= 1, pid
+# El PowerPoint lleva los gráficos del panel del HTML como imagen (mismos SVG, ``svg_png``):
+# lo vigila tests/test_aud_office_como_html.py.

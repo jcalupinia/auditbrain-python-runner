@@ -6,6 +6,11 @@
 > **Skill ID sugerido:** 051-NIIF (verificar disponibilidad en el registro maestro v1.8)
 > **Estado:** Borrador técnico sujeto a validación humana del socio responsable
 > **Cambio v0.1 → v0.2:** se añade el Agente 5 — Automatización de Herramientas NIIF/PYMES.
+> **Cambio v0.2 → v0.3 (2026-09-25):** los agentes conocen el papel de trabajo vigente del Command Center
+> AUDIT-IA. Son cinco formatos con el mismo diseño del panel HTML, sin cifras calculadas pegadas, con los datos
+> del cliente dentro del libro y con los logos. El Agente 5 construye las pruebas del catálogo como
+> procesadores (`docs/niif/CONTRATO_PROCESADOR.md`). El Agente 4 sabe leer ese papel (ver §6.0 y el `SKILL.md`
+> de cada agente).
 
 ---
 
@@ -138,6 +143,18 @@ Si la intención es ambigua, el orquestador hace **una sola** pregunta de desamb
 - Distinguir explícitamente cuando el cálculo es NIIF plenas vs PYMES (tratamientos difieren: p. ej. PYMES amortiza plusvalía; NIIF plenas solo deteriora).
 - Todo script asigna el resultado a la variable `result`; documentar entradas y supuestos.
 - Marcar supuestos no verificados como tales (no inventar tasas, plazos ni parámetros).
+
+### 6.0 Pruebas del catálogo del Command Center (v0.3)
+Cuando la herramienta es una prueba NIIF del catálogo del Command Center, el Agente 5 no entrega una
+calculadora suelta. Entrega un **procesador** (`backend/app/aud/niif/procesadores/<id>.py` + su prueba) que
+cumple `docs/niif/CONTRATO_PROCESADOR.md`:
+- cédulas con fórmulas y ninguna cifra calculada pegada;
+- datos del cliente dentro del libro;
+- explicación humana por columna;
+- `PANEL` (5 tarjetas y 4 gráficos) y `REF_PROBLEMAS`.
+
+El sistema (`libro.py`) arma con eso el Excel, el HTML, el PDF, el Word y el PowerPoint, todos con el diseño
+del panel del HTML y los logos. Antes de entregar se corren los verificadores del contrato.
 
 ### 6.1 Catálogo de librerías GitHub por norma
 

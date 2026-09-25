@@ -20,7 +20,6 @@ from openpyxl.worksheet.properties import PageSetupProperties
 
 from backend.app.aud.niif.procesadores import estilo_ejecutivo as est
 from backend.app.aud.niif.procesadores import graficos
-from backend.app.aud.niif.procesadores import marca
 from backend.app.aud.niif.procesadores import problemas
 
 NAVY, GOLD, BLANCO, CELESTE = "0A2342", "C7A83C", "FFFFFF", "DCE6F1"
@@ -824,215 +823,17 @@ def csv_zip(definicion: dict, reg: dict, eventos: list, version: int, estado: st
 
 
 def docx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> bytes:
-    """Word ejecutivo del papel: portada, resumen ejecutivo con KPIs, cada cédula
-    como tabla y un anexo «Cómo se calcula»."""
-    from docx import Document
-    from docx.enum.section import WD_ORIENT
-    from docx.shared import Inches, Pt, RGBColor
+    """Word del papel con el diseño del HTML impreso (tema Claro): ver ``papel_office``."""
+    from backend.app.aud.niif.procesadores import papel_office
 
-    doc = Document()
-    sec = doc.sections[0]
-    sec.orientation = WD_ORIENT.LANDSCAPE
-    sec.page_width, sec.page_height = sec.page_height, sec.page_width
-    estilo = doc.styles["Normal"]
-    estilo.font.name = est.FONT_TEXTO
-    estilo.font.size = Pt(9)
-    e = reg.get("engagement") or {}
-    run = reg.get("run") or {}
-    # Encabezado de cada página: logotipo de la firma y la plataforma.
-    enc = sec.header.paragraphs[0]
-    enc.add_run().add_picture(marca.flujo("auditconsulting_oscuro"), height=Inches(0.42))
-    r = enc.add_run("\tAUDIT-IA · Papel de trabajo NIIF")
-    r.font.size = Pt(8)
-    r.font.color.rgb = _rgb(RGBColor, est.NAVY)
-    t = doc.add_heading(definicion.get("name", ""), level=0)
-    t.runs[0].font.color.rgb = _rgb(RGBColor, est.NAVY)
-    doc.add_paragraph(f"AuditConsulting Auditores Cía. Ltda.  ·  {e.get('client', '')} · RUC {e.get('ruc', '')}")
-    doc.add_paragraph(f"Marco {e.get('framework', '')} · corte {e.get('cutoff', '')} · v{version} · {est.estado_es(estado)}")
-    # Resumen ejecutivo con KPIs
-    totales, etiquetas = run.get("totals") or {}, run.get("labels") or {}
-    prim = run.get("primary")
-    n_prob = len(run.get("exceptions") or [])
-    doc.add_heading("Resumen ejecutivo", level=1)
-    if prim in totales:
-        doc.add_paragraph(f"{etiquetas.get(prim, prim)}: {_html.unescape(_celda({'v': totales[prim]}, 'n'))}")
-    doc.add_paragraph(f"Problemas encontrados: {n_prob}")
-    if reg.get("conclusion"):
-        doc.add_paragraph("Conclusión: " + str(reg["conclusion"]))
-    if reg.get("taxApplicable") and reg.get("taxScope"):
-        doc.add_paragraph("Tratamiento tributario revisado: " + str(reg["taxScope"]))
-    for h in cedulas(definicion, reg, eventos, version, estado):
-        doc.add_heading(h["label"], level=1)
-        filas = _filas(h)
-        tabla = doc.add_table(rows=1 + len(filas), cols=len(h["cols"]))
-        tabla.style = "Table Grid"
-        for j, (nombre, _) in enumerate(h["cols"]):
-            celda = tabla.rows[0].cells[j]
-            celda.text = nombre
-            celda.paragraphs[0].runs[0].font.bold = True
-        for i, (fila, total) in enumerate(filas, start=1):
-            for j, ((_, fmt), v) in enumerate(zip(h["cols"], fila)):
-                celda = tabla.rows[i].cells[j]
-                celda.text = _html.unescape(_celda(v, fmt))
-                if total and celda.paragraphs[0].runs:
-                    celda.paragraphs[0].runs[0].font.bold = True
-    # Anexo «Cómo se calcula»
-    doc.add_page_break()
-    doc.add_heading("Anexo · Cómo se calcula cada hoja", level=1)
-    hojas_doc = cedulas(definicion, reg, eventos, version, estado)
-    for h in hojas_doc:
-        bloque = como_se_calcula(h, hojas_doc)
-        if not bloque:
-            continue
-        doc.add_heading(h["label"], level=2)
-        cols = ["Columna", "Fórmula", "Cómo se calcula", "Ejemplo con números reales", "De dónde viene"]
-        tabla = doc.add_table(rows=1 + len(bloque), cols=len(cols))
-        tabla.style = "Table Grid"
-        for j, nombre in enumerate(cols):
-            r0 = tabla.rows[0].cells[j]
-            r0.text = nombre
-            r0.paragraphs[0].runs[0].font.bold = True
-        for i, b in enumerate(bloque, start=1):
-            for j, val in enumerate([b["columna"], b["formula"], b["explicacion"], b["ejemplo"], b["origen"]]):
-                tabla.rows[i].cells[j].text = str(val)
-    salida = io.BytesIO()
-    doc.save(salida)
-    return salida.getvalue()
+    return papel_office.docx(definicion, reg, eventos, version, estado)
 
-
-
-_MAX_BARRAS_PPT = 14
-
-
-def _diapositiva_grafico(prs, g: dict, navy):
-    """Diapositiva con un gráfico de barras NATIVO (editable en PowerPoint)."""
-    from pptx.chart.data import CategoryChartData
-    from pptx.dml.color import RGBColor
-    from pptx.enum.chart import XL_CHART_TYPE, XL_LABEL_POSITION, XL_TICK_LABEL_POSITION
-    from pptx.util import Inches, Pt
-
-    items = g["items"]
-    nota = ""
-    if len(items) > _MAX_BARRAS_PPT:
-        # Los de mayor importe absoluto, conservando el orden de la cédula.
-        top = sorted(range(len(items)), key=lambda i: -abs(items[i][1]))[:_MAX_BARRAS_PPT]
-        items = [items[i] for i in sorted(top)]
-        nota = f" ({_MAX_BARRAS_PPT} conceptos de mayor importe; el resto en la tabla)"
-    s = prs.slides.add_slide(prs.slide_layouts[5])
-    s.shapes.title.text = g["titulo"] + nota
-    tf = s.shapes.title.text_frame.paragraphs[0].runs[0].font
-    tf.size, tf.color.rgb = Pt(26), navy
-    datos = CategoryChartData()
-    datos.categories = [graficos._recorta(e) for e, _ in items]
-    datos.add_series("USD", [round(v, 2) for _, v in items])
-    ch = s.shapes.add_chart(XL_CHART_TYPE.BAR_CLUSTERED, Inches(0.5), Inches(1.35), Inches(12.3), Inches(5.6), datos).chart
-    ch.has_legend = False
-    ch.has_title = False  # el título de la diapositiva ya dice qué se grafica
-    ch.font.size = Pt(10)
-    plot = ch.plots[0]
-    plot.gap_width = 60
-    plot.has_data_labels = True
-    dl = plot.data_labels
-    dl.number_format, dl.number_format_is_linked = "#,##0.00", False
-    dl.position = XL_LABEL_POSITION.OUTSIDE_END
-    dl.font.size = Pt(10)
-    dl.font.color.rgb = RGBColor.from_string(est.TINTA_2)
-    serie = plot.series[0]
-    serie.invert_if_negative = False
-    serie.format.fill.solid()
-    serie.format.fill.fore_color.rgb = RGBColor.from_string(est.SERIE)
-    ch.category_axis.reverse_order = True
-    # Rótulos al borde izquierdo del área, no en el cero: así no pisan las barras negativas.
-    ch.category_axis.tick_label_position = XL_TICK_LABEL_POSITION.LOW
-    ch.category_axis.tick_labels.font.color.rgb = RGBColor.from_string(est.TINTA)
-    ch.value_axis.has_major_gridlines = False
-    ch.value_axis.visible = False
-    if all(v >= 0 for _, v in items):
-        ch.value_axis.minimum_scale = 0  # un eje que no empieza en 0 exagera las diferencias
-    pie = s.shapes.add_textbox(Inches(0.5), Inches(6.95), Inches(12.3), Inches(0.4)).text_frame
-    pie.text = g["subtitulo"]
-    pie.paragraphs[0].runs[0].font.size = Pt(10)
-    pie.paragraphs[0].runs[0].font.color.rgb = RGBColor.from_string(est.TINTA_2)
 
 def pptx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> bytes:
-    """Presentación ejecutiva: portada y las cédulas de lectura (las largas, recortadas)."""
-    from pptx import Presentation
-    from pptx.dml.color import RGBColor
-    from pptx.util import Inches, Pt
+    """PowerPoint del papel con el diseño del HTML en pantalla (tema Ejecutivo): ver ``papel_office``."""
+    from backend.app.aud.niif.procesadores import papel_office
 
-    prs = Presentation()
-    prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
-    e = reg.get("engagement") or {}
-    run = reg.get("run") or {}
-    navy = _rgb(RGBColor, est.NAVY)
-    s = prs.slides.add_slide(prs.slide_layouts[0])
-    s.shapes.title.text = definicion.get("name", "")
-    s.shapes.title.text_frame.paragraphs[0].runs[0].font.color.rgb = navy
-    s.placeholders[1].text = (f"{e.get('client', '')} · corte {e.get('cutoff', '')} · v{version} · {est.estado_es(estado)}\n"
-                              "AuditConsulting Auditores Cía. Ltda. · AUDIT-IA")
-    # Portada con los dos logotipos (firma y plataforma).
-    s.shapes.add_picture(marca.flujo("auditconsulting_oscuro"), Inches(0.6), Inches(0.45), height=Inches(0.9))
-    s.shapes.add_picture(marca.flujo("audit_ia"), prs.slide_width - Inches(0.6) - Inches(marca.ancho_para("audit_ia", 0.9)),
-                         Inches(0.45), height=Inches(0.9))
-    # Diapositiva ejecutiva de cifras clave: los mismos indicadores de la portada del Excel y del HTML.
-    hojas_ppt = cedulas(definicion, reg, eventos, version, estado)
-    cifras = [(k["rotulo"], str(k["valor"]) if k["fmt"] == "i" else _html.unescape(_celda({"v": k["valor"]}, "n")))
-              for k in _kpis_panel(definicion, reg, hojas_ppt, _titulos_unicos(hojas_ppt))]
-    sk = prs.slides.add_slide(prs.slide_layouts[5])
-    sk.shapes.title.text = "Cifras clave"
-    sk.shapes.title.text_frame.paragraphs[0].runs[0].font.color.rgb = navy
-    caja = sk.shapes.add_textbox(Inches(0.6), Inches(1.6), Inches(12), Inches(5)).text_frame
-    caja.word_wrap = True
-    for i, (etq, val) in enumerate(cifras[:5]):
-        p = caja.paragraphs[0] if i == 0 else caja.add_paragraph()
-        p.text = f"{etq}:  {val}"
-        p.runs[0].font.size = Pt(20)
-        p.runs[0].font.color.rgb = navy
-    from backend.app.aud.niif.procesadores import PROCESADORES
-
-    for g in graficos.paneles(hojas_ppt, run, PROCESADORES.get(definicion.get("processor", ""))):
-        _diapositiva_grafico(prs, g, navy)
-    for h in hojas_ppt:
-        if not _en_ppt(h["name"]):
-            continue
-        filas = _filas(h)
-        recorte = len(filas) > _MAX_FILAS_PPT
-        if recorte:
-            filas = filas[:_MAX_FILAS_PPT - 1] + ([f for f in filas if f[1]] or [])
-        s = prs.slides.add_slide(prs.slide_layouts[5])
-        s.shapes.title.text = h["label"] + (" (primeras filas; el detalle completo está en el Excel)" if recorte else "")
-        s.shapes.title.text_frame.paragraphs[0].runs[0].font.size = Pt(24)
-        forma = s.shapes.add_table(1 + len(filas), len(h["cols"]), Inches(0.4), Inches(1.4), Inches(12.5), Inches(0.3) * (1 + len(filas)))
-        tabla = forma.table
-        for j, (nombre, _) in enumerate(h["cols"]):
-            tabla.cell(0, j).text = nombre
-        for i, (fila, total) in enumerate(filas, start=1):
-            for j, ((_, fmt), v) in enumerate(zip(h["cols"], fila)):
-                tabla.cell(i, j).text = _html.unescape(_celda(v, fmt))
-        for fila in tabla.rows:
-            for c in fila.cells:
-                for p in c.text_frame.paragraphs:
-                    for r in p.runs:
-                        r.font.size = Pt(10)
-        for j in range(len(h["cols"])):
-            tabla.cell(0, j).fill.solid()
-            tabla.cell(0, j).fill.fore_color.rgb = RGBColor(0x0A, 0x23, 0x42)
-    # Logotipo de la firma al pie de cada diapositiva (la portada ya lleva los dos).
-    alto = 0.32
-    for k, diap in enumerate(prs.slides):
-        # La plantilla por defecto es 4:3: los marcadores se ensanchan al 16:9 para centrarlos.
-        # Se fijan las cuatro medidas: al tocar solo el ancho, python-pptx deja arriba y alto en 0.
-        for ph in diap.placeholders:
-            arriba, alto_ph = ph.top, ph.height
-            ph.left, ph.top, ph.width, ph.height = Inches(0.6), arriba, prs.slide_width - Inches(1.2), alto_ph
-        if k == 0:
-            continue
-        diap.shapes.add_picture(marca.flujo("auditconsulting_oscuro"),
-                                prs.slide_width - Inches(0.3) - Inches(marca.ancho_para("auditconsulting_oscuro", alto)),
-                                prs.slide_height - Inches(0.14) - Inches(alto), height=Inches(alto))
-    salida = io.BytesIO()
-    prs.save(salida)
-    return salida.getvalue()
+    return papel_office.pptx(definicion, reg, eventos, version, estado)
 
 
 def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str, para_pdf: bool = False) -> bytes:

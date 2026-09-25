@@ -256,24 +256,38 @@ def _num(v, corto=True) -> str:
     return gs.corto(v) if corto else gs.es_ec(v)
 
 
-def _kpis(p: dict) -> str:
+def kpis_datos(p: dict) -> list[dict]:
+    """Las 5 tarjetas del panel como datos (las usan el HTML, el Word y el PowerPoint):
+    clase de color, ícono, rótulo, cifra corta, cifra exacta y variación
+    (``var``: (fracción, texto) con flecha ↗/↘, o texto simple en ``nota``)."""
     pr, po, rc, rg, pb = p["principal"], p["poblacion"], p["recalculado"], p["registrado"], p["problemas"]
     sev = pb["severidad"]
     resumen_sev = " · ".join(f"{sev[s]} {s.lower()}" for s in ("Alta", "Media", "Baja") if sev.get(s)) or "sin hallazgos con importe"
     var_pr = (pr["valor"] / abs(po["valor"])) if (pr["valor"] is not None and po["valor"]) else None
-    return "".join([
-        _kpi("k-oro", "principal", pr["rotulo"], "USD " + _num(pr["valor"]), _num(pr["valor"], False),
-             _flecha(var_pr, "de la población")),
-        (_kpi("k-azul", "poblacion", po["rotulo"], f'{po["n"]} partidas', "USD " + _num(po["valor"], False),
-              "misma base que el saldo registrado")
-         if po.get("igual_registrado") and po.get("n") else
-         _kpi("k-azul", "poblacion", po["rotulo"], "USD " + _num(po["valor"]), _num(po["valor"], False),
-              f'{po["n"]} registros' if po.get("n") else "")),
-        _kpi("k-verde", "recalculado", rc["rotulo"], "USD " + _num(rc["valor"]), _num(rc["valor"], False),
-             _flecha(rc["variacion"], "vs registrado")),
-        _kpi("k-ambar", "registrado", rg["rotulo"], "USD " + _num(rg["valor"]), _num(rg["valor"], False), "según el cliente"),
-        _kpi(f"k-{p['riesgo']}", "problemas", pb["rotulo"], str(pb["valor"]), "", E(resumen_sev)),
-    ])
+    if po.get("igual_registrado") and po.get("n"):
+        pob = {"clase": "k-azul", "icono": "poblacion", "rotulo": po["rotulo"], "valor": f'{po["n"]} partidas',
+               "exacto": "USD " + _num(po["valor"], False), "nota": "misma base que el saldo registrado"}
+    else:
+        pob = {"clase": "k-azul", "icono": "poblacion", "rotulo": po["rotulo"], "valor": "USD " + _num(po["valor"]),
+               "exacto": _num(po["valor"], False), "nota": f'{po["n"]} registros' if po.get("n") else ""}
+    return [
+        {"clase": "k-oro", "icono": "principal", "rotulo": pr["rotulo"], "valor": "USD " + _num(pr["valor"]),
+         "exacto": _num(pr["valor"], False), "var": (var_pr, "de la población")},
+        pob,
+        {"clase": "k-verde", "icono": "recalculado", "rotulo": rc["rotulo"], "valor": "USD " + _num(rc["valor"]),
+         "exacto": _num(rc["valor"], False), "var": (rc["variacion"], "vs registrado")},
+        {"clase": "k-ambar", "icono": "registrado", "rotulo": rg["rotulo"], "valor": "USD " + _num(rg["valor"]),
+         "exacto": _num(rg["valor"], False), "nota": "según el cliente"},
+        {"clase": f"k-{p['riesgo']}", "icono": "problemas", "rotulo": pb["rotulo"], "valor": str(pb["valor"]),
+         "exacto": "", "nota": resumen_sev},
+    ]
+
+
+def _kpis(p: dict) -> str:
+    return "".join(
+        _kpi(k["clase"], k["icono"], k["rotulo"], k["valor"], k["exacto"],
+             _flecha(*k["var"]) if "var" in k else E(k.get("nota") or ""))
+        for k in kpis_datos(p))
 
 
 def _tarjeta(titulo, sub, cuerpo) -> str:
