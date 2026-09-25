@@ -151,6 +151,8 @@ def enlazar(hojas: list[dict], refs: dict, excepciones: list | None = None) -> t
         nueva = dict(h)
         nueva["rows"] = filas
         nueva["explica"] = {**(h.get("explica") or {}), "Importe": EXPLICA_IMPORTE}
+        # Cada fila remite a una cédula distinta: el origen no es el de la primera fórmula.
+        nueva["origen"] = {**(h.get("origen") or {}), "Importe": "la cédula donde se origina cada problema (la fórmula de cada fila indica la celda)"}
         salida.append(nueva)
     return salida, pendientes
 

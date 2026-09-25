@@ -526,6 +526,18 @@ parámetros del auditor sí son valores (entradas); todo lo demás es fórmula:
   como valor y lo reporta `python scripts/verificar_problemas_enlazados.py` (debe dar «PENDIENTES: 0»).
 - Un código de problema nuevo exige su entrada en `REF_PROBLEMAS`; lo vigila
   `tests/test_aud_sin_datos_fijos.py`.
+- **Datos del cliente dentro del libro (piloto: pérdidas incurridas).** Cada documento que entrega
+  el cliente va en su hoja `D1_…`–`D5_…` con la columna «Origen del dato» (archivo · hoja · fila)
+  y la guía «¿De dónde saco este dato?» (qué reporte, cuenta y fecha). Las cédulas calculan desde
+  ahí con fórmulas (evidencia histórica, reversión, bajas, provisión inicial, mora, tasa ponderada).
+  Las claves de cruce (`F…`, `A…`, `C…`, equivalentes a `norm()`) van en columnas agrupadas y ocultas.
+
+**Diseño del libro (todas las herramientas, 2026-09-25):** portada con botones por sección
+(Resultado · Cómo se calculó · Datos del cliente · Documentación) y pestañas del color de su
+sección; en cada hoja la botonera Inicio/Anterior/Siguiente arriba a la izquierda; Calibri;
+gráficos con título sin superponer (`overlay=False`), rótulos como texto (`strRef`) y datos en la
+hoja oculta `00_Datos_graficos`; «Cómo se calcula» en lenguaje sencillo (columna, cómo se calcula,
+de dónde viene) y la fórmula de Excel con su ejemplo en la hoja `00_Anexo_tecnico`.
 
 Pruebas declarativas (catálogo y fichas sin procesador): el papel lo arma el navegador con
 `frontend/src/aud/niif/papelDeclarativo.js` a partir de las mismas cédulas del exportador del

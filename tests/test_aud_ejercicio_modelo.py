@@ -44,7 +44,8 @@ def test_recorrido_se_arma_para_perdidas_incurridas():
     assert r["disponible"] is True and r["ficticio"] is True
     assert [p["n"] for p in r["pasos"]] == [1, 2, 3, 4, 5, 6, 7, 8, 9]
     p6 = next(p for p in r["pasos"] if p["n"] == 6)
-    assert len(p6["cedulas"]) == 12
+    # 12 cédulas de cálculo + 5 hojas con los datos del cliente (el modelo trae los cinco anexos).
+    assert len(p6["cedulas"]) == len(mod.CEDULAS) == 17
     assert p6["resultado"]["principal"] == "ajuste"
     codigos = [x["code"] for x in p6["problemas"]]
     assert "PROVISION_PENDIENTE" not in codigos and "CONCILIACION_INICIAL" not in codigos

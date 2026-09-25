@@ -57,7 +57,9 @@ def test_validacion_y_lectura_regional():
 
 def test_cedulas_declaradas_son_las_que_se_calculan():
     hojas = pi.hojas(correr())
-    assert [(h["name"], h["label"]) for h in hojas] == pi.CEDULAS
+    nombres = [(h["name"], h["label"]) for h in hojas]
+    # Las 12 cédulas de cálculo siempre; las de datos del cliente según los anexos entregados (en su orden).
+    assert nombres[:12] == pi.CEDULAS[:12] and nombres == [c for c in pi.CEDULAS if c in nombres]
     for h in hojas:
         assert all(len(f) == len(h["cols"]) for f in h["rows"] + ([h["total"]] if h["total"] else [])), h["name"]
 

@@ -81,9 +81,14 @@ def test_excel_un_solo_dashboard_con_graficos_por_formula():
         con_grafico = [ws.title for ws in wb.worksheets if ws._charts]
         assert con_grafico == ["00_Inicio"], (pid, con_grafico)
         assert len(wb["00_Inicio"]._charts) == 2, pid  # resumen + hallazgos
-        ini = wb["00_Inicio"]
-        formulas = [c.value for row in ini.iter_rows(min_col=14, max_col=15) for c in row
+        # Los datos de los gráficos viven en una hoja oculta (el panel queda limpio) y son fórmulas.
+        datos = wb[libro.HOJA_DATOS_GRAFICOS]
+        assert datos.sheet_state == "hidden", pid
+        formulas = [c.value for row in datos.iter_rows() for c in row
                     if isinstance(c.value, str) and c.value.startswith("=")]
+        # Títulos que no se montan sobre las barras y rótulos de categoría como texto.
+        for ch in wb["00_Inicio"]._charts:
+            assert ch.title.overlay is False and ch.series[0].cat.strRef is not None, pid
         assert any(re.match(r"^='[^']+'!B\d+$", f) for f in formulas), pid      # resumen → celda de la cédula
         assert any("SUMIFS(" in f and "Problemas" in f for f in formulas), pid  # hallazgos → hoja de problemas
 

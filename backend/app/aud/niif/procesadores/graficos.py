@@ -80,8 +80,24 @@ def tasas_omitidas(hojas: list[dict]) -> int:
     return 0
 
 
+# Tildes que el código en mayúsculas pierde (EVALUACION_INDIVIDUAL → «Evaluación individual»).
+_TILDES = {"dias": "días", "credito": "crédito", "garantia": "garantía", "deposito": "depósito", "periodo": "período",
+           "numero": "número", "indice": "índice", "maxima": "máxima", "maximo": "máximo", "minimo": "mínimo",
+           "tecnica": "técnica", "economica": "económica", "politica": "política", "vehiculo": "vehículo",
+           "catalogo": "catálogo", "analisis": "análisis", "metodo": "método", "credito,": "crédito,"}
+
+
+def _con_tildes(palabra: str) -> str:
+    if palabra in _TILDES:
+        return _TILDES[palabra]
+    for fin, con in (("cion", "ción"), ("sion", "sión"), ("ciones", "ciones"), ("siones", "siones")):
+        if len(palabra) > 5 and palabra.endswith(fin):
+            return palabra[: -len(fin)] + con
+    return palabra
+
+
 def _humaniza(codigo: str) -> str:
-    t = str(codigo or "").replace("_", " ").strip().lower()
+    t = " ".join(_con_tildes(p) for p in str(codigo or "").replace("_", " ").strip().lower().split())
     return t[:1].upper() + t[1:] if t else "(sin código)"
 
 
