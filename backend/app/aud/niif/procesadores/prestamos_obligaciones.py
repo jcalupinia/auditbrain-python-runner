@@ -43,6 +43,7 @@ from datetime import date
 
 from openpyxl.utils import get_column_letter
 
+from backend.app.aud.niif.procesadores import problemas
 from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y filas_mapeadas los usa el ciclo)
     FILA0, a_fecha, a_num, campo, edicion_pymes, es_pymes, filas_mapeadas, fx, hoja, m as _m, norm, problema, r2,
     ref, req, suma, validar_campos, validar_definicion_generica,
@@ -715,6 +716,58 @@ def _opt(key: str, r: int, v):
 def _pp(k: str) -> str:
     c = f"{P}$B${PAR[k]}"
     return f'IF({c}="","",{c})'
+
+
+def _fila_operacion(hojas, hoja, e):
+    """Índice de la fila de la operación con cuyo código abre la descripción («OP-101: …»)."""
+    h = next((x for x in hojas if x["name"] == hoja), None)
+    msg = e.get("message") or ""
+    for i, f in enumerate(h.get("rows") or [] if h else []):
+        t = problemas._texto(f[0])
+        if t and msg.startswith(t + ":"):
+            return h, i
+    return h, None
+
+
+def _operacion(hoja, columna):
+    """Celda de «columna» en la fila de la operación del problema."""
+    def ref(hojas, e):
+        h, i = _fila_operacion(hojas, hoja, e)
+        if i is None:
+            return None
+        return problemas.celda(hojas, hoja, columna, i), h["rows"][i][[c[0] for c in h["cols"]].index(columna)]
+    return ref
+
+
+def _reclasificado_por_covenant(hojas, e):
+    """Corriente auditado − corriente por vencimientos (capital de 12 meses + interés devengado), hoja 11."""
+    h, i = _fila_operacion(hojas, "11_Clasificacion", e)
+    if i is None:
+        return None
+    cols = [c[0] for c in h["cols"]]
+    venc = "Corriente: capital de 12 meses + interés devengado (69 c)"
+    f = h["rows"][i]
+    return (f"{problemas.celda(hojas, h['name'], 'Corriente auditado', i)}-{problemas.celda(hojas, h['name'], venc, i)}",
+            (problemas._num(f[cols.index("Corriente auditado")]) or 0) - (problemas._num(f[cols.index(venc)]) or 0))
+
+
+# De qué celda sale el importe de cada problema (ver procesadores/problemas.py).
+REF_PROBLEMAS = {
+    "CONFIRMACION_DIFERENCIA": _operacion("09_Confirmacion", "Diferencia no explicada"),   # confirmado − registrado − por amortizar
+    "CONFIRMACION_VS_TABLA": _operacion("09_Confirmacion", "Confirmado − tabla"),          # confirmado − capital de la tabla
+    "INTERES_DEVENGADO_NO_REGISTRADO": _operacion("08_Intereses", "Interés devengado no registrado"),  # devengado − registrado
+    "COMISIONES_A_GASTO": _operacion(                                                     # costo por amortizar llevado a gasto (−)
+        "07_Comisiones", "Llevado a gasto indebidamente (por amortizar)"),
+    "GASTO_FINANCIERO_DIFERENCIA": _operacion("08_Intereses", "Diferencia de gasto"),      # gasto a la TIE − registrado
+    "PAGOS_DIFERENCIA": _operacion("09_Confirmacion", "Diferencia de pagos"),              # pagos de la tabla − informados
+    "COVENANT_SIN_DISPENSA": _reclasificado_por_covenant,                                  # deuda a corriente por el covenant
+    "COVENANT_POSTERIOR_AL_CORTE": _operacion("11_Clasificacion", "No corriente auditado"),  # no corriente expuesto a la condición
+    "MODIFICACION_SUSTANCIAL": _operacion("15_Prueba_10pct", "Diferencia"),                # VP nuevas condiciones − VP original
+    "MODIFICACION_NO_SUSTANCIAL": _operacion("15_Prueba_10pct", "Diferencia"),             # VP nuevas condiciones − VP original
+    "CLASIFICACION_CP_LP": _operacion("11_Clasificacion", "Diferencia corriente"),         # corriente auditado − registrado
+    "PASIVO_DIFERENCIA": _operacion("13_Conciliacion", "Ajuste propuesto"),                # costo amortizado − registrado
+    "REVELACION_INCUMPLIMIENTO": _operacion("06_Costo_amortizado", "Costo amortizado al corte"),  # importe en libros a revelar
+}
 
 
 def hojas(res: dict) -> list[dict]:

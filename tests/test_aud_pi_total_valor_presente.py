@@ -6,7 +6,7 @@ Antes, Python sumaba los valores ya redondeados a centavos por fila, así que en
 ejercicio modelo daba 118.372,05 mientras Excel (y LibreOffice) mostraban 118.372,06.
 """
 from backend.app.aud.niif import ejercicio_modelo as em
-from backend.app.aud.niif.procesadores import PROCESADORES
+from backend.app.aud.niif.procesadores import PROCESADORES, problemas
 
 
 def _detalle():
@@ -22,7 +22,7 @@ def test_total_valor_presente_igual_al_sum_de_excel():
     p = res["detalle"]["parametros"]
     desc = (1 + float(p["tasaDesc"]) / 100) ** (float(p["plazoBase"]) / 12)
     # Lo que calcula Excel: cada fila sin redondear (Saldo G, Tasa H) y luego SUM.
-    excel = sum(f[6] * (1 - f[7]["v"]) / desc for f in h["rows"]
+    excel = sum(problemas._num(f[6]) * (1 - f[7]["v"]) / desc for f in h["rows"]
                 if isinstance(f[7], dict) and f[7]["v"] is not None)
     total = h["total"][8]
     assert total["f"].startswith("SUM(I")

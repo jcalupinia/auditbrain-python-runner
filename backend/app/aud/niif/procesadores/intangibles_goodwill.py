@@ -41,6 +41,8 @@ from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y fil
     validar_campos, validar_definicion_generica,
 )
 
+from backend.app.aud.niif.procesadores import problemas
+
 VERSION = "intangibles_goodwill 1.0"
 RUBRO = "INTANGIBLES"
 
@@ -595,6 +597,165 @@ PANEL = {
     "registrado":   {"rotulo": "Saldo según el mayor", "total": "saldoMayor"},
     "composicion":  {"rotulo": "Neto auditado por intangible", "hoja": "09_Ajuste", "etiqueta": "Descripción", "valor": "Neto auditado"},
     "distribucion": {"rotulo": "Costo por tipo de intangible", "hoja": "03_Intangibles", "etiqueta": "Tipo", "valor": "Costo"},
+}
+
+
+# --- origen del importe de cada problema (ver procesadores/problemas.py) ----------------------------------------------
+# Los problemas por partida suman un importe de las partidas que cumplen la condición. La condición se evalúa sobre
+# las celdas de las cédulas (03 a 09 tienen una fila por partida, en el mismo orden) y el importe remite a la suma de
+# las celdas de esas partidas en la cédula donde se calcula.
+
+def _col(h, nombre):
+    return [c[0] for c in h["cols"]].index(nombre)
+
+
+def _dato(hojas, i):
+    """Lector de la fila i de las cédulas por partida: v(hoja, columna) → número o texto de la celda."""
+    def v(hoja_, columna):
+        h = next(x for x in hojas if x["name"] == hoja_)
+        c = h["rows"][i][_col(h, columna)]
+        n = problemas._num(c)
+        return n if n is not None else problemas._texto(c)
+    return v
+
+
+def _num(x) -> float:
+    return x if isinstance(x, (int, float)) else 0.0
+
+
+def _vacio(x) -> bool:
+    return not isinstance(x, (int, float)) and x == ""
+
+
+def _es_pymes(hojas) -> bool:
+    h = next(x for x in hojas if x["name"] == "02_Parametros")
+    return problemas._num(h["rows"][PAR["pymes"] - FILA0][1]) == 1
+
+
+def _suma_partidas(hoja_, columna, cond):
+    """SUM de las celdas (hoja_, columna) de las partidas que cumplen cond(v, pymes)."""
+    def f(hojas, e):
+        h = next(x for x in hojas if x["name"] == hoja_)
+        pymes = _es_pymes(hojas)
+        idx = [i for i in range(len(h["rows"])) if cond(_dato(hojas, i), pymes)]
+        if not idx:
+            return None
+        tramos, ini = [], idx[0]
+        for a, b in zip(idx, idx[1:] + [None]):
+            if b != a + 1:
+                c0 = problemas.celda(hojas, hoja_, columna, ini)
+                tramos.append(c0 if a == ini else f"{c0}:{problemas.celda(hojas, hoja_, columna, a).split('!')[1]}")
+                ini = b
+        valor = sum(_num(_dato(hojas, i)(hoja_, columna)) for i in idx)
+        return (tramos[0] if len(tramos) == 1 and ":" not in tramos[0] else f"SUM({','.join(tramos)})"), valor
+    return f
+
+
+def _resumen(concepto):
+    """Fila de 01_Resumen con ese concepto."""
+    def f(hojas, e):
+        h = next(x for x in hojas if x["name"] == "01_Resumen")
+        i = next((k for k, r in enumerate(h["rows"]) if problemas._texto(r[0]) == concepto), None)
+        return None if i is None else (problemas.celda(hojas, h["name"], "Importe", i), problemas._num(h["rows"][i][1]))
+    return f
+
+
+_A, _REC, _DET, _VID, _REV = "05_Amortizacion", "04_Reconocimiento", "07_Deterioro", "06_Vida_util", "08_Reversion"
+_LIBROS = lambda v: _num(v("09_Ajuste", "Neto en libros (cliente)"))
+_AREG = lambda v: _num(v(_A, "Amortización registrada (cliente)"))
+_MET = lambda v: v(_A, "Método aplicado por la herramienta")
+
+
+def _dif_amortizacion(v, pymes):
+    """Diferencia de amortización de las partidas no señaladas ya por goodwill / vida indefinida / método de ingresos."""
+    gw = v(_A, "Categoría") == "Goodwill"
+    ya = ((not pymes and gw and _AREG(v) > 0.005)
+          or (not gw and _vacio(v(_A, "Vida aplicada (meses)")) and _AREG(v) > 0.005)
+          or (pymes and gw and _AREG(v) == 0 and _num(v(_A, "Amortización recalculada (lineal)")) > 0.005)
+          or _MET(v) == "Lineal (presunción no refutada)")
+    d = v(_A, "Diferencia")
+    return v(_A, "Capitalizable") == "Sí" and not _vacio(d) and abs(d) > 0.005 and not ya
+
+
+REF_PROBLEMAS = {
+    # Neto a dar de baja (gasto) de las partidas de investigación / desarrollo no capitalizable (04_Reconocimiento).
+    "INVESTIGACION_CAPITALIZADA": _suma_partidas(_REC, "Neto a dar de baja (gasto)",
+                                                 lambda v, p: v(_REC, "Categoría") == "Investigación" and abs(_LIBROS(v)) > 0.005),
+    "DESARROLLO_CAPITALIZADO_PYMES": _suma_partidas(_REC, "Neto a dar de baja (gasto)",
+                                                    lambda v, p: v(_REC, "Categoría") == "Desarrollo" and abs(_LIBROS(v)) > 0.005),
+    "DESARROLLO_NO_CUMPLE_57": _suma_partidas(_REC, "Neto a dar de baja (gasto)",
+                                              lambda v, p: v(_REC, "Categoría") == "Desarrollo" and v(_REC, "Capitalizable") == "No"
+                                              and abs(_LIBROS(v)) > 0.005),
+    # Costo registrado del desarrollo sin evidencia de los criterios de NIC 38.57 (04_Reconocimiento).
+    "SIN_CRITERIOS_57": _suma_partidas(_REC, "Costo registrado",
+                                       lambda v, p: v(_REC, "Categoría") == "Desarrollo" and v(_REC, "Cumple NIC 38.57") == ""),
+    # Amortización registrada del goodwill (NIIF completas) o de intangibles de vida indefinida (05_Amortizacion).
+    "GOODWILL_AMORTIZADO_NIIF_COMPLETAS": _suma_partidas(_A, "Amortización registrada (cliente)",
+                                                         lambda v, p: v(_A, "Capitalizable") == "Sí" and v(_A, "Categoría") == "Goodwill"
+                                                         and _AREG(v) > 0.005),
+    "INDEFINIDA_AMORTIZADA": _suma_partidas(_A, "Amortización registrada (cliente)",
+                                            lambda v, p: v(_A, "Capitalizable") == "Sí" and v(_A, "Categoría") != "Goodwill"
+                                            and _vacio(v(_A, "Vida aplicada (meses)")) and _AREG(v) > 0.005),
+    # Importe en libros antes del deterioro de las partidas sin prueba de deterioro anual (07_Deterioro).
+    "SIN_PRUEBA_DETERIORO": _suma_partidas(_DET, "Importe en libros antes del deterioro",
+                                           lambda v, p: str(v(_DET, "Prueba exigida")).startswith("Anual")
+                                           and _vacio(v(_DET, "Importe recuperable"))),
+    # Importe en libros (07_Deterioro) de las partidas sin la revisión anual de vida útil exigida (06_Vida_util).
+    "SIN_REVISION_VIDA": _suma_partidas(_DET, "Importe en libros antes del deterioro",
+                                        lambda v, p: str(v(_VID, "Revisión exigida")).startswith("Anual")
+                                        and not str(v(_VID, "Vida revisada al cierre")).lower().startswith("s")),
+    # PYMES: importe en libros de las partidas sin vida estimada / con vida sobre el tope (07_Deterioro).
+    "VIDA_NO_ESTIMADA": _suma_partidas(_DET, "Importe en libros antes del deterioro",
+                                       lambda v, p: v(_A, "Tipo de vida") == "Sin estimación (18.20)"),
+    "VIDA_EXCEDE_TOPE_PYMES": _suma_partidas(_DET, "Importe en libros antes del deterioro",
+                                             lambda v, p: v(_A, "Capitalizable") == "Sí" and not _vacio(v(_VID, "Vida registrada (meses)"))
+                                             and not _vacio(v(_VID, "Vida aplicada (meses)"))
+                                             and v(_VID, "Vida registrada (meses)") > v(_VID, "Vida aplicada (meses)")),
+    # PYMES: amortización recalculada del goodwill que el cliente no amortizó (05_Amortizacion).
+    "SIN_AMORTIZAR_PYMES": _suma_partidas(_A, "Amortización recalculada (lineal)",
+                                          lambda v, p: v(_A, "Capitalizable") == "Sí" and v(_A, "Categoría") == "Goodwill"
+                                          and _AREG(v) == 0 and _num(v(_A, "Amortización recalculada (lineal)")) > 0.005),
+    # Método de ingresos sin excepción: diferencia lineal recalculada − registrada (05_Amortizacion).
+    "METODO_INGRESOS_SIN_JUSTIFICAR": _suma_partidas(_A, "Diferencia",
+                                                     lambda v, p: _MET(v) == "Lineal (presunción no refutada)" and not _vacio(v(_A, "Diferencia"))),
+    # Amortización registrada que se acepta sin recalcular, según el método aplicado (05_Amortizacion).
+    "METODO_INGRESOS_EXCEPCION": _suma_partidas(_A, "Amortización registrada (cliente)",
+                                                lambda v, p: _MET(v) == "Ingresos (excepción documentada)"),
+    "METODO_INGRESOS_PYMES_2015": _suma_partidas(_A, "Amortización registrada (cliente)",
+                                                 lambda v, p: _MET(v) == "Ingresos (sin presunción: PYMES 2015)"),
+    "METODO_NO_RECALCULADO": _suma_partidas(_A, "Amortización registrada (cliente)",
+                                            lambda v, p: v(_A, "Capitalizable") == "Sí" and _MET(v) == "Otro método informado (no recalculado)"),
+    # Amortización recalculada − registrada de las demás partidas (05_Amortizacion).
+    "DIF_AMORTIZACION": _suma_partidas(_A, "Diferencia", _dif_amortizacion),
+    # Amortización acumulada esperada − recalculada (06_Vida_util).
+    "ACUMULADA_INCONSISTENTE": _suma_partidas(_VID, "Diferencia (esperada − recalculada)",
+                                              lambda v, p: not _vacio(v(_VID, "Diferencia (esperada − recalculada)"))
+                                              and abs(v(_VID, "Diferencia (esperada − recalculada)")) > 0.005),
+    # Valor residual de las partidas con residual distinto de cero (06_Vida_util).
+    "RESIDUAL_NO_NULO": _suma_partidas(_VID, "Valor residual", lambda v, p: v(_VID, "Residual distinto de cero") == "Sí"),
+    # Deterioro auditado − registrado, positivo (no reconocido) o negativo (en exceso) (07_Deterioro).
+    "DETERIORO_NO_RECONOCIDO": _suma_partidas(_DET, "Diferencia",
+                                              lambda v, p: not _vacio(v(_DET, "Deterioro calculado")) and _num(v(_DET, "Diferencia")) > 0.005),
+    "DETERIORO_EN_EXCESO": _suma_partidas(_DET, "Diferencia",
+                                          lambda v, p: not _vacio(v(_DET, "Deterioro calculado")) and _num(v(_DET, "Diferencia")) < -0.005),
+    # Reversión registrada sobre goodwill (08_Reversion).
+    "REVERSION_GOODWILL": _suma_partidas(_REV, "Reversión registrada",
+                                         lambda v, p: v(_REV, "Categoría") == "Goodwill" and _num(v(_REV, "Reversión registrada")) > 0.005),
+    # Reversión auditada − registrada, positiva (pendiente) o negativa (en exceso) (08_Reversion).
+    "REVERSION_NO_RECONOCIDA": _suma_partidas(_REV, "Diferencia",
+                                              lambda v, p: v(_REV, "Categoría") != "Goodwill" and not _vacio(v(_REV, "Reversión calculada"))
+                                              and _num(v(_REV, "Diferencia")) > 0.005),
+    "REVERSION_EN_EXCESO": _suma_partidas(_REV, "Diferencia",
+                                          lambda v, p: v(_REV, "Categoría") != "Goodwill" and not _vacio(v(_REV, "Reversión calculada"))
+                                          and _num(v(_REV, "Diferencia")) < -0.005),
+    # Costo de las partidas con algún importe negativo en el auxiliar (03_Intangibles).
+    "VALOR_NEGATIVO": _suma_partidas("03_Intangibles", "Costo",
+                                     lambda v, p: any(_num(v("03_Intangibles", c)) < 0 for c in (
+                                         "Costo", "Valor residual", "Amort. acum. inicial", "Deterioro acum. previo", "Valor en uso",
+                                         "VR menos costos de disposición"))),
+    # Neto del auxiliar − saldo del mayor, y neto auditado − mayor (01_Resumen).
+    "AUXILIAR_MAYOR": _resumen("Diferencia auxiliar − mayor"),
+    "AJUSTE": _resumen("Ajuste propuesto (neto)"),
 }
 
 

@@ -515,6 +515,46 @@ fórmula con el valor que calculó Python (diferencia 0). Referencia:
 `scripts/verificar_formulas_pi.py` (pérdidas incurridas). Implementación de referencia:
 `backend/app/aud/niif/procesadores/libro.py` (celdas `{"f": fórmula, "v": valor}`).
 
+**Sin cifras calculadas pegadas (decisión del dueño, 2026-09-24):** ninguna cifra que resulte
+de un cálculo puede ir como valor fijo en el Excel. Los datos que entrega el cliente y los
+parámetros del auditor sí son valores (entradas); todo lo demás es fórmula:
+- Indicadores de la portada `00_Inicio` («consola»): los mismos 5 del panel del HTML (resultado
+  principal, población, recalculado, registrado, problemas), cada uno fórmula a su cédula
+  (`libro._kpis_panel`: fila del Resumen, `SUMIFS` sobre la columna del `PANEL` o `COUNTA` de
+  Problemas). La tarjeta sin celda de origen no se muestra. Prueba: `test_portada_tarjetas_son_formulas`.
+- **La portada del Excel ES el panel del HTML** (decisión del dueño, 2026-09-25:
+  «los mismos gráficos del HTML, no otros; mismos colores de fondo y botones»):
+  `procesadores/panel_excel.py` usa los colores de `html_ejecutivo.TEMAS["ejecutivo"]`
+  (fondo #071B2F, tarjetas #0A2342, botones #0E2C50), las 5 tarjetas con sus colores y los 4
+  gráficos del HTML como gráficos nativos: dona de composición, registrado vs recalculado,
+  distribución y problemas por severidad (barras + línea dorada). Sus datos son fórmulas
+  (SUMIFS/COUNTIFS) con la misma agrupación que el HTML (`graficos.serie_spec`,
+  `graficos.severidad`). **Nunca** volcar todas las filas del Resumen en un gráfico: mezcla
+  escalas y se ve como un código de barras. Si cambia el panel del HTML, cambia el Excel.
+- Importe de cada problema: fórmula a la celda de la cédula donde se origina. Cada procesador
+  declara `REF_PROBLEMAS = {código: (hoja, columna) | (hoja, columna, "total") | función}`
+  (`procesadores/problemas.py`). Solo se enlaza si la celda tiene ese mismo importe; si no, queda
+  como valor y lo reporta `python scripts/verificar_problemas_enlazados.py` (debe dar «PENDIENTES: 0»).
+- Un código de problema nuevo exige su entrada en `REF_PROBLEMAS`; lo vigila
+  `tests/test_aud_sin_datos_fijos.py`.
+- **Datos del cliente dentro del libro (piloto: pérdidas incurridas).** Cada documento que entrega
+  el cliente va en su hoja `D1_…`–`D5_…` con la columna «Origen del dato» (archivo · hoja · fila)
+  y la guía «¿De dónde saco este dato?» (qué reporte, cuenta y fecha). Las cédulas calculan desde
+  ahí con fórmulas (evidencia histórica, reversión, bajas, provisión inicial, mora, tasa ponderada).
+  Las claves de cruce (`F…`, `A…`, `C…`, equivalentes a `norm()`) van en columnas agrupadas y ocultas.
+
+**Diseño del libro (todas las herramientas, 2026-09-25):** portada con botones por sección
+(Resultado · Cómo se calculó · Datos del cliente · Documentación) y pestañas del color de su
+sección; en cada hoja la botonera Inicio/Anterior/Siguiente arriba a la izquierda; Calibri;
+gráficos con título sin superponer (`overlay=False`), rótulos como texto (`strRef`) y datos en la
+hoja oculta `00_Datos_graficos`; «Cómo se calcula» en lenguaje sencillo (columna, cómo se calcula,
+de dónde viene) y la fórmula de Excel con su ejemplo en la hoja `00_Anexo_tecnico`.
+
+**Logotipos (2026-09-25):** todo papel lleva el logo de AuditConsulting y el de AUDIT-IA
+(`procesadores/marca.py`, archivos en `backend/app/aud/niif/assets/`): banda navy de `00_Inicio`,
+encabezado del Word, portada y pie del PowerPoint, barra del HTML y membrete de impresión/PDF.
+En el HTML van incrustados en base64 (nunca una URL externa). Prueba: `tests/test_aud_marca_logos.py`.
+
 Pruebas declarativas (catálogo y fichas sin procesador): el papel lo arma el navegador con
 `frontend/src/aud/niif/papelDeclarativo.js` a partir de las mismas cédulas del exportador del
 sitio (`workbookSheets`): Excel con fórmulas, Word, PowerPoint y el HTML del sitio con los tres

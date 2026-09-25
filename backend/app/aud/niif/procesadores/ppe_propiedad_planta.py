@@ -35,6 +35,7 @@ Versión simple que cumple la norma (NIC 16 / Sección 17):
 """
 from __future__ import annotations
 
+from backend.app.aud.niif.procesadores import problemas
 from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y filas_mapeadas los usa el ciclo)
     FILA0, MARCO_COMPLETAS, MARCO_PYMES, a_num, campo, edicion_pymes, es_pymes, fecha, filas_mapeadas, fx, hoja,
     m, problema, r2, ref, req, suma, validar_campos, validar_definicion_generica,
@@ -614,6 +615,120 @@ def _rng(h: str, col: str, n: int) -> str:
 def _si(celda: str) -> str:
     """Celda opcional: vacía queda vacía (M22)."""
     return f'IF({celda}="","",{celda})'
+
+
+def _hoja(hojas, nombre):
+    return next((x for x in hojas if x["name"] == nombre), None)
+
+
+def _celda_fila(hoja, columna, es_fila):
+    """Celda de «columna» en la fila que cumple ``es_fila(texto de la primera columna, descripción)``.
+    Si varias filas cumplen, prefiere la que tiene el importe del problema."""
+    def ref(hojas, e):
+        h = _hoja(hojas, hoja)
+        if not h:
+            return None
+        msg, imp = e.get("message") or "", problemas._num(e.get("amount"))
+        j = [c[0] for c in h["cols"]].index(columna)
+        hallados = [(i, f) for i, f in enumerate(h.get("rows") or []) if es_fila(problemas._texto(f[0]), msg)]
+        for i, f in hallados:
+            v = problemas._num(f[j])
+            if imp is None or (v is not None and abs(abs(v) - abs(imp)) < problemas.TOL):
+                return problemas.celda(hojas, hoja, columna, i), f[j]
+        return (problemas.celda(hojas, hoja, columna, hallados[0][0]), hallados[0][1][j]) if hallados else None
+    return ref
+
+
+def _codigo(hoja, columna):
+    """Fila del activo, adición o préstamo con cuyo código abre la descripción («CÓDIGO: …»)."""
+    return _celda_fila(hoja, columna, lambda t, msg: bool(t) and msg.startswith(t + ":"))
+
+
+def _concepto(hoja, inicio, columna="Importe"):
+    """Fila de la cédula cuyo «Concepto» empieza por ``inicio``."""
+    return _celda_fila(hoja, columna, lambda t, msg: t.startswith(inicio))
+
+
+def _suma_listados(hoja, columna, antes, despues, filtro=None):
+    """Suma la «columna» de los activos que la descripción lista entre ``antes`` y ``despues``."""
+    def ref(hojas, e):
+        h = _hoja(hojas, hoja)
+        msg = e.get("message") or ""
+        if not h or antes not in msg:
+            return None
+        ids = {x.strip() for x in msg.split(antes, 1)[1].split(despues, 1)[0].split(",")}
+        cols = [c[0] for c in h["cols"]]
+        j = cols.index(columna)
+        idx = [i for i, f in enumerate(h.get("rows") or [])
+               if problemas._texto(f[0]) in ids and (filtro is None or filtro(cols, f))]
+        if not idx:
+            return None
+        formula = "+".join(problemas.celda(hojas, hoja, columna, i) for i in idx)
+        return formula, sum(problemas._num(h["rows"][i][j]) or 0 for i in idx)
+    return ref
+
+
+def _residual_excede(hojas, e):
+    """Valor residual − costo del activo (05)."""
+    h = _hoja(hojas, "05_Vidas_residual")
+    msg = e.get("message") or ""
+    for i, f in enumerate(h["rows"] if h else []):
+        t = problemas._texto(f[0])
+        if t and msg.startswith(t + ":"):
+            return (f"{problemas.celda(hojas, h['name'], 'Valor residual', i)}-{problemas.celda(hojas, h['name'], 'Costo', i)}",
+                    (problemas._num(f[4]) or 0) - (problemas._num(f[5]) or 0))
+    return None
+
+
+def _intereses_diferencia(hojas, e):
+    """Capitalizable − capitalizado: por activo (12) si hay anexo de préstamos; por adición (10) si no."""
+    if "costos por préstamos capitalizables" in (e.get("message") or ""):
+        return _codigo("12_Capitalizacion", "Diferencia")(hojas, e)
+    return _codigo("10_Adiciones", "Diferencia")(hojas, e)
+
+
+def _exceso_tope(hojas, e):
+    """Capitalizable antes del tope (TOTAL de 12) − costos por préstamos incurridos (TOTAL de 11)."""
+    cap, pre = _hoja(hojas, "12_Capitalizacion"), _hoja(hojas, "11_Prestamos")
+    if not cap or not pre or not cap.get("total") or not pre.get("total"):
+        return None
+    ja = [c[0] for c in cap["cols"]].index("Capitalizable antes del tope")
+    jc = [c[0] for c in pre["cols"]].index("Costo financiero del período")
+    formula = (f"{problemas.celda(hojas, cap['name'], 'Capitalizable antes del tope', len(cap['rows']))}"
+               f"-{problemas.celda(hojas, pre['name'], 'Costo financiero del período', len(pre['rows']))}")
+    return formula, (problemas._num(cap["total"][ja]) or 0) - (problemas._num(pre["total"][jc]) or 0)
+
+
+def _conciliacion_mayor(hojas, e):
+    """Diferencia auxiliar − mayor del saldo que nombra la descripción (costo o depreciación acumulada), hoja 14."""
+    cual = "(costo)" if "saldo del costo" in (e.get("message") or "") else "(depreciación)"
+    return _concepto("14_Roll_forward", f"Diferencia auxiliar − mayor {cual}")(hojas, e)
+
+
+# De qué celda sale el importe de cada problema (ver procesadores/problemas.py).
+REF_PROBLEMAS = {
+    "DEPRECIACION_DIFERENTE": _codigo("04_Depreciacion", "Diferencia"),                 # depreciación recalculada − registrada
+    "DEPRECIACION_EN_CONSTRUCCION": _codigo("04_Depreciacion", "Depreciación registrada"),  # depreciación registrada de la obra
+    "TOTALMENTE_DEPRECIADO_EN_USO": _codigo("05_Vidas_residual", "Costo"),             # costo del activo depreciado en uso
+    "RESIDUAL_EXCEDE_COSTO": _residual_excede,                                         # valor residual − costo
+    "BAJA_MAL_CALCULADA": _codigo("07_Bajas", "Diferencia"),                           # resultado recalculado − registrado
+    "BAJA_SIN_RESULTADO": _codigo("07_Bajas", "Resultado recalculado"),                # resultado de baja no registrado
+    "DETERIORO": _codigo("09_Deterioro", "Pérdida adicional"),                         # importe en libros − recuperable
+    "DETERIORO_SIN_SUPERAVIT": _suma_listados(                                         # pérdida de los revaluados sin superávit previo
+        "09_Deterioro", "Pérdida adicional", "previo informado: ", ". La pérdida"),
+    "REVALUACION_SIN_DECREMENTO_PREVIO": _suma_listados(                               # aumento enviado íntegro al ORI
+        "08_Revaluacion", "A otro resultado integral", "en resultados»: ", ". El aumento",
+        lambda cols, f: (problemas._num(f[cols.index("Diferencia")]) or 0) > 0),
+    "INTERESES_CAPITALIZADOS_PYMES": ("10_Adiciones", "Intereses capitalizados", "total"),  # intereses capitalizados (−, PYMES: gasto)
+    "TOPE_COSTOS_PRESTAMOS": _exceso_tope,                                             # capitalizable − costos incurridos (NIC 23.14)
+    "INTERESES_DIFERENCIA": _intereses_diferencia,                                     # capitalizable − capitalizado
+    "ADICION_GASTO_CAPITALIZADO": _codigo("10_Adiciones", "Importe"),                  # reparación capitalizada
+    "ADICION_SIN_ACTIVO": _codigo("10_Adiciones", "Importe"),                          # adición de un activo que no está en el auxiliar
+    "ADICIONES_NO_CONCILIAN": _concepto("14_Roll_forward", "Diferencia adiciones auxiliar − detalle"),  # auxiliar − detalle
+    "DESMANTELAMIENTO_NO_RECONOCIDO": _concepto("13_Desmantelamiento", "Valor presente"),  # valor presente no provisionado
+    "DESMANTELAMIENTO_DIFERENCIA": _concepto("13_Desmantelamiento", "Ajuste total"),   # valor presente − registrada al cierre
+    "CONCILIACION_AUXILIAR_MAYOR": _conciliacion_mayor,                                # auxiliar − mayor (costo o depreciación)
+}
 
 
 def hojas(res: dict) -> list[dict]:

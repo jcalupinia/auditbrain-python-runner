@@ -30,6 +30,8 @@ def comparar(py, xl, fmt):
         return False
     if py in (None, "") and xl in (None, ""):
         return True
+    if isinstance(py, str) and len(py) == 10 and py[4] == "-" and hasattr(xl, "year"):  # fecha ISO vs fecha de Excel
+        return f"{xl.year:04d}-{xl.month:02d}-{xl.day:02d}" == py
     if isinstance(py, str):
         return py == xl
     if isinstance(py, bool):

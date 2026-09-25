@@ -45,6 +45,7 @@ Reglamento (UE) 2023/1803 (EUR-Lex, español); NIIF para las PYMES 2015 párr. 2
 """
 from __future__ import annotations
 
+from backend.app.aud.niif.procesadores import problemas
 from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y filas_mapeadas los usa el ciclo)
     FILA0, MARCO_COMPLETAS, MARCO_PYMES, a_num, campo, edicion_pymes, es_pymes, fecha, filas_mapeadas, fx, hoja, m,
     n2, norm, problema, r2, ref, req, suma, validar_campos, validar_definicion_generica,
@@ -643,6 +644,103 @@ PANEL = {
                     "valor": "Gasto del período"},
     "distribucion": {"rotulo": "Gasto por línea del ERI", "hoja": "04_Presentacion_ERI",
                      "etiqueta": "Línea del estado de resultados", "valor": "Año actual"},
+}
+
+
+# --- origen del importe de cada problema (ver procesadores/problemas.py) --------------
+
+_T = problemas._texto
+
+
+def _pr_hoja(hojas, nombre):
+    return next((x for x in hojas if x["name"] == nombre), None)
+
+
+def _pr_rango(hojas, hoja_: str, col: str) -> str:
+    """Rango de la columna sobre las filas de datos de la cédula (sin la fila TOTAL)."""
+    n = max(len(_pr_hoja(hojas, hoja_)["rows"]), 1)
+    return f"{problemas.celda(hojas, hoja_, col, 0)}:{problemas.celda(hojas, hoja_, col, n - 1).split('!')[1]}"
+
+
+def _por_fila(hoja_: str, columna, id_col: int, prov_col: int | None = None):
+    """Celda de la columna en la fila que abre la descripción del problema: «cuenta nombre…» o
+    «comprobante proveedor:». ``columna`` puede ser una función (fila, columnas) -> título."""
+    def f(hojas, e):
+        h = _pr_hoja(hojas, hoja_)
+        if h is None:
+            return None
+        msg = e.get("message") or ""
+        cols = [c[0] for c in h["cols"]]
+        for i, fila in enumerate(h["rows"]):
+            pref = f"{_T(fila[id_col])} {_T(fila[prov_col])}" if prov_col is not None else _T(fila[id_col])
+            if msg.startswith(f"{pref}:") or msg.startswith(f"{pref} ("):
+                col = columna(fila, cols) if callable(columna) else columna
+                return problemas.celda(hojas, hoja_, col, i), fila[cols.index(col)]
+        return None
+    return f
+
+
+def _fila_ajustes(clave: str):
+    """Fila de la hoja 14 (Ajustes y conciliación) donde se calcula el concepto."""
+    def f(hojas, e):
+        i = _AJ.index(clave)
+        return problemas.celda(hojas, "14_Ajustes", "Importe", i), _pr_hoja(hojas, "14_Ajustes")["rows"][i][1]
+    return f
+
+
+def _sumif(hoja_: str, col_crit: str, criterio: str, cond, col_suma: str):
+    """SUMIF(rango de criterio; criterio; rango a sumar) sobre las filas de datos de la cédula."""
+    def f(hojas, e):
+        h = _pr_hoja(hojas, hoja_)
+        if h is None or not h["rows"]:
+            return None
+        cols = [c[0] for c in h["cols"]]
+        jc, js = cols.index(col_crit), cols.index(col_suma)
+        valor = sum(problemas._num(x[js]) or 0 for x in h["rows"] if cond(x[jc]))
+        return f"SUMIF({_pr_rango(hojas, hoja_, col_crit)},{criterio},{_pr_rango(hojas, hoja_, col_suma)})", valor
+    return f
+
+
+def _col_variacion(fila, cols):
+    """La variación que supera el umbral: contra el año anterior o, si no, contra el presupuesto."""
+    return "Variación" if _T(fila[cols.index("Excede umbral")]) == "Sí" else "Variación vs presupuesto"
+
+
+def _rp_sin_categoria(hojas, e):
+    """Importe de la fila «Sin categoría válida» de la hoja 10 (Partes relacionadas)."""
+    h = _pr_hoja(hojas, "10_Partes_relacionadas")
+    i = next((k for k, x in enumerate(h["rows"]) if _T(x[0]) == SIN_CATEGORIA), None)
+    return None if i is None else (problemas.celda(hojas, "10_Partes_relacionadas", "Importe del período", i), h["rows"][i][2])
+
+
+def _vacio(v) -> bool:
+    return _T(v) == "" and problemas._num(v) is None
+
+
+# De qué celda sale el importe de cada problema.
+REF_PROBLEMAS = {
+    "VARIACION_SIN_EXPLICAR": _por_fila("03_Analisis_global", _col_variacion, 0, 1),        # variación sobre el umbral
+    "PARTIDA_EXTRAORDINARIA": _por_fila("03_Analisis_global", "Saldo actual", 0, 1),        # saldo de la cuenta «extraordinaria»
+    "NATURALEZA_NO_REVELADA": _sumif("03_Analisis_global", "Naturaleza", '""', _vacio, "Saldo actual"),  # cuentas sin naturaleza
+    "DIF_CONCILIACION": _fila_ajustes("difConc"),                                            # sumaria − estado de resultados
+    "SALDO_ACREEDOR": _por_fila("03_Analisis_global", "Saldo actual", 0, 1),                # saldo acreedor de la cuenta
+    "GASTO_NO_SOPORTADO": _por_fila("06_Vouching", "Gasto no soportado", 0, 3),             # importe sin soporte
+    "DATO_VOUCHING_FALTANTE": _sumif("06_Vouching", "Resultado", '"Sin resultado informado"',
+                                     lambda v: _T(v) == "Sin resultado informado", "Importe"),  # transacciones sin resultado
+    "CORTE_OTRO_PERIODO": _por_fila("07_Corte", "Gasto de otro período registrado", 0, 1),  # documento posterior registrado
+    "CORTE_NO_REGISTRADO": _por_fila("07_Corte", "Gasto del ejercicio no registrado", 0, 1),  # documento del año sin registrar
+    "GASTO_ANTICIPADO_EN_RESULTADOS": _por_fila("08_Devengo", "Anticipado llevado a resultados", 0, 1),  # días posteriores al corte
+    "DEVENGADO_NO_REGISTRADO": _por_fila("08_Devengo", "Devengado no registrado", 0, 1),    # gasto del período no registrado
+    "CLASIFICACION_INCORRECTA": _por_fila("09_Reclasificaciones", "Importe", 0, 1),         # importe a reclasificar
+    "SIN_RP_REVELADO": ("10_Partes_relacionadas", "Importe del período", "total"),          # partes relacionadas de la muestra
+    "RP_NO_REVELADAS": _fila_ajustes("rpNr"),                                                # MAX(muestra − revelado, 0)
+    "RP_SIN_CATEGORIA": _rp_sin_categoria,                                                   # fila «Sin categoría válida»
+    "RP_TRANSACCION_NO_REVELADA": _por_fila("11_RP_Integridad", "Importe no revelado (marca)", 0, 1),  # marcada fuera de la nota
+    "DATO_RP_REVELADA_FALTANTE": _sumif("11_RP_Integridad", "Incluida en la nota", '""', _vacio, "Importe"),  # sin indicar
+    "RP_INTEGRIDAD_NO_CONCLUIDA": ("11_RP_Integridad", "Importe", "total"),                  # población sin conclusión
+    "PARTIDA_INUSUAL": _por_fila("12_Inusuales", "Importe", 0, 3),                          # importe de la partida inusual
+    "SIN_COMPROBANTE_VALIDO": _por_fila("13_Tributario", "No deducible: comprobante", 0, 1),  # no deducible por comprobante
+    "SIN_BANCARIZACION": _por_fila("13_Tributario", "No deducible: bancarización", 0, 1),   # no deducible por bancarización
 }
 
 

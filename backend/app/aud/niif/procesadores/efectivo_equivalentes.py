@@ -34,6 +34,7 @@ from __future__ import annotations
 import calendar
 from datetime import date
 
+from backend.app.aud.niif.procesadores import problemas
 from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y filas_mapeadas los usa el ciclo)
     FILA0, a_num, edicion_pymes, es_pymes, fecha, filas_mapeadas, fx, hoja, m as fmt_m, n2, norm, num, problema,
     r2, ref, req, suma, validar_campos, validar_definicion_generica, campo,
@@ -515,6 +516,66 @@ def _rango(h: str, col: str, n: int) -> str:
 def _pos(x: str) -> str:
     """Suma de valores absolutos que ignora celdas vacías o con texto (ABS falla con "")."""
     return f'SUMIF({x},">0")-SUMIF({x},"<0")'
+
+
+# --- origen del importe de cada problema (ver procesadores/problemas.py) --------------
+
+_T = problemas._texto
+def _CUENTA(f) -> str:
+    """«id nombre:» con que empieza la descripción de un problema de cuenta (hojas 03, 06, 08 y 09)."""
+    return f"{_T(f[0])} {_T(f[1])}:"
+
+
+def _PARTIDA(f) -> str:
+    """«id (tipo, cuenta X):» con que empieza la descripción de un problema de partida (hojas 04 y 07)."""
+    return f"{_T(f[0])} ({_T(f[2])}, cuenta {_T(f[1])}):"
+
+
+def _por_fila(hoja_: str, columna: str, prefijo):
+    """Celda de la columna en la fila (cuenta o partida) que abre la descripción del problema."""
+    def f(hojas, e):
+        h = next((x for x in hojas if x["name"] == hoja_), None)
+        if h is None:
+            return None
+        msg = e.get("message") or ""
+        j = [c[0] for c in h["cols"]].index(columna)
+        for i, fila in enumerate(h["rows"]):
+            if msg.startswith(prefijo(fila)):
+                return problemas.celda(hojas, hoja_, columna, i), fila[j]
+        return None
+    return f
+
+
+def _concepto(clave: str):
+    """Fila de la hoja 10 (Efectivo auditado y ajuste) donde se calcula el concepto."""
+    def f(hojas, e):
+        i = CONCEPTOS.index(clave)
+        h = next(x for x in hojas if x["name"] == "10_Efectivo_auditado")
+        return problemas.celda(hojas, "10_Efectivo_auditado", "Importe", i), h["rows"][i][1]
+    return f
+
+
+# De qué celda sale el importe de cada problema.
+REF_PROBLEMAS = {
+    "SIN_ESTADO_BANCARIO": _por_fila("03_Conciliacion", "Saldo según libros", _CUENTA),         # saldo en libros sin conciliar
+    "DIFERENCIA_NO_EXPLICADA": _por_fila("03_Conciliacion", "Diferencia no explicada", _CUENTA),  # libros − saldo explicado
+    "SIN_CONFIRMACION": _por_fila("03_Conciliacion", "Saldo según libros", _CUENTA),            # saldo en libros sin confirmar
+    "CONFIRMACION_NO_COINCIDE": _por_fila("06_Confirmaciones", "Diferencia (confirmado − estado)", _CUENTA),  # confirmado − estado
+    "SALDO_ACREEDOR": _por_fila("03_Conciliacion", "Saldo según libros", _CUENTA),              # sobregiro en libros
+    "RESTRINGIDO_REVELAR": _por_fila("08_Restringido", "Monto restringido", _CUENTA),           # monto no disponible a revelar
+    "RESTRINGIDO_COMO_DISPONIBLE": _por_fila("08_Restringido", "Reclasificación propuesta", _CUENTA),  # a no corriente
+    "RESTRICCION_SIN_FECHA": _por_fila("08_Restringido", "Monto restringido", _CUENTA),         # monto sin fecha de fin
+    "INVERSION_SIN_FECHAS": _por_fila("03_Conciliacion", "Saldo según libros", _CUENTA),        # inversión sin evaluar
+    "NO_ES_EQUIVALENTE": _por_fila("09_Equivalentes", "Reclasificación propuesta", _CUENTA),    # reclasificación a inversiones
+    "EQUIVALENTE_PRESUNCION": _por_fila("03_Conciliacion", "Saldo según libros", _CUENTA),      # inversión a documentar
+    "NOTAS_NO_REGISTRADAS": _concepto("notas"),                                                  # notas de crédito − débito
+    "PARTIDA_SIN_CUENTA": _por_fila("04_Partidas", "Importe", _PARTIDA),                         # partida sin cuenta en el anexo
+    "PARTIDA_ANTIGUA": _por_fila("04_Partidas", "Importe", _PARTIDA),                            # partida antigua
+    "PARTIDA_NO_DEPURADA": _por_fila("04_Partidas", "Importe", _PARTIDA),                        # partida sin liquidación
+    "CORTE_POSTERIOR": _por_fila("07_Corte", "Importe", _PARTIDA),                               # partida posterior al corte
+    "CORTE_DEPOSITO_TARDIO": _por_fila("07_Corte", "Importe", _PARTIDA),                         # depósito acreditado tarde
+    "OTRA_PARTIDA": _por_fila("04_Partidas", "Importe", _PARTIDA),                               # partida sin naturaleza
+}
 
 
 def hojas(res: dict) -> list[dict]:

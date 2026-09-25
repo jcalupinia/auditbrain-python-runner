@@ -33,6 +33,7 @@ from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y fil
     n2, norm, problema, r2, ref, req, suma, validar_campos, validar_definicion_generica,
 )
 from backend.app.aud.niif.procesadores.cxc_cartera import NOMBRE_TRAMO, TRAMOS, _rango, _tramo, _tramo_formula
+from backend.app.aud.niif.procesadores import problemas
 
 VERSION = "proveedores_cxp 1.0"
 RUBRO = "PROVEEDORES"
@@ -360,6 +361,62 @@ AJF = {k: FILA0 + i for i, k in enumerate(_AJ)}
 
 def _pb(k):
     return f"{P}$B${PAR[k]}"
+
+
+def _concepto(etiqueta: str):
+    """Celda «Importe» de la fila ``etiqueta`` de 11_Ajuste (saldo auditado y ajustes)."""
+    def f(hojas, e):
+        h = next((x for x in hojas if x["name"] == "11_Ajuste"), None)
+        for i, fila in enumerate((h or {}).get("rows") or []):
+            if fila[0] == etiqueta:
+                return problemas.celda(hojas, "11_Ajuste", "Importe", i), problemas._num(fila[1])
+        return None
+    return f
+
+
+def _saldo_detalle_si(criterios):
+    """SUMIFS del «Saldo» de 03_Detalle con ``criterios`` = [(columna, criterio Excel, prueba en Python)]."""
+    def f(hojas, e):
+        h = next((x for x in hojas if x["name"] == "03_Detalle"), None)
+        n = len((h or {}).get("rows") or [])
+        if not n:
+            return None
+        cols = [c[0] for c in h["cols"]]
+        rango = lambda col: (f"{problemas.celda(hojas, '03_Detalle', col, 0)}:"
+                             f"{problemas.celda(hojas, '03_Detalle', col, n - 1).split('!')[1]}")
+        j = cols.index("Saldo")
+        valor = sum(problemas._num(fila[j]) or 0 for fila in h["rows"]
+                    if all(prueba(fila[cols.index(col)]) for col, _, prueba in criterios))
+        conds = ",".join(f'{rango(col)},"{crit}"' for col, crit, _ in criterios)
+        return f"SUMIFS({rango('Saldo')},{conds})", valor
+    return f
+
+
+_n = lambda v: problemas._num(v) or 0
+
+
+# De qué celda sale el importe de cada problema (ver procesadores/problemas.py).
+REF_PROBLEMAS = {
+    "PASIVO_NO_REGISTRADO": ("06_Pasivos_no_registrados", "Pasivo no registrado", "total"),   # pasivos omitidos
+    "DIF_CONFIRMACION": ("07_Confirmaciones", "Diferencia absoluta", "total"),                # suma de diferencias absolutas
+    "ERROR_CORTE_COMPRAS": ("08_Corte_compras", "Registrada antes de la recepción"),           # saldo del documento anticipado
+    "PAGO_MAYOR_SALDO": ("05_Pagos_posteriores", "Pago mayor al saldo"),                       # exceso del pago sobre el saldo
+    "PAGO_NO_POSTERIOR": ("05_Pagos_posteriores", "Pago informado"),                           # pago sin fecha posterior al corte
+    "FINANCIACION_SIN_TASA": ("09_Costo_amortizado", "Nominal", "total"),                      # nominal de los documentos financiados
+    "FINANCIACION_NO_RECONOCIDA": _concepto("(-) Ajuste por financiación implícita"),         # intereses requeridos − registrados
+    "NO_CORRIENTE_COMO_CORRIENTE": _concepto("Reclasificación a no corriente"),               # no corriente requerida − presentada
+    "CORRIENTE_COMO_NO_CORRIENTE": _concepto("Reclasificación a no corriente"),               # idem (negativa)
+    # saldo positivo de los documentos sin «Partida de explotación» informada
+    "PARTIDA_EXPLOTACION_NO_INFORMADA": _saldo_detalle_si([("Partida de explotación", "", lambda v: not problemas._texto(v)),
+                                                           ("Saldo", ">0", lambda v: _n(v) > 0)]),
+    "SALDOS_DEUDORES": ("03_Detalle", "Saldo deudor", "total"),                                # saldos deudores a reclasificar
+    # saldo positivo vencido hace más de 360 días
+    "VENCIDO_MAS_360": _saldo_detalle_si([("Días desde vencimiento", ">360", lambda v: _n(v) > 360),
+                                          ("Saldo", ">0", lambda v: _n(v) > 0)]),
+    # saldo en moneda distinta del dólar
+    "MONEDA_EXTRANJERA": _saldo_detalle_si([("Moneda", "<>USD", lambda v: problemas._texto(v) != "USD")]),
+    "DIF_MAYOR": _concepto("Diferencia auxiliar − mayor"),                                     # auxiliar − mayor
+}
 
 
 def hojas(res: dict) -> list[dict]:

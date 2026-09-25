@@ -31,6 +31,7 @@ from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y fil
     FILA0, MARCO_COMPLETAS, MARCO_PYMES, a_num, campo, edicion_pymes, es_pymes, fecha, filas_mapeadas, fx, hoja,
     m, norm, problema, r2, ref, req, suma, validar_campos, validar_definicion_generica,
 )
+from backend.app.aud.niif.procesadores import problemas
 
 VERSION = "seguros_cobertura 1.0"
 RUBRO = "SEGUROS"
@@ -544,6 +545,62 @@ _EXPLICA = {
         "Importe": ("Suma la prima anticipada registrada, la recalculada y su diferencia de la hoja 10 (Prima pagada por anticipado); el "
                     "ajuste es esa diferencia con signo contrario; el saldo del mayor viene de la hoja 02 y se compara con el detalle."),
     },
+}
+
+
+def _idx_id(h, e, prefijo: str = ""):
+    """Fila de la hoja cuyo código abre la descripción del problema («Póliza P-01: …», «A-01 (…): …»)."""
+    msg = e.get("message") or ""
+    msg = msg[len(prefijo):] if prefijo and msg.startswith(prefijo) else msg
+    hits = [(len(c), i) for i, fila in enumerate((h or {}).get("rows") or [])
+            if (c := problemas._texto(fila[0])) and (msg.startswith(c + ":") or msg.startswith(c + " ("))]
+    return max(hits)[1] if hits else None
+
+
+def _por_id(hoja_n: str, columna: str, prefijo: str = ""):
+    """Celda de ``columna`` en la fila de la póliza o el activo citado en el problema."""
+    def f(hojas, e):
+        h = next((x for x in hojas if x["name"] == hoja_n), None)
+        i = _idx_id(h, e, prefijo)
+        if i is None:
+            return None
+        j = [c[0] for c in h["cols"]].index(columna)
+        return problemas.celda(hojas, hoja_n, columna, i), problemas._num(h["rows"][i][j])
+    return f
+
+
+def _concepto(etiqueta: str):
+    """Celda «Importe» de la fila ``etiqueta`` de 13_Ajustes."""
+    def f(hojas, e):
+        h = next((x for x in hojas if x["name"] == "13_Ajustes"), None)
+        for i, fila in enumerate((h or {}).get("rows") or []):
+            if fila[0] == etiqueta:
+                return problemas.celda(hojas, "13_Ajustes", "Importe", i), problemas._num(fila[1])
+        return None
+    return f
+
+
+_POL = "Póliza "
+
+# De qué celda sale el importe de cada problema (ver procesadores/problemas.py).
+REF_PROBLEMAS = {
+    "POLIZA_VENCIDA": _por_id("07_Cobertura_poliza", "Referencia asignada", _POL),       # valor de los activos que quedan sin cobertura
+    "POLIZA_NO_INICIADA": _por_id("07_Cobertura_poliza", "Referencia asignada", _POL),   # idem, póliza aún no vigente
+    "POLIZA_POR_VENCER": _por_id("07_Cobertura_poliza", "Suma asegurada total", _POL),   # suma asegurada que vence
+    "INFRASEGURO_POLIZA": _por_id("07_Cobertura_poliza", "Déficit", _POL),               # referencia − suma asegurada
+    "SUMAS_ASIGNADAS_EXCEDEN": _por_id("07_Cobertura_poliza", "Total − asignadas", _POL),  # exceso de lo asignado (−)
+    "PRIMA_MAL_DEVENGADA": _por_id("10_Prima_anticipada", "Registrada − recalculada", _POL),  # registrada − recalculada
+    "PRIMA_ANTICIPADA_NO_INFORMADA": _por_id("10_Prima_anticipada", "Anticipada recalculada", _POL),  # prima por devengar
+    "SINIESTRO_SIN_TIPO": _por_id("11_Siniestros", "Monto", _POL),                       # monto del siniestro
+    "SINIESTRO_SIN_EXIGIBILIDAD": _por_id("11_Siniestros", "Monto", _POL),               # monto del siniestro
+    "COMPENSACION_EXIGIBLE": _por_id("11_Siniestros", "Compensación exigible a reconocer", _POL),  # compensación a resultados
+    "COMPENSACION_ACTIVO_CONTINGENTE": _por_id("11_Siniestros", "Monto", _POL),          # compensación no exigible (contingente)
+    "SINIESTRO_SIN_REVELACION": _por_id("11_Siniestros", "Monto", _POL),                 # siniestro pendiente sin revelar
+    "ACTIVO_SIN_COBERTURA": _por_id("09_Sin_cobertura", "Valor de referencia"),         # exposición total del activo
+    "INFRASEGURO": _por_id("06_Cobertura_activo", "Déficit"),                            # referencia − suma vigente
+    "SOBRESEGURO": _por_id("06_Cobertura_activo", "Exceso"),                             # suma vigente − referencia
+    "EXPOSICION_MAXIMA": _por_id("08_Deducibles_exposicion", "Pérdida no cubierta", "Pérdida total de "),  # del activo mayor
+    "CONCILIACION_PRIMA_MAYOR": _concepto("Diferencia detalle − mayor"),                 # detalle − mayor
 }
 
 

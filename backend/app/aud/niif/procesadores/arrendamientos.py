@@ -39,6 +39,7 @@ from datetime import date, timedelta
 
 from openpyxl.utils import get_column_letter
 
+from backend.app.aud.niif.procesadores import problemas
 from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y filas_mapeadas los usa el ciclo)
     FILA0, a_fecha, a_num, campo, es_pymes, edicion_pymes, filas_mapeadas, fx, hoja, m as _m, norm, problema,
     r2, ref, req, suma, validar_campos, validar_definicion_generica,
@@ -1014,6 +1015,60 @@ PANEL = {
     "composicion": {"rotulo": "Pasivo recalculado por contrato", "hoja": "15_Conciliacion", "etiqueta": "Contrato", "valor": "Pasivo recalculado"},
     "distribucion": {"rotulo": "Pasivo inicial por contrato", "hoja": "06_Medicion_inicial", "etiqueta": "Contrato", "valor": "Pasivo inicial"},
 }
+
+# --- origen del importe de cada problema (ver procesadores/problemas.py) --------------
+
+def _por_contrato(hoja_: str, columna: str):
+    """Celda de la columna en la fila del contrato que abre la descripción del problema («C-01: …»)."""
+    def f(hojas, e):
+        h = next((x for x in hojas if x["name"] == hoja_), None)
+        if h is None:
+            return None
+        msg = e.get("message") or ""
+        j = [c[0] for c in h["cols"]].index(columna)
+        for i, fila in enumerate(h["rows"]):
+            if msg.startswith(f"{problemas._texto(fila[0])}:"):
+                return problemas.celda(hojas, hoja_, columna, i), fila[j]
+        return None
+    return f
+
+
+def _indexado_remedicion(hojas, e):
+    """Componente ligado al índice por período × períodos del ejercicio (hoja 07) del contrato."""
+    h = next(x for x in hojas if x["name"] == "07_Pagos_variables")
+    msg = e.get("message") or ""
+    for i, fila in enumerate(h["rows"]):
+        if msg.startswith(f"{problemas._texto(fila[0])}:"):
+            comp, q = problemas._num(fila[4]), problemas._num(fila[10])
+            if comp is None or q is None:
+                return None
+            return (f"{problemas.celda(hojas, '07_Pagos_variables', 'Componente ligado al índice', i)}"
+                    f"*{problemas.celda(hojas, '07_Pagos_variables', 'Períodos del ejercicio', i)}"), comp * q
+    return None
+
+
+# De qué celda sale el importe de cada problema (una fila por contrato en cada cédula).
+REF_PROBLEMAS = {
+    "PASIVO_DIFERENCIA": _por_contrato("10_Pasivo_corte", "Diferencia"),                # pasivo recalculado − registrado
+    "BAJO_VALOR_VEHICULO": _por_contrato("10_Pasivo_corte", "Pasivo al corte"),         # pasivo que debe reconocerse (B6)
+    "BAJO_VALOR_SIN_VALOR": _por_contrato("10_Pasivo_corte", "Pasivo al corte"),        # pasivo que debe reconocerse (B3)
+    "BAJO_VALOR_B5_B7": _por_contrato("10_Pasivo_corte", "Pasivo al corte"),            # pasivo que debe reconocerse (B5, B7)
+    "EXENCION_MAL_APLICADA": _por_contrato("10_Pasivo_corte", "Pasivo al corte"),       # pasivo del exento no elegible (22)
+    "CLASIFICACION_CP_LP": _por_contrato("10_Pasivo_corte", "Diferencia corriente"),    # corriente recalculado − registrado
+    "MODIFICACION_NO_REMEDIDA": _por_contrato("08_Remedicion", "Ajuste al pasivo y al derecho de uso"),  # pasivo remedido − antes
+    "PYMES_DERECHO_USO": _por_contrato("10_Pasivo_corte", "Pasivo registrado"),         # pasivo registrado de un operativo
+    "DETERIORO": _por_contrato("11_Derecho_uso", "Deterioro (33 / Secc. 27)"),          # MAX(0, neto − recuperable)
+    "ACTIVO_DIFERENCIA": _por_contrato("11_Derecho_uso", "Diferencia"),                 # activo neto recalculado − registrado
+    "DEPRECIACION_DIFERENCIA": _por_contrato("11_Derecho_uso", "Diferencia depreciación"),  # depreciación recalculada − registrada
+    "INTERES_DIFERENCIA": _por_contrato("10_Pasivo_corte", "Diferencia interés"),       # interés recalculado − registrado
+    "INTERES_DEVENGADO_NO_VENCIDO": _por_contrato("10_Pasivo_corte", "Interés devengado no vencido (informativo)"),  # devengo al corte (37)
+    "INDEXADO_PYMES_GASTO": _por_contrato("07_Pagos_variables", "Gasto del ejercicio por pagos variables"),  # gasto del componente indexado
+    "INDEXADO_REMEDICION": _indexado_remedicion,                                        # componente indexado × períodos del año
+    "VENTA_GANANCIA_POSTERIOR": _por_contrato("14_Venta_medicion_post",
+                                              "Control 102A: ganancia sobre el derecho de uso conservado (0)"),  # debe ser 0 (102A)
+    "VENTA_GANANCIA": _por_contrato("13_Venta_arr_posterior", "Diferencia"),            # ganancia a reconocer − registrada
+}
+
 
 def hojas(res: dict) -> list[dict]:
     d = res["detalle"]

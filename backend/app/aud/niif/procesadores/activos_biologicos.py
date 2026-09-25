@@ -25,6 +25,7 @@ PYMES 2015 no hay exclusión: la planta se queda en la Sección 34.
 """
 from __future__ import annotations
 
+from backend.app.aud.niif.procesadores import problemas
 from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y filas_mapeadas los usa el ciclo)
     FILA0, a_num, campo, edicion_pymes, es_pymes, fecha, filas_mapeadas, fx, hoja, m, problema, r2, ref, req,
     validar_campos, validar_definicion_generica,
@@ -506,6 +507,95 @@ def _explica(pymes: bool, s34_2a: bool, fuera: str) -> dict:
             "Diferencia": "Resta el valor registrado por el cliente al valor de la cosecha recalculado (VR menos costos de venta total).",
         },
     }
+
+
+# --- origen del importe de cada problema (ver procesadores/problemas.py) --------------
+
+def _pr_rango(hojas, hoja_: str, col: str) -> str:
+    """Rango absoluto de la columna sobre las filas de datos de la cédula (sin la fila TOTAL)."""
+    h = next(x for x in hojas if x["name"] == hoja_)
+    ini = problemas.celda(hojas, hoja_, col, 0)
+    fin = problemas.celda(hojas, hoja_, col, max(len(h["rows"]), 1) - 1).split("!")[1]
+    return f"{ini}:{fin}"
+
+
+def _pr_sumifs(hoja_suma: str, col_suma: str, criterios: list):
+    """SUMIFS sobre los lotes: criterios = [(hoja, columna, criterio de Excel, condición en Python sobre la celda)].
+    Las hojas 03 y 05 tienen una fila por lote en el mismo orden, así que los rangos se alinean."""
+    def f(hojas, e):
+        por = {x["name"]: x for x in hojas}
+        hs = por[hoja_suma]
+        def idx(h, col):
+            return [c[0] for c in h["cols"]].index(col)
+        js = idx(hs, col_suma)
+        valor = 0.0
+        for i, fila in enumerate(hs["rows"]):
+            if all(cond(por[h]["rows"][i][idx(por[h], col)]) for h, col, _, cond in criterios):
+                valor += problemas._num(fila[js]) or 0
+        args = ",".join(f"{_pr_rango(hojas, h, col)},{crit}" for h, col, crit, _ in criterios)
+        return f"SUMIFS({_pr_rango(hojas, hoja_suma, col_suma)},{args})", valor
+    return f
+
+
+def _pr_resumen(prefijo: str):
+    """Fila del Resumen cuyo concepto empieza con el texto dado (el rótulo cambia según el marco)."""
+    def f(hojas, e):
+        h = next(x for x in hojas if x["name"] == "01_Resumen")
+        for i, fila in enumerate(h["rows"]):
+            if problemas._texto(fila[0]).startswith(prefijo):
+                return problemas.celda(hojas, "01_Resumen", "Importe", i), fila[1]
+        return None
+    return f
+
+
+def _vacio(v) -> bool:
+    return problemas._texto(v) == "" and problemas._num(v) is None
+
+
+def _es(texto: str):
+    return lambda v: problemas._texto(v) == texto
+
+
+def _no_es(texto: str):
+    return lambda v: problemas._texto(v) != texto
+
+
+def _planta_sin_evaluar(hojas, e):
+    return _pr_sumifs("03_Activos", "Valor en libros", [
+        ("03_Activos", "Planta productora", '"Sí"', _es("Sí")),
+        ("03_Activos", "Planta productora medible por separado (34.2A)", '""', _vacio)])(hojas, e)
+
+
+def _sin_conteo(hojas, e):
+    """Libros de los lotes sin conteo que no son plantas productoras fuera de la norma (NIC 16 / Sección 17)."""
+    return _pr_sumifs("03_Activos", "Valor en libros", [
+        ("03_Activos", "Cantidad contada", '""', _vacio),
+        ("03_Activos", "Modelo auditado", f'"<>{NIC16}"', _no_es(NIC16)),
+        ("03_Activos", "Modelo auditado", f'"<>{S17}"', _no_es(S17))])(hojas, e)
+
+
+# De qué celda sale el importe de cada problema.
+REF_PROBLEMAS = {
+    "DIFERENCIA_FISICA": ("04_Existencia", "Diferencia valorizada", "total"),     # conteo − registros × valor unitario
+    "SIN_CONTEO": _sin_conteo,                                                    # libros de los lotes sin conteo (fuera de NIC 16 / Secc. 17)
+    "VALORACION_DIFIERE": ("05_Valoracion", "Ajuste", "total"),                   # valor auditado − valor en libros
+    "SIN_VR": _pr_sumifs("03_Activos", "Valor en libros", [                       # libros de los lotes a VR sin VR al corte
+        ("03_Activos", "Modelo auditado", f'"{VR}"', _es(VR)),
+        ("03_Activos", "VR unitario al corte", '""', _vacio)]),
+    "CAMBIO_VR_NO_RECONOCIDO": ("06_Transformacion", "No reconocido", "total"),   # ganancia recalculada − registrada
+    "CONCILIACION_41_50": ("07_Conciliacion", "Diferencia", "total"),             # saldo en libros − saldo final calculado
+    "MODELO_COSTO_SIN_JUSTIFICAR": _pr_sumifs("05_Valoracion", "Ajuste", [        # ajuste de los lotes que el cliente tiene al costo y van a VR
+        ("03_Activos", "Modelo del cliente", f'"{COSTO}"', _es(COSTO)),
+        ("05_Valoracion", "Modelo auditado", f'"{VR}"', _es(VR))]),
+    "SIN_COSTO": _pr_sumifs("03_Activos", "Valor en libros", [                    # libros de los lotes al costo sin costo acumulado
+        ("03_Activos", "Modelo auditado", f'"{COSTO}"', _es(COSTO)),
+        ("03_Activos", "Costo acumulado", '""', _vacio)]),
+    "DETERIORO_COSTO": ("08_Modelo_costo", "Deterioro adicional", "total"),       # MAX(0, neto − recuperable)
+    "PLANTA_PRODUCTORA": _pr_resumen("Plantas productoras fuera"),                # SUMIF de libros de plantas a NIC 16 / Secc. 17
+    "PLANTA_SIN_EVALUAR_34_2A": _planta_sin_evaluar,                              # libros de plantas sin evaluar 34.2A
+    "ANEXO_MAYOR": _pr_resumen("Diferencia anexo − mayor"),                       # anexo (libros) − saldo del mayor
+    "COSECHA_NO_A_VR": ("09_Cosecha", "Diferencia", "total"),                     # cosecha a VR − CV − valor registrado
+}
 
 
 def hojas(res: dict) -> list[dict]:

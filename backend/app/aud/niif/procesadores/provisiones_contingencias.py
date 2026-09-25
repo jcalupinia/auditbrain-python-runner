@@ -41,6 +41,7 @@ from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y fil
     FILA0, MARCO_COMPLETAS, MARCO_PYMES, a_num, campo, edicion_pymes, es_pymes, fecha, filas_mapeadas, fx, hoja,
     m, norm, problema, r2, ref, req, suma, validar_campos, validar_definicion_generica,
 )
+from backend.app.aud.niif.procesadores import problemas
 
 VERSION = "provisiones_contingencias 1.0"
 RUBRO = "PROVISIONES"
@@ -648,6 +649,97 @@ PANEL = {
                     "valor": "Provisión requerida"},
     "distribucion": {"rotulo": "Saldos en libros por tipo", "hoja": "13_Reconocimiento", "etiqueta": "Tipo",
                      "valor": "Libros"},
+}
+
+
+def _hoja(hojas, nombre):
+    return next((x for x in hojas if x["name"] == nombre), None)
+
+
+def _idx_id(h, e, prefijo: str = ""):
+    """Fila de la hoja cuyo código abre la descripción del problema («P-01: …», «P-01 (…): …»)."""
+    msg = e.get("message") or ""
+    msg = msg[len(prefijo):] if prefijo and msg.startswith(prefijo) else msg
+    hits = [(len(c), i) for i, fila in enumerate((h or {}).get("rows") or [])
+            if (c := problemas._texto(fila[0])) and (msg.startswith(c + ":") or msg.startswith(c + " ("))]
+    return max(hits)[1] if hits else None
+
+
+def _por_id(hoja_n: str, columna: str, prefijo: str = ""):
+    """Celda de ``columna`` en la fila del código citado en el problema."""
+    def f(hojas, e):
+        h = _hoja(hojas, hoja_n)
+        i = _idx_id(h, e, prefijo)
+        if i is None:
+            return None
+        j = [c[0] for c in h["cols"]].index(columna)
+        return problemas.celda(hojas, hoja_n, columna, i), problemas._num(h["rows"][i][j])
+    return f
+
+
+def _concepto(etiqueta: str):
+    """Celda «Importe» de la fila ``etiqueta`` de 15_Ajustes."""
+    def f(hojas, e):
+        h = _hoja(hojas, "15_Ajustes")
+        for i, fila in enumerate((h or {}).get("rows") or []):
+            if fila[0] == etiqueta:
+                return problemas.celda(hojas, "15_Ajustes", "Importe", i), problemas._num(fila[1])
+        return None
+    return f
+
+
+def _sin_respuesta(hojas, e):
+    """Exposición del litigio sin carta: MAX(libros, valor presente) de su fila en 13_Reconocimiento."""
+    h = _hoja(hojas, "13_Reconocimiento")
+    i = _idx_id(h, e)
+    if i is None:
+        return None
+    cols = [c[0] for c in h["cols"]]
+    lib, vp = (problemas._num(h["rows"][i][cols.index(c)]) for c in ("Libros", "Valor presente"))
+    formula = (f"MAX({problemas.celda(hojas, '13_Reconocimiento', 'Libros', i)},"
+               f"N({problemas.celda(hojas, '13_Reconocimiento', 'Valor presente', i)}))")
+    return formula, max(lib or 0, vp or 0)
+
+
+def _dif_carta(hojas, e):
+    """Libros − importe de la carta del abogado: 09 (litigios) o, si no es litigio, 13 «Libros» − 06 «Carta del abogado»."""
+    r = _por_id("09_Litigios_abogados", "Libros − carta")(hojas, e)
+    if r:
+        return r
+    h13, h06 = _hoja(hojas, "13_Reconocimiento"), _hoja(hojas, "06_Mejor_estimacion")
+    i = _idx_id(h13, e)
+    if i is None or h06 is None:
+        return None
+    lib = problemas._num(h13["rows"][i][[c[0] for c in h13["cols"]].index("Libros")])
+    carta = problemas._num(h06["rows"][i][[c[0] for c in h06["cols"]].index("Carta del abogado")])
+    if lib is None or carta is None:
+        return None
+    return (f"{problemas.celda(hojas, '13_Reconocimiento', 'Libros', i)}"
+            f"-{problemas.celda(hojas, '06_Mejor_estimacion', 'Carta del abogado', i)}"), lib - carta
+
+
+# De qué celda sale el importe de cada problema (ver procesadores/problemas.py).
+REF_PROBLEMAS = {
+    "SIN_EVALUACION": _por_id("13_Reconocimiento", "Libros"),                     # saldo en libros sin evaluar
+    "ONEROSO_SIN_BENEFICIOS": _por_id("11_Onerosos", "Costo de cumplir"),          # costo de cumplir sin restar beneficios
+    "SIN_RESPUESTA_ABOGADO": _sin_respuesta,                                       # MAX(libros, valor presente) del litigio
+    "ACTIVO_CONTINGENTE_RECONOCIDO": _por_id("13_Reconocimiento", "Libros"),      # activo contingente registrado
+    "ACTIVO_CONTINGENTE_SIN_REVELAR": _por_id("14_Contingencias", "Efecto estimado"),  # entrada probable no revelada
+    "SIN_ESTIMACION": _por_id("13_Reconocimiento", "Libros"),                     # saldo en libros sin estimación
+    "DESCUENTO_SIN_TASA": _por_id("06_Mejor_estimacion", "Mejor estimación"),     # estimación sin descontar
+    "PROVISION_NO_REGISTRADA": _por_id("13_Reconocimiento", "Provisión requerida"),  # provisión requerida no registrada
+    "ONEROSO_NO_PROVISIONADO": _por_id("13_Reconocimiento", "Provisión requerida"),  # costos inevitables no provisionados
+    "DIFERENCIA_PROVISION": _por_id("13_Reconocimiento", "Ajuste (requerida − libros)"),  # requerida − libros
+    "DIFERENCIA_CARTA_ABOGADO": _dif_carta,                                        # libros − carta del abogado
+    "PROVISION_SIN_OBLIGACION": _por_id("13_Reconocimiento", "Libros"),           # provisión registrada a revertir
+    "PROVISION_POSIBLE_O_REMOTA": _por_id("13_Reconocimiento", "Libros"),         # provisión registrada a revertir
+    "CONTINGENCIA_SIN_REVELAR": _por_id("14_Contingencias", "Efecto estimado"),   # pasivo contingente no revelado
+    "DESCUENTO_NO_APLICADO": _por_id("07_Valor_presente", "Efecto del descuento"),  # estimación − valor presente
+    "REVERSION_NO_REGISTRADA": _por_id("08_Reversion_descuento", "Reversión calculada"),  # reversión no registrada
+    "REVERSION_DIFERENCIA": _por_id("08_Reversion_descuento", "Calculada − registrada"),  # calculada − registrada
+    "GARANTIA_SIN_PROVISION": _por_id("10_Garantias_calculo", "Provisión calculada", "Garantía "),  # garantía sin provisión
+    "CONCILIACION_MAYOR": _concepto("Diferencia detalle − mayor"),                # detalle − mayor
+    "AJUSTE_SUPERA_MATERIALIDAD": _concepto("Ajuste propuesto = requerida − libros"),  # ajuste neto de provisiones
 }
 
 

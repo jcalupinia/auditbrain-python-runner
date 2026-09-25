@@ -41,6 +41,8 @@ from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y fil
     n2, norm, problema, r2, ref, req, validar_campos, validar_definicion_generica,
 )
 
+from backend.app.aud.niif.procesadores import problemas
+
 VERSION = "impuesto_corriente_diferido 1.0"
 RUBRO = "IMPUESTOS"
 
@@ -815,6 +817,96 @@ PANEL = {
         ["Impuesto corriente", "impuestoCorrienteAuditado"], ["Impuesto diferido", "gastoDiferidoRequerido"]]},
     "distribucion": {"rotulo": "Conciliación tributaria auditada por concepto", "hoja": "03_Conciliacion", "etiqueta": "Concepto",
                      "valor": "Importe auditado"},
+}
+
+
+# --- origen del importe de cada problema (ver procesadores/problemas.py) ----------------------------------------------
+
+def _fila(hojas, hoja_, columna, fila):
+    """(referencia A1, valor) de la celda de una fila fija (número de fila de Excel) de la cédula."""
+    h = next(x for x in hojas if x["name"] == hoja_)
+    j = [c[0] for c in h["cols"]].index(columna)
+    return problemas.celda(hojas, hoja_, columna, fila - FILA0), problemas._num(h["rows"][fila - FILA0][j])
+
+
+def _celda_fija(hoja_, columna, fila):
+    return lambda hojas, e: _fila(hojas, hoja_, columna, fila)
+
+
+def _resta(hoja_, columna, fila_a, fila_b):
+    """Celda de la fila A menos celda de la fila B, en la misma columna de la cédula."""
+    def f(hojas, e):
+        (ra, va), (rb, vb) = _fila(hojas, hoja_, columna, fila_a), _fila(hojas, hoja_, columna, fila_b)
+        if va is None or vb is None:
+            return None
+        return f"{ra}-{rb}", va - vb
+    return f
+
+
+def _otras_diferencias(hojas, e):
+    """Suma de la columna Diferencia de 03_Conciliacion en los renglones que no son gastos no deducibles."""
+    h = next(x for x in hojas if x["name"] == "03_Conciliacion")
+    n = len(h["rows"])
+    if not n:
+        return None
+    rango = lambda col: f"{problemas.celda(hojas, h['name'], col, 0)}:{problemas.celda(hojas, h['name'], col, n - 1).split('!')[1]}"
+    jt, jd = "Tipo", "Diferencia"
+    cols = [c[0] for c in h["cols"]]
+    valor = sum(problemas._num(f[cols.index(jd)]) or 0 for f in h["rows"] if problemas._texto(f[cols.index(jt)]) != "no_deducibles")
+    return f'SUMIF({rango(jt)},"<>no_deducibles",{rango(jd)})', valor
+
+
+def _recuperabilidad(hojas, e):
+    """«Registrado en exceso» de 08_Recuperabilidad: la fila de la partida que abre el mensaje o, si el mensaje
+    habla del activo diferido por pérdidas, la fila de pérdidas tributarias (la última)."""
+    h = next(x for x in hojas if x["name"] == "08_Recuperabilidad")
+    j = [c[0] for c in h["cols"]].index("Registrado en exceso")
+    msg = e.get("message") or ""
+    idx = len(h["rows"]) - 1
+    if not msg.startswith("Activo diferido por pérdidas"):
+        idx = next((i for i, f in enumerate(h["rows"][:-1]) if msg.startswith(f"{problemas._texto(f[0])}:")), None)
+        if idx is None:
+            return None
+    return problemas.celda(hojas, h["name"], "Registrado en exceso", idx), problemas._num(h["rows"][idx][j])
+
+
+REF_PROBLEMAS = {
+    # Impuesto corriente recalculado − registrado («Ajuste al impuesto corriente» de 12_Ajustes).
+    "IR_CORRIENTE_MAL_CALCULADO": _celda_fija("12_Ajustes", "Importe", AJF["ajCorr"]),
+    # Impuesto registrado − base imponible del cliente × tarifa (04_Impuesto_corriente, columna del cliente).
+    "IR_REGISTRADO_NO_CUADRA": _resta("04_Impuesto_corriente", "Según cliente", ICF["irReg"], ICF["ir"]),
+    # Participación trabajadores recalculada − la de la conciliación (Diferencia de 04_Impuesto_corriente).
+    "PARTICIPACION_MAL_CALCULADA": _celda_fija("04_Impuesto_corriente", "Diferencia", ICF["part"]),
+    # Participación atribuible a exentos recalculada − registrada (13_Partic_exentos).
+    "PARTICIPACION_EXENTOS": _celda_fija("13_Partic_exentos", "Importe / estado", PEF["dif"]),
+    # Participación atribuible informada en el papel del cliente − la del renglón de la conciliación (13_Partic_exentos).
+    "PARTICIPACION_EXENTOS_NO_CUADRA": _resta("13_Partic_exentos", "Importe / estado", PEF["inf"], PEF["reg"]),
+    # Gastos no deducibles auditados − los del cliente (Diferencia de 04_Impuesto_corriente).
+    "NO_DEDUCIBLES_OMITIDOS": _celda_fija("04_Impuesto_corriente", "Diferencia", ICF["nd"]),
+    # Diferencias auditor − cliente de los demás renglones de 03_Conciliacion.
+    "OTRAS_DIFERENCIAS_CONCILIACION": _otras_diferencias,
+    # «Amortización de pérdidas en exceso» de 12_Ajustes (solicitada − permitida).
+    "PERDIDAS_SOBRE_LIMITE": _celda_fija("12_Ajustes", "Importe", AJF["excesoPerd"]),
+    # Saldo vencido sin amortizar (TOTAL de 05_Perdidas).
+    "PERDIDAS_VENCIDAS": ("05_Perdidas", "Saldo vencido", "total"),
+    # Activo diferido registrado en exceso del reconocible, por partida o por pérdidas (08_Recuperabilidad).
+    "DTA_NO_PERMITIDO": _recuperabilidad,
+    "DTA_SIN_PROBABILIDAD": _recuperabilidad,
+    "DTA_PERDIDAS_EXCESO": _recuperabilidad,
+    # Efecto en el diferido de medir a una tasa distinta de la de reversión (TOTAL de 07_Tasa_reversion).
+    "TASA_REVERSION_INCORRECTA": ("07_Tasa_reversion", "Efecto en el diferido", "total"),
+    # «Ajuste al impuesto diferido neto» de 12_Ajustes (requerido − registrado).
+    "DIFERIDO_MAL_MEDIDO": _celda_fija("12_Ajustes", "Importe", AJF["ajDif"]),
+    # Gasto diferido registrado − variación de saldos sin ORI («… corresponde a ORI u otro origen» de 12_Ajustes).
+    "ORI_EN_RESULTADOS": _celda_fija("12_Ajustes", "Importe", AJF["reclas"]),
+    "GASTO_DIFERIDO_NO_CONCILIA": _celda_fija("12_Ajustes", "Importe", AJF["reclas"]),
+    # Activo diferido presentado − el que corresponde presentar («Diferencia de presentación del activo», 10_Compensacion).
+    "FALTA_COMPENSAR": _celda_fija("10_Compensacion", "Importe", FILA0 + 7),
+    "COMPENSACION_INDEBIDA": _celda_fija("10_Compensacion", "Importe", FILA0 + 7),
+    # Gasto por impuesto registrado − requerido («Gasto registrado no explicado» de 11_Tasa_efectiva).
+    "TASA_EFECTIVA_INEXPLICADA": _celda_fija("11_Tasa_efectiva", "Importe", ETRF["noexp"]),
+    # Ajuste al saldo corriente − ajuste al gasto corriente (dos filas de 12_Ajustes).
+    "SALDO_CORRIENTE_NO_CONCILIA": _resta("12_Ajustes", "Importe", AJF["ajSaldo"], AJF["ajCorr"]),
 }
 
 

@@ -2,7 +2,7 @@
 
 Estilo de la referencia «Dashboard Ejecutivo» que la firma entrega a clientes:
 fondo azul marino #071B2F con tarjetas #0A2342 y bordes sutiles; barra superior
-con logo cuadrado dorado/verde y selectores de **Color** (Ejecutivo, Medianoche,
+con los logotipos de la firma y de AUDIT-IA (incrustados, ``marca``) y selectores de **Color** (Ejecutivo, Medianoche,
 Esmeralda, Grafito, Claro), **Gráfico** (barras + línea, barras, líneas, área,
 puntos) y **Vista** (estándar, compacta, foco en tablas, presentación);
 navegación por secciones como pestañas de texto con subrayado dorado; encabezado
@@ -28,6 +28,7 @@ import re
 
 from backend.app.aud.niif.procesadores import estilo_ejecutivo as est
 from backend.app.aud.niif.procesadores import graficos, graficos_svg as gs
+from backend.app.aud.niif.procesadores import marca
 
 E = _html.escape
 
@@ -87,6 +88,17 @@ def _icono(nombre: str) -> str:
             f'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{_ICONOS[nombre]}</svg>')
 
 
+def _img(nombre: str, clase: str = "") -> str:
+    """Logotipo incrustado en base64: el HTML sigue funcionando sin internet."""
+    w, h = marca.tamano(nombre)
+    cls = f' class="{clase}"' if clase else ""
+    return f'<img{cls} src="{marca.data_uri(nombre)}" alt="{E(marca.ALT[nombre])}" width="{w}" height="{h}">'
+
+
+def _membrete() -> str:
+    return (f'<div class="membrete">{_img("auditconsulting_oscuro")}{_img("audit_ia", "logo-ia")}</div>')
+
+
 def _fecha(v) -> str:
     """2025-12-31 → 31/12/2025 (es-EC)."""
     m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", str(v or "").strip()[:10])
@@ -108,9 +120,15 @@ def _css() -> str:
         # Barra superior
         ".topbar{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;"
         "padding:10px 20px;background:var(--card);border-bottom:1px solid var(--borde);box-shadow:var(--sombra)}"
-        ".logo{width:38px;height:38px;border-radius:9px;flex:none;display:grid;place-items:center;"
-        "background:linear-gradient(135deg,#C7A83C 0%,#C7A83C 45%,#3CC48C 100%);color:#071B2F;"
-        "font:800 19px var(--f-titulo);box-shadow:inset 0 1px 0 rgba(255,255,255,.35)}"
+        # Logotipos: la firma sobre una placa navy (legible en todos los temas, también Claro)
+        ".logos{display:flex;align-items:center;gap:8px;flex:none}"
+        ".logo-firma{display:flex;align-items:center;height:44px;padding:5px 12px;border-radius:9px;background:#071B2F;"
+        "box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}.logo-firma img{height:34px;width:auto;display:block}"
+        ".logo-ia{height:44px;width:auto;border-radius:9px;display:block}"
+        # Membrete de impresión y PDF (la barra superior no se imprime)
+        ".membrete{display:none;align-items:center;justify-content:space-between;gap:16px;padding:0 0 10px;"
+        "margin:0 0 14px;border-bottom:2px solid #C7A83C}.membrete img{height:46px;width:auto;display:block}"
+        ".membrete .logo-ia{height:46px}body.pdf .membrete{display:flex}"
         ".marca{display:flex;flex-direction:column;line-height:1.2;min-width:0}"
         ".marca b{font:700 14px var(--f-titulo);letter-spacing:.02em}.marca span{font-size:11.5px;color:var(--texto2)}"
         ".controles{margin-left:auto;display:flex;flex-wrap:wrap;gap:8px;align-items:center}"
@@ -200,7 +218,7 @@ def _css() -> str:
         "@media (prefers-reduced-motion:reduce){*{transition:none!important}}"
         # Impresión: siempre en Claro
         f"@media print{{body[class]{{{claro}}}"
-        ".topbar,.nav,.acciones,.no-print{display:none!important}.wrap{max-width:none;padding:0}"
+        ".topbar,.nav,.acciones,.no-print{display:none!important}.wrap{max-width:none;padding:0}.membrete{display:flex!important}"
         "body{background:#fff}.kpi,.tarjeta,.panel{box-shadow:none}"
         # Rejilla fija al imprimir (WeasyPrint no resuelve min() dentro de minmax)
         ".kpis{grid-template-columns:repeat(5,1fr)}.graficos{grid-template-columns:repeat(2,1fr)}"
@@ -371,7 +389,7 @@ def render(definicion: dict, reg: dict, eventos: list, version: int, estado: str
                 f"<title>{E(nombre)}</title><style>{css}"
                 ".seccion{display:block!important;break-before:page}.seccion:first-of-type{break-before:auto}"
                 "details.calc>summary{list-style:none}</style></head>"
-                f'<body class="t-claro g-barras v-estandar pdf"><main class="wrap">{cuerpo_secc}</main>'
+                f'<body class="t-claro g-barras v-estandar pdf"><main class="wrap">{_membrete()}{cuerpo_secc}</main>'
                 f"<footer>AuditConsulting Auditores Cía. Ltda. · AUDIT-IA · Papel de trabajo generado por la herramienta; "
                 f"las cifras son de la prueba ejecutada.</footer></body></html>")
 
@@ -381,7 +399,8 @@ def render(definicion: dict, reg: dict, eventos: list, version: int, estado: str
         f'<a class="btn" download="{base}.{ext}" href="data:{mime};base64,{base64.b64encode(datos).decode()}">⬇ {E(etq)}</a>'
         for ext, etq, mime, datos in adjuntos)
     topbar = (
-        '<header class="topbar"><div class="logo" aria-hidden="true">A</div>'
+        f'<header class="topbar"><div class="logos"><span class="logo-firma">{_img("auditconsulting_blanco")}</span>'
+        f'{_img("audit_ia", "logo-ia")}</div>'
         '<div class="marca"><b>AuditConsulting Auditores</b><span>AUDIT-IA · Papel de trabajo NIIF</span></div>'
         '<div class="controles">'
         f'<label>Color <select id="sel-t" aria-label="Color">{opciones(TEMAS, POR_DEFECTO["t"])}</select></label>'
@@ -397,7 +416,7 @@ def render(definicion: dict, reg: dict, eventos: list, version: int, estado: str
     return ("<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
             f"<title>{E(nombre)}</title><style>{css}</style></head>"
-            f'<body class="{clases}">{topbar}{nav}<main class="wrap">{cuerpo_secc}</main>'
+            f'<body class="{clases}">{topbar}{nav}<main class="wrap">{_membrete()}{cuerpo_secc}</main>'
             "<footer>AuditConsulting Auditores Cía. Ltda. · AUDIT-IA · Funciona sin conexión. Pase el cursor sobre un importe "
             "para ver su fórmula; «ⓘ Cómo se calcula esta hoja» explica cada columna. En el Excel las fórmulas son editables y trazables.</footer>"
             f"<script>{_JS % __import__('json').dumps(POR_DEFECTO)}</script></body></html>")

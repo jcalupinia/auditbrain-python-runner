@@ -64,8 +64,14 @@ def test_ejemplo_traduce_rangos_y_columnas_completas_con_numeros():
     hojas = libro.cedulas(d, reg, [], 1, "APROBADO")
     ejemplos = [b["ejemplo"] for h in hojas for b in libro.como_se_calcula(h, hojas)]
     assert ejemplos and all(e.startswith("Fila ") and "→" in e for e in ejemplos)
-    assert any("columna completa" in e for e in ejemplos)
-    assert not any(re.search(r"\$?[A-Z]{1,3}\$?\d+", e.split("→")[0].split(":", 1)[1]) for e in ejemplos
+    # Una referencia a columna completa ('Hoja'!$F:$F) se traduce a palabras.
+    ev = base.hoja("03_X", "Evidencia", [["Tramo", "t"], ["Vivo", "n"]], [["A", 10.0]])
+    mt = base.hoja("04_M", "Matriz", [["Tramo", "t"], ["Tasa", "n"]],
+                   [["A", {"f": "SUMIF('03_X'!$A:$A,A5,'03_X'!$B:$B)", "v": 10.0}]], explica={"Tasa": "Suma lo vivo."})
+    assert "columna completa" in libro.como_se_calcula(mt, [ev, mt])[0]["ejemplo"]
+    # Sin direcciones de celda sin traducir (el texto entre comillas, como las claves de cruce, no cuenta).
+    sin_textos = lambda e: re.sub(r'«[^»]*»|"[^"]*"', "", e.split("→")[0].split(":", 1)[1])  # noqa: E731
+    assert not any(re.search(r"\$?[A-Z]{1,3}\$?\d+", sin_textos(e)) for e in ejemplos
                    if "!" not in e), "quedan referencias de celda sin traducir a números"
 
 

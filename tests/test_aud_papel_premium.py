@@ -72,6 +72,11 @@ def test_cifra_heroe_con_separador_de_miles():
     assert graficos.cifra({"v": 1234567.891}) == "1.234.567,89"
 
 
+def _titulo(ch):
+    """Primer párrafo del título (el segundo es el subtítulo de la tarjeta, como en el HTML)."""
+    return "".join(r.t for r in (ch.title.tx.rich.p[0].r or []))
+
+
 def test_excel_un_solo_dashboard_con_graficos_por_formula():
     """El Excel tiene UNA sola sección de dashboard (00_Inicio): los gráficos viven
     ahí y sus datos son fórmulas a las cédulas; ninguna otra hoja lleva gráficos."""
@@ -80,12 +85,26 @@ def test_excel_un_solo_dashboard_con_graficos_por_formula():
         wb = load_workbook(io.BytesIO(libro.xlsx(d, reg, [], 1, "APROBADO")))  # abre sin «reparar»
         con_grafico = [ws.title for ws in wb.worksheets if ws._charts]
         assert con_grafico == ["00_Inicio"], (pid, con_grafico)
-        assert len(wb["00_Inicio"]._charts) == 2, pid  # resumen + hallazgos
-        ini = wb["00_Inicio"]
-        formulas = [c.value for row in ini.iter_rows(min_col=14, max_col=15) for c in row
+        # Los MISMOS 4 gráficos del panel del HTML (pedido del dueño, 2026-09-25), nunca otros:
+        # dona de composición, registrado vs recalculado, distribución y problemas por severidad.
+        graf = wb["00_Inicio"]._charts
+        titulos = [_titulo(ch) for ch in graf]
+        assert titulos[0] == "Composición del resultado" and titulos[1] == "Registrado vs recalculado", (pid, titulos)
+        assert titulos[3] == "Problemas por severidad" and len(titulos) == 4, (pid, titulos)
+        assert graf[0].tagname == "doughnutChart" and all(ch.tagname == "barChart" for ch in graf[1:]), pid
+        assert all(len(ch._charts) == 2 for ch in graf[1:]), pid       # barras + línea, como el HTML
+        assert all(str(ch.graphical_properties.solidFill.srgbClr) == "0A2342" for ch in graf), pid  # tarjeta del HTML
+        # Los datos de los gráficos viven en una hoja oculta (el panel queda limpio) y son fórmulas.
+        datos = wb[libro.HOJA_DATOS_GRAFICOS]
+        assert datos.sheet_state == "hidden", pid
+        formulas = [c.value for row in datos.iter_rows() for c in row
                     if isinstance(c.value, str) and c.value.startswith("=")]
-        assert any(re.match(r"^='[^']+'!B\d+$", f) for f in formulas), pid      # resumen → celda de la cédula
-        assert any("SUMIFS(" in f and "Problemas" in f for f in formulas), pid  # hallazgos → hoja de problemas
+        # Títulos que no se montan sobre las barras y rótulos de categoría como texto.
+        for ch in wb["00_Inicio"]._charts:
+            assert ch.title.overlay is False and ch.series[0].cat.strRef is not None, pid
+        assert any(re.match(r"^='00_Inicio'!\$[B-F]\$\d+$", f) for f in formulas), pid  # registrado/recalculado → tarjetas
+        assert sum("SUMIFS(" in f and "Problemas" not in f for f in formulas) >= 2, pid  # composición/distribución → cédulas
+        assert any("COUNTIFS(" in f and "Problemas" in f for f in formulas), pid  # severidad → hoja de problemas
 
 
 def test_excel_tablas_premium():
