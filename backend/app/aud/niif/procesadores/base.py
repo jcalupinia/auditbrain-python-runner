@@ -75,15 +75,31 @@ def problema(code: str, mensaje: str, importe=0) -> dict:
     return {"code": code, "message": mensaje, "amount": r2(importe or 0)}
 
 
-def hoja(name: str, label: str, cols: list, rows: list, total=None, explica: dict | None = None) -> dict:
+def hoja(name: str, label: str, cols: list, rows: list, total=None, explica: dict | None = None,
+         guia: str | None = None, ocultas: list | None = None, origen: dict | None = None) -> dict:
     """Cédula: cols = [[título, formato]] con formato t/n/p/i/d/x; celdas calculadas con fx().
 
     ``explica`` = {título de columna calculada: explicación en lenguaje sencillo}.
     Es la explicación HUMANA que muestra el bloque «Cómo se calcula esta hoja»
     (Excel, Word, HTML y PDF): qué hace la columna, con qué datos y de qué hoja,
     como se lo contaría el auditor a un cliente. Toda columna con fórmula debe
-    tenerla (lo exige tests/test_aud_explicaciones_humanas.py)."""
-    return {"name": name, "label": label, "cols": cols, "rows": rows, "total": total, "explica": dict(explica or {})}
+    tenerla (lo exigen ``tests/test_aud_html_premium.py`` y
+    ``scripts/verificar_explicaciones.py``).
+
+    ``guia`` = «¿De dónde saco este dato?»: qué documento, reporte, cuenta y fecha
+    alimenta la hoja (va en la fila 3 del Excel). Obligatoria en las hojas de datos
+    del cliente (``D1_…``).
+    ``ocultas`` = columnas técnicas (claves de cruce) que el Excel agrupa y oculta.
+    ``origen`` = {columna: texto} para reemplazar el «De dónde viene el dato» que se
+    deduce de la fórmula (cuando cada fila remite a una hoja distinta)."""
+    h = {"name": name, "label": label, "cols": cols, "rows": rows, "total": total, "explica": dict(explica or {})}
+    if guia:
+        h["guia"] = guia
+    if ocultas:
+        h["ocultas"] = list(ocultas)
+    if origen:
+        h["origen"] = dict(origen)
+    return h
 
 
 def suma(col: str, fin_fila: int, valor) -> dict:

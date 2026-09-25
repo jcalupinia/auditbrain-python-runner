@@ -24,6 +24,36 @@ Construir y ejecutar herramientas Python reutilizables para cálculos NIIF plena
 
 ---
 
+## Herramientas del Command Center AUDIT-IA (repositorio `auditbrain-python-runner`)
+
+Si la herramienta es una **prueba NIIF del catálogo del Command Center**, no es una calculadora suelta: es un
+**procesador** (`backend/app/aud/niif/procesadores/<id>.py` + `tests/test_proc_<id>.py`) y su papel de trabajo
+lo arma el sistema. En ese caso:
+
+1. Sigue **`docs/niif/CONTRATO_PROCESADOR.md`** y **`docs/niif/ENCARGO_AGENTE_HERRAMIENTA.md`** al pie de la
+   letra. Referencias: `pce_simplificada_niif9.py` (estructura) y `perdidas_incurridas_s11.py` (piloto del papel).
+2. **Reglas del papel de trabajo** (decisiones del dueño, 2026-09-21/24/25; detalle en `CLAUDE.md`):
+   - **Cinco formatos:** Excel con fórmulas, HTML sin internet, PDF, Word y PowerPoint. Los arma `libro.py`
+     a partir de lo que declara el procesador; el procesador no los programa.
+   - **Sin cifras calculadas pegadas:** los datos del cliente y los parámetros son valores; todo lo demás es
+     fórmula que remite a su origen, incluidos los indicadores de la portada y el importe de cada problema
+     (`REF_PROBLEMAS`).
+   - **Datos del cliente dentro del libro:** una hoja `D1_…` por documento entregado, con «Origen del dato» y
+     la guía «¿De dónde saco este dato?»; las cédulas calculan desde ahí.
+   - **Explicación humana por columna calculada** (`explica`), para que la entienda un contador o un gerente
+     financiero; la fórmula técnica va sola al Anexo técnico.
+   - **`PANEL`:** declara población, recalculado, registrado, composición y distribución. De ahí salen las
+     5 tarjetas y los 4 gráficos, iguales en el HTML, la portada del Excel, el Word y el PowerPoint.
+     Nunca un gráfico con todas las filas del Resumen (mezcla escalas: «código de barras»).
+   - **Logotipos** de AuditConsulting y AUDIT-IA en todos los formatos: los pone el sistema.
+3. **Verificación antes de entregar:** prueba del procesador, `verificar_formulas.py` (`DIFERENCIAS: 0` en
+   Excel real), `verificar_explicaciones.py`, `verificar_problemas_enlazados.py` (`PENDIENTES: 0`) y las pruebas
+   transversales `-k <id>`. El Excel no puede abrir con el aviso de «reparar».
+4. En este caso **no uses el Universal Creador**: el entregable es el código del procesador; los archivos del
+   papel los genera el Command Center.
+
+---
+
 ## Catálogo de librerías GitHub por norma
 
 | Repositorio | Norma | Qué aporta | NIIF plenas | PYMES |
@@ -77,6 +107,8 @@ Pasar la salida por `data:validate-data` (QA de la analítica) y declarar la val
 
 ### Paso 6 — Entregable (Universal Creador)
 Entregar la herramienta como script, Excel o JSON mediante el Universal Creador, como enlace markdown `[Descargar archivo](URL)`.
+Excepción: si es una prueba del catálogo del Command Center, el entregable es el procesador (ver «Herramientas
+del Command Center AUDIT-IA») y el papel de trabajo lo genera el sistema en sus cinco formatos.
 
 ### Paso 7 — Integración Power BI (opcional)
 Si el usuario lo pide, usar `auditbrain-powerbi-dataset-modeler` para modelar el dataset (tablas, relaciones, medidas DAX) e insumo para el dashboard.

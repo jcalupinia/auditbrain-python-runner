@@ -559,6 +559,15 @@ tarjetas salen de `html_ejecutivo.kpis_datos`: si cambia el HTML, cambian el Wor
 Sin gráficos nativos distintos en el PowerPoint. Prueba: `tests/test_aud_office_como_html.py`
 (incluye el orden del XML de Word, que si falla dispara «contenido ilegible»).
 
+**Agentes que construyen o revisan herramientas NIIF (2026-09-25):** el contrato vigente está en
+`docs/niif/CONTRATO_PROCESADOR.md` y el encargo en `docs/niif/ENCARGO_AGENTE_HERRAMIENTA.md`. Cubren `PANEL`,
+`REF_PROBLEMAS`, `explica`/`guia`/`ocultas` en `base.hoja()`, las hojas de datos del cliente y los verificadores.
+Si cambia una regla de esta sección, actualizar también:
+- esos dos documentos;
+- las skills `skills/niif-multiagente/` (orquestador, automatización, revisor);
+- el encargo «Generar código para Claude» (`frontend/src/aud/niif/fichaLogic.js::textoEncargo`, sección 7);
+- la línea «PAPELES DEL COMMAND CENTER» de `docs/gpt/instructions_niif_*.md`.
+
 **Logotipos (2026-09-25):** todo papel lleva el logo de AuditConsulting y el de AUDIT-IA
 (`procesadores/marca.py`, archivos en `backend/app/aud/niif/assets/`): banda navy de `00_Inicio`,
 encabezado del Word, portada y pie del PowerPoint, barra del HTML y membrete de impresión/PDF.
