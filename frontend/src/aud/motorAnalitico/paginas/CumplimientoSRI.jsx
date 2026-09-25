@@ -42,8 +42,14 @@ function SubDescarga() {
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState("");
   const [bajando, setBajando] = useState(false);
+  const [segundos, setSegundos] = useState(0);
   const ctx = useRef({ url: "", token: "", id: "", vivo: false });
   useEffect(() => () => { ctx.current.vivo = false; }, []);
+  useEffect(() => {
+    if (!(fase === "procesando" || fase === "captcha")) return undefined;
+    const t = setInterval(() => setSegundos((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [fase]);
 
   const set = (k) => (e) => {
     const v = e.target.type === "checkbox" ? e.target.checked : e.target.value;
@@ -65,7 +71,7 @@ function SubDescarga() {
   }
 
   async function lanzar() {
-    setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null);
+    setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null); setSegundos(0);
     if (!/^\d{13}$/.test(form.ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
     if (!form.clave) { setError("Falta la clave del SRI del cliente."); return; }
     const formatos = [form.formatoXML && "XML", form.formatoPDF && "PDF"].filter(Boolean);
@@ -175,6 +181,15 @@ function SubDescarga() {
             <input value={captchaCodigo} onChange={(e) => setCaptchaCodigo(e.target.value)} placeholder="Código" autoFocus onKeyDown={(e) => e.key === "Enter" && enviarCaptcha()} />
             <button type="button" className="ma-sri-boton-ejecutar" onClick={enviarCaptcha}>Enviar</button>
           </div>
+        </div>
+      )}
+      {(fase === "procesando" || fase === "captcha") && (
+        <div className="ma-sri-trabajando">
+          <span className="ma-sri-spinner" aria-hidden="true" />
+          <span>
+            El robot está trabajando en el servidor… <strong>{segundos}s</strong>
+            {fase === "captcha" ? " · esperando que resuelvas el captcha" : " · entrando al SRI y navegando (puede tardar 1-3 min)"}
+          </span>
         </div>
       )}
       {progreso.length > 0 && <ul className="ma-sri-progreso">{progreso.slice(-8).map((m, i) => <li key={i}>{m}</li>)}</ul>}

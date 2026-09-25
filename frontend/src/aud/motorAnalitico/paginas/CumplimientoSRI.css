@@ -134,3 +134,16 @@
 .ma-sri-check-fila label { flex-direction: row; align-items: center; gap: 6px; color: var(--ma-text); }
 .ma-sri-ayuda { display: flex; flex-direction: column; gap: 16px; }
 .ma-sri-ayuda-lista { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; color: var(--ma-text); }
+
+/* --- Estado "trabajando" (spinner + cronómetro) --- */
+.ma-sri-trabajando {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin-top: 4px;
+  background: var(--ma-panel); border: 1px solid var(--ma-oro); border-radius: 8px;
+  color: var(--ma-text); font-size: 0.9rem;
+}
+.ma-sri-spinner {
+  width: 16px; height: 16px; border-radius: 50%; flex: 0 0 auto;
+  border: 2px solid var(--ma-line); border-top-color: var(--ma-oro);
+  animation: ma-sri-spin 0.8s linear infinite;
+}
+@keyframes ma-sri-spin { to { transform: rotate(360deg); } }
