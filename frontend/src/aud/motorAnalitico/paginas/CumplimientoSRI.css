@@ -82,3 +82,41 @@
 @media (max-width: 480px) {
   .ma-sri-organismos { flex-direction: column; align-items: flex-start; }
 }
+
+/* --- Panel funcional de descarga del SRI --- */
+.ma-sri-descarga { display: flex; flex-direction: column; gap: 14px; }
+.ma-sri-descarga-cab h3 { margin: 0 0 2px; }
+.ma-sri-descarga-cab span { color: var(--ma-dim); font-size: 0.9rem; }
+.ma-sri-form {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;
+}
+.ma-sri-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--ma-dim); }
+.ma-sri-form input, .ma-sri-form select {
+  background: var(--ma-bg); color: var(--ma-text);
+  border: 1px solid var(--ma-line); border-radius: 8px; padding: 8px 10px; font-size: 0.95rem;
+}
+.ma-sri-form input:focus, .ma-sri-form select:focus { outline: 2px solid var(--ma-oro); }
+.ma-sri-descarga-acciones { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.ma-sri-descarga-clave-nota { color: var(--ma-dim); font-size: 0.8rem; }
+
+.ma-sri-captcha {
+  border: 1px solid var(--ma-oro); border-radius: 10px; padding: 14px;
+  background: var(--ma-panel); display: flex; flex-direction: column; gap: 10px; max-width: 380px;
+}
+.ma-sri-captcha-img { background: #fff; border-radius: 6px; padding: 4px; align-self: flex-start; }
+.ma-sri-captcha-fila { display: flex; gap: 8px; }
+.ma-sri-captcha-fila input {
+  flex: 1; background: var(--ma-bg); color: var(--ma-text);
+  border: 1px solid var(--ma-line); border-radius: 8px; padding: 8px 10px;
+}
+
+.ma-sri-progreso {
+  margin: 0; padding: 10px 14px; list-style: none; background: var(--ma-bg);
+  border: 1px solid var(--ma-line-soft); border-radius: 8px;
+  font-family: var(--ma-mono); font-size: 0.82rem; color: var(--ma-dim);
+  display: flex; flex-direction: column; gap: 2px; max-height: 160px; overflow: auto;
+}
+.ma-sri-resultado { border-radius: 8px; padding: 12px 14px; font-size: 0.9rem; }
+.ma-sri-resultado-ok { border: 1px solid var(--ma-accent); background: var(--ma-p1-bg); }
+.ma-sri-resultado-ok pre { margin: 6px 0 0; font-family: var(--ma-mono); font-size: 0.8rem; overflow: auto; }
+.ma-sri-resultado-error { border: 1px solid var(--ma-p1); color: var(--ma-p1); background: var(--ma-p1-bg); }

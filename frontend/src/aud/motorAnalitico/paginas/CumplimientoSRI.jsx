@@ -1,4 +1,11 @@
+import { useRef, useState } from "react";
 import { PAGINAS } from "../paginas.js";
+import {
+  motorAnaliticoPermiso,
+  sriDescargar,
+  sriEstado,
+  sriEnviarCaptcha,
+} from "../../../api.js";
 import "./CumplimientoSRI.css";
 
 const META = PAGINAS.find((p) => p.id === "sri");
@@ -42,12 +49,191 @@ const ANEXOS = [
 ].map((d) => ({ ...d, estado: NOMBRE_ESTADO[d.t] }));
 
 const SECCIONES = [
+  { id: "descargar", titulo: "Descargar del SRI" },
   { id: "fuentes", titulo: "Fuentes" },
   { id: "comprobantes", titulo: "Comprobantes SRI vs contabilidad" },
   { id: "declaraciones", titulo: "Declaraciones" },
   { id: "anexos", titulo: "Anexos" },
   { id: "organismos", titulo: "Otros organismos" },
 ];
+
+const MESES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+];
+const ANIO_ACTUAL = new Date().getFullYear();
+const ANIOS = Array.from({ length: 8 }, (_, i) => ANIO_ACTUAL - i);
+const TIPOS = ["Todos", "Facturas", "Notas de crédito", "Notas de débito", "Retenciones", "Liquidaciones"];
+
+// Panel funcional: lanza la descarga en el motor y hace polling. Si el SRI pide
+// captcha, muestra la imagen para que el auditor la resuelva. La clave del
+// cliente va del navegador al motor directo; nunca se guarda ni pasa por Render.
+function PanelDescargaSRI() {
+  const [form, setForm] = useState({
+    ruc: "", clave: "", anio: ANIO_ACTUAL, mes: 1, tipo: "Todos", origen: "Recibidos",
+  });
+  const [fase, setFase] = useState("idle"); // idle|lanzando|procesando|captcha|listo|error
+  const [progreso, setProgreso] = useState([]);
+  const [captchaImg, setCaptchaImg] = useState(null);
+  const [captchaCodigo, setCaptchaCodigo] = useState("");
+  const [resultado, setResultado] = useState(null);
+  const [error, setError] = useState("");
+  const ctx = useRef({ url: "", token: "", id: "", vivo: false });
+
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const trabajando = fase === "lanzando" || fase === "procesando" || fase === "captcha";
+
+  async function poll() {
+    if (!ctx.current.vivo) return;
+    try {
+      const est = await sriEstado(ctx.current.url, ctx.current.token, ctx.current.id);
+      setProgreso(est.progreso || []);
+      if (est.estado === "captcha") {
+        setFase("captcha");
+        setCaptchaImg(est.captcha_img_b64 || null);
+      } else if (est.estado === "listo") {
+        ctx.current.vivo = false;
+        setResultado(est.resultado || {});
+        setFase("listo");
+        return;
+      } else if (est.estado === "error") {
+        ctx.current.vivo = false;
+        setError(est.error || "La descarga falló.");
+        setFase("error");
+        return;
+      } else {
+        setFase("procesando");
+        setCaptchaImg(null);
+      }
+    } catch (e) {
+      // fallo transitorio de red: seguimos intentando
+    }
+    setTimeout(poll, 1500);
+  }
+
+  async function lanzar() {
+    setError("");
+    setResultado(null);
+    setProgreso([]);
+    setCaptchaImg(null);
+    if (!/^\d{13}$/.test(form.ruc.trim())) {
+      setError("El RUC debe tener 13 dígitos.");
+      return;
+    }
+    if (!form.clave) {
+      setError("Falta la clave del SRI del cliente.");
+      return;
+    }
+    setFase("lanzando");
+    try {
+      const permiso = await motorAnaliticoPermiso(`SRI ${form.ruc.trim()}`, "ejecutar");
+      const { id } = await sriDescargar(permiso.url, permiso.token, {
+        ruc: form.ruc.trim(),
+        clave: form.clave,
+        anio: Number(form.anio),
+        mes: Number(form.mes),
+        tipo: form.tipo,
+        origen: form.origen,
+      });
+      ctx.current = { url: permiso.url, token: permiso.token, id, vivo: true };
+      setForm((f) => ({ ...f, clave: "" })); // no conservar la clave en memoria del UI
+      setFase("procesando");
+      poll();
+    } catch (e) {
+      setError(e?.message || "No se pudo iniciar la descarga.");
+      setFase("error");
+    }
+  }
+
+  async function enviarCaptcha() {
+    if (!captchaCodigo.trim()) return;
+    try {
+      await sriEnviarCaptcha(ctx.current.url, ctx.current.token, ctx.current.id, captchaCodigo.trim());
+      setCaptchaCodigo("");
+      setCaptchaImg(null);
+      setFase("procesando");
+    } catch (e) {
+      setError(e?.message || "No se pudo enviar el captcha.");
+    }
+  }
+
+  return (
+    <section id="ma-sri-descargar" aria-label="Descargar del SRI" className="ma-tarjeta ma-sri-descarga">
+      <div className="ma-sri-descarga-cab">
+        <h3>Descargar comprobantes del SRI</h3>
+        <span>El robot inicia sesión en el portal del SRI y descarga los comprobantes del período.</span>
+      </div>
+
+      <div className="ma-sri-form">
+        <label>RUC del cliente
+          <input value={form.ruc} onChange={set("ruc")} inputMode="numeric" maxLength={13}
+                 placeholder="1791859596001" disabled={trabajando} />
+        </label>
+        <label>Clave del SRI
+          <input type="password" value={form.clave} onChange={set("clave")}
+                 placeholder="•••••••" autoComplete="off" disabled={trabajando} />
+        </label>
+        <label>Origen
+          <select value={form.origen} onChange={set("origen")} disabled={trabajando}>
+            <option>Recibidos</option>
+            <option>Emitidos</option>
+          </select>
+        </label>
+        <label>Año
+          <select value={form.anio} onChange={set("anio")} disabled={trabajando}>
+            {ANIOS.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </label>
+        <label>Mes
+          <select value={form.mes} onChange={set("mes")} disabled={trabajando}>
+            {MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+          </select>
+        </label>
+        <label>Tipo
+          <select value={form.tipo} onChange={set("tipo")} disabled={trabajando}>
+            {TIPOS.map((t) => <option key={t}>{t}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <div className="ma-sri-descarga-acciones">
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={lanzar} disabled={trabajando}>
+          {trabajando ? "Descargando…" : "Descargar"}
+        </button>
+        <span className="ma-sri-descarga-clave-nota">
+          La clave va directo al motor de la firma; no se guarda ni pasa por el servidor web.
+        </span>
+      </div>
+
+      {captchaImg && (
+        <div className="ma-sri-captcha" role="dialog" aria-label="Resolver captcha">
+          <p><strong>El SRI pide un captcha.</strong> Escribe lo que ves en la imagen:</p>
+          <img alt="captcha del SRI" src={`data:image/png;base64,${captchaImg}`} className="ma-sri-captcha-img" />
+          <div className="ma-sri-captcha-fila">
+            <input value={captchaCodigo} onChange={(e) => setCaptchaCodigo(e.target.value)}
+                   placeholder="Código del captcha" autoFocus
+                   onKeyDown={(e) => e.key === "Enter" && enviarCaptcha()} />
+            <button type="button" className="ma-sri-boton-ejecutar" onClick={enviarCaptcha}>Enviar</button>
+          </div>
+        </div>
+      )}
+
+      {progreso.length > 0 && (
+        <ul className="ma-sri-progreso">
+          {progreso.slice(-8).map((m, i) => <li key={i}>{m}</li>)}
+        </ul>
+      )}
+
+      {fase === "listo" && (
+        <div className="ma-sri-resultado ma-sri-resultado-ok">
+          <strong>Descarga completada.</strong>
+          <pre>{JSON.stringify(resultado, null, 2)}</pre>
+        </div>
+      )}
+      {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
+    </section>
+  );
+}
 
 export default function CumplimientoSRI({ ir, EnConstruccion }) {
   return (
@@ -78,7 +264,7 @@ export default function CumplimientoSRI({ ir, EnConstruccion }) {
         ))}
       </nav>
 
-      <EnConstruccion sp={META.sp} />
+      <PanelDescargaSRI />
 
       <section id="ma-sri-fuentes" aria-label="Fuentes" className="ma-grid ma-sri-fuentes">
         {FUENTES.map((f) => (
@@ -191,8 +377,9 @@ export default function CumplimientoSRI({ ir, EnConstruccion }) {
       <div className="ma-sri-nota-pie">
         <span className="ma-sri-nota-pie-barra" aria-hidden="true" />
         <span>
-          Catálogo de declaraciones y anexos a validar con el área tributaria de la firma. Las credenciales del
-          SRI del cliente nunca pasan por el motor.
+          Catálogo de declaraciones y anexos a validar con el área tributaria de la firma. La clave del SRI
+          del cliente viaja del navegador directo al motor de la firma, se usa solo para esa descarga y no se
+          guarda ni pasa por el servidor web.
         </span>
       </div>
     </section>

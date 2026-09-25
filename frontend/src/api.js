@@ -187,6 +187,41 @@ export async function motorAnaliticoPermiso(encargo, accion) {
   );
 }
 
+// ---- Descarga SRI (robot headless en el motor; el navegador llama al motor
+// DIRECTO con el token firmado; la clave del cliente no pasa por Render). ----
+// Normaliza para tolerar que MOTOR_ANALITICO_URL venga con o sin sufijo /motor.
+function _motorBase(url) {
+  return String(url || "").replace(/\/$/, "").replace(/\/motor$/, "");
+}
+function _motorHeaders(token, extra = {}) {
+  return { Authorization: `Bearer ${token}`, ...extra };
+}
+export async function sriDescargar(url, token, params) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/descargar`, {
+      method: "POST",
+      headers: _motorHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    })
+  );
+}
+export async function sriEstado(url, token, id) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/trabajos/${id}`, {
+      headers: _motorHeaders(token),
+    })
+  );
+}
+export async function sriEnviarCaptcha(url, token, id, codigo) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/trabajos/${id}/captcha`, {
+      method: "POST",
+      headers: _motorHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify({ codigo }),
+    })
+  );
+}
+
 // ---- Fichas de diseño de herramientas NIIF (AUD) ----
 // Viven en el backend, no en el navegador: el circuito exige que quien marca
 // una ficha como «probada» pueda ser alguien distinto de quien la diseñó.
