@@ -22,3 +22,9 @@ frontend/src/aud/*
 !frontend/src/aud/niif/
 frontend/src/aud/niif/*
 !frontend/src/aud/niif/ejemplosRequerimientos.js
+# Motor portable del sitio: la «Calculadora reutilizable» del HTML de las pruebas declarativas.
+!frontend/src/aud/niif/sitio/
+frontend/src/aud/niif/sitio/*
+!frontend/src/aud/niif/sitio/tools/
+frontend/src/aud/niif/sitio/tools/*
+!frontend/src/aud/niif/sitio/tools/portable-engine.mjs

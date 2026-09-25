@@ -28,6 +28,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.app.aud.niif.procesadores import PROCESADORES, graficos, libro  # noqa: E402
+from backend.app.aud.niif.procesadores import datos_cliente  # noqa: E402
 
 MIN_LARGO = 40
 
@@ -55,7 +56,7 @@ def revisar(pid: str, detalle: bool = False) -> list[str]:
     for nombre_esc, ds, par, corte in escenarios(mod):
         try:
             run = mod.ejecutar(ds, par, corte)
-            hojas = mod.hojas(run)
+            hojas = datos_cliente.con_datos(mod, run, ds)
         except Exception as e:  # noqa: BLE001 — un escenario de error intencional no aporta columnas
             continue
         for h in hojas:

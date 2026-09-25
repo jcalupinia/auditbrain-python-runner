@@ -6,6 +6,7 @@ parámetros → ejecución → papel en los cuatro formatos. Los totales deben s
 directo del procesador con los mismos datos.
 """
 import io
+import re
 
 import pytest
 from openpyxl import load_workbook
@@ -114,7 +115,11 @@ def test_ejercicio_modelo_de_principio_a_fin(client, disco_temporal, pid):
     # Mismo resultado que el cálculo directo con los datos tal como se leyeron del Excel.
     directo = m.ejecutar(p["registro"]["datasets"], {**param, "_marco": marco, "_edicion": edicion}, ej["corte"])
     assert p["registro"]["run"]["totals"] == directo["totals"]
-    assert [x["name"] for x in p["registro"]["run"]["hojas"]] == [n for n, _ in m.CEDULAS]
+    nombres = [x["name"] for x in p["registro"]["run"]["hojas"]]
+    assert [n for n in nombres if not re.match(r"D\d+_", n)] == [n for n, _ in m.CEDULAS]
+    # Datos del cliente dentro del libro: una hoja por anexo entregado (procesadores/datos_cliente.py).
+    entregados = [r["dataset"] for r in m.definicion()["requests"] if r.get("dataset") and p["registro"]["datasets"].get(r["dataset"])]
+    assert [x["dataset"] for x in p["registro"]["run"]["hojas"] if re.match(r"D\d+_", x["name"])] == entregados
     for fmt, firma in (("xlsx", b"PK"), ("docx", b"PK"), ("pptx", b"PK"), ("html", b"<!doctype html>")):
         r = client.get(f"{BASE}/pruebas/{p['id']}/libro?formato={fmt}", headers=_h(tok))
         assert r.status_code == 200 and r.content.startswith(firma), fmt

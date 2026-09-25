@@ -537,11 +537,18 @@ parámetros del auditor sí son valores (entradas); todo lo demás es fórmula:
   como valor y lo reporta `python scripts/verificar_problemas_enlazados.py` (debe dar «PENDIENTES: 0»).
 - Un código de problema nuevo exige su entrada en `REF_PROBLEMAS`; lo vigila
   `tests/test_aud_sin_datos_fijos.py`.
-- **Datos del cliente dentro del libro (piloto: pérdidas incurridas).** Cada documento que entrega
-  el cliente va en su hoja `D1_…`–`D5_…` con la columna «Origen del dato» (archivo · hoja · fila)
-  y la guía «¿De dónde saco este dato?» (qué reporte, cuenta y fecha). Las cédulas calculan desde
-  ahí con fórmulas (evidencia histórica, reversión, bajas, provisión inicial, mora, tasa ponderada).
-  Las claves de cruce (`F…`, `A…`, `C…`, equivalentes a `norm()`) van en columnas agrupadas y ocultas.
+- **Datos del cliente dentro del libro (todas las herramientas desde 2026-09-25).** Cada documento que
+  entrega el cliente va en su hoja `D1_…`, `D2_…` con la columna «Origen del dato» (archivo · hoja · fila)
+  y la guía «¿De dónde saco este dato?» (también visible en el HTML y el Word).
+  - Piloto hecho a mano: pérdidas incurridas (`D1_…`–`D5_…`; sus cédulas calculan desde ahí con fórmulas:
+    evidencia histórica, reversión, bajas, provisión inicial, mora, tasa ponderada; claves de cruce `F…`,
+    `A…`, `C…` en columnas agrupadas y ocultas).
+  - Las otras 19: `procesadores/datos_cliente.py` (`con_datos`, llamado al procesar la prueba y en el
+    ejercicio modelo) arma una hoja por requerimiento entregado y cambia cada dato del cliente que una
+    cédula traía pegado por una fórmula a su celda. Solo enlaza una columna si TODAS sus celdas encuentran
+    la misma partida, el mismo valor y un encabezado parecido; si no, la columna es un cálculo y queda como
+    estaba. Un enlace nunca cambia una cifra. Verificación: `python scripts/verificar_datos_cliente.py`
+    (LibreOffice, «DIFERENCIAS: 0»); prueba `tests/test_aud_datos_cliente.py`.
 
 **Diseño del libro (todas las herramientas, 2026-09-25):** portada con botones por sección
 (Resultado · Cómo se calculó · Datos del cliente · Documentación) y pestañas del color de su
@@ -589,3 +596,8 @@ lean el cuadro (el sitio las dejaba apuntando a la columna A: #¡VALOR!). Verifi
 `tests/test_aud_papel_declarativo.py` y `papelDeclarativo.test.js` (esta falla si los ejemplos de
 `tests/fixtures/papel_declarativo` se desactualizan: regenerarlos con
 `node frontend/scripts/fixture_papel_declarativo.mjs`). La copia `sitio/` no se edita.
+**Calculadora reutilizable (2026-09-25):** el HTML de una prueba declarativa trae la pestaña
+«Calculadora» con el MISMO motor portable del sitio (`sitio/tools/portable-engine.mjs`, leído por
+`declarativo.motor_portable()`; el `.dockerignore` lo deja entrar a la imagen) y la población de la
+versión: editar, agregar/quitar filas, recalcular, restablecer. Es una simulación: no cambia el papel,
+no se imprime ni va al PDF. Prueba en el navegador: `node scripts/probar_calculadora.mjs <papel.html> <total>`.

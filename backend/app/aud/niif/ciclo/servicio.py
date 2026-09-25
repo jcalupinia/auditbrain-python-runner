@@ -470,7 +470,9 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                         "La NIIF para las PYMES 2025 (3.ª edición) rige para períodos desde el 1-1-2027: con corte "
                         f"{reg['engagement']['cutoff']} solo procede si la entidad la adoptó anticipadamente y lo revela; "
                         "de lo contrario use la edición 2015."}] + list(run.get("exceptions") or [])
-                run["hojas"] = proc.hojas(run)
+                # Las cédulas y, dentro del libro, los datos que entregó el cliente (hojas D1_…).
+                from backend.app.aud.niif.procesadores import datos_cliente
+                run["hojas"] = datos_cliente.con_datos(proc, run, reg.get("datasets") or {})
                 run["detalle"] = {k: v for k, v in run["detalle"].items() if k in ("tasas", "fiscal", "cortes")}
             else:
                 run = estudio.ejecutar_definicion(p.definicion, reg["rows"], reg["parameters"], reg.get("flows") or [])

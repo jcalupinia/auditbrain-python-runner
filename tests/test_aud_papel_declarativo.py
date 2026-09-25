@@ -187,3 +187,44 @@ def test_procesadores_no_cambian():
     reg = em._reg(d, mod, ds, par, corte)
     nombres = [h["name"] for h in libro.cedulas(d, reg, [], 1, "APROBADO")]
     assert nombres[:3] == ["00_Caratula", "00_Programa", "00_Fuentes"] and nombres[-1] == "14_Control_Revision"
+
+
+def test_html_trae_la_calculadora_reutilizable(papel):
+    """La «Calculadora reutilizable» del HTML del sitio, en el HTML nuevo: pestaña propia, el mismo
+    motor portable del sitio y la población de la versión. No se imprime ni va al PDF. La prueba
+    en el navegador es ``node scripts/probar_calculadora.mjs <papel.html> <total>``."""
+    nombre, carga, (d, reg, *_), archivos = papel
+    h = archivos["html"].decode()
+    assert '<button class="tab' in h and 'data-s="s-calc"' in h
+    assert '<section class="seccion no-imprime" id="s-calc"' in h
+    assert declarativo.motor_portable() and declarativo.motor_portable()[:200] in h
+    datos = json.loads(re.search(r'<script type="application/json" id="calc-datos">(.*?)</script>', h, re.S).group(1))
+    assert datos["definition"]["fields"] == carga["herramienta"]["definition"]["fields"]
+    assert "panel" not in datos["definition"] and "declarativa" not in datos["definition"]
+    assert len(datos["rows"]) == len(reg["run"]["hojas"][[x["name"] for x in reg["run"]["hojas"]].index("05_Data_Original")]["rows"])
+    assert datos["rows"][0]["id"] and all(isinstance(v, str) for v in datos["rows"][0].values())
+    # El HTML estático del PDF no la lleva.
+    estatico = libro.html(d, reg, [], 1, "APROBADO", para_pdf=True).decode()
+    assert "calc-datos" not in estatico and "Calculadora reutilizable" not in estatico
+
+
+def test_sin_motor_no_hay_calculadora(monkeypatch, tmp_path):
+    """Si el motor del sitio no está en el servidor, el HTML sale igual, sin la pestaña."""
+    monkeypatch.setattr(declarativo, "MOTOR_PORTABLE", tmp_path / "no_existe.mjs")
+    declarativo.motor_portable.cache_clear()
+    try:
+        h = declarativo.archivo(_carga("vnr"), "html").decode()
+        assert "calc-datos" not in h and 'data-s="s-calc"' not in h
+    finally:
+        declarativo.motor_portable.cache_clear()
+
+
+def test_procesador_sin_calculadora():
+    from backend.app.aud.niif import ejercicio_modelo as em
+    from backend.app.aud.niif.procesadores import PROCESADORES
+
+    mod = PROCESADORES["nomina_beneficios"]
+    d = mod.definicion()
+    ds, par, corte = em.escenario(mod)
+    h = libro.html(d, em._reg(d, mod, ds, par, corte), [], 1, "APROBADO").decode()
+    assert "calc-datos" not in h

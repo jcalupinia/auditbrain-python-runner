@@ -21,8 +21,11 @@ sigue apuntando a la misma celda. Además:
 """
 from __future__ import annotations
 
+import json
 import re
 from datetime import date, timedelta
+from functools import lru_cache
+from pathlib import Path
 
 from openpyxl.utils import get_column_letter
 
@@ -45,6 +48,9 @@ CODIGOS = {"RESULT": "Resultado a evaluar", "REVERSAL": "Posible reversión", "N
 MAX_FILAS = 250_000
 _SERIAL0 = date(1899, 12, 30)
 FILA0 = libro.FILA_DATOS
+# Motor portable del sitio (el mismo que usa la «Calculadora reutilizable» del HTML del sitio).
+# La copia del sitio no se edita: se lee tal cual (el .dockerignore la deja entrar a la imagen).
+MOTOR_PORTABLE = Path(__file__).resolve().parents[5] / "frontend/src/aud/niif/sitio/tools/portable-engine.mjs"
 
 
 class CargaInvalida(ValueError):
@@ -482,6 +488,53 @@ def _panel(d: dict, mapa: dict) -> dict:
     }
 
 
+# --- Calculadora reutilizable del HTML ---------------------------------------------------------
+
+@lru_cache(maxsize=1)
+def motor_portable() -> str:
+    """Código del motor portable del sitio (``PORTABLE_ENGINE_SOURCE``), o "" si no está."""
+    try:
+        t = MOTOR_PORTABLE.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    marca = "export const PORTABLE_ENGINE_SOURCE="
+    k = t.find(marca)
+    if k < 0:
+        return ""
+    return json.JSONDecoder().raw_decode(t, k + len(marca))[0]
+
+
+def _filas_calculadora(d: dict, crudas_05: list) -> list[dict]:
+    """La población de la versión (cédula «Datos originales» del sitio) como filas de entrada de la
+    calculadora: un valor por campo de la definición, en texto, como las escribe el auditor."""
+    campos = [f["key"] for f in d["fields"]]
+    i_notas = next((i for i, f in enumerate(crudas_05) if f and f[0] == NOTAS), len(crudas_05))
+    filas = []
+    for f in crudas_05[4:i_notas]:
+        fila = {}
+        for j, k in enumerate(campos):
+            c = f[j] if j < len(f) else None
+            if isinstance(c, dict) and "n" in c:
+                v = _iso(c["n"]) if c.get("date") else str(c["n"])
+            else:
+                v = "" if c is None else str(c)
+            if v != "":
+                fila[k] = v
+        if fila:
+            filas.append(fila)
+    return filas
+
+
+def calculadora(definicion: dict, reg: dict) -> dict | None:
+    """Lo que el HTML necesita para la «Calculadora reutilizable» (None si falta el motor)."""
+    motor, datos = motor_portable(), reg.get("calculadora")
+    if not motor or not datos or not definicion.get("declarativa"):
+        return None
+    d = {k: v for k, v in definicion.items() if k not in ("declarativa", "panel")}
+    return {"motor": motor, "definition": d, "parameters": datos.get("parametros") or {}, "rows": datos.get("filas") or [],
+            "codigos": CODIGOS}
+
+
 # --- Entrada ----------------------------------------------------------------------------------
 
 def _valida(carga) -> tuple[dict, list, list, list]:
@@ -537,7 +590,9 @@ def armar(carga: dict) -> tuple:
     e = dict(t.get("engagement") or {})
     e["firm"] = _firma(e)
     definicion = {**d, "declarativa": True, "panel": _panel(d, mapa)}
+    crudas_05 = crudas[nombres.index("05_Data_Original")]
     reg = {"engagement": e, "run": run, "approvedBy": t.get("approvedBy"), "approvedAt": t.get("approvedAt"),
+           "calculadora": {"filas": _filas_calculadora(d, crudas_05), "parametros": t.get("parameters") or {}},
            "reconciliation": t.get("reconciliation") or {}, "analysis": t.get("analysis") or "",
            "conclusion": t.get("conclusion") or "", "exceptionReview": t.get("exceptionReview") or ""}
     estado = "DEMOSTRACIÓN" if t.get("demo") else str(t.get("state") or "BORRADOR")

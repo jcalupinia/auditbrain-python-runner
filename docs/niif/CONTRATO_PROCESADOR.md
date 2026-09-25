@@ -4,8 +4,8 @@ Cada herramienta del catálogo es **un módulo Python** en `backend/app/aud/niif
 más **una prueba** en `tests/test_proc_<id>.py`. Referencias verificadas (léelas antes de escribir):
 - `procesadores/pce_simplificada_niif9.py`: estructura básica, cédulas con fórmulas, definición, EJEMPLO.
 - `procesadores/perdidas_incurridas_s11.py`: **piloto del papel actual**: hojas «Datos del cliente»
-  (`D1_…`–`D5_…`) con su guía y origen, cédulas que calculan desde esos datos, `EXPLICA`, `PANEL`
-  y `REF_PROBLEMAS`.
+  (`D1_…`–`D5_…`) armadas a mano con su guía y origen, cédulas que calculan desde esos datos, `EXPLICA`,
+  `PANEL` y `REF_PROBLEMAS`. Las demás herramientas reciben sus hojas de datos de `datos_cliente.py`.
 
 Piezas comunes: `procesadores/base.py`.
 
@@ -161,12 +161,19 @@ importe; si no, queda como valor y lo reporta el verificador. Ver `procesadores/
 Los datos del cliente y los parámetros del auditor son valores (entradas). **Todo lo demás es fórmula** que
 remite a su origen. Una cifra calculada escrita como número es un error, aunque el valor sea correcto.
 
-### Datos del cliente dentro del libro (piloto: pérdidas incurridas; se extenderá a todas)
+### Datos del cliente dentro del libro (todas las herramientas)
 Cada documento que entrega el cliente (RQ-…) va en su hoja `D1_…`, `D2_…`. Lleva lo que entregó, fila por fila,
-más la columna «Origen del dato» (archivo · hoja · fila) y `guia`. Las cédulas de cálculo **calculan desde esas
-hojas con fórmulas** (SUMIF/COUNTIF/MAXIFS/SUMPRODUCT sobre claves), no desde valores copiados. Las claves de cruce
-(`F…`, `A…`, `C…`, equivalentes a `norm()`) van en columnas `ocultas`; la letra evita que Excel las tome por
-números.
+más la columna «Origen del dato» (archivo · hoja · fila) y `guia`.
+- **Lo hace `procesadores/datos_cliente.py` por ti:** a partir de `definicion()["requests"]` (campo `dataset`),
+  `CAMPOS` y `kind()`, arma una hoja por requerimiento entregado y cambia cada dato del cliente que tus cédulas
+  traen pegado por una fórmula a su celda. Para que el enlace funcione: en cada fila de una cédula de detalle va
+  el **identificador de la partida** tal como lo entregó el cliente (1.ª columna del anexo), y el dato con el
+  **mismo valor** bajo un **encabezado parecido** al del campo. Una columna solo se enlaza si todas sus celdas
+  coinciden; si es un cálculo, escríbelo como fórmula (`fx`).
+- **Si la herramienta necesita cruces propios** (varios anexos por clave, como pérdidas incurridas), arma sus
+  hojas `D…` a mano en `hojas()` (con claves de cruce `F…`, `A…`, `C…` en columnas `ocultas`) y agrega su id a
+  `datos_cliente.PROPIAS`.
+- Verificación: `python scripts/verificar_datos_cliente.py <id>` (LibreOffice) debe dar «DIFERENCIAS: 0».
 
 ## Prueba `tests/test_proc_<id>.py` (sin base de datos)
 - Import: `from backend.app.aud.niif.procesadores import <id> as m`

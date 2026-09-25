@@ -34,6 +34,7 @@ from datetime import date, datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.app.aud.niif.procesadores import PROCESADORES  # noqa: E402
+from backend.app.aud.niif.procesadores import datos_cliente  # noqa: E402
 from backend.app.aud.niif.ciclo import datos as datos_mod  # noqa: E402
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -225,7 +226,7 @@ def verificar(pids) -> bool:
             detalle.append(f"{ds}={len(res['rows'])}f")
         try:
             run = mod.ejecutar(datasets, par, corte)
-            hojas = mod.hojas(run)
+            hojas = datos_cliente.con_datos(mod, run, datasets)
             n_exc = len(run.get("exceptions", []))
             print(f"  [OK] {pid}: {', '.join(detalle)} -> {len(hojas)} cédulas, "
                   f"primary={run.get('primary')}, {n_exc} hallazgos")

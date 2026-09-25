@@ -207,6 +207,18 @@ def _css() -> str:
         "table.calc td{white-space:normal;overflow-wrap:anywhere;word-break:break-word}"
         "table.calc td.mono{font:11.5px var(--f-cifra);white-space:pre-wrap;word-break:break-all}"
         "footer{max-width:1320px;margin:0 auto;padding:0 20px 30px;color:var(--muted);font-size:11.5px}"
+        # Calculadora reutilizable (pruebas declarativas): simulación que no toca el papel conservado
+        ".guia{margin:0 0 12px;padding:8px 12px;border-radius:10px;background:var(--card2);border:1px solid var(--borde);"
+        "color:var(--texto2);font-size:12.5px}.guia b{color:var(--oro-txt);margin-right:4px}"
+                ".calc-aviso{margin:0 0 12px;padding:10px 14px;border-radius:10px;border:1px solid var(--borde);"
+        "border-left:4px solid var(--k-ambar);background:var(--card2);color:var(--texto2);font-size:12.5px}"
+        ".calc-aviso.ok{border-left-color:var(--k-verde)}.calc-aviso.error{border-left-color:var(--alta)}"
+        ".calc-botones{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}"
+        "table.calc-in td{padding:4px}table.calc-in input{width:100%;min-width:110px;font:12.5px var(--f-cifra);color:var(--texto);"
+        "background:var(--bg);border:1px solid var(--borde);border-radius:6px;padding:6px 8px}"
+        "table.calc-in input:focus-visible{outline:2px solid var(--oro);outline-offset:1px}"
+        ".calc-error{color:var(--baja-txt);font-size:12.5px;white-space:pre-wrap;margin:8px 0 0}"
+        ".calc-res{margin-top:14px}.calc-res .kpis{margin:0 0 12px}"
         # Vistas
         "body.v-compacta{font-size:13px}body.v-compacta .wrap{padding:14px 14px 30px}body.v-compacta .kpi{padding:10px 12px}"
         "body.v-compacta .kpi-val{font-size:clamp(18px,1.7vw,24px)}body.v-compacta .graficos{gap:10px}body.v-compacta td{padding:4px 6px}"
@@ -224,6 +236,7 @@ def _css() -> str:
         ".kpis{grid-template-columns:repeat(5,1fr)}.graficos{grid-template-columns:repeat(2,1fr)}"
         "body:not(.imprime-una) .seccion{display:block!important;break-before:page}"
         "body:not(.imprime-una) .seccion:first-of-type{break-before:auto}"
+        "body .seccion.no-imprime{display:none!important}"
         "body.imprime-una .seccion{display:none!important}body.imprime-una .seccion.imprimir{display:block!important}"
         "details.calc{display:block}details.calc>*{display:block}.tarjeta,.kpi,tr{break-inside:avoid}"
         "*{-webkit-print-color-adjust:exact;print-color-adjust:exact}@page{size:A4 landscape;margin:11mm}}"
@@ -330,6 +343,11 @@ def _tabla(h: dict, celda) -> str:
     return f'<div class="scroll"><table><thead><tr>{cab}</tr></thead><tbody>{cuerpo}</tbody></table></div>'
 
 
+def _guia(h: dict) -> str:
+    """«¿De dónde saco este dato?»: qué documento, reporte o cuenta alimenta la hoja (como en el Excel)."""
+    return (f'<p class="guia"><b>¿De dónde saco este dato?</b> {E(h["guia"])}</p>' if h.get("guia") else "")
+
+
 def _calc(bloque: list[dict], abierto: bool) -> str:
     if not bloque:
         return ""
@@ -364,8 +382,86 @@ document.querySelectorAll('[data-pdf]').forEach(function(x){x.addEventListener('
 })();"""
 
 
+# Calculadora reutilizable: el motor portable del sitio (validateRows, calculate) corre en el navegador
+# sobre una copia de la población. Es una simulación: no cambia el papel ni sus cifras.
+_JS_CALC = r"""(function(){
+var datos=JSON.parse(document.getElementById('calc-datos').textContent),d=datos.definition;
+var copia=function(){return datos.rows.length?datos.rows.map(function(r){return Object.assign({},r)}):[{}]};
+var filas=copia(),$=function(id){return document.getElementById(id)};
+var fmt=function(v){var n=Number(v);return isFinite(n)?new Intl.NumberFormat('es-EC',{minimumFractionDigits:2,maximumFractionDigits:6}).format(n):String(v==null?'':v)};
+function el(tag,txt,cls){var e=document.createElement(tag);if(txt!=null)e.textContent=txt;if(cls)e.className=cls;return e}
+function estado(txt,cls){var a=$('calc-estado');a.textContent=txt;a.className='calc-aviso'+(cls?' '+cls:'')}
+function invalida(){$('calc-res').replaceChildren();$('calc-error').textContent='';
+  estado('Simulación modificada: pendiente de recalcular. No cambia el papel conservado.')}
+function dibuja(){var t=$('calc-in');t.replaceChildren();var th=el('thead'),cab=el('tr');
+  d.fields.map(function(f){return f.label}).concat(['']).forEach(function(s){cab.append(el('th',s))});th.append(cab);t.append(th);
+  var tb=el('tbody');
+  filas.forEach(function(r,i){var tr=el('tr');
+    d.fields.forEach(function(f){var td=el('td'),inp=document.createElement('input');inp.type=f.type==='date'?'date':'text';
+      if(f.type==='number')inp.inputMode='decimal';inp.value=r[f.key]==null?'':r[f.key];
+      inp.setAttribute('aria-label',f.label+' · fila '+(i+1));
+      inp.addEventListener('input',function(){r[f.key]=inp.value;invalida()});td.append(inp);tr.append(td)});
+    var td=el('td'),q=el('button','Quitar','btn');q.type='button';q.setAttribute('aria-label','Quitar fila '+(i+1));
+    q.addEventListener('click',function(){filas.splice(i,1);if(!filas.length)filas.push({});dibuja();invalida()});
+    td.append(q);tr.append(td);tb.append(tr)});
+  t.append(tb)}
+function etiqueta(k){var r=d.rules.find(function(x){return x.key===k})||d.fields.find(function(x){return x.key===k});return r?r.label:k}
+function calcula(){var res=$('calc-res');res.replaceChildren();$('calc-error').textContent='';
+  try{var usadas=filas.filter(function(r){return Object.keys(r).some(function(k){return String(r[k]).trim()!==''})});
+    var v=validateRows(d,usadas);
+    if(!v.ok)throw Error(v.errors.map(function(e){return 'Fila '+e.row+': '+e.message}).join('\n'));
+    var r=calculate(d,usadas,datos.parameters);
+    var kp=el('div',null,'kpis');
+    Object.keys(r.totals).forEach(function(k){var c=el('div',null,'kpi k-azul'),cab=el('div',null,'kpi-cab');
+      cab.append(el('span',etiqueta(k),'kpi-etq'));c.append(cab,el('div',fmt(r.totals[k]),'kpi-val'));kp.append(c)});
+    var ex=el('div',null,'kpi '+(r.exceptions.length?'k-medio':'k-bajo')),cx=el('div',null,'kpi-cab');
+    cx.append(el('span','Excepciones','kpi-etq'));ex.append(cx,el('div',String(r.exceptions.length),'kpi-val'));kp.append(ex);
+    res.append(kp);
+    var w=el('div',null,'scroll'),t=el('table'),th=el('thead'),cab=el('tr');
+    ['Identificador'].concat(d.rules.map(function(x){return x.label})).forEach(function(s){cab.append(el('th',s))});th.append(cab);t.append(th);
+    var tb=el('tbody');
+    r.rows.forEach(function(f){var tr=el('tr');tr.append(el('td',f.id));
+      d.rules.forEach(function(x){tr.append(el('td',fmt(f[x.key]),'num'))});tb.append(tr)});
+    t.append(tb);w.append(t);res.append(w);
+    if(r.exceptions.length){var we=el('div',null,'scroll'),te=el('table'),he=el('thead'),ce=el('tr');
+      ['Fila','Identificador','Código','Observación','Importe'].forEach(function(s){ce.append(el('th',s))});he.append(ce);te.append(he);
+      var be=el('tbody');r.exceptions.forEach(function(e){var tr=el('tr');
+        [e.row,e.id,(datos.codigos||{})[e.code]||e.code,e.message].forEach(function(s){tr.append(el('td',String(s==null?'':s)))});
+        tr.append(el('td',e.amount==null?'':fmt(e.amount),'num'));be.append(tr)});
+      te.append(be);we.append(te);we.style.marginTop='12px';res.append(we)}
+    estado('Simulación calculada: '+r.exceptions.length+' excepciones. Es una simulación; requiere revisión profesional y no cambia el papel.','ok')
+  }catch(e){$('calc-error').textContent=e.message;estado('No se pudo calcular. Corrija los datos indicados.','error')}}
+$('calc-run').addEventListener('click',calcula);
+$('calc-add').addEventListener('click',function(){filas.push({});dibuja();invalida()});
+$('calc-reset').addEventListener('click',function(){filas=copia();dibuja();invalida()});
+dibuja();
+})();"""
+
+
+def _calculadora_html(calc: dict) -> str:
+    return ('<div class="cedula-cab"><h2>Calculadora reutilizable</h2></div><div class="panel">'
+            '<p id="calc-estado" class="calc-aviso" role="status">Simulación con los datos de esta versión. Cambie datos, '
+            'agregue o quite filas y recalcule: el papel conservado y sus cifras no cambian.</p>'
+            '<p class="sub">Decimales con punto y sin separador de miles · fechas AAAA-MM-DD · parámetros y reglas de esta versión.</p>'
+            '<div class="calc-botones"><button class="btn oro" type="button" id="calc-run">Recalcular</button>'
+            '<button class="btn" type="button" id="calc-add">Agregar fila</button>'
+            '<button class="btn" type="button" id="calc-reset">Restablecer datos de la versión</button></div>'
+            '<div class="scroll"><table class="calc-in" id="calc-in"></table></div>'
+            '<p id="calc-error" class="calc-error" role="alert"></p><div id="calc-res" class="calc-res"></div></div>')
+
+
+def _calculadora_js(calc: dict) -> str:
+    import json
+
+    datos = json.dumps({k: calc.get(k) for k in ("definition", "parameters", "rows", "codigos")}, ensure_ascii=False).replace("<", "\\u003c")
+    motor = calc["motor"].replace("</script", "<\\/script")
+    return (f'<script type="application/json" id="calc-datos">{datos}</script>'
+            f"<script>{motor}</script><script>{_JS_CALC}</script>")
+
+
 def render(definicion: dict, reg: dict, eventos: list, version: int, estado: str, hojas: list[dict],
-           adjuntos: list[tuple[str, str, str, bytes]], celda, como_se_calcula, para_pdf: bool = False) -> str:
+           adjuntos: list[tuple[str, str, str, bytes]], celda, como_se_calcula, para_pdf: bool = False,
+           calculadora: dict | None = None) -> str:
     e = reg.get("engagement") or {}
     run = reg.get("run") or {}
     mod = graficos.modulo(definicion)
@@ -388,11 +484,14 @@ def render(definicion: dict, reg: dict, eventos: list, version: int, estado: str
     for i, h in enumerate(hojas):
         sid = f"s-{i}"
         cuerpo = (f'<div class="cedula-cab"><h2>{E(h["label"])}</h2>{boton_pdf(sid)}</div>'
-                  f'<div class="panel">{_calc(como_se_calcula(h, hojas), para_pdf)}{_tabla(h, celda)}</div>')
+                  f'<div class="panel">{_guia(h)}{_calc(como_se_calcula(h, hojas), para_pdf)}{_tabla(h, celda)}</div>')
         secciones.append((sid, h["label"], cuerpo))
+    calc = calculadora if (calculadora and not para_pdf) else None
+    if calc:
+        secciones.append(("s-calc", "Calculadora", _calculadora_html(calc)))
 
     cuerpo_secc = "".join(
-        f'<section class="seccion{" on" if k == 0 else ""}" id="{sid}" aria-label="{E(etq)}">{html_}</section>'
+        f'<section class="seccion{" on" if k == 0 else ""}{" no-imprime" if sid == "s-calc" else ""}" id="{sid}" aria-label="{E(etq)}">{html_}</section>'
         for k, (sid, etq, html_) in enumerate(secciones))
     css = _css()
     if para_pdf:
@@ -431,4 +530,4 @@ def render(definicion: dict, reg: dict, eventos: list, version: int, estado: str
             f'<body class="{clases}">{topbar}{nav}<main class="wrap">{_membrete()}{cuerpo_secc}</main>'
             "<footer>AuditConsulting Auditores Cía. Ltda. · AUDIT-IA · Funciona sin conexión. Pase el cursor sobre un importe "
             "para ver su fórmula; «ⓘ Cómo se calcula esta hoja» explica cada columna. En el Excel las fórmulas son editables y trazables.</footer>"
-            f"<script>{_JS % __import__('json').dumps(POR_DEFECTO)}</script></body></html>")
+            f"<script>{_JS % __import__('json').dumps(POR_DEFECTO)}</script>{_calculadora_js(calc) if calc else ''}</body></html>")
