@@ -138,9 +138,10 @@ function Papel({ prueba, onRecargar }) {
     setGuardando(true);
     setError("");
     try {
-      const { papelDeclarativo } = await cargarPapel();
-      const papel = await papelDeclarativo(herramientaDePrueba(prueba));
-      await api.cicloSubirPapel(prueba.id, prueba.revision, papel.xlsx, papel.html, { docx: papel.docx, pptx: papel.pptx });
+      // El servidor arma el Excel, HTML, Word y PowerPoint con el diseño de los procesadores
+      // a partir de las cédulas del sitio, y los guarda con su huella.
+      const { cargaPapel } = await cargarPapel();
+      await api.cicloGuardarPapelDeclarativo(prueba.id, prueba.revision, cargaPapel(herramientaDePrueba(prueba)));
       await onRecargar();
     } catch (e) {
       setError(e.message || String(e));

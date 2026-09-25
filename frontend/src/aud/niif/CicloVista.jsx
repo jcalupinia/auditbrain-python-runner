@@ -51,20 +51,19 @@ const ETIQUETA_PARAM = {
   umbralIndividual: "Saldo significativo", pctDeducible: "Límite anual (%)", pctLimite: "Límite acumulado (%)",
   tasaImp: "Tasa del impuesto (%)", provFiscalAnt: "Provisión fiscal anterior", dtaIniManual: "Diferido inicial",
 };
-// Formatos del papel (el Excel va en «Descargar Excel»). Con procesador los arma
-// el servidor; en una prueba declarativa, el navegador (papelDeclarativo.js).
+// Formatos del papel (el Excel va en «Descargar Excel»). Siempre los arma el servidor
+// con el mismo diseño; en una prueba declarativa, con las cédulas del sitio que envía
+// el navegador (papelDeclarativo.js).
 const FORMATOS_PAPEL = [
   ["docx", "Word", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
   ["pptx", "PowerPoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation"],
   ["html", "HTML sin conexión (y PDF)", "text/html;charset=utf-8"],
 ];
 const cargarPapel = () => import("./papelDeclarativo");
-// Word, PowerPoint o HTML (con Excel, Word y PowerPoint dentro) de una prueba declarativa.
-async function papelDelNavegador(t, ext) {
+// Excel, Word, PowerPoint o HTML (con los demás dentro) de una prueba declarativa.
+async function papelDeclarativo(t, ext) {
   const m = await cargarPapel();
-  if (ext === "docx") return m.bytesWord(t);
-  if (ext === "pptx") return m.bytesPowerPoint(t);
-  return (await m.papelDeclarativo(t)).html;
+  return api.cicloPapelDeclarativo(m.cargaPapel(t), ext);
 }
 // Procesadores instalados por ficha (cartera con tramos de mora); los demás son herramientas del catálogo.
 const PROC_FICHA = ["perdidas_incurridas_s11", "pce_simplificada_niif9"];
@@ -594,7 +593,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
           onClick={async () => {
             const nombre = `${d.name.replace(/[^\w-]+/g, "_").slice(0, 60)}_v${prueba.version}.xlsx`;
             try {
-              descargar(nombre, d.processor ? await api.cicloBajarLibro(prueba.id) : sitio[1].buildWorkbook(t), XLSX);
+              descargar(nombre, d.processor ? await api.cicloBajarLibro(prueba.id) : await papelDeclarativo(t, "xlsx"), XLSX);
             } catch (e) {
               setError(e.message || String(e));
             }
@@ -606,7 +605,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
           <button key={ext} type="button" className="pc-chip" disabled={!reg.run} title={ext === "html" ? "Funciona sin internet y trae dentro Excel, Word y PowerPoint; «Guardar como PDF» lo imprime" : undefined}
             onClick={async () => {
               try {
-                const contenido = d.processor ? await api.cicloBajarLibro(prueba.id, ext) : await papelDelNavegador(t, ext);
+                const contenido = d.processor ? await api.cicloBajarLibro(prueba.id, ext) : await papelDeclarativo(t, ext);
                 descargar(`${d.name.replace(/[^\w-]+/g, "_").slice(0, 60)}_v${prueba.version}.${ext}`, contenido, tipo);
               } catch (e) {
                 setError(e.message || String(e));

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
+import * as api from "../../api";
+
 import { herramientaDePrueba, tramosDeTexto } from "./cicloLogic";
 
 /*
@@ -165,11 +167,12 @@ function Cedulas({ prueba }) {
   if (!armado) return <p className="muted">Preparando cédulas…</p>;
   const base = `${(prueba.definicion.name || "prueba").replace(/[^\w-]+/g, "_").slice(0, 60)}_v${prueba.version}_${prueba.estado === "APROBADO" ? "APROBADO" : "EN_PROCESO"}`;
   const hoja = armado.hojas[activa] || [];
-  // Word, PowerPoint y el HTML con los demás formatos dentro (papelDeclarativo.js).
+  // Excel, Word, PowerPoint y el HTML con los demás formatos dentro: los arma el servidor
+  // con el diseño de los procesadores a partir de estas mismas cédulas (papelDeclarativo.js).
   const bajarPapel = async (ext) => {
     try {
       const m = await import("./papelDeclarativo");
-      const contenido = ext === "docx" ? await m.bytesWord(t) : ext === "pptx" ? await m.bytesPowerPoint(t) : (await m.papelDeclarativo(t)).html;
+      const contenido = await api.cicloPapelDeclarativo(m.cargaPapel(t), ext);
       descargar(`${base}.${ext}`, contenido, m.MIME[ext]);
     } catch (e) {
       setError(e.message || String(e));
@@ -178,7 +181,7 @@ function Cedulas({ prueba }) {
   return (
     <>
       <div className="nf-estudio-botones">
-        <button type="button" className="btn sm" onClick={() => descargar(`${base}.xlsx`, sitio[1].buildWorkbook(t), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}>
+        <button type="button" className="btn sm" onClick={() => bajarPapel("xlsx")}>
           Descargar Excel
         </button>
         <button type="button" className="btn sm" onClick={() => bajarPapel("docx")}>Word</button>

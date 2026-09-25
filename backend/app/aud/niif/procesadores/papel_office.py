@@ -37,18 +37,15 @@ PIE = ("AuditConsulting Auditores Cía. Ltda. · AUDIT-IA · Papel de trabajo ge
 
 
 def _panel(definicion, reg):
-    from backend.app.aud.niif.procesadores import PROCESADORES
-
     run = reg.get("run") or {}
-    mod = PROCESADORES.get(definicion.get("processor", ""))
-    return graficos.panel(mod, run, run.get("hojas") or [])
+    return graficos.panel(graficos.modulo(definicion), run, run.get("hojas") or [])
 
 
 def _chips(p, e, version, estado):
     riesgo = {"alto": "▲ Riesgo alto", "medio": "▲ Riesgo medio", "bajo": "▲ Riesgo bajo"}[p["riesgo"]]
     return [(riesgo, {"alto": "alta", "medio": "media", "bajo": "baja"}[p["riesgo"]]),
-            (f"Corte {hx._fecha(e.get('cutoff'))}", None), (f"Versión {version}", None),
-            (est.estado_es(estado), None), (str(e.get("framework") or ""), None)]
+            (f"Corte {hx._fecha(e.get('cutoff')) or 'pendiente'}", None), (f"Versión {version}", None),
+            (est.estado_es(estado), None), (str(e.get("framework") or "Marco pendiente"), None)]
 
 
 def _var(k):
@@ -367,7 +364,7 @@ def _tabla_word(doc, h, L):
                 if i % 2 == 0:
                     _sombra(c, C["zebra"])
                 _bordes(c, bottom=(4, C["borde"]))
-            num = fmt in ("n", "p", "i")
+            num = fmt in ("n", "p", "i", "g")
             par = c.paragraphs[0]
             if num:
                 par.alignment = WD_ALIGN_PARAGRAPH.RIGHT
@@ -633,7 +630,7 @@ def _tabla_ppt(diap, prs, h, filas, L):
     for i, (fila, total) in enumerate(filas, start=1):
         for j, ((_, fmt), v) in enumerate(zip(h["cols"], fila)):
             c = t.cell(i, j)
-            num = fmt in ("n", "p", "i")
+            num = fmt in ("n", "p", "i", "g")
             relleno = T["card2"] if total else (T["zebra"] if i % 2 == 0 else T["card"])
             pinta(c, _html.unescape(L._celda(v, fmt)), T["texto"], relleno, total, num, "Consolas" if num else None)
             if total:

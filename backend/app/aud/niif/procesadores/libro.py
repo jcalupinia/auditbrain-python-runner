@@ -28,6 +28,8 @@ _DOBLE = Side(style="double", color="0A2342")
 _BORDE = Border(left=_FINO, right=_FINO, top=_FINO, bottom=_FINO)
 _BORDE_TOTAL = Border(left=_FINO, right=_FINO, top=_DOBLE, bottom=_DOBLE)
 _FMT = {"n": "#,##0.00", "p": "0.00%", "i": "#,##0", "a": "0", "d": "yyyy-mm-dd"}
+# «g»: número con 2 a 6 decimales (tasas, factores y precios unitarios de las pruebas declarativas).
+FMT_GENERAL = "#,##0.00####"
 
 
 _ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -108,6 +110,10 @@ def _contexto(definicion: dict, reg: dict, eventos: list, version: int, estado: 
 def cedulas(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> list[dict]:
     antes, despues = _contexto(definicion, reg, eventos, version, estado)
     run = reg.get("run") or {}
+    if definicion.get("declarativa"):
+        # Prueba declarativa (``declarativo``): el exportador del sitio ya trae programa, fuentes,
+        # conclusión y control de revisión; su portada la reemplazan 00_Inicio y la carátula.
+        return antes[:1] + list(run.get("hojas") or [])
     # El importe de cada problema remite por fórmula a la celda de la cédula que lo calcula.
     propias, _ = problemas.enlazar(run.get("hojas") or [], problemas.refs_de(definicion), run.get("exceptions"))
     # El código técnico del problema se lee como texto («TRAMO_NO_MEDIBLE» → «Tramo no medible»).
@@ -143,6 +149,8 @@ HOJA_ANEXO = "00_Anexo_tecnico"
 
 def _seccion(h: dict, es_resumen: bool = False) -> int:
     """Índice en SECCIONES de una cédula."""
+    if "seccion" in h:           # la cédula declara su sección (pruebas declarativas)
+        return h["seccion"]
     n = h.get("name", "")
     if es_resumen or problemas.es_hoja_problemas(h) or n.startswith("13_") or re.search(r"Asiento|Ajuste", n):
         return 0
@@ -290,11 +298,8 @@ def _kpis_panel(definicion, reg, hojas, titulos):
     """Indicadores de la portada = los del panel del HTML (resultado principal, población,
     recalculado, registrado y problemas). Cada uno es una fórmula; el que no tiene celda de
     origen no se muestra (nunca un valor pegado)."""
-    from backend.app.aud.niif.procesadores import PROCESADORES
-
     run = reg.get("run") or {}
-    mod = PROCESADORES.get(definicion.get("processor", ""))
-    spec = getattr(mod, "PANEL", None) or {}
+    spec = getattr(graficos.modulo(definicion), "PANEL", None) or {}
     tot, etq = run.get("totals") or {}, run.get("labels") or {}
     prim = run.get("primary")
     out = []
@@ -312,7 +317,7 @@ def _kpis_panel(definicion, reg, hojas, titulos):
             out = [k for k in out if k["clave"] != "poblacion"]
         out.append({"clave": clave, "rotulo": (spec.get(clave) or {}).get("rotulo", defecto), "valor": r[1], "fmt": "n", "f": r[0]})
     n_prob = len(run.get("exceptions") or [])
-    ip = next((i for i, h in enumerate(hojas) if problemas.es_hoja_problemas(h)), None)
+    ip = (problemas.hoja_problemas(hojas) or (None,))[0]
     if ip is not None:
         n = len(hojas[ip].get("rows") or [])
         out.append({"clave": "problemas", "rotulo": "Problemas encontrados", "valor": n_prob, "fmt": "i",
@@ -324,7 +329,7 @@ def _formula_kpi(hojas, titulos, etiqueta, valor, fmt):
     """Fórmula del indicador de la portada: el conteo de la hoja de problemas o la
     fila del Resumen con el mismo rótulo e importe. None si no hay celda de origen."""
     if fmt == "i":
-        ip = next((i for i, h in enumerate(hojas) if problemas.es_hoja_problemas(h)), None)
+        ip = (problemas.hoja_problemas(hojas) or (None,))[0]
         if ip is None:
             return None
         n = len(hojas[ip].get("rows") or [])
@@ -403,7 +408,7 @@ def _hoja_ejecutiva(ws, S, h, titulo_prueba, nav, hojas=None, anexo=None):
     for i, (fila, total) in enumerate(filas, start=fila_enc + 1):
         for j, ((_, fmt), v) in enumerate(zip(h["cols"], fila), start=1):
             c = ws.cell(row=i, column=j, value=_excel(v, fmt))
-            es_num = fmt in est.FMT or (fmt == "x" and isinstance(_valor(v), (int, float)))
+            es_num = fmt in est.FMT or (fmt in ("x", "g") and isinstance(_valor(v), (int, float)))
             c.font = S["total"] if total else (S["cifra"] if es_num else S["dato"])
             c.border = S["borde_total"] if total else S["borde_fila"]
             if total:
@@ -415,6 +420,9 @@ def _hoja_ejecutiva(ws, S, h, titulo_prueba, nav, hojas=None, anexo=None):
                 c.alignment = S["centro"]
             elif fmt in est.FMT:
                 c.number_format = est.FMT[fmt]
+                c.alignment = S["der"]
+            elif fmt == "g" and es_num:
+                c.number_format = FMT_GENERAL
                 c.alignment = S["der"]
             elif es_num:
                 c.alignment = S["der"]
@@ -621,8 +629,11 @@ def _celda(v, fmt) -> str:
     v = _valor(v)
     if v is None or v == "":
         return ""
-    if fmt in ("n", "p", "i", "a") and not isinstance(v, (int, float)):
+    if fmt in ("n", "p", "i", "a", "g") and not isinstance(v, (int, float)):
         return _html.escape(str(v))          # texto en una columna numérica («No aplica», «—»)
+    if fmt == "g":                               # 2 a 6 decimales, como el exportador del sitio
+        entero, dec = f"{float(v):,.6f}".split(".")
+        return (entero.replace(",", ".") + "," + dec.rstrip("0").ljust(2, "0"))
     if fmt == "n" or (fmt == "x" and isinstance(v, (int, float))):
         return f"{float(v):,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
     if fmt == "p":

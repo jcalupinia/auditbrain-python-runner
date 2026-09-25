@@ -130,6 +130,44 @@ def test_papel_declarativo_guarda_tambien_word_y_powerpoint(client):
         assert bajado.content == esperado and arts[ext]["nombre"].endswith(f".{ext}")
 
 
+def test_papel_declarativo_con_el_diseno_nuevo_lo_arma_el_servidor(client):
+    """El navegador envía las cédulas del sitio; el servidor arma y guarda Excel, HTML, Word y
+    PowerPoint con el diseño de los procesadores (la definición, versión y estado son los de la prueba)."""
+    import io
+    import json
+    from pathlib import Path
+
+    from openpyxl import load_workbook
+
+    carga = json.loads((Path(__file__).parent / "fixtures" / "papel_declarativo" / "vnr.json").read_text(encoding="utf-8"))
+    tok, p = _analizada(client)
+    # Antes de aprobar: el papel en curso se descarga, pero no se guarda.
+    r = client.post(f"{BASE}/papel-declarativo?formato=xlsx", headers=_h(tok), json=carga)
+    assert r.status_code == 200 and r.content[:2] == b"PK", r.text
+    assert load_workbook(io.BytesIO(r.content)).sheetnames[0] == "00_Inicio"
+    assert client.post(f"{BASE}/papel-declarativo?formato=exe", headers=_h(tok), json=carga).status_code == 400
+    r = client.post(f"{BASE}/papel-declarativo", headers=_h(tok), json={"herramienta": {}, "cedulas": {}})
+    assert r.status_code == 400 and "definición" in r.json()["detail"]
+    guardar = lambda q: client.post(f"{BASE}/pruebas/{q['id']}/papel-declarativo", headers=_h(tok),  # noqa: E731
+                                    json={"revision": q["revision"], **carga})
+    r = guardar(p)
+    assert r.status_code == 400 and "versión aprobada" in r.json()["detail"]
+
+    p = _accion(client, tok, p, "submit", {"analysis": "Dos partidas bajo costo.", "conclusion": "Ajuste de 82,00."}).json()
+    p = _accion(client, tok, p, "approve", {"conclusion": "Se propone ajuste de 82,00.", "conclusionReviewed": True,
+                                             "exceptionReview": "Las dos excepciones son deterioro por precio; se registran."}).json()
+    r = guardar(p)
+    assert r.status_code == 200, r.text
+    p = _leer(client, tok, p)
+    arts = p["registro"]["artifacts"]
+    assert set(arts) == {"xlsx", "html", "docx", "pptx"} and len(p["papeles"]) == 4
+    for ext in ("xlsx", "docx", "pptx"):
+        assert client.get(f"{BASE}/pruebas/{p['id']}/archivos/{arts[ext]['id']}", headers=_h(tok)).content[:2] == b"PK"
+    html = client.get(f"{BASE}/pruebas/{p['id']}/archivos/{arts['html']['id']}", headers=_h(tok)).text
+    assert '<header class="topbar">' in html and html.count('<div class="kpi k-') == 5
+    assert guardar(p).status_code == 400, "el papel aprobado no se reemplaza"
+
+
 def test_devolver_a_datos_reabre_los_puntos(client):
     tok, p = _analizada(client)
     p = _accion(client, tok, p, "submit", {"analysis": "a", "conclusion": "c"}).json()

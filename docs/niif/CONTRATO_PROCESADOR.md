@@ -122,6 +122,11 @@ de lo que declara el módulo, así que lo que falte ahí falta en todos los form
 | Word | El HTML impreso (tema claro): membrete con logos, tarjetas, los 4 gráficos (los mismos SVG como imagen, `svg_png.py`), cada cédula con «Cómo se calcula» | ídem (`papel_office.py`) |
 | PowerPoint | El HTML en pantalla (tema «Ejecutivo»): portada, panel, cédulas de lectura (`_EN_PPT`) | ídem (`papel_office.py`) |
 
+Las pruebas **declarativas** (sin procesador) salen con este mismo diseño: `procesadores/declarativo.py`
+convierte las cédulas del exportador del sitio al modelo de `libro` y deriva su `PANEL` de la definición.
+Un cambio en las piezas compartidas se prueba también con `tests/test_aud_papel_declarativo.py` y
+`python scripts/verificar_papel_declarativo.py`.
+
 ### `PANEL` — tarjetas y gráficos
 ```python
 PANEL = {
@@ -186,7 +191,8 @@ números.
 ## Prohibido
 Editar archivos compartidos: `procesadores/__init__.py`, `ciclo/*.py`, frontend, otros procesadores, y las piezas
 de los formatos (`libro.py`, `panel_excel.py`, `papel_office.py`, `svg_png.py`, `html_ejecutivo.py`,
-`graficos.py`, `graficos_svg.py`, `problemas.py`, `marca.py`, `base.py`). Solo se crean el módulo y su prueba.
+`graficos.py`, `graficos_svg.py`, `problemas.py`, `marca.py`, `base.py`, `declarativo.py`). Solo se crean el
+módulo y su prueba.
 Si una pieza compartida no alcanza, se reporta como duda; no se parchea. No correr la suite completa (usa una
 base compartida).
 

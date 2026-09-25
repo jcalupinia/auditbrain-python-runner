@@ -383,6 +383,20 @@ def variacion(nuevo, base):
     return (nuevo - base) / abs(base)
 
 
+def modulo(definicion: dict | None):
+    """Lo que el papel necesita del procesador (``PANEL``): el módulo del procesador o, en una
+    prueba declarativa, el ``PANEL`` que el adaptador deja en la definición (``declarativo``)."""
+    from types import SimpleNamespace
+
+    from backend.app.aud.niif.procesadores import PROCESADORES  # import diferido: evita el ciclo
+
+    d = definicion or {}
+    mod = PROCESADORES.get(d.get("processor", ""))
+    if mod is None and d.get("declarativa") and d.get("panel"):
+        return SimpleNamespace(PANEL=d["panel"], REF_PROBLEMAS={})
+    return mod
+
+
 def panel(mod, run: dict, hojas: list[dict]) -> dict:
     """Datos del dashboard de una prueba a partir de ``mod.PANEL``.
     ``faltan`` lista lo que no se pudo resolver (el verificador y los tests lo exigen vacío)."""
