@@ -559,6 +559,13 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         p.estado = reglas.transicion({**reg, "state": p.estado, "definition": p.definicion}, accion)
         reg["approvedBy"] = actor
         reg["approvedAt"] = _ahora_iso()
+        # NIA 220 (decisión del dueño, 2026-09-26): se permite aprobar el propio trabajo, pero queda advertido en el
+        # registro, en la bitácora y en la carátula del papel.
+        envio = next((e for e in reversed(eventos(db, p.id)) if e.accion == "submit"), None)
+        reg["submittedBy"] = envio.actor if envio else ""
+        reg["segregation"] = bool(envio) and envio.actor != actor
+        if envio and envio.actor == actor:
+            datos = {**datos, "comment": (SIN_SEGREGACION + " " + str(datos.get("comment") or "")).strip()}
         # El papel final (Excel y HTML) lo arma el navegador con el exportador
         # del sitio desde este registro ya aprobado y lo sube a guardar_papel().
         reg["artifacts"] = None
@@ -811,6 +818,13 @@ def nueva_version(db: Session, old: Prueba, revision: int, actor: str) -> Prueba
     return p
 
 
+# NIA 230: una versión aprobada es documentación del encargo. No se reinicia ni se elimina (con ella se irían el papel
+# aprobado con su huella y la bitácora); si hay que corregirla, se crea una versión nueva que deja constancia.
+APROBADA_NO_SE_TOCA = ("Esta versión está aprobada y es evidencia del encargo (NIA 230): no se reinicia ni se elimina. "
+                       "Si hay que corregirla, cree una nueva versión.")
+SIN_SEGREGACION = "Aprobado por quien lo envió a revisión: sin segregación de funciones (NIA 220)."
+
+
 def _confirma_cliente(p: Prueba, datos: dict) -> bool:
     return str(datos.get("confirmClient") or "") == str(p.registro["engagement"].get("client") or "")
 
@@ -820,6 +834,8 @@ def encerar(db: Session, p: Prueba, revision: int, datos: dict, actor: str) -> P
     prueba queda en la lista, lista para empezar de nuevo."""
     if revision != p.revision:
         raise Conflicto("La prueba cambió mientras la editaba. Actualice y vuelva a intentarlo.")
+    if p.estado == "APROBADO":
+        raise ReglaIncumplida(APROBADA_NO_SE_TOCA)
     if not _confirma_cliente(p, datos) or datos.get("downloadConfirmed") is not True:
         raise ReglaIncumplida("Confirme el cliente y que conserva el archivo o acepta eliminar la prueba sin resultados.")
     r = p.registro
@@ -855,8 +871,8 @@ def eliminar(db: Session, p: Prueba, revision: int, datos: dict) -> dict:
         raise Conflicto("La prueba cambió mientras la editaba. Actualice y vuelva a intentarlo.")
     if not _confirma_cliente(p, datos) or datos.get("deleteConfirmed") is not True:
         raise ReglaIncumplida("Escriba el nombre del cliente y confirme que la eliminación es definitiva.")
-    if p.estado == "APROBADO" and datos.get("approvedConfirmed") is not True:
-        raise ReglaIncumplida("Esta versión está aprobada y es evidencia del encargo. Confírmelo expresamente para eliminarla.")
+    if p.estado == "APROBADO":
+        raise ReglaIncumplida(APROBADA_NO_SE_TOCA)
     if db.execute(select(Prueba.id).where(Prueba.parent_id == p.id)).first():
         raise Conflicto("Esta prueba tiene una versión sucesora. Elimine primero la más reciente.")
     salida = {"deleted": True, "id": p.id, "name": p.definicion.get("name") or "Prueba",

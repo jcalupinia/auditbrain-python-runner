@@ -56,6 +56,17 @@ def _seguro(v):
     return v
 
 
+def _segregacion(reg: dict) -> str:
+    """Quién envió a revisión frente a quién aprobó (NIA 220). Se permite aprobar el propio trabajo, pero se advierte."""
+    if not reg.get("approvedBy"):
+        return ""
+    if not reg.get("submittedBy"):
+        return "No registrada (aprobación anterior a este control)."
+    if reg.get("submittedBy") == reg.get("approvedBy"):
+        return "ADVERTENCIA: aprobó la misma persona que envió a revisión (sin segregación de funciones)."
+    return "Sí: aprobó una persona distinta de la que envió a revisión."
+
+
 def _contexto(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> list[dict]:
     e = reg.get("engagement") or {}
     run = reg.get("run") or {}
@@ -64,7 +75,9 @@ def _contexto(definicion: dict, reg: dict, eventos: list, version: int, estado: 
         ["Ejercicio", e.get("year")], ["Fecha de corte", e.get("cutoff")], ["Marco contable", e.get("framework")],
         ["Herramienta", definicion.get("name")], ["Rubro", definicion.get("area")], ["Motor", run.get("engine")],
         ["Versión del papel", f"v{version}"], ["Estado", est.estado_es(estado)], ["Preparó", e.get("preparer")], ["Revisó", e.get("reviewer")],
+        ["Envió a revisión", reg.get("submittedBy") or ""],
         ["Aprobó", reg.get("approvedBy") or ""], ["Fecha de aprobación", (reg.get("approvedAt") or "")[:10]],
+        ["Segregación de funciones (NIA 220)", _segregacion(reg)],
         ["Huella de la ejecución (SHA-256)", reg.get("runHash") or ""],
     ]
     if reg.get("taxApplicable"):

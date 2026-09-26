@@ -2003,7 +2003,8 @@ def hojas(res: dict) -> list[dict]:
         ["Materialidad (NIA 320)", fx(f"{M11}E{F11['Materialidad global']}", f"Base elegida: {d['base']} ({d['periodo'].lower()}); NIA 320 párr. 10"),
          fx(f"{M11}D{F11['Materialidad global']}", n2(mt["global"]))],
         ["Motor de cálculo", VERSION, None],
-        ["Aprobación (R10)", "El papel se publica solo con la aprobación del socio en el ciclo del Command Center.", None],
+        ["Aprobación (R10)", ("El ciclo del Command Center registra quién envió a revisión y quién aprobó, con fecha (carátula y "
+                              "control de revisión); si es la misma persona, la carátula lo advierte (NIA 220)."), None],
     ]
 
     # 01 · resumen
