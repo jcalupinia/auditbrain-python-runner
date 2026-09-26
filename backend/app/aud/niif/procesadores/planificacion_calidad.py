@@ -350,9 +350,11 @@ def filas_estimaciones(items: list, c: dict) -> list:
     return filas
 
 
-def _m(v: float) -> str:
-    """Como FIXED(v,2): separador de miles «,» y decimal «.» (el verificador intercambia los del equipo)."""
-    return f"{v:,.2f}"
+def _m(v: float, d: int = 2) -> str:
+    """Como FIXED(v; d) con los separadores del Ecuador (miles «.», decimales «,»), igual que ``planificacion_nia._num``."""
+    from decimal import ROUND_HALF_UP, Decimal
+    t = f"{Decimal(str(v)).quantize(Decimal(1).scaleb(-d), rounding=ROUND_HALF_UP):,.{d}f}"
+    return t.replace(",", "\x00").replace(".", ",").replace("\x00", ".")
 
 
 # --- M13 · leyes y reglamentos (hoja 39) ----------------------------------------------------------------------------
@@ -715,7 +717,8 @@ EXPLICA = {
           "Estado": ("Las leyes de efecto directo tienen su procedimiento en el programa; las de efecto indirecto quedan "
                      "«Documentado» cuando hay una indagación registrada en la plataforma sobre leyes y reglamentos.")},
     H40: {"Anterior": "Saldo al cierre anterior de la cuenta con la parte relacionada (hoja 08).",
-          "Actual": "Saldo al corte (hoja 08).", "Variación": "Saldo actual menos el anterior.",
+          "Actual": "Saldo de la cuenta con la parte relacionada a la fecha de corte (hoja 08).",
+          "Variación": "Saldo al corte menos el saldo al cierre anterior de la cuenta con la parte relacionada.",
           "Marca": ("«Nueva» si no tenía saldo antes; «Variación material» o «Saldo material» si supera la materialidad de "
                     "desempeño (hoja 11); si no, «Normal»."),
           "¿Fuera del curso normal?": "Una cuenta nueva o con variación material se trata como transacción fuera del curso normal.",

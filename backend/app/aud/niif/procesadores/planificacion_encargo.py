@@ -56,6 +56,7 @@ TIPO_INDAG = "Indagación u observación"
 TIPO_CONSULTA = "Consulta técnica"
 TIPO_DIFERENCIA = "Diferencia de opinión"
 ABIERTA, RESUELTA = "Abierta", "Resuelta"
+TIPO_ENFOQUE = "Enfoque del ciclo confirmado por el socio"
 ROLES = ("Socio", "Gerente", "Senior", "Asistente", "Revisor de calidad", "Experto", "Otro")
 ESTADOS_ANTERIORES = ("Auditados por nosotros", "Auditados por otro auditor", "No auditados")
 COLS_REGISTROS = [["Registro", "t"], ["Integrante o responsable", "t"], ["Rol", "t"], ["Fecha", "d"],
@@ -107,6 +108,9 @@ def registros(p: dict) -> dict:
                   "detalle": txt(x, "detalle")} for x in r.get("consultas") or [] if txt(x, "tema")]
     return {"equipo": equipo, "asistencia": asist, "aceptacion": uno("aceptacion"), "carta": uno("carta"),
             "comunicacion": uno("comunicacion"), "indagaciones": indag, "consultas": consultas,
+            "enfoque": [{"ciclo": txt(x, "ciclo"), "decision": txt(x, "decision"), "actor": txt(x, "actor"),
+                         "fecha": _fecha(x.get("fecha")), "motivo": txt(x, "motivo")}
+                        for x in r.get("enfoque") or [] if txt(x, "ciclo") and txt(x, "decision")],
             "firma": str(e.get("firma") or "").strip(), "ficha": dict(e.get("ficha") or {})}
 
 
@@ -134,6 +138,11 @@ def filas_registros(reg: dict) -> tuple[list, dict]:
     for x in reg.get("consultas") or []:
         pos["consultas"].append(FILA0 + len(filas))
         filas.append([x["tipo"], x["actor"], "", x["fecha"] or None, x["tema"], x["estado"], None, x["detalle"]])
+    # Enfoque por ciclo confirmado por el socio: E ciclo, F decisión, H motivo.
+    pos["enfoque"] = {}
+    for x in reg.get("enfoque") or []:
+        pos["enfoque"][x["ciclo"]] = FILA0 + len(filas)
+        filas.append([TIPO_ENFOQUE, x["actor"], "Socio", x["fecha"] or None, x["ciclo"], x["decision"], None, x["motivo"]])
     return filas, pos
 
 
@@ -630,7 +639,11 @@ def filas_muestreo(cuentas: list, mt: dict, pe: dict, refs: dict, par) -> tuple[
     for i, c in enumerate(cuentas):
         r = FILA0 + i
         nivel = c["nivel"]
-        conf = pe["confianzaAlta"] if _alto(nivel) else pe["confianzaMedia"] if nivel == "Medio" else pe["confianzaBaja"]
+        # Enfoque del ciclo (hoja 45): si se confía en los controles, la confianza del muestreo baja un nivel.
+        if c.get("confia"):
+            conf = pe["confianzaMedia"] if _alto(nivel) else pe["confianzaBaja"]
+        else:
+            conf = pe["confianzaAlta"] if _alto(nivel) else pe["confianzaMedia"] if nivel == "Medio" else pe["confianzaBaja"]
         pob = abs(c["saldo"])
         rf = round(-math.log(1 - conf / 100), 4)
         ef = _ef(conf)
@@ -644,12 +657,11 @@ def filas_muestreo(cuentas: list, mt: dict, pe: dict, refs: dict, par) -> tuple[
             n, metodo = "", METODO_REVISAR
         else:
             n, metodo = math.ceil(round(pob * rf / (te - ee * ef), 6)), METODO_MUS
-        inter = "" if n in ("", 0) else round(pob / n, 2)
+        inter = "" if n in ("", 0) else _redondeo(pob / n, 2)   # como ROUND de Excel: la mitad se aleja del cero
         tam[c["codigo"]] = (r, n, metodo)
         filas.append([
             c["pt"], c["codigo"], c["cuenta"], fx(f"{refs['P28']}K{c['r28']}", nivel),
-            fx(f'IF(OR(D{r}="Alto",D{r}="Significativo",LEFT(D{r},9)="Pendiente"),{par("confianzaAlta")},'
-               f'IF(D{r}="Medio",{par("confianzaMedia")},{par("confianzaBaja")}))', conf),
+            fx(_f_conf(r, c.get("r45"), par), conf),
             fx(f"ABS({refs['H8']}H{c['r08']})", n2(pob)),
             fx(f'IF({refs["DESEMP"]}="","",{refs["DESEMP"]})', n2(te)),
             fx(f'IF(G{r}="","",G{r}*{par("pctErrorEsperado")}/100)', n2(ee)),
@@ -660,6 +672,19 @@ def filas_muestreo(cuentas: list, mt: dict, pe: dict, refs: dict, par) -> tuple[
             fx(f'IF(G{r}="","{METODO_SIN_MAT}",IF(F{r}<G{r},"{METODO_MENOR}",IF(K{r}="","{METODO_REVISAR}","{METODO_MUS}")))', metodo),
         ])
     return filas, tam
+
+
+def _redondeo(v: float, d: int) -> float:
+    from decimal import ROUND_HALF_UP, Decimal
+    return float(Decimal(str(v)).quantize(Decimal(1).scaleb(-d), rounding=ROUND_HALF_UP))
+
+
+def _f_conf(r: int, r45: str | None, par) -> str:
+    alto = f'OR(D{r}="Alto",D{r}="Significativo",LEFT(D{r},9)="Pendiente")'
+    normal = f'IF({alto},{par("confianzaAlta")},IF(D{r}="Medio",{par("confianzaMedia")},{par("confianzaBaja")}))'
+    if not r45:
+        return normal
+    return f'IF(LEFT({r45},7)="Confiar",IF({alto},{par("confianzaMedia")},{par("confianzaBaja")}),{normal})'
 
 
 EXT_ALTO = "Pruebas de detalle con confianza alta; partidas clave y mayores que el intervalo al 100 %"
@@ -854,7 +879,8 @@ EXPLICA = {
           "¿Se probará el control?": "«Sí» si algún hallazgo de la carta vinculado a la cuenta marca que se probará su control (hoja 12)."},
     H29: {"Nivel": ("Trae el nivel más alto de la cuenta en la valoración por afirmación (hoja 28): si un riesgo significativo "
                     "o alto recae en la cuenta, la muestra se calcula con la confianza alta."),
-          "Confianza (%)": "Según el nivel: alto, significativo o pendiente usa la confianza alta de la hoja 02; medio, la media; bajo, la baja.",
+          "Confianza (%)": ("Según el nivel: alto, significativo o pendiente usa la confianza alta de la hoja 02; medio, la media; "
+                            "bajo, la baja. Si el ciclo de la cuenta confía en los controles (hoja 45), baja un nivel."),
           "Población (saldo al corte)": "Saldo al corte de la cuenta en valor absoluto (hoja 08).",
           "Error tolerable": "Es la materialidad de desempeño de la hoja 11.",
           "Error esperado": "Error tolerable por el porcentaje de error esperado de la hoja 02.",

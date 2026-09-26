@@ -232,3 +232,36 @@ def test_version_anterior_de_la_planificacion():
     cam = next(h for h in m.hojas(r2) if h["name"] == "42_Cambios")["rows"]
     estados = [f[3]["v"] if isinstance(f[3], dict) else f[3] for f in cam]
     assert set(estados) == {"Sin cambio"}
+
+
+def test_enfoque_del_ciclo_lo_confirma_el_socio(client):
+    tok, pid = _staff_con_proyecto(client)
+    assert client.put(f"{BASE}/proyectos/{pid}/ficha", headers=_h(tok), json=FICHA).status_code == 200
+    datos = {"tipo": "enfoque", "ciclo": "Inventarios y costo de ventas", "decision": "Sustantivo",
+             "motivo": "Deficiencias en la toma física: no confiamos."}
+    assert "socio" in _reg(client, tok, pid, **datos).json()["detail"]
+    _reg(client, tok, pid, tipo="independencia", rol="Socio", nombre="CPA Socia")
+    assert "Ciclo" in _reg(client, tok, pid, **{**datos, "ciclo": "Otro"}).json()["detail"]
+    assert _reg(client, tok, pid, **{**datos, "decision": "Tal vez"}).status_code == 400
+    assert _reg(client, tok, pid, **datos).status_code == 201
+    assert _reg(client, tok, pid, **{**datos, "decision": "Confiar en controles", "motivo": "Se corrigió la toma física."}).status_code == 201
+    enf = client.get(f"{BASE}/proyectos/{pid}/registros", headers=_h(tok)).json()["encargo"]["registros"]["enfoque"]
+    assert len(enf) == 1 and enf[0]["decision"] == "Confiar en controles" and enf[0]["actor"] == "CPA Socia"
+    r = client.get(f"{BASE}/proyectos/{pid}/documentos/conocimiento_negocio", headers=_h(tok))
+    assert r.status_code == 200 and r.content.startswith(b"PK")
+
+
+def test_memorando_de_conocimiento_del_negocio():
+    import io
+
+    from docx import Document
+
+    from backend.app.aud.niif.ciclo import documentos_encargo as docs
+
+    e = m.EJEMPLO
+    run = {"hojas": m.hojas(m.ejecutar(e["datasets"], e["parametros"], e["corte"]))}
+    d = Document(io.BytesIO(docs.conocimiento_negocio(FICHA, run)))
+    textos = [p.text for p in d.paragraphs]
+    celdas = [c.text for t in d.tables for c in t._cells]
+    assert "Cifras clave" in textos and "Enfoque por ciclo: confianza o no en los controles" in textos
+    assert "Entidad auditada" in celdas and "Nómina y beneficios a empleados" in celdas and "R01" in celdas

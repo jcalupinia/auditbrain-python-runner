@@ -45,6 +45,7 @@ from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
 from backend.app.aud.niif.procesadores import planificacion_calidad as cal_m
+from backend.app.aud.niif.procesadores import planificacion_enfoque as enf_m
 from backend.app.aud.niif.procesadores import planificacion_encargo as enc_m
 from backend.app.aud.niif.procesadores import problemas as _pr
 from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num lo usa el ciclo)
@@ -262,7 +263,7 @@ PARAMETROS = {
     "umbralSignificativo": 20,
     "encargoInicial": "No", "interesPublico": "No",
     "refutarIngresos": "No", "motivoRefutacion": "",
-    "enfoque": "Sustantivo con pruebas de controles clave",
+    "enfoque": "",
     "fechaPreliminar": "", "fechaFinal": "", "fechaInforme": "",
     "socio": "", "gerente": "", "expertos": "",
     **enc_m.PARAMETROS,
@@ -293,7 +294,7 @@ ETIQUETAS_PARAM = {
     "interesPublico": "Entidad de interés público o cotizada (Sí / No)",
     "refutarIngresos": "Se refuta la presunción de fraude en el reconocimiento de ingresos (Sí / No)",
     "motivoRefutacion": "Motivo documentado de la refutación (NIA 240 párr. 47)",
-    "enfoque": "Enfoque general de la auditoría",
+    "enfoque": "Enfoque general de la auditoría (vacío = se deduce del enfoque por ciclo de la hoja 45)",
     "fechaPreliminar": "Fecha de la visita preliminar",
     "fechaFinal": "Fecha de la visita final",
     "fechaInforme": "Fecha prevista de entrega del informe",
@@ -855,21 +856,29 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         # NIA 315 (rev.) y NIA 330: el control solo rebaja el riesgo si el auditor probará su eficacia operativa. Si no se
         # prueba, el riesgo de incorrección material valorado es el inherente.
         probar = "Sí" if norm(f.get("probar_control")) in ("si", "s", "yes", "true", "1", "x") else "No"
-        res = (None if inh is None else inh if probar != "Sí" else None if co is None else inh * (6 - co) / 5)
         # Riesgo significativo (NIA 315 párr. 32 y NIA 330 párr. 21): se juzga sobre el riesgo INHERENTE, antes de los
         # controles; un control fuerte no lo vuelve «Bajo». Lleva el nivel al menos a Alto.
         # A7 (NIA 240): un hallazgo de la carta que menciona fraude es riesgo significativo, cualquiera sea su calificación.
         fraude = "fraude" in (str(f.get("proceso", "") or "") + " " + str(f.get("hallazgo", "") or "")).lower()
         sig = "Sí" if fraude or (inh is not None and inh >= u_sig) else "No" if inh is not None else ""
-        nivel = ("Pendiente de calificación" if res is None else "Alto" if sig == "Sí" or res >= u_alto
-                 else "Medio" if res >= u_medio else "Bajo")
         proceso = str(f.get("proceso", "") or "").strip()
         hallazgo = str(f.get("hallazgo", "") or "").strip()
+        comp, ti = enc_m.clasifica(proceso + " " + hallazgo)
         carta.append({"id": str(f.get("id", "")).strip(), "proceso": proceso, "hallazgo": hallazgo,
-                      "aser": str(f.get("aseveraciones", "") or "").strip(), "p": pr, "i": im, "c": co, "inh": inh, "res": res,
-                      "nivel": nivel, "sig": sig, "probar": probar, "respuesta": str(f.get("respuesta", "") or "").strip(),
-                      **dict(zip(("comp", "ti"), enc_m.clasifica(proceso + " " + hallazgo))),
+                      "aser": str(f.get("aseveraciones", "") or "").strip(), "p": pr, "i": im, "c": co, "inh": inh,
+                      "sig": sig, "probarDs": probar, "respuesta": str(f.get("respuesta", "") or "").strip(), "comp": comp, "ti": ti,
+                      "area": _area(proceso + " " + hallazgo), "bastan": cal_m.bastan(proceso + " " + hallazgo, ti) == cal_m.SI_BASTAN,
                       "herramienta": _herramienta(proceso + " " + hallazgo)})
+    # Enfoque por ciclo (hoja 45): la herramienta propone y el socio decide. Confiar en los controles del ciclo obliga a probar
+    # su eficacia: el hallazgo pasa a «¿Se probará el control?» = Sí y su riesgo valorado considera el control.
+    enf = enf_m.enfoque(carta, u_alto, {x["ciclo"]: x["decision"] for x in reg.get("enfoque") or []})
+    for x in carta:
+        e = next((y for y in enf if y["ciclo"] == enf_m.ciclo_de(x["area"])), None)
+        x["probar"] = "Sí" if x["probarDs"] == "Sí" or (e and e["confia"]) else "No"
+        inh, co = x["inh"], x["c"]
+        x["res"] = res = (None if inh is None else inh if x["probar"] != "Sí" else None if co is None else inh * (6 - co) / 5)
+        x["nivel"] = ("Pendiente de calificación" if res is None else "Alto" if x["sig"] == "Sí" or res >= u_alto
+                      else "Medio" if res >= u_medio else "Bajo")
 
     # 8 · informe del año anterior y notas
     informe = []
@@ -1123,6 +1132,14 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         1 for r_ in riesgos if r_["presenta"] == "Sí" and r_["sev"] in ("Alto", "Significativo"))
     sug = _desempeno_sugerido(sino, dres, triv, carta, riesgos)
     probs += _problemas_calidad(carta, an_items, anomalias, sug, pct["pctDesempeno"], reg, nofin, bool(riesgos_em(riesgos)))
+    pend_enf = [e["ciclo"] for e in enf if not e["dec"]]
+    if pend_enf:
+        probs.append(problema("ENFOQUE_PENDIENTE", f"El socio no confirmó el enfoque de {len(pend_enf)} ciclos ({', '.join(pend_enf)}): "
+                                                   "confírmelo en la plataforma (hoja 45; NIA 300 y 330).", 0))
+    for e in enf:
+        if e["prop"] == enf_m.PROP_REVISAR:
+            probs.append(problema("ENFOQUE_REVISAR", f"{e['ciclo']}: los procedimientos sustantivos no bastan y hay deficiencias de "
+                                                     "control; evalúe si hay una limitación al alcance (NIA 330 párr. 8 b); NIA 705).", 0))
     totales = {"activos": r2(ip["TOTAL ACTIVO"]), "pasivos": r2(ip["TOTAL PASIVO"]), "patrimonio": r2(ip["PATRIMONIO TOTAL"]),
                "ventas": r2(ip["Ventas netas"]), "resultado": r2(ip["Utilidad neta"]), "materialidad": r2(mat or 0),
                "desempeno": r2(desemp or 0), "trivial": r2(triv or 0), "riesgosAltos": r2(n_altos),
@@ -1144,7 +1161,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                "anomalias": anomalias, "revisar": revisar, "nivelRevisar": lvl, "parametros": p,
                "origenes": origenes, "puente": puente, "archivos": archivos, "fac": fac,
                "otrosAbs": sum(abs(x["saldo"]) for x in fuentes["act"] if x["sec"] == "Otros" and x["detalle"] == "Sí"),
-               "pc": pc, "ant": v_ant, "est": est_items, "partes": partes_items, "nofin": nofin, "an": an_items, "sug": sug,
+               "pc": pc, "ant": v_ant, "enf": enf, "est": est_items, "partes": partes_items, "nofin": nofin, "an": an_items, "sug": sug,
                "n40": n40}
     return {"engine": VERSION, "rows": filas, "totals": totales, "labels": etiquetas, "primary": "materialidad",
             "exceptions": probs, "schedule": [], "detalle": detalle}
@@ -1416,6 +1433,56 @@ DEF_PENDIENTE = "Pendiente de calificación"
 SEGUIMIENTO = "Hallazgo del año anterior: verificar si se corrigió y, si persiste, volver a comunicarlo (NIA 265)"
 
 
+def _conocimiento(d: dict, perfil: list, ent_h: list, matriz_h: list, mt: dict, e9: dict, ind: dict) -> dict:
+    """Datos del papel de conocimiento del negocio (hoja 47): todo por fórmula a su hoja de origen."""
+    v = lambda c: c.get("v") if isinstance(c, dict) else c  # noqa: E731
+    ident = [(FILA0 + i, f[1], v(f[2])) for i, f in enumerate(perfil) if f[0] == "Identificación"]
+    entend = [(f[0], v(f[2])) for f in ent_h[:len(cal_m.ASPECTOS)]]
+    ea, ia = e9["act"], ind["act"]
+    cifras = [("Activo total", f"{E9}D{F9['TOTAL ACTIVO']}", n2(ea["TOTAL ACTIVO"])),
+              ("Pasivo total", f"{E9}D{F9['TOTAL PASIVO']}", n2(ea["TOTAL PASIVO"])),
+              ("Patrimonio total", f"{E9}D{F9['PATRIMONIO TOTAL']}", n2(ea["PATRIMONIO TOTAL"])),
+              ("Ventas netas", f"{E9}D{F9['Ventas netas']}", n2(ea["Ventas netas"])),
+              ("Utilidad neta del período", f"{E9}D{F9['Utilidad neta']}", n2(ea["Utilidad neta"])),
+              ("Razón corriente", f"{I10}E{F10['razonCorriente']}", "" if ia["razonCorriente"] is None else ia["razonCorriente"]),
+              ("Endeudamiento del activo (%)", f"{I10}E{F10['endTotal']}", "" if ia["endTotal"] is None else ia["endTotal"]),
+              ("Materialidad global", f"{M11}D{F11['Materialidad global']}", "" if mt["global"] is None else n2(mt["global"])),
+              ("Materialidad de desempeño", DESEMP, "" if mt["desempeno"] is None else n2(mt["desempeno"]))]
+    rk, rl, rj = (enf_m.rng46(c, len(matriz_h)) for c in "KLJ")
+    sig = sum(1 for f in matriz_h if v(f[10]) == "Significativo" and v(f[11]) == "Sí")
+    alto = sum(1 for f in matriz_h if v(f[10]) == "Alto" and v(f[11]) == "Sí")
+    bajo = sum(1 for f in matriz_h if str(v(f[9])).startswith("Bajo") and v(f[11]) == "Sí")
+    riesgos = [("Riesgos significativos presentes", f'COUNTIFS({rk},"Significativo",{rl},"Sí")', float(sig)),
+               ("Riesgos altos presentes", f'COUNTIFS({rk},"Alto",{rl},"Sí")', float(alto)),
+               ("Riesgos con confianza en los controles", f'COUNTIFS({rj},"Bajo*",{rl},"Sí")', float(bajo))]
+    return {"ident": ident, "entend": entend, "cifras": cifras, "enf": d["enf"], "riesgos": riesgos}
+
+
+def _enfoque_general_v(enf: list) -> str:
+    n_c = sum(1 for e in enf if e["confia"])
+    pend = any(not e["dec"] for e in enf)
+    return (f"Combinado: confianza en los controles de {n_c} ciclos y sustantivo en {len(enf) - n_c}"
+            + (" (pendiente de confirmar por el socio)" if pend else ""))
+
+
+def _f_enfoque_general(d: dict):
+    """Estrategia: el enfoque general sale del enfoque por ciclo (hoja 45), salvo que la hoja 02 traiga otro."""
+    rh, ri = enf_m.rng45("H", len(d["enf"])), enf_m.rng45("I", len(d["enf"]))
+    f_ = (f'IF({_par("enfoque")}<>"",{_par("enfoque")},"Combinado: confianza en los controles de "&COUNTIF({rh},"Confiar*")&'
+          f'" ciclos y sustantivo en "&(ROWS({rh})-COUNTIF({rh},"Confiar*"))&IF(COUNTIF({ri},"Pendiente*")>0,'
+          f'" (pendiente de confirmar por el socio)",""))')
+    pv = str((d["parametros"] or {}).get("enfoque") or "").strip()
+    return fx(f_, pv or _enfoque_general_v(d["enf"]))
+
+
+def _f_probar(enf: list, x: dict):
+    """Hoja 12, «¿Se probará el control?»: lo que dice la carta o, si el ciclo confía en los controles (hoja 45), «Sí»."""
+    rf = enf_m.ref_final(enf, enf_m.ciclo_de(x["area"]))
+    if not rf:
+        return x["probar"]
+    return fx(f'IF(OR("{x["probarDs"]}"="Sí",LEFT({rf},7)="Confiar"),"Sí","No")', x["probar"])
+
+
 def _clase_def(x: dict) -> str:
     """M17 (NIA 265): significativa si el hallazgo es riesgo significativo o de nivel alto."""
     if x["sig"] == "Sí" or x["nivel"] == "Alto":
@@ -1471,7 +1538,7 @@ def _estrategia_calidad(d: dict, carta: list, riesgos: list, programa: list, cam
             f"{n_cam} cambios: actualizar la estrategia y el programa" if n_cam else "Sin cambios o primera versión"),
          "NIA 300 párr. 10 y 12; NIA 320 párr. 12"],
         ["Presupuesto de horas (hoja 43)", fx(f'FIXED({h43}D{tot},0)&" horas · "&{h43}G{tot}',
-                                              f"{hv(tot, 3):,.0f} horas · {hv(tot, 6)}"), "NIA 300 párr. 8 e) y 9"],
+                                              f"{_num(hv(tot, 3), 0)} horas · {hv(tot, 6)}"), "NIA 300 párr. 8 e) y 9"],
         ["Supervisión planificada (hoja 43)",
          fx(f'{h43}E{tot + 1}&" procedimientos con revisión del socio y "&{h43}E{tot + 2}&" con revisión del gerente"',
             f"{int(hv(tot + 1, 4))} procedimientos con revisión del socio y {int(hv(tot + 2, 4))} con revisión del gerente"),
@@ -1539,6 +1606,10 @@ def _controles_calidad(d: dict, n17: int, n12: int) -> list:
     cnt(f'COUNTIF({cal_m.rng(cal_m.H42, "D", len(d["cambios"]))},"<>{cal_m.SIN_CAMBIO}")', cal_m.n_cambios(d["cambios"]),
         "Cambios de materialidad o de riesgos frente a la versión anterior: actualizar la estrategia y el programa (hoja 42).",
         CONTROLES[33])
+    cnt(f'COUNTIF({enf_m.rng45("I", len(d["enf"]))},"Pendiente*")', sum(1 for e in d["enf"] if not e["dec"]),
+        "Ciclos cuyo enfoque (confiar o sustantivo) todavía no confirmó el socio en la plataforma (hoja 45).", CONTROLES[34])
+    cnt(f'COUNTIF({enf_m.rng45("F", len(d["enf"]))},"Revisar*")', sum(1 for e in d["enf"] if e["prop"] == enf_m.PROP_REVISAR),
+        "Procesos automatizados con deficiencias de control: posible limitación al alcance (hoja 45).", CONTROLES[35])
     return filas
 
 
@@ -1606,7 +1677,7 @@ def _controles_encargo(d: dict) -> list:
 
 # --- cédulas con fórmulas ------------------------------------------------------------------------------------
 
-PROBLEMAS = "44_Problemas"
+PROBLEMAS = "48_Problemas"
 CEDULAS = [
     ("01_Resumen", "Resumen de la planificación"), ("02_Parametros", "Parámetros"),
     ("03_Mapa", "Mapa de cuentas (prefijo del código → clasificación)"),
@@ -1633,8 +1704,9 @@ CEDULAS = [
     *cal_m.CEDULAS[:8],
     (cal_m.VERSION_ANT, "Versión anterior de la planificación (cifras y riesgos que entrega la plataforma)"),
     *cal_m.CEDULAS[8:],
+    *enf_m.CEDULAS,
     ("00_Nota_metodologica", "Nota metodológica: citas por cotejar con el texto oficial vigente (marca †)"),
-    ("44_Problemas", "Asuntos para la planificación"),
+    ("48_Problemas", "Asuntos para la planificación"),
 ]
 _ETQ = dict(CEDULAS)
 _PAR = ["corte", "marco", "edicionMarco", "tipoRevision", "mesesTranscurridos", "mapaCuentas", "baseMaterialidad", "periodoBase", "pctIngresos",
@@ -1765,9 +1837,11 @@ CONTROLES = ["Cuadre del balance al corte", "Cuadre del balance del cierre anter
              "Partes relacionadas fuera del curso normal (NIA 550)", "Evaluación de la dirección sobre empresa en marcha (NIA 570)",
              "Porcentaje de desempeño frente al sugerido por factores (NIA 320)", "Presupuesto de horas por rol (NIA 300 y 220)",
              "Controles que deben probarse en procesos automatizados (NIA 315 y 330)",
-             "Cambios frente a la versión anterior de la planificación (NIA 300)"]
+             "Cambios frente a la versión anterior de la planificación (NIA 300)",
+             "Enfoque por ciclo confirmado por el socio (NIA 300 y 330)",
+             "Ciclos donde los sustantivos no bastan y hay deficiencias de control (NIA 330)"]
 # D6: datos de la hoja 02 que la estrategia y el programa necesitan; si faltan, quedan [PENDIENTE] y el control avisa.
-GOBIERNO = ("socio", "gerente", "enfoque", "fechaPreliminar", "fechaFinal", "fechaInforme")
+GOBIERNO = ("socio", "gerente", "fechaPreliminar", "fechaFinal", "fechaInforme")
 OPORTUNIDAD_ALTO = "Visita preliminar (controles) y visita final (detalle al corte)"
 OPORTUNIDAD_MEDIO = "Visita final con pruebas de detalle"
 OPORTUNIDAD_BAJO = "Visita final (analíticos sustantivos)"
@@ -2216,7 +2290,7 @@ def hojas(res: dict) -> list[dict]:
                           f'IF(I{r}>={_par("umbralMedio")},"Medio","Bajo")))', x["nivel"]),
                        x["respuesta"] or RESPUESTA_DEFECTO, x["herramienta"],
                        fx(f'IF(ISNUMBER(SEARCH("fraude",B{r}&" "&C{r})),"Sí",IF(H{r}="","",IF(H{r}>={_par("umbralSignificativo")},'
-                          f'"Sí","No")))', x["sig"]), x["probar"], x["comp"], x["ti"],
+                          f'"Sí","No")))', x["sig"]), _f_probar(d["enf"], x), x["comp"], x["ti"],
                        fx(f'IF(OR(M{r}="Sí",J{r}="Alto"),"{DEF_SIGNIFICATIVA}",IF(LEFT(J{r},9)="Pendiente","{DEF_PENDIENTE}",'
                           f'"{DEF_OTRA}"))', _clase_def(x)), SEGUIMIENTO])
 
@@ -2308,7 +2382,7 @@ def hojas(res: dict) -> list[dict]:
     cap = [x for x in cu if x["sec"] == "Patrimonio" and x["detalle"] == "Sí" and cal_m._hay(x["cuenta"], ("capital", "aporte"))]
     unif = cal_m.uniformidad(informe, notas, d["marco"])
     ia_, ip_ = ind["act"], e9["act"]
-    fm = lambda v, dec=2: "sin dato" if v is None else f"{v:,.{dec}f}"  # noqa: E731
+    fm = lambda v, dec=2: "sin dato" if v is None else _num(v, dec)  # noqa: E731
     vv = None if not e9["ant"]["Ventas netas"] else (ip_["Ventas netas"] - e9["ant"]["Ventas netas"]) / abs(e9["ant"]["Ventas netas"])
     ent_h = cal_m.filas_entendimiento({
         **c_cal, "ficha": ficha, "informe": informe, "notas": notas, "carta": carta,
@@ -2497,9 +2571,11 @@ def hojas(res: dict) -> list[dict]:
         r, r18 = FILA0 + len(programa), FILA0 + i
         nivel = "Medio" if material else "Bajo"
         r28, k28 = nivel28[c["codigo"]]
+        e_ = next((y for y in d["enf"] if y["ciclo"] == enf_m.ciclo_de(_area(c["cuenta"], c["sec"]))), None)
         cuentas_pt.append({"pt": f"PT-{len(programa) + 1:02d}", "codigo": c["codigo"], "cuenta": c["cuenta"],
                            "nivel": k28["v"] if isinstance(k28, dict) else k28, "r28": r28, "r08": fila8[c["codigo"]], "saldo": c["act"],
-                           "r19": r})
+                           "r19": r, "r45": enf_m.ref_final(d["enf"], e_["ciclo"]) if e_ else None,
+                           "confia": bool(e_ and e_["confia"])})
         programa.append([f"PT-{len(programa) + 1:02d}", c["cuenta"], f"Cuenta {c['codigo']}",
                          fx(f'IF(OR({C18}F{r18}="Sí",{C18}G{r18}="Sí"),"Medio","Bajo")', nivel),
                          RESPUESTA_SECCION.get(c["sec"], RESPUESTA_CUENTA), x["herr"],
@@ -2550,6 +2626,21 @@ def hojas(res: dict) -> list[dict]:
         fila_ += [fx(cal_m.f_horas(r, _par), cal_m.horas_nivel(nv_, pc, ap_)), fx(cal_m.f_supervision(r), cal_m.supervision(nv_))]
     sup = {k: sum(1 for f in programa if f[13]["v"] == k) for k in (cal_m.SUP_SOCIO, cal_m.SUP_GERENTE)}
     horas_h = cal_m.filas_horas(sum(f[12]["v"] for f in programa), len(programa), d["reg"]["equipo"], sup, d["fechas"], pc, c_cal)
+    # 45–47 · enfoque por ciclo (propone la herramienta, decide el socio), matriz de riesgos consolidada y conocimiento del negocio
+    ctas_ciclo = {}
+    for x in rev:
+        ci = enf_m.ciclo_de(_area(x["x"]["cuenta"], x["x"]["sec"]))
+        if ci and x["revisa"] == "Sí":
+            ctas_ciclo.setdefault(ci, []).append(x["x"]["codigo"])
+    enfoque_h = enf_m.filas_enfoque(d["enf"], carta, ctas_ciclo, {
+        "R12": R12, "H34": ref(cal_m.H34), "par": _par, "n12": len(carta), "R_": enc_m.R_, "pos_enfoque": pos_r["enfoque"],
+        "ref_ci": enc_m.ref_estado(pos_ev, "CI-01"), "refs_ti": [enc_m.ref_estado(pos_ev, f"TI-0{k}") for k in (1, 2, 3)]})
+    for x in riesgos:
+        x.setdefault("area", _area(x["rubro"]))
+        x.setdefault("aser", _aser_riesgo(x, cu))
+    matriz_h = enf_m.filas_matriz(carta, riesgos, d["enf"], programa, {"R12": R12, "R13": R13, "P19": P19, "par": _par,
+                                                                        "u_alto": d["umbrales"]["alto"], "u_medio": d["umbrales"]["medio"]})
+    conoc_h, est_con = enf_m.filas_conocimiento(_conocimiento(d, perfil, ent_h, matriz_h, mt, e9, ind))
 
     # 00_Registros y 24–32 · documentación del encargo (A1–A19), todo automático
     reg, evals = d["reg"], d["evals"]
@@ -2716,7 +2807,7 @@ def hojas(res: dict) -> list[dict]:
                                    '"Balance y resultados: diciembre anterior contra diciembre actual")',
                                    "Balance: cierre anterior contra el corte; resultados: mismo corte de ambos años" if d["tipo"] == "Preliminar"
                                    else "Balance y resultados: diciembre anterior contra diciembre actual"), "NIA 315 párr. 14 b); NIA 520"],
-        ["Enfoque general", txt("enfoque", pv("enfoque") or ""), "NIA 300 párr. 8"],
+        ["Enfoque general", _f_enfoque_general(d), "NIA 300 párr. 8; NIA 330 párr. 7–8 (hoja 45)"],
         ["Encargo inicial", fx(f'IF({_par("encargoInicial")}="Sí","Sí: procedimientos sobre saldos de apertura (NIA 510)","No")',
                                "Sí: procedimientos sobre saldos de apertura (NIA 510)" if sino["encargoInicial"] == "Sí" else "No"),
          "NIA 300 párr. 13"],
@@ -2921,6 +3012,10 @@ def hojas(res: dict) -> list[dict]:
              guia="La entrega la plataforma: cifras y riesgos de la versión anterior aprobada de esta planificación."),
         hoja(cal_m.H42, _ETQ[cal_m.H42], cal_m.COLS_CAMBIOS, cambios, explica=cal_m.EXPLICA[cal_m.H42]),
         hoja(cal_m.H43, _ETQ[cal_m.H43], cal_m.COLS_HORAS, horas_h, explica=cal_m.EXPLICA[cal_m.H43], colores=["Estado"]),
+        hoja(enf_m.H45, _ETQ[enf_m.H45], enf_m.COLS_ENFOQUE, enfoque_h, explica=enf_m.EXPLICA[enf_m.H45]),
+        hoja(enf_m.H46, _ETQ[enf_m.H46], enf_m.COLS_MATRIZ, matriz_h, explica=enf_m.EXPLICA[enf_m.H46],
+             colores=["Riesgo inherente", "Riesgo de incorrección material"]),
+        hoja(enf_m.H47, _ETQ[enf_m.H47], enf_m.COLS_CONOCIMIENTO, conoc_h, explica=enf_m.EXPLICA[enf_m.H47], estilos=est_con),
         hoja(PROBLEMAS, _ETQ[PROBLEMAS], [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e_["code"], e_["message"], n2(float(e_["amount"]))] for e_ in res["exceptions"]]),
     ])
@@ -3865,6 +3960,8 @@ EXPLICA = {
                                "párr. 14). " "En la materialidad específica: «Conforme» si es inferior a la global, «Revisar» si no."),
     },
     "12_Riesgos_CCI": {
+        "¿Se probará el control?": ("«Sí» si la carta lo indica o si el ciclo del hallazgo confía en los controles (hoja 45): "
+                                    "entonces se prueba su eficacia y el riesgo valorado considera el control."),
         "Clasificación de la deficiencia (NIA 265)": ("Deficiencia significativa si el hallazgo es riesgo significativo o de nivel "
                                                       "alto (se comunica por escrito al gobierno); si no, otra deficiencia que se "
                                                       "comunica a la dirección; pendiente mientras no esté calificado."),
@@ -4383,7 +4480,9 @@ _REGISTROS_EJ = {
     "carta": {"actor": "CPA Luis Mora (ficticio)", "fecha": "2025-09-05", "detalle": ""},
     "comunicacion": {"actor": "CPA Andrea Vélez (ficticio)", "fecha": "2025-10-20", "detalle": "Reunión con el directorio"},
 }
-_REGISTROS_EIP = {**_REGISTROS_EJ, "indagaciones": [
+_REGISTROS_EIP = {**_REGISTROS_EJ, "enfoque": [
+    {"ciclo": "Tesorería y financiamiento", "decision": "Sustantivo", "actor": "CPA Andrea Vélez (ficticio)", "fecha": "2025-10-15",
+     "motivo": "Las conciliaciones bancarias no se revisan: preferimos pruebas sustantivas."}], "indagaciones": [
     {"actor": "CPA Luis Mora (ficticio)", "fecha": "2025-10-12", "tema": "Partes relacionadas", "procedimiento": "Indagación",
      "persona": "Gerente general (ficticio)", "resumen": "Los préstamos de accionistas y la cuenta con la relacionada son nuevos en 2025."},
     {"actor": "Ana Torres (ficticio)", "fecha": "2025-10-13", "tema": "Sector, actividad y regulación", "procedimiento": "Observación",

@@ -1032,7 +1032,8 @@ def crear_encargo(db: Session, user, datos: dict) -> dict:
 
 # --- registros del encargo con un clic (decisión del dueño, 2026-09-26) -------
 
-TIPOS_REGISTRO = ("independencia", "asistencia", "aceptacion", "carta", "comunicacion", "indagacion", "consulta", "diferencia")
+TIPOS_REGISTRO = ("independencia", "asistencia", "aceptacion", "carta", "comunicacion", "indagacion", "consulta", "diferencia",
+                  "enfoque")
 # Varios registros vigentes a la vez: las indagaciones, las consultas y las diferencias de opinión no se reemplazan.
 ACUMULAN = ("indagacion", "consulta", "diferencia")
 CONSULTAS_BLOQUEAN = ("Hay consultas técnicas o diferencias de opinión abiertas en el registro del encargo: resuélvalas antes de "
@@ -1152,13 +1153,33 @@ def registrar(db: Session, project_id: int, datos: dict, actor: str) -> Registro
         if len(resumen) < 10:
             raise ReglaIncumplida("Resuma lo que se obtuvo de la indagación u observación.")
         extra = {"tema": tema, "procedimiento": proc, "persona": _texto(datos.get("persona"), 200), "resumen": resumen}
+    elif tipo == "enfoque":
+        # La herramienta propone el enfoque de cada ciclo (hoja 45) y el socio lo confirma o lo cambia (decisión del dueño).
+        from backend.app.aud.niif.procesadores import planificacion_enfoque as enf
+        socio = [r for r in vig if r.tipo == "independencia" and r.actor == actor and r.rol == "Socio"]
+        if not socio:
+            raise ReglaIncumplida("El enfoque de cada ciclo lo confirma el socio del encargo, después de confirmar su independencia "
+                                  "como «Socio».")
+        nombre, rol = socio[-1].nombre, "Socio"
+        ciclo, decision = _texto(datos.get("ciclo"), 80), _texto(datos.get("decision"), 40)
+        if ciclo not in enf.NOMBRES_CICLO:
+            raise ReglaIncumplida("Ciclo desconocido.")
+        if decision not in enf.DECISIONES:
+            raise ReglaIncumplida("El enfoque es «Confiar en controles» o «Sustantivo».")
+        motivo = _texto(datos.get("motivo"), 1000)
+        if len(motivo) < 10:
+            raise ReglaIncumplida("Documente el motivo del enfoque (al menos 10 caracteres).")
+        extra = {"ciclo": ciclo, "decision": decision, "motivo": motivo}
     elif tipo in ("consulta", "diferencia"):
         tema = _texto(datos.get("tema"), 300)
         if len(tema) < 5:
             raise ReglaIncumplida("Indique el tema de la consulta o de la diferencia de opinión.")
         extra = {"tema": tema, "detalle": _texto(datos.get("detalle")), "estado": "Abierta"}
     for r in vig:
-        if tipo not in ACUMULAN and r.tipo == tipo and (tipo not in POR_PERSONA or r.actor == actor):
+        if tipo == "enfoque":
+            if r.tipo == "enfoque" and (r.datos or {}).get("ciclo") == extra["ciclo"]:
+                _anular(r, actor)
+        elif tipo not in ACUMULAN and r.tipo == tipo and (tipo not in POR_PERSONA or r.actor == actor):
             _anular(r, actor)
     reg = RegistroEncargo(project_id=project_id, tipo=tipo, actor=actor, nombre=nombre, rol=rol, fecha=fecha, datos=extra)
     db.add(reg)
@@ -1221,7 +1242,7 @@ def registro_salida(r: RegistroEncargo) -> dict:
 def registros_encargo(db: Session, project_id: int) -> dict:
     """Lo que la planificación recibe en ``parametros["_encargo"]`` (planificacion_encargo.registros)."""
     vig = _vigentes(db, project_id)
-    equipo, asistencia, indagaciones, consultas, uno = [], [], [], [], {}
+    equipo, asistencia, indagaciones, consultas, enfoque, uno = [], [], [], [], [], {}
     for r in vig:
         d = r.datos or {}
         if r.tipo == "independencia":
@@ -1233,6 +1254,9 @@ def registros_encargo(db: Session, project_id: int) -> dict:
         elif r.tipo == "indagacion":
             indagaciones.append({"actor": r.nombre, "fecha": r.fecha.isoformat(), **{k: d.get(k, "") for k in
                                                                                     ("tema", "procedimiento", "persona", "resumen")}})
+        elif r.tipo == "enfoque":
+            enfoque.append({"ciclo": d.get("ciclo", ""), "decision": d.get("decision", ""), "actor": r.nombre,
+                            "fecha": r.fecha.isoformat(), "motivo": d.get("motivo", "")})
         elif r.tipo in ("consulta", "diferencia"):
             consultas.append({"actor": r.nombre, "fecha": r.fecha.isoformat(), "tipo": r.tipo, "tema": d.get("tema", ""),
                               "estado": d.get("estado", "Abierta"),
@@ -1240,7 +1264,8 @@ def registros_encargo(db: Session, project_id: int) -> dict:
         else:
             uno[r.tipo] = {"actor": r.nombre, "fecha": r.fecha.isoformat(), "detalle": d.get("detalle", "")}
     ficha = leer_ficha(db, project_id) or {}
-    return {"registros": {"equipo": equipo, "asistencia": asistencia, "indagaciones": indagaciones, "consultas": consultas, **uno},
+    return {"registros": {"equipo": equipo, "asistencia": asistencia, "indagaciones": indagaciones, "consultas": consultas,
+                          "enfoque": enfoque, **uno},
             "firma": ficha.get("firm") or "",
             "ficha": {k: ficha.get(k) for k in ("client", "ruc", "activity", "year", "cutoff", "framework", "edition")}}
 

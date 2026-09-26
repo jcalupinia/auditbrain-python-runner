@@ -1018,4 +1018,60 @@ def test_m4_m7_m13_m14_m15_m16_escenario_eip():
     assert ctl["Consultas y diferencias de opinión abiertas (NIA 220)"][2:4] == [1, "Revisar"]
     assert {"CONSULTAS_ABIERTAS", "EM_EVALUACION_PENDIENTE"} <= {e["code"] for e in r["exceptions"]}
     reg = _filas(hs[enc.REG])
-    assert [f[0] for f in reg].count(enc.TIPO_INDAG) == 2 and reg[-1][0] == enc.TIPO_CONSULTA and reg[-1][5] == "Abierta"
+    assert [f[0] for f in reg].count(enc.TIPO_INDAG) == 2
+    cons = next(f for f in reg if f[0] == enc.TIPO_CONSULTA)
+    assert cons[5] == "Abierta" and reg[-1][0] == enc.TIPO_ENFOQUE and reg[-1][4:6] == ["Tesorería y financiamiento", "Sustantivo"]
+    teso = next(f for f in _filas(hs[enf_m.H45]) if f[0] == "Tesorería y financiamiento")
+    assert teso[6] == "Sustantivo" and teso[7] == "Sustantivo" and teso[8] == enf_m.EST_CONFIRMADO
+
+
+# --- enfoque por ciclo, matriz consolidada y conocimiento del negocio (planificacion_enfoque) -----------------------------
+from backend.app.aud.niif.procesadores import planificacion_enfoque as enf_m  # noqa: E402
+
+
+def test_enfoque_por_ciclo_propone_la_herramienta_y_decide_el_socio():
+    r, hs = _hojas()
+    enf = {f[0]: f for f in _filas(hs[enf_m.H45])}
+    assert [f[0] for f in _filas(hs[enf_m.H45])] == list(enf_m.NOMBRES_CICLO)
+    ing = enf["Ingresos y cuentas por cobrar"]
+    assert ing[2] == "R01, R03" and ing[4] == "Sí" and ing[5] == enf_m.PROP_DEFICIENCIAS and ing[9] == enf_m.RC_MAXIMO
+    nom = enf["Nómina y beneficios a empleados"]
+    assert nom[5] == enf_m.PROP_CONFIAR and nom[8] == enf_m.EST_PENDIENTE and nom[10] == enf_m.EF_BAJA
+    # Confiar en el ciclo obliga a probar el control del hallazgo (hoja 12, N) y el riesgo valorado considera el control.
+    r04 = next(x for x in r["detalle"]["carta"] if x["id"] == "R04")
+    assert r04["probar"] == "Sí" and r04["res"] == pytest.approx(12 * (6 - 3) / 5)
+    est = {f[0]: f[1] for f in _filas(hs["21_Estrategia"])}
+    assert est["Enfoque general"] == "Combinado: confianza en los controles de 5 ciclos y sustantivo en 2 (pendiente de confirmar por el socio)"
+    assert {"ENFOQUE_PENDIENTE"} <= {e["code"] for e in r["exceptions"]}
+    # El socio cambia un ciclo: su decisión manda sobre la propuesta y cambia la muestra de sus cuentas.
+    e = m.EJEMPLO
+    decide = {**e["parametros"]["_encargo"], "registros": {**e["parametros"]["_encargo"]["registros"], "enfoque": [
+        {"ciclo": c, "decision": enf_m.SUSTANTIVO, "actor": "CPA Andrea Vélez (ficticio)", "fecha": "2025-10-15",
+         "motivo": "Preferimos pruebas sustantivas en este encargo."} for c in enf_m.NOMBRES_CICLO]}}
+    r2 = m.ejecutar(e["datasets"], {**e["parametros"], "_encargo": decide}, e["corte"])
+    hs2 = {h["name"]: h for h in m.hojas(r2)}
+    assert all(f[7] == enf_m.SUSTANTIVO and f[8] == enf_m.EST_CONFIRMADO for f in _filas(hs2[enf_m.H45]))
+    assert next(x for x in r2["detalle"]["carta"] if x["id"] == "R04")["probar"] == "Sí"      # la carta ya lo marcaba
+    m1 = {f[1]: f[4] for f in _filas(hs[enc.H29])}
+    m2 = {f[1]: f[4] for f in _filas(hs2[enc.H29])}
+    assert m1["1201"] < m2["1201"]                                                            # sin confianza, muestra mayor
+    assert "ENFOQUE_PENDIENTE" not in {x["code"] for x in r2["exceptions"]}
+    assert {f[0]: f[1] for f in _filas(hs2["21_Estrategia"])}["Enfoque general"] == \
+        "Combinado: confianza en los controles de 0 ciclos y sustantivo en 7"
+
+
+def test_matriz_de_riesgos_consolidada_y_conocimiento_del_negocio():
+    r, hs = _hojas()
+    mat = _filas(hs[enf_m.H46])
+    assert len(mat) == len(r["detalle"]["carta"]) + len(r["detalle"]["riesgos"])
+    fila = {f[0]: f for f in mat}
+    assert fila["R01"][10] == "Significativo" and fila["R01"][12] == "PT-01"
+    assert fila["R04"][9] == enf_m.RC_BAJO and fila["R04"][10] == "Bajo"                     # medio con control bajo → bajo
+    assert fila["R05"][4] == enf_m.GENERAL and fila["R05"][8] == enf_m.ENF_GENERAL
+    assert fila["RB-01"][10] == "Significativo" and fila["RB-01"][12]
+    con = _filas(hs[enf_m.H47])
+    secciones = [f[0] for f in con if f[1] == ""]
+    assert secciones == ["Identificación de la entidad y del encargo", "Entendimiento de la entidad y su entorno (NIA 315)",
+                         "Cifras clave", "Ciclos y enfoque de auditoría", "Riesgos principales"]
+    assert any(f[1] == "Entidad auditada" and "Comercial Andina" in f[2] for f in con)
+    assert next(f for f in con if f[1] == "Riesgos significativos presentes")[2] >= 1

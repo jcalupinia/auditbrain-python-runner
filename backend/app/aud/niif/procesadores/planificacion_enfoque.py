@@ -66,12 +66,15 @@ def propuesta(n12: int, no_bastan: bool, defic: bool) -> str:
 def enfoque(carta: list, u_alto: float, decisiones: dict) -> list[dict]:
     """Un dict por ciclo con la propuesta, la decisión del socio y el enfoque final. ``carta`` trae «area», «bastan»
     (sí/no), «inh» y «sig»; ``decisiones`` = {ciclo: decisión registrada por el socio}."""
-    gen = any(x["comp"] == "Entorno de control" or x["ti"] for x in carta)
+    # El entorno de control es generalizado: sus deficiencias impiden confiar en cualquier ciclo. Las de TI solo pesan donde el
+    # ciclo depende de procesos automatizados (los sustantivos no bastan).
+    gen = any(x["comp"] == "Entorno de control" for x in carta)
+    ti = any(x["ti"] for x in carta)
     out = []
     for nombre, _areas in CICLOS:
         filas = [i for i, x in enumerate(carta) if ciclo_de(x["area"]) == nombre]
         nob = any(not carta[i]["bastan"] for i in filas)
-        defic = gen or any(carta[i]["sig"] == "Sí" or (carta[i]["inh"] is not None and carta[i]["inh"] >= u_alto) for i in filas)
+        defic = gen or (nob and ti) or any(carta[i]["sig"] == "Sí" or (carta[i]["inh"] is not None and carta[i]["inh"] >= u_alto) for i in filas)
         prop = propuesta(len(carta), nob, defic)
         dec = decisiones.get(nombre, "")
         out.append({"ciclo": nombre, "filas": filas, "nob": nob, "defic": defic, "prop": prop, "dec": dec,
@@ -88,13 +91,14 @@ def filas_enfoque(enf: list, carta: list, cuentas_ciclo: dict, c: dict) -> list:
     """``c``: R12, H34 (prefijo), par, n12, ref_ci (estado CI-01), refs_ti (estados TI), pos_enfoque {ciclo: fila de
     00_Registros}, R_."""
     R12, H34, par, n12, R_ = c["R12"], c["H34"], c["par"], c["n12"], c["R_"]
-    gen_f = "OR(" + ",".join([f'{c["ref_ci"]}="Alerta"'] + [f'{t}="Alerta"' for t in c["refs_ti"]]) + ")"
+    gen_f = f'{c["ref_ci"]}="Alerta"'
+    ti_f = "OR(" + ",".join(f'{t}="Alerta"' for t in c["refs_ti"]) + ")"
     filas = []
     for k, e in enumerate(enf):
         r = FILA0 + k
         f12 = [FILA0 + i for i in e["filas"]]
         f_nob = ("OR(" + ",".join(f'LEFT({H34}L{fr},3)="No:"' for fr in f12) + ")") if f12 else "FALSE"
-        f_def = ("OR(" + ",".join([gen_f] + [f'{R12}M{fr}="Sí"' for fr in f12]
+        f_def = ("OR(" + ",".join([gen_f, f"AND({f_nob},{ti_f})"] + [f'{R12}M{fr}="Sí"' for fr in f12]
                                   + [f'AND(ISNUMBER({R12}H{fr}),N({R12}H{fr})>={par("umbralAlto")})' for fr in f12]) + ")")
         f_prop = (f'IF({n12}=0,"{PROP_SIN_CARTA}",IF(AND(D{r}="No",E{r}="Sí"),"{PROP_REVISAR}",IF(D{r}="No","{PROP_OBLIGATORIO}",'
                   f'IF(E{r}="Sí","{PROP_DEFICIENCIAS}","{PROP_CONFIAR}"))))')
@@ -108,6 +112,14 @@ def filas_enfoque(enf: list, carta: list, cuentas_ciclo: dict, c: dict) -> list:
                       fx(f'IF(LEFT(H{r},7)="Confiar","{RC_BAJO}","{RC_MAXIMO}")', RC_BAJO if e["confia"] else RC_MAXIMO),
                       fx(f'IF(LEFT(H{r},7)="Confiar","{EF_BAJA}","{EF_NADA}")', EF_BAJA if e["confia"] else EF_NADA)])
     return filas
+
+
+def rng45(col: str, n: int) -> str:
+    return f"'{H45}'!${col}${FILA0}:${col}${FILA0 + max(n, 1) - 1}"
+
+
+def rng46(col: str, n: int) -> str:
+    return f"'{H46}'!${col}${FILA0}:${col}${FILA0 + max(n, 1) - 1}"
 
 
 def ref_final(enf: list, ciclo: str) -> str | None:
@@ -220,7 +232,8 @@ EXPLICA = {
     H45: {"¿Bastan los sustantivos?": ("«No» si algún hallazgo de la carta del ciclo es de un proceso automatizado o de alto "
                                        "volumen (hoja 34): hay que probar los controles."),
           "Deficiencias de control": ("«Sí» si algún hallazgo del ciclo es riesgo significativo o su riesgo inherente llega al "
-                                      "umbral alto (hoja 12), o si hay deficiencias en el entorno de control o en TI (hoja 27)."),
+                                      "umbral alto (hoja 12), si hay deficiencias en el entorno de control (hoja 27) o, en un "
+                                      "ciclo con procesos automatizados, deficiencias en los controles generales de TI."),
           "Propuesta de la herramienta": ("Sin carta: sustantivo; los sustantivos no bastan y hay deficiencias: revisar; no bastan: "
                                           "confiar (obligatorio); con deficiencias: sustantivo; si no: confiar en los controles."),
           "Decisión del socio": "Trae la decisión que el socio registró para el ciclo en la plataforma (hoja 00_Registros).",

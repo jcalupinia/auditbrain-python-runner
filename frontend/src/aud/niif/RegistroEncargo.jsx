@@ -213,7 +213,7 @@ export function RegistroEncargo({ proyecto }) {
           const actual = decisionDe(datos.encargo, ciclo);
           const v = enfoques[ciclo] || { decision: actual?.decision || "", motivo: "" };
           return (
-            <div key={ciclo} className="nf-rec-row">
+            <div key={ciclo} className="nf-rec-row nf-enfoque-ciclo">
               <span style={{ flex: 1, minWidth: 220 }}>
                 {ciclo}
                 <small className="muted"> · {actual ? `${actual.decision} (${actual.actor}, ${actual.fecha})` : "Sin confirmar"}</small>

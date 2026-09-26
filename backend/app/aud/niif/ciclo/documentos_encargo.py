@@ -24,6 +24,7 @@ TIPOS = {
     "carta_encargo": "Carta_de_encargo",
     "acta_discusion": "Acta_discusion_equipo",
     "carta_planificacion": "Carta_de_planificacion",
+    "conocimiento_negocio": "Conocimiento_del_negocio",
 }
 PENDIENTE = "[PENDIENTE]"
 FIRMA_LEGAL = {"Audit Consulting": "AuditConsulting Auditores Cía. Ltda."}
@@ -286,6 +287,44 @@ def carta_planificacion(ficha: dict, encargo: dict, run: dict | None, hoy: datet
     return _bytes(doc)
 
 
+def conocimiento_negocio(ficha: dict, run: dict | None) -> bytes:
+    """Memorando de conocimiento del negocio (NIA 315): hoja 47 (identificación, entendimiento, cifras, ciclos y riesgos),
+    el enfoque por ciclo (hoja 45) y los riesgos significativos y altos de la matriz (hoja 46)."""
+    f = ficha or {}
+    doc = _doc("Memorando de conocimiento del negocio", f"NIA 315 (Revisada 2019) · {f.get('client') or PENDIENTE} · corte "
+                                                         f"{f.get('cutoff') or PENDIENTE} · marco: {marco_contable(f)}")
+    con = filas(hoja(run, "47_"))
+    if not con:
+        _p(doc, f"{PENDIENTE}: ejecute la planificación para armar el conocimiento del negocio.")
+        return _bytes(doc)
+    seccion = None
+    datos = []
+    for x in con:
+        if not x.get("Concepto"):
+            if datos:
+                _tabla(doc, ["Concepto", "Detalle"], datos, [5.5, 11])
+                datos = []
+            seccion = x.get("Sección")
+            _h(doc, seccion)
+            continue
+        datos.append([x.get("Concepto"), x.get("Detalle")])
+    if datos:
+        _tabla(doc, ["Concepto", "Detalle"], datos, [5.5, 11])
+    enf = filas(hoja(run, "45_"))
+    if enf:
+        _h(doc, "Enfoque por ciclo: confianza o no en los controles")
+        _tabla(doc, ["Ciclo", "Enfoque", "Estado", "Riesgo de control"],
+               [[x.get("Ciclo"), x.get("Enfoque final"), x.get("Estado"), x.get("Riesgo de control")] for x in enf], [4.2, 5.4, 3.8, 3.2])
+    mat = [x for x in filas(hoja(run, "46_")) if x.get("¿Se presenta?") == "Sí"
+           and x.get("Riesgo de incorrección material") in ("Significativo", "Alto")]
+    if mat:
+        _h(doc, "Riesgos significativos y altos")
+        _tabla(doc, ["Código", "Riesgo", "Ciclo", "Riesgo de incorrección material", "PT"],
+               [[x.get("Código"), x.get("Riesgo"), x.get("Ciclo"), x.get("Riesgo de incorrección material"), x.get("PT del programa")]
+                for x in mat], [1.6, 7.0, 3.6, 2.8, 1.6])
+    return _bytes(doc)
+
+
 def generar(tipo: str, ficha: dict, encargo: dict, run: dict | None) -> bytes:
     if tipo == "carta_encargo":
         return carta_encargo(ficha, encargo)
@@ -293,4 +332,6 @@ def generar(tipo: str, ficha: dict, encargo: dict, run: dict | None) -> bytes:
         return acta_discusion(ficha, encargo, run)
     if tipo == "carta_planificacion":
         return carta_planificacion(ficha, encargo, run)
+    if tipo == "conocimiento_negocio":
+        return conocimiento_negocio(ficha, run)
     raise ValueError("Documento desconocido.")
