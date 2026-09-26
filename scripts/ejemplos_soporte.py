@@ -78,15 +78,11 @@ def _normalizar_zip(path):
 
 def clasificar(doc: str) -> str:
     t = _slug(doc)
-    # Planificación de la auditoría (NIA 210, 265, 315): documentos propios del encargo.
-    if "carta_de_encargo" in t:
-        return "carta_encargo"
+    # Planificación de la auditoría (NIA 265, 300, 510): documentos del año anterior y RUC de la entidad.
     if "informe_de_auditoria" in t:
         return "informe_auditoria"
-    if "organigrama" in t:
-        return "organigrama"
-    if "actas_de_junta_general_y_de_directorio" in t:
-        return "actas_junta"
+    if t.startswith("ruc_"):
+        return "ruc"
     if "confirmacion" in t or "confirmaciones" in t:
         return "confirmacion"
     if "politica" in t:
@@ -362,51 +358,35 @@ def cuerpo_html(cat, pid, rid, req):
                    "<div class='firmas'><div>_____________________<br>Firma autorizada</div>"
                    "<div>_____________________<br>Sello institucional</div></div>")
         return "Carta de confirmación (respuesta recibida)", cuerpo
-    if cat == "carta_encargo":
-        return "Carta de encargo de auditoría (NIA 210)", (
-            f"<p>Quito, 15 de septiembre de 2025. Señores accionistas y administración de <strong>{CLIENTE}</strong>:</p>"
-            f"<p>Confirmamos los términos del encargo de auditoría de los estados financieros de {CLIENTE} al {CORTE}, "
-            "preparados conforme a las Normas Internacionales de Información Financiera.</p>"
-            "<h3>Objetivo y alcance</h3><p>Expresar una opinión sobre si los estados financieros están libres de "
-            "incorrección material, debida a fraude o error, conforme a las Normas Internacionales de Auditoría.</p>"
-            "<h3>Responsabilidades de la administración</h3><ul><li>Preparar los estados financieros conforme al marco aplicable.</li>"
-            "<li>Mantener el control interno necesario.</li><li>Dar acceso a toda la información y a las personas "
-            "de la entidad, y entregar manifestaciones escritas.</li></ul>"
-            "<h3>Informe y calendario</h3><p>Visita preliminar: octubre de 2025. Visita final: enero de 2026. "
-            "Entrega del informe y del Informe de Cumplimiento Tributario: marzo de 2026.</p>"
-            + _tabla_html(["Integrante del equipo", "Cargo", "Declaración de independencia"],
-                          [["Socio del encargo", "Socio", "Firmada"], ["Gerente de auditoría", "Gerente", "Firmada"],
-                           ["Auditor senior", "Encargado", "Firmada"]])
-            + "<div class='firmas'><div>_____________________<br>AuditConsulting Auditores Cía. Ltda.</div>"
-              "<div>_____________________<br>Representante legal de la entidad</div></div>")
     if cat == "informe_auditoria":
-        return "Informe de auditoría y carta de control interno del año anterior", (
+        return "Informe de auditoría, notas y carta de control interno del año anterior", (
             f"<p>Informe de los auditores independientes sobre los estados financieros de <strong>{CLIENTE}</strong> "
-            "del ejercicio anterior: opinión sin salvedades.</p>"
-            "<h3>Carta de control interno · deficiencias comunicadas</h3>"
-            + _tabla_html(["N°", "Deficiencia", "Área", "Estado al cierre"],
-                          [["1", "Conciliaciones bancarias sin firma de revisión", "Caja y bancos", "Pendiente"],
-                           ["2", "Sin análisis de antigüedad de inventarios", "Inventarios", "En proceso"],
-                           ["3", "Accesos del ERP sin revisión periódica", "Tecnología", "Corregida"]])
-            + "<p class='muted'>Sirve para valorar el riesgo y el seguimiento de deficiencias (NIA 265; NIA 315).</p>")
-    if cat == "organigrama":
-        return "Organigrama y procesos clave", (
-            f"<p>Estructura organizacional y procesos clave de <strong>{CLIENTE}</strong> al {CORTE}.</p>"
-            + _tabla_html(["Proceso", "Responsable", "Sistema", "Controles clave"],
-                          [["Ventas y cobranzas", "Gerente comercial", "ERP · módulo de ventas", "Aprobación de crédito; conciliación de cartera"],
-                           ["Compras y cuentas por pagar", "Jefe de compras", "ERP · compras", "Orden de compra aprobada; recepción"],
-                           ["Inventarios", "Jefe de bodega", "ERP · inventarios", "Conteos cíclicos; custodia"],
-                           ["Tesorería", "Tesorero", "Banca electrónica", "Doble firma; conciliación mensual"],
-                           ["Nómina", "Jefe de talento humano", "Sistema de nómina", "Aprobación de roles; conciliación IESS"]])
-            + "<p class='muted'>Entendimiento del control interno y del entorno de TI (NIA 315).</p>")
-    if cat == "actas_junta":
-        return "Actas de junta general y de directorio", (
-            f"<p>Extracto de las actas de <strong>{CLIENTE}</strong> del ejercicio y posteriores al cierre.</p>"
-            + _tabla_html(["Fecha", "Órgano", "Resolución"],
-                          [["28/03/2025", "Junta general", "Aprobación de estados financieros del año anterior y dividendos"],
-                           ["15/07/2025", "Directorio", "Migración del ERP y nuevo crédito bancario de corto plazo"],
-                           ["20/01/2026", "Directorio", "Bono comercial por cumplimiento de metas de ventas"]])
-            + "<p class='muted'>Sirve para identificar decisiones, partes relacionadas y hechos posteriores (NIA 315, 550, 560).</p>")
+            "al cierre del año anterior: <strong>opinión con salvedades</strong>.</p>"
+            "<h3>Fundamento de la opinión con salvedades</h3><p>La provisión por jubilación patronal no se ajustó al cálculo "
+            "actuarial al cierre; el pasivo estaría subestimado en USD 18.500,00.</p>"
+            "<h3>Notas a los estados financieros · saldos auditados</h3>"
+            + _tabla_html(["Nota", "Rubro", "Saldo auditado (USD)"],
+                          [["3", "Efectivo y equivalentes de efectivo", "176.900,00"], ["4", "Cuentas por cobrar comerciales y otras", "656.500,00"],
+                           ["5", "Inventarios", "655.400,00"], ["6", "Propiedad, planta y equipo", "929.100,00"],
+                           ["10", "Obligaciones bancarias", "620.000,00"], ["12", "Cuentas y documentos por pagar", "561.200,00"],
+                           ["13", "Beneficios a empleados", "222.400,00"]])
+            + "<h3>Carta de control interno · hallazgos comunicados</h3>"
+            + _tabla_html(["Código", "Proceso", "Hallazgo"],
+                          [["R01", "Ingresos", "Notas de crédito posteriores al cierre sin aprobación"],
+                           ["R02", "Inventarios", "Sin tomas físicas periódicas ni conciliación con el kárdex"],
+                           ["R03", "Cuentas por cobrar", "Provisión sin modelo de pérdida crediticia esperada"],
+                           ["R04", "Beneficios a empleados", "Cálculo actuarial no actualizado"],
+                           ["R05", "Sistema ERP y accesos", "Usuarios administradores sin segregación de funciones"],
+                           ["R06", "Caja y bancos", "Conciliaciones bancarias sin firma de revisión"]])
+            + "<p class='muted'>Respaldo de los datos transcritos para la planificación (NIA 265, 300 y 510).</p>")
+    if cat == "ruc":
+        return "Registro Único de Contribuyentes (RUC)", (
+            f"<p>Certificado del Registro Único de Contribuyentes de <strong>{CLIENTE}</strong>, RUC {RUC}.</p>"
+            + _tabla_html(["Dato", "Detalle"],
+                          [["Razón social", CLIENTE], ["Estado", "Activo"], ["Tipo de contribuyente", "Sociedad"],
+                           ["Actividad económica principal", "Venta al por mayor de productos de consumo masivo"],
+                           ["Obligado a llevar contabilidad", "Sí"], ["Agente de retención", "Sí"]])
+            + "<p class='muted'>Identificación de la entidad y de su actividad para el perfil del encargo (NIA 315).</p>")
     if cat == "politica":
         return "Política contable", (
             f"<p>{purpose}. Documento aprobado por la administración de {CLIENTE}.</p>"

@@ -1,4 +1,5 @@
-"""Planificación de la auditoría (NIA 300, 315, 320, 240, 570): cifras de control resueltas a mano."""
+"""Planificación de la auditoría con los documentos de entrada del cronograma (balances de comprobación, carta de control
+interno, informe y notas del año anterior): cifras de control resueltas a mano sobre el ejemplo ficticio."""
 import pytest
 
 from backend.app.aud.niif.procesadores import planificacion_nia as m
@@ -9,88 +10,133 @@ def _run(**param):
     return m.ejecutar(e["datasets"], {**e["parametros"], **param}, e["corte"])
 
 
-def _area(r, seccion, area):
-    return next(a for a in r["detalle"]["areas"] if a["seccion"] == seccion and a["area"] == area)
+def _esc(nombre):
+    _, ds, par, corte = next(x for x in m.ESCENARIOS if x[0] == nombre)
+    return m.ejecutar(ds, par, corte)
 
 
-def test_bases_y_materialidad_del_ejemplo():
+def _cuenta(r, codigo):
+    return next(x for x in r["detalle"]["cuentas"] if x["codigo"] == codigo)
+
+
+def test_mapa_jerarquia_y_signo_automatico():
     r = _run()
-    t = r["totals"]
-    # Activos 3.204.200 = pasivos 1.679.700 + patrimonio 1.524.500 (el balance cuadra).
-    assert t["activos"] == "3204200.00" and t["patrimonio"] == "1524500.00"
-    b = r["detalle"]["bases"]["actual"]
-    assert b["Pasivos totales"] == pytest.approx(1679700) and b["Diferencia de cuadre"] == pytest.approx(0)
-    # Utilidad antes de impuestos = 4.860.500 + 18.400 − (3.402.300 + 468.900 + 391.700 + 67.500 + 58.300) = 490.200.
-    assert t["uai"] == "490200.00"
-    # Ingresos 4.860.500 × 1 % = 48.605; ejecución 65 % = 31.593,25; claramente insignificante 5 % = 2.430,25.
-    assert (t["materialidad"], t["ejecucion"], t["trivial"]) == ("48605.00", "31593.25", "2430.25")
-    # Materialidad indicativa con cada base: activos 1 %, UAI 5 %.
-    assert r["detalle"]["indicativa"]["Activos totales"] == pytest.approx(32042)
-    assert r["detalle"]["indicativa"]["Utilidad antes de impuestos"] == pytest.approx(24510)
+    d = r["detalle"]
+    # Los acreedores vienen negativos en el balance de comprobación: el signo de presentación los vuelve positivos.
+    assert d["signo"] == {"Activo": 1, "Pasivo": -1, "Patrimonio": -1, "Ingresos": -1, "Costos": 1, "Gastos": 1, "Otros": 1}
+    c = _cuenta(r, "110302")
+    assert (c["nivel"], c["detalle"], c["clas"], c["sec"]) == (4, "Sí", "Activo corriente", "Activo")
+    assert _cuenta(r, "1103")["detalle"] == "No" and _cuenta(r, "1")["nivel"] == 1
+    # El prefijo más largo gana: 12 = activo no corriente; 101/102 (plan de la Superintendencia) también se reconocen.
+    mapa = m._mapa(m.MAPA_DEFECTO)
+    assert m._clasificar("1201", mapa) == "Activo no corriente" and m._clasificar("10201", mapa) == "Activo no corriente"
+    assert m._clasificar("9101", mapa) == "Otros"
+    # Códigos con puntos: 1.1.10 no es subcuenta de 1.1.1.
+    assert not m._debajo("1.1.10", "1.1.1") and m._debajo("1.1.1.05", "1.1.1") and m._debajo("110101", "1101")
 
 
-def test_analiticos_y_riesgo_por_area():
+def test_cuadre_estados_resumidos_e_indices():
     r = _run()
-    cs = {c["id"]: c for c in r["detalle"]["cuentas"]}
-    # Inventarios sube 301.400 (46,0 %): supera la ejecución y el umbral del 10 % → inusual.
-    assert cs["1.1.05"]["var"] == pytest.approx(301400) and cs["1.1.05"]["inusual"] == "Sí"
-    # Depreciación acumulada baja 31.700 (8,3 %): supera la ejecución pero no el 10 % → no inusual.
-    assert cs["1.2.02"]["inusual"] == "No"
-    # Anticipos a empleados 12.300 < 31.593,25 → no significativa; su área queda en riesgo bajo.
-    assert cs["1.1.07"]["significativa"] == "No" and _area(r, "Activo", "Otros activos")["riesgo"] == "Bajo"
-    # Caja: significativa sin variación inusual pero con un factor de riesgo (F-12) → alto.
-    caja = _area(r, "Activo", "Caja y bancos")
-    assert (caja["inusuales"], caja["factores"], caja["riesgo"]) == (0, 1, "Alto")
-    # Cuentas por cobrar agrupa cartera y provisión: 812.300 − 48.700 = 763.600.
-    assert _area(r, "Activo", "Cuentas por cobrar")["actual"] == pytest.approx(763600)
-    # Inversiones: significativa, sin variación ni factor → medio.
-    assert _area(r, "Activo", "Inversiones")["riesgo"] == "Medio"
+    e = r["detalle"]["est9"]["act"]
+    # Activo 3.204.200 = pasivo 1.679.700 + patrimonio 1.156.850 + resultado 367.650.
+    assert (e["TOTAL ACTIVO"], e["TOTAL PASIVO"], e["PATRIMONIO TOTAL"]) == pytest.approx((3204200, 1679700, 1524500))
+    assert e["Diferencia de cuadre"] == pytest.approx(0)
+    # Cuentas por cobrar con su provisión (rubro contado una sola vez en la cuenta superior) más otras cuentas por cobrar:
+    # 812.300 − 48.700 + 12.300 = 775.900.
+    assert e["Cuentas por cobrar"] == pytest.approx(775900)
+    # Ventas 4.860.500 (código 41) y otros ingresos 18.400; utilidad antes de participación e impuestos 490.200.
+    assert (e["Ventas netas"], e["(+) Otros ingresos"], e[m.UAI]) == pytest.approx((4860500, 18400, 490200))
+    i = r["detalle"]["ind"]["act"]
+    # Razón corriente = activo corriente ÷ pasivo corriente; días de cartera = 775.900 × 365 ÷ 4.860.500 = 58,27.
+    ac = 3204200 - (900000 + 480000 - 412600 + 96000 + 38500)
+    pc = 1679700 - (420000 + 146200 + 64800)
+    assert i["razonCorriente"] == round(ac / pc, 2)
+    assert i["diasCartera"] == pytest.approx(58.27)
+    assert i["endTotal"] == pytest.approx(round(1679700 / 3204200 * 100, 2))
+    assert m._semaforo("razonCorriente", i["razonCorriente"]) == "Verde · Cómodo"
 
 
-def test_riesgos_significativos_y_problemas():
+def test_materialidad_del_ejemplo_y_periodo_de_la_base():
+    t = _run()["totals"]
+    # Ingresos 4.878.900 × 1 % = 48.789,00; desempeño 50 % = 24.394,50; trivial 5 % = 2.439,45.
+    assert (t["materialidad"], t["desempeno"], t["trivial"]) == ("48789.00", "24394.50", "2439.45")
+    # En la preliminar la base automática es el año anterior auditado (diciembre 2025), no el corte de 8 meses.
+    r = _esc("preliminar_eri")
+    assert r["detalle"]["periodo"] == "Año anterior" and r["totals"]["materialidad"] == "48789.00"
+    _, ds, par, corte = next(x for x in m.ESCENARIOS if x[0] == "preliminar_eri")
+    r = m.ejecutar(ds, {**par, "periodoBase": "Corte actual"}, corte)
+    assert r["totals"]["materialidad"] == "34310.00"        # (3.420.000 + 11.000) × 1 %
+
+
+def test_revision_preliminar_con_eri_y_prorrateo():
+    # Con el ERI al mismo corte: ventas agosto 2025 = 2.980.000.
+    assert _cuenta(_esc("preliminar_eri"), "4101")["ant"] == pytest.approx(2980000)
+    # Sin él, se prorratea diciembre 2025: 4.860.500 × 8 ÷ 12.
+    assert _cuenta(_esc("preliminar_prorrateo"), "4101")["ant"] == pytest.approx(4860500 * 8 / 12)
+    # El balance compara el cierre anterior (diciembre 2025) con el corte en ambos casos.
+    assert _cuenta(_esc("preliminar_prorrateo"), "110301")["ant"] == pytest.approx(812300)
+    assert _esc("preliminar_eri")["detalle"]["ind"]["act"]["dias"] == pytest.approx(243.33)
+
+
+def test_matriz_de_la_carta_de_control_interno():
+    carta = {x["id"]: x for x in _run()["detalle"]["carta"]}
+    # R01: 4 × 5 = 20, control 1 → residual 20 → Alto. R02: 16 × (6 − 2) ÷ 5 = 12,8 → Medio. R04: 12 × 3 ÷ 5 = 7,2 → Bajo.
+    assert (carta["R01"]["inh"], carta["R01"]["res"], carta["R01"]["nivel"]) == (20, 20, "Alto")
+    assert (carta["R02"]["res"], carta["R02"]["nivel"]) == (pytest.approx(12.8), "Medio")
+    assert carta["R04"]["nivel"] == "Bajo" and carta["R06"]["nivel"] == "Pendiente de calificación"
+    assert carta["R02"]["herramienta"] == m.HERRAMIENTAS["Inventarios"]
+
+
+def test_riesgos_notas_y_problemas():
     r = _run()
-    rs = r["detalle"]["riesgos"]
-    assert rs[0]["riesgo"].startswith("Fraude en el reconocimiento de ingresos") and rs[0]["nivel"] == "Significativo"
-    assert rs[1]["riesgo"].startswith("Elusión de los controles") and rs[1]["nivel"] == "Significativo"
-    altos = [a for a in r["detalle"]["areas"] if a["riesgo"] == "Alto"]
-    assert r["totals"]["riesgosSignificativos"] == f"{2 + len(altos)}.00"
     codigos = [e["code"] for e in r["exceptions"]]
     assert "RIESGO_FRAUDE_INGRESOS" in codigos and "ELUSION_CONTROLES" in codigos
-    assert codigos.count("FACTOR_RIESGO") == 5 and "ESF_NO_CUADRA" not in codigos and "BASE_NO_VALIDA" not in codigos
+    assert codigos.count("RIESGO_CCI_ALTO") == 2 and "RIESGO_CCI_PENDIENTE" in codigos
+    # Salvedad del año anterior (jubilación patronal 18.500) → riesgo alto a verificar.
+    assert any(e["code"] == "INFORME_ANTERIOR" and e["amount"] == "18500.00" for e in r["exceptions"])
+    # Nota 13: 83.600 + 137.800 = 221.400 en el balance contra 222.400 auditado → −1.000 (NIA 510).
+    n13 = next(n for n in r["detalle"]["notas"] if n["nota"] == "13")
+    assert n13["dif"] == pytest.approx(-1000)
+    assert [e["amount"] for e in r["exceptions"] if e["code"] == "NOTA_NO_CONCILIA"] == ["-1000.00"]
+    assert "ESF_NO_CUADRA" not in codigos and "BASE_NO_VALIDA" not in codigos
 
 
 def test_refutar_la_presuncion_exige_motivo():
-    r = _run(refutarIngresos="Sí")
-    assert r["detalle"]["riesgos"][0]["nivel"] == "Refutado (documentado)"
-    assert "REFUTACION_SIN_MOTIVO" in [e["code"] for e in r["exceptions"]]
-    r = _run(refutarIngresos="Sí", motivoRefutacion="Ventas de contado con un solo producto y precio regulado")
-    codigos = [e["code"] for e in r["exceptions"]]
-    assert "REFUTACION_SIN_MOTIVO" not in codigos and "RIESGO_FRAUDE_INGRESOS" not in codigos
+    codigos = [e["code"] for e in _run(refutarIngresos="Sí")["exceptions"]]
+    assert "REFUTACION_SIN_MOTIVO" in codigos and "RIESGO_FRAUDE_INGRESOS" not in codigos
+    codigos = [e["code"] for e in _run(refutarIngresos="Sí", motivoRefutacion="Ventas de contado con precio regulado")["exceptions"]]
+    assert "REFUTACION_SIN_MOTIVO" not in codigos
 
 
-def test_escenario_de_perdida_base_no_valida_e_indicio_570():
-    _, ds, par, corte = m.ESCENARIOS[1]
-    r = m.ejecutar(ds, par, corte)
-    # Costo de ventas +700.000 → utilidad antes de impuestos 490.200 − 700.000 = −209.800.
-    assert r["totals"]["uai"] == "-209800.00"
+def test_escenario_de_perdida_sin_documentos_del_anio_anterior():
+    r = _esc("perdida_pymes")
     codigos = [e["code"] for e in r["exceptions"]]
-    assert "BASE_NO_VALIDA" in codigos and "PERDIDA_EJERCICIO" in codigos and "ENCARGO_INICIAL" in codigos
+    # Costo +700.000 y sin impuesto: utilidad antes de participación e impuestos 490.200 − 700.000 + 122.550 − 122.550 = −209.800.
+    assert r["detalle"]["bases"][m.UAI] == pytest.approx(-209800)
+    assert {"BASE_NO_VALIDA", "PERDIDA_EJERCICIO", "ENCARGO_INICIAL", "SIN_CARTA_CI", "SIN_INFORME_ANTERIOR",
+            "SIN_NOTAS_ANTERIOR"} <= set(codigos)
     assert "ESF_NO_CUADRA" not in codigos and r["detalle"]["marco"] == m.MARCO_PYMES
 
 
-def test_balance_que_no_cuadra_y_sin_anio_anterior():
-    ds = [{**x, "saldo_anterior": ""} for x in m.EJEMPLO["datasets"]["estados"] if x["id"] != "3.1.04"]
-    r = m.ejecutar({"estados": ds}, {}, "2025-12-31")
-    codigos = [e["code"] for e in r["exceptions"]]
-    assert "ESF_NO_CUADRA" in codigos and "SIN_ANIO_ANTERIOR" in codigos and "SIN_CUESTIONARIO" in codigos
-    # Sin saldos del año anterior no hay variaciones inusuales.
-    assert all(c["inusual"] == "No" for c in r["detalle"]["cuentas"])
+def test_balance_que_no_cuadra():
+    # Bancos +1.000 sin contrapartida: el balance al corte deja de cuadrar por 1.000 (se suman las cuentas de detalle).
+    ds = dict(m.EJEMPLO["datasets"])
+    ds["balance_actual"] = [{**x, "saldo_actual": "181000.00"} if x["codigo"] == "110102" else x for x in ds["balance_actual"]]
+    codigos = [e["code"] for e in m.ejecutar(ds, {}, "2025-12-31")["exceptions"]]
+    r = m.ejecutar(ds, {}, "2025-12-31")
+    assert [e["amount"] for e in r["exceptions"] if e["code"] == "ESF_NO_CUADRA"] == ["1000.00"]
+    assert "ESF_ANTERIOR_NO_CUADRA" not in codigos
 
 
 @pytest.mark.parametrize("param, mensaje", [
     ({"baseMaterialidad": "Utilidad bruta"}, "Base de la materialidad"),
-    ({"pctBase": 0}, "Porcentaje aplicado"),
-    ({"pctEjecucion": 120}, "Materialidad de ejecución"),
+    ({"pctIngresos": 0}, "Porcentaje sobre ingresos"),
+    ({"pctDesempeno": 120}, "Materialidad de desempeño"),
+    ({"tipoRevision": "Intermedia"}, "Tipo de revisión"),
+    ({"mesesTranscurridos": 13}, "Meses transcurridos"),
+    ({"mapaCuentas": "1 Activo"}, "Mapa de cuentas"),
+    ({"mapaCuentas": "1=Bancos"}, "Mapa de cuentas"),
+    ({"umbralMedio": 20, "umbralAlto": 15}, "Matriz de riesgos"),
     ({"encargoInicial": "Tal vez"}, "Encargo inicial"),
     ({"fechaFinal": "31/02/2026"}, "Fecha de la visita final"),
 ])
@@ -99,20 +145,16 @@ def test_parametros_invalidos(param, mensaje):
         _run(**param)
 
 
-def test_anexo_vacio_y_grupo_desconocido():
-    with pytest.raises(ValueError, match="estados financieros comparativos"):
-        m.ejecutar({"estados": []}, {}, "2025-12-31")
-    fila = {"id": "9", "cuenta": "X", "grupo": "Cuentas de orden", "saldo_actual": "10", "_row": 2}
-    assert not m.validar_filas("estados", [fila])["ok"]
-    assert not m.validar_filas("factores", [{"id": "F", "factor": "x", "respuesta": "Quizá", "_row": 2}])["ok"]
-
-
-def test_area_por_defecto_segun_la_cuenta():
-    assert m._area_defecto("Bancos locales", "Activo corriente") == "Caja y bancos"
-    assert m._area_defecto("Proveedores del exterior", "Pasivo corriente") == "Proveedores y cuentas por pagar"
-    assert m._area_defecto("Ventas de servicios", "Ingresos") == "Ingresos"
-    assert m._area_defecto("Gastos de viaje", "Gastos") == "Costos y gastos"
-    assert m._herramienta("CUENTAS POR COBRAR") == "Cuentas por cobrar y pérdida crediticia esperada"
+def test_anexos_obligatorios_y_validaciones():
+    with pytest.raises(ValueError, match="fecha de corte"):
+        m.ejecutar({"balance_anterior": m.EJEMPLO["datasets"]["balance_anterior"]}, {}, "2025-12-31")
+    with pytest.raises(ValueError, match="cierre del año anterior"):
+        m.ejecutar({"balance_actual": m.EJEMPLO["datasets"]["balance_actual"]}, {}, "2025-12-31")
+    dup = [{"codigo": "1101", "cuenta": "A", "saldo_actual": "1", "_row": 2}, {"codigo": "1101.0", "cuenta": "B", "saldo_actual": "2", "_row": 3}]
+    assert not m.validar_filas("balance_actual", dup)["ok"]
+    assert not m.validar_filas("carta_control_interno", [{"id": "R1", "proceso": "x", "hallazgo": "y", "probabilidad": "7", "_row": 2}])["ok"]
+    assert not m.validar_filas("informe_anterior", [{"concepto": "x", "tipo": "Comentario", "detalle": "y", "_row": 2}])["ok"]
+    assert m._cod("1101.0") == "1101" and m._cod(" 1.1.01 ") == "1.1.01"
 
 
 def test_hojas_con_las_cedulas_y_el_ancho_de_columnas():
@@ -122,9 +164,12 @@ def test_hojas_con_las_cedulas_y_el_ancho_de_columnas():
     for h in hs:
         for fila in h["rows"]:
             assert len(fila) == len(h["cols"]), h["name"]
-    plan = next(h for h in hs if h["name"] == "10_Plan")
-    # Solo las áreas de riesgo alto o medio entran al plan.
-    assert len(plan["rows"]) == sum(1 for a in r["detalle"]["areas"] if a["riesgo"] != "Bajo")
+    horizontal = next(h for h in hs if h["name"] == "08_Horizontal")
+    assert len(horizontal["rows"]) == len(r["detalle"]["cuentas"])
+    # Programa: un PT por hallazgo de la carta y uno por posible riesgo presente.
+    programa = next(h for h in hs if h["name"] == "19_Programa")
+    presentes = sum(1 for x in r["detalle"]["riesgos"] if x["presenta"] == "Sí")
+    assert len(programa["rows"]) == len(r["detalle"]["carta"]) + presentes
 
 
 def test_panel_con_textos_propios_y_las_demas_herramientas_sin_cambio():
@@ -138,7 +183,6 @@ def test_panel_con_textos_propios_y_las_demas_herramientas_sin_cambio():
     assert p["problemas"]["rotulo"] == "Asuntos para la planificación"
     tarjetas = hx.kpis_datos(p)
     assert tarjetas[2]["nota"] == "NIA 320 párr. 11" and "var" not in tarjetas[2]
-    # Las pruebas sustantivas conservan el comparativo «registrado vs recalculado».
     otro = PROCESADORES["cxc_cartera"]
     assert graficos.textos(otro.PANEL)["comparativo"] == "Registrado vs recalculado"
     assert graficos.textos(otro.PANEL)["nota_registrado"] == "según el cliente"

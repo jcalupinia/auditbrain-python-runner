@@ -557,18 +557,24 @@ parámetros del auditor sí son valores (entradas); todo lo demás es fórmula:
     `test_ninguna_cifra_ni_fecha_queda_pegada`. Verificación: `python scripts/verificar_datos_cliente.py`
     (LibreOffice, «DIFERENCIAS: 0»); prueba `tests/test_aud_datos_cliente.py`.
 
-**Planificación de la auditoría (NIA 300, 315, 320; 2026-09-26):** herramienta del catálogo en la tarjeta
-«Planificación» (`procesadores/planificacion_nia.py`, `RUBRO = "PLANIFICACION"`), con el mismo papel (Excel con
-fórmulas, HTML, Word, PowerPoint, PDF) y el mismo ciclo que las pruebas NIIF. Anexos: estados financieros
-comparativos por cuenta (grupo del estado financiero y área de auditoría) y cuestionario de entendimiento y
-factores de riesgo. Calcula las bases y la materialidad global, de ejecución y el umbral de errores claramente
-insignificantes (NIA 320, 450); los analíticos preliminares por cuenta (variación, peso vertical, cuenta
-significativa, variación inusual); el riesgo inherente preliminar por área; los riesgos significativos (presunción
-de fraude en ingresos y elusión de controles, NIA 240; indicios NIA 570) y la estrategia global y el plan por área
-con la herramienta del catálogo que responde a cada riesgo (NIA 300, 330). Los porcentajes de referencia de la
-materialidad son **política de la firma** (la NIA 320 A8 solo da ejemplos) y los párrafos citados llevan
-«VERIFICAR» hasta cotejarlos con el texto oficial en español. Su panel usa `PANEL["textos"]` (umbrales en lugar de
-«registrado vs recalculado»; ver `graficos.TEXTOS`). Prueba: `tests/test_proc_planificacion_nia.py`.
+**Planificación de la auditoría (NIA 300, 315, 320, 330, 510; 2026-09-26):** herramienta del catálogo en la tarjeta
+«Planificación» (`procesadores/planificacion_nia.py` v2, `RUBRO = "PLANIFICACION"`), con el mismo papel (Excel con
+fórmulas, HTML, Word, PowerPoint, PDF) y el mismo ciclo que las pruebas NIIF. **Los documentos de entrada son los del
+cronograma del artefacto de análisis** (decisión del dueño): balance de comprobación del cierre anterior y del corte
+que se audita (código, nombre y saldo de TODAS las cuentas y niveles), estado de resultados del año anterior al mismo
+corte (revisión preliminar; sin él se prorratea ÷ 12 × meses), carta de control interno (hallazgos con probabilidad,
+impacto y control de 1 a 5), informe de auditoría y notas a los estados financieros del año anterior, RUC. Replica el
+artefacto: mapa de cuentas por prefijo del código (el más largo gana, hoja `03_Mapa`), nivel y cuentas de detalle por
+la jerarquía de los códigos, signo automático por sección, análisis horizontal de todas las cuentas, estados
+resumidos, índices con semáforo (días sobre los días del período), materialidad (desempeño 50 % y trivial 5 % por
+defecto; en la preliminar la base es el año anterior), matriz de la carta de CI (inherente = P × I; residual =
+inherente × (6 − C) ÷ 5), posibles riesgos (NIA 240, NIA 570, días de cartera e inventario, variaciones, informe
+anterior), notas contra el balance anterior (NIA 510), anomalías, control de calidad, cuentas a revisar, programa
+(NIA 330), narrativa y estrategia (NIA 300). **Los datos del cliente LANSEY del artefacto original NO van al repo**: el
+ejemplo es ficticio («Comercial Andina de Ejemplo S.A.»). Los porcentajes y umbrales son **política de la firma** y los
+párrafos citados llevan «VERIFICAR». Su panel usa `PANEL["textos"]` (umbrales en lugar de «registrado vs
+recalculado»; ver `graficos.TEXTOS`). Prueba: `tests/test_proc_planificacion_nia.py`; verificación LibreOffice de
+los 4 escenarios (final, preliminar con ERI, preliminar con prorrateo, pérdida PYMES): 0 diferencias.
 
 **Diseño del libro (todas las herramientas, 2026-09-25):** portada con botones por sección
 (Resultado · Cómo se calculó · Datos del cliente · Documentación) y pestañas del color de su

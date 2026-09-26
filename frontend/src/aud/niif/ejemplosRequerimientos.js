@@ -213,12 +213,14 @@ export const EJEMPLOS_REQUERIMIENTOS = {
   },
   // --- Planificación de la auditoría (NIA 300, 315, 320) ---
   planificacion_nia: {
-    "RQ-001": "RQ-001_estados.xlsx",
-    "RQ-002": "RQ-002_factores.xlsx",
-    "RQ-003": "RQ-003_carta_de_encargo_firmada_y_declaraciones_de_inde.pdf",
-    "RQ-004": "RQ-004_actas_de_junta_general_y_de_directorio_del_ejerc.pdf",
-    "RQ-005": "RQ-005_informe_de_auditoria_y_carta_de_control_interno_.pdf",
-    "RQ-006": "RQ-006_organigrama_y_descripcion_de_los_procesos_clave.pdf",
+    "RQ-001": "RQ-001_balance_anterior.xlsx",
+    "RQ-002": "RQ-002_balance_actual.xlsx",
+    "RQ-003": "RQ-003_resultados_mismo_corte.xlsx",
+    "RQ-004": "RQ-004_carta_control_interno.xlsx",
+    "RQ-005": "RQ-005_informe_anterior.xlsx",
+    "RQ-006": "RQ-006_notas_estados_financieros.xlsx",
+    "RQ-007": "RQ-007_informe_de_auditoria_notas_y_carta_de_control_in.pdf",
+    "RQ-008": "RQ-008_ruc_actualizado_de_la_entidad.pdf",
   },
 };
 

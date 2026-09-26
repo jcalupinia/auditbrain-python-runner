@@ -88,7 +88,9 @@ def test_excel_un_solo_dashboard_con_graficos_por_formula():
         # dona de composición, registrado vs recalculado, distribución y problemas por severidad.
         graf = wb["00_Inicio"]._charts
         titulos = [_titulo(ch) for ch in graf]
-        assert titulos[0] == "Composición del resultado" and titulos[1] == "Registrado vs recalculado", (pid, titulos)
+        # El comparativo lleva el título del panel de la herramienta (la planificación lo cambia en PANEL["textos"]).
+        comparativo = graficos.textos(getattr(PROCESADORES[pid], "PANEL", None))["comparativo"]
+        assert titulos[0] == "Composición del resultado" and titulos[1] == comparativo, (pid, titulos)
         assert titulos[3] == "Problemas por severidad" and len(titulos) == 4, (pid, titulos)
         assert graf[0].tagname == "doughnutChart" and all(ch.tagname == "barChart" for ch in graf[1:]), pid
         assert all(len(ch._charts) == 2 for ch in graf[1:]), pid       # barras + línea, como el HTML

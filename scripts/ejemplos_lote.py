@@ -110,6 +110,13 @@ def _archivos_de(pid):
     mod = PROCESADORES[pid]
     d = mod.definicion()
     datasets, _par, _corte = _ejemplo_de(mod)
+    # Un anexo opcional que el ejemplo canónico no usa (p. ej. el ERI al mismo corte de la revisión preliminar de la
+    # planificación) se toma del primer escenario que lo trae.
+    datasets = dict(datasets)
+    for _n, ds_esc, _p, _c in getattr(mod, "ESCENARIOS", None) or []:
+        for k, v in ds_esc.items():
+            if v and not datasets.get(k):
+                datasets[k] = v
     salida = []
     for r in d.get("requests", []):
         ds = r.get("dataset")
