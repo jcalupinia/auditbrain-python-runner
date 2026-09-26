@@ -1565,30 +1565,37 @@ def hojas(res: dict) -> list[dict]:
     rb = f"$A${F11[BASES[0]]}:$A${F11[BASES[-1]]}"
     materialidad = [["Período de la base", None, None, None,
                      fx(f'IF({_par("periodoBase")}="Automático",IF({PRELIM},"Año anterior","Corte actual"),{_par("periodoBase")})',
-                        d["periodo"])]]
+                        d["periodo"]), None, None]]
     for b in BASES:
         r = F11[b]
         f7 = F7[_REF_BASE7[b]]
         materialidad.append([b, fx(f'IF({per}="Año anterior",{S7}F{f7},{S7}G{f7})', n2(d["bases"][b])),
                              fx(_par(_PCT_BASE[b]), d["pctBase"][b]), fx(f"B{r}*C{r}/100", n2(d["bases"][b] * d["pctBase"][b] / 100)),
-                             "Política de la firma; NIA 320 párr. A4 y A8 (ejemplos, no porcentajes prescritos)"])
+                             SUSTENTO_PCT, *_rango(b, f"C{r}", d["pctBase"][b])])
     rg, rd = F11["Materialidad global"], F11["Materialidad de desempeño"]
+    rt_ = F11["Umbral de errores claramente insignificantes"]
     materialidad += [
         ["Materialidad global", fx(f"INDEX($B${F11[BASES[0]]}:$B${F11[BASES[-1]]},MATCH({_par('baseMaterialidad')},{rb},0))", n2(mt["base"])),
          fx(f"INDEX($C${F11[BASES[0]]}:$C${F11[BASES[-1]]},MATCH({_par('baseMaterialidad')},{rb},0))", d["pctBase"][d["base"]]),
          fx(f'IF(B{rg}<=0,"",B{rg}*C{rg}/100)', n2(mt["global"])),
          fx(f'"Base elegida: "&{_par("baseMaterialidad")}&" ("&LOWER({per})&"); NIA 320 párr. 10"',
-            f"Base elegida: {d['base']} ({d['periodo'].lower()}); NIA 320 párr. 10")],
+            f"Base elegida: {d['base']} ({d['periodo'].lower()}); NIA 320 párr. 10"),
+         fx(f"INDEX($F${F11[BASES[0]]}:$F${F11[BASES[-1]]},MATCH({_par('baseMaterialidad')},{rb},0))", _rango(d["base"], "", 0)[0]),
+         fx(f"INDEX($G${F11[BASES[0]]}:$G${F11[BASES[-1]]},MATCH({_par('baseMaterialidad')},{rb},0))",
+            _rango(d["base"], "", d["pctBase"][d["base"]])[1]["v"])],
         ["Materialidad de desempeño", fx(f"D{rg}", n2(mt["global"])), fx(_par("pctDesempeno"), d["pct"]["pctDesempeno"]),
-         fx(f'IF(B{rd}="","",B{rd}*C{rd}/100)', n2(mt["desempeno"])), "NIA 320 párr. 11 y A12 (práctica: 50 %–75 %)"],
+         fx(f'IF(B{rd}="","",B{rd}*C{rd}/100)', n2(mt["desempeno"])), "NIA 320 párr. 11 y A12 (práctica: 50 %–75 %)",
+         *_rango("desempeno", f"C{rd}", d["pct"]["pctDesempeno"])],
         ["Umbral de errores claramente insignificantes", fx(f"D{rg}", n2(mt["global"])), fx(_par("pctTrivial"), d["pct"]["pctTrivial"]),
          fx(f'IF(B{F11["Umbral de errores claramente insignificantes"]}="","",B{F11["Umbral de errores claramente insignificantes"]}'
             f'*C{F11["Umbral de errores claramente insignificantes"]}/100)',
-            n2(mt["trivial"])), "NIA 450 párr. 5 y A2: no se acumulan los errores menores"],
+            n2(mt["trivial"])), "NIA 450 párr. 5 y A2: no se acumulan los errores menores",
+         *_rango("trivial", f"C{rt_}", d["pct"]["pctTrivial"])],
         ["Justificación de la base", None, None, None,
-         fx(f'IF({_par("justificacion")}<>"",{_par("justificacion")},' + "".join(
+         fx(f'IF({_par("justificacion")}<>"",{_par("justificacion")},"Base "&{_par("baseMaterialidad")}&" de US$ "&FIXED(B{rg},2)&'
+            f'IF(D{rg}="",": sin materialidad (base cero o negativa). "," × "&FIXED(C{rg},2)&" % = US$ "&FIXED(D{rg},2)&": ")&' + "".join(
              f'IF({_par("baseMaterialidad")}="{b}","{JUSTIFICACION[b]}",' for b in BASES[:-1]) + f'"{JUSTIFICACION[BASES[-1]]}"'
-            + ")" * (len(BASES) - 1) + ")", d["justificacion"])],
+            + ")" * (len(BASES) - 1) + ")", _justif_cifras(d, mt, pv("justificacion"))), None, None],
     ]
 
     # 12 · matriz de la carta de control interno
@@ -2040,7 +2047,8 @@ def hojas(res: dict) -> list[dict]:
                                           ["Actual ajustado al período", "n"], ["Variación ajustada", "n"], ["Tendencia", "t"]],
              indices, explica=EXPLICA["10_Indices"], colores=["Semáforo", "Tendencia"]),
         hoja("11_Materialidad", _ETQ["11_Materialidad"], [["Concepto", "t"], ["Importe", "n"], ["Porcentaje", "n"], ["Materialidad", "n"],
-                                                ["Sustento", "t"]], materialidad, explica=EXPLICA["11_Materialidad"]),
+                                                ["Sustento", "t"], ["Rango de práctica", "t"], ["¿Dentro del rango?", "t"]],
+             materialidad, explica=EXPLICA["11_Materialidad"], colores=["¿Dentro del rango?"]),
         hoja("12_Riesgos_CCI", _ETQ["12_Riesgos_CCI"], [["Código del hallazgo", "t"], ["Proceso o área", "t"], ["Hallazgo o riesgo", "t"],
                                                ["Aseveraciones", "t"], ["Probabilidad (1–5)", "i"], ["Impacto (1–5)", "i"],
                                                ["Control (1–5)", "i"], ["Riesgo inherente", "n"], ["Riesgo residual", "n"], ["Nivel", "t"],
@@ -2320,6 +2328,32 @@ TXT_RESULTADO_ERI = "Resultado del período (ingresos − costos − gastos)"
 TXT_RESULTADO_ESF = "Resultado del período (según el balance)"
 TXT_PASIVO_PATRIMONIO = "Pasivo + patrimonio + resultado del período"
 TXT_DIF_ACTIVO = "Diferencia con el activo (debe ser 0)"
+
+
+# Rango de práctica habitual de cada porcentaje (no lo prescribe la NIA 320: son ejemplos de la profesión; la firma los
+# confirma en su política). Fuera del rango no es un error: obliga a documentar el porqué (NIA 320 párr. 14).
+RANGO_PRACTICA = {"Ingresos": (0.5, 2), "Activos totales": (0.5, 2), "Patrimonio": (1, 5), "Gastos totales": (0.5, 2),
+                  UAI: (3, 10), "desempeno": (50, 75), "trivial": (3, 5)}
+SUSTENTO_PCT = "Política de la firma; NIA 320 párr. A4 y A7–A8 (ejemplos, no porcentajes prescritos) — VERIFICAR"
+DENTRO, FUERA = "Dentro del rango", "Fuera del rango: documentar el porqué"
+
+
+def _rango(k: str, celda: str, pct) -> list:
+    """[rótulo del rango, fórmula ¿dentro del rango?] del porcentaje ``celda``."""
+    lo, hi = RANGO_PRACTICA[k]
+    rot = f"{_num(lo, 1 if lo % 1 else 0)} %–{_num(hi, 0)} % · práctica habitual (VERIFICAR)"
+    v = "" if pct in (None, "") else DENTRO if lo <= float(pct) <= hi else FUERA
+    return [rot, fx(f'IF({celda}="","",IF(AND({celda}>={lo},{celda}<={hi}),"{DENTRO}","{FUERA}"))', v)]
+
+
+def _justif_cifras(d: dict, mt: dict, propia) -> str:
+    """Justificación de la base con sus cifras (artefacto): la del auditor si la escribió; si no, la automática."""
+    if propia not in (None, ""):
+        return str(propia)
+    base, pct = d["base"], d["pctBase"][d["base"]]
+    cif = (": sin materialidad (base cero o negativa). " if not mt["global"] else
+           f" × {_num(pct)} % = US$ {_num(mt['global'])}: ")
+    return f"Base {base} de US$ {_num(mt['base'])}{cif}{JUSTIFICACION[base]}"
 
 
 ORIGEN_INFORME = "Informe del año anterior (RQ-005)"
@@ -2842,7 +2876,12 @@ EXPLICA = {
         "Porcentaje": "Trae de la hoja 02 el porcentaje de la política de la firma para cada base, para el desempeño y para el umbral trivial.",
         "Materialidad": "Multiplica el importe por el porcentaje y lo divide para 100.",
         "Sustento": ("Explica el período de la base (automático: año anterior en la revisión preliminar y corte actual en la "
-                     "final), la base elegida y su justificación, escrita por el auditor o la automática según la base."),
+                     "final), la base elegida y su justificación: la del auditor o la automática, que muestra la base, el "
+                     "porcentaje y la materialidad con sus cifras."),
+        "Rango de práctica": "En la materialidad global trae el rango de práctica de la base elegida en la hoja 02.",
+        "¿Dentro del rango?": ("Compara el porcentaje con el rango de práctica habitual de la profesión (política de la firma, "
+                               "VERIFICAR): «Dentro del rango» o «Fuera del rango», que obliga a documentar el porqué (NIA 320 "
+                               "párr. 14)."),
     },
     "12_Riesgos_CCI": {
         "Riesgo inherente": "Multiplica la probabilidad por el impacto (escala de 1 a 25); en blanco si falta alguna calificación.",

@@ -612,3 +612,21 @@ def test_perfil_del_encargo_nia_315_identificacion_entendimiento_y_pendientes():
                     "Socio del encargo", "Gerente del encargo", "Entendimiento de la entidad"]
     ctl = {v(f[0]): [v(c) for c in f] for f in hp["16_Control"]["rows"]}
     assert ctl["Informe de auditoría del año anterior cargado"][2] == 0
+
+
+def test_materialidad_rango_de_practica_y_justificacion_con_cifras():
+    """Hallazgo D3 de los agentes: cada porcentaje lleva el rango de práctica habitual y avisa si se sale (NIA 320 párr. 14:
+    documentar el porqué), y la justificación automática muestra la base, el porcentaje y la materialidad con sus cifras."""
+    v = lambda c: c.get("v") if isinstance(c, dict) else c  # noqa: E731
+    f11 = {v(f[0]): f for f in next(h for h in m.hojas(_run()) if h["name"] == "11_Materialidad")["rows"]}
+    assert v(f11["Ingresos"][6]) == "Dentro del rango" and f11["Ingresos"][5].startswith("0,5 %–2 %")
+    assert v(f11["Justificación de la base"][4]).startswith("Base Ingresos de US$ 4.878.900,00 × 1,00 % = US$ 48.789,00: ")
+    assert "FIXED(" in f11["Justificación de la base"][4]["f"]
+    # Porcentaje fuera del rango: aviso en la base y en la global; la justificación del auditor se respeta tal cual.
+    r = _run(pctIngresos=3, justificacion="Criterio del socio.")
+    f11 = {v(f[0]): f for f in next(h for h in m.hojas(r) if h["name"] == "11_Materialidad")["rows"]}
+    assert v(f11["Ingresos"][6]) == m.FUERA and v(f11["Materialidad global"][6]) == m.FUERA
+    assert v(f11["Justificación de la base"][4]) == "Criterio del socio."
+    # Sin materialidad (base negativa): la justificación lo dice, sin cifras inventadas.
+    fp = {v(f[0]): f for f in next(h for h in m.hojas(_esc("perdida_pymes")) if h["name"] == "11_Materialidad")["rows"]}
+    assert ": sin materialidad (base cero o negativa)." in v(fp["Justificación de la base"][4])

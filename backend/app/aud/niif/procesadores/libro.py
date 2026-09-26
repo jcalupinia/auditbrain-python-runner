@@ -681,6 +681,8 @@ def _celda(v, fmt) -> str:
         return f"{int(v):,}".replace(",", ".")
     if fmt == "a":                               # año: 2025, nunca «2.025»
         return str(int(v))
+    if isinstance(v, str) and len(v) == 10 and _ISO.match(v):
+        return f"{v[8:10]}/{v[5:7]}/{v[0:4]}"      # fecha ISO → 31/12/2025, como la muestra el Excel
     return _html.escape(str(v))
 
 
