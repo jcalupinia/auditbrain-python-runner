@@ -32,8 +32,9 @@ def _papel(pid):
     return mod, ds, mod.hojas(run), datos_cliente.con_datos(mod, run, ds)
 
 
-def test_son_las_19_herramientas():
-    assert len(IDS) == 19 and "perdidas_incurridas_s11" not in IDS
+def test_son_las_20_herramientas():
+    # 19 herramientas NIIF + la planificación de la auditoría (planificacion_nia).
+    assert len(IDS) == 20 and "perdidas_incurridas_s11" not in IDS and "planificacion_nia" in IDS
 
 
 @pytest.mark.parametrize("pid", IDS)

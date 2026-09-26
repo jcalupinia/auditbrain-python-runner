@@ -76,7 +76,8 @@ def problema(code: str, mensaje: str, importe=0) -> dict:
 
 
 def hoja(name: str, label: str, cols: list, rows: list, total=None, explica: dict | None = None,
-         guia: str | None = None, ocultas: list | None = None, origen: dict | None = None) -> dict:
+         guia: str | None = None, ocultas: list | None = None, origen: dict | None = None,
+         estilos: list | None = None, colores: list | None = None) -> dict:
     """Cédula: cols = [[título, formato]] con formato t/n/p/i/d/x; celdas calculadas con fx().
 
     ``explica`` = {título de columna calculada: explicación en lenguaje sencillo}.
@@ -91,7 +92,14 @@ def hoja(name: str, label: str, cols: list, rows: list, total=None, explica: dic
     del cliente (``D1_…``).
     ``ocultas`` = columnas técnicas (claves de cruce) que el Excel agrupa y oculta.
     ``origen`` = {columna: texto} para reemplazar el «De dónde viene el dato» que se
-    deduce de la fórmula (cuando cada fila remite a una hoja distinta)."""
+    deduce de la fórmula (cuando cada fila remite a una hoja distinta).
+    ``estilos`` = una entrada por fila (o None): {"tipo": "titulo" | "total" | "control",
+    "sangria": n, "col": nombre de la columna que lleva la sangría}. Da a una hoja el aspecto
+    de cédula sumaria (rubro en negrita, subcuentas con sangría, total y cuadre) en Excel,
+    HTML, Word y PowerPoint.
+    ``colores`` = columnas cuyo valor es un nivel, severidad, semáforo o estado (Alto, Medio, Bajo,
+    Significativo, Rojo, Crítico, Conforme…): cada celda se pinta según ``NIVEL_COLOR`` en el Excel
+    (formato condicional, sigue a la fórmula), el HTML, el Word y el PowerPoint."""
     h = {"name": name, "label": label, "cols": cols, "rows": rows, "total": total, "explica": dict(explica or {})}
     if guia:
         h["guia"] = guia
@@ -99,7 +107,50 @@ def hoja(name: str, label: str, cols: list, rows: list, total=None, explica: dic
         h["ocultas"] = list(ocultas)
     if origen:
         h["origen"] = dict(origen)
+    if estilos:
+        h["estilos"] = list(estilos)
+    if colores:
+        h["colores"] = [c for c in colores if c in [x[0] for x in cols]]
     return h
+
+
+# Rol de color de cada nivel. Se compara el texto completo o su primera palabra seguida de espacio
+# («Rojo · No significativo…», «Pendiente de calificación»).
+NIVEL_COLOR = {
+    "Significativo": "sig",
+    "Alto": "alta", "Alta": "alta", "Crítico": "alta", "Rojo": "alta",
+    "Medio": "media", "Media": "media", "Revisar": "media", "Amarillo": "media",
+    "Bajo": "baja", "Baja": "baja", "Conforme": "baja", "Verde": "baja",
+    "Pendiente": "info", "No evaluado": "info",
+}
+# Rol → (relleno, texto) en hexadecimal sin «#». Tonos de estado (no se usan en los gráficos).
+ROL_COLOR = {
+    "sig": ("991B1B", "FFFFFF"),
+    "alta": ("FDE2E2", "991B1B"),
+    "media": ("FEF3C7", "92400E"),
+    "baja": ("DCFCE7", "166534"),
+    "info": ("E5E7EB", "374151"),
+}
+
+
+def rol_color(h: dict, columna: str, valor) -> str | None:
+    """Rol de color de la celda (``None`` si la columna no se pinta o el valor no es un nivel)."""
+    if columna not in (h.get("colores") or []):
+        return None
+    v = valor.get("v") if isinstance(valor, dict) else valor
+    if not isinstance(v, str):
+        return None
+    v = v.strip()
+    for clave, rol in NIVEL_COLOR.items():
+        if v == clave or v.startswith(clave + " "):
+            return rol
+    return None
+
+
+def estilo_fila(h: dict, i: int) -> dict:
+    """Estilo de la fila i de datos de la cédula ({} si no tiene)."""
+    e = h.get("estilos") or []
+    return (e[i] if i < len(e) else None) or {}
 
 
 def suma(col: str, fin_fila: int, valor) -> dict:

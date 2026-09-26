@@ -78,6 +78,11 @@ def _normalizar_zip(path):
 
 def clasificar(doc: str) -> str:
     t = _slug(doc)
+    # Planificación de la auditoría (NIA 265, 300, 510): documentos del año anterior y RUC de la entidad.
+    if "informe_de_auditoria" in t:
+        return "informe_auditoria"
+    if t.startswith("ruc_"):
+        return "ruc"
     if "confirmacion" in t or "confirmaciones" in t:
         return "confirmacion"
     if "politica" in t:
@@ -353,6 +358,35 @@ def cuerpo_html(cat, pid, rid, req):
                    "<div class='firmas'><div>_____________________<br>Firma autorizada</div>"
                    "<div>_____________________<br>Sello institucional</div></div>")
         return "Carta de confirmación (respuesta recibida)", cuerpo
+    if cat == "informe_auditoria":
+        return "Informe de auditoría, notas y carta de control interno del año anterior", (
+            f"<p>Informe de los auditores independientes sobre los estados financieros de <strong>{CLIENTE}</strong> "
+            "al cierre del año anterior: <strong>opinión con salvedades</strong>.</p>"
+            "<h3>Fundamento de la opinión con salvedades</h3><p>La provisión por jubilación patronal no se ajustó al cálculo "
+            "actuarial al cierre; el pasivo estaría subestimado en USD 18.500,00.</p>"
+            "<h3>Notas a los estados financieros · saldos auditados</h3>"
+            + _tabla_html(["Nota", "Rubro", "Saldo auditado (USD)"],
+                          [["3", "Efectivo y equivalentes de efectivo", "176.900,00"], ["4", "Cuentas por cobrar comerciales y otras", "656.500,00"],
+                           ["5", "Inventarios", "655.400,00"], ["6", "Propiedad, planta y equipo", "929.100,00"],
+                           ["10", "Obligaciones bancarias", "620.000,00"], ["12", "Cuentas y documentos por pagar", "561.200,00"],
+                           ["13", "Beneficios a empleados", "222.400,00"]])
+            + "<h3>Carta de control interno · hallazgos comunicados</h3>"
+            + _tabla_html(["Código", "Proceso", "Hallazgo"],
+                          [["R01", "Ingresos", "Notas de crédito posteriores al cierre sin aprobación"],
+                           ["R02", "Inventarios", "Sin tomas físicas periódicas ni conciliación con el kárdex"],
+                           ["R03", "Cuentas por cobrar", "Provisión sin modelo de pérdida crediticia esperada"],
+                           ["R04", "Beneficios a empleados", "Cálculo actuarial no actualizado"],
+                           ["R05", "Sistema ERP y accesos", "Usuarios administradores sin segregación de funciones"],
+                           ["R06", "Caja y bancos", "Conciliaciones bancarias sin firma de revisión"]])
+            + "<p class='muted'>Respaldo de los datos transcritos para la planificación (NIA 265, 300 y 510).</p>")
+    if cat == "ruc":
+        return "Registro Único de Contribuyentes (RUC)", (
+            f"<p>Certificado del Registro Único de Contribuyentes de <strong>{CLIENTE}</strong>, RUC {RUC}.</p>"
+            + _tabla_html(["Dato", "Detalle"],
+                          [["Razón social", CLIENTE], ["Estado", "Activo"], ["Tipo de contribuyente", "Sociedad"],
+                           ["Actividad económica principal", "Venta al por mayor de productos de consumo masivo"],
+                           ["Obligado a llevar contabilidad", "Sí"], ["Agente de retención", "Sí"]])
+            + "<p class='muted'>Identificación de la entidad y de su actividad para el perfil del encargo (NIA 315).</p>")
     if cat == "politica":
         return "Política contable", (
             f"<p>{purpose}. Documento aprobado por la administración de {CLIENTE}.</p>"

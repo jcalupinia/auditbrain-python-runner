@@ -320,7 +320,7 @@ def _kpis_panel(definicion, reg, hojas, titulos):
     ip = (problemas.hoja_problemas(hojas) or (None,))[0]
     if ip is not None:
         n = len(hojas[ip].get("rows") or [])
-        out.append({"clave": "problemas", "rotulo": "Problemas encontrados", "valor": n_prob, "fmt": "i",
+        out.append({"clave": "problemas", "rotulo": graficos.textos(spec)["problemas"], "valor": n_prob, "fmt": "i",
                     "semaforo": est.color_semaforo(n_prob), "f": f"COUNTA({_q(titulos[ip])}A5:A{4 + max(n, 1)})"})
     return out[:5]
 
@@ -404,16 +404,26 @@ def _hoja_ejecutiva(ws, S, h, titulo_prueba, nav, hojas=None, anexo=None):
     # Subrayado dorado bajo el título de la cédula
     for j in range(1, max(6, len(h["cols"])) + 1):
         ws.cell(row=2, column=j).border = S["filete_oro"]
+    from backend.app.aud.niif.procesadores.base import estilo_fila
+
     filas = [(r, False) for r in h["rows"]] + ([(h["total"], True)] if h.get("total") else [])
     for i, (fila, total) in enumerate(filas, start=fila_enc + 1):
-        for j, ((_, fmt), v) in enumerate(zip(h["cols"], fila), start=1):
+        ef = {} if total else estilo_fila(h, i - fila_enc - 1)
+        tipo = ef.get("tipo")
+        for j, ((nombre_col, fmt), v) in enumerate(zip(h["cols"], fila), start=1):
             c = ws.cell(row=i, column=j, value=_excel(v, fmt))
             es_num = fmt in est.FMT or (fmt in ("x", "g") and isinstance(_valor(v), (int, float)))
-            c.font = S["total"] if total else (S["cifra"] if es_num else S["dato"])
-            c.border = S["borde_total"] if total else S["borde_fila"]
-            if total:
+            fuerte = total or tipo in ("titulo", "total")
+            c.font = S["total"] if fuerte and es_num else (
+                Font(name=est.FONT_TEXTO, size=9, bold=True, color=est.NAVY) if fuerte else (S["cifra"] if es_num else S["dato"]))
+            if tipo == "control":
+                c.font = Font(name=est.FONT_TEXTO, size=8.5, italic=True, color="4B5563")
+            c.border = S["borde_total"] if total or tipo == "total" else S["borde_fila"]
+            if total or tipo == "total":
                 c.fill = S["fill_total"]
-            elif (i - fila_enc) % 2 == 0:
+            elif tipo == "titulo":
+                c.fill = PatternFill("solid", fgColor="E8EEF7")   # rubro de la sumaria
+            elif (i - fila_enc) % 2 == 0 and not ef:
                 c.fill = S["fill_zebra"]   # filas alternas
             if isinstance(c.value, date) or (isinstance(v, dict) and isinstance(v.get("v"), str) and _ISO.match(v["v"])):
                 c.number_format = est.FMT["d"]   # también las fórmulas que devuelven una fecha
@@ -428,6 +438,8 @@ def _hoja_ejecutiva(ws, S, h, titulo_prueba, nav, hojas=None, anexo=None):
                 c.alignment = S["der"]
             else:
                 c.alignment = S["izq"]
+            if ef.get("sangria") and nombre_col == ef.get("col"):
+                c.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True, indent=1 + 2 * int(ef["sangria"]))
             vista = _valor(v)
             anchos[j - 1] = max(anchos[j - 1], min(60, len(str(vista if vista is not None else "")) + 2))
     for j, w in enumerate(anchos, start=1):
@@ -443,10 +455,33 @@ def _hoja_ejecutiva(ws, S, h, titulo_prueba, nav, hojas=None, anexo=None):
             dim = ws.column_dimensions[get_column_letter(nombres.index(nombre) + 1)]
             dim.hidden = True
             dim.outlineLevel = 1
+    _colores_nivel(ws, h, fila_enc + 1, fila_enc + len(h["rows"]))
     ws.freeze_panes = f"A{fila_enc + 1}"
     _bloque_como_se_calcula(ws, S, h, len(filas) + fila_enc + 2, hojas, anexo, ws.title)
     _print_setup(ws, {})
 
+
+
+def _colores_nivel(ws, h: dict, fila_ini: int, fila_fin: int):
+    """Colores por nivel (Alto, Medio, Bajo, Significativo, semáforo, estado) con formato condicional:
+    el color sigue a la fórmula si el auditor cambia una calificación o un parámetro."""
+    from openpyxl.formatting.rule import FormulaRule
+
+    from backend.app.aud.niif.procesadores.base import NIVEL_COLOR, ROL_COLOR
+
+    if fila_fin < fila_ini:
+        return
+    nombres = [c[0] for c in h["cols"]]
+    for col in h.get("colores") or []:
+        letra = get_column_letter(nombres.index(col) + 1)
+        celda = f"${letra}{fila_ini}"
+        for clave, rol in NIVEL_COLOR.items():
+            relleno, texto = ROL_COLOR[rol]
+            ws.conditional_formatting.add(
+                f"{letra}{fila_ini}:{letra}{fila_fin}",
+                FormulaRule(formula=[f'OR({celda}="{clave}",LEFT({celda},{len(clave) + 1})="{clave} ")'], stopIfTrue=True,
+                            fill=PatternFill(start_color=relleno, end_color=relleno, fill_type="solid"),
+                            font=Font(color=texto, bold=True)))
 
 
 def _q(titulo: str) -> str:

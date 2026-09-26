@@ -40,6 +40,16 @@ que lo que afirmas está correcto.** Esto significa:
 ## Idioma
 - **SIEMPRE responder en español.** Toda comunicación con el usuario (explicaciones,
   resúmenes, preguntas, mensajes de estado) debe ser en español. Nunca en inglés.
+- **REGLA OBLIGATORIA (decisión del dueño, 2026-09-26: «escribe en español y ponlo como
+  regla»):** la regla no tiene excepciones. Se escribe en español también:
+  - los mensajes automáticos y breves: revisiones programadas del PR (check-ins),
+    avisos de CI, «sin cambios», confirmaciones de una sola línea;
+  - los informes de agentes o subagentes que se entregan al usuario y los encargos que
+    se les dan;
+  - las descripciones de PR, los comentarios en GitHub y los mensajes de commit.
+  Si un texto llega en inglés (herramienta, notificación, agente), se traduce antes de
+  mostrarlo. Solo quedan en su idioma original el código, los nombres técnicos y las
+  citas textuales.
 - El código, nombres de variables y comentarios técnicos pueden seguir las
   convenciones existentes del repositorio, pero la conversación con el usuario es
   siempre en español.
@@ -556,6 +566,47 @@ parámetros del auditor sí son valores (entradas); todo lo demás es fórmula:
     solo son valores `02_Parametros` y la carátula/documentación `00_…`; lo vigila
     `test_ninguna_cifra_ni_fecha_queda_pegada`. Verificación: `python scripts/verificar_datos_cliente.py`
     (LibreOffice, «DIFERENCIAS: 0»); prueba `tests/test_aud_datos_cliente.py`.
+
+**Planificación de la auditoría (NIA 300, 315, 320, 330, 510; 2026-09-26):** herramienta del catálogo en la tarjeta
+«Planificación» (`procesadores/planificacion_nia.py` v2, `RUBRO = "PLANIFICACION"`), con el mismo papel (Excel con
+fórmulas, HTML, Word, PowerPoint, PDF) y el mismo ciclo que las pruebas NIIF. **Los documentos de entrada son los del
+cronograma del artefacto de análisis** (decisión del dueño): balance de comprobación del cierre anterior y del corte
+que se audita (código, nombre y saldo de TODAS las cuentas y niveles), estado de resultados del año anterior al mismo
+corte (revisión preliminar; sin él se prorratea ÷ 12 × meses), carta de control interno (hallazgos con probabilidad,
+impacto y control de 1 a 5), informe de auditoría y notas a los estados financieros del año anterior, RUC. Replica el
+artefacto: mapa de cuentas por prefijo del código (el más largo gana, hoja `03_Mapa`), nivel y cuentas de detalle por
+la jerarquía de los códigos, signo automático por sección, análisis horizontal de todas las cuentas, estados
+resumidos, **sumarias por rubro** (`08S_Sumarias`: un bloque por cuenta de nivel 3 con sus subcuentas en jerarquía,
+saldo anterior y al corte, ajustes del auditor que suben por fórmula de las cuentas de detalle, saldo ajustado,
+variación, nota del año anterior, marca Nueva/Baja/Supera el umbral, total de las cuentas de detalle y cuadre = 0;
+estilos por fila `estilos` de `base.hoja()`), índices con semáforo (días sobre los días del período; con patrimonio
+≤ 0 los índices sobre el patrimonio salen «Rojo · No significativo»), materialidad (desempeño 50 % y trivial 5 % por
+defecto; en la preliminar la base es el año anterior), matriz de la carta de CI (inherente = P × I; residual =
+inherente × (6 − C) ÷ 5; **riesgo significativo** NIA 315/330 cuando el INHERENTE iguala o supera `umbralSignificativo`
+(20 por defecto): nivel al menos Alto y «Significativo» en el programa), posibles riesgos (NIA 240, NIA 570, días de cartera e inventario, variaciones, informe
+anterior), notas contra el balance anterior (NIA 510) con **desglose por nota** (`15D_Notas_Detalle`: cuentas y subcuentas de cada
+nota, anterior y corte, total según el balance y conciliación con la nota auditada; al final, los rubros del balance
+sin nota) y **composición auditada** (`15C_Composicion`, dato opcional RQ-009 `notas_detalle`: líneas de Saldo,
+Movimiento y Total de cada nota, con su cuadre contra el saldo auditado), anomalías, control de calidad, cuentas a revisar, programa
+(NIA 330: toda cuenta a revisar tiene su procedimiento, con aseveraciones, evidencia, responsable y los procedimientos
+de todo el encargo), narrativa y estrategia (NIA 300). Reglas del prompt FIN-AP aplicadas (2026-09-26, con los agentes del plugin NIIF: Automatización construye y el
+Revisor Técnico revisa): **R1** saldo propio de cada cuenta (si falta, suma de sus subcuentas) y totales con la
+cuenta más alta de cada sección/clasificación/rubro, con control «cuenta superior que no suma sus subcuentas» (no se
+fuerza nada); **R2** signo por la convención del balance entero (con signo o por naturaleza), para que un patrimonio
+en déficit siga negativo; **R4** días sobre 365 (en la preliminar los umbrales de días se evalúan × meses ÷ 12);
+**R5/R6** margen operativo sobre ventas, DuPont del ROI y del ROE que reconcilian, proveedores y cartera solo
+comerciales; base de materialidad ≤ 0 → sin materialidad (nada se marca material); lectura causa-efecto y puente de
+orígenes y aplicaciones que cuadra con la variación del efectivo (`22_Origenes`); audit trail NIA 230
+(`23_Audit_trail`). Niveles, severidades, semáforos y estados van **coloreados** (`colores` de `base.hoja()`: formato
+condicional en Excel, etiqueta en HTML, celda sombreada en Word y PowerPoint). **Los datos del cliente LANSEY del artefacto original NO van al repo**: el
+ejemplo es ficticio («Comercial Andina de Ejemplo S.A.»). Los porcentajes y umbrales son **política de la firma** y los
+párrafos citados llevan «VERIFICAR». Su panel usa `PANEL["textos"]` (umbrales en lugar de «registrado vs
+recalculado»; ver `graficos.TEXTOS`) y `PANEL["tableros"]` con los gráficos del artefacto (índices por grupo:
+liquidez, actividad, endeudamiento, rentabilidad; analítico: estructura del balance y estado de resultados; anterior
+frente a actual) en HTML, Excel (nativos 3D, datos por fórmula), Word y PowerPoint, en su propia lámina, con diseño
+premium: relieve 3D, paleta ejecutiva sin celeste ni verde (un color propio por tablero, sin repetir colores en la
+misma lámina), variación ▲▼ coloreada según el sentido favorable del índice y semáforo; ver `docs/niif/CONTRATO_PROCESADOR.md`). Prueba: `tests/test_proc_planificacion_nia.py`; verificación LibreOffice de
+los 5 escenarios (final, preliminar con ERI, preliminar con prorrateo, pérdida PYMES, patrimonio en déficit): 0 diferencias.
 
 **Diseño del libro (todas las herramientas, 2026-09-25):** portada con botones por sección
 (Resultado · Cómo se calculó · Datos del cliente · Documentación) y pestañas del color de su

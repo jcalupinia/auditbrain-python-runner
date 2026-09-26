@@ -275,25 +275,12 @@ def docx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
             _texto(_celda_par(celda, False), txt, 8, C[color] if color else C["texto2"], True)
     _parrafo(doc, "", despues=6)
 
-    # Los 4 gráficos del panel del HTML, en rejilla 2×2 dentro de tarjetas.
-    graf = svg_png.graficos_panel(p, "claro")
-    tg = doc.add_table(rows=2, cols=2)
-    _sin_bordes(tg)
-    ancho_img = int(ancho / 2) - Cm(0.9)
-    for k, g in enumerate(graf):
-        celda = tg.rows[k // 2].cells[k % 2]
-        _sombra(celda, C["card"])
-        b = (8, C["borde"])
-        _bordes(celda, top=b, left=b, bottom=b, right=b)
-        _margen(celda, 7)
-        _texto(celda.paragraphs[0], g["titulo"], 10.5, C["texto"], True)
-        _texto(_celda_par(celda, False), g["sub"], 8, C["texto2"])
-        if g["png"]:
-            _celda_par(celda, False).add_run().add_picture(io.BytesIO(g["png"]), width=ancho_img)
-        else:
-            _texto(_celda_par(celda, False), "Sin datos para graficar en este ejemplo.", 8.5, C["muted"], cursiva=True)
-    for fila in tg.rows:
-        _no_partir(fila)
+    # Los 4 gráficos del panel del HTML, en rejilla 2×2 dentro de tarjetas, y los tableros adicionales.
+    _rejilla_graficos(doc, svg_png.graficos_panel(p, "claro"), ancho, C)
+    tabs = svg_png.tableros_panel(p, "claro")
+    if tabs:
+        _parrafo(doc, "Tableros del análisis", 13, C["texto"], True, antes=10, despues=4)
+        _rejilla_graficos(doc, tabs, ancho, C)
 
     # Cada cédula en su página, como las secciones del HTML impreso.
     hojas = L.cedulas(definicion, reg, eventos, version, estado)
@@ -312,6 +299,29 @@ def docx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     salida = io.BytesIO()
     doc.save(salida)
     return salida.getvalue()
+
+
+def _rejilla_graficos(doc, graf, ancho, C):
+    """Gráficos del panel en rejilla de 2 columnas, cada uno en su tarjeta (título, subtítulo e imagen)."""
+    from docx.shared import Cm
+
+    tg = doc.add_table(rows=(len(graf) + 1) // 2, cols=2)
+    _sin_bordes(tg)
+    ancho_img = int(ancho / 2) - Cm(0.9)
+    for k, g in enumerate(graf):
+        celda = tg.rows[k // 2].cells[k % 2]
+        _sombra(celda, C["card"])
+        b = (8, C["borde"])
+        _bordes(celda, top=b, left=b, bottom=b, right=b)
+        _margen(celda, 7)
+        _texto(celda.paragraphs[0], g["titulo"], 10.5, C["texto"], True)
+        _texto(_celda_par(celda, False), g["sub"], 8, C["texto2"])
+        if g["png"]:
+            _celda_par(celda, False).add_run().add_picture(io.BytesIO(g["png"]), width=ancho_img)
+        else:
+            _texto(_celda_par(celda, False), "Sin datos para graficar en este ejemplo.", 8.5, C["muted"], cursiva=True)
+    for fila in tg.rows:
+        _no_partir(fila)
 
 
 def _calc_word(doc, bloque, ancho):
@@ -358,21 +368,37 @@ def _tabla_word(doc, h, L):
         _sombra(c, C["card2"])
         _bordes(c, bottom=(16, C["oro"]))
         _texto(c.paragraphs[0], nombre, sz, C["texto"], True)
+    from docx.shared import Pt
+
+    from backend.app.aud.niif.procesadores.base import ROL_COLOR, estilo_fila, rol_color
+
     for i, (fila, total) in enumerate(filas, start=1):
-        for j, ((_, fmt), v) in enumerate(zip(h["cols"], fila)):
+        ef = {} if total else estilo_fila(h, i - 1)
+        tipo = "total" if total else ef.get("tipo")
+        for j, ((nombre_col, fmt), v) in enumerate(zip(h["cols"], fila)):
             c = t.rows[i].cells[j]
-            if total:
+            if tipo == "total":
                 _sombra(c, C["card2"])
                 _bordes(c, top=(16, C["oro"]), bottom=(4, C["borde"]))
+            elif tipo == "titulo":
+                _sombra(c, C["card2"])
+                _bordes(c, top=(4, C["borde"]), bottom=(4, C["borde"]))
             else:
-                if i % 2 == 0:
+                if i % 2 == 0 and not ef:
                     _sombra(c, C["zebra"])
                 _bordes(c, bottom=(4, C["borde"]))
             num = fmt in ("n", "p", "i", "g")
             par = c.paragraphs[0]
             if num:
                 par.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-            _texto(par, _html.unescape(L._celda(v, fmt)), sz, C["texto"], total, "Consolas" if num else None)
+            if ef.get("sangria") and nombre_col == ef.get("col"):
+                par.paragraph_format.left_indent = Pt(8 * int(ef["sangria"]))
+            rol = rol_color(h, nombre_col, v)
+            if rol:   # nivel, severidad, semáforo o estado: celda del color del nivel
+                _sombra(c, ROL_COLOR[rol][0])
+            _texto(par, _html.unescape(L._celda(v, fmt)), sz,
+                   ROL_COLOR[rol][1] if rol else C["texto2"] if tipo == "control" else C["texto"],
+                   tipo in ("total", "titulo") or bool(rol), "Consolas" if num else None, cursiva=(tipo == "control"))
     for fila in t.rows:
         _no_partir(fila)
 
@@ -540,6 +566,16 @@ def pptx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     for k, g in enumerate(graf[2:]):
         _tarjeta_grafico(s, g, margen + k * (wg + sep), Inches(1.45), wg, Inches(5.45))
     _pie(s, prs)
+    # Tableros adicionales del panel (p. ej. índices por grupo y analítico): dos por diapositiva.
+    tabs = svg_png.tableros_panel(p, "ejecutivo")
+    for i in range(0, len(tabs), 2):
+        par = tabs[i:i + 2]
+        s = prs.slides.add_slide(vacia)
+        _fondo(s)
+        _titulo_diap(s, prs, "Tableros del análisis", " y ".join(g["titulo"].lower() if j else g["titulo"] for j, g in enumerate(par)))
+        for k, g in enumerate(par):
+            _tarjeta_grafico(s, g, margen + k * (wg + sep), Inches(1.45), wg, Inches(5.45))
+        _pie(s, prs)
 
     # 4+. Cédulas de lectura ejecutiva en tablas con el estilo del HTML (el detalle completo, en el Excel).
     for h in L.cedulas(definicion, reg, eventos, version, estado):
@@ -631,13 +667,25 @@ def _tabla_ppt(diap, prs, h, filas, L):
         c = t.cell(0, j)
         pinta(c, nombre, T["texto"], T["card2"], True)
         _borde_celda(c, "bottom", T["oro"], 25400)
+    from backend.app.aud.niif.procesadores.base import ROL_COLOR, estilo_fila, rol_color
+
     for i, (fila, total) in enumerate(filas, start=1):
-        for j, ((_, fmt), v) in enumerate(zip(h["cols"], fila)):
+        ef = {} if total else estilo_fila(h, i - 1)
+        tipo = "total" if total else ef.get("tipo")
+        for j, ((nombre_col, fmt), v) in enumerate(zip(h["cols"], fila)):
             c = t.cell(i, j)
             num = fmt in ("n", "p", "i", "g")
-            relleno = T["card2"] if total else (T["zebra"] if i % 2 == 0 else T["card"])
-            pinta(c, _html.unescape(L._celda(v, fmt)), T["texto"], relleno, total, num, "Consolas" if num else None)
-            if total:
+            relleno = T["card2"] if tipo in ("total", "titulo") else (T["zebra"] if i % 2 == 0 and not ef else T["card"])
+            txt = _html.unescape(L._celda(v, fmt))
+            if ef.get("sangria") and nombre_col == ef.get("col"):
+                txt = "\u2003" * int(ef["sangria"]) + txt        # sangría por nivel (espacio eme)
+            rol = rol_color(h, nombre_col, v)
+            if rol:   # nivel, severidad, semáforo o estado: celda del color del nivel
+                pinta(c, txt, ROL_COLOR[rol][1], ROL_COLOR[rol][0], True, num, None)
+            else:
+                pinta(c, txt, T["texto2"] if tipo == "control" else T["texto"], relleno, tipo in ("total", "titulo"), num,
+                      "Consolas" if num else None)
+            if tipo == "total":
                 _borde_celda(c, "top", T["oro"], 25400)
             _borde_celda(c, "bottom", T["borde"], 9525)
     for fila in t.rows:

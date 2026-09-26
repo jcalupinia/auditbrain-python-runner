@@ -192,6 +192,24 @@ def svg_barras(items: list[tuple[str, float]], descripcion: str) -> str:
     )
 
 
+# Textos del panel que una herramienta puede cambiar con ``PANEL["textos"]`` (por defecto, los de una
+# prueba sustantiva: cifra del cliente frente a la recalculada por el auditor).
+TEXTOS = {
+    "comparativo": "Registrado vs recalculado",
+    "comparativo_sub": "Cifra del cliente frente a la recalculada por el auditor (USD).",
+    "nota_recalculado": None,          # None = flecha con la variación contra el registrado
+    "vs": "vs registrado", "igual": "igual al registrado",
+    "nota_registrado": "según el cliente",
+    "problemas": "Problemas encontrados",
+}
+
+
+def textos(spec: dict | None) -> dict:
+    t = dict(TEXTOS)
+    t.update({k: v for k, v in ((spec or {}).get("textos") or {}).items() if k in TEXTOS})
+    return t
+
+
 def paneles(hojas: list[dict], run: dict, mod=None) -> list[dict]:
     """Los gráficos del papel: [{titulo, subtitulo, svg, items}] (solo los que tienen datos).
 
@@ -203,8 +221,7 @@ def paneles(hojas: list[dict], run: dict, mod=None) -> list[dict]:
         p = panel(mod, run, run.get("hojas") or hojas)
         graf = []
         if p["registrado"]["valor"] is not None and p["recalculado"]["valor"] is not None:
-            graf.append(("Registrado vs recalculado", "Cifra del cliente frente a la recalculada por el auditor (USD).",
-                         p["comparativo"]["items"]))
+            graf.append((p["comparativo"]["rotulo"], p["comparativo"]["sub"], p["comparativo"]["items"]))
         for k in ("composicion", "distribucion"):
             graf.append((p[k]["rotulo"], f"Importes en USD; los {TOP_HALLAZGOS} mayores y el resto en «Otros».", p[k]["items"]))
         for titulo, sub, items in graf:
@@ -255,6 +272,9 @@ def cifra(v) -> str:
 # registrado y recalculado midan lo mismo (p. ej. solo las líneas medidas) y la
 # brecha del comparativo sea el ajuste.
 # El resultado principal es siempre ``run["primary"]``.
+# Opcional, ``"tableros"``: gráficos adicionales de barras agrupadas (anterior vs actual) sobre
+# filas elegidas de una cédula (ver ``tableros_spec``); van debajo de los 4 gráficos en el HTML,
+# el Excel (00_Inicio, datos por fórmula), el Word y el PowerPoint.
 
 UMBRAL_ALTA, UMBRAL_MEDIA = 0.05, 0.01
 SEVERIDADES = ("Alta", "Media", "Baja", "Informativa")
@@ -356,6 +376,68 @@ def serie_spec(spec: dict | None, mapa: dict, absoluto: bool = False, run: dict 
     return items
 
 
+def _sin_unidad(t: str) -> str:
+    """«Razón corriente (veces)» → «Razón corriente»: solo el paréntesis final (la unidad va en el subtítulo)."""
+    t = str(t).strip()
+    return t[: t.rfind(" (")].strip() if t.endswith(")") and " (" in t else t
+
+
+_FAMILIAS = ("t1", "t2", "t3", "t4", "t5", "t6")   # = graficos_svg.FAMILIAS_TABLERO (paleta ejecutiva)
+
+
+def tableros_spec(specs: list | None, mapa: dict) -> tuple[list[dict], list[str]]:
+    """Tableros adicionales (``PANEL["tableros"]``): barras agrupadas de filas elegidas de una cédula,
+    una barra por serie (p. ej. «Anterior» y «Actual»). Cada spec:
+    ``{"rotulo", "sub", "hoja", "etiqueta", "filas": [rótulo | [rótulo, rótulo del gráfico] | {"fila", "rotulo", "mejor"}],
+    "series": [[nombre, columna], ...], "unidad", "estado"}`` (unidad: «veces», «días», «%» o «USD»; ``estado``: columna
+    del semáforo «Verde · …», opcional).
+    Devuelve los tableros resueltos (con el índice de cada fila en la cédula, para que el Excel la
+    referencie por fórmula) y la lista de lo que no se encontró."""
+    salida, faltan = [], []
+    for sp in specs or []:
+        h = mapa.get(sp.get("hoja"))
+        je = _cols_idx(h, sp.get("etiqueta")) if h else None
+        js = [(n, _cols_idx(h, c), c) for n, c in sp.get("series") or []] if h else []
+        if h is None or je is None or not js or any(j is None for _, j, _ in js):
+            faltan.append(f"tableros:{sp.get('rotulo')}")
+            continue
+        rot = {}
+        for i, f in enumerate(h.get("rows") or []):
+            e = f[je] if je < len(f) else ""
+            rot.setdefault(" ".join(str(e.get("v") if isinstance(e, dict) else e).split()), i)
+        # Una fila es su rótulo en la cédula, el par [rótulo en la cédula, rótulo del gráfico] o
+        # {"fila", "rotulo", "mejor": "alto"|"bajo"} (sentido favorable del indicador, para colorear la variación).
+        pares, mejor = [], []
+        for r in sp.get("filas") or []:
+            if isinstance(r, dict):
+                pares.append((r["fila"], r.get("rotulo") or _sin_unidad(r["fila"])))
+                mejor.append(r.get("mejor"))
+            else:
+                pares.append((r, _sin_unidad(r)) if isinstance(r, str) else (r[0], r[1]))
+                mejor.append(None)
+        idx = [rot.get(r) for r, _ in pares]
+        if not idx or any(i is None for i in idx):
+            faltan.append(f"tableros:{sp.get('rotulo')}")
+            continue
+        filas = h["rows"]
+        series = [(n, [(_num(filas[i][j]) if j < len(filas[i]) else None) for i in idx], c) for n, j, c in js]
+        jz = _cols_idx(h, sp["estado"]) if sp.get("estado") else None
+        estados = []
+        for i in idx:   # semáforo de la cédula («Verde · Cómodo»): solo el nivel y la etiqueta
+            z = filas[i][jz] if jz is not None and jz < len(filas[i]) else None
+            z = str((z.get("v") if isinstance(z, dict) else z) or "")
+            nivel, _, etq = z.partition(" · ")
+            estados.append((nivel, etq) if nivel in ("Verde", "Amarillo", "Rojo") else None)
+        salida.append({"rotulo": sp.get("rotulo", ""), "sub": sp.get("sub", ""), "unidad": sp.get("unidad", ""),
+                       "seccion": sp.get("seccion", ""),
+                       # Una familia de color por tablero, sin repetir (``graficos_svg.FAMILIAS_TABLERO``).
+                       "color": sp.get("color") or _FAMILIAS[len(salida) % len(_FAMILIAS)],
+                       "hoja": sp["hoja"], "filas": idx, "categorias": [c for _, c in pares],
+                       "series": [(n, vs) for n, vs, _ in series], "columnas": [c for _, _, c in series],
+                       "mejor": mejor, "estados": estados})
+    return salida, faltan
+
+
 def severidad(run: dict, base: float | None) -> dict:
     cuenta = {s: 0 for s in SEVERIDADES}
     b = abs(base or 0.0)
@@ -417,8 +499,11 @@ def panel(mod, run: dict, hojas: list[dict]) -> dict:
         series[k] = serie_spec(spec.get(k), mapa, absoluto=(k == "composicion"), run=run)
         if not series[k]:
             faltan.append(k)
+    tableros, faltan_t = tableros_spec(spec.get("tableros"), mapa)
+    faltan += faltan_t
     sev = severidad(run, val["poblacion"])
     principal = _num(tot.get(prim))
+    txt = textos(spec)
     return {
         "principal": {"rotulo": etq.get(prim, prim or "Resultado"), "valor": principal,
                       "variacion": variacion((principal or 0) + (val["poblacion"] or 0), val["poblacion"]) if principal is not None else None},
@@ -431,13 +516,15 @@ def panel(mod, run: dict, hojas: list[dict]) -> dict:
         "recalculado": {"rotulo": (spec.get("recalculado") or {}).get("rotulo", "Recalculado"), "valor": val["recalculado"],
                         "variacion": variacion(val["recalculado"], val["registrado"])},
         "registrado": {"rotulo": (spec.get("registrado") or {}).get("rotulo", "Registrado"), "valor": val["registrado"]},
-        "problemas": {"rotulo": "Problemas encontrados", "valor": len(run.get("exceptions") or []), "severidad": sev},
+        "problemas": {"rotulo": txt["problemas"], "valor": len(run.get("exceptions") or []), "severidad": sev},
         "riesgo": riesgo(sev),
         "composicion": {"rotulo": (spec.get("composicion") or {}).get("rotulo", "Composición del resultado"), "items": series["composicion"]},
-        "comparativo": {"rotulo": "Registrado vs recalculado",
+        "textos": txt,
+        "comparativo": {"rotulo": txt["comparativo"], "sub": txt["comparativo_sub"],
                         "items": [((spec.get("registrado") or {}).get("rotulo", "Registrado"), val["registrado"] or 0.0),
                                   ((spec.get("recalculado") or {}).get("rotulo", "Recalculado"), val["recalculado"] or 0.0)]},
         "distribucion": {"rotulo": (spec.get("distribucion") or {}).get("rotulo", "Distribución"), "items": series["distribucion"]},
         "severidad": {"rotulo": "Problemas por severidad", "items": [(s, float(sev[s])) for s in SEVERIDADES], "regla": REGLA_SEVERIDAD},
+        "tableros": tableros,
         "faltan": faltan,
     }

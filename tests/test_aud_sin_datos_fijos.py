@@ -16,7 +16,7 @@ import pytest
 from openpyxl import load_workbook
 
 from backend.app.aud.niif import ejercicio_modelo as em
-from backend.app.aud.niif.procesadores import PROCESADORES, libro, problemas
+from backend.app.aud.niif.procesadores import PROCESADORES, graficos, libro, problemas
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _spec = importlib.util.spec_from_file_location(
@@ -98,6 +98,6 @@ def test_portada_tarjetas_son_formulas(pid):
     r0 = next(c.row for c in ws["B"] if c.value == "INDICADORES CLAVE")
     tarjetas = [(ws[f"{c}{r0 + 1}"].value, ws[f"{c}{r0 + 2}"].value) for c in "BCDEF" if ws[f"{c}{r0 + 1}"].value]
     assert 4 <= len(tarjetas) <= 5, (pid, tarjetas)
-    assert tarjetas[-1][0].upper() == "PROBLEMAS ENCONTRADOS", pid
+    assert tarjetas[-1][0].upper() == graficos.textos(getattr(m, "PANEL", None))["problemas"].upper(), pid
     for rotulo, v in tarjetas:
         assert isinstance(v, str) and v.startswith("="), (pid, rotulo, v)

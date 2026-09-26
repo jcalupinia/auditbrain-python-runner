@@ -9,6 +9,8 @@ sus colores de fondo y sus botones, y no otros:
 - Los 4 gráficos del panel del HTML, nativos de Excel: «Composición del resultado»
   (dona), «Registrado vs recalculado», la distribución de la población y
   «Problemas por severidad» (barras + línea, colores por barra del HTML).
+- Los tableros adicionales del ``PANEL`` (``"tableros"``: columnas agrupadas anterior vs actual),
+  debajo, en la misma rejilla.
 - Botones con el estilo del HTML (fondo #0E2C50, borde #1B3A60) agrupados por sección.
 
 Todas las cifras son fórmulas (regla «Sin cifras calculadas pegadas»): las
@@ -19,6 +21,7 @@ misma agrupación que el HTML (``graficos.serie_spec``, ``graficos.severidad``).
 from __future__ import annotations
 
 from openpyxl.chart import BarChart, DoughnutChart, LineChart, Reference
+from openpyxl.chart.axis import ChartLines
 from openpyxl.chart.data_source import AxDataSource, StrRef
 from openpyxl.chart.label import DataLabel, DataLabelList
 from openpyxl.chart.layout import Layout, ManualLayout
@@ -33,6 +36,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from backend.app.aud.niif.procesadores import estilo_ejecutivo as est
 from backend.app.aud.niif.procesadores import graficos
+from backend.app.aud.niif.procesadores import graficos_svg as gs
 from backend.app.aud.niif.procesadores import html_ejecutivo as hx
 from backend.app.aud.niif.procesadores import marca
 
@@ -43,7 +47,7 @@ BG, CARD, CARD2, BORDE, TEXTO, TEXTO2, MUTED = (H(k) for k in ("bg", "card", "ca
 ORO, ORO_TXT = H("oro"), H("oro-txt")
 KPI_COLOR = {"principal": H("oro-txt"), "poblacion": H("k-azul"), "recalculado": H("k-verde"), "registrado": H("k-ambar"),
              "alto": H("alta"), "medio": H("media"), "bajo": H("baja")}
-SERIE = {k: v.lstrip("#").upper() for k, v in hx._SERIES_OSCURO.items()}
+SERIE = {k: v.lstrip("#").upper() for k, v in {**hx._SERIES_OSCURO, **gs.TABLERO_HEX}.items()}
 C_REG, C_REC, C_SERIE, C_LINEA = H("c-registrado"), H("c-recalculado"), H("c-serie"), H("c-linea")
 C_SEV = [H("c-alta"), H("c-media"), H("c-baja"), H("c-informativa")]
 
@@ -94,9 +98,28 @@ def _superficie(ch):
     ch.plot_area.graphicalProperties = GraphicalProperties(noFill=True, ln=LineProperties(noFill=True))
 
 
-def _puntos(serie, colores, borde=None):
+def _mezcla(c1, c2, t):
+    """Color entre c1 y c2 (hex sin «#»): t = 0 → c1, t = 1 → c2."""
+    a, b = (tuple(int(x[k:k + 2], 16) for k in (0, 2, 4)) for x in (c1, c2))
+    return "".join(f"{round(p + (q - p) * t):02X}" for p, q in zip(a, b))
+
+
+def _degradado(c, borde=None):
+    """Relleno premium de una barra (como el HTML): degradado vertical del color, más claro arriba y
+    fundido con la tarjeta abajo."""
+    from openpyxl.drawing.fill import GradientFillProperties, GradientStop, LinearShadeProperties
+
+    return GraphicalProperties(
+        gradFill=GradientFillProperties(gsLst=[GradientStop(pos=0, srgbClr=_mezcla(c, "FFFFFF", 0.18)),
+                                               GradientStop(pos=100000, srgbClr=_mezcla(c, CARD, 0.45))],
+                                        lin=LinearShadeProperties(ang=5400000, scaled=False)),
+        ln=LineProperties(solidFill=borde, w=19050) if borde else LineProperties(noFill=True))
+
+
+def _puntos(serie, colores, borde=None, degradado=False):
     for i, c in enumerate(colores):
-        gp = GraphicalProperties(solidFill=c, ln=LineProperties(solidFill=borde, w=19050) if borde else LineProperties(noFill=True))
+        gp = (_degradado(c, borde) if degradado else
+              GraphicalProperties(solidFill=c, ln=LineProperties(solidFill=borde, w=19050) if borde else LineProperties(noFill=True)))
         serie.dPt.append(DataPoint(idx=i, spPr=gp))
 
 
@@ -169,6 +192,95 @@ def grafico_barras_linea(wd, bloque, titulo, sub, colores, enteros=False):
     return ch
 
 
+MARGEN_PAGINA = 8     # filas vacías al comenzar una página de tableros (ver ``portada``)
+FMT_TABLERO = {"veces": "#,##0.00", "días": "#,##0", "%": "#,##0.00",
+               "USD": '[>=1000000]#,##0.00,," M";[>=1000]#,##0," mil";#,##0'}   # como ``graficos_svg.corto``
+
+
+def grafico_agrupadas(wd, bloque, titulo, sub, colores, fmt):
+    """Tablero del HTML (``graficos_svg.agrupadas``): columnas agrupadas con degradado, una serie por
+    columna del bloque (anterior y actual), cifra encima de cada barra, escala con cuadrícula punteada,
+    leyenda arriba a la derecha y, en el rótulo de cada indicador, su variación ▲/▼ (fórmula)."""
+    fila0, n, k = bloque["fila"], len(bloque["items"]), bloque["k"]
+    cats = Reference(wd, min_col=1, min_row=fila0 + 1, max_row=fila0 + n)
+    # Columnas en relieve (3D nativo de Excel, ejes en ángulo recto) como los prismas del HTML.
+    from openpyxl.chart import BarChart3D
+    from openpyxl.chart._3d import View3D
+
+    ch = BarChart3D()
+    ch.type = "col"
+    ch.grouping = "clustered"
+    ch.shape = "box"
+    ch.gapWidth = 70
+    ch.gapDepth = 60
+    ch.view3D = View3D(rotX=12, rotY=18, rAngAx=True)
+    for pared in (ch.floor, ch.sideWall, ch.backWall):
+        pared.graphicalProperties = GraphicalProperties(noFill=True, ln=LineProperties(noFill=True))
+    ch.z_axis.delete = True                  # eje de series: las series ya van en la leyenda
+    for j in range(k):
+        ch.add_data(Reference(wd, min_col=2 + j, min_row=fila0, max_row=fila0 + n), titles_from_data=True)
+    for s, c in zip(ch.series, colores):
+        s.cat = AxDataSource(strRef=StrRef(f=str(cats)))
+        s.graphicalProperties = _degradado(c)
+        s.invertIfNegative = False
+        s.dLbls = DataLabelList(showVal=True, showPercent=False, showCatName=False, showSerName=False, showLegendKey=False,
+                                numFmt=fmt, dLblPos="outEnd", txPr=_txpr(TEXTO, 8, True))
+    # Escala tenue a la izquierda con cuadrícula punteada, como el HTML.
+    ch.y_axis.delete = False
+    ch.y_axis.numFmt = fmt
+    ch.y_axis.txPr = _txpr(MUTED, 8)
+    ch.y_axis.graphicalProperties = GraphicalProperties(ln=LineProperties(noFill=True))
+    ch.y_axis.majorGridlines = ChartLines(spPr=GraphicalProperties(ln=LineProperties(solidFill=BORDE, prstDash="dash", w=6350)))
+    ch.x_axis.delete = False
+    ch.x_axis.tickLblPos = "low"
+    ch.x_axis.txPr = _txpr(TEXTO2, 9)
+    ch.x_axis.graphicalProperties = GraphicalProperties(ln=LineProperties(solidFill=BORDE, w=12700))
+    if all(v >= 0 for _, vs in bloque["items"] for v in vs if v is not None):
+        ch.y_axis.scaling.min = 0
+    ch.legend = Legend(legendPos="t", txPr=_txpr(TEXTO2, 9))
+    ch.legend.layout = Layout(manualLayout=ManualLayout(x=0.62, y=0.03, w=0.36, h=0.08, xMode="edge", yMode="edge"))
+    ch.title = _titulo(titulo, sub)
+    _superficie(ch)
+    return ch
+
+
+def _colores_tablero(t):
+    """Colores de las series de un tablero: la familia del tablero (única en la lámina), anterior en un
+    tono fundido con la tarjeta y actual pleno, como el HTML."""
+    base = SERIE.get(t.get("color") or "s1", SERIE["s1"])
+    return [_mezcla(base, CARD, 0.38), base] if len(t["series"]) == 2 else [SERIE[r] for r in ("s1", "s3", "s2", "s4")]
+
+
+def tableros_formulas(t, hojas, titulos):
+    """Filas del bloque de datos de un tablero: [(categoría, [«=fórmula» por serie], [valor por serie])],
+    cada fórmula a la celda de la cédula que ya calcula el índice o el importe. None si la cédula no está."""
+    from openpyxl.utils import get_column_letter
+
+    from backend.app.aud.niif.procesadores import libro as L
+
+    i = next((k for k, h in enumerate(hojas) if h.get("name") == t["hoja"]), None)
+    if i is None:
+        return None
+    nombres = [c[0] for c in hojas[i].get("cols") or []]
+    if any(c not in nombres for c in t["columnas"]):
+        return None
+    letras = [get_column_letter(nombres.index(c) + 1) for c in t["columnas"]]
+    q = L._q(titulos[i])
+    salida = []
+    for k, (cat, fila) in enumerate(zip(t["categorias"], t["filas"])):
+        refs = [f"{q}${le}${5 + fila}" for le in letras]
+        rotulo = cat
+        if len(refs) >= 2:
+            # Rótulo con la variación del indicador (▲/▼), por fórmula y con el separador decimal del equipo.
+            a, b = refs[0], refs[1]
+            cifra = (f'FIXED(ABS({b}-{a}),2)&" pp"' if t.get("unidad") == "%" else
+                     f'IF({a}=0,"",FIXED(ABS({b}-{a})/ABS({a})*100,1)&" %")')
+            rotulo = (f'="{cat.replace(chr(34), chr(34) * 2)}"&CHAR(10)&IF(OR({a}="",{b}=""),"",'
+                      f'IF({b}={a},"= 0",IF({b}>{a},"▲ ","▼ ")&{cifra}))')
+        salida.append((rotulo, [f"={r}" for r in refs], [vs[k] for _, vs in t["series"]]))
+    return salida
+
+
 # --- Datos de los gráficos (fórmulas) ---------------------------------------------------------
 
 class Datos:
@@ -192,6 +304,24 @@ class Datos:
             c.number_format = fmt or est.FMT["n"]
         self.r = fila + len(items) + 2
         return {"fila": fila, "items": [(rot, v) for rot, _, v in items]}
+
+    def bloque_series(self, titulo, nombres, filas, fmt=None):
+        """Bloque de varias series (tableros): rótulo | una columna de fórmulas por serie.
+        filas: [(rótulo, [«=fórmula»], [valor esperado])]."""
+        wd, fila = self.wd, self.r
+        wd.cell(row=fila, column=1, value=titulo).font = _f(9, "4B5563", True)
+        for j, nombre in enumerate(nombres):
+            wd.cell(row=fila, column=2 + j, value=nombre).font = _f(9, "4B5563", True)
+            if not wd.column_dimensions[chr(66 + j)].width:
+                wd.column_dimensions[chr(66 + j)].width = 20
+        for k, (rot, fs, _) in enumerate(filas, start=1):
+            wd.cell(row=fila + k, column=1, value=rot).font = _f(9, "374151")
+            for j, f in enumerate(fs):
+                c = wd.cell(row=fila + k, column=2 + j, value=f)
+                c.font = _f(9, "374151")
+                c.number_format = fmt or est.FMT["n"]
+        self.r = fila + len(filas) + 2
+        return {"fila": fila, "k": len(nombres), "items": [(rot, vs) for rot, _, vs in filas]}
 
     def celda(self, fila_rel, bloque):
         return f"'{self.wd.title}'!$B${bloque['fila'] + fila_rel}"
@@ -432,10 +562,10 @@ def portada(ws, wd, definicion, reg, hojas, titulos, estado, version, grupos_nav
     f_reg = f"={q}{celdas['registrado']}" if "registrado" in celdas else None
     f_rec = f"={q}{celdas['recalculado']}" if "recalculado" in celdas else None
     if f_reg and f_rec:
-        b = datos_g.bloque("Registrado vs recalculado", [(p["registrado"]["rotulo"], f_reg, p["registrado"]["valor"] or 0.0),
-                                                         (p["recalculado"]["rotulo"], f_rec, p["recalculado"]["valor"] or 0.0)])
-        graf.append(grafico_barras_linea(wd, b, "Registrado vs recalculado",
-                                         "Cifra del cliente frente a la recalculada por el auditor (USD).", [C_REG, C_REC]))
+        cmp_ = p["comparativo"]
+        b = datos_g.bloque(cmp_["rotulo"], [(p["registrado"]["rotulo"], f_reg, p["registrado"]["valor"] or 0.0),
+                                            (p["recalculado"]["rotulo"], f_rec, p["recalculado"]["valor"] or 0.0)])
+        graf.append(grafico_barras_linea(wd, b, cmp_["rotulo"], cmp_.get("sub") or graficos.TEXTOS["comparativo_sub"], [C_REG, C_REC]))
     dist = serie_formulas(spec.get("distribucion"), run, hojas, titulos, False) if spec.get("distribucion") else None
     if dist:
         b = datos_g.bloque(p["distribucion"]["rotulo"], dist)
@@ -454,6 +584,39 @@ def portada(ws, wd, definicion, reg, hojas, titulos, estado, version, grupos_nav
 
     if len(graf) > 2:
         ws.row_breaks.append(Break(id=r0 + 5 + filas_graf))
+
+    # Tableros adicionales del PANEL (p. ej. índices por grupo y analítico de la planificación),
+    # como en el HTML: debajo de los 4 gráficos, en la misma rejilla, con sus datos por fórmula.
+    tabs = []
+    for t in p.get("tableros") or []:
+        filas_t = tableros_formulas(t, hojas, titulos)
+        if not filas_t:
+            continue
+        b = datos_g.bloque_series(t["rotulo"], [n for n, _ in t["series"]], filas_t, FMT_TABLERO.get(t.get("unidad"), est.FMT["n"]))
+        tabs.append(grafico_agrupadas(wd, b, t["rotulo"], t.get("sub"), _colores_tablero(t),
+                                      FMT_TABLERO.get(t.get("unidad"), "#,##0.00")))
+    if tabs:
+        ws.row_breaks.append(Break(id=fila - 1))
+        primera = (p["tableros"][0].get("seccion") or "").upper()
+        ws[f"B{fila}"].value = "TABLEROS DEL ANÁLISIS" + (f" · {primera}" if primera else "")
+        ws[f"B{fila}"].font = Font(name=est.FONT_TITULO, size=9, bold=True, color=ORO_TXT)
+        fila += 2
+        fila_g = fila
+        for k, ch in enumerate(tabs):
+            if k and k % 2 == 0:
+                fila_g += filas_graf + 1
+                if k % 4 == 0:
+                    # Dos filas de tableros por página impresa. La página nueva empieza con una franja vacía:
+                    # al exportar a PDF, LibreOffice no recorta los degradados en el salto y dibujaría el
+                    # comienzo de la página siguiente en el margen inferior de la anterior.
+                    ws.row_breaks.append(Break(id=fila_g - 1))
+                    fila_g += MARGEN_PAGINA
+                    rot = ws[f"B{fila_g - 2}"]
+                    rot.value = L._seguro("TABLEROS DEL ANÁLISIS · " + (p["tableros"][k].get("seccion") or "continuación").upper())
+                    rot.font = Font(name=est.FONT_TITULO, size=9, bold=True, color=ORO_TXT)
+            _ancla_grafico(ws, ch, izquierda=(k % 2 == 0), fila=fila_g - 1, filas=filas_graf)
+        fila = fila_g + filas_graf + 2
+        ws.row_breaks.append(Break(id=fila - 1))
 
     # Navegación por sección con los botones del HTML.
     ws[f"B{fila}"].value = "NAVEGAR POR SECCIÓN"
@@ -498,6 +661,7 @@ def _ancla_grafico(ws, ch, izquierda, fila, filas):
 
 def _tarjetas(p, por, f_pob, spec, run, hojas, titulos, datos_g, sev, base_ref=None):
     """Las 5 tarjetas del HTML con su color, su cifra (fórmula) y la línea de variación (fórmula)."""
+    txt = p.get("textos") or graficos.textos(spec)
     from backend.app.aud.niif.procesadores import libro as L
 
     out = []
@@ -527,8 +691,9 @@ def _tarjetas(p, por, f_pob, spec, run, hojas, titulos, datos_g, sev, base_ref=N
     for clave in ("recalculado", "registrado"):
         k = por.get(clave)
         if k:
+            nota = txt["nota_registrado"] if clave == "registrado" else txt["nota_recalculado"]
             out.append({"clave": clave, "rotulo": k["rotulo"], "valor": "=" + k["f"], "fmt": FMT_USD, "color": KPI_COLOR[clave],
-                        "sub": "según el cliente" if clave == "registrado" else None})
+                        "sub": nota})
     pb = por.get("problemas")
     if pb:
         t = {"clave": "problemas", "rotulo": pb["rotulo"], "valor": "=" + pb["f"], "fmt": "#,##0", "color": KPI_COLOR[p["riesgo"]]}
@@ -544,9 +709,9 @@ def _tarjetas(p, por, f_pob, spec, run, hojas, titulos, datos_g, sev, base_ref=N
             t["sub"] = f"=IFERROR({pos['principal']}{fila_val}/ABS({base_ref}),0)"
             t["fmt_sub"] = '"↗ "0.0 %" de la población";"↘ "0.0 %" de la población";"0.0 % de la población"'
             t["color_sub"] = H("sube")
-        if t["clave"] == "recalculado" and "registrado" in pos:
+        if t["clave"] == "recalculado" and "registrado" in pos and not txt["nota_recalculado"]:
             t["sub"] = f"=IFERROR(({pos['recalculado']}{fila_val}-{pos['registrado']}{fila_val})/ABS({pos['registrado']}{fila_val}),0)"
-            t["fmt_sub"] = '"↗ "0.0 %" vs registrado";"↘ "0.0 %" vs registrado";"igual al registrado"'
+            t["fmt_sub"] = f'"↗ "0.0 %" {txt["vs"]}";"↘ "0.0 %" {txt["vs"]}";"{txt["igual"]}"'
             t["color_sub"] = H("sube")
     for t in out:
         if isinstance(t.get("sub"), str):

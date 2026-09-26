@@ -47,7 +47,8 @@ def _oscuro(bg, card, card2, borde, texto, texto2, muted):
             **{f"c-{k}": v for k, v in _SERIES_OSCURO.items()},
             "c-registrado": _SERIES_OSCURO["s4"], "c-recalculado": _SERIES_OSCURO["s3"], "c-serie": _SERIES_OSCURO["s1"],
             "c-linea": "#C7A83C", "c-alta": "#E5484D", "c-media": "#F5A524", "c-baja": "#30A46C", "c-informativa": "#8B97A8",
-            "c-texto": texto, "c-texto2": texto2, "c-regla": borde, "c-superficie": card}
+            "c-texto": texto, "c-texto2": texto2, "c-regla": borde, "c-superficie": card,
+            **{f"c-{k}": v for k, v in gs.TABLERO_HEX.items()}}
 
 
 TEMAS = {
@@ -64,7 +65,7 @@ TEMAS = {
         "c-registrado": gs.CLARO["registrado"], "c-recalculado": gs.CLARO["recalculado"], "c-serie": gs.CLARO["serie"],
         "c-linea": gs.CLARO["linea"], "c-alta": gs.CLARO["alta"], "c-media": gs.CLARO["media"], "c-baja": gs.CLARO["baja"],
         "c-informativa": gs.CLARO["informativa"], "c-texto": "#0A2342", "c-texto2": "#4B5563", "c-regla": "#D5DCE6",
-        "c-superficie": "#FFFFFF"}),
+        "c-superficie": "#FFFFFF", **{f"c-{k}": v for k, v in gs.TABLERO_HEX.items()}}),
 }
 GRAFICOS = gs.ROTULO_VARIANTE
 VISTAS = {"estandar": "Estándar", "compacta": "Compacta", "tablas": "Foco en tablas", "presentacion": "Presentación"}
@@ -110,6 +111,8 @@ def _vars(t: dict) -> str:
 
 
 def _css() -> str:
+    from backend.app.aud.niif.procesadores.base import ROL_COLOR
+
     temas = "".join(f"body.t-{k}{{{_vars(v)}}}" for k, (_, v) in TEMAS.items())
     claro = _vars(TEMAS["claro"][1])
     return (
@@ -180,7 +183,8 @@ def _css() -> str:
         # En pantallas angostas el gráfico conserva un ancho legible y se desplaza DENTRO de su tarjeta.
         ".lienzo{overflow-x:auto;max-width:100%}.lienzo .grafico{min-width:480px}"
         ".grafico .val{font:600 11px var(--f-cifra);paint-order:stroke;stroke:var(--c-superficie);stroke-width:3px;stroke-linejoin:round}"
-        ".grafico .cat{font:11px var(--f-texto)}"
+        ".grafico .cat{font:11px var(--f-texto)}.grafico .eje{font:9px var(--f-cifra);opacity:.8}"
+        ".grafico .delta{font:700 10px var(--f-cifra)}"
         ".grafico .centro{font:700 26px var(--f-titulo)}.grafico .centro-etq{font:11px var(--f-texto)}"
         ".grafico .ley{font:600 12px var(--f-texto)}.grafico .ley2{font:11px var(--f-cifra)}"
         ".grafico .marca:hover{opacity:.85}"
@@ -199,6 +203,16 @@ def _css() -> str:
         "tbody tr:nth-child(even) td{background:var(--zebra)}"
         "td.num{text-align:right;white-space:nowrap;font-family:var(--f-cifra);font-variant-numeric:tabular-nums}"
         "tr.total td{font-weight:700;border-top:2px solid var(--oro);background:var(--card2)}"
+        "tr.titulo td{font-weight:700;background:var(--card2);border-top:1px solid var(--borde)}"
+        "tr.control td{font-style:italic;color:var(--texto2);font-size:.92em}"
+        # Niveles, severidades, semáforos y estados como etiqueta de color (base.NIVEL_COLOR / ROL_COLOR)
+        ".nivel{display:inline-block;padding:1px 8px;border-radius:999px;font-weight:700;font-size:.92em;white-space:nowrap;"
+        "-webkit-print-color-adjust:exact;print-color-adjust:exact}"
+        + "".join(f".nivel.n-{r}{{background:#{f};color:#{t}}}" for r, (f, t) in ROL_COLOR.items()) +
+        # Niveles, severidades, semáforos y estados como etiqueta de color (base.NIVEL_COLOR / ROL_COLOR)
+        ".nivel{display:inline-block;padding:1px 8px;border-radius:999px;font-weight:700;font-size:.92em;white-space:nowrap;"
+        "-webkit-print-color-adjust:exact;print-color-adjust:exact}"
+        + "".join(f".nivel.n-{r}{{background:#{f};color:#{t}}}" for r, (f, t) in ROL_COLOR.items()) +
         # «Cómo se calcula»: dentro del ancho, fórmulas que saltan de línea (sin desborde)
         "details.calc{margin:0 0 12px;background:var(--card2);border:1px solid var(--borde);border-radius:10px;padding:8px 12px}"
         "details.calc summary{cursor:pointer;font:700 13px var(--f-titulo);color:var(--oro-txt)}"
@@ -274,6 +288,7 @@ def kpis_datos(p: dict) -> list[dict]:
     clase de color, ícono, rótulo, cifra corta, cifra exacta y variación
     (``var``: (fracción, texto) con flecha ↗/↘, o texto simple en ``nota``)."""
     pr, po, rc, rg, pb = p["principal"], p["poblacion"], p["recalculado"], p["registrado"], p["problemas"]
+    txt = p.get("textos") or graficos.textos(None)
     sev = pb["severidad"]
     resumen_sev = " · ".join(f"{sev[s]} {s.lower()}" for s in ("Alta", "Media", "Baja") if sev.get(s)) or "sin hallazgos con importe"
     var_pr = (pr["valor"] / abs(po["valor"])) if (pr["valor"] is not None and po["valor"]) else None
@@ -288,9 +303,10 @@ def kpis_datos(p: dict) -> list[dict]:
          "exacto": _num(pr["valor"], False), "var": (var_pr, "de la población")},
         pob,
         {"clase": "k-verde", "icono": "recalculado", "rotulo": rc["rotulo"], "valor": "USD " + _num(rc["valor"]),
-         "exacto": _num(rc["valor"], False), "var": (rc["variacion"], "vs registrado")},
+         "exacto": _num(rc["valor"], False),
+         **({"nota": txt["nota_recalculado"]} if txt["nota_recalculado"] else {"var": (rc["variacion"], txt["vs"])})},
         {"clase": "k-ambar", "icono": "registrado", "rotulo": rg["rotulo"], "valor": "USD " + _num(rg["valor"]),
-         "exacto": _num(rg["valor"], False), "nota": "según el cliente"},
+         "exacto": _num(rg["valor"], False), "nota": txt["nota_registrado"]},
         {"clase": f"k-{p['riesgo']}", "icono": "problemas", "rotulo": pb["rotulo"], "valor": str(pb["valor"]),
          "exacto": "", "nota": resumen_sev},
     ]
@@ -325,22 +341,49 @@ def _graficos(p: dict, hex_: dict | None) -> str:
     severidad = _variantes(sev["items"], ["alta", "media", "baja", "informativa"], sev["rotulo"], hex_, enteros=True, solo=solo)
     return ('<div class="graficos">'
             + _tarjeta("Composición del resultado", comp["rotulo"], dona)
-            + _tarjeta(cmp_["rotulo"], "Cifra del cliente frente a la recalculada por el auditor (USD).", comparativo)
+            + _tarjeta(cmp_["rotulo"], cmp_.get("sub") or graficos.TEXTOS["comparativo_sub"], comparativo)
             + _tarjeta(dist["rotulo"], "Distribución de la población (USD).", distrib)
             + _tarjeta(sev["rotulo"], sev["regla"], severidad)
             + "</div>")
 
 
+def _tableros(p: dict, hex_: dict | None) -> str:
+    """Tableros adicionales del ``PANEL`` (p. ej. índices por grupo y analítico de la planificación):
+    barras agrupadas, anterior frente a actual, debajo de los 4 gráficos del panel."""
+    ts = p.get("tableros") or []
+    if not ts:
+        return ""
+    tarjetas = "".join(_tarjeta(t["rotulo"], t.get("sub"), gs.agrupadas(t["categorias"], t["series"], t["rotulo"], t.get("unidad", ""), hex_,
+                                                                         t.get("mejor"), t.get("estados"), t.get("color"))
+                                or '<div class="sin-datos">Sin datos para graficar.</div>') for t in ts)
+    return f'<div class="graficos tableros">{tarjetas}</div>'
+
+
 def _tabla(h: dict, celda) -> str:
+    from backend.app.aud.niif.procesadores.base import estilo_fila
+
     cab = "".join(f"<th>{E(c[0])}</th>" for c in h["cols"])
     filas = [(r, False) for r in h.get("rows") or []] + ([(h["total"], True)] if h.get("total") else [])
-    cuerpo = "".join(
-        "<tr" + (' class="total"' if total else "") + ">"
-        + "".join(f'<td class="{"num" if f in ("n", "p", "i", "g") else ""}"'
-                  + (f' title="={E(v["f"])}"' if isinstance(v, dict) and "f" in v else "")
-                  + f">{celda(v, f)}</td>" for (_, f), v in zip(h["cols"], fila))
-        + "</tr>" for fila, total in filas)
+
+    def fila_html(k, fila, total):
+        ef = {} if total else estilo_fila(h, k)
+        clase = "total" if total or ef.get("tipo") == "total" else {"titulo": "titulo", "control": "control"}.get(ef.get("tipo"), "")
+        return ("<tr" + (f' class="{clase}"' if clase else "") + ">"
+                + "".join(f'<td class="{"num" if f in ("n", "p", "i", "g") else ""}"'
+                          + (f' style="padding-left:{8 + 16 * int(ef["sangria"])}px"' if ef.get("sangria") and n == ef.get("col") else "")
+                          + (f' title="={E(v["f"])}"' if isinstance(v, dict) and "f" in v else "")
+                          + f">{_con_color(h, n, v, celda(v, f))}</td>" for (n, f), v in zip(h["cols"], fila))
+                + "</tr>")
+    cuerpo = "".join(fila_html(k, fila, total) for k, (fila, total) in enumerate(filas))
     return f'<div class="scroll"><table><thead><tr>{cab}</tr></thead><tbody>{cuerpo}</tbody></table></div>'
+
+
+def _con_color(h: dict, columna: str, v, contenido: str) -> str:
+    """Nivel, severidad, semáforo o estado como etiqueta de color (``base.NIVEL_COLOR``)."""
+    from backend.app.aud.niif.procesadores.base import rol_color
+
+    rol = rol_color(h, columna, v)
+    return f'<span class="nivel n-{rol}">{contenido}</span>' if rol else contenido
 
 
 def _guia(h: dict) -> str:
@@ -481,6 +524,10 @@ def render(definicion: dict, reg: dict, eventos: list, version: int, estado: str
         f'<p class="sub">{E(str(e.get("client", "")))} · RUC {E(str(e.get("ruc", "")))} · {E(definicion.get("area", ""))}</p>'
         f'<div class="chips">{chips}</div></div>{boton_pdf("s-panel")}</div>'
         f'<div class="kpis">{_kpis(p)}</div>{_graficos(p, hex_)}')]
+    if p.get("tableros"):
+        # Los tableros van en su propia lámina: ningún color se repite con los gráficos del panel.
+        secciones.append(("s-tableros", "Tableros",
+                          f'<div class="cedula-cab"><h2>Tableros del análisis</h2>{boton_pdf("s-tableros")}</div>{_tableros(p, hex_)}'))
     for i, h in enumerate(hojas):
         sid = f"s-{i}"
         cuerpo = (f'<div class="cedula-cab"><h2>{E(h["label"])}</h2>{boton_pdf(sid)}</div>'

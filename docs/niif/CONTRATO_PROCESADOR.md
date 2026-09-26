@@ -127,6 +127,18 @@ convierte las cédulas del exportador del sitio al modelo de `libro` y deriva su
 Un cambio en las piezas compartidas se prueba también con `tests/test_aud_papel_declarativo.py` y
 `python scripts/verificar_papel_declarativo.py`.
 
+### Estilos por fila (`estilos` en `base.hoja()`)
+Una entrada por fila: `{"tipo": "titulo" | "total" | "control", "sangria": n, "col": "Cuenta"}`. Da a una hoja el
+aspecto de cédula sumaria (rubro en negrita, subcuentas con sangría por nivel, total con filete y cuadre en cursiva) en
+Excel, HTML, Word y PowerPoint. Ejemplo: `08S_Sumarias` de la planificación.
+
+### Colores por nivel (`colores` en `base.hoja()`)
+Lista de columnas cuyo valor es un nivel, severidad, semáforo o estado (`colores=["Nivel"]`). Cada celda se pinta según
+`base.NIVEL_COLOR` (Significativo, Alto/Crítico/Rojo, Medio/Revisar/Amarillo, Bajo/Conforme/Verde, Pendiente/No
+evaluado; también «Rojo · …» por la primera palabra) con los tonos de `base.ROL_COLOR`. En el Excel es **formato
+condicional** (el color sigue a la fórmula si el auditor cambia una calificación o un parámetro); en el HTML, una
+etiqueta de color; en Word y PowerPoint, la celda sombreada. Son colores de estado: nunca se usan en los gráficos.
+
 ### `PANEL` — tarjetas y gráficos
 ```python
 PANEL = {
@@ -144,6 +156,29 @@ PANEL = {
   Resumen que tiene ese rótulo e importe, o a la fila TOTAL de una cédula. Una columna se enlaza con
   `SUMIFS`/`COUNTIFS`. Por eso el importe de `totals` debe existir en alguna celda del libro.
 - **Nunca** volcar todas las filas del Resumen en un gráfico: mezcla escalas y se ve como un código de barras.
+- `PANEL["textos"]` (opcional) cambia los rótulos pensados para una prueba sustantiva cuando no aplican
+  (p. ej. la planificación no tiene «cifra del cliente»): `comparativo`, `comparativo_sub`, `nota_recalculado`
+  (texto en lugar de la flecha de variación), `vs`, `igual`, `nota_registrado` y `problemas`. Por defecto rigen
+  los de `graficos.TEXTOS`, iguales en el HTML, la portada del Excel, el Word y el PowerPoint.
+- `PANEL["tableros"]` (opcional) agrega gráficos de **columnas agrupadas** (p. ej. anterior frente a actual)
+  debajo de los 4 del panel, en los cuatro formatos: HTML (`graficos_svg.agrupadas`), portada del Excel (gráfico
+  nativo cuyos datos son fórmulas a la celda de la cédula), Word y PowerPoint (el mismo SVG como imagen). Cada uno:
+  `{"rotulo", "sub", "unidad": "veces"|"días"|"%"|"USD", "hoja", "etiqueta", "filas": [rótulo | [rótulo, rótulo del
+  gráfico] | {"fila", "rotulo", "mejor": "alto"|"bajo"}], "series": [[nombre, columna], …], "estado": columna del
+  semáforo, "seccion": título de página}`. Las filas se buscan por su rótulo en la columna `etiqueta`; si una
+  no existe, el tablero va a `faltan`. Ejemplo: la planificación (índices por grupo y analítico del artefacto).
+- Diseño **premium** (pedido del dueño, 2026-09-26: «gráficos premium y no gráficos simples»): barras con
+  degradado y esquinas redondeadas, escala con cuadrícula punteada, píldora por indicador con el punto del
+  semáforo y la variación ▲/▼ (verde si mejora según `mejor`, rojo si empeora, gris sin sentido; «pp» en los
+  porcentajes). **Ningún color se repite en la misma lámina** (pedido del dueño, 2026-09-26): cada tablero lleva su
+  familia de la paleta ejecutiva `graficos_svg.TABLERO_HEX` (oro, violeta, coral, índigo, magenta, siena; sin celeste
+  ni verde; validada con la skill dataviz; `"color"` la fija), con la serie anterior en un tono translúcido y la actual
+  plena, y los tableros van en su propia lámina (pestaña «Tableros» del HTML, páginas propias en Excel y PowerPoint).
+  **Relieve 3D** (decisión del dueño: «premium = relieve o 3D, que se vea ejecutivo»): prismas con frente en degradado y
+  brillo, techo iluminado, lateral en sombra y piso en perspectiva; en el Excel, gráfico 3D nativo (`bar3DChart`,
+  ejes en ángulo recto). En el Excel: degradado en las barras y la variación en el rótulo por fórmula (`FIXED`, respeta el
+  separador decimal del equipo). Cada página impresa de tableros empieza con una franja con su título de sección:
+  LibreOffice, al exportar a PDF, no recorta los degradados en el salto de página.
 
 ### `REF_PROBLEMAS` — importe de cada problema como fórmula
 ```python
