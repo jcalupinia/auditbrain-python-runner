@@ -5,7 +5,7 @@ import { miIndependencia, resumenRegistros } from "./registroLogic";
 describe("resumen de los registros del encargo", () => {
   it("sin registros todo está pendiente", () => {
     const r = resumenRegistros(null);
-    expect(r.map((x) => x.hecho)).toEqual([false, false, false, false, false, false, true]);
+    expect(r.map((x) => x.hecho)).toEqual([false, false, false, false, false, false, false, true]);
     expect(r[0].detalle).toBe("Nadie ha confirmado todavía");
   });
 
@@ -52,5 +52,12 @@ describe("indagaciones y consultas", () => {
     const k = Object.fromEntries(r.map((x) => [x.clave, x]));
     expect(k.indagaciones).toMatchObject({ hecho: true, detalle: "1 registrada(s)" });
     expect(k.consultas).toMatchObject({ hecho: false, detalle: "1 abierta(s): bloquean la aprobación" });
+  });
+});
+
+describe("enfoque por ciclo", () => {
+  it("cuenta los ciclos que el socio confirmó", () => {
+    const r = resumenRegistros({ registros: { equipo: [], asistencia: [], enfoque: [{ ciclo: "Inventarios y costo de ventas", decision: "Sustantivo" }] } });
+    expect(r.find((x) => x.clave === "enfoque")).toMatchObject({ hecho: false, detalle: "1 de 7 ciclos confirmados" });
   });
 });

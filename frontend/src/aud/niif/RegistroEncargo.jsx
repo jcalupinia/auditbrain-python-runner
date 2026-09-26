@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import * as api from "../../api";
 import {
-  DOCUMENTOS, NOMBRE_ARCHIVO, NOMBRE_TIPO, PROCEDIMIENTOS, ROLES, TEMAS, miIndependencia, resumenRegistros,
+  CICLOS, DECISIONES, DOCUMENTOS, NOMBRE_ARCHIVO, NOMBRE_TIPO, PROCEDIMIENTOS, ROLES, TEMAS, decisionDe, miIndependencia,
+  resumenRegistros,
 } from "./registroLogic";
 
 /*
@@ -36,6 +37,7 @@ export function RegistroEncargo({ proyecto }) {
   const [indag, setIndag] = useState({ tema: "", procedimiento: "Indagación", persona: "", resumen: "", fecha: hoy() });
   const [consulta, setConsulta] = useState({ tipo: "consulta", tema: "", detalle: "" });
   const [resoluciones, setResoluciones] = useState({});
+  const [enfoques, setEnfoques] = useState({});
 
   const recargar = useCallback(async () => {
     try {
@@ -199,6 +201,40 @@ export function RegistroEncargo({ proyecto }) {
             Comunicación enviada
           </button>
         </div>
+      </div>
+
+      <div className="nf-rec-item">
+        <h5>Enfoque por ciclo: confianza o no en los controles (NIA 330)</h5>
+        <small className="muted">
+          La planificación propone el enfoque de cada ciclo (hoja 45); el socio lo confirma o lo cambia aquí. Confiar en los
+          controles obliga a probar su eficacia y baja un nivel la confianza del muestreo del ciclo.
+        </small>
+        {CICLOS.map((ciclo) => {
+          const actual = decisionDe(datos.encargo, ciclo);
+          const v = enfoques[ciclo] || { decision: actual?.decision || "", motivo: "" };
+          return (
+            <div key={ciclo} className="nf-rec-row">
+              <span style={{ flex: 1, minWidth: 220 }}>
+                {ciclo}
+                <small className="muted"> · {actual ? `${actual.decision} (${actual.actor}, ${actual.fecha})` : "Sin confirmar"}</small>
+              </span>
+              <select aria-label={`Enfoque · ${ciclo}`} value={v.decision}
+                onChange={(e) => setEnfoques({ ...enfoques, [ciclo]: { ...v, decision: e.target.value } })}>
+                <option value="">Seleccione…</option>
+                {DECISIONES.map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+              <input aria-label={`Motivo · ${ciclo}`} placeholder="Motivo" value={v.motivo}
+                onChange={(e) => setEnfoques({ ...enfoques, [ciclo]: { ...v, motivo: e.target.value } })} />
+              <button type="button" className="btn sm" disabled={ocupado || mia?.rol !== "Socio" || !v.decision || v.motivo.trim().length < 10}
+                title={mia?.rol === "Socio" ? "" : "Lo confirma el socio"}
+                onClick={() => registrar({ tipo: "enfoque", ciclo, decision: v.decision, motivo: v.motivo })}>
+                Confirmar
+              </button>
+            </div>
+          );
+        })}
       </div>
 
       <div className="nf-rec-item">

@@ -12,16 +12,29 @@ export const TEMAS = [
 ];
 export const PROCEDIMIENTOS = ["Indagación", "Observación", "Inspección"];
 
+// Los mismos ciclos y decisiones de planificacion_enfoque (CICLOS y DECISIONES): la herramienta propone y el socio decide.
+export const CICLOS = [
+  "Ingresos y cuentas por cobrar", "Compras y cuentas por pagar", "Inventarios y costo de ventas",
+  "Nómina y beneficios a empleados", "Tesorería y financiamiento", "Activos fijos e intangibles",
+  "Impuestos, provisiones y patrimonio",
+];
+export const DECISIONES = ["Confiar en controles", "Sustantivo"];
+
+export const decisionDe = (encargo, ciclo) =>
+  ((encargo?.registros?.enfoque) || []).find((x) => x.ciclo === ciclo) || null;
+
 export const DOCUMENTOS = [
   ["carta_encargo", "Carta de encargo (NIA 210)"],
   ["acta_discusion", "Acta de la discusión del equipo (NIA 315 y 240)"],
   ["carta_planificacion", "Carta de planificación al gobierno (NIA 260)"],
+  ["conocimiento_negocio", "Memorando de conocimiento del negocio (NIA 315)"],
 ];
 
 export const NOMBRE_ARCHIVO = {
   carta_encargo: "Carta_de_encargo.docx",
   acta_discusion: "Acta_discusion_equipo.docx",
   carta_planificacion: "Carta_de_planificacion.docx",
+  conocimiento_negocio: "Conocimiento_del_negocio.docx",
 };
 
 const vacio = { registros: { equipo: [], asistencia: [] } };
@@ -69,6 +82,12 @@ export function resumenRegistros(encargo) {
       detalle: uno("comunicacion") ? `${uno("comunicacion").detalle} · ${uno("comunicacion").fecha}` : "Pendiente",
     },
     {
+      clave: "enfoque",
+      etiqueta: "Enfoque por ciclo (socio)",
+      hecho: CICLOS.every((c) => (r.enfoque || []).some((x) => x.ciclo === c)),
+      detalle: `${(r.enfoque || []).length} de ${CICLOS.length} ciclos confirmados`,
+    },
+    {
       clave: "indagaciones",
       etiqueta: "Indagaciones y observaciones",
       hecho: (r.indagaciones || []).length > 0,
@@ -98,4 +117,5 @@ export const NOMBRE_TIPO = {
   indagacion: "Indagación u observación",
   consulta: "Consulta técnica",
   diferencia: "Diferencia de opinión",
+  enfoque: "Enfoque del ciclo",
 };
