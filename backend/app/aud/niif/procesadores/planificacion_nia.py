@@ -205,8 +205,16 @@ _NOTAS = [
     campo("saldo_auditado", "Saldo auditado según la nota", "number",
           alias=("saldo", "saldo auditado", "total", "importe", "saldo segun nota"), ejemplo="656500.00"),
 ]
+TIPOS_LINEA = ("Saldo", "Movimiento", "Total")
+_NOTAS_DET = [
+    campo("nota", "Nota", alias=("nota", "n°", "numero", "número", "no"), ejemplo="4"),
+    campo("concepto", "Concepto o línea de la nota", alias=("concepto", "detalle", "descripcion", "descripción", "linea", "línea",
+                                                            "cuenta", "partida"), ejemplo="Clientes locales"),
+    campo("importe", "Importe auditado", "number", alias=("importe", "saldo", "valor", "monto", "saldo auditado"), ejemplo="690500.00"),
+    campo("tipo", "Tipo de línea", requerido=False, alias=("tipo", "clase"), ejemplo="Saldo"),
+]
 CAMPOS = {"balance_anterior": _BAL_ANT, "balance_actual": _BAL_ACT, "resultados_mismo_corte": _ERI_ANT, "carta_control_interno": _CARTA,
-          "informe_anterior": _INFORME, "notas_estados_financieros": _NOTAS}
+          "informe_anterior": _INFORME, "notas_estados_financieros": _NOTAS, "notas_detalle": _NOTAS_DET}
 TIPOS = {k: k for k in CAMPOS}
 DATASETS = tuple(TIPOS)
 PRINCIPAL = "balance_actual"
@@ -301,6 +309,14 @@ def filas_mapeadas(sheet: dict, header: int, mapping: dict, campos: list, archiv
     return out
 
 
+def _tipo_linea(v) -> str | None:
+    """Tipo de línea de la composición de una nota: Saldo (forma el saldo), Movimiento (conciliación del año) o Total."""
+    k = norm(v)
+    if not k:
+        return "Saldo"
+    return next((t for t in TIPOS_LINEA if norm(t) == k or k.startswith(norm(t)[:4])), None)
+
+
 def _tipo_informe(v) -> str | None:
     k = norm(v)
     return next((t for t in TIPOS_INFORME if norm(t) == k), None)
@@ -324,6 +340,10 @@ def validar_filas(tipo: str, filas: list) -> dict:
                 x = a_num(v) if v else None
                 if v and (x is None or float(x) != int(float(x)) or not 1 <= float(x) <= 5):
                     out["errors"].append({"row": f.get("_row"), "field": k, "message": "Califique de 1 a 5 (número entero)."})
+    elif tipo == "notas_detalle":
+        for f in filas:
+            if _tipo_linea(f.get("tipo")) is None:
+                out["errors"].append({"row": f.get("_row"), "field": "tipo", "message": "Tipo: use " + ", ".join(TIPOS_LINEA) + "."})
     elif tipo == "informe_anterior":
         for f in filas:
             if _tipo_informe(f.get("tipo")) is None:
@@ -778,6 +798,17 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         n["var"] = n["act"] - n["ant"]
         n["varPct"] = None if n["ant"] == 0 else n["var"] / abs(n["ant"])
         notas.append(n)
+    # Composición auditada de cada nota (líneas del informe): suma de las líneas de saldo contra el saldo de la nota.
+    notas_det = []
+    for f in datasets.get("notas_detalle") or []:
+        v = a_num(f.get("importe"))
+        notas_det.append({"nota": str(f.get("nota", "")).strip(), "concepto": str(f.get("concepto", "") or "").strip(),
+                          "tipo": _tipo_linea(f.get("tipo")) or "Saldo", "importe": float(v or 0)})
+    for n in notas:
+        ls = [x for x in notas_det if x["nota"] == n["nota"]]
+        n["det"] = bool(ls)
+        n["suma"] = sum(x["importe"] for x in ls if x["tipo"] == "Saldo")
+        n["difDet"] = n["suma"] - n["auditado"] if ls else 0.0
 
     # 9 · posibles riesgos (NIA 240, 570, balances e informe anterior) — mismo orden que la hoja 13
     ia, ip = ind["act"], est9["act"]
@@ -909,7 +940,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                "sino": sino, "fechas": fechas, "fuentes": fuentes, "hayEri": hay_eri, "bruto": bruto, "signo": signo, "sec7": sec7,
                "cuentas": cuentas, "est9": est9, "ind": ind,
                "materialidad": {"base": base_valor, "global": mat, "desempeno": desemp, "trivial": triv},
-               "justificacion": justif, "carta": carta, "informe": informe, "notas": notas, "riesgos": riesgos,
+               "justificacion": justif, "carta": carta, "informe": informe, "notas": notas, "notasDet": notas_det,
+               "sinNota": _sin_nota(cuentas, notas), "riesgos": riesgos,
                "anomalias": anomalias, "revisar": revisar, "nivelRevisar": lvl, "parametros": p,
                "origenes": origenes, "puente": puente, "archivos": archivos, "fac": fac,
                "otrosAbs": sum(abs(x["saldo"]) for x in fuentes["act"] if x["sec"] == "Otros" and x["detalle"] == "Sí")}
@@ -1039,7 +1071,10 @@ CEDULAS = [
     ("11_Materialidad", "Materialidad (NIA 320 y 450)"), ("12_Riesgos_CCI", "Matriz de riesgos de la carta de control interno"),
     ("13_Riesgos_Balance", "Posibles riesgos: NIA 240, empresa en marcha, balances e informe anterior"),
     ("14_Perfil", "Perfil del encargo según el informe del año anterior"),
-    ("15_Notas", "Notas comparativas y saldos de apertura (NIA 510)"), ("16_Control", "Control de calidad del análisis"),
+    ("15_Notas", "Notas comparativas y saldos de apertura (NIA 510)"),
+    ("15D_Notas_Detalle", "Notas: detalle comparativo por cuenta (anterior, corte y conciliación con la nota)"),
+    ("15C_Composicion", "Notas: composición auditada del año anterior y su cuadre"),
+    ("16_Control", "Control de calidad del análisis"),
     ("17_Anomalias", "Anomalías en las cuentas"), ("18_Cuentas_Revisar", "Cuentas principales a revisar"),
     ("19_Programa", "Programa de procedimientos (NIA 330)"), ("20_Narrativa", "Narrativa ejecutiva"),
     ("21_Estrategia", "Estrategia global de auditoría (NIA 300)"),
@@ -1142,7 +1177,8 @@ CONTROLES = ["Cuadre del balance al corte", "Cuadre del balance del cierre anter
              "Materialidad definida", "Anomalías de severidad alta", "Notas del año anterior cargadas",
              "Notas que no concilian con el balance anterior (NIA 510)", "Indicios de empresa en marcha (NIA 570)",
              "Riesgos de la carta de control interno pendientes de calificación", "Carta de control interno cargada",
-             "Informe de auditoría del año anterior cargado", "Cuentas superiores que no suman sus subcuentas (R1)"]
+             "Informe de auditoría del año anterior cargado", "Cuentas superiores que no suman sus subcuentas (R1)",
+             "Composición de las notas que no suma el saldo auditado", "Rubros del balance sin nota del año anterior"]
 OPORTUNIDAD_ALTO = "Visita preliminar (controles) y visita final (detalle al corte)"
 OPORTUNIDAD_MEDIO = "Visita final con pruebas de detalle"
 OPORTUNIDAD_BAJO = "Visita final (analíticos sustantivos)"
@@ -1158,6 +1194,7 @@ RECOMENDACIONES = [
      "No aplica: inventario de 120 días o menos."),
 ]
 
+C15, D15 = ref("15C_Composicion"), ref("15D_Notas_Detalle")
 P_, MP, B4, B5, B6, S7, H8, E9, I10, M11, R12, R13, P14, N15, A17, C18 = (ref(n) for n in (
     "02_Parametros", "03_Mapa", "04_BC_Anterior", "05_BC_Corte", "06_ERI_Anterior", "07_Secciones", "08_Horizontal", "09_Estados",
     "10_Indices", "11_Materialidad", "12_Riesgos_CCI", "13_Riesgos_Balance", "14_Perfil", "15_Notas", "17_Anomalias",
@@ -1582,6 +1619,9 @@ def hojas(res: dict) -> list[dict]:
     ind570 = sum(1 for x in riesgos if x["norma"] == "NIA 570" and x["presenta"] == "Sí")
     pend = sum(1 for x in carta if x["nivel"].startswith("Pendiente"))
     no_conc = sum(1 for x in notas if abs(x["dif"]) >= 0.01)
+    notas_det_h, est_d = _notas_detalle(notas, cu, d["sinNota"], d["umbrales"]["var"])
+    comp, est_c = _composicion(notas, d["notasDet"])
+    n_comp = sum(1 for f in comp if isinstance(f[4], dict) and f[4].get("v") == "Revisar")
     n_jer = sum(1 for k in ("ant", "act") for x in fu[k] if abs(x["difsub"]) >= 0.01)
     control = [
         [CONTROLES[0], fx(f"{S7}G{F7['Diferencia de cuadre']}", n2(dif_act)), None,
@@ -1623,6 +1663,14 @@ def hojas(res: dict) -> list[dict]:
          fx(f"SUMPRODUCT((ABS({_rng(B4, 'K', n4)})>=0.01)*1)+SUMPRODUCT((ABS({_rng(B5, 'K', n5)})>=0.01)*1)", n_jer),
          fx(f'IF(C{FILA0 + 11}>0,"Revisar","Conforme")', "Revisar" if n_jer else "Conforme"),
          "Se usa el saldo propio de la cuenta; la diferencia se muestra en las hojas 04 y 05 y no se fuerza."],
+        [CONTROLES[12], None, fx(f'COUNTIF({_rng(C15, "E", len(comp))},"Revisar")', n_comp),
+         fx(f'IF(COUNTA({_rng(C15, "B", len(comp))})=0,"No evaluado",IF(C{FILA0 + 12}>0,"Revisar","Conforme"))',
+            "No evaluado" if not comp else "Revisar" if n_comp else "Conforme"),
+         "Suma de las líneas de saldo de la composición auditada (hoja 15C) frente al saldo de cada nota."],
+        [CONTROLES[13], None, fx(f'COUNTIF({_rng(D15, "I", len(notas_det_h))},"Sin nota")', len(d["sinNota"])),
+         fx(f'IF({n15}=0,"No evaluado",IF(C{FILA0 + 13}>0,"Revisar","Conforme"))',
+            "No evaluado" if not n15 else "Revisar" if d["sinNota"] else "Conforme"),
+         "Rubros del balance sin nota que los cubra (al final de la hoja 15D); confirmar que no requerían revelación."],
     ]
 
     # 18 · cuentas a revisar
@@ -1867,6 +1915,11 @@ def hojas(res: dict) -> list[dict]:
                                          ["Saldo auditado según la nota", "n"], ["Saldo del balance anterior", "n"], ["Diferencia", "n"],
                                          ["Saldo al corte", "n"], ["Variación", "n"], ["Variación %", "p"]], notas_h,
              explica=EXPLICA["15_Notas"]),
+        hoja("15D_Notas_Detalle", _ETQ["15D_Notas_Detalle"], COLS_NOTAS_DET, notas_det_h, explica=EXPLICA["15D_Notas_Detalle"],
+             estilos=est_d),
+        hoja("15C_Composicion", _ETQ["15C_Composicion"], COLS_COMPOSICION, comp, explica=EXPLICA["15C_Composicion"], estilos=est_c,
+             guia="Composición de cada nota tal como la presenta el informe auditado del año anterior (RQ-009): una fila por "
+                  "línea, con su importe y su tipo (Saldo, Movimiento o Total)."),
         hoja("16_Control", _ETQ["16_Control"], [["Control", "t"], ["Importe", "n"], ["Cantidad", "i"], ["Estado", "t"], ["Detalle", "t"]],
              control, explica=EXPLICA["16_Control"]),
         hoja("17_Anomalias", _ETQ["17_Anomalias"], [["Tipo", "t"], ["Código", "t"], ["Cuenta", "t"], ["Detalle", "t"], ["Importe", "n"],
@@ -1898,6 +1951,126 @@ COLS_SUMARIA = [["Ref. PT", "t"], ["Código", "t"], ["Cuenta", "t"], ["Nivel", "
                 ["Variación", "n"], ["Variación %", "p"], ["Nota del año anterior", "t"], ["Marca", "t"]]
 TXT_TOTAL_SUMARIA = "Total de las cuentas de detalle"
 TXT_CUADRE_SUMARIA = "Cuadre: rubro − cuentas de detalle (debe dar 0)"
+
+
+COLS_NOTAS_DET = [["Nota", "t"], ["Código", "t"], ["Cuenta", "t"], ["Nivel", "i"], ["Saldo al cierre anterior", "n"],
+                  ["Saldo al corte", "n"], ["Variación", "n"], ["Variación %", "p"], ["Marca", "t"]]
+COLS_COMPOSICION = [["Nota", "t"], ["Concepto", "t"], ["Tipo", "t"], ["Importe auditado", "n"], ["Control", "t"]]
+TXT_TOTAL_NOTA = "Total de la nota según el balance"
+TXT_AUDITADO_NOTA = "Saldo auditado según la nota (hoja 15)"
+TXT_DIF_NOTA = "Diferencia: balance anterior − nota auditada (NIA 510)"
+TXT_SUMA_COMP = "Suma de las líneas de saldo"
+TXT_TOTAL_COMP = "Total que presenta la nota"
+TXT_DIF_COMP = "Diferencia: suma de las líneas − saldo auditado de la nota"
+TXT_SIN_NOTA = "Rubros del balance sin nota del año anterior"
+
+
+def _cubre(codigo: str, pref: str) -> bool:
+    return codigo == pref or _debajo(codigo, pref) or _debajo(pref, codigo)
+
+
+def _sin_nota(cuentas: list, notas: list) -> list:
+    """Rubros del balance (activo, pasivo, patrimonio) que ninguna nota cubre; vacío si no se cargaron notas."""
+    if not notas:
+        return []
+    return [x for x in cuentas if x["sec"] in ("Activo", "Pasivo", "Patrimonio") and _es_rubro(x)
+            and not any(_cubre(x["codigo"], pf) for n in notas for pf in n["pref"])]
+
+
+def _notas_detalle(notas: list, cu: list, sin_nota: list, umbral: float) -> tuple[list, list]:
+    """Detalle comparativo de cada nota: sus cuentas y subcuentas del balance (anterior y corte, por fórmula a 08), el total
+    de la nota según el balance y la conciliación con el saldo auditado de la nota (NIA 510). Al final, los rubros del
+    balance que ninguna nota cubre."""
+    filas, est = [], []
+    idx = {x["codigo"]: i for i, x in enumerate(cu)}
+    u = _par("umbralVarPct")
+
+    def fila_cuenta(etq, x, r, marca_fija=None):
+        r8 = FILA0 + idx[x["codigo"]]
+        return [etq, x["codigo"], x["cuenta"], fx(f"{H8}C{r8}", x["nivel"]), fx(f"{H8}G{r8}", n2(x["ant"])),
+                fx(f"{H8}H{r8}", n2(x["act"])), fx(f"F{r}-E{r}", n2(x["act"] - x["ant"])),
+                fx(f'IF(E{r}=0,"",G{r}/ABS(E{r}))', None if x["ant"] == 0 else (x["act"] - x["ant"]) / abs(x["ant"])),
+                marca_fija if marca_fija else fx(f'IF(E{r}=0,IF(F{r}<>0,"Nueva",""),IF(F{r}=0,"Baja",IF(ABS(G{r}/E{r})>={u}/100,'
+                                                 f'"Supera el umbral","")))', _marca(x["ant"], x["act"], umbral))]
+    for k, n in enumerate(notas):
+        etq = f"Nota {n['nota']}"
+        filas.append([etq, None, n["titulo"], None, None, None, None, None, None])
+        est.append({"tipo": "titulo"})
+        tops = []
+        for pf in n["pref"]:
+            base = next((x for x in cu if x["codigo"] == pf), None)
+            cuentas = [x for x in cu if x["codigo"] == pf or _debajo(x["codigo"], pf)]
+            for x in cuentas:
+                r = FILA0 + len(filas)
+                if x is base:
+                    tops.append((r, x))
+                filas.append(fila_cuenta(etq, x, r))
+                est.append({"sangria": 1 + x["nivel"] - (base["nivel"] if base else x["nivel"]), "col": "Cuenta"})
+            if base is None:
+                filas.append([etq, pf, "(código de la nota que no está en el balance)", None, None, None, None, None, None])
+                est.append({"tipo": "control"})
+        rt = FILA0 + len(filas)
+        ta, tc = sum(x["ant"] for _, x in tops), sum(x["act"] for _, x in tops)
+        suma = lambda c: "+".join(f"{c}{r}" for r, _ in tops) or "0"  # noqa: E731
+        filas.append([etq, None, TXT_TOTAL_NOTA, None, fx(suma("E"), n2(ta)), fx(suma("F"), n2(tc)), fx(f"F{rt}-E{rt}", n2(tc - ta)),
+                      fx(f'IF(E{rt}=0,"",G{rt}/ABS(E{rt}))', None if ta == 0 else (tc - ta) / abs(ta)), None])
+        est.append({"tipo": "total"})
+        ra = rt + 1
+        filas.append([etq, None, TXT_AUDITADO_NOTA, None, fx(f"{N15}D{FILA0 + k}", n2(n["auditado"])), None, None, None, None])
+        est.append({"tipo": "control"})
+        rd = ra + 1
+        filas.append([etq, None, TXT_DIF_NOTA, None, fx(f"E{rt}-E{ra}", n2(ta - n["auditado"])), None, None, None,
+                      fx(f'IF(ABS(E{rd})<0.005,"Coincide","Revisar (NIA 510)")',
+                         "Coincide" if abs(ta - n["auditado"]) < 0.005 else "Revisar (NIA 510)")])
+        est.append({"tipo": "control"})
+    if sin_nota:
+        filas.append([None, None, TXT_SIN_NOTA, None, None, None, None, None, None])
+        est.append({"tipo": "titulo"})
+        for x in sin_nota:
+            filas.append(fila_cuenta(None, x, FILA0 + len(filas), "Sin nota"))
+            est.append({"sangria": 1, "col": "Cuenta"})
+    return filas, est
+
+
+def _composicion(notas: list, det: list) -> tuple[list, list]:
+    """Composición auditada de cada nota (RQ-009): sus líneas con el importe del informe, la suma de las líneas de saldo,
+    el total que presenta la nota y la diferencia con el saldo auditado de la hoja 15."""
+    filas, est = [], []
+    orden = list(dict.fromkeys([n["nota"] for n in notas] + [x["nota"] for x in det]))
+    fila15 = {n["nota"]: (FILA0 + k, n) for k, n in enumerate(notas)}
+    for nota in orden:
+        ls = [x for x in det if x["nota"] == nota]
+        if not ls:
+            continue
+        titulo = fila15[nota][1]["titulo"] if nota in fila15 else "(nota sin fila en la hoja 15)"
+        filas.append([f"Nota {nota}", titulo, None, None, None])
+        est.append({"tipo": "titulo"})
+        a = FILA0 + len(filas)
+        for x in ls:
+            filas.append([nota, x["concepto"], x["tipo"], n2(x["importe"]), None])
+            est.append({"sangria": 1 if x["tipo"] == "Movimiento" else 0, "col": "Concepto"} if x["tipo"] != "Total" else {"tipo": "total"})
+        b = FILA0 + len(filas) - 1
+        suma = sum(x["importe"] for x in ls if x["tipo"] == "Saldo")
+        rs = b + 1
+        filas.append([f"Nota {nota}", TXT_SUMA_COMP, None, fx(f'SUMIFS(D{a}:D{b},C{a}:C{b},"Saldo")', n2(suma)), None])
+        est.append({"tipo": "control"})
+        totales = [x["importe"] for x in ls if x["tipo"] == "Total"]
+        if totales:
+            rt = FILA0 + len(filas)
+            filas.append([f"Nota {nota}", TXT_TOTAL_COMP, None, fx(f'SUMIFS(D{a}:D{b},C{a}:C{b},"Total")', n2(sum(totales))),
+                          fx(f'IF(ABS(D{rt}-D{rs})<0.005,"Coincide","Revisar")',
+                             "Coincide" if abs(sum(totales) - suma) < 0.005 else "Revisar")])
+            est.append({"tipo": "control"})
+        if nota in fila15:
+            r15, n = fila15[nota]
+            ra = FILA0 + len(filas)
+            filas.append([f"Nota {nota}", TXT_AUDITADO_NOTA, None, fx(f"{N15}D{r15}", n2(n["auditado"])), None])
+            est.append({"tipo": "control"})
+            rd = ra + 1
+            filas.append([f"Nota {nota}", TXT_DIF_COMP, None, fx(f"D{rs}-D{ra}", n2(suma - n["auditado"])),
+                          fx(f'IF(ABS(D{rd})<0.005,"Coincide","Revisar")', "Coincide" if abs(suma - n["auditado"]) < 0.005 else "Revisar")])
+            est.append({"tipo": "control"})
+    return filas, est
 
 
 def _es_rubro(x: dict) -> bool:
@@ -2110,6 +2283,23 @@ EXPLICA = {
                      "cuadre (activo − pasivo − patrimonio − resultado)."),
         "ERI anterior": ("Hace lo mismo con el estado de resultados del año anterior al mismo corte, para comparar ingresos, "
                          "costos y gastos del mismo número de meses."),
+    },
+    "15D_Notas_Detalle": {
+        "Nivel": "Nivel de la cuenta en la jerarquía del plan de cuentas, tomado de la hoja 08.",
+        "Saldo al cierre anterior": "Saldo presentado de la cuenta al cierre del año anterior (hoja 08). En el total, suma de "
+                                    "las cuentas que forman la nota; en «Saldo auditado», el saldo de la nota en la hoja 15; en "
+                                    "la diferencia, total del balance menos saldo auditado.",
+        "Saldo al corte": "Saldo presentado de la cuenta a la fecha de corte (hoja 08); en el total, suma de las cuentas de la nota.",
+        "Variación": "Saldo al corte menos saldo al cierre anterior.",
+        "Variación %": "Variación dividida para el saldo al cierre anterior (en blanco si ese saldo es cero).",
+        "Marca": "«Nueva», «Baja» o «Supera el umbral» según la variación de la cuenta; en la diferencia, «Coincide» si el balance "
+                 "anterior es igual a la nota auditada y «Revisar (NIA 510)» si no.",
+    },
+    "15C_Composicion": {
+        "Importe auditado": "En las líneas, el importe del informe auditado (hoja de datos del cliente). La suma toma solo las "
+                            "líneas de saldo; el total, la línea «Total» de la nota; el saldo auditado viene de la hoja 15; la "
+                            "diferencia es suma menos saldo auditado.",
+        "Control": "«Coincide» si la suma de las líneas es igual al total de la nota y al saldo auditado; «Revisar» si no.",
     },
     "08S_Sumarias": {
         "Nivel": "Nivel de la cuenta en la jerarquía del plan de cuentas, tomado de la hoja 08.",
@@ -2477,6 +2667,10 @@ def definicion() -> dict:
                 "Notas comparativas y saldos de apertura", required=False,
                 content="Una fila por nota de balance: número, título, códigos del balance que la forman (separados por coma) y "
                         "el saldo auditado de la nota."),
+            req("RQ-009", "Composición de las notas a los estados financieros auditados del año anterior (líneas de cada nota)",
+                "notas_detalle", "PLA-06", "Desglose de cada nota y su cuadre con el saldo auditado", required=False,
+                content="Una fila por línea de cada nota, tal como la presenta el informe auditado: número de nota, concepto, "
+                        "importe y tipo (Saldo si forma el saldo, Movimiento si es la conciliación del año, Total si es el total)."),
             req("RQ-007", "Informe de auditoría, notas y carta de control interno del año anterior (documentos firmados)", None, "PLA-01",
                 "Respaldo de los datos transcritos en RQ-004 a RQ-006", formats=("pdf", "docx"), use="soporte", required=False),
             req("RQ-008", "RUC actualizado de la entidad", None, "PLA-01", "Identificación de la entidad y su actividad",
@@ -2566,15 +2760,32 @@ _INFORME_EJ = [
      "detalle": "La provisión no se ajustó al cálculo actuarial al cierre; el pasivo estaría subestimado.",
      "importe": "18500.00", "fuente": "Informe 2024 · Fundamento de la opinión", "_row": 5},
 ]
-_NOTAS_EJ = [
-    {"nota": "3", "titulo": "Efectivo y equivalentes de efectivo", "codigos": "1101", "saldo_auditado": "176900.00", "_row": 2},
-    {"nota": "4", "titulo": "Cuentas por cobrar comerciales y otras", "codigos": "1103, 1106", "saldo_auditado": "656500.00", "_row": 3},
-    {"nota": "5", "titulo": "Inventarios", "codigos": "1104", "saldo_auditado": "655400.00", "_row": 4},
-    {"nota": "6", "titulo": "Propiedad, planta y equipo", "codigos": "1201", "saldo_auditado": "929100.00", "_row": 5},
-    {"nota": "10", "titulo": "Obligaciones bancarias", "codigos": "2102, 2201", "saldo_auditado": "620000.00", "_row": 6},
-    {"nota": "12", "titulo": "Cuentas y documentos por pagar", "codigos": "2101", "saldo_auditado": "561200.00", "_row": 7},
-    {"nota": "13", "titulo": "Beneficios a empleados", "codigos": "2104, 2202", "saldo_auditado": "222400.00", "_row": 8},
-]
+_NOTAS_DEF = [("3", "Efectivo y equivalentes de efectivo", ["1101"]), ("4", "Cuentas por cobrar comerciales y otras", ["1103", "1106"]),
+              ("5", "Inventarios", ["1104"]), ("6", "Propiedad, planta y equipo", ["1201"]), ("10", "Obligaciones bancarias", ["2102", "2201"]),
+              ("12", "Cuentas y documentos por pagar", ["2101"]), ("13", "Beneficios a empleados", ["2104", "2202"])]
+
+
+def _notas_de(saldos: dict, movimientos: dict | None = None, dif13: float = 1000.0) -> tuple[list, list]:
+    """Notas del año anterior (total de cada nota) y su composición línea por línea, a partir de los saldos auditados.
+    La nota 13 lleva a propósito 1.000 más que el balance (beneficios sociales) para ejercitar el control NIA 510."""
+    notas, det = [], []
+    for k, (n, titulo, pref) in enumerate(_NOTAS_DEF):
+        lineas = [(_NOMBRES[h].strip().capitalize(), float(saldos[h])) for h in sorted(saldos) if any(h.startswith(pf) for pf in pref)]
+        if n == "13":
+            lineas[0] = (lineas[0][0], lineas[0][1] + dif13)
+        total = sum(v for _, v in lineas)
+        notas.append({"nota": n, "titulo": titulo, "codigos": ", ".join(pref), "saldo_auditado": f"{total:.2f}", "_row": k + 2})
+        for c, v in lineas + [("Total", total)]:
+            det.append({"nota": n, "concepto": c, "importe": f"{v:.2f}", "tipo": "Total" if c == "Total" else "Saldo",
+                        "_row": len(det) + 2})
+        for c, v in (movimientos or {}).get(n, []):
+            det.append({"nota": n, "concepto": c, "importe": f"{v:.2f}", "tipo": "Movimiento", "_row": len(det) + 2})
+    return notas, det
+
+
+# Movimiento del año de propiedad, planta y equipo (informativo): saldo inicial + adiciones − depreciación = saldo final.
+_NOTAS_EJ, _NOTAS_DET_EJ = _notas_de(_DIC24, {"6": [("Saldo al inicio del año", 950000.0), ("Adiciones", 42200.0),
+                                                  ("Depreciación del año", -63100.0)]})
 
 # Ejemplo de control (a mano): activo 3.204.200 = pasivo 1.679.700 + patrimonio 1.156.850 + resultado 367.650.
 # Ingresos 4.878.900 × 1 % = materialidad 48.789,00; desempeño 50 % = 24.394,50; trivial 5 % = 2.439,45.
@@ -2585,7 +2796,8 @@ EJEMPLO = {
                    "fechaPreliminar": "2025-10-15", "fechaFinal": "2026-01-20", "fechaInforme": "2026-03-31",
                    "socio": "Socio del encargo", "gerente": "Gerente de auditoría", "expertos": "Actuario para jubilación patronal"},
     "datasets": {"balance_anterior": _tb(_DIC24, "saldo_anterior"), "balance_actual": _tb(_DIC25, "saldo_actual"),
-                 "carta_control_interno": _CARTA_EJ, "informe_anterior": _INFORME_EJ, "notas_estados_financieros": _NOTAS_EJ},
+                 "carta_control_interno": _CARTA_EJ, "informe_anterior": _INFORME_EJ, "notas_estados_financieros": _NOTAS_EJ,
+                 "notas_detalle": _NOTAS_DET_EJ},
 }
 
 # Revisión preliminar al 31-ago-2026: balance de diciembre 2025 contra agosto 2026; resultados de agosto 2026 contra
@@ -2600,7 +2812,8 @@ _pas26 = sum(_AGO26[c] for c in _AGO26 if c[0] in "23")
 _AGO26["110102"] = _pas26 + _res26 - sum(_AGO26[c] for c in _AGO26 if c[0] == "1")
 _AGO25 = {"4101": 2980000, "4301": 10500, "5101": 300000, "5102": 250000, "5103": 42000, "5201": 37000, "5301": 60000, "6101": 2120000}
 _PRELIM = {"balance_anterior": _tb(_DIC25, "saldo_anterior"), "balance_actual": _tb(_AGO26, "saldo_actual"),
-           "resultados_mismo_corte": _tb(_AGO25, "saldo_eri", solo_resultados=True), "carta_control_interno": _CARTA_EJ, "informe_anterior": _INFORME_EJ}
+           "resultados_mismo_corte": _tb(_AGO25, "saldo_eri", solo_resultados=True), "carta_control_interno": _CARTA_EJ, "informe_anterior": _INFORME_EJ,
+           "notas_estados_financieros": _notas_de(_DIC25)[0], "notas_detalle": _notas_de(_DIC25)[1]}
 
 # Pérdida (NIIF para las PYMES, encargo inicial, sin documentos del año anterior): costo de ventas +700.000 y sin impuesto;
 # proveedores +577.450 para que el balance siga cuadrando. Utilidad antes de participación e impuestos = −209.800.
@@ -2618,5 +2831,6 @@ ESCENARIOS = [
     ("perdida_pymes", {"balance_anterior": _tb(_DIC24, "saldo_anterior"), "balance_actual": _tb(_PERD25, "saldo_actual")},
      {"baseMaterialidad": "Utilidad antes de impuestos", "pctUAI": 5, "encargoInicial": "Sí", "_marco": MARCO_PYMES}, "2025-12-31"),
     ("patrimonio_deficit", {"balance_anterior": _tb(_DIC24, "saldo_anterior"), "balance_actual": _DEFICIT,
-                            "carta_control_interno": _CARTA_EJ}, {"baseMaterialidad": "Activos totales"}, "2025-12-31"),
+                            "carta_control_interno": _CARTA_EJ, "notas_estados_financieros": _NOTAS_EJ, "notas_detalle": _NOTAS_DET_EJ},
+     {"baseMaterialidad": "Activos totales"}, "2025-12-31"),
 ]

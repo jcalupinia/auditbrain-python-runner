@@ -342,3 +342,44 @@ def test_sumarias_por_rubro_con_subcuentas_ajustes_y_cuadre():
     h2 = next(x for x in m.hojas(r2) if x["name"] == "08S_Sumarias")
     j = next(k for k, f in enumerate(h2["rows"]) if v(f[1]) == "1103")
     assert v(h2["rows"][j + 4][12]) == "Revisar la jerarquía" and abs(v(h2["rows"][j + 4][6]) - 16400.0) < 0.01
+
+
+def test_notas_desglose_por_cuenta_composicion_auditada_y_rubros_sin_nota():
+    """Notas a los EEFF (reclamo del dueño): detalle por cuenta de cada nota con su conciliación (NIA 510), composición
+    auditada línea por línea que cuadra con el saldo de la nota, y los rubros del balance que ninguna nota cubre."""
+    r = _run()
+    hs = {h["name"]: h for h in m.hojas(r)}
+    v = lambda c: c.get("v") if isinstance(c, dict) else c  # noqa: E731
+    det = [[v(c) for c in f] for f in hs["15D_Notas_Detalle"]["rows"]]
+    # Nota 6: el rubro y sus tres subcuentas, total del balance 929.100 y coincide con la nota auditada.
+    i = det.index(next(f for f in det if f[0] == "Nota 6" and f[1] == "1201"))
+    assert [f[1] for f in det[i:i + 4]] == ["1201", "120101", "120102", "120103"]
+    tot = next(f for f in det[i:] if f[2] == m.TXT_TOTAL_NOTA)
+    assert tot[4:6] == [929100.0, 967400.0]
+    assert next(f for f in det[i:] if f[2] == m.TXT_DIF_NOTA)[8] == "Coincide"
+    # Nota 13: el balance anterior es 1.000 menor que la nota auditada.
+    d13 = next(f for f in det if f[0] == "Nota 13" and f[2] == m.TXT_DIF_NOTA)
+    assert d13[4] == -1000.0 and d13[8] == "Revisar (NIA 510)"
+    # Rubros sin nota al final (p. ej. capital social e impuestos por pagar).
+    sin = [f[1] for f in det if f[8] == "Sin nota"]
+    assert len(sin) == 10 and "3101" in sin and "2103" in sin
+    # Composición: líneas de saldo que suman el total de la nota; la nota 6 trae su movimiento del año (informativo).
+    comp = [[v(c) for c in f] for f in hs["15C_Composicion"]["rows"]]
+    assert any(f[1] == "Depreciación del año" and f[2] == "Movimiento" for f in comp)
+    assert all(f[4] == "Coincide" for f in comp if f[1] in (m.TXT_TOTAL_COMP, m.TXT_DIF_COMP))
+    ctl = {v(f[0]): [v(c) for c in f] for f in hs["16_Control"]["rows"]}
+    assert ctl["Composición de las notas que no suma el saldo auditado"][2:4] == [0, "Conforme"]
+    assert ctl["Rubros del balance sin nota del año anterior"][2:4] == [10, "Revisar"]
+    # Si una línea de la composición no cuadra, el control lo marca.
+    e = m.EJEMPLO
+    ds = {k: [dict(x) for x in v_] for k, v_ in e["datasets"].items()}
+    next(x for x in ds["notas_detalle"] if x["nota"] == "5" and x["tipo"] == "Saldo")["importe"] = "650000.00"
+    r2 = m.ejecutar(ds, e["parametros"], e["corte"])
+    hs2 = {h["name"]: h for h in m.hojas(r2)}
+    ctl2 = {v(f[0]): [v(c) for c in f] for f in hs2["16_Control"]["rows"]}
+    assert ctl2["Composición de las notas que no suma el saldo auditado"][2:4] == [2, "Revisar"]   # total y saldo auditado
+    # Sin notas cargadas (encargo inicial) los controles quedan «No evaluado».
+    rp = _esc("perdida_pymes")
+    ctl3 = {v(f[0]): [v(c) for c in f] for f in next(h for h in m.hojas(rp) if h["name"] == "16_Control")["rows"]}
+    assert ctl3["Rubros del balance sin nota del año anterior"][3] == "No evaluado"
+    assert m.validar_filas("notas_detalle", [{"nota": "4", "concepto": "x", "importe": "1", "tipo": "Ajuste", "_row": 2}])["ok"] is False

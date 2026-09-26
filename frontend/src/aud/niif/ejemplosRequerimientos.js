@@ -219,6 +219,7 @@ export const EJEMPLOS_REQUERIMIENTOS = {
     "RQ-004": "RQ-004_carta_control_interno.xlsx",
     "RQ-005": "RQ-005_informe_anterior.xlsx",
     "RQ-006": "RQ-006_notas_estados_financieros.xlsx",
+    "RQ-009": "RQ-009_notas_detalle.xlsx",
     "RQ-007": "RQ-007_informe_de_auditoria_notas_y_carta_de_control_in.pdf",
     "RQ-008": "RQ-008_ruc_actualizado_de_la_entidad.pdf",
   },
