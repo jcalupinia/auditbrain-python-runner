@@ -637,28 +637,48 @@ los 5 escenarios (final, preliminar con ERI, preliminar con prorrateo, pérdida 
   período (`RESULTADO_NETO_TRASPASOS`) y en la hoja 22 su tipo es «Traspaso de resultados»; en la preliminar el importe de los
   días es el ajustado al período. Pruebas: `tests/test_proc_planificacion_nia.py` (`test_defectos_d4_a_d8_del_programa`,
   `test_defecto_d10_…`, `test_defecto_d11_…`) y `tests/test_aud_ciclo_revision.py`. Los faltantes A1–A19 se resolvieron en
-  el bloque siguiente; M1–M21 siguen pendientes.
+  el bloque siguiente (todo automático); M1–M21 siguen pendientes.
 
-**Documentación del encargo en la planificación (2026-09-26, faltantes A1–A19 de la revisión de control de calidad):**
-`procesadores/planificacion_encargo.py` (complemento de `planificacion_nia`, no es herramienta del catálogo). Lo que prepara
-el **equipo de auditoría** entra por cuatro requerimientos marcados «lo prepara el equipo»: RQ-010 cuestionario de
-planificación (catálogo fijo `CUESTIONARIO` de 40 preguntas por código: ACE aceptación, CON condiciones previas y carta
-de encargo, MES materialidad específica, COM comunicación, DIS discusión del equipo, FRA fraude, CI cinco componentes del
-control interno, TI controles generales), RQ-011 equipo e independencia, RQ-012 diferencias (NIA 450) y RQ-013 componentes
-del grupo (NIA 600). **Regla de cero invención:** lo no documentado queda «[PENDIENTE]» y el control de calidad (hoja 16,
-controles 15–24) lo cuenta. Hojas nuevas: `24_Aceptacion`, `25_Equipo`, `26_Discusion_Fraude`, `27_Control_Interno`,
-`28_Afirmaciones` (cuenta × afirmación y nivel de estados financieros), `29_Muestreo` (unidad monetaria: −ln(1−confianza),
-factor de expansión, error esperado; confianza por el nivel más alto de la hoja 28), `30_Diferencias`, `31_Grupo`,
-`32_Comunicacion` (NIA 260 y asuntos clave candidatos NIA 701); los problemas pasan a `33_Problemas`. Cada respuesta con
-alerta es un riesgo de la hoja 13 (fórmula al estado de la pregunta) y un procedimiento del programa; un hallazgo de la carta
-que menciona «fraude» es riesgo significativo (A7); el programa suma la columna «Extensión (NIA 330 y 530)», aseveraciones
-por área (A13) y el plan de confirmaciones y observación del inventario solo para cuentas de balance materiales (A14); la
-hoja 11 trae la materialidad específica (A10); la estrategia, los riesgos significativos por nombre, empresa en marcha,
-calendario, independencia y respuestas globales (A16); la hoja 02, «Estados del año anterior» (A17), el rol en el grupo
-(A18) y los porcentajes de muestreo, componente y rotación (política de la firma, «VERIFICAR»). **A4:** la definición
-declara `firmas` y el libro agrega `00_Firmas` con preparó/revisó y fechas tomados de la bitácora. Escenario nuevo
-`grupo_eip`. Pruebas: `tests/test_proc_planificacion_nia.py` (`test_a…`). Verificación LibreOffice de los 6 escenarios:
-0 diferencias.
+**Documentación del encargo en la planificación: TODA automática (2026-09-26, faltantes A1–A19; decisión del dueño:
+«todos los documentos tienen que ser automáticos»).** `procesadores/planificacion_encargo.py` (complemento de
+`planificacion_nia`, no es herramienta del catálogo). **No hay plantillas que llene el equipo** (se retiraron RQ-010 a
+RQ-013): la planificación pide solo los documentos del cliente (RQ-001 a RQ-009) y todo lo demás sale de ellos o de un
+**clic en la plataforma**. **La firma no audita grupos** («No tenemos grupos»): no hay hoja de grupo ni NIA 600.
+- **Registros con un clic** (tabla `aud_registros_encargo`, `ciclo/models.py::RegistroEncargo`; rutas
+  `/aud/ciclo/proyectos/{id}/registros`): independencia de cada integrante (rol, amenazas, salvaguardas, año desde),
+  asistencia a la discusión del equipo, aceptación del socio (solo quien confirmó su independencia como «Socio»), carta de
+  encargo firmada (fecha y limitaciones) y comunicación al gobierno (fecha y medio). Nada se borra: el registro nuevo anula
+  al anterior y la anulación queda en la historia (NIA 230). **Años con el cliente** = encargos del mismo cliente con
+  independencia confirmada o, si es mayor, los años desde el año declarado. Al ejecutar la planificación, `servicio.py`
+  inyecta `parametros["_encargo"]` (`registros_encargo`) porque el procesador declara `USA_REGISTROS_ENCARGO = True`; la
+  hoja `00_Registros` los congela en el papel y las hojas 24, 25, 26 y 32 los leen por fórmula. Socio y gerente vacíos en la
+  hoja 02 toman el integrante registrado con ese rol.
+- **Documentos que genera la plataforma** (`ciclo/documentos_encargo.py`, ruta `/aud/ciclo/proyectos/{id}/documentos/{tipo}`,
+  Word con los logos): carta de encargo (NIA 210, de la ficha y los registros), acta de la discusión del equipo (NIA 315 y
+  240: asistentes, riesgos de la hoja 13 e indicios de la hoja 26 de la última planificación ejecutada) y carta de
+  planificación (NIA 260: asuntos de la hoja 32, sin listar su propio envío). Son modelos para firmar: lo que no consta
+  queda «[PENDIENTE]» y las citas llevan «VERIFICAR». El frontend los ofrece en el panel «Registro del encargo»
+  (`RegistroEncargo.jsx`, lógica en `registroLogic.js`) entre la ficha y las pruebas.
+- **Derivado de los documentos:** evaluaciones de las hojas 24 (aceptación, condiciones previas, materialidad específica
+  si el balance tiene partes relacionadas, accionistas o remuneraciones), 26 (discusión y **fraude solo con indicios
+  automáticos**: presunción en ingresos, elusión de controles, patrimonio negativo, endeudamiento, variaciones y hallazgos
+  de la carta con «fraude»; las indagaciones quedan «No evaluado» por decisión de la firma) y 27 (los cinco componentes del
+  control interno y los controles generales de TI clasificados por palabras clave de cada hallazgo de la carta: columnas
+  «Componente del control interno» y «Control general de TI» de la hoja 12). Cada alerta es un riesgo de la hoja 13 y un
+  procedimiento del programa. **Diferencias (NIA 450, hoja 30):** diferencias de las notas contra el balance (fórmula a la
+  hoja 15) y salvedades con importe del informe anterior (fórmula a la hoja 14), acumuladas contra la materialidad.
+  **Estados del año anterior (A17):** el parámetro o, si está vacío, se deduce (encargo recurrente → auditados por
+  nosotros; inicial con informe → otro auditor; inicial sin informe → pendiente, no se supone).
+- **Regla de cero invención:** lo que falta queda «Pendiente» y lo cuentan los controles 15–22 de la hoja 16. Hojas:
+  `00_Registros`, `24_Aceptacion`, `25_Equipo`, `26_Discusion_Fraude`, `27_Control_Interno`, `28_Afirmaciones`,
+  `29_Muestreo` (unidad monetaria; confianza por el nivel más alto de la hoja 28), `30_Diferencias`, `32_Comunicacion`
+  (NIA 260 y asuntos clave candidatos NIA 701 en entidades de interés público) y `33_Problemas`. Programa: «Extensión
+  (NIA 330 y 530)», aseveraciones por área y confirmaciones/observación del inventario solo para cuentas de balance
+  materiales. **A4:** la definición declara `firmas` y el libro agrega `00_Firmas` desde la bitácora.
+- Pruebas: `tests/test_proc_planificacion_nia.py` (`test_a…`, `test_sin_plantillas_manuales_ni_grupo`,
+  `test_registros_de_la_plataforma_en_00_registros_y_formulas`), `tests/test_aud_registros_encargo.py` (reglas,
+  anulación, años con el cliente, inyección y documentos) y `registroLogic.test.js`. Verificación LibreOffice de los 6
+  escenarios (incluido `eip`: socio con 7 años y revisor de calidad): 0 diferencias.
 
 **Diseño del libro (todas las herramientas, 2026-09-25):** portada con botones por sección
 (Resultado · Cómo se calculó · Datos del cliente · Documentación) y pestañas del color de su

@@ -107,6 +107,11 @@ Códigos de programa y requerimientos: `<PREFIJO>-01…`, `RQ-001…`.
 Opcional: `firmas` = lista de cédulas clave (nombres de hoja). El libro agrega la hoja `00_Firmas` con quién preparó
 (envió a revisión) y quién revisó (aprobó) cada una, con fecha, tomados de la bitácora del ciclo, y advierte si es la
 misma persona (NIA 230 y 220). La usa la planificación (`planificacion_nia`).
+Opcional: `USA_REGISTROS_ENCARGO = True` (constante del módulo). Al ejecutar, la plataforma entrega en
+`parametros["_encargo"]` los registros hechos con un clic (independencia, asistencia a la discusión, aceptación, carta de
+encargo firmada, comunicación al gobierno; `ciclo/servicio.py::registros_encargo`). El procesador no pide plantillas al
+equipo: lo que no está en los documentos del cliente sale de esos registros, y lo que falta queda «Pendiente». La usa la
+planificación.
 
 ### `EJEMPLO` (ejercicio modelo, M19)
 Datos ficticios realistas (8–20 filas por anexo) que **ejerciten todas las cédulas y al menos dos problemas**.
