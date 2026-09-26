@@ -901,8 +901,10 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         rk = next((r_ for r_ in carta if area_x and _area(r_["proceso"] + " " + r_["hallazgo"]) == area_x), None)
         # Todas las cuentas del nivel quedan en la hoja 18 con su marca por fórmula: si el auditor cambia la
         # materialidad, cambia cuáles se revisan.
-        revisar.append({"x": x, "riesgo": rk["id"] if rk else "", "herr": _herramienta(x["cuenta"], x["sec"]),
-                        "revisa": "Sí" if x["material"] == "Sí" or x["varMaterial"] == "Sí" or rk else "No"})
+        rbi = _riesgos_de(x, riesgos)
+        rb = " ".join(riesgos[i]["codigo"] for i in rbi if riesgos[i]["presenta"] == "Sí")
+        revisar.append({"x": x, "riesgo": rk["id"] if rk else "", "rbi": rbi, "rb": rb, "herr": _herramienta(x["cuenta"], x["sec"]),
+                        "revisa": "Sí" if x["material"] == "Sí" or x["varMaterial"] == "Sí" or rk or rb else "No"})
     revisar.sort(key=lambda r_: -abs(r_["x"]["act"]))
 
     # 12 · asuntos para la planificación
@@ -1645,8 +1647,8 @@ def hojas(res: dict) -> list[dict]:
          fx(f'IF(N(B{FILA0 + 3})>0,"Conforme","Crítico")', "Conforme" if mt["global"] else "Crítico"),
          "La materialidad global debe ser positiva."],
         [CONTROLES[4], None, fx(f'COUNTIFS({_rng(A17, "G", n17)},"Alto",{_rng(A17, "F", n17)},"Sí")', altas),
-         fx(f'IF(C{FILA0 + 4}>0,"Crítico",IF(COUNTIF({_rng(A17, "F", n17)},"Sí")>0,"Revisar","Conforme"))',
-            "Crítico" if altas else "Revisar" if anom else "Conforme"),
+         fx(f'IF({DESEMP}="","No evaluado",IF(C{FILA0 + 4}>0,"Crítico",IF(COUNTIF({_rng(A17, "F", n17)},"Sí")>0,"Revisar","Conforme")))',
+            "No evaluado" if not mt["desempeno"] else "Crítico" if altas else "Revisar" if anom else "Conforme"),
          "Alta = saldo negativo por naturaleza que no es cuenta correctora; «Revisar» si hay otras anomalías presentes."],
         [CONTROLES[5], None, fx(f"COUNTA({_rng(N15, 'A', n15)})", n15), fx(f'IF(C{FILA0 + 5}>0,"Conforme","Revisar")',
                                                                          "Conforme" if n15 else "Revisar"),
@@ -1684,10 +1686,12 @@ def hojas(res: dict) -> list[dict]:
     cuentas_rev = []
     for i, x in enumerate(rev):
         rr, r = fila8[x["x"]["codigo"]], FILA0 + i
+        f_rb = "&".join(f'IF({R13}F{FILA0 + j}="Sí","{riesgos[j]["codigo"]} ","")' for j in x["rbi"])
         cuentas_rev.append([x["x"]["codigo"], x["x"]["cuenta"], fx(f"{H8}F{rr}", x["x"]["sec"]), fx(f"{H8}H{rr}", n2(x["x"]["act"])),
                             fx(f"{H8}I{rr}", n2(x["x"]["var"])), fx(f"{H8}O{rr}", x["x"]["material"]),
-                            fx(f"{H8}P{rr}", x["x"]["varMaterial"]), x["riesgo"], x["herr"],
-                            fx(f'IF(OR(F{r}="Sí",G{r}="Sí",H{r}<>""),"Sí","No")', x["revisa"])])
+                            fx(f"{H8}P{rr}", x["x"]["varMaterial"]), x["riesgo"],
+                            fx(f"TRIM({f_rb})", x["rb"]) if x["rbi"] else "", x["herr"],
+                            fx(f'IF(OR(F{r}="Sí",G{r}="Sí",H{r}<>"",I{r}<>""),"Sí","No")', x["revisa"])])
 
     # 19 · programa (NIA 330)
     def oport(celda, v):
@@ -1695,17 +1699,41 @@ def hojas(res: dict) -> list[dict]:
               f'"{OPORTUNIDAD_BAJO}"))')
         return fx(f_, OPORTUNIDAD_ALTO if v in ("Alto", "Significativo") else OPORTUNIDAD_MEDIO if v == "Medio" else OPORTUNIDAD_BAJO)
     programa = []
+    socio, gerente = pv("socio") or "Socio del encargo", pv("gerente") or "Gerente de auditoría"
+
+    def resp_(nivel):
+        return socio if nivel in ("Alto", "Significativo") else gerente
+    cubiertas_area, cubiertos_cod = set(), set()
     for i, x in enumerate(carta):
         r12, r = FILA0 + i, FILA0 + len(programa)
+        cubiertas_area.add(_area(x["proceso"] + " " + x["hallazgo"]))
         programa.append([f"PT-{len(programa) + 1:02d}", x["proceso"], x["id"], fx(f"{R12}J{r12}", x["nivel"]),
                          fx(f"{R12}K{r12}", x["respuesta"] or RESPUESTA_DEFECTO), fx(f"{R12}L{r12}", x["herramienta"]),
-                         oport(f"D{r}", x["nivel"])])
+                         oport(f"D{r}", x["nivel"]), fx(f"{R12}D{r12}", x["aser"] or "Todas"), EVIDENCIA_CARTA, resp_(x["nivel"]), "Sí"])
     for i, x in enumerate(riesgos):
         if x["presenta"] != "Sí":
             continue
         r = FILA0 + len(programa)
+        cubiertos_cod.add(x["rubro"].split(" ")[0])
+        if x["norma"] != "NIA 570":
+            cubiertas_area.add(_area(x["rubro"]))
         programa.append([f"PT-{len(programa) + 1:02d}", x["rubro"], x["codigo"], fx(f"{R13}H{FILA0 + i}", x["sev"]), x["resp"], x["herr"],
-                         oport(f"D{r}", x["sev"])])
+                         oport(f"D{r}", x["sev"]), ASEVERACIONES_RIESGO.get(x["cod"], "Existencia; integridad; valuación"),
+                         EVIDENCIA_RIESGO.get(x["norma"], EVIDENCIA_DEFECTO), resp_(x["sev"]), fx(f"{R13}F{FILA0 + i}", "Sí")])
+    # Cobertura (NIA 330 párr. 18): toda cuenta a revisar sin un riesgo que ya la cubra lleva su procedimiento sustantivo.
+    for i, x in enumerate(rev):
+        c = x["x"]
+        if x["revisa"] != "Sí" or c["codigo"] in cubiertos_cod or (_area(c["cuenta"], c["sec"]) or "·") in cubiertas_area:
+            continue
+        r, r18 = FILA0 + len(programa), FILA0 + i
+        nivel = "Medio" if c["material"] == "Sí" or c["varMaterial"] == "Sí" else "Bajo"
+        programa.append([f"PT-{len(programa) + 1:02d}", c["cuenta"], f"Cuenta {c['codigo']}",
+                         fx(f'IF(OR({C18}F{r18}="Sí",{C18}G{r18}="Sí"),"Medio","Bajo")', nivel), RESPUESTA_CUENTA, x["herr"],
+                         oport(f"D{r}", nivel), ASEVERACIONES_SECCION.get(c["sec"], "Existencia; integridad; valuación"),
+                         EVIDENCIA_DEFECTO, resp_(nivel), fx(f"{C18}K{r18}", "Sí")])
+    for area_, norma, proc, evid, aser in PROC_ENCARGO:
+        programa.append([f"PT-{len(programa) + 1:02d}", area_, norma, "Todo encargo", proc, _herramienta(area_),
+                         OPORTUNIDAD_ENCARGO, aser, evid, gerente, "Sí"])
 
     # 20 · narrativa
     ia, ip, ia_ant = ind["act"], e9["act"], e9["ant"]
@@ -1807,7 +1835,7 @@ def hojas(res: dict) -> list[dict]:
          "NIA 450 párr. 5"],
         ["Riesgos altos o significativos", fx(f"{ref('01_Resumen')}B{FILA0 + list(res['labels']).index('riesgosAltos')}", riesgos_altos),
          "NIA 315 párr. 32; NIA 330 párr. 15 y 21"],
-        ["Cuentas principales a revisar", fx(f'COUNTIF({_rng(C18, "J", n_rev)},"Sí")', float(res["totals"]["cuentasRevisar"])),
+        ["Cuentas principales a revisar", fx(f'COUNTIF({_rng(C18, "K", n_rev)},"Sí")', float(res["totals"]["cuentasRevisar"])),
          "NIA 330 párr. 18"],
         ["Presunción de fraude en ingresos", fx(f'IF({_par("refutarIngresos")}="Sí","Refutada: "&{_par("motivoRefutacion")},"{ref_ing}")',
                                                 ("Refutada: " + str(pv("motivoRefutacion") or "")) if sino["refutarIngresos"] == "Sí" else ref_ing),
@@ -1879,7 +1907,7 @@ def hojas(res: dict) -> list[dict]:
                "desempeno": f"N({DESEMP})", "trivial": f"N({M11}D{F11['Umbral de errores claramente insignificantes']})",
                "riesgosAltos": (f'COUNTIF({_rng(R12, "J", n12)},"Alto")+COUNTIFS({_rng(R13, "F", n13)},"Sí",{_rng(R13, "H", n13)},"Alto")'
                                 f'+COUNTIFS({_rng(R13, "F", n13)},"Sí",{_rng(R13, "H", n13)},"Significativo")'),
-               "cuentasRevisar": f'COUNTIF({_rng(C18, "J", n_rev)},"Sí")'}
+               "cuentasRevisar": f'COUNTIF({_rng(C18, "K", n_rev)},"Sí")'}
     t = {k: float(v) for k, v in res["totals"].items()}
     resumen = [[res["labels"][k], fx(ref_res[k], n2(t[k]))] for k in res["labels"]]
 
@@ -1934,10 +1962,12 @@ def hojas(res: dict) -> list[dict]:
                                              ["¿Se presenta?", "t"], ["Severidad", "t"]], anomalias, explica=EXPLICA["17_Anomalias"]),
         hoja("18_Cuentas_Revisar", _ETQ["18_Cuentas_Revisar"], [["Código", "t"], ["Cuenta", "t"], ["Sección", "t"], ["Saldo actual", "n"],
                                                    ["Variación", "n"], ["Monto material", "t"], ["Variación material", "t"],
-                                                   ["Riesgo de la carta de CI", "t"], ["Herramienta del catálogo", "t"],
+                                                   ["Riesgo de la carta de CI", "t"], ["Riesgos de la hoja 13", "t"], ["Herramienta del catálogo", "t"],
                                                    ["¿Se revisa?", "t"]], cuentas_rev, explica=EXPLICA["18_Cuentas_Revisar"]),
         hoja("19_Programa", _ETQ["19_Programa"], [["PT", "t"], ["Área o rubro", "t"], ["Riesgo", "t"], ["Nivel", "t"],
-                                            ["Respuesta de auditoría (NIA 330)", "t"], ["Herramienta del catálogo", "t"], ["Oportunidad", "t"]],
+                                            ["Respuesta de auditoría (NIA 330)", "t"], ["Herramienta del catálogo", "t"], ["Oportunidad", "t"],
+                                            ["Aseveraciones", "t"], ["Evidencia a obtener (PBC)", "t"], ["Responsable", "t"],
+                                            ["¿Aplica?", "t"]],
              programa, explica=EXPLICA["19_Programa"]),
         hoja("20_Narrativa", _ETQ["20_Narrativa"], [["Bloque", "t"], ["Concepto", "t"], ["Importe", "n"], ["Lectura", "t"]], narrativa,
              explica=EXPLICA["20_Narrativa"]),
@@ -2079,6 +2109,54 @@ def _composicion(notas: list, det: list) -> tuple[list, list]:
                           fx(f'IF(ABS(D{rd})<0.005,"Coincide","Revisar")', "Coincide" if abs(suma - n["auditado"]) < 0.005 else "Revisar")])
             est.append({"tipo": "control"})
     return filas, est
+
+
+def _riesgos_de(x: dict, riesgos: list) -> list[int]:
+    """Posibles riesgos de la hoja 13 que recaen en la cuenta: los de su código (variaciones) o de su misma área.
+    Los de empresa en marcha (NIA 570) y los que afectan a todas las áreas son de toda la entidad y no marcan cuentas."""
+    area_x = _area(x["cuenta"], x["sec"])
+    out = []
+    for i, rk in enumerate(riesgos):
+        if rk["norma"] == "NIA 570":
+            continue
+        rub = rk["rubro"]
+        if rub.split(" ")[0] == x["codigo"] or (area_x and _area(rub) == area_x):
+            out.append(i)
+    return out
+
+
+ASEVERACIONES_SECCION = {"Activo": "Existencia; valuación; derechos", "Pasivo": "Integridad; valuación; obligaciones",
+                         "Patrimonio": "Integridad; presentación", "Ingresos": "Ocurrencia; corte; integridad",
+                         "Costos": "Ocurrencia; integridad; clasificación", "Gastos": "Ocurrencia; integridad; clasificación"}
+ASEVERACIONES_RIESGO = {"presuncion": "Ocurrencia; corte", "elusion": "Todas", "cartera": "Valuación", "rotCartera": "Valuación",
+                        "inventario": "Existencia; valuación", "rotInventario": "Existencia; valuación"}
+EVIDENCIA_RIESGO = {
+    "NIA 240": "Reporte de asientos de diario del período, notas de crédito posteriores al cierre y detalle de ventas de la última semana.",
+    "NIA 570": "Presupuestos y flujos de caja proyectados, actas de la junta y detalle del financiamiento disponible.",
+    "NIA 540": "Antigüedad de la cartera al corte, cobros posteriores y cálculo de la pérdida crediticia esperada.",
+    "NIA 501": "Kárdex valorizado por ítem, rotación y actas de la toma física.",
+}
+EVIDENCIA_DEFECTO = "Mayor analítico de la cuenta al corte, análisis de la variación y soportes de las partidas seleccionadas."
+EVIDENCIA_CARTA = "Documentación del proceso y evidencia de la ejecución del control (solicitud PBC del área)."
+RESPUESTA_CUENTA = ("Pruebas sustantivas de detalle del saldo al corte (NIA 330 párr. 18): conciliar el mayor, seleccionar partidas "
+                    "y obtener evidencia de existencia, valuación y presentación.")
+# Procedimientos de todo encargo (no dependen de un riesgo identificado).
+PROC_ENCARGO = [
+    ("Hechos posteriores", "NIA 560", "Revisar hechos posteriores al cierre hasta la fecha del informe: actas, estados posteriores "
+     "y consulta a la administración.", "Actas de junta, estados financieros posteriores y confirmación de la administración.",
+     "Integridad; presentación"),
+    ("Partes relacionadas", "NIA 550", "Identificar las partes relacionadas y sus transacciones; evaluar autorización, condiciones "
+     "y revelación.", "Listado de partes relacionadas, contratos y saldos entre compañías.", "Integridad; presentación"),
+    ("Litigios y reclamos", "NIA 501", "Enviar cartas a los abogados y evaluar las provisiones y revelaciones de contingencias.",
+     "Cartas de abogados y listado de juicios y reclamos.", "Integridad; valuación"),
+    ("Empresa en marcha", "NIA 570", "Evaluar la hipótesis de empresa en marcha para al menos doce meses desde el cierre.",
+     "Presupuestos, flujos proyectados y financiamiento disponible.", "Presentación y revelación"),
+    ("Impuestos", "NIA 250", "Revisar la conciliación tributaria, el impuesto corriente y diferido y el cumplimiento de las "
+     "obligaciones fiscales.", "Conciliación tributaria y declaraciones del período.", "Valuación; integridad"),
+    ("Manifestaciones escritas", "NIA 580", "Obtener la carta de representación de la administración a la fecha del informe.",
+     "Carta de representación firmada por la administración.", "Todas"),
+]
+OPORTUNIDAD_ENCARGO = "Visita final y hasta la fecha del informe"
 
 
 def _es_rubro(x: dict) -> bool:
@@ -2441,16 +2519,24 @@ EXPLICA = {
         "Variación": "Trae de la hoja 08 la variación de la cuenta frente al período anterior.",
         "Monto material": "Trae de la hoja 08 si el saldo actual alcanza la materialidad de desempeño.",
         "Variación material": "Trae de la hoja 08 si la variación alcanza la materialidad de desempeño.",
-        "¿Se revisa?": ("Marca «Sí» cuando la cuenta tiene monto material, variación material o un riesgo de la carta de control "
-                        "interno de su misma área: son las cuentas que el programa debe cubrir. Si cambia la materialidad, cambia la marca."),
+        "Riesgos de la hoja 13": ("Posibles riesgos de la hoja 13 que recaen en la cuenta (de su código o de su misma área) y que "
+                                  "se presentan; los de empresa en marcha son de toda la entidad y no marcan cuentas."),
+        "¿Se revisa?": ("Marca «Sí» cuando la cuenta tiene monto material, variación material, un riesgo de la carta de control "
+                        "interno de su misma área o un posible riesgo de la hoja 13: son las cuentas que el programa debe cubrir. "
+                        "Si cambia la materialidad, cambia la marca."),
     },
     "19_Programa": {
-        "Nivel": "Trae el nivel del riesgo de la hoja 12 (carta de control interno) o la severidad de la hoja 13 (posibles riesgos).",
+        "Nivel": ("Trae el nivel del riesgo de la hoja 12 (carta de control interno) o la severidad de la hoja 13 (posibles riesgos); "
+                  "en las cuentas sin riesgo propio, «Medio» si su saldo o su variación es material y «Bajo» si no."),
         "Respuesta de auditoría (NIA 330)": ("Para los hallazgos de la carta de control interno trae la respuesta de la hoja 12; "
                                              "para los demás riesgos, la respuesta estándar de la herramienta."),
         "Herramienta del catálogo": "Trae de la hoja 12 la herramienta del catálogo AUD que ejecuta las pruebas del riesgo.",
         "Oportunidad": ("Riesgo alto o significativo: trabajo en la visita preliminar (controles) y en la final (detalle al corte); "
                         "medio: pruebas de detalle en la final; bajo: analíticos sustantivos en la final."),
+        "Aseveraciones": ("Para los hallazgos de la carta, las aseveraciones de la hoja 12; para los demás, las que corresponden "
+                          "al riesgo o a la sección de la cuenta."),
+        "¿Aplica?": ("«Sí» si el procedimiento sigue vigente: el riesgo de la hoja 13 se presenta o la cuenta sigue marcada para "
+                     "revisión en la hoja 18. Los procedimientos de todo encargo siempre aplican."),
     },
     "20_Narrativa": {
         "Importe": ("Trae la cifra de la hoja donde se calcula: estados resumidos (09), índices (10), el conteo de riesgos de "

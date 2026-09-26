@@ -222,10 +222,12 @@ def test_hojas_con_las_cedulas_y_el_ancho_de_columnas():
             assert len(fila) == len(h["cols"]), h["name"]
     horizontal = next(h for h in hs if h["name"] == "08_Horizontal")
     assert len(horizontal["rows"]) == len(r["detalle"]["cuentas"])
-    # Programa: un PT por hallazgo de la carta y uno por posible riesgo presente.
+    # Programa: un PT por hallazgo de la carta, uno por posible riesgo presente, uno por cuenta a revisar sin riesgo que
+    # la cubra y los procedimientos de todo encargo.
     programa = next(h for h in hs if h["name"] == "19_Programa")
     presentes = sum(1 for x in r["detalle"]["riesgos"] if x["presenta"] == "Sí")
-    assert len(programa["rows"]) == len(r["detalle"]["carta"]) + presentes
+    propias = sum(1 for f in programa["rows"] if str(f[2]).startswith("Cuenta "))
+    assert len(programa["rows"]) == len(r["detalle"]["carta"]) + presentes + propias + len(m.PROC_ENCARGO)
 
 
 def test_panel_con_textos_propios_y_las_demas_herramientas_sin_cambio():
@@ -399,3 +401,35 @@ def test_semaforo_no_significativo_con_patrimonio_negativo():
             assert (v(f[7]) == m.LECTURA_PATRIMONIO) is esperado
             assert "PATRIMONIO" not in f[6]["f"] and "<=0" in f[6]["f"]    # la condición va por fórmula al patrimonio de la hoja 09
         assert v(filas["Razón corriente (veces)"][6]) != m.NO_SIGNIFICATIVO
+
+
+def test_programa_cubre_todas_las_cuentas_a_revisar_y_procedimientos_de_todo_encargo():
+    """NIA 330 párr. 18 (hallazgo de los agentes): toda cuenta marcada en la hoja 18 tiene un procedimiento en la 19, sea
+    por un riesgo de su área o por su propio procedimiento sustantivo; y el programa trae los procedimientos de todo encargo."""
+    v = lambda c: c.get("v") if isinstance(c, dict) else c  # noqa: E731
+    for esc in ("base", "preliminar_eri", "preliminar_prorrateo", "patrimonio_deficit", "perdida_pymes"):
+        r = _esc(esc)
+        hs = {h["name"]: h for h in m.hojas(r)}
+        prog = [[v(c) for c in f] for f in hs["19_Programa"]["rows"]]
+        areas = {m._area(f[1]) for f in prog if f[3] != "Todo encargo"} | {m._area(f[1] + " ") for f in prog}
+        codigos = {str(f[2]).replace("Cuenta ", "") for f in prog} | {str(f[1]).split(" ")[0] for f in prog}
+        for x in r["detalle"]["revisar"]:
+            if x["revisa"] != "Sí":
+                continue
+            c = x["x"]
+            cubierta = (c["codigo"] in codigos or m._area(c["cuenta"], c["sec"]) in areas
+                        or any(m._area(k["proceso"] + " " + k["hallazgo"]) == m._area(c["cuenta"], c["sec"]) for k in r["detalle"]["carta"]))
+            assert cubierta, (esc, c["codigo"], c["cuenta"])
+        normas = {f[2] for f in prog if f[3] == "Todo encargo"}
+        assert normas == {"NIA 560", "NIA 550", "NIA 501", "NIA 570", "NIA 250", "NIA 580"}
+        assert all(f[7] and f[8] and f[9] and f[10] for f in prog)          # aseveraciones, evidencia, responsable, aplica
+    # PPE y proveedores (sin riesgo propio en el ejemplo) tienen ahora su procedimiento sustantivo.
+    prog = [[v(c) for c in f] for f in next(h for h in m.hojas(_run()) if h["name"] == "19_Programa")["rows"]]
+    assert {"Cuenta 1201", "Cuenta 2101"} <= {f[2] for f in prog}
+    # Sin materialidad, las anomalías no se evalúan (antes decía «Conforme») y el fraude en ingresos marca Ventas netas.
+    rp = _esc("perdida_pymes")
+    hs = {h["name"]: h for h in m.hojas(rp)}
+    ctl = {v(f[0]): [v(c) for c in f] for f in hs["16_Control"]["rows"]}
+    assert ctl["Anomalías de severidad alta"][3] == "No evaluado"
+    rev = {v(f[0]): [v(c) for c in f] for f in hs["18_Cuentas_Revisar"]["rows"]}
+    assert rev["4101"][8] == "RB-01" and rev["4101"][10] == "Sí"
