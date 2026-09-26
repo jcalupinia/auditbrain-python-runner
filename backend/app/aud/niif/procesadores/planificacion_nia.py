@@ -2195,26 +2195,36 @@ PANEL = {
     # Tableros del artefacto de análisis: índices por grupo y analítico (anterior vs actual).
     "tableros": [
         {"rotulo": "Liquidez", "sub": "Veces · año anterior frente al corte.", "unidad": "veces", "hoja": "10_Indices",
-         "etiqueta": "Indicador", "filas": ["Razón corriente (veces)", "Prueba ácida (veces)"]},
+         "etiqueta": "Indicador", "estado": "Semáforo",
+         "filas": [{"fila": "Razón corriente (veces)", "mejor": "alto"}, {"fila": "Prueba ácida (veces)", "mejor": "alto"}]},
         {"rotulo": "Actividad", "sub": "Días · año anterior frente al corte.", "unidad": "días", "hoja": "10_Indices",
-         "etiqueta": "Indicador", "filas": ["Días de cartera", "Días de inventario", "Días de proveedores",
-                                            "Ciclo de conversión del efectivo (días)"]},
+         "etiqueta": "Indicador", "estado": "Semáforo",
+         "filas": [{"fila": "Días de cartera", "mejor": "bajo"}, {"fila": "Días de inventario", "mejor": "bajo"},
+                   {"fila": "Días de proveedores"}, {"fila": "Ciclo de conversión del efectivo (días)", "mejor": "bajo"}]},
         {"rotulo": "Endeudamiento", "sub": "Veces · año anterior frente al corte.", "unidad": "veces", "hoja": "10_Indices",
-         "etiqueta": "Indicador", "filas": ["Endeudamiento patrimonial (veces)", "Multiplicador de apalancamiento (veces)",
-                                            "Endeudamiento financiero (veces)"]},
+         "etiqueta": "Indicador", "estado": "Semáforo",
+         "filas": [{"fila": "Endeudamiento patrimonial (veces)", "mejor": "bajo"},
+                   {"fila": "Multiplicador de apalancamiento (veces)", "mejor": "bajo"},
+                   {"fila": "Endeudamiento financiero (veces)", "mejor": "bajo"}]},
         {"rotulo": "Rentabilidad", "sub": "Porcentaje · año anterior frente al corte.", "unidad": "%", "hoja": "10_Indices",
-         "etiqueta": "Indicador", "filas": ["ROI operativo (%)", "Margen operativo (%)", "ROE (%)", "Margen neto (%)",
-                                            "Margen bruto (%)"]},
+         "etiqueta": "Indicador", "estado": "Semáforo",
+         "filas": [{"fila": x, "mejor": "alto"} for x in ("ROI operativo (%)", "Margen operativo (%)", "ROE (%)",
+                                                          "Margen neto (%)", "Margen bruto (%)")]},
         {"rotulo": "Estructura del balance", "sub": "USD · año anterior frente al corte.", "unidad": "USD", "hoja": "09_Estados",
-         "etiqueta": "Concepto", "filas": ["Activo corriente", "Activo no corriente", ["TOTAL PASIVO", "Pasivo total"],
-                                          ["PATRIMONIO TOTAL", "Patrimonio total"]]},
+         "etiqueta": "Concepto",
+         "filas": [{"fila": "Activo corriente"}, {"fila": "Activo no corriente"},
+                   {"fila": "TOTAL PASIVO", "rotulo": "Pasivo total"},
+                   {"fila": "PATRIMONIO TOTAL", "rotulo": "Patrimonio total", "mejor": "alto"}]},
         {"rotulo": "Estado de resultados", "sub": "USD · año anterior frente al corte.", "unidad": "USD", "hoja": "09_Estados",
-         "etiqueta": "Concepto", "filas": ["Ventas netas", ["(−) Costo de ventas", "Costo de ventas"], "Utilidad bruta",
-                                           ["(−) Gastos operativos", "Gastos operativos"], "Utilidad neta"]},
+         "etiqueta": "Concepto",
+         "filas": [{"fila": "Ventas netas", "mejor": "alto"}, {"fila": "(−) Costo de ventas", "rotulo": "Costo de ventas"},
+                   {"fila": "Utilidad bruta", "mejor": "alto"}, {"fila": "(−) Gastos operativos", "rotulo": "Gastos operativos"},
+                   {"fila": "Utilidad neta", "mejor": "alto"}]},
     ],
 }
-for _t in PANEL["tableros"]:
+for _k, _t in enumerate(PANEL["tableros"]):
     _t["series"] = [["Anterior", "Anterior"], ["Actual", "Actual"]]
+    _t["seccion"] = "Índices financieros" if _k < 4 else "Analítico: estructura y resultados"
 
 
 # --- origen del importe de cada problema --------------------------------------------------------------------

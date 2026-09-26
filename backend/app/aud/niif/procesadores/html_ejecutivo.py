@@ -181,7 +181,8 @@ def _css() -> str:
         # En pantallas angostas el gráfico conserva un ancho legible y se desplaza DENTRO de su tarjeta.
         ".lienzo{overflow-x:auto;max-width:100%}.lienzo .grafico{min-width:480px}"
         ".grafico .val{font:600 11px var(--f-cifra);paint-order:stroke;stroke:var(--c-superficie);stroke-width:3px;stroke-linejoin:round}"
-        ".grafico .cat{font:11px var(--f-texto)}"
+        ".grafico .cat{font:11px var(--f-texto)}.grafico .eje{font:9px var(--f-cifra);opacity:.8}"
+        ".grafico .delta{font:700 10px var(--f-cifra)}"
         ".grafico .centro{font:700 26px var(--f-titulo)}.grafico .centro-etq{font:11px var(--f-texto)}"
         ".grafico .ley{font:600 12px var(--f-texto)}.grafico .ley2{font:11px var(--f-cifra)}"
         ".grafico .marca:hover{opacity:.85}"
@@ -340,7 +341,8 @@ def _tableros(p: dict, hex_: dict | None) -> str:
     ts = p.get("tableros") or []
     if not ts:
         return ""
-    tarjetas = "".join(_tarjeta(t["rotulo"], t.get("sub"), gs.agrupadas(t["categorias"], t["series"], t["rotulo"], t.get("unidad", ""), hex_)
+    tarjetas = "".join(_tarjeta(t["rotulo"], t.get("sub"), gs.agrupadas(t["categorias"], t["series"], t["rotulo"], t.get("unidad", ""), hex_,
+                                                                         t.get("mejor"), t.get("estados"))
                                 or '<div class="sin-datos">Sin datos para graficar.</div>') for t in ts)
     return f'<h2 class="tableros-tit">Tableros del análisis</h2><div class="graficos tableros">{tarjetas}</div>'
 

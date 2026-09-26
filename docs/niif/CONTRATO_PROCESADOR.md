@@ -152,8 +152,15 @@ PANEL = {
   debajo de los 4 del panel, en los cuatro formatos: HTML (`graficos_svg.agrupadas`), portada del Excel (gráfico
   nativo cuyos datos son fórmulas a la celda de la cédula), Word y PowerPoint (el mismo SVG como imagen). Cada uno:
   `{"rotulo", "sub", "unidad": "veces"|"días"|"%"|"USD", "hoja", "etiqueta", "filas": [rótulo | [rótulo, rótulo del
-  gráfico]], "series": [[nombre, columna], …]}`. Las filas se buscan por su rótulo en la columna `etiqueta`; si una
+  gráfico] | {"fila", "rotulo", "mejor": "alto"|"bajo"}], "series": [[nombre, columna], …], "estado": columna del
+  semáforo, "seccion": título de página}`. Las filas se buscan por su rótulo en la columna `etiqueta`; si una
   no existe, el tablero va a `faltan`. Ejemplo: la planificación (índices por grupo y analítico del artefacto).
+- Diseño **premium** (pedido del dueño, 2026-09-26: «gráficos premium y no gráficos simples»): barras con
+  degradado y esquinas redondeadas, escala con cuadrícula punteada, píldora por indicador con el punto del
+  semáforo y la variación ▲/▼ (verde si mejora según `mejor`, rojo si empeora, gris sin sentido; «pp» en los
+  porcentajes). En el Excel: degradado en las barras y la variación en el rótulo por fórmula (`FIXED`, respeta el
+  separador decimal del equipo). Cada página impresa de tableros empieza con una franja con su título de sección:
+  LibreOffice, al exportar a PDF, no recorta los degradados en el salto de página.
 
 ### `REF_PROBLEMAS` — importe de cada problema como fórmula
 ```python

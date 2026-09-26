@@ -21,6 +21,7 @@ misma agrupación que el HTML (``graficos.serie_spec``, ``graficos.severidad``).
 from __future__ import annotations
 
 from openpyxl.chart import BarChart, DoughnutChart, LineChart, Reference
+from openpyxl.chart.axis import ChartLines
 from openpyxl.chart.data_source import AxDataSource, StrRef
 from openpyxl.chart.label import DataLabel, DataLabelList
 from openpyxl.chart.layout import Layout, ManualLayout
@@ -96,9 +97,28 @@ def _superficie(ch):
     ch.plot_area.graphicalProperties = GraphicalProperties(noFill=True, ln=LineProperties(noFill=True))
 
 
-def _puntos(serie, colores, borde=None):
+def _mezcla(c1, c2, t):
+    """Color entre c1 y c2 (hex sin «#»): t = 0 → c1, t = 1 → c2."""
+    a, b = (tuple(int(x[k:k + 2], 16) for k in (0, 2, 4)) for x in (c1, c2))
+    return "".join(f"{round(p + (q - p) * t):02X}" for p, q in zip(a, b))
+
+
+def _degradado(c, borde=None):
+    """Relleno premium de una barra (como el HTML): degradado vertical del color, más claro arriba y
+    fundido con la tarjeta abajo."""
+    from openpyxl.drawing.fill import GradientFillProperties, GradientStop, LinearShadeProperties
+
+    return GraphicalProperties(
+        gradFill=GradientFillProperties(gsLst=[GradientStop(pos=0, srgbClr=_mezcla(c, "FFFFFF", 0.18)),
+                                               GradientStop(pos=100000, srgbClr=_mezcla(c, CARD, 0.45))],
+                                        lin=LinearShadeProperties(ang=5400000, scaled=False)),
+        ln=LineProperties(solidFill=borde, w=19050) if borde else LineProperties(noFill=True))
+
+
+def _puntos(serie, colores, borde=None, degradado=False):
     for i, c in enumerate(colores):
-        gp = GraphicalProperties(solidFill=c, ln=LineProperties(solidFill=borde, w=19050) if borde else LineProperties(noFill=True))
+        gp = (_degradado(c, borde) if degradado else
+              GraphicalProperties(solidFill=c, ln=LineProperties(solidFill=borde, w=19050) if borde else LineProperties(noFill=True)))
         serie.dPt.append(DataPoint(idx=i, spPr=gp))
 
 
@@ -171,37 +191,44 @@ def grafico_barras_linea(wd, bloque, titulo, sub, colores, enteros=False):
     return ch
 
 
+MARGEN_PAGINA = 8     # filas vacías al comenzar una página de tableros (ver ``portada``)
 FMT_TABLERO = {"veces": "#,##0.00", "días": "#,##0", "%": "#,##0.00",
                "USD": '[>=1000000]#,##0.00,," M";[>=1000]#,##0," mil";#,##0'}   # como ``graficos_svg.corto``
 
 
 def grafico_agrupadas(wd, bloque, titulo, sub, colores, fmt):
-    """Tablero del HTML (``graficos_svg.agrupadas``): columnas agrupadas, una serie por columna del
-    bloque (anterior y actual), cifra encima de cada barra y la leyenda debajo."""
+    """Tablero del HTML (``graficos_svg.agrupadas``): columnas agrupadas con degradado, una serie por
+    columna del bloque (anterior y actual), cifra encima de cada barra, escala con cuadrícula punteada,
+    leyenda arriba a la derecha y, en el rótulo de cada indicador, su variación ▲/▼ (fórmula)."""
     fila0, n, k = bloque["fila"], len(bloque["items"]), bloque["k"]
     cats = Reference(wd, min_col=1, min_row=fila0 + 1, max_row=fila0 + n)
     ch = BarChart()
     ch.type = "col"
     ch.grouping = "clustered"
-    ch.gapWidth = 80
-    ch.overlap = 0
+    ch.gapWidth = 70
+    ch.overlap = -8
     for j in range(k):
         ch.add_data(Reference(wd, min_col=2 + j, min_row=fila0, max_row=fila0 + n), titles_from_data=True)
     for s, c in zip(ch.series, colores):
         s.cat = AxDataSource(strRef=StrRef(f=str(cats)))
-        s.graphicalProperties = GraphicalProperties(solidFill=c, ln=LineProperties(noFill=True))
+        s.graphicalProperties = _degradado(c)
         s.invertIfNegative = False
         s.dLbls = DataLabelList(showVal=True, showPercent=False, showCatName=False, showSerName=False, showLegendKey=False,
                                 numFmt=fmt, dLblPos="outEnd", txPr=_txpr(TEXTO, 8, True))
-    ch.y_axis.delete = True
-    ch.y_axis.majorGridlines = None
+    # Escala tenue a la izquierda con cuadrícula punteada, como el HTML.
+    ch.y_axis.delete = False
+    ch.y_axis.numFmt = fmt
+    ch.y_axis.txPr = _txpr(MUTED, 8)
+    ch.y_axis.graphicalProperties = GraphicalProperties(ln=LineProperties(noFill=True))
+    ch.y_axis.majorGridlines = ChartLines(spPr=GraphicalProperties(ln=LineProperties(solidFill=BORDE, prstDash="dash", w=6350)))
     ch.x_axis.delete = False
     ch.x_axis.tickLblPos = "low"
     ch.x_axis.txPr = _txpr(TEXTO2, 9)
-    ch.x_axis.graphicalProperties = GraphicalProperties(ln=LineProperties(solidFill=BORDE))
+    ch.x_axis.graphicalProperties = GraphicalProperties(ln=LineProperties(solidFill=BORDE, w=12700))
     if all(v >= 0 for _, vs in bloque["items"] for v in vs if v is not None):
         ch.y_axis.scaling.min = 0
-    ch.legend = Legend(legendPos="b", txPr=_txpr(TEXTO2, 9))
+    ch.legend = Legend(legendPos="t", txPr=_txpr(TEXTO2, 9))
+    ch.legend.layout = Layout(manualLayout=ManualLayout(x=0.62, y=0.03, w=0.36, h=0.08, xMode="edge", yMode="edge"))
     ch.title = _titulo(titulo, sub)
     _superficie(ch)
     return ch
@@ -222,8 +249,19 @@ def tableros_formulas(t, hojas, titulos):
         return None
     letras = [get_column_letter(nombres.index(c) + 1) for c in t["columnas"]]
     q = L._q(titulos[i])
-    return [(cat, [f"={q}${le}${5 + fila}" for le in letras], [vs[k] for _, vs in t["series"]])
-            for k, (cat, fila) in enumerate(zip(t["categorias"], t["filas"]))]
+    salida = []
+    for k, (cat, fila) in enumerate(zip(t["categorias"], t["filas"])):
+        refs = [f"{q}${le}${5 + fila}" for le in letras]
+        rotulo = cat
+        if len(refs) >= 2:
+            # Rótulo con la variación del indicador (▲/▼), por fórmula y con el separador decimal del equipo.
+            a, b = refs[0], refs[1]
+            cifra = (f'FIXED(ABS({b}-{a}),2)&" pp"' if t.get("unidad") == "%" else
+                     f'IF({a}=0,"",FIXED(ABS({b}-{a})/ABS({a})*100,1)&" %")')
+            rotulo = (f'="{cat.replace(chr(34), chr(34) * 2)}"&CHAR(10)&IF(OR({a}="",{b}=""),"",'
+                      f'IF({b}={a},"= 0",IF({b}>{a},"▲ ","▼ ")&{cifra}))')
+        salida.append((rotulo, [f"={r}" for r in refs], [vs[k] for _, vs in t["series"]]))
+    return salida
 
 
 # --- Datos de los gráficos (fórmulas) ---------------------------------------------------------
@@ -542,15 +580,25 @@ def portada(ws, wd, definicion, reg, hojas, titulos, estado, version, grupos_nav
                                       FMT_TABLERO.get(t.get("unidad"), "#,##0.00")))
     if tabs:
         ws.row_breaks.append(Break(id=fila - 1))
-        ws[f"B{fila}"].value = "TABLEROS DEL ANÁLISIS"
+        primera = (p["tableros"][0].get("seccion") or "").upper()
+        ws[f"B{fila}"].value = "TABLEROS DEL ANÁLISIS" + (f" · {primera}" if primera else "")
         ws[f"B{fila}"].font = Font(name=est.FONT_TITULO, size=9, bold=True, color=ORO_TXT)
         fila += 2
+        fila_g = fila
         for k, ch in enumerate(tabs):
-            fila_g = fila + (k // 2) * (filas_graf + 1)
+            if k and k % 2 == 0:
+                fila_g += filas_graf + 1
+                if k % 4 == 0:
+                    # Dos filas de tableros por página impresa. La página nueva empieza con una franja vacía:
+                    # al exportar a PDF, LibreOffice no recorta los degradados en el salto y dibujaría el
+                    # comienzo de la página siguiente en el margen inferior de la anterior.
+                    ws.row_breaks.append(Break(id=fila_g - 1))
+                    fila_g += MARGEN_PAGINA
+                    rot = ws[f"B{fila_g - 2}"]
+                    rot.value = L._seguro("TABLEROS DEL ANÁLISIS · " + (p["tableros"][k].get("seccion") or "continuación").upper())
+                    rot.font = Font(name=est.FONT_TITULO, size=9, bold=True, color=ORO_TXT)
             _ancla_grafico(ws, ch, izquierda=(k % 2 == 0), fila=fila_g - 1, filas=filas_graf)
-            if k % 4 == 3 and k + 1 < len(tabs):   # dos filas de tableros por página impresa
-                ws.row_breaks.append(Break(id=fila_g + filas_graf))
-        fila += ((len(tabs) + 1) // 2) * (filas_graf + 1) + 1
+        fila = fila_g + filas_graf + 2
         ws.row_breaks.append(Break(id=fila - 1))
 
     # Navegación por sección con los botones del HTML.

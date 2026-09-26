@@ -6,9 +6,10 @@ matplotlib los MISMOS SVG que genera ``graficos_svg`` para el HTML (mismas coord
 colores, textos y efecto 3D). Si el HTML cambia un gráfico, el Word y el PowerPoint
 cambian con él.
 
-Solo interpreta el subconjunto de SVG que produce ``graficos_svg``: ``line``, ``rect``,
-``polygon``, ``polyline``, ``circle``, ``path`` (M, L, A, Z), ``text``/``tspan`` y
-grupos ``g``.
+Solo interpreta el subconjunto de SVG que produce ``graficos_svg``: ``line`` (con
+``stroke-dasharray``/``stroke-opacity``), ``rect`` (con ``rx``), ``polygon``, ``polyline``, ``circle``,
+``path`` (M, L, A, Z), ``text``/``tspan``, grupos ``g`` y degradados lineales verticales
+(``linearGradient`` en ``defs``, usados como ``fill="url(#id)"``).
 """
 from __future__ import annotations
 
@@ -112,9 +113,17 @@ def a_png(svg: str, escala: float = 2.5, fondo: str | None = None) -> bytes:
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    from matplotlib.patches import Circle, Polygon, Rectangle
+    from matplotlib.colors import to_rgba
+    from matplotlib.patches import Circle, FancyBboxPatch, Polygon, Rectangle
 
     raiz = ET.fromstring(svg.replace('xmlns="http://www.w3.org/2000/svg"', ""))
+    # Degradados lineales verticales de <defs> (tableros): id → (invertido, [(offset, rgba)]).
+    degradados = {}
+    for g in raiz.iter():
+        if g.tag.replace(_NS, "") == "linearGradient":
+            paradas = [(_num(st.get("offset")), to_rgba(st.get("stop-color"), _num(st.get("stop-opacity"), 1.0)))
+                       for st in g if st.tag.replace(_NS, "") == "stop"]
+            degradados[g.get("id")] = (_num(g.get("y1")) > _num(g.get("y2")), paradas)
     _, _, W, H = (float(v) for v in raiz.get("viewBox").split())
     fig = plt.figure(figsize=(W / 100, H / 100), dpi=100 * escala)
     ax = fig.add_axes((0, 0, 1, 1))
@@ -133,7 +142,29 @@ def a_png(svg: str, escala: float = 2.5, fondo: str | None = None) -> bytes:
 
     def relleno(el):
         f = el.get("fill")
-        return None if f in (None, "none") else f
+        return None if f in (None, "none") or f.startswith("url(") else f
+
+    def con_degradado(el, patch):
+        """Si el relleno es ``url(#id)``, pinta el degradado recortado a la figura (``patch``)."""
+        f = el.get("fill") or ""
+        m = re.match(r"url\(#([^)]+)\)", f)
+        if not m or m.group(1) not in degradados:
+            return False
+        import numpy as np
+
+        invertido, paradas = degradados[m.group(1)]
+        ax.add_patch(patch)
+        patch.set_facecolor("none")
+        (x0, y0), (x1, y1) = patch.get_path().get_extents(patch.get_patch_transform()).get_points() \
+            if hasattr(patch, "get_patch_transform") else patch.get_extents().get_points()
+        t = np.linspace(0, 1, 64)
+        if invertido:
+            t = t[::-1]
+        offs = [o for o, _ in paradas]
+        img = np.stack([np.interp(t, offs, [c[k] for _, c in paradas]) for k in range(4)], axis=-1)[:, None, :]
+        im = ax.imshow(img, extent=(x0, x1, y1, y0), origin="upper", aspect="auto", interpolation="bilinear", zorder=zz())
+        im.set_clip_path(patch)
+        return True
 
     def dibuja(el):
         tag = el.tag.replace(_NS, "")
@@ -142,11 +173,20 @@ def a_png(svg: str, escala: float = 2.5, fondo: str | None = None) -> bytes:
             for h in el:
                 dibuja(h)
         elif tag == "line":
-            ax.plot([_num(el.get("x1")), _num(el.get("x2"))], [_num(el.get("y1")), _num(el.get("y2"))],
-                    color=el.get("stroke"), linewidth=_num(el.get("stroke-width"), 1) * pt, zorder=zz(), solid_capstyle="butt")
+            ln, = ax.plot([_num(el.get("x1")), _num(el.get("x2"))], [_num(el.get("y1")), _num(el.get("y2"))],
+                          color=el.get("stroke"), linewidth=_num(el.get("stroke-width"), 1) * pt, zorder=zz(), solid_capstyle="butt",
+                          alpha=_num(el.get("stroke-opacity"), 1.0))
+            if el.get("stroke-dasharray"):
+                ln.set_dashes([_num(v) * pt for v in el.get("stroke-dasharray").split()])
         elif tag == "rect":
-            ax.add_patch(Rectangle((_num(el.get("x")), _num(el.get("y"))), _num(el.get("width")), _num(el.get("height")),
-                                   facecolor=relleno(el), alpha=fo, linewidth=0, zorder=zz()))
+            x, y, w, h, rx = (_num(el.get(a)) for a in ("x", "y", "width", "height", "rx"))
+            if rx:
+                patch = FancyBboxPatch((x, y), w, h, boxstyle=f"round,pad=0,rounding_size={min(rx, w / 2, h / 2)}",
+                                       facecolor=relleno(el), alpha=fo, linewidth=0, zorder=zz(), mutation_aspect=1)
+            else:
+                patch = Rectangle((x, y), w, h, facecolor=relleno(el), alpha=fo, linewidth=0, zorder=zz())
+            if not con_degradado(el, patch):
+                ax.add_patch(patch)
         elif tag == "polygon":
             ax.add_patch(Polygon(_puntos(el.get("points")), closed=True, facecolor=relleno(el), alpha=fo, linewidth=0, zorder=zz()))
         elif tag == "polyline":
@@ -161,7 +201,9 @@ def a_png(svg: str, escala: float = 2.5, fondo: str | None = None) -> bytes:
             else:
                 ax.add_patch(Circle(c, _num(el.get("r")), facecolor=relleno(el), alpha=fo, linewidth=0, zorder=zz()))
         elif tag == "path":
-            ax.add_patch(Polygon(_camino(el.get("d")), closed=True, facecolor=relleno(el), alpha=fo, linewidth=0, zorder=zz()))
+            patch = Polygon(_camino(el.get("d")), closed=True, facecolor=relleno(el), alpha=fo, linewidth=0, zorder=zz())
+            if not con_degradado(el, patch):
+                ax.add_patch(patch)
         elif tag == "text":
             x, y = _num(el.get("x")), _num(el.get("y"))
             ha = {"middle": "center", "end": "right"}.get(el.get("text-anchor"), "left")
@@ -208,7 +250,7 @@ def tableros_panel(p: dict, tema: str) -> list[dict]:
     hex_ = paleta(tema)
     salida = []
     for t in p.get("tableros") or []:
-        svg = gs.agrupadas(t["categorias"], t["series"], t["rotulo"], t.get("unidad", ""), hex_)
+        svg = gs.agrupadas(t["categorias"], t["series"], t["rotulo"], t.get("unidad", ""), hex_, t.get("mejor"), t.get("estados"))
         salida.append({"titulo": t["rotulo"], "sub": t.get("sub", ""), "png": a_png(svg) if svg else None,
                        "ancho": gs.ANCHO, "alto": gs.ALTO})
     return salida

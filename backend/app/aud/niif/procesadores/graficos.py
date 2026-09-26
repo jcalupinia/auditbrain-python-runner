@@ -385,8 +385,9 @@ def _sin_unidad(t: str) -> str:
 def tableros_spec(specs: list | None, mapa: dict) -> tuple[list[dict], list[str]]:
     """Tableros adicionales (``PANEL["tableros"]``): barras agrupadas de filas elegidas de una cédula,
     una barra por serie (p. ej. «Anterior» y «Actual»). Cada spec:
-    ``{"rotulo", "sub", "hoja", "etiqueta", "filas": [rótulo | [rótulo, rótulo del gráfico]], "series": [[nombre, columna], ...],
-    "unidad"}`` (unidad: «veces», «días», «%» o «USD»).
+    ``{"rotulo", "sub", "hoja", "etiqueta", "filas": [rótulo | [rótulo, rótulo del gráfico] | {"fila", "rotulo", "mejor"}],
+    "series": [[nombre, columna], ...], "unidad", "estado"}`` (unidad: «veces», «días», «%» o «USD»; ``estado``: columna
+    del semáforo «Verde · …», opcional).
     Devuelve los tableros resueltos (con el índice de cada fila en la cédula, para que el Excel la
     referencie por fórmula) y la lista de lo que no se encontró."""
     salida, faltan = [], []
@@ -401,17 +402,34 @@ def tableros_spec(specs: list | None, mapa: dict) -> tuple[list[dict], list[str]
         for i, f in enumerate(h.get("rows") or []):
             e = f[je] if je < len(f) else ""
             rot.setdefault(" ".join(str(e.get("v") if isinstance(e, dict) else e).split()), i)
-        # Una fila es su rótulo en la cédula o el par [rótulo en la cédula, rótulo del gráfico].
-        pares = [(r, _sin_unidad(r)) if isinstance(r, str) else (r[0], r[1]) for r in sp.get("filas") or []]
+        # Una fila es su rótulo en la cédula, el par [rótulo en la cédula, rótulo del gráfico] o
+        # {"fila", "rotulo", "mejor": "alto"|"bajo"} (sentido favorable del indicador, para colorear la variación).
+        pares, mejor = [], []
+        for r in sp.get("filas") or []:
+            if isinstance(r, dict):
+                pares.append((r["fila"], r.get("rotulo") or _sin_unidad(r["fila"])))
+                mejor.append(r.get("mejor"))
+            else:
+                pares.append((r, _sin_unidad(r)) if isinstance(r, str) else (r[0], r[1]))
+                mejor.append(None)
         idx = [rot.get(r) for r, _ in pares]
         if not idx or any(i is None for i in idx):
             faltan.append(f"tableros:{sp.get('rotulo')}")
             continue
         filas = h["rows"]
         series = [(n, [(_num(filas[i][j]) if j < len(filas[i]) else None) for i in idx], c) for n, j, c in js]
+        jz = _cols_idx(h, sp["estado"]) if sp.get("estado") else None
+        estados = []
+        for i in idx:   # semáforo de la cédula («Verde · Cómodo»): solo el nivel y la etiqueta
+            z = filas[i][jz] if jz is not None and jz < len(filas[i]) else None
+            z = str((z.get("v") if isinstance(z, dict) else z) or "")
+            nivel, _, etq = z.partition(" · ")
+            estados.append((nivel, etq) if nivel in ("Verde", "Amarillo", "Rojo") else None)
         salida.append({"rotulo": sp.get("rotulo", ""), "sub": sp.get("sub", ""), "unidad": sp.get("unidad", ""),
+                       "seccion": sp.get("seccion", ""),
                        "hoja": sp["hoja"], "filas": idx, "categorias": [c for _, c in pares],
-                       "series": [(n, vs) for n, vs, _ in series], "columnas": [c for _, _, c in series]})
+                       "series": [(n, vs) for n, vs, _ in series], "columnas": [c for _, _, c in series],
+                       "mejor": mejor, "estados": estados})
     return salida, faltan
 
 

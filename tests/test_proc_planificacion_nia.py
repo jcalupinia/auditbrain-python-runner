@@ -273,10 +273,23 @@ def test_tableros_del_artefacto_en_html_excel_word_y_ppt():
     d = m.definicion()
     html = libro.html(d, reg, [], 1, "Borrador").decode("utf-8")
     assert "Tableros del análisis" in html and html.count('class="graficos tableros"') == 1
+    # Premium: degradado, variación ▲▼ coloreada por sentido favorable y semáforo de la cédula.
+    from backend.app.aud.niif.procesadores import graficos_svg as gs
+
+    liq = gs.agrupadas(t["Liquidez"]["categorias"], t["Liquidez"]["series"], "Liquidez", "veces", None,
+                       t["Liquidez"]["mejor"], t["Liquidez"]["estados"])
+    assert "<linearGradient" in liq and 'fill="url(#' in liq and "Semáforo: Verde · Cómodo" in liq
+    assert "▲ 10,5 %" in liq and "var(--c-baja)" in liq      # razón corriente sube y es favorable → verde
+    assert "▼ 0,9 %" in liq and "var(--c-alta)" in liq       # prueba ácida baja y es desfavorable → rojo
+    assert gs.variacion_tablero(10.28, 10.91, "%") == ("▲ 0,63 pp", 1)
     wb = load_workbook(io.BytesIO(libro.xlsx(d, reg, [], 1, "Borrador")))
     assert len(wb["00_Inicio"]._charts) == 4 + 6
     datos = [c.value for row in wb[libro.HOJA_DATOS_GRAFICOS].iter_rows() for c in row]
     assert "='10_Indices'!$E$6" in datos and "='09_Estados'!$D$30" in datos   # razón corriente actual, utilidad neta actual
+    # El rótulo de cada indicador lleva su variación por fórmula (FIXED: separador decimal del equipo).
+    assert any(isinstance(x, str) and x.startswith('="Razón corriente"&CHAR(10)') and "FIXED(" in x for x in datos)
+    tab = wb["00_Inicio"]._charts[4]
+    assert all(s_.graphicalProperties.gradFill is not None for s_ in tab.series)   # barras con degradado
     doc = Document(io.BytesIO(libro.docx(d, reg, [], 1, "Borrador")))
     textos = [c.text for tb in doc.tables for fila in tb.rows for c in fila.cells]
     assert any(x.startswith("Rentabilidad") for x in textos) and any(p_.text == "Tableros del análisis" for p_ in doc.paragraphs)

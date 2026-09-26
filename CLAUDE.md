@@ -583,7 +583,8 @@ ejemplo es ficticio («Comercial Andina de Ejemplo S.A.»). Los porcentajes y um
 párrafos citados llevan «VERIFICAR». Su panel usa `PANEL["textos"]` (umbrales en lugar de «registrado vs
 recalculado»; ver `graficos.TEXTOS`) y `PANEL["tableros"]` con los gráficos del artefacto (índices por grupo:
 liquidez, actividad, endeudamiento, rentabilidad; analítico: estructura del balance y estado de resultados; anterior
-frente a actual) en HTML, Excel (nativos, datos por fórmula), Word y PowerPoint. Prueba: `tests/test_proc_planificacion_nia.py`; verificación LibreOffice de
+frente a actual) en HTML, Excel (nativos, datos por fórmula), Word y PowerPoint, con diseño premium (degradado,
+variación ▲▼ coloreada según el sentido favorable del índice y semáforo; ver `docs/niif/CONTRATO_PROCESADOR.md`). Prueba: `tests/test_proc_planificacion_nia.py`; verificación LibreOffice de
 los 5 escenarios (final, preliminar con ERI, preliminar con prorrateo, pérdida PYMES, patrimonio en déficit): 0 diferencias.
 
 **Diseño del libro (todas las herramientas, 2026-09-25):** portada con botones por sección
