@@ -455,10 +455,33 @@ def _hoja_ejecutiva(ws, S, h, titulo_prueba, nav, hojas=None, anexo=None):
             dim = ws.column_dimensions[get_column_letter(nombres.index(nombre) + 1)]
             dim.hidden = True
             dim.outlineLevel = 1
+    _colores_nivel(ws, h, fila_enc + 1, fila_enc + len(h["rows"]))
     ws.freeze_panes = f"A{fila_enc + 1}"
     _bloque_como_se_calcula(ws, S, h, len(filas) + fila_enc + 2, hojas, anexo, ws.title)
     _print_setup(ws, {})
 
+
+
+def _colores_nivel(ws, h: dict, fila_ini: int, fila_fin: int):
+    """Colores por nivel (Alto, Medio, Bajo, Significativo, semáforo, estado) con formato condicional:
+    el color sigue a la fórmula si el auditor cambia una calificación o un parámetro."""
+    from openpyxl.formatting.rule import FormulaRule
+
+    from backend.app.aud.niif.procesadores.base import NIVEL_COLOR, ROL_COLOR
+
+    if fila_fin < fila_ini:
+        return
+    nombres = [c[0] for c in h["cols"]]
+    for col in h.get("colores") or []:
+        letra = get_column_letter(nombres.index(col) + 1)
+        celda = f"${letra}{fila_ini}"
+        for clave, rol in NIVEL_COLOR.items():
+            relleno, texto = ROL_COLOR[rol]
+            ws.conditional_formatting.add(
+                f"{letra}{fila_ini}:{letra}{fila_fin}",
+                FormulaRule(formula=[f'OR({celda}="{clave}",LEFT({celda},{len(clave) + 1})="{clave} ")'], stopIfTrue=True,
+                            fill=PatternFill(start_color=relleno, end_color=relleno, fill_type="solid"),
+                            font=Font(color=texto, bold=True)))
 
 
 def _q(titulo: str) -> str:

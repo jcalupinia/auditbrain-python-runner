@@ -111,6 +111,8 @@ def _vars(t: dict) -> str:
 
 
 def _css() -> str:
+    from backend.app.aud.niif.procesadores.base import ROL_COLOR
+
     temas = "".join(f"body.t-{k}{{{_vars(v)}}}" for k, (_, v) in TEMAS.items())
     claro = _vars(TEMAS["claro"][1])
     return (
@@ -203,6 +205,14 @@ def _css() -> str:
         "tr.total td{font-weight:700;border-top:2px solid var(--oro);background:var(--card2)}"
         "tr.titulo td{font-weight:700;background:var(--card2);border-top:1px solid var(--borde)}"
         "tr.control td{font-style:italic;color:var(--texto2);font-size:.92em}"
+        # Niveles, severidades, semáforos y estados como etiqueta de color (base.NIVEL_COLOR / ROL_COLOR)
+        ".nivel{display:inline-block;padding:1px 8px;border-radius:999px;font-weight:700;font-size:.92em;white-space:nowrap;"
+        "-webkit-print-color-adjust:exact;print-color-adjust:exact}"
+        + "".join(f".nivel.n-{r}{{background:#{f};color:#{t}}}" for r, (f, t) in ROL_COLOR.items()) +
+        # Niveles, severidades, semáforos y estados como etiqueta de color (base.NIVEL_COLOR / ROL_COLOR)
+        ".nivel{display:inline-block;padding:1px 8px;border-radius:999px;font-weight:700;font-size:.92em;white-space:nowrap;"
+        "-webkit-print-color-adjust:exact;print-color-adjust:exact}"
+        + "".join(f".nivel.n-{r}{{background:#{f};color:#{t}}}" for r, (f, t) in ROL_COLOR.items()) +
         # «Cómo se calcula»: dentro del ancho, fórmulas que saltan de línea (sin desborde)
         "details.calc{margin:0 0 12px;background:var(--card2);border:1px solid var(--borde);border-radius:10px;padding:8px 12px}"
         "details.calc summary{cursor:pointer;font:700 13px var(--f-titulo);color:var(--oro-txt)}"
@@ -362,10 +372,18 @@ def _tabla(h: dict, celda) -> str:
                 + "".join(f'<td class="{"num" if f in ("n", "p", "i", "g") else ""}"'
                           + (f' style="padding-left:{8 + 16 * int(ef["sangria"])}px"' if ef.get("sangria") and n == ef.get("col") else "")
                           + (f' title="={E(v["f"])}"' if isinstance(v, dict) and "f" in v else "")
-                          + f">{celda(v, f)}</td>" for (n, f), v in zip(h["cols"], fila))
+                          + f">{_con_color(h, n, v, celda(v, f))}</td>" for (n, f), v in zip(h["cols"], fila))
                 + "</tr>")
     cuerpo = "".join(fila_html(k, fila, total) for k, (fila, total) in enumerate(filas))
     return f'<div class="scroll"><table><thead><tr>{cab}</tr></thead><tbody>{cuerpo}</tbody></table></div>'
+
+
+def _con_color(h: dict, columna: str, v, contenido: str) -> str:
+    """Nivel, severidad, semáforo o estado como etiqueta de color (``base.NIVEL_COLOR``)."""
+    from backend.app.aud.niif.procesadores.base import rol_color
+
+    rol = rol_color(h, columna, v)
+    return f'<span class="nivel n-{rol}">{contenido}</span>' if rol else contenido
 
 
 def _guia(h: dict) -> str:

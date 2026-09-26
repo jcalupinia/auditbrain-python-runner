@@ -370,7 +370,7 @@ def _tabla_word(doc, h, L):
         _texto(c.paragraphs[0], nombre, sz, C["texto"], True)
     from docx.shared import Pt
 
-    from backend.app.aud.niif.procesadores.base import estilo_fila
+    from backend.app.aud.niif.procesadores.base import ROL_COLOR, estilo_fila, rol_color
 
     for i, (fila, total) in enumerate(filas, start=1):
         ef = {} if total else estilo_fila(h, i - 1)
@@ -393,8 +393,12 @@ def _tabla_word(doc, h, L):
                 par.alignment = WD_ALIGN_PARAGRAPH.RIGHT
             if ef.get("sangria") and nombre_col == ef.get("col"):
                 par.paragraph_format.left_indent = Pt(8 * int(ef["sangria"]))
-            _texto(par, _html.unescape(L._celda(v, fmt)), sz, C["texto2"] if tipo == "control" else C["texto"],
-                   tipo in ("total", "titulo"), "Consolas" if num else None, cursiva=(tipo == "control"))
+            rol = rol_color(h, nombre_col, v)
+            if rol:   # nivel, severidad, semáforo o estado: celda del color del nivel
+                _sombra(c, ROL_COLOR[rol][0])
+            _texto(par, _html.unescape(L._celda(v, fmt)), sz,
+                   ROL_COLOR[rol][1] if rol else C["texto2"] if tipo == "control" else C["texto"],
+                   tipo in ("total", "titulo") or bool(rol), "Consolas" if num else None, cursiva=(tipo == "control"))
     for fila in t.rows:
         _no_partir(fila)
 
@@ -663,7 +667,7 @@ def _tabla_ppt(diap, prs, h, filas, L):
         c = t.cell(0, j)
         pinta(c, nombre, T["texto"], T["card2"], True)
         _borde_celda(c, "bottom", T["oro"], 25400)
-    from backend.app.aud.niif.procesadores.base import estilo_fila
+    from backend.app.aud.niif.procesadores.base import ROL_COLOR, estilo_fila, rol_color
 
     for i, (fila, total) in enumerate(filas, start=1):
         ef = {} if total else estilo_fila(h, i - 1)
@@ -675,8 +679,12 @@ def _tabla_ppt(diap, prs, h, filas, L):
             txt = _html.unescape(L._celda(v, fmt))
             if ef.get("sangria") and nombre_col == ef.get("col"):
                 txt = "\u2003" * int(ef["sangria"]) + txt        # sangría por nivel (espacio eme)
-            pinta(c, txt, T["texto2"] if tipo == "control" else T["texto"], relleno, tipo in ("total", "titulo"), num,
-                  "Consolas" if num else None)
+            rol = rol_color(h, nombre_col, v)
+            if rol:   # nivel, severidad, semáforo o estado: celda del color del nivel
+                pinta(c, txt, ROL_COLOR[rol][1], ROL_COLOR[rol][0], True, num, None)
+            else:
+                pinta(c, txt, T["texto2"] if tipo == "control" else T["texto"], relleno, tipo in ("total", "titulo"), num,
+                      "Consolas" if num else None)
             if tipo == "total":
                 _borde_celda(c, "top", T["oro"], 25400)
             _borde_celda(c, "bottom", T["borde"], 9525)

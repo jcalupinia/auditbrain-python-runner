@@ -433,3 +433,57 @@ def test_programa_cubre_todas_las_cuentas_a_revisar_y_procedimientos_de_todo_enc
     assert ctl["Anomalías de severidad alta"][3] == "No evaluado"
     rev = {v(f[0]): [v(c) for c in f] for f in hs["18_Cuentas_Revisar"]["rows"]}
     assert rev["4101"][8] == "RB-01" and rev["4101"][10] == "Sí"
+
+
+def test_riesgo_significativo_sobre_el_inherente_y_colores_por_nivel():
+    """NIA 315 párr. 32 y NIA 330 párr. 21: el riesgo significativo se juzga sobre el riesgo INHERENTE; un control fuerte baja
+    el residual pero no lo vuelve «Bajo». Los niveles se pintan por color en Excel (formato condicional), HTML, Word y PPT."""
+    import io
+
+    from openpyxl import load_workbook
+
+    from backend.app.aud.niif.procesadores import base, datos_cliente, libro
+
+    v = lambda c: c.get("v") if isinstance(c, dict) else c  # noqa: E731
+    e = m.EJEMPLO
+    ds = dict(e["datasets"])
+    # R07: 5 × 5 = 25 (significativo) con control 5 → residual 25 × 1 ÷ 5 = 5, que sin la regla sería «Bajo».
+    ds["carta_control_interno"] = list(ds["carta_control_interno"]) + [
+        m._ci("R07", "Tesorería", "Pagos a proveedores del exterior por montos altos.", "Ocurrencia", "5", "5", "5", "")]
+    r = m.ejecutar(ds, e["parametros"], e["corte"])
+    carta = {x["id"]: x for x in r["detalle"]["carta"]}
+    assert (carta["R07"]["inh"], carta["R07"]["res"], carta["R07"]["sig"], carta["R07"]["nivel"]) == (25, 5, "Sí", "Alto")
+    assert carta["R01"]["sig"] == "Sí" and carta["R02"]["sig"] == "No" and carta["R06"]["sig"] == "No"
+    hs = {h["name"]: h for h in m.hojas(r)}
+    h12 = hs["12_Riesgos_CCI"]
+    fila = next(f for f in h12["rows"] if f[0] == "R07")
+    assert h12["cols"][12][0] == "¿Riesgo significativo?" and v(fila[12]) == "Sí" and v(fila[9]) == "Alto"
+    assert fila[12]["f"] == f'IF(H{m.FILA0 + 6}="","",IF(H{m.FILA0 + 6}>={m._par("umbralSignificativo")},"Sí","No"))'
+    assert f'M{m.FILA0 + 6}="Sí"' in fila[9]["f"]
+    prog = next(f for f in hs["19_Programa"]["rows"] if f[2] == "R07")
+    assert v(prog[3]) == "Significativo" and v(prog[6]) == m.OPORTUNIDAD_ALTO
+    assert prog[3]["f"].startswith(f"IF('12_Riesgos_CCI'!M{m.FILA0 + 6}=\"Sí\",\"Significativo\"")
+    # Parámetro con su sustento (VERIFICAR) en la hoja 02.
+    par = {v(f[0]): f for f in hs["02_Parametros"]["rows"]}
+    etq = m.ETIQUETAS_PARAM["umbralSignificativo"]
+    assert v(par[etq][1]) == 20 and "NIA 315" in par[etq][2]
+    # Umbral más alto que el inherente → deja de ser significativo y el nivel vuelve al residual.
+    r2 = m.ejecutar(ds, {**e["parametros"], "umbralSignificativo": 25}, e["corte"])
+    assert {x["id"]: x["sig"] for x in r2["detalle"]["carta"]}["R01"] == "No"
+    # Colores por nivel: columnas declaradas y reglas de formato condicional en el Excel.
+    assert hs["12_Riesgos_CCI"]["colores"] == ["Nivel"] and hs["10_Indices"]["colores"] == ["Semáforo"]
+    assert hs["16_Control"]["colores"] == ["Estado"] and hs["19_Programa"]["colores"] == ["Nivel"]
+    assert base.rol_color(h12, "Nivel", "Pendiente de calificación") == "info"
+    assert base.rol_color(hs["10_Indices"], "Semáforo", m.NO_SIGNIFICATIVO) == "alta"
+    assert base.rol_color(hs["19_Programa"], "Nivel", "Significativo") == "sig"
+    assert base.rol_color(h12, "Proceso o área", "Alto") is None
+    r["hojas"] = datos_cliente.con_datos(m, r, ds)
+    reg = {"run": r, "engagement": {"client": "Comercial Andina de Ejemplo S.A.", "cutoff": e["corte"]}, "program": [], "sources": []}
+    d = m.definicion()
+    wb = load_workbook(io.BytesIO(libro.xlsx(d, reg, [], 1, "borrador")))
+    ws = wb[next(n for n in wb.sheetnames if n.startswith("12_"))]
+    reglas = [(str(rg.sqref), x.formula[0]) for rg in ws.conditional_formatting for x in rg.rules]
+    assert any(s.startswith("J") and '"Alto"' in f for s, f in reglas)
+    assert any(s.startswith("J") and '"Significativo"' in f for s, f in reglas)
+    html = libro.html(d, reg, [], 1, "borrador").decode("utf-8")
+    assert 'class="nivel n-sig"' in html and 'class="nivel n-alta"' in html and ".nivel.n-sig{" in html

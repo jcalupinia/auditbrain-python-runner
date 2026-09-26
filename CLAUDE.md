@@ -579,14 +579,17 @@ la jerarquía de los códigos, signo automático por sección, análisis horizon
 resumidos, **sumarias por rubro** (`08S_Sumarias`: un bloque por cuenta de nivel 3 con sus subcuentas en jerarquía,
 saldo anterior y al corte, ajustes del auditor que suben por fórmula de las cuentas de detalle, saldo ajustado,
 variación, nota del año anterior, marca Nueva/Baja/Supera el umbral, total de las cuentas de detalle y cuadre = 0;
-estilos por fila `estilos` de `base.hoja()`), índices con semáforo (días sobre los días del período), materialidad (desempeño 50 % y trivial 5 % por
+estilos por fila `estilos` de `base.hoja()`), índices con semáforo (días sobre los días del período; con patrimonio
+≤ 0 los índices sobre el patrimonio salen «Rojo · No significativo»), materialidad (desempeño 50 % y trivial 5 % por
 defecto; en la preliminar la base es el año anterior), matriz de la carta de CI (inherente = P × I; residual =
-inherente × (6 − C) ÷ 5), posibles riesgos (NIA 240, NIA 570, días de cartera e inventario, variaciones, informe
+inherente × (6 − C) ÷ 5; **riesgo significativo** NIA 315/330 cuando el INHERENTE iguala o supera `umbralSignificativo`
+(20 por defecto): nivel al menos Alto y «Significativo» en el programa), posibles riesgos (NIA 240, NIA 570, días de cartera e inventario, variaciones, informe
 anterior), notas contra el balance anterior (NIA 510) con **desglose por nota** (`15D_Notas_Detalle`: cuentas y subcuentas de cada
 nota, anterior y corte, total según el balance y conciliación con la nota auditada; al final, los rubros del balance
 sin nota) y **composición auditada** (`15C_Composicion`, dato opcional RQ-009 `notas_detalle`: líneas de Saldo,
 Movimiento y Total de cada nota, con su cuadre contra el saldo auditado), anomalías, control de calidad, cuentas a revisar, programa
-(NIA 330), narrativa y estrategia (NIA 300). Reglas del prompt FIN-AP aplicadas (2026-09-26, con los agentes del plugin NIIF: Automatización construye y el
+(NIA 330: toda cuenta a revisar tiene su procedimiento, con aseveraciones, evidencia, responsable y los procedimientos
+de todo el encargo), narrativa y estrategia (NIA 300). Reglas del prompt FIN-AP aplicadas (2026-09-26, con los agentes del plugin NIIF: Automatización construye y el
 Revisor Técnico revisa): **R1** saldo propio de cada cuenta (si falta, suma de sus subcuentas) y totales con la
 cuenta más alta de cada sección/clasificación/rubro, con control «cuenta superior que no suma sus subcuentas» (no se
 fuerza nada); **R2** signo por la convención del balance entero (con signo o por naturaleza), para que un patrimonio
@@ -594,7 +597,8 @@ en déficit siga negativo; **R4** días sobre 365 (en la preliminar los umbrales
 **R5/R6** margen operativo sobre ventas, DuPont del ROI y del ROE que reconcilian, proveedores y cartera solo
 comerciales; base de materialidad ≤ 0 → sin materialidad (nada se marca material); lectura causa-efecto y puente de
 orígenes y aplicaciones que cuadra con la variación del efectivo (`22_Origenes`); audit trail NIA 230
-(`23_Audit_trail`). **Los datos del cliente LANSEY del artefacto original NO van al repo**: el
+(`23_Audit_trail`). Niveles, severidades, semáforos y estados van **coloreados** (`colores` de `base.hoja()`: formato
+condicional en Excel, etiqueta en HTML, celda sombreada en Word y PowerPoint). **Los datos del cliente LANSEY del artefacto original NO van al repo**: el
 ejemplo es ficticio («Comercial Andina de Ejemplo S.A.»). Los porcentajes y umbrales son **política de la firma** y los
 párrafos citados llevan «VERIFICAR». Su panel usa `PANEL["textos"]` (umbrales en lugar de «registrado vs
 recalculado»; ver `graficos.TEXTOS`) y `PANEL["tableros"]` con los gráficos del artefacto (índices por grupo:

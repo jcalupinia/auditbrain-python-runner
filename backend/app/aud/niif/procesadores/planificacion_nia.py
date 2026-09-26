@@ -241,6 +241,7 @@ PARAMETROS = {
     "pctIngresos": 1, "pctActivos": 1, "pctPatrimonio": 1, "pctGastos": 0.5, "pctUAI": 5,
     "pctDesempeno": 50, "pctTrivial": 5, "justificacion": "",
     "umbralVarPct": 15, "umbralVarExtrema": 100, "umbralAlto": 15, "umbralMedio": 8, "umbralDiasRotacion": 15,
+    "umbralSignificativo": 20,
     "encargoInicial": "No", "interesPublico": "No", "auditoriaGrupo": "No",
     "refutarIngresos": "No", "motivoRefutacion": "",
     "enfoque": "Sustantivo con pruebas de controles clave",
@@ -267,6 +268,7 @@ ETIQUETAS_PARAM = {
     "umbralDiasRotacion": "Aumento de días de cartera o de inventario que se reporta como deterioro de la rotación",
     "umbralAlto": "Matriz de riesgos: riesgo residual desde el cual el nivel es Alto (escala 1–25)",
     "umbralMedio": "Matriz de riesgos: riesgo residual desde el cual el nivel es Medio (escala 1–25)",
+    "umbralSignificativo": "Matriz de riesgos: riesgo INHERENTE desde el cual el riesgo es significativo (escala 1–25)",
     "encargoInicial": "Encargo inicial: primer año de auditoría (Sí / No)",
     "interesPublico": "Entidad de interés público o cotizada (Sí / No)",
     "auditoriaGrupo": "Auditoría de un grupo o de un componente (Sí / No)",
@@ -581,6 +583,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     pct = {k: _pnum(p, k) for k in ("pctIngresos", "pctActivos", "pctPatrimonio", "pctGastos", "pctUAI", "pctDesempeno", "pctTrivial")}
     umbral_var, umbral_ext = _pnum(p, "umbralVarPct", 0, 1000), _pnum(p, "umbralVarExtrema", 0, 100000)
     u_alto, u_medio = _pnum(p, "umbralAlto", 0, 25), _pnum(p, "umbralMedio", 0, 25)
+    u_sig = _pnum(p, "umbralSignificativo", 0, 25)
     u_dias = _pnum(p, "umbralDiasRotacion", 0, 3650)
     if u_medio > u_alto:
         raise ValueError("Matriz de riesgos: el umbral Medio no puede superar al Alto.")
@@ -771,12 +774,16 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         pr, im, co = n_("probabilidad"), n_("impacto"), n_("control")
         inh = None if pr is None or im is None else pr * im
         res = None if inh is None or co is None else inh * (6 - co) / 5
-        nivel = "Pendiente de calificación" if res is None else "Alto" if res >= u_alto else "Medio" if res >= u_medio else "Bajo"
+        # Riesgo significativo (NIA 315 párr. 32 y NIA 330 párr. 21): se juzga sobre el riesgo INHERENTE, antes de los
+        # controles; un control fuerte no lo vuelve «Bajo». Lleva el nivel al menos a Alto.
+        sig = "Sí" if inh is not None and inh >= u_sig else "No" if inh is not None else ""
+        nivel = ("Pendiente de calificación" if res is None else "Alto" if sig == "Sí" or res >= u_alto
+                 else "Medio" if res >= u_medio else "Bajo")
         proceso = str(f.get("proceso", "") or "").strip()
         hallazgo = str(f.get("hallazgo", "") or "").strip()
         carta.append({"id": str(f.get("id", "")).strip(), "proceso": proceso, "hallazgo": hallazgo,
                       "aser": str(f.get("aseveraciones", "") or "").strip(), "p": pr, "i": im, "c": co, "inh": inh, "res": res,
-                      "nivel": nivel, "respuesta": str(f.get("respuesta", "") or "").strip(),
+                      "nivel": nivel, "sig": sig, "respuesta": str(f.get("respuesta", "") or "").strip(),
                       "herramienta": _herramienta(proceso + " " + hallazgo)})
 
     # 8 · informe del año anterior y notas
@@ -938,7 +945,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
               "variacion": r2(x["var"]), "material": x["material"]} for x in cuentas]
     detalle = {"corte": corte_a.isoformat(), "marco": marco, "tipo": tipo, "meses": meses, "dias": dias, "mapa": mapa,
                "base": base_nombre, "periodo": periodo, "periodoParam": periodo_param, "pct": pct, "bases": bases,
-               "pctBase": pct_base, "umbrales": {"var": umbral_var, "ext": umbral_ext, "alto": u_alto, "medio": u_medio, "dias": u_dias},
+               "pctBase": pct_base, "umbrales": {"var": umbral_var, "ext": umbral_ext, "alto": u_alto, "medio": u_medio, "dias": u_dias, "sig": u_sig},
                "sino": sino, "fechas": fechas, "fuentes": fuentes, "hayEri": hay_eri, "bruto": bruto, "signo": signo, "sec7": sec7,
                "cuentas": cuentas, "est9": est9, "ind": ind,
                "materialidad": {"base": base_valor, "global": mat, "desempeno": desemp, "trivial": triv},
@@ -1035,7 +1042,9 @@ def _problemas(p, sino, base_nombre, periodo, base_valor, sec7, riesgos, carta, 
                                                        "(NIA 240 párr. 47).", 0))
     for r_ in carta:
         if r_["nivel"] == "Alto":
-            probs.append(problema("RIESGO_CCI_ALTO", f"{r_['id']}: {r_['proceso']} · riesgo residual alto en la carta de control interno; "
+            que = ("riesgo significativo (inherente alto aunque el control lo reduzca; NIA 315 párr. 32)" if r_["sig"] == "Sí"
+                   else "riesgo residual alto")
+            probs.append(problema("RIESGO_CCI_ALTO", f"{r_['id']}: {r_['proceso']} · {que} en la carta de control interno; "
                                                      "respuesta específica en el programa (NIA 330).", 0))
         elif r_["nivel"].startswith("Pendiente"):
             probs.append(problema("RIESGO_CCI_PENDIENTE", f"{r_['id']}: {r_['proceso']} · pendiente de calificación del socio "
@@ -1087,7 +1096,8 @@ _ETQ = dict(CEDULAS)
 _PAR = ["corte", "marco", "tipoRevision", "mesesTranscurridos", "mapaCuentas", "baseMaterialidad", "periodoBase", "pctIngresos",
         "pctActivos", "pctPatrimonio", "pctGastos", "pctUAI", "pctDesempeno", "pctTrivial", "justificacion", "umbralVarPct",
         "umbralVarExtrema", "umbralDiasRotacion", "umbralAlto", "umbralMedio", "encargoInicial", "interesPublico", "auditoriaGrupo", "refutarIngresos",
-        "motivoRefutacion", "enfoque", "fechaPreliminar", "fechaFinal", "fechaInforme", "socio", "gerente", "expertos"]
+        "motivoRefutacion", "enfoque", "fechaPreliminar", "fechaFinal", "fechaInforme", "socio", "gerente", "expertos",
+        "umbralSignificativo"]
 PAR = {k: FILA0 + i for i, k in enumerate(_PAR)}
 SEC_FILAS = list(SECCIONES) + ["Impuestos y participación", "Resultado del balance", UAI, "Gastos totales",
                                "Pasivo + patrimonio + resultado", "Diferencia de cuadre"]
@@ -1318,7 +1328,7 @@ def hojas(res: dict) -> list[dict]:
            "mapaCuentas": "; ".join(f"{a}={b}" for a, b in d["mapa"]), "baseMaterialidad": d["base"], "periodoBase": d["periodoParam"],
            **{k: d["pct"][k] for k in d["pct"]}, "justificacion": pv("justificacion"), "umbralVarPct": d["umbrales"]["var"],
            "umbralVarExtrema": d["umbrales"]["ext"], "umbralDiasRotacion": d["umbrales"]["dias"],
-           "umbralAlto": d["umbrales"]["alto"], "umbralMedio": d["umbrales"]["medio"],
+           "umbralAlto": d["umbrales"]["alto"], "umbralMedio": d["umbrales"]["medio"], "umbralSignificativo": d["umbrales"]["sig"],
            **d["sino"], "motivoRefutacion": pv("motivoRefutacion"), "enfoque": pv("enfoque"), **fch,
            "socio": pv("socio"), "gerente": pv("gerente"), "expertos": pv("expertos")}
     sustento = {"corte": "Ficha del encargo", "marco": "Ficha del encargo", "tipoRevision": "Cronograma del encargo",
@@ -1328,6 +1338,7 @@ def hojas(res: dict) -> list[dict]:
                 "pctDesempeno": "NIA 320 párr. 11 y A12: política de la firma", "pctTrivial": "NIA 450 párr. 5 y A2: política de la firma",
                 "justificacion": "NIA 320 párr. 14 (documentación)", "umbralAlto": "Política de la firma (mapa de calor 5 × 5)",
                 "umbralMedio": "Política de la firma (mapa de calor 5 × 5)", "encargoInicial": "NIA 300 párr. 13 y NIA 510",
+                "umbralSignificativo": "NIA 315 párr. 12 l) y 32; NIA 330 párr. 21 — política de la firma (VERIFICAR)",
                 "interesPublico": "NIA 701", "auditoriaGrupo": "NIA 600", "refutarIngresos": "NIA 240 párr. 26 y 47",
                 "motivoRefutacion": "NIA 240 párr. 47", "enfoque": "NIA 300 párr. 8", "socio": "NIA 220", "gerente": "NIA 220",
                 "expertos": "NIA 300 párr. 8 e) y NIA 620"}
@@ -1545,9 +1556,10 @@ def hojas(res: dict) -> list[dict]:
         matriz.append([x["id"], x["proceso"], x["hallazgo"], x["aser"], x["p"], x["i"], x["c"],
                        fx(f'IF(OR(E{r}="",F{r}=""),"",E{r}*F{r})', _txt(x["inh"])),
                        fx(f'IF(OR(H{r}="",G{r}=""),"",H{r}*(6-G{r})/5)', _txt(x["res"])),
-                       fx(f'IF(I{r}="","Pendiente de calificación",IF(I{r}>={_par("umbralAlto")},"Alto",IF(I{r}>={_par("umbralMedio")},"Medio","Bajo")))',
-                          x["nivel"]),
-                       x["respuesta"] or RESPUESTA_DEFECTO, x["herramienta"]])
+                       fx(f'IF(I{r}="","Pendiente de calificación",IF(OR(M{r}="Sí",I{r}>={_par("umbralAlto")}),"Alto",'
+                          f'IF(I{r}>={_par("umbralMedio")},"Medio","Bajo")))', x["nivel"]),
+                       x["respuesta"] or RESPUESTA_DEFECTO, x["herramienta"],
+                       fx(f'IF(H{r}="","",IF(H{r}>={_par("umbralSignificativo")},"Sí","No"))', x["sig"])])
 
     # 13 · posibles riesgos
     fila8 = {x["codigo"]: FILA0 + i for i, x in enumerate(cu)}
@@ -1707,9 +1719,10 @@ def hojas(res: dict) -> list[dict]:
     for i, x in enumerate(carta):
         r12, r = FILA0 + i, FILA0 + len(programa)
         cubiertas_area.add(_area(x["proceso"] + " " + x["hallazgo"]))
-        programa.append([f"PT-{len(programa) + 1:02d}", x["proceso"], x["id"], fx(f"{R12}J{r12}", x["nivel"]),
+        nv = "Significativo" if x["sig"] == "Sí" else x["nivel"]
+        programa.append([f"PT-{len(programa) + 1:02d}", x["proceso"], x["id"], fx(f'IF({R12}M{r12}="Sí","Significativo",{R12}J{r12})', nv),
                          fx(f"{R12}K{r12}", x["respuesta"] or RESPUESTA_DEFECTO), fx(f"{R12}L{r12}", x["herramienta"]),
-                         oport(f"D{r}", x["nivel"]), fx(f"{R12}D{r12}", x["aser"] or "Todas"), EVIDENCIA_CARTA, resp_(x["nivel"]), "Sí"])
+                         oport(f"D{r}", nv), fx(f"{R12}D{r12}", x["aser"] or "Todas"), EVIDENCIA_CARTA, resp_(nv), "Sí"])
     for i, x in enumerate(riesgos):
         if x["presenta"] != "Sí":
             continue
@@ -1934,17 +1947,19 @@ def hojas(res: dict) -> list[dict]:
              explica=EXPLICA["09_Estados"]),
         hoja("10_Indices", _ETQ["10_Indices"], [["Indicador", "t"], ["Categoría", "t"], ["Cómo se calcula", "t"], ["Anterior", "n"],
                                           ["Actual", "n"], ["Variación", "n"], ["Semáforo", "t"], ["Lectura", "t"]], indices,
-             explica=EXPLICA["10_Indices"]),
+             explica=EXPLICA["10_Indices"], colores=["Semáforo"]),
         hoja("11_Materialidad", _ETQ["11_Materialidad"], [["Concepto", "t"], ["Importe", "n"], ["Porcentaje", "n"], ["Materialidad", "n"],
                                                 ["Sustento", "t"]], materialidad, explica=EXPLICA["11_Materialidad"]),
         hoja("12_Riesgos_CCI", _ETQ["12_Riesgos_CCI"], [["Código del hallazgo", "t"], ["Proceso o área", "t"], ["Hallazgo o riesgo", "t"],
                                                ["Aseveraciones", "t"], ["Probabilidad (1–5)", "i"], ["Impacto (1–5)", "i"],
                                                ["Control (1–5)", "i"], ["Riesgo inherente", "n"], ["Riesgo residual", "n"], ["Nivel", "t"],
-                                               ["Respuesta de auditoría", "t"], ["Herramienta del catálogo", "t"]], matriz,
-             explica=EXPLICA["12_Riesgos_CCI"]),
+                                               ["Respuesta de auditoría", "t"], ["Herramienta del catálogo", "t"],
+                                               ["¿Riesgo significativo?", "t"]], matriz,
+             explica=EXPLICA["12_Riesgos_CCI"], colores=["Nivel"]),
         hoja("13_Riesgos_Balance", _ETQ["13_Riesgos_Balance"], [["Código", "t"], ["Origen", "t"], ["Rubro o área", "t"], ["Condición observada", "t"],
                                                    ["Valor observado", "n"], ["¿Se presenta?", "t"], ["Posible riesgo", "t"],
-                                                   ["Severidad", "t"], ["Norma", "t"]], posibles, explica=EXPLICA["13_Riesgos_Balance"]),
+                                                   ["Severidad", "t"], ["Norma", "t"]], posibles, explica=EXPLICA["13_Riesgos_Balance"],
+             colores=["Severidad"]),
         hoja("14_Perfil", _ETQ["14_Perfil"], [["Tipo", "t"], ["Concepto", "t"], ["Detalle", "t"], ["Importe (USD)", "n"],
                                           ["Fuente o referencia", "t"], ["Efecto en la planificación", "t"]], perfil),
         hoja("15_Notas", _ETQ["15_Notas"], [["Nota", "t"], ["Título de la nota", "t"], ["Cuentas del balance (códigos)", "t"],
@@ -1957,9 +1972,10 @@ def hojas(res: dict) -> list[dict]:
              guia="Composición de cada nota tal como la presenta el informe auditado del año anterior (RQ-009): una fila por "
                   "línea, con su importe y su tipo (Saldo, Movimiento o Total)."),
         hoja("16_Control", _ETQ["16_Control"], [["Control", "t"], ["Importe", "n"], ["Cantidad", "i"], ["Estado", "t"], ["Detalle", "t"]],
-             control, explica=EXPLICA["16_Control"]),
+             control, explica=EXPLICA["16_Control"], colores=["Estado"]),
         hoja("17_Anomalias", _ETQ["17_Anomalias"], [["Tipo", "t"], ["Código", "t"], ["Cuenta", "t"], ["Detalle", "t"], ["Importe", "n"],
-                                             ["¿Se presenta?", "t"], ["Severidad", "t"]], anomalias, explica=EXPLICA["17_Anomalias"]),
+                                             ["¿Se presenta?", "t"], ["Severidad", "t"]], anomalias, explica=EXPLICA["17_Anomalias"],
+             colores=["Severidad"]),
         hoja("18_Cuentas_Revisar", _ETQ["18_Cuentas_Revisar"], [["Código", "t"], ["Cuenta", "t"], ["Sección", "t"], ["Saldo actual", "n"],
                                                    ["Variación", "n"], ["Monto material", "t"], ["Variación material", "t"],
                                                    ["Riesgo de la carta de CI", "t"], ["Riesgos de la hoja 13", "t"], ["Herramienta del catálogo", "t"],
@@ -1968,7 +1984,7 @@ def hojas(res: dict) -> list[dict]:
                                             ["Respuesta de auditoría (NIA 330)", "t"], ["Herramienta del catálogo", "t"], ["Oportunidad", "t"],
                                             ["Aseveraciones", "t"], ["Evidencia a obtener (PBC)", "t"], ["Responsable", "t"],
                                             ["¿Aplica?", "t"]],
-             programa, explica=EXPLICA["19_Programa"]),
+             programa, explica=EXPLICA["19_Programa"], colores=["Nivel"]),
         hoja("20_Narrativa", _ETQ["20_Narrativa"], [["Bloque", "t"], ["Concepto", "t"], ["Importe", "n"], ["Lectura", "t"]], narrativa,
              explica=EXPLICA["20_Narrativa"]),
         hoja("21_Estrategia", _ETQ["21_Estrategia"], [["Aspecto", "t"], ["Decisión", "x"], ["Sustento", "t"]], estrategia,
@@ -2481,8 +2497,11 @@ EXPLICA = {
         "Riesgo inherente": "Multiplica la probabilidad por el impacto (escala de 1 a 25); en blanco si falta alguna calificación.",
         "Riesgo residual": ("Reduce el riesgo inherente según el control: con control 1 (no existe) queda igual y cada punto más de "
                             "control lo baja un 20 % (inherente × (6 − control) ÷ 5)."),
-        "Nivel": ("Alto si el residual iguala o supera el umbral alto de la hoja 02, medio si supera el umbral medio y bajo en los "
-                  "demás casos; sin calificación completa queda pendiente del socio."),
+        "Nivel": ("Alto si el riesgo es significativo o si el residual iguala o supera el umbral alto de la hoja 02, medio si supera "
+                  "el umbral medio y bajo en los demás casos; sin calificación completa queda pendiente del socio."),
+        "¿Riesgo significativo?": ("Sí cuando el riesgo INHERENTE (antes de los controles) iguala o supera el umbral de riesgo "
+                                   "significativo de la hoja 02 (NIA 315 párr. 32): un control fuerte baja el residual pero no "
+                                   "quita la respuesta específica ni las pruebas sustantivas que exige la NIA 330 párr. 21."),
     },
     "13_Riesgos_Balance": {
         "Valor observado": ("Trae el dato que dispara la condición: ventas, patrimonio o utilidad de la hoja 09, el índice de la "
@@ -2526,7 +2545,8 @@ EXPLICA = {
                         "Si cambia la materialidad, cambia la marca."),
     },
     "19_Programa": {
-        "Nivel": ("Trae el nivel del riesgo de la hoja 12 (carta de control interno) o la severidad de la hoja 13 (posibles riesgos); "
+        "Nivel": ("Trae el nivel del riesgo de la hoja 12 (carta de control interno; «Significativo» si la hoja 12 lo marca como riesgo "
+                  "significativo) o la severidad de la hoja 13 (posibles riesgos); "
                   "en las cuentas sin riesgo propio, «Medio» si su saldo o su variación es material y «Bajo» si no."),
         "Respuesta de auditoría (NIA 330)": ("Para los hallazgos de la carta de control interno trae la respuesta de la hoja 12; "
                                              "para los demás riesgos, la respuesta estándar de la herramienta."),

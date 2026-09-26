@@ -132,6 +132,13 @@ Una entrada por fila: `{"tipo": "titulo" | "total" | "control", "sangria": n, "c
 aspecto de cédula sumaria (rubro en negrita, subcuentas con sangría por nivel, total con filete y cuadre en cursiva) en
 Excel, HTML, Word y PowerPoint. Ejemplo: `08S_Sumarias` de la planificación.
 
+### Colores por nivel (`colores` en `base.hoja()`)
+Lista de columnas cuyo valor es un nivel, severidad, semáforo o estado (`colores=["Nivel"]`). Cada celda se pinta según
+`base.NIVEL_COLOR` (Significativo, Alto/Crítico/Rojo, Medio/Revisar/Amarillo, Bajo/Conforme/Verde, Pendiente/No
+evaluado; también «Rojo · …» por la primera palabra) con los tonos de `base.ROL_COLOR`. En el Excel es **formato
+condicional** (el color sigue a la fórmula si el auditor cambia una calificación o un parámetro); en el HTML, una
+etiqueta de color; en Word y PowerPoint, la celda sombreada. Son colores de estado: nunca se usan en los gráficos.
+
 ### `PANEL` — tarjetas y gráficos
 ```python
 PANEL = {
