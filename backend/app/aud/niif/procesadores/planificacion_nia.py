@@ -249,6 +249,9 @@ _ALIAS_BASE = {"ingresos": "Ingresos", "ventas": "Ingresos", "activos": "Activos
                "costosygastos": "Gastos totales", "utilidadantesdeimpuestos": UAI, "uai": UAI,
                "utilidadantesdeparticipacioneimpuestos": UAI}
 PERIODOS_BASE = ("Automático", "Año anterior", "Corte actual")
+# La plataforma inyecta los registros del encargo (ciclo/servicio.py) en parametros["_encargo"].
+USA_REGISTROS_ENCARGO = True
+
 PARAMETROS = {
     "tipoRevision": "Final", "mesesTranscurridos": 12, "mapaCuentas": MAPA_DEFECTO,
     "baseMaterialidad": "Ingresos", "periodoBase": "Automático",

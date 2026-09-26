@@ -23,7 +23,7 @@ from backend.app.aud.niif.ciclo import almacen, datos, reglas
 # Dentro de aplicar_accion el parámetro `datos` (cuerpo de la acción) tapa al
 # módulo: ahí se usa este alias.
 from backend.app.aud.niif.ciclo import datos as datos_mod
-from backend.app.aud.niif.ciclo.models import FichaEncargo, Prueba, PruebaArchivo, PruebaEvento
+from backend.app.aud.niif.ciclo.models import FichaEncargo, Prueba, PruebaArchivo, PruebaEvento, RegistroEncargo
 from backend.app.aud.niif.requerimiento import check_upload
 from backend.app.aud.niif.ciclo.reglas import ReglaIncumplida
 from backend.app.aud.niif.models import NiifFicha
@@ -463,6 +463,10 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                 # El marco y la edición del encargo enrutan el cálculo cuando la norma difiere (M02).
                 param["_marco"] = reg["engagement"].get("framework") or ""
                 param["_edicion"] = str(reg["engagement"].get("edition") or "")
+                if getattr(proc, "USA_REGISTROS_ENCARGO", False):
+                    # Independencia, aceptación, carta, discusión y comunicación registradas con un clic: se congelan en
+                    # esta ejecución (la hoja 00_Registros del papel es la evidencia; NIA 230).
+                    param["_encargo"] = registros_encargo(db, p.project_id)
                 run = proc.ejecutar(reg.get("datasets") or {}, param, reg["engagement"]["cutoff"])
                 # La 3.ª edición de la NIIF para las PYMES rige desde el 1-1-2027: antes, solo con adopción anticipada.
                 if "PYMES" in param["_marco"] and param["_edicion"] == "2025" and str(reg["engagement"]["cutoff"]) < "2027-01-01":
@@ -1004,3 +1008,153 @@ def crear_encargo(db: Session, user, datos: dict) -> dict:
     db.commit()
     return {"id": proyecto.id, "nombre": proyecto.name, "cliente": cliente.name, "client_id": cliente.id,
             "periodo": proyecto.period_label, "marco": ficha["framework"], "corte": ficha["cutoff"], "pruebas": 0}
+
+
+# --- registros del encargo con un clic (decisión del dueño, 2026-09-26) -------
+
+TIPOS_REGISTRO = ("independencia", "asistencia", "aceptacion", "carta", "comunicacion")
+# Un solo registro vigente por persona (independencia, asistencia) o por encargo (los demás): el nuevo anula al anterior.
+POR_PERSONA = ("independencia", "asistencia")
+
+
+def _roles() -> tuple:
+    from backend.app.aud.niif.procesadores import planificacion_encargo as enc
+    return enc.ROLES
+
+
+def _hoy() -> datetime.date:
+    return datetime.date.today()
+
+
+def _fecha_registro(v, hoy: datetime.date) -> datetime.date:
+    if v in (None, ""):
+        return hoy
+    try:
+        f = datetime.date.fromisoformat(str(v)[:10])
+    except ValueError:
+        raise ReglaIncumplida("Fecha inválida (AAAA-MM-DD).")
+    if f > hoy:
+        raise ReglaIncumplida("La fecha no puede ser posterior a hoy.")
+    return f
+
+
+def _texto(v, n: int = 1000) -> str:
+    return str(v or "").strip()[:n]
+
+
+def _vigentes(db: Session, project_id: int) -> list[RegistroEncargo]:
+    return list(db.execute(
+        select(RegistroEncargo).where(RegistroEncargo.project_id == project_id, RegistroEncargo.anulado_en.is_(None))
+        .order_by(RegistroEncargo.id)
+    ).scalars())
+
+
+def _anular(r: RegistroEncargo, actor: str) -> None:
+    r.anulado_por = actor
+    r.anulado_en = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+
+
+def anios_con_cliente(db: Session, project_id: int, actor: str, anio_desde: int | None) -> int:
+    """Años del integrante con el cliente: encargos del mismo cliente en los que confirmó su independencia (este
+    incluido) o, si lo declaró, los años desde que empezó a atenderlo; el mayor de los dos."""
+    from backend.app.context.models import Project
+
+    pr = db.get(Project, project_id)
+    n = 1
+    if pr is not None:
+        ids = select(Project.id).where(Project.client_id == pr.client_id)
+        otros = db.execute(
+            select(func.count(func.distinct(RegistroEncargo.project_id))).where(
+                RegistroEncargo.project_id.in_(ids), RegistroEncargo.project_id != project_id,
+                RegistroEncargo.tipo == "independencia", RegistroEncargo.actor == actor,
+                RegistroEncargo.anulado_en.is_(None))
+        ).scalar() or 0
+        n = 1 + int(otros)
+    ficha = leer_ficha(db, project_id) or {}
+    anio = int(ficha["year"]) if str(ficha.get("year") or "").isdigit() else _hoy().year
+    if anio_desde:
+        n = max(n, anio - int(anio_desde) + 1)
+    return n
+
+
+def registrar(db: Session, project_id: int, datos: dict, actor: str) -> RegistroEncargo:
+    tipo = _texto(datos.get("tipo"), 20)
+    if tipo not in TIPOS_REGISTRO:
+        raise ReglaIncumplida("Tipo de registro desconocido.")
+    hoy = _hoy()
+    vig = _vigentes(db, project_id)
+    # El nombre con que figura en el papel: el que escribió o el de su confirmación de independencia; si no, su correo.
+    propio = [r.nombre for r in vig if r.tipo == "independencia" and r.actor == actor]
+    nombre = _texto(datos.get("nombre"), 200) or (propio[-1] if propio else actor)
+    extra: dict = {}
+    rol = None
+    fecha = hoy
+    if tipo in POR_PERSONA:
+        rol = _texto(datos.get("rol"), 40)
+        if rol not in _roles():
+            raise ReglaIncumplida("Indique su rol en el encargo.")
+    if tipo == "independencia":
+        extra = {"amenazas": _texto(datos.get("amenazas")), "salvaguardas": _texto(datos.get("salvaguardas"))}
+        desde = str(datos.get("anio_desde") or "").strip()
+        if desde:
+            if not desde.isdigit() or not 1950 <= int(desde) <= hoy.year:
+                raise ReglaIncumplida("Año desde el que atiende al cliente inválido.")
+            extra["anio_desde"] = int(desde)
+    elif tipo == "asistencia":
+        fecha = _fecha_registro(datos.get("fecha"), hoy)
+    elif tipo == "aceptacion":
+        socio = [r for r in vig if r.tipo == "independencia" and r.actor == actor and r.rol == "Socio"]
+        if not socio:
+            raise ReglaIncumplida("La aceptación la registra el socio del encargo, después de confirmar su independencia como «Socio».")
+        nombre = socio[-1].nombre
+    elif tipo == "carta":
+        fecha = _fecha_registro(datos.get("fecha"), hoy)
+        extra = {"detalle": _texto(datos.get("limitaciones"))}
+    elif tipo == "comunicacion":
+        fecha = _fecha_registro(datos.get("fecha"), hoy)
+        medio = _texto(datos.get("medio"), 200)
+        if not medio:
+            raise ReglaIncumplida("Indique el medio de la comunicación (reunión, correo, carta).")
+        extra = {"detalle": medio}
+    for r in vig:
+        if r.tipo == tipo and (tipo not in POR_PERSONA or r.actor == actor):
+            _anular(r, actor)
+    reg = RegistroEncargo(project_id=project_id, tipo=tipo, actor=actor, nombre=nombre, rol=rol, fecha=fecha, datos=extra)
+    db.add(reg)
+    db.commit()
+    db.refresh(reg)
+    return reg
+
+
+def anular_registro(db: Session, project_id: int, registro_id: int, actor: str, es_admin: bool) -> None:
+    r = db.get(RegistroEncargo, registro_id)
+    if r is None or r.project_id != project_id or r.anulado_en is not None:
+        raise ReglaIncumplida("Registro no encontrado.")
+    if r.actor != actor and not es_admin:
+        raise ReglaIncumplida("Solo quien hizo el registro (o un administrador) puede anularlo.")
+    _anular(r, actor)
+    db.commit()
+
+
+def registro_salida(r: RegistroEncargo) -> dict:
+    return {"id": r.id, "tipo": r.tipo, "actor": r.actor, "nombre": r.nombre, "rol": r.rol,
+            "fecha": r.fecha.isoformat(), "datos": r.datos or {},
+            "creado_en": r.creado_en.isoformat() if r.creado_en else None}
+
+
+def registros_encargo(db: Session, project_id: int) -> dict:
+    """Lo que la planificación recibe en ``parametros["_encargo"]`` (planificacion_encargo.registros)."""
+    vig = _vigentes(db, project_id)
+    equipo, asistencia, uno = [], [], {}
+    for r in vig:
+        d = r.datos or {}
+        if r.tipo == "independencia":
+            equipo.append({"integrante": r.nombre, "rol": r.rol, "fecha": r.fecha.isoformat(), "amenazas": d.get("amenazas", ""),
+                           "salvaguardas": d.get("salvaguardas", ""),
+                           "anios": anios_con_cliente(db, project_id, r.actor, d.get("anio_desde"))})
+        elif r.tipo == "asistencia":
+            asistencia.append({"integrante": r.nombre, "rol": r.rol, "fecha": r.fecha.isoformat()})
+        else:
+            uno[r.tipo] = {"actor": r.nombre, "fecha": r.fecha.isoformat(), "detalle": d.get("detalle", "")}
+    ficha = leer_ficha(db, project_id) or {}
+    return {"registros": {"equipo": equipo, "asistencia": asistencia, **uno}, "firma": ficha.get("firm") or ""}

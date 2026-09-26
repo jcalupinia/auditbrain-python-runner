@@ -409,3 +409,27 @@ def ejercicio_modelo_libro(prueba_id: int, formato: str = "xlsx", db: Session = 
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
     return Response(contenido, media_type=tipos[formato],
                     headers={"Content-Disposition": f'attachment; filename="Ejercicio_modelo.{formato}"'})
+
+
+# --- registros del encargo con un clic (independencia, aceptación, carta, discusión, comunicación) ------------------
+
+@router.get("/proyectos/{project_id}/registros")
+def leer_registros(project_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
+    _proyecto(db, user, project_id)
+    return {"registros": [servicio.registro_salida(r) for r in servicio._vigentes(db, project_id)],
+            "encargo": servicio.registros_encargo(db, project_id), "usuario": user.email}
+
+
+@router.post("/proyectos/{project_id}/registros", status_code=status.HTTP_201_CREATED)
+def registrar(project_id: int, body: dict, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
+    _proyecto(db, user, project_id)
+    return servicio.registro_salida(_regla(lambda: servicio.registrar(db, project_id, body, user.email)))
+
+
+@router.delete("/proyectos/{project_id}/registros/{registro_id}")
+def anular_registro(project_id: int, registro_id: int, db: Session = Depends(get_db),
+                    user: User = Depends(require_staff)) -> dict:
+    _proyecto(db, user, project_id)
+    es_admin = str(getattr(user.role, "value", user.role)).lower() == "admin"
+    _regla(lambda: servicio.anular_registro(db, project_id, registro_id, user.email, es_admin))
+    return {"ok": True}
