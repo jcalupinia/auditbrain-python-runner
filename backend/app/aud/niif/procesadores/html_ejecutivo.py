@@ -342,7 +342,7 @@ def _tableros(p: dict, hex_: dict | None) -> str:
     if not ts:
         return ""
     tarjetas = "".join(_tarjeta(t["rotulo"], t.get("sub"), gs.agrupadas(t["categorias"], t["series"], t["rotulo"], t.get("unidad", ""), hex_,
-                                                                         t.get("mejor"), t.get("estados"))
+                                                                         t.get("mejor"), t.get("estados"), t.get("color"))
                                 or '<div class="sin-datos">Sin datos para graficar.</div>') for t in ts)
     return f'<h2 class="tableros-tit">Tableros del análisis</h2><div class="graficos tableros">{tarjetas}</div>'
 

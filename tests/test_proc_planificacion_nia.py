@@ -282,6 +282,8 @@ def test_tableros_del_artefacto_en_html_excel_word_y_ppt():
     assert "▲ 10,5 %" in liq and "var(--c-baja)" in liq      # razón corriente sube y es favorable → verde
     assert "▼ 0,9 %" in liq and "var(--c-alta)" in liq       # prueba ácida baja y es desfavorable → rojo
     assert gs.variacion_tablero(10.28, 10.91, "%") == ("▲ 0,63 pp", 1)
+    # Ningún color se repite en la misma lámina: cada tablero tiene su propia familia de color.
+    assert len({x["color"] for x in p["tableros"]}) == len(p["tableros"])
     wb = load_workbook(io.BytesIO(libro.xlsx(d, reg, [], 1, "Borrador")))
     assert len(wb["00_Inicio"]._charts) == 4 + 6
     datos = [c.value for row in wb[libro.HOJA_DATOS_GRAFICOS].iter_rows() for c in row]
@@ -290,6 +292,9 @@ def test_tableros_del_artefacto_en_html_excel_word_y_ppt():
     assert any(isinstance(x, str) and x.startswith('="Razón corriente"&CHAR(10)') and "FIXED(" in x for x in datos)
     tab = wb["00_Inicio"]._charts[4]
     assert all(s_.graphicalProperties.gradFill is not None for s_ in tab.series)   # barras con degradado
+    colores = [str(g.srgbClr) for ch in wb["00_Inicio"]._charts[4:] for s_ in ch.series
+               for g in s_.graphicalProperties.gradFill.gsLst]
+    assert len(colores) == len(set(colores)), "un color de tablero se repite en la portada del Excel"
     doc = Document(io.BytesIO(libro.docx(d, reg, [], 1, "Borrador")))
     textos = [c.text for tb in doc.tables for fila in tb.rows for c in fila.cells]
     assert any(x.startswith("Rentabilidad") for x in textos) and any(p_.text == "Tableros del análisis" for p_ in doc.paragraphs)

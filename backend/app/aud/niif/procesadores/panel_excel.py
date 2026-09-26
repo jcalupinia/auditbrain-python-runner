@@ -234,6 +234,13 @@ def grafico_agrupadas(wd, bloque, titulo, sub, colores, fmt):
     return ch
 
 
+def _colores_tablero(t):
+    """Colores de las series de un tablero: la familia del tablero (única en la lámina), anterior en un
+    tono fundido con la tarjeta y actual pleno, como el HTML."""
+    base = SERIE.get(t.get("color") or "s1", SERIE["s1"])
+    return [_mezcla(base, CARD, 0.38), base] if len(t["series"]) == 2 else [SERIE[r] for r in ("s1", "s3", "s2", "s4")]
+
+
 def tableros_formulas(t, hojas, titulos):
     """Filas del bloque de datos de un tablero: [(categoría, [«=fórmula» por serie], [valor por serie])],
     cada fórmula a la celda de la cédula que ya calcula el índice o el importe. None si la cédula no está."""
@@ -576,7 +583,7 @@ def portada(ws, wd, definicion, reg, hojas, titulos, estado, version, grupos_nav
         if not filas_t:
             continue
         b = datos_g.bloque_series(t["rotulo"], [n for n, _ in t["series"]], filas_t, FMT_TABLERO.get(t.get("unidad"), est.FMT["n"]))
-        tabs.append(grafico_agrupadas(wd, b, t["rotulo"], t.get("sub"), [SERIE["s1"], SERIE["s3"], SERIE["s2"], SERIE["s4"]],
+        tabs.append(grafico_agrupadas(wd, b, t["rotulo"], t.get("sub"), _colores_tablero(t),
                                       FMT_TABLERO.get(t.get("unidad"), "#,##0.00")))
     if tabs:
         ws.row_breaks.append(Break(id=fila - 1))

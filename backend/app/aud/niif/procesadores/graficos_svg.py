@@ -235,8 +235,15 @@ def _barra_redondeada(x0, top, ww, bot, positiva, r) -> str:
 _NIVEL_ROL = {"Verde": "baja", "Amarillo": "media", "Rojo": "alta"}
 
 
+# Familias de color de los tableros: una por gráfico, sin repetir en la misma lámina (pedido del dueño,
+# 2026-09-26). Orden validado (skill dataviz, temas oscuro y claro): tableros vecinos separables también
+# con daltonismo (ΔE ≥ 9) y a simple vista (ΔE ≥ 19).
+FAMILIAS_TABLERO = ("s1", "s2", "s3", "s7", "s4", "s5", "s6", "s8")
+
+
 def agrupadas(categorias: list[str], series: list[tuple[str, list]], descripcion: str, unidad: str = "",
-              hex_: dict | None = None, mejor: list | None = None, estados: list | None = None) -> str:
+              hex_: dict | None = None, mejor: list | None = None, estados: list | None = None,
+              color: str | None = None) -> str:
     """Tablero premium (índices por grupo y analítico): barras agrupadas por indicador, una por serie
     (anterior y actual), con degradado, esquinas redondeadas y brillo en el borde; cuadrícula tenue con su
     escala; encima de cada indicador, una píldora con el punto del semáforo de la cédula (``estados``:
@@ -250,18 +257,23 @@ def agrupadas(categorias: list[str], series: list[tuple[str, list]], descripcion
     import hashlib
 
     P = _Pintor(hex_)
-    roles = ["s1", "s3", "s2", "s4"]
     n, k = len(categorias), len(series)
-    uid = "g" + hashlib.md5(repr((descripcion, categorias, series, bool(hex_))).encode()).hexdigest()[:8]
+    # Con ``color`` (familia del tablero) las series son tonos de ese color: la anterior translúcida y la
+    # actual plena; sin él, un color por serie.
+    if color and k <= 2:
+        roles, opac = [color, color][:k], [(0.62, 0.32), (1, 0.55)][-k:]
+    else:
+        roles, opac = ["s1", "s3", "s2", "s4"][:k], [(1, 0.55)] * k
+    uid = "g" + hashlib.md5(repr((descripcion, categorias, series, bool(hex_), color)).encode()).hexdigest()[:8]
 
     def stop(rol, off, op):
         if hex_:
             return f'<stop offset="{off}" stop-color="{hex_[rol]}" stop-opacity="{op}"/>'
         return f'<stop offset="{off}" style="stop-color:var(--c-{rol});stop-opacity:{op}"/>'
 
-    defs = "".join(f'<linearGradient id="{uid}{r}" x1="0" y1="0" x2="0" y2="1">{stop(r, 0, 1)}{stop(r, 1, 0.55)}</linearGradient>'
-                   f'<linearGradient id="{uid}{r}n" x1="0" y1="1" x2="0" y2="0">{stop(r, 0, 1)}{stop(r, 1, 0.55)}</linearGradient>'
-                   for r in roles[:k])
+    defs = "".join(f'<linearGradient id="{uid}{j}" x1="0" y1="0" x2="0" y2="1">{stop(r, 0, a)}{stop(r, 1, b)}</linearGradient>'
+                   f'<linearGradient id="{uid}{j}n" x1="0" y1="1" x2="0" y2="0">{stop(r, 0, a)}{stop(r, 1, b)}</linearGradient>'
+                   for j, (r, (a, b)) in enumerate(zip(roles, opac)))
     # Escala: cuadrícula en pasos redondos que incluyen el cero.
     lo, hi = min(0.0, min(vals)), max(0.0, max(vals))
     paso = _paso_nice(hi - lo)
@@ -285,7 +297,7 @@ def agrupadas(categorias: list[str], series: list[tuple[str, list]], descripcion
     # Leyenda (arriba a la derecha): muestra con el degradado de la serie.
     lx = ANCHO - M_LAT - 96 * k
     for j, (nombre, _) in enumerate(series):
-        partes.append(f'<rect x="{lx + j * 96}" y="9" width="12" height="12" rx="3" fill="url(#{uid}{roles[j]})"/>'
+        partes.append(f'<rect x="{lx + j * 96}" y="9" width="12" height="12" rx="3" fill="url(#{uid}{j})"/>'
                       f'<text x="{lx + j * 96 + 18}" y="19" class="ley2" {P.fill("texto2")}>{_html.escape(nombre)}</text>')
     banda = (ANCHO - M_LAT - X0) / n
     w = min(30.0, banda * 0.66 / k)
@@ -308,7 +320,7 @@ def agrupadas(categorias: list[str], series: list[tuple[str, list]], descripcion
             d = _barra_redondeada(x0, top, w, bot, pos, 5)
             txt = _cifra(v, unidad)
             partes.append(f'<g class="marca"><title>{_html.escape(cat)} · {_html.escape(nombre)}: {txt}</title>'
-                          f'<path d="{d}" fill="url(#{uid}{roles[j]}{"" if pos else "n"})"/>'
+                          f'<path d="{d}" fill="url(#{uid}{j}{"" if pos else "n"})"/>'
                           + (f'<line x1="{x0 + 3:.1f}" x2="{x0 + w - 3:.1f}" y1="{top + 0.8:.1f}" y2="{top + 0.8:.1f}" '
                              f'stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="1.2"/>' if pos and bot - top > 4 else "")
                           + "</g>")

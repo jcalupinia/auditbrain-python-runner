@@ -382,6 +382,9 @@ def _sin_unidad(t: str) -> str:
     return t[: t.rfind(" (")].strip() if t.endswith(")") and " (" in t else t
 
 
+_FAMILIAS = ("s1", "s2", "s3", "s7", "s4", "s5", "s6", "s8")   # = graficos_svg.FAMILIAS_TABLERO
+
+
 def tableros_spec(specs: list | None, mapa: dict) -> tuple[list[dict], list[str]]:
     """Tableros adicionales (``PANEL["tableros"]``): barras agrupadas de filas elegidas de una cédula,
     una barra por serie (p. ej. «Anterior» y «Actual»). Cada spec:
@@ -427,6 +430,8 @@ def tableros_spec(specs: list | None, mapa: dict) -> tuple[list[dict], list[str]
             estados.append((nivel, etq) if nivel in ("Verde", "Amarillo", "Rojo") else None)
         salida.append({"rotulo": sp.get("rotulo", ""), "sub": sp.get("sub", ""), "unidad": sp.get("unidad", ""),
                        "seccion": sp.get("seccion", ""),
+                       # Una familia de color por tablero, sin repetir (``graficos_svg.FAMILIAS_TABLERO``).
+                       "color": sp.get("color") or _FAMILIAS[len(salida) % len(_FAMILIAS)],
                        "hoja": sp["hoja"], "filas": idx, "categorias": [c for _, c in pares],
                        "series": [(n, vs) for n, vs, _ in series], "columnas": [c for _, _, c in series],
                        "mejor": mejor, "estados": estados})

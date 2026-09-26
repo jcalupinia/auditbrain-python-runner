@@ -250,7 +250,8 @@ def tableros_panel(p: dict, tema: str) -> list[dict]:
     hex_ = paleta(tema)
     salida = []
     for t in p.get("tableros") or []:
-        svg = gs.agrupadas(t["categorias"], t["series"], t["rotulo"], t.get("unidad", ""), hex_, t.get("mejor"), t.get("estados"))
+        svg = gs.agrupadas(t["categorias"], t["series"], t["rotulo"], t.get("unidad", ""), hex_, t.get("mejor"), t.get("estados"),
+                           t.get("color"))
         salida.append({"titulo": t["rotulo"], "sub": t.get("sub", ""), "png": a_png(svg) if svg else None,
                        "ancho": gs.ANCHO, "alto": gs.ALTO})
     return salida
