@@ -672,7 +672,7 @@ RQ-013): la planificación pide solo los documentos del cliente (RQ-001 a RQ-009
 - **Regla de cero invención:** lo que falta queda «Pendiente» y lo cuentan los controles 15–22 de la hoja 16. Hojas:
   `00_Registros`, `24_Aceptacion`, `25_Equipo`, `26_Discusion_Fraude`, `27_Control_Interno`, `28_Afirmaciones`,
   `29_Muestreo` (unidad monetaria; confianza por el nivel más alto de la hoja 28), `30_Diferencias`, `32_Comunicacion`
-  (NIA 260 y asuntos clave candidatos NIA 701 en entidades de interés público) y `44_Problemas`. Programa: «Extensión
+  (NIA 260 y asuntos clave candidatos NIA 701 en entidades de interés público) y `48_Problemas`. Programa: «Extensión
   (NIA 330 y 530)», aseveraciones por área y confirmaciones/observación del inventario solo para cuentas de balance
   materiales. **A4:** la definición declara `firmas` y el libro agrega `00_Firmas` desde la bitácora.
 - **Marco contable del cliente (NIIF completas o NIIF para las PYMES):** sale de la ficha del encargo (`_marco`,
@@ -708,8 +708,8 @@ presenta?» por fórmula (`f_pres`). En hojas existentes: 11 (M9 desempeño suge
 inicial, diferencias sobre el trivial y riesgos significativos; M21 aviso de signo contrario), 12 (M17 clasificación
 NIA 265 y seguimiento), 19 (horas y supervisión; filas de saldos de apertura M19, imprevisibilidad M6 que rota por
 año, cierre M10, otra información M18 y leyes), 21 (respuestas globales M6, cambios, horas, cierre), 27 (M16 SO-01
-organizaciones de servicio) y 32 (deficiencias significativas). Controles 23–33 en la hoja 16; la hoja de problemas es
-`44_Problemas`. **M20:** en las hojas entregables no aparece «VERIFICAR»: `_nota_metodologica` lo cambia por «†» y
+organizaciones de servicio) y 32 (deficiencias significativas). Controles 23–35 en la hoja 16; la hoja de problemas es
+`48_Problemas`. **M20:** en las hojas entregables no aparece «VERIFICAR»: `_nota_metodologica` lo cambia por «†» y
 arma `00_Nota_metodologica` con cada cita y las hojas donde aparece, más el resultado de las citas que pidió cotejar
 la revisión (NIA 315 párr. 25 corregida a párr. 19 en el entendimiento). **Plataforma:** registros `indagacion`,
 `consulta` y `diferencia` (varios vigentes; las consultas se cierran con `/registros/{id}/resolver`); una consulta
@@ -718,6 +718,27 @@ caracteres) que va a la bitácora y marca `posteriorInforme` si ya pasó la fech
 ampliado (partes relacionadas nuevas, nómina tercerizada con litigio, indagaciones, consulta abierta, versión
 anterior). Pruebas: `tests/test_proc_planificacion_nia.py` (`test_m…`) y `tests/test_aud_registros_encargo.py`.
 Verificación LibreOffice de los 6 escenarios: 0 diferencias.
+
+**Enfoque por ciclo, matriz de riesgos consolidada y conocimiento del negocio (2026-09-26; decisión del dueño: «propone
+la herramienta y el socio decide»; confiar en controles «baja un nivel la confianza» del muestreo):**
+`procesadores/planificacion_enfoque.py`. **Hoja `45_Enfoque_Controles`**: siete ciclos (ingresos y cuentas por cobrar,
+compras y cuentas por pagar, inventarios, nómina, tesorería y financiamiento, activos fijos, impuestos-provisiones-
+patrimonio), con sus cuentas (hoja 18) y hallazgos de la carta. Propuesta: sin carta → sustantivo; los sustantivos no
+bastan (hoja 34) y hay deficiencias → «Revisar» (posible limitación al alcance); no bastan → confiar (obligatorio, NIA 330
+párr. 8 b)); deficiencias (hallazgo significativo o inherente ≥ umbral alto, entorno de control con alerta, o TI con
+alerta en un ciclo automatizado) → sustantivo; si no → confiar. El socio confirma o cambia cada ciclo con un clic
+(registro `enfoque`: solo quien confirmó su independencia como «Socio»; motivo ≥ 10 caracteres; el nuevo anula al
+anterior del mismo ciclo) y su decisión manda (`00_Registros`, columnas E y F). Mientras no confirme, rige la propuesta y
+queda «Pendiente» (control 34, problema `ENFOQUE_PENDIENTE`). Efectos: hoja 12 «¿Se probará el control?» = Sí si el ciclo
+confía (el riesgo valorado considera el control); hoja 29, la confianza del muestreo baja un nivel (alto → media,
+medio/bajo → baja); la estrategia deduce el «Enfoque general» (combinado: N ciclos con confianza y M sustantivos), salvo
+que la hoja 02 traiga otro. **Hoja `46_Matriz_Riesgos`**: una fila por hallazgo de la carta y por riesgo de la hoja 13, con
+ciclo, afirmaciones, riesgo inherente, significativo, enfoque, riesgo de control, riesgo de incorrección material
+(significativo; si no, el inherente, un nivel menos con control bajo) y el PT del programa (INDEX/MATCH). **Hoja
+`47_Conocimiento_Negocio`** (por fórmula a las hojas 14, 35, 09–11, 45 y 46) y el **memorando en Word**
+(`documentos_encargo.conocimiento_negocio`, documento `conocimiento_negocio`). Panel: sección «Enfoque por ciclo» en
+«Registro del encargo». Pruebas: `test_enfoque_por_ciclo_…`, `test_matriz_de_riesgos_consolidada_…` y
+`test_enfoque_del_ciclo_lo_confirma_el_socio`. Verificación LibreOffice de los 6 escenarios: 0 diferencias.
 
 **Diseño del libro (todas las herramientas, 2026-09-25):** portada con botones por sección
 (Resultado · Cómo se calculó · Datos del cliente · Documentación) y pestañas del color de su
