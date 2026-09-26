@@ -583,24 +583,68 @@ function SubCruceRetenciones() {
 
 // ---------- Subpágina: Valor neto (factura − notas de crédito) ----------
 function SubValorNeto() {
-  const [ruc, setRuc] = useState("");
-  const [estado, setEstado] = useState("idle");
+  const [form, setForm] = useState({ ruc: "", con_portal: false, clave: "" });
+  const [fase, setFase] = useState("idle"); // idle|procesando|captcha|listo|error
   const [resultado, setResultado] = useState(null);
   const [permiso, setPermiso] = useState(null);
+  const [progreso, setProgreso] = useState([]);
+  const [captchaImg, setCaptchaImg] = useState(null);
+  const [captchaCodigo, setCaptchaCodigo] = useState("");
+  const [segundos, setSegundos] = useState(0);
+  const [verVivo, setVerVivo] = useState(false);
   const [error, setError] = useState("");
   const [bajando, setBajando] = useState(false);
+  const ctx = useRef({ url: "", token: "", id: "", vivo: false });
+  const set = (k) => (e) => { const v = e.target.type === "checkbox" ? e.target.checked : e.target.value; setForm((f) => ({ ...f, [k]: v })); };
+  useEffect(() => () => { ctx.current.vivo = false; }, []);
+  useEffect(() => {
+    if (!(fase === "procesando" || fase === "captcha")) return undefined;
+    const t = setInterval(() => setSegundos((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [fase]);
+  const trabajando = fase === "procesando" || fase === "captcha";
+
+  async function poll() {
+    if (!ctx.current.vivo) return;
+    try {
+      const est = await sriEstado(ctx.current.url, ctx.current.token, ctx.current.id);
+      setProgreso(est.progreso || []);
+      if (est.estado === "captcha") { setFase("captcha"); setCaptchaImg(est.captcha_img_b64 || null); }
+      else if (est.estado === "listo") { ctx.current.vivo = false; setResultado(est.resultado || {}); setFase(est.resultado?.ok === false ? "error" : "listo"); if (est.resultado?.ok === false) setError(est.resultado.message || "Sin resultados."); return; }
+      else if (est.estado === "error") { ctx.current.vivo = false; setError(est.error || "El reporte falló."); setFase("error"); return; }
+      else { setFase("procesando"); setCaptchaImg(null); }
+    } catch { /* red transitoria */ }
+    setTimeout(poll, 1500);
+  }
 
   async function ejecutar() {
-    setError(""); setResultado(null);
-    if (!/^\d{13}$/.test(ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
-    setEstado("procesando");
+    setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null); setSegundos(0);
+    if (!/^\d{13}$/.test(form.ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
+    if (form.con_portal && !form.clave) { setError("Falta la clave del SRI para buscar en el portal."); return; }
+    const carpeta = `descargas/${form.ruc.trim()}`;
+    setFase("procesando");
     try {
-      const p = await sriPermiso(`SRI valor neto ${ruc.trim()}`);
-      const r = await sriValorNeto(p.url, p.token, { carpeta_nc: `descargas/${ruc.trim()}`, ruc: ruc.trim() });
-      setPermiso(p); setResultado(r); setEstado(r.ok === false ? "error" : "listo");
-      if (r.ok === false) setError(r.message || "No se pudo generar el reporte.");
-    } catch (e) { setError(e?.message || "No se pudo generar el reporte."); setEstado("error"); }
+      const p = await sriPermiso(`SRI valor neto ${form.ruc.trim()}`);
+      const params = { carpeta_nc: carpeta, ruc: form.ruc.trim() };
+      if (form.con_portal) params.clave = form.clave;
+      const r = await sriValorNeto(p.url, p.token, params);
+      if (form.con_portal && r && r.id) {
+        ctx.current = { url: p.url, token: p.token, id: r.id, vivo: true };
+        setPermiso(p); setForm((f) => ({ ...f, clave: "" }));
+        poll();
+      } else {
+        setPermiso(p); setResultado(r); setFase(r.ok === false ? "error" : "listo");
+        if (r.ok === false) setError(r.message || "No se pudo generar el reporte.");
+      }
+    } catch (e) { setError(e?.message || "No se pudo generar el reporte."); setFase("error"); }
   }
+
+  async function enviarCaptcha() {
+    if (!captchaCodigo.trim()) return;
+    try { await sriEnviarCaptcha(ctx.current.url, ctx.current.token, ctx.current.id, captchaCodigo.trim()); setCaptchaCodigo(""); setCaptchaImg(null); setFase("procesando"); }
+    catch (e) { setError(e?.message || "No se pudo enviar el captcha."); }
+  }
+
   async function bajar() {
     if (!permiso || !resultado?.excel_path) return;
     setBajando(true); setError("");
@@ -613,15 +657,55 @@ function SubValorNeto() {
     <section className="ma-tarjeta ma-sri-descarga">
       <div className="ma-sri-descarga-cab">
         <h3>Valor neto (factura − notas de crédito)</h3>
-        <span>Cruza cada nota de crédito contra su factura para obtener el valor neto de compra. Trabaja sobre lo ya descargado.</span>
+        <span>Cruza cada nota de crédito contra su factura para obtener el valor neto de compra. Por defecto usa lo ya descargado; puedes pedir que el robot baje del SRI las facturas modificadas que falten.</span>
       </div>
       <div className="ma-sri-form">
-        <label>RUC del cliente<input value={ruc} onChange={(e) => setRuc(e.target.value)} inputMode="numeric" maxLength={13} placeholder="1791859596001" /></label>
+        <label>RUC del cliente<input value={form.ruc} onChange={set("ruc")} inputMode="numeric" maxLength={13} placeholder="1791859596001" disabled={trabajando} /></label>
+        <label className="ma-sri-check">Portal
+          <span className="ma-sri-check-fila"><label><input type="checkbox" checked={form.con_portal} onChange={set("con_portal")} disabled={trabajando} /> Bajar del SRI las facturas que falten (login + captcha)</label></span>
+        </label>
+        {form.con_portal && (
+          <label>Clave del SRI
+            <input type="password" value={form.clave} onChange={set("clave")} placeholder="•••••••" autoComplete="off" disabled={trabajando} />
+          </label>
+        )}
       </div>
       <div className="ma-sri-descarga-acciones">
-        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={estado === "procesando"}>{estado === "procesando" ? "Calculando…" : "Generar valor neto"}</button>
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={trabajando}>{trabajando ? "Calculando…" : "Generar valor neto"}</button>
+        {form.con_portal && (
+          <button type="button" className="ma-boton" onClick={() => setVerVivo((v) => !v)}>{verVivo ? "Ocultar vista en vivo" : "🔴 Ver el robot en vivo"}</button>
+        )}
+        {form.con_portal && <span className="ma-sri-descarga-clave-nota">La clave va directo al motor de la firma; no se guarda ni pasa por el servidor web.</span>}
       </div>
-      {estado === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenOffline r={resultado} titulo="✅ Reporte listo" onDescargar={resultado?.excel_path ? bajar : null} bajando={bajando} textoDescarga="Descargar Excel" /></div>}
+
+      {verVivo && form.con_portal && (
+        <div className="ma-sri-vivo">
+          <div className="ma-sri-vivo-cab">
+            <span>🔴 Robot en vivo — solo lectura</span>
+            <span className="ma-sri-vivo-nota">Requiere estar en la red Tailscale de la firma.</span>
+          </div>
+          <iframe title="Robot SRI en vivo" src={VNC_URL} className="ma-sri-vivo-frame" allow="fullscreen" />
+        </div>
+      )}
+
+      {captchaImg && (
+        <div className="ma-sri-captcha" role="dialog" aria-label="Resolver captcha">
+          <p><strong>El SRI pide un captcha.</strong> Escribe lo que ves:</p>
+          <img alt="captcha del SRI" src={`data:image/png;base64,${captchaImg}`} className="ma-sri-captcha-img" />
+          <div className="ma-sri-captcha-fila">
+            <input value={captchaCodigo} onChange={(e) => setCaptchaCodigo(e.target.value)} placeholder="Código" autoFocus onKeyDown={(e) => e.key === "Enter" && enviarCaptcha()} />
+            <button type="button" className="ma-sri-boton-ejecutar" onClick={enviarCaptcha}>Enviar</button>
+          </div>
+        </div>
+      )}
+      {trabajando && (
+        <div className="ma-sri-trabajando">
+          <span className="ma-sri-spinner" aria-hidden="true" />
+          <span>El robot está trabajando en el servidor… <strong>{segundos}s</strong>{fase === "captcha" ? " · esperando que resuelvas el captcha" : (form.con_portal ? " · bajando del SRI las facturas que falten" : " · calculando")}</span>
+        </div>
+      )}
+      {progreso.length > 0 && <ul className="ma-sri-progreso">{progreso.slice(-8).map((m, i) => <li key={i}>{m}</li>)}</ul>}
+      {fase === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenOffline r={resultado} titulo="✅ Reporte listo" onDescargar={resultado?.excel_path ? bajar : null} bajando={bajando} textoDescarga="Descargar Excel" /></div>}
       {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
     </section>
   );
