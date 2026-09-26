@@ -251,6 +251,52 @@ export async function sriDescargarZip(url, token, id) {
   a.remove();
   URL.revokeObjectURL(a.href);
 }
+// Reconstrucción PDF→XML de Emitidos (offline, agrupa por mes).
+export async function sriReconstruir(url, token, params) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/reconstruir-xml`, {
+      method: "POST",
+      headers: _motorHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    })
+  );
+}
+// Cruce retención ↔ factura (offline). direccion: "retenciones" | "facturas".
+export async function sriCruceRetenciones(url, token, params) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/cruce-retenciones`, {
+      method: "POST",
+      headers: _motorHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    })
+  );
+}
+// Valor neto: factura − notas de crédito (offline).
+export async function sriValorNeto(url, token, params) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/valor-neto`, {
+      method: "POST",
+      headers: _motorHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    })
+  );
+}
+// Baja un archivo producido en el servidor (Excel/ZIP) por su ruta.
+export async function sriDescargarArchivo(url, token, ruta, nombre) {
+  const res = await apiFetch(
+    `${_motorBase(url)}/motor/sri/archivo?ruta=${encodeURIComponent(ruta)}`,
+    { headers: _motorHeaders(token) }
+  );
+  if (!res.ok) throw new Error("No se pudo descargar el archivo.");
+  const blob = await res.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = nombre || String(ruta).split(/[/\\]/).pop() || "reporte.xlsx";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+}
 // Un permiso "ejecutar" sirve para todos los endpoints SRI (leer y ejecutar).
 export async function sriPermiso(encargo) {
   return motorAnaliticoPermiso(encargo, "ejecutar");

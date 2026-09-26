@@ -8,6 +8,10 @@ import {
   sriDescargarZip,
   sriConsolidar,
   sriHistorial,
+  sriReconstruir,
+  sriCruceRetenciones,
+  sriValorNeto,
+  sriDescargarArchivo,
 } from "../../../api.js";
 import "./CumplimientoSRI.css";
 
@@ -18,6 +22,9 @@ const SUBS = [
   { id: "descarga", titulo: "Descarga de comprobantes" },
   { id: "reportes", titulo: "Reportes e historial" },
   { id: "consolidacion", titulo: "Consolidación de documentos" },
+  { id: "reconstruccion", titulo: "Reconstruir XML" },
+  { id: "cruce", titulo: "Retención ↔ Factura" },
+  { id: "valorneto", titulo: "Valor neto (NC)" },
   { id: "ayuda", titulo: "Ayuda" },
 ];
 
@@ -52,6 +59,47 @@ function ResumenResultado({ r, titulo }) {
       {total != null && <div><strong>{total}</strong> comprobantes</div>}
       {conteos.length > 0 && <div className="ma-sri-resumen-conteos">{conteos.join("  ·  ")}</div>}
       {r.mensaje && <div className="ma-sri-resumen-msg">{r.mensaje}</div>}
+      <details className="ma-sri-detalle"><summary>Ver detalle técnico</summary><pre>{JSON.stringify(r, null, 2)}</pre></details>
+    </div>
+  );
+}
+
+// Resumen de un reporte offline (reconstrucción / cruces): conteos + por mes.
+const _ETIQUETAS_OFFLINE = {
+  generados: "XML generados", total_filas: "Filas leídas", repetidos: "Repetidas",
+  fallidos: "Sin generar", invalidos: "No validan XSD",
+  total_retenciones: "Retenciones", total_documentos: "Documentos sustento",
+  con_factura: "Con factura", sin_factura: "Sin factura",
+  total_facturas: "Facturas", con_retencion: "Con retención", sin_retencion: "Sin retención",
+  total_nc: "Notas de crédito", encontradas_local: "Facturas halladas", no_encontradas: "No encontradas",
+};
+function ResumenOffline({ r, titulo, onDescargar, bajando, textoDescarga }) {
+  if (!r || typeof r !== "object") return null;
+  const chips = Object.entries(_ETIQUETAS_OFFLINE)
+    .filter(([k]) => typeof r[k] === "number")
+    .map(([k, et]) => ({ et, v: r[k] }));
+  const porMes = r.por_mes && typeof r.por_mes === "object" ? Object.entries(r.por_mes).sort() : [];
+  return (
+    <div className="ma-sri-resumen">
+      <div className="ma-sri-resumen-titulo">{titulo}</div>
+      {r.message && <div className="ma-sri-resumen-msg">{r.message}</div>}
+      {chips.length > 0 && (
+        <div className="ma-sri-resumen-conteos">
+          {chips.map((c) => <span key={c.et}>{c.et}: <strong>{c.v}</strong></span>)}
+        </div>
+      )}
+      {porMes.length > 0 && (
+        <div className="ma-sri-resumen-conteos">
+          {porMes.map(([m, n]) => <span key={m}>{m}: <strong>{n}</strong></span>)}
+        </div>
+      )}
+      {onDescargar && (
+        <div className="ma-sri-descarga-acciones">
+          <button type="button" className="ma-boton" onClick={onDescargar} disabled={bajando}>
+            {bajando ? "Preparando…" : (textoDescarga || "Descargar reporte")}
+          </button>
+        </div>
+      )}
       <details className="ma-sri-detalle"><summary>Ver detalle técnico</summary><pre>{JSON.stringify(r, null, 2)}</pre></details>
     </div>
   );
@@ -345,6 +393,161 @@ function SubConsolidacion() {
   );
 }
 
+// ---------- Subpágina: Reconstruir XML (PDF→XML de Emitidos, por mes) ----------
+function SubReconstruccion() {
+  const [ruc, setRuc] = useState("");
+  const [estado, setEstado] = useState("idle");
+  const [resultado, setResultado] = useState(null);
+  const [permiso, setPermiso] = useState(null);
+  const [error, setError] = useState("");
+  const [bajando, setBajando] = useState(false);
+
+  async function ejecutar() {
+    setError(""); setResultado(null);
+    if (!/^\d{13}$/.test(ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
+    setEstado("procesando");
+    try {
+      const p = await sriPermiso(`SRI reconstruir ${ruc.trim()}`);
+      const r = await sriReconstruir(p.url, p.token, { carpeta: `descargas/${ruc.trim()}` });
+      setPermiso(p); setResultado(r); setEstado(r.ok === false ? "error" : "listo");
+      if (r.ok === false) setError(r.message || "No se pudo reconstruir.");
+    } catch (e) { setError(e?.message || "No se pudo reconstruir."); setEstado("error"); }
+  }
+  async function bajar() {
+    if (!permiso || !resultado?.destino) return;
+    setBajando(true); setError("");
+    try { await sriDescargarArchivo(permiso.url, permiso.token, resultado.destino, `xml_reconstruidos_${ruc.trim()}.zip`); }
+    catch (e) { setError(e?.message || "No se pudo descargar."); }
+    finally { setBajando(false); }
+  }
+
+  return (
+    <section className="ma-tarjeta ma-sri-descarga">
+      <div className="ma-sri-descarga-cab">
+        <h3>Reconstruir XML (Emitidos)</h3>
+        <span>Arma los XML de los comprobantes emitidos desde los PDF/reportes ya descargados, agrupados por mes. Útil cuando el SRI ya no entrega el XML (más de ~1 mes). Los XML salen SIN firma: sirven para contabilidad y auditoría, no sustituyen al comprobante autorizado.</span>
+      </div>
+      <div className="ma-sri-form">
+        <label>RUC del cliente<input value={ruc} onChange={(e) => setRuc(e.target.value)} inputMode="numeric" maxLength={13} placeholder="1791859596001" /></label>
+      </div>
+      <div className="ma-sri-descarga-acciones">
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={estado === "procesando"}>{estado === "procesando" ? "Reconstruyendo…" : "Reconstruir XML"}</button>
+      </div>
+      {estado === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenOffline r={resultado} titulo="✅ Reconstrucción lista" onDescargar={bajar} bajando={bajando} textoDescarga="Descargar XML (ZIP)" /></div>}
+      {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
+    </section>
+  );
+}
+
+// ---------- Subpágina: Cruce Retención ↔ Factura ----------
+function SubCruceRetenciones() {
+  const [form, setForm] = useState({ ruc: "", sentido: "emitidas", direccion: "retenciones" });
+  const [estado, setEstado] = useState("idle");
+  const [resultado, setResultado] = useState(null);
+  const [permiso, setPermiso] = useState(null);
+  const [error, setError] = useState("");
+  const [bajando, setBajando] = useState(false);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  async function ejecutar() {
+    setError(""); setResultado(null);
+    if (!/^\d{13}$/.test(form.ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
+    setEstado("procesando");
+    try {
+      const carpeta = `descargas/${form.ruc.trim()}`;
+      const p = await sriPermiso(`SRI cruce ${form.ruc.trim()}`);
+      const r = await sriCruceRetenciones(p.url, p.token, {
+        carpeta_retenciones: carpeta, base_ruc: carpeta,
+        sentido: form.sentido, direccion: form.direccion,
+      });
+      setPermiso(p); setResultado(r); setEstado(r.ok === false ? "error" : "listo");
+      if (r.ok === false) setError(r.message || "No se pudo generar el cruce.");
+    } catch (e) { setError(e?.message || "No se pudo generar el cruce."); setEstado("error"); }
+  }
+  async function bajar() {
+    if (!permiso || !resultado?.excel_path) return;
+    setBajando(true); setError("");
+    try { await sriDescargarArchivo(permiso.url, permiso.token, resultado.excel_path); }
+    catch (e) { setError(e?.message || "No se pudo descargar."); }
+    finally { setBajando(false); }
+  }
+
+  return (
+    <section className="ma-tarjeta ma-sri-descarga">
+      <div className="ma-sri-descarga-cab">
+        <h3>Retención ↔ Factura</h3>
+        <span>Cruza los comprobantes de retención contra sus facturas de sustento (lo ya descargado). Ideal para verificar la retención que le hicimos al proveedor contra su factura de compra.</span>
+      </div>
+      <div className="ma-sri-form">
+        <label>RUC del cliente<input value={form.ruc} onChange={set("ruc")} inputMode="numeric" maxLength={13} placeholder="1791859596001" /></label>
+        <label>Sentido
+          <select value={form.sentido} onChange={set("sentido")}>
+            <option value="emitidas">Retención emitida ↔ factura de compra (Recibidos)</option>
+            <option value="recibidas">Retención recibida ↔ factura de venta (Emitidos)</option>
+          </select>
+        </label>
+        <label>Dirección
+          <select value={form.direccion} onChange={set("direccion")}>
+            <option value="retenciones">Una fila por retención (busca su factura)</option>
+            <option value="facturas">Una fila por factura (revela facturas sin retención)</option>
+          </select>
+        </label>
+      </div>
+      <div className="ma-sri-descarga-acciones">
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={estado === "procesando"}>{estado === "procesando" ? "Cruzando…" : "Generar cruce"}</button>
+      </div>
+      {estado === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenOffline r={resultado} titulo="✅ Cruce listo" onDescargar={resultado?.excel_path ? bajar : null} bajando={bajando} textoDescarga="Descargar Excel" /></div>}
+      {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
+    </section>
+  );
+}
+
+// ---------- Subpágina: Valor neto (factura − notas de crédito) ----------
+function SubValorNeto() {
+  const [ruc, setRuc] = useState("");
+  const [estado, setEstado] = useState("idle");
+  const [resultado, setResultado] = useState(null);
+  const [permiso, setPermiso] = useState(null);
+  const [error, setError] = useState("");
+  const [bajando, setBajando] = useState(false);
+
+  async function ejecutar() {
+    setError(""); setResultado(null);
+    if (!/^\d{13}$/.test(ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
+    setEstado("procesando");
+    try {
+      const p = await sriPermiso(`SRI valor neto ${ruc.trim()}`);
+      const r = await sriValorNeto(p.url, p.token, { carpeta_nc: `descargas/${ruc.trim()}`, ruc: ruc.trim() });
+      setPermiso(p); setResultado(r); setEstado(r.ok === false ? "error" : "listo");
+      if (r.ok === false) setError(r.message || "No se pudo generar el reporte.");
+    } catch (e) { setError(e?.message || "No se pudo generar el reporte."); setEstado("error"); }
+  }
+  async function bajar() {
+    if (!permiso || !resultado?.excel_path) return;
+    setBajando(true); setError("");
+    try { await sriDescargarArchivo(permiso.url, permiso.token, resultado.excel_path); }
+    catch (e) { setError(e?.message || "No se pudo descargar."); }
+    finally { setBajando(false); }
+  }
+
+  return (
+    <section className="ma-tarjeta ma-sri-descarga">
+      <div className="ma-sri-descarga-cab">
+        <h3>Valor neto (factura − notas de crédito)</h3>
+        <span>Cruza cada nota de crédito contra su factura para obtener el valor neto de compra. Trabaja sobre lo ya descargado.</span>
+      </div>
+      <div className="ma-sri-form">
+        <label>RUC del cliente<input value={ruc} onChange={(e) => setRuc(e.target.value)} inputMode="numeric" maxLength={13} placeholder="1791859596001" /></label>
+      </div>
+      <div className="ma-sri-descarga-acciones">
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={estado === "procesando"}>{estado === "procesando" ? "Calculando…" : "Generar valor neto"}</button>
+      </div>
+      {estado === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenOffline r={resultado} titulo="✅ Reporte listo" onDescargar={resultado?.excel_path ? bajar : null} bajando={bajando} textoDescarga="Descargar Excel" /></div>}
+      {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
+    </section>
+  );
+}
+
 // ---------- Subpágina 4: Ayuda + alcance ----------
 const FUENTES = [
   { nombre: "Robot del SRI", texto: "Descarga los comprobantes electrónicos emitidos y recibidos, incluidas las retenciones.", formatos: ["XML", "PDF"] },
@@ -401,6 +604,9 @@ export default function CumplimientoSRI({ ir }) {
       {sub === "descarga" && <SubDescarga />}
       {sub === "reportes" && <SubReportes />}
       {sub === "consolidacion" && <SubConsolidacion />}
+      {sub === "reconstruccion" && <SubReconstruccion />}
+      {sub === "cruce" && <SubCruceRetenciones />}
+      {sub === "valorneto" && <SubValorNeto />}
       {sub === "ayuda" && <SubAyuda />}
     </section>
   );
