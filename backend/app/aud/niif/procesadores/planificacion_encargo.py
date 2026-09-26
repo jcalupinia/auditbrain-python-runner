@@ -1,274 +1,147 @@
-"""Planificación de la auditoría · documentación del encargo que prepara el equipo de auditoría (complemento de
-``planificacion_nia``; no es una herramienta del catálogo por sí sola).
+"""Planificación de la auditoría · documentación del encargo (complemento de ``planificacion_nia``; no es una
+herramienta del catálogo por sí sola). Faltantes A1–A17 y A19 de la revisión de control de calidad frente a las NIA.
 
-Cubre los faltantes A1–A19 de la revisión de control de calidad frente a las NIA:
+**Todo es automático** (decisión del dueño, 2026-09-26: «todos los documentos tienen que ser automáticos»):
 
-- Cuestionario de planificación (RQ-010): aceptación y continuidad (NIGC 1, NIA 220), condiciones previas y carta de
-  encargo (NIA 210), materialidad específica (NIA 320 párr. 10), comunicación con el gobierno (NIA 260), discusión del
-  equipo (NIA 315, NIA 240), indagaciones y factores de riesgo de fraude (NIA 240), componentes del control interno y
-  controles generales de TI (NIA 315 Revisada 2019).
-- Equipo del encargo e independencia (RQ-011): confirmaciones, amenazas y salvaguardas, rotación del socio en entidades
-  de interés público y revisor de calidad del encargo (NIGC 2).
-- Diferencias de auditoría (RQ-012, NIA 450) y componentes del grupo (RQ-013, NIA 600 Revisada).
+- Lo que sale de los documentos de entrada: componentes del control interno y controles generales de TI (carta de
+  control interno, RQ-004), indicios de fraude (balances, carta e informe anterior), materialidad específica (cuentas de
+  partes relacionadas y remuneraciones), diferencias de auditoría (notas que no concilian y salvedades con importe),
+  estados del año anterior (encargo inicial e informe anterior) y marco contable aceptable (ficha del encargo).
+- Lo que no está en ningún documento se registra con un clic en la plataforma y llega en ``parametros["_encargo"]``:
+  independencia de cada integrante con su rol (socio, gerente, revisor de calidad…), aprobación de la aceptación por el
+  socio, firma de la carta de encargo generada por la plataforma, asistencia a la discusión del equipo y envío de la carta
+  de planificación. Esos registros van a la hoja de documentación ``00_Registros`` y las cédulas los leen por fórmula.
+- Las indagaciones de fraude a la dirección quedan fuera de la herramienta (decisión de la firma: solo indicios).
+- La firma no audita grupos: no hay auditoría de grupo (NIA 600).
 
-Regla de cero invención: lo que el equipo no documentó queda «[PENDIENTE]» y el control de calidad (hoja 16) lo cuenta;
-nunca se completa por inferencia. Los porcentajes (confianza, error esperado, componente, rotación) son política de la
-firma y los párrafos citados llevan «VERIFICAR» hasta cotejarlos con el texto oficial vigente.
+Regla de cero invención: lo que falta queda «[PENDIENTE]» y el control de calidad (hoja 16) lo cuenta. Los porcentajes
+(confianza, error esperado, materialidad específica, rotación) son política de la firma y los párrafos citados llevan
+«VERIFICAR» hasta cotejarlos con el texto oficial vigente.
 """
 from __future__ import annotations
 
 import math
 
-from backend.app.aud.niif.procesadores.base import FILA0, a_fecha, a_num, campo, fx, n2, norm
+from backend.app.aud.niif.procesadores.base import FILA0, a_fecha, a_num, fx, n2, norm
 
 PENDIENTE = "[PENDIENTE]"
 SI, NO = "Sí", "No"
-ADECUADO, DEFICIENCIAS, NO_APLICA = "Adecuado", "Con deficiencias", "No aplica"
-ORIGEN_CUESTIONARIO = "Cuestionario de planificación (RQ-010)"
+NO_APLICA = "No aplica"
 
-H24, H25, H26, H27, H28, H29, H30, H31, H32 = (
+REG = "00_Registros"
+H24, H25, H26, H27, H28, H29, H30, H32 = (
     "24_Aceptacion", "25_Equipo", "26_Discusion_Fraude", "27_Control_Interno", "28_Afirmaciones", "29_Muestreo",
-    "30_Diferencias", "31_Grupo", "32_Comunicacion")
+    "30_Diferencias", "32_Comunicacion")
 CEDULAS = [
+    (REG, "Registros del encargo en la plataforma (independencia, aceptación, carta de encargo, discusión y comunicación)"),
     (H24, "Aceptación y continuidad, condiciones previas y carta de encargo, materialidad específica y comunicación (NIGC 1; "
           "NIA 210, 220, 260 y 320)"),
     (H25, "Equipo del encargo, independencia, amenazas y salvaguardas, rotación y revisor de calidad (IESBA; NIA 220; NIGC 2)"),
-    (H26, "Discusión del equipo e indagaciones y factores de riesgo de fraude (NIA 315 y 240)"),
-    (H27, "Componentes del control interno y controles generales de TI (NIA 315 Revisada 2019)"),
+    (H26, "Discusión del equipo e indicios de fraude (NIA 315 y 240)"),
+    (H27, "Componentes del control interno y controles generales de TI según la carta de control interno (NIA 315 Revisada 2019)"),
     (H28, "Valoración del riesgo por afirmación y a nivel de estados financieros (NIA 315 y 330)"),
     (H29, "Extensión y tamaño de la muestra por cuenta (NIA 330 y 530)"),
     (H30, "Sumario de diferencias de auditoría (NIA 450)"),
-    (H31, "Auditoría de grupo: componentes y materialidad del componente (NIA 600 Revisada)"),
     (H32, "Comunicación de la planificación a los responsables del gobierno y asuntos clave candidatos (NIA 260 y 701)"),
 ]
+R_ = f"'{REG}'!"
 
-# --- cuestionario de planificación ----------------------------------------------------------------------------------
-BLOQUES = {
-    "ACE": ("Aceptación y continuidad", H24), "CON": ("Condiciones previas y carta de encargo", H24),
-    "MES": ("Materialidad específica", H24), "COM": ("Comunicación con el gobierno", H24),
-    "DIS": ("Discusión del equipo del encargo", H26), "FRA": ("Fraude: indagaciones y factores de riesgo", H26),
-    "CI": ("Componentes del control interno", H27), "TI": ("Controles generales de TI", H27),
-}
-TIPOS_RESPUESTA = ("sino", "evaluacion", "texto", "fecha", "numero")
-
-
-def _q(codigo, pregunta, norma, tipo="texto", esperado=None, sev="", nia="", alerta="", resp="", eeff=False, aplica=""):
-    """Pregunta del cuestionario. ``esperado`` (sino) o ``tipo == "evaluacion"`` definen cuándo hay alerta; ``nia`` es la
-    norma corta de la hoja 13; ``eeff`` marca los riesgos a nivel de estados financieros (hoja 28); ``aplica`` = parámetro
-    Sí/No del que depende (si vale «No», la pregunta no aplica)."""
-    return {"codigo": codigo, "bloque": BLOQUES[codigo.split("-")[0]][0], "hoja": BLOQUES[codigo.split("-")[0]][1],
-            "pregunta": pregunta, "norma": norma, "tipo": tipo, "esperado": esperado, "sev": sev, "nia": nia, "alerta": alerta,
-            "resp": resp, "eeff": eeff, "aplica": aplica}
-
-
-_CONDICION = ("Condición previa del encargo no cumplida (NIA 210 párr. 6): no aceptar el encargo salvo que la ley lo exija; "
-              "tratarlo con la dirección y el gobierno.")
-_RESP_CONDICION = "Obtener el acuerdo de la dirección sobre sus responsabilidades antes de aceptar (NIA 210 párr. 6 y 8)."
-_FACTOR_FRAUDE = ("Respuesta global: escepticismo reforzado, elemento de imprevisibilidad y pruebas de asientos de diario, "
-                  "estimaciones y transacciones inusuales (NIA 240 párr. 28–33 — VERIFICAR).")
-_DEF_CI = ("Deficiencias en {x}: considerarlas en la valoración de los riesgos y comunicar las significativas por escrito "
-           "(NIA 265).")
-_RESP_CI = "Evaluar si son deficiencias significativas, no confiar en esos controles y ampliar las pruebas sustantivas del área."
-_DEF_TI = ("Deficiencias en los controles generales de TI ({x}): no confiar en controles automáticos ni en informes del sistema "
-           "sin probar su integridad y exactitud.")
-_RESP_TI = "Probar la integridad y exactitud de los informes usados como evidencia; considerar un especialista en TI (NIA 620)."
-
-CUESTIONARIO = [
-    _q("ACE-01", "¿Se evaluó la integridad de los propietarios principales, la dirección y los responsables del gobierno, sin "
-                 "asuntos que impidan aceptar o continuar el encargo?", "NIGC 1; NIA 220 (Revisada) párr. 22–24 (VERIFICAR)",
-       "sino", SI, "Alto", "NIA 220",
-       "Integridad de la dirección no evaluada o con reservas: riesgo de fraude a nivel de estados financieros y de continuidad "
-       "del encargo.", "Consultar con el socio antes de continuar y reforzar el escepticismo profesional (NIA 220; NIA 240).", True),
-    _q("ACE-02", "¿La firma tiene la competencia, la capacidad, el tiempo y los recursos (incluidos expertos) para el encargo?",
-       "NIGC 1; NIA 220 (Revisada) párr. 25–26 (VERIFICAR)", "sino", SI, "Alto", "NIA 220",
-       "La firma no confirma competencia o recursos suficientes para el encargo.",
-       "Asignar el personal o los expertos necesarios antes de iniciar y documentar la decisión del socio (NIGC 1)."),
-    _q("ACE-03", "¿Se cumplen los requerimientos de ética aplicables, incluida la independencia de la firma y del equipo?",
-       "Código IESBA; NIA 220 (Revisada) párr. 16–21 (VERIFICAR)", "sino", SI, "Alto", "NIA 220",
-       "Requerimientos de ética o de independencia no confirmados: no se puede emitir el informe hasta resolverlo.",
-       "Eliminar las amenazas o aplicar salvaguardas; si no es posible, no aceptar o renunciar al encargo."),
-    _q("ACE-04", "¿Hubo asuntos significativos en el encargo anterior o en la aceptación que pongan en duda la continuidad?",
-       "NIGC 1; NIA 220 (Revisada) párr. 23 (VERIFICAR)", "sino", NO, "Medio", "NIA 220",
-       "Asuntos del encargo anterior o de la aceptación que afectan la continuidad: considerarlos en la estrategia.",
-       "Documentar cómo se resolvieron y su efecto en los riesgos del año."),
-    _q("ACE-05", "Encargo inicial: ¿se comunicó con el auditor predecesor y se revisaron sus papeles de trabajo?",
-       "NIA 510 párr. 6; NIA 300 párr. 13; Código IESBA (VERIFICAR)", "sino", SI, "Alto", "NIA 510",
-       "Encargo inicial sin comunicación con el auditor predecesor: los saldos de apertura requieren procedimientos propios.",
-       "Comunicarse con el predecesor o aplicar procedimientos sustantivos a los saldos de apertura (NIA 510 párr. 6).",
-       aplica="encargoInicial"),
-    _q("ACE-06", "Fecha de la decisión de aceptar o continuar el encargo (aprobada por el socio)", "NIGC 1; NIA 220 (Revisada)",
-       "fecha"),
-    _q("CON-01", "¿El marco de información financiera aplicable es aceptable?", "NIA 210 párr. 6 a)", "sino", SI, "Alto", "NIA 210",
-       _CONDICION, _RESP_CONDICION, True),
-    _q("CON-02", "¿La dirección reconoce su responsabilidad por la preparación de los estados financieros conforme al marco?",
-       "NIA 210 párr. 6 b) i)", "sino", SI, "Alto", "NIA 210", _CONDICION, _RESP_CONDICION, True),
-    _q("CON-03", "¿La dirección reconoce su responsabilidad por el control interno necesario para prepararlos libres de "
-                 "incorrección material?", "NIA 210 párr. 6 b) ii)", "sino", SI, "Alto", "NIA 210", _CONDICION, _RESP_CONDICION, True),
-    _q("CON-04", "¿La dirección reconoce su responsabilidad de dar acceso a toda la información, a la información adicional "
-                 "solicitada y a las personas de la entidad?", "NIA 210 párr. 6 b) iii)", "sino", SI, "Alto", "NIA 210",
-       _CONDICION, _RESP_CONDICION, True),
-    _q("CON-05", "¿La dirección impuso limitaciones al alcance del trabajo del auditor?", "NIA 210 párr. 7; NIA 705", "sino", NO,
-       "Alto", "NIA 210",
-       "Limitación al alcance impuesta por la dirección: puede impedir emitir una opinión (NIA 210 párr. 7; NIA 705).",
-       "Pedir a la dirección que retire la limitación; si no la retira, no aceptar o evaluar el efecto en la opinión.", True),
-    _q("CON-06", "Fecha de la carta de encargo firmada", "NIA 210 párr. 9–10", "fecha"),
-    _q("CON-07", "Firmantes de la carta de encargo (por la entidad y por la firma)", "NIA 210 párr. 10"),
-    _q("MES-01", "¿Hay transacciones, saldos o revelaciones que requieren una materialidad inferior (partes relacionadas, "
-                 "remuneración de la dirección, revelaciones sensibles)?", "NIA 320 párr. 10 y A10–A11 (VERIFICAR)", "sino"),
-    _q("MES-02", "Partidas con materialidad específica y su justificación", "NIA 320 párr. 10 y 14"),
-    _q("MES-03", "Importe de la materialidad específica (USD)", "NIA 320 párr. 10", "numero"),
-    _q("COM-01", "Fecha de la comunicación de la planificación a los responsables del gobierno", "NIA 260 (Revisada) párr. 15",
-       "fecha"),
-    _q("COM-02", "Medio y destinatarios de la comunicación (reunión, carta o acta)", "NIA 260 (Revisada) párr. 18–19 (VERIFICAR)"),
-    _q("DIS-01", "Fecha de la discusión del equipo del encargo", "NIA 315 (Revisada 2019) párr. 17; NIA 240 párr. 15 (VERIFICAR)",
-       "fecha"),
-    _q("DIS-02", "Asistentes a la discusión (incluidos el socio y los miembros clave del equipo)", "NIA 315 (Revisada 2019) párr. 17"),
-    _q("DIS-03", "Temas tratados: susceptibilidad de los estados financieros a incorrección material, incluida la debida a fraude",
-       "NIA 315 (Revisada 2019) párr. 17; NIA 240 párr. 15 (VERIFICAR)"),
-    _q("DIS-04", "Conclusiones y riesgos identificados en la discusión", "NIA 315 (Revisada 2019) párr. 17; NIA 230"),
-    _q("DIS-05", "¿Participó el socio del encargo en la discusión?", "NIA 315 (Revisada 2019) párr. 17 (VERIFICAR)", "sino", SI,
-       "Medio", "NIA 315",
-       "El socio no participó en la discusión del equipo: debe dirigirla o conocer y aprobar sus conclusiones.",
-       "Documentar la participación del socio o una reunión complementaria con él."),
-    _q("FRA-01", "Indagación a la dirección: su valoración del riesgo de fraude y cómo lo identifica y responde",
-       "NIA 240 párr. 17 (VERIFICAR)"),
-    _q("FRA-02", "¿La dirección tiene conocimiento de fraude real, presunto o denunciado que afecte a la entidad?",
-       "NIA 240 párr. 18 (VERIFICAR)", "sino", NO, "Significativo", "NIA 240",
-       "Fraude real, presunto o denunciado conocido por la dirección: riesgo significativo de incorrección material debida a "
-       "fraude.", "Evaluar el efecto en los estados financieros, comunicarlo al gobierno y diseñar procedimientos específicos "
-                  "(NIA 240).", True),
-    _q("FRA-03", "Indagación a los responsables del gobierno: cómo supervisan el riesgo de fraude y si conocen fraudes",
-       "NIA 240 párr. 20–21 (VERIFICAR)"),
-    _q("FRA-04", "Indagación a la auditoría interna (si existe; si no, «No aplica»)", "NIA 240 párr. 19 (VERIFICAR)"),
-    _q("FRA-05", "Factor de riesgo · incentivos o presiones (metas, covenants, bonos atados a resultados): ¿se identificaron?",
-       "NIA 240 párr. 24 y Anexo 1 (VERIFICAR)", "sino", NO, "Alto", "NIA 240",
-       "Incentivos o presiones para manipular la información financiera: factor de riesgo de fraude.", _FACTOR_FRAUDE, True),
-    _q("FRA-06", "Factor de riesgo · oportunidades (controles débiles, transacciones complejas, dominio de una sola persona): "
-                 "¿se identificaron?", "NIA 240 párr. 24 y Anexo 1 (VERIFICAR)", "sino", NO, "Alto", "NIA 240",
-       "Oportunidades para cometer fraude: factor de riesgo de fraude.", _FACTOR_FRAUDE, True),
-    _q("FRA-07", "Factor de riesgo · actitudes o racionalización (incumplimientos previos, relación tensa con el auditor): "
-                 "¿se identificaron?", "NIA 240 párr. 24 y Anexo 1 (VERIFICAR)", "sino", NO, "Alto", "NIA 240",
-       "Actitudes o racionalización de la dirección: factor de riesgo de fraude.", _FACTOR_FRAUDE, True),
-    _q("CI-01", "Entorno de control (integridad, valores éticos, supervisión del gobierno, estructura y competencia)",
-       "NIA 315 (Revisada 2019) párr. 21 (VERIFICAR)", "evaluacion", sev="Alto", nia="NIA 315",
-       alerta="Deficiencias en el entorno de control: riesgo a nivel de estados financieros; no confiar en los controles y "
-              "ampliar las pruebas sustantivas.",
-       resp="Respuesta global (NIA 330 párr. 5) y comunicación de las deficiencias significativas (NIA 265).", eeff=True),
-    _q("CI-02", "Proceso de valoración del riesgo de la entidad", "NIA 315 (Revisada 2019) párr. 22–23 (VERIFICAR)", "evaluacion",
-       sev="Medio", nia="NIA 315", alerta=_DEF_CI.format(x="el proceso de valoración del riesgo de la entidad"), resp=_RESP_CI),
-    _q("CI-03", "Proceso de seguimiento del sistema de control interno", "NIA 315 (Revisada 2019) párr. 24 (VERIFICAR)",
-       "evaluacion", sev="Medio", nia="NIA 315", alerta=_DEF_CI.format(x="el seguimiento del control interno"), resp=_RESP_CI),
-    _q("CI-04", "Sistema de información y comunicación relevante para la información financiera",
-       "NIA 315 (Revisada 2019) párr. 25 (VERIFICAR)", "evaluacion", sev="Medio", nia="NIA 315",
-       alerta=_DEF_CI.format(x="el sistema de información y comunicación"), resp=_RESP_CI),
-    _q("CI-05", "Actividades de control: diseño e implementación de los controles relevantes para los riesgos identificados",
-       "NIA 315 (Revisada 2019) párr. 26 (VERIFICAR)", "evaluacion", sev="Medio", nia="NIA 315",
-       alerta=_DEF_CI.format(x="las actividades de control"), resp=_RESP_CI),
-    _q("TI-01", "Aplicaciones y sistemas relevantes para la información financiera (ERP, nómina, facturación, bancos)",
-       "NIA 315 (Revisada 2019) párr. 26 b) (VERIFICAR)"),
-    _q("TI-02", "Riesgos derivados del uso de TI identificados", "NIA 315 (Revisada 2019) párr. 26 c) (VERIFICAR)"),
-    _q("TI-03", "Gestión de accesos (altas, bajas, privilegios y segregación de funciones en el sistema)",
-       "NIA 315 (Revisada 2019) párr. 26 d) y A166–A172 (VERIFICAR)", "evaluacion", sev="Medio", nia="NIA 315",
-       alerta=_DEF_TI.format(x="accesos"), resp=_RESP_TI),
-    _q("TI-04", "Gestión de cambios en programas y configuraciones", "NIA 315 (Revisada 2019) párr. 26 d) (VERIFICAR)",
-       "evaluacion", sev="Medio", nia="NIA 315", alerta=_DEF_TI.format(x="cambios en programas"), resp=_RESP_TI),
-    _q("TI-05", "Operaciones de TI (respaldos, gestión de incidentes y procesos programados)",
-       "NIA 315 (Revisada 2019) párr. 26 d) (VERIFICAR)", "evaluacion", sev="Medio", nia="NIA 315",
-       alerta=_DEF_TI.format(x="operaciones"), resp=_RESP_TI),
-]
-POR_CODIGO = {q["codigo"]: q for q in CUESTIONARIO}
-HOJAS_CUESTIONARIO = (H24, H26, H27)
-# Fila de cada pregunta en su hoja (orden fijo del catálogo): la usan las hojas 11, 13, 16, 21 y 32.
-FILA_Q = {}
-for _h in HOJAS_CUESTIONARIO:
-    for _i, _x in enumerate(q for q in CUESTIONARIO if q["hoja"] == _h):
-        FILA_Q[_x["codigo"]] = (_h, FILA0 + _i)
-COLS_CUESTIONARIO = [["Bloque", "t"], ["Código", "t"], ["Pregunta o aspecto", "t"], ["Norma", "t"], ["Respuesta", "x"],
-                     ["Detalle o evidencia", "t"], ["Fecha", "d"], ["Responsable", "t"], ["Estado", "t"]]
-
-# --- equipo, diferencias y componentes ------------------------------------------------------------------------------
+# --- registros de la plataforma (00_Registros) -----------------------------------------------------------------------
+TIPO_INDEP = "Independencia confirmada"
+TIPO_ASIST = "Asistencia a la discusión del equipo"
+TIPO_ACEPT = "Aceptación o continuidad aprobada"
+TIPO_CARTA = "Carta de encargo firmada"
+TIPO_COMUN = "Comunicación al gobierno enviada"
 ROLES = ("Socio", "Gerente", "Senior", "Asistente", "Revisor de calidad", "Experto", "Otro")
-TIPOS_DIF = ("Factual", "De juicio", "Proyectada")
-PERIODOS_DIF = ("Actual", "Anterior")
-ROLES_GRUPO = ("Auditor del grupo", "Auditor de un componente")
 ESTADOS_ANTERIORES = ("Auditados por nosotros", "Auditados por otro auditor", "No auditados")
+COLS_REGISTROS = [["Registro", "t"], ["Integrante o responsable", "t"], ["Rol", "t"], ["Fecha", "d"],
+                  ["Amenazas o limitaciones", "t"], ["Salvaguardas o medio", "t"], ["Años con el cliente", "n"], ["Detalle", "t"]]
+GUIA_REGISTROS = ("Los registra la plataforma con un clic de cada usuario en el encargo: su independencia y su rol, la aprobación "
+                  "de la aceptación por el socio, la firma de la carta de encargo y el envío de la carta de planificación "
+                  "(generadas por la plataforma) y la asistencia a la discusión del equipo. Lo que no se registró queda vacío.")
 
-_CUEST = [
-    campo("codigo", "Código de la pregunta", alias=("codigo", "código", "cod", "ref", "referencia", "id"), ejemplo="ACE-01"),
-    campo("pregunta", "Pregunta (referencia; no se usa en el cálculo)", requerido=False, alias=("pregunta", "aspecto"),
-          ejemplo="¿Se evaluó la integridad de los propietarios principales, la dirección y los responsables del gobierno…?"),
-    campo("respuesta", "Respuesta", requerido=False,
-          alias=("respuesta", "conclusion", "conclusión", "evaluacion", "evaluación", "valor", "resultado"), ejemplo="Sí"),
-    campo("detalle", "Detalle o evidencia", requerido=False,
-          alias=("detalle", "evidencia", "comentario", "observacion", "observación", "sustento"),
-          ejemplo="Consulta de antecedentes y reunión con el directorio; sin reservas."),
-    campo("fecha", "Fecha", "date", requerido=False, alias=("fecha", "fecha de la respuesta"), ejemplo="2025-09-15"),
-    campo("responsable", "Responsable", requerido=False, alias=("responsable", "preparado por", "quien", "quién", "elaborado por"),
-          ejemplo="CPA Andrea Vélez (ficticio)"),
-]
-_EQUIPO = [
-    campo("integrante", "Integrante", alias=("integrante", "nombre", "miembro", "persona"), ejemplo="CPA Andrea Vélez (ficticio)"),
-    campo("rol", "Rol en el encargo", alias=("rol", "cargo", "funcion", "función"), ejemplo="Socio"),
-    campo("independencia", "¿Confirmó su independencia? (Sí/No)", requerido=False,
-          alias=("independencia", "confirmo independencia", "confirmó independencia", "declaracion de independencia"), ejemplo="Sí"),
-    campo("fecha_confirmacion", "Fecha de la confirmación", "date", requerido=False,
-          alias=("fecha", "fecha de confirmacion", "fecha de confirmación"), ejemplo="2025-09-10"),
-    campo("amenazas", "Amenazas identificadas", requerido=False, alias=("amenazas", "amenaza"), ejemplo=""),
-    campo("salvaguardas", "Salvaguardas aplicadas", requerido=False, alias=("salvaguardas", "salvaguarda", "medidas"), ejemplo=""),
-    campo("anios", "Años en el encargo", "number", requerido=False, alias=("anios", "años", "años en el encargo", "antiguedad"),
-          ejemplo="3"),
-    campo("horas", "Horas presupuestadas", "number", requerido=False, alias=("horas", "presupuesto de horas", "horas presupuestadas"),
-          ejemplo="120"),
-]
-_DIFS = [
-    campo("referencia", "Referencia", alias=("referencia", "ref", "id", "codigo del ajuste", "código del ajuste"), ejemplo="AJ-01"),
-    campo("codigo", "Cuenta afectada (código)", requerido=False, alias=("codigo", "código", "cuenta"), ejemplo="5101"),
-    campo("descripcion", "Descripción", alias=("descripcion", "descripción", "detalle", "concepto"),
-          ejemplo="Provisión de jubilación patronal no ajustada al cálculo actuarial."),
-    campo("tipo", "Tipo (Factual / De juicio / Proyectada)", requerido=False, alias=("tipo", "clase", "naturaleza"), ejemplo="Factual"),
-    campo("importe", "Efecto en la utilidad (USD; negativo si la reduce)", "number",
-          alias=("importe", "efecto", "monto", "valor", "efecto en resultados"), ejemplo="-18500.00"),
-    campo("corregida", "¿Corregida por la entidad? (Sí/No)", requerido=False, alias=("corregida", "ajustada", "registrada"),
-          ejemplo="No"),
-    campo("periodo", "Período (Actual / Anterior)", requerido=False, alias=("periodo", "período", "año", "ejercicio"), ejemplo="Actual"),
-]
-_COMPONENTES = [
-    campo("componente", "Componente", alias=("componente", "entidad", "subsidiaria", "sucursal", "unidad"), ejemplo="Subsidiaria Norte"),
-    campo("activos", "Activos del componente (USD)", "number", alias=("activos", "activo total", "total activos"), ejemplo="850000.00"),
-    campo("ingresos", "Ingresos del componente (USD)", "number", requerido=False, alias=("ingresos", "ventas"), ejemplo="1200000.00"),
-    campo("auditor", "Auditor del componente", requerido=False, alias=("auditor", "firma", "auditor del componente"),
-          ejemplo="Equipo del grupo"),
-    campo("materialidad", "Materialidad de desempeño del componente (USD)", "number", requerido=False,
-          alias=("materialidad", "materialidad del componente", "materialidad de desempeño"), ejemplo=""),
-    campo("instrucciones", "¿Se enviaron instrucciones? (Sí/No)", requerido=False, alias=("instrucciones", "comunicacion", "comunicación"),
-          ejemplo="Sí"),
-]
-CAMPOS = {"cuestionario_planificacion": _CUEST, "equipo_encargo": _EQUIPO, "diferencias_auditoria": _DIFS,
-          "componentes_grupo": _COMPONENTES}
+
+def _rol(v) -> str:
+    k = norm(v)
+    for claves, rol in ((("socio", "partner"), "Socio"), (("revisor", "eqr", "calidad"), "Revisor de calidad"),
+                        (("gerente", "encargad", "supervisor", "manager"), "Gerente"), (("senior", "semisenior"), "Senior"),
+                        (("asistente", "junior", "auxiliar"), "Asistente"), (("experto", "especialista", "actuario"), "Experto")):
+        if k.startswith(claves):
+            return rol
+    return "Otro"
+
+
+def _fecha(v) -> str:
+    f = a_fecha(v) if str(v or "").strip() else None
+    return f.isoformat() if f else ""
+
+
+def registros(p: dict) -> dict:
+    """Registros que la plataforma inyecta en ``parametros["_encargo"]`` (ciclo/servicio.py)."""
+    e = p.get("_encargo") or {}
+    r = e.get("registros") or {}
+    txt = lambda x, k: str((x or {}).get(k) or "").strip()  # noqa: E731
+    equipo = []
+    for x in r.get("equipo") or []:
+        if not txt(x, "integrante"):
+            continue
+        an = a_num(x.get("anios")) if str(x.get("anios") or "").strip() else None
+        equipo.append({"integrante": txt(x, "integrante"), "rol": _rol(x.get("rol")), "fecha": _fecha(x.get("fecha")),
+                       "amenazas": txt(x, "amenazas"), "salvaguardas": txt(x, "salvaguardas"), "anios": None if an is None else float(an)})
+    asist = [{"integrante": txt(x, "integrante"), "rol": _rol(x.get("rol")), "fecha": _fecha(x.get("fecha"))}
+             for x in r.get("asistencia") or [] if txt(x, "integrante")]
+
+    def uno(k):
+        x = r.get(k) or {}
+        return {"actor": txt(x, "actor"), "fecha": _fecha(x.get("fecha")), "detalle": txt(x, "detalle")}
+    return {"equipo": equipo, "asistencia": asist, "aceptacion": uno("aceptacion"), "carta": uno("carta"),
+            "comunicacion": uno("comunicacion"), "firma": str(e.get("firma") or "").strip()}
+
+
+def filas_registros(reg: dict) -> tuple[list, dict]:
+    filas, pos = [], {"equipo": [], "asistencia": []}
+    for x in reg["equipo"]:
+        pos["equipo"].append(FILA0 + len(filas))
+        filas.append([TIPO_INDEP, x["integrante"], x["rol"], x["fecha"] or None, x["amenazas"], x["salvaguardas"], n2(x["anios"]), ""])
+    for x in reg["asistencia"]:
+        pos["asistencia"].append(FILA0 + len(filas))
+        filas.append([TIPO_ASIST, x["integrante"], x["rol"], x["fecha"] or None, "", "", None, ""])
+    for k, tipo, rol, det in (("aceptacion", TIPO_ACEPT, "Socio", "Integridad de la dirección, competencia y recursos (NIGC 1)"),
+                              ("carta", TIPO_CARTA, "", "Carta generada por la plataforma (NIA 210); limitaciones en la columna E"),
+                              ("comunicacion", TIPO_COMUN, "", "Carta de planificación generada por la plataforma (NIA 260)")):
+        x = reg[k]
+        pos[k] = FILA0 + len(filas)
+        filas.append([tipo, x["actor"], rol if x["actor"] else "", x["fecha"] or None,
+                      x["detalle"] if k == "carta" else "", x["detalle"] if k == "comunicacion" else "", None, det])
+    return filas, pos
+
+
+def estados_anteriores(valor: str, encargo_inicial: str, hay_informe: bool) -> str:
+    """A17: el parámetro si se indicó; si no, se deduce: encargo recurrente → auditados por la firma; encargo inicial con
+    informe del año anterior → otro auditor; encargo inicial sin informe → pendiente (no se supone «No auditados»)."""
+    if valor:
+        return valor
+    if encargo_inicial == NO:
+        return ESTADOS_ANTERIORES[0]
+    return ESTADOS_ANTERIORES[1] if hay_informe else ""
+
 
 # --- parámetros del encargo (se agregan a la hoja 02) ---------------------------------------------------------------
-PARAMETROS = {
-    "estadosAnteriores": "", "rolGrupo": "", "materialidadAsignadaGrupo": "", "pctComponente": 50, "umbralComponente": 15,
-    "aniosRotacionSocio": 7, "confianzaAlta": 95, "confianzaMedia": 90, "confianzaBaja": 80, "pctErrorEsperado": 10,
-}
+PARAMETROS = {"estadosAnteriores": "", "aniosRotacionSocio": 7, "pctMatEspecifica": 50,
+              "confianzaAlta": 95, "confianzaMedia": 90, "confianzaBaja": 80, "pctErrorEsperado": 10}
 ETIQUETAS = {
-    "estadosAnteriores": "Estados del año anterior (" + " / ".join(ESTADOS_ANTERIORES) + ")",
-    "rolGrupo": "Auditoría de grupo: rol de la firma (" + " / ".join(ROLES_GRUPO) + ")",
-    "materialidadAsignadaGrupo": "Auditor de un componente: materialidad de desempeño asignada por el equipo del grupo (USD)",
-    "pctComponente": "Materialidad de desempeño de cada componente: % de la del grupo (política de la firma)",
-    "umbralComponente": "Componente de trabajo: % de los activos o ingresos del grupo desde el cual se audita (política de la firma)",
+    "estadosAnteriores": "Estados del año anterior (vacío = se deduce del encargo inicial y del informe anterior)",
     "aniosRotacionSocio": "Años máximos del socio en una entidad de interés público antes de rotar (IESBA — VERIFICAR)",
+    "pctMatEspecifica": "Materialidad específica: % de la global para partes relacionadas y remuneraciones (política de la firma)",
     "confianzaAlta": "Muestreo: confianza para riesgos altos o significativos (%)",
     "confianzaMedia": "Muestreo: confianza para riesgos medios (%)",
     "confianzaBaja": "Muestreo: confianza para riesgos bajos (%)",
     "pctErrorEsperado": "Muestreo: error esperado como % del error tolerable (política de la firma)",
 }
 SUSTENTO = {
-    "estadosAnteriores": "NIA 510 párr. 6; NIA 710 párr. 13–14 (VERIFICAR)", "rolGrupo": "NIA 600 (Revisada)",
-    "materialidadAsignadaGrupo": "NIA 600 (Revisada): instrucciones del equipo del grupo",
-    "pctComponente": "NIA 600 (Revisada): inferior a la del grupo — política de la firma (VERIFICAR)",
-    "umbralComponente": "NIA 600 (Revisada) — política de la firma (VERIFICAR)",
+    "estadosAnteriores": "NIA 510 párr. 6; NIA 710 párr. 13–14 (VERIFICAR)",
     "aniosRotacionSocio": "Código IESBA sección 540 (VERIFICAR)",
+    "pctMatEspecifica": "NIA 320 párr. 10 — política de la firma (VERIFICAR)",
     "confianzaAlta": "NIA 530 — política de la firma", "confianzaMedia": "NIA 530 — política de la firma",
     "confianzaBaja": "NIA 530 — política de la firma", "pctErrorEsperado": "NIA 530 — política de la firma (VERIFICAR)",
 }
@@ -284,303 +157,342 @@ def _opcion(v, opciones, etiqueta) -> str:
     return x
 
 
-def _num(p, k, minimo, maximo, vacio_ok=False):
-    v = p.get(k)
-    if vacio_ok and str(v if v is not None else "").strip() == "":
-        return None
-    x = a_num(v)
+def _num(p, k, minimo, maximo):
+    x = a_num(p.get(k))
     if x is None or not minimo <= float(x) <= maximo:
         raise ValueError(f"{ETIQUETAS[k]}: use un valor de {minimo:g} a {maximo:g}.")
     return float(x)
 
 
 def parametros(p: dict) -> dict:
-    """Valida y normaliza los parámetros del encargo."""
-    out = {"estadosAnteriores": _opcion(p.get("estadosAnteriores"), ESTADOS_ANTERIORES, ETIQUETAS["estadosAnteriores"]),
-           "rolGrupo": _opcion(p.get("rolGrupo"), ROLES_GRUPO, ETIQUETAS["rolGrupo"]),
-           "materialidadAsignadaGrupo": _num(p, "materialidadAsignadaGrupo", 0, 1e13, vacio_ok=True),
-           "pctComponente": _num(p, "pctComponente", 0.01, 100), "umbralComponente": _num(p, "umbralComponente", 0.01, 100),
-           "aniosRotacionSocio": _num(p, "aniosRotacionSocio", 1, 30),
-           "confianzaAlta": _num(p, "confianzaAlta", 50, 99.9), "confianzaMedia": _num(p, "confianzaMedia", 50, 99.9),
-           "confianzaBaja": _num(p, "confianzaBaja", 50, 99.9), "pctErrorEsperado": _num(p, "pctErrorEsperado", 0, 90)}
+    return {"estadosAnteriores": _opcion(p.get("estadosAnteriores"), ESTADOS_ANTERIORES, ETIQUETAS["estadosAnteriores"]),
+            "aniosRotacionSocio": _num(p, "aniosRotacionSocio", 1, 30), "pctMatEspecifica": _num(p, "pctMatEspecifica", 1, 100),
+            "confianzaAlta": _num(p, "confianzaAlta", 50, 99.9), "confianzaMedia": _num(p, "confianzaMedia", 50, 99.9),
+            "confianzaBaja": _num(p, "confianzaBaja", 50, 99.9), "pctErrorEsperado": _num(p, "pctErrorEsperado", 0, 90)}
+
+
+# --- clasificación de la carta de control interno (hoja 12, columnas O y P) -----------------------------------------
+COMPONENTES = ("Entorno de control", "Proceso de valoración del riesgo", "Sistema de información y comunicación",
+               "Actividades de control", "Seguimiento del control interno")
+_CLAVES_COMP = [
+    ("Entorno de control", ("etica", "codigodeconducta", "directorio", "gobiernocorporativo", "organigrama", "manualdefunciones",
+                            "competencia", "rotaciondepersonal", "capacitacion", "integridad", "tonodeladireccion")),
+    ("Proceso de valoración del riesgo", ("valoraciondelriesgo", "valoraciondelosriesgos", "matrizderiesgo", "gestionderiesgo",
+                                          "identificacionderiesgo", "identificaciondelosriesgos", "planestrategico")),
+    ("Seguimiento del control interno", ("seguimiento", "monitoreo", "auditoriainterna", "supervisionperiodica", "evaluacionperiodica")),
+    ("Sistema de información y comunicación", ("sistemadeinformacion", "reportesfinancieros", "comunicacioninterna", "registrocontable",
+                                               "plandecuentas", "cierrecontable", "informacionfinanciera")),
+]
+TI = ("Accesos", "Cambios en programas", "Operaciones de TI")
+_CLAVES_TI = [("Accesos", ("usuario", "acceso", "contrasena", "privilegio", "perfildeusuario")),
+              ("Cambios en programas", ("cambiosenprograma", "cambiosalsistema", "controldecambios", "parche", "versiondelsistema",
+                                        "desarrollodesistemas")),
+              ("Operaciones de TI", ("respaldo", "backup", "incidente", "servidor", "continuidaddelnegocio", "recuperacion"))]
+
+
+def clasifica(texto: str) -> tuple[str, str]:
+    """(componente del control interno, control general de TI o «») de un hallazgo de la carta, por palabras clave.
+    Un hallazgo de TI es una actividad de control (controles generales de TI, NIA 315 Revisada 2019)."""
+    k = norm(texto)
+    ti = next((c for c, claves in _CLAVES_TI if any(x in k for x in claves)), "")
+    comp = next((c for c, claves in _CLAVES_COMP if any(x in k for x in claves)), "Actividades de control")
+    return comp, ti
+
+
+# --- evaluaciones automáticas (hojas 24, 26 y 27) -------------------------------------------------------------------
+COLS_EVALUACION = [["Bloque", "t"], ["Código", "t"], ["Aspecto", "t"], ["Norma", "t"], ["Resultado", "t"],
+                   ["Evidencia o fuente", "t"], ["Fecha", "d"], ["Registrado por", "t"], ["Estado", "t"]]
+FUERA = "Fuera de la herramienta: la firma documenta solo indicios automáticos (decisión de la firma)"
+_FACTOR_FRAUDE = ("Respuesta global: escepticismo reforzado, elemento de imprevisibilidad y pruebas de asientos de diario, "
+                  "estimaciones y transacciones inusuales (NIA 240 párr. 28–33 — VERIFICAR).")
+
+
+def _estado(kind: str, v) -> str:
+    """Espejo de la fórmula de la columna «Estado» según el tipo de evaluación."""
+    s = str(v if v is not None else "")
+    if kind == "no_eval":
+        return "No evaluado"
+    if s.startswith(PENDIENTE):
+        return "Pendiente"
+    if kind == "alerta_si":
+        return "Alerta" if s.startswith("Sí") else "Conforme"
+    if kind == "alerta_con":
+        return "Alerta" if s.startswith("Con") else "Conforme"
+    if kind == "alerta_no":
+        return "Alerta" if s == "No" else "Conforme"
+    if kind == "info":
+        return "Documentado"
+    return "Conforme"
+
+
+def _f_estado(kind: str, e: str) -> str:
+    pend = f'LEFT({e},{len(PENDIENTE)})="{PENDIENTE}"'
+    core = {"alerta_si": f'IF(LEFT({e},2)="Sí","Alerta","Conforme")', "alerta_con": f'IF(LEFT({e},3)="Con","Alerta","Conforme")',
+            "alerta_no": f'IF({e}="No","Alerta","Conforme")', "info": '"Documentado"', "registro": '"Conforme"'}
+    return '"No evaluado"' if kind == "no_eval" else f'IF({pend},"Pendiente",{core[kind]})'
+
+
+def _it(hoja_, codigo, bloque, aspecto, norma, kind, resultado, evid="", fecha=None, por="", sev="", nia="", alerta="", resp="",
+        eeff=False):
+    return {"hoja": hoja_, "codigo": codigo, "bloque": bloque, "aspecto": aspecto, "norma": norma, "kind": kind, "res": resultado,
+            "evid": evid, "fecha": fecha, "por": por, "sev": sev, "nia": nia, "alerta": alerta, "resp": resp, "eeff": eeff}
+
+
+def _partes(conds: list) -> tuple[str, str]:
+    """[(fórmula de la condición, texto, valor Python)] → (fórmula «Sí: …»/«No», valor)."""
+    f_ = "&".join(f'IF({c},"{t}; ","")' for c, t, _v in conds)
+    v_ = "".join(f"{t}; " for _c, t, v in conds if v)
+    return (f'IF({f_}="","No","Sí: "&LEFT({f_},LEN({f_})-2))', f"Sí: {v_[:-2]}" if v_ else "No")
+
+
+def evaluaciones(c: dict) -> list[dict]:
+    """Las evaluaciones de las hojas 24, 26 y 27, en orden. ``c`` trae las referencias y los datos de ``planificacion_nia``."""
+    reg, pos, R12, R13, H8 = c["reg"], c["pos"], c["R12"], c["R13"], c["H8"]
+    n12, n13, n8, n_inf = c["n12"], c["n13"], c["n8"], c["n_inf"]
+    rng = lambda pref, col, n: f"{pref}${col}${FILA0}:${col}${FILA0 + max(n, 1) - 1}"  # noqa: E731
+    a12, b12, c12, j12, o12, p12 = (rng(R12, x, n12) for x in "ABCJOP")
+    b13, f13, h13, i13 = (rng(R13, x, n13) for x in "BFHI")
+    b8 = rng(H8, "B", n8)
+    carta, riesgos = c["carta"], c["riesgos"]
+    out = []
+
+    def reg1(k, pend, ok):
+        r = pos[k]
+        x = reg[k]
+        return (fx(f'IF({R_}D{r}="","{pend}","{ok}")', ok if x["fecha"] else pend),
+                fx(f'IF({R_}D{r}="","",{R_}D{r})', x["fecha"] or ""), fx(f'IF({R_}B{r}="","",{R_}B{r})', x["actor"]))
+    # 24 · aceptación, condiciones previas, materialidad específica y comunicación
+    res, fch, por = reg1("aceptacion", f"{PENDIENTE} aprobación del socio en la plataforma", "Aprobada")
+    out.append(_it(H24, "ACE-01", "Aceptación y continuidad", "Aceptación o continuidad aprobada por el socio (integridad de la "
+                   "dirección, competencia y recursos)", "NIGC 1; NIA 220 (Revisada) párr. 22–24 (VERIFICAR)", "registro", res,
+                   "Registro de la plataforma (hoja 00_Registros)", fch, por))
+    n_eq, eq_est = c["n_eq"], c["eq_estados"]
+    h25 = f"'{H25}'!$H${FILA0}:$H${FILA0 + max(n_eq, 1) - 1}"
+    v = (f"{PENDIENTE} confirmaciones de independencia en la plataforma" if not n_eq else
+         "Con alertas (hoja 25)" if any(e.startswith("Alerta") for e in eq_est) else "Confirmada por todo el equipo")
+    out.append(_it(H24, "ACE-02", "Aceptación y continuidad", "Independencia de la firma y del equipo del encargo",
+                   "Código IESBA; NIA 220 (Revisada) párr. 16–21 (VERIFICAR)", "alerta_con",
+                   fx(f'IF({n_eq}=0,"{PENDIENTE} confirmaciones de independencia en la plataforma",IF(COUNTIF({h25},"Alerta*")>0,'
+                      f'"Con alertas (hoja 25)","Confirmada por todo el equipo"))', v), "Hoja 25 · registros de independencia"))
+    alto_inf = any(x["origen"] == "Informe anterior" and x["presenta"] == "Sí" and x["sev"] == "Alto" for x in riesgos)
+    v = ("Sí: ver los riesgos del informe anterior (hoja 13)" if alto_inf else
+         f"{PENDIENTE} sin informe del año anterior (RQ-005)" if not n_inf else "No")
+    out.append(_it(H24, "ACE-03", "Aceptación y continuidad", "Asuntos del encargo anterior que afectan la continuidad (opinión "
+                   "modificada, salvedades, empresa en marcha)", "NIA 220 (Revisada) párr. 23; NIA 510 (VERIFICAR)", "alerta_si",
+                   fx(f'IF(COUNTIFS({b13},"Informe anterior",{f13},"Sí",{h13},"Alto")>0,"Sí: ver los riesgos del informe anterior '
+                      f'(hoja 13)",IF({n_inf}=0,"{PENDIENTE} sin informe del año anterior (RQ-005)","No"))', v),
+                   "Informe de auditoría del año anterior (RQ-005) y hoja 13"))
+    out.append(_it(H24, "CON-01", "Condiciones previas y carta de encargo", "Marco de información financiera aplicable aceptable",
+                   "NIA 210 párr. 6 a)", "registro", fx(f'"Sí: "&{c["par"]("marco")}', f"Sí: {c['marco']}"),
+                   "Ficha del encargo (marco contable)"))
+    res, fch, por = reg1("carta", f"{PENDIENTE} registrar la firma de la carta generada por la plataforma", "Firmada")
+    out.append(_it(H24, "CON-02", "Condiciones previas y carta de encargo", "Carta de encargo firmada: responsabilidades de la "
+                   "dirección, acceso a la información y términos del encargo", "NIA 210 párr. 6 b), 9 y 10", "registro", res,
+                   "Carta de encargo generada por la plataforma y registro de su firma", fch, por))
+    r = pos["carta"]
+    lim = reg["carta"]["detalle"]
+    v = f"{PENDIENTE} se registra con la firma de la carta" if not reg["carta"]["fecha"] else f"Sí: {lim}" if lim else "No"
+    out.append(_it(H24, "CON-03", "Condiciones previas y carta de encargo", "Limitaciones al alcance impuestas por la dirección",
+                   "NIA 210 párr. 7; NIA 705", "alerta_si",
+                   fx(f'IF({R_}D{r}="","{PENDIENTE} se registra con la firma de la carta",IF({R_}E{r}="","No","Sí: "&{R_}E{r}))', v),
+                   "Registro de la firma de la carta (hoja 00_Registros)", sev="Alto", nia="NIA 210",
+                   alerta="Limitación al alcance impuesta por la dirección: puede impedir emitir una opinión (NIA 210 párr. 7; NIA 705).",
+                   resp="Pedir a la dirección que retire la limitación; si no la retira, evaluar el efecto en la opinión.", eeff=True))
+    claves = ("relacionad", "accionista", "remuneraci", "directores")
+    ctas = [x["cuenta"] for x in c["cuentas"] if any(k in x["cuenta"].lower() for k in claves)]
+    v = "Sí" if ctas else "No"
+    out.append(_it(H24, "MES-01", "Materialidad específica", "Partidas que requieren una materialidad inferior (partes relacionadas, "
+                   "accionistas, remuneración de la dirección)", "NIA 320 párr. 10 y A10–A11 (VERIFICAR)", "info",
+                   fx("IF(" + "+".join(f'COUNTIF({b8},"*{k}*")' for k in claves) + '>0,"Sí","No")', v),
+                   ("Cuentas del balance: " + "; ".join(dict.fromkeys(ctas))) if ctas else
+                   "Sin cuentas de partes relacionadas, accionistas o remuneraciones en el balance"))
+    r = pos["comunicacion"]
+    x = reg["comunicacion"]
+    pend = f"{PENDIENTE} registrar el envío de la carta de planificación generada por la plataforma"
+    v = pend if not x["fecha"] else "Enviada" + (f" · {x['detalle']}" if x["detalle"] else "")
+    out.append(_it(H24, "COM-01", "Comunicación con el gobierno", "Comunicación de la planificación a los responsables del gobierno "
+                   "(alcance, momento y riesgos significativos)", "NIA 260 (Revisada) párr. 15", "registro",
+                   fx(f'IF({R_}D{r}="","{pend}","Enviada"&IF({R_}F{r}="",""," · "&{R_}F{r}))', v),
+                   "Carta de planificación generada por la plataforma (hoja 32)",
+                   fx(f'IF({R_}D{r}="","",{R_}D{r})', x["fecha"] or ""), fx(f'IF({R_}B{r}="","",{R_}B{r})', x["actor"])))
+    # 26 · discusión del equipo e indicios de fraude
+    ra = pos["asistencia"]
+    n_as = len(ra)
+    cnt = f'COUNTIF({R_}$A${FILA0}:$A${FILA0 + c["n_reg"] - 1},"{TIPO_ASIST}")'
+    pend = f"{PENDIENTE} confirmaciones de asistencia en la plataforma"
+    f_min = f'MIN({",".join(f"{R_}D{r}" for r in ra)})' if ra else '""'
+    v_min = min((x["fecha"] for x in reg["asistencia"] if x["fecha"]), default="")
+    out.append(_it(H26, "DIS-01", "Discusión del equipo del encargo", "Discusión del equipo: fecha y asistentes",
+                   "NIA 315 (Revisada 2019) párr. 17; NIA 240 párr. 15 (VERIFICAR)", "registro",
+                   fx(f'IF({cnt}=0,"{pend}",{cnt}&" asistentes")', f"{n_as} asistentes" if n_as else pend),
+                   "Registros de asistencia (hoja 00_Registros)", fx(f_min, v_min) if ra else None))
+    socio = any(x["rol"] == "Socio" for x in reg["asistencia"])
+    out.append(_it(H26, "DIS-02", "Discusión del equipo del encargo", "Participación del socio del encargo en la discusión",
+                   "NIA 315 (Revisada 2019) párr. 17 (VERIFICAR)", "alerta_no",
+                   fx(f'IF({cnt}=0,"{pend}",IF(COUNTIFS({R_}$A${FILA0}:$A${FILA0 + c["n_reg"] - 1},"{TIPO_ASIST}",'
+                      f'{R_}$C${FILA0}:$C${FILA0 + c["n_reg"] - 1},"Socio")>0,"Sí","No"))',
+                      pend if not n_as else "Sí" if socio else "No"), "Registros de asistencia (hoja 00_Registros)"))
+    acta = "Acta generada por la plataforma: riesgos de las hojas 12, 13 y 28 e indicios de fraude de esta hoja"
+    out.append(_it(H26, "DIS-03", "Discusión del equipo del encargo", "Temas: susceptibilidad a incorrección material, incluida la "
+                   "debida a fraude, y conclusiones", "NIA 315 (Revisada 2019) párr. 17; NIA 240 párr. 15 (VERIFICAR)", "info",
+                   fx(f'IF({cnt}=0,"{pend}","{acta}")', acta if n_as else pend), "Acta de la discusión (documento de la plataforma)"))
+    out.append(_it(H26, "FRA-01", "Fraude: indagaciones e indicios", "Indagaciones sobre fraude a la dirección, al gobierno y a la "
+                   "auditoría interna", "NIA 240 párr. 17–21 (VERIFICAR)", "no_eval", FUERA, "Decisión de la firma"))
+    d = c["datos"]
+    E9, F9, I10, F10, par = c["E9"], c["F9"], c["I10"], c["F10"], c["par"]
+    conds = [(f"{E9}D{F9['Utilidad neta']}<0", "pérdida del período", d["ut"] < 0),
+             (f"{E9}D{F9['PATRIMONIO TOTAL']}<=0", "patrimonio negativo o nulo", d["pat"] <= 0),
+             (f"N({I10}E{F10['endTotal']})>70", "endeudamiento del activo mayor al 70 %", (d["end"] or 0) > 70),
+             (f'AND(ISNUMBER({E9}F{F9["Ventas netas"]}),N({E9}F{F9["Ventas netas"]})*100<=-{par("umbralVarPct")})',
+              "caída de las ventas mayor al umbral de variación", d["vven"] is not None and d["vven"] * 100 <= -d["umbral"])]
+    f_, v_ = _partes(conds)
+    out.append(_it(H26, "FRA-02", "Fraude: indagaciones e indicios", "Indicios de incentivos o presiones (resultados, patrimonio, "
+                   "endeudamiento, ventas)", "NIA 240 párr. 24 y Anexo 1 (VERIFICAR)", "alerta_si", fx(f_, v_),
+                   "Estados resumidos (hoja 09) e índices (hoja 10)", sev="Alto", nia="NIA 240",
+                   alerta="Incentivos o presiones para manipular la información financiera: factor de riesgo de fraude.",
+                   resp=_FACTOR_FRAUDE, eeff=True))
+    fila27 = c["fila27"]
+    alto_carta = any(x["nivel"] == "Alto" for x in carta)
+    conds = [(f'COUNTIF({j12},"Alto")>0', "hallazgos altos o significativos en la carta de control interno", alto_carta),
+             (f'COUNTIF({fila27},"Alerta")>0', "deficiencias en el control interno o en TI (hoja 27)", c["alertas27"])]
+    f_, v_ = _partes(conds)
+    out.append(_it(H26, "FRA-03", "Fraude: indagaciones e indicios", "Indicios de oportunidades (deficiencias de control interno o "
+                   "de TI)", "NIA 240 párr. 24 y Anexo 1 (VERIFICAR)", "alerta_si", fx(f_, v_), "Carta de control interno (hoja 12) "
+                   "y hoja 27", sev="Alto", nia="NIA 240", alerta="Oportunidades para cometer fraude: factor de riesgo de fraude.",
+                   resp=_FACTOR_FRAUDE, eeff=True))
+    act = any(x["origen"] == "Informe anterior" and x["presenta"] == "Sí" and x["norma"] == "NIA 705 y 710" for x in riesgos)
+    v = "Sí: opinión modificada o salvedades del año anterior (hoja 13)" if act else "No"
+    out.append(_it(H26, "FRA-04", "Fraude: indagaciones e indicios", "Indicios de actitudes o racionalización (opinión modificada "
+                   "o salvedades del año anterior)", "NIA 240 párr. 24 y Anexo 1 (VERIFICAR)", "alerta_si",
+                   fx(f'IF(COUNTIFS({b13},"Informe anterior",{f13},"Sí",{i13},"NIA 705 y 710")>0,"Sí: opinión modificada o salvedades '
+                      f'del año anterior (hoja 13)","No")', v), "Informe del año anterior (RQ-005) y hoja 13", sev="Alto", nia="NIA 240",
+                   alerta="Actitudes o racionalización de la dirección: factor de riesgo de fraude.", resp=_FACTOR_FRAUDE, eeff=True))
+    fr = any("fraude" in (x["proceso"] + " " + x["hallazgo"]).lower() for x in carta)
+    out.append(_it(H26, "FRA-05", "Fraude: indagaciones e indicios", "Hallazgos de la carta de control interno que mencionan fraude",
+                   "NIA 240 párr. 26–27", "alerta_si",
+                   fx(f'IF(COUNTIF({b12},"*fraude*")+COUNTIF({c12},"*fraude*")>0,"Sí: riesgo significativo (hoja 12)","No")',
+                      "Sí: riesgo significativo (hoja 12)" if fr else "No"), "Carta de control interno (hoja 12)"))
+    # 27 · componentes del control interno y controles generales de TI (según la carta)
+    for k, comp in enumerate(COMPONENTES):
+        cods = [x["id"] for x in carta if x["comp"] == comp]
+        out.append(_eval_carta(f"CI-{k + 1:02d}", "Componentes del control interno", comp, o12, comp, cods, n12,
+                               "Alto" if k == 0 else "Medio", k == 0))
+    for k, cat in enumerate(TI):
+        cods = [x["id"] for x in carta if x["ti"] == cat]
+        out.append(_eval_carta(f"TI-{k + 1:02d}", "Controles generales de TI", cat, p12, cat, cods, n12, "Medio", False))
+    for x in out:
+        x["estado"] = _estado(x["kind"], x["res"]["v"] if isinstance(x["res"], dict) else x["res"])
     return out
 
 
-# --- lectura y validación -----------------------------------------------------------------------------------------
-
-def _sino(v) -> str | None:
-    k = norm(v)
-    if not k:
-        return ""
-    if k in ("si", "s", "yes", "y", "x", "true", "1", "verdadero"):
-        return SI
-    if k in ("no", "n", "false", "0", "falso"):
-        return NO
-    if k in ("noaplica", "na", "nd"):
-        return NO_APLICA
-    return None
+_NORMA_CI = {"Entorno de control": "NIA 315 (Revisada 2019) párr. 21 (VERIFICAR)",
+             "Proceso de valoración del riesgo": "NIA 315 (Revisada 2019) párr. 22–23 (VERIFICAR)",
+             "Sistema de información y comunicación": "NIA 315 (Revisada 2019) párr. 25 (VERIFICAR)",
+             "Actividades de control": "NIA 315 (Revisada 2019) párr. 26 (VERIFICAR)",
+             "Seguimiento del control interno": "NIA 315 (Revisada 2019) párr. 24 (VERIFICAR)"}
 
 
-def _evaluacion(v) -> str | None:
-    k = norm(v)
-    if not k:
-        return ""
-    if k.startswith(("adecuad", "efectiv", "satisfact", "sindeficien")):
-        return ADECUADO
-    if k.startswith(("condeficien", "deficien", "inadecuad", "debil", "noefectiv")):
-        return DEFICIENCIAS
-    if k in ("noaplica", "na"):
-        return NO_APLICA
-    return None
+def _eval_carta(codigo, bloque, aspecto, rango, clave, cods, n12, sev, eeff):
+    pend = f"{PENDIENTE} sin carta de control interno (RQ-004)"
+    v = pend if not n12 else "Con deficiencias" if cods else "Sin deficiencias informadas en la carta"
+    ti = bloque.endswith("TI")
+    alerta = (("Deficiencias en los controles generales de TI (" + aspecto.lower() + "): no confiar en controles automáticos ni en "
+               "informes del sistema sin probar su integridad y exactitud.") if ti else
+              "Deficiencias en el entorno de control: riesgo a nivel de estados financieros; no confiar en los controles y ampliar "
+              "las pruebas sustantivas." if eeff else
+              f"Deficiencias en {aspecto[0].lower() + aspecto[1:]}: considerarlas en la valoración de los riesgos y comunicar las "
+              "significativas por escrito (NIA 265).")
+    resp = ("Probar la integridad y exactitud de los informes usados como evidencia; considerar un especialista en TI (NIA 620)."
+            if ti else "Respuesta global (NIA 330 párr. 5) y comunicación de las deficiencias significativas (NIA 265)." if eeff else
+            "Evaluar si son deficiencias significativas, no confiar en esos controles y ampliar las pruebas sustantivas del área.")
+    return _it(H27, codigo, bloque, aspecto, "NIA 315 (Revisada 2019) párr. 26 c)–d) (VERIFICAR)" if ti else _NORMA_CI[aspecto],
+               "alerta_con", fx(f'IF({n12}=0,"{pend}",IF(COUNTIF({rango},"{clave}")>0,"Con deficiencias",'
+                                f'"Sin deficiencias informadas en la carta"))', v),
+               ("Hallazgos " + ", ".join(cods) + " (hoja 12)") if cods else "Ningún hallazgo de la carta en este aspecto",
+               sev=sev, nia="NIA 315", alerta=alerta, resp=resp, eeff=eeff)
 
 
-def _rol(v) -> str:
-    k = norm(v)
-    for claves, rol in ((("socio", "partner"), "Socio"), (("revisor", "eqr", "calidad"), "Revisor de calidad"),
-                        (("gerente", "encargad", "supervisor", "manager"), "Gerente"), (("senior", "semisenior"), "Senior"),
-                        (("asistente", "junior", "auxiliar"), "Asistente"), (("experto", "especialista", "actuario"), "Experto")):
-        if k.startswith(claves):
-            return rol
-    return "Otro"
-
-
-def _tipo_dif(v) -> str | None:
-    k = norm(v)
-    if not k:
-        return "Factual"
-    return "Factual" if k.startswith("fact") else "De juicio" if "juicio" in k else \
-        "Proyectada" if k.startswith(("proyect", "extrapol")) else None
-
-
-def _periodo_dif(v) -> str | None:
-    k = norm(v)
-    if not k:
-        return "Actual"
-    return "Actual" if k.startswith(("actual", "corriente", "presente")) else \
-        "Anterior" if k.startswith(("anterior", "previo", "pasado")) else None
-
-
-def respuesta(q: dict, v):
-    """Respuesta normalizada según el tipo de la pregunta; None si no es válida."""
-    s = str(v if v is not None else "").strip()
-    if q["tipo"] == "sino":
-        return _sino(s)
-    if q["tipo"] == "evaluacion":
-        return _evaluacion(s)
-    if q["tipo"] == "fecha":
-        if not s:
-            return ""
-        f = a_fecha(s)
-        return f.isoformat() if f else None
-    if q["tipo"] == "numero":
-        if not s:
-            return ""
-        x = a_num(s)
-        return None if x is None else float(x)
-    return s
-
-
-def validar(tipo: str, filas: list, out: dict) -> None:
-    """Errores propios de los anexos del encargo (se suman a los de ``validar_campos``)."""
-    err = out["errors"]
-    if tipo == "cuestionario_planificacion":
-        vistos = {}
-        for f in filas:
-            c = str(f.get("codigo", "") or "").strip().upper()
-            q = POR_CODIGO.get(c)
-            if q is None:
-                err.append({"row": f.get("_row"), "field": "codigo",
-                            "message": f"Código de pregunta desconocido: {c or '(vacío)'} (use los del modelo, p. ej. ACE-01)."})
-                continue
-            if c in vistos:
-                err.append({"row": f.get("_row"), "field": "codigo", "message": f"Pregunta repetida: {c} (también en la fila {vistos[c]})."})
-            vistos.setdefault(c, f.get("_row"))
-            if respuesta(q, f.get("respuesta")) is None:
-                ayuda = {"sino": "Sí, No o No aplica", "evaluacion": "Adecuado, Con deficiencias o No aplica",
-                         "fecha": "una fecha", "numero": "un número"}[q["tipo"]]
-                err.append({"row": f.get("_row"), "field": "respuesta", "message": f"{c}: responda con {ayuda}."})
-    elif tipo == "equipo_encargo":
-        for f in filas:
-            if _sino(f.get("independencia")) not in ("", SI, NO):
-                err.append({"row": f.get("_row"), "field": "independencia", "message": "Independencia: responda Sí o No."})
-    elif tipo == "diferencias_auditoria":
-        vistos = {}
-        for f in filas:
-            ref_ = str(f.get("referencia", "") or "").strip()
-            if ref_ and ref_ in vistos:
-                err.append({"row": f.get("_row"), "field": "referencia", "message": f"Referencia repetida: {ref_}."})
-            vistos.setdefault(ref_, f.get("_row"))
-            if _tipo_dif(f.get("tipo")) is None:
-                err.append({"row": f.get("_row"), "field": "tipo", "message": "Tipo: use " + ", ".join(TIPOS_DIF) + "."})
-            if _sino(f.get("corregida")) not in ("", SI, NO):
-                err.append({"row": f.get("_row"), "field": "corregida", "message": "¿Corregida?: responda Sí o No."})
-            if _periodo_dif(f.get("periodo")) is None:
-                err.append({"row": f.get("_row"), "field": "periodo", "message": "Período: use Actual o Anterior."})
-    elif tipo == "componentes_grupo":
-        for f in filas:
-            if _sino(f.get("instrucciones")) not in ("", SI, NO, NO_APLICA):
-                err.append({"row": f.get("_row"), "field": "instrucciones", "message": "Instrucciones: responda Sí o No."})
-
-
-def analizar(datasets: dict, sino: dict, pe: dict) -> dict:
-    """Lee los anexos del encargo. Las respuestas inválidas ya las rechaza ``validar``; aquí se ignoran."""
-    resp = {}
-    for f in datasets.get("cuestionario_planificacion") or []:
-        c = str(f.get("codigo", "") or "").strip().upper()
-        q = POR_CODIGO.get(c)
-        if q is None or c in resp:
-            continue
-        r = respuesta(q, f.get("respuesta"))
-        fch = a_fecha(f.get("fecha")) if str(f.get("fecha") or "").strip() else None
-        resp[c] = {"respuesta": "" if r is None else r, "detalle": str(f.get("detalle", "") or "").strip(),
-                   "fecha": fch.isoformat() if fch else "", "responsable": str(f.get("responsable", "") or "").strip()}
-    estado = {q["codigo"]: estado_q(q, resp.get(q["codigo"], {}).get("respuesta", ""), sino) for q in CUESTIONARIO}
-    equipo = []
-    for f in datasets.get("equipo_encargo") or []:
-        nombre = str(f.get("integrante", "") or "").strip()
-        if not nombre:
-            continue
-        ind = _sino(f.get("independencia")) or ""
-        ind = ind if ind in (SI, NO) else ""
-        fch = a_fecha(f.get("fecha_confirmacion")) if str(f.get("fecha_confirmacion") or "").strip() else None
-        an, hr = a_num(f.get("anios")), a_num(f.get("horas"))
-        x = {"integrante": nombre, "rol": _rol(f.get("rol")), "independencia": ind, "fecha": fch.isoformat() if fch else "",
-             "amenazas": str(f.get("amenazas", "") or "").strip(), "salvaguardas": str(f.get("salvaguardas", "") or "").strip(),
-             "anios": None if an is None else float(an), "horas": None if hr is None else float(hr)}
-        x["estado"] = estado_equipo(x, sino, pe)
-        equipo.append(x)
-    difs = []
-    for f in datasets.get("diferencias_auditoria") or []:
-        v = a_num(f.get("importe"))
-        difs.append({"referencia": str(f.get("referencia", "") or "").strip(), "codigo": str(f.get("codigo", "") or "").strip(),
-                     "descripcion": str(f.get("descripcion", "") or "").strip(), "tipo": _tipo_dif(f.get("tipo")) or "Factual",
-                     "periodo": _periodo_dif(f.get("periodo")) or "Actual",
-                     "corregida": SI if _sino(f.get("corregida")) == SI else NO, "importe": float(v or 0), "origen": "RQ-012"})
-    comp = []
-    for f in datasets.get("componentes_grupo") or []:
-        nombre = str(f.get("componente", "") or "").strip()
-        if not nombre:
-            continue
-        mat = a_num(f.get("materialidad")) if str(f.get("materialidad") or "").strip() else None
-        ins = _sino(f.get("instrucciones")) or ""
-        comp.append({"componente": nombre, "activos": float(a_num(f.get("activos")) or 0),
-                     "ingresos": float(a_num(f.get("ingresos")) or 0), "auditor": str(f.get("auditor", "") or "").strip(),
-                     "materialidad": None if mat is None else float(mat), "instrucciones": ins if ins in (SI, NO, NO_APLICA) else ""})
-    alertas = [q for q in CUESTIONARIO if estado[q["codigo"]] == "Alerta"]
-    return {"resp": resp, "estado": estado, "equipo": equipo, "difs": difs, "comp": comp, "alertas": alertas,
-            "hayCuestionario": bool(resp), "hayEquipo": bool(equipo)}
-
-
-def estado_q(q: dict, r, sino: dict) -> str:
-    """Estado de la pregunta (espejo de la fórmula de la columna «Estado»)."""
-    if q["aplica"] and sino.get(q["aplica"]) == NO:
-        return NO_APLICA
-    if r in ("", None):
-        return "Pendiente"
-    if q["tipo"] == "sino" and q["esperado"]:
-        return NO_APLICA if r == NO_APLICA else "Conforme" if r == q["esperado"] else "Alerta"
-    if q["tipo"] == "evaluacion":
-        return "Alerta" if r == DEFICIENCIAS else NO_APLICA if r == NO_APLICA else "Conforme"
-    return "Documentado"
-
-
-def _f_estado(q: dict, e: str, par) -> str:
-    if q["tipo"] == "sino" and q["esperado"]:
-        core = (f'IF({e}="{PENDIENTE}","Pendiente",IF({e}="{NO_APLICA}","{NO_APLICA}",'
-                f'IF({e}="{q["esperado"]}","Conforme","Alerta")))')
-    elif q["tipo"] == "evaluacion":
-        core = f'IF({e}="{PENDIENTE}","Pendiente",IF({e}="{DEFICIENCIAS}","Alerta",IF({e}="{NO_APLICA}","{NO_APLICA}","Conforme")))'
-    else:
-        core = f'IF({e}="{PENDIENTE}","Pendiente","Documentado")'
-    return f'IF({par(q["aplica"])}="No","{NO_APLICA}",{core})' if q["aplica"] else core
-
-
-ALERTA_INDEP = "Alerta · sin confirmación de independencia"
-ALERTA_AMENAZA = "Alerta · amenaza sin salvaguarda"
-ALERTA_ROTACION = "Alerta · rotación del socio (entidad de interés público)"
-
-
-def estado_equipo(x: dict, sino: dict, pe: dict) -> str:
-    if x["independencia"] == NO:
-        return ALERTA_INDEP
-    if x["amenazas"] and not x["salvaguardas"]:
-        return ALERTA_AMENAZA
-    if x["rol"] == "Socio" and sino.get("interesPublico") == SI and (x["anios"] or 0) >= pe["aniosRotacionSocio"]:
-        return ALERTA_ROTACION
-    return "Conforme" if x["independencia"] == SI else "Pendiente"
-
-
-# --- riesgos que el cuestionario lleva a la hoja 13 -----------------------------------------------------------------
-
-def riesgos(enc: dict, sin_herramienta: str) -> list[dict]:
-    """Una fila por pregunta con alerta; su «¿Se presenta?» es fórmula al estado de la pregunta."""
-    return [{"cod": "cuestionario", "q": q["codigo"], "origen": ORIGEN_CUESTIONARIO, "rubro": q["bloque"],
-             "cond": f"{q['codigo']}: {q['pregunta']}", "valor": None, "presenta": "Sí", "riesgo": q["alerta"], "sev": q["sev"],
-             "norma": q["nia"], "resp": q["resp"], "herr": sin_herramienta, "eeff": q["eeff"]} for q in enc["alertas"]]
-
-
-def ref_estado(codigo: str) -> str:
-    h, r = FILA_Q[codigo]
-    return f"'{h}'!I{r}"
-
-
-def ref_respuesta(codigo: str) -> str:
-    h, r = FILA_Q[codigo]
-    return f"'{h}'!E{r}"
-
-
-# --- hojas 24, 26 y 27 (cuestionario) -------------------------------------------------------------------------------
-
-def filas_cuestionario(hoja_: str, enc: dict, par) -> list:
+def filas_evaluacion(items: list, hoja_: str) -> list:
     filas = []
-    for q in (q for q in CUESTIONARIO if q["hoja"] == hoja_):
-        r = FILA_Q[q["codigo"]][1]
-        x = enc["resp"].get(q["codigo"], {})
-        v = x.get("respuesta", "")
-        celda = PENDIENTE if v in ("", None) else (n2(v) if q["tipo"] == "numero" else v)
-        filas.append([q["bloque"], q["codigo"], q["pregunta"], q["norma"], celda, x.get("detalle", ""), x.get("fecha") or None,
-                      x.get("responsable", ""), fx(_f_estado(q, f"E{r}", par), enc["estado"][q["codigo"]])])
+    for x in (i for i in items if i["hoja"] == hoja_):
+        r = FILA0 + len(filas)
+        filas.append([x["bloque"], x["codigo"], x["aspecto"], x["norma"], x["res"], x["evid"], x["fecha"], x["por"],
+                      fx(_f_estado(x["kind"], f"E{r}"), x["estado"])])
     return filas
 
 
-GUIA_CUESTIONARIO = ("Lo prepara el equipo de auditoría (RQ-010): una fila por pregunta con su código (ACE-01, CON-01…), la "
-                     "respuesta (Sí/No, Adecuado/Con deficiencias, una fecha o un texto), el detalle o la evidencia, la fecha y el "
-                     "responsable. Lo que no se documentó queda [PENDIENTE].")
+def fila_de(items: list) -> dict:
+    """Hoja y fila de cada evaluación."""
+    out, k = {}, {}
+    for x in items:
+        k[x["hoja"]] = k.get(x["hoja"], 0) + 1
+        out[x["codigo"]] = (x["hoja"], FILA0 + k[x["hoja"]] - 1)
+    return out
 
-# --- hoja 25 (equipo e independencia) -------------------------------------------------------------------------------
+
+def riesgos(items: list, sin_herramienta: str) -> list[dict]:
+    """Una fila de la hoja 13 por evaluación con alerta que es un riesgo; su «¿Se presenta?» es fórmula al estado."""
+    return [{"cod": "cuestionario", "q": x["codigo"], "origen": "Planificación (hojas 24, 26 y 27)", "rubro": x["bloque"],
+             "cond": f"{x['codigo']}: {x['aspecto']}", "valor": None, "presenta": "Sí", "riesgo": x["alerta"], "sev": x["sev"],
+             "norma": x["nia"], "resp": x["resp"], "herr": sin_herramienta, "eeff": x["eeff"]}
+            for x in items if x["estado"] == "Alerta" and x["sev"]]
+
+
+def ref_estado(pos: dict, codigo: str) -> str:
+    h, r = pos[codigo]
+    return f"'{h}'!I{r}"
+
+
+def ref_resultado(pos: dict, codigo: str) -> str:
+    h, r = pos[codigo]
+    return f"'{h}'!E{r}"
+
+
+# --- hoja 25 (equipo e independencia, desde los registros) ----------------------------------------------------------
 COLS_EQUIPO = [["Integrante", "t"], ["Rol", "t"], ["¿Confirmó su independencia?", "t"], ["Fecha de la confirmación", "d"],
-               ["Amenazas identificadas", "t"], ["Salvaguardas aplicadas", "t"], ["Años en el encargo", "n"],
-               ["Horas presupuestadas", "n"], ["Estado", "t"]]
-TXT_TOTAL_HORAS = "Total de horas presupuestadas"
+               ["Amenazas identificadas", "t"], ["Salvaguardas aplicadas", "t"], ["Años con el cliente", "n"], ["Estado", "t"]]
+ALERTA_AMENAZA = "Alerta · amenaza sin salvaguarda"
+ALERTA_ROTACION = "Alerta · rotación del socio (entidad de interés público)"
+SIN_EQUIPO = f"{PENDIENTE} nadie confirmó su independencia en la plataforma"
 
 
-def filas_equipo(enc: dict, par) -> tuple[list, list]:
-    filas, estilos = [], []
-    for i, x in enumerate(enc["equipo"]):
-        r = FILA0 + i
-        f_ = (f'IF(C{r}="No","{ALERTA_INDEP}",IF(AND(E{r}<>"",F{r}=""),"{ALERTA_AMENAZA}",IF(AND(B{r}="Socio",'
-              f'{par("interesPublico")}="Sí",N(G{r})>={par("aniosRotacionSocio")}),"{ALERTA_ROTACION}",'
-              f'IF(C{r}="Sí","Conforme","Pendiente"))))')
-        filas.append([x["integrante"], x["rol"], x["independencia"] or PENDIENTE, x["fecha"] or None, x["amenazas"],
-                      x["salvaguardas"], n2(x["anios"]), n2(x["horas"]), fx(f_, x["estado"])])
-        estilos.append(None)
-    n = len(filas)
-    tot = sum(x["horas"] or 0 for x in enc["equipo"])
-    filas.append([TXT_TOTAL_HORAS, None, None, None, None, None, None,
-                  fx(f"SUM(H{FILA0}:H{FILA0 + n - 1})" if n else "0", n2(tot)), None])
-    estilos.append({"tipo": "total"})
-    return filas, estilos
+def estado_equipo(x: dict, eip: str, rot: float) -> str:
+    if not x["fecha"]:
+        return "Pendiente"
+    if x["amenazas"] and not x["salvaguardas"]:
+        return ALERTA_AMENAZA
+    if x["rol"] == "Socio" and eip == SI and (x["anios"] or 0) >= rot:
+        return ALERTA_ROTACION
+    return "Conforme"
+
+
+def filas_equipo(reg: dict, pos: dict, eip: str, rot: float, par) -> tuple[list, list]:
+    filas, estados = [], []
+    for x, rr in zip(reg["equipo"], pos["equipo"]):
+        r = FILA0 + len(filas)
+        e = estado_equipo(x, eip, rot)
+        estados.append(e)
+        filas.append([fx(f"{R_}B{rr}", x["integrante"]), fx(f"{R_}C{rr}", x["rol"]),
+                      fx(f'IF({R_}D{rr}="","{PENDIENTE}","Sí")', "Sí" if x["fecha"] else PENDIENTE),
+                      fx(f'IF({R_}D{rr}="","",{R_}D{rr})', x["fecha"] or ""), fx(f'IF({R_}E{rr}="","",{R_}E{rr})', x["amenazas"]),
+                      fx(f'IF({R_}F{rr}="","",{R_}F{rr})', x["salvaguardas"]), fx(f"N({R_}G{rr})", n2(x["anios"] or 0)),
+                      fx(f'IF(C{r}="{PENDIENTE}","Pendiente",IF(AND(E{r}<>"",F{r}=""),"{ALERTA_AMENAZA}",IF(AND(B{r}="Socio",'
+                         f'{par("interesPublico")}="Sí",G{r}>={par("aniosRotacionSocio")}),"{ALERTA_ROTACION}","Conforme")))', e)])
+    if not filas:
+        filas.append([SIN_EQUIPO, "", PENDIENTE, None, "", "", None, "Pendiente"])
+        estados.append("Pendiente")
+    return filas, estados
 
 
 def rango_equipo(col: str, n: int) -> str:
     return f"'{H25}'!${col}${FILA0}:${col}${FILA0 + max(n, 1) - 1}"
 
 
-# --- hoja 30 (diferencias, NIA 450) ---------------------------------------------------------------------------------
+# --- hoja 30 (diferencias, NIA 450; automáticas) --------------------------------------------------------------------
 COLS_DIF = [["Referencia", "t"], ["Código", "t"], ["Descripción", "t"], ["Tipo", "t"], ["Período", "t"], ["¿Corregida?", "t"],
-            ["Efecto en la utilidad", "n"], ["¿Supera el umbral trivial?", "t"], ["¿Se acumula?", "t"], ["Evaluación", "t"]]
-TXT_DIF_ACTUAL = "Incorrecciones no corregidas del período"
-TXT_DIF_ANTERIOR = "Efecto de las incorrecciones no corregidas del año anterior"
+            ["Importe de la diferencia", "n"], ["¿Supera el umbral trivial?", "t"], ["¿Se acumula?", "t"], ["Evaluación", "t"]]
+TXT_DIF_ACTUAL = "Incorrecciones no corregidas del período (se registran en la ejecución)"
+TXT_DIF_ANTERIOR = "Diferencias de apertura y del año anterior no corregidas"
 TXT_DIF_TOTAL = "Total acumulado"
 TXT_DIF_DESEMP = "Materialidad de desempeño"
 TXT_DIF_GLOBAL = "Materialidad global"
@@ -591,15 +503,20 @@ CONCL_DESEMP = "Revisar · supera la materialidad de desempeño: ampliar los pro
 CONCL_OK = "Conforme · por debajo de la materialidad de desempeño"
 
 
-def diferencias(enc: dict, informe: list) -> list[dict]:
-    """Las del equipo (RQ-012); si no trae las del año anterior, las salvedades con importe del informe anterior (RQ-005)."""
-    difs = list(enc["difs"])
-    if not any(x["periodo"] == "Anterior" for x in difs):
-        for j, x in enumerate(informe):
-            if x["tipo"] == "Salvedad" and x["importe"] is not None:
-                difs.append({"referencia": f"RQ-005 · {j + 1}", "codigo": "", "periodo": "Anterior", "corregida": NO,
-                             "descripcion": f"{x['concepto']}: salvedad del informe anterior (confirmar si se corrigió)",
-                             "tipo": "Factual", "importe": float(x["importe"]), "origen": "RQ-005"})
+def diferencias(notas: list, informe: list, fila14: dict, refs: dict) -> list[dict]:
+    """Automáticas: notas del año anterior que no concilian con el balance (saldos de apertura, NIA 510) y salvedades con
+    importe del informe anterior (confirmar si se corrigieron). Cada importe es fórmula a su hoja."""
+    difs = []
+    for i, n in enumerate(notas):
+        if abs(n["dif"]) >= 0.01:
+            difs.append({"referencia": f"Nota {n['nota']}", "codigo": n["codigos"], "tipo": "Factual", "periodo": "Anterior",
+                         "descripcion": f"{n['titulo']}: el balance del cierre anterior difiere de la nota auditada (saldos de apertura)",
+                         "corregida": NO, "importe": n["dif"], "f": f"{refs['N15']}F{FILA0 + i}"})
+    for j, x in enumerate(informe):
+        if x["tipo"] == "Salvedad" and x["importe"] is not None and j in fila14:
+            difs.append({"referencia": f"RQ-005 · {x['concepto']}", "codigo": "", "tipo": "Factual", "periodo": "Anterior",
+                         "descripcion": f"{x['concepto']}: salvedad del informe anterior (confirmar si se corrigió)", "corregida": NO,
+                         "importe": float(x["importe"]), "f": f"{refs['P14']}D{fila14[j]}"})
     return difs
 
 
@@ -621,7 +538,8 @@ def filas_diferencias(difs: list, res: dict, mt: dict, refs: dict) -> tuple[list
     trv = refs["TRIVIAL"]
     for i, x in enumerate(difs):
         r = FILA0 + i
-        filas.append([x["referencia"], x["codigo"], x["descripcion"], x["tipo"], x["periodo"], x["corregida"], n2(x["importe"]),
+        filas.append([x["referencia"], x["codigo"], x["descripcion"], x["tipo"], x["periodo"], x["corregida"],
+                      fx(x["f"], n2(x["importe"])),
                       fx(f'IF({trv}="","Sí",IF(ABS(G{r})>={trv},"Sí","No"))', x["supera"]),
                       fx(f'IF(AND(F{r}="No",H{r}="Sí"),"Sí","No")', x["acumula"]), None])
         estilos.append(None)
@@ -805,52 +723,6 @@ def filas_afirmaciones(eeff: list, cuentas: list, refs: dict) -> list:
     return filas
 
 
-# --- hoja 31 (grupo, NIA 600) ---------------------------------------------------------------------------------------
-COLS_GRUPO = [["Componente o concepto", "t"], ["Activos", "n"], ["Ingresos", "n"], ["% de los activos del grupo", "p"],
-              ["% de los ingresos del grupo", "p"], ["¿Componente de trabajo?", "t"], ["Auditor", "t"],
-              ["Materialidad de desempeño", "n"], ["Estado", "t"], ["¿Se enviaron instrucciones?", "t"]]
-NO_GRUPO = "No aplica: el encargo no es una auditoría de grupo (hoja 02)"
-TXT_ASIGNADA = "Materialidad de desempeño asignada por el equipo del grupo"
-
-
-def filas_grupo(enc: dict, sino: dict, pe: dict, mt: dict, tot: dict, refs: dict, par) -> tuple[list, list]:
-    """Componentes (auditor del grupo) o la materialidad asignada (auditor de un componente)."""
-    filas, estado = [], []
-    if sino.get("auditoriaGrupo") != SI:
-        return [[fx(f'IF({par("auditoriaGrupo")}="Sí","Auditoría de grupo: registre el rol y los componentes","{NO_GRUPO}")',
-                    NO_GRUPO), None, None, None, None, None, None, None, "No aplica", None]], ["No aplica"]
-    des = mt["desempeno"]
-    if pe["rolGrupo"] == "Auditor de un componente":
-        a = pe["materialidadAsignadaGrupo"]
-        e = "Pendiente" if a is None or des is None else "Conforme" if des <= a + 1e-9 else "Revisar"
-        f_ = (f'IF(OR({par("materialidadAsignadaGrupo")}="",{refs["DESEMP"]}=""),"Pendiente",'
-              f'IF({refs["DESEMP"]}<={par("materialidadAsignadaGrupo")},"Conforme","Revisar"))')
-        return [[TXT_ASIGNADA, None, None, None, None, None, None,
-                 fx(f'IF({par("materialidadAsignadaGrupo")}="","",{par("materialidadAsignadaGrupo")})', n2(a)), fx(f_, e), None]], [e]
-    ta, ve = tot["activos"], tot["ventas"]
-    for i, c in enumerate(enc["comp"]):
-        r = FILA0 + i
-        pa = None if not ta else c["activos"] / ta
-        pi = None if not ve else c["ingresos"] / ve
-        trabajo = SI if (pa is not None and pa * 100 >= pe["umbralComponente"]) or (pi is not None and pi * 100 >= pe["umbralComponente"]) \
-            else NO
-        mat = c["materialidad"] if c["materialidad"] is not None else (None if des is None else des * pe["pctComponente"] / 100)
-        est = "Pendiente" if mat is None or des is None else "Conforme" if mat < des - 1e-9 else "Revisar"
-        f_mat = (n2(c["materialidad"]) if c["materialidad"] is not None else
-                 fx(f'IF({refs["DESEMP"]}="","",{refs["DESEMP"]}*{par("pctComponente")}/100)', n2(mat)))
-        filas.append([c["componente"], n2(c["activos"]), n2(c["ingresos"]),
-                      fx(f'IF({refs["TA"]}=0,"",B{r}/{refs["TA"]})', pa), fx(f'IF({refs["VE"]}=0,"",C{r}/{refs["VE"]})', pi),
-                      fx(f'IF(OR(N(D{r})*100>={par("umbralComponente")},N(E{r})*100>={par("umbralComponente")}),"Sí","No")', trabajo),
-                      c["auditor"] or PENDIENTE, f_mat,
-                      fx(f'IF(OR(H{r}="",{refs["DESEMP"]}=""),"Pendiente",IF(H{r}<{refs["DESEMP"]},"Conforme","Revisar"))', est),
-                      c["instrucciones"] or PENDIENTE])
-        estado.append(est)
-    if not filas:
-        filas.append([f"{PENDIENTE} componentes del grupo (RQ-013)", None, None, None, None, None, None, None, "Pendiente", None])
-        estado.append("Pendiente")
-    return filas, estado
-
-
 # --- hoja 32 (comunicación con el gobierno y asuntos clave candidatos) ----------------------------------------------
 COLS_COMUNICACION = [["Asunto", "t"], ["Contenido", "x"], ["Norma", "t"], ["Estado", "t"]]
 RESPONSABILIDADES = ("El auditor se forma y expresa una opinión sobre los estados financieros preparados por la dirección bajo la "
@@ -858,21 +730,21 @@ RESPONSABILIDADES = ("El auditor se forma y expresa una opinión sobre los estad
 NO_KAM = "No aplica: la entidad no es cotizada ni de interés público (NIA 701 párr. 5)"
 
 
-def filas_comunicacion(enc: dict, sino: dict, sig: list, kam_ant: list, equipo_rev: list, refs: dict, par,
-                       fechas: dict, n_equipo: int) -> list:
+def filas_comunicacion(eval_pos: dict, estados: dict, resultados: dict, sino: dict, sig: list, kam_ant: list, revisores: list,
+                       refs: dict, par, fechas: dict, n_equipo: int) -> list:
     """``sig`` = riesgos significativos [(hoja, fila, columna_texto, columna_flag, valor_flag, texto, codigo)];
     ``kam_ant`` = asuntos clave del informe anterior [(fila 14, concepto)]."""
     eip = sino.get("interesPublico") == SI
 
-    def fecha(k, etq, norma):
+    def fecha(k, etq):
         v = fechas.get(k)
-        return [etq, fx(f'IF({par(k)}="","{PENDIENTE}",{par(k)})', v or PENDIENTE), norma,
+        return [etq, fx(f'IF({par(k)}="","{PENDIENTE}",{par(k)})', v or PENDIENTE), "NIA 260 (Revisada) párr. 15",
                 fx(f'IF({par(k)}="","Pendiente","Documentado")', "Documentado" if v else "Pendiente")]
     filas = [
         ["Responsabilidades del auditor", RESPONSABILIDADES, "NIA 260 (Revisada) párr. 14", "Documentado"],
-        fecha("fechaPreliminar", "Alcance y momento · visita preliminar", "NIA 260 (Revisada) párr. 15"),
-        fecha("fechaFinal", "Alcance y momento · visita final", "NIA 260 (Revisada) párr. 15"),
-        fecha("fechaInforme", "Alcance y momento · entrega del informe", "NIA 260 (Revisada) párr. 15"),
+        fecha("fechaPreliminar", "Alcance y momento · visita preliminar"),
+        fecha("fechaFinal", "Alcance y momento · visita final"),
+        fecha("fechaInforme", "Alcance y momento · entrega del informe"),
         ["Materialidad global (si se decide comunicarla)", fx(f'IF({refs["GLOBAL"]}="","{PENDIENTE}",{refs["GLOBAL"]})',
                                                                n2(refs["mt_global"]) if refs["mt_global"] else PENDIENTE),
          "NIA 260 (Revisada) párr. A13 (VERIFICAR)",
@@ -889,14 +761,14 @@ def filas_comunicacion(enc: dict, sino: dict, sig: list, kam_ant: list, equipo_r
     filas.append(["Independencia", fx(f'IF({par("interesPublico")}="Sí","Declaración de independencia de la firma y del equipo '
                                       f'(hoja 25)","Solo si hay amenazas no resueltas (la entidad no es de interés público)")', ind_v),
                   "NIA 260 (Revisada) párr. 17", "Documentado" if eip or n_equipo else "Pendiente"])
-    for cod, etq in (("COM-01", "Fecha de la comunicación"), ("COM-02", "Medio y destinatarios")):
-        v = enc["resp"].get(cod, {}).get("respuesta") or PENDIENTE
-        filas.append([etq, fx(ref_respuesta(cod), v), POR_CODIGO[cod]["norma"], fx(ref_estado(cod), enc["estado"][cod])])
-    rev_v = ", ".join(equipo_rev) if equipo_rev else PENDIENTE
+    h, r = eval_pos["COM-01"]
+    filas.append(["Envío de la carta de planificación", fx(f"'{h}'!E{r}", resultados["COM-01"]), "NIA 260 (Revisada) párr. 15",
+                  fx(f"'{h}'!I{r}", estados["COM-01"])])
+    rev_v = ", ".join(revisores) if revisores else PENDIENTE
     n_rev = f'COUNTIF({rango_equipo("B", n_equipo)},"Revisor de calidad")' if n_equipo else "0"
     filas.append(["Revisor de calidad del encargo (NIGC 2)", rev_v, "NIGC 2; NIA 220 (Revisada) párr. 36 (VERIFICAR)",
                   fx(f'IF({par("interesPublico")}="No","No aplica",IF({n_rev}>0,"Conforme","Revisar"))',
-                     "No aplica" if not eip else "Conforme" if equipo_rev else "Revisar")])
+                     "No aplica" if not eip else "Conforme" if revisores else "Revisar")])
     kam = [(f"Asunto clave candidato · {cod}", fx(f"'{h_}'!{col_t}{fila}", texto)) for h_, fila, col_t, _cf, _fl, texto, cod in sig]
     kam += [("Asunto clave candidato · informe anterior", fx(f"{refs['P14']}B{fila}", texto)) for fila, texto in kam_ant]
     for etq, cont in kam:
@@ -910,14 +782,27 @@ def filas_comunicacion(enc: dict, sino: dict, sig: list, kam_ant: list, equipo_r
 
 
 # --- explicaciones («Cómo se calcula») ------------------------------------------------------------------------------
-_EST_Q = ("«Pendiente» si falta la respuesta; «Alerta» si la respuesta no es la esperada (por ejemplo, «No» a una condición "
-          "previa o «Con deficiencias» en un componente del control interno), y la alerta pasa a la hoja 13 como riesgo; "
-          "«Conforme» o «Documentado» si está completa; «No aplica» si la pregunta no corresponde (encargo que no es inicial).")
+_EST = ("«Pendiente» si falta el registro o el documento; «Alerta» si el resultado indica un problema (una limitación, un "
+        "indicio de fraude o una deficiencia de control) y la alerta pasa a la hoja 13 como riesgo; «Conforme» o «Documentado» si "
+        "está completo; «No evaluado» si la firma decidió no documentarlo en la herramienta.")
+_RES = ("Se calcula solo: lee los registros de la plataforma (hoja 00_Registros), los estados e índices (hojas 09 y 10), la carta "
+        "de control interno clasificada (hoja 12), los riesgos del informe anterior (hoja 13) o las cuentas del balance (hoja 08).")
 EXPLICA = {
-    H24: {"Estado": _EST_Q}, H26: {"Estado": _EST_Q}, H27: {"Estado": _EST_Q},
-    H25: {"Estado": ("Alerta si el integrante no confirmó su independencia, si hay una amenaza sin salvaguarda o si el socio de una "
-                     "entidad de interés público alcanzó los años de rotación de la hoja 02; «Pendiente» si falta la confirmación."),
-          "Horas presupuestadas": "En la fila de total suma las horas presupuestadas de todo el equipo."},
+    H24: {"Resultado": _RES, "Fecha": "Trae la fecha del registro en la plataforma (hoja 00_Registros).",
+          "Registrado por": "Trae quién hizo el registro en la plataforma (hoja 00_Registros).", "Estado": _EST},
+    H26: {"Resultado": _RES, "Fecha": "La primera fecha de asistencia registrada en la plataforma.",
+          "Estado": _EST},
+    H27: {"Resultado": ("Cuenta los hallazgos de la carta de control interno clasificados en ese componente o control de TI "
+                        "(hoja 12, columnas O y P): «Con deficiencias» si hay alguno."), "Estado": _EST},
+    H25: {"Integrante": "Trae de la hoja 00_Registros a quien confirmó su independencia en la plataforma.",
+          "Rol": "El rol que el integrante declaró al confirmar su independencia.",
+          "¿Confirmó su independencia?": "«Sí» si el registro tiene fecha de confirmación.",
+          "Fecha de la confirmación": "Fecha en que el integrante confirmó su independencia con un clic en la plataforma (hoja 00_Registros).",
+          "Amenazas identificadas": "Las amenazas que el integrante declaró al confirmar.",
+          "Salvaguardas aplicadas": "Las salvaguardas que el integrante declaró al confirmar.",
+          "Años con el cliente": "Años del integrante con el cliente según la plataforma.",
+          "Estado": ("Alerta si hay una amenaza sin salvaguarda o si el socio de una entidad de interés público alcanzó los años de "
+                     "rotación de la hoja 02; «Pendiente» si falta la confirmación.")},
     H28: {"Nivel más alto": ("El nivel más alto de las seis afirmaciones de la fila; en los riesgos a nivel de estados financieros, "
                              "la severidad de la hoja 13 si el riesgo se presenta."),
           "Existencia u ocurrencia": ("Nivel del riesgo en esa afirmación: el de los riesgos de las hojas 12 y 13 que la mencionan "
@@ -941,23 +826,15 @@ EXPLICA = {
                                    "redondeado hacia arriba; cero si el saldo es menor que el error tolerable."),
           "Intervalo de muestreo": "Población ÷ tamaño de la muestra: toda partida mayor que el intervalo se prueba al 100 %.",
           "Método": "Explica si hay muestra, si el saldo no la necesita o si el error esperado impide calcularla."},
-    H30: {"¿Supera el umbral trivial?": "Compara el efecto de la diferencia con el umbral de errores claramente insignificantes (hoja 11).",
+    H30: {"Importe de la diferencia": ("Trae la diferencia de cada nota con el balance anterior (hoja 15) o el importe de la "
+                                       "salvedad (hoja 14); abajo suma las que se acumulan y trae las materialidades de la hoja 11."),
+          "¿Supera el umbral trivial?": "Compara la diferencia con el umbral de errores claramente insignificantes (hoja 11).",
           "¿Se acumula?": "Se acumula la diferencia no corregida que supera el umbral trivial (NIA 450 párr. 5).",
-          "Efecto en la utilidad": ("Abajo suma las diferencias que se acumulan del período y del año anterior, las totaliza y trae "
-                                    "las materialidades de la hoja 11 para compararlas."),
           "Evaluación": ("Compara el total acumulado con la materialidad global y la de desempeño: supera la global, supera la de "
                          "desempeño o queda por debajo.")},
-    H31: {"Componente o concepto": ("Si el encargo no es una auditoría de grupo (hoja 02) lo indica con «No aplica»; si lo es, "
-                                    "lista los componentes de la RQ-013 o, como auditor de un componente, la materialidad asignada."),
-          "% de los activos del grupo": "Activos del componente ÷ total del activo del grupo (hoja 09).",
-          "% de los ingresos del grupo": "Ingresos del componente ÷ ventas netas del grupo (hoja 09).",
-          "¿Componente de trabajo?": "«Sí» si sus activos o ingresos alcanzan el umbral de la hoja 02 (política de la firma).",
-          "Materialidad de desempeño": ("La que registró el equipo para el componente o, si falta, la de desempeño del grupo por "
-                                        "el porcentaje de la hoja 02; como auditor de un componente, la asignada por el grupo."),
-          "Estado": "La materialidad del componente debe ser inferior a la de desempeño del grupo (NIA 600 Revisada)."},
     H32: {"Contenido": ("Trae las fechas de la hoja 02, la materialidad de la hoja 11, el texto de cada riesgo significativo de "
-                        "las hojas 12 y 13, las respuestas del cuestionario (hoja 24) y los asuntos clave del informe anterior."),
+                        "las hojas 12 y 13, el envío registrado en la plataforma (hoja 24) y los asuntos clave del informe anterior."),
           "Estado": ("«Comunicar» para cada riesgo significativo; «Candidato» para los asuntos clave si la entidad es de interés "
-                     "público; el estado de la pregunta del cuestionario; «Revisar» si una entidad de interés público no tiene "
-                     "revisor de calidad en la hoja 25.")},
+                     "público; el estado del envío de la carta; «Revisar» si una entidad de interés público no tiene revisor de "
+                     "calidad en la hoja 25.")},
 }
