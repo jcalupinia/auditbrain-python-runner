@@ -17,7 +17,41 @@ from dataclasses import dataclass
 
 
 class ProviderUnavailable(RuntimeError):
-    """No hay proveedor LLM configurado o el proveedor falló al responder."""
+    """No hay proveedor LLM configurado o el proveedor falló al responder.
+
+    ``billing`` marca el subtipo "sin saldo / sin cuota" (HTTP 400/402/429 con
+    un cuerpo de facturación). Es un fallo NO transitorio del proveedor: no
+    tiene sentido reintentarlo, pero SÍ degradar a otro proveedor. Distinguirlo
+    permite (a) un log claro y (b) un mensaje final accionable acorde al
+    principio M16 ("la indisponibilidad de un proveedor no debe bloquear
+    AuditBrain"). El kwarg es opcional para no romper ``ProviderUnavailable(msg)``.
+    """
+
+    def __init__(self, *args: object, billing: bool = False) -> None:
+        super().__init__(*args)
+        self.billing = billing
+
+
+# Señales de agotamiento de saldo/cuota en el cuerpo de error del proveedor.
+# Cubre a Anthropic ("your credit balance is too low"), OpenAI/OpenRouter
+# ("insufficient_quota", "exceeded your current quota") y variantes genéricas
+# de facturación. Se comparan en minúsculas contra el cuerpo crudo del error.
+_BILLING_SIGNALS = (
+    "credit balance",          # Anthropic: "Your credit balance is too low…"
+    "insufficient_quota",      # OpenAI
+    "insufficient quota",
+    "exceeded your current quota",
+    "billing",
+    "payment required",
+    "out of credits",
+    "not enough credits",
+)
+
+
+def _is_billing_error(detail: str) -> bool:
+    """True si el cuerpo de error indica saldo/cuota agotada (no un fallo transitorio)."""
+    low = detail.lower()
+    return any(signal in low for signal in _BILLING_SIGNALS)
 
 
 @dataclass
@@ -187,6 +221,48 @@ def _dispatch(provider: str, messages: list[dict], system: str | None) -> LLMRes
     raise ProviderUnavailable(f"Proveedor desconocido: {provider}")
 
 
+_LOG = logging.getLogger("auditbrain")
+
+# Proveedores sin coste (o de coste cero para AuditBrain) que un operador puede
+# poner por delante de los de pago para cumplir M16. Se citan en el mensaje de
+# error cuando toda la cadena cae por saldo/cuota.
+_FREE_FALLBACKS = "LOCAL_LLM_BASE_URL (servidor propio), GEMINI_API_KEY, GROQ_API_KEY u OPENROUTER_API_KEY"
+
+
+def _log_provider_failure(provider: str, exc: "ProviderUnavailable") -> None:
+    """Registra el fallo de un proveedor distinguiendo saldo/cuota del resto."""
+    if getattr(exc, "billing", False):
+        _LOG.warning(
+            "Proveedor %s sin saldo/cuota (%s). Degradando al siguiente (M16)…",
+            provider, exc,
+        )
+    else:
+        _LOG.warning(
+            "Proveedor %s falló (%s). Probando siguiente…", provider, exc
+        )
+
+
+def _exhausted_chain_error(
+    chain: list[str], last_exc: "ProviderUnavailable", saw_billing: bool
+) -> "ProviderUnavailable":
+    """Excepción a propagar cuando TODA la cadena falló.
+
+    Si el bloqueo fue por saldo/cuota, devuelve un error accionable acorde a
+    M16 (no depender de un proveedor de pago) en vez del texto crudo del
+    proveedor ("Your credit balance is too low…"). En cualquier otro caso
+    conserva la última excepción real.
+    """
+    if saw_billing:
+        return ProviderUnavailable(
+            "Todos los proveedores LLM configurados están sin saldo o cuota "
+            f"(se intentaron: {', '.join(chain)}). Para no depender del saldo "
+            "de un proveedor de pago, configura uno gratuito o local por "
+            f"delante en Render: {_FREE_FALLBACKS}. Último detalle: {last_exc}",
+            billing=True,
+        )
+    return last_exc
+
+
 def chat_complete(
     messages: list[dict[str, str]],
     system: str | None = None,
@@ -197,8 +273,9 @@ def chat_complete(
     timeout puntual, etc.), reintenta con el siguiente proveedor configurado.
     Se prioriza la lista calculada en ``_providers_with_keys()``.
 
-    Si NINGÚN proveedor responde con éxito, propaga la última excepción para
-    que la UI muestre el error real al usuario (no se inventa respuesta).
+    Si NINGÚN proveedor responde con éxito, propaga un error accionable (o la
+    última excepción real) para que la UI muestre el problema al usuario (no se
+    inventa respuesta).
     """
     chain = _providers_with_keys()
     if not chain:
@@ -208,19 +285,17 @@ def chat_complete(
             "ANTHROPIC_API_KEY u OPENAI_API_KEY en Render."
         )
     last_exc: ProviderUnavailable | None = None
+    saw_billing = False
     for provider in chain:
         try:
             return _dispatch(provider, messages, system)
         except ProviderUnavailable as exc:
             last_exc = exc
-            import logging
-
-            logging.getLogger("auditbrain").warning(
-                "Proveedor %s falló (%s). Probando siguiente…", provider, exc
-            )
+            saw_billing = saw_billing or getattr(exc, "billing", False)
+            _log_provider_failure(provider, exc)
             continue
     assert last_exc is not None
-    raise last_exc
+    raise _exhausted_chain_error(chain, last_exc, saw_billing)
 
 
 def _http_post(url: str, headers: dict[str, str], payload: dict, timeout: int = 60) -> dict:
@@ -231,7 +306,13 @@ def _http_post(url: str, headers: dict[str, str], payload: dict, timeout: int = 
             body = r.read().decode("utf-8")
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", errors="replace")
-        raise ProviderUnavailable(f"HTTP {e.code} del proveedor: {detail[:400]}")
+        # HTTP 402 (Payment Required) o un cuerpo de facturación (típico de un
+        # 400/429 de Anthropic sin saldo) => marcar como billing para que el
+        # failover degrade a un proveedor gratuito/local en vez de cortar.
+        billing = e.code == 402 or _is_billing_error(detail)
+        raise ProviderUnavailable(
+            f"HTTP {e.code} del proveedor: {detail[:400]}", billing=billing
+        )
     except urllib.error.URLError as e:
         raise ProviderUnavailable(f"Error de red contactando al proveedor: {e}")
     # ------------------------------------------------------------------
@@ -480,7 +561,13 @@ def _stream_openai_compatible(url, key, model, messages, system, timeout, extra_
         resp = urllib.request.urlopen(req, timeout=timeout)
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", errors="replace")
-        raise ProviderUnavailable(f"HTTP {e.code} del proveedor: {detail[:400]}")
+        # HTTP 402 (Payment Required) o un cuerpo de facturación (típico de un
+        # 400/429 de Anthropic sin saldo) => marcar como billing para que el
+        # failover degrade a un proveedor gratuito/local en vez de cortar.
+        billing = e.code == 402 or _is_billing_error(detail)
+        raise ProviderUnavailable(
+            f"HTTP {e.code} del proveedor: {detail[:400]}", billing=billing
+        )
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         raise ProviderUnavailable(f"Error de red/timeout contactando al proveedor: {e}")
 
@@ -565,6 +652,7 @@ def stream_chat_complete(messages, system=None):
             "(GEMINI_API_KEY, ANTHROPIC_API_KEY, etc.) o LOCAL_LLM_BASE_URL."
         )
     last_exc: ProviderUnavailable | None = None
+    saw_billing = False
     for provider in chain:
         if provider not in _STREAMABLE:
             last_exc = ProviderUnavailable(f"{provider} no streamea (usar fallback no-streaming)")
@@ -577,11 +665,14 @@ def stream_chat_complete(messages, system=None):
             return  # el proveedor terminó correctamente
         except ProviderUnavailable as exc:
             last_exc = exc
+            saw_billing = saw_billing or getattr(exc, "billing", False)
             if emitted:
                 raise  # ya se entregó texto: no hay failover transparente
-            logging.getLogger("auditbrain").warning(
+            _LOG.warning(
                 "Streaming: proveedor %s falló antes del primer token (%s). Siguiente…",
                 provider, exc,
             )
             continue
-    raise last_exc or ProviderUnavailable("Streaming no disponible con la configuración actual.")
+    if last_exc is None:
+        raise ProviderUnavailable("Streaming no disponible con la configuración actual.")
+    raise _exhausted_chain_error(chain, last_exc, saw_billing)
