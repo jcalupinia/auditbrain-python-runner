@@ -36,7 +36,15 @@ def igual(py, xl) -> bool:
         return bool(xl) == py
     if isinstance(py, (int, float)) and isinstance(xl, (int, float)):
         return abs(py - xl) <= (1e-6 if abs(py) <= 2 else 0.005)
+    if isinstance(py, str) and isinstance(xl, str) and py != xl:
+        # FIXED() escribe la cifra con los separadores del equipo: Python usa los del Ecuador (1.053.600,00) y
+        # LibreOffice sin configuración regional, los de EE. UU. (1,053,600.00). Se comparan las cifras intercambiando.
+        return _SEP.sub(lambda x: x.group(0).translate(_CAMBIO), xl) == py
     return str(py) == str(xl)
+
+
+_SEP = re.compile(r"\d[\d.,]*\d")
+_CAMBIO = str.maketrans({",": ".", ".": ","})
 
 
 def verificar(pid: str, tmp: str) -> tuple[int, int, int]:

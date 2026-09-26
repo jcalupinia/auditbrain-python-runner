@@ -471,7 +471,7 @@ def test_riesgo_significativo_sobre_el_inherente_y_colores_por_nivel():
     r2 = m.ejecutar(ds, {**e["parametros"], "umbralSignificativo": 25}, e["corte"])
     assert {x["id"]: x["sig"] for x in r2["detalle"]["carta"]}["R01"] == "No"
     # Colores por nivel: columnas declaradas y reglas de formato condicional en el Excel.
-    assert hs["12_Riesgos_CCI"]["colores"] == ["Nivel"] and hs["10_Indices"]["colores"] == ["Semáforo"]
+    assert hs["12_Riesgos_CCI"]["colores"] == ["Nivel"] and hs["10_Indices"]["colores"] == ["Semáforo", "Tendencia"]
     assert hs["16_Control"]["colores"] == ["Estado"] and hs["19_Programa"]["colores"] == ["Nivel"]
     assert base.rol_color(h12, "Nivel", "Pendiente de calificación") == "info"
     assert base.rol_color(hs["10_Indices"], "Semáforo", m.NO_SIGNIFICATIVO) == "alta"
@@ -487,3 +487,58 @@ def test_riesgo_significativo_sobre_el_inherente_y_colores_por_nivel():
     assert any(s.startswith("J") and '"Significativo"' in f for s, f in reglas)
     html = libro.html(d, reg, [], 1, "borrador").decode("utf-8")
     assert 'class="nivel n-sig"' in html and 'class="nivel n-alta"' in html and ".nivel.n-sig{" in html
+
+
+def test_dias_ajustados_al_periodo_en_la_preliminar():
+    """Hallazgo C2 de los agentes: en la preliminar los días sobre 365 salen inflados; la hoja 10 muestra la cifra y la
+    variación ajustadas (× meses ÷ 12) y la hoja 13 compara esas cifras con los 90/120 días y con el umbral de rotación."""
+    v = lambda c: c.get("v") if isinstance(c, dict) else c  # noqa: E731
+    r = _esc("preliminar_eri")
+    hs = {h["name"]: h for h in m.hojas(r)}
+    h10 = hs["10_Indices"]
+    assert [c[0] for c in h10["cols"]][-3:] == ["Actual ajustado al período", "Variación ajustada", "Tendencia"]
+    fila = {v(f[0]): f for f in h10["rows"]}["Días de cartera"]
+    assert v(fila[4]) == 91.28 and v(fila[8]) == 60.85 and v(fila[9]) == pytest.approx(-1.5)   # 91,28 × 8 ÷ 12
+    assert fila[8]["f"].startswith(f"IF(E{m.FILA0 + 4}=\"\",\"\",ROUND(E{m.FILA0 + 4}*IF(")
+    assert {v(f[0]): f for f in h10["rows"]}["Razón corriente (veces)"][8] is None
+    rb = {x["cod"]: x for x in r["detalle"]["riesgos"]}
+    assert rb["cartera"]["valor"] == 60.85 and rb["cartera"]["presenta"] == "No"
+    assert rb["rotCartera"]["valor"] == pytest.approx(-1.5)
+    h13 = {f[0]: f for f in hs["13_Riesgos_Balance"]["rows"]}
+    f13 = next(f for f in h13.values() if "cartera (ajustados al período) superiores a 90" in f[3])
+    assert "'10_Indices'!I" in f13[4]["f"] and "*IF(" not in f13[5]["f"]
+    # En la final el ajuste es × 1: la cifra ajustada es la misma.
+    fb = {v(f[0]): f for f in next(h for h in m.hojas(_run()) if h["name"] == "10_Indices")["rows"]}["Días de inventario"]
+    assert v(fb[8]) == v(fb[4]) == 102.65
+
+
+def test_lecturas_con_cifras_tendencia_y_narrativa_con_alertas_por_nombre():
+    """Hallazgos A3, B3 y C3 de los agentes: la lectura de cada índice lleva su cifra («por cada US$ 1…»), la hoja 10 dice si
+    el índice mejora o empeora, y la narrativa nombra las alertas, da la variación % del activo y del resultado, lee las
+    variaciones con sus montos (la caja frente a las ventas en su propia fila) y el origen y destino del efectivo."""
+    v = lambda c: c.get("v") if isinstance(c, dict) else c  # noqa: E731
+    hs = {h["name"]: h for h in m.hojas(_run())}
+    f10 = {v(f[0]): f for f in hs["10_Indices"]["rows"]}
+    rc = f10["Razón corriente (veces)"]
+    assert v(rc[7]) == "Por cada US$ 1 de pasivo corriente hay US$ 2,00 de activo corriente: cubre el corto plazo."
+    assert "FIXED(E" in rc[7]["f"] and v(rc[10]) == "Mejora"
+    assert v(f10["Días de inventario"][10]) == "Empeora" and v(f10["Días de proveedores"][10]) in (None, "")
+    assert v(f10["Capital de trabajo (USD)"][7]).startswith("Capital de trabajo de US$ 1.053.600,00:")
+    narr = [[v(c) for c in f] for f in hs["20_Narrativa"]["rows"]]
+    por = {(f[0], f[1]): f for f in narr}
+    assert por[("Hechos", "Activo total")][3] == "El activo total creció 16,9 % (US$ 462.900,00) respecto del período anterior."
+    assert por[("Hechos", "Utilidad neta del período")][3] == "Resultado positivo en el período (+24,0 % frente al período anterior)."
+    assert por[("Alertas", "R01 · Ingresos")][3].endswith("— nivel Significativo")
+    assert por[("Alertas", "RB-01 · Ingresos")][3] == "Incorrección material por fraude en ingresos (ocurrencia y corte) (NIA 240)"
+    assert por[("Causa-efecto", "Efectivo frente a ventas")][3].startswith("Sin señal")
+    assert por[("Causa-efecto", "Destino del efectivo")][3] == ("Principales aplicaciones: INVENTARIOS (US$ 301.400,00) y "
+                                                                "CUENTAS POR COBRAR CLIENTES (US$ 119.000,00).")
+    assert por[("Recomendaciones", "Monitoreo")][3] == "Mantener el monitoreo periódico de los indicadores y covenants."
+    # En déficit: la caja cae con mayores ventas (fila propia) y los indicios NIA 570 aparecen por nombre.
+    nd = [[v(c) for c in f] for f in next(h for h in m.hojas(_esc("patrimonio_deficit")) if h["name"] == "20_Narrativa")["rows"]]
+    pd_ = {(f[0], f[1]): f for f in nd}
+    assert pd_[("Causa-efecto", "Efectivo frente a ventas")][3].startswith("Señal a revisar: la caja cayó pese a mayores ventas")
+    assert sum(1 for f in nd if f[0] == "Alertas" and f[3].endswith("(NIA 570)")) == 4
+    # Cifras en texto: FIXED de Excel usa los separadores del equipo; el verificador compara intercambiándolos.
+    from scripts.verificar_datos_cliente import igual
+    assert igual("US$ 1.053.600,00: sí, claro.", "US$ 1,053,600.00: sí, claro.") and not igual("1,5", "2.5")

@@ -121,7 +121,8 @@ NIVEL_COLOR = {
     "Alto": "alta", "Alta": "alta", "Crítico": "alta", "Rojo": "alta",
     "Medio": "media", "Media": "media", "Revisar": "media", "Amarillo": "media",
     "Bajo": "baja", "Baja": "baja", "Conforme": "baja", "Verde": "baja",
-    "Pendiente": "info", "No evaluado": "info",
+    "Pendiente": "info", "No evaluado": "info", "No significativo": "info",
+    "Empeora": "alta", "Mejora": "baja",
 }
 # Rol → (relleno, texto) en hexadecimal sin «#». Tonos de estado (no se usan en los gráficos).
 ROL_COLOR = {
