@@ -40,6 +40,16 @@ que lo que afirmas está correcto.** Esto significa:
 ## Idioma
 - **SIEMPRE responder en español.** Toda comunicación con el usuario (explicaciones,
   resúmenes, preguntas, mensajes de estado) debe ser en español. Nunca en inglés.
+- **REGLA OBLIGATORIA (decisión del dueño, 2026-09-26: «escribe en español y ponlo como
+  regla»):** la regla no tiene excepciones. Se escribe en español también:
+  - los mensajes automáticos y breves: revisiones programadas del PR (check-ins),
+    avisos de CI, «sin cambios», confirmaciones de una sola línea;
+  - los informes de agentes o subagentes que se entregan al usuario y los encargos que
+    se les dan;
+  - las descripciones de PR, los comentarios en GitHub y los mensajes de commit.
+  Si un texto llega en inglés (herramienta, notificación, agente), se traduce antes de
+  mostrarlo. Solo quedan en su idioma original el código, los nombres técnicos y las
+  citas textuales.
 - El código, nombres de variables y comentarios técnicos pueden seguir las
   convenciones existentes del repositorio, pero la conversación con el usuario es
   siempre en español.
