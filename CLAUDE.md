@@ -636,8 +636,29 @@ los 5 escenarios (final, preliminar con ERI, preliminar con prorrateo, pérdida 
 - **D11:** en la narrativa, la variación de resultados acumulados (traspaso del resultado anterior) se suma al resultado del
   período (`RESULTADO_NETO_TRASPASOS`) y en la hoja 22 su tipo es «Traspaso de resultados»; en la preliminar el importe de los
   días es el ajustado al período. Pruebas: `tests/test_proc_planificacion_nia.py` (`test_defectos_d4_a_d8_del_programa`,
-  `test_defecto_d10_…`, `test_defecto_d11_…`) y `tests/test_aud_ciclo_revision.py`. La lista completa de la revisión (A1–A19,
-  M1–M21) sigue pendiente.
+  `test_defecto_d10_…`, `test_defecto_d11_…`) y `tests/test_aud_ciclo_revision.py`. Los faltantes A1–A19 se resolvieron en
+  el bloque siguiente; M1–M21 siguen pendientes.
+
+**Documentación del encargo en la planificación (2026-09-26, faltantes A1–A19 de la revisión de control de calidad):**
+`procesadores/planificacion_encargo.py` (complemento de `planificacion_nia`, no es herramienta del catálogo). Lo que prepara
+el **equipo de auditoría** entra por cuatro requerimientos marcados «lo prepara el equipo»: RQ-010 cuestionario de
+planificación (catálogo fijo `CUESTIONARIO` de 40 preguntas por código: ACE aceptación, CON condiciones previas y carta
+de encargo, MES materialidad específica, COM comunicación, DIS discusión del equipo, FRA fraude, CI cinco componentes del
+control interno, TI controles generales), RQ-011 equipo e independencia, RQ-012 diferencias (NIA 450) y RQ-013 componentes
+del grupo (NIA 600). **Regla de cero invención:** lo no documentado queda «[PENDIENTE]» y el control de calidad (hoja 16,
+controles 15–24) lo cuenta. Hojas nuevas: `24_Aceptacion`, `25_Equipo`, `26_Discusion_Fraude`, `27_Control_Interno`,
+`28_Afirmaciones` (cuenta × afirmación y nivel de estados financieros), `29_Muestreo` (unidad monetaria: −ln(1−confianza),
+factor de expansión, error esperado; confianza por el nivel más alto de la hoja 28), `30_Diferencias`, `31_Grupo`,
+`32_Comunicacion` (NIA 260 y asuntos clave candidatos NIA 701); los problemas pasan a `33_Problemas`. Cada respuesta con
+alerta es un riesgo de la hoja 13 (fórmula al estado de la pregunta) y un procedimiento del programa; un hallazgo de la carta
+que menciona «fraude» es riesgo significativo (A7); el programa suma la columna «Extensión (NIA 330 y 530)», aseveraciones
+por área (A13) y el plan de confirmaciones y observación del inventario solo para cuentas de balance materiales (A14); la
+hoja 11 trae la materialidad específica (A10); la estrategia, los riesgos significativos por nombre, empresa en marcha,
+calendario, independencia y respuestas globales (A16); la hoja 02, «Estados del año anterior» (A17), el rol en el grupo
+(A18) y los porcentajes de muestreo, componente y rotación (política de la firma, «VERIFICAR»). **A4:** la definición
+declara `firmas` y el libro agrega `00_Firmas` con preparó/revisó y fechas tomados de la bitácora. Escenario nuevo
+`grupo_eip`. Pruebas: `tests/test_proc_planificacion_nia.py` (`test_a…`). Verificación LibreOffice de los 6 escenarios:
+0 diferencias.
 
 **Diseño del libro (todas las herramientas, 2026-09-25):** portada con botones por sección
 (Resultado · Cómo se calculó · Datos del cliente · Documentación) y pestañas del color de su
