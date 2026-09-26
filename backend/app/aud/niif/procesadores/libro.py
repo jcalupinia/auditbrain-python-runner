@@ -204,7 +204,7 @@ def _seccion(h: dict, es_resumen: bool = False) -> int:
     n = h.get("name", "")
     if es_resumen or problemas.es_hoja_problemas(h) or n.startswith("13_") or re.search(r"Asiento|Ajuste", n):
         return 0
-    if re.match(r"D\d_", n):
+    if re.match(r"D\d+_", n):
         return 2
     if n.startswith(("00_", "14_")):
         return 3
