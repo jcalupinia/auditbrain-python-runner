@@ -1138,6 +1138,12 @@ ZONAS = {
     "multiplicador": ("<2", "<=4", ("Bajo", "Moderado", "Alto")),
 }
 _RENT = ("margenBruto", "margenOperativo", "margenNeto", "roi", "dupontRoi", "roe", "dupont")
+# Índices que dividen para el patrimonio: con patrimonio cero o negativo no son interpretables (un endeudamiento
+# negativo no es «conservador»); se marcan en rojo como no significativos y la lectura remite a NIA 570.
+_PAT = ("endFinanciero", "endPatrimonial", "multiplicador", "roe", "dupont")
+NO_SIGNIFICATIVO = "Rojo · No significativo (patrimonio ≤ 0)"
+LECTURA_PATRIMONIO = ("Con patrimonio cero o negativo el indicador no es interpretable: la entidad está en déficit patrimonial "
+                      "(indicio de empresa en marcha, NIA 570).")
 LECTURA = {
     "diasCartera": "Días promedio que la empresa tarda en cobrar a sus clientes (sobre 365 días).",
     "diasInventario": "Días promedio que el inventario permanece en bodega antes de venderse.",
@@ -1491,11 +1497,12 @@ def hojas(res: dict) -> list[dict]:
             fila.append(fx(f_, "" if v is None else v))
         va, vc = ind["ant"][k], ind["act"][k]
         fila.append(fx(f'IF(OR(D{r}="",E{r}=""),"",E{r}-D{r})', "" if va is None or vc is None else _xr(vc - va, 2)))
-        fila.append(fx(_f_semaforo(k, f"E{r}"), _semaforo(k, vc, d["fac"])))
+        pat_ref, pat_v = f"{E9}$D${F9['PATRIMONIO TOTAL']}", d["est9"]["act"]["PATRIMONIO TOTAL"]
+        fila.append(fx(_f_semaforo(k, f"E{r}", pat_ref), _semaforo(k, vc, d["fac"], pat_v)))
         if k == "dias":
             fila.append(fx(f'IF({PRELIM},"{LECTURA_DIAS[1]}","{LECTURA_DIAS[0]}")', LECTURA_DIAS[d["tipo"] == "Preliminar"]))
         else:
-            fila.append(fx(_f_lectura(k, f"E{r}"), _lectura(k, vc)))
+            fila.append(fx(_f_lectura(k, f"E{r}", pat_ref), _lectura(k, vc, pat_v)))
         indices.append(fila)
 
     # 11 · materialidad
@@ -1733,7 +1740,8 @@ def hojas(res: dict) -> list[dict]:
         v = ia[k]
         nombre = next(n_ for kk, n_, *_r in INDICES if kk == k)
         narrativa.append(["Análisis", nombre, fx(i10(k), "" if v is None else v),
-                          fx(f'{i10(k, "G")}&": "&{i10(k, "H")}', f"{_semaforo(k, v, d['fac'])}: {_lectura(k, v)}")])
+                          fx(f'{i10(k, "G")}&": "&{i10(k, "H")}',
+                             f"{_semaforo(k, v, d['fac'], ip['PATRIMONIO TOTAL'])}: {_lectura(k, v, ip['PATRIMONIO TOTAL'])}")])
     narrativa += [
         ["Riesgos", "Riesgos altos de la carta de control interno", fx(f'COUNTIF({_rng(R12, "J", n12)},"Alto")', n_alto_cci),
          fx(f'IF(C{FILA0 + 10}>0,"Tienen respuesta específica en el programa (NIA 330).","Sin riesgos altos en la carta de control interno.")',
@@ -2193,11 +2201,13 @@ CAUSA_EFECTO = {
 _DIAS = ("diasCartera", "diasInventario", "ciclo")
 
 
-def _semaforo(k: str, v, fac: float = 1.0) -> str:
+def _semaforo(k: str, v, fac: float = 1.0, pat: float | None = None) -> str:
     if k == "dias":
         return "Base"
     if v is None or v == "":
         return "Sin dato"
+    if k in _PAT and pat is not None and pat <= 0:
+        return NO_SIGNIFICATIVO
     if k == "diasProveedores":
         return "Referencia"
     if k in _RENT:
@@ -2209,9 +2219,11 @@ def _semaforo(k: str, v, fac: float = 1.0) -> str:
     return f"Verde · {ev}" if ok(verde) else f"Amarillo · {ea}" if ok(amarillo) else f"Rojo · {er}"
 
 
-def _f_semaforo(k: str, c: str) -> str:
+def _f_semaforo(k: str, c: str, pat: str | None = None) -> str:
     if k == "dias":
         return '"Base"'
+    if k in _PAT and pat:
+        return f'IF(AND({c}<>"",{pat}<=0),"{NO_SIGNIFICATIVO}",{_f_semaforo(k, c)})'
     if k == "diasProveedores":
         return f'IF({c}="","Sin dato","Referencia")'
     if k in _RENT:
@@ -2221,16 +2233,20 @@ def _f_semaforo(k: str, c: str) -> str:
     return f'IF({c}="","Sin dato",IF({cc}{verde},"Verde · {ev}",IF({cc}{amarillo},"Amarillo · {ea}","Rojo · {er}")))'
 
 
-def _lectura(k: str, v) -> str:
+def _lectura(k: str, v, pat: float | None = None) -> str:
     if v is None or v == "":
         return SIN_DATO
+    if k in _PAT and pat is not None and pat <= 0:
+        return LECTURA_PATRIMONIO
     if k in LECTURA_COND:
         cond, si, no = LECTURA_COND[k]
         return si if eval(f"{v}{cond}") else no  # noqa: S307
     return LECTURA[k]
 
 
-def _f_lectura(k: str, c: str) -> str:
+def _f_lectura(k: str, c: str, pat: str | None = None) -> str:
+    if k in _PAT and pat:
+        return f'IF(AND({c}<>"",{pat}<=0),"{LECTURA_PATRIMONIO}",{_f_lectura(k, c)})'
     if k in LECTURA_COND:
         cond, si, no = LECTURA_COND[k]
         return f'IF({c}="","{SIN_DATO}",IF({c}{cond},"{si}","{no}"))'
@@ -2369,9 +2385,11 @@ EXPLICA = {
         "Variación": "Resta el índice anterior del actual; queda en blanco si falta alguno de los dos.",
         "Semáforo": ("Compara el índice actual con los rangos de referencia de la firma (por ejemplo, razón corriente de 1,5 o "
                      "más es verde y menor a 1 es rojo) y lo califica en verde, amarillo o rojo. En una revisión preliminar los "
-                     "días se comparan multiplicados por meses ÷ 12, porque sobre 365 salen mayores."),
+                     "días se comparan multiplicados por meses ÷ 12, porque sobre 365 salen mayores. Si el patrimonio total "
+                     "es cero o negativo, los índices que dividen para el patrimonio (endeudamiento patrimonial y financiero, "
+                     "multiplicador y ROE) quedan en rojo como «No significativo»."),
         "Lectura": ("Explica en palabras qué mide el índice y, en liquidez y capital de trabajo, si el resultado alcanza o no a "
-                    "cubrir el corto plazo."),
+                    "cubrir el corto plazo. Con patrimonio cero o negativo, advierte que el índice no es interpretable (NIA 570)."),
     },
     "11_Materialidad": {
         "Importe": ("Trae de la hoja 07 el total de cada posible base del período elegido (año anterior o corte actual); en la "

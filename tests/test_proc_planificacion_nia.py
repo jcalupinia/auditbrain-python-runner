@@ -383,3 +383,19 @@ def test_notas_desglose_por_cuenta_composicion_auditada_y_rubros_sin_nota():
     ctl3 = {v(f[0]): [v(c) for c in f] for f in next(h for h in m.hojas(rp) if h["name"] == "16_Control")["rows"]}
     assert ctl3["Rubros del balance sin nota del año anterior"][3] == "No evaluado"
     assert m.validar_filas("notas_detalle", [{"nota": "4", "concepto": "x", "importe": "1", "tipo": "Ajuste", "_row": 2}])["ok"] is False
+
+
+def test_semaforo_no_significativo_con_patrimonio_negativo():
+    """Con patrimonio en déficit, los índices que dividen para el patrimonio no pueden salir en verde («Conservador»,
+    «Bajo»): van en rojo como no significativos y la lectura remite a empresa en marcha (hallazgo de los agentes)."""
+    v = lambda c: c.get("v") if isinstance(c, dict) else c  # noqa: E731
+    for esc, esperado in (("patrimonio_deficit", True), ("base", False)):
+        h = next(x for x in m.hojas(_esc(esc)) if x["name"] == "10_Indices")
+        filas = {v(f[0]): f for f in h["rows"]}
+        for nombre in ("Endeudamiento financiero (veces)", "Endeudamiento patrimonial (veces)",
+                       "Multiplicador de apalancamiento (veces)", "ROE (%)", "ROE por DuPont (%)"):
+            f = filas[nombre]
+            assert (v(f[6]) == m.NO_SIGNIFICATIVO) is esperado, (esc, nombre, v(f[6]))
+            assert (v(f[7]) == m.LECTURA_PATRIMONIO) is esperado
+            assert "PATRIMONIO" not in f[6]["f"] and "<=0" in f[6]["f"]    # la condición va por fórmula al patrimonio de la hoja 09
+        assert v(filas["Razón corriente (veces)"][6]) != m.NO_SIGNIFICATIVO
