@@ -191,7 +191,7 @@ def graficos_panel(p: dict, tema: str) -> list[dict]:
     comp, cmp_, dist, sev = p["composicion"], p["comparativo"], p["distribucion"], p["severidad"]
     specs = [
         ("Composición del resultado", comp["rotulo"], gs.dona(comp["items"], comp["rotulo"], hex_)),
-        (cmp_["rotulo"], "Cifra del cliente frente a la recalculada por el auditor (USD).",
+        (cmp_["rotulo"], cmp_.get("sub") or "Cifra del cliente frente a la recalculada por el auditor (USD).",
          gs.columnas(cmp_["items"], hx.POR_DEFECTO["g"], ["registrado", "recalculado"], cmp_["rotulo"], hex_)),
         (dist["rotulo"], "Distribución de la población (USD).",
          gs.columnas(dist["items"], hx.POR_DEFECTO["g"], "serie", dist["rotulo"], hex_)),
@@ -200,3 +200,15 @@ def graficos_panel(p: dict, tema: str) -> list[dict]:
     ]
     return [{"titulo": t, "sub": s, "png": a_png(svg) if svg else None, "ancho": gs.ANCHO, "alto": gs.ALTO}
             for t, s, svg in specs]
+
+
+def tableros_panel(p: dict, tema: str) -> list[dict]:
+    """Los tableros adicionales del panel del HTML (``PANEL["tableros"]``) como PNG, con el mismo
+    formato que ``graficos_panel``."""
+    hex_ = paleta(tema)
+    salida = []
+    for t in p.get("tableros") or []:
+        svg = gs.agrupadas(t["categorias"], t["series"], t["rotulo"], t.get("unidad", ""), hex_)
+        salida.append({"titulo": t["rotulo"], "sub": t.get("sub", ""), "png": a_png(svg) if svg else None,
+                       "ancho": gs.ANCHO, "alto": gs.ALTO})
+    return salida

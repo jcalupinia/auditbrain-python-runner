@@ -188,6 +188,88 @@ def columnas(items: list[tuple[str, float]], variante: str, roles: list[str] | s
                     f"<title>{_html.escape(descripcion)}</title>" + "".join(partes) + "</svg>")
 
 
+def _cifra(v: float, unidad: str) -> str:
+    """Rótulo de una barra de tablero según su unidad (veces, días, % o USD)."""
+    if unidad == "USD":
+        return corto(v)
+    if unidad == "días":
+        return es_ec(v, 0)
+    return es_ec(v, 2)   # veces y % (la unidad va en el subtítulo: la barra lleva solo la cifra)
+
+
+def agrupadas(categorias: list[str], series: list[tuple[str, list]], descripcion: str, unidad: str = "",
+              hex_: dict | None = None) -> str:
+    """Barras agrupadas (tableros del artefacto de análisis: índices por grupo y analítico): una
+    categoría por indicador y una barra por serie (anterior y actual), con su cifra encima y la
+    leyenda arriba. Mismo estilo 3D que ``columnas``; los roles de color siguen a la serie."""
+    if not categorias or not series:
+        return ""
+    vals = [v for _, vs in series for v in vs if v is not None]
+    if not vals:
+        return ""
+    P = _Pintor(hex_)
+    roles = ["s1", "s3", "s2", "s4"]
+    n, k = len(categorias), len(series)
+    lo, hi = min(0.0, min(vals)), max(0.0, max(vals))
+    if hi == lo:
+        hi = lo + 1
+    sup = M_SUP + 26     # leyenda arriba y sitio para escalonar las cifras
+    area_alto = ALTO - sup - M_INF
+    y = lambda v: sup + (hi - v) / (hi - lo) * area_alto  # noqa: E731
+    y0 = y(0.0)
+    banda = (ANCHO - 2 * M_LAT - PROF) / n
+    w = min(34.0, banda * 0.72 / k)
+    partes = [f'<line x1="{M_LAT}" x2="{ANCHO - M_LAT}" y1="{y0:.1f}" y2="{y0:.1f}" {P.stroke("regla", 1)}/>']
+    cifras = []   # las cifras van al final: encima de todas las barras
+    for j, (nombre, _) in enumerate(series):   # leyenda
+        lx = M_LAT + j * 120
+        partes.append(f'<rect x="{lx}" y="8" width="12" height="12" rx="2" {P.fill(roles[j])}/>'
+                      f'<text x="{lx + 17}" y="18" class="ley2" {P.fill("texto2")}>{_html.escape(nombre)}</text>')
+    for i, cat in enumerate(categorias):
+        xc = M_LAT + banda * (i + 0.5)
+        x_ini = xc - (w * k) / 2
+        ly_prev = None
+        for j, (nombre, vs) in enumerate(series):
+            v = vs[i] if i < len(vs) else None
+            if v is None:
+                continue
+            x0, yv = x_ini + j * w, y(v)
+            top, bot = min(yv, y0), max(yv, y0)
+            alto = max(bot - top, 0.8)
+            ww = w - 3
+            tt = f"<title>{_html.escape(cat)} · {_html.escape(nombre)}: {_cifra(v, unidad)}</title>"
+            cara = f'<rect x="{x0:.1f}" y="{top:.1f}" width="{ww:.1f}" height="{alto:.1f}" {P.fill(roles[j])}/>'
+            pr = PROF * 0.6
+            techo = (f'<polygon points="{x0:.1f},{top:.1f} {x0 + pr:.1f},{top - pr:.1f} {x0 + ww + pr:.1f},{top - pr:.1f} {x0 + ww:.1f},{top:.1f}" '
+                     f'{P.fill(roles[j])}/><polygon points="{x0:.1f},{top:.1f} {x0 + pr:.1f},{top - pr:.1f} {x0 + ww + pr:.1f},{top - pr:.1f} {x0 + ww:.1f},{top:.1f}" fill="#FFFFFF" fill-opacity="0.32"/>')
+            lado = (f'<polygon points="{x0 + ww:.1f},{top:.1f} {x0 + ww + pr:.1f},{top - pr:.1f} {x0 + ww + pr:.1f},{bot - pr:.1f} {x0 + ww:.1f},{bot:.1f}" '
+                    f'{P.fill(roles[j])}/><polygon points="{x0 + ww:.1f},{top:.1f} {x0 + ww + pr:.1f},{top - pr:.1f} {x0 + ww + pr:.1f},{bot - pr:.1f} {x0 + ww:.1f},{bot:.1f}" fill="#000000" fill-opacity="0.28"/>')
+            ly = (top - pr - 5) if v >= 0 else (y0 - 5)
+            txt = _cifra(v, unidad)
+            ancha = len(txt) * 6.2 > ww - 2
+            if ancha and k == 2:
+                # Cifra más ancha que la barra: la de la izquierda se apoya en su borde derecho y la de la
+                # derecha en su borde izquierdo; así se abren hacia el hueco entre grupos y no se cruzan.
+                lx, anc = (x0 + ww - 3, "end") if j == 0 else (x0 + 3, "start")
+            else:
+                lx, anc = x0 + ww / 2 + pr / 2, "middle"
+                if ancha and ly_prev is not None and abs(ly - ly_prev) < 12:
+                    ly = min(ly, ly_prev) - 12
+            ly_prev = ly
+            partes.append(f'<g class="marca">{tt}{cara}{lado}{techo}</g>')
+            cifras.append(f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="{anc}" class="val" {P.fill("texto")}>{txt}</text>')
+    partes += cifras
+    max_car = max(6, int(banda / 6.4))
+    for i, cat in enumerate(categorias):
+        xc = M_LAT + banda * (i + 0.5)
+        tsp = "".join(f'<tspan x="{xc:.1f}" dy="{0 if q == 0 else 13}">{_html.escape(t)}</tspan>'
+                      for q, t in enumerate(_lineas_texto(cat, max_car)))
+        partes.append(f'<text y="{ALTO - M_INF + 18}" text-anchor="middle" class="cat" {P.fill("texto2")}>{tsp}</text>')
+    svg = (f'<svg class="grafico" viewBox="0 0 {ANCHO} {ALTO}" role="img" aria-label="{_html.escape(descripcion)}">'
+           f"<title>{_html.escape(descripcion)}</title>" + "".join(partes) + "</svg>")
+    return _tamanos(svg).replace('class="val" font-size="11"', 'class="val" font-size="10"')
+
+
 def _arco(cx, cy, r_ext, r_int, a0, a1) -> str:
     """Sector de corona entre los ángulos a0→a1 (radianes, 0 = arriba, sentido horario)."""
     def pt(r, a):

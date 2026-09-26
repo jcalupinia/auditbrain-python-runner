@@ -2192,7 +2192,29 @@ PANEL = {
                     "donde": {"Sección": ["Activo"], "Nivel": ["3"]}},
     "distribucion": {"rotulo": "Costos y gastos por cuenta", "hoja": "08_Horizontal", "etiqueta": "Cuenta", "valor": "Actual",
                      "donde": {"Sección": ["Costos", "Gastos"], "Nivel": ["3"]}},
+    # Tableros del artefacto de análisis: índices por grupo y analítico (anterior vs actual).
+    "tableros": [
+        {"rotulo": "Liquidez", "sub": "Veces · año anterior frente al corte.", "unidad": "veces", "hoja": "10_Indices",
+         "etiqueta": "Indicador", "filas": ["Razón corriente (veces)", "Prueba ácida (veces)"]},
+        {"rotulo": "Actividad", "sub": "Días · año anterior frente al corte.", "unidad": "días", "hoja": "10_Indices",
+         "etiqueta": "Indicador", "filas": ["Días de cartera", "Días de inventario", "Días de proveedores",
+                                            "Ciclo de conversión del efectivo (días)"]},
+        {"rotulo": "Endeudamiento", "sub": "Veces · año anterior frente al corte.", "unidad": "veces", "hoja": "10_Indices",
+         "etiqueta": "Indicador", "filas": ["Endeudamiento patrimonial (veces)", "Multiplicador de apalancamiento (veces)",
+                                            "Endeudamiento financiero (veces)"]},
+        {"rotulo": "Rentabilidad", "sub": "Porcentaje · año anterior frente al corte.", "unidad": "%", "hoja": "10_Indices",
+         "etiqueta": "Indicador", "filas": ["ROI operativo (%)", "Margen operativo (%)", "ROE (%)", "Margen neto (%)",
+                                            "Margen bruto (%)"]},
+        {"rotulo": "Estructura del balance", "sub": "USD · año anterior frente al corte.", "unidad": "USD", "hoja": "09_Estados",
+         "etiqueta": "Concepto", "filas": ["Activo corriente", "Activo no corriente", ["TOTAL PASIVO", "Pasivo total"],
+                                          ["PATRIMONIO TOTAL", "Patrimonio total"]]},
+        {"rotulo": "Estado de resultados", "sub": "USD · año anterior frente al corte.", "unidad": "USD", "hoja": "09_Estados",
+         "etiqueta": "Concepto", "filas": ["Ventas netas", ["(−) Costo de ventas", "Costo de ventas"], "Utilidad bruta",
+                                           ["(−) Gastos operativos", "Gastos operativos"], "Utilidad neta"]},
+    ],
 }
+for _t in PANEL["tableros"]:
+    _t["series"] = [["Anterior", "Anterior"], ["Actual", "Actual"]]
 
 
 # --- origen del importe de cada problema --------------------------------------------------------------------

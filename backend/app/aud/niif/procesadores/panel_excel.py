@@ -9,6 +9,8 @@ sus colores de fondo y sus botones, y no otros:
 - Los 4 gráficos del panel del HTML, nativos de Excel: «Composición del resultado»
   (dona), «Registrado vs recalculado», la distribución de la población y
   «Problemas por severidad» (barras + línea, colores por barra del HTML).
+- Los tableros adicionales del ``PANEL`` (``"tableros"``: columnas agrupadas anterior vs actual),
+  debajo, en la misma rejilla.
 - Botones con el estilo del HTML (fondo #0E2C50, borde #1B3A60) agrupados por sección.
 
 Todas las cifras son fórmulas (regla «Sin cifras calculadas pegadas»): las
@@ -169,6 +171,61 @@ def grafico_barras_linea(wd, bloque, titulo, sub, colores, enteros=False):
     return ch
 
 
+FMT_TABLERO = {"veces": "#,##0.00", "días": "#,##0", "%": "#,##0.00",
+               "USD": '[>=1000000]#,##0.00,," M";[>=1000]#,##0," mil";#,##0'}   # como ``graficos_svg.corto``
+
+
+def grafico_agrupadas(wd, bloque, titulo, sub, colores, fmt):
+    """Tablero del HTML (``graficos_svg.agrupadas``): columnas agrupadas, una serie por columna del
+    bloque (anterior y actual), cifra encima de cada barra y la leyenda debajo."""
+    fila0, n, k = bloque["fila"], len(bloque["items"]), bloque["k"]
+    cats = Reference(wd, min_col=1, min_row=fila0 + 1, max_row=fila0 + n)
+    ch = BarChart()
+    ch.type = "col"
+    ch.grouping = "clustered"
+    ch.gapWidth = 80
+    ch.overlap = 0
+    for j in range(k):
+        ch.add_data(Reference(wd, min_col=2 + j, min_row=fila0, max_row=fila0 + n), titles_from_data=True)
+    for s, c in zip(ch.series, colores):
+        s.cat = AxDataSource(strRef=StrRef(f=str(cats)))
+        s.graphicalProperties = GraphicalProperties(solidFill=c, ln=LineProperties(noFill=True))
+        s.invertIfNegative = False
+        s.dLbls = DataLabelList(showVal=True, showPercent=False, showCatName=False, showSerName=False, showLegendKey=False,
+                                numFmt=fmt, dLblPos="outEnd", txPr=_txpr(TEXTO, 8, True))
+    ch.y_axis.delete = True
+    ch.y_axis.majorGridlines = None
+    ch.x_axis.delete = False
+    ch.x_axis.tickLblPos = "low"
+    ch.x_axis.txPr = _txpr(TEXTO2, 9)
+    ch.x_axis.graphicalProperties = GraphicalProperties(ln=LineProperties(solidFill=BORDE))
+    if all(v >= 0 for _, vs in bloque["items"] for v in vs if v is not None):
+        ch.y_axis.scaling.min = 0
+    ch.legend = Legend(legendPos="b", txPr=_txpr(TEXTO2, 9))
+    ch.title = _titulo(titulo, sub)
+    _superficie(ch)
+    return ch
+
+
+def tableros_formulas(t, hojas, titulos):
+    """Filas del bloque de datos de un tablero: [(categoría, [«=fórmula» por serie], [valor por serie])],
+    cada fórmula a la celda de la cédula que ya calcula el índice o el importe. None si la cédula no está."""
+    from openpyxl.utils import get_column_letter
+
+    from backend.app.aud.niif.procesadores import libro as L
+
+    i = next((k for k, h in enumerate(hojas) if h.get("name") == t["hoja"]), None)
+    if i is None:
+        return None
+    nombres = [c[0] for c in hojas[i].get("cols") or []]
+    if any(c not in nombres for c in t["columnas"]):
+        return None
+    letras = [get_column_letter(nombres.index(c) + 1) for c in t["columnas"]]
+    q = L._q(titulos[i])
+    return [(cat, [f"={q}${le}${5 + fila}" for le in letras], [vs[k] for _, vs in t["series"]])
+            for k, (cat, fila) in enumerate(zip(t["categorias"], t["filas"]))]
+
+
 # --- Datos de los gráficos (fórmulas) ---------------------------------------------------------
 
 class Datos:
@@ -192,6 +249,24 @@ class Datos:
             c.number_format = fmt or est.FMT["n"]
         self.r = fila + len(items) + 2
         return {"fila": fila, "items": [(rot, v) for rot, _, v in items]}
+
+    def bloque_series(self, titulo, nombres, filas, fmt=None):
+        """Bloque de varias series (tableros): rótulo | una columna de fórmulas por serie.
+        filas: [(rótulo, [«=fórmula»], [valor esperado])]."""
+        wd, fila = self.wd, self.r
+        wd.cell(row=fila, column=1, value=titulo).font = _f(9, "4B5563", True)
+        for j, nombre in enumerate(nombres):
+            wd.cell(row=fila, column=2 + j, value=nombre).font = _f(9, "4B5563", True)
+            if not wd.column_dimensions[chr(66 + j)].width:
+                wd.column_dimensions[chr(66 + j)].width = 20
+        for k, (rot, fs, _) in enumerate(filas, start=1):
+            wd.cell(row=fila + k, column=1, value=rot).font = _f(9, "374151")
+            for j, f in enumerate(fs):
+                c = wd.cell(row=fila + k, column=2 + j, value=f)
+                c.font = _f(9, "374151")
+                c.number_format = fmt or est.FMT["n"]
+        self.r = fila + len(filas) + 2
+        return {"fila": fila, "k": len(nombres), "items": [(rot, vs) for rot, _, vs in filas]}
 
     def celda(self, fila_rel, bloque):
         return f"'{self.wd.title}'!$B${bloque['fila'] + fila_rel}"
@@ -454,6 +529,29 @@ def portada(ws, wd, definicion, reg, hojas, titulos, estado, version, grupos_nav
 
     if len(graf) > 2:
         ws.row_breaks.append(Break(id=r0 + 5 + filas_graf))
+
+    # Tableros adicionales del PANEL (p. ej. índices por grupo y analítico de la planificación),
+    # como en el HTML: debajo de los 4 gráficos, en la misma rejilla, con sus datos por fórmula.
+    tabs = []
+    for t in p.get("tableros") or []:
+        filas_t = tableros_formulas(t, hojas, titulos)
+        if not filas_t:
+            continue
+        b = datos_g.bloque_series(t["rotulo"], [n for n, _ in t["series"]], filas_t, FMT_TABLERO.get(t.get("unidad"), est.FMT["n"]))
+        tabs.append(grafico_agrupadas(wd, b, t["rotulo"], t.get("sub"), [SERIE["s1"], SERIE["s3"], SERIE["s2"], SERIE["s4"]],
+                                      FMT_TABLERO.get(t.get("unidad"), "#,##0.00")))
+    if tabs:
+        ws.row_breaks.append(Break(id=fila - 1))
+        ws[f"B{fila}"].value = "TABLEROS DEL ANÁLISIS"
+        ws[f"B{fila}"].font = Font(name=est.FONT_TITULO, size=9, bold=True, color=ORO_TXT)
+        fila += 2
+        for k, ch in enumerate(tabs):
+            fila_g = fila + (k // 2) * (filas_graf + 1)
+            _ancla_grafico(ws, ch, izquierda=(k % 2 == 0), fila=fila_g - 1, filas=filas_graf)
+            if k % 4 == 3 and k + 1 < len(tabs):   # dos filas de tableros por página impresa
+                ws.row_breaks.append(Break(id=fila_g + filas_graf))
+        fila += ((len(tabs) + 1) // 2) * (filas_graf + 1) + 1
+        ws.row_breaks.append(Break(id=fila - 1))
 
     # Navegación por sección con los botones del HTML.
     ws[f"B{fila}"].value = "NAVEGAR POR SECCIÓN"

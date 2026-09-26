@@ -85,8 +85,15 @@ def test_excel_un_solo_dashboard_con_graficos_por_formula():
         con_grafico = [ws.title for ws in wb.worksheets if ws._charts]
         assert con_grafico == ["00_Inicio"], (pid, con_grafico)
         # Los MISMOS 4 gráficos del panel del HTML (pedido del dueño, 2026-09-25), nunca otros:
-        # dona de composición, registrado vs recalculado, distribución y problemas por severidad.
-        graf = wb["00_Inicio"]._charts
+        # dona de composición, registrado vs recalculado, distribución y problemas por severidad;
+        # después, solo los tableros que el PANEL declare (los mismos que dibuja el HTML).
+        tableros = [t["rotulo"] for t in (getattr(PROCESADORES[pid], "PANEL", None) or {}).get("tableros") or []]
+        todos = wb["00_Inicio"]._charts
+        assert [_titulo(ch) for ch in todos[4:]] == tableros, pid
+        for ch in todos[4:]:   # columnas agrupadas (anterior vs actual), datos por fórmula
+            assert ch.tagname == "barChart" and ch.grouping == "clustered" and len(ch.series) == 2, pid
+            assert str(ch.graphical_properties.solidFill.srgbClr) == "0A2342", pid
+        graf = todos[:4]
         titulos = [_titulo(ch) for ch in graf]
         # El comparativo lleva el título del panel de la herramienta (la planificación lo cambia en PANEL["textos"]).
         comparativo = graficos.textos(getattr(PROCESADORES[pid], "PANEL", None))["comparativo"]
@@ -101,7 +108,7 @@ def test_excel_un_solo_dashboard_con_graficos_por_formula():
         formulas = [c.value for row in datos.iter_rows() for c in row
                     if isinstance(c.value, str) and c.value.startswith("=")]
         # Títulos que no se montan sobre las barras y rótulos de categoría como texto.
-        for ch in wb["00_Inicio"]._charts:
+        for ch in todos:
             assert ch.title.overlay is False and ch.series[0].cat.strRef is not None, pid
         assert any(re.match(r"^='00_Inicio'!\$[B-F]\$\d+$", f) for f in formulas), pid  # registrado/recalculado → tarjetas
         assert sum("SUMIFS(" in f and "Problemas" not in f for f in formulas) >= 2, pid  # composición/distribución → cédulas

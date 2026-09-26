@@ -242,3 +242,46 @@ def test_panel_con_textos_propios_y_las_demas_herramientas_sin_cambio():
     otro = PROCESADORES["cxc_cartera"]
     assert graficos.textos(otro.PANEL)["comparativo"] == "Registrado vs recalculado"
     assert graficos.textos(otro.PANEL)["nota_registrado"] == "según el cliente"
+
+
+def test_tableros_del_artefacto_en_html_excel_word_y_ppt():
+    """Los gráficos del artefacto de análisis que el prompt no produjo: índices por grupo (liquidez, actividad,
+    endeudamiento, rentabilidad) y analítico (estructura del balance, estado de resultados), anterior frente a actual,
+    en los cuatro formatos del papel."""
+    import io
+
+    from docx import Document
+    from openpyxl import load_workbook
+    from pptx import Presentation
+
+    from backend.app.aud.niif.procesadores import datos_cliente, graficos, libro
+
+    e = m.EJEMPLO
+    r = m.ejecutar(e["datasets"], e["parametros"], e["corte"])
+    r["hojas"] = datos_cliente.con_datos(m, r, e["datasets"])
+    p = graficos.panel(m, r, r["hojas"])
+    assert p["faltan"] == []
+    t = {x["rotulo"]: x for x in p["tableros"]}
+    assert list(t) == ["Liquidez", "Actividad", "Endeudamiento", "Rentabilidad", "Estructura del balance", "Estado de resultados"]
+    assert t["Liquidez"]["categorias"] == ["Razón corriente", "Prueba ácida"]
+    assert t["Liquidez"]["series"] == [("Anterior", [1.81, 1.1]), ("Actual", [2.0, 1.09])]
+    assert t["Actividad"]["series"][1][1] == [57.34, 102.65, 64.83, 95.16]
+    assert t["Estructura del balance"]["categorias"][2:] == ["Pasivo total", "Patrimonio total"]
+    assert t["Estado de resultados"]["series"][1][1][-1] == 367650.0
+
+    reg = {"run": r, "engagement": {"client": "Comercial Andina de Ejemplo S.A.", "cutoff": e["corte"]}, "program": [], "sources": []}
+    d = m.definicion()
+    html = libro.html(d, reg, [], 1, "Borrador").decode("utf-8")
+    assert "Tableros del análisis" in html and html.count('class="graficos tableros"') == 1
+    wb = load_workbook(io.BytesIO(libro.xlsx(d, reg, [], 1, "Borrador")))
+    assert len(wb["00_Inicio"]._charts) == 4 + 6
+    datos = [c.value for row in wb[libro.HOJA_DATOS_GRAFICOS].iter_rows() for c in row]
+    assert "='10_Indices'!$E$6" in datos and "='09_Estados'!$D$30" in datos   # razón corriente actual, utilidad neta actual
+    doc = Document(io.BytesIO(libro.docx(d, reg, [], 1, "Borrador")))
+    textos = [c.text for tb in doc.tables for fila in tb.rows for c in fila.cells]
+    assert any(x.startswith("Rentabilidad") for x in textos) and any(p_.text == "Tableros del análisis" for p_ in doc.paragraphs)
+    prs = Presentation(io.BytesIO(libro.pptx(d, reg, [], 1, "Borrador")))
+    diaps = [[sh.text_frame.text for sh in s.shapes if sh.has_text_frame and sh.text_frame.text] for s in prs.slides]
+    diaps = [x for x in diaps if x[0] == "Tableros del análisis"]
+    assert [x[1] for x in diaps] == ["Liquidez y actividad", "Endeudamiento y rentabilidad",
+                                     "Estructura del balance y estado de resultados"]

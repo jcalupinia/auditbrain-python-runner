@@ -275,25 +275,12 @@ def docx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
             _texto(_celda_par(celda, False), txt, 8, C[color] if color else C["texto2"], True)
     _parrafo(doc, "", despues=6)
 
-    # Los 4 gráficos del panel del HTML, en rejilla 2×2 dentro de tarjetas.
-    graf = svg_png.graficos_panel(p, "claro")
-    tg = doc.add_table(rows=2, cols=2)
-    _sin_bordes(tg)
-    ancho_img = int(ancho / 2) - Cm(0.9)
-    for k, g in enumerate(graf):
-        celda = tg.rows[k // 2].cells[k % 2]
-        _sombra(celda, C["card"])
-        b = (8, C["borde"])
-        _bordes(celda, top=b, left=b, bottom=b, right=b)
-        _margen(celda, 7)
-        _texto(celda.paragraphs[0], g["titulo"], 10.5, C["texto"], True)
-        _texto(_celda_par(celda, False), g["sub"], 8, C["texto2"])
-        if g["png"]:
-            _celda_par(celda, False).add_run().add_picture(io.BytesIO(g["png"]), width=ancho_img)
-        else:
-            _texto(_celda_par(celda, False), "Sin datos para graficar en este ejemplo.", 8.5, C["muted"], cursiva=True)
-    for fila in tg.rows:
-        _no_partir(fila)
+    # Los 4 gráficos del panel del HTML, en rejilla 2×2 dentro de tarjetas, y los tableros adicionales.
+    _rejilla_graficos(doc, svg_png.graficos_panel(p, "claro"), ancho, C)
+    tabs = svg_png.tableros_panel(p, "claro")
+    if tabs:
+        _parrafo(doc, "Tableros del análisis", 13, C["texto"], True, antes=10, despues=4)
+        _rejilla_graficos(doc, tabs, ancho, C)
 
     # Cada cédula en su página, como las secciones del HTML impreso.
     hojas = L.cedulas(definicion, reg, eventos, version, estado)
@@ -312,6 +299,29 @@ def docx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     salida = io.BytesIO()
     doc.save(salida)
     return salida.getvalue()
+
+
+def _rejilla_graficos(doc, graf, ancho, C):
+    """Gráficos del panel en rejilla de 2 columnas, cada uno en su tarjeta (título, subtítulo e imagen)."""
+    from docx.shared import Cm
+
+    tg = doc.add_table(rows=(len(graf) + 1) // 2, cols=2)
+    _sin_bordes(tg)
+    ancho_img = int(ancho / 2) - Cm(0.9)
+    for k, g in enumerate(graf):
+        celda = tg.rows[k // 2].cells[k % 2]
+        _sombra(celda, C["card"])
+        b = (8, C["borde"])
+        _bordes(celda, top=b, left=b, bottom=b, right=b)
+        _margen(celda, 7)
+        _texto(celda.paragraphs[0], g["titulo"], 10.5, C["texto"], True)
+        _texto(_celda_par(celda, False), g["sub"], 8, C["texto2"])
+        if g["png"]:
+            _celda_par(celda, False).add_run().add_picture(io.BytesIO(g["png"]), width=ancho_img)
+        else:
+            _texto(_celda_par(celda, False), "Sin datos para graficar en este ejemplo.", 8.5, C["muted"], cursiva=True)
+    for fila in tg.rows:
+        _no_partir(fila)
 
 
 def _calc_word(doc, bloque, ancho):
@@ -540,6 +550,16 @@ def pptx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     for k, g in enumerate(graf[2:]):
         _tarjeta_grafico(s, g, margen + k * (wg + sep), Inches(1.45), wg, Inches(5.45))
     _pie(s, prs)
+    # Tableros adicionales del panel (p. ej. índices por grupo y analítico): dos por diapositiva.
+    tabs = svg_png.tableros_panel(p, "ejecutivo")
+    for i in range(0, len(tabs), 2):
+        par = tabs[i:i + 2]
+        s = prs.slides.add_slide(vacia)
+        _fondo(s)
+        _titulo_diap(s, prs, "Tableros del análisis", " y ".join(g["titulo"].lower() if j else g["titulo"] for j, g in enumerate(par)))
+        for k, g in enumerate(par):
+            _tarjeta_grafico(s, g, margen + k * (wg + sep), Inches(1.45), wg, Inches(5.45))
+        _pie(s, prs)
 
     # 4+. Cédulas de lectura ejecutiva en tablas con el estilo del HTML (el detalle completo, en el Excel).
     for h in L.cedulas(definicion, reg, eventos, version, estado):

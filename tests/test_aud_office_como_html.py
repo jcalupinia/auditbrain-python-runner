@@ -1,7 +1,7 @@
 """El Word y el PowerPoint del papel NIIF se ven igual al HTML (pedido del dueño, 2026-09-25).
 
 - PowerPoint = el HTML en pantalla (tema «Ejecutivo»): fondo azul marino, portada con los
-  dos logotipos, las 5 tarjetas del panel y los 4 gráficos del HTML.
+  dos logotipos, las 5 tarjetas del panel y los 4 gráficos del HTML (más los tableros que declare el PANEL).
 - Word = el HTML impreso (tema «Claro», el mismo del PDF): membrete con los logotipos, las
   5 tarjetas, los 4 gráficos y cada cédula con «Cómo se calcula esta hoja».
 
@@ -53,7 +53,8 @@ def test_powerpoint_como_el_html(pid):
     # Fondo azul marino del tema «Ejecutivo» en todas las diapositivas.
     assert all(str(s.background.fill.fore_color.rgb) == papel_office.OSCURO["bg"] for s in diaps), pid
     fotos = [sh for s in diaps for sh in s.shapes if sh.shape_type == MSO_SHAPE_TYPE.PICTURE]
-    assert sum(_es_grafico(sh.image.blob) for sh in fotos) == 4, pid        # los 4 gráficos del HTML
+    tableros = len((getattr(mod, "PANEL", None) or {}).get("tableros") or [])
+    assert sum(_es_grafico(sh.image.blob) for sh in fotos) == 4 + tableros, pid   # los 4 gráficos del HTML y sus tableros
     assert not any(sh.has_chart for s in diaps for sh in s.shapes), pid     # y ningún otro gráfico
     texto = " ".join(sh.text_frame.text for sh in diaps[1].shapes if sh.has_text_frame)
     p = graficos.panel(mod, reg["run"], reg["run"].get("hojas") or [])
@@ -61,14 +62,15 @@ def test_powerpoint_como_el_html(pid):
         assert k["valor"] in texto and k["rotulo"].upper() in texto, (pid, k["valor"])
 
 
-@pytest.mark.parametrize("pid", ["perdidas_incurridas_s11", "nomina_beneficios", "impuesto_corriente_diferido"])
+@pytest.mark.parametrize("pid", ["perdidas_incurridas_s11", "nomina_beneficios", "impuesto_corriente_diferido", "planificacion_nia"])
 def test_word_como_el_html_impreso(pid):
     from docx import Document
 
     d, mod, reg = _reg(pid)
     doc = Document(io.BytesIO(libro.docx(d, reg, [], 1, "APROBADO")))
     cuerpo = [r.target_part.blob for r in doc.part.rels.values() if "image" in r.reltype]
-    assert sum(_es_grafico(b) for b in cuerpo) == 4, pid                    # los 4 gráficos del HTML
+    tableros = len((getattr(mod, "PANEL", None) or {}).get("tableros") or [])
+    assert sum(_es_grafico(b) for b in cuerpo) == 4 + tableros, pid         # los 4 gráficos del HTML y sus tableros
     textos = [c.text for t in doc.tables for f in t.rows for c in f.cells] + [pa.text for pa in doc.paragraphs]
     todo = " ".join(textos)
     p = graficos.panel(mod, reg["run"], reg["run"].get("hojas") or [])

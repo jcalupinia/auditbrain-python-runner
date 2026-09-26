@@ -148,6 +148,12 @@ PANEL = {
   (p. ej. la planificación no tiene «cifra del cliente»): `comparativo`, `comparativo_sub`, `nota_recalculado`
   (texto en lugar de la flecha de variación), `vs`, `igual`, `nota_registrado` y `problemas`. Por defecto rigen
   los de `graficos.TEXTOS`, iguales en el HTML, la portada del Excel, el Word y el PowerPoint.
+- `PANEL["tableros"]` (opcional) agrega gráficos de **columnas agrupadas** (p. ej. anterior frente a actual)
+  debajo de los 4 del panel, en los cuatro formatos: HTML (`graficos_svg.agrupadas`), portada del Excel (gráfico
+  nativo cuyos datos son fórmulas a la celda de la cédula), Word y PowerPoint (el mismo SVG como imagen). Cada uno:
+  `{"rotulo", "sub", "unidad": "veces"|"días"|"%"|"USD", "hoja", "etiqueta", "filas": [rótulo | [rótulo, rótulo del
+  gráfico]], "series": [[nombre, columna], …]}`. Las filas se buscan por su rótulo en la columna `etiqueta`; si una
+  no existe, el tablero va a `faltan`. Ejemplo: la planificación (índices por grupo y analítico del artefacto).
 
 ### `REF_PROBLEMAS` — importe de cada problema como fórmula
 ```python

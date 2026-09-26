@@ -175,6 +175,7 @@ def _css() -> str:
         # Gráficos
         ".graficos{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(470px,100%),1fr));gap:14px}"
         ".tarjeta{background:var(--card);border:1px solid var(--borde);border-radius:14px;padding:14px 16px 8px;box-shadow:var(--sombra);min-width:0}"
+        ".tableros-tit{margin:22px 0 10px}"
         ".tarjeta h3{font:700 14px var(--f-titulo);margin:0}.tarjeta p{font-size:11.5px;color:var(--texto2);margin:2px 0 6px}"
         ".grafico{display:block;width:100%;height:auto}"
         # En pantallas angostas el gráfico conserva un ancho legible y se desplaza DENTRO de su tarjeta.
@@ -222,7 +223,7 @@ def _css() -> str:
         # Vistas
         "body.v-compacta{font-size:13px}body.v-compacta .wrap{padding:14px 14px 30px}body.v-compacta .kpi{padding:10px 12px}"
         "body.v-compacta .kpi-val{font-size:clamp(18px,1.7vw,24px)}body.v-compacta .graficos{gap:10px}body.v-compacta td{padding:4px 6px}"
-        "body.v-tablas .kpis,body.v-tablas .graficos{display:none}body.v-tablas table{font-size:13.5px}body.v-tablas .wrap{max-width:none}"
+        "body.v-tablas .kpis,body.v-tablas .graficos,body.v-tablas .tableros-tit{display:none}body.v-tablas table{font-size:13.5px}body.v-tablas .wrap{max-width:none}"
         "body.v-presentacion{font-size:16px}body.v-presentacion .controles label:not(.fijo){display:none}"
         "body.v-presentacion .wrap{max-width:1180px;padding-top:34px}body.v-presentacion h1{font-size:34px}"
         "body.v-presentacion .kpi-val{font-size:clamp(26px,2.8vw,40px)}body.v-presentacion .kpis{grid-template-columns:repeat(auto-fit,minmax(min(210px,100%),1fr))}"
@@ -331,6 +332,17 @@ def _graficos(p: dict, hex_: dict | None) -> str:
             + _tarjeta(dist["rotulo"], "Distribución de la población (USD).", distrib)
             + _tarjeta(sev["rotulo"], sev["regla"], severidad)
             + "</div>")
+
+
+def _tableros(p: dict, hex_: dict | None) -> str:
+    """Tableros adicionales del ``PANEL`` (p. ej. índices por grupo y analítico de la planificación):
+    barras agrupadas, anterior frente a actual, debajo de los 4 gráficos del panel."""
+    ts = p.get("tableros") or []
+    if not ts:
+        return ""
+    tarjetas = "".join(_tarjeta(t["rotulo"], t.get("sub"), gs.agrupadas(t["categorias"], t["series"], t["rotulo"], t.get("unidad", ""), hex_)
+                                or '<div class="sin-datos">Sin datos para graficar.</div>') for t in ts)
+    return f'<h2 class="tableros-tit">Tableros del análisis</h2><div class="graficos tableros">{tarjetas}</div>'
 
 
 def _tabla(h: dict, celda) -> str:
@@ -482,7 +494,7 @@ def render(definicion: dict, reg: dict, eventos: list, version: int, estado: str
         f'<div class="encab"><div><h1>{E(nombre)}</h1>'
         f'<p class="sub">{E(str(e.get("client", "")))} · RUC {E(str(e.get("ruc", "")))} · {E(definicion.get("area", ""))}</p>'
         f'<div class="chips">{chips}</div></div>{boton_pdf("s-panel")}</div>'
-        f'<div class="kpis">{_kpis(p)}</div>{_graficos(p, hex_)}')]
+        f'<div class="kpis">{_kpis(p)}</div>{_graficos(p, hex_)}{_tableros(p, hex_)}')]
     for i, h in enumerate(hojas):
         sid = f"s-{i}"
         cuerpo = (f'<div class="cedula-cab"><h2>{E(h["label"])}</h2>{boton_pdf(sid)}</div>'
