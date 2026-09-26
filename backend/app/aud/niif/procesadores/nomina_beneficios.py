@@ -680,11 +680,11 @@ def hojas(res: dict) -> list[dict]:
         X = lambda col: f"{EMP}{col}{r}"
         HT = f'MIN(IF({X("D")}="",{c},{X("D")}),{c})'
         DS = f'MAX({X("C")},{PAR["inicio"]})'
-        DF = f'MAX(EDATE({X("C")},12),{PAR["inicio"]})'
-        ts.append([e["id"], e["desde"], e["hasta"], fx(f"IF({HT}<{DS},0,DAYS360({DS},{HT}+1,TRUE))", e["dias"]),
+        DF = f'MAX(G{r},{PAR["inicio"]})'
+        ts.append([e["id"], fx(DS, e["desde"]), fx(HT, e["hasta"]), fx(f"IF(C{r}<B{r},0,DAYS360(B{r},C{r}+1,TRUE))", e["dias"]),
                    fx(f'IF(AND({X("C")}<={c},OR({X("D")}="",{X("D")}>{c})),"Sí","No")', e["activo"]),
-                   fx(f'IF({HT}<{X("C")},0,INT(DAYS360({X("C")},{HT}+1,TRUE)/360))', e["anios"]), e["fr_ini"],
-                   fx(f"IF({HT}<{DF},0,DAYS360({DF},{HT}+1,TRUE))", e["dias_fr"])])
+                   fx(f'IF(C{r}<{X("C")},0,INT(DAYS360({X("C")},C{r}+1,TRUE)/360))', e["anios"]), fx(f'EDATE({X("C")},12)', e["fr_ini"]),
+                   fx(f"IF(C{r}<{DF},0,DAYS360({DF},C{r}+1,TRUE))", e["dias_fr"])])
         nom.append([
             e["id"], fx(X("F"), e["sueldo"]), fx(f"{TS}D{r}", e["dias"]), fx(f"B{r}*C{r}/30", e["sueldo_per"]),
             fx(f"B{r}/{PAR['horasMes']}", e["vh"]), fx(_si(X("G")), e["h50"]), fx(_si(X("H")), e["h100"]),
@@ -706,8 +706,9 @@ def hojas(res: dict) -> list[dict]:
         t13.append([e["id"], fx(f"{TS}E{r}", e["activo"]), e["m13"],
                     fx(f'IF(OR(B{r}="No",C{r}="Sí"),0,DAYS360(MAX({X("C")},{PAR["i13"]}),{c}+1,TRUE))', e["d13_dias"]), diaria,
                     fx(f"E{r}*D{r}/12", e["d13"]), fx(_si(X("S")), e["d13_reg"]), fx(f'IF(G{r}="","",G{r}-F{r})', e["d13_dif"])])
-        t14.append([e["id"], fx(f"{TS}E{r}", e["activo"]), e["m14"], e["region"], e["d14_ini"],
-                    fx(f'IF(OR(B{r}="No",C{r}="Sí"),0,DAYS360(MAX({X("C")},IF(D{r}="{COSTA}",{PAR["i14c"]},{PAR["i14s"]})),{c}+1,TRUE))', e["d14_dias"]),
+        t14.append([e["id"], fx(f"{TS}E{r}", e["activo"]), e["m14"], e["region"],
+                    fx(f'IF(D{r}="{COSTA}",{PAR["i14c"]},{PAR["i14s"]})', e["d14_ini"]),
+                    fx(f'IF(OR(B{r}="No",C{r}="Sí"),0,DAYS360(MAX({X("C")},E{r}),{c}+1,TRUE))', e["d14_dias"]),
                     fx(f"{PAR['sbuD14']}*F{r}/360", e["d14"]), fx(_si(X("T")), e["d14_reg"]), fx(f'IF(H{r}="","",H{r}-G{r})', e["d14_dif"])])
         vac.append([
             e["id"], fx(f"{TS}E{r}", e["activo"]), fx(f"{TS}F{r}", e["anios"]),
@@ -778,6 +779,12 @@ def hojas(res: dict) -> list[dict]:
                         "hoja 14 y el ajuste es el total de la hoja 16 (Ajustes propuestos)."),
         },
         "05_Tiempo_servicio": {
+            "Desde (en el ejercicio)": ("Toma la fecha de ingreso del empleado (hoja 03, Empleados) o el inicio del ejercicio "
+                                        "(hoja 02, Parámetros), la que sea posterior."),
+            "Hasta": ("Toma la fecha de salida del empleado (hoja 03) o el corte (hoja 02), la que ocurra primero; sin fecha "
+                      "de salida, el corte."),
+            "Derecho a fondo de reserva desde (13.º mes)": ("Suma 12 meses a la fecha de ingreso (hoja 03): desde ese día el "
+                                                            "empleado tiene derecho al fondo de reserva."),
             "Días trabajados (30/360)": ("Cuenta los días trabajados en el ejercicio en base comercial 30/360: desde la fecha de ingreso "
                                          "(hoja 03, Empleados) o el 1 de enero si ingresó antes, hasta la fecha de salida o el corte "
                                          "(hoja 02, Parámetros), lo que ocurra primero. Si no trabajó en el año, da cero."),
@@ -861,6 +868,8 @@ def hojas(res: dict) -> list[dict]:
         },
         "09_Decimo_cuarto": {
             "Activo": "Trae si el empleado está activo al corte, según la hoja 05 (Tiempo de servicio).",
+            "Inicio del período": ("Trae de la hoja 02 (Parámetros) el inicio del período del décimo cuarto de la región del "
+                                   "empleado: Costa/Galápagos o Sierra/Oriente."),
             "Días del período al corte": ("Cuenta los días, en base 30/360, desde el inicio del período del décimo cuarto de la "
                                           "región del empleado (Costa/Galápagos o Sierra/Oriente, hoja 02) o desde el ingreso si "
                                           "fue posterior, hasta el corte; cero si no está activo o lo cobra mensualizado."),

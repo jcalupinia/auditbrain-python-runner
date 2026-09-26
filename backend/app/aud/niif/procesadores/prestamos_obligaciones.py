@@ -874,14 +874,16 @@ def hojas(res: dict) -> list[dict]:
     for k, x in enumerate(tab):
         rr_, rc = FILA0 + k, fila_c[x["id"]]
         c = next(y for y in cs if y["id"] == x["id"])
+        per_f = fx(f"COUNTIF(A${FILA0}:A{rr_},A{rr_})-1", x["t"])
+        venc_f = fx(f"EDATE({_x('desembolso', rc)},B{rr_}*{CO}G{rc})", x["vence"])
         if x["t"] == 0:
-            tabla.append([x["id"], 0, x["vence"], None, None, None, None, fx(f"{CO}C{rc}", x["fin"]), fx(f"-{CO}E{rc}", x["flujo"]),
+            tabla.append([x["id"], per_f, venc_f, None, None, None, None, fx(f"{CO}C{rc}", x["fin"]), fx(f"-{CO}E{rc}", x["flujo"]),
                           None, None, None, fx(f"{CO}E{rc}", x["ca_fin"])])
             continue
         sis = f"{CO}B{rc}"
         pago = (f'IF({sis}="Francés",{CO}K{rc},IF({sis}="Alemán",{CO}C{rc}/{CO}H{rc}+F{rr_},'
                 f'IF(B{rr_}<{CO}H{rc},F{rr_},F{rr_}+E{rr_})))')
-        tabla.append([x["id"], x["t"], x["vence"], fx(pago, x["pago"]), fx(f"H{rr_ - 1}", x["ini"]), fx(f"E{rr_}*{CO}J{rc}", x["int_nom"]),
+        tabla.append([x["id"], per_f, venc_f, fx(pago, x["pago"]), fx(f"H{rr_ - 1}", x["ini"]), fx(f"E{rr_}*{CO}J{rc}", x["int_nom"]),
                       fx(f"D{rr_}-F{rr_}", x["cap"]), fx(f"E{rr_}-G{rr_}", x["fin"]), fx(f"D{rr_}", x["flujo"]),
                       fx(f"M{rr_ - 1}", x["ca_ini"]), fx(f"J{rr_}*{CO}L{rc}", x["int_tie"]), fx(f"D{rr_}-K{rr_}", x["amort"]),
                       fx(f"J{rr_}-L{rr_}", x["ca_fin"])])
@@ -986,6 +988,10 @@ def hojas(res: dict) -> list[dict]:
                                                 "de tasa suman las comisiones y costos de transacción."),
     }
     ex05 = {
+        "Período": ("Numera los períodos de cada operación: cuenta las filas de la misma operación desde la primera de la tabla "
+                    "hasta esta, menos uno (el período 0 es el desembolso)."),
+        "Vencimiento": ("Suma a la fecha de desembolso (hoja 03) el número de período por los meses por período de la hoja 04 "
+                        "(Condiciones y TIE): es la fecha en que vence la cuota; en el período 0 es el desembolso."),
         "Pago contractual": ("Pago de cada período según el sistema de la hoja 04: en francés, la cuota fija; en alemán, el monto dividido "
                              "para los períodos más el interés nominal; en bullet, solo el interés y, en el último período, el interés más "
                              "todo el capital."),

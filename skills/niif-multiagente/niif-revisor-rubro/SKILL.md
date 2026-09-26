@@ -36,7 +36,9 @@ PowerPoint con el mismo diseño). Úsalo como fuente de la **situación actual**
   calcula esta hoja», y su fórmula de Excel con un ejemplo está en `00_Anexo_tecnico`.
 - **Datos del cliente (`D1_…`):** lo que entregó el cliente, fila por fila, con el archivo de origen y la guía
   «¿De dónde saco este dato?» (todas las herramientas). Las cédulas traen esos datos por fórmula
-  (`='D1_…'!F7`): para rastrear un dato, siga la fórmula hasta su fila y su «Origen del dato».
+  (`='D1_…'!F7`; si el cliente dejó el dato en blanco, `IF('D1_…'!F7="",otro dato o valor por defecto,'D1_…'!F7)`):
+  para rastrear un dato, siga la fórmula hasta su fila y su «Origen del dato». En las cédulas no queda ninguna
+  cifra ni fecha pegada: solo son valores los parámetros del auditor (`02_Parametros`).
 - **Documentación:** Carátula, Programa, Base técnica, Anexo técnico y Control de revisión.
 
 Todas las cifras calculadas del Excel son **fórmulas** que remiten a su origen, incluido el importe de cada
