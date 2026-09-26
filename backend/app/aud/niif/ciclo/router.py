@@ -168,7 +168,7 @@ def accion(prueba_id: int, body: AccionIn, db: Session = Depends(get_db), user: 
     p = _prueba(db, user, prueba_id)
     # Acciones que no son un paso del circuito (route.ts las atiende antes).
     especiales = {
-        "new_version": lambda: _salida(servicio.nueva_version(db, p, body.revision, user.email)),
+        "new_version": lambda: _salida(servicio.nueva_version(db, p, body.revision, user.email, body.datos.get("motivo"))),
         "erase": lambda: _salida(servicio.encerar(db, p, body.revision, body.datos, user.email)),
         "delete": lambda: servicio.eliminar(db, p, body.revision, body.datos),
         "edit_context": lambda: _salida(servicio.editar_contexto(db, p, body.revision, body.datos, user.email)),
@@ -444,3 +444,11 @@ def documento_encargo(project_id: int, tipo: str, db: Session = Depends(get_db),
     contenido = _regla(lambda: servicio.documento_encargo(db, project_id, tipo))
     return Response(contenido, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     headers={"Content-Disposition": f'attachment; filename="{docs.TIPOS[tipo]}.docx"'})
+
+
+@router.post("/proyectos/{project_id}/registros/{registro_id}/resolver")
+def resolver_consulta(project_id: int, registro_id: int, body: dict, db: Session = Depends(get_db),
+                      user: User = Depends(require_staff)) -> dict:
+    _proyecto(db, user, project_id)
+    return servicio.registro_salida(_regla(lambda: servicio.resolver_consulta(db, project_id, registro_id,
+                                                                              str(body.get("resolucion") or ""), user.email)))

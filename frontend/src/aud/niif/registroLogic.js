@@ -4,6 +4,14 @@
 // Los mismos roles de planificacion_encargo.ROLES.
 export const ROLES = ["Socio", "Gerente", "Senior", "Asistente", "Revisor de calidad", "Experto", "Otro"];
 
+// Los mismos temas y procedimientos de planificacion_calidad (TEMAS y PROCEDIMIENTOS).
+export const TEMAS = [
+  "Sector, actividad y regulación", "Propiedad, gobierno y estructura", "Estrategia, objetivos y modelo de negocio",
+  "Medición y revisión del desempeño", "Políticas contables y sus cambios", "Financiamiento",
+  "Sistema de información y control interno", "Partes relacionadas", "Leyes y reglamentos", "Empresa en marcha", "Otro",
+];
+export const PROCEDIMIENTOS = ["Indagación", "Observación", "Inspección"];
+
 export const DOCUMENTOS = [
   ["carta_encargo", "Carta de encargo (NIA 210)"],
   ["acta_discusion", "Acta de la discusión del equipo (NIA 315 y 240)"],
@@ -60,6 +68,20 @@ export function resumenRegistros(encargo) {
       hecho: !!uno("comunicacion"),
       detalle: uno("comunicacion") ? `${uno("comunicacion").detalle} · ${uno("comunicacion").fecha}` : "Pendiente",
     },
+    {
+      clave: "indagaciones",
+      etiqueta: "Indagaciones y observaciones",
+      hecho: (r.indagaciones || []).length > 0,
+      detalle: (r.indagaciones || []).length ? `${r.indagaciones.length} registrada(s)` : "Ninguna registrada",
+    },
+    {
+      clave: "consultas",
+      etiqueta: "Consultas y diferencias de opinión",
+      hecho: !(r.consultas || []).some((x) => x.estado === "Abierta"),
+      detalle: (r.consultas || []).some((x) => x.estado === "Abierta")
+        ? `${r.consultas.filter((x) => x.estado === "Abierta").length} abierta(s): bloquean la aprobación`
+        : "Sin consultas abiertas",
+    },
   ];
 }
 
@@ -73,4 +95,7 @@ export const NOMBRE_TIPO = {
   aceptacion: "Aceptación del socio",
   carta: "Carta de encargo firmada",
   comunicacion: "Comunicación al gobierno",
+  indagacion: "Indagación u observación",
+  consulta: "Consulta técnica",
+  diferencia: "Diferencia de opinión",
 };

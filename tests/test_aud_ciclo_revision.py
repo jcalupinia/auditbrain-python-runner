@@ -92,12 +92,19 @@ def test_revision_aprobacion_y_papel_inmutable(client):
     assert fila["estado"] == "APROBADO" and fila["cliente"] and fila["notas_abiertas"] == 0
 
     # Nueva versión: solo una sucesora; no se elimina la madre antes que la hija.
-    n = _accion(client, tok, p, "new_version").json()
+    # M1 (NIA 230): la versión nueva exige su motivo, que queda en la bitácora con su autor y fecha.
+    r = _accion(client, tok, p, "new_version", {"motivo": "corto"})
+    assert r.status_code == 400 and "motivo" in r.json()["detail"]
+    motivo = {"motivo": "El cliente entregó el ajuste de la provisión después de la aprobación."}
+    n = _accion(client, tok, p, "new_version", motivo).json()
     assert n["version"] == 2 and n["estado"] == "PRUEBA_SELECCIONADA" and n["id"] != p["id"]
+    assert n["registro"]["versionMotivo"] == motivo["motivo"] and n["registro"]["posteriorInforme"] is False
+    ev = next(e for e in _leer(client, tok, n)["eventos"] if e["accion"] == "new_version")
+    assert ev["comentario"].endswith("Motivo: " + motivo["motivo"])
     assert not any(s["verified"] for s in n["registro"]["sources"])
     p = _leer(client, tok, p)
     assert p["sucesora"] == n["id"]
-    r = _accion(client, tok, p, "new_version")
+    r = _accion(client, tok, p, "new_version", motivo)
     assert r.status_code == 400 and "sucesora" in r.json()["detail"]
     cliente = p["registro"]["engagement"]["client"]
     assert _accion(client, tok, n, "delete", {"confirmClient": cliente, "deleteConfirmed": True}).json()["deleted"] is True

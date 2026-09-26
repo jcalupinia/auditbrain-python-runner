@@ -52,6 +52,10 @@ TIPO_ASIST = "Asistencia a la discusión del equipo"
 TIPO_ACEPT = "Aceptación o continuidad aprobada"
 TIPO_CARTA = "Carta de encargo firmada"
 TIPO_COMUN = "Comunicación al gobierno enviada"
+TIPO_INDAG = "Indagación u observación"
+TIPO_CONSULTA = "Consulta técnica"
+TIPO_DIFERENCIA = "Diferencia de opinión"
+ABIERTA, RESUELTA = "Abierta", "Resuelta"
 ROLES = ("Socio", "Gerente", "Senior", "Asistente", "Revisor de calidad", "Experto", "Otro")
 ESTADOS_ANTERIORES = ("Auditados por nosotros", "Auditados por otro auditor", "No auditados")
 COLS_REGISTROS = [["Registro", "t"], ["Integrante o responsable", "t"], ["Rol", "t"], ["Fecha", "d"],
@@ -94,8 +98,16 @@ def registros(p: dict) -> dict:
     def uno(k):
         x = r.get(k) or {}
         return {"actor": txt(x, "actor"), "fecha": _fecha(x.get("fecha")), "detalle": txt(x, "detalle")}
+    # M7 (NIA 315): indagaciones y observaciones; M3 (NIA 220): consultas y diferencias de opinión con su estado.
+    indag = [{"actor": txt(x, "actor"), "fecha": _fecha(x.get("fecha")), "tema": txt(x, "tema") or "Otro",
+              "procedimiento": txt(x, "procedimiento") or "Indagación", "persona": txt(x, "persona"), "resumen": txt(x, "resumen")}
+             for x in r.get("indagaciones") or [] if txt(x, "resumen")]
+    consultas = [{"actor": txt(x, "actor"), "fecha": _fecha(x.get("fecha")), "tipo": TIPO_DIFERENCIA if txt(x, "tipo") == "diferencia"
+                  else TIPO_CONSULTA, "tema": txt(x, "tema"), "estado": RESUELTA if txt(x, "estado") == RESUELTA else ABIERTA,
+                  "detalle": txt(x, "detalle")} for x in r.get("consultas") or [] if txt(x, "tema")]
     return {"equipo": equipo, "asistencia": asist, "aceptacion": uno("aceptacion"), "carta": uno("carta"),
-            "comunicacion": uno("comunicacion"), "firma": str(e.get("firma") or "").strip()}
+            "comunicacion": uno("comunicacion"), "indagaciones": indag, "consultas": consultas,
+            "firma": str(e.get("firma") or "").strip(), "ficha": dict(e.get("ficha") or {})}
 
 
 def filas_registros(reg: dict) -> tuple[list, dict]:
@@ -113,6 +125,15 @@ def filas_registros(reg: dict) -> tuple[list, dict]:
         pos[k] = FILA0 + len(filas)
         filas.append([tipo, x["actor"], rol if x["actor"] else "", x["fecha"] or None,
                       x["detalle"] if k == "carta" else "", x["detalle"] if k == "comunicacion" else "", None, det])
+    # Indagaciones: C procedimiento, E persona entrevistada, F tema, H resumen. Consultas: E tema, F estado, H detalle.
+    pos["indagaciones"], pos["consultas"] = [], []
+    for x in reg.get("indagaciones") or []:
+        pos["indagaciones"].append(FILA0 + len(filas))
+        filas.append([TIPO_INDAG, x["actor"], x["procedimiento"], x["fecha"] or None, x["persona"], x["tema"],
+                      None, x["resumen"]])
+    for x in reg.get("consultas") or []:
+        pos["consultas"].append(FILA0 + len(filas))
+        filas.append([x["tipo"], x["actor"], "", x["fecha"] or None, x["tema"], x["estado"], None, x["detalle"]])
     return filas, pos
 
 
@@ -380,6 +401,20 @@ def evaluaciones(c: dict) -> list[dict]:
     for k, cat in enumerate(TI):
         cods = [x["id"] for x in carta if x["ti"] == cat]
         out.append(_eval_carta(f"TI-{k + 1:02d}", "Controles generales de TI", cat, p12, cat, cods, n12, "Medio", False))
+    # M16 (NIA 402): procesos a cargo de organizaciones de servicio (nómina tercerizada, sistemas en la nube, custodia).
+    so = [x["id"] for x in carta if any(k in norm(x["proceso"] + " " + x["hallazgo"]) for k in SERVICIOS)]
+    f_so = "+".join(f'COUNTIF({b12},"*{k}*")+COUNTIF({c12},"*{k}*")' for k in SERVICIOS)
+    pend = f"{PENDIENTE} sin carta de control interno (RQ-004)"
+    v = pend if not n12 else f"Sí: {', '.join(so)} (hoja 12)" if so else "No"
+    out.append(_it(H27, "SO-01", "Organizaciones de servicio", "Procesos a cargo de terceros (nómina, sistemas en la nube, "
+                   "custodia) que afectan la información financiera", "NIA 402 párr. 9–12 (VERIFICAR)", "alerta_si",
+                   fx(f'IF({n12}=0,"{pend}",IF({f_so}>0,"Sí: organización de servicio en la carta (hoja 12)","No"))',
+                      pend if not n12 else "Sí: organización de servicio en la carta (hoja 12)" if so else "No"),
+                   ("Hallazgos " + ", ".join(so) + " (hoja 12)") if so else "Carta de control interno (hoja 12)",
+                   sev="Medio", nia="NIA 402",
+                   alerta="Proceso a cargo de una organización de servicio: el control está fuera de la entidad.",
+                   resp=("Obtener el informe tipo 1 o tipo 2 del auditor de la organización de servicio y evaluar los controles "
+                         "complementarios de la entidad (NIA 402 párr. 12–17 — VERIFICAR).")))
     for x in out:
         x["estado"] = _estado(x["kind"], x["res"]["v"] if isinstance(x["res"], dict) else x["res"])
     return out
@@ -660,6 +695,9 @@ NIVEL_AFIRMACION = "Afirmación"
 RESP_GLOBAL = "Respuesta global (NIA 330 párr. 5): escepticismo, personal con experiencia, supervisión e imprevisibilidad"
 RESP_570 = "Evaluar la capacidad de continuar y los planes de la dirección (NIA 570)"
 RESP_AFIRMACION = "Por afirmación en el programa (hoja 19)"
+
+
+SERVICIOS = ("terceriz", "outsourc", "nube", "externaliz", "proveedor de servicio", "custodi", "servicio externo")
 
 
 def menciona(texto: str, claves: tuple) -> bool:

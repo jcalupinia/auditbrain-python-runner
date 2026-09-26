@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 
 import * as api from "../../api";
-import { DOCUMENTOS, NOMBRE_ARCHIVO, NOMBRE_TIPO, ROLES, miIndependencia, resumenRegistros } from "./registroLogic";
+import {
+  DOCUMENTOS, NOMBRE_ARCHIVO, NOMBRE_TIPO, PROCEDIMIENTOS, ROLES, TEMAS, miIndependencia, resumenRegistros,
+} from "./registroLogic";
 
 /*
  * «Registro del encargo» (decisión del dueño, 2026-09-26): lo que no sale de los documentos del cliente se confirma
@@ -31,6 +33,9 @@ export function RegistroEncargo({ proyecto }) {
   const [discusion, setDiscusion] = useState(hoy());
   const [carta, setCarta] = useState({ fecha: hoy(), limitaciones: "" });
   const [comunic, setComunic] = useState({ fecha: hoy(), medio: "" });
+  const [indag, setIndag] = useState({ tema: "", procedimiento: "Indagación", persona: "", resumen: "", fecha: hoy() });
+  const [consulta, setConsulta] = useState({ tipo: "consulta", tema: "", detalle: "" });
+  const [resoluciones, setResoluciones] = useState({});
 
   const recargar = useCallback(async () => {
     try {
@@ -59,6 +64,16 @@ export function RegistroEncargo({ proyecto }) {
       setError(e.message || String(e));
     } finally {
       setOcupado(false);
+    }
+  }
+
+  async function resolver(id) {
+    setError("");
+    try {
+      await api.cicloResolverConsulta(proyecto.id, id, resoluciones[id] || "");
+      await recargar();
+    } catch (e) {
+      setError(e.message || String(e));
     }
   }
 
@@ -184,6 +199,77 @@ export function RegistroEncargo({ proyecto }) {
             Comunicación enviada
           </button>
         </div>
+      </div>
+
+      <div className="nf-rec-item">
+        <h5>Indagaciones y observaciones (NIA 315)</h5>
+        <div className="nf-rec-row">
+          <label className="nf-ctx-field">
+            Tema
+            <select value={indag.tema} onChange={(e) => setIndag({ ...indag, tema: e.target.value })}>
+              <option value="">Seleccione…</option>
+              {TEMAS.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </label>
+          <label className="nf-ctx-field">
+            Procedimiento
+            <select value={indag.procedimiento} onChange={(e) => setIndag({ ...indag, procedimiento: e.target.value })}>
+              {PROCEDIMIENTOS.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </label>
+          <label className="nf-ctx-field">
+            Persona entrevistada o lugar
+            <input value={indag.persona} onChange={(e) => setIndag({ ...indag, persona: e.target.value })} />
+          </label>
+          <label className="nf-ctx-field">
+            Fecha
+            <input type="date" value={indag.fecha} max={hoy()} onChange={(e) => setIndag({ ...indag, fecha: e.target.value })} />
+          </label>
+        </div>
+        <label className="nf-ctx-field">
+          Qué se obtuvo
+          <textarea rows={2} value={indag.resumen} onChange={(e) => setIndag({ ...indag, resumen: e.target.value })} />
+        </label>
+        <button type="button" className="btn sm" disabled={ocupado || !indag.tema || indag.resumen.trim().length < 10}
+          onClick={async () => { await registrar({ tipo: "indagacion", ...indag }); setIndag({ ...indag, persona: "", resumen: "" }); }}>
+          Registrar indagación
+        </button>
+      </div>
+
+      <div className="nf-rec-item">
+        <h5>Consultas y diferencias de opinión (NIA 220)</h5>
+        <div className="nf-rec-row">
+          <label className="nf-ctx-field">
+            Tipo
+            <select value={consulta.tipo} onChange={(e) => setConsulta({ ...consulta, tipo: e.target.value })}>
+              <option value="consulta">Consulta técnica</option>
+              <option value="diferencia">Diferencia de opinión</option>
+            </select>
+          </label>
+          <label className="nf-ctx-field" style={{ flex: 1 }}>
+            Tema
+            <input value={consulta.tema} onChange={(e) => setConsulta({ ...consulta, tema: e.target.value })} />
+          </label>
+          <button type="button" className="btn sm" disabled={ocupado || consulta.tema.trim().length < 5}
+            onClick={async () => { await registrar(consulta); setConsulta({ ...consulta, tema: "", detalle: "" }); }}>
+            Abrir
+          </button>
+        </div>
+        {datos.registros.filter((r) => ["consulta", "diferencia"].includes(r.tipo) && r.datos.estado === "Abierta").map((r) => (
+          <div key={r.id} className="nf-rec-row">
+            <span style={{ flex: 1 }}>{NOMBRE_TIPO[r.tipo]} · {r.datos.tema}</span>
+            <input placeholder="Resolución" value={resoluciones[r.id] || ""}
+              onChange={(e) => setResoluciones({ ...resoluciones, [r.id]: e.target.value })} />
+            <button type="button" className="btn sm" disabled={(resoluciones[r.id] || "").trim().length < 10}
+              onClick={() => resolver(r.id)}>
+              Resolver
+            </button>
+          </div>
+        ))}
       </div>
 
       <div className="nf-estudio-botones">

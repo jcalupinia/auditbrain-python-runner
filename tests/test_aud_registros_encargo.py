@@ -161,3 +161,74 @@ def test_los_documentos_llevan_el_marco_del_cliente():
     pymes = {**FICHA, "framework": "NIIF para las PYMES", "edition": "2015"}
     assert "NIIF para las PYMES (edición 2015)" in texto(docs.carta_encargo(pymes, {}))
     assert "NIIF para las PYMES (edición 2025)" in texto(docs.carta_planificacion({**pymes, "edition": "2025"}, {}, None))
+
+
+def test_indagaciones_consultas_y_bloqueo_de_la_aprobacion(client):
+    """M3 y M7: indagaciones con un clic (varias vigentes) y consultas que bloquean la aprobación hasta resolverse."""
+    from backend.app.aud.niif.ciclo.models import Prueba
+    from backend.app.aud.niif.ciclo.reglas import ReglaIncumplida
+
+    tok, pid = _staff_con_proyecto(client)
+    assert client.put(f"{BASE}/proyectos/{pid}/ficha", headers=_h(tok), json=FICHA).status_code == 200
+    assert "tema" in _reg(client, tok, pid, tipo="indagacion", tema="Fraude", resumen="Sin comentarios relevantes").json()["detail"]
+    for tema in ("Partes relacionadas", "Leyes y reglamentos"):
+        r = _reg(client, tok, pid, tipo="indagacion", tema=tema, procedimiento="Indagación", persona="Gerente general",
+                 resumen="La dirección confirma sus partes y su cumplimiento.")
+        assert r.status_code == 201, r.text
+    c = _reg(client, tok, pid, tipo="consulta", tema="Provisión del litigio laboral", detalle="Consulta al área técnica")
+    assert c.status_code == 201
+    e = client.get(f"{BASE}/proyectos/{pid}/registros", headers=_h(tok)).json()["encargo"]
+    assert len(e["registros"]["indagaciones"]) == 2 and e["registros"]["consultas"][0]["estado"] == "Abierta"
+    assert e["ficha"]["framework"] == FICHA["framework"]
+    db = SessionLocal()
+    try:
+        assert servicio.consultas_abiertas(db, pid) == 1
+        p = Prueba(project_id=pid, version=1, estado="EN_REVISION", origen="proc:planificacion_nia",
+                   definicion=m.definicion(), registro={}, revision=1, creada_por="x")
+        db.add(p)
+        db.commit()
+        try:
+            servicio.aplicar_accion(db, p, "approve", 1, {"conclusion": "Planificación aprobada.", "conclusionReviewed": True}, "yo")
+            assert False, "debió bloquear"
+        except ReglaIncumplida as ex:
+            assert str(ex) == servicio.CONSULTAS_BLOQUEAN
+    finally:
+        db.close()
+    url = f"{BASE}/proyectos/{pid}/registros/{c.json()['id']}/resolver"
+    assert "resolución" in client.post(url, headers=_h(tok), json={"resolucion": "ok"}).json()["detail"]
+    r = client.post(url, headers=_h(tok), json={"resolucion": "Se provisiona según el criterio del abogado."})
+    assert r.status_code == 200 and r.json()["datos"]["estado"] == "Resuelta"
+    assert client.post(url, headers=_h(tok), json={"resolucion": "Otra vez resuelta."}).status_code == 400
+    db = SessionLocal()
+    try:
+        assert servicio.consultas_abiertas(db, pid) == 0
+    finally:
+        db.close()
+
+
+def test_version_anterior_de_la_planificacion():
+    """M4: la versión nueva recibe la materialidad y los riesgos de la anterior (hoja 13 guardada en su ejecución)."""
+    from backend.app.aud.niif.ciclo.models import Prueba
+
+    e = m.EJEMPLO
+    r = m.ejecutar(e["datasets"], e["parametros"], e["corte"])
+    run = {"totals": r["totals"], "hojas": [h for h in m.hojas(r) if h["name"].startswith("13_")]}
+    db = SessionLocal()
+    try:
+        from backend.app.context.models import Project
+        pid = db.query(Project.id).first()[0]
+        old = Prueba(project_id=pid, version=1, estado="APROBADO", origen="x", definicion={}, registro={"run": run}, revision=1)
+        db.add(old)
+        db.commit()
+        nueva = Prueba(project_id=pid, parent_id=old.id, version=2, estado="PRUEBA_SELECCIONADA", origen="x", definicion={},
+                       registro={}, revision=1)
+        ant = servicio.version_anterior_run(db, nueva)
+    finally:
+        db.close()
+    assert ant["version"] == 1 and ant["totales"]["materialidad"] == r["totals"]["materialidad"]
+    assert ant["riesgos"][0]["cond"] == r["detalle"]["riesgos"][0]["cond"]
+    # Con la misma planificación, el comparativo no muestra cambios en la materialidad ni en los riesgos que ya estaban.
+    r2 = m.ejecutar(e["datasets"], {**e["parametros"], "_anterior": ant}, e["corte"])
+    cam = next(h for h in m.hojas(r2) if h["name"] == "42_Cambios")["rows"]
+    estados = [f[3]["v"] if isinstance(f[3], dict) else f[3] for f in cam]
+    assert set(estados) == {"Sin cambio"}

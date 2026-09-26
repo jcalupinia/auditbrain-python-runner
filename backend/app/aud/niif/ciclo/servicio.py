@@ -467,6 +467,10 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                     # Independencia, aceptación, carta, discusión y comunicación registradas con un clic: se congelan en
                     # esta ejecución (la hoja 00_Registros del papel es la evidencia; NIA 230).
                     param["_encargo"] = registros_encargo(db, p.project_id)
+                    # M4 (NIA 300 párr. 10): cifras y riesgos de la versión anterior, para el comparativo de la hoja 42.
+                    anterior = version_anterior_run(db, p)
+                    if anterior:
+                        param["_anterior"] = anterior
                 run = proc.ejecutar(reg.get("datasets") or {}, param, reg["engagement"]["cutoff"])
                 # La 3.ª edición de la NIIF para las PYMES rige desde el 1-1-2027: antes, solo con adopción anticipada.
                 if "PYMES" in param["_marco"] and param["_edicion"] == "2025" and str(reg["engagement"]["cutoff"]) < "2027-01-01":
@@ -560,6 +564,9 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         if (reg.get("run") or {}).get("exceptions") and len(reg["exceptionReview"]) < 10:
             raise ReglaIncumplida("Documente la evaluación de excepciones antes de cerrar.")
         reg["conclusionReviewed"] = True
+        # M3 (NIA 220): una consulta técnica o una diferencia de opinión abierta bloquea la aprobación de la planificación.
+        if getattr(procesadores.de(p.definicion), "USA_REGISTROS_ENCARGO", False) and consultas_abiertas(db, p.project_id):
+            raise ReglaIncumplida(CONSULTAS_BLOQUEAN)
         p.estado = reglas.transicion({**reg, "state": p.estado, "definition": p.definicion}, accion)
         reg["approvedBy"] = actor
         reg["approvedAt"] = _ahora_iso()
@@ -795,10 +802,18 @@ def guardar_papel_declarativo(db: Session, p: Prueba, revision: int, carga: dict
     return guardar_papel(db, p, revision, a["xlsx"], a["html"], actor, docx=a["docx"], pptx=a["pptx"])
 
 
-def nueva_version(db: Session, old: Prueba, revision: int, actor: str) -> Prueba:
-    """Puerto de la acción ``new_version`` de route.ts."""
+MOTIVO_VERSION = "Indique el motivo de la nueva versión (NIA 230: qué cambia y por qué), con al menos 10 caracteres."
+POSTERIOR_INFORME = "Cambio posterior a la fecha del informe (NIA 230 párr. 16)"
+
+
+def nueva_version(db: Session, old: Prueba, revision: int, actor: str, motivo: str = "") -> Prueba:
+    """Puerto de la acción ``new_version`` de route.ts. M1 (NIA 230): exige el motivo, que queda con su autor y fecha en la
+    bitácora; si la fecha del informe ya pasó, la versión se marca como cambio posterior al informe."""
     if revision != old.revision:
         raise Conflicto("La prueba cambió mientras la editaba. Actualice y vuelva a intentarlo.")
+    motivo = str(motivo or "").strip()[:2000]
+    if len(motivo) < 10:
+        raise ReglaIncumplida(MOTIVO_VERSION)
     if old.estado != "APROBADO":
         raise ReglaIncumplida("Solo una versión aprobada origina una nueva versión.")
     if db.execute(select(Prueba.id).where(Prueba.parent_id == old.id)).first():
@@ -812,11 +827,16 @@ def nueva_version(db: Session, old: Prueba, revision: int, actor: str) -> Prueba
         "requests": [], "rows": [], "parameters": r.get("parameters") or {}, "notes": [], "analysis": "",
         "conclusion": "", "conclusionReviewed": False, "createdAt": _ahora_iso(), "createdBy": actor,
     }
+    fi = str((r.get("parameters") or {}).get("fechaInforme") or "")[:10]
+    posterior = bool(fi) and _hoy().isoformat() > fi
+    registro["versionMotivo"] = motivo
+    registro["posteriorInforme"] = posterior
     p = Prueba(project_id=old.project_id, parent_id=old.id, version=old.version + 1, estado="PRUEBA_SELECCIONADA",
                origen=old.origen, definicion=old.definicion, registro=registro, revision=1, creada_por=actor)
     db.add(p)
     db.flush()
-    _evento(db, p, "new_version", None, actor, f"Versión anterior: v{old.version} (prueba {old.id})")
+    _evento(db, p, "new_version", None, actor, f"Versión anterior: v{old.version} (prueba {old.id}). Motivo: {motivo}"
+            + (f" · {POSTERIOR_INFORME}" if posterior else ""))
     db.commit()
     db.refresh(p)
     return p
@@ -1012,7 +1032,11 @@ def crear_encargo(db: Session, user, datos: dict) -> dict:
 
 # --- registros del encargo con un clic (decisión del dueño, 2026-09-26) -------
 
-TIPOS_REGISTRO = ("independencia", "asistencia", "aceptacion", "carta", "comunicacion")
+TIPOS_REGISTRO = ("independencia", "asistencia", "aceptacion", "carta", "comunicacion", "indagacion", "consulta", "diferencia")
+# Varios registros vigentes a la vez: las indagaciones, las consultas y las diferencias de opinión no se reemplazan.
+ACUMULAN = ("indagacion", "consulta", "diferencia")
+CONSULTAS_BLOQUEAN = ("Hay consultas técnicas o diferencias de opinión abiertas en el registro del encargo: resuélvalas antes de "
+                      "aprobar (NIA 220).")
 # Un solo registro vigente por persona (independencia, asistencia) o por encargo (los demás): el nuevo anula al anterior.
 POR_PERSONA = ("independencia", "asistencia")
 
@@ -1116,8 +1140,25 @@ def registrar(db: Session, project_id: int, datos: dict, actor: str) -> Registro
         if not medio:
             raise ReglaIncumplida("Indique el medio de la comunicación (reunión, correo, carta).")
         extra = {"detalle": medio}
+    elif tipo == "indagacion":
+        from backend.app.aud.niif.procesadores import planificacion_calidad as cal
+        fecha = _fecha_registro(datos.get("fecha"), hoy)
+        tema, proc = _texto(datos.get("tema"), 80), _texto(datos.get("procedimiento"), 40) or "Indagación"
+        if tema not in cal.TEMAS:
+            raise ReglaIncumplida("Elija el tema de la indagación.")
+        if proc not in cal.PROCEDIMIENTOS:
+            raise ReglaIncumplida("El procedimiento es indagación, observación o inspección.")
+        resumen = _texto(datos.get("resumen"), 2000)
+        if len(resumen) < 10:
+            raise ReglaIncumplida("Resuma lo que se obtuvo de la indagación u observación.")
+        extra = {"tema": tema, "procedimiento": proc, "persona": _texto(datos.get("persona"), 200), "resumen": resumen}
+    elif tipo in ("consulta", "diferencia"):
+        tema = _texto(datos.get("tema"), 300)
+        if len(tema) < 5:
+            raise ReglaIncumplida("Indique el tema de la consulta o de la diferencia de opinión.")
+        extra = {"tema": tema, "detalle": _texto(datos.get("detalle")), "estado": "Abierta"}
     for r in vig:
-        if r.tipo == tipo and (tipo not in POR_PERSONA or r.actor == actor):
+        if tipo not in ACUMULAN and r.tipo == tipo and (tipo not in POR_PERSONA or r.actor == actor):
             _anular(r, actor)
     reg = RegistroEncargo(project_id=project_id, tipo=tipo, actor=actor, nombre=nombre, rol=rol, fecha=fecha, datos=extra)
     db.add(reg)
@@ -1136,6 +1177,41 @@ def anular_registro(db: Session, project_id: int, registro_id: int, actor: str, 
     db.commit()
 
 
+def resolver_consulta(db: Session, project_id: int, registro_id: int, resolucion: str, actor: str) -> RegistroEncargo:
+    """M3 (NIA 220): la consulta o la diferencia de opinión se cierra con su resolución, quién la resolvió y cuándo."""
+    r = db.get(RegistroEncargo, registro_id)
+    if r is None or r.project_id != project_id or r.anulado_en is not None or r.tipo not in ("consulta", "diferencia"):
+        raise ReglaIncumplida("Consulta no encontrada.")
+    if (r.datos or {}).get("estado") != "Abierta":
+        raise ReglaIncumplida("La consulta ya está resuelta.")
+    resolucion = _texto(resolucion, 2000)
+    if len(resolucion) < 10:
+        raise ReglaIncumplida("Documente la resolución (al menos 10 caracteres).")
+    r.datos = {**(r.datos or {}), "estado": "Resuelta", "resolucion": resolucion, "resueltaPor": actor,
+               "resueltaEn": _hoy().isoformat()}
+    db.commit()
+    db.refresh(r)
+    return r
+
+
+def consultas_abiertas(db: Session, project_id: int) -> int:
+    return sum(1 for r in _vigentes(db, project_id) if r.tipo in ("consulta", "diferencia") and (r.datos or {}).get("estado") == "Abierta")
+
+
+def version_anterior_run(db: Session, p: Prueba) -> dict | None:
+    """Materialidad y riesgos de la versión anterior (hoja 13 guardada en su ejecución)."""
+    old = db.get(Prueba, p.parent_id) if p.parent_id else None
+    run = (old.registro or {}).get("run") if old else None
+    if not run:
+        return None
+    h13 = next((h for h in run.get("hojas") or [] if str(h.get("name", "")).startswith("13_")), None)
+    val = lambda c: c.get("v") if isinstance(c, dict) else c  # noqa: E731
+    riesgos = [{"rubro": val(f[2]), "cond": val(f[3]), "presenta": val(f[5]), "riesgo": val(f[6]), "sev": val(f[7])}
+               for f in (h13 or {}).get("rows") or []]
+    return {"version": old.version, "fecha": (old.aprobada_en or old.actualizada_en).date().isoformat() if (old.aprobada_en or old.actualizada_en) else "",
+            "totales": {k: (run.get("totals") or {}).get(k) for k in ("materialidad", "desempeno", "trivial")}, "riesgos": riesgos}
+
+
 def registro_salida(r: RegistroEncargo) -> dict:
     return {"id": r.id, "tipo": r.tipo, "actor": r.actor, "nombre": r.nombre, "rol": r.rol,
             "fecha": r.fecha.isoformat(), "datos": r.datos or {},
@@ -1145,7 +1221,7 @@ def registro_salida(r: RegistroEncargo) -> dict:
 def registros_encargo(db: Session, project_id: int) -> dict:
     """Lo que la planificación recibe en ``parametros["_encargo"]`` (planificacion_encargo.registros)."""
     vig = _vigentes(db, project_id)
-    equipo, asistencia, uno = [], [], {}
+    equipo, asistencia, indagaciones, consultas, uno = [], [], [], [], {}
     for r in vig:
         d = r.datos or {}
         if r.tipo == "independencia":
@@ -1154,10 +1230,19 @@ def registros_encargo(db: Session, project_id: int) -> dict:
                            "anios": anios_con_cliente(db, project_id, r.actor, d.get("anio_desde"))})
         elif r.tipo == "asistencia":
             asistencia.append({"integrante": r.nombre, "rol": r.rol, "fecha": r.fecha.isoformat()})
+        elif r.tipo == "indagacion":
+            indagaciones.append({"actor": r.nombre, "fecha": r.fecha.isoformat(), **{k: d.get(k, "") for k in
+                                                                                    ("tema", "procedimiento", "persona", "resumen")}})
+        elif r.tipo in ("consulta", "diferencia"):
+            consultas.append({"actor": r.nombre, "fecha": r.fecha.isoformat(), "tipo": r.tipo, "tema": d.get("tema", ""),
+                              "estado": d.get("estado", "Abierta"),
+                              "detalle": " · ".join(v for v in (d.get("detalle"), d.get("resolucion")) if v)})
         else:
             uno[r.tipo] = {"actor": r.nombre, "fecha": r.fecha.isoformat(), "detalle": d.get("detalle", "")}
     ficha = leer_ficha(db, project_id) or {}
-    return {"registros": {"equipo": equipo, "asistencia": asistencia, **uno}, "firma": ficha.get("firm") or ""}
+    return {"registros": {"equipo": equipo, "asistencia": asistencia, "indagaciones": indagaciones, "consultas": consultas, **uno},
+            "firma": ficha.get("firm") or "",
+            "ficha": {k: ficha.get(k) for k in ("client", "ruc", "activity", "year", "cutoff", "framework", "edition")}}
 
 
 def ultima_planificacion(db: Session, project_id: int) -> dict | None:

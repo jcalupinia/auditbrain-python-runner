@@ -1378,3 +1378,6 @@ export async function cicloDocumentoEncargo(projectId, tipo) {
   if (!res.ok) await parse(res);
   return new Uint8Array(await res.arrayBuffer());
 }
+export async function cicloResolverConsulta(projectId, registroId, resolucion) {
+  return parse(await apiFetch(`${CICLO}/proyectos/${projectId}/registros/${registroId}/resolver`, jsonPost("POST", { resolucion })));
+}

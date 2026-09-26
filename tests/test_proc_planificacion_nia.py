@@ -130,7 +130,7 @@ def test_matriz_de_la_carta_de_control_interno():
     assert (carta["R04"]["probar"], carta["R04"]["res"], carta["R04"]["nivel"]) == ("Sí", pytest.approx(7.2), "Bajo")
     assert carta["R06"]["nivel"] == "Pendiente de calificación"
     h12 = next(h for h in m.hojas(_run()) if h["name"] == "12_Riesgos_CCI")
-    assert [c[0] for c in h12["cols"]][8] == "Riesgo valorado" and h12["cols"][-3][0] == "¿Se probará el control?"
+    assert [c[0] for c in h12["cols"]][8] == "Riesgo valorado" and "¿Se probará el control?" in [c[0] for c in h12["cols"]]
     assert h12["rows"][1][8]["f"] == f'IF(H{m.FILA0 + 1}="","",IF(N{m.FILA0 + 1}="Sí",IF(G{m.FILA0 + 1}="","",H{m.FILA0 + 1}*(6-G{m.FILA0 + 1})/5),H{m.FILA0 + 1}))'
     assert carta["R02"]["herramienta"] == m.HERRAMIENTAS["Inventarios"]
 
@@ -242,7 +242,9 @@ def test_hojas_con_las_cedulas_y_el_ancho_de_columnas():
     propias = sum(1 for f in programa["rows"] if str(f[2]).startswith("Cuenta "))
     conf = sum(1 for f in programa["rows"] if str(f[2]).startswith(("NIA 505", "NIA 501 ·")))
     assert conf >= 1
-    assert len(programa["rows"]) == len(r["detalle"]["carta"]) + presentes + propias + conf + len(m.PROC_ENCARGO)
+    # M19 y M6: saldos de apertura (NIA 510) y el elemento de imprevisibilidad (NIA 240), si hay una cuenta que no se revisa.
+    impr = sum(1 for f in programa["rows"] if f[2] == "Imprevisibilidad (NIA 240)")
+    assert len(programa["rows"]) == len(r["detalle"]["carta"]) + presentes + propias + conf + len(m.PROC_ENCARGO) + 1 + impr
 
 
 def test_panel_con_textos_propios_y_las_demas_herramientas_sin_cambio():
@@ -436,7 +438,7 @@ def test_programa_cubre_todas_las_cuentas_a_revisar_y_procedimientos_de_todo_enc
                         or any(m._area(k["proceso"] + " " + k["hallazgo"]) == m._area(c["cuenta"], c["sec"]) for k in r["detalle"]["carta"]))
             assert cubierta, (esc, c["codigo"], c["cuenta"])
         normas = {f[2] for f in prog if f[3] == "Todo encargo"}
-        assert normas == {"NIA 560", "NIA 550", "NIA 501", "NIA 570", "NIA 250", "NIA 580"}
+        assert normas == {"NIA 560", "NIA 550", "NIA 501", "NIA 570", "NIA 250", "NIA 580", "NIA 330", "NIA 720"}
         assert all(f[7] and f[8] and f[9] and f[10] for f in prog)          # aseveraciones, evidencia, responsable, aplica
     # PPE (sin riesgo propio en el ejemplo) tiene su procedimiento sustantivo; proveedores lo cubre el riesgo del
     # entendimiento de la entidad (proveedor principal vinculado, NIA 315).
@@ -794,7 +796,7 @@ def test_a8_a9_control_interno_y_ti_desde_la_carta():
     assert ev["CI-04"]["estado"] == "Alerta" and ev["TI-01"]["estado"] == "Alerta" and ev["CI-01"]["estado"] == "Conforme"
     assert ev["TI-01"]["evid"] == "Hallazgos R05 (hoja 12)"
     h12 = hs["12_Riesgos_CCI"]
-    assert [c[0] for c in h12["cols"]][-2:] == ["Componente del control interno", "Control general de TI"]
+    assert [c[0] for c in h12["cols"]][-4:-2] == ["Componente del control interno", "Control general de TI"]
     # Sin carta: pendientes.
     ev2 = _ev(_esc("perdida_pymes"))
     assert all(ev2[f"CI-0{k}"]["estado"] == "Pendiente" for k in range(1, 6))
@@ -850,7 +852,7 @@ def test_a12_a14_muestra_extension_y_confirmaciones():
 
 def test_a10_a11_materialidad_especifica_y_diferencias_automaticas():
     r, hs = _hojas()
-    fila = _filas(hs["11_Materialidad"])[-1]
+    fila = next(f for f in _filas(hs["11_Materialidad"]) if f[0].startswith("Materialidad específica"))
     mes = _ev(r)["MES-01"]
     if mes["res"]["v"] == "Sí":
         assert fila[3] == pytest.approx(48789 * 0.5) and fila[6] == "Conforme"
@@ -922,3 +924,98 @@ def test_normas_segun_el_marco_del_cliente():
     assert est["Marco de información financiera"] == "NIIF para las PYMES · edición: 2025"
     # Sin auditoría de grupos (decisión de la firma).
     assert "auditoriaGrupo" not in m.PARAMETROS and "NIA 600" not in tc
+
+
+# --- M1–M21: pendientes de prioridad media (planificacion_calidad) ------------------------------------------------------
+from backend.app.aud.niif.procesadores import planificacion_calidad as cal  # noqa: E402
+
+
+def _papel_txt(hs) -> str:
+    import json
+    return json.dumps([h["rows"] for h in hs if h["name"] != "00_Nota_metodologica"], ensure_ascii=False)
+
+
+def test_m_hojas_nuevas_y_nota_metodologica():
+    r, hs = _hojas()
+    for h in (cal.H34, cal.H35, cal.H36, cal.H37, cal.H38, cal.H39, cal.H40, cal.H41, cal.H42, cal.H43, "00_Nota_metodologica"):
+        assert h in hs, h
+    # M20: ninguna celda entregable dice «VERIFICAR»; las citas llevan «†» y la nota las lista con sus hojas.
+    assert "VERIFICAR" not in _papel_txt(hs.values()) and m.MARCA in _papel_txt(hs.values())
+    nota = _filas(hs["00_Nota_metodologica"])
+    assert any(f[1] == "NIA 250 párr. 13" and "39_Leyes" in f[2] for f in nota)
+    assert any("párr. 25" in f[1] and f[3] == "Corregida" for f in nota)
+    assert list(hs)[-1] == m.PROBLEMAS
+
+
+def test_m5_m8_m11_m12_factores_stand_back_analiticos_y_estimaciones():
+    r, hs = _hojas()
+    fac = {f[1]: f for f in _filas(hs[cal.H34])}
+    assert fac["R03"][6] == "Sí" and fac["R03"][8] == "Sí"                       # subjetividad e incertidumbre (provisión)
+    assert fac["R05"][11] == cal.NO_BASTAN                                          # accesos del ERP: probar controles
+    assert "CONTROLES_NECESARIOS" in {e["code"] for e in r["exceptions"]}
+    sb = [f for f in _filas(hs[cal.H36]) if f[0] == "Cuenta" and f[4] == "Sí" and not f[5]]
+    assert sb and all(f[6] == m._sin_verificar(cal.SB_SIN) for f in sb)                               # stand-back: material sin riesgo
+    an = {f[0]: f for f in _filas(hs[cal.H37])}
+    te = 24394.5 * 0.5
+    assert an["4101"][8] == pytest.approx(te) and an["4101"][9] == cal.AN_INV
+    costo = an["6101"]
+    assert costo[6] == pytest.approx(costo[3] * 4860500 / 4215300)                  # margen constante
+    est = {f[0]: f for f in _filas(hs[cal.H38])}
+    assert est["2202"][2].startswith("Jubilación") and est["2202"][7] == "Alta"
+    assert est["120103"][7] == "Media"                                             # depreciación: no es de alta subjetividad
+    rb = next(x for x in r["detalle"]["riesgos"] if x["cod"] == "estimacion")
+    assert rb["presenta"] == "Sí" and rb["norma"] == "NIA 540"
+
+
+def test_m9_m21_m17_m19_m6_m2_materialidad_deficiencias_apertura_y_horas():
+    r, hs = _hojas()
+    mat = {f[0]: f for f in _filas(hs["11_Materialidad"])}
+    su = mat[m.DESEMP_SUGERIDO]
+    assert su[2] == 50 and su[6] == "Conforme"                                      # dos factores → 50 %; la hoja 02 usa 50 %
+    r75 = m.ejecutar(m.EJEMPLO["datasets"], {**m.EJEMPLO["parametros"], "pctDesempeno": 75}, m.EJEMPLO["corte"])
+    assert "DESEMPENO_SOBRE_SUGERIDO" in {e["code"] for e in r75["exceptions"]}
+    assert mat[m.AVISO_SIGNO][6] in ("Conforme", "Revisar")
+    h12 = _filas(hs["12_Riesgos_CCI"])
+    assert h12[0][16] == m.DEF_SIGNIFICATIVA and h12[5][16] == m.DEF_PENDIENTE and h12[0][17] == m.SEGUIMIENTO
+    prog = _filas(hs["19_Programa"])
+    ap = next(f for f in prog if f[1] == "Saldos de apertura")
+    assert ap[10] == "No"                                                           # encargo recurrente, auditado por nosotros
+    ap2 = next(f for f in _filas(_hojas("patrimonio_deficit")[1]["19_Programa"]) if f[1] == "Saldos de apertura")
+    assert ap2[10] == "Sí"                                                          # estados del año anterior no auditados
+    impr = [f for f in prog if f[2] == "Imprevisibilidad (NIA 240)"]
+    assert len(impr) == 1 and impr[0][6] == "Visita final, sin aviso previo"
+    assert all(isinstance(f[12], float) for f in prog) and {f[13] for f in prog} <= {cal.SUP_SOCIO, cal.SUP_GERENTE}
+    horas = _filas(hs[cal.H43])
+    total = sum(f[12] for f in prog)
+    assert horas[4][3] == pytest.approx(total) and horas[0][3] == pytest.approx(total * 0.10)
+    cierre = next(f for f in horas if f[0].startswith("Cierre del archivo"))
+    assert cierre[5] == "2026-05-30"                                                # informe 2026-03-31 + 60 días
+    est = {f[0]: f[1] for f in _filas(hs["21_Estrategia"])}
+    assert est["Respuesta global · imprevisibilidad"].startswith("Prueba sin aviso sobre la cuenta")
+    assert est["Cambios frente a la versión anterior (hoja 42)"] == "Sin cambios o primera versión"
+
+
+def test_m4_m7_m13_m14_m15_m16_escenario_eip():
+    r, hs = _hojas("eip")
+    partes = _filas(hs[cal.H40])
+    assert [f[5] for f in partes[:2]] == ["Nueva", "Nueva"] and partes[-1][7] == "Documentada (hoja 35)"
+    rb = {x["cod"]: x for x in r["detalle"]["riesgos"]}
+    assert rb["partes"]["presenta"] == "Sí" and rb["partes"]["sev"] == "Significativo"
+    assert rb["em_nofin"]["presenta"] == "Sí"
+    em = _filas(hs[cal.H41])
+    assert em[0][2].startswith("0 indicios") and em[1][1] == "Carta de control interno · R07"   # el no financiero va aparte
+    assert em[-1][5].startswith(cal.PENDIENTE)                                      # sin la evaluación de la dirección
+    so = next(x for x in r["detalle"]["evals"] if x["codigo"] == "SO-01")
+    assert so["estado"] == "Alerta"                                                  # nómina tercerizada (NIA 402)
+    ent = {f[0]: f for f in _filas(hs[cal.H35])}
+    assert ent["Sector, actividad y regulación"][3].startswith("Observación: Recorrido")
+    assert ent["Partes relacionadas"][4] == "Documentado"
+    leyes = {f[0]: f for f in _filas(hs[cal.H39])}
+    assert leyes["Otras leyes del sector"][7].startswith(cal.PENDIENTE)
+    cam = _filas(hs[cal.H42])
+    assert cam[0][3].startswith("Cambió") and any(f[3] == "Sin cambio" for f in cam)
+    ctl = {f[0]: f for f in _filas(hs["16_Control"])}
+    assert ctl["Consultas y diferencias de opinión abiertas (NIA 220)"][2:4] == [1, "Revisar"]
+    assert {"CONSULTAS_ABIERTAS", "EM_EVALUACION_PENDIENTE"} <= {e["code"] for e in r["exceptions"]}
+    reg = _filas(hs[enc.REG])
+    assert [f[0] for f in reg].count(enc.TIPO_INDAG) == 2 and reg[-1][0] == enc.TIPO_CONSULTA and reg[-1][5] == "Abierta"

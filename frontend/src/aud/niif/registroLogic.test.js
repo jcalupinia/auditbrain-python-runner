@@ -5,7 +5,7 @@ import { miIndependencia, resumenRegistros } from "./registroLogic";
 describe("resumen de los registros del encargo", () => {
   it("sin registros todo está pendiente", () => {
     const r = resumenRegistros(null);
-    expect(r.map((x) => x.hecho)).toEqual([false, false, false, false, false]);
+    expect(r.map((x) => x.hecho)).toEqual([false, false, false, false, false, false, true]);
     expect(r[0].detalle).toBe("Nadie ha confirmado todavía");
   });
 
@@ -37,5 +37,20 @@ describe("resumen de los registros del encargo", () => {
     ];
     expect(miIndependencia(regs, "yo").rol).toBe("Senior");
     expect(miIndependencia(regs, "nadie")).toBeNull();
+  });
+});
+
+describe("indagaciones y consultas", () => {
+  it("una consulta abierta queda a la vista porque bloquea la aprobación", () => {
+    const r = resumenRegistros({
+      registros: {
+        equipo: [], asistencia: [],
+        indagaciones: [{ tema: "Partes relacionadas", resumen: "x" }],
+        consultas: [{ tema: "Litigio", estado: "Abierta" }, { tema: "Otra", estado: "Resuelta" }],
+      },
+    });
+    const k = Object.fromEntries(r.map((x) => [x.clave, x]));
+    expect(k.indagaciones).toMatchObject({ hecho: true, detalle: "1 registrada(s)" });
+    expect(k.consultas).toMatchObject({ hecho: false, detalle: "1 abierta(s): bloquean la aprobación" });
   });
 });
