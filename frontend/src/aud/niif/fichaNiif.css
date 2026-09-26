@@ -383,3 +383,12 @@ a.btn { text-decoration: none; display: inline-block; }
   .nf-doc-formatos .nf-doc-ejemplo:hover,
   .nf-doc-formatos .nf-doc-ejemplo:active { transform: none; }
 }
+
+/* Registro del encargo (RegistroEncargo.jsx): filas compactas, botones a la altura del campo. */
+.nf-registro-encargo .nf-rec-row { align-items: flex-end; justify-content: flex-start; flex-wrap: wrap; gap: 10px; }
+.nf-registro-encargo .nf-rec-row > .btn { align-self: flex-end; height: auto; min-height: 0; }
+.nf-registro-encargo textarea { min-height: 3.4em; height: 3.4em; resize: vertical; }
+.nf-registro-encargo .nf-rec-item { display: flex; flex-direction: column; gap: 8px; }
+.nf-registro-encargo .nf-rec-item > .btn { align-self: flex-start; }
+.nf-registro-encargo h5 { margin: 0; }
+.nf-registro-encargo li .link { display: inline; width: auto; min-height: 0; margin-left: 10px; padding: 0; border: 0; background: none; }

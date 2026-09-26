@@ -17,6 +17,7 @@ import { Ejecucion } from "./CicloEjecucion";
 import { Revision } from "./CicloRevision";
 import { VistaTrabajo } from "./CicloVista";
 import { ContextFields } from "./ContextoEncargo";
+import { RegistroEncargo } from "./RegistroEncargo";
 import "./fichaNiif.css";
 
 /*
@@ -440,9 +441,10 @@ function EncargoTrabajo({ proyecto, cliente, herramientaInicial = "" }) {
       {!cargando && (
         <>
           <FichaEncargo proyecto={proyecto} cliente={cliente} ficha={ficha} onGuardada={setFicha} />
+          {ficha && <RegistroEncargo proyecto={proyecto} />}
 
           <section className="nf-rec-panel">
-            <p className="nf-eyebrow">2 · PRUEBAS</p>
+            <p className="nf-eyebrow">3 · PRUEBAS</p>
             {ficha ? (
               <div className="nf-rec-row">
                 <label className="nf-ctx-field" style={{ flex: 1 }}>

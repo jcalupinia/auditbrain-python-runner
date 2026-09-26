@@ -1,0 +1,41 @@
+import { describe, expect, it } from "vitest";
+
+import { miIndependencia, resumenRegistros } from "./registroLogic";
+
+describe("resumen de los registros del encargo", () => {
+  it("sin registros todo está pendiente", () => {
+    const r = resumenRegistros(null);
+    expect(r.map((x) => x.hecho)).toEqual([false, false, false, false, false]);
+    expect(r[0].detalle).toBe("Nadie ha confirmado todavía");
+  });
+
+  it("una amenaza sin salvaguarda y la falta del socio en la discusión quedan a la vista", () => {
+    const r = resumenRegistros({
+      registros: {
+        equipo: [
+          { integrante: "A", rol: "Socio", amenazas: "", salvaguardas: "" },
+          { integrante: "B", rol: "Asistente", amenazas: "Acciones del cliente", salvaguardas: "" },
+        ],
+        asistencia: [{ integrante: "B", rol: "Asistente", fecha: "2025-10-10" }],
+        carta: { actor: "A", fecha: "2025-09-05", detalle: "Sin acceso a sucursal" },
+        comunicacion: { actor: "A", fecha: "2025-10-20", detalle: "Correo" },
+      },
+    });
+    const k = Object.fromEntries(r.map((x) => [x.clave, x]));
+    expect(k.independencia).toMatchObject({ hecho: false, detalle: "2 integrante(s) · 1 con amenaza sin salvaguarda" });
+    expect(k.asistencia).toMatchObject({ hecho: false, detalle: "1 asistente(s) · falta el socio" });
+    expect(k.carta.detalle).toBe("Firmada el 2025-09-05 · con limitaciones");
+    expect(k.comunicacion).toMatchObject({ hecho: true, detalle: "Correo · 2025-10-20" });
+    expect(k.aceptacion.hecho).toBe(false);
+  });
+
+  it("mi independencia es la última vigente del usuario", () => {
+    const regs = [
+      { tipo: "independencia", actor: "yo", rol: "Senior" },
+      { tipo: "independencia", actor: "otro", rol: "Socio" },
+      { tipo: "asistencia", actor: "yo", rol: "Senior" },
+    ];
+    expect(miIndependencia(regs, "yo").rol).toBe("Senior");
+    expect(miIndependencia(regs, "nadie")).toBeNull();
+  });
+});
