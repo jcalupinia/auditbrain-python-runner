@@ -152,6 +152,17 @@ BASE_LEGAL: dict[str, list[dict]] = {
          "dice": "El ingreso se reconoce al transferirse el control de bienes/servicios (5 pasos).",
          "efecto": "El momento fiscal del ingreso (devengado) y el tratamiento de anticipos: confirmar.", "url": SRI, "verificar": True},
     ],
+    # --- Planificación de la auditoría ------------------------------------
+    "planificacion_nia": [
+        {"norma": "LRTI · Informe de cumplimiento tributario", "ref": "Art. 102 y Reglamento LRTI (artículo por confirmar)",
+         "dice": "Los auditores externos emiten, junto con el informe de auditoría, un informe sobre el cumplimiento de las obligaciones tributarias del sujeto auditado.",
+         "efecto": "Planificar en la estrategia global los procedimientos y el calendario del Informe de Cumplimiento Tributario.",
+         "url": SRI, "verificar": True},
+        {"norma": "Ley de Compañías y resoluciones de la Superintendencia de Compañías", "ref": "obligación de auditoría externa (umbral por confirmar)",
+         "dice": "Las compañías que superan el umbral de activos fijado por la Superintendencia deben someter sus estados financieros a auditoría externa.",
+         "efecto": "Confirmar la obligación, el plazo de presentación y el marco (NIIF completas o PYMES) en la aceptación y la estrategia del encargo.",
+         "url": LEY_CIAS, "verificar": True},
+    ],
     "prestamos_obligaciones": [
         {"norma": "LRTI · deducibilidad de intereses", "ref": "Art. 10 núm. 2 y regla de subcapitalización (por confirmar)",
          "dice": "Los intereses de deudas para la actividad son deducibles; existe un límite por subcapitalización con partes relacionadas.",

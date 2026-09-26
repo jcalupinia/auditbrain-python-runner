@@ -192,6 +192,24 @@ def svg_barras(items: list[tuple[str, float]], descripcion: str) -> str:
     )
 
 
+# Textos del panel que una herramienta puede cambiar con ``PANEL["textos"]`` (por defecto, los de una
+# prueba sustantiva: cifra del cliente frente a la recalculada por el auditor).
+TEXTOS = {
+    "comparativo": "Registrado vs recalculado",
+    "comparativo_sub": "Cifra del cliente frente a la recalculada por el auditor (USD).",
+    "nota_recalculado": None,          # None = flecha con la variación contra el registrado
+    "vs": "vs registrado", "igual": "igual al registrado",
+    "nota_registrado": "según el cliente",
+    "problemas": "Problemas encontrados",
+}
+
+
+def textos(spec: dict | None) -> dict:
+    t = dict(TEXTOS)
+    t.update({k: v for k, v in ((spec or {}).get("textos") or {}).items() if k in TEXTOS})
+    return t
+
+
 def paneles(hojas: list[dict], run: dict, mod=None) -> list[dict]:
     """Los gráficos del papel: [{titulo, subtitulo, svg, items}] (solo los que tienen datos).
 
@@ -203,8 +221,7 @@ def paneles(hojas: list[dict], run: dict, mod=None) -> list[dict]:
         p = panel(mod, run, run.get("hojas") or hojas)
         graf = []
         if p["registrado"]["valor"] is not None and p["recalculado"]["valor"] is not None:
-            graf.append(("Registrado vs recalculado", "Cifra del cliente frente a la recalculada por el auditor (USD).",
-                         p["comparativo"]["items"]))
+            graf.append((p["comparativo"]["rotulo"], p["comparativo"]["sub"], p["comparativo"]["items"]))
         for k in ("composicion", "distribucion"):
             graf.append((p[k]["rotulo"], f"Importes en USD; los {TOP_HALLAZGOS} mayores y el resto en «Otros».", p[k]["items"]))
         for titulo, sub, items in graf:
@@ -419,6 +436,7 @@ def panel(mod, run: dict, hojas: list[dict]) -> dict:
             faltan.append(k)
     sev = severidad(run, val["poblacion"])
     principal = _num(tot.get(prim))
+    txt = textos(spec)
     return {
         "principal": {"rotulo": etq.get(prim, prim or "Resultado"), "valor": principal,
                       "variacion": variacion((principal or 0) + (val["poblacion"] or 0), val["poblacion"]) if principal is not None else None},
@@ -431,10 +449,11 @@ def panel(mod, run: dict, hojas: list[dict]) -> dict:
         "recalculado": {"rotulo": (spec.get("recalculado") or {}).get("rotulo", "Recalculado"), "valor": val["recalculado"],
                         "variacion": variacion(val["recalculado"], val["registrado"])},
         "registrado": {"rotulo": (spec.get("registrado") or {}).get("rotulo", "Registrado"), "valor": val["registrado"]},
-        "problemas": {"rotulo": "Problemas encontrados", "valor": len(run.get("exceptions") or []), "severidad": sev},
+        "problemas": {"rotulo": txt["problemas"], "valor": len(run.get("exceptions") or []), "severidad": sev},
         "riesgo": riesgo(sev),
         "composicion": {"rotulo": (spec.get("composicion") or {}).get("rotulo", "Composición del resultado"), "items": series["composicion"]},
-        "comparativo": {"rotulo": "Registrado vs recalculado",
+        "textos": txt,
+        "comparativo": {"rotulo": txt["comparativo"], "sub": txt["comparativo_sub"],
                         "items": [((spec.get("registrado") or {}).get("rotulo", "Registrado"), val["registrado"] or 0.0),
                                   ((spec.get("recalculado") or {}).get("rotulo", "Recalculado"), val["recalculado"] or 0.0)]},
         "distribucion": {"rotulo": (spec.get("distribucion") or {}).get("rotulo", "Distribución"), "items": series["distribucion"]},

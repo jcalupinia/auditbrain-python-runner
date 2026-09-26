@@ -32,6 +32,7 @@ _MODULOS = [
     "provisiones_contingencias",
     "impuesto_corriente_diferido",
     "patrimonio",
+    "planificacion_nia",
 ]
 
 PROCESADORES = {

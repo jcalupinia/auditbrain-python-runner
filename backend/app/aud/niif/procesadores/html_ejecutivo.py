@@ -274,6 +274,7 @@ def kpis_datos(p: dict) -> list[dict]:
     clase de color, ícono, rótulo, cifra corta, cifra exacta y variación
     (``var``: (fracción, texto) con flecha ↗/↘, o texto simple en ``nota``)."""
     pr, po, rc, rg, pb = p["principal"], p["poblacion"], p["recalculado"], p["registrado"], p["problemas"]
+    txt = p.get("textos") or graficos.textos(None)
     sev = pb["severidad"]
     resumen_sev = " · ".join(f"{sev[s]} {s.lower()}" for s in ("Alta", "Media", "Baja") if sev.get(s)) or "sin hallazgos con importe"
     var_pr = (pr["valor"] / abs(po["valor"])) if (pr["valor"] is not None and po["valor"]) else None
@@ -288,9 +289,10 @@ def kpis_datos(p: dict) -> list[dict]:
          "exacto": _num(pr["valor"], False), "var": (var_pr, "de la población")},
         pob,
         {"clase": "k-verde", "icono": "recalculado", "rotulo": rc["rotulo"], "valor": "USD " + _num(rc["valor"]),
-         "exacto": _num(rc["valor"], False), "var": (rc["variacion"], "vs registrado")},
+         "exacto": _num(rc["valor"], False),
+         **({"nota": txt["nota_recalculado"]} if txt["nota_recalculado"] else {"var": (rc["variacion"], txt["vs"])})},
         {"clase": "k-ambar", "icono": "registrado", "rotulo": rg["rotulo"], "valor": "USD " + _num(rg["valor"]),
-         "exacto": _num(rg["valor"], False), "nota": "según el cliente"},
+         "exacto": _num(rg["valor"], False), "nota": txt["nota_registrado"]},
         {"clase": f"k-{p['riesgo']}", "icono": "problemas", "rotulo": pb["rotulo"], "valor": str(pb["valor"]),
          "exacto": "", "nota": resumen_sev},
     ]
@@ -325,7 +327,7 @@ def _graficos(p: dict, hex_: dict | None) -> str:
     severidad = _variantes(sev["items"], ["alta", "media", "baja", "informativa"], sev["rotulo"], hex_, enteros=True, solo=solo)
     return ('<div class="graficos">'
             + _tarjeta("Composición del resultado", comp["rotulo"], dona)
-            + _tarjeta(cmp_["rotulo"], "Cifra del cliente frente a la recalculada por el auditor (USD).", comparativo)
+            + _tarjeta(cmp_["rotulo"], cmp_.get("sub") or graficos.TEXTOS["comparativo_sub"], comparativo)
             + _tarjeta(dist["rotulo"], "Distribución de la población (USD).", distrib)
             + _tarjeta(sev["rotulo"], sev["regla"], severidad)
             + "</div>")

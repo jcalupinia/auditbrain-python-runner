@@ -320,7 +320,7 @@ def _kpis_panel(definicion, reg, hojas, titulos):
     ip = (problemas.hoja_problemas(hojas) or (None,))[0]
     if ip is not None:
         n = len(hojas[ip].get("rows") or [])
-        out.append({"clave": "problemas", "rotulo": "Problemas encontrados", "valor": n_prob, "fmt": "i",
+        out.append({"clave": "problemas", "rotulo": graficos.textos(spec)["problemas"], "valor": n_prob, "fmt": "i",
                     "semaforo": est.color_semaforo(n_prob), "f": f"COUNTA({_q(titulos[ip])}A5:A{4 + max(n, 1)})"})
     return out[:5]
 

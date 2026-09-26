@@ -211,6 +211,15 @@ export const EJEMPLOS_REQUERIMIENTOS = {
     "RQ-006": "RQ-006_estado_de_cambios_en_el_patrimonio_y_nota_de_pat.xlsx",
     "RQ-007": "RQ-007_conciliacion_de_la_adopcion_por_primera_vez_de_l.xlsx",
   },
+  // --- Planificación de la auditoría (NIA 300, 315, 320) ---
+  planificacion_nia: {
+    "RQ-001": "RQ-001_estados.xlsx",
+    "RQ-002": "RQ-002_factores.xlsx",
+    "RQ-003": "RQ-003_carta_de_encargo_firmada_y_declaraciones_de_inde.pdf",
+    "RQ-004": "RQ-004_actas_de_junta_general_y_de_directorio_del_ejerc.pdf",
+    "RQ-005": "RQ-005_informe_de_auditoria_y_carta_de_control_interno_.pdf",
+    "RQ-006": "RQ-006_organigrama_y_descripcion_de_los_procesos_clave.pdf",
+  },
 };
 
 /**

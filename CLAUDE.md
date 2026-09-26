@@ -557,6 +557,19 @@ parámetros del auditor sí son valores (entradas); todo lo demás es fórmula:
     `test_ninguna_cifra_ni_fecha_queda_pegada`. Verificación: `python scripts/verificar_datos_cliente.py`
     (LibreOffice, «DIFERENCIAS: 0»); prueba `tests/test_aud_datos_cliente.py`.
 
+**Planificación de la auditoría (NIA 300, 315, 320; 2026-09-26):** herramienta del catálogo en la tarjeta
+«Planificación» (`procesadores/planificacion_nia.py`, `RUBRO = "PLANIFICACION"`), con el mismo papel (Excel con
+fórmulas, HTML, Word, PowerPoint, PDF) y el mismo ciclo que las pruebas NIIF. Anexos: estados financieros
+comparativos por cuenta (grupo del estado financiero y área de auditoría) y cuestionario de entendimiento y
+factores de riesgo. Calcula las bases y la materialidad global, de ejecución y el umbral de errores claramente
+insignificantes (NIA 320, 450); los analíticos preliminares por cuenta (variación, peso vertical, cuenta
+significativa, variación inusual); el riesgo inherente preliminar por área; los riesgos significativos (presunción
+de fraude en ingresos y elusión de controles, NIA 240; indicios NIA 570) y la estrategia global y el plan por área
+con la herramienta del catálogo que responde a cada riesgo (NIA 300, 330). Los porcentajes de referencia de la
+materialidad son **política de la firma** (la NIA 320 A8 solo da ejemplos) y los párrafos citados llevan
+«VERIFICAR» hasta cotejarlos con el texto oficial en español. Su panel usa `PANEL["textos"]` (umbrales en lugar de
+«registrado vs recalculado»; ver `graficos.TEXTOS`). Prueba: `tests/test_proc_planificacion_nia.py`.
+
 **Diseño del libro (todas las herramientas, 2026-09-25):** portada con botones por sección
 (Resultado · Cómo se calculó · Datos del cliente · Documentación) y pestañas del color de su
 sección; en cada hoja la botonera Inicio/Anterior/Siguiente arriba a la izquierda; Calibri;

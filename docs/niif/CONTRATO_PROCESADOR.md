@@ -144,6 +144,10 @@ PANEL = {
   Resumen que tiene ese rótulo e importe, o a la fila TOTAL de una cédula. Una columna se enlaza con
   `SUMIFS`/`COUNTIFS`. Por eso el importe de `totals` debe existir en alguna celda del libro.
 - **Nunca** volcar todas las filas del Resumen en un gráfico: mezcla escalas y se ve como un código de barras.
+- `PANEL["textos"]` (opcional) cambia los rótulos pensados para una prueba sustantiva cuando no aplican
+  (p. ej. la planificación no tiene «cifra del cliente»): `comparativo`, `comparativo_sub`, `nota_recalculado`
+  (texto en lugar de la flecha de variación), `vs`, `igual`, `nota_registrado` y `problemas`. Por defecto rigen
+  los de `graficos.TEXTOS`, iguales en el HTML, la portada del Excel, el Word y el PowerPoint.
 
 ### `REF_PROBLEMAS` — importe de cada problema como fórmula
 ```python

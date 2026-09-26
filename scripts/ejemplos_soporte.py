@@ -78,6 +78,15 @@ def _normalizar_zip(path):
 
 def clasificar(doc: str) -> str:
     t = _slug(doc)
+    # Planificación de la auditoría (NIA 210, 265, 315): documentos propios del encargo.
+    if "carta_de_encargo" in t:
+        return "carta_encargo"
+    if "informe_de_auditoria" in t:
+        return "informe_auditoria"
+    if "organigrama" in t:
+        return "organigrama"
+    if "actas_de_junta_general_y_de_directorio" in t:
+        return "actas_junta"
     if "confirmacion" in t or "confirmaciones" in t:
         return "confirmacion"
     if "politica" in t:
@@ -353,6 +362,51 @@ def cuerpo_html(cat, pid, rid, req):
                    "<div class='firmas'><div>_____________________<br>Firma autorizada</div>"
                    "<div>_____________________<br>Sello institucional</div></div>")
         return "Carta de confirmación (respuesta recibida)", cuerpo
+    if cat == "carta_encargo":
+        return "Carta de encargo de auditoría (NIA 210)", (
+            f"<p>Quito, 15 de septiembre de 2025. Señores accionistas y administración de <strong>{CLIENTE}</strong>:</p>"
+            f"<p>Confirmamos los términos del encargo de auditoría de los estados financieros de {CLIENTE} al {CORTE}, "
+            "preparados conforme a las Normas Internacionales de Información Financiera.</p>"
+            "<h3>Objetivo y alcance</h3><p>Expresar una opinión sobre si los estados financieros están libres de "
+            "incorrección material, debida a fraude o error, conforme a las Normas Internacionales de Auditoría.</p>"
+            "<h3>Responsabilidades de la administración</h3><ul><li>Preparar los estados financieros conforme al marco aplicable.</li>"
+            "<li>Mantener el control interno necesario.</li><li>Dar acceso a toda la información y a las personas "
+            "de la entidad, y entregar manifestaciones escritas.</li></ul>"
+            "<h3>Informe y calendario</h3><p>Visita preliminar: octubre de 2025. Visita final: enero de 2026. "
+            "Entrega del informe y del Informe de Cumplimiento Tributario: marzo de 2026.</p>"
+            + _tabla_html(["Integrante del equipo", "Cargo", "Declaración de independencia"],
+                          [["Socio del encargo", "Socio", "Firmada"], ["Gerente de auditoría", "Gerente", "Firmada"],
+                           ["Auditor senior", "Encargado", "Firmada"]])
+            + "<div class='firmas'><div>_____________________<br>AuditConsulting Auditores Cía. Ltda.</div>"
+              "<div>_____________________<br>Representante legal de la entidad</div></div>")
+    if cat == "informe_auditoria":
+        return "Informe de auditoría y carta de control interno del año anterior", (
+            f"<p>Informe de los auditores independientes sobre los estados financieros de <strong>{CLIENTE}</strong> "
+            "del ejercicio anterior: opinión sin salvedades.</p>"
+            "<h3>Carta de control interno · deficiencias comunicadas</h3>"
+            + _tabla_html(["N°", "Deficiencia", "Área", "Estado al cierre"],
+                          [["1", "Conciliaciones bancarias sin firma de revisión", "Caja y bancos", "Pendiente"],
+                           ["2", "Sin análisis de antigüedad de inventarios", "Inventarios", "En proceso"],
+                           ["3", "Accesos del ERP sin revisión periódica", "Tecnología", "Corregida"]])
+            + "<p class='muted'>Sirve para valorar el riesgo y el seguimiento de deficiencias (NIA 265; NIA 315).</p>")
+    if cat == "organigrama":
+        return "Organigrama y procesos clave", (
+            f"<p>Estructura organizacional y procesos clave de <strong>{CLIENTE}</strong> al {CORTE}.</p>"
+            + _tabla_html(["Proceso", "Responsable", "Sistema", "Controles clave"],
+                          [["Ventas y cobranzas", "Gerente comercial", "ERP · módulo de ventas", "Aprobación de crédito; conciliación de cartera"],
+                           ["Compras y cuentas por pagar", "Jefe de compras", "ERP · compras", "Orden de compra aprobada; recepción"],
+                           ["Inventarios", "Jefe de bodega", "ERP · inventarios", "Conteos cíclicos; custodia"],
+                           ["Tesorería", "Tesorero", "Banca electrónica", "Doble firma; conciliación mensual"],
+                           ["Nómina", "Jefe de talento humano", "Sistema de nómina", "Aprobación de roles; conciliación IESS"]])
+            + "<p class='muted'>Entendimiento del control interno y del entorno de TI (NIA 315).</p>")
+    if cat == "actas_junta":
+        return "Actas de junta general y de directorio", (
+            f"<p>Extracto de las actas de <strong>{CLIENTE}</strong> del ejercicio y posteriores al cierre.</p>"
+            + _tabla_html(["Fecha", "Órgano", "Resolución"],
+                          [["28/03/2025", "Junta general", "Aprobación de estados financieros del año anterior y dividendos"],
+                           ["15/07/2025", "Directorio", "Migración del ERP y nuevo crédito bancario de corto plazo"],
+                           ["20/01/2026", "Directorio", "Bono comercial por cumplimiento de metas de ventas"]])
+            + "<p class='muted'>Sirve para identificar decisiones, partes relacionadas y hechos posteriores (NIA 315, 550, 560).</p>")
     if cat == "politica":
         return "Política contable", (
             f"<p>{purpose}. Documento aprobado por la administración de {CLIENTE}.</p>"

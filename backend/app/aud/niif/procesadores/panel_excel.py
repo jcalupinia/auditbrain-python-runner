@@ -432,10 +432,10 @@ def portada(ws, wd, definicion, reg, hojas, titulos, estado, version, grupos_nav
     f_reg = f"={q}{celdas['registrado']}" if "registrado" in celdas else None
     f_rec = f"={q}{celdas['recalculado']}" if "recalculado" in celdas else None
     if f_reg and f_rec:
-        b = datos_g.bloque("Registrado vs recalculado", [(p["registrado"]["rotulo"], f_reg, p["registrado"]["valor"] or 0.0),
-                                                         (p["recalculado"]["rotulo"], f_rec, p["recalculado"]["valor"] or 0.0)])
-        graf.append(grafico_barras_linea(wd, b, "Registrado vs recalculado",
-                                         "Cifra del cliente frente a la recalculada por el auditor (USD).", [C_REG, C_REC]))
+        cmp_ = p["comparativo"]
+        b = datos_g.bloque(cmp_["rotulo"], [(p["registrado"]["rotulo"], f_reg, p["registrado"]["valor"] or 0.0),
+                                            (p["recalculado"]["rotulo"], f_rec, p["recalculado"]["valor"] or 0.0)])
+        graf.append(grafico_barras_linea(wd, b, cmp_["rotulo"], cmp_.get("sub") or graficos.TEXTOS["comparativo_sub"], [C_REG, C_REC]))
     dist = serie_formulas(spec.get("distribucion"), run, hojas, titulos, False) if spec.get("distribucion") else None
     if dist:
         b = datos_g.bloque(p["distribucion"]["rotulo"], dist)
@@ -498,6 +498,7 @@ def _ancla_grafico(ws, ch, izquierda, fila, filas):
 
 def _tarjetas(p, por, f_pob, spec, run, hojas, titulos, datos_g, sev, base_ref=None):
     """Las 5 tarjetas del HTML con su color, su cifra (fórmula) y la línea de variación (fórmula)."""
+    txt = p.get("textos") or graficos.textos(spec)
     from backend.app.aud.niif.procesadores import libro as L
 
     out = []
@@ -527,8 +528,9 @@ def _tarjetas(p, por, f_pob, spec, run, hojas, titulos, datos_g, sev, base_ref=N
     for clave in ("recalculado", "registrado"):
         k = por.get(clave)
         if k:
+            nota = txt["nota_registrado"] if clave == "registrado" else txt["nota_recalculado"]
             out.append({"clave": clave, "rotulo": k["rotulo"], "valor": "=" + k["f"], "fmt": FMT_USD, "color": KPI_COLOR[clave],
-                        "sub": "según el cliente" if clave == "registrado" else None})
+                        "sub": nota})
     pb = por.get("problemas")
     if pb:
         t = {"clave": "problemas", "rotulo": pb["rotulo"], "valor": "=" + pb["f"], "fmt": "#,##0", "color": KPI_COLOR[p["riesgo"]]}
@@ -544,9 +546,9 @@ def _tarjetas(p, por, f_pob, spec, run, hojas, titulos, datos_g, sev, base_ref=N
             t["sub"] = f"=IFERROR({pos['principal']}{fila_val}/ABS({base_ref}),0)"
             t["fmt_sub"] = '"↗ "0.0 %" de la población";"↘ "0.0 %" de la población";"0.0 % de la población"'
             t["color_sub"] = H("sube")
-        if t["clave"] == "recalculado" and "registrado" in pos:
+        if t["clave"] == "recalculado" and "registrado" in pos and not txt["nota_recalculado"]:
             t["sub"] = f"=IFERROR(({pos['recalculado']}{fila_val}-{pos['registrado']}{fila_val})/ABS({pos['registrado']}{fila_val}),0)"
-            t["fmt_sub"] = '"↗ "0.0 %" vs registrado";"↘ "0.0 %" vs registrado";"igual al registrado"'
+            t["fmt_sub"] = f'"↗ "0.0 %" {txt["vs"]}";"↘ "0.0 %" {txt["vs"]}";"{txt["igual"]}"'
             t["color_sub"] = H("sube")
     for t in out:
         if isinstance(t.get("sub"), str):

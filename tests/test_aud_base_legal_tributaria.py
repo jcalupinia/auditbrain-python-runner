@@ -15,7 +15,7 @@ from backend.app.aud.niif.procesadores import PROCESADORES
 
 def test_sugerencia_presente_en_catalogo_y_en_ficha_pi_pce():
     catalogo = [pid for pid, m in PROCESADORES.items() if getattr(m, "RUBRO", None)]
-    assert len(catalogo) == 18
+    assert len(catalogo) == 19   # 18 herramientas NIIF + la planificación de la auditoría
     for pid in catalogo + ["perdidas_incurridas_s11", "pce_simplificada_niif9"]:
         s = base_legal.sugerencia(pid)
         assert s and s["texto"] and s["citas"], pid
