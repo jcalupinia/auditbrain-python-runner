@@ -47,7 +47,8 @@ def _oscuro(bg, card, card2, borde, texto, texto2, muted):
             **{f"c-{k}": v for k, v in _SERIES_OSCURO.items()},
             "c-registrado": _SERIES_OSCURO["s4"], "c-recalculado": _SERIES_OSCURO["s3"], "c-serie": _SERIES_OSCURO["s1"],
             "c-linea": "#C7A83C", "c-alta": "#E5484D", "c-media": "#F5A524", "c-baja": "#30A46C", "c-informativa": "#8B97A8",
-            "c-texto": texto, "c-texto2": texto2, "c-regla": borde, "c-superficie": card}
+            "c-texto": texto, "c-texto2": texto2, "c-regla": borde, "c-superficie": card,
+            **{f"c-{k}": v for k, v in gs.TABLERO_HEX.items()}}
 
 
 TEMAS = {
@@ -64,7 +65,7 @@ TEMAS = {
         "c-registrado": gs.CLARO["registrado"], "c-recalculado": gs.CLARO["recalculado"], "c-serie": gs.CLARO["serie"],
         "c-linea": gs.CLARO["linea"], "c-alta": gs.CLARO["alta"], "c-media": gs.CLARO["media"], "c-baja": gs.CLARO["baja"],
         "c-informativa": gs.CLARO["informativa"], "c-texto": "#0A2342", "c-texto2": "#4B5563", "c-regla": "#D5DCE6",
-        "c-superficie": "#FFFFFF"}),
+        "c-superficie": "#FFFFFF", **{f"c-{k}": v for k, v in gs.TABLERO_HEX.items()}}),
 }
 GRAFICOS = gs.ROTULO_VARIANTE
 VISTAS = {"estandar": "Estándar", "compacta": "Compacta", "tablas": "Foco en tablas", "presentacion": "Presentación"}
@@ -175,7 +176,6 @@ def _css() -> str:
         # Gráficos
         ".graficos{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(470px,100%),1fr));gap:14px}"
         ".tarjeta{background:var(--card);border:1px solid var(--borde);border-radius:14px;padding:14px 16px 8px;box-shadow:var(--sombra);min-width:0}"
-        ".tableros-tit{margin:22px 0 10px}"
         ".tarjeta h3{font:700 14px var(--f-titulo);margin:0}.tarjeta p{font-size:11.5px;color:var(--texto2);margin:2px 0 6px}"
         ".grafico{display:block;width:100%;height:auto}"
         # En pantallas angostas el gráfico conserva un ancho legible y se desplaza DENTRO de su tarjeta.
@@ -224,7 +224,7 @@ def _css() -> str:
         # Vistas
         "body.v-compacta{font-size:13px}body.v-compacta .wrap{padding:14px 14px 30px}body.v-compacta .kpi{padding:10px 12px}"
         "body.v-compacta .kpi-val{font-size:clamp(18px,1.7vw,24px)}body.v-compacta .graficos{gap:10px}body.v-compacta td{padding:4px 6px}"
-        "body.v-tablas .kpis,body.v-tablas .graficos,body.v-tablas .tableros-tit{display:none}body.v-tablas table{font-size:13.5px}body.v-tablas .wrap{max-width:none}"
+        "body.v-tablas .kpis,body.v-tablas .graficos{display:none}body.v-tablas table{font-size:13.5px}body.v-tablas .wrap{max-width:none}"
         "body.v-presentacion{font-size:16px}body.v-presentacion .controles label:not(.fijo){display:none}"
         "body.v-presentacion .wrap{max-width:1180px;padding-top:34px}body.v-presentacion h1{font-size:34px}"
         "body.v-presentacion .kpi-val{font-size:clamp(26px,2.8vw,40px)}body.v-presentacion .kpis{grid-template-columns:repeat(auto-fit,minmax(min(210px,100%),1fr))}"
@@ -344,7 +344,7 @@ def _tableros(p: dict, hex_: dict | None) -> str:
     tarjetas = "".join(_tarjeta(t["rotulo"], t.get("sub"), gs.agrupadas(t["categorias"], t["series"], t["rotulo"], t.get("unidad", ""), hex_,
                                                                          t.get("mejor"), t.get("estados"), t.get("color"))
                                 or '<div class="sin-datos">Sin datos para graficar.</div>') for t in ts)
-    return f'<h2 class="tableros-tit">Tableros del análisis</h2><div class="graficos tableros">{tarjetas}</div>'
+    return f'<div class="graficos tableros">{tarjetas}</div>'
 
 
 def _tabla(h: dict, celda) -> str:
@@ -496,7 +496,11 @@ def render(definicion: dict, reg: dict, eventos: list, version: int, estado: str
         f'<div class="encab"><div><h1>{E(nombre)}</h1>'
         f'<p class="sub">{E(str(e.get("client", "")))} · RUC {E(str(e.get("ruc", "")))} · {E(definicion.get("area", ""))}</p>'
         f'<div class="chips">{chips}</div></div>{boton_pdf("s-panel")}</div>'
-        f'<div class="kpis">{_kpis(p)}</div>{_graficos(p, hex_)}{_tableros(p, hex_)}')]
+        f'<div class="kpis">{_kpis(p)}</div>{_graficos(p, hex_)}')]
+    if p.get("tableros"):
+        # Los tableros van en su propia lámina: ningún color se repite con los gráficos del panel.
+        secciones.append(("s-tableros", "Tableros",
+                          f'<div class="cedula-cab"><h2>Tableros del análisis</h2>{boton_pdf("s-tableros")}</div>{_tableros(p, hex_)}'))
     for i, h in enumerate(hojas):
         sid = f"s-{i}"
         cuerpo = (f'<div class="cedula-cab"><h2>{E(h["label"])}</h2>{boton_pdf(sid)}</div>'

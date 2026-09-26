@@ -29,6 +29,11 @@ PROF = 9            # profundidad del efecto 3D
 VARIANTES = ("barras_linea", "barras", "lineas", "area", "puntos")
 ROTULO_VARIANTE = {"barras_linea": "Barras + línea", "barras": "Barras", "lineas": "Líneas", "area": "Área", "puntos": "Puntos"}
 
+# Paleta ejecutiva de los tableros (pedido del dueño, 2026-09-26: «diferentes colores», sin celeste ni verde):
+# oro, violeta, coral, índigo, magenta y siena. Una por tablero; validada con la skill dataviz en fondo oscuro
+# y claro (vecinos distinguibles también con daltonismo; cada barra lleva su cifra).
+TABLERO_HEX = {"t1": "#B08A2E", "t2": "#8B5CF6", "t3": "#E0603F", "t4": "#6366F1", "t5": "#D946A8", "t6": "#A0522D"}
+
 # Tema Claro en literal (PDF). Mismos papeles que las variables del HTML.
 CLARO = {
     "s1": "#2a78d6", "s2": "#eb6834", "s3": "#1baf7a", "s4": "#eda100", "s5": "#e87ba4", "s6": "#008300",
@@ -36,6 +41,7 @@ CLARO = {
     "registrado": "#eda100", "recalculado": "#1baf7a", "serie": "#2a78d6", "linea": "#A8872A",
     "alta": "#D93F3F", "media": "#D98A00", "baja": "#2E9E6A", "informativa": "#8A94A6",
     "texto": "#0A2342", "texto2": "#4B5563", "regla": "#D5DCE6", "superficie": "#FFFFFF",
+    **TABLERO_HEX,
 }
 
 
@@ -238,7 +244,7 @@ _NIVEL_ROL = {"Verde": "baja", "Amarillo": "media", "Rojo": "alta"}
 # Familias de color de los tableros: una por gráfico, sin repetir en la misma lámina (pedido del dueño,
 # 2026-09-26). Orden validado (skill dataviz, temas oscuro y claro): tableros vecinos separables también
 # con daltonismo (ΔE ≥ 9) y a simple vista (ΔE ≥ 19).
-FAMILIAS_TABLERO = ("s1", "s2", "s3", "s7", "s4", "s5", "s6", "s8")
+FAMILIAS_TABLERO = tuple(TABLERO_HEX)
 
 
 def agrupadas(categorias: list[str], series: list[tuple[str, list]], descripcion: str, unidad: str = "",
@@ -261,9 +267,9 @@ def agrupadas(categorias: list[str], series: list[tuple[str, list]], descripcion
     # Con ``color`` (familia del tablero) las series son tonos de ese color: la anterior translúcida y la
     # actual plena; sin él, un color por serie.
     if color and k <= 2:
-        roles, opac = [color, color][:k], [(0.62, 0.32), (1, 0.55)][-k:]
+        roles, opac = [color, color][:k], [(0.6, 0.42), (1, 0.72)][-k:]
     else:
-        roles, opac = ["s1", "s3", "s2", "s4"][:k], [(1, 0.55)] * k
+        roles, opac = ["s1", "s3", "s2", "s4"][:k], [(1, 0.72)] * k
     uid = "g" + hashlib.md5(repr((descripcion, categorias, series, bool(hex_), color)).encode()).hexdigest()[:8]
 
     def stop(rol, off, op):
@@ -274,6 +280,9 @@ def agrupadas(categorias: list[str], series: list[tuple[str, list]], descripcion
     defs = "".join(f'<linearGradient id="{uid}{j}" x1="0" y1="0" x2="0" y2="1">{stop(r, 0, a)}{stop(r, 1, b)}</linearGradient>'
                    f'<linearGradient id="{uid}{j}n" x1="0" y1="1" x2="0" y2="0">{stop(r, 0, a)}{stop(r, 1, b)}</linearGradient>'
                    for j, (r, (a, b)) in enumerate(zip(roles, opac)))
+    # Brillo del frente (relieve): franja blanca que se desvanece hacia abajo.
+    defs += (f'<linearGradient id="{uid}brillo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.38"/>'
+             f'<stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient>')
     # Escala: cuadrícula en pasos redondos que incluyen el cero.
     lo, hi = min(0.0, min(vals)), max(0.0, max(vals))
     paso = _paso_nice(hi - lo)
@@ -293,7 +302,11 @@ def agrupadas(categorias: list[str], series: list[tuple[str, list]], descripcion
             partes.append(f'<line x1="{X0}" x2="{ANCHO - M_LAT}" y1="{yt:.1f}" y2="{yt:.1f}" {P.stroke("regla", 1)} stroke-dasharray="3 4" stroke-opacity="0.6"/>')
         partes.append(f'<text x="{X0 - 6}" y="{yt + 3.5:.1f}" text-anchor="end" class="eje" {P.fill("texto2")}>{fmt_eje(t)}</text>')
         t += paso
-    partes.append(f'<line x1="{X0}" x2="{ANCHO - M_LAT}" y1="{y0:.1f}" y2="{y0:.1f}" {P.stroke("regla", 1.5)}/>')
+    # Piso en perspectiva bajo la línea de cero: da profundidad al conjunto.
+    PZ = 8.0                                    # profundidad de los prismas
+    partes.append(f'<polygon points="{X0:.1f},{y0:.1f} {ANCHO - M_LAT - PZ:.1f},{y0:.1f} {ANCHO - M_LAT:.1f},{y0 - PZ * 0.75:.1f} '
+                  f'{X0 + PZ:.1f},{y0 - PZ * 0.75:.1f}" {P.fill("regla", 0.45)}/>')
+    partes.append(f'<line x1="{X0}" x2="{ANCHO - M_LAT - PZ}" y1="{y0:.1f}" y2="{y0:.1f}" {P.stroke("regla", 1.5)}/>')
     # Leyenda (arriba a la derecha): muestra con el degradado de la serie.
     lx = ANCHO - M_LAT - 96 * k
     for j, (nombre, _) in enumerate(series):
@@ -317,19 +330,27 @@ def agrupadas(categorias: list[str], series: list[tuple[str, list]], descripcion
                 top = bot - 1.2 if v >= 0 else top
                 bot = top + 1.2
             pos = v >= 0
-            d = _barra_redondeada(x0, top, w, bot, pos, 5)
             txt = _cifra(v, unidad)
+            # Prisma en relieve: frente con degradado y brillo, techo iluminado y lateral en sombra.
+            a = opac[j][0]
+            dx, dy = PZ, PZ * 0.75
+            frente = f"M{x0:.1f},{top:.1f} L{x0 + w:.1f},{top:.1f} L{x0 + w:.1f},{bot:.1f} L{x0:.1f},{bot:.1f} Z"
+            brillo = (f"M{x0 + 2:.1f},{top + 1:.1f} L{x0 + w * 0.38:.1f},{top + 1:.1f} L{x0 + w * 0.38:.1f},{bot - 1:.1f} "
+                      f"L{x0 + 2:.1f},{bot - 1:.1f} Z")
+            techo = f"{x0:.1f},{top:.1f} {x0 + dx:.1f},{top - dy:.1f} {x0 + w + dx:.1f},{top - dy:.1f} {x0 + w:.1f},{top:.1f}"
+            lado = f"{x0 + w:.1f},{top:.1f} {x0 + w + dx:.1f},{top - dy:.1f} {x0 + w + dx:.1f},{bot - dy:.1f} {x0 + w:.1f},{bot:.1f}"
             partes.append(f'<g class="marca"><title>{_html.escape(cat)} · {_html.escape(nombre)}: {txt}</title>'
-                          f'<path d="{d}" fill="url(#{uid}{j}{"" if pos else "n"})"/>'
-                          + (f'<line x1="{x0 + 3:.1f}" x2="{x0 + w - 3:.1f}" y1="{top + 0.8:.1f}" y2="{top + 0.8:.1f}" '
-                             f'stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="1.2"/>' if pos and bot - top > 4 else "")
+                          f'<polygon points="{lado}" {P.fill(roles[j], a)}/><polygon points="{lado}" fill="#000000" fill-opacity="0.38"/>'
+                          f'<path d="{frente}" fill="url(#{uid}{j}{"" if pos else "n"})"/>'
+                          + (f'<path d="{brillo}" fill="url(#{uid}brillo)"/>' if bot - top > 6 else "")
+                          + f'<polygon points="{techo}" {P.fill(roles[j], a)}/><polygon points="{techo}" fill="#FFFFFF" fill-opacity="0.34"/>'
                           + "</g>")
             ancha = len(txt) * 6.1 > w - 2
             if k == 2 and ancha:
-                lxv, anc = (x0 + w, "end") if j == 0 else (x0, "start")
+                lxv, anc = (x0 + w + dx / 2, "end") if j == 0 else (x0 + dx / 2, "start")
             else:
-                lxv, anc = x0 + w / 2, "middle"
-            ly = (top - 5) if pos else (bot + 12)
+                lxv, anc = x0 + w / 2 + dx / 2, "middle"
+            ly = (top - dy - 5) if pos else (bot + 12)
             cifras.append(f'<text x="{lxv:.1f}" y="{ly:.1f}" text-anchor="{anc}" class="val" {P.fill("texto")}>{txt}</text>')
         # Variación del indicador (anterior → actual), en una píldora encima del grupo.
         # Delante, el punto del semáforo del indicador (estado al corte), con su etiqueta al pasar el cursor.

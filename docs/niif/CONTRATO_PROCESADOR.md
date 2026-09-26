@@ -159,8 +159,12 @@ PANEL = {
   degradado y esquinas redondeadas, escala con cuadrícula punteada, píldora por indicador con el punto del
   semáforo y la variación ▲/▼ (verde si mejora según `mejor`, rojo si empeora, gris sin sentido; «pp» en los
   porcentajes). **Ningún color se repite en la misma lámina** (pedido del dueño, 2026-09-26): cada tablero lleva su
-  familia de color (`graficos_svg.FAMILIAS_TABLERO`, orden validado con la skill dataviz; `"color"` la fija), con la
-  serie anterior en un tono translúcido y la actual plena. En el Excel: degradado en las barras y la variación en el rótulo por fórmula (`FIXED`, respeta el
+  familia de la paleta ejecutiva `graficos_svg.TABLERO_HEX` (oro, violeta, coral, índigo, magenta, siena; sin celeste
+  ni verde; validada con la skill dataviz; `"color"` la fija), con la serie anterior en un tono translúcido y la actual
+  plena, y los tableros van en su propia lámina (pestaña «Tableros» del HTML, páginas propias en Excel y PowerPoint).
+  **Relieve 3D** (decisión del dueño: «premium = relieve o 3D, que se vea ejecutivo»): prismas con frente en degradado y
+  brillo, techo iluminado, lateral en sombra y piso en perspectiva; en el Excel, gráfico 3D nativo (`bar3DChart`,
+  ejes en ángulo recto). En el Excel: degradado en las barras y la variación en el rótulo por fórmula (`FIXED`, respeta el
   separador decimal del equipo). Cada página impresa de tableros empieza con una franja con su título de sección:
   LibreOffice, al exportar a PDF, no recorta los degradados en el salto de página.
 

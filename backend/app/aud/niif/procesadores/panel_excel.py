@@ -36,6 +36,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from backend.app.aud.niif.procesadores import estilo_ejecutivo as est
 from backend.app.aud.niif.procesadores import graficos
+from backend.app.aud.niif.procesadores import graficos_svg as gs
 from backend.app.aud.niif.procesadores import html_ejecutivo as hx
 from backend.app.aud.niif.procesadores import marca
 
@@ -46,7 +47,7 @@ BG, CARD, CARD2, BORDE, TEXTO, TEXTO2, MUTED = (H(k) for k in ("bg", "card", "ca
 ORO, ORO_TXT = H("oro"), H("oro-txt")
 KPI_COLOR = {"principal": H("oro-txt"), "poblacion": H("k-azul"), "recalculado": H("k-verde"), "registrado": H("k-ambar"),
              "alto": H("alta"), "medio": H("media"), "bajo": H("baja")}
-SERIE = {k: v.lstrip("#").upper() for k, v in hx._SERIES_OSCURO.items()}
+SERIE = {k: v.lstrip("#").upper() for k, v in {**hx._SERIES_OSCURO, **gs.TABLERO_HEX}.items()}
 C_REG, C_REC, C_SERIE, C_LINEA = H("c-registrado"), H("c-recalculado"), H("c-serie"), H("c-linea")
 C_SEV = [H("c-alta"), H("c-media"), H("c-baja"), H("c-informativa")]
 
@@ -202,11 +203,20 @@ def grafico_agrupadas(wd, bloque, titulo, sub, colores, fmt):
     leyenda arriba a la derecha y, en el rótulo de cada indicador, su variación ▲/▼ (fórmula)."""
     fila0, n, k = bloque["fila"], len(bloque["items"]), bloque["k"]
     cats = Reference(wd, min_col=1, min_row=fila0 + 1, max_row=fila0 + n)
-    ch = BarChart()
+    # Columnas en relieve (3D nativo de Excel, ejes en ángulo recto) como los prismas del HTML.
+    from openpyxl.chart import BarChart3D
+    from openpyxl.chart._3d import View3D
+
+    ch = BarChart3D()
     ch.type = "col"
     ch.grouping = "clustered"
+    ch.shape = "box"
     ch.gapWidth = 70
-    ch.overlap = -8
+    ch.gapDepth = 60
+    ch.view3D = View3D(rotX=12, rotY=18, rAngAx=True)
+    for pared in (ch.floor, ch.sideWall, ch.backWall):
+        pared.graphicalProperties = GraphicalProperties(noFill=True, ln=LineProperties(noFill=True))
+    ch.z_axis.delete = True                  # eje de series: las series ya van en la leyenda
     for j in range(k):
         ch.add_data(Reference(wd, min_col=2 + j, min_row=fila0, max_row=fila0 + n), titles_from_data=True)
     for s, c in zip(ch.series, colores):

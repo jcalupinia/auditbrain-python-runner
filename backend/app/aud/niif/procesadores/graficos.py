@@ -382,7 +382,7 @@ def _sin_unidad(t: str) -> str:
     return t[: t.rfind(" (")].strip() if t.endswith(")") and " (" in t else t
 
 
-_FAMILIAS = ("s1", "s2", "s3", "s7", "s4", "s5", "s6", "s8")   # = graficos_svg.FAMILIAS_TABLERO
+_FAMILIAS = ("t1", "t2", "t3", "t4", "t5", "t6")   # = graficos_svg.FAMILIAS_TABLERO (paleta ejecutiva)
 
 
 def tableros_spec(specs: list | None, mapa: dict) -> tuple[list[dict], list[str]]:

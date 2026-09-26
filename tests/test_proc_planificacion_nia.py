@@ -284,6 +284,10 @@ def test_tableros_del_artefacto_en_html_excel_word_y_ppt():
     assert gs.variacion_tablero(10.28, 10.91, "%") == ("▲ 0,63 pp", 1)
     # Ningún color se repite en la misma lámina: cada tablero tiene su propia familia de color.
     assert len({x["color"] for x in p["tableros"]}) == len(p["tableros"])
+    # Paleta ejecutiva (sin celeste ni verde) y relieve 3D: techo iluminado y lateral en sombra.
+    assert {x["color"] for x in p["tableros"]} <= set(gs.TABLERO_HEX)
+    assert 'fill="#FFFFFF" fill-opacity="0.34"' in liq and 'fill="#000000" fill-opacity="0.38"' in liq
+    assert 'data-s="s-tableros"' in html      # los tableros van en su propia lámina
     wb = load_workbook(io.BytesIO(libro.xlsx(d, reg, [], 1, "Borrador")))
     assert len(wb["00_Inicio"]._charts) == 4 + 6
     datos = [c.value for row in wb[libro.HOJA_DATOS_GRAFICOS].iter_rows() for c in row]

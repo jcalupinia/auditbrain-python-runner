@@ -90,8 +90,8 @@ def test_excel_un_solo_dashboard_con_graficos_por_formula():
         tableros = [t["rotulo"] for t in (getattr(PROCESADORES[pid], "PANEL", None) or {}).get("tableros") or []]
         todos = wb["00_Inicio"]._charts
         assert [_titulo(ch) for ch in todos[4:]] == tableros, pid
-        for ch in todos[4:]:   # columnas agrupadas (anterior vs actual), datos por fórmula
-            assert ch.tagname == "barChart" and ch.grouping == "clustered" and len(ch.series) == 2, pid
+        for ch in todos[4:]:   # columnas agrupadas en relieve 3D (anterior vs actual), datos por fórmula
+            assert ch.tagname == "bar3DChart" and ch.grouping == "clustered" and len(ch.series) == 2, pid
             assert str(ch.graphical_properties.solidFill.srgbClr) == "0A2342", pid
         graf = todos[:4]
         titulos = [_titulo(ch) for ch in graf]
