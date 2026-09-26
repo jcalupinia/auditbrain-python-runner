@@ -29,6 +29,19 @@ export const CATEGORIES = [
       },
     ],
   },
+  {
+    id: "CONFIRMACIONES",
+    label: "Confirmaciones de saldos",
+    type: "herramienta",
+    tools: [
+      {
+        id: "AUD.CONFIRMACIONES.SALDOS",
+        label: "Motor de confirmaciones · circularización",
+        description:
+          "Sube la muestra y genera un modelo de carta por rubro (bancos, clientes, proveedores, relacionados, seguros, abogados, terceros, inversiones), en el idioma que elijas y para AuditConsulting o Partner. Cartas en Word, control de confirmaciones en Excel y envío por correo. Sin envío automático.",
+      },
+    ],
+  },
   { id: "PLANIFICACION", label: "Planificación", type: "etapa" },
   { id: "CAJA_BANCOS", label: "Caja y bancos", type: "ciclo" },
   { id: "INVERSIONES", label: "Inversiones", type: "ciclo" },
