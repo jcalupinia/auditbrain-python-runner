@@ -127,6 +127,11 @@ convierte las cédulas del exportador del sitio al modelo de `libro` y deriva su
 Un cambio en las piezas compartidas se prueba también con `tests/test_aud_papel_declarativo.py` y
 `python scripts/verificar_papel_declarativo.py`.
 
+### Estilos por fila (`estilos` en `base.hoja()`)
+Una entrada por fila: `{"tipo": "titulo" | "total" | "control", "sangria": n, "col": "Cuenta"}`. Da a una hoja el
+aspecto de cédula sumaria (rubro en negrita, subcuentas con sangría por nivel, total con filete y cuadre en cursiva) en
+Excel, HTML, Word y PowerPoint. Ejemplo: `08S_Sumarias` de la planificación.
+
 ### `PANEL` — tarjetas y gráficos
 ```python
 PANEL = {

@@ -76,7 +76,8 @@ def problema(code: str, mensaje: str, importe=0) -> dict:
 
 
 def hoja(name: str, label: str, cols: list, rows: list, total=None, explica: dict | None = None,
-         guia: str | None = None, ocultas: list | None = None, origen: dict | None = None) -> dict:
+         guia: str | None = None, ocultas: list | None = None, origen: dict | None = None,
+         estilos: list | None = None) -> dict:
     """Cédula: cols = [[título, formato]] con formato t/n/p/i/d/x; celdas calculadas con fx().
 
     ``explica`` = {título de columna calculada: explicación en lenguaje sencillo}.
@@ -91,7 +92,11 @@ def hoja(name: str, label: str, cols: list, rows: list, total=None, explica: dic
     del cliente (``D1_…``).
     ``ocultas`` = columnas técnicas (claves de cruce) que el Excel agrupa y oculta.
     ``origen`` = {columna: texto} para reemplazar el «De dónde viene el dato» que se
-    deduce de la fórmula (cuando cada fila remite a una hoja distinta)."""
+    deduce de la fórmula (cuando cada fila remite a una hoja distinta).
+    ``estilos`` = una entrada por fila (o None): {"tipo": "titulo" | "total" | "control",
+    "sangria": n, "col": nombre de la columna que lleva la sangría}. Da a una hoja el aspecto
+    de cédula sumaria (rubro en negrita, subcuentas con sangría, total y cuadre) en Excel,
+    HTML, Word y PowerPoint."""
     h = {"name": name, "label": label, "cols": cols, "rows": rows, "total": total, "explica": dict(explica or {})}
     if guia:
         h["guia"] = guia
@@ -99,7 +104,15 @@ def hoja(name: str, label: str, cols: list, rows: list, total=None, explica: dic
         h["ocultas"] = list(ocultas)
     if origen:
         h["origen"] = dict(origen)
+    if estilos:
+        h["estilos"] = list(estilos)
     return h
+
+
+def estilo_fila(h: dict, i: int) -> dict:
+    """Estilo de la fila i de datos de la cédula ({} si no tiene)."""
+    e = h.get("estilos") or []
+    return (e[i] if i < len(e) else None) or {}
 
 
 def suma(col: str, fin_fila: int, valor) -> dict:

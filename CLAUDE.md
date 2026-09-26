@@ -576,7 +576,10 @@ corte (revisión preliminar; sin él se prorratea ÷ 12 × meses), carta de cont
 impacto y control de 1 a 5), informe de auditoría y notas a los estados financieros del año anterior, RUC. Replica el
 artefacto: mapa de cuentas por prefijo del código (el más largo gana, hoja `03_Mapa`), nivel y cuentas de detalle por
 la jerarquía de los códigos, signo automático por sección, análisis horizontal de todas las cuentas, estados
-resumidos, índices con semáforo (días sobre los días del período), materialidad (desempeño 50 % y trivial 5 % por
+resumidos, **sumarias por rubro** (`08S_Sumarias`: un bloque por cuenta de nivel 3 con sus subcuentas en jerarquía,
+saldo anterior y al corte, ajustes del auditor que suben por fórmula de las cuentas de detalle, saldo ajustado,
+variación, nota del año anterior, marca Nueva/Baja/Supera el umbral, total de las cuentas de detalle y cuadre = 0;
+estilos por fila `estilos` de `base.hoja()`), índices con semáforo (días sobre los días del período), materialidad (desempeño 50 % y trivial 5 % por
 defecto; en la preliminar la base es el año anterior), matriz de la carta de CI (inherente = P × I; residual =
 inherente × (6 − C) ÷ 5), posibles riesgos (NIA 240, NIA 570, días de cartera e inventario, variaciones, informe
 anterior), notas contra el balance anterior (NIA 510), anomalías, control de calidad, cuentas a revisar, programa

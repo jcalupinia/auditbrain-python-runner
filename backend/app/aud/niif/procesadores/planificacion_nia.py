@@ -1034,6 +1034,7 @@ CEDULAS = [
     ("06_ERI_Anterior", "Estado de resultados del año anterior al mismo corte"),
     ("07_Secciones", "Totales por sección, signo de presentación y cuadre"),
     ("08_Horizontal", "Análisis horizontal y vertical de todas las cuentas"),
+    ("08S_Sumarias", "Sumarias por rubro: subcuentas, anterior, corte, ajustes y cuadre"),
     ("09_Estados", "Estados financieros resumidos"), ("10_Indices", "Índices financieros"),
     ("11_Materialidad", "Materialidad (NIA 320 y 450)"), ("12_Riesgos_CCI", "Matriz de riesgos de la carta de control interno"),
     ("13_Riesgos_Balance", "Posibles riesgos: NIA 240, empresa en marcha, balances e informe anterior"),
@@ -1045,6 +1046,7 @@ CEDULAS = [
     ("22_Origenes", "Orígenes y aplicaciones de efectivo (lectura causa-efecto)"), ("23_Audit_trail", "Audit trail (NIA 230)"),
     ("24_Problemas", "Asuntos para la planificación"),
 ]
+_ETQ = dict(CEDULAS)
 _PAR = ["corte", "marco", "tipoRevision", "mesesTranscurridos", "mapaCuentas", "baseMaterialidad", "periodoBase", "pctIngresos",
         "pctActivos", "pctPatrimonio", "pctGastos", "pctUAI", "pctDesempeno", "pctTrivial", "justificacion", "umbralVarPct",
         "umbralVarExtrema", "umbralDiasRotacion", "umbralAlto", "umbralMedio", "encargoInicial", "interesPublico", "auditoriaGrupo", "refutarIngresos",
@@ -1292,11 +1294,11 @@ def hojas(res: dict) -> list[dict]:
     mapa = [[a, b, fx(_f_seccion(f"B{FILA0 + i}"), _seccion_de(b))] for i, (a, b) in enumerate(d["mapa"])]
 
     # 04 / 05 / 06 · balances de comprobación
-    bc_ant = _hoja_bc("04_BC_Anterior", CEDULAS[3][1], fu["ant"], "Saldo al cierre anterior", nm,
+    bc_ant = _hoja_bc("04_BC_Anterior", _ETQ["04_BC_Anterior"], fu["ant"], "Saldo al cierre anterior", nm,
                       "Balance de comprobación al cierre del año anterior (auditado), exportado del sistema contable.")
-    bc_act = _hoja_bc("05_BC_Corte", CEDULAS[4][1], fu["act"], "Saldo al corte", nm,
+    bc_act = _hoja_bc("05_BC_Corte", _ETQ["05_BC_Corte"], fu["act"], "Saldo al corte", nm,
                       "Balance de comprobación a la fecha de corte que se audita, exportado del sistema contable.")
-    bc_eri = _hoja_bc("06_ERI_Anterior", CEDULAS[5][1], fu["eri"], "Saldo al mismo corte del año anterior", nm,
+    bc_eri = _hoja_bc("06_ERI_Anterior", _ETQ["06_ERI_Anterior"], fu["eri"], "Saldo al mismo corte del año anterior", nm,
                       "Estado de resultados del año anterior al mismo corte (solo en la revisión preliminar).")
 
     # 07 · secciones
@@ -1357,6 +1359,9 @@ def hojas(res: dict) -> list[dict]:
             fx(f'IF(SUMPRODUCT({_anc(A8, f"A{r}", dot)}*({E8}=E{r}))>0,"No","Sí")', x["supclas"]),
             fx(f'IF(L{r}="","",IF(SUMPRODUCT({_anc(A8, f"A{r}", dot)}*({L8}=L{r}))>0,"No","Sí"))', x["suprubro"]),
         ])
+
+    # 08S · sumarias por rubro
+    sumarias, estilos_s = _sumarias(cu, notas, d["umbrales"]["var"])
 
     # 09 · estados resumidos
     R8 = {c: _rng(H8, c, n8) for c in "DEFGHLMNQRS"}
@@ -1823,69 +1828,141 @@ def hojas(res: dict) -> list[dict]:
     resumen = [[res["labels"][k], fx(ref_res[k], n2(t[k]))] for k in res["labels"]]
 
     return [
-        hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
-        hoja("02_Parametros", CEDULAS[1][1], [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
-        hoja("03_Mapa", CEDULAS[2][1], [["Prefijo del código", "t"], ["Clasificación", "t"], ["Sección", "t"]], mapa,
+        hoja("01_Resumen", _ETQ["01_Resumen"], [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
+        hoja("02_Parametros", _ETQ["02_Parametros"], [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
+        hoja("03_Mapa", _ETQ["03_Mapa"], [["Prefijo del código", "t"], ["Clasificación", "t"], ["Sección", "t"]], mapa,
              explica=EXPLICA["03_Mapa"]),
         bc_ant, bc_act, bc_eri,
-        hoja("07_Secciones", CEDULAS[6][1], [["Concepto", "t"], ["Bruto BC anterior", "n"], ["Bruto BC corte", "n"],
+        hoja("07_Secciones", _ETQ["07_Secciones"], [["Concepto", "t"], ["Bruto BC anterior", "n"], ["Bruto BC corte", "n"],
                                             ["Bruto ERI anterior", "n"], ["Signo", "i"], ["BC anterior", "n"], ["BC corte", "n"],
                                             ["ERI anterior", "n"]], secciones, explica=EXPLICA["07_Secciones"]),
-        hoja("08_Horizontal", CEDULAS[7][1], [["Código", "t"], ["Cuenta", "t"], ["Nivel", "i"], ["Detalle", "t"], ["Clasificación", "t"],
+        hoja("08_Horizontal", _ETQ["08_Horizontal"], [["Código", "t"], ["Cuenta", "t"], ["Nivel", "i"], ["Detalle", "t"], ["Clasificación", "t"],
                                              ["Sección", "t"], ["Anterior", "n"], ["Actual", "n"], ["Variación", "n"], ["Variación %", "p"],
                                              ["Peso vertical", "p"], ["Rubro del ERI", "t"], ["Rubro para índices", "t"],
                                              ["Cuenta para índices", "t"], ["Monto material", "t"], ["Variación material", "t"],
                                              ["Superior de la sección", "t"], ["Superior de la clasificación", "t"],
                                              ["Superior del rubro del ERI", "t"]],
              horizontal, explica=EXPLICA["08_Horizontal"]),
-        hoja("09_Estados", CEDULAS[8][1], [["Concepto", "t"], ["Estado", "t"], ["Anterior", "n"], ["Actual", "n"], ["Variación", "n"],
+        hoja("08S_Sumarias", _ETQ["08S_Sumarias"], COLS_SUMARIA, sumarias, explica=EXPLICA["08S_Sumarias"], estilos=estilos_s),
+        hoja("09_Estados", _ETQ["09_Estados"], [["Concepto", "t"], ["Estado", "t"], ["Anterior", "n"], ["Actual", "n"], ["Variación", "n"],
                                           ["Variación %", "p"], ["Vertical actual", "p"], ["Vertical anterior", "p"],
                                           ["Observación", "t"]], estados,
              explica=EXPLICA["09_Estados"]),
-        hoja("10_Indices", CEDULAS[9][1], [["Indicador", "t"], ["Categoría", "t"], ["Cómo se calcula", "t"], ["Anterior", "n"],
+        hoja("10_Indices", _ETQ["10_Indices"], [["Indicador", "t"], ["Categoría", "t"], ["Cómo se calcula", "t"], ["Anterior", "n"],
                                           ["Actual", "n"], ["Variación", "n"], ["Semáforo", "t"], ["Lectura", "t"]], indices,
              explica=EXPLICA["10_Indices"]),
-        hoja("11_Materialidad", CEDULAS[10][1], [["Concepto", "t"], ["Importe", "n"], ["Porcentaje", "n"], ["Materialidad", "n"],
+        hoja("11_Materialidad", _ETQ["11_Materialidad"], [["Concepto", "t"], ["Importe", "n"], ["Porcentaje", "n"], ["Materialidad", "n"],
                                                 ["Sustento", "t"]], materialidad, explica=EXPLICA["11_Materialidad"]),
-        hoja("12_Riesgos_CCI", CEDULAS[11][1], [["Código del hallazgo", "t"], ["Proceso o área", "t"], ["Hallazgo o riesgo", "t"],
+        hoja("12_Riesgos_CCI", _ETQ["12_Riesgos_CCI"], [["Código del hallazgo", "t"], ["Proceso o área", "t"], ["Hallazgo o riesgo", "t"],
                                                ["Aseveraciones", "t"], ["Probabilidad (1–5)", "i"], ["Impacto (1–5)", "i"],
                                                ["Control (1–5)", "i"], ["Riesgo inherente", "n"], ["Riesgo residual", "n"], ["Nivel", "t"],
                                                ["Respuesta de auditoría", "t"], ["Herramienta del catálogo", "t"]], matriz,
              explica=EXPLICA["12_Riesgos_CCI"]),
-        hoja("13_Riesgos_Balance", CEDULAS[12][1], [["Código", "t"], ["Origen", "t"], ["Rubro o área", "t"], ["Condición observada", "t"],
+        hoja("13_Riesgos_Balance", _ETQ["13_Riesgos_Balance"], [["Código", "t"], ["Origen", "t"], ["Rubro o área", "t"], ["Condición observada", "t"],
                                                    ["Valor observado", "n"], ["¿Se presenta?", "t"], ["Posible riesgo", "t"],
                                                    ["Severidad", "t"], ["Norma", "t"]], posibles, explica=EXPLICA["13_Riesgos_Balance"]),
-        hoja("14_Perfil", CEDULAS[13][1], [["Tipo", "t"], ["Concepto", "t"], ["Detalle", "t"], ["Importe (USD)", "n"],
+        hoja("14_Perfil", _ETQ["14_Perfil"], [["Tipo", "t"], ["Concepto", "t"], ["Detalle", "t"], ["Importe (USD)", "n"],
                                           ["Fuente o referencia", "t"], ["Efecto en la planificación", "t"]], perfil),
-        hoja("15_Notas", CEDULAS[14][1], [["Nota", "t"], ["Título de la nota", "t"], ["Cuentas del balance (códigos)", "t"],
+        hoja("15_Notas", _ETQ["15_Notas"], [["Nota", "t"], ["Título de la nota", "t"], ["Cuentas del balance (códigos)", "t"],
                                          ["Saldo auditado según la nota", "n"], ["Saldo del balance anterior", "n"], ["Diferencia", "n"],
                                          ["Saldo al corte", "n"], ["Variación", "n"], ["Variación %", "p"]], notas_h,
              explica=EXPLICA["15_Notas"]),
-        hoja("16_Control", CEDULAS[15][1], [["Control", "t"], ["Importe", "n"], ["Cantidad", "i"], ["Estado", "t"], ["Detalle", "t"]],
+        hoja("16_Control", _ETQ["16_Control"], [["Control", "t"], ["Importe", "n"], ["Cantidad", "i"], ["Estado", "t"], ["Detalle", "t"]],
              control, explica=EXPLICA["16_Control"]),
-        hoja("17_Anomalias", CEDULAS[16][1], [["Tipo", "t"], ["Código", "t"], ["Cuenta", "t"], ["Detalle", "t"], ["Importe", "n"],
+        hoja("17_Anomalias", _ETQ["17_Anomalias"], [["Tipo", "t"], ["Código", "t"], ["Cuenta", "t"], ["Detalle", "t"], ["Importe", "n"],
                                              ["¿Se presenta?", "t"], ["Severidad", "t"]], anomalias, explica=EXPLICA["17_Anomalias"]),
-        hoja("18_Cuentas_Revisar", CEDULAS[17][1], [["Código", "t"], ["Cuenta", "t"], ["Sección", "t"], ["Saldo actual", "n"],
+        hoja("18_Cuentas_Revisar", _ETQ["18_Cuentas_Revisar"], [["Código", "t"], ["Cuenta", "t"], ["Sección", "t"], ["Saldo actual", "n"],
                                                    ["Variación", "n"], ["Monto material", "t"], ["Variación material", "t"],
                                                    ["Riesgo de la carta de CI", "t"], ["Herramienta del catálogo", "t"],
                                                    ["¿Se revisa?", "t"]], cuentas_rev, explica=EXPLICA["18_Cuentas_Revisar"]),
-        hoja("19_Programa", CEDULAS[18][1], [["PT", "t"], ["Área o rubro", "t"], ["Riesgo", "t"], ["Nivel", "t"],
+        hoja("19_Programa", _ETQ["19_Programa"], [["PT", "t"], ["Área o rubro", "t"], ["Riesgo", "t"], ["Nivel", "t"],
                                             ["Respuesta de auditoría (NIA 330)", "t"], ["Herramienta del catálogo", "t"], ["Oportunidad", "t"]],
              programa, explica=EXPLICA["19_Programa"]),
-        hoja("20_Narrativa", CEDULAS[19][1], [["Bloque", "t"], ["Concepto", "t"], ["Importe", "n"], ["Lectura", "t"]], narrativa,
+        hoja("20_Narrativa", _ETQ["20_Narrativa"], [["Bloque", "t"], ["Concepto", "t"], ["Importe", "n"], ["Lectura", "t"]], narrativa,
              explica=EXPLICA["20_Narrativa"]),
-        hoja("21_Estrategia", CEDULAS[20][1], [["Aspecto", "t"], ["Decisión", "x"], ["Sustento", "t"]], estrategia,
+        hoja("21_Estrategia", _ETQ["21_Estrategia"], [["Aspecto", "t"], ["Decisión", "x"], ["Sustento", "t"]], estrategia,
              explica=EXPLICA["21_Estrategia"]),
-        hoja("22_Origenes", CEDULAS[21][1], [["Código", "t"], ["Cuenta", "t"], ["Sección", "t"], ["Variación", "n"],
+        hoja("22_Origenes", _ETQ["22_Origenes"], [["Código", "t"], ["Cuenta", "t"], ["Sección", "t"], ["Variación", "n"],
                                             ["Efecto en el efectivo", "n"], ["Tipo", "t"]], origenes_h, explica=EXPLICA["22_Origenes"]),
-        hoja("23_Audit_trail", CEDULAS[22][1], [["Concepto", "t"], ["Detalle", "t"], ["Valor", "n"]], trail,
+        hoja("23_Audit_trail", _ETQ["23_Audit_trail"], [["Concepto", "t"], ["Detalle", "t"], ["Valor", "n"]], trail,
              explica=EXPLICA["23_Audit_trail"]),
-        hoja("24_Problemas", CEDULAS[23][1], [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
+        hoja("24_Problemas", _ETQ["24_Problemas"], [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e_["code"], e_["message"], n2(float(e_["amount"]))] for e_ in res["exceptions"]]),
     ]
 
 
 OBS_VARIACION = "Variación superior al umbral: revisar el rubro y su documentación de respaldo."
+
+COLS_SUMARIA = [["Ref. PT", "t"], ["Código", "t"], ["Cuenta", "t"], ["Nivel", "i"], ["Detalle", "t"],
+                ["Saldo al cierre anterior", "n"], ["Saldo al corte", "n"], ["Ajustes del auditor", "n"], ["Saldo ajustado", "n"],
+                ["Variación", "n"], ["Variación %", "p"], ["Nota del año anterior", "t"], ["Marca", "t"]]
+TXT_TOTAL_SUMARIA = "Total de las cuentas de detalle"
+TXT_CUADRE_SUMARIA = "Cuadre: rubro − cuentas de detalle (debe dar 0)"
+
+
+def _es_rubro(x: dict) -> bool:
+    """Rubro de la sumaria: cuenta de nivel 3, o de nivel superior sin subcuentas (la jerarquía se acaba antes)."""
+    return x["nivel"] == 3 or (x["nivel"] < 3 and x["detalle"] == "Sí")
+
+
+def _marca(a: float, b: float, umbral: float) -> str:
+    if abs(a) < 0.005:
+        return "Nueva" if abs(b) >= 0.005 else ""
+    if abs(b) < 0.005:
+        return "Baja"
+    return "Supera el umbral" if abs((b - a) / a) >= umbral / 100 else ""
+
+
+def _sumarias(cu: list, notas: list, umbral: float) -> tuple[list, list]:
+    """Cédulas sumarias (lead schedules): un bloque por rubro con la cuenta del rubro, sus subcuentas con
+    sangría, el total de las cuentas de detalle y el cuadre. Saldos por fórmula a 08_Horizontal; los ajustes
+    del auditor se escriben en las cuentas de detalle y suben por fórmula a sus cuentas superiores."""
+    filas, estilos = [], []
+    u = _par("umbralVarPct")
+    idx = {x["codigo"]: i for i, x in enumerate(cu)}
+    rubros = [x for x in cu if _es_rubro(x)]
+    for k, rb in enumerate(rubros, start=1):
+        ref_pt = f"S-{k:02d}"
+        bloque = [rb] + [x for x in cu if x is not rb and _debajo(x["codigo"], rb["codigo"])]
+        a = FILA0 + len(filas)
+        fila_de = {x["codigo"]: a + j for j, x in enumerate(bloque)}
+        for j, x in enumerate(bloque):
+            r, r8 = a + j, FILA0 + idx[x["codigo"]]
+            detalles = [y for y in bloque if y is not x and y["detalle"] == "Sí" and _debajo(y["codigo"], x["codigo"])]
+            if x["detalle"] == "Sí" or not detalles:
+                h_cel = None                                   # el auditor escribe aquí sus ajustes
+            else:
+                h_cel = fx("+".join(f"N(H{fila_de[y['codigo']]})" for y in detalles), 0.0)
+            nota = ", ".join(f"Nota {n_['nota']}" for n_ in notas
+                             if any(x["codigo"] == pf or _debajo(x["codigo"], pf) for pf in n_["pref"]))
+            filas.append([
+                ref_pt, x["codigo"], x["cuenta"],
+                fx(f"{H8}C{r8}", x["nivel"]), fx(f"{H8}D{r8}", x["detalle"]),
+                fx(f"{H8}G{r8}", n2(x["ant"])), fx(f"{H8}H{r8}", n2(x["act"])), h_cel,
+                fx(f"G{r}+N(H{r})", n2(x["act"])), fx(f"I{r}-F{r}", n2(x["act"] - x["ant"])),
+                fx(f'IF(F{r}=0,"",J{r}/ABS(F{r}))', None if x["ant"] == 0 else (x["act"] - x["ant"]) / abs(x["ant"])),
+                nota,
+                fx(f'IF(F{r}=0,IF(G{r}<>0,"Nueva",""),IF(G{r}=0,"Baja",IF(ABS(J{r}/F{r})>={u}/100,"Supera el umbral","")))',
+                   _marca(x["ant"], x["act"], umbral)),
+            ])
+            estilos.append({"tipo": "titulo"} if j == 0 else {"sangria": x["nivel"] - rb["nivel"], "col": "Cuenta"})
+        b = a + len(bloque) - 1
+        det = [x for x in bloque if x["detalle"] == "Sí"]
+        ta, tc = sum(x["ant"] for x in det), sum(x["act"] for x in det)
+        rt = b + 1
+        sif = lambda c: f'SUMIFS({c}{a}:{c}{b},$E${a}:$E${b},"Sí")'  # noqa: E731
+        filas.append([ref_pt, None, TXT_TOTAL_SUMARIA, None, None, fx(sif("F"), n2(ta)), fx(sif("G"), n2(tc)),
+                      fx(sif("H"), 0.0), fx(sif("I"), n2(tc)), fx(f"I{rt}-F{rt}", n2(tc - ta)),
+                      fx(f'IF(F{rt}=0,"",J{rt}/ABS(F{rt}))', None if ta == 0 else (tc - ta) / abs(ta)), None, None])
+        estilos.append({"tipo": "total"})
+        rc = rt + 1
+        da, dc = rb["ant"] - ta, rb["act"] - tc
+        filas.append([ref_pt, None, TXT_CUADRE_SUMARIA, None, None, fx(f"F{a}-F{rt}", n2(da)), fx(f"G{a}-G{rt}", n2(dc)),
+                      None, fx(f"I{a}-I{rt}", n2(dc)), None, None, None,
+                      fx(f'IF(AND(ABS(F{rc})<0.005,ABS(G{rc})<0.005,ABS(I{rc})<0.005),"Cuadra","Revisar la jerarquía")',
+                         "Cuadra" if abs(da) < 0.005 and abs(dc) < 0.005 else "Revisar la jerarquía")])
+        estilos.append({"tipo": "control"})
+    return filas, estilos
 
 
 def _tipo_efecto(v: float) -> str:
@@ -2033,6 +2110,22 @@ EXPLICA = {
                      "cuadre (activo − pasivo − patrimonio − resultado)."),
         "ERI anterior": ("Hace lo mismo con el estado de resultados del año anterior al mismo corte, para comparar ingresos, "
                          "costos y gastos del mismo número de meses."),
+    },
+    "08S_Sumarias": {
+        "Nivel": "Nivel de la cuenta en la jerarquía del plan de cuentas, tomado de la hoja 08.",
+        "Detalle": "«Sí» si la cuenta no tiene subcuentas (cuenta de detalle), según la hoja 08.",
+        "Saldo al cierre anterior": "Saldo presentado de la cuenta al cierre del año anterior, tomado de la hoja 08. En el "
+                                    "total, suma de las cuentas de detalle del rubro.",
+        "Saldo al corte": "Saldo presentado de la cuenta a la fecha de corte, tomado de la hoja 08. En el total, suma de las "
+                          "cuentas de detalle del rubro.",
+        "Ajustes del auditor": "En las cuentas de detalle la escribe el auditor (ajustes y reclasificaciones propuestos). En "
+                               "las cuentas superiores y en el total es la suma de los ajustes de sus cuentas de detalle.",
+        "Saldo ajustado": "Saldo al corte más los ajustes del auditor.",
+        "Variación": "Saldo ajustado menos el saldo del cierre anterior.",
+        "Variación %": "Variación dividida para el saldo del cierre anterior (en blanco si ese saldo es cero).",
+        "Marca": "«Nueva» si la cuenta no tenía saldo al cierre anterior, «Baja» si no tiene saldo al corte y «Supera el "
+                 "umbral» si la variación supera el umbral de variación de los parámetros. En la fila de cuadre, «Cuadra» si "
+                 "el rubro es igual a la suma de sus cuentas de detalle.",
     },
     "08_Horizontal": {
         "Nivel": ("Cuenta las cuentas superiores de este código presentes en la unión de los balances (códigos que son el inicio "

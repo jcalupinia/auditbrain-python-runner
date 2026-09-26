@@ -368,21 +368,33 @@ def _tabla_word(doc, h, L):
         _sombra(c, C["card2"])
         _bordes(c, bottom=(16, C["oro"]))
         _texto(c.paragraphs[0], nombre, sz, C["texto"], True)
+    from docx.shared import Pt
+
+    from backend.app.aud.niif.procesadores.base import estilo_fila
+
     for i, (fila, total) in enumerate(filas, start=1):
-        for j, ((_, fmt), v) in enumerate(zip(h["cols"], fila)):
+        ef = {} if total else estilo_fila(h, i - 1)
+        tipo = "total" if total else ef.get("tipo")
+        for j, ((nombre_col, fmt), v) in enumerate(zip(h["cols"], fila)):
             c = t.rows[i].cells[j]
-            if total:
+            if tipo == "total":
                 _sombra(c, C["card2"])
                 _bordes(c, top=(16, C["oro"]), bottom=(4, C["borde"]))
+            elif tipo == "titulo":
+                _sombra(c, C["card2"])
+                _bordes(c, top=(4, C["borde"]), bottom=(4, C["borde"]))
             else:
-                if i % 2 == 0:
+                if i % 2 == 0 and not ef:
                     _sombra(c, C["zebra"])
                 _bordes(c, bottom=(4, C["borde"]))
             num = fmt in ("n", "p", "i", "g")
             par = c.paragraphs[0]
             if num:
                 par.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-            _texto(par, _html.unescape(L._celda(v, fmt)), sz, C["texto"], total, "Consolas" if num else None)
+            if ef.get("sangria") and nombre_col == ef.get("col"):
+                par.paragraph_format.left_indent = Pt(8 * int(ef["sangria"]))
+            _texto(par, _html.unescape(L._celda(v, fmt)), sz, C["texto2"] if tipo == "control" else C["texto"],
+                   tipo in ("total", "titulo"), "Consolas" if num else None, cursiva=(tipo == "control"))
     for fila in t.rows:
         _no_partir(fila)
 
@@ -651,13 +663,21 @@ def _tabla_ppt(diap, prs, h, filas, L):
         c = t.cell(0, j)
         pinta(c, nombre, T["texto"], T["card2"], True)
         _borde_celda(c, "bottom", T["oro"], 25400)
+    from backend.app.aud.niif.procesadores.base import estilo_fila
+
     for i, (fila, total) in enumerate(filas, start=1):
-        for j, ((_, fmt), v) in enumerate(zip(h["cols"], fila)):
+        ef = {} if total else estilo_fila(h, i - 1)
+        tipo = "total" if total else ef.get("tipo")
+        for j, ((nombre_col, fmt), v) in enumerate(zip(h["cols"], fila)):
             c = t.cell(i, j)
             num = fmt in ("n", "p", "i", "g")
-            relleno = T["card2"] if total else (T["zebra"] if i % 2 == 0 else T["card"])
-            pinta(c, _html.unescape(L._celda(v, fmt)), T["texto"], relleno, total, num, "Consolas" if num else None)
-            if total:
+            relleno = T["card2"] if tipo in ("total", "titulo") else (T["zebra"] if i % 2 == 0 and not ef else T["card"])
+            txt = _html.unescape(L._celda(v, fmt))
+            if ef.get("sangria") and nombre_col == ef.get("col"):
+                txt = "\u2003" * int(ef["sangria"]) + txt        # sangría por nivel (espacio eme)
+            pinta(c, txt, T["texto2"] if tipo == "control" else T["texto"], relleno, tipo in ("total", "titulo"), num,
+                  "Consolas" if num else None)
+            if tipo == "total":
                 _borde_celda(c, "top", T["oro"], 25400)
             _borde_celda(c, "bottom", T["borde"], 9525)
     for fila in t.rows:

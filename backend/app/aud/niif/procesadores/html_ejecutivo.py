@@ -201,6 +201,8 @@ def _css() -> str:
         "tbody tr:nth-child(even) td{background:var(--zebra)}"
         "td.num{text-align:right;white-space:nowrap;font-family:var(--f-cifra);font-variant-numeric:tabular-nums}"
         "tr.total td{font-weight:700;border-top:2px solid var(--oro);background:var(--card2)}"
+        "tr.titulo td{font-weight:700;background:var(--card2);border-top:1px solid var(--borde)}"
+        "tr.control td{font-style:italic;color:var(--texto2);font-size:.92em}"
         # «Cómo se calcula»: dentro del ancho, fórmulas que saltan de línea (sin desborde)
         "details.calc{margin:0 0 12px;background:var(--card2);border:1px solid var(--borde);border-radius:10px;padding:8px 12px}"
         "details.calc summary{cursor:pointer;font:700 13px var(--f-titulo);color:var(--oro-txt)}"
@@ -348,14 +350,21 @@ def _tableros(p: dict, hex_: dict | None) -> str:
 
 
 def _tabla(h: dict, celda) -> str:
+    from backend.app.aud.niif.procesadores.base import estilo_fila
+
     cab = "".join(f"<th>{E(c[0])}</th>" for c in h["cols"])
     filas = [(r, False) for r in h.get("rows") or []] + ([(h["total"], True)] if h.get("total") else [])
-    cuerpo = "".join(
-        "<tr" + (' class="total"' if total else "") + ">"
-        + "".join(f'<td class="{"num" if f in ("n", "p", "i", "g") else ""}"'
-                  + (f' title="={E(v["f"])}"' if isinstance(v, dict) and "f" in v else "")
-                  + f">{celda(v, f)}</td>" for (_, f), v in zip(h["cols"], fila))
-        + "</tr>" for fila, total in filas)
+
+    def fila_html(k, fila, total):
+        ef = {} if total else estilo_fila(h, k)
+        clase = "total" if total or ef.get("tipo") == "total" else {"titulo": "titulo", "control": "control"}.get(ef.get("tipo"), "")
+        return ("<tr" + (f' class="{clase}"' if clase else "") + ">"
+                + "".join(f'<td class="{"num" if f in ("n", "p", "i", "g") else ""}"'
+                          + (f' style="padding-left:{8 + 16 * int(ef["sangria"])}px"' if ef.get("sangria") and n == ef.get("col") else "")
+                          + (f' title="={E(v["f"])}"' if isinstance(v, dict) and "f" in v else "")
+                          + f">{celda(v, f)}</td>" for (n, f), v in zip(h["cols"], fila))
+                + "</tr>")
+    cuerpo = "".join(fila_html(k, fila, total) for k, (fila, total) in enumerate(filas))
     return f'<div class="scroll"><table><thead><tr>{cab}</tr></thead><tbody>{cuerpo}</tbody></table></div>'
 
 

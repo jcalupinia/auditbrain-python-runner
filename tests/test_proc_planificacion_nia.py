@@ -307,3 +307,38 @@ def test_tableros_del_artefacto_en_html_excel_word_y_ppt():
     diaps = [x for x in diaps if x[0] == "Tableros del análisis"]
     assert [x[1] for x in diaps] == ["Liquidez y actividad", "Endeudamiento y rentabilidad",
                                      "Estructura del balance y estado de resultados"]
+
+
+def test_sumarias_por_rubro_con_subcuentas_ajustes_y_cuadre():
+    """Cédulas sumarias (reclamo del dueño: «no veo las sumarias»): un bloque por rubro con la cuenta del rubro,
+    sus subcuentas con sangría, el total de las cuentas de detalle y el cuadre, todo por fórmula a 08_Horizontal."""
+    r = _run()
+    hs = {h["name"]: h for h in m.hojas(r)}
+    h = hs["08S_Sumarias"]
+    v = lambda c: c.get("v") if isinstance(c, dict) else c  # noqa: E731
+    filas = [[v(c) for c in f] for f in h["rows"]]
+    rubros = [f for f, e in zip(filas, h["estilos"]) if e.get("tipo") == "titulo"]
+    # Un bloque por cada cuenta de nivel 3 (o superior sin subcuentas) del plan del ejemplo.
+    assert len(rubros) == sum(1 for x in r["detalle"]["cuentas"] if m._es_rubro(x)) == 28
+    # CxC: rubro, dos subcuentas con sangría, total y cuadre en cero; nota del año anterior y marca de umbral.
+    i = next(k for k, f in enumerate(filas) if f[1] == "1103")
+    assert [f[1] for f in filas[i:i + 3]] == ["1103", "110301", "110302"]
+    assert h["estilos"][i + 1] == {"sangria": 1, "col": "Cuenta"}
+    assert filas[i + 3][2] == m.TXT_TOTAL_SUMARIA and filas[i + 3][5:7] == [644600.0, 763600.0]
+    assert filas[i + 4][2] == m.TXT_CUADRE_SUMARIA and filas[i + 4][5:7] == [0.0, 0.0] and filas[i + 4][12] == "Cuadra"
+    assert filas[i][11] == "Nota 4" and filas[i][12] == "Supera el umbral"
+    # Todo cuadra en el ejemplo; los saldos vienen de 08_Horizontal y los ajustes suben de las cuentas de detalle.
+    assert all(f[12] == "Cuadra" for f, e in zip(filas, h["estilos"]) if e.get("tipo") == "control")
+    fila_rubro = h["rows"][i]
+    assert fila_rubro[5]["f"].startswith("'08_Horizontal'!G") and fila_rubro[7]["f"] == f"N(H{m.FILA0 + i + 1})+N(H{m.FILA0 + i + 2})"
+    assert h["rows"][i + 1][7] is None                     # en la cuenta de detalle el ajuste lo escribe el auditor
+    # Si la jerarquía no suma (1103 con saldo propio distinto de sus subcuentas), el cuadre lo muestra.
+    e = m.EJEMPLO
+    ds = {k: [dict(x) for x in v_] for k, v_ in e["datasets"].items()}
+    for x in ds["balance_actual"]:
+        if str(x["codigo"]) == "1103":
+            x["saldo_actual"] = 780000.0
+    r2 = m.ejecutar(ds, e["parametros"], e["corte"])
+    h2 = next(x for x in m.hojas(r2) if x["name"] == "08S_Sumarias")
+    j = next(k for k, f in enumerate(h2["rows"]) if v(f[1]) == "1103")
+    assert v(h2["rows"][j + 4][12]) == "Revisar la jerarquía" and abs(v(h2["rows"][j + 4][6]) - 16400.0) < 0.01
