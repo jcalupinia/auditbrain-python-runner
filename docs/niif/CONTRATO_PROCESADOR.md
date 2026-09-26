@@ -104,6 +104,9 @@ exigencia), `calculo` (pasos en lenguaje contable), `fields` (= CAMPOS del princ
 `tramos` (solo si hay tasas por tramo), `cedulas`, `program` (≥5 procedimientos con code/objective/risk/assertion/
 procedure/evidence/criterion/source) y `requests` (con `req()`: uno por anexo de cálculo + los de soporte).
 Códigos de programa y requerimientos: `<PREFIJO>-01…`, `RQ-001…`.
+Opcional: `firmas` = lista de cédulas clave (nombres de hoja). El libro agrega la hoja `00_Firmas` con quién preparó
+(envió a revisión) y quién revisó (aprobó) cada una, con fecha, tomados de la bitácora del ciclo, y advierte si es la
+misma persona (NIA 230 y 220). La usa la planificación (`planificacion_nia`).
 
 ### `EJEMPLO` (ejercicio modelo, M19)
 Datos ficticios realistas (8–20 filas por anexo) que **ejerciten todas las cédulas y al menos dos problemas**.
@@ -141,8 +144,8 @@ valor de Python va con los del Ecuador (`planificacion_nia._num`: 1.053.600,00).
 
 ### Colores por nivel (`colores` en `base.hoja()`)
 Lista de columnas cuyo valor es un nivel, severidad, semáforo o estado (`colores=["Nivel"]`). Cada celda se pinta según
-`base.NIVEL_COLOR` (Significativo, Alto/Crítico/Rojo, Medio/Revisar/Amarillo, Bajo/Conforme/Verde, Pendiente/No
-evaluado; también «Rojo · …» por la primera palabra) con los tonos de `base.ROL_COLOR`. En el Excel es **formato
+`base.NIVEL_COLOR` (Significativo, Alto/Crítico/Rojo/Alerta, Medio/Revisar/Amarillo/Comunicar/Candidato,
+Bajo/Conforme/Verde/Documentado, Pendiente/No evaluado/No aplica; también «Rojo · …» por la primera palabra) con los tonos de `base.ROL_COLOR`. En el Excel es **formato
 condicional** (el color sigue a la fórmula si el auditor cambia una calificación o un parámetro); en el HTML, una
 etiqueta de color; en Word y PowerPoint, la celda sombreada. Son colores de estado: nunca se usan en los gráficos.
 

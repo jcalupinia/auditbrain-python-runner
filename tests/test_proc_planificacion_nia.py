@@ -1,5 +1,7 @@
 """Planificación de la auditoría con los documentos de entrada del cronograma (balances de comprobación, carta de control
 interno, informe y notas del año anterior): cifras de control resueltas a mano sobre el ejemplo ficticio."""
+import math
+
 import pytest
 
 from backend.app.aud.niif.procesadores import planificacion_nia as m
@@ -234,11 +236,13 @@ def test_hojas_con_las_cedulas_y_el_ancho_de_columnas():
     horizontal = next(h for h in hs if h["name"] == "08_Horizontal")
     assert len(horizontal["rows"]) == len(r["detalle"]["cuentas"])
     # Programa: un PT por hallazgo de la carta, uno por posible riesgo presente, uno por cuenta a revisar sin riesgo que
-    # la cubra y los procedimientos de todo encargo.
+    # la cubra, uno por confirmación u observación física (NIA 505 y 501, A14) y los procedimientos de todo encargo.
     programa = next(h for h in hs if h["name"] == "19_Programa")
     presentes = sum(1 for x in r["detalle"]["riesgos"] if x["presenta"] == "Sí")
     propias = sum(1 for f in programa["rows"] if str(f[2]).startswith("Cuenta "))
-    assert len(programa["rows"]) == len(r["detalle"]["carta"]) + presentes + propias + len(m.PROC_ENCARGO)
+    conf = sum(1 for f in programa["rows"] if str(f[2]).startswith(("NIA 505", "NIA 501 ·")))
+    assert conf >= 1
+    assert len(programa["rows"]) == len(r["detalle"]["carta"]) + presentes + propias + conf + len(m.PROC_ENCARGO)
 
 
 def test_panel_con_textos_propios_y_las_demas_herramientas_sin_cambio():
@@ -471,7 +475,9 @@ def test_riesgo_significativo_sobre_el_inherente_y_colores_por_nivel():
     h12 = hs["12_Riesgos_CCI"]
     fila = next(f for f in h12["rows"] if f[0] == "R07")
     assert h12["cols"][12][0] == "¿Riesgo significativo?" and v(fila[12]) == "Sí" and v(fila[9]) == "Alto"
-    assert fila[12]["f"] == f'IF(H{m.FILA0 + 6}="","",IF(H{m.FILA0 + 6}>={m._par("umbralSignificativo")},"Sí","No"))'
+    r7 = m.FILA0 + 6     # A7: un hallazgo que menciona fraude es significativo aunque su calificación sea baja
+    assert fila[12]["f"] == (f'IF(ISNUMBER(SEARCH("fraude",B{r7}&" "&C{r7})),"Sí",IF(H{r7}="","",'
+                             f'IF(H{r7}>={m._par("umbralSignificativo")},"Sí","No")))')
     assert f'M{m.FILA0 + 6}="Sí"' in fila[9]["f"]
     prog = next(f for f in hs["19_Programa"]["rows"] if f[2] == "R07")
     assert v(prog[3]) == "Significativo" and v(prog[6]) == m.OPORTUNIDAD_ALTO
@@ -709,3 +715,203 @@ def test_defecto_d11_narrativa_del_efectivo_y_dias_ajustados():
     np_ = {f[1]: f for f in hp["20_Narrativa"]["rows"]}
     dc = np_["Días de cartera"]
     assert dc[2]["f"].endswith("I9") and f"{dc[2]['v']:.2f}".replace(".", ",") in dc[3]["v"]
+
+
+# --- A1–A19: documentación del encargo (planificacion_encargo) ---------------------------------------------------------
+from backend.app.aud.niif.procesadores import planificacion_encargo as enc  # noqa: E402
+
+_v = lambda c: c.get("v") if isinstance(c, dict) else c  # noqa: E731
+
+
+def _hojas(nombre="base"):
+    r = _esc(nombre) if nombre != "ejemplo" else _run()
+    return r, {h["name"]: h for h in m.hojas(r)}
+
+
+def _filas(h):
+    return [[_v(c) for c in f] for f in h["rows"]]
+
+
+def test_a2_a3_a6_a7_a8_a9_cuestionario_con_alertas_y_pendientes():
+    r, hs = _hojas()
+    # Las respuestas distintas de la esperada pasan a la hoja 13 con fórmula al estado de la pregunta y al programa.
+    alertas = [x for x in r["detalle"]["riesgos"] if x["cod"] == "cuestionario"]
+    assert [(x["q"], x["sev"]) for x in alertas] == [("FRA-05", "Alto"), ("CI-02", "Medio"), ("TI-03", "Medio")]
+    fila13 = next(f for f in hs["13_Riesgos_Balance"]["rows"] if f[0] == alertas[0]["codigo"])
+    h26, r26 = enc.FILA_Q["FRA-05"]
+    assert h26 == enc.H26 and fila13[5]["f"] == f'IF(\'{h26}\'!I{r26}="Alerta","Sí","No")'
+    assert any(f[2] == alertas[0]["codigo"] for f in hs["19_Programa"]["rows"])
+    est = {f[1]: f[8] for f in _filas(hs[enc.H24]) + _filas(hs[enc.H26]) + _filas(hs[enc.H27])}
+    assert est["ACE-05"] == "No aplica" and est["CON-05"] == "Conforme" and est["FRA-05"] == "Alerta" and est["DIS-01"] == "Documentado"
+    ctl = {_v(f[0]): [_v(c) for c in f] for f in hs["16_Control"]["rows"]}
+    assert ctl["Cuestionario de planificación completo (hojas 24, 26 y 27)"][2:4] == [0, "Conforme"]
+    assert ctl["Alertas del cuestionario de planificación"][2:4] == [3, "Revisar"]
+    # Sin cuestionario (pérdida PYMES): todo queda [PENDIENTE] y el control lo cuenta; nada se completa por inferencia.
+    r2, hs2 = _hojas("perdida_pymes")
+    assert all(f[4] == enc.PENDIENTE and f[8] in ("Pendiente", "No aplica") for f in _filas(hs2[enc.H24]))
+    ctl2 = {_v(f[0]): [_v(c) for c in f] for f in hs2["16_Control"]["rows"]}
+    assert ctl2["Cuestionario de planificación completo (hojas 24, 26 y 27)"][2:4] == [len(enc.CUESTIONARIO), "Revisar"]
+    assert "CUESTIONARIO_PENDIENTE" in {e["code"] for e in r2["exceptions"]}
+
+
+def test_cuestionario_validacion():
+    filas = [{"codigo": "XYZ-01", "respuesta": "Sí", "_row": 2}, {"codigo": "CI-01", "respuesta": "tal vez", "_row": 3},
+             {"codigo": "CON-06", "respuesta": "no es fecha", "_row": 4}, {"codigo": "CI-01", "respuesta": "Adecuado", "_row": 5}]
+    out = m.validar_filas("cuestionario_planificacion", filas)
+    msgs = " | ".join(e["message"] for e in out["errors"])
+    assert not out["ok"] and "desconocido" in msgs and "Adecuado, Con deficiencias" in msgs and "una fecha" in msgs and "repetida" in msgs
+    assert m.validar_filas("cuestionario_planificacion", [{"codigo": "fra-02", "respuesta": "no", "_row": 2}])["ok"]
+
+
+def test_a7_hallazgo_de_la_carta_con_fraude_es_significativo():
+    e = m.EJEMPLO
+    carta = [*e["datasets"]["carta_control_interno"],
+             {"id": "R09", "proceso": "Tesorería", "hallazgo": "Posible fraude en reembolsos de caja chica.", "aseveraciones": "",
+              "probabilidad": "2", "impacto": "2", "control": "4", "respuesta": "", "probar_control": "", "_row": 9}]
+    r = m.ejecutar({**e["datasets"], "carta_control_interno": carta}, e["parametros"], e["corte"])
+    x = next(c for c in r["detalle"]["carta"] if c["id"] == "R09")
+    assert (x["inh"], x["sig"], x["nivel"]) == (4, "Sí", "Alto")
+    prog = next(f for f in m.hojas(r) if f["name"] == "19_Programa")["rows"]
+    fila = next(f for f in prog if f[2] == "R09")
+    assert _v(fila[3]) == "Significativo" and _v(fila[7]) == m.ASEVERACIONES_AREA["Caja y bancos"]      # A13: aseveraciones del área
+
+
+def test_a1_a19_equipo_independencia_rotacion_y_revisor_de_calidad():
+    r, hs = _hojas()
+    eq = _filas(hs[enc.H25])
+    assert [f[8] for f in eq[:-1]] == ["Conforme", "Conforme", "Conforme", "Pendiente"]      # la amenaza tiene salvaguarda
+    assert eq[-1][0] == enc.TXT_TOTAL_HORAS and eq[-1][7] == 680
+    ctl = {_v(f[0]): [_v(c) for c in f] for f in hs["16_Control"]["rows"]}
+    assert ctl["Independencia del equipo confirmada (Código IESBA; NIA 220)"][2:4] == [1, "Revisar"]
+    assert ctl["Revisor de calidad del encargo en entidades de interés público (NIGC 2)"][3] == "No aplica"
+    r2, hs2 = _hojas("grupo_eip")
+    eq2 = _filas(hs2[enc.H25])
+    assert eq2[0][8] == enc.ALERTA_ROTACION                      # socio con 7 años en una entidad de interés público
+    ctl2 = {_v(f[0]): [_v(c) for c in f] for f in hs2["16_Control"]["rows"]}
+    assert ctl2["Revisor de calidad del encargo en entidades de interés público (NIGC 2)"][2:4] == [1, "Conforme"]
+    assert {e["code"] for e in r2["exceptions"]} >= {"INDEPENDENCIA"}
+    sin_rev = m.ejecutar(m.EJEMPLO["datasets"], {**m.EJEMPLO["parametros"], "interesPublico": "Sí"}, m.EJEMPLO["corte"])
+    assert "REVISOR_CALIDAD" in {e["code"] for e in sin_rev["exceptions"]}
+
+
+def test_a5_valoracion_por_afirmacion_y_nivel_estados_financieros():
+    _r, hs = _hojas()
+    af = _filas(hs[enc.H28])
+    eeff = [f for f in af if f[0] == enc.NIVEL_EEFF]
+    assert eeff[0][1] == "RB-02" and eeff[0][10] == "Significativo"           # elusión de controles: siempre, a nivel de EEFF
+    assert any(f[2].startswith("Incentivos o presiones") and f[10] == "Alto" for f in eeff)
+    ventas = next(f for f in af if f[1] == "4101")
+    cols = [c[0] for c in enc.COLS_AFIRMACIONES]
+    assert ventas[cols.index("Existencia u ocurrencia")] == "Significativo" and ventas[cols.index("Corte")] == "Significativo"
+    assert ventas[cols.index("Derechos y obligaciones")] == "—" and ventas[cols.index("Nivel más alto")] == "Significativo"
+    pasivo = next(f for f in af if f[1] == "2101")
+    assert pasivo[cols.index("Integridad")] in ("Medio", "Alto") and pasivo[cols.index("Existencia u ocurrencia")] == "—"
+
+
+def test_a12_tamano_de_la_muestra_y_extension_en_el_programa():
+    _r, hs = _hojas()
+    mu = _filas(hs[enc.H29])
+    v = next(f for f in mu if f[1] == "4101")
+    # Ventas (significativo): 95 % → RF = −ln(0,05) = 2,9957; EF 1,6; esperado 10 % del tolerable.
+    te = 24394.5
+    assert v[3:11] == ["Significativo", 95.0, 4860500.0, te, pytest.approx(2439.45), 2.9957, 1.6,
+                       math.ceil(round(4860500 * 2.9957 / (te - te * 0.1 * 1.6), 6))] and v[10] == 711
+    prog = hs["19_Programa"]["rows"]
+    fila = next(f for f in prog if f[2] == "Cuenta 4101")
+    assert _v(fila[11]) == "Muestra de 711 partidas por unidad monetaria (hoja 29)"
+    assert _v(next(f for f in prog if f[3] == "Todo encargo")[11]) == enc.EXT_ENCARGO
+    # Sin materialidad no hay muestra.
+    _r2, hs2 = _hojas("perdida_pymes")
+    assert all(f[12] == enc.METODO_SIN_MAT for f in _filas(hs2[enc.H29]))
+
+
+def test_a14_confirmaciones_y_observacion_del_inventario():
+    _r, hs = _hojas()
+    conf = {f[1]: f for f in _filas(hs["19_Programa"]) if str(f[2]).startswith(("NIA 505", "NIA 501 ·"))}
+    assert set(conf) == {"Caja y bancos", "Cuentas por cobrar", "Préstamos y obligaciones financieras",
+                         "Proveedores y cuentas por pagar", "Inventarios"}
+    assert conf["Inventarios"][2] == "NIA 501 · 1104" and "recuento físico" in conf["Inventarios"][4]
+    assert conf["Préstamos y obligaciones financieras"][2] == "NIA 505 · 2201, 2102"          # solo cuentas de balance
+
+
+def test_a11_sumario_de_diferencias_nia_450():
+    r, hs = _hojas()
+    dif = {f[0]: f for f in _filas(hs[enc.H30])}
+    assert dif["AJ-03"][7:9] == ["No", "No"]                        # corregida: no se acumula
+    assert dif[enc.TXT_DIF_ACTUAL][6] == -21700 and dif[enc.TXT_DIF_ANTERIOR][6] == -4000 and dif[enc.TXT_DIF_TOTAL][6] == -25700
+    assert dif[enc.TXT_DIF_CONCL][9] == enc.CONCL_DESEMP
+    p_ = next(e for e in r["exceptions"] if e["code"] == "DIFERENCIAS_MATERIALES")
+    assert float(p_["amount"]) == -25700
+    # Sin diferencias del año anterior, se traen las salvedades con importe del informe anterior (RQ-005).
+    r2, hs2 = _hojas("preliminar_eri")
+    assert any(str(f[0]).startswith("RQ-005") and f[4] == "Anterior" for f in _filas(hs2[enc.H30]))
+
+
+def test_a10_materialidad_especifica():
+    _r, hs = _hojas()
+    fila = _filas(hs["11_Materialidad"])[-1]
+    assert fila[0] == "Materialidad específica (NIA 320 párr. 10)" and fila[3] == 5000 and fila[6] == "Conforme"
+    _r2, hs2 = _hojas("perdida_pymes")
+    assert _filas(hs2["11_Materialidad"])[-1][4].startswith(enc.PENDIENTE)
+
+
+def test_a18_grupo_componentes_y_materialidad():
+    r, hs = _hojas("grupo_eip")
+    g = _filas(hs[enc.H31])
+    assert g[0][5] == "Sí" and g[0][7] == pytest.approx(24394.5 * 0.5)       # 850.000 de 3.204.200 de activos ≥ 15 %
+    assert g[2][7] == 30000 and g[2][8] == "Revisar"                        # superior a la de desempeño del grupo
+    ctl = {_v(f[0]): _v(f[3]) for f in hs["16_Control"]["rows"]}
+    assert ctl["Auditoría de grupo: rol y materialidad de los componentes (NIA 600)"] == "Revisar"
+    _r2, hs2 = _hojas("preliminar_prorrateo")                               # auditor de un componente
+    fila = _filas(hs2[enc.H31])[0]
+    assert fila[0] == enc.TXT_ASIGNADA and fila[7] == 30000
+    _r3, hs3 = _hojas()
+    assert _filas(hs3[enc.H31])[0][0] == enc.NO_GRUPO
+
+
+def test_a15_a19_comunicacion_y_asuntos_clave_candidatos():
+    _r, hs = _hojas()
+    com = _filas(hs[enc.H32])
+    assert ["Riesgo significativo · R01", "Notas de crédito emitidas después del cierre sin aprobación de la gerencia.",
+            "NIA 260 (Revisada) párr. 15", "Comunicar"] in com
+    assert all(f[3] == "No aplica" for f in com if f[0].startswith("Asunto clave candidato"))
+    _r2, hs2 = _hojas("grupo_eip")
+    com2 = _filas(hs2[enc.H32])
+    assert all(f[3] == "Candidato" for f in com2 if f[0].startswith("Asunto clave candidato"))
+    assert next(f for f in com2 if f[0].startswith("Revisor de calidad"))[1] == "CPA Marta Ríos (ficticio)"
+
+
+def test_a16_a17_estrategia_completa_y_estados_del_anio_anterior():
+    _r, hs = _hojas()
+    est = {f[0]: f[1] for f in _filas(hs["21_Estrategia"])}
+    assert est["Riesgos significativos (por nombre)"] == "R01 · Ingresos; RB-01 · Ingresos; RB-02 · Todas las áreas"
+    assert est["Calendario del encargo"] == "Conforme" and est["Estados del año anterior"] == "Auditados por nosotros"
+    r2, hs2 = _hojas("perdida_pymes")
+    est2 = {f[0]: f[1] for f in _filas(hs2["21_Estrategia"])}
+    assert est2["Calendario del encargo"] == "Revisar" and est2["Estados del año anterior"] == enc.PENDIENTE
+    # Patrimonio en déficit: «No auditados» con encargo que no es inicial → riesgo de saldos de apertura y control «Revisar».
+    r3, hs3 = _hojas("patrimonio_deficit")
+    no_aud = next(x for x in r3["detalle"]["riesgos"] if x["cod"] == "anterior_no")
+    assert no_aud["presenta"] == "Sí" and no_aud["sev"] == "Alto"
+    ctl = {_v(f[0]): _v(f[3]) for f in hs3["16_Control"]["rows"]}
+    assert ctl["Estados del año anterior: auditor definido y coherente con el encargo inicial (NIA 510)"] == "Revisar"
+    assert "ESTADOS_ANTERIORES_INCOHERENTE" in {e["code"] for e in r3["exceptions"]}
+
+
+def test_a4_firmas_de_las_cedulas_clave_desde_la_bitacora():
+    from backend.app.aud.niif.procesadores import libro
+
+    d = m.definicion()
+    reg = {"engagement": {"preparer": "Ana Torres", "reviewer": "CPA Andrea Vélez"}, "run": {}}
+    ev = [{"accion": "submit", "actor": "ana", "fecha": "2026-01-10T10:00:00"},
+          {"accion": "approve", "actor": "socio", "fecha": "2026-01-12T09:00:00"}]
+    f = libro._firmas(d, reg, ev)
+    assert f["name"] == "00_Firmas" and len(f["rows"]) == len(d["firmas"])
+    assert f["rows"][0][2:] == ["ana", "2026-01-10", "CPA Andrea Vélez", "socio", "2026-01-12",
+                                "Conforme · revisada por una persona distinta de quien la preparó"]
+    assert libro._firmas(d, reg, ev[:1])["rows"][0][-1] == "Pendiente · en revisión"
+    mismo = [ev[0], {**ev[1], "actor": "ana"}]
+    assert libro._firmas(d, reg, mismo)["rows"][0][-1].startswith("Revisar · aprobó quien preparó")
+    assert libro._firmas(d, reg, [])["rows"][0][-1] == "Pendiente · no se ha enviado a revisión"
+    assert libro._firmas({"name": "x"}, reg, ev) is None                    # solo las herramientas que declaran firmas
+    assert "00_Firmas" in [h["name"] for h in libro.cedulas(d, {**reg, "run": _run()}, ev, 1, "APROBADO")]
