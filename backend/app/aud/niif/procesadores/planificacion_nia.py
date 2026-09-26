@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
 from backend.app.aud.niif.procesadores import problemas as _pr
@@ -186,7 +187,8 @@ _CARTA = [
           alias=("respuesta", "procedimiento", "respuesta de auditoria", "recomendacion", "recomendación"),
           ejemplo="Observar la toma física al cierre y conciliar el kárdex con la contabilidad."),
 ]
-TIPOS_INFORME = ("Identificación", "Opinión", "Salvedad", "Énfasis", "Empresa en marcha", "Asunto clave", "Otro asunto")
+TIPOS_INFORME = ("Identificación", "Entendimiento", "Contexto", "Opinión", "Salvedad", "Énfasis", "Empresa en marcha", "Asunto clave",
+                 "Otro asunto")
 _INFORME = [
     campo("concepto", "Concepto", alias=("concepto", "asunto", "tema"), ejemplo="Jubilación patronal"),
     campo("tipo", "Tipo", alias=("tipo", "clase", "categoria", "categoría"), ejemplo="Salvedad"),
@@ -195,6 +197,9 @@ _INFORME = [
     campo("importe", "Importe (USD)", "number", requerido=False, alias=("importe", "monto", "valor", "efecto"), ejemplo="18500.00"),
     campo("fuente", "Fuente o referencia", requerido=False, alias=("fuente", "referencia", "pagina", "página", "parrafo", "párrafo"),
           ejemplo="Informe 2024 · Fundamento de la opinión"),
+    campo("enfoque", "Efecto en el enfoque", requerido=False,
+          alias=("efecto en el enfoque", "enfoque", "riesgo derivado", "consecuencia", "respuesta"),
+          ejemplo="Ampliar las pruebas de las transacciones con partes relacionadas (NIA 550)."),
 ]
 _NOTAS = [
     campo("nota", "Nota", alias=("nota", "n°", "numero", "número", "no"), ejemplo="4"),
@@ -511,6 +516,8 @@ NORMA_INFORME = {"Salvedad": "NIA 705 y 710", "Empresa en marcha": "NIA 570", "�
                  "Otro asunto": "NIA 706"}
 EFECTO_INFORME = {
     "Identificación": "Dato del perfil del encargo (entidad, actividad, marco, período).",
+    "Entendimiento": "Evaluar su efecto en los riesgos de incorrección material y en la respuesta (NIA 315 párr. 19 y 25).",
+    "Contexto": "Contexto del encargo: considerarlo en la evaluación del riesgo (NIA 315 párr. 19).",
     "Opinión": "Punto de partida: si la opinión fue modificada, evaluar si la causa persiste (NIA 710).",
     "Salvedad": "Riesgo alto: verificar si el asunto se corrigió; si persiste, afecta la opinión de este año (NIA 705 y 710).",
     "Énfasis": "Evaluar si el asunto sigue vigente y su revelación (NIA 706).",
@@ -544,16 +551,16 @@ _RIESGOS_BALANCE = [
     ("patrimonio", "Balances", "Patrimonio", "Patrimonio total nulo o negativo",
      "Patrimonio comprometido: causal de disolución y duda sobre la empresa en marcha", "Alto", "NIA 570",
      "Evaluar los planes de capitalización y la revelación de la incertidumbre material.", HERRAMIENTAS["Patrimonio"]),
-    ("cartera", "Balances", "Cuentas por cobrar", "Días de cartera superiores a 90",
+    ("cartera", "Balances", "Cuentas por cobrar", "Días de cartera (ajustados al período) superiores a 90",
      "Posible incobrabilidad: evaluar el deterioro de la cartera (NIIF 9)", "Medio", "NIA 540",
      "Antigüedad de saldos, cobros posteriores y modelo de pérdida crediticia esperada.", HERRAMIENTAS["Cuentas por cobrar"]),
-    ("inventario", "Balances", "Inventarios", "Días de inventario superiores a 120",
+    ("inventario", "Balances", "Inventarios", "Días de inventario (ajustados al período) superiores a 120",
      "Lento movimiento: posible obsolescencia y ajuste al valor neto realizable (NIC 2)", "Medio", "NIA 501",
      "Rotación por ítem, valor neto realizable y observación de la toma física.", HERRAMIENTAS["Inventarios"]),
-    ("rotCartera", "Balances", "Cuentas por cobrar", "Los días de cartera aumentaron más que el umbral de la hoja 02",
+    ("rotCartera", "Balances", "Cuentas por cobrar", "Los días de cartera (ajustados al período) aumentaron más que el umbral de la hoja 02",
      "Deterioro de la cobranza: posible incobrabilidad (NIIF 9)", "Medio", "NIA 540",
      "Comparar la antigüedad de la cartera entre períodos y los cobros posteriores al corte.", HERRAMIENTAS["Cuentas por cobrar"]),
-    ("rotInventario", "Balances", "Inventarios", "Los días de inventario aumentaron más que el umbral de la hoja 02",
+    ("rotInventario", "Balances", "Inventarios", "Los días de inventario (ajustados al período) aumentaron más que el umbral de la hoja 02",
      "Deterioro de la rotación: posible obsolescencia (NIC 2)", "Medio", "NIA 501",
      "Identificar los ítems de lenta rotación y evaluar su valor neto realizable.", HERRAMIENTAS["Inventarios"]),
 ]
@@ -792,7 +799,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         t = _tipo_informe(f.get("tipo")) or "Otro asunto"
         v = a_num(f.get("importe")) if str(f.get("importe", "") or "").strip() else None
         informe.append({"concepto": str(f.get("concepto", "") or "").strip(), "tipo": t, "detalle": str(f.get("detalle", "") or "").strip(),
-                        "importe": None if v is None else float(v), "fuente": str(f.get("fuente", "") or "").strip()})
+                        "importe": None if v is None else float(v), "fuente": str(f.get("fuente", "") or "").strip(),
+                        "enfoque": str(f.get("enfoque", "") or "").strip()})
     notas = []
     for f in datasets.get("notas_estados_financieros") or []:
         pref = [_cod(x) for x in re.split(r"[,;/\s]+", str(f.get("codigos", "") or "")) if _cod(x)]
@@ -824,10 +832,13 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
 
     def dvar(k):
         return None if ind["act"][k] is None or ind["ant"][k] is None else _xr(ind["act"][k] - ind["ant"][k], 2)
+
+    def aj(v):   # días ajustados al período (hoja 10, columnas I y J): × meses ÷ 12 en la preliminar
+        return None if v is None else _xr(v * fac, 2)
     valor = {"presuncion": ip["Ventas netas"], "elusion": None, "ct": ia["capitalTrabajo"], "rc": ia["razonCorriente"],
              "end": ia["endTotal"], "end80": ia["endTotal"], "perdida": ip["Utilidad neta"], "patrimonio": ip["PATRIMONIO TOTAL"],
-             "cartera": ia["diasCartera"], "inventario": ia["diasInventario"], "rotCartera": dvar("diasCartera"),
-             "rotInventario": dvar("diasInventario")}
+             "cartera": aj(ia["diasCartera"]), "inventario": aj(ia["diasInventario"]), "rotCartera": aj(dvar("diasCartera")),
+             "rotInventario": aj(dvar("diasInventario"))}
 
     def presenta(cod_, v):
         if cod_ == "presuncion":
@@ -837,7 +848,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         if v is None:
             return "No"
         return "Sí" if {"ct": v < 0, "rc": v < 1, "end": v > 70, "end80": v > 80, "perdida": v < 0, "patrimonio": v <= 0,
-                        "cartera": v * fac > 90, "inventario": v * fac > 120, "rotCartera": v > u_dias,
+                        "cartera": v > 90, "inventario": v > 120, "rotCartera": v > u_dias,
                         "rotInventario": v > u_dias}[cod_] else "No"
 
     riesgos = []
@@ -853,7 +864,13 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                         "norma": "NIA 520", "resp": "Obtener y corroborar la explicación de la administración.",
                         "herr": _herramienta(x["cuenta"], x["sec"])})
     for j, x in enumerate(informe):
-        if x["tipo"] in SEV_INFORME:
+        if x["tipo"] == "Entendimiento":     # hallazgo del entendimiento de la entidad → riesgo del año (NIA 315 párr. 25)
+            riesgos.append({"cod": "entendimiento", "idx": j, "origen": "Entendimiento de la entidad", "rubro": x["concepto"],
+                            "cond": "Hallazgo del entendimiento de la entidad y su entorno (hoja 14)", "valor": x["importe"],
+                            "presenta": "Sí", "riesgo": x["enfoque"] or EFECTO_INFORME["Entendimiento"], "sev": "Medio",
+                            "norma": "NIA 315", "resp": x["enfoque"] or "Diseñar la respuesta al riesgo identificado (NIA 330).",
+                            "herr": _herramienta(x["concepto"] + " " + x["detalle"])})
+        elif x["tipo"] in SEV_INFORME:
             riesgos.append({"cod": "informe", "idx": j, "origen": "Informe anterior", "rubro": x["concepto"],
                             "cond": f"{x['tipo']} del informe de auditoría del año anterior", "valor": x["importe"], "presenta": "Sí",
                             "riesgo": "Verificar si el asunto persiste y su efecto en la opinión de este año",
@@ -1078,10 +1095,12 @@ CEDULAS = [
     ("07_Secciones", "Totales por sección, signo de presentación y cuadre"),
     ("08_Horizontal", "Análisis horizontal y vertical de todas las cuentas"),
     ("08S_Sumarias", "Sumarias por rubro: subcuentas, anterior, corte, ajustes y cuadre"),
+    ("08A_ESF_Detalle", "Estado de situación financiera detallado: todas las cuentas por nivel"),
+    ("08B_ERI_Detalle", "Estado de resultados detallado: todas las cuentas por nivel"),
     ("09_Estados", "Estados financieros resumidos"), ("10_Indices", "Índices financieros"),
     ("11_Materialidad", "Materialidad (NIA 320 y 450)"), ("12_Riesgos_CCI", "Matriz de riesgos de la carta de control interno"),
     ("13_Riesgos_Balance", "Posibles riesgos: NIA 240, empresa en marcha, balances e informe anterior"),
-    ("14_Perfil", "Perfil del encargo según el informe del año anterior"),
+    ("14_Perfil", "Perfil del encargo (NIA 315): identificación, entendimiento de la entidad y asuntos del informe anterior"),
     ("15_Notas", "Notas comparativas y saldos de apertura (NIA 510)"),
     ("15D_Notas_Detalle", "Notas: detalle comparativo por cuenta (anterior, corte y conciliación con la nota)"),
     ("15C_Composicion", "Notas: composición auditada del año anterior y su cuadre"),
@@ -1156,32 +1175,41 @@ _PAT = ("endFinanciero", "endPatrimonial", "multiplicador", "roe", "dupont")
 NO_SIGNIFICATIVO = "Rojo · No significativo (patrimonio ≤ 0)"
 LECTURA_PATRIMONIO = ("Con patrimonio cero o negativo el indicador no es interpretable: la entidad está en déficit patrimonial "
                       "(indicio de empresa en marcha, NIA 570).")
+# Lectura de cada índice con su cifra (artefacto: «Por cada US$1…»): texto antes y después de la cifra. En los días la cifra
+# es la ajustada al período (hoja 10, columna I). En el Excel la cifra va con FIXED(), que usa los separadores del equipo.
 LECTURA = {
-    "diasCartera": "Días promedio que la empresa tarda en cobrar a sus clientes (sobre 365 días).",
-    "diasInventario": "Días promedio que el inventario permanece en bodega antes de venderse.",
-    "diasProveedores": "Días promedio que la empresa se financia con sus proveedores (sobre el costo de ventas).",
-    "ciclo": "Días que el efectivo queda inmovilizado en el ciclo operativo (cartera + inventario − proveedores).",
-    "rotacionActivo": "Ventas del período que genera cada dólar de activos.",
-    "endTotal": "Porcentaje de los activos financiado con deuda de terceros.",
-    "endLP": "Porcentaje de los activos financiado con deuda de largo plazo.",
-    "endFinanciero": "Deuda financiera (bancos y obligaciones) por cada dólar de patrimonio.",
-    "endPatrimonial": "Deuda con terceros por cada dólar de patrimonio.",
-    "multiplicador": "Veces que los activos equivalen al patrimonio (multiplicador de apalancamiento).",
-    "margenBruto": "De cada 100 dólares vendidos, lo que queda después del costo de ventas.",
-    "margenOperativo": "De cada 100 dólares vendidos, lo que queda como utilidad operativa.",
-    "margenNeto": "De cada 100 dólares vendidos, lo que se convierte en utilidad final.",
-    "roi": "Utilidad operativa del período por cada 100 dólares de activos.",
-    "dupontRoi": "El ROI descompuesto en margen operativo × rotación del activo: debe reproducir el ROI.",
-    "roe": "Utilidad neta del período por cada 100 dólares de patrimonio.",
-    "dupont": "El ROE descompuesto en margen neto × rotación del activo × multiplicador: debe reproducir el ROE.",
+    "razonCorriente": ("Por cada US$ 1 de pasivo corriente hay US$ ", " de activo corriente"),
+    "pruebaAcida": ("Sin inventarios, por cada US$ 1 de pasivo corriente hay US$ ", " de activos líquidos"),
+    "capitalTrabajo": ("Capital de trabajo de US$ ", ""),
+    "diasCartera": ("La empresa tarda ", " días en cobrar a sus clientes (ajustado al período, sobre 365 días)."),
+    "diasInventario": ("El inventario permanece ", " días en bodega antes de venderse (ajustado al período)."),
+    "diasProveedores": ("La empresa se financia ", " días con sus proveedores (sobre el costo de ventas, ajustado al período)."),
+    "ciclo": ("El efectivo queda inmovilizado ", " días en el ciclo operativo (cartera + inventario − proveedores, ajustado al período)."),
+    "rotacionActivo": ("Cada US$ 1 de activos genera US$ ", " de ventas en el período."),
+    "endTotal": ("El ", " % de los activos se financia con deuda de terceros."),
+    "endLP": ("El ", " % de los activos se financia con deuda de largo plazo."),
+    "endFinanciero": ("Hay US$ ", " de deuda financiera (bancos y obligaciones) por cada US$ 1 de patrimonio."),
+    "endPatrimonial": ("Hay US$ ", " de deuda con terceros por cada US$ 1 de patrimonio."),
+    "multiplicador": ("Los activos equivalen a ", " veces el patrimonio (multiplicador de apalancamiento)."),
+    "margenBruto": ("De cada US$ 100 vendidos quedan US$ ", " después del costo de ventas."),
+    "margenOperativo": ("De cada US$ 100 vendidos quedan US$ ", " como utilidad operativa."),
+    "margenNeto": ("De cada US$ 100 vendidos, US$ ", " se convierten en utilidad final."),
+    "roi": ("La utilidad operativa es de US$ ", " por cada US$ 100 de activos."),
+    "dupontRoi": ("Margen operativo × rotación del activo = ", " %: debe reproducir el ROI."),
+    "roe": ("La utilidad neta es de US$ ", " por cada US$ 100 de patrimonio."),
+    "dupont": ("Margen neto × rotación del activo × multiplicador = ", " %: debe reproducir el ROE."),
 }
 LECTURA_COND = {
-    "razonCorriente": ("<1", "El activo corriente no alcanza a cubrir el pasivo corriente.", "El activo corriente cubre el pasivo corriente."),
-    "pruebaAcida": ("<1", "Sin inventarios, los activos líquidos no cubren el pasivo corriente.",
-                    "Sin inventarios, los activos líquidos cubren el pasivo corriente."),
-    "capitalTrabajo": ("<0", "Déficit: el pasivo corriente supera al activo corriente (presión de liquidez).",
-                       "El activo corriente supera al pasivo corriente: hay margen para operar."),
+    "razonCorriente": ("<1", ": no alcanza a cubrir el corto plazo.", ": cubre el corto plazo."),
+    "pruebaAcida": ("<1", ": no cubren el pasivo corriente.", ": cubren el pasivo corriente."),
+    "capitalTrabajo": ("<0", ": déficit, el pasivo corriente supera al activo corriente (presión de liquidez).",
+                       ": el activo corriente supera al pasivo corriente, hay margen para operar."),
 }
+# Sentido favorable de cada índice (para la columna «Tendencia» de la hoja 10).
+MEJOR = {**{k: "alto" for k in ("razonCorriente", "pruebaAcida", "capitalTrabajo", "rotacionActivo", "margenBruto",
+                                 "margenOperativo", "margenNeto", "roi", "dupontRoi", "roe", "dupont")},
+         **{k: "bajo" for k in ("diasCartera", "diasInventario", "ciclo", "endTotal", "endLP", "endFinanciero",
+                                "endPatrimonial", "multiplicador")}}
 SIN_DATO = "No hay datos suficientes para calcular este indicador."
 LECTURA_DIAS = ("Año completo: los días se calculan sobre 365.",
                 "Corte parcial: con ventas y costos de pocos meses sobre 365 días, los días salen mayores que los reales (R4).")
@@ -1418,6 +1446,12 @@ def hojas(res: dict) -> list[dict]:
 
     # 08S · sumarias por rubro
     sumarias, estilos_s = _sumarias(cu, notas, d["umbrales"]["var"])
+    # 08A / 08B · estados detallados con todas las cuentas por nivel
+    esf_det, est_a = _estado_detalle(cu, ("Activo", "Pasivo", "Patrimonio"), d["sec7"], d["tipo"] == "Preliminar", d["hayEri"],
+                                     d["meses"], hay_eri)
+    eri_det, est_b = _estado_detalle(cu, ("Ingresos", "Costos", "Gastos"), d["sec7"], d["tipo"] == "Preliminar", d["hayEri"],
+                                     d["meses"], hay_eri)
+    f_a, f_c = _fechas_estados(d)
 
     # 09 · estados resumidos
     R8 = {c: _rng(H8, c, n8) for c in "DEFGHLMNQRS"}
@@ -1515,7 +1549,15 @@ def hojas(res: dict) -> list[dict]:
         if k == "dias":
             fila.append(fx(f'IF({PRELIM},"{LECTURA_DIAS[1]}","{LECTURA_DIAS[0]}")', LECTURA_DIAS[d["tipo"] == "Preliminar"]))
         else:
-            fila.append(fx(_f_lectura(k, f"E{r}", pat_ref), _lectura(k, vc, pat_v)))
+            fila.append(fx(_f_lectura(k, f"E{r}", pat_ref, f"I{r}"), _lectura(k, vc, pat_v, d["fac"])))
+        if k in _DIAS_AJ:   # días ajustados al período: en la preliminar, × meses ÷ 12 (comparables con un año)
+            fac_ = d["fac"]
+            fila += [fx(f'IF(E{r}="","",ROUND(E{r}*{FAC},2))', "" if vc is None else _xr(vc * fac_, 2)),
+                     fx(f'IF(F{r}="","",ROUND(F{r}*{FAC},2))', "" if va is None or vc is None else _xr(_xr(vc - va, 2) * fac_, 2))]
+        else:
+            fila += [None, None]
+        f_t = _f_tendencia(k, r, pat_ref)
+        fila.append(None if f_t is None else fx(f_t, _tendencia(k, va, vc, pat_v)))
         indices.append(fila)
 
     # 11 · materialidad
@@ -1523,30 +1565,37 @@ def hojas(res: dict) -> list[dict]:
     rb = f"$A${F11[BASES[0]]}:$A${F11[BASES[-1]]}"
     materialidad = [["Período de la base", None, None, None,
                      fx(f'IF({_par("periodoBase")}="Automático",IF({PRELIM},"Año anterior","Corte actual"),{_par("periodoBase")})',
-                        d["periodo"])]]
+                        d["periodo"]), None, None]]
     for b in BASES:
         r = F11[b]
         f7 = F7[_REF_BASE7[b]]
         materialidad.append([b, fx(f'IF({per}="Año anterior",{S7}F{f7},{S7}G{f7})', n2(d["bases"][b])),
                              fx(_par(_PCT_BASE[b]), d["pctBase"][b]), fx(f"B{r}*C{r}/100", n2(d["bases"][b] * d["pctBase"][b] / 100)),
-                             "Política de la firma; NIA 320 párr. A4 y A8 (ejemplos, no porcentajes prescritos)"])
+                             SUSTENTO_PCT, *_rango(b, f"C{r}", d["pctBase"][b])])
     rg, rd = F11["Materialidad global"], F11["Materialidad de desempeño"]
+    rt_ = F11["Umbral de errores claramente insignificantes"]
     materialidad += [
         ["Materialidad global", fx(f"INDEX($B${F11[BASES[0]]}:$B${F11[BASES[-1]]},MATCH({_par('baseMaterialidad')},{rb},0))", n2(mt["base"])),
          fx(f"INDEX($C${F11[BASES[0]]}:$C${F11[BASES[-1]]},MATCH({_par('baseMaterialidad')},{rb},0))", d["pctBase"][d["base"]]),
          fx(f'IF(B{rg}<=0,"",B{rg}*C{rg}/100)', n2(mt["global"])),
          fx(f'"Base elegida: "&{_par("baseMaterialidad")}&" ("&LOWER({per})&"); NIA 320 párr. 10"',
-            f"Base elegida: {d['base']} ({d['periodo'].lower()}); NIA 320 párr. 10")],
+            f"Base elegida: {d['base']} ({d['periodo'].lower()}); NIA 320 párr. 10"),
+         fx(f"INDEX($F${F11[BASES[0]]}:$F${F11[BASES[-1]]},MATCH({_par('baseMaterialidad')},{rb},0))", _rango(d["base"], "", 0)[0]),
+         fx(f"INDEX($G${F11[BASES[0]]}:$G${F11[BASES[-1]]},MATCH({_par('baseMaterialidad')},{rb},0))",
+            _rango(d["base"], "", d["pctBase"][d["base"]])[1]["v"])],
         ["Materialidad de desempeño", fx(f"D{rg}", n2(mt["global"])), fx(_par("pctDesempeno"), d["pct"]["pctDesempeno"]),
-         fx(f'IF(B{rd}="","",B{rd}*C{rd}/100)', n2(mt["desempeno"])), "NIA 320 párr. 11 y A12 (práctica: 50 %–75 %)"],
+         fx(f'IF(B{rd}="","",B{rd}*C{rd}/100)', n2(mt["desempeno"])), "NIA 320 párr. 11 y A12 (práctica: 50 %–75 %)",
+         *_rango("desempeno", f"C{rd}", d["pct"]["pctDesempeno"])],
         ["Umbral de errores claramente insignificantes", fx(f"D{rg}", n2(mt["global"])), fx(_par("pctTrivial"), d["pct"]["pctTrivial"]),
          fx(f'IF(B{F11["Umbral de errores claramente insignificantes"]}="","",B{F11["Umbral de errores claramente insignificantes"]}'
             f'*C{F11["Umbral de errores claramente insignificantes"]}/100)',
-            n2(mt["trivial"])), "NIA 450 párr. 5 y A2: no se acumulan los errores menores"],
+            n2(mt["trivial"])), "NIA 450 párr. 5 y A2: no se acumulan los errores menores",
+         *_rango("trivial", f"C{rt_}", d["pct"]["pctTrivial"])],
         ["Justificación de la base", None, None, None,
-         fx(f'IF({_par("justificacion")}<>"",{_par("justificacion")},' + "".join(
+         fx(f'IF({_par("justificacion")}<>"",{_par("justificacion")},"Base "&{_par("baseMaterialidad")}&" de US$ "&FIXED(B{rg},2)&'
+            f'IF(D{rg}="",": sin materialidad (base cero o negativa). "," × "&FIXED(C{rg},2)&" % = US$ "&FIXED(D{rg},2)&": ")&' + "".join(
              f'IF({_par("baseMaterialidad")}="{b}","{JUSTIFICACION[b]}",' for b in BASES[:-1]) + f'"{JUSTIFICACION[BASES[-1]]}"'
-            + ")" * (len(BASES) - 1) + ")", d["justificacion"])],
+            + ")" * (len(BASES) - 1) + ")", _justif_cifras(d, mt, pv("justificacion"))), None, None],
     ]
 
     # 12 · matriz de la carta de control interno
@@ -1561,16 +1610,19 @@ def hojas(res: dict) -> list[dict]:
                        x["respuesta"] or RESPUESTA_DEFECTO, x["herramienta"],
                        fx(f'IF(H{r}="","",IF(H{r}>={_par("umbralSignificativo")},"Sí","No"))', x["sig"])])
 
+    # 14 · perfil del encargo (se arma antes de la 13, que remite a sus importes)
+    perfil, estilos_p, fila14 = _perfil(informe, d, pv)
+
     # 13 · posibles riesgos
     fila8 = {x["codigo"]: FILA0 + i for i, x in enumerate(cu)}
     ref_valor = {"presuncion": f"{E9}D{F9['Ventas netas']}", "ct": f"{I10}E{F10['capitalTrabajo']}", "rc": f"{I10}E{F10['razonCorriente']}",
                  "end": f"{I10}E{F10['endTotal']}", "perdida": f"{E9}D{F9['Utilidad neta']}", "patrimonio": f"{E9}D{F9['PATRIMONIO TOTAL']}",
-                 "cartera": f"{I10}E{F10['diasCartera']}", "inventario": f"{I10}E{F10['diasInventario']}",
-                 "end80": f"{I10}E{F10['endTotal']}", "rotCartera": f"{I10}F{F10['diasCartera']}",
-                 "rotInventario": f"{I10}F{F10['diasInventario']}"}
+                 "cartera": f"{I10}I{F10['diasCartera']}", "inventario": f"{I10}I{F10['diasInventario']}",
+                 "end80": f"{I10}E{F10['endTotal']}", "rotCartera": f"{I10}J{F10['diasCartera']}",
+                 "rotInventario": f"{I10}J{F10['diasInventario']}"}
     cond_f = {"ct": "E{r}<0", "perdida": "E{r}<0", "patrimonio": "E{r}<=0"}
-    cond_v = {"rc": "E{r}<1", "end": "E{r}>70", "end80": "E{r}>80", "cartera": "E{r}*" + FAC + ">90",
-              "inventario": "E{r}*" + FAC + ">120", "rotCartera": "E{r}>" + _par("umbralDiasRotacion"),
+    cond_v = {"rc": "E{r}<1", "end": "E{r}>70", "end80": "E{r}>80", "cartera": "E{r}>90",
+              "inventario": "E{r}>120", "rotCartera": "E{r}>" + _par("umbralDiasRotacion"),
               "rotInventario": "E{r}>" + _par("umbralDiasRotacion")}
     posibles = []
     for i, x in enumerate(riesgos):
@@ -1581,7 +1633,7 @@ def hojas(res: dict) -> list[dict]:
         elif c_ == "variacion":
             valor = fx(f"{H8}I{fila8[x['cuenta']]}", n2(x["valor"]))
         elif c_ == "informe" and x["valor"] is not None:
-            valor = fx(f"{P14}D{FILA0 + x['idx']}", n2(x["valor"]))
+            valor = fx(f"{P14}D{fila14[x['idx']]}", n2(x["valor"]))
         else:
             valor = None
         if c_ == "presuncion":
@@ -1597,9 +1649,6 @@ def hojas(res: dict) -> list[dict]:
         else:
             pres = x["presenta"]
         posibles.append([x["codigo"], x["origen"], x["rubro"], x["cond"], valor, pres, x["riesgo"], x["sev"], x["norma"]])
-
-    # 14 · perfil
-    perfil = [[x["tipo"], x["concepto"], x["detalle"], n2(x["importe"]), x["fuente"], EFECTO_INFORME[x["tipo"]]] for x in informe]
 
     # 15 · notas
     notas_h = []
@@ -1677,7 +1726,7 @@ def hojas(res: dict) -> list[dict]:
         [CONTROLES[9], None, fx(f"COUNTA({_rng(R12, 'A', n12)})", n12), fx(f'IF(C{FILA0 + 9}>0,"Conforme","Revisar")',
                                                                          "Conforme" if n12 else "Revisar"),
          "Hallazgos de la carta de control interno del año anterior."],
-        [CONTROLES[10], None, fx(f"COUNTA({_rng(P14, 'A', n14)})", n14), fx(f'IF(C{FILA0 + 10}>0,"Conforme","Revisar")',
+        [CONTROLES[10], None, fx(f'COUNTIF({P14}$G${FILA0}:$G${FILA0 + len(perfil) - 1},"{ORIGEN_INFORME}")', n14), fx(f'IF(C{FILA0 + 10}>0,"Conforme","Revisar")',
                                                                            "Conforme" if n14 else "Revisar"),
          "Identificación, opinión y asuntos del informe de auditoría anterior."],
         [CONTROLES[11], None,
@@ -1755,16 +1804,26 @@ def hojas(res: dict) -> list[dict]:
         return f"{I10}{c}{F10[k]}"
     va = None if ia_ant["TOTAL ACTIVO"] == 0 else (ip["TOTAL ACTIVO"] - ia_ant["TOTAL ACTIVO"]) / abs(ia_ant["TOTAL ACTIVO"])
     f_va = f"{E9}F{F9['TOTAL ACTIVO']}"
+    dva = ip["TOTAL ACTIVO"] - ia_ant["TOTAL ACTIVO"]
+    cif_act = "" if va is None else f" {_num(abs(va) * 100, 1)} % (US$ {_num(abs(dva))})"
     lect_act = ("Sin saldo comparable del período anterior." if va is None else
-                "El activo total se mantiene estable frente al período anterior." if abs(va) < 0.05 else
-                "El activo total creció respecto del período anterior." if va > 0 else "El activo total disminuyó respecto del período anterior.")
+                f"El activo total se mantiene estable ({'+' if va >= 0 else '−'}{_num(abs(va) * 100, 1)} %) frente al período anterior."
+                if abs(va) < 0.05 else
+                f"El activo total creció{cif_act} respecto del período anterior." if va > 0 else
+                f"El activo total disminuyó{cif_act} respecto del período anterior.")
+    e_va = f"{E9}E{F9['TOTAL ACTIVO']}"
+    t_cif = f'" "&FIXED(ABS({f_va})*100,1)&" % (US$ "&FIXED(ABS({e_va}),2)&")"'
+    vu = None if ia_ant["Utilidad neta"] == 0 else (ip["Utilidad neta"] - ia_ant["Utilidad neta"]) / abs(ia_ant["Utilidad neta"])
+    f_vu = f"{E9}F{F9['Utilidad neta']}"
+    lect_res = (("Resultado negativo en el período" if ip["Utilidad neta"] < 0 else "Resultado positivo en el período")
+                + ("." if vu is None else f" ({'+' if vu >= 0 else '−'}{_num(abs(vu) * 100, 1)} % frente al período anterior)."))
     n_alto_cci = sum(1 for x in carta if x["nivel"] == "Alto")
     n_pres = sum(1 for x in riesgos if x["presenta"] == "Sí")
     narrativa = [
         ["Hechos", "Activo total", fx(f"{E9}D{F9['TOTAL ACTIVO']}", n2(ip["TOTAL ACTIVO"])),
-         fx(f'IF({f_va}="","Sin saldo comparable del período anterior.",IF(ABS({f_va})<0.05,"El activo total se mantiene estable frente al '
-            f'período anterior.",IF({f_va}>0,"El activo total creció respecto del período anterior.","El activo total disminuyó respecto '
-            f'del período anterior.")))', lect_act)],
+         fx(f'IF({f_va}="","Sin saldo comparable del período anterior.",IF(ABS({f_va})<0.05,"El activo total se mantiene estable ("&'
+            f'IF({f_va}>=0,"+","−")&FIXED(ABS({f_va})*100,1)&" %) frente al período anterior.",IF({f_va}>0,"El activo total creció"&{t_cif}&'
+            f'" respecto del período anterior.","El activo total disminuyó"&{t_cif}&" respecto del período anterior.")))', lect_act)],
         ["Hechos", "Pasivo total", fx(f"{E9}D{F9['TOTAL PASIVO']}", n2(ip["TOTAL PASIVO"])),
          fx(f'IF({i10("endTotal")}="","",IF({i10("endTotal")}>70,"Más del 70 % del activo se financia con terceros.",'
             f'"El financiamiento con terceros no supera el 70 % del activo."))',
@@ -1774,15 +1833,15 @@ def hojas(res: dict) -> list[dict]:
          fx(f'IF(C{FILA0 + 2}<=0,"Patrimonio comprometido: indicio de empresa en marcha (NIA 570).","Patrimonio positivo.")',
             "Patrimonio comprometido: indicio de empresa en marcha (NIA 570)." if ip["PATRIMONIO TOTAL"] <= 0 else "Patrimonio positivo.")],
         ["Hechos", "Utilidad neta del período", fx(f"{E9}D{F9['Utilidad neta']}", n2(ip["Utilidad neta"])),
-         fx(f'IF(C{FILA0 + 3}<0,"Resultado negativo en el período.","Resultado positivo en el período.")',
-            "Resultado negativo en el período." if ip["Utilidad neta"] < 0 else "Resultado positivo en el período.")],
+         fx(f'IF(C{FILA0 + 3}<0,"Resultado negativo en el período","Resultado positivo en el período")&IF({f_vu}="",".",'
+            f'" ("&IF({f_vu}>=0,"+","−")&FIXED(ABS({f_vu})*100,1)&" % frente al período anterior).")', lect_res)],
     ]
     for k in ("razonCorriente", "endTotal", "margenNeto", "roe", "diasCartera", "diasInventario"):
         v = ia[k]
         nombre = next(n_ for kk, n_, *_r in INDICES if kk == k)
         narrativa.append(["Análisis", nombre, fx(i10(k), "" if v is None else v),
                           fx(f'{i10(k, "G")}&": "&{i10(k, "H")}',
-                             f"{_semaforo(k, v, d['fac'], ip['PATRIMONIO TOTAL'])}: {_lectura(k, v, ip['PATRIMONIO TOTAL'])}")])
+                             f"{_semaforo(k, v, d['fac'], ip['PATRIMONIO TOTAL'])}: {_lectura(k, v, ip['PATRIMONIO TOTAL'], d['fac'])}")])
     narrativa += [
         ["Riesgos", "Riesgos altos de la carta de control interno", fx(f'COUNTIF({_rng(R12, "J", n12)},"Alto")', n_alto_cci),
          fx(f'IF(C{FILA0 + 10}>0,"Tienen respuesta específica en el programa (NIA 330).","Sin riesgos altos en la carta de control interno.")',
@@ -1795,12 +1854,44 @@ def hojas(res: dict) -> list[dict]:
          fx(f'IF(C{FILA0 + 12}>0,"Evaluar la capacidad de continuar y su revelación (NIA 570).","Sin indicios en los indicadores evaluados.")',
             "Evaluar la capacidad de continuar y su revelación (NIA 570)." if ind570 else "Sin indicios en los indicadores evaluados.")],
     ]
+    # alertas por nombre (artefacto): cada riesgo alto de la carta y cada posible riesgo presente, con su texto y su norma
+    for i, x in enumerate(carta):
+        if x["nivel"] != "Alto":
+            continue
+        r12 = FILA0 + i
+        nv_ = "Significativo" if x["sig"] == "Sí" else x["nivel"]
+        narrativa.append(["Alertas", f"{x['id']} · {x['proceso']}", fx(f"{R12}I{r12}", _txt(x["res"])),
+                          fx(f'IF(OR({R12}J{r12}="Alto",{R12}M{r12}="Sí"),{R12}C{r12}&" — nivel "&IF({R12}M{r12}="Sí","Significativo",'
+                             f'{R12}J{r12}),"Ya no es de nivel alto con la calificación actual.")', f"{x['hallazgo']} — nivel {nv_}")])
+    for i, x in enumerate(riesgos):
+        if x["presenta"] != "Sí":
+            continue
+        r13, v13 = FILA0 + i, posibles[i][4]
+        narrativa.append(["Alertas", f"{x['codigo']} · {x['rubro']}", fx(f"{R13}E{r13}", v13["v"]) if isinstance(v13, dict) else None,
+                          fx(f'IF({R13}F{r13}="Sí",{R13}G{r13}&" ("&{R13}I{r13}&")","Ya no se presenta con los datos actuales.")',
+                             f"{x['riesgo']} ({x['norma']})")])
     # causa-efecto (lectura de las variaciones del artefacto), sobre las variaciones de la hoja 09
     dv = {k: e9["act"][k] - e9["ant"][k] for k in ("Inventarios", "Ventas netas", "Efectivo y equivalentes", "Cuentas por cobrar",
                                                   "Cuentas por pagar", "Obligaciones financieras", "Utilidad neta")}
     ev = {k: f"{E9}E{F9[k]}" for k in dv}
     for concepto, clave, f_, v_ in _causa_efecto(ev, dv):
         narrativa.append(["Causa-efecto", concepto, fx(ev[clave], n2(dv[clave])), fx(f_, v_)])
+    # origen y destino del efectivo: las dos cuentas que más originan y las dos que más aplican (hoja 22)
+    o22 = ref("22_Origenes")
+    idx = list(range(len(d["origenes"])))
+    fuentes = [j for j in idx if d["origenes"][j]["efecto"] > 0][:2]
+    usos = sorted([j for j in idx if d["origenes"][j]["efecto"] < 0], key=lambda j: d["origenes"][j]["efecto"])[:2]
+    for concepto, sel, vacio in (("Origen del efectivo", fuentes, "Sin orígenes de efectivo en las cuentas del balance."),
+                                 ("Destino del efectivo", usos, "Sin aplicaciones de efectivo en las cuentas del balance.")):
+        if not sel:
+            narrativa.append(["Causa-efecto", concepto, None, vacio])
+            continue
+        partes_f = [f'{o22}B{FILA0 + j}&" (US$ "&FIXED(ABS({o22}E{FILA0 + j}),2)&")"' for j in sel]
+        partes_v = [f"{d['origenes'][j]['cuenta']} (US$ {_num(abs(d['origenes'][j]['efecto']))})" for j in sel]
+        pref = "Principales orígenes: " if concepto.startswith("Origen") else "Principales aplicaciones: "
+        narrativa.append(["Causa-efecto", concepto, fx("+".join(f"{o22}E{FILA0 + j}" for j in sel),
+                                                          n2(sum(d["origenes"][j]["efecto"] for j in sel))),
+                          fx(f'"{pref}"&' + '&" y "&'.join(partes_f) + '&"."', pref + " y ".join(partes_v) + ".")])
 
     ref_rec = {"rc": "razonCorriente", "end": "endTotal", "cartera": "diasCartera", "inventario": "diasInventario"}
     for nombre, k, cond, si, no in RECOMENDACIONES:
@@ -1815,6 +1906,7 @@ def hojas(res: dict) -> list[dict]:
                          f'"No aplica: resultado positivo.")',
                          "Analizar la estructura de costos y gastos ante el resultado negativo." if ip["Utilidad neta"] < 0 else
                          "No aplica: resultado positivo.")])
+    narrativa.append(["Recomendaciones", "Monitoreo", None, "Mantener el monitoreo periódico de los indicadores y covenants."])
 
     # 21 · estrategia
     def txt(k, valor):
@@ -1888,13 +1980,14 @@ def hojas(res: dict) -> list[dict]:
                  for k in ("Activo", "Pasivo", "Patrimonio", "Ingresos", "Costos", "Gastos")}
     comp_txt = ("Mismo corte del año anterior (RQ-003)" if d["hayEri"] else "Prorrateo: diciembre ÷ 12 × meses transcurridos") \
         if d["tipo"] == "Preliminar" else "Diciembre anterior contra diciembre actual"
-    trail = [[f"{etq} ({rq})", arch[ds][0], fx(f"COUNTA({_rng(pref, 'A', n)})", n)]
+    n_inf = f'COUNTIF({P14}$G${FILA0}:$G${FILA0 + len(perfil) - 1},"{ORIGEN_INFORME}")'
+    trail = [[f"{etq} ({rq})", arch[ds][0], fx(f"COUNTA({_rng(pref, 'A', n)})" if pref else n_inf, n)]
              for etq, rq, ds, pref, n in (
                  ("Balance de comprobación del cierre anterior", "RQ-001", "balance_anterior", B4, n4),
                  ("Balance de comprobación al corte", "RQ-002", "balance_actual", B5, n5),
                  ("Resultados del año anterior al mismo corte", "RQ-003", "resultados_mismo_corte", B6, n6),
                  ("Carta de control interno", "RQ-004", "carta_control_interno", R12, len(carta)),
-                 ("Informe de auditoría del año anterior", "RQ-005", "informe_anterior", P14, len(informe)),
+                 ("Informe de auditoría del año anterior", "RQ-005", "informe_anterior", None, len(informe)),
                  ("Notas a los estados financieros del año anterior", "RQ-006", "notas_estados_financieros", N15, len(notas)))]
     trail += [
         ["Tipo de revisión", fx(_par("tipoRevision"), d["tipo"]), fx(_par("mesesTranscurridos"), d["meses"])],
@@ -1941,15 +2034,21 @@ def hojas(res: dict) -> list[dict]:
                                              ["Superior del rubro del ERI", "t"]],
              horizontal, explica=EXPLICA["08_Horizontal"]),
         hoja("08S_Sumarias", _ETQ["08S_Sumarias"], COLS_SUMARIA, sumarias, explica=EXPLICA["08S_Sumarias"], estilos=estilos_s),
+        hoja("08A_ESF_Detalle", _ETQ["08A_ESF_Detalle"], _cols_detalle(f_a["esf"], f_c), esf_det,
+             explica=_explica_detalle(f_a["esf"], f_c, "total del activo (hoja 09)"), estilos=est_a),
+        hoja("08B_ERI_Detalle", _ETQ["08B_ERI_Detalle"], _cols_detalle(f_a["eri"], f_c), eri_det,
+             explica=_explica_detalle(f_a["eri"], f_c, "ventas netas (hoja 09)"), estilos=est_b),
         hoja("09_Estados", _ETQ["09_Estados"], [["Concepto", "t"], ["Estado", "t"], ["Anterior", "n"], ["Actual", "n"], ["Variación", "n"],
                                           ["Variación %", "p"], ["Vertical actual", "p"], ["Vertical anterior", "p"],
                                           ["Observación", "t"]], estados,
              explica=EXPLICA["09_Estados"]),
         hoja("10_Indices", _ETQ["10_Indices"], [["Indicador", "t"], ["Categoría", "t"], ["Cómo se calcula", "t"], ["Anterior", "n"],
-                                          ["Actual", "n"], ["Variación", "n"], ["Semáforo", "t"], ["Lectura", "t"]], indices,
-             explica=EXPLICA["10_Indices"], colores=["Semáforo"]),
+                                          ["Actual", "n"], ["Variación", "n"], ["Semáforo", "t"], ["Lectura", "t"],
+                                          ["Actual ajustado al período", "n"], ["Variación ajustada", "n"], ["Tendencia", "t"]],
+             indices, explica=EXPLICA["10_Indices"], colores=["Semáforo", "Tendencia"]),
         hoja("11_Materialidad", _ETQ["11_Materialidad"], [["Concepto", "t"], ["Importe", "n"], ["Porcentaje", "n"], ["Materialidad", "n"],
-                                                ["Sustento", "t"]], materialidad, explica=EXPLICA["11_Materialidad"]),
+                                                ["Sustento", "t"], ["Rango de práctica", "t"], ["¿Dentro del rango?", "t"]],
+             materialidad, explica=EXPLICA["11_Materialidad"], colores=["¿Dentro del rango?"]),
         hoja("12_Riesgos_CCI", _ETQ["12_Riesgos_CCI"], [["Código del hallazgo", "t"], ["Proceso o área", "t"], ["Hallazgo o riesgo", "t"],
                                                ["Aseveraciones", "t"], ["Probabilidad (1–5)", "i"], ["Impacto (1–5)", "i"],
                                                ["Control (1–5)", "i"], ["Riesgo inherente", "n"], ["Riesgo residual", "n"], ["Nivel", "t"],
@@ -1960,8 +2059,9 @@ def hojas(res: dict) -> list[dict]:
                                                    ["Valor observado", "n"], ["¿Se presenta?", "t"], ["Posible riesgo", "t"],
                                                    ["Severidad", "t"], ["Norma", "t"]], posibles, explica=EXPLICA["13_Riesgos_Balance"],
              colores=["Severidad"]),
-        hoja("14_Perfil", _ETQ["14_Perfil"], [["Tipo", "t"], ["Concepto", "t"], ["Detalle", "t"], ["Importe (USD)", "n"],
-                                          ["Fuente o referencia", "t"], ["Efecto en la planificación", "t"]], perfil),
+        hoja("14_Perfil", _ETQ["14_Perfil"], [["Tipo", "t"], ["Concepto", "t"], ["Detalle", "x"], ["Importe (USD)", "n"],
+                                          ["Fuente o referencia", "t"], ["Efecto en la planificación", "t"], ["Origen", "t"]], perfil,
+             explica=EXPLICA["14_Perfil"], estilos=estilos_p),
         hoja("15_Notas", _ETQ["15_Notas"], [["Nota", "t"], ["Título de la nota", "t"], ["Cuentas del balance (códigos)", "t"],
                                          ["Saldo auditado según la nota", "n"], ["Saldo del balance anterior", "n"], ["Diferencia", "n"],
                                          ["Saldo al corte", "n"], ["Variación", "n"], ["Variación %", "p"]], notas_h,
@@ -2188,6 +2288,232 @@ def _marca(a: float, b: float, umbral: float) -> str:
     return "Supera el umbral" if abs((b - a) / a) >= umbral / 100 else ""
 
 
+def _fechas_estados(d: dict) -> tuple[dict, str]:
+    """Rótulos de los períodos de los estados detallados: el balance anterior es el cierre del año anterior; en la
+    preliminar, los resultados anteriores son el mismo corte del año anterior (o el prorrateo de diciembre)."""
+    c = date.fromisoformat(d["corte"])
+    cierre = date(c.year - 1, 12, 31)
+    f = lambda x: x.strftime("%d/%m/%Y")  # noqa: E731
+    if d["tipo"] != "Preliminar":
+        eri = f(cierre)
+    elif d["hayEri"]:
+        eri = f(date(c.year - 1, c.month, c.day) if not (c.month == 2 and c.day == 29) else date(c.year - 1, 2, 28))
+    else:
+        eri = f"{f(cierre)} × {d['meses']}/12"
+    return {"esf": f(cierre), "eri": eri}, f(c)
+
+
+def _cols_detalle(f_ant: str, f_act: str) -> list:
+    return [["Código", "t"], ["Cuenta", "t"], ["Nivel", "i"], ["Detalle", "t"], [f"Anterior ({f_ant})", "n"],
+            [f"Actual ({f_act})", "n"], ["Variación", "n"], ["Variación %", "p"], ["Peso vertical", "p"]]
+
+
+def _explica_detalle(f_ant: str, f_act: str, base: str) -> dict:
+    return {
+        "Nivel": "Trae de la hoja 08 el nivel de la cuenta en la jerarquía de los códigos (1 es la cuenta de la sección).",
+        "Detalle": "Trae de la hoja 08 si es cuenta de detalle (no tiene subcuentas): solo esas se suman en el total.",
+        f"Anterior ({f_ant})": ("Trae de la hoja 08 el saldo anterior de la cuenta; en el total, suma solo las cuentas de detalle y "
+                                "en la diferencia la compara con el total de la sección de la hoja 07."),
+        f"Actual ({f_act})": ("Trae de la hoja 08 el saldo al corte; en el total, suma solo las cuentas de detalle y en la "
+                              "diferencia la compara con la hoja 07 (debe dar 0)."),
+        "Variación": "Resta el saldo anterior del saldo actual de la misma cuenta (o del total de la sección).",
+        "Variación %": "Divide la variación para el saldo anterior (en blanco si el anterior es cero).",
+        "Peso vertical": f"Trae de la hoja 08 el peso del saldo actual sobre el {base}.",
+    }
+
+
+TXT_TOTAL_SECCION = "Total de las cuentas de detalle"
+TXT_CUADRE_SECCION = "Diferencia con el total de la sección (hoja 07)"
+TXT_RESULTADO_ERI = "Resultado del período (ingresos − costos − gastos)"
+TXT_RESULTADO_ESF = "Resultado del período (según el balance)"
+TXT_PASIVO_PATRIMONIO = "Pasivo + patrimonio + resultado del período"
+TXT_DIF_ACTIVO = "Diferencia con el activo (debe ser 0)"
+
+
+# Rango de práctica habitual de cada porcentaje (no lo prescribe la NIA 320: son ejemplos de la profesión; la firma los
+# confirma en su política). Fuera del rango no es un error: obliga a documentar el porqué (NIA 320 párr. 14).
+RANGO_PRACTICA = {"Ingresos": (0.5, 2), "Activos totales": (0.5, 2), "Patrimonio": (1, 5), "Gastos totales": (0.5, 2),
+                  UAI: (3, 10), "desempeno": (50, 75), "trivial": (3, 5)}
+SUSTENTO_PCT = "Política de la firma; NIA 320 párr. A4 y A7–A8 (ejemplos, no porcentajes prescritos) — VERIFICAR"
+DENTRO, FUERA = "Dentro del rango", "Fuera del rango: documentar el porqué"
+
+
+def _rango(k: str, celda: str, pct) -> list:
+    """[rótulo del rango, fórmula ¿dentro del rango?] del porcentaje ``celda``."""
+    lo, hi = RANGO_PRACTICA[k]
+    rot = f"{_num(lo, 1 if lo % 1 else 0)} %–{_num(hi, 0)} % · práctica habitual (VERIFICAR)"
+    v = "" if pct in (None, "") else DENTRO if lo <= float(pct) <= hi else FUERA
+    return [rot, fx(f'IF({celda}="","",IF(AND({celda}>={lo},{celda}<={hi}),"{DENTRO}","{FUERA}"))', v)]
+
+
+def _justif_cifras(d: dict, mt: dict, propia) -> str:
+    """Justificación de la base con sus cifras (artefacto): la del auditor si la escribió; si no, la automática."""
+    if propia not in (None, ""):
+        return str(propia)
+    base, pct = d["base"], d["pctBase"][d["base"]]
+    cif = (": sin materialidad (base cero o negativa). " if not mt["global"] else
+           f" × {_num(pct)} % = US$ {_num(mt['global'])}: ")
+    return f"Base {base} de US$ {_num(mt['base'])}{cif}{JUSTIFICACION[base]}"
+
+
+ORIGEN_INFORME = "Informe del año anterior (RQ-005)"
+ORIGEN_PARAMETROS = "Parámetros del encargo (hoja 02)"
+ORIGEN_PENDIENTE = "Sin soporte documental"
+PENDIENTE = "[PENDIENTE]"
+MARCO_AUDITORIA = "Normas Internacionales de Auditoría (NIA)"
+# Identificación mínima del encargo (artefacto: «Identificación del encargo»): concepto y cómo se obtiene. Lo que no tiene
+# soporte queda [PENDIENTE]: no se completa por inferencia (regla de cero invención).
+IDENT_INFORME = (("Entidad auditada", ("entidad",)), ("RUC", ("ruc",)), ("Actividad", ("actividad", "objetosocial")),
+                 ("País y moneda funcional", ("pais", "moneda")))
+IDENT_PARAM = (("Período auditado (fecha de corte)", "corte"), ("Tipo de revisión", "tipoRevision"),
+               ("Marco de información financiera", "marco"), ("Auditoría de grupo o de un componente", "auditoriaGrupo"),
+               ("Encargo inicial (primer año)", "encargoInicial"), ("Socio del encargo", "socio"), ("Gerente del encargo", "gerente"))
+TXT_ENTENDIMIENTO_PEND = ("Documente el entendimiento de la entidad y su entorno: modelo de negocio, estructura y propiedad, partes "
+                          "relacionadas, sistema de información y marco normativo (NIA 315 párr. 19).")
+
+
+def _perfil(informe: list, d: dict, pv) -> tuple[list, list, dict]:
+    """Hoja 14 (artefacto: «Perfil del encargo»): identificación del encargo, entendimiento de la entidad y su entorno,
+    contexto y asuntos del informe anterior. Devuelve las filas, sus estilos y la fila de cada dato del informe."""
+    filas, estilos, fila = [], [], {}
+
+    def titulo(txt):
+        filas.append([txt, None, None, None, None, None, None])
+        estilos.append({"tipo": "titulo"})
+
+    def de_informe(j, x):
+        fila[j] = FILA0 + len(filas)
+        filas.append([x["tipo"], x["concepto"], x["detalle"], n2(x["importe"]), x["fuente"],
+                      x["enfoque"] or EFECTO_INFORME[x["tipo"]], ORIGEN_INFORME])
+        estilos.append(None)
+
+    usados = set()
+    titulo("Identificación del encargo")
+    for concepto, claves in IDENT_INFORME:
+        j = next((j for j, x in enumerate(informe) if j not in usados and x["tipo"] == "Identificación"
+                  and any(k in norm(x["concepto"]) for k in claves)), None)
+        if j is None:
+            filas.append(["Identificación", concepto, PENDIENTE, None, "No se completa por inferencia",
+                          EFECTO_INFORME["Identificación"], ORIGEN_PENDIENTE])
+            estilos.append(None)
+        else:
+            usados.add(j)
+            de_informe(j, informe[j])
+    j = next((j for j, x in enumerate(informe) if x["tipo"] == "Opinión"), None)
+    if j is None:
+        filas.append(["Opinión", "Opinión del año anterior", PENDIENTE, None, "No se completa por inferencia",
+                      EFECTO_INFORME["Opinión"], ORIGEN_PENDIENTE])
+        estilos.append(None)
+    else:
+        usados.add(j)
+        de_informe(j, informe[j])
+    for concepto, k in IDENT_PARAM:
+        v = {"corte": d["corte"], "tipoRevision": d["tipo"], "marco": d["marco"]}.get(k, d["sino"].get(k) if k in d["sino"] else pv(k))
+        filas.append(["Identificación", concepto, fx(f'IF({_par(k)}="","{PENDIENTE}",{_par(k)})', PENDIENTE if v in (None, "") else v),
+                      None, "Hoja 02 · Parámetros", EFECTO_INFORME["Identificación"], ORIGEN_PARAMETROS])
+        estilos.append(None)
+    filas.append(["Identificación", "Marco de auditoría", MARCO_AUDITORIA, None, "Política de la firma",
+                  EFECTO_INFORME["Identificación"], ORIGEN_PARAMETROS])
+    estilos.append(None)
+    for j, x in enumerate(informe):              # otros datos de identificación del informe
+        if x["tipo"] == "Identificación" and j not in usados:
+            usados.add(j)
+            de_informe(j, x)
+    titulo("Entendimiento de la entidad y su entorno (NIA 315)")
+    ent = [(j, x) for j, x in enumerate(informe) if x["tipo"] == "Entendimiento"]
+    for j, x in ent:
+        usados.add(j)
+        de_informe(j, x)
+    if not ent:
+        filas.append(["Entendimiento", "Entendimiento de la entidad", PENDIENTE, None, "No se completa por inferencia",
+                      TXT_ENTENDIMIENTO_PEND, ORIGEN_PENDIENTE])
+        estilos.append(None)
+    ctx = [(j, x) for j, x in enumerate(informe) if x["tipo"] == "Contexto"]
+    if ctx:
+        titulo("Contexto de la entidad")
+        for j, x in ctx:
+            usados.add(j)
+            de_informe(j, x)
+    resto = [(j, x) for j, x in enumerate(informe) if j not in usados]
+    if resto:
+        titulo("Asuntos del informe del año anterior")
+        for j, x in resto:
+            de_informe(j, x)
+    return filas, estilos, fila
+
+
+def _estado_detalle(cu: list, secs: tuple, s7: dict, prelim: bool, hay_eri: bool, meses: int,
+                    f_hay_eri: str) -> tuple[list, list]:
+    """Estado completo (artefacto: renderStatement): todas las cuentas de las secciones en jerarquía, con la cuenta de nivel 1
+    destacada, sangría por nivel y agrupación de Excel por nivel (los botones del esquema eligen el detalle). Saldos por
+    fórmula a 08_Horizontal; por sección, el total de las cuentas de detalle y su diferencia con la hoja 07 (debe ser 0)."""
+    filas, estilos = [], []
+    idx = {x["codigo"]: FILA0 + i for i, x in enumerate(cu)}
+    totales = {}
+    for sec in secs:
+        bloque = [x for x in cu if x["sec"] == sec]
+        if not bloque:
+            continue
+        a = FILA0 + len(filas)
+        for x in bloque:
+            r, r8 = FILA0 + len(filas), idx[x["codigo"]]
+            filas.append([x["codigo"], x["cuenta"], fx(f"{H8}C{r8}", x["nivel"]), fx(f"{H8}D{r8}", x["detalle"]),
+                          fx(f"{H8}G{r8}", n2(x["ant"])), fx(f"{H8}H{r8}", n2(x["act"])), fx(f"F{r}-E{r}", n2(x["act"] - x["ant"])),
+                          fx(f'IF(E{r}=0,"",G{r}/ABS(E{r}))', None if x["ant"] == 0 else (x["act"] - x["ant"]) / abs(x["ant"])),
+                          fx(f'IF({H8}K{r8}="","",{H8}K{r8})', x["vert"])])
+            niv = int(x["nivel"] or 1)
+            estilos.append({"tipo": "titulo", "grupo": 0} if niv <= 1 else
+                           {"sangria": niv - 1, "col": "Cuenta", "grupo": min(7, niv - 1)})
+        b = FILA0 + len(filas) - 1
+        det = [x for x in bloque if x["detalle"] == "Sí"]
+        ta, tc = sum(x["ant"] for x in det), sum(x["act"] for x in det)
+        rt = b + 1
+        sif = lambda c: f'SUMIFS({c}{a}:{c}{b},$D${a}:$D${b},"Sí")'  # noqa: E731
+        filas.append([None, f"{TXT_TOTAL_SECCION}: {sec.lower()}", None, None, fx(sif("E"), n2(ta)), fx(sif("F"), n2(tc)),
+                      fx(f"F{rt}-E{rt}", n2(tc - ta)), fx(f'IF(E{rt}=0,"",G{rt}/ABS(E{rt}))', None if ta == 0 else (tc - ta) / abs(ta)),
+                      None])
+        estilos.append({"tipo": "total"})
+        totales[sec] = (rt, ta, tc)
+        f7 = F7[sec]
+        if sec in ("Ingresos", "Costos", "Gastos"):
+            f_ant = f'IF({PRELIM},IF({f_hay_eri},{S7}H{f7},{S7}F{f7}*{_par("mesesTranscurridos")}/12),{S7}F{f7})'
+            v_ant = (s7["eri"][sec] if hay_eri else s7["ant"][sec] * meses / 12) if prelim else s7["ant"][sec]
+        else:
+            f_ant, v_ant = f"{S7}F{f7}", s7["ant"][sec]
+        rc = rt + 1
+        filas.append([None, TXT_CUADRE_SECCION, None, None, fx(f"E{rt}-({f_ant})", n2(ta - v_ant)),
+                      fx(f"F{rt}-{S7}G{f7}", n2(tc - s7["act"][sec])), None, None,
+                      fx(f'IF(AND(ABS(E{rc})<0.005,ABS(F{rc})<0.005),"Cuadra","Revisar la jerarquía")',
+                         "Cuadra" if abs(ta - v_ant) < 0.005 and abs(tc - s7["act"][sec]) < 0.005 else "Revisar la jerarquía")])
+        estilos.append({"tipo": "control"})
+    if secs[0] == "Activo" and all(k in totales for k in secs):
+        (ra, aa, ac), (rp, pa, pc), (rpt, ta_, tc_) = (totales[k] for k in secs)
+        k9 = "Resultado del período (según el balance)"
+        res_a, res_c = s7["ant"]["Resultado del balance"], s7["act"]["Resultado del balance"]
+        rr = FILA0 + len(filas)
+        filas.append([None, TXT_RESULTADO_ESF, None, None, fx(f"{E9}C{F9[k9]}", n2(res_a)), fx(f"{E9}D{F9[k9]}", n2(res_c)),
+                      fx(f"F{rr}-E{rr}", n2(res_c - res_a)), None, None])
+        estilos.append({"tipo": "total"})
+        filas.append([None, TXT_PASIVO_PATRIMONIO, None, None, fx(f"E{rp}+E{rpt}+E{rr}", n2(pa + ta_ + res_a)),
+                      fx(f"F{rp}+F{rpt}+F{rr}", n2(pc + tc_ + res_c)), None, None, None])
+        estilos.append({"tipo": "total"})
+        rd = rr + 2
+        da, dc = aa - (pa + ta_ + res_a), ac - (pc + tc_ + res_c)
+        filas.append([None, TXT_DIF_ACTIVO, None, None, fx(f"E{ra}-E{rd - 1}", n2(da)), fx(f"F{ra}-F{rd - 1}", n2(dc)), None, None,
+                      fx(f'IF(AND(ABS(E{rd})<0.005,ABS(F{rd})<0.005),"Cuadra","Revisar el balance")',
+                         "Cuadra" if abs(da) < 0.005 and abs(dc) < 0.005 else "Revisar el balance")])
+        estilos.append({"tipo": "control"})
+    if secs[0] == "Ingresos" and all(k in totales for k in secs):
+        rr = FILA0 + len(filas)
+        (ri, ia_, ic), (rco, ca, cc), (rg, ga, gc) = (totales[k] for k in secs)
+        filas.append([None, TXT_RESULTADO_ERI, None, None, fx(f"E{ri}-E{rco}-E{rg}", n2(ia_ - ca - ga)),
+                      fx(f"F{ri}-F{rco}-F{rg}", n2(ic - cc - gc)), fx(f"F{rr}-E{rr}", n2((ic - cc - gc) - (ia_ - ca - ga))),
+                      fx(f'IF(E{rr}=0,"",G{rr}/ABS(E{rr}))', None if ia_ - ca - ga == 0 else
+                         ((ic - cc - gc) - (ia_ - ca - ga)) / abs(ia_ - ca - ga)), None])
+        estilos.append({"tipo": "total"})
+    return filas, estilos
+
+
 def _sumarias(cu: list, notas: list, umbral: float) -> tuple[list, list]:
     """Cédulas sumarias (lead schedules): un bloque por rubro con la cuenta del rubro, sus subcuentas con
     sangría, el total de las cuentas de detalle y el cuadre. Saldos por fórmula a 08_Horizontal; los ajustes
@@ -2248,26 +2574,42 @@ def _f_tipo(c: str) -> str:
     return f'IF({c}>0.005,"Origen",IF({c}<-0.005,"Aplicación","Sin efecto"))'
 
 
+def _cifra_var(etq: str, ref_: str, v: float) -> tuple[str, str]:
+    """« (inventario +US$ 1.234,00)»: fórmula y valor de la variación con signo, para la lectura causa-efecto."""
+    return (f'"{etq} "&IF({ref_}>=0,"+","−")&"US$ "&FIXED(ABS({ref_}),2)',
+            f"{etq} {'+' if v >= 0 else '−'}US$ {_num(abs(v))}")
+
+
 def _causa_efecto(ev: dict, dv: dict) -> list:
-    """Lectura causa-efecto de las variaciones (artefacto): (concepto, clave del importe, fórmula, valor)."""
+    """Lectura causa-efecto de las variaciones (artefacto), con los montos: (concepto, clave del importe, fórmula, valor)."""
     inv, ven, caja, cxc = (ev[k] for k in ("Inventarios", "Ventas netas", "Efectivo y equivalentes", "Cuentas por cobrar"))
     di, dven, dc, dcx = (dv[k] for k in ("Inventarios", "Ventas netas", "Efectivo y equivalentes", "Cuentas por cobrar"))
     t = CAUSA_EFECTO
+
+    def montos(*pares):
+        fs, vs = zip(*(_cifra_var(e_, r_, v_) for e_, r_, v_ in pares))
+        return '&" ("&' + '&"; "&'.join(fs) + '&")"', " (" + "; ".join(vs) + ")"
+    m_inv = montos(("inventario", inv, di), ("ventas", ven, dven))
+    m_caja = montos(("efectivo", caja, dc), ("cartera", cxc, dcx))
+    m_cv = montos(("efectivo", caja, dc), ("ventas", ven, dven))
     f_inv = (f'IF(ABS({inv})<=1,"{t["inv0"]}",IF({inv}>0,IF({ven}<0,"{t["inv_acum"]}",IF({ven}>0,"{t["inv_repo"]}","{t["inv_sin"]}")),'
-             f'IF({ven}>0,"{t["inv_rot"]}","{t["inv_baja"]}")))')
+             f'IF({ven}>0,"{t["inv_rot"]}","{t["inv_baja"]}")))' + m_inv[0])
     v_inv = (t["inv0"] if abs(di) <= 1 else (t["inv_acum"] if dven < 0 else t["inv_repo"] if dven > 0 else t["inv_sin"]) if di > 0
-             else t["inv_rot"] if dven > 0 else t["inv_baja"])
-    f_caja = (f'IF(AND({caja}<0,{cxc}>0),"{t["caja_cartera"]}",IF(AND({caja}>0,{cxc}<0),"{t["caja_cobro"]}",'
-              f'IF(AND({caja}<0,{ven}>0,OR({cxc}<0,ABS({cxc})<ABS({caja}))),"{t["caja_senal"]}","{t["caja_sin"]}")))')
-    v_caja = (t["caja_cartera"] if dc < 0 and dcx > 0 else t["caja_cobro"] if dc > 0 and dcx < 0 else
-              t["caja_senal"] if dc < 0 and dven > 0 and (dcx < 0 or abs(dcx) < abs(dc)) else t["caja_sin"])
-    out = [("Inventarios frente a ventas", "Inventarios", f_inv, v_inv), ("Efectivo frente a cartera", "Efectivo y equivalentes", f_caja, v_caja)]
+             else t["inv_rot"] if dven > 0 else t["inv_baja"]) + m_inv[1]
+    f_caja = (f'IF(AND({caja}<0,{cxc}>0),"{t["caja_cartera"]}",IF(AND({caja}>0,{cxc}<0),"{t["caja_cobro"]}","{t["caja_sin"]}"))'
+              + m_caja[0])
+    v_caja = (t["caja_cartera"] if dc < 0 and dcx > 0 else t["caja_cobro"] if dc > 0 and dcx < 0 else t["caja_sin"]) + m_caja[1]
+    f_cv = f'IF(AND({caja}<0,{ven}>0),"{t["caja_senal"]}","{t["caja_sin_senal"]}")' + m_cv[0]
+    v_cv = (t["caja_senal"] if dc < 0 and dven > 0 else t["caja_sin_senal"]) + m_cv[1]
+    out = [("Inventarios frente a ventas", "Inventarios", f_inv, v_inv), ("Efectivo frente a cartera", "Efectivo y equivalentes", f_caja, v_caja),
+           ("Efectivo frente a ventas", "Efectivo y equivalentes", f_cv, v_cv)]
     for concepto, k, baja, sube in (("Cuentas por pagar", "Cuentas por pagar", t["cxp_baja"], t["cxp_sube"]),
                                     ("Deuda financiera", "Obligaciones financieras", t["deuda_baja"], t["deuda_sube"]),
                                     ("Resultado del período", "Utilidad neta", t["res_baja"], t["res_sube"])):
         c, v = ev[k], dv[k]
-        out.append((concepto, k, f'IF(ABS({c})<=1,"{t["sin"]}",IF({c}<0,"{baja}","{sube}"))',
-                    t["sin"] if abs(v) <= 1 else baja if v < 0 else sube))
+        mf, mv = _cifra_var("variación", c, v)
+        out.append((concepto, k, f'IF(ABS({c})<=1,"{t["sin"]}",IF({c}<0,"{baja}","{sube}")&" ("&{mf}&")")',
+                    t["sin"] if abs(v) <= 1 else (baja if v < 0 else sube) + f" ({mv})"))
     return out
 
 
@@ -2281,6 +2623,7 @@ CAUSA_EFECTO = {
     "caja_cartera": "El efectivo disminuyó mientras la cartera aumentó: parte de las ventas financia a clientes y drena caja.",
     "caja_cobro": "El efectivo aumentó y la cartera bajó: mejor cobranza que se tradujo en liquidez.",
     "caja_senal": "Señal a revisar: la caja cayó pese a mayores ventas; explicar el destino de los fondos (hoja 22).",
+    "caja_sin_senal": "Sin señal: el efectivo no cayó frente a mayores ventas.",
     "caja_sin": "Sin relación destacable entre el efectivo y la cartera.",
     "cxp_baja": "Las cuentas por pagar se redujeron (se pagó a proveedores): uso de caja.",
     "cxp_sube": "Las cuentas por pagar aumentaron (más financiamiento de proveedores): fuente de caja; revisar plazos.",
@@ -2293,6 +2636,7 @@ CAUSA_EFECTO = {
 
 
 _DIAS = ("diasCartera", "diasInventario", "ciclo")
+_DIAS_AJ = ("diasCartera", "diasInventario", "diasProveedores", "ciclo")
 
 
 def _semaforo(k: str, v, fac: float = 1.0, pat: float | None = None) -> str:
@@ -2327,24 +2671,55 @@ def _f_semaforo(k: str, c: str, pat: str | None = None) -> str:
     return f'IF({c}="","Sin dato",IF({cc}{verde},"Verde · {ev}",IF({cc}{amarillo},"Amarillo · {ea}","Rojo · {er}")))'
 
 
-def _lectura(k: str, v, pat: float | None = None) -> str:
+def _num(v, d: int = 2) -> str:
+    """Cifra como la escribe FIXED(v; d) de Excel con separadores del Ecuador (miles «.», decimales «,»)."""
+    t = f"{_xr(v, d):,.{d}f}"
+    return t.replace(",", "\x00").replace(".", ",").replace("\x00", ".")
+
+
+def _lectura(k: str, v, pat: float | None = None, fac: float = 1.0) -> str:
     if v is None or v == "":
         return SIN_DATO
     if k in _PAT and pat is not None and pat <= 0:
         return LECTURA_PATRIMONIO
+    antes, despues = LECTURA[k]
+    cifra = _xr(v * fac, 2) if k in _DIAS_AJ else v
+    txt = antes + _num(cifra) + despues
     if k in LECTURA_COND:
         cond, si, no = LECTURA_COND[k]
-        return si if eval(f"{v}{cond}") else no  # noqa: S307
-    return LECTURA[k]
+        txt += si if eval(f"{v}{cond}") else no  # noqa: S307
+    return txt
 
 
-def _f_lectura(k: str, c: str, pat: str | None = None) -> str:
+def _f_lectura(k: str, c: str, pat: str | None = None, c_aj: str | None = None) -> str:
+    """Lectura con la cifra: ``c`` es la celda del índice; ``c_aj`` la de los días ajustados al período."""
     if k in _PAT and pat:
-        return f'IF(AND({c}<>"",{pat}<=0),"{LECTURA_PATRIMONIO}",{_f_lectura(k, c)})'
+        return f'IF(AND({c}<>"",{pat}<=0),"{LECTURA_PATRIMONIO}",{_f_lectura(k, c, None, c_aj)})'
+    antes, despues = LECTURA[k]
+    txt = f'"{antes}"&FIXED({c_aj if k in _DIAS_AJ and c_aj else c},2)&"{despues}"'
     if k in LECTURA_COND:
         cond, si, no = LECTURA_COND[k]
-        return f'IF({c}="","{SIN_DATO}",IF({c}{cond},"{si}","{no}"))'
-    return f'IF({c}="","{SIN_DATO}","{LECTURA[k]}")'
+        txt += f'&IF({c}{cond},"{si}","{no}")'
+    return f'IF({c}="","{SIN_DATO}",{txt})'
+
+
+def _tendencia(k: str, va, vc, pat: float | None = None) -> str:
+    if k not in MEJOR or va in (None, "") or vc in (None, ""):
+        return "" if k not in MEJOR else "Sin dato"
+    if k in _PAT and pat is not None and pat <= 0:
+        return "No significativo"
+    if vc == va:
+        return "Sin cambio"
+    return "Mejora" if (vc > va) == (MEJOR[k] == "alto") else "Empeora"
+
+
+def _f_tendencia(k: str, r: int, pat: str) -> str | None:
+    if k not in MEJOR:
+        return None
+    sube = "Mejora" if MEJOR[k] == "alto" else "Empeora"
+    baja = "Empeora" if MEJOR[k] == "alto" else "Mejora"
+    f_ = f'IF(OR(D{r}="",E{r}=""),"Sin dato",IF(E{r}=D{r},"Sin cambio",IF(E{r}>D{r},"{sube}","{baja}")))'
+    return f'IF(AND(E{r}<>"",{pat}<=0),"No significativo",{f_})' if k in _PAT else f_
 
 
 # --- «Cómo se calcula esta hoja» -----------------------------------------------------------------------------
@@ -2482,8 +2857,18 @@ EXPLICA = {
                      "días se comparan multiplicados por meses ÷ 12, porque sobre 365 salen mayores. Si el patrimonio total "
                      "es cero o negativo, los índices que dividen para el patrimonio (endeudamiento patrimonial y financiero, "
                      "multiplicador y ROE) quedan en rojo como «No significativo»."),
-        "Lectura": ("Explica en palabras qué mide el índice y, en liquidez y capital de trabajo, si el resultado alcanza o no a "
-                    "cubrir el corto plazo. Con patrimonio cero o negativo, advierte que el índice no es interpretable (NIA 570)."),
+        "Lectura": ("Explica en palabras qué mide el índice con su cifra (por ejemplo, «por cada US$ 1 de pasivo corriente hay "
+                    "US$ 2,00 de activo corriente»; en los días, la cifra ajustada al período) y, en liquidez y capital de "
+                    "trabajo, si alcanza o no a cubrir el corto plazo. Con patrimonio cero o negativo, advierte que el índice no "
+                    "es interpretable (NIA 570)."),
+        "Actual ajustado al período": ("Solo en los índices de días: multiplica los días actuales por meses transcurridos ÷ 12 en "
+                                       "una revisión preliminar (en la final queda igual), porque con ventas o costos de pocos meses "
+                                       "los días sobre 365 salen inflados. Es la cifra que se compara con los 90 y 120 días de la hoja 13."),
+        "Variación ajustada": ("Aplica el mismo ajuste (× meses ÷ 12 en la preliminar) a la variación de días; es la que se compara "
+                               "con el umbral de deterioro de la rotación de la hoja 02."),
+        "Tendencia": ("Compara el índice actual con el anterior según su sentido favorable: en liquidez y rentabilidad subir es "
+                      "«Mejora»; en días y endeudamiento subir es «Empeora». Con patrimonio cero o negativo, los índices sobre el "
+                      "patrimonio quedan «No significativo»."),
     },
     "11_Materialidad": {
         "Importe": ("Trae de la hoja 07 el total de cada posible base del período elegido (año anterior o corte actual); en la "
@@ -2491,7 +2876,12 @@ EXPLICA = {
         "Porcentaje": "Trae de la hoja 02 el porcentaje de la política de la firma para cada base, para el desempeño y para el umbral trivial.",
         "Materialidad": "Multiplica el importe por el porcentaje y lo divide para 100.",
         "Sustento": ("Explica el período de la base (automático: año anterior en la revisión preliminar y corte actual en la "
-                     "final), la base elegida y su justificación, escrita por el auditor o la automática según la base."),
+                     "final), la base elegida y su justificación: la del auditor o la automática, que muestra la base, el "
+                     "porcentaje y la materialidad con sus cifras."),
+        "Rango de práctica": "En la materialidad global trae el rango de práctica de la base elegida en la hoja 02.",
+        "¿Dentro del rango?": ("Compara el porcentaje con el rango de práctica habitual de la profesión (política de la firma, "
+                               "VERIFICAR): «Dentro del rango» o «Fuera del rango», que obliga a documentar el porqué (NIA 320 "
+                               "párr. 14)."),
     },
     "12_Riesgos_CCI": {
         "Riesgo inherente": "Multiplica la probabilidad por el impacto (escala de 1 a 25); en blanco si falta alguna calificación.",
@@ -2503,11 +2893,18 @@ EXPLICA = {
                                    "significativo de la hoja 02 (NIA 315 párr. 32): un control fuerte baja el residual pero no "
                                    "quita la respuesta específica ni las pruebas sustantivas que exige la NIA 330 párr. 21."),
     },
+    "14_Perfil": {
+        "Detalle": ("En la identificación toma de la hoja 02 el corte, el tipo de revisión, el marco, si es auditoría de grupo "
+                    "o encargo inicial y el socio y el gerente; lo que está en blanco queda «[PENDIENTE]». Los demás datos "
+                    "vienen del informe del año anterior (hoja de datos del cliente) y los que no tienen soporte quedan "
+                    "«[PENDIENTE]»: no se completan por inferencia."),
+    },
     "13_Riesgos_Balance": {
         "Valor observado": ("Trae el dato que dispara la condición: ventas, patrimonio o utilidad de la hoja 09, el índice de la "
-                            "hoja 10, la variación de la cuenta de la hoja 08 o el importe del asunto del informe anterior (hoja 14)."),
-        "¿Se presenta?": ("Evalúa la condición con el valor observado (capital de trabajo negativo, días de cartera mayores a 90 "
-                          "—por meses ÷ 12 en la preliminar—, aumento de días mayor al umbral de la hoja 02…); la presunción de "
+                            "hoja 10 (en los días, la cifra y la variación ajustadas al período de las columnas I y J), la "
+                            "variación de la cuenta de la hoja 08 o el importe del asunto del informe anterior (hoja 14)."),
+        "¿Se presenta?": ("Evalúa la condición con el valor observado (capital de trabajo negativo, días de cartera ajustados "
+                          "mayores a 90, aumento de días ajustado mayor al umbral de la hoja 02…); la presunción de "
                           "fraude en ingresos se presenta salvo que se refute en la hoja 02."),
     },
     "15_Notas": {
@@ -2878,11 +3275,31 @@ _INFORME_EJ = [
      "importe": "", "fuente": "Informe 2024 · Nota 1", "_row": 2},
     {"concepto": "Actividad", "tipo": "Identificación", "detalle": "Comercialización al por mayor de productos de consumo masivo",
      "importe": "", "fuente": "Informe 2024 · Nota 1", "_row": 3},
+    {"concepto": "RUC", "tipo": "Identificación", "detalle": "0999999999001 (ficticio)", "importe": "",
+     "fuente": "Informe 2024 · Nota 1", "_row": 4},
+    {"concepto": "País y moneda funcional", "tipo": "Identificación", "detalle": "Ecuador · dólar de los Estados Unidos (USD)",
+     "importe": "", "fuente": "Informe 2024 · Nota 2", "_row": 5},
     {"concepto": "Opinión del año anterior", "tipo": "Opinión", "detalle": "Con salvedades (por el asunto de jubilación patronal)",
-     "importe": "", "fuente": "Informe 2024 · Opinión", "_row": 4},
+     "importe": "", "fuente": "Informe 2024 · Opinión", "_row": 6},
     {"concepto": "Jubilación patronal", "tipo": "Salvedad",
      "detalle": "La provisión no se ajustó al cálculo actuarial al cierre; el pasivo estaría subestimado.",
-     "importe": "18500.00", "fuente": "Informe 2024 · Fundamento de la opinión", "_row": 5},
+     "importe": "18500.00", "fuente": "Informe 2024 · Fundamento de la opinión", "_row": 7},
+    {"concepto": "Proveedor principal vinculado", "tipo": "Entendimiento",
+     "detalle": "El 60 % de las compras se hace a un proveedor del exterior vinculado al accionista mayoritario.",
+     "importe": "", "fuente": "Informe 2024 · Nota 20 (partes relacionadas)",
+     "enfoque": "Riesgo de partes relacionadas y precios de transferencia: confirmar saldos y evaluar los términos (NIA 550).",
+     "_row": 8},
+    {"concepto": "Ventas concentradas en el último trimestre", "tipo": "Entendimiento",
+     "detalle": "Cerca del 40 % de las ventas del año se factura entre octubre y diciembre (temporada navideña).",
+     "importe": "", "fuente": "Informe 2024 · Nota 18 (ingresos)",
+     "enfoque": "Riesgo de corte de ingresos al cierre: ampliar la prueba de corte y revisar las notas de crédito posteriores (NIA 240).",
+     "_row": 9},
+    {"concepto": "Constitución e historia", "tipo": "Contexto",
+     "detalle": "Sociedad anónima constituida en 1998; distribuye productos de consumo masivo en la Costa y la Sierra.",
+     "importe": "", "fuente": "Informe 2024 · Nota 1", "_row": 10},
+    {"concepto": "Sistema de información", "tipo": "Contexto",
+     "detalle": "ERP integrado para ventas, inventarios y contabilidad, con cierres mensuales.",
+     "importe": "", "fuente": "Carta de control interno 2024", "_row": 11},
 ]
 _NOTAS_DEF = [("3", "Efectivo y equivalentes de efectivo", ["1101"]), ("4", "Cuentas por cobrar comerciales y otras", ["1103", "1106"]),
               ("5", "Inventarios", ["1104"]), ("6", "Propiedad, planta y equipo", ["1201"]), ("10", "Obligaciones bancarias", ["2102", "2201"]),

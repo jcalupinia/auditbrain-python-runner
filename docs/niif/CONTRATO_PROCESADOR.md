@@ -130,7 +130,14 @@ Un cambio en las piezas compartidas se prueba también con `tests/test_aud_papel
 ### Estilos por fila (`estilos` en `base.hoja()`)
 Una entrada por fila: `{"tipo": "titulo" | "total" | "control", "sangria": n, "col": "Cuenta"}`. Da a una hoja el
 aspecto de cédula sumaria (rubro en negrita, subcuentas con sangría por nivel, total con filete y cuadre en cursiva) en
-Excel, HTML, Word y PowerPoint. Ejemplo: `08S_Sumarias` de la planificación.
+Excel, HTML, Word y PowerPoint. Ejemplo: `08S_Sumarias` de la planificación. Con `"grupo": n` la fila queda agrupada en
+el Excel en el nivel `n` del esquema (la fila superior arriba de sus subcuentas), para elegir el detalle con los botones
+1-2-3 de Excel. Ejemplo: `08A_ESF_Detalle` y `08B_ERI_Detalle`.
+
+### Cifras dentro de un texto
+Una fórmula que escribe una cifra dentro de un texto usa `FIXED(celda;2)`, que respeta los separadores del equipo. El
+valor de Python va con los del Ecuador (`planificacion_nia._num`: 1.053.600,00). El verificador de LibreOffice
+(`scripts/verificar_datos_cliente.igual`) compara esas cifras intercambiando `.` y `,`.
 
 ### Colores por nivel (`colores` en `base.hoja()`)
 Lista de columnas cuyo valor es un nivel, severidad, semáforo o estado (`colores=["Nivel"]`). Cada celda se pinta según

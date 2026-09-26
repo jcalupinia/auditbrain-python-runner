@@ -94,7 +94,8 @@ def hoja(name: str, label: str, cols: list, rows: list, total=None, explica: dic
     ``origen`` = {columna: texto} para reemplazar el «De dónde viene el dato» que se
     deduce de la fórmula (cuando cada fila remite a una hoja distinta).
     ``estilos`` = una entrada por fila (o None): {"tipo": "titulo" | "total" | "control",
-    "sangria": n, "col": nombre de la columna que lleva la sangría}. Da a una hoja el aspecto
+    "sangria": n, "col": nombre de la columna que lleva la sangría, "grupo": n (nivel de agrupación de la fila
+    en el Excel, para elegir el detalle con los botones de esquema)}. Da a una hoja el aspecto
     de cédula sumaria (rubro en negrita, subcuentas con sangría, total y cuadre) en Excel,
     HTML, Word y PowerPoint.
     ``colores`` = columnas cuyo valor es un nivel, severidad, semáforo o estado (Alto, Medio, Bajo,
@@ -121,7 +122,8 @@ NIVEL_COLOR = {
     "Alto": "alta", "Alta": "alta", "Crítico": "alta", "Rojo": "alta",
     "Medio": "media", "Media": "media", "Revisar": "media", "Amarillo": "media",
     "Bajo": "baja", "Baja": "baja", "Conforme": "baja", "Verde": "baja",
-    "Pendiente": "info", "No evaluado": "info",
+    "Pendiente": "info", "No evaluado": "info", "No significativo": "info",
+    "Empeora": "alta", "Mejora": "baja", "Dentro del rango": "baja", "Fuera": "media",
 }
 # Rol → (relleno, texto) en hexadecimal sin «#». Tonos de estado (no se usan en los gráficos).
 ROL_COLOR = {

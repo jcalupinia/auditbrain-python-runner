@@ -579,17 +579,25 @@ la jerarquía de los códigos, signo automático por sección, análisis horizon
 resumidos, **sumarias por rubro** (`08S_Sumarias`: un bloque por cuenta de nivel 3 con sus subcuentas en jerarquía,
 saldo anterior y al corte, ajustes del auditor que suben por fórmula de las cuentas de detalle, saldo ajustado,
 variación, nota del año anterior, marca Nueva/Baja/Supera el umbral, total de las cuentas de detalle y cuadre = 0;
-estilos por fila `estilos` de `base.hoja()`), índices con semáforo (días sobre los días del período; con patrimonio
-≤ 0 los índices sobre el patrimonio salen «Rojo · No significativo»), materialidad (desempeño 50 % y trivial 5 % por
-defecto; en la preliminar la base es el año anterior), matriz de la carta de CI (inherente = P × I; residual =
+estilos por fila `estilos` de `base.hoja()`), **estados detallados** (`08A_ESF_Detalle`, `08B_ERI_Detalle`: todas las
+cuentas por nivel, fecha de cada período, filas agrupadas por nivel en Excel con `estilos[i]["grupo"]` y cuadre contra la
+hoja 07 y del balance), índices con semáforo (días sobre los días del período; con patrimonio ≤ 0 los índices sobre el
+patrimonio salen «Rojo · No significativo»), lectura de cada índice **con su cifra** (FIXED, que usa los separadores del
+equipo: el verificador compara las cifras en texto intercambiándolos), tendencia Mejora/Empeora y **días ajustados al
+período** en la preliminar (hoja 10, columnas I y J; la hoja 13 compara esas cifras), materialidad (desempeño 50 % y
+trivial 5 % por defecto; en la preliminar la base es el año anterior; rango de práctica habitual con aviso «Fuera del
+rango» y justificación automática con cifras), matriz de la carta de CI (inherente = P × I; residual =
 inherente × (6 − C) ÷ 5; **riesgo significativo** NIA 315/330 cuando el INHERENTE iguala o supera `umbralSignificativo`
 (20 por defecto): nivel al menos Alto y «Significativo» en el programa), posibles riesgos (NIA 240, NIA 570, días de cartera e inventario, variaciones, informe
-anterior), notas contra el balance anterior (NIA 510) con **desglose por nota** (`15D_Notas_Detalle`: cuentas y subcuentas de cada
+anterior, entendimiento de la entidad), **perfil del encargo NIA 315** (`14_Perfil`: identificación mínima con
+«[PENDIENTE]» cuando no hay soporte —no se completa por inferencia—, entendimiento de la entidad y contexto, tipos
+Entendimiento y Contexto del RQ-005; cada hallazgo del entendimiento genera su riesgo y su procedimiento), notas contra el balance anterior (NIA 510) con **desglose por nota** (`15D_Notas_Detalle`: cuentas y subcuentas de cada
 nota, anterior y corte, total según el balance y conciliación con la nota auditada; al final, los rubros del balance
 sin nota) y **composición auditada** (`15C_Composicion`, dato opcional RQ-009 `notas_detalle`: líneas de Saldo,
 Movimiento y Total de cada nota, con su cuadre contra el saldo auditado), anomalías, control de calidad, cuentas a revisar, programa
 (NIA 330: toda cuenta a revisar tiene su procedimiento, con aseveraciones, evidencia, responsable y los procedimientos
-de todo el encargo), narrativa y estrategia (NIA 300). Reglas del prompt FIN-AP aplicadas (2026-09-26, con los agentes del plugin NIIF: Automatización construye y el
+de todo el encargo), narrativa (alertas por nombre, variación % del activo y del resultado, lectura de variaciones con
+montos, origen y destino del efectivo) y estrategia (NIA 300). Reglas del prompt FIN-AP aplicadas (2026-09-26, con los agentes del plugin NIIF: Automatización construye y el
 Revisor Técnico revisa): **R1** saldo propio de cada cuenta (si falta, suma de sus subcuentas) y totales con la
 cuenta más alta de cada sección/clasificación/rubro, con control «cuenta superior que no suma sus subcuentas» (no se
 fuerza nada); **R2** signo por la convención del balance entero (con signo o por naturaleza), para que un patrimonio
