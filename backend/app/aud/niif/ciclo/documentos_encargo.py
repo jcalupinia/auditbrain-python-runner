@@ -5,7 +5,7 @@
   fraude de la última planificación ejecutada (hojas 13 y 26).
 - Carta de planificación al gobierno de la entidad (NIA 260): los asuntos de la hoja 32 y los riesgos significativos.
 
-Son MODELOS para revisar antes de firmar: el texto normativo lleva «VERIFICAR» donde cita párrafos, y lo que no consta
+Son MODELOS para revisar antes de firmar: las citas de párrafos sin cotejar llevan «†», y lo que no consta
 en la plataforma queda «[PENDIENTE]» (no se completa por inferencia). La firma se registra luego con un clic
 (carta firmada, comunicación enviada) y ese registro es el que entra al papel de la planificación.
 """
@@ -30,8 +30,8 @@ FIRMA_LEGAL = {"Audit Consulting": "AuditConsulting Auditores Cía. Ltda."}
 NAVY = RGBColor(0x0A, 0x23, 0x42)
 GRIS = RGBColor(0x6B, 0x72, 0x80)
 AVISO = ("Documento generado por AUDIT-IA a partir de la ficha del encargo, los registros de la plataforma y la "
-         "planificación ejecutada. Es un modelo: el socio lo revisa y ajusta antes de firmarlo. Las citas de párrafos "
-         "marcadas «VERIFICAR» se confirman contra la norma vigente.")
+         "planificación ejecutada. Es un modelo: el socio lo revisa y ajusta antes de firmarlo. Las citas marcadas con «†» se "
+         "cotejan con el texto oficial vigente de la norma.")
 
 
 def _v(c):
@@ -191,7 +191,7 @@ def carta_encargo(ficha: dict, encargo: dict, hoy: datetime.date | None = None) 
     _p(doc, f"Ustedes nos han solicitado auditar los estados financieros de {cliente}, que comprenden el estado de situación "
             f"financiera al {corte}, el estado de resultados integral, el estado de cambios en el patrimonio y el estado de "
             f"flujos de efectivo del ejercicio terminado en esa fecha, y las notas explicativas. Nos complace confirmar mediante "
-            f"esta carta nuestra aceptación y nuestro entendimiento de este encargo (NIA 210 párr. 10 — VERIFICAR).")
+            f"esta carta nuestra aceptación y nuestro entendimiento de este encargo (NIA 210 párr. 10 †).")
     _p(doc, "El objetivo de nuestra auditoría es obtener una seguridad razonable de que los estados financieros en su conjunto "
             "están libres de incorrección material, debida a fraude o error, y emitir un informe que contenga nuestra opinión.")
     _h(doc, "Responsabilidades del auditor")
@@ -200,7 +200,7 @@ def carta_encargo(ficha: dict, encargo: dict, hoy: datetime.date | None = None) 
         "requerimientos de ética y planificar y ejecutar la auditoría para obtener una seguridad razonable.",
         "Por las limitaciones inherentes de una auditoría y del control interno, existe un riesgo inevitable de que no se "
         "detecten algunas incorrecciones materiales, aun cuando la auditoría se planifique y ejecute adecuadamente.",
-        "Les comunicaremos por escrito las deficiencias significativas del control interno que identifiquemos (NIA 265 — VERIFICAR).",
+        "Les comunicaremos por escrito las deficiencias significativas del control interno que identifiquemos (NIA 265 †).",
     ])
     _h(doc, "Responsabilidades de la dirección")
     _p(doc, "La auditoría se realiza sobre la premisa de que la dirección reconoce y comprende su responsabilidad de:")
@@ -210,7 +210,7 @@ def carta_encargo(ficha: dict, encargo: dict, hoy: datetime.date | None = None) 
         "material, debida a fraude o error;",
         "proporcionarnos acceso a toda la información relevante, la información adicional que solicitemos y acceso ilimitado "
         "a las personas de la entidad de quienes consideremos necesario obtener evidencia;",
-        "entregarnos al término de la auditoría las manifestaciones escritas que solicitemos (NIA 580 — VERIFICAR).",
+        "entregarnos al término de la auditoría las manifestaciones escritas que solicitemos (NIA 580 †).",
     ])
     _h(doc, "Marco de información financiera e informe")
     _p(doc, f"Marco aplicable: {marco}. Emitiremos un informe de auditoría cuya forma y contenido pueden requerir "
@@ -231,14 +231,14 @@ def acta_discusion(ficha: dict, encargo: dict, run: dict | None) -> bytes:
     reg = (encargo or {}).get("registros") or {}
     asist = reg.get("asistencia") or []
     doc = _doc("Acta de la discusión del equipo del encargo",
-               f"NIA 315 (Revisada 2019) párr. 17 y NIA 240 párr. 15 (VERIFICAR) · {f.get('client') or PENDIENTE} · corte {f.get('cutoff') or PENDIENTE}")
+               f"NIA 315 (Revisada 2019) párr. 17 y NIA 240 párr. 15 † · {f.get('client') or PENDIENTE} · corte {f.get('cutoff') or PENDIENTE}")
     _h(doc, "Fecha y asistentes")
     fechas = sorted({x.get("fecha") for x in asist if x.get("fecha")})
     _p(doc, f"Fecha: {', '.join(fechas) if fechas else PENDIENTE}. Asistencia registrada con un clic por cada integrante.")
     _tabla(doc, ["Integrante", "Rol", "Fecha del registro"],
            [[x.get("integrante"), x.get("rol"), x.get("fecha")] for x in asist] or [[PENDIENTE, "", ""]])
     if not any(x.get("rol") == "Socio" for x in asist):
-        _p(doc, "Advertencia: no consta la participación del socio del encargo (NIA 315 párr. 17 — VERIFICAR).", True)
+        _p(doc, "Advertencia: no consta la participación del socio del encargo (NIA 315 párr. 17 †).", True)
     _h(doc, "Susceptibilidad de los estados financieros a incorrección material")
     riesgos = [x for x in filas(hoja(run, "13_")) if x.get("¿Se presenta?") == "Sí"]
     if riesgos:
