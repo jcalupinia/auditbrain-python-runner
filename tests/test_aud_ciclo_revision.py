@@ -59,6 +59,14 @@ def test_revision_aprobacion_y_papel_inmutable(client):
     assert r.status_code == 400 and "evaluación de excepciones" in r.json()["detail"]
     p = _accion(client, tok, p, "approve", aprobar).json()
     assert p["estado"] == "APROBADO" and p["registro"]["approvedBy"] and p["registro"]["approvedAt"]
+    # NIA 220 (decisión del dueño): se permite aprobar el propio trabajo, pero queda advertido en el registro, la
+    # bitácora y la carátula del papel.
+    assert p["registro"]["submittedBy"] == p["registro"]["approvedBy"] and p["registro"]["segregation"] is False
+    ev = next(e for e in _leer(client, tok, p)["eventos"] if e["accion"] == "approve")
+    assert ev["comentario"].startswith("Aprobado por quien lo envió a revisión: sin segregación de funciones (NIA 220).")
+    from backend.app.aud.niif.procesadores import libro
+    assert libro._segregacion(p["registro"]).startswith("ADVERTENCIA: aprobó la misma persona")
+    assert libro._segregacion({**p["registro"], "submittedBy": "otra@firma.ec"}).startswith("Sí:")
 
     # Inmutable: ninguna acción del circuito ni la edición del contexto.
     r = _accion(client, tok, p, "save_analysis", {"analysis": "x"})
@@ -92,15 +100,14 @@ def test_revision_aprobacion_y_papel_inmutable(client):
     r = _accion(client, tok, p, "new_version")
     assert r.status_code == 400 and "sucesora" in r.json()["detail"]
     cliente = p["registro"]["engagement"]["client"]
-    r = _accion(client, tok, p, "delete", {"confirmClient": cliente, "deleteConfirmed": True, "approvedConfirmed": True})
-    assert r.status_code == 409 and "Elimine primero la más reciente" in r.json()["detail"]
     assert _accion(client, tok, n, "delete", {"confirmClient": cliente, "deleteConfirmed": True}).json()["deleted"] is True
-    r = _accion(client, tok, p, "delete", {"confirmClient": cliente, "deleteConfirmed": True})
-    assert r.status_code == 400 and "Confírmelo expresamente" in r.json()["detail"]
-    r = _accion(client, tok, p, "delete", {"confirmClient": "Otro", "deleteConfirmed": True, "approvedConfirmed": True})
-    assert r.status_code == 400 and "nombre del cliente" in r.json()["detail"]
-    assert _accion(client, tok, p, "delete", {"confirmClient": cliente, "deleteConfirmed": True, "approvedConfirmed": True}).json()["deleted"]
-    assert client.get(f"{BASE}/pruebas/{p['id']}", headers=_h(tok)).status_code == 404
+    # NIA 230: la versión aprobada es evidencia del encargo: no se elimina ni se reinicia, ni siquiera confirmándolo.
+    for accion, datos in (("delete", {"confirmClient": cliente, "deleteConfirmed": True, "approvedConfirmed": True}),
+                          ("erase", {"confirmClient": cliente, "downloadConfirmed": True})):
+        r = _accion(client, tok, p, accion, datos)
+        assert r.status_code == 400 and "no se reinicia ni se elimina" in r.json()["detail"]
+    p = _leer(client, tok, p)
+    assert p["estado"] == "APROBADO" and any(e["accion"] == "approve" for e in p["eventos"])   # la bitácora sigue intacta
 
 
 def test_papel_declarativo_guarda_tambien_word_y_powerpoint(client):

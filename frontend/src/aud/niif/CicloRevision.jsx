@@ -268,7 +268,18 @@ function EncerarEliminar({ prueba, onAccion, ocupado }) {
   const [cliente, setCliente] = useState("");
   const [conserva, setConserva] = useState(false);
   const [definitivo, setDefinitivo] = useState(false);
-  const [aprobada, setAprobada] = useState(false);
+  if (prueba.estado === "APROBADO") {
+    // NIA 230: la versión aprobada es evidencia del encargo; el servidor tampoco la deja reiniciar ni eliminar.
+    return (
+      <details id={`encerar-${prueba.id}`}>
+        <summary>Encerar o eliminar</summary>
+        <p className="muted">
+          Esta versión está aprobada y es evidencia del encargo (NIA 230): no se reinicia ni se elimina. Si hay que
+          corregirla, cree una nueva versión.
+        </p>
+      </details>
+    );
+  }
   return (
     <details id={`encerar-${prueba.id}`}>
       <summary>Encerar o eliminar</summary>
@@ -289,12 +300,7 @@ function EncerarEliminar({ prueba, onAccion, ocupado }) {
         <label className="nf-ctx-check">
           <input type="checkbox" checked={definitivo} onChange={(e) => setDefinitivo(e.target.checked)} /> La eliminación es definitiva
         </label>
-        {prueba.estado === "APROBADO" && (
-          <label className="nf-ctx-check">
-            <input type="checkbox" checked={aprobada} onChange={(e) => setAprobada(e.target.checked)} /> Es una versión aprobada y aun así la elimino
-          </label>
-        )}
-        <button type="button" className="btn sm" disabled={ocupado} onClick={() => onAccion("delete", { confirmClient: cliente, deleteConfirmed: definitivo, approvedConfirmed: aprobada })}>
+        <button type="button" className="btn sm" disabled={ocupado} onClick={() => onAccion("delete", { confirmClient: cliente, deleteConfirmed: definitivo })}>
           Eliminar
         </button>
       </div>

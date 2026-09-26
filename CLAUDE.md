@@ -616,6 +616,29 @@ premium: relieve 3D, paleta ejecutiva sin celeste ni verde (un color propio por 
 misma lámina), variación ▲▼ coloreada según el sentido favorable del índice y semáforo; ver `docs/niif/CONTRATO_PROCESADOR.md`). Prueba: `tests/test_proc_planificacion_nia.py`; verificación LibreOffice de
 los 5 escenarios (final, preliminar con ERI, preliminar con prorrateo, pérdida PYMES, patrimonio en déficit): 0 diferencias.
 
+**Control de calidad NIA de la planificación (2026-09-26, defectos D1–D11 de la revisión de control de calidad):**
+- **Ciclo (todas las pruebas, NIA 230 y 220):** una versión **APROBADA no se reinicia ni se elimina** (`encerar`/`eliminar`
+  responden 400 `APROBADA_NO_SE_TOCA`; se corrige con una nueva versión) y la vista no ofrece esos botones. Aprobar lo que uno
+  mismo envió a revisión **se permite con advertencia** (decisión del dueño): el registro guarda `submittedBy` y
+  `segregation`, el comentario de la bitácora lleva `SIN_SEGREGACION` y la carátula muestra «Envió a revisión» y
+  «Segregación de funciones (NIA 220)» (`libro._segregacion`).
+- **D3:** el control de la carta solo rebaja el riesgo si se probará su eficacia (columna «¿Se probará el control?», campo
+  opcional `probar_control`); si no, el «Riesgo valorado» es el inherente.
+- **D4:** cada cuenta material (saldo o variación) tiene su propio procedimiento sustantivo en el programa, con la respuesta de
+  su sección (`RESPUESTA_SECCION`), aunque haya un riesgo de su área. **D5:** sin materialidad, «¿Aplica?» dice
+  `NO_APLICA_SIN_MAT`. **D6:** socio y gerente vacíos quedan `[PENDIENTE]` (programa y estrategia) y el control «Datos de
+  gobierno del encargo completos (NIA 300)» dice «Revisar». **D7:** un riesgo pendiente de calificación se trata como alto
+  (socio, visita preliminar). **D8:** un riesgo significativo exige pruebas de detalle (`EVIDENCIA_SIGNIFICATIVO`).
+- **D9:** en la preliminar con la base al «Corte actual», las bases de resultados (`BASES_FLUJO`) se anualizan × 12 ÷ meses y
+  la hoja 11 lo dice; el activo y el patrimonio no se anualizan.
+- **D10:** la fila «Opinión» del informe anterior con salvedades, desfavorable o abstención (`_opinion_modificada`) genera un
+  riesgo alto (NIA 705 y 710); se aceptan los tipos «Desfavorable» y «Abstención» (y los alias «Adversa», «Denegación»).
+- **D11:** en la narrativa, la variación de resultados acumulados (traspaso del resultado anterior) se suma al resultado del
+  período (`RESULTADO_NETO_TRASPASOS`) y en la hoja 22 su tipo es «Traspaso de resultados»; en la preliminar el importe de los
+  días es el ajustado al período. Pruebas: `tests/test_proc_planificacion_nia.py` (`test_defectos_d4_a_d8_del_programa`,
+  `test_defecto_d10_…`, `test_defecto_d11_…`) y `tests/test_aud_ciclo_revision.py`. La lista completa de la revisión (A1–A19,
+  M1–M21) sigue pendiente.
+
 **Diseño del libro (todas las herramientas, 2026-09-25):** portada con botones por sección
 (Resultado · Cómo se calculó · Datos del cliente · Documentación) y pestañas del color de su
 sección; en cada hoja la botonera Inicio/Anterior/Siguiente arriba a la izquierda; Calibri;
