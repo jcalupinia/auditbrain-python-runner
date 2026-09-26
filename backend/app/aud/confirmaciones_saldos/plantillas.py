@@ -69,6 +69,8 @@ TITLES = ['Portada del encargo', 'Muestra a circularizar', 'Cartas generadas', '
 _MONTHS = {
     'es': ['', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'],
     'en': ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+    'fr': ['', 'janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'],
+    'pt': ['', 'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'],
 }
 
 
@@ -89,7 +91,11 @@ def fmt_date(iso, lang):
         month = _MONTHS.get(lang, _MONTHS['es'])[m]
     except (ValueError, IndexError):
         return str(iso)
-    return f'{d} de {month} de {y}' if lang == 'es' else f'{month} {d}, {y}'
+    if lang in ('es', 'pt'):
+        return f'{d} de {month} de {y}'
+    if lang == 'fr':
+        return f'{d} {month} {y}'
+    return f'{month} {d}, {y}'
 
 
 # ------------------------------------------------------------------ idiomas ---
@@ -291,6 +297,204 @@ LANGS = {
             'abogados': 'Confirmation of litigation, claims and contingencies as of {cutoff}',
             'inventarios_terceros': 'Confirmation of goods on deposit or consignment as of {cutoff}',
             'inversiones': 'Confirmation of investments under custody as of {cutoff}',
+        },
+    },
+    'fr': {
+        'label': 'Français',
+        'salut': {'default': 'Messieurs, Mesdames,', 'abogados': 'Maître,'},
+        'presente': '',
+        'greeting': {'default': '', 'seguros': '', 'abogados': ''},
+        'channel': 'à l’adresse électronique {email}{tel}{addr}',
+        'tel': ', téléphone {phone}',
+        'addr': ', adresse : {address}',
+        'intro': {
+            'default': 'À l’usage de nos auditeurs indépendants {firm}, {channel}, dans le cadre de l’examen de nos états financiers au {cutoff}, nous vous prions de leur communiquer directement les informations suivantes :',
+            'confirm': 'À l’usage de nos auditeurs indépendants {firm}, {channel}, nous vous prions de bien vouloir leur confirmer directement les informations suivantes au {cutoff} :',
+            'abogados': 'Dans le cadre de l’audit de nos états financiers au {cutoff}, nous vous saurions gré d’informer directement nos auditeurs externes {firm}, {channel}, sur les points suivants dont vous auriez connaissance :',
+        },
+        'items': {
+            'bancos': [
+                'Solde du/des compte(s) courant(s) et/ou d’épargne, nationaux et internationaux, avec leur(s) numéro(s).',
+                'Solde(s) en faveur ou à charge et description du/des compte(s).',
+                'Restrictions imposées ou existantes sur le(s) compte(s) et taux d’intérêt qu’ils portent, le cas échéant.',
+                'Personnes autorisées à signer, y compris les limites d’autorisation.',
+                'Détail des prêts, lignes de crédit (accordée et utilisée), effets escomptés, acceptations, cautions et garanties, encaissements et autres opérations, avec le type et le numéro d’opération, les dates d’octroi et d’échéance, le montant, le taux d’intérêt, le montant dû en capital et intérêts (ordinaires et de retard) et les sûretés.',
+            ],
+            'cuentas_por_cobrar': [
+                'Solde(s) à recevoir et/ou à payer avec vous au {cutoff}.',
+                'Montant de la facturation que nous vous avons adressée entre le {period_start} et le {cutoff}, en précisant les concepts.',
+                'Détail des conventions, contrats et engagements que vous détenez avec {client}.',
+                'Toute autre information que vous jugez utile pour nos auditeurs.',
+            ],
+            'proveedores': [
+                'Solde(s) à payer ou à recevoir avec vous au {cutoff}.',
+                'Montant des achats ou services contractés entre le {period_start} et le {cutoff}.',
+                'Détail des montants payés au titre de prêts, dividendes ou tout autre concept (à préciser) durant la période.',
+                'Détail des conventions, contrats, garanties et engagements que vous détenez avec {client}.',
+            ],
+            'relacionados': [
+                'Solde(s) à payer ou à recevoir avec vous au {cutoff}.',
+                'Montant des achats ou services contractés entre le {period_start} et le {cutoff}.',
+                'Détail des montants payés au titre de prêts, dividendes ou tout autre concept (à préciser) durant la période.',
+                'Détail des conventions, contrats, garanties et engagements que vous détenez avec {client}.',
+            ],
+            'seguros': [
+                'Numéro de police.', 'Nature de la couverture.', 'Dates d’octroi et d’échéance.',
+                'Montant de la prime.', 'Soldes en attente de paiement au titre des primes et autres frais.',
+                'Avenants de polices établis en faveur de tiers.',
+                'Toute autre information relative à {client}.',
+            ],
+            'abogados': [
+                'Existence de procédures judiciaires ou extrajudiciaires et de litiges intentés par ou contre la société et leur état actuel, en indiquant s’ils pourraient donner lieu à des passifs ou obligations et leur montant estimé.',
+                'Toute autre affaire qui, à votre connaissance, pourrait donner lieu à un passif éventuel et son montant estimé.',
+                'Montants dus par la société à vous-même ou à des tiers, dans les affaires où vous êtes intervenu, au {cutoff}.',
+            ],
+            'inventarios_terceros': [
+                'Quantités et description des biens appartenant à {client} détenus par vous (dépôt, consignation ou façonnage) au {cutoff}.',
+                'État, emplacement et conditions de garde des biens.',
+                'Valeur des biens, si elle est connue, et toute restriction ou charge les grevant.',
+            ],
+            'inversiones': [
+                'Détail des titres et instruments financiers de {client} sous votre garde ou administration au {cutoff}.',
+                'Quantité, valeur nominale et valeur de marché.', 'Charges, nantissements ou restrictions.',
+                'Rendements courus et non encaissés à la date d’arrêté.',
+            ],
+        },
+        'closing': {
+            'default': 'Pour toute précision ou complément concernant la présente lettre, veuillez vous adresser directement à nos auditeurs indépendants {firm}.',
+            'seguros': 'Sans autre point pour le moment, nous vous remercions de votre aimable attention.',
+            'abogados': 'Les informations demandées se rapportent dans tous les cas au {cutoff} ; nous vous saurions gré d’y ajouter les éléments survenus postérieurement, jusqu’à la date de votre réponse.',
+        },
+        'valediction': 'Veuillez agréer nos salutations distinguées,',
+        'method': {
+            'positiva': 'Selon nos registres, le solde à la date d’arrêté est de {amount}. Nous vous saurions gré de confirmer directement à nos auditeurs s’il concorde avec vos registres ; à défaut, veuillez en préciser le détail.',
+            'negativa': 'Selon nos registres, le solde à la date d’arrêté est de {amount}. Veuillez informer nos auditeurs uniquement s’il ne concorde pas avec vos registres ; à défaut de réponse, l’accord sera présumé.',
+            'en_blanco': '',
+        },
+        'deadline': 'Nous vous saurions gré de répondre au plus tard le {deadline}.',
+        'ref_line': '{label} : {ref}.',
+        'response_title': 'Confirmation à compléter par le destinataire (à retourner aux auditeurs)',
+        'response': {
+            'positiva': ['Date de réponse : ______________________',
+                         '[  ] Les informations sont EXACTES.',
+                         '[  ] Les informations sont INEXACTES. Solde/valeur selon nos registres : __________________',
+                         'Observations : ____________________________________________',
+                         'Nom et fonction du signataire : _________________________',
+                         'Signature et cachet : ____________________________________________'],
+            'en_blanco': ['Date de réponse : ______________________',
+                          'Solde/valeur à la date d’arrêté : __________________________',
+                          'Détail ou pièces jointes : ______________________________',
+                          'Nom et fonction du signataire : _________________________',
+                          'Signature et cachet : ____________________________________________'],
+        },
+        'subject': {
+            'bancos': 'Confirmation des soldes et opérations bancaires au {cutoff}',
+            'cuentas_por_cobrar': 'Confirmation du solde clients au {cutoff}',
+            'proveedores': 'Confirmation du solde fournisseurs au {cutoff}',
+            'relacionados': 'Confirmation des soldes et opérations entre parties liées au {cutoff}',
+            'seguros': 'Confirmation des polices, primes et sinistres au {cutoff}',
+            'abogados': 'Confirmation des litiges, réclamations et passifs éventuels au {cutoff}',
+            'inventarios_terceros': 'Confirmation des biens en dépôt ou consignation au {cutoff}',
+            'inversiones': 'Confirmation des placements sous garde au {cutoff}',
+        },
+    },
+    'pt': {
+        'label': 'Português',
+        'salut': {'default': 'Prezados Senhores,', 'abogados': 'Prezado(a) Advogado(a),'},
+        'presente': '',
+        'greeting': {'default': '', 'seguros': '', 'abogados': ''},
+        'channel': 'para o endereço eletrônico {email}{tel}{addr}',
+        'tel': ', telefone {phone}',
+        'addr': ', endereço: {address}',
+        'intro': {
+            'default': 'Para uso dos nossos auditores independentes {firm}, {channel}, no exame das nossas demonstrações financeiras em {cutoff}, solicitamos que lhes forneçam diretamente as seguintes informações:',
+            'confirm': 'Para uso dos nossos auditores independentes {firm}, {channel}, solicitamos que confirmem diretamente a eles as seguintes informações com data de corte em {cutoff}:',
+            'abogados': 'Em razão da auditoria das nossas demonstrações financeiras em {cutoff}, agradecemos que informem diretamente aos nossos auditores externos {firm}, {channel}, sobre os seguintes pontos de seu conhecimento:',
+        },
+        'items': {
+            'bancos': [
+                'Saldo da(s) conta(s) corrente(s) e/ou poupança, nacionais e internacionais, com seu(s) número(s).',
+                'Saldo(s) a favor ou a cargo e descrição da(s) conta(s).',
+                'Restrições impostas ou existentes sobre a(s) conta(s) e a taxa de juros que rendem, se aplicável.',
+                'Pessoas autorizadas a assinar, incluindo limites de autorização.',
+                'Detalhe de empréstimos, linhas de crédito (aprovada e utilizada), títulos descontados, aceites, fianças e avais, cobranças e demais operações, com tipo e número da operação, datas de concessão e vencimento, valor, taxa de juros, valor devido de principal e juros (normais e de mora) e garantias.',
+            ],
+            'cuentas_por_cobrar': [
+                'Saldo(s) a receber e/ou a pagar com vocês em {cutoff}.',
+                'Montante do faturamento que emitimos a vocês entre {period_start} e {cutoff}, incluindo os conceitos.',
+                'Detalhe de convênios, contratos e compromissos mantidos com {client}.',
+                'Qualquer outra informação que considerem útil para os nossos auditores.',
+            ],
+            'proveedores': [
+                'Saldo(s) a pagar ou a receber com vocês em {cutoff}.',
+                'Montante de compras ou serviços contratados entre {period_start} e {cutoff}.',
+                'Detalhe de valores pagos por empréstimos, dividendos ou qualquer outro conceito (especificar) no período.',
+                'Detalhe de convênios, contratos, garantias e compromissos mantidos com {client}.',
+            ],
+            'relacionados': [
+                'Saldo(s) a pagar ou a receber com vocês em {cutoff}.',
+                'Montante de compras ou serviços contratados entre {period_start} e {cutoff}.',
+                'Detalhe de valores pagos por empréstimos, dividendos ou qualquer outro conceito (especificar) no período.',
+                'Detalhe de convênios, contratos, garantias e compromissos mantidos com {client}.',
+            ],
+            'seguros': [
+                'Número da apólice.', 'Natureza da cobertura.', 'Datas de concessão e vencimento.',
+                'Valor do prêmio.', 'Saldos pendentes de pagamento a título de prêmios e outras despesas.',
+                'Endossos de apólices efetuados a favor de terceiros.',
+                'Qualquer outra informação relacionada com {client}.',
+            ],
+            'abogados': [
+                'Existência de processos judiciais ou extrajudiciais e ações movidas pela ou contra a companhia e seu estado atual, indicando se poderiam resultar em passivos ou obrigações e seu valor estimado.',
+                'Qualquer outro assunto que, segundo seu conhecimento, possa resultar em um possível passivo e seu valor estimado.',
+                'Valores devidos pela companhia a você ou a terceiros, em assuntos em que tenha atuado, em {cutoff}.',
+            ],
+            'inventarios_terceros': [
+                'Quantidades e descrição dos bens de {client} em seu poder (depósito, consignação ou industrialização) em {cutoff}.',
+                'Estado, localização e condições de guarda dos bens.',
+                'Valor dos bens, se conhecido, e restrições ou ônus que recaiam sobre eles.',
+            ],
+            'inversiones': [
+                'Detalhe de títulos e instrumentos financeiros de {client} sob sua custódia ou administração em {cutoff}.',
+                'Quantidade, valor nominal e valor de mercado.', 'Ônus, penhores ou restrições.',
+                'Rendimentos incorridos e não recebidos na data de corte.',
+            ],
+        },
+        'closing': {
+            'default': 'Para qualquer esclarecimento ou complemento do texto desta carta, solicitamos dirigir-se diretamente aos nossos auditores independentes {firm}.',
+            'seguros': 'Sem outro particular no momento, agradecemos sua gentil atenção.',
+            'abogados': 'As informações citadas referem-se em todos os casos a {cutoff}; agradecemos que as questões surgidas posteriormente e até a data da sua resposta também sejam informadas.',
+        },
+        'valediction': 'Atenciosamente,',
+        'method': {
+            'positiva': 'Segundo os nossos registros, o saldo na data de corte é de {amount}. Agradecemos confirmar diretamente aos nossos auditores se coincide com os seus registros; em caso de divergência, indique o detalhe.',
+            'negativa': 'Segundo os nossos registros, o saldo na data de corte é de {amount}. Solicitamos comunicar aos nossos auditores apenas se não coincidir com os seus registros; não havendo resposta, será presumida a conformidade.',
+            'en_blanco': '',
+        },
+        'deadline': 'Agradecemos sua resposta até {deadline}.',
+        'ref_line': '{label}: {ref}.',
+        'response_title': 'Confirmação a ser preenchida pelo destinatário (devolver aos auditores)',
+        'response': {
+            'positiva': ['Data da resposta: ______________________',
+                         '[  ] As informações estão CORRETAS.',
+                         '[  ] As informações estão INCORRETAS. Saldo/valor segundo nossos registros: __________________',
+                         'Observações: ____________________________________________',
+                         'Nome e cargo de quem responde: _________________________',
+                         'Assinatura e carimbo: ____________________________________________'],
+            'en_blanco': ['Data da resposta: ______________________',
+                          'Saldo/valor na data de corte: __________________________',
+                          'Detalhe ou documentos anexos: ______________________________',
+                          'Nome e cargo de quem responde: _________________________',
+                          'Assinatura e carimbo: ____________________________________________'],
+        },
+        'subject': {
+            'bancos': 'Confirmação de saldos e operações bancárias em {cutoff}',
+            'cuentas_por_cobrar': 'Confirmação de saldo a receber em {cutoff}',
+            'proveedores': 'Confirmação de saldo a pagar em {cutoff}',
+            'relacionados': 'Confirmação de saldos e transações entre partes relacionadas em {cutoff}',
+            'seguros': 'Confirmação de apólices, prêmios e sinistros em {cutoff}',
+            'abogados': 'Confirmação de litígios, reclamações e contingências em {cutoff}',
+            'inventarios_terceros': 'Confirmação de bens em depósito ou consignação em {cutoff}',
+            'inversiones': 'Confirmação de investimentos sob custódia em {cutoff}',
         },
     },
 }

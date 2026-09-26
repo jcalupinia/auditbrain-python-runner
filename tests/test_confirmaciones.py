@@ -190,6 +190,14 @@ class ConfirmacionesTests(unittest.TestCase):
         self.assertEqual(letter['language'], 'en')
         self.assertTrue(any('Dear' in x for x in letter['salutation']))
         self.assertIn('independent auditors', letter['blocks'][0])
+        # francés y portugués disponibles y renderizando
+        from backend.app.aud.confirmaciones_saldos.plantillas import languages
+        self.assertEqual(set(languages()), {'es', 'en', 'fr', 'pt'})
+        for lang, needle in (('fr', 'auditeurs indépendants'), ('pt', 'auditores independentes')):
+            pl = payload(); pl['context']['language'] = lang
+            rr = calculate(pl)
+            self.assertEqual(rr['letters'][0]['language'], lang)
+            self.assertIn(needle, rr['letters'][0]['blocks'][0])
         # idioma no disponible se rechaza
         p2 = payload(); p2['context']['language'] = 'zz'
         with self.assertRaises(ValueError):

@@ -30,7 +30,7 @@ export const METHODS = [
 ];
 
 // Idiomas disponibles (respaldo; el backend devuelve la lista real en /context).
-export const LANGUAGES = [['es', 'Español'], ['en', 'English']];
+export const LANGUAGES = [['es', 'Español'], ['en', 'English'], ['fr', 'Français'], ['pt', 'Português']];
 
 // Columnas que se pueden mapear desde la muestra cargada.
 export const ITEM_FIELDS = ['id', 'type', 'entity', 'contact_name', 'contact_email',
