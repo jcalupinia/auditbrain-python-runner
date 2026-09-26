@@ -144,3 +144,20 @@ def test_documentos_generados_por_la_plataforma(client):
     celdas = [c.text for t in carta.tables for c in t._cells]
     assert "Responsabilidades del auditor" in celdas and "Riesgo significativo · RB-01" in celdas
     assert not any(c.startswith("Envío de la carta") for c in celdas)
+
+
+def test_los_documentos_llevan_el_marco_del_cliente():
+    import io
+
+    from docx import Document
+
+    from backend.app.aud.niif.ciclo import documentos_encargo as docs
+
+    def texto(b):
+        return "\n".join(p.text for p in Document(io.BytesIO(b)).paragraphs)
+
+    completas = texto(docs.carta_encargo(FICHA, {}))
+    assert "de conformidad con NIIF completas;" in completas and "PYMES" not in completas
+    pymes = {**FICHA, "framework": "NIIF para las PYMES", "edition": "2015"}
+    assert "NIIF para las PYMES (edición 2015)" in texto(docs.carta_encargo(pymes, {}))
+    assert "NIIF para las PYMES (edición 2025)" in texto(docs.carta_planificacion({**pymes, "edition": "2025"}, {}, None))

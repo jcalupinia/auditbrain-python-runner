@@ -896,3 +896,29 @@ def test_a4_firmas_de_las_cedulas_clave_desde_la_bitacora():
     assert libro._firmas(d, reg, [ev[0], {**ev[1], "actor": "ana"}])["rows"][0][-1].startswith("Revisar · aprobó quien preparó")
     assert libro._firmas(d, reg, [])["rows"][0][-1] == "Pendiente · no se ha enviado a revisión"
     assert libro._firmas({"name": "x"}, reg, ev) is None
+
+
+def test_normas_segun_el_marco_del_cliente():
+    """NIIF completas cita NIC y NIIF; NIIF para las PYMES cita sus secciones, con la herramienta de deterioro de su marco."""
+    def papel(r):
+        return repr([h["rows"] for h in m.hojas(r)])
+
+    rc = _hojas()[0]
+    rp = _esc("perdida_pymes")
+    tc, tp = papel(rc), papel(rp)
+    assert (rc["detalle"]["marco"], rp["detalle"]["marco"]) == (m.MARCO_COMPLETAS, m.MARCO_PYMES)
+    for cita in ("(NIC 2)", "(NIIF 9)", "(NIC 36)", "pérdida crediticia esperada"):
+        assert cita not in tp
+    assert "(Sección 11)" in tp and "(Sección 27)" in tp and "(Secciones 13 y 27)" in tp
+    assert "(NIC 2)" in tc and "(Sección 11)" not in tc
+    cart = next(x for x in rp["detalle"]["riesgos"] if x["cod"] == "cartera")
+    assert cart["herr"].endswith(m.DETERIORO_CARTERA[m.MARCO_PYMES])
+    assert next(x for x in rc["detalle"]["riesgos"] if x["cod"] == "cartera")["herr"].endswith(m.DETERIORO_CARTERA[m.MARCO_COMPLETAS])
+    # La edición del marco queda en la hoja 02, en el perfil y en la estrategia.
+    assert rp["detalle"]["edicion"] == "2015" and rc["detalle"]["edicion"] == m.EDICION_COMPLETAS
+    e = m.EJEMPLO
+    r25 = m.ejecutar(e["datasets"], {**e["parametros"], "_marco": m.MARCO_PYMES, "_edicion": "2025"}, e["corte"])
+    est = {f[0]: _v(f[1]) for f in next(h for h in m.hojas(r25) if h["name"] == "21_Estrategia")["rows"]}
+    assert est["Marco de información financiera"] == "NIIF para las PYMES · edición: 2025"
+    # Sin auditoría de grupos (decisión de la firma).
+    assert "auditoriaGrupo" not in m.PARAMETROS and "NIA 600" not in tc

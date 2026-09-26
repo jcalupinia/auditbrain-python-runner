@@ -166,13 +166,23 @@ def _fecha(f) -> str:
 
 # --- documentos --------------------------------------------------------------------------------------------------------
 
+def marco_contable(ficha: dict) -> str:
+    """El marco del cliente según la ficha; en NIIF para las PYMES, con su edición (2015 o 2025)."""
+    marco = str((ficha or {}).get("framework") or "").strip()
+    if not marco:
+        return PENDIENTE
+    if "PYMES" in marco:
+        return f"{marco} (edición {'2025' if '2025' in str(ficha.get('edition') or '') else '2015'})"
+    return marco
+
+
 def carta_encargo(ficha: dict, encargo: dict, hoy: datetime.date | None = None) -> bytes:
     f = ficha or {}
     reg = (encargo or {}).get("registros") or {}
     socio = next((x["integrante"] for x in reg.get("equipo") or [] if x.get("rol") == "Socio"), "") or PENDIENTE
     firma = firma_legal(f)
     cliente = f.get("client") or PENDIENTE
-    marco = f.get("framework") or PENDIENTE
+    marco = marco_contable(f)
     corte = f.get("cutoff") or PENDIENTE
     doc = _doc("Carta de encargo de auditoría", f"NIA 210 · {firma}")
     _p(doc, f"Fecha: {(hoy or datetime.date.today()).isoformat()}")
@@ -258,7 +268,8 @@ def carta_planificacion(ficha: dict, encargo: dict, run: dict | None, hoy: datet
     _p(doc, f"Fecha: {(hoy or datetime.date.today()).isoformat()}")
     _p(doc, f"Señores\nResponsables del gobierno de la entidad\n{cliente}")
     _p(doc, f"Les comunicamos el alcance y el momento de realización de la auditoría de los estados financieros al "
-            f"{f.get('cutoff') or PENDIENTE} y los riesgos significativos identificados en la planificación.")
+            f"{f.get('cutoff') or PENDIENTE}, preparados de conformidad con {marco_contable(f)}, y los riesgos significativos "
+            "identificados en la planificación.")
     asuntos = filas(hoja(run, "32_"))
     if asuntos:
         # La propia carta no se lista (su envío se registra con un clic después de mandarla).

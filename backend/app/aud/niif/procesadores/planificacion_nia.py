@@ -47,7 +47,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from backend.app.aud.niif.procesadores import planificacion_encargo as enc_m
 from backend.app.aud.niif.procesadores import problemas as _pr
 from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num lo usa el ciclo)
-    FILA0, MARCO_COMPLETAS, MARCO_PYMES, a_fecha, a_num, campo, es_pymes, fx, hoja, m, n2, norm, problema, r2, ref, req,
+    FILA0, MARCO_COMPLETAS, MARCO_PYMES, a_fecha, a_num, campo, edicion_pymes, es_pymes, fx, hoja, m, n2, norm, problema, r2, ref, req,
     validar_campos, validar_definicion_generica,
 )
 from backend.app.aud.niif.procesadores.base import filas_mapeadas as _filas_mapeadas
@@ -259,7 +259,7 @@ PARAMETROS = {
     "pctDesempeno": 50, "pctTrivial": 5, "justificacion": "",
     "umbralVarPct": 15, "umbralVarExtrema": 100, "umbralAlto": 15, "umbralMedio": 8, "umbralDiasRotacion": 15,
     "umbralSignificativo": 20,
-    "encargoInicial": "No", "interesPublico": "No", "auditoriaGrupo": "No",
+    "encargoInicial": "No", "interesPublico": "No",
     "refutarIngresos": "No", "motivoRefutacion": "",
     "enfoque": "Sustantivo con pruebas de controles clave",
     "fechaPreliminar": "", "fechaFinal": "", "fechaInforme": "",
@@ -289,7 +289,6 @@ ETIQUETAS_PARAM = {
     "umbralSignificativo": "Matriz de riesgos: riesgo INHERENTE desde el cual el riesgo es significativo (escala 1–25)",
     "encargoInicial": "Encargo inicial: primer año de auditoría (Sí / No)",
     "interesPublico": "Entidad de interés público o cotizada (Sí / No)",
-    "auditoriaGrupo": "Auditoría de un grupo o de un componente (Sí / No)",
     "refutarIngresos": "Se refuta la presunción de fraude en el reconocimiento de ingresos (Sí / No)",
     "motivoRefutacion": "Motivo documentado de la refutación (NIA 240 párr. 47)",
     "enfoque": "Enfoque general de la auditoría",
@@ -556,6 +555,27 @@ EFECTO_INFORME = {
     "Asunto clave": "Considerar como posible riesgo significativo del año (NIA 701 y 315).",
     "Otro asunto": "Tener presente en la planificación (NIA 706).",
 }
+# Las citas de los textos están en NIIF completas; con NIIF para las PYMES se reemplazan por su sección (el cliente
+# aplica un solo marco, el de la ficha del encargo).
+NORMAS_PYMES = {"(NIC 36)": "(Sección 27)", "(NIIF 9)": "(Sección 11)", "(NIC 2)": "(Secciones 13 y 27)",
+                "modelo de pérdida crediticia esperada": "evidencia objetiva de deterioro (pérdida incurrida)",
+                "cálculo de la pérdida crediticia esperada": "cálculo de la pérdida por deterioro incurrida"}
+DETERIORO_CARTERA = {MARCO_COMPLETAS: "Pérdida crediticia esperada · enfoque simplificado (NIIF 9)",
+                     MARCO_PYMES: "Deterioro de cuentas por cobrar · pérdidas incurridas (Sección 11)"}
+
+
+EDICION_COMPLETAS = "Vigentes al corte"
+
+
+def segun_marco(texto: str, marco: str) -> str:
+    """El texto con las citas del marco del cliente (NIIF completas o NIIF para las PYMES)."""
+    if marco != MARCO_PYMES:
+        return texto
+    for a, b in NORMAS_PYMES.items():
+        texto = texto.replace(a, b)
+    return texto
+
+
 OPINION_TXT = {"Salvedad": "con salvedades", "Desfavorable": "desfavorable", "Abstención": "abstención de opinión"}
 # Posibles riesgos: (código interno, origen, rubro, condición, posible riesgo, severidad, norma, respuesta, herramienta)
 _RIESGOS_BALANCE = [
@@ -626,7 +646,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     u_dias = _pnum(p, "umbralDiasRotacion", 0, 3650)
     if u_medio > u_alto:
         raise ValueError("Matriz de riesgos: el umbral Medio no puede superar al Alto.")
-    sino = {k: _psino(p, k) for k in ("encargoInicial", "interesPublico", "auditoriaGrupo", "refutarIngresos")}
+    sino = {k: _psino(p, k) for k in ("encargoInicial", "interesPublico", "refutarIngresos")}
     pe = enc_m.parametros(p)          # parámetros del encargo (año anterior, rotación, materialidad específica, muestreo)
     reg = enc_m.registros(p)          # registros con un clic en la plataforma (independencia, aceptación, carta, discusión…)
     # D6/A1: socio y gerente, si la hoja 02 no los trae, son los integrantes con ese rol que confirmaron su independencia.
@@ -640,6 +660,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             raise ValueError(f"{ETIQUETAS_PARAM[k]}: fecha inválida.")
         fechas[k] = a_fecha(v).isoformat() if v else None
     marco = MARCO_PYMES if es_pymes(p) else MARCO_COMPLETAS
+    # NIIF para las PYMES: 2015 o 2025 (3.ª edición, rige desde 2027) según la ficha; NIIF completas: las vigentes al corte.
+    edicion = edicion_pymes(p) if marco == MARCO_PYMES else EDICION_COMPLETAS
     prelim = tipo == "Preliminar"
 
     # 1 · balances de comprobación (cada uno con su jerarquía, clasificación y rubro del ERI)
@@ -902,8 +924,11 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
 
     riesgos = []
     for cod_, origen, rubro, cond, rsg, sev, norma, resp, herr in _RIESGOS_BALANCE:
+        if cod_ in ("cartera", "rotCartera"):
+            herr = f"{herr}; {DETERIORO_CARTERA[marco]}"   # la herramienta de deterioro depende del marco del cliente
         riesgos.append({"cod": cod_, "origen": origen, "rubro": rubro, "cond": cond, "valor": valor[cod_],
-                        "presenta": presenta(cod_, valor[cod_]), "riesgo": rsg, "sev": sev, "norma": norma, "resp": resp, "herr": herr})
+                        "presenta": presenta(cod_, valor[cod_]), "riesgo": segun_marco(rsg, marco), "sev": sev, "norma": norma,
+                        "resp": segun_marco(resp, marco), "herr": herr})
     nivel3 = [x for x in cuentas if x["nivel"] == 3 and x["sec"] in SECCIONES[:6]]
     top_var = sorted([x for x in nivel3 if alcanza(x["var"])], key=lambda x: -abs(x["var"]))[:6]
     for x in top_var:
@@ -1057,7 +1082,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                  "cuentasRevisar": "Cuentas principales a revisar"}
     filas = [{"id": x["codigo"], "cuenta": x["cuenta"], "seccion": x["sec"], "saldo_anterior": r2(x["ant"]), "saldo_actual": r2(x["act"]),
               "variacion": r2(x["var"]), "material": x["material"]} for x in cuentas]
-    detalle = {"corte": corte_a.isoformat(), "marco": marco, "tipo": tipo, "meses": meses, "dias": dias, "mapa": mapa,
+    detalle = {"corte": corte_a.isoformat(), "marco": marco, "edicion": edicion, "tipo": tipo, "meses": meses, "dias": dias, "mapa": mapa,
                "base": base_nombre, "periodo": periodo, "periodoParam": periodo_param, "anualiza": anualiza, "pct": pct, "bases": bases,
                "pctBase": pct_base, "umbrales": {"var": umbral_var, "ext": umbral_ext, "alto": u_alto, "medio": u_medio, "dias": u_dias, "sig": u_sig},
                "sino": sino, "fechas": fechas, "fuentes": fuentes, "hayEri": hay_eri, "bruto": bruto, "signo": signo, "sec7": sec7,
@@ -1365,9 +1390,9 @@ CEDULAS = [
     ("33_Problemas", "Asuntos para la planificación"),
 ]
 _ETQ = dict(CEDULAS)
-_PAR = ["corte", "marco", "tipoRevision", "mesesTranscurridos", "mapaCuentas", "baseMaterialidad", "periodoBase", "pctIngresos",
+_PAR = ["corte", "marco", "edicionMarco", "tipoRevision", "mesesTranscurridos", "mapaCuentas", "baseMaterialidad", "periodoBase", "pctIngresos",
         "pctActivos", "pctPatrimonio", "pctGastos", "pctUAI", "pctDesempeno", "pctTrivial", "justificacion", "umbralVarPct",
-        "umbralVarExtrema", "umbralDiasRotacion", "umbralAlto", "umbralMedio", "encargoInicial", "interesPublico", "auditoriaGrupo", "refutarIngresos",
+        "umbralVarExtrema", "umbralDiasRotacion", "umbralAlto", "umbralMedio", "encargoInicial", "interesPublico", "refutarIngresos",
         "motivoRefutacion", "enfoque", "fechaPreliminar", "fechaFinal", "fechaInforme", "socio", "gerente", "expertos",
         "umbralSignificativo", *enc_m.PARAMETROS]
 PAR = {k: FILA0 + i for i, k in enumerate(_PAR)}
@@ -1628,7 +1653,7 @@ def hojas(res: dict) -> list[dict]:
 
     # 02 · parámetros (valores del encargo y juicio del auditor)
     fch = d["fechas"]
-    val = {"corte": d["corte"], "marco": d["marco"], "tipoRevision": d["tipo"], "mesesTranscurridos": d["meses"],
+    val = {"corte": d["corte"], "marco": d["marco"], "edicionMarco": d["edicion"], "tipoRevision": d["tipo"], "mesesTranscurridos": d["meses"],
            "mapaCuentas": "; ".join(f"{a}={b}" for a, b in d["mapa"]), "baseMaterialidad": d["base"], "periodoBase": d["periodoParam"],
            **{k: d["pct"][k] for k in d["pct"]}, "justificacion": pv("justificacion"), "umbralVarPct": d["umbrales"]["var"],
            "umbralVarExtrema": d["umbrales"]["ext"], "umbralDiasRotacion": d["umbrales"]["dias"],
@@ -1636,7 +1661,7 @@ def hojas(res: dict) -> list[dict]:
            **d["sino"], "motivoRefutacion": pv("motivoRefutacion"), "enfoque": pv("enfoque"), **fch,
            "socio": pv("socio"), "gerente": pv("gerente"), "expertos": pv("expertos"),
            **{k: (None if d["pe"][k] in ("", None) else d["pe"][k]) for k in enc_m.PARAMETROS}}
-    sustento = {"corte": "Ficha del encargo", "marco": "Ficha del encargo", "tipoRevision": "Cronograma del encargo",
+    sustento = {"corte": "Ficha del encargo", "marco": "Ficha del encargo", "edicionMarco": "Ficha del encargo", "tipoRevision": "Cronograma del encargo",
                 "mesesTranscurridos": "Solo prorratea el ERI del año anterior si no se entrega al mismo corte",
                 "mapaCuentas": "Plan de cuentas del cliente; la hoja 03 lo muestra como tabla (edítela allí)",
                 "baseMaterialidad": "NIA 320 párr. A3–A5: juicio profesional", "periodoBase": "NIA 320 párr. A5–A6",
@@ -1644,10 +1669,11 @@ def hojas(res: dict) -> list[dict]:
                 "justificacion": "NIA 320 párr. 14 (documentación)", "umbralAlto": "Política de la firma (mapa de calor 5 × 5)",
                 "umbralMedio": "Política de la firma (mapa de calor 5 × 5)", "encargoInicial": "NIA 300 párr. 13 y NIA 510",
                 "umbralSignificativo": "NIA 315 párr. 12 l) y 32; NIA 330 párr. 21 — política de la firma (VERIFICAR)",
-                "interesPublico": "NIA 701", "auditoriaGrupo": "NIA 600", "refutarIngresos": "NIA 240 párr. 26 y 47",
+                "interesPublico": "NIA 701", "refutarIngresos": "NIA 240 párr. 26 y 47",
                 "motivoRefutacion": "NIA 240 párr. 47", "enfoque": "NIA 300 párr. 8", "socio": "NIA 220", "gerente": "NIA 220",
                 "expertos": "NIA 300 párr. 8 e) y NIA 620", **enc_m.SUSTENTO}
-    parametros = [[ETIQUETAS_PARAM.get(k, {"corte": "Corte del ejercicio", "marco": "Marco de información financiera"}.get(k, k)),
+    parametros = [[ETIQUETAS_PARAM.get(k, {"corte": "Corte del ejercicio", "marco": "Marco de información financiera",
+                                              "edicionMarco": "Edición del marco (PYMES: 2015 o 2025)"}.get(k, k)),
                    val.get(k), sustento.get(k, "Política de la firma" if k.startswith(("pct", "umbral")) else "Cronograma del encargo")]
                   for k in _PAR]
 
@@ -2132,7 +2158,7 @@ def hojas(res: dict) -> list[dict]:
             cubiertas_area.add(_area(x["rubro"]))
         programa.append([f"PT-{len(programa) + 1:02d}", x["rubro"], x["codigo"], fx(f"{R13}H{FILA0 + i}", x["sev"]), x["resp"], x["herr"],
                          oport(f"D{r}", x["sev"]), _aser_riesgo(x, cu),
-                         evid(r, x["sev"], EVIDENCIA_RIESGO.get(x["norma"], EVIDENCIA_DEFECTO)), resp_(x["sev"]),
+                         evid(r, x["sev"], segun_marco(EVIDENCIA_RIESGO.get(x["norma"], EVIDENCIA_DEFECTO), d["marco"])), resp_(x["sev"]),
                          aplica(f"{R13}F{FILA0 + i}", "Sí")])
     # Cobertura (NIA 330 párr. 18, D4): toda cuenta material (por saldo o por variación) lleva su propio procedimiento
     # sustantivo, aunque haya un riesgo de su área: una indagación o la explicación de una variación no son pruebas
@@ -2280,7 +2306,7 @@ def hojas(res: dict) -> list[dict]:
     dv = {k: e9["act"][k] - e9["ant"][k] for k in ("Inventarios", "Ventas netas", "Efectivo y equivalentes", "Cuentas por cobrar",
                                                   "Cuentas por pagar", "Obligaciones financieras", "Utilidad neta")}
     ev = {k: f"{E9}E{F9[k]}" for k in dv}
-    for concepto, clave, f_, v_ in _causa_efecto(ev, dv):
+    for concepto, clave, f_, v_ in _causa_efecto(ev, dv, d["marco"]):
         narrativa.append(["Causa-efecto", concepto, fx(ev[clave], n2(dv[clave])), fx(f_, v_)])
     # origen y destino del efectivo: las dos partidas que más originan y las dos que más aplican (hoja 22). D11: la variación
     # de «Resultados acumulados» es sobre todo el traspaso del resultado anterior, no efectivo: se suma al resultado del
@@ -2309,6 +2335,7 @@ def hojas(res: dict) -> list[dict]:
 
     ref_rec = {"rc": "razonCorriente", "end": "endTotal", "cartera": "diasCartera", "inventario": "diasInventario"}
     for nombre, k, cond, si, no in RECOMENDACIONES:
+        si = segun_marco(si, d["marco"])
         v = ia[ref_rec[k]]
         dias_ = k in ("cartera", "inventario")          # A2: en un corte parcial, días × meses ÷ 12
         cumple = v is not None and eval(f"{v * d['fac'] if dias_ else v}{cond}")  # noqa: S307  (cond es una constante)
@@ -2330,7 +2357,8 @@ def hojas(res: dict) -> list[dict]:
     n_rev = len(rev)
     riesgos_altos = float(res["totals"]["riesgosAltos"])
     estrategia = [
-        ["Marco de información financiera", fx(_par("marco"), d["marco"]), "NIA 300 párr. 8 a)"],
+        ["Marco de información financiera", fx(f'{_par("marco")}&" · edición: "&{_par("edicionMarco")}', f'{d["marco"]} · edición: {d["edicion"]}'),
+         "NIA 300 párr. 8 a)"],
         ["Tipo de revisión", fx(_par("tipoRevision"), d["tipo"]), "Cronograma del encargo"],
         ["Períodos comparados", fx(f'IF({PRELIM},"Balance: cierre anterior contra el corte; resultados: mismo corte de ambos años",'
                                    '"Balance y resultados: diciembre anterior contra diciembre actual")',
@@ -2343,9 +2371,6 @@ def hojas(res: dict) -> list[dict]:
         ["Entidad de interés público o cotizada", fx(f'IF({_par("interesPublico")}="Sí","Sí: comunicar asuntos clave de auditoría (NIA 701)","No")',
                                                      "Sí: comunicar asuntos clave de auditoría (NIA 701)" if sino["interesPublico"] == "Sí" else "No"),
          "NIA 300 párr. 8 b)"],
-        ["Auditoría de un grupo o componente", fx(f'IF({_par("auditoriaGrupo")}="Sí","Sí: coordinar con el equipo del grupo (NIA 600)","No")',
-                                                  "Sí: coordinar con el equipo del grupo (NIA 600)" if sino["auditoriaGrupo"] == "Sí" else "No"),
-         "NIA 300 párr. 8 a)"],
         ["Base de la materialidad", fx(f'{_par("baseMaterialidad")}&" ("&LOWER({M11}$E${F11["Período de la base"]})&")"',
                                        f"{d['base']} ({d['periodo'].lower()})"), "NIA 320 párr. A3–A5"],
         ["Materialidad global", fx(f"{M11}$D${F11['Materialidad global']}", n2(mt["global"])), "NIA 320 párr. 10"],
@@ -2877,7 +2902,7 @@ MARCO_AUDITORIA = "Normas Internacionales de Auditoría (NIA)"
 IDENT_INFORME = (("Entidad auditada", ("entidad",)), ("RUC", ("ruc",)), ("Actividad", ("actividad", "objetosocial")),
                  ("País y moneda funcional", ("pais", "moneda")))
 IDENT_PARAM = (("Período auditado (fecha de corte)", "corte"), ("Tipo de revisión", "tipoRevision"),
-               ("Marco de información financiera", "marco"), ("Auditoría de grupo o de un componente", "auditoriaGrupo"),
+               ("Marco de información financiera", "marco"), ("Edición del marco", "edicionMarco"),
                ("Encargo inicial (primer año)", "encargoInicial"), ("Socio del encargo", "socio"), ("Gerente del encargo", "gerente"))
 TXT_ENTENDIMIENTO_PEND = ("Documente el entendimiento de la entidad y su entorno: modelo de negocio, estructura y propiedad, partes "
                           "relacionadas, sistema de información y marco normativo (NIA 315 párr. 19).")
@@ -2919,7 +2944,7 @@ def _perfil(informe: list, d: dict, pv) -> tuple[list, list, dict]:
         usados.add(j)
         de_informe(j, informe[j])
     for concepto, k in IDENT_PARAM:
-        v = {"corte": d["corte"], "tipoRevision": d["tipo"], "marco": d["marco"]}.get(k, d["sino"].get(k) if k in d["sino"] else pv(k))
+        v = {"corte": d["corte"], "tipoRevision": d["tipo"], "marco": d["marco"], "edicionMarco": d["edicion"]}.get(k, d["sino"].get(k) if k in d["sino"] else pv(k))
         filas.append(["Identificación", concepto, fx(f'IF({_par(k)}="","{PENDIENTE}",{_par(k)})', PENDIENTE if v in (None, "") else v),
                       None, "Hoja 02 · Parámetros", EFECTO_INFORME["Identificación"], ORIGEN_PARAMETROS])
         estilos.append(None)
@@ -3091,11 +3116,11 @@ def _cifra_var(etq: str, ref_: str, v: float) -> tuple[str, str]:
             f"{etq} {'+' if v >= 0 else '−'}US$ {_num(abs(v))}")
 
 
-def _causa_efecto(ev: dict, dv: dict) -> list:
+def _causa_efecto(ev: dict, dv: dict, marco: str = MARCO_COMPLETAS) -> list:
     """Lectura causa-efecto de las variaciones (artefacto), con los montos: (concepto, clave del importe, fórmula, valor)."""
     inv, ven, caja, cxc = (ev[k] for k in ("Inventarios", "Ventas netas", "Efectivo y equivalentes", "Cuentas por cobrar"))
     di, dven, dc, dcx = (dv[k] for k in ("Inventarios", "Ventas netas", "Efectivo y equivalentes", "Cuentas por cobrar"))
-    t = CAUSA_EFECTO
+    t = {k: segun_marco(v, marco) for k, v in CAUSA_EFECTO.items()}
 
     def montos(*pares):
         fs, vs = zip(*(_cifra_var(e_, r_, v_) for e_, r_, v_ in pares))
@@ -3411,8 +3436,8 @@ EXPLICA = {
                                    "quita la respuesta específica ni las pruebas sustantivas que exige la NIA 330 párr. 21."),
     },
     "14_Perfil": {
-        "Detalle": ("En la identificación toma de la hoja 02 el corte, el tipo de revisión, el marco, si es auditoría de grupo "
-                    "o encargo inicial y el socio y el gerente; lo que está en blanco queda «[PENDIENTE]». Los demás datos "
+        "Detalle": ("En la identificación toma de la hoja 02 el corte, el tipo de revisión, el marco, si es encargo inicial "
+                    " y el socio y el gerente; lo que está en blanco queda «[PENDIENTE]». Los demás datos "
                     "vienen del informe del año anterior (hoja de datos del cliente) y los que no tienen soporte quedan "
                     "«[PENDIENTE]»: no se completan por inferencia."),
     },

@@ -675,6 +675,13 @@ RQ-013): la planificación pide solo los documentos del cliente (RQ-001 a RQ-009
   (NIA 260 y asuntos clave candidatos NIA 701 en entidades de interés público) y `33_Problemas`. Programa: «Extensión
   (NIA 330 y 530)», aseveraciones por área y confirmaciones/observación del inventario solo para cuentas de balance
   materiales. **A4:** la definición declara `firmas` y el libro agrega `00_Firmas` desde la bitácora.
+- **Marco contable del cliente (NIIF completas o NIIF para las PYMES):** sale de la ficha del encargo (`_marco`,
+  `_edicion`). Las citas de riesgos, recomendaciones, lectura causa-efecto y evidencia están escritas en NIIF completas y
+  `segun_marco()` las pasa a la sección de PYMES (NIC 36 → Sección 27, NIIF 9 → Sección 11, NIC 2 → Secciones 13 y 27;
+  «pérdida crediticia esperada» → pérdida incurrida). La herramienta de deterioro de la cartera también depende del marco
+  (`DETERIORO_CARTERA`: pérdida crediticia esperada NIIF 9 o pérdidas incurridas Sección 11). La hoja 02 lleva «Edición del
+  marco» (PYMES 2015 o 2025; NIIF completas «Vigentes al corte»), que se ve en el perfil y en la estrategia; la carta de
+  encargo y la carta de planificación citan el marco con su edición. Prueba: `test_normas_segun_el_marco_del_cliente`.
 - Pruebas: `tests/test_proc_planificacion_nia.py` (`test_a…`, `test_sin_plantillas_manuales_ni_grupo`,
   `test_registros_de_la_plataforma_en_00_registros_y_formulas`), `tests/test_aud_registros_encargo.py` (reglas,
   anulación, años con el cliente, inyección y documentos) y `registroLogic.test.js`. Verificación LibreOffice de los 6
