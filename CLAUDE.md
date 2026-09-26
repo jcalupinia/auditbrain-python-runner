@@ -570,11 +570,19 @@ resumidos, índices con semáforo (días sobre los días del período), material
 defecto; en la preliminar la base es el año anterior), matriz de la carta de CI (inherente = P × I; residual =
 inherente × (6 − C) ÷ 5), posibles riesgos (NIA 240, NIA 570, días de cartera e inventario, variaciones, informe
 anterior), notas contra el balance anterior (NIA 510), anomalías, control de calidad, cuentas a revisar, programa
-(NIA 330), narrativa y estrategia (NIA 300). **Los datos del cliente LANSEY del artefacto original NO van al repo**: el
+(NIA 330), narrativa y estrategia (NIA 300). Reglas del prompt FIN-AP aplicadas (2026-09-26, con los agentes del plugin NIIF: Automatización construye y el
+Revisor Técnico revisa): **R1** saldo propio de cada cuenta (si falta, suma de sus subcuentas) y totales con la
+cuenta más alta de cada sección/clasificación/rubro, con control «cuenta superior que no suma sus subcuentas» (no se
+fuerza nada); **R2** signo por la convención del balance entero (con signo o por naturaleza), para que un patrimonio
+en déficit siga negativo; **R4** días sobre 365 (en la preliminar los umbrales de días se evalúan × meses ÷ 12);
+**R5/R6** margen operativo sobre ventas, DuPont del ROI y del ROE que reconcilian, proveedores y cartera solo
+comerciales; base de materialidad ≤ 0 → sin materialidad (nada se marca material); lectura causa-efecto y puente de
+orígenes y aplicaciones que cuadra con la variación del efectivo (`22_Origenes`); audit trail NIA 230
+(`23_Audit_trail`). **Los datos del cliente LANSEY del artefacto original NO van al repo**: el
 ejemplo es ficticio («Comercial Andina de Ejemplo S.A.»). Los porcentajes y umbrales son **política de la firma** y los
 párrafos citados llevan «VERIFICAR». Su panel usa `PANEL["textos"]` (umbrales en lugar de «registrado vs
 recalculado»; ver `graficos.TEXTOS`). Prueba: `tests/test_proc_planificacion_nia.py`; verificación LibreOffice de
-los 4 escenarios (final, preliminar con ERI, preliminar con prorrateo, pérdida PYMES): 0 diferencias.
+los 5 escenarios (final, preliminar con ERI, preliminar con prorrateo, pérdida PYMES, patrimonio en déficit): 0 diferencias.
 
 **Diseño del libro (todas las herramientas, 2026-09-25):** portada con botones por sección
 (Resultado · Cómo se calculó · Datos del cliente · Documentación) y pestañas del color de su

@@ -41,19 +41,55 @@ def test_cuadre_estados_resumidos_e_indices():
     # Activo 3.204.200 = pasivo 1.679.700 + patrimonio 1.156.850 + resultado 367.650.
     assert (e["TOTAL ACTIVO"], e["TOTAL PASIVO"], e["PATRIMONIO TOTAL"]) == pytest.approx((3204200, 1679700, 1524500))
     assert e["Diferencia de cuadre"] == pytest.approx(0)
-    # Cuentas por cobrar con su provisión (rubro contado una sola vez en la cuenta superior) más otras cuentas por cobrar:
-    # 812.300 − 48.700 + 12.300 = 775.900.
-    assert e["Cuentas por cobrar"] == pytest.approx(775900)
+    # Cartera comercial con su provisión (rubro contado una sola vez en la cuenta superior): 812.300 − 48.700 = 763.600.
+    # «Otras cuentas por cobrar» (anticipos a empleados) no es cartera comercial; proveedores sin impuestos ni beneficios.
+    assert e["Cuentas por cobrar"] == pytest.approx(763600) and e["Cuentas por pagar"] == pytest.approx(604300)
     # Ventas 4.860.500 (código 41) y otros ingresos 18.400; utilidad antes de participación e impuestos 490.200.
     assert (e["Ventas netas"], e["(+) Otros ingresos"], e[m.UAI]) == pytest.approx((4860500, 18400, 490200))
     i = r["detalle"]["ind"]["act"]
-    # Razón corriente = activo corriente ÷ pasivo corriente; días de cartera = 775.900 × 365 ÷ 4.860.500 = 58,27.
+    # Razón corriente = activo corriente ÷ pasivo corriente; días de cartera = 763.600 × 365 ÷ 4.860.500 = 57,34.
     ac = 3204200 - (900000 + 480000 - 412600 + 96000 + 38500)
     pc = 1679700 - (420000 + 146200 + 64800)
     assert i["razonCorriente"] == round(ac / pc, 2)
-    assert i["diasCartera"] == pytest.approx(58.27)
+    assert i["diasCartera"] == pytest.approx(57.34)
     assert i["endTotal"] == pytest.approx(round(1679700 / 3204200 * 100, 2))
     assert m._semaforo("razonCorriente", i["razonCorriente"]) == "Verde · Cómodo"
+
+
+def test_r1_saldo_propio_de_la_cuenta_y_jerarquia_que_no_suma():
+    # El cliente trae la cuenta 1103 con 780.000 aunque sus subcuentas suman 812.300 − 48.700 = 763.600: se usa el saldo
+    # propio (R1), la diferencia de 16.400 se reporta y no se fuerza nada; el activo total sale de la cuenta 1 del archivo.
+    ds = dict(m.EJEMPLO["datasets"])
+    ds["balance_actual"] = [{**x, "saldo_actual": "780000.00"} if x["codigo"] == "1103" else x for x in ds["balance_actual"]]
+    r = m.ejecutar(ds, m.EJEMPLO["parametros"], m.EJEMPLO["corte"])
+    assert _cuenta(r, "1103")["act"] == pytest.approx(780000)
+    e = r["detalle"]["est9"]["act"]
+    assert e["TOTAL ACTIVO"] == pytest.approx(3204200) and e["Cuentas por cobrar"] == pytest.approx(780000)
+    # Se reportan 1103 (780.000 − 763.600 = 16.400) y su cuenta superior 11, que ya no suma sus subcuentas (−16.400).
+    jer = {x["message"].split(":")[0]: x["amount"] for x in r["exceptions"] if x["code"] == "JERARQUIA_NO_SUMA"}
+    assert jer == {"Balance al corte · 11 ACTIVO CORRIENTE": "-16400.00", "Balance al corte · 1103 CUENTAS POR COBRAR CLIENTES": "16400.00"}
+
+
+def test_r4_r5_dias_sobre_365_y_dupont_que_reconcilia():
+    for nombre in ("base", "preliminar_eri", "perdida_pymes"):
+        i = _esc(nombre)["detalle"]["ind"]["act"]
+        assert i["dias"] == 365
+        assert (i["dupontRoi"], i["dupont"]) == (i["roi"], i["roe"])
+    # Corte de 8 meses: días de cartera sobre 365 con ventas de 8 meses (salen mayores; se declara en la lectura).
+    r = _esc("preliminar_eri")
+    e = r["detalle"]["est9"]["act"]
+    assert r["detalle"]["ind"]["act"]["diasCartera"] == round(e["Cuentas por cobrar"] * 365 / e["Ventas netas"], 2)
+    assert m.LECTURA_DIAS[1].startswith("Corte parcial")
+
+
+def test_origenes_y_aplicaciones_cuadran_con_el_efectivo():
+    for nombre in ("base", "preliminar_eri", "preliminar_prorrateo", "perdida_pymes"):
+        pu = _esc(nombre)["detalle"]["puente"]
+        assert pu["dif"] == pytest.approx(0, abs=0.005), nombre
+    o = {x["codigo"]: x for x in _run()["detalle"]["origenes"]}
+    # Inventarios sube 301.400: aplicación de efectivo; proveedores sube 43.100: origen.
+    assert o["1104"]["efecto"] == pytest.approx(-301400) and o["2101"]["efecto"] == pytest.approx(43100)
+    assert "1101" not in o          # el efectivo no se explica a sí mismo
 
 
 def test_materialidad_del_ejemplo_y_periodo_de_la_base():
@@ -75,7 +111,6 @@ def test_revision_preliminar_con_eri_y_prorrateo():
     assert _cuenta(_esc("preliminar_prorrateo"), "4101")["ant"] == pytest.approx(4860500 * 8 / 12)
     # El balance compara el cierre anterior (diciembre 2025) con el corte en ambos casos.
     assert _cuenta(_esc("preliminar_prorrateo"), "110301")["ant"] == pytest.approx(812300)
-    assert _esc("preliminar_eri")["detalle"]["ind"]["act"]["dias"] == pytest.approx(243.33)
 
 
 def test_matriz_de_la_carta_de_control_interno():
@@ -108,9 +143,28 @@ def test_refutar_la_presuncion_exige_motivo():
     assert "REFUTACION_SIN_MOTIVO" not in codigos
 
 
+def test_patrimonio_en_deficit_se_presenta_negativo():
+    # Revisor A1: resultados acumulados pasan de −360.450 (acreedor) a +1.800.000 (deudor, pérdidas acumuladas): toda la rama
+    # de patrimonio sube 2.160.450 y la de bancos baja lo mismo para que el balance siga cuadrando. El patrimonio queda en
+    # déficit y debe verse negativo, con su indicio NIA 570, sin descuadres ficticios.
+    D = 2160450
+    delta = {"3301": D, "33": D, "3": D, "110102": -D, "1101": -D, "11": -D, "1": -D}
+    ds = dict(m.EJEMPLO["datasets"])
+    ds["balance_actual"] = [{**x, "saldo_actual": f"{float(x['saldo_actual']) + delta[x['codigo']]:.2f}"} if x["codigo"] in delta else x
+                            for x in ds["balance_actual"]]
+    r = m.ejecutar(ds, m.EJEMPLO["parametros"], m.EJEMPLO["corte"])
+    codigos = [e["code"] for e in r["exceptions"]]
+    assert r["detalle"]["signo"]["Patrimonio"] == -1
+    assert r["detalle"]["est9"]["act"]["PATRIMONIO TOTAL"] < 0 and "PATRIMONIO_NEGATIVO" in codigos
+    assert "ESF_NO_CUADRA" not in codigos and "JERARQUIA_NO_SUMA" not in codigos
+
+
 def test_escenario_de_perdida_sin_documentos_del_anio_anterior():
     r = _esc("perdida_pymes")
     codigos = [e["code"] for e in r["exceptions"]]
+    # Base ≤ 0: sin materialidad y nada queda marcado como material (revisor A3).
+    assert r["detalle"]["materialidad"]["global"] is None and r["totals"]["materialidad"] == "0.00"
+    assert all(x["material"] == "No" for x in r["detalle"]["cuentas"])
     # Costo +700.000 y sin impuesto: utilidad antes de participación e impuestos 490.200 − 700.000 + 122.550 − 122.550 = −209.800.
     assert r["detalle"]["bases"][m.UAI] == pytest.approx(-209800)
     assert {"BASE_NO_VALIDA", "PERDIDA_EJERCICIO", "ENCARGO_INICIAL", "SIN_CARTA_CI", "SIN_INFORME_ANTERIOR",
@@ -119,13 +173,15 @@ def test_escenario_de_perdida_sin_documentos_del_anio_anterior():
 
 
 def test_balance_que_no_cuadra():
-    # Bancos +1.000 sin contrapartida: el balance al corte deja de cuadrar por 1.000 (se suman las cuentas de detalle).
+    # Bancos +1.000 sin contrapartida en toda su rama (110102, 1101, 11 y 1): el balance al corte deja de cuadrar por 1.000.
     ds = dict(m.EJEMPLO["datasets"])
-    ds["balance_actual"] = [{**x, "saldo_actual": "181000.00"} if x["codigo"] == "110102" else x for x in ds["balance_actual"]]
+    rama = {"110102", "1101", "11", "1"}
+    ds["balance_actual"] = [{**x, "saldo_actual": f"{float(x['saldo_actual']) + 1000:.2f}"} if x["codigo"] in rama else x
+                            for x in ds["balance_actual"]]
     codigos = [e["code"] for e in m.ejecutar(ds, {}, "2025-12-31")["exceptions"]]
     r = m.ejecutar(ds, {}, "2025-12-31")
     assert [e["amount"] for e in r["exceptions"] if e["code"] == "ESF_NO_CUADRA"] == ["1000.00"]
-    assert "ESF_ANTERIOR_NO_CUADRA" not in codigos
+    assert "ESF_ANTERIOR_NO_CUADRA" not in codigos and "JERARQUIA_NO_SUMA" not in codigos
 
 
 @pytest.mark.parametrize("param, mensaje", [
