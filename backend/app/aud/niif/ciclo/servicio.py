@@ -1158,3 +1158,22 @@ def registros_encargo(db: Session, project_id: int) -> dict:
             uno[r.tipo] = {"actor": r.nombre, "fecha": r.fecha.isoformat(), "detalle": d.get("detalle", "")}
     ficha = leer_ficha(db, project_id) or {}
     return {"registros": {"equipo": equipo, "asistencia": asistencia, **uno}, "firma": ficha.get("firm") or ""}
+
+
+def ultima_planificacion(db: Session, project_id: int) -> dict | None:
+    """La ejecución más reciente de la planificación del encargo (fuente del acta y de la carta de planificación)."""
+    for p in db.execute(select(Prueba).where(Prueba.project_id == project_id).order_by(Prueba.id.desc())).scalars():
+        if (p.definicion or {}).get("processor") == "planificacion_nia" and (p.registro or {}).get("run"):
+            return p.registro["run"]
+    return None
+
+
+def documento_encargo(db: Session, project_id: int, tipo: str) -> bytes:
+    from backend.app.aud.niif.ciclo import documentos_encargo as docs
+
+    if tipo not in docs.TIPOS:
+        raise ReglaIncumplida("Documento desconocido.")
+    ficha = leer_ficha(db, project_id)
+    if not ficha:
+        raise ReglaIncumplida("Complete primero la ficha del encargo.")
+    return docs.generar(tipo, ficha, registros_encargo(db, project_id), ultima_planificacion(db, project_id))

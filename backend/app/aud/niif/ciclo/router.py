@@ -433,3 +433,14 @@ def anular_registro(project_id: int, registro_id: int, db: Session = Depends(get
     es_admin = str(getattr(user.role, "value", user.role)).lower() == "admin"
     _regla(lambda: servicio.anular_registro(db, project_id, registro_id, user.email, es_admin))
     return {"ok": True}
+
+
+@router.get("/proyectos/{project_id}/documentos/{tipo}")
+def documento_encargo(project_id: int, tipo: str, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> Response:
+    """Carta de encargo, acta de la discusión del equipo o carta de planificación, en Word (modelos para firmar)."""
+    from backend.app.aud.niif.ciclo import documentos_encargo as docs
+
+    _proyecto(db, user, project_id)
+    contenido = _regla(lambda: servicio.documento_encargo(db, project_id, tipo))
+    return Response(contenido, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    headers={"Content-Disposition": f'attachment; filename="{docs.TIPOS[tipo]}.docx"'})

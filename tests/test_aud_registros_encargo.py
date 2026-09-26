@@ -107,3 +107,40 @@ def test_la_planificacion_usa_los_registros_de_la_plataforma(client):
     assert r["detalle"]["parametros"]["socio"] == "CPA Socia"
     ev = {x["codigo"]: x["estado"] for x in r["detalle"]["evals"]}
     assert ev["ACE-01"] == "Conforme" and ev["CON-02"] == "Pendiente" and ev["COM-01"] == "Pendiente"
+
+
+def test_documentos_generados_por_la_plataforma(client):
+    import io
+
+    from docx import Document
+
+    from backend.app.aud.niif.ciclo import documentos_encargo as docs
+
+    tok, pid = _staff_con_proyecto(client)
+    url = f"{BASE}/proyectos/{pid}/documentos"
+    assert "ficha" in client.get(f"{url}/carta_encargo", headers=_h(tok)).json()["detail"]
+    assert client.put(f"{BASE}/proyectos/{pid}/ficha", headers=_h(tok), json=FICHA).status_code == 200
+    assert client.get(f"{url}/otro", headers=_h(tok)).status_code == 400
+    _reg(client, tok, pid, tipo="independencia", rol="Socio", nombre="CPA Socia")
+    _reg(client, tok, pid, tipo="carta", limitaciones="Sin acceso a la sucursal de Guayaquil")
+    r = client.get(f"{url}/carta_encargo", headers=_h(tok))
+    assert r.status_code == 200 and r.content.startswith(b"PK")
+    texto = "\n".join(p.text for p in Document(io.BytesIO(r.content)).paragraphs)
+    assert "Empresa Ejemplo S.A." in texto and "NIIF completas" in texto and "Sin acceso a la sucursal" in texto
+    assert "AuditConsulting Auditores Cía. Ltda." in "\n".join(c.text for t in Document(io.BytesIO(r.content)).tables
+                                                               for c in t._cells)
+    # Sin planificación ejecutada, el acta y la carta de planificación marcan lo que falta (no inventan).
+    for tipo in ("acta_discusion", "carta_planificacion"):
+        r = client.get(f"{url}/{tipo}", headers=_h(tok))
+        assert r.status_code == 200 and "[PENDIENTE]" in "\n".join(p.text for p in Document(io.BytesIO(r.content)).paragraphs)
+    # Con la planificación del ejemplo: riesgos presentes, indicios de fraude y asuntos de la hoja 32.
+    e = m.EJEMPLO
+    run = {"hojas": m.hojas(m.ejecutar(e["datasets"], e["parametros"], e["corte"]))}
+    encargo = e["parametros"]["_encargo"]
+    acta = Document(io.BytesIO(docs.acta_discusion(FICHA, encargo, run)))
+    celdas = [c.text for t in acta.tables for c in t._cells]
+    assert "Ana Torres (ficticio)" in celdas and "RB-01" in celdas and "FRA-03" in celdas and "RB-03" not in celdas
+    carta = Document(io.BytesIO(docs.carta_planificacion(FICHA, encargo, run)))
+    celdas = [c.text for t in carta.tables for c in t._cells]
+    assert "Responsabilidades del auditor" in celdas and "Riesgo significativo · RB-01" in celdas
+    assert not any(c.startswith("Envío de la carta") for c in celdas)
