@@ -423,9 +423,11 @@ def test_programa_cubre_todas_las_cuentas_a_revisar_y_procedimientos_de_todo_enc
         normas = {f[2] for f in prog if f[3] == "Todo encargo"}
         assert normas == {"NIA 560", "NIA 550", "NIA 501", "NIA 570", "NIA 250", "NIA 580"}
         assert all(f[7] and f[8] and f[9] and f[10] for f in prog)          # aseveraciones, evidencia, responsable, aplica
-    # PPE y proveedores (sin riesgo propio en el ejemplo) tienen ahora su procedimiento sustantivo.
+    # PPE (sin riesgo propio en el ejemplo) tiene su procedimiento sustantivo; proveedores lo cubre el riesgo del
+    # entendimiento de la entidad (proveedor principal vinculado, NIA 315).
     prog = [[v(c) for c in f] for f in next(h for h in m.hojas(_run()) if h["name"] == "19_Programa")["rows"]]
-    assert {"Cuenta 1201", "Cuenta 2101"} <= {f[2] for f in prog}
+    assert "Cuenta 1201" in {f[2] for f in prog}
+    assert any(f[1] == "Proveedor principal vinculado" for f in prog)
     # Sin materialidad, las anomalías no se evalúan (antes decía «Conforme») y el fraude en ingresos marca Ventas netas.
     rp = _esc("perdida_pymes")
     hs = {h["name"]: h for h in m.hojas(rp)}
@@ -542,3 +544,71 @@ def test_lecturas_con_cifras_tendencia_y_narrativa_con_alertas_por_nombre():
     # Cifras en texto: FIXED de Excel usa los separadores del equipo; el verificador compara intercambiándolos.
     from scripts.verificar_datos_cliente import igual
     assert igual("US$ 1.053.600,00: sí, claro.", "US$ 1,053,600.00: sí, claro.") and not igual("1,5", "2.5")
+
+
+def test_estados_detallados_con_todas_las_cuentas_por_nivel_y_cuadre():
+    """Hallazgo B2 de los agentes: estados completos (artefacto: renderStatement) con todas las cuentas en jerarquía, la
+    fecha de cada período en el encabezado, agrupación de Excel por nivel y el cuadre contra la hoja 07 y del balance."""
+    import io
+
+    from openpyxl import load_workbook
+
+    from backend.app.aud.niif.procesadores import datos_cliente, libro
+
+    v = lambda c: c.get("v") if isinstance(c, dict) else c  # noqa: E731
+    e = m.EJEMPLO
+    r = m.ejecutar(e["datasets"], e["parametros"], e["corte"])
+    hs = {h["name"]: h for h in m.hojas(r)}
+    a, b = hs["08A_ESF_Detalle"], hs["08B_ERI_Detalle"]
+    assert [c[0] for c in a["cols"]][4:6] == ["Anterior (31/12/2024)", "Actual (31/12/2025)"]
+    n_esf = sum(1 for x in r["detalle"]["cuentas"] if x["sec"] in ("Activo", "Pasivo", "Patrimonio"))
+    assert sum(1 for f in a["rows"] if f[0]) == n_esf                      # todas las cuentas, sin omitir ninguna
+    assert [v(f[8]) for f in a["rows"] if v(f[1]) and "Diferencia" in v(f[1])] == ["Cuadra"] * 4
+    assert [v(f[8]) for f in b["rows"] if v(f[1]) and "Diferencia" in v(f[1])] == ["Cuadra"] * 3
+    assert v(b["rows"][-1][5]) == 367650.0                                  # resultado = utilidad del período
+    niv1 = [f for f, s in zip(a["rows"], a["estilos"]) if s.get("tipo") == "titulo"]
+    assert [v(f[1]) for f in niv1] == ["ACTIVO", "PASIVO", "PATRIMONIO"]
+    assert max(s.get("grupo", 0) for s in a["estilos"]) >= 2
+    # Preliminar: los resultados anteriores son el mismo corte del año anterior (o el prorrateo de diciembre).
+    rp = _esc("preliminar_prorrateo")
+    bp = next(h for h in m.hojas(rp) if h["name"] == "08B_ERI_Detalle")
+    assert bp["cols"][4][0] == "Anterior (31/12/2025 × 8/12)"
+    assert all(v(f[8]) == "Cuadra" for f in bp["rows"] if v(f[1]) and "Diferencia" in v(f[1]))
+    # Excel: filas agrupadas por nivel, con la cuenta superior arriba de sus subcuentas.
+    r["hojas"] = datos_cliente.con_datos(m, r, e["datasets"])
+    reg = {"run": r, "engagement": {"client": "Comercial Andina de Ejemplo S.A.", "cutoff": e["corte"]}, "program": [], "sources": []}
+    wb = load_workbook(io.BytesIO(libro.xlsx(m.definicion(), reg, [], 1, "Borrador")))
+    ws = wb[next(n for n in wb.sheetnames if n.startswith("08A"))]
+    assert ws.sheet_properties.outlinePr.summaryBelow is False
+    assert {ws.row_dimensions[i].outlineLevel for i in range(5, 5 + len(a["rows"]))} >= {0, 1, 2}
+
+
+def test_perfil_del_encargo_nia_315_identificacion_entendimiento_y_pendientes():
+    """Hallazgo A2 de los agentes: el perfil trae la identificación mínima del encargo (lo que no tiene soporte queda
+    «[PENDIENTE]», sin inferir), el entendimiento de la entidad y su entorno (NIA 315) ligado a un riesgo y al programa, el
+    contexto y, al final, los asuntos del informe anterior."""
+    v = lambda c: c.get("v") if isinstance(c, dict) else c  # noqa: E731
+    r = _run()
+    hs = {h["name"]: h for h in m.hojas(r)}
+    p14 = hs["14_Perfil"]
+    titulos = [v(f[0]) for f, e in zip(p14["rows"], p14["estilos"]) if (e or {}).get("tipo") == "titulo"]
+    assert titulos == ["Identificación del encargo", "Entendimiento de la entidad y su entorno (NIA 315)", "Contexto de la entidad",
+                       "Asuntos del informe del año anterior"]
+    fila = {v(f[1]): f for f in p14["rows"]}
+    assert v(fila["RUC"][2]) == "0999999999001 (ficticio)" and v(fila["Marco de información financiera"][2]) == "NIIF completas"
+    assert fila["Socio del encargo"][2]["f"].startswith("IF('02_Parametros'!$B$")
+    # El riesgo del entendimiento pasa a la hoja 13 y al programa (NIA 315 → NIA 330).
+    rb = [x for x in r["detalle"]["riesgos"] if x["cod"] == "entendimiento"]
+    assert [x["rubro"] for x in rb] == ["Proveedor principal vinculado", "Ventas concentradas en el último trimestre"]
+    prog = [[v(c) for c in f] for f in hs["19_Programa"]["rows"]]
+    assert {x["codigo"] for x in rb} <= {f[2] for f in prog}
+    # La salvedad sigue enlazada a su importe en la hoja 14, aunque cambió de fila.
+    f13 = next(f for f in hs["13_Riesgos_Balance"]["rows"] if f[2] == "Jubilación patronal")
+    assert f13[4]["f"] == f"'14_Perfil'!D{m.FILA0 + [v(x[1]) for x in p14['rows']].index('Jubilación patronal')}"
+    # Sin informe ni socio: todo lo que no tiene soporte queda pendiente y el control dice que no se cargó el informe.
+    hp = {h["name"]: h for h in m.hojas(_esc("perdida_pymes"))}
+    pend = [v(f[1]) for f in hp["14_Perfil"]["rows"] if v(f[2]) == "[PENDIENTE]"]
+    assert pend == ["Entidad auditada", "RUC", "Actividad", "País y moneda funcional", "Opinión del año anterior",
+                    "Socio del encargo", "Gerente del encargo", "Entendimiento de la entidad"]
+    ctl = {v(f[0]): [v(c) for c in f] for f in hp["16_Control"]["rows"]}
+    assert ctl["Informe de auditoría del año anterior cargado"][2] == 0

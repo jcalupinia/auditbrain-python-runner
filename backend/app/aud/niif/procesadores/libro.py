@@ -440,6 +440,8 @@ def _hoja_ejecutiva(ws, S, h, titulo_prueba, nav, hojas=None, anexo=None):
                 c.alignment = S["izq"]
             if ef.get("sangria") and nombre_col == ef.get("col"):
                 c.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True, indent=1 + 2 * int(ef["sangria"]))
+        if ef.get("grupo"):   # agrupación por nivel: los botones 1-2-3 de Excel eligen el detalle que se ve
+            ws.row_dimensions[i].outlineLevel = min(7, int(ef["grupo"]))
             vista = _valor(v)
             anchos[j - 1] = max(anchos[j - 1], min(60, len(str(vista if vista is not None else "")) + 2))
     for j, w in enumerate(anchos, start=1):
@@ -456,6 +458,8 @@ def _hoja_ejecutiva(ws, S, h, titulo_prueba, nav, hojas=None, anexo=None):
             dim.hidden = True
             dim.outlineLevel = 1
     _colores_nivel(ws, h, fila_enc + 1, fila_enc + len(h["rows"]))
+    if any((e or {}).get("grupo") for e in h.get("estilos") or []):
+        ws.sheet_properties.outlinePr.summaryBelow = False   # la cuenta superior va arriba de sus subcuentas
     ws.freeze_panes = f"A{fila_enc + 1}"
     _bloque_como_se_calcula(ws, S, h, len(filas) + fila_enc + 2, hojas, anexo, ws.title)
     _print_setup(ws, {})
