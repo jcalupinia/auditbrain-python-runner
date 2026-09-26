@@ -11,6 +11,7 @@ import {
   sriReconstruir,
   sriCruceRetenciones,
   sriValorNeto,
+  sriDeclaracionesDescargar,
   sriDescargarArchivo,
 } from "../../../api.js";
 import "./CumplimientoSRI.css";
@@ -25,8 +26,17 @@ const SUBS = [
   { id: "reconstruccion", titulo: "Reconstruir XML" },
   { id: "cruce", titulo: "Retención ↔ Factura" },
   { id: "valorneto", titulo: "Valor neto (NC)" },
+  { id: "declaraciones", titulo: "Declaraciones" },
   { id: "ayuda", titulo: "Ayuda" },
 ];
+
+// Obligaciones cuya navegación del portal está mapeada (consulta de declaraciones).
+const OBLIGACIONES_DECL = [
+  { id: "iva_104", nombre: "IVA (F-104)", mensual: true },
+  { id: "retenciones_103", nombre: "Retenciones en la fuente (F-103)", mensual: true },
+  { id: "renta_sociedades_101", nombre: "Renta Sociedades (F-101)", mensual: false },
+];
+const DOCS_DECL = ["Declaración completa", "Declaración perfilada", "Comprobante de declaración"];
 
 const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const ANIO_ACTUAL = new Date().getFullYear();
@@ -711,6 +721,134 @@ function SubValorNeto() {
   );
 }
 
+// ---------- Subpágina: Declaraciones presentadas (login + captcha) ----------
+function SubDeclaraciones() {
+  const anioActual = ANIO_ACTUAL;
+  const [form, setForm] = useState({ ruc: "", clave: "", obligacion: "iva_104", anio: anioActual, mes: 1, documento: DOCS_DECL[0] });
+  const [fase, setFase] = useState("idle"); // idle|procesando|captcha|listo|error
+  const [resultado, setResultado] = useState(null);
+  const [permiso, setPermiso] = useState(null);
+  const [progreso, setProgreso] = useState([]);
+  const [captchaImg, setCaptchaImg] = useState(null);
+  const [captchaCodigo, setCaptchaCodigo] = useState("");
+  const [segundos, setSegundos] = useState(0);
+  const [verVivo, setVerVivo] = useState(false);
+  const [error, setError] = useState("");
+  const [bajando, setBajando] = useState(false);
+  const ctx = useRef({ url: "", token: "", id: "", vivo: false });
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  useEffect(() => () => { ctx.current.vivo = false; }, []);
+  useEffect(() => {
+    if (!(fase === "procesando" || fase === "captcha")) return undefined;
+    const t = setInterval(() => setSegundos((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [fase]);
+  const trabajando = fase === "procesando" || fase === "captcha";
+  const esMensual = OBLIGACIONES_DECL.find((o) => o.id === form.obligacion)?.mensual;
+
+  async function poll() {
+    if (!ctx.current.vivo) return;
+    try {
+      const est = await sriEstado(ctx.current.url, ctx.current.token, ctx.current.id);
+      setProgreso(est.progreso || []);
+      if (est.estado === "captcha") { setFase("captcha"); setCaptchaImg(est.captcha_img_b64 || null); }
+      else if (est.estado === "listo") { ctx.current.vivo = false; setResultado(est.resultado || {}); setFase(est.resultado?.ok === false ? "error" : "listo"); if (est.resultado?.ok === false) setError(est.resultado.message || "Sin resultados."); return; }
+      else if (est.estado === "error") { ctx.current.vivo = false; setError(est.error || "La descarga falló."); setFase("error"); return; }
+      else { setFase("procesando"); setCaptchaImg(null); }
+    } catch { /* red transitoria */ }
+    setTimeout(poll, 1500);
+  }
+
+  async function ejecutar() {
+    setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null); setSegundos(0);
+    if (!/^\d{13}$/.test(form.ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
+    if (!form.clave) { setError("Falta la clave del SRI del cliente."); return; }
+    setFase("procesando");
+    try {
+      const p = await sriPermiso(`SRI declaración ${form.ruc.trim()}`);
+      const params = { ruc: form.ruc.trim(), clave: form.clave, obligacion: form.obligacion, anio: Number(form.anio), documento: form.documento };
+      if (esMensual) params.mes = Number(form.mes);
+      const r = await sriDeclaracionesDescargar(p.url, p.token, params);
+      setPermiso(p); setForm((f) => ({ ...f, clave: "" }));
+      if (r && r.id) { ctx.current = { url: p.url, token: p.token, id: r.id, vivo: true }; poll(); }
+      else { setResultado(r); setFase(r?.ok === false ? "error" : "listo"); }
+    } catch (e) { setError(e?.message || "No se pudo descargar la declaración."); setFase("error"); }
+  }
+
+  async function enviarCaptcha() {
+    if (!captchaCodigo.trim()) return;
+    try { await sriEnviarCaptcha(ctx.current.url, ctx.current.token, ctx.current.id, captchaCodigo.trim()); setCaptchaCodigo(""); setCaptchaImg(null); setFase("procesando"); }
+    catch (e) { setError(e?.message || "No se pudo enviar el captcha."); }
+  }
+
+  async function bajar() {
+    if (!permiso || !resultado?.archivo) return;
+    setBajando(true); setError("");
+    try { await sriDescargarArchivo(permiso.url, permiso.token, resultado.archivo); }
+    catch (e) { setError(e?.message || "No se pudo descargar."); }
+    finally { setBajando(false); }
+  }
+
+  return (
+    <section className="ma-tarjeta ma-sri-descarga">
+      <div className="ma-sri-descarga-cab">
+        <h3>Declaraciones presentadas</h3>
+        <span>Descarga del portal del SRI el formulario de una declaración ya presentada (IVA, Retenciones, Renta). Requiere iniciar sesión en el SRI del cliente; si pide captcha, aparece aquí.</span>
+      </div>
+      <div className="ma-sri-form">
+        <label>RUC del cliente<input value={form.ruc} onChange={set("ruc")} inputMode="numeric" maxLength={13} placeholder="1791859596001" disabled={trabajando} /></label>
+        <label>Clave del SRI<input type="password" value={form.clave} onChange={set("clave")} placeholder="•••••••" autoComplete="off" disabled={trabajando} /></label>
+        <label>Obligación
+          <select value={form.obligacion} onChange={set("obligacion")} disabled={trabajando}>{OBLIGACIONES_DECL.map((o) => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select>
+        </label>
+        <label>Año
+          <select value={form.anio} onChange={set("anio")} disabled={trabajando}>{ANIOS.map((a) => <option key={a} value={a}>{a}</option>)}</select>
+        </label>
+        {esMensual && (
+          <label>Mes
+            <select value={form.mes} onChange={set("mes")} disabled={trabajando}>{MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select>
+          </label>
+        )}
+        <label>Documento
+          <select value={form.documento} onChange={set("documento")} disabled={trabajando}>{DOCS_DECL.map((d) => <option key={d}>{d}</option>)}</select>
+        </label>
+      </div>
+      <div className="ma-sri-descarga-acciones">
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={trabajando}>{trabajando ? "Descargando…" : "Descargar declaración"}</button>
+        <button type="button" className="ma-boton" onClick={() => setVerVivo((v) => !v)}>{verVivo ? "Ocultar vista en vivo" : "🔴 Ver el robot en vivo"}</button>
+        <span className="ma-sri-descarga-clave-nota">La clave va directo al motor de la firma; no se guarda ni pasa por el servidor web.</span>
+      </div>
+
+      {verVivo && (
+        <div className="ma-sri-vivo">
+          <div className="ma-sri-vivo-cab"><span>🔴 Robot en vivo — solo lectura</span><span className="ma-sri-vivo-nota">Requiere estar en la red Tailscale de la firma.</span></div>
+          <iframe title="Robot SRI en vivo" src={VNC_URL} className="ma-sri-vivo-frame" allow="fullscreen" />
+        </div>
+      )}
+
+      {captchaImg && (
+        <div className="ma-sri-captcha" role="dialog" aria-label="Resolver captcha">
+          <p><strong>El SRI pide un captcha.</strong> Escribe lo que ves:</p>
+          <img alt="captcha del SRI" src={`data:image/png;base64,${captchaImg}`} className="ma-sri-captcha-img" />
+          <div className="ma-sri-captcha-fila">
+            <input value={captchaCodigo} onChange={(e) => setCaptchaCodigo(e.target.value)} placeholder="Código" autoFocus onKeyDown={(e) => e.key === "Enter" && enviarCaptcha()} />
+            <button type="button" className="ma-sri-boton-ejecutar" onClick={enviarCaptcha}>Enviar</button>
+          </div>
+        </div>
+      )}
+      {trabajando && (
+        <div className="ma-sri-trabajando">
+          <span className="ma-sri-spinner" aria-hidden="true" />
+          <span>El robot está trabajando en el servidor… <strong>{segundos}s</strong>{fase === "captcha" ? " · esperando que resuelvas el captcha" : " · entrando al SRI y descargando"}</span>
+        </div>
+      )}
+      {progreso.length > 0 && <ul className="ma-sri-progreso">{progreso.slice(-8).map((m, i) => <li key={i}>{m}</li>)}</ul>}
+      {fase === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenOffline r={resultado} titulo="✅ Declaración descargada" onDescargar={resultado?.archivo ? bajar : null} bajando={bajando} textoDescarga="Descargar archivo" /></div>}
+      {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
+    </section>
+  );
+}
+
 // ---------- Subpágina 4: Ayuda + alcance ----------
 const FUENTES = [
   { nombre: "Robot del SRI", texto: "Descarga los comprobantes electrónicos emitidos y recibidos, incluidas las retenciones.", formatos: ["XML", "PDF"] },
@@ -770,6 +908,7 @@ export default function CumplimientoSRI({ ir }) {
       {sub === "reconstruccion" && <SubReconstruccion />}
       {sub === "cruce" && <SubCruceRetenciones />}
       {sub === "valorneto" && <SubValorNeto />}
+      {sub === "declaraciones" && <SubDeclaraciones />}
       {sub === "ayuda" && <SubAyuda />}
     </section>
   );

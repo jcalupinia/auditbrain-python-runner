@@ -281,6 +281,16 @@ export async function sriValorNeto(url, token, params) {
     })
   );
 }
+// Descarga de una declaración presentada (login + captcha → trabajo async).
+export async function sriDeclaracionesDescargar(url, token, params) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/declaraciones/descargar`, {
+      method: "POST",
+      headers: _motorHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    })
+  );
+}
 // Baja un archivo producido en el servidor (Excel/ZIP) por su ruta.
 export async function sriDescargarArchivo(url, token, ruta, nombre) {
   const res = await apiFetch(
