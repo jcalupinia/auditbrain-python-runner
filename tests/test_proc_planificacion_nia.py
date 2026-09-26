@@ -101,7 +101,12 @@ def test_materialidad_del_ejemplo_y_periodo_de_la_base():
     assert r["detalle"]["periodo"] == "Año anterior" and r["totals"]["materialidad"] == "48789.00"
     _, ds, par, corte = next(x for x in m.ESCENARIOS if x[0] == "preliminar_eri")
     r = m.ejecutar(ds, {**par, "periodoBase": "Corte actual"}, corte)
-    assert r["totals"]["materialidad"] == "34310.00"        # (3.420.000 + 11.000) × 1 %
+    # D9: al corte actual los ingresos de 8 meses se anualizan: (3.420.000 + 11.000) × 12 ÷ 8 × 1 % = 51.465,00.
+    assert r["totals"]["materialidad"] == "51465.00" and r["detalle"]["anualiza"]
+    assert r["detalle"]["bases"]["Activos totales"] == pytest.approx(r["detalle"]["sec7"]["act"]["Activo"])   # el balance no
+    h11 = next(h for h in m.hojas(r) if h["name"] == "11_Materialidad")["rows"]
+    glob = next(f for f in h11 if f[0] == "Materialidad global")
+    assert "anualizada × 12 ÷ 8" in glob[4]["v"]
 
 
 def test_revision_preliminar_con_eri_y_prorrateo():
@@ -115,10 +120,16 @@ def test_revision_preliminar_con_eri_y_prorrateo():
 
 def test_matriz_de_la_carta_de_control_interno():
     carta = {x["id"]: x for x in _run()["detalle"]["carta"]}
-    # R01: 4 × 5 = 20, control 1 → residual 20 → Alto. R02: 16 × (6 − 2) ÷ 5 = 12,8 → Medio. R04: 12 × 3 ÷ 5 = 7,2 → Bajo.
+    # D3 (NIA 315 rev. / NIA 330): el control solo rebaja el riesgo si se probará su eficacia.
+    # R01: 4 × 5 = 20 → Alto. R02: 16, control 2 NO probado → valorado 16 (antes 12,8) → Alto.
+    # R04: 12, control 3 probado → 12 × 3 ÷ 5 = 7,2 → Bajo. R06 sin probabilidad → pendiente del socio.
     assert (carta["R01"]["inh"], carta["R01"]["res"], carta["R01"]["nivel"]) == (20, 20, "Alto")
-    assert (carta["R02"]["res"], carta["R02"]["nivel"]) == (pytest.approx(12.8), "Medio")
-    assert carta["R04"]["nivel"] == "Bajo" and carta["R06"]["nivel"] == "Pendiente de calificación"
+    assert (carta["R02"]["probar"], carta["R02"]["res"], carta["R02"]["nivel"]) == ("No", 16, "Alto")
+    assert (carta["R04"]["probar"], carta["R04"]["res"], carta["R04"]["nivel"]) == ("Sí", pytest.approx(7.2), "Bajo")
+    assert carta["R06"]["nivel"] == "Pendiente de calificación"
+    h12 = next(h for h in m.hojas(_run()) if h["name"] == "12_Riesgos_CCI")
+    assert [c[0] for c in h12["cols"]][8] == "Riesgo valorado" and h12["cols"][-1][0] == "¿Se probará el control?"
+    assert h12["rows"][1][8]["f"] == f'IF(H{m.FILA0 + 1}="","",IF(N{m.FILA0 + 1}="Sí",IF(G{m.FILA0 + 1}="","",H{m.FILA0 + 1}*(6-G{m.FILA0 + 1})/5),H{m.FILA0 + 1}))'
     assert carta["R02"]["herramienta"] == m.HERRAMIENTAS["Inventarios"]
 
 
@@ -126,7 +137,7 @@ def test_riesgos_notas_y_problemas():
     r = _run()
     codigos = [e["code"] for e in r["exceptions"]]
     assert "RIESGO_FRAUDE_INGRESOS" in codigos and "ELUSION_CONTROLES" in codigos
-    assert codigos.count("RIESGO_CCI_ALTO") == 2 and "RIESGO_CCI_PENDIENTE" in codigos
+    assert codigos.count("RIESGO_CCI_ALTO") == 4 and "RIESGO_CCI_PENDIENTE" in codigos   # R01, R02, R03, R05
     # Salvedad del año anterior (jubilación patronal 18.500) → riesgo alto a verificar.
     assert any(e["code"] == "INFORME_ANTERIOR" and e["amount"] == "18500.00" for e in r["exceptions"])
     # Nota 13: 83.600 + 137.800 = 221.400 en el balance contra 222.400 auditado → −1.000 (NIA 510).
@@ -449,13 +460,13 @@ def test_riesgo_significativo_sobre_el_inherente_y_colores_por_nivel():
     v = lambda c: c.get("v") if isinstance(c, dict) else c  # noqa: E731
     e = m.EJEMPLO
     ds = dict(e["datasets"])
-    # R07: 5 × 5 = 25 (significativo) con control 5 → residual 25 × 1 ÷ 5 = 5, que sin la regla sería «Bajo».
+    # R07: 5 × 5 = 25 (significativo) con control 5 probado → valorado 25 × 1 ÷ 5 = 5, que sin la regla sería «Bajo».
     ds["carta_control_interno"] = list(ds["carta_control_interno"]) + [
-        m._ci("R07", "Tesorería", "Pagos a proveedores del exterior por montos altos.", "Ocurrencia", "5", "5", "5", "")]
+        m._ci("R07", "Tesorería", "Pagos a proveedores del exterior por montos altos.", "Ocurrencia", "5", "5", "5", "", "Sí")]
     r = m.ejecutar(ds, e["parametros"], e["corte"])
     carta = {x["id"]: x for x in r["detalle"]["carta"]}
     assert (carta["R07"]["inh"], carta["R07"]["res"], carta["R07"]["sig"], carta["R07"]["nivel"]) == (25, 5, "Sí", "Alto")
-    assert carta["R01"]["sig"] == "Sí" and carta["R02"]["sig"] == "No" and carta["R06"]["sig"] == "No"
+    assert carta["R01"]["sig"] == "Sí" and carta["R02"]["sig"] == "No" and carta["R06"]["sig"] == ""
     hs = {h["name"]: h for h in m.hojas(r)}
     h12 = hs["12_Riesgos_CCI"]
     fila = next(f for f in h12["rows"] if f[0] == "R07")
@@ -630,3 +641,71 @@ def test_materialidad_rango_de_practica_y_justificacion_con_cifras():
     # Sin materialidad (base negativa): la justificación lo dice, sin cifras inventadas.
     fp = {v(f[0]): f for f in next(h for h in m.hojas(_esc("perdida_pymes")) if h["name"] == "11_Materialidad")["rows"]}
     assert ": sin materialidad (base cero o negativa)." in v(fp["Justificación de la base"][4])
+
+
+def test_defectos_d4_a_d8_del_programa():
+    """Control de calidad (D4–D8): toda cuenta material tiene su propio procedimiento sustantivo aunque haya un riesgo de su
+    área; sin materialidad el programa queda pendiente; los responsables vacíos quedan [PENDIENTE]; un riesgo pendiente de
+    calificación se trata como alto; y un riesgo significativo exige pruebas de detalle."""
+    v = lambda c: c.get("v") if isinstance(c, dict) else c  # noqa: E731
+    r = _run()
+    prog = [[v(c) for c in f] for f in next(h for h in m.hojas(r) if h["name"] == "19_Programa")["rows"]]
+    por_ref = {f[2]: f for f in prog}
+    # D4: Capital social, efectivo y bancos L/P (materiales) tienen su procedimiento, aunque haya riesgos de su área.
+    assert {"Cuenta 3101", "Cuenta 1101", "Cuenta 2201"} <= set(por_ref)
+    materiales = {x["x"]["codigo"] for x in r["detalle"]["revisar"]
+                  if x["revisa"] == "Sí" and (x["x"]["material"] == "Sí" or x["x"]["varMaterial"] == "Sí")}
+    assert {f"Cuenta {c}" for c in materiales} <= set(por_ref)
+    assert "pasivos no registrados" in por_ref["Cuenta 2201"][4]              # respuesta según la sección
+    # D7: el riesgo pendiente de calificación (R06) va al socio y con la oportunidad de los riesgos altos.
+    assert por_ref["R06"][3] == "Pendiente de calificación" and por_ref["R06"][6] == m.OPORTUNIDAD_ALTO
+    assert por_ref["R06"][9] == "CPA Andrea Vélez (ficticio)"
+    # D8: los significativos exigen pruebas de detalle (fórmula sobre el nivel).
+    assert por_ref["R01"][8].startswith(m.EVIDENCIA_SIGNIFICATIVO) and por_ref["RB-01"][8].startswith(m.EVIDENCIA_SIGNIFICATIVO)
+    assert not por_ref["R02"][8].startswith(m.EVIDENCIA_SIGNIFICATIVO)
+    # D5 y D6: sin materialidad y sin socio ni gerente.
+    hp = {h["name"]: h for h in m.hojas(_esc("perdida_pymes"))}
+    pp = [[v(c) for c in f] for f in hp["19_Programa"]["rows"]]
+    assert all(f[10] == m.NO_APLICA_SIN_MAT for f in pp if f[3] != "Todo encargo")
+    assert {f[9] for f in pp} == {m.PENDIENTE_SOCIO, m.PENDIENTE_GERENTE}
+    assert not any(f[9] in ("Socio del encargo", "Gerente de auditoría") for f in pp)
+    ctl = {v(f[0]): [v(c) for c in f] for f in hp["16_Control"]["rows"]}
+    assert ctl["Datos de gobierno del encargo completos (NIA 300)"][2:4] == [5, "Revisar"]
+    est = {v(f[0]): v(f[1]) for f in hp["21_Estrategia"]["rows"]}
+    assert est["Socio del encargo"] == m.PENDIENTE_SOCIO
+
+
+def test_defecto_d10_opinion_modificada_del_anio_anterior():
+    """D10 (NIA 705 y 710): la fila «Opinión» con salvedades, desfavorable o abstención genera un riesgo alto; «Sin salvedades» no.
+    Los tipos Desfavorable y Abstención se aceptan (también «Adversa» y «Denegación de opinión»)."""
+    assert m._opinion_modificada("Con salvedades (por la jubilación)") == "Salvedad"
+    assert m._opinion_modificada("Opinión adversa") == "Desfavorable"
+    assert m._opinion_modificada("El auditor se abstuvo de opinar") == "Abstención"
+    assert m._opinion_modificada("Sin salvedades") is None and m._opinion_modificada("Favorable") is None
+    assert (m._tipo_informe("Adversa"), m._tipo_informe("Denegación de opinión")) == ("Desfavorable", "Abstención")
+    op = next(x for x in _run()["detalle"]["riesgos"] if x["rubro"] == "Opinión del año anterior")
+    assert (op["cond"], op["sev"], op["norma"]) == ("Opinión modificada del año anterior (con salvedades)", "Alto", "NIA 705 y 710")
+    e = m.EJEMPLO
+    ds = {**e["datasets"], "informe_anterior": [
+        {**f, "detalle": "Sin salvedades"} if f["tipo"] == "Opinión" else f for f in e["datasets"]["informe_anterior"]]
+        + [{"concepto": "Inventarios", "tipo": "Abstención", "detalle": "No se observó el conteo físico.", "_row": 99}]}
+    rs = m.ejecutar(ds, e["parametros"], e["corte"])["detalle"]["riesgos"]
+    assert not any(x["rubro"] == "Opinión del año anterior" for x in rs)
+    ab = next(x for x in rs if x["rubro"] == "Inventarios" and x["cod"] == "informe")
+    assert (ab["sev"], ab["norma"]) == ("Alto", "NIA 705 y 710")
+
+
+def test_defecto_d11_narrativa_del_efectivo_y_dias_ajustados():
+    """D11: resultados acumulados (traspaso del resultado anterior) no es un origen de efectivo: se suma al resultado del período;
+    en la preliminar el importe de los días es el ajustado al período, el mismo que usa la lectura."""
+    v = lambda c: c.get("v") if isinstance(c, dict) else c  # noqa: E731
+    hs = {h["name"]: h for h in m.hojas(_run())}
+    narr = {f[1]: [v(c) for c in f] for f in hs["20_Narrativa"]["rows"]}
+    assert "Resultados acumulados" not in narr["Origen del efectivo"][3]
+    assert narr["Origen del efectivo"][3].startswith(f"Principales orígenes: {m.RESULTADO_NETO_TRASPASOS} (US$ 336.800,00)")
+    h22 = {v(f[1]): [v(c) for c in f] for f in hs["22_Origenes"]["rows"]}
+    assert h22["Resultados acumulados"][5] == m.TRASPASO
+    hp = {h["name"]: h for h in m.hojas(_esc("preliminar_eri"))}
+    np_ = {f[1]: f for f in hp["20_Narrativa"]["rows"]}
+    dc = np_["Días de cartera"]
+    assert dc[2]["f"].endswith("I9") and f"{dc[2]['v']:.2f}".replace(".", ",") in dc[3]["v"]
