@@ -235,6 +235,17 @@ class ConfirmacionesTests(unittest.TestCase):
         self.assertIn(r['context']['signatory'], html)
         self.assertNotIn('<script', html.lower())
 
+    def test_envio_model_shape(self):
+        try:
+            from backend.app.aud.confirmaciones_saldos.models import ConfirmacionEnvio
+        except ModuleNotFoundError:
+            self.skipTest('SQLAlchemy no disponible en este entorno (sí en CI)')
+        self.assertEqual(ConfirmacionEnvio.__tablename__, 'aud_confirmaciones_envios')
+        cols = set(ConfirmacionEnvio.__table__.columns.keys())
+        for c in ('project_id', 'enviado_por', 'enviado_en', 'total', 'enviadas',
+                  'fallidas', 'cliente', 'corte', 'idioma', 'input_sha256', 'resumen'):
+            self.assertIn(c, cols)
+
     def test_exports_open_and_no_leak(self):
         p = payload(); p['items'][1]['method'] = 'en_blanco'
         r = calculate(p)

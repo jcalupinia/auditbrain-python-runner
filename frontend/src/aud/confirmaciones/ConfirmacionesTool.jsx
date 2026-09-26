@@ -1,7 +1,7 @@
 import {useEffect, useState} from 'react';
 import '../of/ofWorkspace.css';
 import './confirmaciones.css';
-import {loadContext, extractFile, processConfirmaciones, downloadConfirmaciones, sendConfirmaciones} from './api.js';
+import {loadContext, extractFile, processConfirmaciones, downloadConfirmaciones, sendConfirmaciones, listEnvios} from './api.js';
 import {TYPE_KEYS, TYPE_LABEL, METHODS, LANGUAGES, mapSample, emptyItem, ITEM_FIELDS, FIELD_HELP} from './logic.js';
 
 const today = new Date().toISOString().slice(0, 10);
@@ -85,6 +85,8 @@ export default function ConfirmacionesTool({projectId, sharedContext, onShareCon
   });
   const download = fmt => action(() => downloadConfirmaciones(projectId, payload(), fmt));
   const [sendResult, setSendResult] = useState(null);
+  const [envios, setEnvios] = useState(null);
+  const loadHistory = () => action(async () => { setEnvios(await listEnvios(projectId)); });
   const send = () => {
     if (!result) return;
     const conCorreo = result.totals.with_email;
@@ -194,7 +196,13 @@ export default function ConfirmacionesTool({projectId, sharedContext, onShareCon
           <button className="btn" onClick={() => download('xlsx')} disabled={busy || !result}>Registro (Excel)</button>
           <button className="btn" onClick={() => download('html')} disabled={busy || !result}>Vista + envío (HTML)</button>
           <button className="btn btn-primary" onClick={send} disabled={busy || !result}>Enviar por correo (Resend)</button>
+          <button className="btn" onClick={loadHistory} disabled={busy}>Historial de envíos</button>
         </div>
+        {envios && <div className="cf-summary">
+          <p><b>Historial de envíos</b> ({envios.length})</p>
+          {envios.length === 0 ? <p className="cf-note">Aún no se ha registrado ningún envío en este proyecto.</p> :
+            <ul>{envios.map(e => <li key={e.id}>{e.enviado_en?.slice(0, 16).replace('T', ' ')} · {e.cliente || ''} {e.corte ? '('+e.corte+')' : ''} · {e.enviadas}/{e.total} enviadas{e.fallidas ? ', '+e.fallidas+' con error' : ''} · {e.idioma} · {e.enviado_por || ''}</li>)}</ul>}
+        </div>}
         {sendResult && <div className="cf-summary">
           <p><b>Envío:</b> {sendResult.sent}/{sendResult.total} enviadas.</p>
           <ul>{sendResult.results.filter(x => x.status !== 'enviado').map(x =>

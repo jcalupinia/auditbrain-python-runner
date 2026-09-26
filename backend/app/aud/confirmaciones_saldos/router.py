@@ -17,8 +17,13 @@ from .engine import calculate
 from .exports import build_xlsx, build_html, build_docx, schedules, letter_email_html
 from .plantillas import TYPES, TYPE_LABEL_ES, METHOD_LABEL, REFERENCES, languages
 from .parsers import extract, MAX_BYTES
+from .models import ConfirmacionEnvio
 
 MAX_SEND = 500
+
+
+def _actor(user):
+    return getattr(user, 'display_name', None) or getattr(user, 'full_name', None) or getattr(user, 'email', None)
 
 router = APIRouter(prefix='/aud/confirmaciones-saldos', tags=['aud-confirmaciones-saldos'])
 
@@ -135,6 +140,7 @@ def _send_all(result, only_ids):
 
 @router.post('/{project_id}/enviar')
 async def enviar(project_id: int, request: Request, authorized=Depends(access)):
+    project, user, db = authorized
     data = await request_data(request)
     only_ids = data.get('only_ids')
     if only_ids is not None and not isinstance(only_ids, list):
@@ -142,4 +148,26 @@ async def enviar(project_id: int, request: Request, authorized=Depends(access)):
     result = await run_in_threadpool(safe_calculate, data)
     if result['totals']['count'] > MAX_SEND:
         raise HTTPException(422, f'Máximo {MAX_SEND} envíos por operación.')
-    return await run_in_threadpool(_send_all, result, set(only_ids) if only_ids else None)
+    summary = await run_in_threadpool(_send_all, result, set(only_ids) if only_ids else None)
+    ctx = result['context']
+    row = ConfirmacionEnvio(
+        project_id=project.id, enviado_por=_actor(user), total=summary['total'],
+        enviadas=summary['sent'], fallidas=summary['total'] - summary['sent'],
+        cliente=ctx.get('client'), corte=ctx.get('cutoff'), idioma=ctx.get('language'),
+        input_sha256=result.get('input_sha256'), resumen=summary['results'])
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {**summary, 'envio_id': row.id, 'enviado_en': row.enviado_en.isoformat()}
+
+
+@router.get('/{project_id}/envios')
+def envios(project_id: int, authorized=Depends(access)):
+    project, user, db = authorized
+    rows = (db.query(ConfirmacionEnvio)
+            .filter(ConfirmacionEnvio.project_id == project.id)
+            .order_by(ConfirmacionEnvio.enviado_en.desc()).limit(50).all())
+    return [{'id': r.id, 'enviado_en': r.enviado_en.isoformat(), 'enviado_por': r.enviado_por,
+             'total': r.total, 'enviadas': r.enviadas, 'fallidas': r.fallidas,
+             'cliente': r.cliente, 'corte': r.corte, 'idioma': r.idioma,
+             'input_sha256': r.input_sha256, 'resumen': r.resumen} for r in rows]
