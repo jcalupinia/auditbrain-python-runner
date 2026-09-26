@@ -1,7 +1,7 @@
 import {useEffect, useState} from 'react';
 import '../of/ofWorkspace.css';
 import './confirmaciones.css';
-import {loadContext, extractFile, processConfirmaciones, downloadConfirmaciones} from './api.js';
+import {loadContext, extractFile, processConfirmaciones, downloadConfirmaciones, sendConfirmaciones} from './api.js';
 import {TYPE_KEYS, TYPE_LABEL, METHODS, LANGUAGES, mapSample, emptyItem, ITEM_FIELDS, FIELD_HELP} from './logic.js';
 
 const today = new Date().toISOString().slice(0, 10);
@@ -84,6 +84,19 @@ export default function ConfirmacionesTool({projectId, sharedContext, onShareCon
     setNotice(`${r.totals.count} cartas preparadas · ${r.totals.with_email} con correo, ${r.totals.without_email} sin correo.`);
   });
   const download = fmt => action(() => downloadConfirmaciones(projectId, payload(), fmt));
+  const [sendResult, setSendResult] = useState(null);
+  const send = () => {
+    if (!result) return;
+    const conCorreo = result.totals.with_email;
+    if (!conCorreo) { setError('Ningún elemento tiene correo de contacto. Complete los correos antes de enviar.'); return; }
+    if (!window.confirm(`Se enviarán ${conCorreo} cartas por correo (Resend) a los contactos indicados. Las respuestas llegarán a ${ctx.auditor_email}. ¿Continuar?`)) return;
+    action(async () => {
+      setSendResult(null);
+      const r = await sendConfirmaciones(projectId, payload());
+      setSendResult(r);
+      setNotice(`Envío: ${r.sent}/${r.total} cartas enviadas.`);
+    });
+  };
 
   const ctxField = (k, label, type = 'text') => (
     <label key={k}>{label}
@@ -100,7 +113,7 @@ export default function ConfirmacionesTool({projectId, sharedContext, onShareCon
         <span className="pc-panel-m">{result ? 'PREPARADO · BORRADOR' : 'PREPARACIÓN'}</span></header>
       <p className="cf-note">Auditoría externa → Análisis → Confirmaciones de saldos (junto al motor de balances).
         Las cartas y resultados permanecen en esta pestaña: descargue antes de salir. El servidor procesa sin
-        conservarlos y no envía correo por sí mismo.</p>
+        conservarlos; el envío por correo lo dispara el auditor con el botón «Enviar por correo».</p>
       {error && <p className="cf-error" role="alert">{error}</p>}
       {notice && <p className="cf-ok">{notice}</p>}
 
@@ -180,14 +193,21 @@ export default function ConfirmacionesTool({projectId, sharedContext, onShareCon
           <button className="btn" onClick={() => download('docx')} disabled={busy || !result}>Cartas (Word)</button>
           <button className="btn" onClick={() => download('xlsx')} disabled={busy || !result}>Registro (Excel)</button>
           <button className="btn" onClick={() => download('html')} disabled={busy || !result}>Vista + envío (HTML)</button>
+          <button className="btn btn-primary" onClick={send} disabled={busy || !result}>Enviar por correo (Resend)</button>
         </div>
+        {sendResult && <div className="cf-summary">
+          <p><b>Envío:</b> {sendResult.sent}/{sendResult.total} enviadas.</p>
+          <ul>{sendResult.results.filter(x => x.status !== 'enviado').map(x =>
+            <li key={x.id}><b>{x.id}</b> · {x.status === 'sin_correo' ? 'sin correo de contacto' : ('error: ' + (x.detail || 'no se pudo enviar'))}</li>)}</ul>
+        </div>}
         {result && <div className="cf-summary">
           <p><b>{result.totals.count}</b> cartas · circularizado {result.context.currency} {result.totals.total_sampled} ·
             {' '}con correo {result.totals.with_email} / sin correo {result.totals.without_email}</p>
           <ul>{result.letters.slice(0, 30).map(l => <li key={l.id}>
             <b>{l.id}</b> · {l.type_label} — {l.entity} <span className="cf-tag">{l.method}</span></li>)}</ul>
-          <p className="cf-note">Descargue el HTML para enviar cada carta desde el correo del auditor, o el Word para
-            adjuntarlas. El auditor conserva el control del envío y de la respuesta (NIA 505).</p>
+          <p className="cf-note">«Enviar por correo (Resend)» envía cada carta al contacto indicado con el mismo
+            servicio que usa el portal para usuario y clave; las respuestas llegan al correo del auditor. También puede
+            descargar el HTML (envío manual) o el Word para adjuntar. El auditor conserva el control del envío (NIA 505).</p>
         </div>}
       </section>
     </div>);

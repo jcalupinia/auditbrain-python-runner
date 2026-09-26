@@ -252,3 +252,30 @@ def build_html(r):
             'El auditor conserva el control del envío y de la respuesta (NIA 505).</p><nav>' + ''.join(nav) +
             '</nav></header><main>' + ''.join(sections) +
             '<section><h2>Referencias</h2><ul>' + refs + '</ul></section></main></html>')
+
+
+def letter_email_html(r, letter):
+    """HTML de una sola carta para envío por correo (estilos en línea, sin recursos externos)."""
+    esc = lambda v: escape(str(v), quote=True)
+    firm = firm_name(r['context']['firm'])
+    blocks = letter['blocks']
+    salut = ''.join(f'<p style="margin:2px 0">{esc(l)}</p>' for l in letter['salutation'])
+    intro = f'<p style="margin:14px 0">{esc(blocks[0])}</p>' if blocks else ''
+    items = ''.join(f'<li style="margin:4px 0">{esc(it)}</li>' for it in letter.get('items', []))
+    items_html = f'<ul style="margin:8px 0 8px 18px;padding:0">{items}</ul>' if items else ''
+    rest = ''.join(f'<p style="margin:12px 0">{esc(b)}</p>' for b in blocks[1:])
+    sign = ''.join(f'<p style="margin:2px 0">{esc(l)}</p>' for l in letter['signature'])
+    resp = ''
+    if letter['response_lines']:
+        rl = ''.join(f'<p style="margin:3px 0">{esc(l)}</p>' for l in letter['response_lines'])
+        resp = ('<div style="margin-top:18px;padding:14px;border:1px dashed #94a3b8;border-radius:8px">'
+                f'<p style="margin:0 0 8px;font-weight:bold">{esc(letter["response_title"])}</p>{rl}</div>')
+    return (
+        '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1f2937;'
+        'max-width:680px;margin:auto;line-height:1.55">'
+        '<div style="background:#0a2540;color:#fff;padding:14px 18px;border-radius:8px 8px 0 0">'
+        f'<strong>{esc(firm)}</strong></div>'
+        '<div style="padding:18px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">'
+        f'{salut}{intro}{items_html}{rest}<div style="margin-top:16px">{sign}</div>{resp}'
+        '</div></div>'
+    )

@@ -3,7 +3,7 @@ import unittest
 from io import BytesIO
 
 from backend.app.aud.confirmaciones_saldos.engine import calculate
-from backend.app.aud.confirmaciones_saldos.exports import build_xlsx, build_docx, build_html, schedules
+from backend.app.aud.confirmaciones_saldos.exports import build_xlsx, build_docx, build_html, schedules, letter_email_html
 
 
 def payload():
@@ -226,6 +226,14 @@ class ConfirmacionesTests(unittest.TestCase):
         self.assertIn('Libros', headers)
         self.assertIn('Confirmación', headers)
         self.assertIn('Diferencia', headers)
+
+    def test_letter_email_html_render(self):
+        r = calculate(payload())
+        html = letter_email_html(r, r['letters'][0])
+        self.assertIn(r['items'][0]['entity'], html)
+        self.assertIn('<ul', html)                    # los puntos van como lista
+        self.assertIn(r['context']['signatory'], html)
+        self.assertNotIn('<script', html.lower())
 
     def test_exports_open_and_no_leak(self):
         p = payload(); p['items'][1]['method'] = 'en_blanco'
