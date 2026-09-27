@@ -242,9 +242,10 @@ def test_hojas_con_las_cedulas_y_el_ancho_de_columnas():
     propias = sum(1 for f in programa["rows"] if str(f[2]).startswith("Cuenta "))
     conf = sum(1 for f in programa["rows"] if str(f[2]).startswith(("NIA 505", "NIA 501 ·")))
     assert conf >= 1
-    # M19 y M6: saldos de apertura (NIA 510) y el elemento de imprevisibilidad (NIA 240), si hay una cuenta que no se revisa.
+    # M19 y M6: saldos de apertura (NIA 510) y el elemento de imprevisibilidad (NIA 240), si hay una cuenta que no se revisa;
+    # prioridad baja: la evaluación de la auditoría interna (NIA 610), que aplica si la carta la menciona.
     impr = sum(1 for f in programa["rows"] if f[2] == "Imprevisibilidad (NIA 240)")
-    assert len(programa["rows"]) == len(r["detalle"]["carta"]) + presentes + propias + conf + len(m.PROC_ENCARGO) + 1 + impr
+    assert len(programa["rows"]) == len(r["detalle"]["carta"]) + presentes + propias + conf + len(m.PROC_ENCARGO) + 2 + impr
 
 
 def test_panel_con_textos_propios_y_las_demas_herramientas_sin_cambio():
@@ -406,7 +407,7 @@ def test_notas_desglose_por_cuenta_composicion_auditada_y_rubros_sin_nota():
 
 def test_semaforo_no_significativo_con_patrimonio_negativo():
     """Con patrimonio en déficit, los índices que dividen para el patrimonio no pueden salir en verde («Conservador»,
-    «Bajo»): van en rojo como no significativos y la lectura remite a empresa en marcha (hallazgo de los agentes)."""
+    «Bajo»): van en rojo como no significativos y la lectura remite a empresa en funcionamiento (hallazgo de los agentes)."""
     v = lambda c: c.get("v") if isinstance(c, dict) else c  # noqa: E731
     for esc, esperado in (("patrimonio_deficit", True), ("base", False)):
         h = next(x for x in m.hojas(_esc(esc)) if x["name"] == "10_Indices")
@@ -1080,3 +1081,87 @@ def test_matriz_de_riesgos_consolidada_y_conocimiento_del_negocio():
                          "Cifras clave", "Ciclos y enfoque de auditoría", "Riesgos principales"]
     assert any(f[1] == "Entidad auditada" and "Comercial Andina" in f[2] for f in con)
     assert next(f for f in con if f[1] == "Riesgos significativos presentes")[2] >= 1
+
+
+# --- prioridad BAJA de la revisión de control de calidad (2026-09-27) --------------------------------------------------
+def test_prioridad_baja_auditoria_interna_expertos_y_vigencia():
+    r, hs = _hojas()
+    # NIA 610: sin mención en la carta, la evaluación es informativa y el procedimiento no aplica.
+    ai = next(f for f in _filas(hs[enc.H27]) if f[1] == "AI-01")
+    assert ai[4] == enc.AI_NO and ai[8] == "Documentado"
+    pt = next(f for f in _filas(hs["19_Programa"]) if f[1] == "Auditoría interna")
+    assert pt[2] == "NIA 610" and pt[10] == "No"
+    e = m.EJEMPLO
+    ds = {**e["datasets"], "carta_control_interno": [*e["datasets"]["carta_control_interno"], m._ci(
+        "R09", "Seguimiento", "La auditoría interna no revisó el proceso de compras en el año.", "Integridad", "2", "2", "3", "")]}
+    r2 = m.ejecutar(ds, e["parametros"], e["corte"])
+    hs2 = {h["name"]: h for h in m.hojas(r2)}
+    ai2 = next(f for f in _filas(hs2[enc.H27]) if f[1] == "AI-01")
+    assert ai2[4] == enc.AI_SI and "R09" in ai2[5]
+    assert next(f for f in _filas(hs2["19_Programa"]) if f[1] == "Auditoría interna")[10] == "Sí"
+    # NIA 500 y 620: el actuario es experto de la dirección; con incertidumbre alta se considera un experto del auditor.
+    est = {f[0]: f for f in _filas(hs[cal.H38])}
+    jub = est["2202"]
+    assert jub[9] == cal.EXPERTO_DIRECCION["Jubilación patronal y desahucio (cálculo actuarial)"]
+    assert jub[10].startswith("Evaluar la competencia") and "NIA 620" in jub[10]
+    assert est["120103"][9] == cal.SIN_EXPERTO and est["120103"][10] == cal.EV_NO
+    # NIA 315 párr. 16: lo que viene del informe o de las notas del año anterior se confirma; lo del período, no.
+    ent = {f[0]: f[5] for f in _filas(hs[cal.H35])}
+    assert ent["Estrategia, objetivos y modelo de negocio"].startswith("Dato del año anterior")
+    assert ent["Financiamiento"] == cal.VIG_PERIODO
+
+
+def test_prioridad_baja_manifestaciones_segun_los_riesgos():
+    r, hs = _hojas()
+    man = _filas(hs[cal.H44])
+    tipos = [f[0] for f in man]
+    assert tipos.count(cal.MAN_GENERAL) == 2 and cal.MAN_NORMA in tipos
+    especificas = [f for f in man if f[0] == cal.MAN_RIESGO]
+    sig = [x["id"] for x in r["detalle"]["carta"] if x["sig"] == "Sí"]
+    assert sig and all(any(x in f[1] for f in especificas) for x in sig)
+    # La de empresa en funcionamiento aplica solo con indicios en la hoja 13.
+    em = next(f for f in man if f[1] == cal.MAN_EMPRESA[0])
+    assert em[3] == ("Sí" if m.riesgos_em(r["detalle"]["riesgos"]) else "No")
+    # El procedimiento de manifestaciones del programa remite a la hoja 44.
+    assert any("hoja 44" in str(f[4]) for f in _filas(hs["19_Programa"]) if f[1] == "Manifestaciones escritas")
+
+
+def test_prioridad_baja_anomalias_cortadas_termino_unico_y_huellas(monkeypatch):
+    e = m.EJEMPLO
+    _n, ds_eip, par_eip, corte_eip = next(x for x in m.ESCENARIOS if x[0] == "eip")      # 4 anomalías
+    monkeypatch.setattr(m, "MAX_ANOMALIAS", 2)
+    re_ = m.ejecutar(ds_eip, par_eip, corte_eip)
+    cortadas = [x for x in re_["exceptions"] if x["code"] == "ANOMALIAS_CORTADAS"]
+    assert len(cortadas) == 1 and "Se detectaron 4 anomalías" in cortadas[0]["message"]
+    assert len(re_["detalle"]["anomalias"]) == 2
+    monkeypatch.undo()
+    r = m.ejecutar(e["datasets"], e["parametros"], e["corte"])
+    assert not [x for x in r["exceptions"] if x["code"] == "ANOMALIAS_CORTADAS"]
+    # Un solo término (NIA 570): «empresa en funcionamiento»; el tipo anterior del informe se sigue aceptando.
+    inf = [{**x, "tipo": "Empresa en marcha", "concepto": "Duda sobre la continuidad"} if x["tipo"] == "Énfasis" else x
+           for x in e["datasets"]["informe_anterior"]]
+    r2 = m.ejecutar({**e["datasets"], "informe_anterior": inf}, e["parametros"], e["corte"])
+    hs2 = m.hojas(r2)
+    assert any(x["norma"] == "NIA 570" and x["origen"] == "Informe anterior" for x in r2["detalle"]["riesgos"]) or \
+        not any(x["tipo"] == "Énfasis" for x in e["datasets"]["informe_anterior"])
+    textos = " ".join(str(_v(c)) for h in hs2 for f in h["rows"] for c in f)
+    assert "en marcha" not in textos.lower()
+    assert cal.H41 == "41_Empresa_Funcionamiento" and cal.H41 in {h["name"] for h in hs2}
+    # Audit trail (NIA 230): huella de los datos leídos y, si la plataforma los entrega, nombre y SHA-256 de cada archivo.
+    arch = [{"requerimiento": "RQ-001", "nombre": "Balance 2024.xlsx", "sha256": "a" * 64, "subido_por": "cpa@ejemplo.ec",
+             "subido_en": "2025-10-10T09:15:00"}]
+    r3 = m.ejecutar(e["datasets"], {**e["parametros"], "_archivos": arch}, e["corte"])
+    trail = {f[0]: f[1] for f in _filas(next(h for h in m.hojas(r3) if h["name"] == "23_Audit_trail"))}
+    assert trail["Huella de los datos leídos · RQ-001"] == f"SHA-256 {m._huella(e['datasets']['balance_anterior'])}"
+    assert trail["Archivo entregado · RQ-001 · Balance 2024.xlsx"].startswith("SHA-256 " + "a" * 64)
+    sin = {f[0] for f in _filas(next(h for h in m.hojas(r) if h["name"] == "23_Audit_trail"))}
+    assert "Archivos entregados (SHA-256)" in sin
+
+
+def test_prioridad_baja_hojas_de_cierre_y_secciones_del_libro():
+    from backend.app.aud.niif.procesadores import libro
+
+    assert (libro.HOJA_CONCLUSION, libro.HOJA_CONTROL) == ("99_Conclusion", "99_Control_Revision")
+    # Una cédula del procesador que empieza con 13_ o 14_ ya no cae en «Resultado» ni en «Documentación».
+    assert libro._seccion({"name": "13_Riesgos_Balance"}) == 1 and libro._seccion({"name": "14_Perfil"}) == 1
+    assert libro._seccion({"name": libro.HOJA_CONCLUSION}) == 0 and libro._seccion({"name": libro.HOJA_CONTROL}) == 3

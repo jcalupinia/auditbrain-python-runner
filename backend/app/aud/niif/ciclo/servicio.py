@@ -471,6 +471,8 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                     anterior = version_anterior_run(db, p)
                     if anterior:
                         param["_anterior"] = anterior
+                    # Audit trail (NIA 230, hoja 23): nombre y huella SHA-256 de cada archivo del cliente que se usó.
+                    param["_archivos"] = archivos_de_entrada(db, p.id)
                 run = proc.ejecutar(reg.get("datasets") or {}, param, reg["engagement"]["cutoff"])
                 # La 3.ª edición de la NIIF para las PYMES rige desde el 1-1-2027: antes, solo con adopción anticipada.
                 if "PYMES" in param["_marco"] and param["_edicion"] == "2025" and str(reg["engagement"]["cutoff"]) < "2027-01-01":
@@ -646,6 +648,13 @@ def archivos(db: Session, prueba_id: int) -> list[PruebaArchivo]:
     return list(db.execute(
         select(PruebaArchivo).where(PruebaArchivo.prueba_id == prueba_id).order_by(PruebaArchivo.id)
     ).scalars())
+
+
+def archivos_de_entrada(db: Session, prueba_id: int) -> list[dict]:
+    """Archivos del cliente vigentes (no rechazados) de la prueba, para el audit trail del papel."""
+    return [{"requerimiento": a.requerimiento, "nombre": a.nombre, "sha256": a.sha256, "tamano": a.tamano,
+             "subido_por": a.subido_por or "", "subido_en": a.subido_en.isoformat(timespec="seconds") if a.subido_en else ""}
+            for a in archivos(db, prueba_id) if a.clase == "source" and a.estado != "rechazado"]
 
 
 def subir_archivo(db: Session, p: Prueba, revision: int, requerimiento: str, componente: str,

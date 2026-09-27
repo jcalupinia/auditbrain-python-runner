@@ -698,12 +698,12 @@ umbral = desempeño × `pctUmbralAnalitico`), `38_Estimaciones` (M12: por el nom
 solo en las estimaciones subjetivas —actuarial, deterioro, VNR, impuesto diferido— que superan el desempeño; revisión
 retrospectiva), `39_Leyes` (M13: SRI, Superintendencia, IESS y Código del Trabajo de efecto directo; ambiental, UAFE y
 del sector de efecto indirecto según la actividad de la ficha), `40_Partes_Relacionadas` (M14: cuenta nueva o con
-variación material = fuera del curso normal → riesgo significativo), `41_Empresa_Marcha` (M15: indicios financieros de
+variación material = fuera del curso normal → riesgo significativo), `41_Empresa_Funcionamiento` (M15: indicios financieros de
 la hoja 13 y no financieros de la carta, el informe y las notas; período de la evaluación = corte + 12 meses),
 `00_Version_anterior` y `42_Cambios` (M4: la plataforma entrega `parametros["_anterior"]` con la materialidad y la hoja
 13 de la versión madre), `43_Equipo_Horas` (M1 y M2: horas del programa por nivel y rol —política de la firma—,
 supervisión planificada y fecha de cierre del archivo = informe + `diasCierreArchivo`). Riesgos nuevos en la hoja 13
-(estimaciones, partes relacionadas, empresa en marcha no financiera, uniformidad de políticas M19) con su «¿Se
+(estimaciones, partes relacionadas, empresa en funcionamiento no financiera, uniformidad de políticas M19) con su «¿Se
 presenta?» por fórmula (`f_pres`). En hojas existentes: 11 (M9 desempeño sugerido: 75 / 60 / 50 % según encargo
 inicial, diferencias sobre el trivial y riesgos significativos; M21 aviso de signo contrario), 12 (M17 clasificación
 NIA 265 y seguimiento), 19 (horas y supervisión; filas de saldos de apertura M19, imprevisibilidad M6 que rota por
@@ -743,6 +743,29 @@ ciclo, afirmaciones, riesgo inherente, significativo, enfoque, riesgo de control
 (`documentos_encargo.conocimiento_negocio`, documento `conocimiento_negocio`). Panel: sección «Enfoque por ciclo» en
 «Registro del encargo». Pruebas: `test_enfoque_por_ciclo_…`, `test_matriz_de_riesgos_consolidada_…` y
 `test_enfoque_del_ciclo_lo_confirma_el_socio`. Verificación LibreOffice de los 6 escenarios: 0 diferencias.
+
+**Prioridad baja de la revisión de control de calidad de la planificación (2026-09-27, todo automático):**
+- **NIA 610:** evaluación `AI-01` en la hoja 27 (informativa: «Documentado») según la carta de control interno; si la
+  menciona, el programa aplica el procedimiento «Auditoría interna» (objetividad, competencia y uso de su trabajo).
+- **NIA 500 y 620:** la hoja 38 trae «Experto» (actuario o perito valuador de la dirección, o «No se prevé») y «Evaluación del
+  experto» por fórmula (con incertidumbre «Alta», considerar además un experto del auditor).
+- **NIA 315 párr. 16:** la hoja 35 trae «¿Sigue vigente?»: lo que sale del informe o de las notas del año anterior se confirma
+  en la visita; con una indagación registrada sobre el tema queda confirmado.
+- **NIA 580:** hoja `44_Manifestaciones` (generales, las que exigen otras NIA y una específica por cada riesgo significativo de
+  las hojas 12 y 13, con «¿Aplica?» por fórmula); el procedimiento de manifestaciones del programa remite a ella.
+- **Anomalías:** la hoja 17 muestra las `MAX_ANOMALIAS` (20) más severas; si hay más, el problema `ANOMALIAS_CORTADAS` lo avisa.
+- **Un solo término (NIA 570): «empresa en funcionamiento»** en las hojas, textos y temas (hoja `41_Empresa_Funcionamiento`).
+  El tipo «Empresa en marcha» del informe anterior y el tema de las indagaciones ya registradas se siguen aceptando (alias). En
+  las páginas de políticas NIIF se mantiene el término de las NIIF («negocio en marcha»).
+- **Audit trail (NIA 230, hoja 23):** huella SHA-256 de los datos leídos de cada documento (`_huella`) y, al ejecutar en la
+  plataforma, nombre, SHA-256, quién y cuándo subió cada archivo del cliente vigente (`servicio.archivos_de_entrada` →
+  `parametros["_archivos"]`).
+- **Hojas de cierre de todas las herramientas:** `99_Conclusion` y `99_Control_Revision` (`libro.HOJA_CONCLUSION`,
+  `libro.HOJA_CONTROL`); la sección de la pestaña se decide por esos nombres exactos, así que una cédula `13_…` o `14_…` de un
+  procesador queda en «Cómo se calculó».
+- Pruebas: `test_prioridad_baja_…` (`tests/test_proc_planificacion_nia.py`) y
+  `test_archivos_de_entrada_con_su_huella_para_el_audit_trail`. Verificación LibreOffice de los 6 escenarios y de uno con
+  auditoría interna y archivos de la plataforma: 0 diferencias.
 
 **Diseño del libro (todas las herramientas, 2026-09-25):** portada con botones por sección
 (Resultado · Cómo se calculó · Datos del cliente · Documentación) y pestañas del color de su

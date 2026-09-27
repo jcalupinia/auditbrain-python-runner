@@ -81,6 +81,14 @@ def _fecha(v) -> str:
     return f.isoformat() if f else ""
 
 
+# Término único de la NIA 570 (2026-09-27): los registros guardados con el nombre anterior del tema se leen con el nuevo.
+_TEMA_ANTERIOR = {"Empresa en marcha": "Empresa en funcionamiento"}
+
+
+def _tema(t: str) -> str:
+    return _TEMA_ANTERIOR.get(t, t)
+
+
 def registros(p: dict) -> dict:
     """Registros que la plataforma inyecta en ``parametros["_encargo"]`` (ciclo/servicio.py)."""
     e = p.get("_encargo") or {}
@@ -100,7 +108,7 @@ def registros(p: dict) -> dict:
         x = r.get(k) or {}
         return {"actor": txt(x, "actor"), "fecha": _fecha(x.get("fecha")), "detalle": txt(x, "detalle")}
     # M7 (NIA 315): indagaciones y observaciones; M3 (NIA 220): consultas y diferencias de opinión con su estado.
-    indag = [{"actor": txt(x, "actor"), "fecha": _fecha(x.get("fecha")), "tema": txt(x, "tema") or "Otro",
+    indag = [{"actor": txt(x, "actor"), "fecha": _fecha(x.get("fecha")), "tema": _tema(txt(x, "tema")) or "Otro",
               "procedimiento": txt(x, "procedimiento") or "Indagación", "persona": txt(x, "persona"), "resumen": txt(x, "resumen")}
              for x in r.get("indagaciones") or [] if txt(x, "resumen")]
     consultas = [{"actor": txt(x, "actor"), "fecha": _fecha(x.get("fecha")), "tipo": TIPO_DIFERENCIA if txt(x, "tipo") == "diferencia"
@@ -308,7 +316,7 @@ def evaluaciones(c: dict) -> list[dict]:
     v = ("Sí: ver los riesgos del informe anterior (hoja 13)" if alto_inf else
          f"{PENDIENTE} sin informe del año anterior (RQ-005)" if not n_inf else "No")
     out.append(_it(H24, "ACE-03", "Aceptación y continuidad", "Asuntos del encargo anterior que afectan la continuidad (opinión "
-                   "modificada, salvedades, empresa en marcha)", "NIA 220 (Revisada) párr. 23; NIA 510 (VERIFICAR)", "alerta_si",
+                   "modificada, salvedades, empresa en funcionamiento)", "NIA 220 (Revisada) párr. 23; NIA 510 (VERIFICAR)", "alerta_si",
                    fx(f'IF(COUNTIFS({b13},"Informe anterior",{f13},"Sí",{h13},"Alto")>0,"Sí: ver los riesgos del informe anterior '
                       f'(hoja 13)",IF({n_inf}=0,"{PENDIENTE} sin informe del año anterior (RQ-005)","No"))', v),
                    "Informe de auditoría del año anterior (RQ-005) y hoja 13"))
@@ -424,6 +432,15 @@ def evaluaciones(c: dict) -> list[dict]:
                    alerta="Proceso a cargo de una organización de servicio: el control está fuera de la entidad.",
                    resp=("Obtener el informe tipo 1 o tipo 2 del auditor de la organización de servicio y evaluar los controles "
                          "complementarios de la entidad (NIA 402 párr. 12–17 — VERIFICAR).")))
+    # Prioridad baja (NIA 610): función de auditoría interna según la carta. Es informativa: si existe, el programa evalúa su
+    # objetividad y competencia antes de usar su trabajo; si no consta, no hay nada que hacer.
+    ai = [x["id"] for x in carta if any(k in norm(x["proceso"] + " " + x["hallazgo"]) for k in AUDITORIA_INTERNA)]
+    f_ai = "+".join(f'COUNTIF({b12},"*{k}*")+COUNTIF({c12},"*{k}*")' for k in AUDITORIA_INTERNA_TXT)
+    v = pend if not n12 else AI_SI if ai else AI_NO
+    out.append(_it(H27, "AI-01", "Auditoría interna", "Función de auditoría interna: existencia y uso de su trabajo",
+                   "NIA 610 (Revisada 2013) párr. 15 y 18 (VERIFICAR)", "info",
+                   fx(f'IF({n12}=0,"{pend}",IF({f_ai}>0,"{AI_SI}","{AI_NO}"))', v),
+                   ("Hallazgos " + ", ".join(ai) + " (hoja 12)") if ai else "Carta de control interno (hoja 12)"))
     for x in out:
         x["estado"] = _estado(x["kind"], x["res"]["v"] if isinstance(x["res"], dict) else x["res"])
     return out
@@ -722,6 +739,14 @@ RESP_570 = "Evaluar la capacidad de continuar y los planes de la dirección (NIA
 RESP_AFIRMACION = "Por afirmación en el programa (hoja 19)"
 
 
+AUDITORIA_INTERNA = ("auditoriainterna", "auditorinterno", "auditoresinternos")
+# Mismas claves como texto para COUNTIF (Excel no distingue tildes con comodines: se buscan las dos formas).
+AUDITORIA_INTERNA_TXT = ("auditoría interna", "auditoria interna", "auditor interno", "auditores internos")
+AI_SI = "Sí: la carta de control interno menciona la función de auditoría interna (hoja 12)"
+AI_NO = "No consta una función de auditoría interna en la carta de control interno (hoja 12)"
+PROC_AUDITORIA_INTERNA = ("Evaluar la objetividad, la competencia y el enfoque sistemático de la función de auditoría interna y decidir "
+                          "si se usa su trabajo y en qué áreas; si se usa, reejecutar parte de él (NIA 610 párr. 15–25 — VERIFICAR).")
+EVID_AUDITORIA_INTERNA = "Estatuto de la auditoría interna, plan anual, informes emitidos y papeles de trabajo de la función."
 SERVICIOS = ("terceriz", "outsourc", "nube", "externaliz", "proveedor de servicio", "custodi", "servicio externo")
 
 
