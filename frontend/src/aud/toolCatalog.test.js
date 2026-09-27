@@ -56,3 +56,13 @@ describe("tarjetas de Análisis: qué se prueba", () => {
     expect(rotuloPruebas("etapa")).toBe("Qué incluye");
   });
 });
+
+describe("tarjetas de Análisis: herramientas que no son NIIF", () => {
+  it("cada herramienta fija del catálogo dice qué prueba o qué incluye", () => {
+    const fijas = CATEGORIES.flatMap((c) => c.tools || []);
+    expect(fijas.length).toBeGreaterThanOrEqual(6);
+    for (const t of fijas) expect(pruebasDe(t).length, t.id).toBeGreaterThanOrEqual(3);
+    const vnr = CATEGORIES.find((c) => c.id === "INVENTARIOS").tools[0];
+    expect(pruebasDe(vnr)).toContain("Cálculo del VNR");
+  });
+});

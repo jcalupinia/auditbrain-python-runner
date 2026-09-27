@@ -19,6 +19,21 @@ export const abrePruebasEncargo = (id) => /^(ficha|proc):/.test(id || "");
 export const rotuloPruebas = (tipo) => (tipo === "etapa" ? "Qué incluye" : "Qué se prueba");
 export const pruebasDe = (herramienta) => (Array.isArray(herramienta?.pruebas) ? herramienta.pruebas.filter(Boolean) : []);
 
+// Etiquetas de lo que prueba una herramienta: las NIIF las traen del servidor (objetivos de su programa) y las demás de
+// catalog.js.
+function QueSePrueba({ herramienta, tipo }) {
+  const lista = pruebasDe(herramienta);
+  if (!lista.length) return null;
+  return (
+    <span className="aud-tool-pruebas" aria-label={`${rotuloPruebas(tipo)}: ${lista.join(", ")}`}>
+      <span className="aud-tool-pruebas-h">{rotuloPruebas(tipo)}</span>
+      {lista.map((p) => (
+        <span key={p} className="aud-tool-prueba">{p}</span>
+      ))}
+    </span>
+  );
+}
+
 export default function ToolCatalog({ projectId }) {
   const [activeTool, setActiveTool] = useState(null);
   const [sharedContext, setSharedContext] = useState(null);
@@ -134,14 +149,7 @@ export default function ToolCatalog({ projectId }) {
                         {(f.marcos || []).join(" · ") || "Ficha NIIF"}
                         {f.estado === "enviada" ? " · en el catálogo" : " · probada, pendiente de aprobación para el catálogo"}
                       </span>
-                      {pruebasDe(f).length > 0 && (
-                        <span className="aud-tool-pruebas" aria-label={`${rotuloPruebas(cat.type)}: ${pruebasDe(f).join(", ")}`}>
-                          <span className="aud-tool-pruebas-h">{rotuloPruebas(cat.type)}</span>
-                          {pruebasDe(f).map((p) => (
-                            <span key={p} className="aud-tool-prueba">{p}</span>
-                          ))}
-                        </span>
-                      )}
+                      <QueSePrueba herramienta={f} tipo={cat.type} />
                     </button>
                   ))}
                   {(cat.tools || []).map((t) => (
@@ -152,6 +160,7 @@ export default function ToolCatalog({ projectId }) {
                     >
                       <b>{t.label}</b>
                       <span>{t.description}</span>
+                      <QueSePrueba herramienta={t} tipo={cat.type} />
                     </button>
                   ))}
                 </div>
