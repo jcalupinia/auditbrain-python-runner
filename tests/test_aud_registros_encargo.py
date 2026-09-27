@@ -265,3 +265,26 @@ def test_memorando_de_conocimiento_del_negocio():
     celdas = [c.text for t in d.tables for c in t._cells]
     assert "Cifras clave" in textos and "Enfoque por ciclo: confianza o no en los controles" in textos
     assert "Entidad auditada" in celdas and "Nómina y beneficios a empleados" in celdas and "R01" in celdas
+
+
+def test_archivos_de_entrada_con_su_huella_para_el_audit_trail(client):
+    """Prioridad baja (NIA 230): la plataforma entrega nombre y SHA-256 de los archivos del cliente vigentes (no los
+    rechazados ni los papeles de trabajo) para la hoja 23."""
+    from backend.app.aud.niif.ciclo.models import Prueba, PruebaArchivo
+
+    _tok, pid = _staff_con_proyecto(client)
+    db = SessionLocal()
+    try:
+        p = Prueba(project_id=pid, version=1, estado="DOCUMENTACION_RECIBIDA", origen="x", definicion={}, registro={}, revision=1)
+        db.add(p)
+        db.commit()
+        base = {"prueba_id": p.id, "componente": None, "tipo": "text/csv", "tamano": 10, "ruta": "x"}
+        db.add_all([PruebaArchivo(**base, requerimiento="RQ-001", nombre="Balance 2024.csv", sha256="a" * 64, subido_por="cpa@x.ec"),
+                    PruebaArchivo(**base, requerimiento="RQ-002", nombre="Balance viejo.csv", sha256="b" * 64, estado="rechazado"),
+                    PruebaArchivo(**base, requerimiento="RQ-002", nombre="Papel.html", sha256="c" * 64, clase="workpaper")])
+        db.commit()
+        arch = servicio.archivos_de_entrada(db, p.id)
+    finally:
+        db.close()
+    assert [(x["requerimiento"], x["nombre"], x["sha256"]) for x in arch] == [("RQ-001", "Balance 2024.csv", "a" * 64)]
+    assert arch[0]["subido_por"] == "cpa@x.ec" and arch[0]["subido_en"]

@@ -8,7 +8,7 @@ export const ROLES = ["Socio", "Gerente", "Senior", "Asistente", "Revisor de cal
 export const TEMAS = [
   "Sector, actividad y regulación", "Propiedad, gobierno y estructura", "Estrategia, objetivos y modelo de negocio",
   "Medición y revisión del desempeño", "Políticas contables y sus cambios", "Financiamiento",
-  "Sistema de información y control interno", "Partes relacionadas", "Leyes y reglamentos", "Empresa en marcha", "Otro",
+  "Sistema de información y control interno", "Partes relacionadas", "Leyes y reglamentos", "Empresa en funcionamiento", "Otro",
 ];
 export const PROCEDIMIENTOS = ["Indagación", "Observación", "Inspección"];
 

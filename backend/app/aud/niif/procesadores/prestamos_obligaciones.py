@@ -516,7 +516,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         ratios[nombre] = {"num": num, "den": den, "ratio": r, "lim": lim, "tipo": tipo, "cumple": cumple, "definicion": definicion}
         if cumple == "No":
             probs.append(problema("ENDEUDAMIENTO_SOBRE_LIMITE", f"{nombre}: {r:.2f} veces frente al límite {tipo.lower()} de {lim:g} veces. ".replace(".", ",", 2) + (
-                                  "Analítica de auditoría (no es un requisito NIIF): revise el efecto en covenants, empresa en marcha (NIA 570) y revelaciones (NIIF 7 18–19).")))
+                                  "Analítica de auditoría (no es un requisito NIIF): revise el efecto en covenants, empresa en funcionamiento (NIA 570) y revelaciones (NIIF 7 18–19).")))
         elif lim is not None and r is None:
             probs.append(problema("RATIO_NO_CALCULABLE", f"{nombre}: hay límite pactado pero faltan datos de la entidad o el denominador no es positivo; no se evaluó."))
     d_ = ratios["DSCR"]
@@ -1302,7 +1302,7 @@ def definicion() -> dict:
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad del anexo de préstamos contra el mayor y los contratos."},
             {"document": "NIA 540 (Revisada)", "section": "párr. 13, 18–30 (22–25: métodos, supuestos significativos y datos)", "requirement": "Método (TIE), datos (contratos) y supuestos del costo amortizado."},
             {"document": "NIA 560", "section": "párr. 6", "requirement": "Dispensas, refinanciaciones y pagos posteriores al cierre."},
-            {"document": "NIA 570 (Revisada)", "section": "párr. 10–16", "requirement": "Incumplimientos de covenants y capacidad de pago como indicios de empresa en marcha. La NIA 570 (Revisada 2024) rige para períodos desde el 15-12-2026."},
+            {"document": "NIA 570 (Revisada)", "section": "párr. 10–16", "requirement": "Incumplimientos de covenants y capacidad de pago como indicios de empresa en funcionamiento. La NIA 570 (Revisada 2024) rige para períodos desde el 15-12-2026."},
         ],
         "calculo": [
             "Tasa periódica nominal = tasa nominal anual × meses del período ÷ 12 (cotéjela con el contrato).",
@@ -1363,7 +1363,7 @@ def definicion() -> dict:
             {"code": "DEU-05", "objective": "Clasificación corriente / no corriente", "risk": "Porción corriente mal clasificada",
              "assertion": "Presentación", "procedure": "Recalcular lo que vence en 12 meses y aplicar el efecto de los covenants", "evidence": "Cédula 11",
              "criterion": "NIC 1 69 c), 72B y 74", "source": "NIC 1 69–76 · PYMES 4.7"},
-            {"code": "DEU-06", "objective": "Endeudamiento y capacidad de pago", "risk": "Endeudamiento sobre los límites; dudas de empresa en marcha",
+            {"code": "DEU-06", "objective": "Endeudamiento y capacidad de pago", "risk": "Endeudamiento sobre los límites; dudas de empresa en funcionamiento",
              "assertion": "Presentación / Revelación",
              "procedure": "Analizar deuda/activos, deuda/patrimonio, deuda/EBITDA y cobertura (analítica, no requisito NIIF). Para el DSCR, obtener "
                           "del contrato su definición (numerador y denominador) y usarla; sin definición contractual el DSCR se presenta como "

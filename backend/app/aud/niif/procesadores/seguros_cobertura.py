@@ -844,7 +844,7 @@ def definicion() -> dict:
         "nia": [
             {"document": "NIA 315 (Revisada 2019)", "section": "párr. 19 y 28", "requirement": "Entender el entorno y los riesgos: pérdida de activos no asegurados como factor de riesgo."},
             {"document": "NIA 330", "section": "párr. 6 y 18", "requirement": "Respuestas a los riesgos valorados; evidencia sobre la cobertura."},
-            {"document": "NIA 570 (Revisada)", "section": "párr. 10–16", "requirement": "Empresa en marcha: pérdida no asegurada de activos clave. La NIA 570 (Revisada 2024) rige para períodos desde el 15-12-2026."},
+            {"document": "NIA 570 (Revisada)", "section": "párr. 10–16", "requirement": "Empresa en funcionamiento: pérdida no asegurada de activos clave. La NIA 570 (Revisada 2024) rige para períodos desde el 15-12-2026."},
             {"document": "NIA 500", "section": "párr. 9", "requirement": "Exactitud e integridad del maestro de activos y del detalle de pólizas."},
             {"document": "NIA 501 / NIA 560", "section": "NIA 501 párr. 9 / NIA 560 párr. 6", "requirement": "Litigios y reclamaciones (siniestros) y hechos posteriores al cierre."},
         ],

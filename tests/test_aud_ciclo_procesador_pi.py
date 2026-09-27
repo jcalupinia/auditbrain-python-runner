@@ -132,7 +132,7 @@ def test_perdidas_incurridas_de_punta_a_punta(client):
     assert set(art) == {"xlsx", "html"}
     x = client.get(f"{BASE}/pruebas/{p['id']}/archivos/{art['xlsx']['id']}", headers=_h(tok))
     wb = load_workbook(io.BytesIO(x.content))
-    assert wb.sheetnames[0] == "00_Inicio" and "00_Caratula" in wb.sheetnames and "04_Matriz_deterioro" in wb.sheetnames and wb.sheetnames[-1] == "14_Control_Revision"
+    assert wb.sheetnames[0] == "00_Inicio" and "00_Caratula" in wb.sheetnames and "04_Matriz_deterioro" in wb.sheetnames and wb.sheetnames[-1] == "99_Control_Revision"
     detalle = wb["11_Detalle"]
     assert detalle.cell(row=4, column=1).value == "Factura"
     # La fila TOTAL cierra la tabla; debajo va el bloque «Cómo se calcula esta hoja».

@@ -15,7 +15,7 @@ Documentos de entrada (requerimientos al cliente):
 - ``carta_control_interno`` (opcional): hallazgos de la carta de control interno → matriz de riesgos
   (probabilidad × impacto = riesgo inherente; el control lo reduce al residual).
 - ``informe_anterior`` (opcional): informe de auditoría del año anterior → perfil del encargo (identificación,
-  opinión, salvedades, énfasis, empresa en marcha, asuntos clave).
+  opinión, salvedades, énfasis, empresa en funcionamiento, asuntos clave).
 - ``notas_estados_financieros`` (opcional): notas a los estados financieros auditados del año anterior → notas
   comparativas y control de saldos de apertura (NIA 510).
 
@@ -30,7 +30,7 @@ Cálculo (todo en fórmulas de Excel, sin cifras pegadas):
 4. Materialidad (NIA 320): base y porcentaje de la firma; desempeño 50 % y trivial 5 % por defecto
    (práctica, no prescritos por la NIA). En la revisión preliminar la base es el año anterior auditado.
 5. Riesgos: matriz de la carta de control interno; posibles riesgos detectados en los balances; presunción
-   de fraude en ingresos y elusión de controles (NIA 240); indicios de empresa en marcha (NIA 570); asuntos
+   de fraude en ingresos y elusión de controles (NIA 240); indicios de empresa en funcionamiento (NIA 570); asuntos
    del informe anterior. Control de calidad, anomalías, cuentas principales a revisar, programa (NIA 330),
    narrativa y estrategia global (NIA 300).
 
@@ -39,6 +39,8 @@ Las NIA se citan por su numeración en la versión en español del IAASB (NIA cl
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import unicodedata
 from datetime import date
@@ -194,11 +196,13 @@ _CARTA = [
           ejemplo="No"),
 ]
 TIPOS_INFORME = ("Identificación", "Entendimiento", "Contexto", "Opinión", "Salvedad", "Desfavorable", "Abstención", "Énfasis",
-                 "Empresa en marcha", "Asunto clave", "Otro asunto")
+                 "Empresa en funcionamiento", "Asunto clave", "Otro asunto")
 # Otros nombres con que llega el tipo (NIA 705: opinión con salvedades, desfavorable o adversa, denegación o abstención).
 ALIAS_INFORME = {"consalvedades": "Salvedad", "salvedades": "Salvedad", "adversa": "Desfavorable", "opinionadversa": "Desfavorable",
                  "opiniondesfavorable": "Desfavorable", "denegacion": "Abstención", "abstenciondeopinion": "Abstención",
-                 "denegaciondeopinion": "Abstención"}   # claves en la forma de ``norm`` (sin tildes ni espacios)
+                 "denegaciondeopinion": "Abstención",
+                 # Término único de la NIA 570: «empresa en funcionamiento»; se acepta el nombre anterior.
+                 "empresaenmarcha": "Empresa en funcionamiento", "negocioenmarcha": "Empresa en funcionamiento"}   # claves en la forma de ``norm`` (sin tildes ni espacios)
 _INFORME = [
     campo("concepto", "Concepto", alias=("concepto", "asunto", "tema"), ejemplo="Jubilación patronal"),
     campo("tipo", "Tipo", alias=("tipo", "clase", "categoria", "categoría"), ejemplo="Salvedad"),
@@ -541,8 +545,8 @@ def _f_firmado() -> str:
             f"ABS({c['Activo']}-{c['Pasivo']}-{c['Patrimonio']}-{c['Ingresos']}+{c['Costos']}+{c['Gastos']})")
 
 
-SEV_INFORME = {"Salvedad": "Alto", "Desfavorable": "Alto", "Abstención": "Alto", "Empresa en marcha": "Alto", "Énfasis": "Medio", "Asunto clave": "Medio", "Otro asunto": "Bajo"}
-NORMA_INFORME = {"Salvedad": "NIA 705 y 710", "Desfavorable": "NIA 705 y 710", "Abstención": "NIA 705 y 710", "Empresa en marcha": "NIA 570", "Énfasis": "NIA 706", "Asunto clave": "NIA 701",
+SEV_INFORME = {"Salvedad": "Alto", "Desfavorable": "Alto", "Abstención": "Alto", "Empresa en funcionamiento": "Alto", "Énfasis": "Medio", "Asunto clave": "Medio", "Otro asunto": "Bajo"}
+NORMA_INFORME = {"Salvedad": "NIA 705 y 710", "Desfavorable": "NIA 705 y 710", "Abstención": "NIA 705 y 710", "Empresa en funcionamiento": "NIA 570", "Énfasis": "NIA 706", "Asunto clave": "NIA 701",
                  "Otro asunto": "NIA 706"}
 EFECTO_INFORME = {
     "Identificación": "Dato del perfil del encargo (entidad, actividad, marco, período).",
@@ -555,7 +559,7 @@ EFECTO_INFORME = {
     "Abstención": ("Riesgo alto: el auditor anterior se abstuvo de opinar; los saldos de apertura carecen de evidencia suficiente "
                    "y deben probarse (NIA 510, 705 y 710)."),
     "Énfasis": "Evaluar si el asunto sigue vigente y su revelación (NIA 706).",
-    "Empresa en marcha": "Riesgo alto: actualizar la evaluación de la administración y la revelación (NIA 570).",
+    "Empresa en funcionamiento": "Riesgo alto: actualizar la evaluación de la administración y la revelación (NIA 570).",
     "Asunto clave": "Considerar como posible riesgo significativo del año (NIA 701 y 315).",
     "Otro asunto": "Tener presente en la planificación (NIA 706).",
 }
@@ -593,7 +597,7 @@ _RIESGOS_BALANCE = [
      "Asientos y estimaciones sesgadas o transacciones inusuales", "Significativo", "NIA 240",
      "Pruebas de asientos de diario con criterios de riesgo, revisión retrospectiva de estimaciones y de transacciones inusuales.",
      HERRAMIENTAS["Asientos de diario"]),
-    ("ct", "Balances", "Capital de trabajo", "Capital de trabajo negativo", "Riesgo de liquidez y de empresa en marcha", "Alto",
+    ("ct", "Balances", "Capital de trabajo", "Capital de trabajo negativo", "Riesgo de liquidez y de empresa en funcionamiento", "Alto",
      "NIA 570", "Evaluar la capacidad de pago: flujos proyectados, financiamiento disponible y hechos posteriores.", SIN_HERRAMIENTA),
     ("rc", "Balances", "Liquidez", "Razón corriente menor a 1", "El activo corriente no cubre el pasivo corriente", "Alto", "NIA 570",
      "Analizar el calce de vencimientos y el plan de la administración para atender el corto plazo.", SIN_HERRAMIENTA),
@@ -604,10 +608,10 @@ _RIESGOS_BALANCE = [
      "Dependencia de terceros: indicio sobre la empresa en funcionamiento", "Alto", "NIA 570",
      "Evaluar el financiamiento disponible, los vencimientos y los planes de la administración.", HERRAMIENTAS["Préstamos y obligaciones financieras"]),
     ("perdida", "Balances", "Resultado del ejercicio", "Resultado del período negativo",
-     "Pérdidas: indicio de deterioro (NIC 36) y de empresa en marcha", "Alto", "NIA 570",
-     "Evaluar la hipótesis de empresa en marcha y el deterioro de los activos de larga vida.", SIN_HERRAMIENTA),
+     "Pérdidas: indicio de deterioro (NIC 36) y de empresa en funcionamiento", "Alto", "NIA 570",
+     "Evaluar la hipótesis de empresa en funcionamiento y el deterioro de los activos de larga vida.", SIN_HERRAMIENTA),
     ("patrimonio", "Balances", "Patrimonio", "Patrimonio total nulo o negativo",
-     "Patrimonio comprometido: causal de disolución y duda sobre la empresa en marcha", "Alto", "NIA 570",
+     "Patrimonio comprometido: causal de disolución y duda sobre la empresa en funcionamiento", "Alto", "NIA 570",
      "Evaluar los planes de capitalización y la revelación de la incertidumbre material.", HERRAMIENTAS["Patrimonio"]),
     ("cartera", "Balances", "Cuentas por cobrar", "Días de cartera (ajustados al período) superiores a 90",
      "Posible incobrabilidad: evaluar el deterioro de la cartera (NIIF 9)", "Medio", "NIA 540",
@@ -813,7 +817,10 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         filas_ = datasets.get(ds) or []
         f0 = filas_[0] if filas_ else {}
         txt = " · ".join(str(v).strip() for v in (f0.get("_file"), f0.get("_sheet")) if str(v or "").strip())
-        archivos[ds] = (txt or ("Entregado por el cliente" if filas_ else "No entregado"), len(filas_))
+        archivos[ds] = (txt or ("Entregado por el cliente" if filas_ else "No entregado"), len(filas_), _huella(filas_))
+    # Prioridad baja (NIA 230): nombre y huella SHA-256 de cada archivo subido a la plataforma (la plataforma los entrega).
+    arch_plat = [{k: str(x.get(k) or "") for k in ("requerimiento", "nombre", "sha256", "subido_por", "subido_en")}
+                 for x in (parametros or {}).get("_archivos") or [] if isinstance(x, dict) and x.get("sha256")]
 
     # 5 · índices (redondeados a 2 decimales como en la hoja 10). R4: días sobre 365 también en cortes parciales
     # (con ventas de pocos meses los días salen mayores: se declara en la lectura).
@@ -1020,7 +1027,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     for k, r_ in enumerate(riesgos[base_rb:], start=base_rb):
         r_["codigo"] = f"RB-{k + 1:02d}"
     pe["estadosAnteriores"] = enc_m.estados_anteriores(pe["estadosAnteriores"], sino["encargoInicial"], bool(informe))
-    # M12, M14, M15 y M19: estimaciones, partes relacionadas, indicios no financieros de empresa en marcha y uniformidad.
+    # M12, M14, M15 y M19: estimaciones, partes relacionadas, indicios no financieros de empresa en funcionamiento y uniformidad.
     est_items = cal_m.estimaciones(cuentas, desemp)
     partes_items = cal_m.partes(cuentas, desemp)
     nofin = cal_m.em_no_financieros(carta, informe, notas)
@@ -1088,7 +1095,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             anomalias.append({"tipo": "Duplicado", "x": g[0], "col": "act", "sev": "Bajo", "grupo": [y["codigo"] for y in g],
                               "det": f"Mismo importe en {len(g)} cuentas distintas; verificar posible duplicidad."})
     orden = {"Alto": 0, "Medio": 1, "Bajo": 2}
-    anomalias = sorted(anomalias, key=lambda a: orden[a["sev"]])[:20]
+    n_anom = len(anomalias)
+    anomalias = sorted(anomalias, key=lambda a: orden[a["sev"]])[:MAX_ANOMALIAS]
 
     # 11 · cuentas principales a revisar (nivel 3, o nivel 2 si hay menos de 3)
     lvl = 3 if len(nivel3) >= 3 else 2
@@ -1133,6 +1141,10 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         1 for r_ in riesgos if r_["presenta"] == "Sí" and r_["sev"] in ("Alto", "Significativo"))
     sug = _desempeno_sugerido(sino, dres, triv, carta, riesgos)
     probs += _problemas_calidad(carta, an_items, anomalias, sug, pct["pctDesempeno"], reg, nofin, bool(riesgos_em(riesgos)))
+    if n_anom > MAX_ANOMALIAS:
+        probs.append(problema("ANOMALIAS_CORTADAS", f"Se detectaron {n_anom} anomalías y la hoja 17 muestra las {MAX_ANOMALIAS} más "
+                                                    f"severas; las otras {n_anom - MAX_ANOMALIAS} (de severidad igual o menor) se "
+                                                    "revisan en las hojas 04, 05 y 08.", 0))
     for e in enf:
         if e["prop"] == enf_m.PROP_REVISAR:
             probs.append(problema("ENFOQUE_REVISAR", f"{e['ciclo']}: los procedimientos sustantivos no bastan y hay deficiencias de "
@@ -1156,7 +1168,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                "justificacion": justif, "carta": carta, "informe": informe, "notas": notas, "notasDet": notas_det,
                "sinNota": _sin_nota(cuentas, notas), "riesgos": riesgos, "reg": reg, "evals": evals, "eqEst": eq_est, "pe": pe, "difs": difs, "dres": dres,
                "anomalias": anomalias, "revisar": revisar, "nivelRevisar": lvl, "parametros": p,
-               "origenes": origenes, "puente": puente, "archivos": archivos, "fac": fac,
+               "origenes": origenes, "puente": puente, "archivos": archivos, "arch_plat": arch_plat, "fac": fac,
                "otrosAbs": sum(abs(x["saldo"]) for x in fuentes["act"] if x["sec"] == "Otros" and x["detalle"] == "Sí"),
                "pc": pc, "ant": v_ant, "enf": enf, "est": est_items, "partes": partes_items, "nofin": nofin, "an": an_items, "sug": sug,
                "n40": n40}
@@ -1227,7 +1239,7 @@ def _problemas(p, sino, base_nombre, periodo, base_valor, sec7, riesgos, carta, 
                                                        "asientos, estimaciones y transacciones inusuales en todo encargo (NIA 240 párr. 31–33).", 0))
         elif c_ in ("ct", "perdida", "patrimonio"):
             code = {"ct": "CAPITAL_TRABAJO_NEGATIVO", "perdida": "PERDIDA_EJERCICIO", "patrimonio": "PATRIMONIO_NEGATIVO"}[c_]
-            probs.append(problema(code, f"{r_['codigo']}: {r_['cond']} ({m(r_['valor'])}): indicio sobre la empresa en marcha "
+            probs.append(problema(code, f"{r_['codigo']}: {r_['cond']} ({m(r_['valor'])}): indicio sobre la empresa en funcionamiento "
                                         "(NIA 570 párr. 10).", r_["valor"]))
         elif c_ in ("rc", "end", "end80", "cartera", "inventario", "rotCartera", "rotInventario"):
             code = {"rc": "RAZON_CORRIENTE_BAJA", "end": "ENDEUDAMIENTO_ALTO", "end80": "ENDEUDAMIENTO_ALTO",
@@ -1322,8 +1334,13 @@ def _problemas_encargo(reg, evals, eq_est, sino, pe, fechas, corte_a, tipo, dres
     return probs
 
 
+def _huella(filas_: list) -> str:
+    """SHA-256 de las filas leídas de un documento (JSON con claves ordenadas): identifica los datos exactos de la ejecución."""
+    return hashlib.sha256(json.dumps(filas_, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
+
+
 def riesgos_em(riesgos: list, financieros: bool = False) -> list:
-    """Indicios de empresa en marcha presentes en la hoja 13; con ``financieros``, sin el indicio no financiero (hoja 41)."""
+    """Indicios de empresa en funcionamiento presentes en la hoja 13; con ``financieros``, sin el indicio no financiero (hoja 41)."""
     return [x for x in riesgos if x["norma"] == "NIA 570" and x["presenta"] == "Sí" and not (financieros and x["cod"] == "em_nofin")]
 
 
@@ -1342,7 +1359,7 @@ def _desempeno_sugerido(sino: dict, dres: dict, triv, carta: list, riesgos: list
 
 def _problemas_calidad(carta, an_items, anomalias, sug, pct_desemp, reg, nofin, em_hay) -> list:
     """Asuntos de M1–M21: controles que deben probarse, analíticos por investigar, signos contrarios en la base,
-    desempeño sobre el sugerido, consultas abiertas y evaluación de empresa en marcha pendiente."""
+    desempeño sobre el sugerido, consultas abiertas y evaluación de empresa en funcionamiento pendiente."""
     probs = []
     for x in cal_m.controles_necesarios(carta):
         probs.append(problema("CONTROLES_NECESARIOS", f"{x['id']} · {x['proceso']}: proceso automatizado o de alto volumen; los "
@@ -1366,14 +1383,14 @@ def _problemas_calidad(carta, an_items, anomalias, sug, pct_desemp, reg, nofin, 
         probs.append(problema("CONSULTAS_ABIERTAS", f"{len(abiertas)} consultas o diferencias de opinión abiertas: la planificación "
                                                     "no se aprueba hasta resolverlas (NIA 220; hoja 00_Registros).", 0))
     if em_hay and not any(x["tema"] == cal_m.EM_TEMA for x in reg.get("indagaciones") or []):
-        probs.append(problema("EM_EVALUACION_PENDIENTE", "Hay indicios de empresa en marcha y no se documentó la evaluación de la "
+        probs.append(problema("EM_EVALUACION_PENDIENTE", "Hay indicios de empresa en funcionamiento y no se documentó la evaluación de la "
                                                          "dirección: regístrela en la plataforma como indagación (NIA 570; hoja 41).",
                               0))
     return probs
 
 
 def _estrategia_encargo(d: dict, carta: list, riesgos: list, afirm: list, n_eeff: int) -> list:
-    """A16 (NIA 300 párr. 8–10): riesgos significativos por nombre, empresa en marcha, año anterior, calendario, equipo e
+    """A16 (NIA 300 párr. 8–10): riesgos significativos por nombre, empresa en funcionamiento, año anterior, calendario, equipo e
     independencia, revisor de calidad, respuestas globales y diferencias."""
     partes_f, partes_v = [], []
     for i, x in enumerate(carta):
@@ -1409,7 +1426,7 @@ def _estrategia_encargo(d: dict, carta: list, riesgos: list, afirm: list, n_eeff
     return [
         ["Riesgos significativos (por nombre)", fx(f'IF({todo_f}="","Ninguno identificado",LEFT({todo_f},LEN({todo_f})-2))', sig_v),
          "NIA 300 párr. 9; NIA 315 párr. 32; NIA 330 párr. 21"],
-        ["Empresa en marcha (NIA 570)", fx(f'IF({n570}>0,{n570}&" indicios: evaluar la capacidad de continuar y los planes de la '
+        ["Empresa en funcionamiento (NIA 570)", fx(f'IF({n570}>0,{n570}&" indicios: evaluar la capacidad de continuar y los planes de la '
                                            f'dirección","Sin indicios en los indicadores evaluados")',
                                            f"{ind570} indicios: evaluar la capacidad de continuar y los planes de la dirección"
                                            if ind570 else "Sin indicios en los indicadores evaluados"), "NIA 570 párr. 10; NIA 300 párr. 8"],
@@ -1593,7 +1610,7 @@ def _controles_calidad(d: dict, n17: int, n12: int) -> list:
     filas.append([CONTROLES[29], None, None,
                   fx(f"IF(LEFT('{cal_m.H41}'!F{r41},{len(cal_m.PENDIENTE)})=\"{cal_m.PENDIENTE}\",\"Revisar\",\"Conforme\")",
                      "Revisar" if str(em_v).startswith(cal_m.PENDIENTE) else "Conforme"),
-                  "Con indicios de empresa en marcha, la evaluación de la dirección debe estar documentada (hoja 41)."])
+                  "Con indicios de empresa en funcionamiento, la evaluación de la dirección debe estar documentada (hoja 41)."])
     filas.append([CONTROLES[30], None, None, fx(f"IF(LEFT({M11}G{F11[DESEMP_SUGERIDO]},8)=\"Conforme\",\"Conforme\",\"Revisar\")",
                                                   "Conforme" if sug_ok else "Revisar"),
                   "Porcentaje de desempeño de la hoja 02 frente al sugerido por los factores del encargo (hoja 11)."])
@@ -1692,7 +1709,7 @@ CEDULAS = [
     ("08B_ERI_Detalle", "Estado de resultados detallado: todas las cuentas por nivel"),
     ("09_Estados", "Estados financieros resumidos"), ("10_Indices", "Índices financieros"),
     ("11_Materialidad", "Materialidad (NIA 320 y 450)"), ("12_Riesgos_CCI", "Matriz de riesgos de la carta de control interno"),
-    ("13_Riesgos_Balance", "Posibles riesgos: NIA 240, empresa en marcha, balances e informe anterior"),
+    ("13_Riesgos_Balance", "Posibles riesgos: NIA 240, empresa en funcionamiento, balances e informe anterior"),
     ("14_Perfil", "Perfil del encargo (NIA 315): identificación, entendimiento de la entidad y asuntos del informe anterior"),
     ("15_Notas", "Notas comparativas y saldos de apertura (NIA 510)"),
     ("15D_Notas_Detalle", "Notas: detalle comparativo por cuenta (anterior, corte y conciliación con la nota)"),
@@ -1773,7 +1790,7 @@ _RENT = ("margenBruto", "margenOperativo", "margenNeto", "roi", "dupontRoi", "ro
 _PAT = ("endFinanciero", "endPatrimonial", "multiplicador", "roe", "dupont")
 NO_SIGNIFICATIVO = "Rojo · No significativo (patrimonio ≤ 0)"
 LECTURA_PATRIMONIO = ("Con patrimonio cero o negativo el indicador no es interpretable: la entidad está en déficit patrimonial "
-                      "(indicio de empresa en marcha, NIA 570).")
+                      "(indicio de empresa en funcionamiento, NIA 570).")
 # Lectura de cada índice con su cifra (artefacto: «Por cada US$1…»): texto antes y después de la cifra. En los días la cifra
 # es la ajustada al período (hoja 10, columna I). En el Excel la cifra va con FIXED(), que usa los separadores del equipo.
 LECTURA = {
@@ -1821,7 +1838,7 @@ _PCT_BASE = {"Ingresos": "pctIngresos", "Activos totales": "pctActivos", "Patrim
              UAI: "pctUAI"}
 CONTROLES = ["Cuadre del balance al corte", "Cuadre del balance del cierre anterior", "Cuentas fuera del mapa (sección «Otros»)",
              "Materialidad definida", "Anomalías de severidad alta", "Notas del año anterior cargadas",
-             "Notas que no concilian con el balance anterior (NIA 510)", "Indicios de empresa en marcha (NIA 570)",
+             "Notas que no concilian con el balance anterior (NIA 510)", "Indicios de empresa en funcionamiento (NIA 570)",
              "Riesgos de la carta de control interno pendientes de calificación", "Carta de control interno cargada",
              "Informe de auditoría del año anterior cargado", "Cuentas superiores que no suman sus subcuentas (R1)",
              "Composición de las notas que no suma el saldo auditado", "Rubros del balance sin nota del año anterior",
@@ -1836,7 +1853,7 @@ CONTROLES = ["Cuadre del balance al corte", "Cuadre del balance del cierre anter
              "Consultas y diferencias de opinión abiertas (NIA 220)",
              "Cuentas materiales sin riesgo identificado · stand-back (NIA 315 y 330)",
              "Analíticos sustantivos por investigar (NIA 520)", "Estimaciones con incertidumbre alta (NIA 540)",
-             "Partes relacionadas fuera del curso normal (NIA 550)", "Evaluación de la dirección sobre empresa en marcha (NIA 570)",
+             "Partes relacionadas fuera del curso normal (NIA 550)", "Evaluación de la dirección sobre empresa en funcionamiento (NIA 570)",
              "Porcentaje de desempeño frente al sugerido por factores (NIA 320)", "Presupuesto de horas por rol (NIA 300 y 220)",
              "Controles que deben probarse en procesos automatizados (NIA 315 y 330)",
              "Cambios frente a la versión anterior de la planificación (NIA 300)",
@@ -2373,7 +2390,7 @@ def hojas(res: dict) -> list[dict]:
                           fx(f"{H8}{col}{rr}", n2(x["x"][x["col"]])), fx(pres, "Sí"), x["sev"]])
 
     # 34–42 · pendientes M1–M21 (planificacion_calidad): factores, entendimiento, stand-back, analíticos, estimaciones,
-    # leyes, partes relacionadas, empresa en marcha y cambios frente a la versión anterior.
+    # leyes, partes relacionadas, empresa en funcionamiento y cambios frente a la versión anterior.
     reg_h, pos_r = enc_m.filas_registros(d["reg"])
     c_cal = {"H8": H8, "E9": E9, "F9": F9, "I10": I10, "F10": F10, "M11": M11, "F11": F11, "R12": R12, "R13": R13, "C18": C18,
              "N15": N15, "P19": P19, "DESEMP": DESEMP, "GLOBAL": GLOBAL, "par": _par, "fila8": fila8, "n_reg": len(reg_h),
@@ -2604,6 +2621,12 @@ def hojas(res: dict) -> list[dict]:
     ap_v = "Sí" if d["sino"]["encargoInicial"] == "Sí" or d["pe"]["estadosAnteriores"] != enc_m.ESTADOS_ANTERIORES[0] else "No"
     programa.append([f"PT-{len(programa) + 1:02d}", "Saldos de apertura", "NIA 510", "Medio", PROC_APERTURA, SIN_HERRAMIENTA,
                      "Visita preliminar", "Existencia; integridad; valuación", EVID_APERTURA, resp_("Medio"), aplica(ap_f, ap_v)])
+    # Prioridad baja (NIA 610): si la carta menciona la auditoría interna, evaluarla antes de usar su trabajo (hoja 27, AI-01).
+    ai_v = next((x["res"]["v"] if isinstance(x["res"], dict) else x["res"] for x in d["evals"] if x["codigo"] == "AI-01"), "")
+    ai_f = f'IF(LEFT({enc_m.ref_resultado(enc_m.fila_de(d["evals"]), "AI-01")},2)="Sí","Sí","No")'
+    programa.append([f"PT-{len(programa) + 1:02d}", "Auditoría interna", "NIA 610", "Bajo", enc_m.PROC_AUDITORIA_INTERNA,
+                     SIN_HERRAMIENTA, "Visita preliminar", "Todas", enc_m.EVID_AUDITORIA_INTERNA, resp_("Bajo"),
+                     aplica(ai_f, "Sí" if str(ai_v).startswith("Sí") else "No")])
     # M6 (NIA 240 y 330): elemento de imprevisibilidad sobre una cuenta que normalmente no se revisa (rota cada año).
     impr = _imprevisible(rev, d["corte"])
     if impr:
@@ -2628,6 +2651,14 @@ def hojas(res: dict) -> list[dict]:
         fila_ += [fx(cal_m.f_horas(r, _par), cal_m.horas_nivel(nv_, pc, ap_)), fx(cal_m.f_supervision(r), cal_m.supervision(nv_))]
     sup = {k: sum(1 for f in programa if f[13]["v"] == k) for k in (cal_m.SUP_SOCIO, cal_m.SUP_GERENTE)}
     horas_h = cal_m.filas_horas(sum(f[12]["v"] for f in programa), len(programa), d["reg"]["equipo"], sup, d["fechas"], pc, c_cal)
+    # Prioridad baja (NIA 580): manifestaciones generales, las que exigen otras NIA y las específicas de los riesgos.
+    n_d = len(d["difs"])
+    man_h = cal_m.filas_manifestaciones({
+        "R12": R12, "R13": R13, "carta": carta, "riesgos": riesgos,
+        "n_est": (f'SUMPRODUCT(--(LEN({cal_m.rng(cal_m.H38, "A", len(d["est"]))})>0))', len(d["est"])),
+        "n570": (f'COUNTIFS({_rng(R13, "I", len(riesgos))},"NIA 570",{_rng(R13, "F", len(riesgos))},"Sí")', len(riesgos_em(riesgos))),
+        "dif": (f"COUNTIF('{enc_m.H30}'!$I${FILA0}:$I${FILA0 + n_d - 1},\"Sí\")" if n_d else "0",
+                sum(1 for x in d["difs"] if x["acumula"] == "Sí"))})
     # 45–47 · enfoque por ciclo (sustantivo por política; el socio puede decidir confiar), matriz de riesgos consolidada y conocimiento del negocio
     ctas_ciclo = {}
     for x in rev:
@@ -2704,8 +2735,8 @@ def hojas(res: dict) -> list[dict]:
             "" if ia["endTotal"] is None else "Más del 70 % del activo se financia con terceros." if ia["endTotal"] > 70 else
             "El financiamiento con terceros no supera el 70 % del activo.")],
         ["Hechos", "Patrimonio total", fx(f"{E9}D{F9['PATRIMONIO TOTAL']}", n2(ip["PATRIMONIO TOTAL"])),
-         fx(f'IF(C{FILA0 + 2}<=0,"Patrimonio comprometido: indicio de empresa en marcha (NIA 570).","Patrimonio positivo.")',
-            "Patrimonio comprometido: indicio de empresa en marcha (NIA 570)." if ip["PATRIMONIO TOTAL"] <= 0 else "Patrimonio positivo.")],
+         fx(f'IF(C{FILA0 + 2}<=0,"Patrimonio comprometido: indicio de empresa en funcionamiento (NIA 570).","Patrimonio positivo.")',
+            "Patrimonio comprometido: indicio de empresa en funcionamiento (NIA 570)." if ip["PATRIMONIO TOTAL"] <= 0 else "Patrimonio positivo.")],
         ["Hechos", "Utilidad neta del período", fx(f"{E9}D{F9['Utilidad neta']}", n2(ip["Utilidad neta"])),
          fx(f'IF(C{FILA0 + 3}<0,"Resultado negativo en el período","Resultado positivo en el período")&IF({f_vu}="",".",'
             f'" ("&IF({f_vu}>=0,"+","−")&FIXED(ABS({f_vu})*100,1)&" % frente al período anterior).")', lect_res)],
@@ -2726,7 +2757,7 @@ def hojas(res: dict) -> list[dict]:
         ["Riesgos", "Posibles riesgos presentes (NIA 240, balances e informe anterior)", fx(f'COUNTIF({_rng(R13, "F", n13)},"Sí")', n_pres),
          fx(f'IF(C{FILA0 + 11}>0,"Cada riesgo presente tiene su respuesta en el programa (hoja 19).","Sin riesgos adicionales.")',
             "Cada riesgo presente tiene su respuesta en el programa (hoja 19)." if n_pres else "Sin riesgos adicionales.")],
-        ["Riesgos", "Indicios de empresa en marcha (NIA 570)",
+        ["Riesgos", "Indicios de empresa en funcionamiento (NIA 570)",
          fx(f'COUNTIFS({_rng(R13, "I", n13)},"NIA 570",{_rng(R13, "F", n13)},"Sí")', ind570),
          fx(f'IF(C{FILA0 + 12}>0,"Evaluar la capacidad de continuar y su revelación (NIA 570).","Sin indicios en los indicadores evaluados.")',
             "Evaluar la capacidad de continuar y su revelación (NIA 570)." if ind570 else "Sin indicios en los indicadores evaluados.")],
@@ -2883,6 +2914,16 @@ def hojas(res: dict) -> list[dict]:
                  ("Carta de control interno", "RQ-004", "carta_control_interno", R12, len(carta)),
                  ("Informe de auditoría del año anterior", "RQ-005", "informe_anterior", None, len(informe)),
                  ("Notas a los estados financieros del año anterior", "RQ-006", "notas_estados_financieros", N15, len(notas)))]
+    # Huella de los datos leídos de cada documento (SHA-256 de sus filas) y, si la plataforma los entrega, de los archivos.
+    trail += [[f"Huella de los datos leídos · {rq}", f"SHA-256 {arch[ds][2]}" if arch[ds][1] else "Sin datos", None]
+              for rq, ds in (("RQ-001", "balance_anterior"), ("RQ-002", "balance_actual"), ("RQ-003", "resultados_mismo_corte"),
+                             ("RQ-004", "carta_control_interno"), ("RQ-005", "informe_anterior"),
+                             ("RQ-006", "notas_estados_financieros"))]
+    trail += [[f"Archivo entregado · {x['requerimiento']} · {x['nombre']}",
+               f"SHA-256 {x['sha256']} · subido por {x['subido_por'] or 'sin registro'} el {x['subido_en'][:19].replace('T', ' ')}",
+               None] for x in d["arch_plat"]] or [
+        ["Archivos entregados (SHA-256)", ("La plataforma registra el nombre y la huella de cada archivo al subirlo y los lista aquí "
+                                           "al ejecutar la prueba; esta ejecución no recibió archivos de la plataforma."), None]]
     trail += [
         ["Tipo de revisión", fx(_par("tipoRevision"), d["tipo"]), fx(_par("mesesTranscurridos"), d["meses"])],
         ["Comparativo de resultados", fx(f'IF({PRELIM},IF({hay_eri},"Mismo corte del año anterior (RQ-003)",'
@@ -3014,6 +3055,7 @@ def hojas(res: dict) -> list[dict]:
              guia="La entrega la plataforma: cifras y riesgos de la versión anterior aprobada de esta planificación."),
         hoja(cal_m.H42, _ETQ[cal_m.H42], cal_m.COLS_CAMBIOS, cambios, explica=cal_m.EXPLICA[cal_m.H42]),
         hoja(cal_m.H43, _ETQ[cal_m.H43], cal_m.COLS_HORAS, horas_h, explica=cal_m.EXPLICA[cal_m.H43], colores=["Estado"]),
+        hoja(cal_m.H44, _ETQ[cal_m.H44], cal_m.COLS_MANIFESTACIONES, man_h, explica=cal_m.EXPLICA[cal_m.H44]),
         hoja(enf_m.H45, _ETQ[enf_m.H45], enf_m.COLS_ENFOQUE, enfoque_h, explica=enf_m.EXPLICA[enf_m.H45]),
         hoja(enf_m.H46, _ETQ[enf_m.H46], enf_m.COLS_MATRIZ, matriz_h, explica=enf_m.EXPLICA[enf_m.H46],
              colores=["Riesgo inherente", "Riesgo de incorrección material"]),
@@ -3212,7 +3254,7 @@ def _composicion(notas: list, det: list) -> tuple[list, list]:
 
 def _riesgos_de(x: dict, riesgos: list) -> list[int]:
     """Posibles riesgos de la hoja 13 que recaen en la cuenta: los de su código (variaciones) o de su misma área.
-    Los de empresa en marcha (NIA 570) y los que afectan a todas las áreas son de toda la entidad y no marcan cuentas."""
+    Los de empresa en funcionamiento (NIA 570) y los que afectan a todas las áreas son de toda la entidad y no marcan cuentas."""
     area_x = _area(x["cuenta"], x["sec"])
     out = []
     for i, rk in enumerate(riesgos):
@@ -3309,6 +3351,8 @@ RESPUESTA_SECCION = {
 PENDIENTE_SOCIO, PENDIENTE_GERENTE = "[PENDIENTE] socio del encargo", "[PENDIENTE] gerente del encargo"
 NO_APLICA_SIN_MAT = "Pendiente: sin materialidad (NIA 320)"
 # Procedimientos de todo encargo (no dependen de un riesgo identificado).
+# La hoja 17 muestra las anomalías más severas hasta este tope; si hay más, el problema ANOMALIAS_CORTADAS lo avisa.
+MAX_ANOMALIAS = 20
 PROC_ENCARGO = [
     ("Hechos posteriores", "NIA 560", "Revisar hechos posteriores al cierre hasta la fecha del informe: actas, estados posteriores "
      "y consulta a la administración.", "Actas de junta, estados financieros posteriores y confirmación de la administración.",
@@ -3317,11 +3361,12 @@ PROC_ENCARGO = [
      "y revelación.", "Listado de partes relacionadas, contratos y saldos entre compañías.", "Integridad; presentación"),
     ("Litigios y reclamos", "NIA 501", "Enviar cartas a los abogados y evaluar las provisiones y revelaciones de contingencias.",
      "Cartas de abogados y listado de juicios y reclamos.", "Integridad; valuación"),
-    ("Empresa en marcha", "NIA 570", "Evaluar la hipótesis de empresa en marcha para al menos doce meses desde el cierre.",
+    ("Empresa en funcionamiento", "NIA 570", "Evaluar la hipótesis de empresa en funcionamiento para al menos doce meses desde el cierre.",
      "Presupuestos, flujos proyectados y financiamiento disponible.", "Presentación y revelación"),
     ("Impuestos", "NIA 250", "Revisar la conciliación tributaria, el impuesto corriente y diferido y el cumplimiento de las "
      "obligaciones fiscales.", "Conciliación tributaria y declaraciones del período.", "Valuación; integridad"),
-    ("Manifestaciones escritas", "NIA 580", "Obtener la carta de representación de la administración a la fecha del informe.",
+    ("Manifestaciones escritas", "NIA 580", "Obtener la carta de representación de la administración a la fecha del informe, "
+     "con las manifestaciones generales y las específicas de los riesgos del encargo (hoja 44).",
      "Carta de representación firmada por la administración.", "Todas"),
     ("Cierre de los estados financieros", "NIA 330", "Conciliar los estados financieros y sus notas con los registros contables y "
      "examinar los asientos de cierre y los ajustes significativos (NIA 330 párr. 20 — VERIFICAR).",
@@ -4004,7 +4049,7 @@ EXPLICA = {
         "Importe": ("Trae la diferencia de cuadre de cada balance y el saldo fuera del mapa de la hoja 07, y la materialidad "
                     "global de la hoja 11."),
         "Cantidad": ("Cuenta las filas que cumplen el control en su hoja: anomalías altas (17), notas cargadas o que no concilian "
-                     "(15), indicios de empresa en marcha (13), hallazgos pendientes o cargados (12), informe anterior (14) y "
+                     "(15), indicios de empresa en funcionamiento (13), hallazgos pendientes o cargados (12), informe anterior (14) y "
                      "cuentas que no suman sus subcuentas (04 y 05)."),
         "Estado": ("Conforme si el control se cumple; en los cuadres, «Revisar» si la diferencia no supera el 1 % del activo y "
                    "«Crítico» si lo supera; en los conteos, «Revisar» cuando hay casos que atender."),
@@ -4021,7 +4066,7 @@ EXPLICA = {
         "Monto material": "Trae de la hoja 08 si el saldo actual alcanza la materialidad de desempeño.",
         "Variación material": "Trae de la hoja 08 si la variación alcanza la materialidad de desempeño.",
         "Riesgos de la hoja 13": ("Posibles riesgos de la hoja 13 que recaen en la cuenta (de su código o de su misma área) y que "
-                                  "se presentan; los de empresa en marcha son de toda la entidad y no marcan cuentas."),
+                                  "se presentan; los de empresa en funcionamiento son de toda la entidad y no marcan cuentas."),
         "¿Se revisa?": ("Marca «Sí» cuando la cuenta tiene monto material, variación material, un riesgo de la carta de control "
                         "interno de su misma área o un posible riesgo de la hoja 13: son las cuentas que el programa debe cubrir. "
                         "Si cambia la materialidad, cambia la marca."),
@@ -4205,7 +4250,7 @@ def definicion() -> dict:
                     "carta de control interno, informe de auditoría y notas del año anterior. Calcula el análisis horizontal y "
                     "vertical de todas las cuentas, los estados resumidos, los índices con semáforo, la materialidad (NIA 320), la "
                     "matriz de riesgos de la carta de control interno y los posibles riesgos de los balances, de fraude (NIA 240) "
-                    "y de empresa en marcha (NIA 570); controla los saldos de apertura contra las notas (NIA 510), las anomalías y "
+                    "y de empresa en funcionamiento (NIA 570); controla los saldos de apertura contra las notas (NIA 510), las anomalías y "
                     "la calidad del análisis; y propone las cuentas a revisar, el programa (NIA 330), la narrativa y la estrategia "
                     "global (NIA 300)."),
         "source": {"organization": "IAASB · Normas Internacionales de Auditoría (versión en español)", "type": "Norma de auditoría",
@@ -4268,7 +4313,7 @@ def definicion() -> dict:
              "assertion": "Todas", "procedure": "Elegir la base y el porcentaje, calcular la materialidad global, de desempeño y el umbral claramente insignificante",
              "evidence": "Bases de materialidad", "criterion": "Materialidades calculadas y justificadas", "source": "NIA 320 párr. 10–11 y 14; NIA 450 párr. 5"},
             {"code": "PLA-05", "objective": "Identificación y valoración de riesgos", "risk": "Riesgos significativos sin respuesta",
-             "assertion": "Todas", "procedure": "Valorar los hallazgos de la carta de control interno y los riesgos de los balances, de fraude y de empresa en marcha",
+             "assertion": "Todas", "procedure": "Valorar los hallazgos de la carta de control interno y los riesgos de los balances, de fraude y de empresa en funcionamiento",
              "evidence": "Carta de control interno; matriz de riesgos", "criterion": "Cada riesgo con nivel y respuesta",
              "source": "NIA 315 párr. 28–32; NIA 240 párr. 26–27, 31; NIA 570 párr. 10; NIA 265"},
             {"code": "PLA-06", "objective": "Saldos de apertura", "risk": "Saldos iniciales distintos de los estados auditados",

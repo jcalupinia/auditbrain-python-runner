@@ -7,7 +7,7 @@ consultas y la versión anterior de la planificación). Lo que falta queda «[PE
 
 Hojas: 34 factores de riesgo inherente (M5), 35 entendimiento estructurado e indagaciones (M7), 36 stand-back y
 revelaciones significativas (M8), 37 analíticos sustantivos (M11), 38 estimaciones (M12), 39 leyes y reglamentos (M13),
-40 partes relacionadas (M14), 41 empresa en marcha (M15), 42 cambios frente a la versión anterior (M4) y 43 equipo,
+40 partes relacionadas (M14), 41 empresa en funcionamiento (M15), 42 cambios frente a la versión anterior (M4) y 43 equipo,
 horas, supervisión y cierre del archivo (M1 y M2). Los porcentajes y horas son política de la firma.
 """
 from __future__ import annotations
@@ -17,21 +17,22 @@ import unicodedata
 from backend.app.aud.niif.procesadores.base import FILA0, a_num, fx, n2
 
 PENDIENTE = "[PENDIENTE]"
-H34, H35, H36, H37, H38, H39, H40, H41, H42, H43 = (
+H34, H35, H36, H37, H38, H39, H40, H41, H42, H43, H44 = (
     "34_Factores_Riesgo", "35_Entendimiento", "36_Stand_back", "37_Analiticos", "38_Estimaciones", "39_Leyes",
-    "40_Partes_Relacionadas", "41_Empresa_Marcha", "42_Cambios", "43_Equipo_Horas")
+    "40_Partes_Relacionadas", "41_Empresa_Funcionamiento", "42_Cambios", "43_Equipo_Horas", "44_Manifestaciones")
 VERSION_ANT = "00_Version_anterior"
 CEDULAS = [
     (H34, "Factores de riesgo inherente y riesgos que exigen probar controles (NIA 315 Revisada 2019)"),
     (H35, "Entendimiento de la entidad y su entorno, con indagaciones y observaciones (NIA 315 Revisada 2019)"),
     (H36, "Stand-back: cuentas materiales sin riesgo identificado y revelaciones significativas (NIA 315 y 330)"),
     (H37, "Procedimientos analíticos sustantivos: expectativa, diferencia y umbral (NIA 520)"),
-    (H38, "Estimaciones contables: incertidumbre y revisión retrospectiva (NIA 540)"),
+    (H38, "Estimaciones contables: incertidumbre, revisión retrospectiva y expertos (NIA 540, 500 y 620)"),
     (H39, "Leyes y reglamentos con efecto directo e indirecto (NIA 250)"),
     (H40, "Partes relacionadas y transacciones fuera del curso normal (NIA 550)"),
-    (H41, "Empresa en marcha: indicios financieros y no financieros y período de la evaluación (NIA 570)"),
+    (H41, "Empresa en funcionamiento: indicios financieros y no financieros y período de la evaluación (NIA 570)"),
     (H42, "Cambios frente a la versión anterior de la planificación: materialidad y riesgos (NIA 300 y 320)"),
     (H43, "Equipo, presupuesto de horas, supervisión y cierre del archivo (NIA 220, 230 y 300)"),
+    (H44, "Manifestaciones escritas generales y específicas según los riesgos del encargo (NIA 580)"),
 ]
 
 
@@ -104,7 +105,7 @@ _CLAVES_FACTOR = {
     "Subjetividad": ("estimac", "deterior", "provisi", "valor neto realizable", "obsolesc", "incobrab", "jubilac", "desahucio",
                      "valor razonable", "vida util", "calificacion"),
     "Cambio": ("variacion", "nueva", "cambio", "aumentaron", "rotacion", "baja", "persiste"),
-    "Incertidumbre": ("empresa en marcha", "litigio", "contingen", "deterior", "incobrab", "continuidad", "liquidez",
+    "Incertidumbre": ("empresa en funcionamiento", "empresa en marcha", "negocio en marcha", "litigio", "contingen", "deterior", "incobrab", "continuidad", "liquidez",
                       "patrimonio", "funcionamiento"),
     "Sesgo o fraude": ("fraude", "elusion", "sesg", "manipul", "incentiv", "presion", "racionaliz"),
 }
@@ -161,11 +162,15 @@ def controles_necesarios(carta: list) -> list:
 ASPECTOS = ("Sector, actividad y regulación", "Propiedad, gobierno y estructura", "Estrategia, objetivos y modelo de negocio",
             "Medición y revisión del desempeño", "Políticas contables y sus cambios", "Financiamiento",
             "Sistema de información y control interno")
-TEMAS = (*ASPECTOS, "Partes relacionadas", "Leyes y reglamentos", "Empresa en marcha", "Otro")
+TEMAS = (*ASPECTOS, "Partes relacionadas", "Leyes y reglamentos", "Empresa en funcionamiento", "Otro")
 PROCEDIMIENTOS = ("Indagación", "Observación", "Inspección")
 COLS_ENTENDIMIENTO = [["Aspecto", "t"], ["Fuente automática", "t"], ["Dato de los documentos", "t"],
-                      ["Indagación u observación (plataforma)", "t"], ["Estado", "t"]]
+                      ["Indagación u observación (plataforma)", "t"], ["Estado", "t"], ["¿Sigue vigente?", "t"]]
 DOCUMENTADO, PENDIENTE_EST = "Documentado", "Pendiente"
+# Prioridad baja (NIA 315 párr. 16): lo que viene del año anterior se confirma antes de usarlo en este encargo.
+VIG_PERIODO = "Dato del período"
+VIG_CONFIRMADA = "Vigente: confirmado en la indagación registrada (plataforma)"
+VIG_CONFIRMAR = "Dato del año anterior: confirmar en la visita que sigue vigente (NIA 315 párr. 16 — VERIFICAR)"
 
 
 def _f_indag(filas_reg: list, tema: str, R_: str) -> tuple[str, str]:
@@ -214,17 +219,20 @@ def filas_entendimiento(c: dict) -> list:
          f'COUNTA({R12}$A${FILA0}:$A${FILA0 + len(c["carta"]) - 1})&" hallazgos de control interno y TI (hojas 12 y 27)"'
          if c["carta"] else None),
     ]
+    # Aspectos cuyo dato sale de un documento del año anterior (informe y notas): hay que confirmar que sigue vigente.
+    del_anterior = [not act and bool(act_inf), bool(prop), bool(ent), False, bool(c["notas"]), False, False]
     filas = []
-    for asp, (fuente, v, f_) in zip(ASPECTOS, datos):
+    for asp, (fuente, v, f_), ant in zip(ASPECTOS, datos, del_anterior):
         r = FILA0 + len(filas)
         fi_, vi_ = _f_indag(c["indag"], asp, R_)
         est = PENDIENTE_EST if v.startswith(PENDIENTE) and not vi_ else DOCUMENTADO
+        vig = fx(f'IF(D{r}<>"","{VIG_CONFIRMADA}","{VIG_CONFIRMAR}")', VIG_CONFIRMADA if vi_ else VIG_CONFIRMAR) if ant else VIG_PERIODO
         filas.append([asp, fuente, fx(f_, v) if f_ else v, fx(fi_, vi_) if vi_ else "",
-                      fx(f'IF(AND(LEFT(C{r},{len(PENDIENTE)})="{PENDIENTE}",D{r}=""),"{PENDIENTE_EST}","{DOCUMENTADO}")', est)])
+                      fx(f'IF(AND(LEFT(C{r},{len(PENDIENTE)})="{PENDIENTE}",D{r}=""),"{PENDIENTE_EST}","{DOCUMENTADO}")', est), vig])
     for tema in TEMAS[len(ASPECTOS):]:
         fi_, vi_ = _f_indag(c["indag"], tema, R_)
         if vi_:
-            filas.append([tema, "Plataforma (hoja 00_Registros)", "", fx(fi_, vi_), DOCUMENTADO])
+            filas.append([tema, "Plataforma (hoja 00_Registros)", "", fx(fi_, vi_), DOCUMENTADO, VIG_PERIODO])
     return filas
 
 
@@ -313,7 +321,17 @@ _TIPOS_ESTIMACION = [
     (("provisi",), "Provisiones", "Media"),
 ]
 COLS_ESTIMACIONES = [["Código", "t"], ["Cuenta", "t"], ["Estimación", "t"], ["Subjetividad", "t"], ["Anterior", "n"],
-                     ["Actual", "n"], ["Variación", "n"], ["Incertidumbre", "t"], ["Revisión retrospectiva", "t"]]
+                     ["Actual", "n"], ["Variación", "n"], ["Incertidumbre", "t"], ["Revisión retrospectiva", "t"],
+                     ["Experto", "t"], ["Evaluación del experto", "t"]]
+# Prioridad baja (NIA 500 y 620): el experto de la dirección que suele intervenir en cada estimación; el del auditor se
+# considera cuando la incertidumbre es alta.
+EXPERTO_DIRECCION = {"Jubilación patronal y desahucio (cálculo actuarial)": "Actuario de la entidad (experto de la dirección)",
+                     "Deterioro de activos": "Perito valuador, si la entidad lo contrató (experto de la dirección)"}
+SIN_EXPERTO = "No se prevé: cálculo de la propia entidad"
+EV_DIRECCION = ("Evaluar la competencia, la capacidad y la objetividad del experto de la dirección y su trabajo (NIA 500 párr. 8 "
+                "— VERIFICAR)")
+EV_AUDITOR = "considerar un experto del auditor (NIA 620 párr. 7 — VERIFICAR)"
+EV_NO = "No aplica"
 SIN_ESTIMACIONES = "Sin estimaciones identificadas por el nombre de las cuentas del balance"
 
 
@@ -327,8 +345,22 @@ def estimaciones(cuentas: list, desemp) -> list:
             continue
         a = abs(x["act"])
         inc = ("Pendiente" if desemp is None else "Alta" if t[1] == "Alta" and a >= desemp else "Media" if a >= desemp else "Baja")
-        out.append({"x": x, "tipo": t[0], "subj": t[1], "inc": inc})
+        out.append({"x": x, "tipo": t[0], "subj": t[1], "inc": inc, "experto": EXPERTO_DIRECCION.get(t[0], SIN_EXPERTO)})
     return out
+
+
+def evaluacion_experto(experto: str, inc: str) -> str:
+    alta = inc == "Alta"
+    if experto == SIN_EXPERTO:
+        return EV_AUDITOR[0].upper() + EV_AUDITOR[1:] if alta else EV_NO
+    return EV_DIRECCION + (f" · {EV_AUDITOR}" if alta else "")
+
+
+def _f_evaluacion_experto(r: int) -> str:
+    """Hoja 38, columna K: espejo de ``evaluacion_experto`` sobre el experto (J) y la incertidumbre (H)."""
+    ev_aud = EV_AUDITOR[0].upper() + EV_AUDITOR[1:]
+    return (f'IF(J{r}="{SIN_EXPERTO}",IF(H{r}="Alta","{ev_aud}","{EV_NO}"),'
+            f'"{EV_DIRECCION}"&IF(H{r}="Alta"," · {EV_AUDITOR}",""))')
 
 
 def filas_estimaciones(items: list, c: dict) -> list:
@@ -344,9 +376,10 @@ def filas_estimaciones(items: list, c: dict) -> list:
                       fx(f'"Comparar la estimación del cierre anterior (US$ "&FIXED(ABS(E{r}),2)&") con su desenlace real en el '
                          f'período (NIA 540 párr. 14)"',
                          f"Comparar la estimación del cierre anterior (US$ {_m(abs(x['ant']))}) con su desenlace real en el "
-                         "período (NIA 540 párr. 14)")])
+                         "período (NIA 540 párr. 14)"),
+                      y["experto"], fx(_f_evaluacion_experto(r), evaluacion_experto(y["experto"], y["inc"]))])
     if not filas:
-        filas.append(["", SIN_ESTIMACIONES, "", "", None, None, None, "", ""])
+        filas.append(["", SIN_ESTIMACIONES, "", "", None, None, None, "", "", "", ""])
     return filas
 
 
@@ -464,13 +497,13 @@ def filas_partes(items: list, textos: list, c: dict) -> list:
     return filas
 
 
-# --- M15 · empresa en marcha (hoja 41) -------------------------------------------------------------------------------
+# --- M15 · empresa en funcionamiento (hoja 41) -------------------------------------------------------------------------------
 _EM_NOFIN = ("litigio", "demanda", "juicio", "huelga", "renuncia", "perdida de un cliente", "cliente principal", "proveedor clave",
              "licencia", "permiso de funcionamiento", "sancion", "multa", "embargo", "concurso", "liquidacion", "disolucion",
              "cese", "clausura", "insolven")
 COLS_EM = [["Tipo", "t"], ["Fuente", "t"], ["Descripción", "t"], ["¿Es indicio?", "t"], ["Fecha", "d"], ["Estado", "t"]]
-EM_TEMA = "Empresa en marcha"
-EM_RUBRO = "Empresa en marcha (hoja 41)"
+EM_TEMA = "Empresa en funcionamiento"
+EM_RUBRO = "Empresa en funcionamiento (hoja 41)"
 
 
 def em_no_financieros(carta: list, informe: list, notas: list) -> list:
@@ -511,7 +544,7 @@ def filas_empresa_marcha(nofin: list, n570: int, c: dict) -> tuple[list, int]:
              f'{FILA0 + max(n_reg, 1) - 1},"{EM_TEMA}")')
     pend = f"{PENDIENTE} solicitar la evaluación de la dirección y documentarla en la plataforma"
     v = ("No requerida: sin indicios" if not hay else "Documentada (hoja 35)" if n_ind else pend)
-    filas.append(["Evaluación de la dirección", "Plataforma (indagación sobre empresa en marcha)", "Planes de la dirección y su "
+    filas.append(["Evaluación de la dirección", "Plataforma (indagación sobre empresa en funcionamiento)", "Planes de la dirección y su "
                   "factibilidad frente a los indicios", "", None,
                   fx(f'IF(COUNTIF(D{FILA0}:D{r_ult},"Sí")=0,"No requerida: sin indicios",IF({f_ind}>0,"Documentada (hoja 35)",'
                      f'"{pend}"))', v)])
@@ -683,6 +716,11 @@ def filas_horas(total: float, n_prog: int, equipo: list, sup: dict, fechas: dict
 
 # --- explicaciones («Cómo se calcula») ------------------------------------------------------------------------------
 EXPLICA = {
+    H44: {"Manifestación escrita": ("En las específicas, arma el texto con el hallazgo de la carta (hoja 12) o el riesgo de la "
+                                    "hoja 13 al que responde la manifestación."),
+          "¿Aplica?": ("Las generales y las que exigen otras NIA en todo encargo siempre; la de estimaciones si la hoja 38 tiene "
+                       "estimaciones, la de empresa en funcionamiento si hay indicios en la hoja 13, la de diferencias si alguna se "
+                       "acumula en la hoja 30, y cada específica si su riesgo sigue siendo significativo.")},
     H34: {"Riesgo": "Trae el texto del riesgo de la hoja 12 (carta de control interno) o de la hoja 13 (posibles riesgos).",
           "Nivel": "Trae el nivel del hallazgo (hoja 12) o la severidad del riesgo (hoja 13).",
           "¿Se presenta?": "Trae de la hoja 13 si el riesgo se presenta; los hallazgos de la carta siempre se presentan.",
@@ -691,7 +729,10 @@ EXPLICA = {
                                      "el marco de la hoja 02, las notas (hoja 15) y la carta de control interno (hoja 12)."),
           "Indagación u observación (plataforma)": ("Trae las indagaciones y observaciones registradas con un clic en la plataforma "
                                                     "sobre ese tema (hoja 00_Registros)."),
-          "Estado": "«Pendiente» si no hay dato de los documentos ni indagación registrada; si no, «Documentado»."},
+          "Estado": "«Pendiente» si no hay dato de los documentos ni indagación registrada; si no, «Documentado».",
+          "¿Sigue vigente?": ("Si el dato sale del informe o de las notas del año anterior, pide confirmar en la visita que sigue "
+                              "vigente; con una indagación registrada sobre ese tema queda confirmado. Los datos del período no "
+                              "necesitan confirmación.")},
     H36: {"Importe": "Trae el saldo al corte de la cuenta (hoja 18) o de la nota del año anterior (hoja 15).",
           "¿Material?": ("En las cuentas, «Sí» si el saldo o la variación son materiales (hoja 18); en las revelaciones, si el saldo "
                          "iguala o supera la materialidad global (hoja 11)."),
@@ -712,7 +753,10 @@ EXPLICA = {
           "Incertidumbre": ("«Alta» si la estimación es muy subjetiva (actuarial, deterioro, valor neto realizable, impuesto diferido) y "
                             "su saldo iguala o supera la materialidad de desempeño (hoja 11); «Media» si otra estimación la supera; "
                             "«Baja» si no."),
-          "Revisión retrospectiva": "Arma el procedimiento con el saldo del cierre anterior de la estimación."},
+          "Revisión retrospectiva": "Arma el procedimiento con el saldo del cierre anterior de la estimación.",
+          "Evaluación del experto": ("Con experto de la dirección (actuario, perito valuador), evaluar su competencia, capacidad y "
+                                     "objetividad; si la incertidumbre es «Alta», considerar además un experto del auditor; sin "
+                                     "experto y con incertidumbre baja o media, no aplica.")},
     H39: {"Saldo al corte": "Suma el saldo al corte de las cuentas del balance relacionadas con esa ley (hoja 08).",
           "Estado": ("Las leyes de efecto directo tienen su procedimiento en el programa; las de efecto indirecto quedan "
                      "«Documentado» cuando hay una indagación registrada en la plataforma sobre leyes y reglamentos.")},
@@ -727,7 +771,7 @@ EXPLICA = {
     H41: {"Descripción": "Cuenta los indicios financieros que se presentan en la hoja 13 (norma NIA 570).",
           "¿Es indicio?": "«Sí» si hay indicios financieros en la hoja 13.",
           "Fecha": "Fecha de corte de la hoja 02 más doce meses: hasta dónde debe llegar la evaluación de la dirección.",
-          "Estado": ("Sin indicios, no se requiere; con indicios, «Documentada» si hay una indagación sobre empresa en marcha "
+          "Estado": ("Sin indicios, no se requiere; con indicios, «Documentada» si hay una indagación sobre empresa en funcionamiento "
                      "registrada en la plataforma y «[PENDIENTE]» si no.")},
     H42: {"Versión anterior": "Trae la cifra o el riesgo de la versión anterior de la planificación (hoja 00_Version_anterior).",
           "Esta versión": "Trae la cifra de la hoja 11 o la severidad y presencia del riesgo en la hoja 13 de esta versión.",
@@ -740,3 +784,59 @@ EXPLICA = {
           "Estado": ("«Revisar» si un rol tiene horas y nadie registrado con ese rol o si los porcentajes no suman 100; en el cierre "
                      "del archivo, pendiente si falta la fecha del informe.")},
 }
+
+
+# --- prioridad baja · manifestaciones escritas (hoja 44, NIA 580) ----------------------------------------------------
+COLS_MANIFESTACIONES = [["Tipo", "t"], ["Manifestación escrita", "t"], ["Norma", "t"], ["¿Aplica?", "t"], ["Origen", "t"]]
+MAN_GENERAL, MAN_NORMA, MAN_RIESGO = "General", "Exigida por otra NIA", "Específica según el riesgo"
+_MAN_TODO_ENCARGO = [
+    (MAN_GENERAL, "La dirección cumplió su responsabilidad de preparar los estados financieros de acuerdo con el marco aplicable",
+     "NIA 580 párr. 10 (VERIFICAR)"),
+    (MAN_GENERAL, "La dirección entregó toda la información y el acceso acordados y todas las transacciones están registradas",
+     "NIA 580 párr. 11 (VERIFICAR)"),
+    (MAN_NORMA, "La dirección reveló lo que sabe sobre fraude o indicios de fraude y sobre denuncias de fraude",
+     "NIA 240 párr. 39 (VERIFICAR)"),
+    (MAN_NORMA, "Se revelaron los incumplimientos conocidos de leyes y reglamentos que deben considerarse al preparar los estados",
+     "NIA 250 párr. 16 (VERIFICAR)"),
+    (MAN_NORMA, "Se revelaron los litigios y reclamos conocidos y se contabilizaron y revelaron según el marco",
+     "NIA 501 párr. 12 (VERIFICAR)"),
+    (MAN_NORMA, "Se revelaron la identidad de las partes relacionadas y sus transacciones, contabilizadas y reveladas según el marco",
+     "NIA 550 párr. 26 (VERIFICAR)"),
+    (MAN_NORMA, "Los hechos posteriores al cierre que exigen ajuste o revelación fueron ajustados o revelados",
+     "NIA 560 párr. 9 (VERIFICAR)"),
+]
+MAN_ESTIMACIONES = ("Los métodos, datos y supuestos de las estimaciones contables son adecuados y sus revelaciones completas",
+                    "NIA 540 párr. 37 (VERIFICAR)")
+MAN_EMPRESA = ("Los planes de la dirección para continuar como empresa en funcionamiento son factibles y la revelación es adecuada",
+               "NIA 570 párr. 16 e) (VERIFICAR)")
+MAN_DIFERENCIAS = ("Los efectos de las incorrecciones no corregidas son inmateriales, individualmente y en conjunto (se adjunta el "
+                   "resumen)", "NIA 450 párr. 14 (VERIFICAR)")
+
+
+def filas_manifestaciones(c: dict) -> list:
+    """``c``: R12, R13, carta, riesgos, n_est (fórmula, valor), n570 (fórmula, valor), dif (fórmula, valor).
+    Generales y las que exigen otras NIA en todo encargo; las de estimaciones, empresa en funcionamiento y diferencias según
+    su hoja; y una específica por cada riesgo significativo (NIA 580 párr. 13 — VERIFICAR)."""
+    R12, R13 = c["R12"], c["R13"]
+    filas = [[t, m, n, "Sí", "Todo encargo"] for t, m, n in _MAN_TODO_ENCARGO]
+    for (m, n), (f_, v), origen in ((MAN_ESTIMACIONES, c["n_est"], "Estimaciones de la hoja 38"),
+                                    (MAN_EMPRESA, c["n570"], "Indicios de la hoja 13 (NIA 570) y hoja 41"),
+                                    (MAN_DIFERENCIAS, c["dif"], "Diferencias que se acumulan (hoja 30)")):
+        filas.append([MAN_NORMA, m, n, fx(f'IF({f_}>0,"Sí","No")', "Sí" if v else "No"), origen])
+    for i, x in enumerate(c["carta"]):
+        if x["sig"] == "Sí":
+            r12 = FILA0 + i
+            filas.append([MAN_RIESGO, fx(f'"Sobre el riesgo significativo {q(x["id"])}: "&{R12}C{r12}',
+                                         f"Sobre el riesgo significativo {x['id']}: {x['hallazgo']}"),
+                          "NIA 580 párr. 13 (VERIFICAR)", fx(f'IF({R12}M{r12}="Sí","Sí","No")', "Sí"),
+                          f"Carta de control interno, {x['id']} (hoja 12)"])
+    for j, x in enumerate(c["riesgos"]):
+        if x["sev"] == "Significativo":
+            r13 = FILA0 + j
+            filas.append([MAN_RIESGO, fx(f'"Sobre el riesgo significativo {q(x["codigo"])}: "&{R13}G{r13}',
+                                         f"Sobre el riesgo significativo {x['codigo']}: {x['riesgo']}"),
+                          "NIA 580 párr. 13 (VERIFICAR)",
+                          fx(f'IF(AND({R13}F{r13}="Sí",{R13}H{r13}="Significativo"),"Sí","No")',
+                             "Sí" if x["presenta"] == "Sí" else "No"),
+                          f"Posibles riesgos, {x['codigo']} (hoja 13)"])
+    return filas

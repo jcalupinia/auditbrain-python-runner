@@ -186,7 +186,7 @@ def test_procesadores_no_cambian():
     ds, par, corte = em.escenario(mod)
     reg = em._reg(d, mod, ds, par, corte)
     nombres = [h["name"] for h in libro.cedulas(d, reg, [], 1, "APROBADO")]
-    assert nombres[:3] == ["00_Caratula", "00_Programa", "00_Fuentes"] and nombres[-1] == "14_Control_Revision"
+    assert nombres[:3] == ["00_Caratula", "00_Programa", "00_Fuentes"] and nombres[-1] == "99_Control_Revision"
 
 
 def test_html_trae_la_calculadora_reutilizable(papel):

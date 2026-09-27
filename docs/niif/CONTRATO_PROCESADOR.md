@@ -92,7 +92,7 @@ REF_PROBLEMAS = {...}          # de qué celda sale el importe de cada problema
 - La hoja de problemas tiene exactamente las columnas `Código`, `Descripción`, `Importe`.
 - Nombres y secciones de la portada: `D1_…` → «Datos del cliente»; la primera hoja `[t, n]` (Resumen), la de
   problemas, `…Asiento…`/`…Ajuste…` → «Resultado»; el resto → «Cómo se calculó».
-- **No crees** `00_Caratula`, `00_Programa`, `00_Fuentes`, `13_Conclusion` ni `14_Control_Revision`: las agrega
+- **No crees** `00_Caratula`, `00_Programa`, `00_Fuentes`, `99_Conclusion` ni `99_Control_Revision`: las agrega
   `libro.cedulas()` desde la definición y el registro del encargo.
 
 ### `definicion()`
