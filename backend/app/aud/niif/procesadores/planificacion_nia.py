@@ -869,7 +869,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                       "sig": sig, "probarDs": probar, "respuesta": str(f.get("respuesta", "") or "").strip(), "comp": comp, "ti": ti,
                       "area": _area(proceso + " " + hallazgo), "bastan": cal_m.bastan(proceso + " " + hallazgo, ti) == cal_m.SI_BASTAN,
                       "herramienta": _herramienta(proceso + " " + hallazgo)})
-    # Enfoque por ciclo (hoja 45): la herramienta propone y el socio decide. Confiar en los controles del ciclo obliga a probar
+    # Enfoque por ciclo (hoja 45): sustantivo por política de la firma, salvo que el socio registre «Confiar en controles» para el
+    # ciclo (decisión del dueño, 2026-09-27). Confiar en los controles del ciclo obliga a probar
     # su eficacia: el hallazgo pasa a «¿Se probará el control?» = Sí y su riesgo valorado considera el control.
     enf = enf_m.enfoque(carta, u_alto, {x["ciclo"]: x["decision"] for x in reg.get("enfoque") or []})
     for x in carta:
@@ -1132,10 +1133,6 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         1 for r_ in riesgos if r_["presenta"] == "Sí" and r_["sev"] in ("Alto", "Significativo"))
     sug = _desempeno_sugerido(sino, dres, triv, carta, riesgos)
     probs += _problemas_calidad(carta, an_items, anomalias, sug, pct["pctDesempeno"], reg, nofin, bool(riesgos_em(riesgos)))
-    pend_enf = [e["ciclo"] for e in enf if not e["dec"]]
-    if pend_enf:
-        probs.append(problema("ENFOQUE_PENDIENTE", f"El socio no confirmó el enfoque de {len(pend_enf)} ciclos ({', '.join(pend_enf)}): "
-                                                   "confírmelo en la plataforma (hoja 45; NIA 300 y 330).", 0))
     for e in enf:
         if e["prop"] == enf_m.PROP_REVISAR:
             probs.append(problema("ENFOQUE_REVISAR", f"{e['ciclo']}: los procedimientos sustantivos no bastan y hay deficiencias de "
@@ -1458,19 +1455,23 @@ def _conocimiento(d: dict, perfil: list, ent_h: list, matriz_h: list, mt: dict, 
     return {"ident": ident, "entend": entend, "cifras": cifras, "enf": d["enf"], "riesgos": riesgos}
 
 
+ENFOQUE_SUSTANTIVO = "Sustantivo en todos los ciclos (política de la firma: sin confianza en los controles)"
+
+
 def _enfoque_general_v(enf: list) -> str:
     n_c = sum(1 for e in enf if e["confia"])
-    pend = any(not e["dec"] for e in enf)
-    return (f"Combinado: confianza en los controles de {n_c} ciclos y sustantivo en {len(enf) - n_c}"
-            + (" (pendiente de confirmar por el socio)" if pend else ""))
+    if not n_c:
+        return ENFOQUE_SUSTANTIVO
+    return f"Combinado: confianza en los controles de {n_c} ciclos y sustantivo en {len(enf) - n_c}"
 
 
 def _f_enfoque_general(d: dict):
-    """Estrategia: el enfoque general sale del enfoque por ciclo (hoja 45), salvo que la hoja 02 traiga otro."""
-    rh, ri = enf_m.rng45("H", len(d["enf"])), enf_m.rng45("I", len(d["enf"]))
-    f_ = (f'IF({_par("enfoque")}<>"",{_par("enfoque")},"Combinado: confianza en los controles de "&COUNTIF({rh},"Confiar*")&'
-          f'" ciclos y sustantivo en "&(ROWS({rh})-COUNTIF({rh},"Confiar*"))&IF(COUNTIF({ri},"Pendiente*")>0,'
-          f'" (pendiente de confirmar por el socio)",""))')
+    """Estrategia: el enfoque general sale del enfoque por ciclo (hoja 45), salvo que la hoja 02 traiga otro. Sin ciclos
+    con confianza en los controles, es sustantivo en todos (política de la firma)."""
+    rh = enf_m.rng45("H", len(d["enf"]))
+    f_ = (f'IF({_par("enfoque")}<>"",{_par("enfoque")},IF(COUNTIF({rh},"Confiar*")=0,"{ENFOQUE_SUSTANTIVO}",'
+          f'"Combinado: confianza en los controles de "&COUNTIF({rh},"Confiar*")&'
+          f'" ciclos y sustantivo en "&(ROWS({rh})-COUNTIF({rh},"Confiar*"))))')
     pv = str((d["parametros"] or {}).get("enfoque") or "").strip()
     return fx(f_, pv or _enfoque_general_v(d["enf"]))
 
@@ -1606,8 +1607,9 @@ def _controles_calidad(d: dict, n17: int, n12: int) -> list:
     cnt(f'COUNTIF({cal_m.rng(cal_m.H42, "D", len(d["cambios"]))},"<>{cal_m.SIN_CAMBIO}")', cal_m.n_cambios(d["cambios"]),
         "Cambios de materialidad o de riesgos frente a la versión anterior: actualizar la estrategia y el programa (hoja 42).",
         CONTROLES[33])
-    cnt(f'COUNTIF({enf_m.rng45("I", len(d["enf"]))},"Pendiente*")', sum(1 for e in d["enf"] if not e["dec"]),
-        "Ciclos cuyo enfoque (confiar o sustantivo) todavía no confirmó el socio en la plataforma (hoja 45).", CONTROLES[34])
+    cnt(f'COUNTIF({enf_m.rng45("H", len(d["enf"]))},"")', 0,
+        "Ciclos sin enfoque: sin decisión del socio rige «Sustantivo» por política de la firma, así que nada queda pendiente (hoja 45).",
+        CONTROLES[34])
     cnt(f'COUNTIF({enf_m.rng45("F", len(d["enf"]))},"Revisar*")', sum(1 for e in d["enf"] if e["prop"] == enf_m.PROP_REVISAR),
         "Procesos automatizados con deficiencias de control: posible limitación al alcance (hoja 45).", CONTROLES[35])
     return filas
@@ -1838,7 +1840,7 @@ CONTROLES = ["Cuadre del balance al corte", "Cuadre del balance del cierre anter
              "Porcentaje de desempeño frente al sugerido por factores (NIA 320)", "Presupuesto de horas por rol (NIA 300 y 220)",
              "Controles que deben probarse en procesos automatizados (NIA 315 y 330)",
              "Cambios frente a la versión anterior de la planificación (NIA 300)",
-             "Enfoque por ciclo confirmado por el socio (NIA 300 y 330)",
+             "Enfoque por ciclo definido: sustantivo por política o decisión del socio (NIA 300 y 330)",
              "Ciclos donde los sustantivos no bastan y hay deficiencias de control (NIA 330)"]
 # D6: datos de la hoja 02 que la estrategia y el programa necesitan; si faltan, quedan [PENDIENTE] y el control avisa.
 GOBIERNO = ("socio", "gerente", "fechaPreliminar", "fechaFinal", "fechaInforme")
@@ -2626,7 +2628,7 @@ def hojas(res: dict) -> list[dict]:
         fila_ += [fx(cal_m.f_horas(r, _par), cal_m.horas_nivel(nv_, pc, ap_)), fx(cal_m.f_supervision(r), cal_m.supervision(nv_))]
     sup = {k: sum(1 for f in programa if f[13]["v"] == k) for k in (cal_m.SUP_SOCIO, cal_m.SUP_GERENTE)}
     horas_h = cal_m.filas_horas(sum(f[12]["v"] for f in programa), len(programa), d["reg"]["equipo"], sup, d["fechas"], pc, c_cal)
-    # 45–47 · enfoque por ciclo (propone la herramienta, decide el socio), matriz de riesgos consolidada y conocimiento del negocio
+    # 45–47 · enfoque por ciclo (sustantivo por política; el socio puede decidir confiar), matriz de riesgos consolidada y conocimiento del negocio
     ctas_ciclo = {}
     for x in rev:
         ci = enf_m.ciclo_de(_area(x["x"]["cuenta"], x["x"]["sec"]))

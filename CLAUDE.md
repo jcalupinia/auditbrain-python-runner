@@ -719,20 +719,24 @@ ampliado (partes relacionadas nuevas, nómina tercerizada con litigio, indagacio
 anterior). Pruebas: `tests/test_proc_planificacion_nia.py` (`test_m…`) y `tests/test_aud_registros_encargo.py`.
 Verificación LibreOffice de los 6 escenarios: 0 diferencias.
 
-**Enfoque por ciclo, matriz de riesgos consolidada y conocimiento del negocio (2026-09-26; decisión del dueño: «propone
-la herramienta y el socio decide»; confiar en controles «baja un nivel la confianza» del muestreo):**
+**Enfoque por ciclo, matriz de riesgos consolidada y conocimiento del negocio (2026-09-26; decisión del dueño del
+2026-09-27: «considera todo sustantivo para que no tengamos nada pendiente»; confiar en controles «baja un nivel la
+confianza» del muestreo):**
 `procesadores/planificacion_enfoque.py`. **Hoja `45_Enfoque_Controles`**: siete ciclos (ingresos y cuentas por cobrar,
 compras y cuentas por pagar, inventarios, nómina, tesorería y financiamiento, activos fijos, impuestos-provisiones-
-patrimonio), con sus cuentas (hoja 18) y hallazgos de la carta. Propuesta: sin carta → sustantivo; los sustantivos no
+patrimonio), con sus cuentas (hoja 18) y hallazgos de la carta. **Todo ciclo es «Sustantivo» por política de la firma** y nada queda pendiente
+de confirmar. La columna «Análisis de la herramienta» es solo referencia para el socio: sin carta → sustantivo; los sustantivos no
 bastan (hoja 34) y hay deficiencias → «Revisar» (posible limitación al alcance); no bastan → confiar (obligatorio, NIA 330
 párr. 8 b)); deficiencias (hallazgo significativo o inherente ≥ umbral alto, entorno de control con alerta, o TI con
-alerta en un ciclo automatizado) → sustantivo; si no → confiar. El socio confirma o cambia cada ciclo con un clic
+alerta en un ciclo automatizado) → sustantivo; si no → se podría confiar. Si el socio decide confiar en un ciclo, lo registra con un clic
 (registro `enfoque`: solo quien confirmó su independencia como «Socio»; motivo ≥ 10 caracteres; el nuevo anula al
-anterior del mismo ciclo) y su decisión manda (`00_Registros`, columnas E y F). Mientras no confirme, rige la propuesta y
-queda «Pendiente» (control 34, problema `ENFOQUE_PENDIENTE`). Efectos: hoja 12 «¿Se probará el control?» = Sí si el ciclo
+anterior del mismo ciclo) y su decisión manda (`00_Registros`, columnas E y F). Sin decisión, el ciclo queda
+«Sustantivo por política de la firma» (control 34 «Conforme»; no hay problema de enfoque pendiente). Efectos de confiar: hoja 12 «¿Se probará el control?» = Sí si el ciclo
 confía (el riesgo valorado considera el control); hoja 29, la confianza del muestreo baja un nivel (alto → media,
-medio/bajo → baja); la estrategia deduce el «Enfoque general» (combinado: N ciclos con confianza y M sustantivos), salvo
-que la hoja 02 traiga otro. **Hoja `46_Matriz_Riesgos`**: una fila por hallazgo de la carta y por riesgo de la hoja 13, con
+medio/bajo → baja); la estrategia deduce el «Enfoque general» («Sustantivo en todos los ciclos» o, si el socio decidió confiar en alguno,
+combinado: N ciclos con confianza y M sustantivos), salvo que la hoja 02 traiga otro. Los ciclos donde los sustantivos
+solos no bastan (NIA 330 párr. 8 b)) siguen señalados por el control 32 y el problema `CONTROLES_NECESARIOS`: es un
+requisito de la norma, no una confirmación pendiente. **Hoja `46_Matriz_Riesgos`**: una fila por hallazgo de la carta y por riesgo de la hoja 13, con
 ciclo, afirmaciones, riesgo inherente, significativo, enfoque, riesgo de control, riesgo de incorrección material
 (significativo; si no, el inherente, un nivel menos con control bajo) y el PT del programa (INDEX/MATCH). **Hoja
 `47_Conocimiento_Negocio`** (por fórmula a las hojas 14, 35, 09–11, 45 y 46) y el **memorando en Word**
