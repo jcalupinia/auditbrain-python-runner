@@ -67,6 +67,17 @@ def guardar_ficha(db: Session, project_id: int, datos: dict, actor: str) -> dict
 
 # --- herramientas disponibles ------------------------------------------------
 
+def pruebas_de(definicion: dict) -> list[str]:
+    """Lo que prueba la herramienta, para su tarjeta en Auditoría externa · Análisis: el objetivo de cada procedimiento de
+    su programa (depreciación, deterioro, desmantelamiento…), sin los códigos de requisito entre paréntesis."""
+    out: list[str] = []
+    for p in definicion.get("program") or []:
+        t = re.sub(r"\s*\([^()]*\)\s*$", "", str((p or {}).get("objective") or "")).strip()
+        if t and t not in out:
+            out.append(t)
+    return out
+
+
 def herramientas_disponibles(db: Session) -> list[dict]:
     """Catálogo del sitio más las fichas NIIF con definición probada."""
     lista = [
@@ -82,7 +93,7 @@ def herramientas_disponibles(db: Session) -> list[dict]:
             # espera aprobación («probada»); `marcos` dice a qué marco sirve.
             lista.append({"origen": f"ficha:{f.id}", "nombre": f.nombre, "area": f.rubro, "tipo": "ficha NIIF",
                           "estado": f.estado, "marcos": f.definicion.get("frameworks") or [],
-                          "resumen": f.definicion.get("summary") or ""})
+                          "resumen": f.definicion.get("summary") or "", "pruebas": pruebas_de(f.definicion)})
     # Herramientas fabricadas directamente en el catálogo: cada procesador con RUBRO aparece en la
     # tarjeta de su rubro sin pasar por «Diseñar fichas» (decisión del dueño, 2026-09-22).
     for pid, mod in procesadores.PROCESADORES.items():
@@ -90,7 +101,7 @@ def herramientas_disponibles(db: Session) -> list[dict]:
             d = mod.definicion()
             lista.append({"origen": f"proc:{pid}", "nombre": d["name"], "area": mod.RUBRO, "tipo": "herramienta NIIF",
                           "estado": getattr(mod, "ESTADO", "probada"), "marcos": d.get("frameworks") or [],
-                          "resumen": d.get("summary") or ""})
+                          "resumen": d.get("summary") or "", "pruebas": pruebas_de(d)})
     return lista
 
 
