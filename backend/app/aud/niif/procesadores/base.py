@@ -122,7 +122,8 @@ NIVEL_COLOR = {
     "Alto": "alta", "Alta": "alta", "Crítico": "alta", "Rojo": "alta",
     "Medio": "media", "Media": "media", "Revisar": "media", "Amarillo": "media",
     "Bajo": "baja", "Baja": "baja", "Conforme": "baja", "Verde": "baja",
-    "Pendiente": "info", "No evaluado": "info", "No significativo": "info",
+    "Pendiente": "info", "No evaluado": "info", "No significativo": "info", "No aplica": "info", "No se presenta": "info",
+    "Alerta": "alta", "Comunicar": "media", "Candidato": "media", "Documentado": "baja",
     "Empeora": "alta", "Mejora": "baja", "Dentro del rango": "baja", "Fuera": "media",
 }
 # Rol → (relleno, texto) en hexadecimal sin «#». Tonos de estado (no se usan en los gráficos).

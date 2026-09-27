@@ -308,6 +308,26 @@ function EncerarEliminar({ prueba, onAccion, ocupado }) {
   );
 }
 
+// M1 (NIA 230): la versión nueva exige su motivo; queda con su autor y fecha en la bitácora y, si la fecha del informe ya
+// pasó, se marca como cambio posterior al informe.
+function NuevaVersion({ onAccion, ocupado }) {
+  const [motivo, setMotivo] = useState("");
+  return (
+    <div className="nf-rec-item">
+      <label className="nf-ctx-field">
+        Motivo de la nueva versión (qué cambia y por qué)
+        <textarea rows={2} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+      </label>
+      <div className="nf-estudio-botones">
+        <button type="button" className="btn sm" disabled={ocupado || motivo.trim().length < 10}
+          onClick={() => onAccion("new_version", { motivo })}>
+          Crear nueva versión
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function Revision({ prueba, onAccion, onRecargar, ocupado }) {
   const reg = prueba.registro;
   const temprana = ["PRUEBA_SELECCIONADA", "PROGRAMA_PROPUESTO"].includes(prueba.estado);
@@ -327,11 +347,7 @@ export function Revision({ prueba, onAccion, onRecargar, ocupado }) {
           {prueba.sucesora ? (
             <p className="muted">Esta versión ya tiene una versión sucesora (prueba {prueba.sucesora}).</p>
           ) : (
-            <div className="nf-estudio-botones">
-              <button type="button" className="btn sm" disabled={ocupado} onClick={() => onAccion("new_version")}>
-                Crear nueva versión
-              </button>
-            </div>
+            <NuevaVersion onAccion={onAccion} ocupado={ocupado} />
           )}
         </>
       )}

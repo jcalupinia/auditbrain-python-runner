@@ -67,6 +67,41 @@ def _segregacion(reg: dict) -> str:
     return "Sí: aprobó una persona distinta de la que envió a revisión."
 
 
+FIRMA_PEND = "[PENDIENTE]"
+
+
+def _firmas(definicion: dict, reg: dict, eventos: list) -> dict | None:
+    """A4 (NIA 230): quién preparó (envió a revisión) y quién revisó (aprobó) cada cédula clave, con fecha, tomados de la
+    bitácora del ciclo. Solo si la herramienta declara ``firmas`` (lista de hojas clave)."""
+    claves = definicion.get("firmas") or []
+    if not claves:
+        return None
+    ev = list(eventos or [])
+    i_env = next((i for i in range(len(ev) - 1, -1, -1) if ev[i].get("accion") == "submit"), None)
+    envio = ev[i_env] if i_env is not None else {}
+    aprob = next((x for x in reversed(ev[(i_env or 0):]) if x.get("accion") == "approve"), {}) if i_env is not None else {}
+    prep = envio.get("actor") or reg.get("submittedBy") or ""
+    f_prep = (envio.get("fecha") or "")[:10]
+    revi = aprob.get("actor") or reg.get("approvedBy") or ""
+    f_rev = (aprob.get("fecha") or reg.get("approvedAt") or "")[:10]
+    if not prep:
+        estado_ = "Pendiente · no se ha enviado a revisión"
+    elif not revi:
+        estado_ = "Pendiente · en revisión"
+    elif prep == revi:
+        estado_ = "Revisar · aprobó quien preparó (sin segregación de funciones, NIA 220)"
+    else:
+        estado_ = "Conforme · revisada por una persona distinta de quien la preparó"
+    e = reg.get("engagement") or {}
+    etq = {n: t for n, t in definicion.get("cedulas") or []}
+    filas = [[f"{n} · {etq.get(n, '')}".strip(" ·"), e.get("preparer") or "", prep or FIRMA_PEND, f_prep or None,
+              e.get("reviewer") or "", revi or FIRMA_PEND, f_rev or None, estado_] for n in claves]
+    return {"name": "00_Firmas", "label": "Firmas de las cédulas clave", "total": None, "colores": ["Estado"],
+            "cols": [["Cédula clave", "t"], ["Asignado para preparar", "t"], ["Preparó (envió a revisión)", "t"], ["Fecha", "d"],
+                     ["Asignado para revisar", "t"], ["Revisó (aprobó)", "t"], ["Fecha de revisión", "d"], ["Estado", "t"]],
+            "rows": filas}
+
+
 def _contexto(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> list[dict]:
     e = reg.get("engagement") or {}
     run = reg.get("run") or {}
@@ -102,8 +137,10 @@ def _contexto(definicion: dict, reg: dict, eventos: list, version: int, estado: 
         ["Evaluación de excepciones", reg.get("exceptionReview") or ""],
         ["Análisis", reg.get("analysis") or ""], ["Conclusión", reg.get("conclusion") or ""],
     ]
+    firmas = _firmas(definicion, reg, eventos)
     return [
         {"name": "00_Caratula", "label": "Carátula", "cols": [["Concepto", "t"], ["Detalle", "t"]], "rows": caratula, "total": None},
+        *([firmas] if firmas else []),
         {"name": "00_Programa", "label": "Programa", "total": None,
          "cols": [["Código", "t"], ["Objetivo", "t"], ["Afirmación", "t"], ["Procedimiento", "t"], ["Evidencia", "t"], ["Criterio", "t"], ["Referencia", "t"]],
          "rows": [[p.get("code"), p.get("objective"), p.get("assertion"), p.get("procedure"), p.get("evidence"), p.get("criterion"), p.get("reference")]
@@ -167,7 +204,7 @@ def _seccion(h: dict, es_resumen: bool = False) -> int:
     n = h.get("name", "")
     if es_resumen or problemas.es_hoja_problemas(h) or n.startswith("13_") or re.search(r"Asiento|Ajuste", n):
         return 0
-    if re.match(r"D\d_", n):
+    if re.match(r"D\d+_", n):
         return 2
     if n.startswith(("00_", "14_")):
         return 3

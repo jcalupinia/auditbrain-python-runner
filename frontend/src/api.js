@@ -1363,3 +1363,21 @@ export async function downloadIctJob(jobId, suggestedFilename) {
   a.remove();
   URL.revokeObjectURL(url);
 }
+// Registros del encargo con un clic (independencia, discusión, aceptación, carta, comunicación) y sus documentos.
+export async function cicloRegistros(projectId) {
+  return parse(await apiFetch(`${CICLO}/proyectos/${projectId}/registros`, { headers: authHeaders() }));
+}
+export async function cicloRegistrar(projectId, datos) {
+  return parse(await apiFetch(`${CICLO}/proyectos/${projectId}/registros`, jsonPost("POST", datos)));
+}
+export async function cicloAnularRegistro(projectId, registroId) {
+  return parse(await apiFetch(`${CICLO}/proyectos/${projectId}/registros/${registroId}`, { method: "DELETE", headers: authHeaders() }));
+}
+export async function cicloDocumentoEncargo(projectId, tipo) {
+  const res = await apiFetch(`${CICLO}/proyectos/${projectId}/documentos/${tipo}`, { headers: authHeaders() });
+  if (!res.ok) await parse(res);
+  return new Uint8Array(await res.arrayBuffer());
+}
+export async function cicloResolverConsulta(projectId, registroId, resolucion) {
+  return parse(await apiFetch(`${CICLO}/proyectos/${projectId}/registros/${registroId}/resolver`, jsonPost("POST", { resolucion })));
+}
