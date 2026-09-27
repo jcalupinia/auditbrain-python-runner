@@ -15,6 +15,7 @@ from backend.app.aud.informe_cumplimiento_tributario import router as aud_inform
 from backend.app.aud.motor_balances import router as aud_motor_balances_router
 from backend.app.aud.motor_analitico import router as aud_motor_analitico_router
 from backend.app.aud.inventarios_vnr import router as aud_vnr_router
+from backend.app.aud.confirmaciones_saldos import router as aud_confirmaciones_router
 from backend.app.aud.niif import router as aud_niif_router
 from backend.app.aud.niif.ciclo import router as aud_ciclo_router
 from backend.app.tax.planificacion_utilidades import router as tax_pu_router
@@ -43,6 +44,7 @@ api_router.include_router(aud_informe_ict_router.router)
 api_router.include_router(aud_motor_balances_router.router)
 api_router.include_router(aud_motor_analitico_router.router)
 api_router.include_router(aud_vnr_router.router)
+api_router.include_router(aud_confirmaciones_router.router)
 api_router.include_router(aud_niif_router.router)
 api_router.include_router(aud_ciclo_router.router)
 api_router.include_router(tax_pu_router.router)
