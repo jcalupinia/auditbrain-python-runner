@@ -206,8 +206,9 @@ export function RegistroEncargo({ proyecto }) {
       <div className="nf-rec-item">
         <h5>Enfoque por ciclo: confianza o no en los controles (NIA 330)</h5>
         <small className="muted">
-          La planificación propone el enfoque de cada ciclo (hoja 45); el socio lo confirma o lo cambia aquí. Confiar en los
-          controles obliga a probar su eficacia y baja un nivel la confianza del muestreo del ciclo.
+          Todos los ciclos son sustantivos por política de la firma (hoja 45) y no hace falta confirmarlos. Solo si el socio
+          decide confiar en los controles de un ciclo lo registra aquí: obliga a probar su eficacia y baja un nivel la
+          confianza del muestreo del ciclo.
         </small>
         {CICLOS.map((ciclo) => {
           const actual = decisionDe(datos.encargo, ciclo);
@@ -216,7 +217,7 @@ export function RegistroEncargo({ proyecto }) {
             <div key={ciclo} className="nf-rec-row nf-enfoque-ciclo">
               <span style={{ flex: 1, minWidth: 220 }}>
                 {ciclo}
-                <small className="muted"> · {actual ? `${actual.decision} (${actual.actor}, ${actual.fecha})` : "Sin confirmar"}</small>
+                <small className="muted"> · {actual ? `${actual.decision} (${actual.actor}, ${actual.fecha})` : "Sustantivo (política de la firma)"}</small>
               </span>
               <select aria-label={`Enfoque · ${ciclo}`} value={v.decision}
                 onChange={(e) => setEnfoques({ ...enfoques, [ciclo]: { ...v, decision: e.target.value } })}>

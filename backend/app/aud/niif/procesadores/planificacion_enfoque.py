@@ -1,11 +1,13 @@
 """Planificación de la auditoría · enfoque por ciclo (confianza o no en los controles), matriz de riesgos consolidada y
 papel de conocimiento del negocio (complemento de ``planificacion_nia``; no es una herramienta del catálogo).
 
-Decisión del dueño (2026-09-26): **la herramienta propone y el socio decide**. La propuesta sale de la carta de control
-interno (hallazgos del ciclo, riesgo inherente, riesgo significativo), de si los procedimientos sustantivos solos bastan
-(hoja 34) y de las deficiencias del entorno de control y de TI (hoja 27). El socio confirma o cambia el enfoque de cada
-ciclo con un clic en la plataforma (registro «enfoque»). Confiar en los controles **baja un nivel la confianza del
-muestreo** del ciclo (hoja 29) y obliga a probar su eficacia (hoja 12, «¿Se probará el control?»).
+Decisión del dueño (2026-09-27, «considera todo sustantivo para que no tengamos nada pendiente»): **todos los ciclos son
+sustantivos por política de la firma** y nada queda pendiente de confirmar. La herramienta muestra su análisis como
+referencia (sale de la carta de control interno —hallazgos del ciclo, riesgo inherente, riesgo significativo—, de si los
+procedimientos sustantivos solos bastan (hoja 34) y de las deficiencias del entorno de control y de TI (hoja 27)), pero no
+cambia el enfoque. Solo si el socio registra «Confiar en controles» para un ciclo en la plataforma (registro «enfoque»)
+ese ciclo confía: **baja un nivel la confianza del muestreo** (hoja 29) y obliga a probar la eficacia del control (hoja 12,
+«¿Se probará el control?»).
 """
 from __future__ import annotations
 
@@ -13,7 +15,7 @@ from backend.app.aud.niif.procesadores.base import FILA0, fx
 
 H45, H46, H47 = "45_Enfoque_Controles", "46_Matriz_Riesgos", "47_Conocimiento_Negocio"
 CEDULAS = [
-    (H45, "Enfoque por ciclo: confianza o no en los controles (propone la herramienta, decide el socio; NIA 300 y 330)"),
+    (H45, "Enfoque por ciclo: sustantivo por política de la firma, salvo que el socio decida confiar en los controles (NIA 300 y 330)"),
     (H46, "Matriz de riesgos consolidada: inherente, control, incorrección material, respuesta y procedimiento (NIA 315 y 330)"),
     (H47, "Conocimiento del negocio: identificación, entendimiento, cifras clave, ciclos, riesgos y materialidad (NIA 315)"),
 ]
@@ -35,8 +37,8 @@ PROP_SIN_CARTA = "Sustantivo: sin evaluación del control interno (carta RQ-004)
 PROP_REVISAR = "Revisar: los sustantivos no bastan y hay deficiencias de control (posible limitación al alcance)"
 PROP_OBLIGATORIO = "Confiar en controles: obligatorio, los sustantivos solos no bastan (NIA 330 párr. 8 b))"
 PROP_DEFICIENCIAS = "Sustantivo: no confiar (deficiencias de control en el ciclo, el entorno de control o TI)"
-PROP_CONFIAR = "Confiar en controles: sin deficiencias informadas (probar su eficacia)"
-EST_PENDIENTE = "Pendiente: el socio confirma el enfoque en la plataforma"
+PROP_CONFIAR = "Se podría confiar en los controles: sin deficiencias informadas (lo decide el socio)"
+EST_POLITICA = "Sustantivo por política de la firma"
 EST_CONFIRMADO = "Confirmado por el socio"
 RC_BAJO = "Bajo si la prueba de controles lo confirma"
 RC_MAXIMO = "Máximo: no se confía en los controles"
@@ -64,8 +66,9 @@ def propuesta(n12: int, no_bastan: bool, defic: bool) -> str:
 
 
 def enfoque(carta: list, u_alto: float, decisiones: dict) -> list[dict]:
-    """Un dict por ciclo con la propuesta, la decisión del socio y el enfoque final. ``carta`` trae «area», «bastan»
-    (sí/no), «inh» y «sig»; ``decisiones`` = {ciclo: decisión registrada por el socio}."""
+    """Un dict por ciclo con el análisis de la herramienta, la decisión del socio y el enfoque final (la decisión del
+    socio o, si no la registró, «Sustantivo» por política de la firma). ``carta`` trae «area», «bastan» (sí/no), «inh» y
+    «sig»; ``decisiones`` = {ciclo: decisión registrada por el socio}."""
     # El entorno de control es generalizado: sus deficiencias impiden confiar en cualquier ciclo. Las de TI solo pesan donde el
     # ciclo depende de procesos automatizados (los sustantivos no bastan).
     gen = any(x["comp"] == "Entorno de control" for x in carta)
@@ -78,12 +81,12 @@ def enfoque(carta: list, u_alto: float, decisiones: dict) -> list[dict]:
         prop = propuesta(len(carta), nob, defic)
         dec = decisiones.get(nombre, "")
         out.append({"ciclo": nombre, "filas": filas, "nob": nob, "defic": defic, "prop": prop, "dec": dec,
-                    "final": dec or prop, "confia": _conf(dec or prop)})
+                    "final": dec or SUSTANTIVO, "confia": _conf(dec)})
     return out
 
 
 COLS_ENFOQUE = [["Ciclo", "t"], ["Cuentas del ciclo", "t"], ["Hallazgos de la carta", "t"], ["¿Bastan los sustantivos?", "t"],
-                ["Deficiencias de control", "t"], ["Propuesta de la herramienta", "t"], ["Decisión del socio", "t"],
+                ["Deficiencias de control", "t"], ["Análisis de la herramienta", "t"], ["Decisión del socio", "t"],
                 ["Enfoque final", "t"], ["Estado", "t"], ["Riesgo de control", "t"], ["Efecto en la muestra", "t"]]
 
 
@@ -107,8 +110,8 @@ def filas_enfoque(enf: list, carta: list, cuentas_ciclo: dict, c: dict) -> list:
         filas.append([e["ciclo"], ", ".join(cuentas_ciclo.get(e["ciclo"], [])),
                       ", ".join(carta[i]["id"] for i in e["filas"]),
                       fx(f'IF({f_nob},"No","Sí")', "No" if e["nob"] else "Sí"), fx(f'IF({f_def},"Sí","No")', "Sí" if e["defic"] else "No"),
-                      fx(f_prop, e["prop"]), dec, fx(f'IF(G{r}="",F{r},G{r})', e["final"]),
-                      fx(f'IF(G{r}="","{EST_PENDIENTE}","{EST_CONFIRMADO}")', EST_CONFIRMADO if e["dec"] else EST_PENDIENTE),
+                      fx(f_prop, e["prop"]), dec, fx(f'IF(G{r}="","{SUSTANTIVO}",G{r})', e["final"]),
+                      fx(f'IF(G{r}="","{EST_POLITICA}","{EST_CONFIRMADO}")', EST_CONFIRMADO if e["dec"] else EST_POLITICA),
                       fx(f'IF(LEFT(H{r},7)="Confiar","{RC_BAJO}","{RC_MAXIMO}")', RC_BAJO if e["confia"] else RC_MAXIMO),
                       fx(f'IF(LEFT(H{r},7)="Confiar","{EF_BAJA}","{EF_NADA}")', EF_BAJA if e["confia"] else EF_NADA)])
     return filas
@@ -221,7 +224,7 @@ def filas_conocimiento(c: dict) -> tuple[list, list]:
         fila("Cifras clave", concepto, fx(ref_, v), "Hojas 09, 10 y 11")
     titulo("Ciclos y enfoque de auditoría")
     for k, e in enumerate(c["enf"]):
-        fila("Enfoque", e["ciclo"], fx(f"'{H45}'!H{FILA0 + k}", e["final"]), "Hoja 45 · propone la herramienta y decide el socio")
+        fila("Enfoque", e["ciclo"], fx(f"'{H45}'!H{FILA0 + k}", e["final"]), "Hoja 45 · sustantivo por política de la firma, salvo decisión del socio")
     titulo("Riesgos principales")
     for concepto, f_, v in c["riesgos"]:
         fila("Riesgos", concepto, fx(f_, v), "Hoja 46 · matriz de riesgos")
@@ -234,11 +237,12 @@ EXPLICA = {
           "Deficiencias de control": ("«Sí» si algún hallazgo del ciclo es riesgo significativo o su riesgo inherente llega al "
                                       "umbral alto (hoja 12), si hay deficiencias en el entorno de control (hoja 27) o, en un "
                                       "ciclo con procesos automatizados, deficiencias en los controles generales de TI."),
-          "Propuesta de la herramienta": ("Sin carta: sustantivo; los sustantivos no bastan y hay deficiencias: revisar; no bastan: "
-                                          "confiar (obligatorio); con deficiencias: sustantivo; si no: confiar en los controles."),
+          "Análisis de la herramienta": ("Referencia para el socio, no cambia el enfoque. Sin carta: sustantivo; los sustantivos "
+                                         "no bastan y hay deficiencias: revisar; no bastan: confiar (obligatorio); con "
+                                         "deficiencias: sustantivo; si no: se podría confiar en los controles."),
           "Decisión del socio": "Trae la decisión que el socio registró para el ciclo en la plataforma (hoja 00_Registros).",
-          "Enfoque final": "La decisión del socio o, mientras no la registre, la propuesta de la herramienta.",
-          "Estado": "«Confirmado» si el socio registró su decisión; «Pendiente» si no.",
+          "Enfoque final": "La decisión del socio o, si no registró ninguna, «Sustantivo» por política de la firma.",
+          "Estado": "«Confirmado por el socio» si registró su decisión; si no, «Sustantivo por política de la firma» (nada queda pendiente).",
           "Riesgo de control": "Bajo si se confía en los controles (y la prueba lo confirma); máximo si el enfoque es sustantivo.",
           "Efecto en la muestra": "Si se confía, el muestreo de las cuentas del ciclo usa la confianza del nivel siguiente (hoja 29)."},
     H46: {"Riesgo": "Trae el texto del hallazgo (hoja 12) o del posible riesgo (hoja 13).",

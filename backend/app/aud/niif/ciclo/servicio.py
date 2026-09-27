@@ -1154,7 +1154,7 @@ def registrar(db: Session, project_id: int, datos: dict, actor: str) -> Registro
             raise ReglaIncumplida("Resuma lo que se obtuvo de la indagación u observación.")
         extra = {"tema": tema, "procedimiento": proc, "persona": _texto(datos.get("persona"), 200), "resumen": resumen}
     elif tipo == "enfoque":
-        # La herramienta propone el enfoque de cada ciclo (hoja 45) y el socio lo confirma o lo cambia (decisión del dueño).
+        # Todo ciclo es sustantivo por política de la firma (hoja 45); el socio puede registrar otra decisión por ciclo.
         from backend.app.aud.niif.procesadores import planificacion_enfoque as enf
         socio = [r for r in vig if r.tipo == "independencia" and r.actor == actor and r.rol == "Socio"]
         if not socio:
