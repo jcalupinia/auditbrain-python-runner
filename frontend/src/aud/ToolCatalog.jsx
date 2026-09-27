@@ -14,6 +14,11 @@ const MotorAnaliticoTool = lazy(() => import("./motorAnalitico/MotorAnaliticoToo
 // Fichas NIIF («ficha:») y herramientas del catálogo («proc:») se trabajan en Pruebas del encargo.
 export const abrePruebasEncargo = (id) => /^(ficha|proc):/.test(id || "");
 
+// Lo que prueba cada herramienta (el objetivo de cada procedimiento de su programa): depreciación, deterioro,
+// desmantelamiento… En una etapa (planificación) son las partes que incluye.
+export const rotuloPruebas = (tipo) => (tipo === "etapa" ? "Qué incluye" : "Qué se prueba");
+export const pruebasDe = (herramienta) => (Array.isArray(herramienta?.pruebas) ? herramienta.pruebas.filter(Boolean) : []);
+
 export default function ToolCatalog({ projectId }) {
   const [activeTool, setActiveTool] = useState(null);
   const [sharedContext, setSharedContext] = useState(null);
@@ -129,6 +134,14 @@ export default function ToolCatalog({ projectId }) {
                         {(f.marcos || []).join(" · ") || "Ficha NIIF"}
                         {f.estado === "enviada" ? " · en el catálogo" : " · probada, pendiente de aprobación para el catálogo"}
                       </span>
+                      {pruebasDe(f).length > 0 && (
+                        <span className="aud-tool-pruebas" aria-label={`${rotuloPruebas(cat.type)}: ${pruebasDe(f).join(", ")}`}>
+                          <span className="aud-tool-pruebas-h">{rotuloPruebas(cat.type)}</span>
+                          {pruebasDe(f).map((p) => (
+                            <span key={p} className="aud-tool-prueba">{p}</span>
+                          ))}
+                        </span>
+                      )}
                     </button>
                   ))}
                   {(cat.tools || []).map((t) => (

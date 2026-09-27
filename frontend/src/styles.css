@@ -745,6 +745,15 @@ pre {
 .aud-tool-item:hover { background: rgba(52, 211, 106, .15); }
 .aud-tool-item b { display: block; font-size: 13px; margin-bottom: 4px; }
 .aud-tool-item span { font-size: 11px; color: var(--text-soft); }
+/* Lo que prueba cada herramienta (objetivos de su programa), como etiquetas bajo su nombre. */
+.aud-tool-item .aud-tool-pruebas { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.aud-tool-item .aud-tool-pruebas-h {
+  flex-basis: 100%; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim);
+}
+.aud-tool-item .aud-tool-prueba {
+  font-size: 11px; color: var(--text); background: var(--panel-2);
+  border: 1px solid var(--border, rgba(255, 255, 255, .12)); border-radius: 10px; padding: 2px 8px;
+}
 
 /* ----- Obligaciones Fiscales tool ----- */
 .of-tool { padding: 16px 0; max-width: 920px; }

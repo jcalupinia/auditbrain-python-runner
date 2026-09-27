@@ -60,6 +60,8 @@ def test_ejercicio_modelo_de_principio_a_fin(client, disco_temporal, pid):
     # Aparece en el catálogo, en la tarjeta de su rubro.
     h = next(x for x in client.get(f"{BASE}/herramientas", headers=_h(tok)).json() if x["origen"] == f"proc:{pid}")
     assert h["area"] == m.RUBRO and h["tipo"] == "herramienta NIIF"
+    # Su tarjeta dice qué se prueba: un objetivo por procedimiento del programa, sin códigos entre paréntesis.
+    assert h["pruebas"] and all(t and not t.endswith(")") for t in h["pruebas"])
 
     assert client.put(f"{BASE}/proyectos/{pid_proyecto}/ficha", headers=_h(tok),
                       json={**FICHA, "framework": marco, "edition": edicion, "cutoff": ej["corte"],
@@ -123,3 +125,13 @@ def test_ejercicio_modelo_de_principio_a_fin(client, disco_temporal, pid):
     for fmt, firma in (("xlsx", b"PK"), ("docx", b"PK"), ("pptx", b"PK"), ("html", b"<!doctype html>")):
         r = client.get(f"{BASE}/pruebas/{p['id']}/libro?formato={fmt}", headers=_h(tok))
         assert r.status_code == 200 and r.content.startswith(firma), fmt
+
+
+def test_tarjeta_de_activo_fijo_dice_que_se_prueba():
+    """Auditoría externa · Análisis: la tarjeta de Propiedad, planta y equipo lista lo que prueba su herramienta."""
+    from backend.app.aud.niif.ciclo import servicio
+
+    pruebas = servicio.pruebas_de(procesadores.PROCESADORES["ppe_propiedad_planta"].definicion())
+    assert {"Depreciación", "Deterioro", "Desmantelamiento", "Bajas", "Revaluación"} <= set(pruebas)
+    # Los códigos de requisito entre paréntesis no van a la tarjeta.
+    assert servicio.pruebas_de({"program": [{"objective": "Corte (REV-03)"}, {"objective": "Corte"}]}) == ["Corte"]

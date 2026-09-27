@@ -104,6 +104,9 @@ exigencia), `calculo` (pasos en lenguaje contable), `fields` (= CAMPOS del princ
 `tramos` (solo si hay tasas por tramo), `cedulas`, `program` (≥5 procedimientos con code/objective/risk/assertion/
 procedure/evidence/criterion/source) y `requests` (con `req()`: uno por anexo de cálculo + los de soporte).
 Códigos de programa y requerimientos: `<PREFIJO>-01…`, `RQ-001…`.
+El `objective` de cada procedimiento se muestra en la tarjeta de la herramienta (Auditoría externa · Análisis, «Qué se
+prueba»; `servicio.pruebas_de`): escríbalo corto y en lenguaje del auditor (p. ej. «Depreciación», «Deterioro»,
+«Desmantelamiento»); los códigos de requisito entre paréntesis al final no se muestran.
 Opcional: `firmas` = lista de cédulas clave (nombres de hoja). El libro agrega la hoja `00_Firmas` con quién preparó
 (envió a revisión) y quién revisó (aprobó) cada una, con fecha, tomados de la bitácora del ciclo, y advierte si es la
 misma persona (NIA 230 y 220). La usa la planificación (`planificacion_nia`).
