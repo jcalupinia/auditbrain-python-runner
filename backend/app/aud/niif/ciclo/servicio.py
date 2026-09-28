@@ -714,6 +714,77 @@ def eventos(db: Session, prueba_id: int) -> list[PruebaEvento]:
     ).scalars())
 
 
+# --- consola de comunicación por prueba (chat auditable, NIA 230) -----------
+# Un comentario es un evento de la bitácora (accion="comentario"): así queda en
+# la cédula 12 del papel y es trazable. Se permite en cualquier estado, incluso
+# aprobada: la comunicación del equipo no muta el papel. El asistente responde
+# como un actor más ("AUDIT-IA"), y su respuesta es un borrador para el auditor.
+ACTOR_ASISTENTE = "AUDIT-IA"
+
+
+def comentar(db: Session, p: Prueba, texto: str, actor: str, accion: str = "comentario") -> PruebaEvento:
+    """Agrega un comentario a la consola de la prueba (no cambia el estado)."""
+    texto = (texto or "").strip()
+    if not texto:
+        raise ValueError("El comentario no puede estar vacío.")
+    ev = PruebaEvento(
+        prueba_id=p.id, revision=p.revision, accion=accion, estado_anterior=None,
+        estado_nuevo=p.estado, actor=actor, comentario=texto[:8000] or None,
+    )
+    db.add(ev)
+    db.commit()
+    db.refresh(ev)
+    return ev
+
+
+def sugerencias_pruebas(db: Session, p: Prueba) -> dict:
+    """Puente planificación → pruebas: de una prueba de PLANIFICACIÓN, la lista
+    ordenada de pruebas del piloto a ejecutar (una por herramienta, con sus cuentas
+    y riesgos). Recomputa la planificación porque el ``detalle`` guardado se poda a
+    tasas/fiscal/cortes y no conserva las cuentas a revisar; reutiliza la misma
+    inyección de parámetros del encargo que ``execute``."""
+    from backend.app.aud.niif import puente
+
+    proc = procesadores.de(p.definicion)
+    if proc is None or getattr(proc, "RUBRO", None) != "PLANIFICACION":
+        raise ReglaIncumplida("Las pruebas sugeridas solo se derivan de una prueba de planificación.")
+    reg = copy.deepcopy(p.registro)
+    param = {k: v for k, v in reg["parameters"].items() if k in proc.PARAMETROS}
+    param["_marco"] = reg["engagement"].get("framework") or ""
+    param["_edicion"] = str(reg["engagement"].get("edition") or "")
+    if getattr(proc, "USA_REGISTROS_ENCARGO", False):
+        param["_encargo"] = registros_encargo(db, p.project_id)
+        anterior_run = version_anterior_run(db, p)
+        if anterior_run:
+            param["_anterior"] = anterior_run
+        param["_archivos"] = archivos_de_entrada(db, p.id)
+    try:
+        run = proc.ejecutar(reg.get("datasets") or {}, param, reg["engagement"]["cutoff"])
+    except (ValueError, KeyError, ArithmeticError, StopIteration) as e:
+        raise ReglaIncumplida(str(e) or "La planificación no se pudo ejecutar.")
+    return puente.sugerencias(run)
+
+
+def conversacion(db: Session, prueba_id: int) -> list[dict]:
+    """La bitácora como línea de tiempo para la consola: cada evento es un
+    comentario del equipo/asistente (``tipo='comentario'``) o una marca del
+    circuito (``tipo='sistema'``: cambios de estado, cargas, papel)."""
+    salida = []
+    for e in eventos(db, prueba_id):
+        salida.append({
+            "id": e.id,
+            "tipo": "comentario" if e.accion == "comentario" else "sistema",
+            "accion": e.accion,
+            "actor": e.actor,
+            "es_asistente": e.actor == ACTOR_ASISTENTE or (e.actor or "").startswith(ACTOR_ASISTENTE),
+            "texto": e.comentario or "",
+            "estado_nuevo": e.estado_nuevo,
+            "revision": e.revision,
+            "fecha": e.creado_en.isoformat() if e.creado_en else None,
+        })
+    return salida
+
+
 # --- definición probada de una ficha NIIF -----------------------------------
 
 def guardar_definicion_ficha(db: Session, ficha: NiifFicha, definicion: dict, filas: list[dict],
