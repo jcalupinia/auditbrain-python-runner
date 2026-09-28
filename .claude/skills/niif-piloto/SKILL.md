@@ -42,9 +42,23 @@ la planificación NIA).
 
 ## Motor (no reimplementar nada)
 
-Todo se hace con el motor `scripts/piloto/piloto.py`, que reutiliza el contrato oficial
-(`procesadores.PROCESADORES`, `mod.ejecutar`, `mod.definicion`, `ejercicio_modelo` y
-`libro.{xlsx,html,docx,pptx,pdf}`), el mismo que usan el router del ciclo y `scripts/papeles_muestra.py`.
+Hay **una sola fuente de verdad**, el servicio `backend/app/aud/niif/piloto.py`
+(`listar`, `requisitos`, `plantilla`, `preparar`, `papel`, `verificar_excel`, `resumen_run`),
+que reutiliza el contrato oficial (`procesadores.PROCESADORES`, `mod.ejecutar`,
+`mod.definicion`, `datos_cliente.con_datos` y `libro.{xlsx,html,docx,pptx,pdf}`), el mismo
+que usan el router del ciclo y `scripts/papeles_muestra.py`. Ese servicio lo consumen:
+
+- **la CLI** `scripts/piloto/piloto.py` (para estas sesiones de Claude Code), y
+- **la plataforma AUDIT-IA** por HTTP (router `backend/app/aud/niif/piloto_router.py`,
+  prefijo `/aud/niif/piloto`, permiso `require_staff`):
+  - `GET  /aud/niif/piloto/pruebas`
+  - `GET  /aud/niif/piloto/pruebas/{id}/requisitos`
+  - `GET  /aud/niif/piloto/pruebas/{id}/plantilla`
+  - `POST /aud/niif/piloto/pruebas/{id}/ejecutar?formato=json|xlsx|html|docx|pptx|pdf|zip`
+    (cuerpo `{corte, datasets, parametros, encargo?}`; `json` devuelve resultado + verificación
+    del Excel, los demás descargan el papel).
+
+En estas sesiones usás la CLI:
 
 Ejecutá siempre desde la raíz del repo. Para consumir la salida como datos, pasá `--json`.
 
