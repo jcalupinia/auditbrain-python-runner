@@ -14,7 +14,7 @@ from backend.app.context.models import Project, Client
 from backend.app.context.service import user_can_access_project
 from backend.app.notifications.email import send_email
 from .engine import calculate
-from .exports import build_xlsx, build_html, build_docx, schedules, letter_email_html
+from .exports import build_xlsx, build_html, build_docx, build_pdf, PDFNoDisponible, schedules, letter_email_html
 from .plantillas import TYPES, TYPE_LABEL_ES, METHOD_LABEL, REFERENCES, languages
 from .parsers import extract, MAX_BYTES
 from .models import ConfirmacionEnvio
@@ -31,6 +31,7 @@ FORMATS = {
     'xlsx': (build_xlsx, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
     'docx': (build_docx, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
     'html': (build_html, 'text/html; charset=utf-8'),
+    'pdf': (build_pdf, 'application/pdf'),
 }
 
 
@@ -101,10 +102,13 @@ async def process(project_id: int, request: Request, authorized=Depends(access))
 
 
 @router.post('/{project_id}/download')
-async def download(project_id: int, request: Request, format: str = Query(..., pattern='^(xlsx|docx|html)$'), authorized=Depends(access)):
+async def download(project_id: int, request: Request, format: str = Query(..., pattern='^(xlsx|docx|html|pdf)$'), authorized=Depends(access)):
     result = await run_in_threadpool(safe_calculate, await request_data(request))
     builder, mime = FORMATS[format]
-    content = await run_in_threadpool(builder, result)
+    try:
+        content = await run_in_threadpool(builder, result)
+    except PDFNoDisponible as exc:
+        raise HTTPException(503, str(exc)) from None
     return Response(content, media_type=mime, headers={
         'Content-Disposition': f'attachment; filename="AuditBrain_Confirmaciones.{format}"',
         'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
