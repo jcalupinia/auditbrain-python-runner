@@ -109,10 +109,18 @@ _CONCILIACION_ANTERIOR = [
     campo("valor", "Valor", "number", requerido=False, alias=("valor", "importe", "monto"), ejemplo="200.00"),
     campo("observacion", "Observación", requerido=False, alias=("observacion", "observaciones", "nota", "estado")),
 ]
+# Arqueo de caja: recuento del efectivo por denominación (cédula DA-5).
+_ARQUEO = [
+    campo("denominacion", "Denominación", alias=("denominacion", "billete", "moneda", "corte"), ejemplo="Billete 100"),
+    campo("cantidad", "Cantidad", "number", requerido=False, alias=("cantidad", "unidades", "numero", "conteo"), ejemplo="10"),
+    campo("valor_unitario", "Valor unitario", "number", requerido=False,
+          alias=("valor unitario", "valor", "denominacion valor", "unitario"), ejemplo="100.00"),
+    campo("observacion", "Observación", requerido=False, alias=("observacion", "observaciones", "nota")),
+]
 CAMPOS = {"cuentas": _CUENTAS, "partidas": _PARTIDAS, "libro_mayor": _LIBRO_MAYOR,
-          "estado_cuenta": _ESTADO_CUENTA, "conciliacion_anterior": _CONCILIACION_ANTERIOR}
+          "estado_cuenta": _ESTADO_CUENTA, "conciliacion_anterior": _CONCILIACION_ANTERIOR, "arqueo": _ARQUEO}
 TIPOS = {"cuentas": "cuentas", "partidas": "partidas", "libro_mayor": "libro_mayor",
-         "estado_cuenta": "estado_cuenta", "conciliacion_anterior": "conciliacion_anterior"}
+         "estado_cuenta": "estado_cuenta", "conciliacion_anterior": "conciliacion_anterior", "arqueo": "arqueo"}
 DATASETS = tuple(TIPOS)
 PRINCIPAL = "cuentas"
 CONTROL = "saldo_libros"
@@ -928,6 +936,9 @@ def definicion() -> dict:
                 "Arrastre de partidas conciliatorias no depuradas a la reestructuración", required=False,
                 content="Una fila por partida abierta del mes anterior: código de cuenta, fecha de origen, tipo "
                         "conciliatorio, documento, valor y observación."),
+            req("RQ-012", "Arqueo de caja (recuento por denominación)", "arqueo", "CAJ-01",
+                "Recuento del efectivo en caja para la cédula de arqueo", required=False,
+                content="Una fila por denominación contada: denominación, cantidad, valor unitario y observación."),
         ],
     }
 
@@ -1016,6 +1027,12 @@ EJEMPLO = {
              "documento": "Cheque 1490", "valor": "850.00", "observacion": "Pendiente de cobro"},
             {"cuenta": "1.1.02.04", "fecha": "2025-09-10", "categoria": "Consignación no registrada",
              "documento": "Depósito", "valor": "450.00", "observacion": "No acreditado"},
+        ],
+        "arqueo": [
+            {"denominacion": "Billete 20", "cantidad": "15", "valor_unitario": "20.00", "observacion": ""},
+            {"denominacion": "Billete 10", "cantidad": "12", "valor_unitario": "10.00", "observacion": ""},
+            {"denominacion": "Moneda 1", "cantidad": "40", "valor_unitario": "1.00", "observacion": ""},
+            {"denominacion": "Moneda 0.25", "cantidad": "32", "valor_unitario": "0.25", "observacion": ""},
         ],
     },
 }

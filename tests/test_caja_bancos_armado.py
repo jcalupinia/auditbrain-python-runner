@@ -120,3 +120,22 @@ def test_reestructuracion_automatica_reemplaza_partidas_manuales():
     assert 999 not in valores
     # Arrastre del mes anterior: el cheque de 777 sigue abierto.
     assert 777 in valores
+
+
+def test_arqueo_desde_dataset():
+    reg = {
+        "engagement": {"client": "X", "cutoff": "2026-09-30"},
+        "datasets": {
+            "cuentas": [{"id": "1", "nombre": "CAJA", "saldo_libros": 100, "saldo_anterior": 0}],
+            "arqueo": [
+                {"denominacion": "Billete 20", "cantidad": 3, "valor_unitario": 20},
+                {"denominacion": "Moneda 1", "cantidad": 5, "valor_unitario": 1},
+            ],
+        },
+    }
+    wb = openpyxl.load_workbook(io.BytesIO(arm.armar_desde_registro(reg)))
+    aq = wb["Arqueo Caja"]
+    assert aq["A9"].value == "Billete 20"
+    assert aq["B9"].value == 3 and aq["C9"].value == 20
+    assert aq["D9"].value == "=B9*C9"   # total = cantidad × valor unitario (fórmula viva)
+    assert aq["A10"].value == "Moneda 1"

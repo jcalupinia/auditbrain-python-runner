@@ -46,6 +46,7 @@ export const EJEMPLOS_REQUERIMIENTOS = {
     "RQ-009": "RQ-009_libro_mayor.xlsx",
     "RQ-010": "RQ-010_estado_cuenta.xlsx",
     "RQ-011": "RQ-011_conciliacion_anterior.xlsx",
+    "RQ-012": "RQ-012_arqueo.xlsx",
   },
   cxc_cartera: {
     "RQ-001": "RQ-001_cartera.xlsx",

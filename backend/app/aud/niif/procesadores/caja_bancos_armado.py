@@ -119,6 +119,15 @@ def _reestructurar(reg: dict, cuentas: list[dict]):
     return partidas
 
 
+def _arqueo(reg: dict):
+    """Filas del arqueo de caja (RQ-012) para la cédula DA-5, o None si no se cargó."""
+    filas = ((reg.get("datasets") or {}).get("arqueo"))
+    if not filas:
+        return None
+    return [{"denominacion": f.get("denominacion") or "", "cantidad": f.get("cantidad") or 0,
+             "valor_unitario": f.get("valor_unitario") or 0} for f in filas]
+
+
 def hay_datos(reg: dict) -> bool:
     """True si la prueba tiene al menos el anexo de cuentas para armar el papel."""
     return bool(_cuentas(reg))
@@ -148,10 +157,14 @@ def armar_desde_registro(reg: dict) -> bytes:
             "ref": "DA-4",
             "recomendacion": "Depurar las partidas antiguas y registrar los ajustes que correspondan.",
         })
-    return papel.construir({
+    entrada = {
         "engagement": _engagement(reg),
         "cuentas": cuentas,
         "partidas": partidas,
         "hallazgos": hallazgos,
         "libro_mayor": hoja_mayor,
-    })
+    }
+    arqueo = _arqueo(reg)
+    if arqueo is not None:
+        entrada["arqueo"] = arqueo   # si no viene, el papel usa su plantilla de denominaciones
+    return papel.construir(entrada)
