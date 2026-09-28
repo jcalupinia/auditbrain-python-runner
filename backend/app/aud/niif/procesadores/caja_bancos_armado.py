@@ -66,6 +66,33 @@ def _engagement(reg: dict) -> dict:
     }
 
 
+def _num(v) -> float:
+    try:
+        return float(str(v).replace(",", ""))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _libro_mayor(reg: dict):
+    """Devuelve (filas_para_hoja, totales_por_cuenta) desde el anexo Libro Mayor (RQ-009).
+
+    filas_para_hoja: filas listas para la hoja «Libro Mayor» del papel.
+    totales_por_cuenta: {código: {"debitos": x, "creditos": y}} para el Movimiento.
+    """
+    filas = ((reg.get("datasets") or {}).get("libro_mayor")) or []
+    hoja, totales = [], {}
+    for f in filas:
+        cod = str(f.get("cuenta") or "")
+        deb, cred = _num(f.get("debito")), _num(f.get("credito"))
+        t = totales.setdefault(cod, {"debitos": 0.0, "creditos": 0.0})
+        t["debitos"] += deb
+        t["creditos"] += cred
+        hoja.append([cod, f.get("descripcion") or "", "", "", f.get("fecha") or "",
+                     f.get("comprobante") or "", f.get("detalle") or "", f.get("tercero") or "",
+                     deb, cred])
+    return hoja, totales
+
+
 def hay_datos(reg: dict) -> bool:
     """True si la prueba tiene al menos el anexo de cuentas para armar el papel."""
     return bool(_cuentas(reg))
@@ -75,6 +102,12 @@ def armar_desde_registro(reg: dict) -> bytes:
     """Devuelve los bytes del papel de trabajo DA formulado desde el registro."""
     cuentas = _cuentas(reg)
     partidas = _partidas(reg, cuentas)
+    hoja_mayor, totales_mayor = _libro_mayor(reg)
+    # Si hay Libro Mayor (RQ-009), el Movimiento usa débitos/créditos reales del período.
+    for c in cuentas:
+        t = totales_mayor.get(str(c["cuenta"]))
+        if t:
+            c["debitos"], c["creditos"] = t["debitos"], t["creditos"]
     hallazgos = []
     # Hallazgo automático: partidas conciliatorias antiguas (si las hubiera se ven en DA-4).
     if partidas:
@@ -90,4 +123,5 @@ def armar_desde_registro(reg: dict) -> bytes:
         "cuentas": cuentas,
         "partidas": partidas,
         "hallazgos": hallazgos,
+        "libro_mayor": hoja_mayor,
     })

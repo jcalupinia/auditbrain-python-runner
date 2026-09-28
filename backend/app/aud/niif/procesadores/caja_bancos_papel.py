@@ -204,14 +204,20 @@ def construir(papel: dict) -> bytes:
                                    "Créditos del período", "Saldo final", "Cuadre s/Sumaria"])
     for a in cuentas:
         r += 1
-        mov = _num(a.get("saldo_actual")) - _num(a.get("saldo_anterior"))
+        # Débitos/créditos del período: reales si vienen del Libro Mayor (RQ-009);
+        # si no, se estiman del neto (saldo actual − anterior).
+        if a.get("debitos") is not None or a.get("creditos") is not None:
+            debitos, creditos = _num(a.get("debitos")), _num(a.get("creditos"))
+        else:
+            mov = _num(a.get("saldo_actual")) - _num(a.get("saldo_anterior"))
+            debitos, creditos = max(mov, 0.0), -min(mov, 0.0)
         ws.cell(r, 1, a.get("cuenta")).border = st.box
         ws.cell(r, 2, a.get("descripcion")).border = st.box
         ws.cell(r, 3, _num(a.get("saldo_anterior"))).border = st.box
         ws.cell(r, 3).number_format = _MONEY
-        ws.cell(r, 4, max(mov, 0.0)).border = st.box
+        ws.cell(r, 4, debitos).border = st.box
         ws.cell(r, 4).number_format = _MONEY
-        ws.cell(r, 5, -min(mov, 0.0)).border = st.box
+        ws.cell(r, 5, creditos).border = st.box
         ws.cell(r, 5).number_format = _MONEY
         ws.cell(r, 6, f"=C{r}+D{r}-E{r}").border = st.box       # saldo final = inicial + débitos - créditos
         ws.cell(r, 6).number_format = _MONEY

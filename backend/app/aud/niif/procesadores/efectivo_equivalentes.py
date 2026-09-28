@@ -76,8 +76,22 @@ _PARTIDAS = [
     campo("fecha_liquidacion", "Fecha de liquidación posterior", "date", False,
           ("fecha liquidacion", "fecha banco", "liquidada", "fecha de cobro", "fecha de acreditacion"), "2026-01-02"),
 ]
-CAMPOS = {"cuentas": _CUENTAS, "partidas": _PARTIDAS}
-TIPOS = {"cuentas": "cuentas", "partidas": "partidas"}
+# Libro mayor (auxiliar de bancos): fuente contable del período. No alimenta el
+# cálculo del procesador (que corre sobre el anexo de cuentas y las partidas), pero
+# se conserva como evidencia y alimenta la Sumaria/Movimiento del papel formulado DA.
+_LIBRO_MAYOR = [
+    campo("cuenta", "Código de cuenta", alias=("cuenta", "codigo", "codigo de cuenta", "cuenta contable"), ejemplo="1.1.02.01"),
+    campo("descripcion", "Descripción de la cuenta", requerido=False,
+          alias=("descripcion", "nombre de la cuenta", "banco", "nombre"), ejemplo="Banco Pichincha Cte. ***4521"),
+    campo("fecha", "Fecha", "date", requerido=False, alias=("fecha", "fecha del asiento", "fecha comprobante"), ejemplo="2026-08-15"),
+    campo("comprobante", "Comprobante", requerido=False, alias=("comprobante", "comp", "n comprobante", "asiento", "documento")),
+    campo("detalle", "Detalle del asiento", requerido=False, alias=("detalle", "descripcion del asiento", "concepto", "glosa")),
+    campo("tercero", "Tercero / razón social", requerido=False, alias=("tercero", "razon social", "beneficiario", "contraparte")),
+    campo("debito", "Débitos", "number", requerido=False, alias=("debito", "debitos", "debe", "cargo"), ejemplo="8500.00"),
+    campo("credito", "Créditos", "number", requerido=False, alias=("credito", "creditos", "haber", "abono"), ejemplo="0.00"),
+]
+CAMPOS = {"cuentas": _CUENTAS, "partidas": _PARTIDAS, "libro_mayor": _LIBRO_MAYOR}
+TIPOS = {"cuentas": "cuentas", "partidas": "partidas", "libro_mayor": "libro_mayor"}
 DATASETS = tuple(TIPOS)
 PRINCIPAL = "cuentas"
 CONTROL = "saldo_libros"
@@ -881,6 +895,10 @@ def definicion() -> dict:
                 formats=("pdf",), use="soporte", required=False),
             req("RQ-008", "Política contable de efectivo y equivalentes y actas de arqueo", None, "CAJ-08", "Composición (NIC 7.46) y arqueos de caja",
                 formats=("pdf", "docx"), use="soporte"),
+            req("RQ-009", "Libro mayor (auxiliar de bancos) del período", "libro_mayor", "CAJ-01",
+                "Cuadre de la Sumaria con el mayor y armado del movimiento del papel", required=False,
+                content="Una fila por asiento del mayor de bancos: código de cuenta, fecha, comprobante, detalle, "
+                        "tercero, débitos y créditos del período."),
         ],
     }
 
@@ -938,6 +956,23 @@ EJEMPLO = {
             _p("P-07", "1.1.02.02", CP, "2025-12-20", "300.00", "2026-01-03", "Cheque 0870"),
             _p("P-08", "1.1.02.02", CP, "2026-01-02", "550.00", "2026-01-06", "Cheque 0876 fechado en enero"),
             _p("P-09", "1.1.02.04", DT, "2025-09-10", "450.00", "", "Depósito no acreditado"),
+        ],
+        "libro_mayor": [
+            {"cuenta": "1.1.02.01", "descripcion": "Banco Pichincha Cte. ***4521", "fecha": "2025-12-05",
+             "comprobante": "IN-1201", "detalle": "Depósito cobranza clientes", "tercero": "Clientes varios",
+             "debito": "15000.00", "credito": "0.00"},
+            {"cuenta": "1.1.02.01", "descripcion": "Banco Pichincha Cte. ***4521", "fecha": "2025-12-18",
+             "comprobante": "CK-1520", "detalle": "Pago proveedor", "tercero": "Proveedor ABC S.A.",
+             "debito": "0.00", "credito": "12000.00"},
+            {"cuenta": "1.1.02.02", "descripcion": "Banco Guayaquil Aho. ***7788", "fecha": "2025-12-20",
+             "comprobante": "CK-0870", "detalle": "Pago servicios", "tercero": "Servicios XYZ",
+             "debito": "0.00", "credito": "300.00"},
+            {"cuenta": "1.1.02.03", "descripcion": "Produbanco Cte. ***3390", "fecha": "2025-12-22",
+             "comprobante": "IN-1330", "detalle": "Transferencia recibida", "tercero": "Cliente DEF",
+             "debito": "5000.00", "credito": "0.00"},
+            {"cuenta": "1.1.01.01", "descripcion": "Caja general", "fecha": "2025-12-31",
+             "comprobante": "AJ-0012", "detalle": "Reposición caja", "tercero": "",
+             "debito": "500.00", "credito": "0.00"},
         ],
     },
 }
