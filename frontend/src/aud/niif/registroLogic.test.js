@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { miIndependencia, resumenRegistros } from "./registroLogic";
+import { PROCEDIMIENTOS, SUGERENCIA_CAJA_BANCOS, TEMAS, miIndependencia, resumenRegistros } from "./registroLogic";
 
 describe("resumen de los registros del encargo", () => {
   it("sin registros todo está pendiente", () => {
@@ -52,6 +52,16 @@ describe("indagaciones y consultas", () => {
     const k = Object.fromEntries(r.map((x) => [x.clave, x]));
     expect(k.indagaciones).toMatchObject({ hecho: true, detalle: "1 registrada(s)" });
     expect(k.consultas).toMatchObject({ hecho: false, detalle: "1 abierta(s): bloquean la aprobación" });
+  });
+});
+
+describe("sugerencia de indagación de Caja y Bancos", () => {
+  it("usa un tema y un procedimiento válidos y referencia el RQ-001", () => {
+    expect(TEMAS).toContain(SUGERENCIA_CAJA_BANCOS.tema);
+    expect(PROCEDIMIENTOS).toContain(SUGERENCIA_CAJA_BANCOS.procedimiento);
+    expect(SUGERENCIA_CAJA_BANCOS.resumen).toContain("RQ-001");
+    // La longitud supera el mínimo que exige el botón «Registrar indagación» (>= 10).
+    expect(SUGERENCIA_CAJA_BANCOS.resumen.trim().length).toBeGreaterThan(10);
   });
 });
 
