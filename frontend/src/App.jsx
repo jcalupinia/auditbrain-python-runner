@@ -1814,9 +1814,6 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
           <button className="qa-item" onClick={goDocs}>
             <b>Subir / generar documento</b><span>PDF · Word · Excel · PPT</span>
           </button>
-          <button className="qa-item" onClick={goDocs}>
-            <b>Generar reporte</b><span>Informe ejecutivo</span>
-          </button>
           {isStaff ? (
             <button className="qa-item" onClick={goRunner}>
               <b>Ejecutar proceso</b><span>Motor Python · Tier 0</span>
@@ -1826,12 +1823,6 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
               <b>Ejecutar proceso</b><span>Solo operadores</span>
             </button>
           )}
-          <button className="qa-item off" disabled>
-            <b>Buscar en biblioteca</b><span>Fase 2</span>
-          </button>
-          <button className="qa-item off" disabled>
-            <b>Crear workflow</b><span>Fase 2</span>
-          </button>
         </div>
       </Panel>
     </div>

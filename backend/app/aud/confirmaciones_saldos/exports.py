@@ -181,6 +181,24 @@ def _docx_letter(doc, r, letter):
             doc.add_paragraph(line)
 
 
+class PDFNoDisponible(RuntimeError):
+    """Se lanza cuando WeasyPrint (o sus librerías nativas) no está disponible."""
+
+
+def build_pdf(r):
+    """Cartas de confirmación en PDF, renderizadas desde la vista HTML con WeasyPrint.
+
+    Requiere la imagen Docker de producción (Pango/HarfBuzz/fontconfig). En un
+    entorno sin esas librerías nativas degrada con PDFNoDisponible y el endpoint
+    responde con un mensaje claro en lugar de un error 500.
+    """
+    try:
+        from weasyprint import HTML
+    except Exception as exc:  # ImportError o falta de librerías nativas
+        raise PDFNoDisponible('La exportación a PDF no está disponible en este servidor.') from exc
+    return HTML(string=build_html(r)).write_pdf()
+
+
 def build_docx(r):
     from docx import Document
     from docx.shared import Inches
