@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import * as api from "../../api";
 import {
-  CICLOS, DECISIONES, DOCUMENTOS, NOMBRE_ARCHIVO, NOMBRE_TIPO, PROCEDIMIENTOS, ROLES, TEMAS, decisionDe, miIndependencia,
-  resumenRegistros,
+  CICLOS, DECISIONES, DOCUMENTOS, NOMBRE_ARCHIVO, NOMBRE_TIPO, PROCEDIMIENTOS, ROLES, SUGERENCIA_CAJA_BANCOS, TEMAS,
+  decisionDe, miIndependencia, resumenRegistros,
 } from "./registroLogic";
 
 /*
@@ -271,10 +271,17 @@ export function RegistroEncargo({ proyecto }) {
           Qué se obtuvo
           <textarea rows={2} value={indag.resumen} onChange={(e) => setIndag({ ...indag, resumen: e.target.value })} />
         </label>
-        <button type="button" className="btn sm" disabled={ocupado || !indag.tema || indag.resumen.trim().length < 10}
-          onClick={async () => { await registrar({ tipo: "indagacion", ...indag }); setIndag({ ...indag, persona: "", resumen: "" }); }}>
-          Registrar indagación
-        </button>
+        <div className="nf-rec-row">
+          <button type="button" className="btn sm" disabled={ocupado}
+            title="Precarga una plantilla editable de Caja y Bancos (ajústela con los datos reales antes de registrar)"
+            onClick={() => setIndag((v) => ({ ...v, ...SUGERENCIA_CAJA_BANCOS }))}>
+            Sugerir texto (Caja y Bancos)
+          </button>
+          <button type="button" className="btn sm" disabled={ocupado || !indag.tema || indag.resumen.trim().length < 10}
+            onClick={async () => { await registrar({ tipo: "indagacion", ...indag }); setIndag({ ...indag, persona: "", resumen: "" }); }}>
+            Registrar indagación
+          </button>
+        </div>
       </div>
 
       <div className="nf-rec-item">
