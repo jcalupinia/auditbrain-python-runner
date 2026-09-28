@@ -209,6 +209,30 @@ def cmd_ejecutar(args):
                      ensure_ascii=False, indent=2))
 
 
+def cmd_sugerencias(args):
+    """Puente planificación → pruebas: corre la planificación (ejemplo o carpeta) y
+    muestra la lista ordenada de pruebas del piloto a ejecutar."""
+    from backend.app.aud.niif import ejercicio_modelo, procesadores, puente
+    mod = procesadores.PROCESADORES["planificacion_nia"]
+    if args.carpeta:
+        datasets, param, corte = _leer_carpeta(args.carpeta, "planificacion_nia")
+    else:
+        datasets, param, corte = ejercicio_modelo.escenario(mod)
+    param = {**(getattr(mod, "PARAMETROS", {}) or {}), **(param or {})}
+    run = mod.ejecutar(datasets, param, corte)
+    sug = puente.sugerencias(run)
+    if args.json:
+        print(json.dumps({"ok": True, **sug}, ensure_ascii=False, indent=2))
+        return
+    print(f"\nPlanificación → {sug['cuentas_a_revisar']} cuentas a revisar. Pruebas del piloto a ejecutar (orden: riesgo, luego saldo):\n")
+    for g in sug["pruebas"]:
+        riesgo = "⚠ riesgo" if g["con_riesgo"] else "        "
+        print(f"  {riesgo}  {g['prueba_id']:<26} [{g['rubro']:<18}] {g['n_cuentas']} cta(s), saldo {g['saldo']:>15,.2f}")
+    for g in sug["sin_prueba"]:
+        print(f"           (sin prueba del piloto) {g['herramienta']}: {g['n_cuentas']} cta(s)")
+    print()
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description="CLI del agente guía NIIF Piloto (sobre el servicio backend.app.aud.niif.piloto).")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -238,6 +262,11 @@ def main(argv=None):
     s.add_argument("--datos", help="Ruta a datos.json {corte, parametros, datasets}.")
     s.add_argument("--carpeta", help="Carpeta con <dataset>.csv + parametros.json + meta.json (de 'plantilla').")
     s.set_defaults(func=cmd_ejecutar)
+
+    s = sub.add_parser("sugerencias", help="Puente planificación → pruebas del piloto.")
+    s.add_argument("--carpeta", help="Carpeta de la planificación (de 'plantilla planificacion_nia'); por defecto usa el ejemplo.")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(func=cmd_sugerencias)
 
     args = p.parse_args(argv)
     args.func(args)

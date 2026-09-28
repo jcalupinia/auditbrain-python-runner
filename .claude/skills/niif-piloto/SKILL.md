@@ -111,6 +111,19 @@ bitácora (`PruebaEvento`, `accion="comentario"`), así que la conversación que
   proveedor, el comentario del usuario se guarda igual y se avisa. Lógica en
   `backend/app/aud/niif/consola.py`.
 
+## Puente planificación → pruebas
+
+La planificación decide, por cada cuenta principal, si se revisa y con qué herramienta
+(`planificacion_nia.HERRAMIENTAS`). El puente (`backend/app/aud/niif/puente.py`) traduce eso
+a la **lista ordenada de pruebas del piloto a ejecutar** (una por herramienta, con sus cuentas,
+riesgos y saldo; orden: riesgo primero, luego saldo). El id del piloto se deriva en runtime
+(sin lista paralela hardcoded). Rutas:
+- CLI: `python scripts/piloto/piloto.py sugerencias [--carpeta <plan>] [--json]` (por defecto usa el ejemplo).
+- Plataforma: `GET /aud/ciclo/pruebas/{id}/pruebas-sugeridas` (la prueba debe ser de planificación;
+  recomputa porque el `detalle` guardado se poda y no conserva las cuentas a revisar).
+Cada sugerencia trae `prueba_id`, que alimenta directamente `requisitos`/`ejecutar` del piloto:
+así el agente encadena planificación → qué pruebas correr → qué datos pedir para cada una.
+
 ## Planificación NIA (`planificacion_nia`)
 
 Se corre con el mismo motor, pero su cálculo consume contexto adicional del encargo

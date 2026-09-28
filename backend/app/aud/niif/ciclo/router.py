@@ -460,6 +460,16 @@ def resolver_consulta(project_id: int, registro_id: int, body: dict, db: Session
                                                                               str(body.get("resolucion") or ""), user.email)))
 
 
+# --- puente planificación → pruebas -----------------------------------------
+@router.get("/pruebas/{prueba_id}/pruebas-sugeridas")
+def pruebas_sugeridas(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
+    """De una prueba de planificación, la lista ordenada de pruebas del piloto a
+    ejecutar (una por herramienta, con sus cuentas y riesgos). 400 si la prueba no
+    es de planificación."""
+    p = _prueba(db, user, prueba_id)
+    return _regla(lambda: servicio.sugerencias_pruebas(db, p))
+
+
 # --- consola de comunicación por prueba (chat auditable) --------------------
 @router.get("/pruebas/{prueba_id}/comentarios")
 def leer_comentarios(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:

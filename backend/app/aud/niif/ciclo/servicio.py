@@ -737,6 +737,34 @@ def comentar(db: Session, p: Prueba, texto: str, actor: str, accion: str = "come
     return ev
 
 
+def sugerencias_pruebas(db: Session, p: Prueba) -> dict:
+    """Puente planificación → pruebas: de una prueba de PLANIFICACIÓN, la lista
+    ordenada de pruebas del piloto a ejecutar (una por herramienta, con sus cuentas
+    y riesgos). Recomputa la planificación porque el ``detalle`` guardado se poda a
+    tasas/fiscal/cortes y no conserva las cuentas a revisar; reutiliza la misma
+    inyección de parámetros del encargo que ``execute``."""
+    from backend.app.aud.niif import puente
+
+    proc = procesadores.de(p.definicion)
+    if proc is None or getattr(proc, "RUBRO", None) != "PLANIFICACION":
+        raise ReglaIncumplida("Las pruebas sugeridas solo se derivan de una prueba de planificación.")
+    reg = copy.deepcopy(p.registro)
+    param = {k: v for k, v in reg["parameters"].items() if k in proc.PARAMETROS}
+    param["_marco"] = reg["engagement"].get("framework") or ""
+    param["_edicion"] = str(reg["engagement"].get("edition") or "")
+    if getattr(proc, "USA_REGISTROS_ENCARGO", False):
+        param["_encargo"] = registros_encargo(db, p.project_id)
+        anterior_run = version_anterior_run(db, p)
+        if anterior_run:
+            param["_anterior"] = anterior_run
+        param["_archivos"] = archivos_de_entrada(db, p.id)
+    try:
+        run = proc.ejecutar(reg.get("datasets") or {}, param, reg["engagement"]["cutoff"])
+    except (ValueError, KeyError, ArithmeticError, StopIteration) as e:
+        raise ReglaIncumplida(str(e) or "La planificación no se pudo ejecutar.")
+    return puente.sugerencias(run)
+
+
 def conversacion(db: Session, prueba_id: int) -> list[dict]:
     """La bitácora como línea de tiempo para la consola: cada evento es un
     comentario del equipo/asistente (``tipo='comentario'``) o una marca del
