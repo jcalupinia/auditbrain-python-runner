@@ -73,3 +73,14 @@
   .ma-muestras-cols-1-6-1 { grid-template-columns: 1fr; }
   .ma-muestras-evaluacion { flex-direction: column; align-items: stretch; }
 }
+
+/* --- Vista operativa (SP13) --- */
+.ma-muestras-breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ma-soft); }
+.ma-muestras-link { background: none; border: 0; padding: 0; font: inherit; color: var(--ma-accent); cursor: pointer; }
+.ma-muestras-metodo { cursor: pointer; }
+.ma-muestras-metodo.activa { border-color: var(--ma-accent); background: var(--ma-accent-dim); }
+.ma-muestras-archivo { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--ma-soft); margin-top: 10px; }
+.ma-muestras-error { color: var(--ma-p0, #e0607a); font-size: 12.5px; margin-right: auto; }
+.ma-muestras-monto { text-align: right; font-variant-numeric: tabular-nums; }
+.ma-muestras-demo-campo > span:last-child { font-size: 13.5px; }
+.ma-muestras-cta:disabled { opacity: 0.55; cursor: default; }

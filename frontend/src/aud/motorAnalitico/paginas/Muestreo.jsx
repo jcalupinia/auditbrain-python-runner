@@ -1,43 +1,115 @@
+import { useEffect, useRef, useState } from "react";
 import { PAGINAS } from "../paginas.js";
+import { mensajeError } from "../bandeja.js";
 import "./Muestreo.css";
 
 const META = PAGINAS.find((p) => p.id === "muestras");
 
-const FUENTES = [
-  { clave: "gastos", nombre: "Mayor de gastos", detalle: "Cuentas 5",
-    documentos: ["Factura electrónica autorizada", "Comprobante de pago", "Orden de compra y recepción", "Contrato cuando aplique"] },
-  { clave: "eri", nombre: "Estado de resultados", detalle: "Detallado por cuenta",
-    documentos: ["Mayor de la cuenta", "Soporte del asiento", "Conciliación con el auxiliar"] },
-  { clave: "ventas", nombre: "Ventas", detalle: "XML emitidos",
-    documentos: ["Factura y guía de remisión", "Cobro o estado de cuenta del cliente", "Contrato u orden del cliente"] },
-  { clave: "compras", nombre: "Compras", detalle: "XML recibidos",
-    documentos: ["Factura autorizada", "Comprobante de retención", "Recepción en bodega"] },
-  { clave: "importaciones", nombre: "Importaciones", detalle: "Declaraciones aduaneras",
-    documentos: ["Declaración aduanera (SENAE)", "Factura del exterior", "Liquidación del agente de aduanas", "Pago y retención o ISD"] },
-  { clave: "otra", nombre: "Otra base", detalle: "Excel o CSV",
-    documentos: ["Soporte según la naturaleza de la partida"] },
+// Bases del motor (por prefijo de cuenta; ver motor muestreo_servicio.PREFIJO_BASE).
+const BASES = [
+  { clave: "gastos", nombre: "Mayor de gastos", detalle: "Cuentas 5" },
+  { clave: "ventas", nombre: "Ventas / ingresos", detalle: "Cuentas 4" },
+  { clave: "costos", nombre: "Costos", detalle: "Cuentas 6" },
+  { clave: "todo", nombre: "Todo el mayor", detalle: "Sin filtro de cuenta" },
 ];
 
+// Métodos implementados en el motor (NIA 530).
 const METODOS = [
-  { n: "A", titulo: "Partidas clave", texto: "Todo lo que supera el umbral entra al 100 %, fuera del muestreo.",
-    criterio: "Importe ≥ materialidad de ejecución", estado: "Por construir", listo: false },
-  { n: "B", titulo: "Valores atípicos", texto: "Partidas fuera del patrón de su cuenta, tercero o mes.",
-    criterio: "GAS-006 · desvío frente a la cuenta", estado: "En el motor", listo: true },
-  { n: "C", titulo: "Selección dirigida",
-    texto: "Partes relacionadas, fin de período, glosas genéricas, asientos manuales, cuentas sensibles.",
-    criterio: "Criterios del auditor", estado: "Por construir", listo: false },
-  { n: "D", titulo: "Muestreo estadístico", texto: "Sobre el resto de la población: MUS o aleatorio estratificado.",
-    criterio: "MUS · NIA 530", estado: "En el motor", listo: true },
+  { id: "mus", titulo: "MUS (unidad monetaria)", texto: "Selección sistemática proporcional al importe, con arranque aleatorio reproducible.", criterio: "NIA 530 · error tolerable + confianza" },
+  { id: "partidas_clave", titulo: "Partidas clave", texto: "Toda partida cuyo importe ≥ umbral entra al 100 %, fuera del muestreo.", criterio: "Importe ≥ umbral" },
+  { id: "aleatorio", titulo: "Aleatorio simple", texto: "Selección sin reemplazo con igual probabilidad y semilla reproducible.", criterio: "Tamaño n · semilla" },
+  { id: "sistematico", titulo: "Sistemático", texto: "Cada k-ésimo registro con arranque aleatorio sobre la población ordenada.", criterio: "Tamaño n · semilla" },
 ];
 
-const DEMO_CAMPOS = [
-  "Valor de la población", "Confianza", "Intervalo de muestreo", "Semilla",
-  "Selección cierta", "Selección sistemática", "Tamaño de la muestra", "Cobertura del valor",
+const CONFIANZAS = ["0.95", "0.90", "0.80", "0.99"];
+const ORDEN_RESUMEN = [
+  ["metodo", "Método"], ["tamano_poblacion", "Tamaño de la población"],
+  ["valor_poblacion", "Valor de la población"], ["umbral", "Umbral"],
+  ["confianza", "Confianza"], ["error_tolerable", "Error tolerable"],
+  ["intervalo_muestreo", "Intervalo de muestreo"], ["arranque_aleatorio", "Arranque aleatorio"],
+  ["semilla", "Semilla"], ["seleccion_cierta", "Selección cierta"],
+  ["seleccion_sistematica", "Selección sistemática"], ["tamano_muestra", "Tamaño de la muestra"],
+  ["valor_muestreado", "Valor muestreado"], ["cobertura", "Cobertura del valor"],
 ];
 
-const FUENTE_DEFECTO = FUENTES[0];
+const elegir = (set) => (e) => set(e.target.files?.[0] || null);
+const dinero = (t) => {
+  const n = Number(t);
+  return Number.isFinite(n) ? n.toLocaleString("es-EC", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : t;
+};
+const valorResumen = (clave, v) => {
+  if (clave === "cobertura") return `${(Number(v) * 100).toFixed(2)} %`;
+  if (["valor_poblacion", "valor_muestreado", "error_tolerable", "umbral", "intervalo_muestreo", "arranque_aleatorio"].includes(clave)) return dinero(v);
+  return String(v);
+};
 
-export default function Muestreo({ ir, EnConstruccion }) {
+export default function Muestreo({ ir, cliente, disponible }) {
+  const [archivo, setArchivo] = useState(null);
+  const [base, setBase] = useState("gastos");
+  const [metodo, setMetodo] = useState("mus");
+  const [semilla, setSemilla] = useState("20260101");
+  const [errorTolerable, setErrorTolerable] = useState("");
+  const [confianza, setConfianza] = useState("0.95");
+  const [umbral, setUmbral] = useState("");
+  const [tamano, setTamano] = useState("60");
+  const [resultado, setResultado] = useState(null);
+  const [cargando, setCargando] = useState(false);
+  const [descargando, setDescargando] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+  const montado = useRef(true);
+  useEffect(() => () => { montado.current = false; }, []);
+  useEffect(() => { setResultado(null); }, [cliente]);
+
+  const parametros = () => {
+    const p = { base, semilla: Number(semilla) };
+    if (metodo === "mus") { p.error_tolerable = errorTolerable; p.confianza = Number(confianza); }
+    if (metodo === "partidas_clave") { p.umbral = umbral; delete p.semilla; }
+    if (metodo === "aleatorio" || metodo === "sistematico") p.tamano = Number(tamano);
+    return p;
+  };
+
+  const faltaParametro = (
+    !archivo ||
+    (metodo === "mus" && (!errorTolerable || !semilla)) ||
+    (metodo === "partidas_clave" && !umbral) ||
+    ((metodo === "aleatorio" || metodo === "sistematico") && (!tamano || !semilla))
+  );
+
+  const seleccionar = async () => {
+    setErrorMsg("");
+    setCargando(true);
+    setResultado(null);
+    try {
+      const r = await cliente.muestreo(archivo, metodo, parametros());
+      if (montado.current) setResultado(r);
+    } catch (e) {
+      if (montado.current) setErrorMsg(mensajeError(e));
+    } finally {
+      if (montado.current) setCargando(false);
+    }
+  };
+
+  const descargarPapel = async () => {
+    setErrorMsg("");
+    setDescargando(true);
+    try {
+      const blob = await cliente.papelMuestreo(archivo, metodo, parametros());
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `papel-muestreo-${metodo}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setErrorMsg(mensajeError(e));
+    } finally {
+      if (montado.current) setDescargando(false);
+    }
+  };
+
+  const resumen = resultado?.resumen || {};
+  const seleccion = resultado?.seleccion || [];
+
   return (
     <section className="ma-pagina ma-muestras">
       <div className="ma-muestras-breadcrumb">
@@ -52,8 +124,9 @@ export default function Muestreo({ ir, EnConstruccion }) {
         <div className="ma-muestras-titulo">
           <h2>Selección de muestras</h2>
           <p>
-            Combina partidas clave, valores atípicos, selección dirigida y muestreo estadístico sobre cualquier base.
-            Todo queda documentado con semilla y cobertura (NIA 530).
+            Combina partidas clave, muestreo estadístico y MUS sobre el mayor del cliente. Todo queda
+            documentado con semilla y cobertura (NIA 530). Los valores atípicos (GAS-006) y la selección
+            dirigida por criterios están en «Bases de datos».
           </p>
         </div>
         <button type="button" className="ma-boton" onClick={() => ir("portada")}>
@@ -61,162 +134,160 @@ export default function Muestreo({ ir, EnConstruccion }) {
         </button>
       </div>
 
-      <EnConstruccion sp={META.sp} />
-
       <div className="ma-grid ma-muestras-cols2">
-        <section aria-label="Fuente" className="ma-tarjeta ma-muestras-seccion">
+        <section aria-label="Base y archivo" className="ma-tarjeta ma-muestras-seccion">
           <h3>1 · Qué quieres muestrear</h3>
           <div className="ma-muestras-fuentes">
-            {FUENTES.map((f) => (
-              <button
-                type="button"
-                key={f.clave}
-                disabled
-                aria-pressed={f.clave === FUENTE_DEFECTO.clave}
-                className={f.clave === FUENTE_DEFECTO.clave ? "ma-muestras-fuente activa" : "ma-muestras-fuente"}
-                title={`Disponible en ${META.sp}`}
-              >
+            {BASES.map((f) => (
+              <button type="button" key={f.clave}
+                      aria-pressed={f.clave === base}
+                      className={f.clave === base ? "ma-muestras-fuente activa" : "ma-muestras-fuente"}
+                      onClick={() => setBase(f.clave)}>
                 <span className="ma-muestras-fuente-nombre">{f.nombre}</span>
                 <span className="ma-muestras-fuente-detalle">{f.detalle}</span>
               </button>
             ))}
           </div>
+          <label className="ma-muestras-archivo">
+            Mayor del cliente (.xlsx, .xlsm, .csv)
+            <input type="file" accept=".xlsx,.xlsm,.csv" disabled={!disponible || cargando}
+                   onChange={elegir(setArchivo)} />
+          </label>
+          <span className="ma-muestras-nota">Solo datos anonimizados hasta SP4.</span>
         </section>
 
         <section aria-label="Parámetros" className="ma-tarjeta ma-muestras-seccion">
           <h3>2 · Parámetros del encargo</h3>
           <div className="ma-muestras-parametros">
-            <label>
-              Materialidad de ejecución (USD)
-              <input type="text" inputMode="decimal" placeholder="[DEL ENCARGO]" disabled />
-            </label>
-            <label>
-              Error tolerable (USD)
-              <input type="text" inputMode="decimal" placeholder="≤ materialidad de ejecución" disabled />
-            </label>
-            <label>
-              Nivel de confianza
-              <select disabled defaultValue="95">
-                <option value="95">95 %</option>
-                <option value="90">90 %</option>
-                <option value="80">80 %</option>
-                <option value="99">99 %</option>
-              </select>
-            </label>
-            <label>
-              Semilla (obligatoria)
-              <input type="text" inputMode="numeric" placeholder="p. ej. fecha del encargo" disabled />
-            </label>
+            {metodo === "mus" && (
+              <>
+                <label>
+                  Error tolerable (USD)
+                  <input type="text" inputMode="decimal" placeholder="≤ materialidad de ejecución"
+                         value={errorTolerable} onChange={(e) => setErrorTolerable(e.target.value)} />
+                </label>
+                <label>
+                  Nivel de confianza
+                  <select value={confianza} onChange={(e) => setConfianza(e.target.value)}>
+                    {CONFIANZAS.map((c) => <option key={c} value={c}>{(Number(c) * 100).toFixed(0)} %</option>)}
+                  </select>
+                </label>
+              </>
+            )}
+            {metodo === "partidas_clave" && (
+              <label>
+                Umbral (USD)
+                <input type="text" inputMode="decimal" placeholder="p. ej. materialidad de ejecución"
+                       value={umbral} onChange={(e) => setUmbral(e.target.value)} />
+              </label>
+            )}
+            {(metodo === "aleatorio" || metodo === "sistematico") && (
+              <label>
+                Tamaño de la muestra (n)
+                <input type="text" inputMode="numeric" value={tamano} onChange={(e) => setTamano(e.target.value)} />
+              </label>
+            )}
+            {metodo !== "partidas_clave" && (
+              <label>
+                Semilla (obligatoria)
+                <input type="text" inputMode="numeric" placeholder="p. ej. fecha del encargo"
+                       value={semilla} onChange={(e) => setSemilla(e.target.value)} />
+              </label>
+            )}
           </div>
         </section>
       </div>
 
       <section aria-label="Métodos" className="ma-tarjeta ma-muestras-seccion">
         <div className="ma-muestras-titulo-fila">
-          <h3>3 · Métodos (se combinan en este orden)</h3>
-          <span className="ma-muestras-nota">Una partida elegida por un método no se repite en los siguientes</span>
+          <h3>3 · Método de selección</h3>
+          <span className="ma-muestras-nota">NIA 530 — la semilla queda en el papel de trabajo</span>
         </div>
         <div className="ma-grid ma-muestras-metodos">
           {METODOS.map((m) => (
-            <label key={m.n} className="ma-tarjeta ma-muestras-metodo">
+            <label key={m.id} className={m.id === metodo ? "ma-tarjeta ma-muestras-metodo activa" : "ma-tarjeta ma-muestras-metodo"}>
               <div className="ma-muestras-metodo-fila">
-                <input type="checkbox" disabled />
-                <span className="ma-muestras-metodo-n">{m.n}</span>
-                <span className={m.listo ? "ma-muestras-metodo-estado listo" : "ma-muestras-metodo-estado nuevo"}>
-                  {m.estado}
-                </span>
+                <input type="radio" name="metodo" checked={m.id === metodo} onChange={() => setMetodo(m.id)} />
+                <span className="ma-muestras-metodo-titulo">{m.titulo}</span>
               </div>
-              <span className="ma-muestras-metodo-titulo">{m.titulo}</span>
               <span className="ma-muestras-metodo-texto">{m.texto}</span>
               <span className="ma-muestras-metodo-criterio">{m.criterio}</span>
             </label>
           ))}
         </div>
         <div className="ma-muestras-titulo-fila">
-          <span className="ma-muestras-resumen">
-            Métodos activos: <span className="ma-sindatos">sin datos</span>
-          </span>
-          <button type="button" className="ma-boton ma-muestras-cta" disabled title={`Disponible en ${META.sp}`}>
-            Seleccionar muestra
+          {errorMsg && <span className="ma-muestras-error" role="alert">{errorMsg}</span>}
+          <button type="button" className="ma-boton ma-muestras-cta accent"
+                  disabled={!disponible || cargando || faltaParametro} onClick={seleccionar}>
+            {cargando ? "Seleccionando…" : "Seleccionar muestra"}
           </button>
         </div>
       </section>
 
-      <div className="ma-grid ma-muestras-cols-1-6-1">
-        <section aria-label="Cédula de selección" className="ma-tarjeta ma-muestras-seccion ma-muestras-cedula">
-          <div className="ma-muestras-titulo-fila">
-            <h3>4 · Cédula de selección</h3>
-            <span className="ma-muestras-nota">Estructura; las partidas aparecen al seleccionar sobre el encargo</span>
-            <button type="button" className="ma-boton" disabled title={`Disponible en ${META.sp}`}>
-              Exportar a Excel
-            </button>
-          </div>
-          <div className="ma-tabla-wrap">
-            <table className="ma-tabla">
-              <thead>
-                <tr>
-                  <th scope="col">N.º</th>
-                  <th scope="col">Método</th>
-                  <th scope="col">Cuenta</th>
-                  <th scope="col">Tercero</th>
-                  <th scope="col">Fecha</th>
-                  <th scope="col">Importe</th>
-                  <th scope="col">Motivo</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td colSpan={7} className="ma-sindatos">
-                    sin datos
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <div className="ma-muestras-col">
-          <section aria-label="Documentos a solicitar" className="ma-tarjeta ma-muestras-seccion">
-            <h3>5 · Documentos a pedir al cliente</h3>
-            <span className="ma-muestras-nota">Se generan por partida según la base elegida</span>
-            <ul className="ma-muestras-lista">
-              {FUENTE_DEFECTO.documentos.map((d) => (
-                <li key={d}>{d}</li>
-              ))}
-            </ul>
-            <button type="button" className="ma-boton" disabled title={`Disponible en ${META.sp}`}>
-              Generar solicitud
-            </button>
-          </section>
-
-          <section aria-label="Ejemplo real del demo" className="ma-tarjeta ma-muestras-seccion">
+      {resultado && (
+        <>
+          <section aria-label="Método aplicado" className="ma-tarjeta ma-muestras-seccion">
             <div className="ma-muestras-titulo-fila">
-              <h3>MUS · ejercicio de demostración</h3>
+              <h3>Bloque metodológico</h3>
+              <button type="button" className="ma-boton accent" disabled={descargando} onClick={descargarPapel}>
+                {descargando ? "Generando…" : "Descargar papel de trabajo"}
+              </button>
             </div>
             <div className="ma-muestras-demo">
-              {DEMO_CAMPOS.map((campo) => (
-                <div className="ma-muestras-demo-campo" key={campo}>
-                  <span className="ma-muestras-nota">{campo}</span>
-                  <span className="ma-sindatos">sin datos</span>
+              {ORDEN_RESUMEN.filter(([k]) => resumen[k] !== undefined).map(([k, etiqueta]) => (
+                <div className="ma-muestras-demo-campo" key={k}>
+                  <span className="ma-muestras-nota">{etiqueta}</span>
+                  <span>{valorResumen(k, resumen[k])}</span>
                 </div>
               ))}
             </div>
           </section>
-        </div>
-      </div>
+
+          <section aria-label="Cédula de selección" className="ma-tarjeta ma-muestras-seccion ma-muestras-cedula">
+            <div className="ma-muestras-titulo-fila">
+              <h3>Cédula de selección ({seleccion.length})</h3>
+            </div>
+            <div className="ma-tabla-wrap">
+              <table className="ma-tabla">
+                <thead>
+                  <tr>
+                    <th scope="col">N.º</th><th scope="col">Cuenta</th><th scope="col">Asiento</th>
+                    <th scope="col">Fecha</th><th scope="col">Descripción</th>
+                    <th scope="col">Importe</th><th scope="col">Marca</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {seleccion.length === 0 ? (
+                    <tr><td colSpan={7} className="ma-sindatos">Sin partidas seleccionadas.</td></tr>
+                  ) : (
+                    seleccion.slice(0, 500).map((f, i) => (
+                      <tr key={i}>
+                        <td>{i + 1}</td><td>{f.cuenta}</td><td>{f.asiento}</td><td>{f.fecha}</td>
+                        <td>{f.descripcion}</td>
+                        <td className="ma-muestras-monto">{dinero(f.importe)}</td>
+                        <td>{f.marca}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {seleccion.length > 500 && (
+              <span className="ma-muestras-nota">Se muestran las primeras 500; el papel de trabajo trae las {seleccion.length}.</span>
+            )}
+          </section>
+        </>
+      )}
 
       <section aria-label="Evaluación" className="ma-tarjeta ma-muestras-seccion ma-muestras-evaluacion">
         <div>
-          <h3>6 · Evaluación de la muestra</h3>
+          <h3>Evaluación de la muestra</h3>
           <p>
-            Registras los errores encontrados en cada partida y el motor calcula el límite superior de error contra el
+            Con los errores encontrados en cada partida, el motor calcula el límite superior de error contra el
             tolerable (precisión básica + error proyectado + margen incremental). Las subvaloraciones se informan
             aparte. La conclusión es del auditor.
           </p>
         </div>
-        <button type="button" className="ma-boton" disabled title={`Disponible en ${META.sp}`}>
-          Registrar resultados
-        </button>
       </section>
     </section>
   );
