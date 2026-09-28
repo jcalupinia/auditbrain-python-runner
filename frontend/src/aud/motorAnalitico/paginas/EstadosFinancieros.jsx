@@ -1,55 +1,63 @@
+import { useState } from "react";
 import { PAGINAS } from "../paginas.js";
+import {
+  motorBalancesHomologar, motorBalancesAnalisis, motorBalancesAnalisisPapel,
+} from "../../../api.js";
 import "./EstadosFinancieros.css";
 
 const META = PAGINAS.find((p) => p.id === "estados");
 
-// Contenido transcrito de EstadosFinancieros.dc.html (bloque `bloques` del script).
-const BLOQUES = [
-  {
-    titulo: "Horizontal y vertical",
-    texto: "Compara cada rubro entre períodos y contra el total del grupo.",
-    puntos: [
-      "Variación absoluta y porcentual",
-      "Peso de cada rubro en su grupo",
-      "Marca lo que supera la materialidad de ejecución",
-    ],
-    norma: "NIA 315 · NIA 520",
-  },
-  {
-    titulo: "Ratios por período",
-    texto: "Indicadores de la firma calculados sobre los estados homologados.",
-    puntos: [
-      "Liquidez: razón corriente, DSO, DPO, DIO",
-      "Endeudamiento: pasivo/activo, deuda/EBITDA",
-      "Cobertura: DSCR e ICR",
-      "Rentabilidad por período",
-    ],
-    norma: "Perfil financiero de la firma",
-  },
-  {
-    titulo: "Expectativa contra lo real",
-    texto: "El auditor define la expectativa y el umbral; el motor explica la diferencia.",
-    puntos: [
-      "Expectativa por tendencia, presupuesto o razonabilidad",
-      "Umbral de diferencia aceptable",
-      "Diferencias que exigen explicación",
-    ],
-    norma: "NIA 520",
-  },
-];
+const money = (v) => Number(v || 0).toLocaleString("es-EC", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const pct = (v) => (v === null || v === undefined || v === "" ? "—" : `${(Number(v) * 100).toFixed(2)} %`);
+const veces = (v) => (v === null || v === undefined || v === "" ? "—" : Number(v).toFixed(2));
+const fmtRatio = (fila, v) => (fila.formato === "pct" ? pct(v) : veces(v));
 
-// `rubros` del script: nunca se fusionan grupos NIIF distintos.
-const RUBROS = [
-  "Efectivo y equivalentes",
-  "Cuentas por cobrar",
-  "Inventarios",
-  "Propiedades, planta y equipo",
-  "Ingresos de actividades ordinarias",
-];
+export default function EstadosFinancieros({ ir }) {
+  const [archivos, setArchivos] = useState([]);
+  const [esf, setEsf] = useState(null);
+  const [eri, setEri] = useState(null);
+  const [analisis, setAnalisis] = useState(null);
+  const [errores, setErrores] = useState([]);
+  const [estado, setEstado] = useState("esf"); // pestaña ESF/ERI
+  const [cargando, setCargando] = useState(false);
+  const [descargando, setDescargando] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
 
-const COLUMNAS_VARIACION = ["Año anterior", "Año actual", "Variación", "% del total", "Frente a materialidad"];
+  const analizar = async () => {
+    setErrorMsg(""); setErrores([]); setAnalisis(null); setCargando(true);
+    try {
+      const hom = await motorBalancesHomologar(archivos);
+      setErrores(hom.errores || []);
+      const res = await motorBalancesAnalisis(hom.esf, hom.eri);
+      setEsf(hom.esf); setEri(hom.eri); setAnalisis(res);
+    } catch (e) {
+      setErrorMsg(e?.message || "No se pudo analizar los estados.");
+    } finally {
+      setCargando(false);
+    }
+  };
 
-export default function EstadosFinancieros({ ir, EnConstruccion }) {
+  const descargarPapel = async () => {
+    if (!esf || !eri) return;
+    setDescargando(true); setErrorMsg("");
+    try {
+      const blob = await motorBalancesAnalisisPapel(esf, eri);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "papel-estados-financieros.xlsx"; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setErrorMsg(e?.message || "No se pudo generar el papel de trabajo.");
+    } finally {
+      setDescargando(false);
+    }
+  };
+
+  const detalle = analisis ? analisis[estado] : null;
+  const periodos = detalle?.periodos || [];
+  const ratios = analisis?.ratios;
+  const expect = analisis?.expectativa_esf;
+
   return (
     <section className="ma-pagina ma-estados-pagina">
       <div className="ma-estados-breadcrumb">
@@ -62,80 +70,115 @@ export default function EstadosFinancieros({ ir, EnConstruccion }) {
 
       <div className="ma-estados-encabezado">
         <h2>{META.titulo}</h2>
-        <button type="button" className="ma-boton" onClick={() => ir("portada")}>
-          ← Volver a la portada
-        </button>
+        <button type="button" className="ma-boton" onClick={() => ir("portada")}>← Volver a la portada</button>
+      </div>
+      <p className="ma-estados-intro">
+        Análisis horizontal y vertical, ratios de la firma y expectativa vs. real (NIA 520) sobre los estados
+        homologados del Motor de balances. Sube el balance de comprobación / los estados (uno o varios períodos,
+        con la columna de homologación Super Cías cuando exista).
+      </p>
+
+      <div className="ma-estados-motor">
+        <div className="ma-estados-subir">
+          <input type="file" multiple accept=".xlsx,.xlsm,.csv" disabled={cargando}
+                 onChange={(e) => setArchivos(Array.from(e.target.files || []))} />
+          <button className="ma-boton accent" disabled={cargando || archivos.length === 0} onClick={analizar}>
+            {cargando ? "Analizando…" : "Homologar y analizar"}
+          </button>
+        </div>
+        {errorMsg && <p className="ma-estados-error" role="alert">{errorMsg}</p>}
+        {errores.length > 0 && (
+          <div className="ma-estados-avisos" role="alert">
+            {errores.map((e, i) => <div key={i}>No se pudo leer {e.archivo}: {e.error}</div>)}
+          </div>
+        )}
       </div>
 
-      <EnConstruccion sp={META.sp} />
-
-      <div className="ma-estados-fuente">
-        <span>
-          Fuente: estados de situación financiera y de resultados{" "}
-          <strong>homologados por el Motor de balances</strong> (formato Superintendencia, N períodos).
-        </span>
-        <span
-          className="ma-estados-enlace-inerte"
-          title="Motor de balances es otra herramienta del catálogo AUD; el enlace directo entre tarjetas no está definido"
-        >
-          Abrir Motor de balances →
-        </span>
-      </div>
-
-      <div className="ma-grid ma-estados-bloques">
-        {BLOQUES.map((b) => (
-          <article className="ma-tarjeta ma-estados-tarjeta" key={b.titulo}>
-            <div className="ma-estados-tarjeta-cab">
-              <h3>{b.titulo}</h3>
-              <span className="ma-estados-badge">En diseño</span>
+      {analisis && (
+        <>
+          {/* Ratios */}
+          <section className="ma-estados-bloque">
+            <div className="ma-estados-titulo-fila">
+              <h3>Ratios financieros</h3>
+              <button className="ma-boton accent" disabled={descargando} onClick={descargarPapel}>
+                {descargando ? "Generando…" : "Descargar papel de trabajo"}
+              </button>
             </div>
-            <p>{b.texto}</p>
-            <ul className="ma-estados-puntos">
-              {b.puntos.map((pt) => (
-                <li key={pt}>{pt}</li>
-              ))}
-            </ul>
-            <span className="ma-estados-norma">{b.norma}</span>
-          </article>
-        ))}
-      </div>
-
-      <section aria-label="Vista de variaciones" className="ma-tarjeta ma-estados-variaciones">
-        <div className="ma-estados-variaciones-cab">
-          <h3>Vista de variaciones</h3>
-          <span>Estructura; los valores salen de los estados homologados del encargo</span>
-        </div>
-        <div className="ma-tabla-wrap">
-          <table className="ma-tabla ma-estados-tabla">
-            <thead>
-              <tr>
-                <th scope="col">Rubro</th>
-                {COLUMNAS_VARIACION.map((c) => (
-                  <th scope="col" key={c}>
-                    {c}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {RUBROS.map((r) => (
-                <tr key={r}>
-                  <td>{r}</td>
-                  {COLUMNAS_VARIACION.map((c) => (
-                    <td key={c}>
-                      <span className="ma-sindatos">sin datos</span>
-                    </td>
+            <div className="ma-tabla-wrap">
+              <table className="ma-tabla">
+                <thead><tr><th>Ratio</th>{(ratios?.periodos || []).map((p) => <th key={p}>{p}</th>)}</tr></thead>
+                <tbody>
+                  {(ratios?.filas || []).map((f) => (
+                    <tr key={f.nombre}>
+                      <td>{f.nombre}</td>
+                      {f.valores.map((v, i) => <td key={i} className="ma-estados-num">{fmtRatio(f, v)}</td>)}
+                    </tr>
                   ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <span className="ma-estados-nota">
-          Cada rubro NIIF se presenta por separado: inventarios, cuentas por cobrar y propiedades, planta y
-          equipo nunca se fusionan.
-        </span>
-      </section>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* Horizontal / vertical */}
+          <section className="ma-estados-bloque">
+            <div className="ma-estados-titulo-fila">
+              <h3>Análisis horizontal y vertical</h3>
+              <div className="ma-estados-tabs">
+                <button className={estado === "esf" ? "ma-estados-tab activa" : "ma-estados-tab"} onClick={() => setEstado("esf")}>ESF</button>
+                <button className={estado === "eri" ? "ma-estados-tab activa" : "ma-estados-tab"} onClick={() => setEstado("eri")}>ERI</button>
+              </div>
+            </div>
+            <div className="ma-tabla-wrap">
+              <table className="ma-tabla">
+                <thead>
+                  <tr>
+                    <th>Código</th><th>Rubro</th>
+                    {periodos.map((p) => <th key={p}>{p}</th>)}
+                    <th>Variación</th><th>Var %</th><th>Vertical %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(detalle?.lineas || []).map((l) => (
+                    <tr key={l.codigo} className={l.codigo.length <= 1 ? "ma-estados-total" : ""}>
+                      <td className="ma-estados-mono">{l.codigo}</td>
+                      <td>{l.etiqueta}</td>
+                      {l.valores.map((v, i) => <td key={i} className="ma-estados-num">{money(v)}</td>)}
+                      <td className="ma-estados-num">{l.variacion !== undefined ? money(l.variacion) : "—"}</td>
+                      <td className="ma-estados-num">{pct(l.variacion_pct)}</td>
+                      <td className="ma-estados-num">{pct(l.vertical?.[l.vertical.length - 1])}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* NIA 520 */}
+          {expect?.aplicable && (
+            <section className="ma-estados-bloque">
+              <h3>Expectativa vs. real — NIA 520 <span className="ma-estados-sub">(umbral {pct(expect.umbral_pct)})</span></h3>
+              <div className="ma-tabla-wrap">
+                <table className="ma-tabla">
+                  <thead><tr><th>Código</th><th>Rubro</th><th>Expectativa</th><th>Real</th><th>Diferencia</th><th>Dif %</th><th>¿Explicar?</th></tr></thead>
+                  <tbody>
+                    {expect.lineas.map((l) => (
+                      <tr key={l.codigo} className={l.supera_umbral ? "ma-estados-alerta" : ""}>
+                        <td className="ma-estados-mono">{l.codigo}</td>
+                        <td>{l.etiqueta}</td>
+                        <td className="ma-estados-num">{money(l.expectativa)}</td>
+                        <td className="ma-estados-num">{money(l.real)}</td>
+                        <td className="ma-estados-num">{money(l.diferencia)}</td>
+                        <td className="ma-estados-num">{pct(l.diferencia_pct)}</td>
+                        <td className="ma-estados-centro">{l.supera_umbral ? "Explicar" : ""}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+        </>
+      )}
     </section>
   );
 }

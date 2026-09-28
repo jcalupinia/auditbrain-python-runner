@@ -175,6 +175,23 @@ export async function motorBalancesEstados(esf, eri) {
   }));
 }
 
+// Análisis de estados financieros (NIA 315/520): horizontal, vertical, ratios,
+// expectativa vs. real sobre los estados homologados.
+export async function motorBalancesAnalisis(esf, eri, umbralPct = 0.1) {
+  return parse(await apiFetch(`${API_BASE}/api/v1/aud/motor-balances/analisis`, {
+    method: "POST", headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ esf, eri, umbral_pct: umbralPct }),
+  }));
+}
+
+export async function motorBalancesAnalisisPapel(esf, eri, umbralPct = 0.1) {
+  const res = await apiFetch(`${API_BASE}/api/v1/aud/motor-balances/analisis/papel`, {
+    method: "POST", headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ esf, eri, umbral_pct: umbralPct }),
+  });
+  return res.blob();
+}
+
 // Motor de Auditoría Analítica: Render solo firma el permiso; los datos van
 // del navegador al motor (formulario AUT-2026-001, decisión X.2).
 export async function motorAnaliticoPermiso(encargo, accion) {

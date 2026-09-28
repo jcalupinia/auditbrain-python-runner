@@ -2,13 +2,17 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from backend.app.auth.deps import require_staff
 from backend.app.auth.models import User
+from backend.app.aud.motor_balances import analisis as analisis_estados
+from backend.app.aud.motor_balances.papel_estados import generar_papel_estados
 from backend.app.client_portal.flujo import catalogos, motor_balances
 
 router = APIRouter(prefix="/aud/motor-balances", tags=["aud-motor-balances"])
+_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 @router.post("/homologar")
@@ -36,6 +40,32 @@ def recalcular(body: RecalcularBody, _user: User = Depends(require_staff)) -> di
 @router.post("/estados")
 def estados(body: EstadosBody, _user: User = Depends(require_staff)) -> dict:
     return motor_balances.estados_superintendencia(body.esf, body.eri)
+
+
+class AnalisisBody(BaseModel):
+    esf: dict
+    eri: dict
+    umbral_pct: float = 0.10
+
+
+def _analisis(body: AnalisisBody) -> dict:
+    homologado = motor_balances.estados_superintendencia(body.esf, body.eri)
+    return analisis_estados.analizar(homologado, body.umbral_pct)
+
+
+@router.post("/analisis")
+def analisis(body: AnalisisBody, _user: User = Depends(require_staff)) -> dict:
+    """Análisis de estados financieros (NIA 315/520): horizontal, vertical,
+    ratios y expectativa vs. real, sobre los estados homologados."""
+    return _analisis(body)
+
+
+@router.post("/analisis/papel")
+def analisis_papel(body: AnalisisBody, _user: User = Depends(require_staff)) -> Response:
+    """Papel de trabajo `.xlsx` del análisis de estados financieros."""
+    contenido = generar_papel_estados(_analisis(body))
+    return Response(contenido, media_type=_XLSX, headers={
+        "Content-Disposition": 'attachment; filename="papel-estados-financieros.xlsx"'})
 
 
 @router.get("/plan")
