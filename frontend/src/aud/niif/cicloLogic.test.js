@@ -109,7 +109,7 @@ describe("tramosDeTexto", () => {
   });
 });
 
-import { archivosDe, formulasLegibles, fuentesConfirmadas, mejorEncabezado, pasoPreparar, problemasDe } from "./cicloLogic";
+import { archivosDe, filasConvertidas, formulasLegibles, fuentesConfirmadas, mejorEncabezado, pasoPreparar, problemasDe } from "./cicloLogic";
 
 describe("E10 · mejorEncabezado", () => {
   const campos = [
@@ -125,6 +125,36 @@ describe("E10 · mejorEncabezado", () => {
   });
   it("dice qué columnas obligatorias no reconoce", () => {
     expect(mejorEncabezado([{ name: "H", rows: [["Código", "Otra"]] }], campos).faltan).toEqual(["Cantidad", "Costo unitario"]);
+  });
+});
+
+describe("E10 · filasConvertidas (Convertir mi formato)", () => {
+  const campos = [
+    { key: "id", label: "Código de cuenta", aliases: ["cuenta"] },
+    { key: "saldo_libros", label: "Saldo según libros", aliases: ["libros"] },
+    { key: "tipo", label: "Tipo", required: false },
+  ];
+  it("reordena las columnas de la compañía al formato de la herramienta y omite filas vacías", () => {
+    const sheets = [{
+      name: "Hoja1",
+      rows: [
+        ["ANEXO DE BANCOS"],
+        ["Cuenta", "Libros"],
+        ["1.1.02.01", "125680.50"],
+        [],
+        ["1.1.02.02", "8000"],
+      ],
+    }];
+    const { columnas, filas, faltan } = filasConvertidas(sheets, campos);
+    expect(columnas).toEqual(["Código de cuenta", "Saldo según libros", "Tipo"]);
+    expect(filas).toEqual([["1.1.02.01", "125680.50", ""], ["1.1.02.02", "8000", ""]]);
+    expect(faltan).toEqual([]); // "Tipo" es opcional
+  });
+  it("no inventa datos: una columna obligatoria sin coincidencia queda vacía y se reporta en faltan", () => {
+    const sheets = [{ name: "H", rows: [["Cuenta"], ["1.1.02.01"]] }];
+    const { filas, faltan } = filasConvertidas(sheets, campos);
+    expect(filas).toEqual([["1.1.02.01", "", ""]]);
+    expect(faltan).toEqual(["Saldo según libros"]);
   });
 });
 
