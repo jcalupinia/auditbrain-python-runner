@@ -345,6 +345,27 @@ def descargar_modelo(prueba_id: int, requerimiento: str, db: Session = Depends(g
     return Response(contenido, media_type=almacen.TIPOS["xlsx"], headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
 
 
+@router.get("/pruebas/{prueba_id}/papel-bancos")
+def descargar_papel_bancos(prueba_id: int, db: Session = Depends(get_db),
+                           user: User = Depends(require_staff)) -> Response:
+    """Papel de trabajo DA formulado de Efectivo y Equivalentes (Sumaria, Movimiento,
+    Conciliaciones con Sobregiro, Partidas, Arqueo, Hallazgos) con fórmulas vivas,
+    armado desde los datos de la prueba (anexo de cuentas y partidas)."""
+    p = _prueba(db, user, prueba_id)
+    if (p.definicion or {}).get("processor") != "efectivo_equivalentes":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            detail="El papel formulado de bancos aplica solo a Efectivo y Equivalentes.")
+    from backend.app.aud.niif.procesadores import caja_bancos_armado
+    if not caja_bancos_armado.hay_datos(p.registro or {}):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            detail="Cargue el anexo de cuentas (RQ-001) antes de generar el papel.")
+    contenido = caja_bancos_armado.armar_desde_registro(p.registro or {})
+    cliente = ((p.registro or {}).get("engagement") or {}).get("client", "")
+    nombre = f"DA_Efectivo_Equivalentes_{cliente}.xlsx".encode("ascii", "replace").decode().replace('"', "_")
+    return Response(contenido, media_type=almacen.TIPOS["xlsx"],
+                    headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+
+
 @router.get("/pruebas/{prueba_id}/libro")
 def descargar_libro(prueba_id: int, formato: str = "xlsx", db: Session = Depends(get_db),
                     user: User = Depends(require_staff)) -> Response:

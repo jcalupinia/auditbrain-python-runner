@@ -465,6 +465,12 @@ export async function cicloBajarLibro(pruebaId, formato = "xlsx") {
   if (!res.ok) await parse(res);
   return new Uint8Array(await res.arrayBuffer());
 }
+// Papel de trabajo DA formulado de Efectivo y Equivalentes (fórmulas vivas): lo arma el servidor.
+export async function cicloBajarPapelBancos(pruebaId) {
+  const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/papel-bancos`, { headers: authHeaders() });
+  if (!res.ok) await parse(res);
+  return new Uint8Array(await res.arrayBuffer());
+}
 // Ejercicio modelo (solo lectura): el recorrido de 9 pasos con datos de ejemplo.
 export async function cicloEjercicioModelo(pruebaId) {
   return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/ejercicio-modelo`, { headers: authHeaders() }));
