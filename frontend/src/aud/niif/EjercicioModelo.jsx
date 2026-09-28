@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import * as api from "../../api";
 import { ejemploDe, formatosTexto } from "./ejemplosRequerimientos";
+import { abrirTodoPorDefecto, anclaPaso } from "./ejercicioModeloVista";
 
 /*
  * Ejercicio modelo (SOLO LECTURA) de una prueba NIIF.
@@ -11,6 +12,9 @@ import { ejemploDe, formatosTexto } from "./ejemplosRequerimientos";
  * un endpoint de solo lectura que corre el procesador sobre sus ejemplos
  * (manifiesto para pérdidas incurridas; EJEMPLO/ESCENARIOS para las demás). No
  * crea ni modifica encargos ni pruebas y no consume el estado del ciclo.
+ *
+ * Dos vistas: «por pasos» (una sección a la vez) y «todas las secciones» (todo
+ * el recorrido abierto de una vez). En Planificación arranca con todo abierto.
  *
  * Todo el panel va marcado «EJERCICIO MODELO · datos ficticios».
  */
@@ -34,6 +38,173 @@ function descargar(nombre, contenido, tipo) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+// Tabla de una cédula (paso 6). Se reutiliza para la cédula seleccionada (modo
+// por pasos) y para cada cédula (modo todas las secciones).
+function Cedula({ cedula }) {
+  return (
+    <div className="nf-em-tabla">
+      <table>
+        <tbody>
+          {(cedula.rows || []).slice(0, 60).map((r, i) => (
+            <tr key={i}>
+              {(Array.isArray(r) ? r : [r]).map((v, j) => (
+                <td key={j}>
+                  {mostrar(v)}
+                  {v?.f && (
+                    <details>
+                      <summary>fórmula</summary>
+                      <code>={v.f}</code>
+                    </details>
+                  )}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// Cuerpo de UN paso del recorrido. `todo` = modo todas las secciones (en el paso
+// 6 muestra todas las cédulas expandidas en vez de una pestaña a la vez).
+function PasoCuerpo({ actual, processor, base, todo, cedulaSel, setCedulaSel, bajar, bajando }) {
+  return (
+    <>
+      {actual.n === 1 && actual.encargo && (
+        <ul className="nf-em-datos">
+          <li><strong>Cliente:</strong> {actual.encargo.client} · {actual.encargo.ruc}</li>
+          <li><strong>Ejercicio:</strong> {actual.encargo.year} · corte {actual.encargo.cutoff}</li>
+          <li><strong>Marco:</strong> {actual.encargo.framework}</li>
+          <li><strong>Firma:</strong> {actual.encargo.firm}</li>
+        </ul>
+      )}
+
+      {actual.n === 2 && actual.herramienta && (
+        <ul className="nf-em-datos">
+          <li><strong>Rubro:</strong> {actual.herramienta.rubro}</li>
+          <li><strong>Marcos:</strong> {(actual.herramienta.marcos || []).join(", ")}</li>
+          <li>{actual.herramienta.resumen}</li>
+        </ul>
+      )}
+
+      {actual.n === 3 && (
+        <>
+          <p><strong>Base técnica:</strong> {actual.base_tecnica?.norma || "—"}</p>
+          <ul className="nf-em-datos">
+            {(actual.base_tecnica?.nia || []).map((s, i) => (
+              <li key={i}>{s.document} · {s.section} — {s.requirement}</li>
+            ))}
+          </ul>
+          {(actual.tratamiento_tributario || []).length > 0 && (
+            <>
+              <p><strong>Tratamiento tributario:</strong></p>
+              <ul className="nf-em-datos">
+                {actual.tratamiento_tributario.map((t, i) => <li key={i}>{t}</li>)}
+              </ul>
+            </>
+          )}
+          <details open={todo}>
+            <summary>Programa de trabajo ({(actual.programa || []).length})</summary>
+            <ul className="nf-em-datos">
+              {(actual.programa || []).map((x, i) => (
+                <li key={i}><strong>{x.code}</strong> · {x.objective} <em>({x.assertion})</em></li>
+              ))}
+            </ul>
+          </details>
+        </>
+      )}
+
+      {actual.n === 4 && (
+        <ul className="nf-em-req">
+          {(actual.requerimientos || []).map((r) => {
+            const ej = ejemploDe(processor, r, undefined, base);
+            return (
+              <li key={r.id}>
+                <strong>{r.id}</strong> · {r.document}
+                <span className="nf-em-formatos">
+                  {formatosTexto(r)}{r.required === false ? " · opcional" : ""}
+                  {ej?.tipo === "ejemplo" && (
+                    <a className="link" href={ej.url} download={ej.archivo} title="Formato válido con datos de ejemplo (ficticios)"> ↓ Ejemplo</a>
+                  )}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {actual.n === 5 && (
+        <ul className="nf-em-datos">
+          {(actual.documentacion || []).map((x) => (
+            <li key={x.dataset}><strong>{x.dataset}</strong>: {x.registros} registros «cargados» (ejemplo)</li>
+          ))}
+        </ul>
+      )}
+
+      {actual.n === 6 && actual.resultado && (
+        <>
+          <div className="nf-em-metricas">
+            {Object.entries(actual.resultado.etiquetas || {}).map(([k, etq]) => (
+              <div key={k}><small>{etq}</small><strong>{mostrar(actual.resultado.totales?.[k])}</strong></div>
+            ))}
+          </div>
+          {(actual.problemas || []).length > 0 && (
+            <details open>
+              <summary>Problemas encontrados ({actual.problemas.length})</summary>
+              <ul className="nf-em-datos">
+                {actual.problemas.map((p, i) => (
+                  <li key={i}><strong>{p.code}</strong> · {p.message} {p.amount ? `(${p.amount})` : ""}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {todo ? (
+            // Todas las secciones: cada cédula abierta, una tras otra.
+            (actual.cedulas || []).map((c, i) => (
+              <div key={c.name} className="nf-em-ced">
+                <h5 className="nf-em-ced-tit"><span>{String(i + 1).padStart(2, "0")}</span> {c.label}</h5>
+                <Cedula cedula={c} />
+              </div>
+            ))
+          ) : (
+            <>
+              <div className="nf-em-cedtabs">
+                {(actual.cedulas || []).map((c, i) => (
+                  <button key={c.name} type="button" className={cedulaSel === i ? "on" : ""} onClick={() => setCedulaSel(i)}>
+                    <span>{String(i + 1).padStart(2, "0")}</span> {c.label}
+                  </button>
+                ))}
+              </div>
+              {actual.cedulas?.[cedulaSel] && <Cedula cedula={actual.cedulas[cedulaSel]} />}
+            </>
+          )}
+        </>
+      )}
+
+      {actual.n === 7 && actual.analisis && (
+        <ul className="nf-em-datos">
+          <li><strong>{actual.analisis.etiqueta}:</strong> {mostrar(actual.analisis.valor)}</li>
+          <li>{actual.analisis.problemas} problema(s) para evaluar antes de concluir.</li>
+        </ul>
+      )}
+
+      {actual.n === 8 && <p className="nf-em-expl">{actual.conclusion}</p>}
+
+      {actual.n === 9 && (
+        <div className="nf-em-descargas">
+          {(actual.formatos || []).map((f) => (
+            <button key={f} type="button" className="pc-chip accent" disabled={!!bajando} onClick={() => bajar(f)}>
+              {bajando === f ? "Bajando…" : `↓ ${ETIQUETA_FMT[f] || f}`}
+            </button>
+          ))}
+          <p className="muted">El PDF se obtiene con «Guardar como PDF» del navegador desde el HTML.</p>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function EjercicioModelo({ prueba, onCerrar }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -41,6 +212,7 @@ export default function EjercicioModelo({ prueba, onCerrar }) {
   const [cedula, setCedula] = useState(0);
   const [bajando, setBajando] = useState("");
   const processor = prueba.definicion?.processor;
+  const [todo, setTodo] = useState(() => abrirTodoPorDefecto(processor));
   const base = import.meta.env.BASE_URL || "/";
 
   useEffect(() => {
@@ -67,6 +239,14 @@ export default function EjercicioModelo({ prueba, onCerrar }) {
   const pasos = data?.pasos || [];
   const actual = pasos[paso];
 
+  const irAPaso = (i) => {
+    setPaso(i);
+    if (todo && typeof document !== "undefined") {
+      const el = document.getElementById(anclaPaso(pasos[i]?.n));
+      if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+
   return (
     <div className="nf-em-overlay" role="dialog" aria-label="Ejercicio modelo" aria-modal="true">
       <div className="nf-em-panel">
@@ -78,7 +258,20 @@ export default function EjercicioModelo({ prueba, onCerrar }) {
               Recorrido completo con datos de ejemplo. No crea ni modifica encargos ni pruebas reales.
             </p>
           </div>
-          <button type="button" className="pc-chip" onClick={onCerrar} aria-label="Cerrar">✕</button>
+          <div className="nf-em-acciones">
+            {data?.disponible && (
+              <button
+                type="button"
+                className={todo ? "pc-chip accent" : "pc-chip"}
+                aria-pressed={todo}
+                title={todo ? "Ver una sección a la vez" : "Abrir todas las secciones a la vez"}
+                onClick={() => setTodo((v) => !v)}
+              >
+                {todo ? "Ver por pasos" : "Abrir todas las secciones"}
+              </button>
+            )}
+            <button type="button" className="pc-chip" onClick={onCerrar} aria-label="Cerrar">✕</button>
+          </div>
         </header>
 
         {error && <p role="alert" className="nf-error">{error}</p>}
@@ -92,167 +285,47 @@ export default function EjercicioModelo({ prueba, onCerrar }) {
             <ol className="nf-em-pasos">
               {pasos.map((p, i) => (
                 <li key={p.n}>
-                  <button type="button" className={i === paso ? "on" : ""} onClick={() => setPaso(i)}>
+                  <button type="button" className={!todo && i === paso ? "on" : ""} onClick={() => irAPaso(i)}>
                     <span>{p.n}</span> {p.titulo}
                   </button>
                 </li>
               ))}
             </ol>
 
-            <section className="nf-em-cuerpo">
-              <div className="nf-em-norma">
-                <span className="nf-em-badge">{actual.norma}</span>
-              </div>
-              <h4>{actual.n}. {actual.titulo}</h4>
-              <p className="nf-em-expl">{actual.explicacion}</p>
-
-              {actual.n === 1 && actual.encargo && (
-                <ul className="nf-em-datos">
-                  <li><strong>Cliente:</strong> {actual.encargo.client} · {actual.encargo.ruc}</li>
-                  <li><strong>Ejercicio:</strong> {actual.encargo.year} · corte {actual.encargo.cutoff}</li>
-                  <li><strong>Marco:</strong> {actual.encargo.framework}</li>
-                  <li><strong>Firma:</strong> {actual.encargo.firm}</li>
-                </ul>
-              )}
-
-              {actual.n === 2 && actual.herramienta && (
-                <ul className="nf-em-datos">
-                  <li><strong>Rubro:</strong> {actual.herramienta.rubro}</li>
-                  <li><strong>Marcos:</strong> {(actual.herramienta.marcos || []).join(", ")}</li>
-                  <li>{actual.herramienta.resumen}</li>
-                </ul>
-              )}
-
-              {actual.n === 3 && (
-                <>
-                  <p><strong>Base técnica:</strong> {actual.base_tecnica?.norma || "—"}</p>
-                  <ul className="nf-em-datos">
-                    {(actual.base_tecnica?.nia || []).map((s, i) => (
-                      <li key={i}>{s.document} · {s.section} — {s.requirement}</li>
-                    ))}
-                  </ul>
-                  {(actual.tratamiento_tributario || []).length > 0 && (
-                    <>
-                      <p><strong>Tratamiento tributario:</strong></p>
-                      <ul className="nf-em-datos">
-                        {actual.tratamiento_tributario.map((t, i) => <li key={i}>{t}</li>)}
-                      </ul>
-                    </>
-                  )}
-                  <details>
-                    <summary>Programa de trabajo ({(actual.programa || []).length})</summary>
-                    <ul className="nf-em-datos">
-                      {(actual.programa || []).map((x, i) => (
-                        <li key={i}><strong>{x.code}</strong> · {x.objective} <em>({x.assertion})</em></li>
-                      ))}
-                    </ul>
-                  </details>
-                </>
-              )}
-
-              {actual.n === 4 && (
-                <ul className="nf-em-req">
-                  {(actual.requerimientos || []).map((r) => {
-                    const ej = ejemploDe(processor, r, undefined, base);
-                    return (
-                      <li key={r.id}>
-                        <strong>{r.id}</strong> · {r.document}
-                        <span className="nf-em-formatos">
-                          {formatosTexto(r)}{r.required === false ? " · opcional" : ""}
-                          {ej?.tipo === "ejemplo" && (
-                            <a className="link" href={ej.url} download={ej.archivo} title="Formato válido con datos de ejemplo (ficticios)"> ↓ Ejemplo</a>
-                          )}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-
-              {actual.n === 5 && (
-                <ul className="nf-em-datos">
-                  {(actual.documentacion || []).map((x) => (
-                    <li key={x.dataset}><strong>{x.dataset}</strong>: {x.registros} registros «cargados» (ejemplo)</li>
-                  ))}
-                </ul>
-              )}
-
-              {actual.n === 6 && actual.resultado && (
-                <>
-                  <div className="nf-em-metricas">
-                    {Object.entries(actual.resultado.etiquetas || {}).map(([k, etq]) => (
-                      <div key={k}><small>{etq}</small><strong>{mostrar(actual.resultado.totales?.[k])}</strong></div>
-                    ))}
-                  </div>
-                  {(actual.problemas || []).length > 0 && (
-                    <details open>
-                      <summary>Problemas encontrados ({actual.problemas.length})</summary>
-                      <ul className="nf-em-datos">
-                        {actual.problemas.map((p, i) => (
-                          <li key={i}><strong>{p.code}</strong> · {p.message} {p.amount ? `(${p.amount})` : ""}</li>
-                        ))}
-                      </ul>
-                    </details>
-                  )}
-                  <div className="nf-em-cedtabs">
-                    {(actual.cedulas || []).map((c, i) => (
-                      <button key={c.name} type="button" className={cedula === i ? "on" : ""} onClick={() => setCedula(i)}>
-                        <span>{String(i + 1).padStart(2, "0")}</span> {c.label}
-                      </button>
-                    ))}
-                  </div>
-                  {actual.cedulas?.[cedula] && (
-                    <div className="nf-em-tabla">
-                      <table>
-                        <tbody>
-                          {(actual.cedulas[cedula].rows || []).slice(0, 60).map((r, i) => (
-                            <tr key={i}>
-                              {(Array.isArray(r) ? r : [r]).map((v, j) => (
-                                <td key={j}>
-                                  {mostrar(v)}
-                                  {v?.f && (
-                                    <details>
-                                      <summary>fórmula</summary>
-                                      <code>={v.f}</code>
-                                    </details>
-                                  )}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+            {todo ? (
+              // Todas las secciones abiertas de una vez.
+              <div className="nf-em-todo">
+                {pasos.map((p) => (
+                  <section key={p.n} id={anclaPaso(p.n)} className="nf-em-cuerpo nf-em-seccion">
+                    <div className="nf-em-norma">
+                      <span className="nf-em-badge">{p.norma}</span>
                     </div>
-                  )}
-                </>
-              )}
+                    <h4>{p.n}. {p.titulo}</h4>
+                    <p className="nf-em-expl">{p.explicacion}</p>
+                    <PasoCuerpo actual={p} processor={processor} base={base} todo
+                      cedulaSel={cedula} setCedulaSel={setCedula} bajar={bajar} bajando={bajando} />
+                  </section>
+                ))}
+              </div>
+            ) : (
+              <>
+                <section className="nf-em-cuerpo">
+                  <div className="nf-em-norma">
+                    <span className="nf-em-badge">{actual.norma}</span>
+                  </div>
+                  <h4>{actual.n}. {actual.titulo}</h4>
+                  <p className="nf-em-expl">{actual.explicacion}</p>
+                  <PasoCuerpo actual={actual} processor={processor} base={base} todo={false}
+                    cedulaSel={cedula} setCedulaSel={setCedula} bajar={bajar} bajando={bajando} />
+                </section>
 
-              {actual.n === 7 && actual.analisis && (
-                <ul className="nf-em-datos">
-                  <li><strong>{actual.analisis.etiqueta}:</strong> {mostrar(actual.analisis.valor)}</li>
-                  <li>{actual.analisis.problemas} problema(s) para evaluar antes de concluir.</li>
-                </ul>
-              )}
-
-              {actual.n === 8 && <p className="nf-em-expl">{actual.conclusion}</p>}
-
-              {actual.n === 9 && (
-                <div className="nf-em-descargas">
-                  {(actual.formatos || []).map((f) => (
-                    <button key={f} type="button" className="pc-chip accent" disabled={!!bajando} onClick={() => bajar(f)}>
-                      {bajando === f ? "Bajando…" : `↓ ${ETIQUETA_FMT[f] || f}`}
-                    </button>
-                  ))}
-                  <p className="muted">El PDF se obtiene con «Guardar como PDF» del navegador desde el HTML.</p>
-                </div>
-              )}
-            </section>
-
-            <footer className="nf-em-nav">
-              <button type="button" className="pc-chip" disabled={paso === 0} onClick={() => setPaso(paso - 1)}>← Anterior</button>
-              <span className="muted">Paso {actual.n} de {pasos.length}</span>
-              <button type="button" className="pc-chip" disabled={paso === pasos.length - 1} onClick={() => setPaso(paso + 1)}>Siguiente →</button>
-            </footer>
+                <footer className="nf-em-nav">
+                  <button type="button" className="pc-chip" disabled={paso === 0} onClick={() => setPaso(paso - 1)}>← Anterior</button>
+                  <span className="muted">Paso {actual.n} de {pasos.length}</span>
+                  <button type="button" className="pc-chip" disabled={paso === pasos.length - 1} onClick={() => setPaso(paso + 1)}>Siguiente →</button>
+                </footer>
+              </>
+            )}
           </>
         )}
       </div>
