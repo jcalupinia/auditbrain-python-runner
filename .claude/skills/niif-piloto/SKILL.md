@@ -99,6 +99,18 @@ Ejecutá siempre desde la raíz del repo. Para consumir la salida como datos, pa
    `auditbrain-committee-summary` (resumen), `auditbrain-audit-report-writer` (informe). Toda
    interpretación es borrador para el auditor.
 
+## Consola de comunicación por prueba (chat auditable)
+
+En la plataforma, cada prueba del ciclo tiene una consola de comentarios montada sobre su
+bitácora (`PruebaEvento`, `accion="comentario"`), así que la conversación queda en el papel
+(cédula 12) y es trazable (NIA 230). Endpoints del router del ciclo:
+- `GET  /aud/ciclo/pruebas/{id}/comentarios` — la conversación como línea de tiempo.
+- `POST /aud/ciclo/pruebas/{id}/comentarios` — publica un comentario; con `{"asistente": true}`
+  el asistente responde en el mismo hilo usando el **servidor de IA local** (primario), como
+  borrador validable con el disclaimer obligatorio. Se degrada con elegancia: si no hay
+  proveedor, el comentario del usuario se guarda igual y se avisa. Lógica en
+  `backend/app/aud/niif/consola.py`.
+
 ## Planificación NIA (`planificacion_nia`)
 
 Se corre con el mismo motor, pero su cálculo consume contexto adicional del encargo

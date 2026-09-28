@@ -714,6 +714,49 @@ def eventos(db: Session, prueba_id: int) -> list[PruebaEvento]:
     ).scalars())
 
 
+# --- consola de comunicación por prueba (chat auditable, NIA 230) -----------
+# Un comentario es un evento de la bitácora (accion="comentario"): así queda en
+# la cédula 12 del papel y es trazable. Se permite en cualquier estado, incluso
+# aprobada: la comunicación del equipo no muta el papel. El asistente responde
+# como un actor más ("AUDIT-IA"), y su respuesta es un borrador para el auditor.
+ACTOR_ASISTENTE = "AUDIT-IA"
+
+
+def comentar(db: Session, p: Prueba, texto: str, actor: str, accion: str = "comentario") -> PruebaEvento:
+    """Agrega un comentario a la consola de la prueba (no cambia el estado)."""
+    texto = (texto or "").strip()
+    if not texto:
+        raise ValueError("El comentario no puede estar vacío.")
+    ev = PruebaEvento(
+        prueba_id=p.id, revision=p.revision, accion=accion, estado_anterior=None,
+        estado_nuevo=p.estado, actor=actor, comentario=texto[:8000] or None,
+    )
+    db.add(ev)
+    db.commit()
+    db.refresh(ev)
+    return ev
+
+
+def conversacion(db: Session, prueba_id: int) -> list[dict]:
+    """La bitácora como línea de tiempo para la consola: cada evento es un
+    comentario del equipo/asistente (``tipo='comentario'``) o una marca del
+    circuito (``tipo='sistema'``: cambios de estado, cargas, papel)."""
+    salida = []
+    for e in eventos(db, prueba_id):
+        salida.append({
+            "id": e.id,
+            "tipo": "comentario" if e.accion == "comentario" else "sistema",
+            "accion": e.accion,
+            "actor": e.actor,
+            "es_asistente": e.actor == ACTOR_ASISTENTE or (e.actor or "").startswith(ACTOR_ASISTENTE),
+            "texto": e.comentario or "",
+            "estado_nuevo": e.estado_nuevo,
+            "revision": e.revision,
+            "fecha": e.creado_en.isoformat() if e.creado_en else None,
+        })
+    return salida
+
+
 # --- definición probada de una ficha NIIF -----------------------------------
 
 def guardar_definicion_ficha(db: Session, ficha: NiifFicha, definicion: dict, filas: list[dict],
