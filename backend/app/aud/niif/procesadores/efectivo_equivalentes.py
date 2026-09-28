@@ -90,8 +90,29 @@ _LIBRO_MAYOR = [
     campo("debito", "Débitos", "number", requerido=False, alias=("debito", "debitos", "debe", "cargo"), ejemplo="8500.00"),
     campo("credito", "Créditos", "number", requerido=False, alias=("credito", "creditos", "haber", "abono"), ejemplo="0.00"),
 ]
-CAMPOS = {"cuentas": _CUENTAS, "partidas": _PARTIDAS, "libro_mayor": _LIBRO_MAYOR}
-TIPOS = {"cuentas": "cuentas", "partidas": "partidas", "libro_mayor": "libro_mayor"}
+# Estado de cuenta bancario (movimientos transcritos del PDF, revisados por el
+# auditor). Se cruza con el libro mayor en la reestructuración de la conciliación.
+_ESTADO_CUENTA = [
+    campo("cuenta", "Código de cuenta", alias=("cuenta", "codigo", "codigo de cuenta", "cuenta contable"), ejemplo="1.1.02.01"),
+    campo("fecha", "Fecha", "date", requerido=False, alias=("fecha", "fecha del movimiento", "fecha valor"), ejemplo="2026-08-15"),
+    campo("documento", "Documento / referencia", requerido=False, alias=("documento", "referencia", "concepto", "descripcion", "detalle")),
+    campo("debito", "Débitos (cargos del banco)", "number", requerido=False, alias=("debito", "debitos", "cargo", "cargos", "retiro"), ejemplo="0.00"),
+    campo("credito", "Créditos (abonos del banco)", "number", requerido=False, alias=("credito", "creditos", "abono", "abonos", "deposito"), ejemplo="1000.00"),
+]
+# Conciliación bancaria del mes anterior (partidas conciliatorias que quedaron
+# abiertas). Se arrastran a la reestructuración si no se depuran este mes.
+_CONCILIACION_ANTERIOR = [
+    campo("cuenta", "Código de cuenta", alias=("cuenta", "codigo", "codigo de cuenta", "cuenta contable"), ejemplo="1.1.02.01"),
+    campo("fecha", "Fecha de origen", "date", requerido=False, alias=("fecha", "fecha origen", "fecha de la partida"), ejemplo="2026-07-31"),
+    campo("categoria", "Tipo conciliatorio", requerido=False, alias=("categoria", "tipo", "tipo conciliatorio", "clase"), ejemplo="Cheque sin cobrar"),
+    campo("documento", "Documento / referencia", requerido=False, alias=("documento", "referencia", "descripcion", "detalle", "concepto")),
+    campo("valor", "Valor", "number", requerido=False, alias=("valor", "importe", "monto"), ejemplo="200.00"),
+    campo("observacion", "Observación", requerido=False, alias=("observacion", "observaciones", "nota", "estado")),
+]
+CAMPOS = {"cuentas": _CUENTAS, "partidas": _PARTIDAS, "libro_mayor": _LIBRO_MAYOR,
+          "estado_cuenta": _ESTADO_CUENTA, "conciliacion_anterior": _CONCILIACION_ANTERIOR}
+TIPOS = {"cuentas": "cuentas", "partidas": "partidas", "libro_mayor": "libro_mayor",
+         "estado_cuenta": "estado_cuenta", "conciliacion_anterior": "conciliacion_anterior"}
 DATASETS = tuple(TIPOS)
 PRINCIPAL = "cuentas"
 CONTROL = "saldo_libros"
@@ -899,6 +920,14 @@ def definicion() -> dict:
                 "Cuadre de la Sumaria con el mayor y armado del movimiento del papel", required=False,
                 content="Una fila por asiento del mayor de bancos: código de cuenta, fecha, comprobante, detalle, "
                         "tercero, débitos y créditos del período."),
+            req("RQ-010", "Estado de cuenta bancario del mes (movimientos)", "estado_cuenta", "CAJ-02",
+                "Reestructuración de la conciliación: se cruza con el libro mayor", required=False,
+                content="Una fila por movimiento del estado de cuenta: código de cuenta, fecha, documento, "
+                        "débitos (cargos del banco) y créditos (abonos del banco). Transcrito del PDF y revisado."),
+            req("RQ-011", "Conciliación bancaria del mes anterior (partidas abiertas)", "conciliacion_anterior", "CAJ-03",
+                "Arrastre de partidas conciliatorias no depuradas a la reestructuración", required=False,
+                content="Una fila por partida abierta del mes anterior: código de cuenta, fecha de origen, tipo "
+                        "conciliatorio, documento, valor y observación."),
         ],
     }
 
@@ -973,6 +1002,20 @@ EJEMPLO = {
             {"cuenta": "1.1.01.01", "descripcion": "Caja general", "fecha": "2025-12-31",
              "comprobante": "AJ-0012", "detalle": "Reposición caja", "tercero": "",
              "debito": "500.00", "credito": "0.00"},
+        ],
+        "estado_cuenta": [
+            {"cuenta": "1.1.02.01", "fecha": "2025-12-05", "documento": "Depósito cobranza",
+             "debito": "0.00", "credito": "15000.00"},
+            {"cuenta": "1.1.02.01", "fecha": "2025-12-31", "documento": "Comisión mantenimiento",
+             "debito": "120.00", "credito": "0.00"},
+            {"cuenta": "1.1.02.02", "fecha": "2025-12-20", "documento": "Cheque 0870",
+             "debito": "300.00", "credito": "0.00"},
+        ],
+        "conciliacion_anterior": [
+            {"cuenta": "1.1.02.01", "fecha": "2025-11-28", "categoria": "Cheque sin cobrar",
+             "documento": "Cheque 1490", "valor": "850.00", "observacion": "Pendiente de cobro"},
+            {"cuenta": "1.1.02.04", "fecha": "2025-09-10", "categoria": "Consignación no registrada",
+             "documento": "Depósito", "valor": "450.00", "observacion": "No acreditado"},
         ],
     },
 }

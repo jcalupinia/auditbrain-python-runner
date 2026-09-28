@@ -9,6 +9,7 @@ que la prueba ya recibió y validó.
 from __future__ import annotations
 
 from backend.app.aud.niif.procesadores import caja_bancos_papel as papel
+from backend.app.aud.niif.procesadores import conciliacion_reestructurada as cr
 
 # El «tipo» de partida del procesador (efectivo_equivalentes) → categoría del papel.
 _TIPO_A_CATEGORIA = {
@@ -93,6 +94,31 @@ def _libro_mayor(reg: dict):
     return hoja, totales
 
 
+def _reestructurar(reg: dict, cuentas: list[dict]):
+    """Si hay estado de cuenta (RQ-010), recalcula las partidas conciliatorias por
+    cuenta cruzando el libro mayor con el estado de cuenta y arrastrando la
+    conciliación del mes anterior (RQ-011). Devuelve None si no hay estado de cuenta."""
+    ds = reg.get("datasets") or {}
+    estado = ds.get("estado_cuenta")
+    if not estado:
+        return None
+    corte = (reg.get("engagement") or {}).get("cutoff")
+    mayor = ds.get("libro_mayor") or []
+    previas = ds.get("conciliacion_anterior") or []
+    nombre = {str(c["cuenta"]): c["descripcion"] for c in cuentas}
+    partidas = []
+    codigos = {str(f.get("cuenta") or "") for f in estado} | {str(f.get("cuenta") or "") for f in mayor}
+    for cod in sorted(c for c in codigos if c):
+        libro = cr.desde_debito_credito([f for f in mayor if str(f.get("cuenta")) == cod], "libro")
+        extracto = cr.desde_debito_credito([f for f in estado if str(f.get("cuenta")) == cod], "extracto")
+        prev = [{"fecha": p.get("fecha"), "documento": p.get("documento"), "categoria": p.get("categoria"),
+                 "valor": p.get("valor"), "observacion": p.get("observacion")}
+                for p in previas if str(p.get("cuenta")) == cod]
+        r = cr.reestructurar(libro, extracto, corte, banco=nombre.get(cod, cod), partidas_previas=prev)
+        partidas.extend(r["partidas"])
+    return partidas
+
+
 def hay_datos(reg: dict) -> bool:
     """True si la prueba tiene al menos el anexo de cuentas para armar el papel."""
     return bool(_cuentas(reg))
@@ -101,7 +127,11 @@ def hay_datos(reg: dict) -> bool:
 def armar_desde_registro(reg: dict) -> bytes:
     """Devuelve los bytes del papel de trabajo DA formulado desde el registro."""
     cuentas = _cuentas(reg)
-    partidas = _partidas(reg, cuentas)
+    # Partidas: recalculadas por reestructuración si hay estado de cuenta; si no,
+    # las cargadas manualmente (RQ-002).
+    partidas = _reestructurar(reg, cuentas)
+    if partidas is None:
+        partidas = _partidas(reg, cuentas)
     hoja_mayor, totales_mayor = _libro_mayor(reg)
     # Si hay Libro Mayor (RQ-009), el Movimiento usa débitos/créditos reales del período.
     for c in cuentas:

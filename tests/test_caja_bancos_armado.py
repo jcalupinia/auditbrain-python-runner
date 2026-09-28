@@ -79,3 +79,44 @@ def test_libro_mayor_alimenta_movimiento_y_su_hoja():
     lm = wb["Libro Mayor"]
     assert lm["A4"].value == "11010201"
     assert lm["I4"].value == 1500 and lm["J4"].value == 0
+
+
+REG_REESTRUCTURA = {
+    "engagement": {"client": "X", "period": "sep-2026", "cutoff": "2026-09-30"},
+    "datasets": {
+        "cuentas": [{"id": "11010201", "nombre": "BANCO PICHINCHA", "saldo_libros": 1000,
+                     "saldo_banco": 900, "saldo_anterior": 0, "ncuenta": "1"}],
+        # cuando hay estado de cuenta, las partidas NO se toman de RQ-002 sino del recálculo
+        "partidas": [{"cuenta": "11010201", "tipo": "Otra partida", "referencia": "IGNORAR",
+                      "fecha_origen": "2026-09-01", "importe": 999}],
+        "libro_mayor": [
+            {"cuenta": "11010201", "fecha": "2026-09-28", "debito": 500, "credito": 0},   # depósito en tránsito
+            {"cuenta": "11010201", "fecha": "2026-09-10", "debito": 1000, "credito": 0},  # coincide con extracto
+        ],
+        "estado_cuenta": [
+            {"cuenta": "11010201", "fecha": "2026-09-10", "documento": "Depósito", "debito": 0, "credito": 1000},
+            {"cuenta": "11010201", "fecha": "2026-09-30", "documento": "Comisión", "debito": 25, "credito": 0},  # ND
+        ],
+        "conciliacion_anterior": [
+            {"cuenta": "11010201", "fecha": "2026-08-01", "categoria": "Cheque sin cobrar",
+             "documento": "Cheque 090", "valor": 777, "observacion": "Pendiente"},
+        ],
+    },
+}
+
+
+def test_reestructuracion_automatica_reemplaza_partidas_manuales():
+    wb = openpyxl.load_workbook(io.BytesIO(arm.armar_desde_registro(REG_REESTRUCTURA)))
+    pc = wb["Partidas conciliatorias"]
+    cats = {}
+    for r in range(10, pc.max_row + 1):
+        val, cat = pc.cell(r, 6).value, pc.cell(r, 3).value
+        if cat:
+            cats[cat] = val
+    # Depósito en tránsito (500) y ND (25) del recálculo; NO la partida manual de 999.
+    assert cats.get(papel.CONSIGNACION) == 500
+    assert cats.get(papel.ND_TRANSITO) == 25
+    valores = {pc.cell(r, 6).value for r in range(10, pc.max_row + 1)}
+    assert 999 not in valores
+    # Arrastre del mes anterior: el cheque de 777 sigue abierto.
+    assert 777 in valores
