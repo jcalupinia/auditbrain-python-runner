@@ -155,23 +155,15 @@ Se hace una vez al año, típicamente entre noviembre y febrero. Pasos:
 
 ### Deuda técnica conocida (a ejecutar cuando haya tiempo)
 - **Action Item 5**: Mover `extract_f101_oficial.py`, `extract_f103_oficial.py`,
-  `extract_f104_oficial.py` desde la raíz del repo a `scripts/extractors/` con
-  docstring explicando cuándo correrlos. Razón: hoy contaminan el root y un
-  developer nuevo no sabe que son one-shot tools, no parte del runtime.
-- **Tests legacy fallando** (6 fallos pre-existentes, NO bloquean ICT). Lista
-  actualizada y verificada el 2026-08-05 (el PR de operadores renombró dos y
-  agregó uno; la nota anterior listaba 5 con nombres viejos):
-  `test_chat.py::test_conversation_with_cross_org_project_rejected`,
-  `test_context.py::test_operator_can_create_clients`,
-  `test_context.py::test_admin_creates_client_and_project_and_user_is_scoped`,
-  `test_context.py::test_operator_can_set_same_org_but_not_cross_org_project_active`,
-  `test_context.py::test_cross_org_isolation`,
-  `test_sandbox.py::test_make_rlimit_preexec_optin`.
-  **Diagnóstico:** los 5 primeros son de AISLAMIENTO, no de lógica: pasan al
-  ejecutarlos solos y fallan al correr la suite completa, con
-  `sqlalchemy.exc.IntegrityError` por estado compartido en la base SQLite de
-  desarrollo. `test_sandbox` sí falla también en aislamiento.
-  Investigar y arreglar antes de cualquier release a producción de esos módulos.
+  `extract_f104_oficial.py` a `scripts/extractors/` con docstring explicando cuándo correrlos. **Verificado el
+  2026-09-27: esos archivos NO están en el repositorio** (viven en el equipo del dueño). Cuando se suban, van
+  directamente a `scripts/extractors/`, no a la raíz.
+- **Tests legacy: RESUELTOS (verificado el 2026-09-27).** Los 6 que figuraban como fallos pre-existentes
+  (`test_chat.py::test_conversation_with_cross_org_project_rejected`, los 4 de `test_context.py` y
+  `test_sandbox.py::test_make_rlimit_preexec_optin`) pasan solos y en la suite completa: `python -m pytest tests/`
+  → 2400 pasan, 38 omitidas, 0 fallos (local y en GitHub). El aislamiento lo resolvió la base de pruebas propia
+  (sección «La suite NUNCA corre contra la base de desarrollo») y el de sandbox era propio de Windows (tiene su
+  `skipif`). La suite completa ya no necesita `--deselect`.
 - **API keys pendientes de rotar**: revocar en el panel de Render la API key que
   estuvo escrita en este archivo (retirada del texto el 2026-09-24; sigue en el
   historial de git, por eso hay que revocarla) y configurar Resend email API key.
