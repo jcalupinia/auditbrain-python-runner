@@ -9,6 +9,7 @@ import {
   detalleRequerimiento,
   erroresLegibles,
   estadoTributario,
+  filasConvertidas,
   formulasLegibles,
   herramientaDePrueba,
   marcoAplicable,
@@ -97,11 +98,14 @@ function descargar(nombre, contenido, tipo) {
 const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const mostrar = (v) => (v && typeof v === "object" ? String(v.v ?? v.n ?? "") : String(v ?? ""));
 
-function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, processor, onModelo }) {
+function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, processor, onModelo, onConvertir }) {
   const input = useRef(null);
+  const convertInput = useRef(null);
   const [parte, setParte] = useState(req.components?.[0] || "");
   const [error, setError] = useState("");
   const [subiendo, setSubiendo] = useState(false);
+  const [convirtiendo, setConvirtiendo] = useState(false);
+  const [aviso, setAviso] = useState("");
   const completo = cobertura?.complete;
   const n = (prueba.archivos || []).filter((a) => a.requerimiento === req.id && a.estado !== "rechazado").length;
   // Flecha para bajar el FORMATO VÁLIDO: un ejemplo lleno del manifiesto, o el
@@ -134,6 +138,27 @@ function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, processor
     }
     setError(fallos.join(" · "));
     setSubiendo(false);
+  }
+
+  async function convertir(e) {
+    const archivo = (e.target.files || [])[0];
+    e.target.value = "";
+    if (!archivo) return;
+    setConvirtiendo(true);
+    setError("");
+    setAviso("");
+    try {
+      const faltan = await onConvertir(req, archivo);
+      setAviso(
+        faltan?.length
+          ? `Convertido y descargado. Columnas no reconocidas: ${faltan.join(", ")} — complételas a mano en el archivo.`
+          : "Convertido al formato de la herramienta y descargado. Revíselo y súbalo aquí.",
+      );
+    } catch (err) {
+      setError(err.message || String(err));
+    } finally {
+      setConvirtiendo(false);
+    }
   }
 
   return (
@@ -190,6 +215,22 @@ function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, processor
           )}
         </small>
       )}
+      {req.dataset && onConvertir && (
+        <small className="nf-doc-formatos">
+          <button
+            type="button"
+            className="link nf-doc-ejemplo"
+            disabled={convirtiendo}
+            title="Suba el Excel tal como lo maneja la compañía y descárguelo en el formato que pide este anexo"
+            onClick={() => convertInput.current?.click()}
+            data-convertir={req.id}
+          >
+            {convirtiendo ? "Convirtiendo…" : "⇄ Convertir mi formato"}
+          </button>
+          <input ref={convertInput} type="file" accept=".xlsx,.csv" hidden onChange={convertir} />
+        </small>
+      )}
+      {aviso && <small className="muted">{aviso}</small>}
       {error && <small className="nf-error">{error}</small>}
     </span>
   );
@@ -534,6 +575,29 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
     }
   }
 
+  // «Convertir mi formato»: el auditor sube el Excel tal como lo tiene la
+  // compañía y se descarga en el formato que pide este anexo. Reconoce las
+  // columnas por alias (mejorEncabezado) y escribe la hoja «Datos» con las
+  // etiquetas de la herramienta. Devuelve las columnas obligatorias que no se
+  // reconocieron, para completarlas a mano. Todo en el navegador; no toca el motor.
+  async function convertirFormato(req, archivo) {
+    const [, , files] = sitio || (await cargarSitio());
+    const tipo = d.tipos?.[req.dataset] || req.dataset;
+    const campos = (d.campos && d.campos[tipo]) || d.fields;
+    const bytes = new Uint8Array(await archivo.arrayBuffer());
+    const { sheets } = files.readSpreadsheet(bytes, archivo.name);
+    const { columnas, filas, faltan } = filasConvertidas(sheets, campos);
+    if (!filas.length)
+      throw new Error("No se reconocieron filas de datos. Verifique que el archivo tenga una fila de encabezados y datos debajo.");
+    const { default: ExcelJS } = await import("exceljs");
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Datos");
+    ws.addRow(columnas);
+    filas.forEach((f) => ws.addRow(f));
+    descargar(`Convertido_${req.id}.xlsx`, await wb.xlsx.writeBuffer(), XLSX);
+    return faltan;
+  }
+
   // «Editar datos» y «Encerar» abren su panel de abajo, que pide las
   // confirmaciones del sitio (alcance del cambio; nombre del cliente).
   function abrir(id) {
@@ -638,7 +702,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
           <div className="pc-scenarios nf-vista-subir">
             <span className="pc-scenarios-l" style={{ color: "var(--accent)" }}>SUBIR DOCUMENTOS</span>
             {(reg.requests || []).map((r) => (
-              <ChipDocumento key={r.id} prueba={prueba} req={r} cobertura={cobertura[r.id]} onSubido={onRecargar} habilitado={CON_SUBIDA.includes(prueba.estado) && !bloqueado} processor={d.processor} onModelo={bajarModelo} />
+              <ChipDocumento key={r.id} prueba={prueba} req={r} cobertura={cobertura[r.id]} onSubido={onRecargar} habilitado={CON_SUBIDA.includes(prueba.estado) && !bloqueado} processor={d.processor} onModelo={bajarModelo} onConvertir={convertirFormato} />
             ))}
           </div>
           {calculo.length > 0 && (
