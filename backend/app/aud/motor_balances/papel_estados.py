@@ -314,3 +314,102 @@ def generar_html_estados(analisis: dict) -> str:
 {secciones}
 <div class="disc">Papel de trabajo generado por AUDIT-IA. Las cifras deben ser validadas por el auditor responsable.</div>
 </div></body></html>"""
+
+
+# --- Word / PowerPoint ------------------------------------------------------
+def _estructura_estados(analisis: dict) -> dict:
+    ratios = analisis.get("ratios", {})
+    cols_r = [("Ratio", "txt")] + [(p, "num") for p in ratios.get("periodos", [])]
+    filas_r = []
+    for f in ratios.get("filas", []):
+        vals = [(_pct(v) if f["formato"] == "pct" else (f"{float(v):.2f}" if v is not None else "—"))
+                for v in f["valores"]]
+        filas_r.append([f["nombre"]] + vals)
+
+    def _bloque(det, titulo):
+        periodos = det.get("periodos", [])
+        cols = [("Código", "txt"), ("Rubro", "txt")] + [(p, "num") for p in periodos] + \
+               [("Variación", "num"), ("Var %", "num"), ("Vertical %", "num")]
+        filas = []
+        for l in det.get("lineas", []):
+            cells = [l["codigo"], l["etiqueta"]] + [_money(v) for v in l["valores"]]
+            cells += [_money(l.get("variacion")) if l.get("variacion") is not None else "—",
+                      _pct(l.get("variacion_pct")), _pct(l.get("vertical", [None])[-1])]
+            filas.append(cells)
+        return {"titulo": titulo, "columnas": cols, "filas": filas}
+
+    bloques = [{"titulo": "Ratios financieros", "columnas": cols_r, "filas": filas_r},
+               _bloque(analisis["esf"], "Estado de Situación Financiera"),
+               _bloque(analisis["eri"], "Estado de Resultados Integral")]
+    exp = analisis.get("expectativa_esf", {})
+    if exp.get("aplicable"):
+        cols_e = [("Código", "txt"), ("Rubro", "txt"), ("Expectativa", "num"), ("Real", "num"),
+                  ("Diferencia", "num"), ("Dif %", "num"), ("¿Explicar?", "txt")]
+        filas_e = [[l["codigo"], l["etiqueta"], _money(l["expectativa"]), _money(l["real"]),
+                    _money(l["diferencia"]), _pct(l["diferencia_pct"]),
+                    "Explicar" if l["supera_umbral"] else ""] for l in exp.get("lineas", [])]
+        bloques.append({"titulo": "Expectativa vs. real — NIA 520", "columnas": cols_e, "filas": filas_e})
+    return {"titulo": "Papel de trabajo — Estados financieros",
+            "subtitulo": "Análisis NIA 315 / NIA 520", "bloques": bloques}
+
+
+def generar_office_estados(analisis: dict, formato: str) -> bytes:
+    """`docx` o `pptx` del análisis de estados financieros."""
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Pt as DPt, RGBColor as DColor
+    from pptx import Presentation
+    from pptx.dml.color import RGBColor as PColor
+    from pptx.util import Inches, Pt as PPt
+
+    est = _estructura_estados(analisis)
+    if formato == "docx":
+        doc = Document()
+        doc.add_heading(est["titulo"], level=0)
+        p = doc.add_paragraph(est["subtitulo"])
+        if p.runs:
+            p.runs[0].font.size = DPt(9)
+        doc.add_paragraph("AuditConsulting Auditores Cía. Ltda. · AUDIT-IA").runs[0].font.color.rgb = DColor(0x6B, 0x72, 0x80)
+        for b in est["bloques"]:
+            doc.add_heading(b["titulo"], level=1)
+            tipos = [t for _, t in b["columnas"]]
+            tabla = doc.add_table(rows=1, cols=len(b["columnas"]))
+            tabla.style = "Light Grid Accent 1"
+            for j, (nombre, _) in enumerate(b["columnas"]):
+                run = tabla.rows[0].cells[j].paragraphs[0].add_run(str(nombre)); run.bold = True; run.font.size = DPt(8)
+            for fila in b["filas"]:
+                celdas = tabla.add_row().cells
+                for j, v in enumerate(fila):
+                    par = celdas[j].paragraphs[0]
+                    par.add_run("" if v is None else str(v)).font.size = DPt(8)
+                    if tipos[j] == "num":
+                        par.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        buf = io.BytesIO(); doc.save(buf); return buf.getvalue()
+
+    prs = Presentation(); prs.slide_width = Inches(13.33); prs.slide_height = Inches(7.5)
+    blank = prs.slide_layouts[6]
+    s = prs.slides.add_slide(blank)
+    caja = s.shapes.add_textbox(Inches(0.8), Inches(2.8), Inches(11.7), Inches(1.8)).text_frame
+    caja.text = est["titulo"]; caja.paragraphs[0].runs[0].font.size = PPt(32)
+    caja.paragraphs[0].runs[0].font.color.rgb = PColor(0x0A, 0x23, 0x42)
+    sp = caja.add_paragraph(); sp.text = est["subtitulo"] + " · AUDIT-IA"
+    sp.runs[0].font.size = PPt(14); sp.runs[0].font.color.rgb = PColor(0xC7, 0xA8, 0x3C)
+    for b in est["bloques"]:
+        s = prs.slides.add_slide(blank)
+        t = s.shapes.add_textbox(Inches(0.6), Inches(0.3), Inches(12), Inches(0.7)).text_frame
+        t.text = b["titulo"]; t.paragraphs[0].runs[0].font.size = PPt(22)
+        t.paragraphs[0].runs[0].font.color.rgb = PColor(0x0A, 0x23, 0x42)
+        filas = b["filas"][:12]
+        n = len(filas) + 1
+        tabla = s.shapes.add_table(n, len(b["columnas"]), Inches(0.6), Inches(1.2),
+                                   Inches(12.1), Inches(0.3) * n).table
+        for j, (nombre, _) in enumerate(b["columnas"]):
+            tabla.cell(0, j).text = str(nombre)
+            tabla.cell(0, j).text_frame.paragraphs[0].runs[0].font.size = PPt(9)
+        for i, fila in enumerate(filas, start=1):
+            for j, v in enumerate(fila):
+                tabla.cell(i, j).text = "" if v is None else str(v)
+                for par in tabla.cell(i, j).text_frame.paragraphs:
+                    for run in par.runs:
+                        run.font.size = PPt(8)
+    buf = io.BytesIO(); prs.save(buf); return buf.getvalue()

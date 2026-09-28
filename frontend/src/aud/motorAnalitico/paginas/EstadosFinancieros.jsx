@@ -37,14 +37,14 @@ export default function EstadosFinancieros({ ir }) {
     }
   };
 
-  const descargarPapel = async () => {
+  const descargarPapel = async (formato = "xlsx") => {
     if (!esf || !eri) return;
     setDescargando(true); setErrorMsg("");
     try {
-      const blob = await motorBalancesAnalisisPapel(esf, eri);
+      const blob = await motorBalancesAnalisisPapel(esf, eri, 0.1, formato);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url; a.download = "papel-estados-financieros.xlsx"; a.click();
+      a.href = url; a.download = `papel-estados-financieros.${formato}`; a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
       setErrorMsg(e?.message || "No se pudo generar el papel de trabajo.");
@@ -111,10 +111,12 @@ export default function EstadosFinancieros({ ir }) {
           <section className="ma-estados-bloque">
             <div className="ma-estados-titulo-fila">
               <h3>Ratios financieros</h3>
-              <button className="ma-boton accent" disabled={descargando} onClick={descargarPapel}>
-                {descargando ? "Generando…" : "Descargar papel (Excel)"}
+              <button className="ma-boton accent" disabled={descargando} onClick={() => descargarPapel("xlsx")}>
+                {descargando ? "Generando…" : "Papel (Excel)"}
               </button>
-              <button className="ma-boton" onClick={abrirHtml}>Abrir HTML / PDF</button>
+              <button className="ma-boton" onClick={abrirHtml}>HTML / PDF</button>
+              <button className="ma-boton" disabled={descargando} onClick={() => descargarPapel("docx")}>Word</button>
+              <button className="ma-boton" disabled={descargando} onClick={() => descargarPapel("pptx")}>PPT</button>
             </div>
             <div className="ma-tabla-wrap">
               <table className="ma-tabla">

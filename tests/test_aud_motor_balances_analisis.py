@@ -86,3 +86,13 @@ def test_html_estados_autonomo():
     assert "data:application/vnd.openxmlformats" in h
     assert "window.print()" in h
     assert "NIA 520" in h
+
+
+def test_office_estados_docx_pptx_abren():
+    import io as _io
+    from docx import Document
+    from pptx import Presentation
+    from backend.app.aud.motor_balances.papel_estados import generar_office_estados
+    res = an.analizar(_homologado())
+    Document(_io.BytesIO(generar_office_estados(res, "docx")))
+    Presentation(_io.BytesIO(generar_office_estados(res, "pptx")))

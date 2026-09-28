@@ -89,15 +89,15 @@ export default function Muestreo({ ir, cliente, disponible }) {
     }
   };
 
-  const descargarPapel = async () => {
+  const descargarPapel = async (formato = "xlsx") => {
     setErrorMsg("");
     setDescargando(true);
     try {
-      const blob = await cliente.papelMuestreo(archivo, metodo, parametros());
+      const blob = await cliente.papelMuestreo(archivo, metodo, parametros(), formato);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `papel-muestreo-${metodo}.xlsx`;
+      a.download = `papel-muestreo-${metodo}.${formato}`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -239,10 +239,12 @@ export default function Muestreo({ ir, cliente, disponible }) {
           <section aria-label="Método aplicado" className="ma-tarjeta ma-muestras-seccion">
             <div className="ma-muestras-titulo-fila">
               <h3>Bloque metodológico</h3>
-              <button type="button" className="ma-boton accent" disabled={descargando} onClick={descargarPapel}>
-                {descargando ? "Generando…" : "Descargar papel (Excel)"}
+              <button type="button" className="ma-boton accent" disabled={descargando} onClick={() => descargarPapel("xlsx")}>
+                {descargando ? "Generando…" : "Papel (Excel)"}
               </button>
-              <button type="button" className="ma-boton" onClick={abrirHtml}>Abrir HTML / PDF</button>
+              <button type="button" className="ma-boton" onClick={abrirHtml}>HTML / PDF</button>
+              <button type="button" className="ma-boton" disabled={descargando} onClick={() => descargarPapel("docx")}>Word</button>
+              <button type="button" className="ma-boton" disabled={descargando} onClick={() => descargarPapel("pptx")}>PPT</button>
             </div>
             <div className="ma-muestras-demo">
               {ORDEN_RESUMEN.filter(([k]) => resumen[k] !== undefined).map(([k, etiqueta]) => (

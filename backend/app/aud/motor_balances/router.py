@@ -9,12 +9,16 @@ from backend.app.auth.deps import require_staff
 from backend.app.auth.models import User
 from backend.app.aud.motor_balances import analisis as analisis_estados
 from backend.app.aud.motor_balances.papel_estados import (
-    generar_html_estados, generar_papel_estados,
+    generar_html_estados, generar_office_estados, generar_papel_estados,
 )
 from backend.app.client_portal.flujo import catalogos, motor_balances
 
 router = APIRouter(prefix="/aud/motor-balances", tags=["aud-motor-balances"])
 _XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_OFFICE = {
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+}
 
 
 @router.post("/homologar")
@@ -70,6 +74,9 @@ def analisis_papel(body: AnalisisBody, formato: str = "xlsx",
     res = _analisis(body)
     if formato == "html":
         return Response(generar_html_estados(res), media_type="text/html; charset=utf-8")
+    if formato in ("docx", "pptx"):
+        return Response(generar_office_estados(res, formato), media_type=_OFFICE[formato], headers={
+            "Content-Disposition": f'attachment; filename="papel-estados-financieros.{formato}"'})
     return Response(generar_papel_estados(res), media_type=_XLSX, headers={
         "Content-Disposition": 'attachment; filename="papel-estados-financieros.xlsx"'})
 

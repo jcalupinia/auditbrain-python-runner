@@ -118,8 +118,8 @@ export function crearCliente({
     // Papel de trabajo del módulo "Bases de datos": el motor arma el .xlsx
     // (hoja EXCEPCIONES + resúmenes con fórmulas + sello) desde el mismo
     // trabajo, sin volver a subir los datos.
-    papelBases: (id) =>
-      llamar("leer", `/trabajos/${encodeURIComponent(id)}/papel`, {}, { blob: true }),
+    papelBases: (id, formato = "xlsx") =>
+      llamar("leer", `/trabajos/${encodeURIComponent(id)}/papel?formato=${formato}`, {}, { blob: true }),
     papelBasesHtml: (id) =>
       llamar("leer", `/trabajos/${encodeURIComponent(id)}/papel?formato=html`, {}, { blob: true }),
     // Selección de muestras (NIA 530): sube el mayor y aplica un método.

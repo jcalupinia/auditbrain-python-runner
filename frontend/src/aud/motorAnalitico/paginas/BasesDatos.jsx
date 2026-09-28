@@ -194,16 +194,16 @@ export default function BasesDatos({ ir, cliente, disponible }) {
     }
   };
 
-  const descargarPapel = async () => {
+  const descargarPapel = async (formato = "xlsx") => {
     if (!trabajo?.id) return;
     setErrorMsg("");
     setDescargando(true);
     try {
-      const blob = await cliente.papelBases(trabajo.id);
+      const blob = await cliente.papelBases(trabajo.id, formato);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `papel-bases-datos-${trabajo.id}.xlsx`;
+      a.download = `papel-bases-datos-${trabajo.id}.${formato}`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -301,12 +301,12 @@ export default function BasesDatos({ ir, cliente, disponible }) {
             ))}
             <div className="ma-tarjeta"><span>Total</span><strong>{trabajo.total}</strong></div>
             <button className="ma-boton accent ma-bases-papel" disabled={descargando}
-                    onClick={descargarPapel}>
-              {descargando ? "Generando…" : "Descargar papel (Excel)"}
+                    onClick={() => descargarPapel("xlsx")}>
+              {descargando ? "Generando…" : "Papel (Excel)"}
             </button>
-            <button className="ma-boton ma-bases-papel" onClick={abrirHtml}>
-              Abrir HTML / PDF
-            </button>
+            <button className="ma-boton ma-bases-papel" onClick={abrirHtml}>HTML / PDF</button>
+            <button className="ma-boton ma-bases-papel" disabled={descargando} onClick={() => descargarPapel("docx")}>Word</button>
+            <button className="ma-boton ma-bases-papel" disabled={descargando} onClick={() => descargarPapel("pptx")}>PPT</button>
           </div>
 
           <nav className="ma-bases-tabs" aria-label="Bases del motor">
