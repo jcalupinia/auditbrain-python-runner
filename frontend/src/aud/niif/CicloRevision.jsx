@@ -268,7 +268,18 @@ function EncerarEliminar({ prueba, onAccion, ocupado }) {
   const [cliente, setCliente] = useState("");
   const [conserva, setConserva] = useState(false);
   const [definitivo, setDefinitivo] = useState(false);
-  const [aprobada, setAprobada] = useState(false);
+  if (prueba.estado === "APROBADO") {
+    // NIA 230: la versión aprobada es evidencia del encargo; el servidor tampoco la deja reiniciar ni eliminar.
+    return (
+      <details id={`encerar-${prueba.id}`}>
+        <summary>Encerar o eliminar</summary>
+        <p className="muted">
+          Esta versión está aprobada y es evidencia del encargo (NIA 230): no se reinicia ni se elimina. Si hay que
+          corregirla, cree una nueva versión.
+        </p>
+      </details>
+    );
+  }
   return (
     <details id={`encerar-${prueba.id}`}>
       <summary>Encerar o eliminar</summary>
@@ -289,16 +300,31 @@ function EncerarEliminar({ prueba, onAccion, ocupado }) {
         <label className="nf-ctx-check">
           <input type="checkbox" checked={definitivo} onChange={(e) => setDefinitivo(e.target.checked)} /> La eliminación es definitiva
         </label>
-        {prueba.estado === "APROBADO" && (
-          <label className="nf-ctx-check">
-            <input type="checkbox" checked={aprobada} onChange={(e) => setAprobada(e.target.checked)} /> Es una versión aprobada y aun así la elimino
-          </label>
-        )}
-        <button type="button" className="btn sm" disabled={ocupado} onClick={() => onAccion("delete", { confirmClient: cliente, deleteConfirmed: definitivo, approvedConfirmed: aprobada })}>
+        <button type="button" className="btn sm" disabled={ocupado} onClick={() => onAccion("delete", { confirmClient: cliente, deleteConfirmed: definitivo })}>
           Eliminar
         </button>
       </div>
     </details>
+  );
+}
+
+// M1 (NIA 230): la versión nueva exige su motivo; queda con su autor y fecha en la bitácora y, si la fecha del informe ya
+// pasó, se marca como cambio posterior al informe.
+function NuevaVersion({ onAccion, ocupado }) {
+  const [motivo, setMotivo] = useState("");
+  return (
+    <div className="nf-rec-item">
+      <label className="nf-ctx-field">
+        Motivo de la nueva versión (qué cambia y por qué)
+        <textarea rows={2} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+      </label>
+      <div className="nf-estudio-botones">
+        <button type="button" className="btn sm" disabled={ocupado || motivo.trim().length < 10}
+          onClick={() => onAccion("new_version", { motivo })}>
+          Crear nueva versión
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -321,11 +347,7 @@ export function Revision({ prueba, onAccion, onRecargar, ocupado }) {
           {prueba.sucesora ? (
             <p className="muted">Esta versión ya tiene una versión sucesora (prueba {prueba.sucesora}).</p>
           ) : (
-            <div className="nf-estudio-botones">
-              <button type="button" className="btn sm" disabled={ocupado} onClick={() => onAccion("new_version")}>
-                Crear nueva versión
-              </button>
-            </div>
+            <NuevaVersion onAccion={onAccion} ocupado={ocupado} />
           )}
         </>
       )}

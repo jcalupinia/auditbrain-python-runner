@@ -392,3 +392,21 @@ a.btn { text-decoration: none; display: inline-block; }
   .nf-doc-formatos .nf-doc-ejemplo:hover,
   .nf-doc-formatos .nf-doc-ejemplo:active { transform: none; }
 }
+
+/* Registro del encargo (RegistroEncargo.jsx): filas compactas, botones a la altura del campo. */
+.nf-registro-encargo .nf-rec-row { align-items: flex-end; justify-content: flex-start; flex-wrap: wrap; gap: 10px; }
+.nf-registro-encargo .nf-rec-row > .btn { align-self: flex-end; height: auto; min-height: 0; }
+.nf-registro-encargo textarea { min-height: 3.4em; height: 3.4em; resize: vertical; }
+.nf-registro-encargo .nf-rec-item { display: flex; flex-direction: column; gap: 8px; }
+.nf-registro-encargo .nf-rec-item > .btn { align-self: flex-start; }
+.nf-registro-encargo h5 { margin: 0; }
+.nf-registro-encargo li .link { display: inline; width: auto; min-height: 0; margin-left: 10px; padding: 0; border: 0; background: none; }
+/* Enfoque por ciclo: una fila por ciclo (nombre, decisión, motivo y botón). */
+.nf-registro-encargo .nf-enfoque-ciclo { flex-wrap: nowrap; align-items: center; }
+.nf-registro-encargo .nf-enfoque-ciclo > span { flex: 0 0 34%; }
+.nf-registro-encargo .nf-enfoque-ciclo > select { flex: 0 0 190px; width: 190px; }
+.nf-registro-encargo .nf-enfoque-ciclo > input { flex: 1 1 auto; width: auto; min-width: 0; }
+@media (max-width: 700px) {
+  .nf-registro-encargo .nf-enfoque-ciclo { flex-wrap: wrap; }
+  .nf-registro-encargo .nf-enfoque-ciclo > span { flex-basis: 100%; }
+}

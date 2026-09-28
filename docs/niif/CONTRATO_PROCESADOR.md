@@ -92,7 +92,7 @@ REF_PROBLEMAS = {...}          # de qué celda sale el importe de cada problema
 - La hoja de problemas tiene exactamente las columnas `Código`, `Descripción`, `Importe`.
 - Nombres y secciones de la portada: `D1_…` → «Datos del cliente»; la primera hoja `[t, n]` (Resumen), la de
   problemas, `…Asiento…`/`…Ajuste…` → «Resultado»; el resto → «Cómo se calculó».
-- **No crees** `00_Caratula`, `00_Programa`, `00_Fuentes`, `13_Conclusion` ni `14_Control_Revision`: las agrega
+- **No crees** `00_Caratula`, `00_Programa`, `00_Fuentes`, `99_Conclusion` ni `99_Control_Revision`: las agrega
   `libro.cedulas()` desde la definición y el registro del encargo.
 
 ### `definicion()`
@@ -104,6 +104,17 @@ exigencia), `calculo` (pasos en lenguaje contable), `fields` (= CAMPOS del princ
 `tramos` (solo si hay tasas por tramo), `cedulas`, `program` (≥5 procedimientos con code/objective/risk/assertion/
 procedure/evidence/criterion/source) y `requests` (con `req()`: uno por anexo de cálculo + los de soporte).
 Códigos de programa y requerimientos: `<PREFIJO>-01…`, `RQ-001…`.
+El `objective` de cada procedimiento se muestra en la tarjeta de la herramienta (Auditoría externa · Análisis, «Qué se
+prueba»; `servicio.pruebas_de`): escríbalo corto y en lenguaje del auditor (p. ej. «Depreciación», «Deterioro»,
+«Desmantelamiento»); los códigos de requisito entre paréntesis al final no se muestran.
+Opcional: `firmas` = lista de cédulas clave (nombres de hoja). El libro agrega la hoja `00_Firmas` con quién preparó
+(envió a revisión) y quién revisó (aprobó) cada una, con fecha, tomados de la bitácora del ciclo, y advierte si es la
+misma persona (NIA 230 y 220). La usa la planificación (`planificacion_nia`).
+Opcional: `USA_REGISTROS_ENCARGO = True` (constante del módulo). Al ejecutar, la plataforma entrega en
+`parametros["_encargo"]` los registros hechos con un clic (independencia, asistencia a la discusión, aceptación, carta de
+encargo firmada, comunicación al gobierno; `ciclo/servicio.py::registros_encargo`). El procesador no pide plantillas al
+equipo: lo que no está en los documentos del cliente sale de esos registros, y lo que falta queda «Pendiente». La usa la
+planificación.
 
 ### `EJEMPLO` (ejercicio modelo, M19)
 Datos ficticios realistas (8–20 filas por anexo) que **ejerciten todas las cédulas y al menos dos problemas**.
@@ -141,8 +152,8 @@ valor de Python va con los del Ecuador (`planificacion_nia._num`: 1.053.600,00).
 
 ### Colores por nivel (`colores` en `base.hoja()`)
 Lista de columnas cuyo valor es un nivel, severidad, semáforo o estado (`colores=["Nivel"]`). Cada celda se pinta según
-`base.NIVEL_COLOR` (Significativo, Alto/Crítico/Rojo, Medio/Revisar/Amarillo, Bajo/Conforme/Verde, Pendiente/No
-evaluado; también «Rojo · …» por la primera palabra) con los tonos de `base.ROL_COLOR`. En el Excel es **formato
+`base.NIVEL_COLOR` (Significativo, Alto/Crítico/Rojo/Alerta, Medio/Revisar/Amarillo/Comunicar/Candidato,
+Bajo/Conforme/Verde/Documentado, Pendiente/No evaluado/No aplica; también «Rojo · …» por la primera palabra) con los tonos de `base.ROL_COLOR`. En el Excel es **formato
 condicional** (el color sigue a la fórmula si el auditor cambia una calificación o un parámetro); en el HTML, una
 etiqueta de color; en Word y PowerPoint, la celda sombreada. Son colores de estado: nunca se usan en los gráficos.
 

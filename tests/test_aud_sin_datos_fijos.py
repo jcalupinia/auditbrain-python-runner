@@ -79,7 +79,7 @@ def test_mapeo_equivocado_no_cambia_la_cifra():
 
 def test_conclusion_sin_none_cuando_aun_no_hay_conciliacion():
     wb = _libro("perdidas_incurridas_s11")
-    texto = " ".join(str(c.value) for r in wb["13_Conclusion"].iter_rows() for c in r if c.value)
+    texto = " ".join(str(c.value) for r in wb["99_Conclusion"].iter_rows() for c in r if c.value)
     assert "None" not in texto and "Pendiente" in texto
 
 

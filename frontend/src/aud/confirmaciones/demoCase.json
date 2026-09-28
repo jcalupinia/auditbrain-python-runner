@@ -1,0 +1,43 @@
+{
+  "context": {
+    "client": "LANSEY S.A.",
+    "client_ruc": "1790011110001",
+    "country": "Ecuador",
+    "currency": "USD",
+    "year": 2026,
+    "cutoff": "2026-08-31",
+    "visit": "Final",
+    "preparer": "J. Pérez",
+    "reviewer": "M. Torres",
+    "firm": "audit_consulting",
+    "signatory": "PACINI DE LA ROSA ORLANDO ALBERTO",
+    "signatory_role": "GERENTE",
+    "auditor_email": "atrujillo@auditconsulting.ec",
+    "auditor_address": "Juan Pablo Sanz N35-143 e Iñaquito, Edificio Capitalina, tercer piso oficina 305, Quito - Ecuador",
+    "auditor_phone": "500-7416",
+    "response_deadline": "2026-09-30",
+    "request_round": "primera",
+    "language": "es",
+    "place": "Quito",
+    "letter_date": "2026-09-21",
+    "period_start": "2026-01-01"
+  },
+  "defaults": {},
+  "items": [
+    {"id": "B-01", "type": "bancos", "entity": "BANCO PICHINCHA C.A.", "contact_email": "confirmaciones@pichincha.com", "amount": "14934.28"},
+    {"id": "B-02", "type": "bancos", "entity": "BANCO PRODUBANCO S.A.", "contact_email": "confirma@produbanco.com", "amount": "59138.53"},
+    {"id": "B-03", "type": "bancos", "entity": "BANCO INTERNACIONAL S.A.", "contact_email": "confirma@bancointernacional.com", "amount": "75131.28"},
+    {"id": "C-01", "type": "cuentas_por_cobrar", "entity": "CORPORACION GLOVECAR S.A.S.", "contact_email": "cxc@glovecar.ec"},
+    {"id": "C-02", "type": "cuentas_por_cobrar", "entity": "GERARDO ORTIZ E HIJOS CIA. LTDA.", "contact_email": "cartera@gerardoortiz.ec"},
+    {"id": "P-01", "type": "proveedores", "entity": "CERESCOS S.A.", "contact_email": "cxp@cerescos.ec"},
+    {"id": "P-02", "type": "proveedores", "entity": "ENVAPRESS CIA. LTDA.", "contact_email": "cxp@envapress.ec"},
+    {"id": "R-01", "type": "relacionados", "entity": "RECAMIER S.A.", "contact_email": "tesoreria@recamier.com"},
+    {"id": "S-01", "type": "seguros", "entity": "EQUISUIZA SEGUROS S.A.", "contact_email": "polizas@equisuiza.ec", "account_ref": "POL-1201"},
+    {"id": "S-02", "type": "seguros", "entity": "SEGUROS EQUINOCCIAL S.A.", "contact_email": "polizas@equinoccial.ec", "account_ref": "POL-8890"},
+    {"id": "L-01", "type": "abogados", "entity": "Estudio Jurídico Vega & Asociados", "contact_email": "info@vega.legal", "notes": "Incluir el caso laboral 2025-114 y el reclamo tributario en curso."}
+  ],
+  "coverage": [
+    {"type": "bancos", "ledger_balance": "149204.09"}
+  ],
+  "tolerance": "0.01"
+}

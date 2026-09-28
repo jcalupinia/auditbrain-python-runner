@@ -56,6 +56,52 @@ def _seguro(v):
     return v
 
 
+def _segregacion(reg: dict) -> str:
+    """Quién envió a revisión frente a quién aprobó (NIA 220). Se permite aprobar el propio trabajo, pero se advierte."""
+    if not reg.get("approvedBy"):
+        return ""
+    if not reg.get("submittedBy"):
+        return "No registrada (aprobación anterior a este control)."
+    if reg.get("submittedBy") == reg.get("approvedBy"):
+        return "ADVERTENCIA: aprobó la misma persona que envió a revisión (sin segregación de funciones)."
+    return "Sí: aprobó una persona distinta de la que envió a revisión."
+
+
+FIRMA_PEND = "[PENDIENTE]"
+
+
+def _firmas(definicion: dict, reg: dict, eventos: list) -> dict | None:
+    """A4 (NIA 230): quién preparó (envió a revisión) y quién revisó (aprobó) cada cédula clave, con fecha, tomados de la
+    bitácora del ciclo. Solo si la herramienta declara ``firmas`` (lista de hojas clave)."""
+    claves = definicion.get("firmas") or []
+    if not claves:
+        return None
+    ev = list(eventos or [])
+    i_env = next((i for i in range(len(ev) - 1, -1, -1) if ev[i].get("accion") == "submit"), None)
+    envio = ev[i_env] if i_env is not None else {}
+    aprob = next((x for x in reversed(ev[(i_env or 0):]) if x.get("accion") == "approve"), {}) if i_env is not None else {}
+    prep = envio.get("actor") or reg.get("submittedBy") or ""
+    f_prep = (envio.get("fecha") or "")[:10]
+    revi = aprob.get("actor") or reg.get("approvedBy") or ""
+    f_rev = (aprob.get("fecha") or reg.get("approvedAt") or "")[:10]
+    if not prep:
+        estado_ = "Pendiente · no se ha enviado a revisión"
+    elif not revi:
+        estado_ = "Pendiente · en revisión"
+    elif prep == revi:
+        estado_ = "Revisar · aprobó quien preparó (sin segregación de funciones, NIA 220)"
+    else:
+        estado_ = "Conforme · revisada por una persona distinta de quien la preparó"
+    e = reg.get("engagement") or {}
+    etq = {n: t for n, t in definicion.get("cedulas") or []}
+    filas = [[f"{n} · {etq.get(n, '')}".strip(" ·"), e.get("preparer") or "", prep or FIRMA_PEND, f_prep or None,
+              e.get("reviewer") or "", revi or FIRMA_PEND, f_rev or None, estado_] for n in claves]
+    return {"name": "00_Firmas", "label": "Firmas de las cédulas clave", "total": None, "colores": ["Estado"],
+            "cols": [["Cédula clave", "t"], ["Asignado para preparar", "t"], ["Preparó (envió a revisión)", "t"], ["Fecha", "d"],
+                     ["Asignado para revisar", "t"], ["Revisó (aprobó)", "t"], ["Fecha de revisión", "d"], ["Estado", "t"]],
+            "rows": filas}
+
+
 def _contexto(definicion: dict, reg: dict, eventos: list, version: int, estado: str) -> list[dict]:
     e = reg.get("engagement") or {}
     run = reg.get("run") or {}
@@ -64,7 +110,9 @@ def _contexto(definicion: dict, reg: dict, eventos: list, version: int, estado: 
         ["Ejercicio", e.get("year")], ["Fecha de corte", e.get("cutoff")], ["Marco contable", e.get("framework")],
         ["Herramienta", definicion.get("name")], ["Rubro", definicion.get("area")], ["Motor", run.get("engine")],
         ["Versión del papel", f"v{version}"], ["Estado", est.estado_es(estado)], ["Preparó", e.get("preparer")], ["Revisó", e.get("reviewer")],
+        ["Envió a revisión", reg.get("submittedBy") or ""],
         ["Aprobó", reg.get("approvedBy") or ""], ["Fecha de aprobación", (reg.get("approvedAt") or "")[:10]],
+        ["Segregación de funciones (NIA 220)", _segregacion(reg)],
         ["Huella de la ejecución (SHA-256)", reg.get("runHash") or ""],
     ]
     if reg.get("taxApplicable"):
@@ -89,8 +137,10 @@ def _contexto(definicion: dict, reg: dict, eventos: list, version: int, estado: 
         ["Evaluación de excepciones", reg.get("exceptionReview") or ""],
         ["Análisis", reg.get("analysis") or ""], ["Conclusión", reg.get("conclusion") or ""],
     ]
+    firmas = _firmas(definicion, reg, eventos)
     return [
         {"name": "00_Caratula", "label": "Carátula", "cols": [["Concepto", "t"], ["Detalle", "t"]], "rows": caratula, "total": None},
+        *([firmas] if firmas else []),
         {"name": "00_Programa", "label": "Programa", "total": None,
          "cols": [["Código", "t"], ["Objetivo", "t"], ["Afirmación", "t"], ["Procedimiento", "t"], ["Evidencia", "t"], ["Criterio", "t"], ["Referencia", "t"]],
          "rows": [[p.get("code"), p.get("objective"), p.get("assertion"), p.get("procedure"), p.get("evidence"), p.get("criterion"), p.get("reference")]
@@ -98,8 +148,8 @@ def _contexto(definicion: dict, reg: dict, eventos: list, version: int, estado: 
         {"name": "00_Fuentes", "label": "Base técnica", "total": None,
          "cols": [["Categoría", "t"], ["Documento", "t"], ["Párrafos", "t"], ["URL", "t"], ["Verificada", "t"]], "rows": fuentes},
     ], [
-        {"name": "13_Conclusion", "label": "Conclusión", "cols": [["Concepto", "t"], ["Detalle", "t"]], "rows": cierre, "total": None},
-        {"name": "14_Control_Revision", "label": "Control de revisión", "total": None,
+        {"name": HOJA_CONCLUSION, "label": "Conclusión", "cols": [["Concepto", "t"], ["Detalle", "t"]], "rows": cierre, "total": None},
+        {"name": HOJA_CONTROL, "label": "Control de revisión", "total": None,
          "cols": [["Fecha", "t"], ["Acción", "t"], ["Estado anterior", "t"], ["Estado nuevo", "t"], ["Actor", "t"], ["Comentario", "t"]],
          "rows": [[(x.get("fecha") or "")[:19].replace("T", " "), est.accion_es(x.get("accion")),
                    est.estado_es(x.get("estado_anterior")), est.estado_es(x.get("estado_nuevo")),
@@ -144,6 +194,9 @@ SECCIONES = [
     ("DOCUMENTACIÓN", "5B6472", BLANCO, "carátula, programa, base técnica, anexo técnico y control"),
 ]
 HOJA_DATOS_GRAFICOS = "00_Datos_graficos"
+# Cierre de toda prueba con procesador: van al final con el prefijo 99_ para no repetir el número de una cédula
+# del procesador (la planificación tiene 13_Riesgos y 14_Perfil; otras, 13_Conciliacion, 14_Censo_actuarial…).
+HOJA_CONCLUSION, HOJA_CONTROL = "99_Conclusion", "99_Control_Revision"
 HOJA_ANEXO = "00_Anexo_tecnico"
 
 
@@ -152,11 +205,11 @@ def _seccion(h: dict, es_resumen: bool = False) -> int:
     if "seccion" in h:           # la cédula declara su sección (pruebas declarativas)
         return h["seccion"]
     n = h.get("name", "")
-    if es_resumen or problemas.es_hoja_problemas(h) or n.startswith("13_") or re.search(r"Asiento|Ajuste", n):
+    if es_resumen or problemas.es_hoja_problemas(h) or n == HOJA_CONCLUSION or re.search(r"Asiento|Ajuste", n):
         return 0
-    if re.match(r"D\d_", n):
+    if re.match(r"D\d+_", n):
         return 2
-    if n.startswith(("00_", "14_")):
+    if n.startswith("00_") or n == HOJA_CONTROL:
         return 3
     return 1
 
@@ -191,7 +244,7 @@ def _grupos_nav(hojas, titulos, extra=()):
         grupos[sec].append((etq.replace("Datos del cliente · ", "") if sec == 2 else etq, t, h["name"]))
     for etq, t, sec in extra:
         grupos[sec].append((etq, t, t))
-    orden_res = lambda x: (0 if x[2][:3] in ("01_",) else 1 if "Problema" in x[0] else 3 if x[2].startswith("13_") else 2)  # noqa: E731
+    orden_res = lambda x: (0 if x[2][:3] in ("01_",) else 1 if "Problema" in x[0] else 3 if x[2] == HOJA_CONCLUSION else 2)  # noqa: E731
     grupos[0].sort(key=orden_res)
     return grupos
 

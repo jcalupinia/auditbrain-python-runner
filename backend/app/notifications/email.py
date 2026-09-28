@@ -25,18 +25,21 @@ def render_job_ready(*, client_name: str, tool_label: str, download_url: str) ->
     )
 
 
-def _post_to_resend(*, to: str, subject: str, html: str) -> dict:
+def _post_to_resend(*, to: str, subject: str, html: str, reply_to: str | None = None) -> dict:
     api_key = os.getenv("RESEND_API_KEY", "").strip()
     from_email = os.getenv("RESEND_FROM_EMAIL", "no-reply@auditconsulting.com").strip()
     if not api_key:
         raise RuntimeError("RESEND_API_KEY no configurado.")
+    payload = {"from": from_email, "to": [to], "subject": subject, "html": html}
+    if reply_to:
+        payload["reply_to"] = reply_to
     resp = requests.post(
         _RESEND_URL,
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         },
-        json={"from": from_email, "to": [to], "subject": subject, "html": html},
+        json=payload,
         timeout=15,
     )
     if resp.status_code >= 400:
@@ -45,12 +48,12 @@ def _post_to_resend(*, to: str, subject: str, html: str) -> dict:
 
 
 def send_email(
-    *, to: str, subject: str, html: str, max_retries: int = 3
+    *, to: str, subject: str, html: str, reply_to: str | None = None, max_retries: int = 3
 ) -> dict | None:
     delay = 1.0
     for attempt in range(1, max_retries + 1):
         try:
-            return _post_to_resend(to=to, subject=subject, html=html)
+            return _post_to_resend(to=to, subject=subject, html=html, reply_to=reply_to)
         except Exception as e:  # noqa: BLE001
             log.warning("send_email attempt %d/%d failed: %s", attempt, max_retries, e)
             if attempt < max_retries:

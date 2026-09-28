@@ -23,7 +23,7 @@ from backend.app.aud.niif.ciclo import almacen, datos, reglas
 # Dentro de aplicar_accion el parámetro `datos` (cuerpo de la acción) tapa al
 # módulo: ahí se usa este alias.
 from backend.app.aud.niif.ciclo import datos as datos_mod
-from backend.app.aud.niif.ciclo.models import FichaEncargo, Prueba, PruebaArchivo, PruebaEvento
+from backend.app.aud.niif.ciclo.models import FichaEncargo, Prueba, PruebaArchivo, PruebaEvento, RegistroEncargo
 from backend.app.aud.niif.requerimiento import check_upload
 from backend.app.aud.niif.ciclo.reglas import ReglaIncumplida
 from backend.app.aud.niif.models import NiifFicha
@@ -67,6 +67,17 @@ def guardar_ficha(db: Session, project_id: int, datos: dict, actor: str) -> dict
 
 # --- herramientas disponibles ------------------------------------------------
 
+def pruebas_de(definicion: dict) -> list[str]:
+    """Lo que prueba la herramienta, para su tarjeta en Auditoría externa · Análisis: el objetivo de cada procedimiento de
+    su programa (depreciación, deterioro, desmantelamiento…), sin los códigos de requisito entre paréntesis."""
+    out: list[str] = []
+    for p in definicion.get("program") or []:
+        t = re.sub(r"\s*\([^()]*\)\s*$", "", str((p or {}).get("objective") or "")).strip()
+        if t and t not in out:
+            out.append(t)
+    return out
+
+
 def herramientas_disponibles(db: Session) -> list[dict]:
     """Catálogo del sitio más las fichas NIIF con definición probada."""
     lista = [
@@ -82,7 +93,7 @@ def herramientas_disponibles(db: Session) -> list[dict]:
             # espera aprobación («probada»); `marcos` dice a qué marco sirve.
             lista.append({"origen": f"ficha:{f.id}", "nombre": f.nombre, "area": f.rubro, "tipo": "ficha NIIF",
                           "estado": f.estado, "marcos": f.definicion.get("frameworks") or [],
-                          "resumen": f.definicion.get("summary") or ""})
+                          "resumen": f.definicion.get("summary") or "", "pruebas": pruebas_de(f.definicion)})
     # Herramientas fabricadas directamente en el catálogo: cada procesador con RUBRO aparece en la
     # tarjeta de su rubro sin pasar por «Diseñar fichas» (decisión del dueño, 2026-09-22).
     for pid, mod in procesadores.PROCESADORES.items():
@@ -90,7 +101,7 @@ def herramientas_disponibles(db: Session) -> list[dict]:
             d = mod.definicion()
             lista.append({"origen": f"proc:{pid}", "nombre": d["name"], "area": mod.RUBRO, "tipo": "herramienta NIIF",
                           "estado": getattr(mod, "ESTADO", "probada"), "marcos": d.get("frameworks") or [],
-                          "resumen": d.get("summary") or ""})
+                          "resumen": d.get("summary") or "", "pruebas": pruebas_de(d)})
     return lista
 
 
@@ -463,6 +474,16 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                 # El marco y la edición del encargo enrutan el cálculo cuando la norma difiere (M02).
                 param["_marco"] = reg["engagement"].get("framework") or ""
                 param["_edicion"] = str(reg["engagement"].get("edition") or "")
+                if getattr(proc, "USA_REGISTROS_ENCARGO", False):
+                    # Independencia, aceptación, carta, discusión y comunicación registradas con un clic: se congelan en
+                    # esta ejecución (la hoja 00_Registros del papel es la evidencia; NIA 230).
+                    param["_encargo"] = registros_encargo(db, p.project_id)
+                    # M4 (NIA 300 párr. 10): cifras y riesgos de la versión anterior, para el comparativo de la hoja 42.
+                    anterior = version_anterior_run(db, p)
+                    if anterior:
+                        param["_anterior"] = anterior
+                    # Audit trail (NIA 230, hoja 23): nombre y huella SHA-256 de cada archivo del cliente que se usó.
+                    param["_archivos"] = archivos_de_entrada(db, p.id)
                 run = proc.ejecutar(reg.get("datasets") or {}, param, reg["engagement"]["cutoff"])
                 # La 3.ª edición de la NIIF para las PYMES rige desde el 1-1-2027: antes, solo con adopción anticipada.
                 if "PYMES" in param["_marco"] and param["_edicion"] == "2025" and str(reg["engagement"]["cutoff"]) < "2027-01-01":
@@ -556,9 +577,19 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         if (reg.get("run") or {}).get("exceptions") and len(reg["exceptionReview"]) < 10:
             raise ReglaIncumplida("Documente la evaluación de excepciones antes de cerrar.")
         reg["conclusionReviewed"] = True
+        # M3 (NIA 220): una consulta técnica o una diferencia de opinión abierta bloquea la aprobación de la planificación.
+        if getattr(procesadores.de(p.definicion), "USA_REGISTROS_ENCARGO", False) and consultas_abiertas(db, p.project_id):
+            raise ReglaIncumplida(CONSULTAS_BLOQUEAN)
         p.estado = reglas.transicion({**reg, "state": p.estado, "definition": p.definicion}, accion)
         reg["approvedBy"] = actor
         reg["approvedAt"] = _ahora_iso()
+        # NIA 220 (decisión del dueño, 2026-09-26): se permite aprobar el propio trabajo, pero queda advertido en el
+        # registro, en la bitácora y en la carátula del papel.
+        envio = next((e for e in reversed(eventos(db, p.id)) if e.accion == "submit"), None)
+        reg["submittedBy"] = envio.actor if envio else ""
+        reg["segregation"] = bool(envio) and envio.actor != actor
+        if envio and envio.actor == actor:
+            datos = {**datos, "comment": (SIN_SEGREGACION + " " + str(datos.get("comment") or "")).strip()}
         # El papel final (Excel y HTML) lo arma el navegador con el exportador
         # del sitio desde este registro ya aprobado y lo sube a guardar_papel().
         reg["artifacts"] = None
@@ -628,6 +659,13 @@ def archivos(db: Session, prueba_id: int) -> list[PruebaArchivo]:
     return list(db.execute(
         select(PruebaArchivo).where(PruebaArchivo.prueba_id == prueba_id).order_by(PruebaArchivo.id)
     ).scalars())
+
+
+def archivos_de_entrada(db: Session, prueba_id: int) -> list[dict]:
+    """Archivos del cliente vigentes (no rechazados) de la prueba, para el audit trail del papel."""
+    return [{"requerimiento": a.requerimiento, "nombre": a.nombre, "sha256": a.sha256, "tamano": a.tamano,
+             "subido_por": a.subido_por or "", "subido_en": a.subido_en.isoformat(timespec="seconds") if a.subido_en else ""}
+            for a in archivos(db, prueba_id) if a.clase == "source" and a.estado != "rechazado"]
 
 
 def subir_archivo(db: Session, p: Prueba, revision: int, requerimiento: str, componente: str,
@@ -784,10 +822,18 @@ def guardar_papel_declarativo(db: Session, p: Prueba, revision: int, carga: dict
     return guardar_papel(db, p, revision, a["xlsx"], a["html"], actor, docx=a["docx"], pptx=a["pptx"])
 
 
-def nueva_version(db: Session, old: Prueba, revision: int, actor: str) -> Prueba:
-    """Puerto de la acción ``new_version`` de route.ts."""
+MOTIVO_VERSION = "Indique el motivo de la nueva versión (NIA 230: qué cambia y por qué), con al menos 10 caracteres."
+POSTERIOR_INFORME = "Cambio posterior a la fecha del informe (NIA 230 párr. 16)"
+
+
+def nueva_version(db: Session, old: Prueba, revision: int, actor: str, motivo: str = "") -> Prueba:
+    """Puerto de la acción ``new_version`` de route.ts. M1 (NIA 230): exige el motivo, que queda con su autor y fecha en la
+    bitácora; si la fecha del informe ya pasó, la versión se marca como cambio posterior al informe."""
     if revision != old.revision:
         raise Conflicto("La prueba cambió mientras la editaba. Actualice y vuelva a intentarlo.")
+    motivo = str(motivo or "").strip()[:2000]
+    if len(motivo) < 10:
+        raise ReglaIncumplida(MOTIVO_VERSION)
     if old.estado != "APROBADO":
         raise ReglaIncumplida("Solo una versión aprobada origina una nueva versión.")
     if db.execute(select(Prueba.id).where(Prueba.parent_id == old.id)).first():
@@ -801,14 +847,26 @@ def nueva_version(db: Session, old: Prueba, revision: int, actor: str) -> Prueba
         "requests": [], "rows": [], "parameters": r.get("parameters") or {}, "notes": [], "analysis": "",
         "conclusion": "", "conclusionReviewed": False, "createdAt": _ahora_iso(), "createdBy": actor,
     }
+    fi = str((r.get("parameters") or {}).get("fechaInforme") or "")[:10]
+    posterior = bool(fi) and _hoy().isoformat() > fi
+    registro["versionMotivo"] = motivo
+    registro["posteriorInforme"] = posterior
     p = Prueba(project_id=old.project_id, parent_id=old.id, version=old.version + 1, estado="PRUEBA_SELECCIONADA",
                origen=old.origen, definicion=old.definicion, registro=registro, revision=1, creada_por=actor)
     db.add(p)
     db.flush()
-    _evento(db, p, "new_version", None, actor, f"Versión anterior: v{old.version} (prueba {old.id})")
+    _evento(db, p, "new_version", None, actor, f"Versión anterior: v{old.version} (prueba {old.id}). Motivo: {motivo}"
+            + (f" · {POSTERIOR_INFORME}" if posterior else ""))
     db.commit()
     db.refresh(p)
     return p
+
+
+# NIA 230: una versión aprobada es documentación del encargo. No se reinicia ni se elimina (con ella se irían el papel
+# aprobado con su huella y la bitácora); si hay que corregirla, se crea una versión nueva que deja constancia.
+APROBADA_NO_SE_TOCA = ("Esta versión está aprobada y es evidencia del encargo (NIA 230): no se reinicia ni se elimina. "
+                       "Si hay que corregirla, cree una nueva versión.")
+SIN_SEGREGACION = "Aprobado por quien lo envió a revisión: sin segregación de funciones (NIA 220)."
 
 
 def _confirma_cliente(p: Prueba, datos: dict) -> bool:
@@ -820,6 +878,8 @@ def encerar(db: Session, p: Prueba, revision: int, datos: dict, actor: str) -> P
     prueba queda en la lista, lista para empezar de nuevo."""
     if revision != p.revision:
         raise Conflicto("La prueba cambió mientras la editaba. Actualice y vuelva a intentarlo.")
+    if p.estado == "APROBADO":
+        raise ReglaIncumplida(APROBADA_NO_SE_TOCA)
     if not _confirma_cliente(p, datos) or datos.get("downloadConfirmed") is not True:
         raise ReglaIncumplida("Confirme el cliente y que conserva el archivo o acepta eliminar la prueba sin resultados.")
     r = p.registro
@@ -855,8 +915,8 @@ def eliminar(db: Session, p: Prueba, revision: int, datos: dict) -> dict:
         raise Conflicto("La prueba cambió mientras la editaba. Actualice y vuelva a intentarlo.")
     if not _confirma_cliente(p, datos) or datos.get("deleteConfirmed") is not True:
         raise ReglaIncumplida("Escriba el nombre del cliente y confirme que la eliminación es definitiva.")
-    if p.estado == "APROBADO" and datos.get("approvedConfirmed") is not True:
-        raise ReglaIncumplida("Esta versión está aprobada y es evidencia del encargo. Confírmelo expresamente para eliminarla.")
+    if p.estado == "APROBADO":
+        raise ReglaIncumplida(APROBADA_NO_SE_TOCA)
     if db.execute(select(Prueba.id).where(Prueba.parent_id == p.id)).first():
         raise Conflicto("Esta prueba tiene una versión sucesora. Elimine primero la más reciente.")
     salida = {"deleted": True, "id": p.id, "name": p.definicion.get("name") or "Prueba",
@@ -988,3 +1048,262 @@ def crear_encargo(db: Session, user, datos: dict) -> dict:
     db.commit()
     return {"id": proyecto.id, "nombre": proyecto.name, "cliente": cliente.name, "client_id": cliente.id,
             "periodo": proyecto.period_label, "marco": ficha["framework"], "corte": ficha["cutoff"], "pruebas": 0}
+
+
+# --- registros del encargo con un clic (decisión del dueño, 2026-09-26) -------
+
+TIPOS_REGISTRO = ("independencia", "asistencia", "aceptacion", "carta", "comunicacion", "indagacion", "consulta", "diferencia",
+                  "enfoque")
+# Varios registros vigentes a la vez: las indagaciones, las consultas y las diferencias de opinión no se reemplazan.
+ACUMULAN = ("indagacion", "consulta", "diferencia")
+CONSULTAS_BLOQUEAN = ("Hay consultas técnicas o diferencias de opinión abiertas en el registro del encargo: resuélvalas antes de "
+                      "aprobar (NIA 220).")
+# Un solo registro vigente por persona (independencia, asistencia) o por encargo (los demás): el nuevo anula al anterior.
+POR_PERSONA = ("independencia", "asistencia")
+
+
+def _roles() -> tuple:
+    from backend.app.aud.niif.procesadores import planificacion_encargo as enc
+    return enc.ROLES
+
+
+def _hoy() -> datetime.date:
+    return datetime.date.today()
+
+
+def _fecha_registro(v, hoy: datetime.date) -> datetime.date:
+    if v in (None, ""):
+        return hoy
+    try:
+        f = datetime.date.fromisoformat(str(v)[:10])
+    except ValueError:
+        raise ReglaIncumplida("Fecha inválida (AAAA-MM-DD).")
+    if f > hoy:
+        raise ReglaIncumplida("La fecha no puede ser posterior a hoy.")
+    return f
+
+
+def _texto(v, n: int = 1000) -> str:
+    return str(v or "").strip()[:n]
+
+
+def _vigentes(db: Session, project_id: int) -> list[RegistroEncargo]:
+    return list(db.execute(
+        select(RegistroEncargo).where(RegistroEncargo.project_id == project_id, RegistroEncargo.anulado_en.is_(None))
+        .order_by(RegistroEncargo.id)
+    ).scalars())
+
+
+def _anular(r: RegistroEncargo, actor: str) -> None:
+    r.anulado_por = actor
+    r.anulado_en = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+
+
+def anios_con_cliente(db: Session, project_id: int, actor: str, anio_desde: int | None) -> int:
+    """Años del integrante con el cliente: encargos del mismo cliente en los que confirmó su independencia (este
+    incluido) o, si lo declaró, los años desde que empezó a atenderlo; el mayor de los dos."""
+    from backend.app.context.models import Project
+
+    pr = db.get(Project, project_id)
+    n = 1
+    if pr is not None:
+        ids = select(Project.id).where(Project.client_id == pr.client_id)
+        otros = db.execute(
+            select(func.count(func.distinct(RegistroEncargo.project_id))).where(
+                RegistroEncargo.project_id.in_(ids), RegistroEncargo.project_id != project_id,
+                RegistroEncargo.tipo == "independencia", RegistroEncargo.actor == actor,
+                RegistroEncargo.anulado_en.is_(None))
+        ).scalar() or 0
+        n = 1 + int(otros)
+    ficha = leer_ficha(db, project_id) or {}
+    anio = int(ficha["year"]) if str(ficha.get("year") or "").isdigit() else _hoy().year
+    if anio_desde:
+        n = max(n, anio - int(anio_desde) + 1)
+    return n
+
+
+def registrar(db: Session, project_id: int, datos: dict, actor: str) -> RegistroEncargo:
+    tipo = _texto(datos.get("tipo"), 20)
+    if tipo not in TIPOS_REGISTRO:
+        raise ReglaIncumplida("Tipo de registro desconocido.")
+    hoy = _hoy()
+    vig = _vigentes(db, project_id)
+    # El nombre con que figura en el papel: el que escribió o el de su confirmación de independencia; si no, su correo.
+    propio = [r.nombre for r in vig if r.tipo == "independencia" and r.actor == actor]
+    nombre = _texto(datos.get("nombre"), 200) or (propio[-1] if propio else actor)
+    extra: dict = {}
+    rol = None
+    fecha = hoy
+    if tipo in POR_PERSONA:
+        rol = _texto(datos.get("rol"), 40)
+        if rol not in _roles():
+            raise ReglaIncumplida("Indique su rol en el encargo.")
+    if tipo == "independencia":
+        extra = {"amenazas": _texto(datos.get("amenazas")), "salvaguardas": _texto(datos.get("salvaguardas"))}
+        desde = str(datos.get("anio_desde") or "").strip()
+        if desde:
+            if not desde.isdigit() or not 1950 <= int(desde) <= hoy.year:
+                raise ReglaIncumplida("Año desde el que atiende al cliente inválido.")
+            extra["anio_desde"] = int(desde)
+    elif tipo == "asistencia":
+        fecha = _fecha_registro(datos.get("fecha"), hoy)
+    elif tipo == "aceptacion":
+        socio = [r for r in vig if r.tipo == "independencia" and r.actor == actor and r.rol == "Socio"]
+        if not socio:
+            raise ReglaIncumplida("La aceptación la registra el socio del encargo, después de confirmar su independencia como «Socio».")
+        nombre = socio[-1].nombre
+    elif tipo == "carta":
+        fecha = _fecha_registro(datos.get("fecha"), hoy)
+        extra = {"detalle": _texto(datos.get("limitaciones"))}
+    elif tipo == "comunicacion":
+        fecha = _fecha_registro(datos.get("fecha"), hoy)
+        medio = _texto(datos.get("medio"), 200)
+        if not medio:
+            raise ReglaIncumplida("Indique el medio de la comunicación (reunión, correo, carta).")
+        extra = {"detalle": medio}
+    elif tipo == "indagacion":
+        from backend.app.aud.niif.procesadores import planificacion_calidad as cal
+        fecha = _fecha_registro(datos.get("fecha"), hoy)
+        tema, proc = _texto(datos.get("tema"), 80), _texto(datos.get("procedimiento"), 40) or "Indagación"
+        if tema not in cal.TEMAS:
+            raise ReglaIncumplida("Elija el tema de la indagación.")
+        if proc not in cal.PROCEDIMIENTOS:
+            raise ReglaIncumplida("El procedimiento es indagación, observación o inspección.")
+        resumen = _texto(datos.get("resumen"), 2000)
+        if len(resumen) < 10:
+            raise ReglaIncumplida("Resuma lo que se obtuvo de la indagación u observación.")
+        extra = {"tema": tema, "procedimiento": proc, "persona": _texto(datos.get("persona"), 200), "resumen": resumen}
+    elif tipo == "enfoque":
+        # Todo ciclo es sustantivo por política de la firma (hoja 45); el socio puede registrar otra decisión por ciclo.
+        from backend.app.aud.niif.procesadores import planificacion_enfoque as enf
+        socio = [r for r in vig if r.tipo == "independencia" and r.actor == actor and r.rol == "Socio"]
+        if not socio:
+            raise ReglaIncumplida("El enfoque de cada ciclo lo confirma el socio del encargo, después de confirmar su independencia "
+                                  "como «Socio».")
+        nombre, rol = socio[-1].nombre, "Socio"
+        ciclo, decision = _texto(datos.get("ciclo"), 80), _texto(datos.get("decision"), 40)
+        if ciclo not in enf.NOMBRES_CICLO:
+            raise ReglaIncumplida("Ciclo desconocido.")
+        if decision not in enf.DECISIONES:
+            raise ReglaIncumplida("El enfoque es «Confiar en controles» o «Sustantivo».")
+        motivo = _texto(datos.get("motivo"), 1000)
+        if len(motivo) < 10:
+            raise ReglaIncumplida("Documente el motivo del enfoque (al menos 10 caracteres).")
+        extra = {"ciclo": ciclo, "decision": decision, "motivo": motivo}
+    elif tipo in ("consulta", "diferencia"):
+        tema = _texto(datos.get("tema"), 300)
+        if len(tema) < 5:
+            raise ReglaIncumplida("Indique el tema de la consulta o de la diferencia de opinión.")
+        extra = {"tema": tema, "detalle": _texto(datos.get("detalle")), "estado": "Abierta"}
+    for r in vig:
+        if tipo == "enfoque":
+            if r.tipo == "enfoque" and (r.datos or {}).get("ciclo") == extra["ciclo"]:
+                _anular(r, actor)
+        elif tipo not in ACUMULAN and r.tipo == tipo and (tipo not in POR_PERSONA or r.actor == actor):
+            _anular(r, actor)
+    reg = RegistroEncargo(project_id=project_id, tipo=tipo, actor=actor, nombre=nombre, rol=rol, fecha=fecha, datos=extra)
+    db.add(reg)
+    db.commit()
+    db.refresh(reg)
+    return reg
+
+
+def anular_registro(db: Session, project_id: int, registro_id: int, actor: str, es_admin: bool) -> None:
+    r = db.get(RegistroEncargo, registro_id)
+    if r is None or r.project_id != project_id or r.anulado_en is not None:
+        raise ReglaIncumplida("Registro no encontrado.")
+    if r.actor != actor and not es_admin:
+        raise ReglaIncumplida("Solo quien hizo el registro (o un administrador) puede anularlo.")
+    _anular(r, actor)
+    db.commit()
+
+
+def resolver_consulta(db: Session, project_id: int, registro_id: int, resolucion: str, actor: str) -> RegistroEncargo:
+    """M3 (NIA 220): la consulta o la diferencia de opinión se cierra con su resolución, quién la resolvió y cuándo."""
+    r = db.get(RegistroEncargo, registro_id)
+    if r is None or r.project_id != project_id or r.anulado_en is not None or r.tipo not in ("consulta", "diferencia"):
+        raise ReglaIncumplida("Consulta no encontrada.")
+    if (r.datos or {}).get("estado") != "Abierta":
+        raise ReglaIncumplida("La consulta ya está resuelta.")
+    resolucion = _texto(resolucion, 2000)
+    if len(resolucion) < 10:
+        raise ReglaIncumplida("Documente la resolución (al menos 10 caracteres).")
+    r.datos = {**(r.datos or {}), "estado": "Resuelta", "resolucion": resolucion, "resueltaPor": actor,
+               "resueltaEn": _hoy().isoformat()}
+    db.commit()
+    db.refresh(r)
+    return r
+
+
+def consultas_abiertas(db: Session, project_id: int) -> int:
+    return sum(1 for r in _vigentes(db, project_id) if r.tipo in ("consulta", "diferencia") and (r.datos or {}).get("estado") == "Abierta")
+
+
+def version_anterior_run(db: Session, p: Prueba) -> dict | None:
+    """Materialidad y riesgos de la versión anterior (hoja 13 guardada en su ejecución)."""
+    old = db.get(Prueba, p.parent_id) if p.parent_id else None
+    run = (old.registro or {}).get("run") if old else None
+    if not run:
+        return None
+    h13 = next((h for h in run.get("hojas") or [] if str(h.get("name", "")).startswith("13_")), None)
+    val = lambda c: c.get("v") if isinstance(c, dict) else c  # noqa: E731
+    riesgos = [{"rubro": val(f[2]), "cond": val(f[3]), "presenta": val(f[5]), "riesgo": val(f[6]), "sev": val(f[7])}
+               for f in (h13 or {}).get("rows") or []]
+    return {"version": old.version, "fecha": (old.aprobada_en or old.actualizada_en).date().isoformat() if (old.aprobada_en or old.actualizada_en) else "",
+            "totales": {k: (run.get("totals") or {}).get(k) for k in ("materialidad", "desempeno", "trivial")}, "riesgos": riesgos}
+
+
+def registro_salida(r: RegistroEncargo) -> dict:
+    return {"id": r.id, "tipo": r.tipo, "actor": r.actor, "nombre": r.nombre, "rol": r.rol,
+            "fecha": r.fecha.isoformat(), "datos": r.datos or {},
+            "creado_en": r.creado_en.isoformat() if r.creado_en else None}
+
+
+def registros_encargo(db: Session, project_id: int) -> dict:
+    """Lo que la planificación recibe en ``parametros["_encargo"]`` (planificacion_encargo.registros)."""
+    vig = _vigentes(db, project_id)
+    equipo, asistencia, indagaciones, consultas, enfoque, uno = [], [], [], [], [], {}
+    for r in vig:
+        d = r.datos or {}
+        if r.tipo == "independencia":
+            equipo.append({"integrante": r.nombre, "rol": r.rol, "fecha": r.fecha.isoformat(), "amenazas": d.get("amenazas", ""),
+                           "salvaguardas": d.get("salvaguardas", ""),
+                           "anios": anios_con_cliente(db, project_id, r.actor, d.get("anio_desde"))})
+        elif r.tipo == "asistencia":
+            asistencia.append({"integrante": r.nombre, "rol": r.rol, "fecha": r.fecha.isoformat()})
+        elif r.tipo == "indagacion":
+            indagaciones.append({"actor": r.nombre, "fecha": r.fecha.isoformat(), **{k: d.get(k, "") for k in
+                                                                                    ("tema", "procedimiento", "persona", "resumen")}})
+        elif r.tipo == "enfoque":
+            enfoque.append({"ciclo": d.get("ciclo", ""), "decision": d.get("decision", ""), "actor": r.nombre,
+                            "fecha": r.fecha.isoformat(), "motivo": d.get("motivo", "")})
+        elif r.tipo in ("consulta", "diferencia"):
+            consultas.append({"actor": r.nombre, "fecha": r.fecha.isoformat(), "tipo": r.tipo, "tema": d.get("tema", ""),
+                              "estado": d.get("estado", "Abierta"),
+                              "detalle": " · ".join(v for v in (d.get("detalle"), d.get("resolucion")) if v)})
+        else:
+            uno[r.tipo] = {"actor": r.nombre, "fecha": r.fecha.isoformat(), "detalle": d.get("detalle", "")}
+    ficha = leer_ficha(db, project_id) or {}
+    return {"registros": {"equipo": equipo, "asistencia": asistencia, "indagaciones": indagaciones, "consultas": consultas,
+                          "enfoque": enfoque, **uno},
+            "firma": ficha.get("firm") or "",
+            "ficha": {k: ficha.get(k) for k in ("client", "ruc", "activity", "year", "cutoff", "framework", "edition")}}
+
+
+def ultima_planificacion(db: Session, project_id: int) -> dict | None:
+    """La ejecución más reciente de la planificación del encargo (fuente del acta y de la carta de planificación)."""
+    for p in db.execute(select(Prueba).where(Prueba.project_id == project_id).order_by(Prueba.id.desc())).scalars():
+        if (p.definicion or {}).get("processor") == "planificacion_nia" and (p.registro or {}).get("run"):
+            return p.registro["run"]
+    return None
+
+
+def documento_encargo(db: Session, project_id: int, tipo: str) -> bytes:
+    from backend.app.aud.niif.ciclo import documentos_encargo as docs
+
+    if tipo not in docs.TIPOS:
+        raise ReglaIncumplida("Documento desconocido.")
+    ficha = leer_ficha(db, project_id)
+    if not ficha:
+        raise ReglaIncumplida("Complete primero la ficha del encargo.")
+    return docs.generar(tipo, ficha, registros_encargo(db, project_id), ultima_planificacion(db, project_id))

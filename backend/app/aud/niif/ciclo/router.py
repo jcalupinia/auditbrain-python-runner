@@ -168,7 +168,7 @@ def accion(prueba_id: int, body: AccionIn, db: Session = Depends(get_db), user: 
     p = _prueba(db, user, prueba_id)
     # Acciones que no son un paso del circuito (route.ts las atiende antes).
     especiales = {
-        "new_version": lambda: _salida(servicio.nueva_version(db, p, body.revision, user.email)),
+        "new_version": lambda: _salida(servicio.nueva_version(db, p, body.revision, user.email, body.datos.get("motivo"))),
         "erase": lambda: _salida(servicio.encerar(db, p, body.revision, body.datos, user.email)),
         "delete": lambda: servicio.eliminar(db, p, body.revision, body.datos),
         "edit_context": lambda: _salida(servicio.editar_contexto(db, p, body.revision, body.datos, user.email)),
@@ -409,3 +409,46 @@ def ejercicio_modelo_libro(prueba_id: int, formato: str = "xlsx", db: Session = 
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
     return Response(contenido, media_type=tipos[formato],
                     headers={"Content-Disposition": f'attachment; filename="Ejercicio_modelo.{formato}"'})
+
+
+# --- registros del encargo con un clic (independencia, aceptación, carta, discusión, comunicación) ------------------
+
+@router.get("/proyectos/{project_id}/registros")
+def leer_registros(project_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
+    _proyecto(db, user, project_id)
+    return {"registros": [servicio.registro_salida(r) for r in servicio._vigentes(db, project_id)],
+            "encargo": servicio.registros_encargo(db, project_id), "usuario": user.email}
+
+
+@router.post("/proyectos/{project_id}/registros", status_code=status.HTTP_201_CREATED)
+def registrar(project_id: int, body: dict, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
+    _proyecto(db, user, project_id)
+    return servicio.registro_salida(_regla(lambda: servicio.registrar(db, project_id, body, user.email)))
+
+
+@router.delete("/proyectos/{project_id}/registros/{registro_id}")
+def anular_registro(project_id: int, registro_id: int, db: Session = Depends(get_db),
+                    user: User = Depends(require_staff)) -> dict:
+    _proyecto(db, user, project_id)
+    es_admin = str(getattr(user.role, "value", user.role)).lower() == "admin"
+    _regla(lambda: servicio.anular_registro(db, project_id, registro_id, user.email, es_admin))
+    return {"ok": True}
+
+
+@router.get("/proyectos/{project_id}/documentos/{tipo}")
+def documento_encargo(project_id: int, tipo: str, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> Response:
+    """Carta de encargo, acta de la discusión del equipo o carta de planificación, en Word (modelos para firmar)."""
+    from backend.app.aud.niif.ciclo import documentos_encargo as docs
+
+    _proyecto(db, user, project_id)
+    contenido = _regla(lambda: servicio.documento_encargo(db, project_id, tipo))
+    return Response(contenido, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    headers={"Content-Disposition": f'attachment; filename="{docs.TIPOS[tipo]}.docx"'})
+
+
+@router.post("/proyectos/{project_id}/registros/{registro_id}/resolver")
+def resolver_consulta(project_id: int, registro_id: int, body: dict, db: Session = Depends(get_db),
+                      user: User = Depends(require_staff)) -> dict:
+    _proyecto(db, user, project_id)
+    return servicio.registro_salida(_regla(lambda: servicio.resolver_consulta(db, project_id, registro_id,
+                                                                              str(body.get("resolucion") or ""), user.email)))
