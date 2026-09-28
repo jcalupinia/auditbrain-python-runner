@@ -8,7 +8,10 @@ y la marca de lo que supera el umbral. Escapa texto que parece fórmula.
 """
 from __future__ import annotations
 
+import base64
+import html as _html
 import io
+from datetime import datetime
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -203,3 +206,111 @@ def generar_papel_estados(analisis: dict) -> bytes:
     buffer = io.BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
+
+
+# --- HTML autónomo (Excel embebido, imprimible a PDF) -----------------------
+_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_ESTILO_HTML = """
+*{box-sizing:border-box}body{margin:0;font-family:'Segoe UI',Calibri,Arial,sans-serif;color:#1a2433;background:#eef1f5}
+.hoja{max-width:1200px;margin:0 auto;padding:24px 16px 64px}
+.banda{background:#071B2F;color:#fff;padding:18px 22px;border-radius:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+.banda h1{margin:0;font-size:20px}.banda .marca{font-size:12px;color:#cdd6e2}.oro{color:#C7A83C;font-weight:700}
+.barra{display:flex;gap:10px;margin:16px 0;flex-wrap:wrap}
+.btn{border:0;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block}
+.btn-oro{background:#C7A83C;color:#20180a}.btn-navy{background:#0A2342;color:#fff}
+section.bloque{background:#fff;border-radius:12px;padding:16px 18px;margin-top:16px;box-shadow:0 1px 3px rgba(10,35,66,.08)}
+section.bloque h2{margin:0 0 12px;font-size:15px;color:#0A2342}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{background:#0A2342;color:#fff;text-align:left;padding:7px 9px}
+td{padding:6px 9px;border-bottom:1px solid #e3e8ef}td.num{text-align:right;font-variant-numeric:tabular-nums}
+tr.total td{font-weight:700;background:#eef3fa}tr.alerta td{background:#F6E0E0}
+.disc{color:#6B7280;font-size:10.5px;font-style:italic;margin-top:24px;text-align:center}
+@media print{@page{size:landscape;margin:12mm}body{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}.barra{display:none}section.bloque{box-shadow:none;break-inside:avoid}}
+"""
+
+
+def _tabla_html(columnas, filas):
+    ths = "".join(f"<th>{_html.escape(str(t))}</th>" for t, _ in columnas)
+    cuerpo = []
+    for fila in filas:
+        clase, celdas = "", fila
+        if isinstance(fila, dict):
+            clase, celdas = fila.get("clase", ""), fila["cells"]
+        tds = []
+        for i, v in enumerate(celdas):
+            cls = ' class="num"' if columnas[i][1] == "num" else ""
+            tds.append(f"<td{cls}>{_html.escape('' if v is None else str(v))}</td>")
+        attr = f' class="{clase}"' if clase else ""
+        cuerpo.append(f"<tr{attr}>{''.join(tds)}</tr>")
+    return f"<table><thead><tr>{ths}</tr></thead><tbody>{''.join(cuerpo)}</tbody></table>"
+
+
+def _money(v):
+    try:
+        return f"{float(v or 0):,.2f}"
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def _pct(v):
+    if v in (None, ""):
+        return "—"
+    try:
+        return f"{float(v) * 100:.2f} %"
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def _bloque_estado(det, titulo):
+    periodos = det.get("periodos", [])
+    cols = [("Código", "txt"), ("Rubro", "txt")] + [(p, "num") for p in periodos] + \
+           [("Variación", "num"), ("Var %", "num"), ("Vertical %", "num")]
+    filas = []
+    for l in det.get("lineas", []):
+        cells = [l["codigo"], l["etiqueta"]] + [_money(v) for v in l["valores"]]
+        cells += [_money(l.get("variacion")) if l.get("variacion") is not None else "—",
+                  _pct(l.get("variacion_pct")), _pct(l.get("vertical", [None])[-1])]
+        filas.append({"cells": cells, "clase": "total" if len(str(l["codigo"])) <= 1 else ""})
+    return {"titulo": titulo, "html": _tabla_html(cols, filas)}
+
+
+def generar_html_estados(analisis: dict) -> str:
+    """HTML autónomo del análisis de estados financieros (Excel embebido)."""
+    ratios = analisis.get("ratios", {})
+    cols_r = [("Ratio", "txt")] + [(p, "num") for p in ratios.get("periodos", [])]
+    filas_r = []
+    for f in ratios.get("filas", []):
+        vals = [(_pct(v) if f["formato"] == "pct" else (f"{float(v):.2f}" if v is not None else "—"))
+                for v in f["valores"]]
+        filas_r.append([f["nombre"]] + vals)
+    bloques = [{"titulo": "Ratios financieros", "html": _tabla_html(cols_r, filas_r)},
+               _bloque_estado(analisis["esf"], "Estado de Situación Financiera"),
+               _bloque_estado(analisis["eri"], "Estado de Resultados Integral")]
+    exp = analisis.get("expectativa_esf", {})
+    if exp.get("aplicable"):
+        cols_e = [("Código", "txt"), ("Rubro", "txt"), ("Expectativa", "num"), ("Real", "num"),
+                  ("Diferencia", "num"), ("Dif %", "num"), ("¿Explicar?", "txt")]
+        filas_e = [{"cells": [l["codigo"], l["etiqueta"], _money(l["expectativa"]), _money(l["real"]),
+                              _money(l["diferencia"]), _pct(l["diferencia_pct"]),
+                              "Explicar" if l["supera_umbral"] else ""],
+                    "clase": "alerta" if l["supera_umbral"] else ""} for l in exp.get("lineas", [])]
+        bloques.append({"titulo": f"Expectativa vs. real — NIA 520 (umbral {_pct(exp.get('umbral_pct'))})",
+                        "html": _tabla_html(cols_e, filas_e)})
+
+    b64 = base64.b64encode(generar_papel_estados(analisis)).decode("ascii")
+    fecha = datetime.now().strftime("%Y-%m-%d %H:%M")
+    secciones = "".join(
+        f'<section class="bloque"><h2>{_html.escape(b["titulo"])}</h2>{b["html"]}</section>'
+        for b in bloques)
+    return f"""<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Papel de trabajo — Estados financieros</title><style>{_ESTILO_HTML}</style></head>
+<body><div class="hoja"><div class="banda">
+<div><h1>Papel de trabajo — Estados financieros</h1><div class="marca">Análisis NIA 315 / NIA 520</div></div>
+<div class="marca">AuditConsulting Auditores Cía. Ltda. · <span class="oro">AUDIT-IA</span><br>{fecha}</div></div>
+<div class="barra">
+<a class="btn btn-oro" href="data:{_XLSX_MIME};base64,{b64}" download="papel-estados-financieros.xlsx">Descargar Excel con fórmulas</a>
+<button class="btn btn-navy" onclick="window.print()">Imprimir / Guardar como PDF</button></div>
+{secciones}
+<div class="disc">Papel de trabajo generado por AUDIT-IA. Las cifras deben ser validadas por el auditor responsable.</div>
+</div></body></html>"""

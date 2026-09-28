@@ -53,6 +53,17 @@ export default function EstadosFinancieros({ ir }) {
     }
   };
 
+  const abrirHtml = async () => {
+    if (!esf || !eri) return;
+    setErrorMsg("");
+    try {
+      const blob = await motorBalancesAnalisisPapel(esf, eri, 0.1, "html");
+      window.open(URL.createObjectURL(new Blob([blob], { type: "text/html" })), "_blank");
+    } catch (e) {
+      setErrorMsg(e?.message || "No se pudo generar el HTML.");
+    }
+  };
+
   const detalle = analisis ? analisis[estado] : null;
   const periodos = detalle?.periodos || [];
   const ratios = analisis?.ratios;
@@ -101,8 +112,9 @@ export default function EstadosFinancieros({ ir }) {
             <div className="ma-estados-titulo-fila">
               <h3>Ratios financieros</h3>
               <button className="ma-boton accent" disabled={descargando} onClick={descargarPapel}>
-                {descargando ? "Generando…" : "Descargar papel de trabajo"}
+                {descargando ? "Generando…" : "Descargar papel (Excel)"}
               </button>
+              <button className="ma-boton" onClick={abrirHtml}>Abrir HTML / PDF</button>
             </div>
             <div className="ma-tabla-wrap">
               <table className="ma-tabla">

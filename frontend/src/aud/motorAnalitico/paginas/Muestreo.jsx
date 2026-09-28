@@ -107,6 +107,16 @@ export default function Muestreo({ ir, cliente, disponible }) {
     }
   };
 
+  const abrirHtml = async () => {
+    setErrorMsg("");
+    try {
+      const blob = await cliente.papelMuestreo(archivo, metodo, parametros(), "html");
+      window.open(URL.createObjectURL(new Blob([blob], { type: "text/html" })), "_blank");
+    } catch (e) {
+      setErrorMsg(mensajeError(e));
+    }
+  };
+
   const resumen = resultado?.resumen || {};
   const seleccion = resultado?.seleccion || [];
 
@@ -230,8 +240,9 @@ export default function Muestreo({ ir, cliente, disponible }) {
             <div className="ma-muestras-titulo-fila">
               <h3>Bloque metodológico</h3>
               <button type="button" className="ma-boton accent" disabled={descargando} onClick={descargarPapel}>
-                {descargando ? "Generando…" : "Descargar papel de trabajo"}
+                {descargando ? "Generando…" : "Descargar papel (Excel)"}
               </button>
+              <button type="button" className="ma-boton" onClick={abrirHtml}>Abrir HTML / PDF</button>
             </div>
             <div className="ma-muestras-demo">
               {ORDEN_RESUMEN.filter(([k]) => resumen[k] !== undefined).map(([k, etiqueta]) => (

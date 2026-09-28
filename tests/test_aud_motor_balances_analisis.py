@@ -75,3 +75,14 @@ def test_un_solo_periodo_no_rompe_ni_expectativa():
     res = an.analizar(mb.estados_superintendencia(esf, {"periodos": [], "filas": []}))
     assert res["expectativa_esf"]["aplicable"] is False
     generar_papel_estados(res)  # no debe lanzar
+
+
+def test_html_estados_autonomo():
+    from backend.app.aud.motor_balances.papel_estados import generar_html_estados
+    res = an.analizar(_homologado())
+    h = generar_html_estados(res)
+    assert h.lstrip().startswith("<!doctype html>")
+    assert "http://" not in h and "https://" not in h
+    assert "data:application/vnd.openxmlformats" in h
+    assert "window.print()" in h
+    assert "NIA 520" in h

@@ -120,6 +120,8 @@ export function crearCliente({
     // trabajo, sin volver a subir los datos.
     papelBases: (id) =>
       llamar("leer", `/trabajos/${encodeURIComponent(id)}/papel`, {}, { blob: true }),
+    papelBasesHtml: (id) =>
+      llamar("leer", `/trabajos/${encodeURIComponent(id)}/papel?formato=html`, {}, { blob: true }),
     // Selección de muestras (NIA 530): sube el mayor y aplica un método.
     // `formato`: "json" (muestra + método) o "xlsx" (papel de trabajo).
     muestreo(archivo, metodo, parametros) {
@@ -129,12 +131,12 @@ export function crearCliente({
       fd.append("parametros", JSON.stringify(parametros || {}));
       return llamar("ejecutar", "/muestreo", { method: "POST", body: fd }, { sinLimite: true });
     },
-    papelMuestreo(archivo, metodo, parametros) {
+    papelMuestreo(archivo, metodo, parametros, formato = "xlsx") {
       const fd = new FormData();
       fd.append("archivo", archivo);
       fd.append("metodo", metodo);
       fd.append("parametros", JSON.stringify(parametros || {}));
-      fd.append("formato", "xlsx");
+      fd.append("formato", formato);
       return llamar("ejecutar", "/muestreo", { method: "POST", body: fd },
                     { blob: true, sinLimite: true });
     },

@@ -8,7 +8,9 @@ from pydantic import BaseModel
 from backend.app.auth.deps import require_staff
 from backend.app.auth.models import User
 from backend.app.aud.motor_balances import analisis as analisis_estados
-from backend.app.aud.motor_balances.papel_estados import generar_papel_estados
+from backend.app.aud.motor_balances.papel_estados import (
+    generar_html_estados, generar_papel_estados,
+)
 from backend.app.client_portal.flujo import catalogos, motor_balances
 
 router = APIRouter(prefix="/aud/motor-balances", tags=["aud-motor-balances"])
@@ -61,10 +63,14 @@ def analisis(body: AnalisisBody, _user: User = Depends(require_staff)) -> dict:
 
 
 @router.post("/analisis/papel")
-def analisis_papel(body: AnalisisBody, _user: User = Depends(require_staff)) -> Response:
-    """Papel de trabajo `.xlsx` del análisis de estados financieros."""
-    contenido = generar_papel_estados(_analisis(body))
-    return Response(contenido, media_type=_XLSX, headers={
+def analisis_papel(body: AnalisisBody, formato: str = "xlsx",
+                   _user: User = Depends(require_staff)) -> Response:
+    """Papel de trabajo del análisis de estados financieros. ``formato=xlsx``
+    (fórmulas) o ``formato=html`` (autónomo, Excel embebido, imprimible a PDF)."""
+    res = _analisis(body)
+    if formato == "html":
+        return Response(generar_html_estados(res), media_type="text/html; charset=utf-8")
+    return Response(generar_papel_estados(res), media_type=_XLSX, headers={
         "Content-Disposition": 'attachment; filename="papel-estados-financieros.xlsx"'})
 
 

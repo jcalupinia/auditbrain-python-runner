@@ -184,8 +184,8 @@ export async function motorBalancesAnalisis(esf, eri, umbralPct = 0.1) {
   }));
 }
 
-export async function motorBalancesAnalisisPapel(esf, eri, umbralPct = 0.1) {
-  const res = await apiFetch(`${API_BASE}/api/v1/aud/motor-balances/analisis/papel`, {
+export async function motorBalancesAnalisisPapel(esf, eri, umbralPct = 0.1, formato = "xlsx") {
+  const res = await apiFetch(`${API_BASE}/api/v1/aud/motor-balances/analisis/papel?formato=${formato}`, {
     method: "POST", headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ esf, eri, umbral_pct: umbralPct }),
   });

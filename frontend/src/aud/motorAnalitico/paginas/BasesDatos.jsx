@@ -213,6 +213,17 @@ export default function BasesDatos({ ir, cliente, disponible }) {
     }
   };
 
+  const abrirHtml = async () => {
+    if (!trabajo?.id) return;
+    setErrorMsg("");
+    try {
+      const blob = await cliente.papelBasesHtml(trabajo.id);
+      window.open(URL.createObjectURL(new Blob([blob], { type: "text/html" })), "_blank");
+    } catch (e) {
+      setErrorMsg(mensajeError(e));
+    }
+  };
+
   const listo = trabajo?.estado === "listo";
   const porBase = trabajo?.por_base || {};
   const filas = filasBandeja(excepciones);
@@ -291,7 +302,10 @@ export default function BasesDatos({ ir, cliente, disponible }) {
             <div className="ma-tarjeta"><span>Total</span><strong>{trabajo.total}</strong></div>
             <button className="ma-boton accent ma-bases-papel" disabled={descargando}
                     onClick={descargarPapel}>
-              {descargando ? "Generando…" : "Descargar papel de trabajo"}
+              {descargando ? "Generando…" : "Descargar papel (Excel)"}
+            </button>
+            <button className="ma-boton ma-bases-papel" onClick={abrirHtml}>
+              Abrir HTML / PDF
             </button>
           </div>
 
