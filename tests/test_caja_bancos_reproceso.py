@@ -52,3 +52,21 @@ def test_matriz_reproceso_detecta_diferencia_de_la_compania():
 
 def test_sin_estado_de_cuenta_no_hay_reproceso():
     assert A.matriz_reproceso({"datasets": {"cuentas": [{"id": "1101", "tipo": "Banco"}]}}) is None
+
+
+def test_prescripcion_parametrizable_en_el_papel_da4():
+    import io
+    import openpyxl
+    from backend.app.aud.niif.procesadores import caja_bancos_papel as papel
+    entrada = {
+        "engagement": {"client": "X", "period": "sep-2026", "cutoff": CORTE},
+        "cuentas": [{"cuenta": "1101", "descripcion": "Banco X", "saldo_anterior": 0, "saldo_actual": 1000, "extracto": 1200}],
+        "partidas": [{"fecha": "2026-09-10", "banco": "Banco X", "categoria": papel.ND_TRANSITO,
+                      "documento": "Comisión", "beneficiario": "", "valor": 200, "observacion": ""}],
+        "dias_prescripcion": 200,
+    }
+    wb = openpyxl.load_workbook(io.BytesIO(papel.construir(entrada)))
+    ws = next(w for w in wb.worksheets if "Partida" in w.title)
+    formulas = [ws.cell(r, 8).value for r in range(1, ws.max_row + 1)
+                if isinstance(ws.cell(r, 8).value, str) and ws.cell(r, 8).value.startswith("=A")]
+    assert any(f.endswith("+200") for f in formulas)   # usó diasPrescripcion=200, no el 390 por defecto

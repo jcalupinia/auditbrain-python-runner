@@ -220,4 +220,5 @@ def armar_desde_registro(reg: dict) -> bytes:
     arqueo = _arqueo(reg)
     if arqueo is not None:
         entrada["arqueo"] = arqueo   # si no viene, el papel usa su plantilla de denominaciones
+    entrada["dias_prescripcion"] = (reg.get("parameters") or {}).get("diasPrescripcion", 390)
     return papel.construir(entrada)

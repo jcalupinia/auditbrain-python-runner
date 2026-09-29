@@ -32,6 +32,7 @@ PYMES 2025 (texto oficial en inglés): misma numeración — 4.5 d), 7.2, 7.20, 
 from __future__ import annotations
 
 import calendar
+from collections import Counter
 from datetime import date
 
 from backend.app.aud.niif.procesadores import problemas
@@ -126,7 +127,8 @@ DATASETS = tuple(TIPOS)
 PRINCIPAL = "cuentas"
 CONTROL = "saldo_libros"
 
-PARAMETROS = {"diasAntiguedad": 90, "diasCorte": 5, "mesesEquivalente": 3, "mesesRestriccion": 12, "tolerancia": 0}
+PARAMETROS = {"diasAntiguedad": 90, "diasCorte": 5, "mesesEquivalente": 3, "mesesRestriccion": 12,
+              "tolerancia": 0, "diasPrescripcion": 390}
 PARAM_NEGATIVOS = ()
 ETIQUETAS_PARAM = {
     "diasAntiguedad": "Partida antigua desde (días al corte)",
@@ -134,6 +136,7 @@ ETIQUETAS_PARAM = {
     "mesesEquivalente": "Plazo de un equivalente (meses desde la adquisición)",
     "mesesRestriccion": "Restricción que la hace no corriente (meses tras el cierre)",
     "tolerancia": "Tolerancia de diferencias (USD)",
+    "diasPrescripcion": "Prescripción de una partida (días desde su origen)",
 }
 TOTAL_EJEMPLO = "auditado"
 
@@ -265,6 +268,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     rf = _refs(p)
     tol, dias_ant, dias_corte = p["tolerancia"], p["diasAntiguedad"], p["diasCorte"]
     meses_eq = int(p["mesesEquivalente"])
+    dias_presc = int(p["diasPrescripcion"])
     limite_restr = _edate(corte_a, int(p["mesesRestriccion"]))
 
     cuentas = []
@@ -298,6 +302,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         x["depurada"] = lq is not None
         x["existe"] = _clave(x["cuenta"]) in ids
         x["diasPost"] = (lq - corte_a).days if lq else None
+        x["prescribe"] = date.fromordinal(o.toordinal() + dias_presc) if o else None
         if o and o > corte_a:
             x["corte"] = "Registrada después del corte"
         elif lq is None:
@@ -417,6 +422,26 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                                                         "Verifique que el ingreso corresponde al ejercicio (NIA 240 párr. 31 y Anexo 2).", x["importe"]))
         if x["tipo"] == OT:
             pr.append(problema("OTRA_PARTIDA", f"{nom}: partida sin naturaleza definida; requiere investigación.", x["importe"]))
+
+    # Partidas duplicadas (posible doble registro) y recurrentes (venían del mes anterior).
+    # Importe 0: son avisos de calidad del dato, no cifras monetarias (no requieren enlace a celda).
+    conteo = Counter((_clave(x["cuenta"]), x["tipo"], round(x["importe"], 2), x["origen"]) for x in partidas)
+    ya_avisadas = set()
+    for x in partidas:
+        k = (_clave(x["cuenta"]), x["tipo"], round(x["importe"], 2), x["origen"])
+        if conteo[k] > 1 and k not in ya_avisadas:
+            pr.append(problema("PARTIDA_DUPLICADA", f"{x['id']} ({x['tipo']}, cuenta {x['cuenta']}): partida repetida "
+                                                    f"({fmt_m(x['importe'])} en la misma fecha); verifique un posible doble registro.", 0))
+            ya_avisadas.add(k)
+    previas_por_cuenta: dict = {}
+    for a in (datasets.get("conciliacion_anterior") or []):
+        v = a_num(a.get("valor"))
+        if v is not None:
+            previas_por_cuenta.setdefault(_clave(a.get("cuenta")), set()).add(round(v, 2))
+    for x in partidas:
+        if round(x["importe"], 2) in previas_por_cuenta.get(_clave(x["cuenta"]), set()):
+            pr.append(problema("PARTIDA_RECURRENTE", f"{x['id']} ({x['tipo']}, cuenta {x['cuenta']}): {fmt_m(x['importe'])} ya figuraba en "
+                                                     "la conciliación del mes anterior; partida recurrente no depurada.", 0))
 
     # Integridad entre los datasets auxiliares y el anexo de cuentas (importe 0: son avisos de
     # ingesta, no cifras monetarias, y no requieren enlace a celda).

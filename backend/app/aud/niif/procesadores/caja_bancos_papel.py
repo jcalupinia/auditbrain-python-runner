@@ -138,6 +138,10 @@ def construir(papel: dict) -> bytes:
     eng = papel.get("engagement") or {}
     cuentas = papel.get("cuentas") or []
     corte = _fecha(eng.get("cutoff")) or datetime.date.today()
+    try:
+        dias_presc = int(papel.get("dias_prescripcion") or 390)
+    except (TypeError, ValueError):
+        dias_presc = 390
 
     # Normaliza partidas: deduce categoría si no viene, y ata el banco al nombre de la cuenta.
     nombres = [c.get("descripcion", "") for c in cuentas]
@@ -251,7 +255,7 @@ def construir(papel: dict) -> bytes:
         ws.cell(r, 6, p["valor"]).border = st.box
         ws.cell(r, 6).number_format = _MONEY
         ws.cell(r, 7, f"=$B$7-A{r}").border = st.box            # días vencidos = corte - fecha
-        ws.cell(r, 8, f"=A{r}+390").border = st.box             # prescripción = fecha + 360 + 30
+        ws.cell(r, 8, f"=A{r}+{dias_presc}").border = st.box    # prescripción = fecha + diasPrescripcion (def. 360 + 30)
         ws.cell(r, 8).number_format = _DATE
         ws.cell(r, 9, p["observacion"]).border = st.box
         ws.cell(r, 9).alignment = st.left
