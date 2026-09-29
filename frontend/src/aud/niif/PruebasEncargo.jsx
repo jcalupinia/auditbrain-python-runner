@@ -16,6 +16,7 @@ import { Documentacion, EditorRequerimiento } from "./CicloDocumentacion";
 import { Ejecucion } from "./CicloEjecucion";
 import { Revision } from "./CicloRevision";
 import { VistaTrabajo } from "./CicloVista";
+import VistaEfectivo from "./VistaEfectivo";
 import { ConsolaChat } from "./ConsolaChat";
 import { tieneConsolaChat } from "./consolaChatVista";
 import ConsolaPrueba from "./ConsolaPrueba";
@@ -282,6 +283,9 @@ export function Prueba({ id, onCambio, onAbrir }) {
   if (!prueba) return error ? <p className="nf-error">{error}</p> : <p className="muted">Cargando prueba…</p>;
   const etapa = etapaDe(prueba.estado);
   const reg = prueba.registro;
+  // E7 · Efectivo y Equivalentes: vista propia de 3 pasos (tema oscuro). Solo esta prueba;
+  // el resto conserva el apilado histórico (consola-chat + vista de trabajo + consolas).
+  const esEfectivo = prueba.definicion.processor === "efectivo_equivalentes";
 
   return (
     <div className="nf-rec-panel nf-ciclo-prueba">
@@ -297,6 +301,14 @@ export function Prueba({ id, onCambio, onAbrir }) {
       </ol>
       {error && <p role="alert" className="nf-error">{error}</p>}
 
+      {/* Efectivo y Equivalentes: los 3 pasos reemplazan el apilado (consola-chat + consolas + circuito).
+          La vista de trabajo detallada sigue accesible dentro de VistaEfectivo (paso 3). */}
+      {esEfectivo && (
+        <VistaEfectivo prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
+      )}
+
+      {!esEfectivo && (
+       <>
       {/* Toda prueba con procesador: la consola-chat es la puerta principal; la vista de trabajo detallada queda debajo. */}
       {tieneConsolaChat(prueba) && (
         <ConsolaChat prueba={prueba} onRecargar={async () => { await cargar(); onCambio(); }} />
@@ -406,6 +418,8 @@ export function Prueba({ id, onCambio, onAbrir }) {
       )}
 
       </details>
+       </>
+      )}
 
       <details>
         <summary>Bitácora ({prueba.eventos.length})</summary>
