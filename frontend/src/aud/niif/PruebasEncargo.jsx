@@ -16,6 +16,8 @@ import { Documentacion, EditorRequerimiento } from "./CicloDocumentacion";
 import { Ejecucion } from "./CicloEjecucion";
 import { Revision } from "./CicloRevision";
 import { VistaTrabajo } from "./CicloVista";
+import { ConsolaChat } from "./ConsolaChat";
+import { esPlanificacion } from "./consolaChatVista";
 import { ContextFields } from "./ContextoEncargo";
 import { RegistroEncargo } from "./RegistroEncargo";
 import "./fichaNiif.css";
@@ -245,6 +247,7 @@ export function Prueba({ id, onCambio, onAbrir }) {
   const [prueba, setPrueba] = useState(null);
   const [error, setError] = useState("");
   const [ocupado, setOcupado] = useState(false);
+  const [verDetalle, setVerDetalle] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
@@ -291,18 +294,39 @@ export function Prueba({ id, onCambio, onAbrir }) {
       </ol>
       {error && <p role="alert" className="nf-error">{error}</p>}
 
-      <VistaTrabajo prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
-
-      {["PRUEBA_EJECUTADA", "RESULTADOS_ANALIZADOS"].includes(prueba.estado) && (
-        <section>
-          <h5>Análisis y cierre del papel de trabajo</h5>
-          <Ejecucion prueba={prueba} onAccion={accion} ocupado={ocupado} soloAnalisis />
-        </section>
+      {/* Piloto de planificación: la consola-chat es la puerta principal; la vista de trabajo detallada queda debajo. */}
+      {esPlanificacion(prueba) && (
+        <ConsolaChat prueba={prueba} onRecargar={async () => { await cargar(); onCambio(); }}
+          onAbrirDetalle={() => {
+            setVerDetalle(true);
+            setTimeout(() => document.getElementById(`detalle-${prueba.id}`)?.scrollIntoView({ behavior: "smooth" }), 50);
+          }} />
       )}
 
-      <section>
-        <Revision prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
-      </section>
+      {esPlanificacion(prueba) && (
+        <div className="nf-estudio-botones">
+          <button type="button" className="btn sm" onClick={() => setVerDetalle((v) => !v)}>
+            {verDetalle ? "Ocultar la vista de trabajo detallada" : "Ver la vista de trabajo detallada"}
+          </button>
+        </div>
+      )}
+
+      {(!esPlanificacion(prueba) || verDetalle) && (
+        <div id={`detalle-${prueba.id}`}>
+          <VistaTrabajo prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
+
+          {["PRUEBA_EJECUTADA", "RESULTADOS_ANALIZADOS"].includes(prueba.estado) && (
+            <section>
+              <h5>Análisis y cierre del papel de trabajo</h5>
+              <Ejecucion prueba={prueba} onAccion={accion} ocupado={ocupado} soloAnalisis />
+            </section>
+          )}
+
+          <section>
+            <Revision prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
+          </section>
+        </div>
+      )}
 
       <details className="nf-circuito">
         <summary>Circuito detallado (paso a paso, con mapeo manual)</summary>
@@ -441,7 +465,17 @@ function EncargoTrabajo({ proyecto, cliente, herramientaInicial = "" }) {
       {!cargando && (
         <>
           <FichaEncargo proyecto={proyecto} cliente={cliente} ficha={ficha} onGuardada={setFicha} />
-          {ficha && <RegistroEncargo proyecto={proyecto} />}
+          {ficha && (
+            <details className="nf-rec-panel nf-registro-colapsado">
+              <summary>
+                <strong>Registro del encargo</strong> · <span className="nf-ok">automático por política de la firma</span>
+                <small className="muted"> — independencia sin amenazas y ciclos sustantivos por defecto. Ábrelo solo si hay
+                  una amenaza a la independencia, quieres confiar en los controles de un ciclo, o generar la carta de encargo
+                  y los demás documentos.</small>
+              </summary>
+              <RegistroEncargo proyecto={proyecto} />
+            </details>
+          )}
 
           <section className="nf-rec-panel">
             <p className="nf-eyebrow">3 · PRUEBAS</p>

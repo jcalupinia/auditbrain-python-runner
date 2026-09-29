@@ -577,9 +577,9 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         if (reg.get("run") or {}).get("exceptions") and len(reg["exceptionReview"]) < 10:
             raise ReglaIncumplida("Documente la evaluación de excepciones antes de cerrar.")
         reg["conclusionReviewed"] = True
-        # M3 (NIA 220): una consulta técnica o una diferencia de opinión abierta bloquea la aprobación de la planificación.
-        if getattr(procesadores.de(p.definicion), "USA_REGISTROS_ENCARGO", False) and consultas_abiertas(db, p.project_id):
-            raise ReglaIncumplida(CONSULTAS_BLOQUEAN)
+        # Una consulta técnica o diferencia de opinión abierta ya NO bloquea la aprobación (decisión del dueño,
+        # 2026-09-29: que nada frene el avance). Si queda alguna abierta, se anota como advertencia en la bitácora.
+        consultas_pend = consultas_abiertas(db, p.project_id) if getattr(procesadores.de(p.definicion), "USA_REGISTROS_ENCARGO", False) else 0
         p.estado = reglas.transicion({**reg, "state": p.estado, "definition": p.definicion}, accion)
         reg["approvedBy"] = actor
         reg["approvedAt"] = _ahora_iso()
@@ -590,6 +590,9 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         reg["segregation"] = bool(envio) and envio.actor != actor
         if envio and envio.actor == actor:
             datos = {**datos, "comment": (SIN_SEGREGACION + " " + str(datos.get("comment") or "")).strip()}
+        if consultas_pend:
+            datos = {**datos, "comment": (f"Advertencia (NIA 220): se aprobó con {consultas_pend} consulta(s) o "
+                                          "diferencia(s) de opinión abierta(s). " + str(datos.get("comment") or "")).strip()}
         # El papel final (Excel y HTML) lo arma el navegador con el exportador
         # del sitio desde este registro ya aprobado y lo sube a guardar_papel().
         reg["artifacts"] = None
@@ -1283,6 +1286,46 @@ def resultado_para_revision(db: Session, p: Prueba) -> dict:
         return proc.ejecutar(reg.get("datasets") or {}, param, reg["engagement"]["cutoff"])
     except (ValueError, KeyError, ArithmeticError, StopIteration) as e:
         raise ReglaIncumplida(str(e) or "La prueba no se pudo recalcular para la revisión.")
+
+
+def guion_consola_chat(db: Session, p: Prueba, rol: str) -> dict:
+    """Guion de la consola-chat del piloto de planificación (agente determinista, solo lectura)."""
+    from backend.app.aud.niif.ciclo import consola_chat
+
+    if (p.definicion or {}).get("processor") != "planificacion_nia":
+        raise ReglaIncumplida("La consola-chat del piloto es de la planificación de auditoría (NIA 300/315/320/330).")
+    reg = p.registro or {}
+    reqs = reg.get("requests") or []
+    fuentes = [a for a in archivos(db, p.id) if a.clase == "source"]
+    docs = [{"id": a.id, "requestId": a.requerimiento, "component": a.componente} for a in fuentes]
+    rechazados = [a.id for a in fuentes if a.estado == "rechazado"]
+    cobertura = datos.tool_coverage(reqs, docs, rechazados) if reqs else []
+    huecos = datos.tool_gaps(reqs, docs, rechazados) if reqs else []
+    obligatorios = [c for c in cobertura if c.get("required")]
+    pendientes = [c["text"] for c in obligatorios if not c.get("complete")]
+    # Antes de generar el requerimiento todavía no hay `requests`: los documentos que pedirá salen de la definición.
+    if not reqs:
+        pendientes = [r.get("document") or r.get("id") for r in (p.definicion.get("requests") or []) if r.get("required") is not False]
+    d = {
+        "estado": p.estado,
+        "cliente": (reg.get("engagement") or {}).get("client"),
+        "huecos": huecos,
+        "pendientes": pendientes,
+        "recibidos": sum(1 for c in obligatorios if c.get("complete")),
+        "total": len(obligatorios),
+        "tiene_run": bool(reg.get("run")),
+        "conclusion_hecha": bool(str(reg.get("conclusion") or "").strip()),
+        "aprobada_por": reg.get("approvedBy"),
+    }
+    # En revisión y del lado del auditor, el agente ya trae el veredicto del recálculo independiente.
+    if p.estado == "EN_REVISION" and rol == "auditor" and reg.get("run"):
+        try:
+            rep = revisar_planificacion(db, p)
+            d.update(veredicto=rep["veredicto"], bloqueos=rep.get("bloqueos") or [], hallazgos=rep.get("hallazgos") or [])
+        except ReglaIncumplida:
+            pass
+    return {"prueba_id": p.id, "estado": p.estado, "version": p.version, "revision": p.revision,
+            **consola_chat.guion(d, rol)}
 
 
 def revisar_planificacion(db: Session, p: Prueba) -> dict:

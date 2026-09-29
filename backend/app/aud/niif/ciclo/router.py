@@ -386,6 +386,17 @@ def consola_revision_de(prueba_id: int, db: Session = Depends(get_db), user: Use
             "aprobable": p.estado == "EN_REVISION", "reporte": reporte}
 
 
+@router.get("/pruebas/{prueba_id}/consola-chat")
+def consola_chat_de(prueba_id: int, rol: str = "preparador", db: Session = Depends(get_db),
+                    user: User = Depends(require_staff)) -> dict:
+    """Consola-chat del piloto de planificación (SOLO LECTURA): el agente determinista
+    arma el hilo de mensajes y la siguiente acción según el estado de la prueba y, del
+    lado del auditor en revisión, el veredicto del recálculo. No modifica nada."""
+    p = _prueba(db, user, prueba_id)
+    rol = "auditor" if rol == "auditor" else "preparador"
+    return _regla(lambda: servicio.guion_consola_chat(db, p, rol))
+
+
 @router.get("/pruebas/{prueba_id}/ejercicio-modelo")
 def ejercicio_modelo_de(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
     """Recorrido completo de la prueba con datos de ejemplo (SOLO LECTURA): corre

@@ -155,6 +155,22 @@
 .nf-consola-puerta { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 12.5px; }
 .nf-consola-puerta td { padding: 3px 6px; border-top: 1px solid rgba(255, 255, 255, 0.06); vertical-align: top; }
 .nf-consola-puerta td:first-child { white-space: nowrap; font-weight: 600; }
+
+/* Consola-chat del piloto de planificación */
+.nf-chat { margin: 12px 0; padding: 12px 14px; border: 1px solid rgba(199, 168, 60, 0.35); border-radius: 10px;
+  background: rgba(7, 27, 47, 0.5); }
+.nf-chat-cab { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.nf-chat-roles { display: flex; gap: 6px; }
+.nf-chat-hilo { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
+.nf-chat-msg { max-width: 90%; padding: 8px 12px; border-radius: 12px; font-size: 13px; }
+.nf-chat-msg p { margin: 2px 0 0; white-space: pre-wrap; }
+.nf-chat-de { font-size: 11px; font-weight: 700; color: #C7A83C; }
+.nf-chat-agente { align-self: flex-start; background: rgba(10, 35, 66, 0.85); border: 1px solid rgba(199, 168, 60, 0.25); }
+.nf-chat-prep { align-self: flex-end; background: rgba(14, 44, 80, 0.9); }
+.nf-chat-aud { align-self: flex-end; background: rgba(40, 60, 30, 0.7); }
+.nf-chat-sys { align-self: center; background: rgba(255, 255, 255, 0.05); font-style: italic; }
+.nf-chat-accion { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.nf-registro-colapsado > summary { cursor: pointer; padding: 8px 4px; }
 .nf-estudio-json { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0; }
 .nf-estudio-json label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .nf-estudio-json textarea { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
