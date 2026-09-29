@@ -447,3 +447,18 @@ a.btn { text-decoration: none; display: inline-block; }
 .nf-chat-acciones label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #45525f; }
 .nf-chat-aviso { font-size: 12px; }
 .nf-chat-nota { font-size: 11px; font-style: italic; margin-top: 6px; }
+
+/* --- Panel «Pruebas sugeridas» (PruebasSugeridas.jsx, puente planificación→pruebas) --- */
+.nf-sug { border: 1px solid #dbe3ec; border-radius: 10px; padding: 10px 12px; background: #fff; }
+.nf-sug > summary { cursor: pointer; font-weight: 600; color: #0A2342; }
+.nf-sug-lista { list-style: none; padding: 0; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
+.nf-sug-lista > li { border: 1px solid #e3e8ef; border-radius: 8px; padding: 8px 10px; }
+.nf-sug-lista > li.riesgo { border-left: 3px solid #C7A83C; }
+.nf-sug-cab { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.nf-sug-cab strong { color: #0A2342; }
+.nf-sug-id { background: #f0f3f7; border-radius: 4px; padding: 1px 6px; font-size: 12px; color: #45525f; }
+.nf-sug-saldo { margin-left: auto; font-variant-numeric: tabular-nums; color: #0A2342; }
+.nf-badge.riesgo { background: #FBF3D9; color: #7a5c00; }
+.nf-sug-cuentas { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: #45525f; }
+.nf-sug-riesgos { color: #7a5c00; font-style: italic; }
+.nf-sug-otras { margin-top: 8px; font-size: 13px; }
