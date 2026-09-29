@@ -153,32 +153,56 @@ def build_xlsx(r):
 
 
 def _docx_letter(doc, r, letter):
+    """Arma una carta. Cada carta empieza en página nueva y se compacta para
+    caber en una sola hoja; el bloque de firma (funcionario, cargo y compañía)
+    nunca se parte entre páginas."""
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     blocks = letter['blocks']
+    paras = []
+
+    def add(text, style=None, justify=False):
+        p = doc.add_paragraph(text)
+        if style:
+            try:
+                p.style = doc.styles[style]
+            except Exception:
+                pass
+        if justify:
+            p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        paras.append(p)
+        return p
+
     for line in letter['salutation']:
-        doc.add_paragraph(line)
+        add(line)
     if blocks:
-        doc.add_paragraph(blocks[0]).alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        add(blocks[0], justify=True)
     for it in letter.get('items', []):
-        p = doc.add_paragraph(it)
-        try:
-            p.style = doc.styles['List Bullet']
-        except Exception:
-            pass
-        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        add(it, style='List Bullet', justify=True)
     for block in blocks[1:]:
-        doc.add_paragraph(block).alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-    doc.add_paragraph('')
-    for line in letter['signature']:
-        doc.add_paragraph(line)
+        add(block, justify=True)
+    spacer = add('')
+    sig_paras = [add(line) for line in letter['signature']]
+    # El bloque de firma permanece unido: nombre del funcionario, cargo y
+    # compañía no se separan ni saltan de página por su cuenta.
+    spacer.paragraph_format.keep_with_next = True
+    for p in sig_paras[:-1]:
+        p.paragraph_format.keep_with_next = True
+    for p in sig_paras:
+        p.paragraph_format.keep_together = True
     if letter['response_lines']:
-        doc.add_paragraph('')
+        add('')
         rule = doc.add_paragraph()
         rule.add_run('— — — — — — — — — — — — — — — — — — — — — — — — — — —')
+        paras.append(rule)
         head = doc.add_paragraph()
         head.add_run(letter['response_title']).bold = True
+        paras.append(head)
         for line in letter['response_lines']:
-            doc.add_paragraph(line)
+            add(line)
+
+    # Cada carta arranca en una hoja nueva (sin párrafo de salto extra).
+    if paras:
+        paras[0].paragraph_format.page_break_before = True
 
 
 class PDFNoDisponible(RuntimeError):
@@ -201,15 +225,37 @@ def build_pdf(r):
 
 def build_docx(r):
     from docx import Document
-    from docx.shared import Inches
+    from docx.shared import Inches, Pt, Cm
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     doc = Document()
     doc.core_properties.title = 'Cartas de confirmación · ' + r['context']['client']
     doc.core_properties.author = r['context']['firm']
     firm = firm_name(r['context']['firm'])
+
+    # Formato compacto: cada carta debe caber en una sola hoja.
+    normal = doc.styles['Normal']
+    normal.font.name = 'Calibri'
+    normal.font.size = Pt(10.5)
+    npf = normal.paragraph_format
+    npf.line_spacing = 1.0
+    npf.space_before = Pt(0)
+    npf.space_after = Pt(3)
+    try:
+        bullet = doc.styles['List Bullet'].paragraph_format
+        bullet.space_before = Pt(0)
+        bullet.space_after = Pt(2)
+        bullet.line_spacing = 1.0
+    except Exception:
+        pass
+    for sec in doc.sections:
+        sec.top_margin = Cm(1.8)
+        sec.bottom_margin = Cm(1.8)
+        sec.left_margin = Cm(2.2)
+        sec.right_margin = Cm(2.2)
+
     # Portada
     try:
-        doc.add_picture(str(logo_path(r)), width=Inches(2.2))
+        doc.add_picture(str(logo_path(r)), width=Inches(2.0))
         doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
     except Exception:
         pass
@@ -221,7 +267,6 @@ def build_docx(r):
     doc.add_paragraph(f"{r['totals']['count']} cartas · borrador para revisión. Cada carta la firma el cliente y "
                       "se responde directamente al auditor (NIA 505).").alignment = WD_ALIGN_PARAGRAPH.CENTER
     for letter in r['letters']:
-        doc.add_page_break()
         _docx_letter(doc, r, letter)
     buf = BytesIO()
     doc.save(buf)
