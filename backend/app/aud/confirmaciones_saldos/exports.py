@@ -153,14 +153,16 @@ def build_xlsx(r):
 
 
 def _docx_letter(doc, r, letter):
-    """Arma una carta. Cada carta empieza en página nueva y se compacta para
-    caber en una sola hoja; el bloque de firma (funcionario, cargo y compañía)
-    nunca se parte entre páginas."""
+    """Arma una carta con el aire de una carta comercial: espacio entre el
+    saludo, cada bloque del cuerpo y la firma. Cada carta empieza en página
+    nueva y entra completa en una sola hoja; el bloque de firma (funcionario,
+    cargo y compañía) nunca se parte entre páginas."""
     from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Pt
     blocks = letter['blocks']
     paras = []
 
-    def add(text, style=None, justify=False):
+    def add(text='', style=None, justify=False, space_after=None, space_before=None):
         p = doc.add_paragraph(text)
         if style:
             try:
@@ -169,28 +171,37 @@ def _docx_letter(doc, r, letter):
                 pass
         if justify:
             p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        if space_after is not None:
+            p.paragraph_format.space_after = Pt(space_after)
+        if space_before is not None:
+            p.paragraph_format.space_before = Pt(space_before)
         paras.append(p)
         return p
 
+    # Saludo (fecha, destinatario, dirección, "De nuestras consideraciones:").
     for line in letter['salutation']:
         add(line)
+    # Aire entre el saludo y el cuerpo.
+    add(space_after=6)
+    # Cuerpo: la introducción, las viñetas y cada párrafo van separados por
+    # un pequeño espacio para que la carta respire.
     if blocks:
-        add(blocks[0], justify=True)
+        add(blocks[0], justify=True, space_after=6)
     for it in letter.get('items', []):
         add(it, style='List Bullet', justify=True)
-    for block in blocks[1:]:
-        add(block, justify=True)
-    spacer = add('')
-    sig_paras = [add(line) for line in letter['signature']]
-    # El bloque de firma permanece unido: nombre del funcionario, cargo y
-    # compañía no se separan ni saltan de página por su cuenta.
-    spacer.paragraph_format.keep_with_next = True
+    for i, block in enumerate(blocks[1:]):
+        add(block, justify=True, space_before=6, space_after=6)
+
+    # Hueco para la firma manuscrita, seguido del bloque de firma unido.
+    sig_paras = [add(line, space_before=(30 if idx == 0 else None))
+                 for idx, line in enumerate(letter['signature'])]
     for p in sig_paras[:-1]:
         p.paragraph_format.keep_with_next = True
     for p in sig_paras:
         p.paragraph_format.keep_together = True
+
     if letter['response_lines']:
-        add('')
+        add(space_before=8)
         rule = doc.add_paragraph()
         rule.add_run('— — — — — — — — — — — — — — — — — — — — — — — — — — —')
         paras.append(rule)
