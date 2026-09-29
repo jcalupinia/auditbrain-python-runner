@@ -16,6 +16,7 @@ import { Documentacion, EditorRequerimiento } from "./CicloDocumentacion";
 import { Ejecucion } from "./CicloEjecucion";
 import { Revision } from "./CicloRevision";
 import { VistaTrabajo } from "./CicloVista";
+import ConsolaPrueba from "./ConsolaPrueba";
 import { ContextFields } from "./ContextoEncargo";
 import { RegistroEncargo } from "./RegistroEncargo";
 import "./fichaNiif.css";
@@ -302,6 +303,10 @@ export function Prueba({ id, onCambio, onAbrir }) {
 
       <section>
         <Revision prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
+      </section>
+
+      <section>
+        <ConsolaPrueba pruebaId={prueba.id} />
       </section>
 
       <details className="nf-circuito">
