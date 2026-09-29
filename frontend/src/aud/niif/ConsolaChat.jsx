@@ -21,6 +21,9 @@ import { claseMensaje, nombreDe, puedeSubirInline, requerimientosPendientes } fr
 const paramDe = (prueba) => ({ ...(prueba.definicion.parametros || {}), ...(prueba.registro.parameters || {}) });
 
 export function ConsolaChat({ prueba, onRecargar }) {
+  const esPlan = prueba.definicion.processor === "planificacion_nia";
+  const cosa = esPlan ? "la planificación" : "la prueba";
+  const Cosa = esPlan ? "La planificación" : "La prueba";
   const [rol, setRol] = useState("preparador");
   const [guion, setGuion] = useState(null);
   const [error, setError] = useState("");
@@ -65,7 +68,9 @@ export function ConsolaChat({ prueba, onRecargar }) {
   return (
     <section className="nf-chat">
       <div className="nf-chat-cab">
-        <p className="nf-eyebrow" style={{ margin: 0 }}>CONSOLA DE PLANIFICACIÓN · PILOTO</p>
+        <p className="nf-eyebrow" style={{ margin: 0 }}>
+          {esPlan ? "CONSOLA DE PLANIFICACIÓN · PILOTO" : `CONSOLA DE LA PRUEBA · ${prueba.definicion.name?.toUpperCase() || ""}`}
+        </p>
         <div className="nf-chat-roles" role="tablist" aria-label="Lado de la consola">
           {[["preparador", "Preparador"], ["auditor", "Auditor"]].map(([v, l]) => (
             <button key={v} type="button" role="tab" aria-selected={rol === v}
@@ -102,8 +107,8 @@ export function ConsolaChat({ prueba, onRecargar }) {
                 ))}
                 {pendientes.length === 0 && (
                   <button type="button" className="btn primary" disabled={ocupado}
-                    onClick={() => correr(() => producir(prueba, { param: paramDe(prueba) }), "Produciendo la planificación…")}>
-                    Producir la planificación
+                    onClick={() => correr(() => producir(prueba, { param: paramDe(prueba) }), `Produciendo ${cosa}…`)}>
+                    {esPlan ? "Producir la planificación" : "Producir la prueba"}
                   </button>
                 )}
               </div>
@@ -118,7 +123,7 @@ export function ConsolaChat({ prueba, onRecargar }) {
           {/* Preparador · producir */}
           {sig.accion === "procesar" && (
             <button type="button" className="btn primary" disabled={ocupado}
-              onClick={() => correr(() => producir(prueba, { param: paramDe(prueba) }), "Produciendo la planificación…")}>
+              onClick={() => correr(() => producir(prueba, { param: paramDe(prueba) }), `Produciendo ${cosa}…`)}>
               {sig.etiqueta}
             </button>
           )}
@@ -129,7 +134,8 @@ export function ConsolaChat({ prueba, onRecargar }) {
               <label className="nf-ctx-field">
                 Conclusión preliminar para el auditor
                 <textarea rows={3} value={conclusion} onChange={(e) => setConclusion(e.target.value)}
-                  placeholder="Resumen de la planificación: enfoque, riesgos altos y materialidad." />
+                  placeholder={esPlan ? "Resumen de la planificación: enfoque, riesgos altos y materialidad."
+                    : "Resumen del trabajo: saldo auditado, ajuste propuesto y hallazgos principales."} />
               </label>
               <button type="button" className="btn primary" disabled={ocupado || conclusion.trim().length < 10}
                 onClick={() => correr(() => enviar(prueba, { conclusion }), "Enviando a revisión del auditor…")}>
@@ -151,8 +157,8 @@ export function ConsolaChat({ prueba, onRecargar }) {
               </label>
               <button type="button" className="btn primary" disabled={ocupado || !confirmo}
                 onClick={() => correr(() => aprobar(prueba, { conclusion: prueba.registro.conclusion || "", conclusionReviewed: true }),
-                  "Aprobando la planificación…")}>
-                Aprobar la planificación
+                  `Aprobando ${cosa}…`)}>
+                {esPlan ? "Aprobar la planificación" : "Aprobar la prueba"}
               </button>
             </>
           )}
@@ -173,11 +179,11 @@ export function ConsolaChat({ prueba, onRecargar }) {
           )}
 
           {sig.accion === "esperar" && (
-            <p className="muted">La planificación está con el auditor. Cambia al lado «Auditor» para ver el veredicto.</p>
+            <p className="muted">{Cosa} está con el auditor. Cambia al lado «Auditor» para ver el veredicto.</p>
           )}
 
           {sig.accion === "descargar" && (
-            <p className="nf-ok">Planificación aprobada. Descarga el papel (Excel, Word, PowerPoint, HTML/PDF) desde la
+            <p className="nf-ok">{Cosa} está aprobada. Descarga el papel (Excel, Word, PowerPoint, HTML/PDF) desde la
               vista de trabajo detallada.</p>
           )}
         </div>

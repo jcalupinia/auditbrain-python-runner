@@ -17,7 +17,7 @@ import { Ejecucion } from "./CicloEjecucion";
 import { Revision } from "./CicloRevision";
 import { VistaTrabajo } from "./CicloVista";
 import { ConsolaChat } from "./ConsolaChat";
-import { esPlanificacion } from "./consolaChatVista";
+import { tieneConsolaChat } from "./consolaChatVista";
 import { ContextFields } from "./ContextoEncargo";
 import { RegistroEncargo } from "./RegistroEncargo";
 import "./fichaNiif.css";
@@ -294,12 +294,12 @@ export function Prueba({ id, onCambio, onAbrir }) {
       </ol>
       {error && <p role="alert" className="nf-error">{error}</p>}
 
-      {/* Piloto de planificación: la consola-chat es la puerta principal; la vista de trabajo detallada queda debajo. */}
-      {esPlanificacion(prueba) && (
+      {/* Toda prueba con procesador: la consola-chat es la puerta principal; la vista de trabajo detallada queda debajo. */}
+      {tieneConsolaChat(prueba) && (
         <ConsolaChat prueba={prueba} onRecargar={async () => { await cargar(); onCambio(); }} />
       )}
 
-      {esPlanificacion(prueba) && (
+      {tieneConsolaChat(prueba) && (
         <div className="nf-estudio-botones">
           <button type="button" className="btn sm" onClick={() => setVerDetalle((v) => !v)}>
             {verDetalle ? "Ocultar la vista de trabajo detallada" : "Ver la vista de trabajo detallada"}
@@ -307,7 +307,7 @@ export function Prueba({ id, onCambio, onAbrir }) {
         </div>
       )}
 
-      {(!esPlanificacion(prueba) || verDetalle) && (
+      {(!tieneConsolaChat(prueba) || verDetalle) && (
         <div id={`detalle-${prueba.id}`}>
           <VistaTrabajo prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
 

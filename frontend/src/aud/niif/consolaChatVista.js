@@ -4,9 +4,15 @@
 // «siguiente» acción según el estado. Aquí van las funciones puras que el
 // componente usa para pintar el chat y decidir qué control mostrar en cada paso.
 
-// Solo la planificación NIA tiene consola-chat (es el piloto).
+// La planificación NIA (gobierno del encargo automático, textos propios).
 export function esPlanificacion(prueba) {
   return (prueba && prueba.definicion && prueba.definicion.processor) === "planificacion_nia";
+}
+
+// Toda prueba con procesador tiene consola-chat: el mismo ciclo (documentos →
+// producir → enviar → revisar → aprobar) y, por tanto, el mismo hilo conversacional.
+export function tieneConsolaChat(prueba) {
+  return !!(prueba && prueba.definicion && prueba.definicion.processor);
 }
 
 // Clase de burbuja según quién habla.

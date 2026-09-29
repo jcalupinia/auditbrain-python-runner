@@ -187,4 +187,4 @@ def test_endpoint_rechaza_prueba_sin_procesar(client):
     finally:
         db.close()
     r = client.get(f"{BASE}/pruebas/{prueba_id}/consola-revision", headers=_h(tok))
-    assert r.status_code == 400 and "Procese la planificación" in r.json()["detail"]
+    assert r.status_code == 400 and "Procese la prueba" in r.json()["detail"]

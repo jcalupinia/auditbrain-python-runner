@@ -6,9 +6,9 @@ import {
 } from "./consolaRevisionVista";
 
 describe("consolaRevisionVista", () => {
-  it("solo la planificación NIA tiene consola", () => {
+  it("toda prueba con procesador tiene consola de revisión", () => {
     expect(tieneConsola({ definicion: { processor: "planificacion_nia" } })).toBe(true);
-    expect(tieneConsola({ definicion: { processor: "cxc_cartera" } })).toBe(false);
+    expect(tieneConsola({ definicion: { processor: "cxc_cartera" } })).toBe(true);
     expect(tieneConsola({ definicion: {} })).toBe(false);
     expect(tieneConsola({})).toBe(false);
   });

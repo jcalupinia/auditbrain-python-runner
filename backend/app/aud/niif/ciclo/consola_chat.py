@@ -1,18 +1,20 @@
-"""Consola-chat del piloto de planificación: el «agente» determinista.
+"""Consola-chat de las pruebas del encargo: el «agente» determinista.
 
-Convierte el estado del ciclo de una prueba de planificación en un hilo de
-mensajes tipo chat, con dos lados en la misma consola:
+Convierte el estado del ciclo de una prueba (la planificación NIA o cualquiera de
+las 20 herramientas del catálogo) en un hilo de mensajes tipo chat, con dos lados
+en la misma consola:
 
 - **Preparador**: el agente le dice, paso a paso, qué documentos subir para que la
   prueba se pueda producir y cuándo procesarla y enviarla a revisión.
 - **Auditor**: el agente le entrega el resultado y el veredicto de la consola de
-  revisión (``consola_revision``) para que lo revise y apruebe.
+  revisión (``consola_revision`` para la planificación; ``revision.base`` para las
+  demás herramientas) para que lo revise y apruebe.
 
 Es determinista (decisión del dueño): los mensajes salen de lo que el ciclo ya
 sabe (estado, documentos requeridos, huecos detectados, resultado del recálculo),
 no de un modelo de lenguaje. No cambia nada: solo lee el estado y arma el guion.
-Las respuestas de gobierno del encargo (independencia, aceptación, enfoque por
-ciclo) se resuelven automáticamente y no se preguntan aquí.
+En la planificación, las respuestas de gobierno del encargo (independencia,
+aceptación, enfoque por ciclo) se resuelven automáticamente y no se preguntan aquí.
 """
 from __future__ import annotations
 
@@ -56,28 +58,33 @@ def _msg(de: str, texto: str) -> dict:
 def guion(datos: dict, rol: str = "preparador") -> dict:
     """Hilo de mensajes y siguiente acción para la consola-chat.
 
-    ``datos`` trae: ``estado``, ``cliente``, ``huecos`` (list[str]),
-    ``pendientes`` (list[str] de documentos que faltan), ``recibidos``/``total``
-    (conteo de documentos obligatorios), ``tiene_run`` (bool),
-    ``conclusion_hecha`` (bool) y, en revisión, ``veredicto`` (str) con
-    ``bloqueos``/``hallazgos``.
+    ``datos`` trae: ``estado``, ``cliente``, ``prueba`` (nombre de la herramienta),
+    ``es_planificacion`` (bool), ``huecos`` (list[str]), ``pendientes`` (list[str]
+    de documentos que faltan), ``recibidos``/``total`` (conteo de documentos
+    obligatorios), ``tiene_run`` (bool), ``conclusion_hecha`` (bool) y, en revisión,
+    ``veredicto`` (str) con ``bloqueos``/``hallazgos``.
     """
     estado = datos.get("estado") or ""
     cliente = datos.get("cliente") or "el cliente"
+    prueba = datos.get("prueba") or "la prueba"
+    es_plan = bool(datos.get("es_planificacion"))
     huecos = datos.get("huecos") or []
     fase = fase_de(estado, huecos)
     es_auditor = rol == "auditor"
 
-    mensajes: list[dict] = [
-        _msg("agente", f"Planificación de auditoría de {cliente}. Yo te voy guiando; la independencia del equipo y el "
-                       "enfoque por ciclo ya quedan resueltos por política de la firma, así que no hace falta llenarlos."),
-    ]
+    # El nombre de la prueba se usa como sustantivo femenino («la planificación», «la prueba de …»).
+    ella = "la planificación" if es_plan else f"la prueba «{prueba}»"
+    presentacion = f"{prueba} — auditoría de {cliente}. Yo te voy guiando por el proceso."
+    if es_plan:
+        presentacion += (" La independencia del equipo y el enfoque por ciclo ya quedan resueltos por política de la "
+                         "firma, así que no hace falta llenarlos.")
+    mensajes: list[dict] = [_msg("agente", presentacion)]
     siguiente: dict = {}
 
     if fase == FASE_DOCUMENTOS:
         pendientes = datos.get("pendientes") or huecos
         lista = "\n".join(f"• {d}" for d in pendientes) if pendientes else "• (todos los documentos requeridos)"
-        mensajes.append(_msg("agente", "Para producir la planificación necesito estos documentos del cliente. "
+        mensajes.append(_msg("agente", f"Para producir {ella} necesito estos documentos del cliente. "
                                         f"Súbelos aquí:\n{lista}"))
         recibidos, total = datos.get("recibidos"), datos.get("total")
         if isinstance(recibidos, int) and isinstance(total, int) and total:
@@ -85,14 +92,16 @@ def guion(datos: dict, rol: str = "preparador") -> dict:
         siguiente = {"fase": fase, "rol": "preparador", "accion": "subir", "etiqueta": "Subir documentos"}
 
     elif fase == FASE_PROCESAR:
+        que_produce = ("toda la planificación (índices, materialidad, riesgos, programa)" if es_plan
+                       else "todo el papel de trabajo (cédulas, conciliación, ajuste propuesto y hallazgos)")
         mensajes.append(_msg("agente", "Ya tengo los documentos. Con un clic preparo el programa, valido y concilio la "
-                                       "información y produzco toda la planificación (índices, materialidad, riesgos, "
-                                       "programa)."))
-        siguiente = {"fase": fase, "rol": "preparador", "accion": "procesar", "etiqueta": "Producir la planificación"}
+                                       f"información y produzco {que_produce}."))
+        siguiente = {"fase": fase, "rol": "preparador", "accion": "procesar",
+                     "etiqueta": "Producir la planificación" if es_plan else "Producir la prueba"}
 
     elif fase == FASE_ENVIAR:
-        mensajes.append(_msg("agente", "La planificación está producida. La reviso y, si está conforme, la envío al "
-                                       "auditor para su veredicto."))
+        mensajes.append(_msg("agente", f"{ella[0].upper()}{ella[1:]} está producida. La reviso y, si está conforme, la "
+                                       "envío al auditor para su veredicto."))
         siguiente = {"fase": fase, "rol": "preparador", "accion": "enviar", "etiqueta": "Enviar a revisión del auditor"}
 
     elif fase == FASE_REVISAR:
@@ -109,21 +118,25 @@ def guion(datos: dict, rol: str = "preparador") -> dict:
                                                    "al preparador."))
                     siguiente = {"fase": fase, "rol": "auditor", "accion": "devolver", "etiqueta": "Devolver al preparador"}
                 else:
-                    mensajes.append(_msg("agente", "El recálculo coincide con el motor y el balance cuadra. La aprobación "
-                                                   "final es tu decisión (compuerta del socio)."))
-                    siguiente = {"fase": fase, "rol": "auditor", "accion": "aprobar", "etiqueta": "Aprobar la planificación"}
+                    coincide = ("El recálculo coincide con el motor y el balance cuadra." if es_plan
+                                else "El recálculo independiente coincide con el motor y el papel está completo.")
+                    mensajes.append(_msg("agente", f"{coincide} La aprobación final es tu decisión (compuerta del socio)."))
+                    siguiente = {"fase": fase, "rol": "auditor", "accion": "aprobar",
+                                 "etiqueta": "Aprobar la planificación" if es_plan else "Aprobar la prueba"}
             else:
-                mensajes.append(_msg("agente", "La planificación está en revisión. Corro el recálculo independiente y te "
-                                               "doy el veredicto."))
-                siguiente = {"fase": fase, "rol": "auditor", "accion": "revisar", "etiqueta": "Revisar la planificación"}
+                mensajes.append(_msg("agente", f"{ella[0].upper()}{ella[1:]} está en revisión. Corro el recálculo "
+                                               "independiente y te doy el veredicto."))
+                siguiente = {"fase": fase, "rol": "auditor", "accion": "revisar",
+                             "etiqueta": "Revisar la planificación" if es_plan else "Revisar la prueba"}
         else:
-            mensajes.append(_msg("agente", "La planificación ya está con el auditor. Cambia al lado «Auditor» para ver el "
-                                           "veredicto, o espera su revisión."))
+            mensajes.append(_msg("agente", f"{ella[0].upper()}{ella[1:]} ya está con el auditor. Cambia al lado «Auditor» "
+                                           "para ver el veredicto, o espera su revisión."))
             siguiente = {"fase": fase, "rol": "auditor", "accion": "esperar", "etiqueta": "En revisión del auditor"}
 
     elif fase == FASE_APROBADA:
         quien = datos.get("aprobada_por")
-        mensajes.append(_msg("agente", "Planificación aprobada" + (f" por {quien}" if quien else "") +
+        titulo = "Planificación aprobada" if es_plan else f"Prueba «{prueba}» aprobada"
+        mensajes.append(_msg("agente", titulo + (f" por {quien}" if quien else "") +
                              ". Puedes descargar el papel (Excel, Word, PowerPoint, HTML/PDF)."))
         siguiente = {"fase": fase, "rol": "auditor", "accion": "descargar", "etiqueta": "Descargar el papel"}
 

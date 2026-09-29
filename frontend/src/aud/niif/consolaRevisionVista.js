@@ -6,9 +6,10 @@
 // el resumen de cada bloque y el texto de los estados, para que el componente
 // solo pinte y las reglas se prueben aparte.
 
-// ¿Esta prueba tiene consola de revisión del auditor? (solo la planificación NIA).
+// ¿Esta prueba tiene consola de revisión del auditor? (toda prueba con procesador:
+// la planificación NIA con su revisor rico, las 20 herramientas con el genérico).
 export function tieneConsola(prueba) {
-  return (prueba && prueba.definicion && prueba.definicion.processor) === "planificacion_nia";
+  return !!(prueba && prueba.definicion && prueba.definicion.processor);
 }
 
 // Clase de color para el veredicto (usa las clases nf-* del CSS).

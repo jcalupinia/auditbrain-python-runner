@@ -65,9 +65,23 @@ def test_preparador_en_revision_espera_al_auditor():
 
 
 def test_el_agente_dice_que_el_gobierno_es_automatico():
-    g = chat.guion({"estado": "REQUERIMIENTO_APROBADO", "cliente": "ACME", "huecos": []}, "preparador")
+    # Solo en la planificación: la frase de gobierno automático es propia de ese piloto.
+    g = chat.guion({"estado": "REQUERIMIENTO_APROBADO", "cliente": "ACME", "huecos": [],
+                    "es_planificacion": True}, "preparador")
     texto = " ".join(m["texto"] for m in g["mensajes"]).lower()
     assert "independencia" in texto and ("autom" in texto or "política de la firma" in texto)
+
+
+def test_en_una_prueba_del_catalogo_no_habla_de_gobierno_ni_de_planificacion():
+    # La consola-chat de una herramienta del catálogo usa el nombre de la prueba y no
+    # arrastra el texto de gobierno del encargo (independencia/enfoque), propio de la planificación.
+    g = chat.guion({"estado": "REQUERIMIENTO_APROBADO", "cliente": "ACME", "prueba": "Efectivo y equivalentes",
+                    "es_planificacion": False, "huecos": ["Conciliación bancaria"],
+                    "pendientes": ["Conciliación bancaria"]}, "preparador")
+    texto = " ".join(m["texto"] for m in g["mensajes"]).lower()
+    assert "efectivo y equivalentes" in texto
+    assert "independencia" not in texto and "planificación" not in texto
+    assert g["siguiente"]["accion"] == "subir"
 
 
 # --- endpoint HTTP -------------------------------------------------------------------------------------------

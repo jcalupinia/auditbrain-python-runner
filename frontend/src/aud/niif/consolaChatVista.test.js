@@ -2,13 +2,21 @@ import { describe, it, expect } from "vitest";
 
 import {
   accionInline, claseMensaje, esPlanificacion, nombreDe, puedeSubirInline, requerimientosPendientes,
+  tieneConsolaChat,
 } from "./consolaChatVista";
 
 describe("consolaChatVista", () => {
-  it("solo la planificación NIA tiene consola-chat", () => {
+  it("la planificación NIA se distingue (gobierno automático, textos propios)", () => {
     expect(esPlanificacion({ definicion: { processor: "planificacion_nia" } })).toBe(true);
     expect(esPlanificacion({ definicion: { processor: "cxc_cartera" } })).toBe(false);
     expect(esPlanificacion({ definicion: {} })).toBe(false);
+  });
+
+  it("toda prueba con procesador tiene consola-chat", () => {
+    expect(tieneConsolaChat({ definicion: { processor: "planificacion_nia" } })).toBe(true);
+    expect(tieneConsolaChat({ definicion: { processor: "cxc_cartera" } })).toBe(true);
+    expect(tieneConsolaChat({ definicion: {} })).toBe(false);
+    expect(tieneConsolaChat({})).toBe(false);
   });
 
   it("clase y nombre por emisor", () => {

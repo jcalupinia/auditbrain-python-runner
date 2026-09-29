@@ -1289,11 +1289,17 @@ def resultado_para_revision(db: Session, p: Prueba) -> dict:
 
 
 def guion_consola_chat(db: Session, p: Prueba, rol: str) -> dict:
-    """Guion de la consola-chat del piloto de planificación (agente determinista, solo lectura)."""
+    """Guion de la consola-chat de la prueba (agente determinista, solo lectura).
+
+    Vale para la planificación NIA y para las 20 herramientas del catálogo: toda
+    prueba con procesador tiene el mismo ciclo (documentos → producir → enviar →
+    revisar → aprobar) y, por tanto, el mismo hilo conversacional.
+    """
     from backend.app.aud.niif.ciclo import consola_chat
 
-    if (p.definicion or {}).get("processor") != "planificacion_nia":
-        raise ReglaIncumplida("La consola-chat del piloto es de la planificación de auditoría (NIA 300/315/320/330).")
+    if not (p.definicion or {}).get("processor"):
+        raise ReglaIncumplida("Esta prueba no tiene procesador; la consola-chat requiere una herramienta del catálogo.")
+    es_plan = (p.definicion or {}).get("processor") == "planificacion_nia"
     reg = p.registro or {}
     reqs = reg.get("requests") or []
     fuentes = [a for a in archivos(db, p.id) if a.clase == "source"]
@@ -1309,6 +1315,8 @@ def guion_consola_chat(db: Session, p: Prueba, rol: str) -> dict:
     d = {
         "estado": p.estado,
         "cliente": (reg.get("engagement") or {}).get("client"),
+        "prueba": (p.definicion or {}).get("name") or "la prueba",
+        "es_planificacion": es_plan,
         "huecos": huecos,
         "pendientes": pendientes,
         "recibidos": sum(1 for c in obligatorios if c.get("complete")),
@@ -1320,7 +1328,7 @@ def guion_consola_chat(db: Session, p: Prueba, rol: str) -> dict:
     # En revisión y del lado del auditor, el agente ya trae el veredicto del recálculo independiente.
     if p.estado == "EN_REVISION" and rol == "auditor" and reg.get("run"):
         try:
-            rep = revisar_planificacion(db, p)
+            rep = revisar_prueba(db, p)
             d.update(veredicto=rep["veredicto"], bloqueos=rep.get("bloqueos") or [], hallazgos=rep.get("hallazgos") or [])
         except ReglaIncumplida:
             pass
@@ -1328,16 +1336,31 @@ def guion_consola_chat(db: Session, p: Prueba, rol: str) -> dict:
             **consola_chat.guion(d, rol)}
 
 
-def revisar_planificacion(db: Session, p: Prueba) -> dict:
-    """Reporte de la consola de revisión del auditor para una prueba de planificación."""
-    from backend.app.aud.niif.ciclo import consola_revision
+def revisar_prueba(db: Session, p: Prueba) -> dict:
+    """Reporte de la consola de revisión del auditor para una prueba con procesador.
 
-    if (p.definicion or {}).get("processor") != "planificacion_nia":
-        raise ReglaIncumplida("La consola de revisión del auditor es de la planificación de auditoría (NIA 300/315/320/330).")
+    Despacha según la herramienta: la planificación NIA usa su revisor rico
+    (``consola_revision``, que recalcula índices y agregados); las 20 herramientas
+    del catálogo usan el revisor genérico por contrato (``revision.base``), que
+    verifica el panel, el enlace de los problemas y el recálculo independiente del
+    resultado principal a medida por rubro (``revision/recalc/<processor>.py``).
+    """
+    processor = (p.definicion or {}).get("processor")
+    if not processor:
+        raise ReglaIncumplida("Esta prueba no tiene procesador; no hay recálculo que revisar.")
     if not (p.registro or {}).get("run"):
-        raise ReglaIncumplida("Procese la planificación antes de revisarla.")
+        raise ReglaIncumplida("Procese la prueba antes de revisarla.")
     run = resultado_para_revision(db, p)
-    return consola_revision.revisar(run)
+    if processor == "planificacion_nia":
+        from backend.app.aud.niif.ciclo import consola_revision
+        return consola_revision.revisar(run)
+    from backend.app.aud.niif.ciclo import revision
+    return revision.revisar(run, procesadores.de(p.definicion), processor)
+
+
+# Alias retrocompatible: el nombre anterior era exclusivo de la planificación.
+def revisar_planificacion(db: Session, p: Prueba) -> dict:
+    return revisar_prueba(db, p)
 
 
 def registro_salida(r: RegistroEncargo) -> dict:
