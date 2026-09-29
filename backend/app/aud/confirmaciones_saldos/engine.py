@@ -22,10 +22,19 @@ EMAIL = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 AMOUNT_REQUIRED = ('cuentas_por_cobrar', 'proveedores')
 
 
-def number(value, field, *, maximum=Decimal('1000000000000')):
+def number(value, field, *, maximum=Decimal('1000000000000'), allow_negative=False):
     if value is None or isinstance(value, bool):
         raise ValueError(f'{field}: dato numérico requerido.')
     s = str(value).strip().replace(' ', '')
+    # Signo opcional. Los saldos contables pueden ser negativos (sobregiros,
+    # saldos acreedores); otros campos numéricos (tolerancia) no lo permiten.
+    sign = ''
+    if s[:1] in '+-':
+        if s[0] == '-':
+            if not allow_negative:
+                raise ValueError(f'{field}: use un número no negativo, hasta seis decimales.')
+            sign = '-'
+        s = s[1:]
     if ',' in s and '.' in s:
         us = s.rfind('.') > s.rfind(',')
         pattern = r'\d{1,3}(,\d{3})+\.\d{1,6}' if us else r'\d{1,3}(\.\d{3})+,\d{1,6}'
@@ -37,12 +46,13 @@ def number(value, field, *, maximum=Decimal('1000000000000')):
             raise ValueError(f'{field}: use formato decimal inequívoco.')
         s = s.replace(',', '.')
     if not re.fullmatch(r'\d+(\.\d{1,6})?', s):
-        raise ValueError(f'{field}: use un número no negativo, hasta seis decimales.')
+        detalle = 'hasta seis decimales' if allow_negative else 'no negativo, hasta seis decimales'
+        raise ValueError(f'{field}: use un número {detalle}.')
     try:
-        n = Decimal(s)
+        n = Decimal(sign + s)
     except InvalidOperation:
         raise ValueError(f'{field}: número no válido.') from None
-    if not n.is_finite() or n > maximum:
+    if not n.is_finite() or abs(n) > maximum:
         raise ValueError(f'{field}: fuera de rango.')
     return n
 
@@ -150,7 +160,12 @@ def calculate(data):
     for index, row in enumerate(items, 1):
         if not isinstance(row, dict):
             raise ValueError(f'Elemento {index}: estructura no válida.')
-        code = required(row, 'id', 100) if row.get('id') else required(row, 'code', 100)
+        raw_id = row.get('id') if row.get('id') not in (None, '') else row.get('code')
+        if not isinstance(raw_id, str) or not raw_id.strip():
+            raise ValueError(f'Elemento {index}: complete el Código (identificador) de cada fila.')
+        code = raw_id.strip()
+        if len(code) > 100:
+            raise ValueError(f'Elemento {index}: el Código supera los 100 caracteres.')
         if code in seen:
             raise ValueError(f'Identificador duplicado: {code}. Use uno único por destinatario.')
         seen.add(code)
@@ -173,7 +188,7 @@ def calculate(data):
         amount = None
         amount_text = None
         if row.get('amount') not in (None, ''):
-            amount = money(number(row.get('amount'), f'{code}: saldo'))
+            amount = money(number(row.get('amount'), f'{code}: saldo', allow_negative=True))
             amount_text = format_money(context['currency'], amount)
         elif rtype in AMOUNT_REQUIRED and method != 'en_blanco':
             raise ValueError(f'{code}: indique el saldo o use el método en blanco para este rubro.')
@@ -221,7 +236,7 @@ def calculate(data):
     for entry in data.get('coverage') or []:
         if not isinstance(entry, dict) or entry.get('type') not in TYPES:
             raise ValueError('Cobertura: rubro no válido.')
-        ledger_by_type[entry['type']] = money(number(entry.get('ledger_balance'), 'Saldo del mayor'))
+        ledger_by_type[entry['type']] = money(number(entry.get('ledger_balance'), 'Saldo del mayor', allow_negative=True))
     for rtype in sorted(set(by_type) | set(ledger_by_type)):
         s = money(sampled.get(rtype, ZERO))
         ledger = ledger_by_type.get(rtype)
