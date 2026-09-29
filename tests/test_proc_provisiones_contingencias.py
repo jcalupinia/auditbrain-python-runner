@@ -130,6 +130,28 @@ def test_hojas_y_definicion():
     assert m.RUBRO == "PROVISIONES" and m.CONTROL in {c["key"] for c in m.CAMPOS[m.PRINCIPAL]}
 
 
+def test_lectura():
+    """18_Lectura: frases causa-efecto con la cifra embebida (FIXED) referenciando el Resumen (hoja 01)."""
+    hs = m.hojas(correr())
+    h = next(x for x in hs if x["name"] == "18_Lectura")
+    assert h["label"] == "Lectura de resultados"
+    assert [c[0] for c in h["cols"]] == ["Concepto", "Detalle"]
+    assert [c[1] for c in h["cols"]] == ["t", "t"]
+    assert 3 <= len(h["rows"]) <= 5
+    for f in h["rows"]:
+        assert len(f) == 2
+        det = f[1]
+        assert isinstance(det, dict) and det.get("f") and det.get("v")
+        assert "FIXED(" in det["f"] and "01_Resumen" in det["f"]
+        assert "US$" in det["v"]
+    # el resultado principal cita la provisión requerida y la registrada del ejemplo
+    principal = h["rows"][0][1]["v"]
+    assert "763.758,90" in principal and "725.000,00" in principal
+    # el ajuste del ejemplo (38.758,90) va embebido con su efecto
+    assert any("38.758,90" in f[1]["v"] and "aumenta la provisión" in f[1]["v"] for f in h["rows"])
+    assert "Detalle" in h["explica"] and len(h["explica"]["Detalle"]) >= 40
+
+
 def test_conclusion():
     from backend.app.aud.niif.procesadores import base
     hs = m.hojas(correr())

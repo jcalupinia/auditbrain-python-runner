@@ -412,7 +412,7 @@ CEDULAS = [
     ("08_Deducibles_exposicion", "Deducibles y exposición máxima"), ("09_Sin_cobertura", "Activos sin cobertura"),
     ("10_Prima_anticipada", "Prima pagada por anticipado"), ("11_Siniestros", "Siniestros pendientes y revelación"),
     ("12_Conclusion", "Indicadores y conclusión"), ("13_Ajustes", "Ajustes propuestos y conciliación"),
-    ("14_Problemas", "Problemas encontrados"),
+    ("14_Problemas", "Problemas encontrados"), ("15_Lectura", "Lectura de resultados"),
 ]
 P = ref("02_Parametros")
 ACT, POL, VIG, COB, CPO, DED, PRI, SIN, CON, AJ = (ref(n) for n in (
@@ -812,6 +812,27 @@ def hojas(res: dict) -> list[dict]:
     valor = {**k, "coberturaGlobal": None if k["coberturaGlobal"] is None else k["coberturaGlobal"] * 100}
     resumen = [[res["labels"][kk], fx(celda[kk], valor[kk])] for kk in res["labels"]]
 
+    # 15 · lectura causa-efecto: el resultado y las variaciones materiales con su cifra embebida (FIXED
+    # respeta los separadores del equipo; el valor de Python va con los del Ecuador, como hace m()). Las
+    # celdas de origen son de la conclusión (12) y de los ajustes (13), presentes en todo escenario.
+    lectura = [
+        ["Resultado principal",
+         fx(f'"La suma asegurada vigente al corte es de US$ "&FIXED({CON}B{FILA0 + 1},2)&" sobre un valor de referencia de US$ "&FIXED({CON}B{FILA0},2)&", con un déficit de cobertura de US$ "&FIXED({CON}B{FILA0 + 3},2)&"."',
+            f'La suma asegurada vigente al corte es de US$ {m(k["sumaAsegurada"])} sobre un valor de referencia de US$ {m(k["valorReferencia"])}, con un déficit de cobertura de US$ {m(k["deficitCobertura"])}.')],
+        ["Ajuste y su efecto",
+         fx(f'"El ajuste propuesto en resultados por la prima anticipada es de US$ "&FIXED({AJ}B{FILA0 + 3},2)&" (recalculada US$ "&FIXED({AJ}B{FILA0 + 1},2)&" frente a registrada US$ "&FIXED({AJ}B{FILA0},2)&")."',
+            f'El ajuste propuesto en resultados por la prima anticipada es de US$ {m(k["ajustePrima"])} (recalculada US$ {m(k["primaRecalculada"])} frente a registrada US$ {m(k["primaRegistrada"])}).')],
+        ["Exposición máxima (hallazgo material)",
+         fx(f'"La exposición máxima (pérdida total no cubierta del activo mayor) asciende a US$ "&FIXED({CON}B{FILA0 + 8},2)&"."',
+            f'La exposición máxima (pérdida total no cubierta del activo mayor) asciende a US$ {m(k["exposicionMaxima"])}.')],
+        ["Siniestros y compensaciones (hallazgo material)",
+         fx(f'"Los siniestros pendientes sin revelación suman US$ "&FIXED({CON}B{FILA0 + 11},2)&" y las compensaciones de seguro exigibles a reconocer US$ "&FIXED({CON}B{FILA0 + 12},2)&"."',
+            f'Los siniestros pendientes sin revelación suman US$ {m(k["siniestrosSinRevelar"])} y las compensaciones de seguro exigibles a reconocer US$ {m(k["compensacionesExigibles"])}.')],
+        ["Cierre",
+         fx(f'"El sobreseguro asciende a US$ "&FIXED({CON}B{FILA0 + 7},2)&"; la cobertura es evidencia de riesgo y continuidad operativa (NIA 315, 330, 570), no de cumplimiento de las NIIF."',
+            f'El sobreseguro asciende a US$ {m(k["sobreseguro"])}; la cobertura es evidencia de riesgo y continuidad operativa (NIA 315, 330, 570), no de cumplimiento de las NIIF.')],
+    ]
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=_EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
@@ -861,6 +882,9 @@ def hojas(res: dict) -> list[dict]:
              [["Concepto", "t"], ["Importe", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]], ajus, explica=_EXPLICA["13_Ajustes"]),
         hoja("14_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("15_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura,
+             explica={"Detalle": "Lee el resultado del rubro y las variaciones o hallazgos materiales con su cifra "
+                                 "tomada de la conclusión (hoja 12) y los ajustes (hoja 13), como causa-efecto para el lector."}),
     ]
 
 

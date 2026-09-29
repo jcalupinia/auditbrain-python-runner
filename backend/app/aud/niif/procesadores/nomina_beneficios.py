@@ -525,7 +525,7 @@ CEDULAS = [
     ("11_Fondo_reserva", "Fondo de reserva"), ("12_DBO_actuarial", "Jubilación patronal y desahucio: DBO"),
     ("13_Resultados_ORI", "Costo post-empleo: resultados y ORI"), ("14_Censo_actuarial", "Censo actuarial y desahucio legal"),
     ("15_Conciliacion_GL", "Conciliación nómina–mayor"), ("16_Ajustes", "Ajustes propuestos"), ("17_Problemas", "Problemas encontrados"),
-    ("18_Conclusion", "Indicadores y conclusión"),
+    ("18_Conclusion", "Indicadores y conclusión"), ("19_Lectura", "Lectura de resultados"),
 ]
 # Dashboard (graficos.panel): población = nómina anual registrada; recalculado vs registrado = solo los PASIVOS
 # laborales de la conciliación nómina–mayor (décimos, vacaciones, fondo de reserva y provisión actuarial), la misma
@@ -1038,6 +1038,45 @@ def hojas(res: dict) -> list[dict]:
          "Sección 28; esta prueba no concluye por sí sola el cumplimiento de las NIIF.", None, None, None, ""],
     ]
 
+    # 19 · lectura causa-efecto: cada frase lee el resultado con su cifra embebida (FIXED) desde el Resumen (hoja 01).
+    R1 = ref("01_Resumen")
+    fr = {kk: FILA0 + i for i, kk in enumerate(res["labels"])}
+    rc = lambda key: f"{R1}B{fr[key]}"
+    lectura = [
+        ["Resultado de la prueba",
+         fx(f'"Las remuneraciones recalculadas suman US$ "&FIXED({rc("remuneracionRecalculada")},2)&", frente a US$ "&'
+            f'FIXED({rc("remuneracionRegistrada")},2)&" registrado en la nómina; la diferencia es de US$ "&'
+            f'FIXED({rc("difRemuneracion")},2)&"."',
+            f'Las remuneraciones recalculadas suman US$ {m(k["remuneracionRecalculada"])}, frente a US$ '
+            f'{m(k["remuneracionRegistrada"])} registrado en la nómina; la diferencia es de US$ {m(k["difRemuneracion"])}.')],
+        ["Ajuste propuesto y su efecto",
+         fx(f'"El ajuste propuesto a los pasivos laborales es de US$ "&FIXED({rc("ajustePasivos")},2)&": "&'
+            f'IF({rc("ajustePasivos")}>=0,"aumenta el pasivo laboral por reconocer.","reduce el pasivo registrado.")',
+            f'El ajuste propuesto a los pasivos laborales es de US$ {m(k["ajustePasivos"])}: '
+            + ("aumenta el pasivo laboral por reconocer." if k["ajustePasivos"] >= 0 else "reduce el pasivo registrado."))],
+        ["Beneficios sociales recalculados",
+         fx(f'"Los beneficios sociales por pagar recalculados son: décimo tercero US$ "&FIXED({rc("d13Recalculado")},2)&", '
+            f'décimo cuarto US$ "&FIXED({rc("d14Recalculado")},2)&" y provisión de vacaciones US$ "&'
+            f'FIXED({rc("vacacionesRecalculadas")},2)&"."',
+            f'Los beneficios sociales por pagar recalculados son: décimo tercero US$ {m(k["d13Recalculado"])}, décimo cuarto '
+            f'US$ {m(k["d14Recalculado"])} y provisión de vacaciones US$ {m(k["vacacionesRecalculadas"])}.')],
+        ["Obligación post-empleo",
+         fx(f'"La obligación post-empleo (jubilación patronal y desahucio) según el informe actuarial es de US$ "&'
+            f'FIXED({rc("dboInforme")},2)&", frente a US$ "&FIXED({rc("provisionActuarialRegistrada")},2)&" provisionado."',
+            f'La obligación post-empleo (jubilación patronal y desahucio) según el informe actuarial es de US$ '
+            f'{m(k["dboInforme"])}, frente a US$ {m(k["provisionActuarialRegistrada"])} provisionado.')],
+        ["Cierre",
+         fx(f'"El desahucio legal referencial de los empleados activos asciende a US$ "&FIXED({rc("desahucioLegalReferencial")},2)&", '
+            f'medido sobre la última remuneración mensual (CT arts. 185 y 95); no reemplaza al DBO del informe actuarial."',
+            f'El desahucio legal referencial de los empleados activos asciende a US$ {m(k["desahucioLegalReferencial"])}, medido '
+            f'sobre la última remuneración mensual (CT arts. 185 y 95); no reemplaza al DBO del informe actuarial.')],
+    ]
+    ex_lectura = {"Detalle": ("Lee en lenguaje corriente el resultado de la prueba y sus hallazgos materiales con la cifra embebida "
+                              "tomada del Resumen (hoja 01): las remuneraciones recalculadas frente a las registradas y su diferencia, "
+                              "el ajuste propuesto a los pasivos laborales y su efecto, los beneficios sociales recalculados, la "
+                              "obligación post-empleo frente a lo provisionado y el desahucio legal referencial. Cada cifra remite por "
+                              "fórmula a la celda del Resumen.")}
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=ex["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros,
@@ -1118,6 +1157,7 @@ def hojas(res: dict) -> list[dict]:
         hoja("18_Conclusion", "Indicadores y conclusión",
              [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con18,
              explica=ex["18_Conclusion"], colores=["Estado"]),
+        hoja("19_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura, explica=ex_lectura),
     ]
 
 

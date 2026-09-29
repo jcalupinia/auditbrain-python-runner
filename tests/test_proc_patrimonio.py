@@ -232,7 +232,8 @@ def test_semaforo_movimiento_patrimonial():
 
 def test_conclusion():
     """La cédula 13 lleva indicadores por fórmula y la columna «Estado» coloreada (Alerta/Revisar/Conforme)."""
-    assert m.CEDULAS[-1] == ("13_Conclusion", "Indicadores y conclusión")
+    assert m.CEDULAS[-2] == ("13_Conclusion", "Indicadores y conclusión")
+    assert m.CEDULAS[-1] == ("14_Lectura", "Lectura de resultados")
     hs = {h["name"]: h for h in m.hojas(_run())}
     h = hs["13_Conclusion"]
     cols = [c[0] for c in h["cols"]]
@@ -257,9 +258,31 @@ def test_conclusion():
     # Verifica los anchos y nombres en todos los escenarios (incluye la hoja nueva).
     for _, ds, p, c in m.ESCENARIOS:
         hs2 = m.hojas(m.ejecutar(ds, p, c))
-        assert hs2[-1]["name"] == "13_Conclusion"
-        for fila in hs2[-1]["rows"]:
-            assert len(fila) == len(hs2[-1]["cols"])
+        assert hs2[-2]["name"] == "13_Conclusion" and hs2[-1]["name"] == "14_Lectura"
+        for fila in hs2[-2]["rows"]:
+            assert len(fila) == len(hs2[-2]["cols"])
+
+
+def test_lectura():
+    """La cédula 14 lee cada resultado clave en una frase de causa-efecto con la cifra embebida por FIXED."""
+    assert m.CEDULAS[-1] == ("14_Lectura", "Lectura de resultados")
+    for _, ds, p, c in m.ESCENARIOS:
+        hs = m.hojas(m.ejecutar(ds, p, c))
+        assert hs[-1]["name"] == "14_Lectura"
+        h = hs[-1]
+        assert [c0 for c0, _ in h["cols"]] == ["Concepto", "Detalle"] and h.get("total") is None
+        assert "Detalle" in h["explica"] and "colores" not in h
+        assert 3 <= len(h["rows"]) <= 5
+        for fila in h["rows"]:
+            assert len(fila) == 2
+            det = fila[1]
+            # El «Detalle» es una fórmula (causa-efecto) que embebe la cifra con FIXED referenciando el Resumen.
+            assert isinstance(det, dict) and "f" in det and "FIXED(" in det["f"] and "'01_Resumen'!" in det["f"]
+            assert isinstance(det["v"], str) and "US$" in det["v"]
+    # En el ejemplo el patrimonio auditado (910.000,00) y el ajuste neto (−25.000,00) aparecen en la lectura.
+    h = {x["name"]: x for x in m.hojas(_run())}["14_Lectura"]
+    detalles = " ".join(f[1]["v"] for f in h["rows"])
+    assert "910.000,00" in detalles and "25.000,00" in detalles
 
 
 def test_definicion():

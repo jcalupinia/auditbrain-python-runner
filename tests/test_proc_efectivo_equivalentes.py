@@ -158,6 +158,22 @@ def test_definicion():
     assert m.RUBRO == "CAJA_BANCOS" and m.TOTAL_EJEMPLO in _run()["totals"]
 
 
+def test_lectura():
+    """La cédula 14 lee los resultados en causa-efecto con las cifras embebidas por FIXED."""
+    r = _run()
+    h = m.hojas(r)
+    lec = next(x for x in h if x["name"] == "14_Lectura")
+    assert lec["label"] == "Lectura de resultados"
+    assert [c[0] for c in lec["cols"]] == ["Concepto", "Detalle"]
+    assert 3 <= len(lec["rows"]) <= 5
+    for fila in lec["rows"]:
+        assert isinstance(fila[0], str) and fila[0]
+        det = fila[1]
+        assert isinstance(det, dict) and "f" in det and "FIXED(" in det["f"]
+    # explica de la columna calculada presente
+    assert "Detalle" in m.EXPLICA["14_Lectura"]
+
+
 def test_bordes_tres_meses_y_al_menos_doce_meses():
     """NIC 7.7 se mide con EDATE(adquisición;3), no con 90 días; NIC 1.66 d) dice «al menos» doce meses."""
     d = {"cuentas": [

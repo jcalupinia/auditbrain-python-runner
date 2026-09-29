@@ -176,6 +176,18 @@ def test_conclusion():
     assert all(base.rol_color(h, "Estado", f) in ("alta", "media", "baja") for f in estados)
 
 
+def test_lectura():
+    """La cédula 12 lee el resultado y los hallazgos materiales con su cifra embebida por fórmula (FIXED)."""
+    h = next(x for x in m.hojas(_run()) if x["name"] == "12_Lectura")
+    assert h["label"] == "Lectura de resultados"
+    assert [c[0] for c in h["cols"]] == ["Concepto", "Detalle"]
+    assert 3 <= len(h["rows"]) <= 5 and not h.get("total") and not h.get("colores")
+    det = [f[1] for f in h["rows"]]
+    assert all(isinstance(d, dict) and "f" in d for d in det)       # cada Detalle es fórmula, nada pegado
+    assert all("FIXED(" in d["f"] for d in det)                     # la cifra va embebida con FIXED
+    assert "Detalle" in h["explica"] and len(h["explica"]["Detalle"]) >= 40
+
+
 def test_semaforo_valoracion():
     from backend.app.aud.niif.procesadores.base import NIVEL_COLOR
     h = next(x for x in m.hojas(_run()) if x["name"] == "05_Valoracion")

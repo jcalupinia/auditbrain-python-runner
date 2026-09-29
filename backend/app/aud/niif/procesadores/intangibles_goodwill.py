@@ -448,7 +448,7 @@ CEDULAS = [
     ("04_Reconocimiento", "Reconocimiento e investigación / desarrollo"), ("05_Amortizacion", "Amortización y vida finita / indefinida"),
     ("06_Vida_util", "Revisión de vida útil y valor residual"), ("07_Deterioro", "Deterioro e importe recuperable"),
     ("08_Reversion", "Reversión del deterioro"), ("09_Ajuste", "Valor neto y ajuste propuesto"), ("10_Problemas", "Problemas encontrados"),
-    ("11_Conclusion", "Indicadores y conclusión"),
+    ("11_Conclusion", "Indicadores y conclusión"), ("12_Lectura", "Lectura de resultados"),
 ]
 PARK = ["corte", "marco", "pymes", "edicion", "presuncion", "vidaMaxPymes", "saldoMayor"]
 PAR = {k: FILA0 + i for i, k in enumerate(PARK)}
@@ -925,6 +925,27 @@ def hojas(res: dict) -> list[dict]:
         ["Problemas detectados", None, None, fx(f"COUNTA({_rg(PBL, 'A', max(nprob, 1))})", nprob),
          fx(f'IF(D{rc(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
     ]
+    # 12 · lectura causa-efecto: el resultado y las variaciones materiales con su cifra embebida (FIXED
+    # respeta los separadores del equipo; el valor de Python va con los del Ecuador, como hace m()).
+    RES = ref("01_Resumen")
+    rl = lambda k: f"{RES}$B${fr[k]}"
+    lectura = [
+        ["Resultado principal",
+         fx(f'"Los intangibles y el goodwill netos auditados suman US$ "&FIXED({rl("netoAuditado")},2)&" frente a US$ "&FIXED({rl("saldoMayor")},2)&" según el mayor."',
+            f'Los intangibles y el goodwill netos auditados suman US$ {m(t["netoAuditado"])} frente a US$ {m(t["saldoMayor"])} según el mayor.')],
+        ["Ajuste y su efecto",
+         fx(f'"El ajuste propuesto neto asciende a US$ "&FIXED({rl("ajuste")},2)&": es la diferencia entre el neto auditado y el saldo del mayor."',
+            f'El ajuste propuesto neto asciende a US$ {m(t["ajuste"])}: es la diferencia entre el neto auditado y el saldo del mayor.')],
+        ["Amortización (hallazgo material)",
+         fx(f'"La amortización del año auditada suma US$ "&FIXED({rl("amortAuditada")},2)&", con una diferencia frente a la registrada de US$ "&FIXED({rl("difAmortizacion")},2)&"."',
+            f'La amortización del año auditada suma US$ {m(t["amortAuditada"])}, con una diferencia frente a la registrada de US$ {m(t["difAmortizacion"])}.')],
+        ["Deterioro y reversión (hallazgo material)",
+         fx(f'"El deterioro del año auditado es de US$ "&FIXED({rl("deterioroAuditado")},2)&" y la reversión de deterioro auditada de US$ "&FIXED({rl("reversionAuditada")},2)&"."',
+            f'El deterioro del año auditado es de US$ {m(t["deterioroAuditado"])} y la reversión de deterioro auditada de US$ {m(t["reversionAuditada"])}.')],
+        ["Cierre",
+         fx(f'"La investigación / desarrollo no capitalizable dada de baja asciende a US$ "&FIXED({rl("bajaNoCapitalizable")},2)&" y el ajuste total propuesto neto queda en US$ "&FIXED({rl("ajuste")},2)&"."',
+            f'La investigación / desarrollo no capitalizable dada de baja asciende a US$ {m(t["bajaNoCapitalizable"])} y el ajuste total propuesto neto queda en US$ {m(t["ajuste"])}.')],
+    ]
     return [
         hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", N]], resumen, explica=_EXPLICA["01_Resumen"]),
         hoja("02_Parametros", CEDULAS[1][1], [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
@@ -975,6 +996,9 @@ def hojas(res: dict) -> list[dict]:
         hoja("11_Conclusion", CEDULAS[10][1],
              [["Indicador", "t"], ["Importe", N], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
              explica=_EXPLICA["11_Conclusion"], colores=["Estado"]),
+        hoja("12_Lectura", CEDULAS[11][1], [["Concepto", "t"], ["Detalle", "t"]], lectura,
+             explica={"Detalle": "Lee el resultado del rubro y las variaciones o hallazgos materiales con su cifra "
+                                 "tomada del Resumen (hoja 01), redactados como causa-efecto para el lector del papel."}),
     ]
 
 

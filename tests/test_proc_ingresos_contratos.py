@@ -116,6 +116,25 @@ def test_hojas_nombres_y_anchos():
                 assert len(fila) == len(h["cols"]), h["name"]
 
 
+def test_lectura():
+    """17_Lectura: frases causa-efecto con la cifra embebida (FIXED) referenciando el Resumen (hoja 01)."""
+    hs = m.hojas(_run())
+    h = next(x for x in hs if x["name"] == "17_Lectura")
+    assert h["label"] == "Lectura de resultados"
+    assert [c[0] for c in h["cols"]] == ["Concepto", "Detalle"]
+    assert [c[1] for c in h["cols"]] == ["t", "t"]
+    assert 3 <= len(h["rows"]) <= 5
+    for f in h["rows"]:
+        assert len(f) == 2
+        det = f[1]
+        assert isinstance(det, dict) and det.get("f") and det.get("v")
+        assert "FIXED(" in det["f"] and "01_Resumen" in det["f"]
+        assert "US$" in det["v"]
+    # el ajuste del ejemplo (-114.620,00) va embebido con su efecto
+    assert any("-114.620,00" in f[1]["v"] and "reduce el ingreso registrado" in f[1]["v"] for f in h["rows"])
+    assert "Detalle" in h["explica"] and len(h["explica"]["Detalle"]) >= 40
+
+
 def test_semaforo_reconocimiento():
     hs = m.hojas(_run())
     h = next(x for x in hs if x["name"] == "09_Reconocimiento")

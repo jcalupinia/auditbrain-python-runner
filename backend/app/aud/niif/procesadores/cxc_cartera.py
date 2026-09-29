@@ -88,6 +88,7 @@ CEDULAS = [
     ("08_Costo_amortizado", "Costo amortizado e intereses implícitos"), ("09_Matriz_deterioro", "Matriz de deterioro"),
     ("10_Ajuste", "Deterioro requerido vs registrado"), ("11_Asientos", "Asientos propuestos"),
     ("12_Problemas", "Problemas encontrados"), ("13_Conclusion", "Indicadores y conclusión"),
+    ("14_Lectura", "Lectura de resultados"),
 ]
 
 
@@ -415,6 +416,12 @@ EXPLICA = {
         "Estado": ("Semáforo del indicador: «Alerta» cuando el ajuste de deterioro o una diferencia dejan de ser cero, "
                    "«Revisar» cuando hay cartera vencida sin cobro o problemas que atender y «Conforme» cuando el indicador "
                    "no presenta desviaciones."),
+    },
+    "14_Lectura": {
+        "Detalle": ("Redacta en lenguaje del auditor la lectura causa-efecto de los resultados e inserta cada cifra con "
+                    "FIXED desde la hoja 10 (Deterioro requerido vs registrado) y el total de la hoja 03 (Detalle por "
+                    "factura): el deterioro requerido frente al registrado, el ajuste y su efecto, la cartera vencida sin "
+                    "cobro, los intereses implícitos y las diferencias de circularización."),
     },
 }
 
@@ -749,6 +756,29 @@ def hojas(res: dict) -> list[dict]:
          fx(f'IF(D{r6}>0,"Revisar","Conforme")', est(nprob > 0, "Revisar"))],
     ]
 
+    # 14 · Lectura de resultados (causa-efecto con las cifras embebidas por FIXED).
+    _fix = lambda cell: f"FIXED({cell},2)"
+    aj_dir = "falta deterioro" if t["ajuste"] > 0.005 else ("hay un exceso de deterioro" if t["ajuste"] < -0.005 else "no hay ajuste")
+    aj_dir_f = f'IF(B{AJF["ajuste"]}>0.005,"falta deterioro",IF(B{AJF["ajuste"]}<-0.005,"hay un exceso de deterioro","no hay ajuste"))'
+    et_det = res["labels"]["deterioroRequerido"]
+    lectura = [
+        ["Resultado principal",
+         fx(f'"La {et_det} asciende a US$ "&{_fix(ajb("requerido"))}&", frente a US$ "&{_fix(ajb("registrado"))}&" de deterioro registrado en el mayor (hoja 10)."',
+            f"La {et_det} asciende a US$ {m(t['deterioroRequerido'])}, frente a US$ {m(t['provisionRegistrada'])} de deterioro registrado en el mayor (hoja 10).")],
+        ["Ajuste propuesto",
+         fx(f'"El ajuste de deterioro propuesto es de US$ "&{_fix(ajb("ajuste"))}&": indica que "&{aj_dir_f}&", y exige registrar el asiento de la hoja 11."',
+            f"El ajuste de deterioro propuesto es de US$ {m(t['ajuste'])}: indica que {aj_dir}, y exige registrar el asiento de la hoja 11.")],
+        ["Cartera vencida sin cobro",
+         fx(f'"US$ "&{_fix(ajb("sinCobro"))}&" de cartera vencida no tiene cobro posterior al cierre, lo que respalda la estimación de deterioro (NIA 540)."',
+            f"US$ {m(t['vencidoSinCobro'])} de cartera vencida no tiene cobro posterior al cierre, lo que respalda la estimación de deterioro (NIA 540).")],
+        ["Financiación implícita y circularización",
+         fx(f'"Los intereses implícitos por devengar suman US$ "&{_fix(ajb("interesReq"))}&" y las diferencias de circularización US$ "&{_fix(ajb("difConf"))}&", que ajustan el valor y la existencia de la cartera (NIIF 9 y NIA 505)."',
+            f"Los intereses implícitos por devengar suman US$ {m(t['interesNoDevengado'])} y las diferencias de circularización US$ {m(t['difCircularizacion'])}, que ajustan el valor y la existencia de la cartera (NIIF 9 y NIA 505).")],
+        ["Cierre",
+         fx(f'"En conjunto, sobre una cartera nominal de US$ "&{_fix(cartera_f)}&", los hallazgos exigen registrar los ajustes propuestos y revelar la política de deterioro y de corte de ventas."',
+            f"En conjunto, sobre una cartera nominal de US$ {m(t['saldo'])}, los hallazgos exigen registrar los ajustes propuestos y revelar la política de deterioro y de corte de ventas.")],
+    ]
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
@@ -788,6 +818,8 @@ def hojas(res: dict) -> list[dict]:
         hoja("13_Conclusion", "Indicadores y conclusión",
              [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
              explica=EXPLICA["13_Conclusion"], colores=["Estado"]),
+        hoja("14_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura,
+             explica=EXPLICA["14_Lectura"]),
     ]
 
 

@@ -360,7 +360,7 @@ CEDULAS = [
     ("05_Valoracion", "Valoración: VR menos costos de venta"), ("06_Transformacion", "Transformación biológica y cambio de VR"),
     ("07_Conciliacion", "Conciliación de cambios (NIC 41.50)"), ("08_Modelo_costo", "Modelo del costo y deterioro"),
     ("09_Cosecha", "Producto agrícola en el punto de cosecha"), ("10_Problemas", "Problemas encontrados"),
-    ("11_Conclusion", "Indicadores y conclusión"),
+    ("11_Conclusion", "Indicadores y conclusión"), ("12_Lectura", "Lectura de resultados"),
 ]
 PARK = ["corte", "marco", "vr_fiable", "vr_sin_esfuerzo_desproporcionado", "saldoMayor"]
 PAR = {k: FILA0 + i for i, k in enumerate(PARK)}
@@ -730,6 +730,27 @@ def hojas(res: dict) -> list[dict]:
         ["Problemas detectados", None, None, fx(f"COUNTA({_rg(PBL, 'A', max(nprob, 1))})", nprob),
          fx(f'IF(D{rc(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
     ]
+    # 12 · lectura causa-efecto: el resultado y las variaciones materiales con su cifra embebida (FIXED
+    # respeta los separadores del equipo; el valor de Python va con los del Ecuador, como hace m()).
+    RES = ref("01_Resumen")
+    rl = lambda k: f"{RES}$B${fr[k]}"
+    lectura = [
+        ["Resultado principal",
+         fx(f'"Los activos biológicos auditados suman US$ "&FIXED({rl("valorAuditado")},2)&" frente a US$ "&FIXED({rl("saldoMayor")},2)&" según el mayor."',
+            f'Los activos biológicos auditados suman US$ {m(t["valorAuditado"])} frente a US$ {m(t["saldoMayor"])} según el mayor.')],
+        ["Ajuste y su efecto",
+         fx(f'"El ajuste propuesto es de US$ "&FIXED({rl("ajuste")},2)&" (auditado − libros) y la diferencia anexo − mayor es de US$ "&FIXED({rl("difAnexoMayor")},2)&"."',
+            f'El ajuste propuesto es de US$ {m(t["ajuste"])} (auditado − libros) y la diferencia anexo − mayor es de US$ {m(t["difAnexoMayor"])}.')],
+        ["Cambio del valor razonable (hallazgo material)",
+         fx(f'"El cambio total del VR menos costos de venta suma US$ "&FIXED({rl("cambioTotal")},2)&" y la ganancia por cambio de VR no reconocida US$ "&FIXED({rl("gananciaNoReconocida")},2)&"."',
+            f'El cambio total del VR menos costos de venta suma US$ {m(t["cambioTotal"])} y la ganancia por cambio de VR no reconocida US$ {m(t["gananciaNoReconocida"])}.')],
+        ["Deterioro y existencia (hallazgo material)",
+         fx(f'"El deterioro adicional del modelo del costo asciende a US$ "&FIXED({rl("deterioroAdicional")},2)&" y las diferencias físicas valorizadas a US$ "&FIXED({rl("difFisicas")},2)&"."',
+            f'El deterioro adicional del modelo del costo asciende a US$ {m(t["deterioroAdicional"])} y las diferencias físicas valorizadas a US$ {m(t["difFisicas"])}.')],
+        ["Cierre",
+         fx(f'"La diferencia en la medición de la cosecha es de US$ "&FIXED({rl("difCosecha")},2)&" y el ajuste total propuesto queda en US$ "&FIXED({rl("ajuste")},2)&"."',
+            f'La diferencia en la medición de la cosecha es de US$ {m(t["difCosecha"])} y el ajuste total propuesto queda en US$ {m(t["ajuste"])}.')],
+    ]
     return [
         hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", n_]], resumen, explica=ex["01_Resumen"]),
         hoja("02_Parametros", CEDULAS[1][1], [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
@@ -782,6 +803,9 @@ def hojas(res: dict) -> list[dict]:
         hoja("11_Conclusion", CEDULAS[10][1],
              [["Indicador", "t"], ["Importe", n_], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
              explica=ex["11_Conclusion"], colores=["Estado"]),
+        hoja("12_Lectura", CEDULAS[11][1], [["Concepto", "t"], ["Detalle", "t"]], lectura,
+             explica={"Detalle": "Lee el resultado del rubro y las variaciones o hallazgos materiales con su cifra "
+                                 "tomada del Resumen (hoja 01), redactados como causa-efecto para el lector del papel."}),
     ]
 
 

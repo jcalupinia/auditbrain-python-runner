@@ -597,6 +597,7 @@ CEDULAS = [
     ("12_Capitalizacion", "Capitalización de costos por préstamos por activo"), ("13_Desmantelamiento", "Desmantelamiento"),
     ("14_Roll_forward", "Movimiento del año y conciliación auxiliar-mayor"), ("15_Ajustes", "Ajustes propuestos"),
     ("16_Problemas", "Problemas encontrados"), ("17_Conclusion", "Indicadores y conclusión"),
+    ("18_Lectura", "Lectura de resultados"),
 ]
 P = ref("02_Parametros")
 AUX, DEP, BAJ, REV, DET, ADI, PRE, CAP, DES, RF, AJ = (
@@ -1014,6 +1015,31 @@ def hojas(res: dict) -> list[dict]:
                    "desviaciones."),
     }
 
+    # 18 · Lectura de resultados (causa-efecto con las cifras embebidas por FIXED).
+    _fix = lambda cell: f"FIXED({cell},2)"
+    cita_dep = "Sección 17" if d["marco"] == MARCO_PYMES else "NIC 16.60-62"
+    lectura = [
+        ["Resultado principal",
+         fx(f'"El valor neto en libros auditado de la propiedad, planta y equipo es de US$ "&{_fix(celda["nbv"])}&", sobre un costo al cierre de US$ "&{_fix(celda["costoFinal"])}&" (hojas 15 y 14)."',
+            f"El valor neto en libros auditado de la propiedad, planta y equipo es de US$ {m(tt['nbv'])}, sobre un costo al cierre de US$ {m(tt['costoFinal'])} (hojas 15 y 14).")],
+        ["Efecto neto en resultados",
+         fx(f'"El efecto neto de los ajustes en resultados es de US$ "&{_fix(celda["ajusteResultado"])}&"; su registro corrige la depreciación, el deterioro y los demás ajustes del ejercicio (hoja 15)."',
+            f"El efecto neto de los ajustes en resultados es de US$ {m(tt['ajusteResultado'])}; su registro corrige la depreciación, el deterioro y los demás ajustes del ejercicio (hoja 15).")],
+        ["Depreciación",
+         fx(f'"La depreciación del año recalculada es de US$ "&{_fix(celda["depRecalculada"])}&", con una diferencia de US$ "&{_fix(celda["ajusteDep"])}&" frente a la registrada, que debe corregirse ({cita_dep})."',
+            f"La depreciación del año recalculada es de US$ {m(tt['depRecalculada'])}, con una diferencia de US$ {m(tt['ajusteDep'])} frente a la registrada, que debe corregirse ({cita_dep}).")],
+        ["Deterioro y revaluación",
+         fx(f'"El deterioro adicional recalculado suma US$ "&{_fix(celda["deterioroAdicional"])}&" y la revaluación reconocida en resultados US$ "&{_fix(celda["revaluacionResultado"])}&", que afectan el valor del activo y el resultado del período (NIC 36 y NIC 16.39-40)."',
+            f"El deterioro adicional recalculado suma US$ {m(tt['deterioroAdicional'])} y la revaluación reconocida en resultados US$ {m(tt['revaluacionResultado'])}, que afectan el valor del activo y el resultado del período (NIC 36 y NIC 16.39-40).")],
+        ["Cierre",
+         fx(f'"En conjunto, sobre un costo al cierre de US$ "&{_fix(celda["costoFinal"])}&", los hallazgos exigen registrar los ajustes propuestos (hoja 15) y revelar la conciliación del movimiento del ejercicio."',
+            f"En conjunto, sobre un costo al cierre de US$ {m(tt['costoFinal'])}, los hallazgos exigen registrar los ajustes propuestos (hoja 15) y revelar la conciliación del movimiento del ejercicio.")],
+    ]
+    ex_lectura = {"Detalle": ("Redacta en lenguaje del auditor la lectura causa-efecto de los resultados e inserta cada cifra "
+                              "con FIXED desde la hoja 15 (Ajustes propuestos) y la hoja 14 (Movimiento del año): el valor neto en "
+                              "libros y el costo al cierre, el efecto neto en resultados, la diferencia de depreciación y el "
+                              "deterioro y la revaluación del ejercicio.")}
+
     # --- «Cómo se calcula esta hoja»: explicación humana por columna calculada -------------
     ex_resumen = {"Importe": "Trae cada concepto de su hoja: costo y diferencias con el mayor de la hoja 14 (Movimiento del año), "
                              "depreciación de las hojas 04 y 14, ajustes de la hoja 15 (Ajustes propuestos), deterioro de la hoja 09, "
@@ -1246,6 +1272,7 @@ def hojas(res: dict) -> list[dict]:
         hoja("17_Conclusion", "Indicadores y conclusión",
              [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
              explica=ex_conclusion, colores=["Estado"]),
+        hoja("18_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura, explica=ex_lectura),
     ]
 
 

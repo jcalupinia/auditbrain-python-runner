@@ -124,7 +124,7 @@ CEDULAS = [
     ("11_RP_Integridad", "Integridad de la revelación de partes relacionadas"),
     ("12_Inusuales", "Partidas inusuales"), ("13_Tributario", "Referencia tributaria (Ecuador)"),
     ("14_Ajustes", "Ajustes y conciliación"), ("15_Asientos", "Asientos propuestos"), ("16_Problemas", "Problemas encontrados"),
-    ("17_Conclusion", "Indicadores y conclusión"),
+    ("17_Conclusion", "Indicadores y conclusión"), ("18_Lectura", "Lectura de resultados"),
 ]
 
 _SI = {"si", "s", "x", "yes", "y", "1", "true", "verdadero"}
@@ -1039,6 +1039,43 @@ def hojas(res: dict) -> list[dict]:
          "concluye por sí sola el cumplimiento de las NIIF ni la deducibilidad tributaria.", None, None, None, ""],
     ]
 
+    # 18 · lectura causa-efecto: cada frase lee el resultado con su cifra embebida (FIXED) desde el Resumen (hoja 01).
+    R1 = ref("01_Resumen")
+    fr = {k: FILA0 + i for i, k in enumerate(res["labels"])}
+    rc = lambda key: f"{R1}B{fr[key]}"
+    lectura = [
+        ["Resultado de la prueba",
+         fx(f'"Los gastos según la sumaria del año actual suman US$ "&FIXED({rc("gastoTotal")},2)&", frente a US$ "&'
+            f'FIXED({rc("gastoAnterior")},2)&" del año anterior (análisis global NIA 520)."',
+            f'Los gastos según la sumaria del año actual suman US$ {m(t["gastoTotal"])}, frente a US$ {m(t["gastoAnterior"])} '
+            f'del año anterior (análisis global NIA 520).')],
+        ["Ajuste propuesto y su efecto",
+         fx(f'"El ajuste propuesto al gasto es de US$ "&FIXED({rc("ajusteGasto")},2)&": "&'
+            f'IF({rc("ajusteGasto")}>=0,"aumenta el gasto del ejercicio.","reduce el gasto registrado.")',
+            f'El ajuste propuesto al gasto es de US$ {m(t["ajusteGasto"])}: '
+            + ("aumenta el gasto del ejercicio." if t["ajusteGasto"] >= 0 else "reduce el gasto registrado."))],
+        ["Corte y devengo",
+         fx(f'"Hay US$ "&FIXED({rc("devengadoNoRegistrado")},2)&" de gastos devengados no registrados y US$ "&'
+            f'FIXED({rc("anticipado")},2)&" de gastos anticipados llevados a resultados."',
+            f'Hay US$ {m(t["devengadoNoRegistrado"])} de gastos devengados no registrados y US$ {m(t["anticipado"])} de gastos '
+            f'anticipados llevados a resultados.')],
+        ["Soporte y partes relacionadas",
+         fx(f'"Se identificaron US$ "&FIXED({rc("noSoportado")},2)&" de gastos sin soporte suficiente y US$ "&'
+            f'FIXED({rc("partesRelacionadas")},2)&" de transacciones con partes relacionadas."',
+            f'Se identificaron US$ {m(t["noSoportado"])} de gastos sin soporte suficiente y US$ {m(t["partesRelacionadas"])} '
+            f'de transacciones con partes relacionadas.')],
+        ["Cierre",
+         fx(f'"Como referencia tributaria (Ecuador), US$ "&FIXED({rc("noDeducible")},2)&" del gasto no sería deducible; es una '
+            f'referencia y no concluye la deducibilidad."',
+            f'Como referencia tributaria (Ecuador), US$ {m(t["noDeducible"])} del gasto no sería deducible; es una referencia '
+            f'y no concluye la deducibilidad.')],
+    ]
+    ex_lectura = {"Detalle": ("Lee en lenguaje corriente el resultado de la prueba y sus hallazgos materiales con la cifra embebida "
+                              "tomada del Resumen (hoja 01): los gastos del año actual frente al anterior, el ajuste propuesto al "
+                              "gasto y su efecto, los gastos devengados no registrados y los anticipados, los gastos sin soporte y con "
+                              "partes relacionadas, y la referencia tributaria de lo no deducible. Cada cifra remite por fórmula a la "
+                              "celda del Resumen.")}
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros, explica=EXPLICA["02_Parametros"]),
@@ -1091,6 +1128,7 @@ def hojas(res: dict) -> list[dict]:
         hoja("17_Conclusion", "Indicadores y conclusión",
              [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con17,
              explica=EXPLICA["17_Conclusion"], colores=["Estado"]),
+        hoja("18_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura, explica=ex_lectura),
     ]
 
 

@@ -502,6 +502,7 @@ CEDULAS = [
     ("06_Valor_razonable", "Valor razonable y jerarquía"), ("07_Intereses_dividendos", "Intereses y dividendos"),
     ("08_Deterioro", "Deterioro"), ("09_Reclasificacion", "Reclasificación"), ("10_Conciliacion", "Conciliación y ajuste"),
     ("11_Problemas", "Problemas encontrados"), ("12_Conclusion", "Indicadores y conclusión"),
+    ("13_Lectura", "Lectura de resultados"),
 ]
 P, INV, CLA, CAM, VRZ, ING, DET, REC, CON = (ref(n) for n, _ in CEDULAS[1:10])
 CORTE, INICIO = f"{P}$B${FILA0}", f"{P}$B${FILA0 + 1}"
@@ -897,6 +898,32 @@ def hojas(res: dict) -> list[dict]:
                              "(Conciliación y ajuste), deterioro de la hoja 08, ingresos no registrados de la hoja 07 y diferencia "
                              "de valor razonable de la hoja 06."}
 
+    # 13 · Lectura de resultados (causa-efecto con las cifras embebidas por FIXED).
+    _fix = lambda cell: f"FIXED({cell},2)"
+    aj_dir = "aumenta" if t["ajuste"] > 0.005 else ("disminuye" if t["ajuste"] < -0.005 else "no modifica")
+    aj_dir_f = f'IF({tot_ref["ajuste"]}>0.005,"aumenta",IF({tot_ref["ajuste"]}<-0.005,"disminuye","no modifica"))'
+    lectura = [
+        ["Resultado principal",
+         fx(f'"La medición según la norma de las inversiones es de US$ "&{_fix(tot_ref["medicion"])}&", frente a US$ "&{_fix(tot_ref["saldoLibros"])}&" de saldo en libros bruto (hoja 10)."',
+            f"La medición según la norma de las inversiones es de US$ {fmt_m(t['medicion'])}, frente a US$ {fmt_m(t['saldoLibros'])} de saldo en libros bruto (hoja 10).")],
+        ["Ajuste propuesto",
+         fx(f'"El ajuste propuesto al importe en libros neto es de US$ "&{_fix(tot_ref["ajuste"])}&", que "&{aj_dir_f}&" la medición de las inversiones y debe registrarse."',
+            f"El ajuste propuesto al importe en libros neto es de US$ {fmt_m(t['ajuste'])}, que {aj_dir} la medición de las inversiones y debe registrarse.")],
+        ["Deterioro",
+         fx(f'"El deterioro recalculado asciende a US$ "&{_fix(tot_ref["deterioroCalc"])}&", frente a US$ "&{_fix(tot_ref["deterioroReg"])}&" registrado; la diferencia debe corregirse (NIIF 9 5.5 / Sección 11)."',
+            f"El deterioro recalculado asciende a US$ {fmt_m(t['deterioroCalc'])}, frente a US$ {fmt_m(t['deterioroReg'])} registrado; la diferencia debe corregirse (NIIF 9 5.5 / Sección 11).")],
+        ["Valor razonable e intereses",
+         fx(f'"La diferencia de valor razonable suma US$ "&{_fix(tot_ref["difVR"])}&" y los intereses o dividendos no registrados US$ "&{_fix(tot_ref["ingresoDif"])}&", que afectan la medición y los resultados del período."',
+            f"La diferencia de valor razonable suma US$ {fmt_m(t['difVR'])} y los intereses o dividendos no registrados US$ {fmt_m(t['ingresoDif'])}, que afectan la medición y los resultados del período.")],
+        ["Cierre",
+         fx(f'"En conjunto, sobre inversiones por US$ "&{_fix(tot_ref["saldoLibros"])}&" en libros, los hallazgos exigen registrar el ajuste y revelar la clasificación y la jerarquía de valor razonable de cada instrumento (NIIF 7 / Sección 11)."',
+            f"En conjunto, sobre inversiones por US$ {fmt_m(t['saldoLibros'])} en libros, los hallazgos exigen registrar el ajuste y revelar la clasificación y la jerarquía de valor razonable de cada instrumento (NIIF 7 / Sección 11).")],
+    ]
+    ex_lectura = {"Detalle": ("Redacta en lenguaje del auditor la lectura causa-efecto de los resultados e inserta cada cifra "
+                              "con FIXED desde las filas TOTAL: la medición según la norma frente al saldo en libros y el ajuste "
+                              "propuesto (hoja 10), el deterioro recalculado y registrado (hoja 08) y la diferencia de valor "
+                              "razonable e intereses no registrados (hojas 06 y 07).")}
+
     T = "t"
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", T], ["Importe", "n"]], resumen, explica=ex_resumen),
@@ -954,6 +981,7 @@ def hojas(res: dict) -> list[dict]:
         hoja("12_Conclusion", "Indicadores y conclusión",
              [["Indicador", T], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", T]], conclusion,
              explica=ex_conclusion, colores=["Estado"]),
+        hoja("13_Lectura", "Lectura de resultados", [["Concepto", T], ["Detalle", T]], lectura, explica=ex_lectura),
     ]
 
 

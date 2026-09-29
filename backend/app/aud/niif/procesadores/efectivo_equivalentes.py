@@ -99,7 +99,7 @@ CEDULAS = [
     ("06_Confirmaciones", "Confirmación bancaria"), ("07_Corte", "Prueba de corte"), ("08_Restringido", "Efectivo restringido"),
     ("09_Equivalentes", "Equivalentes de efectivo (definición)"), ("10_Efectivo_auditado", "Efectivo auditado y ajuste"),
     ("11_Asientos", "Asientos propuestos"), ("12_Problemas", "Problemas encontrados"),
-    ("13_Conclusion", "Indicadores y conclusión"),
+    ("13_Conclusion", "Indicadores y conclusión"), ("14_Lectura", "Lectura de resultados"),
 ]
 
 
@@ -510,6 +510,12 @@ EXPLICA = {
                    "la hoja 02 (Parámetros), «Revisar» cuando hay reclasificaciones o problemas que atender y «Conforme» "
                    "cuando el indicador no presenta desviaciones."),
     },
+    "14_Lectura": {
+        "Detalle": ("Redacta en lenguaje del auditor la lectura causa-efecto de los resultados e inserta cada cifra con "
+                    "FIXED desde la hoja 10 (Efectivo auditado y ajuste): el efectivo auditado frente a los libros, el "
+                    "ajuste propuesto y su efecto, las diferencias de conciliación y confirmación, las reclasificaciones "
+                    "y las partidas conciliatorias antiguas."),
+    },
 }
 
 # Panel del dashboard (formato en graficos.py).
@@ -790,6 +796,29 @@ def hojas(res: dict) -> list[dict]:
          fx(f'IF(D{fPr}>0,"Revisar","Conforme")', est(nprob > 0, "Revisar"))],
     ]
 
+    # 14 · Lectura de resultados (causa-efecto con las cifras embebidas por FIXED, hoja 10).
+    difConf_v, antiguas_v = con["difConfirmacion"], con["partidasAntiguas"]
+    _fix = lambda cell: f"FIXED({cell},2)"
+    aj_dir = "disminuye" if ajuste_v < -0.005 else ("aumenta" if ajuste_v > 0.005 else "no modifica")
+    aj_dir_f = f'IF({FC["ajuste"]}<-0.005,"disminuye",IF({FC["ajuste"]}>0.005,"aumenta","no modifica"))'
+    lectura = [
+        ["Resultado principal",
+         fx(f'"El efectivo y equivalentes auditado asciende a US$ "&{_fix(FC["auditado"])}&", frente a US$ "&{_fix(FC["saldoLibros"])}&" según libros (hoja 10)."',
+            f"El efectivo y equivalentes auditado asciende a US$ {fmt_m(auditado_v)}, frente a US$ {fmt_m(libros_v)} según libros (hoja 10).")],
+        ["Ajuste propuesto",
+         fx(f'"El ajuste propuesto es de US$ "&{_fix(FC["ajuste"])}&" (auditado − saldo según libros), que "&{aj_dir_f}&" el efectivo y equivalentes presentado; su registro exige los asientos de la hoja 11."',
+            f"El ajuste propuesto es de US$ {fmt_m(ajuste_v)} (auditado − saldo según libros), que {aj_dir} el efectivo y equivalentes presentado; su registro exige los asientos de la hoja 11.")],
+        ["Diferencias de conciliación y confirmación",
+         fx(f'"Las conciliaciones dejan US$ "&{_fix(FC["difNoExplicada"])}&" en diferencias no explicadas y US$ "&{_fix(FC["difConfirmacion"])}&" entre lo confirmado por el banco y el estado bancario; investíguelas y evalúelas como incorrecciones (NIA 450 y 505)."',
+            f"Las conciliaciones dejan US$ {fmt_m(dif_v)} en diferencias no explicadas y US$ {fmt_m(difConf_v)} entre lo confirmado por el banco y el estado bancario; investíguelas y evalúelas como incorrecciones (NIA 450 y 505).")],
+        ["Reclasificaciones",
+         fx(f'"Se reclasifican US$ "&{_fix(FC["reclasRestringido"])}&" de efectivo restringido a no corriente y US$ "&{_fix(FC["reclasNoEquivalentes"])}&" de inversiones que no son equivalentes, lo que reduce el efectivo corriente disponible (NIC 1.66 d y NIC 7.7)."',
+            f"Se reclasifican US$ {fmt_m(con['reclasRestringido'])} de efectivo restringido a no corriente y US$ {fmt_m(con['reclasNoEquivalentes'])} de inversiones que no son equivalentes, lo que reduce el efectivo corriente disponible (NIC 1.66 d y NIC 7.7).")],
+        ["Cierre",
+         fx(f'"Las partidas conciliatorias antiguas suman US$ "&{_fix(FC["partidasAntiguas"])}&"; en conjunto, los hallazgos exigen registrar los ajustes propuestos y ampliar las revelaciones de la nota de efectivo (NIC 7.45–7.46)."',
+            f"Las partidas conciliatorias antiguas suman US$ {fmt_m(antiguas_v)}; en conjunto, los hallazgos exigen registrar los ajustes propuestos y ampliar las revelaciones de la nota de efectivo (NIC 7.45–7.46).")],
+    ]
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
@@ -842,6 +871,8 @@ def hojas(res: dict) -> list[dict]:
         hoja("13_Conclusion", "Indicadores y conclusión",
              [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
              explica=EXPLICA["13_Conclusion"], colores=["Estado"]),
+        hoja("14_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura,
+             explica=EXPLICA["14_Lectura"]),
     ]
 
 

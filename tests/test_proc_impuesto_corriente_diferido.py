@@ -238,7 +238,8 @@ def test_semaforo_diferencias_temporarias():
 
 def test_conclusion():
     """La cédula 16 lleva indicadores por fórmula y la columna «Estado» coloreada (Alerta/Revisar/Conforme)."""
-    assert m.CEDULAS[-1] == ("16_Conclusion", "Indicadores y conclusión")
+    assert m.CEDULAS[-2] == ("16_Conclusion", "Indicadores y conclusión")
+    assert m.CEDULAS[-1] == ("17_Lectura", "Lectura de resultados")
     hs = {h["name"]: h for h in m.hojas(_run())}
     h = hs["16_Conclusion"]
     cols = [c[0] for c in h["cols"]]
@@ -263,6 +264,27 @@ def test_conclusion():
     assert any(isinstance(f[3], dict) and "f" in f[3] for f in h["rows"])          # Cantidad
     # En el ejemplo hay ajustes != 0, así que al menos un estado es «Revisar» o «Alerta».
     assert any(e in ("Revisar", "Alerta") for e in estados)
+
+
+def test_lectura():
+    """La cédula 17 lee cada resultado clave en una frase de causa-efecto con la cifra embebida por FIXED."""
+    assert m.CEDULAS[-1] == ("17_Lectura", "Lectura de resultados")
+    for _, ds, p, c in m.ESCENARIOS:
+        hs = m.hojas(m.ejecutar(ds, p, c))
+        assert hs[-1]["name"] == "17_Lectura"
+        h = hs[-1]
+        assert [c0 for c0, _ in h["cols"]] == ["Concepto", "Detalle"] and h.get("total") is None
+        assert "Detalle" in h["explica"] and "colores" not in h
+        assert 3 <= len(h["rows"]) <= 5
+        for fila in h["rows"]:
+            assert len(fila) == 2
+            det = fila[1]
+            assert isinstance(det, dict) and "f" in det and "FIXED(" in det["f"] and "'01_Resumen'!" in det["f"]
+            assert isinstance(det["v"], str) and "US$" in det["v"]
+    # En el ejemplo el impuesto corriente recalculado (165.937,50) y el ajuste corriente (9.800,00) aparecen en la lectura.
+    h = {x["name"]: x for x in m.hojas(_run())}["17_Lectura"]
+    detalles = " ".join(f[1]["v"] for f in h["rows"])
+    assert "165.937,50" in detalles and "9.800,00" in detalles
 
 
 def test_definicion():

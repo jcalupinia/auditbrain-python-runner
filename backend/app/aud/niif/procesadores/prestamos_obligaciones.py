@@ -683,6 +683,7 @@ CEDULAS = [
     ("12_Endeudamiento", "Endeudamiento y ratios de covenants"), ("13_Conciliacion", "Conciliación y ajuste"),
     ("14_Flujos_modificacion", "Flujos de la modificación (adenda)"), ("15_Prueba_10pct", "Prueba del 10 % (NIIF 9 3.3.2 y B3.3.6)"),
     ("16_Problemas", "Problemas encontrados"), ("17_Conclusion", "Indicadores y conclusión"),
+    ("18_Lectura", "Lectura de resultados"),
 ]
 # Panel del dashboard (formato en graficos.py): capital registrado de los préstamos evaluados; pasivo recalculado al costo
 # amortizado frente al registrado (capital + intereses); composición del pasivo recalculado por operación y deuda por banco.
@@ -1234,6 +1235,43 @@ def hojas(res: dict) -> list[dict]:
          None, None, None, ""],
     ]
 
+    # 18 · lectura causa-efecto: cada frase lee el resultado con su cifra embebida (FIXED) desde el Resumen (hoja 01).
+    R1 = ref("01_Resumen")
+    fr = {k: FILA0 + i for i, k in enumerate(res["labels"])}
+    rc = lambda k: f"{R1}B{fr[k]}"
+    lectura = [
+        ["Resultado de la prueba",
+         fx(f'"El costo amortizado recalculado de las obligaciones financieras asciende a US$ "&FIXED({rc("pasivo")},2)&", '
+            f'frente a US$ "&FIXED({rc("pasivoRegistrado")},2)&" registrado (capital más intereses por pagar)."',
+            f'El costo amortizado recalculado de las obligaciones financieras asciende a US$ {_m(t["pasivo"])}, frente a '
+            f'US$ {_m(t["pasivoRegistrado"])} registrado (capital más intereses por pagar).')],
+        ["Ajuste propuesto y su efecto",
+         fx(f'"El ajuste propuesto al pasivo es de US$ "&FIXED({rc("ajuste")},2)&": "&'
+            f'IF({rc("ajuste")}>=0,"eleva el pasivo y el gasto financiero del ejercicio.","reduce el pasivo registrado.")',
+            f'El ajuste propuesto al pasivo es de US$ {_m(t["ajuste"])}: '
+            + ("eleva el pasivo y el gasto financiero del ejercicio." if t["ajuste"] >= 0 else "reduce el pasivo registrado."))],
+        ["Gasto financiero del ejercicio",
+         fx(f'"El gasto financiero del ejercicio a la tasa de interés efectiva es de US$ "&FIXED({rc("gastoFinanciero")},2)&"; '
+            f'frente al gasto registrado hay una diferencia de US$ "&FIXED({rc("diferenciaGasto")},2)&"."',
+            f'El gasto financiero del ejercicio a la tasa de interés efectiva es de US$ {_m(t["gastoFinanciero"])}; frente al '
+            f'gasto registrado hay una diferencia de US$ {_m(t["diferenciaGasto"])}.')],
+        ["Clasificación y covenants",
+         fx(f'"Del pasivo recalculado, US$ "&FIXED({rc("corriente")},2)&" es corriente; por covenants incumplidos sin dispensa '
+            f'se reclasificaron US$ "&FIXED({rc("reclasificacionCovenant")},2)&" a corriente (NIC 1 74–75)."',
+            f'Del pasivo recalculado, US$ {_m(t["corriente"])} es corriente; por covenants incumplidos sin dispensa se '
+            f'reclasificaron US$ {_m(t["reclasificacionCovenant"])} a corriente (NIC 1 74–75).')],
+        ["Cierre",
+         fx(f'"Quedan US$ "&FIXED({rc("comisionesPorAmortizar")},2)&" de costos de transacción por amortizar al corte, que se '
+            f'difieren a lo largo de la vida de los préstamos según la tasa de interés efectiva."',
+            f'Quedan US$ {_m(t["comisionesPorAmortizar"])} de costos de transacción por amortizar al corte, que se difieren a lo '
+            f'largo de la vida de los préstamos según la tasa de interés efectiva.')],
+    ]
+    ex18 = {"Detalle": ("Lee en lenguaje corriente el resultado de la prueba y sus hallazgos materiales con la cifra embebida "
+                        "tomada del Resumen (hoja 01): el costo amortizado recalculado frente al registrado, el ajuste propuesto "
+                        "y su efecto, el gasto financiero del ejercicio y su diferencia, la porción corriente y la reclasificación "
+                        "por covenants, y los costos de transacción por amortizar al corte. Cada cifra remite por fórmula a la "
+                        "celda del Resumen.")}
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=ex01),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
@@ -1318,6 +1356,7 @@ def hojas(res: dict) -> list[dict]:
         hoja("17_Conclusion", "Indicadores y conclusión",
              [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con17,
              explica=ex17, colores=["Estado"]),
+        hoja("18_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura, explica=ex18),
     ]
 
 

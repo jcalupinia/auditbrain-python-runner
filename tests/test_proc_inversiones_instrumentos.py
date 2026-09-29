@@ -137,6 +137,18 @@ def test_conclusion():
     assert "alta" in roles       # el ejemplo tiene ajuste propuesto: al menos una «Alerta»
 
 
+def test_lectura():
+    """La cédula 13 lee los resultados en causa-efecto con las cifras embebidas por FIXED."""
+    lec = next(x for x in m.hojas(correr()) if x["name"] == "13_Lectura")
+    assert lec["label"] == "Lectura de resultados"
+    assert [c[0] for c in lec["cols"]] == ["Concepto", "Detalle"]
+    assert 3 <= len(lec["rows"]) <= 5
+    for fila in lec["rows"]:
+        assert isinstance(fila[0], str) and fila[0]
+        det = fila[1]
+        assert isinstance(det, dict) and "f" in det and "FIXED(" in det["f"]
+
+
 def test_pymes_2025_11_9za_deuda_no_basica_pero_sppi():
     """11.9ZA: sin cumplir 11.9 a)-d), la deuda con flujos solo de principal e intereses sigue a costo amortizado."""
     r25, r15 = _extra("pymes_2025_11_9za_y_11_25b"), _extra("pymes_2015_11_9za_y_11_25b")

@@ -324,7 +324,7 @@ CEDULAS = [
     ("06_Movimiento", "Movimiento de la provisión (NIIF 7 35H)"), ("07_Fiscal", "Fiscal e impuesto diferido"),
     ("08_Asientos", "Asientos propuestos"), ("09_Detalle", "Detalle por factura"), ("10_Cartera_anterior", "Cartera del corte anterior"),
     ("11_Castigos", "Castigos del ejercicio"), ("12_Problemas", "Problemas encontrados"),
-    ("13_Conclusion", "Indicadores y conclusión"),
+    ("13_Conclusion", "Indicadores y conclusión"), ("14_Lectura", "Lectura de resultados"),
 ]
 P = "'02_Parametros'!"
 PAR = {k: FILA0 + i for i, k in enumerate(["corte", "corteAnterior", "tasaDesc", "plazoBase", "escBasePeso", "escBaseAjuste",
@@ -440,6 +440,11 @@ EXPLICA = {
         "Estado": ("Semáforo de cada indicador: «Alerta» cuando la provisión registrada no cubre la pérdida esperada o hay "
                    "gasto no deducible; «Revisar» cuando queda un ajuste, un activo diferido por recuperar o facturas con "
                    "deterioro esperado; «Conforme» si el indicador no exige acción."),
+    },
+    "14_Lectura": {
+        "Detalle": ("Lee los resultados clave y los redacta en una frase de causa y efecto, tomando cada cifra por fórmula "
+                    "(FIXED) de la celda del Resumen (hoja 01) donde se calculó: pérdida esperada, cartera, ajuste "
+                    "propuesto, gasto no deducible y activo por impuesto diferido."),
     },
 }
 
@@ -719,6 +724,38 @@ def hojas(res: dict) -> list[dict]:
          "ajuste o revelación.", None, None, None, ""],
     ]
 
+    # 14 · Lectura de resultados (causa-efecto con la cifra embebida por FIXED; celdas del Resumen, hoja 01).
+    R14 = "'01_Resumen'!$B$"
+
+    def _lec(antes, k, entre=None, k2=None, cierre="."):
+        cell = R14 + str(fila_res[k])
+        f = f'"{antes}"&FIXED({cell},2)'
+        v = f"{antes}{_m(t[k])}"
+        if k2 is not None:
+            cell2 = R14 + str(fila_res[k2])
+            f += f'&"{entre}"&FIXED({cell2},2)'
+            v += f"{entre}{_m(t[k2])}"
+        f += f'&"{cierre}"'
+        v += cierre
+        return _fx(f, v)
+
+    lectura = [
+        ["Resultado de la prueba",
+         _lec("La pérdida crediticia esperada recalculada es de US$ ", "pce",
+              entre=" sobre una cartera al corte de US$ ", k2="saldo")],
+        ["Ajuste propuesto",
+         _lec("Frente a la provisión registrada de US$ ", "provisionRegistrada",
+              entre=", se propone un ajuste de US$ ", k2="ajuste", cierre=" (pérdida esperada menos provisión registrada).")],
+        ["Impacto tributario",
+         _lec("El gasto no deducible del ejercicio asciende a US$ ", "noDeducible", cierre=" por los límites de la LRTI.")],
+        ["Impuesto diferido",
+         _lec("Se reconoce un activo por impuesto diferido de US$ ", "dtaFin",
+              cierre=", sujeto a revelación y evaluación de su recuperabilidad.")],
+        ["Cierre",
+         _lec("En conjunto, la pérdida esperada de US$ ", "pce",
+              cierre=" se concilia con la provisión registrada; el ajuste, el gasto no deducible y el diferido son los efectos a considerar.")],
+    ]
+
     hoja = lambda name, label, cols, rows, total=None, explica=None, colores=None: {"name": name, "label": label, "cols": cols, "rows": rows,
                                                                                     "total": total, "explica": dict(explica or {}),
                                                                                     **({"colores": [c for c in colores if c in [x[0] for x in cols]]} if colores else {})}
@@ -765,6 +802,8 @@ def hojas(res: dict) -> list[dict]:
         hoja("13_Conclusion", "Indicadores y conclusión",
              [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con13,
              explica=EXPLICA["13_Conclusion"], colores=["Estado"]),
+        hoja("14_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura,
+             explica=EXPLICA["14_Lectura"]),
     ]
 
 

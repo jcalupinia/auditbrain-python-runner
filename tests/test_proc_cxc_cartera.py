@@ -131,6 +131,19 @@ def test_conclusion():
     assert "alta" in roles       # el ejemplo tiene ajuste de deterioro: al menos una «Alerta»
 
 
+def test_lectura():
+    """La cédula 14 lee los resultados en causa-efecto con las cifras embebidas por FIXED."""
+    lec = next(x for x in m.hojas(_run()) if x["name"] == "14_Lectura")
+    assert lec["label"] == "Lectura de resultados"
+    assert [c[0] for c in lec["cols"]] == ["Concepto", "Detalle"]
+    assert 3 <= len(lec["rows"]) <= 5
+    for fila in lec["rows"]:
+        assert isinstance(fila[0], str) and fila[0]
+        det = fila[1]
+        assert isinstance(det, dict) and "f" in det and "FIXED(" in det["f"]
+    assert "Detalle" in m.EXPLICA["14_Lectura"]
+
+
 def test_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "cxc_cartera" and len(d["program"]) >= 5

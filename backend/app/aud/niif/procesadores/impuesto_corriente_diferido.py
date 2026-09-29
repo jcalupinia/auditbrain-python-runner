@@ -129,7 +129,7 @@ CEDULAS = [
     ("10_Compensacion", "Compensación y presentación"), ("11_Tasa_efectiva", "Tasa efectiva (NIC 12.81 c)"),
     ("12_Ajustes", "Ajustes propuestos"), ("13_Partic_exentos", "Participación atribuible a exentos"),
     ("14_Asientos", "Asientos propuestos"), ("15_Problemas", "Problemas encontrados"),
-    ("16_Conclusion", "Indicadores y conclusión"),
+    ("16_Conclusion", "Indicadores y conclusión"), ("17_Lectura", "Lectura de resultados"),
 ]
 
 # Tipo → (signo exigido: 1 suma, -1 resta, 0 cualquiera; etiqueta).
@@ -819,6 +819,11 @@ EXPLICA = {
                    "efectiva se aparta de la esperada más que la tolerancia; «Revisar» cuando queda un ajuste o un activo "
                    "diferido pendiente de reconocer; «Conforme» si el indicador no exige acción."),
     },
+    "17_Lectura": {
+        "Detalle": ("Lee los resultados clave y los redacta en una frase de causa y efecto, tomando cada cifra por fórmula "
+                    "(FIXED) de la celda del Resumen (hoja 01) donde se calculó: impuesto corriente recalculado y "
+                    "registrado, ajuste corriente, ajuste al diferido, gasto no explicado y activo diferido no reconocido."),
+    },
 }
 
 # Panel del dashboard (formato en graficos.py): la población es la conciliación tributaria del cliente (su base
@@ -1317,6 +1322,40 @@ def hojas(res: dict) -> list[dict]:
          "o revelación (NIC 12).", None, None, None, ""],
     ]
 
+    # 17 · Lectura de resultados (causa-efecto con la cifra embebida por FIXED; celdas del Resumen, hoja 01).
+    fila_res = {k: FILA0 + i for i, k in enumerate(res["labels"])}
+    R17 = "'01_Resumen'!$B$"
+
+    def _lec(antes, k, entre=None, k2=None, cierre="."):
+        cell = R17 + str(fila_res[k])
+        fo = f'"{antes}"&FIXED({cell},2)'
+        vo = f"{antes}{m(t[k])}"
+        if k2 is not None:
+            cell2 = R17 + str(fila_res[k2])
+            fo += f'&"{entre}"&FIXED({cell2},2)'
+            vo += f"{entre}{m(t[k2])}"
+        fo += f'&"{cierre}"'
+        vo += cierre
+        return fx(fo, vo)
+
+    lectura = [
+        ["Resultado de la prueba",
+         _lec("El impuesto corriente recalculado es de US$ ", "impuestoCorrienteAuditado",
+              entre=" frente a US$ ", k2="impuestoCorrienteRegistrado", cierre=" registrado.")],
+        ["Ajuste al impuesto corriente",
+         _lec("La diferencia deriva en un ajuste al impuesto corriente de US$ ", "ajusteCorriente",
+              cierre=" (auditado menos registrado).")],
+        ["Ajuste al impuesto diferido",
+         _lec("El impuesto diferido neto exige un ajuste de US$ ", "ajusteDiferido", cierre=" (requerido menos registrado).")],
+        ["Gasto no explicado (NIC 12.81 c)",
+         _lec("El gasto por impuesto registrado presenta US$ ", "diferenciaNoExplicada",
+              cierre=" sin explicar por la conciliación de la tasa efectiva.")],
+        ["Cierre",
+         _lec("El ajuste neto al gasto por impuesto en resultados asciende a US$ ", "ajusteResultados",
+              entre=", más un activo diferido no reconocido de US$ ", k2="dtaNoReconocido",
+              cierre=" a revelar (NIC 12.81 e).")],
+    ]
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
@@ -1358,6 +1397,8 @@ def hojas(res: dict) -> list[dict]:
         hoja("16_Conclusion", "Indicadores y conclusión",
              [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con16,
              explica=EXPLICA["16_Conclusion"], colores=["Estado"]),
+        hoja("17_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura,
+             explica=EXPLICA["17_Lectura"]),
     ]
 
 

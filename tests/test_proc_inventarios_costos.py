@@ -211,6 +211,18 @@ def test_validar_filas():
                                       "importe": "1.500,00", "_row": 2}])["ok"]
 
 
+def test_lectura():
+    """La cédula 15 lee los resultados en causa-efecto con las cifras embebidas por FIXED."""
+    lec = next(x for x in m.hojas(_run()) if x["name"] == "15_Lectura")
+    assert lec["label"] == "Lectura de resultados"
+    assert [c[0] for c in lec["cols"]] == ["Concepto", "Detalle"]
+    assert 3 <= len(lec["rows"]) <= 5
+    for fila in lec["rows"]:
+        assert isinstance(fila[0], str) and fila[0]
+        det = fila[1]
+        assert isinstance(det, dict) and "f" in det and "FIXED(" in det["f"]
+
+
 def test_hojas_y_definicion():
     res = _run()
     hs = m.hojas(res)

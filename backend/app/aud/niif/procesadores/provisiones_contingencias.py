@@ -466,7 +466,7 @@ CEDULAS = [
     ("10_Garantias_calculo", "Garantías: cálculo"), ("11_Onerosos", "Contratos onerosos"), ("12_Desmantelamiento", "Desmantelamiento"),
     ("13_Reconocimiento", "Provisión requerida vs libros"), ("14_Contingencias", "Contingencias a revelar"),
     ("15_Ajustes", "Ajustes propuestos y conciliación"), ("16_Problemas", "Problemas encontrados"),
-    ("17_Conclusion", "Indicadores y conclusión"),
+    ("17_Conclusion", "Indicadores y conclusión"), ("18_Lectura", "Lectura de resultados"),
 ]
 P = ref("02_Parametros")
 PRV, GAR, OBL, EST, VPR, REV, GCA, REC, CON, AJ, PRB = (ref(n) for n in (
@@ -1001,6 +1001,43 @@ def hojas(res: dict) -> list[dict]:
          "las contingencias se revelan. Esta prueba no concluye por sí sola el cumplimiento de las NIIF.", None, None, None, ""],
     ]
 
+    # 18 · lectura causa-efecto: cada frase lee el resultado con su cifra embebida (FIXED) desde el Resumen (hoja 01).
+    R1 = ref("01_Resumen")
+    fr = {kk: FILA0 + i for i, kk in enumerate(res["labels"])}
+    rc = lambda key: f"{R1}B{fr[key]}"
+    lectura = [
+        ["Resultado de la prueba",
+         fx(f'"La provisión requerida (NIC 37 · Sección 21) es de US$ "&FIXED({rc("provisionRequerida")},2)&", frente a US$ "&'
+            f'FIXED({rc("librosProvisiones")},2)&" registrado en libros."',
+            f'La provisión requerida (NIC 37 · Sección 21) es de US$ {m(k["provisionRequerida"])}, frente a US$ '
+            f'{m(k["librosProvisiones"])} registrado en libros.')],
+        ["Ajuste propuesto y su efecto",
+         fx(f'"El ajuste propuesto a las provisiones es de US$ "&FIXED({rc("ajusteProvisiones")},2)&": "&'
+            f'IF({rc("ajusteProvisiones")}>=0,"aumenta la provisión por reconocer.","reduce la provisión registrada.")',
+            f'El ajuste propuesto a las provisiones es de US$ {m(k["ajusteProvisiones"])}: '
+            + ("aumenta la provisión por reconocer." if k["ajusteProvisiones"] >= 0 else "reduce la provisión registrada."))],
+        ["Descuento a valor presente",
+         fx(f'"El efecto del descuento a valor presente es de US$ "&FIXED({rc("descuento")},2)&"; la reversión del descuento del '
+            f'período calculada es de US$ "&FIXED({rc("reversionCalculada")},2)&" (costo financiero, NIC 37.60)."',
+            f'El efecto del descuento a valor presente es de US$ {m(k["descuento"])}; la reversión del descuento del período '
+            f'calculada es de US$ {m(k["reversionCalculada"])} (costo financiero, NIC 37.60).')],
+        ["Contingencias a revelar",
+         fx(f'"Los pasivos contingentes a revelar por su efecto estimado suman US$ "&FIXED({rc("pasivosContingentes")},2)&", de los '
+            f'cuales US$ "&FIXED({rc("contingentesSinRevelar")},2)&" están sin revelar en notas (NIC 37.86; PYMES 21.15)."',
+            f'Los pasivos contingentes a revelar por su efecto estimado suman US$ {m(k["pasivosContingentes"])}, de los cuales '
+            f'US$ {m(k["contingentesSinRevelar"])} están sin revelar en notas (NIC 37.86; PYMES 21.15).')],
+        ["Cierre",
+         fx(f'"Se reconoció indebidamente US$ "&FIXED({rc("activoContingenteReconocido")},2)&" de activos contingentes; el ajuste '
+            f'del activo contingente es de US$ "&FIXED({rc("ajusteActivoContingente")},2)&" (NIC 37.31–35; PYMES 21.13)."',
+            f'Se reconoció indebidamente US$ {m(k["activoContingenteReconocido"])} de activos contingentes; el ajuste del activo '
+            f'contingente es de US$ {m(k["ajusteActivoContingente"])} (NIC 37.31–35; PYMES 21.13).')],
+    ]
+    ex_lectura = {"Detalle": ("Lee en lenguaje corriente el resultado de la prueba y sus hallazgos materiales con la cifra embebida "
+                              "tomada del Resumen (hoja 01): la provisión requerida frente a la registrada, el ajuste propuesto y su "
+                              "efecto, el descuento a valor presente y su reversión, los pasivos contingentes a revelar y los que "
+                              "quedan sin revelar, y el activo contingente reconocido indebidamente. Cada cifra remite por fórmula a la "
+                              "celda del Resumen.")}
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
@@ -1053,6 +1090,7 @@ def hojas(res: dict) -> list[dict]:
         hoja("17_Conclusion", "Indicadores y conclusión",
              [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con17,
              explica=EXPLICA["17_Conclusion"], colores=["Estado"]),
+        hoja("18_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura, explica=ex_lectura),
     ]
 
 

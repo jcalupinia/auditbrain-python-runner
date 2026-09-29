@@ -95,7 +95,7 @@ CEDULAS = [
     ("10_Activo_pasivo", "Activo y pasivo del contrato"), ("11_Corte", "Corte de ingresos"),
     ("12_Modificaciones", "Modificaciones de contratos"), ("13_Conciliacion", "Conciliación y ajustes"),
     ("14_Asientos", "Asientos propuestos"), ("15_Problemas", "Problemas encontrados"),
-    ("16_Conclusion", "Indicadores y conclusión"),
+    ("16_Conclusion", "Indicadores y conclusión"), ("17_Lectura", "Lectura de resultados"),
 ]
 
 _NO_NEGATIVOS = ("psi", "precio", "variable", "costo_incurrido", "costo_total", "facturado", "cobrado", "plazo_cobro", "nc_posterior",
@@ -1018,6 +1018,43 @@ def hojas(res: dict) -> list[dict]:
          "prueba no concluye por sí sola el cumplimiento de las NIIF.", None, None, None, ""],
     ]
 
+    # 17 · lectura causa-efecto: cada frase lee el resultado con su cifra embebida (FIXED) desde el Resumen (hoja 01).
+    R1 = ref("01_Resumen")
+    fr = {k: FILA0 + i for i, k in enumerate(res["labels"])}
+    rc = lambda key: f"{R1}B{fr[key]}"
+    lectura = [
+        ["Resultado de la prueba",
+         fx(f'"El ingreso reconocible del año en las líneas medidas es de US$ "&FIXED({rc("ingresoReconocible")},2)&", frente a '
+            f'US$ "&FIXED({rc("ingresoRegistrado")},2)&" registrado en el anexo (NIIF 15 · Sección 23)."',
+            f'El ingreso reconocible del año en las líneas medidas es de US$ {m(t["ingresoReconocible"])}, frente a US$ '
+            f'{m(t["ingresoRegistrado"])} registrado en el anexo (NIIF 15 · Sección 23).')],
+        ["Ajuste propuesto y su efecto",
+         fx(f'"El ajuste propuesto a ingresos es de US$ "&FIXED({rc("ajuste")},2)&": "&'
+            f'IF({rc("ajuste")}>=0,"reconoce ingreso adicional del ejercicio.","reduce el ingreso registrado.")',
+            f'El ajuste propuesto a ingresos es de US$ {m(t["ajuste"])}: '
+            + ("reconoce ingreso adicional del ejercicio." if t["ajuste"] >= 0 else "reduce el ingreso registrado."))],
+        ["Corte de ingresos",
+         fx(f'"Del corte de ingresos: US$ "&FIXED({rc("corteAnticipado")},2)&" se registró antes de transferir el control y '
+            f'US$ "&FIXED({rc("corteOmitido")},2)&" se transfirió sin registrar en el ejercicio."',
+            f'Del corte de ingresos: US$ {m(t["corteAnticipado"])} se registró antes de transferir el control y US$ '
+            f'{m(t["corteOmitido"])} se transfirió sin registrar en el ejercicio.')],
+        ["Componente de financiación",
+         fx(f'"Hay un componente de financiación de US$ "&FIXED({rc("componenteFinanciero")},2)&" a separar del ingreso ordinario '
+            f'y presentar como interés; el interés devengado al corte es de US$ "&FIXED({rc("interesDevengado")},2)&"."',
+            f'Hay un componente de financiación de US$ {m(t["componenteFinanciero"])} a separar del ingreso ordinario y presentar '
+            f'como interés; el interés devengado al corte es de US$ {m(t["interesDevengado"])}.')],
+        ["Cierre",
+         fx(f'"El anexo de ingresos difiere del mayor en US$ "&FIXED({rc("difMayor")},2)&", que "&'
+            f'IF(ABS({rc("difMayor")})<=0.005,"concilia con la contabilidad.","debe investigarse (NIA 500).")',
+            f'El anexo de ingresos difiere del mayor en US$ {m(t["difMayor"])}, que '
+            + ("concilia con la contabilidad." if abs(t["difMayor"]) <= 0.005 else "debe investigarse (NIA 500)."))],
+    ]
+    ex_lectura = {"Detalle": ("Lee en lenguaje corriente el resultado de la prueba y sus hallazgos materiales con la cifra embebida "
+                              "tomada del Resumen (hoja 01): el ingreso reconocible frente al registrado, el ajuste propuesto y su "
+                              "efecto, el corte de ingresos anticipado y omitido, el componente de financiación a separar y su interés "
+                              "devengado, y la conciliación del anexo con el mayor. Cada cifra remite por fórmula a la celda del "
+                              "Resumen.")}
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=ex["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
@@ -1069,6 +1106,7 @@ def hojas(res: dict) -> list[dict]:
         hoja("16_Conclusion", "Indicadores y conclusión",
              [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con16,
              explica=ex["16_Conclusion"], colores=["Estado"]),
+        hoja("17_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura, explica=ex_lectura),
     ]
 
 

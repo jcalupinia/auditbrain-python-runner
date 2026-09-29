@@ -586,7 +586,7 @@ CEDULAS = [
     ("09_Transferencias", "Transferencias"), ("10_Superavit", "Historial del superávit de revaluación"),
     ("11_Alquileres", "Ingresos por alquiler"), ("12_Bajas", "Bajas"),
     ("13_Conciliacion", "Sumaria y conciliación"), ("14_Problemas", "Problemas encontrados"),
-    ("15_Conclusion", "Indicadores y conclusión"),
+    ("15_Conclusion", "Indicadores y conclusión"), ("16_Lectura", "Lectura de resultados"),
 ]
 PARK = ["corte", "inicio", "marco", "esPymes", "modelo", "vr", "correcto", "umbral", "saldoMayor"]
 PAR = {k: FILA0 + i for i, k in enumerate(PARK)}
@@ -1047,6 +1047,28 @@ def hojas(res: dict) -> list[dict]:
          fx(f'IF(D{rc(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
     ]
 
+    # 16 · lectura causa-efecto: el resultado y las variaciones materiales con su cifra embebida (FIXED
+    # respeta los separadores del equipo; el valor de Python va con los del Ecuador, como hace m()).
+    RES = ref("01_Resumen")
+    rl = lambda k: f"{RES}$B${fr[k]}"
+    lectura = [
+        ["Resultado principal",
+         fx(f'"Las propiedades de inversión auditadas suman US$ "&FIXED({rl("piAuditado")},2)&" frente a US$ "&FIXED({rl("saldoMayor")},2)&" según el mayor."',
+            f'Las propiedades de inversión auditadas suman US$ {m(t["piAuditado"])} frente a US$ {m(t["saldoMayor"])} según el mayor.')],
+        ["Ajuste y su efecto",
+         fx(f'"El ajuste propuesto neto asciende a US$ "&FIXED({rl("ajuste")},2)&": es la diferencia entre las propiedades auditadas y el saldo del mayor."',
+            f'El ajuste propuesto neto asciende a US$ {m(t["ajuste"])}: es la diferencia entre las propiedades auditadas y el saldo del mayor.')],
+        ["Valor razonable (hallazgo material)",
+         fx(f'"El ajuste de valor razonable no reconocido en resultados es de US$ "&FIXED({rl("ajusteVR")},2)&" (NIC 40.35; PYMES 16.7)."',
+            f'El ajuste de valor razonable no reconocido en resultados es de US$ {m(t["ajusteVR"])} (NIC 40.35; PYMES 16.7).')],
+        ["Modelo del costo (hallazgo material)",
+         fx(f'"El efecto de la medición al costo (depreciación y deterioro) suma US$ "&FIXED({rl("efectoCosto")},2)&", con un deterioro de US$ "&FIXED({rl("deterioro")},2)&"."',
+            f'El efecto de la medición al costo (depreciación y deterioro) suma US$ {m(t["efectoCosto"])}, con un deterioro de US$ {m(t["deterioro"])}.')],
+        ["Cierre",
+         fx(f'"La reclasificación fuera de propiedades de inversión es de US$ "&FIXED({rl("reclasificacion")},2)&" y el ajuste total propuesto neto queda en US$ "&FIXED({rl("ajuste")},2)&"."',
+            f'La reclasificación fuera de propiedades de inversión es de US$ {m(t["reclasificacion"])} y el ajuste total propuesto neto queda en US$ {m(t["ajuste"])}.')],
+    ]
+
     S = lambda xs: sum(x for x in xs if x is not None)
     return [
         hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", n_]], resumen, explica=EXPLICA["01_Resumen"]),
@@ -1114,6 +1136,9 @@ def hojas(res: dict) -> list[dict]:
         hoja("15_Conclusion", CEDULAS[14][1],
              [["Indicador", "t"], ["Importe", n_], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
              explica=EXPLICA["15_Conclusion"], colores=["Estado"]),
+        hoja("16_Lectura", CEDULAS[15][1], [["Concepto", "t"], ["Detalle", "t"]], lectura,
+             explica={"Detalle": "Lee el resultado del rubro y las variaciones o hallazgos materiales con su cifra "
+                                 "tomada del Resumen (hoja 01), redactados como causa-efecto para el lector del papel."}),
     ]
 
 

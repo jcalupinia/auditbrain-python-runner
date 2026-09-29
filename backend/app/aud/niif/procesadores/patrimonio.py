@@ -147,7 +147,7 @@ CEDULAS = [
     ("07_Capital", "Capital y aumentos"), ("08_Clasificacion", "Clasificación deuda / patrimonio"),
     ("09_Recompra", "Recompra de acciones propias"), ("10_Ajuste", "Patrimonio auditado y ajustes"),
     ("11_Asientos", "Asientos propuestos"), ("12_Problemas", "Problemas encontrados"),
-    ("13_Conclusion", "Indicadores y conclusión"),
+    ("13_Conclusion", "Indicadores y conclusión"), ("14_Lectura", "Lectura de resultados"),
 ]
 
 _SI = {"si", "s", "x", "yes", "y", "1", "true", "verdadero"}
@@ -684,6 +684,11 @@ EXPLICA = {
                    "transacciones sin acta; «Revisar» cuando queda un ajuste, reserva por apropiar o aumentos sin inscribir; "
                    "«Conforme» si el indicador no exige acción."),
     },
+    "14_Lectura": {
+        "Detalle": ("Lee los resultados clave y los redacta en una frase de causa y efecto, tomando cada cifra por fórmula "
+                    "(FIXED) de la celda del Resumen (hoja 01) donde se calculó: patrimonio auditado y del cliente, ajuste "
+                    "neto, diferencias del movimiento, dividendos en exceso y aumentos de capital no inscritos."),
+    },
 }
 
 # Panel del dashboard (formato en graficos.py).
@@ -1057,6 +1062,40 @@ def hojas(res: dict) -> list[dict]:
          "legal, los dividendos, los aportes y las recompras que exigen ajuste o revelación.", None, None, None, ""],
     ]
 
+    # 14 · Lectura de resultados (causa-efecto con la cifra embebida por FIXED; celdas del Resumen, hoja 01).
+    fila_res = {k: FILA0 + i for i, k in enumerate(res["labels"])}
+    R14 = "'01_Resumen'!$B$"
+
+    def _lec(antes, k, entre=None, k2=None, cierre="."):
+        cell = R14 + str(fila_res[k])
+        fo = f'"{antes}"&FIXED({cell},2)'
+        vo = f"{antes}{m(t[k])}"
+        if k2 is not None:
+            cell2 = R14 + str(fila_res[k2])
+            fo += f'&"{entre}"&FIXED({cell2},2)'
+            vo += f"{entre}{m(t[k2])}"
+        fo += f'&"{cierre}"'
+        vo += cierre
+        return fx(fo, vo)
+
+    lectura = [
+        ["Resultado de la prueba",
+         _lec("El patrimonio auditado es de US$ ", "patrimonioAuditado",
+              entre=" frente a US$ ", k2="patrimonioCliente", cierre=" según el cliente.")],
+        ["Ajuste neto propuesto",
+         _lec("La diferencia se propone como un ajuste neto al patrimonio de US$ ", "ajusteNeto",
+              cierre=" (auditado menos cliente).")],
+        ["Movimiento patrimonial",
+         _lec("El movimiento patrimonial recalculado arroja diferencias por US$ ", "difMovimiento", cierre=".")],
+        ["Dividendos en exceso",
+         _lec("Los dividendos en exceso de utilidades disponibles ascienden a US$ ", "excesoDividendos",
+              cierre=" (Ley de Compañías art. 297).")],
+        ["Cierre",
+         _lec("En síntesis, el ajuste neto de US$ ", "ajusteNeto",
+              entre=" y los aumentos de capital no inscritos por US$ ", k2="aumentosNoInscritos",
+              cierre=" son los efectos a resolver.")],
+    ]
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros,
@@ -1093,6 +1132,8 @@ def hojas(res: dict) -> list[dict]:
         hoja("13_Conclusion", "Indicadores y conclusión",
              [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con13,
              explica=EXPLICA["13_Conclusion"], colores=["Estado"]),
+        hoja("14_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura,
+             explica=EXPLICA["14_Lectura"]),
     ]
 
 

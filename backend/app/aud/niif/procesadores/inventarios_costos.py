@@ -458,7 +458,7 @@ CEDULAS = [
     ("07_Costo_produccion", "Costo de producción"), ("08_Costo_ventas", "Costo de ventas"), ("09_VNR", "Valor realizable neto"),
     ("10_Obsolescencia", "Obsolescencia y lenta rotación"), ("11_Excepcion_MP", "Materias primas: excepción de NIC 2.32"),
     ("12_Corte", "Prueba de corte"), ("13_Problemas", "Problemas encontrados"),
-    ("14_Conclusion", "Indicadores y conclusión"),
+    ("14_Conclusion", "Indicadores y conclusión"), ("15_Lectura", "Lectura de resultados"),
 ]
 PARK = ["corte", "marco", "obsDias1", "obsPct1", "obsDias2", "obsPct2", "obsDias3", "obsPct3", "saldoMayor", "provisionRegistrada"]
 PAR = {k: FILA0 + i for i, k in enumerate(PARK)}
@@ -771,6 +771,33 @@ def hojas(res: dict) -> list[dict]:
                    "desviaciones."),
     }
 
+    # 15 · Lectura de resultados (causa-efecto con las cifras embebidas por FIXED).
+    _fix = lambda cell: f"FIXED({cell},2)"
+    aj_dir = "aumenta" if t["ajuste"] > 0.005 else ("disminuye" if t["ajuste"] < -0.005 else "no modifica")
+    aj_dir_f = f'IF({rc("ajuste")}>0.005,"aumenta",IF({rc("ajuste")}<-0.005,"disminuye","no modifica"))'
+    cita_vnr = "Sección 13 y 27" if pymes else "NIC 2.9 y 2.28"
+    lectura = [
+        ["Resultado principal",
+         fx(f'"El inventario neto auditado asciende a US$ "&{_fix(rc("inventarioNeto"))}&", frente a US$ "&{_fix(rc("libroNeto"))}&" de inventario neto en libros (hoja 01)."',
+            f"El inventario neto auditado asciende a US$ {m(t['inventarioNeto'])}, frente a US$ {m(t['libroNeto'])} de inventario neto en libros (hoja 01).")],
+        ["Ajuste propuesto",
+         fx(f'"El ajuste propuesto es de US$ "&{_fix(rc("ajuste"))}&", que "&{aj_dir_f}&" el inventario neto presentado y exige su registro."',
+            f"El ajuste propuesto es de US$ {m(t['ajuste'])}, que {aj_dir} el inventario neto presentado y exige su registro.")],
+        ["Deterioro y obsolescencia",
+         fx(f'"Las rebajas por el menor valor de mercado suman US$ "&{_fix(rc("rebajaVnr"))}&" y la provisión por obsolescencia US$ "&{_fix(rc("provObsolescencia"))}&", que reducen el valor del inventario ({cita_vnr})."',
+            f"Las rebajas por el menor valor de mercado suman US$ {m(t['rebajaVnr'])} y la provisión por obsolescencia US$ {m(t['provObsolescencia'])}, que reducen el valor del inventario ({cita_vnr}).")],
+        ["Existencia y valuación",
+         fx(f'"Las diferencias físicas valorizadas suman US$ "&{_fix(rc("difFisicas"))}&" y las de costo unitario US$ "&{_fix(rc("difCosto"))}&", que ajustan la existencia y la valuación del inventario (NIA 501 y 500)."',
+            f"Las diferencias físicas valorizadas suman US$ {m(t['difFisicas'])} y las de costo unitario US$ {m(t['difCosto'])}, que ajustan la existencia y la valuación del inventario (NIA 501 y 500).")],
+        ["Cierre",
+         fx(f'"En conjunto, sobre un costo auditado de US$ "&{_fix(rc("costoAuditado"))}&", los hallazgos exigen registrar el ajuste y revelar la política de costeo y de deterioro del inventario."',
+            f"En conjunto, sobre un costo auditado de US$ {m(t['costoAuditado'])}, los hallazgos exigen registrar el ajuste y revelar la política de costeo y de deterioro del inventario.")],
+    ]
+    ex_lectura = {"Detalle": ("Redacta en lenguaje del auditor la lectura causa-efecto de los resultados e inserta cada cifra "
+                              "con FIXED desde la hoja 01 (Resumen y ajuste propuesto): el inventario neto auditado frente al de "
+                              "libros y el ajuste, las rebajas a valor de mercado y la obsolescencia, y las diferencias físicas "
+                              "y de costo unitario.")}
+
     # --- «Cómo se calcula esta hoja»: explicación humana por columna calculada -------------
     h09 = "la hoja 09 (Precio de venta menos costos)" if pymes else "la hoja 09 (Valor realizable neto)"
     ex_resumen = {"Importe": "Trae cada concepto de su hoja de origen: el costo auditado de la hoja 03, la provisión estimada y la "
@@ -960,6 +987,7 @@ def hojas(res: dict) -> list[dict]:
         hoja("14_Conclusion", CEDULAS[13][1],
              [["Indicador", "t"], ["Importe", n_], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
              explica=ex_conclusion, colores=["Estado"]),
+        hoja("15_Lectura", CEDULAS[14][1], [["Concepto", "t"], ["Detalle", "t"]], lectura, explica=ex_lectura),
     ]
 
 

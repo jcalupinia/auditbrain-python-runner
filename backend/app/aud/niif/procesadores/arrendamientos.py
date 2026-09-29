@@ -637,7 +637,7 @@ CEDULAS = [
     ("13_Venta_arr_posterior", "Venta con arrendamiento posterior: medición inicial"),
     ("14_Venta_medicion_post", "Venta con arrendamiento posterior: medición posterior"),
     ("15_Conciliacion", "Conciliación y ajuste"), ("16_Problemas", "Problemas encontrados"),
-    ("17_Conclusion", "Indicadores y conclusión"),
+    ("17_Conclusion", "Indicadores y conclusión"), ("18_Lectura", "Lectura de resultados"),
 ]
 P = ref("02_Parametros")
 CT, ID, PL, MI, PG, RE, TA, PC, DU, GL, VA = (ref(n) for n in ("03_Contratos", "04_Identificacion", "05_Plazo", "06_Medicion_inicial",
@@ -1363,6 +1363,28 @@ def hojas(res: dict) -> list[dict]:
          fx(f'IF(D{rc(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
     ]
 
+    # 18 · lectura causa-efecto: el resultado y las variaciones materiales con su cifra embebida (FIXED
+    # respeta los separadores del equipo; el valor de Python va con los del Ecuador, como hace m()).
+    RES = ref("01_Resumen")
+    rl = lambda k: f"{RES}$B${fila_res[k]}"
+    lectura = [
+        ["Resultado principal",
+         fx(f'"El pasivo por arrendamiento recalculado asciende a US$ "&FIXED({rl("pasivo")},2)&" frente a US$ "&FIXED({rl("pasivoRegistrado")},2)&" registrado en el mayor."',
+            f'El pasivo por arrendamiento recalculado asciende a US$ {_m(t["pasivo"])} frente a US$ {_m(t["pasivoRegistrado"])} registrado en el mayor.')],
+        ["Ajuste y su efecto",
+         fx(f'"El ajuste propuesto al pasivo es de US$ "&FIXED({rl("ajuste")},2)&" y el ajuste al activo (derecho de uso) es de US$ "&FIXED({rl("ajusteActivo")},2)&"."',
+            f'El ajuste propuesto al pasivo es de US$ {_m(t["ajuste"])} y el ajuste al activo (derecho de uso) es de US$ {_m(t["ajusteActivo"])}.')],
+        ["Depreciación e interés (hallazgo material)",
+         fx(f'"La depreciación del ejercicio suma US$ "&FIXED({rl("depreciacion")},2)&" y el interés del ejercicio US$ "&FIXED({rl("intereses")},2)&"."',
+            f'La depreciación del ejercicio suma US$ {_m(t["depreciacion"])} y el interés del ejercicio US$ {_m(t["intereses"])}.')],
+        ["Deterioro y remedición (hallazgo material)",
+         fx(f'"El deterioro del activo asciende a US$ "&FIXED({rl("deterioro")},2)&" y la remedición del pasivo a US$ "&FIXED({rl("remedicion")},2)&"."',
+            f'El deterioro del activo asciende a US$ {_m(t["deterioro"])} y la remedición del pasivo a US$ {_m(t["remedicion"])}.')],
+        ["Cierre",
+         fx(f'"El pasivo recalculado se compone de US$ "&FIXED({rl("corriente")},2)&" corriente y US$ "&FIXED({rl("noCorriente")},2)&" no corriente."',
+            f'El pasivo recalculado se compone de US$ {_m(t["corriente"])} corriente y US$ {_m(t["noCorriente"])} no corriente.')],
+    ]
+
     n_ = "n"
     cols_ident = ([["Contrato", "t"], ["Activo", "t"], ["Plazo (meses)", "i"], ["Vida útil (meses)", "i"], ["Plazo / vida útil", "p"],
                    ["VP de los pagos mínimos", n_], ["Valor razonable", n_], ["VP / valor razonable", "p"], ["Compra razonablemente cierta", "t"],
@@ -1462,6 +1484,9 @@ def hojas(res: dict) -> list[dict]:
         hoja("17_Conclusion", "Indicadores y conclusión",
              [["Indicador", "t"], ["Importe", n_], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
              explica=_EX_CONCLUSION, colores=["Estado"]),
+        hoja("18_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura,
+             explica={"Detalle": "Lee el resultado del rubro y las variaciones o hallazgos materiales con su cifra "
+                                 "tomada del Resumen (hoja 01), redactados como causa-efecto para el lector del papel."}),
     ]
 
 
