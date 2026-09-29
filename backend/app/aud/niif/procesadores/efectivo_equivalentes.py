@@ -427,6 +427,8 @@ EXPLICA = {
                                      "que el banco registró y los libros todavía no."),
         "Efectivo auditado": ("Al saldo ajustado de libros le resta lo que se reclasifica por restricción (hoja 08, "
                               "Efectivo restringido) y por inversiones que no son equivalentes (hoja 09) para esta cuenta."),
+        "Semáforo": ("Estado de la cuenta: «Alerta» si la diferencia no explicada no es cero (hay que investigarla), "
+                     "«Conforme» si la conciliación cuadra. Sin saldo bancario, queda en blanco."),
     },
     "04_Partidas": {
         "Días al corte": ("Resta la fecha de origen de la partida de la fecha de corte de la hoja 02 (Parámetros). Negativo "
@@ -627,7 +629,9 @@ def hojas(res: dict) -> list[dict]:
                        fx(f'IF(D{r}="","",D{r}+E{r}-F{r}-G{r}+H{r}+I{r})', n2(c["esperado"])), n2(c["libros"]),
                        fx(f'IF(J{r}="","",ROUND(K{r}-J{r},2))', c["dif"]), fx(f"K{r}+G{r}-H{r}", n2(c["ajustado"])),
                        fx(f"M{r}-SUMIF({_rango(RES_, 'A', nr)},A{r},{_rango(RES_, 'I', nr)})-SUMIF({_rango(EQU_, 'A', ni)},A{r},{_rango(EQU_, 'I', ni)})",
-                          n2(c["auditado"]))])
+                          n2(c["auditado"])),
+                       fx(f'IF(L{r}="","",IF(ABS(L{r})>=0.005,"Alerta","Conforme"))',
+                          "" if c["dif"] is None else ("Alerta" if abs(c["dif"]) >= 0.005 else "Conforme"))])
     fin_c = FILA0 + nc_ - 1
 
     # 05 · Antigüedad.
@@ -742,11 +746,11 @@ def hojas(res: dict) -> list[dict]:
              [["Cuenta", "t"], ["Banco / caja", "t"], ["Tipo", "t"], ["Saldo estado bancario / arqueo", "n"], ["(+) Depósitos en tránsito", "n"],
               ["(−) Cheques pendientes", "n"], ["(−) Notas de crédito no registradas", "n"], ["(+) Notas de débito no registradas", "n"],
               ["(±) Otras partidas", "n"], ["Saldo que explica la conciliación", "n"], ["Saldo según libros", "n"],
-              ["Diferencia no explicada", "n"], ["Saldo ajustado de libros", "n"], ["Efectivo auditado", "n"]], concil,
+              ["Diferencia no explicada", "n"], ["Saldo ajustado de libros", "n"], ["Efectivo auditado", "n"], ["Semáforo", "t"]], concil,
              ["TOTAL", "", "", None, tot("E", fin_c, sum(c["dt"] for c in cu)), tot("F", fin_c, sum(c["cp"] for c in cu)),
               tot("G", fin_c, con["nc"]), tot("H", fin_c, con["nd"]), tot("I", fin_c, sum(c["ot"] for c in cu)), None,
-              tot("K", fin_c, con["saldoLibros"]), None, tot("M", fin_c, sum(c["ajustado"] for c in cu)), tot("N", fin_c, con["auditado"])],
-             explica=EXPLICA["03_Conciliacion"]),
+              tot("K", fin_c, con["saldoLibros"]), None, tot("M", fin_c, sum(c["ajustado"] for c in cu)), tot("N", fin_c, con["auditado"]), ""],
+             explica=EXPLICA["03_Conciliacion"], colores=["Semáforo"]),
         hoja("04_Partidas", "Partidas conciliatorias",
              [["Partida", "t"], ["Cuenta", "t"], ["Tipo", "t"], ["Referencia", "t"], ["Fecha de origen", "d"], ["Importe", "n"],
               ["Liquidación posterior", "d"], ["Días al corte", "i"], ["Días hasta la liquidación", "i"], ["Antigua", "t"],
