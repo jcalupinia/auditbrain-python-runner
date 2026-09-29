@@ -665,6 +665,23 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
         >
           Descargar Excel
         </button>
+        {d.processor === "efectivo_equivalentes" && (
+          <button
+            type="button"
+            className="pc-chip"
+            title="Papel de trabajo DA con fórmulas vivas: Sumaria, Movimiento, Conciliaciones, Partidas, Arqueo y Hallazgos"
+            onClick={async () => {
+              try {
+                const cliente = (reg.engagement?.client || "cliente").replace(/[^\w-]+/g, "_").slice(0, 40);
+                descargar(`DA_Efectivo_Equivalentes_${cliente}.xlsx`, await api.cicloBajarPapelBancos(prueba.id), XLSX);
+              } catch (e) {
+                setError(e.message || String(e));
+              }
+            }}
+          >
+            Papel formulado (DA)
+          </button>
+        )}
         {FORMATOS_PAPEL.map(([ext, etiqueta, tipo]) => (
           <button key={ext} type="button" className="pc-chip" disabled={!reg.run} title={ext === "html" ? "Funciona sin internet y trae dentro Excel, Word y PowerPoint; «Guardar como PDF» lo imprime" : undefined}
             onClick={async () => {
