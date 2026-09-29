@@ -152,7 +152,7 @@ def build_xlsx(r):
     return buf.getvalue()
 
 
-def _docx_letter(doc, r, letter):
+def _docx_letter(doc, r, letter, page_break=True):
     """Arma una carta con el mismo espaciado del modelo de la firma: líneas en
     blanco entre el saludo, la introducción, las viñetas, el saldo y el cierre,
     y un hueco antes de la firma. Cada carta empieza en página nueva y entra
@@ -219,7 +219,7 @@ def _docx_letter(doc, r, letter):
             add(line)
 
     # Cada carta arranca en una hoja nueva (sin párrafo de salto extra).
-    if paras:
+    if page_break and paras:
         paras[0].paragraph_format.page_break_before = True
 
 
@@ -296,16 +296,13 @@ def build_pdf(r):
     return HTML(string=_letters_print_html(r)).write_pdf()
 
 
-def build_docx(r):
+def _new_doc(r):
+    """Documento Word configurado (Calibri 10.5, márgenes) para las cartas."""
     from docx import Document
-    from docx.shared import Inches, Pt, Cm
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Pt, Cm
     doc = Document()
     doc.core_properties.title = 'Cartas de confirmación · ' + r['context']['client']
     doc.core_properties.author = r['context']['firm']
-    firm = firm_name(r['context']['firm'])
-
-    # Formato compacto: cada carta debe caber en una sola hoja.
     normal = doc.styles['Normal']
     normal.font.name = 'Calibri'
     normal.font.size = Pt(10.5)
@@ -325,7 +322,14 @@ def build_docx(r):
         sec.bottom_margin = Cm(1.8)
         sec.left_margin = Cm(2.2)
         sec.right_margin = Cm(2.2)
+    return doc
 
+
+def build_docx(r):
+    from docx.shared import Inches
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    doc = _new_doc(r)
+    firm = firm_name(r['context']['firm'])
     # Portada
     try:
         doc.add_picture(str(logo_path(r)), width=Inches(2.0))
@@ -343,6 +347,55 @@ def build_docx(r):
         _docx_letter(doc, r, letter)
     buf = BytesIO()
     doc.save(buf)
+    return buf.getvalue()
+
+
+def build_single_letter_docx(r, letter):
+    """Un Word con UNA sola carta (sin portada), para el ZIP por rubro."""
+    doc = _new_doc(r)
+    _docx_letter(doc, r, letter, page_break=False)
+    buf = BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+# Nombre de carpeta por rubro dentro del ZIP.
+RUBRO_FOLDER = {
+    'bancos': 'Bancos',
+    'cuentas_por_cobrar': 'CxC (Clientes)',
+    'proveedores': 'CxP (Proveedores)',
+    'relacionados': 'Relacionadas',
+    'seguros': 'Seguros',
+    'abogados': 'Abogados',
+    'inventarios_terceros': 'Inventarios en terceros',
+    'inversiones': 'Inversiones',
+}
+
+
+def _safe_name(s, limit=80):
+    """Nombre de archivo seguro (sin caracteres ilegales de ruta)."""
+    s = ''.join(c if c not in '\\/:*?"<>|' else '-' for c in str(s)).strip()
+    s = ' '.join(s.split())
+    return (s[:limit].rstrip() or 'carta')
+
+
+def build_zip(r):
+    """ZIP con un Word por carta, en carpetas por rubro
+    (Bancos/, CxC (Clientes)/, CxP (Proveedores)/, Relacionadas/, ...)."""
+    import zipfile
+    seen = {}
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for letter in r['letters']:
+            rtype = letter.get('type', '')
+            folder = RUBRO_FOLDER.get(rtype, _safe_name(TYPE_LABEL_ES.get(rtype, rtype or 'Otros')))
+            base = _safe_name(f"{letter.get('id', '')} {letter.get('entity', '')}".strip())
+            # evitar colisiones de nombre dentro de la misma carpeta
+            key = (folder, base.lower())
+            seen[key] = seen.get(key, 0) + 1
+            if seen[key] > 1:
+                base = f"{base} ({seen[key]})"
+            zf.writestr(f"{folder}/{base}.docx", build_single_letter_docx(r, letter))
     return buf.getvalue()
 
 
