@@ -6,7 +6,6 @@ los clientes. Las respuestas se dirigen al correo del auditor (reply-to).
 """
 import json
 import re
-from html import escape
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
@@ -16,7 +15,8 @@ from backend.app.context.models import Project, Client
 from backend.app.context.service import user_can_access_project
 from backend.app.notifications.email import send_email
 from .engine import calculate
-from .exports import build_xlsx, build_html, build_docx, build_pdf, PDFNoDisponible, schedules, letter_email_html
+from .exports import (build_xlsx, build_html, build_docx, build_pdf, PDFNoDisponible,
+                      schedules, letter_email_html, letters_email_html)
 from .plantillas import TYPES, TYPE_LABEL_ES, METHOD_LABEL, REFERENCES, languages
 from .parsers import extract, MAX_BYTES
 from .models import ConfirmacionEnvio
@@ -154,14 +154,9 @@ def _send_to_single(result, to):
     ctx = result['context']
     reply_to = ctx.get('auditor_email') or None
     letters = result['letters']
-    encabezado = (f"<div style=\"font:14px/1.5 Arial;margin-bottom:12px\"><b>Cartas de confirmación de saldos</b><br>"
-                  f"{escape(str(ctx.get('client') or ''))} · corte {escape(str(ctx.get('cutoff') or ''))} · "
-                  f"{len(letters)} cartas</div>")
-    cuerpo = ('<hr style="page-break-after:always;border:none;border-top:1px solid #ccc;margin:24px 0">'
-              .join(letter_email_html(result, l) for l in letters))
     subject = f"Cartas de confirmación de saldos · {ctx.get('client') or ''} · corte {ctx.get('cutoff') or ''}"
     try:
-        resp = send_email(to=to, subject=subject, html=encabezado + cuerpo, reply_to=reply_to)
+        resp = send_email(to=to, subject=subject, html=letters_email_html(result), reply_to=reply_to)
         ok = bool(resp)
     except Exception as exc:  # noqa: BLE001
         return {'sent': 0, 'total': len(letters), 'destino': to,
