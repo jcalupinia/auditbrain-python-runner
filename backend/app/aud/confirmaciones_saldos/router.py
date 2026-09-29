@@ -5,6 +5,8 @@ plataforma (Resend, `notifications.email.send_email`) que ya manda usuario y cla
 los clientes. Las respuestas se dirigen al correo del auditor (reply-to).
 """
 import json
+import re
+from html import escape
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
@@ -114,8 +116,11 @@ async def download(project_id: int, request: Request, format: str = Query(..., p
         'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
 
 
+_EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+
 def _send_all(result, only_ids):
-    """Envía cada carta con destinatario por el mismo Resend que usa el portal.
+    """Envía cada carta al correo de su tercero (flujo estándar NIA 505).
     only_ids limita el envío a un subconjunto (reenvíos). Devuelve el detalle por carta."""
     reply_to = result['context'].get('auditor_email') or None
     to_by_id = {d['id']: d['to'] for d in result['dispatch']}
@@ -142,6 +147,34 @@ def _send_all(result, only_ids):
     return {'sent': sent, 'total': len(results), 'results': results}
 
 
+def _send_to_single(result, to):
+    """Envía TODAS las cartas en un solo correo al destinatario indicado
+    (p. ej. el buzón del auditor), para revisarlas o reenviarlas. Las respuestas
+    de terceros siguen dirigidas al correo del auditor de la ficha."""
+    ctx = result['context']
+    reply_to = ctx.get('auditor_email') or None
+    letters = result['letters']
+    encabezado = (f"<div style=\"font:14px/1.5 Arial;margin-bottom:12px\"><b>Cartas de confirmación de saldos</b><br>"
+                  f"{escape(str(ctx.get('client') or ''))} · corte {escape(str(ctx.get('cutoff') or ''))} · "
+                  f"{len(letters)} cartas</div>")
+    cuerpo = ('<hr style="page-break-after:always;border:none;border-top:1px solid #ccc;margin:24px 0">'
+              .join(letter_email_html(result, l) for l in letters))
+    subject = f"Cartas de confirmación de saldos · {ctx.get('client') or ''} · corte {ctx.get('cutoff') or ''}"
+    try:
+        resp = send_email(to=to, subject=subject, html=encabezado + cuerpo, reply_to=reply_to)
+        ok = bool(resp)
+    except Exception as exc:  # noqa: BLE001
+        return {'sent': 0, 'total': len(letters), 'destino': to,
+                'results': [{'id': '(consolidado)', 'to': to, 'status': 'error', 'detail': str(exc)[:200]}]}
+    return {
+        'sent': len(letters) if ok else 0, 'total': len(letters), 'destino': to,
+        'results': [{'id': '(consolidado)', 'to': to,
+                     'status': 'enviado' if ok else 'error',
+                     'provider_id': resp.get('id') if ok else None,
+                     'cartas': len(letters)}],
+    }
+
+
 @router.post('/{project_id}/enviar')
 async def enviar(project_id: int, request: Request, authorized=Depends(access)):
     project, user, db = authorized
@@ -149,10 +182,16 @@ async def enviar(project_id: int, request: Request, authorized=Depends(access)):
     only_ids = data.get('only_ids')
     if only_ids is not None and not isinstance(only_ids, list):
         raise HTTPException(400, 'only_ids debe ser una lista de identificadores.')
+    send_to = (data.get('send_to') or '').strip() if isinstance(data.get('send_to'), str) else ''
+    if send_to and not _EMAIL_RE.fullmatch(send_to):
+        raise HTTPException(400, 'Correo de destino no válido.')
     result = await run_in_threadpool(safe_calculate, data)
     if result['totals']['count'] > MAX_SEND:
         raise HTTPException(422, f'Máximo {MAX_SEND} envíos por operación.')
-    summary = await run_in_threadpool(_send_all, result, set(only_ids) if only_ids else None)
+    if send_to:
+        summary = await run_in_threadpool(_send_to_single, result, send_to)
+    else:
+        summary = await run_in_threadpool(_send_all, result, set(only_ids) if only_ids else None)
     ctx = result['context']
     row = ConfirmacionEnvio(
         project_id=project.id, enviado_por=_actor(user), total=summary['total'],

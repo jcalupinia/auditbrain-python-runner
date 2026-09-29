@@ -85,10 +85,25 @@ export default function ConfirmacionesTool({projectId, sharedContext, onShareCon
   });
   const download = fmt => action(() => downloadConfirmaciones(projectId, payload(), fmt));
   const [sendResult, setSendResult] = useState(null);
+  const [sendMode, setSendMode] = useState('terceros');   // 'terceros' | 'unico'
+  const [sendTo, setSendTo] = useState('');
+  const emailOk = v => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((v || '').trim());
   const send = () => {
     if (!result) return;
+    if (sendMode === 'unico') {
+      const to = sendTo.trim();
+      if (!emailOk(to)) { setError('Escriba un correo de destino válido para enviar las cartas.'); return; }
+      if (!window.confirm(`Se enviarán las ${result.totals.count} cartas en un solo correo a ${to}. Las respuestas de terceros seguirán dirigidas a ${ctx.auditor_email || 'el correo del auditor'}. ¿Continuar?`)) return;
+      action(async () => {
+        setSendResult(null);
+        const r = await sendConfirmaciones(projectId, {...payload(), send_to: to});
+        setSendResult(r);
+        setNotice(`Envío: ${r.sent}/${r.total} cartas enviadas a ${to}.`);
+      });
+      return;
+    }
     const conCorreo = result.totals.with_email;
-    if (!conCorreo) { setError('Ningún elemento tiene correo de contacto. Complete los correos antes de enviar.'); return; }
+    if (!conCorreo) { setError('Ningún elemento tiene correo de contacto. Complete los correos, o use la opción "a un solo correo".'); return; }
     if (!window.confirm(`Se enviarán ${conCorreo} cartas por correo (Resend) a los contactos indicados. Las respuestas llegarán a ${ctx.auditor_email}. ¿Continuar?`)) return;
     action(async () => {
       setSendResult(null);
@@ -199,6 +214,20 @@ export default function ConfirmacionesTool({projectId, sharedContext, onShareCon
           <button className="btn" onClick={() => download('docx')} disabled={busy || !result}>Cartas (Word)</button>
           <button className="btn" onClick={() => download('pdf')} disabled={busy || !result}>Cartas (PDF)</button>
           <button className="btn btn-primary" onClick={send} disabled={busy || !result}>Enviar por correo (Resend)</button>
+        </div>
+        <div className="cf-grid" style={{marginTop: 10}}>
+          <label>Enviar a
+            <select value={sendMode} onChange={e => setSendMode(e.target.value)}>
+              <option value="terceros">Cada tercero (banco/cliente/proveedor)</option>
+              <option value="unico">Un solo correo (p. ej. el del auditor)</option>
+            </select>
+          </label>
+          {sendMode === 'unico' &&
+            <label>Correo de destino
+              <input type="email" value={sendTo} placeholder="auditor@ejemplo.com"
+                onChange={e => setSendTo(e.target.value)} />
+              <small className="cf-help">Todas las cartas se envían en un solo correo a esta dirección.</small>
+            </label>}
         </div>
         {sendResult && <div className="cf-summary">
           <p><b>Envío:</b> {sendResult.sent}/{sendResult.total} enviadas.</p>
