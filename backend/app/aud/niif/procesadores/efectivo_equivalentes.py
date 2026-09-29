@@ -32,7 +32,7 @@ PYMES 2025 (texto oficial en inglés): misma numeración — 4.5 d), 7.2, 7.20, 
 from __future__ import annotations
 
 import calendar
-from datetime import date
+from datetime import date, timedelta
 
 from backend.app.aud.niif.procesadores import problemas
 from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y filas_mapeadas los usa el ciclo)
@@ -143,6 +143,11 @@ CEDULAS = [
     ("09_Equivalentes", "Equivalentes de efectivo (definición)"), ("10_Efectivo_auditado", "Efectivo auditado y ajuste"),
     ("11_Asientos", "Asientos propuestos"), ("12_Problemas", "Problemas encontrados"),
     ("13_Conclusion", "Indicadores y conclusión"), ("14_Lectura", "Lectura de resultados"),
+    # Papel real DA (calca el papel del cliente; se llena al Procesar y baja también en «Papel formulado (DA)»).
+    ("DA0_Libro_Mayor", "DA · Libro Mayor (fuente)"), ("DA1_Sumaria", "DA-1 · Sumaria"),
+    ("DA2_Movimiento", "DA-2 · Movimiento de bancos"), ("DA3_Conciliaciones", "DA-3 · Conciliaciones bancarias"),
+    ("DA4_Partidas", "DA-4 · Partidas conciliatorias"), ("DA5_Arqueo", "DA-5 · Arqueo de caja"),
+    ("DA6_Hallazgos", "DA-6 · Hoja de hallazgos"),
 ]
 
 
@@ -427,9 +432,17 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                  "auditado": "Efectivo y equivalentes auditado", "ajuste": "Ajuste propuesto (auditado − libros)",
                  "difNoExplicada": "Diferencias de conciliación no explicadas (absolutas)", "difConfirmacion": "Diferencias de confirmación (absolutas)",
                  "partidasAntiguas": "Partidas conciliatorias antiguas", "partidasNoDepuradas": "Partidas no depuradas después del corte"}
+    # Anexos crudos que alimentan las cédulas del papel real DA (Sumaria/Movimiento,
+    # Libro Mayor fuente y Arqueo). No entran en el cálculo del resultado; se conservan
+    # para que ``hojas()`` calque el papel del cliente con fórmulas vivas (SUMIF sobre el
+    # Libro Mayor, cantidad × valor del arqueo). El ciclo poda ``detalle`` tras armar las
+    # hojas (servicio.py), así que estos anexos no engordan el registro persistido.
+    _crudo = lambda filas: [{k: v for k, v in f.items() if not str(k).startswith("_")} for f in (filas or [])]
     detalle = {"parametros": p, "corte": corte_a.isoformat(), "limiteRestriccion": limite_restr.isoformat(), "refs": rf, "conceptos": con,
                "cuentas": [{k: (iso(v) if isinstance(v, date) else v) for k, v in c.items()} for c in cuentas],
-               "partidas": [{k: (iso(v) if isinstance(v, date) else v) for k, v in x.items()} for x in partidas]}
+               "partidas": [{k: (iso(v) if isinstance(v, date) else v) for k, v in x.items()} for x in partidas],
+               "libro_mayor": _crudo(datasets.get("libro_mayor")), "arqueo": _crudo(datasets.get("arqueo")),
+               "estado_cuenta": _crudo(datasets.get("estado_cuenta")), "conciliacion_anterior": _crudo(datasets.get("conciliacion_anterior"))}
     return {"engine": VERSION, "rows": filas, "totals": {k: r2(con[k]) for k in claves}, "labels": {k: etiquetas[k] for k in claves},
             "primary": "ajuste", "exceptions": pr, "schedule": [], "detalle": detalle}
 
@@ -446,6 +459,23 @@ FC = {k: f"{AUD}$B${FILA0 + i}" for i, k in enumerate(CONCEPTOS)}
 TRAMOS = [("Posterior al corte", '"<0"', None), ("0 a 30 días", '">=0"', '"<=30"'), ("31 a 60 días", '">=31"', '"<=60"'),
           ("61 a 90 días", '">=61"', '"<=90"'), ("91 a 180 días", '">=91"', '"<=180"'), ("Más de 180 días", '">180"', None)]
 TRAMOS_PY = [(None, -1), (0, 30), (31, 60), (61, 90), (91, 180), (181, None)]
+
+# --- papel real DA (calca el papel del cliente con fórmulas vivas y referencias cruzadas) ---
+# Nombres de las pestañas DA (≤ 31, únicos frente a 01_…14_) y sus referencias entre hojas.
+DA_LM, DA_SUM = "DA0_Libro_Mayor", "DA1_Sumaria"
+DA_MOV, DA_CON = "DA2_Movimiento", "DA3_Conciliaciones"
+DA_PAR, DA_ARQ, DA_HAL = "DA4_Partidas", "DA5_Arqueo", "DA6_Hallazgos"
+LM_, SUM_, PAR_DA = ref(DA_LM), ref(DA_SUM), ref(DA_PAR)
+# Categoría conciliatoria del papel DA (los literales alimentan los SUMIFS de DA-3).
+DA_CONSIG, DA_SOBREGIRO, DA_CHEQUE = "Consignación no registrada", "Sobregiro/ajuste", "Cheque sin cobrar"
+DA_ND, DA_NC = "Nota débito en tránsito", "NC pendiente contabilizar"
+_TIPO_A_DACAT = {DT: DA_CONSIG, CP: DA_CHEQUE, ND: DA_ND, NC: DA_NC, OT: DA_SOBREGIRO}
+# Denominaciones estándar del arqueo de caja (DA-5) cuando no se cargó el recuento (RQ-012).
+DA_DENOMS = [("Billetes de $100.00", 100.0), ("Billetes de $50.00", 50.0), ("Billetes de $20.00", 20.0),
+             ("Billetes de $10.00", 10.0), ("Billetes de $5.00", 5.0), ("Billetes de $2.00", 2.0),
+             ("Billetes de $1.00", 1.0), ("Monedas de $1.00", 1.0), ("Monedas de $0.50", 0.50),
+             ("Monedas de $0.25", 0.25), ("Monedas de $0.10", 0.10), ("Monedas de $0.05", 0.05),
+             ("Monedas de $0.01", 0.01)]
 
 
 # Explicación humana de cada columna calculada («Cómo se calcula esta hoja»).
@@ -559,6 +589,49 @@ EXPLICA = {
                     "ajuste propuesto y su efecto, las diferencias de conciliación y confirmación, las reclasificaciones "
                     "y las partidas conciliatorias antiguas."),
     },
+    # Papel real DA.
+    "DA1_Sumaria": {
+        "Variación": ("Resta al saldo actual según registros el saldo del período anterior, para mostrar cuánto se movió "
+                      "el efectivo de cada cuenta entre el cierre anterior y el corte."),
+    },
+    "DA2_Movimiento": {
+        "Débitos del período": ("Suma con SUMIF los débitos del Libro Mayor (hoja DA0) cuyo código de cuenta coincide con "
+                                "el de esta fila: los ingresos y abonos registrados en la cuenta durante el período."),
+        "Créditos del período": ("Suma con SUMIF los créditos del Libro Mayor (hoja DA0) de esta misma cuenta: los egresos "
+                                 "y cargos registrados en la cuenta durante el período."),
+        "Saldo final s/movimiento": ("Parte del saldo inicial, suma los débitos y resta los créditos del período: el saldo "
+                                     "que debería mostrar la cuenta según el movimiento del Libro Mayor."),
+        "Cuadre s/Sumaria": ("Resta al saldo final por movimiento el saldo actual de la misma cuenta en la Sumaria (DA-1); "
+                             "en cero cuando el movimiento del mayor explica el saldo del corte."),
+    },
+    "DA3_Conciliaciones": {
+        "(+) Consignaciones no registradas": ("Suma con SUMIFS el valor de las partidas de DA-4 de este banco clasificadas "
+                                              "como consignación no registrada por el banco (depósitos en tránsito)."),
+        "(−) Sobregiro / ajustes": ("Suma con SUMIFS el valor de las partidas de DA-4 de este banco marcadas como sobregiro "
+                                    "o ajuste, que restan del saldo del extracto."),
+        "(−) Cheques sin cobrar": ("Suma con SUMIFS el valor de las partidas de DA-4 de este banco que son cheques girados "
+                                   "y todavía no cobrados por el beneficiario."),
+        "(+) Nota débito en tránsito": ("Suma con SUMIFS el valor de las partidas de DA-4 de este banco que son notas de "
+                                        "débito del banco todavía no registradas en libros."),
+        "(−) NC pendiente de contabilizar": ("Suma con SUMIFS el valor de las partidas de DA-4 de este banco que son notas "
+                                             "de crédito del banco pendientes de contabilizar en libros."),
+        "Saldo s/auditoría": ("Parte del saldo del extracto, suma consignaciones y notas de débito y resta sobregiros, "
+                              "cheques sin cobrar y notas de crédito pendientes: el saldo conciliado del banco."),
+        "Saldo s/registros contables": ("Trae el saldo actual según registros de la misma cuenta desde la Sumaria (DA-1), "
+                                        "para contrastarlo con el saldo conciliado del extracto."),
+        "Diferencia": ("Resta al saldo conciliado de auditoría el saldo según registros contables: en cero cuando la "
+                       "conciliación cuadra y distinto de cero cuando hay partidas por depurar."),
+    },
+    "DA4_Partidas": {
+        "Días vencidos": ("Resta la fecha de la partida a la fecha de corte del encargo (hoja 02, Parámetros): los días que "
+                          "la partida conciliatoria lleva pendiente de depurar; sin fecha, queda en blanco."),
+        "Fecha de prescripción": ("Suma a la fecha de la partida 360 + 30 días para estimar la fecha en que prescribe y debe "
+                                  "regularizarse; sin fecha de origen, queda en blanco."),
+    },
+    "DA5_Arqueo": {
+        "Total": ("Multiplica la cantidad contada por el valor unitario de cada denominación; las filas de cierre suman el "
+                  "arqueo, traen el saldo de caja según libros de la Sumaria (DA-1) y calculan la diferencia."),
+    },
 }
 
 # Panel del dashboard (formato en graficos.py).
@@ -648,6 +721,141 @@ REF_PROBLEMAS = {
     "CORTE_DEPOSITO_TARDIO": _por_fila("07_Corte", "Importe", _PARTIDA),                         # depósito acreditado tarde
     "OTRA_PARTIDA": _por_fila("04_Partidas", "Importe", _PARTIDA),                               # partida sin naturaleza
 }
+
+
+# --- papel real DA (7 cédulas calcadas al papel del cliente) --------------------------
+
+def _cedulas_da(res: dict, cu: list, pa: list, fila_cta: dict, corte_cell: str) -> list[dict]:
+    """Las 7 cédulas del papel real DA (Libro Mayor fuente, Sumaria, Movimiento,
+    Conciliaciones, Partidas, Arqueo y Hallazgos), calcadas al papel del cliente
+    LANSEY con FÓRMULAS VIVAS y referencias cruzadas entre pestañas (la Sumaria es la
+    fuente de saldos que citan las demás; DA-3 suma las partidas de DA-4 por SUMIFS;
+    DA-2 pivota el Libro Mayor por SUMIF; DA-5 recuenta por denominación). Se llenan al
+    Procesar, igual que las cédulas de cálculo, y bajan también en «Papel formulado (DA)»."""
+    d = res["detalle"]
+    lm, arq = d.get("libro_mayor") or [], d.get("arqueo") or []
+    nombre_cta = {_clave(c["id"]): c["nombre"] for c in cu}
+    banco_de = lambda cod: nombre_cta.get(_clave(cod), str(cod or ""))
+    ncu, npa, nlm = len(cu), len(pa), len(lm)
+
+    # DA-0 · Libro Mayor (fuente cruda de RQ-009; DA-2 hace SUMIF sobre ella).
+    lm_rows = [[str(f.get("cuenta", "") or ""), str(f.get("descripcion", "") or ""), f.get("fecha") or None,
+                str(f.get("comprobante", "") or ""), str(f.get("detalle", "") or ""), str(f.get("tercero", "") or ""),
+                n2(num(f.get("debito"))), n2(num(f.get("credito")))] for f in lm]
+    da0 = hoja(DA_LM, "DA · Libro Mayor (fuente)",
+               [["Cuenta", "t"], ["Descripción", "t"], ["Fecha", "d"], ["Comprobante", "t"], ["Detalle", "t"],
+                ["Tercero", "t"], ["Débitos", "n"], ["Créditos", "n"]], lm_rows,
+               guia="Documento RQ-009 · Libro mayor (auxiliar de bancos) del período. Fuente del Movimiento (DA-2).")
+
+    # DA-1 · Sumaria (saldo por cuenta; fuente de los saldos que citan DA-2, DA-3 y DA-5).
+    sum_rows, ant_t = [], sum(num(c.get("anterior")) for c in cu)
+    for i, c in enumerate(cu):
+        r = FILA0 + i
+        ant = num(c.get("anterior"))
+        sum_rows.append([c["id"], c["nombre"], n2(ant), fx(f"E{r}-C{r}", n2(c["libros"] - ant)), n2(c["libros"]), "DA-3"])
+    fin_s = FILA0 + ncu - 1
+    da1 = hoja(DA_SUM, "DA-1 · Sumaria",
+               [["Cuenta", "t"], ["Descripción", "t"], ["Saldo s/registros anterior", "n"], ["Variación", "n"],
+                ["Saldo s/registros actual", "n"], ["Ref.", "t"]], sum_rows,
+               ["TOTAL EFECTIVO Y EQUIVALENTES", "", suma("C", fin_s, ant_t),
+                suma("D", fin_s, sum(c["libros"] for c in cu) - ant_t), suma("E", fin_s, sum(c["libros"] for c in cu)), ""],
+               explica=EXPLICA["DA1_Sumaria"])
+
+    # DA-2 · Movimiento de bancos (pivot del Libro Mayor por SUMIF; cuadre contra la Sumaria).
+    mov_rows, deb_t, cred_t = [], 0.0, 0.0
+    lma, lmg, lmh = _rango(LM_, "A", nlm), _rango(LM_, "G", nlm), _rango(LM_, "H", nlm)
+    for i, c in enumerate(cu):
+        r = FILA0 + i
+        mias = [f for f in lm if _clave(f.get("cuenta")) == _clave(c["id"])]
+        deb, cred = sum(num(f.get("debito")) for f in mias), sum(num(f.get("credito")) for f in mias)
+        deb_t, cred_t = deb_t + deb, cred_t + cred
+        mov_rows.append([c["id"], c["nombre"], n2(0.0),
+                         fx(f"SUMIF({lma},A{r},{lmg})", n2(deb)), fx(f"SUMIF({lma},A{r},{lmh})", n2(cred)),
+                         fx(f"C{r}+D{r}-E{r}", n2(deb - cred)), fx(f"F{r}-{SUM_}E{FILA0 + i}", n2(deb - cred - c["libros"]))])
+    fin_m = FILA0 + ncu - 1
+    da2 = hoja(DA_MOV, "DA-2 · Movimiento de bancos",
+               [["Código", "t"], ["Cuenta", "t"], ["Saldo inicial", "n"], ["Débitos del período", "n"],
+                ["Créditos del período", "n"], ["Saldo final s/movimiento", "n"], ["Cuadre s/Sumaria", "n"]], mov_rows,
+               ["TOTAL", "", suma("C", fin_m, 0.0), suma("D", fin_m, deb_t), suma("E", fin_m, cred_t),
+                suma("F", fin_m, deb_t - cred_t), suma("G", fin_m, deb_t - cred_t - sum(c["libros"] for c in cu))],
+               explica=EXPLICA["DA2_Movimiento"])
+
+    # DA-4 · Partidas conciliatorias (antes de DA-3, que la referencia por SUMIFS).
+    par_rows = []
+    for i, x in enumerate(pa):
+        r = FILA0 + i
+        presc = ""
+        if x["origen"]:
+            od = fecha(x["origen"])
+            presc = (od + timedelta(days=390)).isoformat() if od else ""
+        par_rows.append([x["origen"] or None, banco_de(x["cuenta"]), _TIPO_A_DACAT.get(x["tipo"], DA_SOBREGIRO),
+                         x["ref"] or None, x["ref"] or None, n2(x["importe"]),
+                         fx(f'IF(A{r}="","",{corte_cell}-A{r})', x["diasCorte"] if x["diasCorte"] is not None else ""),
+                         fx(f'IF(A{r}="","",A{r}+390)', presc), x["corte"]])
+    fin_p = FILA0 + npa - 1
+    da4 = hoja(DA_PAR, "DA-4 · Partidas conciliatorias",
+               [["Fecha", "d"], ["Banco", "t"], ["Tipo conciliatorio", "t"], ["Documento", "t"], ["Beneficiario", "t"],
+                ["Valor", "n"], ["Días vencidos", "i"], ["Fecha de prescripción", "d"], ["Observación", "t"]], par_rows,
+               ["TOTAL", "", "", "", "", suma("F", fin_p, sum(x["importe"] for x in pa)), None, None, ""] if npa else None,
+               explica=EXPLICA["DA4_Partidas"])
+
+    # DA-3 · Conciliaciones bancarias (extracto ± partidas de DA-4; cuadre contra la Sumaria).
+    conf = [c for c in cu if c["tipo"] != CAJA]
+    pb, pt, pv = _rango(PAR_DA, "B", npa), _rango(PAR_DA, "C", npa), _rango(PAR_DA, "F", npa)
+    con_rows = []
+    for i, c in enumerate(conf):
+        r = FILA0 + i
+        mias = [x for x in pa if _clave(x["cuenta"]) == _clave(c["id"])]
+        vals = {cat: sum(x["importe"] for x in mias if _TIPO_A_DACAT.get(x["tipo"]) == cat)
+                for cat in (DA_CONSIG, DA_SOBREGIRO, DA_CHEQUE, DA_ND, DA_NC)}
+        sc = lambda cat: fx(f'SUMIFS({pv},{pb},A{r},{pt},"{cat}")', n2(vals[cat]))
+        extr = c["banco"]
+        audit = (extr or 0) + vals[DA_CONSIG] - vals[DA_SOBREGIRO] - vals[DA_CHEQUE] + vals[DA_ND] - vals[DA_NC]
+        con_rows.append([c["nombre"], c["tipo"], c["id"], "" if extr is None else n2(extr),
+                         sc(DA_CONSIG), sc(DA_SOBREGIRO), sc(DA_CHEQUE), sc(DA_ND), sc(DA_NC),
+                         fx(f"D{r}+E{r}-F{r}-G{r}+H{r}-I{r}", n2(audit)), fx(f"{SUM_}E{fila_cta[c['id']]}", n2(c["libros"])),
+                         fx(f"J{r}-K{r}", n2(audit - c["libros"]))])
+    fin_c = FILA0 + len(conf) - 1
+    da3 = hoja(DA_CON, "DA-3 · Conciliaciones bancarias",
+               [["Banco", "t"], ["Tipo de cuenta", "t"], ["N° cuenta", "t"], ["Saldo extracto", "n"],
+                ["(+) Consignaciones no registradas", "n"], ["(−) Sobregiro / ajustes", "n"], ["(−) Cheques sin cobrar", "n"],
+                ["(+) Nota débito en tránsito", "n"], ["(−) NC pendiente de contabilizar", "n"], ["Saldo s/auditoría", "n"],
+                ["Saldo s/registros contables", "n"], ["Diferencia", "n"]], con_rows,
+               ["TOTAL", "", "", suma("D", fin_c, sum(c["banco"] or 0 for c in conf)),
+                suma("E", fin_c, sum(x["importe"] for x in pa if _TIPO_A_DACAT.get(x["tipo"]) == DA_CONSIG)),
+                suma("F", fin_c, sum(x["importe"] for x in pa if _TIPO_A_DACAT.get(x["tipo"]) == DA_SOBREGIRO)),
+                suma("G", fin_c, sum(x["importe"] for x in pa if _TIPO_A_DACAT.get(x["tipo"]) == DA_CHEQUE)),
+                suma("H", fin_c, sum(x["importe"] for x in pa if _TIPO_A_DACAT.get(x["tipo"]) == DA_ND)),
+                suma("I", fin_c, sum(x["importe"] for x in pa if _TIPO_A_DACAT.get(x["tipo"]) == DA_NC)),
+                suma("J", fin_c, 0.0), suma("K", fin_c, sum(c["libros"] for c in conf)), suma("L", fin_c, 0.0)] if conf else None,
+               explica=EXPLICA["DA3_Conciliaciones"], colores=[])
+
+    # DA-5 · Arqueo de caja (recuento por denominación; diferencia contra el saldo de caja de la Sumaria).
+    if arq:
+        denoms = [(str(a.get("denominacion", "") or ""), num(a.get("cantidad")), num(a.get("valor_unitario"))) for a in arq]
+    else:
+        denoms = [(nom, 0.0, val) for nom, val in DA_DENOMS]
+    nden = len(denoms)
+    arq_rows = [[nom, n2(cant), n2(vu), fx(f"B{FILA0 + i}*C{FILA0 + i}", n2(cant * vu))]
+                for i, (nom, cant, vu) in enumerate(denoms)]
+    total_arq = sum(cant * vu for _, cant, vu in denoms)
+    caja_filas = [FILA0 + i for i, c in enumerate(cu) if c["tipo"] == CAJA]
+    saldo_caja = sum(c["libros"] for c in cu if c["tipo"] == CAJA)
+    caja_f = "+".join(f"{SUM_}E{rr}" for rr in caja_filas) if caja_filas else "0"
+    r_tot, r_lib = FILA0 + nden, FILA0 + nden + 1
+    arq_rows += [["TOTAL ARQUEO", None, None, fx(f"SUM(D{FILA0}:D{FILA0 + nden - 1})", n2(total_arq))],
+                 ["Saldo de caja según libros (DA-1)", None, None, fx(caja_f, n2(saldo_caja))],
+                 ["Diferencia (arqueo − libros)", None, None, fx(f"D{r_tot}-D{r_lib}", n2(total_arq - saldo_caja))]]
+    da5 = hoja(DA_ARQ, "DA-5 · Arqueo de caja",
+               [["Denominación", "t"], ["Cantidad", "i"], ["Valor unitario", "n"], ["Total", "n"]], arq_rows,
+               explica=EXPLICA["DA5_Arqueo"], estilos=[None] * nden + [{"tipo": "total"}] * 3)
+
+    # DA-6 · Hoja de hallazgos (los problemas del cálculo, uno por fila).
+    da6 = hoja(DA_HAL, "DA-6 · Hoja de hallazgos",
+               [["No.", "i"], ["Observación", "t"], ["Referencia de PT", "t"], ["Recomendación", "t"]],
+               [[i + 1, e.get("message", ""), "DA-1", ""] for i, e in enumerate(res.get("exceptions") or [])])
+
+    return [da0, da1, da2, da3, da4, da5, da6]
 
 
 def hojas(res: dict) -> list[dict]:
@@ -926,6 +1134,8 @@ def hojas(res: dict) -> list[dict]:
              explica=EXPLICA["13_Conclusion"], colores=["Estado"]),
         hoja("14_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura,
              explica=EXPLICA["14_Lectura"]),
+        # Papel real DA (7 cédulas calcadas al papel del cliente, con fórmulas vivas y referencias cruzadas).
+        *_cedulas_da(res, cu, pa, fila_cta, corte),
     ]
 
 
