@@ -445,6 +445,9 @@ PANEL = {
 }
 
 # Explicación HUMANA de cada columna calculada («Cómo se calcula esta hoja»).
+# Semáforo de la cobertura por activo (hoja 06): traduce la clasificación al vocabulario coloreable de base.NIVEL_COLOR.
+_SEMAFORO_COB = {"Sin cobertura": "Alerta", "Infraseguro": "Alerta", "Sobreseguro": "Revisar", "Adecuada": "Conforme", "": ""}
+
 _EXPLICA = {
     "01_Resumen": {
         "Importe": ("Trae cada importe de la hoja que lo calcula, concepto por concepto: los indicadores de cobertura, siniestros y "
@@ -474,6 +477,9 @@ _EXPLICA = {
         "Exceso": "Resta el valor de referencia a la suma asegurada vigente: es lo asegurado por encima del valor del activo (mínimo cero).",
         "Clasificación": ("Califica la cobertura del activo: «Sin cobertura» si la suma vigente es cero; «Infraseguro» bajo la cobertura "
                           "mínima y «Sobreseguro» sobre el umbral de la hoja 02 (Parámetros); si no, «Adecuada»."),
+        "Semáforo": ("Traduce la clasificación a un estado: «Alerta» si el activo está sin cobertura o en infraseguro (hay que "
+                     "actuar), «Revisar» si hay sobreseguro (prima que quizá sobra) y «Conforme» si la cobertura es adecuada. "
+                     "Sin porcentaje de cobertura, queda en blanco."),
     },
     "07_Cobertura_poliza": {
         "Estado": "Trae el estado de la póliza al corte (vigente, vencida o no iniciada) desde la hoja 05 (Vigencia de pólizas).",
@@ -657,6 +663,8 @@ def hojas(res: dict) -> list[dict]:
             fx(f"MAX(G{r}-C{r},0)", a["exceso"]),
             fx(f'IF(G{r}=0,"Sin cobertura",IF(H{r}="","",IF(H{r}<{PAR["coberturaMinima"]}/100,"Infraseguro",'
                f'IF(H{r}>{PAR["sobreseguroDesde"]}/100,"Sobreseguro","Adecuada"))))', a["clasif"]),
+            fx(f'IF(K{r}="","",IF(OR(K{r}="Sin cobertura",K{r}="Infraseguro"),"Alerta",IF(K{r}="Sobreseguro","Revisar","Conforme")))',
+               _SEMAFORO_COB.get(a["clasif"], "")),
         ])
 
     # 07 · cobertura por póliza (fila alineada con 04).
@@ -779,9 +787,9 @@ def hojas(res: dict) -> list[dict]:
         hoja("06_Cobertura_activo", "Universo y cobertura por activo",
              [["Código", "t"], ["Póliza", "t"], ["Valor de referencia", "n"], ["Base de referencia", "t"], ["Estado de la póliza", "t"],
               ["Suma asegurada asignada", "n"], ["Suma asegurada vigente", "n"], ["% cobertura", "p"], ["Déficit", "n"], ["Exceso", "n"],
-              ["Clasificación", "t"]], cob,
+              ["Clasificación", "t"], ["Semáforo", "t"]], cob,
              ["TOTAL", "", suma("C", fin(n), k["valorReferencia"]), "", "", None, suma("G", fin(n), k["sumaAsegurada"]), None,
-              suma("I", fin(n), k["deficitCobertura"]), None, ""], explica=_EXPLICA["06_Cobertura_activo"]),
+              suma("I", fin(n), k["deficitCobertura"]), None, "", ""], explica=_EXPLICA["06_Cobertura_activo"], colores=["Semáforo"]),
         hoja("07_Cobertura_poliza", "Cobertura por póliza (infraseguro)",
              [["Póliza", "t"], ["Estado", "t"], ["Suma asegurada total", "n"], ["Referencia asignada", "n"], ["Activos", "i"], ["% cobertura", "p"],
               ["Factor proporcional", "p"], ["Déficit", "n"], ["Sumas asignadas", "n"], ["Total − asignadas", "n"], ["Clasificación", "t"]], cpo,

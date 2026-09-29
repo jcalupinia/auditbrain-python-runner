@@ -225,3 +225,13 @@ def test_hojas_y_definicion():
     assert m.RUBRO == "INTANGIBLES" and m.CONTROL in {c["key"] for c in m.CAMPOS[m.PRINCIPAL]}
     for esc, ds, par, corte in m.ESCENARIOS:
         assert m.hojas(m.ejecutar(ds, par, corte))
+
+
+def test_semaforo_ajuste():
+    from backend.app.aud.niif.procesadores.base import NIVEL_COLOR
+    h = next(x for x in m.hojas(_run()) if x["name"] == "09_Ajuste")
+    assert h["colores"] == ["Semáforo"]
+    sem = [c[0] for c in h["cols"]].index("Semáforo")
+    valores = {(fila[sem].get("v") if isinstance(fila[sem], dict) else fila[sem]) for fila in h["rows"]}
+    assert valores <= {"Alerta", "Conforme"} and valores <= set(NIVEL_COLOR) and valores
+    assert h["total"][sem] == ""

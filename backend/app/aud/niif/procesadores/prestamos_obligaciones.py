@@ -864,7 +864,10 @@ def hojas(res: dict) -> list[dict]:
         cla.append([c["id"], fx(f"{CA}I{r}", c["ca_tot"]), fx(f"MIN({CA}C{r}+12/{G},{H})", c["kq"]), fx(en("H", r, f"C{r}"), c["cap_12"]),
                     fx(f"MIN({CA}E{r}-D{r}+{CA}H{r},B{r})", c["cp_venc"]), fx(f"{CV}L{r}", c["exigible"]), fx(f'IF(F{r}="Sí",B{r},E{r})', c["cp"]),
                     fx(f"B{r}-G{r}", c["lp"]), _opt("cp_reg", r, c["cp_reg"]),
-                    fx(f'IF(I{r}="","",G{r}-I{r})', None if c["cp_reg"] is None else c["cp"] - c["cp_reg"])])
+                    fx(f'IF(I{r}="","",G{r}-I{r})', None if c["cp_reg"] is None else c["cp"] - c["cp_reg"]),
+                    fx(f'IF(F{r}="Sí","Alerta",IF(I{r}="","",IF(ABS(J{r})>=0.005,"Alerta","Conforme")))',
+                       "Alerta" if c["exigible"] == "Sí" else ("" if c["cp_reg"] is None else
+                                                               ("Alerta" if abs(c["cp"] - c["cp_reg"]) >= 0.005 else "Conforme")))])
         conc.append([c["id"], fx(f"{CA}I{r}", c["ca_tot"]), fx(f"N({_x('saldo_reg', r)})", c["saldo_reg"]),
                      fx(f"N({_x('int_reg', r)})", c["int_reg"] or 0), fx(f"C{r}+D{r}", c["reg_tot"]), fx(f"B{r}-E{r}", c["ajuste"]),
                      fx(f"{CL}G{r}", c["cp"]), fx(f"{CL}H{r}", c["lp"]), fx(f"{CA}U{r}", c["gasto_tie"])])
@@ -1127,6 +1130,9 @@ def hojas(res: dict) -> list[dict]:
         "Corriente registrado": "Copia la porción corriente que presentó el cliente (hoja 03); en blanco si no la informó.",
         "Diferencia corriente": ("Resta el corriente registrado del corriente auditado; solo se calcula si el cliente informó su porción "
                                  "corriente. Positivo: falta reclasificar a corriente."),
+        "Semáforo": ("Estado del vencimiento del préstamo: «Alerta» si la deuda es exigible por un covenant incumplido (toda corriente, "
+                     "NIC 1 74) o si el corriente registrado no coincide con el auditado; «Conforme» si la clasificación cuadra; en blanco "
+                     "si el cliente no informó su porción corriente."),
     }
     ex12 = {
         "Numerador": ("Cambia por fila: la deuda auditada es la suma del costo amortizado al corte (hoja 06), el gasto financiero la suma "
@@ -1237,9 +1243,9 @@ def hojas(res: dict) -> list[dict]:
         hoja("11_Clasificacion", "Clasificación corriente / no corriente",
              [["Operación", "t"], ["Costo amortizado al corte", n_], ["Período a 12 meses", "i"], ["Capital contractual después de 12 meses", n_],
               ["Corriente: capital de 12 meses + interés devengado (69 c)", n_], ["Exigible por covenant", "t"], ["Corriente auditado", n_], ["No corriente auditado", n_],
-              ["Corriente registrado", n_], ["Diferencia corriente", n_]], cla,
+              ["Corriente registrado", n_], ["Diferencia corriente", n_], ["Semáforo", "t"]], cla,
              ["TOTAL", S("B", t["pasivo"]), None, None, S("E", sum(c["cp_venc"] for c in cs)), "", S("G", t["corriente"]),
-              S("H", t["noCorriente"]), None, None], explica=ex11),
+              S("H", t["noCorriente"]), None, None, ""], explica=ex11, colores=["Semáforo"]),
         hoja("12_Endeudamiento", "Endeudamiento y ratios de covenants (analítica, no requisito NIIF)",
              [["Concepto", "t"], ["Numerador", n_], ["Denominador", n_], ["Ratio (veces)", "x"], ["Límite (veces)", "x"], ["Tipo", "t"],
               ["Cumple (solo con definición contractual)", "t"], ["Definición aplicada", "t"]], endeu, explica=ex12),

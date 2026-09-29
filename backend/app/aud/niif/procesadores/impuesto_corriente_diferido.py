@@ -726,6 +726,9 @@ EXPLICA = {
                                    "aumento del activo es ingreso y se muestra negativo); si es de ORI, cero."),
         "A ORI (+ cargo)": ("Si la partida es de ORI, lleva el movimiento al otro resultado integral con el signo "
                             "cambiado; si no, cero."),
+        "Semáforo": ("Estado de la partida: «Alerta» si el ajuste no es cero (el diferido registrado no cuadra con el "
+                     "requerido y hay que corregirlo), «Revisar» si hay activo diferido no reconocido (recuperabilidad) y "
+                     "«Conforme» si el diferido registrado cuadra."),
     },
     "07_Tasa_reversion": {
         "Año de reversión": ("Trae el año en que se revierte la diferencia desde la hoja 06 (Diferencias temporarias); "
@@ -1050,7 +1053,9 @@ def hojas(res: dict) -> list[dict]:
                     fx(f"IF(E{r}<0,-E{r}*H{r}/100,0)", x["dtaBruto"]), x["perm"], x["prob"],
                     fx(f'IF(AND(K{r}="Sí",L{r}="Sí"),J{r},0)', x["dtaRec"]), fx(f"J{r}-M{r}", x["dtaNoRec"]),
                     fx(f"M{r}-I{r}", x["req"]), n2(x["ini"]), n2(x["cie"]), fx(f"O{r}-Q{r}", x["aj"]), x["ori"],
-                    fx(f"O{r}-P{r}", x["mov"]), fx(f'IF(S{r}="No",-T{r},0)', x["res"]), fx(f'IF(S{r}="Sí",-T{r},0)', x["movOri"])])
+                    fx(f"O{r}-P{r}", x["mov"]), fx(f'IF(S{r}="No",-T{r},0)', x["res"]), fx(f'IF(S{r}="Sí",-T{r},0)', x["movOri"]),
+                    fx(f'IF(ABS(R{r})>=0.005,"Alerta",IF(N{r}>0.005,"Revisar","Conforme"))',
+                       "Alerta" if abs(x["aj"]) >= 0.005 else ("Revisar" if x["dtaNoRec"] > 0.005 else "Conforme"))])
         c07.append([x["partida"], fx(f'IF({DT}G{r}="","",{DT}G{r})', x["anio"] if x["anio"] is not None else ""),
                     n2(x["tasaDato"]) if x["tasaDato"] is not None else fx(f"D{r}", x["tasaCli"]),
                     fx(f'IF(AND({tf_}<>"",{af_}<>"",B{r}<>""),IF(B{r}>={af_},{tf_}+{REC},{TAR}),{TAR})', x["tasa"]),
@@ -1061,7 +1066,7 @@ def hojas(res: dict) -> list[dict]:
     tot6 = (["TOTAL", "", suma("C", fin_p, s6("libros")), suma("D", fin_p, s6("base")), suma("E", fin_p, s6("dt")), "", None, None,
              suma("I", fin_p, s6("dtl")), suma("J", fin_p, s6("dtaBruto")), "", "", suma("M", fin_p, s6("dtaRec")), suma("N", fin_p, s6("dtaNoRec")),
              suma("O", fin_p, s6("req")), suma("P", fin_p, s6("ini")), suma("Q", fin_p, s6("cie")), suma("R", fin_p, s6("aj")), "",
-             suma("T", fin_p, s6("mov")), suma("U", fin_p, s6("res")), suma("V", fin_p, s6("movOri"))] if pt else None)
+             suma("T", fin_p, s6("mov")), suma("U", fin_p, s6("res")), suma("V", fin_p, s6("movOri")), ""] if pt else None)
     tot7 = (["TOTAL", None, None, None, None, None, suma("G", fin_p, s6("efectoTasa")), ""] if pt else None)
 
     # 08 · Recuperabilidad.
@@ -1278,7 +1283,8 @@ def hojas(res: dict) -> list[dict]:
               ["Clase", "t"], ["Año de reversión", "a"], ["Tasa (%)", "x"], ["Pasivo diferido", "n"], ["Activo diferido bruto", "n"],
               ["Permitido", "t"], ["Probable", "t"], ["Activo diferido reconocido", "n"], ["Activo diferido no reconocido", "n"],
               ["Diferido requerido (+ activo)", "n"], ["Registrado al inicio", "n"], ["Registrado al cierre", "n"], ["Ajuste", "n"],
-              ["ORI", "t"], ["Movimiento requerido", "n"], ["A resultados (+ gasto)", "n"], ["A ORI (+ cargo)", "n"]], c06, tot6, explica=EXPLICA["06_Diferencias_temp"]),
+              ["ORI", "t"], ["Movimiento requerido", "n"], ["A resultados (+ gasto)", "n"], ["A ORI (+ cargo)", "n"], ["Semáforo", "t"]],
+             c06, tot6, explica=EXPLICA["06_Diferencias_temp"], colores=["Semáforo"]),
         hoja("07_Tasa_reversion", "Tasa de reversión",
              [["Partida", "t"], ["Año de reversión", "x"], ["Tasa usada por el cliente (%)", "x"],
               ["Tasa esperada = aprobada + recargo (%)", "x"],

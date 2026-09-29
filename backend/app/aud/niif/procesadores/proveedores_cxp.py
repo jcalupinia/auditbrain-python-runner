@@ -456,9 +456,11 @@ def hojas(res: dict) -> list[dict]:
             fx(f'IF(P{r}="Sí",M{r},0)', x["importeNC"]),
             fx(f"IF(F{r}<0,-F{r},0)", x["deudor"]),
             x["explotacion"] or None,
+            fx(f'IF(I{r}<=0,"Conforme",IF(I{r}<=90,"Revisar","Alerta"))',
+               "Conforme" if x["dv"] <= 0 else ("Revisar" if x["dv"] <= 90 else "Alerta")),
         ])
     tot_det = ["TOTAL", "", "", "", "", suma("F", fin_det, t["saldo"]), "", "", None, "", None, "", suma("M", fin_det, sum(x["ca"] for x in fl)),
-               suma("N", fin_det, t["interesNoDevengado"]), None, "", suma("Q", fin_det, t["noCorriente"]), suma("R", fin_det, t["saldosDeudores"]), ""]
+               suma("N", fin_det, t["interesNoDevengado"]), None, "", suma("Q", fin_det, t["noCorriente"]), suma("R", fin_det, t["saldosDeudores"]), "", ""]
 
     # 04 · Aging (importe nominal).
     aging = []
@@ -646,6 +648,8 @@ def hojas(res: dict) -> list[dict]:
                          "explotación; si lo es o no se informó, el mayor entre 12 meses y el ciclo de operación (hoja 02)."),
         "Importe no corriente": "Si el documento es no corriente, toma su costo amortizado; si es corriente, cero.",
         "Saldo deudor": "Si el saldo es negativo (un anticipo o saldo a favor), lo pasa a positivo para reclasificarlo al activo; si no, cero.",
+        "Semáforo": ("Estado del documento según su antigüedad: «Conforme» si aún no vence (días desde el vencimiento cero o menos), "
+                     "«Revisar» si lleva vencido hasta 90 días y «Alerta» si supera los 90 días vencido."),
     }
     ex04 = {
         "Documentos": "Cuenta cuántos documentos del detalle (hoja 03) caen en este tramo de antigüedad.",
@@ -728,8 +732,8 @@ def hojas(res: dict) -> list[dict]:
              [["Documento", "t"], ["Proveedor", "t"], ["Fecha factura", "d"], ["Recepción", "d"], ["Vencimiento", "d"], ["Saldo", "n"],
               ["Relacionado", "t"], ["Moneda", "t"], ["Días desde vencimiento", "i"], ["Tramo", "t"], ["Plazo de pago (días)", "i"],
               ["Financiación implícita", "t"], ["Costo amortizado", "n"], ["Interés implícito por devengar", "n"], ["Días por vencer", "i"],
-              ["No corriente", "t"], ["Importe no corriente", "n"], ["Saldo deudor", "n"], ["Partida de explotación", "t"]], detalle, tot_det,
-             explica=ex03),
+              ["No corriente", "t"], ["Importe no corriente", "n"], ["Saldo deudor", "n"], ["Partida de explotación", "t"], ["Semáforo", "t"]],
+             detalle, tot_det, explica=ex03, colores=["Semáforo"]),
         hoja("04_Aging", "Antigüedad de proveedores", [["Tramo", "t"], ["Documentos", "i"], ["Saldo", "n"], ["% del saldo", "p"], ["Vencido", "t"]],
              aging, ["TOTAL", suma("B", fin_ag, nd), suma("C", fin_ag, t["saldo"]), None, ""], explica=ex04),
         hoja("05_Pagos_posteriores", "Pagos posteriores al cierre",

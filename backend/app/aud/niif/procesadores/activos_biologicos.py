@@ -456,6 +456,8 @@ def _explica(pymes: bool, s34_2a: bool, fuera: str) -> dict:
             "Valor auditado": auditado,
             "Valor en libros": f"Trae el valor en libros del lote al corte registrado por el cliente en {_H03}.",
             "Ajuste": "Resta el valor en libros al valor auditado: positivo aumenta el activo y negativo lo disminuye; en blanco sin valor auditado.",
+            "Semáforo": ("Estado del lote: «Alerta» si el ajuste no es cero (el valor auditado difiere del valor en libros y hay que "
+                         "investigarlo), «Conforme» si coinciden. Sin valor auditado, queda en blanco."),
         },
         "06_Transformacion": {
             "Modelo auditado": "Trae de la hoja 05 (Valoración) el modelo del lote; los cambios de VR solo se calculan a valor razonable.",
@@ -641,7 +643,9 @@ def hojas(res: dict) -> list[dict]:
                     fx(f'IF(OR(C{r}<>"{VR}",G{r}=""),"",D{r}*G{r})', a["ftot"]),
                     fx(f'IF(C{r}="{COSTO}",{_si(f"{CST}I{r}")},"")', a["vCosto"] if a["ruta"] == COSTO else None),
                     fx(f'IF(C{r}="{fuera}",K{r},IF(C{r}="{VR}",H{r},I{r}))', a["aud"]), fx(f"{ACT}M{r}", a["vl"]),
-                    fx(f'IF(J{r}="","",J{r}-K{r})', a["aj"])])
+                    fx(f'IF(J{r}="","",J{r}-K{r})', a["aj"]),
+                    fx(f'IF(L{r}="","",IF(ABS(L{r})>=0.005,"Alerta","Conforme"))',
+                       "" if a["aj"] is None else ("Alerta" if abs(a["aj"]) >= 0.005 else "Conforme"))])
         tra.append([a["id"], fx(f"{VAL}C{r}", a["ruta"]), fx(_si(f"{ACT}G{r}"), a["qi"]), fx(f"{ACT}X{r}", a["q"]),
                     fx(_si(f"{ACT}Z{r}"), a["fi"]), fx(_si(f"{ACT}Y{r}"), a["fu"]),
                     fx(f'IF(OR(B{r}<>"{VR}",C{r}="",E{r}=""),"",(D{r}-C{r})*E{r})', a["cFis"]),
@@ -702,9 +706,10 @@ def hojas(res: dict) -> list[dict]:
         hoja("05_Valoracion", CEDULAS[4][1],
              [["Lote", "t"], ["Categoría", "t"], ["Modelo auditado", "t"], ["Cantidad auditada", n_], ["VR unitario al corte", n_],
               ["Costo de venta unitario", n_], ["VR − costos de venta unitario", n_], ["VR − costos de venta total", n_], ["Valor modelo del costo", n_],
-              ["Valor auditado", n_], ["Valor en libros", n_], ["Ajuste", n_]],
+              ["Valor auditado", n_], ["Valor en libros", n_], ["Ajuste", n_], ["Semáforo", "t"]],
              val, ["TOTAL", "", "", None, None, None, None, _tot("H", na, S(a["ftot"] for a in its)), _tot("I", na, S(a["vCosto"] for a in its)),
-                   _tot("J", na, t["valorAuditado"]), _tot("K", na, t["valorLibros"]), _tot("L", na, t["ajuste"])], explica=ex["05_Valoracion"]),
+                   _tot("J", na, t["valorAuditado"]), _tot("K", na, t["valorLibros"]), _tot("L", na, t["ajuste"]), ""],
+             explica=ex["05_Valoracion"], colores=["Semáforo"]),
         hoja("06_Transformacion", CEDULAS[5][1],
              [["Lote", "t"], ["Modelo auditado", "t"], ["Cantidad inicial", n_], ["Cantidad final auditada", n_], ["VR − CV unitario inicial", n_],
               ["VR − CV unitario final", n_], ["Cambio físico", n_], ["Cambio de precio", n_], ["Cambio total", n_], ["Libros al inicio", n_],

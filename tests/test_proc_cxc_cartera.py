@@ -104,6 +104,18 @@ def test_hojas_nombres_y_anchos():
                 assert len(fila) == len(h["cols"]), h["name"]
 
 
+def test_semaforo_cobros_posteriores():
+    """La cédula 05 lleva un Semáforo coloreable por fila que marca la cartera vencida sin cobro posterior."""
+    from backend.app.aud.niif.procesadores import base
+    h = next(x for x in m.hojas(_run()) if x["name"] == "05_Cobros_posteriores")
+    assert "Semáforo" in [c[0] for c in h["cols"]] and h.get("colores") == ["Semáforo"]
+    j = [c[0] for c in h["cols"]].index("Semáforo")
+    valores = {f[j]["v"] for f in h["rows"]}
+    assert valores <= {"Alerta", "Conforme"} and "Alerta" in valores       # F-004, F-005, … vencidas sin cobro
+    assert all(base.rol_color(h, "Semáforo", f[j]) in ("alta", "baja") for f in h["rows"])
+    assert h["total"][j] == ""                                              # la fila TOTAL no se pinta
+
+
 def test_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "cxc_cartera" and len(d["program"]) >= 5

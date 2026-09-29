@@ -128,3 +128,13 @@ def test_hojas_y_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "provisiones_contingencias" and len(d["program"]) >= 5
     assert m.RUBRO == "PROVISIONES" and m.CONTROL in {c["key"] for c in m.CAMPOS[m.PRINCIPAL]}
+
+
+def test_semaforo_reconocimiento():
+    hs = m.hojas(correr())
+    h = next(x for x in hs if x["name"] == "13_Reconocimiento")
+    cols = [c[0] for c in h["cols"]]
+    assert cols[-1] == "Semáforo" and h["colores"] == ["Semáforo"]
+    j = cols.index("Semáforo")
+    assert {f[j]["v"] for f in h["rows"]} <= {"Alerta", "Conforme", ""}
+    assert any(f[j]["v"] == "Alerta" for f in h["rows"])

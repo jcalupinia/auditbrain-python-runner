@@ -607,6 +607,8 @@ EXPLICA = {
                        "la cuenta no cuadra."),
         "Cliente − mayor": ("Resta al saldo final según el cliente el saldo final según el mayor; si no se informó el "
                             "saldo del mayor, queda en blanco."),
+        "Semáforo": ("Estado de la cuenta: «Alerta» si el movimiento no cuadra (la diferencia no es cero), «Revisar» si "
+                     "el saldo según el cliente difiere del mayor, y «Conforme» si el movimiento recalculado coincide."),
     },
     "04_Transacciones": {
         "Posterior al corte": ("Marca «Sí» si la fecha del acta (o, sin ella, la fecha de la transacción) es posterior al "
@@ -787,13 +789,16 @@ def hojas(res: dict) -> list[dict]:
         mov.append([c["id"], c["cuenta"], c["clase"], n2(c["inicial"]), n2(c["aumentos"]), n2(c["disminuciones"]),
                     fx(f"D{r}+E{r}-F{r}", c["recalculado"]), n2(c["final"]), fx(f"H{r}-G{r}", c["difMov"]),
                     None if c["mayor"] is None else n2(c["mayor"]), fx(f'IF(J{r}<>"",H{r}-J{r},"")', c["difMayor"]),
-                    None if c["transicion"] is None else n2(c["transicion"])])
+                    None if c["transicion"] is None else n2(c["transicion"]),
+                    fx(f'IF(ABS(I{r})>=0.005,"Alerta",IF(AND(K{r}<>"",ABS(K{r})>=0.005),"Revisar","Conforme"))',
+                       "Alerta" if abs(c["difMov"]) >= 0.005 else
+                       ("Revisar" if (c["difMayor"] is not None and abs(c["difMayor"]) >= 0.005) else "Conforme"))])
     tot_mov = ["TOTAL", "", "", suma("D", fin_c, sum(c["inicial"] for c in cs)), suma("E", fin_c, sum(c["aumentos"] for c in cs)),
                suma("F", fin_c, sum(c["disminuciones"] for c in cs)), suma("G", fin_c, sum(c["recalculado"] for c in cs)),
                suma("H", fin_c, t["patrimonioCliente"]), suma("I", fin_c, sum(c["difMov"] for c in cs)),
                fx(f'IF(COUNT(J{FILA0}:J{fin_c})=0,"",SUM(J{FILA0}:J{fin_c}))', t.get("saldoMayor")),
                fx(f'IF(COUNT(J{FILA0}:J{fin_c})=0,"",SUM(K{FILA0}:K{fin_c}))', t.get("difMayor")),
-               fx(f'IF(COUNT(L{FILA0}:L{fin_c})=0,"",SUM(L{FILA0}:L{fin_c}))', t.get("resultadosTransicionNIIF", ""))]
+               fx(f'IF(COUNT(L{FILA0}:L{fin_c})=0,"",SUM(L{FILA0}:L{fin_c}))', t.get("resultadosTransicionNIIF", "")), ""]
 
     # 04 · Actas y transacciones.
     txr = []
@@ -1014,8 +1019,8 @@ def hojas(res: dict) -> list[dict]:
         hoja("03_Movimiento", "Movimiento patrimonial",
              [["Código", "t"], ["Cuenta", "t"], ["Clase", "t"], ["Saldo inicial", "n"], ["Aumentos", "n"], ["Disminuciones", "n"],
               ["Final recalculado", "n"], ["Final según cliente", "n"], ["Diferencia", "n"], ["Final según mayor", "n"], ["Cliente − mayor", "n"],
-              ["Del saldo inicial: adopción por primera vez de NIIF", "n"]],
-             mov, tot_mov, explica=EXPLICA["03_Movimiento"]),
+              ["Del saldo inicial: adopción por primera vez de NIIF", "n"], ["Semáforo", "t"]],
+             mov, tot_mov, explica=EXPLICA["03_Movimiento"], colores=["Semáforo"]),
         hoja("04_Transacciones", "Actas y transacciones",
              [["Referencia", "t"], ["Fecha", "d"], ["Tipo", "t"], ["Importe", "n"], ["Acta", "t"], ["Fecha del acta", "d"], ["Inscripción", "d"],
               ["Devolución", "t"], ["Obligación contractual", "t"], ["Cuenta afectada", "t"], ["Pasivo al corte", "t"], ["Resultado reconocido", "n"],

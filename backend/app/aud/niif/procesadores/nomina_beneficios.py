@@ -755,7 +755,9 @@ def hojas(res: dict) -> list[dict]:
     for i, (x, (rr, rc)) in enumerate(zip(d["conciliacion"], fuentes)):
         r = FILA0 + i
         cg.append([x["concepto"], fx(f"SUM({rr})", x["reg"]), fx(f"SUM({rc})", x["rec"]), fx(_si(PAR[x["clave"]]), x["mayor"]),
-                   fx(f'IF(D{r}="","",B{r}-D{r})', x["dif_mayor"]), fx(f"B{r}-C{r}", x["dif_rec"])])
+                   fx(f'IF(D{r}="","",B{r}-D{r})', x["dif_mayor"]), fx(f"B{r}-C{r}", x["dif_rec"]),
+                   fx(f'IF(OR(ABS(F{r})>=0.005,AND(E{r}<>"",ABS(E{r})>=0.005)),"Alerta","Conforme")',
+                      "Alerta" if (abs(x["dif_rec"]) >= 0.005 or (x["dif_mayor"] is not None and abs(x["dif_mayor"]) >= 0.005)) else "Conforme")])
 
     difs = [_rng(D13, "H", n), _rng(D14, "I", n), _rng(VAC, "L", n), _rng(FR, "G", n), _rng(IE, "K", n), _rng(DBO, "M", na)]
     ajus = [[con_, fx(f"-SUM({rg})", v), deb, cre, "Recalculado − registrado (filas con registro informado)"]
@@ -973,6 +975,8 @@ def hojas(res: dict) -> list[dict]:
                                 "contabilidad; en blanco si falta el mayor."),
             "Registrado − recalculado": ("Resta lo recalculado de lo registrado en el detalle del cliente: positiva significa "
                                          "que el cliente registró más de lo que corresponde."),
+            "Semáforo": ("Estado del concepto: «Alerta» cuando lo registrado no coincide con lo recalculado o el detalle no cuadra "
+                         "con el mayor (posible incumplimiento de la obligación laboral); «Conforme» cuando la conciliación cuadra."),
         },
         "16_Ajustes": {
             "Importe (+ aumenta el pasivo)": (
@@ -1053,7 +1057,7 @@ def hojas(res: dict) -> list[dict]:
              ["TOTAL", "", None, None, None, None, "", tot("H", len(AC), k["desahucioLegalReferencial"])] if AC else None, explica=ex["14_Censo_actuarial"]),
         hoja("15_Conciliacion_GL", "Conciliación nómina–mayor",
              [["Concepto", "t"], ["Detalle registrado", "n"], ["Recalculado", "n"], ["Mayor", "n"], ["Detalle − mayor", "n"],
-              ["Registrado − recalculado", "n"]], cg, explica=ex["15_Conciliacion_GL"]),
+              ["Registrado − recalculado", "n"], ["Semáforo", "t"]], cg, explica=ex["15_Conciliacion_GL"], colores=["Semáforo"]),
         hoja("16_Ajustes", "Ajustes propuestos",
              [["Concepto", "t"], ["Importe (+ aumenta el pasivo)", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]],
              ajus, ["TOTAL", tot("B", naj, k["ajustePasivos"]), "", "", ""], explica=ex["16_Ajustes"]),

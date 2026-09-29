@@ -136,3 +136,14 @@ def test_hojas_y_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "seguros_cobertura" and len(d["program"]) >= 5
     assert m.RUBRO == "SEGUROS" and m.CONTROL in {c["key"] for c in m.CAMPOS[m.PRINCIPAL]}
+
+
+def test_semaforo_cobertura():
+    from backend.app.aud.niif.procesadores.base import NIVEL_COLOR
+    h = next(x for x in m.hojas(correr()) if x["name"] == "06_Cobertura_activo")
+    assert h["colores"] == ["Semáforo"]
+    sem = [c[0] for c in h["cols"]].index("Semáforo")
+    valores = {(fila[sem].get("v") if isinstance(fila[sem], dict) else fila[sem]) for fila in h["rows"]}
+    assert valores <= {"Alerta", "Revisar", "Conforme", ""} and (valores - {""})
+    assert (valores - {""}) <= set(NIVEL_COLOR)
+    assert h["total"][sem] == ""

@@ -144,6 +144,20 @@ def test_rutas_por_marco():
     assert "secciones 13 y 27" in h["02_Parametros"]["rows"][1][1]
 
 
+def test_semaforo_obsolescencia():
+    """La cédula 10 lleva un Semáforo coloreable por ítem sobre la provisión estimada."""
+    from backend.app.aud.niif.procesadores import base
+    h = next(x for x in m.hojas(_run()) if x["name"] == "10_Obsolescencia")
+    assert "Semáforo" in [c[0] for c in h["cols"]] and h.get("colores") == ["Semáforo"]
+    j = [c[0] for c in h["cols"]].index("Semáforo")
+    fila = {f[0]: f[j]["v"] for f in h["rows"]}
+    assert fila["C-100"] == "Alerta"                                     # C-100: provisión por obsolescencia 1.800
+    valores = {f[j]["v"] for f in h["rows"]}
+    assert valores <= {"Alerta", "Conforme", ""} and "Conforme" in valores
+    assert all(base.rol_color(h, "Semáforo", f[j]) in ("alta", "baja", None) for f in h["rows"])
+    assert h["total"][j] == ""
+
+
 def test_vacio_y_parametros_invalidos():
     with pytest.raises(ValueError):
         m.ejecutar({"inventario": []}, {}, "2025-12-31")

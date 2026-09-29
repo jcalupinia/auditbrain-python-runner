@@ -109,6 +109,19 @@ def _extra(nombre):
     return m.ejecutar(ds, par, corte)
 
 
+def test_semaforo_conciliacion():
+    """La cédula 10 lleva un Semáforo coloreable por instrumento sobre el ajuste propuesto."""
+    from backend.app.aud.niif.procesadores import base
+    h = next(x for x in m.hojas(correr()) if x["name"] == "10_Conciliacion")
+    assert "Semáforo" in [c[0] for c in h["cols"]] and h.get("colores") == ["Semáforo"]
+    j = [c[0] for c in h["cols"]].index("Semáforo")
+    valores = {f[j]["v"] for f in h["rows"]}
+    assert valores <= {"Alerta", "Conforme", ""} and "Alerta" in valores
+    for f in h["rows"]:
+        assert base.rol_color(h, "Semáforo", f[j]) in ("alta", "baja", None)
+    assert h["total"][j] == ""
+
+
 def test_pymes_2025_11_9za_deuda_no_basica_pero_sppi():
     """11.9ZA: sin cumplir 11.9 a)-d), la deuda con flujos solo de principal e intereses sigue a costo amortizado."""
     r25, r15 = _extra("pymes_2025_11_9za_y_11_25b"), _extra("pymes_2015_11_9za_y_11_25b")

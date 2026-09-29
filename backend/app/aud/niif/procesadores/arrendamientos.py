@@ -898,6 +898,8 @@ _EX_COMUN = {
         "Depreciación del ejercicio": "Trae la depreciación del ejercicio de la hoja 11; en los contratos que no se reconocen es 0.",
         "Interés del ejercicio": "Trae el interés del ejercicio de la hoja 10 (Pasivo al corte); en los contratos que no se reconocen es 0.",
         "Pasivo corriente": "Trae la parte corriente del pasivo de la hoja 10 (Pasivo al corte); en los contratos que no se reconocen es 0.",
+        "Semáforo": ("Estado del contrato: «Alerta» si el ajuste del pasivo o el del activo no es cero (hay diferencia frente a lo "
+                     "registrado que debe investigarse), «Conforme» si ambos cuadran."),
     },
 }
 _EX_COMPLETAS = {
@@ -1279,7 +1281,9 @@ def hojas(res: dict) -> list[dict]:
         conc.append([c["id"], fx(f"{PC}G{r}", c["pasivo"]), fx(f"{PC}Q{r}", c["pasivo_reg"]), fx(f"B{r}-C{r}", c["pasivo"] - c["pasivo_reg"]),
                      fx(f"{DU}O{r}", c["neto"]), fx(f"{DU}P{r}", c["activo_reg"]), fx(f"E{r}-F{r}", c["neto"] - c["activo_reg"]),
                      fx(f"{DU}K{r}" if c["reconoce"] == "Sí" else "0", c["dep"]),
-                     fx(f"{PC}J{r}" if c["reconoce"] == "Sí" else "0", c["interes"]), fx(f"{PC}O{r}" if c["reconoce"] == "Sí" else "0", c["cp"])])
+                     fx(f"{PC}J{r}" if c["reconoce"] == "Sí" else "0", c["interes"]), fx(f"{PC}O{r}" if c["reconoce"] == "Sí" else "0", c["cp"]),
+                     fx(f'IF(OR(ABS(D{r})>=0.005,ABS(G{r})>=0.005),"Alerta","Conforme")',
+                        "Alerta" if (abs(c["pasivo"] - c["pasivo_reg"]) >= 0.005 or abs(c["neto"] - c["activo_reg"]) >= 0.005) else "Conforme")])
 
     # 08 · tabla de amortización
     fila_c = {c["id"]: FILA0 + i for i, c in enumerate(cs)}
@@ -1403,9 +1407,11 @@ def hojas(res: dict) -> list[dict]:
               None, None, S("P", sum(c["ganancia_post_reg"] or 0 for c in cs if c["venta_posterior"] == "Sí"))], explica=_explica("14_Venta_medicion_post", pymes)),
         hoja("15_Conciliacion", "Conciliación y ajuste",
              [["Contrato", "t"], ["Pasivo recalculado", n_], ["Pasivo registrado", n_], ["Ajuste pasivo", n_], ["Activo recalculado", n_],
-              ["Activo registrado", n_], ["Ajuste activo", n_], ["Depreciación del ejercicio", n_], ["Interés del ejercicio", n_], ["Pasivo corriente", n_]],
+              ["Activo registrado", n_], ["Ajuste activo", n_], ["Depreciación del ejercicio", n_], ["Interés del ejercicio", n_], ["Pasivo corriente", n_],
+              ["Semáforo", "t"]],
              conc, ["TOTAL", S("B", t["pasivo"]), S("C", t["pasivoRegistrado"]), S("D", t["ajuste"]), S("E", t["activo"]),
-                    S("F", t["activoRegistrado"]), S("G", t["ajusteActivo"]), S("H", t["depreciacion"]), S("I", t["intereses"]), S("J", t["corriente"])], explica=_explica("15_Conciliacion", pymes)),
+                    S("F", t["activoRegistrado"]), S("G", t["ajusteActivo"]), S("H", t["depreciacion"]), S("I", t["intereses"]), S("J", t["corriente"]), ""],
+             explica=_explica("15_Conciliacion", pymes), colores=["Semáforo"]),
         hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
     ]

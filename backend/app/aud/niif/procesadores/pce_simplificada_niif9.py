@@ -410,6 +410,8 @@ EXPLICA = {
                              "hoja 02 (Parámetros); nunca es negativa. Sin tasa, queda en blanco."),
         "En impago": ("Marca «Sí» si la factura tiene más de 90 días de mora y «No» en caso contrario; sin días de mora "
                       "queda en blanco."),
+        "Semáforo": ("Estado de la factura: «Alerta» si está en impago o su tasa esperada es del 100 %, «Revisar» si "
+                     "tiene pérdida esperada parcial y «Conforme» si no tiene deterioro. Sin días de mora, queda en blanco."),
     },
     "10_Cartera_anterior": {
         "Días de mora": ("Resta la fecha de vencimiento de la fecha del corte anterior de la hoja 02 (Parámetros); sin "
@@ -609,7 +611,11 @@ def hojas(res: dict) -> list[dict]:
                         _fx(f'IF(I{r}<>"",I{r}/100,IF(ISNA(MATCH(G{r},{MAT}$C${FILA0}:$C${fin_mat},0)),"",IF({tm}="","",{tm})))',
                             float(x["tasa"]) if x["tasa"] else None),
                         _fx(f'IF(J{r}="","",MAX(H{r}*J{r}/{desc},0))', _n(float(x["pce"])) if x["pce"] else None),
-                        _fx(f'IF(E{r}="","",IF(E{r}>{IMPAGO_DIAS},"Sí","No"))', "Sí" if x["dias"] and int(x["dias"]) > IMPAGO_DIAS else ("No" if x["dias"] else ""))])
+                        _fx(f'IF(E{r}="","",IF(E{r}>{IMPAGO_DIAS},"Sí","No"))', "Sí" if x["dias"] and int(x["dias"]) > IMPAGO_DIAS else ("No" if x["dias"] else "")),
+                        _fx(f'IF(E{r}="","",IF(OR(L{r}="Sí",AND(J{r}<>"",J{r}>=1)),"Alerta",IF(AND(J{r}<>"",J{r}>0),"Revisar","Conforme")))',
+                            "" if not x["dias"] else
+                            ("Alerta" if ((int(x["dias"]) > IMPAGO_DIAS) or (x["tasa"] and float(x["tasa"]) >= 1)) else
+                             ("Revisar" if (x["tasa"] and float(x["tasa"]) > 0) else "Conforme")))])
     fin_det = FILA0 + nd - 1
     s = lambda col, fin, v: _fx(f"SUM({col}{FILA0}:{col}{fin})", v)
 
@@ -666,8 +672,9 @@ def hojas(res: dict) -> list[dict]:
                "dtaFin": F_["dtaFin"], "dtaMov": F_["dtaMov"]}
     resumen = [[res["labels"][k], _fx(ref_res[k], _n(t[k]))] for k in res["labels"]]
 
-    hoja = lambda name, label, cols, rows, total=None, explica=None: {"name": name, "label": label, "cols": cols, "rows": rows,
-                                                                      "total": total, "explica": dict(explica or {})}
+    hoja = lambda name, label, cols, rows, total=None, explica=None, colores=None: {"name": name, "label": label, "cols": cols, "rows": rows,
+                                                                                    "total": total, "explica": dict(explica or {}),
+                                                                                    **({"colores": [c for c in colores if c in [x[0] for x in cols]]} if colores else {})}
     fin_ant, fin_cas = FILA0 + na - 1, FILA0 + nc - 1
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
@@ -693,9 +700,10 @@ def hojas(res: dict) -> list[dict]:
              explica=EXPLICA["08_Asientos"]),
         hoja("09_Detalle", "Detalle por factura",
              [["Factura", "t"], ["Cliente", "t"], ["Segmento", "t"], ["Vencimiento", "d"], ["Días de mora", "i"], ["Tramo", "t"],
-              ["Clave", "t"], ["Saldo", "n"], ["Tasa individual (%)", "x"], ["Tasa aplicada", "p"], ["Pérdida esperada", "n"], ["En impago", "t"]],
-             detalle, ["TOTAL", "", "", "", None, "", "", s("H", fin_det, _n(t["saldo"])), None, None, s("K", fin_det, _n(t["pce"])), ""],
-             explica=EXPLICA["09_Detalle"]),
+              ["Clave", "t"], ["Saldo", "n"], ["Tasa individual (%)", "x"], ["Tasa aplicada", "p"], ["Pérdida esperada", "n"], ["En impago", "t"],
+              ["Semáforo", "t"]],
+             detalle, ["TOTAL", "", "", "", None, "", "", s("H", fin_det, _n(t["saldo"])), None, None, s("K", fin_det, _n(t["pce"])), "", ""],
+             explica=EXPLICA["09_Detalle"], colores=["Semáforo"]),
         hoja("10_Cartera_anterior", "Cartera del corte anterior",
              [["Factura", "t"], ["Cliente", "t"], ["Segmento", "t"], ["Vencimiento", "d"], ["Días de mora", "i"], ["Tramo", "t"], ["Clave", "t"],
               ["Saldo", "n"], ["Sigue impago al corte", "n"], ["Castigado", "n"], ["Pérdida observada", "n"]], anterior,

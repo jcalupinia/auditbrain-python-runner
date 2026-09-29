@@ -215,6 +215,27 @@ def test_hojas_nombres_y_anchos():
                 assert len(fila) == len(h["cols"]), h["name"]
 
 
+def test_semaforo_diferencias_temporarias():
+    """La cédula 06 lleva la columna «Semáforo» coloreada, con fórmula que recalcula igual que Python."""
+    hs = {h["name"]: h for h in m.hojas(_run())}
+    h = hs["06_Diferencias_temp"]
+    cols = [c[0] for c in h["cols"]]
+    assert cols[-1] == "Semáforo" and "Semáforo" in h["colores"]
+    assert "Semáforo" in h["explica"]
+    # Ancho de fila coherente (incluida la columna nueva) y TOTAL con celda vacía al final.
+    for fila in h["rows"] + [h["total"]]:
+        assert len(fila) == len(h["cols"])
+    assert h["total"][-1] == ""
+    # Cada celda del semáforo es una fórmula con valor válido.
+    idx = cols.index("Semáforo")
+    for fila in h["rows"]:
+        celda = fila[idx]
+        assert isinstance(celda, dict) and "f" in celda
+        assert celda["v"] in ("Alerta", "Revisar", "Conforme")
+    # El ejemplo tiene partidas con ajuste != 0 (mal medidas): al menos una «Alerta».
+    assert any(fila[idx]["v"] == "Alerta" for fila in h["rows"])
+
+
 def test_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "impuesto_corriente_diferido" and len(d["program"]) >= 5

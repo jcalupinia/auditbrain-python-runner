@@ -116,6 +116,16 @@ def test_hojas_nombres_y_anchos():
                 assert len(fila) == len(h["cols"]), h["name"]
 
 
+def test_semaforo_reconocimiento():
+    hs = m.hojas(_run())
+    h = next(x for x in hs if x["name"] == "09_Reconocimiento")
+    cols = [c[0] for c in h["cols"]]
+    assert cols[-1] == "Semáforo" and h["colores"] == ["Semáforo"]
+    j = cols.index("Semáforo")
+    assert {f[j]["v"] for f in h["rows"]} <= {"Alerta", "Conforme", ""}
+    assert any(f[j]["v"] == "Alerta" for f in h["rows"])
+
+
 def test_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "ingresos_contratos" and len(d["program"]) >= 5 and m.RUBRO == "INGRESOS"

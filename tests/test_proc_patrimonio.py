@@ -213,6 +213,23 @@ def test_hojas_nombres_y_anchos():
                 assert len(fila) == len(h["cols"]), h["name"]
 
 
+def test_semaforo_movimiento_patrimonial():
+    """La cédula 03 lleva la columna «Semáforo» coloreada, con fórmula que recalcula igual que Python."""
+    hs = {h["name"]: h for h in m.hojas(_run())}
+    h = hs["03_Movimiento"]
+    cols = [c[0] for c in h["cols"]]
+    assert cols[-1] == "Semáforo" and "Semáforo" in h["colores"] and "Semáforo" in h["explica"]
+    for fila in h["rows"] + [h["total"]]:
+        assert len(fila) == len(h["cols"])
+    assert h["total"][-1] == ""
+    idx = cols.index("Semáforo")
+    for fila in h["rows"]:
+        celda = fila[idx]
+        assert isinstance(celda, dict) and "f" in celda and celda["v"] in ("Alerta", "Revisar", "Conforme")
+    # El ejemplo tiene movimientos que no cuadran (difMovimiento 500): al menos una «Alerta».
+    assert any(fila[idx]["v"] == "Alerta" for fila in h["rows"])
+
+
 def test_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "patrimonio" and len(d["program"]) >= 5

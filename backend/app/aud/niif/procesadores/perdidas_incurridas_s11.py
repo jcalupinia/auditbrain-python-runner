@@ -856,6 +856,9 @@ EXPLICA = {
                            "la tasa y el plazo de cobro de la hoja 02 (Parámetros). Sin tasa, queda en blanco."),
         "Pérdida": ("Resta al saldo el valor presente de lo que se espera cobrar; nunca es negativa. Si no hay valor "
                     "presente, queda en blanco."),
+        "Semáforo": ("Estado de la factura según la tasa de deterioro de su tramo: «Alerta» si es del 100 % "
+                     "(incumplimiento sostenido), «Revisar» si tiene deterioro parcial y «Conforme» si no tiene "
+                     "deterioro. Sin tasa medible, queda en blanco."),
     },
 }
 
@@ -1023,6 +1026,8 @@ def hojas(res: dict) -> list[dict]:
             _fx(f'IF(F{r}="","",IF({tm}="","",{tm}))', _f(x["tasa"])),
             _fx(f'IF(H{r}="","",G{r}*(1-H{r})/{DESC})', _n(_f(x["vp"]))),
             _fx(f'IF(I{r}="","",MAX(G{r}-I{r},0))', _n(_f(x["perdida"]))), prov,
+            _fx(f'IF(H{r}="","",IF(H{r}>=1,"Alerta",IF(H{r}>0,"Revisar","Conforme")))',
+                "" if _f(x["tasa"]) is None else ("Alerta" if _f(x["tasa"]) >= 1 else ("Revisar" if _f(x["tasa"]) > 0 else "Conforme"))),
         ])
     tot_det = FILA0 + n_det
     s = lambda col, fin, v: _fx(f"SUM({col}{FILA0}:{col}{fin})", v)
@@ -1151,9 +1156,10 @@ def hojas(res: dict) -> list[dict]:
                "noDeducible": F_["noDeducible"], "dtaFin": F_["dtaFin"], "dtaMov": F_["dtaMov"]}
     resumen = [[res["labels"][k], _fx(ref_res[k], _n(t[k]))] for k in res["labels"]]
 
-    hoja = lambda name, label, cols, rows, total=None, explica=None, guia=None, ocultas=None: {  # noqa: E731
+    hoja = lambda name, label, cols, rows, total=None, explica=None, guia=None, ocultas=None, colores=None: {  # noqa: E731
         "name": name, "label": label, "cols": cols, "rows": rows, "total": total, "explica": dict(explica or {}),
-        **({"guia": guia} if guia else {}), **({"ocultas": ocultas} if ocultas else {})}
+        **({"guia": guia} if guia else {}), **({"ocultas": ocultas} if ocultas else {}),
+        **({"colores": [c for c in colores if c in [x[0] for x in cols]]} if colores else {})}
     claves = ["Clave de cruce", "Clave alterna", "Clave del cliente"]   # técnicas: agrupadas y ocultas en el Excel
 
     # D1–D5 · Datos del cliente: lo que entregó, fila por fila, con el archivo de origen.
@@ -1254,10 +1260,10 @@ def hojas(res: dict) -> list[dict]:
              explica=EXPLICA["10_Asientos"]),
         hoja("11_Detalle", "Detalle por factura",
              [["Factura", "t"], ["Cliente", "t"], ["Emisión", "d"], ["Vencimiento", "d"], ["Días de mora", "i"], ["Tramo", "t"],
-              ["Saldo", "n"], ["Tasa", "p"], ["Valor presente", "n"], ["Pérdida", "n"], ["Provisión inicial", "n"]], detalle,
+              ["Saldo", "n"], ["Tasa", "p"], ["Valor presente", "n"], ["Pérdida", "n"], ["Provisión inicial", "n"], ["Semáforo", "t"]], detalle,
              ["TOTAL", "", "", "", None, "", s("G", det_fin, _n(t["saldo"])), None, s("I", det_fin, _n(d.get("vpTotal", sum(_f(x["vp"]) or 0 for x in filas)))),
-              s("J", det_fin, _n(t["perdida"])), s("K", det_fin, _n(sum(float(x["provIni"]) for x in filas)))],
-             explica=EXPLICA["11_Detalle"]),
+              s("J", det_fin, _n(t["perdida"])), s("K", det_fin, _n(sum(float(x["provIni"]) for x in filas))), ""],
+             explica=EXPLICA["11_Detalle"], colores=["Semáforo"]),
         hoja("12_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], _n(e["amount"])] for e in res["exceptions"]]),
         *datos,

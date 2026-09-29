@@ -118,6 +118,17 @@ def test_hojas_nombres_y_anchos():
                 assert len(fila) == len(h["cols"]), h["name"]
 
 
+def test_semaforo_detalle():
+    from backend.app.aud.niif.procesadores.base import NIVEL_COLOR
+    h = next(x for x in m.hojas(_run()) if x["name"] == "03_Detalle")
+    assert h["colores"] == ["Semáforo"]
+    sem = [c[0] for c in h["cols"]].index("Semáforo")
+    valores = {(fila[sem].get("v") if isinstance(fila[sem], dict) else fila[sem]) for fila in h["rows"]}
+    assert valores <= {"Alerta", "Revisar", "Conforme"} and valores
+    assert valores <= set(NIVEL_COLOR)
+    assert h["total"][sem] == ""
+
+
 def test_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "proveedores_cxp" and len(d["program"]) >= 5

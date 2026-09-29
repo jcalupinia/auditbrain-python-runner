@@ -343,6 +343,8 @@ EXPLICA = {
         "Vencida sin cobro": ("Marca «Sí» si la factura está vencida (días de mora mayores que cero) y le queda saldo sin "
                               "cobro posterior; si no, «No»."),
         "Vencido sin cobro": "Si la factura está marcada como vencida sin cobro, toma su saldo sin cobro posterior; si no, pone cero.",
+        "Semáforo": ("Estado de recuperabilidad de la factura: «Alerta» si está vencida al corte y le queda saldo sin cobro "
+                     "posterior (revisar su recuperabilidad, NIA 540/560); «Conforme» si está por vencer o tuvo cobro posterior."),
     },
     "06_Circularizacion": {
         "Saldo en libros": "Trae el saldo en libros de la misma factura desde la hoja 03 (Detalle por factura).",
@@ -578,9 +580,10 @@ def hojas(res: dict) -> list[dict]:
                        fx(f'IF(OR(E{r}="",F{r}=""),0,IF(F{r}>{_pb("corte")},MIN(E{r},D{r}),0))', x["aplicable"]),
                        fx(f"D{r}-G{r}", x["pendiente"]),
                        fx(f'IF(AND(C{r}>0,H{r}>0),"Sí","No")', "Sí" if x["vencidaSinCobro"] else "No"),
-                       fx(f'IF(I{r}="Sí",H{r},0)', x["pendiente"] if x["vencidaSinCobro"] else 0)])
+                       fx(f'IF(I{r}="Sí",H{r},0)', x["pendiente"] if x["vencidaSinCobro"] else 0),
+                       fx(f'IF(I{r}="Sí","Alerta","Conforme")', "Alerta" if x["vencidaSinCobro"] else "Conforme")])
     tot_cob = ["TOTAL", "", None, suma("D", fin_det, t["saldo"]), None, None, suma("G", fin_det, sum(x["aplicable"] for x in fl)),
-               suma("H", fin_det, sum(x["pendiente"] for x in fl)), "", suma("J", fin_det, t["vencidoSinCobro"])]
+               suma("H", fin_det, sum(x["pendiente"] for x in fl)), "", suma("J", fin_det, t["vencidoSinCobro"]), ""]
 
     # 06 · Circularización (facturas con saldo confirmado).
     circ = []
@@ -713,8 +716,9 @@ def hojas(res: dict) -> list[dict]:
              aging, ["TOTAL", suma("B", fin_ag, len(fl)), suma("C", fin_ag, t["saldo"]), None, ""], explica=EXPLICA["04_Aging"]),
         hoja("05_Cobros_posteriores", "Cobros posteriores al cierre",
              [["Factura", "t"], ["Cliente", "t"], ["Días de mora", "i"], ["Saldo al corte", "n"], ["Cobro informado", "n"], ["Fecha del cobro", "d"],
-              ["Cobro posterior aplicable", "n"], ["Saldo sin cobro posterior", "n"], ["Vencida sin cobro", "t"], ["Vencido sin cobro", "n"]], cobros, tot_cob,
-             explica=EXPLICA["05_Cobros_posteriores"]),
+              ["Cobro posterior aplicable", "n"], ["Saldo sin cobro posterior", "n"], ["Vencida sin cobro", "t"], ["Vencido sin cobro", "n"],
+              ["Semáforo", "t"]], cobros, tot_cob,
+             explica=EXPLICA["05_Cobros_posteriores"], colores=["Semáforo"]),
         hoja("06_Circularizacion", "Circularización",
              [["Factura", "t"], ["Cliente", "t"], ["Saldo en libros", "n"], ["Saldo confirmado", "n"], ["Diferencia", "n"], ["Diferencia absoluta", "n"], ["Estado", "t"]],
              circ, tot_cir, explica=EXPLICA["06_Circularizacion"]),

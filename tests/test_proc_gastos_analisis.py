@@ -165,6 +165,16 @@ def test_hojas_nombres_y_anchos():
                 assert len(fila) == len(h["cols"]), h["name"]
 
 
+def test_semaforo_analisis_global():
+    hs = m.hojas(_run())
+    h = next(x for x in hs if x["name"] == "03_Analisis_global")
+    cols = [c[0] for c in h["cols"]]
+    assert cols[-1] == "Semáforo" and h["colores"] == ["Semáforo"]
+    j = cols.index("Semáforo")
+    assert {f[j]["v"] for f in h["rows"]} <= {"Alerta", "Revisar", "Conforme"}
+    assert any(f[j]["v"] == "Alerta" for f in h["rows"])
+
+
 def test_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "gastos_analisis" and len(d["program"]) >= 5 and m.RUBRO == "COSTOS_GASTOS"

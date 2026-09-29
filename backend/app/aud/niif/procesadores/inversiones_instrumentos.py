@@ -681,7 +681,9 @@ def hojas(res: dict) -> list[dict]:
         concil.append([x["id"], fx(f"{CLA}H{r}", x["esperada"]), fx(f_med, _v(x["medicion"])), fx(f"{INV}N{r}", x["libros"]),
                        fx(f'IF(C{r}="","",C{r}-D{r})', _v(x["difMed"])), fx(f"{DET}I{r}", _v(x["detCalc"])), fx(f"{DET}J{r}", x["detReg"] or 0.0),
                        fx(f'IF(OR(B{r}="CA",B{r}="COSTO"),IF(F{r}="","",F{r}-G{r}),0)', _v(x["ajDet"])),
-                       fx(f'IF(OR(E{r}="",H{r}=""),"",E{r}-H{r})', _v(x["ajuste"]))])
+                       fx(f'IF(OR(E{r}="",H{r}=""),"",E{r}-H{r})', _v(x["ajuste"])),
+                       fx(f'IF(I{r}="","",IF(ABS(I{r})>=0.005,"Alerta","Conforme"))',
+                          "" if x["ajuste"] is None else ("Alerta" if abs(x["ajuste"]) >= 0.005 else "Conforme"))])
     fin = FILA0 + nx - 1
 
     recl = []
@@ -851,6 +853,8 @@ def hojas(res: dict) -> list[dict]:
                                "clasificaciones a valor razonable pone cero, porque ahí el deterioro no reduce el saldo.",
         "Ajuste propuesto (importe neto)": "Diferencia de medición menos ajuste de deterioro: es el ajuste neto que se propone al saldo "
                                            "de la inversión. Queda en blanco si falta alguno de los dos.",
+        "Semáforo": ("Estado del instrumento: «Alerta» si el ajuste propuesto no es cero (la medición según la norma difiere de "
+                     "los libros y hay que ajustar), «Conforme» si el ajuste es cero. Queda en blanco si no hubo medición completa."),
     }
     ex_resumen = {"Importe": "Trae cada cifra de la fila TOTAL de su hoja: saldo, medición, diferencia y ajuste de la hoja 10 "
                              "(Conciliación y ajuste), deterioro de la hoja 08, ingresos no registrados de la hoja 07 y diferencia "
@@ -904,9 +908,10 @@ def hojas(res: dict) -> list[dict]:
         hoja("10_Conciliacion", "Conciliación y ajuste",
              [["Instrumento", T], ["Clasificación según la norma", T], ["Medición según la norma", "n"], ["Saldo en libros", "n"],
               ["Diferencia de medición", "n"], ["Deterioro recalculado", "n"], ["Deterioro registrado", "n"], ["Ajuste de deterioro", "n"],
-              ["Ajuste propuesto (importe neto)", "n"]], concil,
+              ["Ajuste propuesto (importe neto)", "n"], ["Semáforo", T]], concil,
              ["TOTAL", "", s("C", fin, "medicion"), s("D", fin, "libros"), s("E", fin, "difMed"), s("F", fin, "detCalc"),
-              suma("G", fin, sum(x["detReg"] or 0 for x in xs)), s("H", fin, "ajDet"), s("I", fin, "ajuste")], explica=ex_con),
+              suma("G", fin, sum(x["detReg"] or 0 for x in xs)), s("H", fin, "ajDet"), s("I", fin, "ajuste"), ""],
+             explica=ex_con, colores=["Semáforo"]),
         hoja("11_Problemas", "Problemas encontrados", [["Código", T], ["Descripción", T], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
     ]

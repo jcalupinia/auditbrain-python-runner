@@ -233,6 +233,21 @@ def test_casos_limite():
     assert r["rows"][0]["depRegistrada"] == "" and r["rows"][0]["diferencia"] == ""
 
 
+def test_semaforo_depreciacion():
+    """La cédula 04 lleva un Semáforo coloreable por activo sobre la diferencia de depreciación (con tolerancia)."""
+    from backend.app.aud.niif.procesadores import base
+    h = next(x for x in m.hojas(correr()) if x["name"] == "04_Depreciacion")
+    assert "Semáforo" in [c[0] for c in h["cols"]] and h.get("colores") == ["Semáforo"]
+    j = [c[0] for c in h["cols"]].index("Semáforo")
+    fila = {f[0]: f[j]["v"] for f in h["rows"]}
+    assert fila["VEH-01"] == "Alerta"        # 7.200 recalculada ≠ 6.000 registrada
+    assert fila["EQC-01"] == ""              # método no lineal: sin recálculo, no medible
+    valores = {f[j]["v"] for f in h["rows"]}
+    assert valores <= {"Alerta", "Conforme", ""} and "Conforme" in valores
+    assert all(base.rol_color(h, "Semáforo", f[j]) in ("alta", "baja", None) for f in h["rows"])
+    assert h["total"][j] == ""
+
+
 def test_hojas_y_definicion():
     for _, ds, p, c in m.ESCENARIOS:
         r = m.ejecutar(ds, p, c)

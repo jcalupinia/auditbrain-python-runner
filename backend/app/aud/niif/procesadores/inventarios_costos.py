@@ -668,7 +668,9 @@ def hojas(res: dict) -> list[dict]:
                f'IF(E{r}>{_pa("obsDias1")},{_pa("obsPct1")}/100,0))))')
         obs.append([i["id"], i["desc"], fx(f"{INV}O{r}", i["costo"]), i["fum"], fx(f'IF(D{r}="","",{_pa("corte")}-D{r})', i["dias"]),
                     fx(pct, i["pct"]), fx(f'IF(F{r}="","",C{r}*F{r})', i["obs"]), fx(_si(f"{VNR}I{r}"), i["rebaja"]),
-                    fx(f'IF(H{r}<>"",H{r},G{r})', i["provBase"]), fx(f'IF({MP}H{r}="Sí",0,IF(I{r}="","",I{r}))', i["prov"])])
+                    fx(f'IF(H{r}<>"",H{r},G{r})', i["provBase"]), fx(f'IF({MP}H{r}="Sí",0,IF(I{r}="","",I{r}))', i["prov"]),
+                    fx(f'IF(J{r}="","",IF(J{r}>0.005,"Alerta","Conforme"))',
+                       "" if i["prov"] is None else ("Alerta" if i["prov"] > 0.005 else "Conforme"))])
 
     # 07 · Costo de producción.
     produccion = []
@@ -821,6 +823,8 @@ def hojas(res: dict) -> list[dict]:
         "Provisión estimada (neta de la excepción NIC 2.32)":
             "Toma la provisión antes de la excepción, salvo que la hoja 11 (Materias primas) diga que aplica la excepción de "
             "NIC 2.32: en ese caso pone cero.",
+        "Semáforo": ("Estado del ítem: «Alerta» si la provisión estimada es mayor que cero (hay rebaja a VNR u obsolescencia que "
+                     "reconocer), «Conforme» si es cero. Queda en blanco si no se pudo estimar la provisión."),
     }
     ex_mp = {
         "¿Materia prima?": "Responde «Sí» si en la hoja 03 (Inventario valorado por ítem) el ítem está marcado como materia prima "
@@ -899,9 +903,10 @@ def hojas(res: dict) -> list[dict]:
              [["Código", "t"], ["Descripción", "t"], ["Costo auditado", n_], ["Último movimiento", "d"], ["Días sin movimiento", "i"],
               ["% de provisión", "p"], ["Provisión por obsolescencia", n_], ["Rebaja a VNR", n_],
               ["Provisión antes de la excepción (VNR; el tramo solo si no hay precio)", n_],
-              ["Provisión estimada (neta de la excepción NIC 2.32)", n_]],
+              ["Provisión estimada (neta de la excepción NIC 2.32)", n_], ["Semáforo", "t"]],
              obs, ["TOTAL", "", _tot("C", ni, t["costoAuditado"]), None, None, None, _tot("G", ni, t["provObsolescencia"]),
-                   _tot("H", ni, t["rebajaVnr"]), _tot("I", ni, c["provBase"]), _tot("J", ni, t["provisionEstimada"])], explica=ex_obs),
+                   _tot("H", ni, t["rebajaVnr"]), _tot("I", ni, c["provBase"]), _tot("J", ni, t["provisionEstimada"]), ""],
+             explica=ex_obs, colores=["Semáforo"]),
         hoja("11_Excepcion_MP", CEDULAS[10][1],
              [["Código", "t"], ["Descripción", "t"], ["¿Materia prima?", "t"], ["Producto terminado asociado", "t"],
               ["Costo esperado del producto terminado", n_], ["Precio esperado del producto terminado", n_], ["Margen esperado", n_],

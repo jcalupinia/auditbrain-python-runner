@@ -715,9 +715,11 @@ def hojas(res: dict) -> list[dict]:
         r = FILA0 + i
         rec.append([x["id"], x["contrato"], fx(f"{FIN}F{r}", x["vp"]), fx(f'IF({DET}R{r}<>"",{DET}R{r},0)', x["anteriorEf"]),
                     fx(f'IF(C{r}="","",C{r}-D{r})', x["recAnio"]), fx(f"{DET}Q{r}", n2(x["registrado"])),
-                    fx(f'IF(E{r}="","",E{r}-F{r})', x["ajuste"])])
+                    fx(f'IF(E{r}="","",E{r}-F{r})', x["ajuste"]),
+                    fx(f'IF(G{r}="","",IF(ABS(G{r})>=0.005,"Alerta","Conforme"))',
+                       "" if x["ajuste"] is None else ("Alerta" if abs(x["ajuste"]) >= 0.005 else "Conforme"))])
     tot_rec = ["TOTAL", "", suma("C", fin, sum(x["vp"] or 0 for x in L)), suma("D", fin, sum(x["anteriorEf"] for x in L)),
-               suma("E", fin, t["ingresoReconocible"]), suma("F", fin, t["ingresoRegistrado"]), suma("G", fin, t["ajuste"])]
+               suma("E", fin, t["ingresoReconocible"]), suma("F", fin, t["ingresoRegistrado"]), suma("G", fin, t["ajuste"]), ""]
 
     # 10 · Activo / pasivo del contrato (por contrato).
     apr = []
@@ -927,6 +929,8 @@ def hojas(res: dict) -> list[dict]:
             "Registrado en el año": "Trae el ingreso que el cliente registró en el año para la línea, de la hoja 03 (Detalle).",
             "Ajuste": ("Resta lo registrado del reconocible del año: negativo significa que el cliente registró ingreso de más. "
                        "En blanco si la línea no se pudo medir."),
+            "Semáforo": ("Estado de la línea: «Alerta» si hay diferencia entre el ingreso reconocible del año y el registrado (hay que "
+                         "ajustarla), «Conforme» si coinciden; en blanco si la línea no se pudo medir."),
         },
         "10_Activo_pasivo": {
             "Reconocible bruto acumulado": ("Suma el reconocible bruto acumulado de la hoja 06 (Satisfacción) de todas las "
@@ -1004,7 +1008,7 @@ def hojas(res: dict) -> list[dict]:
               ["Interés devengado al corte", "n"]], fn, tot_fn, explica=ex["08_Financiacion"]),
         hoja("09_Reconocimiento", "Ingreso reconocible vs registrado",
              [["Línea", "t"], ["Contrato", "t"], ["Reconocible acumulado", "n"], ["Reconocido años anteriores", "n"], ["Reconocible del año", "n"],
-              ["Registrado en el año", "n"], ["Ajuste", "n"]], rec, tot_rec, explica=ex["09_Reconocimiento"]),
+              ["Registrado en el año", "n"], ["Ajuste", "n"], ["Semáforo", "t"]], rec, tot_rec, explica=ex["09_Reconocimiento"], colores=["Semáforo"]),
         hoja("10_Activo_pasivo", "Activo y pasivo del contrato",
              [["Contrato", "t"], ["Cliente", "t"], ["Reconocible bruto acumulado", "n"], ["Facturado", "n"], ["Cobrado", "n"], ["Posición", "n"],
               [d["nAct"], "n"], [d["nPas"], "n"], ["Cuenta por cobrar", "n"], ["Obligaciones sin medir", "i"]], apr, tot_ap, explica=ex["10_Activo_pasivo"]),

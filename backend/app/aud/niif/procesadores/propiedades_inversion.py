@@ -724,6 +724,8 @@ EXPLICA = {
                                    "multiplica por la parte que es propiedad de inversión (hoja 04); en blanco en los demás casos.",
         "Reclasificación": "Trae de la hoja 04 (Clasificación) el importe que sale de propiedades de inversión por uso propio, venta "
                            "o uso mixto; en blanco si no hay reclasificación.",
+        "Semáforo": ("Estado del inmueble: «Alerta» si el ajuste propuesto no es cero (el importe auditado difiere de los libros y "
+                     "hay que ajustar la cuenta), «Conforme» si el ajuste es cero."),
     },
     "09_Transferencias": {
         "¿En el ejercicio?": "Revisa si la fecha del cambio de uso cae entre el inicio y el corte del ejercicio (hoja 02, "
@@ -924,7 +926,8 @@ def hojas(res: dict) -> list[dict]:
         med.append([i["id"], fx(f"{CLA}G{r}", i["clase"]), fx(f"{VRZ}C{r}", i["medida"]), fx(f"{INM}Q{r}", i["libros"]),
                     fx(f'IF({CLA}H{r}="No",0,IF(C{r}="Valor razonable",{VRZ}E{r},{MCO}Q{r})*{CLA}K{r})', i["aud"]), fx(f"E{r}-D{r}", i["ajuste"]),
                     fx(_si(f"{VRZ}H{r}"), i["ajVR"]), fx(f'IF({MCO}C{r}="Sí",({MCO}Q{r}-D{r})*{CLA}K{r},"")', i["efCosto"]),
-                    fx(_si(f"{CLA}J{r}"), i["reclas"])])
+                    fx(_si(f"{CLA}J{r}"), i["reclas"]),
+                    fx(f'IF(ABS(F{r})>=0.005,"Alerta","Conforme")', "Alerta" if abs(i["ajuste"]) >= 0.005 else "Conforme")])
         alq.append([i["id"], fx(f"{INM}C{r}", i["uso"]), fx(_si(f"{INM}R{r}"), i["alq"]), fx(_si(f"{INM}S{r}"), i["alqReg"]),
                     fx(f'IF(OR(C{r}="",D{r}=""),"",C{r}-D{r})', i["difAlq"])])
 
@@ -1039,9 +1042,10 @@ def hojas(res: dict) -> list[dict]:
                    _tot("M", ni, t["difDepreciacion"]), None, None, _tot("P", ni, t["deterioro"]), _tot("Q", ni, S(i["medCosto"] for i in its))], explica=EXPLICA["07_Modelo_costo"]),
         hoja("08_Medicion", CEDULAS[7][1],
              [["Código", "t"], ["Clasificación", "t"], ["Medición", "t"], ["Importe en libros", n_], ["Auditado en la cuenta", n_], ["Ajuste", n_],
-              ["Ajuste VR (resultados)", n_], ["Efecto modelo del costo", n_], ["Reclasificación", n_]],
+              ["Ajuste VR (resultados)", n_], ["Efecto modelo del costo", n_], ["Reclasificación", n_], ["Semáforo", "t"]],
              med, ["TOTAL", "", "", _tot("D", ni, t["libros"]), _tot("E", ni, t["piAuditado"]), _tot("F", ni, S(i["ajuste"] for i in its)),
-                   _tot("G", ni, t["ajusteVR"]), _tot("H", ni, t["efectoCosto"]), _tot("I", ni, t["reclasificacion"])], explica=EXPLICA["08_Medicion"]),
+                   _tot("G", ni, t["ajusteVR"]), _tot("H", ni, t["efectoCosto"]), _tot("I", ni, t["reclasificacion"]), ""],
+             explica=EXPLICA["08_Medicion"], colores=["Semáforo"]),
         hoja("09_Transferencias", CEDULAS[8][1],
              [["Código", "t"], ["Cambio de uso", "t"], ["Fecha del cambio", "d"], ["¿En el ejercicio?", "t"], ["Clasificación actual", "t"],
               ["Libros a la fecha", n_], ["VR a la fecha", n_], ["Diferencia VR − libros", n_], ["Superávit de revaluación a la fecha", n_],

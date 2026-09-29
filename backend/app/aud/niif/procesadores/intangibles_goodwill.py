@@ -587,6 +587,8 @@ _EXPLICA = {
         "Neto auditado": ("Parte del costo auditado (hoja 05), resta la amortización acumulada recalculada, el deterioro previo y el "
                           "deterioro auditado (hoja 07), y suma la reversión auditada (hoja 08). Si la partida no es capitalizable, es cero."),
         "Ajuste propuesto": "Resta el neto en libros del cliente al neto auditado: positivo aumenta el activo, negativo lo disminuye.",
+        "Semáforo": ("Estado de la partida: «Alerta» si el ajuste propuesto no es cero (hay diferencia entre el neto auditado y el neto "
+                     "en libros que debe investigarse), «Conforme» si el neto auditado coincide con el del cliente."),
     },
 }
 
@@ -862,6 +864,7 @@ def hojas(res: dict) -> list[dict]:
         aju.append([
             x["id"], x["desc"], fx(libros, x["libros"]),
             fx(f'IF({AMO}C{r}="No",0,{AMO}D{r}-{AMO}N{r}-{X("L")}-{DET}K{r}+{REV}I{r})', x["aud"]), fx(f"D{r}-C{r}", x["ajuste"]),
+            fx(f'IF(ABS(E{r})>=0.005,"Alerta","Conforme")', "Alerta" if abs(x["ajuste"]) >= 0.005 else "Conforme"),
         ])
 
     fr = {k: FILA0 + i for i, k in enumerate(res["labels"])}
@@ -921,9 +924,9 @@ def hojas(res: dict) -> list[dict]:
              rev, ["TOTAL", "", None, "", None, None, None, _tot("H", n, t["reversionRegistrada"]), _tot("I", n, t["reversionAuditada"]),
                    _tot("J", n, S("difRev")), None], explica=_EXPLICA["08_Reversion"]),
         hoja("09_Ajuste", CEDULAS[8][1],
-             [["Código", "t"], ["Descripción", "t"], ["Neto en libros (cliente)", N], ["Neto auditado", N], ["Ajuste propuesto", N]],
-             aju, ["TOTAL", "", _tot("C", n, t["netoAuxiliar"]), _tot("D", n, t["netoAuditado"]), _tot("E", n, S("ajuste"))],
-             explica=_EXPLICA["09_Ajuste"]),
+             [["Código", "t"], ["Descripción", "t"], ["Neto en libros (cliente)", N], ["Neto auditado", N], ["Ajuste propuesto", N], ["Semáforo", "t"]],
+             aju, ["TOTAL", "", _tot("C", n, t["netoAuxiliar"]), _tot("D", n, t["netoAuditado"]), _tot("E", n, S("ajuste")), ""],
+             explica=_EXPLICA["09_Ajuste"], colores=["Semáforo"]),
         hoja("10_Problemas", CEDULAS[9][1], [["Código", "t"], ["Descripción", "t"], ["Importe", N]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
     ]

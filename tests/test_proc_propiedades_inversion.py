@@ -225,6 +225,18 @@ def test_validar_filas():
     assert m.validar_filas("bajas", [{"id": "B1", "fecha_baja": "31/08/2025", "producto_neto": "130.000,00", "importe_libros": "110000", "_row": 2}])["ok"]
 
 
+def test_semaforo_medicion():
+    """La cédula 08 lleva un Semáforo coloreable por inmueble sobre el ajuste propuesto."""
+    from backend.app.aud.niif.procesadores import base
+    h = next(x for x in m.hojas(_run()) if x["name"] == "08_Medicion")
+    assert "Semáforo" in [c[0] for c in h["cols"]] and h.get("colores") == ["Semáforo"]
+    j = [c[0] for c in h["cols"]].index("Semáforo")
+    valores = {f[j]["v"] for f in h["rows"]}
+    assert valores <= {"Alerta", "Conforme"} and "Alerta" in valores
+    assert all(base.rol_color(h, "Semáforo", f[j]) in ("alta", "baja") for f in h["rows"])
+    assert h["total"][j] == ""
+
+
 def test_hojas_y_definicion():
     res = _run()
     hs = m.hojas(res)

@@ -280,3 +280,15 @@ def test_hojas_y_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "prestamos_obligaciones" and len(d["program"]) >= 5
     assert m.kind("prestamos") == "prestamos" and m.RUBRO == "PRESTAMOS"
+
+
+def test_semaforo_clasificacion():
+    hs = m.hojas(_run())
+    h = next(x for x in hs if x["name"] == "11_Clasificacion")
+    cols = [c[0] for c in h["cols"]]
+    assert cols[-1] == "Semáforo" and h["colores"] == ["Semáforo"]
+    j = cols.index("Semáforo")
+    valores = {f[j]["v"] for f in h["rows"]}
+    assert valores <= {"Alerta", "Conforme", ""}
+    # OP-102: covenant incumplido sin dispensa → deuda exigible (toda corriente) → «Alerta».
+    assert next(f for f in h["rows"] if f[0] == "OP-102")[j]["v"] == "Alerta"

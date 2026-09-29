@@ -616,6 +616,8 @@ EXPLICA = {
         "Libros": f"Copia el saldo registrado en libros al corte desde la {_D03}.",
         "Ajuste (requerida − libros)": ("Resta el saldo en libros a la provisión requerida: positivo significa que falta "
                                         "provisión y negativo que sobra; en blanco si está sin evaluación."),
+        "Semáforo": ("Estado de la provisión: «Alerta» si la provisión requerida difiere del saldo en libros (provisión insuficiente "
+                     "o excesiva que hay que ajustar), «Conforme» si coinciden; en blanco si la partida está sin evaluación."),
     },
     "14_Contingencias": {
         "Clasificación": ("Trae la clasificación de la partida desde la hoja 05 (Obligación presente y probabilidad); aquí "
@@ -893,6 +895,8 @@ def hojas(res: dict) -> list[dict]:
             x["id"], fx(f"{OBL}B{r}", x["tipo"]), fx(f"{OBL}G{r}", x["clasif"]), fx(f"{VPR}G{r}", x["vp"]),
             fx(f'IF(C{r}="Sin evaluación","",IF(OR(C{r}="Reconocer provisión",C{r}="Activo reconocible"),D{r},0))', x["requerida"]),
             fx(X("saldo_libros", r), x["saldo_libros"]), fx(f'IF(E{r}="","",E{r}-F{r})', x["dif"]), x["contrapartida"],
+            fx(f'IF(G{r}="","",IF(ABS(G{r})>=0.005,"Alerta","Conforme"))',
+               "" if x["dif"] is None else ("Alerta" if abs(x["dif"]) >= 0.005 else "Conforme")),
         ])
 
     # 14 · contingencias a revelar.
@@ -986,9 +990,9 @@ def hojas(res: dict) -> list[dict]:
               ["Libros", "n"], ["Ajuste contra el costo (CINIIF 1)", "n"], ["Reversión calculada", "n"], ["Reversión registrada", "n"]], des, explica=EXPLICA["12_Desmantelamiento"]),
         hoja("13_Reconocimiento", "Provisión requerida vs libros",
              [["Código", "t"], ["Tipo", "t"], ["Clasificación", "t"], ["Valor presente", "n"], ["Provisión requerida", "n"], ["Libros", "n"],
-              ["Ajuste (requerida − libros)", "n"], ["Contrapartida", "t"]], rec,
+              ["Ajuste (requerida − libros)", "n"], ["Contrapartida", "t"], ["Semáforo", "t"]], rec,
              ["TOTAL", "", "", None, suma("E", fin(n), sum(x["requerida"] or 0 for x in R)), suma("F", fin(n), sum(x["saldo_libros"] for x in R)),
-              suma("G", fin(n), sum(x["dif"] or 0 for x in R)), ""], explica=EXPLICA["13_Reconocimiento"]),
+              suma("G", fin(n), sum(x["dif"] or 0 for x in R)), "", ""], explica=EXPLICA["13_Reconocimiento"], colores=["Semáforo"]),
         hoja("14_Contingencias", "Contingencias a revelar",
              [["Código", "t"], ["Descripción", "t"], ["Clasificación", "t"], ["Probabilidad", "t"], ["Efecto estimado", "n"], ["Revelado", "t"],
               ["Evaluación", "t"], ["Registrado en libros", "n"]], con, explica=EXPLICA["14_Contingencias"]),

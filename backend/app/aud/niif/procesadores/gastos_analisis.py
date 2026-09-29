@@ -517,6 +517,8 @@ EXPLICA = {
                               "registradas en esta cuenta y dentro del ejercicio."),
         "Cobertura de la muestra": ("Divide la muestra examinada para el saldo actual de la cuenta: indica qué parte del "
                                     "gasto se revisó con documentos; en blanco si el saldo es cero."),
+        "Semáforo": ("Estado de la cuenta: «Alerta» si la variación excede el umbral y no tiene explicación (exceso de gasto sin "
+                     "justificar), «Revisar» si excede el umbral pero está explicada, «Conforme» si la variación está dentro del umbral."),
         "Presentada como extraordinaria": ("Marca «Sí» si el nombre de la cuenta o su línea del estado de resultados "
                                            "contiene la palabra «extraordinario/a»; en otro caso, «No»."),
     },
@@ -793,12 +795,14 @@ def hojas(res: dict) -> list[dict]:
             fx(f'SUMIFS({_rng(TRX, "F", nt)},{_rng(TRX, "G", nt)},A{r},{_rng(TRX, "P", nt)},"Sí")' if nt else "0", n2(c["muestra"])),
             fx(f'IF(E{r}=0,"",P{r}/E{r})', c["cobertura"]),
             fx(f'IF(OR(ISNUMBER(SEARCH("extraordinari",B{r})),ISNUMBER(SEARCH("extraordinari",C{r}))),"Sí","No")', c["extra"]),
+            fx(f'IF(O{r}="Sí","Alerta",IF(OR(I{r}="Sí",M{r}="Sí"),"Revisar","Conforme"))',
+               "Alerta" if c["sinExplicar"] == "Sí" else ("Revisar" if (c["excede"] == "Sí" or c["excedePpto"] == "Sí") else "Conforme")),
         ])
     fin_c = FILA0 + nc - 1
     tot_an = ["TOTAL", "", "", "", suma("E", fin_c, t["gastoTotal"]), suma("F", fin_c, t["gastoAnterior"]),
               suma("G", fin_c, sum(c["var"] or 0 for c in cs)), None, "", suma("J", fin_c, sum(c["ppto"] or 0 for c in cs)),
               suma("K", fin_c, sum(c["varPpto"] or 0 for c in cs)), None, "", "", "", suma("P", fin_c, sum(c["muestra"] for c in cs)),
-              fx(f'IF(E{fin_c + 1}=0,"",P{fin_c + 1}/E{fin_c + 1})', sum(c["muestra"] for c in cs) / t["gastoTotal"] if t["gastoTotal"] else None), ""]
+              fx(f'IF(E{fin_c + 1}=0,"",P{fin_c + 1}/E{fin_c + 1})', sum(c["muestra"] for c in cs) / t["gastoTotal"] if t["gastoTotal"] else None), "", ""]
 
     # 04 · Presentación por línea del estado de resultados.
     pres = []
@@ -994,7 +998,8 @@ def hojas(res: dict) -> list[dict]:
               ["Saldo anterior", "n"], ["Variación", "n"], ["Variación %", "p"], ["Excede umbral", "t"], ["Presupuesto", "n"],
               ["Variación vs presupuesto", "n"], ["Variación vs presupuesto %", "p"], ["Excede umbral (presupuesto)", "t"],
               ["Explicación", "t"], ["Variación sin explicar", "t"], ["Muestra examinada", "n"], ["Cobertura de la muestra", "p"],
-              ["Presentada como extraordinaria", "t"]], analisis, tot_an, explica=EXPLICA["03_Analisis_global"]),
+              ["Presentada como extraordinaria", "t"], ["Semáforo", "t"]], analisis, tot_an,
+             explica=EXPLICA["03_Analisis_global"], colores=["Semáforo"]),
         hoja("04_Presentacion_ERI", "Presentación en el estado de resultados",
              [["Línea del estado de resultados", "t"], ["Cuentas", "i"], ["Año actual", "n"], ["Año anterior", "n"], ["Variación", "n"],
               ["% del gasto total", "p"], ["«Extraordinaria» (prohibido)", "t"]], pres, tot_pres, explica=EXPLICA["04_Presentacion_ERI"]),
