@@ -492,6 +492,59 @@ export async function niifGuardarDefinicion(fichaId, definicion, filas, parametr
   return parse(await apiFetch(`${CICLO}/fichas/${fichaId}/definicion`, jsonPost("PUT", { definicion, filas, parametros: parametros || {} })));
 }
 
+// ---- Agente guía «NIIF Piloto» (un solo motor para todas las pruebas) ----
+const PILOTO = `${API_BASE}/api/v1/aud/niif/piloto`;
+
+export async function pilotoPruebas() {
+  return parse(await apiFetch(`${PILOTO}/pruebas`, { headers: authHeaders() }));
+}
+export async function pilotoRequisitos(id) {
+  return parse(await apiFetch(`${PILOTO}/pruebas/${encodeURIComponent(id)}/requisitos`, { headers: authHeaders() }));
+}
+export async function pilotoPlantilla(id) {
+  return parse(await apiFetch(`${PILOTO}/pruebas/${encodeURIComponent(id)}/plantilla`, { headers: authHeaders() }));
+}
+// Ejecuta la prueba y devuelve el resultado + la verificación del Excel (formato=json).
+export async function pilotoEjecutar(id, body) {
+  return parse(
+    await apiFetch(
+      `${PILOTO}/pruebas/${encodeURIComponent(id)}/ejecutar?formato=json`,
+      jsonPost("POST", body),
+      { timeoutMs: 180000 }
+    )
+  );
+}
+// Descarga un formato del papel (xlsx/html/docx/pptx/pdf/zip). Dispara el guardado.
+export async function pilotoDescargarPapel(id, body, formato, nombre) {
+  const res = await apiFetch(
+    `${PILOTO}/pruebas/${encodeURIComponent(id)}/ejecutar?formato=${encodeURIComponent(formato)}`,
+    jsonPost("POST", body),
+    { timeoutMs: 180000 }
+  );
+  if (!res.ok) await parse(res);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nombre || `${id}.${formato}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+// Consola de comunicación por prueba (chat auditable) sobre el ciclo.
+export async function cicloComentarios(pruebaId) {
+  return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/comentarios`, { headers: authHeaders() }));
+}
+export async function cicloComentar(pruebaId, texto, asistente = false) {
+  return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/comentarios`, jsonPost("POST", { texto, asistente }), { timeoutMs: 120000 }));
+}
+// Puente planificación → pruebas del piloto (de una prueba de planificación).
+export async function cicloPruebasSugeridas(pruebaId) {
+  return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/pruebas-sugeridas`, { headers: authHeaders() }, { timeoutMs: 180000 }));
+}
+
 export async function createUser(email, password, role) {
   return parse(
     await apiFetch(`${API_BASE}/api/v1/auth/users`, {
