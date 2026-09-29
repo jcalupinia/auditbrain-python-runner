@@ -512,16 +512,23 @@ function EncargoTrabajo({ proyecto, cliente, herramientaInicial = "" }) {
                 {pruebas.length === 0 ? (
                   <p className="muted">Este encargo todavía no tiene pruebas.</p>
                 ) : (
-                  <ul className="nf-consola-lista">
-                    {pruebas.map((p) => (
-                      <li key={p.id}>
-                        <button type="button" className={abierta === p.id ? "selected" : ""} onClick={() => setAbierta(p.id)}>
-                          <strong>{p.nombre} · v{p.version}</strong>
-                          <small>{nombreEstado(p.estado)} · {ETAPAS[etapaDe(p.estado)]}</small>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+                  // La lista de pruebas ya creadas queda colapsada tras una flecha: al elegir una
+                  // herramienta arriba no estorba, y se despliega solo si el auditor quiere abrir otra.
+                  <details className="nf-registro-colapsado">
+                    <summary>
+                      <strong>Pruebas del encargo</strong> <span className="muted">({pruebas.length}) — ábrelo para ver o abrir otra prueba</span>
+                    </summary>
+                    <ul className="nf-consola-lista">
+                      {pruebas.map((p) => (
+                        <li key={p.id}>
+                          <button type="button" className={abierta === p.id ? "selected" : ""} onClick={() => setAbierta(p.id)}>
+                            <strong>{p.nombre} · v{p.version}</strong>
+                            <small>{nombreEstado(p.estado)} · {ETAPAS[etapaDe(p.estado)]}</small>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
                 )}
               </>
             )}
