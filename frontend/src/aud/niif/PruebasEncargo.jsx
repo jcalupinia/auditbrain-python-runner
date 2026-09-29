@@ -453,6 +453,10 @@ function EncargoTrabajo({ proyecto, cliente, herramientaInicial = "" }) {
     }
   }
 
+  // El gobierno del encargo (independencia, enfoque por ciclo, aceptación) vive con la
+  // planificación: su panel solo aparece cuando el encargo tiene la prueba de planificación.
+  const hayPlanificacion = pruebas.some((p) => p?.definicion?.processor === "planificacion_nia");
+
   return (
     <div className="nf-ciclo">
       <p className="nf-eyebrow">PRUEBAS DEL ENCARGO · {proyecto.name}</p>
@@ -461,13 +465,13 @@ function EncargoTrabajo({ proyecto, cliente, herramientaInicial = "" }) {
       {!cargando && (
         <>
           <FichaEncargo proyecto={proyecto} cliente={cliente} ficha={ficha} onGuardada={setFicha} />
-          {ficha && (
+          {ficha && hayPlanificacion && (
             <details className="nf-rec-panel nf-registro-colapsado">
               <summary>
                 <strong>Registro del encargo</strong> · <span className="nf-ok">automático por política de la firma</span>
-                <small className="muted"> — independencia sin amenazas y ciclos sustantivos por defecto. Ábrelo solo si hay
-                  una amenaza a la independencia, quieres confiar en los controles de un ciclo, o generar la carta de encargo
-                  y los demás documentos.</small>
+                <small className="muted"> — parte de la planificación: independencia sin amenazas y ciclos sustantivos por
+                  defecto. Ábrelo solo si hay una amenaza a la independencia, quieres confiar en los controles de un ciclo,
+                  o generar la carta de encargo y los demás documentos.</small>
               </summary>
               <RegistroEncargo proyecto={proyecto} />
             </details>
