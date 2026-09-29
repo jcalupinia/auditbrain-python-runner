@@ -290,8 +290,9 @@ services:
   - type: web
     name: auditbrain-frontend
     env: static
-    buildCommand: cd frontend && npm ci && npm run build
-    staticPublishPath: frontend/dist
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
     pullRequestPreviewsEnabled: false
     autoDeploy: true
     # Dominio propio de la consola principal (Command Center). Para activarlo:
