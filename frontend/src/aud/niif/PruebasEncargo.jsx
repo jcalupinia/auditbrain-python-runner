@@ -466,9 +466,11 @@ function EncargoTrabajo({ proyecto, cliente, herramientaInicial = "" }) {
     }
   }
 
-  // El gobierno del encargo (independencia, enfoque por ciclo, aceptación) vive con la
-  // planificación: su panel solo aparece cuando el encargo tiene la prueba de planificación.
-  const hayPlanificacion = pruebas.some((p) => p?.definicion?.processor === "planificacion_nia");
+  // El gobierno del encargo (independencia, enfoque por ciclo, aceptación) vive DENTRO de la
+  // planificación: su panel solo aparece cuando la prueba abierta es la de planificación, nunca
+  // en las demás pruebas. La lista trae el `origen` (proc:<id>), no la definición.
+  const pruebaAbierta = pruebas.find((p) => p.id === abierta);
+  const abiertaEsPlanificacion = pruebaAbierta?.origen === "proc:planificacion_nia";
 
   return (
     <div className="nf-ciclo">
@@ -478,7 +480,56 @@ function EncargoTrabajo({ proyecto, cliente, herramientaInicial = "" }) {
       {!cargando && (
         <>
           <FichaEncargo proyecto={proyecto} cliente={cliente} ficha={ficha} onGuardada={setFicha} />
-          {ficha && hayPlanificacion && (
+
+          <section className="nf-rec-panel">
+            <p className="nf-eyebrow">3 · PRUEBAS</p>
+            {/* El selector para crear/escoger otra prueba solo se ve en la lista; al entrar a una
+                prueba (p. ej. Caja y bancos) desaparece para no invitar a saltar a otra. */}
+            {!ficha && <p className="muted">Guarde primero la ficha del encargo.</p>}
+            {ficha && abierta && (
+              <button type="button" className="btn sm" onClick={() => setAbierta(null)}>
+                ← Volver a las pruebas del encargo
+              </button>
+            )}
+            {ficha && !abierta && (
+              <>
+                <div className="nf-rec-row">
+                  <label className="nf-ctx-field" style={{ flex: 1 }}>
+                    Nueva prueba
+                    <select value={origen} onChange={(e) => setOrigen(e.target.value)}>
+                      <option value="">Seleccione la herramienta…</option>
+                      {herramientas.map((h) => (
+                        <option key={h.origen} value={h.origen}>{h.nombre} · {h.tipo}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="nf-ctx-check">
+                    <input type="checkbox" checked={tributario} onChange={(e) => setTributario(e.target.checked)} /> Incluye
+                    tratamiento tributario
+                  </label>
+                  <button type="button" className="btn sm primary" disabled={!origen} onClick={crear}>Crear prueba</button>
+                </div>
+                {pruebas.length === 0 ? (
+                  <p className="muted">Este encargo todavía no tiene pruebas.</p>
+                ) : (
+                  <ul className="nf-consola-lista">
+                    {pruebas.map((p) => (
+                      <li key={p.id}>
+                        <button type="button" className={abierta === p.id ? "selected" : ""} onClick={() => setAbierta(p.id)}>
+                          <strong>{p.nombre} · v{p.version}</strong>
+                          <small>{nombreEstado(p.estado)} · {ETAPAS[etapaDe(p.estado)]}</small>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+          </section>
+
+          {/* Gobierno del encargo (independencia, enfoque por ciclo, aceptación, cartas): SOLO dentro
+              de la planificación. En las demás pruebas (Caja y bancos, etc.) no aparece. */}
+          {abierta && abiertaEsPlanificacion && (
             <details className="nf-rec-panel nf-registro-colapsado">
               <summary>
                 <strong>Registro del encargo</strong> · <span className="nf-ok">automático por política de la firma</span>
@@ -489,44 +540,6 @@ function EncargoTrabajo({ proyecto, cliente, herramientaInicial = "" }) {
               <RegistroEncargo proyecto={proyecto} />
             </details>
           )}
-
-          <section className="nf-rec-panel">
-            <p className="nf-eyebrow">3 · PRUEBAS</p>
-            {ficha ? (
-              <div className="nf-rec-row">
-                <label className="nf-ctx-field" style={{ flex: 1 }}>
-                  Nueva prueba
-                  <select value={origen} onChange={(e) => setOrigen(e.target.value)}>
-                    <option value="">Seleccione la herramienta…</option>
-                    {herramientas.map((h) => (
-                      <option key={h.origen} value={h.origen}>{h.nombre} · {h.tipo}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="nf-ctx-check">
-                  <input type="checkbox" checked={tributario} onChange={(e) => setTributario(e.target.checked)} /> Incluye
-                  tratamiento tributario
-                </label>
-                <button type="button" className="btn sm primary" disabled={!origen} onClick={crear}>Crear prueba</button>
-              </div>
-            ) : (
-              <p className="muted">Guarde primero la ficha del encargo.</p>
-            )}
-            {pruebas.length === 0 ? (
-              <p className="muted">Este encargo todavía no tiene pruebas.</p>
-            ) : (
-              <ul className="nf-consola-lista">
-                {pruebas.map((p) => (
-                  <li key={p.id}>
-                    <button type="button" className={abierta === p.id ? "selected" : ""} onClick={() => setAbierta(abierta === p.id ? null : p.id)}>
-                      <strong>{p.nombre} · v{p.version}</strong>
-                      <small>{nombreEstado(p.estado)} · {ETAPAS[etapaDe(p.estado)]}</small>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
 
           {abierta && <Prueba key={abierta} id={abierta} onCambio={recargar} onAbrir={setAbierta} />}
         </>
