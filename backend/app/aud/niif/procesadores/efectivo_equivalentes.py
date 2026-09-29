@@ -32,6 +32,7 @@ PYMES 2025 (texto oficial en inglés): misma numeración — 4.5 d), 7.2, 7.20, 
 from __future__ import annotations
 
 import calendar
+from collections import Counter
 from datetime import date
 
 from backend.app.aud.niif.procesadores import problemas
@@ -51,6 +52,7 @@ _CUENTAS = [
     campo("nombre", "Banco / caja y número de cuenta", alias=("nombre", "banco", "descripcion", "nombre de la cuenta"),
           ejemplo="Banco Pichincha Cte. ***4521"),
     campo("tipo", "Tipo (Banco, Caja o Inversión)", requerido=False, alias=("tipo", "clase", "tipo de cuenta"), ejemplo="Banco"),
+    campo("moneda", "Moneda", requerido=False, alias=("moneda", "divisa", "currency"), ejemplo="USD"),
     campo("saldo_libros", "Saldo según libros", "number", alias=("saldo libros", "saldo contable", "saldo segun libros", "libros"),
           ejemplo="125680.50"),
     campo("saldo_banco", "Saldo según estado bancario (o arqueo en caja)", "number", False,
@@ -125,7 +127,8 @@ DATASETS = tuple(TIPOS)
 PRINCIPAL = "cuentas"
 CONTROL = "saldo_libros"
 
-PARAMETROS = {"diasAntiguedad": 90, "diasCorte": 5, "mesesEquivalente": 3, "mesesRestriccion": 12, "tolerancia": 0}
+PARAMETROS = {"diasAntiguedad": 90, "diasCorte": 5, "mesesEquivalente": 3, "mesesRestriccion": 12,
+              "tolerancia": 0, "diasPrescripcion": 390}
 PARAM_NEGATIVOS = ()
 ETIQUETAS_PARAM = {
     "diasAntiguedad": "Partida antigua desde (días al corte)",
@@ -133,6 +136,7 @@ ETIQUETAS_PARAM = {
     "mesesEquivalente": "Plazo de un equivalente (meses desde la adquisición)",
     "mesesRestriccion": "Restricción que la hace no corriente (meses tras el cierre)",
     "tolerancia": "Tolerancia de diferencias (USD)",
+    "diasPrescripcion": "Prescripción de una partida (días desde su origen)",
 }
 TOTAL_EJEMPLO = "auditado"
 
@@ -264,6 +268,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     rf = _refs(p)
     tol, dias_ant, dias_corte = p["tolerancia"], p["diasAntiguedad"], p["diasCorte"]
     meses_eq = int(p["mesesEquivalente"])
+    dias_presc = int(p["diasPrescripcion"])
     limite_restr = _edate(corte_a, int(p["mesesRestriccion"]))
 
     cuentas = []
@@ -273,7 +278,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         mr = _opt(f.get("monto_restringido"))
         cuentas.append({
             "id": str(f.get("id", "")).strip(), "nombre": str(f.get("nombre", "") or "").strip() or "(sin nombre)",
-            "tipo": _tipo_cuenta(f.get("tipo")) or BANCO, "libros": num(f.get("saldo_libros")),
+            "tipo": _tipo_cuenta(f.get("tipo")) or BANCO, "moneda": str(f.get("moneda", "") or "").strip().upper(),
+            "libros": num(f.get("saldo_libros")),
             "banco": _opt(f.get("saldo_banco")), "conf": _opt(f.get("saldo_confirmado")),
             "restr": _si(f.get("restringido")) or bool(mr), "monto": mr, "motivo": str(f.get("motivo_restriccion", "") or "").strip(),
             "fin": fecha(f.get("fin_restriccion")), "sep": _si(f.get("presentado_separado")),
@@ -296,6 +302,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         x["depurada"] = lq is not None
         x["existe"] = _clave(x["cuenta"]) in ids
         x["diasPost"] = (lq - corte_a).days if lq else None
+        x["prescribe"] = date.fromordinal(o.toordinal() + dias_presc) if o else None
         if o and o > corte_a:
             x["corte"] = "Registrada después del corte"
         elif lq is None:
@@ -415,6 +422,44 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                                                         "Verifique que el ingreso corresponde al ejercicio (NIA 240 párr. 31 y Anexo 2).", x["importe"]))
         if x["tipo"] == OT:
             pr.append(problema("OTRA_PARTIDA", f"{nom}: partida sin naturaleza definida; requiere investigación.", x["importe"]))
+
+    # Partidas duplicadas (posible doble registro) y recurrentes (venían del mes anterior).
+    # Importe 0: son avisos de calidad del dato, no cifras monetarias (no requieren enlace a celda).
+    conteo = Counter((_clave(x["cuenta"]), x["tipo"], round(x["importe"], 2), x["origen"]) for x in partidas)
+    ya_avisadas = set()
+    for x in partidas:
+        k = (_clave(x["cuenta"]), x["tipo"], round(x["importe"], 2), x["origen"])
+        if conteo[k] > 1 and k not in ya_avisadas:
+            pr.append(problema("PARTIDA_DUPLICADA", f"{x['id']} ({x['tipo']}, cuenta {x['cuenta']}): partida repetida "
+                                                    f"({fmt_m(x['importe'])} en la misma fecha); verifique un posible doble registro.", 0))
+            ya_avisadas.add(k)
+    previas_por_cuenta: dict = {}
+    for a in (datasets.get("conciliacion_anterior") or []):
+        v = a_num(a.get("valor"))
+        if v is not None:
+            previas_por_cuenta.setdefault(_clave(a.get("cuenta")), set()).add(round(v, 2))
+    for x in partidas:
+        if round(x["importe"], 2) in previas_por_cuenta.get(_clave(x["cuenta"]), set()):
+            pr.append(problema("PARTIDA_RECURRENTE", f"{x['id']} ({x['tipo']}, cuenta {x['cuenta']}): {fmt_m(x['importe'])} ya figuraba en "
+                                                     "la conciliación del mes anterior; partida recurrente no depurada.", 0))
+
+    # Integridad entre los datasets auxiliares y el anexo de cuentas (importe 0: son avisos de
+    # ingesta, no cifras monetarias, y no requieren enlace a celda).
+    def _codigos_de(nombre: str) -> list[str]:
+        return [str(f.get("cuenta", "") or "").strip() for f in (datasets.get(nombre) or [])
+                if str(f.get("cuenta", "") or "").strip()]
+    for ds_, cod_, donde in (("estado_cuenta", "ESTADO_SIN_CUENTA", "el estado de cuenta bancario"),
+                             ("libro_mayor", "MAYOR_SIN_CUENTA", "el libro mayor"),
+                             ("conciliacion_anterior", "CONCILIACION_ANTERIOR_SIN_CUENTA", "la conciliación del mes anterior")):
+        for cod in sorted({c for c in _codigos_de(ds_) if _clave(c) not in ids}):
+            pr.append(problema(cod_, f"La cuenta {cod} aparece en {donde} pero no está en el anexo de cuentas de caja y "
+                                     "bancos. Verifique el código o agréguela al anexo.", 0))
+    # Moneda: si el anexo mezcla divisas (los saldos en blanco se asumen USD), avisar; esta
+    # herramienta no convierte monedas.
+    monedas = sorted({(c.get("moneda") or "USD") for c in cuentas})
+    if len(monedas) > 1:
+        pr.append(problema("MONEDA_INCONSISTENTE", f"El anexo mezcla monedas ({', '.join(monedas)}). Confirme la moneda de "
+                                                   "presentación; esta herramienta no convierte divisas.", 0))
 
     iso = lambda d: d.isoformat() if d else ""
     filas = [{"id": c["id"], "nombre": c["nombre"], "tipo": c["tipo"], "saldo_libros": r2(c["libros"]),
@@ -1049,7 +1094,8 @@ def validar_definicion(d: dict) -> dict:
 # --- ejemplo numérico de control (M19) ---------------------------------------------------
 
 def _c(id, nombre, tipo, libros, banco, conf="", **extra):
-    return {"id": id, "nombre": nombre, "tipo": tipo, "saldo_libros": libros, "saldo_banco": banco, "saldo_confirmado": conf, "_row": 2, **extra}
+    return {"id": id, "nombre": nombre, "tipo": tipo, "moneda": "USD", "saldo_libros": libros, "saldo_banco": banco,
+            "saldo_confirmado": conf, "_row": 2, **extra}
 
 
 def _p(id, cuenta, tipo, origen, importe, liq="", ref_=""):

@@ -119,6 +119,59 @@ def _reestructurar(reg: dict, cuentas: list[dict]):
     return partidas
 
 
+def matriz_reproceso(reg: dict):
+    """Reproceso independiente del último mes por cuenta (salida del botón «Reproceso»).
+
+    Para cada cuenta con estado de cuenta (RQ-010): cruza el estado bancario contra el
+    libro mayor (RQ-009) con el motor de matching por niveles, reconstruye el cuadre
+    (saldo extracto ± partidas = saldo s/auditoría vs saldo libros → diferencia) y compara
+    contra la conciliación de la compañía (RQ-002). Determinista, sin IA. Devuelve la
+    matriz de resultados (una fila por cuenta) o ``None`` si no se cargó estado de cuenta.
+    """
+    ds = reg.get("datasets") or {}
+    estado = ds.get("estado_cuenta")
+    if not estado:
+        return None
+    cuentas = _cuentas(reg)
+    corte = (reg.get("engagement") or {}).get("cutoff")
+    mayor = ds.get("libro_mayor") or []
+    previas = ds.get("conciliacion_anterior") or []
+    compania = ds.get("partidas") or []
+    saldos = {str(c["cuenta"]): c for c in cuentas}
+    nombre = {str(c["cuenta"]): c["descripcion"] for c in cuentas}
+    # La caja física se audita por arqueo (DA-5), no por conciliación bancaria: se excluye del reproceso.
+    caja = {str(f.get("id") or f.get("cuenta") or "") for f in (ds.get("cuentas") or [])
+            if str(f.get("tipo") or "").strip().lower().startswith(("caja", "fondo"))}
+    codigos = {str(f.get("cuenta") or "") for f in estado} | {str(f.get("cuenta") or "") for f in mayor}
+    filas = []
+    for cod in sorted(c for c in codigos if c and c not in caja):
+        libro = cr.desde_debito_credito([f for f in mayor if str(f.get("cuenta")) == cod], "libro")
+        extracto = cr.desde_debito_credito([f for f in estado if str(f.get("cuenta")) == cod], "extracto")
+        prev = [{"fecha": p.get("fecha"), "documento": p.get("documento"), "categoria": p.get("categoria"),
+                 "valor": p.get("valor"), "observacion": p.get("observacion")}
+                for p in previas if str(p.get("cuenta")) == cod]
+        r = cr.reestructurar(libro, extracto, corte, banco=nombre.get(cod, cod), partidas_previas=prev)
+        c = saldos.get(cod, {})
+        rec = cr.reconstruir(c.get("extracto") or 0, c.get("saldo_actual") or 0, r["partidas"])
+        # La conciliación de la compañía (RQ-002) usa el vocabulario `tipo`; se traduce a las
+        # categorías del papel para que la comparación sea homogénea.
+        comp = [{"categoria": _TIPO_A_CATEGORIA.get(p.get("tipo") or "", papel.OTRA),
+                 "valor": _num(p.get("importe") if p.get("importe") is not None else p.get("valor"))}
+                for p in compania if str(p.get("cuenta")) == cod]
+        cmp = cr.comparar_con_compania(r["partidas"], comp)
+        filas.append({
+            "cuenta": cod, "banco": nombre.get(cod, cod),
+            "saldo_extracto": rec["saldo_extracto"], "saldo_libros": rec["saldo_libros"],
+            "consignaciones": rec["consignaciones"], "cheques": rec["cheques"],
+            "notas_credito": rec["notas_credito"], "notas_debito": rec["notas_debito"],
+            "saldo_auditoria": rec["saldo_auditoria"], "diferencia": rec["diferencia"], "estado": rec["estado"],
+            "n_partidas_reproceso": len(r["partidas"]), "n_partidas_compania": len(comp),
+            "omitidas_por_la_compania": cmp["total_omitidas"], "adicionales_de_la_compania": cmp["total_adicionales"],
+            "coincidencias": r["resumen"]["coincidencias"], "por_nivel": r["resumen"]["por_nivel"],
+        })
+    return filas
+
+
 def _arqueo(reg: dict):
     """Filas del arqueo de caja (RQ-012) para la cédula DA-5, o None si no se cargó."""
     filas = ((reg.get("datasets") or {}).get("arqueo"))
@@ -167,4 +220,5 @@ def armar_desde_registro(reg: dict) -> bytes:
     arqueo = _arqueo(reg)
     if arqueo is not None:
         entrada["arqueo"] = arqueo   # si no viene, el papel usa su plantilla de denominaciones
+    entrada["dias_prescripcion"] = (reg.get("parameters") or {}).get("diasPrescripcion", 390)
     return papel.construir(entrada)
