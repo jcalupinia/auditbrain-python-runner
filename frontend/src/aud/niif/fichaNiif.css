@@ -573,6 +573,7 @@ a.btn { text-decoration: none; display: inline-block; }
 }
 .nf-ef-estado-badge.ok { background: rgba(52, 211, 106, 0.18); color: #86ecab; border-color: rgba(52, 211, 106, 0.5); }
 .nf-ef-estado-badge.warn { background: rgba(229, 72, 77, 0.16); color: #ff9ea1; border-color: rgba(229, 72, 77, 0.5); }
+.nf-ef-matriz-h { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
 
 /* Los chips de ChipDocumento heredan las clases pc-chip/.nf-req del sitio; aquí
    solo se asegura que se vean sobre el fondo oscuro de la tarjeta. */

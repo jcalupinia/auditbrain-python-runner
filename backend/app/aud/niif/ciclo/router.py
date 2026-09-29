@@ -392,6 +392,25 @@ def reproceso_bancos(prueba_id: int, db: Session = Depends(get_db),
     return {"disponible": True, "matriz": matriz}
 
 
+@router.get("/pruebas/{prueba_id}/reproceso-excel")
+def descargar_reproceso_excel(prueba_id: int, db: Session = Depends(get_db),
+                              user: User = Depends(require_staff)) -> Response:
+    """REPROCESO_CONCILIACION.xlsx: la matriz del reproceso por cuenta (cuadre por fórmula)."""
+    p = _prueba(db, user, prueba_id)
+    if (p.definicion or {}).get("processor") != "efectivo_equivalentes":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            detail="El reproceso de conciliación aplica solo a Efectivo y Equivalentes.")
+    from backend.app.aud.niif.procesadores import caja_bancos_armado
+    contenido = caja_bancos_armado.reproceso_excel(p.registro or {})
+    if contenido is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            detail="Cargue el estado de cuenta bancario (RQ-010) para reprocesar la conciliación.")
+    cliente = ((p.registro or {}).get("engagement") or {}).get("client", "")
+    nombre = f"REPROCESO_CONCILIACION_{cliente}.xlsx".encode("ascii", "replace").decode().replace('"', "_")
+    return Response(contenido, media_type=almacen.TIPOS["xlsx"],
+                    headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+
+
 @router.get("/pruebas/{prueba_id}/libro")
 def descargar_libro(prueba_id: int, formato: str = "xlsx", db: Session = Depends(get_db),
                     user: User = Depends(require_staff)) -> Response:

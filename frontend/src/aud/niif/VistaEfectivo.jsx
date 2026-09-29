@@ -52,7 +52,7 @@ function IconoDoc() {
 }
 
 // Matriz del reproceso de la conciliación del último mes (endpoint /reproceso).
-function MatrizReproceso({ datos }) {
+function MatrizReproceso({ datos, onDescargar }) {
   if (!datos) return null;
   if (!datos.disponible) return <p className="nf-ef-aviso">{datos.motivo}</p>;
   const filas = datos.matriz || [];
@@ -69,7 +69,10 @@ function MatrizReproceso({ datos }) {
   ];
   return (
     <div className="nf-ef-matriz">
-      <p className="nf-ef-eyebrow">REPROCESO DE CONCILIACIÓN — ÚLTIMO MES</p>
+      <div className="nf-ef-matriz-h">
+        <p className="nf-ef-eyebrow">REPROCESO DE CONCILIACIÓN — ÚLTIMO MES</p>
+        <button type="button" className="nf-ef-btn" onClick={onDescargar}>↓ REPROCESO_CONCILIACION.xlsx</button>
+      </div>
       <div className="nf-ef-scroll">
         <table>
           <thead>
@@ -165,6 +168,14 @@ export default function VistaEfectivo({ prueba, onAccion, onRecargar, ocupado })
   async function bajarModelo(reqId) {
     try {
       descargar(`Modelo_${reqId}.xlsx`, await api.cicloBajarModelo(prueba.id, reqId), XLSX);
+    } catch (e) {
+      setError(e.message || String(e));
+    }
+  }
+
+  async function descargarReprocesoExcel() {
+    try {
+      descargar("REPROCESO_CONCILIACION.xlsx", await api.cicloReprocesoExcel(prueba.id), XLSX);
     } catch (e) {
       setError(e.message || String(e));
     }
@@ -335,7 +346,7 @@ export default function VistaEfectivo({ prueba, onAccion, onRecargar, ocupado })
               ← Volver a los pasos
             </button>
           </div>
-          {reproceso && <MatrizReproceso datos={reproceso} />}
+          {reproceso && <MatrizReproceso datos={reproceso} onDescargar={descargarReprocesoExcel} />}
           <VistaTrabajo prueba={prueba} onAccion={onAccion} onRecargar={onRecargar} ocupado={ocupado} />
         </section>
       )}

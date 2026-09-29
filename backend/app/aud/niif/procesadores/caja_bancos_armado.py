@@ -172,6 +172,62 @@ def matriz_reproceso(reg: dict):
     return filas
 
 
+def reproceso_excel(reg: dict) -> bytes | None:
+    """REPROCESO_CONCILIACION.xlsx: la matriz del reproceso por cuenta en Excel.
+
+    El saldo s/auditoría y la diferencia van como FÓRMULA (regla de la firma: las cifras
+    calculadas no se pegan); las columnas del reproceso (extracto, partidas por categoría,
+    conteos) son las entradas que produjo el matching. Devuelve None si no hay estado de cuenta.
+    """
+    matriz = matriz_reproceso(reg)
+    if matriz is None:
+        return None
+    import io
+    import openpyxl
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Reproceso"
+    eng = reg.get("engagement") or {}
+    ws["A1"] = "REPROCESO DE CONCILIACIÓN BANCARIA — ÚLTIMO MES"
+    ws["A1"].font = Font(bold=True, size=13, color="0A2342")
+    ws["A2"] = f"Cliente: {eng.get('client', '')}    Corte: {eng.get('cutoff', '')}"
+    cols = ["Banco", "Saldo extracto", "(+) Consignaciones", "(−) Cheques", "(+) Notas crédito",
+            "(−) Notas débito", "Saldo s/auditoría", "Saldo libros", "Diferencia", "Estado",
+            "Coincidencias", "Partidas reproceso", "Partidas compañía", "Omitidas", "Adicionales"]
+    hdr = 4
+    fill = PatternFill("solid", fgColor="0A2342")
+    for c, t in enumerate(cols, 1):
+        cell = ws.cell(hdr, c, t)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = fill
+        cell.alignment = Alignment(horizontal="center", wrap_text=True, vertical="center")
+    money = "#,##0.00"
+    for i, f in enumerate(matriz):
+        r = hdr + 1 + i
+        ws.cell(r, 1, f["banco"])
+        for c, k in ((2, "saldo_extracto"), (3, "consignaciones"), (4, "cheques"),
+                     (5, "notas_credito"), (6, "notas_debito"), (8, "saldo_libros")):
+            ws.cell(r, c, f[k]).number_format = money
+        # Saldo s/auditoría (H) y Diferencia (J) como fórmula viva.
+        ws.cell(r, 7, f"=C{r}+D{r}-E{r}+F{r}-G{r}").number_format = money
+        ws.cell(r, 9, f"=H{r}-I{r}").number_format = money
+        est = ws.cell(r, 10, f["estado"])
+        est.font = Font(bold=True, color=("1B7A43" if str(f["estado"]).startswith("CONCILIADA") else "B54708"))
+        for c, k in ((11, "coincidencias"), (12, "n_partidas_reproceso"), (13, "n_partidas_compania"),
+                     (14, "omitidas_por_la_compania"), (15, "adicionales_de_la_compania")):
+            ws.cell(r, c, f[k]).alignment = Alignment(horizontal="center")
+    for col, w in zip("ABCDEFGHIJKLMNO", (26, 13, 15, 12, 14, 13, 14, 13, 12, 22, 12, 13, 13, 10, 11)):
+        ws.column_dimensions[col].width = w
+    ws.freeze_panes = "A5"
+    ws.sheet_view.showGridLines = False
+    wb.calculation.fullCalcOnLoad = True
+    salida = io.BytesIO()
+    wb.save(salida)
+    return salida.getvalue()
+
+
 def _arqueo(reg: dict):
     """Filas del arqueo de caja (RQ-012) para la cédula DA-5, o None si no se cargó."""
     filas = ((reg.get("datasets") or {}).get("arqueo"))
