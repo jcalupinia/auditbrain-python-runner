@@ -225,6 +225,62 @@ def test_validar_filas():
     assert m.validar_filas("bajas", [{"id": "B1", "fecha_baja": "31/08/2025", "producto_neto": "130.000,00", "importe_libros": "110000", "_row": 2}])["ok"]
 
 
+def test_semaforo_medicion():
+    """La cédula 08 lleva un Semáforo coloreable por inmueble sobre el ajuste propuesto."""
+    from backend.app.aud.niif.procesadores import base
+    h = next(x for x in m.hojas(_run()) if x["name"] == "08_Medicion")
+    assert "Semáforo" in [c[0] for c in h["cols"]] and h.get("colores") == ["Semáforo"]
+    j = [c[0] for c in h["cols"]].index("Semáforo")
+    valores = {f[j]["v"] for f in h["rows"]}
+    assert valores <= {"Alerta", "Conforme"} and "Alerta" in valores
+    assert all(base.rol_color(h, "Semáforo", f[j]) in ("alta", "baja") for f in h["rows"])
+    assert h["total"][j] == ""
+
+
+def test_conclusion():
+    """La cédula 15 lleva indicadores clave con importes en fórmula y un «Estado» coloreable."""
+    from backend.app.aud.niif.procesadores import base
+    h = next(x for x in m.hojas(_run()) if x["name"] == "15_Conclusion")
+    cols = [c[0] for c in h["cols"]]
+    assert cols[0] == "Indicador" and "Estado" in cols and h.get("colores") == ["Estado"]
+    est, imp = cols.index("Estado"), cols.index("Importe")
+    importes = [f[imp] for f in h["rows"] if isinstance(f[imp], dict)]
+    assert importes and all("f" in f for f in importes)              # cada importe es fórmula, nada pegado
+    estados = [f[est] for f in h["rows"] if isinstance(f[est], dict)]
+    valores = {f["v"] for f in estados}
+    assert valores and valores <= {"Alerta", "Revisar", "Conforme"} and valores <= set(base.NIVEL_COLOR)
+    assert all(base.rol_color(h, "Estado", f) in ("alta", "media", "baja") for f in estados)
+
+
+def test_estilos_sumaria_conciliacion():
+    """La cédula 13 (Sumaria y conciliación) lleva estilos de cédula sumaria: una entrada por fila de datos,
+    con los subtotales del puente como total y las diferencias de cuadre como control."""
+    from backend.app.aud.niif.procesadores import base
+    h = next(x for x in m.hojas(_run()) if x["name"] == "13_Conciliacion")
+    est = h["estilos"]
+    assert len(est) == len(h["rows"])                                # exactamente una entrada por fila de datos
+    tipos = {e["tipo"] for e in est if e}
+    assert tipos <= {"titulo", "total", "control"}                   # solo tipos válidos
+    assert "total" in tipos and "control" in tipos
+    conceptos = [f[0] for f in h["rows"]]
+    total_puente = conceptos.index("Propiedades de inversión auditadas (puente desde el detalle)")
+    cuadre = conceptos.index("Diferencia de control (debe ser 0)")
+    assert base.estilo_fila(h, total_puente).get("tipo") == "total"
+    assert base.estilo_fila(h, cuadre).get("tipo") == "control"
+
+
+def test_lectura():
+    """La cédula 16 lee el resultado y los hallazgos materiales con su cifra embebida por fórmula (FIXED)."""
+    h = next(x for x in m.hojas(_run()) if x["name"] == "16_Lectura")
+    assert h["label"] == "Lectura de resultados"
+    assert [c[0] for c in h["cols"]] == ["Concepto", "Detalle"]
+    assert 3 <= len(h["rows"]) <= 5 and not h.get("total") and not h.get("colores")
+    det = [f[1] for f in h["rows"]]
+    assert all(isinstance(d, dict) and "f" in d for d in det)       # cada Detalle es fórmula, nada pegado
+    assert all("FIXED(" in d["f"] for d in det)                     # la cifra va embebida con FIXED
+    assert "Detalle" in h["explica"] and len(h["explica"]["Detalle"]) >= 40
+
+
 def test_hojas_y_definicion():
     res = _run()
     hs = m.hojas(res)

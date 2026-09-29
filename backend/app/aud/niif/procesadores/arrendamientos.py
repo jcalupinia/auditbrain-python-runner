@@ -637,6 +637,7 @@ CEDULAS = [
     ("13_Venta_arr_posterior", "Venta con arrendamiento posterior: medición inicial"),
     ("14_Venta_medicion_post", "Venta con arrendamiento posterior: medición posterior"),
     ("15_Conciliacion", "Conciliación y ajuste"), ("16_Problemas", "Problemas encontrados"),
+    ("17_Conclusion", "Indicadores y conclusión"), ("18_Lectura", "Lectura de resultados"),
 ]
 P = ref("02_Parametros")
 CT, ID, PL, MI, PG, RE, TA, PC, DU, GL, VA = (ref(n) for n in ("03_Contratos", "04_Identificacion", "05_Plazo", "06_Medicion_inicial",
@@ -898,6 +899,8 @@ _EX_COMUN = {
         "Depreciación del ejercicio": "Trae la depreciación del ejercicio de la hoja 11; en los contratos que no se reconocen es 0.",
         "Interés del ejercicio": "Trae el interés del ejercicio de la hoja 10 (Pasivo al corte); en los contratos que no se reconocen es 0.",
         "Pasivo corriente": "Trae la parte corriente del pasivo de la hoja 10 (Pasivo al corte); en los contratos que no se reconocen es 0.",
+        "Semáforo": ("Estado del contrato: «Alerta» si el ajuste del pasivo o el del activo no es cero (hay diferencia frente a lo "
+                     "registrado que debe investigarse), «Conforme» si ambos cuadran."),
     },
 }
 _EX_COMPLETAS = {
@@ -1018,6 +1021,13 @@ PANEL = {
     "registrado": {"rotulo": "Pasivo registrado", "total": "pasivoRegistrado"},
     "composicion": {"rotulo": "Pasivo recalculado por contrato", "hoja": "15_Conciliacion", "etiqueta": "Contrato", "valor": "Pasivo recalculado"},
     "distribucion": {"rotulo": "Pasivo inicial por contrato", "hoja": "06_Medicion_inicial", "etiqueta": "Contrato", "valor": "Pasivo inicial"},
+    # Tablero premium (columnas): indicadores fijos de la conclusión (17), serie «Importe» en USD.
+    "tableros": [
+        {"rotulo": "Pasivo por arrendamiento: recalculado frente a registrado", "sub": "USD · pasivo recalculado frente al registrado, por contrato.",
+         "unidad": "USD", "hoja": "15_Conciliacion", "etiqueta": "Contrato", "seccion": "Arrendamientos (NIIF 16 · Secc. 20)",
+         "series": [["Pasivo recalculado", "Pasivo recalculado"], ["Pasivo registrado", "Pasivo registrado"]],
+         "filas": ["C-01", "C-02", "C-03", "C-04", "C-05", "C-06", "C-07", "C-08", "C-09", "C-10", "C-11"]},
+    ],
 }
 
 # --- origen del importe de cada problema (ver procesadores/problemas.py) --------------
@@ -1071,6 +1081,19 @@ REF_PROBLEMAS = {
     "VENTA_GANANCIA_POSTERIOR": _por_contrato("14_Venta_medicion_post",
                                               "Control 102A: ganancia sobre el derecho de uso conservado (0)"),  # debe ser 0 (102A)
     "VENTA_GANANCIA": _por_contrato("13_Venta_arr_posterior", "Diferencia"),            # ganancia a reconocer − registrada
+}
+
+
+_EX_CONCLUSION = {
+    "Importe": ("Trae la cifra de cada indicador de la hoja que la calcula: el pasivo recalculado, el registrado y los ajustes al pasivo y al "
+                "activo salen del total de la hoja 15 (Conciliación y ajuste) y el deterioro suma la columna de la hoja 11 (Depreciación y "
+                "deterioro del activo)."),
+    "Porcentaje": ("Divide el ajuste propuesto al pasivo para el pasivo registrado (ambos de esta misma hoja): mide qué tan material es el "
+                   "ajuste frente al saldo del mayor. Queda en blanco si el pasivo registrado es cero."),
+    "Cantidad": "Cuenta los problemas detectados en la hoja 16 (Problemas encontrados) contando los códigos que se listaron.",
+    "Estado": ("Semáforo del indicador: «Alerta» cuando hay un ajuste al pasivo o al activo o un deterioro que corregir, «Revisar» cuando hay "
+               "problemas por atender y «Conforme» cuando el indicador no exige acción. En blanco en las filas solo informativas (pasivo "
+               "recalculado, pasivo registrado y porcentaje)."),
 }
 
 
@@ -1279,7 +1302,9 @@ def hojas(res: dict) -> list[dict]:
         conc.append([c["id"], fx(f"{PC}G{r}", c["pasivo"]), fx(f"{PC}Q{r}", c["pasivo_reg"]), fx(f"B{r}-C{r}", c["pasivo"] - c["pasivo_reg"]),
                      fx(f"{DU}O{r}", c["neto"]), fx(f"{DU}P{r}", c["activo_reg"]), fx(f"E{r}-F{r}", c["neto"] - c["activo_reg"]),
                      fx(f"{DU}K{r}" if c["reconoce"] == "Sí" else "0", c["dep"]),
-                     fx(f"{PC}J{r}" if c["reconoce"] == "Sí" else "0", c["interes"]), fx(f"{PC}O{r}" if c["reconoce"] == "Sí" else "0", c["cp"])])
+                     fx(f"{PC}J{r}" if c["reconoce"] == "Sí" else "0", c["interes"]), fx(f"{PC}O{r}" if c["reconoce"] == "Sí" else "0", c["cp"]),
+                     fx(f'IF(OR(ABS(D{r})>=0.005,ABS(G{r})>=0.005),"Alerta","Conforme")',
+                        "Alerta" if (abs(c["pasivo"] - c["pasivo_reg"]) >= 0.005 or abs(c["neto"] - c["activo_reg"]) >= 0.005) else "Conforme")])
 
     # 08 · tabla de amortización
     fila_c = {c["id"]: FILA0 + i for i, c in enumerate(cs)}
@@ -1313,6 +1338,48 @@ def hojas(res: dict) -> list[dict]:
                "gastoLineal": f"SUM({GL}F{FILA0}:F{fin})", "gastoVariable": f"SUM({PG}L{FILA0}:L{fin})",
                "remedicion": f"SUM({RE}L{FILA0}:L{fin})"}
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
+
+    # 17 · indicadores y conclusión (con semáforo por indicador).
+    nprob = len(res["exceptions"])
+    PBL = ref("16_Problemas")
+    bc = lambda kk: f"B{FILA0 + kk}"
+    rc = lambda kk: FILA0 + kk
+    conclusion = [
+        ["Pasivo por arrendamiento recalculado", fx(f"{CO}B{tot}", t["pasivo"]), None, None, ""],
+        ["Pasivo por arrendamiento registrado (mayor)", fx(f"{CO}C{tot}", t["pasivoRegistrado"]), None, None, ""],
+        ["Ajuste propuesto al pasivo", fx(f"{CO}D{tot}", t["ajuste"]), None, None,
+         fx(f'IF(ABS(B{rc(2)})>0.005,"Alerta","Conforme")', "Alerta" if abs(t["ajuste"]) > 0.005 else "Conforme")],
+        ["Ajuste propuesto al activo (derecho de uso)", fx(f"{CO}G{tot}", t["ajusteActivo"]), None, None,
+         fx(f'IF(ABS(B{rc(3)})>0.005,"Alerta","Conforme")', "Alerta" if abs(t["ajusteActivo"]) > 0.005 else "Conforme")],
+        ["% del ajuste del pasivo sobre el registrado", None,
+         fx(f'IF({bc(1)}=0,"",{bc(2)}/{bc(1)})', None if t["pasivoRegistrado"] == 0 else t["ajuste"] / t["pasivoRegistrado"]), None, ""],
+        ["Deterioro del activo", fx(f"SUM({DU}N{FILA0}:N{fin})", t["deterioro"]), None, None,
+         fx(f'IF(B{rc(5)}>0.005,"Alerta","Conforme")', "Alerta" if t["deterioro"] > 0.005 else "Conforme")],
+        ["Problemas detectados", None, None, fx(f"COUNTA({PBL}A{FILA0}:A{FILA0 + max(nprob, 1) - 1})", nprob),
+         fx(f'IF(D{rc(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+    ]
+
+    # 18 · lectura causa-efecto: el resultado y las variaciones materiales con su cifra embebida (FIXED
+    # respeta los separadores del equipo; el valor de Python va con los del Ecuador, como hace m()).
+    RES = ref("01_Resumen")
+    rl = lambda k: f"{RES}$B${fila_res[k]}"
+    lectura = [
+        ["Resultado principal",
+         fx(f'"El pasivo por arrendamiento recalculado asciende a US$ "&FIXED({rl("pasivo")},2)&" frente a US$ "&FIXED({rl("pasivoRegistrado")},2)&" registrado en el mayor."',
+            f'El pasivo por arrendamiento recalculado asciende a US$ {_m(t["pasivo"])} frente a US$ {_m(t["pasivoRegistrado"])} registrado en el mayor.')],
+        ["Ajuste y su efecto",
+         fx(f'"El ajuste propuesto al pasivo es de US$ "&FIXED({rl("ajuste")},2)&" y el ajuste al activo (derecho de uso) es de US$ "&FIXED({rl("ajusteActivo")},2)&"."',
+            f'El ajuste propuesto al pasivo es de US$ {_m(t["ajuste"])} y el ajuste al activo (derecho de uso) es de US$ {_m(t["ajusteActivo"])}.')],
+        ["Depreciación e interés (hallazgo material)",
+         fx(f'"La depreciación del ejercicio suma US$ "&FIXED({rl("depreciacion")},2)&" y el interés del ejercicio US$ "&FIXED({rl("intereses")},2)&"."',
+            f'La depreciación del ejercicio suma US$ {_m(t["depreciacion"])} y el interés del ejercicio US$ {_m(t["intereses"])}.')],
+        ["Deterioro y remedición (hallazgo material)",
+         fx(f'"El deterioro del activo asciende a US$ "&FIXED({rl("deterioro")},2)&" y la remedición del pasivo a US$ "&FIXED({rl("remedicion")},2)&"."',
+            f'El deterioro del activo asciende a US$ {_m(t["deterioro"])} y la remedición del pasivo a US$ {_m(t["remedicion"])}.')],
+        ["Cierre",
+         fx(f'"El pasivo recalculado se compone de US$ "&FIXED({rl("corriente")},2)&" corriente y US$ "&FIXED({rl("noCorriente")},2)&" no corriente."',
+            f'El pasivo recalculado se compone de US$ {_m(t["corriente"])} corriente y US$ {_m(t["noCorriente"])} no corriente.')],
+    ]
 
     n_ = "n"
     cols_ident = ([["Contrato", "t"], ["Activo", "t"], ["Plazo (meses)", "i"], ["Vida útil (meses)", "i"], ["Plazo / vida útil", "p"],
@@ -1403,11 +1470,19 @@ def hojas(res: dict) -> list[dict]:
               None, None, S("P", sum(c["ganancia_post_reg"] or 0 for c in cs if c["venta_posterior"] == "Sí"))], explica=_explica("14_Venta_medicion_post", pymes)),
         hoja("15_Conciliacion", "Conciliación y ajuste",
              [["Contrato", "t"], ["Pasivo recalculado", n_], ["Pasivo registrado", n_], ["Ajuste pasivo", n_], ["Activo recalculado", n_],
-              ["Activo registrado", n_], ["Ajuste activo", n_], ["Depreciación del ejercicio", n_], ["Interés del ejercicio", n_], ["Pasivo corriente", n_]],
+              ["Activo registrado", n_], ["Ajuste activo", n_], ["Depreciación del ejercicio", n_], ["Interés del ejercicio", n_], ["Pasivo corriente", n_],
+              ["Semáforo", "t"]],
              conc, ["TOTAL", S("B", t["pasivo"]), S("C", t["pasivoRegistrado"]), S("D", t["ajuste"]), S("E", t["activo"]),
-                    S("F", t["activoRegistrado"]), S("G", t["ajusteActivo"]), S("H", t["depreciacion"]), S("I", t["intereses"]), S("J", t["corriente"])], explica=_explica("15_Conciliacion", pymes)),
+                    S("F", t["activoRegistrado"]), S("G", t["ajusteActivo"]), S("H", t["depreciacion"]), S("I", t["intereses"]), S("J", t["corriente"]), ""],
+             explica=_explica("15_Conciliacion", pymes), colores=["Semáforo"]),
         hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("17_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", n_], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
+             explica=_EX_CONCLUSION, colores=["Estado"]),
+        hoja("18_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura,
+             explica={"Detalle": "Lee el resultado del rubro y las variaciones o hallazgos materiales con su cifra "
+                                 "tomada del Resumen (hoja 01), redactados como causa-efecto para el lector del papel."}),
     ]
 
 

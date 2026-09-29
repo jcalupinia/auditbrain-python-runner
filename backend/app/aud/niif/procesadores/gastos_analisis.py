@@ -124,6 +124,7 @@ CEDULAS = [
     ("11_RP_Integridad", "Integridad de la revelación de partes relacionadas"),
     ("12_Inusuales", "Partidas inusuales"), ("13_Tributario", "Referencia tributaria (Ecuador)"),
     ("14_Ajustes", "Ajustes y conciliación"), ("15_Asientos", "Asientos propuestos"), ("16_Problemas", "Problemas encontrados"),
+    ("17_Conclusion", "Indicadores y conclusión"), ("18_Lectura", "Lectura de resultados"),
 ]
 
 _SI = {"si", "s", "x", "yes", "y", "1", "true", "verdadero"}
@@ -466,9 +467,9 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
 # --- cédulas con fórmulas ---------------------------------------------------------
 
 P = ref("02_Parametros")
-CTA, TRX, VOU, COR, DEV, REC, RPS, RPI, INU, TRI, AJ = (ref(n) for n in (
+CTA, TRX, VOU, COR, DEV, REC, RPS, RPI, INU, TRI, AJ, PRB = (ref(n) for n in (
     "03_Analisis_global", "05_Transacciones", "06_Vouching", "07_Corte", "08_Devengo", "09_Reclasificaciones",
-    "10_Partes_relacionadas", "11_RP_Integridad", "12_Inusuales", "13_Tributario", "14_Ajustes"))
+    "10_Partes_relacionadas", "11_RP_Integridad", "12_Inusuales", "13_Tributario", "14_Ajustes", "16_Problemas"))
 _PAR = ["corte", "marco", "metodoEri", "requisito", "umbralVarPct", "umbralVarAbs", "materialidadEjecucion", "umbralAbs",
         "umbralBancarizacion", "gastosSegunEri", "rpRevelado", "rpEvidencia"]
 PAR = {k: FILA0 + i for i, k in enumerate(_PAR)}
@@ -517,6 +518,8 @@ EXPLICA = {
                               "registradas en esta cuenta y dentro del ejercicio."),
         "Cobertura de la muestra": ("Divide la muestra examinada para el saldo actual de la cuenta: indica qué parte del "
                                     "gasto se revisó con documentos; en blanco si el saldo es cero."),
+        "Semáforo": ("Estado de la cuenta: «Alerta» si la variación excede el umbral y no tiene explicación (exceso de gasto sin "
+                     "justificar), «Revisar» si excede el umbral pero está explicada, «Conforme» si la variación está dentro del umbral."),
         "Presentada como extraordinaria": ("Marca «Sí» si el nombre de la cuenta o su línea del estado de resultados "
                                            "contiene la palabra «extraordinario/a»; en otro caso, «No»."),
     },
@@ -630,6 +633,18 @@ EXPLICA = {
         "Haber": ("Trae el mismo importe del ajuste de la hoja 14 (Ajustes y conciliación) o de la hoja 09 "
                   "(Reclasificaciones) para la cuenta que se acredita, de modo que el asiento cuadra."),
     },
+    "17_Conclusion": {
+        "Importe": ("Cada indicador toma su cifra de la hoja 14 (Ajustes y conciliación): el gasto de la sumaria, el ajuste "
+                    "neto propuesto, los gastos no soportados, las partes relacionadas no reveladas y el importe no "
+                    "deducible, sin volver a calcularlos aquí."),
+        "Porcentaje": ("Divide el ajuste propuesto para el gasto de la sumaria (renglones de esta misma hoja): es el peso del "
+                       "ajuste sobre el gasto del año; en blanco si la sumaria es cero."),
+        "Cantidad": ("Cuenta los problemas listados en la hoja 16 (Problemas encontrados): cuántas excepciones dejó abiertas "
+                     "la prueba de gastos."),
+        "Estado": ("Semáforo de cada indicador: el ajuste marca «Alerta» si supera la materialidad de ejecución de la hoja 02 "
+                   "y «Revisar» si solo pasa el mínimo; los gastos no soportados y las partes relacionadas no reveladas dan "
+                   "alerta, y el importe no deducible o los problemas abiertos piden revisión."),
+    },
 }
 
 # Panel del dashboard (formato en graficos.py): la población es el gasto de la sumaria; el auditor recalcula por días
@@ -644,6 +659,15 @@ PANEL = {
                     "valor": "Gasto del período"},
     "distribucion": {"rotulo": "Gasto por línea del ERI", "hoja": "04_Presentacion_ERI",
                      "etiqueta": "Línea del estado de resultados", "valor": "Año actual"},
+    # Tablero: integridad del gasto (NIA 500), conceptos de rótulo fijo de la conciliación (14), gasto según la sumaria
+    # frente al del estado de resultados / mayor. Las cuentas y las líneas del ERI son categorías del cliente (variables),
+    # por eso el tablero se apoya en los dos conceptos fijos de la cédula de conciliación.
+    "tableros": [
+        {"rotulo": "Gasto por línea del estado de resultados: actual frente al anterior", "sub": "USD · gasto del año actual frente al anterior, por línea del estado de resultados.",
+         "unidad": "USD", "hoja": "04_Presentacion_ERI", "etiqueta": "Línea del estado de resultados", "seccion": "Integridad del gasto",
+         "filas": ["Costo de ventas", "Gastos de administración", "Gastos de ventas", "Gastos financieros", "Gastos extraordinarios"],
+         "series": [["Año actual", "Año actual"], ["Año anterior", "Año anterior"]]},
+    ],
 }
 
 
@@ -793,12 +817,14 @@ def hojas(res: dict) -> list[dict]:
             fx(f'SUMIFS({_rng(TRX, "F", nt)},{_rng(TRX, "G", nt)},A{r},{_rng(TRX, "P", nt)},"Sí")' if nt else "0", n2(c["muestra"])),
             fx(f'IF(E{r}=0,"",P{r}/E{r})', c["cobertura"]),
             fx(f'IF(OR(ISNUMBER(SEARCH("extraordinari",B{r})),ISNUMBER(SEARCH("extraordinari",C{r}))),"Sí","No")', c["extra"]),
+            fx(f'IF(O{r}="Sí","Alerta",IF(OR(I{r}="Sí",M{r}="Sí"),"Revisar","Conforme"))',
+               "Alerta" if c["sinExplicar"] == "Sí" else ("Revisar" if (c["excede"] == "Sí" or c["excedePpto"] == "Sí") else "Conforme")),
         ])
     fin_c = FILA0 + nc - 1
     tot_an = ["TOTAL", "", "", "", suma("E", fin_c, t["gastoTotal"]), suma("F", fin_c, t["gastoAnterior"]),
               suma("G", fin_c, sum(c["var"] or 0 for c in cs)), None, "", suma("J", fin_c, sum(c["ppto"] or 0 for c in cs)),
               suma("K", fin_c, sum(c["varPpto"] or 0 for c in cs)), None, "", "", "", suma("P", fin_c, sum(c["muestra"] for c in cs)),
-              fx(f'IF(E{fin_c + 1}=0,"",P{fin_c + 1}/E{fin_c + 1})', sum(c["muestra"] for c in cs) / t["gastoTotal"] if t["gastoTotal"] else None), ""]
+              fx(f'IF(E{fin_c + 1}=0,"",P{fin_c + 1}/E{fin_c + 1})', sum(c["muestra"] for c in cs) / t["gastoTotal"] if t["gastoTotal"] else None), "", ""]
 
     # 04 · Presentación por línea del estado de resultados.
     pres = []
@@ -986,6 +1012,69 @@ def hojas(res: dict) -> list[dict]:
                "rpNoReveladaMarcada": f"{RPI}H{trp}", "inusuales": ajb("inus"), "noDeducible": ajb("noDed"), "difConciliacion": ajb("difConc")}
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
 
+    # 17 · indicadores y conclusión (semáforo).  Columnas: indicador, importe, porcentaje, cantidad, estado.
+    nprob = len(res["exceptions"])
+    matc = _pb("materialidadEjecucion")
+    mat_v = d["mat"]
+    b17 = lambda kk: f"B{FILA0 + kk}"
+    dd17 = lambda kk: f"D{FILA0 + kk}"
+    aj_v, nsop_v, rpnr_v, ndd_v = t["ajusteGasto"], t["noSoportado"], t["rpNoReveladas"], t["noDeducible"]
+    con17 = [
+        ["Gasto del año según la sumaria (población)", fx(ajb("sumaria"), t["gastoTotal"]), None, None, ""],
+        ["Ajuste propuesto al gasto (neto; NIC 1 · PYMES Secc. 5)", fx(ajb("ajuste"), t["ajusteGasto"]), None, None,
+         fx(f'IF(AND({matc}<>"",ABS({b17(1)})>{matc}),"Alerta",IF(ABS({b17(1)})>0.005,"Revisar","Conforme"))',
+            "Alerta" if (mat_v is not None and abs(aj_v) > mat_v) else ("Revisar" if abs(aj_v) > 0.005 else "Conforme"))],
+        ["% del ajuste sobre el gasto de la sumaria", None, fx(f'IF({b17(0)}=0,"",{b17(1)}/{b17(0)})',
+         None if t["gastoTotal"] == 0 else t["ajusteGasto"] / t["gastoTotal"]), None, ""],
+        ["Gastos no soportados (NIA 500)", fx(ajb("noSop"), t["noSoportado"]), None, None,
+         fx(f'IF(ABS({b17(3)})>0.005,"Alerta","Conforme")', "Alerta" if abs(nsop_v) > 0.005 else "Conforme")],
+        ["Partes relacionadas no reveladas (NIC 24 · PYMES Secc. 33)", fx(ajb("rpNr"), t["rpNoReveladas"]), None, None,
+         fx(f'IF(ABS({b17(4)})>0.005,"Alerta","Conforme")', "Alerta" if abs(rpnr_v) > 0.005 else "Conforme")],
+        ["No deducible (referencia tributaria)", fx(ajb("noDed"), t["noDeducible"]), None, None,
+         fx(f'IF(ABS({b17(5)})>0.005,"Revisar","Conforme")', "Revisar" if abs(ndd_v) > 0.005 else "Conforme")],
+        ["Problemas encontrados (cantidad)", None, None, fx(f"COUNTA({_rng(PRB, 'A', nprob)})", nprob),
+         fx(f'IF({dd17(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+        ["Conclusión: el gasto se reconoce por devengo con soporte suficiente (NIC 1; PYMES Secc. 2 y 5); esta prueba no "
+         "concluye por sí sola el cumplimiento de las NIIF ni la deducibilidad tributaria.", None, None, None, ""],
+    ]
+
+    # 18 · lectura causa-efecto: cada frase lee el resultado con su cifra embebida (FIXED) desde el Resumen (hoja 01).
+    R1 = ref("01_Resumen")
+    fr = {k: FILA0 + i for i, k in enumerate(res["labels"])}
+    rc = lambda key: f"{R1}B{fr[key]}"
+    lectura = [
+        ["Resultado de la prueba",
+         fx(f'"Los gastos según la sumaria del año actual suman US$ "&FIXED({rc("gastoTotal")},2)&", frente a US$ "&'
+            f'FIXED({rc("gastoAnterior")},2)&" del año anterior (análisis global NIA 520)."',
+            f'Los gastos según la sumaria del año actual suman US$ {m(t["gastoTotal"])}, frente a US$ {m(t["gastoAnterior"])} '
+            f'del año anterior (análisis global NIA 520).')],
+        ["Ajuste propuesto y su efecto",
+         fx(f'"El ajuste propuesto al gasto es de US$ "&FIXED({rc("ajusteGasto")},2)&": "&'
+            f'IF({rc("ajusteGasto")}>=0,"aumenta el gasto del ejercicio.","reduce el gasto registrado.")',
+            f'El ajuste propuesto al gasto es de US$ {m(t["ajusteGasto"])}: '
+            + ("aumenta el gasto del ejercicio." if t["ajusteGasto"] >= 0 else "reduce el gasto registrado."))],
+        ["Corte y devengo",
+         fx(f'"Hay US$ "&FIXED({rc("devengadoNoRegistrado")},2)&" de gastos devengados no registrados y US$ "&'
+            f'FIXED({rc("anticipado")},2)&" de gastos anticipados llevados a resultados."',
+            f'Hay US$ {m(t["devengadoNoRegistrado"])} de gastos devengados no registrados y US$ {m(t["anticipado"])} de gastos '
+            f'anticipados llevados a resultados.')],
+        ["Soporte y partes relacionadas",
+         fx(f'"Se identificaron US$ "&FIXED({rc("noSoportado")},2)&" de gastos sin soporte suficiente y US$ "&'
+            f'FIXED({rc("partesRelacionadas")},2)&" de transacciones con partes relacionadas."',
+            f'Se identificaron US$ {m(t["noSoportado"])} de gastos sin soporte suficiente y US$ {m(t["partesRelacionadas"])} '
+            f'de transacciones con partes relacionadas.')],
+        ["Cierre",
+         fx(f'"Como referencia tributaria (Ecuador), US$ "&FIXED({rc("noDeducible")},2)&" del gasto no sería deducible; es una '
+            f'referencia y no concluye la deducibilidad."',
+            f'Como referencia tributaria (Ecuador), US$ {m(t["noDeducible"])} del gasto no sería deducible; es una referencia '
+            f'y no concluye la deducibilidad.')],
+    ]
+    ex_lectura = {"Detalle": ("Lee en lenguaje corriente el resultado de la prueba y sus hallazgos materiales con la cifra embebida "
+                              "tomada del Resumen (hoja 01): los gastos del año actual frente al anterior, el ajuste propuesto al "
+                              "gasto y su efecto, los gastos devengados no registrados y los anticipados, los gastos sin soporte y con "
+                              "partes relacionadas, y la referencia tributaria de lo no deducible. Cada cifra remite por fórmula a la "
+                              "celda del Resumen.")}
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros, explica=EXPLICA["02_Parametros"]),
@@ -994,7 +1083,8 @@ def hojas(res: dict) -> list[dict]:
               ["Saldo anterior", "n"], ["Variación", "n"], ["Variación %", "p"], ["Excede umbral", "t"], ["Presupuesto", "n"],
               ["Variación vs presupuesto", "n"], ["Variación vs presupuesto %", "p"], ["Excede umbral (presupuesto)", "t"],
               ["Explicación", "t"], ["Variación sin explicar", "t"], ["Muestra examinada", "n"], ["Cobertura de la muestra", "p"],
-              ["Presentada como extraordinaria", "t"]], analisis, tot_an, explica=EXPLICA["03_Analisis_global"]),
+              ["Presentada como extraordinaria", "t"], ["Semáforo", "t"]], analisis, tot_an,
+             explica=EXPLICA["03_Analisis_global"], colores=["Semáforo"]),
         hoja("04_Presentacion_ERI", "Presentación en el estado de resultados",
              [["Línea del estado de resultados", "t"], ["Cuentas", "i"], ["Año actual", "n"], ["Año anterior", "n"], ["Variación", "n"],
               ["% del gasto total", "p"], ["«Extraordinaria» (prohibido)", "t"]], pres, tot_pres, explica=EXPLICA["04_Presentacion_ERI"]),
@@ -1034,6 +1124,10 @@ def hojas(res: dict) -> list[dict]:
         hoja("15_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos, explica=EXPLICA["15_Asientos"]),
         hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
+        hoja("17_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con17,
+             explica=EXPLICA["17_Conclusion"], colores=["Estado"]),
+        hoja("18_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura, explica=ex_lectura),
     ]
 
 

@@ -360,6 +360,7 @@ CEDULAS = [
     ("05_Valoracion", "Valoración: VR menos costos de venta"), ("06_Transformacion", "Transformación biológica y cambio de VR"),
     ("07_Conciliacion", "Conciliación de cambios (NIC 41.50)"), ("08_Modelo_costo", "Modelo del costo y deterioro"),
     ("09_Cosecha", "Producto agrícola en el punto de cosecha"), ("10_Problemas", "Problemas encontrados"),
+    ("11_Conclusion", "Indicadores y conclusión"), ("12_Lectura", "Lectura de resultados"),
 ]
 PARK = ["corte", "marco", "vr_fiable", "vr_sin_esfuerzo_desproporcionado", "saldoMayor"]
 PAR = {k: FILA0 + i for i, k in enumerate(PARK)}
@@ -396,6 +397,13 @@ PANEL = {
     "registrado":   {"rotulo": "Valor en libros (cliente)", "total": "valorLibros"},
     "composicion":  {"rotulo": "Valor auditado por modelo", "hoja": "05_Valoracion", "etiqueta": "Modelo auditado", "valor": "Valor auditado"},
     "distribucion": {"rotulo": "Valor en libros por categoría", "hoja": "05_Valoracion", "etiqueta": "Categoría", "valor": "Valor en libros"},
+    # Tablero premium (columnas): indicadores fijos de la conclusión (11), serie «Importe» en USD.
+    "tableros": [
+        {"rotulo": "Medición de los activos biológicos", "sub": "USD · valor en libros frente al auditado, por lote.",
+         "unidad": "USD", "hoja": "05_Valoracion", "etiqueta": "Lote", "seccion": "Activos biológicos (NIC 41 · Secc. 34)",
+         "series": [["Valor en libros", "Valor en libros"], ["Valor auditado", "Valor auditado"]],
+         "filas": ["G-01", "G-02", "P-01", "C-01", "F-01", "F-02", "G-03", "G-04", "P-02", "C-02"]},
+    ],
 }
 
 
@@ -456,6 +464,8 @@ def _explica(pymes: bool, s34_2a: bool, fuera: str) -> dict:
             "Valor auditado": auditado,
             "Valor en libros": f"Trae el valor en libros del lote al corte registrado por el cliente en {_H03}.",
             "Ajuste": "Resta el valor en libros al valor auditado: positivo aumenta el activo y negativo lo disminuye; en blanco sin valor auditado.",
+            "Semáforo": ("Estado del lote: «Alerta» si el ajuste no es cero (el valor auditado difiere del valor en libros y hay que "
+                         "investigarlo), «Conforme» si coinciden. Sin valor auditado, queda en blanco."),
         },
         "06_Transformacion": {
             "Modelo auditado": "Trae de la hoja 05 (Valoración) el modelo del lote; los cambios de VR solo se calculan a valor razonable.",
@@ -505,6 +515,17 @@ def _explica(pymes: bool, s34_2a: bool, fuera: str) -> dict:
             "VR − costos de venta unitario": "Resta el costo de venta unitario al valor razonable unitario en el punto de cosecha.",
             "VR − costos de venta total": "Multiplica la cantidad cosechada por el VR menos costos de venta unitario: es el valor de la cosecha.",
             "Diferencia": "Resta el valor registrado por el cliente al valor de la cosecha recalculado (VR menos costos de venta total).",
+        },
+        "11_Conclusion": {
+            "Importe": ("Trae la cifra de cada indicador de la hoja que la calcula: el valor auditado suma la hoja 05 (Valoración), el valor "
+                        "en libros la hoja 03 (Activos), la ganancia por cambio de VR no reconocida la hoja 06 (Transformación) y el deterioro "
+                        "adicional la hoja 08 (Modelo del costo); el ajuste propuesto es el valor auditado menos el valor en libros."),
+            "Porcentaje": ("Divide el ajuste propuesto para el valor en libros (ambos de esta misma hoja): mide qué tan material es el ajuste "
+                           "frente al saldo registrado. Queda en blanco si el valor en libros es cero."),
+            "Cantidad": "Cuenta los problemas detectados en la hoja 10 (Problemas encontrados) contando los códigos que se listaron.",
+            "Estado": ("Semáforo del indicador: «Alerta» cuando hay un ajuste al valor o un deterioro que corregir, «Revisar» cuando hay "
+                       "ganancia de VR no reconocida o problemas por atender y «Conforme» cuando el indicador no exige acción. En blanco en "
+                       "las filas solo informativas (valor auditado, valor en libros y porcentaje)."),
         },
     }
 
@@ -641,7 +662,9 @@ def hojas(res: dict) -> list[dict]:
                     fx(f'IF(OR(C{r}<>"{VR}",G{r}=""),"",D{r}*G{r})', a["ftot"]),
                     fx(f'IF(C{r}="{COSTO}",{_si(f"{CST}I{r}")},"")', a["vCosto"] if a["ruta"] == COSTO else None),
                     fx(f'IF(C{r}="{fuera}",K{r},IF(C{r}="{VR}",H{r},I{r}))', a["aud"]), fx(f"{ACT}M{r}", a["vl"]),
-                    fx(f'IF(J{r}="","",J{r}-K{r})', a["aj"])])
+                    fx(f'IF(J{r}="","",J{r}-K{r})', a["aj"]),
+                    fx(f'IF(L{r}="","",IF(ABS(L{r})>=0.005,"Alerta","Conforme"))',
+                       "" if a["aj"] is None else ("Alerta" if abs(a["aj"]) >= 0.005 else "Conforme"))])
         tra.append([a["id"], fx(f"{VAL}C{r}", a["ruta"]), fx(_si(f"{ACT}G{r}"), a["qi"]), fx(f"{ACT}X{r}", a["q"]),
                     fx(_si(f"{ACT}Z{r}"), a["fi"]), fx(_si(f"{ACT}Y{r}"), a["fu"]),
                     fx(f'IF(OR(B{r}<>"{VR}",C{r}="",E{r}=""),"",(D{r}-C{r})*E{r})', a["cFis"]),
@@ -683,6 +706,47 @@ def hojas(res: dict) -> list[dict]:
     S = lambda xs: sum(x for x in xs if x is not None)
     n_ = "n"
     ex = _explica(pymes, s34_2a, fuera)
+
+    # 11 · indicadores y conclusión (con semáforo por indicador).
+    nprob = len(res["exceptions"])
+    PBL = ref("10_Problemas")
+    bc = lambda kk: f"B{FILA0 + kk}"
+    rc = lambda kk: FILA0 + kk
+    conclusion = [
+        ["Activos biológicos: valor auditado (VR − costos de venta / costo)", fx(f"SUM({_rg(VAL, 'J', na)})", t["valorAuditado"]), None, None, ""],
+        ["Valor en libros", fx(f"SUM({_rg(ACT, 'M', na)})", t["valorLibros"]), None, None, ""],
+        ["Ajuste propuesto (auditado − libros)", fx(f"SUM({_rg(VAL, 'L', na)})", t["ajuste"]), None, None,
+         fx(f'IF(ABS(B{rc(2)})>0.005,"Alerta","Conforme")', "Alerta" if abs(t["ajuste"]) > 0.005 else "Conforme")],
+        ["% del ajuste sobre el valor en libros", None,
+         fx(f'IF({bc(1)}=0,"",{bc(2)}/{bc(1)})', None if t["valorLibros"] == 0 else t["ajuste"] / t["valorLibros"]), None, ""],
+        ["Ganancia por cambio de VR no reconocida", fx(f"SUM({_rg(TRA, 'P', na)})", t["gananciaNoReconocida"]), None, None,
+         fx(f'IF(ABS(B{rc(4)})>0.005,"Revisar","Conforme")', "Revisar" if abs(t["gananciaNoReconocida"]) > 0.005 else "Conforme")],
+        ["Deterioro adicional (modelo del costo)", fx(f"SUM({_rg(CST, 'H', na)})", t["deterioroAdicional"]), None, None,
+         fx(f'IF(B{rc(5)}>0.005,"Alerta","Conforme")', "Alerta" if t["deterioroAdicional"] > 0.005 else "Conforme")],
+        ["Problemas detectados", None, None, fx(f"COUNTA({_rg(PBL, 'A', max(nprob, 1))})", nprob),
+         fx(f'IF(D{rc(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+    ]
+    # 12 · lectura causa-efecto: el resultado y las variaciones materiales con su cifra embebida (FIXED
+    # respeta los separadores del equipo; el valor de Python va con los del Ecuador, como hace m()).
+    RES = ref("01_Resumen")
+    rl = lambda k: f"{RES}$B${fr[k]}"
+    lectura = [
+        ["Resultado principal",
+         fx(f'"Los activos biológicos auditados suman US$ "&FIXED({rl("valorAuditado")},2)&" frente a US$ "&FIXED({rl("saldoMayor")},2)&" según el mayor."',
+            f'Los activos biológicos auditados suman US$ {m(t["valorAuditado"])} frente a US$ {m(t["saldoMayor"])} según el mayor.')],
+        ["Ajuste y su efecto",
+         fx(f'"El ajuste propuesto es de US$ "&FIXED({rl("ajuste")},2)&" (auditado − libros) y la diferencia anexo − mayor es de US$ "&FIXED({rl("difAnexoMayor")},2)&"."',
+            f'El ajuste propuesto es de US$ {m(t["ajuste"])} (auditado − libros) y la diferencia anexo − mayor es de US$ {m(t["difAnexoMayor"])}.')],
+        ["Cambio del valor razonable (hallazgo material)",
+         fx(f'"El cambio total del VR menos costos de venta suma US$ "&FIXED({rl("cambioTotal")},2)&" y la ganancia por cambio de VR no reconocida US$ "&FIXED({rl("gananciaNoReconocida")},2)&"."',
+            f'El cambio total del VR menos costos de venta suma US$ {m(t["cambioTotal"])} y la ganancia por cambio de VR no reconocida US$ {m(t["gananciaNoReconocida"])}.')],
+        ["Deterioro y existencia (hallazgo material)",
+         fx(f'"El deterioro adicional del modelo del costo asciende a US$ "&FIXED({rl("deterioroAdicional")},2)&" y las diferencias físicas valorizadas a US$ "&FIXED({rl("difFisicas")},2)&"."',
+            f'El deterioro adicional del modelo del costo asciende a US$ {m(t["deterioroAdicional"])} y las diferencias físicas valorizadas a US$ {m(t["difFisicas"])}.')],
+        ["Cierre",
+         fx(f'"La diferencia en la medición de la cosecha es de US$ "&FIXED({rl("difCosecha")},2)&" y el ajuste total propuesto queda en US$ "&FIXED({rl("ajuste")},2)&"."',
+            f'La diferencia en la medición de la cosecha es de US$ {m(t["difCosecha"])} y el ajuste total propuesto queda en US$ {m(t["ajuste"])}.')],
+    ]
     return [
         hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", n_]], resumen, explica=ex["01_Resumen"]),
         hoja("02_Parametros", CEDULAS[1][1], [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
@@ -702,9 +766,10 @@ def hojas(res: dict) -> list[dict]:
         hoja("05_Valoracion", CEDULAS[4][1],
              [["Lote", "t"], ["Categoría", "t"], ["Modelo auditado", "t"], ["Cantidad auditada", n_], ["VR unitario al corte", n_],
               ["Costo de venta unitario", n_], ["VR − costos de venta unitario", n_], ["VR − costos de venta total", n_], ["Valor modelo del costo", n_],
-              ["Valor auditado", n_], ["Valor en libros", n_], ["Ajuste", n_]],
+              ["Valor auditado", n_], ["Valor en libros", n_], ["Ajuste", n_], ["Semáforo", "t"]],
              val, ["TOTAL", "", "", None, None, None, None, _tot("H", na, S(a["ftot"] for a in its)), _tot("I", na, S(a["vCosto"] for a in its)),
-                   _tot("J", na, t["valorAuditado"]), _tot("K", na, t["valorLibros"]), _tot("L", na, t["ajuste"])], explica=ex["05_Valoracion"]),
+                   _tot("J", na, t["valorAuditado"]), _tot("K", na, t["valorLibros"]), _tot("L", na, t["ajuste"]), ""],
+             explica=ex["05_Valoracion"], colores=["Semáforo"]),
         hoja("06_Transformacion", CEDULAS[5][1],
              [["Lote", "t"], ["Modelo auditado", "t"], ["Cantidad inicial", n_], ["Cantidad final auditada", n_], ["VR − CV unitario inicial", n_],
               ["VR − CV unitario final", n_], ["Cambio físico", n_], ["Cambio de precio", n_], ["Cambio total", n_], ["Libros al inicio", n_],
@@ -731,6 +796,12 @@ def hojas(res: dict) -> list[dict]:
                        _tot("J", nc, t["difCosecha"])] if nc else None, explica=ex["09_Cosecha"]),
         hoja("10_Problemas", CEDULAS[9][1], [["Código", "t"], ["Descripción", "t"], ["Importe", n_]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("11_Conclusion", CEDULAS[10][1],
+             [["Indicador", "t"], ["Importe", n_], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
+             explica=ex["11_Conclusion"], colores=["Estado"]),
+        hoja("12_Lectura", CEDULAS[11][1], [["Concepto", "t"], ["Detalle", "t"]], lectura,
+             explica={"Detalle": "Lee el resultado del rubro y las variaciones o hallazgos materiales con su cifra "
+                                 "tomada del Resumen (hoja 01), redactados como causa-efecto para el lector del papel."}),
     ]
 
 

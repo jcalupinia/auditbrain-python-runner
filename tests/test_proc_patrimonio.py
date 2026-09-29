@@ -213,7 +213,131 @@ def test_hojas_nombres_y_anchos():
                 assert len(fila) == len(h["cols"]), h["name"]
 
 
+def test_semaforo_movimiento_patrimonial():
+    """La cédula 03 lleva la columna «Semáforo» coloreada, con fórmula que recalcula igual que Python."""
+    hs = {h["name"]: h for h in m.hojas(_run())}
+    h = hs["03_Movimiento"]
+    cols = [c[0] for c in h["cols"]]
+    assert cols[-1] == "Semáforo" and "Semáforo" in h["colores"] and "Semáforo" in h["explica"]
+    for fila in h["rows"] + [h["total"]]:
+        assert len(fila) == len(h["cols"])
+    assert h["total"][-1] == ""
+    idx = cols.index("Semáforo")
+    for fila in h["rows"]:
+        celda = fila[idx]
+        assert isinstance(celda, dict) and "f" in celda and celda["v"] in ("Alerta", "Revisar", "Conforme")
+    # El ejemplo tiene movimientos que no cuadran (difMovimiento 500): al menos una «Alerta».
+    assert any(fila[idx]["v"] == "Alerta" for fila in h["rows"])
+
+
+def test_conclusion():
+    """La cédula 13 lleva indicadores por fórmula y la columna «Estado» coloreada (Alerta/Revisar/Conforme)."""
+    assert m.CEDULAS[-3] == ("13_Conclusion", "Indicadores y conclusión")
+    assert m.CEDULAS[-2] == ("14_Lectura", "Lectura de resultados")
+    assert m.CEDULAS[-1] == ("15_Resumen_compon", "Patrimonio por componente")
+    hs = {h["name"]: h for h in m.hojas(_run())}
+    h = hs["13_Conclusion"]
+    cols = [c[0] for c in h["cols"]]
+    assert cols == ["Indicador", "Importe", "Porcentaje", "Cantidad", "Estado"]
+    assert h["colores"] == ["Estado"]
+    for col in ("Importe", "Porcentaje", "Cantidad", "Estado"):
+        assert col in h["explica"]
+    for fila in h["rows"]:
+        assert len(fila) == len(h["cols"])
+    idx = cols.index("Estado")
+    estados = [f[idx]["v"] if isinstance(f[idx], dict) else f[idx] for f in h["rows"]]
+    for f in h["rows"][:-1]:
+        celda = f[idx]
+        assert isinstance(celda, dict) and "f" in celda
+        assert celda["v"] in ("Alerta", "Revisar", "Conforme", "")
+    assert h["rows"][-1][idx] == ""                                                # fila de conclusión narrativa
+    assert any(isinstance(f[1], dict) and "f" in f[1] for f in h["rows"])          # Importe con fórmula
+    assert any(isinstance(f[2], dict) and "f" in f[2] for f in h["rows"])          # Porcentaje con fórmula
+    assert any(isinstance(f[3], dict) and "f" in f[3] for f in h["rows"])          # Cantidad con fórmula
+    # En el ejemplo hay diferencias y ajustes, así que al menos un estado exige acción.
+    assert any(e in ("Revisar", "Alerta") for e in estados)
+    # Verifica los anchos y nombres en todos los escenarios (incluye la hoja nueva).
+    for _, ds, p, c in m.ESCENARIOS:
+        hs2 = m.hojas(m.ejecutar(ds, p, c))
+        assert hs2[-3]["name"] == "13_Conclusion" and hs2[-2]["name"] == "14_Lectura"
+        for fila in hs2[-3]["rows"]:
+            assert len(fila) == len(hs2[-3]["cols"])
+
+
+def test_lectura():
+    """La cédula 14 lee cada resultado clave en una frase de causa-efecto con la cifra embebida por FIXED."""
+    assert m.CEDULAS[-2] == ("14_Lectura", "Lectura de resultados")
+    for _, ds, p, c in m.ESCENARIOS:
+        hs = m.hojas(m.ejecutar(ds, p, c))
+        assert hs[-2]["name"] == "14_Lectura"
+        h = hs[-2]
+        assert [c0 for c0, _ in h["cols"]] == ["Concepto", "Detalle"] and h.get("total") is None
+        assert "Detalle" in h["explica"] and "colores" not in h
+        assert 3 <= len(h["rows"]) <= 5
+        for fila in h["rows"]:
+            assert len(fila) == 2
+            det = fila[1]
+            # El «Detalle» es una fórmula (causa-efecto) que embebe la cifra con FIXED referenciando el Resumen.
+            assert isinstance(det, dict) and "f" in det and "FIXED(" in det["f"] and "'01_Resumen'!" in det["f"]
+            assert isinstance(det["v"], str) and "US$" in det["v"]
+    # En el ejemplo el patrimonio auditado (910.000,00) y el ajuste neto (−25.000,00) aparecen en la lectura.
+    h = {x["name"]: x for x in m.hojas(_run())}["14_Lectura"]
+    detalles = " ".join(f[1]["v"] for f in h["rows"])
+    assert "910.000,00" in detalles and "25.000,00" in detalles
+
+
+def test_resumen_componentes():
+    """La cédula 15 es la cédula-resumen de categorías fijas: una fila por componente del enum «Clase»,
+    con el saldo cliente y el saldo auditado (recalculado) por fórmula SUMIFS sobre 03_Movimiento, y
+    alimenta el tablero «Patrimonio por componente» del panel."""
+    from backend.app.aud.niif.procesadores import graficos
+    assert m.CEDULAS[-1] == ("15_Resumen_compon", "Patrimonio por componente")
+    for _, ds, p, c in m.ESCENARIOS:
+        hs = {h["name"]: h for h in m.hojas(m.ejecutar(ds, p, c))}
+        assert "15_Resumen_compon" in hs
+        h = hs["15_Resumen_compon"]
+        assert [c0 for c0, _ in h["cols"]] == ["Componente", "Saldo cliente", "Saldo auditado"]
+        # Rows fijas: un componente del enum «Clase» por fila, en el mismo orden (0 si no hay cuentas).
+        assert [f[0] for f in h["rows"]] == m.CLASES
+        for col in ("Saldo cliente", "Saldo auditado"):
+            assert col in h["explica"]
+        for f in h["rows"]:
+            assert len(f) == len(h["cols"])
+            for celda in f[1:]:                       # sin cifras pegadas: cada saldo es un SUMIFS
+                assert isinstance(celda, dict) and "f" in celda and "SUMIFS(" in celda["f"]
+        assert h["total"][0] == "TOTAL" and "SUM(" in h["total"][1]["f"] and "SUM(" in h["total"][2]["f"]
+    # En el ejemplo el saldo cliente por componente cuadra con el patrimonio del cliente (935.000).
+    hs = {h["name"]: h for h in m.hojas(_run())}
+    h = hs["15_Resumen_compon"]
+    assert abs(sum(f[1]["v"] for f in h["rows"]) - 935000.0) < 0.005
+    cap = next(f for f in h["rows"] if f[0] == "Capital")
+    assert cap[1]["v"] == 500000.0 and "SUMIFS(" in cap[1]["f"]
+    # El tablero del PANEL resuelve con los componentes fijos como filas y las dos series comparables.
+    r = _run()
+    r["hojas"] = m.hojas(r)
+    pan = graficos.panel(m, r, r["hojas"])
+    assert pan["faltan"] == []
+    tab = next(x for x in pan["tableros"] if x["rotulo"] == "Patrimonio por componente")
+    assert tab["categorias"] == m.CLASES and [n for n, _ in tab["series"]] == ["Saldo cliente", "Saldo auditado"]
+
+
 def test_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "patrimonio" and len(d["program"]) >= 5
     assert m.RUBRO == "PATRIMONIO" and len(d["requests"]) >= 2
+
+
+def test_estilos_sumaria_10_ajuste():
+    """La cédula de patrimonio auditado lleva estilos de cédula sumaria: el patrimonio según el
+    cliente abre como título, las tres reclasificaciones (−)/(+) van con sangría y el patrimonio
+    auditado lleva filete de total. `estilos` tiene una entrada por fila de datos."""
+    for _, ds, p, c in m.ESCENARIOS:
+        h = {x["name"]: x for x in m.hojas(m.ejecutar(ds, p, c))}["10_Ajuste"]
+        e = h["estilos"]
+        assert len(e) == len(h["rows"])                 # una entrada por fila de datos
+        assert e[0] == {"tipo": "titulo"}               # patrimonio según cliente = rubro
+        assert [x.get("tipo") for x in e[1:4]] == [None, None, None]
+        assert all(x.get("sangria") == 1 and x["col"] == "Concepto" for x in e[1:4])
+        assert e[4] == {"tipo": "total"}                # patrimonio auditado = total
+        assert h["rows"][4][0] == "Patrimonio auditado"
+        assert all(x is None for x in e[5:])            # el resto sin estilo

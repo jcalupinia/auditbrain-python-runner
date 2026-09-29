@@ -104,7 +104,60 @@ def test_hojas_nombres_y_anchos():
                 assert len(fila) == len(h["cols"]), h["name"]
 
 
+def test_semaforo_cobros_posteriores():
+    """La cédula 05 lleva un Semáforo coloreable por fila que marca la cartera vencida sin cobro posterior."""
+    from backend.app.aud.niif.procesadores import base
+    h = next(x for x in m.hojas(_run()) if x["name"] == "05_Cobros_posteriores")
+    assert "Semáforo" in [c[0] for c in h["cols"]] and h.get("colores") == ["Semáforo"]
+    j = [c[0] for c in h["cols"]].index("Semáforo")
+    valores = {f[j]["v"] for f in h["rows"]}
+    assert valores <= {"Alerta", "Conforme"} and "Alerta" in valores       # F-004, F-005, … vencidas sin cobro
+    assert all(base.rol_color(h, "Semáforo", f[j]) in ("alta", "baja") for f in h["rows"])
+    assert h["total"][j] == ""                                              # la fila TOTAL no se pinta
+
+
+def test_conclusion():
+    """La cédula 13 lleva indicadores clave con importes en fórmula y un semáforo coloreable en «Estado»."""
+    from backend.app.aud.niif.procesadores import base
+    con = next(x for x in m.hojas(_run()) if x["name"] == "13_Conclusion")
+    assert con["label"] == "Indicadores y conclusión"
+    cols = [c[0] for c in con["cols"]]
+    assert cols == ["Indicador", "Importe", "Porcentaje", "Cantidad", "Estado"]
+    assert "Estado" in con["colores"]
+    ji, je = cols.index("Importe"), cols.index("Estado")
+    assert any(isinstance(f[ji], dict) and "f" in f[ji] for f in con["rows"])
+    roles = {base.rol_color(con, "Estado", f[je]) for f in con["rows"]}
+    assert roles & {"alta", "media", "baja"}
+    assert "alta" in roles       # el ejemplo tiene ajuste de deterioro: al menos una «Alerta»
+
+
+def test_lectura():
+    """La cédula 14 lee los resultados en causa-efecto con las cifras embebidas por FIXED."""
+    lec = next(x for x in m.hojas(_run()) if x["name"] == "14_Lectura")
+    assert lec["label"] == "Lectura de resultados"
+    assert [c[0] for c in lec["cols"]] == ["Concepto", "Detalle"]
+    assert 3 <= len(lec["rows"]) <= 5
+    for fila in lec["rows"]:
+        assert isinstance(fila[0], str) and fila[0]
+        det = fila[1]
+        assert isinstance(det, dict) and "f" in det and "FIXED(" in det["f"]
+    assert "Detalle" in m.EXPLICA["14_Lectura"]
+
+
 def test_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "cxc_cartera" and len(d["program"]) >= 5
     assert "pce_simplificada" not in d["summary"] and "PYMES" in d["summary"]
+
+
+def test_estilos_ajuste():
+    """La cédula 10 (Ajuste) trae estilos de cédula sumaria: una entrada por fila de datos, con los
+    componentes sangrados y los subtotales (ajuste de deterioro y de financiación) con filete."""
+    h = next(x for x in m.hojas(_run()) if x["name"] == "10_Ajuste")
+    estilos = h["estilos"]
+    assert len(estilos) == len(h["rows"])
+    assert sum(1 for e in estilos if (e or {}).get("tipo") == "total") == 2
+    assert any((e or {}).get("sangria") for e in estilos)
+    for e in estilos:
+        if e and e.get("sangria"):
+            assert e["col"] == "Concepto"

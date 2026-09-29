@@ -400,6 +400,32 @@ def descargar_libro(prueba_id: int, formato: str = "xlsx", db: Session = Depends
                     headers={"Content-Disposition": f'attachment; filename="Papel_v{p.version}.{ext}"'})
 
 
+@router.get("/pruebas/{prueba_id}/consola-revision")
+def consola_revision_de(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
+    """Consola de revisión del auditor (SOLO LECTURA): recalcula de forma
+    independiente la prueba ejecutada y emite el veredicto APTO / OBSERVADO /
+    NO APTO antes de que el socio apruebe. En la planificación recalcula índices,
+    agregados y cuadre; en las 20 herramientas del catálogo verifica el panel, el
+    enlace de los problemas y el recálculo del resultado principal a medida por
+    rubro. No modifica la prueba ni el estado del ciclo."""
+    p = _prueba(db, user, prueba_id)
+    reporte = _regla(lambda: servicio.revisar_prueba(db, p))
+    return {"prueba_id": p.id, "estado": p.estado, "version": p.version, "revision": p.revision,
+            "aprobable": p.estado == "EN_REVISION", "reporte": reporte}
+
+
+@router.get("/pruebas/{prueba_id}/consola-chat")
+def consola_chat_de(prueba_id: int, rol: str = "preparador", db: Session = Depends(get_db),
+                    user: User = Depends(require_staff)) -> dict:
+    """Consola-chat de la prueba (SOLO LECTURA): el agente determinista arma el hilo
+    de mensajes y la siguiente acción según el estado de la prueba (planificación NIA
+    o cualquier herramienta del catálogo) y, del lado del auditor en revisión, el
+    veredicto del recálculo. No modifica nada."""
+    p = _prueba(db, user, prueba_id)
+    rol = "auditor" if rol == "auditor" else "preparador"
+    return _regla(lambda: servicio.guion_consola_chat(db, p, rol))
+
+
 @router.get("/pruebas/{prueba_id}/ejercicio-modelo")
 def ejercicio_modelo_de(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
     """Recorrido completo de la prueba con datos de ejemplo (SOLO LECTURA): corre

@@ -142,6 +142,7 @@ CEDULAS = [
     ("06_Confirmaciones", "Confirmación bancaria"), ("07_Corte", "Prueba de corte"), ("08_Restringido", "Efectivo restringido"),
     ("09_Equivalentes", "Equivalentes de efectivo (definición)"), ("10_Efectivo_auditado", "Efectivo auditado y ajuste"),
     ("11_Asientos", "Asientos propuestos"), ("12_Problemas", "Problemas encontrados"),
+    ("13_Conclusion", "Indicadores y conclusión"), ("14_Lectura", "Lectura de resultados"),
 ]
 
 
@@ -470,6 +471,8 @@ EXPLICA = {
                                      "que el banco registró y los libros todavía no."),
         "Efectivo auditado": ("Al saldo ajustado de libros le resta lo que se reclasifica por restricción (hoja 08, "
                               "Efectivo restringido) y por inversiones que no son equivalentes (hoja 09) para esta cuenta."),
+        "Semáforo": ("Estado de la cuenta: «Alerta» si la diferencia no explicada no es cero (hay que investigarla), "
+                     "«Conforme» si la conciliación cuadra. Sin saldo bancario, queda en blanco."),
     },
     "04_Partidas": {
         "Días al corte": ("Resta la fecha de origen de la partida de la fecha de corte de la hoja 02 (Parámetros). Negativo "
@@ -538,6 +541,24 @@ EXPLICA = {
         "Haber": ("Lleva a la contrapartida el mismo importe del asiento, tomado de la hoja 10 (Efectivo auditado y "
                   "ajuste), para que debe y haber cuadren."),
     },
+    "13_Conclusion": {
+        "Importe": ("Cada indicador trae su importe de la hoja 10 (Efectivo auditado y ajuste): el efectivo auditado, el "
+                    "saldo según libros, el ajuste propuesto, las diferencias de conciliación no explicadas y las "
+                    "reclasificaciones por restricción e inversiones que no son equivalentes."),
+        "Porcentaje": ("Divide el ajuste propuesto en valor absoluto entre el efectivo según libros para medir su peso "
+                       "relativo; queda en blanco si el saldo según libros es cero."),
+        "Cantidad": ("Cuenta cuántos problemas se detectaron leyendo la columna de códigos de la hoja 12 (Problemas "
+                     "encontrados)."),
+        "Estado": ("Semáforo del indicador: «Alerta» cuando hay un ajuste o una diferencia por encima de la tolerancia de "
+                   "la hoja 02 (Parámetros), «Revisar» cuando hay reclasificaciones o problemas que atender y «Conforme» "
+                   "cuando el indicador no presenta desviaciones."),
+    },
+    "14_Lectura": {
+        "Detalle": ("Redacta en lenguaje del auditor la lectura causa-efecto de los resultados e inserta cada cifra con "
+                    "FIXED desde la hoja 10 (Efectivo auditado y ajuste): el efectivo auditado frente a los libros, el "
+                    "ajuste propuesto y su efecto, las diferencias de conciliación y confirmación, las reclasificaciones "
+                    "y las partidas conciliatorias antiguas."),
+    },
 }
 
 # Panel del dashboard (formato en graficos.py).
@@ -549,6 +570,14 @@ PANEL = {
                     "valor": "Efectivo auditado"},
     "distribucion": {"rotulo": "Saldo en libros por cuenta", "hoja": "03_Conciliacion", "etiqueta": "Banco / caja",
                      "valor": "Saldo según libros"},
+    # Tablero premium (columnas agrupadas por tramo de antigüedad; ver graficos.tableros_spec).
+    # Categorías fijas: los tramos de la constante TRAMOS, que la hoja 05 siempre emite.
+    "tableros": [
+        {"rotulo": "Antigüedad de las partidas conciliatorias", "sub": "USD por tramo · importe total frente al no depurado.",
+         "unidad": "USD", "hoja": "05_Antiguedad", "etiqueta": "Tramo (días al corte)", "seccion": "Antigüedad de partidas",
+         "filas": [{"fila": et, "mejor": "bajo"} for et, _a, _b in TRAMOS],
+         "series": [["Importe", "Importe"], ["No depurado", "No depurado"]]},
+    ],
 }
 
 
@@ -670,7 +699,9 @@ def hojas(res: dict) -> list[dict]:
                        fx(f'IF(D{r}="","",D{r}+E{r}-F{r}-G{r}+H{r}+I{r})', n2(c["esperado"])), n2(c["libros"]),
                        fx(f'IF(J{r}="","",ROUND(K{r}-J{r},2))', c["dif"]), fx(f"K{r}+G{r}-H{r}", n2(c["ajustado"])),
                        fx(f"M{r}-SUMIF({_rango(RES_, 'A', nr)},A{r},{_rango(RES_, 'I', nr)})-SUMIF({_rango(EQU_, 'A', ni)},A{r},{_rango(EQU_, 'I', ni)})",
-                          n2(c["auditado"]))])
+                          n2(c["auditado"])),
+                       fx(f'IF(L{r}="","",IF(ABS(L{r})>=0.005,"Alerta","Conforme"))',
+                          "" if c["dif"] is None else ("Alerta" if abs(c["dif"]) >= 0.005 else "Conforme"))])
     fin_c = FILA0 + nc_ - 1
 
     # 05 · Antigüedad.
@@ -751,6 +782,16 @@ def hojas(res: dict) -> list[dict]:
         "partidasAntiguas": "Partidas conciliatorias antiguas", "partidasNoDepuradas": "Partidas no depuradas después del corte",
     }
     auditado = [[textos[k], fx(formulas[k], n2(con[k]))] for k in CONCEPTOS]
+    # Estilos de cédula sumaria del estado «Efectivo auditado» (una entrada por concepto de CONCEPTOS):
+    # las notas bancarias y su subtotal, las reclasificaciones (con «de lo cual» sangrado), el efectivo
+    # auditado y el ajuste como subtotales, y la composición (caja/bancos/equivalentes) sangrada.
+    _est_sang = {"sangria": 1, "col": "Concepto"}
+    _estilos_auditado = {
+        "nc": _est_sang, "nd": _est_sang, "notas": {"tipo": "total"},
+        "reclasNoCorriente": _est_sang, "auditado": {"tipo": "total"}, "ajuste": {"tipo": "total"},
+        "caja": _est_sang, "bancos": _est_sang, "equivalentes": _est_sang,
+    }
+    estilos_auditado = [_estilos_auditado.get(k) for k in CONCEPTOS]
 
     # 11 · Asientos.
     asientos = []
@@ -778,6 +819,59 @@ def hojas(res: dict) -> list[dict]:
     resumen = [[res["labels"][k], fx(f"{AUD}B{fila_con[k]}", n2(float(res["totals"][k])))] for k in res["labels"]]
     tot = lambda col, fin, v: suma(col, fin, n2(v))
 
+    # 13 · Indicadores y conclusión (con semáforo coloreable en «Estado»).
+    PROB = ref("12_Problemas")
+    nprob = len(res["exceptions"])
+    libros_v, auditado_v, ajuste_v = con["saldoLibros"], con["auditado"], con["ajuste"]
+    dif_v = con["difNoExplicada"]
+    reclas_v = con["reclasRestringido"] + con["reclasNoEquivalentes"]
+    tol_n = p["tolerancia"]
+    pct_v = None if libros_v == 0 else abs(ajuste_v) / libros_v
+    fA, fR, fD = FILA0 + 2, FILA0 + 3, FILA0 + 4  # filas ajuste, %, diferencia (para referencias internas)
+    fRec, fPr = FILA0 + 5, FILA0 + 6              # filas reclasificación y problemas
+    est = lambda cond, alto, ok="Conforme": (alto if cond else ok)
+    conclusion = [
+        ["Efectivo y equivalentes auditado (resultado principal)", fx(FC["auditado"], n2(auditado_v)), None, None,
+         fx(f'IF(ABS(B{fA})>{tol},"Revisar","Conforme")', est(abs(ajuste_v) > tol_n, "Revisar"))],
+        ["Efectivo y equivalentes según libros (registrado)", fx(FC["saldoLibros"], n2(libros_v)), None, None, ""],
+        ["Ajuste propuesto (auditado − libros)", fx(FC["ajuste"], n2(ajuste_v)), None, None,
+         fx(f'IF(ABS(B{fA})>{tol},"Alerta","Conforme")', est(abs(ajuste_v) > tol_n, "Alerta"))],
+        ["% de ajuste sobre el efectivo según libros", None,
+         fx(f'IF({FC["saldoLibros"]}=0,"",ABS({FC["ajuste"]})/{FC["saldoLibros"]})', pct_v), None,
+         fx(f'IF(C{fR}="","",IF(ABS({FC["ajuste"]})>{tol},"Revisar","Conforme"))',
+            "" if pct_v is None else est(abs(ajuste_v) > tol_n, "Revisar"))],
+        ["Diferencias de conciliación no explicadas (absolutas)", fx(FC["difNoExplicada"], n2(dif_v)), None, None,
+         fx(f'IF(B{fD}>{tol},"Alerta","Conforme")', est(dif_v > tol_n, "Alerta"))],
+        ["Reclasificaciones propuestas (restringido no corriente e inversiones que no son equivalentes)",
+         fx(f'{FC["reclasRestringido"]}+{FC["reclasNoEquivalentes"]}', n2(reclas_v)), None, None,
+         fx(f'IF(B{fRec}>0.005,"Revisar","Conforme")', est(reclas_v > 0.005, "Revisar"))],
+        ["Problemas encontrados", None, None, fx(f"COUNTA({_rango(PROB, 'A', nprob)})", nprob),
+         fx(f'IF(D{fPr}>0,"Revisar","Conforme")', est(nprob > 0, "Revisar"))],
+    ]
+
+    # 14 · Lectura de resultados (causa-efecto con las cifras embebidas por FIXED, hoja 10).
+    difConf_v, antiguas_v = con["difConfirmacion"], con["partidasAntiguas"]
+    _fix = lambda cell: f"FIXED({cell},2)"
+    aj_dir = "disminuye" if ajuste_v < -0.005 else ("aumenta" if ajuste_v > 0.005 else "no modifica")
+    aj_dir_f = f'IF({FC["ajuste"]}<-0.005,"disminuye",IF({FC["ajuste"]}>0.005,"aumenta","no modifica"))'
+    lectura = [
+        ["Resultado principal",
+         fx(f'"El efectivo y equivalentes auditado asciende a US$ "&{_fix(FC["auditado"])}&", frente a US$ "&{_fix(FC["saldoLibros"])}&" según libros (hoja 10)."',
+            f"El efectivo y equivalentes auditado asciende a US$ {fmt_m(auditado_v)}, frente a US$ {fmt_m(libros_v)} según libros (hoja 10).")],
+        ["Ajuste propuesto",
+         fx(f'"El ajuste propuesto es de US$ "&{_fix(FC["ajuste"])}&" (auditado − saldo según libros), que "&{aj_dir_f}&" el efectivo y equivalentes presentado; su registro exige los asientos de la hoja 11."',
+            f"El ajuste propuesto es de US$ {fmt_m(ajuste_v)} (auditado − saldo según libros), que {aj_dir} el efectivo y equivalentes presentado; su registro exige los asientos de la hoja 11.")],
+        ["Diferencias de conciliación y confirmación",
+         fx(f'"Las conciliaciones dejan US$ "&{_fix(FC["difNoExplicada"])}&" en diferencias no explicadas y US$ "&{_fix(FC["difConfirmacion"])}&" entre lo confirmado por el banco y el estado bancario; investíguelas y evalúelas como incorrecciones (NIA 450 y 505)."',
+            f"Las conciliaciones dejan US$ {fmt_m(dif_v)} en diferencias no explicadas y US$ {fmt_m(difConf_v)} entre lo confirmado por el banco y el estado bancario; investíguelas y evalúelas como incorrecciones (NIA 450 y 505).")],
+        ["Reclasificaciones",
+         fx(f'"Se reclasifican US$ "&{_fix(FC["reclasRestringido"])}&" de efectivo restringido a no corriente y US$ "&{_fix(FC["reclasNoEquivalentes"])}&" de inversiones que no son equivalentes, lo que reduce el efectivo corriente disponible (NIC 1.66 d y NIC 7.7)."',
+            f"Se reclasifican US$ {fmt_m(con['reclasRestringido'])} de efectivo restringido a no corriente y US$ {fmt_m(con['reclasNoEquivalentes'])} de inversiones que no son equivalentes, lo que reduce el efectivo corriente disponible (NIC 1.66 d y NIC 7.7).")],
+        ["Cierre",
+         fx(f'"Las partidas conciliatorias antiguas suman US$ "&{_fix(FC["partidasAntiguas"])}&"; en conjunto, los hallazgos exigen registrar los ajustes propuestos y ampliar las revelaciones de la nota de efectivo (NIC 7.45–7.46)."',
+            f"Las partidas conciliatorias antiguas suman US$ {fmt_m(antiguas_v)}; en conjunto, los hallazgos exigen registrar los ajustes propuestos y ampliar las revelaciones de la nota de efectivo (NIC 7.45–7.46).")],
+    ]
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
@@ -785,11 +879,11 @@ def hojas(res: dict) -> list[dict]:
              [["Cuenta", "t"], ["Banco / caja", "t"], ["Tipo", "t"], ["Saldo estado bancario / arqueo", "n"], ["(+) Depósitos en tránsito", "n"],
               ["(−) Cheques pendientes", "n"], ["(−) Notas de crédito no registradas", "n"], ["(+) Notas de débito no registradas", "n"],
               ["(±) Otras partidas", "n"], ["Saldo que explica la conciliación", "n"], ["Saldo según libros", "n"],
-              ["Diferencia no explicada", "n"], ["Saldo ajustado de libros", "n"], ["Efectivo auditado", "n"]], concil,
+              ["Diferencia no explicada", "n"], ["Saldo ajustado de libros", "n"], ["Efectivo auditado", "n"], ["Semáforo", "t"]], concil,
              ["TOTAL", "", "", None, tot("E", fin_c, sum(c["dt"] for c in cu)), tot("F", fin_c, sum(c["cp"] for c in cu)),
               tot("G", fin_c, con["nc"]), tot("H", fin_c, con["nd"]), tot("I", fin_c, sum(c["ot"] for c in cu)), None,
-              tot("K", fin_c, con["saldoLibros"]), None, tot("M", fin_c, sum(c["ajustado"] for c in cu)), tot("N", fin_c, con["auditado"])],
-             explica=EXPLICA["03_Conciliacion"]),
+              tot("K", fin_c, con["saldoLibros"]), None, tot("M", fin_c, sum(c["ajustado"] for c in cu)), tot("N", fin_c, con["auditado"]), ""],
+             explica=EXPLICA["03_Conciliacion"], colores=["Semáforo"]),
         hoja("04_Partidas", "Partidas conciliatorias",
              [["Partida", "t"], ["Cuenta", "t"], ["Tipo", "t"], ["Referencia", "t"], ["Fecha de origen", "d"], ["Importe", "n"],
               ["Liquidación posterior", "d"], ["Días al corte", "i"], ["Días hasta la liquidación", "i"], ["Antigua", "t"],
@@ -822,11 +916,16 @@ def hojas(res: dict) -> list[dict]:
              equiv, ["TOTAL", "", None, None, None, "", tot("G", fin_e, sum(c["ajustado"] for c in inv)), None,
                      tot("I", fin_e, con["reclasNoEquivalentes"])] if ni else None, explica=EXPLICA["09_Equivalentes"]),
         hoja("10_Efectivo_auditado", "Efectivo auditado y ajuste", [["Concepto", "t"], ["Importe", "n"]], auditado,
-             explica=EXPLICA["10_Efectivo_auditado"]),
+             explica=EXPLICA["10_Efectivo_auditado"], estilos=estilos_auditado),
         hoja("11_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos,
              explica=EXPLICA["11_Asientos"]),
         hoja("12_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
+        hoja("13_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
+             explica=EXPLICA["13_Conclusion"], colores=["Estado"]),
+        hoja("14_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura,
+             explica=EXPLICA["14_Lectura"]),
     ]
 
 

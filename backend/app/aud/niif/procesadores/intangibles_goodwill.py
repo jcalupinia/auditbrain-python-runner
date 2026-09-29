@@ -448,6 +448,7 @@ CEDULAS = [
     ("04_Reconocimiento", "Reconocimiento e investigación / desarrollo"), ("05_Amortizacion", "Amortización y vida finita / indefinida"),
     ("06_Vida_util", "Revisión de vida útil y valor residual"), ("07_Deterioro", "Deterioro e importe recuperable"),
     ("08_Reversion", "Reversión del deterioro"), ("09_Ajuste", "Valor neto y ajuste propuesto"), ("10_Problemas", "Problemas encontrados"),
+    ("11_Conclusion", "Indicadores y conclusión"), ("12_Lectura", "Lectura de resultados"),
 ]
 PARK = ["corte", "marco", "pymes", "edicion", "presuncion", "vidaMaxPymes", "saldoMayor"]
 PAR = {k: FILA0 + i for i, k in enumerate(PARK)}
@@ -587,6 +588,19 @@ _EXPLICA = {
         "Neto auditado": ("Parte del costo auditado (hoja 05), resta la amortización acumulada recalculada, el deterioro previo y el "
                           "deterioro auditado (hoja 07), y suma la reversión auditada (hoja 08). Si la partida no es capitalizable, es cero."),
         "Ajuste propuesto": "Resta el neto en libros del cliente al neto auditado: positivo aumenta el activo, negativo lo disminuye.",
+        "Semáforo": ("Estado de la partida: «Alerta» si el ajuste propuesto no es cero (hay diferencia entre el neto auditado y el neto "
+                     "en libros que debe investigarse), «Conforme» si el neto auditado coincide con el del cliente."),
+    },
+    "11_Conclusion": {
+        "Importe": ("Trae la cifra de cada indicador de la hoja que la calcula: el neto auditado suma la hoja 09 (Valor neto y ajuste "
+                    "propuesto), el saldo del mayor sale de la hoja 02 (o del auxiliar si no se informó), el deterioro auditado de la hoja 07 "
+                    "y la diferencia de amortización de la hoja 05; el ajuste propuesto es neto auditado menos el saldo del mayor."),
+        "Porcentaje": ("Divide el ajuste propuesto para el saldo del mayor (ambos de esta misma hoja): mide qué tan material es el ajuste "
+                       "frente al saldo registrado. Queda en blanco si el saldo del mayor es cero."),
+        "Cantidad": "Cuenta los problemas detectados en la hoja 10 (Problemas encontrados) contando los códigos que se listaron.",
+        "Estado": ("Semáforo del indicador: «Alerta» cuando hay un ajuste al saldo o un deterioro que corregir, «Revisar» cuando hay "
+                   "diferencia de amortización o problemas por atender y «Conforme» cuando el indicador no exige acción. En blanco en las "
+                   "filas solo informativas (neto auditado, saldo del mayor y porcentaje)."),
     },
 }
 
@@ -597,6 +611,13 @@ PANEL = {
     "registrado":   {"rotulo": "Saldo según el mayor", "total": "saldoMayor"},
     "composicion":  {"rotulo": "Neto auditado por intangible", "hoja": "09_Ajuste", "etiqueta": "Descripción", "valor": "Neto auditado"},
     "distribucion": {"rotulo": "Costo por tipo de intangible", "hoja": "03_Intangibles", "etiqueta": "Tipo", "valor": "Costo"},
+    # Tablero premium (columnas): indicadores fijos de la conclusión (11), serie «Importe» en USD.
+    "tableros": [
+        {"rotulo": "Intangibles y goodwill: neto en libros frente al auditado", "sub": "USD · neto en libros del cliente frente al auditado, por partida.",
+         "unidad": "USD", "hoja": "09_Ajuste", "etiqueta": "Código", "seccion": "Intangibles y goodwill (NIC 38 · Secc. 18)",
+         "series": [["Neto en libros (cliente)", "Neto en libros (cliente)"], ["Neto auditado", "Neto auditado"]],
+         "filas": ["SW-01", "LIC-01", "MAR-01", "GW-01", "INV-01", "DES-01", "DES-02", "DES-03", "PAT-01", "SW-02", "SW-03", "CON-01", "CON-02"]},
+    ],
 }
 
 
@@ -862,6 +883,7 @@ def hojas(res: dict) -> list[dict]:
         aju.append([
             x["id"], x["desc"], fx(libros, x["libros"]),
             fx(f'IF({AMO}C{r}="No",0,{AMO}D{r}-{AMO}N{r}-{X("L")}-{DET}K{r}+{REV}I{r})', x["aud"]), fx(f"D{r}-C{r}", x["ajuste"]),
+            fx(f'IF(ABS(E{r})>=0.005,"Alerta","Conforme")', "Alerta" if abs(x["ajuste"]) >= 0.005 else "Conforme"),
         ])
 
     fr = {k: FILA0 + i for i, k in enumerate(res["labels"])}
@@ -879,6 +901,47 @@ def hojas(res: dict) -> list[dict]:
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
     S = lambda k: sum(x[k] for x in its if x[k] is not None)
     N = "n"
+
+    # 11 · indicadores y conclusión (con semáforo por indicador).
+    nprob = len(res["exceptions"])
+    PBL = ref("10_Problemas")
+    bc = lambda kk: f"B{FILA0 + kk}"
+    rc = lambda kk: FILA0 + kk
+    conclusion = [
+        ["Intangibles y goodwill netos auditados", fx(f"SUM({_rg(AJU, 'D', n)})", t["netoAuditado"]), None, None, ""],
+        ["Saldo según el mayor", fx(ref_res["saldoMayor"], t["saldoMayor"]), None, None, ""],
+        ["Ajuste propuesto (auditado − mayor)", fx(f"{bc(0)}-{bc(1)}", t["ajuste"]), None, None,
+         fx(f'IF(ABS(B{rc(2)})>0.005,"Alerta","Conforme")', "Alerta" if abs(t["ajuste"]) > 0.005 else "Conforme")],
+        ["% del ajuste sobre el saldo del mayor", None,
+         fx(f'IF({bc(1)}=0,"",{bc(2)}/{bc(1)})', None if t["saldoMayor"] == 0 else t["ajuste"] / t["saldoMayor"]), None, ""],
+        ["Deterioro auditado", fx(f"SUM({_rg(DET, 'K', n)})", t["deterioroAuditado"]), None, None,
+         fx(f'IF(B{rc(4)}>0.005,"Alerta","Conforme")', "Alerta" if t["deterioroAuditado"] > 0.005 else "Conforme")],
+        ["Diferencia de amortización (recalculada − registrada)", fx(f"SUM({_rg(AMO, 'M', n)})", t["difAmortizacion"]), None, None,
+         fx(f'IF(ABS(B{rc(5)})>0.005,"Revisar","Conforme")', "Revisar" if abs(t["difAmortizacion"]) > 0.005 else "Conforme")],
+        ["Problemas detectados", None, None, fx(f"COUNTA({_rg(PBL, 'A', max(nprob, 1))})", nprob),
+         fx(f'IF(D{rc(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+    ]
+    # 12 · lectura causa-efecto: el resultado y las variaciones materiales con su cifra embebida (FIXED
+    # respeta los separadores del equipo; el valor de Python va con los del Ecuador, como hace m()).
+    RES = ref("01_Resumen")
+    rl = lambda k: f"{RES}$B${fr[k]}"
+    lectura = [
+        ["Resultado principal",
+         fx(f'"Los intangibles y el goodwill netos auditados suman US$ "&FIXED({rl("netoAuditado")},2)&" frente a US$ "&FIXED({rl("saldoMayor")},2)&" según el mayor."',
+            f'Los intangibles y el goodwill netos auditados suman US$ {m(t["netoAuditado"])} frente a US$ {m(t["saldoMayor"])} según el mayor.')],
+        ["Ajuste y su efecto",
+         fx(f'"El ajuste propuesto neto asciende a US$ "&FIXED({rl("ajuste")},2)&": es la diferencia entre el neto auditado y el saldo del mayor."',
+            f'El ajuste propuesto neto asciende a US$ {m(t["ajuste"])}: es la diferencia entre el neto auditado y el saldo del mayor.')],
+        ["Amortización (hallazgo material)",
+         fx(f'"La amortización del año auditada suma US$ "&FIXED({rl("amortAuditada")},2)&", con una diferencia frente a la registrada de US$ "&FIXED({rl("difAmortizacion")},2)&"."',
+            f'La amortización del año auditada suma US$ {m(t["amortAuditada"])}, con una diferencia frente a la registrada de US$ {m(t["difAmortizacion"])}.')],
+        ["Deterioro y reversión (hallazgo material)",
+         fx(f'"El deterioro del año auditado es de US$ "&FIXED({rl("deterioroAuditado")},2)&" y la reversión de deterioro auditada de US$ "&FIXED({rl("reversionAuditada")},2)&"."',
+            f'El deterioro del año auditado es de US$ {m(t["deterioroAuditado"])} y la reversión de deterioro auditada de US$ {m(t["reversionAuditada"])}.')],
+        ["Cierre",
+         fx(f'"La investigación / desarrollo no capitalizable dada de baja asciende a US$ "&FIXED({rl("bajaNoCapitalizable")},2)&" y el ajuste total propuesto neto queda en US$ "&FIXED({rl("ajuste")},2)&"."',
+            f'La investigación / desarrollo no capitalizable dada de baja asciende a US$ {m(t["bajaNoCapitalizable"])} y el ajuste total propuesto neto queda en US$ {m(t["ajuste"])}.')],
+    ]
     return [
         hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", N]], resumen, explica=_EXPLICA["01_Resumen"]),
         hoja("02_Parametros", CEDULAS[1][1], [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
@@ -921,11 +984,17 @@ def hojas(res: dict) -> list[dict]:
              rev, ["TOTAL", "", None, "", None, None, None, _tot("H", n, t["reversionRegistrada"]), _tot("I", n, t["reversionAuditada"]),
                    _tot("J", n, S("difRev")), None], explica=_EXPLICA["08_Reversion"]),
         hoja("09_Ajuste", CEDULAS[8][1],
-             [["Código", "t"], ["Descripción", "t"], ["Neto en libros (cliente)", N], ["Neto auditado", N], ["Ajuste propuesto", N]],
-             aju, ["TOTAL", "", _tot("C", n, t["netoAuxiliar"]), _tot("D", n, t["netoAuditado"]), _tot("E", n, S("ajuste"))],
-             explica=_EXPLICA["09_Ajuste"]),
+             [["Código", "t"], ["Descripción", "t"], ["Neto en libros (cliente)", N], ["Neto auditado", N], ["Ajuste propuesto", N], ["Semáforo", "t"]],
+             aju, ["TOTAL", "", _tot("C", n, t["netoAuxiliar"]), _tot("D", n, t["netoAuditado"]), _tot("E", n, S("ajuste")), ""],
+             explica=_EXPLICA["09_Ajuste"], colores=["Semáforo"]),
         hoja("10_Problemas", CEDULAS[9][1], [["Código", "t"], ["Descripción", "t"], ["Importe", N]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("11_Conclusion", CEDULAS[10][1],
+             [["Indicador", "t"], ["Importe", N], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
+             explica=_EXPLICA["11_Conclusion"], colores=["Estado"]),
+        hoja("12_Lectura", CEDULAS[11][1], [["Concepto", "t"], ["Detalle", "t"]], lectura,
+             explica={"Detalle": "Lee el resultado del rubro y las variaciones o hallazgos materiales con su cifra "
+                                 "tomada del Resumen (hoja 01), redactados como causa-efecto para el lector del papel."}),
     ]
 
 

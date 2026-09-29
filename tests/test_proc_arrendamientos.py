@@ -245,3 +245,41 @@ def test_hojas_y_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "arrendamientos" and len(d["program"]) >= 5
     assert m.RUBRO == "ARRENDAMIENTOS" and m.PRINCIPAL in m.DATASETS and m.kind("contratos") == "contratos"
+
+
+def test_conclusion():
+    """La cédula 17 lleva indicadores clave con importes en fórmula y un «Estado» coloreable."""
+    from backend.app.aud.niif.procesadores import base
+    h = next(x for x in m.hojas(_run()) if x["name"] == "17_Conclusion")
+    cols = [c[0] for c in h["cols"]]
+    assert cols[0] == "Indicador" and "Estado" in cols and h.get("colores") == ["Estado"]
+    est, imp = cols.index("Estado"), cols.index("Importe")
+    importes = [f[imp] for f in h["rows"] if isinstance(f[imp], dict)]
+    assert importes and all("f" in f for f in importes)              # cada importe es fórmula, nada pegado
+    estados = [f[est] for f in h["rows"] if isinstance(f[est], dict)]
+    valores = {f["v"] for f in estados}
+    assert valores and valores <= {"Alerta", "Revisar", "Conforme"} and valores <= set(base.NIVEL_COLOR)
+    assert all(base.rol_color(h, "Estado", f) in ("alta", "media", "baja") for f in estados)
+
+
+def test_lectura():
+    """La cédula 18 lee el resultado y los hallazgos materiales con su cifra embebida por fórmula (FIXED)."""
+    h = next(x for x in m.hojas(_run()) if x["name"] == "18_Lectura")
+    assert h["label"] == "Lectura de resultados"
+    assert [c[0] for c in h["cols"]] == ["Concepto", "Detalle"]
+    assert 3 <= len(h["rows"]) <= 5 and not h.get("total") and not h.get("colores")
+    det = [f[1] for f in h["rows"]]
+    assert all(isinstance(d, dict) and "f" in d for d in det)       # cada Detalle es fórmula, nada pegado
+    assert all("FIXED(" in d["f"] for d in det)                     # la cifra va embebida con FIXED
+    assert "Detalle" in h["explica"] and len(h["explica"]["Detalle"]) >= 40
+
+
+def test_semaforo_conciliacion():
+    from backend.app.aud.niif.procesadores.base import NIVEL_COLOR
+    h = next(x for x in m.hojas(_run()) if x["name"] == "15_Conciliacion")
+    assert h["colores"] == ["Semáforo"]
+    sem = [c[0] for c in h["cols"]].index("Semáforo")
+    valores = {(fila[sem].get("v") if isinstance(fila[sem], dict) else fila[sem]) for fila in h["rows"]}
+    assert valores <= {"Alerta", "Conforme"} and valores
+    assert valores <= set(NIVEL_COLOR)
+    assert h["total"][sem] == ""

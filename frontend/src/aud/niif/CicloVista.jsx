@@ -98,7 +98,7 @@ function descargar(nombre, contenido, tipo) {
 const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const mostrar = (v) => (v && typeof v === "object" ? String(v.v ?? v.n ?? "") : String(v ?? ""));
 
-function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, processor, onModelo, onConvertir }) {
+export function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, processor, onModelo, onConvertir }) {
   const input = useRef(null);
   const convertInput = useRef(null);
   const [parte, setParte] = useState(req.components?.[0] || "");

@@ -109,6 +109,17 @@ PANEL = {
     "composicion":  {"rotulo": "Depreciación por activo", "hoja": "04_Depreciacion", "etiqueta": "Código",
                      "valor": "Depreciación recalculada"},
     "distribucion": {"rotulo": "Costo por clase de activo", "hoja": "05_Vidas_residual", "etiqueta": "Clase", "valor": "Costo"},
+    # Tablero premium: categoría FIJA que calcula el módulo (estado del activo: En uso / En construcción / Baja,
+    # columna «Estado» de la cédula 04, no la «Clase» libre del cliente), con dos columnas comparables en USD
+    # (costo bruto frente al valor neto en libros). Las barras salen por fórmula SUMIFS de la cédula 19.
+    "tableros": [
+        {"rotulo": "Costo y valor neto por estado del activo",
+         "sub": "USD · costo bruto frente al valor neto en libros, por estado del activo (NIC 16).",
+         "unidad": "USD", "hoja": "19_Resumen_estado", "etiqueta": "Estado",
+         "series": [["Costo", "Costo"], ["Valor neto en libros", "Valor neto en libros"]],
+         "filas": ["En uso", "En construcción", "Baja"],
+         "seccion": "Resumen por estado del activo"},
+    ],
 }
 
 PARAMETROS = {
@@ -596,7 +607,8 @@ CEDULAS = [
     ("10_Adiciones", "Adiciones y costos por préstamos"), ("11_Prestamos", "Préstamos para la construcción"),
     ("12_Capitalizacion", "Capitalización de costos por préstamos por activo"), ("13_Desmantelamiento", "Desmantelamiento"),
     ("14_Roll_forward", "Movimiento del año y conciliación auxiliar-mayor"), ("15_Ajustes", "Ajustes propuestos"),
-    ("16_Problemas", "Problemas encontrados"),
+    ("16_Problemas", "Problemas encontrados"), ("17_Conclusion", "Indicadores y conclusión"),
+    ("18_Lectura", "Lectura de resultados"), ("19_Resumen_estado", "Resumen por estado del activo"),
 ]
 P = ref("02_Parametros")
 AUX, DEP, BAJ, REV, DET, ADI, PRE, CAP, DES, RF, AJ = (
@@ -768,6 +780,7 @@ def hojas(res: dict) -> list[dict]:
             a["dai"], a["dreg"], a["det"], a["rec"], a["rev"], a["sup"], a["decPrev"], a["baja"] or None, a["prod"], a["resreg"]] for a in A]
 
     # 04 · depreciación y VNL (fila alineada con 03).
+    tol = pv("tolerancia") or 0.0
     dep = []
     for i, a in enumerate(A):
         r = FILA0 + i
@@ -782,6 +795,8 @@ def hojas(res: dict) -> list[dict]:
             fx(f'IF(H{r}="","",B{r}-H{r}-I{r})', a["nbv"]),
             fx(f'IF(H{r}="","",IF(AND(C{r}>0,H{r}>=C{r}-0.005),"Sí","No"))', a["total_dep"]),
             fx(f'IF({X("R")}<>"","Baja",IF({X("E")}="","En construcción","En uso"))', a["estado"]),
+            fx(f'IF(G{r}="","",IF(ABS(G{r})>{PAR["tolerancia"]},"Alerta","Conforme"))',
+               "" if a["dif"] is None else ("Alerta" if abs(a["dif"]) > tol else "Conforme")),
         ])
 
     # 05 · vidas útiles, residual y método.
@@ -958,6 +973,34 @@ def hojas(res: dict) -> list[dict]:
          "− depreciación − deterioro a resultados + bajas + intereses + revaluación a resultados − actualización financiera del desmantelamiento"],
     ]
 
+    # Estilos de cédula sumaria (una entrada por fila de datos, o None):
+    _sg = {"sangria": 1, "col": "Concepto"}
+    # 13 · Desmantelamiento: las variables del valor presente sangradas y los importes calculados (valor
+    # presente, ajuste total y cambio de estimación) como subtotales con filete.
+    estilos_desm = [_sg, _sg, _sg, {"tipo": "total"}, None, None, None, {"tipo": "total"}, {"tipo": "total"}]
+    # 14 · Roll-forward: los movimientos del costo y de la depreciación sangrados bajo sus subtotales de
+    # cierre, y las diferencias auxiliar − mayor como líneas de control.
+    estilos_rfw = [
+        None,               # 0 · Costo al inicio (auxiliar)
+        _sg,                # 1 · (+) Adiciones del año
+        _sg,                # 2 · (−) Costo de las bajas
+        {"tipo": "total"},  # 3 · Costo al cierre (auxiliar)
+        None,               # 4 · Costo al cierre según el mayor
+        {"tipo": "control"},  # 5 · Diferencia auxiliar − mayor (costo)
+        None,               # 6 · Depreciación acumulada al inicio
+        _sg,                # 7 · (+) Depreciación del año registrada
+        _sg,                # 8 · (−) Depreciación acumulada de las bajas
+        {"tipo": "total"},  # 9 · Depreciación acumulada al cierre (registrada)
+        None,               # 10 · Depreciación acumulada según el mayor
+        {"tipo": "control"},  # 11 · Diferencia auxiliar − mayor (depreciación)
+        None,               # 12 · Depreciación acumulada al cierre recalculada
+        {"tipo": "total"},  # 13 · Valor neto en libros recalculado
+        None,               # 14 · Adiciones según el detalle
+        {"tipo": "control"},  # 15 · Diferencia adiciones auxiliar − detalle
+    ]
+    # 15 · Ajustes propuestos: cada ajuste es una partida independiente; solo el efecto neto es subtotal.
+    estilos_ajus = [None] * (len(ajus) - 1) + [{"tipo": "total"}]
+
     celda = {"costoFinal": f"{RF}B{FILA0 + 3}", "depRecalculada": f"SUM({_rng(DEP, 'E', n)})", "depRegistrada": f"{RF}B{FILA0 + 7}",
              "ajusteDep": f"{AJ}B{FILA0}", "nbv": f"{RF}B{FILA0 + 13}", "deterioroAdicional": f"SUM({_rng(DET, 'E', len(D))})",
              "deterioroORI": f"{AJ}B{FILA0 + 6}", "deterioroResultado": f"{AJ}B{FILA0 + 1}",
@@ -972,6 +1015,99 @@ def hojas(res: dict) -> list[dict]:
              "capitalizableEspecificos": sc("esp_cap"), "capitalizableGenerales": sc("cap_gen"),
              "costosPrestamosIncurridos": d["tope"]["incurridos"], "capitalizablePeriodo": sc("final"), **aj}
     resumen = [[res["labels"][k], fx(celda[k], valor[k])] for k in res["labels"]]
+
+    # 17 · Indicadores y conclusión (con semáforo coloreable en «Estado»).
+    tt = {k: float(v) for k, v in res["totals"].items()}
+    PROB = ref("16_Problemas")
+    nprob = len(res["exceptions"])
+    pct_v = None if tt["costoFinal"] == 0 else abs(tt["ajusteResultado"]) / tt["costoFinal"]
+    r2f, r3f, r5f, r6f = FILA0 + 2, FILA0 + 3, FILA0 + 5, FILA0 + 6
+    est = lambda cond, alto, ok="Conforme": (alto if cond else ok)
+    conclusion = [
+        [res["labels"]["costoFinal"], fx(celda["costoFinal"], tt["costoFinal"]), None, None, ""],
+        [res["labels"]["nbv"] + " (resultado principal)", fx(celda["nbv"], tt["nbv"]), None, None,
+         fx(f'IF(ABS(B{r3f})>0.005,"Revisar","Conforme")', est(abs(tt["ajusteResultado"]) > 0.005, "Revisar"))],
+        [res["labels"]["ajusteDep"], fx(celda["ajusteDep"], tt["ajusteDep"]), None, None,
+         fx(f'IF(ABS(B{r2f})>0.005,"Alerta","Conforme")', est(abs(tt["ajusteDep"]) > 0.005, "Alerta"))],
+        [res["labels"]["ajusteResultado"], fx(celda["ajusteResultado"], tt["ajusteResultado"]), None, None,
+         fx(f'IF(ABS(B{r3f})>0.005,"Alerta","Conforme")', est(abs(tt["ajusteResultado"]) > 0.005, "Alerta"))],
+        ["% del efecto neto en resultados sobre el costo al cierre", None,
+         fx(f'IF(B{FILA0}=0,"",ABS(B{r3f})/B{FILA0})', pct_v), None,
+         fx(f'IF(C{FILA0 + 4}="","",IF(ABS(B{r3f})>0.005,"Revisar","Conforme"))',
+            "" if pct_v is None else est(abs(tt["ajusteResultado"]) > 0.005, "Revisar"))],
+        ["Diferencia auxiliar − mayor (costo)", fx(celda["difCosto"], rf["difCosto"]), None, None,
+         fx(f'IF(B{r5f}="","",IF(ABS(B{r5f})>0.005,"Alerta","Conforme"))',
+            "" if rf["difCosto"] is None else est(abs(rf["difCosto"]) > 0.005, "Alerta"))],
+        ["Problemas encontrados", None, None, fx(f"COUNTA({_rng(PROB, 'A', nprob)})", nprob),
+         fx(f'IF(D{r6f}>0,"Revisar","Conforme")', est(nprob > 0, "Revisar"))],
+    ]
+    ex_conclusion = {
+        "Importe": ("Cada indicador trae su cifra de la hoja que la calcula: el costo al cierre y la diferencia con el mayor, de "
+                    "la hoja 14 (Movimiento del año); el valor neto en libros, la diferencia de depreciación y el efecto neto "
+                    "en resultados, de la hoja 15 (Ajustes propuestos)."),
+        "Porcentaje": ("Divide el efecto neto en resultados en valor absoluto entre el costo al cierre para medir su peso "
+                       "relativo; queda en blanco si el costo al cierre es cero."),
+        "Cantidad": ("Cuenta cuántos problemas se detectaron leyendo la columna de códigos de la hoja 16 (Problemas "
+                     "encontrados)."),
+        "Estado": ("Semáforo del indicador: «Alerta» cuando un ajuste o una diferencia dejan de ser cero, «Revisar» cuando el "
+                   "efecto neto en resultados o los problemas piden atención y «Conforme» cuando el indicador no presenta "
+                   "desviaciones."),
+    }
+
+    # 18 · Lectura de resultados (causa-efecto con las cifras embebidas por FIXED).
+    _fix = lambda cell: f"FIXED({cell},2)"
+    cita_dep = "Sección 17" if d["marco"] == MARCO_PYMES else "NIC 16.60-62"
+    lectura = [
+        ["Resultado principal",
+         fx(f'"El valor neto en libros auditado de la propiedad, planta y equipo es de US$ "&{_fix(celda["nbv"])}&", sobre un costo al cierre de US$ "&{_fix(celda["costoFinal"])}&" (hojas 15 y 14)."',
+            f"El valor neto en libros auditado de la propiedad, planta y equipo es de US$ {m(tt['nbv'])}, sobre un costo al cierre de US$ {m(tt['costoFinal'])} (hojas 15 y 14).")],
+        ["Efecto neto en resultados",
+         fx(f'"El efecto neto de los ajustes en resultados es de US$ "&{_fix(celda["ajusteResultado"])}&"; su registro corrige la depreciación, el deterioro y los demás ajustes del ejercicio (hoja 15)."',
+            f"El efecto neto de los ajustes en resultados es de US$ {m(tt['ajusteResultado'])}; su registro corrige la depreciación, el deterioro y los demás ajustes del ejercicio (hoja 15).")],
+        ["Depreciación",
+         fx(f'"La depreciación del año recalculada es de US$ "&{_fix(celda["depRecalculada"])}&", con una diferencia de US$ "&{_fix(celda["ajusteDep"])}&" frente a la registrada, que debe corregirse ({cita_dep})."',
+            f"La depreciación del año recalculada es de US$ {m(tt['depRecalculada'])}, con una diferencia de US$ {m(tt['ajusteDep'])} frente a la registrada, que debe corregirse ({cita_dep}).")],
+        ["Deterioro y revaluación",
+         fx(f'"El deterioro adicional recalculado suma US$ "&{_fix(celda["deterioroAdicional"])}&" y la revaluación reconocida en resultados US$ "&{_fix(celda["revaluacionResultado"])}&", que afectan el valor del activo y el resultado del período (NIC 36 y NIC 16.39-40)."',
+            f"El deterioro adicional recalculado suma US$ {m(tt['deterioroAdicional'])} y la revaluación reconocida en resultados US$ {m(tt['revaluacionResultado'])}, que afectan el valor del activo y el resultado del período (NIC 36 y NIC 16.39-40).")],
+        ["Cierre",
+         fx(f'"En conjunto, sobre un costo al cierre de US$ "&{_fix(celda["costoFinal"])}&", los hallazgos exigen registrar los ajustes propuestos (hoja 15) y revelar la conciliación del movimiento del ejercicio."',
+            f"En conjunto, sobre un costo al cierre de US$ {m(tt['costoFinal'])}, los hallazgos exigen registrar los ajustes propuestos (hoja 15) y revelar la conciliación del movimiento del ejercicio.")],
+    ]
+    ex_lectura = {"Detalle": ("Redacta en lenguaje del auditor la lectura causa-efecto de los resultados e inserta cada cifra "
+                              "con FIXED desde la hoja 15 (Ajustes propuestos) y la hoja 14 (Movimiento del año): el valor neto en "
+                              "libros y el costo al cierre, el efecto neto en resultados, la diferencia de depreciación y el "
+                              "deterioro y la revaluación del ejercicio.")}
+
+    # 19 · resumen por estado del activo. El estado (En uso / En construcción / Baja) es la clasificación FIJA
+    # que calcula el módulo en la columna L de la cédula 04 —a diferencia de la «Clase», que es un texto libre
+    # del cliente—; cada celda es una fórmula SUMIFS/COUNTIF sobre ese detalle, con el mismo valor en Python.
+    ESTADOS = ["En uso", "En construcción", "Baja"]
+    dLl, dBc, dHc, dJc = (_rng(DEP, col, n) for col in ("L", "B", "H", "J"))
+    resumen_estado = []
+    for i, cat in enumerate(ESTADOS):
+        r = FILA0 + i
+        grupo = [a for a in A if a["estado"] == cat]
+        resumen_estado.append([
+            cat,
+            fx(f"COUNTIF({dLl},A{r})", len(grupo)),
+            fx(f"SUMIFS({dBc},{dLl},A{r})", sum(a["costo"] for a in grupo)),
+            fx(f"SUMIFS({dHc},{dLl},A{r})", sum(a["acum"] or 0 for a in grupo)),
+            fx(f"SUMIFS({dJc},{dLl},A{r})", sum(a["nbv"] or 0 for a in grupo)),
+        ])
+    fe = FILA0 + len(ESTADOS) - 1
+    total_estado = ["TOTAL", suma("B", fe, n), suma("C", fe, sum(a["costo"] for a in A)),
+                    suma("D", fe, sum(a["acum"] or 0 for a in A)), suma("E", fe, sum(a["nbv"] or 0 for a in A))]
+    ex_estado = {
+        "Cantidad": "Cuenta cuántos activos hay en cada estado leyendo la columna «Estado» de la hoja 04 (Recálculo de "
+                    "depreciación y VNL).",
+        "Costo": "Suma el costo (costo inicial más adiciones) de los activos de cada estado, tomándolo de la hoja 04 "
+                 "(Recálculo de depreciación y VNL).",
+        "Depreciación acumulada": "Suma la depreciación acumulada recalculada de los activos de cada estado, desde la hoja 04 "
+                                  "(Recálculo de depreciación y VNL); los activos sin recálculo (método no lineal) no suman.",
+        "Valor neto en libros": "Suma el valor neto en libros recalculado (costo menos depreciación acumulada menos deterioro) de "
+                                "los activos de cada estado, desde la hoja 04 (Recálculo de depreciación y VNL).",
+    }
 
     # --- «Cómo se calcula esta hoja»: explicación humana por columna calculada -------------
     ex_resumen = {"Importe": "Trae cada concepto de su hoja: costo y diferencias con el mayor de la hoja 14 (Movimiento del año), "
@@ -1002,6 +1138,9 @@ def hojas(res: dict) -> list[dict]:
                                  "no; en blanco si no se recalculó.",
         "Estado": "«Baja» si el activo tiene fecha de baja en la hoja 03, «En construcción» si aún no tiene fecha de disponibilidad "
                   "para uso y «En uso» en los demás casos.",
+        "Semáforo": ("Estado del activo: «Alerta» si la diferencia entre la depreciación recalculada y la registrada supera la "
+                     "tolerancia de la hoja 02 (Parámetros), «Conforme» si está dentro de ella. Queda en blanco si no se recalculó "
+                     "la depreciación (método no lineal o sin datos)."),
     }
     ex_vidas = {
         "Vida útil (meses)": "Trae la vida útil en meses informada en la hoja 03 (Auxiliar de activos); en blanco si no se informó.",
@@ -1143,9 +1282,10 @@ def hojas(res: dict) -> list[dict]:
         hoja("04_Depreciacion", "Recálculo de depreciación y VNL",
              [["Código", "t"], ["Costo", "n"], ["Importe depreciable", "n"], ["Días en uso", "i"], ["Depreciación recalculada", "n"],
               ["Depreciación registrada", "n"], ["Diferencia", "n"], ["Dep. acumulada recalculada", "n"], ["Deterioro acumulado", "n"],
-              ["Valor neto en libros", "n"], ["Totalmente depreciado", "t"], ["Estado", "t"]], dep,
+              ["Valor neto en libros", "n"], ["Totalmente depreciado", "t"], ["Estado", "t"], ["Semáforo", "t"]], dep,
              ["TOTAL", suma("B", fin(n), sum(a["costo"] for a in A)), None, None, suma("E", fin(n), valor["depRecalculada"]),
-              suma("F", fin(n), rf["dreg"]), suma("G", fin(n), aj["ajusteDep"]), None, None, None, "", ""], explica=ex_dep),
+              suma("F", fin(n), rf["dreg"]), suma("G", fin(n), aj["ajusteDep"]), None, None, None, "", "", ""],
+             explica=ex_dep, colores=["Semáforo"]),
         hoja("05_Vidas_residual", "Vidas útiles, residual y método",
              [["Código", "t"], ["Clase", "t"], ["Método", "t"], ["Vida útil (meses)", "i"], ["Valor residual", "n"], ["Costo", "n"],
               ["Residual % del costo", "p"], ["Dep. acumulada recalculada", "n"], ["Vida remanente (meses)", "n"],
@@ -1193,11 +1333,21 @@ def hojas(res: dict) -> list[dict]:
               suma("I", fin(ncap), sc("cap_gen")), suma("J", fin(ncap), sc("antes")), None,
               suma("L", fin(ncap), sc("final")), suma("M", fin(ncap), sc("reg")), suma("N", fin(ncap), sc("dif"))] if ncap else None,
              explica=ex_cap),
-        hoja("13_Desmantelamiento", "Desmantelamiento", [["Concepto", "t"], ["Importe", "n"]], desm, explica=ex_desm),
-        hoja("14_Roll_forward", "Movimiento del año y conciliación auxiliar-mayor", [["Concepto", "t"], ["Importe", "n"]], rfw, explica=ex_rf),
-        hoja("15_Ajustes", "Ajustes propuestos", [["Ajuste", "t"], ["Importe", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]], ajus, explica=ex_aj),
+        hoja("13_Desmantelamiento", "Desmantelamiento", [["Concepto", "t"], ["Importe", "n"]], desm, explica=ex_desm,
+             estilos=estilos_desm),
+        hoja("14_Roll_forward", "Movimiento del año y conciliación auxiliar-mayor", [["Concepto", "t"], ["Importe", "n"]], rfw, explica=ex_rf,
+             estilos=estilos_rfw),
+        hoja("15_Ajustes", "Ajustes propuestos", [["Ajuste", "t"], ["Importe", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]], ajus, explica=ex_aj,
+             estilos=estilos_ajus),
         hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("17_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
+             explica=ex_conclusion, colores=["Estado"]),
+        hoja("18_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura, explica=ex_lectura),
+        hoja("19_Resumen_estado", "Resumen por estado del activo",
+             [["Estado", "t"], ["Cantidad", "i"], ["Costo", "n"], ["Depreciación acumulada", "n"], ["Valor neto en libros", "n"]],
+             resumen_estado, total_estado, explica=ex_estado),
     ]
 
 

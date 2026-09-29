@@ -108,6 +108,17 @@ PANEL = {
                      "valor": "Deterioro recalculado"},
     "distribucion": {"rotulo": "Saldo por clasificación", "hoja": "10_Conciliacion",
                      "etiqueta": "Clasificación según la norma", "valor": "Saldo en libros"},
+    # Tablero premium colgado de la cédula-resumen de categorías fijas (14_Resumen_clasif):
+    # saldo en libros y ajuste propuesto por categoría de medición NIIF 9. Los rótulos de
+    # las filas son EXACTAMENTE los del enum CLASES (una fila fija por categoría).
+    "tableros": [
+        {"rotulo": "Cartera por clasificación NIIF 9",
+         "sub": "Saldo en libros y ajuste propuesto por categoría de medición (USD).",
+         "unidad": "USD", "hoja": "14_Resumen_clasif", "etiqueta": "Clasificación",
+         "filas": [{"fila": "Costo amortizado"}, {"fila": "VR con cambios en ORI"},
+                   {"fila": "VR con cambios en resultados"}, {"fila": "Costo menos deterioro"}],
+         "series": [["Saldo en libros", "Saldo en libros"], ["Ajuste propuesto", "Ajuste propuesto"]]},
+    ],
 }
 
 CLASES = {"CA": "Costo amortizado", "VRORI": "VR con cambios en ORI", "VRR": "VR con cambios en resultados", "COSTO": "Costo menos deterioro"}
@@ -501,7 +512,8 @@ CEDULAS = [
     ("04_Clasificacion", "Clasificación"), ("05_Costo_amortizado", "Costo amortizado y TIE"),
     ("06_Valor_razonable", "Valor razonable y jerarquía"), ("07_Intereses_dividendos", "Intereses y dividendos"),
     ("08_Deterioro", "Deterioro"), ("09_Reclasificacion", "Reclasificación"), ("10_Conciliacion", "Conciliación y ajuste"),
-    ("11_Problemas", "Problemas encontrados"),
+    ("11_Problemas", "Problemas encontrados"), ("12_Conclusion", "Indicadores y conclusión"),
+    ("13_Lectura", "Lectura de resultados"), ("14_Resumen_clasif", "Resumen por clasificación"),
 ]
 P, INV, CLA, CAM, VRZ, ING, DET, REC, CON = (ref(n) for n, _ in CEDULAS[1:10])
 CORTE, INICIO = f"{P}$B${FILA0}", f"{P}$B${FILA0 + 1}"
@@ -681,7 +693,9 @@ def hojas(res: dict) -> list[dict]:
         concil.append([x["id"], fx(f"{CLA}H{r}", x["esperada"]), fx(f_med, _v(x["medicion"])), fx(f"{INV}N{r}", x["libros"]),
                        fx(f'IF(C{r}="","",C{r}-D{r})', _v(x["difMed"])), fx(f"{DET}I{r}", _v(x["detCalc"])), fx(f"{DET}J{r}", x["detReg"] or 0.0),
                        fx(f'IF(OR(B{r}="CA",B{r}="COSTO"),IF(F{r}="","",F{r}-G{r}),0)', _v(x["ajDet"])),
-                       fx(f'IF(OR(E{r}="",H{r}=""),"",E{r}-H{r})', _v(x["ajuste"]))])
+                       fx(f'IF(OR(E{r}="",H{r}=""),"",E{r}-H{r})', _v(x["ajuste"])),
+                       fx(f'IF(I{r}="","",IF(ABS(I{r})>=0.005,"Alerta","Conforme"))',
+                          "" if x["ajuste"] is None else ("Alerta" if abs(x["ajuste"]) >= 0.005 else "Conforme"))])
     fin = FILA0 + nx - 1
 
     recl = []
@@ -701,6 +715,67 @@ def hojas(res: dict) -> list[dict]:
                "deterioroCalc": f"{DET}I{fin + 1}", "deterioroReg": f"{DET}J{fin + 1}", "ingresoDif": f"{ING}F{fin + 1}",
                "difVR": f"{VRZ}F{fin_vr + 1}" if vrz else "0", "ajuste": f"{CON}I{fin + 1}"}
     resumen = [[res["labels"][k], fx(tot_ref[k], n2(t[k]))] for k in res["labels"]]
+
+    # 14 · Resumen por clasificación (categorías fijas del enum NIIF 9; base del tablero premium).
+    # Una fila por categoría de CLASES aunque no tenga instrumentos (→ 0 por SUMIFS, no vacío).
+    # Cada importe es una fórmula SUMIFS sobre la hoja 10 (Conciliación y ajuste), filtrando por el
+    # código de clasificación de esa categoría en la columna «Clasificación según la norma» (col B):
+    # saldo en libros (col D) y ajuste propuesto (col I). El valor Python es la misma suma.
+    b_rng = f"{CON}$B${FILA0}:$B${fin}"
+    d_rng = f"{CON}$D${FILA0}:$D${fin}"
+    i_rng = f"{CON}$I${FILA0}:$I${fin}"
+    resumen_clasif = []
+    for cod, nombre in CLASES.items():
+        saldo = sum(x["libros"] for x in xs if x["esperada"] == cod)
+        aj = sum(x["ajuste"] for x in xs if x["esperada"] == cod and x["ajuste"] is not None)
+        resumen_clasif.append([nombre,
+                               fx(f'SUMIFS({d_rng},{b_rng},"{cod}")', n2(saldo)),
+                               fx(f'SUMIFS({i_rng},{b_rng},"{cod}")', n2(aj))])
+    ex_resclasif = {
+        "Saldo en libros": ("Suma con SUMIFS el saldo en libros de todos los instrumentos de la hoja 10 (Conciliación y "
+                            "ajuste) cuya clasificación según la norma coincide con esta categoría NIIF 9; si la categoría "
+                            "no tiene instrumentos, el resultado es cero."),
+        "Ajuste propuesto": ("Suma con SUMIFS el ajuste propuesto al importe en libros neto de los instrumentos de la hoja 10 "
+                             "(Conciliación y ajuste) clasificados en esta categoría; si la categoría no tiene instrumentos, "
+                             "el resultado es cero."),
+    }
+
+    # 12 · Indicadores y conclusión (con semáforo coloreable en «Estado»).
+    PROB = ref("11_Problemas")
+    nprob = len(res["exceptions"])
+    rng_prob = f"{PROB}$A${FILA0}:$A${FILA0 + max(nprob, 1) - 1}"
+    pct_v = None if t["saldoLibros"] == 0 else abs(t["ajuste"]) / t["saldoLibros"]
+    r2f, r4f, r5f, r6f = FILA0 + 2, FILA0 + 4, FILA0 + 5, FILA0 + 6
+    est = lambda cond, alto, ok="Conforme": (alto if cond else ok)
+    conclusion = [
+        [res["labels"]["saldoLibros"], fx(tot_ref["saldoLibros"], n2(t["saldoLibros"])), None, None, ""],
+        [res["labels"]["medicion"] + " (resultado principal)", fx(tot_ref["medicion"], n2(t["medicion"])), None, None,
+         fx(f'IF(ABS(B{r2f})>0.005,"Revisar","Conforme")', est(abs(t["ajuste"]) > 0.005, "Revisar"))],
+        [res["labels"]["ajuste"], fx(tot_ref["ajuste"], n2(t["ajuste"])), None, None,
+         fx(f'IF(ABS(B{r2f})>0.005,"Alerta","Conforme")', est(abs(t["ajuste"]) > 0.005, "Alerta"))],
+        ["% de ajuste sobre el saldo en libros", None,
+         fx(f'IF({tot_ref["saldoLibros"]}=0,"",ABS({tot_ref["ajuste"]})/{tot_ref["saldoLibros"]})', pct_v), None,
+         fx(f'IF(C{FILA0 + 3}="","",IF(ABS({tot_ref["ajuste"]})>0.005,"Revisar","Conforme"))',
+            "" if pct_v is None else est(abs(t["ajuste"]) > 0.005, "Revisar"))],
+        [res["labels"]["difVR"], fx(tot_ref["difVR"], n2(t["difVR"])), None, None,
+         fx(f'IF(ABS(B{r4f})>0.005,"Revisar","Conforme")', est(abs(t["difVR"]) > 0.005, "Revisar"))],
+        [res["labels"]["ingresoDif"], fx(tot_ref["ingresoDif"], n2(t["ingresoDif"])), None, None,
+         fx(f'IF(ABS(B{r5f})>0.005,"Revisar","Conforme")', est(abs(t["ingresoDif"]) > 0.005, "Revisar"))],
+        ["Problemas encontrados", None, None, fx(f"COUNTA({rng_prob})", nprob),
+         fx(f'IF(D{r6f}>0,"Revisar","Conforme")', est(nprob > 0, "Revisar"))],
+    ]
+    ex_conclusion = {
+        "Importe": ("Cada indicador trae su cifra de la fila TOTAL de la hoja que la calcula: el saldo en libros, la medición "
+                    "según la norma y el ajuste propuesto, de la hoja 10 (Conciliación y ajuste); la diferencia de valor "
+                    "razonable, de la hoja 06; los intereses y dividendos no registrados, de la hoja 07."),
+        "Porcentaje": ("Divide el ajuste propuesto en valor absoluto entre el saldo en libros para medir su peso relativo; "
+                       "queda en blanco si el saldo en libros es cero."),
+        "Cantidad": ("Cuenta cuántos problemas se detectaron leyendo la columna de códigos de la hoja 11 (Problemas "
+                     "encontrados)."),
+        "Estado": ("Semáforo del indicador: «Alerta» cuando el ajuste propuesto deja de ser cero, «Revisar» cuando hay "
+                   "diferencias de valor razonable, ingresos no registrados o problemas que atender y «Conforme» cuando el "
+                   "indicador no presenta desviaciones."),
+    }
     s = lambda col, fin_, k: suma(col, fin_, sum(x[k] for x in xs if x[k] is not None))
     sc = lambda col, k: suma(col, fin_ca, sum(x["ca"][k] for x in xs if x["ca"]))
 
@@ -851,10 +926,38 @@ def hojas(res: dict) -> list[dict]:
                                "clasificaciones a valor razonable pone cero, porque ahí el deterioro no reduce el saldo.",
         "Ajuste propuesto (importe neto)": "Diferencia de medición menos ajuste de deterioro: es el ajuste neto que se propone al saldo "
                                            "de la inversión. Queda en blanco si falta alguno de los dos.",
+        "Semáforo": ("Estado del instrumento: «Alerta» si el ajuste propuesto no es cero (la medición según la norma difiere de "
+                     "los libros y hay que ajustar), «Conforme» si el ajuste es cero. Queda en blanco si no hubo medición completa."),
     }
     ex_resumen = {"Importe": "Trae cada cifra de la fila TOTAL de su hoja: saldo, medición, diferencia y ajuste de la hoja 10 "
                              "(Conciliación y ajuste), deterioro de la hoja 08, ingresos no registrados de la hoja 07 y diferencia "
                              "de valor razonable de la hoja 06."}
+
+    # 13 · Lectura de resultados (causa-efecto con las cifras embebidas por FIXED).
+    _fix = lambda cell: f"FIXED({cell},2)"
+    aj_dir = "aumenta" if t["ajuste"] > 0.005 else ("disminuye" if t["ajuste"] < -0.005 else "no modifica")
+    aj_dir_f = f'IF({tot_ref["ajuste"]}>0.005,"aumenta",IF({tot_ref["ajuste"]}<-0.005,"disminuye","no modifica"))'
+    lectura = [
+        ["Resultado principal",
+         fx(f'"La medición según la norma de las inversiones es de US$ "&{_fix(tot_ref["medicion"])}&", frente a US$ "&{_fix(tot_ref["saldoLibros"])}&" de saldo en libros bruto (hoja 10)."',
+            f"La medición según la norma de las inversiones es de US$ {fmt_m(t['medicion'])}, frente a US$ {fmt_m(t['saldoLibros'])} de saldo en libros bruto (hoja 10).")],
+        ["Ajuste propuesto",
+         fx(f'"El ajuste propuesto al importe en libros neto es de US$ "&{_fix(tot_ref["ajuste"])}&", que "&{aj_dir_f}&" la medición de las inversiones y debe registrarse."',
+            f"El ajuste propuesto al importe en libros neto es de US$ {fmt_m(t['ajuste'])}, que {aj_dir} la medición de las inversiones y debe registrarse.")],
+        ["Deterioro",
+         fx(f'"El deterioro recalculado asciende a US$ "&{_fix(tot_ref["deterioroCalc"])}&", frente a US$ "&{_fix(tot_ref["deterioroReg"])}&" registrado; la diferencia debe corregirse (NIIF 9 5.5 / Sección 11)."',
+            f"El deterioro recalculado asciende a US$ {fmt_m(t['deterioroCalc'])}, frente a US$ {fmt_m(t['deterioroReg'])} registrado; la diferencia debe corregirse (NIIF 9 5.5 / Sección 11).")],
+        ["Valor razonable e intereses",
+         fx(f'"La diferencia de valor razonable suma US$ "&{_fix(tot_ref["difVR"])}&" y los intereses o dividendos no registrados US$ "&{_fix(tot_ref["ingresoDif"])}&", que afectan la medición y los resultados del período."',
+            f"La diferencia de valor razonable suma US$ {fmt_m(t['difVR'])} y los intereses o dividendos no registrados US$ {fmt_m(t['ingresoDif'])}, que afectan la medición y los resultados del período.")],
+        ["Cierre",
+         fx(f'"En conjunto, sobre inversiones por US$ "&{_fix(tot_ref["saldoLibros"])}&" en libros, los hallazgos exigen registrar el ajuste y revelar la clasificación y la jerarquía de valor razonable de cada instrumento (NIIF 7 / Sección 11)."',
+            f"En conjunto, sobre inversiones por US$ {fmt_m(t['saldoLibros'])} en libros, los hallazgos exigen registrar el ajuste y revelar la clasificación y la jerarquía de valor razonable de cada instrumento (NIIF 7 / Sección 11).")],
+    ]
+    ex_lectura = {"Detalle": ("Redacta en lenguaje del auditor la lectura causa-efecto de los resultados e inserta cada cifra "
+                              "con FIXED desde las filas TOTAL: la medición según la norma frente al saldo en libros y el ajuste "
+                              "propuesto (hoja 10), el deterioro recalculado y registrado (hoja 08) y la diferencia de valor "
+                              "razonable e intereses no registrados (hojas 06 y 07).")}
 
     T = "t"
     return [
@@ -904,11 +1007,19 @@ def hojas(res: dict) -> list[dict]:
         hoja("10_Conciliacion", "Conciliación y ajuste",
              [["Instrumento", T], ["Clasificación según la norma", T], ["Medición según la norma", "n"], ["Saldo en libros", "n"],
               ["Diferencia de medición", "n"], ["Deterioro recalculado", "n"], ["Deterioro registrado", "n"], ["Ajuste de deterioro", "n"],
-              ["Ajuste propuesto (importe neto)", "n"]], concil,
+              ["Ajuste propuesto (importe neto)", "n"], ["Semáforo", T]], concil,
              ["TOTAL", "", s("C", fin, "medicion"), s("D", fin, "libros"), s("E", fin, "difMed"), s("F", fin, "detCalc"),
-              suma("G", fin, sum(x["detReg"] or 0 for x in xs)), s("H", fin, "ajDet"), s("I", fin, "ajuste")], explica=ex_con),
+              suma("G", fin, sum(x["detReg"] or 0 for x in xs)), s("H", fin, "ajDet"), s("I", fin, "ajuste"), ""],
+             explica=ex_con, colores=["Semáforo"]),
         hoja("11_Problemas", "Problemas encontrados", [["Código", T], ["Descripción", T], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
+        hoja("12_Conclusion", "Indicadores y conclusión",
+             [["Indicador", T], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", T]], conclusion,
+             explica=ex_conclusion, colores=["Estado"]),
+        hoja("13_Lectura", "Lectura de resultados", [["Concepto", T], ["Detalle", T]], lectura, explica=ex_lectura),
+        hoja("14_Resumen_clasif", "Resumen por clasificación",
+             [["Clasificación", T], ["Saldo en libros", "n"], ["Ajuste propuesto", "n"]], resumen_clasif,
+             explica=ex_resclasif),
     ]
 
 

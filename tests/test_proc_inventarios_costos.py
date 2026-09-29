@@ -144,6 +144,35 @@ def test_rutas_por_marco():
     assert "secciones 13 y 27" in h["02_Parametros"]["rows"][1][1]
 
 
+def test_semaforo_obsolescencia():
+    """La cédula 10 lleva un Semáforo coloreable por ítem sobre la provisión estimada."""
+    from backend.app.aud.niif.procesadores import base
+    h = next(x for x in m.hojas(_run()) if x["name"] == "10_Obsolescencia")
+    assert "Semáforo" in [c[0] for c in h["cols"]] and h.get("colores") == ["Semáforo"]
+    j = [c[0] for c in h["cols"]].index("Semáforo")
+    fila = {f[0]: f[j]["v"] for f in h["rows"]}
+    assert fila["C-100"] == "Alerta"                                     # C-100: provisión por obsolescencia 1.800
+    valores = {f[j]["v"] for f in h["rows"]}
+    assert valores <= {"Alerta", "Conforme", ""} and "Conforme" in valores
+    assert all(base.rol_color(h, "Semáforo", f[j]) in ("alta", "baja", None) for f in h["rows"])
+    assert h["total"][j] == ""
+
+
+def test_conclusion():
+    """La cédula 14 lleva indicadores clave con importes en fórmula y un semáforo coloreable en «Estado»."""
+    from backend.app.aud.niif.procesadores import base
+    con = next(x for x in m.hojas(_run()) if x["name"] == "14_Conclusion")
+    assert con["label"] == "Indicadores y conclusión"
+    cols = [c[0] for c in con["cols"]]
+    assert cols == ["Indicador", "Importe", "Porcentaje", "Cantidad", "Estado"]
+    assert "Estado" in con["colores"]
+    ji, je = cols.index("Importe"), cols.index("Estado")
+    assert any(isinstance(f[ji], dict) and "f" in f[ji] for f in con["rows"])
+    roles = {base.rol_color(con, "Estado", f[je]) for f in con["rows"]}
+    assert roles & {"alta", "media", "baja"}
+    assert "alta" in roles       # el ejemplo tiene ajuste propuesto: al menos una «Alerta»
+
+
 def test_vacio_y_parametros_invalidos():
     with pytest.raises(ValueError):
         m.ejecutar({"inventario": []}, {}, "2025-12-31")
@@ -182,6 +211,48 @@ def test_validar_filas():
                                       "importe": "1.500,00", "_row": 2}])["ok"]
 
 
+def test_lectura():
+    """La cédula 15 lee los resultados en causa-efecto con las cifras embebidas por FIXED."""
+    lec = next(x for x in m.hojas(_run()) if x["name"] == "15_Lectura")
+    assert lec["label"] == "Lectura de resultados"
+    assert [c[0] for c in lec["cols"]] == ["Concepto", "Detalle"]
+    assert 3 <= len(lec["rows"]) <= 5
+    for fila in lec["rows"]:
+        assert isinstance(fila[0], str) and fila[0]
+        det = fila[1]
+        assert isinstance(det, dict) and "f" in det and "FIXED(" in det["f"]
+
+
+def test_resumen_obsolescencia_por_tramo():
+    """La cédula 16 resume el inventario y la provisión por tramo FIJO de obsolescencia con SUMIFS sobre la
+    hoja 10, con una fila por tramo del auditor, y el tablero premium del PANEL cuelga de sus filas."""
+    from backend.app.aud.niif.procesadores import graficos
+    res = _run()
+    h = {x["name"]: x for x in m.hojas(res)}["16_Resumen_obsol"]
+    assert h["label"] == "Inventario y provisión por tramo"
+    assert [c[0] for c in h["cols"]] == ["Tramo de obsolescencia", "Inventario al costo", "Provisión estimada"]
+    # Filas fijas: una por tramo (constante TRAMOS_OBS), en orden; 0 por SUMIFS si un tramo no tiene ítems.
+    assert [f[0] for f in h["rows"]] == [tr["n"] for tr in m.TRAMOS_OBS] == ["Sin obsolescencia", "Tramo 1", "Tramo 2", "Tramo 3"]
+    # Cada celda numérica es una fórmula SUMIFS sobre la hoja 10 (Obsolescencia): sin cifras pegadas.
+    for f in h["rows"]:
+        for c in (f[1], f[2]):
+            assert isinstance(c, dict) and "f" in c and c["f"].startswith("SUMIFS(") and "10_Obsolescencia" in c["f"]
+    val = {f[0]: (f[1]["v"], f[2]["v"]) for f in h["rows"]}
+    assert val["Sin obsolescencia"] == (35116.0, 2375.0)     # provisión de tramo 0 = rebajas a VNR (B-010, C-102, E-301, E-302)
+    assert val["Tramo 1"] == (3200.0, 0.0) and val["Tramo 2"] == (900.0, 0.0)
+    assert val["Tramo 3"] == (1800.0, 1800.0)                # C-100: 945 días, sin precio, tramo 100 %
+    # Los tramos suman el costo auditado y la provisión estimada totales (todos los ítems del ejemplo tienen fecha).
+    assert h["total"][1]["v"] == _t(res, "costoAuditado") == 41016.0
+    assert h["total"][2]["v"] == _t(res, "provisionEstimada") == 4175.0
+    # El tablero del PANEL resuelve contra la cédula 16 (etiqueta = tramo; series = inventario y provisión).
+    p = graficos.panel(m, res, m.hojas(res))
+    assert not p["faltan"]
+    tab = next(t for t in p["tableros"] if t["hoja"] == "16_Resumen_obsol")
+    assert tab["categorias"] == ["Sin obsolescencia", "Tramo 1", "Tramo 2", "Tramo 3"]
+    assert [n for n, _ in tab["series"]] == ["Inventario al costo", "Provisión estimada"]
+    assert dict(tab["series"])["Provisión estimada"] == [2375.0, 0.0, 0.0, 1800.0]
+
+
 def test_hojas_y_definicion():
     res = _run()
     hs = m.hojas(res)
@@ -199,3 +270,17 @@ def test_hojas_y_definicion():
     assert m.RUBRO == "INVENTARIOS" and m.CONTROL in {c["key"] for c in m.CAMPOS[m.PRINCIPAL]}
     for esc, ds, par, corte in m.ESCENARIOS:
         assert m.hojas(m.ejecutar(ds, par, corte))
+
+
+def test_estilos_conciliacion():
+    """La cédula 06 (Conciliación kardex-mayor) trae estilos de cédula sumaria: una entrada por fila de
+    datos, con subtotales (puente), subcuentas con sangría y línea de control de cuadre."""
+    h = {x["name"]: x for x in m.hojas(_run())}["06_Conciliacion"]
+    estilos = h["estilos"]
+    assert len(estilos) == len(h["rows"])
+    tipos = {(e or {}).get("tipo") for e in estilos}
+    assert "total" in tipos and "control" in tipos
+    assert any((e or {}).get("sangria") for e in estilos)
+    for e in estilos:
+        if e and e.get("sangria"):
+            assert e["col"] == "Concepto"
