@@ -288,3 +288,17 @@ def test_hojas_y_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "ppe_propiedad_planta" and len(d["program"]) >= 5
     assert m.RUBRO == "ACTIVOS_FIJOS" and m.CONTROL in {c["key"] for c in m.CAMPOS[m.PRINCIPAL]}
+
+
+def test_estilos_estados_con_subtotales():
+    """Las cédulas 13, 14 y 15 (estados con subtotales) traen estilos de cédula sumaria: una entrada por
+    fila de datos y al menos un subtotal con filete; el roll-forward incluye líneas de control de cuadre."""
+    hs = {x["name"]: x for x in m.hojas(correr())}
+    for nombre in ("13_Desmantelamiento", "14_Roll_forward", "15_Ajustes"):
+        h = hs[nombre]
+        estilos = h["estilos"]
+        assert len(estilos) == len(h["rows"]), nombre
+        assert any((e or {}).get("tipo") == "total" for e in estilos), nombre
+    rfw = hs["14_Roll_forward"]["estilos"]
+    assert any((e or {}).get("tipo") == "control" for e in rfw)
+    assert any((e or {}).get("sangria") for e in rfw)

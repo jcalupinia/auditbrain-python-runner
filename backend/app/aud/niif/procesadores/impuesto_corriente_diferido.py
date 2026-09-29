@@ -1043,6 +1043,13 @@ def hojas(res: dict) -> list[dict]:
             c04.append([txt, None, None, None, rf])
             continue
         c04.append([txt, fx(fb, vb), fx(fc, vc), fx(f"C{r}-B{r}", vc - vb), rf])
+    # Aspecto de cédula sumaria (una entrada por fila de c04): la utilidad contable abre la
+    # conciliación (título), los renglones (−)/(+) y auxiliares llevan sangría y los subtotales
+    # del cálculo (utilidad gravable, base imponible, impuesto causado, impuesto por pagar) llevan
+    # filete de total; la tarifa y las comparaciones con lo registrado quedan sin estilo.
+    _TOT04, _SIN04 = {"b0", "base", "ir", "pagar"}, {"tarifa", "irReg", "saldoReg"}
+    estilos04 = [{"tipo": "titulo"} if k == "u" else {"tipo": "total"} if k in _TOT04
+                 else None if k in _SIN04 else {"sangria": 1, "col": "Concepto"} for k, *_ in filas04]
 
     # 05 · Pérdidas.
     c05 = []
@@ -1363,7 +1370,8 @@ def hojas(res: dict) -> list[dict]:
              [["Renglón", "t"], ["Concepto", "t"], ["Tipo", "t"], ["Signo exigido", "t"], ["Importe según cliente", "n"],
               ["Importe según auditor", "n"], ["Importe auditado", "n"], ["Diferencia", "n"]], c03, tot_c, explica=EXPLICA["03_Conciliacion"]),
         hoja("04_Impuesto_corriente", "Impuesto corriente",
-             [["Concepto", "t"], ["Según cliente", "n"], ["Auditado", "n"], ["Diferencia", "n"], ["Referencia", "t"]], c04, explica=EXPLICA["04_Impuesto_corriente"]),
+             [["Concepto", "t"], ["Según cliente", "n"], ["Auditado", "n"], ["Diferencia", "n"], ["Referencia", "t"]], c04,
+             explica=EXPLICA["04_Impuesto_corriente"], estilos=estilos04),
         hoja("05_Perdidas", "Pérdidas tributarias",
              [["Año de origen", "a"], ["Pérdida", "n"], ["Amortizado años anteriores", "n"], ["Último año", "a"], ["Disponible", "n"],
               ["Vencida", "t"], ["Disponible no vencido", "n"], ["Saldo vencido", "n"], ["Amortización del año", "n"], ["Remanente", "n"],

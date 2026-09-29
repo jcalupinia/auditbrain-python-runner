@@ -756,9 +756,17 @@ def hojas(res: dict) -> list[dict]:
               cierre=" se concilia con la provisión registrada; el ajuste, el gasto no deducible y el diferido son los efectos a considerar.")],
     ]
 
-    hoja = lambda name, label, cols, rows, total=None, explica=None, colores=None: {"name": name, "label": label, "cols": cols, "rows": rows,
-                                                                                    "total": total, "explica": dict(explica or {}),
-                                                                                    **({"colores": [c for c in colores if c in [x[0] for x in cols]]} if colores else {})}
+    hoja = lambda name, label, cols, rows, total=None, explica=None, colores=None, estilos=None: {"name": name, "label": label, "cols": cols, "rows": rows,
+                                                                                                  "total": total, "explica": dict(explica or {}),
+                                                                                                  **({"estilos": list(estilos)} if estilos else {}),
+                                                                                                  **({"colores": [c for c in colores if c in [x[0] for x in cols]]} if colores else {})}
+    # Aspecto de cédula sumaria (una entrada por fila): el movimiento de la provisión abre con la
+    # provisión inicial (título), castigos y dotación van con sangría y la provisión al cierre lleva
+    # filete de total; en la cédula fiscal los renglones auxiliares van con sangría y los resultados
+    # del cálculo (dotación, gasto deducible y no deducible, movimiento del diferido) llevan total.
+    estilos_mov = [{"tipo": "titulo"}, {"sangria": 1, "col": "Concepto"}, {"sangria": 1, "col": "Concepto"}, {"tipo": "total"}]
+    _TOT_FISC = {"Dotación neta del ejercicio", "Gasto deducible", "Gasto no deducible", "Movimiento del diferido"}
+    estilos_fiscal = [{"tipo": "total"} if fila[0] in _TOT_FISC else {"sangria": 1, "col": "Concepto"} for fila in fiscal]
     fin_ant, fin_cas = FILA0 + na - 1, FILA0 + nc - 1
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
@@ -778,8 +786,9 @@ def hojas(res: dict) -> list[dict]:
               ["En impago (B5.5.37)", "t"]], revel, ["TOTAL", s("B", fin_rev, _n(t["saldo"])), None, s("D", fin_rev, _n(t["pce"])), ""],
              explica=EXPLICA["05_Revelacion_NIIF7"]),
         hoja("06_Movimiento", "Movimiento de la provisión (NIIF 7 35H)", [["Concepto", "t"], ["Importe", "n"]], movimiento,
-             explica=EXPLICA["06_Movimiento"]),
-        hoja("07_Fiscal", "Fiscal e impuesto diferido", [["Concepto", "t"], ["Importe", "n"]], fiscal, explica=EXPLICA["07_Fiscal"]),
+             explica=EXPLICA["06_Movimiento"], estilos=estilos_mov),
+        hoja("07_Fiscal", "Fiscal e impuesto diferido", [["Concepto", "t"], ["Importe", "n"]], fiscal, explica=EXPLICA["07_Fiscal"],
+             estilos=estilos_fiscal),
         hoja("08_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos,
              explica=EXPLICA["08_Asientos"]),
         hoja("09_Detalle", "Detalle por factura",

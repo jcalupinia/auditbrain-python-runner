@@ -739,6 +739,16 @@ def hojas(res: dict) -> list[dict]:
         "partidasAntiguas": "Partidas conciliatorias antiguas", "partidasNoDepuradas": "Partidas no depuradas después del corte",
     }
     auditado = [[textos[k], fx(formulas[k], n2(con[k]))] for k in CONCEPTOS]
+    # Estilos de cédula sumaria del estado «Efectivo auditado» (una entrada por concepto de CONCEPTOS):
+    # las notas bancarias y su subtotal, las reclasificaciones (con «de lo cual» sangrado), el efectivo
+    # auditado y el ajuste como subtotales, y la composición (caja/bancos/equivalentes) sangrada.
+    _est_sang = {"sangria": 1, "col": "Concepto"}
+    _estilos_auditado = {
+        "nc": _est_sang, "nd": _est_sang, "notas": {"tipo": "total"},
+        "reclasNoCorriente": _est_sang, "auditado": {"tipo": "total"}, "ajuste": {"tipo": "total"},
+        "caja": _est_sang, "bancos": _est_sang, "equivalentes": _est_sang,
+    }
+    estilos_auditado = [_estilos_auditado.get(k) for k in CONCEPTOS]
 
     # 11 · Asientos.
     asientos = []
@@ -863,7 +873,7 @@ def hojas(res: dict) -> list[dict]:
              equiv, ["TOTAL", "", None, None, None, "", tot("G", fin_e, sum(c["ajustado"] for c in inv)), None,
                      tot("I", fin_e, con["reclasNoEquivalentes"])] if ni else None, explica=EXPLICA["09_Equivalentes"]),
         hoja("10_Efectivo_auditado", "Efectivo auditado y ajuste", [["Concepto", "t"], ["Importe", "n"]], auditado,
-             explica=EXPLICA["10_Efectivo_auditado"]),
+             explica=EXPLICA["10_Efectivo_auditado"], estilos=estilos_auditado),
         hoja("11_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos,
              explica=EXPLICA["11_Asientos"]),
         hoja("12_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],

@@ -985,6 +985,12 @@ def hojas(res: dict) -> list[dict]:
         ["Diferencia capital cliente − escritura", fx(f"{CAP}B{CPF['dif']}", t.get("difCapital")), "07_Capital"],
         ["Resultado reconocido por recompras", fx(f"SUM({_rg(TX, 'T', nt)})", t["resultadoRecompras"]), f"09_Recompra · {cit['propias']}"],
     ]
+    # Aspecto de cédula sumaria (una entrada por fila de ajuste): el patrimonio según el cliente
+    # abre la conciliación (título), las tres reclasificaciones (−)/(+) a pasivo o revertidas van
+    # con sangría y el patrimonio auditado lleva filete de total; el resto (ajuste neto e
+    # indicadores de reserva, dividendos y capital) queda sin estilo.
+    estilos_ajuste = ([{"tipo": "titulo"}] + [{"sangria": 1, "col": "Concepto"} for _ in range(3)]
+                      + [{"tipo": "total"}] + [None] * (len(ajuste) - 5))
 
     # 11 · Asientos (importes remiten a 10_Ajuste).
     asientos = []
@@ -1124,7 +1130,7 @@ def hojas(res: dict) -> list[dict]:
              [["Referencia", "t"], ["Fecha", "d"], ["Costo", "n"], ["Cuenta", "t"], ["Deducida como acciones propias", "t"],
               ["Resultado reconocido", "n"], ["A reclasificar al patrimonio", "n"]], rec, tot_rec, explica=EXPLICA["09_Recompra"]),
         hoja("10_Ajuste", "Patrimonio auditado y ajustes", [["Concepto", "t"], ["Importe", "n"], ["Referencia", "t"]], ajuste,
-             explica=EXPLICA["10_Ajuste"]),
+             explica=EXPLICA["10_Ajuste"], estilos=estilos_ajuste),
         hoja("11_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos,
              explica=EXPLICA["11_Asientos"]),
         hoja("12_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],

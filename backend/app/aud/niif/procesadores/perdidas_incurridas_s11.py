@@ -1239,11 +1239,17 @@ def hojas(res: dict) -> list[dict]:
               cierre=" se concilia con la provisión del mayor; el ajuste, el gasto no deducible y el diferido son los efectos a considerar.")],
     ]
 
-    hoja = lambda name, label, cols, rows, total=None, explica=None, guia=None, ocultas=None, colores=None: {  # noqa: E731
+    hoja = lambda name, label, cols, rows, total=None, explica=None, guia=None, ocultas=None, colores=None, estilos=None: {  # noqa: E731
         "name": name, "label": label, "cols": cols, "rows": rows, "total": total, "explica": dict(explica or {}),
         **({"guia": guia} if guia else {}), **({"ocultas": ocultas} if ocultas else {}),
+        **({"estilos": list(estilos)} if estilos else {}),
         **({"colores": [c for c in colores if c in [x[0] for x in cols]]} if colores else {})}
     claves = ["Clave de cruce", "Clave alterna", "Clave del cliente"]   # técnicas: agrupadas y ocultas en el Excel
+    # Aspecto de cédula sumaria en la conciliación fiscal (una entrada por fila de fiscal): los
+    # renglones auxiliares van con sangría y los resultados del cálculo (gasto del ejercicio, gasto
+    # deducible y no deducible, movimiento del diferido) llevan filete de total.
+    _TOT_FISC = {"Gasto del ejercicio", "Gasto deducible", "Gasto no deducible", "Movimiento del diferido"}
+    estilos_fiscal = [{"tipo": "total"} if fila[0] in _TOT_FISC else {"sangria": 1, "col": "Concepto"} for fila in fiscal]
 
     # D1–D5 · Datos del cliente: lo que entregó, fila por fila, con el archivo de origen.
     datos = []
@@ -1331,7 +1337,7 @@ def hojas(res: dict) -> list[dict]:
         hoja("07_Mayor", "Provisión según el mayor",
              [["Año", "t"], ["Inicial", "n"], ["Gasto", "n"], ["Castigos", "n"], ["Recuperaciones", "n"], ["Final", "n"]], mayor,
              explica=EXPLICA["07_Mayor"]),
-        hoja("08_Fiscal", "Fiscal", [["Concepto", "t"], ["Importe", "n"]], fiscal, explica=EXPLICA["08_Fiscal"]),
+        hoja("08_Fiscal", "Fiscal", [["Concepto", "t"], ["Importe", "n"]], fiscal, explica=EXPLICA["08_Fiscal"], estilos=estilos_fiscal),
         hoja("09_Impuesto_diferido", "Impuesto diferido por factura",
              [["Cliente", "t"], ["Factura", "t"], ["Deterioro", "n"], ["Deducible", "n"], ["No deducible", "n"],
               ["Diferido inicial", "n"], ["Reversión", "n"], ["Diferido nuevo", "n"], ["Diferido final", "n"]], diferido,

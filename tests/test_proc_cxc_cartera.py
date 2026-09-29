@@ -148,3 +148,16 @@ def test_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "cxc_cartera" and len(d["program"]) >= 5
     assert "pce_simplificada" not in d["summary"] and "PYMES" in d["summary"]
+
+
+def test_estilos_ajuste():
+    """La cédula 10 (Ajuste) trae estilos de cédula sumaria: una entrada por fila de datos, con los
+    componentes sangrados y los subtotales (ajuste de deterioro y de financiación) con filete."""
+    h = next(x for x in m.hojas(_run()) if x["name"] == "10_Ajuste")
+    estilos = h["estilos"]
+    assert len(estilos) == len(h["rows"])
+    assert sum(1 for e in estilos if (e or {}).get("tipo") == "total") == 2
+    assert any((e or {}).get("sangria") for e in estilos)
+    for e in estilos:
+        if e and e.get("sangria"):
+            assert e["col"] == "Concepto"

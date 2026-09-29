@@ -1012,6 +1012,11 @@ def hojas(res: dict) -> list[dict]:
         ["Diferencia de control (debe ser 0)", fx(f"{b(6)}-{b(7)}", c["difControl"])],
         ["Ajuste propuesto (auditado − mayor)", fx(f"{b(7)}-{b(0)}", c["ajuste"])],
     ]
+    # Estilo de cédula sumaria del puente: una entrada por fila (None donde no aplique). Los subtotales
+    # (medición auditada por el puente y el ajuste propuesto) van como total; las diferencias que deben
+    # cuadrar (detalle − mayor y diferencia de control) van como control.
+    estilos_conc = [None, None, {"tipo": "control"}, None, None, None, {"tipo": "total"}, None,
+                    {"tipo": "control"}, {"tipo": "total"}]
 
     fr = {k: FILA0 + i for i, k in enumerate(res["labels"])}
     rb = lambda k: f"B{fr[k]}"
@@ -1130,7 +1135,8 @@ def hojas(res: dict) -> list[dict]:
               ["Resultado recalculado", n_], ["Resultado registrado", n_], ["Diferencia", n_]],
              baj, ["TOTAL", "", None, _tot("D", nb, S(x["prod"] for x in bajas)), _tot("E", nb, S(x["lib"] for x in bajas)),
                    _tot("F", nb, t["resultadoBajas"]), None, _tot("H", nb, t["difBajas"])] if nb else None, explica=EXPLICA["12_Bajas"]),
-        hoja("13_Conciliacion", CEDULAS[12][1], [["Concepto", "t"], ["Importe", n_]], conciliacion, explica=EXPLICA["13_Conciliacion"]),
+        hoja("13_Conciliacion", CEDULAS[12][1], [["Concepto", "t"], ["Importe", n_]], conciliacion, explica=EXPLICA["13_Conciliacion"],
+             estilos=estilos_conc),
         hoja("14_Problemas", CEDULAS[13][1], [["Código", "t"], ["Descripción", "t"], ["Importe", n_]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
         hoja("15_Conclusion", CEDULAS[14][1],

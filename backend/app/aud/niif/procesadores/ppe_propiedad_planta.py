@@ -962,6 +962,34 @@ def hojas(res: dict) -> list[dict]:
          "− depreciación − deterioro a resultados + bajas + intereses + revaluación a resultados − actualización financiera del desmantelamiento"],
     ]
 
+    # Estilos de cédula sumaria (una entrada por fila de datos, o None):
+    _sg = {"sangria": 1, "col": "Concepto"}
+    # 13 · Desmantelamiento: las variables del valor presente sangradas y los importes calculados (valor
+    # presente, ajuste total y cambio de estimación) como subtotales con filete.
+    estilos_desm = [_sg, _sg, _sg, {"tipo": "total"}, None, None, None, {"tipo": "total"}, {"tipo": "total"}]
+    # 14 · Roll-forward: los movimientos del costo y de la depreciación sangrados bajo sus subtotales de
+    # cierre, y las diferencias auxiliar − mayor como líneas de control.
+    estilos_rfw = [
+        None,               # 0 · Costo al inicio (auxiliar)
+        _sg,                # 1 · (+) Adiciones del año
+        _sg,                # 2 · (−) Costo de las bajas
+        {"tipo": "total"},  # 3 · Costo al cierre (auxiliar)
+        None,               # 4 · Costo al cierre según el mayor
+        {"tipo": "control"},  # 5 · Diferencia auxiliar − mayor (costo)
+        None,               # 6 · Depreciación acumulada al inicio
+        _sg,                # 7 · (+) Depreciación del año registrada
+        _sg,                # 8 · (−) Depreciación acumulada de las bajas
+        {"tipo": "total"},  # 9 · Depreciación acumulada al cierre (registrada)
+        None,               # 10 · Depreciación acumulada según el mayor
+        {"tipo": "control"},  # 11 · Diferencia auxiliar − mayor (depreciación)
+        None,               # 12 · Depreciación acumulada al cierre recalculada
+        {"tipo": "total"},  # 13 · Valor neto en libros recalculado
+        None,               # 14 · Adiciones según el detalle
+        {"tipo": "control"},  # 15 · Diferencia adiciones auxiliar − detalle
+    ]
+    # 15 · Ajustes propuestos: cada ajuste es una partida independiente; solo el efecto neto es subtotal.
+    estilos_ajus = [None] * (len(ajus) - 1) + [{"tipo": "total"}]
+
     celda = {"costoFinal": f"{RF}B{FILA0 + 3}", "depRecalculada": f"SUM({_rng(DEP, 'E', n)})", "depRegistrada": f"{RF}B{FILA0 + 7}",
              "ajusteDep": f"{AJ}B{FILA0}", "nbv": f"{RF}B{FILA0 + 13}", "deterioroAdicional": f"SUM({_rng(DET, 'E', len(D))})",
              "deterioroORI": f"{AJ}B{FILA0 + 6}", "deterioroResultado": f"{AJ}B{FILA0 + 1}",
@@ -1264,9 +1292,12 @@ def hojas(res: dict) -> list[dict]:
               suma("I", fin(ncap), sc("cap_gen")), suma("J", fin(ncap), sc("antes")), None,
               suma("L", fin(ncap), sc("final")), suma("M", fin(ncap), sc("reg")), suma("N", fin(ncap), sc("dif"))] if ncap else None,
              explica=ex_cap),
-        hoja("13_Desmantelamiento", "Desmantelamiento", [["Concepto", "t"], ["Importe", "n"]], desm, explica=ex_desm),
-        hoja("14_Roll_forward", "Movimiento del año y conciliación auxiliar-mayor", [["Concepto", "t"], ["Importe", "n"]], rfw, explica=ex_rf),
-        hoja("15_Ajustes", "Ajustes propuestos", [["Ajuste", "t"], ["Importe", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]], ajus, explica=ex_aj),
+        hoja("13_Desmantelamiento", "Desmantelamiento", [["Concepto", "t"], ["Importe", "n"]], desm, explica=ex_desm,
+             estilos=estilos_desm),
+        hoja("14_Roll_forward", "Movimiento del año y conciliación auxiliar-mayor", [["Concepto", "t"], ["Importe", "n"]], rfw, explica=ex_rf,
+             estilos=estilos_rfw),
+        hoja("15_Ajustes", "Ajustes propuestos", [["Ajuste", "t"], ["Importe", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]], ajus, explica=ex_aj,
+             estilos=estilos_ajus),
         hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
         hoja("17_Conclusion", "Indicadores y conclusión",

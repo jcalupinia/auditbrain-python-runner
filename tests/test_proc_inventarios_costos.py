@@ -240,3 +240,17 @@ def test_hojas_y_definicion():
     assert m.RUBRO == "INVENTARIOS" and m.CONTROL in {c["key"] for c in m.CAMPOS[m.PRINCIPAL]}
     for esc, ds, par, corte in m.ESCENARIOS:
         assert m.hojas(m.ejecutar(ds, par, corte))
+
+
+def test_estilos_conciliacion():
+    """La cédula 06 (Conciliación kardex-mayor) trae estilos de cédula sumaria: una entrada por fila de
+    datos, con subtotales (puente), subcuentas con sangría y línea de control de cuadre."""
+    h = {x["name"]: x for x in m.hojas(_run())}["06_Conciliacion"]
+    estilos = h["estilos"]
+    assert len(estilos) == len(h["rows"])
+    tipos = {(e or {}).get("tipo") for e in estilos}
+    assert "total" in tipos and "control" in tipos
+    assert any((e or {}).get("sangria") for e in estilos)
+    for e in estilos:
+        if e and e.get("sangria"):
+            assert e["col"] == "Concepto"

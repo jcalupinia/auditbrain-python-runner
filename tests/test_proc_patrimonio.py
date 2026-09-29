@@ -289,3 +289,19 @@ def test_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "patrimonio" and len(d["program"]) >= 5
     assert m.RUBRO == "PATRIMONIO" and len(d["requests"]) >= 2
+
+
+def test_estilos_sumaria_10_ajuste():
+    """La cédula de patrimonio auditado lleva estilos de cédula sumaria: el patrimonio según el
+    cliente abre como título, las tres reclasificaciones (−)/(+) van con sangría y el patrimonio
+    auditado lleva filete de total. `estilos` tiene una entrada por fila de datos."""
+    for _, ds, p, c in m.ESCENARIOS:
+        h = {x["name"]: x for x in m.hojas(m.ejecutar(ds, p, c))}["10_Ajuste"]
+        e = h["estilos"]
+        assert len(e) == len(h["rows"])                 # una entrada por fila de datos
+        assert e[0] == {"tipo": "titulo"}               # patrimonio según cliente = rubro
+        assert [x.get("tipo") for x in e[1:4]] == [None, None, None]
+        assert all(x.get("sangria") == 1 and x["col"] == "Concepto" for x in e[1:4])
+        assert e[4] == {"tipo": "total"}                # patrimonio auditado = total
+        assert h["rows"][4][0] == "Patrimonio auditado"
+        assert all(x is None for x in e[5:])            # el resto sin estilo

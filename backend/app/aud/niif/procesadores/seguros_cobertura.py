@@ -802,6 +802,10 @@ def hojas(res: dict) -> list[dict]:
         ["Seguros pagados por anticipado según el mayor", fx(_si(PAR["mayorPrimaAnticipada"]), k["mayorPrima"]), "", "", "Mayor contable"],
         ["Diferencia detalle − mayor", fx(f'IF({c(4)}="","",{c(0)}-{c(4)})', k["difMayorPrima"]), "", "", ""],
     ]
+    # Estilo de cédula sumaria del puente: una entrada por fila (None donde no aplique). El ajuste propuesto
+    # en resultados va como total; las diferencias que deben cuadrar (registrada − recalculada y detalle −
+    # mayor) van como control.
+    estilos_aj = [None, None, {"tipo": "control"}, {"tipo": "total"}, None, {"tipo": "control"}]
 
     celda = {"valorReferencia": f"{CON}B{FILA0}", "sumaAsegurada": f"{CON}B{FILA0 + 1}", "coberturaGlobal": f"{CON}C{FILA0 + 2}*100",
              "deficitCobertura": f"{CON}B{FILA0 + 3}", "sinCoberturaLibros": f"{CON}B{FILA0 + 4}",
@@ -879,7 +883,8 @@ def hojas(res: dict) -> list[dict]:
              [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con,
              explica=_EXPLICA["12_Conclusion"], colores=["Estado"]),
         hoja("13_Ajustes", "Ajustes propuestos y conciliación",
-             [["Concepto", "t"], ["Importe", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]], ajus, explica=_EXPLICA["13_Ajustes"]),
+             [["Concepto", "t"], ["Importe", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]], ajus,
+             explica=_EXPLICA["13_Ajustes"], estilos=estilos_aj),
         hoja("14_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
         hoja("15_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura,

@@ -690,6 +690,20 @@ def hojas(res: dict) -> list[dict]:
         ["Cartera vencida sin cobro posterior", fx(f"{COB}J{fin_det + 1}", t["vencidoSinCobro"]), "Evidencia sobre la estimación (NIA 540)"],
         ["Diferencias de circularización (absolutas)", fx(tot_ref(CIR, "F", fin_cir, circ), t["difCircularizacion"]), "NIA 505"],
     ]
+    # Estilos de cédula sumaria (una entrada por fila de 10_Ajuste): los componentes del deterioro y de la
+    # financiación implícita sangrados y sus subtotales (ajuste propuesto) con filete; el resto sin estilo.
+    estilos_ajuste = [
+        {"sangria": 1, "col": "Concepto"},   # 0 · Pérdida requerida
+        {"sangria": 1, "col": "Concepto"},   # 1 · Deterioro registrado
+        {"tipo": "total"},                    # 2 · Ajuste de deterioro propuesto
+        {"sangria": 1, "col": "Concepto"},   # 3 · Intereses implícitos requeridos
+        {"sangria": 1, "col": "Concepto"},   # 4 · Intereses por devengar registrados
+        {"tipo": "total"},                    # 5 · Ajuste por financiación implícita
+        None,                                 # 6 · Ventas registradas antes del despacho
+        None,                                 # 7 · Ventas despachadas sin registrar
+        None,                                 # 8 · Cartera vencida sin cobro posterior
+        None,                                 # 9 · Diferencias de circularización
+    ]
 
     # 11 · Asientos (importes remiten a 10_Ajuste y 08_Costo_amortizado).
     asientos = []
@@ -810,7 +824,7 @@ def hojas(res: dict) -> list[dict]:
              [["Tramo", "t"], ["Facturas", "i"], ["Costo amortizado", "n"], ["Tasa del tramo", "p"], ["Deterioro requerido", "n"], ["Tasa promedio aplicada", "p"]],
              matriz, tot_mat, explica=EXPLICA["09_Matriz_deterioro"]),
         hoja("10_Ajuste", "Deterioro requerido vs registrado", [["Concepto", "t"], ["Importe", "n"], ["Referencia", "t"]], ajuste,
-             explica=EXPLICA["10_Ajuste"]),
+             explica=EXPLICA["10_Ajuste"], estilos=estilos_ajuste),
         hoja("11_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos,
              explica=EXPLICA["11_Asientos"]),
         hoja("12_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],

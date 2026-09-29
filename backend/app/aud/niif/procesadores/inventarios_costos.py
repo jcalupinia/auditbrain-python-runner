@@ -718,6 +718,23 @@ def hojas(res: dict) -> list[dict]:
         ["Costos de manufactura registrados (08)", fx(f"SUM({_rg(VEN, 'G', nm)})", c["manuf"])],
         ["Producción no conciliada (registrado − recalculado)", fx(f"{b(10)}-{b(9)}", c["prodDif"])],
     ]
+    # Estilos de cédula sumaria (una entrada por fila de 06_Conciliacion): los ajustes que suman al puente
+    # sangrados, los subtotales (diferencia kardex−mayor, costo auditado, producción no conciliada) con
+    # filete y las líneas de control («debe ser 0») en cursiva de cuadre.
+    estilos_conc = [
+        None,                                 # 0 · Valor según kardex
+        None,                                 # 1 · Saldo según el mayor
+        {"tipo": "total"},                    # 2 · Diferencia kardex − mayor
+        {"sangria": 1, "col": "Concepto"},   # 3 · (+) Diferencia de extensión
+        {"sangria": 1, "col": "Concepto"},   # 4 · (+) Diferencias físicas
+        {"sangria": 1, "col": "Concepto"},   # 5 · (+) Diferencias de costo unitario
+        {"tipo": "total"},                    # 6 · Inventario al costo auditado (puente)
+        None,                                 # 7 · Control: costo auditado según el detalle
+        {"tipo": "control"},                  # 8 · Diferencia de control (debe ser 0)
+        None,                                 # 9 · Costo de producción capitalizable recalculado
+        None,                                 # 10 · Costos de manufactura registrados
+        {"tipo": "total"},                    # 11 · Producción no conciliada
+    ]
 
     # 01 · Resumen.
     fr = {k: FILA0 + i for i, k in enumerate(res["labels"])}
@@ -945,7 +962,8 @@ def hojas(res: dict) -> list[dict]:
               ["Diferencia de extensión", n_], ["Costo unitario soportado", n_], ["Diferencia unitaria", n_], ["Efecto en el costo auditado", n_]],
              costo, ["TOTAL", "", None, None, _tot("E", ni, S(i["recalc"] for i in its)), _tot("F", ni, c["vk"]), _tot("G", ni, t["difExtension"]),
                      None, None, _tot("J", ni, t["difCosto"])], explica=ex_costo),
-        hoja("06_Conciliacion", CEDULAS[5][1], [["Concepto", "t"], ["Importe", n_]], conciliacion, explica=ex_conc),
+        hoja("06_Conciliacion", CEDULAS[5][1], [["Concepto", "t"], ["Importe", n_]], conciliacion, explica=ex_conc,
+             estilos=estilos_conc),
         hoja("07_Costo_produccion", CEDULAS[6][1],
              [["Período / orden", "t"], ["Materia prima", n_], ["MOD", n_], ["CIF variable", n_], ["CIF fijo", n_], ["Unidades producidas", n_],
               ["Capacidad normal", n_], ["Desperdicio anormal", n_], ["Tasa CIF fijo", "x"], ["CIF fijo absorbido", n_], ["CIF fijo no absorbido (gasto)", n_],

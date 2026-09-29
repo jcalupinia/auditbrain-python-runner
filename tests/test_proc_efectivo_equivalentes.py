@@ -189,3 +189,16 @@ def test_bordes_tres_meses_y_al_menos_doce_meses():
     assert cu["I1"]["plazo"] == 92 and cu["I1"]["califica"] == "Sí"
     assert cu["B1"]["clasif"] == "No corriente" and cu["B1"]["reclasR"] == 5000
     assert r["totals"]["reclasNoEquivalentes"] == "0.00" and r["totals"]["reclasRestringido"] == "5000.00"
+
+
+def test_estilos_efectivo_auditado():
+    """La cédula 10 (estado del efectivo auditado) trae estilos de cédula sumaria: una entrada por fila
+    de datos, con subtotales (notas, auditado, ajuste) y subcuentas con sangría (composición)."""
+    h = {x["name"]: x for x in m.hojas(_run())}["10_Efectivo_auditado"]
+    estilos = h["estilos"]
+    assert len(estilos) == len(h["rows"])                       # exactamente una entrada por fila de datos
+    assert any((e or {}).get("tipo") == "total" for e in estilos)
+    assert any((e or {}).get("sangria") for e in estilos)
+    for e in estilos:
+        if e and e.get("sangria"):
+            assert e["col"] == "Concepto"                       # la sangría va en la 1.ª columna de texto

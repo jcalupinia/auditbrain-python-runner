@@ -149,6 +149,23 @@ def test_semaforo_cobertura():
     assert h["total"][sem] == ""
 
 
+def test_estilos_sumaria_ajustes():
+    """La cédula 13 (Ajustes propuestos y conciliación) lleva estilos de cédula sumaria: una entrada por
+    fila de datos, con el ajuste propuesto como total y las diferencias de cuadre como control."""
+    from backend.app.aud.niif.procesadores import base
+    h = next(x for x in m.hojas(correr()) if x["name"] == "13_Ajustes")
+    est = h["estilos"]
+    assert len(est) == len(h["rows"])                                # exactamente una entrada por fila de datos
+    tipos = {e["tipo"] for e in est if e}
+    assert tipos <= {"titulo", "total", "control"}                   # solo tipos válidos
+    assert "total" in tipos and "control" in tipos
+    conceptos = [f[0] for f in h["rows"]]
+    ajuste = conceptos.index("Ajuste en resultados = −(registrada − recalculada)")
+    cuadre = conceptos.index("Diferencia detalle − mayor")
+    assert base.estilo_fila(h, ajuste).get("tipo") == "total"
+    assert base.estilo_fila(h, cuadre).get("tipo") == "control"
+
+
 def test_lectura():
     """La cédula 15 lee el resultado y los hallazgos materiales con su cifra embebida por fórmula (FIXED)."""
     h = next(x for x in m.hojas(correr()) if x["name"] == "15_Lectura")

@@ -252,6 +252,23 @@ def test_conclusion():
     assert all(base.rol_color(h, "Estado", f) in ("alta", "media", "baja") for f in estados)
 
 
+def test_estilos_sumaria_conciliacion():
+    """La cédula 13 (Sumaria y conciliación) lleva estilos de cédula sumaria: una entrada por fila de datos,
+    con los subtotales del puente como total y las diferencias de cuadre como control."""
+    from backend.app.aud.niif.procesadores import base
+    h = next(x for x in m.hojas(_run()) if x["name"] == "13_Conciliacion")
+    est = h["estilos"]
+    assert len(est) == len(h["rows"])                                # exactamente una entrada por fila de datos
+    tipos = {e["tipo"] for e in est if e}
+    assert tipos <= {"titulo", "total", "control"}                   # solo tipos válidos
+    assert "total" in tipos and "control" in tipos
+    conceptos = [f[0] for f in h["rows"]]
+    total_puente = conceptos.index("Propiedades de inversión auditadas (puente desde el detalle)")
+    cuadre = conceptos.index("Diferencia de control (debe ser 0)")
+    assert base.estilo_fila(h, total_puente).get("tipo") == "total"
+    assert base.estilo_fila(h, cuadre).get("tipo") == "control"
+
+
 def test_lectura():
     """La cédula 16 lee el resultado y los hallazgos materiales con su cifra embebida por fórmula (FIXED)."""
     h = next(x for x in m.hojas(_run()) if x["name"] == "16_Lectura")

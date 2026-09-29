@@ -292,3 +292,20 @@ def test_definicion():
     assert d["processor"] == "impuesto_corriente_diferido" and len(d["program"]) >= 5
     assert m.RUBRO == "IMPUESTOS" and {r.get("dataset") for r in d["requests"]} >= set(m.DATASETS)
     assert m.TOTAL_EJEMPLO in _run()["totals"]
+
+
+def test_estilos_sumaria_04_impuesto_corriente():
+    """La conciliación del impuesto corriente lleva estilos de cédula sumaria: la utilidad
+    contable abre como título, los renglones de ajuste van con sangría y los subtotales del
+    cálculo (utilidad gravable, base imponible, impuesto causado, impuesto por pagar) llevan
+    filete de total. `estilos` tiene exactamente una entrada por fila de datos."""
+    for _, ds, p, c in m.ESCENARIOS:
+        h = {x["name"]: x for x in m.hojas(m.ejecutar(ds, p, c))}["04_Impuesto_corriente"]
+        e = h["estilos"]
+        assert len(e) == len(h["rows"])                 # una entrada por fila de datos
+        assert e[0] == {"tipo": "titulo"}               # utilidad contable = rubro de la conciliación
+        totales = {h["rows"][i][0] for i, x in enumerate(e) if (x or {}).get("tipo") == "total"}
+        assert "Base imponible" in totales              # el subtotal clave está marcado como total
+        for x in e:                                     # cada sangría apunta a la 1.ª columna de texto
+            if (x or {}).get("sangria"):
+                assert x["col"] == "Concepto"
