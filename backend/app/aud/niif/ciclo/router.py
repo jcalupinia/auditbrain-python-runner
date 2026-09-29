@@ -365,7 +365,7 @@ def descargar_papel_bancos(prueba_id: int, db: Session = Depends(get_db),
     if not caja_bancos_armado.hay_datos(p.registro or {}):
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                             detail="Cargue el anexo de cuentas (RQ-001) antes de generar el papel.")
-    contenido = caja_bancos_armado.armar_desde_registro(p.registro or {})
+    contenido = caja_bancos_armado.armar_desde_registro(p.registro or {}, servicio.archivos_de_entrada(db, p.id))
     cliente = ((p.registro or {}).get("engagement") or {}).get("client", "")
     nombre = f"DA_Efectivo_Equivalentes_{cliente}.xlsx".encode("ascii", "replace").decode().replace('"', "_")
     return Response(contenido, media_type=almacen.TIPOS["xlsx"],

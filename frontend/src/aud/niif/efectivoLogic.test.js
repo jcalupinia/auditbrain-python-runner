@@ -5,6 +5,7 @@ import {
   PRINCIPALES,
   avanceCarga,
   estaProcesada,
+  estadoPrueba,
   estadoRequerimiento,
   puedeEncerar,
   puedeSubir,
@@ -88,6 +89,24 @@ describe("estado y avance de la carga", () => {
   });
   it("sin obligatorios el avance es 0/0 y 0%", () => {
     expect(avanceCarga([{ id: "RQ-002", required: false }], [])).toEqual({ completos: 0, total: 0, pct: 0 });
+  });
+});
+
+describe("estados del prompt", () => {
+  it("estado del requerimiento: Pendiente / Cargado / Validado / Error", () => {
+    const map = { "RQ-001": { complete: true }, "RQ-002": { complete: false }, "RQ-003": { complete: true, rejected: true } };
+    expect(estadoRequerimiento("RQ-002", map, "DOCUMENTACION_RECIBIDA")).toBe("Pendiente");
+    expect(estadoRequerimiento("RQ-001", map, "DOCUMENTACION_RECIBIDA")).toBe("Cargado");
+    expect(estadoRequerimiento("RQ-001", map, "PRUEBA_EJECUTADA")).toBe("Validado");
+    expect(estadoRequerimiento("RQ-003", map, "PRUEBA_EJECUTADA")).toBe("Error");
+  });
+  it("estado de la prueba: BLOQUEADA / DISPONIBLE / EJECUTADA / CON EXCEPCIONES / REVISADA", () => {
+    expect(estadoPrueba("PRUEBA_SELECCIONADA", false)).toBe("BLOQUEADA");
+    expect(estadoPrueba("REQUERIMIENTO_APROBADO", false)).toBe("DISPONIBLE");
+    expect(estadoPrueba("PRUEBA_EJECUTADA", false)).toBe("EJECUTADA");
+    expect(estadoPrueba("PRUEBA_EJECUTADA", true)).toBe("CON EXCEPCIONES");
+    expect(estadoPrueba("EN_REVISION", true)).toBe("REVISADA");
+    expect(estadoPrueba("APROBADO", false)).toBe("REVISADA");
   });
 });
 

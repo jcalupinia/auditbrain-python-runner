@@ -186,8 +186,11 @@ def hay_datos(reg: dict) -> bool:
     return bool(_cuentas(reg))
 
 
-def armar_desde_registro(reg: dict) -> bytes:
-    """Devuelve los bytes del papel de trabajo DA formulado desde el registro."""
+def armar_desde_registro(reg: dict, archivos: list[dict] | None = None) -> bytes:
+    """Devuelve los bytes del papel de trabajo DA formulado desde el registro.
+
+    ``archivos`` (opcional) es la lista de documentos de entrada con su huella SHA-256
+    (``servicio.archivos_de_entrada``) para la hoja de audit trail NIA 230."""
     cuentas = _cuentas(reg)
     # Partidas: recalculadas por reestructuración si hay estado de cuenta; si no,
     # las cargadas manualmente (RQ-002).
@@ -221,4 +224,6 @@ def armar_desde_registro(reg: dict) -> bytes:
     if arqueo is not None:
         entrada["arqueo"] = arqueo   # si no viene, el papel usa su plantilla de denominaciones
     entrada["dias_prescripcion"] = (reg.get("parameters") or {}).get("diasPrescripcion", 390)
+    if archivos:
+        entrada["archivos"] = archivos   # audit trail NIA 230: huella SHA-256 por documento de entrada
     return papel.construir(entrada)

@@ -39,6 +39,15 @@ export const ESTADOS_PROCESADA = ["PRUEBA_EJECUTADA", "RESULTADOS_ANALIZADOS", "
 // Estados en los que se pueden subir documentos (requerimiento aprobado).
 export const ESTADOS_CON_SUBIDA = ["REQUERIMIENTO_APROBADO", "DOCUMENTACION_RECIBIDA"];
 
+// Estados del ciclo en los que los documentos ya se validaron.
+export const ESTADOS_VALIDADOS = [
+  "DOCUMENTACION_VALIDADA", "PRUEBA_CONFIGURADA", "METODOLOGIA_APROBADA",
+  "PRUEBA_EJECUTADA", "RESULTADOS_ANALIZADOS", "EN_REVISION", "APROBADO",
+];
+
+// Estados del ciclo en los que ya se puede procesar (requerimiento listo, aún no ejecutada).
+export const ESTADOS_DISPONIBLE = [...ESTADOS_CON_SUBIDA, ...["DOCUMENTACION_VALIDADA", "PRUEBA_CONFIGURADA", "METODOLOGIA_APROBADA"]];
+
 // ¿La prueba ya se procesó? (paso 3 habilitado).
 export const estaProcesada = (estado) => ESTADOS_PROCESADA.includes(estado);
 
@@ -59,9 +68,25 @@ export function separarRequerimientos(requests) {
   return { principales, soporte };
 }
 
-// Estado de carga de un requerimiento según la cobertura: "Cargado" | "Pendiente".
-export function estadoRequerimiento(reqId, coberturaMap) {
-  return coberturaMap && coberturaMap[reqId] && coberturaMap[reqId].complete ? "Cargado" : "Pendiente";
+// Estado de un requerimiento (taxonomía del prompt): "Pendiente" | "Cargado" |
+// "Validado" | "Error". Sin archivo → Pendiente; con archivo rechazado → Error;
+// completo y ya validado el encargo → Validado; completo pero sin validar → Cargado.
+export function estadoRequerimiento(reqId, coberturaMap, estado) {
+  const c = coberturaMap && coberturaMap[reqId];
+  if (c && c.rejected) return "Error";
+  if (!c || !c.complete) return "Pendiente";
+  return ESTADOS_VALIDADOS.includes(estado) ? "Validado" : "Cargado";
+}
+
+// Estado de la prueba (taxonomía del prompt): "BLOQUEADA" | "DISPONIBLE" |
+// "EJECUTADA" | "CON EXCEPCIONES" | "REVISADA". Antes del requerimiento aprobado la
+// ejecución está bloqueada; tras procesar, EJECUTADA (o CON EXCEPCIONES si hay
+// excepciones); en revisión/aprobada, REVISADA.
+export function estadoPrueba(estado, tieneExcepciones) {
+  if (["EN_REVISION", "APROBADO"].includes(estado)) return "REVISADA";
+  if (ESTADOS_PROCESADA.includes(estado)) return tieneExcepciones ? "CON EXCEPCIONES" : "EJECUTADA";
+  if (ESTADOS_DISPONIBLE.includes(estado)) return "DISPONIBLE";
+  return "BLOQUEADA";
 }
 
 // Avance de la carga: cuántos requerimientos obligatorios están completos.

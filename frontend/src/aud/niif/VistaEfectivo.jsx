@@ -7,6 +7,7 @@ import {
   EJECUCIONES,
   avanceCarga,
   estaProcesada,
+  estadoPrueba,
   estadoRequerimiento,
   puedeEncerar,
   puedeSubir,
@@ -120,6 +121,8 @@ export default function VistaEfectivo({ prueba, onAccion, onRecargar, ocupado })
   const habilitadoSubir = conRequerimiento && puedeSubir(estado) && !trabajando && !ocupado;
   const procesada = estaProcesada(estado);
   const bloqueado = trabajando || ocupado;
+  const tieneExcepciones = ((reg.run || {}).exceptions || []).length > 0;
+  const estadoTexto = estadoPrueba(estado, tieneExcepciones);
 
   useEffect(() => {
     if (verDetalle && detalleRef.current) detalleRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -184,6 +187,12 @@ export default function VistaEfectivo({ prueba, onAccion, onRecargar, ocupado })
 
   return (
     <div className="nf-ef">
+      <div className="nf-ef-estado">
+        <span className="nf-ef-eyebrow">EFECTIVO Y EQUIVALENTES DE EFECTIVO</span>
+        <span className={`nf-ef-estado-badge ${estadoTexto === "CON EXCEPCIONES" ? "warn" : estadoTexto === "REVISADA" ? "ok" : ""}`}>
+          {estadoTexto}
+        </span>
+      </div>
       {error && <p role="alert" className="nf-ef-error">{error}</p>}
       {aviso && <p className="nf-ef-ok">{aviso}</p>}
 
@@ -206,9 +215,11 @@ export default function VistaEfectivo({ prueba, onAccion, onRecargar, ocupado })
             <div key={p.id} className="nf-ef-card">
               <div className="nf-ef-card-top">
                 <IconoDoc />
-                <span className={`nf-ef-badge ${estadoRequerimiento(p.id, coberturaMap) === "Cargado" ? "ok" : "pend"}`}>
-                  {estadoRequerimiento(p.id, coberturaMap)}
-                </span>
+                {(() => {
+                  const er = estadoRequerimiento(p.id, coberturaMap, estado);
+                  const cls = er === "Error" ? "err" : er === "Pendiente" ? "pend" : "ok";
+                  return <span className={`nf-ef-badge ${cls}`}>{er}</span>;
+                })()}
               </div>
               <h4>{p.titulo}</h4>
               <p className="nf-ef-card-doc">{p.req.document}</p>
