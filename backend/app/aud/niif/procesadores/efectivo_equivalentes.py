@@ -99,6 +99,7 @@ CEDULAS = [
     ("06_Confirmaciones", "Confirmación bancaria"), ("07_Corte", "Prueba de corte"), ("08_Restringido", "Efectivo restringido"),
     ("09_Equivalentes", "Equivalentes de efectivo (definición)"), ("10_Efectivo_auditado", "Efectivo auditado y ajuste"),
     ("11_Asientos", "Asientos propuestos"), ("12_Problemas", "Problemas encontrados"),
+    ("13_Conclusion", "Indicadores y conclusión"),
 ]
 
 
@@ -497,6 +498,18 @@ EXPLICA = {
         "Haber": ("Lleva a la contrapartida el mismo importe del asiento, tomado de la hoja 10 (Efectivo auditado y "
                   "ajuste), para que debe y haber cuadren."),
     },
+    "13_Conclusion": {
+        "Importe": ("Cada indicador trae su importe de la hoja 10 (Efectivo auditado y ajuste): el efectivo auditado, el "
+                    "saldo según libros, el ajuste propuesto, las diferencias de conciliación no explicadas y las "
+                    "reclasificaciones por restricción e inversiones que no son equivalentes."),
+        "Porcentaje": ("Divide el ajuste propuesto en valor absoluto entre el efectivo según libros para medir su peso "
+                       "relativo; queda en blanco si el saldo según libros es cero."),
+        "Cantidad": ("Cuenta cuántos problemas se detectaron leyendo la columna de códigos de la hoja 12 (Problemas "
+                     "encontrados)."),
+        "Estado": ("Semáforo del indicador: «Alerta» cuando hay un ajuste o una diferencia por encima de la tolerancia de "
+                   "la hoja 02 (Parámetros), «Revisar» cuando hay reclasificaciones o problemas que atender y «Conforme» "
+                   "cuando el indicador no presenta desviaciones."),
+    },
 }
 
 # Panel del dashboard (formato en graficos.py).
@@ -739,6 +752,36 @@ def hojas(res: dict) -> list[dict]:
     resumen = [[res["labels"][k], fx(f"{AUD}B{fila_con[k]}", n2(float(res["totals"][k])))] for k in res["labels"]]
     tot = lambda col, fin, v: suma(col, fin, n2(v))
 
+    # 13 · Indicadores y conclusión (con semáforo coloreable en «Estado»).
+    PROB = ref("12_Problemas")
+    nprob = len(res["exceptions"])
+    libros_v, auditado_v, ajuste_v = con["saldoLibros"], con["auditado"], con["ajuste"]
+    dif_v = con["difNoExplicada"]
+    reclas_v = con["reclasRestringido"] + con["reclasNoEquivalentes"]
+    tol_n = p["tolerancia"]
+    pct_v = None if libros_v == 0 else abs(ajuste_v) / libros_v
+    fA, fR, fD = FILA0 + 2, FILA0 + 3, FILA0 + 4  # filas ajuste, %, diferencia (para referencias internas)
+    fRec, fPr = FILA0 + 5, FILA0 + 6              # filas reclasificación y problemas
+    est = lambda cond, alto, ok="Conforme": (alto if cond else ok)
+    conclusion = [
+        ["Efectivo y equivalentes auditado (resultado principal)", fx(FC["auditado"], n2(auditado_v)), None, None,
+         fx(f'IF(ABS(B{fA})>{tol},"Revisar","Conforme")', est(abs(ajuste_v) > tol_n, "Revisar"))],
+        ["Efectivo y equivalentes según libros (registrado)", fx(FC["saldoLibros"], n2(libros_v)), None, None, ""],
+        ["Ajuste propuesto (auditado − libros)", fx(FC["ajuste"], n2(ajuste_v)), None, None,
+         fx(f'IF(ABS(B{fA})>{tol},"Alerta","Conforme")', est(abs(ajuste_v) > tol_n, "Alerta"))],
+        ["% de ajuste sobre el efectivo según libros", None,
+         fx(f'IF({FC["saldoLibros"]}=0,"",ABS({FC["ajuste"]})/{FC["saldoLibros"]})', pct_v), None,
+         fx(f'IF(C{fR}="","",IF(ABS({FC["ajuste"]})>{tol},"Revisar","Conforme"))',
+            "" if pct_v is None else est(abs(ajuste_v) > tol_n, "Revisar"))],
+        ["Diferencias de conciliación no explicadas (absolutas)", fx(FC["difNoExplicada"], n2(dif_v)), None, None,
+         fx(f'IF(B{fD}>{tol},"Alerta","Conforme")', est(dif_v > tol_n, "Alerta"))],
+        ["Reclasificaciones propuestas (restringido no corriente e inversiones que no son equivalentes)",
+         fx(f'{FC["reclasRestringido"]}+{FC["reclasNoEquivalentes"]}', n2(reclas_v)), None, None,
+         fx(f'IF(B{fRec}>0.005,"Revisar","Conforme")', est(reclas_v > 0.005, "Revisar"))],
+        ["Problemas encontrados", None, None, fx(f"COUNTA({_rango(PROB, 'A', nprob)})", nprob),
+         fx(f'IF(D{fPr}>0,"Revisar","Conforme")', est(nprob > 0, "Revisar"))],
+    ]
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
@@ -788,6 +831,9 @@ def hojas(res: dict) -> list[dict]:
              explica=EXPLICA["11_Asientos"]),
         hoja("12_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
+        hoja("13_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
+             explica=EXPLICA["13_Conclusion"], colores=["Estado"]),
     ]
 
 

@@ -466,11 +466,12 @@ CEDULAS = [
     ("10_Garantias_calculo", "Garantías: cálculo"), ("11_Onerosos", "Contratos onerosos"), ("12_Desmantelamiento", "Desmantelamiento"),
     ("13_Reconocimiento", "Provisión requerida vs libros"), ("14_Contingencias", "Contingencias a revelar"),
     ("15_Ajustes", "Ajustes propuestos y conciliación"), ("16_Problemas", "Problemas encontrados"),
+    ("17_Conclusion", "Indicadores y conclusión"),
 ]
 P = ref("02_Parametros")
-PRV, GAR, OBL, EST, VPR, REV, GCA, REC, CON, AJ = (ref(n) for n in (
+PRV, GAR, OBL, EST, VPR, REV, GCA, REC, CON, AJ, PRB = (ref(n) for n in (
     "03_Provisiones", "04_Garantias", "05_Obligacion_prob", "06_Mejor_estimacion", "07_Valor_presente", "08_Reversion_descuento",
-    "10_Garantias_calculo", "13_Reconocimiento", "14_Contingencias", "15_Ajustes"))
+    "10_Garantias_calculo", "13_Reconocimiento", "14_Contingencias", "15_Ajustes", "16_Problemas"))
 _PAR = ["corte", "marco", "edicion", "tasaDescuento", "plazoDescuento", "materialidad", "tolerancia", "mayorProvisiones"]
 PAR = {k: f"{P}$B${FILA0 + i}" for i, k in enumerate(_PAR)}
 
@@ -638,6 +639,18 @@ EXPLICA = {
                     "detalle − mayor."),
         "Base": ("Solo en la última fila: indica «Sí» si el ajuste propuesto, en valor absoluto, supera la materialidad; "
                  "vacío si no hay materialidad."),
+    },
+    "17_Conclusion": {
+        "Importe": ("Cada indicador trae su cifra de la hoja 15 (Ajustes propuestos y conciliación): la provisión "
+                    "requerida, las provisiones en libros, el ajuste propuesto, los pasivos contingentes sin revelar y la "
+                    "diferencia contra el mayor, sin volver a calcularlos."),
+        "Porcentaje": ("Divide el ajuste propuesto para las provisiones registradas en libros (filas de esta misma hoja): "
+                       "es el peso del ajuste sobre lo contabilizado; en blanco si no hay saldo en libros."),
+        "Cantidad": ("Cuenta los problemas listados en la hoja 16 (Problemas encontrados): es cuántas excepciones dejó "
+                     "abiertas la prueba."),
+        "Estado": ("Semáforo de cada indicador: el ajuste es «Alerta» si supera la materialidad de la hoja 02, «Revisar» si "
+                   "solo pasa la tolerancia y «Conforme» si no; contingencias sin revelar y problemas abiertos marcan alerta "
+                   "o revisión, y una conciliación descuadrada contra el mayor pide revisión."),
     },
 }
 
@@ -951,6 +964,33 @@ def hojas(res: dict) -> list[dict]:
              "activoContingenteReconocido": 10, "ajusteActivoContingente": 11, "difMayor": 13}
     resumen = [[res["labels"][kk], fx(f"{AJ}B{FILA0 + celda[kk]}", k[kk])] for kk in res["labels"]]
 
+    # 17 · indicadores y conclusión (semáforo).  Columnas: indicador, importe, porcentaje, cantidad, estado.
+    nprob = len(res["exceptions"])
+    tol, mat = PAR["tolerancia"], PAR["materialidad"]
+    b17 = lambda kk: f"B{FILA0 + kk}"
+    dd17 = lambda kk: f"D{FILA0 + kk}"
+    mat_v, tol_v, dif_v = k["materialidad"], (pv("tolerancia") or 0.0), k["difMayor"]
+    aj_v, cont_v = k["ajusteProvisiones"], k["contingentesSinRevelar"]
+    est_ajuste = "Alerta" if (mat_v is not None and abs(aj_v) > mat_v) else ("Revisar" if abs(aj_v) > tol_v else "Conforme")
+    est_cont = "Alerta" if abs(cont_v) > tol_v else "Conforme"
+    est_dif = "" if dif_v is None else ("Revisar" if abs(dif_v) > tol_v else "Conforme")
+    con17 = [
+        ["Provisión requerida (recalculada; NIC 37.36–47 · PYMES 21.7)", fx(f"{AJ}B{FILA0 + 1}", k["provisionRequerida"]), None, None, ""],
+        ["Provisiones registradas en libros (población evaluada)", fx(f"{AJ}B{FILA0 + 0}", k["librosProvisiones"]), None, None, ""],
+        ["Ajuste propuesto = requerida − libros", fx(f"{AJ}B{FILA0 + 2}", k["ajusteProvisiones"]), None, None,
+         fx(f'IF(AND({mat}<>"",ABS({b17(2)})>{mat}),"Alerta",IF(ABS({b17(2)})>{tol},"Revisar","Conforme"))', est_ajuste)],
+        ["% del ajuste sobre las provisiones en libros", None, fx(f'IF({b17(1)}=0,"",{b17(2)}/{b17(1)})',
+         None if k["librosProvisiones"] == 0 else k["ajusteProvisiones"] / k["librosProvisiones"]), None, ""],
+        ["Pasivos contingentes sin revelar (NIC 37.86 · PYMES 21.15)", fx(f"{AJ}B{FILA0 + 9}", k["contingentesSinRevelar"]), None, None,
+         fx(f'IF(ABS({b17(4)})>{tol},"Alerta","Conforme")', est_cont)],
+        ["Diferencia detalle − mayor", fx(f"{AJ}B{FILA0 + 13}", k["difMayor"]), None, None,
+         fx(f'IF({b17(5)}="","",IF(ABS({b17(5)})>{tol},"Revisar","Conforme"))', est_dif)],
+        ["Problemas encontrados (cantidad)", None, None, fx(f"COUNTA({_rng(PRB, 'A', nprob)})", nprob),
+         fx(f'IF({dd17(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+        ["Conclusión: la provisión se reconoce solo con obligación presente probable y estimable (NIC 37.14; PYMES 21.4); "
+         "las contingencias se revelan. Esta prueba no concluye por sí sola el cumplimiento de las NIIF.", None, None, None, ""],
+    ]
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
@@ -1000,6 +1040,9 @@ def hojas(res: dict) -> list[dict]:
              [["Concepto", "t"], ["Importe", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]], ajus, explica=EXPLICA["15_Ajustes"]),
         hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("17_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con17,
+             explica=EXPLICA["17_Conclusion"], colores=["Estado"]),
     ]
 
 

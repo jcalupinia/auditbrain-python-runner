@@ -124,6 +124,7 @@ CEDULAS = [
     ("11_RP_Integridad", "Integridad de la revelación de partes relacionadas"),
     ("12_Inusuales", "Partidas inusuales"), ("13_Tributario", "Referencia tributaria (Ecuador)"),
     ("14_Ajustes", "Ajustes y conciliación"), ("15_Asientos", "Asientos propuestos"), ("16_Problemas", "Problemas encontrados"),
+    ("17_Conclusion", "Indicadores y conclusión"),
 ]
 
 _SI = {"si", "s", "x", "yes", "y", "1", "true", "verdadero"}
@@ -466,9 +467,9 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
 # --- cédulas con fórmulas ---------------------------------------------------------
 
 P = ref("02_Parametros")
-CTA, TRX, VOU, COR, DEV, REC, RPS, RPI, INU, TRI, AJ = (ref(n) for n in (
+CTA, TRX, VOU, COR, DEV, REC, RPS, RPI, INU, TRI, AJ, PRB = (ref(n) for n in (
     "03_Analisis_global", "05_Transacciones", "06_Vouching", "07_Corte", "08_Devengo", "09_Reclasificaciones",
-    "10_Partes_relacionadas", "11_RP_Integridad", "12_Inusuales", "13_Tributario", "14_Ajustes"))
+    "10_Partes_relacionadas", "11_RP_Integridad", "12_Inusuales", "13_Tributario", "14_Ajustes", "16_Problemas"))
 _PAR = ["corte", "marco", "metodoEri", "requisito", "umbralVarPct", "umbralVarAbs", "materialidadEjecucion", "umbralAbs",
         "umbralBancarizacion", "gastosSegunEri", "rpRevelado", "rpEvidencia"]
 PAR = {k: FILA0 + i for i, k in enumerate(_PAR)}
@@ -631,6 +632,18 @@ EXPLICA = {
                  "(Reclasificaciones) en las reclasificaciones— para la cuenta que se debita."),
         "Haber": ("Trae el mismo importe del ajuste de la hoja 14 (Ajustes y conciliación) o de la hoja 09 "
                   "(Reclasificaciones) para la cuenta que se acredita, de modo que el asiento cuadra."),
+    },
+    "17_Conclusion": {
+        "Importe": ("Cada indicador toma su cifra de la hoja 14 (Ajustes y conciliación): el gasto de la sumaria, el ajuste "
+                    "neto propuesto, los gastos no soportados, las partes relacionadas no reveladas y el importe no "
+                    "deducible, sin volver a calcularlos aquí."),
+        "Porcentaje": ("Divide el ajuste propuesto para el gasto de la sumaria (renglones de esta misma hoja): es el peso del "
+                       "ajuste sobre el gasto del año; en blanco si la sumaria es cero."),
+        "Cantidad": ("Cuenta los problemas listados en la hoja 16 (Problemas encontrados): cuántas excepciones dejó abiertas "
+                     "la prueba de gastos."),
+        "Estado": ("Semáforo de cada indicador: el ajuste marca «Alerta» si supera la materialidad de ejecución de la hoja 02 "
+                   "y «Revisar» si solo pasa el mínimo; los gastos no soportados y las partes relacionadas no reveladas dan "
+                   "alerta, y el importe no deducible o los problemas abiertos piden revisión."),
     },
 }
 
@@ -990,6 +1003,32 @@ def hojas(res: dict) -> list[dict]:
                "rpNoReveladaMarcada": f"{RPI}H{trp}", "inusuales": ajb("inus"), "noDeducible": ajb("noDed"), "difConciliacion": ajb("difConc")}
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
 
+    # 17 · indicadores y conclusión (semáforo).  Columnas: indicador, importe, porcentaje, cantidad, estado.
+    nprob = len(res["exceptions"])
+    matc = _pb("materialidadEjecucion")
+    mat_v = d["mat"]
+    b17 = lambda kk: f"B{FILA0 + kk}"
+    dd17 = lambda kk: f"D{FILA0 + kk}"
+    aj_v, nsop_v, rpnr_v, ndd_v = t["ajusteGasto"], t["noSoportado"], t["rpNoReveladas"], t["noDeducible"]
+    con17 = [
+        ["Gasto del año según la sumaria (población)", fx(ajb("sumaria"), t["gastoTotal"]), None, None, ""],
+        ["Ajuste propuesto al gasto (neto; NIC 1 · PYMES Secc. 5)", fx(ajb("ajuste"), t["ajusteGasto"]), None, None,
+         fx(f'IF(AND({matc}<>"",ABS({b17(1)})>{matc}),"Alerta",IF(ABS({b17(1)})>0.005,"Revisar","Conforme"))',
+            "Alerta" if (mat_v is not None and abs(aj_v) > mat_v) else ("Revisar" if abs(aj_v) > 0.005 else "Conforme"))],
+        ["% del ajuste sobre el gasto de la sumaria", None, fx(f'IF({b17(0)}=0,"",{b17(1)}/{b17(0)})',
+         None if t["gastoTotal"] == 0 else t["ajusteGasto"] / t["gastoTotal"]), None, ""],
+        ["Gastos no soportados (NIA 500)", fx(ajb("noSop"), t["noSoportado"]), None, None,
+         fx(f'IF(ABS({b17(3)})>0.005,"Alerta","Conforme")', "Alerta" if abs(nsop_v) > 0.005 else "Conforme")],
+        ["Partes relacionadas no reveladas (NIC 24 · PYMES Secc. 33)", fx(ajb("rpNr"), t["rpNoReveladas"]), None, None,
+         fx(f'IF(ABS({b17(4)})>0.005,"Alerta","Conforme")', "Alerta" if abs(rpnr_v) > 0.005 else "Conforme")],
+        ["No deducible (referencia tributaria)", fx(ajb("noDed"), t["noDeducible"]), None, None,
+         fx(f'IF(ABS({b17(5)})>0.005,"Revisar","Conforme")', "Revisar" if abs(ndd_v) > 0.005 else "Conforme")],
+        ["Problemas encontrados (cantidad)", None, None, fx(f"COUNTA({_rng(PRB, 'A', nprob)})", nprob),
+         fx(f'IF({dd17(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+        ["Conclusión: el gasto se reconoce por devengo con soporte suficiente (NIC 1; PYMES Secc. 2 y 5); esta prueba no "
+         "concluye por sí sola el cumplimiento de las NIIF ni la deducibilidad tributaria.", None, None, None, ""],
+    ]
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros, explica=EXPLICA["02_Parametros"]),
@@ -1039,6 +1078,9 @@ def hojas(res: dict) -> list[dict]:
         hoja("15_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos, explica=EXPLICA["15_Asientos"]),
         hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
+        hoja("17_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con17,
+             explica=EXPLICA["17_Conclusion"], colores=["Estado"]),
     ]
 
 

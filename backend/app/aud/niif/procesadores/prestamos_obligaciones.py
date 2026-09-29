@@ -682,7 +682,7 @@ CEDULAS = [
     ("10_Covenants", "Covenants y dispensas"), ("11_Clasificacion", "Clasificación corriente / no corriente"),
     ("12_Endeudamiento", "Endeudamiento y ratios de covenants"), ("13_Conciliacion", "Conciliación y ajuste"),
     ("14_Flujos_modificacion", "Flujos de la modificación (adenda)"), ("15_Prueba_10pct", "Prueba del 10 % (NIIF 9 3.3.2 y B3.3.6)"),
-    ("16_Problemas", "Problemas encontrados"),
+    ("16_Problemas", "Problemas encontrados"), ("17_Conclusion", "Indicadores y conclusión"),
 ]
 # Panel del dashboard (formato en graficos.py): capital registrado de los préstamos evaluados; pasivo recalculado al costo
 # amortizado frente al registrado (capital + intereses); composición del pasivo recalculado por operación y deuda por banco.
@@ -1185,6 +1185,42 @@ def hojas(res: dict) -> list[dict]:
                        "original y alta de uno nuevo; si no, el pasivo continúa y los costos se amortizan."),
     }
 
+    # 17 · indicadores y conclusión (semáforo).  Columnas: indicador, importe, porcentaje, cantidad, estado.
+    ex17 = {
+        "Importe": ("El costo amortizado recalculado, el pasivo registrado y el ajuste propuesto salen de los totales de la "
+                    "hoja 13 (Conciliación y ajuste); la diferencia de gasto financiero suma la hoja 08 y la reclasificación "
+                    "por covenants, la hoja 11, sin volver a calcularlos aquí."),
+        "Porcentaje": ("Divide el ajuste propuesto para el pasivo registrado (renglones de esta misma hoja): es el peso del "
+                       "ajuste sobre la deuda contabilizada; en blanco si no hay pasivo registrado."),
+        "Cantidad": ("Cuenta los problemas listados en la hoja 16 (Problemas encontrados): cuántas excepciones dejó abiertas "
+                     "la prueba de préstamos y obligaciones."),
+        "Estado": ("Semáforo de cada indicador: el ajuste al pasivo y la reclasificación a corriente por covenants marcan "
+                   "«Alerta»; una diferencia en el gasto financiero de la TIE o problemas abiertos piden «Revisar»; «Conforme» "
+                   "cuando el importe es nulo."),
+    }
+    PRB = ref("16_Problemas")
+    nprob = len(res["exceptions"])
+    b17 = lambda kk: f"B{FILA0 + kk}"
+    dd17 = lambda kk: f"D{FILA0 + kk}"
+    aj_v, dg_v, rc_v, pr_v = t["ajuste"], t["diferenciaGasto"], t["reclasificacionCovenant"], t["pasivoRegistrado"]
+    con17 = [
+        ["Costo amortizado recalculado (NIIF 9 · PYMES Secc. 11)", fx(f"{CC}B{tot}", t["pasivo"]), None, None, ""],
+        ["Pasivo registrado (población evaluada)", fx(f"{CC}E{tot}", t["pasivoRegistrado"]), None, None, ""],
+        ["Ajuste propuesto = auditado − registrado", fx(f"{CC}F{tot}", t["ajuste"]), None, None,
+         fx(f'IF(ABS({b17(2)})>0.005,"Alerta","Conforme")', "Alerta" if abs(aj_v) > 0.005 else "Conforme")],
+        ["% del ajuste sobre el pasivo registrado", None, fx(f'IF({b17(1)}=0,"",{b17(2)}/{b17(1)})',
+         None if pr_v == 0 else aj_v / pr_v), None, ""],
+        ["Diferencia de gasto financiero (TIE − registrado)", fx(f"SUM({IN}G{FILA0}:G{fin})", t["diferenciaGasto"]), None, None,
+         fx(f'IF(ABS({b17(4)})>0.005,"Revisar","Conforme")', "Revisar" if abs(dg_v) > 0.005 else "Conforme")],
+        ["Reclasificación a corriente por covenants incumplidos", fx(f"SUM({CL}G{FILA0}:G{fin})-SUM({CL}E{FILA0}:E{fin})", t["reclasificacionCovenant"]),
+         None, None, fx(f'IF(ABS({b17(5)})>0.005,"Alerta","Conforme")', "Alerta" if abs(rc_v) > 0.005 else "Conforme")],
+        ["Problemas encontrados (cantidad)", None, None, fx(f"COUNTA({PRB}A{FILA0}:A{FILA0 + max(nprob, 1) - 1})", nprob),
+         fx(f'IF({dd17(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+        ["Conclusión: la deuda financiera se mide al costo amortizado con la TIE y se clasifica corriente/no corriente según "
+         "los covenants al corte (NIIF 9 · PYMES Secc. 11); esta prueba no concluye por sí sola el cumplimiento de las NIIF.",
+         None, None, None, ""],
+    ]
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=ex01),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
@@ -1266,6 +1302,9 @@ def hojas(res: dict) -> list[dict]:
               ["Marco aplicado", "t"]], prueba, explica=ex15),
         hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("17_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con17,
+             explica=ex17, colores=["Estado"]),
     ]
 
 

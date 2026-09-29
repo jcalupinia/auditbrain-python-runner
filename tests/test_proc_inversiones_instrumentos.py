@@ -122,6 +122,21 @@ def test_semaforo_conciliacion():
     assert h["total"][j] == ""
 
 
+def test_conclusion():
+    """La cédula 12 lleva indicadores clave con importes en fórmula y un semáforo coloreable en «Estado»."""
+    from backend.app.aud.niif.procesadores import base
+    con = next(x for x in m.hojas(correr()) if x["name"] == "12_Conclusion")
+    assert con["label"] == "Indicadores y conclusión"
+    cols = [c[0] for c in con["cols"]]
+    assert cols == ["Indicador", "Importe", "Porcentaje", "Cantidad", "Estado"]
+    assert "Estado" in con["colores"]
+    ji, je = cols.index("Importe"), cols.index("Estado")
+    assert any(isinstance(f[ji], dict) and "f" in f[ji] for f in con["rows"])
+    roles = {base.rol_color(con, "Estado", f[je]) for f in con["rows"]}
+    assert roles & {"alta", "media", "baja"}
+    assert "alta" in roles       # el ejemplo tiene ajuste propuesto: al menos una «Alerta»
+
+
 def test_pymes_2025_11_9za_deuda_no_basica_pero_sppi():
     """11.9ZA: sin cumplir 11.9 a)-d), la deuda con flujos solo de principal e intereses sigue a costo amortizado."""
     r25, r15 = _extra("pymes_2025_11_9za_y_11_25b"), _extra("pymes_2015_11_9za_y_11_25b")

@@ -236,6 +236,35 @@ def test_semaforo_diferencias_temporarias():
     assert any(fila[idx]["v"] == "Alerta" for fila in h["rows"])
 
 
+def test_conclusion():
+    """La cédula 16 lleva indicadores por fórmula y la columna «Estado» coloreada (Alerta/Revisar/Conforme)."""
+    assert m.CEDULAS[-1] == ("16_Conclusion", "Indicadores y conclusión")
+    hs = {h["name"]: h for h in m.hojas(_run())}
+    h = hs["16_Conclusion"]
+    cols = [c[0] for c in h["cols"]]
+    assert cols == ["Indicador", "Importe", "Porcentaje", "Cantidad", "Estado"]
+    assert h["colores"] == ["Estado"]
+    for col in ("Importe", "Porcentaje", "Cantidad", "Estado"):
+        assert col in h["explica"]
+    # Ancho de fila coherente en todas las filas (incluida la de conclusión narrativa).
+    for fila in h["rows"]:
+        assert len(fila) == len(h["cols"])
+    idx = cols.index("Estado")
+    estados = [f[idx]["v"] if isinstance(f[idx], dict) else f[idx] for f in h["rows"]]
+    # Los estados con formato son fórmulas que resuelven a un nivel coloreable; la fila final es narrativa (Estado vacío).
+    for f in h["rows"][:-1]:
+        celda = f[idx]
+        assert isinstance(celda, dict) and "f" in celda
+        assert celda["v"] in ("Alerta", "Revisar", "Conforme")
+    assert h["rows"][-1][idx] == ""
+    # Los indicadores de importe/porcentaje/cantidad son fórmulas que remiten a la celda de origen.
+    assert any(isinstance(f[1], dict) and "f" in f[1] for f in h["rows"])          # Importe
+    assert any(isinstance(f[2], dict) and "f" in f[2] for f in h["rows"])          # Porcentaje
+    assert any(isinstance(f[3], dict) and "f" in f[3] for f in h["rows"])          # Cantidad
+    # En el ejemplo hay ajustes != 0, así que al menos un estado es «Revisar» o «Alerta».
+    assert any(e in ("Revisar", "Alerta") for e in estados)
+
+
 def test_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "impuesto_corriente_diferido" and len(d["program"]) >= 5

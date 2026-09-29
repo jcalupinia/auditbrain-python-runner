@@ -546,6 +546,10 @@ _EXPLICA = {
         "Porcentaje": "Divide la suma asegurada vigente entre el valor de referencia de los activos (dos primeras filas de esta hoja).",
         "Cantidad": ("Cuenta casos en otras hojas: activos con suma vigente cero o con infraseguro (hoja 06) y pólizas vencidas o por "
                      "vencer (hoja 05)."),
+        "Estado": ("Semáforo de cada indicador según su propio importe o cantidad: «Alerta» ante déficit de cobertura, activos sin "
+                   "cobertura, infraseguro, exposición máxima, pólizas vencidas o siniestros sin revelar; «Revisar» ante sobreseguro, "
+                   "pólizas por vencer, compensaciones por reconocer o el ajuste de prima; «Conforme» si no exige acción. Las filas de "
+                   "totales de referencia y la conclusión no llevan estado."),
     },
     "13_Ajustes": {
         "Importe": ("Suma la prima anticipada registrada, la recalculada y su diferencia de la hoja 10 (Prima pagada por anticipado); el "
@@ -724,28 +728,47 @@ def hojas(res: dict) -> list[dict]:
                      fx(f'IF(J{FILA0 + j}="{TRAT_EXIGIBLE}",N(D{FILA0 + j}),0)', x["compensacion"])])
     nsi = len(SI)
 
-    # 12 · indicadores y conclusión.  Columnas: concepto, importe, porcentaje, cantidad.
+    # 12 · indicadores y conclusión.  Columnas: concepto, importe, porcentaje, cantidad, estado (semáforo).
     b = lambda kk: f"B{FILA0 + kk}"
+    cmin_p, csob_p = pv("coberturaMinima"), pv("sobreseguroDesde")
+    # Estado según el importe (columna B) o la cantidad (columna D) de la propia fila; «» cuando la fila no aplica.
+    _al = lambda i, cond: fx(f'IF(B{FILA0 + i}>0.005,"Alerta","Conforme")', "Alerta" if cond else "Conforme")
+    _rv = lambda i, cond: fx(f'IF(ABS(B{FILA0 + i})>0.005,"Revisar","Conforme")', "Revisar" if cond else "Conforme")
+    _alc = lambda i, cond: fx(f'IF(D{FILA0 + i}>0,"Alerta","Conforme")', "Alerta" if cond else "Conforme")
+    _rvc = lambda i, cond: fx(f'IF(D{FILA0 + i}>0,"Revisar","Conforme")', "Revisar" if cond else "Conforme")
+    cg = k["coberturaGlobal"]
+    est_cob = "" if cg is None else ("Alerta" if cg < cmin_p / 100 else ("Revisar" if cg > csob_p / 100 else "Conforme"))
     con = [
-        ["Valor de referencia de los activos", fx(f"SUM({_rng(COB, 'C', n)})", k["valorReferencia"]), None, None],
-        ["Suma asegurada vigente al corte", fx(f"SUM({_rng(COB, 'G', n)})", k["sumaAsegurada"]), None, None],
-        ["% de cobertura global = suma asegurada / referencia", None, fx(f'IF({b(0)}=0,"",{b(1)}/{b(0)})', k["coberturaGlobal"]), None],
-        ["Déficit de cobertura = Σ max(referencia − suma, 0)", fx(f"SUM({_rng(COB, 'I', n)})", k["deficitCobertura"]), None, None],
+        ["Valor de referencia de los activos", fx(f"SUM({_rng(COB, 'C', n)})", k["valorReferencia"]), None, None, ""],
+        ["Suma asegurada vigente al corte", fx(f"SUM({_rng(COB, 'G', n)})", k["sumaAsegurada"]), None, None, ""],
+        ["% de cobertura global = suma asegurada / referencia", None, fx(f'IF({b(0)}=0,"",{b(1)}/{b(0)})', cg), None,
+         fx(f'IF(C{FILA0 + 2}="","",IF(C{FILA0 + 2}<{PAR["coberturaMinima"]}/100,"Alerta",'
+            f'IF(C{FILA0 + 2}>{PAR["sobreseguroDesde"]}/100,"Revisar","Conforme")))', est_cob)],
+        ["Déficit de cobertura = Σ max(referencia − suma, 0)", fx(f"SUM({_rng(COB, 'I', n)})", k["deficitCobertura"]), None, None,
+         _al(3, k["deficitCobertura"] > 0.005)],
         ["Activos sin cobertura: valor en libros (cantidad a la derecha)", fx(f"SUMIF({_rng(COB, 'G', n)},0,{_rng(ACT, 'D', n)})", k["sinCoberturaLibros"]),
-         None, fx(f"COUNTIF({_rng(COB, 'G', n)},0)", k["nSinCobertura"])],
-        ["Activos sin cobertura: valor de referencia", fx(f"SUMIF({_rng(COB, 'G', n)},0,{_rng(COB, 'C', n)})", k["sinCoberturaReferencia"]), None, None],
-        ["Activos con infraseguro (cantidad)", None, None, fx(f'COUNTIF({_rng(COB, "K", n)},"Infraseguro")', k["nInfraseguro"])],
-        ["Sobreseguro", fx(f'SUMIF({_rng(COB, "K", n)},"Sobreseguro",{_rng(COB, "J", n)})', k["sobreseguro"]), None, None],
-        [f"Exposición máxima (pérdida total no cubierta; activo {d['mayorActivo']})", fx(f"MAX({_rng(DED, 'H', n)})", k["exposicionMaxima"]), None, None],
-        ["Pólizas vencidas al corte (cantidad)", None, None, fx(f'COUNTIF({_rng(VIG, "E", npol)},"Vencida")', k["nVencidas"])],
-        ["Pólizas por vencer (cantidad)", None, None, fx(f'COUNTIF({_rng(VIG, "G", npol)},"Por vencer")', k["nPorVencer"])],
+         None, fx(f"COUNTIF({_rng(COB, 'G', n)},0)", k["nSinCobertura"]), _alc(4, k["nSinCobertura"] > 0)],
+        ["Activos sin cobertura: valor de referencia", fx(f"SUMIF({_rng(COB, 'G', n)},0,{_rng(COB, 'C', n)})", k["sinCoberturaReferencia"]), None, None,
+         _al(5, k["sinCoberturaReferencia"] > 0.005)],
+        ["Activos con infraseguro (cantidad)", None, None, fx(f'COUNTIF({_rng(COB, "K", n)},"Infraseguro")', k["nInfraseguro"]),
+         _alc(6, k["nInfraseguro"] > 0)],
+        ["Sobreseguro", fx(f'SUMIF({_rng(COB, "K", n)},"Sobreseguro",{_rng(COB, "J", n)})', k["sobreseguro"]), None, None,
+         _rv(7, k["sobreseguro"] > 0.005)],
+        [f"Exposición máxima (pérdida total no cubierta; activo {d['mayorActivo']})", fx(f"MAX({_rng(DED, 'H', n)})", k["exposicionMaxima"]), None, None,
+         _al(8, k["exposicionMaxima"] > 0.005)],
+        ["Pólizas vencidas al corte (cantidad)", None, None, fx(f'COUNTIF({_rng(VIG, "E", npol)},"Vencida")', k["nVencidas"]),
+         _alc(9, k["nVencidas"] > 0)],
+        ["Pólizas por vencer (cantidad)", None, None, fx(f'COUNTIF({_rng(VIG, "G", npol)},"Por vencer")', k["nPorVencer"]),
+         _rvc(10, k["nPorVencer"] > 0)],
         ["Siniestros pendientes sin revelación", fx(f'SUMIF({_rng(SIN, "G", nsi)},"Sin revelación*",{_rng(SIN, "D", nsi)})', k["siniestrosSinRevelar"])
-         if nsi else fx("0", 0.0), None, None],
+         if nsi else fx("0", 0.0), None, None, _al(11, k["siniestrosSinRevelar"] > 0.005)],
         ["Compensaciones de seguro exigibles a reconocer en resultados (NIC 16.65–66 · PYMES 17.25)",
-         fx(f'SUM({_rng(SIN, "K", nsi)})', k["compensacionesExigibles"]) if nsi else fx("0", 0.0), None, None],
-        ["Ajuste propuesto en resultados (prima anticipada)", fx(f"{AJ}B{FILA0 + 3}", k["ajustePrima"]), None, None],
+         fx(f'SUM({_rng(SIN, "K", nsi)})', k["compensacionesExigibles"]) if nsi else fx("0", 0.0), None, None,
+         _rv(12, k["compensacionesExigibles"] > 0.005)],
+        ["Ajuste propuesto en resultados (prima anticipada)", fx(f"{AJ}B{FILA0 + 3}", k["ajustePrima"]), None, None,
+         _rv(13, abs(k["ajustePrima"]) > 0.005)],
         ["Conclusión: la cobertura es evidencia de riesgo y continuidad operativa (NIA 315, 330, 570); no concluye cumplimiento de las NIIF.",
-         None, None, None],
+         None, None, None, ""],
     ]
 
     # 13 · ajustes y conciliación.
@@ -812,8 +835,9 @@ def hojas(res: dict) -> list[dict]:
              [["Póliza", "t"], ["Aseguradora", "t"], ["Siniestro", "t"], ["Monto", "n"], ["Revelado", "t"], ["Estado de la póliza", "t"],
               ["Evaluación", "t"], ["Tipo de siniestro", "t"], ["Cobro exigible", "t"], ["Tratamiento contable", "t"],
               ["Compensación exigible a reconocer", "n"]], sini, explica=_EXPLICA["11_Siniestros"]),
-        hoja("12_Conclusion", "Indicadores y conclusión", [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"]], con,
-             explica=_EXPLICA["12_Conclusion"]),
+        hoja("12_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con,
+             explica=_EXPLICA["12_Conclusion"], colores=["Estado"]),
         hoja("13_Ajustes", "Ajustes propuestos y conciliación",
              [["Concepto", "t"], ["Importe", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]], ajus, explica=_EXPLICA["13_Ajustes"]),
         hoja("14_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],

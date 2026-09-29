@@ -360,6 +360,7 @@ CEDULAS = [
     ("05_Valoracion", "Valoración: VR menos costos de venta"), ("06_Transformacion", "Transformación biológica y cambio de VR"),
     ("07_Conciliacion", "Conciliación de cambios (NIC 41.50)"), ("08_Modelo_costo", "Modelo del costo y deterioro"),
     ("09_Cosecha", "Producto agrícola en el punto de cosecha"), ("10_Problemas", "Problemas encontrados"),
+    ("11_Conclusion", "Indicadores y conclusión"),
 ]
 PARK = ["corte", "marco", "vr_fiable", "vr_sin_esfuerzo_desproporcionado", "saldoMayor"]
 PAR = {k: FILA0 + i for i, k in enumerate(PARK)}
@@ -507,6 +508,17 @@ def _explica(pymes: bool, s34_2a: bool, fuera: str) -> dict:
             "VR − costos de venta unitario": "Resta el costo de venta unitario al valor razonable unitario en el punto de cosecha.",
             "VR − costos de venta total": "Multiplica la cantidad cosechada por el VR menos costos de venta unitario: es el valor de la cosecha.",
             "Diferencia": "Resta el valor registrado por el cliente al valor de la cosecha recalculado (VR menos costos de venta total).",
+        },
+        "11_Conclusion": {
+            "Importe": ("Trae la cifra de cada indicador de la hoja que la calcula: el valor auditado suma la hoja 05 (Valoración), el valor "
+                        "en libros la hoja 03 (Activos), la ganancia por cambio de VR no reconocida la hoja 06 (Transformación) y el deterioro "
+                        "adicional la hoja 08 (Modelo del costo); el ajuste propuesto es el valor auditado menos el valor en libros."),
+            "Porcentaje": ("Divide el ajuste propuesto para el valor en libros (ambos de esta misma hoja): mide qué tan material es el ajuste "
+                           "frente al saldo registrado. Queda en blanco si el valor en libros es cero."),
+            "Cantidad": "Cuenta los problemas detectados en la hoja 10 (Problemas encontrados) contando los códigos que se listaron.",
+            "Estado": ("Semáforo del indicador: «Alerta» cuando hay un ajuste al valor o un deterioro que corregir, «Revisar» cuando hay "
+                       "ganancia de VR no reconocida o problemas por atender y «Conforme» cuando el indicador no exige acción. En blanco en "
+                       "las filas solo informativas (valor auditado, valor en libros y porcentaje)."),
         },
     }
 
@@ -687,6 +699,26 @@ def hojas(res: dict) -> list[dict]:
     S = lambda xs: sum(x for x in xs if x is not None)
     n_ = "n"
     ex = _explica(pymes, s34_2a, fuera)
+
+    # 11 · indicadores y conclusión (con semáforo por indicador).
+    nprob = len(res["exceptions"])
+    PBL = ref("10_Problemas")
+    bc = lambda kk: f"B{FILA0 + kk}"
+    rc = lambda kk: FILA0 + kk
+    conclusion = [
+        ["Activos biológicos: valor auditado (VR − costos de venta / costo)", fx(f"SUM({_rg(VAL, 'J', na)})", t["valorAuditado"]), None, None, ""],
+        ["Valor en libros", fx(f"SUM({_rg(ACT, 'M', na)})", t["valorLibros"]), None, None, ""],
+        ["Ajuste propuesto (auditado − libros)", fx(f"SUM({_rg(VAL, 'L', na)})", t["ajuste"]), None, None,
+         fx(f'IF(ABS(B{rc(2)})>0.005,"Alerta","Conforme")', "Alerta" if abs(t["ajuste"]) > 0.005 else "Conforme")],
+        ["% del ajuste sobre el valor en libros", None,
+         fx(f'IF({bc(1)}=0,"",{bc(2)}/{bc(1)})', None if t["valorLibros"] == 0 else t["ajuste"] / t["valorLibros"]), None, ""],
+        ["Ganancia por cambio de VR no reconocida", fx(f"SUM({_rg(TRA, 'P', na)})", t["gananciaNoReconocida"]), None, None,
+         fx(f'IF(ABS(B{rc(4)})>0.005,"Revisar","Conforme")', "Revisar" if abs(t["gananciaNoReconocida"]) > 0.005 else "Conforme")],
+        ["Deterioro adicional (modelo del costo)", fx(f"SUM({_rg(CST, 'H', na)})", t["deterioroAdicional"]), None, None,
+         fx(f'IF(B{rc(5)}>0.005,"Alerta","Conforme")', "Alerta" if t["deterioroAdicional"] > 0.005 else "Conforme")],
+        ["Problemas detectados", None, None, fx(f"COUNTA({_rg(PBL, 'A', max(nprob, 1))})", nprob),
+         fx(f'IF(D{rc(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+    ]
     return [
         hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", n_]], resumen, explica=ex["01_Resumen"]),
         hoja("02_Parametros", CEDULAS[1][1], [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
@@ -736,6 +768,9 @@ def hojas(res: dict) -> list[dict]:
                        _tot("J", nc, t["difCosecha"])] if nc else None, explica=ex["09_Cosecha"]),
         hoja("10_Problemas", CEDULAS[9][1], [["Código", "t"], ["Descripción", "t"], ["Importe", n_]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("11_Conclusion", CEDULAS[10][1],
+             [["Indicador", "t"], ["Importe", n_], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
+             explica=ex["11_Conclusion"], colores=["Estado"]),
     ]
 
 

@@ -458,6 +458,7 @@ CEDULAS = [
     ("07_Costo_produccion", "Costo de producción"), ("08_Costo_ventas", "Costo de ventas"), ("09_VNR", "Valor realizable neto"),
     ("10_Obsolescencia", "Obsolescencia y lenta rotación"), ("11_Excepcion_MP", "Materias primas: excepción de NIC 2.32"),
     ("12_Corte", "Prueba de corte"), ("13_Problemas", "Problemas encontrados"),
+    ("14_Conclusion", "Indicadores y conclusión"),
 ]
 PARK = ["corte", "marco", "obsDias1", "obsPct1", "obsDias2", "obsPct2", "obsDias3", "obsPct3", "saldoMayor", "provisionRegistrada"]
 PAR = {k: FILA0 + i for i, k in enumerate(PARK)}
@@ -733,6 +734,43 @@ def hojas(res: dict) -> list[dict]:
     }
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
 
+    # 14 · Indicadores y conclusión (con semáforo coloreable en «Estado»).
+    RES = ref("01_Resumen")
+    rc = lambda k: f"{RES}B{fr[k]}"
+    PROB = ref("13_Problemas")
+    nprob = len(res["exceptions"])
+    aj_c = rc("ajuste")
+    pct_v = None if t["libroNeto"] == 0 else abs(t["ajuste"]) / abs(t["libroNeto"])
+    r3f, r5f, r6f = FILA0 + 3, FILA0 + 5, FILA0 + 6
+    est = lambda cond, alto, ok="Conforme": (alto if cond else ok)
+    conclusion = [
+        [res["labels"]["costoAuditado"], fx(rc("costoAuditado"), t["costoAuditado"]), None, None, ""],
+        [res["labels"]["inventarioNeto"] + " (resultado principal)", fx(rc("inventarioNeto"), t["inventarioNeto"]), None, None,
+         fx(f'IF(ABS(B{r3f})>0.005,"Revisar","Conforme")', est(abs(t["ajuste"]) > 0.005, "Revisar"))],
+        [res["labels"]["libroNeto"], fx(rc("libroNeto"), t["libroNeto"]), None, None, ""],
+        [res["labels"]["ajuste"], fx(rc("ajuste"), t["ajuste"]), None, None,
+         fx(f'IF(ABS(B{r3f})>0.005,"Alerta","Conforme")', est(abs(t["ajuste"]) > 0.005, "Alerta"))],
+        ["% de ajuste sobre el inventario neto en libros", None,
+         fx(f'IF({rc("libroNeto")}=0,"",ABS({aj_c})/ABS({rc("libroNeto")}))', pct_v), None,
+         fx(f'IF(C{FILA0 + 4}="","",IF(ABS({aj_c})>0.005,"Revisar","Conforme"))',
+            "" if pct_v is None else est(abs(t["ajuste"]) > 0.005, "Revisar"))],
+        [res["labels"]["provisionEstimada"], fx(rc("provisionEstimada"), t["provisionEstimada"]), None, None,
+         fx(f'IF(B{r5f}>0.005,"Revisar","Conforme")', est(t["provisionEstimada"] > 0.005, "Revisar"))],
+        ["Problemas encontrados", None, None, fx(f"COUNTA({_rg(PROB, 'A', nprob)})", nprob),
+         fx(f'IF(D{r6f}>0,"Revisar","Conforme")', est(nprob > 0, "Revisar"))],
+    ]
+    ex_conclusion = {
+        "Importe": ("Cada indicador trae su cifra de la hoja 01 (Resumen y ajuste propuesto): el costo auditado, el inventario "
+                    "neto auditado, el inventario neto en libros, el ajuste propuesto y la provisión estimada."),
+        "Porcentaje": ("Divide el ajuste propuesto en valor absoluto entre el inventario neto en libros para medir su peso "
+                       "relativo; queda en blanco si el inventario neto en libros es cero."),
+        "Cantidad": ("Cuenta cuántos problemas se detectaron leyendo la columna de códigos de la hoja 13 (Problemas "
+                     "encontrados)."),
+        "Estado": ("Semáforo del indicador: «Alerta» cuando el ajuste propuesto deja de ser cero, «Revisar» cuando hay "
+                   "provisión estimada pendiente o problemas que atender y «Conforme» cuando el indicador no presenta "
+                   "desviaciones."),
+    }
+
     # --- «Cómo se calcula esta hoja»: explicación humana por columna calculada -------------
     h09 = "la hoja 09 (Precio de venta menos costos)" if pymes else "la hoja 09 (Valor realizable neto)"
     ex_resumen = {"Importe": "Trae cada concepto de su hoja de origen: el costo auditado de la hoja 03, la provisión estimada y la "
@@ -919,6 +957,9 @@ def hojas(res: dict) -> list[dict]:
              corte, ["TOTAL", "", None, None, _tot("E", nc, S(x["imp"] for x in cor)), "", "", "", _tot("I", nc, t["corte"]), ""] if nc else None, explica=ex_corte),
         hoja("13_Problemas", CEDULAS[12][1], [["Código", "t"], ["Descripción", "t"], ["Importe", n_]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("14_Conclusion", CEDULAS[13][1],
+             [["Indicador", "t"], ["Importe", n_], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
+             explica=ex_conclusion, colores=["Estado"]),
     ]
 
 

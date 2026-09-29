@@ -596,7 +596,7 @@ CEDULAS = [
     ("10_Adiciones", "Adiciones y costos por préstamos"), ("11_Prestamos", "Préstamos para la construcción"),
     ("12_Capitalizacion", "Capitalización de costos por préstamos por activo"), ("13_Desmantelamiento", "Desmantelamiento"),
     ("14_Roll_forward", "Movimiento del año y conciliación auxiliar-mayor"), ("15_Ajustes", "Ajustes propuestos"),
-    ("16_Problemas", "Problemas encontrados"),
+    ("16_Problemas", "Problemas encontrados"), ("17_Conclusion", "Indicadores y conclusión"),
 ]
 P = ref("02_Parametros")
 AUX, DEP, BAJ, REV, DET, ADI, PRE, CAP, DES, RF, AJ = (
@@ -976,6 +976,44 @@ def hojas(res: dict) -> list[dict]:
              "costosPrestamosIncurridos": d["tope"]["incurridos"], "capitalizablePeriodo": sc("final"), **aj}
     resumen = [[res["labels"][k], fx(celda[k], valor[k])] for k in res["labels"]]
 
+    # 17 · Indicadores y conclusión (con semáforo coloreable en «Estado»).
+    tt = {k: float(v) for k, v in res["totals"].items()}
+    PROB = ref("16_Problemas")
+    nprob = len(res["exceptions"])
+    pct_v = None if tt["costoFinal"] == 0 else abs(tt["ajusteResultado"]) / tt["costoFinal"]
+    r2f, r3f, r5f, r6f = FILA0 + 2, FILA0 + 3, FILA0 + 5, FILA0 + 6
+    est = lambda cond, alto, ok="Conforme": (alto if cond else ok)
+    conclusion = [
+        [res["labels"]["costoFinal"], fx(celda["costoFinal"], tt["costoFinal"]), None, None, ""],
+        [res["labels"]["nbv"] + " (resultado principal)", fx(celda["nbv"], tt["nbv"]), None, None,
+         fx(f'IF(ABS(B{r3f})>0.005,"Revisar","Conforme")', est(abs(tt["ajusteResultado"]) > 0.005, "Revisar"))],
+        [res["labels"]["ajusteDep"], fx(celda["ajusteDep"], tt["ajusteDep"]), None, None,
+         fx(f'IF(ABS(B{r2f})>0.005,"Alerta","Conforme")', est(abs(tt["ajusteDep"]) > 0.005, "Alerta"))],
+        [res["labels"]["ajusteResultado"], fx(celda["ajusteResultado"], tt["ajusteResultado"]), None, None,
+         fx(f'IF(ABS(B{r3f})>0.005,"Alerta","Conforme")', est(abs(tt["ajusteResultado"]) > 0.005, "Alerta"))],
+        ["% del efecto neto en resultados sobre el costo al cierre", None,
+         fx(f'IF(B{FILA0}=0,"",ABS(B{r3f})/B{FILA0})', pct_v), None,
+         fx(f'IF(C{FILA0 + 4}="","",IF(ABS(B{r3f})>0.005,"Revisar","Conforme"))',
+            "" if pct_v is None else est(abs(tt["ajusteResultado"]) > 0.005, "Revisar"))],
+        ["Diferencia auxiliar − mayor (costo)", fx(celda["difCosto"], rf["difCosto"]), None, None,
+         fx(f'IF(B{r5f}="","",IF(ABS(B{r5f})>0.005,"Alerta","Conforme"))',
+            "" if rf["difCosto"] is None else est(abs(rf["difCosto"]) > 0.005, "Alerta"))],
+        ["Problemas encontrados", None, None, fx(f"COUNTA({_rng(PROB, 'A', nprob)})", nprob),
+         fx(f'IF(D{r6f}>0,"Revisar","Conforme")', est(nprob > 0, "Revisar"))],
+    ]
+    ex_conclusion = {
+        "Importe": ("Cada indicador trae su cifra de la hoja que la calcula: el costo al cierre y la diferencia con el mayor, de "
+                    "la hoja 14 (Movimiento del año); el valor neto en libros, la diferencia de depreciación y el efecto neto "
+                    "en resultados, de la hoja 15 (Ajustes propuestos)."),
+        "Porcentaje": ("Divide el efecto neto en resultados en valor absoluto entre el costo al cierre para medir su peso "
+                       "relativo; queda en blanco si el costo al cierre es cero."),
+        "Cantidad": ("Cuenta cuántos problemas se detectaron leyendo la columna de códigos de la hoja 16 (Problemas "
+                     "encontrados)."),
+        "Estado": ("Semáforo del indicador: «Alerta» cuando un ajuste o una diferencia dejan de ser cero, «Revisar» cuando el "
+                   "efecto neto en resultados o los problemas piden atención y «Conforme» cuando el indicador no presenta "
+                   "desviaciones."),
+    }
+
     # --- «Cómo se calcula esta hoja»: explicación humana por columna calculada -------------
     ex_resumen = {"Importe": "Trae cada concepto de su hoja: costo y diferencias con el mayor de la hoja 14 (Movimiento del año), "
                              "depreciación de las hojas 04 y 14, ajustes de la hoja 15 (Ajustes propuestos), deterioro de la hoja 09, "
@@ -1205,6 +1243,9 @@ def hojas(res: dict) -> list[dict]:
         hoja("15_Ajustes", "Ajustes propuestos", [["Ajuste", "t"], ["Importe", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]], ajus, explica=ex_aj),
         hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("17_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
+             explica=ex_conclusion, colores=["Estado"]),
     ]
 
 

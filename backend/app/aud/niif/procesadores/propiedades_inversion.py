@@ -586,6 +586,7 @@ CEDULAS = [
     ("09_Transferencias", "Transferencias"), ("10_Superavit", "Historial del superávit de revaluación"),
     ("11_Alquileres", "Ingresos por alquiler"), ("12_Bajas", "Bajas"),
     ("13_Conciliacion", "Sumaria y conciliación"), ("14_Problemas", "Problemas encontrados"),
+    ("15_Conclusion", "Indicadores y conclusión"),
 ]
 PARK = ["corte", "inicio", "marco", "esPymes", "modelo", "vr", "correcto", "umbral", "saldoMayor"]
 PAR = {k: FILA0 + i for i, k in enumerate(PARK)}
@@ -790,6 +791,17 @@ EXPLICA = {
         "Importe": "Arma el puente concepto por concepto: compara el saldo del mayor (hoja 02, o la suma del detalle si no se informó) "
                    "con el importe en libros de la hoja 03, le suma los ajustes de las hojas 06, 08 y 04, controla que el puente iguale "
                    "la medición auditada de la hoja 08 y calcula el ajuste propuesto (auditado − mayor).",
+    },
+    "15_Conclusion": {
+        "Importe": "Trae la cifra de cada indicador de la hoja que la calcula: las propiedades auditadas suman la medición de la hoja 08, "
+                   "el saldo del mayor sale de la hoja 02 (o del detalle si no se informó), el ajuste de valor razonable de la hoja 06 y el "
+                   "deterioro de la hoja 07; el ajuste propuesto es propiedades auditadas menos el saldo del mayor.",
+        "Porcentaje": "Divide el ajuste propuesto para el saldo del mayor (ambos de esta misma hoja): mide qué tan material es el ajuste "
+                      "frente al saldo registrado. Queda en blanco si el saldo del mayor es cero.",
+        "Cantidad": "Cuenta los problemas detectados en la hoja 14 (Problemas encontrados) contando los códigos que se listaron.",
+        "Estado": "Semáforo del indicador: «Alerta» cuando hay ajuste al saldo o deterioro que corregir, «Revisar» cuando hay ajuste de "
+                  "valor razonable o problemas por atender y «Conforme» cuando el indicador no exige acción. En blanco en las filas solo "
+                  "informativas (propiedades auditadas, saldo del mayor y porcentaje).",
     },
 }
 
@@ -1004,6 +1016,26 @@ def hojas(res: dict) -> list[dict]:
     }
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
 
+    # 15 · indicadores y conclusión (con semáforo por indicador).
+    nprob = len(res["exceptions"])
+    PBL = ref("14_Problemas")
+    bc = lambda kk: f"B{FILA0 + kk}"
+    rc = lambda kk: FILA0 + kk
+    conclusion = [
+        ["Propiedades de inversión auditadas", fx(f"SUM({_rg(MED, 'E', ni)})", t["piAuditado"]), None, None, ""],
+        ["Saldo según el mayor", fx(mayor_f, c["mayor"]), None, None, ""],
+        ["Ajuste propuesto (auditado − mayor)", fx(f"{bc(0)}-{bc(1)}", c["ajuste"]), None, None,
+         fx(f'IF(ABS(B{rc(2)})>0.005,"Alerta","Conforme")', "Alerta" if abs(c["ajuste"]) > 0.005 else "Conforme")],
+        ["% del ajuste sobre el saldo del mayor", None,
+         fx(f'IF({bc(1)}=0,"",{bc(2)}/{bc(1)})', None if c["mayor"] == 0 else c["ajuste"] / c["mayor"]), None, ""],
+        ["Ajuste de valor razonable no reconocido (resultados)", fx(f"SUM({_rg(VRZ, 'H', ni)})", t["ajusteVR"]), None, None,
+         fx(f'IF(ABS(B{rc(4)})>0.005,"Revisar","Conforme")', "Revisar" if abs(t["ajusteVR"]) > 0.005 else "Conforme")],
+        ["Deterioro (modelo del costo)", fx(f"SUM({_rg(MCO, 'P', ni)})", t["deterioro"]), None, None,
+         fx(f'IF(B{rc(5)}>0.005,"Alerta","Conforme")', "Alerta" if t["deterioro"] > 0.005 else "Conforme")],
+        ["Problemas detectados", None, None, fx(f"COUNTA({_rg(PBL, 'A', max(nprob, 1))})", nprob),
+         fx(f'IF(D{rc(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+    ]
+
     S = lambda xs: sum(x for x in xs if x is not None)
     return [
         hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", n_]], resumen, explica=EXPLICA["01_Resumen"]),
@@ -1068,6 +1100,9 @@ def hojas(res: dict) -> list[dict]:
         hoja("13_Conciliacion", CEDULAS[12][1], [["Concepto", "t"], ["Importe", n_]], conciliacion, explica=EXPLICA["13_Conciliacion"]),
         hoja("14_Problemas", CEDULAS[13][1], [["Código", "t"], ["Descripción", "t"], ["Importe", n_]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("15_Conclusion", CEDULAS[14][1],
+             [["Indicador", "t"], ["Importe", n_], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
+             explica=EXPLICA["15_Conclusion"], colores=["Estado"]),
     ]
 
 

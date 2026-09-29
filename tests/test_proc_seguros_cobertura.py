@@ -147,3 +147,24 @@ def test_semaforo_cobertura():
     assert valores <= {"Alerta", "Revisar", "Conforme", ""} and (valores - {""})
     assert (valores - {""}) <= set(NIVEL_COLOR)
     assert h["total"][sem] == ""
+
+
+def test_conclusion_estado():
+    """La cédula 12 (existente) lleva ahora la columna «Estado» coloreada por indicador (semáforo)."""
+    from backend.app.aud.niif.procesadores.base import NIVEL_COLOR
+    h = next(x for x in m.hojas(correr()) if x["name"] == "12_Conclusion")
+    cols = [c[0] for c in h["cols"]]
+    assert cols == ["Indicador", "Importe", "Porcentaje", "Cantidad", "Estado"]
+    assert h["colores"] == ["Estado"]
+    assert "Estado" in h["explica"]
+    idx = cols.index("Estado")
+    valores = [fila[idx]["v"] if isinstance(fila[idx], dict) else fila[idx] for fila in h["rows"]]
+    # Cada estado es «» (fila que no aplica) o un nivel coloreable; hay al menos una «Alerta» y una «Revisar».
+    assert set(valores) <= {"Alerta", "Revisar", "Conforme", ""}
+    assert (set(valores) - {""}) <= set(NIVEL_COLOR)
+    assert "Alerta" in valores and "Revisar" in valores
+    # Las filas de totales de referencia y la de conclusión no llevan estado.
+    assert valores[0] == "" and valores[1] == "" and valores[-1] == ""
+    # El ancho de cada fila coincide con el nº de columnas (5).
+    for fila in h["rows"]:
+        assert len(fila) == len(h["cols"])

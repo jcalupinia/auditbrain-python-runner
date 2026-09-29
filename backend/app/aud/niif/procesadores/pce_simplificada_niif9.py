@@ -324,6 +324,7 @@ CEDULAS = [
     ("06_Movimiento", "Movimiento de la provisión (NIIF 7 35H)"), ("07_Fiscal", "Fiscal e impuesto diferido"),
     ("08_Asientos", "Asientos propuestos"), ("09_Detalle", "Detalle por factura"), ("10_Cartera_anterior", "Cartera del corte anterior"),
     ("11_Castigos", "Castigos del ejercicio"), ("12_Problemas", "Problemas encontrados"),
+    ("13_Conclusion", "Indicadores y conclusión"),
 ]
 P = "'02_Parametros'!"
 PAR = {k: FILA0 + i for i, k in enumerate(["corte", "corteAnterior", "tasaDesc", "plazoBase", "escBasePeso", "escBaseAjuste",
@@ -426,6 +427,19 @@ EXPLICA = {
                       "anterior que no sigue impago y nunca negativo."),
         "Pérdida observada": ("Suma lo que sigue impago al corte y lo castigado: es lo que no se recuperó de esa factura "
                               "en el año."),
+    },
+    "13_Conclusion": {
+        "Importe": ("Trae los indicadores clave desde su hoja de origen: la pérdida crediticia esperada y el gasto no "
+                    "deducible salen de la hoja 07 (Fiscal e impuesto diferido), el activo por impuesto diferido también de "
+                    "la hoja 07, y el ajuste propuesto es la pérdida esperada menos la provisión registrada de la hoja 02."),
+        "Porcentaje": ("Divide la provisión registrada (hoja 02) entre la pérdida crediticia esperada de la hoja 07 "
+                       "(Fiscal): mide qué parte de la pérdida esperada ya está provisionada; queda en blanco si la pérdida "
+                       "esperada es cero."),
+        "Cantidad": ("Cuenta en la hoja 09 (Detalle por factura) las facturas con pérdida esperada mayor que cero: es el "
+                     "número de documentos de la cartera con deterioro esperado al corte."),
+        "Estado": ("Semáforo de cada indicador: «Alerta» cuando la provisión registrada no cubre la pérdida esperada o hay "
+                   "gasto no deducible; «Revisar» cuando queda un ajuste, un activo diferido por recuperar o facturas con "
+                   "deterioro esperado; «Conforme» si el indicador no exige acción."),
     },
 }
 
@@ -672,6 +686,32 @@ def hojas(res: dict) -> list[dict]:
                "dtaFin": F_["dtaFin"], "dtaMov": F_["dtaMov"]}
     resumen = [[res["labels"][k], _fx(ref_res[k], _n(t[k]))] for k in res["labels"]]
 
+    # 13 · Indicadores y conclusión (semáforo).  Columnas: indicador, importe, porcentaje, cantidad, estado.
+    r0 = FILA0
+    F_pce, F_nd, F_dta = F_["pce"], F_["noDeducible"], F_["dtaFin"]
+    PREG = f"{P}B{PAR['provisionRegistrada']}"
+    npce = sum(1 for fx_ in filas if fx_.get("pce") not in ("", None) and float(fx_["pce"]) > 0.005)
+    cob = "" if t["pce"] == 0 else t["provisionRegistrada"] / t["pce"]
+    est_cob = "" if t["pce"] == 0 else ("Alerta" if t["provisionRegistrada"] < t["pce"] - 0.005 else "Conforme")
+    _ei = lambda i, cond, nivel: _fx(f'IF(ABS(B{r0 + i})>0.005,"{nivel}","Conforme")', nivel if cond else "Conforme")
+    con13 = [
+        ["Ajuste propuesto a la provisión (PCE − provisión registrada)",
+         _fx(f"{F_pce}-{PREG}", _n(t["ajuste"])), None, None, _ei(0, abs(t["ajuste"]) > 0.005, "Revisar")],
+        ["Cobertura de la PCE por la provisión registrada (registrada / PCE)",
+         None, _fx(f'IF({F_pce}=0,"",{PREG}/{F_pce})', cob), None,
+         _fx(f'IF({F_pce}=0,"",IF({PREG}<{F_pce}-0.005,"Alerta","Conforme"))', est_cob)],
+        ["Gasto no deducible del ejercicio (límites LRTI)",
+         _fx(f"{F_nd}", _n(t["noDeducible"])), None, None, _ei(2, t["noDeducible"] > 0.005, "Alerta")],
+        ["Activo por impuesto diferido reconocido (revelar y evaluar recuperabilidad)",
+         _fx(f"{F_dta}", _n(t["dtaFin"])), None, None, _ei(3, abs(t["dtaFin"]) > 0.005, "Revisar")],
+        ["Facturas con pérdida esperada al corte (cantidad)",
+         None, None, _fx(f'COUNTIF({DET}$K${FILA0}:$K${fin_det},">0")', npce) if nd else _fx("0", 0),
+         _fx(f'IF(D{r0 + 4}>0,"Revisar","Conforme")', "Revisar" if npce > 0 else "Conforme")],
+        ["Conclusión: la pérdida crediticia esperada (NIIF 9 enfoque simplificado) se mide por matriz y se concilia con la "
+         "provisión registrada; los estados marcan la cobertura, el gasto no deducible y el impuesto diferido que exigen "
+         "ajuste o revelación.", None, None, None, ""],
+    ]
+
     hoja = lambda name, label, cols, rows, total=None, explica=None, colores=None: {"name": name, "label": label, "cols": cols, "rows": rows,
                                                                                     "total": total, "explica": dict(explica or {}),
                                                                                     **({"colores": [c for c in colores if c in [x[0] for x in cols]]} if colores else {})}
@@ -715,6 +755,9 @@ def hojas(res: dict) -> list[dict]:
              ["TOTAL", "", s("C", fin_cas, _n(f["castigos"]))] if nc else None),
         hoja("12_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], _n(e["amount"])] for e in res["exceptions"]]),
+        hoja("13_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con13,
+             explica=EXPLICA["13_Conclusion"], colores=["Estado"]),
     ]
 
 

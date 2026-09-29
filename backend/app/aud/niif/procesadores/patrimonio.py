@@ -147,6 +147,7 @@ CEDULAS = [
     ("07_Capital", "Capital y aumentos"), ("08_Clasificacion", "Clasificación deuda / patrimonio"),
     ("09_Recompra", "Recompra de acciones propias"), ("10_Ajuste", "Patrimonio auditado y ajustes"),
     ("11_Asientos", "Asientos propuestos"), ("12_Problemas", "Problemas encontrados"),
+    ("13_Conclusion", "Indicadores y conclusión"),
 ]
 
 _SI = {"si", "s", "x", "yes", "y", "1", "true", "verdadero"}
@@ -671,6 +672,18 @@ EXPLICA = {
         "Haber": ("Lleva a la contrapartida el mismo importe del asiento, tomado de la hoja 10 (Patrimonio auditado y "
                   "ajustes), para que debe y haber cuadren."),
     },
+    "13_Conclusion": {
+        "Importe": ("Trae de la hoja 10 (Patrimonio auditado y ajustes) el importe de cada indicador clave: el ajuste neto al "
+                    "patrimonio, las diferencias del movimiento recalculado, la reserva legal por apropiar, los dividendos en "
+                    "exceso y los aumentos de capital no inscritos, cada uno desde la celda donde ya se calculó."),
+        "Porcentaje": ("Divide la reserva legal apropiada entre la requerida de la hoja 05 (Reserva legal): mide qué parte de "
+                       "la reserva obligatoria ya está constituida; queda en blanco si la compañía no está obligada a reserva."),
+        "Cantidad": ("Cuenta las actas y transacciones marcadas «Sin acta» en la hoja 04 (Actas y transacciones): es el número "
+                     "de movimientos patrimoniales de un tipo que exige acta de junta y no la tienen informada."),
+        "Estado": ("Semáforo de cada indicador: «Alerta» cuando hay diferencias del movimiento, dividendos en exceso o "
+                   "transacciones sin acta; «Revisar» cuando queda un ajuste, reserva por apropiar o aumentos sin inscribir; "
+                   "«Conforme» si el indicador no exige acción."),
+    },
 }
 
 # Panel del dashboard (formato en graficos.py).
@@ -1012,6 +1025,38 @@ def hojas(res: dict) -> list[dict]:
                "capitalEscritura": "capitalEscritura", "difCapital": "difCapital", "resultadoRecompras": "resultadoRecompras"}
     resumen = [[res["labels"][k], fx(ajb(ref_res[k]), t[k])] for k in res["labels"]]
 
+    # 13 · Indicadores y conclusión (semáforo).  Columnas: indicador, importe, porcentaje, cantidad, estado.
+    r0 = FILA0
+    RREQ, RAPR = f"{RES}B{RSF['requerida']}", f"{RES}B{RSF['apropiada']}"
+    ajres = t.get("ajusteReserva")
+    nsinacta = sum(1 for x in tx if x.get("sinActa") == "Sí")
+    req_rv, apr_rv = rv.get("requerida"), rv.get("apropiada")
+    cob_rv = "" if not req_rv else apr_rv / req_rv
+    est_rv = "" if not req_rv else ("Revisar" if apr_rv < req_rv - 0.005 else "Conforme")
+    _ei = lambda i, cond, nivel: fx(f'IF(ABS(B{r0 + i})>0.005,"{nivel}","Conforme")', nivel if cond else "Conforme")
+    con13 = [
+        ["Ajuste neto propuesto al patrimonio (auditado − cliente)",
+         fx(ajb("ajusteNeto"), t["ajusteNeto"]), None, None, _ei(0, abs(t["ajusteNeto"]) > 0.005, "Revisar")],
+        ["Diferencias del movimiento patrimonial recalculado (absolutas)",
+         fx(ajb("difMov"), t["difMovimiento"]), None, None, _ei(1, t["difMovimiento"] > 0.005, "Alerta")],
+        ["Dividendos en exceso de utilidades disponibles (art. 297)",
+         fx(ajb("excesoDiv"), t["excesoDividendos"]), None, None, _ei(2, t["excesoDividendos"] > 0.005, "Alerta")],
+        ["Aumentos de capital no inscritos al corte",
+         fx(ajb("noInscritos"), t["aumentosNoInscritos"]), None, None, _ei(3, t["aumentosNoInscritos"] > 0.005, "Revisar")],
+        ["Reserva legal por apropiar (− exceso)",
+         fx(ajb("ajusteReserva"), ajres if ajres is not None else ""), None, None,
+         fx(f'IF(B{r0 + 4}="","",IF(ABS(B{r0 + 4})>0.005,"Revisar","Conforme"))',
+            "" if ajres is None else ("Revisar" if abs(ajres) > 0.005 else "Conforme"))],
+        ["Cobertura de la reserva legal (apropiada / requerida)",
+         None, fx(f'IF({RREQ}=0,"",{RAPR}/{RREQ})', cob_rv), None,
+         fx(f'IF({RREQ}=0,"",IF({RAPR}<{RREQ}-0.005,"Revisar","Conforme"))', est_rv)],
+        ["Actas y transacciones sin acta de junta (cantidad)",
+         None, None, fx(f'COUNTIF({_rg(TX, "U", nt)},"Sí")', nsinacta) if nt else fx("0", 0),
+         fx(f'IF(D{r0 + 6}>0,"Alerta","Conforme")', "Alerta" if nsinacta > 0 else "Conforme")],
+        ["Conclusión: el movimiento patrimonial se recalcula y concilia (NIC 1 · NIC 32); los estados marcan la reserva "
+         "legal, los dividendos, los aportes y las recompras que exigen ajuste o revelación.", None, None, None, ""],
+    ]
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros,
@@ -1045,6 +1090,9 @@ def hojas(res: dict) -> list[dict]:
              explica=EXPLICA["11_Asientos"]),
         hoja("12_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
+        hoja("13_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con13,
+             explica=EXPLICA["13_Conclusion"], colores=["Estado"]),
     ]
 
 

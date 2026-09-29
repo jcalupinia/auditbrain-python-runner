@@ -230,6 +230,38 @@ def test_semaforo_movimiento_patrimonial():
     assert any(fila[idx]["v"] == "Alerta" for fila in h["rows"])
 
 
+def test_conclusion():
+    """La cédula 13 lleva indicadores por fórmula y la columna «Estado» coloreada (Alerta/Revisar/Conforme)."""
+    assert m.CEDULAS[-1] == ("13_Conclusion", "Indicadores y conclusión")
+    hs = {h["name"]: h for h in m.hojas(_run())}
+    h = hs["13_Conclusion"]
+    cols = [c[0] for c in h["cols"]]
+    assert cols == ["Indicador", "Importe", "Porcentaje", "Cantidad", "Estado"]
+    assert h["colores"] == ["Estado"]
+    for col in ("Importe", "Porcentaje", "Cantidad", "Estado"):
+        assert col in h["explica"]
+    for fila in h["rows"]:
+        assert len(fila) == len(h["cols"])
+    idx = cols.index("Estado")
+    estados = [f[idx]["v"] if isinstance(f[idx], dict) else f[idx] for f in h["rows"]]
+    for f in h["rows"][:-1]:
+        celda = f[idx]
+        assert isinstance(celda, dict) and "f" in celda
+        assert celda["v"] in ("Alerta", "Revisar", "Conforme", "")
+    assert h["rows"][-1][idx] == ""                                                # fila de conclusión narrativa
+    assert any(isinstance(f[1], dict) and "f" in f[1] for f in h["rows"])          # Importe con fórmula
+    assert any(isinstance(f[2], dict) and "f" in f[2] for f in h["rows"])          # Porcentaje con fórmula
+    assert any(isinstance(f[3], dict) and "f" in f[3] for f in h["rows"])          # Cantidad con fórmula
+    # En el ejemplo hay diferencias y ajustes, así que al menos un estado exige acción.
+    assert any(e in ("Revisar", "Alerta") for e in estados)
+    # Verifica los anchos y nombres en todos los escenarios (incluye la hoja nueva).
+    for _, ds, p, c in m.ESCENARIOS:
+        hs2 = m.hojas(m.ejecutar(ds, p, c))
+        assert hs2[-1]["name"] == "13_Conclusion"
+        for fila in hs2[-1]["rows"]:
+            assert len(fila) == len(hs2[-1]["cols"])
+
+
 def test_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "patrimonio" and len(d["program"]) >= 5

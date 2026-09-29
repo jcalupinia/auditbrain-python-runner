@@ -161,6 +161,21 @@ def test_hojas_y_definicion():
         assert m.hojas(m.ejecutar(ds, par, corte))
 
 
+def test_conclusion():
+    """La cédula 11 lleva indicadores clave con importes en fórmula y un «Estado» coloreable."""
+    from backend.app.aud.niif.procesadores import base
+    h = next(x for x in m.hojas(_run()) if x["name"] == "11_Conclusion")
+    cols = [c[0] for c in h["cols"]]
+    assert cols[0] == "Indicador" and "Estado" in cols and h.get("colores") == ["Estado"]
+    est, imp = cols.index("Estado"), cols.index("Importe")
+    importes = [f[imp] for f in h["rows"] if isinstance(f[imp], dict)]
+    assert importes and all("f" in f for f in importes)              # cada importe es fórmula, nada pegado
+    estados = [f[est] for f in h["rows"] if isinstance(f[est], dict)]
+    valores = {f["v"] for f in estados}
+    assert valores and valores <= {"Alerta", "Revisar", "Conforme"} and valores <= set(base.NIVEL_COLOR)
+    assert all(base.rol_color(h, "Estado", f) in ("alta", "media", "baja") for f in estados)
+
+
 def test_semaforo_valoracion():
     from backend.app.aud.niif.procesadores.base import NIVEL_COLOR
     h = next(x for x in m.hojas(_run()) if x["name"] == "05_Valoracion")

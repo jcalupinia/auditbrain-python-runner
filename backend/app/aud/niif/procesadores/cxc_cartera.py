@@ -87,7 +87,7 @@ CEDULAS = [
     ("06_Circularizacion", "Circularización"), ("07_Corte_ventas", "Corte de ventas"),
     ("08_Costo_amortizado", "Costo amortizado e intereses implícitos"), ("09_Matriz_deterioro", "Matriz de deterioro"),
     ("10_Ajuste", "Deterioro requerido vs registrado"), ("11_Asientos", "Asientos propuestos"),
-    ("12_Problemas", "Problemas encontrados"),
+    ("12_Problemas", "Problemas encontrados"), ("13_Conclusion", "Indicadores y conclusión"),
 ]
 
 
@@ -404,6 +404,18 @@ EXPLICA = {
         "Haber": ("Lleva a la contrapartida los importes del asiento, tomados de la hoja 10 o de los totales de la hoja 08 "
                   "(interés por devengar e interés devengado), para que debe y haber cuadren."),
     },
+    "13_Conclusion": {
+        "Importe": ("Cada indicador trae su importe de donde ya se calculó: la cartera nominal, del total de la hoja 03 "
+                    "(Detalle por factura); el deterioro requerido, el registrado, el ajuste y la cartera vencida sin cobro, "
+                    "de la hoja 10 (Deterioro requerido vs registrado)."),
+        "Porcentaje": ("Divide el ajuste de deterioro en valor absoluto entre la cartera nominal al corte para medir su peso "
+                       "relativo; queda en blanco si la cartera es cero."),
+        "Cantidad": ("Cuenta cuántos problemas se detectaron leyendo la columna de códigos de la hoja 12 (Problemas "
+                     "encontrados)."),
+        "Estado": ("Semáforo del indicador: «Alerta» cuando el ajuste de deterioro o una diferencia dejan de ser cero, "
+                   "«Revisar» cuando hay cartera vencida sin cobro o problemas que atender y «Conforme» cuando el indicador "
+                   "no presenta desviaciones."),
+    },
 }
 
 # Panel del dashboard (formato en graficos.py).
@@ -704,6 +716,31 @@ def hojas(res: dict) -> list[dict]:
                "difCircularizacion": ajb("difConf")}
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
 
+    # 13 · Indicadores y conclusión (con semáforo coloreable en «Estado»).
+    PROB = ref("12_Problemas")
+    nprob = len(res["exceptions"])
+    cartera_f = f"SUM({_rango(DET, 'E', nd)})"
+    ajuste_c = ajb("ajuste")
+    pct_v = None if t["saldo"] == 0 else abs(t["ajuste"]) / t["saldo"]
+    r0, r3, r5, r6 = FILA0, FILA0 + 3, FILA0 + 5, FILA0 + 6
+    est = lambda cond, alto, ok="Conforme": (alto if cond else ok)
+    conclusion = [
+        ["Cartera al corte (nominal)", fx(cartera_f, t["saldo"]), None, None, ""],
+        [res["labels"]["deterioroRequerido"] + " (resultado principal)", fx(ajb("requerido"), t["deterioroRequerido"]), None, None,
+         fx(f'IF(ABS(B{r3})>0.005,"Revisar","Conforme")', est(abs(t["ajuste"]) > 0.005, "Revisar"))],
+        ["Deterioro registrado (mayor)", fx(ajb("registrado"), t["provisionRegistrada"]), None, None, ""],
+        ["Ajuste de deterioro propuesto", fx(ajb("ajuste"), t["ajuste"]), None, None,
+         fx(f'IF(ABS(B{r3})>0.005,"Alerta","Conforme")', est(abs(t["ajuste"]) > 0.005, "Alerta"))],
+        ["% de ajuste sobre la cartera nominal", None,
+         fx(f'IF(B{r0}=0,"",ABS({ajuste_c})/B{r0})', pct_v), None,
+         fx(f'IF(C{FILA0 + 4}="","",IF(ABS({ajuste_c})>0.005,"Revisar","Conforme"))',
+            "" if pct_v is None else est(abs(t["ajuste"]) > 0.005, "Revisar"))],
+        ["Cartera vencida sin cobro posterior", fx(ajb("sinCobro"), t["vencidoSinCobro"]), None, None,
+         fx(f'IF(B{r5}>0.005,"Revisar","Conforme")', est(t["vencidoSinCobro"] > 0.005, "Revisar"))],
+        ["Problemas encontrados", None, None, fx(f"COUNTA({_rango(PROB, 'A', nprob)})", nprob),
+         fx(f'IF(D{r6}>0,"Revisar","Conforme")', est(nprob > 0, "Revisar"))],
+    ]
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
@@ -740,6 +777,9 @@ def hojas(res: dict) -> list[dict]:
              explica=EXPLICA["11_Asientos"]),
         hoja("12_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
+        hoja("13_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
+             explica=EXPLICA["13_Conclusion"], colores=["Estado"]),
     ]
 
 

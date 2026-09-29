@@ -501,7 +501,7 @@ CEDULAS = [
     ("04_Clasificacion", "Clasificación"), ("05_Costo_amortizado", "Costo amortizado y TIE"),
     ("06_Valor_razonable", "Valor razonable y jerarquía"), ("07_Intereses_dividendos", "Intereses y dividendos"),
     ("08_Deterioro", "Deterioro"), ("09_Reclasificacion", "Reclasificación"), ("10_Conciliacion", "Conciliación y ajuste"),
-    ("11_Problemas", "Problemas encontrados"),
+    ("11_Problemas", "Problemas encontrados"), ("12_Conclusion", "Indicadores y conclusión"),
 ]
 P, INV, CLA, CAM, VRZ, ING, DET, REC, CON = (ref(n) for n, _ in CEDULAS[1:10])
 CORTE, INICIO = f"{P}$B${FILA0}", f"{P}$B${FILA0 + 1}"
@@ -703,6 +703,43 @@ def hojas(res: dict) -> list[dict]:
                "deterioroCalc": f"{DET}I{fin + 1}", "deterioroReg": f"{DET}J{fin + 1}", "ingresoDif": f"{ING}F{fin + 1}",
                "difVR": f"{VRZ}F{fin_vr + 1}" if vrz else "0", "ajuste": f"{CON}I{fin + 1}"}
     resumen = [[res["labels"][k], fx(tot_ref[k], n2(t[k]))] for k in res["labels"]]
+
+    # 12 · Indicadores y conclusión (con semáforo coloreable en «Estado»).
+    PROB = ref("11_Problemas")
+    nprob = len(res["exceptions"])
+    rng_prob = f"{PROB}$A${FILA0}:$A${FILA0 + max(nprob, 1) - 1}"
+    pct_v = None if t["saldoLibros"] == 0 else abs(t["ajuste"]) / t["saldoLibros"]
+    r2f, r4f, r5f, r6f = FILA0 + 2, FILA0 + 4, FILA0 + 5, FILA0 + 6
+    est = lambda cond, alto, ok="Conforme": (alto if cond else ok)
+    conclusion = [
+        [res["labels"]["saldoLibros"], fx(tot_ref["saldoLibros"], n2(t["saldoLibros"])), None, None, ""],
+        [res["labels"]["medicion"] + " (resultado principal)", fx(tot_ref["medicion"], n2(t["medicion"])), None, None,
+         fx(f'IF(ABS(B{r2f})>0.005,"Revisar","Conforme")', est(abs(t["ajuste"]) > 0.005, "Revisar"))],
+        [res["labels"]["ajuste"], fx(tot_ref["ajuste"], n2(t["ajuste"])), None, None,
+         fx(f'IF(ABS(B{r2f})>0.005,"Alerta","Conforme")', est(abs(t["ajuste"]) > 0.005, "Alerta"))],
+        ["% de ajuste sobre el saldo en libros", None,
+         fx(f'IF({tot_ref["saldoLibros"]}=0,"",ABS({tot_ref["ajuste"]})/{tot_ref["saldoLibros"]})', pct_v), None,
+         fx(f'IF(C{FILA0 + 3}="","",IF(ABS({tot_ref["ajuste"]})>0.005,"Revisar","Conforme"))',
+            "" if pct_v is None else est(abs(t["ajuste"]) > 0.005, "Revisar"))],
+        [res["labels"]["difVR"], fx(tot_ref["difVR"], n2(t["difVR"])), None, None,
+         fx(f'IF(ABS(B{r4f})>0.005,"Revisar","Conforme")', est(abs(t["difVR"]) > 0.005, "Revisar"))],
+        [res["labels"]["ingresoDif"], fx(tot_ref["ingresoDif"], n2(t["ingresoDif"])), None, None,
+         fx(f'IF(ABS(B{r5f})>0.005,"Revisar","Conforme")', est(abs(t["ingresoDif"]) > 0.005, "Revisar"))],
+        ["Problemas encontrados", None, None, fx(f"COUNTA({rng_prob})", nprob),
+         fx(f'IF(D{r6f}>0,"Revisar","Conforme")', est(nprob > 0, "Revisar"))],
+    ]
+    ex_conclusion = {
+        "Importe": ("Cada indicador trae su cifra de la fila TOTAL de la hoja que la calcula: el saldo en libros, la medición "
+                    "según la norma y el ajuste propuesto, de la hoja 10 (Conciliación y ajuste); la diferencia de valor "
+                    "razonable, de la hoja 06; los intereses y dividendos no registrados, de la hoja 07."),
+        "Porcentaje": ("Divide el ajuste propuesto en valor absoluto entre el saldo en libros para medir su peso relativo; "
+                       "queda en blanco si el saldo en libros es cero."),
+        "Cantidad": ("Cuenta cuántos problemas se detectaron leyendo la columna de códigos de la hoja 11 (Problemas "
+                     "encontrados)."),
+        "Estado": ("Semáforo del indicador: «Alerta» cuando el ajuste propuesto deja de ser cero, «Revisar» cuando hay "
+                   "diferencias de valor razonable, ingresos no registrados o problemas que atender y «Conforme» cuando el "
+                   "indicador no presenta desviaciones."),
+    }
     s = lambda col, fin_, k: suma(col, fin_, sum(x[k] for x in xs if x[k] is not None))
     sc = lambda col, k: suma(col, fin_ca, sum(x["ca"][k] for x in xs if x["ca"]))
 
@@ -914,6 +951,9 @@ def hojas(res: dict) -> list[dict]:
              explica=ex_con, colores=["Semáforo"]),
         hoja("11_Problemas", "Problemas encontrados", [["Código", T], ["Descripción", T], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
+        hoja("12_Conclusion", "Indicadores y conclusión",
+             [["Indicador", T], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", T]], conclusion,
+             explica=ex_conclusion, colores=["Estado"]),
     ]
 
 

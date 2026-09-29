@@ -3,6 +3,7 @@ import copy
 
 import pytest
 
+from backend.app.aud.niif.procesadores import base
 from backend.app.aud.niif.procesadores import efectivo_equivalentes as m
 
 E = m.EJEMPLO
@@ -56,6 +57,25 @@ def test_hojas_nombres_y_anchos():
         for fila in x["rows"] + ([x["total"]] if x["total"] else []):
             assert len(fila) == len(x["cols"]), x["name"]
     assert sum(isinstance(c, dict) for x in h for f in x["rows"] for c in f) > 100
+
+
+def test_conclusion():
+    """La cédula 13 lleva indicadores clave con importes en fórmula y un semáforo coloreable en «Estado»."""
+    r = _run()
+    h = m.hojas(r)
+    con = next(x for x in h if x["name"] == "13_Conclusion")
+    assert con["label"] == "Indicadores y conclusión"
+    cols = [c[0] for c in con["cols"]]
+    assert cols == ["Indicador", "Importe", "Porcentaje", "Cantidad", "Estado"]
+    assert "Estado" in con["colores"]
+    ji, je = cols.index("Importe"), cols.index("Estado")
+    # los importes son fórmulas (dict con "f")
+    assert any(isinstance(f[ji], dict) and "f" in f[ji] for f in con["rows"])
+    # «Estado» emite valores coloreables (Alerta/Revisar/Conforme → alta/media/baja)
+    roles = {base.rol_color(con, "Estado", f[je]) for f in con["rows"]}
+    assert roles & {"alta", "media", "baja"}
+    # con el ejemplo hay ajuste, diferencias y problemas: debe haber al menos una «Alerta» (rol alta)
+    assert "alta" in roles
 
 
 def test_anexo_vacio():

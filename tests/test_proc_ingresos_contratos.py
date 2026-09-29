@@ -126,6 +126,22 @@ def test_semaforo_reconocimiento():
     assert any(f[j]["v"] == "Alerta" for f in h["rows"])
 
 
+def test_conclusion():
+    from backend.app.aud.niif.procesadores import base
+    hs = m.hojas(_run())
+    h = next(x for x in hs if x["name"] == "16_Conclusion")
+    cols = [c[0] for c in h["cols"]]
+    assert cols == ["Indicador", "Importe", "Porcentaje", "Cantidad", "Estado"]
+    assert h["colores"] == ["Estado"]
+    j = cols.index("Estado")
+    estados = [f[j] for f in h["rows"]]
+    assert any(base.rol_color(h, "Estado", e) for e in estados)
+    assert {(e["v"] if isinstance(e, dict) else e) for e in estados} <= {"Alerta", "Revisar", "Conforme", ""}
+    bi = cols.index("Importe")
+    imp = [f[bi] for f in h["rows"] if f[bi] is not None]
+    assert imp and all(isinstance(c, dict) and c.get("f") for c in imp)
+
+
 def test_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "ingresos_contratos" and len(d["program"]) >= 5 and m.RUBRO == "INGRESOS"

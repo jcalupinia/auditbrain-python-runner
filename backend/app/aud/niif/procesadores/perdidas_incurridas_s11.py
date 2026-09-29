@@ -682,6 +682,7 @@ CEDULAS = [
     ("06_Movimiento_provision", "Movimiento de la provisión"), ("07_Mayor", "Provisión según el mayor"), ("08_Fiscal", "Fiscal"),
     ("09_Impuesto_diferido", "Impuesto diferido por factura"), ("10_Asientos", "Asientos propuestos"),
     ("11_Detalle", "Detalle por factura"), ("12_Problemas", "Problemas encontrados"),
+    ("13_Conclusion", "Indicadores y conclusión"),
     # Datos del cliente dentro del libro (D3 solo si se entregó el anexo de dos ejercicios antes).
     ("D1_Cartera_corte", "Datos del cliente · Cartera al corte (RQ-001)"),
     ("D2_Cartera_anterior", "Datos del cliente · Cartera del ejercicio anterior (RQ-002)"),
@@ -859,6 +860,19 @@ EXPLICA = {
         "Semáforo": ("Estado de la factura según la tasa de deterioro de su tramo: «Alerta» si es del 100 % "
                      "(incumplimiento sostenido), «Revisar» si tiene deterioro parcial y «Conforme» si no tiene "
                      "deterioro. Sin tasa medible, queda en blanco."),
+    },
+    "13_Conclusion": {
+        "Importe": ("Trae los indicadores clave desde su hoja de origen: la pérdida incurrida recalculada y el gasto no "
+                    "deducible salen de la hoja 08 (Fiscal), el activo por impuesto diferido también de la hoja 08 y el "
+                    "ajuste propuesto es la pérdida recalculada menos la provisión registrada según el mayor (hoja 07)."),
+        "Porcentaje": ("Divide la provisión registrada según el mayor (hoja 07) entre la pérdida incurrida recalculada de "
+                       "la hoja 08 (Fiscal): mide qué parte de la pérdida ya está provisionada; queda en blanco si la "
+                       "pérdida recalculada es cero."),
+        "Cantidad": ("Cuenta en la hoja 11 (Detalle por factura) las facturas con pérdida incurrida mayor que cero: es el "
+                     "número de documentos de la cartera que muestran deterioro al corte."),
+        "Estado": ("Semáforo de cada indicador: «Alerta» cuando la provisión registrada no cubre la pérdida recalculada o "
+                   "hay gasto no deducible; «Revisar» cuando queda un ajuste, un activo diferido por recuperar o facturas "
+                   "con deterioro; «Conforme» si el indicador no exige acción."),
     },
 }
 
@@ -1156,6 +1170,31 @@ def hojas(res: dict) -> list[dict]:
                "noDeducible": F_["noDeducible"], "dtaFin": F_["dtaFin"], "dtaMov": F_["dtaMov"]}
     resumen = [[res["labels"][k], _fx(ref_res[k], _n(t[k]))] for k in res["labels"]]
 
+    # 13 · Indicadores y conclusión (semáforo).  Columnas: indicador, importe, porcentaje, cantidad, estado.
+    r0 = FILA0
+    F_perd, F_nd, F_dta = F_["perdida"], F_["noDeducible"], F_["dtaFin"]
+    nperd = sum(1 for fx_ in filas if fx_.get("perdida") not in ("", None) and float(fx_["perdida"]) > 0.005)
+    cob = "" if t["perdida"] == 0 else t["provisionRegistrada"] / t["perdida"]
+    est_cob = "" if t["perdida"] == 0 else ("Alerta" if t["provisionRegistrada"] < t["perdida"] - 0.005 else "Conforme")
+    _ei = lambda i, cond, nivel: _fx(f'IF(ABS(B{r0 + i})>0.005,"{nivel}","Conforme")', nivel if cond else "Conforme")
+    con13 = [
+        ["Ajuste propuesto a la provisión (pérdida recalculada − provisión registrada)",
+         _fx(f"{F_perd}-{prov_reg_ref}", _n(t["ajuste"])), None, None, _ei(0, abs(t["ajuste"]) > 0.005, "Revisar")],
+        ["Cobertura de la pérdida por la provisión registrada (registrada / pérdida)",
+         None, _fx(f'IF({F_perd}=0,"",{prov_reg_ref}/{F_perd})', cob), None,
+         _fx(f'IF({F_perd}=0,"",IF({prov_reg_ref}<{F_perd}-0.005,"Alerta","Conforme"))', est_cob)],
+        ["Gasto no deducible del ejercicio (límites LRTI)",
+         _fx(f"{F_nd}", _n(t["noDeducible"])), None, None, _ei(2, t["noDeducible"] > 0.005, "Alerta")],
+        ["Activo por impuesto diferido reconocido (revelar y evaluar recuperabilidad)",
+         _fx(f"{F_dta}", _n(t["dtaFin"])), None, None, _ei(3, abs(t["dtaFin"]) > 0.005, "Revisar")],
+        ["Facturas con pérdida incurrida al corte (cantidad)",
+         None, None, _fx(f'COUNTIF({DET}$J${FILA0}:$J${det_fin},">0")', nperd) if n_det else _fx("0", 0),
+         _fx(f'IF(D{r0 + 4}>0,"Revisar","Conforme")', "Revisar" if nperd > 0 else "Conforme")],
+        ["Conclusión: la pérdida incurrida (Sección 11) se recalcula por tramos y se concilia con la provisión del mayor; "
+         "los estados marcan la cobertura, el gasto no deducible y el impuesto diferido que exigen ajuste o revelación.",
+         None, None, None, ""],
+    ]
+
     hoja = lambda name, label, cols, rows, total=None, explica=None, guia=None, ocultas=None, colores=None: {  # noqa: E731
         "name": name, "label": label, "cols": cols, "rows": rows, "total": total, "explica": dict(explica or {}),
         **({"guia": guia} if guia else {}), **({"ocultas": ocultas} if ocultas else {}),
@@ -1266,6 +1305,9 @@ def hojas(res: dict) -> list[dict]:
              explica=EXPLICA["11_Detalle"], colores=["Semáforo"]),
         hoja("12_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], _n(e["amount"])] for e in res["exceptions"]]),
+        hoja("13_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con13,
+             explica=EXPLICA["13_Conclusion"], colores=["Estado"]),
         *datos,
     ]
 

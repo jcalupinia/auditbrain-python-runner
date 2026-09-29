@@ -158,6 +158,21 @@ def test_semaforo_obsolescencia():
     assert h["total"][j] == ""
 
 
+def test_conclusion():
+    """La cédula 14 lleva indicadores clave con importes en fórmula y un semáforo coloreable en «Estado»."""
+    from backend.app.aud.niif.procesadores import base
+    con = next(x for x in m.hojas(_run()) if x["name"] == "14_Conclusion")
+    assert con["label"] == "Indicadores y conclusión"
+    cols = [c[0] for c in con["cols"]]
+    assert cols == ["Indicador", "Importe", "Porcentaje", "Cantidad", "Estado"]
+    assert "Estado" in con["colores"]
+    ji, je = cols.index("Importe"), cols.index("Estado")
+    assert any(isinstance(f[ji], dict) and "f" in f[ji] for f in con["rows"])
+    roles = {base.rol_color(con, "Estado", f[je]) for f in con["rows"]}
+    assert roles & {"alta", "media", "baja"}
+    assert "alta" in roles       # el ejemplo tiene ajuste propuesto: al menos una «Alerta»
+
+
 def test_vacio_y_parametros_invalidos():
     with pytest.raises(ValueError):
         m.ejecutar({"inventario": []}, {}, "2025-12-31")

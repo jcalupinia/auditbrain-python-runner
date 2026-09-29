@@ -637,6 +637,7 @@ CEDULAS = [
     ("13_Venta_arr_posterior", "Venta con arrendamiento posterior: medición inicial"),
     ("14_Venta_medicion_post", "Venta con arrendamiento posterior: medición posterior"),
     ("15_Conciliacion", "Conciliación y ajuste"), ("16_Problemas", "Problemas encontrados"),
+    ("17_Conclusion", "Indicadores y conclusión"),
 ]
 P = ref("02_Parametros")
 CT, ID, PL, MI, PG, RE, TA, PC, DU, GL, VA = (ref(n) for n in ("03_Contratos", "04_Identificacion", "05_Plazo", "06_Medicion_inicial",
@@ -1076,6 +1077,19 @@ REF_PROBLEMAS = {
 }
 
 
+_EX_CONCLUSION = {
+    "Importe": ("Trae la cifra de cada indicador de la hoja que la calcula: el pasivo recalculado, el registrado y los ajustes al pasivo y al "
+                "activo salen del total de la hoja 15 (Conciliación y ajuste) y el deterioro suma la columna de la hoja 11 (Depreciación y "
+                "deterioro del activo)."),
+    "Porcentaje": ("Divide el ajuste propuesto al pasivo para el pasivo registrado (ambos de esta misma hoja): mide qué tan material es el "
+                   "ajuste frente al saldo del mayor. Queda en blanco si el pasivo registrado es cero."),
+    "Cantidad": "Cuenta los problemas detectados en la hoja 16 (Problemas encontrados) contando los códigos que se listaron.",
+    "Estado": ("Semáforo del indicador: «Alerta» cuando hay un ajuste al pasivo o al activo o un deterioro que corregir, «Revisar» cuando hay "
+               "problemas por atender y «Conforme» cuando el indicador no exige acción. En blanco en las filas solo informativas (pasivo "
+               "recalculado, pasivo registrado y porcentaje)."),
+}
+
+
 def hojas(res: dict) -> list[dict]:
     d = res["detalle"]
     cs, p, pymes = d["contratos"], d["parametros"], d["pymes"]
@@ -1318,6 +1332,26 @@ def hojas(res: dict) -> list[dict]:
                "remedicion": f"SUM({RE}L{FILA0}:L{fin})"}
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
 
+    # 17 · indicadores y conclusión (con semáforo por indicador).
+    nprob = len(res["exceptions"])
+    PBL = ref("16_Problemas")
+    bc = lambda kk: f"B{FILA0 + kk}"
+    rc = lambda kk: FILA0 + kk
+    conclusion = [
+        ["Pasivo por arrendamiento recalculado", fx(f"{CO}B{tot}", t["pasivo"]), None, None, ""],
+        ["Pasivo por arrendamiento registrado (mayor)", fx(f"{CO}C{tot}", t["pasivoRegistrado"]), None, None, ""],
+        ["Ajuste propuesto al pasivo", fx(f"{CO}D{tot}", t["ajuste"]), None, None,
+         fx(f'IF(ABS(B{rc(2)})>0.005,"Alerta","Conforme")', "Alerta" if abs(t["ajuste"]) > 0.005 else "Conforme")],
+        ["Ajuste propuesto al activo (derecho de uso)", fx(f"{CO}G{tot}", t["ajusteActivo"]), None, None,
+         fx(f'IF(ABS(B{rc(3)})>0.005,"Alerta","Conforme")', "Alerta" if abs(t["ajusteActivo"]) > 0.005 else "Conforme")],
+        ["% del ajuste del pasivo sobre el registrado", None,
+         fx(f'IF({bc(1)}=0,"",{bc(2)}/{bc(1)})', None if t["pasivoRegistrado"] == 0 else t["ajuste"] / t["pasivoRegistrado"]), None, ""],
+        ["Deterioro del activo", fx(f"SUM({DU}N{FILA0}:N{fin})", t["deterioro"]), None, None,
+         fx(f'IF(B{rc(5)}>0.005,"Alerta","Conforme")', "Alerta" if t["deterioro"] > 0.005 else "Conforme")],
+        ["Problemas detectados", None, None, fx(f"COUNTA({PBL}A{FILA0}:A{FILA0 + max(nprob, 1) - 1})", nprob),
+         fx(f'IF(D{rc(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+    ]
+
     n_ = "n"
     cols_ident = ([["Contrato", "t"], ["Activo", "t"], ["Plazo (meses)", "i"], ["Vida útil (meses)", "i"], ["Plazo / vida útil", "p"],
                    ["VP de los pagos mínimos", n_], ["Valor razonable", n_], ["VP / valor razonable", "p"], ["Compra razonablemente cierta", "t"],
@@ -1414,6 +1448,9 @@ def hojas(res: dict) -> list[dict]:
              explica=_explica("15_Conciliacion", pymes), colores=["Semáforo"]),
         hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("17_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", n_], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
+             explica=_EX_CONCLUSION, colores=["Estado"]),
     ]
 
 

@@ -129,6 +129,7 @@ CEDULAS = [
     ("10_Compensacion", "Compensación y presentación"), ("11_Tasa_efectiva", "Tasa efectiva (NIC 12.81 c)"),
     ("12_Ajustes", "Ajustes propuestos"), ("13_Partic_exentos", "Participación atribuible a exentos"),
     ("14_Asientos", "Asientos propuestos"), ("15_Problemas", "Problemas encontrados"),
+    ("16_Conclusion", "Indicadores y conclusión"),
 ]
 
 # Tipo → (signo exigido: 1 suma, -1 resta, 0 cualquiera; etiqueta).
@@ -806,6 +807,18 @@ EXPLICA = {
         "Haber": ("Trae el mismo ajuste de la hoja 12 (Ajustes propuestos), en valor absoluto, en la cuenta que se "
                   "acredita, para que el asiento cuadre."),
     },
+    "16_Conclusion": {
+        "Importe": ("Trae de la hoja 12 (Ajustes propuestos) el importe de cada indicador de ajuste (impuesto corriente, "
+                    "diferido neto y gasto en resultados), la diferencia no explicada del gasto y el activo diferido no "
+                    "reconocido, cada uno desde la celda donde ya se calculó."),
+        "Porcentaje": ("Trae la tasa efectiva del impuesto de la hoja 11 (Tasa efectiva): el gasto total requerido dividido "
+                       "para el resultado antes de impuestos; queda en blanco si ese resultado es cero."),
+        "Cantidad": ("Cuenta las pérdidas tributarias marcadas como vencidas en la hoja 05 (Pérdidas tributarias): es el "
+                     "número de años cuyo plazo de amortización ya expiró al corte."),
+        "Estado": ("Semáforo de cada indicador: «Alerta» cuando hay diferencia no explicada, pérdidas vencidas o la tasa "
+                   "efectiva se aparta de la esperada más que la tolerancia; «Revisar» cuando queda un ajuste o un activo "
+                   "diferido pendiente de reconocer; «Conforme» si el indicador no exige acción."),
+    },
 }
 
 # Panel del dashboard (formato en graficos.py): la población es la conciliación tributaria del cliente (su base
@@ -1266,6 +1279,35 @@ def hojas(res: dict) -> list[dict]:
             val_res[k] = v * 100
     resumen = [[res["labels"][k], fx(ref_res[k], val_res[k])] for k in res["labels"]]
 
+    # 16 · Indicadores y conclusión (semáforo).  Columnas: indicador, importe, porcentaje, cantidad, estado.
+    umbral = _pb("umbralTasaEfectiva")
+    RAIQ = f"{ETR}B{ETRF['rai']}"
+    nvenc = sum(1 for x in perd if x["vencida"])
+    r0 = FILA0
+    _e = lambda i, cond, nivel: fx(f'IF(ABS(B{r0 + i})>0.005,"{nivel}","Conforme")', nivel if cond else "Conforme")
+    est_tasa = "" if etr["tReq"] is None else ("Alerta" if abs(etr["tReq"] - etr["tReg"]) * 100 > num["umbralTasaEfectiva"] else "Conforme")
+    con16 = [
+        ["Ajuste al impuesto corriente (auditado − registrado)",
+         fx(f"{AJ}B{AJF['ajCorr']}", t["ajusteCorriente"]), None, None, _e(0, abs(t["ajusteCorriente"]) > 0.005, "Revisar")],
+        ["Ajuste al impuesto diferido neto (requerido − registrado)",
+         fx(f"{AJ}B{AJF['ajDif']}", t["ajusteDiferido"]), None, None, _e(1, abs(t["ajusteDiferido"]) > 0.005, "Revisar")],
+        ["Ajuste neto al gasto por impuesto en resultados (+ más gasto)",
+         fx(f"{AJ}B{AJF['ajRes']}", t["ajusteResultados"]), None, None, _e(2, abs(t["ajusteResultados"]) > 0.005, "Revisar")],
+        ["Diferencia no explicada en el gasto por impuesto (NIC 12.81 c)",
+         fx(f"{AJ}B{AJF['noexp']}", t["diferenciaNoExplicada"]), None, None, _e(3, abs(t["diferenciaNoExplicada"]) > 0.005, "Alerta")],
+        ["Activo diferido no reconocido por recuperabilidad (revelar, NIC 12.81 e)",
+         fx(f"{AJ}B{AJF['dtaNoRec']}", t["dtaNoReconocido"]), None, None,
+         fx(f'IF(B{r0 + 4}>0.005,"Revisar","Conforme")', "Revisar" if t["dtaNoReconocido"] > 0.005 else "Conforme")],
+        ["Tasa efectiva del impuesto (NIC 12.81 c); alerta si se aparta de la esperada más que la tolerancia",
+         None, fx(f'IF({RAIQ}=0,"",{ETR}C{ETRF["tReq"]})', etr["tReq"] if etr["tReq"] is not None else ""), None,
+         fx(f'IF({RAIQ}=0,"",IF(ABS({ETR}C{ETRF["tReq"]}-{ETR}C{ETRF["tReg"]})*100>{umbral},"Alerta","Conforme"))', est_tasa)],
+        ["Pérdidas tributarias vencidas al corte (cantidad)",
+         None, None, fx(f'COUNTIF({_rg(PER, "F", nl)},"Sí")', nvenc) if nl else fx("0", 0),
+         fx(f'IF(D{r0 + 6}>0,"Alerta","Conforme")', "Alerta" if nvenc > 0 else "Conforme")],
+        ["Conclusión: el impuesto corriente y el diferido se recalculan y concilian; los estados marcan lo que exige ajuste "
+         "o revelación (NIC 12).", None, None, None, ""],
+    ]
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
@@ -1304,6 +1346,9 @@ def hojas(res: dict) -> list[dict]:
         hoja("14_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos, explica=EXPLICA["14_Asientos"]),
         hoja("15_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
+        hoja("16_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con16,
+             explica=EXPLICA["16_Conclusion"], colores=["Estado"]),
     ]
 
 

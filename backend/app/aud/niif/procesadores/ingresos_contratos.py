@@ -95,6 +95,7 @@ CEDULAS = [
     ("10_Activo_pasivo", "Activo y pasivo del contrato"), ("11_Corte", "Corte de ingresos"),
     ("12_Modificaciones", "Modificaciones de contratos"), ("13_Conciliacion", "Conciliación y ajustes"),
     ("14_Asientos", "Asientos propuestos"), ("15_Problemas", "Problemas encontrados"),
+    ("16_Conclusion", "Indicadores y conclusión"),
 ]
 
 _NO_NEGATIVOS = ("psi", "precio", "variable", "costo_incurrido", "costo_total", "facturado", "cobrado", "plazo_cobro", "nc_posterior",
@@ -454,9 +455,9 @@ PANEL = {
 }
 
 P = ref("02_Parametros")
-DET, PV, ASG, SAT, DEV, FIN, REC, AP, COR, CON = (ref(n) for n in (
+DET, PV, ASG, SAT, DEV, FIN, REC, AP, COR, CON, PRB = (ref(n) for n in (
     "03_Detalle", "04_Precio_variable", "05_Asignacion", "06_Satisfaccion", "07_Devoluciones", "08_Financiacion",
-    "09_Reconocimiento", "10_Activo_pasivo", "11_Corte", "13_Conciliacion"))
+    "09_Reconocimiento", "10_Activo_pasivo", "11_Corte", "13_Conciliacion", "15_Problemas"))
 _PAR = ["corte", "marco", "modelo", "tasaDescuento", "plazoFinanciacion", "umbralAltamenteProbable", "metodoVariable",
         "ingresoMayor", "activoContratoRegistrado", "pasivoContratoRegistrado", "activoDevolucion"]
 PAR = {k: FILA0 + i for i, k in enumerate(_PAR)}
@@ -972,7 +973,41 @@ def hojas(res: dict) -> list[dict]:
             "Haber": ("Lleva a la cuenta que se acredita el mismo importe del débito, tomado sin signo de la hoja 13 "
                       "(Conciliación y ajustes), para que el asiento cuadre."),
         },
+        "16_Conclusion": {
+            "Importe": ("Cada indicador toma su cifra de la hoja 13 (Conciliación y ajustes): el ingreso reconocible, el "
+                        "registrado, el ajuste propuesto, la diferencia contra el mayor y el componente de financiación, sin "
+                        "volver a calcularlos aquí."),
+            "Porcentaje": ("Divide el ajuste propuesto para el ingreso registrado del año (renglones de esta misma hoja): es "
+                           "el peso del ajuste sobre lo contabilizado; en blanco si no hay ingreso registrado."),
+            "Cantidad": ("Cuenta los problemas listados en la hoja 15 (Problemas encontrados): cuántas excepciones dejó "
+                         "abiertas la prueba de ingresos."),
+            "Estado": ("Semáforo de cada indicador: el ajuste marca «Alerta» si supera el mínimo significativo y «Conforme» si "
+                       "no; una diferencia contra el mayor, un componente de financiación por separar o problemas abiertos "
+                       "piden «Revisar»."),
+        },
     }
+
+    # 16 · indicadores y conclusión (semáforo).  Columnas: indicador, importe, porcentaje, cantidad, estado.
+    nprob = len(res["exceptions"])
+    b16 = lambda kk: f"B{FILA0 + kk}"
+    dd16 = lambda kk: f"D{FILA0 + kk}"
+    aj_v, dm_v, cf_v = t["ajuste"], t["difMayor"], t["componenteFinanciero"]
+    con16 = [
+        ["Ingreso reconocible del año (recalculado)", fx(f"{CON}{cb('ingresoReconocible')}", t["ingresoReconocible"]), None, None, ""],
+        ["Ingreso registrado en el año (población del anexo)", fx(f"{CON}{cb('ingresoRegistrado')}", t["ingresoRegistrado"]), None, None, ""],
+        ["Ajuste propuesto a ingresos (NIIF 15 · Secc. 23)", fx(f"{CON}{cb('ajuste')}", t["ajuste"]), None, None,
+         fx(f'IF(ABS({b16(2)})>0.005,"Alerta","Conforme")', "Alerta" if abs(aj_v) > 0.005 else "Conforme")],
+        ["% del ajuste sobre el ingreso registrado", None, fx(f'IF({b16(1)}=0,"",{b16(2)}/{b16(1)})',
+         None if t["ingresoRegistrado"] == 0 else t["ajuste"] / t["ingresoRegistrado"]), None, ""],
+        ["Diferencia anexo − mayor (integridad, NIA 500)", fx(f"{CON}{cb('difMayor')}", t["difMayor"]), None, None,
+         fx(f'IF(ABS({b16(4)})>0.005,"Revisar","Conforme")', "Revisar" if abs(dm_v) > 0.005 else "Conforme")],
+        ["Componente de financiación a separar", fx(f"{CON}{cb('componenteFinanciero')}", t["componenteFinanciero"]), None, None,
+         fx(f'IF(ABS({b16(5)})>0.005,"Revisar","Conforme")', "Revisar" if abs(cf_v) > 0.005 else "Conforme")],
+        ["Problemas encontrados (cantidad)", None, None, fx(f"COUNTA({_rango(PRB, 'A', nprob)})", nprob),
+         fx(f'IF({dd16(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+        ["Conclusión: el ingreso se reconoce al transferir el control de cada obligación (NIIF 15 · PYMES Secc. 23); esta "
+         "prueba no concluye por sí sola el cumplimiento de las NIIF.", None, None, None, ""],
+    ]
 
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=ex["01_Resumen"]),
@@ -1022,6 +1057,9 @@ def hojas(res: dict) -> list[dict]:
         hoja("14_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos, explica=ex["14_Asientos"]),
         hoja("15_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
+        hoja("16_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con16,
+             explica=ex["16_Conclusion"], colores=["Estado"]),
     ]
 
 

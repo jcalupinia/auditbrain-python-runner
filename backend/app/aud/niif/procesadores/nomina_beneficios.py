@@ -525,6 +525,7 @@ CEDULAS = [
     ("11_Fondo_reserva", "Fondo de reserva"), ("12_DBO_actuarial", "Jubilación patronal y desahucio: DBO"),
     ("13_Resultados_ORI", "Costo post-empleo: resultados y ORI"), ("14_Censo_actuarial", "Censo actuarial y desahucio legal"),
     ("15_Conciliacion_GL", "Conciliación nómina–mayor"), ("16_Ajustes", "Ajustes propuestos"), ("17_Problemas", "Problemas encontrados"),
+    ("18_Conclusion", "Indicadores y conclusión"),
 ]
 # Dashboard (graficos.panel): población = nómina anual registrada; recalculado vs registrado = solo los PASIVOS
 # laborales de la conciliación nómina–mayor (décimos, vacaciones, fondo de reserva y provisión actuarial), la misma
@@ -545,6 +546,7 @@ PANEL = {
 
 P = ref("02_Parametros")
 EMP, ACT, TS, NOM, IE, D13, D14, VAC, FR, DBO, ORIH, CEN, CG, AJ = (ref(n) for n, _ in CEDULAS[2:16])
+PRB = ref("17_Problemas")
 _PAR = ["corte", "inicio", "marco", "edicion", "ruta", "sbu", "sbuPago", "sbuD14", "aportePersonal", "aportePatronal", "aporteIece", "aporteSecap", "fondoReserva",
         "diasVacaciones", "aniosVacacionAdicional", "maxDiasAdicionales", "horasMes", "recargoSuplementarias", "recargoExtraordinarias",
         "desahucioPct", "regionPorDefecto", "mesInicioD13", "i13", "mesInicioD14Sierra", "i14s", "mesInicioD14Costa", "i14c",
@@ -984,8 +986,47 @@ def hojas(res: dict) -> list[dict]:
                 "tercero (08), décimo cuarto (09), vacaciones (10), fondo de reserva (11), aporte patronal (07) y provisión "
                 "actuarial frente al informe (12). Positivo significa que hay que aumentar el pasivo."),
         },
+        "18_Conclusion": {
+            "Importe": ("La remuneración registrada y la recalculada, y su diferencia, salen de la hoja 15 (Conciliación "
+                        "nómina–mayor); el ajuste propuesto es el total de la hoja 16 (Ajustes propuestos), sin recalcularlo "
+                        "aquí."),
+            "Porcentaje": ("Divide la diferencia registrado − recalculado para la remuneración registrada (renglones de esta "
+                           "misma hoja): es el peso de la diferencia sobre la nómina; en blanco si no hay remuneración "
+                           "registrada."),
+            "Cantidad": ("Cuenta los conceptos con semáforo «Alerta» en la hoja 15 (Conciliación nómina–mayor) y los problemas "
+                         "listados en la hoja 17 (Problemas encontrados)."),
+            "Estado": ("Semáforo de cada indicador: la diferencia de nómina y el ajuste marcan «Alerta» si superan la "
+                       "tolerancia de la hoja 02, y los conceptos descuadrados o los problemas abiertos piden «Revisar»; "
+                       "«Conforme» cuando todo cuadra."),
+        },
     }
     tot = lambda col, nn, v: suma(col, fin(nn), v)
+
+    # 18 · indicadores y conclusión (semáforo).  Columnas: indicador, importe, porcentaje, cantidad, estado.
+    nprob = len(res["exceptions"])
+    tol, tol_v = PAR["tolerancia"], (pv("tolerancia") or 0.0)
+    n_alertas = sum(1 for x in cg if x[6]["v"] == "Alerta")
+    b18 = lambda kk: f"B{FILA0 + kk}"
+    dd18 = lambda kk: f"D{FILA0 + kk}"
+    rem_reg, dif_rem, aj_pas = k["remuneracionRegistrada"], k["difRemuneracion"], k["ajustePasivos"]
+    con18 = [
+        ["Remuneración registrada (población)", fx(f"{CG}B{FILA0}", k["remuneracionRegistrada"]), None, None, ""],
+        ["Remuneración recalculada (nómina)", fx(f"{CG}C{FILA0}", k["remuneracionRecalculada"]), None, None, ""],
+        ["Diferencia registrado − recalculado (remuneración)", fx(f"{CG}F{FILA0}", k["difRemuneracion"]), None, None,
+         fx(f'IF(ABS({b18(2)})>{tol},"Alerta","Conforme")', "Alerta" if abs(dif_rem) > tol_v else "Conforme")],
+        ["% de la diferencia sobre la remuneración registrada", None, fx(f'IF({b18(0)}=0,"",{b18(2)}/{b18(0)})',
+         None if rem_reg == 0 else dif_rem / rem_reg), None, ""],
+        ["Ajuste propuesto a pasivos laborales (neto; NIC 19 · PYMES Secc. 28)", fx(f"{AJ}B{FILA0 + naj}", k["ajustePasivos"]), None, None,
+         fx(f'IF(ABS({b18(4)})>{tol},"Alerta","Conforme")', "Alerta" if abs(aj_pas) > tol_v else "Conforme")],
+        ["Conceptos de nómina con diferencia (semáforo hoja 15)", None, None,
+         fx(f'COUNTIF({_rng(CG, "G", len(cg))},"Alerta")', n_alertas),
+         fx(f'IF({dd18(5)}>0,"Revisar","Conforme")', "Revisar" if n_alertas > 0 else "Conforme")],
+        ["Problemas encontrados (cantidad)", None, None, fx(f"COUNTA({_rng(PRB, 'A', nprob)})", nprob),
+         fx(f'IF({dd18(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+        ["Conclusión: los beneficios a los empleados se reconocen por devengo según el Código del Trabajo, la NIC 19 y la "
+         "Sección 28; esta prueba no concluye por sí sola el cumplimiento de las NIIF.", None, None, None, ""],
+    ]
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=ex["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros,
@@ -1063,6 +1104,9 @@ def hojas(res: dict) -> list[dict]:
              ajus, ["TOTAL", tot("B", naj, k["ajustePasivos"]), "", "", ""], explica=ex["16_Ajustes"]),
         hoja("17_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("18_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con18,
+             explica=ex["18_Conclusion"], colores=["Estado"]),
     ]
 
 
