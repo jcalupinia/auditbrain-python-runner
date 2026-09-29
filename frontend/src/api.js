@@ -195,6 +195,12 @@ function _motorBase(url) {
 function _motorHeaders(token, extra = {}) {
   return { Authorization: `Bearer ${token}`, ...extra };
 }
+// Vista en vivo del robot (MJPEG): un <img> no puede mandar cabecera
+// Authorization, así que el permiso firmado va en el query string. Como se
+// sirve por el mismo motor (Funnel), NO exige estar en la red Tailscale.
+export function sriVivoUrl(url, token) {
+  return `${_motorBase(url)}/motor/sri/vivo?permiso=${encodeURIComponent(token || "")}`;
+}
 export async function sriDescargar(url, token, params) {
   return parse(
     await apiFetch(`${_motorBase(url)}/motor/sri/descargar`, {
