@@ -72,6 +72,48 @@ def test_debito_credito_a_perspectiva_cliente():
     assert ext[0]["ingreso"] == 1000 and ext[0]["egreso"] == 0
 
 
+def test_matching_por_niveles_1_a_n_y_n_a_1():
+    # 1:N — un depósito del extracto (300) = dos del libro (100 + 200).
+    libro = [{"fecha": "2026-09-10", "documento": "Dep A", "ingreso": 100, "egreso": 0},
+             {"fecha": "2026-09-11", "documento": "Dep B", "ingreso": 200, "egreso": 0}]
+    ext = [{"fecha": "2026-09-12", "documento": "Deposito lote", "ingreso": 300, "egreso": 0}]
+    r = cr.reestructurar(libro, ext, CORTE)
+    assert r["resumen"]["total_partidas"] == 0            # todo emparejado, sin partidas abiertas
+    assert r["resumen"]["por_nivel"] == {5: 1}            # un match de nivel 5 (1:N)
+    assert r["matches"][0]["tipo"] == "2:1"
+    # N:1 — un pago del libro (300) = dos del extracto (100 + 200).
+    libro = [{"fecha": "2026-09-10", "documento": "Pago", "ingreso": 0, "egreso": 300}]
+    ext = [{"fecha": "2026-09-10", "documento": "Débito 1", "ingreso": 0, "egreso": 100},
+           {"fecha": "2026-09-12", "documento": "Débito 2", "ingreso": 0, "egreso": 200}]
+    r = cr.reestructurar(libro, ext, CORTE)
+    assert r["resumen"]["total_partidas"] == 0 and r["resumen"]["por_nivel"] == {6: 1}
+
+
+def test_matching_diferencia_de_valor_nivel_7():
+    libro = [{"fecha": "2026-09-10", "documento": "Cheque 55", "ingreso": 0, "egreso": 100}]
+    ext = [{"fecha": "2026-09-10", "documento": "Cheque 55", "ingreso": 0, "egreso": 95}]
+    r = cr.reestructurar(libro, ext, CORTE)
+    assert r["resumen"]["por_nivel"] == {7: 1}
+    assert r["resumen"]["con_diferencia_valor"] == 1
+    assert r["matches"][0]["diff_valor"] == -5.0          # extracto − libro = 95 − 100
+
+
+def test_reconstruir_cuadre():
+    partidas = [{"categoria": papel.CONSIGNACION, "valor": 500}, {"categoria": papel.CHEQUE, "valor": 200}]
+    rec = cr.reconstruir(1000, 1300, partidas)             # 1000 + 500 − 200 = 1300 = libros
+    assert rec["saldo_auditoria"] == 1300.0 and rec["diferencia"] == 0.0 and rec["estado"] == "CONCILIADA"
+    rec2 = cr.reconstruir(1000, 1250, partidas)            # libros 1250 ≠ 1300
+    assert rec2["diferencia"] == 50.0 and rec2["estado"] == "DIFERENCIA DE REPROCESO"
+
+
+def test_comparar_con_la_compania():
+    reproceso = [{"categoria": papel.CONSIGNACION, "valor": 500}, {"categoria": papel.CHEQUE, "valor": 200}]
+    compania = [{"tipo": papel.CONSIGNACION, "importe": 500}]     # a la compañía le faltó el cheque de 200
+    c = cr.comparar_con_compania(reproceso, compania)
+    assert c["total_coincidentes"] == 1 and c["total_omitidas"] == 1 and c["total_adicionales"] == 0
+    assert c["omitidas_por_la_compania"][0]["categoria"] == papel.CHEQUE
+
+
 def test_partidas_encajan_en_el_papel_formulado():
     """Las partidas de la reestructuración alimentan directamente el papel (DA-4/DA-3)."""
     r = cr.reestructurar(LIBRO, EXTRACTO, CORTE, banco="BANCO PICHINCHA")
