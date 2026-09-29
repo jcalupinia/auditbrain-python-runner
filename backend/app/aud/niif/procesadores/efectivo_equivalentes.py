@@ -51,6 +51,7 @@ _CUENTAS = [
     campo("nombre", "Banco / caja y número de cuenta", alias=("nombre", "banco", "descripcion", "nombre de la cuenta"),
           ejemplo="Banco Pichincha Cte. ***4521"),
     campo("tipo", "Tipo (Banco, Caja o Inversión)", requerido=False, alias=("tipo", "clase", "tipo de cuenta"), ejemplo="Banco"),
+    campo("moneda", "Moneda", requerido=False, alias=("moneda", "divisa", "currency"), ejemplo="USD"),
     campo("saldo_libros", "Saldo según libros", "number", alias=("saldo libros", "saldo contable", "saldo segun libros", "libros"),
           ejemplo="125680.50"),
     campo("saldo_banco", "Saldo según estado bancario (o arqueo en caja)", "number", False,
@@ -273,7 +274,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         mr = _opt(f.get("monto_restringido"))
         cuentas.append({
             "id": str(f.get("id", "")).strip(), "nombre": str(f.get("nombre", "") or "").strip() or "(sin nombre)",
-            "tipo": _tipo_cuenta(f.get("tipo")) or BANCO, "libros": num(f.get("saldo_libros")),
+            "tipo": _tipo_cuenta(f.get("tipo")) or BANCO, "moneda": str(f.get("moneda", "") or "").strip().upper(),
+            "libros": num(f.get("saldo_libros")),
             "banco": _opt(f.get("saldo_banco")), "conf": _opt(f.get("saldo_confirmado")),
             "restr": _si(f.get("restringido")) or bool(mr), "monto": mr, "motivo": str(f.get("motivo_restriccion", "") or "").strip(),
             "fin": fecha(f.get("fin_restriccion")), "sep": _si(f.get("presentado_separado")),
@@ -415,6 +417,24 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                                                         "Verifique que el ingreso corresponde al ejercicio (NIA 240 párr. 31 y Anexo 2).", x["importe"]))
         if x["tipo"] == OT:
             pr.append(problema("OTRA_PARTIDA", f"{nom}: partida sin naturaleza definida; requiere investigación.", x["importe"]))
+
+    # Integridad entre los datasets auxiliares y el anexo de cuentas (importe 0: son avisos de
+    # ingesta, no cifras monetarias, y no requieren enlace a celda).
+    def _codigos_de(nombre: str) -> list[str]:
+        return [str(f.get("cuenta", "") or "").strip() for f in (datasets.get(nombre) or [])
+                if str(f.get("cuenta", "") or "").strip()]
+    for ds_, cod_, donde in (("estado_cuenta", "ESTADO_SIN_CUENTA", "el estado de cuenta bancario"),
+                             ("libro_mayor", "MAYOR_SIN_CUENTA", "el libro mayor"),
+                             ("conciliacion_anterior", "CONCILIACION_ANTERIOR_SIN_CUENTA", "la conciliación del mes anterior")):
+        for cod in sorted({c for c in _codigos_de(ds_) if _clave(c) not in ids}):
+            pr.append(problema(cod_, f"La cuenta {cod} aparece en {donde} pero no está en el anexo de cuentas de caja y "
+                                     "bancos. Verifique el código o agréguela al anexo.", 0))
+    # Moneda: si el anexo mezcla divisas (los saldos en blanco se asumen USD), avisar; esta
+    # herramienta no convierte monedas.
+    monedas = sorted({(c.get("moneda") or "USD") for c in cuentas})
+    if len(monedas) > 1:
+        pr.append(problema("MONEDA_INCONSISTENTE", f"El anexo mezcla monedas ({', '.join(monedas)}). Confirme la moneda de "
+                                                   "presentación; esta herramienta no convierte divisas.", 0))
 
     iso = lambda d: d.isoformat() if d else ""
     filas = [{"id": c["id"], "nombre": c["nombre"], "tipo": c["tipo"], "saldo_libros": r2(c["libros"]),
@@ -1049,7 +1069,8 @@ def validar_definicion(d: dict) -> dict:
 # --- ejemplo numérico de control (M19) ---------------------------------------------------
 
 def _c(id, nombre, tipo, libros, banco, conf="", **extra):
-    return {"id": id, "nombre": nombre, "tipo": tipo, "saldo_libros": libros, "saldo_banco": banco, "saldo_confirmado": conf, "_row": 2, **extra}
+    return {"id": id, "nombre": nombre, "tipo": tipo, "moneda": "USD", "saldo_libros": libros, "saldo_banco": banco,
+            "saldo_confirmado": conf, "_row": 2, **extra}
 
 
 def _p(id, cuenta, tipo, origen, importe, liq="", ref_=""):
