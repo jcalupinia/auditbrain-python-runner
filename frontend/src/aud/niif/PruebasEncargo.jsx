@@ -296,11 +296,7 @@ export function Prueba({ id, onCambio, onAbrir }) {
 
       {/* Piloto de planificación: la consola-chat es la puerta principal; la vista de trabajo detallada queda debajo. */}
       {esPlanificacion(prueba) && (
-        <ConsolaChat prueba={prueba} onRecargar={async () => { await cargar(); onCambio(); }}
-          onAbrirDetalle={() => {
-            setVerDetalle(true);
-            setTimeout(() => document.getElementById(`detalle-${prueba.id}`)?.scrollIntoView({ behavior: "smooth" }), 50);
-          }} />
+        <ConsolaChat prueba={prueba} onRecargar={async () => { await cargar(); onCambio(); }} />
       )}
 
       {esPlanificacion(prueba) && (

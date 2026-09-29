@@ -3,26 +3,32 @@ import { useCallback, useEffect, useState } from "react";
 import * as api from "../../api";
 import { ChipDocumento } from "./CicloVista";
 import { ConsolaRevision } from "./ConsolaRevision";
-import { accionInline, claseMensaje, nombreDe, puedeSubirInline, requerimientosPendientes } from "./consolaChatVista";
+import { aprobar, devolver, enviar, prepararBaseTecnica, producir } from "./cicloOrquestacion";
+import { claseMensaje, nombreDe, puedeSubirInline, requerimientosPendientes } from "./consolaChatVista";
 
 /*
- * Consola-chat del piloto de planificación (dos modos en la misma consola).
- *
- * Es la puerta principal de la planificación: un hilo de mensajes tipo chat donde
- * un agente determinista (servidor) guía el proceso. El «Preparador» sube los
- * documentos que el agente pide y produce la planificación; el «Auditor» ve el
- * veredicto del recálculo independiente y aprueba. Los pasos de cómputo pesado
- * (producir/enviar) y la aprobación formal se hacen en la vista de trabajo, que
- * esta consola despliega cuando toca. Las respuestas de gobierno del encargo
- * (independencia, enfoque por ciclo) se resuelven automáticamente por política de
- * la firma y no se preguntan aquí.
+ * Consola-chat del piloto de planificación (100% conversacional, dos modos en la
+ * misma consola). Un agente determinista (servidor) guía el proceso en un hilo de
+ * mensajes tipo chat:
+ *  - «Preparador»: sube los documentos que el agente pide, produce la planificación
+ *    (preparar base técnica → mapear → validar → configurar → aprobar metodología →
+ *    ejecutar → analizar) y la envía a revisión, todo desde aquí.
+ *  - «Auditor»: ve el veredicto del recálculo independiente y aprueba o devuelve.
+ * Las respuestas de gobierno del encargo (independencia, enfoque por ciclo) se
+ * resuelven automáticamente por política de la firma y no se preguntan aquí.
  */
 
-export function ConsolaChat({ prueba, onRecargar, onAbrirDetalle }) {
+const paramDe = (prueba) => ({ ...(prueba.definicion.parametros || {}), ...(prueba.registro.parameters || {}) });
+
+export function ConsolaChat({ prueba, onRecargar }) {
   const [rol, setRol] = useState("preparador");
   const [guion, setGuion] = useState(null);
   const [error, setError] = useState("");
   const [ocupado, setOcupado] = useState(false);
+  const [aviso, setAviso] = useState("");
+  const [conclusion, setConclusion] = useState("");
+  const [confirmo, setConfirmo] = useState(false);
+  const [motivo, setMotivo] = useState("");
 
   const cargar = useCallback(async () => {
     setError("");
@@ -35,17 +41,19 @@ export function ConsolaChat({ prueba, onRecargar, onAbrirDetalle }) {
 
   useEffect(() => { cargar(); }, [cargar]);
 
-  async function accionCiclo(nombre, datos = {}) {
+  async function correr(fn, textoAviso) {
     setOcupado(true);
     setError("");
+    setAviso(textoAviso || "");
     try {
-      await api.cicloAccion(prueba.id, nombre, prueba.revision, datos);
+      await fn();
       await onRecargar?.();
       await cargar();
     } catch (e) {
       setError(e.message || String(e));
     } finally {
       setOcupado(false);
+      setAviso("");
     }
   }
 
@@ -77,9 +85,9 @@ export function ConsolaChat({ prueba, onRecargar, onAbrirDetalle }) {
             <p>{m.texto}</p>
           </div>
         ))}
+        {aviso && <div className="nf-chat-msg nf-chat-sys"><p>{aviso}</p></div>}
       </div>
 
-      {/* Acción del paso actual */}
       {sig.accion && (
         <div className="nf-chat-accion">
           {/* Preparador · subir documentos inline */}
@@ -92,54 +100,87 @@ export function ConsolaChat({ prueba, onRecargar, onAbrirDetalle }) {
                     onSubido={async () => { await onRecargar?.(); await cargar(); }} habilitado={!ocupado}
                     processor={prueba.definicion.processor} />
                 ))}
-                {pendientes.length === 0 && <span className="nf-ok">Documentos completos. Ya puedes producir la planificación.</span>}
+                {pendientes.length === 0 && (
+                  <button type="button" className="btn primary" disabled={ocupado}
+                    onClick={() => correr(() => producir(prueba, { param: paramDe(prueba) }), "Produciendo la planificación…")}>
+                    Producir la planificación
+                  </button>
+                )}
               </div>
             ) : (
-              <button type="button" className="btn primary" disabled={ocupado} onClick={() => onAbrirDetalle?.()}>
-                Preparar el requerimiento en la vista de trabajo
+              <button type="button" className="btn primary" disabled={ocupado}
+                onClick={() => correr(() => prepararBaseTecnica(prueba), "Preparando el requerimiento de documentos…")}>
+                Preparar el requerimiento de documentos
               </button>
             )
           )}
 
-          {/* Preparador · producir / enviar → vista de trabajo (cómputo y envío) */}
-          {(sig.accion === "procesar" || sig.accion === "enviar") && (
-            <button type="button" className="btn primary" disabled={ocupado} onClick={() => onAbrirDetalle?.()}>
-              {sig.etiqueta} →
+          {/* Preparador · producir */}
+          {sig.accion === "procesar" && (
+            <button type="button" className="btn primary" disabled={ocupado}
+              onClick={() => correr(() => producir(prueba, { param: paramDe(prueba) }), "Produciendo la planificación…")}>
+              {sig.etiqueta}
             </button>
+          )}
+
+          {/* Preparador · enviar a revisión (con conclusión) */}
+          {sig.accion === "enviar" && (
+            <div>
+              <label className="nf-ctx-field">
+                Conclusión preliminar para el auditor
+                <textarea rows={3} value={conclusion} onChange={(e) => setConclusion(e.target.value)}
+                  placeholder="Resumen de la planificación: enfoque, riesgos altos y materialidad." />
+              </label>
+              <button type="button" className="btn primary" disabled={ocupado || conclusion.trim().length < 10}
+                onClick={() => correr(() => enviar(prueba, { conclusion }), "Enviando a revisión del auditor…")}>
+                Enviar a revisión del auditor
+              </button>
+            </div>
           )}
 
           {/* Auditor · revisar (veredicto inline) */}
           {sig.accion === "revisar" && <ConsolaRevision prueba={prueba} />}
 
-          {/* Auditor · aprobar / devolver */}
+          {/* Auditor · aprobar (con veredicto y confirmación) */}
           {sig.accion === "aprobar" && (
             <>
               <ConsolaRevision prueba={prueba} />
-              <button type="button" className="btn primary" disabled={ocupado} onClick={() => onAbrirDetalle?.()}>
-                Ir a aprobar la planificación →
+              <label className="nf-ctx-check">
+                <input type="checkbox" checked={confirmo} onChange={(e) => setConfirmo(e.target.checked)} /> Revisé el
+                veredicto y la conclusión, y las confirmo (compuerta del socio).
+              </label>
+              <button type="button" className="btn primary" disabled={ocupado || !confirmo}
+                onClick={() => correr(() => aprobar(prueba, { conclusion: prueba.registro.conclusion || "", conclusionReviewed: true }),
+                  "Aprobando la planificación…")}>
+                Aprobar la planificación
               </button>
             </>
           )}
-          {sig.accion === "devolver" && (
-            <button type="button" className="btn" disabled={ocupado} onClick={() => onAbrirDetalle?.()}>
-              Devolver al preparador en la vista de trabajo →
-            </button>
-          )}
 
-          {sig.accion === "descargar" && (
-            <button type="button" className="btn" disabled={ocupado} onClick={() => onAbrirDetalle?.()}>
-              Descargar el papel en la vista de trabajo →
-            </button>
+          {/* Auditor · devolver al preparador */}
+          {sig.accion === "devolver" && (
+            <>
+              <ConsolaRevision prueba={prueba} />
+              <label className="nf-ctx-field">
+                Motivo de la devolución (mínimo 10 caracteres)
+                <input value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+              </label>
+              <button type="button" className="btn" disabled={ocupado || motivo.trim().length < 10}
+                onClick={() => correr(() => devolver(prueba, { comment: motivo }), "Devolviendo al preparador…")}>
+                Devolver al preparador
+              </button>
+            </>
           )}
 
           {sig.accion === "esperar" && (
             <p className="muted">La planificación está con el auditor. Cambia al lado «Auditor» para ver el veredicto.</p>
           )}
-        </div>
-      )}
 
-      {!accionInline(sig.accion) && sig.accion && (
-        <p className="muted">Este paso se completa en la vista de trabajo detallada (abajo).</p>
+          {sig.accion === "descargar" && (
+            <p className="nf-ok">Planificación aprobada. Descarga el papel (Excel, Word, PowerPoint, HTML/PDF) desde la
+              vista de trabajo detallada.</p>
+          )}
+        </div>
       )}
     </section>
   );
