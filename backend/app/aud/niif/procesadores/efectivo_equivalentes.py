@@ -76,8 +76,51 @@ _PARTIDAS = [
     campo("fecha_liquidacion", "Fecha de liquidación posterior", "date", False,
           ("fecha liquidacion", "fecha banco", "liquidada", "fecha de cobro", "fecha de acreditacion"), "2026-01-02"),
 ]
-CAMPOS = {"cuentas": _CUENTAS, "partidas": _PARTIDAS}
-TIPOS = {"cuentas": "cuentas", "partidas": "partidas"}
+# Libro mayor (auxiliar de bancos): fuente contable del período. No alimenta el
+# cálculo del procesador (que corre sobre el anexo de cuentas y las partidas), pero
+# se conserva como evidencia y alimenta la Sumaria/Movimiento del papel formulado DA.
+_LIBRO_MAYOR = [
+    campo("cuenta", "Código de cuenta", alias=("cuenta", "codigo", "codigo de cuenta", "cuenta contable"), ejemplo="1.1.02.01"),
+    campo("descripcion", "Descripción de la cuenta", requerido=False,
+          alias=("descripcion", "nombre de la cuenta", "banco", "nombre"), ejemplo="Banco Pichincha Cte. ***4521"),
+    campo("fecha", "Fecha", "date", requerido=False, alias=("fecha", "fecha del asiento", "fecha comprobante"), ejemplo="2026-08-15"),
+    campo("comprobante", "Comprobante", requerido=False, alias=("comprobante", "comp", "n comprobante", "asiento", "documento")),
+    campo("detalle", "Detalle del asiento", requerido=False, alias=("detalle", "descripcion del asiento", "concepto", "glosa")),
+    campo("tercero", "Tercero / razón social", requerido=False, alias=("tercero", "razon social", "beneficiario", "contraparte")),
+    campo("debito", "Débitos", "number", requerido=False, alias=("debito", "debitos", "debe", "cargo"), ejemplo="8500.00"),
+    campo("credito", "Créditos", "number", requerido=False, alias=("credito", "creditos", "haber", "abono"), ejemplo="0.00"),
+]
+# Estado de cuenta bancario (movimientos transcritos del PDF, revisados por el
+# auditor). Se cruza con el libro mayor en la reestructuración de la conciliación.
+_ESTADO_CUENTA = [
+    campo("cuenta", "Código de cuenta", alias=("cuenta", "codigo", "codigo de cuenta", "cuenta contable"), ejemplo="1.1.02.01"),
+    campo("fecha", "Fecha", "date", requerido=False, alias=("fecha", "fecha del movimiento", "fecha valor"), ejemplo="2026-08-15"),
+    campo("documento", "Documento / referencia", requerido=False, alias=("documento", "referencia", "concepto", "descripcion", "detalle")),
+    campo("debito", "Débitos (cargos del banco)", "number", requerido=False, alias=("debito", "debitos", "cargo", "cargos", "retiro"), ejemplo="0.00"),
+    campo("credito", "Créditos (abonos del banco)", "number", requerido=False, alias=("credito", "creditos", "abono", "abonos", "deposito"), ejemplo="1000.00"),
+]
+# Conciliación bancaria del mes anterior (partidas conciliatorias que quedaron
+# abiertas). Se arrastran a la reestructuración si no se depuran este mes.
+_CONCILIACION_ANTERIOR = [
+    campo("cuenta", "Código de cuenta", alias=("cuenta", "codigo", "codigo de cuenta", "cuenta contable"), ejemplo="1.1.02.01"),
+    campo("fecha", "Fecha de origen", "date", requerido=False, alias=("fecha", "fecha origen", "fecha de la partida"), ejemplo="2026-07-31"),
+    campo("categoria", "Tipo conciliatorio", requerido=False, alias=("categoria", "tipo", "tipo conciliatorio", "clase"), ejemplo="Cheque sin cobrar"),
+    campo("documento", "Documento / referencia", requerido=False, alias=("documento", "referencia", "descripcion", "detalle", "concepto")),
+    campo("valor", "Valor", "number", requerido=False, alias=("valor", "importe", "monto"), ejemplo="200.00"),
+    campo("observacion", "Observación", requerido=False, alias=("observacion", "observaciones", "nota", "estado")),
+]
+# Arqueo de caja: recuento del efectivo por denominación (cédula DA-5).
+_ARQUEO = [
+    campo("denominacion", "Denominación", alias=("denominacion", "billete", "moneda", "corte"), ejemplo="Billete 100"),
+    campo("cantidad", "Cantidad", "number", requerido=False, alias=("cantidad", "unidades", "numero", "conteo"), ejemplo="10"),
+    campo("valor_unitario", "Valor unitario", "number", requerido=False,
+          alias=("valor unitario", "valor", "denominacion valor", "unitario"), ejemplo="100.00"),
+    campo("observacion", "Observación", requerido=False, alias=("observacion", "observaciones", "nota")),
+]
+CAMPOS = {"cuentas": _CUENTAS, "partidas": _PARTIDAS, "libro_mayor": _LIBRO_MAYOR,
+          "estado_cuenta": _ESTADO_CUENTA, "conciliacion_anterior": _CONCILIACION_ANTERIOR, "arqueo": _ARQUEO}
+TIPOS = {"cuentas": "cuentas", "partidas": "partidas", "libro_mayor": "libro_mayor",
+         "estado_cuenta": "estado_cuenta", "conciliacion_anterior": "conciliacion_anterior", "arqueo": "arqueo"}
 DATASETS = tuple(TIPOS)
 PRINCIPAL = "cuentas"
 CONTROL = "saldo_libros"
@@ -980,6 +1023,21 @@ def definicion() -> dict:
                 formats=("pdf",), use="soporte", required=False),
             req("RQ-008", "Política contable de efectivo y equivalentes y actas de arqueo", None, "CAJ-08", "Composición (NIC 7.46) y arqueos de caja",
                 formats=("pdf", "docx"), use="soporte"),
+            req("RQ-009", "Libro mayor (auxiliar de bancos) del período", "libro_mayor", "CAJ-01",
+                "Cuadre de la Sumaria con el mayor y armado del movimiento del papel", required=False,
+                content="Una fila por asiento del mayor de bancos: código de cuenta, fecha, comprobante, detalle, "
+                        "tercero, débitos y créditos del período."),
+            req("RQ-010", "Estado de cuenta bancario del mes (movimientos)", "estado_cuenta", "CAJ-02",
+                "Reestructuración de la conciliación: se cruza con el libro mayor", required=False,
+                content="Una fila por movimiento del estado de cuenta: código de cuenta, fecha, documento, "
+                        "débitos (cargos del banco) y créditos (abonos del banco). Transcrito del PDF y revisado."),
+            req("RQ-011", "Conciliación bancaria del mes anterior (partidas abiertas)", "conciliacion_anterior", "CAJ-03",
+                "Arrastre de partidas conciliatorias no depuradas a la reestructuración", required=False,
+                content="Una fila por partida abierta del mes anterior: código de cuenta, fecha de origen, tipo "
+                        "conciliatorio, documento, valor y observación."),
+            req("RQ-012", "Arqueo de caja (recuento por denominación)", "arqueo", "CAJ-01",
+                "Recuento del efectivo en caja para la cédula de arqueo", required=False,
+                content="Una fila por denominación contada: denominación, cantidad, valor unitario y observación."),
         ],
     }
 
@@ -1037,6 +1095,43 @@ EJEMPLO = {
             _p("P-07", "1.1.02.02", CP, "2025-12-20", "300.00", "2026-01-03", "Cheque 0870"),
             _p("P-08", "1.1.02.02", CP, "2026-01-02", "550.00", "2026-01-06", "Cheque 0876 fechado en enero"),
             _p("P-09", "1.1.02.04", DT, "2025-09-10", "450.00", "", "Depósito no acreditado"),
+        ],
+        "libro_mayor": [
+            {"cuenta": "1.1.02.01", "descripcion": "Banco Pichincha Cte. ***4521", "fecha": "2025-12-05",
+             "comprobante": "IN-1201", "detalle": "Depósito cobranza clientes", "tercero": "Clientes varios",
+             "debito": "15000.00", "credito": "0.00"},
+            {"cuenta": "1.1.02.01", "descripcion": "Banco Pichincha Cte. ***4521", "fecha": "2025-12-18",
+             "comprobante": "CK-1520", "detalle": "Pago proveedor", "tercero": "Proveedor ABC S.A.",
+             "debito": "0.00", "credito": "12000.00"},
+            {"cuenta": "1.1.02.02", "descripcion": "Banco Guayaquil Aho. ***7788", "fecha": "2025-12-20",
+             "comprobante": "CK-0870", "detalle": "Pago servicios", "tercero": "Servicios XYZ",
+             "debito": "0.00", "credito": "300.00"},
+            {"cuenta": "1.1.02.03", "descripcion": "Produbanco Cte. ***3390", "fecha": "2025-12-22",
+             "comprobante": "IN-1330", "detalle": "Transferencia recibida", "tercero": "Cliente DEF",
+             "debito": "5000.00", "credito": "0.00"},
+            {"cuenta": "1.1.01.01", "descripcion": "Caja general", "fecha": "2025-12-31",
+             "comprobante": "AJ-0012", "detalle": "Reposición caja", "tercero": "",
+             "debito": "500.00", "credito": "0.00"},
+        ],
+        "estado_cuenta": [
+            {"cuenta": "1.1.02.01", "fecha": "2025-12-05", "documento": "Depósito cobranza",
+             "debito": "0.00", "credito": "15000.00"},
+            {"cuenta": "1.1.02.01", "fecha": "2025-12-31", "documento": "Comisión mantenimiento",
+             "debito": "120.00", "credito": "0.00"},
+            {"cuenta": "1.1.02.02", "fecha": "2025-12-20", "documento": "Cheque 0870",
+             "debito": "300.00", "credito": "0.00"},
+        ],
+        "conciliacion_anterior": [
+            {"cuenta": "1.1.02.01", "fecha": "2025-11-28", "categoria": "Cheque sin cobrar",
+             "documento": "Cheque 1490", "valor": "850.00", "observacion": "Pendiente de cobro"},
+            {"cuenta": "1.1.02.04", "fecha": "2025-09-10", "categoria": "Consignación no registrada",
+             "documento": "Depósito", "valor": "450.00", "observacion": "No acreditado"},
+        ],
+        "arqueo": [
+            {"denominacion": "Billete 20", "cantidad": "15", "valor_unitario": "20.00", "observacion": ""},
+            {"denominacion": "Billete 10", "cantidad": "12", "valor_unitario": "10.00", "observacion": ""},
+            {"denominacion": "Moneda 1", "cantidad": "40", "valor_unitario": "1.00", "observacion": ""},
+            {"denominacion": "Moneda 0.25", "cantidad": "32", "valor_unitario": "0.25", "observacion": ""},
         ],
     },
 }

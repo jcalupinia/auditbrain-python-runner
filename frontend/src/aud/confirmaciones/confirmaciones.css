@@ -22,3 +22,11 @@
 .btn-primary{background:#17563f;color:#fff}
 .cf-check{flex-direction:row!important;align-items:center;gap:8px;flex-wrap:wrap}
 .cf-check input{width:auto}
+.cf-collapsible details>summary.cf-summary-h{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;
+  color:#102d4d;font-weight:700;font-size:1.05em;margin:0}
+.cf-collapsible details>summary.cf-summary-h::-webkit-details-marker{display:none}
+.cf-collapsible details>summary.cf-summary-h::before{content:"▸";color:#8091a0;font-size:.9em;transition:transform .15s}
+.cf-collapsible details[open]>summary.cf-summary-h::before{transform:rotate(90deg)}
+.cf-optional{background:#eef3f8;color:#5b6b78;border:1px solid #dbe4ec;border-radius:999px;
+  padding:1px 9px;font-size:11px;font-weight:600}
+.cf-collapsible-help{margin:10px 0 4px}

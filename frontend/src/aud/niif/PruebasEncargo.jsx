@@ -18,6 +18,9 @@ import { Revision } from "./CicloRevision";
 import { VistaTrabajo } from "./CicloVista";
 import { ConsolaChat } from "./ConsolaChat";
 import { tieneConsolaChat } from "./consolaChatVista";
+import ConsolaPrueba from "./ConsolaPrueba";
+import PruebasSugeridas from "./PruebasSugeridas";
+import { esPlanificacion } from "./pruebasSugeridasLogic";
 import { ContextFields } from "./ContextoEncargo";
 import { RegistroEncargo } from "./RegistroEncargo";
 import "./fichaNiif.css";
@@ -323,6 +326,16 @@ export function Prueba({ id, onCambio, onAbrir }) {
           </section>
         </div>
       )}
+
+      {esPlanificacion(prueba) && (
+        <section>
+          <PruebasSugeridas pruebaId={prueba.id} />
+        </section>
+      )}
+
+      <section>
+        <ConsolaPrueba pruebaId={prueba.id} />
+      </section>
 
       <details className="nf-circuito">
         <summary>Circuito detallado (paso a paso, con mapeo manual)</summary>

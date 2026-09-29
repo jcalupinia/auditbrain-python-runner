@@ -43,6 +43,10 @@ export const EJEMPLOS_REQUERIMIENTOS = {
     "RQ-006": "RQ-006_contratos_de_garantia_pignoracion_embargos_o_fid.pdf",
     "RQ-007": "RQ-007_certificados_y_contratos_de_inversiones_presenta.pdf",
     "RQ-008": "RQ-008_politica_contable_de_efectivo_y_equivalentes_y_a.pdf",
+    "RQ-009": "RQ-009_libro_mayor.xlsx",
+    "RQ-010": "RQ-010_estado_cuenta.xlsx",
+    "RQ-011": "RQ-011_conciliacion_anterior.xlsx",
+    "RQ-012": "RQ-012_arqueo.xlsx",
   },
   cxc_cartera: {
     "RQ-001": "RQ-001_cartera.xlsx",

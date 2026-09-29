@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.aud.niif import procesadores
+from backend.app.aud.niif import consola, procesadores
 from backend.app.aud.niif.ciclo import almacen, datos, modelo, servicio
 from backend.app.aud.niif.ciclo.models import Prueba, PruebaArchivo
 from backend.app.aud.niif.ciclo.reglas import ReglaIncumplida
@@ -41,6 +41,12 @@ class DefinicionIn(BaseModel):
     filas: list[dict]
     # La fecha de corte de la corrida (`cutoff`), para los cálculos `days`.
     parametros: dict = Field(default_factory=dict)
+
+
+class ComentarioIn(BaseModel):
+    texto: str = Field(min_length=1, max_length=8000)
+    # Si es True, el asistente (servidor de IA local) responde en la misma consola.
+    asistente: bool = False
 
 
 def _proyecto(db: Session, user: User, project_id: int):
@@ -345,6 +351,27 @@ def descargar_modelo(prueba_id: int, requerimiento: str, db: Session = Depends(g
     return Response(contenido, media_type=almacen.TIPOS["xlsx"], headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
 
 
+@router.get("/pruebas/{prueba_id}/papel-bancos")
+def descargar_papel_bancos(prueba_id: int, db: Session = Depends(get_db),
+                           user: User = Depends(require_staff)) -> Response:
+    """Papel de trabajo DA formulado de Efectivo y Equivalentes (Sumaria, Movimiento,
+    Conciliaciones con Sobregiro, Partidas, Arqueo, Hallazgos) con fórmulas vivas,
+    armado desde los datos de la prueba (anexo de cuentas y partidas)."""
+    p = _prueba(db, user, prueba_id)
+    if (p.definicion or {}).get("processor") != "efectivo_equivalentes":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            detail="El papel formulado de bancos aplica solo a Efectivo y Equivalentes.")
+    from backend.app.aud.niif.procesadores import caja_bancos_armado
+    if not caja_bancos_armado.hay_datos(p.registro or {}):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            detail="Cargue el anexo de cuentas (RQ-001) antes de generar el papel.")
+    contenido = caja_bancos_armado.armar_desde_registro(p.registro or {})
+    cliente = ((p.registro or {}).get("engagement") or {}).get("client", "")
+    nombre = f"DA_Efectivo_Equivalentes_{cliente}.xlsx".encode("ascii", "replace").decode().replace('"', "_")
+    return Response(contenido, media_type=almacen.TIPOS["xlsx"],
+                    headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+
+
 @router.get("/pruebas/{prueba_id}/libro")
 def descargar_libro(prueba_id: int, formato: str = "xlsx", db: Session = Depends(get_db),
                     user: User = Depends(require_staff)) -> Response:
@@ -478,3 +505,50 @@ def resolver_consulta(project_id: int, registro_id: int, body: dict, db: Session
     _proyecto(db, user, project_id)
     return servicio.registro_salida(_regla(lambda: servicio.resolver_consulta(db, project_id, registro_id,
                                                                               str(body.get("resolucion") or ""), user.email)))
+
+
+# --- puente planificación → pruebas -----------------------------------------
+@router.get("/pruebas/{prueba_id}/pruebas-sugeridas")
+def pruebas_sugeridas(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
+    """De una prueba de planificación, la lista ordenada de pruebas del piloto a
+    ejecutar (una por herramienta, con sus cuentas y riesgos). 400 si la prueba no
+    es de planificación."""
+    p = _prueba(db, user, prueba_id)
+    return _regla(lambda: servicio.sugerencias_pruebas(db, p))
+
+
+# --- consola de comunicación por prueba (chat auditable) --------------------
+@router.get("/pruebas/{prueba_id}/comentarios")
+def leer_comentarios(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
+    """La conversación de la consola de una prueba (bitácora como línea de tiempo)."""
+    p = _prueba(db, user, prueba_id)
+    return {"conversacion": servicio.conversacion(db, p.id), "asistente_disponible": consola.disponible()}
+
+
+@router.post("/pruebas/{prueba_id}/comentarios", status_code=status.HTTP_201_CREATED)
+def comentar(prueba_id: int, body: ComentarioIn, db: Session = Depends(get_db),
+             user: User = Depends(require_staff)) -> dict:
+    """Publica un comentario en la consola de la prueba. Si ``asistente`` es True,
+    el asistente (servidor de IA local, borrador validable) responde en el mismo hilo."""
+    p = _prueba(db, user, prueba_id)
+    historial_previo = servicio.conversacion(db, p.id)
+    try:
+        servicio.comentar(db, p, body.texto, user.email)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    asistente_error = None
+    respuesta = None
+    if body.asistente:
+        if not consola.disponible():
+            asistente_error = "No hay proveedor LLM configurado en el servidor."
+        else:
+            try:
+                r = consola.responder(p.definicion, p.registro, historial_previo, body.texto)
+                texto = f"{r['texto']}\n\n{r['disclaimer']}"
+                servicio.comentar(db, p, texto, f"{servicio.ACTOR_ASISTENTE} · {r['modelo']}")
+                respuesta = {"modelo": r["modelo"]}
+            except Exception as e:  # noqa: BLE001 — el comentario del usuario ya quedó guardado
+                asistente_error = f"El asistente no pudo responder: {e}"
+    return {"conversacion": servicio.conversacion(db, p.id),
+            "respuesta_asistente": respuesta, "asistente_error": asistente_error}

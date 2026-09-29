@@ -170,6 +170,28 @@ export function mejorEncabezado(sheets, campos) {
   return { sheet: mejor.sheet, header: mejor.header, mapping: mejor.mapping, faltan };
 }
 
+// «Convertir mi formato»: toma el Excel tal como lo maneja la compañía, reconoce
+// sus columnas por alias (mejorEncabezado) y devuelve las filas ya ordenadas en
+// el formato de la herramienta —columnas = etiquetas de los campos, en su orden—
+// junto con las columnas obligatorias que NO pudo reconocer, para completarlas a
+// mano. No inventa datos: una columna sin coincidencia sale vacía.
+export function filasConvertidas(sheets, campos) {
+  const columnas = (campos || []).map((f) => f.label || f.key);
+  const mejor = mejorEncabezado(sheets, campos);
+  if (!mejor) {
+    return { columnas, filas: [], faltan: (campos || []).filter((f) => f.required !== false).map((f) => f.label || f.key) };
+  }
+  const hoja = (sheets || []).find((s) => s.name === mejor.sheet);
+  const filas = ((hoja && hoja.rows) || [])
+    .slice(mejor.header)
+    .map((fila) => (campos || []).map((f) => {
+      const i = mejor.mapping[f.key];
+      return i === undefined ? "" : String((fila || [])[i] ?? "").trim();
+    }))
+    .filter((fila) => fila.some((v) => v !== ""));
+  return { columnas, filas, faltan: mejor.faltan };
+}
+
 const SIMBOLO = { add: "+", subtract: "−", multiply: "×", divide: "÷" };
 
 // Cada cálculo de la ficha en lenguaje contable: «Costo total = Cantidad × Costo unitario».

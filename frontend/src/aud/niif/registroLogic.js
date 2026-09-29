@@ -20,6 +20,20 @@ export const CICLOS = [
 ];
 export const DECISIONES = ["Confiar en controles", "Sustantivo"];
 
+// Plantilla EDITABLE para la indagación de Caja y Bancos (NIA 315): precarga el campo «Qué se obtuvo»
+// con la ubicación del efectivo y equivalentes en los estados financieros, alineada al requerimiento
+// RQ-001 (anexo de cuentas) del procesador efectivo_equivalentes. El auditor la ajusta con los datos
+// reales del cliente antes de registrar; nunca sustituye la respuesta efectiva del cliente.
+export const SUGERENCIA_CAJA_BANCOS = {
+  tema: "Financiamiento",
+  procedimiento: "Inspección",
+  resumen:
+    "Efectivo y equivalentes (Caja y Bancos): según el balance de comprobación y el anexo de cuentas al corte " +
+    "(RQ-001), se presenta en el activo corriente por USD [total]. Composición: caja/caja chica USD [__] y " +
+    "bancos USD [__] (cuentas: [banco / N.º]). Conciliado con el mayor; diferencias dentro de la tolerancia. " +
+    "[Ajustar con los datos reales del cliente].",
+};
+
 export const decisionDe = (encargo, ciclo) =>
   ((encargo?.registros?.enfoque) || []).find((x) => x.ciclo === ciclo) || null;
 
