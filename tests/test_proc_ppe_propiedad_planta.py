@@ -275,6 +275,39 @@ def test_lectura():
         assert isinstance(det, dict) and "f" in det and "FIXED(" in det["f"]
 
 
+def test_resumen_por_estado():
+    """La cédula 19 resume por la clasificación FIJA del módulo (estado del activo: En uso / En construcción /
+    Baja) con SUMIFS/COUNTIF sobre el detalle 04, y el tablero premium del PANEL apunta a ella (dos columnas
+    comparables en USD: costo bruto frente al valor neto en libros)."""
+    from backend.app.aud.niif.procesadores import graficos
+    r = correr()
+    hs = m.hojas(r)
+    h = next(x for x in hs if x["name"] == "19_Resumen_estado")
+    assert h["label"] == "Resumen por estado del activo"
+    cols = [c[0] for c in h["cols"]]
+    assert cols == ["Estado", "Cantidad", "Costo", "Depreciación acumulada", "Valor neto en libros"]
+    assert [f[0] for f in h["rows"]] == ["En uso", "En construcción", "Baja"]
+    # cada celda numérica es una fórmula SUMIFS/COUNTIF sobre el detalle (sin cifras pegadas): fórmula + valor.
+    for f in h["rows"]:
+        for cel in f[1:]:
+            assert isinstance(cel, dict) and "f" in cel and ("SUMIFS(" in cel["f"] or "COUNTIF(" in cel["f"])
+    # el valor Python coincide con la suma del detalle por estado.
+    A = r["detalle"]["activos"]
+    jc, jn = cols.index("Costo"), cols.index("Valor neto en libros")
+    for f in h["rows"]:
+        cat = f[0]
+        assert float(f[jc]["v"]) == pytest.approx(sum(a["costo"] for a in A if a["estado"] == cat))
+        assert float(f[jn]["v"]) == pytest.approx(sum(a["nbv"] or 0 for a in A if a["estado"] == cat))
+    # el TOTAL cuadra con todo el auxiliar.
+    assert float(h["total"][jc]["v"]) == pytest.approx(sum(a["costo"] for a in A))
+    # el tablero del PANEL resuelve con las categorías fijas y las dos series comparables.
+    pan = graficos.panel(m, r, hs)
+    assert not [x for x in pan["faltan"] if str(x).startswith("tableros")]
+    tab = next(t for t in pan["tableros"] if t["hoja"] == "19_Resumen_estado")
+    assert tab["categorias"] == ["En uso", "En construcción", "Baja"]
+    assert [nombre for nombre, _ in tab["series"]] == ["Costo", "Valor neto en libros"]
+
+
 def test_hojas_y_definicion():
     for _, ds, p, c in m.ESCENARIOS:
         r = m.ejecutar(ds, p, c)

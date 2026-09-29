@@ -108,6 +108,17 @@ PANEL = {
                      "valor": "Deterioro recalculado"},
     "distribucion": {"rotulo": "Saldo por clasificación", "hoja": "10_Conciliacion",
                      "etiqueta": "Clasificación según la norma", "valor": "Saldo en libros"},
+    # Tablero premium colgado de la cédula-resumen de categorías fijas (14_Resumen_clasif):
+    # saldo en libros y ajuste propuesto por categoría de medición NIIF 9. Los rótulos de
+    # las filas son EXACTAMENTE los del enum CLASES (una fila fija por categoría).
+    "tableros": [
+        {"rotulo": "Cartera por clasificación NIIF 9",
+         "sub": "Saldo en libros y ajuste propuesto por categoría de medición (USD).",
+         "unidad": "USD", "hoja": "14_Resumen_clasif", "etiqueta": "Clasificación",
+         "filas": [{"fila": "Costo amortizado"}, {"fila": "VR con cambios en ORI"},
+                   {"fila": "VR con cambios en resultados"}, {"fila": "Costo menos deterioro"}],
+         "series": [["Saldo en libros", "Saldo en libros"], ["Ajuste propuesto", "Ajuste propuesto"]]},
+    ],
 }
 
 CLASES = {"CA": "Costo amortizado", "VRORI": "VR con cambios en ORI", "VRR": "VR con cambios en resultados", "COSTO": "Costo menos deterioro"}
@@ -502,7 +513,7 @@ CEDULAS = [
     ("06_Valor_razonable", "Valor razonable y jerarquía"), ("07_Intereses_dividendos", "Intereses y dividendos"),
     ("08_Deterioro", "Deterioro"), ("09_Reclasificacion", "Reclasificación"), ("10_Conciliacion", "Conciliación y ajuste"),
     ("11_Problemas", "Problemas encontrados"), ("12_Conclusion", "Indicadores y conclusión"),
-    ("13_Lectura", "Lectura de resultados"),
+    ("13_Lectura", "Lectura de resultados"), ("14_Resumen_clasif", "Resumen por clasificación"),
 ]
 P, INV, CLA, CAM, VRZ, ING, DET, REC, CON = (ref(n) for n, _ in CEDULAS[1:10])
 CORTE, INICIO = f"{P}$B${FILA0}", f"{P}$B${FILA0 + 1}"
@@ -704,6 +715,30 @@ def hojas(res: dict) -> list[dict]:
                "deterioroCalc": f"{DET}I{fin + 1}", "deterioroReg": f"{DET}J{fin + 1}", "ingresoDif": f"{ING}F{fin + 1}",
                "difVR": f"{VRZ}F{fin_vr + 1}" if vrz else "0", "ajuste": f"{CON}I{fin + 1}"}
     resumen = [[res["labels"][k], fx(tot_ref[k], n2(t[k]))] for k in res["labels"]]
+
+    # 14 · Resumen por clasificación (categorías fijas del enum NIIF 9; base del tablero premium).
+    # Una fila por categoría de CLASES aunque no tenga instrumentos (→ 0 por SUMIFS, no vacío).
+    # Cada importe es una fórmula SUMIFS sobre la hoja 10 (Conciliación y ajuste), filtrando por el
+    # código de clasificación de esa categoría en la columna «Clasificación según la norma» (col B):
+    # saldo en libros (col D) y ajuste propuesto (col I). El valor Python es la misma suma.
+    b_rng = f"{CON}$B${FILA0}:$B${fin}"
+    d_rng = f"{CON}$D${FILA0}:$D${fin}"
+    i_rng = f"{CON}$I${FILA0}:$I${fin}"
+    resumen_clasif = []
+    for cod, nombre in CLASES.items():
+        saldo = sum(x["libros"] for x in xs if x["esperada"] == cod)
+        aj = sum(x["ajuste"] for x in xs if x["esperada"] == cod and x["ajuste"] is not None)
+        resumen_clasif.append([nombre,
+                               fx(f'SUMIFS({d_rng},{b_rng},"{cod}")', n2(saldo)),
+                               fx(f'SUMIFS({i_rng},{b_rng},"{cod}")', n2(aj))])
+    ex_resclasif = {
+        "Saldo en libros": ("Suma con SUMIFS el saldo en libros de todos los instrumentos de la hoja 10 (Conciliación y "
+                            "ajuste) cuya clasificación según la norma coincide con esta categoría NIIF 9; si la categoría "
+                            "no tiene instrumentos, el resultado es cero."),
+        "Ajuste propuesto": ("Suma con SUMIFS el ajuste propuesto al importe en libros neto de los instrumentos de la hoja 10 "
+                             "(Conciliación y ajuste) clasificados en esta categoría; si la categoría no tiene instrumentos, "
+                             "el resultado es cero."),
+    }
 
     # 12 · Indicadores y conclusión (con semáforo coloreable en «Estado»).
     PROB = ref("11_Problemas")
@@ -982,6 +1017,9 @@ def hojas(res: dict) -> list[dict]:
              [["Indicador", T], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", T]], conclusion,
              explica=ex_conclusion, colores=["Estado"]),
         hoja("13_Lectura", "Lectura de resultados", [["Concepto", T], ["Detalle", T]], lectura, explica=ex_lectura),
+        hoja("14_Resumen_clasif", "Resumen por clasificación",
+             [["Clasificación", T], ["Saldo en libros", "n"], ["Ajuste propuesto", "n"]], resumen_clasif,
+             explica=ex_resclasif),
     ]
 
 

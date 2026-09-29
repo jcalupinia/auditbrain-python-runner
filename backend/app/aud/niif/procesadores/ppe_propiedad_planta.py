@@ -109,6 +109,17 @@ PANEL = {
     "composicion":  {"rotulo": "Depreciación por activo", "hoja": "04_Depreciacion", "etiqueta": "Código",
                      "valor": "Depreciación recalculada"},
     "distribucion": {"rotulo": "Costo por clase de activo", "hoja": "05_Vidas_residual", "etiqueta": "Clase", "valor": "Costo"},
+    # Tablero premium: categoría FIJA que calcula el módulo (estado del activo: En uso / En construcción / Baja,
+    # columna «Estado» de la cédula 04, no la «Clase» libre del cliente), con dos columnas comparables en USD
+    # (costo bruto frente al valor neto en libros). Las barras salen por fórmula SUMIFS de la cédula 19.
+    "tableros": [
+        {"rotulo": "Costo y valor neto por estado del activo",
+         "sub": "USD · costo bruto frente al valor neto en libros, por estado del activo (NIC 16).",
+         "unidad": "USD", "hoja": "19_Resumen_estado", "etiqueta": "Estado",
+         "series": [["Costo", "Costo"], ["Valor neto en libros", "Valor neto en libros"]],
+         "filas": ["En uso", "En construcción", "Baja"],
+         "seccion": "Resumen por estado del activo"},
+    ],
 }
 
 PARAMETROS = {
@@ -597,7 +608,7 @@ CEDULAS = [
     ("12_Capitalizacion", "Capitalización de costos por préstamos por activo"), ("13_Desmantelamiento", "Desmantelamiento"),
     ("14_Roll_forward", "Movimiento del año y conciliación auxiliar-mayor"), ("15_Ajustes", "Ajustes propuestos"),
     ("16_Problemas", "Problemas encontrados"), ("17_Conclusion", "Indicadores y conclusión"),
-    ("18_Lectura", "Lectura de resultados"),
+    ("18_Lectura", "Lectura de resultados"), ("19_Resumen_estado", "Resumen por estado del activo"),
 ]
 P = ref("02_Parametros")
 AUX, DEP, BAJ, REV, DET, ADI, PRE, CAP, DES, RF, AJ = (
@@ -1068,6 +1079,36 @@ def hojas(res: dict) -> list[dict]:
                               "libros y el costo al cierre, el efecto neto en resultados, la diferencia de depreciación y el "
                               "deterioro y la revaluación del ejercicio.")}
 
+    # 19 · resumen por estado del activo. El estado (En uso / En construcción / Baja) es la clasificación FIJA
+    # que calcula el módulo en la columna L de la cédula 04 —a diferencia de la «Clase», que es un texto libre
+    # del cliente—; cada celda es una fórmula SUMIFS/COUNTIF sobre ese detalle, con el mismo valor en Python.
+    ESTADOS = ["En uso", "En construcción", "Baja"]
+    dLl, dBc, dHc, dJc = (_rng(DEP, col, n) for col in ("L", "B", "H", "J"))
+    resumen_estado = []
+    for i, cat in enumerate(ESTADOS):
+        r = FILA0 + i
+        grupo = [a for a in A if a["estado"] == cat]
+        resumen_estado.append([
+            cat,
+            fx(f"COUNTIF({dLl},A{r})", len(grupo)),
+            fx(f"SUMIFS({dBc},{dLl},A{r})", sum(a["costo"] for a in grupo)),
+            fx(f"SUMIFS({dHc},{dLl},A{r})", sum(a["acum"] or 0 for a in grupo)),
+            fx(f"SUMIFS({dJc},{dLl},A{r})", sum(a["nbv"] or 0 for a in grupo)),
+        ])
+    fe = FILA0 + len(ESTADOS) - 1
+    total_estado = ["TOTAL", suma("B", fe, n), suma("C", fe, sum(a["costo"] for a in A)),
+                    suma("D", fe, sum(a["acum"] or 0 for a in A)), suma("E", fe, sum(a["nbv"] or 0 for a in A))]
+    ex_estado = {
+        "Cantidad": "Cuenta cuántos activos hay en cada estado leyendo la columna «Estado» de la hoja 04 (Recálculo de "
+                    "depreciación y VNL).",
+        "Costo": "Suma el costo (costo inicial más adiciones) de los activos de cada estado, tomándolo de la hoja 04 "
+                 "(Recálculo de depreciación y VNL).",
+        "Depreciación acumulada": "Suma la depreciación acumulada recalculada de los activos de cada estado, desde la hoja 04 "
+                                  "(Recálculo de depreciación y VNL); los activos sin recálculo (método no lineal) no suman.",
+        "Valor neto en libros": "Suma el valor neto en libros recalculado (costo menos depreciación acumulada menos deterioro) de "
+                                "los activos de cada estado, desde la hoja 04 (Recálculo de depreciación y VNL).",
+    }
+
     # --- «Cómo se calcula esta hoja»: explicación humana por columna calculada -------------
     ex_resumen = {"Importe": "Trae cada concepto de su hoja: costo y diferencias con el mayor de la hoja 14 (Movimiento del año), "
                              "depreciación de las hojas 04 y 14, ajustes de la hoja 15 (Ajustes propuestos), deterioro de la hoja 09, "
@@ -1304,6 +1345,9 @@ def hojas(res: dict) -> list[dict]:
              [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
              explica=ex_conclusion, colores=["Estado"]),
         hoja("18_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura, explica=ex_lectura),
+        hoja("19_Resumen_estado", "Resumen por estado del activo",
+             [["Estado", "t"], ["Cantidad", "i"], ["Costo", "n"], ["Depreciación acumulada", "n"], ["Valor neto en libros", "n"]],
+             resumen_estado, total_estado, explica=ex_estado),
     ]
 
 

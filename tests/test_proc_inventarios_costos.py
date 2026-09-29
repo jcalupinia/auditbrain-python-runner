@@ -223,6 +223,36 @@ def test_lectura():
         assert isinstance(det, dict) and "f" in det and "FIXED(" in det["f"]
 
 
+def test_resumen_obsolescencia_por_tramo():
+    """La cédula 16 resume el inventario y la provisión por tramo FIJO de obsolescencia con SUMIFS sobre la
+    hoja 10, con una fila por tramo del auditor, y el tablero premium del PANEL cuelga de sus filas."""
+    from backend.app.aud.niif.procesadores import graficos
+    res = _run()
+    h = {x["name"]: x for x in m.hojas(res)}["16_Resumen_obsol"]
+    assert h["label"] == "Inventario y provisión por tramo"
+    assert [c[0] for c in h["cols"]] == ["Tramo de obsolescencia", "Inventario al costo", "Provisión estimada"]
+    # Filas fijas: una por tramo (constante TRAMOS_OBS), en orden; 0 por SUMIFS si un tramo no tiene ítems.
+    assert [f[0] for f in h["rows"]] == [tr["n"] for tr in m.TRAMOS_OBS] == ["Sin obsolescencia", "Tramo 1", "Tramo 2", "Tramo 3"]
+    # Cada celda numérica es una fórmula SUMIFS sobre la hoja 10 (Obsolescencia): sin cifras pegadas.
+    for f in h["rows"]:
+        for c in (f[1], f[2]):
+            assert isinstance(c, dict) and "f" in c and c["f"].startswith("SUMIFS(") and "10_Obsolescencia" in c["f"]
+    val = {f[0]: (f[1]["v"], f[2]["v"]) for f in h["rows"]}
+    assert val["Sin obsolescencia"] == (35116.0, 2375.0)     # provisión de tramo 0 = rebajas a VNR (B-010, C-102, E-301, E-302)
+    assert val["Tramo 1"] == (3200.0, 0.0) and val["Tramo 2"] == (900.0, 0.0)
+    assert val["Tramo 3"] == (1800.0, 1800.0)                # C-100: 945 días, sin precio, tramo 100 %
+    # Los tramos suman el costo auditado y la provisión estimada totales (todos los ítems del ejemplo tienen fecha).
+    assert h["total"][1]["v"] == _t(res, "costoAuditado") == 41016.0
+    assert h["total"][2]["v"] == _t(res, "provisionEstimada") == 4175.0
+    # El tablero del PANEL resuelve contra la cédula 16 (etiqueta = tramo; series = inventario y provisión).
+    p = graficos.panel(m, res, m.hojas(res))
+    assert not p["faltan"]
+    tab = next(t for t in p["tableros"] if t["hoja"] == "16_Resumen_obsol")
+    assert tab["categorias"] == ["Sin obsolescencia", "Tramo 1", "Tramo 2", "Tramo 3"]
+    assert [n for n, _ in tab["series"]] == ["Inventario al costo", "Provisión estimada"]
+    assert dict(tab["series"])["Provisión estimada"] == [2375.0, 0.0, 0.0, 1800.0]
+
+
 def test_hojas_y_definicion():
     res = _run()
     hs = m.hojas(res)

@@ -128,6 +128,16 @@ ETIQUETAS_PARAM = {
 }
 TOTAL_EJEMPLO = "ajuste"
 
+# Tramos FIJOS de obsolescencia (parámetros del auditor): categorías estables e independientes de los
+# datos, con el criterio de días sin movimiento que replica _pct_obs. La cédula-resumen 16 emite SIEMPRE
+# estas cuatro filas (0 por SUMIFS si un tramo no tiene ítems) y el tablero premium cuelga de ellas.
+TRAMOS_OBS = [
+    {"n": "Sin obsolescencia", "crit": "sin"},   # días ≤ obsDias1 (0 % de provisión por antigüedad)
+    {"n": "Tramo 1", "crit": "t1"},              # obsDias1 < días ≤ obsDias2 (obsPct1)
+    {"n": "Tramo 2", "crit": "t2"},              # obsDias2 < días ≤ obsDias3 (obsPct2)
+    {"n": "Tramo 3", "crit": "t3"},              # días > obsDias3 (obsPct3)
+]
+
 # Dashboard (formato en graficos.py): la población es el inventario según el kardex del cliente; la
 # cifra que el auditor recalcula frente a la registrada es la provisión (rebaja a VNR / obsolescencia).
 PANEL = {
@@ -137,6 +147,16 @@ PANEL = {
     "composicion":  {"rotulo": "Provisión estimada por ítem", "hoja": "10_Obsolescencia", "etiqueta": "Descripción",
                      "valor": "Provisión estimada (neta de la excepción NIC 2.32)"},
     "distribucion": {"rotulo": "Inventario por bodega", "hoja": "03_Inventario", "etiqueta": "Bodega", "valor": "Valor kardex"},
+    # Tablero premium (columnas agrupadas por tramo de obsolescencia; ver graficos.tableros_spec).
+    # Categorías fijas: los tramos de la constante TRAMOS_OBS, que la cédula-resumen 16 siempre emite.
+    "tableros": [
+        {"rotulo": "Inventario y provisión por tramo de obsolescencia",
+         "sub": "USD por tramo de días sin movimiento · inventario al costo frente a la provisión estimada.",
+         "unidad": "USD", "hoja": "16_Resumen_obsol", "etiqueta": "Tramo de obsolescencia",
+         "seccion": "Inventario y provisión por tramo",
+         "filas": [{"fila": tr["n"], "mejor": "bajo"} for tr in TRAMOS_OBS],
+         "series": [["Inventario al costo", "Inventario al costo"], ["Provisión estimada", "Provisión estimada"]]},
+    ],
 }
 
 
@@ -200,6 +220,20 @@ def _pct_obs(dv, p):
     if dv > p["obsDias1"]:
         return p["obsPct1"] / 100
     return 0
+
+
+def _tramo_obs(dv, p):
+    """Tramo fijo de obsolescencia del ítem por sus días sin movimiento (mismos umbrales que _pct_obs).
+    None si no hay fecha de movimiento: el ítem no se clasifica y queda fuera de la cédula-resumen 16."""
+    if dv is None:
+        return None
+    if dv > p["obsDias3"]:
+        return "t3"
+    if dv > p["obsDias2"]:
+        return "t2"
+    if dv > p["obsDias1"]:
+        return "t1"
+    return "sin"
 
 
 def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
@@ -459,6 +493,7 @@ CEDULAS = [
     ("10_Obsolescencia", "Obsolescencia y lenta rotación"), ("11_Excepcion_MP", "Materias primas: excepción de NIC 2.32"),
     ("12_Corte", "Prueba de corte"), ("13_Problemas", "Problemas encontrados"),
     ("14_Conclusion", "Indicadores y conclusión"), ("15_Lectura", "Lectura de resultados"),
+    ("16_Resumen_obsol", "Inventario y provisión por tramo"),
 ]
 PARK = ["corte", "marco", "obsDias1", "obsPct1", "obsDias2", "obsPct2", "obsDias3", "obsPct3", "saldoMayor", "provisionRegistrada"]
 PAR = {k: FILA0 + i for i, k in enumerate(PARK)}
@@ -477,6 +512,21 @@ def _rg(hoja_ref: str, col: str, n: int) -> str:
 
 def _tot(col: str, n: int, v):
     return fx(f"SUM({col}{FILA0}:{col}{FILA0 + max(n, 1) - 1})", v)
+
+
+def _sumifs_obs(col: str, crit: str, ni: int) -> str:
+    """SUMIFS de la columna `col` de 10_Obsolescencia (C = costo auditado, J = provisión estimada) sobre
+    el rango de «Días sin movimiento» (col E) filtrado por el tramo fijo, con los umbrales de 02_Parametros.
+    Copia el patrón de SUMIFS de la distribución del PANEL; las celdas vacías (sin fecha) no cumplen ningún
+    criterio numérico y quedan fuera, igual que en _tramo_obs (días None)."""
+    e, val = _rg(OBS, "E", ni), _rg(OBS, col, ni)
+    if crit == "sin":
+        return f'SUMIFS({val},{e},"<="&{_pa("obsDias1")})'
+    if crit == "t1":
+        return f'SUMIFS({val},{e},">"&{_pa("obsDias1")},{e},"<="&{_pa("obsDias2")})'
+    if crit == "t2":
+        return f'SUMIFS({val},{e},">"&{_pa("obsDias2")},{e},"<="&{_pa("obsDias3")})'
+    return f'SUMIFS({val},{e},">"&{_pa("obsDias3")})'
 
 
 def _si(celda: str) -> str:
@@ -941,6 +991,26 @@ def hojas(res: dict) -> list[dict]:
     }
 
     S = lambda xs: sum(x for x in xs if x is not None)
+
+    # 16 · Resumen por tramo fijo de obsolescencia (categorías del auditor): una fila por tramo, con el
+    # inventario al costo y la provisión estimada agregados por SUMIFS sobre la hoja 10 (Obsolescencia).
+    resumen_obs = []
+    for tr in TRAMOS_OBS:
+        en = lambda i, c=tr["crit"]: _tramo_obs(i["dias"], p) == c
+        costo_tr = S(i["costo"] for i in its if en(i))
+        prov_tr = S(i["prov"] for i in its if en(i) and i["prov"] is not None)
+        resumen_obs.append([tr["n"], fx(_sumifs_obs("C", tr["crit"], ni), costo_tr),
+                            fx(_sumifs_obs("J", tr["crit"], ni), prov_tr)])
+    tot_costo_obs = S(i["costo"] for i in its if _tramo_obs(i["dias"], p) is not None)
+    tot_prov_obs = S(i["prov"] for i in its if _tramo_obs(i["dias"], p) is not None and i["prov"] is not None)
+    n_tr = len(TRAMOS_OBS)
+    ex_resumen_obs = {
+        "Inventario al costo": "Suma con SUMIFS el costo auditado de la hoja 10 (Obsolescencia y lenta rotación) de los "
+                               "ítems cuyos días sin movimiento caen en el tramo, según los umbrales de la hoja 02 (Parámetros).",
+        "Provisión estimada": "Suma con SUMIFS la provisión estimada neta de la excepción NIC 2.32 de la hoja 10 de los "
+                              "ítems del tramo, con los mismos umbrales de días sin movimiento de la hoja 02 (Parámetros).",
+    }
+
     n_ = "n"
     return [
         hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", n_]], resumen, explica=ex_resumen),
@@ -1006,6 +1076,9 @@ def hojas(res: dict) -> list[dict]:
              [["Indicador", "t"], ["Importe", n_], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
              explica=ex_conclusion, colores=["Estado"]),
         hoja("15_Lectura", CEDULAS[14][1], [["Concepto", "t"], ["Detalle", "t"]], lectura, explica=ex_lectura),
+        hoja("16_Resumen_obsol", CEDULAS[15][1],
+             [["Tramo de obsolescencia", "t"], ["Inventario al costo", n_], ["Provisión estimada", n_]],
+             resumen_obs, ["TOTAL", _tot("B", n_tr, tot_costo_obs), _tot("C", n_tr, tot_prov_obs)], explica=ex_resumen_obs),
     ]
 
 

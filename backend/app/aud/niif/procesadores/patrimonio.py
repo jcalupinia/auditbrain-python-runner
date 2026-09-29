@@ -148,6 +148,7 @@ CEDULAS = [
     ("09_Recompra", "Recompra de acciones propias"), ("10_Ajuste", "Patrimonio auditado y ajustes"),
     ("11_Asientos", "Asientos propuestos"), ("12_Problemas", "Problemas encontrados"),
     ("13_Conclusion", "Indicadores y conclusión"), ("14_Lectura", "Lectura de resultados"),
+    ("15_Resumen_compon", "Patrimonio por componente"),
 ]
 
 _SI = {"si", "s", "x", "yes", "y", "1", "true", "verdadero"}
@@ -689,6 +690,14 @@ EXPLICA = {
                     "(FIXED) de la celda del Resumen (hoja 01) donde se calculó: patrimonio auditado y del cliente, ajuste "
                     "neto, diferencias del movimiento, dividendos en exceso y aumentos de capital no inscritos."),
     },
+    "15_Resumen_compon": {
+        "Saldo cliente": ("Suma con SUMIFS los saldos finales según el cliente de la hoja 03 (Movimiento patrimonial) de "
+                          "todas las cuentas cuya «Clase» es este componente del patrimonio; si ninguna cuenta es de ese "
+                          "componente, queda en cero."),
+        "Saldo auditado": ("Suma con SUMIFS los saldos finales recalculados (inicial + aumentos − disminuciones) de la hoja "
+                           "03 (Movimiento patrimonial) de las cuentas de este componente; comparado con el saldo del "
+                           "cliente muestra si el movimiento del componente cuadra."),
+    },
 }
 
 # Panel del dashboard (formato en graficos.py).
@@ -700,6 +709,12 @@ PANEL = {
                     "valor": "Final recalculado"},
     "distribucion": {"rotulo": "Patrimonio por cuenta", "hoja": "03_Movimiento", "etiqueta": "Cuenta",
                      "valor": "Final según cliente"},
+    "tableros": [
+        {"rotulo": "Patrimonio por componente", "sub": "Cliente frente a auditado.", "unidad": "USD",
+         "hoja": "15_Resumen_compon", "etiqueta": "Componente",
+         "filas": [{"fila": c} for c in CLASES],
+         "series": [["Saldo cliente", "Saldo cliente"], ["Saldo auditado", "Saldo auditado"]]},
+    ],
 }
 
 
@@ -1102,6 +1117,17 @@ def hojas(res: dict) -> list[dict]:
               cierre=" son los efectos a resolver.")],
     ]
 
+    # 15 · Patrimonio por componente (cédula-resumen de categorías fijas del enum «Clase»).
+    # Una fila por componente del patrimonio; cada saldo es un SUMIFS sobre 03_Movimiento
+    # filtrando por la columna «Clase». Un componente sin cuentas suma 0.
+    sumifs_c = lambda col, clase: f'SUMIFS({_rg(MOV, col, nc)},{_rg(MOV, "C", nc)},"{clase}")'
+    _sc = lambda clase, key: sum(c[key] for c in cs if c["clase"] == clase)
+    compon = [[comp, fx(sumifs_c("H", comp), _sc(comp, "final")), fx(sumifs_c("G", comp), _sc(comp, "recalculado"))]
+              for comp in CLASES]
+    fin_cp = FILA0 + len(CLASES) - 1
+    tot_compon = ["TOTAL", suma("B", fin_cp, sum(_sc(comp, "final") for comp in CLASES)),
+                  suma("C", fin_cp, sum(_sc(comp, "recalculado") for comp in CLASES))]
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros,
@@ -1140,6 +1166,9 @@ def hojas(res: dict) -> list[dict]:
              explica=EXPLICA["13_Conclusion"], colores=["Estado"]),
         hoja("14_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura,
              explica=EXPLICA["14_Lectura"]),
+        hoja("15_Resumen_compon", "Patrimonio por componente",
+             [["Componente", "t"], ["Saldo cliente", "n"], ["Saldo auditado", "n"]], compon, tot_compon,
+             explica=EXPLICA["15_Resumen_compon"]),
     ]
 
 
