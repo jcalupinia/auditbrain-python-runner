@@ -659,6 +659,16 @@ PANEL = {
                     "valor": "Gasto del período"},
     "distribucion": {"rotulo": "Gasto por línea del ERI", "hoja": "04_Presentacion_ERI",
                      "etiqueta": "Línea del estado de resultados", "valor": "Año actual"},
+    # Tablero: integridad del gasto (NIA 500), conceptos de rótulo fijo de la conciliación (14), gasto según la sumaria
+    # frente al del estado de resultados / mayor. Las cuentas y las líneas del ERI son categorías del cliente (variables),
+    # por eso el tablero se apoya en los dos conceptos fijos de la cédula de conciliación.
+    "tableros": [
+        {"rotulo": "Integridad del gasto: sumaria frente al estado de resultados", "sub": "USD · gasto según la sumaria frente al del estado de resultados / mayor.",
+         "unidad": "USD", "hoja": "14_Ajustes", "etiqueta": "Concepto", "seccion": "Integridad del gasto",
+         "filas": [{"fila": "Gastos según la sumaria", "rotulo": "Sumaria"},
+                   {"fila": "Gastos según el estado de resultados / mayor", "rotulo": "Estado de resultados / mayor"}],
+         "series": [["Importe", "Importe"]]},
+    ],
 }
 
 

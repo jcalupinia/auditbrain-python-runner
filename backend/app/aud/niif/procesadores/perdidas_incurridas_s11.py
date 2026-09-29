@@ -883,6 +883,13 @@ PANEL = {
     "registrado": {"rotulo": "Provisión registrada", "total": "provisionRegistrada"},
     "composicion": {"rotulo": "Pérdida por tramo", "hoja": "04_Matriz_deterioro", "etiqueta": "Tramo", "valor": "Pérdida"},
     "distribucion": {"rotulo": "Cartera por tramo", "hoja": "04_Matriz_deterioro", "etiqueta": "Tramo", "valor": "Saldo"},
+    # Tablero premium: matriz de deterioro por tramo de mora (categorías fijas de la hoja 04, Sección 11.25).
+    "tableros": [
+        {"rotulo": "Deterioro por tramo de mora", "sub": "USD · saldo de cartera frente a la pérdida incurrida, por tramo de mora.",
+         "unidad": "USD", "hoja": "04_Matriz_deterioro", "etiqueta": "Tramo", "seccion": "Deterioro por tramo de mora",
+         "filas": [{"fila": t["n"]} for t in TRAMOS],
+         "series": [["Saldo de cartera", "Saldo"], ["Pérdida incurrida", "Pérdida"]]},
+    ],
 }
 
 

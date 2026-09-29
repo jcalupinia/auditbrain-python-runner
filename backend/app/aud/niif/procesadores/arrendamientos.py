@@ -1021,6 +1021,17 @@ PANEL = {
     "registrado": {"rotulo": "Pasivo registrado", "total": "pasivoRegistrado"},
     "composicion": {"rotulo": "Pasivo recalculado por contrato", "hoja": "15_Conciliacion", "etiqueta": "Contrato", "valor": "Pasivo recalculado"},
     "distribucion": {"rotulo": "Pasivo inicial por contrato", "hoja": "06_Medicion_inicial", "etiqueta": "Contrato", "valor": "Pasivo inicial"},
+    # Tablero premium (columnas): indicadores fijos de la conclusión (17), serie «Importe» en USD.
+    "tableros": [
+        {"rotulo": "Pasivo y activo por arrendamiento", "sub": "USD · indicadores de la conclusión.",
+         "unidad": "USD", "hoja": "17_Conclusion", "etiqueta": "Indicador", "seccion": "Arrendamientos (NIIF 16 · Secc. 20)",
+         "series": [["Importe", "Importe"]],
+         "filas": [{"fila": "Pasivo por arrendamiento recalculado", "rotulo": "Pasivo recalculado"},
+                   {"fila": "Pasivo por arrendamiento registrado (mayor)", "rotulo": "Pasivo registrado"},
+                   {"fila": "Ajuste propuesto al pasivo", "rotulo": "Ajuste al pasivo"},
+                   {"fila": "Ajuste propuesto al activo (derecho de uso)", "rotulo": "Ajuste al activo"},
+                   {"fila": "Deterioro del activo", "rotulo": "Deterioro"}]},
+    ],
 }
 
 # --- origen del importe de cada problema (ver procesadores/problemas.py) --------------

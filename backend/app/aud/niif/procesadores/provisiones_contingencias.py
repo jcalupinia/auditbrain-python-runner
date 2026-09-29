@@ -664,6 +664,16 @@ PANEL = {
                     "valor": "Provisión requerida"},
     "distribucion": {"rotulo": "Saldos en libros por tipo", "hoja": "13_Reconocimiento", "etiqueta": "Tipo",
                      "valor": "Libros"},
+    # Tablero: conceptos fijos de la conciliación (15), provisiones en libros frente a la requerida (NIC 37.36–47 · PYMES 21.7).
+    # El detalle por partida (código) es variable y la cédula 13 se lista por partida, no por tipo; por eso el tablero se apoya
+    # en los conceptos de rótulo fijo de la cédula de ajustes.
+    "tableros": [
+        {"rotulo": "Provisiones: en libros frente a la requerida", "sub": "USD · provisiones registradas en libros frente a la provisión requerida.",
+         "unidad": "USD", "hoja": "15_Ajustes", "etiqueta": "Concepto", "seccion": "Provisiones NIC 37",
+         "filas": [{"fila": "Provisiones registradas en libros (pasivos)", "rotulo": "En libros"},
+                   {"fila": "Provisión requerida (NIC 37.36–47; PYMES 21.7)", "rotulo": "Requerida"}],
+         "series": [["Importe", "Importe"]]},
+    ],
 }
 
 

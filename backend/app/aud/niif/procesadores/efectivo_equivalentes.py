@@ -521,6 +521,14 @@ PANEL = {
                     "valor": "Efectivo auditado"},
     "distribucion": {"rotulo": "Saldo en libros por cuenta", "hoja": "03_Conciliacion", "etiqueta": "Banco / caja",
                      "valor": "Saldo según libros"},
+    # Tablero premium (columnas agrupadas por tramo de antigüedad; ver graficos.tableros_spec).
+    # Categorías fijas: los tramos de la constante TRAMOS, que la hoja 05 siempre emite.
+    "tableros": [
+        {"rotulo": "Antigüedad de las partidas conciliatorias", "sub": "USD por tramo · importe total frente al no depurado.",
+         "unidad": "USD", "hoja": "05_Antiguedad", "etiqueta": "Tramo (días al corte)", "seccion": "Antigüedad de partidas",
+         "filas": [{"fila": et, "mejor": "bajo"} for et, _a, _b in TRAMOS],
+         "series": [["Importe", "Importe"], ["No depurado", "No depurado"]]},
+    ],
 }
 
 

@@ -397,6 +397,17 @@ PANEL = {
     "registrado":   {"rotulo": "Valor en libros (cliente)", "total": "valorLibros"},
     "composicion":  {"rotulo": "Valor auditado por modelo", "hoja": "05_Valoracion", "etiqueta": "Modelo auditado", "valor": "Valor auditado"},
     "distribucion": {"rotulo": "Valor en libros por categoría", "hoja": "05_Valoracion", "etiqueta": "Categoría", "valor": "Valor en libros"},
+    # Tablero premium (columnas): indicadores fijos de la conclusión (11), serie «Importe» en USD.
+    "tableros": [
+        {"rotulo": "Medición de los activos biológicos", "sub": "USD · indicadores de la conclusión.",
+         "unidad": "USD", "hoja": "11_Conclusion", "etiqueta": "Indicador", "seccion": "Activos biológicos (NIC 41 · Secc. 34)",
+         "series": [["Importe", "Importe"]],
+         "filas": [{"fila": "Activos biológicos: valor auditado (VR − costos de venta / costo)", "rotulo": "Valor auditado"},
+                   {"fila": "Valor en libros", "rotulo": "Valor en libros"},
+                   {"fila": "Ajuste propuesto (auditado − libros)", "rotulo": "Ajuste"},
+                   {"fila": "Ganancia por cambio de VR no reconocida", "rotulo": "Ganancia VR no reconocida"},
+                   {"fila": "Deterioro adicional (modelo del costo)", "rotulo": "Deterioro"}]},
+    ],
 }
 
 

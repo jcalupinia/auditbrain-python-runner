@@ -811,6 +811,17 @@ PANEL = {
     "registrado": {"rotulo": "Saldo según el mayor", "total": "saldoMayor"},
     "composicion": {"rotulo": "Auditado por medición", "hoja": "08_Medicion", "etiqueta": "Medición", "valor": "Auditado en la cuenta"},
     "distribucion": {"rotulo": "Libros por clasificación", "hoja": "08_Medicion", "etiqueta": "Clasificación", "valor": "Importe en libros"},
+    # Tablero premium (columnas): indicadores fijos de la conclusión (15), serie «Importe» en USD.
+    "tableros": [
+        {"rotulo": "Medición de las propiedades de inversión", "sub": "USD · indicadores de la conclusión.",
+         "unidad": "USD", "hoja": "15_Conclusion", "etiqueta": "Indicador", "seccion": "Propiedades de inversión (NIC 40 · Secc. 16)",
+         "series": [["Importe", "Importe"]],
+         "filas": [{"fila": "Propiedades de inversión auditadas", "rotulo": "Auditado"},
+                   {"fila": "Saldo según el mayor", "rotulo": "Mayor"},
+                   {"fila": "Ajuste propuesto (auditado − mayor)", "rotulo": "Ajuste al saldo"},
+                   {"fila": "Ajuste de valor razonable no reconocido (resultados)", "rotulo": "VR no reconocido"},
+                   {"fila": "Deterioro (modelo del costo)", "rotulo": "Deterioro"}]},
+    ],
 }
 
 

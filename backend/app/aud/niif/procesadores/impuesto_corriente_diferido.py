@@ -833,6 +833,15 @@ PANEL = {
         ["Impuesto corriente", "impuestoCorrienteAuditado"], ["Impuesto diferido", "gastoDiferidoRequerido"]]},
     "distribucion": {"rotulo": "Conciliación tributaria auditada por concepto", "hoja": "03_Conciliacion", "etiqueta": "Concepto",
                      "valor": "Importe auditado"},
+    # Tablero premium: movimiento del impuesto diferido por concepto (categorías fijas de la hoja 09), requerido vs registrado.
+    "tableros": [
+        {"rotulo": "Impuesto diferido por concepto", "sub": "USD · saldo requerido al cierre frente al registrado, por concepto.",
+         "unidad": "USD", "hoja": "09_Movimiento", "etiqueta": "Concepto", "seccion": "Impuesto diferido por concepto",
+         "filas": [{"fila": "Diferencias temporarias con efecto en resultados", "rotulo": "Temporarias a resultados"},
+                   {"fila": "Diferencias temporarias de partidas de ORI / patrimonio", "rotulo": "Temporarias a ORI / patrimonio"},
+                   {"fila": "Pérdidas tributarias no utilizadas", "rotulo": "Pérdidas tributarias"}],
+         "series": [["Requerido al cierre", "Requerido al cierre"], ["Registrado al cierre", "Registrado al cierre"]]},
+    ],
 }
 
 

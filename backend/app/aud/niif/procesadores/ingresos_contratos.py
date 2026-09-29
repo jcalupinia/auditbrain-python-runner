@@ -452,6 +452,15 @@ PANEL = {
                     "valor": "Reconocible del año"},
     "distribucion": {"rotulo": "Ingreso por modo de satisfacción", "hoja": "03_Detalle", "etiqueta": "Modo",
                      "valor": "Registrado en el año"},
+    # Tablero: conceptos fijos de la conciliación (13), ingreso reconocible del año frente al registrado (NIIF 15 · Secc. 23).
+    # El detalle por contrato/línea es variable, así que el tablero usa los conceptos de rótulo fijo de la cédula 13.
+    "tableros": [
+        {"rotulo": "Ingreso del año: reconocible frente a registrado", "sub": "USD · ingreso reconocible del año frente al registrado en el anexo.",
+         "unidad": "USD", "hoja": "13_Conciliacion", "etiqueta": "Concepto", "seccion": "Reconocimiento de ingresos",
+         "filas": [{"fila": "Ingreso reconocible del año (líneas medidas)", "rotulo": "Reconocible"},
+                   {"fila": "Ingreso registrado en el año (anexo)", "rotulo": "Registrado"}],
+         "series": [["Importe", "Importe"]]},
+    ],
 }
 
 P = ref("02_Parametros")

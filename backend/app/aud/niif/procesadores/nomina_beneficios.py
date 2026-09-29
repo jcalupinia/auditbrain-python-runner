@@ -542,6 +542,17 @@ PANEL = {
     "composicion": {"rotulo": "Pasivos laborales recalculados por concepto", "hoja": "15_Conciliacion_GL", "etiqueta": "Concepto",
                     "valor": "Recalculado", **_PASIVOS_LABORALES},
     "distribucion": {"rotulo": "Nómina por región", "hoja": "03_Empleados", "etiqueta": "Región", "valor": "Remuneración anual registrada"},
+    # Tablero premium: pasivos laborales de la conciliación nómina–mayor (conceptos fijos), registrado frente a recalculado.
+    "tableros": [
+        {"rotulo": "Pasivos laborales: registrado frente a recalculado", "sub": "USD · lo registrado por el cliente frente a lo recalculado por el auditor.",
+         "unidad": "USD", "hoja": "15_Conciliacion_GL", "etiqueta": "Concepto", "seccion": "Pasivos laborales",
+         "filas": [{"fila": "Décimo tercero por pagar", "rotulo": "Décimo tercero"},
+                   {"fila": "Décimo cuarto por pagar", "rotulo": "Décimo cuarto"},
+                   {"fila": "Provisión de vacaciones", "rotulo": "Vacaciones"},
+                   {"fila": "Fondo de reserva", "rotulo": "Fondo de reserva"},
+                   {"fila": "Provisión jubilación patronal y desahucio (recalculado = informe)", "rotulo": "Jubilación y desahucio"}],
+         "series": [["Registrado", "Detalle registrado"], ["Recalculado", "Recalculado"]]},
+    ],
 }
 
 P = ref("02_Parametros")

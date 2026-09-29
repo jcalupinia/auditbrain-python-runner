@@ -693,6 +693,19 @@ PANEL = {
     "composicion": {"rotulo": "Costo amortizado por operación", "hoja": "13_Conciliacion", "etiqueta": "Operación",
                     "valor": "Costo amortizado auditado"},
     "distribucion": {"rotulo": "Capital registrado por banco", "hoja": "09_Confirmacion", "etiqueta": "Banco", "valor": "Capital registrado"},
+    # Tableros premium: ratios de covenants (12_Endeudamiento), filas fijas RATIOS, ratio auditado frente al límite pactado.
+    # Se separan apalancamiento (menor es mejor) y cobertura (mayor es mejor) para no mezclar escalas en una lámina.
+    "tableros": [
+        {"rotulo": "Covenants de apalancamiento", "sub": "Veces · ratio auditado frente al límite pactado.", "unidad": "veces",
+         "hoja": "12_Endeudamiento", "etiqueta": "Concepto", "seccion": "Ratios de covenants",
+         "filas": [{"fila": "Deuda / activos", "mejor": "bajo"}, {"fila": "Deuda / patrimonio", "mejor": "bajo"},
+                   {"fila": "Deuda / EBITDA", "mejor": "bajo"}],
+         "series": [["Ratio auditado", "Ratio (veces)"], ["Límite pactado", "Límite (veces)"]]},
+        {"rotulo": "Covenants de cobertura", "sub": "Veces · ratio auditado frente al límite pactado.", "unidad": "veces",
+         "hoja": "12_Endeudamiento", "etiqueta": "Concepto", "seccion": "Ratios de covenants",
+         "filas": [{"fila": "Cobertura de intereses", "mejor": "alto"}, {"fila": "DSCR", "mejor": "alto"}],
+         "series": [["Ratio auditado", "Ratio (veces)"], ["Límite pactado", "Límite (veces)"]]},
+    ],
 }
 
 P = ref("02_Parametros")

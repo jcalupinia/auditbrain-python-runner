@@ -452,6 +452,13 @@ PANEL = {
                     "valor": "Pérdida esperada"},
     "distribucion": {"rotulo": "Cartera por tramo", "hoja": "05_Revelacion_NIIF7", "etiqueta": "Tramo de mora",
                      "valor": "Importe en libros bruto"},
+    # Tablero premium: matriz de deterioro por tramo de mora (categorías fijas de la hoja 05, NIIF 7 35M/35N).
+    "tableros": [
+        {"rotulo": "Deterioro por tramo de mora", "sub": "USD · importe en libros bruto frente a la pérdida esperada, por tramo de mora.",
+         "unidad": "USD", "hoja": "05_Revelacion_NIIF7", "etiqueta": "Tramo de mora", "seccion": "Deterioro por tramo de mora",
+         "filas": [{"fila": t["n"]} for t in TRAMOS],
+         "series": [["Cartera bruta", "Importe en libros bruto"], ["Pérdida esperada", "Pérdida esperada"]]},
+    ],
 }
 
 

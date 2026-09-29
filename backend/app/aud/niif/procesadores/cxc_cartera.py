@@ -426,6 +426,14 @@ PANEL = {
     "composicion": {"rotulo": "Deterioro por tramo", "hoja": "09_Matriz_deterioro", "etiqueta": "Tramo",
                     "valor": "Deterioro requerido"},
     "distribucion": {"rotulo": "Cartera por tramo", "hoja": "04_Aging", "etiqueta": "Tramo", "valor": "Saldo"},
+    # Tablero premium (columnas agrupadas por tramo de antigüedad; ver graficos.tableros_spec).
+    # Categorías fijas: los tramos de la constante TRAMOS, que las hojas 04 y 09 siempre emiten.
+    "tableros": [
+        {"rotulo": "Deterioro por tramo de antigüedad", "sub": "USD por tramo · costo amortizado frente al deterioro requerido.",
+         "unidad": "USD", "hoja": "09_Matriz_deterioro", "etiqueta": "Tramo", "seccion": "Cartera y deterioro por tramo",
+         "filas": [{"fila": t["n"], "mejor": "bajo"} for t in TRAMOS],
+         "series": [["Costo amortizado", "Costo amortizado"], ["Deterioro requerido", "Deterioro requerido"]]},
+    ],
 }
 
 
