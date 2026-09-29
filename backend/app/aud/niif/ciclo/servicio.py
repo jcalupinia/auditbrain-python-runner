@@ -1253,6 +1253,50 @@ def version_anterior_run(db: Session, p: Prueba) -> dict | None:
             "totales": {k: (run.get("totals") or {}).get(k) for k in ("materialidad", "desempeno", "trivial")}, "riesgos": riesgos}
 
 
+def resultado_para_revision(db: Session, p: Prueba) -> dict:
+    """Re-ejecuta el procesador de la prueba para obtener su resultado COMPLETO.
+
+    La consola de revisión del auditor recalcula sobre ``detalle`` (est9, cuentas,
+    índices), pero el ``run`` guardado en la prueba recorta ``detalle`` a
+    ``tasas/fiscal/cortes`` para no inflar la base. Aquí se vuelve a ejecutar el
+    procesador con los mismos insumos y parámetros que ``aplicar_accion`` usa en
+    ``execute`` (mismo marco, edición, registros del encargo, versión anterior y
+    audit trail), de modo que la consola revise exactamente lo que se ejecutó, con
+    el detalle íntegro. Es de solo lectura: no toca la prueba ni el estado.
+    """
+    proc = procesadores.de(p.definicion)
+    if proc is None:
+        raise ReglaIncumplida("Esta prueba no tiene procesador; no hay recálculo que revisar.")
+    reg = p.registro or {}
+    if not reg.get("engagement") or not reg["engagement"].get("cutoff"):
+        raise ReglaIncumplida("Falta la ficha del encargo (fecha de corte) para recalcular.")
+    param = {k: v for k, v in (reg.get("parameters") or {}).items() if k in proc.PARAMETROS}
+    param["_marco"] = reg["engagement"].get("framework") or ""
+    param["_edicion"] = str(reg["engagement"].get("edition") or "")
+    if getattr(proc, "USA_REGISTROS_ENCARGO", False):
+        param["_encargo"] = registros_encargo(db, p.project_id)
+        anterior = version_anterior_run(db, p)
+        if anterior:
+            param["_anterior"] = anterior
+        param["_archivos"] = archivos_de_entrada(db, p.id)
+    try:
+        return proc.ejecutar(reg.get("datasets") or {}, param, reg["engagement"]["cutoff"])
+    except (ValueError, KeyError, ArithmeticError, StopIteration) as e:
+        raise ReglaIncumplida(str(e) or "La prueba no se pudo recalcular para la revisión.")
+
+
+def revisar_planificacion(db: Session, p: Prueba) -> dict:
+    """Reporte de la consola de revisión del auditor para una prueba de planificación."""
+    from backend.app.aud.niif.ciclo import consola_revision
+
+    if (p.definicion or {}).get("processor") != "planificacion_nia":
+        raise ReglaIncumplida("La consola de revisión del auditor es de la planificación de auditoría (NIA 300/315/320/330).")
+    if not (p.registro or {}).get("run"):
+        raise ReglaIncumplida("Procese la planificación antes de revisarla.")
+    run = resultado_para_revision(db, p)
+    return consola_revision.revisar(run)
+
+
 def registro_salida(r: RegistroEncargo) -> dict:
     return {"id": r.id, "tipo": r.tipo, "actor": r.actor, "nombre": r.nombre, "rol": r.rol,
             "fecha": r.fecha.isoformat(), "datos": r.datos or {},

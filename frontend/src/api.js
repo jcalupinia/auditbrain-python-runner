@@ -475,6 +475,10 @@ export async function cicloEjercicioModeloLibro(pruebaId, formato = "xlsx") {
   if (!res.ok) await parse(res);
   return new Uint8Array(await res.arrayBuffer());
 }
+// Consola de revisión del auditor: recálculo independiente y veredicto de una planificación.
+export async function cicloConsolaRevision(pruebaId) {
+  return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/consola-revision`, { headers: authHeaders() }));
+}
 export async function cicloBandejas() {
   return parse(await apiFetch(`${CICLO}/bandejas`, { headers: authHeaders() }));
 }

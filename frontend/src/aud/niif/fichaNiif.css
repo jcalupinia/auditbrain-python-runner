@@ -138,7 +138,23 @@
 .nf-huecos { margin-top: 8px; padding: 8px 10px; border-left: 3px solid #C7A83C; background: rgba(199, 168, 60, 0.08); }
 .nf-huecos ul { margin: 4px 0 0; padding-left: 18px; }
 .nf-ok { color: #4fc38a; }
+.nf-warn { color: #e6c14b; }
 .nf-error { color: #ff8a8a; white-space: pre-wrap; }
+
+/* Consola de revisión del auditor (puerta de calidad de la planificación) */
+.nf-consola { margin: 12px 0; padding: 12px 14px; border: 1px solid rgba(199, 168, 60, 0.35); border-radius: 8px;
+  background: rgba(10, 35, 66, 0.35); }
+.nf-consola-veredicto { display: flex; align-items: baseline; gap: 10px; margin: 0 0 4px; font-size: 16px; font-weight: 700; }
+.nf-consola-etq { font-size: 11.5px; font-weight: 500; }
+.nf-consola-bloque { border-color: #ff8a8a !important; background: rgba(255, 138, 138, 0.07); }
+.nf-consola-apto { border-color: #4fc38a !important; }
+.nf-consola-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; margin: 8px 0; }
+.nf-consola-tarjeta { padding: 8px 10px; border-radius: 6px; background: rgba(7, 27, 47, 0.55); font-size: 12.5px; }
+.nf-consola-tarjeta strong { display: block; font-size: 12px; color: #C7A83C; margin-bottom: 2px; }
+.nf-consola-lista { margin: 4px 0 0; padding-left: 18px; font-size: 12.5px; }
+.nf-consola-puerta { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 12.5px; }
+.nf-consola-puerta td { padding: 3px 6px; border-top: 1px solid rgba(255, 255, 255, 0.06); vertical-align: top; }
+.nf-consola-puerta td:first-child { white-space: nowrap; font-weight: 600; }
 .nf-estudio-json { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0; }
 .nf-estudio-json label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .nf-estudio-json textarea { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }

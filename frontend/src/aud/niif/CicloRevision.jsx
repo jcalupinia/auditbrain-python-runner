@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 
 import * as api from "../../api";
 import { CAMPOS_FICHA, herramientaDePrueba, nombreEstado } from "./cicloLogic";
+import { ConsolaRevision } from "./ConsolaRevision";
+import { tieneConsola } from "./consolaRevisionVista";
 import { ContextFields } from "./ContextoEncargo";
 
 /*
@@ -339,6 +341,7 @@ export function Revision({ prueba, onAccion, onRecargar, ocupado }) {
           <Puntos prueba={prueba} onAccion={onAccion} ocupado={ocupado} />
         </>
       )}
+      {prueba.estado === "EN_REVISION" && tieneConsola(prueba) && <ConsolaRevision prueba={prueba} />}
       {prueba.estado === "EN_REVISION" && <Aprobar prueba={prueba} onAccion={onAccion} ocupado={ocupado} />}
       {prueba.estado === "APROBADO" && (
         <>

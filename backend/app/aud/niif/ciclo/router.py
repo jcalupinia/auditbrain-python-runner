@@ -373,6 +373,19 @@ def descargar_libro(prueba_id: int, formato: str = "xlsx", db: Session = Depends
                     headers={"Content-Disposition": f'attachment; filename="Papel_v{p.version}.{ext}"'})
 
 
+@router.get("/pruebas/{prueba_id}/consola-revision")
+def consola_revision_de(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
+    """Consola de revisión del auditor (SOLO LECTURA): recalcula de forma
+    independiente la planificación ejecutada (índices, agregados, cuadre),
+    verifica materialidad, indicios NIA 570, anomalías y cobertura, y emite el
+    veredicto APTO / OBSERVADO / NO APTO antes de que el socio apruebe. No
+    modifica la prueba ni el estado del ciclo."""
+    p = _prueba(db, user, prueba_id)
+    reporte = _regla(lambda: servicio.revisar_planificacion(db, p))
+    return {"prueba_id": p.id, "estado": p.estado, "version": p.version, "revision": p.revision,
+            "aprobable": p.estado == "EN_REVISION", "reporte": reporte}
+
+
 @router.get("/pruebas/{prueba_id}/ejercicio-modelo")
 def ejercicio_modelo_de(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
     """Recorrido completo de la prueba con datos de ejemplo (SOLO LECTURA): corre
