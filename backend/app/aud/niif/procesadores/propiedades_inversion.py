@@ -813,14 +813,10 @@ PANEL = {
     "distribucion": {"rotulo": "Libros por clasificación", "hoja": "08_Medicion", "etiqueta": "Clasificación", "valor": "Importe en libros"},
     # Tablero premium (columnas): indicadores fijos de la conclusión (15), serie «Importe» en USD.
     "tableros": [
-        {"rotulo": "Medición de las propiedades de inversión", "sub": "USD · indicadores de la conclusión.",
-         "unidad": "USD", "hoja": "15_Conclusion", "etiqueta": "Indicador", "seccion": "Propiedades de inversión (NIC 40 · Secc. 16)",
-         "series": [["Importe", "Importe"]],
-         "filas": [{"fila": "Propiedades de inversión auditadas", "rotulo": "Auditado"},
-                   {"fila": "Saldo según el mayor", "rotulo": "Mayor"},
-                   {"fila": "Ajuste propuesto (auditado − mayor)", "rotulo": "Ajuste al saldo"},
-                   {"fila": "Ajuste de valor razonable no reconocido (resultados)", "rotulo": "VR no reconocido"},
-                   {"fila": "Deterioro (modelo del costo)", "rotulo": "Deterioro"}]},
+        {"rotulo": "Medición de las propiedades de inversión", "sub": "USD · importe en libros frente al auditado, por inmueble.",
+         "unidad": "USD", "hoja": "08_Medicion", "etiqueta": "Código", "seccion": "Propiedades de inversión (NIC 40 · Secc. 16)",
+         "series": [["Importe en libros", "Importe en libros"], ["Auditado en la cuenta", "Auditado en la cuenta"]],
+         "filas": ["IP-01", "IP-02", "IP-03", "IP-04", "IP-05", "IP-06", "IP-07", "IP-08", "IP-09", "IP-10"]},
     ],
 }
 

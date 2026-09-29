@@ -1023,14 +1023,10 @@ PANEL = {
     "distribucion": {"rotulo": "Pasivo inicial por contrato", "hoja": "06_Medicion_inicial", "etiqueta": "Contrato", "valor": "Pasivo inicial"},
     # Tablero premium (columnas): indicadores fijos de la conclusión (17), serie «Importe» en USD.
     "tableros": [
-        {"rotulo": "Pasivo y activo por arrendamiento", "sub": "USD · indicadores de la conclusión.",
-         "unidad": "USD", "hoja": "17_Conclusion", "etiqueta": "Indicador", "seccion": "Arrendamientos (NIIF 16 · Secc. 20)",
-         "series": [["Importe", "Importe"]],
-         "filas": [{"fila": "Pasivo por arrendamiento recalculado", "rotulo": "Pasivo recalculado"},
-                   {"fila": "Pasivo por arrendamiento registrado (mayor)", "rotulo": "Pasivo registrado"},
-                   {"fila": "Ajuste propuesto al pasivo", "rotulo": "Ajuste al pasivo"},
-                   {"fila": "Ajuste propuesto al activo (derecho de uso)", "rotulo": "Ajuste al activo"},
-                   {"fila": "Deterioro del activo", "rotulo": "Deterioro"}]},
+        {"rotulo": "Pasivo por arrendamiento: recalculado frente a registrado", "sub": "USD · pasivo recalculado frente al registrado, por contrato.",
+         "unidad": "USD", "hoja": "15_Conciliacion", "etiqueta": "Contrato", "seccion": "Arrendamientos (NIIF 16 · Secc. 20)",
+         "series": [["Pasivo recalculado", "Pasivo recalculado"], ["Pasivo registrado", "Pasivo registrado"]],
+         "filas": ["C-01", "C-02", "C-03", "C-04", "C-05", "C-06", "C-07", "C-08", "C-09", "C-10", "C-11"]},
     ],
 }
 

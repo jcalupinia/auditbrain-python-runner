@@ -668,11 +668,10 @@ PANEL = {
     # El detalle por partida (código) es variable y la cédula 13 se lista por partida, no por tipo; por eso el tablero se apoya
     # en los conceptos de rótulo fijo de la cédula de ajustes.
     "tableros": [
-        {"rotulo": "Provisiones: en libros frente a la requerida", "sub": "USD · provisiones registradas en libros frente a la provisión requerida.",
-         "unidad": "USD", "hoja": "15_Ajustes", "etiqueta": "Concepto", "seccion": "Provisiones NIC 37",
-         "filas": [{"fila": "Provisiones registradas en libros (pasivos)", "rotulo": "En libros"},
-                   {"fila": "Provisión requerida (NIC 37.36–47; PYMES 21.7)", "rotulo": "Requerida"}],
-         "series": [["Importe", "Importe"]]},
+        {"rotulo": "Provisiones: en libros frente a la requerida", "sub": "USD · provisión en libros frente a la requerida, por provisión o contingencia.",
+         "unidad": "USD", "hoja": "13_Reconocimiento", "etiqueta": "Código", "seccion": "Provisiones NIC 37",
+         "filas": ["LIT-01", "LIT-02", "LIT-03", "LIT-04", "GAR-01", "ONE-01", "DES-01", "REE-01", "AMB-01", "LIT-05", "LIT-06", "OTR-01", "ACT-01"],
+         "series": [["Libros", "Libros"], ["Provisión requerida", "Provisión requerida"]]},
     ],
 }
 

@@ -613,14 +613,10 @@ PANEL = {
     "distribucion": {"rotulo": "Costo por tipo de intangible", "hoja": "03_Intangibles", "etiqueta": "Tipo", "valor": "Costo"},
     # Tablero premium (columnas): indicadores fijos de la conclusión (11), serie «Importe» en USD.
     "tableros": [
-        {"rotulo": "Intangibles y goodwill: neto auditado", "sub": "USD · indicadores de la conclusión.",
-         "unidad": "USD", "hoja": "11_Conclusion", "etiqueta": "Indicador", "seccion": "Intangibles y goodwill (NIC 38 · Secc. 18)",
-         "series": [["Importe", "Importe"]],
-         "filas": [{"fila": "Intangibles y goodwill netos auditados", "rotulo": "Neto auditado"},
-                   {"fila": "Saldo según el mayor", "rotulo": "Mayor"},
-                   {"fila": "Ajuste propuesto (auditado − mayor)", "rotulo": "Ajuste al saldo"},
-                   {"fila": "Deterioro auditado", "rotulo": "Deterioro"},
-                   {"fila": "Diferencia de amortización (recalculada − registrada)", "rotulo": "Dif. amortización"}]},
+        {"rotulo": "Intangibles y goodwill: neto en libros frente al auditado", "sub": "USD · neto en libros del cliente frente al auditado, por partida.",
+         "unidad": "USD", "hoja": "09_Ajuste", "etiqueta": "Código", "seccion": "Intangibles y goodwill (NIC 38 · Secc. 18)",
+         "series": [["Neto en libros (cliente)", "Neto en libros (cliente)"], ["Neto auditado", "Neto auditado"]],
+         "filas": ["SW-01", "LIC-01", "MAR-01", "GW-01", "INV-01", "DES-01", "DES-02", "DES-03", "PAT-01", "SW-02", "SW-03", "CON-01", "CON-02"]},
     ],
 }
 

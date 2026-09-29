@@ -663,11 +663,10 @@ PANEL = {
     # frente al del estado de resultados / mayor. Las cuentas y las líneas del ERI son categorías del cliente (variables),
     # por eso el tablero se apoya en los dos conceptos fijos de la cédula de conciliación.
     "tableros": [
-        {"rotulo": "Integridad del gasto: sumaria frente al estado de resultados", "sub": "USD · gasto según la sumaria frente al del estado de resultados / mayor.",
-         "unidad": "USD", "hoja": "14_Ajustes", "etiqueta": "Concepto", "seccion": "Integridad del gasto",
-         "filas": [{"fila": "Gastos según la sumaria", "rotulo": "Sumaria"},
-                   {"fila": "Gastos según el estado de resultados / mayor", "rotulo": "Estado de resultados / mayor"}],
-         "series": [["Importe", "Importe"]]},
+        {"rotulo": "Gasto por línea del estado de resultados: actual frente al anterior", "sub": "USD · gasto del año actual frente al anterior, por línea del estado de resultados.",
+         "unidad": "USD", "hoja": "04_Presentacion_ERI", "etiqueta": "Línea del estado de resultados", "seccion": "Integridad del gasto",
+         "filas": ["Costo de ventas", "Gastos de administración", "Gastos de ventas", "Gastos financieros", "Gastos extraordinarios"],
+         "series": [["Año actual", "Año actual"], ["Año anterior", "Año anterior"]]},
     ],
 }
 

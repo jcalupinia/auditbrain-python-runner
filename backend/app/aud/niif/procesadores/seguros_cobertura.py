@@ -445,21 +445,14 @@ PANEL = {
     # Tableros premium (columnas): indicadores fijos de la conclusión (12), serie «Importe» en USD.
     # Dos agrupaciones claras: la cobertura de los activos y la exposición residual/siniestros.
     "tableros": [
-        {"rotulo": "Cobertura de los activos", "sub": "USD · indicadores de la conclusión.",
-         "unidad": "USD", "hoja": "12_Conclusion", "etiqueta": "Indicador", "seccion": "Seguros y cobertura (NIA 315 · 330 · 570)",
-         "series": [["Importe", "Importe"]],
-         "filas": [{"fila": "Valor de referencia de los activos", "rotulo": "Valor de referencia"},
-                   {"fila": "Suma asegurada vigente al corte", "rotulo": "Suma asegurada"},
-                   {"fila": "Déficit de cobertura = Σ max(referencia − suma, 0)", "rotulo": "Déficit"},
-                   {"fila": "Sobreseguro", "rotulo": "Sobreseguro"}]},
-        {"rotulo": "Exposición residual y siniestros", "sub": "USD · indicadores de la conclusión.",
-         "unidad": "USD", "hoja": "12_Conclusion", "etiqueta": "Indicador", "seccion": "Seguros y cobertura (NIA 315 · 330 · 570)",
-         "series": [["Importe", "Importe"]],
-         "filas": [{"fila": "Activos sin cobertura: valor de referencia", "rotulo": "Sin cobertura (referencia)"},
-                   {"fila": "Activos sin cobertura: valor en libros (cantidad a la derecha)", "rotulo": "Sin cobertura (libros)"},
-                   {"fila": "Siniestros pendientes sin revelación", "rotulo": "Siniestros no revelados"},
-                   {"fila": "Compensaciones de seguro exigibles a reconocer en resultados (NIC 16.65–66 · PYMES 17.25)",
-                    "rotulo": "Compensaciones exigibles"}]},
+        {"rotulo": "Cobertura de los activos: referencia frente a suma asegurada", "sub": "USD · valor de referencia frente a la suma asegurada vigente, por activo.",
+         "unidad": "USD", "hoja": "06_Cobertura_activo", "etiqueta": "Código", "seccion": "Seguros y cobertura (NIA 315 · 330 · 570)",
+         "series": [["Valor de referencia", "Valor de referencia"], ["Suma asegurada vigente", "Suma asegurada vigente"]],
+         "filas": ["EDIF-01", "BOD-01", "MAQ-01", "MAQ-02", "VEH-01", "VEH-02", "VEH-03", "EQC-01", "EQC-02", "BOD-02", "MOB-01", "GEN-01"]},
+        {"rotulo": "Activos sin cobertura: referencia frente a libros", "sub": "USD · valor de referencia frente al valor en libros de los activos sin cobertura.",
+         "unidad": "USD", "hoja": "09_Sin_cobertura", "etiqueta": "Código", "seccion": "Seguros y cobertura (NIA 315 · 330 · 570)",
+         "series": [["Valor de referencia", "Valor de referencia"], ["Valor en libros", "Valor en libros"]],
+         "filas": ["EQC-01", "EQC-02", "BOD-02", "MOB-01", "GEN-01"]},
     ],
 }
 

@@ -455,11 +455,10 @@ PANEL = {
     # Tablero: conceptos fijos de la conciliación (13), ingreso reconocible del año frente al registrado (NIIF 15 · Secc. 23).
     # El detalle por contrato/línea es variable, así que el tablero usa los conceptos de rótulo fijo de la cédula 13.
     "tableros": [
-        {"rotulo": "Ingreso del año: reconocible frente a registrado", "sub": "USD · ingreso reconocible del año frente al registrado en el anexo.",
-         "unidad": "USD", "hoja": "13_Conciliacion", "etiqueta": "Concepto", "seccion": "Reconocimiento de ingresos",
-         "filas": [{"fila": "Ingreso reconocible del año (líneas medidas)", "rotulo": "Reconocible"},
-                   {"fila": "Ingreso registrado en el año (anexo)", "rotulo": "Registrado"}],
-         "series": [["Importe", "Importe"]]},
+        {"rotulo": "Ingreso del año: reconocible frente a registrado", "sub": "USD · ingreso reconocible del año frente al registrado, por línea.",
+         "unidad": "USD", "hoja": "09_Reconocimiento", "etiqueta": "Línea", "seccion": "Reconocimiento de ingresos",
+         "filas": ["C-01-1", "C-01-2", "C-02-1", "C-03-1", "C-04-1", "C-05-1", "C-06-1", "C-07-1", "C-08-1", "C-09-1", "C-09-2", "C-10-1", "C-11-1", "C-12-1"],
+         "series": [["Reconocible del año", "Reconocible del año"], ["Registrado en el año", "Registrado en el año"]]},
     ],
 }
 

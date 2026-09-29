@@ -399,14 +399,10 @@ PANEL = {
     "distribucion": {"rotulo": "Valor en libros por categoría", "hoja": "05_Valoracion", "etiqueta": "Categoría", "valor": "Valor en libros"},
     # Tablero premium (columnas): indicadores fijos de la conclusión (11), serie «Importe» en USD.
     "tableros": [
-        {"rotulo": "Medición de los activos biológicos", "sub": "USD · indicadores de la conclusión.",
-         "unidad": "USD", "hoja": "11_Conclusion", "etiqueta": "Indicador", "seccion": "Activos biológicos (NIC 41 · Secc. 34)",
-         "series": [["Importe", "Importe"]],
-         "filas": [{"fila": "Activos biológicos: valor auditado (VR − costos de venta / costo)", "rotulo": "Valor auditado"},
-                   {"fila": "Valor en libros", "rotulo": "Valor en libros"},
-                   {"fila": "Ajuste propuesto (auditado − libros)", "rotulo": "Ajuste"},
-                   {"fila": "Ganancia por cambio de VR no reconocida", "rotulo": "Ganancia VR no reconocida"},
-                   {"fila": "Deterioro adicional (modelo del costo)", "rotulo": "Deterioro"}]},
+        {"rotulo": "Medición de los activos biológicos", "sub": "USD · valor en libros frente al auditado, por lote.",
+         "unidad": "USD", "hoja": "05_Valoracion", "etiqueta": "Lote", "seccion": "Activos biológicos (NIC 41 · Secc. 34)",
+         "series": [["Valor en libros", "Valor en libros"], ["Valor auditado", "Valor auditado"]],
+         "filas": ["G-01", "G-02", "P-01", "C-01", "F-01", "F-02", "G-03", "G-04", "P-02", "C-02"]},
     ],
 }
 
