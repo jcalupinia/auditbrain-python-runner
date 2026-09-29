@@ -227,8 +227,63 @@ class PDFNoDisponible(RuntimeError):
     """Se lanza cuando WeasyPrint (o sus librerías nativas) no está disponible."""
 
 
+def _letters_print_html(r):
+    """HTML de impresión: las cartas de confirmación, una por hoja, con el mismo
+    contenido y espaciado del Word (justificado, viñetas y hueco de firma)."""
+    esc = lambda v: escape(str(v), quote=True)
+    ctx = r['context']
+    blank = '<p class="sp">&#160;</p>'
+    cartas = []
+    for l in r['letters']:
+        parts = []
+        sal = l['salutation']
+        for i, line in enumerate(sal):
+            if i == len(sal) - 1 and line.startswith('(') and line.endswith(')'):
+                parts.append(blank)
+            parts.append(f'<p>{esc(line)}</p>' if line else blank)
+        parts.append(blank)
+        blocks = l['blocks']
+        if blocks:
+            parts.append(f'<p class="j">{esc(blocks[0])}</p>')
+        parts.append(blank)
+        if l.get('items'):
+            parts.append('<ul>' + ''.join(f'<li>{esc(it)}</li>' for it in l['items']) + '</ul>')
+        body = blocks[1:]
+        has_deadline = bool(ctx.get('response_deadline'))
+        for idx, block in enumerate(body):
+            is_deadline = has_deadline and idx == len(body) - 1
+            if not is_deadline:
+                parts.append(blank)
+            parts.append(f'<p class="j">{esc(block)}</p>')
+        parts.append('<div class="gap"></div>')
+        parts.append('<div class="firma">' + ''.join(f'<p>{esc(s)}</p>' for s in l['signature']) + '</div>')
+        if l['response_lines']:
+            parts.append('<hr>')
+            parts.append(f'<p><b>{esc(l["response_title"])}</b></p>')
+            parts += [f'<p>{esc(x)}</p>' for x in l['response_lines']]
+        cartas.append('<section class="carta">' + ''.join(parts) + '</section>')
+    css = (
+        '@page{size:Letter;margin:1.8cm 2.2cm}'
+        '*{box-sizing:border-box}'
+        'body{font-family:Calibri,"Segoe UI",Arial,sans-serif;font-size:10.5pt;color:#000;line-height:1.15;margin:0}'
+        '.carta{page-break-before:always}'
+        '.carta:first-of-type{page-break-before:avoid}'
+        'p{margin:0 0 3pt}'
+        'p.sp{margin:0}'
+        'p.j{text-align:justify}'
+        'ul{margin:0 0 3pt 0;padding-left:20pt}'
+        'li{text-align:justify;margin-bottom:2pt}'
+        '.gap{height:1.4cm}'
+        '.firma p{margin:0}'
+        'hr{border:none;border-top:1px solid #000;margin:8pt 0}'
+    )
+    return ('<!doctype html><html lang="es"><head><meta charset="utf-8">'
+            '<title>Cartas de confirmación de saldos</title><style>' + css + '</style></head>'
+            '<body>' + ''.join(cartas) + '</body></html>')
+
+
 def build_pdf(r):
-    """Cartas de confirmación en PDF, renderizadas desde la vista HTML con WeasyPrint.
+    """Cartas de confirmación en PDF, una por hoja, con WeasyPrint.
 
     Requiere la imagen Docker de producción (Pango/HarfBuzz/fontconfig). En un
     entorno sin esas librerías nativas degrada con PDFNoDisponible y el endpoint
@@ -238,7 +293,7 @@ def build_pdf(r):
         from weasyprint import HTML
     except Exception as exc:  # ImportError o falta de librerías nativas
         raise PDFNoDisponible('La exportación a PDF no está disponible en este servidor.') from exc
-    return HTML(string=build_html(r)).write_pdf()
+    return HTML(string=_letters_print_html(r)).write_pdf()
 
 
 def build_docx(r):
