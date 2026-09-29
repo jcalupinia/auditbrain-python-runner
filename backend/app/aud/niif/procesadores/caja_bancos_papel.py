@@ -372,9 +372,25 @@ def construir(papel: dict) -> bytes:
     for col, w in zip("ABCDEFGHIJ", (12, 26, 8, 6, 12, 14, 34, 24, 14, 14)):
         ws.column_dimensions[col].width = w
 
+    # ===== Documentos de entrada (NIA 230): huella SHA-256 de cada archivo del cliente =====
+    archivos = papel.get("archivos") or []
+    if archivos:
+        ws = wb.create_sheet("Documentos de entrada")
+        ws["A1"] = "DOCUMENTOS DE ENTRADA (NIA 230) — huella SHA-256 de cada archivo del cliente"
+        ws["A1"].font = st.title
+        _tabla_encabezados(ws, st, 3, ["Requerimiento", "Archivo", "SHA-256", "Tamaño (bytes)", "Subido por", "Fecha"])
+        for i, a in enumerate(archivos, 4):
+            for c, v in enumerate([a.get("requerimiento"), a.get("nombre"), a.get("sha256"),
+                                   a.get("tamano"), a.get("subido_por"), a.get("subido_en")], 1):
+                cell = ws.cell(i, c, v)
+                cell.border = st.box
+                cell.alignment = st.left
+        for col, w in zip("ABCDEF", (14, 38, 66, 15, 24, 22)):
+            ws.column_dimensions[col].width = w
+
     for hoja in wb.worksheets:
         hoja.sheet_view.showGridLines = False
-        if hoja.title != "Libro Mayor":
+        if hoja.title not in ("Libro Mayor", "Documentos de entrada"):
             hoja.freeze_panes = "A9"
     wb.calculation.fullCalcOnLoad = True
 
