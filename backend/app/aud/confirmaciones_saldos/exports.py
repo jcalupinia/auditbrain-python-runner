@@ -153,16 +153,16 @@ def build_xlsx(r):
 
 
 def _docx_letter(doc, r, letter):
-    """Arma una carta con el aire de una carta comercial: espacio entre el
-    saludo, cada bloque del cuerpo y la firma. Cada carta empieza en página
-    nueva y entra completa en una sola hoja; el bloque de firma (funcionario,
-    cargo y compañía) nunca se parte entre páginas."""
+    """Arma una carta con el mismo espaciado del modelo de la firma: líneas en
+    blanco entre el saludo, la introducción, las viñetas, el saldo y el cierre,
+    y un hueco antes de la firma. Cada carta empieza en página nueva y entra
+    completa en una sola hoja; el bloque de firma (funcionario, cargo y
+    compañía) nunca se parte entre páginas."""
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.shared import Pt
     blocks = letter['blocks']
     paras = []
 
-    def add(text='', style=None, justify=False, space_after=None, space_before=None):
+    def add(text='', style=None, justify=False):
         p = doc.add_paragraph(text)
         if style:
             try:
@@ -171,37 +171,44 @@ def _docx_letter(doc, r, letter):
                 pass
         if justify:
             p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-        if space_after is not None:
-            p.paragraph_format.space_after = Pt(space_after)
-        if space_before is not None:
-            p.paragraph_format.space_before = Pt(space_before)
         paras.append(p)
         return p
 
-    # Saludo (fecha, destinatario, dirección, "De nuestras consideraciones:").
-    for line in letter['salutation']:
+    # Saludo. Si termina con la mención del contacto "(...)", va precedida de
+    # una línea en blanco, como en el modelo.
+    sal = letter['salutation']
+    for i, line in enumerate(sal):
+        if i == len(sal) - 1 and line.startswith('(') and line.endswith(')'):
+            add('')
         add(line)
-    # Aire entre el saludo y el cuerpo.
-    add(space_after=6)
-    # Cuerpo: la introducción, las viñetas y cada párrafo van separados por
-    # un pequeño espacio para que la carta respire.
+
+    # Cuerpo: introducción, viñetas y cada párrafo separados por una línea en
+    # blanco para que la carta respire.
+    add('')
     if blocks:
-        add(blocks[0], justify=True, space_after=6)
+        add(blocks[0], justify=True)
+    add('')
     for it in letter.get('items', []):
         add(it, style='List Bullet', justify=True)
-    for i, block in enumerate(blocks[1:]):
-        add(block, justify=True, space_before=6, space_after=6)
+    body = blocks[1:]
+    has_deadline = bool(r['context'].get('response_deadline'))
+    for i, block in enumerate(body):
+        is_deadline = has_deadline and i == len(body) - 1
+        if not is_deadline:          # el plazo se adjunta al cierre, sin blanco
+            add('')
+        add(block, justify=True)
 
-    # Hueco para la firma manuscrita, seguido del bloque de firma unido.
-    sig_paras = [add(line, space_before=(30 if idx == 0 else None))
-                 for idx, line in enumerate(letter['signature'])]
+    # Hueco para la firma manuscrita (líneas en blanco), como el modelo.
+    for _ in range(5):
+        add('')
+    sig_paras = [add(line) for line in letter['signature']]
     for p in sig_paras[:-1]:
         p.paragraph_format.keep_with_next = True
     for p in sig_paras:
         p.paragraph_format.keep_together = True
 
     if letter['response_lines']:
-        add(space_before=8)
+        add('')
         rule = doc.add_paragraph()
         rule.add_run('— — — — — — — — — — — — — — — — — — — — — — — — — — —')
         paras.append(rule)
