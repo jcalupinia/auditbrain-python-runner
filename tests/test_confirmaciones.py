@@ -155,6 +155,29 @@ class ConfirmacionesTests(unittest.TestCase):
         bancos = next(c for c in r['coverage'] if c['type'] == 'bancos')
         self.assertIsNone(bancos['ledger'])
 
+    def test_negative_balance_accepted(self):
+        # Los saldos contables pueden ser negativos (sobregiros, saldos acreedores).
+        p = payload(); p['items'][0]['amount'] = '-19880.04'
+        r = calculate(p)
+        self.assertEqual(r['items'][0]['amount'], '-19880.04')
+
+    def test_negative_balance_regional_format(self):
+        p = payload(); p['items'][0]['amount'] = '-5.814,11'
+        self.assertEqual(calculate(p)['items'][0]['amount'], '-5814.11')
+
+    def test_ledger_balance_may_be_negative(self):
+        p = payload(); p['coverage'] = [{'type': 'bancos', 'ledger_balance': '-1000'}]
+        r = calculate(p)
+        self.assertTrue(any(c['type'] == 'bancos' for c in r['coverage']))
+
+    def test_missing_id_message_is_clear(self):
+        p = payload(); del p['items'][0]['id']
+        with self.assertRaises(ValueError) as ctx:
+            calculate(p)
+        msg = str(ctx.exception)
+        self.assertIn('Código', msg)
+        self.assertNotIn('code:', msg)
+
     def test_regional_number(self):
         p = payload()
         p['items'][1]['amount'] = '1.234,50'   # formato europeo
