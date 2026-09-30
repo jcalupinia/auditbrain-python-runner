@@ -252,6 +252,420 @@ const INGRESOS = {
   ],
 };
 
+
+// === Etapas 2-5 · resto de herramientas del catálogo ===
+
+const PPE = {
+  processor: "ppe_propiedad_planta",
+  icono: "building", color: "blue",
+  eyebrow: "PROPIEDAD, PLANTA Y EQUIPO",
+  titulo: "Propiedad, Planta y Equipo",
+  subtitulo: "Auditoría de PPE: depreciación, componentes, revaluación, deterioro y costos por préstamos",
+  principales: [
+    { id: "RQ-001", titulo: "Auxiliar de Propiedad, Planta y Equipo", icono: "doc", color: "green", tipos: ".xlsx / .csv" },
+    { id: "RQ-004", titulo: "Política de Vidas Útiles y Residuales", icono: "shield", color: "gold", tipos: ".pdf / .docx" },
+    { id: "RQ-002", titulo: "Detalle de Adiciones del Año", icono: "coins", color: "blue", tipos: ".xlsx / .csv" },
+    { id: "RQ-006", titulo: "Cálculo del Importe Recuperable", icono: "warning", color: "red", tipos: ".xlsx / .pdf" },
+    { id: "RQ-005", titulo: "Informe del Perito de Revaluación", icono: "chart", color: "purple", tipos: "PDF" },
+  ],
+  ejecuciones: [
+    { clave: "procedimiento", titulo: "Procedimiento de Propiedad, Planta y Equipo", subtitulo: "Papeles de trabajo y conclusiones.", icono: "doc", color: "blue", relacionados: "todos" },
+    { clave: "sumaria", titulo: "Sumaria y Auxiliar de Activos", subtitulo: "Cédula sumaria y detalle por activo.", icono: "table", color: "green", relacionados: ["RQ-001"] },
+    { clave: "depreciacion", titulo: "Recálculo de Depreciación y VNL", subtitulo: "Depreciación auditada y valor neto en libros.", icono: "calc", color: "purple", relacionados: ["RQ-001", "RQ-004"] },
+    { clave: "vidas_utiles", titulo: "Vidas Útiles, Residual y Método", subtitulo: "Revisión de vidas útiles, valor residual y método.", icono: "clock", color: "gold", relacionados: ["RQ-004"] },
+    { clave: "componentes", titulo: "Componentes", subtitulo: "Depreciación por componentes significativos.", icono: "box", color: "teal", relacionados: ["RQ-001"] },
+    { clave: "adiciones", titulo: "Adiciones y Costos por Préstamos", subtitulo: "Altas del año y capitalización.", icono: "coins", color: "blue", relacionados: ["RQ-002"] },
+    { clave: "prestamos", titulo: "Préstamos, Capitalización y Desmantelamiento", subtitulo: "Costos por préstamos capitalizados y provisiones de desmantelamiento.", icono: "bank", color: "purple", relacionados: ["RQ-003", "RQ-007", "RQ-008"] },
+    { clave: "revaluacion", titulo: "Revaluación", subtitulo: "Modelo de revaluación y superávit.", icono: "chart", color: "gold", relacionados: ["RQ-005"] },
+    { clave: "deterioro", titulo: "Deterioro", subtitulo: "Importe recuperable vs valor en libros.", icono: "warning", color: "red", relacionados: ["RQ-006"] },
+    { clave: "bajas", titulo: "Bajas del Año", subtitulo: "Retiros y resultado en la baja.", icono: "refresh", color: "teal", relacionados: ["RQ-009"] },
+    { clave: "movimiento", titulo: "Movimiento, Conciliación y Ajustes", subtitulo: "Roll-forward auxiliar-mayor y ajustes propuestos.", icono: "sliders", color: "blue", relacionados: ["RQ-001"] },
+  ],
+};
+
+const PROPIEDADES_INVERSION = {
+  processor: "propiedades_inversion",
+  icono: "bank", color: "teal",
+  eyebrow: "PROPIEDADES DE INVERSIÓN",
+  titulo: "Propiedades de Inversión",
+  subtitulo: "Auditoría de inmuebles de inversión: valor razonable, modelo del costo, transferencias y alquileres",
+  principales: [
+    { id: "RQ-001", titulo: "Registro de Propiedades de Inversión", icono: "building", color: "green", tipos: ".xlsx / .csv" },
+    { id: "RQ-005", titulo: "Escrituras y Certificados del Registro", icono: "shield", color: "gold", tipos: "PDF" },
+    { id: "RQ-003", titulo: "Informes de Tasación al Corte", icono: "chart", color: "purple", tipos: "PDF" },
+    { id: "RQ-004", titulo: "Contratos de Arrendamiento Vigentes", icono: "bank", color: "blue", tipos: "PDF" },
+    { id: "RQ-007", titulo: "Gastos Directos de Operación", icono: "coins", color: "red", tipos: ".xlsx / .pdf" },
+  ],
+  ejecuciones: [
+    { clave: "procedimiento", titulo: "Procedimiento de Propiedades de Inversión", subtitulo: "Papeles de trabajo y conclusiones.", icono: "doc", color: "blue", relacionados: "todos" },
+    { clave: "registro", titulo: "Registro y Titularidad de Inmuebles", subtitulo: "Existencia y derechos sobre los inmuebles.", icono: "building", color: "green", relacionados: ["RQ-001", "RQ-005"] },
+    { clave: "clasificacion", titulo: "Clasificación", subtitulo: "Clasificación como propiedad de inversión.", icono: "list", color: "teal", relacionados: ["RQ-001", "RQ-006"] },
+    { clave: "valor_razonable", titulo: "Valor Razonable", subtitulo: "Costo inicial y medición a valor razonable.", icono: "chart", color: "purple", relacionados: ["RQ-003"] },
+    { clave: "modelo_costo", titulo: "Modelo del Costo", subtitulo: "Depreciación y deterioro bajo modelo del costo.", icono: "calc", color: "gold", relacionados: ["RQ-001"] },
+    { clave: "medicion", titulo: "Medición Auditada por Inmueble", subtitulo: "Medición auditada y diferencias por inmueble.", icono: "table", color: "blue", relacionados: ["RQ-003"] },
+    { clave: "transferencias", titulo: "Transferencias", subtitulo: "Cambios de uso y transferencias.", icono: "refresh", color: "gold", relacionados: ["RQ-006"] },
+    { clave: "superavit", titulo: "Superávit de Revaluación", subtitulo: "Historial del superávit y cambios en patrimonio.", icono: "pie", color: "purple", relacionados: ["RQ-009"] },
+    { clave: "alquileres", titulo: "Ingresos por Alquiler", subtitulo: "Ingresos por arrendamiento del ejercicio.", icono: "bank", color: "teal", relacionados: ["RQ-004"] },
+    { clave: "bajas", titulo: "Bajas", subtitulo: "Retiros del ejercicio y resultado en la baja.", icono: "box", color: "red", relacionados: ["RQ-002"] },
+    { clave: "conciliacion", titulo: "Sumaria y Conciliación", subtitulo: "Cédula sumaria y conciliación de saldos.", icono: "sliders", color: "green", relacionados: ["RQ-001"] },
+  ],
+};
+
+const INTANGIBLES = {
+  processor: "intangibles_goodwill",
+  icono: "book", color: "purple",
+  eyebrow: "INTANGIBLES Y GOODWILL",
+  titulo: "Intangibles y Goodwill",
+  subtitulo: "Auditoría de intangibles: reconocimiento, amortización, vida útil, deterioro y goodwill",
+  principales: [
+    { id: "RQ-001", titulo: "Auxiliar de Intangibles y Goodwill", icono: "doc", color: "green", tipos: ".xlsx / .csv" },
+    { id: "RQ-005", titulo: "Contratos de Licencias, Marcas y Patentes", icono: "shield", color: "gold", tipos: "PDF" },
+    { id: "RQ-002", titulo: "Memorias de Proyectos de Desarrollo", icono: "search", color: "blue", tipos: ".pdf / .docx / .xlsx" },
+    { id: "RQ-006", titulo: "Análisis de Vida Útil y Valor Residual", icono: "clock", color: "teal", tipos: ".pdf / .docx / .xlsx" },
+    { id: "RQ-003", titulo: "Pruebas de Deterioro", icono: "warning", color: "red", tipos: ".xlsx / .pdf" },
+  ],
+  ejecuciones: [
+    { clave: "procedimiento", titulo: "Procedimiento de Intangibles y Goodwill", subtitulo: "Papeles de trabajo y conclusiones.", icono: "doc", color: "blue", relacionados: "todos" },
+    { clave: "auxiliar", titulo: "Auxiliar de Intangibles y Goodwill", subtitulo: "Detalle por partida y titularidad.", icono: "book", color: "green", relacionados: ["RQ-001", "RQ-005"] },
+    { clave: "reconocimiento", titulo: "Reconocimiento e I+D", subtitulo: "Criterios de capitalización (NIC 38.57).", icono: "search", color: "teal", relacionados: ["RQ-002"] },
+    { clave: "amortizacion", titulo: "Amortización", subtitulo: "Recálculo de amortización y vida finita/indefinida.", icono: "calc", color: "gold", relacionados: ["RQ-007", "RQ-001"] },
+    { clave: "vida_util", titulo: "Vida Útil y Valor Residual", subtitulo: "Revisión de vida útil y residual al cierre.", icono: "clock", color: "purple", relacionados: ["RQ-006"] },
+    { clave: "deterioro", titulo: "Deterioro e Importe Recuperable", subtitulo: "Valor en uso y VR menos costos de disposición.", icono: "warning", color: "red", relacionados: ["RQ-003"] },
+    { clave: "goodwill", titulo: "Goodwill y Combinaciones de Negocios", subtitulo: "Asignación del precio de compra y prueba de goodwill.", icono: "bank", color: "purple", relacionados: ["RQ-004", "RQ-003"] },
+    { clave: "reversion", titulo: "Reversión del Deterioro", subtitulo: "Reversiones admitidas y su límite.", icono: "refresh", color: "gold", relacionados: ["RQ-003"] },
+    { clave: "ajuste", titulo: "Valor Neto y Ajuste Propuesto", subtitulo: "Valor neto auditado y ajustes propuestos.", icono: "sliders", color: "blue", relacionados: ["RQ-001"] },
+  ],
+};
+
+const ACTIVOS_BIOLOGICOS = {
+  processor: "activos_biologicos",
+  icono: "box", color: "green",
+  eyebrow: "ACTIVOS BIOLÓGICOS",
+  titulo: "Activos Biológicos",
+  subtitulo: "Auditoría bajo NIC 41: existencia, valor razonable menos costos de venta, transformación biológica y cosecha",
+  principales: [
+    { id: "RQ-001", titulo: "Anexo de Activos Biológicos por Lote", icono: "list", color: "green", tipos: ".xlsx / .csv" },
+    { id: "RQ-005", titulo: "Actas de Conteo y Registros de Campo", icono: "people", color: "gold", tipos: ".pdf / .xlsx" },
+    { id: "RQ-003", titulo: "Precios de Mercado o Informe del Perito", icono: "chart", color: "purple", tipos: ".pdf / .xlsx" },
+    { id: "RQ-004", titulo: "Detalle de Costos de Venta", icono: "coins", color: "blue", tipos: ".xlsx / .pdf" },
+    { id: "RQ-007", titulo: "Mayor de Activos Biológicos", icono: "book", color: "red", tipos: ".xlsx / .pdf" },
+  ],
+  ejecuciones: [
+    { clave: "procedimiento", titulo: "Procedimiento de Activos Biológicos", subtitulo: "Papeles de trabajo y conclusiones.", icono: "doc", color: "blue", relacionados: "todos" },
+    { clave: "clasificacion", titulo: "Clasificación y Datos", subtitulo: "Clasificación de activos biológicos y sus datos.", icono: "list", color: "green", relacionados: ["RQ-001"] },
+    { clave: "existencia", titulo: "Existencia: Conteo vs Registros", subtitulo: "Conteo físico contra registros de campo.", icono: "search", color: "teal", relacionados: ["RQ-005", "RQ-001"] },
+    { clave: "valoracion", titulo: "Valoración: VR menos Costos de Venta", subtitulo: "Valor razonable menos costos de venta.", icono: "coins", color: "gold", relacionados: ["RQ-003", "RQ-004"] },
+    { clave: "transformacion", titulo: "Transformación Biológica y Cambio de VR", subtitulo: "Cambio de valor razonable del ejercicio.", icono: "refresh", color: "purple", relacionados: ["RQ-007", "RQ-005"] },
+    { clave: "conciliacion", titulo: "Conciliación de Cambios (NIC 41.50)", subtitulo: "Conciliación del movimiento del período.", icono: "table", color: "blue", relacionados: ["RQ-007"] },
+    { clave: "modelo_costo", titulo: "Modelo del Costo y Deterioro", subtitulo: "Medición al costo cuando el VR no es fiable.", icono: "warning", color: "red", relacionados: ["RQ-006"] },
+    { clave: "cosecha", titulo: "Producto Agrícola en la Cosecha", subtitulo: "Producción cosechada en el punto de cosecha.", icono: "calendar", color: "gold", relacionados: ["RQ-002"] },
+  ],
+};
+
+const PRESTAMOS = {
+  processor: "prestamos_obligaciones",
+  icono: "bank", color: "purple",
+  eyebrow: "PRÉSTAMOS Y OBLIGACIONES FINANCIERAS",
+  titulo: "Préstamos y Obligaciones Financieras",
+  subtitulo: "Costo amortizado, TIE, covenants, confirmaciones y modificaciones de deuda",
+  principales: [
+    { id: "RQ-001", titulo: "Anexo de Préstamos al Corte", icono: "doc", color: "purple", tipos: ".xlsx / .csv" },
+    { id: "RQ-003", titulo: "Contratos y Tablas de Amortización", icono: "book", color: "blue", tipos: ".pdf / .xlsx" },
+    { id: "RQ-004", titulo: "Confirmaciones Bancarias", icono: "people", color: "gold", tipos: "PDF" },
+    { id: "RQ-005", titulo: "Liquidaciones de Desembolso", icono: "bank", color: "green", tipos: ".pdf / .xlsx" },
+    { id: "RQ-008", titulo: "Mayor y Auxiliares de Préstamos", icono: "list", color: "teal", tipos: ".xlsx / .pdf" },
+    { id: "RQ-006", titulo: "Covenants y Cartas de Dispensa", icono: "shield", color: "red", tipos: ".pdf / .xlsx" },
+  ],
+  ejecuciones: [
+    { clave: "procedimiento", titulo: "Procedimiento de Préstamos y Obligaciones", subtitulo: "Papeles de trabajo y conclusiones.", icono: "doc", color: "blue", relacionados: "todos" },
+    { clave: "universo", titulo: "Universo de Préstamos", subtitulo: "Sumaria y detalle por operación de deuda.", icono: "table", color: "green", relacionados: ["RQ-001", "RQ-008"] },
+    { clave: "tie_costo_amortizado", titulo: "TIE y Costo Amortizado", subtitulo: "Tasa efectiva, amortización y costo amortizado al corte.", icono: "calc", color: "purple", relacionados: ["RQ-003", "RQ-005"] },
+    { clave: "comisiones", titulo: "Comisiones y Costos de Transacción", subtitulo: "Costos capitalizables al pasivo financiero.", icono: "coins", color: "gold", relacionados: ["RQ-005"] },
+    { clave: "intereses", titulo: "Recálculo de Intereses", subtitulo: "Gasto financiero e intereses por pagar.", icono: "line", color: "teal", relacionados: ["RQ-008", "RQ-003"] },
+    { clave: "confirmaciones", titulo: "Confirmaciones Bancarias", subtitulo: "Cotejo de respuestas de confirmación (NIA 505).", icono: "people", color: "blue", relacionados: ["RQ-004"] },
+    { clave: "covenants", titulo: "Covenants y Dispensas", subtitulo: "DSCR, ratios de endeudamiento y cartas de dispensa.", icono: "shield", color: "red", relacionados: ["RQ-006", "RQ-007"] },
+    { clave: "clasificacion", titulo: "Clasificación Corriente / No Corriente", subtitulo: "Presentación del pasivo por vencimiento.", icono: "list", color: "green", relacionados: ["RQ-001"] },
+    { clave: "modificaciones", titulo: "Modificaciones y Prueba del 10 %", subtitulo: "Flujos de la adenda descontados a la TIE original (NIIF 9).", icono: "refresh", color: "gold", relacionados: ["RQ-002", "RQ-003"] },
+    { clave: "conciliacion", titulo: "Conciliación y Ajustes", subtitulo: "Cuadre contra libros y ajustes propuestos.", icono: "gears", color: "blue", relacionados: ["RQ-008", "RQ-001"] },
+  ],
+};
+
+const INVERSIONES = {
+  processor: "inversiones_instrumentos",
+  icono: "pie", color: "teal",
+  eyebrow: "INVERSIONES E INSTRUMENTOS FINANCIEROS",
+  titulo: "Inversiones e Instrumentos Financieros",
+  subtitulo: "Clasificación, costo amortizado, valor razonable, deterioro y reclasificación",
+  principales: [
+    { id: "RQ-001", titulo: "Anexo de Inversiones por Instrumento", icono: "doc", color: "teal", tipos: ".xlsx / .csv" },
+    { id: "RQ-002", titulo: "Estados de Cuenta y Confirmaciones", icono: "bank", color: "blue", tipos: ".pdf / .xlsx" },
+    { id: "RQ-003", titulo: "Política de Inversiones y Modelo de Negocio", icono: "shield", color: "purple", tipos: ".pdf / .docx" },
+    { id: "RQ-004", titulo: "Prospectos y Contratos de los Títulos", icono: "book", color: "green", tipos: "PDF" },
+    { id: "RQ-005", titulo: "Vector de Precios y Valuaciones", icono: "chart", color: "gold", tipos: ".pdf / .xlsx" },
+    { id: "RQ-007", titulo: "Calificaciones de Riesgo de Emisores", icono: "warning", color: "red", tipos: ".pdf / .xlsx" },
+  ],
+  ejecuciones: [
+    { clave: "procedimiento", titulo: "Procedimiento de Inversiones", subtitulo: "Papeles de trabajo y conclusiones.", icono: "doc", color: "blue", relacionados: "todos" },
+    { clave: "inventario", titulo: "Inventario de Inversiones", subtitulo: "Sumaria y detalle por instrumento.", icono: "table", color: "teal", relacionados: ["RQ-001", "RQ-002"] },
+    { clave: "clasificacion", titulo: "Clasificación y Modelo de Negocio", subtitulo: "SPPI y modelo de negocio (NIIF 9).", icono: "sliders", color: "purple", relacionados: ["RQ-003", "RQ-004"] },
+    { clave: "costo_amortizado", titulo: "Costo Amortizado y TIE", subtitulo: "Tasa efectiva y medición a costo amortizado.", icono: "calc", color: "green", relacionados: ["RQ-004", "RQ-001"] },
+    { clave: "valor_razonable", titulo: "Valor Razonable y Jerarquía", subtitulo: "Medición a valor razonable y niveles NIIF 13.", icono: "chart", color: "gold", relacionados: ["RQ-005"] },
+    { clave: "intereses_dividendos", titulo: "Intereses y Dividendos", subtitulo: "Rendimientos devengados y dividendos decretados.", icono: "coins", color: "blue", relacionados: ["RQ-006", "RQ-001"] },
+    { clave: "deterioro", titulo: "Deterioro", subtitulo: "Pérdida crediticia esperada por instrumento.", icono: "warning", color: "red", relacionados: ["RQ-007"] },
+    { clave: "reclasificacion", titulo: "Reclasificación", subtitulo: "Cambios de modelo de negocio y su efecto.", icono: "refresh", color: "purple", relacionados: ["RQ-003"] },
+    { clave: "conciliacion", titulo: "Conciliación y Ajustes", subtitulo: "Cuadre contra libros y ajustes propuestos.", icono: "gears", color: "green", relacionados: ["RQ-001", "RQ-002"] },
+  ],
+};
+
+const PATRIMONIO = {
+  processor: "patrimonio",
+  icono: "building", color: "gold",
+  eyebrow: "PATRIMONIO",
+  titulo: "Patrimonio",
+  subtitulo: "Movimiento patrimonial, capital, reservas, dividendos y clasificación deuda/patrimonio",
+  principales: [
+    { id: "RQ-001", titulo: "Movimiento de Cuentas Patrimoniales", icono: "chart", color: "gold", tipos: ".xlsx / .csv" },
+    { id: "RQ-002", titulo: "Actas y Transacciones Patrimoniales", icono: "list", color: "blue", tipos: ".xlsx / .csv" },
+    { id: "RQ-003", titulo: "Libro de Actas de Junta General", icono: "book", color: "purple", tipos: "PDF" },
+    { id: "RQ-004", titulo: "Escrituras y Certificado Supercias", icono: "bank", color: "green", tipos: "PDF" },
+    { id: "RQ-006", titulo: "Estado de Cambios en el Patrimonio", icono: "doc", color: "teal", tipos: ".xlsx / .pdf" },
+  ],
+  ejecuciones: [
+    { clave: "procedimiento", titulo: "Procedimiento de Patrimonio", subtitulo: "Papeles de trabajo y conclusiones.", icono: "doc", color: "blue", relacionados: "todos" },
+    { clave: "movimiento", titulo: "Movimiento Patrimonial", subtitulo: "Sumaria y detalle por componente del patrimonio.", icono: "table", color: "gold", relacionados: ["RQ-001", "RQ-006"] },
+    { clave: "transacciones", titulo: "Actas y Transacciones", subtitulo: "Cotejo de movimientos contra actas de junta.", icono: "book", color: "purple", relacionados: ["RQ-002", "RQ-003"] },
+    { clave: "capital", titulo: "Capital y Aumentos", subtitulo: "Aportes e inscripción de aumentos de capital.", icono: "building", color: "green", relacionados: ["RQ-004"] },
+    { clave: "reserva_legal", titulo: "Reserva Legal", subtitulo: "Apropiación y suficiencia de la reserva legal.", icono: "shield", color: "teal", relacionados: ["RQ-001"] },
+    { clave: "dividendos", titulo: "Dividendos", subtitulo: "Decreto, pago y retención de dividendos.", icono: "coins", color: "gold", relacionados: ["RQ-002", "RQ-003"] },
+    { clave: "clasificacion", titulo: "Clasificación Deuda / Patrimonio", subtitulo: "Instrumentos con opción de venta y preferentes (NIC 32).", icono: "sliders", color: "red", relacionados: ["RQ-005"] },
+    { clave: "recompra", titulo: "Recompra de Acciones Propias", subtitulo: "Acciones propias en cartera y su presentación.", icono: "refresh", color: "purple", relacionados: ["RQ-002"] },
+    { clave: "ajustes", titulo: "Patrimonio Auditado y Asientos", subtitulo: "Ajustes propuestos y conciliación final.", icono: "gears", color: "blue", relacionados: ["RQ-006", "RQ-001"] },
+  ],
+};
+
+const PROVISIONES = {
+  processor: "provisiones_contingencias",
+  icono: "warning", color: "red",
+  eyebrow: "PROVISIONES Y CONTINGENCIAS",
+  titulo: "Provisiones y Contingencias",
+  subtitulo: "Obligación presente, mejor estimación, valor presente, litigios y contingencias a revelar",
+  principales: [
+    { id: "RQ-001", titulo: "Detalle de Provisiones y Contingencias", icono: "chart", color: "red", tipos: ".xlsx / .csv" },
+    { id: "RQ-003", titulo: "Respuestas de los Abogados", icono: "people", color: "gold", tipos: "PDF" },
+    { id: "RQ-006", titulo: "Mayor de Provisiones y Gastos", icono: "list", color: "blue", tipos: ".xlsx / .pdf" },
+    { id: "RQ-007", titulo: "Carta de Manifestaciones de la Gerencia", icono: "doc", color: "purple", tipos: "PDF" },
+  ],
+  ejecuciones: [
+    { clave: "procedimiento", titulo: "Procedimiento de Provisiones y Contingencias", subtitulo: "Papeles de trabajo y conclusiones.", icono: "doc", color: "blue", relacionados: "todos" },
+    { clave: "provisiones", titulo: "Provisiones y Contingencias", subtitulo: "Sumaria y detalle de provisiones del cliente.", icono: "table", color: "green", relacionados: ["RQ-001", "RQ-006"] },
+    { clave: "obligacion_probabilidad", titulo: "Obligación Presente y Probabilidad", subtitulo: "Reconocimiento y probabilidad de salida (NIC 37).", icono: "search", color: "purple", relacionados: ["RQ-001", "RQ-007"] },
+    { clave: "mejor_estimacion", titulo: "Mejor Estimación", subtitulo: "Cuantificación de la mejor estimación.", icono: "calc", color: "gold", relacionados: ["RQ-001"] },
+    { clave: "valor_presente", titulo: "Valor Presente y Reversión del Descuento", subtitulo: "Descuento y actualización financiera del período.", icono: "coins", color: "teal", relacionados: ["RQ-006"] },
+    { clave: "litigios", titulo: "Litigios y Cartas de Abogados", subtitulo: "Cotejo con respuestas de los abogados (NIA 501).", icono: "people", color: "blue", relacionados: ["RQ-003", "RQ-007"] },
+    { clave: "garantias", titulo: "Garantías", subtitulo: "Provisión por garantías por línea de producto.", icono: "shield", color: "green", relacionados: ["RQ-002", "RQ-001"] },
+    { clave: "onerosos", titulo: "Contratos Onerosos", subtitulo: "Provisión por contratos de carácter oneroso.", icono: "warning", color: "red", relacionados: ["RQ-004"] },
+    { clave: "desmantelamiento", titulo: "Desmantelamiento", subtitulo: "Provisión por desmantelamiento y retiro.", icono: "box", color: "gold", relacionados: ["RQ-004"] },
+    { clave: "reconocimiento_contingencias", titulo: "Reconocimiento y Contingencias a Revelar", subtitulo: "Provisión requerida vs libros y contingencias a revelar.", icono: "list", color: "purple", relacionados: ["RQ-001", "RQ-005"] },
+    { clave: "ajustes", titulo: "Ajustes y Conciliación", subtitulo: "Ajustes propuestos y conciliación final.", icono: "gears", color: "blue", relacionados: ["RQ-006", "RQ-001"] },
+  ],
+};
+
+const NOMINA = {
+  processor: "nomina_beneficios",
+  icono: "people", color: "purple",
+  eyebrow: "NÓMINA Y BENEFICIOS A EMPLEADOS",
+  titulo: "Nómina y Beneficios a Empleados",
+  subtitulo: "Recálculo de nómina, aportes IESS, beneficios sociales y obligaciones post-empleo (NIC 19)",
+  principales: [
+    { id: "RQ-001", titulo: "Anexo de Empleados del Ejercicio", icono: "people", color: "purple", tipos: ".xlsx / .csv" },
+    { id: "RQ-002", titulo: "Resumen del Informe Actuarial", icono: "calc", color: "blue", tipos: ".xlsx / .csv" },
+    { id: "RQ-003", titulo: "Roles de Pago y Contratos", icono: "doc", color: "teal", tipos: ".xlsx / .pdf" },
+    { id: "RQ-004", titulo: "Planillas y Pagos del IESS", icono: "bank", color: "green", tipos: ".pdf / .xlsx" },
+    { id: "RQ-005", titulo: "Informe Actuarial Completo y Censo", icono: "pdf", color: "red", tipos: ".pdf / .xlsx" },
+    { id: "RQ-006", titulo: "Mayores de Nómina y Pasivos Laborales", icono: "book", color: "gold", tipos: ".xlsx" },
+  ],
+  ejecuciones: [
+    { clave: "procedimiento", titulo: "Procedimiento de Nómina y Beneficios", subtitulo: "Papeles de trabajo y conclusiones.", icono: "doc", color: "blue", relacionados: "todos" },
+    { clave: "recalculo_nomina", titulo: "Empleados y Recálculo de Nómina", subtitulo: "Recálculo de bruto y neto por empleado.", icono: "table", color: "purple", relacionados: ["RQ-001", "RQ-003"] },
+    { clave: "iess", titulo: "Aportes IESS y Planillas", subtitulo: "Cotejo de aportes y planillas del IESS.", icono: "bank", color: "green", relacionados: ["RQ-004"] },
+    { clave: "decimos", titulo: "Décimo Tercero y Décimo Cuarto", subtitulo: "Recálculo de décimos y su provisión.", icono: "coins", color: "gold", relacionados: ["RQ-001", "RQ-003"] },
+    { clave: "vacaciones", titulo: "Vacaciones", subtitulo: "Provisión y pago de vacaciones.", icono: "calendar", color: "teal", relacionados: ["RQ-007", "RQ-001"] },
+    { clave: "fondo_reserva", titulo: "Fondo de Reserva", subtitulo: "Recálculo del fondo de reserva.", icono: "box", color: "blue", relacionados: ["RQ-004", "RQ-001"] },
+    { clave: "dbo_actuarial", titulo: "Jubilación Patronal y Desahucio: DBO", subtitulo: "Obligación por beneficios definidos.", icono: "calc", color: "red", relacionados: ["RQ-002", "RQ-005"] },
+    { clave: "resultados_ori", titulo: "Costo Post-Empleo: Resultados y ORI", subtitulo: "Gasto en resultados y remediciones en ORI.", icono: "pie", color: "purple", relacionados: ["RQ-005", "RQ-002"] },
+    { clave: "censo_actuarial", titulo: "Censo Actuarial y Desahucio Legal", subtitulo: "Validación del censo enviado al actuario.", icono: "people", color: "gold", relacionados: ["RQ-005"] },
+    { clave: "conciliacion_gl", titulo: "Conciliación Nómina–Mayor", subtitulo: "Cuadre de nómina contra el mayor contable.", icono: "refresh", color: "green", relacionados: ["RQ-006", "RQ-001"] },
+    { clave: "ajustes", titulo: "Ajustes Propuestos", subtitulo: "Asientos de ajuste sobre nómina y pasivos.", icono: "gears", color: "blue", relacionados: ["RQ-006"] },
+  ],
+};
+
+const IMPUESTO = {
+  processor: "impuesto_corriente_diferido",
+  icono: "calc", color: "blue",
+  eyebrow: "IMPUESTO CORRIENTE Y DIFERIDO",
+  titulo: "Impuesto Corriente y Diferido",
+  subtitulo: "Conciliación tributaria, diferencias temporarias, activo diferido y tasa efectiva (NIC 12)",
+  principales: [
+    { id: "RQ-001", titulo: "Conciliación Tributaria (F-101)", icono: "table", color: "blue", tipos: ".xlsx / .csv" },
+    { id: "RQ-002", titulo: "Anexo de Diferencias Temporarias", icono: "sliders", color: "purple", tipos: ".xlsx / .csv" },
+    { id: "RQ-004", titulo: "Formulario 101 Presentado", icono: "pdf", color: "red", tipos: ".pdf" },
+    { id: "RQ-005", titulo: "Retenciones, Anticipos y Crédito Tributario", icono: "coins", color: "gold", tipos: ".pdf / .xlsx" },
+    { id: "RQ-006", titulo: "Proyecciones y Recuperabilidad", icono: "line", color: "teal", tipos: ".xlsx / .pdf" },
+    { id: "RQ-007", titulo: "Mayor de Impuesto y Gasto por Impuesto", icono: "book", color: "green", tipos: ".xlsx / .pdf" },
+  ],
+  ejecuciones: [
+    { clave: "procedimiento", titulo: "Procedimiento de Impuesto Corriente y Diferido", subtitulo: "Papeles de trabajo y conclusiones.", icono: "doc", color: "blue", relacionados: "todos" },
+    { clave: "conciliacion", titulo: "Conciliación Tributaria", subtitulo: "Renglones del F-101 y base imponible.", icono: "table", color: "blue", relacionados: ["RQ-001", "RQ-004"] },
+    { clave: "impuesto_corriente", titulo: "Impuesto Corriente", subtitulo: "Cálculo del impuesto causado y anticipos.", icono: "calc", color: "green", relacionados: ["RQ-001", "RQ-005"] },
+    { clave: "perdidas", titulo: "Pérdidas Tributarias", subtitulo: "Amortización por año de origen.", icono: "line", color: "red", relacionados: ["RQ-003", "RQ-004"] },
+    { clave: "diferencias_temp", titulo: "Diferencias Temporarias y Diferido", subtitulo: "Activos y pasivos por impuesto diferido.", icono: "sliders", color: "purple", relacionados: ["RQ-002"] },
+    { clave: "recuperabilidad", titulo: "Recuperabilidad del Activo Diferido", subtitulo: "Análisis de ganancias fiscales futuras.", icono: "search", color: "gold", relacionados: ["RQ-006"] },
+    { clave: "movimiento", titulo: "Movimiento: Resultados y ORI", subtitulo: "Efecto en resultados y en ORI.", icono: "chart", color: "teal", relacionados: ["RQ-007", "RQ-002"] },
+    { clave: "compensacion", titulo: "Compensación y Presentación", subtitulo: "Neteo y presentación en el estado de situación.", icono: "box", color: "blue", relacionados: ["RQ-007"] },
+    { clave: "tasa_efectiva", titulo: "Tasa Efectiva (NIC 12.81 c)", subtitulo: "Conciliación de la tasa efectiva.", icono: "pie", color: "purple", relacionados: ["RQ-001", "RQ-007"] },
+    { clave: "partic_exentos", titulo: "Participación Atribuible a Exentos", subtitulo: "Participación de trabajadores sobre exentos.", icono: "coins", color: "gold", relacionados: ["RQ-008", "RQ-001"] },
+    { clave: "asientos", titulo: "Asientos Propuestos", subtitulo: "Ajustes de impuesto corriente y diferido.", icono: "gears", color: "green", relacionados: ["RQ-007"] },
+  ],
+};
+
+const GASTOS = {
+  processor: "gastos_analisis",
+  icono: "line", color: "teal",
+  eyebrow: "ANÁLISIS DE GASTOS",
+  titulo: "Análisis de Gastos",
+  subtitulo: "Análisis global, vouching, corte, devengo y partes relacionadas (NIA 520, 550)",
+  principales: [
+    { id: "RQ-001", titulo: "Sumaria de Cuentas de Gasto", icono: "table", color: "teal", tipos: ".xlsx / .csv" },
+    { id: "RQ-002", titulo: "Muestra de Transacciones de Gasto", icono: "list", color: "blue", tipos: ".xlsx / .csv" },
+    { id: "RQ-003", titulo: "Mayor de Gastos y Balance de Comprobación", icono: "book", color: "green", tipos: ".xlsx / .pdf" },
+    { id: "RQ-004", titulo: "Facturas, Contratos y Aprobaciones", icono: "doc", color: "gold", tipos: ".pdf" },
+    { id: "RQ-005", titulo: "Facturas y Pagos Posteriores al Cierre", icono: "calendar", color: "purple", tipos: ".pdf / .xlsx" },
+    { id: "RQ-006", titulo: "Maestro de Partes Relacionadas", icono: "people", color: "red", tipos: ".xlsx / .pdf / .docx" },
+  ],
+  ejecuciones: [
+    { clave: "procedimiento", titulo: "Procedimiento de Análisis de Gastos", subtitulo: "Papeles de trabajo y conclusiones.", icono: "doc", color: "blue", relacionados: "todos" },
+    { clave: "analisis_global", titulo: "Análisis Global por Cuenta (NIA 520)", subtitulo: "Variaciones año actual, anterior y presupuesto.", icono: "chart", color: "teal", relacionados: ["RQ-001", "RQ-003"] },
+    { clave: "transacciones", titulo: "Transacciones de la Muestra", subtitulo: "Selección y marcas de la muestra de gasto.", icono: "list", color: "blue", relacionados: ["RQ-002"] },
+    { clave: "vouching", titulo: "Verificación del Soporte Documental", subtitulo: "Vouching de facturas, contratos y pagos.", icono: "search", color: "gold", relacionados: ["RQ-004", "RQ-002"] },
+    { clave: "corte", titulo: "Corte de Gastos", subtitulo: "Prueba de corte sobre el período del servicio.", icono: "calendar", color: "purple", relacionados: ["RQ-005", "RQ-002"] },
+    { clave: "devengo", titulo: "Devengo y Gastos Anticipados", subtitulo: "Reconocimiento en el período correcto.", icono: "clock", color: "green", relacionados: ["RQ-002", "RQ-003"] },
+    { clave: "partes_relacionadas", titulo: "Partes Relacionadas", subtitulo: "Identificación de transacciones con partes relacionadas.", icono: "people", color: "red", relacionados: ["RQ-006", "RQ-008"] },
+    { clave: "rp_integridad", titulo: "Integridad de la Revelación de Partes Relacionadas", subtitulo: "Cobertura del maestro y la revelación.", icono: "shield", color: "gold", relacionados: ["RQ-006", "RQ-008"] },
+    { clave: "inusuales", titulo: "Partidas Inusuales", subtitulo: "Detección de partidas atípicas de gasto.", icono: "warning", color: "red", relacionados: ["RQ-002"] },
+    { clave: "tributario", titulo: "Referencia Tributaria (Ecuador)", subtitulo: "Deducibilidad y referencia fiscal.", icono: "calc", color: "blue", relacionados: ["RQ-003"] },
+    { clave: "asientos", titulo: "Asientos y Ajustes", subtitulo: "Ajustes propuestos y conciliación.", icono: "gears", color: "green", relacionados: ["RQ-003"] },
+  ],
+};
+
+const SEGUROS = {
+  processor: "seguros_cobertura",
+  icono: "shield", color: "gold",
+  eyebrow: "SEGUROS Y COBERTURA",
+  titulo: "Seguros y Cobertura",
+  subtitulo: "Cobertura de activos, infraseguro, deducibles, prima anticipada y siniestros",
+  principales: [
+    { id: "RQ-001", titulo: "Maestro de Activos Asegurables", icono: "building", color: "gold", tipos: ".xlsx / .csv" },
+    { id: "RQ-002", titulo: "Detalle de Pólizas Vigentes y Vencidas", icono: "list", color: "blue", tipos: ".xlsx / .csv" },
+    { id: "RQ-003", titulo: "Pólizas y Endosos", icono: "pdf", color: "teal", tipos: ".pdf" },
+    { id: "RQ-006", titulo: "Mayor de Seguros Pagados por Anticipado", icono: "book", color: "green", tipos: ".xlsx / .pdf" },
+  ],
+  ejecuciones: [
+    { clave: "procedimiento", titulo: "Procedimiento de Seguros y Cobertura", subtitulo: "Papeles de trabajo y conclusiones.", icono: "doc", color: "blue", relacionados: "todos" },
+    { clave: "vigencia", titulo: "Vigencia de Pólizas al Corte", subtitulo: "Pólizas vigentes y vencidas a la fecha de corte.", icono: "calendar", color: "purple", relacionados: ["RQ-002", "RQ-003"] },
+    { clave: "cobertura_activo", titulo: "Universo y Cobertura por Activo", subtitulo: "Cotejo del maestro de activos contra pólizas.", icono: "table", color: "gold", relacionados: ["RQ-001", "RQ-002"] },
+    { clave: "cobertura_poliza", titulo: "Cobertura por Póliza (Infraseguro)", subtitulo: "Suma asegurada frente al valor de referencia.", icono: "search", color: "teal", relacionados: ["RQ-002", "RQ-004"] },
+    { clave: "deducibles_exposicion", titulo: "Deducibles y Exposición Máxima", subtitulo: "Deducibles y exposición neta por póliza.", icono: "sliders", color: "blue", relacionados: ["RQ-003"] },
+    { clave: "sin_cobertura", titulo: "Activos Sin Cobertura", subtitulo: "Activos asegurables sin póliza vigente.", icono: "warning", color: "red", relacionados: ["RQ-001", "RQ-002"] },
+    { clave: "prima_anticipada", titulo: "Prima Pagada por Anticipado", subtitulo: "Devengo del seguro prepagado.", icono: "coins", color: "green", relacionados: ["RQ-006"] },
+    { clave: "siniestros", titulo: "Siniestros Pendientes y Revelación", subtitulo: "Reclamos en curso y su revelación.", icono: "shield", color: "purple", relacionados: ["RQ-005"] },
+    { clave: "ajustes", titulo: "Ajustes Propuestos y Conciliación", subtitulo: "Asientos de ajuste y cuadre con el mayor.", icono: "gears", color: "gold", relacionados: ["RQ-006"] },
+  ],
+};
+
+// --- Arrendamientos (NIIF 16) ---
+const ARRENDAMIENTOS = {
+  processor: "arrendamientos",
+  icono: "building", color: "teal",
+  eyebrow: "ARRENDAMIENTOS",
+  titulo: "Arrendamientos",
+  subtitulo: "Clasificación, medición del pasivo y derecho de uso, amortización y venta con arrendamiento posterior (NIIF 16)",
+  principales: [
+    { id: "RQ-001", titulo: "Anexo de Contratos de Arrendamiento", icono: "doc", color: "green", tipos: ".xlsx / .csv" },
+    { id: "RQ-002", titulo: "Contratos Firmados y Adendas", icono: "book", color: "blue", tipos: ".pdf / .docx" },
+    { id: "RQ-003", titulo: "Sustento de la Tasa Implícita o Incremental", icono: "coins", color: "gold", tipos: ".pdf / .xlsx" },
+    { id: "RQ-004", titulo: "Mayor y Auxiliares (Pasivo, Derecho de Uso, Depreciación e Intereses)", icono: "list", color: "purple", tipos: ".xlsx / .pdf" },
+  ],
+  ejecuciones: [
+    { clave: "procedimiento", titulo: "Procedimiento de Arrendamientos", subtitulo: "Papeles de trabajo y conclusiones.", icono: "doc", color: "blue", relacionados: "todos" },
+    { clave: "contratos", titulo: "Universo de Contratos", subtitulo: "Inventario y cobertura de contratos al corte.", icono: "building", color: "teal", relacionados: ["RQ-001", "RQ-002"] },
+    { clave: "clasificacion", titulo: "Identificación, Clasificación y Exenciones", subtitulo: "Alcance, corto plazo y bajo valor.", icono: "list", color: "gold", relacionados: ["RQ-001", "RQ-002"] },
+    { clave: "plazo", titulo: "Plazo y Opciones", subtitulo: "Plazo razonablemente cierto y opciones.", icono: "calendar", color: "purple", relacionados: ["RQ-002", "RQ-007"] },
+    { clave: "medicion_inicial", titulo: "Medición Inicial", subtitulo: "Pasivo por arrendamiento y activo por derecho de uso.", icono: "calc", color: "green", relacionados: ["RQ-003", "RQ-004"] },
+    { clave: "amortizacion", titulo: "Tabla de Amortización", subtitulo: "Intereses y amortización del pasivo.", icono: "table", color: "blue", relacionados: ["RQ-003", "RQ-004"] },
+    { clave: "pasivo_corte", titulo: "Pasivo al Corte", subtitulo: "Porción corriente y no corriente.", icono: "coins", color: "teal", relacionados: ["RQ-004"] },
+    { clave: "derecho_uso", titulo: "Derecho de Uso", subtitulo: "Depreciación y deterioro del activo.", icono: "warning", color: "gold", relacionados: ["RQ-004", "RQ-005"] },
+    { clave: "gasto_lineal", titulo: "Gasto Lineal", subtitulo: "Contratos exentos y operativos.", icono: "line", color: "purple", relacionados: ["RQ-001", "RQ-007"] },
+    { clave: "venta_arr_posterior", titulo: "Venta con Arrendamiento Posterior", subtitulo: "Medición inicial y posterior del sale & leaseback.", icono: "refresh", color: "red", relacionados: ["RQ-006", "RQ-008"] },
+    { clave: "conciliacion", titulo: "Conciliación y Ajuste", subtitulo: "Cruce con la contabilidad y asientos.", icono: "gears", color: "blue", relacionados: ["RQ-004"] },
+  ],
+};
+
+// --- Pérdida Crediticia Esperada (NIIF 9, simplificada) ---
+const PCE_NIIF9 = {
+  processor: "pce_simplificada_niif9",
+  icono: "warning", color: "red",
+  eyebrow: "PÉRDIDA CREDITICIA ESPERADA · NIIF 9",
+  titulo: "Pérdida Crediticia Esperada (NIIF 9)",
+  subtitulo: "Deterioro de cartera por enfoque simplificado: tasas históricas, matriz de provisiones y revelación NIIF 7",
+  principales: [
+    { id: "RQ-001", titulo: "Cartera por Factura al Corte", icono: "doc", color: "green", tipos: ".xlsx / .csv" },
+    { id: "RQ-002", titulo: "Cartera por Factura del Corte Anterior", icono: "book", color: "blue", tipos: ".xlsx / .csv" },
+    { id: "RQ-004", titulo: "Información Prospectiva (Proyecciones e Indicadores)", icono: "line", color: "gold", tipos: ".pdf / .docx" },
+    { id: "RQ-005", titulo: "Política de Crédito y Cobranza", icono: "shield", color: "red", tipos: ".pdf / .docx" },
+  ],
+  ejecuciones: [
+    { clave: "procedimiento", titulo: "Procedimiento de Pérdida Crediticia Esperada", subtitulo: "Papeles de trabajo y conclusiones.", icono: "doc", color: "blue", relacionados: "todos" },
+    { clave: "tasas_historicas", titulo: "Tasas Históricas", subtitulo: "Tasas de pérdida por tramo con castigos.", icono: "line", color: "teal", relacionados: ["RQ-002", "RQ-003"] },
+    { clave: "matriz_provisiones", titulo: "Matriz de Provisiones", subtitulo: "PCE por tramo con ajuste prospectivo.", icono: "table", color: "red", relacionados: ["RQ-001", "RQ-004"] },
+    { clave: "revelacion_niif7", titulo: "Revelación NIIF 7 (35M/35N)", subtitulo: "Exposición al riesgo de crédito.", icono: "shield", color: "gold", relacionados: ["RQ-001"] },
+    { clave: "movimiento", titulo: "Movimiento de la Provisión (NIIF 7 35H)", subtitulo: "Conciliación del saldo de la provisión.", icono: "refresh", color: "purple", relacionados: ["RQ-002", "RQ-003"] },
+    { clave: "fiscal", titulo: "Fiscal e Impuesto Diferido", subtitulo: "Diferencia contable-fiscal y diferido.", icono: "calc", color: "blue", relacionados: ["RQ-001"] },
+    { clave: "asientos", titulo: "Asientos Propuestos", subtitulo: "Ajustes al deterioro registrado.", icono: "gears", color: "teal", relacionados: ["RQ-001"] },
+    { clave: "detalle", titulo: "Detalle por Factura", subtitulo: "PCE calculada factura a factura.", icono: "list", color: "green", relacionados: ["RQ-001"] },
+    { clave: "castigos", titulo: "Castigos del Ejercicio", subtitulo: "Bajas de cartera del período.", icono: "warning", color: "red", relacionados: ["RQ-003"] },
+    { clave: "cobros_posteriores", titulo: "Cobros Posteriores al Cierre", subtitulo: "Evidencia de cobrabilidad tras el corte.", icono: "bank", color: "purple", relacionados: ["RQ-006"] },
+  ],
+};
+
+// --- Pérdidas Incurridas (Sección 11 PYMES) ---
+const PERDIDAS_INCURRIDAS_S11 = {
+  processor: "perdidas_incurridas_s11",
+  icono: "table", color: "gold",
+  eyebrow: "DETERIORO DE CARTERA · SECCIÓN 11 PYMES",
+  titulo: "Pérdidas Incurridas (Sección 11)",
+  subtitulo: "Deterioro de cartera por pérdidas incurridas: evidencia histórica, matriz de deterioro, movimiento y fiscal",
+  principales: [
+    { id: "RQ-001", titulo: "Cartera por Factura al Cierre Corriente", icono: "doc", color: "green", tipos: ".xlsx / .csv" },
+    { id: "RQ-002", titulo: "Cartera por Factura del Cierre Anterior", icono: "book", color: "blue", tipos: ".xlsx / .csv" },
+    { id: "RQ-004", titulo: "Provisión y Diferidos por Factura al Inicio", icono: "table", color: "gold", tipos: ".xlsx / .csv" },
+    { id: "RQ-005", titulo: "Movimiento de la Provisión según el Mayor", icono: "list", color: "purple", tipos: ".xlsx / .csv" },
+    { id: "RQ-006", titulo: "Cobros Posteriores al Cierre", icono: "bank", color: "teal", tipos: ".xlsx / .pdf" },
+    { id: "RQ-007", titulo: "Política de Crédito y Cobranza", icono: "shield", color: "red", tipos: ".pdf / .docx" },
+  ],
+  ejecuciones: [
+    { clave: "procedimiento", titulo: "Procedimiento de Pérdidas Incurridas", subtitulo: "Papeles de trabajo y conclusiones.", icono: "doc", color: "blue", relacionados: "todos" },
+    { clave: "evidencia_historica", titulo: "Evidencia Histórica", subtitulo: "Comportamiento de la cartera en tres ejercicios.", icono: "line", color: "teal", relacionados: ["RQ-001", "RQ-002", "RQ-003"] },
+    { clave: "matriz_deterioro", titulo: "Matriz de Deterioro", subtitulo: "Deterioro requerido por tramo de mora.", icono: "table", color: "gold", relacionados: ["RQ-001", "RQ-004"] },
+    { clave: "por_cliente", titulo: "Deterioro por Cliente", subtitulo: "Análisis individualizado de clientes.", icono: "people", color: "green", relacionados: ["RQ-001"] },
+    { clave: "movimiento_provision", titulo: "Movimiento de la Provisión", subtitulo: "Conciliación de altas, usos y reversos.", icono: "refresh", color: "purple", relacionados: ["RQ-004", "RQ-005"] },
+    { clave: "mayor", titulo: "Provisión según el Mayor", subtitulo: "Cruce del movimiento contra el libro mayor.", icono: "book", color: "blue", relacionados: ["RQ-005"] },
+    { clave: "fiscal", titulo: "Fiscal", subtitulo: "Diferencia contable-fiscal del deterioro.", icono: "calc", color: "teal", relacionados: ["RQ-001"] },
+    { clave: "impuesto_diferido", titulo: "Impuesto Diferido por Factura", subtitulo: "Activo/pasivo diferido factura a factura.", icono: "coins", color: "gold", relacionados: ["RQ-004"] },
+    { clave: "asientos", titulo: "Asientos Propuestos", subtitulo: "Ajustes al deterioro registrado.", icono: "gears", color: "red", relacionados: ["RQ-001", "RQ-005"] },
+    { clave: "cobros_posteriores", titulo: "Cobros Posteriores al Cierre", subtitulo: "Evidencia de cobrabilidad tras el corte.", icono: "bank", color: "purple", relacionados: ["RQ-006"] },
+  ],
+};
+
 export const CONFIG = {
   efectivo: EFECTIVO,
   planificacion: PLANIFICACION,
@@ -259,6 +673,21 @@ export const CONFIG = {
   proveedores: PROVEEDORES,
   inventarios: INVENTARIOS,
   ingresos: INGRESOS,
+  ppe: PPE,
+  propiedades: PROPIEDADES_INVERSION,
+  intangibles: INTANGIBLES,
+  biologicos: ACTIVOS_BIOLOGICOS,
+  prestamos: PRESTAMOS,
+  inversiones: INVERSIONES,
+  patrimonio: PATRIMONIO,
+  provisiones: PROVISIONES,
+  nomina: NOMINA,
+  impuesto: IMPUESTO,
+  gastos: GASTOS,
+  seguros: SEGUROS,
+  arrendamientos: ARRENDAMIENTOS,
+  pce: PCE_NIIF9,
+  perdidas: PERDIDAS_INCURRIDAS_S11,
 };
 
 // Devuelve la config de la vista de 3 pasos para un processor, o null si ese
