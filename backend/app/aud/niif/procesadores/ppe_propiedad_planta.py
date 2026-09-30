@@ -940,6 +940,8 @@ def hojas(res: dict) -> list[dict]:
             obs,
         ])
     ex_fiscal = {
+        "Costo": "Costo del activo, traído de la columna «Costo» de la hoja 04 (Recálculo de depreciación); es la base sobre la que "
+                 "se aplica el límite y la tasa fiscal para el recálculo tributario.",
         "Tasa fiscal máx. (SRI)": "Porcentaje máximo anual de depreciación deducible por clase (RALRTI Art. 28 núm. 6): inmuebles 5 %, "
                                   "instalaciones, maquinaria, equipos y muebles 10 %, vehículos 20 %, cómputo y software 33 %; terrenos no se deprecian.",
         "Base deducible": f"Costo del activo; en vehículos, limitada a USD {int(TOPE_VEHICULO):,} (LRTI Art. 10 núm. 7).",
@@ -1281,6 +1283,12 @@ def hojas(res: dict) -> list[dict]:
         "Semáforo": ("Estado del activo: «Alerta» si la diferencia entre la depreciación recalculada y la registrada supera la "
                      "tolerancia de la hoja 02 (Parámetros), «Conforme» si está dentro de ella. Queda en blanco si no se recalculó "
                      "la depreciación (método no lineal o sin datos)."),
+        "Dep. acumulada cliente": "Depreciación acumulada del cliente al corte: suma la acumulada al inicio informada en la hoja 03 "
+                                  "(Auxiliar de activos) y el gasto de depreciación del año que el cliente registró (columna "
+                                  "«Depreciación registrada»).",
+        "Dif. dep. acumulada": "Depreciación acumulada recalculada por el auditor (columna «Dep. acumulada recalculada») menos la del "
+                               "cliente; positiva cuando el auditor calcula más acumulada que la registrada. En blanco si no se "
+                               "recalculó la depreciación.",
     }
     ex_vidas = {
         "Vida útil (meses)": "Trae la vida útil en meses informada en la hoja 03 (Auxiliar de activos); en blanco si no se informó.",

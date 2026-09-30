@@ -77,7 +77,7 @@ const PLANIFICACION = {
     { id: "RQ-002", titulo: "Estados Financieros Año Actual", icono: "chart", color: "blue", tipos: ".xlsx" },
     { id: "RQ-001", titulo: "Estados Financieros Año Anterior", icono: "chart", color: "teal", tipos: ".xlsx" },
     { id: "RQ-003", titulo: "Estado de Resultados Año Anterior (mismo corte · visita preliminar)", icono: "line", color: "blue", tipos: ".xlsx / .csv" },
-    { id: "RQ-006", titulo: "Notas a los Estados Financieros Año Anterior", icono: "doc", color: "gold", tipos: ".xlsx" },
+    { id: "RQ-006", titulo: "Notas a los Estados Financieros Año Anterior", icono: "doc", color: "gold", tipos: ".xlsx / .pdf / .docx" },
     { id: "RQ-005", titulo: "Informe de Auditoría Año Anterior", icono: "pdf", color: "red", tipos: "PDF" },
     { id: "RQ-004", titulo: "Carta de Control Interno Año Anterior", icono: "shield", color: "purple", tipos: ".xlsx / .pdf" },
     { id: "RQ-008", titulo: "Certificado del RUC", icono: "bank", color: "green", tipos: ".pdf / .xlsx" },

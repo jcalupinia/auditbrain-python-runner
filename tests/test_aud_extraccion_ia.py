@@ -113,6 +113,17 @@ def test_extraer_informe_incluye_enums_en_el_prompt():
     assert "Salvedad" in prompt and "Identificación" in prompt
 
 
+def test_extraer_notas_produce_filas_validas():
+    filas = [
+        {"nota": "3", "titulo": "Efectivo y equivalentes de efectivo", "codigos": "1101", "saldo_auditado": 176900.0},
+        {"nota": "4", "titulo": "Cuentas por cobrar comerciales", "codigos": "1103, 1106", "saldo_auditado": 656500.0},
+    ]
+    out = ex.extraer_filas(m.CAMPOS["notas_estados_financieros"], "texto de las notas", chat=_ChatFalso(filas))
+    v = m.validar_filas("notas_estados_financieros", out["rows"])
+    assert v["ok"], v["errors"]
+    assert out["rows"][0]["nota"] == "3"
+
+
 def test_extraer_descarta_claves_desconocidas():
     filas = [{"id": "R01", "proceso": "X", "hallazgo": "Y", "inventado": "no debería pasar"}]
     out = ex.extraer_filas(m.CAMPOS["carta_control_interno"], "t", chat=_ChatFalso(filas))
