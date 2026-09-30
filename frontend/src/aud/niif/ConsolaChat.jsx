@@ -66,7 +66,7 @@ export function ConsolaChat({ prueba, onRecargar }) {
   const sig = guion?.siguiente || {};
 
   return (
-    <section className="nf-chat">
+    <section className="nf-consola-chat">
       <div className="nf-chat-cab">
         <p className="nf-eyebrow" style={{ margin: 0 }}>
           {esPlan ? "CONSOLA DE PLANIFICACIÓN · PILOTO" : `CONSOLA DE LA PRUEBA · ${prueba.definicion.name?.toUpperCase() || ""}`}

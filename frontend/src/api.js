@@ -471,6 +471,17 @@ export async function cicloBajarPapelBancos(pruebaId) {
   if (!res.ok) await parse(res);
   return new Uint8Array(await res.arrayBuffer());
 }
+// Reproceso de la conciliación bancaria del último mes (Efectivo y Equivalentes): matriz por
+// cuenta (banco, saldos, diferencia, estado, coincidencias) o { disponible:false, motivo }.
+export async function cicloReproceso(pruebaId) {
+  return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/reproceso`, { headers: authHeaders() }));
+}
+// REPROCESO_CONCILIACION.xlsx: la matriz del reproceso por cuenta (cuadre por fórmula).
+export async function cicloReprocesoExcel(pruebaId) {
+  const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/reproceso-excel`, { headers: authHeaders() });
+  if (!res.ok) await parse(res);
+  return new Uint8Array(await res.arrayBuffer());
+}
 // Ejercicio modelo (solo lectura): el recorrido de 9 pasos con datos de ejemplo.
 export async function cicloEjercicioModelo(pruebaId) {
   return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/ejercicio-modelo`, { headers: authHeaders() }));

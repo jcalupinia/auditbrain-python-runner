@@ -280,6 +280,27 @@ export function pasoPreparar(p, taxScope = "", conforme = false) {
 export const archivosDe = (p, requerimiento) =>
   (p.archivos || []).filter((a) => a.requerimiento === requerimiento && a.estado !== "rechazado" && esTabular(a.nombre));
 
+// --- Extracción por IA de documentos narrativos (carta de control interno / informe) ---
+// Un requerimiento admite extracción por IA si tiene dataset y acepta PDF/Word: se
+// sube el documento firmado y la IA arma la tabla que el auditor revisa y confirma.
+export const esExtraibleIA = (nombre) => /\.(pdf|docx)$/i.test(String(nombre || ""));
+
+export function admiteExtraccionIA(req) {
+  return !!req?.dataset && (req?.formats || []).some((f) => ["pdf", "docx"].includes(String(f).toLowerCase()));
+}
+
+// Documentos PDF/Word (no rechazados) subidos a un requerimiento, candidatos a extracción.
+export function archivosExtraibles(p, requerimiento) {
+  return (p.archivos || []).filter(
+    (a) => a.requerimiento === requerimiento && a.estado !== "rechazado" && esExtraibleIA(a.nombre),
+  );
+}
+
+// Extracción guardada (borrador o confirmada) de un archivo, si existe.
+export function extraccionDe(p, fileId) {
+  return (p.registro?.extraccion || {})[String(fileId)] || null;
+}
+
 // Problemas que la vista de trabajo muestra junto al resultado.
 export function problemasDe(p) {
   const reg = p.registro, lista = [];

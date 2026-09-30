@@ -4,9 +4,9 @@ El envío lo dispara el auditor: `/enviar` usa el mismo servicio de correo de la
 plataforma (Resend, `notifications.email.send_email`) que ya manda usuario y clave a
 los clientes. Las respuestas se dirigen al correo del auditor (reply-to).
 """
+import base64
 import json
 import re
-from html import escape
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
@@ -16,7 +16,8 @@ from backend.app.context.models import Project, Client
 from backend.app.context.service import user_can_access_project
 from backend.app.notifications.email import send_email
 from .engine import calculate
-from .exports import build_xlsx, build_html, build_docx, build_pdf, PDFNoDisponible, schedules, letter_email_html
+from .exports import (build_xlsx, build_html, build_docx, build_pdf, build_zip, PDFNoDisponible,
+                      schedules, letter_email_html, email_brand_shell, RUBRO_FOLDER)
 from .plantillas import TYPES, TYPE_LABEL_ES, METHOD_LABEL, REFERENCES, languages
 from .parsers import extract, MAX_BYTES
 from .models import ConfirmacionEnvio
@@ -34,6 +35,7 @@ FORMATS = {
     'docx': (build_docx, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
     'html': (build_html, 'text/html; charset=utf-8'),
     'pdf': (build_pdf, 'application/pdf'),
+    'zip': (build_zip, 'application/zip'),
 }
 
 
@@ -104,7 +106,7 @@ async def process(project_id: int, request: Request, authorized=Depends(access))
 
 
 @router.post('/{project_id}/download')
-async def download(project_id: int, request: Request, format: str = Query(..., pattern='^(xlsx|docx|html|pdf)$'), authorized=Depends(access)):
+async def download(project_id: int, request: Request, format: str = Query(..., pattern='^(xlsx|docx|html|pdf|zip)$'), authorized=Depends(access)):
     result = await run_in_threadpool(safe_calculate, await request_data(request))
     builder, mime = FORMATS[format]
     try:
@@ -147,28 +149,52 @@ def _send_all(result, only_ids):
     return {'sent': sent, 'total': len(results), 'results': results}
 
 
+def _zip_filename(ctx):
+    base = f"Confirmaciones_{ctx.get('client') or ''}_{ctx.get('cutoff') or ''}".strip('_')
+    base = ''.join(c if (c.isalnum() or c in '-_') else '_' for c in base)
+    while '__' in base:
+        base = base.replace('__', '_')
+    return (base or 'Confirmaciones') + '.zip'
+
+
 def _send_to_single(result, to):
-    """Envía TODAS las cartas en un solo correo al destinatario indicado
-    (p. ej. el buzón del auditor), para revisarlas o reenviarlas. Las respuestas
-    de terceros siguen dirigidas al correo del auditor de la ficha."""
+    """Envía las cartas en un solo correo al destinatario indicado (auditor o
+    cliente) con un ZIP adjunto: un Word por carta, en carpetas por rubro. El
+    auditor/cliente reenvía a los destinatarios; las respuestas se dirigen al
+    correo del auditor de la ficha (NIA 505)."""
     ctx = result['context']
     reply_to = ctx.get('auditor_email') or None
     letters = result['letters']
-    encabezado = (f"<div style=\"font:14px/1.5 Arial;margin-bottom:12px\"><b>Cartas de confirmación de saldos</b><br>"
-                  f"{escape(str(ctx.get('client') or ''))} · corte {escape(str(ctx.get('cutoff') or ''))} · "
-                  f"{len(letters)} cartas</div>")
-    cuerpo = ('<hr style="page-break-after:always;border:none;border-top:1px solid #ccc;margin:24px 0">'
-              .join(letter_email_html(result, l) for l in letters))
     subject = f"Cartas de confirmación de saldos · {ctx.get('client') or ''} · corte {ctx.get('cutoff') or ''}"
+    fname = _zip_filename(ctx)
+    attachments = [{
+        'filename': fname,
+        'content': base64.b64encode(build_zip(result)).decode('ascii'),
+    }]
+    conteo = {}
+    for letter in letters:
+        conteo[letter['type']] = conteo.get(letter['type'], 0) + 1
+    filas = ''.join(f'<li>{RUBRO_FOLDER.get(k, k)}: {v}</li>' for k, v in conteo.items())
+    body = email_brand_shell(
+        '<p style="font-size:20px;color:#0B1E36;font-weight:bold;margin:0 0 6px">'
+        'Cartas de confirmación de saldos</p>'
+        f'<p style="margin:0 0 14px;color:#6b6b66">{ctx.get("client") or ""} · corte '
+        f'{ctx.get("cutoff") or ""} · {len(letters)} cartas</p>'
+        f'<p style="margin:0 0 10px">Adjunto encontrará las {len(letters)} cartas de confirmación en un '
+        f'archivo ZIP (<b>{fname}</b>): un documento Word por carta, organizadas en carpetas por rubro:</p>'
+        f'<ul style="margin:0 0 14px 18px">{filas}</ul>'
+        '<p style="margin:0;color:#6b6b66;font-size:13px">Revise y remita las cartas a los destinatarios '
+        'correspondientes. Las respuestas deben dirigirse al correo del auditor (NIA 505).</p>'
+    )
     try:
-        resp = send_email(to=to, subject=subject, html=encabezado + cuerpo, reply_to=reply_to)
+        resp = send_email(to=to, subject=subject, html=body, reply_to=reply_to, attachments=attachments)
         ok = bool(resp)
     except Exception as exc:  # noqa: BLE001
-        return {'sent': 0, 'total': len(letters), 'destino': to,
-                'results': [{'id': '(consolidado)', 'to': to, 'status': 'error', 'detail': str(exc)[:200]}]}
+        return {'sent': 0, 'total': len(letters), 'destino': to, 'adjunto': fname,
+                'results': [{'id': '(zip)', 'to': to, 'status': 'error', 'detail': str(exc)[:200]}]}
     return {
-        'sent': len(letters) if ok else 0, 'total': len(letters), 'destino': to,
-        'results': [{'id': '(consolidado)', 'to': to,
+        'sent': len(letters) if ok else 0, 'total': len(letters), 'destino': to, 'adjunto': fname,
+        'results': [{'id': '(zip)', 'to': to,
                      'status': 'enviado' if ok else 'error',
                      'provider_id': resp.get('id') if ok else None,
                      'cartas': len(letters)}],

@@ -138,6 +138,10 @@ def construir(papel: dict) -> bytes:
     eng = papel.get("engagement") or {}
     cuentas = papel.get("cuentas") or []
     corte = _fecha(eng.get("cutoff")) or datetime.date.today()
+    try:
+        dias_presc = int(papel.get("dias_prescripcion") or 390)
+    except (TypeError, ValueError):
+        dias_presc = 390
 
     # Normaliza partidas: deduce categoría si no viene, y ata el banco al nombre de la cuenta.
     nombres = [c.get("descripcion", "") for c in cuentas]
@@ -251,7 +255,7 @@ def construir(papel: dict) -> bytes:
         ws.cell(r, 6, p["valor"]).border = st.box
         ws.cell(r, 6).number_format = _MONEY
         ws.cell(r, 7, f"=$B$7-A{r}").border = st.box            # días vencidos = corte - fecha
-        ws.cell(r, 8, f"=A{r}+390").border = st.box             # prescripción = fecha + 360 + 30
+        ws.cell(r, 8, f"=A{r}+{dias_presc}").border = st.box    # prescripción = fecha + diasPrescripcion (def. 360 + 30)
         ws.cell(r, 8).number_format = _DATE
         ws.cell(r, 9, p["observacion"]).border = st.box
         ws.cell(r, 9).alignment = st.left
@@ -368,9 +372,25 @@ def construir(papel: dict) -> bytes:
     for col, w in zip("ABCDEFGHIJ", (12, 26, 8, 6, 12, 14, 34, 24, 14, 14)):
         ws.column_dimensions[col].width = w
 
+    # ===== Documentos de entrada (NIA 230): huella SHA-256 de cada archivo del cliente =====
+    archivos = papel.get("archivos") or []
+    if archivos:
+        ws = wb.create_sheet("Documentos de entrada")
+        ws["A1"] = "DOCUMENTOS DE ENTRADA (NIA 230) — huella SHA-256 de cada archivo del cliente"
+        ws["A1"].font = st.title
+        _tabla_encabezados(ws, st, 3, ["Requerimiento", "Archivo", "SHA-256", "Tamaño (bytes)", "Subido por", "Fecha"])
+        for i, a in enumerate(archivos, 4):
+            for c, v in enumerate([a.get("requerimiento"), a.get("nombre"), a.get("sha256"),
+                                   a.get("tamano"), a.get("subido_por"), a.get("subido_en")], 1):
+                cell = ws.cell(i, c, v)
+                cell.border = st.box
+                cell.alignment = st.left
+        for col, w in zip("ABCDEF", (14, 38, 66, 15, 24, 22)):
+            ws.column_dimensions[col].width = w
+
     for hoja in wb.worksheets:
         hoja.sheet_view.showGridLines = False
-        if hoja.title != "Libro Mayor":
+        if hoja.title not in ("Libro Mayor", "Documentos de entrada"):
             hoja.freeze_panes = "A9"
     wb.calculation.fullCalcOnLoad = True
 

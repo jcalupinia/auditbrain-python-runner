@@ -156,20 +156,24 @@
 .nf-consola-puerta td { padding: 3px 6px; border-top: 1px solid rgba(255, 255, 255, 0.06); vertical-align: top; }
 .nf-consola-puerta td:first-child { white-space: nowrap; font-weight: 600; }
 
-/* Consola-chat del piloto de planificación */
-.nf-chat { margin: 12px 0; padding: 12px 14px; border: 1px solid rgba(199, 168, 60, 0.35); border-radius: 10px;
-  background: rgba(7, 27, 47, 0.5); }
-.nf-chat-cab { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
-.nf-chat-roles { display: flex; gap: 6px; }
-.nf-chat-hilo { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
-.nf-chat-msg { max-width: 90%; padding: 8px 12px; border-radius: 12px; font-size: 13px; }
-.nf-chat-msg p { margin: 2px 0 0; white-space: pre-wrap; }
-.nf-chat-de { font-size: 11px; font-weight: 700; color: #C7A83C; }
-.nf-chat-agente { align-self: flex-start; background: rgba(10, 35, 66, 0.85); border: 1px solid rgba(199, 168, 60, 0.25); }
-.nf-chat-prep { align-self: flex-end; background: rgba(14, 44, 80, 0.9); }
-.nf-chat-aud { align-self: flex-end; background: rgba(40, 60, 30, 0.7); }
-.nf-chat-sys { align-self: center; background: rgba(255, 255, 255, 0.05); font-style: italic; }
-.nf-chat-accion { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+/* Consola-chat del piloto de planificación (ConsolaChat.jsx). Panel propio con
+   tema oscuro autónomo: no hereda color del contenedor y NO comparte las clases
+   .nf-chat / .nf-chat-msg de ConsolaPrueba.jsx (esa colisión dejaba el texto
+   ilegible: fondo #fff y burbujas #f0f3f7 pisaban el tema oscuro). Todo va
+   scopeado bajo .nf-consola-chat para ganar la cascada y fijar texto claro. */
+.nf-consola-chat { margin: 12px 0; padding: 12px 14px; border: 1px solid rgba(199, 168, 60, 0.45);
+  border-radius: 10px; background: #071B2F; color: #E8EEF5; }
+.nf-consola-chat .nf-chat-cab { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.nf-consola-chat .nf-chat-roles { display: flex; gap: 6px; }
+.nf-consola-chat .nf-chat-hilo { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
+.nf-consola-chat .nf-chat-msg { display: block; max-width: 90%; padding: 8px 12px; border-radius: 12px; font-size: 13px; }
+.nf-consola-chat .nf-chat-msg p { margin: 2px 0 0; white-space: pre-wrap; color: #E8EEF5; }
+.nf-consola-chat .nf-chat-de { font-size: 11px; font-weight: 700; color: #C7A83C; }
+.nf-consola-chat .nf-chat-agente { align-self: flex-start; background: #0A2342; border: 1px solid rgba(199, 168, 60, 0.30); }
+.nf-consola-chat .nf-chat-prep { align-self: flex-end; background: #0E2C50; }
+.nf-consola-chat .nf-chat-aud { align-self: flex-end; background: #1E3A24; }
+.nf-consola-chat .nf-chat-sys { align-self: center; background: rgba(255, 255, 255, 0.08); font-style: italic; }
+.nf-consola-chat .nf-chat-accion { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.12); }
 .nf-registro-colapsado > summary { cursor: pointer; padding: 8px 4px; }
 .nf-estudio-json { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0; }
 .nf-estudio-json label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
@@ -503,3 +507,234 @@ a.btn { text-decoration: none; display: inline-block; }
 .nf-sug-cuentas { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: #45525f; }
 .nf-sug-riesgos { color: #7a5c00; font-style: italic; }
 .nf-sug-otras { margin-top: 8px; font-size: 13px; }
+
+/* ============================================================================
+   Vista de 3 pasos de «Efectivo y Equivalentes de Efectivo» (VistaEfectivo).
+   Tema oscuro navy AUTÓNOMO (no reutiliza .nf-chat / .nf-vista): colores y
+   color de texto explícitos, para que no dependa del tema de la página.
+   Paleta: fondo #071B2F · tarjetas #0A2342 · dorado #C7A83C · verde #34d36a ·
+   rojo #E5484D · texto #E8EEF5.
+   ============================================================================ */
+.nf-ef {
+  background: #071B2F; color: #E8EEF5; border-radius: 12px;
+  padding: 18px 16px; margin-top: 14px;
+  border: 1px solid rgba(199, 168, 60, 0.25);
+}
+.nf-ef * { box-sizing: border-box; }
+.nf-ef-error {
+  background: rgba(229, 72, 77, 0.14); color: #ff9ea1;
+  border: 1px solid rgba(229, 72, 77, 0.5); border-radius: 8px;
+  padding: 8px 12px; font-size: 13px; margin: 0 0 12px;
+}
+.nf-ef-ok {
+  background: rgba(52, 211, 106, 0.14); color: #86ecab;
+  border: 1px solid rgba(52, 211, 106, 0.45); border-radius: 8px;
+  padding: 8px 12px; font-size: 13px; margin: 0 0 12px;
+}
+.nf-ef-aviso { color: #9db3c9; font-size: 13px; margin: 6px 0; }
+.nf-ef-eyebrow {
+  font-size: 10px; letter-spacing: 0.09em; text-transform: uppercase;
+  color: #C7A83C; margin: 0 0 6px; font-weight: 700;
+}
+
+/* --- Encabezado del módulo: ficha de ícono grande + título + subtítulo + estado --- */
+.nf-ef-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  flex-wrap: wrap; margin-bottom: 8px; padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.nf-ef-header-l { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.nf-ef-header .nf-ef-ico { width: 30px; height: 30px; padding: 13px; border-radius: 14px; }
+.nf-ef-header-tt { min-width: 0; }
+.nf-ef-header-tt .nf-ef-eyebrow { margin: 0 0 2px; }
+.nf-ef-titulo { margin: 0; font-size: 22px; font-weight: 800; color: #F1F5FA; line-height: 1.15; letter-spacing: -0.01em; }
+.nf-ef-sub { margin: 3px 0 0; font-size: 13px; color: #9db3c9; }
+
+/* --- Encabezado de cada paso: número en círculo verde + título --- */
+.nf-ef-paso { margin: 22px 0 0; }
+.nf-ef-paso:first-of-type { margin-top: 4px; }
+.nf-ef-paso-h { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.nf-ef-paso-h h3 { margin: 0; font-size: 17px; font-weight: 700; color: #E8EEF5; }
+.nf-ef-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto;
+  background: #34d36a; color: #06210f; font-weight: 800; font-size: 15px;
+}
+
+/* --- Paso 1 · tarjetas de carga --- */
+.nf-ef-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.nf-ef-card {
+  background:
+    linear-gradient(160deg, #0C2A50 0%, #0A2342 55%, #082038 100%) padding-box,
+    linear-gradient(150deg, rgba(199,168,60,0.55), rgba(199,168,60,0.10) 45%, rgba(255,255,255,0.06)) border-box;
+  border: 1px solid transparent;
+  border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.04);
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+.nf-ef-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 9px 24px rgba(0,0,0,0.34), 0 0 0 1px rgba(199,168,60,0.32), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+.nf-ef-card-top { display: flex; align-items: center; justify-content: space-between; }
+.nf-ef-ico {
+  display: block; flex: 0 0 auto; width: 24px; height: 24px; padding: 10px; box-sizing: content-box;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.16);
+  /* el fondo (degradado del color de la ficha) y su glow van inline desde VistaProceso */
+}
+.nf-ef-card h4 { margin: 2px 0 0; font-size: 14px; font-weight: 700; color: #E8EEF5; line-height: 1.3; }
+.nf-ef-card-doc { margin: 0; font-size: 11.5px; color: #9db3c9; line-height: 1.35; }
+.nf-ef-card-tipos { margin: 0; font-size: 11.5px; font-style: italic; color: #9db3c9; }
+.nf-ef-badge {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.03em;
+  padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+}
+.nf-ef-badge.ok { background: rgba(52, 211, 106, 0.18); color: #86ecab; border: 1px solid rgba(52, 211, 106, 0.5); }
+.nf-ef-badge.pend { background: rgba(199, 168, 60, 0.16); color: #e0c766; border: 1px solid rgba(199, 168, 60, 0.5); }
+.nf-ef-badge.warn { background: rgba(229, 72, 77, 0.16); color: #ff9ea1; border: 1px solid rgba(229, 72, 77, 0.5); }
+.nf-ef-badge.err { background: rgba(229, 72, 77, 0.16); color: #ff9ea1; border: 1px solid rgba(229, 72, 77, 0.5); }
+.nf-ef-estado { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.nf-ef-estado-badge {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em; padding: 4px 12px; border-radius: 999px;
+  background: rgba(199, 168, 60, 0.16); color: #e0c766; border: 1px solid rgba(199, 168, 60, 0.5); white-space: nowrap;
+}
+.nf-ef-estado-badge.ok { background: rgba(52, 211, 106, 0.18); color: #86ecab; border-color: rgba(52, 211, 106, 0.5); }
+.nf-ef-estado-badge.warn { background: rgba(229, 72, 77, 0.16); color: #ff9ea1; border-color: rgba(229, 72, 77, 0.5); }
+.nf-ef-matriz-h { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+
+/* Los chips de ChipDocumento heredan las clases pc-chip/.nf-req del sitio; aquí
+   solo se asegura que se vean sobre el fondo oscuro de la tarjeta. */
+.nf-ef-card .nf-vista-doc, .nf-ef-soporte-item .nf-vista-doc { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.nf-ef-card .nf-doc-formatos, .nf-ef-soporte-item .nf-doc-formatos { color: #9db3c9; }
+
+.nf-ef-preparar {
+  background: #0A2342; border: 1px dashed rgba(199, 168, 60, 0.4);
+  border-radius: 10px; padding: 14px; margin-bottom: 14px;
+}
+.nf-ef-preparar p { margin: 0 0 10px; font-size: 13px; color: #cdd9e6; }
+
+.nf-ef-progreso { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.nf-ef-barra { flex: 1; height: 8px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden; }
+.nf-ef-barra span { display: block; height: 100%; background: #34d36a; border-radius: 999px; }
+.nf-ef-progreso-t { font-size: 12px; color: #9db3c9; white-space: nowrap; }
+
+.nf-ef-soporte { margin-top: 14px; }
+.nf-ef-soporte > summary { cursor: pointer; font-size: 13px; color: #C7A83C; font-weight: 600; }
+.nf-ef-soporte-lista { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.nf-ef-soporte-item {
+  background: #0A2342; border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;
+}
+.nf-ef-soporte-nom { font-size: 12.5px; color: #cdd9e6; }
+
+/* --- Paso 2 · Procesar / Encerar --- */
+.nf-ef-proc { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.nf-ef-grande {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  border: 0; border-radius: 12px; padding: 18px 20px; cursor: pointer;
+  text-align: left; color: #fff; transition: filter 0.12s ease;
+}
+.nf-ef-grande:hover:not(:disabled) { filter: brightness(1.08); }
+.nf-ef-grande:disabled { opacity: 0.5; cursor: not-allowed; }
+.nf-ef-grande.verde { background: #34d36a; color: #06210f; }
+.nf-ef-grande.rojo { background: #E5484D; color: #fff; }
+.nf-ef-grande-t { font-size: 18px; font-weight: 800; }
+.nf-ef-grande-s { font-size: 12.5px; opacity: 0.9; }
+
+.nf-ef-encerar {
+  margin-top: 12px; background: #0A2342; border: 1px solid rgba(229, 72, 77, 0.45);
+  border-radius: 10px; padding: 12px 14px;
+}
+.nf-ef-encerar p { margin: 0 0 10px; font-size: 13px; color: #cdd9e6; }
+.nf-ef-encerar-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.nf-ef-encerar-row input {
+  flex: 1; min-width: 180px; background: #071B2F; color: #E8EEF5;
+  border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; padding: 8px 10px; font-size: 13px;
+}
+
+/* --- Botones utilitarios de la vista --- */
+.nf-ef-btn {
+  border: 1px solid rgba(199, 168, 60, 0.5); background: #0A2342; color: #E8EEF5;
+  border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.nf-ef-btn:hover:not(:disabled) { border-color: #C7A83C; }
+.nf-ef-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.nf-ef-btn.accent { background: #C7A83C; color: #071B2F; border-color: #C7A83C; }
+.nf-ef-btn.rojo { background: #E5484D; color: #fff; border-color: #E5484D; }
+
+/* --- Paso 3 · tarjetas de ejecución --- */
+.nf-ef-ejec { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.nf-ef-ejec-card {
+  display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+  background:
+    linear-gradient(160deg, #0C2A50 0%, #0A2342 55%, #082038 100%) padding-box,
+    linear-gradient(150deg, rgba(199,168,60,0.50), rgba(199,168,60,0.10) 45%, rgba(255,255,255,0.06)) border-box;
+  border: 1px solid transparent;
+  border-radius: 12px; padding: 14px; cursor: pointer; text-align: left;
+  color: #E8EEF5;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.04);
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+.nf-ef-ejec-card.on:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 9px 24px rgba(0,0,0,0.34), 0 0 0 1px rgba(199,168,60,0.45), 0 0 18px rgba(199,168,60,0.12), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+.nf-ef-ejec-card.off { opacity: 0.5; cursor: not-allowed; box-shadow: 0 2px 8px rgba(0,0,0,0.22); }
+.nf-ef-ejec-head { display: flex; align-items: flex-start; gap: 10px; }
+.nf-ef-ejec-tt { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.nf-ef-ejec-t { font-size: 13.5px; font-weight: 700; line-height: 1.25; color: #E8EEF5; }
+.nf-ef-ejec-s { font-size: 11.5px; color: #9db3c9; line-height: 1.35; }
+.nf-ef-ejec-flecha { color: #C7A83C; font-size: 18px; line-height: 1; flex: 0 0 auto; }
+.nf-ef-ejec-pie { margin-top: 2px; display: flex; flex-direction: column; gap: 7px; align-items: flex-start; }
+.nf-ef-ejec-badge {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700;
+  letter-spacing: 0.05em; padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+  color: #86ecab; background: rgba(52, 211, 106, 0.16); border: 1px solid rgba(52, 211, 106, 0.5);
+}
+.nf-ef-ejec-badge::before {
+  content: "✓"; font-size: 9px; line-height: 1;
+}
+.nf-ef-ejec-lock {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700;
+  letter-spacing: 0.06em; padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+  color: #9db3c9; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+/* Requerimientos relacionados por tarjeta de ejecución: «Usa» + chips sobrios. */
+.nf-ef-rel { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.nf-ef-rel-lbl {
+  font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: #9db3c9; font-weight: 700; margin-right: 1px;
+}
+.nf-ef-rel-chip {
+  font-size: 10.5px; font-weight: 600; line-height: 1.4;
+  padding: 1px 8px; border-radius: 999px; white-space: nowrap;
+  color: #cfe0f5; background: rgba(46, 111, 192, 0.18);
+  border: 1px solid rgba(46, 111, 192, 0.5);
+}
+.nf-ef-rel-chip.todos {
+  color: #e0c766; background: rgba(199, 168, 60, 0.14);
+  border-color: rgba(199, 168, 60, 0.5); white-space: normal;
+}
+
+/* --- Vista de trabajo detallada + matriz de reproceso --- */
+.nf-ef-detalle {
+  margin-top: 20px; border-top: 1px solid rgba(199, 168, 60, 0.25); padding-top: 14px;
+}
+.nf-ef-detalle-h { margin-bottom: 12px; }
+.nf-ef-matriz {
+  background: #0A2342; border: 1px solid rgba(199, 168, 60, 0.28);
+  border-radius: 10px; padding: 12px 14px; margin-bottom: 16px;
+}
+.nf-ef-scroll { overflow-x: auto; }
+.nf-ef-matriz table { width: 100%; border-collapse: collapse; font-size: 12.5px; color: #E8EEF5; }
+.nf-ef-matriz th, .nf-ef-matriz td { padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,0.08); text-align: left; white-space: nowrap; }
+.nf-ef-matriz th { color: #C7A83C; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.nf-ef-num { text-align: right; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 560px) {
+  .nf-ef { padding: 14px 12px; }
+  .nf-ef-cards, .nf-ef-proc, .nf-ef-ejec { grid-template-columns: 1fr; }
+  .nf-ef-paso-h h3 { font-size: 15px; }
+}

@@ -16,8 +16,8 @@ import { Documentacion, EditorRequerimiento } from "./CicloDocumentacion";
 import { Ejecucion } from "./CicloEjecucion";
 import { Revision } from "./CicloRevision";
 import { VistaTrabajo } from "./CicloVista";
-import { ConsolaChat } from "./ConsolaChat";
-import { tieneConsolaChat } from "./consolaChatVista";
+import VistaProceso from "./VistaProceso";
+import { configDeProcesador } from "./procesoConfig";
 import ConsolaPrueba from "./ConsolaPrueba";
 import PruebasSugeridas from "./PruebasSugeridas";
 import { esPlanificacion } from "./pruebasSugeridasLogic";
@@ -250,7 +250,6 @@ export function Prueba({ id, onCambio, onAbrir }) {
   const [prueba, setPrueba] = useState(null);
   const [error, setError] = useState("");
   const [ocupado, setOcupado] = useState(false);
-  const [verDetalle, setVerDetalle] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
@@ -282,6 +281,11 @@ export function Prueba({ id, onCambio, onAbrir }) {
   if (!prueba) return error ? <p className="nf-error">{error}</p> : <p className="muted">Cargando prueba…</p>;
   const etapa = etapaDe(prueba.estado);
   const reg = prueba.registro;
+  // Vista de 3 pasos config-driven (tema oscuro): la usan «Efectivo y Equivalentes»
+  // (efectivo_equivalentes) y «Planificación de la auditoría» (planificacion_nia),
+  // cada una con su propia config (procesoConfig.js). El resto de las herramientas
+  // conserva el apilado histórico (vista de trabajo + consolas).
+  const configProceso = configDeProcesador(prueba.definicion.processor);
 
   return (
     <div className="nf-rec-panel nf-ciclo-prueba">
@@ -297,21 +301,18 @@ export function Prueba({ id, onCambio, onAbrir }) {
       </ol>
       {error && <p role="alert" className="nf-error">{error}</p>}
 
-      {/* Toda prueba con procesador: la consola-chat es la puerta principal; la vista de trabajo detallada queda debajo. */}
-      {tieneConsolaChat(prueba) && (
-        <ConsolaChat prueba={prueba} onRecargar={async () => { await cargar(); onCambio(); }} />
+      {/* Herramientas con vista de 3 pasos (efectivo, planificación): reemplaza el
+          apilado (consolas + circuito). La vista de trabajo detallada sigue accesible
+          dentro de VistaProceso (paso 3). */}
+      {configProceso && (
+        <VistaProceso config={configProceso} prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
       )}
 
-      {tieneConsolaChat(prueba) && (
-        <div className="nf-estudio-botones">
-          <button type="button" className="btn sm" onClick={() => setVerDetalle((v) => !v)}>
-            {verDetalle ? "Ocultar la vista de trabajo detallada" : "Ver la vista de trabajo detallada"}
-          </button>
-        </div>
-      )}
-
-      {(!tieneConsolaChat(prueba) || verDetalle) && (
-        <div id={`detalle-${prueba.id}`}>
+      {!configProceso && (
+       <>
+      {/* Se retiró la consola-chat (asistente): la vista de trabajo detallada es la vista principal
+          para todas las pruebas (subir documentos, procesar, cédulas, análisis y revisión). */}
+      <div id={`detalle-${prueba.id}`}>
           <VistaTrabajo prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
 
           {["PRUEBA_EJECUTADA", "RESULTADOS_ANALIZADOS"].includes(prueba.estado) && (
@@ -325,7 +326,6 @@ export function Prueba({ id, onCambio, onAbrir }) {
             <Revision prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
           </section>
         </div>
-      )}
 
       {esPlanificacion(prueba) && (
         <section>
@@ -406,6 +406,8 @@ export function Prueba({ id, onCambio, onAbrir }) {
       )}
 
       </details>
+       </>
+      )}
 
       <details>
         <summary>Bitácora ({prueba.eventos.length})</summary>

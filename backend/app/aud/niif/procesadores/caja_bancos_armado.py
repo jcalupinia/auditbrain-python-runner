@@ -119,6 +119,115 @@ def _reestructurar(reg: dict, cuentas: list[dict]):
     return partidas
 
 
+def matriz_reproceso(reg: dict):
+    """Reproceso independiente del último mes por cuenta (salida del botón «Reproceso»).
+
+    Para cada cuenta con estado de cuenta (RQ-010): cruza el estado bancario contra el
+    libro mayor (RQ-009) con el motor de matching por niveles, reconstruye el cuadre
+    (saldo extracto ± partidas = saldo s/auditoría vs saldo libros → diferencia) y compara
+    contra la conciliación de la compañía (RQ-002). Determinista, sin IA. Devuelve la
+    matriz de resultados (una fila por cuenta) o ``None`` si no se cargó estado de cuenta.
+    """
+    ds = reg.get("datasets") or {}
+    estado = ds.get("estado_cuenta")
+    if not estado:
+        return None
+    cuentas = _cuentas(reg)
+    corte = (reg.get("engagement") or {}).get("cutoff")
+    mayor = ds.get("libro_mayor") or []
+    previas = ds.get("conciliacion_anterior") or []
+    compania = ds.get("partidas") or []
+    saldos = {str(c["cuenta"]): c for c in cuentas}
+    nombre = {str(c["cuenta"]): c["descripcion"] for c in cuentas}
+    # La caja física se audita por arqueo (DA-5), no por conciliación bancaria: se excluye del reproceso.
+    caja = {str(f.get("id") or f.get("cuenta") or "") for f in (ds.get("cuentas") or [])
+            if str(f.get("tipo") or "").strip().lower().startswith(("caja", "fondo"))}
+    codigos = {str(f.get("cuenta") or "") for f in estado} | {str(f.get("cuenta") or "") for f in mayor}
+    filas = []
+    for cod in sorted(c for c in codigos if c and c not in caja):
+        libro = cr.desde_debito_credito([f for f in mayor if str(f.get("cuenta")) == cod], "libro")
+        extracto = cr.desde_debito_credito([f for f in estado if str(f.get("cuenta")) == cod], "extracto")
+        prev = [{"fecha": p.get("fecha"), "documento": p.get("documento"), "categoria": p.get("categoria"),
+                 "valor": p.get("valor"), "observacion": p.get("observacion")}
+                for p in previas if str(p.get("cuenta")) == cod]
+        r = cr.reestructurar(libro, extracto, corte, banco=nombre.get(cod, cod), partidas_previas=prev)
+        c = saldos.get(cod, {})
+        rec = cr.reconstruir(c.get("extracto") or 0, c.get("saldo_actual") or 0, r["partidas"])
+        # La conciliación de la compañía (RQ-002) usa el vocabulario `tipo`; se traduce a las
+        # categorías del papel para que la comparación sea homogénea.
+        comp = [{"categoria": _TIPO_A_CATEGORIA.get(p.get("tipo") or "", papel.OTRA),
+                 "valor": _num(p.get("importe") if p.get("importe") is not None else p.get("valor"))}
+                for p in compania if str(p.get("cuenta")) == cod]
+        cmp = cr.comparar_con_compania(r["partidas"], comp)
+        filas.append({
+            "cuenta": cod, "banco": nombre.get(cod, cod),
+            "saldo_extracto": rec["saldo_extracto"], "saldo_libros": rec["saldo_libros"],
+            "consignaciones": rec["consignaciones"], "cheques": rec["cheques"],
+            "notas_credito": rec["notas_credito"], "notas_debito": rec["notas_debito"],
+            "saldo_auditoria": rec["saldo_auditoria"], "diferencia": rec["diferencia"], "estado": rec["estado"],
+            "n_partidas_reproceso": len(r["partidas"]), "n_partidas_compania": len(comp),
+            "omitidas_por_la_compania": cmp["total_omitidas"], "adicionales_de_la_compania": cmp["total_adicionales"],
+            "coincidencias": r["resumen"]["coincidencias"], "por_nivel": r["resumen"]["por_nivel"],
+        })
+    return filas
+
+
+def reproceso_excel(reg: dict) -> bytes | None:
+    """REPROCESO_CONCILIACION.xlsx: la matriz del reproceso por cuenta en Excel.
+
+    El saldo s/auditoría y la diferencia van como FÓRMULA (regla de la firma: las cifras
+    calculadas no se pegan); las columnas del reproceso (extracto, partidas por categoría,
+    conteos) son las entradas que produjo el matching. Devuelve None si no hay estado de cuenta.
+    """
+    matriz = matriz_reproceso(reg)
+    if matriz is None:
+        return None
+    import io
+    import openpyxl
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Reproceso"
+    eng = reg.get("engagement") or {}
+    ws["A1"] = "REPROCESO DE CONCILIACIÓN BANCARIA — ÚLTIMO MES"
+    ws["A1"].font = Font(bold=True, size=13, color="0A2342")
+    ws["A2"] = f"Cliente: {eng.get('client', '')}    Corte: {eng.get('cutoff', '')}"
+    cols = ["Banco", "Saldo extracto", "(+) Consignaciones", "(−) Cheques", "(+) Notas crédito",
+            "(−) Notas débito", "Saldo s/auditoría", "Saldo libros", "Diferencia", "Estado",
+            "Coincidencias", "Partidas reproceso", "Partidas compañía", "Omitidas", "Adicionales"]
+    hdr = 4
+    fill = PatternFill("solid", fgColor="0A2342")
+    for c, t in enumerate(cols, 1):
+        cell = ws.cell(hdr, c, t)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = fill
+        cell.alignment = Alignment(horizontal="center", wrap_text=True, vertical="center")
+    money = "#,##0.00"
+    for i, f in enumerate(matriz):
+        r = hdr + 1 + i
+        ws.cell(r, 1, f["banco"])
+        for c, k in ((2, "saldo_extracto"), (3, "consignaciones"), (4, "cheques"),
+                     (5, "notas_credito"), (6, "notas_debito"), (8, "saldo_libros")):
+            ws.cell(r, c, f[k]).number_format = money
+        # Saldo s/auditoría (H) y Diferencia (J) como fórmula viva.
+        ws.cell(r, 7, f"=C{r}+D{r}-E{r}+F{r}-G{r}").number_format = money
+        ws.cell(r, 9, f"=H{r}-I{r}").number_format = money
+        est = ws.cell(r, 10, f["estado"])
+        est.font = Font(bold=True, color=("1B7A43" if str(f["estado"]).startswith("CONCILIADA") else "B54708"))
+        for c, k in ((11, "coincidencias"), (12, "n_partidas_reproceso"), (13, "n_partidas_compania"),
+                     (14, "omitidas_por_la_compania"), (15, "adicionales_de_la_compania")):
+            ws.cell(r, c, f[k]).alignment = Alignment(horizontal="center")
+    for col, w in zip("ABCDEFGHIJKLMNO", (26, 13, 15, 12, 14, 13, 14, 13, 12, 22, 12, 13, 13, 10, 11)):
+        ws.column_dimensions[col].width = w
+    ws.freeze_panes = "A5"
+    ws.sheet_view.showGridLines = False
+    wb.calculation.fullCalcOnLoad = True
+    salida = io.BytesIO()
+    wb.save(salida)
+    return salida.getvalue()
+
+
 def _arqueo(reg: dict):
     """Filas del arqueo de caja (RQ-012) para la cédula DA-5, o None si no se cargó."""
     filas = ((reg.get("datasets") or {}).get("arqueo"))
@@ -133,8 +242,11 @@ def hay_datos(reg: dict) -> bool:
     return bool(_cuentas(reg))
 
 
-def armar_desde_registro(reg: dict) -> bytes:
-    """Devuelve los bytes del papel de trabajo DA formulado desde el registro."""
+def armar_desde_registro(reg: dict, archivos: list[dict] | None = None) -> bytes:
+    """Devuelve los bytes del papel de trabajo DA formulado desde el registro.
+
+    ``archivos`` (opcional) es la lista de documentos de entrada con su huella SHA-256
+    (``servicio.archivos_de_entrada``) para la hoja de audit trail NIA 230."""
     cuentas = _cuentas(reg)
     # Partidas: recalculadas por reestructuración si hay estado de cuenta; si no,
     # las cargadas manualmente (RQ-002).
@@ -167,4 +279,7 @@ def armar_desde_registro(reg: dict) -> bytes:
     arqueo = _arqueo(reg)
     if arqueo is not None:
         entrada["arqueo"] = arqueo   # si no viene, el papel usa su plantilla de denominaciones
+    entrada["dias_prescripcion"] = (reg.get("parameters") or {}).get("diasPrescripcion", 390)
+    if archivos:
+        entrada["archivos"] = archivos   # audit trail NIA 230: huella SHA-256 por documento de entrada
     return papel.construir(entrada)

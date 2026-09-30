@@ -126,6 +126,9 @@ PARAMETROS = {
     "tolerancia": 1, "tasaCapitalizacion": None, "umbralComponente": 10, "umbralRevisarComponentes": None,
     "costoDesmantelamiento": None, "aniosDesmantelamiento": None, "tasaDesmantelamiento": None,
     "provisionDesmantelamiento": None, "provisionDesmantelamientoInicial": None, "mayorCosto": None, "mayorDepAcum": None,
+    # Vida útil NIIF por clase (años), confirmada por el auditor. Se aplica a los activos de esa clase que no traen
+    # vida propia en el auxiliar; en blanco, esos activos quedan «vida útil pendiente» (sin defaults automáticos).
+    "vidaInmuebles": None, "vidaInstalacionesMaquinaria": None, "vidaMuebles": None, "vidaVehiculos": None, "vidaEquipoComputo": None,
 }
 PARAM_NEGATIVOS = ()
 ETIQUETAS_PARAM = {
@@ -137,6 +140,11 @@ ETIQUETAS_PARAM = {
     "provisionDesmantelamiento": "Provisión de desmantelamiento registrada (cierre)",
     "provisionDesmantelamientoInicial": "Provisión de desmantelamiento registrada al inicio del ejercicio",
     "mayorCosto": "Mayor: costo al cierre", "mayorDepAcum": "Mayor: depreciación acumulada al cierre",
+    "vidaInmuebles": "Vida útil NIIF (años) · Inmuebles y construcciones",
+    "vidaInstalacionesMaquinaria": "Vida útil NIIF (años) · Instalaciones, maquinaria y equipos",
+    "vidaMuebles": "Vida útil NIIF (años) · Muebles y enseres",
+    "vidaVehiculos": "Vida útil NIIF (años) · Vehículos y equipo de transporte",
+    "vidaEquipoComputo": "Vida útil NIIF (años) · Equipos de cómputo y software",
 }
 
 
@@ -177,6 +185,34 @@ def _lineal(metodo: str) -> bool:
     return metodo == "" or "lineal" in metodo.lower()
 
 
+# Cubetas de vida útil NIIF por clase (parámetros que confirma el auditor). El orden importa: se prueba cómputo
+# antes que «equipo» y transporte antes que el genérico, para que «equipo de computación» y «equipo de transporte»
+# caigan en su cubeta correcta y no en maquinaria.
+_BUCKETS_VIDA = (
+    ("vidaEquipoComputo", ("comput", "informat", "software", "hardware", "servidor", "laptop", "impresora", "tecnolog")),
+    ("vidaVehiculos", ("vehic", "transport", "camion", "camión", "autom", "moto", "furgon", "furgón", "montacarga")),
+    ("vidaMuebles", ("mueble", "enser")),
+    ("vidaInmuebles", ("inmueble", "edifici", "construc", "local", "bodega", "nave", "galpon", "galpón")),
+    ("vidaInstalacionesMaquinaria", ("maquinar", "instalac", "equipo", "herramient", "planta")),
+)
+
+
+def _es_terreno(clase: str) -> bool:
+    return "terreno" in (clase or "").lower()
+
+
+def _clase_bucket(clase: str):
+    """Mapea la clase / tipo de activo del auxiliar a su cubeta de vida útil por clase (parámetros del auditor).
+    Devuelve None para terrenos (no se deprecian) o clases no reconocidas: la vida queda pendiente de confirmar."""
+    c = (clase or "").lower()
+    if not c or _es_terreno(c):
+        return None
+    for clave, palabras in _BUCKETS_VIDA:
+        if any(w in c for w in palabras):
+            return clave
+    return None
+
+
 def _tot(filas, k):
     """Total de una columna de la cédula de capitalización: vacío si algún activo quedó sin medir (M22)."""
     return None if any(f[k] is None for f in filas) else sum(f[k] for f in filas)
@@ -204,12 +240,21 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     for f in datasets.get("activos") or []:
         if not _t(f.get("id")):
             continue
+        clase = _t(f.get("clase"))
         vida = _opc(f.get("vida_meses"))
         if vida is not None and vida <= 0:
             raise ValueError(f"Activo {_t(f.get('id'))}: la vida útil debe ser mayor que cero.")
-        a = {"id": _t(f.get("id")), "desc": _t(f.get("descripcion")), "clase": _t(f.get("clase")), "elemento": _t(f.get("elemento")),
+        # Vida útil NIIF por clase confirmada por el auditor: se aplica solo cuando el activo no trae vida propia y
+        # su clase tiene vida confirmada en los parámetros; si no, queda pendiente (sin defaults automáticos).
+        vida_por_clase = False
+        if vida is None:
+            _bkt = _clase_bucket(clase)
+            _anios = _p(p, _bkt) if _bkt else None
+            if _anios is not None and _anios > 0:
+                vida, vida_por_clase = _anios * 12, True
+        a = {"id": _t(f.get("id")), "desc": _t(f.get("descripcion")), "clase": clase, "elemento": _t(f.get("elemento")),
              "uso": fecha(f.get("fecha_uso")) if _t(f.get("fecha_uso")) else None, "ci": _opc(f.get("costo_inicial")) or 0.0,
-             "ad": _opc(f.get("adiciones")), "res": _opc(f.get("residual")), "vida": vida, "metodo": _t(f.get("metodo")),
+             "ad": _opc(f.get("adiciones")), "res": _opc(f.get("residual")), "vida": vida, "vidaPorClase": vida_por_clase, "metodo": _t(f.get("metodo")),
              "dai": _opc(f.get("dep_acum_inicial")), "dreg": _opc(f.get("dep_registrada")), "det": _opc(f.get("deterioro_acum")),
              "rec": _opc(f.get("importe_recuperable")), "rev": _opc(f.get("valor_revaluado")), "sup": _opc(f.get("superavit_previo")),
              "decPrev": _opc(f.get("decremento_previo")),
@@ -442,6 +487,16 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             pr.append(problema("TOTALMENTE_DEPRECIADO_EN_USO", f"{a['id']}: totalmente depreciado y aún en uso; revise la vida útil y el residual (NIC 16.51; PYMES 17.19).", a["costo"]))
         if (a["res"] or 0) > a["costo"]:
             pr.append(problema("RESIDUAL_EXCEDE_COSTO", f"{a['id']}: el valor residual iguala o supera el importe en libros: la depreciación es nula (NIC 16.54); verifique el soporte de la estimación (NIC 16.51; NIA 540).", (a["res"] or 0) - a["costo"]))
+    # Vida útil NIIF por clase pendiente de confirmar: activos en uso, método lineal, sin vida (ni propia ni por
+    # clase) y que no son terrenos. El recálculo de su depreciación espera hasta que el auditor confirme la vida.
+    pendientes = {}
+    for a in vivos:
+        if a["vida"] is None and _lineal(a["metodo"]) and a["uso"] is not None and not _es_terreno(a["clase"]):
+            pendientes.setdefault(a["clase"] or "(sin clase)", []).append(a["id"])
+    for clase_p, ids in sorted(pendientes.items()):
+        pr.append(problema("VIDA_UTIL_CLASE_PENDIENTE",
+                           f"Clase «{clase_p}»: {len(ids)} activo(s) sin vida útil NIIF; confirme la vida útil por clase en los "
+                           f"parámetros de la prueba para recalcular su depreciación (NIC 16.50, 57; PYMES 17.18, 17.21).", 0))
     umbral_rev = _p(p, "umbralRevisarComponentes")
     if umbral_rev is not None:
         for a in vivos:
@@ -616,7 +671,8 @@ AUX, DEP, BAJ, REV, DET, ADI, PRE, CAP, DES, RF, AJ = (
                      "11_Prestamos", "12_Capitalizacion", "13_Desmantelamiento", "14_Roll_forward", "15_Ajustes"))
 _PAR = ["corte", "inicio", "diasAnio", "marco", "edicion", "tolerancia", "tasaCapitalizacion", "umbralComponente",
         "umbralRevisarComponentes", "costoDesmantelamiento", "aniosDesmantelamiento", "tasaDesmantelamiento",
-        "provisionDesmantelamiento", "provisionDesmantelamientoInicial", "mayorCosto", "mayorDepAcum"]
+        "provisionDesmantelamiento", "provisionDesmantelamientoInicial", "mayorCosto", "mayorDepAcum",
+        "vidaInmuebles", "vidaInstalacionesMaquinaria", "vidaMuebles", "vidaVehiculos", "vidaEquipoComputo"]
 PAR = {k: f"{P}$B${FILA0 + i}" for i, k in enumerate(_PAR)}
 
 
@@ -773,6 +829,11 @@ def hojas(res: dict) -> list[dict]:
          "Mayor contable: base de la actualización financiera del período (CINIIF 1.8; NIC 37.60; PYMES 21.11). En blanco y sin provisión al cierre: 0"],
         ["Mayor: costo al cierre", pv("mayorCosto"), "Mayor contable"],
         ["Mayor: depreciación acumulada al cierre", pv("mayorDepAcum"), "Mayor contable"],
+        ["Vida útil NIIF (años) · Inmuebles y construcciones", pv("vidaInmuebles"), "Confirmada por el auditor; se aplica a los activos de la clase sin vida propia"],
+        ["Vida útil NIIF (años) · Instalaciones, maquinaria y equipos", pv("vidaInstalacionesMaquinaria"), "Confirmada por el auditor"],
+        ["Vida útil NIIF (años) · Muebles y enseres", pv("vidaMuebles"), "Confirmada por el auditor"],
+        ["Vida útil NIIF (años) · Vehículos y equipo de transporte", pv("vidaVehiculos"), "Confirmada por el auditor"],
+        ["Vida útil NIIF (años) · Equipos de cómputo y software", pv("vidaEquipoComputo"), "Confirmada por el auditor"],
     ]
 
     # 03 · auxiliar tal como lo entregó el cliente.
