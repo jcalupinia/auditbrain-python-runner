@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import * as api from "../../api";
 import { ChipDocumento, MapeoManual, VistaTrabajo } from "./CicloVista";
-import { PENDIENTE_MAPEO, prepararBaseTecnica, producir } from "./cicloOrquestacion";
+import { PENDIENTE_MAPEO, prepararBaseTecnica, producir, revisarColumnas } from "./cicloOrquestacion";
 import {
   avanceCarga,
   estaProcesada,
@@ -196,6 +196,8 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
   const [cliente, setCliente] = useState("");
   const [reproceso, setReproceso] = useState(null);
   const [pendientesMapeo, setPendientesMapeo] = useState(null);
+  const [modoModal, setModoModal] = useState("revisar"); // "revisar" (al cargar) | "procesar" (al pulsar Procesar)
+  const [revisando, setRevisando] = useState(false);
   const manualMapsRef = useRef({});
   const detalleRef = useRef(null);
 
@@ -235,10 +237,63 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
   const procesar = () =>
     correr(async () => {
       const param = { ...(d.parametros || {}), ...(reg.parameters || {}) };
-      const r = await producir(prueba, { param, manualMaps: manualMapsRef.current, onPendientes: setPendientesMapeo });
+      const r = await producir(prueba, {
+        param,
+        manualMaps: manualMapsRef.current,
+        onPendientes: (pend) => { setModoModal("procesar"); setPendientesMapeo(pend); },
+      });
       if (r === PENDIENTE_MAPEO) return; // se abrió el modal de mapeo manual: se corta sin aviso de éxito.
       setAviso("Información procesada: ya se pueden abrir las pruebas de ejecución.");
     });
+
+  // Tras subir un anexo: recarga la prueba y revisa —sin procesar— si se
+  // reconocieron las columnas. Si faltan, abre el modal de mapeo ahí mismo; si no,
+  // confirma la lectura. Así el auditor sabe de una si el sistema leyó el archivo.
+  async function revisarTrasCarga() {
+    await onRecargar();
+    setRevisando(true);
+    setError("");
+    try {
+      const pend = await revisarColumnas(prueba, { manualMaps: manualMapsRef.current });
+      if (pend.length) {
+        setModoModal("revisar");
+        setPendientesMapeo(pend);
+        setAviso("");
+      } else {
+        setAviso("Columnas reconocidas: el anexo se leyó correctamente. Ya puede pulsar «Procesar».");
+      }
+    } catch {
+      // La revisión es una ayuda; si falla no se bloquea la carga (se verá al Procesar).
+    } finally {
+      setRevisando(false);
+    }
+  }
+
+  // Confirmación del modal: guarda el mapeo manual por archivo. Si el modal venía de
+  // «Procesar», continúa procesando; si venía de la carga, revalida y confirma la lectura.
+  async function confirmarMapeo(maps) {
+    manualMapsRef.current = { ...manualMapsRef.current, ...maps };
+    setPendientesMapeo(null);
+    if (modoModal === "procesar") {
+      procesar();
+      return;
+    }
+    setRevisando(true);
+    setError("");
+    try {
+      const pend = await revisarColumnas(prueba, { manualMaps: manualMapsRef.current });
+      if (pend.length) {
+        setModoModal("revisar");
+        setPendientesMapeo(pend);
+      } else {
+        setAviso("Columnas mapeadas correctamente. Ya puede pulsar «Procesar».");
+      }
+    } catch {
+      /* silencioso */
+    } finally {
+      setRevisando(false);
+    }
+  }
 
   async function encerar() {
     setError("");
@@ -299,6 +354,7 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
       </header>
       {error && <p role="alert" className="nf-ef-error">{error}</p>}
       {aviso && <p className="nf-ef-ok">{aviso}</p>}
+      {revisando && <p className="nf-ef-aviso">Revisando las columnas del anexo…</p>}
 
       {/* ===== Paso 1 · Requerimientos de información ===== */}
       <section className="nf-ef-paso">
@@ -331,7 +387,7 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
                 prueba={prueba}
                 req={p.req}
                 cobertura={coberturaMap[p.id]}
-                onSubido={onRecargar}
+                onSubido={revisarTrasCarga}
                 habilitado={habilitadoSubir}
                 processor={d.processor}
                 onModelo={bajarModelo}
@@ -464,12 +520,7 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
         <MapeoManual
           pendientes={pendientesMapeo}
           onCancelar={() => setPendientesMapeo(null)}
-          onConfirmar={(maps) => {
-            // El mapeo manual pisa el auto por archivo; al reprocesar, `producir` lo lee del ref.
-            manualMapsRef.current = { ...manualMapsRef.current, ...maps };
-            setPendientesMapeo(null);
-            procesar();
-          }}
+          onConfirmar={confirmarMapeo}
         />
       )}
     </div>
