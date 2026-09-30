@@ -478,7 +478,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     pr = []
     for a in activos:
         if a["dep"] is None:
-            pr.append(problema("METODO_NO_RECALCULADO", f"{a['id']}: método «{a['metodo']}» no se recalcula; pida el cálculo del cliente y evalúe el patrón de consumo (NIC 16.60–62).", 0))
+            pr.append(problema("METODO_NO_RECALCULADO", f"{a['id']}: la herramienta no recalcula el método «{a['metodo']}»; el recálculo se apoya en el cálculo del cliente y en el patrón de consumo (NIC 16.60–62).", 0))
         if a["dif"] is not None and abs(a["dif"]) > tol:
             pr.append(problema("DEPRECIACION_DIFERENTE", f"{a['id']}: depreciación recalculada {m(a['dep'])} ≠ registrada {m(a['dreg'])} (NIC 16.50; PYMES 17.18).", a["dif"]))
         if a["estado"] == "En construcción" and (a["dreg"] or 0) > 0:
@@ -495,13 +495,13 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             pendientes.setdefault(a["clase"] or "(sin clase)", []).append(a["id"])
     for clase_p, ids in sorted(pendientes.items()):
         pr.append(problema("VIDA_UTIL_CLASE_PENDIENTE",
-                           f"Clase «{clase_p}»: {len(ids)} activo(s) sin vida útil NIIF; confirme la vida útil por clase en los "
-                           f"parámetros de la prueba para recalcular su depreciación (NIC 16.50, 57; PYMES 17.18, 17.21).", 0))
+                           f"Clase «{clase_p}»: {len(ids)} activo(s) sin vida útil NIIF definida; su depreciación no se recalcula mientras la "
+                           f"clase no tenga vida útil en los parámetros de la prueba (NIC 16.50, 57; PYMES 17.18, 17.21).", 0))
     umbral_rev = _p(p, "umbralRevisarComponentes")
     if umbral_rev is not None:
         for a in vivos:
             if conteo[grupo(a)] == 1 and a["costo"] >= umbral_rev and a["vida"] is not None:
-                pr.append(problema("REVISAR_COMPONENTES", f"{a['id']}: elemento de costo {m(a['costo'])} sin partes; confirme que no tiene partes significativas con vida distinta (NIC 16.43–44; PYMES 17.16).", 0))
+                pr.append(problema("REVISAR_COMPONENTES", f"{a['id']}: elemento de costo {m(a['costo'])} sin partes registradas; puede tener partes significativas con vida distinta (NIC 16.43–44; PYMES 17.16).", 0))
     for a in bajas:
         if a["res_dif"] is not None and abs(a["res_dif"]) > tol:
             pr.append(problema("BAJA_MAL_CALCULADA", f"{a['id']}: resultado de la baja recalculado {m(a['res_calc'])} ≠ registrado {m(a['resreg'])} (NIC 16.71; PYMES 17.30).", a["res_dif"]))
@@ -520,14 +520,14 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     sin_sup = [a["id"] for a in deter if a["perdida"] and a["detORI"] is None]
     if sin_sup:
         pr.append(problema("DETERIORO_SIN_SUPERAVIT", f"Activos revaluados con deterioro y sin superávit de revaluación previo informado: {', '.join(sin_sup)}. "
-                           "La pérdida debe imputarse primero contra el superávit de ese activo y solo el exceso a resultados (NIC 36.60-61; PYMES 27.6): "
-                           "indique el superávit previo; mientras tanto la pérdida queda íntegra en resultados.",
+                           "La pérdida se imputa primero contra el superávit de ese activo y solo el exceso a resultados (NIC 36.60-61; PYMES 27.6). "
+                           "Sin el dato del superávit previo, la pérdida queda íntegra en resultados.",
                            sum(a["perdida"] for a in deter if a["perdida"] and a["detORI"] is None)))
     sin_dec = [a["id"] for a in reval if a["decPrev"] is None]
     if sin_dec:
         pr.append(problema("REVALUACION_SIN_DECREMENTO_PREVIO", f"Activos revaluados sin el dato «decremento previo del mismo activo reconocido en resultados»: "
-                           f"{', '.join(sin_dec)}. El aumento por revaluación va a resultados hasta revertir ese decremento anterior (NIC 16.39; PYMES 17.15C): "
-                           "indique el importe; mientras tanto el aumento queda íntegro en otro resultado integral.",
+                           f"{', '.join(sin_dec)}. El aumento por revaluación va a resultados hasta revertir ese decremento anterior (NIC 16.39; PYMES 17.15C). "
+                           "Sin ese dato, el aumento queda íntegro en otro resultado integral.",
                            sum(a["rev_ori"] for a in reval if a["decPrev"] is None and a["rev_dif"] > 0)))
     if pymes:
         cap_pymes = sum(x["int"] or 0 for x in adiciones)
@@ -540,13 +540,12 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     else:
         if not prestamos:
             if tasa_cap is None and any(x["apto"].lower() in ("sí", "si") for x in adiciones):
-                pr.append(problema("TASA_CAPITALIZACION_FALTANTE", "Hay adiciones de activos aptos: ingrese la tasa de capitalización (NIC 23.14).", 0))
+                pr.append(problema("TASA_CAPITALIZACION_FALTANTE", "Hay adiciones de activos aptos y no consta la tasa de capitalización (NIC 23.14): sus costos por préstamos no se recalculan.", 0))
             if any(a["estado"] == "En construcción" for a in activos) or any(x["apto"].lower() in ("sí", "si") for x in adiciones):
                 pr.append(problema("SIN_ANEXO_PRESTAMOS", "Hay activos en construcción o adiciones de activos aptos y no se cargó el anexo de préstamos para la "
                                    "construcción: no se puede separar el préstamo específico —costo financiero realmente incurrido menos los rendimientos de la inversión "
                                    "temporal de esos fondos (NIC 23.12)— de los préstamos generales —tasa de capitalización (NIC 23.14)— ni comprobar el tope de los "
-                                   "costos por préstamos incurridos en el período (NIC 23.14). Pida los contratos y la tabla de amortización de cada préstamo; mientras "
-                                   "tanto se aplica la tasa de capitalización del parámetro a cada desembolso.", 0))
+                                   "costos por préstamos incurridos en el período (NIC 23.14). Sin ese anexo se aplica la tasa de capitalización del parámetro a cada desembolso.", 0))
             for x in adiciones:
                 if x["int_dif"] is not None and abs(x["int_dif"]) > tol:
                     pr.append(problema("INTERESES_DIFERENCIA", f"{x['id']}: intereses capitalizables {m(x['cap'])} ≠ capitalizados {m(x['int'] or 0)} (NIC 23.8, 14).", x["int_dif"]))
@@ -556,7 +555,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                                    f"préstamos generales del anexo ({tasa_gen * 100:.4f} %): se usa la del anexo (NIC 23.14).", 0))
             if factor is None:
                 pr.append(problema("TOPE_NO_VERIFICABLE", "No se puede comprobar el tope del párrafo 14 (lo capitalizado no excede los costos por préstamos incurridos en "
-                                   "el período): falta el costo financiero de algún préstamo o el capitalizable de algún activo. Complete el anexo de préstamos.", 0))
+                                   "el período): no consta el costo financiero de algún préstamo o el capitalizable de algún activo en el anexo de préstamos.", 0))
             elif factor < 1:
                 pr.append(problema("TOPE_COSTOS_PRESTAMOS", f"El capitalizable calculado {m(tope_antes)} excede los costos por préstamos incurridos en el período "
                                    f"{m(tope_inc)}: se limita a estos últimos (NIC 23.14). Exceso que no se capitaliza: {m(tope_antes - tope_inc)}.", tope_antes - tope_inc))
@@ -566,16 +565,16 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                                        "(NIC 23.12 el específico, 23.14 los generales y el tope).", a["dif"]))
     for y in prestamos:
         if not y["tipo"]:
-            pr.append(problema("PRESTAMO_SIN_TIPO", f"{y['id']}: indique si el préstamo es específico (NIC 23.12) o general (NIC 23.14); sin el tipo no entra en el cálculo.", 0))
+            pr.append(problema("PRESTAMO_SIN_TIPO", f"{y['id']}: sin tipo declarado (específico NIC 23.12 / general NIC 23.14); sin el tipo no entra en el cálculo.", 0))
         if y["costo"] is None:
-            pr.append(problema("PRESTAMO_SIN_COSTO_FINANCIERO", f"{y['id']}: falta el costo financiero del período realmente incurrido; sin él no se mide el capitalizable "
-                               "ni el tope del párrafo 14 (NIC 23.12 y 14). Revise la tabla de amortización del préstamo y el mayor de gasto financiero.", 0))
+            pr.append(problema("PRESTAMO_SIN_COSTO_FINANCIERO", f"{y['id']}: sin costo financiero del período realmente incurrido; sin él no se mide el capitalizable "
+                               "ni el tope del párrafo 14 (NIC 23.12 y 14).", 0))
         if y["tipo"] == "Específico":
             if y["rend"] is None:
                 pr.append(problema("PRESTAMO_SIN_RENDIMIENTOS", f"{y['id']}: préstamo específico sin el dato de rendimientos de la inversión temporal de esos fondos; lo "
-                                   "capitalizable es el costo realmente incurrido menos esos rendimientos (NIC 23.12). Si no hubo inversión temporal, informe 0: no se asume.", 0))
+                                   "capitalizable es el costo realmente incurrido menos esos rendimientos (NIC 23.12). Un rendimiento no informado no se asume en cero.", 0))
             if not y["activo"]:
-                pr.append(problema("PRESTAMO_SIN_ACTIVO", f"{y['id']}: préstamo específico sin el activo u obra financiada; indíquelo para asignarle el costo capitalizable (NIC 23.12).", 0))
+                pr.append(problema("PRESTAMO_SIN_ACTIVO", f"{y['id']}: préstamo específico sin el activo u obra financiada declarada; su costo capitalizable no se asigna (NIC 23.12).", 0))
             elif y["activo"] not in por_id:
                 pr.append(problema("PRESTAMO_ACTIVO_NO_EXISTE", f"{y['id']}: el activo {y['activo']} que financia no está en el auxiliar.", 0))
         if y["tipo"] == "General" and (y["importe"] is None or y["costo"] is None):
@@ -589,7 +588,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     if rf["difAd"] is not None and abs(rf["difAd"]) > tol:
         pr.append(problema("ADICIONES_NO_CONCILIAN", f"Adiciones del auxiliar {m(rf['ad'])} ≠ detalle de adiciones {m(rf['adDetalle'])}.", rf["difAd"]))
     if vp is None:
-        pr.append(problema("DESMANTELAMIENTO_NO_EVALUADO", "No se ingresó la estimación de desmantelamiento: documente si existe la obligación (NIC 16.16 c, NIC 37; PYMES 17.10 c, Sección 21).", 0))
+        pr.append(problema("DESMANTELAMIENTO_NO_EVALUADO", "No consta estimación de desmantelamiento: la existencia de la obligación no está evaluada (NIC 16.16 c, NIC 37; PYMES 17.10 c, Sección 21).", 0))
     elif vp > 0.005 and not prov_reg:
         pr.append(problema("DESMANTELAMIENTO_NO_RECONOCIDO", f"Obligación de desmantelamiento no reconocida: valor presente {m(vp)} (NIC 16.16 c, NIC 37.45; Sección 21 (21.7 b)).", vp))
     elif abs(desm["dif"]) > tol:
@@ -597,13 +596,13 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                            + ("." if act is None else f", de la que {m(act)} es la actualización financiera del período (a resultados, costo financiero: CINIIF 1.8; "
                               f"NIC 37.60; PYMES 21.11) y {m(desm['cambio'])} el cambio de estimación contra el costo del activo (CINIIF 1.5 a)."), desm["dif"]))
     if vp is not None and prov_ini is None:
-        pr.append(problema("SIN_PROVISION_DESMANTELAMIENTO_INICIAL", "Hay provisión de desmantelamiento registrada pero no se informó su saldo al inicio del "
-                           "ejercicio: no se puede separar la actualización financiera del período (saldo inicial × tasa, a resultados: CINIIF 1.8; PYMES 21.11) "
+        pr.append(problema("SIN_PROVISION_DESMANTELAMIENTO_INICIAL", "Hay provisión de desmantelamiento registrada y no consta su saldo al inicio del "
+                           "ejercicio: no se separa la actualización financiera del período (saldo inicial × tasa, a resultados: CINIIF 1.8; PYMES 21.11) "
                            "del cambio de estimación (contra el costo del activo: CINIIF 1.5 a)."))
     for k, lab in (("difCosto", "del costo"), ("difDep", "de la depreciación acumulada")):
         mk = "mayorCosto" if k == "difCosto" else "mayorDep"
         if rf[mk] is None:
-            pr.append(problema("SIN_MAYOR", f"Ingrese el saldo {lab} según el mayor para conciliar el auxiliar.", 0))
+            pr.append(problema("SIN_MAYOR", f"No consta el saldo {lab} según el mayor: la conciliación con el auxiliar queda sin cotejar.", 0))
         elif abs(rf[k]) > tol:
             pr.append(problema("CONCILIACION_AUXILIAR_MAYOR", f"Auxiliar y mayor no concilian en el saldo {lab}: diferencia {m(rf[k])}.", rf[k]))
 
