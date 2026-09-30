@@ -857,6 +857,10 @@ def hojas(res: dict) -> list[dict]:
             fx(f'IF({X("R")}<>"","Baja",IF({X("E")}="","En construcción","En uso"))', a["estado"]),
             fx(f'IF(G{r}="","",IF(ABS(G{r})>{PAR["tolerancia"]},"Alerta","Conforme"))',
                "" if a["dif"] is None else ("Alerta" if abs(a["dif"]) > tol else "Conforme")),
+            # N: dep. acumulada del cliente = apertura (aux K) + gasto del año del cliente (col F).
+            fx(f'{X("K")}+IF(F{r}="",0,F{r})', (a["dai"] or 0) + (a["dreg"] or 0)),
+            # O: diferencia de dep. acumulada = auditor (H) − cliente (N).
+            fx(f'IF(H{r}="","",H{r}-N{r})', None if a["acum"] is None else a["acum"] - ((a["dai"] or 0) + (a["dreg"] or 0))),
         ])
 
     # 05 · vidas útiles, residual y método.
@@ -1342,9 +1346,12 @@ def hojas(res: dict) -> list[dict]:
         hoja("04_Depreciacion", "Recálculo de depreciación y VNL",
              [["Código", "t"], ["Costo", "n"], ["Importe depreciable", "n"], ["Días en uso", "i"], ["Depreciación recalculada", "n"],
               ["Depreciación registrada", "n"], ["Diferencia", "n"], ["Dep. acumulada recalculada", "n"], ["Deterioro acumulado", "n"],
-              ["Valor neto en libros", "n"], ["Totalmente depreciado", "t"], ["Estado", "t"], ["Semáforo", "t"]], dep,
+              ["Valor neto en libros", "n"], ["Totalmente depreciado", "t"], ["Estado", "t"], ["Semáforo", "t"],
+              ["Dep. acumulada cliente", "n"], ["Dif. dep. acumulada", "n"]], dep,
              ["TOTAL", suma("B", fin(n), sum(a["costo"] for a in A)), None, None, suma("E", fin(n), valor["depRecalculada"]),
-              suma("F", fin(n), rf["dreg"]), suma("G", fin(n), aj["ajusteDep"]), None, None, None, "", "", ""],
+              suma("F", fin(n), rf["dreg"]), suma("G", fin(n), aj["ajusteDep"]), None, None, None, "", "", "",
+              suma("N", fin(n), sum((a["dai"] or 0) + (a["dreg"] or 0) for a in A)),
+              suma("O", fin(n), sum(a["acum"] - ((a["dai"] or 0) + (a["dreg"] or 0)) for a in A if a["acum"] is not None))],
              explica=ex_dep, colores=["Semáforo"]),
         hoja("05_Vidas_residual", "Vidas útiles, residual y método",
              [["Código", "t"], ["Clase", "t"], ["Método", "t"], ["Vida útil (meses)", "i"], ["Valor residual", "n"], ["Costo", "n"],
