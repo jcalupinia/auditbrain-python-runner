@@ -1,8 +1,10 @@
 """Motor de extracción por IA (carta de control interno / informe del año anterior
-en PDF/Word → filas de la planificación). Se prueba con un cliente Anthropic falso
-(sin red ni API key) y verificando que las filas extraídas pasan la validación real
-del procesador."""
+en PDF/Word → filas de la planificación). Se prueba con una función de chat falsa
+(sin red ni proveedor real) y verificando que las filas extraídas pasan la
+validación real del procesador. El motor usa el cliente compartido de proveedores,
+que pone el servidor de IA local primero."""
 import io
+import json
 
 import pytest
 
@@ -11,30 +13,26 @@ from backend.app.aud.niif.procesadores import planificacion_nia as m
 
 
 # --------------------------------------------------------------------------- #
-#  Cliente Anthropic falso                                                     #
+#  Función de chat falsa (imita providers.chat_complete)                        #
 # --------------------------------------------------------------------------- #
-class _Bloque:
-    def __init__(self, entrada):
-        self.type = "tool_use"
-        self.input = entrada
+class _Resp:
+    def __init__(self, content, model="modelo-falso"):
+        self.content = content
+        self.model = model
+        self.tokens_in = None
+        self.tokens_out = None
 
 
-class _Respuesta:
-    def __init__(self, entrada):
-        self.content = [_Bloque(entrada)]
+class _ChatFalso:
+    """Devuelve siempre el JSON dado y guarda el prompt para inspección."""
 
-
-class _ClienteFalso:
-    """Devuelve siempre `filas` fijas y guarda el prompt/esquema para inspección."""
-
-    def __init__(self, filas):
-        self._filas = filas
+    def __init__(self, filas=None, content=None):
+        self._content = content if content is not None else json.dumps({"filas": filas or []})
         self.ultimo = {}
-        self.messages = self
 
-    def create(self, **kwargs):
-        self.ultimo = kwargs
-        return _Respuesta({"filas": self._filas})
+    def __call__(self, messages, system=None):
+        self.ultimo = {"messages": messages, "system": system}
+        return _Resp(self._content)
 
 
 # --------------------------------------------------------------------------- #
@@ -74,7 +72,7 @@ def test_doc_antiguo_avisa_convertir():
 
 
 # --------------------------------------------------------------------------- #
-#  Extracción de filas (cliente falso)                                         #
+#  Extracción de filas (chat falso)                                            #
 # --------------------------------------------------------------------------- #
 def test_extraer_carta_produce_filas_validas():
     filas = [
@@ -85,10 +83,9 @@ def test_extraer_carta_produce_filas_validas():
          "aseveraciones": None, "probabilidad": 3.0, "impacto": None, "control": None,
          "respuesta": None, "probar_control": None},
     ]
-    cli = _ClienteFalso(filas)
-    out = ex.extraer_filas(m.CAMPOS["carta_control_interno"], "texto de la carta", cliente=cli)
+    out = ex.extraer_filas(m.CAMPOS["carta_control_interno"], "texto de la carta", chat=_ChatFalso(filas))
     rows = out["rows"]
-    assert out["n"] == 2
+    assert out["n"] == 2 and out["modelo"] == "modelo-falso"
     # Numeración de filas y coerción de numéricos a entero.
     assert rows[0]["_row"] == 1 and rows[0]["probabilidad"] == 4 and isinstance(rows[0]["probabilidad"], int)
     # Los null se vuelven cadena vacía (regla: sin dato, celda vacía; nunca 0).
@@ -98,7 +95,7 @@ def test_extraer_carta_produce_filas_validas():
     assert v["ok"], v["errors"]
 
 
-def test_extraer_informe_normaliza_contra_validacion():
+def test_extraer_informe_incluye_enums_en_el_prompt():
     filas = [
         {"concepto": "Jubilación patronal", "tipo": "Salvedad",
          "detalle": "La provisión no se ajustó al cálculo actuarial.", "importe": 18500.0,
@@ -106,44 +103,60 @@ def test_extraer_informe_normaliza_contra_validacion():
         {"concepto": "Empresa en funcionamiento", "tipo": "Énfasis", "detalle": "Capital de trabajo negativo.",
          "importe": None, "fuente": "Nota 1", "enfoque": None},
     ]
-    cli = _ClienteFalso(filas)
+    chat = _ChatFalso(filas)
     out = ex.extraer_filas(m.CAMPOS["informe_anterior"], "texto del informe",
-                           enums={"tipo": m.TIPOS_INFORME}, cliente=cli)
+                           enums={"tipo": m.TIPOS_INFORME}, chat=chat)
     v = m.validar_filas("informe_anterior", out["rows"])
     assert v["ok"], v["errors"]
-    # El esquema forzado limita el tipo a los valores válidos.
-    esquema = cli.ultimo["tools"][0]["input_schema"]
-    assert "enum" in esquema["properties"]["filas"]["items"]["properties"]["tipo"]
+    # El prompt le pasa al modelo los valores permitidos del tipo.
+    prompt = chat.ultimo["messages"][0]["content"]
+    assert "Salvedad" in prompt and "Identificación" in prompt
 
 
 def test_extraer_descarta_claves_desconocidas():
     filas = [{"id": "R01", "proceso": "X", "hallazgo": "Y", "inventado": "no debería pasar"}]
-    out = ex.extraer_filas(m.CAMPOS["carta_control_interno"], "t", cliente=_ClienteFalso(filas))
+    out = ex.extraer_filas(m.CAMPOS["carta_control_interno"], "t", chat=_ChatFalso(filas))
     assert "inventado" not in out["rows"][0]
 
 
-def test_respuesta_sin_tool_use_falla():
-    class _Vacio:
-        def __init__(self):
-            self.messages = self
+def test_json_con_cercas_de_codigo_se_parsea():
+    contenido = 'Claro, aquí está:\n```json\n{"filas": [{"id": "R09", "proceso": "P", "hallazgo": "H"}]}\n```'
+    out = ex.extraer_filas(m.CAMPOS["carta_control_interno"], "t", chat=_ChatFalso(content=contenido))
+    assert out["rows"][0]["id"] == "R09"
 
-        def create(self, **k):
-            class R:
-                content = []
-            return R()
 
+def test_respuesta_no_json_falla():
     with pytest.raises(ex.ExtraccionError):
-        ex.extraer_filas(m.CAMPOS["carta_control_interno"], "t", cliente=_Vacio())
+        ex.extraer_filas(m.CAMPOS["carta_control_interno"], "t", chat=_ChatFalso(content="no soy json"))
 
 
 # --------------------------------------------------------------------------- #
 #  Degradación elegante                                                        #
 # --------------------------------------------------------------------------- #
-def test_sin_api_key_no_disponible(monkeypatch):
+def test_sin_proveedor_no_disponible(monkeypatch):
+    from backend.app.chat import providers
+
     monkeypatch.setattr(ex, "EXTRACCION_ENABLED", True)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(providers, "available_provider", lambda: None)
     with pytest.raises(ex.ExtraccionNoDisponible):
         ex.extraer_filas(m.CAMPOS["carta_control_interno"], "t")
+
+
+def test_con_proveedor_local_usa_la_cadena(monkeypatch):
+    """Con un proveedor disponible, el motor llama a providers.chat_complete."""
+    from backend.app.chat import providers
+
+    monkeypatch.setattr(ex, "EXTRACCION_ENABLED", True)
+    monkeypatch.setattr(providers, "available_provider", lambda: "local")
+    llamado = {}
+
+    def fake_chat(messages, system=None):
+        llamado["ok"] = True
+        return _Resp(json.dumps({"filas": [{"id": "R01", "proceso": "P", "hallazgo": "H"}]}))
+
+    monkeypatch.setattr(providers, "chat_complete", fake_chat)
+    out = ex.extraer_filas(m.CAMPOS["carta_control_interno"], "t")
+    assert llamado.get("ok") and out["rows"][0]["id"] == "R01"
 
 
 def test_apagada_no_disponible(monkeypatch):

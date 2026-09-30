@@ -3,21 +3,26 @@ procesador de planificación espera.
 
 Caso de uso: la **carta de control interno** (RQ-004) y el **informe de auditoría
 del año anterior** (RQ-005) llegan como documentos firmados (PDF o Word), no como
-una tabla transcrita en Excel. Este módulo lee el texto del documento y, con la
-Messages API de Anthropic (tool-use con esquema forzado que se deriva de los
-``campos`` del procesador), devuelve **las mismas filas** que hoy se transcriben a
-mano (una fila por hallazgo / por asunto del informe, con sus columnas).
+una tabla transcrita en Excel. Este módulo lee el texto del documento y le pide al
+modelo de IA que devuelva **las mismas filas** que hoy se transcriben a mano (una
+fila por hallazgo / por asunto del informe, con sus columnas), como JSON estricto.
+
+**Proveedor de IA:** usa el cliente compartido ``backend.app.chat.providers``
+(``chat_complete``), cuyo orden de preferencia pone **el servidor de IA LOCAL
+primero** (privacidad + costo cero) y cae a los proveedores de nube solo como
+respaldo. Así respeta ``AUDITBRAIN_LLM_PROVIDER`` y la misma política que el resto
+de la plataforma; no llama a ningún proveedor directamente.
 
 Reglas que este módulo respeta:
 
 - **La IA solo transcribe lo que el documento dice.** No inventa calificaciones ni
   cifras: si un dato no está en el documento, la celda queda vacía (regla M22 del
-  proyecto: sin dato no hay cifra). El auditor revisa y confirma la tabla extraída
-  ANTES de que alimente la herramienta (la IA no decide sola).
-- **Degradación elegante.** Si ``ANTHROPIC_API_KEY`` no está configurada, la
-  extracción está apagada (``NIIF_EXTRACCION_ENABLED=false``) o la llamada falla
-  tras los reintentos, se levanta :class:`ExtraccionNoDisponible` con un mensaje
-  claro para que el auditor caiga al respaldo (subir la tabla en Excel/CSV).
+  proyecto). El auditor revisa y confirma la tabla extraída ANTES de que alimente la
+  herramienta (la IA no decide sola).
+- **Degradación elegante.** Si no hay ningún proveedor LLM configurado (ni el local
+  ni uno de nube) o la extracción está apagada (``NIIF_EXTRACCION_ENABLED=false``),
+  se levanta :class:`ExtraccionNoDisponible` con un mensaje claro para que el auditor
+  caiga al respaldo (subir la tabla en Excel/CSV).
 
 El motor es **genérico**: recibe la lista de ``campos`` (del procesador) y no conoce
 la semántica de la planificación. La normalización y validación finas (p. ej. el
@@ -29,21 +34,16 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from typing import Any, Callable, Optional
 
 log = logging.getLogger(__name__)
 
-# Modelo por defecto: el mismo que el intérprete del ICT (Sonnet 4.5 verificado en
-# producción). Se sobreescribe por env var cuando Anthropic publique uno nuevo, sin
-# tocar el código (misma política que ICT_LLM_MODEL).
-DEFAULT_MODEL = os.getenv("NIIF_LLM_MODEL", os.getenv("ICT_LLM_MODEL", "claude-sonnet-4-5-20250929"))
-DEFAULT_TIMEOUT = float(os.getenv("NIIF_LLM_TIMEOUT", "40.0"))
-DEFAULT_MAX_RETRIES = int(os.getenv("NIIF_LLM_MAX_RETRIES", "2"))
-MAX_TOKENS = int(os.getenv("NIIF_LLM_MAX_TOKENS", "4096"))
 # Recorte del texto que se manda al modelo (los documentos del año anterior son
-# cortos; este tope evita costos si alguien sube un PDF gigante por error).
+# cortos; este tope evita costos/lentitud si alguien sube un PDF gigante por error).
 MAX_CHARS = int(os.getenv("NIIF_EXTRACCION_MAX_CHARS", "60000"))
+MAX_RETRIES = int(os.getenv("NIIF_EXTRACCION_MAX_RETRIES", "2"))
 EXTRACCION_ENABLED = os.getenv("NIIF_EXTRACCION_ENABLED", "true").lower() in ("true", "1", "yes")
 
 
@@ -52,7 +52,7 @@ class ExtraccionError(Exception):
 
 
 class ExtraccionNoDisponible(ExtraccionError):
-    """La IA de extracción no está disponible (sin API key, apagada o sin red)."""
+    """La IA de extracción no está disponible (sin proveedor LLM o apagada)."""
 
 
 # --------------------------------------------------------------------------- #
@@ -134,100 +134,93 @@ def _texto_docx(datos: bytes) -> str:
 
 
 # --------------------------------------------------------------------------- #
-#  2 · Esquema de herramienta (tool-use) derivado de los campos del procesador #
+#  2 · Prompt y parseo de JSON                                                 #
 # --------------------------------------------------------------------------- #
-def _propiedad(campo: dict, enums: dict) -> dict:
-    """Propiedad JSON-schema de un campo, con descripción a partir de su etiqueta."""
-    desc = str(campo.get("label") or campo["key"])
-    if campo.get("example") is not None:
-        desc += f" (ej.: {campo['example']})"
-    prop: dict[str, Any]
-    if campo.get("type") == "number":
-        prop = {"type": ["number", "null"], "description": desc}
-    else:
-        prop = {"type": ["string", "null"], "description": desc}
-    if campo["key"] in enums:
-        prop["enum"] = list(enums[campo["key"]]) + [None]
-    return prop
+def _columnas(campos: list, enums: dict) -> str:
+    filas = []
+    for c in campos:
+        linea = f'- "{c["key"]}": {c.get("label") or c["key"]}'
+        if c.get("type") == "number":
+            linea += " (número)"
+        if not c.get("required", True):
+            linea += " [opcional]"
+        if c["key"] in enums:
+            linea += " — valores permitidos: " + ", ".join(str(v) for v in enums[c["key"]])
+        elif c.get("example") is not None:
+            linea += f" — ej.: {c['example']}"
+        filas.append(linea)
+    return "\n".join(filas)
 
 
-def _esquema(campos: list, enums: dict) -> dict:
-    return {
-        "type": "object",
-        "properties": {
-            "filas": {
-                "type": "array",
-                "description": "Una entrada por cada fila detectada en el documento.",
-                "items": {
-                    "type": "object",
-                    "properties": {c["key"]: _propiedad(c, enums) for c in campos},
-                    "required": [c["key"] for c in campos],
-                    "additionalProperties": False,
-                },
-            }
-        },
-        "required": ["filas"],
-    }
+_SISTEMA = (
+    "Eres un asistente de auditoría que TRANSCRIBE datos de un documento a una tabla estructurada. "
+    "Respondes ÚNICAMENTE con JSON válido, sin texto adicional, sin explicaciones y sin markdown."
+)
 
 
-def _prompt(campos: list, instrucciones: str, contexto: str, texto: str) -> str:
-    cols = "\n".join(
-        f"- {c['key']}: {c.get('label') or c['key']}"
-        + (" (número)" if c.get("type") == "number" else "")
-        + ("" if c.get("required", True) else " [opcional]")
-        + (f" — ej.: {c['example']}" if c.get("example") is not None else "")
-        for c in campos
-    )
+def _prompt(campos: list, instrucciones: str, contexto: str, enums: dict, texto: str) -> str:
     partes = [
-        "Eres un asistente de auditoría que TRANSCRIBE datos de un documento a una tabla estructurada.",
-        "Reglas estrictas:",
+        "Transcribe el documento a una tabla. Reglas estrictas:",
         "1. Transcribe SOLO lo que el documento dice de forma explícita. NO inventes, deduzcas ni completes datos.",
-        "2. Si un dato no aparece en el documento, deja ese campo en null (no pongas 0 ni un valor inventado).",
-        "3. Una entrada de la lista por cada fila/ítem real del documento; no agregues filas de total ni de resumen.",
+        "2. Si un dato no aparece en el documento, usa null en ese campo (no pongas 0 ni un valor inventado).",
+        "3. Una entrada por cada fila/ítem real del documento; no agregues filas de total ni de resumen.",
         "4. Respeta los valores permitidos de cada campo cuando se indiquen.",
         "",
-        "Columnas a extraer:",
-        cols,
+        "Columnas de cada fila (usa exactamente estas claves):",
+        _columnas(campos, enums),
     ]
     if instrucciones:
         partes += ["", instrucciones]
     if contexto:
         partes += ["", f"Contexto del encargo: {contexto}"]
-    partes += ["", "Documento:", '"""', texto, '"""']
+    partes += [
+        "",
+        'Devuelve un objeto JSON con esta forma exacta: {"filas": [ { … una fila … }, … ]}. '
+        "Si no hay filas, devuelve {\"filas\": []}.",
+        "",
+        "Documento:",
+        '"""',
+        texto,
+        '"""',
+    ]
     return "\n".join(partes)
 
 
+def _json_de_texto(texto: str) -> dict:
+    """Extrae el objeto JSON de la respuesta del modelo, tolerando cercas de código
+    y texto alrededor."""
+    t = (texto or "").strip()
+    # Quitar cercas ```json ... ```
+    m = re.search(r"```(?:json)?\s*(.+?)```", t, re.DOTALL)
+    if m:
+        t = m.group(1).strip()
+    # Quedarse con el primer objeto {...} balanceado por sus llaves extremas.
+    ini, fin = t.find("{"), t.rfind("}")
+    if ini != -1 and fin != -1 and fin > ini:
+        t = t[ini:fin + 1]
+    return json.loads(t)
+
+
 # --------------------------------------------------------------------------- #
-#  3 · Cliente Anthropic (inyectable para pruebas)                             #
+#  3 · Cliente de chat (cadena de proveedores, local primero; inyectable)     #
 # --------------------------------------------------------------------------- #
-def _cliente_por_defecto():
+def _chat_por_defecto() -> Callable:
+    """Devuelve la función de chat compartida (servidor local primero, con
+    respaldo a la nube). Levanta :class:`ExtraccionNoDisponible` si no hay ningún
+    proveedor configurado o si la extracción está apagada."""
     if not EXTRACCION_ENABLED:
         raise ExtraccionNoDisponible(
             "La extracción por IA está deshabilitada (NIIF_EXTRACCION_ENABLED=false). "
             "Suba la tabla en Excel/CSV con la plantilla del requerimiento."
         )
-    if not os.getenv("ANTHROPIC_API_KEY"):
+    from backend.app.chat import providers
+
+    if providers.available_provider() is None:
         raise ExtraccionNoDisponible(
-            "No hay ANTHROPIC_API_KEY configurada: la extracción por IA no está disponible en este entorno. "
-            "Suba la tabla en Excel/CSV con la plantilla del requerimiento."
+            "No hay ningún proveedor de IA configurado en el servidor (ni el local ni uno de nube): "
+            "la extracción por IA no está disponible. Suba la tabla en Excel/CSV con la plantilla del requerimiento."
         )
-    try:
-        import anthropic
-    except Exception as e:  # pragma: no cover
-        raise ExtraccionNoDisponible("Falta el SDK de Anthropic en el entorno.") from e
-    return anthropic.Anthropic(timeout=DEFAULT_TIMEOUT)
-
-
-def _tool_use_input(respuesta: Any) -> dict:
-    """Extrae el bloque tool_use de una respuesta de la Messages API."""
-    for bloque in getattr(respuesta, "content", None) or []:
-        if getattr(bloque, "type", None) == "tool_use":
-            entrada = getattr(bloque, "input", None)
-            if isinstance(entrada, dict):
-                return entrada
-            if isinstance(entrada, str):
-                return json.loads(entrada)
-    raise ExtraccionError("La IA no devolvió datos estructurados.")
+    return providers.chat_complete
 
 
 # --------------------------------------------------------------------------- #
@@ -240,10 +233,10 @@ def extraer_filas(
     instrucciones: str = "",
     enums: Optional[dict] = None,
     contexto: str = "",
-    cliente: Any = None,
-    modelo: str = "",
+    chat: Optional[Callable] = None,
 ) -> dict:
-    """Extrae filas estructuradas del ``texto`` según los ``campos`` del procesador.
+    """Extrae filas estructuradas del ``texto`` según los ``campos`` del procesador,
+    usando el servidor de IA local primero (cadena de proveedores compartida).
 
     Devuelve ``{"rows": [...], "modelo": str, "n": int}``. Cada fila es un dict con
     las mismas claves que produciría la transcripción en Excel (más ``_row``,
@@ -252,38 +245,29 @@ def extraer_filas(
     :class:`ExtraccionError` si la respuesta es inválida.
     """
     enums = enums or {}
-    modelo = modelo or DEFAULT_MODEL
-    cli = cliente or _cliente_por_defecto()
+    chat = chat or _chat_por_defecto()
     texto = texto[:MAX_CHARS]
-    esquema = _esquema(campos, enums)
-    prompt = _prompt(campos, instrucciones, contexto, texto)
+    prompt = _prompt(campos, instrucciones, contexto, enums, texto)
     claves = {c["key"] for c in campos}
     numericos = {c["key"] for c in campos if c.get("type") == "number"}
 
     error: Optional[Exception] = None
-    for intento in range(DEFAULT_MAX_RETRIES):
+    for intento in range(MAX_RETRIES):
         try:
-            respuesta = cli.messages.create(
-                model=modelo,
-                max_tokens=MAX_TOKENS,
-                tools=[{"name": "registrar_filas", "description": "Registra las filas extraídas del documento.",
-                        "input_schema": esquema}],
-                tool_choice={"type": "tool", "name": "registrar_filas"},
-                messages=[{"role": "user", "content": prompt}],
-            )
-            entrada = _tool_use_input(respuesta)
-            filas = entrada.get("filas")
+            resp = chat([{"role": "user", "content": prompt}], system=_SISTEMA)
+            datos = _json_de_texto(getattr(resp, "content", "") or "")
+            filas = datos.get("filas") if isinstance(datos, dict) else datos
             if not isinstance(filas, list):
                 raise ExtraccionError("La IA no devolvió una lista de filas.")
             rows = [_normalizar_fila(f, claves, numericos, i) for i, f in enumerate(filas, start=1)
                     if isinstance(f, dict)]
-            return {"rows": rows, "modelo": modelo, "n": len(rows)}
+            return {"rows": rows, "modelo": getattr(resp, "model", "") or "", "n": len(rows)}
         except ExtraccionNoDisponible:
             raise
         except Exception as e:  # reintento con backoff exponencial 1s/2s/...
             error = e
-            log.warning("Extracción IA falló (intento %d/%d): %s", intento + 1, DEFAULT_MAX_RETRIES, e)
-            if intento < DEFAULT_MAX_RETRIES - 1:
+            log.warning("Extracción IA falló (intento %d/%d): %s", intento + 1, MAX_RETRIES, e)
+            if intento < MAX_RETRIES - 1:
                 time.sleep(2 ** intento)
     raise ExtraccionError(f"No se pudo extraer la información con la IA: {error}")
 

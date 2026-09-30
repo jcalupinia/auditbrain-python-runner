@@ -1,7 +1,8 @@
 """Planificación NIA con la carta de control interno subida en PDF: la IA extrae la
-tabla (cliente Anthropic falso), el auditor la confirma y map_validate la suma al
-dataset `carta_control_interno`, de modo que la matriz de riesgos del papel la usa.
-Flujo completo por HTTP; la extracción se monkeypatchea para no depender de la red."""
+tabla (función de chat falsa; en producción usa el servidor de IA local primero), el
+auditor la confirma y map_validate la suma al dataset `carta_control_interno`, de modo
+que la matriz de riesgos del papel la usa. Flujo completo por HTTP; la extracción se
+monkeypatchea para no depender de la red."""
 import io
 import json
 
@@ -31,18 +32,16 @@ CARTA_IA = [
 ]
 
 
-class _ClienteFalso:
-    def __init__(self, filas):
-        self._filas = filas
-        self.messages = self
+class _Resp:
+    def __init__(self, content):
+        self.content = content
+        self.model = "modelo-falso"
 
-    def create(self, **kwargs):
-        class _B:
-            type = "tool_use"
-            input = {"filas": self._filas}
-        class _R:
-            content = [_B()]
-        return _R()
+
+def _chat_falso(filas):
+    def chat(messages, system=None):
+        return _Resp(json.dumps({"filas": filas}))
+    return chat
 
 
 def _mapa(tipo):
@@ -84,9 +83,10 @@ def _hasta_requerimiento(client, tok, pid):
 
 
 def test_carta_en_pdf_se_extrae_confirma_y_alimenta_la_matriz(client, monkeypatch):
-    # La IA no se llama de verdad: texto fijo + cliente Anthropic falso.
+    # La IA no se llama de verdad: texto fijo + función de chat falsa (la cadena de
+    # proveedores, local primero, se sustituye por esta).
     monkeypatch.setattr(extraccion_ia, "texto_de_documento", lambda nombre, datos: "Texto de la carta de control interno.")
-    monkeypatch.setattr(extraccion_ia, "_cliente_por_defecto", lambda: _ClienteFalso(CARTA_IA))
+    monkeypatch.setattr(extraccion_ia, "_chat_por_defecto", lambda: _chat_falso(CARTA_IA))
 
     tok, pid = _staff_con_proyecto(client)
     p = _hasta_requerimiento(client, tok, pid)
