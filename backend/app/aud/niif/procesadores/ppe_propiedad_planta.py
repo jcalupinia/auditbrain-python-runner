@@ -223,6 +223,18 @@ def _p(p, k):
     return None if v is None or _t(v) == "" else float(a_num(v))
 
 
+# Recálculo fiscal (SRI). Tasas máximas de depreciación por clase (RALRTI Art. 28 núm. 6) y tope de vehículos
+# (LRTI Art. 10 núm. 7). Son máximos legales; la base NIIF (vida útil) es independiente y la fija el auditor.
+TOPE_VEHICULO = 35000.0
+_TASA_FISCAL = {"vidaInmuebles": 0.05, "vidaInstalacionesMaquinaria": 0.10, "vidaMuebles": 0.10,
+                "vidaVehiculos": 0.20, "vidaEquipoComputo": 0.3333}
+
+
+def _tasa_fiscal(clase):
+    """Tasa máxima de depreciación fiscal (SRI Art. 28) por clase; None para terrenos o clases no mapeadas."""
+    return _TASA_FISCAL.get(_clase_bucket(clase))
+
+
 def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     p = {**PARAMETROS, **{k: v for k, v in (parametros or {}).items() if v is not None and v != ""}}
     corte_a = fecha(corte)
@@ -289,6 +301,23 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         a["remanente"] = None if a["vida"] is None or a["acum"] is None or a["depr"] == 0 else max(a["depr"] - a["acum"], 0) / a["depr"] * a["vida"]
         a["resid_pct"] = None if a["costo"] == 0 else (a["res"] or 0) / a["costo"]
     vivos = [a for a in activos if a["estado"] != "Baja"]
+
+    # Recálculo fiscal (SRI Art. 28): tasa máxima por clase, tope de vehículos (Art. 10 núm. 7) y diferencia con la
+    # depreciación NIIF. Es la base tributaria (deducible) frente a la NIIF; no altera el ajuste contable a resultados.
+    for a in activos:
+        bkt = _clase_bucket(a["clase"])
+        a["tasa_fiscal"] = _TASA_FISCAL.get(bkt)
+        es_veh = bkt == "vidaVehiculos"
+        if a["tasa_fiscal"] is None or not _lineal(a["metodo"]) or a["dias"] == 0:
+            a["base_fiscal"] = a["dep_fiscal"] = a["dif_fiscal"] = None
+            a["exceso_veh"] = 0.0
+        else:
+            factor = a["dias"] / dias_anio
+            sobre_tope = es_veh and a["costo"] > TOPE_VEHICULO
+            a["base_fiscal"] = TOPE_VEHICULO if sobre_tope else a["costo"]
+            a["dep_fiscal"] = a["base_fiscal"] * a["tasa_fiscal"] * factor
+            a["exceso_veh"] = (a["costo"] - TOPE_VEHICULO) * a["tasa_fiscal"] * factor if sobre_tope else 0.0
+            a["dif_fiscal"] = None if a["dep"] is None else a["dep"] - a["dep_fiscal"]
 
     # Componentes: elementos con más de una fila.
     grupo = lambda a: a["elemento"] or a["id"]
@@ -478,7 +507,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     pr = []
     for a in activos:
         if a["dep"] is None:
-            pr.append(problema("METODO_NO_RECALCULADO", f"{a['id']}: método «{a['metodo']}» no se recalcula; pida el cálculo del cliente y evalúe el patrón de consumo (NIC 16.60–62).", 0))
+            pr.append(problema("METODO_NO_RECALCULADO", f"{a['id']}: la herramienta no recalcula el método «{a['metodo']}»; el recálculo se apoya en el cálculo del cliente y en el patrón de consumo (NIC 16.60–62).", 0))
         if a["dif"] is not None and abs(a["dif"]) > tol:
             pr.append(problema("DEPRECIACION_DIFERENTE", f"{a['id']}: depreciación recalculada {m(a['dep'])} ≠ registrada {m(a['dreg'])} (NIC 16.50; PYMES 17.18).", a["dif"]))
         if a["estado"] == "En construcción" and (a["dreg"] or 0) > 0:
@@ -495,13 +524,13 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             pendientes.setdefault(a["clase"] or "(sin clase)", []).append(a["id"])
     for clase_p, ids in sorted(pendientes.items()):
         pr.append(problema("VIDA_UTIL_CLASE_PENDIENTE",
-                           f"Clase «{clase_p}»: {len(ids)} activo(s) sin vida útil NIIF; confirme la vida útil por clase en los "
-                           f"parámetros de la prueba para recalcular su depreciación (NIC 16.50, 57; PYMES 17.18, 17.21).", 0))
+                           f"Clase «{clase_p}»: {len(ids)} activo(s) sin vida útil NIIF definida; su depreciación no se recalcula mientras la "
+                           f"clase no tenga vida útil en los parámetros de la prueba (NIC 16.50, 57; PYMES 17.18, 17.21).", 0))
     umbral_rev = _p(p, "umbralRevisarComponentes")
     if umbral_rev is not None:
         for a in vivos:
             if conteo[grupo(a)] == 1 and a["costo"] >= umbral_rev and a["vida"] is not None:
-                pr.append(problema("REVISAR_COMPONENTES", f"{a['id']}: elemento de costo {m(a['costo'])} sin partes; confirme que no tiene partes significativas con vida distinta (NIC 16.43–44; PYMES 17.16).", 0))
+                pr.append(problema("REVISAR_COMPONENTES", f"{a['id']}: elemento de costo {m(a['costo'])} sin partes registradas; puede tener partes significativas con vida distinta (NIC 16.43–44; PYMES 17.16).", 0))
     for a in bajas:
         if a["res_dif"] is not None and abs(a["res_dif"]) > tol:
             pr.append(problema("BAJA_MAL_CALCULADA", f"{a['id']}: resultado de la baja recalculado {m(a['res_calc'])} ≠ registrado {m(a['resreg'])} (NIC 16.71; PYMES 17.30).", a["res_dif"]))
@@ -520,14 +549,14 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     sin_sup = [a["id"] for a in deter if a["perdida"] and a["detORI"] is None]
     if sin_sup:
         pr.append(problema("DETERIORO_SIN_SUPERAVIT", f"Activos revaluados con deterioro y sin superávit de revaluación previo informado: {', '.join(sin_sup)}. "
-                           "La pérdida debe imputarse primero contra el superávit de ese activo y solo el exceso a resultados (NIC 36.60-61; PYMES 27.6): "
-                           "indique el superávit previo; mientras tanto la pérdida queda íntegra en resultados.",
+                           "La pérdida se imputa primero contra el superávit de ese activo y solo el exceso a resultados (NIC 36.60-61; PYMES 27.6). "
+                           "Sin el dato del superávit previo, la pérdida queda íntegra en resultados.",
                            sum(a["perdida"] for a in deter if a["perdida"] and a["detORI"] is None)))
     sin_dec = [a["id"] for a in reval if a["decPrev"] is None]
     if sin_dec:
         pr.append(problema("REVALUACION_SIN_DECREMENTO_PREVIO", f"Activos revaluados sin el dato «decremento previo del mismo activo reconocido en resultados»: "
-                           f"{', '.join(sin_dec)}. El aumento por revaluación va a resultados hasta revertir ese decremento anterior (NIC 16.39; PYMES 17.15C): "
-                           "indique el importe; mientras tanto el aumento queda íntegro en otro resultado integral.",
+                           f"{', '.join(sin_dec)}. El aumento por revaluación va a resultados hasta revertir ese decremento anterior (NIC 16.39; PYMES 17.15C). "
+                           "Sin ese dato, el aumento queda íntegro en otro resultado integral.",
                            sum(a["rev_ori"] for a in reval if a["decPrev"] is None and a["rev_dif"] > 0)))
     if pymes:
         cap_pymes = sum(x["int"] or 0 for x in adiciones)
@@ -540,13 +569,12 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     else:
         if not prestamos:
             if tasa_cap is None and any(x["apto"].lower() in ("sí", "si") for x in adiciones):
-                pr.append(problema("TASA_CAPITALIZACION_FALTANTE", "Hay adiciones de activos aptos: ingrese la tasa de capitalización (NIC 23.14).", 0))
+                pr.append(problema("TASA_CAPITALIZACION_FALTANTE", "Hay adiciones de activos aptos y no consta la tasa de capitalización (NIC 23.14): sus costos por préstamos no se recalculan.", 0))
             if any(a["estado"] == "En construcción" for a in activos) or any(x["apto"].lower() in ("sí", "si") for x in adiciones):
                 pr.append(problema("SIN_ANEXO_PRESTAMOS", "Hay activos en construcción o adiciones de activos aptos y no se cargó el anexo de préstamos para la "
                                    "construcción: no se puede separar el préstamo específico —costo financiero realmente incurrido menos los rendimientos de la inversión "
                                    "temporal de esos fondos (NIC 23.12)— de los préstamos generales —tasa de capitalización (NIC 23.14)— ni comprobar el tope de los "
-                                   "costos por préstamos incurridos en el período (NIC 23.14). Pida los contratos y la tabla de amortización de cada préstamo; mientras "
-                                   "tanto se aplica la tasa de capitalización del parámetro a cada desembolso.", 0))
+                                   "costos por préstamos incurridos en el período (NIC 23.14). Sin ese anexo se aplica la tasa de capitalización del parámetro a cada desembolso.", 0))
             for x in adiciones:
                 if x["int_dif"] is not None and abs(x["int_dif"]) > tol:
                     pr.append(problema("INTERESES_DIFERENCIA", f"{x['id']}: intereses capitalizables {m(x['cap'])} ≠ capitalizados {m(x['int'] or 0)} (NIC 23.8, 14).", x["int_dif"]))
@@ -556,7 +584,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                                    f"préstamos generales del anexo ({tasa_gen * 100:.4f} %): se usa la del anexo (NIC 23.14).", 0))
             if factor is None:
                 pr.append(problema("TOPE_NO_VERIFICABLE", "No se puede comprobar el tope del párrafo 14 (lo capitalizado no excede los costos por préstamos incurridos en "
-                                   "el período): falta el costo financiero de algún préstamo o el capitalizable de algún activo. Complete el anexo de préstamos.", 0))
+                                   "el período): no consta el costo financiero de algún préstamo o el capitalizable de algún activo en el anexo de préstamos.", 0))
             elif factor < 1:
                 pr.append(problema("TOPE_COSTOS_PRESTAMOS", f"El capitalizable calculado {m(tope_antes)} excede los costos por préstamos incurridos en el período "
                                    f"{m(tope_inc)}: se limita a estos últimos (NIC 23.14). Exceso que no se capitaliza: {m(tope_antes - tope_inc)}.", tope_antes - tope_inc))
@@ -566,16 +594,16 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                                        "(NIC 23.12 el específico, 23.14 los generales y el tope).", a["dif"]))
     for y in prestamos:
         if not y["tipo"]:
-            pr.append(problema("PRESTAMO_SIN_TIPO", f"{y['id']}: indique si el préstamo es específico (NIC 23.12) o general (NIC 23.14); sin el tipo no entra en el cálculo.", 0))
+            pr.append(problema("PRESTAMO_SIN_TIPO", f"{y['id']}: sin tipo declarado (específico NIC 23.12 / general NIC 23.14); sin el tipo no entra en el cálculo.", 0))
         if y["costo"] is None:
-            pr.append(problema("PRESTAMO_SIN_COSTO_FINANCIERO", f"{y['id']}: falta el costo financiero del período realmente incurrido; sin él no se mide el capitalizable "
-                               "ni el tope del párrafo 14 (NIC 23.12 y 14). Revise la tabla de amortización del préstamo y el mayor de gasto financiero.", 0))
+            pr.append(problema("PRESTAMO_SIN_COSTO_FINANCIERO", f"{y['id']}: sin costo financiero del período realmente incurrido; sin él no se mide el capitalizable "
+                               "ni el tope del párrafo 14 (NIC 23.12 y 14).", 0))
         if y["tipo"] == "Específico":
             if y["rend"] is None:
                 pr.append(problema("PRESTAMO_SIN_RENDIMIENTOS", f"{y['id']}: préstamo específico sin el dato de rendimientos de la inversión temporal de esos fondos; lo "
-                                   "capitalizable es el costo realmente incurrido menos esos rendimientos (NIC 23.12). Si no hubo inversión temporal, informe 0: no se asume.", 0))
+                                   "capitalizable es el costo realmente incurrido menos esos rendimientos (NIC 23.12). Un rendimiento no informado no se asume en cero.", 0))
             if not y["activo"]:
-                pr.append(problema("PRESTAMO_SIN_ACTIVO", f"{y['id']}: préstamo específico sin el activo u obra financiada; indíquelo para asignarle el costo capitalizable (NIC 23.12).", 0))
+                pr.append(problema("PRESTAMO_SIN_ACTIVO", f"{y['id']}: préstamo específico sin el activo u obra financiada declarada; su costo capitalizable no se asigna (NIC 23.12).", 0))
             elif y["activo"] not in por_id:
                 pr.append(problema("PRESTAMO_ACTIVO_NO_EXISTE", f"{y['id']}: el activo {y['activo']} que financia no está en el auxiliar.", 0))
         if y["tipo"] == "General" and (y["importe"] is None or y["costo"] is None):
@@ -589,7 +617,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     if rf["difAd"] is not None and abs(rf["difAd"]) > tol:
         pr.append(problema("ADICIONES_NO_CONCILIAN", f"Adiciones del auxiliar {m(rf['ad'])} ≠ detalle de adiciones {m(rf['adDetalle'])}.", rf["difAd"]))
     if vp is None:
-        pr.append(problema("DESMANTELAMIENTO_NO_EVALUADO", "No se ingresó la estimación de desmantelamiento: documente si existe la obligación (NIC 16.16 c, NIC 37; PYMES 17.10 c, Sección 21).", 0))
+        pr.append(problema("DESMANTELAMIENTO_NO_EVALUADO", "No consta estimación de desmantelamiento: la existencia de la obligación no está evaluada (NIC 16.16 c, NIC 37; PYMES 17.10 c, Sección 21).", 0))
     elif vp > 0.005 and not prov_reg:
         pr.append(problema("DESMANTELAMIENTO_NO_RECONOCIDO", f"Obligación de desmantelamiento no reconocida: valor presente {m(vp)} (NIC 16.16 c, NIC 37.45; Sección 21 (21.7 b)).", vp))
     elif abs(desm["dif"]) > tol:
@@ -597,15 +625,20 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                            + ("." if act is None else f", de la que {m(act)} es la actualización financiera del período (a resultados, costo financiero: CINIIF 1.8; "
                               f"NIC 37.60; PYMES 21.11) y {m(desm['cambio'])} el cambio de estimación contra el costo del activo (CINIIF 1.5 a)."), desm["dif"]))
     if vp is not None and prov_ini is None:
-        pr.append(problema("SIN_PROVISION_DESMANTELAMIENTO_INICIAL", "Hay provisión de desmantelamiento registrada pero no se informó su saldo al inicio del "
-                           "ejercicio: no se puede separar la actualización financiera del período (saldo inicial × tasa, a resultados: CINIIF 1.8; PYMES 21.11) "
+        pr.append(problema("SIN_PROVISION_DESMANTELAMIENTO_INICIAL", "Hay provisión de desmantelamiento registrada y no consta su saldo al inicio del "
+                           "ejercicio: no se separa la actualización financiera del período (saldo inicial × tasa, a resultados: CINIIF 1.8; PYMES 21.11) "
                            "del cambio de estimación (contra el costo del activo: CINIIF 1.5 a)."))
     for k, lab in (("difCosto", "del costo"), ("difDep", "de la depreciación acumulada")):
         mk = "mayorCosto" if k == "difCosto" else "mayorDep"
         if rf[mk] is None:
-            pr.append(problema("SIN_MAYOR", f"Ingrese el saldo {lab} según el mayor para conciliar el auxiliar.", 0))
+            pr.append(problema("SIN_MAYOR", f"No consta el saldo {lab} según el mayor: la conciliación con el auxiliar queda sin cotejar.", 0))
         elif abs(rf[k]) > tol:
             pr.append(problema("CONCILIACION_AUXILIAR_MAYOR", f"Auxiliar y mayor no concilian en el saldo {lab}: diferencia {m(rf[k])}.", rf[k]))
+
+    for a in activos:
+        if (a.get("exceso_veh") or 0) > tol:
+            pr.append(problema("VEHICULO_TOPE_FISCAL", f"{a['id']}: el costo {m(a['costo'])} supera USD {int(TOPE_VEHICULO):,}; la "
+                               f"depreciación sobre el exceso no es deducible (diferencia permanente): {m(a['exceso_veh'])} (LRTI Art. 10 núm. 7).", a["exceso_veh"]))
 
     totales, etiquetas = {}, {}
     for k, lab, v in (
@@ -664,8 +697,10 @@ CEDULAS = [
     ("14_Roll_forward", "Movimiento del año y conciliación auxiliar-mayor"), ("15_Ajustes", "Ajustes propuestos"),
     ("16_Problemas", "Problemas encontrados"), ("17_Conclusion", "Indicadores y conclusión"),
     ("18_Lectura", "Lectura de resultados"), ("19_Resumen_estado", "Resumen por estado del activo"),
+    ("20_Fiscal", "Recálculo fiscal (SRI Art. 28) y conciliación NIIF"),
 ]
 P = ref("02_Parametros")
+FIS = ref("20_Fiscal")
 AUX, DEP, BAJ, REV, DET, ADI, PRE, CAP, DES, RF, AJ = (
     ref(n) for n in ("03_Auxiliar", "04_Depreciacion", "07_Bajas", "08_Revaluacion", "09_Deterioro", "10_Adiciones",
                      "11_Prestamos", "12_Capitalizacion", "13_Desmantelamiento", "14_Roll_forward", "15_Ajustes"))
@@ -858,6 +893,10 @@ def hojas(res: dict) -> list[dict]:
             fx(f'IF({X("R")}<>"","Baja",IF({X("E")}="","En construcción","En uso"))', a["estado"]),
             fx(f'IF(G{r}="","",IF(ABS(G{r})>{PAR["tolerancia"]},"Alerta","Conforme"))',
                "" if a["dif"] is None else ("Alerta" if abs(a["dif"]) > tol else "Conforme")),
+            # N: dep. acumulada del cliente = apertura (aux K) + gasto del año del cliente (col F).
+            fx(f'{X("K")}+IF(F{r}="",0,F{r})', (a["dai"] or 0) + (a["dreg"] or 0)),
+            # O: diferencia de dep. acumulada = auditor (H) − cliente (N).
+            fx(f'IF(H{r}="","",H{r}-N{r})', None if a["acum"] is None else a["acum"] - ((a["dai"] or 0) + (a["dreg"] or 0))),
         ])
 
     # 05 · vidas útiles, residual y método.
@@ -869,6 +908,46 @@ def hojas(res: dict) -> list[dict]:
                       fx(f'IF(OR(D{r}="",H{r}="",{DEP}C{r}=0),"",MAX({DEP}C{r}-H{r},0)/{DEP}C{r}*D{r})', a["remanente"]),
                       fx(f'IF(AND({DEP}K{r}="Sí",{DEP}L{r}="En uso"),"Sí","No")', "Sí" if a["total_dep"] == "Sí" and a["estado"] == "En uso" else "No"),
                       fx(f'IF(E{r}>F{r},"Sí","No")', "Sí" if (a["res"] or 0) > a["costo"] else "No")])
+
+    # 20 · recálculo fiscal (SRI Art. 28) y conciliación con la depreciación NIIF (cédula 04).
+    fiscal = []
+    for i, a in enumerate(A):
+        r = FILA0 + i
+        tasa = a.get("tasa_fiscal")
+        veh = _clase_bucket(a["clase"]) == "vidaVehiculos"
+        df = a.get("dif_fiscal")
+        if tasa is None:
+            obs = "Sin tasa fiscal (terreno o clase no mapeada)."
+        elif df is None:
+            obs = ""
+        else:
+            partes = []
+            if (a.get("exceso_veh") or 0) > tol:
+                partes.append(f"Exceso de vehículo no deducible (permanente): {m(a['exceso_veh'])}.")
+            partes.append(f"NIIF mayor que fiscal: diferencia temporaria {m(df)}." if df > tol
+                          else (f"Fiscal mayor que NIIF: {m(-df)}." if df < -tol else "Sin diferencia."))
+            obs = " ".join(partes)
+        base_form = f"MIN(C{r},{TOPE_VEHICULO})" if veh else f"C{r}"
+        fiscal.append([
+            a["id"], a["clase"], fx(f"{DEP}B{r}", a["costo"]),
+            fx("" if tasa is None else str(tasa), "" if tasa is None else tasa),
+            fx("" if a.get("base_fiscal") is None else base_form, "" if a.get("base_fiscal") is None else a["base_fiscal"]),
+            fx("" if a.get("dep_fiscal") is None else f"E{r}*D{r}*{DEP}D{r}/{PAR['diasAnio']}",
+               "" if a.get("dep_fiscal") is None else a["dep_fiscal"]),
+            fx(f"{DEP}E{r}", a["dep"]),
+            fx(f'IF(OR(F{r}="",G{r}=""),"",G{r}-F{r})', df),
+            fx(f'MAX(({DEP}B{r}-{TOPE_VEHICULO})*D{r}*{DEP}D{r}/{PAR["diasAnio"]},0)' if veh else "0", a.get("exceso_veh") or 0.0),
+            obs,
+        ])
+    ex_fiscal = {
+        "Tasa fiscal máx. (SRI)": "Porcentaje máximo anual de depreciación deducible por clase (RALRTI Art. 28 núm. 6): inmuebles 5 %, "
+                                  "instalaciones, maquinaria, equipos y muebles 10 %, vehículos 20 %, cómputo y software 33 %; terrenos no se deprecian.",
+        "Base deducible": f"Costo del activo; en vehículos, limitada a USD {int(TOPE_VEHICULO):,} (LRTI Art. 10 núm. 7).",
+        "Dep. fiscal del año": "Base deducible × tasa máxima × días en uso ÷ días del ejercicio.",
+        "Dep. NIIF del año": "Depreciación del año recalculada por el auditor con la vida útil NIIF (cédula 04).",
+        "Diferencia NIIF − fiscal": "Depreciación NIIF menos la fiscal deducible; positiva cuando la NIIF excede el máximo fiscal (suele ser diferencia temporaria).",
+        "Exceso vehículo no deducible": "Depreciación sobre el costo del vehículo que supera el tope: diferencia permanente no deducible.",
+    }
 
     # 06 · componentes.
     comp = [a for a in A if "part" in a]
@@ -1343,9 +1422,12 @@ def hojas(res: dict) -> list[dict]:
         hoja("04_Depreciacion", "Recálculo de depreciación y VNL",
              [["Código", "t"], ["Costo", "n"], ["Importe depreciable", "n"], ["Días en uso", "i"], ["Depreciación recalculada", "n"],
               ["Depreciación registrada", "n"], ["Diferencia", "n"], ["Dep. acumulada recalculada", "n"], ["Deterioro acumulado", "n"],
-              ["Valor neto en libros", "n"], ["Totalmente depreciado", "t"], ["Estado", "t"], ["Semáforo", "t"]], dep,
+              ["Valor neto en libros", "n"], ["Totalmente depreciado", "t"], ["Estado", "t"], ["Semáforo", "t"],
+              ["Dep. acumulada cliente", "n"], ["Dif. dep. acumulada", "n"]], dep,
              ["TOTAL", suma("B", fin(n), sum(a["costo"] for a in A)), None, None, suma("E", fin(n), valor["depRecalculada"]),
-              suma("F", fin(n), rf["dreg"]), suma("G", fin(n), aj["ajusteDep"]), None, None, None, "", "", ""],
+              suma("F", fin(n), rf["dreg"]), suma("G", fin(n), aj["ajusteDep"]), None, None, None, "", "", "",
+              suma("N", fin(n), sum((a["dai"] or 0) + (a["dreg"] or 0) for a in A)),
+              suma("O", fin(n), sum(a["acum"] - ((a["dai"] or 0) + (a["dreg"] or 0)) for a in A if a["acum"] is not None))],
              explica=ex_dep, colores=["Semáforo"]),
         hoja("05_Vidas_residual", "Vidas útiles, residual y método",
              [["Código", "t"], ["Clase", "t"], ["Método", "t"], ["Vida útil (meses)", "i"], ["Valor residual", "n"], ["Costo", "n"],
@@ -1409,6 +1491,17 @@ def hojas(res: dict) -> list[dict]:
         hoja("19_Resumen_estado", "Resumen por estado del activo",
              [["Estado", "t"], ["Cantidad", "i"], ["Costo", "n"], ["Depreciación acumulada", "n"], ["Valor neto en libros", "n"]],
              resumen_estado, total_estado, explica=ex_estado),
+        hoja("20_Fiscal", "Recálculo fiscal (SRI Art. 28) y conciliación NIIF",
+             [["Código", "t"], ["Clase", "t"], ["Costo", "n"], ["Tasa fiscal máx. (SRI)", "p"], ["Base deducible", "n"],
+              ["Dep. fiscal del año", "n"], ["Dep. NIIF del año", "n"], ["Diferencia NIIF − fiscal", "n"],
+              ["Exceso vehículo no deducible", "n"], ["Observación", "t"]], fiscal,
+             ["TOTAL", "", suma("C", fin(n), sum(a["costo"] for a in A)), None,
+              suma("E", fin(n), sum(a["base_fiscal"] for a in A if a.get("base_fiscal") is not None)),
+              suma("F", fin(n), sum(a["dep_fiscal"] for a in A if a.get("dep_fiscal") is not None)),
+              suma("G", fin(n), sum(a["dep"] for a in A if a["dep"] is not None)),
+              suma("H", fin(n), sum(a["dif_fiscal"] for a in A if a.get("dif_fiscal") is not None)),
+              suma("I", fin(n), sum(a.get("exceso_veh") or 0 for a in A)), ""],
+             explica=ex_fiscal),
     ]
 
 
@@ -1514,7 +1607,11 @@ def definicion() -> dict:
                 content="Una fila por préstamo vigente en el período: N° de préstamo o contrato, tipo (Específico o General), activo u obra financiada "
                         "(solo los específicos), descripción, importe del préstamo, tasa nominal anual, costo financiero del período realmente incurrido y, "
                         "en los específicos, los rendimientos de la inversión temporal de esos fondos. Si no hubo inversión temporal, escriba 0."),
-            req("RQ-004", "Política contable de vidas útiles, residuales y métodos", None, "PPE-04", "Sustento de estimaciones", formats=("pdf", "docx"), use="soporte"),
+            req("RQ-004", "Política contable de vidas útiles, residuales y métodos", None, "PPE-04", "Sustento de estimaciones", required=False, formats=("pdf", "docx"), use="soporte"),
+            req("RQ-010", "Mayores contables de propiedad, planta y equipo (o balance de comprobación)", None, "PPE-01",
+                "Base de la cédula sumaria y de la conciliación auxiliar-mayor (costo y depreciación acumulada)", required=False,
+                formats=("xlsx", "csv", "pdf"), use="soporte",
+                content="Mayor o balance de comprobación de las cuentas de costo y de depreciación acumulada de PP&E al corte, para conciliar con el auxiliar."),
             req("RQ-005", "Informe del perito de la revaluación", None, "PPE-06", "Sustento del valor revaluado", required=False, formats=("pdf",), use="soporte"),
             req("RQ-006", "Cálculo del importe recuperable (valor en uso o valor razonable)", None, "PPE-07", "Sustento del deterioro", required=False,
                 formats=("xlsx", "pdf"), use="soporte"),

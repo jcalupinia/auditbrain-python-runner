@@ -273,6 +273,7 @@ const PPE = {
   subtitulo: "Auditoría de PPE: depreciación, componentes, revaluación, deterioro y costos por préstamos",
   principales: [
     { id: "RQ-001", titulo: "Auxiliar de Propiedad, Planta y Equipo", icono: "doc", color: "green", tipos: ".xlsx / .csv" },
+    { id: "RQ-010", titulo: "Mayores contables de PP&E", icono: "table", color: "teal", tipos: ".xlsx / .csv / .pdf" },
     { id: "RQ-004", titulo: "Política de Vidas Útiles y Residuales", icono: "shield", color: "gold", tipos: ".pdf / .docx" },
     { id: "RQ-002", titulo: "Detalle de Adiciones del Año", icono: "coins", color: "blue", tipos: ".xlsx / .csv" },
     { id: "RQ-006", titulo: "Cálculo del Importe Recuperable", icono: "warning", color: "red", tipos: ".xlsx / .pdf" },
