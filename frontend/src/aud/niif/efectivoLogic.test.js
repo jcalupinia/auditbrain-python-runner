@@ -167,7 +167,7 @@ describe("catálogos de la config (procesoConfig)", () => {
   const ICONOS_OK = new Set([
     "chart", "doc", "pdf", "shield", "bank", "building", "list", "table", "search",
     "refresh", "calendar", "clock", "dashboard", "line", "pie", "calc", "warning", "gears",
-    "book", "people", "box", "sliders",
+    "book", "people", "box", "sliders", "coins",
   ]);
 
   it("cada tarjeta de ejecución declara sus requerimientos relacionados (todas las configs)", () => {

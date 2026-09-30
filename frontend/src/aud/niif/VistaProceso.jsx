@@ -87,6 +87,7 @@ const ICONOS = {
   pie: <><circle cx="12" cy="12" r="8" fill="none" stroke={W} strokeWidth="1.7" /><path d="M12 12V4M12 12l7 3.6" stroke={W} strokeWidth="1.7" strokeLinecap="round" /></>,
   line: <><path d="M4 16l4-4 3 3 5-7 4 3" fill="none" stroke={W} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /><path d="M4 20h16" stroke="#ffffff88" strokeWidth="1.2" /></>,
   dashboard: <><rect x="4" y="4" width="7" height="7" rx="1.6" fill={W} /><rect x="13" y="4" width="7" height="4" rx="1.6" fill="#ffffffcc" /><rect x="13" y="10" width="7" height="10" rx="1.6" fill={W} /><rect x="4" y="13" width="7" height="7" rx="1.6" fill="#ffffffcc" /></>,
+  coins: <><ellipse cx="12" cy="6" rx="7" ry="2.6" fill="none" stroke={W} strokeWidth="1.6" /><path d="M5 6v5c0 1.44 3.13 2.6 7 2.6s7-1.16 7-2.6V6" fill="none" stroke={W} strokeWidth="1.6" /><path d="M5 11v5c0 1.44 3.13 2.6 7 2.6s7-1.16 7-2.6v-5" fill="none" stroke={W} strokeWidth="1.6" /></>,
 };
 ICONOS.building = ICONOS.bank;
 
@@ -280,12 +281,19 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
 
   return (
     <div className="nf-ef">
-      <div className="nf-ef-estado">
-        <span className="nf-ef-eyebrow">{config.eyebrow}</span>
+      <header className="nf-ef-header">
+        <div className="nf-ef-header-l">
+          <Icono name={config.icono || "dashboard"} color={config.color} />
+          <div className="nf-ef-header-tt">
+            <span className="nf-ef-eyebrow">{config.eyebrow}</span>
+            <h2 className="nf-ef-titulo">{config.titulo}</h2>
+            {config.subtitulo && <p className="nf-ef-sub">{config.subtitulo}</p>}
+          </div>
+        </div>
         <span className={`nf-ef-estado-badge ${estadoTexto === "CON EXCEPCIONES" ? "warn" : estadoTexto === "REVISADA" ? "ok" : ""}`}>
           {estadoTexto}
         </span>
-      </div>
+      </header>
       {error && <p role="alert" className="nf-ef-error">{error}</p>}
       {aviso && <p className="nf-ef-ok">{aviso}</p>}
 

@@ -108,9 +108,10 @@ const PLANIFICACION = {
 // --- Cuentas por Cobrar y deterioro (cxc_cartera) ---
 const CXC = {
   processor: "cxc_cartera",
+  icono: "coins", color: "green",
   eyebrow: "CUENTAS POR COBRAR Y DETERIORO",
-  titulo: "Cuentas por Cobrar",
-  subtitulo: "Cartera, Cobros y Deterioro · Auditoría Externa",
+  titulo: "Cuentas por Cobrar y Deterioro",
+  subtitulo: "Análisis integral de cartera, confirmaciones, deterioro y cobrabilidad",
   principales: [
     { id: "RQ-001", titulo: "Cartera por Factura", icono: "doc", color: "green", tipos: ".xlsx / .csv" },
     { id: "RQ-002", titulo: "Mayor de Cuentas por Cobrar", icono: "book", color: "blue", tipos: ".xlsx / .pdf" },
