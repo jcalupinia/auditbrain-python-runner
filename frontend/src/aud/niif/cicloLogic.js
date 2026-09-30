@@ -170,6 +170,23 @@ export function mejorEncabezado(sheets, campos) {
   return { sheet: mejor.sheet, header: mejor.header, mapping: mejor.mapping, faltan };
 }
 
+// Combina el mapeo automático (mejorEncabezado) con el que el auditor asignó a
+// mano en el modal de mapeo, dando prioridad a lo manual, y recalcula qué campos
+// obligatorios siguen sin columna. `manual` = {campo.key: índice de columna}; un
+// valor vacío/null quita esa asignación. Devuelve la misma forma que
+// mejorEncabezado ({sheet, header, mapping, faltan}) para reutilizar el flujo.
+export function mapeoConManual(elegido, manual, campos) {
+  const mapping = { ...((elegido && elegido.mapping) || {}) };
+  for (const [key, col] of Object.entries(manual || {})) {
+    if (col === "" || col === null || col === undefined) delete mapping[key];
+    else mapping[key] = Number(col);
+  }
+  const faltan = (campos || [])
+    .filter((f) => f.required !== false && !(f.key in mapping))
+    .map((f) => f.label || f.key);
+  return { sheet: elegido && elegido.sheet, header: elegido && elegido.header, mapping, faltan };
+}
+
 // «Convertir mi formato»: toma el Excel tal como lo maneja la compañía, reconoce
 // sus columnas por alias (mejorEncabezado) y devuelve las filas ya ordenadas en
 // el formato de la herramienta —columnas = etiquetas de los campos, en su orden—
