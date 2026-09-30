@@ -47,6 +47,16 @@ RUBRO = "CAJA_BANCOS"
 DT, CP, NC, ND, OT = "Depósito en tránsito", "Cheque pendiente", "Nota de crédito", "Nota de débito", "Otra partida"
 BANCO, CAJA, INV = "Banco", "Caja", "Inversión"
 
+# Formatos aceptados al subir cada requerimiento. Además del tabular (xlsx/csv)
+# —única fuente de la que el mapeador arma la población, porque `archivosDe`
+# filtra por `esTabular`— se admite adjuntar el documento fuente como evidencia
+# en PDF o imagen (JPG). Esa evidencia se guarda pero NO altera la tabla:
+# el cálculo sigue tomándose del xlsx/csv. (Decisión del dueño, 2026-09-30.)
+_FORM_DATOS = ("xlsx", "csv", "pdf", "jpg", "jpeg")          # requerimientos que arman población
+_FORM_SOPORTE = ("pdf", "xlsx", "jpg", "jpeg")              # evidencia que además puede venir en Excel
+_FORM_SOPORTE_DOC = ("pdf", "docx", "jpg", "jpeg")          # evidencia que además puede venir en Word
+_FORM_SOPORTE_PDF = ("pdf", "jpg", "jpeg")                  # evidencia externa (confirmaciones, certificados)
+
 _CUENTAS = [
     campo("id", "Código de cuenta", alias=("codigo", "cuenta", "codigo contable", "cuenta contable"), ejemplo="1.1.02.01"),
     campo("nombre", "Banco / caja y número de cuenta", alias=("nombre", "banco", "descripcion", "nombre de la cuenta"),
@@ -1260,38 +1270,44 @@ def definicion() -> dict:
         "requests": [
             req("RQ-001", "Anexo de cuentas de caja, bancos e inversiones al corte", "cuentas", "CAJ-01",
                 "Población a auditar: saldo según libros, estado bancario, confirmación, restricciones y fechas de inversiones",
+                formats=_FORM_DATOS,
                 content="Una fila por cuenta: código, banco/caja, tipo (Banco, Caja o Inversión), saldo según libros, saldo del estado bancario "
                         "(o arqueo), saldo confirmado, restringido, monto, motivo y fin de la restricción; fechas de adquisición y vencimiento de inversiones."),
             req("RQ-002", "Partidas conciliatorias de cada cuenta al corte", "partidas", "CAJ-02",
                 "Reejecutar la conciliación, medir antigüedad, depuración y corte", required=False,
+                formats=_FORM_DATOS,
                 content="Una fila por partida: N°, código de cuenta, tipo (depósito en tránsito, cheque pendiente, nota de crédito, nota de débito, otra), "
                         "referencia, fecha de origen, importe y fecha de liquidación en el estado bancario posterior."),
             req("RQ-003", "Conciliaciones y estados bancarios del mes de corte", None, "CAJ-02", "Soporte de saldos y partidas",
-                formats=("pdf", "xlsx"), use="soporte"),
+                formats=_FORM_SOPORTE, use="soporte"),
             req("RQ-004", "Estados bancarios posteriores al corte (ventana de depuración)", None, "CAJ-03", "Liquidación posterior de las partidas",
-                formats=("pdf", "xlsx"), use="soporte"),
+                formats=_FORM_SOPORTE, use="soporte"),
             req("RQ-005", "Respuestas de confirmación bancaria recibidas por el auditor", None, "CAJ-04", "Evidencia externa de saldos y restricciones",
-                formats=("pdf",), use="soporte"),
+                formats=_FORM_SOPORTE_PDF, use="soporte"),
             req("RQ-006", "Contratos de garantía, pignoración, embargos o fideicomisos", None, "CAJ-06", "Sustento del efectivo restringido",
-                formats=("pdf", "docx"), use="soporte", required=False),
+                formats=_FORM_SOPORTE_DOC, use="soporte", required=False),
             req("RQ-007", "Certificados y contratos de inversiones presentadas como equivalentes", None, "CAJ-07", "Plazo, liquidez y riesgo",
-                formats=("pdf",), use="soporte", required=False),
+                formats=_FORM_SOPORTE_PDF, use="soporte", required=False),
             req("RQ-008", "Política contable de efectivo y equivalentes y actas de arqueo", None, "CAJ-08", "Composición (NIC 7.46) y arqueos de caja",
-                formats=("pdf", "docx"), use="soporte"),
+                formats=_FORM_SOPORTE_DOC, use="soporte"),
             req("RQ-009", "Libro mayor (auxiliar de bancos) del período", "libro_mayor", "CAJ-01",
                 "Cuadre de la Sumaria con el mayor y armado del movimiento del papel", required=False,
+                formats=_FORM_DATOS,
                 content="Una fila por asiento del mayor de bancos: código de cuenta, fecha, comprobante, detalle, "
                         "tercero, débitos y créditos del período."),
             req("RQ-010", "Estado de cuenta bancario del mes (movimientos)", "estado_cuenta", "CAJ-02",
                 "Reestructuración de la conciliación: se cruza con el libro mayor", required=False,
+                formats=_FORM_DATOS,
                 content="Una fila por movimiento del estado de cuenta: código de cuenta, fecha, documento, "
                         "débitos (cargos del banco) y créditos (abonos del banco). Transcrito del PDF y revisado."),
             req("RQ-011", "Conciliación bancaria del mes anterior (partidas abiertas)", "conciliacion_anterior", "CAJ-03",
                 "Arrastre de partidas conciliatorias no depuradas a la reestructuración", required=False,
+                formats=_FORM_DATOS,
                 content="Una fila por partida abierta del mes anterior: código de cuenta, fecha de origen, tipo "
                         "conciliatorio, documento, valor y observación."),
             req("RQ-012", "Arqueo de caja (recuento por denominación)", "arqueo", "CAJ-01",
                 "Recuento del efectivo en caja para la cédula de arqueo", required=False,
+                formats=_FORM_DATOS,
                 content="Una fila por denominación contada: denominación, cantidad, valor unitario y observación."),
         ],
     }

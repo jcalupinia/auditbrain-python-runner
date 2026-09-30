@@ -28,10 +28,10 @@ const EFECTIVO = {
   titulo: "Efectivo y Equivalentes de Efectivo",
   subtitulo: "Conciliaciones Bancarias · Auditoría Externa",
   principales: [
-    { id: "RQ-001", titulo: "Anexo de Caja y Bancos", icono: "coins", color: "teal", tipos: ".xlsx" },
-    { id: "RQ-002", titulo: "Conciliaciones Bancarias", icono: "doc", color: "blue", tipos: ".xlsx" },
-    { id: "RQ-010", titulo: "Estados de Cuenta Bancarios", icono: "bank", color: "purple", tipos: ".xlsx / .pdf" },
-    { id: "RQ-009", titulo: "Mayores Contables", icono: "book", color: "gold", tipos: ".xlsx" },
+    { id: "RQ-001", titulo: "Anexo de Caja y Bancos", icono: "coins", color: "teal", tipos: ".xlsx / .csv / .pdf / .jpg" },
+    { id: "RQ-002", titulo: "Conciliaciones Bancarias", icono: "doc", color: "blue", tipos: ".xlsx / .csv / .pdf / .jpg" },
+    { id: "RQ-010", titulo: "Estados de Cuenta Bancarios", icono: "bank", color: "purple", tipos: ".xlsx / .csv / .pdf / .jpg" },
+    { id: "RQ-009", titulo: "Mayores Contables", icono: "book", color: "gold", tipos: ".xlsx / .csv / .pdf / .jpg" },
   ],
   ejecuciones: [
     { clave: "procedimiento", titulo: "Procedimiento de Efectivo y Equivalentes de Efectivo",
