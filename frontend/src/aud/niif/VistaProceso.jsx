@@ -44,30 +44,68 @@ function descargar(nombre, contenido, tipo) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// Íconos del mockup (SVG inline, sin dependencias externas). Cada tarjeta declara su
-// ícono por clave en procesoConfig.js.
-const ICONOS = {
-  chart: <><rect x="4" y="12" width="3.4" height="8" rx="1" fill="#2E6FC0" /><rect x="10.3" y="7" width="3.4" height="13" rx="1" fill="#4C8BE0" /><rect x="16.6" y="4" width="3.4" height="16" rx="1" fill="#7FB0EE" /></>,
-  doc: <><path d="M6 2h8l4 4v16H6V2z" fill="#1E4E8C" /><path d="M14 2v4h4" fill="#2E6FC0" /><path d="M8.5 12h7M8.5 15h7M8.5 18h4.5" stroke="#CFE0F5" strokeWidth="1.3" strokeLinecap="round" /></>,
-  pdf: <><path d="M6 2h8l4 4v16H6V2z" fill="#B03030" /><path d="M14 2v4h4" fill="#E5484D" /><text x="12" y="17.5" fontSize="5.6" fill="#fff" textAnchor="middle" fontWeight="700">PDF</text></>,
-  shield: <><path d="M12 2l7 3v6c0 5-3 8-7 10-4-2-7-5-7-10V5l7-3z" fill="#C7A83C" /><path d="M8.7 11.7l2.3 2.3 4.3-4.6" stroke="#071B2F" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" /></>,
-  bank: <><path d="M12 3l9 5H3l9-5z" fill="#9B8BE0" /><rect x="5" y="9" width="2.4" height="8" fill="#9B8BE0" /><rect x="10.8" y="9" width="2.4" height="8" fill="#9B8BE0" /><rect x="16.6" y="9" width="2.4" height="8" fill="#9B8BE0" /><rect x="3.5" y="18" width="17" height="2.4" rx="0.5" fill="#9B8BE0" /></>,
-  list: <><circle cx="6" cy="7" r="1.4" fill="#2E6FC0" /><circle cx="6" cy="12" r="1.4" fill="#2E6FC0" /><circle cx="6" cy="17" r="1.4" fill="#2E6FC0" /><path d="M10 7h9M10 12h9M10 17h9" stroke="#4C8BE0" strokeWidth="1.6" strokeLinecap="round" /></>,
-  table: <><rect x="4" y="5" width="16" height="14" rx="1.5" fill="none" stroke="#3AA6A0" strokeWidth="1.5" /><path d="M4 9.5h16M4 14h16M10 5v14" stroke="#3AA6A0" strokeWidth="1.2" /></>,
-  search: <><circle cx="11" cy="11" r="5.3" fill="none" stroke="#3AA6A0" strokeWidth="1.8" /><path d="M15 15l4.2 4.2" stroke="#3AA6A0" strokeWidth="1.8" strokeLinecap="round" /></>,
-  refresh: <path d="M6 9a7 7 0 0 1 12-2.5M18 6.5V3.5m0 3H15M18 15a7 7 0 0 1-12 2.5M6 17.5v3m0-3H9" fill="none" stroke="#3AA6A0" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />,
-  calendar: <><rect x="4" y="5" width="16" height="15" rx="2" fill="none" stroke="#4C8BE0" strokeWidth="1.6" /><path d="M4 9.5h16M8 3v4M16 3v4" stroke="#4C8BE0" strokeWidth="1.6" strokeLinecap="round" /></>,
-  dashboard: <><rect x="4" y="4" width="7" height="7" rx="1.2" fill="#2E6FC0" /><rect x="13" y="4" width="7" height="4" rx="1.2" fill="#4C8BE0" /><rect x="13" y="10" width="7" height="10" rx="1.2" fill="#2E6FC0" /><rect x="4" y="13" width="7" height="7" rx="1.2" fill="#4C8BE0" /></>,
-  line: <><path d="M4 16l4-4 3 3 5-7 4 3" fill="none" stroke="#34d36a" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /><path d="M4 20h16" stroke="#2f6f45" strokeWidth="1.1" /></>,
-  pie: <><path d="M12 3a9 9 0 1 0 9 9h-9V3z" fill="#9B8BE0" /><path d="M12.8 3.1A9 9 0 0 1 20.9 11.2H12.8V3.1z" fill="#C3B6EE" /></>,
-  calc: <><rect x="5" y="3" width="14" height="18" rx="2" fill="none" stroke="#4C8BE0" strokeWidth="1.5" /><rect x="7.4" y="5.4" width="9.2" height="3.4" rx="0.6" fill="#4C8BE0" /><path d="M8 13h.01M12 13h.01M16 13h.01M8 17h.01M12 17h.01M16 17h.01" stroke="#4C8BE0" strokeWidth="2.1" strokeLinecap="round" /></>,
-  warning: <><path d="M12 3.2l9 15.8H3L12 3.2z" fill="#E5484D" /><path d="M12 9.2v4.6M12 16.4v.4" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" /></>,
-  gears: <><circle cx="10" cy="10" r="3" fill="none" stroke="#9AA8BD" strokeWidth="1.6" /><path d="M10 3.2v2.2M10 14.6v2.2M3.2 10h2.2M14.6 10h2.2M5.2 5.2l1.6 1.6M13.2 13.2l1.6 1.6M14.8 5.2l-1.6 1.6M6.8 13.2l-1.6 1.6" stroke="#9AA8BD" strokeWidth="1.5" strokeLinecap="round" /><circle cx="16.6" cy="16.6" r="2.2" fill="#9AA8BD" /></>,
+// Familias de color de las fichas de ícono (fondo degradado + glow del mismo color).
+// El glifo va en blanco encima. Cada tarjeta puede fijar su `color` en procesoConfig.js;
+// si no, se deriva del ícono con COLOR_POR_ICONO.
+const COLORES = {
+  blue: ["#3D7FE0", "#2456B8"],
+  green: ["#35C15E", "#1F9E45"],
+  gold: ["#D9B441", "#AE861C"],
+  purple: ["#8E7BEA", "#6A52CC"],
+  red: ["#EF5A5E", "#C62F34"],
+  teal: ["#33BFB4", "#1F8C84"],
+};
+const COLOR_POR_ICONO = {
+  doc: "blue", book: "blue", people: "gold", shield: "red", bank: "purple", building: "purple",
+  list: "blue", table: "green", search: "teal", refresh: "blue", calendar: "purple", clock: "purple",
+  box: "blue", sliders: "blue", calc: "blue", warning: "red", gears: "blue", chart: "gold",
+  pdf: "red", pie: "gold", line: "green", dashboard: "blue",
 };
 
-function Icono({ name }) {
+// Íconos en blanco (line-art) para ir dentro de una ficha de color. Cada tarjeta declara
+// su ícono por clave en procesoConfig.js.
+const W = "#fff";
+const ICONOS = {
+  doc: <><path d="M7 3h6l4 4v14H7z" fill="none" stroke={W} strokeWidth="1.7" strokeLinejoin="round" /><path d="M13 3v4h4" fill="none" stroke={W} strokeWidth="1.7" strokeLinejoin="round" /><path d="M9.5 12.5h5M9.5 15.5h5M9.5 18.5h3" stroke={W} strokeWidth="1.5" strokeLinecap="round" /></>,
+  book: <><path d="M12 6.2C10.4 5 8 4.6 5.4 5.1v12.8c2.6-.5 5-.1 6.6 1.1 1.6-1.2 4-1.6 6.6-1.1V5.1C16.6 4.6 14 5 12 6.2z" fill="none" stroke={W} strokeWidth="1.6" strokeLinejoin="round" /><path d="M12 6.2v12.8" stroke={W} strokeWidth="1.4" /></>,
+  people: <><circle cx="9.2" cy="8.4" r="2.7" fill={W} /><path d="M3.8 19c0-3 2.4-5.2 5.4-5.2s5.4 2.2 5.4 5.2z" fill={W} /><circle cx="16.6" cy="9" r="2.1" fill="#ffffffcc" /><path d="M15 13.9c2.7.1 4.9 2.3 4.9 5.1" fill="none" stroke="#ffffffcc" strokeWidth="1.7" strokeLinecap="round" /></>,
+  shield: <><path d="M12 3l7 2.8v5.4c0 4.6-3 7.6-7 9.4-4-1.8-7-4.8-7-9.4V5.8L12 3z" fill="none" stroke={W} strokeWidth="1.7" strokeLinejoin="round" /><path d="M9 12l2.2 2.2 4-4.5" fill="none" stroke={W} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></>,
+  bank: <><path d="M12 3.2l8.5 4.3H3.5L12 3.2z" fill={W} /><path d="M6 9.6v6.8M10 9.6v6.8M14 9.6v6.8M18 9.6v6.8" stroke={W} strokeWidth="1.8" strokeLinecap="round" /><path d="M4 18.8h16" stroke={W} strokeWidth="2" strokeLinecap="round" /></>,
+  list: <><circle cx="5.5" cy="7" r="1.5" fill={W} /><circle cx="5.5" cy="12" r="1.5" fill={W} /><circle cx="5.5" cy="17" r="1.5" fill={W} /><path d="M9.5 7h9M9.5 12h9M9.5 17h9" stroke={W} strokeWidth="1.7" strokeLinecap="round" /></>,
+  table: <><rect x="4" y="5" width="16" height="14" rx="2" fill="none" stroke={W} strokeWidth="1.6" /><path d="M4 9.5h16M4 14h16M10 5v14" stroke={W} strokeWidth="1.4" /></>,
+  search: <><circle cx="11" cy="11" r="5.4" fill="none" stroke={W} strokeWidth="1.9" /><path d="M15.1 15.1l4.4 4.4" stroke={W} strokeWidth="2.1" strokeLinecap="round" /></>,
+  refresh: <path d="M6 9a7 7 0 0 1 12-2.5M18 6.5V3.5m0 3H15M18 15a7 7 0 0 1-12 2.5M6 17.5v3m0-3H9" fill="none" stroke={W} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />,
+  calendar: <><rect x="4" y="5" width="16" height="15" rx="2.4" fill="none" stroke={W} strokeWidth="1.7" /><path d="M4 9.6h16M8 3v4M16 3v4" stroke={W} strokeWidth="1.7" strokeLinecap="round" /></>,
+  clock: <><circle cx="12" cy="12" r="8" fill="none" stroke={W} strokeWidth="1.7" /><path d="M12 7.4V12l3.2 2.1" fill="none" stroke={W} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></>,
+  box: <><path d="M12 3l8 4v10l-8 4-8-4V7l8-4z" fill="none" stroke={W} strokeWidth="1.6" strokeLinejoin="round" /><path d="M4 7l8 4 8-4M12 11v10" fill="none" stroke={W} strokeWidth="1.6" strokeLinejoin="round" /></>,
+  sliders: <><path d="M4 8h9M17 8h3M4 16h3M11 16h9" stroke={W} strokeWidth="1.8" strokeLinecap="round" /><circle cx="15" cy="8" r="2.4" fill="none" stroke={W} strokeWidth="1.8" /><circle cx="9" cy="16" r="2.4" fill="none" stroke={W} strokeWidth="1.8" /></>,
+  calc: <><rect x="5" y="3" width="14" height="18" rx="2.4" fill="none" stroke={W} strokeWidth="1.6" /><rect x="8" y="6" width="8" height="3" rx="0.8" fill={W} /><path d="M8.5 13h.01M12 13h.01M15.5 13h.01M8.5 17h.01M12 17h.01M15.5 17h.01" stroke={W} strokeWidth="2.2" strokeLinecap="round" /></>,
+  warning: <><path d="M12 3.6l8.4 14.8a1 1 0 0 1-.87 1.5H4.47a1 1 0 0 1-.87-1.5L12 3.6z" fill="none" stroke={W} strokeWidth="1.7" strokeLinejoin="round" /><path d="M12 9.4v4.4M12 16.6v.2" stroke={W} strokeWidth="1.9" strokeLinecap="round" /></>,
+  gears: <><circle cx="12" cy="12" r="3" fill="none" stroke={W} strokeWidth="1.7" /><path d="M12 4.2v2.3M12 17.5v2.3M4.2 12h2.3M17.5 12h2.3M6.5 6.5l1.6 1.6M15.9 15.9l1.6 1.6M17.5 6.5l-1.6 1.6M8.1 15.9l-1.6 1.6" stroke={W} strokeWidth="1.7" strokeLinecap="round" /></>,
+  chart: <><rect x="4.5" y="12" width="3.4" height="7.5" rx="1.2" fill={W} /><rect x="10.3" y="7.5" width="3.4" height="12" rx="1.2" fill={W} /><rect x="16.1" y="4.5" width="3.4" height="15" rx="1.2" fill="#ffffffcc" /></>,
+  pdf: <><path d="M7 3h6l4 4v14H7z" fill="none" stroke={W} strokeWidth="1.7" strokeLinejoin="round" /><path d="M13 3v4h4" fill="none" stroke={W} strokeWidth="1.7" strokeLinejoin="round" /><text x="12" y="18" fontSize="5.4" fill={W} textAnchor="middle" fontWeight="700">PDF</text></>,
+  pie: <><circle cx="12" cy="12" r="8" fill="none" stroke={W} strokeWidth="1.7" /><path d="M12 12V4M12 12l7 3.6" stroke={W} strokeWidth="1.7" strokeLinecap="round" /></>,
+  line: <><path d="M4 16l4-4 3 3 5-7 4 3" fill="none" stroke={W} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /><path d="M4 20h16" stroke="#ffffff88" strokeWidth="1.2" /></>,
+  dashboard: <><rect x="4" y="4" width="7" height="7" rx="1.6" fill={W} /><rect x="13" y="4" width="7" height="4" rx="1.6" fill="#ffffffcc" /><rect x="13" y="10" width="7" height="10" rx="1.6" fill={W} /><rect x="4" y="13" width="7" height="7" rx="1.6" fill="#ffffffcc" /></>,
+  coins: <><ellipse cx="12" cy="6" rx="7" ry="2.6" fill="none" stroke={W} strokeWidth="1.6" /><path d="M5 6v5c0 1.44 3.13 2.6 7 2.6s7-1.16 7-2.6V6" fill="none" stroke={W} strokeWidth="1.6" /><path d="M5 11v5c0 1.44 3.13 2.6 7 2.6s7-1.16 7-2.6v-5" fill="none" stroke={W} strokeWidth="1.6" /></>,
+};
+ICONOS.building = ICONOS.bank;
+
+function Icono({ name, color }) {
+  const fam = color || COLOR_POR_ICONO[name] || "blue";
+  const [a, b] = COLORES[fam] || COLORES.blue;
   return (
-    <svg className="nf-ef-ico" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+    <svg
+      className="nf-ef-ico"
+      viewBox="0 0 24 24"
+      width="24"
+      height="24"
+      aria-hidden="true"
+      style={{
+        background: `linear-gradient(150deg, ${a}, ${b})`,
+        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.24), 0 5px 13px ${b}59`,
+      }}
+    >
       {ICONOS[name] || ICONOS.doc}
     </svg>
   );
@@ -243,12 +281,19 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
 
   return (
     <div className="nf-ef">
-      <div className="nf-ef-estado">
-        <span className="nf-ef-eyebrow">{config.eyebrow}</span>
+      <header className="nf-ef-header">
+        <div className="nf-ef-header-l">
+          <Icono name={config.icono || "dashboard"} color={config.color} />
+          <div className="nf-ef-header-tt">
+            <span className="nf-ef-eyebrow">{config.eyebrow}</span>
+            <h2 className="nf-ef-titulo">{config.titulo}</h2>
+            {config.subtitulo && <p className="nf-ef-sub">{config.subtitulo}</p>}
+          </div>
+        </div>
         <span className={`nf-ef-estado-badge ${estadoTexto === "CON EXCEPCIONES" ? "warn" : estadoTexto === "REVISADA" ? "ok" : ""}`}>
           {estadoTexto}
         </span>
-      </div>
+      </header>
       {error && <p role="alert" className="nf-ef-error">{error}</p>}
       {aviso && <p className="nf-ef-ok">{aviso}</p>}
 
@@ -270,7 +315,7 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
           {principales.map((p) => (
             <div key={p.id} className="nf-ef-card">
               <div className="nf-ef-card-top">
-                <Icono name={p.icono} />
+                <Icono name={p.icono} color={p.color} />
                 {(() => {
                   const er = estadoRequerimiento(p.id, coberturaMap, estado);
                   const cls = er === "Error" ? "err" : er === "Pendiente" ? "pend" : "ok";
@@ -377,7 +422,7 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
               onClick={() => abrirEjecucion(e)}
             >
               <span className="nf-ef-ejec-head">
-                <Icono name={e.icono} />
+                <Icono name={e.icono} color={e.color} />
                 <span className="nf-ef-ejec-tt">
                   <span className="nf-ef-ejec-t">{e.titulo}</span>
                   {e.subtitulo && <span className="nf-ef-ejec-s">{e.subtitulo}</span>}
@@ -385,9 +430,14 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
                 <span className="nf-ef-ejec-flecha" aria-hidden="true">{procesada ? "›" : ""}</span>
               </span>
               <div className="nf-ef-ejec-pie">
-                {procesada
-                  ? <Relacionados relacionados={e.relacionados} />
-                  : <span className="nf-ef-ejec-lock">🔒 BLOQUEADO</span>}
+                {procesada ? (
+                  <>
+                    <span className="nf-ef-ejec-badge">DISPONIBLE</span>
+                    <Relacionados relacionados={e.relacionados} />
+                  </>
+                ) : (
+                  <span className="nf-ef-ejec-lock">🔒 BLOQUEADO</span>
+                )}
               </div>
             </button>
           ))}

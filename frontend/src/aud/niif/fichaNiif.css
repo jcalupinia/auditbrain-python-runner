@@ -537,6 +537,19 @@ a.btn { text-decoration: none; display: inline-block; }
   color: #C7A83C; margin: 0 0 6px; font-weight: 700;
 }
 
+/* --- Encabezado del módulo: ficha de ícono grande + título + subtítulo + estado --- */
+.nf-ef-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  flex-wrap: wrap; margin-bottom: 8px; padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.nf-ef-header-l { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.nf-ef-header .nf-ef-ico { width: 30px; height: 30px; padding: 13px; border-radius: 14px; }
+.nf-ef-header-tt { min-width: 0; }
+.nf-ef-header-tt .nf-ef-eyebrow { margin: 0 0 2px; }
+.nf-ef-titulo { margin: 0; font-size: 22px; font-weight: 800; color: #F1F5FA; line-height: 1.15; letter-spacing: -0.01em; }
+.nf-ef-sub { margin: 3px 0 0; font-size: 13px; color: #9db3c9; }
+
 /* --- Encabezado de cada paso: número en círculo verde + título --- */
 .nf-ef-paso { margin: 22px 0 0; }
 .nf-ef-paso:first-of-type { margin-top: 4px; }
@@ -551,11 +564,25 @@ a.btn { text-decoration: none; display: inline-block; }
 /* --- Paso 1 · tarjetas de carga --- */
 .nf-ef-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
 .nf-ef-card {
-  background: #0A2342; border: 1px solid rgba(199, 168, 60, 0.28);
-  border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 8px;
+  background:
+    linear-gradient(160deg, #0C2A50 0%, #0A2342 55%, #082038 100%) padding-box,
+    linear-gradient(150deg, rgba(199,168,60,0.55), rgba(199,168,60,0.10) 45%, rgba(255,255,255,0.06)) border-box;
+  border: 1px solid transparent;
+  border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.04);
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+.nf-ef-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 9px 24px rgba(0,0,0,0.34), 0 0 0 1px rgba(199,168,60,0.32), inset 0 1px 0 rgba(255,255,255,0.05);
 }
 .nf-ef-card-top { display: flex; align-items: center; justify-content: space-between; }
-.nf-ef-ico { display: block; flex: 0 0 auto; }
+.nf-ef-ico {
+  display: block; flex: 0 0 auto; width: 24px; height: 24px; padding: 10px; box-sizing: content-box;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.16);
+  /* el fondo (degradado del color de la ficha) y su glow van inline desde VistaProceso */
+}
 .nf-ef-card h4 { margin: 2px 0 0; font-size: 14px; font-weight: 700; color: #E8EEF5; line-height: 1.3; }
 .nf-ef-card-doc { margin: 0; font-size: 11.5px; color: #9db3c9; line-height: 1.35; }
 .nf-ef-card-tipos { margin: 0; font-size: 11.5px; font-style: italic; color: #9db3c9; }
@@ -640,18 +667,34 @@ a.btn { text-decoration: none; display: inline-block; }
 .nf-ef-ejec { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
 .nf-ef-ejec-card {
   display: flex; flex-direction: column; align-items: stretch; gap: 8px;
-  background: #0A2342; border: 1px solid rgba(199, 168, 60, 0.28);
-  border-radius: 10px; padding: 14px; cursor: pointer; text-align: left;
-  color: #E8EEF5; transition: border-color 0.12s ease, transform 0.12s ease;
+  background:
+    linear-gradient(160deg, #0C2A50 0%, #0A2342 55%, #082038 100%) padding-box,
+    linear-gradient(150deg, rgba(199,168,60,0.50), rgba(199,168,60,0.10) 45%, rgba(255,255,255,0.06)) border-box;
+  border: 1px solid transparent;
+  border-radius: 12px; padding: 14px; cursor: pointer; text-align: left;
+  color: #E8EEF5;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.04);
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
 }
-.nf-ef-ejec-card.on:hover { border-color: #C7A83C; transform: translateY(-1px); }
-.nf-ef-ejec-card.off { opacity: 0.6; cursor: not-allowed; }
+.nf-ef-ejec-card.on:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 9px 24px rgba(0,0,0,0.34), 0 0 0 1px rgba(199,168,60,0.45), 0 0 18px rgba(199,168,60,0.12), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+.nf-ef-ejec-card.off { opacity: 0.5; cursor: not-allowed; box-shadow: 0 2px 8px rgba(0,0,0,0.22); }
 .nf-ef-ejec-head { display: flex; align-items: flex-start; gap: 10px; }
 .nf-ef-ejec-tt { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .nf-ef-ejec-t { font-size: 13.5px; font-weight: 700; line-height: 1.25; color: #E8EEF5; }
 .nf-ef-ejec-s { font-size: 11.5px; color: #9db3c9; line-height: 1.35; }
 .nf-ef-ejec-flecha { color: #C7A83C; font-size: 18px; line-height: 1; flex: 0 0 auto; }
-.nf-ef-ejec-pie { margin-top: 2px; }
+.nf-ef-ejec-pie { margin-top: 2px; display: flex; flex-direction: column; gap: 7px; align-items: flex-start; }
+.nf-ef-ejec-badge {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700;
+  letter-spacing: 0.05em; padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+  color: #86ecab; background: rgba(52, 211, 106, 0.16); border: 1px solid rgba(52, 211, 106, 0.5);
+}
+.nf-ef-ejec-badge::before {
+  content: "✓"; font-size: 9px; line-height: 1;
+}
 .nf-ef-ejec-lock {
   display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700;
   letter-spacing: 0.06em; padding: 2px 9px; border-radius: 999px; white-space: nowrap;
