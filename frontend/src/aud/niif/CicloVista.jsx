@@ -541,7 +541,7 @@ const PENDIENTE_MAPEO = Symbol("pendiente-mapeo");
 // archivo pendiente lista sus campos y, para cada uno, un <select> con las
 // columnas del archivo. Precarga las columnas ya reconocidas y resalta las
 // obligatorias que faltan. Al confirmar entrega {fileId: {campo.key: colIndex}}.
-function MapeoManual({ pendientes, onCancelar, onConfirmar }) {
+export function MapeoManual({ pendientes, onCancelar, onConfirmar }) {
   const [seleccion, setSeleccion] = useState(() =>
     Object.fromEntries(
       pendientes.map((pf) => [

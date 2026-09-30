@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import * as api from "../../api";
-import { ChipDocumento, VistaTrabajo } from "./CicloVista";
-import { prepararBaseTecnica, producir } from "./cicloOrquestacion";
+import { ChipDocumento, MapeoManual, VistaTrabajo } from "./CicloVista";
+import { PENDIENTE_MAPEO, prepararBaseTecnica, producir } from "./cicloOrquestacion";
 import {
   avanceCarga,
   estaProcesada,
@@ -195,6 +195,8 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
   const [encerando, setEncerando] = useState(false);
   const [cliente, setCliente] = useState("");
   const [reproceso, setReproceso] = useState(null);
+  const [pendientesMapeo, setPendientesMapeo] = useState(null);
+  const manualMapsRef = useRef({});
   const detalleRef = useRef(null);
 
   // Requerimientos: los del registro si ya se generaron; si no, los de la definición
@@ -233,7 +235,8 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
   const procesar = () =>
     correr(async () => {
       const param = { ...(d.parametros || {}), ...(reg.parameters || {}) };
-      await producir(prueba, { param });
+      const r = await producir(prueba, { param, manualMaps: manualMapsRef.current, onPendientes: setPendientesMapeo });
+      if (r === PENDIENTE_MAPEO) return; // se abrió el modal de mapeo manual: se corta sin aviso de éxito.
       setAviso("Información procesada: ya se pueden abrir las pruebas de ejecución.");
     });
 
@@ -455,6 +458,19 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
           {reproceso && <MatrizReproceso datos={reproceso} onDescargar={descargarReprocesoExcel} />}
           <VistaTrabajo prueba={prueba} onAccion={onAccion} onRecargar={onRecargar} ocupado={ocupado} />
         </section>
+      )}
+
+      {pendientesMapeo?.length > 0 && (
+        <MapeoManual
+          pendientes={pendientesMapeo}
+          onCancelar={() => setPendientesMapeo(null)}
+          onConfirmar={(maps) => {
+            // El mapeo manual pisa el auto por archivo; al reprocesar, `producir` lo lee del ref.
+            manualMapsRef.current = { ...manualMapsRef.current, ...maps };
+            setPendientesMapeo(null);
+            procesar();
+          }}
+        />
       )}
     </div>
   );
