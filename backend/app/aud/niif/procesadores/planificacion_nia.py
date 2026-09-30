@@ -239,6 +239,26 @@ DATASETS = tuple(TIPOS)
 PRINCIPAL = "balance_actual"
 CONTROL = "saldo_actual"
 
+# Datasets narrativos que además de la transcripción en Excel/CSV se pueden extraer
+# por IA desde el documento firmado (PDF/Word): la carta de control interno y el
+# informe del año anterior. El auditor revisa y confirma la tabla extraída antes de
+# que alimente la herramienta (la IA no decide sola). Lo usa ciclo/servicio.py.
+EXTRACCION_DATASETS = ("carta_control_interno", "informe_anterior")
+# Valores permitidos por campo, para forzar el esquema de la extracción (el tipo del
+# informe debe caer en TIPOS_INFORME; la carta no tiene enumerados).
+EXTRACCION_ENUMS = {"informe_anterior": {"tipo": list(TIPOS_INFORME)}}
+# Instrucción específica por documento para guiar (no forzar) a la IA.
+EXTRACCION_INSTRUCCIONES = {
+    "carta_control_interno":
+        "El documento es una CARTA DE CONTROL INTERNO: una fila por hallazgo o deficiencia de control. "
+        "probabilidad, impacto y control son enteros de 1 a 5 SOLO si el documento los califica explícitamente; "
+        "si no aparecen, déjalos vacíos (no los inventes). No incluyas párrafos de introducción ni de cierre.",
+    "informe_anterior":
+        "El documento es el INFORME DE AUDITORÍA del año anterior. Genera una fila por cada dato de identificación "
+        "(entidad, auditor, período), por el tipo de opinión, por cada salvedad o énfasis, por cada asunto clave y por "
+        "los indicios de empresa en funcionamiento. El importe solo si el texto lo declara; si no, vacío.",
+}
+
 # --- parámetros ---------------------------------------------------------------------------------------------------
 
 CLASIFICACIONES = ("Activo", "Activo corriente", "Activo no corriente", "Pasivo", "Pasivo corriente", "Pasivo no corriente",
@@ -4355,13 +4375,16 @@ def definicion() -> dict:
                 content="Cuentas de ingresos, costos y gastos (códigos 4 en adelante) con su saldo al mismo corte del año anterior. "
                         "Si no se entrega, se prorratea el año anterior: diciembre ÷ 12 × meses transcurridos."),
             req("RQ-004", "Carta de control interno (hallazgos) con su calificación", "carta_control_interno", "PLA-05",
-                "Matriz de riesgos del encargo", required=False,
+                "Matriz de riesgos del encargo", required=False, formats=("pdf", "docx", "xlsx", "csv"),
                 content="Una fila por hallazgo de la carta de control interno: código, proceso, hallazgo, aseveraciones, "
-                        "probabilidad, impacto y control de 1 a 5 (el socio los califica) y la respuesta de auditoría."),
+                        "probabilidad, impacto y control de 1 a 5 (el socio los califica) y la respuesta de auditoría. "
+                        "Puede subir la carta firmada en PDF o Word (la IA extrae la tabla, que usted revisa y confirma) "
+                        "o transcribirla en Excel/CSV."),
             req("RQ-005", "Informe de auditoría del año anterior (identificación, opinión y asuntos)", "informe_anterior", "PLA-01",
-                "Perfil del encargo y asuntos que pueden persistir", required=False,
+                "Perfil del encargo y asuntos que pueden persistir", required=False, formats=("pdf", "docx", "xlsx", "csv"),
                 content="Una fila por dato o asunto del informe: concepto, tipo (" + ", ".join(TIPOS_INFORME) + "), detalle, "
-                        "importe si lo tiene y la fuente (párrafo o nota)."),
+                        "importe si lo tiene y la fuente (párrafo o nota). Puede subir el informe firmado en PDF o Word "
+                        "(la IA extrae la tabla, que usted revisa y confirma) o transcribirlo en Excel/CSV."),
             req("RQ-006", "Notas a los estados financieros auditados del año anterior (total de cada nota)", "notas_estados_financieros", "PLA-06",
                 "Notas comparativas y saldos de apertura", required=False,
                 content="Una fila por nota de balance: número, título, códigos del balance que la forman (separados por coma) y "

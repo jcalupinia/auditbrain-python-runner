@@ -67,11 +67,16 @@ const PLANIFICACION = {
   eyebrow: "PLANIFICACIÓN DE LA AUDITORÍA",
   titulo: "Planificación",
   subtitulo: "Análisis de Auditoría · Auditoría Externa",
-  // 6 tarjetas primarias del mockup aprobado, en su orden. El resto de RQ (RQ-003,
-  // RQ-009 y RQ-007) cae en «Documentos de soporte».
+  // Tarjetas primarias en su orden. RQ-003 (Estado de Resultados del año anterior
+  // al mismo corte) es OPCIONAL y solo aplica a la visita preliminar: con él la
+  // comparación del ERI es exacta (ago-vs-ago); sin él, el ERI anterior se
+  // prorratea (dic ÷ 12 × meses). Se muestra como tarjeta visible —antes caía en
+  // «Documentos de soporte» y pasaba desapercibido—. El resto (RQ-009 y RQ-007)
+  // queda en «Documentos de soporte».
   principales: [
     { id: "RQ-002", titulo: "Estados Financieros Año Actual", icono: "chart", color: "blue", tipos: ".xlsx" },
     { id: "RQ-001", titulo: "Estados Financieros Año Anterior", icono: "chart", color: "teal", tipos: ".xlsx" },
+    { id: "RQ-003", titulo: "Estado de Resultados Año Anterior (mismo corte · visita preliminar)", icono: "line", color: "blue", tipos: ".xlsx / .csv" },
     { id: "RQ-006", titulo: "Notas a los Estados Financieros Año Anterior", icono: "doc", color: "gold", tipos: ".xlsx" },
     { id: "RQ-005", titulo: "Informe de Auditoría Año Anterior", icono: "pdf", color: "red", tipos: "PDF" },
     { id: "RQ-004", titulo: "Carta de Control Interno Año Anterior", icono: "shield", color: "purple", tipos: ".xlsx / .pdf" },

@@ -5,10 +5,13 @@ import "../of/ofWorkspace.css";
 import EjercicioModelo from "./EjercicioModelo";
 import { ejemploDe, formatosTexto } from "./ejemplosRequerimientos";
 import {
+  admiteExtraccionIA,
   archivosDe,
+  archivosExtraibles,
   detalleRequerimiento,
   erroresLegibles,
   estadoTributario,
+  extraccionDe,
   filasConvertidas,
   formulasLegibles,
   herramientaDePrueba,
@@ -230,9 +233,123 @@ export function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, pr
           <input ref={convertInput} type="file" accept=".xlsx,.csv" hidden onChange={convertir} />
         </small>
       )}
+      {admiteExtraccionIA(req) && (
+        <ExtraccionIA prueba={prueba} req={req} habilitado={habilitado} onSubido={onSubido} />
+      )}
       {aviso && <small className="muted">{aviso}</small>}
       {error && <small className="nf-error">{error}</small>}
     </span>
+  );
+}
+
+// Extracción por IA de la carta de control interno / informe del año anterior:
+// por cada PDF/Word subido, se ofrece «Extraer con IA»; la tabla resultante se
+// muestra EDITABLE y solo alimenta la herramienta cuando el auditor la confirma
+// (la IA no decide sola). El respaldo Excel/CSV sigue disponible en el mismo chip.
+function ExtraccionIA({ prueba, req, habilitado, onSubido }) {
+  const campos = useMemo(() => {
+    const d = prueba.definicion || {};
+    const tipo = (d.tipos && d.tipos[req.dataset]) || req.dataset;
+    return (d.campos && d.campos[tipo]) || [];
+  }, [prueba.definicion, req.dataset]);
+  const archivos = archivosExtraibles(prueba, req.id);
+  if (!archivos.length || !campos.length) return null;
+  return (
+    <div className="nf-ia-extraccion">
+      {archivos.map((a) => (
+        <ExtraccionArchivo key={a.id} prueba={prueba} campos={campos} archivo={a}
+          habilitado={habilitado} onSubido={onSubido} />
+      ))}
+    </div>
+  );
+}
+
+function ExtraccionArchivo({ prueba, campos, archivo, habilitado, onSubido }) {
+  const guardada = extraccionDe(prueba, archivo.id);
+  const [filas, setFilas] = useState(() => (guardada?.rows || []).map((r) => ({ ...r })));
+  const [trabajando, setTrabajando] = useState("");
+  const [error, setError] = useState("");
+  const [aviso, setAviso] = useState("");
+
+  // Re-siembra la tabla local cuando llega una extracción nueva (otro `at`).
+  useEffect(() => {
+    setFilas((extraccionDe(prueba, archivo.id)?.rows || []).map((r) => ({ ...r })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guardada?.at, archivo.id]);
+
+  const correr = async (accion, datos, fin) => {
+    setTrabajando(accion); setError(""); setAviso("");
+    try {
+      await api.cicloAccion(prueba.id, accion, prueba.revision, datos);
+      await onSubido();
+      if (fin) setAviso(fin);
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally {
+      setTrabajando("");
+    }
+  };
+
+  const extraer = () => correr("extraer_ia", { fileId: archivo.id },
+    "Tabla extraída por IA. Revísela y corríjala; luego confirme.");
+  const confirmar = () => correr("guardar_extraccion", { fileId: archivo.id, rows: filas },
+    "Tabla confirmada: ya alimenta la planificación.");
+  const editar = (i, k, v) => setFilas((fs) => fs.map((f, j) => (j === i ? { ...f, [k]: v } : f)));
+  const quitar = (i) => setFilas((fs) => fs.filter((_, j) => j !== i));
+  const val = guardada?.validation;
+
+  return (
+    <div className="nf-ia-doc">
+      <div className="nf-ia-doc-top">
+        <span className="nf-ia-doc-nom">📄 {archivo.nombre}</span>
+        <button type="button" className="link nf-ia-extraer" disabled={!habilitado || !!trabajando} onClick={extraer}>
+          {trabajando === "extraer_ia" ? "Extrayendo…" : guardada ? "↻ Volver a extraer con IA" : "✨ Extraer con IA"}
+        </button>
+      </div>
+      {guardada && (
+        <>
+          <p className="nf-ia-aviso muted">
+            La IA transcribió lo que leyó del documento. <strong>Revise y corrija</strong> cada fila antes de confirmar;
+            la IA no decide sola.
+          </p>
+          <div className="nf-ia-tabla-wrap">
+            <table className="nf-ia-tabla">
+              <thead>
+                <tr>{campos.map((c) => <th key={c.key}>{c.label}</th>)}<th aria-label="Quitar" /></tr>
+              </thead>
+              <tbody>
+                {filas.map((f, i) => (
+                  <tr key={i}>
+                    {campos.map((c) => (
+                      <td key={c.key}>
+                        <input value={f[c.key] ?? ""} disabled={!habilitado}
+                          onChange={(e) => editar(i, c.key, e.target.value)} aria-label={`${c.label}, fila ${i + 1}`} />
+                      </td>
+                    ))}
+                    <td>
+                      <button type="button" className="link" disabled={!habilitado} onClick={() => quitar(i)}
+                        aria-label={`Quitar la fila ${i + 1}`}>✕</button>
+                    </td>
+                  </tr>
+                ))}
+                {!filas.length && (
+                  <tr><td colSpan={campos.length + 1} className="muted">
+                    La IA no detectó filas. Revise el documento o suba la tabla en Excel/CSV.
+                  </td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {val && !val.ok && <p role="alert" className="nf-error">{erroresLegibles(val, 5).join(" · ")}</p>}
+          <button type="button" className="pc-chip nf-ia-confirmar" disabled={!habilitado || !!trabajando || !filas.length}
+            onClick={confirmar}>
+            {trabajando === "guardar_extraccion" ? "Confirmando…" : "Confirmar tabla"}
+          </button>
+        </>
+      )}
+      {aviso && <small className="muted">{aviso}</small>}
+      {error && <small className="nf-error">{error}</small>}
+    </div>
   );
 }
 

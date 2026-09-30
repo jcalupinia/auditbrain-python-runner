@@ -73,11 +73,13 @@ describe("separarRequerimientos", () => {
       { id: "RQ-008", document: "RUC actualizado de la entidad", use: "soporte" },
     ];
     const { principales, soporte } = separarRequerimientos(REQ_PLAN, CONFIG.planificacion.principales);
-    // Las 6 tarjetas primarias en el orden del mockup de planificación.
-    expect(principales.map((p) => p.id)).toEqual(["RQ-002", "RQ-001", "RQ-006", "RQ-005", "RQ-004", "RQ-008"]);
+    // Tarjetas primarias en el orden de planificación. RQ-003 (ERI del año anterior
+    // al mismo corte, opcional para la visita preliminar) se muestra como tarjeta
+    // visible, ya no en soporte.
+    expect(principales.map((p) => p.id)).toEqual(["RQ-002", "RQ-001", "RQ-003", "RQ-006", "RQ-005", "RQ-004", "RQ-008"]);
     expect(principales[0].titulo).toBe("Estados Financieros Año Actual");
-    // El resto (RQ-003, RQ-009, RQ-007) va a soporte, en su orden original.
-    expect(soporte.map((r) => r.id)).toEqual(["RQ-003", "RQ-009", "RQ-007"]);
+    // El resto (RQ-009, RQ-007) va a soporte, en su orden original.
+    expect(soporte.map((r) => r.id)).toEqual(["RQ-009", "RQ-007"]);
   });
 });
 
@@ -150,11 +152,11 @@ describe("catálogos de la config (procesoConfig)", () => {
     expect(EJECUCIONES[EJECUCIONES.length - 1].titulo).toBe("Arqueo de Caja");
   });
 
-  it("planificación: 6 tarjetas primarias y 11 de ejecución, sin reproceso", () => {
+  it("planificación: 7 tarjetas primarias y 11 de ejecución, sin reproceso", () => {
     const plan = CONFIG.planificacion;
     expect(plan.eyebrow).toBe("PLANIFICACIÓN DE LA AUDITORÍA");
-    expect(plan.principales).toHaveLength(6);
-    expect(plan.principales.map((p) => p.id)).toEqual(["RQ-002", "RQ-001", "RQ-006", "RQ-005", "RQ-004", "RQ-008"]);
+    expect(plan.principales).toHaveLength(7);
+    expect(plan.principales.map((p) => p.id)).toEqual(["RQ-002", "RQ-001", "RQ-003", "RQ-006", "RQ-005", "RQ-004", "RQ-008"]);
     expect(plan.ejecuciones).toHaveLength(11);
     expect(plan.ejecuciones[0].titulo).toBe("Tablero Ejecutivo");
     expect(plan.ejecuciones[plan.ejecuciones.length - 1].titulo).toBe("Programa");
