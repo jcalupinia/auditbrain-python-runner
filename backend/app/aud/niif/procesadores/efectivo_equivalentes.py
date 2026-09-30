@@ -678,6 +678,10 @@ EXPLICA = {
                        "conciliación cuadra y distinto de cero cuando hay partidas por depurar."),
     },
     "DA4_Partidas": {
+        "Fecha": ("Trae la fecha de origen de la misma partida desde la cédula 04 (Partidas conciliatorias), que está "
+                  "enlazada a la hoja de datos del cliente; sin fecha de origen, queda en blanco."),
+        "Valor": ("Trae el importe de la misma partida desde la cédula 04 (Partidas conciliatorias), enlazada a la hoja de "
+                  "datos del cliente, para no repetir el dato pegado."),
         "Días vencidos": ("Resta la fecha de la partida a la fecha de corte del encargo (hoja 02, Parámetros): los días que "
                           "la partida conciliatoria lleva pendiente de depurar; sin fecha, queda en blanco."),
         "Fecha de prescripción": ("Suma a la fecha de la partida 360 + 30 días para estimar la fecha en que prescribe y debe "
@@ -686,6 +690,9 @@ EXPLICA = {
     "DA5_Arqueo": {
         "Total": ("Multiplica la cantidad contada por el valor unitario de cada denominación; las filas de cierre suman el "
                   "arqueo, traen el saldo de caja según libros de la Sumaria (DA-1) y calculan la diferencia."),
+    },
+    "DA6_Hallazgos": {
+        "No.": "Numera cada hallazgo con la función ROW(): la posición de la fila menos el encabezado.",
     },
 }
 
@@ -843,8 +850,14 @@ def _cedulas_da(res: dict, cu: list, pa: list, fila_cta: dict, corte_cell: str) 
         if x["origen"]:
             od = fecha(x["origen"])
             presc = (od + timedelta(days=390)).isoformat() if od else ""
-        par_rows.append([x["origen"] or None, banco_de(x["cuenta"]), _TIPO_A_DACAT.get(x["tipo"], DA_SOBREGIRO),
-                         x["ref"] or None, x["ref"] or None, n2(x["importe"]),
+        # Fecha y Valor NO se pegan: son fórmulas a la cédula canónica 04_Partidas (misma fila),
+        # que a su vez está enlazada a la hoja de datos del cliente. Así ningún dato del cliente
+        # queda como valor fijo (regla «sin cifras/fechas pegadas»). La Fecha refleja la celda
+        # fuente con IF(...="",...) para que una partida sin fecha quede en blanco («») y los
+        # cálculos de Días vencidos y Fecha de prescripción, que leen A{r}, sigan funcionando.
+        par_rows.append([fx(f'=IF({PAR_}E{r}="","",{PAR_}E{r})', x["origen"] or ""),
+                         banco_de(x["cuenta"]), _TIPO_A_DACAT.get(x["tipo"], DA_SOBREGIRO),
+                         x["ref"] or None, x["ref"] or None, fx(f"={PAR_}F{r}", n2(x["importe"])),
                          fx(f'IF(A{r}="","",{corte_cell}-A{r})', x["diasCorte"] if x["diasCorte"] is not None else ""),
                          fx(f'IF(A{r}="","",A{r}+390)', presc), x["corte"]])
     fin_p = FILA0 + npa - 1
@@ -908,7 +921,9 @@ def _cedulas_da(res: dict, cu: list, pa: list, fila_cta: dict, corte_cell: str) 
     # DA-6 · Hoja de hallazgos (los problemas del cálculo, uno por fila).
     da6 = hoja(DA_HAL, "DA-6 · Hoja de hallazgos",
                [["No.", "i"], ["Observación", "t"], ["Referencia de PT", "t"], ["Recomendación", "t"]],
-               [[i + 1, e.get("message", ""), "DA-1", ""] for i, e in enumerate(res.get("exceptions") or [])])
+               [[fx(f"=ROW()-{FILA0 - 1}", i + 1), e.get("message", ""), "DA-1", ""]
+                for i, e in enumerate(res.get("exceptions") or [])],
+               explica=EXPLICA["DA6_Hallazgos"])
 
     return [da0, da1, da2, da3, da4, da5, da6]
 
