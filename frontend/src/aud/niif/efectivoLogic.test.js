@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  EJECUCIONES,
-  PRINCIPALES,
   avanceCarga,
   estaProcesada,
   estadoPrueba,
@@ -11,6 +9,12 @@ import {
   puedeSubir,
   separarRequerimientos,
 } from "./efectivoLogic";
+import { CONFIG, configDeProcesador } from "./procesoConfig";
+
+// Catálogos por herramienta (ahora viven en procesoConfig.js; la lógica pura es
+// config-driven y se parametriza por la lista de principales).
+const PRINCIPALES = CONFIG.efectivo.principales;
+const EJECUCIONES = CONFIG.efectivo.ejecuciones;
 
 // Requerimientos como los devuelve el procesador efectivo_equivalentes.
 const REQUESTS = [
@@ -24,8 +28,8 @@ const REQUESTS = [
 ];
 
 describe("separarRequerimientos", () => {
-  it("las 4 tarjetas primarias van en el orden del mockup y el resto a soporte", () => {
-    const { principales, soporte } = separarRequerimientos(REQUESTS);
+  it("las 4 tarjetas primarias de efectivo van en el orden del mockup y el resto a soporte", () => {
+    const { principales, soporte } = separarRequerimientos(REQUESTS, PRINCIPALES);
     expect(principales.map((p) => p.id)).toEqual(["RQ-001", "RQ-002", "RQ-010", "RQ-009"]);
     expect(principales.map((p) => p.titulo)).toEqual([
       "Anexo de Caja y Bancos",
@@ -40,13 +44,40 @@ describe("separarRequerimientos", () => {
   });
 
   it("solo incluye las tarjetas primarias cuya request existe", () => {
-    const { principales } = separarRequerimientos([REQUESTS[0]]);
+    const { principales } = separarRequerimientos([REQUESTS[0]], PRINCIPALES);
     expect(principales.map((p) => p.id)).toEqual(["RQ-001"]);
   });
 
+  it("sin lista de principales todo cae en soporte", () => {
+    const { principales, soporte } = separarRequerimientos(REQUESTS);
+    expect(principales).toEqual([]);
+    expect(soporte.map((r) => r.id)).toEqual(REQUESTS.map((r) => r.id));
+  });
+
   it("tolera una lista vacía o nula", () => {
-    expect(separarRequerimientos([])).toEqual({ principales: [], soporte: [] });
-    expect(separarRequerimientos(null)).toEqual({ principales: [], soporte: [] });
+    expect(separarRequerimientos([], PRINCIPALES)).toEqual({ principales: [], soporte: [] });
+    expect(separarRequerimientos(null, PRINCIPALES)).toEqual({ principales: [], soporte: [] });
+  });
+
+  it("agrupa los requerimientos de planificación según su config", () => {
+    // Requerimientos como los devuelve el procesador planificacion_nia.
+    const REQ_PLAN = [
+      { id: "RQ-001", document: "Balance de comprobación al cierre del año anterior", dataset: "balance_anterior" },
+      { id: "RQ-002", document: "Balance de comprobación a la fecha de corte", dataset: "balance_actual" },
+      { id: "RQ-003", document: "Estado de resultados del año anterior al mismo corte", dataset: "resultados_mismo_corte" },
+      { id: "RQ-004", document: "Carta de control interno (hallazgos)", dataset: "carta_control_interno" },
+      { id: "RQ-005", document: "Informe de auditoría del año anterior", dataset: "informe_anterior" },
+      { id: "RQ-006", document: "Notas a los estados financieros auditados del año anterior", dataset: "notas_estados_financieros" },
+      { id: "RQ-009", document: "Composición de las notas a los estados financieros", dataset: "notas_detalle" },
+      { id: "RQ-007", document: "Documentos firmados de respaldo", use: "soporte" },
+      { id: "RQ-008", document: "RUC actualizado de la entidad", use: "soporte" },
+    ];
+    const { principales, soporte } = separarRequerimientos(REQ_PLAN, CONFIG.planificacion.principales);
+    // Las 6 tarjetas primarias en el orden del mockup de planificación.
+    expect(principales.map((p) => p.id)).toEqual(["RQ-002", "RQ-001", "RQ-006", "RQ-005", "RQ-004", "RQ-008"]);
+    expect(principales[0].titulo).toBe("Estados Financieros Año Actual");
+    // El resto (RQ-003, RQ-009, RQ-007) va a soporte, en su orden original.
+    expect(soporte.map((r) => r.id)).toEqual(["RQ-003", "RQ-009", "RQ-007"]);
   });
 });
 
@@ -110,14 +141,44 @@ describe("estados del prompt", () => {
   });
 });
 
-describe("catálogos del mockup", () => {
-  it("las 11 tarjetas de ejecución están en el orden aprobado", () => {
+describe("catálogos de la config (procesoConfig)", () => {
+  it("efectivo: 4 tarjetas primarias y 11 de ejecución en el orden aprobado", () => {
+    expect(PRINCIPALES).toHaveLength(4);
     expect(EJECUCIONES).toHaveLength(11);
     expect(EJECUCIONES[0].titulo).toBe("Procedimiento de Efectivo y Equivalentes de Efectivo");
     expect(EJECUCIONES.find((e) => e.reproceso).clave).toBe("reproceso");
     expect(EJECUCIONES[EJECUCIONES.length - 1].titulo).toBe("Arqueo de Caja");
   });
-  it("hay exactamente 4 tarjetas primarias", () => {
-    expect(PRINCIPALES).toHaveLength(4);
+
+  it("planificación: 6 tarjetas primarias y 11 de ejecución, sin reproceso", () => {
+    const plan = CONFIG.planificacion;
+    expect(plan.eyebrow).toBe("PLANIFICACIÓN DE LA AUDITORÍA");
+    expect(plan.principales).toHaveLength(6);
+    expect(plan.principales.map((p) => p.id)).toEqual(["RQ-002", "RQ-001", "RQ-006", "RQ-005", "RQ-004", "RQ-008"]);
+    expect(plan.ejecuciones).toHaveLength(11);
+    expect(plan.ejecuciones[0].titulo).toBe("Tablero Ejecutivo");
+    expect(plan.ejecuciones[plan.ejecuciones.length - 1].titulo).toBe("Programa");
+    // El reproceso es exclusivo de efectivo.
+    expect(plan.ejecuciones.some((e) => e.reproceso)).toBe(false);
+  });
+
+  it("cada tarjeta de ejecución declara sus requerimientos relacionados", () => {
+    for (const cfg of [CONFIG.efectivo, CONFIG.planificacion]) {
+      for (const e of cfg.ejecuciones) {
+        const rel = e.relacionados;
+        const ok = rel === "todos" || (Array.isArray(rel) && rel.length > 0 && rel.every((id) => /^RQ-\d+$/.test(id)));
+        expect(ok, `${cfg.processor} · ${e.clave}`).toBe(true);
+      }
+    }
+    // Ejemplos concretos del mapeo aprobado.
+    expect(CONFIG.planificacion.ejecuciones.find((e) => e.clave === "perfil").relacionados).toEqual(["RQ-005", "RQ-008", "RQ-004"]);
+    expect(CONFIG.efectivo.ejecuciones.find((e) => e.clave === "partidas").relacionados).toEqual(["RQ-002"]);
+  });
+
+  it("configDeProcesador enruta cada processor a su config y null para el resto", () => {
+    expect(configDeProcesador("efectivo_equivalentes")).toBe(CONFIG.efectivo);
+    expect(configDeProcesador("planificacion_nia")).toBe(CONFIG.planificacion);
+    expect(configDeProcesador("cartera_incobrables")).toBe(null);
+    expect(configDeProcesador(undefined)).toBe(null);
   });
 });
