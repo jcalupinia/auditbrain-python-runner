@@ -565,11 +565,10 @@ a.btn { text-decoration: none; display: inline-block; }
 }
 .nf-ef-card-top { display: flex; align-items: center; justify-content: space-between; }
 .nf-ef-ico {
-  display: block; flex: 0 0 auto; width: 24px; height: 24px; padding: 8px; box-sizing: content-box;
-  border-radius: 11px;
-  background: linear-gradient(150deg, rgba(255,255,255,0.08), rgba(255,255,255,0.015));
-  border: 1px solid rgba(199,168,60,0.24);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 6px rgba(0,0,0,0.28);
+  display: block; flex: 0 0 auto; width: 24px; height: 24px; padding: 10px; box-sizing: content-box;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.16);
+  /* el fondo (degradado del color de la ficha) y su glow van inline desde VistaProceso */
 }
 .nf-ef-card h4 { margin: 2px 0 0; font-size: 14px; font-weight: 700; color: #E8EEF5; line-height: 1.3; }
 .nf-ef-card-doc { margin: 0; font-size: 11.5px; color: #9db3c9; line-height: 1.35; }
@@ -674,7 +673,15 @@ a.btn { text-decoration: none; display: inline-block; }
 .nf-ef-ejec-t { font-size: 13.5px; font-weight: 700; line-height: 1.25; color: #E8EEF5; }
 .nf-ef-ejec-s { font-size: 11.5px; color: #9db3c9; line-height: 1.35; }
 .nf-ef-ejec-flecha { color: #C7A83C; font-size: 18px; line-height: 1; flex: 0 0 auto; }
-.nf-ef-ejec-pie { margin-top: 2px; }
+.nf-ef-ejec-pie { margin-top: 2px; display: flex; flex-direction: column; gap: 7px; align-items: flex-start; }
+.nf-ef-ejec-badge {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700;
+  letter-spacing: 0.05em; padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+  color: #86ecab; background: rgba(52, 211, 106, 0.16); border: 1px solid rgba(52, 211, 106, 0.5);
+}
+.nf-ef-ejec-badge::before {
+  content: "✓"; font-size: 9px; line-height: 1;
+}
 .nf-ef-ejec-lock {
   display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700;
   letter-spacing: 0.06em; padding: 2px 9px; border-radius: 999px; white-space: nowrap;

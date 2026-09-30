@@ -165,8 +165,9 @@ describe("catálogos de la config (procesoConfig)", () => {
   // Íconos válidos del mapa de VistaProceso (si se agrega uno nuevo aquí, hay
   // que definir su SVG en VistaProceso.jsx o la tarjeta sale en blanco).
   const ICONOS_OK = new Set([
-    "chart", "doc", "pdf", "shield", "bank", "list", "table", "search",
-    "refresh", "calendar", "dashboard", "line", "pie", "calc", "warning", "gears",
+    "chart", "doc", "pdf", "shield", "bank", "building", "list", "table", "search",
+    "refresh", "calendar", "clock", "dashboard", "line", "pie", "calc", "warning", "gears",
+    "book", "people", "box", "sliders",
   ]);
 
   it("cada tarjeta de ejecución declara sus requerimientos relacionados (todas las configs)", () => {
