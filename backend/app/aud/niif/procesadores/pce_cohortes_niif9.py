@@ -33,8 +33,8 @@ from __future__ import annotations
 from datetime import date
 
 from backend.app.aud.niif.procesadores import problemas
-from backend.app.aud.niif.procesadores.base import (
-    FILA0, a_fecha, a_num, campo, fx, hoja, m as money, n2, num, problema, r2, ref, req,
+from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (filas_mapeadas se re-exporta para el ciclo)
+    FILA0, a_fecha, a_num, campo, filas_mapeadas, fx, hoja, m as money, n2, num, problema, r2, ref, req,
     suma, validar_campos, validar_definicion_generica,
 )
 

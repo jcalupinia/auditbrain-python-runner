@@ -41,6 +41,15 @@ BASE_LEGAL: dict[str, list[dict]] = {
          "dice": "Diferencia temporaria entre la PCE contable y el deterioro fiscalmente admitido.",
          "efecto": "Activo por impuesto diferido sobre lo no deducible.", "url": SRI, "verificar": False},
     ],
+    "pce_cohortes_niif9": [
+        {"norma": "LRTI", "ref": "Art. 10 núm. 11 y Reglamento LRTI",
+         "dice": "Provisiones para créditos incobrables: deducibles hasta el 1 % anual de los créditos comerciales pendientes al cierre, tope acumulado del 10 % de la cartera.",
+         "efecto": "La pérdida esperada recalculada (NIIF 9) que exceda el límite fiscal es no deducible; la herramienta no calcula el efecto fiscal (se deriva al módulo TAX).",
+         "url": SRI, "verificar": False},
+        {"norma": "NIC 12 / Sección 29 PYMES", "ref": "impuesto diferido",
+         "dice": "Diferencia temporaria entre la PCE contable y el deterioro fiscalmente admitido.",
+         "efecto": "Activo por impuesto diferido sobre lo no deducible.", "url": SRI, "verificar": False},
+    ],
     "cxc_cartera": [
         {"norma": "LRTI", "ref": "Art. 10 núm. 11 y Reglamento LRTI",
          "dice": "Créditos incobrables: provisión deducible hasta el 1 % anual, tope acumulado del 10 % de la cartera.",
