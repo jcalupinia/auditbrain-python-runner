@@ -223,6 +223,18 @@ def _p(p, k):
     return None if v is None or _t(v) == "" else float(a_num(v))
 
 
+# Recálculo fiscal (SRI). Tasas máximas de depreciación por clase (RALRTI Art. 28 núm. 6) y tope de vehículos
+# (LRTI Art. 10 núm. 7). Son máximos legales; la base NIIF (vida útil) es independiente y la fija el auditor.
+TOPE_VEHICULO = 35000.0
+_TASA_FISCAL = {"vidaInmuebles": 0.05, "vidaInstalacionesMaquinaria": 0.10, "vidaMuebles": 0.10,
+                "vidaVehiculos": 0.20, "vidaEquipoComputo": 0.3333}
+
+
+def _tasa_fiscal(clase):
+    """Tasa máxima de depreciación fiscal (SRI Art. 28) por clase; None para terrenos o clases no mapeadas."""
+    return _TASA_FISCAL.get(_clase_bucket(clase))
+
+
 def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     p = {**PARAMETROS, **{k: v for k, v in (parametros or {}).items() if v is not None and v != ""}}
     corte_a = fecha(corte)
@@ -289,6 +301,23 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         a["remanente"] = None if a["vida"] is None or a["acum"] is None or a["depr"] == 0 else max(a["depr"] - a["acum"], 0) / a["depr"] * a["vida"]
         a["resid_pct"] = None if a["costo"] == 0 else (a["res"] or 0) / a["costo"]
     vivos = [a for a in activos if a["estado"] != "Baja"]
+
+    # Recálculo fiscal (SRI Art. 28): tasa máxima por clase, tope de vehículos (Art. 10 núm. 7) y diferencia con la
+    # depreciación NIIF. Es la base tributaria (deducible) frente a la NIIF; no altera el ajuste contable a resultados.
+    for a in activos:
+        bkt = _clase_bucket(a["clase"])
+        a["tasa_fiscal"] = _TASA_FISCAL.get(bkt)
+        es_veh = bkt == "vidaVehiculos"
+        if a["tasa_fiscal"] is None or not _lineal(a["metodo"]) or a["dias"] == 0:
+            a["base_fiscal"] = a["dep_fiscal"] = a["dif_fiscal"] = None
+            a["exceso_veh"] = 0.0
+        else:
+            factor = a["dias"] / dias_anio
+            sobre_tope = es_veh and a["costo"] > TOPE_VEHICULO
+            a["base_fiscal"] = TOPE_VEHICULO if sobre_tope else a["costo"]
+            a["dep_fiscal"] = a["base_fiscal"] * a["tasa_fiscal"] * factor
+            a["exceso_veh"] = (a["costo"] - TOPE_VEHICULO) * a["tasa_fiscal"] * factor if sobre_tope else 0.0
+            a["dif_fiscal"] = None if a["dep"] is None else a["dep"] - a["dep_fiscal"]
 
     # Componentes: elementos con más de una fila.
     grupo = lambda a: a["elemento"] or a["id"]
@@ -606,6 +635,11 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         elif abs(rf[k]) > tol:
             pr.append(problema("CONCILIACION_AUXILIAR_MAYOR", f"Auxiliar y mayor no concilian en el saldo {lab}: diferencia {m(rf[k])}.", rf[k]))
 
+    for a in activos:
+        if (a.get("exceso_veh") or 0) > tol:
+            pr.append(problema("VEHICULO_TOPE_FISCAL", f"{a['id']}: el costo {m(a['costo'])} supera USD {int(TOPE_VEHICULO):,}; la "
+                               f"depreciación sobre el exceso no es deducible (diferencia permanente): {m(a['exceso_veh'])} (LRTI Art. 10 núm. 7).", a["exceso_veh"]))
+
     totales, etiquetas = {}, {}
     for k, lab, v in (
         ("costoFinal", "Costo al cierre (auxiliar)", rf["costoFinal"]),
@@ -663,8 +697,10 @@ CEDULAS = [
     ("14_Roll_forward", "Movimiento del año y conciliación auxiliar-mayor"), ("15_Ajustes", "Ajustes propuestos"),
     ("16_Problemas", "Problemas encontrados"), ("17_Conclusion", "Indicadores y conclusión"),
     ("18_Lectura", "Lectura de resultados"), ("19_Resumen_estado", "Resumen por estado del activo"),
+    ("20_Fiscal", "Recálculo fiscal (SRI Art. 28) y conciliación NIIF"),
 ]
 P = ref("02_Parametros")
+FIS = ref("20_Fiscal")
 AUX, DEP, BAJ, REV, DET, ADI, PRE, CAP, DES, RF, AJ = (
     ref(n) for n in ("03_Auxiliar", "04_Depreciacion", "07_Bajas", "08_Revaluacion", "09_Deterioro", "10_Adiciones",
                      "11_Prestamos", "12_Capitalizacion", "13_Desmantelamiento", "14_Roll_forward", "15_Ajustes"))
@@ -872,6 +908,46 @@ def hojas(res: dict) -> list[dict]:
                       fx(f'IF(OR(D{r}="",H{r}="",{DEP}C{r}=0),"",MAX({DEP}C{r}-H{r},0)/{DEP}C{r}*D{r})', a["remanente"]),
                       fx(f'IF(AND({DEP}K{r}="Sí",{DEP}L{r}="En uso"),"Sí","No")', "Sí" if a["total_dep"] == "Sí" and a["estado"] == "En uso" else "No"),
                       fx(f'IF(E{r}>F{r},"Sí","No")', "Sí" if (a["res"] or 0) > a["costo"] else "No")])
+
+    # 20 · recálculo fiscal (SRI Art. 28) y conciliación con la depreciación NIIF (cédula 04).
+    fiscal = []
+    for i, a in enumerate(A):
+        r = FILA0 + i
+        tasa = a.get("tasa_fiscal")
+        veh = _clase_bucket(a["clase"]) == "vidaVehiculos"
+        df = a.get("dif_fiscal")
+        if tasa is None:
+            obs = "Sin tasa fiscal (terreno o clase no mapeada)."
+        elif df is None:
+            obs = ""
+        else:
+            partes = []
+            if (a.get("exceso_veh") or 0) > tol:
+                partes.append(f"Exceso de vehículo no deducible (permanente): {m(a['exceso_veh'])}.")
+            partes.append(f"NIIF mayor que fiscal: diferencia temporaria {m(df)}." if df > tol
+                          else (f"Fiscal mayor que NIIF: {m(-df)}." if df < -tol else "Sin diferencia."))
+            obs = " ".join(partes)
+        base_form = f"MIN(C{r},{TOPE_VEHICULO})" if veh else f"C{r}"
+        fiscal.append([
+            a["id"], a["clase"], fx(f"{DEP}B{r}", a["costo"]),
+            fx("" if tasa is None else str(tasa), "" if tasa is None else tasa),
+            fx("" if a.get("base_fiscal") is None else base_form, "" if a.get("base_fiscal") is None else a["base_fiscal"]),
+            fx("" if a.get("dep_fiscal") is None else f"E{r}*D{r}*{DEP}D{r}/{PAR['diasAnio']}",
+               "" if a.get("dep_fiscal") is None else a["dep_fiscal"]),
+            fx(f"{DEP}E{r}", a["dep"]),
+            fx(f'IF(OR(F{r}="",G{r}=""),"",G{r}-F{r})', df),
+            fx(f'MAX(({DEP}B{r}-{TOPE_VEHICULO})*D{r}*{DEP}D{r}/{PAR["diasAnio"]},0)' if veh else "0", a.get("exceso_veh") or 0.0),
+            obs,
+        ])
+    ex_fiscal = {
+        "Tasa fiscal máx. (SRI)": "Porcentaje máximo anual de depreciación deducible por clase (RALRTI Art. 28 núm. 6): inmuebles 5 %, "
+                                  "instalaciones, maquinaria, equipos y muebles 10 %, vehículos 20 %, cómputo y software 33 %; terrenos no se deprecian.",
+        "Base deducible": f"Costo del activo; en vehículos, limitada a USD {int(TOPE_VEHICULO):,} (LRTI Art. 10 núm. 7).",
+        "Dep. fiscal del año": "Base deducible × tasa máxima × días en uso ÷ días del ejercicio.",
+        "Dep. NIIF del año": "Depreciación del año recalculada por el auditor con la vida útil NIIF (cédula 04).",
+        "Diferencia NIIF − fiscal": "Depreciación NIIF menos la fiscal deducible; positiva cuando la NIIF excede el máximo fiscal (suele ser diferencia temporaria).",
+        "Exceso vehículo no deducible": "Depreciación sobre el costo del vehículo que supera el tope: diferencia permanente no deducible.",
+    }
 
     # 06 · componentes.
     comp = [a for a in A if "part" in a]
@@ -1415,6 +1491,17 @@ def hojas(res: dict) -> list[dict]:
         hoja("19_Resumen_estado", "Resumen por estado del activo",
              [["Estado", "t"], ["Cantidad", "i"], ["Costo", "n"], ["Depreciación acumulada", "n"], ["Valor neto en libros", "n"]],
              resumen_estado, total_estado, explica=ex_estado),
+        hoja("20_Fiscal", "Recálculo fiscal (SRI Art. 28) y conciliación NIIF",
+             [["Código", "t"], ["Clase", "t"], ["Costo", "n"], ["Tasa fiscal máx. (SRI)", "p"], ["Base deducible", "n"],
+              ["Dep. fiscal del año", "n"], ["Dep. NIIF del año", "n"], ["Diferencia NIIF − fiscal", "n"],
+              ["Exceso vehículo no deducible", "n"], ["Observación", "t"]], fiscal,
+             ["TOTAL", "", suma("C", fin(n), sum(a["costo"] for a in A)), None,
+              suma("E", fin(n), sum(a["base_fiscal"] for a in A if a.get("base_fiscal") is not None)),
+              suma("F", fin(n), sum(a["dep_fiscal"] for a in A if a.get("dep_fiscal") is not None)),
+              suma("G", fin(n), sum(a["dep"] for a in A if a["dep"] is not None)),
+              suma("H", fin(n), sum(a["dif_fiscal"] for a in A if a.get("dif_fiscal") is not None)),
+              suma("I", fin(n), sum(a.get("exceso_veh") or 0 for a in A)), ""],
+             explica=ex_fiscal),
     ]
 
 
