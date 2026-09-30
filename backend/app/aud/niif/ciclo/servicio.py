@@ -201,9 +201,48 @@ def crear_prueba(db: Session, project_id: int, origen: str, tributario: bool, ac
     return p
 
 
+def _formatos_catalogo_vivos(p: Prueba) -> dict:
+    """Formatos aceptados vigentes de una herramienta del catálogo (origen `proc:`).
+
+    Los requerimientos se congelan en la prueba al generarla (`reg["requests"]` y
+    `p.definicion`), así que un cambio de catálogo en los FORMATOS aceptados (p. ej.
+    admitir PDF/JPG además de Excel) no llegaría a las pruebas ya creadas. Para las
+    herramientas del catálogo (procesador determinista) se re-derivan de la definición
+    viva del procesador y se superponen al leer y al validar la subida. Solo se toca
+    `formats` —que es política del catálogo, no dato del encargo—; el resto del
+    requerimiento (documento, propósito, dataset, componentes) queda intacto."""
+    origen = getattr(p, "origen", "") or ""
+    if not origen.startswith("proc:"):
+        return {}
+    mod = procesadores.PROCESADORES.get(origen[5:])
+    if mod is None or not getattr(mod, "RUBRO", None):
+        return {}
+    try:
+        reqs = mod.definicion().get("requests") or []
+    except Exception:
+        return {}
+    return {r["id"]: list(r["formats"]) for r in reqs if r.get("id") and r.get("formats")}
+
+
+def _con_formatos_vivos(requests: list, vivos: dict) -> list:
+    """Superpone los formatos vigentes (`vivos`) sobre una lista de requerimientos,
+    emparejando por `id`. Si un requerimiento no está en `vivos`, conserva el suyo."""
+    if not vivos:
+        return requests
+    return [{**r, "formats": vivos.get(r.get("id"), r.get("formats"))} if isinstance(r, dict) and r.get("formats") else r
+            for r in requests]
+
+
 def _t(p: Prueba) -> dict:
     """El registro con la forma que esperan las reglas del sitio."""
-    return {**p.registro, "state": p.estado, "definition": p.definicion}
+    vivos = _formatos_catalogo_vivos(p)
+    reg, definicion = p.registro, p.definicion
+    if vivos:
+        if reg.get("requests"):
+            reg = {**reg, "requests": _con_formatos_vivos(reg["requests"], vivos)}
+        if (definicion or {}).get("requests"):
+            definicion = {**definicion, "requests": _con_formatos_vivos(definicion["requests"], vivos)}
+    return {**reg, "state": p.estado, "definition": definicion}
 
 
 def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: dict, actor: str) -> Prueba:
@@ -744,8 +783,11 @@ def subir_archivo(db: Session, p: Prueba, revision: int, requerimiento: str, com
     reg = copy.deepcopy(p.registro)
     if not any(r["id"] == requerimiento for r in reg["requests"]):
         raise ReglaIncumplida("Vincule un requerimiento aprobado.")
+    # Formatos aceptados vigentes del catálogo (una prueba vieja pudo congelar solo
+    # xlsx/csv antes de que se admitieran PDF/JPG): se validan contra la definición viva.
+    reqs_val = _con_formatos_vivos(reg["requests"], _formatos_catalogo_vivos(p))
     try:
-        check_upload(datos.requests_as_items(reg["requests"]), requerimiento, componente or None, nombre)
+        check_upload(datos.requests_as_items(reqs_val), requerimiento, componente or None, nombre)
     except ValueError as e:
         raise ReglaIncumplida(str(e))
     if not contenido or len(contenido) > almacen.MAX_ARCHIVO:
