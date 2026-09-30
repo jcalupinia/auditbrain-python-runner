@@ -358,8 +358,26 @@ Anthropic por defecto. Actual: `claude-sonnet-4-5-20250929`.
 
 | Variable | Requerida | Default | Notas |
 |---|---|---|---|
-| `ANTHROPIC_API_KEY` | Sí (para IA real) | — | `sk-ant-api03-...` del Anthropic Console. Sin esto → fallback graceful en todos los anexos. |
+| `ANTHROPIC_API_KEY` | Sí (para IA real) | — | `sk-ant-api03-...` del Anthropic Console. Sin esto → fallback graceful en todos los anexos. **La misma clave** la usa la extracción por IA de la planificación (carta e informe en PDF/Word). |
 | `ICT_LLM_MODEL` | No (tiene default) | `claude-sonnet-4-5-20250929` | Sobreescribir solo cuando Anthropic publique un modelo nuevo verificado. |
+| `NIIF_LLM_MODEL` | No (tiene default) | = `ICT_LLM_MODEL` | Modelo de la extracción por IA de la planificación (`ciclo/extraccion_ia.py`). Si no se pone, usa el mismo que el ICT. |
+| `NIIF_EXTRACCION_ENABLED` | No (tiene default) | `true` | `false` apaga la extracción por IA: el botón «Extraer con IA» avisa y el auditor sube la tabla en Excel/CSV. |
+
+### Extracción por IA de la carta de control interno y el informe (planificación)
+
+`backend/app/aud/niif/ciclo/extraccion_ia.py` lee el PDF/Word firmado (RQ-004 carta,
+RQ-005 informe del año anterior) y, con la Messages API de Anthropic (tool-use con
+esquema forzado derivado de los `CAMPOS` del procesador), devuelve las mismas filas
+que la transcripción en Excel. **La IA solo transcribe lo explícito** (sin dato →
+celda vacía, regla M22); el auditor **revisa y confirma** la tabla en la vista antes
+de que alimente la matriz de riesgos / el perfil (la IA no decide sola). Acciones del
+ciclo: `extraer_ia` (extrae) y `guardar_extraccion` (confirma lo editado); las filas
+quedan en `reg["extraccion"][fileId]` y `map_validate` las suma al dataset. Sin
+`ANTHROPIC_API_KEY` o con `NIIF_EXTRACCION_ENABLED=false` cae al respaldo Excel/CSV
+con un mensaje claro (nunca crashea). Tests: `tests/test_aud_extraccion_ia.py` y
+`tests/test_aud_planificacion_extraccion.py` (HTTP de punta a punta con cliente
+Anthropic simulado). **Nota:** el catálogo de balances es `xlsx` puro; esta extracción
+por IA es solo para los dos documentos narrativos.
 
 ## A1 sin "saldos de línea" — TODOS los cas del balance del catálogo OFICIAL
 
