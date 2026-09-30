@@ -316,7 +316,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                 if ds not in por_ds or not isinstance(partes, list) or len(partes) > 60:
                     raise ReglaIncumplida("Anexo no previsto en los requerimientos de la ficha.")
                 campos = proc.CAMPOS[proc.kind(ds)]
-                filas_ds[ds] = []
+                filas_ds.setdefault(ds, [])
                 for parte in partes:
                     parte = parte if isinstance(parte, dict) else {}
                     archivo, sheet = hoja(parte.get("fileId"), parte.get("sheet"))
@@ -331,16 +331,32 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                     mapeos.append({"dataset": ds, "requestId": archivo.requerimiento, "fileId": archivo.id, "file": archivo.nombre,
                                    "sheet": parte.get("sheet"), "header": parte.get("header"), "fields": parte.get("mapping"),
                                    "headers": m["headers"], "blankRows": m["blankRows"], "records": len(m["rows"])})
-                if sum(len(x) for x in filas_ds.values()) > datos_mod.MAX_ROWS:
-                    raise ReglaIncumplida(f"Cargue entre 1 y {datos_mod.MAX_ROWS} registros.")
-                v = proc.validar_filas(proc.kind(ds), filas_ds[ds])
-                errores += [{**e, "message": f"{por_ds[ds]['id']} · {e['message']}"} for e in v["errors"]]
-                avisos += [{**w, "message": f"{por_ds[ds]['id']} · {w['message']}"} for w in v["warnings"]]
+            # Filas extraídas por IA de la carta/informe (PDF/Word), ya revisadas y
+            # confirmadas por el auditor (viven en reg["extraccion"], las escriben las
+            # acciones extraer_ia / guardar_extraccion). Se suman a su dataset.
+            for fid, info in (reg.get("extraccion") or {}).items():
+                ds = info.get("dataset")
+                filas = info.get("rows") or []
+                if ds not in por_ds or not filas:
+                    continue
+                base = len(filas_ds.setdefault(ds, []))
+                nuevas = [{**f, "_row": base + j + 1} for j, f in enumerate(filas)]
+                filas_ds[ds] += nuevas
+                mapeos.append({"dataset": ds, "requestId": info.get("requestId"), "file": info.get("file"),
+                               "fileId": int(fid) if str(fid).isdigit() else None, "source": "ia",
+                               "modelo": info.get("modelo"), "records": len(nuevas)})
+            if sum(len(x) for x in filas_ds.values()) > datos_mod.MAX_ROWS:
+                raise ReglaIncumplida(f"Cargue entre 1 y {datos_mod.MAX_ROWS} registros.")
+            for ds, filas in filas_ds.items():
+                v = proc.validar_filas(proc.kind(ds), filas)
+                rid = por_ds[ds]["id"]
+                errores += [{**e, "message": f"{rid} · {e['message']}"} for e in v["errors"]]
+                avisos += [{**w, "message": f"{rid} · {w['message']}"} for w in v["warnings"]]
             reg["datasets"] = filas_ds
-            reg["rows"] = filas_ds[principal]
-            reg["mapping"] = mapeos[0]
+            reg["rows"] = filas_ds.get(principal, [])
+            reg["mapping"] = mapeos[0] if mapeos else None
             reg["mappings"] = mapeos
-            reg["validation"] = {"records": len(filas_ds[principal]), "errors": errores, "warnings": avisos, "ok": not errores}
+            reg["validation"] = {"records": len(reg["rows"]), "errors": errores, "warnings": avisos, "ok": not errores}
             p.estado = "DOCUMENTACION_RECIBIDA"
             reg["run"] = None
             if not errores:
@@ -608,6 +624,53 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         if p.definicion.get("id") == "pce":
             datos_mod.check_buckets(parametros)
         reg["templateApproved"] = {"by": actor, "at": _ahora_iso(), "parameters": parametros}
+
+    elif accion in ("extraer_ia", "guardar_extraccion"):
+        # Carta de control interno / informe del año anterior en PDF o Word: la IA
+        # extrae la tabla (extraer_ia) y el auditor la revisa/edita y confirma
+        # (guardar_extraccion). Las filas quedan en reg["extraccion"][fileId] y
+        # map_validate las suma al dataset. No cambia el estado del circuito.
+        proc = procesadores.de(p.definicion)
+        if not proc:
+            raise ReglaIncumplida("La extracción por IA solo aplica a las herramientas con procesador.")
+        if p.estado not in ("REQUERIMIENTO_APROBADO", "DOCUMENTACION_RECIBIDA"):
+            raise ReglaIncumplida("La documentación ya fue validada.")
+        fid = datos.get("fileId")
+        a = db.get(PruebaArchivo, int(fid)) if str(fid or "").isdigit() else None
+        if a is None or a.prueba_id != p.id or a.estado == "rechazado":
+            raise ReglaIncumplida("Archivo no encontrado.")
+        req = next((r for r in reg.get("requests") or [] if r.get("id") == a.requerimiento and r.get("dataset")), None)
+        ds = req.get("dataset") if req else None
+        if ds not in getattr(proc, "EXTRACCION_DATASETS", ()):
+            raise ReglaIncumplida("Este documento no admite extracción por IA.")
+        campos = proc.CAMPOS[proc.kind(ds)]
+        extraccion = dict(reg.get("extraccion") or {})
+        if accion == "extraer_ia":
+            from backend.app.aud.niif.ciclo import extraccion_ia
+            enums = getattr(proc, "EXTRACCION_ENUMS", {}).get(ds, {})
+            instr = getattr(proc, "EXTRACCION_INSTRUCCIONES", {}).get(ds, "")
+            contexto = f"Corte de la auditoría: {reg.get('engagement', {}).get('cutoff', '')}".strip()
+            try:
+                texto = extraccion_ia.texto_de_documento(a.nombre, almacen.leer(a.ruta))
+                res = extraccion_ia.extraer_filas(campos, texto, enums=enums, instrucciones=instr, contexto=contexto)
+            except extraccion_ia.ExtraccionError as e:
+                raise ReglaIncumplida(str(e))
+            rows, modelo = res["rows"], res["modelo"]
+        else:  # guardar_extraccion: la tabla que el auditor revisó y editó
+            crudas = datos.get("rows")
+            if not isinstance(crudas, list) or len(crudas) > datos_mod.MAX_ROWS:
+                raise ReglaIncumplida("Filas inválidas.")
+            claves = [c["key"] for c in campos]
+            rows = [{**{k: (f.get(k) if isinstance(f, dict) else "") for k in claves}, "_row": i}
+                    for i, f in enumerate(crudas, start=1)]
+            modelo = (extraccion.get(str(a.id)) or {}).get("modelo", "")
+        v = proc.validar_filas(proc.kind(ds), rows)
+        extraccion[str(a.id)] = {"dataset": ds, "requestId": a.requerimiento, "file": a.nombre, "rows": rows,
+                                 "modelo": modelo, "validation": v, "at": _ahora_iso()}
+        reg["extraccion"] = extraccion
+        datos = {**datos, "comment": f"{a.requerimiento}: {len(rows)} fila(s) "
+                 + ("extraídas por IA de " if accion == "extraer_ia" else "confirmadas de ") + a.nombre
+                 + ("" if v["ok"] else " (revisar avisos de validación)")}
 
     else:
         raise ReglaIncumplida("Acción no disponible en el estado actual.")
