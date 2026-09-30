@@ -155,6 +155,49 @@ def _num_seguro(v) -> float:
     return n or 0.0
 
 
+def _auto_extraer_ia(db: Session, p: Prueba, reg: dict, proc) -> list[str]:
+    """Al procesar: extrae por IA los documentos PDF/Word de los requerimientos
+    extraíbles (carta/informe/notas) que aún NO tengan extracción, y los deja en
+    ``reg["extraccion"]`` marcados como automáticos y pendientes de revisión. Respeta
+    lo ya extraído/confirmado con el botón. Devuelve avisos legibles (uno por archivo).
+    Nunca crashea: si la IA no está disponible o falla, avisa y sigue (el requerimiento
+    es opcional; el auditor puede subir la tabla en Excel/CSV)."""
+    extdatasets = getattr(proc, "EXTRACCION_DATASETS", ())
+    if not extdatasets:
+        return []
+    from backend.app.aud.niif.ciclo import extraccion_ia
+
+    por_req = {r["id"]: r for r in (reg.get("requests") or []) if r.get("dataset") in extdatasets}
+    extraccion = dict(reg.get("extraccion") or {})
+    corte = (reg.get("engagement") or {}).get("cutoff", "")
+    avisos: list[str] = []
+    for a in archivos(db, p.id):
+        if a.estado == "rechazado" or a.requerimiento not in por_req or str(a.id) in extraccion:
+            continue
+        if extraccion_ia._extension(a.nombre) not in ("pdf", "docx"):
+            continue
+        ds = por_req[a.requerimiento]["dataset"]
+        campos = proc.CAMPOS[proc.kind(ds)]
+        enums = getattr(proc, "EXTRACCION_ENUMS", {}).get(ds, {})
+        instr = getattr(proc, "EXTRACCION_INSTRUCCIONES", {}).get(ds, "")
+        try:
+            texto = extraccion_ia.texto_de_documento(a.nombre, almacen.leer(a.ruta))
+            res = extraccion_ia.extraer_filas(campos, texto, enums=enums, instrucciones=instr,
+                                              contexto=f"Corte de la auditoría: {corte}".strip())
+        except extraccion_ia.ExtraccionError as e:
+            avisos.append(f"{a.requerimiento} · no se pudo extraer «{a.nombre}» por IA ({e}); "
+                          "súbalo en Excel/CSV o revise el documento.")
+            continue
+        v = proc.validar_filas(proc.kind(ds), res["rows"])
+        extraccion[str(a.id)] = {"dataset": ds, "requestId": a.requerimiento, "file": a.nombre, "rows": res["rows"],
+                                 "modelo": res["modelo"], "validation": v, "auto": True, "revisado": False,
+                                 "at": _ahora_iso()}
+        avisos.append(f"{a.requerimiento} · {len(res['rows'])} fila(s) extraídas por IA de «{a.nombre}» al procesar; "
+                      "revíselas (la IA solo transcribe lo que leyó).")
+    reg["extraccion"] = extraccion
+    return avisos
+
+
 # --- pruebas -----------------------------------------------------------------
 
 def _evento(db: Session, p: Prueba, accion: str, anterior: str | None, actor: str, comentario: str = "") -> None:
@@ -340,9 +383,14 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                     mapeos.append({"dataset": ds, "requestId": archivo.requerimiento, "fileId": archivo.id, "file": archivo.nombre,
                                    "sheet": parte.get("sheet"), "header": parte.get("header"), "fields": parte.get("mapping"),
                                    "headers": m["headers"], "blankRows": m["blankRows"], "records": len(m["rows"])})
-            # Filas extraídas por IA de la carta/informe (PDF/Word), ya revisadas y
-            # confirmadas por el auditor (viven en reg["extraccion"], las escriben las
-            # acciones extraer_ia / guardar_extraccion). Se suman a su dataset.
+            # Auto-extracción al procesar (decisión del dueño): si hay un PDF/Word en un
+            # requerimiento extraíble (carta/informe/notas) que aún no tiene extracción,
+            # la IA lo lee AHORA y se usa (queda marcado como automático, pendiente de
+            # revisión del auditor). Si ya se extrajo/confirmó con el botón, se respeta.
+            avisos += [{"row": None, "message": msg} for msg in _auto_extraer_ia(db, p, reg, proc)]
+            # Filas extraídas por IA de la carta/informe/notas (PDF/Word), ya en
+            # reg["extraccion"] (por el botón «Extraer con IA» o por la auto-extracción
+            # de arriba). Se suman a su dataset.
             for fid, info in (reg.get("extraccion") or {}).items():
                 ds = info.get("dataset")
                 filas = info.get("rows") or []

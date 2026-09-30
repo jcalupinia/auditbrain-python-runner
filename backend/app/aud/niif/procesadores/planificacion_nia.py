@@ -243,7 +243,7 @@ CONTROL = "saldo_actual"
 # por IA desde el documento firmado (PDF/Word): la carta de control interno y el
 # informe del año anterior. El auditor revisa y confirma la tabla extraída antes de
 # que alimente la herramienta (la IA no decide sola). Lo usa ciclo/servicio.py.
-EXTRACCION_DATASETS = ("carta_control_interno", "informe_anterior")
+EXTRACCION_DATASETS = ("carta_control_interno", "informe_anterior", "notas_estados_financieros")
 # Valores permitidos por campo, para forzar el esquema de la extracción (el tipo del
 # informe debe caer en TIPOS_INFORME; la carta no tiene enumerados).
 EXTRACCION_ENUMS = {"informe_anterior": {"tipo": list(TIPOS_INFORME)}}
@@ -257,6 +257,10 @@ EXTRACCION_INSTRUCCIONES = {
         "El documento es el INFORME DE AUDITORÍA del año anterior. Genera una fila por cada dato de identificación "
         "(entidad, auditor, período), por el tipo de opinión, por cada salvedad o énfasis, por cada asunto clave y por "
         "los indicios de empresa en funcionamiento. El importe solo si el texto lo declara; si no, vacío.",
+    "notas_estados_financieros":
+        "El documento son las NOTAS a los estados financieros del año anterior. Genera una fila por cada nota de balance: "
+        "número de nota, título, los códigos de cuenta del balance que la forman (separados por coma) y el saldo auditado "
+        "total de la nota. Solo notas de rubros del balance con su total; no incluyas notas de políticas contables.",
 }
 
 # --- parámetros ---------------------------------------------------------------------------------------------------
@@ -4386,9 +4390,10 @@ def definicion() -> dict:
                         "importe si lo tiene y la fuente (párrafo o nota). Puede subir el informe firmado en PDF o Word "
                         "(la IA extrae la tabla, que usted revisa y confirma) o transcribirlo en Excel/CSV."),
             req("RQ-006", "Notas a los estados financieros auditados del año anterior (total de cada nota)", "notas_estados_financieros", "PLA-06",
-                "Notas comparativas y saldos de apertura", required=False,
+                "Notas comparativas y saldos de apertura", required=False, formats=("pdf", "docx", "xlsx", "csv"),
                 content="Una fila por nota de balance: número, título, códigos del balance que la forman (separados por coma) y "
-                        "el saldo auditado de la nota."),
+                        "el saldo auditado de la nota. Puede subir las notas firmadas en PDF o Word (la IA extrae la tabla, "
+                        "que usted revisa y confirma) o transcribirlas en Excel/CSV."),
             req("RQ-009", "Composición de las notas a los estados financieros auditados del año anterior (líneas de cada nota)",
                 "notas_detalle", "PLA-06", "Desglose de cada nota y su cuadre con el saldo auditado", required=False,
                 content="Una fila por línea de cada nota, tal como la presenta el informe auditado: número de nota, concepto, "

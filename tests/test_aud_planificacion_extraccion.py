@@ -140,3 +140,41 @@ def test_carta_en_pdf_se_extrae_confirma_y_alimenta_la_matriz(client, monkeypatc
     p = _accion(client, tok, p, "execute", {}).json()
     assert p["estado"] == "PRUEBA_EJECUTADA", p
     assert MARCA in json.dumps(p["registro"]["run"], ensure_ascii=False)
+
+
+def test_carta_en_pdf_se_extrae_sola_al_procesar(client, monkeypatch):
+    """Auto-extracción al procesar: se sube la carta en PDF y NO se pulsa «Extraer con
+    IA»; al hacer map_validate (Procesar), la IA la extrae sola y alimenta la matriz,
+    con un aviso de revisar."""
+    monkeypatch.setattr(extraccion_ia, "texto_de_documento", lambda nombre, datos: "Texto de la carta.")
+    monkeypatch.setattr(extraccion_ia, "_chat_por_defecto", lambda: _chat_falso(CARTA_IA))
+
+    tok, pid = _staff_con_proyecto(client)
+    p = _hasta_requerimiento(client, tok, pid)
+    subidas = [
+        ("RQ-001", "RQ-001.xlsx", _modelo_lleno(client, tok, p, "RQ-001",
+            _filas_balance("balance_anterior", ["codigo", "cuenta", "saldo_anterior"]))),
+        ("RQ-002", "RQ-002.xlsx", _modelo_lleno(client, tok, p, "RQ-002",
+            _filas_balance("balance_actual", ["codigo", "cuenta", "saldo_actual"]))),
+        ("RQ-004", "carta_control_interno.pdf", b"%PDF-1.4 carta"),
+    ]
+    for req, nombre, contenido in subidas:
+        p = _leer(client, tok, p)
+        assert _subir(client, tok, p, req, nombre, contenido).status_code == 201
+
+    p = _leer(client, tok, p)
+    arch = {a["requerimiento"]: a["id"] for a in p["archivos"]}
+    # NO se llama extraer_ia: solo se procesa (map_validate) con los balances.
+    parte = lambda req, tipo: [{"fileId": arch[req], "sheet": "Datos", "header": 1, "mapping": _mapa(tipo)}]
+    p = _accion(client, tok, p, "map_validate", {"datasets": {
+        "balance_anterior": parte("RQ-001", "balance_anterior"),
+        "balance_actual": parte("RQ-002", "balance_actual")}}).json()
+    val = p["registro"]["validation"]
+    assert val["ok"], val
+    # La IA extrajo la carta sola y la sumó al dataset.
+    carta = p["registro"]["datasets"]["carta_control_interno"]
+    assert [f["id"] for f in carta] == ["IA1", "IA2"]
+    # Quedó marcada como automática y con aviso de revisar.
+    entrada = next(iter(p["registro"]["extraccion"].values()))
+    assert entrada["auto"] is True and entrada["revisado"] is False
+    assert any("extraídas por IA" in w["message"] for w in val["warnings"])

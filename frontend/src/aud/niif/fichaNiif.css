@@ -738,3 +738,20 @@ a.btn { text-decoration: none; display: inline-block; }
   .nf-ef-cards, .nf-ef-proc, .nf-ef-ejec { grid-template-columns: 1fr; }
   .nf-ef-paso-h h3 { font-size: 15px; }
 }
+
+/* ===== Mapeo manual de columnas (modal) ===== */
+.nf-map-panel { width: min(760px, 96vw); }
+.nf-map-cuerpo { padding: 12px 0; display: flex; flex-direction: column; gap: 16px; }
+.nf-map-archivo { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--panel-2); }
+.nf-map-archivo-tit { margin: 0 0 10px; font-size: 13.5px; color: var(--text); }
+.nf-map-filas { display: flex; flex-direction: column; gap: 8px; }
+.nf-map-fila { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; padding: 6px 8px; border-radius: 8px; }
+.nf-map-fila.nf-map-pend { background: rgba(199, 168, 60, 0.12); border: 1px solid rgba(199, 168, 60, 0.45); }
+.nf-map-campo { color: var(--text); flex: 1; }
+.nf-map-req { color: #C7A83C; font-weight: 700; }
+.nf-map-fila select { min-width: 220px; max-width: 60%; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+
+@media (max-width: 560px) {
+  .nf-map-fila { flex-direction: column; align-items: stretch; gap: 4px; }
+  .nf-map-fila select { min-width: 0; max-width: none; }
+}

@@ -290,3 +290,39 @@ describe("marco aplicable y NIA", () => {
       { document: "NIA 500", section: "", requirement: "" }, { document: "NIA 540", section: "párr. 13", requirement: "estimación" }]);
   });
 });
+
+import { mapeoConManual } from "./cicloLogic";
+
+describe("mapeoConManual (mezcla auto + manual)", () => {
+  const campos = [
+    { key: "id", label: "Identificador", required: true },
+    { key: "monto", label: "Monto", required: true },
+    { key: "nota", label: "Nota", required: false },
+  ];
+  const elegido = { sheet: "Datos", header: 2, mapping: { id: 0 }, faltan: ["Monto"] };
+
+  it("el mapeo manual pisa al automático y recalcula los faltantes obligatorios", () => {
+    const r = mapeoConManual(elegido, { monto: "3", id: "1" }, campos);
+    expect(r.mapping).toEqual({ id: 1, monto: 3 });
+    expect(r.faltan).toEqual([]);
+    expect(r.sheet).toBe("Datos");
+    expect(r.header).toBe(2);
+  });
+
+  it("un valor vacío quita la asignación y vuelve a marcar el faltante", () => {
+    const r = mapeoConManual(elegido, { id: "" }, campos);
+    expect(r.mapping).toEqual({});
+    expect(r.faltan).toEqual(["Identificador", "Monto"]);
+  });
+
+  it("sin mapeo manual conserva el automático y sus faltantes", () => {
+    const r = mapeoConManual(elegido, undefined, campos);
+    expect(r.mapping).toEqual({ id: 0 });
+    expect(r.faltan).toEqual(["Monto"]);
+  });
+
+  it("no exige columna para los campos opcionales", () => {
+    const r = mapeoConManual(elegido, { monto: "2" }, campos);
+    expect(r.faltan).toEqual([]);
+  });
+});

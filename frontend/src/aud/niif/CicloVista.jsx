@@ -15,6 +15,7 @@ import {
   filasConvertidas,
   formulasLegibles,
   herramientaDePrueba,
+  mapeoConManual,
   marcoAplicable,
   mejorEncabezado,
   niasDe,
@@ -530,6 +531,97 @@ function PanelCedula({ prueba, indice, etiqueta, nombre, hojas, notas, calculo }
   );
 }
 
+// Señal interna: `mapear` la devuelve cuando hay columnas sin reconocer y abre
+// el modal de mapeo manual en vez de lanzar un error. `procesar` la reconoce y
+// corta el intento en curso limpiamente (sin toast de error).
+const PENDIENTE_MAPEO = Symbol("pendiente-mapeo");
+
+// Modal de mapeo manual de columnas. Se abre cuando el reconocimiento por alias
+// no cubre todos los campos obligatorios de algún archivo subido: por cada
+// archivo pendiente lista sus campos y, para cada uno, un <select> con las
+// columnas del archivo. Precarga las columnas ya reconocidas y resalta las
+// obligatorias que faltan. Al confirmar entrega {fileId: {campo.key: colIndex}}.
+export function MapeoManual({ pendientes, onCancelar, onConfirmar }) {
+  const [seleccion, setSeleccion] = useState(() =>
+    Object.fromEntries(
+      pendientes.map((pf) => [
+        pf.fileId,
+        Object.fromEntries(pf.campos.map((c) => [c.key, c.key in pf.mapping ? String(pf.mapping[c.key]) : ""])),
+      ]),
+    ),
+  );
+  const set = (fileId, key, val) => setSeleccion((s) => ({ ...s, [fileId]: { ...s[fileId], [key]: val } }));
+  const faltaRequerido = (pf) => pf.campos.some((c) => c.required !== false && !seleccion[pf.fileId]?.[c.key]);
+  const listo = !pendientes.some(faltaRequerido);
+  const confirmar = () => {
+    const maps = {};
+    for (const pf of pendientes) {
+      const m = {};
+      for (const c of pf.campos) {
+        const v = seleccion[pf.fileId]?.[c.key];
+        if (v !== "" && v !== undefined) m[c.key] = Number(v);
+      }
+      maps[pf.fileId] = m;
+    }
+    onConfirmar(maps);
+  };
+  return (
+    <div className="nf-em-overlay" role="dialog" aria-modal="true" aria-label="Mapear columnas del archivo">
+      <div className="nf-em-panel nf-map-panel">
+        <div className="nf-em-head">
+          <div>
+            <span className="nf-em-marca">MAPEO MANUAL DE COLUMNAS</span>
+            <h3 style={{ margin: "4px 0 6px" }}>Asigne las columnas no reconocidas</h3>
+            <p className="muted" style={{ margin: 0 }}>
+              No se reconocieron por su nombre algunas columnas obligatorias. Indique, por cada campo, qué columna de su
+              archivo le corresponde. Los campos ya reconocidos vienen pre-seleccionados; los pendientes van resaltados.
+            </p>
+          </div>
+          <button type="button" className="pc-chip" onClick={onCancelar} aria-label="Cerrar">✕</button>
+        </div>
+        <div className="nf-map-cuerpo">
+          {pendientes.map((pf) => (
+            <section key={pf.fileId} className="nf-map-archivo">
+              <h4 className="nf-map-archivo-tit">📄 {pf.nombre}</h4>
+              <div className="nf-map-filas">
+                {pf.campos.map((c) => {
+                  const requerido = c.required !== false;
+                  const pendiente = requerido && !seleccion[pf.fileId]?.[c.key];
+                  return (
+                    <label key={c.key} className={`nf-map-fila${pendiente ? " nf-map-pend" : ""}`}>
+                      <span className="nf-map-campo">
+                        {c.label || c.key}
+                        {requerido && <span className="nf-map-req" title="Obligatorio"> *</span>}
+                      </span>
+                      <select
+                        value={seleccion[pf.fileId]?.[c.key] ?? ""}
+                        onChange={(e) => set(pf.fileId, c.key, e.target.value)}
+                        aria-label={`Columna para ${c.label || c.key} en ${pf.nombre}`}
+                      >
+                        <option value="">— sin asignar —</option>
+                        {pf.columnas.map((col, i) => (
+                          <option key={i} value={String(i)}>{i + 1} · {col || "(sin título)"}</option>
+                        ))}
+                      </select>
+                    </label>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
+        <div className="nf-em-nav">
+          <button type="button" className="pc-chip" onClick={onCancelar}>Cancelar</button>
+          <button type="button" className="pc-chip accent" disabled={!listo} onClick={confirmar} style={{ fontWeight: 700 }}
+            title={listo ? "Guardar el mapeo y continuar el procesamiento" : "Asigne una columna a cada campo obligatorio (*)"}>
+            Confirmar mapeo y procesar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
   const reg = prueba.registro;
   const d = prueba.definicion;
@@ -543,6 +635,11 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
   const [tramos, setTramos] = useState([{ min: "0", max: "30", rate: "" }, { min: "31", max: "", rate: "" }]);
   const [cedula, setCedula] = useState(0);
   const [modeloAbierto, setModeloAbierto] = useState(false);
+  // Mapeo manual: archivos con columnas sin reconocer (abre el modal) y el mapeo
+  // que el auditor asigna a mano, por fileId. El ref lo lee `mapear` sin depender
+  // del re-render (evita cerrar sobre un estado viejo al reprocesar).
+  const [pendientesMapeo, setPendientesMapeo] = useState(null);
+  const manualMapsRef = useRef({});
   const [param, setParam] = useState(() => ({ ...(d.parametros || {}), ...Object.fromEntries(Object.entries(reg.parameters || {}).filter(([k]) => k in (d.parametros || {}))) }));
   const [tasas, setTasas] = useState(reg.parameters?.tasas || {});
   // Tramos de mora solo en las pruebas de cartera que los usan.
@@ -610,15 +707,30 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
   // manda al servidor la lista para unirla en una sola población.
   async function mapear(p) {
     const [, , files] = sitio || (await cargarSitio());
-    const armar = async (req, campos) => {
+    // Archivos cuyas columnas obligatorias no se reconocen ni con el mapeo manual
+    // guardado: se juntan para abrir el modal en vez de lanzar un error.
+    const pendientes = [];
+    const armar = async (req, campos, dataset) => {
       const partes = [];
       for (const a of archivosDe(p, req)) {
         const bytes = await api.cicloBajarArchivo(p.id, a.id);
-        const elegido = mejorEncabezado(files.readSpreadsheet(bytes, a.nombre).sheets, campos);
+        const { sheets } = files.readSpreadsheet(bytes, a.nombre);
+        const elegido = mejorEncabezado(sheets, campos);
         if (!elegido) throw new Error(`${a.nombre}: no se pudo leer ninguna hoja.`);
-        if (elegido.faltan.length)
-          throw new Error(`${a.nombre}: no se reconocen las columnas ${elegido.faltan.join(", ")}. Use el modelo de ${req} o el mapeo manual del circuito detallado.`);
-        partes.push({ fileId: a.id, sheet: elegido.sheet, header: elegido.header, mapping: elegido.mapping });
+        // El mapeo manual del auditor pisa lo que detectó el reconocimiento por alias.
+        const combinado = mapeoConManual(elegido, manualMapsRef.current[a.id], campos);
+        if (combinado.faltan.length) {
+          const hoja = (sheets || []).find((s) => s.name === combinado.sheet);
+          const filaEnc = ((hoja && hoja.rows) || [])[combinado.header - 1] || [];
+          pendientes.push({
+            req, dataset, fileId: a.id, nombre: a.nombre,
+            sheet: combinado.sheet, header: combinado.header,
+            columnas: filaEnc.map((c) => String(c ?? "")),
+            campos, mapping: combinado.mapping,
+          });
+          continue;
+        }
+        partes.push({ fileId: a.id, sheet: combinado.sheet, header: combinado.header, mapping: combinado.mapping });
       }
       return partes;
     };
@@ -626,20 +738,23 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
       const datasets = {};
       for (const r of p.registro.requests.filter((x) => x.dataset)) {
         const tipo = d.tipos?.[r.dataset] || (["a1", "a2", "a3"].includes(r.dataset) ? "cartera" : r.dataset);
-        const partes = await armar(r.id, d.campos[tipo]);
+        const partes = await armar(r.id, d.campos[tipo], r.dataset);
         if (partes.length) datasets[r.dataset] = partes;
       }
+      if (pendientes.length) { setPendientesMapeo(pendientes); return PENDIENTE_MAPEO; }
       if (!datasets.a3 && !datasets.actual) throw new Error("Suba el anexo de cartera del ejercicio corriente antes de procesar.");
       return paso("map_validate", { datasets });
     }
     const [poblacion, flujos] = (p.modelos || []);
-    const files_ = await armar(poblacion, d.fields);
+    const files_ = await armar(poblacion, d.fields, poblacion);
+    let flowsParte = null;
+    if (d.flows && flujos) flowsParte = (await armar(flujos, FLOW_FIELDS, flujos))[0] || null;
+    if (pendientes.length) { setPendientesMapeo(pendientes); return PENDIENTE_MAPEO; }
     if (!files_.length) throw new Error("Suba el reporte de cálculo antes de procesar.");
     const datos = { files: files_ };
     if (d.flows && flujos) {
-      const f = (await armar(flujos, FLOW_FIELDS))[0];
-      if (!f) throw new Error("Suba el calendario de pagos antes de procesar.");
-      Object.assign(datos, { flowsFile: f.fileId, flowsSheet: f.sheet, flowsHeader: f.header, flowsMapping: f.mapping });
+      if (!flowsParte) throw new Error("Suba el calendario de pagos antes de procesar.");
+      Object.assign(datos, { flowsFile: flowsParte.fileId, flowsSheet: flowsParte.sheet, flowsHeader: flowsParte.header, flowsMapping: flowsParte.mapping });
     }
     return paso("map_validate", datos);
   }
@@ -653,6 +768,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
         if ((p.huecos || []).length) throw new Error(`Faltan documentos: ${p.huecos.join(" · ")}`);
         if (!p.registro.validation?.ok || p.estado === "REQUERIMIENTO_APROBADO" || !p.registro.rows?.length) {
           p = await mapear(p);
+          if (p === PENDIENTE_MAPEO) return; // se abrió el modal de mapeo manual: se corta sin error.
           if (!p.registro.validation?.ok)
             throw new Error(`La población tiene errores: ${erroresLegibles(p.registro.validation, 5).join(" · ")}`);
         }
@@ -824,6 +940,18 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
         <button type="button" className="pc-chip danger" onClick={abrirEncerar}>Encerar</button>
       </div>
       {modeloAbierto && <EjercicioModelo prueba={prueba} onCerrar={() => setModeloAbierto(false)} />}
+      {pendientesMapeo?.length > 0 && (
+        <MapeoManual
+          pendientes={pendientesMapeo}
+          onCancelar={() => setPendientesMapeo(null)}
+          onConfirmar={(maps) => {
+            // El mapeo manual pisa el auto por archivo; al reprocesar, `mapear` lo lee del ref.
+            manualMapsRef.current = { ...manualMapsRef.current, ...maps };
+            setPendientesMapeo(null);
+            procesar();
+          }}
+        />
+      )}
       {avance && <p className="muted">{avance}</p>}
       {error && <p role="alert" className="nf-error">{error}</p>}
 

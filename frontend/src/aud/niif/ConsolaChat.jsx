@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import * as api from "../../api";
 import { ChipDocumento } from "./CicloVista";
+import { admiteExtraccionIA } from "./cicloLogic";
 import { ConsolaRevision } from "./ConsolaRevision";
 import { aprobar, devolver, enviar, prepararBaseTecnica, producir } from "./cicloOrquestacion";
 import { claseMensaje, nombreDe, puedeSubirInline, requerimientosPendientes } from "./consolaChatVista";
@@ -62,6 +63,9 @@ export function ConsolaChat({ prueba, onRecargar }) {
 
   const cobertura = prueba.cobertura || [];
   const pendientes = requerimientosPendientes(prueba, cobertura);
+  // Requerimientos opcionales que admiten extracción por IA (carta, informe, notas):
+  // se muestran aparte para poder subir el PDF/Word y extraer/confirmar antes de producir.
+  const extraibles = ((prueba.registro && prueba.registro.requests) || []).filter(admiteExtraccionIA);
   const cobIdx = Object.fromEntries(cobertura.map((c) => [c.id, c]));
   const sig = guion?.siguiente || {};
 
@@ -105,6 +109,18 @@ export function ConsolaChat({ prueba, onRecargar }) {
                     onSubido={async () => { await onRecargar?.(); await cargar(); }} habilitado={!ocupado}
                     processor={prueba.definicion.processor} />
                 ))}
+                {extraibles.length > 0 && (
+                  <>
+                    <span className="pc-scenarios-l" style={{ color: "var(--accent)" }}>
+                      DOCUMENTOS PARA EXTRACCIÓN POR IA (opcionales)
+                    </span>
+                    {extraibles.map((r) => (
+                      <ChipDocumento key={r.id} prueba={prueba} req={r} cobertura={cobIdx[r.id]}
+                        onSubido={async () => { await onRecargar?.(); await cargar(); }} habilitado={!ocupado}
+                        processor={prueba.definicion.processor} />
+                    ))}
+                  </>
+                )}
                 {pendientes.length === 0 && (
                   <button type="button" className="btn primary" disabled={ocupado}
                     onClick={() => correr(() => producir(prueba, { param: paramDe(prueba) }), `Produciendo ${cosa}…`)}>

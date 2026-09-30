@@ -95,6 +95,7 @@ export const EJEMPLOS_REQUERIMIENTOS = {
     "RQ-007": "RQ-007_contratos_de_prestamo_tablas_de_amortizacion_y_m.pdf",
     "RQ-008": "RQ-008_estimacion_tecnica_de_desmantelamiento_o_restaur.pdf",
     "RQ-009": "RQ-009_facturas_de_venta_y_actas_de_baja_del_ano.pdf",
+    "RQ-010": "RQ-010_mayores_contables_de_propiedad_planta_y_equipo.xlsx",
   },
   propiedades_inversion: {
     "RQ-001": "RQ-001_inmuebles.xlsx",
