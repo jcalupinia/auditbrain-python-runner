@@ -44,30 +44,58 @@ function descargar(nombre, contenido, tipo) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// Degradados de marca compartidos por todos los íconos (profundidad premium). Se
+// renderizan una sola vez con <IconoDefs/> en la raíz de la vista; los íconos los
+// referencian por id (url(#ef-…)), que es global al documento.
+function IconoDefs() {
+  const G = [
+    ["ef-blue", "#8FBBF2", "#2E6FC0"],
+    ["ef-blueDeep", "#4C8BE0", "#1E4E8C"],
+    ["ef-teal", "#62D0C9", "#2E8F8A"],
+    ["ef-gold", "#E8D68A", "#C7A83C"],
+    ["ef-purple", "#C8BBF2", "#8A78D6"],
+    ["ef-red", "#F2777B", "#D23B40"],
+    ["ef-green", "#5FE08C", "#2FB85F"],
+    ["ef-gray", "#C6D0DC", "#8A97A8"],
+  ];
+  return (
+    <svg width="0" height="0" aria-hidden="true" style={{ position: "absolute" }}>
+      <defs>
+        {G.map(([id, a, b]) => (
+          <linearGradient key={id} id={id} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor={a} />
+            <stop offset="1" stopColor={b} />
+          </linearGradient>
+        ))}
+      </defs>
+    </svg>
+  );
+}
+
 // Íconos del mockup (SVG inline, sin dependencias externas). Cada tarjeta declara su
-// ícono por clave en procesoConfig.js.
+// ícono por clave en procesoConfig.js. Rellenos con degradado para dar profundidad.
 const ICONOS = {
-  chart: <><rect x="4" y="12" width="3.4" height="8" rx="1" fill="#2E6FC0" /><rect x="10.3" y="7" width="3.4" height="13" rx="1" fill="#4C8BE0" /><rect x="16.6" y="4" width="3.4" height="16" rx="1" fill="#7FB0EE" /></>,
-  doc: <><path d="M6 2h8l4 4v16H6V2z" fill="#1E4E8C" /><path d="M14 2v4h4" fill="#2E6FC0" /><path d="M8.5 12h7M8.5 15h7M8.5 18h4.5" stroke="#CFE0F5" strokeWidth="1.3" strokeLinecap="round" /></>,
-  pdf: <><path d="M6 2h8l4 4v16H6V2z" fill="#B03030" /><path d="M14 2v4h4" fill="#E5484D" /><text x="12" y="17.5" fontSize="5.6" fill="#fff" textAnchor="middle" fontWeight="700">PDF</text></>,
-  shield: <><path d="M12 2l7 3v6c0 5-3 8-7 10-4-2-7-5-7-10V5l7-3z" fill="#C7A83C" /><path d="M8.7 11.7l2.3 2.3 4.3-4.6" stroke="#071B2F" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" /></>,
-  bank: <><path d="M12 3l9 5H3l9-5z" fill="#9B8BE0" /><rect x="5" y="9" width="2.4" height="8" fill="#9B8BE0" /><rect x="10.8" y="9" width="2.4" height="8" fill="#9B8BE0" /><rect x="16.6" y="9" width="2.4" height="8" fill="#9B8BE0" /><rect x="3.5" y="18" width="17" height="2.4" rx="0.5" fill="#9B8BE0" /></>,
-  list: <><circle cx="6" cy="7" r="1.4" fill="#2E6FC0" /><circle cx="6" cy="12" r="1.4" fill="#2E6FC0" /><circle cx="6" cy="17" r="1.4" fill="#2E6FC0" /><path d="M10 7h9M10 12h9M10 17h9" stroke="#4C8BE0" strokeWidth="1.6" strokeLinecap="round" /></>,
-  table: <><rect x="4" y="5" width="16" height="14" rx="1.5" fill="none" stroke="#3AA6A0" strokeWidth="1.5" /><path d="M4 9.5h16M4 14h16M10 5v14" stroke="#3AA6A0" strokeWidth="1.2" /></>,
-  search: <><circle cx="11" cy="11" r="5.3" fill="none" stroke="#3AA6A0" strokeWidth="1.8" /><path d="M15 15l4.2 4.2" stroke="#3AA6A0" strokeWidth="1.8" strokeLinecap="round" /></>,
-  refresh: <path d="M6 9a7 7 0 0 1 12-2.5M18 6.5V3.5m0 3H15M18 15a7 7 0 0 1-12 2.5M6 17.5v3m0-3H9" fill="none" stroke="#3AA6A0" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />,
-  calendar: <><rect x="4" y="5" width="16" height="15" rx="2" fill="none" stroke="#4C8BE0" strokeWidth="1.6" /><path d="M4 9.5h16M8 3v4M16 3v4" stroke="#4C8BE0" strokeWidth="1.6" strokeLinecap="round" /></>,
-  dashboard: <><rect x="4" y="4" width="7" height="7" rx="1.2" fill="#2E6FC0" /><rect x="13" y="4" width="7" height="4" rx="1.2" fill="#4C8BE0" /><rect x="13" y="10" width="7" height="10" rx="1.2" fill="#2E6FC0" /><rect x="4" y="13" width="7" height="7" rx="1.2" fill="#4C8BE0" /></>,
-  line: <><path d="M4 16l4-4 3 3 5-7 4 3" fill="none" stroke="#34d36a" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /><path d="M4 20h16" stroke="#2f6f45" strokeWidth="1.1" /></>,
-  pie: <><path d="M12 3a9 9 0 1 0 9 9h-9V3z" fill="#9B8BE0" /><path d="M12.8 3.1A9 9 0 0 1 20.9 11.2H12.8V3.1z" fill="#C3B6EE" /></>,
-  calc: <><rect x="5" y="3" width="14" height="18" rx="2" fill="none" stroke="#4C8BE0" strokeWidth="1.5" /><rect x="7.4" y="5.4" width="9.2" height="3.4" rx="0.6" fill="#4C8BE0" /><path d="M8 13h.01M12 13h.01M16 13h.01M8 17h.01M12 17h.01M16 17h.01" stroke="#4C8BE0" strokeWidth="2.1" strokeLinecap="round" /></>,
-  warning: <><path d="M12 3.2l9 15.8H3L12 3.2z" fill="#E5484D" /><path d="M12 9.2v4.6M12 16.4v.4" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" /></>,
-  gears: <><circle cx="10" cy="10" r="3" fill="none" stroke="#9AA8BD" strokeWidth="1.6" /><path d="M10 3.2v2.2M10 14.6v2.2M3.2 10h2.2M14.6 10h2.2M5.2 5.2l1.6 1.6M13.2 13.2l1.6 1.6M14.8 5.2l-1.6 1.6M6.8 13.2l-1.6 1.6" stroke="#9AA8BD" strokeWidth="1.5" strokeLinecap="round" /><circle cx="16.6" cy="16.6" r="2.2" fill="#9AA8BD" /></>,
+  chart: <><rect x="4" y="12" width="3.6" height="8" rx="1.4" fill="url(#ef-blue)" /><rect x="10.2" y="7" width="3.6" height="13" rx="1.4" fill="url(#ef-blue)" /><rect x="16.4" y="4" width="3.6" height="16" rx="1.4" fill="url(#ef-blue)" /></>,
+  doc: <><path d="M6 2.5h7.2L18 7v14.5H6V2.5z" fill="url(#ef-blueDeep)" /><path d="M13.2 2.5V7H18" fill="url(#ef-blue)" /><path d="M8.6 12h6.8M8.6 15h6.8M8.6 18h4.4" stroke="#DCEAFB" strokeWidth="1.3" strokeLinecap="round" /></>,
+  pdf: <><path d="M6 2.5h7.2L18 7v14.5H6V2.5z" fill="url(#ef-red)" /><path d="M13.2 2.5V7H18" fill="#F2777B" /><text x="12" y="17.6" fontSize="5.6" fill="#fff" textAnchor="middle" fontWeight="700">PDF</text></>,
+  shield: <><path d="M12 2.2l7 3v6c0 5-3 8-7 10-4-2-7-5-7-10V5.2l7-3z" fill="url(#ef-gold)" /><path d="M8.7 11.7l2.3 2.3 4.3-4.6" stroke="#071B2F" strokeWidth="1.7" fill="none" strokeLinecap="round" strokeLinejoin="round" /></>,
+  bank: <><path d="M12 3l9 5H3l9-5z" fill="url(#ef-purple)" /><rect x="5" y="9" width="2.4" height="8" rx="0.5" fill="url(#ef-purple)" /><rect x="10.8" y="9" width="2.4" height="8" rx="0.5" fill="url(#ef-purple)" /><rect x="16.6" y="9" width="2.4" height="8" rx="0.5" fill="url(#ef-purple)" /><rect x="3.5" y="17.6" width="17" height="2.6" rx="0.8" fill="url(#ef-purple)" /></>,
+  list: <><circle cx="6" cy="7" r="1.5" fill="url(#ef-blue)" /><circle cx="6" cy="12" r="1.5" fill="url(#ef-blue)" /><circle cx="6" cy="17" r="1.5" fill="url(#ef-blue)" /><path d="M10 7h9M10 12h9M10 17h9" stroke="#6FA5EA" strokeWidth="1.7" strokeLinecap="round" /></>,
+  table: <><rect x="4" y="5" width="16" height="14" rx="2" fill="url(#ef-teal)" opacity="0.16" /><rect x="4" y="5" width="16" height="14" rx="2" fill="none" stroke="url(#ef-teal)" strokeWidth="1.6" /><path d="M4 9.5h16M4 14h16M10 5v14" stroke="url(#ef-teal)" strokeWidth="1.2" /></>,
+  search: <><circle cx="11" cy="11" r="5.4" fill="url(#ef-teal)" opacity="0.14" /><circle cx="11" cy="11" r="5.4" fill="none" stroke="url(#ef-teal)" strokeWidth="1.9" /><path d="M15.1 15.1l4.3 4.3" stroke="url(#ef-teal)" strokeWidth="2" strokeLinecap="round" /></>,
+  refresh: <path d="M6 9a7 7 0 0 1 12-2.5M18 6.5V3.5m0 3H15M18 15a7 7 0 0 1-12 2.5M6 17.5v3m0-3H9" fill="none" stroke="url(#ef-teal)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />,
+  calendar: <><rect x="4" y="5" width="16" height="15" rx="2.4" fill="url(#ef-blue)" opacity="0.14" /><rect x="4" y="5" width="16" height="15" rx="2.4" fill="none" stroke="url(#ef-blue)" strokeWidth="1.7" /><path d="M4 9.6h16" stroke="url(#ef-blue)" strokeWidth="1.7" /><path d="M8 3v4M16 3v4" stroke="url(#ef-blue)" strokeWidth="1.9" strokeLinecap="round" /></>,
+  dashboard: <><rect x="4" y="4" width="7" height="7" rx="1.6" fill="url(#ef-blue)" /><rect x="13" y="4" width="7" height="4" rx="1.6" fill="url(#ef-blueDeep)" /><rect x="13" y="10" width="7" height="10" rx="1.6" fill="url(#ef-blue)" /><rect x="4" y="13" width="7" height="7" rx="1.6" fill="url(#ef-blueDeep)" /></>,
+  line: <><path d="M4 16l4-4 3 3 5-7 4 3" fill="none" stroke="url(#ef-green)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /><path d="M4 20h16" stroke="#2f6f45" strokeWidth="1.1" /></>,
+  pie: <><path d="M12 3a9 9 0 1 0 9 9h-9V3z" fill="url(#ef-purple)" /><path d="M12.8 3.1A9 9 0 0 1 20.9 11.2H12.8V3.1z" fill="#D3C8F5" /></>,
+  calc: <><rect x="5" y="3" width="14" height="18" rx="2.4" fill="url(#ef-blue)" opacity="0.14" /><rect x="5" y="3" width="14" height="18" rx="2.4" fill="none" stroke="url(#ef-blue)" strokeWidth="1.6" /><rect x="7.4" y="5.4" width="9.2" height="3.4" rx="0.8" fill="url(#ef-blue)" /><path d="M8 13h.01M12 13h.01M16 13h.01M8 17h.01M12 17h.01M16 17h.01" stroke="url(#ef-blue)" strokeWidth="2.2" strokeLinecap="round" /></>,
+  warning: <><path d="M12 3.4l8.6 15.1a1 1 0 0 1-.87 1.5H4.27a1 1 0 0 1-.87-1.5L12 3.4z" fill="url(#ef-red)" /><path d="M12 9.4v4.6M12 16.6v.3" stroke="#fff" strokeWidth="1.9" strokeLinecap="round" /></>,
+  gears: <><circle cx="10" cy="10" r="3.1" fill="none" stroke="url(#ef-gray)" strokeWidth="1.7" /><path d="M10 3.2v2.2M10 14.6v2.2M3.2 10h2.2M14.6 10h2.2M5.2 5.2l1.6 1.6M13.2 13.2l1.6 1.6M14.8 5.2l-1.6 1.6M6.8 13.2l-1.6 1.6" stroke="url(#ef-gray)" strokeWidth="1.6" strokeLinecap="round" /><circle cx="16.6" cy="16.6" r="2.3" fill="url(#ef-gray)" /></>,
 };
 
 function Icono({ name }) {
   return (
-    <svg className="nf-ef-ico" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+    <svg className="nf-ef-ico" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
       {ICONOS[name] || ICONOS.doc}
     </svg>
   );
@@ -243,6 +271,7 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
 
   return (
     <div className="nf-ef">
+      <IconoDefs />
       <div className="nf-ef-estado">
         <span className="nf-ef-eyebrow">{config.eyebrow}</span>
         <span className={`nf-ef-estado-badge ${estadoTexto === "CON EXCEPCIONES" ? "warn" : estadoTexto === "REVISADA" ? "ok" : ""}`}>
