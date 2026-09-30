@@ -46,7 +46,47 @@ describe("fuentes y procedimientos", () => {
   });
 });
 
-import { componentesDeTexto, detalleRequerimiento, erroresLegibles, esTabular, mapeoSugerido } from "./cicloLogic";
+import {
+  admiteExtraccionIA,
+  archivosExtraibles,
+  componentesDeTexto,
+  detalleRequerimiento,
+  erroresLegibles,
+  esExtraibleIA,
+  esTabular,
+  extraccionDe,
+  mapeoSugerido,
+} from "./cicloLogic";
+
+describe("extracción por IA (carta / informe en PDF/Word)", () => {
+  it("reconoce PDF y Word como extraíbles, no las hojas de cálculo", () => {
+    expect(esExtraibleIA("carta.pdf")).toBe(true);
+    expect(esExtraibleIA("informe.DOCX")).toBe(true);
+    expect(esExtraibleIA("balance.xlsx")).toBe(false);
+  });
+
+  it("un requerimiento admite IA si tiene dataset y acepta pdf/docx", () => {
+    expect(admiteExtraccionIA({ dataset: "carta_control_interno", formats: ["pdf", "docx", "xlsx", "csv"] })).toBe(true);
+    expect(admiteExtraccionIA({ dataset: "balance_actual", formats: ["xlsx", "csv"] })).toBe(false);
+    expect(admiteExtraccionIA({ formats: ["pdf"] })).toBe(false); // sin dataset (soporte)
+  });
+
+  it("lista los PDF/Word subidos y no los rechazados ni las hojas", () => {
+    const p = { archivos: [
+      { id: 1, requerimiento: "RQ-004", estado: "recibido", nombre: "carta.pdf" },
+      { id: 2, requerimiento: "RQ-004", estado: "rechazado", nombre: "vieja.pdf" },
+      { id: 3, requerimiento: "RQ-004", estado: "recibido", nombre: "tabla.xlsx" },
+      { id: 4, requerimiento: "RQ-005", estado: "recibido", nombre: "informe.docx" },
+    ] };
+    expect(archivosExtraibles(p, "RQ-004").map((a) => a.id)).toEqual([1]);
+  });
+
+  it("devuelve la extracción guardada de un archivo", () => {
+    const p = { registro: { extraccion: { 7: { dataset: "carta_control_interno", rows: [{ id: "R01" }] } } } };
+    expect(extraccionDe(p, 7).rows).toHaveLength(1);
+    expect(extraccionDe(p, 99)).toBeNull();
+  });
+});
 
 describe("requerimiento y documentación", () => {
   it("convierte el texto de componentes en una lista limpia", () => {
