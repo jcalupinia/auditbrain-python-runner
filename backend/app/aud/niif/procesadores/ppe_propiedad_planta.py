@@ -1514,7 +1514,11 @@ def definicion() -> dict:
                 content="Una fila por préstamo vigente en el período: N° de préstamo o contrato, tipo (Específico o General), activo u obra financiada "
                         "(solo los específicos), descripción, importe del préstamo, tasa nominal anual, costo financiero del período realmente incurrido y, "
                         "en los específicos, los rendimientos de la inversión temporal de esos fondos. Si no hubo inversión temporal, escriba 0."),
-            req("RQ-004", "Política contable de vidas útiles, residuales y métodos", None, "PPE-04", "Sustento de estimaciones", formats=("pdf", "docx"), use="soporte"),
+            req("RQ-004", "Política contable de vidas útiles, residuales y métodos", None, "PPE-04", "Sustento de estimaciones", required=False, formats=("pdf", "docx"), use="soporte"),
+            req("RQ-010", "Mayores contables de propiedad, planta y equipo (o balance de comprobación)", None, "PPE-01",
+                "Base de la cédula sumaria y de la conciliación auxiliar-mayor (costo y depreciación acumulada)", required=False,
+                formats=("xlsx", "csv", "pdf"), use="soporte",
+                content="Mayor o balance de comprobación de las cuentas de costo y de depreciación acumulada de PP&E al corte, para conciliar con el auxiliar."),
             req("RQ-005", "Informe del perito de la revaluación", None, "PPE-06", "Sustento del valor revaluado", required=False, formats=("pdf",), use="soporte"),
             req("RQ-006", "Cálculo del importe recuperable (valor en uso o valor razonable)", None, "PPE-07", "Sustento del deterioro", required=False,
                 formats=("xlsx", "pdf"), use="soporte"),
