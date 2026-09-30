@@ -32,13 +32,35 @@ const choices = {
     ["selected", "Varias pruebas seleccionadas"],
     ["one", "Solo una prueba"],
   ],
+  adoption: [
+    ["Adoptada y vigente para el ejercicio", "Adoptada y vigente para el ejercicio"],
+    ["Adoptada; vigencia por verificar", "Adoptada; vigencia por verificar"],
+    ["Emitida por el IASB; no adoptada localmente aún", "Emitida por el IASB; no adoptada localmente aún"],
+    ["Por verificar en la SCVS", "Por verificar en la SCVS"],
+    ["No aplica", "No aplica"],
+  ],
 };
+
+// La edición aplicable depende del marco contable: NIIF para las PYMES tiene
+// ediciones discretas (2ª/2015 y 3ª/2025); NIIF completas se libra por año.
+const editionChoices = (fw) =>
+  fw === "NIIF para las PYMES"
+    ? [["2015", "2015 · 2ª edición"], ["2025", "2025 · 3ª edición"]]
+    : [["2023", "2023"], ["2024", "2024"], ["2025", "2025"], ["2026", "2026"]];
+
+// Conserva un valor ya guardado que no esté en la lista (p. ej. una edición escrita
+// a mano antes) para no perderlo al mostrar el desplegable en fichas anteriores.
+const withCurrent = (list, cur) =>
+  cur && !list.some(([v]) => v === cur) ? [[String(cur), String(cur)], ...list] : list;
 
 export function ContextFields({ value, onChange, keys = Object.keys(contextLabels) }) {
   const cambiar = (key, v) => onChange({ ...value, [key]: v });
   return (
     <div className="nf-ctx-grid">
-      {keys.map((key) => (
+      {keys.map((key) => {
+        const base = key === "edition" ? editionChoices(value.framework) : choices[key];
+        const opts = base && (key === "edition" || key === "adoption") ? withCurrent(base, value[key]) : base;
+        return (
         <div className="nf-ctx-field" key={key}>
           <label htmlFor={"ctx-" + key}>{contextLabels[key]}</label>
           {key === "deferredTax" ? (
@@ -51,12 +73,12 @@ export function ContextFields({ value, onChange, keys = Object.keys(contextLabel
               />{" "}
               Habilita las cédulas de impuesto diferido en las pruebas de este encargo
             </label>
-          ) : choices[key] ? (
+          ) : opts ? (
             <select id={"ctx-" + key} value={value[key] || ""} onChange={(e) => cambiar(key, e.target.value)}>
               <option value="" disabled>
                 Seleccione expresamente…
               </option>
-              {choices[key].map(([v, l]) => (
+              {opts.map(([v, l]) => (
                 <option key={v} value={v}>
                   {l}
                 </option>
@@ -73,7 +95,8 @@ export function ContextFields({ value, onChange, keys = Object.keys(contextLabel
             />
           )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
