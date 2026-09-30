@@ -111,6 +111,51 @@ async function mapear(p, files, { manualMaps = {}, onPendientes = null } = {}) {
   return paso(p, "map_validate", datos);
 }
 
+// Revisa —sin procesar ni cambiar el estado— si las columnas obligatorias de los
+// anexos ya subidos se reconocen (por alias o con el mapeo manual guardado).
+// Devuelve la lista de archivos con columnas pendientes, en el MISMO formato que
+// consume el modal de mapeo manual. Sirve para avisar al auditor apenas carga el
+// anexo si hace falta mapear a mano, en vez de esperar a pulsar «Procesar».
+export async function revisarColumnas(prueba, { manualMaps = {} } = {}) {
+  const files = await cargarFiles();
+  const p = await api.cicloLeerPrueba(prueba.id);
+  const d = p.definicion;
+  const pendientes = [];
+  const revisar = async (reqId, campos, dataset) => {
+    for (const a of archivosDe(p, reqId)) {
+      const bytes = await api.cicloBajarArchivo(p.id, a.id);
+      const { sheets } = files.readSpreadsheet(bytes, a.nombre);
+      const elegido = mejorEncabezado(sheets, campos);
+      if (!elegido) {
+        pendientes.push({ req: reqId, dataset, fileId: a.id, nombre: a.nombre, sheet: null, header: 1, columnas: [], campos, mapping: {} });
+        continue;
+      }
+      const combinado = mapeoConManual(elegido, manualMaps[a.id], campos);
+      if (combinado.faltan.length) {
+        const hoja = (sheets || []).find((s) => s.name === combinado.sheet);
+        const filaEnc = ((hoja && hoja.rows) || [])[combinado.header - 1] || [];
+        pendientes.push({
+          req: reqId, dataset, fileId: a.id, nombre: a.nombre,
+          sheet: combinado.sheet, header: combinado.header,
+          columnas: filaEnc.map((c) => String(c ?? "")),
+          campos, mapping: combinado.mapping,
+        });
+      }
+    }
+  };
+  if (d.processor) {
+    for (const r of (p.registro.requests || []).filter((x) => x.dataset)) {
+      const tipo = (d.tipos && d.tipos[r.dataset]) || (["a1", "a2", "a3"].includes(r.dataset) ? "cartera" : r.dataset);
+      await revisar(r.id, d.campos[tipo], r.dataset);
+    }
+  } else {
+    const [poblacion, flujos] = p.modelos || [];
+    if (poblacion) await revisar(poblacion, d.fields, poblacion);
+    if (d.flows && flujos) await revisar(flujos, FLOW_FIELDS, flujos);
+  }
+  return pendientes;
+}
+
 // Produce la prueba: desde donde esté (preparando la base técnica si hace falta) hasta ejecutarla y dejar el
 // análisis preliminar listo. Devuelve la prueba producida (estado RESULTADOS_ANALIZADOS).
 export async function producir(prueba, { mayor = "", param = {}, tasas = {}, buckets = [], manualMaps = {}, onPendientes = null } = {}) {
