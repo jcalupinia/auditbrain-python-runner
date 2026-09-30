@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   playwright:
-    name: Playwright (chromium · 21 tests)
+    name: Playwright (chromium · 29 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 15
 

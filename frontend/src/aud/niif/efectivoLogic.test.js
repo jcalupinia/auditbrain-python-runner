@@ -162,8 +162,15 @@ describe("catálogos de la config (procesoConfig)", () => {
     expect(plan.ejecuciones.some((e) => e.reproceso)).toBe(false);
   });
 
-  it("cada tarjeta de ejecución declara sus requerimientos relacionados", () => {
-    for (const cfg of [CONFIG.efectivo, CONFIG.planificacion]) {
+  // Íconos válidos del mapa de VistaProceso (si se agrega uno nuevo aquí, hay
+  // que definir su SVG en VistaProceso.jsx o la tarjeta sale en blanco).
+  const ICONOS_OK = new Set([
+    "chart", "doc", "pdf", "shield", "bank", "list", "table", "search",
+    "refresh", "calendar", "dashboard", "line", "pie", "calc", "warning", "gears",
+  ]);
+
+  it("cada tarjeta de ejecución declara sus requerimientos relacionados (todas las configs)", () => {
+    for (const cfg of Object.values(CONFIG)) {
       for (const e of cfg.ejecuciones) {
         const rel = e.relacionados;
         const ok = rel === "todos" || (Array.isArray(rel) && rel.length > 0 && rel.every((id) => /^RQ-\d+$/.test(id)));
@@ -173,11 +180,34 @@ describe("catálogos de la config (procesoConfig)", () => {
     // Ejemplos concretos del mapeo aprobado.
     expect(CONFIG.planificacion.ejecuciones.find((e) => e.clave === "perfil").relacionados).toEqual(["RQ-005", "RQ-008", "RQ-004"]);
     expect(CONFIG.efectivo.ejecuciones.find((e) => e.clave === "partidas").relacionados).toEqual(["RQ-002"]);
+    expect(CONFIG.cxc.ejecuciones.find((e) => e.clave === "deterioro").relacionados).toEqual(["RQ-007", "RQ-001"]);
+  });
+
+  it("toda config tiene forma válida: processor, primarias, ejecuciones únicas e íconos conocidos", () => {
+    for (const cfg of Object.values(CONFIG)) {
+      expect(typeof cfg.processor, cfg.processor).toBe("string");
+      expect(cfg.principales.length, `${cfg.processor} sin primarias`).toBeGreaterThan(0);
+      expect(cfg.ejecuciones.length, `${cfg.processor} sin ejecuciones`).toBeGreaterThan(0);
+      // claves de ejecución únicas
+      const claves = cfg.ejecuciones.map((e) => e.clave);
+      expect(new Set(claves).size, `${cfg.processor} claves duplicadas`).toBe(claves.length);
+      // íconos válidos (primarias y ejecuciones)
+      for (const p of cfg.principales) {
+        expect(ICONOS_OK.has(p.icono), `${cfg.processor} · ${p.id} · ícono ${p.icono}`).toBe(true);
+      }
+      for (const e of cfg.ejecuciones) {
+        expect(ICONOS_OK.has(e.icono), `${cfg.processor} · ${e.clave} · ícono ${e.icono}`).toBe(true);
+      }
+    }
   });
 
   it("configDeProcesador enruta cada processor a su config y null para el resto", () => {
     expect(configDeProcesador("efectivo_equivalentes")).toBe(CONFIG.efectivo);
     expect(configDeProcesador("planificacion_nia")).toBe(CONFIG.planificacion);
+    expect(configDeProcesador("cxc_cartera")).toBe(CONFIG.cxc);
+    expect(configDeProcesador("proveedores_cxp")).toBe(CONFIG.proveedores);
+    expect(configDeProcesador("inventarios_costos")).toBe(CONFIG.inventarios);
+    expect(configDeProcesador("ingresos_contratos")).toBe(CONFIG.ingresos);
     expect(configDeProcesador("cartera_incobrables")).toBe(null);
     expect(configDeProcesador(undefined)).toBe(null);
   });
