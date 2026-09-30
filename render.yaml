@@ -138,6 +138,14 @@ services:
       # cae automáticamente a los proveedores de la nube.
       # Configurar las keys/secretos en el dashboard.
       #
+      # M16 (independencia de proveedor): la indisponibilidad de un proveedor
+      # —incluido quedarse SIN SALDO— no debe bloquear a AuditBrain. El failover
+      # ya degrada al siguiente proveedor ante un error de saldo/cuota. Por eso,
+      # si fijas AUDITBRAIN_LLM_PROVIDER=anthropic (u otro de pago), mantén
+      # SIEMPRE al menos un proveedor gratuito o local por detrás (LOCAL_LLM_BASE_URL,
+      # GEMINI_API_KEY, GROQ_API_KEY u OPENROUTER_API_KEY). Con un único proveedor
+      # de pago y sin saldo, no hay a dónde degradar y la skill se detiene.
+      #
       # LOCAL_LLM_BASE_URL = URL pública del gateway (Tailscale Funnel),
       # DEBE incluir el sufijo /v1. Ej: https://auditia.tailXXXX.ts.net/v1
       - key: LOCAL_LLM_BASE_URL
