@@ -36,9 +36,13 @@ def test_no_se_puede_corregir_hacia_una_categoria_inexistente(client):
 
 def test_aprobar_genera_el_excel_y_deja_el_job_en_done(client):
     tok, jid = _procesado(client)
+    # La generación del Excel corre en segundo plano: aprobar responde al
+    # instante con el job en 'running' y el estado final se consulta aparte
+    # (con el TestClient la BackgroundTask ya corrió al volver de la llamada).
     r = client.post(f"/api/v1/aud/obligaciones-fiscales/jobs/{jid}/aprobar", headers=_h(tok))
     assert r.status_code == 200, r.text
-    assert r.json()["status"] == "done"
+    r2 = client.get(f"/api/v1/aud/obligaciones-fiscales/jobs/{jid}", headers=_h(tok))
+    assert r2.json()["status"] == "done"
     d = client.get(f"/api/v1/aud/obligaciones-fiscales/jobs/{jid}/download", headers=_h(tok))
     assert d.status_code == 200
 

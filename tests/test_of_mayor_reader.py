@@ -310,3 +310,59 @@ def test_celda_vacia_de_haber_cuenta_como_cero():
     )
     assert lectura.movimientos[0].haber == 0.0
     assert lectura.movimientos[0].neto == 2.39
+
+
+# --- Mayor tipo SAP "por bloques" (cliente ELEA) -----------------------------
+# El nombre de la cuenta solo aparece en la fila-cabecera del bloque y hay una
+# columna combinada 'Cargo/Abono (ML)' (neto con signo) junto a las columnas
+# puras 'Cargo (ML)' / 'Abono (ML)'. Los importes son inventados.
+ENCABEZADO_SAP = (
+    "Fecha de contabilización", "Fecha de vencimiento", "Serie",
+    "Cuenta asociada", "Cuenta de mayor/Código SN", "Comentarios",
+    "Cargo/Abono (ML)", "Cargo (ML)", "Abono (ML)",
+)
+
+# Cabecera de bloque (sección | código | ... | NOMBRE), un débito y un crédito.
+FILAS_SAP = [
+    ["Activos", "11010102", None, None, None, "CAJA CHICA", None, None, None],
+    ["2026-01-09", "2026-01-09", "PE", "11010102", "11010102", "APERTURA",
+     400.0, 400.0, None],
+    ["2026-01-10", "2026-01-10", "PR", "11010102", "11010102", "COBRO",
+     -250.0, None, 250.0],
+]
+
+
+def test_no_usa_la_columna_combinada_cargo_abono_como_debe():
+    """La columna 'Cargo/Abono (ML)' trae el NETO con signo; el debe debe
+    salir de 'Cargo (ML)' y el haber de 'Abono (ML)'. Si el reader tomara la
+    combinada, el crédito entraría como débito negativo y corrompería los
+    totales (defecto del mayor SAP de ELEA)."""
+    lectura = leer_mayor(mayor_xlsx(FILAS_SAP, encabezado=ENCABEZADO_SAP))
+    assert lectura.columnas_detectadas["debe"] == 7   # 'Cargo (ML)'
+    assert lectura.columnas_detectadas["haber"] == 8  # 'Abono (ML)'
+    debito, credito = lectura.movimientos  # orden preservado del archivo
+    assert (debito.debe, debito.haber) == (400.0, 0.0)
+    # El crédito NO debe meter un débito negativo:
+    assert (credito.debe, credito.haber) == (0.0, 250.0)
+
+
+def test_toma_el_nombre_de_la_cabecera_de_bloque_del_mayor_sap():
+    """En el mayor SAP el nombre de la cuenta solo vive en la fila-cabecera
+    del bloque; los movimientos lo heredan de ahí."""
+    lectura = leer_mayor(mayor_xlsx(FILAS_SAP, encabezado=ENCABEZADO_SAP))
+    assert lectura.movimientos, "debe haber movimientos"
+    assert all(m.cuenta == "CAJA CHICA" for m in lectura.movimientos)
+
+
+def test_una_fila_de_total_sin_codigo_no_se_toma_como_cabecera_de_bloque():
+    """Una fila con importe pero sin código es un TOTAL, no una cabecera: no
+    debe registrar un nombre de cuenta ni sumarse como movimiento."""
+    filas = [
+        ["Activos", "11010102", None, None, None, "CAJA CHICA", None, None, None],
+        ["2026-01-09", "2026-01-09", "PE", "11010102", "11010102", "APERTURA",
+         400.0, 400.0, None],
+        [None, None, None, None, None, "TOTAL CAJA CHICA", 400.0, 400.0, None],
+    ]
+    lectura = leer_mayor(mayor_xlsx(filas, encabezado=ENCABEZADO_SAP))
+    assert len(lectura.movimientos) == 1
+    assert lectura.movimientos[0].cuenta == "CAJA CHICA"
