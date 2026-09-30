@@ -377,17 +377,29 @@ local (`LOCAL_LLM_BASE_URL`, privacidad + costo cero) y cae a la nube solo como
 respaldo, igual que el resto de la plataforma. (El ICT sí sigue usando Anthropic
 directo con `ANTHROPIC_API_KEY`; son dos caminos distintos.)
 
-**La IA solo transcribe lo explícito** (sin dato → celda vacía, regla M22); el auditor
-**revisa y confirma** la tabla en la vista antes de que alimente la matriz de riesgos /
-el perfil (la IA no decide sola). Acciones del ciclo: `extraer_ia` (extrae) y
-`guardar_extraccion` (confirma lo editado); las filas quedan en
-`reg["extraccion"][fileId]` y `map_validate` las suma al dataset. Sin ningún proveedor
-LLM configurado (ni el local ni uno de nube) o con `NIIF_EXTRACCION_ENABLED=false` cae
-al respaldo Excel/CSV con un mensaje claro (nunca crashea). Tests:
-`tests/test_aud_extraccion_ia.py` y `tests/test_aud_planificacion_extraccion.py`
-(HTTP de punta a punta con una función de chat simulada). **Nota:** el catálogo de
-balances es `xlsx` puro; esta extracción por IA es solo para los dos documentos
-narrativos.
+Aplica a **tres** documentos narrativos: la **carta** (RQ-004), el **informe** (RQ-005)
+y las **notas** del año anterior (RQ-006) — la tupla `EXTRACCION_DATASETS`. Los balances
+siguen siendo `xlsx` puro.
+
+**La IA solo transcribe lo explícito** (sin dato → celda vacía, regla M22). Acciones del
+ciclo: `extraer_ia` (extrae) y `guardar_extraccion` (confirma lo editado); las filas
+quedan en `reg["extraccion"][fileId]` y `map_validate` las suma al dataset.
+
+**Auto-extracción al Procesar (decisión del dueño):** al Procesar (`map_validate`),
+`servicio._auto_extraer_ia` lee por IA cualquier PDF/Word de un requerimiento extraíble
+que **aún no tenga extracción** y lo usa; queda marcado `auto=True, revisado=False` y
+`reg["validation"]["warnings"]` lleva el aviso «extraídas por IA … revíselas». Si el
+auditor ya extrajo/confirmó con el botón, se respeta esa versión. Es automático (la IA
+llena la matriz sola al Procesar), con aviso de revisión posterior; el botón «Extraer con
+IA» sigue disponible para revisar antes. El botón/tabla aparece en la vista de proceso y
+en el flujo del piloto (`ConsolaChat`, sección «Documentos para extracción por IA»).
+
+Sin ningún proveedor LLM configurado (ni el local ni uno de nube) o con
+`NIIF_EXTRACCION_ENABLED=false` cae al respaldo Excel/CSV con un mensaje claro (nunca
+crashea; la auto-extracción solo avisa y sigue, porque estos requerimientos son
+opcionales). Tests: `tests/test_aud_extraccion_ia.py` y
+`tests/test_aud_planificacion_extraccion.py` (HTTP: extracción manual y auto-extracción
+al Procesar, con una función de chat simulada).
 
 ## A1 sin "saldos de línea" — TODOS los cas del balance del catálogo OFICIAL
 
