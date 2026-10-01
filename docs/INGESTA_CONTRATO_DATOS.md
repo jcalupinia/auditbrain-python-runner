@@ -232,8 +232,35 @@ sin función por texto directa) queda fuera de la recuperación por OCR por ahor
 Pruebas: `tests/test_ingesta_ocr.py` (12 pruebas, dependencias inyectadas; no
 requiere pdfplumber ni Vision). Total ingesta: **92 pruebas en verde**.
 
+## Fase 5 — Confidence Engine en vivo
+
+Añade `confidence_live.py` y lo integra en el orquestador. Consolida en un solo
+veredicto las señales de confianza de las etapas previas (clasificación,
+extracción/adaptadores/OCR, normalización) y arma la cola de revisión.
+
+- **`resumen_confianza(ds, *, umbral_pct_dudosos=0.20)`** → `ResumenConfianza`:
+  `total_campos`, `por_nivel`, `dudosos` (LOW+REVIEW), `pct_dudosos`, `no_altos`
+  (todos los que no son HIGH), `pct_no_altos`, `peor_nivel`, `veredicto`,
+  `review_required`. El veredicto es el nivel más severo presente (conservador);
+  sin campos, se deriva de `quality_score`.
+- **Umbral `pct_no_altos`**: un solo campo `LOW`/`REVIEW` ya fuerza revisión por
+  el contrato (Fase 1); este umbral capta la señal que eso **no** ve — un dataset
+  mayormente `MEDIUM` (p. ej. muchos valores de OCR) que, campo a campo, no
+  dispararía revisión, pero en conjunto sí la amerita.
+- **`consolidar_confianza(ds)`**: aplica el veredicto (marca `review_required`) y
+  registra la distribución en `validation_results` (regla "confianza") y
+  `warnings`. Idempotente. Se llama dentro de `ingerir()` (parámetro
+  `consolidar=True`, desactivable).
+- **`cola_de_revision(datasets)`** → `list[ItemRevision]`: cada campo dudoso como
+  ítem propio (con motivo, método y origen) y el dataset completo cuando queda en
+  revisión sin campos dudosos puntuales (calidad/clasificación).
+
+Pruebas: `tests/test_ingesta_confianza_viva.py` (16 pruebas). Total ingesta:
+**108 pruebas en verde** (26 + 19 + 35 + 12 + 16) con Pydantic 2.8.2.
+
 ## Qué viene (fases siguientes, aún no implementadas)
 
-- **Fase 5** — Confidence Engine en vivo (integrado al flujo de ingesta).
-- **Fase 6** — AI Semantic Resolver (IA solo ante ambigüedad).
+- **Fase 6** — AI Semantic Resolver (IA solo ante ambigüedad, sobre la cola de
+  revisión).
+- **Fase 7+** — API `/api/v1/ingesta/*` y target real en `master_router`.
 - **Fase 7+** — API `/api/v1/ingesta/*` y target real en `master_router`.

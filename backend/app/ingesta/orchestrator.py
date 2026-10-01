@@ -17,6 +17,7 @@ from typing import Callable, Optional
 
 from backend.app.ingesta.classifier import ResultadoClasificacion, clasificar_documento
 from backend.app.ingesta.confidence import NivelConfianza
+from backend.app.ingesta.confidence_live import consolidar_confianza
 from backend.app.ingesta.contract import (
     DatasetNormalizado,
     MetodoExtraccion,
@@ -61,6 +62,7 @@ def ingerir(
     sellar: bool = True,
     ocr: bool = True,
     recuperar_ocr: Optional[RecuperadorOCR] = None,
+    consolidar: bool = True,
 ) -> DatasetNormalizado:
     """Ingiere un documento y devuelve el dataset normalizado.
 
@@ -82,7 +84,7 @@ def ingerir(
     if extractor is None:
         ds = _dataset_sin_extractor(did, filename, clasificacion)
         ds = _quizas_ocr(ds, clasificacion, contenido, filename, ocr, recuperar_ocr)
-        return ds.sellar() if sellar else ds
+        return _finalizar(ds, sellar, consolidar)
 
     try:
         ds = extractor(contenido, filename)
@@ -97,7 +99,7 @@ def ingerir(
             review_required=True,
         )
         ds = _quizas_ocr(ds, clasificacion, contenido, filename, ocr, recuperar_ocr)
-        return ds.sellar() if sellar else ds
+        return _finalizar(ds, sellar, consolidar)
 
     # Completa metadatos de clasificación si el adaptador no los fijó.
     if ds.document_type is TipoDocumento.DESCONOCIDO:
@@ -109,6 +111,13 @@ def ingerir(
     # Una clasificación dudosa contagia revisión al dataset.
     if clasificacion.confidence in (NivelConfianza.LOW, NivelConfianza.REVIEW_REQUIRED):
         ds.review_required = True
+    return _finalizar(ds, sellar, consolidar)
+
+
+def _finalizar(ds: DatasetNormalizado, sellar: bool, consolidar: bool) -> DatasetNormalizado:
+    """Consolida la confianza (en vivo) y, si corresponde, sella el dataset."""
+    if consolidar:
+        consolidar_confianza(ds)
     return ds.sellar() if sellar else ds
 
 
