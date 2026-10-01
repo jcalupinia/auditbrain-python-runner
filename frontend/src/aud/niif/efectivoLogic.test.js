@@ -144,8 +144,11 @@ describe("estados del prompt", () => {
 });
 
 describe("catálogos de la config (procesoConfig)", () => {
-  it("efectivo: 4 tarjetas primarias y 11 de ejecución en el orden aprobado", () => {
-    expect(PRINCIPALES).toHaveLength(4);
+  it("efectivo: 5 tarjetas primarias y 11 de ejecución en el orden aprobado", () => {
+    expect(PRINCIPALES).toHaveLength(5);
+    // RQ-004 (estados/conciliaciones posteriores al corte) tiene su propia tarjeta,
+    // junto a «Estados de Cuenta Bancarios» (del mes de corte).
+    expect(PRINCIPALES.map((p) => p.id)).toEqual(["RQ-001", "RQ-002", "RQ-010", "RQ-004", "RQ-009"]);
     expect(EJECUCIONES).toHaveLength(11);
     expect(EJECUCIONES[0].titulo).toBe("Procedimiento de Efectivo y Equivalentes de Efectivo");
     expect(EJECUCIONES.find((e) => e.reproceso).clave).toBe("reproceso");

@@ -31,6 +31,7 @@ const EFECTIVO = {
     { id: "RQ-001", titulo: "Anexo de Caja y Bancos", icono: "coins", color: "teal", tipos: ".xlsx / .csv / .pdf / .jpg" },
     { id: "RQ-002", titulo: "Conciliaciones Bancarias", icono: "doc", color: "blue", tipos: ".xlsx / .csv / .pdf / .jpg" },
     { id: "RQ-010", titulo: "Estados de Cuenta Bancarios", icono: "bank", color: "purple", tipos: ".xlsx / .csv / .pdf / .jpg" },
+    { id: "RQ-004", titulo: "Estados y Conciliaciones Posteriores al Corte", icono: "clock", color: "green", tipos: ".pdf / .xlsx / .jpg" },
     { id: "RQ-009", titulo: "Mayores Contables", icono: "book", color: "gold", tipos: ".xlsx / .csv / .pdf / .jpg" },
   ],
   ejecuciones: [
