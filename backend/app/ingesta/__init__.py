@@ -7,9 +7,11 @@ una prueba de auditoría, NIIF o tributaria puede regresar hasta su origen
 (archivo · página · fila · celda), lleva su nivel de confianza y su método
 de extracción.
 
-Fase 1 (esta entrega): el contrato de datos (`contract`) y el motor de
-confianza (`confidence`). Es aditivo y reversible: no toca ningún flujo
-existente; nada importa este paquete todavía.
+Fase 1: el contrato de datos (`contract`) y el motor de confianza
+(`confidence`). Fase 2: el clasificador determinista de documentos
+(`classifier`) y el orquestador de ingesta (`orchestrator`), que reutilizan
+los parsers existentes vía `adapters`. Es aditivo y reversible: no toca ningún
+flujo existente; nada en la plataforma importa este paquete todavía.
 
 Principio rector (igual que el resto de la plataforma): **determinístico
 primero, la IA es el último recurso**. El contrato deja explícito el método
@@ -37,6 +39,15 @@ from backend.app.ingesta.contract import (
     TipoDocumento,
     huella,
 )
+from backend.app.ingesta.classifier import (
+    ResultadoClasificacion,
+    clasificar_documento,
+)
+from backend.app.ingesta.orchestrator import (
+    Extractor,
+    extractores_por_defecto,
+    ingerir,
+)
 
 __all__ = [
     "CONTRATO_VERSION",
@@ -55,4 +66,9 @@ __all__ = [
     "TipoDato",
     "TipoDocumento",
     "huella",
+    "ResultadoClasificacion",
+    "clasificar_documento",
+    "Extractor",
+    "extractores_por_defecto",
+    "ingerir",
 ]

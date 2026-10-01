@@ -128,10 +128,53 @@ de `review_required`, derivación conservadora por puntaje, validación de campo
 obligatorios, derivación de `row_count`, contagio de revisión, y sello/huella
 reproducibles. Se corren con la versión de producción de Pydantic (2.8.2).
 
+## Fase 2 — Clasificador + orquestador de ingesta
+
+Añade `classifier.py` y `orchestrator.py` (+ `adapters.py`), todavía **sin IA** y
+sin cablear a ninguna ruta de la plataforma.
+
+### Clasificador (`classifier.py`)
+
+`clasificar_documento(filename, *, contenido=None, tipo_declarado=None)` →
+`ResultadoClasificacion` (tipo, confianza, puntaje, método, razones). Escalera
+determinística:
+
+1. **Tipo declarado** por el usuario (nombre de *slot* como en
+   `ict/router.py::SLOT_PARSERS`, o valor de `TipoDocumento`) → `HIGH`.
+2. **Firma de contenido** (raíz XML del ATS/comprobante SRI, texto
+   "FORMULARIO 104/103/101") → `HIGH`.
+3. **Palabra clave en el nombre** + extensión → `MEDIUM`.
+4. **Solo extensión** (`.xml` ambiguo) → `LOW`.
+5. **Nada reconocible** → `DESCONOCIDO` + `REVIEW_REQUIRED`.
+
+Nunca lanza: ante la duda, degrada a revisión.
+
+### Orquestador (`orchestrator.py`)
+
+`ingerir(filename, contenido, *, tipo_declarado=None, extractores=None,
+dataset_id=None, sellar=True)` → `DatasetNormalizado`. Flujo:
+**clasificar → elegir extractor determinista → normalizar → sellar**.
+
+- Registro `TipoDocumento → Extractor` (un `Extractor` es
+  `(bytes, filename) -> DatasetNormalizado`). Por defecto,
+  `extractores_por_defecto()` mapea los 8 tipos SRI a adaptadores reales con
+  **import perezoso** (importar el orquestador NO carga pdfplumber/openpyxl).
+- Nunca tumba la ingesta: si no hay extractor, o el extractor falla, devuelve un
+  dataset `review_required` con la excepción registrada.
+- Una clasificación dudosa (`LOW`/`REVIEW_REQUIRED`) contagia revisión al dataset.
+
+### Adaptadores (`adapters.py`)
+
+Delegan en los parsers que ya existen (`backend/app/ict/parsers/*`) y traducen su
+salida al contrato: F-101/103/104 (casilleros → `CampoExtraido`), mayor, kardex,
+ATS, balance mapeado, facturación (→ `rows`). No recalculan nada; solo presentan
+lo que el parser entrega, con evidencia (archivo) y confianza. Import perezoso.
+
+Pruebas: `tests/test_ingesta_orquestador.py` (19 pruebas, con extractores falsos;
+no requiere dependencias pesadas). Total ingesta: **45 pruebas en verde**.
+
 ## Qué viene (fases siguientes, aún no implementadas)
 
-- **Fase 2** — Clasificador de tipo de documento + orquestador de ingesta
-  (reutiliza parsers SRI, ingesta de mayores del motor y OCR existentes).
 - **Fase 3** — Normalización (tipado/moneda/fechas/duplicados) apoyada en las
   primitivas del motor analítico.
 - **Fase 4–6** — Cablear OCR a parsers, Confidence Engine en vivo, AI Semantic
