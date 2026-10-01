@@ -431,6 +431,13 @@ export async function cicloSubirArchivo(pruebaId, revision, requerimiento, compo
   return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/archivos`, { method: "POST", headers: authHeaders(), body: fd }));
 }
 
+// Diagnóstico de los proveedores de IA + ping EN VIVO al servidor local.
+// Requiere sesión (JWT): por eso abrir la URL a pelo da "Not authenticated";
+// desde aquí sí viaja el token. Devuelve {orden, preferido, configurados, local}.
+export async function iaEstado() {
+  return parse(await apiFetch(`${API_BASE}/api/v1/chat/ia/estado`, { headers: authHeaders() }));
+}
+
 // El original, tal cual se subió (para verlo o leer sus hojas en el navegador).
 export async function cicloBajarArchivo(pruebaId, archivoId) {
   const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/archivos/${archivoId}`, { headers: authHeaders() });
