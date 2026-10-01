@@ -353,3 +353,19 @@ def test_comparativo_por_dias_y_guia_niif_sri():
     assert len(guia) == 2 and all(len(row) == 5 for row in guia)
     # El recálculo por días no altera el ajuste contable a resultados (sigue siendo el mismo).
     assert r["totals"]["ajusteResultado"] == correr()["totals"]["ajusteResultado"]
+
+
+def test_sumaria_movimiento_y_conciliacion():
+    """Fase 3: cédula 23 (sumaria de variaciones), 24 (movimiento del mayor) y 25 (conciliación de saldos)."""
+    r = correr()
+    hs = {x["name"]: x for x in m.hojas(r)}
+    for k in ("23_Sumaria", "24_Movimiento_mayor", "25_Conciliacion"):
+        assert k in hs, k
+    assert len(hs["23_Sumaria"]["rows"]) == len(E["datasets"]["variaciones"])
+    assert len(hs["24_Movimiento_mayor"]["rows"]) >= 1
+    conc = {row[0]: row for row in hs["25_Conciliacion"]["rows"]}
+    assert "Costo" in conc and "Depreciación acumulada" in conc
+    # Diferencia = auxiliar − balance.
+    assert abs(conc["Costo"][3] - (conc["Costo"][1] - conc["Costo"][2])) < 0.01
+    # El ejemplo no concilia a propósito → se reportan los hallazgos de la sumaria.
+    assert "SUMARIA_NO_CONCILIA" in _codigos(r)
