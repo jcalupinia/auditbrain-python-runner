@@ -253,15 +253,17 @@ def crear_prueba(db: Session, project_id: int, origen: str, tributario: bool, ac
     return p
 
 
-def _formatos_catalogo_vivos(p: Prueba) -> dict:
-    """Formatos aceptados vigentes de una herramienta del catálogo (origen `proc:`).
+def _politica_catalogo_viva(p: Prueba) -> dict:
+    """Política vigente del catálogo para una herramienta (origen `proc:`): los
+    FORMATOS aceptados y la bandera `required` (obligatorio/opcional) de cada
+    requerimiento.
 
     Los requerimientos se congelan en la prueba al generarla (`reg["requests"]` y
-    `p.definicion`), así que un cambio de catálogo en los FORMATOS aceptados (p. ej.
-    admitir PDF/JPG además de Excel) no llegaría a las pruebas ya creadas. Para las
-    herramientas del catálogo (procesador determinista) se re-derivan de la definición
-    viva del procesador y se superponen al leer y al validar la subida. Solo se toca
-    `formats` —que es política del catálogo, no dato del encargo—; el resto del
+    `p.definicion`), así que un cambio de catálogo —admitir PDF/JPG además de Excel,
+    o volver OPCIONAL un anexo que antes era obligatorio— no llegaría a las pruebas
+    ya creadas. Para las herramientas del catálogo (procesador determinista) estas
+    dos cosas se re-derivan de la definición viva del procesador y se superponen al
+    leer y al validar. Son política del catálogo, no datos del encargo; el resto del
     requerimiento (documento, propósito, dataset, componentes) queda intacto."""
     origen = getattr(p, "origen", "") or ""
     if not origen.startswith("proc:"):
@@ -273,27 +275,49 @@ def _formatos_catalogo_vivos(p: Prueba) -> dict:
         reqs = mod.definicion().get("requests") or []
     except Exception:
         return {}
-    return {r["id"]: list(r["formats"]) for r in reqs if r.get("id") and r.get("formats")}
+    return {r["id"]: {"formats": list(r["formats"]) if r.get("formats") else None,
+                      "required": r.get("required") is not False}
+            for r in reqs if r.get("id")}
 
 
-def _con_formatos_vivos(requests: list, vivos: dict) -> list:
-    """Superpone los formatos vigentes (`vivos`) sobre una lista de requerimientos,
-    emparejando por `id`. Si un requerimiento no está en `vivos`, conserva el suyo."""
-    if not vivos:
+def _con_politica_viva(requests: list, politica: dict) -> list:
+    """Superpone la política vigente del catálogo (`politica`) sobre una lista de
+    requerimientos, emparejando por `id`: actualiza `required` siempre y `formats`
+    cuando el catálogo los declara. Un requerimiento ausente de `politica` (o que no
+    es un dict) conserva el suyo."""
+    if not politica:
         return requests
-    return [{**r, "formats": vivos.get(r.get("id"), r.get("formats"))} if isinstance(r, dict) and r.get("formats") else r
-            for r in requests]
+    out = []
+    for r in requests:
+        pol = politica.get(r.get("id")) if isinstance(r, dict) else None
+        if not pol:
+            out.append(r)
+            continue
+        nuevo = {**r, "required": pol["required"]}
+        if pol.get("formats") and r.get("formats"):
+            nuevo["formats"] = pol["formats"]
+        out.append(nuevo)
+    return out
+
+
+def requests_vivos(p: Prueba) -> list:
+    """Los requerimientos de la prueba con la política viva del catálogo superpuesta
+    (formatos aceptados y obligatorio/opcional). Único punto por el que debe leerse
+    `reg["requests"]` para la cobertura: así una prueba ya creada hereda que un anexo
+    pasó a ser opcional sin re-generar el requerimiento."""
+    reg = p.registro or {}
+    return _con_politica_viva(reg.get("requests") or [], _politica_catalogo_viva(p))
 
 
 def _t(p: Prueba) -> dict:
     """El registro con la forma que esperan las reglas del sitio."""
-    vivos = _formatos_catalogo_vivos(p)
+    politica = _politica_catalogo_viva(p)
     reg, definicion = p.registro, p.definicion
-    if vivos:
+    if politica:
         if reg.get("requests"):
-            reg = {**reg, "requests": _con_formatos_vivos(reg["requests"], vivos)}
+            reg = {**reg, "requests": _con_politica_viva(reg["requests"], politica)}
         if (definicion or {}).get("requests"):
-            definicion = {**definicion, "requests": _con_formatos_vivos(definicion["requests"], vivos)}
+            definicion = {**definicion, "requests": _con_politica_viva(definicion["requests"], politica)}
     return {**reg, "state": p.estado, "definition": definicion}
 
 
@@ -544,7 +568,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         recibidos_ = archivos(db, p.id)
         docs = [{"id": a.id, "requestId": a.requerimiento, "component": a.componente} for a in recibidos_]
         rechazados = [a.id for a in recibidos_ if a.estado == "rechazado"]
-        faltan = datos_mod.tool_gaps(reg["requests"], docs, rechazados)
+        faltan = datos_mod.tool_gaps(_con_politica_viva(reg["requests"], _politica_catalogo_viva(p)), docs, rechazados)
         if faltan:
             raise ReglaIncumplida("Cobertura incompleta. " + " · ".join(faltan))
         reg["rejectedFiles"] = rechazados
@@ -867,7 +891,7 @@ def subir_archivo(db: Session, p: Prueba, revision: int, requerimiento: str, com
         raise ReglaIncumplida("Vincule un requerimiento aprobado.")
     # Formatos aceptados vigentes del catálogo (una prueba vieja pudo congelar solo
     # xlsx/csv antes de que se admitieran PDF/JPG): se validan contra la definición viva.
-    reqs_val = _con_formatos_vivos(reg["requests"], _formatos_catalogo_vivos(p))
+    reqs_val = _con_politica_viva(reg["requests"], _politica_catalogo_viva(p))
     try:
         check_upload(datos.requests_as_items(reqs_val), requerimiento, componente or None, nombre)
     except ValueError as e:
@@ -1559,7 +1583,7 @@ def guion_consola_chat(db: Session, p: Prueba, rol: str) -> dict:
         raise ReglaIncumplida("Esta prueba no tiene procesador; la consola-chat requiere una herramienta del catálogo.")
     es_plan = (p.definicion or {}).get("processor") == "planificacion_nia"
     reg = p.registro or {}
-    reqs = reg.get("requests") or []
+    reqs = requests_vivos(p)
     fuentes = [a for a in archivos(db, p.id) if a.clase == "source"]
     docs = [{"id": a.id, "requestId": a.requerimiento, "component": a.componente} for a in fuentes]
     rechazados = [a.id for a in fuentes if a.estado == "rechazado"]
