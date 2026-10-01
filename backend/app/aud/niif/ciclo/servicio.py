@@ -293,7 +293,8 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         reg["taxScope"] = str(datos.get("taxScope") or "")[:10000]
         reg["sourcesVerified"] = False
         if accion == "approve_program":
-            if reg.get("taxApplicable"):
+            sin_base_legal = (p.definicion or {}).get("processor") in reglas.SIN_BASE_LEGAL
+            if reg.get("taxApplicable") and not sin_base_legal:
                 if not bool(datos.get("taxAcknowledged")):
                     raise ReglaIncumplida("Marque «Revisé la base legal sugerida y estoy conforme» antes de confirmar la base técnica.")
                 sugerido = str((p.definicion.get("tributario_sugerido") or {}).get("texto") or "").strip()
@@ -305,7 +306,9 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                                                    else "editó el tratamiento tributario respecto de la sugerencia")}
                 datos = {**datos, "comment": f"Tratamiento tributario: {reg['taxScopeMeta']['resumen']}."}
             reglas.validar_ficha_encargo({**reg["engagement"], "country": reg["country"]}, completa=True)
-            reg["sourcesVerified"] = reglas.verificar_fuentes(reg)
+            # Herramientas de la vista de 3 pasos sin base legal: no se verifican
+            # fuentes (contables ni tributarias); el programa se aprueba directo.
+            reg["sourcesVerified"] = True if sin_base_legal else reglas.verificar_fuentes(reg)
             aprobado = reglas.vincular_fuentes(reg)
             p.estado = reglas.transicion({**reg, "state": p.estado}, accion)
             reg["program"] = aprobado

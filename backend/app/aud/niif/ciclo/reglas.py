@@ -182,6 +182,13 @@ def _https(url) -> bool:
     return isinstance(url, str) and url.startswith("https://")
 
 
+# Herramientas de la vista de 3 pasos que ya NO piden confirmar la base legal
+# (ni contable NIIF/NIA ni tributaria): el flujo pasa directo sin verificar
+# fuentes (decisión del dueño, 2026-10-01). El resto de herramientas conserva
+# el control. Para estas, las fuentes se dan por verificadas automáticamente.
+SIN_BASE_LEGAL = frozenset({"planificacion_nia", "efectivo_equivalentes"})
+
+
 def verificar_fuentes(t: dict) -> bool:
     """Puerto de ``checkSources`` (research.ts): mismos controles, mismos mensajes."""
     fuentes = t.get("sources") or []

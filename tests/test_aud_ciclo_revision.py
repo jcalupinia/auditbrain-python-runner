@@ -4,7 +4,7 @@ import pytest
 
 from tests.test_aud_ciclo_ejecucion import _navegador, _validada
 from tests.test_aud_ciclo_evidencia import _leer
-from tests.test_aud_ciclo_http import BASE, FICHA, _accion, _prueba_vnr
+from tests.test_aud_ciclo_http import BASE, FICHA, _accion, _prueba_vnr, _staff_con_proyecto
 from tests.test_aud_niif_fichas import _h
 
 
@@ -247,3 +247,34 @@ def test_editar_la_ficha_con_alcance(client):
     assert r.status_code == 200, r.text
     assert _leer(client, tok, b)["registro"]["engagement"]["reviewer"] == "Rita Todas"
     assert client.get(f"{BASE}/proyectos/{pid}/ficha", headers=_h(tok)).json()["ficha"]["reviewer"] == "Rita Todas"
+
+
+@pytest.mark.parametrize("processor", ["planificacion_nia", "efectivo_equivalentes"])
+def test_vista_3_pasos_aprueba_sin_confirmar_base_legal(client, processor):
+    """Planificación y Efectivo (vista de 3 pasos): el programa se aprueba sin
+    confirmar base legal —ni contable NIIF/NIA ni tributaria— (decisión del dueño,
+    2026-10-01). Aunque la prueba sea «tributaria», con una cita «VERIFICAR» sin
+    resolver y sin marcar la conformidad, llega a PROGRAMA_APROBADO: las fuentes se
+    dan por verificadas automáticamente (como las envía `fuentesConfirmadas` en el
+    frontend) y no se exige el recuadro de base legal."""
+    tok, pid = _staff_con_proyecto(client)
+    assert client.put(f"{BASE}/proyectos/{pid}/ficha", headers=_h(tok), json=FICHA).status_code == 200
+    r = client.post(f"{BASE}/proyectos/{pid}/pruebas", headers=_h(tok),
+                    json={"origen": f"proc:{processor}", "tributario": True})
+    assert r.status_code == 201, r.text
+    p = r.json()
+    assert p["registro"]["taxApplicable"] is True
+    p = _accion(client, tok, p, "research").json()
+    p = _accion(client, tok, p, "generate_program").json()
+    assert p["estado"] == "PROGRAMA_PROPUESTO", p
+    programa = p["registro"]["program"]
+    codigos = [x["code"] for x in programa]
+    # Como las envía `fuentesConfirmadas`: verificadas y con todos los procedimientos.
+    fuentes = [{**s, "verified": True, "section": "según programa", "date": "vigente 2025",
+                "procedures": codigos} for s in p["registro"]["sources"]]
+    # taxScope con «VERIFICAR» sin resolver y SIN marcar conformidad: antes bloqueaba.
+    p = _accion(client, tok, p, "approve_program",
+                {"program": programa, "sources": fuentes,
+                 "taxScope": "Base legal VERIFICAR art. X", "taxAcknowledged": False}).json()
+    assert p["estado"] == "PROGRAMA_APROBADO", p
+    assert all(x["state"] == "APROBADO" for x in p["registro"]["program"])
