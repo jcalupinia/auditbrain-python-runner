@@ -143,14 +143,17 @@ def _local_model() -> str:
 
 
 def _local_timeout() -> int:
-    # Timeout CORTO propio del proveedor local (no los 60s por defecto).
-    # El servidor local es el primario: si responde lento (modelo cargando,
-    # VRAM saturada, enlace lento) queremos degradar RÁPIDO a la nube en vez
-    # de congelar la UI. Ajustable por env.
+    # Timeout de LECTURA del proveedor local. Default 180s: el servidor local
+    # es el primario y la extracción por IA (RQ-004/005/006) pide un JSON grande
+    # SIN streaming, así que la respuesta no empieza a llegar hasta que el modelo
+    # termina de generar; con 15s se cortaba («The read operation timed out») y la
+    # cadena caía a la nube sin saldo. 180s da margen a que el local complete.
+    # Ajustable por env var LOCAL_LLM_TIMEOUT_SECONDS (bajarlo si se quiere un
+    # failover más rápido en el chat interactivo).
     try:
-        return int(os.getenv("LOCAL_LLM_TIMEOUT_SECONDS", "15"))
+        return int(os.getenv("LOCAL_LLM_TIMEOUT_SECONDS", "180"))
     except ValueError:
-        return 15
+        return 180
 
 
 def _max_tokens() -> int:
