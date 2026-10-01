@@ -258,9 +258,40 @@ extracción/adaptadores/OCR, normalización) y arma la cola de revisión.
 Pruebas: `tests/test_ingesta_confianza_viva.py` (16 pruebas). Total ingesta:
 **108 pruebas en verde** (26 + 19 + 35 + 12 + 16) con Pydantic 2.8.2.
 
+## Fase 6 — AI Semantic Resolver
+
+Añade `semantic_resolver.py`: el **último recurso** de la escalera. Cuando un campo
+quedó en la cola de revisión por **ambigüedad semántica** (texto no estructurado,
+clasificación dudosa), la IA ayuda a desambiguarlo. Es un paso **opcional**: no se
+cablea a `ingerir()` por defecto (la IA no se dispara sola).
+
+Reglas duras:
+
+- **El LLM no calcula.** La IA NO fabrica cifras: los campos numéricos
+  (moneda/decimal/entero/porcentaje) y las fechas **no** se resuelven por IA
+  (`resoluble()` solo acepta `TEXTO`/`DESCONOCIDO` en revisión) — quedan para
+  revisión humana.
+- **La IA nunca sube la confianza a `HIGH`** automáticamente: "alta"→`MEDIUM`,
+  "media"→`LOW`, "baja"→`REVIEW_REQUIRED`; si el modelo marca
+  `requiere_revision_humana`, el campo sigue en revisión.
+- **Reutiliza el cliente LLM compartido** (`chat/providers.chat_complete`,
+  local-first), igual que `ciclo/extraccion_ia`. `chat_fn` es inyectable.
+
+Controles sobre la salida (eco de `ict/audit/interpreter.py`): validación de
+esquema Pydantic (`ResolucionSemantica`), reintentos acotados, degradación
+graciosa (ante JSON inválido o proveedor caído deja el campo intacto y advierte;
+nunca lanza), confianza autorreportada y `requiere_revision_humana`.
+`DISCLAIMER_IA` se exporta para cuando una resolución se muestre al auditor.
+
+- `resoluble(campo)` → ¿candidato a IA?
+- `resolver_campo(campo, *, chat_fn=None, contexto=None, max_reintentos=2)`.
+- `resolver_dataset(ds, *, chat_fn=None)` — pasa el resolutor por los campos de
+  texto dudosos; no toca numéricos ni confiables.
+
+Pruebas: `tests/test_ingesta_resolutor_ia.py` (13 pruebas, `chat_fn` falso; sin
+red). Total ingesta: **121 pruebas en verde** (26 + 19 + 35 + 12 + 16 + 13).
+
 ## Qué viene (fases siguientes, aún no implementadas)
 
-- **Fase 6** — AI Semantic Resolver (IA solo ante ambigüedad, sobre la cola de
-  revisión).
 - **Fase 7+** — API `/api/v1/ingesta/*` y target real en `master_router`.
 - **Fase 7+** — API `/api/v1/ingesta/*` y target real en `master_router`.

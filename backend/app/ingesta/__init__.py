@@ -72,6 +72,13 @@ from backend.app.ingesta.confidence_live import (
     consolidar_confianza,
     resumen_confianza,
 )
+from backend.app.ingesta.semantic_resolver import (
+    DISCLAIMER_IA,
+    ResolucionSemantica,
+    resoluble,
+    resolver_campo,
+    resolver_dataset,
+)
 
 __all__ = [
     "CONTRATO_VERSION",
@@ -113,4 +120,9 @@ __all__ = [
     "cola_de_revision",
     "consolidar_confianza",
     "resumen_confianza",
+    "DISCLAIMER_IA",
+    "ResolucionSemantica",
+    "resoluble",
+    "resolver_campo",
+    "resolver_dataset",
 ]
