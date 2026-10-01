@@ -56,7 +56,11 @@ _ACTIVOS = [
     campo("vida_meses", "Vida útil (meses)", "number", requerido=False, alias=("vida util", "vida util meses", "meses de vida"), ejemplo="60"),
     campo("metodo", "Método de depreciación", requerido=False, alias=("metodo", "método"), ejemplo="Lineal"),
     campo("dep_acum_inicial", "Depreciación acumulada inicial", "number", requerido=False, alias=("dep acumulada inicial", "depreciacion acumulada inicial"), ejemplo="10800"),
-    campo("dep_registrada", "Depreciación del año registrada", "number", requerido=False, alias=("depreciacion del año", "gasto depreciacion"), ejemplo="6000"),
+    campo("dep_acum_cliente", "Depreciación acumulada del cliente al corte", "number", requerido=False,
+          alias=("depreciacion acumulada", "dep acum", "depreciacion acum ajustada", "depreciacion acumulada al corte", "depreciacion acumulada ajustada"), ejemplo="16800"),
+    campo("dep_registrada", "Depreciación del año registrada", "number", requerido=False, alias=("depreciacion del año", "gasto depreciacion", "depreciacion del mes", "gasto del periodo"), ejemplo="6000"),
+    campo("vida_dias", "Vida útil (días)", "number", requerido=False, alias=("vida util dias", "dias de vida", "vida util en dias"), ejemplo="1826"),
+    campo("pct_depreciacion", "% de depreciación anual", "number", requerido=False, alias=("porcentaje depreciacion", "tasa depreciacion", "% depreciacion", "porcentaje de depreciacion"), ejemplo="20"),
     campo("deterioro_acum", "Deterioro acumulado", "number", requerido=False, alias=("deterioro", "perdida por deterioro acumulada"), ejemplo="0"),
     campo("importe_recuperable", "Importe recuperable", "number", requerido=False, alias=("valor recuperable", "recuperable"), ejemplo=""),
     campo("valor_revaluado", "Valor revaluado al corte", "number", requerido=False, alias=("valor razonable", "avaluo", "valor de tasacion"), ejemplo=""),
@@ -91,8 +95,27 @@ _PRESTAMOS = [
     campo("rendimientos", "Rendimientos de la inversión temporal de esos fondos (solo los específicos)", "number", requerido=False,
           alias=("rendimientos", "rendimiento inversion temporal", "intereses ganados", "rendimientos financieros"), ejemplo="1200"),
 ]
-CAMPOS = {"activos": _ACTIVOS, "adiciones": _ADICIONES, "prestamos": _PRESTAMOS}
-TIPOS = {"activos": "activos", "adiciones": "adiciones", "prestamos": "prestamos"}
+# Variaciones: saldos por cuenta del balance (año anterior vs corte) → cédula sumaria. La variación se calcula.
+_VARIACIONES = [
+    campo("cuenta", "Cuenta contable", alias=("cuenta", "codigo cuenta", "código cuenta", "cuenta contable"), ejemplo="12010102"),
+    campo("descripcion", "Descripción", requerido=False, alias=("detalle", "nombre", "descripcion de la cuenta"), ejemplo="Terreno parqueadero"),
+    campo("saldo_anterior", "Saldo año anterior", "number", alias=("ano anterior", "año anterior", "saldo inicial", "saldo 2025", "periodo anterior"), ejemplo="264000"),
+    campo("saldo_actual", "Saldo al corte", "number", alias=("ano actual", "año actual", "saldo final", "saldo 2026", "saldo al corte", "periodo actual"), ejemplo="264000"),
+]
+# Libro mayor de PP&E: una fila por movimiento del período → cédula de movimiento y conciliación.
+_MAYOR = [
+    campo("cuenta", "Cuenta contable", alias=("cuenta", "codigo cuenta", "código cuenta"), ejemplo="12010206"),
+    campo("descripcion", "Descripción de la cuenta", requerido=False, alias=("detalle", "nombre de la cuenta"), ejemplo="Equipo de computación"),
+    campo("fecha", "Fecha del movimiento", "date", requerido=False, alias=("fecha", "fecha asiento", "fecha comprobante"), ejemplo="2026-02-18"),
+    campo("comprobante", "N° de comprobante", requerido=False, alias=("comp", "comp.", "comprobante", "asiento"), ejemplo="120437"),
+    campo("documento", "N° de documento", requerido=False, alias=("dmcto", "dmcto.", "documento", "doc"), ejemplo="49342"),
+    campo("tipo", "Tipo de asiento", requerido=False, alias=("tp", "tipo", "tipo asiento"), ejemplo="VO"),
+    campo("debe", "Debe", "number", requerido=False, alias=("debe", "debito", "débito", "cargo"), ejemplo="1500"),
+    campo("haber", "Haber", "number", requerido=False, alias=("haber", "credito", "crédito", "abono"), ejemplo="0"),
+    campo("importe", "Importe (valor neto del movimiento)", "number", requerido=False, alias=("valor", "monto", "importe", "saldo"), ejemplo="1500"),
+]
+CAMPOS = {"activos": _ACTIVOS, "adiciones": _ADICIONES, "prestamos": _PRESTAMOS, "variaciones": _VARIACIONES, "mayor": _MAYOR}
+TIPOS = {"activos": "activos", "adiciones": "adiciones", "prestamos": "prestamos", "variaciones": "variaciones", "mayor": "mayor"}
 DATASETS = tuple(TIPOS)
 PRINCIPAL = "activos"
 CONTROL = "costo_inicial"
@@ -1607,6 +1630,12 @@ def definicion() -> dict:
              "criterion": "Provisión igual al valor presente", "source": "NIC 16.16 c · NIC 37.45–47 · CINIIF 1 · Sección 21 (21.7 b)"},
         ],
         "requests": [
+            req("RQ-011", "Variaciones de las cuentas de PP&E (saldos año anterior vs corte)", "variaciones", "PPE-01",
+                "Cédula sumaria: saldos por cuenta del balance y su variación",
+                content="Una fila por cuenta: cuenta contable, descripción, saldo del año anterior y saldo al corte. Sin filas de total."),
+            req("RQ-010", "Libro mayor de propiedad, planta y equipo", "mayor", "PPE-01",
+                "Movimiento del período y conciliación auxiliar-mayor (costo y depreciación acumulada)",
+                content="Una fila por movimiento: cuenta, descripción, fecha, comprobante, documento, tipo de asiento y el importe (o debe y haber). Sin filas de total."),
             req("RQ-001", "Auxiliar de propiedad, planta y equipo por activo al corte", "activos", "PPE-01", "Población a recalcular y conciliar con el mayor", content=aux),
             req("RQ-002", "Detalle de adiciones del año por documento", "adiciones", "PPE-02", "Examen de adiciones y costos por préstamos", required=False,
                 content="Una fila por documento: N° de documento, código del activo, fecha, descripción, tipo, importe, activo apto (Sí/No) e intereses capitalizados."),
@@ -1615,11 +1644,10 @@ def definicion() -> dict:
                 content="Una fila por préstamo vigente en el período: N° de préstamo o contrato, tipo (Específico o General), activo u obra financiada "
                         "(solo los específicos), descripción, importe del préstamo, tasa nominal anual, costo financiero del período realmente incurrido y, "
                         "en los específicos, los rendimientos de la inversión temporal de esos fondos. Si no hubo inversión temporal, escriba 0."),
-            req("RQ-004", "Política contable de vidas útiles, residuales y métodos", None, "PPE-04", "Sustento de estimaciones", required=False, formats=("pdf", "docx"), use="soporte"),
-            req("RQ-010", "Mayores contables de propiedad, planta y equipo (o balance de comprobación)", None, "PPE-01",
-                "Base de la cédula sumaria y de la conciliación auxiliar-mayor (costo y depreciación acumulada)", required=False,
-                formats=("xlsx", "csv", "pdf"), use="soporte",
-                content="Mayor o balance de comprobación de las cuentas de costo y de depreciación acumulada de PP&E al corte, para conciliar con el auxiliar."),
+            req("RQ-004", "Política contable de vidas útiles, residuales y métodos", None, "PPE-04",
+                "Sustento de estimaciones (capitalización por rubro y vida útil). Opcional: si se carga, se lee para la columna «vida útil según política».",
+                required=False, formats=("pdf", "docx"), use="soporte"),
+            req("RQ-012", "Facturas de las adiciones del año", None, "PPE-02", "Vaucheo de las adiciones (soporte de las altas)", required=False, formats=("pdf",), use="soporte"),
             req("RQ-005", "Informe del perito de la revaluación", None, "PPE-06", "Sustento del valor revaluado", required=False, formats=("pdf",), use="soporte"),
             req("RQ-006", "Cálculo del importe recuperable (valor en uso o valor razonable)", None, "PPE-07", "Sustento del deterioro", required=False,
                 formats=("xlsx", "pdf"), use="soporte"),
@@ -1701,6 +1729,23 @@ EJEMPLO = {
                 tasa="9", costo_financiero="9000", rendimientos="1200"),
             _pr("PR-02", "General", descripcion="Banco Pichincha · capital de trabajo", importe="400000", tasa="8", costo_financiero="32000"),
             _pr("PR-03", "General", descripcion="Produbanco · línea de crédito", importe="100000", tasa="12", costo_financiero="12000"),
+        ],
+        "variaciones": [
+            {"cuenta": "12010101", "descripcion": "Edificios", "saldo_anterior": "500000", "saldo_actual": "500000", "_row": 2},
+            {"cuenta": "12010102", "descripcion": "Terrenos", "saldo_anterior": "380000", "saldo_actual": "380000", "_row": 3},
+            {"cuenta": "12010103", "descripcion": "Maquinaria y equipo", "saldo_anterior": "150000", "saldo_actual": "150000", "_row": 4},
+            {"cuenta": "12010104", "descripcion": "Vehículos", "saldo_anterior": "70000", "saldo_actual": "40000", "_row": 5},
+            {"cuenta": "12010105", "descripcion": "Equipo de cómputo", "saldo_anterior": "15000", "saldo_actual": "15000", "_row": 6},
+            {"cuenta": "12010106", "descripcion": "Muebles y enseres", "saldo_anterior": "0", "saldo_actual": "12000", "_row": 7},
+            {"cuenta": "12010201", "descripcion": "Depreciación acumulada", "saldo_anterior": "253000", "saldo_actual": "281000", "_row": 8},
+        ],
+        "mayor": [
+            {"cuenta": "12010106", "descripcion": "Muebles y enseres", "fecha": "2025-04-01", "comprobante": "CMP-120", "documento": "FAC-5521",
+             "tipo": "VO", "debe": "12000", "haber": "0", "importe": "12000", "_row": 2},
+            {"cuenta": "12010104", "descripcion": "Vehículos", "fecha": "2025-06-30", "comprobante": "CMP-215", "documento": "ND-048",
+             "tipo": "VO", "debe": "0", "haber": "30000", "importe": "-30000", "_row": 3},
+            {"cuenta": "12010201", "descripcion": "Depreciación acumulada", "fecha": "2025-12-31", "comprobante": "CMP-312", "documento": "AJ-900",
+             "tipo": "ADJ", "debe": "0", "haber": "28000", "importe": "-28000", "_row": 4},
         ],
     },
 }
