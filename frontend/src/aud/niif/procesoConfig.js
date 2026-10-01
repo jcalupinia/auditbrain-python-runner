@@ -291,6 +291,7 @@ const PPE = {
     { clave: "revaluacion", titulo: "Revaluación", subtitulo: "Modelo de revaluación y superávit.", icono: "chart", color: "gold", relacionados: ["RQ-005"] },
     { clave: "deterioro", titulo: "Deterioro", subtitulo: "Importe recuperable vs valor en libros.", icono: "warning", color: "red", relacionados: ["RQ-006"] },
     { clave: "bajas", titulo: "Bajas del Año", subtitulo: "Retiros y resultado en la baja.", icono: "refresh", color: "teal", relacionados: ["RQ-009"] },
+    { clave: "vaucheo", titulo: "Vaucheo de Facturas", subtitulo: "Cruce de facturas (adiciones y bajas) con lo registrado.", icono: "search", color: "gold", relacionados: ["RQ-012", "RQ-009"] },
     { clave: "movimiento", titulo: "Movimiento, Conciliación y Ajustes", subtitulo: "Movimiento del mayor, roll-forward auxiliar-mayor y ajustes propuestos.", icono: "sliders", color: "blue", relacionados: ["RQ-010", "RQ-001"] },
   ],
 };

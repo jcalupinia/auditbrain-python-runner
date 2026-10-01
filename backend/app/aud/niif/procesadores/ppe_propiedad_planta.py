@@ -114,10 +114,31 @@ _MAYOR = [
     campo("haber", "Haber", "number", requerido=False, alias=("haber", "credito", "crédito", "abono"), ejemplo="0"),
     campo("importe", "Importe (valor neto del movimiento)", "number", requerido=False, alias=("valor", "monto", "importe", "saldo"), ejemplo="1500"),
 ]
-CAMPOS = {"activos": _ACTIVOS, "adiciones": _ADICIONES, "prestamos": _PRESTAMOS, "variaciones": _VARIACIONES, "mayor": _MAYOR}
-TIPOS = {"activos": "activos", "adiciones": "adiciones", "prestamos": "prestamos", "variaciones": "variaciones", "mayor": "mayor"}
+# Facturas (adiciones y salidas): se extraen por IA del PDF (EXTRACCION_DATASETS) y se cruzan con las
+# adiciones del detalle y las bajas del auxiliar en el vaucheo. Los dos datasets comparten estos campos.
+_FACTURA = [
+    campo("codigo_activo", "Código del activo", requerido=False, alias=("codigo", "código", "activo", "codigo activo", "placa"), ejemplo="VEH-01"),
+    campo("proveedor", "Proveedor / Cliente", requerido=False, alias=("proveedor", "razon social", "cliente", "adquiriente", "comprador"), ejemplo="Comercial XYZ S.A."),
+    campo("ruc", "RUC", requerido=False, alias=("ruc", "ruc/ci", "identificacion"), ejemplo="1790012345001"),
+    campo("fecha", "Fecha de emisión", "date", requerido=False, alias=("fecha", "fecha emision", "fecha de emision"), ejemplo="2026-03-15"),
+    campo("numero", "N° de factura", requerido=False, alias=("factura", "numero", "número", "comprobante", "no factura"), ejemplo="001-001-000001234"),
+    campo("total", "Total", "number", requerido=False, alias=("total", "valor total", "importe", "monto", "valor"), ejemplo="40000"),
+    campo("descripcion", "Detalle", requerido=False, alias=("detalle", "descripcion", "concepto", "bien o servicio"), ejemplo="Camioneta 4x4"),
+]
+CAMPOS = {"activos": _ACTIVOS, "adiciones": _ADICIONES, "prestamos": _PRESTAMOS, "variaciones": _VARIACIONES,
+          "mayor": _MAYOR, "factura": _FACTURA}
+TIPOS = {"activos": "activos", "adiciones": "adiciones", "prestamos": "prestamos", "variaciones": "variaciones",
+         "mayor": "mayor", "facturas_adiciones": "factura", "facturas_salidas": "factura"}
 DATASETS = tuple(TIPOS)
 PRINCIPAL = "activos"
+# Datasets que se pueblan extrayendo por IA el texto de los PDF de facturas (revisión del auditor).
+EXTRACCION_DATASETS = ("facturas_adiciones", "facturas_salidas")
+EXTRACCION_INSTRUCCIONES = {
+    "factura": ("Cada factura es un comprobante. Extraiga una fila por factura con el proveedor o cliente, su RUC, "
+                "la fecha de emisión, el número de la factura (serie-secuencial), el total y el detalle del bien. "
+                "Si el comprobante trae el código del activo, inclúyalo. No invente datos: lo que no aparezca, déjelo vacío."),
+}
+EXTRACCION_ENUMS = {}
 CONTROL = "costo_inicial"
 TOTAL_EJEMPLO = "ajusteResultado"
 
@@ -598,6 +619,36 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     concil["dif_costo"] = None if concil["costo_bal"] is None else concil["costo_aux"] - concil["costo_bal"]
     concil["dif_dep"] = None if concil["dep_bal"] is None else concil["dep_aux"] - concil["dep_bal"]
 
+    # Fase 4 · vaucheo de facturas (extraídas por IA de los PDF). Cada factura de adición se cruza con las
+    # adiciones del detalle por el código del activo; cada factura de salida, con las bajas del auxiliar.
+    def _facturas(ds_key, tipo):
+        out = []
+        for f in datasets.get(ds_key) or []:
+            if not (_t(f.get("numero")) or _t(f.get("proveedor")) or _opc(f.get("total")) is not None):
+                continue
+            out.append({"tipo": tipo, "cod": _t(f.get("codigo_activo")), "prov": _t(f.get("proveedor")),
+                        "ruc": _t(f.get("ruc")), "fecha": _t(f.get("fecha")), "num": _t(f.get("numero")),
+                        "total": _opc(f.get("total")), "desc": _t(f.get("descripcion")), "_row": f.get("_row")})
+        return out
+    fact_ad = _facturas("facturas_adiciones", "Adición")
+    fact_ba = _facturas("facturas_salidas", "Baja")
+    ad_por_cod = {}
+    for x in adiciones:
+        ad_por_cod[x["activo"]] = ad_por_cod.get(x["activo"], 0.0) + (x["importe"] or 0.0)
+    ba_por_cod = {a["id"]: (a["prod"] or 0.0) for a in bajas}
+    vaucheo = []
+    for fa in fact_ad + fact_ba:
+        reg_monto = ad_por_cod.get(fa["cod"]) if fa["tipo"] == "Adición" else ba_por_cod.get(fa["cod"])
+        dif = None if reg_monto is None or fa["total"] is None else fa["total"] - reg_monto
+        estado = ("Sin registro en libros" if reg_monto is None
+                  else ("Conciliado" if dif is not None and abs(dif) <= tol else "Diferencia"))
+        vaucheo.append({**fa, "reg": reg_monto, "dif": dif, "estado": estado})
+    # Adiciones y bajas que no tienen factura de soporte (solo se evalúa si se cargó alguna factura de ese tipo).
+    cods_ad = {f["cod"] for f in fact_ad if f["cod"]}
+    cods_ba = {f["cod"] for f in fact_ba if f["cod"]}
+    ad_sin = [c for c in ad_por_cod if c and c not in cods_ad] if fact_ad else []
+    ba_sin = [a["id"] for a in bajas if a["id"] not in cods_ba] if fact_ba else []
+
     aj = {"ajusteDep": sum(a["dif"] for a in activos if a["dif"] is not None),
           "deterioroAdicional": sum(a["perdida"] for a in deter if a["perdida"] is not None),
           "deterioroORI": sum(a["detORI"] for a in deter if a["detORI"] is not None),
@@ -747,6 +798,18 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         if concil[k] is not None and abs(concil[k]) > tol:
             pr.append(problema("SUMARIA_NO_CONCILIA", f"Auxiliar y balance (sumaria) no concilian en el saldo {lab}: diferencia {m(concil[k])}.", concil[k]))
 
+    # Vaucheo de facturas: diferencias de monto, facturas sin registro y altas/bajas sin soporte.
+    for v in vaucheo:
+        etq = f"{v['tipo']} {v['cod'] or v['num'] or v['prov'] or ''}".strip()
+        if v["estado"] == "Diferencia":
+            pr.append(problema("VAUCHEO_DIFERENCIA", f"{etq}: la factura ({m(v['total'])}) difiere de lo registrado ({m(v['reg'])}): {m(v['dif'])}.", v["dif"]))
+        elif v["estado"] == "Sin registro en libros":
+            pr.append(problema("FACTURA_SIN_REGISTRO", f"{etq}: la factura {v['num'] or ''} no cruza con ninguna {v['tipo'].lower()} registrada.", v["total"] or 0))
+    for c in ad_sin:
+        pr.append(problema("ADICION_SIN_FACTURA", f"La adición del activo {c} no tiene factura de soporte cargada.", ad_por_cod.get(c) or 0))
+    for c in ba_sin:
+        pr.append(problema("BAJA_SIN_FACTURA", f"La baja del activo {c} no tiene factura de venta de soporte cargada.", ba_por_cod.get(c) or 0))
+
     for a in activos:
         if (a.get("exceso_veh") or 0) > tol:
             pr.append(problema("VEHICULO_TOPE_FISCAL", f"{a['id']}: el costo {m(a['costo'])} supera USD {int(TOPE_VEHICULO):,}; la "
@@ -794,7 +857,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                "activos": limpia(activos), "adiciones": limpia(adiciones), "prestamos": limpia(prestamos),
                "capitalizacion": limpia(capit), "tope": {"incurridos": tope_inc, "antes": tope_antes, "factor": factor},
                "desmantelamiento": desm, "rollforward": rf, "ajustes": aj, "parametros": p,
-               "variaciones": variaciones, "mayor": mayor, "conciliacion": concil}
+               "variaciones": variaciones, "mayor": mayor, "conciliacion": concil,
+               "vaucheo": vaucheo, "vaucheoAdSin": ad_sin, "vaucheoBaSin": ba_sin}
     return {"engine": VERSION, "rows": filas, "totals": totales, "labels": etiquetas, "primary": "ajusteResultado",
             "exceptions": pr, "schedule": [], "detalle": detalle}
 
@@ -816,6 +880,7 @@ CEDULAS = [
     ("23_Sumaria", "Sumaria de cuentas (variaciones del balance)"),
     ("24_Movimiento_mayor", "Movimiento del período (libro mayor)"),
     ("25_Conciliacion", "Conciliación de saldos (auxiliar vs balance)"),
+    ("26_Vaucheo", "Vaucheo de facturas (adiciones y bajas)"),
 ]
 P = ref("02_Parametros")
 FIS = ref("20_Fiscal")
@@ -1630,6 +1695,19 @@ def hojas(res: dict) -> list[dict]:
         "Diferencia": "Auxiliar menos balance; fuera de tolerancia se reporta como hallazgo.",
     }
 
+    # 26 · vaucheo de facturas (extraídas por IA de los PDF) contra las adiciones y las bajas.
+    VCH = d.get("vaucheo") or []
+    vauch_rows = [[v["tipo"], v["cod"], v["prov"], v["ruc"], v["fecha"], v["num"], v["total"], v["reg"], v["dif"], v["estado"]]
+                 for v in VCH]
+    ex_vauch = {
+        "Tipo": "Adición (factura de compra) o Baja (factura de venta).",
+        "Código del activo": "Código del activo relacionado en el anexo, para cruzar con el detalle.",
+        "Total": "Total de la factura extraído del PDF (revíselo: la IA solo transcribe lo que leyó).",
+        "Registrado en libros": "Importe de la adición (detalle) o de la baja (producto de la venta) que cruza por código.",
+        "Diferencia": "Total de la factura menos lo registrado; fuera de tolerancia se reporta como hallazgo.",
+        "Estado": "Conciliado, Diferencia o Sin registro en libros.",
+    }
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=ex_resumen),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros, explica=ex_par),
@@ -1739,6 +1817,10 @@ def hojas(res: dict) -> list[dict]:
         hoja("25_Conciliacion", "Conciliación de saldos (auxiliar vs balance)",
              [["Concepto", "t"], ["Auxiliar", "n"], ["Balance", "n"], ["Diferencia", "n"]],
              concil_rows, explica=ex_concil),
+        hoja("26_Vaucheo", "Vaucheo de facturas (adiciones y bajas)",
+             [["Tipo", "t"], ["Código del activo", "t"], ["Proveedor / Cliente", "t"], ["RUC", "t"], ["Fecha", "d"],
+              ["N° factura", "t"], ["Total", "n"], ["Registrado en libros", "n"], ["Diferencia", "n"], ["Estado", "t"]],
+             vauch_rows, explica=ex_vauch, colores=["Estado"]),
     ]
 
 
@@ -1853,7 +1935,8 @@ def definicion() -> dict:
             req("RQ-004", "Política contable de vidas útiles, residuales y métodos", None, "PPE-04",
                 "Sustento de estimaciones (capitalización por rubro y vida útil). Opcional: si se carga, se lee para la columna «vida útil según política».",
                 required=False, formats=("pdf", "docx"), use="soporte"),
-            req("RQ-012", "Facturas de las adiciones del año", None, "PPE-02", "Vaucheo de las adiciones (soporte de las altas)", required=False, formats=("pdf",), use="soporte"),
+            req("RQ-012", "Facturas de las adiciones del año", "facturas_adiciones", "PPE-02",
+                "Vaucheo de las adiciones (soporte de las altas); se extraen por IA del PDF", required=False, formats=("pdf",), use="soporte"),
             req("RQ-005", "Informe del perito de la revaluación", None, "PPE-06", "Sustento del valor revaluado", required=False, formats=("pdf",), use="soporte"),
             req("RQ-006", "Cálculo del importe recuperable (valor en uso o valor razonable)", None, "PPE-07", "Sustento del deterioro", required=False,
                 formats=("xlsx", "pdf"), use="soporte"),
@@ -1862,7 +1945,8 @@ def definicion() -> dict:
                 formats=("pdf", "xlsx"), use="soporte"),
             req("RQ-008", "Estimación técnica de desmantelamiento o restauración", None, "PPE-09", "Sustento de la provisión", required=False,
                 formats=("pdf", "xlsx"), use="soporte"),
-            req("RQ-009", "Facturas de venta y actas de baja del año", None, "PPE-05", "Sustento de las bajas", required=False, formats=("pdf",), use="soporte"),
+            req("RQ-009", "Facturas de venta y actas de baja del año", "facturas_salidas", "PPE-05",
+                "Vaucheo de las bajas (soporte de las salidas); se extraen por IA del PDF", required=False, formats=("pdf",), use="soporte"),
         ],
     }
 
