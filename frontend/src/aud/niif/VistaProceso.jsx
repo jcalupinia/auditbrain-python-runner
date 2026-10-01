@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 
 import * as api from "../../api";
 import { ChipDocumento, MapeoManual, VistaTrabajo } from "./CicloVista";
-import { estadoTributario, textoTributarioInicial } from "./cicloLogic";
 import { PENDIENTE_MAPEO, prepararBaseTecnica, producir, revisarColumnas } from "./cicloOrquestacion";
 import {
   avanceCarga,
@@ -199,17 +198,8 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
   const [pendientesMapeo, setPendientesMapeo] = useState(null);
   const [modoModal, setModoModal] = useState("revisar"); // "revisar" (al cargar) | "procesar" (al pulsar Procesar)
   const [revisando, setRevisando] = useState(false);
-  // Tratamiento tributario: el recuadro + la casilla de conformidad que exige el
-  // «gate» antes de preparar la base técnica. Vive aquí (Paso 1) porque la vista de
-  // trabajo detallada que también lo tiene solo se abre DESPUÉS de procesar, y no se
-  // puede procesar sin confirmar: sin este bloque, una prueba creada «tributaria»
-  // quedaba bloqueada sin forma de confirmar.
-  const [taxScope, setTaxScope] = useState(() => textoTributarioInicial(reg, d));
-  const [taxConforme, setTaxConforme] = useState(false);
   const manualMapsRef = useRef({});
   const detalleRef = useRef(null);
-  const sugerido = d.tributario_sugerido;
-  const gateTributario = estadoTributario(reg.taxApplicable, taxScope, taxConforme);
 
   // Requerimientos: los del registro si ya se generaron; si no, los de la definición
   // (para pintar las tarjetas antes de preparar la base técnica).
@@ -242,7 +232,7 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
     }
   }
 
-  const prepararRequerimiento = () => correr(() => prepararBaseTecnica(prueba, { taxScope, taxConforme }));
+  const prepararRequerimiento = () => correr(() => prepararBaseTecnica(prueba));
 
   const procesar = () =>
     correr(async () => {
@@ -375,27 +365,7 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
         {!conRequerimiento && (
           <div className="nf-ef-preparar">
             <p>Todavía no se ha generado el requerimiento de documentos para este encargo.</p>
-            {reg.taxApplicable && (
-              <div className="nf-tributario">
-                <label className="nf-ctx-field">
-                  Tratamiento tributario revisado y su sustento
-                  {sugerido?.texto && (
-                    <small className="muted">
-                      Viene pre-llenado con la base legal sugerida de esta herramienta. Revísela, edítela y confírmela contra la fuente oficial.
-                      {sugerido.tiene_verificar && <> Hay citas marcadas <strong>«VERIFICAR»</strong>: resuélvalas antes de confirmar.</>}
-                    </small>
-                  )}
-                  <textarea rows={5} value={taxScope} disabled={bloqueado} onChange={(e) => setTaxScope(e.target.value)} />
-                </label>
-                <label className="nf-ctx-check">
-                  <input type="checkbox" checked={!!taxConforme} disabled={bloqueado} onChange={(e) => setTaxConforme(e.target.checked)} />{" "}
-                  Revisé la base legal sugerida y estoy conforme.
-                </label>
-                {!gateTributario.ok && <p className="nf-ef-aviso" role="status">{gateTributario.motivo}</p>}
-              </div>
-            )}
-            <button type="button" className="nf-ef-btn accent" disabled={bloqueado || !gateTributario.ok}
-              title={gateTributario.ok ? undefined : gateTributario.motivo} onClick={prepararRequerimiento}>
+            <button type="button" className="nf-ef-btn accent" disabled={bloqueado} onClick={prepararRequerimiento}>
               {trabajando ? "Preparando…" : "Preparar el requerimiento de documentos"}
             </button>
           </div>
