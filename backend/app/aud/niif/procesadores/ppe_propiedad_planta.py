@@ -555,6 +555,49 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     rf["adDetalle"] = sum(x["importe"] for x in adiciones) if adiciones else None
     rf["difAd"] = None if rf["adDetalle"] is None else rf["ad"] - rf["adDetalle"]
 
+    # Fase 3 · sumaria (variaciones del balance), movimiento del libro mayor y conciliación de saldos.
+    # Cada cuenta del balance se clasifica en costo o depreciación por su descripción (las de depreciación
+    # suelen tener saldo acreedor; se comparan en valor absoluto con la depreciación acumulada del auxiliar).
+    _es_dep = lambda t: "deprecia" in (t or "").lower()
+    variaciones = []
+    for f in datasets.get("variaciones") or []:
+        if not _t(f.get("cuenta")):
+            continue
+        sa = _opc(f.get("saldo_anterior")) or 0.0
+        sc = _opc(f.get("saldo_actual")) or 0.0
+        variaciones.append({"cuenta": _t(f.get("cuenta")), "desc": _t(f.get("descripcion")), "ant": sa, "act": sc,
+                            "var": sc - sa, "tipo": "Depreciación" if _es_dep(f.get("descripcion")) else "Costo",
+                            "_row": f.get("_row")})
+    costo_balance = sum(v["act"] for v in variaciones if v["tipo"] == "Costo")
+    dep_balance = abs(sum(v["act"] for v in variaciones if v["tipo"] == "Depreciación"))
+
+    # Movimiento del período agregado por cuenta (débitos, créditos, neto y número de asientos).
+    mov = {}
+    for f in datasets.get("mayor") or []:
+        if not _t(f.get("cuenta")):
+            continue
+        cta = _t(f.get("cuenta"))
+        e = mov.setdefault(cta, {"cuenta": cta, "desc": _t(f.get("descripcion")), "debe": 0.0, "haber": 0.0, "n": 0})
+        imp = _opc(f.get("importe"))
+        deb = _opc(f.get("debe"))
+        hab = _opc(f.get("haber"))
+        if deb is None and hab is None and imp is not None:  # una sola columna de importe con signo
+            deb, hab = (imp, 0.0) if imp >= 0 else (0.0, -imp)
+        e["debe"] += deb or 0.0
+        e["haber"] += hab or 0.0
+        e["n"] += 1
+        if not e["desc"]:
+            e["desc"] = _t(f.get("descripcion"))
+    mayor = sorted(mov.values(), key=lambda x: x["cuenta"])
+    for e in mayor:
+        e["neto"] = e["debe"] - e["haber"]
+
+    # Conciliación de saldos del cliente: auxiliar (anexo) frente al balance (variaciones).
+    concil = {"costo_aux": rf["costoFinal"], "costo_bal": (costo_balance if variaciones else None),
+              "dep_aux": rf["depFinalReg"], "dep_bal": (dep_balance if variaciones else None)}
+    concil["dif_costo"] = None if concil["costo_bal"] is None else concil["costo_aux"] - concil["costo_bal"]
+    concil["dif_dep"] = None if concil["dep_bal"] is None else concil["dep_aux"] - concil["dep_bal"]
+
     aj = {"ajusteDep": sum(a["dif"] for a in activos if a["dif"] is not None),
           "deterioroAdicional": sum(a["perdida"] for a in deter if a["perdida"] is not None),
           "deterioroORI": sum(a["detORI"] for a in deter if a["detORI"] is not None),
@@ -699,6 +742,11 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         elif abs(rf[k]) > tol:
             pr.append(problema("CONCILIACION_AUXILIAR_MAYOR", f"Auxiliar y mayor no concilian en el saldo {lab}: diferencia {m(rf[k])}.", rf[k]))
 
+    # Conciliación del auxiliar con el balance (sumaria de variaciones).
+    for k, lab in (("dif_costo", "del costo"), ("dif_dep", "de la depreciación acumulada")):
+        if concil[k] is not None and abs(concil[k]) > tol:
+            pr.append(problema("SUMARIA_NO_CONCILIA", f"Auxiliar y balance (sumaria) no concilian en el saldo {lab}: diferencia {m(concil[k])}.", concil[k]))
+
     for a in activos:
         if (a.get("exceso_veh") or 0) > tol:
             pr.append(problema("VEHICULO_TOPE_FISCAL", f"{a['id']}: el costo {m(a['costo'])} supera USD {int(TOPE_VEHICULO):,}; la "
@@ -745,7 +793,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                "marco": MARCO_PYMES if pymes else MARCO_COMPLETAS, "edicion": edicion_pymes(p) if pymes else "",
                "activos": limpia(activos), "adiciones": limpia(adiciones), "prestamos": limpia(prestamos),
                "capitalizacion": limpia(capit), "tope": {"incurridos": tope_inc, "antes": tope_antes, "factor": factor},
-               "desmantelamiento": desm, "rollforward": rf, "ajustes": aj, "parametros": p}
+               "desmantelamiento": desm, "rollforward": rf, "ajustes": aj, "parametros": p,
+               "variaciones": variaciones, "mayor": mayor, "conciliacion": concil}
     return {"engine": VERSION, "rows": filas, "totals": totales, "labels": etiquetas, "primary": "ajusteResultado",
             "exceptions": pr, "schedule": [], "detalle": detalle}
 
@@ -764,6 +813,9 @@ CEDULAS = [
     ("20_Fiscal", "Recálculo fiscal (SRI Art. 28) y conciliación NIIF"),
     ("21_Comparativo", "Recálculo comparativo por días (auditor vs cliente)"),
     ("22_Guia_NIIF_SRI", "Guía comparativa NIIF vs SRI"),
+    ("23_Sumaria", "Sumaria de cuentas (variaciones del balance)"),
+    ("24_Movimiento_mayor", "Movimiento del período (libro mayor)"),
+    ("25_Conciliacion", "Conciliación de saldos (auxiliar vs balance)"),
 ]
 P = ref("02_Parametros")
 FIS = ref("20_Fiscal")
@@ -874,6 +926,12 @@ def _conciliacion_mayor(hojas, e):
     return _concepto("14_Roll_forward", f"Diferencia auxiliar − mayor {cual}")(hojas, e)
 
 
+def _conciliacion_balance(hojas, e):
+    """Diferencia auxiliar − balance del saldo que nombra la descripción (costo o depreciación), hoja 25."""
+    cual = "Costo" if "del costo" in (e.get("message") or "") else "Depreciación acumulada"
+    return _concepto("25_Conciliacion", cual, "Diferencia")(hojas, e)
+
+
 # De qué celda sale el importe de cada problema (ver procesadores/problemas.py).
 REF_PROBLEMAS = {
     "DEPRECIACION_DIFERENTE": _codigo("04_Depreciacion", "Diferencia"),                 # depreciación recalculada − registrada
@@ -897,6 +955,7 @@ REF_PROBLEMAS = {
     "DESMANTELAMIENTO_NO_RECONOCIDO": _concepto("13_Desmantelamiento", "Valor presente"),  # valor presente no provisionado
     "DESMANTELAMIENTO_DIFERENCIA": _concepto("13_Desmantelamiento", "Ajuste total"),   # valor presente − registrada al cierre
     "CONCILIACION_AUXILIAR_MAYOR": _conciliacion_mayor,                                # auxiliar − mayor (costo o depreciación)
+    "SUMARIA_NO_CONCILIA": _conciliacion_balance,                                      # auxiliar − balance (costo o depreciación)
 }
 
 
@@ -1530,6 +1589,47 @@ def hojas(res: dict) -> list[dict]:
         "Cliente": "Cifras registradas por el cliente en el anexo.",
     }
 
+    # 23 · sumaria de cuentas (variaciones del balance).
+    VAR = d.get("variaciones") or []
+    sumaria = [[v["cuenta"], v["desc"], v["tipo"], v["ant"], v["act"], v["var"]] for v in VAR]
+    nv = len(VAR)
+    total_sumaria = ["TOTAL", "", "", suma("D", FILA0 + max(nv, 1) - 1, sum(v["ant"] for v in VAR)),
+                     suma("E", FILA0 + max(nv, 1) - 1, sum(v["act"] for v in VAR)),
+                     suma("F", FILA0 + max(nv, 1) - 1, sum(v["var"] for v in VAR))] if nv else None
+    ex_sumaria = {
+        "Cuenta": "Cuenta contable del balance.", "Tipo": "Clasificación por su descripción: costo (saldo deudor) o depreciación acumulada (saldo acreedor).",
+        "Saldo año anterior": "Saldo al cierre del ejercicio anterior.", "Saldo al corte": "Saldo a la fecha de corte del encargo.",
+        "Variación": "Saldo al corte menos el del año anterior: base del análisis del movimiento.",
+    }
+
+    # 24 · movimiento del período (libro mayor), agregado por cuenta.
+    MAY = d.get("mayor") or []
+    movim = [[e["cuenta"], e["desc"], e["debe"], e["haber"], e["neto"], e["n"]] for e in MAY]
+    nm = len(MAY)
+    total_mov = ["TOTAL", "", suma("C", FILA0 + max(nm, 1) - 1, sum(e["debe"] for e in MAY)),
+                 suma("D", FILA0 + max(nm, 1) - 1, sum(e["haber"] for e in MAY)),
+                 suma("E", FILA0 + max(nm, 1) - 1, sum(e["neto"] for e in MAY)),
+                 suma("F", FILA0 + max(nm, 1) - 1, sum(e["n"] for e in MAY))] if nm else None
+    ex_mov = {
+        "Cuenta": "Cuenta contable del libro mayor.", "Débitos": "Suma de los cargos del período (altas y aumentos).",
+        "Créditos": "Suma de los abonos del período (bajas, depreciación y ajustes).",
+        "Movimiento neto": "Débitos menos créditos del período.", "N° asientos": "Cantidad de movimientos registrados en la cuenta.",
+    }
+
+    # 25 · conciliación de saldos: auxiliar (anexo) vs balance (sumaria).
+    co = d.get("conciliacion") or {}
+    concil_rows = []
+    if co.get("costo_bal") is not None:
+        concil_rows.append(["Costo", co["costo_aux"], co["costo_bal"], co["dif_costo"]])
+    if co.get("dep_bal") is not None:
+        concil_rows.append(["Depreciación acumulada", co["dep_aux"], co["dep_bal"], co["dif_dep"]])
+    ex_concil = {
+        "Concepto": "Saldo conciliado: costo o depreciación acumulada.",
+        "Auxiliar": "Saldo al corte según el anexo de activos fijos.",
+        "Balance": "Saldo al corte según la sumaria del balance (variaciones).",
+        "Diferencia": "Auxiliar menos balance; fuera de tolerancia se reporta como hallazgo.",
+    }
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=ex_resumen),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros, explica=ex_par),
@@ -1630,6 +1730,15 @@ def hojas(res: dict) -> list[dict]:
         hoja("22_Guia_NIIF_SRI", "Guía comparativa NIIF vs SRI",
              [["Concepto", "t"], ["NIIF (meses)", "n"], ["NIIF (días)", "n"], ["SRI (días)", "n"], ["Cliente", "n"]],
              guia, explica=ex_guia),
+        hoja("23_Sumaria", "Sumaria de cuentas (variaciones del balance)",
+             [["Cuenta", "t"], ["Descripción", "t"], ["Tipo", "t"], ["Saldo año anterior", "n"], ["Saldo al corte", "n"], ["Variación", "n"]],
+             sumaria, total_sumaria, explica=ex_sumaria),
+        hoja("24_Movimiento_mayor", "Movimiento del período (libro mayor)",
+             [["Cuenta", "t"], ["Descripción", "t"], ["Débitos", "n"], ["Créditos", "n"], ["Movimiento neto", "n"], ["N° asientos", "i"]],
+             movim, total_mov, explica=ex_mov),
+        hoja("25_Conciliacion", "Conciliación de saldos (auxiliar vs balance)",
+             [["Concepto", "t"], ["Auxiliar", "n"], ["Balance", "n"], ["Diferencia", "n"]],
+             concil_rows, explica=ex_concil),
     ]
 
 
