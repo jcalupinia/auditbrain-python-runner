@@ -6,6 +6,11 @@ from backend.app.aud.niif.procesadores import ppe_propiedad_planta as m
 E = m.EJEMPLO
 
 
+def _cv(c):
+    """Valor de una celda: las cédulas usan fórmulas {f, v}; devuelve el valor numérico/texto."""
+    return c["v"] if isinstance(c, dict) else c
+
+
 def correr(datasets=None, **param):
     return m.ejecutar(datasets or E["datasets"], {**E["parametros"], **param}, E["corte"])
 
@@ -366,7 +371,7 @@ def test_sumaria_movimiento_y_conciliacion():
     conc = {row[0]: row for row in hs["25_Conciliacion"]["rows"]}
     assert "Costo" in conc and "Depreciación acumulada" in conc
     # Diferencia = auxiliar − balance.
-    assert abs(conc["Costo"][3] - (conc["Costo"][1] - conc["Costo"][2])) < 0.01
+    assert abs(_cv(conc["Costo"][3]) - (_cv(conc["Costo"][1]) - _cv(conc["Costo"][2]))) < 0.01
     # El ejemplo no concilia a propósito → se reportan los hallazgos de la sumaria.
     assert "SUMARIA_NO_CONCILIA" in _codigos(r)
 
@@ -414,7 +419,7 @@ def test_politica_alimenta_vida_util_y_guia():
     hs = {x["name"]: x for x in m.hojas(r)}
     # Guía: la columna «Política (días)» trae totales no nulos.
     assert [c[0] for c in hs["22_Guia_NIIF_SRI"]["cols"]][4] == "Política (días)"
-    assert hs["22_Guia_NIIF_SRI"]["rows"][0][4] > 0
+    assert _cv(hs["22_Guia_NIIF_SRI"]["rows"][0][4]) > 0
     assert r["totals"]["ajusteResultado"] == correr()["totals"]["ajusteResultado"]
 
 
@@ -425,4 +430,4 @@ def test_resumen_de_hallazgos():
     assert "27_Resumen_hallazgos" in hs
     filas = hs["27_Resumen_hallazgos"]["rows"]
     # El total de hallazgos de la cédula 27 coincide con el nº de excepciones.
-    assert sum(row[1] for row in filas) == len(r["exceptions"])
+    assert sum(_cv(row[1]) for row in filas) == len(r["exceptions"])
