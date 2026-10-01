@@ -1,0 +1,88 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 1004 >>
+stream
+BT
+/F1 13 Tf
+60 790 Td
+16 TL
+/F1 13 Tf
+(EJEMPLO - FACTURA DE ADICION DE ACTIVO FIJO) Tj
+T*
+/F1 11 Tf
+() Tj
+T*
+/F1 11 Tf
+(Documento de ejemplo. Cargue aqui las facturas PDF de las adiciones) Tj
+T*
+/F1 11 Tf
+(\(altas\) del ejercicio para el vaucheo de activos fijos.) Tj
+T*
+/F1 11 Tf
+() Tj
+T*
+/F1 11 Tf
+(Proveedor:        \(razon social del proveedor\)) Tj
+T*
+/F1 11 Tf
+(RUC:              \(numero de RUC, 13 digitos\)) Tj
+T*
+/F1 11 Tf
+(No. de factura:   001-001-000000000) Tj
+T*
+/F1 11 Tf
+(Autorizacion:     \(clave de acceso del comprobante electronico\)) Tj
+T*
+/F1 11 Tf
+(Fecha de emision: dd/mm/aaaa) Tj
+T*
+/F1 11 Tf
+(Detalle:          \(descripcion del activo adquirido\)) Tj
+T*
+/F1 11 Tf
+(Subtotal:         0.00) Tj
+T*
+/F1 11 Tf
+(IVA 15%:          0.00) Tj
+T*
+/F1 11 Tf
+(Total:            0.00) Tj
+T*
+/F1 11 Tf
+() Tj
+T*
+/F1 11 Tf
+(Codigo del activo en el anexo: \(para cruzar con el auxiliar de PPyE\)) Tj
+T*
+/F1 11 Tf
+(Tipo \(capitalizable / reparacion o mantenimiento\): \(clasificacion\)) Tj
+T*
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000247 00000 n 
+0000000317 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1373
+%%EOF
