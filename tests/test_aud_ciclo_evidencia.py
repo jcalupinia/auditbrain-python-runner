@@ -261,3 +261,65 @@ def test_el_modelo_se_llena_y_se_procesa_sin_ajustes(client):
     assert p["registro"]["validation"]["ok"], p["registro"]["validation"]
     assert p["registro"]["controlTotal"] == "350.00"
     assert [f["_row"] for f in p["registro"]["rows"]] == [2, 3]
+
+
+def test_delete_file_borra_un_solo_archivo_sin_encerar(client):
+    """La «✕» por documento borra un archivo subido por error sin encerar toda la
+    carga: lo quita, revierte el estado si no quedan archivos, descarta su
+    descarga y obliga a volver a mapear. Después de validar ya no se permite."""
+    tok, p = _hasta_requerimiento_aprobado(client, tok=None)
+
+    # Dos bodegas del mismo requerimiento por componentes.
+    assert _subir(client, tok, p, "RQ-001", "quito.xlsx", XLSX_VNR, "Quito").status_code == 201
+    p = _leer(client, tok, p)
+    assert _subir(client, tok, p, "RQ-001", "gye.xlsx", XLSX_VNR, "Guayaquil").status_code == 201
+    p = _leer(client, tok, p)
+    assert p["estado"] == "DOCUMENTACION_RECIBIDA"
+    assert len(p["archivos"]) == 2
+    id_quito = next(a["id"] for a in p["archivos"] if a["nombre"] == "quito.xlsx")
+    id_gye = next(a["id"] for a in p["archivos"] if a["nombre"] == "gye.xlsx")
+
+    # Borra solo «quito»: queda «gye», sigue en DOCUMENTACION_RECIBIDA.
+    assert _accion(client, tok, p, "delete_file", {"fileId": id_quito}).status_code == 200
+    p = _leer(client, tok, p)
+    assert [a["nombre"] for a in p["archivos"]] == ["gye.xlsx"]
+    assert p["estado"] == "DOCUMENTACION_RECIBIDA"
+    # El archivo borrado ya no se puede descargar.
+    assert client.get(f"{BASE}/pruebas/{p['id']}/archivos/{id_quito}", headers=_h(tok)).status_code == 404
+    # El que queda sí.
+    assert client.get(f"{BASE}/pruebas/{p['id']}/archivos/{id_gye}", headers=_h(tok)).status_code == 200
+
+    # Borra el último: vuelve a REQUERIMIENTO_APROBADO (sin evidencia).
+    assert _accion(client, tok, p, "delete_file", {"fileId": id_gye}).status_code == 200
+    p = _leer(client, tok, p)
+    assert p["archivos"] == []
+    assert p["estado"] == "REQUERIMIENTO_APROBADO"
+
+    # Un id inexistente da error claro.
+    r = _accion(client, tok, _leer(client, tok, p), "delete_file", {"fileId": 999999})
+    assert r.status_code == 400 and "no encontrado" in r.json()["detail"].lower()
+
+
+def test_delete_file_invalida_el_mapeo_y_se_bloquea_tras_validar(client):
+    """Borrar evidencia descarta el mapeo/validación previos; y una vez validada la
+    documentación, ya no se puede borrar (la evidencia queda fija)."""
+    tok, p = _hasta_requerimiento_aprobado(client, tok=None)
+    for req, nombre, comp in [("RQ-001", "quito.xlsx", "Quito"), ("RQ-001", "gye.xlsx", "Guayaquil"),
+                              ("RQ-002", "precios.pdf", ""), ("RQ-003", "gastos.pdf", ""),
+                              ("RQ-VNR-04", "politica.pdf", "")]:
+        p = _leer(client, tok, p)
+        cont = XLSX_VNR if nombre.endswith(".xlsx") else b"%PDF"
+        assert _subir(client, tok, p, req, nombre, cont, comp).status_code == 201
+    p = _leer(client, tok, p)
+    id_quito = next(a["id"] for a in p["archivos"] if a["nombre"] == "quito.xlsx")
+
+    # Mapea la población: queda con filas y validación.
+    p = _accion(client, tok, p, "map_validate",
+                {"fileId": id_quito, "sheet": "Inventario", "header": 1, "mapping": MAPA_VNR}).json()
+    assert p["registro"]["rows"] and p["registro"]["validation"]
+
+    # Borrar un archivo invalida el mapeo: se vacían filas y validación.
+    p = _accion(client, tok, p, "delete_file", {"fileId": id_quito}).json()
+    assert p["registro"]["rows"] == []
+    assert p["registro"]["validation"] is None
+    assert p["registro"].get("invalidationReason")

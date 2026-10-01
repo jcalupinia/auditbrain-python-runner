@@ -102,7 +102,7 @@ function descargar(nombre, contenido, tipo) {
 const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const mostrar = (v) => (v && typeof v === "object" ? String(v.v ?? v.n ?? "") : String(v ?? ""));
 
-export function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, processor, onModelo, onConvertir }) {
+export function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, processor, onModelo, onConvertir, listarArchivos = true }) {
   const input = useRef(null);
   const convertInput = useRef(null);
   const [parte, setParte] = useState(req.components?.[0] || "");
@@ -110,8 +110,26 @@ export function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, pr
   const [subiendo, setSubiendo] = useState(false);
   const [convirtiendo, setConvirtiendo] = useState(false);
   const [aviso, setAviso] = useState("");
+  const [borrando, setBorrando] = useState(0); // id del archivo que se está eliminando (0 = ninguno)
   const completo = cobertura?.complete;
-  const n = (prueba.archivos || []).filter((a) => a.requerimiento === req.id && a.estado !== "rechazado").length;
+  // Archivos subidos (vigentes) de este requerimiento: se listan con una «✕» para
+  // borrar uno por error sin tener que encerar toda la carga.
+  const misArchivos = (prueba.archivos || []).filter((a) => a.requerimiento === req.id && a.estado !== "rechazado");
+  const n = misArchivos.length;
+
+  async function eliminar(a) {
+    setBorrando(a.id);
+    setError("");
+    setAviso("");
+    try {
+      await api.cicloAccion(prueba.id, "delete_file", prueba.revision, { fileId: a.id });
+      await onSubido();
+    } catch (err) {
+      setError(err.message || String(err));
+    } finally {
+      setBorrando(0);
+    }
+  }
   // Flecha para bajar el FORMATO VÁLIDO: un ejemplo lleno del manifiesto, o el
   // modelo en blanco del propio requerimiento, o nada (solo los formatos).
   const ejemplo = ejemploDe(processor, req, undefined, import.meta.env.BASE_URL || "/");
@@ -187,6 +205,27 @@ export function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, pr
         )}
       </button>
       <input ref={input} type="file" multiple accept={accept} hidden onChange={subir} data-requerimiento={req.id} />
+      {listarArchivos && misArchivos.length > 0 && (
+        <ul className="nf-doc-archivos">
+          {misArchivos.map((a) => (
+            <li key={a.id} className="nf-doc-archivo" title={a.nombre}>
+              <span className="nf-doc-archivo-nom">{a.nombre}</span>
+              {habilitado && (
+                <button
+                  type="button"
+                  className="nf-doc-archivo-x"
+                  disabled={borrando === a.id}
+                  title={`Eliminar «${a.nombre}»`}
+                  aria-label={`Eliminar ${a.nombre}`}
+                  onClick={() => eliminar(a)}
+                >
+                  {borrando === a.id ? "…" : "✕"}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
       {(formatos || ejemplo) && (
         <small className="nf-doc-formatos">
           {formatos && (
@@ -964,7 +1003,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
           <div className="pc-scenarios nf-vista-subir">
             <span className="pc-scenarios-l" style={{ color: "var(--accent)" }}>SUBIR DOCUMENTOS</span>
             {(reg.requests || []).map((r) => (
-              <ChipDocumento key={r.id} prueba={prueba} req={r} cobertura={cobertura[r.id]} onSubido={onRecargar} habilitado={CON_SUBIDA.includes(prueba.estado) && !bloqueado} processor={d.processor} onModelo={bajarModelo} onConvertir={convertirFormato} />
+              <ChipDocumento key={r.id} prueba={prueba} req={r} cobertura={cobertura[r.id]} onSubido={onRecargar} habilitado={CON_SUBIDA.includes(prueba.estado) && !bloqueado} processor={d.processor} onModelo={bajarModelo} onConvertir={convertirFormato} listarArchivos={false} />
             ))}
           </div>
           {calculo.length > 0 && (
@@ -987,9 +1026,16 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
                     {a.requerimiento}{a.componente ? ` · ${a.componente}` : ""} · {a.nombre} ·{" "}
                     <span className={a.estado === "rechazado" ? "nf-error" : "nf-ok"}>{a.estado}</span>
                     {CON_SUBIDA.includes(prueba.estado) && (
-                      <button type="button" className="link" disabled={bloqueado} onClick={() => onAccion("reject_file", { fileId: a.id })}>
-                        {a.estado === "rechazado" ? " · Restituir" : " · Rechazar"}
-                      </button>
+                      <>
+                        <button type="button" className="link" disabled={bloqueado} onClick={() => onAccion("reject_file", { fileId: a.id })}>
+                          {a.estado === "rechazado" ? " · Restituir" : " · Rechazar"}
+                        </button>
+                        <button type="button" className="link nf-error" disabled={bloqueado}
+                          title={`Eliminar «${a.nombre}» (borra el archivo; no es lo mismo que rechazar)`}
+                          onClick={() => onAccion("delete_file", { fileId: a.id })}>
+                          {" · ✕ Eliminar"}
+                        </button>
+                      </>
                     )}
                   </li>
                 ))}
