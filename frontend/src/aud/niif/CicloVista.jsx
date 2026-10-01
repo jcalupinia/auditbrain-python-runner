@@ -22,6 +22,7 @@ import {
   nombreEstado,
   pasoPreparar,
   problemasDe,
+  subirArchivosEnCadena,
   textoTributarioInicial,
   tramosDeTexto,
 } from "./cicloLogic";
@@ -143,16 +144,14 @@ export function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, pr
     if (!archivos.length) return;
     setSubiendo(true);
     setError("");
-    const fallos = [];
     // Se suben uno por uno (el backend recibe un archivo por request), pero el
-    // auditor puede elegir varios de una en el selector.
-    for (const archivo of archivos) {
-      try {
-        await api.cicloSubirArchivo(prueba.id, prueba.revision, req.id, parte, archivo);
-      } catch (err) {
-        fallos.push(`${archivo.name}: ${err.message || String(err)}`);
-      }
-    }
+    // auditor puede elegir varios de una en el selector (un cliente con varios
+    // bancos sube un PDF por banco). `subirArchivosEnCadena` encadena la revisión
+    // que devuelve el backend: si mandáramos siempre la inicial, del segundo
+    // archivo en adelante respondería «La prueba cambió mientras la editaba».
+    const { fallos } = await subirArchivosEnCadena(archivos, prueba.revision, (revision, archivo) =>
+      api.cicloSubirArchivo(prueba.id, revision, req.id, parte, archivo),
+    );
     try {
       await onSubido();
     } catch (err) {

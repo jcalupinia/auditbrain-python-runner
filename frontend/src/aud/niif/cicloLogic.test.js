@@ -355,3 +355,38 @@ describe("gate del tratamiento tributario (base técnica)", () => {
     expect(textoTributarioInicial({}, {})).toBe("");
   });
 });
+
+import { subirArchivosEnCadena } from "./cicloLogic";
+
+describe("subida de varios archivos a la vez (un cliente con varios bancos)", () => {
+  it("encadena la revisión que devuelve el backend entre archivos", async () => {
+    // El backend incrementa la revisión en cada subida y la devuelve.
+    const vistas = [];
+    const subir = async (revision) => {
+      vistas.push(revision);
+      return { revision: revision + 1 };
+    };
+    const archivos = [{ name: "BCO GYQL.pdf" }, { name: "BCO PICH.pdf" }, { name: "BCO PRODU.pdf" }];
+    const { revision, fallos } = await subirArchivosEnCadena(archivos, 7, subir);
+    expect(vistas).toEqual([7, 8, 9]); // cada archivo usa la revisión actualizada, no la inicial
+    expect(revision).toBe(10);
+    expect(fallos).toEqual([]);
+  });
+
+  it("un archivo que falla no cambia la revisión y los siguientes continúan", async () => {
+    const subir = async (revision, archivo) => {
+      if (archivo.name.endsWith(".exe")) throw new Error("Formato no admitido");
+      return { revision: revision + 1 };
+    };
+    const archivos = [{ name: "ok1.pdf" }, { name: "malo.exe" }, { name: "ok2.pdf" }];
+    const { revision, fallos } = await subirArchivosEnCadena(archivos, 2, subir);
+    expect(revision).toBe(4); // dos subidas correctas; el .exe no incrementó
+    expect(fallos).toEqual(["malo.exe: Formato no admitido"]);
+  });
+
+  it("sin la respuesta de revisión, no queda bloqueado (conserva la inicial)", async () => {
+    const subir = async () => ({}); // backend viejo sin revisión en la respuesta
+    const { revision } = await subirArchivosEnCadena([{ name: "a.pdf" }], 5, subir);
+    expect(revision).toBe(5);
+  });
+});
