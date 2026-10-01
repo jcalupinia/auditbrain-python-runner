@@ -8,6 +8,7 @@ from backend.app.auth.deps import get_current_user
 from backend.app.auth.models import User
 from backend.app.chat import attachments as attachments_mod
 from backend.app.chat import media as media_mod
+from backend.app.chat import providers as providers_mod
 from backend.app.chat import service
 from backend.app.chat.schemas import (
     AttachmentExtractOut,
@@ -164,6 +165,15 @@ async def extract_attachment(
 @router.get("/media/status")
 def media_status(_current: User = Depends(get_current_user)):
     return {"enabled": media_mod.enabled()}
+
+
+@router.get("/ia/estado")
+def ia_estado(_current: User = Depends(get_current_user)):
+    """Diagnóstico de los proveedores de IA: orden de la cadena (local primero,
+    Anthropic al final), cuáles están configurados y un ping EN VIVO al servidor
+    de IA local. Corre en el backend (que sí alcanza la URL interna del gateway),
+    así se verifica si el servidor local está realmente conectado."""
+    return providers_mod.estado_proveedores()
 
 
 @router.post("/media/image")
