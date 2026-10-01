@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -199,6 +200,52 @@ def available_provider() -> str | None:
     """Devuelve qué proveedor se intentará primero (o None si ninguno)."""
     chain = _providers_with_keys()
     return chain[0] if chain else None
+
+
+def probar_local() -> dict:
+    """Ping en vivo al servidor de IA local (LOCAL_LLM_BASE_URL).
+
+    Hace una llamada mínima al gateway local y reporta si respondió. Pensado
+    para un diagnóstico desde el backend (que sí alcanza la URL interna del
+    gateway), no desde el navegador. No inventa nada: devuelve el detalle real
+    del fallo cuando el local no contesta."""
+    url = _local_base_url()
+    if not url:
+        return {"configurado": False, "ok": False, "url": "",
+                "detalle": "LOCAL_LLM_BASE_URL no está definido en el entorno (Render)."}
+    inicio = time.monotonic()
+    try:
+        _call_local([{"role": "user", "content": "ping"}], None)
+        return {"configurado": True, "ok": True, "url": url, "modelo": _local_model(),
+                "latencia_ms": int((time.monotonic() - inicio) * 1000),
+                "detalle": "El servidor de IA local respondió."}
+    except ProviderUnavailable as exc:
+        return {"configurado": True, "ok": False, "url": url, "modelo": _local_model(),
+                "latencia_ms": int((time.monotonic() - inicio) * 1000),
+                "detalle": f"El servidor de IA local no respondió: {exc}"}
+
+
+def estado_proveedores() -> dict:
+    """Diagnóstico de la cadena de IA: orden real de intento, proveedor
+    preferido, cuáles están configurados y un ping en vivo al servidor local.
+
+    Sirve para verificar que el servidor de IA local esté conectado y que la
+    cadena respete «local primero, Anthropic al final»."""
+    chain = _providers_with_keys()
+    return {
+        "orden": chain,
+        "preferido": chain[0] if chain else None,
+        "override": _provider() or None,
+        "configurados": {
+            "local": bool(_local_base_url()),
+            "gemini": bool(_gemini_key()),
+            "groq": bool(_groq_key()),
+            "openrouter": bool(_openrouter_key()),
+            "anthropic": bool(_anthropic_key()),
+            "openai": bool(_openai_key()),
+        },
+        "local": probar_local(),
+    }
 
 
 # ---------------------------------------------------------------------------
