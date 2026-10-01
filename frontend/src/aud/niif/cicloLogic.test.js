@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { ETAPAS, alternarProcedimiento, etapaDe, nombreEstado, procedimientosSinFuente } from "./cicloLogic";
+import {
+  ETAPAS,
+  alternarProcedimiento,
+  estadoTributario,
+  etapaDe,
+  nombreEstado,
+  procedimientosSinFuente,
+  textoTributarioInicial,
+} from "./cicloLogic";
 import { STATES } from "./sitio/tools/domain.mjs";
 
 describe("etapas de una prueba", () => {
@@ -324,5 +332,26 @@ describe("mapeoConManual (mezcla auto + manual)", () => {
   it("no exige columna para los campos opcionales", () => {
     const r = mapeoConManual(elegido, { monto: "2" }, campos);
     expect(r.faltan).toEqual([]);
+  });
+});
+
+describe("gate del tratamiento tributario (base técnica)", () => {
+  it("no bloquea cuando la prueba no es tributaria", () => {
+    expect(estadoTributario(false, "", false)).toEqual({ ok: true, motivo: "" });
+  });
+
+  it("exige texto, resolver «VERIFICAR» y la casilla de conformidad, en ese orden", () => {
+    expect(estadoTributario(true, "", false).ok).toBe(false); // falta texto
+    expect(estadoTributario(true, "Base legal con VERIFICAR pendiente", false).motivo).toMatch(/VERIFICAR/);
+    const sinCasilla = estadoTributario(true, "Sustento tributario completo", false);
+    expect(sinCasilla.ok).toBe(false);
+    expect(sinCasilla.motivo).toMatch(/Revisé la base legal/);
+    expect(estadoTributario(true, "Sustento tributario completo", true)).toEqual({ ok: true, motivo: "" });
+  });
+
+  it("pre-llena el recuadro con lo guardado o con la base legal sugerida", () => {
+    expect(textoTributarioInicial({ taxScope: "lo guardado" }, {})).toBe("lo guardado");
+    expect(textoTributarioInicial({}, { tributario_sugerido: { texto: "sugerida" } })).toBe("sugerida");
+    expect(textoTributarioInicial({}, {})).toBe("");
   });
 });
