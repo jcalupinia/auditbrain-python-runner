@@ -1281,6 +1281,28 @@ export async function aprobarOF(jobId) {
   );
 }
 
+// `procesar` y `aprobar` disparan el trabajo pesado en segundo plano y
+// responden al instante con el job en 'running'. Este helper consulta el
+// estado del job hasta que llega a uno de los `estadosFinales` (p.ej.
+// 'revision' tras procesar, 'done' tras aprobar) o hasta agotar el tiempo.
+// Un Mayor grande puede tardar varios minutos en clasificarse/generarse.
+export async function esperarEstadoOF(
+  jobId,
+  estadosFinales,
+  { intervalMs = 2500, timeoutMs = 15 * 60 * 1000 } = {}
+) {
+  const finales = new Set(estadosFinales);
+  const limite = Date.now() + timeoutMs;
+  // Espera inicial breve: el background suele estar listo enseguida en
+  // encargos chicos.
+  for (;;) {
+    const job = await getObligacionesFiscalesJob(jobId);
+    if (finales.has(job.status) || job.status === "failed") return job;
+    if (Date.now() >= limite) return job; // se devuelve el último estado visto
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+}
+
 // Catálogo de categorías disponibles (para los selects de clasificación).
 export async function listarCategoriasOF() {
   return parse(await apiFetch(`${OF_BASE}/categorias`, { headers: authHeaders() }));
