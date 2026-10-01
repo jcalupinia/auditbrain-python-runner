@@ -108,6 +108,28 @@ PRINCIPAL = "contratos"
 CONTROL = "pasivo_reg"
 TOTAL_EJEMPLO = "pasivo"
 
+# Extracción por IA del contrato (PDF/Word). El servicio y el frontend leen estas constantes
+# genéricamente (igual que en ppe y en la planificación): habilitan subir el contrato firmado para
+# que la IA llene la fila del anexo. La IA solo transcribe lo explícito; la tasa y los juicios del
+# auditor (clasificación, renovación cierta, bajo valor, exención) quedan vacíos para que el auditor
+# los complete antes de procesar.
+EXTRACCION_DATASETS = ("contratos",)
+EXTRACCION_ENUMS = {"contratos": {"periodicidad": ["Mensual", "Trimestral", "Semestral", "Anual"], "momento": ["Inicio", "Final"]}}
+EXTRACCION_INSTRUCCIONES = {
+    "contratos": (
+        "Cada contrato de arrendamiento es una fila. Extraiga SOLO lo que conste expresamente en el documento: el "
+        "activo arrendado (objeto del contrato), la fecha de comienzo (inicio del arriendo), el plazo no cancelable en "
+        "meses (si solo constan las fechas de inicio y fin, calcule los meses entre ellas), el canon o cuota periódica "
+        "y su periodicidad (mensual, trimestral, semestral o anual), si el pago es al inicio o al final del período, "
+        "los meses de la opción de renovación si existe, el precio de la opción de compra si existe, y —solo si el "
+        "contrato lo dice— si la renta se ajusta por un índice de inflación y el importe del componente ligado al "
+        "índice. NO complete la tasa de descuento (casi nunca consta en el contrato; la fija el auditor con la tasa "
+        "referencial del Banco Central del Ecuador), ni la clasificación financiero/operativo, ni si la renovación o la "
+        "compra son razonablemente ciertas, ni el bajo valor, ni la exención: esos son juicios del auditor. Lo que no "
+        "aparezca, déjelo vacío."
+    ),
+}
+
 CONVENCIONES = ("Efectiva anual", "Nominal anual")
 # Default «Nominal anual»: el auditor tipea la tasa anual tal cual la publica el BCE y la herramienta la divide ÷12
 # (decisión del dueño, para no confundir al equipo con conversiones de tasa efectiva).

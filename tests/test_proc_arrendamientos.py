@@ -340,3 +340,32 @@ def test_recalc_cruza_el_impuesto_diferido():
     r = rc.recalcular(_run())
     difer = [c for c in r["componentes"] if "diferencias temporarias" in c["concepto"]]
     assert len(difer) == 2 and all(c["ok"] and c["diff"] == 0.0 for c in difer)
+
+
+def test_extraccion_por_ia_del_contrato():
+    """La herramienta declara la extracción por IA del contrato (como ppe y la planificación): el servicio y el
+    frontend la activan genéricamente. Con un chat simulado, la fila extraída trae los datos de hecho y deja la
+    tasa vacía (es juicio del auditor con la referencial del BCE), por lo que la validación la marca como faltante."""
+    import json
+    from backend.app.aud.niif.ciclo import extraccion_ia as ex
+    assert m.EXTRACCION_DATASETS == ("contratos",)
+    assert "Banco Central" in m.EXTRACCION_INSTRUCCIONES["contratos"]
+    assert m.EXTRACCION_ENUMS["contratos"]["periodicidad"] == ["Mensual", "Trimestral", "Semestral", "Anual"]
+
+    class _Resp:
+        def __init__(self, c):
+            self.content, self.model = c, "falso"
+    fila = {"id": "C-01", "activo": "Oficina Quito", "inicio": "2024-07-01", "plazo": 24, "pago": 2400,
+            "periodicidad": "Mensual", "momento": "Final", "tasa": "", "clasif_pymes": ""}
+    chat = lambda messages, system=None: _Resp(json.dumps({"filas": [fila]}))
+    res = ex.extraer_filas(m._CONTRATOS, "Contrato de arrendamiento de la oficina de Quito…",
+                           instrucciones=m.EXTRACCION_INSTRUCCIONES["contratos"],
+                           enums=m.EXTRACCION_ENUMS["contratos"], chat=chat)
+    assert res["n"] == 1
+    row = res["rows"][0]
+    assert row["activo"] == "Oficina Quito" and row["plazo"] == 24 and row["periodicidad"] == "Mensual"
+    assert row["tasa"] == "" and row["clasif_pymes"] == ""          # la IA no inventa la tasa ni la clasificación
+    val = m.validar_filas("contratos", [row])
+    # faltan solo los campos que no vienen del contrato: la tasa (la fija el auditor con la del BCE) y el
+    # pasivo registrado (saldo del mayor); todo lo demás lo extrajo la IA del contrato.
+    assert not val["ok"] and {e["field"] for e in val["errors"]} == {"tasa", "pasivo_reg"}
