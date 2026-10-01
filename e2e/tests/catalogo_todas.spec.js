@@ -20,7 +20,7 @@ const PROCESADAS = ["PRUEBA_EJECUTADA", "RESULTADOS_ANALIZADOS", "EN_REVISION", 
 // nEjec = número de tarjetas de ejecución de cada config; primarias = 2 títulos
 // de tarjetas primarias que deben renderizar (procesoConfig.js).
 const TOOLS = [
-  { processor: "ppe_propiedad_planta", nombre: "Propiedad, Planta y Equipo", nEjec: 11, primarias: ["Auxiliar de Propiedad, Planta y Equipo", "Política de Vidas Útiles y Residuales"] },
+  { processor: "ppe_propiedad_planta", nombre: "Propiedad, Planta y Equipo", nEjec: 12, primarias: ["Variaciones de Cuentas (Sumaria)", "Libro Mayor de Activos Fijos"] },
   { processor: "propiedades_inversion", nombre: "Propiedades de Inversión", nEjec: 11, primarias: ["Registro de Propiedades de Inversión", "Escrituras y Certificados del Registro"] },
   { processor: "intangibles_goodwill", nombre: "Intangibles y Goodwill", nEjec: 9, primarias: ["Auxiliar de Intangibles y Goodwill", "Contratos de Licencias, Marcas y Patentes"] },
   { processor: "activos_biologicos", nombre: "Activos Biológicos", nEjec: 8, primarias: ["Anexo de Activos Biológicos por Lote", "Actas de Conteo y Registros de Campo"] },
