@@ -11,10 +11,37 @@ from __future__ import annotations
 import json
 import logging
 import os
+import socket
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+
+
+# --- Forzar IPv4 en la resolución de nombres (stdlib) ----------------------
+# El gateway de IA LOCAL (Funnel de Tailscale, *.ts.net) es dual-stack (A+AAAA)
+# y Render NO rutea IPv6: una resolución que elija IPv6 da "Network is
+# unreachable" y el proveedor local falla, cayendo a la nube. `media.py` ya
+# fuerza IPv4 para urllib3 (requests), pero ESTE módulo llama con urllib.request
+# (stdlib), que NO pasa por urllib3 → hay que forzarlo también a nivel socket.
+# Solo se toca la familia cuando el llamador no la fijó (AF_UNSPEC→AF_INET);
+# quien pida AF_INET6 explícito se respeta. Todos los proveedores (local y nube)
+# tienen IPv4, así que es seguro. Idempotente.
+def _forzar_ipv4_stdlib() -> None:
+    if getattr(socket, "_auditbrain_ipv4_forzado", False):
+        return
+    _orig = socket.getaddrinfo
+
+    def _ipv4(host, port, family=0, type=0, proto=0, flags=0):
+        if family == 0:  # AF_UNSPEC → forzar IPv4
+            family = socket.AF_INET
+        return _orig(host, port, family, type, proto, flags)
+
+    socket.getaddrinfo = _ipv4
+    socket._auditbrain_ipv4_forzado = True
+
+
+_forzar_ipv4_stdlib()
 
 
 class ProviderUnavailable(RuntimeError):
