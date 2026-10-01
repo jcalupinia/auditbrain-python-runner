@@ -173,10 +173,37 @@ lo que el parser entrega, con evidencia (archivo) y confianza. Import perezoso.
 Pruebas: `tests/test_ingesta_orquestador.py` (19 pruebas, con extractores falsos;
 no requiere dependencias pesadas). Total ingesta: **45 pruebas en verde**.
 
+## Fase 3 — Normalización (tipado/moneda/fechas/duplicados)
+
+Añade `normalizer.py`, determinista y sin IA.
+
+- **Moneda** (`normalizar_monto`): **reutiliza** el parser regional canónico del
+  repo (`obligaciones_fiscales/cedulas/base._parse_amount_sri`), que ya resuelve
+  formato US (`178,259.63`) y europeo (`178.259,63`), y envuelve el resultado en
+  `Decimal`. No se crea una tercera copia de esa heurística (regla
+  anti-duplicación del CLAUDE.md).
+- **Fechas** (`normalizar_fecha`): ISO `aaaa-mm-dd`, `dd/mm/aaaa` (preferencia
+  Ecuador), `aaaa/mm/dd`, "31 de enero de 2025". Fecha inválida → `None`.
+- **Tipado** (`inferir_tipo`, `normalizar_valor`): RUC (13 dígitos), fecha,
+  moneda/decimal, entero, booleano (sí/no…), porcentaje, texto.
+- **Campos** (`normalizar_campo`): completa `data_type` y `normalized_value`
+  desde `raw_value` sin tocar la confianza; si un valor crudo presente no se
+  puede normalizar, agrega advertencia (no se fuerza).
+- **Duplicados** (`detectar_duplicados`): grupos de índices de filas duplicadas
+  por clave (equivale a la primitiva `duplicados` del motor analítico; aquí
+  local y en proceso para la capa de ingesta, sin red).
+- **Dataset** (`normalizar_dataset`): normaliza los campos y, con
+  `claves_duplicado`, registra el resultado de duplicados en
+  `validation_results`/`warnings`.
+
+Semántica consistente con el motor analítico: `Decimal` para montos, nunca
+forzar un valor (lo no normalizable queda `None` y se advierte).
+
+Pruebas: `tests/test_ingesta_normalizador.py` (35 pruebas). Total ingesta:
+**80 pruebas en verde** (26 + 19 + 35) con Pydantic 2.8.2.
+
 ## Qué viene (fases siguientes, aún no implementadas)
 
-- **Fase 3** — Normalización (tipado/moneda/fechas/duplicados) apoyada en las
-  primitivas del motor analítico.
 - **Fase 4–6** — Cablear OCR a parsers, Confidence Engine en vivo, AI Semantic
   Resolver (IA solo ante ambigüedad).
 - **Fase 7+** — API `/api/v1/ingesta/*` y target real en `master_router`.

@@ -48,6 +48,15 @@ from backend.app.ingesta.orchestrator import (
     extractores_por_defecto,
     ingerir,
 )
+from backend.app.ingesta.normalizer import (
+    detectar_duplicados,
+    inferir_tipo,
+    normalizar_campo,
+    normalizar_dataset,
+    normalizar_fecha,
+    normalizar_monto,
+    normalizar_valor,
+)
 
 __all__ = [
     "CONTRATO_VERSION",
@@ -71,4 +80,11 @@ __all__ = [
     "Extractor",
     "extractores_por_defecto",
     "ingerir",
+    "detectar_duplicados",
+    "inferir_tipo",
+    "normalizar_campo",
+    "normalizar_dataset",
+    "normalizar_fecha",
+    "normalizar_monto",
+    "normalizar_valor",
 ]
