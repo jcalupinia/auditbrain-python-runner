@@ -264,7 +264,14 @@ def _politica_catalogo_viva(p: Prueba) -> dict:
     ya creadas. Para las herramientas del catálogo (procesador determinista) estas
     dos cosas se re-derivan de la definición viva del procesador y se superponen al
     leer y al validar. Son política del catálogo, no datos del encargo; el resto del
-    requerimiento (documento, propósito, dataset, componentes) queda intacto."""
+    requerimiento (documento, propósito, dataset, componentes) queda intacto.
+
+    Requerimientos «solo en la visita final»: un procesador puede declarar
+    `REQUERIDOS_SOLO_FINAL` (ids que son obligatorios únicamente en la visita final
+    del encargo). En la visita preliminar —o si la ficha aún no fija la visita—
+    quedan OPCIONALES para no bloquear el proceso; en la visita «Final» vuelven a ser
+    obligatorios. La visita sale del contexto del encargo congelado en la prueba
+    (`reg["engagement"]["visit"]`), así que no necesita la base de datos."""
     origen = getattr(p, "origen", "") or ""
     if not origen.startswith("proc:"):
         return {}
@@ -275,8 +282,17 @@ def _politica_catalogo_viva(p: Prueba) -> dict:
         reqs = mod.definicion().get("requests") or []
     except Exception:
         return {}
+    solo_final = set(getattr(mod, "REQUERIDOS_SOLO_FINAL", ()) or ())
+    visita = ((getattr(p, "registro", None) or {}).get("engagement") or {}).get("visit", "")
+    es_final = visita == "Final"
+
+    def _req(r: dict) -> bool:
+        if r["id"] in solo_final:
+            return es_final  # obligatorio solo en la visita final
+        return r.get("required") is not False
+
     return {r["id"]: {"formats": list(r["formats"]) if r.get("formats") else None,
-                      "required": r.get("required") is not False}
+                      "required": _req(r)}
             for r in reqs if r.get("id")}
 
 

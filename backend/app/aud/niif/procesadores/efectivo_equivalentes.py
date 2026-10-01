@@ -44,6 +44,14 @@ from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y fil
 VERSION = "efectivo_equivalentes 1.0"
 RUBRO = "CAJA_BANCOS"
 
+# Requerimientos obligatorios SOLO en la visita final del encargo. Los estados y
+# conciliaciones bancarias POSTERIORES al corte (RQ-004, ventana de depuración)
+# recién existen después de la fecha de corte: en la visita preliminar aún no se
+# dispone de ellos, así que no deben bloquear el proceso; en la visita final sí son
+# obligatorios. El overlay `servicio._politica_catalogo_viva` lo resuelve según la
+# visita de la ficha (`reg["engagement"]["visit"]`).
+REQUERIDOS_SOLO_FINAL = ("RQ-004",)
+
 DT, CP, NC, ND, OT = "Depósito en tránsito", "Cheque pendiente", "Nota de crédito", "Nota de débito", "Otra partida"
 BANCO, CAJA, INV = "Banco", "Caja", "Inversión"
 
