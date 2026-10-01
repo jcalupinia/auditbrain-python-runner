@@ -284,3 +284,32 @@ def test_estilos_conciliacion():
     for e in estilos:
         if e and e.get("sangria"):
             assert e["col"] == "Concepto"
+
+
+def test_libro_mayor_deriva_el_saldo_y_alimenta_la_conciliacion():
+    """El anexo Libro Mayor (RQ-011) deriva el saldo contable (Σ Debe − Σ Haber) por cuenta y,
+    cuando el auditor no fija el parámetro, alimenta la conciliación kardex–mayor."""
+    datasets = copy.deepcopy(E["datasets"])
+    datasets["mayor"] = [
+        {"cuenta": "1.1.08.01", "nombre": "Inventario mercaderías", "debe": 30000, "haber": 2000},  # 28.000
+        {"cuenta": "1.1.08.02", "nombre": "Inventario materia prima", "debe": 14000, "haber": 2000},  # 12.000
+    ]  # total del mayor = 40.000
+    params = {**E["parametros"], "saldoMayor": None}  # sin parámetro: debe tomar el total del mayor
+    res = m.ejecutar(datasets, params, E["corte"])
+    assert res["detalle"]["mayorDelLibro"] is True
+    assert res["detalle"]["mayorTotal"] == 40000.00
+    assert _t(res, "saldoMayor") == 40000.00
+    assert _t(res, "difKardexMayor") == 1000.00  # vk_t del ejemplo (41.000) − mayor (40.000)
+    codes = {e["code"] for e in res["exceptions"]}
+    assert "SIN_MAYOR" not in codes  # con mayor cargado ya no falta el saldo
+    assert "KARDEX_MAYOR" in codes
+
+
+def test_parametro_saldo_mayor_gana_sobre_el_libro_mayor():
+    """Si el auditor fija el parámetro «saldo del mayor», ese valor manda sobre el total del libro."""
+    datasets = copy.deepcopy(E["datasets"])
+    datasets["mayor"] = [{"cuenta": "x", "debe": 10000, "haber": 0}]
+    params = {**E["parametros"], "saldoMayor": 41300}
+    res = m.ejecutar(datasets, params, E["corte"])
+    assert _t(res, "saldoMayor") == 41300.00
+    assert res["detalle"]["mayorDelLibro"] is True  # el libro vino, pero el parámetro explícito prevalece

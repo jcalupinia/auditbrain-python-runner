@@ -109,8 +109,17 @@ CAMPOS = {
         campo("fecha_registro", "Fecha de registro contable", "date", alias=("fecha contable", "fecha asiento"), ejemplo="2025-12-30"),
         campo("importe", "Importe", "number", alias=("valor", "costo", "monto"), ejemplo=1500),
     ],
+    # Libro Mayor de las cuentas de inventario (puede traer un asiento por fila; el saldo
+    # contable por cuenta se deriva como Σ Debe − Σ Haber y alimenta la conciliación kardex–mayor).
+    "mayor": [
+        campo("cuenta", "Código de la cuenta contable", alias=("codigo", "cuenta", "cuenta contable", "cod", "codigo cuenta"), ejemplo="1.1.08.001.001"),
+        campo("nombre", "Nombre de la cuenta", requerido=False, alias=("detalle", "descripcion", "nombre cuenta", "concepto"), ejemplo="INVENTARIO PRODUCTOS"),
+        campo("debe", "Debe", "number", requerido=False, alias=("debito", "débito", "cargo", "cargos"), ejemplo=10363.22),
+        campo("haber", "Haber", "number", requerido=False, alias=("credito", "crédito", "abono", "abonos"), ejemplo=0),
+        campo("saldo", "Saldo", "number", requerido=False, alias=("saldo final", "saldo cuenta", "saldo contable"), ejemplo=10363.22),
+    ],
 }
-TIPOS = {"inventario": "inventario", "produccion": "produccion", "movimiento": "movimiento", "corte": "corte"}
+TIPOS = {"inventario": "inventario", "produccion": "produccion", "movimiento": "movimiento", "corte": "corte", "mayor": "mayor"}
 DATASETS = tuple(TIPOS)
 PRINCIPAL = "inventario"
 CONTROL = "valor_kardex"
@@ -165,7 +174,7 @@ def kind(dataset: str) -> str:
 
 
 def validar_filas(tipo: str, filas: list) -> dict:
-    return validar_campos(CAMPOS[tipo], filas, unico=None if tipo == "inventario" else "id")
+    return validar_campos(CAMPOS[tipo], filas, unico=None if tipo in ("inventario", "mayor") else "id")
 
 
 # --- cálculo -------------------------------------------------------------------
@@ -332,6 +341,21 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                        "efecto": "" if not err else ("Registrado en el ejercicio sin haber ocurrido" if pd_ == "Posterior"
                                                      else "Ocurrido en el ejercicio y registrado después")})
 
+    # Libro Mayor (opcional): un asiento por fila. El saldo contable por cuenta se deriva como
+    # Σ Debe − Σ Haber (incluye el saldo inicial si viene como fila). Si se cargó el mayor y el
+    # auditor NO fijó el parámetro, el total del mayor alimenta la conciliación kardex–mayor.
+    mayor_cuentas = []
+    for f in datasets.get("mayor") or []:
+        cta = _txt(f.get("cuenta"))
+        d, h = _opt(f.get("debe")) or 0.0, _opt(f.get("haber")) or 0.0
+        if not cta and d == 0.0 and h == 0.0:
+            continue
+        mayor_cuentas.append({"cuenta": cta or "(sin cuenta)", "nombre": _txt(f.get("nombre")), "neto": d - h})
+    mayor_total = round(sum(c["neto"] for c in mayor_cuentas), 2) if mayor_cuentas else None
+    mayor_del_libro = bool(mayor_cuentas)
+    if mayor_del_libro and p["saldoMayor"] is None:
+        p["saldoMayor"] = mayor_total
+
     # Totales (mismo orden de suma que Excel).
     S = lambda xs: sum(x for x in xs if x is not None)
     vk_t = S(i["vk"] for i in items)
@@ -481,7 +505,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             "exceptions": pr, "schedule": [],
             "detalle": {"corte": corte_a.isoformat(), "pymes": pymes, "edicion": edicion_pymes(p), "parametros": p, "tot": t, "conc": conc,
                         "items": [{k: iso(v) for k, v in i.items()} for i in items], "prod": prod, "mov": mov,
-                        "cortes": [{k: iso(v) for k, v in c.items()} for c in cortes]}}
+                        "cortes": [{k: iso(v) for k, v in c.items()} for c in cortes],
+                        "mayorDelLibro": mayor_del_libro, "mayorTotal": mayor_total, "mayorCuentas": mayor_cuentas}}
 
 
 # --- cédulas con fórmulas ----------------------------------------------------------
@@ -681,7 +706,9 @@ def hojas(res: dict) -> list[dict]:
         ["Tramo 1: % de provisión", p["obsPct1"], "Juicio del auditor con sustento"],
         ["Tramo 2: días sin movimiento (más de)", p["obsDias2"], "Ídem tramo 1"], ["Tramo 2: % de provisión", p["obsPct2"], "Ídem tramo 1"],
         ["Tramo 3: días sin movimiento (más de)", p["obsDias3"], "Ídem tramo 1"], ["Tramo 3: % de provisión", p["obsPct3"], "Ídem tramo 1"],
-        ["Saldo del inventario según el mayor", p["saldoMayor"], "Mayor contable (en blanco: se toma el kardex)"],
+        ["Saldo del inventario según el mayor", p["saldoMayor"],
+         (f"Derivado del Libro Mayor cargado (Σ Debe − Σ Haber de {len(d.get('mayorCuentas') or [])} cuenta(s); ver hoja de datos del Libro Mayor)"
+          if d.get("mayorDelLibro") else "Mayor contable (en blanco: se toma el kardex)")],
         ["Provisión registrada (VNR / obsolescencia)", p["provisionRegistrada"], "Mayor contable (en blanco: 0)"],
     ]
 
@@ -1181,6 +1208,10 @@ def definicion() -> dict:
             req("RQ-009", "Inventario de terceros o en consignación", None, "INV-01", "Excluir lo que no es de la entidad", formats=("xlsx", "pdf"), use="soporte", required=False),
             req("RQ-010", "Costeo estándar y lista de precios de los productos terminados que consumen las materias primas", None, "INV-09",
                 "Demostrar si el producto terminado se venderá al costo o por encima (excepción de NIC 2.32)", formats=("xlsx", "pdf"), use="soporte", required=False),
+            req("RQ-011", "Libro Mayor de las cuentas de inventario", "mayor", "INV-02", "Saldo contable para la conciliación kardex–mayor", required=False,
+                content="Un asiento por fila de las cuentas de inventario: código de la cuenta, nombre, debe y haber (y saldo si lo trae). "
+                        "El saldo contable por cuenta se deriva como Σ Debe − Σ Haber e incluye el saldo inicial si viene como fila; "
+                        "su total alimenta la conciliación kardex–mayor cuando no se fija el parámetro «saldo del mayor»."),
         ],
     }
 
