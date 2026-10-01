@@ -106,7 +106,7 @@ _VARIACIONES = [
 _MAYOR = [
     campo("cuenta", "Cuenta contable", alias=("cuenta", "codigo cuenta", "código cuenta"), ejemplo="12010206"),
     campo("descripcion", "Descripción de la cuenta", requerido=False, alias=("detalle", "nombre de la cuenta"), ejemplo="Equipo de computación"),
-    campo("fecha", "Fecha del movimiento", "date", requerido=False, alias=("fecha", "fecha asiento", "fecha comprobante"), ejemplo="2026-02-18"),
+    campo("fecha", "Fecha del movimiento", requerido=False, alias=("fecha", "fecha asiento", "fecha comprobante"), ejemplo="2026-02-18"),
     campo("comprobante", "N° de comprobante", requerido=False, alias=("comp", "comp.", "comprobante", "asiento"), ejemplo="120437"),
     campo("documento", "N° de documento", requerido=False, alias=("dmcto", "dmcto.", "documento", "doc"), ejemplo="49342"),
     campo("tipo", "Tipo de asiento", requerido=False, alias=("tp", "tipo", "tipo asiento"), ejemplo="VO"),
