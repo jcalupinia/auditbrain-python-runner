@@ -335,3 +335,21 @@ def test_estilos_estados_con_subtotales():
     rfw = hs["14_Roll_forward"]["estilos"]
     assert any((e or {}).get("tipo") == "control" for e in rfw)
     assert any((e or {}).get("sangria") for e in rfw)
+
+
+def test_comparativo_por_dias_y_guia_niif_sri():
+    """Fase 2: cédula 21 (recálculo por días, como el papel de trabajo) y 22 (guía NIIF vs SRI)."""
+    r = correr()
+    hs = {x["name"]: x for x in m.hojas(r)}
+    assert "21_Comparativo" in hs and "22_Guia_NIIF_SRI" in hs
+    a = _activo(r, "VEH-01")
+    # Método por días: diaria = 36.000 ÷ (5×365); 365 días del período → 7.200 (coincide con el método por meses).
+    assert m.r2(a["gasto_dias_anexo"]) == "7200.00"
+    assert a["dias_acum"] == 915  # 2023-07-01 → 2025-12-31, inclusive
+    assert a["acum_cliente"] == 16800  # dep. acum. inicial 10.800 + gasto del año 6.000
+    assert a["dif_acum_dias"] > 0  # el auditor recalcula más acumulada que la del cliente
+    # Guía: dos conceptos (gasto del período y dep. acumulada), cada uno con NIIF meses, NIIF días, SRI y Cliente.
+    guia = hs["22_Guia_NIIF_SRI"]["rows"]
+    assert len(guia) == 2 and all(len(row) == 5 for row in guia)
+    # El recálculo por días no altera el ajuste contable a resultados (sigue siendo el mismo).
+    assert r["totals"]["ajusteResultado"] == correr()["totals"]["ajusteResultado"]
