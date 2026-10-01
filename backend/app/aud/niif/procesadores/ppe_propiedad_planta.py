@@ -249,6 +249,8 @@ def _p(p, k):
 # Recálculo fiscal (SRI). Tasas máximas de depreciación por clase (RALRTI Art. 28 núm. 6) y tope de vehículos
 # (LRTI Art. 10 núm. 7). Son máximos legales; la base NIIF (vida útil) es independiente y la fija el auditor.
 TOPE_VEHICULO = 35000.0
+# Días por año para el método de depreciación por días (criterio del papel de trabajo del auditor y del SRI).
+DIAS_ANIO_VIDA = 365
 _TASA_FISCAL = {"vidaInmuebles": 0.05, "vidaInstalacionesMaquinaria": 0.10, "vidaMuebles": 0.10,
                 "vidaVehiculos": 0.20, "vidaEquipoComputo": 0.3333}
 
@@ -290,7 +292,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         a = {"id": _t(f.get("id")), "desc": _t(f.get("descripcion")), "clase": clase, "elemento": _t(f.get("elemento")),
              "uso": fecha(f.get("fecha_uso")) if _t(f.get("fecha_uso")) else None, "ci": _opc(f.get("costo_inicial")) or 0.0,
              "ad": _opc(f.get("adiciones")), "res": _opc(f.get("residual")), "vida": vida, "vidaPorClase": vida_por_clase, "metodo": _t(f.get("metodo")),
-             "dai": _opc(f.get("dep_acum_inicial")), "dreg": _opc(f.get("dep_registrada")), "det": _opc(f.get("deterioro_acum")),
+             "dai": _opc(f.get("dep_acum_inicial")), "dreg": _opc(f.get("dep_registrada")), "dac": _opc(f.get("dep_acum_cliente")),
+             "det": _opc(f.get("deterioro_acum")),
              "rec": _opc(f.get("importe_recuperable")), "rev": _opc(f.get("valor_revaluado")), "sup": _opc(f.get("superavit_previo")),
              "decPrev": _opc(f.get("decremento_previo")),
              "baja": fecha(f.get("fecha_baja")) if _t(f.get("fecha_baja")) else None, "prod": _opc(f.get("producto_baja")),
@@ -341,6 +344,44 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             a["dep_fiscal"] = a["base_fiscal"] * a["tasa_fiscal"] * factor
             a["exceso_veh"] = (a["costo"] - TOPE_VEHICULO) * a["tasa_fiscal"] * factor if sobre_tope else 0.0
             a["dif_fiscal"] = None if a["dep"] is None else a["dep"] - a["dep_fiscal"]
+
+    # Fase 2 · recálculo comparativo. Reproduce el método del papel de trabajo del auditor
+    # (depreciación diaria × días, como en las cédulas por clase del «DE») y compara tres
+    # criterios de vida útil por activo: anexo/NIIF, SRI (Art. 28) y política (se conecta en
+    # la lectura de la política). Aditivo: no altera dep/acum/ajusteResultado.
+    for a in activos:
+        # Depreciación acumulada del cliente al corte: la informada en el anexo si viene; si no,
+        # apertura (dep. acum. inicial) + gasto del año registrado por el cliente.
+        a["acum_cliente"] = a["dac"] if a.get("dac") is not None else ((a["dai"] or 0) + (a["dreg"] or 0))
+        # Días acumulados desde que el activo quedó disponible para uso hasta el corte (o la baja).
+        if a["uso"] is None:
+            a["dias_acum"] = 0
+        else:
+            hasta = min(a["baja"], corte_a) if a["baja"] else corte_a
+            a["dias_acum"] = max((hasta - a["uso"]).days + 1, 0)
+        # Vidas útiles en años por criterio.
+        a["vida_anios_anexo"] = (a["vida"] / 12) if a["vida"] else None     # NIIF: del anexo o la clase confirmada
+        _ts = a.get("tasa_fiscal")
+        a["vida_anios_sri"] = (1.0 / _ts) if _ts else None                  # SRI Art. 28: 1 / tasa máxima
+        a["vida_anios_pol"] = None                                          # política: se conecta en la fase 5
+
+        def _por_dias(vida_anios, base):
+            """Método por días: diaria = base / (vida años × 365); gasto del período y acumulada al corte,
+            topados por el importe depreciable y por la vida. Devuelve (diaria, gasto, acumulada)."""
+            if not vida_anios or vida_anios <= 0 or not base or base <= 0 or not _lineal(a["metodo"]):
+                return (None, None, None)
+            vida_dias = vida_anios * DIAS_ANIO_VIDA
+            diaria = base / vida_dias
+            gasto = min(diaria * a["dias"], base) if a["dias"] else 0.0
+            acum = min(diaria * min(a["dias_acum"], vida_dias), base)
+            return (diaria, gasto, acum)
+
+        a["diaria_anexo"], a["gasto_dias_anexo"], a["acum_dias_anexo"] = _por_dias(a["vida_anios_anexo"], a["depr"])
+        # SRI: base deducible (con tope de vehículos) y sin valor residual (criterio fiscal).
+        a["diaria_sri"], a["gasto_dias_sri"], a["acum_dias_sri"] = _por_dias(a["vida_anios_sri"], a.get("base_fiscal"))
+        # Diferencias del auditor (método días, criterio NIIF/anexo) frente al cliente.
+        a["dif_gasto_dias"] = None if a["gasto_dias_anexo"] is None or a["dreg"] is None else a["gasto_dias_anexo"] - a["dreg"]
+        a["dif_acum_dias"] = None if a["acum_dias_anexo"] is None else a["acum_dias_anexo"] - a["acum_cliente"]
 
     # Componentes: elementos con más de una fila.
     grupo = lambda a: a["elemento"] or a["id"]
@@ -721,6 +762,8 @@ CEDULAS = [
     ("16_Problemas", "Problemas encontrados"), ("17_Conclusion", "Indicadores y conclusión"),
     ("18_Lectura", "Lectura de resultados"), ("19_Resumen_estado", "Resumen por estado del activo"),
     ("20_Fiscal", "Recálculo fiscal (SRI Art. 28) y conciliación NIIF"),
+    ("21_Comparativo", "Recálculo comparativo por días (auditor vs cliente)"),
+    ("22_Guia_NIIF_SRI", "Guía comparativa NIIF vs SRI"),
 ]
 P = ref("02_Parametros")
 FIS = ref("20_Fiscal")
@@ -1441,6 +1484,52 @@ def hojas(res: dict) -> list[dict]:
                         "resultados."}
 
     fin = lambda nn: FILA0 + nn - 1
+    # 21 · recálculo comparativo por días (método del papel de trabajo del auditor) y comparación con el cliente.
+    comparativo = []
+    for a in A:
+        comparativo.append([
+            a["id"], a["clase"], a["costo"], a["depr"],
+            a.get("vida_anios_anexo"), a.get("vida_anios_sri"),
+            a.get("diaria_anexo"), a["dias"], a.get("gasto_dias_anexo"),
+            a.get("dias_acum"), a.get("acum_dias_anexo"),
+            a["dreg"], a.get("acum_cliente"),
+            a.get("dif_gasto_dias"), a.get("dif_acum_dias"),
+        ])
+    _sg = lambda k: sum(a.get(k) or 0 for a in A)
+    total_comp = ["TOTAL", "", suma("C", fin(n), sum(a["costo"] for a in A)), None, None, None, None, None,
+                  suma("I", fin(n), _sg("gasto_dias_anexo")), None, suma("K", fin(n), _sg("acum_dias_anexo")),
+                  suma("L", fin(n), _sg("dreg")), suma("M", fin(n), _sg("acum_cliente")),
+                  suma("N", fin(n), _sg("dif_gasto_dias")), suma("O", fin(n), _sg("dif_acum_dias"))] if n else None
+    ex_comp = {
+        "Valor a depreciar": "Costo menos valor residual (criterio NIIF).",
+        "Vida anexo (años)": "Vida útil del anexo del cliente (o la confirmada por el auditor para la clase).",
+        "Vida SRI (años)": "Vida útil tributaria: 1 ÷ tasa máxima del SRI (Art. 28), para contrastar.",
+        "Dep. diaria (anexo)": "Valor a depreciar ÷ (vida en años × 365): depreciación por día, como en el papel de trabajo.",
+        "Días gasto": "Días que el activo estuvo en uso dentro del ejercicio (del inicio o la activación, hasta el corte o la baja).",
+        "Gasto auditor (días)": "Depreciación diaria × días del período: gasto recalculado por el auditor por el método de días.",
+        "Días acumulados": "Días desde que el activo quedó disponible para uso hasta el corte (topados por la vida útil).",
+        "Dep. acum. auditor (días)": "Depreciación diaria × días acumulados: depreciación acumulada recalculada por el auditor.",
+        "Gasto cliente": "Depreciación del año registrada por el cliente (anexo).",
+        "Dep. acum. cliente": "Depreciación acumulada del cliente al corte (del anexo; si no viene, apertura + gasto del año).",
+        "Dif. gasto": "Gasto del auditor (días) menos el del cliente.",
+        "Dif. dep. acum.": "Depreciación acumulada del auditor (días) menos la del cliente.",
+    }
+
+    # 22 · guía comparativa NIIF vs SRI (totales por criterio) para orientar al auditor y al cliente.
+    guia = [
+        ["Gasto de depreciación del período", sum(a["dep"] for a in A if a["dep"] is not None),
+         _sg("gasto_dias_anexo"), _sg("gasto_dias_sri"), _sg("dreg")],
+        ["Depreciación acumulada al corte", sum(a["acum"] for a in A if a["acum"] is not None),
+         _sg("acum_dias_anexo"), _sg("acum_dias_sri"), _sg("acum_cliente")],
+    ]
+    ex_guia = {
+        "Concepto": "Comparación de la depreciación bajo cada criterio para orientar la decisión; no sustituye el ajuste contable (cédula 15).",
+        "NIIF (meses)": "Recálculo NIIF por meses con la vida útil del anexo/clase (cédula 04).",
+        "NIIF (días)": "Recálculo NIIF por días con la vida útil del anexo/clase (método del papel de trabajo).",
+        "SRI (días)": "Recálculo con la vida útil tributaria máxima del SRI (Art. 28), por días.",
+        "Cliente": "Cifras registradas por el cliente en el anexo.",
+    }
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=ex_resumen),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros, explica=ex_par),
@@ -1533,6 +1622,14 @@ def hojas(res: dict) -> list[dict]:
               suma("H", fin(n), sum(a["dif_fiscal"] for a in A if a.get("dif_fiscal") is not None)),
               suma("I", fin(n), sum(a.get("exceso_veh") or 0 for a in A)), ""],
              explica=ex_fiscal),
+        hoja("21_Comparativo", "Recálculo comparativo por días (auditor vs cliente)",
+             [["Código", "t"], ["Clase", "t"], ["Costo", "n"], ["Valor a depreciar", "n"], ["Vida anexo (años)", "n"],
+              ["Vida SRI (años)", "n"], ["Dep. diaria (anexo)", "n"], ["Días gasto", "i"], ["Gasto auditor (días)", "n"],
+              ["Días acumulados", "i"], ["Dep. acum. auditor (días)", "n"], ["Gasto cliente", "n"], ["Dep. acum. cliente", "n"],
+              ["Dif. gasto", "n"], ["Dif. dep. acum.", "n"]], comparativo, total_comp, explica=ex_comp),
+        hoja("22_Guia_NIIF_SRI", "Guía comparativa NIIF vs SRI",
+             [["Concepto", "t"], ["NIIF (meses)", "n"], ["NIIF (días)", "n"], ["SRI (días)", "n"], ["Cliente", "n"]],
+             guia, explica=ex_guia),
     ]
 
 
