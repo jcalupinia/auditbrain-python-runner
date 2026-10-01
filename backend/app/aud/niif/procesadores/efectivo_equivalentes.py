@@ -1302,11 +1302,11 @@ def definicion() -> dict:
                 content="Una fila por partida: N°, código de cuenta, tipo (depósito en tránsito, cheque pendiente, nota de crédito, nota de débito, otra), "
                         "referencia, fecha de origen, importe y fecha de liquidación en el estado bancario posterior."),
             req("RQ-003", "Conciliaciones y estados bancarios del mes de corte", None, "CAJ-02", "Soporte de saldos y partidas",
-                formats=_FORM_SOPORTE, use="soporte"),
+                formats=_FORM_SOPORTE, use="soporte", required=False),
             req("RQ-004", "Estados bancarios posteriores al corte (ventana de depuración)", None, "CAJ-03", "Liquidación posterior de las partidas",
                 formats=_FORM_SOPORTE, use="soporte"),
             req("RQ-005", "Respuestas de confirmación bancaria recibidas por el auditor", None, "CAJ-04", "Evidencia externa de saldos y restricciones",
-                formats=_FORM_SOPORTE_PDF, use="soporte"),
+                formats=_FORM_SOPORTE_PDF, use="soporte", required=False),
             req("RQ-006", "Contratos de garantía, pignoración, embargos o fideicomisos", None, "CAJ-06", "Sustento del efectivo restringido",
                 formats=_FORM_SOPORTE_DOC, use="soporte", required=False),
             req("RQ-007", "Certificados y contratos de inversiones presentadas como equivalentes", None, "CAJ-07", "Plazo, liquidez y riesgo",

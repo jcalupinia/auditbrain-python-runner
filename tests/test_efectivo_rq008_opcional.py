@@ -32,10 +32,21 @@ def test_rq008_no_bloquea_el_proceso():
                    for h in huecos), huecos
 
 
-def test_estados_y_confirmaciones_siguen_obligatorios():
-    # Solo política/arqueo se volvió opcional; el resto del soporte de conciliación no.
-    for rq in ("RQ-003", "RQ-004", "RQ-005"):
-        assert _req(rq).get("required") is not False, rq
+def test_soporte_de_conciliacion_es_opcional():
+    # Decisión del dueño (2026-10-01): RQ-003 (conciliaciones/estados del mes de
+    # corte, ya cargados en RQ-002/RQ-010) y RQ-005 (confirmaciones bancarias, que
+    # los bancos contestan mucho después) NO deben bloquear el proceso.
+    assert _req("RQ-003").get("required") is False
+    assert _req("RQ-005").get("required") is False
+
+
+def test_solo_el_anexo_es_obligatorio_siempre():
+    # Único requerimiento obligatorio en cualquier visita: el anexo de cuentas (RQ-001).
+    # RQ-004 es obligatorio solo en la visita final (ver test_efectivo_rq004_visita).
+    assert _req("RQ-001").get("required") is not False
+    for rq in ("RQ-002", "RQ-003", "RQ-005", "RQ-006", "RQ-007", "RQ-008",
+               "RQ-009", "RQ-010", "RQ-011", "RQ-012"):
+        assert _req(rq).get("required") is False, rq
 
 
 def test_prueba_vieja_hereda_rq008_opcional_por_overlay_vivo():
