@@ -83,6 +83,23 @@ ETIQUETAS_PARAM = {
     "mayorPrimaAnticipada": "Mayor: seguros pagados por anticipado al corte",
 }
 
+# Extracción por IA (opt-in, ver docs/niif/CONTRATO_PROCESADOR.md). Las pólizas suelen
+# llegar como PDF (incluso escaneado): al Procesar, el ciclo transcribe la póliza al
+# dataset «polizas» con el motor compartido (servidor local primero) y, si el PDF no
+# tiene capa de texto, cae a OCR (Google Vision). La IA solo transcribe lo explícito
+# (sin dato → celda vacía); el auditor revisa. Si no hay proveedor / OCR, se cae al
+# respaldo Excel/CSV. Los anexos de cálculo numéricos (activos) siguen siendo Excel/CSV.
+EXTRACCION_DATASETS = ("polizas",)
+EXTRACCION_INSTRUCCIONES = {
+    "polizas": (
+        "Transcribe UNA fila por póliza de seguros del documento. No inventes: si un dato no está, "
+        "deja la celda vacía. Números con punto decimal y sin separador de miles (700000, 7300.50); "
+        "fechas en formato AAAA-MM-DD. «vigencia_desde»/«vigencia_hasta» son el inicio y el fin de la "
+        "vigencia; «suma_total» es la suma asegurada total de la póliza y «prima_total» la prima. Si el "
+        "documento no menciona siniestros, deja esos campos vacíos."
+    ),
+}
+
 
 def kind(dataset: str) -> str:
     return TIPOS[dataset]
@@ -970,7 +987,8 @@ def definicion() -> dict:
         "requests": [
             req("RQ-001", "Maestro de activos asegurables con póliza, valor de referencia y suma asegurada", "activos", "INS-01",
                 "Población a cruzar con las pólizas", content=act),
-            req("RQ-002", "Detalle de pólizas vigentes y vencidas en el ejercicio", "polizas", "INS-02", "Vigencia, sumas, primas y siniestros", content=pol),
+            req("RQ-002", "Detalle de pólizas vigentes y vencidas en el ejercicio", "polizas", "INS-02", "Vigencia, sumas, primas y siniestros",
+                formats=("pdf", "xlsx", "csv"), content=pol),
             req("RQ-003", "Pólizas y endosos (condiciones particulares, deducibles)", None, "INS-04", "Sustento de sumas y deducibles", formats=("pdf",), use="soporte"),
             req("RQ-004", "Tasaciones o valores de reposición", None, "INS-03", "Sustento del valor de referencia", required=False, formats=("pdf", "xlsx"), use="soporte"),
             req("RQ-005", "Reclamos de siniestros y comunicaciones de la aseguradora", None, "INS-07", "Estado de los siniestros pendientes", required=False,

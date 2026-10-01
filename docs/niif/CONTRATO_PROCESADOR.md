@@ -55,6 +55,34 @@ REF_PROBLEMAS = {...}          # de qué celda sale el importe de cada problema
 
 `PANEL` y `REF_PROBLEMAS` son **obligatorios**: se explican en «Lo que exige el papel de trabajo».
 
+### Extracción por IA de los documentos (opcional, opt-in)
+
+Si un requerimiento del procesador llega como **PDF o Word** (pólizas, facturas,
+notas de crédito, cartas, informes) en vez de Excel/CSV, el módulo puede pedir que
+la plataforma lo **transcriba con IA** al dataset. Es opt-in: se declara la tupla
+
+```python
+EXTRACCION_DATASETS = ("<dataset_pdf>", ...)   # datasets que se extraen de PDF/Word
+EXTRACCION_ENUMS = {"<dataset>": {"<campo>": ["opción", ...]}}       # opcional
+EXTRACCION_INSTRUCCIONES = {"<dataset>": "pista en español para el modelo"}  # opcional
+```
+
+- Motor genérico: `ciclo/extraccion_ia.py` (`extraer_filas`, `texto_de_documento`),
+  esquema derivado de los `CAMPOS` del dataset. **La IA solo transcribe lo explícito**
+  (sin dato → celda vacía, regla M22); nunca calcula. Proveedor = cadena compartida
+  `chat/providers.py` (servidor local primero).
+- Auto-extracción al **Procesar** (`map_validate` → `servicio._auto_extraer_ia`): los
+  PDF/Word sin extracción se leen solos y quedan `auto=True, revisado=False` con aviso
+  de revisión; el botón «Extraer con IA» permite revisar antes.
+- **OCR de documentos escaneados (pólizas fotografiadas/sin capa de texto):**
+  `texto_de_documento` cae a `utils/ocr.extract_text_smart`/`ocr_pdf_bytes` (Google
+  Vision) cuando pdfplumber/pypdf no obtienen texto. Degrada con elegancia: sin
+  `GOOGLE_APPLICATION_CREDENTIALS_JSON` (o sin `google-cloud-vision`), el OCR se omite
+  y se cae al respaldo Excel/CSV con el aviso de siempre; nunca crashea.
+- `NIIF_EXTRACCION_ENABLED=false` apaga toda la extracción por IA (respaldo Excel/CSV).
+- Un procesador que **no** declara `EXTRACCION_DATASETS` ignora todo esto: sus
+  requerimientos se suben como Excel/CSV. Prueba del puente: `tests/test_aud_extraccion_ia.py`.
+
 ### `ejecutar(datasets, parametros, corte)`
 - `datasets[ds]` = lista de filas `{campo: texto, "_row": n}` (texto crudo: usar `num()`/`fecha()` de base).
 - `parametros` trae los de `PARAMETROS` más `_marco` («NIIF completas» / «NIIF para las PYMES») y `_edicion`

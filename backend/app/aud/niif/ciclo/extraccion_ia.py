@@ -105,13 +105,40 @@ def _texto_pdf(datos: bytes) -> str:
     except Exception as e:  # pragma: no cover - depende de pdfplumber en runtime
         log.warning("pdfplumber no pudo leer el PDF (%s); intento pypdf", e)
     # Respaldo: pypdf.
+    texto = ""
     try:
         from pypdf import PdfReader
 
         lector = PdfReader(io.BytesIO(datos))
-        return "\n".join((p.extract_text() or "") for p in lector.pages)
+        texto = "\n".join((p.extract_text() or "") for p in lector.pages)
     except Exception as e:  # pragma: no cover
-        raise ExtraccionError(f"No se pudo leer el PDF: {e}") from e
+        log.warning("pypdf no pudo leer el PDF (%s); intento OCR", e)
+    if texto.strip():
+        return texto
+    # Respaldo final: PDF escaneado (sin capa de texto) → OCR, si está disponible.
+    # Degrada con elegancia: si OCR no está configurado o falla, devuelve lo que
+    # haya (vacío) y texto_de_documento levanta el aviso de «súbalo con capa de
+    # texto o transcriba la plantilla».
+    return _texto_pdf_ocr(datos) or texto
+
+
+def _texto_pdf_ocr(datos: bytes) -> str:
+    """Intenta OCR (Google Vision) sobre un PDF escaneado. Nunca levanta: si el
+    OCR no está disponible o falla, devuelve cadena vacía para que el flujo caiga
+    al respaldo Excel/CSV del ciclo."""
+    try:
+        from backend.app.utils import ocr
+    except Exception as e:  # pragma: no cover - import defensivo
+        log.warning("No se pudo importar el módulo OCR (%s)", e)
+        return ""
+    if not ocr.is_available():
+        return ""
+    try:
+        resultado = ocr.ocr_pdf_bytes(datos)
+    except Exception as e:  # pragma: no cover - depende de la API de Vision
+        log.warning("OCR no pudo leer el PDF escaneado (%s)", e)
+        return ""
+    return (resultado.get("text") or "").strip()
 
 
 def _texto_docx(datos: bytes) -> str:
