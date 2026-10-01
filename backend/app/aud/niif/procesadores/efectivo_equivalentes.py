@@ -1304,7 +1304,7 @@ def definicion() -> dict:
             req("RQ-007", "Certificados y contratos de inversiones presentadas como equivalentes", None, "CAJ-07", "Plazo, liquidez y riesgo",
                 formats=_FORM_SOPORTE_PDF, use="soporte", required=False),
             req("RQ-008", "Política contable de efectivo y equivalentes y actas de arqueo", None, "CAJ-08", "Composición (NIC 7.46) y arqueos de caja",
-                formats=_FORM_SOPORTE_DOC, use="soporte"),
+                formats=_FORM_SOPORTE_DOC, use="soporte", required=False),
             req("RQ-009", "Libro mayor (auxiliar de bancos) del período", "libro_mayor", "CAJ-01",
                 "Cuadre de la Sumaria con el mayor y armado del movimiento del papel", required=False,
                 formats=_FORM_DATOS,
