@@ -186,9 +186,70 @@ def _prompt(campos: list, instrucciones: str, contexto: str, enums: dict, texto:
     return "\n".join(partes)
 
 
+def _salvar_filas(texto: str) -> list:
+    """Rescata los objetos de fila de un texto con JSON MAL FORMADO.
+
+    Los modelos locales (gpt-oss, etc.) a veces devuelven un JSON con un error de
+    sintaxis menor —coma faltante entre dos filas, salida truncada a mitad de la
+    última fila— que hace fallar `json.loads` entero y perder TODAS las filas,
+    aunque casi todas estuvieran bien. Esto escanea el array ``"filas"`` y extrae
+    cada bloque ``{...}`` balanceado por separado (respetando las comillas y los
+    escapes), parsea cada uno de forma independiente y descarta solo el que esté
+    roto. Así una coma faltante o un corte al final cuestan a lo sumo UNA fila, no
+    la extracción completa.
+    """
+    # Empezar dentro del array de "filas" si existe; si no, desde el primer '['.
+    m = re.search(r'"filas"\s*:\s*\[', texto)
+    if m:
+        inicio = m.end()
+    else:
+        corchete = texto.find("[")
+        inicio = corchete + 1 if corchete != -1 else 0
+
+    filas: list = []
+    i, n = inicio, len(texto)
+    while i < n:
+        if texto[i] != "{":
+            if texto[i] == "]":  # fin del array de filas
+                break
+            i += 1
+            continue
+        # Escanear desde '{' hasta su '}' balanceado, respetando strings.
+        depth, en_str, escape, j = 0, False, False, i
+        while j < n:
+            c = texto[j]
+            if en_str:
+                if escape:
+                    escape = False
+                elif c == "\\":
+                    escape = True
+                elif c == '"':
+                    en_str = False
+            elif c == '"':
+                en_str = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        if depth != 0 or j >= n:
+            break  # bloque no balanceado (truncado): no hay más filas rescatables
+        try:
+            obj = json.loads(texto[i:j + 1])
+            if isinstance(obj, dict):
+                filas.append(obj)
+        except json.JSONDecodeError:
+            pass  # fila rota: se descarta solo ella
+        i = j + 1
+    return filas
+
+
 def _json_de_texto(texto: str) -> dict:
     """Extrae el objeto JSON de la respuesta del modelo, tolerando cercas de código
-    y texto alrededor."""
+    y texto alrededor. Si el JSON está mal formado (coma faltante, truncado),
+    rescata las filas válidas una por una en vez de perder toda la extracción."""
     t = (texto or "").strip()
     # Quitar cercas ```json ... ```
     m = re.search(r"```(?:json)?\s*(.+?)```", t, re.DOTALL)
@@ -198,7 +259,16 @@ def _json_de_texto(texto: str) -> dict:
     ini, fin = t.find("{"), t.rfind("}")
     if ini != -1 and fin != -1 and fin > ini:
         t = t[ini:fin + 1]
-    return json.loads(t)
+    try:
+        return json.loads(t)
+    except json.JSONDecodeError:
+        # Rescate: el modelo devolvió JSON con un error de sintaxis. Salvar las
+        # filas que sí se puedan leer en lugar de fallar toda la extracción.
+        filas = _salvar_filas(t)
+        if filas:
+            log.warning("JSON de la IA mal formado; se rescataron %d filas válidas.", len(filas))
+            return {"filas": filas}
+        raise
 
 
 # --------------------------------------------------------------------------- #

@@ -142,6 +142,58 @@ def test_respuesta_no_json_falla():
 
 
 # --------------------------------------------------------------------------- #
+#  Rescate de JSON mal formado (modelo local)                                  #
+# --------------------------------------------------------------------------- #
+def test_salvar_filas_con_coma_faltante_entre_objetos():
+    """El error real del cliente: «Expecting ',' delimiter». El modelo olvidó la
+    coma entre dos filas; se deben rescatar AMBAS en vez de perder todo."""
+    malo = '{"filas": [{"id": "R01", "hallazgo": "x"} {"id": "R02", "hallazgo": "y"}]}'
+    import json as _json
+    with pytest.raises(_json.JSONDecodeError):
+        _json.loads(malo)  # confirma que es el caso que rompía
+    filas = ex._salvar_filas(malo)
+    assert [f["id"] for f in filas] == ["R01", "R02"]
+
+
+def test_salvar_filas_con_json_truncado():
+    """Salida cortada a mitad de la última fila: se rescatan las completas y se
+    descarta solo la incompleta."""
+    truncado = '{"filas": [{"id": "R01", "hallazgo": "ok"}, {"id": "R02", "hallazgo": "a medi'
+    filas = ex._salvar_filas(truncado)
+    assert [f["id"] for f in filas] == ["R01"]
+
+
+def test_salvar_filas_respeta_llaves_dentro_de_strings():
+    """Una llave '}' dentro del texto de un campo no debe cortar el objeto."""
+    con_llave = '{"filas": [{"id": "R01", "hallazgo": "usa {llaves} en el texto"}]}'
+    filas = ex._salvar_filas(con_llave)
+    assert filas == [{"id": "R01", "hallazgo": "usa {llaves} en el texto"}]
+
+
+def test_extraer_rescata_filas_de_json_con_coma_faltante():
+    """De punta a punta: el chat devuelve JSON mal formado y la extracción
+    recupera las filas válidas y las valida contra el procesador."""
+    contenido = (
+        '{"filas": ['
+        '{"id": "R01", "proceso": "Inventarios", "hallazgo": "Sin tomas físicas."} '  # ← sin coma
+        '{"id": "R02", "proceso": "Tesorería", "hallazgo": "Conciliaciones sin revisar."}'
+        ']}'
+    )
+    out = ex.extraer_filas(m.CAMPOS["carta_control_interno"], "t", chat=_ChatFalso(content=contenido))
+    assert out["n"] == 2
+    assert [r["id"] for r in out["rows"]] == ["R01", "R02"]
+    v = m.validar_filas("carta_control_interno", out["rows"])
+    assert v["ok"], v["errors"]
+
+
+def test_json_irrescatable_sigue_fallando():
+    """Si no hay ninguna fila rescatable, la extracción falla como antes."""
+    with pytest.raises(ex.ExtraccionError):
+        ex.extraer_filas(m.CAMPOS["carta_control_interno"], "t",
+                         chat=_ChatFalso(content='{"filas": [esto no es json]}'))
+
+
+# --------------------------------------------------------------------------- #
 #  Degradación elegante                                                        #
 # --------------------------------------------------------------------------- #
 def test_sin_proveedor_no_disponible(monkeypatch):
