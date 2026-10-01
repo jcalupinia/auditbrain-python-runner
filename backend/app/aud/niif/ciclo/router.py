@@ -139,7 +139,7 @@ def leer(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(req
     todos = servicio.archivos(db, p.id)
     lista = [a for a in todos if a.clase == "source"]
     papeles = [a for a in todos if a.clase == "workpaper"]
-    reqs = p.registro.get("requests") or []
+    reqs = servicio.requests_vivos(p)
     docs = [{"id": a.id, "requestId": a.requerimiento, "component": a.componente} for a in lista]
     rechazados = [a.id for a in lista if a.estado == "rechazado"]
     return {
