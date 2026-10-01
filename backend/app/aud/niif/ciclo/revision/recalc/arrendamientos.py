@@ -49,6 +49,58 @@ def _contratos(run: dict) -> list:
     return run.get("rows") or []
 
 
+def _dep_acum(t: float, roi: float, md: float, ev) -> float:
+    """Depreciación acumulada a ``t`` meses (lineal). Segunda implementación, independiente del procesador."""
+    if not md:
+        return 0.0
+    if not ev:
+        return roi * min(t, md) / md
+    me, aj, md2 = ev.get("me") or 0, ev.get("ajuste") or 0, ev.get("md2") or md
+    if t <= me:
+        return roi * min(t, md) / md
+    return roi * min(me, md) / md + (roi * (1 - min(me, md) / md) + aj) * min(t - me, md2 - me) / (md2 - me)
+
+
+def _idiferido_cross(cs: list) -> list:
+    """Re-deriva la generación y la reversión del impuesto diferido (en bruto, sobre la vida del contrato)
+    a partir de la tabla de amortización (interés y canon) y una depreciación lineal recalculada aparte, y
+    la coteja contra lo que declaró el procesador en ``c["idiferido"]``. Si el detalle no trae idiferido o
+    tabla, no agrega componentes (robusto)."""
+    gen_rec = rev_rec = gen_dec = rev_dec = 0.0
+    hay = False
+    for c in cs:
+        if not isinstance(c, dict):
+            continue
+        idf = c.get("idiferido")
+        tabla = c.get("tabla") or []
+        if not idf or not tabla:
+            continue
+        hay = True
+        roi = _num(c.get("activo_ini")) or 0.0
+        md = _num(c.get("md")) or 0.0
+        m = _num(c.get("m")) or 1.0
+        ev = c.get("ev")
+        for x in tabla:
+            j = _num(x.get("j")) or 0
+            dep = _dep_acum(j * m, roi, md, ev) - _dep_acum((j - 1) * m, roi, md, ev)
+            dif = dep + (_num(x.get("interes")) or 0.0) - (_num(x.get("pago")) or 0.0)
+            if dif > 0:
+                gen_rec += dif
+            else:
+                rev_rec += dif
+        gen_dec += _num(idf.get("gen")) or 0.0
+        rev_dec += _num(idf.get("rev")) or 0.0
+    if not hay:
+        return []
+    out = []
+    for concepto, dec, rec in (("Generación de diferencias temporarias (bruto, vida del contrato)", gen_dec, round(gen_rec, 2)),
+                               ("Reversión de diferencias temporarias (bruto, vida del contrato)", rev_dec, round(rev_rec, 2))):
+        dc = _dif(dec, rec)
+        out.append({"concepto": concepto, "declarado": round(dec, 2) if dec is not None else None,
+                    "recalculado": rec, "diff": dc, "ok": dc is not None and dc <= TOL_RECALCULO})
+    return out
+
+
 def recalcular(run: dict) -> dict:
     tot = run.get("totals") or {}
     cs = _contratos(run)
@@ -72,6 +124,8 @@ def recalcular(run: dict) -> dict:
         dc = _dif(dec, rec)
         comps.append({"concepto": concepto, "declarado": dec, "recalculado": rec,
                       "diff": dc, "ok": dc is not None and dc <= TOL_RECALCULO})
+
+    comps += _idiferido_cross(cs)  # cruce independiente del impuesto diferido (NIC 12)
 
     return {
         "etiqueta": "Ajuste propuesto al pasivo (recalculado − registrado)",

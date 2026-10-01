@@ -676,6 +676,7 @@ CEDULAS = [
     ("15_Conciliacion", "Conciliación y ajuste"), ("16_Problemas", "Problemas encontrados"),
     ("17_Conclusion", "Indicadores y conclusión"), ("18_Lectura", "Lectura de resultados"),
     ("19_Impuesto_Diferido", "Impuesto diferido (NIC 12)"),
+    ("20_Conciliacion_F101", "Conciliación F-101 y asiento"),
 ]
 P = ref("02_Parametros")
 CT, ID, PL, MI, PG, RE, TA, PC, DU, GL, VA = (ref(n) for n in ("03_Contratos", "04_Identificacion", "05_Plazo", "06_Medicion_inicial",
@@ -1434,9 +1435,41 @@ def hojas(res: dict) -> list[dict]:
     total_idf = (["TOTAL", None, Si("C", tot_idf["gasto"]), Si("D", tot_idf["canon"]), Si("E", tot_idf["dif"]),
                   Si("F", tot_idf["gen"]), Si("G", tot_idf["rev"]), None, Si("I", tot_idf["idg"]), Si("J", tot_idf["idr"]),
                   Si("K", tot_idf["neto"]), None] if idiferido_rows else None)
+    n_idf_real = len(idiferido_rows)
     if not idiferido_rows:
         idiferido_rows = [["— Sin contratos capitalizados: el gasto contable es el deducible, no hay diferencia temporaria "
                            "(NIC 12 / Secc. 29) —"] + [None] * 11]
+
+    # 20 · conciliación F-101 y asiento del impuesto diferido (año del corte).
+    IDF = ref("19_Impuesto_Diferido")
+    a_idf, b_idf = FILA0, FILA0 + max(n_idf_real, 1) - 1
+    IB = f"{IDF}$B${a_idf}:$B${b_idf}"
+    II, IJ, IK = (f"{IDF}${col}${a_idf}:${col}${b_idf}" for col in ("I", "J", "K"))
+    corte_ref = f"{P}$B${PAR['corte']}"
+    corte_y = int(d["corte"][:4])
+    tfr = p["tarifaIR"] / 100
+    gen_cy = sum((c["idiferido"]["anios"].get(corte_y, {}).get("gen", 0.0)) for c in cs if c.get("idiferido")) * tfr
+    rev_cy = sum((c["idiferido"]["anios"].get(corte_y, {}).get("rev", 0.0)) for c in cs if c.get("idiferido")) * tfr
+    neto_cy = gen_cy + rev_cy
+    saldo_cy = sum(sum(a["dif"] for y, a in c["idiferido"]["anios"].items() if y <= corte_y) * c["idiferido"]["tarifa"]
+                   for c in cs if c.get("idiferido"))
+    r0 = FILA0
+    if neto_cy >= 0:
+        cta_d, cta_h, mf = "Dr. Activo por impuesto diferido", "Cr. Ingreso por impuesto a la renta diferido", f"MAX(C{r0 + 2},0)"
+    else:
+        cta_d, cta_h, mf = "Dr. Gasto por impuesto a la renta diferido", "Cr. Activo por impuesto diferido", f"-MIN(C{r0 + 2},0)"
+    monto_asiento = abs(neto_cy)
+    concil_rows = [
+        ["Impuesto diferido generado en el ejercicio (gasto no deducible temporario)", "1114",
+         fx(f"SUMIFS({II},{IB},YEAR({corte_ref}))", gen_cy), None, None],
+        ["Impuesto diferido revertido en el ejercicio", "1115", fx(f"SUMIFS({IJ},{IB},YEAR({corte_ref}))", rev_cy), None, None],
+        ["Efecto neto en resultados: ingreso/(gasto) por impuesto a la renta diferido", "889",
+         fx(f"C{r0}+C{r0 + 1}", neto_cy), None, None],
+        ["Saldo del activo/(pasivo) por impuesto diferido al corte", "",
+         fx(f'SUMIFS({IK},{IB},"<="&YEAR({corte_ref}))', saldo_cy), None, None],
+        [cta_d, "Asiento del ejercicio", None, fx(mf, monto_asiento), None],
+        [cta_h, "", None, None, fx(mf, monto_asiento)],
+    ]
 
     t = d["totales"]
     fin = FILA0 + N - 1
@@ -1623,6 +1656,17 @@ def hojas(res: dict) -> list[dict]:
                      "(ingreso/gasto por impuesto diferido). Casillero 889 del F-101. Sobre la vida del contrato suma cero.",
                  "Saldo activo/(pasivo) por impuesto diferido": "Diferencia temporaria acumulada hasta el año, por la tarifa: es el saldo "
                      "del activo (o pasivo) por impuesto diferido en el balance al cierre de ese año.",
+             }),
+        hoja("20_Conciliacion_F101", "Conciliación F-101 y asiento",
+             [["Concepto", "t"], ["Casillero F-101", "t"], ["Importe", n_], ["Debe", n_], ["Haber", n_]], concil_rows,
+             explica={
+                 "Importe": "Para el año del corte (hoja 02): la generación (casillero 1114) y la reversión (casillero 1115) suman de la "
+                     "hoja 19 el impuesto diferido generado y revertido de ese año; el efecto neto (casillero 889) es su suma; y el saldo "
+                     "acumula el efecto neto de todos los años hasta el corte.",
+                 "Debe": "Asiento sugerido del ejercicio: si el efecto neto es una generación, debita el activo por impuesto diferido; si "
+                     "es una reversión, debita el gasto por impuesto a la renta diferido. Toma el importe del efecto neto del año.",
+                 "Haber": "Contrapartida del asiento: si es una generación, acredita el ingreso por impuesto a la renta diferido; si es "
+                     "una reversión, acredita el activo por impuesto diferido. Toma el importe del efecto neto del año.",
              }),
     ]
 

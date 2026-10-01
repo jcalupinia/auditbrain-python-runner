@@ -312,3 +312,31 @@ def test_impuesto_diferido_solo_en_capitalizados():
             assert c["idiferido"] is not None and "anios" in c["idiferido"]
         else:
             assert c["idiferido"] is None
+
+
+def test_conciliacion_f101_y_asiento():
+    """Cédula 20: para el año del corte traslada generación (1114), reversión (1115), efecto neto (889)
+    y el saldo del activo por impuesto diferido, con un asiento cuadrado (Debe = Haber)."""
+    ds = {"contratos": [m._k("Q24", "Oficinas Quito", "2023-07-01", "24", "2400", "Mensual", "8.12", "0")]}
+    res = m.ejecutar(ds, {**m.PARAMETROS, "_marco": "NIIF completas"}, "2024-12-31")  # corte 2024
+    h = next(x for x in m.hojas(res) if x["name"] == "20_Conciliacion_F101")
+    val = lambda celda: celda["v"] if isinstance(celda, dict) else celda
+    filas = {fila[1]: fila for fila in h["rows"]}            # por casillero
+    assert round(val(filas["1114"][2]), 2) == 69.66          # generación 2024
+    assert round(val(filas["1115"][2]), 2) == -64.24         # reversión 2024
+    assert round(val(filas["889"][2]), 2) == 5.42            # efecto neto 2024
+    saldo = next(fila for fila in h["rows"] if fila[0].startswith("Saldo"))
+    assert round(val(saldo[2]), 2) == 203.68                 # activo por impuesto diferido al corte
+    # asiento cuadrado: el Debe de una fila iguala el Haber de otra
+    debe = [val(fila[3]) for fila in h["rows"] if isinstance(fila[3], dict)]
+    haber = [val(fila[4]) for fila in h["rows"] if isinstance(fila[4], dict)]
+    assert round(sum(debe), 2) == round(sum(haber), 2) == 5.42
+
+
+def test_recalc_cruza_el_impuesto_diferido():
+    """El recálculo del revisor re-deriva generación y reversión del diferido (segunda implementación) y
+    coincide con el motor."""
+    from backend.app.aud.niif.ciclo.revision.recalc import arrendamientos as rc
+    r = rc.recalcular(_run())
+    difer = [c for c in r["componentes"] if "diferencias temporarias" in c["concepto"]]
+    assert len(difer) == 2 and all(c["ok"] and c["diff"] == 0.0 for c in difer)
