@@ -289,20 +289,37 @@ def _log_provider_failure(provider: str, exc: "ProviderUnavailable") -> None:
         )
 
 
+def _nota_local(fallos: dict) -> str:
+    """Si el servidor LOCAL estaba en la cadena y falló por algo que NO es
+    saldo/cuota (no responde, modelo inexistente, URL mala), lo explica aparte:
+    el local no tiene «saldo», así que meterlo en ese saco oculta la causa real
+    y hace creer que el problema es de la nube. Devuelve "" si no aplica."""
+    exc = fallos.get("local")
+    if exc is None or getattr(exc, "billing", False):
+        return ""
+    return (
+        " El servidor de IA local (primero en la cadena) NO se usó porque falló: "
+        f"{exc}. Revisa en Render que LOCAL_LLM_BASE_URL sea alcanzable (termina en /v1) "
+        "y que LOCAL_LLM_MODEL sea exactamente el modelo que sirve tu gateway."
+    )
+
+
 def _exhausted_chain_error(
-    chain: list[str], last_exc: "ProviderUnavailable", saw_billing: bool
+    chain: list[str], last_exc: "ProviderUnavailable", saw_billing: bool,
+    fallos: dict | None = None,
 ) -> "ProviderUnavailable":
     """Excepción a propagar cuando TODA la cadena falló.
 
     Si el bloqueo fue por saldo/cuota, devuelve un error accionable acorde a
     M16 (no depender de un proveedor de pago) en vez del texto crudo del
     proveedor ("Your credit balance is too low…"). En cualquier otro caso
-    conserva la última excepción real.
-    """
+    conserva la última excepción real. Cuando el servidor local falló por un
+    motivo distinto al saldo, lo explica aparte para no disfrazarlo de «sin
+    saldo»."""
     if saw_billing:
         return ProviderUnavailable(
             "Todos los proveedores LLM configurados están sin saldo o cuota "
-            f"(se intentaron: {', '.join(chain)}). Para no depender del saldo "
+            f"(se intentaron: {', '.join(chain)}).{_nota_local(fallos or {})} Para no depender del saldo "
             "de un proveedor de pago, configura uno gratuito o local por "
             f"delante en Render: {_FREE_FALLBACKS}. Último detalle: {last_exc}",
             billing=True,
@@ -333,16 +350,18 @@ def chat_complete(
         )
     last_exc: ProviderUnavailable | None = None
     saw_billing = False
+    fallos: dict[str, ProviderUnavailable] = {}
     for provider in chain:
         try:
             return _dispatch(provider, messages, system)
         except ProviderUnavailable as exc:
             last_exc = exc
+            fallos[provider] = exc
             saw_billing = saw_billing or getattr(exc, "billing", False)
             _log_provider_failure(provider, exc)
             continue
     assert last_exc is not None
-    raise _exhausted_chain_error(chain, last_exc, saw_billing)
+    raise _exhausted_chain_error(chain, last_exc, saw_billing, fallos)
 
 
 def _http_post(url: str, headers: dict[str, str], payload: dict, timeout: int = 60) -> dict:
@@ -700,6 +719,7 @@ def stream_chat_complete(messages, system=None):
         )
     last_exc: ProviderUnavailable | None = None
     saw_billing = False
+    fallos: dict[str, ProviderUnavailable] = {}
     for provider in chain:
         if provider not in _STREAMABLE:
             last_exc = ProviderUnavailable(f"{provider} no streamea (usar fallback no-streaming)")
@@ -712,6 +732,7 @@ def stream_chat_complete(messages, system=None):
             return  # el proveedor terminó correctamente
         except ProviderUnavailable as exc:
             last_exc = exc
+            fallos[provider] = exc
             saw_billing = saw_billing or getattr(exc, "billing", False)
             if emitted:
                 raise  # ya se entregó texto: no hay failover transparente
@@ -722,4 +743,4 @@ def stream_chat_complete(messages, system=None):
             continue
     if last_exc is None:
         raise ProviderUnavailable("Streaming no disponible con la configuración actual.")
-    raise _exhausted_chain_error(chain, last_exc, saw_billing)
+    raise _exhausted_chain_error(chain, last_exc, saw_billing, fallos)
