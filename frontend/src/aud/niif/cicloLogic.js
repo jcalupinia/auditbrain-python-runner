@@ -297,6 +297,28 @@ export function pasoPreparar(p, taxScope = "", conforme = false) {
 export const archivosDe = (p, requerimiento) =>
   (p.archivos || []).filter((a) => a.requerimiento === requerimiento && a.estado !== "rechazado" && esTabular(a.nombre));
 
+// Sube varios archivos uno por uno (el backend recibe un archivo por request)
+// encadenando la revisión de la prueba. Cada subida incrementa la revisión en el
+// servidor y la devuelve en la respuesta; la siguiente subida debe usar esa nueva
+// revisión. Si se mandara siempre la inicial, del segundo archivo en adelante el
+// backend respondería «La prueba cambió mientras la editaba». Un archivo que falla
+// no cambia la revisión server-side, así que se conserva para los siguientes.
+// `subir(revision, archivo) → Promise<{revision?}>`. Devuelve la última revisión
+// vista y la lista de mensajes de fallo (uno por archivo que no subió).
+export async function subirArchivosEnCadena(archivos, revisionInicial, subir) {
+  const fallos = [];
+  let revision = revisionInicial;
+  for (const archivo of archivos || []) {
+    try {
+      const r = await subir(revision, archivo);
+      if (r && Number.isInteger(r.revision)) revision = r.revision;
+    } catch (err) {
+      fallos.push(`${archivo?.name ?? archivo}: ${err?.message || String(err)}`);
+    }
+  }
+  return { revision, fallos };
+}
+
 // --- Extracción por IA de documentos narrativos (carta de control interno / informe) ---
 // Un requerimiento admite extracción por IA si tiene dataset y acepta PDF/Word: se
 // sube el documento firmado y la IA arma la tabla que el auditor revisa y confirma.
