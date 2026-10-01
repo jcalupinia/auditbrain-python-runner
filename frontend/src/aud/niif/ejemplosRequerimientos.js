@@ -29,6 +29,13 @@ export const EJEMPLOS_REQUERIMIENTOS = {
     "RQ-005": "RQ-005_politica_de_credito_y_cobranza_y_gestion_de_clie.pdf",
     "RQ-006": "RQ-006_cobros_posteriores_al_cierre.xlsx",
   },
+  pce_cohortes_niif9: {
+    "RQ-001": "RQ-001_cartera_t2.xlsx",
+    "RQ-002": "RQ-002_cartera_t1.xlsx",
+    "RQ-003": "RQ-003_cartera_t.xlsx",
+    "RQ-004": "RQ-004_movimiento_de_la_provision_de_incobrables_tres_e.xlsx",
+    "RQ-005": "RQ-005_informacion_prospectiva_con_fuente_y_politica_de.pdf",
+  },
   // --- Lote 1 ---
   // Datos que alimentan el cálculo: un libro derivado del EJEMPLO canónico del
   // procesador (scripts/ejemplos_lote.py). Requerimientos de soporte: documento

@@ -78,11 +78,20 @@ def pruebas_de(definicion: dict) -> list[str]:
     return out
 
 
+# Herramientas del catálogo del sitio que ya no se ofrecen porque una herramienta con
+# procesador las reemplaza (evita que el auditor vea dos versiones de la misma prueba).
+# Se ocultan del LISTADO pero siguen siendo resolubles en `_definicion_de`, para no
+# romper pruebas o fichas ya creadas con ese origen.
+#   - "pce": PCE declarativa reemplazada por el procesador `pce_cohortes_niif9` (AUD-ECL-01).
+OCULTAR_CATALOGO = {"pce"}
+
+
 def herramientas_disponibles(db: Session) -> list[dict]:
     """Catálogo del sitio más las fichas NIIF con definición probada."""
     lista = [
         {"origen": k, "nombre": d["name"], "area": d["area"], "tipo": "catálogo"}
         for k, d in reglas.CATALOGO.items()
+        if k not in OCULTAR_CATALOGO
     ]
     fichas = db.execute(
         select(NiifFicha).where(NiifFicha.estado.in_(ESTADOS_FICHA_USABLE)).order_by(NiifFicha.nombre)
