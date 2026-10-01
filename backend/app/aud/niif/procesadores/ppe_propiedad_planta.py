@@ -125,18 +125,29 @@ _FACTURA = [
     campo("total", "Total", "number", requerido=False, alias=("total", "valor total", "importe", "monto", "valor"), ejemplo="40000"),
     campo("descripcion", "Detalle", requerido=False, alias=("detalle", "descripcion", "concepto", "bien o servicio"), ejemplo="Camioneta 4x4"),
 ]
+# Política contable de PP&E: una fila por rubro con la vida útil y, si consta, el umbral de capitalización.
+# Se extrae por IA del PDF/Word de la política (RQ-004) para la columna «vida útil según política».
+_POLITICA = [
+    campo("rubro", "Rubro / clase de activo", alias=("rubro", "clase", "grupo", "categoria", "tipo de activo", "cuenta"), ejemplo="Vehículos"),
+    campo("vida_util_anios", "Vida útil (años)", "number", alias=("vida util", "vida util anios", "años", "anios", "vida", "vida util años"), ejemplo="5"),
+    campo("umbral_capitalizacion", "Umbral de capitalización", "number", requerido=False,
+          alias=("umbral", "monto minimo", "capitaliza desde", "valor minimo", "umbral de capitalizacion"), ejemplo="100"),
+]
 CAMPOS = {"activos": _ACTIVOS, "adiciones": _ADICIONES, "prestamos": _PRESTAMOS, "variaciones": _VARIACIONES,
-          "mayor": _MAYOR, "factura": _FACTURA}
+          "mayor": _MAYOR, "factura": _FACTURA, "politica": _POLITICA}
 TIPOS = {"activos": "activos", "adiciones": "adiciones", "prestamos": "prestamos", "variaciones": "variaciones",
-         "mayor": "mayor", "facturas_adiciones": "factura", "facturas_salidas": "factura"}
+         "mayor": "mayor", "facturas_adiciones": "factura", "facturas_salidas": "factura", "politica": "politica"}
 DATASETS = tuple(TIPOS)
 PRINCIPAL = "activos"
-# Datasets que se pueblan extrayendo por IA el texto de los PDF de facturas (revisión del auditor).
-EXTRACCION_DATASETS = ("facturas_adiciones", "facturas_salidas")
+# Datasets que se pueblan extrayendo por IA el texto de los PDF/Word (facturas y política), con revisión del auditor.
+EXTRACCION_DATASETS = ("facturas_adiciones", "facturas_salidas", "politica")
 EXTRACCION_INSTRUCCIONES = {
     "factura": ("Cada factura es un comprobante. Extraiga una fila por factura con el proveedor o cliente, su RUC, "
                 "la fecha de emisión, el número de la factura (serie-secuencial), el total y el detalle del bien. "
                 "Si el comprobante trae el código del activo, inclúyalo. No invente datos: lo que no aparezca, déjelo vacío."),
+    "politica": ("La política contable fija la vida útil por rubro de propiedad, planta y equipo. Extraiga una fila por "
+                 "rubro (edificios, maquinaria, muebles, vehículos, equipos de cómputo, etc.) con su vida útil en años y, "
+                 "si consta, el umbral mínimo para capitalizar. No invente: lo que no aparezca, déjelo vacío."),
 }
 EXTRACCION_ENUMS = {}
 CONTROL = "costo_inicial"
@@ -366,6 +377,18 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             a["exceso_veh"] = (a["costo"] - TOPE_VEHICULO) * a["tasa_fiscal"] * factor if sobre_tope else 0.0
             a["dif_fiscal"] = None if a["dep"] is None else a["dep"] - a["dep_fiscal"]
 
+    # Fase 5 · política contable: vida útil por rubro, extraída por IA de la política (RQ-004). Se mapea cada
+    # rubro a la clase NIIF (_clase_bucket) para aplicar su vida útil a los activos de esa clase.
+    import unicodedata as _ud
+    _sin_tildes = lambda s: "".join(c for c in _ud.normalize("NFD", str(s or "")) if _ud.category(c) != "Mn")
+    _bucket_pol = lambda x: _clase_bucket(_sin_tildes(x))  # robusto a tildes (p. ej. «Vehículos»)
+    mapa_pol = {}
+    for f in datasets.get("politica") or []:
+        bkt = _bucket_pol(f.get("rubro"))
+        va = _opc(f.get("vida_util_anios"))
+        if bkt and va and va > 0:
+            mapa_pol[bkt] = va
+
     # Fase 2 · recálculo comparativo. Reproduce el método del papel de trabajo del auditor
     # (depreciación diaria × días, como en las cédulas por clase del «DE») y compara tres
     # criterios de vida útil por activo: anexo/NIIF, SRI (Art. 28) y política (se conecta en
@@ -384,7 +407,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         a["vida_anios_anexo"] = (a["vida"] / 12) if a["vida"] else None     # NIIF: del anexo o la clase confirmada
         _ts = a.get("tasa_fiscal")
         a["vida_anios_sri"] = (1.0 / _ts) if _ts else None                  # SRI Art. 28: 1 / tasa máxima
-        a["vida_anios_pol"] = None                                          # política: se conecta en la fase 5
+        a["vida_anios_pol"] = mapa_pol.get(_bucket_pol(a["clase"]))         # política contable (si se cargó)
 
         def _por_dias(vida_anios, base):
             """Método por días: diaria = base / (vida años × 365); gasto del período y acumulada al corte,
@@ -400,6 +423,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         a["diaria_anexo"], a["gasto_dias_anexo"], a["acum_dias_anexo"] = _por_dias(a["vida_anios_anexo"], a["depr"])
         # SRI: base deducible (con tope de vehículos) y sin valor residual (criterio fiscal).
         a["diaria_sri"], a["gasto_dias_sri"], a["acum_dias_sri"] = _por_dias(a["vida_anios_sri"], a.get("base_fiscal"))
+        # Política contable (si se cargó): mismo método por días con la vida útil de la política.
+        a["diaria_pol"], a["gasto_dias_pol"], a["acum_dias_pol"] = _por_dias(a["vida_anios_pol"], a["depr"])
         # Diferencias del auditor (método días, criterio NIIF/anexo) frente al cliente.
         a["dif_gasto_dias"] = None if a["gasto_dias_anexo"] is None or a["dreg"] is None else a["gasto_dias_anexo"] - a["dreg"]
         a["dif_acum_dias"] = None if a["acum_dias_anexo"] is None else a["acum_dias_anexo"] - a["acum_cliente"]
@@ -881,7 +906,27 @@ CEDULAS = [
     ("24_Movimiento_mayor", "Movimiento del período (libro mayor)"),
     ("25_Conciliacion", "Conciliación de saldos (auxiliar vs balance)"),
     ("26_Vaucheo", "Vaucheo de facturas (adiciones y bajas)"),
+    ("27_Resumen_hallazgos", "Resumen de hallazgos por categoría"),
 ]
+
+
+def _categoria_hallazgo(code: str) -> str:
+    c = (code or "").upper()
+    if "VAUCHEO" in c or "FACTURA" in c:
+        return "Vaucheo de facturas"
+    if "CONCILIA" in c or "MAYOR" in c or "SUMARIA" in c:
+        return "Conciliación de saldos"
+    if "DEPRECIA" in c or "VIDA" in c or "VEHICULO" in c:
+        return "Depreciación y vidas útiles"
+    if "REVALU" in c or "DETERIORO" in c:
+        return "Revaluación y deterioro"
+    if "PRESTAMO" in c or "INTERES" in c or "TOPE" in c or "DESMANTEL" in c:
+        return "Costos por préstamos y desmantelamiento"
+    if "BAJA" in c:
+        return "Bajas"
+    if "ADICION" in c:
+        return "Adiciones"
+    return "Otros"
 P = ref("02_Parametros")
 FIS = ref("20_Fiscal")
 AUX, DEP, BAJ, REV, DET, ADI, PRE, CAP, DES, RF, AJ = (
@@ -1613,21 +1658,22 @@ def hojas(res: dict) -> list[dict]:
     for a in A:
         comparativo.append([
             a["id"], a["clase"], a["costo"], a["depr"],
-            a.get("vida_anios_anexo"), a.get("vida_anios_sri"),
+            a.get("vida_anios_anexo"), a.get("vida_anios_sri"), a.get("vida_anios_pol"),
             a.get("diaria_anexo"), a["dias"], a.get("gasto_dias_anexo"),
             a.get("dias_acum"), a.get("acum_dias_anexo"),
             a["dreg"], a.get("acum_cliente"),
             a.get("dif_gasto_dias"), a.get("dif_acum_dias"),
         ])
     _sg = lambda k: sum(a.get(k) or 0 for a in A)
-    total_comp = ["TOTAL", "", suma("C", fin(n), sum(a["costo"] for a in A)), None, None, None, None, None,
-                  suma("I", fin(n), _sg("gasto_dias_anexo")), None, suma("K", fin(n), _sg("acum_dias_anexo")),
-                  suma("L", fin(n), _sg("dreg")), suma("M", fin(n), _sg("acum_cliente")),
-                  suma("N", fin(n), _sg("dif_gasto_dias")), suma("O", fin(n), _sg("dif_acum_dias"))] if n else None
+    total_comp = ["TOTAL", "", suma("C", fin(n), sum(a["costo"] for a in A)), None, None, None, None, None, None,
+                  suma("J", fin(n), _sg("gasto_dias_anexo")), None, suma("L", fin(n), _sg("acum_dias_anexo")),
+                  suma("M", fin(n), _sg("dreg")), suma("N", fin(n), _sg("acum_cliente")),
+                  suma("O", fin(n), _sg("dif_gasto_dias")), suma("P", fin(n), _sg("dif_acum_dias"))] if n else None
     ex_comp = {
         "Valor a depreciar": "Costo menos valor residual (criterio NIIF).",
         "Vida anexo (años)": "Vida útil del anexo del cliente (o la confirmada por el auditor para la clase).",
         "Vida SRI (años)": "Vida útil tributaria: 1 ÷ tasa máxima del SRI (Art. 28), para contrastar.",
+        "Vida política (años)": "Vida útil que fija la política contable del cliente para el rubro (extraída de la política, si se cargó).",
         "Dep. diaria (anexo)": "Valor a depreciar ÷ (vida en años × 365): depreciación por día, como en el papel de trabajo.",
         "Días gasto": "Días que el activo estuvo en uso dentro del ejercicio (del inicio o la activación, hasta el corte o la baja).",
         "Gasto auditor (días)": "Depreciación diaria × días del período: gasto recalculado por el auditor por el método de días.",
@@ -1642,15 +1688,16 @@ def hojas(res: dict) -> list[dict]:
     # 22 · guía comparativa NIIF vs SRI (totales por criterio) para orientar al auditor y al cliente.
     guia = [
         ["Gasto de depreciación del período", sum(a["dep"] for a in A if a["dep"] is not None),
-         _sg("gasto_dias_anexo"), _sg("gasto_dias_sri"), _sg("dreg")],
+         _sg("gasto_dias_anexo"), _sg("gasto_dias_sri"), _sg("gasto_dias_pol"), _sg("dreg")],
         ["Depreciación acumulada al corte", sum(a["acum"] for a in A if a["acum"] is not None),
-         _sg("acum_dias_anexo"), _sg("acum_dias_sri"), _sg("acum_cliente")],
+         _sg("acum_dias_anexo"), _sg("acum_dias_sri"), _sg("acum_dias_pol"), _sg("acum_cliente")],
     ]
     ex_guia = {
         "Concepto": "Comparación de la depreciación bajo cada criterio para orientar la decisión; no sustituye el ajuste contable (cédula 15).",
         "NIIF (meses)": "Recálculo NIIF por meses con la vida útil del anexo/clase (cédula 04).",
         "NIIF (días)": "Recálculo NIIF por días con la vida útil del anexo/clase (método del papel de trabajo).",
         "SRI (días)": "Recálculo con la vida útil tributaria máxima del SRI (Art. 28), por días.",
+        "Política (días)": "Recálculo con la vida útil que fija la política contable del cliente (si se cargó la política).",
         "Cliente": "Cifras registradas por el cliente en el anexo.",
     }
 
@@ -1706,6 +1753,23 @@ def hojas(res: dict) -> list[dict]:
         "Registrado en libros": "Importe de la adición (detalle) o de la baja (producto de la venta) que cruza por código.",
         "Diferencia": "Total de la factura menos lo registrado; fuera de tolerancia se reporta como hallazgo.",
         "Estado": "Conciliado, Diferencia o Sin registro en libros.",
+    }
+
+    # 27 · resumen de hallazgos por categoría (consolida la cédula 16 para una lectura ejecutiva).
+    cat = {}
+    for e in res["exceptions"]:
+        k = _categoria_hallazgo(e.get("code"))
+        g = cat.setdefault(k, {"n": 0, "imp": 0.0})
+        g["n"] += 1
+        g["imp"] += abs(float(e.get("amount") or 0))
+    resumen_hz = sorted(([k, v["n"], v["imp"]] for k, v in cat.items()), key=lambda r: (-r[2], r[0]))
+    nhz = len(resumen_hz)
+    total_hz = ["TOTAL", suma("B", FILA0 + max(nhz, 1) - 1, sum(v["n"] for v in cat.values())),
+                suma("C", FILA0 + max(nhz, 1) - 1, sum(v["imp"] for v in cat.values()))] if nhz else None
+    ex_hz = {
+        "Categoría": "Agrupa los hallazgos de la cédula 16 por tema de auditoría.",
+        "N° de hallazgos": "Cantidad de hallazgos de esa categoría.",
+        "Importe (valor absoluto)": "Suma del valor absoluto de los importes de los hallazgos de la categoría.",
     }
 
     return [
@@ -1802,11 +1866,11 @@ def hojas(res: dict) -> list[dict]:
              explica=ex_fiscal),
         hoja("21_Comparativo", "Recálculo comparativo por días (auditor vs cliente)",
              [["Código", "t"], ["Clase", "t"], ["Costo", "n"], ["Valor a depreciar", "n"], ["Vida anexo (años)", "n"],
-              ["Vida SRI (años)", "n"], ["Dep. diaria (anexo)", "n"], ["Días gasto", "i"], ["Gasto auditor (días)", "n"],
-              ["Días acumulados", "i"], ["Dep. acum. auditor (días)", "n"], ["Gasto cliente", "n"], ["Dep. acum. cliente", "n"],
-              ["Dif. gasto", "n"], ["Dif. dep. acum.", "n"]], comparativo, total_comp, explica=ex_comp),
+              ["Vida SRI (años)", "n"], ["Vida política (años)", "n"], ["Dep. diaria (anexo)", "n"], ["Días gasto", "i"],
+              ["Gasto auditor (días)", "n"], ["Días acumulados", "i"], ["Dep. acum. auditor (días)", "n"], ["Gasto cliente", "n"],
+              ["Dep. acum. cliente", "n"], ["Dif. gasto", "n"], ["Dif. dep. acum.", "n"]], comparativo, total_comp, explica=ex_comp),
         hoja("22_Guia_NIIF_SRI", "Guía comparativa NIIF vs SRI",
-             [["Concepto", "t"], ["NIIF (meses)", "n"], ["NIIF (días)", "n"], ["SRI (días)", "n"], ["Cliente", "n"]],
+             [["Concepto", "t"], ["NIIF (meses)", "n"], ["NIIF (días)", "n"], ["SRI (días)", "n"], ["Política (días)", "n"], ["Cliente", "n"]],
              guia, explica=ex_guia),
         hoja("23_Sumaria", "Sumaria de cuentas (variaciones del balance)",
              [["Cuenta", "t"], ["Descripción", "t"], ["Tipo", "t"], ["Saldo año anterior", "n"], ["Saldo al corte", "n"], ["Variación", "n"]],
@@ -1821,6 +1885,9 @@ def hojas(res: dict) -> list[dict]:
              [["Tipo", "t"], ["Código del activo", "t"], ["Proveedor / Cliente", "t"], ["RUC", "t"], ["Fecha", "d"],
               ["N° factura", "t"], ["Total", "n"], ["Registrado en libros", "n"], ["Diferencia", "n"], ["Estado", "t"]],
              vauch_rows, explica=ex_vauch, colores=["Estado"]),
+        hoja("27_Resumen_hallazgos", "Resumen de hallazgos por categoría",
+             [["Categoría", "t"], ["N° de hallazgos", "i"], ["Importe (valor absoluto)", "n"]],
+             resumen_hz, total_hz, explica=ex_hz),
     ]
 
 
@@ -1932,8 +1999,8 @@ def definicion() -> dict:
                 content="Una fila por préstamo vigente en el período: N° de préstamo o contrato, tipo (Específico o General), activo u obra financiada "
                         "(solo los específicos), descripción, importe del préstamo, tasa nominal anual, costo financiero del período realmente incurrido y, "
                         "en los específicos, los rendimientos de la inversión temporal de esos fondos. Si no hubo inversión temporal, escriba 0."),
-            req("RQ-004", "Política contable de vidas útiles, residuales y métodos", None, "PPE-04",
-                "Sustento de estimaciones (capitalización por rubro y vida útil). Opcional: si se carga, se lee para la columna «vida útil según política».",
+            req("RQ-004", "Política contable de vidas útiles, residuales y métodos", "politica", "PPE-04",
+                "Sustento de estimaciones (capitalización por rubro y vida útil). Opcional: si se carga, se lee por IA para la columna «vida útil según política».",
                 required=False, formats=("pdf", "docx"), use="soporte"),
             req("RQ-012", "Facturas de las adiciones del año", "facturas_adiciones", "PPE-02",
                 "Vaucheo de las adiciones (soporte de las altas); se extraen por IA del PDF", required=False, formats=("pdf",), use="soporte"),
