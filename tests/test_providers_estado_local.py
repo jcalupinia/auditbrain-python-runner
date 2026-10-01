@@ -72,3 +72,14 @@ def test_resolucion_forzada_a_ipv4():
     )
     # Quien pida IPv6 explícito se respeta (no rompemos ese camino).
     assert socket.getaddrinfo("::1", 80, socket.AF_INET6)[0][0] == socket.AF_INET6
+
+
+def test_timeout_local_default_180_y_override(monkeypatch):
+    """El timeout del local es 180s por defecto (la extracción pide un JSON grande
+    sin streaming y 15s se quedaba corto), y se puede sobreescribir por env var."""
+    monkeypatch.delenv("LOCAL_LLM_TIMEOUT_SECONDS", raising=False)
+    assert providers._local_timeout() == 180
+    monkeypatch.setenv("LOCAL_LLM_TIMEOUT_SECONDS", "45")
+    assert providers._local_timeout() == 45
+    monkeypatch.setenv("LOCAL_LLM_TIMEOUT_SECONDS", "no-numero")
+    assert providers._local_timeout() == 180
