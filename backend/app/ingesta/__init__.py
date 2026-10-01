@@ -45,8 +45,15 @@ from backend.app.ingesta.classifier import (
 )
 from backend.app.ingesta.orchestrator import (
     Extractor,
+    RecuperadorOCR,
     extractores_por_defecto,
     ingerir,
+)
+from backend.app.ingesta.ocr_support import (
+    RECUPERABLES_OCR,
+    TextoDocumento,
+    extraer_texto,
+    recuperar_por_ocr,
 )
 from backend.app.ingesta.normalizer import (
     detectar_duplicados,
@@ -78,8 +85,13 @@ __all__ = [
     "ResultadoClasificacion",
     "clasificar_documento",
     "Extractor",
+    "RecuperadorOCR",
     "extractores_por_defecto",
     "ingerir",
+    "RECUPERABLES_OCR",
+    "TextoDocumento",
+    "extraer_texto",
+    "recuperar_por_ocr",
     "detectar_duplicados",
     "inferir_tipo",
     "normalizar_campo",

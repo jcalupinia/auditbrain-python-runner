@@ -202,8 +202,38 @@ forzar un valor (lo no normalizable queda `None` y se advierte).
 Pruebas: `tests/test_ingesta_normalizador.py` (35 pruebas). Total ingesta:
 **80 pruebas en verde** (26 + 19 + 35) con Pydantic 2.8.2.
 
+## Fase 4 — Cableado de OCR a los parsers SRI
+
+Añade `ocr_support.py` y un gancho en el orquestador, **sin modificar los
+parsers existentes**. Hoy, ante un PDF escaneado, los parsers del ICT devuelven
+"PDF sin texto extraíble (¿escaneado? Aplica OCR e intenta de nuevo)". Esta capa
+recupera esos datos.
+
+- **`extraer_texto(contenido, filename, *, smart=None)`** → `TextoDocumento`
+  (texto, método, páginas, `ocr_units`, disponible, nota). Envuelve
+  `utils/ocr.extract_text_smart` (determinístico primero: pdfplumber y, solo si
+  no alcanza, Google Vision). Escribe un temporal (la ingesta trabaja con bytes)
+  y lo borra siempre. Nunca lanza. `smart` es inyectable para pruebas.
+- **`recuperar_por_ocr(tipo, contenido, filename, *, extraer=None,
+  casilleros_fn=None)`** → `DatasetNormalizado | None`. Para `F101`/`F103`
+  (`RECUPERABLES_OCR`): extrae texto por OCR y **reutiliza las funciones de
+  extracción por texto existentes** (`f103_pdf._extract_casilleros/_extract_periodo`,
+  `f101_pdf` + `find_casillero_value`). No reescribe regex. Los campos quedan con
+  `extraction_method=OCR`, confianza `MEDIUM` y el dataset `review_required=True`.
+- **Integración en `orchestrator.ingerir`**: parámetros `ocr=True` y
+  `recuperar_ocr` (inyectable). Si el extractor determinista no recuperó datos
+  (sin campos ni filas) en un tipo recuperable, intenta OCR; si recupera, usa ese
+  dataset (acarreando las excepciones previas como advertencia); si no, agrega
+  "OCR no recuperó datos". Desactivable con `ocr=False`.
+
+Pendiente: F-104 (su extracción va sobre bytes vía el extractor de obligaciones,
+sin función por texto directa) queda fuera de la recuperación por OCR por ahora.
+
+Pruebas: `tests/test_ingesta_ocr.py` (12 pruebas, dependencias inyectadas; no
+requiere pdfplumber ni Vision). Total ingesta: **92 pruebas en verde**.
+
 ## Qué viene (fases siguientes, aún no implementadas)
 
-- **Fase 4–6** — Cablear OCR a parsers, Confidence Engine en vivo, AI Semantic
-  Resolver (IA solo ante ambigüedad).
+- **Fase 5** — Confidence Engine en vivo (integrado al flujo de ingesta).
+- **Fase 6** — AI Semantic Resolver (IA solo ante ambigüedad).
 - **Fase 7+** — API `/api/v1/ingesta/*` y target real en `master_router`.
