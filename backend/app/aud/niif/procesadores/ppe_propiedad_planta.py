@@ -2000,10 +2000,11 @@ def definicion() -> dict:
                         "(solo los específicos), descripción, importe del préstamo, tasa nominal anual, costo financiero del período realmente incurrido y, "
                         "en los específicos, los rendimientos de la inversión temporal de esos fondos. Si no hubo inversión temporal, escriba 0."),
             req("RQ-004", "Política contable de vidas útiles, residuales y métodos", "politica", "PPE-04",
-                "Sustento de estimaciones (capitalización por rubro y vida útil). Opcional: si se carga, se lee por IA para la columna «vida útil según política».",
-                required=False, formats=("pdf", "docx"), use="soporte"),
+                "Sustento de estimaciones (vida útil por rubro). Cárguela como tabla (Excel/CSV) o como documento (PDF/Word): del PDF/Word se lee por IA.",
+                required=False, formats=("xlsx", "csv", "pdf", "docx"), use="soporte"),
             req("RQ-012", "Facturas de las adiciones del año", "facturas_adiciones", "PPE-02",
-                "Vaucheo de las adiciones (soporte de las altas); se extraen por IA del PDF", required=False, formats=("pdf",), use="soporte"),
+                "Vaucheo de las adiciones: cárguelas como tabla (Excel/CSV) o como facturas PDF (se leen por IA).", required=False,
+                formats=("xlsx", "csv", "pdf"), use="soporte"),
             req("RQ-005", "Informe del perito de la revaluación", None, "PPE-06", "Sustento del valor revaluado", required=False, formats=("pdf",), use="soporte"),
             req("RQ-006", "Cálculo del importe recuperable (valor en uso o valor razonable)", None, "PPE-07", "Sustento del deterioro", required=False,
                 formats=("xlsx", "pdf"), use="soporte"),
@@ -2013,7 +2014,8 @@ def definicion() -> dict:
             req("RQ-008", "Estimación técnica de desmantelamiento o restauración", None, "PPE-09", "Sustento de la provisión", required=False,
                 formats=("pdf", "xlsx"), use="soporte"),
             req("RQ-009", "Facturas de venta y actas de baja del año", "facturas_salidas", "PPE-05",
-                "Vaucheo de las bajas (soporte de las salidas); se extraen por IA del PDF", required=False, formats=("pdf",), use="soporte"),
+                "Vaucheo de las bajas: cárguelas como tabla (Excel/CSV) o como facturas PDF (se leen por IA).", required=False,
+                formats=("xlsx", "csv", "pdf"), use="soporte"),
         ],
     }
 
