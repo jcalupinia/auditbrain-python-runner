@@ -207,7 +207,13 @@ def _json_de_texto(texto: str) -> dict:
 def _chat_por_defecto() -> Callable:
     """Devuelve la función de chat compartida (servidor local primero, con
     respaldo a la nube). Levanta :class:`ExtraccionNoDisponible` si no hay ningún
-    proveedor configurado o si la extracción está apagada."""
+    proveedor configurado o si la extracción está apagada.
+
+    Usa :func:`providers.completar_para_extraccion`, afinada para esta tarea:
+    ``temperature=0`` (transcripción determinista) y **streaming** cuando el
+    proveedor primario lo soporta (el servidor local no entrega nada hasta
+    terminar de generar; en streaming los tokens fluyen y la conexión no se corta
+    por timeout en documentos largos). Cae al no-streaming automáticamente."""
     if not EXTRACCION_ENABLED:
         raise ExtraccionNoDisponible(
             "La extracción por IA está deshabilitada (NIIF_EXTRACCION_ENABLED=false). "
@@ -220,7 +226,7 @@ def _chat_por_defecto() -> Callable:
             "No hay ningún proveedor de IA configurado en el servidor (ni el local ni uno de nube): "
             "la extracción por IA no está disponible. Suba la tabla en Excel/CSV con la plantilla del requerimiento."
         )
-    return providers.chat_complete
+    return providers.completar_para_extraccion
 
 
 # --------------------------------------------------------------------------- #

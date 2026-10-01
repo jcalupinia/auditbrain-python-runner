@@ -116,14 +116,14 @@ def test_timeout_del_primario_hace_failover_al_siguiente(monkeypatch):
 
     intentados: list[str] = []
 
-    def _anthropic_lento(messages, system):
+    def _anthropic_lento(messages, system, temperature=None):
         intentados.append("anthropic")
         # Exactamente lo que hacía urlopen en producción.
         raise providers.ProviderUnavailable(
             "El proveedor no respondió en 60s (timeout de lectura)."
         )
 
-    def _gemini_ok(messages, system):
+    def _gemini_ok(messages, system, temperature=None):
         intentados.append("gemini")
         return providers.LLMResponse(
             content="respuesta de respaldo",
@@ -148,7 +148,7 @@ def test_si_todos_fallan_propaga_provider_unavailable(monkeypatch):
     traduce a 503, no a 500."""
     monkeypatch.setattr(providers, "_providers_with_keys", lambda: ["anthropic", "gemini"])
 
-    def _falla(messages, system):
+    def _falla(messages, system, temperature=None):
         raise providers.ProviderUnavailable("timeout")
 
     monkeypatch.setattr(providers, "_call_anthropic", _falla)

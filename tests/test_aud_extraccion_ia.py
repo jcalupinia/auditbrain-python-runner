@@ -154,7 +154,8 @@ def test_sin_proveedor_no_disponible(monkeypatch):
 
 
 def test_con_proveedor_local_usa_la_cadena(monkeypatch):
-    """Con un proveedor disponible, el motor llama a providers.chat_complete."""
+    """Con un proveedor disponible, el motor usa el helper afinado de la cadena
+    (``completar_para_extraccion``: streaming + temperature=0, local primero)."""
     from backend.app.chat import providers
 
     monkeypatch.setattr(ex, "EXTRACCION_ENABLED", True)
@@ -165,7 +166,7 @@ def test_con_proveedor_local_usa_la_cadena(monkeypatch):
         llamado["ok"] = True
         return _Resp(json.dumps({"filas": [{"id": "R01", "proceso": "P", "hallazgo": "H"}]}))
 
-    monkeypatch.setattr(providers, "chat_complete", fake_chat)
+    monkeypatch.setattr(providers, "completar_para_extraccion", fake_chat)
     out = ex.extraer_filas(m.CAMPOS["carta_control_interno"], "t")
     assert llamado.get("ok") and out["rows"][0]["id"] == "R01"
 

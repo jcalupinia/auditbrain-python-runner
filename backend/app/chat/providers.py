@@ -282,19 +282,20 @@ def estado_proveedores() -> dict:
 # Cliente principal
 # ---------------------------------------------------------------------------
 
-def _dispatch(provider: str, messages: list[dict], system: str | None) -> LLMResponse:
+def _dispatch(provider: str, messages: list[dict], system: str | None,
+              temperature: float | None = None) -> LLMResponse:
     if provider == "local":
-        return _call_local(messages, system)
+        return _call_local(messages, system, temperature)
     if provider == "anthropic":
-        return _call_anthropic(messages, system)
+        return _call_anthropic(messages, system, temperature)
     if provider == "openai":
-        return _call_openai(messages, system)
+        return _call_openai(messages, system, temperature)
     if provider == "gemini":
-        return _call_gemini(messages, system)
+        return _call_gemini(messages, system, temperature)
     if provider == "groq":
-        return _call_groq(messages, system)
+        return _call_groq(messages, system, temperature)
     if provider == "openrouter":
-        return _call_openrouter(messages, system)
+        return _call_openrouter(messages, system, temperature)
     raise ProviderUnavailable(f"Proveedor desconocido: {provider}")
 
 
@@ -360,6 +361,8 @@ def _exhausted_chain_error(
 def chat_complete(
     messages: list[dict[str, str]],
     system: str | None = None,
+    *,
+    temperature: float | None = None,
 ) -> LLMResponse:
     """Envía una conversación al proveedor activo y devuelve la respuesta.
 
@@ -383,7 +386,7 @@ def chat_complete(
     fallos: dict[str, ProviderUnavailable] = {}
     for provider in chain:
         try:
-            return _dispatch(provider, messages, system)
+            return _dispatch(provider, messages, system, temperature)
         except ProviderUnavailable as exc:
             last_exc = exc
             fallos[provider] = exc
@@ -392,6 +395,40 @@ def chat_complete(
             continue
     assert last_exc is not None
     raise _exhausted_chain_error(chain, last_exc, saw_billing, fallos)
+
+
+def completar_para_extraccion(messages, system=None) -> LLMResponse:
+    """Igual que ``chat_complete`` pero afinado para tareas de EXTRACCIÓN/
+    transcripción (JSON determinista):
+
+    - ``temperature=0``: salida estable y, con decodificación greedy, algo más ágil.
+    - **Streaming** cuando el proveedor primario lo soporta (local, groq,…): se
+      consume el stream y se acumula el texto completo. Clave con el servidor
+      local, que genera SIN entregar nada hasta terminar: en modo no-stream el
+      primer byte llega recién al final y una sola lectura larga puede exceder el
+      timeout; en streaming los tokens fluyen (incluido el ``reasoning`` previo de
+      gpt-oss), así que la conexión no se queda muda y no se corta por timeout.
+
+    Si el streaming no está disponible (primario no streameable, o falla antes de
+    emitir), cae al ``chat_complete`` no-streaming (también con ``temperature=0``),
+    que recorre toda la cadena de failover."""
+    try:
+        partes: list[str] = []
+        modelo = ""
+        for delta in stream_chat_complete(messages, system, temperature=0):
+            tipo = delta.get("type")
+            if tipo == "token":
+                partes.append(delta.get("text", ""))
+            elif tipo == "done":
+                modelo = delta.get("model") or modelo
+        texto = "".join(partes).strip()
+        if texto:
+            return LLMResponse(content=texto, model=modelo or "local", tokens_in=None, tokens_out=None)
+        # Stream vacío (p. ej. solo reasoning sin content): se reintenta no-stream.
+    except ProviderUnavailable:
+        # Primario no streameable o fallo antes/durante el stream → no-stream.
+        pass
+    return chat_complete(messages, system, temperature=0)
 
 
 def _http_post(url: str, headers: dict[str, str], payload: dict, timeout: int = 60) -> dict:
@@ -448,13 +485,16 @@ def _http_post(url: str, headers: dict[str, str], payload: dict, timeout: int = 
         raise ProviderUnavailable("El proveedor devolvió un cuerpo no-JSON.")
 
 
-def _call_anthropic(messages: list[dict], system: str | None) -> LLMResponse:
+def _call_anthropic(messages: list[dict], system: str | None,
+                    temperature: float | None = None) -> LLMResponse:
     model = _anthropic_model()
     payload: dict = {
         "model": model,
         "max_tokens": _max_tokens(),
         "messages": messages,
     }
+    if temperature is not None:
+        payload["temperature"] = temperature
     if system:
         payload["system"] = system
     data = _http_post(
@@ -485,6 +525,7 @@ def _call_openai_compatible(
     system: str | None,
     extra_headers: dict[str, str] | None = None,
     timeout: int = 60,
+    temperature: float | None = None,
 ) -> LLMResponse:
     """Backend común para OpenAI, Groq, OpenRouter y el gateway local (mismo
     wire format). ``timeout`` permite un tope de lectura propio por proveedor
@@ -499,10 +540,13 @@ def _call_openai_compatible(
     }
     if extra_headers:
         headers.update(extra_headers)
+    payload: dict = {"model": model, "messages": msgs, "max_tokens": _max_tokens()}
+    if temperature is not None:
+        payload["temperature"] = temperature
     data = _http_post(
         url,
         headers=headers,
-        payload={"model": model, "messages": msgs, "max_tokens": _max_tokens()},
+        payload=payload,
         timeout=timeout,
     )
     choice = (data.get("choices") or [{}])[0]
@@ -517,7 +561,8 @@ def _call_openai_compatible(
     )
 
 
-def _call_local(messages: list[dict], system: str | None) -> LLMResponse:
+def _call_local(messages: list[dict], system: str | None,
+                temperature: float | None = None) -> LLMResponse:
     # Gateway LiteLLM propio (OpenAI-compatible). LOCAL_LLM_BASE_URL incluye
     # /v1, aquí se le añade /chat/completions. Se envía un Bearer no-vacío por
     # si el gateway valida el header aunque la master key sea opcional. Usa el
@@ -530,30 +575,36 @@ def _call_local(messages: list[dict], system: str | None) -> LLMResponse:
         messages=messages,
         system=system,
         timeout=_local_timeout(),
+        temperature=temperature,
     )
 
 
-def _call_openai(messages: list[dict], system: str | None) -> LLMResponse:
+def _call_openai(messages: list[dict], system: str | None,
+                 temperature: float | None = None) -> LLMResponse:
     return _call_openai_compatible(
         url="https://api.openai.com/v1/chat/completions",
         key=_openai_key(),
         model=_openai_model(),
         messages=messages,
         system=system,
+        temperature=temperature,
     )
 
 
-def _call_groq(messages: list[dict], system: str | None) -> LLMResponse:
+def _call_groq(messages: list[dict], system: str | None,
+               temperature: float | None = None) -> LLMResponse:
     return _call_openai_compatible(
         url="https://api.groq.com/openai/v1/chat/completions",
         key=_groq_key(),
         model=_groq_model(),
         messages=messages,
         system=system,
+        temperature=temperature,
     )
 
 
-def _call_openrouter(messages: list[dict], system: str | None) -> LLMResponse:
+def _call_openrouter(messages: list[dict], system: str | None,
+                     temperature: float | None = None) -> LLMResponse:
     # OpenRouter recomienda enviar HTTP-Referer y X-Title para atribución;
     # opcionales, pero útiles para ver el tráfico en su dashboard.
     referer = os.getenv("OPENROUTER_SITE_URL", "").strip()
@@ -568,10 +619,12 @@ def _call_openrouter(messages: list[dict], system: str | None) -> LLMResponse:
         messages=messages,
         system=system,
         extra_headers=extra,
+        temperature=temperature,
     )
 
 
-def _call_gemini(messages: list[dict], system: str | None) -> LLMResponse:
+def _call_gemini(messages: list[dict], system: str | None,
+                 temperature: float | None = None) -> LLMResponse:
     """Llama a Google Gemini (AI Studio).
 
     Diferencias con Anthropic/OpenAI:
@@ -589,9 +642,12 @@ def _call_gemini(messages: list[dict], system: str | None) -> LLMResponse:
         role = "model" if m.get("role") == "assistant" else "user"
         contents.append({"role": role, "parts": [{"text": m.get("content", "")}]})
 
+    gen_config: dict = {"maxOutputTokens": _max_tokens()}
+    if temperature is not None:
+        gen_config["temperature"] = temperature
     payload: dict = {
         "contents": contents,
-        "generationConfig": {"maxOutputTokens": _max_tokens()},
+        "generationConfig": gen_config,
     }
     if system:
         payload["system_instruction"] = {"parts": [{"text": system}]}
@@ -629,7 +685,8 @@ def _call_gemini(messages: list[dict], system: str | None) -> LLMResponse:
 _STREAMABLE = {"local", "openai", "groq", "openrouter"}
 
 
-def _stream_openai_compatible(url, key, model, messages, system, timeout, extra_headers=None):
+def _stream_openai_compatible(url, key, model, messages, system, timeout, extra_headers=None,
+                              temperature=None):
     """Generador de deltas desde un endpoint OpenAI-compatible con stream=True.
 
     Emite dicts: {"type": "token", "text": ...} y al final
@@ -643,15 +700,16 @@ def _stream_openai_compatible(url, key, model, messages, system, timeout, extra_
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     if extra_headers:
         headers.update(extra_headers)
-    body = json.dumps(
-        {
-            "model": model,
-            "messages": msgs,
-            "max_tokens": _max_tokens(),
-            "stream": True,
-            "stream_options": {"include_usage": True},
-        }
-    ).encode("utf-8")
+    cuerpo: dict = {
+        "model": model,
+        "messages": msgs,
+        "max_tokens": _max_tokens(),
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+    if temperature is not None:
+        cuerpo["temperature"] = temperature
+    body = json.dumps(cuerpo).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
     try:
         resp = urllib.request.urlopen(req, timeout=timeout)
@@ -706,22 +764,22 @@ def _stream_openai_compatible(url, key, model, messages, system, timeout, extra_
             pass
 
 
-def _stream_provider(provider, messages, system):
+def _stream_provider(provider, messages, system, temperature=None):
     if provider == "local":
         base = _local_base_url().rstrip("/")
         return _stream_openai_compatible(
             f"{base}/chat/completions", _local_key() or "sk-noauth",
-            _local_model(), messages, system, _local_timeout(),
+            _local_model(), messages, system, _local_timeout(), temperature=temperature,
         )
     if provider == "openai":
         return _stream_openai_compatible(
             "https://api.openai.com/v1/chat/completions", _openai_key(),
-            _openai_model(), messages, system, 60,
+            _openai_model(), messages, system, 60, temperature=temperature,
         )
     if provider == "groq":
         return _stream_openai_compatible(
             "https://api.groq.com/openai/v1/chat/completions", _groq_key(),
-            _groq_model(), messages, system, 60,
+            _groq_model(), messages, system, 60, temperature=temperature,
         )
     if provider == "openrouter":
         title = os.getenv("OPENROUTER_APP_NAME", "AuditBrain").strip()
@@ -732,11 +790,12 @@ def _stream_provider(provider, messages, system):
         return _stream_openai_compatible(
             "https://openrouter.ai/api/v1/chat/completions", _openrouter_key(),
             _openrouter_model(), messages, system, 60, extra_headers=extra,
+            temperature=temperature,
         )
     raise ProviderUnavailable(f"Proveedor {provider} no soporta streaming")
 
 
-def stream_chat_complete(messages, system=None):
+def stream_chat_complete(messages, system=None, *, temperature=None):
     """Versión en streaming de chat_complete. Generador de deltas
     {"type": "token"|"done", ...}. Failover ANTES del primer token; si el
     primario no es streameable, levanta ProviderUnavailable para que el caller
@@ -756,7 +815,7 @@ def stream_chat_complete(messages, system=None):
             continue
         emitted = False
         try:
-            for delta in _stream_provider(provider, messages, system):
+            for delta in _stream_provider(provider, messages, system, temperature):
                 emitted = True
                 yield delta
             return  # el proveedor terminó correctamente
