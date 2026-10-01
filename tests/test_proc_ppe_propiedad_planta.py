@@ -369,3 +369,32 @@ def test_sumaria_movimiento_y_conciliacion():
     assert abs(conc["Costo"][3] - (conc["Costo"][1] - conc["Costo"][2])) < 0.01
     # El ejemplo no concilia a propósito → se reportan los hallazgos de la sumaria.
     assert "SUMARIA_NO_CONCILIA" in _codigos(r)
+
+
+def test_vaucheo_de_facturas():
+    """Fase 4: cédula 26, cruce de facturas (adiciones/bajas) extraídas con las registradas."""
+    ds = dict(E["datasets"])
+    ds["facturas_adiciones"] = [
+        {"codigo_activo": "MOB-01", "proveedor": "Muebles SA", "numero": "001-001-0001", "total": "12000", "_row": 2},
+        {"codigo_activo": "OBRA-01", "proveedor": "Constructora X", "numero": "001-002-0002", "total": "150500", "_row": 3},
+    ]
+    ds["facturas_salidas"] = [
+        {"codigo_activo": "VEH-02", "proveedor": "Cliente Y", "numero": "003-001-0009", "total": "9000", "_row": 2},
+    ]
+    r = m.ejecutar(ds, {**E["parametros"]}, E["corte"])
+    hs = {x["name"]: x for x in m.hojas(r)}
+    assert "26_Vaucheo" in hs
+    est = {row[1]: row[9] for row in hs["26_Vaucheo"]["rows"]}  # código -> estado
+    assert est["MOB-01"] == "Conciliado" and est["VEH-02"] == "Conciliado"
+    assert est["OBRA-01"] == "Diferencia"
+    assert "VAUCHEO_DIFERENCIA" in _codigos(r)
+    # El vaucheo no altera el ajuste contable.
+    assert r["totals"]["ajusteResultado"] == correr()["totals"]["ajusteResultado"]
+
+
+def test_facturas_son_extraibles_por_ia():
+    """Los requerimientos de facturas (PDF) están declarados como extraíbles por IA."""
+    assert set(m.EXTRACCION_DATASETS) == {"facturas_adiciones", "facturas_salidas"}
+    reqs = {r["id"]: r for r in m.definicion()["requests"]}
+    assert reqs["RQ-012"]["dataset"] == "facturas_adiciones" and "pdf" in reqs["RQ-012"]["formats"]
+    assert reqs["RQ-009"]["dataset"] == "facturas_salidas" and "pdf" in reqs["RQ-009"]["formats"]
