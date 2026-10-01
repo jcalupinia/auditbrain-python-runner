@@ -141,7 +141,10 @@ def a_fecha(v):
         m = re.match(r"^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})", s)
         if m:
             a = int(m[3])
-            return date(a + 2000 if a < 100 else a, int(m[2]), int(m[1]))
+            p1, p2 = int(m[1]), int(m[2])
+            # dd/mm/aaaa por defecto (Ecuador); si el 2.º campo no puede ser mes (>12) y el 1.º sí, es mm/dd/aaaa (ERP en inglés).
+            dia, mes = (p2, p1) if p2 > 12 and p1 <= 12 else (p1, p2)
+            return date(a + 2000 if a < 100 else a, mes, dia)
     except ValueError:
         return None
     return None
