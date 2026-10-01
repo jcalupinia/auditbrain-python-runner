@@ -171,3 +171,37 @@ def test_fallo_no_de_saldo_conserva_la_excepcion_real(monkeypatch):
 
     assert exc.value.billing is False
     assert "60s" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# 4. El fallo REAL del servidor local se muestra (no se disfraza de "sin saldo")
+# ---------------------------------------------------------------------------
+
+def test_fallo_del_local_se_explica_aparte(monkeypatch):
+    """Si el local (primero en la cadena) falla por algo que NO es saldo (no
+    responde, modelo inexistente) y la nube cae por saldo, el mensaje final debe
+    decir POR QUÉ falló el local, en vez de meterlo en «sin saldo o cuota»."""
+    monkeypatch.setattr(providers, "_providers_with_keys", lambda: ["local", "anthropic"])
+
+    def _local_caido(messages, system):
+        raise providers.ProviderUnavailable(
+            "HTTP 400 del proveedor: model 'auditia-rutina' not found", billing=False
+        )
+
+    def _anthropic_sin_saldo(messages, system):
+        raise providers.ProviderUnavailable(
+            "HTTP 400 del proveedor: Your credit balance is too low", billing=True
+        )
+
+    monkeypatch.setattr(providers, "_call_local", _local_caido)
+    monkeypatch.setattr(providers, "_call_anthropic", _anthropic_sin_saldo)
+
+    with pytest.raises(providers.ProviderUnavailable) as exc:
+        providers.chat_complete(messages=[{"role": "user", "content": "hola"}])
+
+    mensaje = str(exc.value)
+    assert exc.value.billing is True
+    # El motivo real del local aparece, con la pista de qué revisar en Render.
+    assert "El servidor de IA local" in mensaje
+    assert "auditia-rutina" in mensaje
+    assert "LOCAL_LLM_MODEL" in mensaje
