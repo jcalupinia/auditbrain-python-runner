@@ -345,6 +345,28 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         a.estado = "recibido" if a.estado == "rechazado" else "rechazado"
         datos = {**datos, "comment": f"{a.requerimiento}: {a.nombre} → {a.estado}"}
 
+    elif accion == "delete_file":
+        # Borra un solo archivo subido por error, sin encerar toda la carga. Solo
+        # antes de validar la documentación; después la evidencia queda fija.
+        if p.estado not in ("REQUERIMIENTO_APROBADO", "DOCUMENTACION_RECIBIDA"):
+            raise ReglaIncumplida("La documentación ya fue validada: no se puede borrar un archivo.")
+        fid = datos.get("fileId")
+        a = db.get(PruebaArchivo, int(fid)) if str(fid or "").isdigit() else None
+        if a is None or a.prueba_id != p.id:
+            raise ReglaIncumplida("Archivo no encontrado.")
+        nombre, requerimiento = a.nombre, a.requerimiento
+        almacen.borrar(a.ruta)
+        db.delete(a)
+        db.flush()  # para que el conteo de archivos restantes no incluya el borrado
+        # Quitar evidencia obliga a volver a mapear y validar, igual que al subir.
+        extraccion = {k: v for k, v in (reg.get("extraccion") or {}).items() if k != str(fid)}
+        reg = invalidar(reg, f"Se eliminó evidencia ({nombre}). Vuelva a mapear y validar la población.")
+        reg["evidenceReview"] = None
+        reg["extraccion"] = extraccion
+        quedan = [x for x in archivos(db, p.id) if x.estado != "rechazado"]
+        p.estado = "DOCUMENTACION_RECIBIDA" if quedan else "REQUERIMIENTO_APROBADO"
+        datos = {**datos, "comment": f"{requerimiento}: {nombre} eliminado"}
+
     elif accion == "map_validate":
         if p.estado not in ("REQUERIMIENTO_APROBADO", "DOCUMENTACION_RECIBIDA"):
             raise ReglaIncumplida("Datos bloqueados después de validar.")
