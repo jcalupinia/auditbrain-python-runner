@@ -109,13 +109,16 @@ CONTROL = "pasivo_reg"
 TOTAL_EJEMPLO = "pasivo"
 
 CONVENCIONES = ("Efectiva anual", "Nominal anual")
-PARAMETROS = {"convencionTasa": "Efectiva anual", "umbralVida": 75, "umbralVP": 90, "limiteBajoValor": 5000}
+# Default «Nominal anual»: el auditor tipea la tasa anual tal cual la publica el BCE y la herramienta la divide ÷12
+# (decisión del dueño, para no confundir al equipo con conversiones de tasa efectiva).
+PARAMETROS = {"convencionTasa": "Nominal anual", "umbralVida": 75, "umbralVP": 90, "limiteBajoValor": 5000, "tarifaIR": 25}
 PARAM_NEGATIVOS = ()
 ETIQUETAS_PARAM = {
     "convencionTasa": "Tasa anual del contrato (efectiva o nominal)",
     "umbralVida": "PYMES: plazo ≥ % de la vida económica (indicador 20.5 c)",
     "umbralVP": "PYMES: VP de los pagos mínimos ≥ % del valor razonable (indicador 20.5 d)",
     "limiteBajoValor": "Límite de «bajo valor» del activo nuevo (USD)",
+    "tarifaIR": "Tarifa de impuesto a la renta (%) para el impuesto diferido (NIC 12 / Secc. 29)",
 }
 
 COL = {c["key"]: get_column_letter(i + 1) for i, c in enumerate(_CONTRATOS)}
@@ -245,6 +248,34 @@ def _dep(t, roi, md, ev):
     if t <= me:
         return roi * min(t, md) / md
     return roi * min(me, md) / md + (roi * (1 - min(me, md) / md) + aj) * min(t - me, md2 - me) / (md2 - me)
+
+
+def _idiferido(c: dict, tarifa: float) -> dict:
+    """Impuesto diferido (NIC 12 / Secc. 29) del arrendamiento capitalizado, por año fiscal.
+
+    La diferencia temporaria nace porque el gasto contable del arrendatario (depreciación del derecho de uso
+    + interés del pasivo) se separa del gasto deducible, que en Ecuador es el canon devengado del período. Cada
+    período con diferencia POSITIVA genera (gasto no deducible → casillero F-101 1114) y con diferencia NEGATIVA
+    revierte (casillero 1115); ambos se llevan en bruto y por separado, no neteados. Sobre toda la vida la suma
+    de (depreciación + interés) iguala la suma de los cánones, así que la diferencia acumulada revierte a cero.
+
+    Devuelve {anios: {año: {dep, interes, canon, dif, gen, rev}}, tarifa, gen, rev} con los subtotales en bruto
+    por año. El efecto en el impuesto diferido se obtiene multiplicando por la tarifa (fórmula del lado Excel)."""
+    roi, md, ev, m = c["activo_ini"], c["md"], c["ev"], c["m"]
+    anios: dict[int, dict] = {}
+    for x in c["tabla"]:
+        j = x["j"]
+        dep = _dep(j * m, roi, md, ev) - _dep((j - 1) * m, roi, md, ev)
+        dif = dep + x["interes"] - x["pago"]
+        y = c["inicio"].year + (c["inicio"].month - 1 + (j - 1) * m) // 12
+        a = anios.setdefault(y, {"dep": 0.0, "interes": 0.0, "canon": 0.0, "dif": 0.0, "gen": 0.0, "rev": 0.0})
+        a["dep"] += dep
+        a["interes"] += x["interes"]
+        a["canon"] += x["pago"]
+        a["dif"] += dif
+        a["gen" if dif > 0 else "rev"] += dif
+    return {"anios": anios, "tarifa": tarifa / 100,
+            "gen": sum(a["gen"] for a in anios.values()), "rev": sum(a["rev"] for a in anios.values())}
 
 
 # --- cálculo ---------------------------------------------------------------------------
@@ -435,6 +466,9 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     p["limiteBajoValor"] = a_num(p["limiteBajoValor"])
     if p["limiteBajoValor"] is None or p["limiteBajoValor"] < 0:
         raise ValueError("Límite de bajo valor: indique un importe no negativo.")
+    p["tarifaIR"] = a_num(p["tarifaIR"])
+    if p["tarifaIR"] is None or not 0 <= p["tarifaIR"] <= 100:
+        raise ValueError("Tarifa de impuesto a la renta: use un porcentaje entre 0 y 100.")
     pymes = es_pymes(p)
     if not datasets.get("contratos"):
         raise ValueError("Cargue el anexo de contratos de arrendamiento.")
@@ -501,9 +535,12 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             c["deterioro"] = 0 if c["recuperable"] is None else max(0, c["neto_antes"] - c["recuperable"])
             c["neto"] = c["neto_antes"] - c["deterioro"]
             c["gasto"] = 0.0
+            # impuesto diferido (NIC 12 / Secc. 29): solo en contratos capitalizados (ver _idiferido)
+            c["idiferido"] = _idiferido(c, p["tarifaIR"])
         else:
             for k in ("pasivo", "interes", "pagos", "remedicion", "cp", "lp", "devengo", "dep", "deterioro", "neto"):
                 c[k] = 0.0
+            c["idiferido"] = None  # operativo/exento: gasto = deducible, sin diferencia temporaria
             # 7 · gasto lineal de exentos y operativos
             c["pagos_tot"] = c["pago_medido"] * c["n"]
             c["meses_anio"] = min(max(M, 0), c["plazo_total"]) - min(max(M - 12, 0), c["plazo_total"])

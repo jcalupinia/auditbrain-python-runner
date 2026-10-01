@@ -283,3 +283,32 @@ def test_semaforo_conciliacion():
     assert valores <= {"Alerta", "Conforme"} and valores
     assert valores <= set(NIVEL_COLOR)
     assert h["total"][sem] == ""
+
+
+def test_impuesto_diferido_reproduce_excel_cliente():
+    """NIC 12 / Secc. 29: la diferencia temporaria nace del canon deducible vs (depreciación + interés) del
+    arriendo capitalizado. Reproduce el Excel real del cliente (Inkas, oficinas Quito, 24 meses, 8,12% nominal):
+    generación y reversión en bruto por año (casilleros F-101 1114 / 1115) y cuadre a cero al fin de la vida."""
+    ds = {"contratos": [m._k("Q24", "Oficinas Quito", "2023-07-01", "24", "2400", "Mensual", "8.12", "0")]}
+    c = _c(m.ejecutar(ds, {**m.PARAMETROS, "_marco": "NIIF completas"}, "2026-12-31"), "Q24")  # Nominal + 25% por default
+    idf = c["idiferido"]
+    t = idf["tarifa"]
+    assert round(t, 4) == 0.25
+    an = idf["anios"]
+    assert round(an[2023]["gen"] * t, 2) == 198.26       # generación 2023 (cas 1114)
+    assert round(an[2024]["gen"] * t, 2) == 69.66        # generación 2024 (cas 1114)
+    assert round(an[2024]["rev"] * t, 2) == -64.24       # reversión 2024 (cas 1115)
+    assert round(an[2025]["rev"] * t, 2) == -203.68      # reversión 2025 (cas 1115)
+    assert round(idf["gen"] * t, 2) == 267.93 == round(-idf["rev"] * t, 2)     # bruto gen = bruto rev
+    assert round((idf["gen"] + idf["rev"]) * t, 6) == 0.0                      # se revierte a cero
+
+
+def test_impuesto_diferido_solo_en_capitalizados():
+    """La cédula de diferido solo aplica a contratos capitalizados (NIIF 16 / financiero PYMES). En un
+    operativo PYMES o un exento el gasto es el deducible: sin diferencia temporaria → idiferido None."""
+    res = _run(PYMES)                                     # EJEMPLO en PYMES: hay operativos y financieros
+    for c in res["detalle"]["contratos"]:
+        if c["reconoce"] == "Sí":
+            assert c["idiferido"] is not None and "anios" in c["idiferido"]
+        else:
+            assert c["idiferido"] is None
