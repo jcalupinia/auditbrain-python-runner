@@ -103,13 +103,13 @@ def test_saldo_bajo_del_primario_hace_failover(monkeypatch):
 
     intentados: list[str] = []
 
-    def _anthropic_sin_saldo(messages, system):
+    def _anthropic_sin_saldo(messages, system, temperature=None):
         intentados.append("anthropic")
         raise providers.ProviderUnavailable(
             "HTTP 400 del proveedor: Your credit balance is too low", billing=True
         )
 
-    def _gemini_ok(messages, system):
+    def _gemini_ok(messages, system, temperature=None):
         intentados.append("gemini")
         return providers.LLMResponse(
             content="respuesta de respaldo", model="gemini-2.0-flash",
@@ -136,7 +136,7 @@ def test_toda_la_cadena_sin_saldo_da_mensaje_accionable(monkeypatch):
         providers, "_providers_with_keys", lambda: ["anthropic", "openai"]
     )
 
-    def _sin_saldo(messages, system):
+    def _sin_saldo(messages, system, temperature=None):
         raise providers.ProviderUnavailable(
             "HTTP 400 del proveedor: Your credit balance is too low", billing=True
         )
@@ -160,7 +160,7 @@ def test_fallo_no_de_saldo_conserva_la_excepcion_real(monkeypatch):
     sin el envoltorio de billing."""
     monkeypatch.setattr(providers, "_providers_with_keys", lambda: ["anthropic", "gemini"])
 
-    def _timeout(messages, system):
+    def _timeout(messages, system, temperature=None):
         raise providers.ProviderUnavailable("El proveedor no respondió en 60s")
 
     monkeypatch.setattr(providers, "_call_anthropic", _timeout)
@@ -171,3 +171,37 @@ def test_fallo_no_de_saldo_conserva_la_excepcion_real(monkeypatch):
 
     assert exc.value.billing is False
     assert "60s" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# 4. El fallo REAL del servidor local se muestra (no se disfraza de "sin saldo")
+# ---------------------------------------------------------------------------
+
+def test_fallo_del_local_se_explica_aparte(monkeypatch):
+    """Si el local (primero en la cadena) falla por algo que NO es saldo (no
+    responde, modelo inexistente) y la nube cae por saldo, el mensaje final debe
+    decir POR QUÉ falló el local, en vez de meterlo en «sin saldo o cuota»."""
+    monkeypatch.setattr(providers, "_providers_with_keys", lambda: ["local", "anthropic"])
+
+    def _local_caido(messages, system, temperature=None):
+        raise providers.ProviderUnavailable(
+            "HTTP 400 del proveedor: model 'auditia-rutina' not found", billing=False
+        )
+
+    def _anthropic_sin_saldo(messages, system, temperature=None):
+        raise providers.ProviderUnavailable(
+            "HTTP 400 del proveedor: Your credit balance is too low", billing=True
+        )
+
+    monkeypatch.setattr(providers, "_call_local", _local_caido)
+    monkeypatch.setattr(providers, "_call_anthropic", _anthropic_sin_saldo)
+
+    with pytest.raises(providers.ProviderUnavailable) as exc:
+        providers.chat_complete(messages=[{"role": "user", "content": "hola"}])
+
+    mensaje = str(exc.value)
+    assert exc.value.billing is True
+    # El motivo real del local aparece, con la pista de qué revisar en Render.
+    assert "El servidor de IA local" in mensaje
+    assert "auditia-rutina" in mensaje
+    assert "LOCAL_LLM_MODEL" in mensaje
