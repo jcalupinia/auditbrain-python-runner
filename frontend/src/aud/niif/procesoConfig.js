@@ -195,7 +195,9 @@ const INVENTARIOS = {
   subtitulo: "Existencia, Costo y Obsolescencia · Auditoría Externa",
   principales: [
     { id: "RQ-001", titulo: "Inventario Valorado (Kardex)", icono: "box", color: "gold", tipos: ".xlsx / .csv" },
+    { id: "RQ-002", titulo: "Costeo de Producción", icono: "chart", color: "green", tipos: ".xlsx / .csv" },
     { id: "RQ-003", titulo: "Movimiento por Línea Vendida", icono: "list", color: "blue", tipos: ".xlsx / .csv" },
+    { id: "RQ-004", titulo: "Documentos de Corte", icono: "calendar", color: "teal", tipos: ".xlsx / .csv" },
     { id: "RQ-005", titulo: "Actas de Recuento Físico", icono: "doc", color: "purple", tipos: ".pdf / .docx" },
     { id: "RQ-006", titulo: "Ventas y Precios Posteriores", icono: "bank", color: "teal", tipos: ".xlsx / .pdf" },
     { id: "RQ-008", titulo: "Política de Obsolescencia", icono: "shield", color: "red", tipos: ".pdf / .docx" },
