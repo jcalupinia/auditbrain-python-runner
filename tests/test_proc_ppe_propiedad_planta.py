@@ -350,7 +350,7 @@ def test_comparativo_por_dias_y_guia_niif_sri():
     assert a["dif_acum_dias"] > 0  # el auditor recalcula más acumulada que la del cliente
     # Guía: dos conceptos (gasto del período y dep. acumulada), cada uno con NIIF meses, NIIF días, SRI y Cliente.
     guia = hs["22_Guia_NIIF_SRI"]["rows"]
-    assert len(guia) == 2 and all(len(row) == 5 for row in guia)
+    assert len(guia) == 2 and all(len(row) == 6 for row in guia)
     # El recálculo por días no altera el ajuste contable a resultados (sigue siendo el mismo).
     assert r["totals"]["ajusteResultado"] == correr()["totals"]["ajusteResultado"]
 
@@ -394,7 +394,35 @@ def test_vaucheo_de_facturas():
 
 def test_facturas_son_extraibles_por_ia():
     """Los requerimientos de facturas (PDF) están declarados como extraíbles por IA."""
-    assert set(m.EXTRACCION_DATASETS) == {"facturas_adiciones", "facturas_salidas"}
+    assert set(m.EXTRACCION_DATASETS) == {"facturas_adiciones", "facturas_salidas", "politica"}
     reqs = {r["id"]: r for r in m.definicion()["requests"]}
     assert reqs["RQ-012"]["dataset"] == "facturas_adiciones" and "pdf" in reqs["RQ-012"]["formats"]
     assert reqs["RQ-009"]["dataset"] == "facturas_salidas" and "pdf" in reqs["RQ-009"]["formats"]
+
+
+def test_politica_alimenta_vida_util_y_guia():
+    """Fase 5: la vida útil de la política se aplica por rubro (robusto a tildes) y entra en la guía/comparativo."""
+    ds = dict(E["datasets"])
+    ds["politica"] = [
+        {"rubro": "Vehículos", "vida_util_anios": "8", "_row": 2},
+        {"rubro": "Edificios", "vida_util_anios": "40", "_row": 3},
+    ]
+    r = m.ejecutar(ds, {**E["parametros"]}, E["corte"])
+    veh = next(a for a in r["detalle"]["activos"] if a["id"] == "VEH-01")
+    assert veh["vida_anios_pol"] == 8  # «Vehículos» con tilde mapea bien
+    assert veh["gasto_dias_pol"] and veh["gasto_dias_pol"] > 0
+    hs = {x["name"]: x for x in m.hojas(r)}
+    # Guía: la columna «Política (días)» trae totales no nulos.
+    assert [c[0] for c in hs["22_Guia_NIIF_SRI"]["cols"]][4] == "Política (días)"
+    assert hs["22_Guia_NIIF_SRI"]["rows"][0][4] > 0
+    assert r["totals"]["ajusteResultado"] == correr()["totals"]["ajusteResultado"]
+
+
+def test_resumen_de_hallazgos():
+    """Fase 5: cédula 27 agrupa los hallazgos por categoría con conteo e importe."""
+    r = correr()
+    hs = {x["name"]: x for x in m.hojas(r)}
+    assert "27_Resumen_hallazgos" in hs
+    filas = hs["27_Resumen_hallazgos"]["rows"]
+    # El total de hallazgos de la cédula 27 coincide con el nº de excepciones.
+    assert sum(row[1] for row in filas) == len(r["exceptions"])
