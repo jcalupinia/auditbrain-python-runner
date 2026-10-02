@@ -6,3 +6,7 @@ pytest>=8.0.0
 # "async def functions are not natively supported".
 pytest-asyncio>=1.0.0
 httpx>=0.27.0
+# Recálculo independiente de fórmulas de Excel para los verificadores de
+# papeles de trabajo (scripts/verificar_papel_*.py), sin depender de Excel
+# ni de los filtros Calc de LibreOffice.
+formulas>=1.2

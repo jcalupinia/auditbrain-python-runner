@@ -115,6 +115,31 @@ export function crearCliente({
     excepciones: (id, filtros) =>
       llamar("leer", `/trabajos/${encodeURIComponent(id)}/excepciones?${filtrosAQuery(filtros)}`),
     plantilla: () => llamar("leer", "/plantilla", {}, { blob: true }),
+    // Papel de trabajo del módulo "Bases de datos": el motor arma el .xlsx
+    // (hoja EXCEPCIONES + resúmenes con fórmulas + sello) desde el mismo
+    // trabajo, sin volver a subir los datos.
+    papelBases: (id, formato = "xlsx") =>
+      llamar("leer", `/trabajos/${encodeURIComponent(id)}/papel?formato=${formato}`, {}, { blob: true }),
+    papelBasesHtml: (id) =>
+      llamar("leer", `/trabajos/${encodeURIComponent(id)}/papel?formato=html`, {}, { blob: true }),
+    // Selección de muestras (NIA 530): sube el mayor y aplica un método.
+    // `formato`: "json" (muestra + método) o "xlsx" (papel de trabajo).
+    muestreo(archivo, metodo, parametros) {
+      const fd = new FormData();
+      fd.append("archivo", archivo);
+      fd.append("metodo", metodo);
+      fd.append("parametros", JSON.stringify(parametros || {}));
+      return llamar("ejecutar", "/muestreo", { method: "POST", body: fd }, { sinLimite: true });
+    },
+    papelMuestreo(archivo, metodo, parametros, formato = "xlsx") {
+      const fd = new FormData();
+      fd.append("archivo", archivo);
+      fd.append("metodo", metodo);
+      fd.append("parametros", JSON.stringify(parametros || {}));
+      fd.append("formato", formato);
+      return llamar("ejecutar", "/muestreo", { method: "POST", body: fd },
+                    { blob: true, sinLimite: true });
+    },
   };
 }
 
