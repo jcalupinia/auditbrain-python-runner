@@ -96,9 +96,16 @@ export default function ObligacionesFiscalesWorkspace({ projectId }) {
     setProcesando(true);
     setError("");
     try {
-      const actualizado = await api.procesarOF(job.id);
-      setJob(actualizado);
+      // La clasificación corre en segundo plano (un Mayor grande excede el
+      // timeout del gateway); el backend responde al instante con 'running' y
+      // acá esperamos a que el job llegue a 'revision'.
+      await api.procesarOF(job.id);
       setSelected("clasificacion");
+      const actualizado = await api.esperarEstadoOF(job.id, ["revision"]);
+      setJob(actualizado);
+      if (actualizado.status === "failed") {
+        setError(actualizado.error_message || STRINGS.of_ws_error_procesar);
+      }
     } catch (e) {
       setError(e.message);
     } finally {

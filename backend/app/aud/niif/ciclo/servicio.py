@@ -78,11 +78,20 @@ def pruebas_de(definicion: dict) -> list[str]:
     return out
 
 
+# Herramientas del catálogo del sitio que ya no se ofrecen porque una herramienta con
+# procesador las reemplaza (evita que el auditor vea dos versiones de la misma prueba).
+# Se ocultan del LISTADO pero siguen siendo resolubles en `_definicion_de`, para no
+# romper pruebas o fichas ya creadas con ese origen.
+#   - "pce": PCE declarativa reemplazada por el procesador `pce_cohortes_niif9` (AUD-ECL-01).
+OCULTAR_CATALOGO = {"pce"}
+
+
 def herramientas_disponibles(db: Session) -> list[dict]:
     """Catálogo del sitio más las fichas NIIF con definición probada."""
     lista = [
         {"origen": k, "nombre": d["name"], "area": d["area"], "tipo": "catálogo"}
         for k, d in reglas.CATALOGO.items()
+        if k not in OCULTAR_CATALOGO
     ]
     fichas = db.execute(
         select(NiifFicha).where(NiifFicha.estado.in_(ESTADOS_FICHA_USABLE)).order_by(NiifFicha.nombre)
@@ -146,6 +155,49 @@ def _num_seguro(v) -> float:
     return n or 0.0
 
 
+def _auto_extraer_ia(db: Session, p: Prueba, reg: dict, proc) -> list[str]:
+    """Al procesar: extrae por IA los documentos PDF/Word de los requerimientos
+    extraíbles (carta/informe/notas) que aún NO tengan extracción, y los deja en
+    ``reg["extraccion"]`` marcados como automáticos y pendientes de revisión. Respeta
+    lo ya extraído/confirmado con el botón. Devuelve avisos legibles (uno por archivo).
+    Nunca crashea: si la IA no está disponible o falla, avisa y sigue (el requerimiento
+    es opcional; el auditor puede subir la tabla en Excel/CSV)."""
+    extdatasets = getattr(proc, "EXTRACCION_DATASETS", ())
+    if not extdatasets:
+        return []
+    from backend.app.aud.niif.ciclo import extraccion_ia
+
+    por_req = {r["id"]: r for r in (reg.get("requests") or []) if r.get("dataset") in extdatasets}
+    extraccion = dict(reg.get("extraccion") or {})
+    corte = (reg.get("engagement") or {}).get("cutoff", "")
+    avisos: list[str] = []
+    for a in archivos(db, p.id):
+        if a.estado == "rechazado" or a.requerimiento not in por_req or str(a.id) in extraccion:
+            continue
+        if extraccion_ia._extension(a.nombre) not in ("pdf", "docx"):
+            continue
+        ds = por_req[a.requerimiento]["dataset"]
+        campos = proc.CAMPOS[proc.kind(ds)]
+        enums = getattr(proc, "EXTRACCION_ENUMS", {}).get(ds, {})
+        instr = getattr(proc, "EXTRACCION_INSTRUCCIONES", {}).get(ds, "")
+        try:
+            texto = extraccion_ia.texto_de_documento(a.nombre, almacen.leer(a.ruta))
+            res = extraccion_ia.extraer_filas(campos, texto, enums=enums, instrucciones=instr,
+                                              contexto=f"Corte de la auditoría: {corte}".strip())
+        except extraccion_ia.ExtraccionError as e:
+            avisos.append(f"{a.requerimiento} · no se pudo extraer «{a.nombre}» por IA ({e}); "
+                          "súbalo en Excel/CSV o revise el documento.")
+            continue
+        v = proc.validar_filas(proc.kind(ds), res["rows"])
+        extraccion[str(a.id)] = {"dataset": ds, "requestId": a.requerimiento, "file": a.nombre, "rows": res["rows"],
+                                 "modelo": res["modelo"], "validation": v, "auto": True, "revisado": False,
+                                 "at": _ahora_iso()}
+        avisos.append(f"{a.requerimiento} · {len(res['rows'])} fila(s) extraídas por IA de «{a.nombre}» al procesar; "
+                      "revíselas (la IA solo transcribe lo que leyó).")
+    reg["extraccion"] = extraccion
+    return avisos
+
+
 # --- pruebas -----------------------------------------------------------------
 
 def _evento(db: Session, p: Prueba, accion: str, anterior: str | None, actor: str, comentario: str = "") -> None:
@@ -201,9 +253,88 @@ def crear_prueba(db: Session, project_id: int, origen: str, tributario: bool, ac
     return p
 
 
+def _politica_catalogo_viva(p: Prueba) -> dict:
+    """Política vigente del catálogo para una herramienta (origen `proc:`): los
+    FORMATOS aceptados y la bandera `required` (obligatorio/opcional) de cada
+    requerimiento.
+
+    Los requerimientos se congelan en la prueba al generarla (`reg["requests"]` y
+    `p.definicion`), así que un cambio de catálogo —admitir PDF/JPG además de Excel,
+    o volver OPCIONAL un anexo que antes era obligatorio— no llegaría a las pruebas
+    ya creadas. Para las herramientas del catálogo (procesador determinista) estas
+    dos cosas se re-derivan de la definición viva del procesador y se superponen al
+    leer y al validar. Son política del catálogo, no datos del encargo; el resto del
+    requerimiento (documento, propósito, dataset, componentes) queda intacto.
+
+    Requerimientos «solo en la visita final»: un procesador puede declarar
+    `REQUERIDOS_SOLO_FINAL` (ids que son obligatorios únicamente en la visita final
+    del encargo). En la visita preliminar —o si la ficha aún no fija la visita—
+    quedan OPCIONALES para no bloquear el proceso; en la visita «Final» vuelven a ser
+    obligatorios. La visita sale del contexto del encargo congelado en la prueba
+    (`reg["engagement"]["visit"]`), así que no necesita la base de datos."""
+    origen = getattr(p, "origen", "") or ""
+    if not origen.startswith("proc:"):
+        return {}
+    mod = procesadores.PROCESADORES.get(origen[5:])
+    if mod is None or not getattr(mod, "RUBRO", None):
+        return {}
+    try:
+        reqs = mod.definicion().get("requests") or []
+    except Exception:
+        return {}
+    solo_final = set(getattr(mod, "REQUERIDOS_SOLO_FINAL", ()) or ())
+    visita = ((getattr(p, "registro", None) or {}).get("engagement") or {}).get("visit", "")
+    es_final = visita == "Final"
+
+    def _req(r: dict) -> bool:
+        if r["id"] in solo_final:
+            return es_final  # obligatorio solo en la visita final
+        return r.get("required") is not False
+
+    return {r["id"]: {"formats": list(r["formats"]) if r.get("formats") else None,
+                      "required": _req(r)}
+            for r in reqs if r.get("id")}
+
+
+def _con_politica_viva(requests: list, politica: dict) -> list:
+    """Superpone la política vigente del catálogo (`politica`) sobre una lista de
+    requerimientos, emparejando por `id`: actualiza `required` siempre y `formats`
+    cuando el catálogo los declara. Un requerimiento ausente de `politica` (o que no
+    es un dict) conserva el suyo."""
+    if not politica:
+        return requests
+    out = []
+    for r in requests:
+        pol = politica.get(r.get("id")) if isinstance(r, dict) else None
+        if not pol:
+            out.append(r)
+            continue
+        nuevo = {**r, "required": pol["required"]}
+        if pol.get("formats") and r.get("formats"):
+            nuevo["formats"] = pol["formats"]
+        out.append(nuevo)
+    return out
+
+
+def requests_vivos(p: Prueba) -> list:
+    """Los requerimientos de la prueba con la política viva del catálogo superpuesta
+    (formatos aceptados y obligatorio/opcional). Único punto por el que debe leerse
+    `reg["requests"]` para la cobertura: así una prueba ya creada hereda que un anexo
+    pasó a ser opcional sin re-generar el requerimiento."""
+    reg = p.registro or {}
+    return _con_politica_viva(reg.get("requests") or [], _politica_catalogo_viva(p))
+
+
 def _t(p: Prueba) -> dict:
     """El registro con la forma que esperan las reglas del sitio."""
-    return {**p.registro, "state": p.estado, "definition": p.definicion}
+    politica = _politica_catalogo_viva(p)
+    reg, definicion = p.registro, p.definicion
+    if politica:
+        if reg.get("requests"):
+            reg = {**reg, "requests": _con_politica_viva(reg["requests"], politica)}
+        if (definicion or {}).get("requests"):
+            definicion = {**definicion, "requests": _con_politica_viva(definicion["requests"], politica)}
+    return {**reg, "state": p.estado, "definition": definicion}
 
 
 def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: dict, actor: str) -> Prueba:
@@ -241,7 +372,8 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         reg["taxScope"] = str(datos.get("taxScope") or "")[:10000]
         reg["sourcesVerified"] = False
         if accion == "approve_program":
-            if reg.get("taxApplicable"):
+            sin_base_legal = (p.definicion or {}).get("processor") in reglas.SIN_BASE_LEGAL
+            if reg.get("taxApplicable") and not sin_base_legal:
                 if not bool(datos.get("taxAcknowledged")):
                     raise ReglaIncumplida("Marque «Revisé la base legal sugerida y estoy conforme» antes de confirmar la base técnica.")
                 sugerido = str((p.definicion.get("tributario_sugerido") or {}).get("texto") or "").strip()
@@ -253,7 +385,9 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                                                    else "editó el tratamiento tributario respecto de la sugerencia")}
                 datos = {**datos, "comment": f"Tratamiento tributario: {reg['taxScopeMeta']['resumen']}."}
             reglas.validar_ficha_encargo({**reg["engagement"], "country": reg["country"]}, completa=True)
-            reg["sourcesVerified"] = reglas.verificar_fuentes(reg)
+            # Herramientas de la vista de 3 pasos sin base legal: no se verifican
+            # fuentes (contables ni tributarias); el programa se aprueba directo.
+            reg["sourcesVerified"] = True if sin_base_legal else reglas.verificar_fuentes(reg)
             aprobado = reglas.vincular_fuentes(reg)
             p.estado = reglas.transicion({**reg, "state": p.estado}, accion)
             reg["program"] = aprobado
@@ -290,6 +424,28 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         a.estado = "recibido" if a.estado == "rechazado" else "rechazado"
         datos = {**datos, "comment": f"{a.requerimiento}: {a.nombre} → {a.estado}"}
 
+    elif accion == "delete_file":
+        # Borra un solo archivo subido por error, sin encerar toda la carga. Solo
+        # antes de validar la documentación; después la evidencia queda fija.
+        if p.estado not in ("REQUERIMIENTO_APROBADO", "DOCUMENTACION_RECIBIDA"):
+            raise ReglaIncumplida("La documentación ya fue validada: no se puede borrar un archivo.")
+        fid = datos.get("fileId")
+        a = db.get(PruebaArchivo, int(fid)) if str(fid or "").isdigit() else None
+        if a is None or a.prueba_id != p.id:
+            raise ReglaIncumplida("Archivo no encontrado.")
+        nombre, requerimiento = a.nombre, a.requerimiento
+        almacen.borrar(a.ruta)
+        db.delete(a)
+        db.flush()  # para que el conteo de archivos restantes no incluya el borrado
+        # Quitar evidencia obliga a volver a mapear y validar, igual que al subir.
+        extraccion = {k: v for k, v in (reg.get("extraccion") or {}).items() if k != str(fid)}
+        reg = invalidar(reg, f"Se eliminó evidencia ({nombre}). Vuelva a mapear y validar la población.")
+        reg["evidenceReview"] = None
+        reg["extraccion"] = extraccion
+        quedan = [x for x in archivos(db, p.id) if x.estado != "rechazado"]
+        p.estado = "DOCUMENTACION_RECIBIDA" if quedan else "REQUERIMIENTO_APROBADO"
+        datos = {**datos, "comment": f"{requerimiento}: {nombre} eliminado"}
+
     elif accion == "map_validate":
         if p.estado not in ("REQUERIMIENTO_APROBADO", "DOCUMENTACION_RECIBIDA"):
             raise ReglaIncumplida("Datos bloqueados después de validar.")
@@ -316,7 +472,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                 if ds not in por_ds or not isinstance(partes, list) or len(partes) > 60:
                     raise ReglaIncumplida("Anexo no previsto en los requerimientos de la ficha.")
                 campos = proc.CAMPOS[proc.kind(ds)]
-                filas_ds[ds] = []
+                filas_ds.setdefault(ds, [])
                 for parte in partes:
                     parte = parte if isinstance(parte, dict) else {}
                     archivo, sheet = hoja(parte.get("fileId"), parte.get("sheet"))
@@ -331,16 +487,37 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                     mapeos.append({"dataset": ds, "requestId": archivo.requerimiento, "fileId": archivo.id, "file": archivo.nombre,
                                    "sheet": parte.get("sheet"), "header": parte.get("header"), "fields": parte.get("mapping"),
                                    "headers": m["headers"], "blankRows": m["blankRows"], "records": len(m["rows"])})
-                if sum(len(x) for x in filas_ds.values()) > datos_mod.MAX_ROWS:
-                    raise ReglaIncumplida(f"Cargue entre 1 y {datos_mod.MAX_ROWS} registros.")
-                v = proc.validar_filas(proc.kind(ds), filas_ds[ds])
-                errores += [{**e, "message": f"{por_ds[ds]['id']} · {e['message']}"} for e in v["errors"]]
-                avisos += [{**w, "message": f"{por_ds[ds]['id']} · {w['message']}"} for w in v["warnings"]]
+            # Auto-extracción al procesar (decisión del dueño): si hay un PDF/Word en un
+            # requerimiento extraíble (carta/informe/notas) que aún no tiene extracción,
+            # la IA lo lee AHORA y se usa (queda marcado como automático, pendiente de
+            # revisión del auditor). Si ya se extrajo/confirmó con el botón, se respeta.
+            avisos += [{"row": None, "message": msg} for msg in _auto_extraer_ia(db, p, reg, proc)]
+            # Filas extraídas por IA de la carta/informe/notas (PDF/Word), ya en
+            # reg["extraccion"] (por el botón «Extraer con IA» o por la auto-extracción
+            # de arriba). Se suman a su dataset.
+            for fid, info in (reg.get("extraccion") or {}).items():
+                ds = info.get("dataset")
+                filas = info.get("rows") or []
+                if ds not in por_ds or not filas:
+                    continue
+                base = len(filas_ds.setdefault(ds, []))
+                nuevas = [{**f, "_row": base + j + 1} for j, f in enumerate(filas)]
+                filas_ds[ds] += nuevas
+                mapeos.append({"dataset": ds, "requestId": info.get("requestId"), "file": info.get("file"),
+                               "fileId": int(fid) if str(fid).isdigit() else None, "source": "ia",
+                               "modelo": info.get("modelo"), "records": len(nuevas)})
+            if sum(len(x) for x in filas_ds.values()) > datos_mod.MAX_ROWS:
+                raise ReglaIncumplida(f"Cargue entre 1 y {datos_mod.MAX_ROWS} registros.")
+            for ds, filas in filas_ds.items():
+                v = proc.validar_filas(proc.kind(ds), filas)
+                rid = por_ds[ds]["id"]
+                errores += [{**e, "message": f"{rid} · {e['message']}"} for e in v["errors"]]
+                avisos += [{**w, "message": f"{rid} · {w['message']}"} for w in v["warnings"]]
             reg["datasets"] = filas_ds
-            reg["rows"] = filas_ds[principal]
-            reg["mapping"] = mapeos[0]
+            reg["rows"] = filas_ds.get(principal, [])
+            reg["mapping"] = mapeos[0] if mapeos else None
             reg["mappings"] = mapeos
-            reg["validation"] = {"records": len(filas_ds[principal]), "errors": errores, "warnings": avisos, "ok": not errores}
+            reg["validation"] = {"records": len(reg["rows"]), "errors": errores, "warnings": avisos, "ok": not errores}
             p.estado = "DOCUMENTACION_RECIBIDA"
             reg["run"] = None
             if not errores:
@@ -407,7 +584,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         recibidos_ = archivos(db, p.id)
         docs = [{"id": a.id, "requestId": a.requerimiento, "component": a.componente} for a in recibidos_]
         rechazados = [a.id for a in recibidos_ if a.estado == "rechazado"]
-        faltan = datos_mod.tool_gaps(reg["requests"], docs, rechazados)
+        faltan = datos_mod.tool_gaps(_con_politica_viva(reg["requests"], _politica_catalogo_viva(p)), docs, rechazados)
         if faltan:
             raise ReglaIncumplida("Cobertura incompleta. " + " · ".join(faltan))
         reg["rejectedFiles"] = rechazados
@@ -577,9 +754,9 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         if (reg.get("run") or {}).get("exceptions") and len(reg["exceptionReview"]) < 10:
             raise ReglaIncumplida("Documente la evaluación de excepciones antes de cerrar.")
         reg["conclusionReviewed"] = True
-        # M3 (NIA 220): una consulta técnica o una diferencia de opinión abierta bloquea la aprobación de la planificación.
-        if getattr(procesadores.de(p.definicion), "USA_REGISTROS_ENCARGO", False) and consultas_abiertas(db, p.project_id):
-            raise ReglaIncumplida(CONSULTAS_BLOQUEAN)
+        # Una consulta técnica o diferencia de opinión abierta ya NO bloquea la aprobación (decisión del dueño,
+        # 2026-09-29: que nada frene el avance). Si queda alguna abierta, se anota como advertencia en la bitácora.
+        consultas_pend = consultas_abiertas(db, p.project_id) if getattr(procesadores.de(p.definicion), "USA_REGISTROS_ENCARGO", False) else 0
         p.estado = reglas.transicion({**reg, "state": p.estado, "definition": p.definicion}, accion)
         reg["approvedBy"] = actor
         reg["approvedAt"] = _ahora_iso()
@@ -590,6 +767,9 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         reg["segregation"] = bool(envio) and envio.actor != actor
         if envio and envio.actor == actor:
             datos = {**datos, "comment": (SIN_SEGREGACION + " " + str(datos.get("comment") or "")).strip()}
+        if consultas_pend:
+            datos = {**datos, "comment": (f"Advertencia (NIA 220): se aprobó con {consultas_pend} consulta(s) o "
+                                          "diferencia(s) de opinión abierta(s). " + str(datos.get("comment") or "")).strip()}
         # El papel final (Excel y HTML) lo arma el navegador con el exportador
         # del sitio desde este registro ya aprobado y lo sube a guardar_papel().
         reg["artifacts"] = None
@@ -605,6 +785,53 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         if p.definicion.get("id") == "pce":
             datos_mod.check_buckets(parametros)
         reg["templateApproved"] = {"by": actor, "at": _ahora_iso(), "parameters": parametros}
+
+    elif accion in ("extraer_ia", "guardar_extraccion"):
+        # Carta de control interno / informe del año anterior en PDF o Word: la IA
+        # extrae la tabla (extraer_ia) y el auditor la revisa/edita y confirma
+        # (guardar_extraccion). Las filas quedan en reg["extraccion"][fileId] y
+        # map_validate las suma al dataset. No cambia el estado del circuito.
+        proc = procesadores.de(p.definicion)
+        if not proc:
+            raise ReglaIncumplida("La extracción por IA solo aplica a las herramientas con procesador.")
+        if p.estado not in ("REQUERIMIENTO_APROBADO", "DOCUMENTACION_RECIBIDA"):
+            raise ReglaIncumplida("La documentación ya fue validada.")
+        fid = datos.get("fileId")
+        a = db.get(PruebaArchivo, int(fid)) if str(fid or "").isdigit() else None
+        if a is None or a.prueba_id != p.id or a.estado == "rechazado":
+            raise ReglaIncumplida("Archivo no encontrado.")
+        req = next((r for r in reg.get("requests") or [] if r.get("id") == a.requerimiento and r.get("dataset")), None)
+        ds = req.get("dataset") if req else None
+        if ds not in getattr(proc, "EXTRACCION_DATASETS", ()):
+            raise ReglaIncumplida("Este documento no admite extracción por IA.")
+        campos = proc.CAMPOS[proc.kind(ds)]
+        extraccion = dict(reg.get("extraccion") or {})
+        if accion == "extraer_ia":
+            from backend.app.aud.niif.ciclo import extraccion_ia
+            enums = getattr(proc, "EXTRACCION_ENUMS", {}).get(ds, {})
+            instr = getattr(proc, "EXTRACCION_INSTRUCCIONES", {}).get(ds, "")
+            contexto = f"Corte de la auditoría: {reg.get('engagement', {}).get('cutoff', '')}".strip()
+            try:
+                texto = extraccion_ia.texto_de_documento(a.nombre, almacen.leer(a.ruta))
+                res = extraccion_ia.extraer_filas(campos, texto, enums=enums, instrucciones=instr, contexto=contexto)
+            except extraccion_ia.ExtraccionError as e:
+                raise ReglaIncumplida(str(e))
+            rows, modelo = res["rows"], res["modelo"]
+        else:  # guardar_extraccion: la tabla que el auditor revisó y editó
+            crudas = datos.get("rows")
+            if not isinstance(crudas, list) or len(crudas) > datos_mod.MAX_ROWS:
+                raise ReglaIncumplida("Filas inválidas.")
+            claves = [c["key"] for c in campos]
+            rows = [{**{k: (f.get(k) if isinstance(f, dict) else "") for k in claves}, "_row": i}
+                    for i, f in enumerate(crudas, start=1)]
+            modelo = (extraccion.get(str(a.id)) or {}).get("modelo", "")
+        v = proc.validar_filas(proc.kind(ds), rows)
+        extraccion[str(a.id)] = {"dataset": ds, "requestId": a.requerimiento, "file": a.nombre, "rows": rows,
+                                 "modelo": modelo, "validation": v, "at": _ahora_iso()}
+        reg["extraccion"] = extraccion
+        datos = {**datos, "comment": f"{a.requerimiento}: {len(rows)} fila(s) "
+                 + ("extraídas por IA de " if accion == "extraer_ia" else "confirmadas de ") + a.nombre
+                 + ("" if v["ok"] else " (revisar avisos de validación)")}
 
     else:
         raise ReglaIncumplida("Acción no disponible en el estado actual.")
@@ -678,8 +905,11 @@ def subir_archivo(db: Session, p: Prueba, revision: int, requerimiento: str, com
     reg = copy.deepcopy(p.registro)
     if not any(r["id"] == requerimiento for r in reg["requests"]):
         raise ReglaIncumplida("Vincule un requerimiento aprobado.")
+    # Formatos aceptados vigentes del catálogo (una prueba vieja pudo congelar solo
+    # xlsx/csv antes de que se admitieran PDF/JPG): se validan contra la definición viva.
+    reqs_val = _con_politica_viva(reg["requests"], _politica_catalogo_viva(p))
     try:
-        check_upload(datos.requests_as_items(reg["requests"]), requerimiento, componente or None, nombre)
+        check_upload(datos.requests_as_items(reqs_val), requerimiento, componente or None, nombre)
     except ValueError as e:
         raise ReglaIncumplida(str(e))
     if not contenido or len(contenido) > almacen.MAX_ARCHIVO:
@@ -712,6 +942,77 @@ def eventos(db: Session, prueba_id: int) -> list[PruebaEvento]:
     return list(db.execute(
         select(PruebaEvento).where(PruebaEvento.prueba_id == prueba_id).order_by(PruebaEvento.id)
     ).scalars())
+
+
+# --- consola de comunicación por prueba (chat auditable, NIA 230) -----------
+# Un comentario es un evento de la bitácora (accion="comentario"): así queda en
+# la cédula 12 del papel y es trazable. Se permite en cualquier estado, incluso
+# aprobada: la comunicación del equipo no muta el papel. El asistente responde
+# como un actor más ("AUDIT-IA"), y su respuesta es un borrador para el auditor.
+ACTOR_ASISTENTE = "AUDIT-IA"
+
+
+def comentar(db: Session, p: Prueba, texto: str, actor: str, accion: str = "comentario") -> PruebaEvento:
+    """Agrega un comentario a la consola de la prueba (no cambia el estado)."""
+    texto = (texto or "").strip()
+    if not texto:
+        raise ValueError("El comentario no puede estar vacío.")
+    ev = PruebaEvento(
+        prueba_id=p.id, revision=p.revision, accion=accion, estado_anterior=None,
+        estado_nuevo=p.estado, actor=actor, comentario=texto[:8000] or None,
+    )
+    db.add(ev)
+    db.commit()
+    db.refresh(ev)
+    return ev
+
+
+def sugerencias_pruebas(db: Session, p: Prueba) -> dict:
+    """Puente planificación → pruebas: de una prueba de PLANIFICACIÓN, la lista
+    ordenada de pruebas del piloto a ejecutar (una por herramienta, con sus cuentas
+    y riesgos). Recomputa la planificación porque el ``detalle`` guardado se poda a
+    tasas/fiscal/cortes y no conserva las cuentas a revisar; reutiliza la misma
+    inyección de parámetros del encargo que ``execute``."""
+    from backend.app.aud.niif import puente
+
+    proc = procesadores.de(p.definicion)
+    if proc is None or getattr(proc, "RUBRO", None) != "PLANIFICACION":
+        raise ReglaIncumplida("Las pruebas sugeridas solo se derivan de una prueba de planificación.")
+    reg = copy.deepcopy(p.registro)
+    param = {k: v for k, v in reg["parameters"].items() if k in proc.PARAMETROS}
+    param["_marco"] = reg["engagement"].get("framework") or ""
+    param["_edicion"] = str(reg["engagement"].get("edition") or "")
+    if getattr(proc, "USA_REGISTROS_ENCARGO", False):
+        param["_encargo"] = registros_encargo(db, p.project_id)
+        anterior_run = version_anterior_run(db, p)
+        if anterior_run:
+            param["_anterior"] = anterior_run
+        param["_archivos"] = archivos_de_entrada(db, p.id)
+    try:
+        run = proc.ejecutar(reg.get("datasets") or {}, param, reg["engagement"]["cutoff"])
+    except (ValueError, KeyError, ArithmeticError, StopIteration) as e:
+        raise ReglaIncumplida(str(e) or "La planificación no se pudo ejecutar.")
+    return puente.sugerencias(run)
+
+
+def conversacion(db: Session, prueba_id: int) -> list[dict]:
+    """La bitácora como línea de tiempo para la consola: cada evento es un
+    comentario del equipo/asistente (``tipo='comentario'``) o una marca del
+    circuito (``tipo='sistema'``: cambios de estado, cargas, papel)."""
+    salida = []
+    for e in eventos(db, prueba_id):
+        salida.append({
+            "id": e.id,
+            "tipo": "comentario" if e.accion == "comentario" else "sistema",
+            "accion": e.accion,
+            "actor": e.actor,
+            "es_asistente": e.actor == ACTOR_ASISTENTE or (e.actor or "").startswith(ACTOR_ASISTENTE),
+            "texto": e.comentario or "",
+            "estado_nuevo": e.estado_nuevo,
+            "revision": e.revision,
+            "fecha": e.creado_en.isoformat() if e.creado_en else None,
+        })
+    return salida
 
 
 # --- definición probada de una ficha NIIF -----------------------------------
@@ -1251,6 +1552,113 @@ def version_anterior_run(db: Session, p: Prueba) -> dict | None:
                for f in (h13 or {}).get("rows") or []]
     return {"version": old.version, "fecha": (old.aprobada_en or old.actualizada_en).date().isoformat() if (old.aprobada_en or old.actualizada_en) else "",
             "totales": {k: (run.get("totals") or {}).get(k) for k in ("materialidad", "desempeno", "trivial")}, "riesgos": riesgos}
+
+
+def resultado_para_revision(db: Session, p: Prueba) -> dict:
+    """Re-ejecuta el procesador de la prueba para obtener su resultado COMPLETO.
+
+    La consola de revisión del auditor recalcula sobre ``detalle`` (est9, cuentas,
+    índices), pero el ``run`` guardado en la prueba recorta ``detalle`` a
+    ``tasas/fiscal/cortes`` para no inflar la base. Aquí se vuelve a ejecutar el
+    procesador con los mismos insumos y parámetros que ``aplicar_accion`` usa en
+    ``execute`` (mismo marco, edición, registros del encargo, versión anterior y
+    audit trail), de modo que la consola revise exactamente lo que se ejecutó, con
+    el detalle íntegro. Es de solo lectura: no toca la prueba ni el estado.
+    """
+    proc = procesadores.de(p.definicion)
+    if proc is None:
+        raise ReglaIncumplida("Esta prueba no tiene procesador; no hay recálculo que revisar.")
+    reg = p.registro or {}
+    if not reg.get("engagement") or not reg["engagement"].get("cutoff"):
+        raise ReglaIncumplida("Falta la ficha del encargo (fecha de corte) para recalcular.")
+    param = {k: v for k, v in (reg.get("parameters") or {}).items() if k in proc.PARAMETROS}
+    param["_marco"] = reg["engagement"].get("framework") or ""
+    param["_edicion"] = str(reg["engagement"].get("edition") or "")
+    if getattr(proc, "USA_REGISTROS_ENCARGO", False):
+        param["_encargo"] = registros_encargo(db, p.project_id)
+        anterior = version_anterior_run(db, p)
+        if anterior:
+            param["_anterior"] = anterior
+        param["_archivos"] = archivos_de_entrada(db, p.id)
+    try:
+        return proc.ejecutar(reg.get("datasets") or {}, param, reg["engagement"]["cutoff"])
+    except (ValueError, KeyError, ArithmeticError, StopIteration) as e:
+        raise ReglaIncumplida(str(e) or "La prueba no se pudo recalcular para la revisión.")
+
+
+def guion_consola_chat(db: Session, p: Prueba, rol: str) -> dict:
+    """Guion de la consola-chat de la prueba (agente determinista, solo lectura).
+
+    Vale para la planificación NIA y para las 20 herramientas del catálogo: toda
+    prueba con procesador tiene el mismo ciclo (documentos → producir → enviar →
+    revisar → aprobar) y, por tanto, el mismo hilo conversacional.
+    """
+    from backend.app.aud.niif.ciclo import consola_chat
+
+    if not (p.definicion or {}).get("processor"):
+        raise ReglaIncumplida("Esta prueba no tiene procesador; la consola-chat requiere una herramienta del catálogo.")
+    es_plan = (p.definicion or {}).get("processor") == "planificacion_nia"
+    reg = p.registro or {}
+    reqs = requests_vivos(p)
+    fuentes = [a for a in archivos(db, p.id) if a.clase == "source"]
+    docs = [{"id": a.id, "requestId": a.requerimiento, "component": a.componente} for a in fuentes]
+    rechazados = [a.id for a in fuentes if a.estado == "rechazado"]
+    cobertura = datos.tool_coverage(reqs, docs, rechazados) if reqs else []
+    huecos = datos.tool_gaps(reqs, docs, rechazados) if reqs else []
+    obligatorios = [c for c in cobertura if c.get("required")]
+    pendientes = [c["text"] for c in obligatorios if not c.get("complete")]
+    # Antes de generar el requerimiento todavía no hay `requests`: los documentos que pedirá salen de la definición.
+    if not reqs:
+        pendientes = [r.get("document") or r.get("id") for r in (p.definicion.get("requests") or []) if r.get("required") is not False]
+    d = {
+        "estado": p.estado,
+        "cliente": (reg.get("engagement") or {}).get("client"),
+        "prueba": (p.definicion or {}).get("name") or "la prueba",
+        "es_planificacion": es_plan,
+        "huecos": huecos,
+        "pendientes": pendientes,
+        "recibidos": sum(1 for c in obligatorios if c.get("complete")),
+        "total": len(obligatorios),
+        "tiene_run": bool(reg.get("run")),
+        "conclusion_hecha": bool(str(reg.get("conclusion") or "").strip()),
+        "aprobada_por": reg.get("approvedBy"),
+    }
+    # En revisión y del lado del auditor, el agente ya trae el veredicto del recálculo independiente.
+    if p.estado == "EN_REVISION" and rol == "auditor" and reg.get("run"):
+        try:
+            rep = revisar_prueba(db, p)
+            d.update(veredicto=rep["veredicto"], bloqueos=rep.get("bloqueos") or [], hallazgos=rep.get("hallazgos") or [])
+        except ReglaIncumplida:
+            pass
+    return {"prueba_id": p.id, "estado": p.estado, "version": p.version, "revision": p.revision,
+            **consola_chat.guion(d, rol)}
+
+
+def revisar_prueba(db: Session, p: Prueba) -> dict:
+    """Reporte de la consola de revisión del auditor para una prueba con procesador.
+
+    Despacha según la herramienta: la planificación NIA usa su revisor rico
+    (``consola_revision``, que recalcula índices y agregados); las 20 herramientas
+    del catálogo usan el revisor genérico por contrato (``revision.base``), que
+    verifica el panel, el enlace de los problemas y el recálculo independiente del
+    resultado principal a medida por rubro (``revision/recalc/<processor>.py``).
+    """
+    processor = (p.definicion or {}).get("processor")
+    if not processor:
+        raise ReglaIncumplida("Esta prueba no tiene procesador; no hay recálculo que revisar.")
+    if not (p.registro or {}).get("run"):
+        raise ReglaIncumplida("Procese la prueba antes de revisarla.")
+    run = resultado_para_revision(db, p)
+    if processor == "planificacion_nia":
+        from backend.app.aud.niif.ciclo import consola_revision
+        return consola_revision.revisar(run)
+    from backend.app.aud.niif.ciclo import revision
+    return revision.revisar(run, procesadores.de(p.definicion), processor)
+
+
+# Alias retrocompatible: el nombre anterior era exclusivo de la planificación.
+def revisar_planificacion(db: Session, p: Prueba) -> dict:
+    return revisar_prueba(db, p)
 
 
 def registro_salida(r: RegistroEncargo) -> dict:

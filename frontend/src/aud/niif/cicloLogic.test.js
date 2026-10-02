@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { ETAPAS, alternarProcedimiento, etapaDe, nombreEstado, procedimientosSinFuente } from "./cicloLogic";
+import {
+  ETAPAS,
+  alternarProcedimiento,
+  estadoTributario,
+  etapaDe,
+  nombreEstado,
+  procedimientosSinFuente,
+  textoTributarioInicial,
+} from "./cicloLogic";
 import { STATES } from "./sitio/tools/domain.mjs";
 
 describe("etapas de una prueba", () => {
@@ -46,7 +54,47 @@ describe("fuentes y procedimientos", () => {
   });
 });
 
-import { componentesDeTexto, detalleRequerimiento, erroresLegibles, esTabular, mapeoSugerido } from "./cicloLogic";
+import {
+  admiteExtraccionIA,
+  archivosExtraibles,
+  componentesDeTexto,
+  detalleRequerimiento,
+  erroresLegibles,
+  esExtraibleIA,
+  esTabular,
+  extraccionDe,
+  mapeoSugerido,
+} from "./cicloLogic";
+
+describe("extracción por IA (carta / informe en PDF/Word)", () => {
+  it("reconoce PDF y Word como extraíbles, no las hojas de cálculo", () => {
+    expect(esExtraibleIA("carta.pdf")).toBe(true);
+    expect(esExtraibleIA("informe.DOCX")).toBe(true);
+    expect(esExtraibleIA("balance.xlsx")).toBe(false);
+  });
+
+  it("un requerimiento admite IA si tiene dataset y acepta pdf/docx", () => {
+    expect(admiteExtraccionIA({ dataset: "carta_control_interno", formats: ["pdf", "docx", "xlsx", "csv"] })).toBe(true);
+    expect(admiteExtraccionIA({ dataset: "balance_actual", formats: ["xlsx", "csv"] })).toBe(false);
+    expect(admiteExtraccionIA({ formats: ["pdf"] })).toBe(false); // sin dataset (soporte)
+  });
+
+  it("lista los PDF/Word subidos y no los rechazados ni las hojas", () => {
+    const p = { archivos: [
+      { id: 1, requerimiento: "RQ-004", estado: "recibido", nombre: "carta.pdf" },
+      { id: 2, requerimiento: "RQ-004", estado: "rechazado", nombre: "vieja.pdf" },
+      { id: 3, requerimiento: "RQ-004", estado: "recibido", nombre: "tabla.xlsx" },
+      { id: 4, requerimiento: "RQ-005", estado: "recibido", nombre: "informe.docx" },
+    ] };
+    expect(archivosExtraibles(p, "RQ-004").map((a) => a.id)).toEqual([1]);
+  });
+
+  it("devuelve la extracción guardada de un archivo", () => {
+    const p = { registro: { extraccion: { 7: { dataset: "carta_control_interno", rows: [{ id: "R01" }] } } } };
+    expect(extraccionDe(p, 7).rows).toHaveLength(1);
+    expect(extraccionDe(p, 99)).toBeNull();
+  });
+});
 
 describe("requerimiento y documentación", () => {
   it("convierte el texto de componentes en una lista limpia", () => {
@@ -109,7 +157,7 @@ describe("tramosDeTexto", () => {
   });
 });
 
-import { archivosDe, formulasLegibles, fuentesConfirmadas, mejorEncabezado, pasoPreparar, problemasDe } from "./cicloLogic";
+import { archivosDe, filasConvertidas, formulasLegibles, fuentesConfirmadas, mejorEncabezado, pasoPreparar, problemasDe } from "./cicloLogic";
 
 describe("E10 · mejorEncabezado", () => {
   const campos = [
@@ -125,6 +173,36 @@ describe("E10 · mejorEncabezado", () => {
   });
   it("dice qué columnas obligatorias no reconoce", () => {
     expect(mejorEncabezado([{ name: "H", rows: [["Código", "Otra"]] }], campos).faltan).toEqual(["Cantidad", "Costo unitario"]);
+  });
+});
+
+describe("E10 · filasConvertidas (Convertir mi formato)", () => {
+  const campos = [
+    { key: "id", label: "Código de cuenta", aliases: ["cuenta"] },
+    { key: "saldo_libros", label: "Saldo según libros", aliases: ["libros"] },
+    { key: "tipo", label: "Tipo", required: false },
+  ];
+  it("reordena las columnas de la compañía al formato de la herramienta y omite filas vacías", () => {
+    const sheets = [{
+      name: "Hoja1",
+      rows: [
+        ["ANEXO DE BANCOS"],
+        ["Cuenta", "Libros"],
+        ["1.1.02.01", "125680.50"],
+        [],
+        ["1.1.02.02", "8000"],
+      ],
+    }];
+    const { columnas, filas, faltan } = filasConvertidas(sheets, campos);
+    expect(columnas).toEqual(["Código de cuenta", "Saldo según libros", "Tipo"]);
+    expect(filas).toEqual([["1.1.02.01", "125680.50", ""], ["1.1.02.02", "8000", ""]]);
+    expect(faltan).toEqual([]); // "Tipo" es opcional
+  });
+  it("no inventa datos: una columna obligatoria sin coincidencia queda vacía y se reporta en faltan", () => {
+    const sheets = [{ name: "H", rows: [["Cuenta"], ["1.1.02.01"]] }];
+    const { filas, faltan } = filasConvertidas(sheets, campos);
+    expect(filas).toEqual([["1.1.02.01", "", ""]]);
+    expect(faltan).toEqual(["Saldo según libros"]);
   });
 });
 
@@ -218,5 +296,97 @@ describe("marco aplicable y NIA", () => {
   it("las NIA vienen como filas, también desde una lista de nombres", () => {
     expect(niasDe({ nia: ["NIA 500", { document: "NIA 540", section: "párr. 13", requirement: "estimación" }] })).toEqual([
       { document: "NIA 500", section: "", requirement: "" }, { document: "NIA 540", section: "párr. 13", requirement: "estimación" }]);
+  });
+});
+
+import { mapeoConManual } from "./cicloLogic";
+
+describe("mapeoConManual (mezcla auto + manual)", () => {
+  const campos = [
+    { key: "id", label: "Identificador", required: true },
+    { key: "monto", label: "Monto", required: true },
+    { key: "nota", label: "Nota", required: false },
+  ];
+  const elegido = { sheet: "Datos", header: 2, mapping: { id: 0 }, faltan: ["Monto"] };
+
+  it("el mapeo manual pisa al automático y recalcula los faltantes obligatorios", () => {
+    const r = mapeoConManual(elegido, { monto: "3", id: "1" }, campos);
+    expect(r.mapping).toEqual({ id: 1, monto: 3 });
+    expect(r.faltan).toEqual([]);
+    expect(r.sheet).toBe("Datos");
+    expect(r.header).toBe(2);
+  });
+
+  it("un valor vacío quita la asignación y vuelve a marcar el faltante", () => {
+    const r = mapeoConManual(elegido, { id: "" }, campos);
+    expect(r.mapping).toEqual({});
+    expect(r.faltan).toEqual(["Identificador", "Monto"]);
+  });
+
+  it("sin mapeo manual conserva el automático y sus faltantes", () => {
+    const r = mapeoConManual(elegido, undefined, campos);
+    expect(r.mapping).toEqual({ id: 0 });
+    expect(r.faltan).toEqual(["Monto"]);
+  });
+
+  it("no exige columna para los campos opcionales", () => {
+    const r = mapeoConManual(elegido, { monto: "2" }, campos);
+    expect(r.faltan).toEqual([]);
+  });
+});
+
+describe("gate del tratamiento tributario (base técnica)", () => {
+  it("no bloquea cuando la prueba no es tributaria", () => {
+    expect(estadoTributario(false, "", false)).toEqual({ ok: true, motivo: "" });
+  });
+
+  it("exige texto, resolver «VERIFICAR» y la casilla de conformidad, en ese orden", () => {
+    expect(estadoTributario(true, "", false).ok).toBe(false); // falta texto
+    expect(estadoTributario(true, "Base legal con VERIFICAR pendiente", false).motivo).toMatch(/VERIFICAR/);
+    const sinCasilla = estadoTributario(true, "Sustento tributario completo", false);
+    expect(sinCasilla.ok).toBe(false);
+    expect(sinCasilla.motivo).toMatch(/Revisé la base legal/);
+    expect(estadoTributario(true, "Sustento tributario completo", true)).toEqual({ ok: true, motivo: "" });
+  });
+
+  it("pre-llena el recuadro con lo guardado o con la base legal sugerida", () => {
+    expect(textoTributarioInicial({ taxScope: "lo guardado" }, {})).toBe("lo guardado");
+    expect(textoTributarioInicial({}, { tributario_sugerido: { texto: "sugerida" } })).toBe("sugerida");
+    expect(textoTributarioInicial({}, {})).toBe("");
+  });
+});
+
+import { subirArchivosEnCadena } from "./cicloLogic";
+
+describe("subida de varios archivos a la vez (un cliente con varios bancos)", () => {
+  it("encadena la revisión que devuelve el backend entre archivos", async () => {
+    // El backend incrementa la revisión en cada subida y la devuelve.
+    const vistas = [];
+    const subir = async (revision) => {
+      vistas.push(revision);
+      return { revision: revision + 1 };
+    };
+    const archivos = [{ name: "BCO GYQL.pdf" }, { name: "BCO PICH.pdf" }, { name: "BCO PRODU.pdf" }];
+    const { revision, fallos } = await subirArchivosEnCadena(archivos, 7, subir);
+    expect(vistas).toEqual([7, 8, 9]); // cada archivo usa la revisión actualizada, no la inicial
+    expect(revision).toBe(10);
+    expect(fallos).toEqual([]);
+  });
+
+  it("un archivo que falla no cambia la revisión y los siguientes continúan", async () => {
+    const subir = async (revision, archivo) => {
+      if (archivo.name.endsWith(".exe")) throw new Error("Formato no admitido");
+      return { revision: revision + 1 };
+    };
+    const archivos = [{ name: "ok1.pdf" }, { name: "malo.exe" }, { name: "ok2.pdf" }];
+    const { revision, fallos } = await subirArchivosEnCadena(archivos, 2, subir);
+    expect(revision).toBe(4); // dos subidas correctas; el .exe no incrementó
+    expect(fallos).toEqual(["malo.exe: Formato no admitido"]);
+  });
+
+  it("sin la respuesta de revisión, no queda bloqueado (conserva la inicial)", async () => {
+    const subir = async () => ({}); // backend viejo sin revisión en la respuesta
+    const { revision } = await subirArchivosEnCadena([{ name: "a.pdf" }], 5, subir);
+    expect(revision).toBe(5);
   });
 });

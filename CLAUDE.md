@@ -155,23 +155,15 @@ Se hace una vez al año, típicamente entre noviembre y febrero. Pasos:
 
 ### Deuda técnica conocida (a ejecutar cuando haya tiempo)
 - **Action Item 5**: Mover `extract_f101_oficial.py`, `extract_f103_oficial.py`,
-  `extract_f104_oficial.py` desde la raíz del repo a `scripts/extractors/` con
-  docstring explicando cuándo correrlos. Razón: hoy contaminan el root y un
-  developer nuevo no sabe que son one-shot tools, no parte del runtime.
-- **Tests legacy fallando** (6 fallos pre-existentes, NO bloquean ICT). Lista
-  actualizada y verificada el 2026-08-05 (el PR de operadores renombró dos y
-  agregó uno; la nota anterior listaba 5 con nombres viejos):
-  `test_chat.py::test_conversation_with_cross_org_project_rejected`,
-  `test_context.py::test_operator_can_create_clients`,
-  `test_context.py::test_admin_creates_client_and_project_and_user_is_scoped`,
-  `test_context.py::test_operator_can_set_same_org_but_not_cross_org_project_active`,
-  `test_context.py::test_cross_org_isolation`,
-  `test_sandbox.py::test_make_rlimit_preexec_optin`.
-  **Diagnóstico:** los 5 primeros son de AISLAMIENTO, no de lógica: pasan al
-  ejecutarlos solos y fallan al correr la suite completa, con
-  `sqlalchemy.exc.IntegrityError` por estado compartido en la base SQLite de
-  desarrollo. `test_sandbox` sí falla también en aislamiento.
-  Investigar y arreglar antes de cualquier release a producción de esos módulos.
+  `extract_f104_oficial.py` a `scripts/extractors/` con docstring explicando cuándo correrlos. **Verificado el
+  2026-09-27: esos archivos NO están en el repositorio** (viven en el equipo del dueño). Cuando se suban, van
+  directamente a `scripts/extractors/`, no a la raíz.
+- **Tests legacy: RESUELTOS (verificado el 2026-09-27).** Los 6 que figuraban como fallos pre-existentes
+  (`test_chat.py::test_conversation_with_cross_org_project_rejected`, los 4 de `test_context.py` y
+  `test_sandbox.py::test_make_rlimit_preexec_optin`) pasan solos y en la suite completa: `python -m pytest tests/`
+  → 2400 pasan, 38 omitidas, 0 fallos (local y en GitHub). El aislamiento lo resolvió la base de pruebas propia
+  (sección «La suite NUNCA corre contra la base de desarrollo») y el de sandbox era propio de Windows (tiene su
+  `skipif`). La suite completa ya no necesita `--deselect`.
 - **API keys pendientes de rotar**: revocar en el panel de Render la API key que
   estuvo escrita en este archivo (retirada del texto el 2026-09-24; sigue en el
   historial de git, por eso hay que revocarla) y configurar Resend email API key.
@@ -366,8 +358,48 @@ Anthropic por defecto. Actual: `claude-sonnet-4-5-20250929`.
 
 | Variable | Requerida | Default | Notas |
 |---|---|---|---|
-| `ANTHROPIC_API_KEY` | Sí (para IA real) | — | `sk-ant-api03-...` del Anthropic Console. Sin esto → fallback graceful en todos los anexos. |
+| `ANTHROPIC_API_KEY` | Sí (para IA real del ICT) | — | `sk-ant-api03-...` del Anthropic Console. Sin esto → fallback graceful en todos los anexos del ICT. |
 | `ICT_LLM_MODEL` | No (tiene default) | `claude-sonnet-4-5-20250929` | Sobreescribir solo cuando Anthropic publique un modelo nuevo verificado. |
+| `NIIF_EXTRACCION_ENABLED` | No (tiene default) | `true` | `false` apaga la extracción por IA de la planificación: el botón «Extraer con IA» avisa y el auditor sube la tabla en Excel/CSV. |
+
+### Extracción por IA de la carta de control interno y el informe (planificación)
+
+`backend/app/aud/niif/ciclo/extraccion_ia.py` lee el PDF/Word firmado (RQ-004 carta,
+RQ-005 informe del año anterior) y le pide al modelo de IA que devuelva las mismas
+filas que la transcripción en Excel, como **JSON estricto** (esquema derivado de los
+`CAMPOS` del procesador).
+
+**Proveedor de IA = el servidor LOCAL primero.** No llama a Anthropic directamente:
+usa el cliente compartido `backend/app/chat/providers.py` (`chat_complete`), cuyo
+orden de preferencia es `local > gemini > groq > openrouter > anthropic > openai`
+(configurable con `AUDITBRAIN_LLM_PROVIDER`). Así la extracción corre en el gateway
+local (`LOCAL_LLM_BASE_URL`, privacidad + costo cero) y cae a la nube solo como
+respaldo, igual que el resto de la plataforma. (El ICT sí sigue usando Anthropic
+directo con `ANTHROPIC_API_KEY`; son dos caminos distintos.)
+
+Aplica a **tres** documentos narrativos: la **carta** (RQ-004), el **informe** (RQ-005)
+y las **notas** del año anterior (RQ-006) — la tupla `EXTRACCION_DATASETS`. Los balances
+siguen siendo `xlsx` puro.
+
+**La IA solo transcribe lo explícito** (sin dato → celda vacía, regla M22). Acciones del
+ciclo: `extraer_ia` (extrae) y `guardar_extraccion` (confirma lo editado); las filas
+quedan en `reg["extraccion"][fileId]` y `map_validate` las suma al dataset.
+
+**Auto-extracción al Procesar (decisión del dueño):** al Procesar (`map_validate`),
+`servicio._auto_extraer_ia` lee por IA cualquier PDF/Word de un requerimiento extraíble
+que **aún no tenga extracción** y lo usa; queda marcado `auto=True, revisado=False` y
+`reg["validation"]["warnings"]` lleva el aviso «extraídas por IA … revíselas». Si el
+auditor ya extrajo/confirmó con el botón, se respeta esa versión. Es automático (la IA
+llena la matriz sola al Procesar), con aviso de revisión posterior; el botón «Extraer con
+IA» sigue disponible para revisar antes. El botón/tabla aparece en la vista de proceso y
+en el flujo del piloto (`ConsolaChat`, sección «Documentos para extracción por IA»).
+
+Sin ningún proveedor LLM configurado (ni el local ni uno de nube) o con
+`NIIF_EXTRACCION_ENABLED=false` cae al respaldo Excel/CSV con un mensaje claro (nunca
+crashea; la auto-extracción solo avisa y sigue, porque estos requerimientos son
+opcionales). Tests: `tests/test_aud_extraccion_ia.py` y
+`tests/test_aud_planificacion_extraccion.py` (HTTP: extracción manual y auto-extracción
+al Procesar, con una función de chat simulada).
 
 ## A1 sin "saldos de línea" — TODOS los cas del balance del catálogo OFICIAL
 

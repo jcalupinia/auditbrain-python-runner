@@ -183,15 +183,16 @@ def test_indagaciones_consultas_y_bloqueo_de_la_aprobacion(client):
     db = SessionLocal()
     try:
         assert servicio.consultas_abiertas(db, pid) == 1
+        # Decisión del dueño (2026-09-29): una consulta abierta YA NO bloquea la aprobación (solo advierte en la
+        # bitácora). El intento falla, si acaso, por la puerta de cierre general, no por CONSULTAS_BLOQUEAN.
         p = Prueba(project_id=pid, version=1, estado="EN_REVISION", origen="proc:planificacion_nia",
                    definicion=m.definicion(), registro={}, revision=1, creada_por="x")
         db.add(p)
         db.commit()
         try:
             servicio.aplicar_accion(db, p, "approve", 1, {"conclusion": "Planificación aprobada.", "conclusionReviewed": True}, "yo")
-            assert False, "debió bloquear"
         except ReglaIncumplida as ex:
-            assert str(ex) == servicio.CONSULTAS_BLOQUEAN
+            assert str(ex) != servicio.CONSULTAS_BLOQUEAN
     finally:
         db.close()
     url = f"{BASE}/proyectos/{pid}/registros/{c.json()['id']}/resolver"

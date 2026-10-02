@@ -682,7 +682,8 @@ CEDULAS = [
     ("10_Covenants", "Covenants y dispensas"), ("11_Clasificacion", "Clasificación corriente / no corriente"),
     ("12_Endeudamiento", "Endeudamiento y ratios de covenants"), ("13_Conciliacion", "Conciliación y ajuste"),
     ("14_Flujos_modificacion", "Flujos de la modificación (adenda)"), ("15_Prueba_10pct", "Prueba del 10 % (NIIF 9 3.3.2 y B3.3.6)"),
-    ("16_Problemas", "Problemas encontrados"),
+    ("16_Problemas", "Problemas encontrados"), ("17_Conclusion", "Indicadores y conclusión"),
+    ("18_Lectura", "Lectura de resultados"),
 ]
 # Panel del dashboard (formato en graficos.py): capital registrado de los préstamos evaluados; pasivo recalculado al costo
 # amortizado frente al registrado (capital + intereses); composición del pasivo recalculado por operación y deuda por banco.
@@ -693,6 +694,19 @@ PANEL = {
     "composicion": {"rotulo": "Costo amortizado por operación", "hoja": "13_Conciliacion", "etiqueta": "Operación",
                     "valor": "Costo amortizado auditado"},
     "distribucion": {"rotulo": "Capital registrado por banco", "hoja": "09_Confirmacion", "etiqueta": "Banco", "valor": "Capital registrado"},
+    # Tableros premium: ratios de covenants (12_Endeudamiento), filas fijas RATIOS, ratio auditado frente al límite pactado.
+    # Se separan apalancamiento (menor es mejor) y cobertura (mayor es mejor) para no mezclar escalas en una lámina.
+    "tableros": [
+        {"rotulo": "Covenants de apalancamiento", "sub": "Veces · ratio auditado frente al límite pactado.", "unidad": "veces",
+         "hoja": "12_Endeudamiento", "etiqueta": "Concepto", "seccion": "Ratios de covenants",
+         "filas": [{"fila": "Deuda / activos", "mejor": "bajo"}, {"fila": "Deuda / patrimonio", "mejor": "bajo"},
+                   {"fila": "Deuda / EBITDA", "mejor": "bajo"}],
+         "series": [["Ratio auditado", "Ratio (veces)"], ["Límite pactado", "Límite (veces)"]]},
+        {"rotulo": "Covenants de cobertura", "sub": "Veces · ratio auditado frente al límite pactado.", "unidad": "veces",
+         "hoja": "12_Endeudamiento", "etiqueta": "Concepto", "seccion": "Ratios de covenants",
+         "filas": [{"fila": "Cobertura de intereses", "mejor": "alto"}, {"fila": "DSCR", "mejor": "alto"}],
+         "series": [["Ratio auditado", "Ratio (veces)"], ["Límite pactado", "Límite (veces)"]]},
+    ],
 }
 
 P = ref("02_Parametros")
@@ -864,7 +878,10 @@ def hojas(res: dict) -> list[dict]:
         cla.append([c["id"], fx(f"{CA}I{r}", c["ca_tot"]), fx(f"MIN({CA}C{r}+12/{G},{H})", c["kq"]), fx(en("H", r, f"C{r}"), c["cap_12"]),
                     fx(f"MIN({CA}E{r}-D{r}+{CA}H{r},B{r})", c["cp_venc"]), fx(f"{CV}L{r}", c["exigible"]), fx(f'IF(F{r}="Sí",B{r},E{r})', c["cp"]),
                     fx(f"B{r}-G{r}", c["lp"]), _opt("cp_reg", r, c["cp_reg"]),
-                    fx(f'IF(I{r}="","",G{r}-I{r})', None if c["cp_reg"] is None else c["cp"] - c["cp_reg"])])
+                    fx(f'IF(I{r}="","",G{r}-I{r})', None if c["cp_reg"] is None else c["cp"] - c["cp_reg"]),
+                    fx(f'IF(F{r}="Sí","Alerta",IF(I{r}="","",IF(ABS(J{r})>=0.005,"Alerta","Conforme")))',
+                       "Alerta" if c["exigible"] == "Sí" else ("" if c["cp_reg"] is None else
+                                                               ("Alerta" if abs(c["cp"] - c["cp_reg"]) >= 0.005 else "Conforme")))])
         conc.append([c["id"], fx(f"{CA}I{r}", c["ca_tot"]), fx(f"N({_x('saldo_reg', r)})", c["saldo_reg"]),
                      fx(f"N({_x('int_reg', r)})", c["int_reg"] or 0), fx(f"C{r}+D{r}", c["reg_tot"]), fx(f"B{r}-E{r}", c["ajuste"]),
                      fx(f"{CL}G{r}", c["cp"]), fx(f"{CL}H{r}", c["lp"]), fx(f"{CA}U{r}", c["gasto_tie"])])
@@ -1127,6 +1144,9 @@ def hojas(res: dict) -> list[dict]:
         "Corriente registrado": "Copia la porción corriente que presentó el cliente (hoja 03); en blanco si no la informó.",
         "Diferencia corriente": ("Resta el corriente registrado del corriente auditado; solo se calcula si el cliente informó su porción "
                                  "corriente. Positivo: falta reclasificar a corriente."),
+        "Semáforo": ("Estado del vencimiento del préstamo: «Alerta» si la deuda es exigible por un covenant incumplido (toda corriente, "
+                     "NIC 1 74) o si el corriente registrado no coincide con el auditado; «Conforme» si la clasificación cuadra; en blanco "
+                     "si el cliente no informó su porción corriente."),
     }
     ex12 = {
         "Numerador": ("Cambia por fila: la deuda auditada es la suma del costo amortizado al corte (hoja 06), el gasto financiero la suma "
@@ -1178,6 +1198,79 @@ def hojas(res: dict) -> list[dict]:
         "Conclusión": ("Redacta la conclusión: sin resultado, «Dato insuficiente: conclusión bloqueada»; si es sustancial, baja del pasivo "
                        "original y alta de uno nuevo; si no, el pasivo continúa y los costos se amortizan."),
     }
+
+    # 17 · indicadores y conclusión (semáforo).  Columnas: indicador, importe, porcentaje, cantidad, estado.
+    ex17 = {
+        "Importe": ("El costo amortizado recalculado, el pasivo registrado y el ajuste propuesto salen de los totales de la "
+                    "hoja 13 (Conciliación y ajuste); la diferencia de gasto financiero suma la hoja 08 y la reclasificación "
+                    "por covenants, la hoja 11, sin volver a calcularlos aquí."),
+        "Porcentaje": ("Divide el ajuste propuesto para el pasivo registrado (renglones de esta misma hoja): es el peso del "
+                       "ajuste sobre la deuda contabilizada; en blanco si no hay pasivo registrado."),
+        "Cantidad": ("Cuenta los problemas listados en la hoja 16 (Problemas encontrados): cuántas excepciones dejó abiertas "
+                     "la prueba de préstamos y obligaciones."),
+        "Estado": ("Semáforo de cada indicador: el ajuste al pasivo y la reclasificación a corriente por covenants marcan "
+                   "«Alerta»; una diferencia en el gasto financiero de la TIE o problemas abiertos piden «Revisar»; «Conforme» "
+                   "cuando el importe es nulo."),
+    }
+    PRB = ref("16_Problemas")
+    nprob = len(res["exceptions"])
+    b17 = lambda kk: f"B{FILA0 + kk}"
+    dd17 = lambda kk: f"D{FILA0 + kk}"
+    aj_v, dg_v, rc_v, pr_v = t["ajuste"], t["diferenciaGasto"], t["reclasificacionCovenant"], t["pasivoRegistrado"]
+    con17 = [
+        ["Costo amortizado recalculado (NIIF 9 · PYMES Secc. 11)", fx(f"{CC}B{tot}", t["pasivo"]), None, None, ""],
+        ["Pasivo registrado (población evaluada)", fx(f"{CC}E{tot}", t["pasivoRegistrado"]), None, None, ""],
+        ["Ajuste propuesto = auditado − registrado", fx(f"{CC}F{tot}", t["ajuste"]), None, None,
+         fx(f'IF(ABS({b17(2)})>0.005,"Alerta","Conforme")', "Alerta" if abs(aj_v) > 0.005 else "Conforme")],
+        ["% del ajuste sobre el pasivo registrado", None, fx(f'IF({b17(1)}=0,"",{b17(2)}/{b17(1)})',
+         None if pr_v == 0 else aj_v / pr_v), None, ""],
+        ["Diferencia de gasto financiero (TIE − registrado)", fx(f"SUM({IN}G{FILA0}:G{fin})", t["diferenciaGasto"]), None, None,
+         fx(f'IF(ABS({b17(4)})>0.005,"Revisar","Conforme")', "Revisar" if abs(dg_v) > 0.005 else "Conforme")],
+        ["Reclasificación a corriente por covenants incumplidos", fx(f"SUM({CL}G{FILA0}:G{fin})-SUM({CL}E{FILA0}:E{fin})", t["reclasificacionCovenant"]),
+         None, None, fx(f'IF(ABS({b17(5)})>0.005,"Alerta","Conforme")', "Alerta" if abs(rc_v) > 0.005 else "Conforme")],
+        ["Problemas encontrados (cantidad)", None, None, fx(f"COUNTA({PRB}A{FILA0}:A{FILA0 + max(nprob, 1) - 1})", nprob),
+         fx(f'IF({dd17(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+        ["Conclusión: la deuda financiera se mide al costo amortizado con la TIE y se clasifica corriente/no corriente según "
+         "los covenants al corte (NIIF 9 · PYMES Secc. 11); esta prueba no concluye por sí sola el cumplimiento de las NIIF.",
+         None, None, None, ""],
+    ]
+
+    # 18 · lectura causa-efecto: cada frase lee el resultado con su cifra embebida (FIXED) desde el Resumen (hoja 01).
+    R1 = ref("01_Resumen")
+    fr = {k: FILA0 + i for i, k in enumerate(res["labels"])}
+    rc = lambda k: f"{R1}B{fr[k]}"
+    lectura = [
+        ["Resultado de la prueba",
+         fx(f'"El costo amortizado recalculado de las obligaciones financieras asciende a US$ "&FIXED({rc("pasivo")},2)&", '
+            f'frente a US$ "&FIXED({rc("pasivoRegistrado")},2)&" registrado (capital más intereses por pagar)."',
+            f'El costo amortizado recalculado de las obligaciones financieras asciende a US$ {_m(t["pasivo"])}, frente a '
+            f'US$ {_m(t["pasivoRegistrado"])} registrado (capital más intereses por pagar).')],
+        ["Ajuste propuesto y su efecto",
+         fx(f'"El ajuste propuesto al pasivo es de US$ "&FIXED({rc("ajuste")},2)&": "&'
+            f'IF({rc("ajuste")}>=0,"eleva el pasivo y el gasto financiero del ejercicio.","reduce el pasivo registrado.")',
+            f'El ajuste propuesto al pasivo es de US$ {_m(t["ajuste"])}: '
+            + ("eleva el pasivo y el gasto financiero del ejercicio." if t["ajuste"] >= 0 else "reduce el pasivo registrado."))],
+        ["Gasto financiero del ejercicio",
+         fx(f'"El gasto financiero del ejercicio a la tasa de interés efectiva es de US$ "&FIXED({rc("gastoFinanciero")},2)&"; '
+            f'frente al gasto registrado hay una diferencia de US$ "&FIXED({rc("diferenciaGasto")},2)&"."',
+            f'El gasto financiero del ejercicio a la tasa de interés efectiva es de US$ {_m(t["gastoFinanciero"])}; frente al '
+            f'gasto registrado hay una diferencia de US$ {_m(t["diferenciaGasto"])}.')],
+        ["Clasificación y covenants",
+         fx(f'"Del pasivo recalculado, US$ "&FIXED({rc("corriente")},2)&" es corriente; por covenants incumplidos sin dispensa '
+            f'se reclasificaron US$ "&FIXED({rc("reclasificacionCovenant")},2)&" a corriente (NIC 1 74–75)."',
+            f'Del pasivo recalculado, US$ {_m(t["corriente"])} es corriente; por covenants incumplidos sin dispensa se '
+            f'reclasificaron US$ {_m(t["reclasificacionCovenant"])} a corriente (NIC 1 74–75).')],
+        ["Cierre",
+         fx(f'"Quedan US$ "&FIXED({rc("comisionesPorAmortizar")},2)&" de costos de transacción por amortizar al corte, que se '
+            f'difieren a lo largo de la vida de los préstamos según la tasa de interés efectiva."',
+            f'Quedan US$ {_m(t["comisionesPorAmortizar"])} de costos de transacción por amortizar al corte, que se difieren a lo '
+            f'largo de la vida de los préstamos según la tasa de interés efectiva.')],
+    ]
+    ex18 = {"Detalle": ("Lee en lenguaje corriente el resultado de la prueba y sus hallazgos materiales con la cifra embebida "
+                        "tomada del Resumen (hoja 01): el costo amortizado recalculado frente al registrado, el ajuste propuesto "
+                        "y su efecto, el gasto financiero del ejercicio y su diferencia, la porción corriente y la reclasificación "
+                        "por covenants, y los costos de transacción por amortizar al corte. Cada cifra remite por fórmula a la "
+                        "celda del Resumen.")}
 
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=ex01),
@@ -1237,9 +1330,9 @@ def hojas(res: dict) -> list[dict]:
         hoja("11_Clasificacion", "Clasificación corriente / no corriente",
              [["Operación", "t"], ["Costo amortizado al corte", n_], ["Período a 12 meses", "i"], ["Capital contractual después de 12 meses", n_],
               ["Corriente: capital de 12 meses + interés devengado (69 c)", n_], ["Exigible por covenant", "t"], ["Corriente auditado", n_], ["No corriente auditado", n_],
-              ["Corriente registrado", n_], ["Diferencia corriente", n_]], cla,
+              ["Corriente registrado", n_], ["Diferencia corriente", n_], ["Semáforo", "t"]], cla,
              ["TOTAL", S("B", t["pasivo"]), None, None, S("E", sum(c["cp_venc"] for c in cs)), "", S("G", t["corriente"]),
-              S("H", t["noCorriente"]), None, None], explica=ex11),
+              S("H", t["noCorriente"]), None, None, ""], explica=ex11, colores=["Semáforo"]),
         hoja("12_Endeudamiento", "Endeudamiento y ratios de covenants (analítica, no requisito NIIF)",
              [["Concepto", "t"], ["Numerador", n_], ["Denominador", n_], ["Ratio (veces)", "x"], ["Límite (veces)", "x"], ["Tipo", "t"],
               ["Cumple (solo con definición contractual)", "t"], ["Definición aplicada", "t"]], endeu, explica=ex12),
@@ -1260,6 +1353,10 @@ def hojas(res: dict) -> list[dict]:
               ["Marco aplicado", "t"]], prueba, explica=ex15),
         hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("17_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con17,
+             explica=ex17, colores=["Estado"]),
+        hoja("18_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura, explica=ex18),
     ]
 
 

@@ -78,6 +78,8 @@ export const STRINGS = {
     "Crea un encargo nuevo para empezar a subir documentos y generar el papel de trabajo.",
   of_ws_nuevo_encargo: "+ Nuevo encargo",
   of_ws_error_cargar: "No se pudo cargar el encargo del proyecto.",
+  of_ws_error_procesar:
+    "No se pudo clasificar el Mayor General. Revisa el archivo y vuelve a procesar.",
   of_ws_llenado_automatico_t: "Estado de la cédula",
   of_ws_llenado_automatico_d:
     "Esta cédula se genera automáticamente al aprobar la clasificación. No requiere una subida propia.",
@@ -108,6 +110,8 @@ export const STRINGS = {
   of_rev_title: "Revisión de la clasificación",
   of_rev_cargando: "Cargando clasificación…",
   of_rev_error_cargar: "No se pudo cargar la clasificación del Mayor General.",
+  of_rev_error_aprobar:
+    "No se pudo generar el Excel del papel de trabajo. Vuelve a intentar aprobar.",
   of_rev_sin_cuentas: "El Mayor General no arrojó cuentas para clasificar.",
   of_rev_cuentas: "cuentas",
   of_rev_requieren_revision: "requieren revisión",

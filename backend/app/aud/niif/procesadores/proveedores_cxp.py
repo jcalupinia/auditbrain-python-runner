@@ -89,6 +89,7 @@ CEDULAS = [
     ("08_Corte_compras", "Corte de compras"), ("09_Costo_amortizado", "Costo amortizado e intereses implícitos"),
     ("10_Clasificacion", "Clasificación corriente / no corriente"), ("11_Ajuste", "Saldo auditado y ajustes"),
     ("12_Asientos", "Asientos propuestos"), ("13_Problemas", "Problemas encontrados"),
+    ("14_Conclusion", "Indicadores y conclusión"),
 ]
 
 _SI = {"si", "s", "x", "yes", "y", "1", "true", "verdadero"}
@@ -456,9 +457,11 @@ def hojas(res: dict) -> list[dict]:
             fx(f'IF(P{r}="Sí",M{r},0)', x["importeNC"]),
             fx(f"IF(F{r}<0,-F{r},0)", x["deudor"]),
             x["explotacion"] or None,
+            fx(f'IF(I{r}<=0,"Conforme",IF(I{r}<=90,"Revisar","Alerta"))',
+               "Conforme" if x["dv"] <= 0 else ("Revisar" if x["dv"] <= 90 else "Alerta")),
         ])
     tot_det = ["TOTAL", "", "", "", "", suma("F", fin_det, t["saldo"]), "", "", None, "", None, "", suma("M", fin_det, sum(x["ca"] for x in fl)),
-               suma("N", fin_det, t["interesNoDevengado"]), None, "", suma("Q", fin_det, t["noCorriente"]), suma("R", fin_det, t["saldosDeudores"]), ""]
+               suma("N", fin_det, t["interesNoDevengado"]), None, "", suma("Q", fin_det, t["noCorriente"]), suma("R", fin_det, t["saldosDeudores"]), "", ""]
 
     # 04 · Aging (importe nominal).
     aging = []
@@ -646,6 +649,8 @@ def hojas(res: dict) -> list[dict]:
                          "explotación; si lo es o no se informó, el mayor entre 12 meses y el ciclo de operación (hoja 02)."),
         "Importe no corriente": "Si el documento es no corriente, toma su costo amortizado; si es corriente, cero.",
         "Saldo deudor": "Si el saldo es negativo (un anticipo o saldo a favor), lo pasa a positivo para reclasificarlo al activo; si no, cero.",
+        "Semáforo": ("Estado del documento según su antigüedad: «Conforme» si aún no vence (días desde el vencimiento cero o menos), "
+                     "«Revisar» si lleva vencido hasta 90 días y «Alerta» si supera los 90 días vencido."),
     }
     ex04 = {
         "Documentos": "Cuenta cuántos documentos del detalle (hoja 03) caen en este tramo de antigüedad.",
@@ -720,6 +725,38 @@ def hojas(res: dict) -> list[dict]:
         "Haber": ("Trae la contrapartida de cada asiento de la hoja 11 (Saldo auditado y ajustes); en la financiación implícita no "
                   "registrada, el total de financiación implícita de la hoja 09."),
     }
+    ex14 = {
+        "Importe": ("Trae la cifra de cada indicador de la hoja 11 (Saldo auditado y ajustes): el saldo auditado, el saldo en libros neto, "
+                    "el ajuste neto propuesto, la reclasificación a no corriente y las diferencias de confirmación; el ajuste neto es el "
+                    "saldo auditado menos el saldo en libros."),
+        "Porcentaje": ("Divide el ajuste neto propuesto para el saldo en libros neto (ambos de esta misma hoja): mide qué tan material es "
+                       "el ajuste frente al saldo registrado. Queda en blanco si el saldo en libros es cero."),
+        "Cantidad": "Cuenta los problemas detectados en la hoja 13 (Problemas encontrados) contando los códigos que se listaron.",
+        "Estado": ("Semáforo del indicador: «Alerta» cuando hay un ajuste neto al saldo que corregir, «Revisar» cuando hay reclasificación "
+                   "a no corriente, diferencias de confirmación o problemas por atender y «Conforme» cuando el indicador no exige acción. "
+                   "En blanco en las filas solo informativas (saldo auditado, saldo en libros y porcentaje)."),
+    }
+
+    # 14 · indicadores y conclusión (con semáforo por indicador).
+    nprob = len(res["exceptions"])
+    PBL = ref("13_Problemas")
+    librosNeto = t["saldo"] - t["descuentoRegistrado"]
+    bc = lambda kk: f"B{FILA0 + kk}"
+    rc = lambda kk: FILA0 + kk
+    conclusion = [
+        ["Saldo de proveedores auditado", fx(ajb("auditado"), t["saldoAuditado"]), None, None, ""],
+        ["Saldo en libros neto", fx(ajb("libros"), librosNeto), None, None, ""],
+        ["Ajuste neto propuesto a proveedores", fx(ajb("ajusteNeto"), t["ajusteNeto"]), None, None,
+         fx(f'IF(ABS(B{rc(2)})>0.005,"Alerta","Conforme")', "Alerta" if abs(t["ajusteNeto"]) > 0.005 else "Conforme")],
+        ["% del ajuste sobre el saldo en libros", None,
+         fx(f'IF({bc(1)}=0,"",{bc(2)}/{bc(1)})', None if librosNeto == 0 else t["ajusteNeto"] / librosNeto), None, ""],
+        ["Reclasificación a no corriente", fx(ajb("reclas"), t["reclasificacionNoCorriente"]), None, None,
+         fx(f'IF(ABS(B{rc(4)})>0.005,"Revisar","Conforme")', "Revisar" if abs(t["reclasificacionNoCorriente"]) > 0.005 else "Conforme")],
+        ["Diferencias de confirmación (absolutas)", fx(ajb("difConf"), t["difConfirmacion"]), None, None,
+         fx(f'IF(B{rc(5)}>0.005,"Revisar","Conforme")', "Revisar" if t["difConfirmacion"] > 0.005 else "Conforme")],
+        ["Problemas detectados", None, None, fx(f"COUNTA({_rango(PBL, 'A', max(nprob, 1))})", nprob),
+         fx(f'IF(D{rc(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+    ]
 
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=ex01),
@@ -728,8 +765,8 @@ def hojas(res: dict) -> list[dict]:
              [["Documento", "t"], ["Proveedor", "t"], ["Fecha factura", "d"], ["Recepción", "d"], ["Vencimiento", "d"], ["Saldo", "n"],
               ["Relacionado", "t"], ["Moneda", "t"], ["Días desde vencimiento", "i"], ["Tramo", "t"], ["Plazo de pago (días)", "i"],
               ["Financiación implícita", "t"], ["Costo amortizado", "n"], ["Interés implícito por devengar", "n"], ["Días por vencer", "i"],
-              ["No corriente", "t"], ["Importe no corriente", "n"], ["Saldo deudor", "n"], ["Partida de explotación", "t"]], detalle, tot_det,
-             explica=ex03),
+              ["No corriente", "t"], ["Importe no corriente", "n"], ["Saldo deudor", "n"], ["Partida de explotación", "t"], ["Semáforo", "t"]],
+             detalle, tot_det, explica=ex03, colores=["Semáforo"]),
         hoja("04_Aging", "Antigüedad de proveedores", [["Tramo", "t"], ["Documentos", "i"], ["Saldo", "n"], ["% del saldo", "p"], ["Vencido", "t"]],
              aging, ["TOTAL", suma("B", fin_ag, nd), suma("C", fin_ag, t["saldo"]), None, ""], explica=ex04),
         hoja("05_Pagos_posteriores", "Pagos posteriores al cierre",
@@ -756,6 +793,9 @@ def hojas(res: dict) -> list[dict]:
         hoja("12_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos, explica=ex12),
         hoja("13_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
+        hoja("14_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
+             explica=ex14, colores=["Estado"]),
     ]
 
 

@@ -87,7 +87,8 @@ CEDULAS = [
     ("06_Circularizacion", "Circularización"), ("07_Corte_ventas", "Corte de ventas"),
     ("08_Costo_amortizado", "Costo amortizado e intereses implícitos"), ("09_Matriz_deterioro", "Matriz de deterioro"),
     ("10_Ajuste", "Deterioro requerido vs registrado"), ("11_Asientos", "Asientos propuestos"),
-    ("12_Problemas", "Problemas encontrados"),
+    ("12_Problemas", "Problemas encontrados"), ("13_Conclusion", "Indicadores y conclusión"),
+    ("14_Lectura", "Lectura de resultados"),
 ]
 
 
@@ -343,6 +344,8 @@ EXPLICA = {
         "Vencida sin cobro": ("Marca «Sí» si la factura está vencida (días de mora mayores que cero) y le queda saldo sin "
                               "cobro posterior; si no, «No»."),
         "Vencido sin cobro": "Si la factura está marcada como vencida sin cobro, toma su saldo sin cobro posterior; si no, pone cero.",
+        "Semáforo": ("Estado de recuperabilidad de la factura: «Alerta» si está vencida al corte y le queda saldo sin cobro "
+                     "posterior (revisar su recuperabilidad, NIA 540/560); «Conforme» si está por vencer o tuvo cobro posterior."),
     },
     "06_Circularizacion": {
         "Saldo en libros": "Trae el saldo en libros de la misma factura desde la hoja 03 (Detalle por factura).",
@@ -402,6 +405,24 @@ EXPLICA = {
         "Haber": ("Lleva a la contrapartida los importes del asiento, tomados de la hoja 10 o de los totales de la hoja 08 "
                   "(interés por devengar e interés devengado), para que debe y haber cuadren."),
     },
+    "13_Conclusion": {
+        "Importe": ("Cada indicador trae su importe de donde ya se calculó: la cartera nominal, del total de la hoja 03 "
+                    "(Detalle por factura); el deterioro requerido, el registrado, el ajuste y la cartera vencida sin cobro, "
+                    "de la hoja 10 (Deterioro requerido vs registrado)."),
+        "Porcentaje": ("Divide el ajuste de deterioro en valor absoluto entre la cartera nominal al corte para medir su peso "
+                       "relativo; queda en blanco si la cartera es cero."),
+        "Cantidad": ("Cuenta cuántos problemas se detectaron leyendo la columna de códigos de la hoja 12 (Problemas "
+                     "encontrados)."),
+        "Estado": ("Semáforo del indicador: «Alerta» cuando el ajuste de deterioro o una diferencia dejan de ser cero, "
+                   "«Revisar» cuando hay cartera vencida sin cobro o problemas que atender y «Conforme» cuando el indicador "
+                   "no presenta desviaciones."),
+    },
+    "14_Lectura": {
+        "Detalle": ("Redacta en lenguaje del auditor la lectura causa-efecto de los resultados e inserta cada cifra con "
+                    "FIXED desde la hoja 10 (Deterioro requerido vs registrado) y el total de la hoja 03 (Detalle por "
+                    "factura): el deterioro requerido frente al registrado, el ajuste y su efecto, la cartera vencida sin "
+                    "cobro, los intereses implícitos y las diferencias de circularización."),
+    },
 }
 
 # Panel del dashboard (formato en graficos.py).
@@ -412,6 +433,14 @@ PANEL = {
     "composicion": {"rotulo": "Deterioro por tramo", "hoja": "09_Matriz_deterioro", "etiqueta": "Tramo",
                     "valor": "Deterioro requerido"},
     "distribucion": {"rotulo": "Cartera por tramo", "hoja": "04_Aging", "etiqueta": "Tramo", "valor": "Saldo"},
+    # Tablero premium (columnas agrupadas por tramo de antigüedad; ver graficos.tableros_spec).
+    # Categorías fijas: los tramos de la constante TRAMOS, que las hojas 04 y 09 siempre emiten.
+    "tableros": [
+        {"rotulo": "Deterioro por tramo de antigüedad", "sub": "USD por tramo · costo amortizado frente al deterioro requerido.",
+         "unidad": "USD", "hoja": "09_Matriz_deterioro", "etiqueta": "Tramo", "seccion": "Cartera y deterioro por tramo",
+         "filas": [{"fila": t["n"], "mejor": "bajo"} for t in TRAMOS],
+         "series": [["Costo amortizado", "Costo amortizado"], ["Deterioro requerido", "Deterioro requerido"]]},
+    ],
 }
 
 
@@ -578,9 +607,10 @@ def hojas(res: dict) -> list[dict]:
                        fx(f'IF(OR(E{r}="",F{r}=""),0,IF(F{r}>{_pb("corte")},MIN(E{r},D{r}),0))', x["aplicable"]),
                        fx(f"D{r}-G{r}", x["pendiente"]),
                        fx(f'IF(AND(C{r}>0,H{r}>0),"Sí","No")', "Sí" if x["vencidaSinCobro"] else "No"),
-                       fx(f'IF(I{r}="Sí",H{r},0)', x["pendiente"] if x["vencidaSinCobro"] else 0)])
+                       fx(f'IF(I{r}="Sí",H{r},0)', x["pendiente"] if x["vencidaSinCobro"] else 0),
+                       fx(f'IF(I{r}="Sí","Alerta","Conforme")', "Alerta" if x["vencidaSinCobro"] else "Conforme")])
     tot_cob = ["TOTAL", "", None, suma("D", fin_det, t["saldo"]), None, None, suma("G", fin_det, sum(x["aplicable"] for x in fl)),
-               suma("H", fin_det, sum(x["pendiente"] for x in fl)), "", suma("J", fin_det, t["vencidoSinCobro"])]
+               suma("H", fin_det, sum(x["pendiente"] for x in fl)), "", suma("J", fin_det, t["vencidoSinCobro"]), ""]
 
     # 06 · Circularización (facturas con saldo confirmado).
     circ = []
@@ -660,6 +690,20 @@ def hojas(res: dict) -> list[dict]:
         ["Cartera vencida sin cobro posterior", fx(f"{COB}J{fin_det + 1}", t["vencidoSinCobro"]), "Evidencia sobre la estimación (NIA 540)"],
         ["Diferencias de circularización (absolutas)", fx(tot_ref(CIR, "F", fin_cir, circ), t["difCircularizacion"]), "NIA 505"],
     ]
+    # Estilos de cédula sumaria (una entrada por fila de 10_Ajuste): los componentes del deterioro y de la
+    # financiación implícita sangrados y sus subtotales (ajuste propuesto) con filete; el resto sin estilo.
+    estilos_ajuste = [
+        {"sangria": 1, "col": "Concepto"},   # 0 · Pérdida requerida
+        {"sangria": 1, "col": "Concepto"},   # 1 · Deterioro registrado
+        {"tipo": "total"},                    # 2 · Ajuste de deterioro propuesto
+        {"sangria": 1, "col": "Concepto"},   # 3 · Intereses implícitos requeridos
+        {"sangria": 1, "col": "Concepto"},   # 4 · Intereses por devengar registrados
+        {"tipo": "total"},                    # 5 · Ajuste por financiación implícita
+        None,                                 # 6 · Ventas registradas antes del despacho
+        None,                                 # 7 · Ventas despachadas sin registrar
+        None,                                 # 8 · Cartera vencida sin cobro posterior
+        None,                                 # 9 · Diferencias de circularización
+    ]
 
     # 11 · Asientos (importes remiten a 10_Ajuste y 08_Costo_amortizado).
     asientos = []
@@ -701,6 +745,54 @@ def hojas(res: dict) -> list[dict]:
                "difCircularizacion": ajb("difConf")}
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
 
+    # 13 · Indicadores y conclusión (con semáforo coloreable en «Estado»).
+    PROB = ref("12_Problemas")
+    nprob = len(res["exceptions"])
+    cartera_f = f"SUM({_rango(DET, 'E', nd)})"
+    ajuste_c = ajb("ajuste")
+    pct_v = None if t["saldo"] == 0 else abs(t["ajuste"]) / t["saldo"]
+    r0, r3, r5, r6 = FILA0, FILA0 + 3, FILA0 + 5, FILA0 + 6
+    est = lambda cond, alto, ok="Conforme": (alto if cond else ok)
+    conclusion = [
+        ["Cartera al corte (nominal)", fx(cartera_f, t["saldo"]), None, None, ""],
+        [res["labels"]["deterioroRequerido"] + " (resultado principal)", fx(ajb("requerido"), t["deterioroRequerido"]), None, None,
+         fx(f'IF(ABS(B{r3})>0.005,"Revisar","Conforme")', est(abs(t["ajuste"]) > 0.005, "Revisar"))],
+        ["Deterioro registrado (mayor)", fx(ajb("registrado"), t["provisionRegistrada"]), None, None, ""],
+        ["Ajuste de deterioro propuesto", fx(ajb("ajuste"), t["ajuste"]), None, None,
+         fx(f'IF(ABS(B{r3})>0.005,"Alerta","Conforme")', est(abs(t["ajuste"]) > 0.005, "Alerta"))],
+        ["% de ajuste sobre la cartera nominal", None,
+         fx(f'IF(B{r0}=0,"",ABS({ajuste_c})/B{r0})', pct_v), None,
+         fx(f'IF(C{FILA0 + 4}="","",IF(ABS({ajuste_c})>0.005,"Revisar","Conforme"))',
+            "" if pct_v is None else est(abs(t["ajuste"]) > 0.005, "Revisar"))],
+        ["Cartera vencida sin cobro posterior", fx(ajb("sinCobro"), t["vencidoSinCobro"]), None, None,
+         fx(f'IF(B{r5}>0.005,"Revisar","Conforme")', est(t["vencidoSinCobro"] > 0.005, "Revisar"))],
+        ["Problemas encontrados", None, None, fx(f"COUNTA({_rango(PROB, 'A', nprob)})", nprob),
+         fx(f'IF(D{r6}>0,"Revisar","Conforme")', est(nprob > 0, "Revisar"))],
+    ]
+
+    # 14 · Lectura de resultados (causa-efecto con las cifras embebidas por FIXED).
+    _fix = lambda cell: f"FIXED({cell},2)"
+    aj_dir = "falta deterioro" if t["ajuste"] > 0.005 else ("hay un exceso de deterioro" if t["ajuste"] < -0.005 else "no hay ajuste")
+    aj_dir_f = f'IF(B{AJF["ajuste"]}>0.005,"falta deterioro",IF(B{AJF["ajuste"]}<-0.005,"hay un exceso de deterioro","no hay ajuste"))'
+    et_det = res["labels"]["deterioroRequerido"]
+    lectura = [
+        ["Resultado principal",
+         fx(f'"La {et_det} asciende a US$ "&{_fix(ajb("requerido"))}&", frente a US$ "&{_fix(ajb("registrado"))}&" de deterioro registrado en el mayor (hoja 10)."',
+            f"La {et_det} asciende a US$ {m(t['deterioroRequerido'])}, frente a US$ {m(t['provisionRegistrada'])} de deterioro registrado en el mayor (hoja 10).")],
+        ["Ajuste propuesto",
+         fx(f'"El ajuste de deterioro propuesto es de US$ "&{_fix(ajb("ajuste"))}&": indica que "&{aj_dir_f}&", y exige registrar el asiento de la hoja 11."',
+            f"El ajuste de deterioro propuesto es de US$ {m(t['ajuste'])}: indica que {aj_dir}, y exige registrar el asiento de la hoja 11.")],
+        ["Cartera vencida sin cobro",
+         fx(f'"US$ "&{_fix(ajb("sinCobro"))}&" de cartera vencida no tiene cobro posterior al cierre, lo que respalda la estimación de deterioro (NIA 540)."',
+            f"US$ {m(t['vencidoSinCobro'])} de cartera vencida no tiene cobro posterior al cierre, lo que respalda la estimación de deterioro (NIA 540).")],
+        ["Financiación implícita y circularización",
+         fx(f'"Los intereses implícitos por devengar suman US$ "&{_fix(ajb("interesReq"))}&" y las diferencias de circularización US$ "&{_fix(ajb("difConf"))}&", que ajustan el valor y la existencia de la cartera (NIIF 9 y NIA 505)."',
+            f"Los intereses implícitos por devengar suman US$ {m(t['interesNoDevengado'])} y las diferencias de circularización US$ {m(t['difCircularizacion'])}, que ajustan el valor y la existencia de la cartera (NIIF 9 y NIA 505).")],
+        ["Cierre",
+         fx(f'"En conjunto, sobre una cartera nominal de US$ "&{_fix(cartera_f)}&", los hallazgos exigen registrar los ajustes propuestos y revelar la política de deterioro y de corte de ventas."',
+            f"En conjunto, sobre una cartera nominal de US$ {m(t['saldo'])}, los hallazgos exigen registrar los ajustes propuestos y revelar la política de deterioro y de corte de ventas.")],
+    ]
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
@@ -713,8 +805,9 @@ def hojas(res: dict) -> list[dict]:
              aging, ["TOTAL", suma("B", fin_ag, len(fl)), suma("C", fin_ag, t["saldo"]), None, ""], explica=EXPLICA["04_Aging"]),
         hoja("05_Cobros_posteriores", "Cobros posteriores al cierre",
              [["Factura", "t"], ["Cliente", "t"], ["Días de mora", "i"], ["Saldo al corte", "n"], ["Cobro informado", "n"], ["Fecha del cobro", "d"],
-              ["Cobro posterior aplicable", "n"], ["Saldo sin cobro posterior", "n"], ["Vencida sin cobro", "t"], ["Vencido sin cobro", "n"]], cobros, tot_cob,
-             explica=EXPLICA["05_Cobros_posteriores"]),
+              ["Cobro posterior aplicable", "n"], ["Saldo sin cobro posterior", "n"], ["Vencida sin cobro", "t"], ["Vencido sin cobro", "n"],
+              ["Semáforo", "t"]], cobros, tot_cob,
+             explica=EXPLICA["05_Cobros_posteriores"], colores=["Semáforo"]),
         hoja("06_Circularizacion", "Circularización",
              [["Factura", "t"], ["Cliente", "t"], ["Saldo en libros", "n"], ["Saldo confirmado", "n"], ["Diferencia", "n"], ["Diferencia absoluta", "n"], ["Estado", "t"]],
              circ, tot_cir, explica=EXPLICA["06_Circularizacion"]),
@@ -731,11 +824,16 @@ def hojas(res: dict) -> list[dict]:
              [["Tramo", "t"], ["Facturas", "i"], ["Costo amortizado", "n"], ["Tasa del tramo", "p"], ["Deterioro requerido", "n"], ["Tasa promedio aplicada", "p"]],
              matriz, tot_mat, explica=EXPLICA["09_Matriz_deterioro"]),
         hoja("10_Ajuste", "Deterioro requerido vs registrado", [["Concepto", "t"], ["Importe", "n"], ["Referencia", "t"]], ajuste,
-             explica=EXPLICA["10_Ajuste"]),
+             explica=EXPLICA["10_Ajuste"], estilos=estilos_ajuste),
         hoja("11_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos,
              explica=EXPLICA["11_Asientos"]),
         hoja("12_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
+        hoja("13_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
+             explica=EXPLICA["13_Conclusion"], colores=["Estado"]),
+        hoja("14_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura,
+             explica=EXPLICA["14_Lectura"]),
     ]
 
 

@@ -324,6 +324,7 @@ CEDULAS = [
     ("06_Movimiento", "Movimiento de la provisión (NIIF 7 35H)"), ("07_Fiscal", "Fiscal e impuesto diferido"),
     ("08_Asientos", "Asientos propuestos"), ("09_Detalle", "Detalle por factura"), ("10_Cartera_anterior", "Cartera del corte anterior"),
     ("11_Castigos", "Castigos del ejercicio"), ("12_Problemas", "Problemas encontrados"),
+    ("13_Conclusion", "Indicadores y conclusión"), ("14_Lectura", "Lectura de resultados"),
 ]
 P = "'02_Parametros'!"
 PAR = {k: FILA0 + i for i, k in enumerate(["corte", "corteAnterior", "tasaDesc", "plazoBase", "escBasePeso", "escBaseAjuste",
@@ -410,6 +411,8 @@ EXPLICA = {
                              "hoja 02 (Parámetros); nunca es negativa. Sin tasa, queda en blanco."),
         "En impago": ("Marca «Sí» si la factura tiene más de 90 días de mora y «No» en caso contrario; sin días de mora "
                       "queda en blanco."),
+        "Semáforo": ("Estado de la factura: «Alerta» si está en impago o su tasa esperada es del 100 %, «Revisar» si "
+                     "tiene pérdida esperada parcial y «Conforme» si no tiene deterioro. Sin días de mora, queda en blanco."),
     },
     "10_Cartera_anterior": {
         "Días de mora": ("Resta la fecha de vencimiento de la fecha del corte anterior de la hoja 02 (Parámetros); sin "
@@ -425,6 +428,24 @@ EXPLICA = {
         "Pérdida observada": ("Suma lo que sigue impago al corte y lo castigado: es lo que no se recuperó de esa factura "
                               "en el año."),
     },
+    "13_Conclusion": {
+        "Importe": ("Trae los indicadores clave desde su hoja de origen: la pérdida crediticia esperada y el gasto no "
+                    "deducible salen de la hoja 07 (Fiscal e impuesto diferido), el activo por impuesto diferido también de "
+                    "la hoja 07, y el ajuste propuesto es la pérdida esperada menos la provisión registrada de la hoja 02."),
+        "Porcentaje": ("Divide la provisión registrada (hoja 02) entre la pérdida crediticia esperada de la hoja 07 "
+                       "(Fiscal): mide qué parte de la pérdida esperada ya está provisionada; queda en blanco si la pérdida "
+                       "esperada es cero."),
+        "Cantidad": ("Cuenta en la hoja 09 (Detalle por factura) las facturas con pérdida esperada mayor que cero: es el "
+                     "número de documentos de la cartera con deterioro esperado al corte."),
+        "Estado": ("Semáforo de cada indicador: «Alerta» cuando la provisión registrada no cubre la pérdida esperada o hay "
+                   "gasto no deducible; «Revisar» cuando queda un ajuste, un activo diferido por recuperar o facturas con "
+                   "deterioro esperado; «Conforme» si el indicador no exige acción."),
+    },
+    "14_Lectura": {
+        "Detalle": ("Lee los resultados clave y los redacta en una frase de causa y efecto, tomando cada cifra por fórmula "
+                    "(FIXED) de la celda del Resumen (hoja 01) donde se calculó: pérdida esperada, cartera, ajuste "
+                    "propuesto, gasto no deducible y activo por impuesto diferido."),
+    },
 }
 
 # Panel del dashboard (formato en graficos.py).
@@ -436,6 +457,13 @@ PANEL = {
                     "valor": "Pérdida esperada"},
     "distribucion": {"rotulo": "Cartera por tramo", "hoja": "05_Revelacion_NIIF7", "etiqueta": "Tramo de mora",
                      "valor": "Importe en libros bruto"},
+    # Tablero premium: matriz de deterioro por tramo de mora (categorías fijas de la hoja 05, NIIF 7 35M/35N).
+    "tableros": [
+        {"rotulo": "Deterioro por tramo de mora", "sub": "USD · importe en libros bruto frente a la pérdida esperada, por tramo de mora.",
+         "unidad": "USD", "hoja": "05_Revelacion_NIIF7", "etiqueta": "Tramo de mora", "seccion": "Deterioro por tramo de mora",
+         "filas": [{"fila": t["n"]} for t in TRAMOS],
+         "series": [["Cartera bruta", "Importe en libros bruto"], ["Pérdida esperada", "Pérdida esperada"]]},
+    ],
 }
 
 
@@ -609,7 +637,11 @@ def hojas(res: dict) -> list[dict]:
                         _fx(f'IF(I{r}<>"",I{r}/100,IF(ISNA(MATCH(G{r},{MAT}$C${FILA0}:$C${fin_mat},0)),"",IF({tm}="","",{tm})))',
                             float(x["tasa"]) if x["tasa"] else None),
                         _fx(f'IF(J{r}="","",MAX(H{r}*J{r}/{desc},0))', _n(float(x["pce"])) if x["pce"] else None),
-                        _fx(f'IF(E{r}="","",IF(E{r}>{IMPAGO_DIAS},"Sí","No"))', "Sí" if x["dias"] and int(x["dias"]) > IMPAGO_DIAS else ("No" if x["dias"] else ""))])
+                        _fx(f'IF(E{r}="","",IF(E{r}>{IMPAGO_DIAS},"Sí","No"))', "Sí" if x["dias"] and int(x["dias"]) > IMPAGO_DIAS else ("No" if x["dias"] else "")),
+                        _fx(f'IF(E{r}="","",IF(OR(L{r}="Sí",AND(J{r}<>"",J{r}>=1)),"Alerta",IF(AND(J{r}<>"",J{r}>0),"Revisar","Conforme")))',
+                            "" if not x["dias"] else
+                            ("Alerta" if ((int(x["dias"]) > IMPAGO_DIAS) or (x["tasa"] and float(x["tasa"]) >= 1)) else
+                             ("Revisar" if (x["tasa"] and float(x["tasa"]) > 0) else "Conforme")))])
     fin_det = FILA0 + nd - 1
     s = lambda col, fin, v: _fx(f"SUM({col}{FILA0}:{col}{fin})", v)
 
@@ -666,8 +698,75 @@ def hojas(res: dict) -> list[dict]:
                "dtaFin": F_["dtaFin"], "dtaMov": F_["dtaMov"]}
     resumen = [[res["labels"][k], _fx(ref_res[k], _n(t[k]))] for k in res["labels"]]
 
-    hoja = lambda name, label, cols, rows, total=None, explica=None: {"name": name, "label": label, "cols": cols, "rows": rows,
-                                                                      "total": total, "explica": dict(explica or {})}
+    # 13 · Indicadores y conclusión (semáforo).  Columnas: indicador, importe, porcentaje, cantidad, estado.
+    r0 = FILA0
+    F_pce, F_nd, F_dta = F_["pce"], F_["noDeducible"], F_["dtaFin"]
+    PREG = f"{P}B{PAR['provisionRegistrada']}"
+    npce = sum(1 for fx_ in filas if fx_.get("pce") not in ("", None) and float(fx_["pce"]) > 0.005)
+    cob = "" if t["pce"] == 0 else t["provisionRegistrada"] / t["pce"]
+    est_cob = "" if t["pce"] == 0 else ("Alerta" if t["provisionRegistrada"] < t["pce"] - 0.005 else "Conforme")
+    _ei = lambda i, cond, nivel: _fx(f'IF(ABS(B{r0 + i})>0.005,"{nivel}","Conforme")', nivel if cond else "Conforme")
+    con13 = [
+        ["Ajuste propuesto a la provisión (PCE − provisión registrada)",
+         _fx(f"{F_pce}-{PREG}", _n(t["ajuste"])), None, None, _ei(0, abs(t["ajuste"]) > 0.005, "Revisar")],
+        ["Cobertura de la PCE por la provisión registrada (registrada / PCE)",
+         None, _fx(f'IF({F_pce}=0,"",{PREG}/{F_pce})', cob), None,
+         _fx(f'IF({F_pce}=0,"",IF({PREG}<{F_pce}-0.005,"Alerta","Conforme"))', est_cob)],
+        ["Gasto no deducible del ejercicio (límites LRTI)",
+         _fx(f"{F_nd}", _n(t["noDeducible"])), None, None, _ei(2, t["noDeducible"] > 0.005, "Alerta")],
+        ["Activo por impuesto diferido reconocido (revelar y evaluar recuperabilidad)",
+         _fx(f"{F_dta}", _n(t["dtaFin"])), None, None, _ei(3, abs(t["dtaFin"]) > 0.005, "Revisar")],
+        ["Facturas con pérdida esperada al corte (cantidad)",
+         None, None, _fx(f'COUNTIF({DET}$K${FILA0}:$K${fin_det},">0")', npce) if nd else _fx("0", 0),
+         _fx(f'IF(D{r0 + 4}>0,"Revisar","Conforme")', "Revisar" if npce > 0 else "Conforme")],
+        ["Conclusión: la pérdida crediticia esperada (NIIF 9 enfoque simplificado) se mide por matriz y se concilia con la "
+         "provisión registrada; los estados marcan la cobertura, el gasto no deducible y el impuesto diferido que exigen "
+         "ajuste o revelación.", None, None, None, ""],
+    ]
+
+    # 14 · Lectura de resultados (causa-efecto con la cifra embebida por FIXED; celdas del Resumen, hoja 01).
+    R14 = "'01_Resumen'!$B$"
+
+    def _lec(antes, k, entre=None, k2=None, cierre="."):
+        cell = R14 + str(fila_res[k])
+        f = f'"{antes}"&FIXED({cell},2)'
+        v = f"{antes}{_m(t[k])}"
+        if k2 is not None:
+            cell2 = R14 + str(fila_res[k2])
+            f += f'&"{entre}"&FIXED({cell2},2)'
+            v += f"{entre}{_m(t[k2])}"
+        f += f'&"{cierre}"'
+        v += cierre
+        return _fx(f, v)
+
+    lectura = [
+        ["Resultado de la prueba",
+         _lec("La pérdida crediticia esperada recalculada es de US$ ", "pce",
+              entre=" sobre una cartera al corte de US$ ", k2="saldo")],
+        ["Ajuste propuesto",
+         _lec("Frente a la provisión registrada de US$ ", "provisionRegistrada",
+              entre=", se propone un ajuste de US$ ", k2="ajuste", cierre=" (pérdida esperada menos provisión registrada).")],
+        ["Impacto tributario",
+         _lec("El gasto no deducible del ejercicio asciende a US$ ", "noDeducible", cierre=" por los límites de la LRTI.")],
+        ["Impuesto diferido",
+         _lec("Se reconoce un activo por impuesto diferido de US$ ", "dtaFin",
+              cierre=", sujeto a revelación y evaluación de su recuperabilidad.")],
+        ["Cierre",
+         _lec("En conjunto, la pérdida esperada de US$ ", "pce",
+              cierre=" se concilia con la provisión registrada; el ajuste, el gasto no deducible y el diferido son los efectos a considerar.")],
+    ]
+
+    hoja = lambda name, label, cols, rows, total=None, explica=None, colores=None, estilos=None: {"name": name, "label": label, "cols": cols, "rows": rows,
+                                                                                                  "total": total, "explica": dict(explica or {}),
+                                                                                                  **({"estilos": list(estilos)} if estilos else {}),
+                                                                                                  **({"colores": [c for c in colores if c in [x[0] for x in cols]]} if colores else {})}
+    # Aspecto de cédula sumaria (una entrada por fila): el movimiento de la provisión abre con la
+    # provisión inicial (título), castigos y dotación van con sangría y la provisión al cierre lleva
+    # filete de total; en la cédula fiscal los renglones auxiliares van con sangría y los resultados
+    # del cálculo (dotación, gasto deducible y no deducible, movimiento del diferido) llevan total.
+    estilos_mov = [{"tipo": "titulo"}, {"sangria": 1, "col": "Concepto"}, {"sangria": 1, "col": "Concepto"}, {"tipo": "total"}]
+    _TOT_FISC = {"Dotación neta del ejercicio", "Gasto deducible", "Gasto no deducible", "Movimiento del diferido"}
+    estilos_fiscal = [{"tipo": "total"} if fila[0] in _TOT_FISC else {"sangria": 1, "col": "Concepto"} for fila in fiscal]
     fin_ant, fin_cas = FILA0 + na - 1, FILA0 + nc - 1
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
@@ -687,15 +786,17 @@ def hojas(res: dict) -> list[dict]:
               ["En impago (B5.5.37)", "t"]], revel, ["TOTAL", s("B", fin_rev, _n(t["saldo"])), None, s("D", fin_rev, _n(t["pce"])), ""],
              explica=EXPLICA["05_Revelacion_NIIF7"]),
         hoja("06_Movimiento", "Movimiento de la provisión (NIIF 7 35H)", [["Concepto", "t"], ["Importe", "n"]], movimiento,
-             explica=EXPLICA["06_Movimiento"]),
-        hoja("07_Fiscal", "Fiscal e impuesto diferido", [["Concepto", "t"], ["Importe", "n"]], fiscal, explica=EXPLICA["07_Fiscal"]),
+             explica=EXPLICA["06_Movimiento"], estilos=estilos_mov),
+        hoja("07_Fiscal", "Fiscal e impuesto diferido", [["Concepto", "t"], ["Importe", "n"]], fiscal, explica=EXPLICA["07_Fiscal"],
+             estilos=estilos_fiscal),
         hoja("08_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos,
              explica=EXPLICA["08_Asientos"]),
         hoja("09_Detalle", "Detalle por factura",
              [["Factura", "t"], ["Cliente", "t"], ["Segmento", "t"], ["Vencimiento", "d"], ["Días de mora", "i"], ["Tramo", "t"],
-              ["Clave", "t"], ["Saldo", "n"], ["Tasa individual (%)", "x"], ["Tasa aplicada", "p"], ["Pérdida esperada", "n"], ["En impago", "t"]],
-             detalle, ["TOTAL", "", "", "", None, "", "", s("H", fin_det, _n(t["saldo"])), None, None, s("K", fin_det, _n(t["pce"])), ""],
-             explica=EXPLICA["09_Detalle"]),
+              ["Clave", "t"], ["Saldo", "n"], ["Tasa individual (%)", "x"], ["Tasa aplicada", "p"], ["Pérdida esperada", "n"], ["En impago", "t"],
+              ["Semáforo", "t"]],
+             detalle, ["TOTAL", "", "", "", None, "", "", s("H", fin_det, _n(t["saldo"])), None, None, s("K", fin_det, _n(t["pce"])), "", ""],
+             explica=EXPLICA["09_Detalle"], colores=["Semáforo"]),
         hoja("10_Cartera_anterior", "Cartera del corte anterior",
              [["Factura", "t"], ["Cliente", "t"], ["Segmento", "t"], ["Vencimiento", "d"], ["Días de mora", "i"], ["Tramo", "t"], ["Clave", "t"],
               ["Saldo", "n"], ["Sigue impago al corte", "n"], ["Castigado", "n"], ["Pérdida observada", "n"]], anterior,
@@ -707,6 +808,11 @@ def hojas(res: dict) -> list[dict]:
              ["TOTAL", "", s("C", fin_cas, _n(f["castigos"]))] if nc else None),
         hoja("12_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], _n(e["amount"])] for e in res["exceptions"]]),
+        hoja("13_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con13,
+             explica=EXPLICA["13_Conclusion"], colores=["Estado"]),
+        hoja("14_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura,
+             explica=EXPLICA["14_Lectura"]),
     ]
 
 

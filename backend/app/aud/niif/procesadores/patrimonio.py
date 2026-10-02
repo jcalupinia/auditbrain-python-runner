@@ -147,6 +147,8 @@ CEDULAS = [
     ("07_Capital", "Capital y aumentos"), ("08_Clasificacion", "Clasificación deuda / patrimonio"),
     ("09_Recompra", "Recompra de acciones propias"), ("10_Ajuste", "Patrimonio auditado y ajustes"),
     ("11_Asientos", "Asientos propuestos"), ("12_Problemas", "Problemas encontrados"),
+    ("13_Conclusion", "Indicadores y conclusión"), ("14_Lectura", "Lectura de resultados"),
+    ("15_Resumen_compon", "Patrimonio por componente"),
 ]
 
 _SI = {"si", "s", "x", "yes", "y", "1", "true", "verdadero"}
@@ -607,6 +609,8 @@ EXPLICA = {
                        "la cuenta no cuadra."),
         "Cliente − mayor": ("Resta al saldo final según el cliente el saldo final según el mayor; si no se informó el "
                             "saldo del mayor, queda en blanco."),
+        "Semáforo": ("Estado de la cuenta: «Alerta» si el movimiento no cuadra (la diferencia no es cero), «Revisar» si "
+                     "el saldo según el cliente difiere del mayor, y «Conforme» si el movimiento recalculado coincide."),
     },
     "04_Transacciones": {
         "Posterior al corte": ("Marca «Sí» si la fecha del acta (o, sin ella, la fecha de la transacción) es posterior al "
@@ -669,6 +673,31 @@ EXPLICA = {
         "Haber": ("Lleva a la contrapartida el mismo importe del asiento, tomado de la hoja 10 (Patrimonio auditado y "
                   "ajustes), para que debe y haber cuadren."),
     },
+    "13_Conclusion": {
+        "Importe": ("Trae de la hoja 10 (Patrimonio auditado y ajustes) el importe de cada indicador clave: el ajuste neto al "
+                    "patrimonio, las diferencias del movimiento recalculado, la reserva legal por apropiar, los dividendos en "
+                    "exceso y los aumentos de capital no inscritos, cada uno desde la celda donde ya se calculó."),
+        "Porcentaje": ("Divide la reserva legal apropiada entre la requerida de la hoja 05 (Reserva legal): mide qué parte de "
+                       "la reserva obligatoria ya está constituida; queda en blanco si la compañía no está obligada a reserva."),
+        "Cantidad": ("Cuenta las actas y transacciones marcadas «Sin acta» en la hoja 04 (Actas y transacciones): es el número "
+                     "de movimientos patrimoniales de un tipo que exige acta de junta y no la tienen informada."),
+        "Estado": ("Semáforo de cada indicador: «Alerta» cuando hay diferencias del movimiento, dividendos en exceso o "
+                   "transacciones sin acta; «Revisar» cuando queda un ajuste, reserva por apropiar o aumentos sin inscribir; "
+                   "«Conforme» si el indicador no exige acción."),
+    },
+    "14_Lectura": {
+        "Detalle": ("Lee los resultados clave y los redacta en una frase de causa y efecto, tomando cada cifra por fórmula "
+                    "(FIXED) de la celda del Resumen (hoja 01) donde se calculó: patrimonio auditado y del cliente, ajuste "
+                    "neto, diferencias del movimiento, dividendos en exceso y aumentos de capital no inscritos."),
+    },
+    "15_Resumen_compon": {
+        "Saldo cliente": ("Suma con SUMIFS los saldos finales según el cliente de la hoja 03 (Movimiento patrimonial) de "
+                          "todas las cuentas cuya «Clase» es este componente del patrimonio; si ninguna cuenta es de ese "
+                          "componente, queda en cero."),
+        "Saldo auditado": ("Suma con SUMIFS los saldos finales recalculados (inicial + aumentos − disminuciones) de la hoja "
+                           "03 (Movimiento patrimonial) de las cuentas de este componente; comparado con el saldo del "
+                           "cliente muestra si el movimiento del componente cuadra."),
+    },
 }
 
 # Panel del dashboard (formato en graficos.py).
@@ -680,6 +709,12 @@ PANEL = {
                     "valor": "Final recalculado"},
     "distribucion": {"rotulo": "Patrimonio por cuenta", "hoja": "03_Movimiento", "etiqueta": "Cuenta",
                      "valor": "Final según cliente"},
+    "tableros": [
+        {"rotulo": "Patrimonio por componente", "sub": "Cliente frente a auditado.", "unidad": "USD",
+         "hoja": "15_Resumen_compon", "etiqueta": "Componente",
+         "filas": [{"fila": c} for c in CLASES],
+         "series": [["Saldo cliente", "Saldo cliente"], ["Saldo auditado", "Saldo auditado"]]},
+    ],
 }
 
 
@@ -787,13 +822,16 @@ def hojas(res: dict) -> list[dict]:
         mov.append([c["id"], c["cuenta"], c["clase"], n2(c["inicial"]), n2(c["aumentos"]), n2(c["disminuciones"]),
                     fx(f"D{r}+E{r}-F{r}", c["recalculado"]), n2(c["final"]), fx(f"H{r}-G{r}", c["difMov"]),
                     None if c["mayor"] is None else n2(c["mayor"]), fx(f'IF(J{r}<>"",H{r}-J{r},"")', c["difMayor"]),
-                    None if c["transicion"] is None else n2(c["transicion"])])
+                    None if c["transicion"] is None else n2(c["transicion"]),
+                    fx(f'IF(ABS(I{r})>=0.005,"Alerta",IF(AND(K{r}<>"",ABS(K{r})>=0.005),"Revisar","Conforme"))',
+                       "Alerta" if abs(c["difMov"]) >= 0.005 else
+                       ("Revisar" if (c["difMayor"] is not None and abs(c["difMayor"]) >= 0.005) else "Conforme"))])
     tot_mov = ["TOTAL", "", "", suma("D", fin_c, sum(c["inicial"] for c in cs)), suma("E", fin_c, sum(c["aumentos"] for c in cs)),
                suma("F", fin_c, sum(c["disminuciones"] for c in cs)), suma("G", fin_c, sum(c["recalculado"] for c in cs)),
                suma("H", fin_c, t["patrimonioCliente"]), suma("I", fin_c, sum(c["difMov"] for c in cs)),
                fx(f'IF(COUNT(J{FILA0}:J{fin_c})=0,"",SUM(J{FILA0}:J{fin_c}))', t.get("saldoMayor")),
                fx(f'IF(COUNT(J{FILA0}:J{fin_c})=0,"",SUM(K{FILA0}:K{fin_c}))', t.get("difMayor")),
-               fx(f'IF(COUNT(L{FILA0}:L{fin_c})=0,"",SUM(L{FILA0}:L{fin_c}))', t.get("resultadosTransicionNIIF", ""))]
+               fx(f'IF(COUNT(L{FILA0}:L{fin_c})=0,"",SUM(L{FILA0}:L{fin_c}))', t.get("resultadosTransicionNIIF", "")), ""]
 
     # 04 · Actas y transacciones.
     txr = []
@@ -962,6 +1000,12 @@ def hojas(res: dict) -> list[dict]:
         ["Diferencia capital cliente − escritura", fx(f"{CAP}B{CPF['dif']}", t.get("difCapital")), "07_Capital"],
         ["Resultado reconocido por recompras", fx(f"SUM({_rg(TX, 'T', nt)})", t["resultadoRecompras"]), f"09_Recompra · {cit['propias']}"],
     ]
+    # Aspecto de cédula sumaria (una entrada por fila de ajuste): el patrimonio según el cliente
+    # abre la conciliación (título), las tres reclasificaciones (−)/(+) a pasivo o revertidas van
+    # con sangría y el patrimonio auditado lleva filete de total; el resto (ajuste neto e
+    # indicadores de reserva, dividendos y capital) queda sin estilo.
+    estilos_ajuste = ([{"tipo": "titulo"}] + [{"sangria": 1, "col": "Concepto"} for _ in range(3)]
+                      + [{"tipo": "total"}] + [None] * (len(ajuste) - 5))
 
     # 11 · Asientos (importes remiten a 10_Ajuste).
     asientos = []
@@ -1007,6 +1051,83 @@ def hojas(res: dict) -> list[dict]:
                "capitalEscritura": "capitalEscritura", "difCapital": "difCapital", "resultadoRecompras": "resultadoRecompras"}
     resumen = [[res["labels"][k], fx(ajb(ref_res[k]), t[k])] for k in res["labels"]]
 
+    # 13 · Indicadores y conclusión (semáforo).  Columnas: indicador, importe, porcentaje, cantidad, estado.
+    r0 = FILA0
+    RREQ, RAPR = f"{RES}B{RSF['requerida']}", f"{RES}B{RSF['apropiada']}"
+    ajres = t.get("ajusteReserva")
+    nsinacta = sum(1 for x in tx if x.get("sinActa") == "Sí")
+    req_rv, apr_rv = rv.get("requerida"), rv.get("apropiada")
+    cob_rv = "" if not req_rv else apr_rv / req_rv
+    est_rv = "" if not req_rv else ("Revisar" if apr_rv < req_rv - 0.005 else "Conforme")
+    _ei = lambda i, cond, nivel: fx(f'IF(ABS(B{r0 + i})>0.005,"{nivel}","Conforme")', nivel if cond else "Conforme")
+    con13 = [
+        ["Ajuste neto propuesto al patrimonio (auditado − cliente)",
+         fx(ajb("ajusteNeto"), t["ajusteNeto"]), None, None, _ei(0, abs(t["ajusteNeto"]) > 0.005, "Revisar")],
+        ["Diferencias del movimiento patrimonial recalculado (absolutas)",
+         fx(ajb("difMov"), t["difMovimiento"]), None, None, _ei(1, t["difMovimiento"] > 0.005, "Alerta")],
+        ["Dividendos en exceso de utilidades disponibles (art. 297)",
+         fx(ajb("excesoDiv"), t["excesoDividendos"]), None, None, _ei(2, t["excesoDividendos"] > 0.005, "Alerta")],
+        ["Aumentos de capital no inscritos al corte",
+         fx(ajb("noInscritos"), t["aumentosNoInscritos"]), None, None, _ei(3, t["aumentosNoInscritos"] > 0.005, "Revisar")],
+        ["Reserva legal por apropiar (− exceso)",
+         fx(ajb("ajusteReserva"), ajres if ajres is not None else ""), None, None,
+         fx(f'IF(B{r0 + 4}="","",IF(ABS(B{r0 + 4})>0.005,"Revisar","Conforme"))',
+            "" if ajres is None else ("Revisar" if abs(ajres) > 0.005 else "Conforme"))],
+        ["Cobertura de la reserva legal (apropiada / requerida)",
+         None, fx(f'IF({RREQ}=0,"",{RAPR}/{RREQ})', cob_rv), None,
+         fx(f'IF({RREQ}=0,"",IF({RAPR}<{RREQ}-0.005,"Revisar","Conforme"))', est_rv)],
+        ["Actas y transacciones sin acta de junta (cantidad)",
+         None, None, fx(f'COUNTIF({_rg(TX, "U", nt)},"Sí")', nsinacta) if nt else fx("0", 0),
+         fx(f'IF(D{r0 + 6}>0,"Alerta","Conforme")', "Alerta" if nsinacta > 0 else "Conforme")],
+        ["Conclusión: el movimiento patrimonial se recalcula y concilia (NIC 1 · NIC 32); los estados marcan la reserva "
+         "legal, los dividendos, los aportes y las recompras que exigen ajuste o revelación.", None, None, None, ""],
+    ]
+
+    # 14 · Lectura de resultados (causa-efecto con la cifra embebida por FIXED; celdas del Resumen, hoja 01).
+    fila_res = {k: FILA0 + i for i, k in enumerate(res["labels"])}
+    R14 = "'01_Resumen'!$B$"
+
+    def _lec(antes, k, entre=None, k2=None, cierre="."):
+        cell = R14 + str(fila_res[k])
+        fo = f'"{antes}"&FIXED({cell},2)'
+        vo = f"{antes}{m(t[k])}"
+        if k2 is not None:
+            cell2 = R14 + str(fila_res[k2])
+            fo += f'&"{entre}"&FIXED({cell2},2)'
+            vo += f"{entre}{m(t[k2])}"
+        fo += f'&"{cierre}"'
+        vo += cierre
+        return fx(fo, vo)
+
+    lectura = [
+        ["Resultado de la prueba",
+         _lec("El patrimonio auditado es de US$ ", "patrimonioAuditado",
+              entre=" frente a US$ ", k2="patrimonioCliente", cierre=" según el cliente.")],
+        ["Ajuste neto propuesto",
+         _lec("La diferencia se propone como un ajuste neto al patrimonio de US$ ", "ajusteNeto",
+              cierre=" (auditado menos cliente).")],
+        ["Movimiento patrimonial",
+         _lec("El movimiento patrimonial recalculado arroja diferencias por US$ ", "difMovimiento", cierre=".")],
+        ["Dividendos en exceso",
+         _lec("Los dividendos en exceso de utilidades disponibles ascienden a US$ ", "excesoDividendos",
+              cierre=" (Ley de Compañías art. 297).")],
+        ["Cierre",
+         _lec("En síntesis, el ajuste neto de US$ ", "ajusteNeto",
+              entre=" y los aumentos de capital no inscritos por US$ ", k2="aumentosNoInscritos",
+              cierre=" son los efectos a resolver.")],
+    ]
+
+    # 15 · Patrimonio por componente (cédula-resumen de categorías fijas del enum «Clase»).
+    # Una fila por componente del patrimonio; cada saldo es un SUMIFS sobre 03_Movimiento
+    # filtrando por la columna «Clase». Un componente sin cuentas suma 0.
+    sumifs_c = lambda col, clase: f'SUMIFS({_rg(MOV, col, nc)},{_rg(MOV, "C", nc)},"{clase}")'
+    _sc = lambda clase, key: sum(c[key] for c in cs if c["clase"] == clase)
+    compon = [[comp, fx(sumifs_c("H", comp), _sc(comp, "final")), fx(sumifs_c("G", comp), _sc(comp, "recalculado"))]
+              for comp in CLASES]
+    fin_cp = FILA0 + len(CLASES) - 1
+    tot_compon = ["TOTAL", suma("B", fin_cp, sum(_sc(comp, "final") for comp in CLASES)),
+                  suma("C", fin_cp, sum(_sc(comp, "recalculado") for comp in CLASES))]
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros,
@@ -1014,8 +1135,8 @@ def hojas(res: dict) -> list[dict]:
         hoja("03_Movimiento", "Movimiento patrimonial",
              [["Código", "t"], ["Cuenta", "t"], ["Clase", "t"], ["Saldo inicial", "n"], ["Aumentos", "n"], ["Disminuciones", "n"],
               ["Final recalculado", "n"], ["Final según cliente", "n"], ["Diferencia", "n"], ["Final según mayor", "n"], ["Cliente − mayor", "n"],
-              ["Del saldo inicial: adopción por primera vez de NIIF", "n"]],
-             mov, tot_mov, explica=EXPLICA["03_Movimiento"]),
+              ["Del saldo inicial: adopción por primera vez de NIIF", "n"], ["Semáforo", "t"]],
+             mov, tot_mov, explica=EXPLICA["03_Movimiento"], colores=["Semáforo"]),
         hoja("04_Transacciones", "Actas y transacciones",
              [["Referencia", "t"], ["Fecha", "d"], ["Tipo", "t"], ["Importe", "n"], ["Acta", "t"], ["Fecha del acta", "d"], ["Inscripción", "d"],
               ["Devolución", "t"], ["Obligación contractual", "t"], ["Cuenta afectada", "t"], ["Pasivo al corte", "t"], ["Resultado reconocido", "n"],
@@ -1035,11 +1156,19 @@ def hojas(res: dict) -> list[dict]:
              [["Referencia", "t"], ["Fecha", "d"], ["Costo", "n"], ["Cuenta", "t"], ["Deducida como acciones propias", "t"],
               ["Resultado reconocido", "n"], ["A reclasificar al patrimonio", "n"]], rec, tot_rec, explica=EXPLICA["09_Recompra"]),
         hoja("10_Ajuste", "Patrimonio auditado y ajustes", [["Concepto", "t"], ["Importe", "n"], ["Referencia", "t"]], ajuste,
-             explica=EXPLICA["10_Ajuste"]),
+             explica=EXPLICA["10_Ajuste"], estilos=estilos_ajuste),
         hoja("11_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos,
              explica=EXPLICA["11_Asientos"]),
         hoja("12_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
+        hoja("13_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con13,
+             explica=EXPLICA["13_Conclusion"], colores=["Estado"]),
+        hoja("14_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura,
+             explica=EXPLICA["14_Lectura"]),
+        hoja("15_Resumen_compon", "Patrimonio por componente",
+             [["Componente", "t"], ["Saldo cliente", "n"], ["Saldo auditado", "n"]], compon, tot_compon,
+             explica=EXPLICA["15_Resumen_compon"]),
     ]
 
 

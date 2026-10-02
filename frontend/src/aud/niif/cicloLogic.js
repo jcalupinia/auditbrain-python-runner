@@ -170,6 +170,45 @@ export function mejorEncabezado(sheets, campos) {
   return { sheet: mejor.sheet, header: mejor.header, mapping: mejor.mapping, faltan };
 }
 
+// Combina el mapeo automático (mejorEncabezado) con el que el auditor asignó a
+// mano en el modal de mapeo, dando prioridad a lo manual, y recalcula qué campos
+// obligatorios siguen sin columna. `manual` = {campo.key: índice de columna}; un
+// valor vacío/null quita esa asignación. Devuelve la misma forma que
+// mejorEncabezado ({sheet, header, mapping, faltan}) para reutilizar el flujo.
+export function mapeoConManual(elegido, manual, campos) {
+  const mapping = { ...((elegido && elegido.mapping) || {}) };
+  for (const [key, col] of Object.entries(manual || {})) {
+    if (col === "" || col === null || col === undefined) delete mapping[key];
+    else mapping[key] = Number(col);
+  }
+  const faltan = (campos || [])
+    .filter((f) => f.required !== false && !(f.key in mapping))
+    .map((f) => f.label || f.key);
+  return { sheet: elegido && elegido.sheet, header: elegido && elegido.header, mapping, faltan };
+}
+
+// «Convertir mi formato»: toma el Excel tal como lo maneja la compañía, reconoce
+// sus columnas por alias (mejorEncabezado) y devuelve las filas ya ordenadas en
+// el formato de la herramienta —columnas = etiquetas de los campos, en su orden—
+// junto con las columnas obligatorias que NO pudo reconocer, para completarlas a
+// mano. No inventa datos: una columna sin coincidencia sale vacía.
+export function filasConvertidas(sheets, campos) {
+  const columnas = (campos || []).map((f) => f.label || f.key);
+  const mejor = mejorEncabezado(sheets, campos);
+  if (!mejor) {
+    return { columnas, filas: [], faltan: (campos || []).filter((f) => f.required !== false).map((f) => f.label || f.key) };
+  }
+  const hoja = (sheets || []).find((s) => s.name === mejor.sheet);
+  const filas = ((hoja && hoja.rows) || [])
+    .slice(mejor.header)
+    .map((fila) => (campos || []).map((f) => {
+      const i = mejor.mapping[f.key];
+      return i === undefined ? "" : String((fila || [])[i] ?? "").trim();
+    }))
+    .filter((fila) => fila.some((v) => v !== ""));
+  return { columnas, filas, faltan: mejor.faltan };
+}
+
 const SIMBOLO = { add: "+", subtract: "−", multiply: "×", divide: "÷" };
 
 // Cada cálculo de la ficha en lenguaje contable: «Costo total = Cantidad × Costo unitario».
@@ -257,6 +296,49 @@ export function pasoPreparar(p, taxScope = "", conforme = false) {
 // Archivos que alimentan el cálculo: los no rechazados, tabulares, de cada requerimiento de cálculo.
 export const archivosDe = (p, requerimiento) =>
   (p.archivos || []).filter((a) => a.requerimiento === requerimiento && a.estado !== "rechazado" && esTabular(a.nombre));
+
+// Sube varios archivos uno por uno (el backend recibe un archivo por request)
+// encadenando la revisión de la prueba. Cada subida incrementa la revisión en el
+// servidor y la devuelve en la respuesta; la siguiente subida debe usar esa nueva
+// revisión. Si se mandara siempre la inicial, del segundo archivo en adelante el
+// backend respondería «La prueba cambió mientras la editaba». Un archivo que falla
+// no cambia la revisión server-side, así que se conserva para los siguientes.
+// `subir(revision, archivo) → Promise<{revision?}>`. Devuelve la última revisión
+// vista y la lista de mensajes de fallo (uno por archivo que no subió).
+export async function subirArchivosEnCadena(archivos, revisionInicial, subir) {
+  const fallos = [];
+  let revision = revisionInicial;
+  for (const archivo of archivos || []) {
+    try {
+      const r = await subir(revision, archivo);
+      if (r && Number.isInteger(r.revision)) revision = r.revision;
+    } catch (err) {
+      fallos.push(`${archivo?.name ?? archivo}: ${err?.message || String(err)}`);
+    }
+  }
+  return { revision, fallos };
+}
+
+// --- Extracción por IA de documentos narrativos (carta de control interno / informe) ---
+// Un requerimiento admite extracción por IA si tiene dataset y acepta PDF/Word: se
+// sube el documento firmado y la IA arma la tabla que el auditor revisa y confirma.
+export const esExtraibleIA = (nombre) => /\.(pdf|docx)$/i.test(String(nombre || ""));
+
+export function admiteExtraccionIA(req) {
+  return !!req?.dataset && (req?.formats || []).some((f) => ["pdf", "docx"].includes(String(f).toLowerCase()));
+}
+
+// Documentos PDF/Word (no rechazados) subidos a un requerimiento, candidatos a extracción.
+export function archivosExtraibles(p, requerimiento) {
+  return (p.archivos || []).filter(
+    (a) => a.requerimiento === requerimiento && a.estado !== "rechazado" && esExtraibleIA(a.nombre),
+  );
+}
+
+// Extracción guardada (borrador o confirmada) de un archivo, si existe.
+export function extraccionDe(p, fileId) {
+  return (p.registro?.extraccion || {})[String(fileId)] || null;
+}
 
 // Problemas que la vista de trabajo muestra junto al resultado.
 export function problemasDe(p) {

@@ -109,6 +109,46 @@ def _extra(nombre):
     return m.ejecutar(ds, par, corte)
 
 
+def test_semaforo_conciliacion():
+    """La cédula 10 lleva un Semáforo coloreable por instrumento sobre el ajuste propuesto."""
+    from backend.app.aud.niif.procesadores import base
+    h = next(x for x in m.hojas(correr()) if x["name"] == "10_Conciliacion")
+    assert "Semáforo" in [c[0] for c in h["cols"]] and h.get("colores") == ["Semáforo"]
+    j = [c[0] for c in h["cols"]].index("Semáforo")
+    valores = {f[j]["v"] for f in h["rows"]}
+    assert valores <= {"Alerta", "Conforme", ""} and "Alerta" in valores
+    for f in h["rows"]:
+        assert base.rol_color(h, "Semáforo", f[j]) in ("alta", "baja", None)
+    assert h["total"][j] == ""
+
+
+def test_conclusion():
+    """La cédula 12 lleva indicadores clave con importes en fórmula y un semáforo coloreable en «Estado»."""
+    from backend.app.aud.niif.procesadores import base
+    con = next(x for x in m.hojas(correr()) if x["name"] == "12_Conclusion")
+    assert con["label"] == "Indicadores y conclusión"
+    cols = [c[0] for c in con["cols"]]
+    assert cols == ["Indicador", "Importe", "Porcentaje", "Cantidad", "Estado"]
+    assert "Estado" in con["colores"]
+    ji, je = cols.index("Importe"), cols.index("Estado")
+    assert any(isinstance(f[ji], dict) and "f" in f[ji] for f in con["rows"])
+    roles = {base.rol_color(con, "Estado", f[je]) for f in con["rows"]}
+    assert roles & {"alta", "media", "baja"}
+    assert "alta" in roles       # el ejemplo tiene ajuste propuesto: al menos una «Alerta»
+
+
+def test_lectura():
+    """La cédula 13 lee los resultados en causa-efecto con las cifras embebidas por FIXED."""
+    lec = next(x for x in m.hojas(correr()) if x["name"] == "13_Lectura")
+    assert lec["label"] == "Lectura de resultados"
+    assert [c[0] for c in lec["cols"]] == ["Concepto", "Detalle"]
+    assert 3 <= len(lec["rows"]) <= 5
+    for fila in lec["rows"]:
+        assert isinstance(fila[0], str) and fila[0]
+        det = fila[1]
+        assert isinstance(det, dict) and "f" in det and "FIXED(" in det["f"]
+
+
 def test_pymes_2025_11_9za_deuda_no_basica_pero_sppi():
     """11.9ZA: sin cumplir 11.9 a)-d), la deuda con flujos solo de principal e intereses sigue a costo amortizado."""
     r25, r15 = _extra("pymes_2025_11_9za_y_11_25b"), _extra("pymes_2015_11_9za_y_11_25b")
@@ -119,6 +159,45 @@ def test_pymes_2025_11_9za_deuda_no_basica_pero_sppi():
     assert x25["ingEsp"] == pytest.approx(10000 * 0.08 * 334 / 365)  # 732,05 del 31-ene al 31-dic
     assert "11.9ZA" in x25["fundamento"] and "11.9ZA" not in x15["fundamento"]
     assert x25["difMed"] == pytest.approx(0) and x25["ajuste"] == pytest.approx(0)
+
+
+def test_resumen_clasif():
+    """La cédula 14 resume por categoría FIJA del enum NIIF 9: una fila por clase (aunque no tenga
+    instrumentos → 0 por SUMIFS) y cada importe es una fórmula SUMIFS sobre la hoja 10."""
+    h = next(x for x in m.hojas(correr()) if x["name"] == "14_Resumen_clasif")
+    assert h["label"] == "Resumen por clasificación"
+    cols = [c[0] for c in h["cols"]]
+    assert cols == ["Clasificación", "Saldo en libros", "Ajuste propuesto"]
+    # Una fila por categoría fija del enum, en el mismo orden que CLASES.
+    assert [f[0] for f in h["rows"]] == list(m.CLASES.values())
+    assert h["total"] is None and not h.get("colores")
+    # Cada celda numérica es una fórmula SUMIFS que filtra por el CÓDIGO de la clase.
+    for i, (cod, nombre) in enumerate(m.CLASES.items()):
+        fila = h["rows"][i]
+        for j in (1, 2):
+            assert isinstance(fila[j], dict) and fila[j]["f"].startswith("SUMIFS(")
+            assert f'"{cod}"' in fila[j]["f"] and "10_Conciliacion" in fila[j]["f"]
+        # El valor Python del saldo es la suma de los libros de esa clase (0 si la clase está vacía).
+        esperado = sum(x["libros"] for x in correr()["detalle"]["instrumentos"] if x["esperada"] == cod)
+        assert fila[1]["v"] == pytest.approx(esperado)
+    # Costo menos deterioro no tiene instrumentos en el ejemplo NIIF completas → 0, no vacío.
+    costo = next(f for f in h["rows"] if f[0] == m.CLASES["COSTO"])
+    assert costo[1]["v"] == 0 and costo[2]["v"] == 0
+    # La suma de las 4 categorías reconstruye el total de la hoja 10.
+    assert sum(f[1]["v"] for f in h["rows"]) == pytest.approx(float(correr()["totals"]["saldoLibros"]))
+
+
+def test_tablero_resumen_clasif_resuelve():
+    """El tablero premium «Cartera por clasificación NIIF 9» cuelga de la cédula 14 y resuelve
+    (PANEL sin faltantes), con sus 4 filas = categorías fijas y 2 series numéricas."""
+    from backend.app.aud.niif.procesadores import graficos, datos_cliente
+    for _, ds, par, corte in m.ESCENARIOS:
+        run = m.ejecutar(ds, par, corte)
+        hojas = datos_cliente.con_datos(m, run, ds)
+        p = graficos.panel(m, run, hojas)
+        assert p["faltan"] == []
+        tab = next(t for t in p["tableros"] if t["rotulo"] == "Cartera por clasificación NIIF 9")
+        assert len(tab["filas"]) == len(m.CLASES) and len(tab["series"]) == 2
 
 
 def test_pymes_11_25b_usa_la_estimacion_de_venta():

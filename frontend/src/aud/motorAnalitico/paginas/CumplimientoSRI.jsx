@@ -13,6 +13,7 @@ import {
   sriValorNeto,
   sriDeclaracionesDescargar,
   sriDescargarArchivo,
+  sriVivoUrl,
 } from "../../../api.js";
 import "./CumplimientoSRI.css";
 
@@ -44,8 +45,60 @@ const ANIOS = Array.from({ length: 10 }, (_, i) => ANIO_ACTUAL - i);
 const TIPOS = ["Todos", "Facturas", "Notas de crédito", "Notas de débito", "Retenciones", "Liquidaciones"];
 const MODOS_FECHA = ["Mes", "Rango de meses", "Año completo"];
 const ESTADOS_EMITIDOS = ["Todos", "Autorizado", "No autorizado"];
-// Vista en vivo del robot (noVNC, solo lectura, tailnet-only).
-const VNC_URL = "https://auditia.tail70d973.ts.net:8446/vnc.html?autoconnect=1&resize=scale&view_only=1&reconnect=1";
+// Vista en vivo del robot (solo lectura). Va por el motor de la firma como
+// MJPEG (endpoint /motor/sri/vivo), publicado por Tailscale Funnel: se ve por
+// el mismo canal que el resto del motor, SIN exigir que el auditor esté en la
+// red Tailscale. El permiso firmado viaja en el query string porque un <img>
+// no puede mandar cabecera Authorization. Reconecta con token fresco al fallar.
+function VistaEnVivo({ encargo = "SRI vista en vivo" }) {
+  const [src, setSrc] = useState("");
+  const [error, setError] = useState("");
+  const ultimo = useRef(0);
+  const vivo = useRef(true);
+
+  async function conectar() {
+    try {
+      const p = await sriPermiso(encargo);
+      if (!vivo.current) return;
+      ultimo.current = Date.now();
+      // El sufijo &t= fuerza al navegador a reabrir el stream con el token nuevo.
+      setSrc(`${sriVivoUrl(p.url, p.token)}&t=${ultimo.current}`);
+      setError("");
+    } catch {
+      if (vivo.current) setError("No se pudo autorizar la vista en vivo. Reintenta en unos segundos.");
+    }
+  }
+
+  useEffect(() => {
+    vivo.current = true;
+    conectar();
+    return () => { vivo.current = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [encargo]);
+
+  // Un stream MJPEG queda autorizado al conectarse; solo hay que reconectar si
+  // la conexión se cae o el token venció. Se limita a un reintento cada 4 s.
+  function alFallar() {
+    if (Date.now() - ultimo.current < 4000) return;
+    conectar();
+  }
+
+  return (
+    <div className="ma-sri-vivo">
+      <div className="ma-sri-vivo-cab">
+        <span>🔴 Robot en vivo — solo lectura</span>
+        <span className="ma-sri-vivo-nota">Se transmite por el motor de la firma. Verás el navegador del robot cuando esté descargando del SRI.</span>
+      </div>
+      {error ? (
+        <div className="ma-sri-vivo-aviso">{error}</div>
+      ) : src ? (
+        <img title="Robot SRI en vivo" alt="Robot SRI en vivo" src={src} className="ma-sri-vivo-frame" onError={alFallar} />
+      ) : (
+        <div className="ma-sri-vivo-aviso">Conectando con la vista en vivo…</div>
+      )}
+    </div>
+  );
+}
 
 // Resumen legible del resultado del robot (en vez del JSON crudo).
 function ResumenResultado({ r, titulo }) {
@@ -264,15 +317,7 @@ function SubDescarga() {
         <span className="ma-sri-descarga-clave-nota">La clave va directo al motor de la firma; no se guarda ni pasa por el servidor web.</span>
       </div>
 
-      {verVivo && (
-        <div className="ma-sri-vivo">
-          <div className="ma-sri-vivo-cab">
-            <span>🔴 Robot en vivo — solo lectura</span>
-            <span className="ma-sri-vivo-nota">Requiere estar en la red Tailscale de la firma. Verás el navegador del robot navegando el SRI en tiempo real.</span>
-          </div>
-          <iframe title="Robot SRI en vivo" src={VNC_URL} className="ma-sri-vivo-frame" allow="fullscreen" />
-        </div>
-      )}
+      {verVivo && <VistaEnVivo encargo="SRI vista en vivo (descarga)" />}
 
       {captchaImg && (
         <div className="ma-sri-captcha" role="dialog" aria-label="Resolver captcha">
@@ -558,15 +603,7 @@ function SubCruceRetenciones() {
         {form.con_portal && <span className="ma-sri-descarga-clave-nota">La clave va directo al motor de la firma; no se guarda ni pasa por el servidor web.</span>}
       </div>
 
-      {verVivo && form.con_portal && (
-        <div className="ma-sri-vivo">
-          <div className="ma-sri-vivo-cab">
-            <span>🔴 Robot en vivo — solo lectura</span>
-            <span className="ma-sri-vivo-nota">Requiere estar en la red Tailscale de la firma.</span>
-          </div>
-          <iframe title="Robot SRI en vivo" src={VNC_URL} className="ma-sri-vivo-frame" allow="fullscreen" />
-        </div>
-      )}
+      {verVivo && form.con_portal && <VistaEnVivo encargo="SRI vista en vivo (cruce)" />}
 
       {captchaImg && (
         <div className="ma-sri-captcha" role="dialog" aria-label="Resolver captcha">
@@ -688,15 +725,7 @@ function SubValorNeto() {
         {form.con_portal && <span className="ma-sri-descarga-clave-nota">La clave va directo al motor de la firma; no se guarda ni pasa por el servidor web.</span>}
       </div>
 
-      {verVivo && form.con_portal && (
-        <div className="ma-sri-vivo">
-          <div className="ma-sri-vivo-cab">
-            <span>🔴 Robot en vivo — solo lectura</span>
-            <span className="ma-sri-vivo-nota">Requiere estar en la red Tailscale de la firma.</span>
-          </div>
-          <iframe title="Robot SRI en vivo" src={VNC_URL} className="ma-sri-vivo-frame" allow="fullscreen" />
-        </div>
-      )}
+      {verVivo && form.con_portal && <VistaEnVivo encargo="SRI vista en vivo (valor neto)" />}
 
       {captchaImg && (
         <div className="ma-sri-captcha" role="dialog" aria-label="Resolver captcha">
@@ -819,12 +848,7 @@ function SubDeclaraciones() {
         <span className="ma-sri-descarga-clave-nota">La clave va directo al motor de la firma; no se guarda ni pasa por el servidor web.</span>
       </div>
 
-      {verVivo && (
-        <div className="ma-sri-vivo">
-          <div className="ma-sri-vivo-cab"><span>🔴 Robot en vivo — solo lectura</span><span className="ma-sri-vivo-nota">Requiere estar en la red Tailscale de la firma.</span></div>
-          <iframe title="Robot SRI en vivo" src={VNC_URL} className="ma-sri-vivo-frame" allow="fullscreen" />
-        </div>
-      )}
+      {verVivo && <VistaEnVivo encargo="SRI vista en vivo (declaraciones)" />}
 
       {captchaImg && (
         <div className="ma-sri-captcha" role="dialog" aria-label="Resolver captcha">

@@ -466,11 +466,12 @@ CEDULAS = [
     ("10_Garantias_calculo", "Garantías: cálculo"), ("11_Onerosos", "Contratos onerosos"), ("12_Desmantelamiento", "Desmantelamiento"),
     ("13_Reconocimiento", "Provisión requerida vs libros"), ("14_Contingencias", "Contingencias a revelar"),
     ("15_Ajustes", "Ajustes propuestos y conciliación"), ("16_Problemas", "Problemas encontrados"),
+    ("17_Conclusion", "Indicadores y conclusión"), ("18_Lectura", "Lectura de resultados"),
 ]
 P = ref("02_Parametros")
-PRV, GAR, OBL, EST, VPR, REV, GCA, REC, CON, AJ = (ref(n) for n in (
+PRV, GAR, OBL, EST, VPR, REV, GCA, REC, CON, AJ, PRB = (ref(n) for n in (
     "03_Provisiones", "04_Garantias", "05_Obligacion_prob", "06_Mejor_estimacion", "07_Valor_presente", "08_Reversion_descuento",
-    "10_Garantias_calculo", "13_Reconocimiento", "14_Contingencias", "15_Ajustes"))
+    "10_Garantias_calculo", "13_Reconocimiento", "14_Contingencias", "15_Ajustes", "16_Problemas"))
 _PAR = ["corte", "marco", "edicion", "tasaDescuento", "plazoDescuento", "materialidad", "tolerancia", "mayorProvisiones"]
 PAR = {k: f"{P}$B${FILA0 + i}" for i, k in enumerate(_PAR)}
 
@@ -616,6 +617,8 @@ EXPLICA = {
         "Libros": f"Copia el saldo registrado en libros al corte desde la {_D03}.",
         "Ajuste (requerida − libros)": ("Resta el saldo en libros a la provisión requerida: positivo significa que falta "
                                         "provisión y negativo que sobra; en blanco si está sin evaluación."),
+        "Semáforo": ("Estado de la provisión: «Alerta» si la provisión requerida difiere del saldo en libros (provisión insuficiente "
+                     "o excesiva que hay que ajustar), «Conforme» si coinciden; en blanco si la partida está sin evaluación."),
     },
     "14_Contingencias": {
         "Clasificación": ("Trae la clasificación de la partida desde la hoja 05 (Obligación presente y probabilidad); aquí "
@@ -637,6 +640,18 @@ EXPLICA = {
         "Base": ("Solo en la última fila: indica «Sí» si el ajuste propuesto, en valor absoluto, supera la materialidad; "
                  "vacío si no hay materialidad."),
     },
+    "17_Conclusion": {
+        "Importe": ("Cada indicador trae su cifra de la hoja 15 (Ajustes propuestos y conciliación): la provisión "
+                    "requerida, las provisiones en libros, el ajuste propuesto, los pasivos contingentes sin revelar y la "
+                    "diferencia contra el mayor, sin volver a calcularlos."),
+        "Porcentaje": ("Divide el ajuste propuesto para las provisiones registradas en libros (filas de esta misma hoja): "
+                       "es el peso del ajuste sobre lo contabilizado; en blanco si no hay saldo en libros."),
+        "Cantidad": ("Cuenta los problemas listados en la hoja 16 (Problemas encontrados): es cuántas excepciones dejó "
+                     "abiertas la prueba."),
+        "Estado": ("Semáforo de cada indicador: el ajuste es «Alerta» si supera la materialidad de la hoja 02, «Revisar» si "
+                   "solo pasa la tolerancia y «Conforme» si no; contingencias sin revelar y problemas abiertos marcan alerta "
+                   "o revisión, y una conciliación descuadrada contra el mayor pide revisión."),
+    },
 }
 
 # Panel del dashboard (formato en graficos.py): la población son los saldos en libros de todas las partidas evaluadas;
@@ -649,6 +664,15 @@ PANEL = {
                     "valor": "Provisión requerida"},
     "distribucion": {"rotulo": "Saldos en libros por tipo", "hoja": "13_Reconocimiento", "etiqueta": "Tipo",
                      "valor": "Libros"},
+    # Tablero: conceptos fijos de la conciliación (15), provisiones en libros frente a la requerida (NIC 37.36–47 · PYMES 21.7).
+    # El detalle por partida (código) es variable y la cédula 13 se lista por partida, no por tipo; por eso el tablero se apoya
+    # en los conceptos de rótulo fijo de la cédula de ajustes.
+    "tableros": [
+        {"rotulo": "Provisiones: en libros frente a la requerida", "sub": "USD · provisión en libros frente a la requerida, por provisión o contingencia.",
+         "unidad": "USD", "hoja": "13_Reconocimiento", "etiqueta": "Código", "seccion": "Provisiones NIC 37",
+         "filas": ["LIT-01", "LIT-02", "LIT-03", "LIT-04", "GAR-01", "ONE-01", "DES-01", "REE-01", "AMB-01", "LIT-05", "LIT-06", "OTR-01", "ACT-01"],
+         "series": [["Libros", "Libros"], ["Provisión requerida", "Provisión requerida"]]},
+    ],
 }
 
 
@@ -893,6 +917,8 @@ def hojas(res: dict) -> list[dict]:
             x["id"], fx(f"{OBL}B{r}", x["tipo"]), fx(f"{OBL}G{r}", x["clasif"]), fx(f"{VPR}G{r}", x["vp"]),
             fx(f'IF(C{r}="Sin evaluación","",IF(OR(C{r}="Reconocer provisión",C{r}="Activo reconocible"),D{r},0))', x["requerida"]),
             fx(X("saldo_libros", r), x["saldo_libros"]), fx(f'IF(E{r}="","",E{r}-F{r})', x["dif"]), x["contrapartida"],
+            fx(f'IF(G{r}="","",IF(ABS(G{r})>=0.005,"Alerta","Conforme"))',
+               "" if x["dif"] is None else ("Alerta" if abs(x["dif"]) >= 0.005 else "Conforme")),
         ])
 
     # 14 · contingencias a revelar.
@@ -947,6 +973,70 @@ def hojas(res: dict) -> list[dict]:
              "activoContingenteReconocido": 10, "ajusteActivoContingente": 11, "difMayor": 13}
     resumen = [[res["labels"][kk], fx(f"{AJ}B{FILA0 + celda[kk]}", k[kk])] for kk in res["labels"]]
 
+    # 17 · indicadores y conclusión (semáforo).  Columnas: indicador, importe, porcentaje, cantidad, estado.
+    nprob = len(res["exceptions"])
+    tol, mat = PAR["tolerancia"], PAR["materialidad"]
+    b17 = lambda kk: f"B{FILA0 + kk}"
+    dd17 = lambda kk: f"D{FILA0 + kk}"
+    mat_v, tol_v, dif_v = k["materialidad"], (pv("tolerancia") or 0.0), k["difMayor"]
+    aj_v, cont_v = k["ajusteProvisiones"], k["contingentesSinRevelar"]
+    est_ajuste = "Alerta" if (mat_v is not None and abs(aj_v) > mat_v) else ("Revisar" if abs(aj_v) > tol_v else "Conforme")
+    est_cont = "Alerta" if abs(cont_v) > tol_v else "Conforme"
+    est_dif = "" if dif_v is None else ("Revisar" if abs(dif_v) > tol_v else "Conforme")
+    con17 = [
+        ["Provisión requerida (recalculada; NIC 37.36–47 · PYMES 21.7)", fx(f"{AJ}B{FILA0 + 1}", k["provisionRequerida"]), None, None, ""],
+        ["Provisiones registradas en libros (población evaluada)", fx(f"{AJ}B{FILA0 + 0}", k["librosProvisiones"]), None, None, ""],
+        ["Ajuste propuesto = requerida − libros", fx(f"{AJ}B{FILA0 + 2}", k["ajusteProvisiones"]), None, None,
+         fx(f'IF(AND({mat}<>"",ABS({b17(2)})>{mat}),"Alerta",IF(ABS({b17(2)})>{tol},"Revisar","Conforme"))', est_ajuste)],
+        ["% del ajuste sobre las provisiones en libros", None, fx(f'IF({b17(1)}=0,"",{b17(2)}/{b17(1)})',
+         None if k["librosProvisiones"] == 0 else k["ajusteProvisiones"] / k["librosProvisiones"]), None, ""],
+        ["Pasivos contingentes sin revelar (NIC 37.86 · PYMES 21.15)", fx(f"{AJ}B{FILA0 + 9}", k["contingentesSinRevelar"]), None, None,
+         fx(f'IF(ABS({b17(4)})>{tol},"Alerta","Conforme")', est_cont)],
+        ["Diferencia detalle − mayor", fx(f"{AJ}B{FILA0 + 13}", k["difMayor"]), None, None,
+         fx(f'IF({b17(5)}="","",IF(ABS({b17(5)})>{tol},"Revisar","Conforme"))', est_dif)],
+        ["Problemas encontrados (cantidad)", None, None, fx(f"COUNTA({_rng(PRB, 'A', nprob)})", nprob),
+         fx(f'IF({dd17(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+        ["Conclusión: la provisión se reconoce solo con obligación presente probable y estimable (NIC 37.14; PYMES 21.4); "
+         "las contingencias se revelan. Esta prueba no concluye por sí sola el cumplimiento de las NIIF.", None, None, None, ""],
+    ]
+
+    # 18 · lectura causa-efecto: cada frase lee el resultado con su cifra embebida (FIXED) desde el Resumen (hoja 01).
+    R1 = ref("01_Resumen")
+    fr = {kk: FILA0 + i for i, kk in enumerate(res["labels"])}
+    rc = lambda key: f"{R1}B{fr[key]}"
+    lectura = [
+        ["Resultado de la prueba",
+         fx(f'"La provisión requerida (NIC 37 · Sección 21) es de US$ "&FIXED({rc("provisionRequerida")},2)&", frente a US$ "&'
+            f'FIXED({rc("librosProvisiones")},2)&" registrado en libros."',
+            f'La provisión requerida (NIC 37 · Sección 21) es de US$ {m(k["provisionRequerida"])}, frente a US$ '
+            f'{m(k["librosProvisiones"])} registrado en libros.')],
+        ["Ajuste propuesto y su efecto",
+         fx(f'"El ajuste propuesto a las provisiones es de US$ "&FIXED({rc("ajusteProvisiones")},2)&": "&'
+            f'IF({rc("ajusteProvisiones")}>=0,"aumenta la provisión por reconocer.","reduce la provisión registrada.")',
+            f'El ajuste propuesto a las provisiones es de US$ {m(k["ajusteProvisiones"])}: '
+            + ("aumenta la provisión por reconocer." if k["ajusteProvisiones"] >= 0 else "reduce la provisión registrada."))],
+        ["Descuento a valor presente",
+         fx(f'"El efecto del descuento a valor presente es de US$ "&FIXED({rc("descuento")},2)&"; la reversión del descuento del '
+            f'período calculada es de US$ "&FIXED({rc("reversionCalculada")},2)&" (costo financiero, NIC 37.60)."',
+            f'El efecto del descuento a valor presente es de US$ {m(k["descuento"])}; la reversión del descuento del período '
+            f'calculada es de US$ {m(k["reversionCalculada"])} (costo financiero, NIC 37.60).')],
+        ["Contingencias a revelar",
+         fx(f'"Los pasivos contingentes a revelar por su efecto estimado suman US$ "&FIXED({rc("pasivosContingentes")},2)&", de los '
+            f'cuales US$ "&FIXED({rc("contingentesSinRevelar")},2)&" están sin revelar en notas (NIC 37.86; PYMES 21.15)."',
+            f'Los pasivos contingentes a revelar por su efecto estimado suman US$ {m(k["pasivosContingentes"])}, de los cuales '
+            f'US$ {m(k["contingentesSinRevelar"])} están sin revelar en notas (NIC 37.86; PYMES 21.15).')],
+        ["Cierre",
+         fx(f'"Se reconoció indebidamente US$ "&FIXED({rc("activoContingenteReconocido")},2)&" de activos contingentes; el ajuste '
+            f'del activo contingente es de US$ "&FIXED({rc("ajusteActivoContingente")},2)&" (NIC 37.31–35; PYMES 21.13)."',
+            f'Se reconoció indebidamente US$ {m(k["activoContingenteReconocido"])} de activos contingentes; el ajuste del activo '
+            f'contingente es de US$ {m(k["ajusteActivoContingente"])} (NIC 37.31–35; PYMES 21.13).')],
+    ]
+    ex_lectura = {"Detalle": ("Lee en lenguaje corriente el resultado de la prueba y sus hallazgos materiales con la cifra embebida "
+                              "tomada del Resumen (hoja 01): la provisión requerida frente a la registrada, el ajuste propuesto y su "
+                              "efecto, el descuento a valor presente y su reversión, los pasivos contingentes a revelar y los que "
+                              "quedan sin revelar, y el activo contingente reconocido indebidamente. Cada cifra remite por fórmula a la "
+                              "celda del Resumen.")}
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
@@ -986,9 +1076,9 @@ def hojas(res: dict) -> list[dict]:
               ["Libros", "n"], ["Ajuste contra el costo (CINIIF 1)", "n"], ["Reversión calculada", "n"], ["Reversión registrada", "n"]], des, explica=EXPLICA["12_Desmantelamiento"]),
         hoja("13_Reconocimiento", "Provisión requerida vs libros",
              [["Código", "t"], ["Tipo", "t"], ["Clasificación", "t"], ["Valor presente", "n"], ["Provisión requerida", "n"], ["Libros", "n"],
-              ["Ajuste (requerida − libros)", "n"], ["Contrapartida", "t"]], rec,
+              ["Ajuste (requerida − libros)", "n"], ["Contrapartida", "t"], ["Semáforo", "t"]], rec,
              ["TOTAL", "", "", None, suma("E", fin(n), sum(x["requerida"] or 0 for x in R)), suma("F", fin(n), sum(x["saldo_libros"] for x in R)),
-              suma("G", fin(n), sum(x["dif"] or 0 for x in R)), ""], explica=EXPLICA["13_Reconocimiento"]),
+              suma("G", fin(n), sum(x["dif"] or 0 for x in R)), "", ""], explica=EXPLICA["13_Reconocimiento"], colores=["Semáforo"]),
         hoja("14_Contingencias", "Contingencias a revelar",
              [["Código", "t"], ["Descripción", "t"], ["Clasificación", "t"], ["Probabilidad", "t"], ["Efecto estimado", "n"], ["Revelado", "t"],
               ["Evaluación", "t"], ["Registrado en libros", "n"]], con, explica=EXPLICA["14_Contingencias"]),
@@ -996,6 +1086,10 @@ def hojas(res: dict) -> list[dict]:
              [["Concepto", "t"], ["Importe", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]], ajus, explica=EXPLICA["15_Ajustes"]),
         hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("17_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con17,
+             explica=EXPLICA["17_Conclusion"], colores=["Estado"]),
+        hoja("18_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura, explica=ex_lectura),
     ]
 
 

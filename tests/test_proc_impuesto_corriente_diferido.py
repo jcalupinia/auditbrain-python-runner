@@ -215,8 +215,97 @@ def test_hojas_nombres_y_anchos():
                 assert len(fila) == len(h["cols"]), h["name"]
 
 
+def test_semaforo_diferencias_temporarias():
+    """La cédula 06 lleva la columna «Semáforo» coloreada, con fórmula que recalcula igual que Python."""
+    hs = {h["name"]: h for h in m.hojas(_run())}
+    h = hs["06_Diferencias_temp"]
+    cols = [c[0] for c in h["cols"]]
+    assert cols[-1] == "Semáforo" and "Semáforo" in h["colores"]
+    assert "Semáforo" in h["explica"]
+    # Ancho de fila coherente (incluida la columna nueva) y TOTAL con celda vacía al final.
+    for fila in h["rows"] + [h["total"]]:
+        assert len(fila) == len(h["cols"])
+    assert h["total"][-1] == ""
+    # Cada celda del semáforo es una fórmula con valor válido.
+    idx = cols.index("Semáforo")
+    for fila in h["rows"]:
+        celda = fila[idx]
+        assert isinstance(celda, dict) and "f" in celda
+        assert celda["v"] in ("Alerta", "Revisar", "Conforme")
+    # El ejemplo tiene partidas con ajuste != 0 (mal medidas): al menos una «Alerta».
+    assert any(fila[idx]["v"] == "Alerta" for fila in h["rows"])
+
+
+def test_conclusion():
+    """La cédula 16 lleva indicadores por fórmula y la columna «Estado» coloreada (Alerta/Revisar/Conforme)."""
+    assert m.CEDULAS[-2] == ("16_Conclusion", "Indicadores y conclusión")
+    assert m.CEDULAS[-1] == ("17_Lectura", "Lectura de resultados")
+    hs = {h["name"]: h for h in m.hojas(_run())}
+    h = hs["16_Conclusion"]
+    cols = [c[0] for c in h["cols"]]
+    assert cols == ["Indicador", "Importe", "Porcentaje", "Cantidad", "Estado"]
+    assert h["colores"] == ["Estado"]
+    for col in ("Importe", "Porcentaje", "Cantidad", "Estado"):
+        assert col in h["explica"]
+    # Ancho de fila coherente en todas las filas (incluida la de conclusión narrativa).
+    for fila in h["rows"]:
+        assert len(fila) == len(h["cols"])
+    idx = cols.index("Estado")
+    estados = [f[idx]["v"] if isinstance(f[idx], dict) else f[idx] for f in h["rows"]]
+    # Los estados con formato son fórmulas que resuelven a un nivel coloreable; la fila final es narrativa (Estado vacío).
+    for f in h["rows"][:-1]:
+        celda = f[idx]
+        assert isinstance(celda, dict) and "f" in celda
+        assert celda["v"] in ("Alerta", "Revisar", "Conforme")
+    assert h["rows"][-1][idx] == ""
+    # Los indicadores de importe/porcentaje/cantidad son fórmulas que remiten a la celda de origen.
+    assert any(isinstance(f[1], dict) and "f" in f[1] for f in h["rows"])          # Importe
+    assert any(isinstance(f[2], dict) and "f" in f[2] for f in h["rows"])          # Porcentaje
+    assert any(isinstance(f[3], dict) and "f" in f[3] for f in h["rows"])          # Cantidad
+    # En el ejemplo hay ajustes != 0, así que al menos un estado es «Revisar» o «Alerta».
+    assert any(e in ("Revisar", "Alerta") for e in estados)
+
+
+def test_lectura():
+    """La cédula 17 lee cada resultado clave en una frase de causa-efecto con la cifra embebida por FIXED."""
+    assert m.CEDULAS[-1] == ("17_Lectura", "Lectura de resultados")
+    for _, ds, p, c in m.ESCENARIOS:
+        hs = m.hojas(m.ejecutar(ds, p, c))
+        assert hs[-1]["name"] == "17_Lectura"
+        h = hs[-1]
+        assert [c0 for c0, _ in h["cols"]] == ["Concepto", "Detalle"] and h.get("total") is None
+        assert "Detalle" in h["explica"] and "colores" not in h
+        assert 3 <= len(h["rows"]) <= 5
+        for fila in h["rows"]:
+            assert len(fila) == 2
+            det = fila[1]
+            assert isinstance(det, dict) and "f" in det and "FIXED(" in det["f"] and "'01_Resumen'!" in det["f"]
+            assert isinstance(det["v"], str) and "US$" in det["v"]
+    # En el ejemplo el impuesto corriente recalculado (165.937,50) y el ajuste corriente (9.800,00) aparecen en la lectura.
+    h = {x["name"]: x for x in m.hojas(_run())}["17_Lectura"]
+    detalles = " ".join(f[1]["v"] for f in h["rows"])
+    assert "165.937,50" in detalles and "9.800,00" in detalles
+
+
 def test_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "impuesto_corriente_diferido" and len(d["program"]) >= 5
     assert m.RUBRO == "IMPUESTOS" and {r.get("dataset") for r in d["requests"]} >= set(m.DATASETS)
     assert m.TOTAL_EJEMPLO in _run()["totals"]
+
+
+def test_estilos_sumaria_04_impuesto_corriente():
+    """La conciliación del impuesto corriente lleva estilos de cédula sumaria: la utilidad
+    contable abre como título, los renglones de ajuste van con sangría y los subtotales del
+    cálculo (utilidad gravable, base imponible, impuesto causado, impuesto por pagar) llevan
+    filete de total. `estilos` tiene exactamente una entrada por fila de datos."""
+    for _, ds, p, c in m.ESCENARIOS:
+        h = {x["name"]: x for x in m.hojas(m.ejecutar(ds, p, c))}["04_Impuesto_corriente"]
+        e = h["estilos"]
+        assert len(e) == len(h["rows"])                 # una entrada por fila de datos
+        assert e[0] == {"tipo": "titulo"}               # utilidad contable = rubro de la conciliación
+        totales = {h["rows"][i][0] for i, x in enumerate(e) if (x or {}).get("tipo") == "total"}
+        assert "Base imponible" in totales              # el subtotal clave está marcado como total
+        for x in e:                                     # cada sangría apunta a la 1.ª columna de texto
+            if (x or {}).get("sangria"):
+                assert x["col"] == "Concepto"

@@ -214,7 +214,7 @@ def _split_pdf_pages(pdf_bytes: bytes, pages_per_chunk: int) -> list[bytes]:
 
 
 def ocr_pdf(path: str | Path) -> dict:
-    """OCR de un PDF (escaneado o digital).
+    """OCR de un PDF (escaneado o digital) desde una ruta en disco.
 
     Para PDFs >5 páginas se hace split automático en chunks y se
     concatena el resultado. Cuenta como N unidades en Google Vision
@@ -228,14 +228,23 @@ def ocr_pdf(path: str | Path) -> dict:
           "language_hints": [str],
         }
     """
-    from google.cloud import vision
-
-    client = _get_client()
     p = Path(path)
     if not p.is_file():
         raise OCRError(f"Archivo no encontrado: {path}")
+    return ocr_pdf_bytes(p.read_bytes())
 
-    pdf_bytes = p.read_bytes()
+
+def ocr_pdf_bytes(pdf_bytes: bytes) -> dict:
+    """OCR de un PDF que ya está en memoria (bytes).
+
+    Igual que :func:`ocr_pdf` pero sin leer de disco — para flujos que
+    reciben el archivo como bytes (p. ej. la extracción por IA de los
+    documentos subidos al ciclo de auditoría). Mismo contrato de salida.
+    """
+    from google.cloud import vision
+
+    client = _get_client()
+
     chunks = _split_pdf_pages(pdf_bytes, _MAX_PAGES_PER_BATCH)
 
     all_texts: list[str] = []

@@ -1,8 +1,8 @@
 import {useEffect, useState} from 'react';
 import '../of/ofWorkspace.css';
 import './confirmaciones.css';
-import {loadContext, extractFile, processConfirmaciones, downloadConfirmaciones, sendConfirmaciones, listEnvios} from './api.js';
-import {TYPE_KEYS, TYPE_LABEL, METHODS, LANGUAGES, mapSample, emptyItem, ITEM_FIELDS, FIELD_HELP} from './logic.js';
+import {loadContext, extractFile, processConfirmaciones, downloadConfirmaciones, sendConfirmaciones} from './api.js';
+import {TYPE_KEYS, TYPE_LABEL, METHODS, LANGUAGES, mapSample, emptyItem, ITEM_FIELDS, FIELD_LABEL, FIELD_HELP} from './logic.js';
 
 const today = new Date().toISOString().slice(0, 10);
 const initialCtx = {client: '', client_ruc: '', country: 'Ecuador', currency: 'USD', year: '', cutoff: '',
@@ -85,12 +85,25 @@ export default function ConfirmacionesTool({projectId, sharedContext, onShareCon
   });
   const download = fmt => action(() => downloadConfirmaciones(projectId, payload(), fmt));
   const [sendResult, setSendResult] = useState(null);
-  const [envios, setEnvios] = useState(null);
-  const loadHistory = () => action(async () => { setEnvios(await listEnvios(projectId)); });
+  const [sendMode, setSendMode] = useState('unico');   // 'unico' | 'terceros'
+  const [sendTo, setSendTo] = useState('');
+  const emailOk = v => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((v || '').trim());
   const send = () => {
     if (!result) return;
+    if (sendMode === 'unico') {
+      const to = sendTo.trim();
+      if (!emailOk(to)) { setError('Escriba un correo de destino válido (auditor o cliente) para enviar el ZIP.'); return; }
+      if (!window.confirm(`Se enviará un correo a ${to} con las ${result.totals.count} cartas en un ZIP adjunto (un Word por carta, en carpetas por rubro). No se envía a los destinatarios. ¿Continuar?`)) return;
+      action(async () => {
+        setSendResult(null);
+        const r = await sendConfirmaciones(projectId, {...payload(), send_to: to});
+        setSendResult(r);
+        setNotice(`Envío: ZIP con ${r.total} cartas enviado a ${to}.`);
+      });
+      return;
+    }
     const conCorreo = result.totals.with_email;
-    if (!conCorreo) { setError('Ningún elemento tiene correo de contacto. Complete los correos antes de enviar.'); return; }
+    if (!conCorreo) { setError('Ningún elemento tiene correo de contacto. Complete los correos, o use la opción "a un solo correo".'); return; }
     if (!window.confirm(`Se enviarán ${conCorreo} cartas por correo (Resend) a los contactos indicados. Las respuestas llegarán a ${ctx.auditor_email}. ¿Continuar?`)) return;
     action(async () => {
       setSendResult(null);
@@ -155,7 +168,7 @@ export default function ConfirmacionesTool({projectId, sharedContext, onShareCon
         {source && <div className="cf-map">
           <p><b>{source.name}</b> — asigne columnas:</p>
           <div className="cf-grid">{ITEM_FIELDS.map(k =>
-            <label key={k}>{k}<select value={source.mapping[k] ?? -1}
+            <label key={k}>{FIELD_LABEL[k] || k}<select value={source.mapping[k] ?? -1}
               onChange={e => setSource({...source, mapping: {...source.mapping, [k]: Number(e.target.value)}})}>
               <option value={-1}>—</option>
               {source.tables[source.tableIndex].headers.map((h, i) => <option key={i} value={i}>{h || `col ${i}`}</option>)}
@@ -179,30 +192,44 @@ export default function ConfirmacionesTool({projectId, sharedContext, onShareCon
           </tr>)}</tbody></table></div>}
       </section>
 
-      <section className="cf-card"><h3>3 · Cobertura (opcional)</h3>
-        <p>Saldo del mayor por rubro para medir cobertura de la muestra.</p>
-        <div className="cf-grid">{types.map(t =>
-          <label key={t.key}>{t.label}
-            <input value={ledger[t.key] ?? ''} placeholder="saldo mayor"
-              onChange={e => {invalidate(); setLedger({...ledger, [t.key]: e.target.value});}} /></label>)}
-          <label>Tolerancia<input value={tolerance} onChange={e => {invalidate(); setTolerance(e.target.value);}} /></label>
-        </div>
+      <section className="cf-card cf-collapsible">
+        <details>
+          <summary className="cf-summary-h"><span>3 · Cobertura</span>
+            <span className="cf-optional">opcional</span></summary>
+          <p className="cf-help cf-collapsible-help">Escriba el saldo contable (del mayor) de cada rubro que esté
+            circularizando; el sistema calcula qué porcentaje del saldo cubre su muestra y lo incluye en el Registro
+            (Excel). Puede dejarlo vacío: no es obligatorio para procesar ni enviar.</p>
+          <div className="cf-grid">{types.map(t =>
+            <label key={t.key}>{t.label}
+              <input value={ledger[t.key] ?? ''} placeholder="saldo mayor"
+                onChange={e => {invalidate(); setLedger({...ledger, [t.key]: e.target.value});}} /></label>)}
+            <label>Tolerancia<input value={tolerance} onChange={e => {invalidate(); setTolerance(e.target.value);}} /></label>
+          </div>
+        </details>
       </section>
 
       <section className="cf-card"><h3>4 · Procesar y descargar</h3>
         <div className="cf-actions">
           <button className="btn btn-primary" onClick={process} disabled={busy}>Procesar</button>
           <button className="btn" onClick={() => download('docx')} disabled={busy || !result}>Cartas (Word)</button>
-          <button className="btn" onClick={() => download('xlsx')} disabled={busy || !result}>Registro (Excel)</button>
-          <button className="btn" onClick={() => download('html')} disabled={busy || !result}>Vista + envío (HTML)</button>
+          <button className="btn" onClick={() => download('pdf')} disabled={busy || !result}>Cartas (PDF)</button>
+          <button className="btn" onClick={() => download('zip')} disabled={busy || !result}>ZIP por rubro (Word)</button>
           <button className="btn btn-primary" onClick={send} disabled={busy || !result}>Enviar por correo (Resend)</button>
-          <button className="btn" onClick={loadHistory} disabled={busy}>Historial de envíos</button>
         </div>
-        {envios && <div className="cf-summary">
-          <p><b>Historial de envíos</b> ({envios.length})</p>
-          {envios.length === 0 ? <p className="cf-note">Aún no se ha registrado ningún envío en este proyecto.</p> :
-            <ul>{envios.map(e => <li key={e.id}>{e.enviado_en?.slice(0, 16).replace('T', ' ')} · {e.cliente || ''} {e.corte ? '('+e.corte+')' : ''} · {e.enviadas}/{e.total} enviadas{e.fallidas ? ', '+e.fallidas+' con error' : ''} · {e.idioma} · {e.enviado_por || ''}</li>)}</ul>}
-        </div>}
+        <div className="cf-grid" style={{marginTop: 10}}>
+          <label>Enviar a
+            <select value={sendMode} onChange={e => setSendMode(e.target.value)}>
+              <option value="unico">Un solo correo — ZIP adjunto (auditor/cliente)</option>
+              <option value="terceros">Cada tercero (banco/cliente/proveedor)</option>
+            </select>
+          </label>
+          {sendMode === 'unico' &&
+            <label>Correo de destino
+              <input type="email" value={sendTo} placeholder="auditor@ejemplo.com"
+                onChange={e => setSendTo(e.target.value)} />
+              <small className="cf-help">Se envía un correo a esta dirección con el ZIP adjunto (un Word por carta, en carpetas por rubro). No se envía a los destinatarios.</small>
+            </label>}
+        </div>
         {sendResult && <div className="cf-summary">
           <p><b>Envío:</b> {sendResult.sent}/{sendResult.total} enviadas.</p>
           <ul>{sendResult.results.filter(x => x.status !== 'enviado').map(x =>
@@ -213,9 +240,10 @@ export default function ConfirmacionesTool({projectId, sharedContext, onShareCon
             {' '}con correo {result.totals.with_email} / sin correo {result.totals.without_email}</p>
           <ul>{result.letters.slice(0, 30).map(l => <li key={l.id}>
             <b>{l.id}</b> · {l.type_label} — {l.entity} <span className="cf-tag">{l.method}</span></li>)}</ul>
-          <p className="cf-note">«Enviar por correo (Resend)» envía cada carta al contacto indicado con el mismo
-            servicio que usa el portal para usuario y clave; las respuestas llegan al correo del auditor. También puede
-            descargar el HTML (envío manual) o el Word para adjuntar. El auditor conserva el control del envío (NIA 505).</p>
+          <p className="cf-note">«Enviar por correo (Resend)» en modo <b>Un solo correo</b> envía al auditor o al cliente
+            un correo con el <b>ZIP adjunto</b> (un Word por carta, en carpetas por rubro), para que ellos remitan a los
+            destinatarios; las respuestas llegan al correo del auditor (NIA 505). También puede descargar <b>ZIP por rubro</b>,
+            o las cartas en Word/PDF. El modo <b>Cada tercero</b> envía cada carta directamente a su contacto.</p>
         </div>}
       </section>
     </div>);

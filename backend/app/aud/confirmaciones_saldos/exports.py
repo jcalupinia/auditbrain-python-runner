@@ -152,46 +152,187 @@ def build_xlsx(r):
     return buf.getvalue()
 
 
-def _docx_letter(doc, r, letter):
+def _docx_letter(doc, r, letter, page_break=True):
+    """Arma una carta con el mismo espaciado del modelo de la firma: líneas en
+    blanco entre el saludo, la introducción, las viñetas, el saldo y el cierre,
+    y un hueco antes de la firma. Cada carta empieza en página nueva y entra
+    completa en una sola hoja; el bloque de firma (funcionario, cargo y
+    compañía) nunca se parte entre páginas."""
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     blocks = letter['blocks']
-    for line in letter['salutation']:
-        doc.add_paragraph(line)
+    paras = []
+
+    def add(text='', style=None, justify=False):
+        p = doc.add_paragraph(text)
+        if style:
+            try:
+                p.style = doc.styles[style]
+            except Exception:
+                pass
+        if justify:
+            p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        paras.append(p)
+        return p
+
+    # Saludo. Si termina con la mención del contacto "(...)", va precedida de
+    # una línea en blanco, como en el modelo.
+    sal = letter['salutation']
+    for i, line in enumerate(sal):
+        if i == len(sal) - 1 and line.startswith('(') and line.endswith(')'):
+            add('')
+        add(line)
+
+    # Cuerpo: introducción, viñetas y cada párrafo separados por una línea en
+    # blanco para que la carta respire.
+    add('')
     if blocks:
-        doc.add_paragraph(blocks[0]).alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        add(blocks[0], justify=True)
+    add('')
     for it in letter.get('items', []):
-        p = doc.add_paragraph(it)
-        try:
-            p.style = doc.styles['List Bullet']
-        except Exception:
-            pass
-        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-    for block in blocks[1:]:
-        doc.add_paragraph(block).alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-    doc.add_paragraph('')
-    for line in letter['signature']:
-        doc.add_paragraph(line)
+        add(it, style='List Bullet', justify=True)
+    body = blocks[1:]
+    has_deadline = bool(r['context'].get('response_deadline'))
+    for i, block in enumerate(body):
+        is_deadline = has_deadline and i == len(body) - 1
+        if not is_deadline:          # el plazo se adjunta al cierre, sin blanco
+            add('')
+        add(block, justify=True)
+
+    # Hueco para la firma manuscrita (líneas en blanco), como el modelo.
+    for _ in range(5):
+        add('')
+    sig_paras = [add(line) for line in letter['signature']]
+    for p in sig_paras[:-1]:
+        p.paragraph_format.keep_with_next = True
+    for p in sig_paras:
+        p.paragraph_format.keep_together = True
+
     if letter['response_lines']:
-        doc.add_paragraph('')
+        add('')
         rule = doc.add_paragraph()
         rule.add_run('— — — — — — — — — — — — — — — — — — — — — — — — — — —')
+        paras.append(rule)
         head = doc.add_paragraph()
         head.add_run(letter['response_title']).bold = True
+        paras.append(head)
         for line in letter['response_lines']:
-            doc.add_paragraph(line)
+            add(line)
+
+    # Cada carta arranca en una hoja nueva (sin párrafo de salto extra).
+    if page_break and paras:
+        paras[0].paragraph_format.page_break_before = True
 
 
-def build_docx(r):
+class PDFNoDisponible(RuntimeError):
+    """Se lanza cuando WeasyPrint (o sus librerías nativas) no está disponible."""
+
+
+def _letters_print_html(r):
+    """HTML de impresión: las cartas de confirmación, una por hoja, con el mismo
+    contenido y espaciado del Word (justificado, viñetas y hueco de firma)."""
+    esc = lambda v: escape(str(v), quote=True)
+    ctx = r['context']
+    blank = '<p class="sp">&#160;</p>'
+    cartas = []
+    for l in r['letters']:
+        parts = []
+        sal = l['salutation']
+        for i, line in enumerate(sal):
+            if i == len(sal) - 1 and line.startswith('(') and line.endswith(')'):
+                parts.append(blank)
+            parts.append(f'<p>{esc(line)}</p>' if line else blank)
+        parts.append(blank)
+        blocks = l['blocks']
+        if blocks:
+            parts.append(f'<p class="j">{esc(blocks[0])}</p>')
+        parts.append(blank)
+        if l.get('items'):
+            parts.append('<ul>' + ''.join(f'<li>{esc(it)}</li>' for it in l['items']) + '</ul>')
+        body = blocks[1:]
+        has_deadline = bool(ctx.get('response_deadline'))
+        for idx, block in enumerate(body):
+            is_deadline = has_deadline and idx == len(body) - 1
+            if not is_deadline:
+                parts.append(blank)
+            parts.append(f'<p class="j">{esc(block)}</p>')
+        parts.append('<div class="gap"></div>')
+        parts.append('<div class="firma">' + ''.join(f'<p>{esc(s)}</p>' for s in l['signature']) + '</div>')
+        if l['response_lines']:
+            parts.append('<hr>')
+            parts.append(f'<p><b>{esc(l["response_title"])}</b></p>')
+            parts += [f'<p>{esc(x)}</p>' for x in l['response_lines']]
+        cartas.append('<section class="carta">' + ''.join(parts) + '</section>')
+    css = (
+        '@page{size:Letter;margin:1.8cm 2.2cm}'
+        '*{box-sizing:border-box}'
+        'body{font-family:Calibri,"Segoe UI",Arial,sans-serif;font-size:10.5pt;color:#000;line-height:1.15;margin:0}'
+        '.carta{page-break-before:always}'
+        '.carta:first-of-type{page-break-before:avoid}'
+        'p{margin:0 0 3pt}'
+        'p.sp{margin:0}'
+        'p.j{text-align:justify}'
+        'ul{margin:0 0 3pt 0;padding-left:20pt}'
+        'li{text-align:justify;margin-bottom:2pt}'
+        '.gap{height:1.4cm}'
+        '.firma p{margin:0}'
+        'hr{border:none;border-top:1px solid #000;margin:8pt 0}'
+    )
+    return ('<!doctype html><html lang="es"><head><meta charset="utf-8">'
+            '<title>Cartas de confirmación de saldos</title><style>' + css + '</style></head>'
+            '<body>' + ''.join(cartas) + '</body></html>')
+
+
+def build_pdf(r):
+    """Cartas de confirmación en PDF, una por hoja, con WeasyPrint.
+
+    Requiere la imagen Docker de producción (Pango/HarfBuzz/fontconfig). En un
+    entorno sin esas librerías nativas degrada con PDFNoDisponible y el endpoint
+    responde con un mensaje claro en lugar de un error 500.
+    """
+    try:
+        from weasyprint import HTML
+    except Exception as exc:  # ImportError o falta de librerías nativas
+        raise PDFNoDisponible('La exportación a PDF no está disponible en este servidor.') from exc
+    return HTML(string=_letters_print_html(r)).write_pdf()
+
+
+def _new_doc(r):
+    """Documento Word configurado (Calibri 10.5, márgenes) para las cartas."""
     from docx import Document
-    from docx.shared import Inches
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Pt, Cm
     doc = Document()
     doc.core_properties.title = 'Cartas de confirmación · ' + r['context']['client']
     doc.core_properties.author = r['context']['firm']
+    normal = doc.styles['Normal']
+    normal.font.name = 'Calibri'
+    normal.font.size = Pt(10.5)
+    npf = normal.paragraph_format
+    npf.line_spacing = 1.0
+    npf.space_before = Pt(0)
+    npf.space_after = Pt(3)
+    try:
+        bullet = doc.styles['List Bullet'].paragraph_format
+        bullet.space_before = Pt(0)
+        bullet.space_after = Pt(2)
+        bullet.line_spacing = 1.0
+    except Exception:
+        pass
+    for sec in doc.sections:
+        sec.top_margin = Cm(1.8)
+        sec.bottom_margin = Cm(1.8)
+        sec.left_margin = Cm(2.2)
+        sec.right_margin = Cm(2.2)
+    return doc
+
+
+def build_docx(r):
+    from docx.shared import Inches
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    doc = _new_doc(r)
     firm = firm_name(r['context']['firm'])
     # Portada
     try:
-        doc.add_picture(str(logo_path(r)), width=Inches(2.2))
+        doc.add_picture(str(logo_path(r)), width=Inches(2.0))
         doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
     except Exception:
         pass
@@ -203,10 +344,58 @@ def build_docx(r):
     doc.add_paragraph(f"{r['totals']['count']} cartas · borrador para revisión. Cada carta la firma el cliente y "
                       "se responde directamente al auditor (NIA 505).").alignment = WD_ALIGN_PARAGRAPH.CENTER
     for letter in r['letters']:
-        doc.add_page_break()
         _docx_letter(doc, r, letter)
     buf = BytesIO()
     doc.save(buf)
+    return buf.getvalue()
+
+
+def build_single_letter_docx(r, letter):
+    """Un Word con UNA sola carta (sin portada), para el ZIP por rubro."""
+    doc = _new_doc(r)
+    _docx_letter(doc, r, letter, page_break=False)
+    buf = BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+# Nombre de carpeta por rubro dentro del ZIP.
+RUBRO_FOLDER = {
+    'bancos': 'Bancos',
+    'cuentas_por_cobrar': 'CxC (Clientes)',
+    'proveedores': 'CxP (Proveedores)',
+    'relacionados': 'Relacionadas',
+    'seguros': 'Seguros',
+    'abogados': 'Abogados',
+    'inventarios_terceros': 'Inventarios en terceros',
+    'inversiones': 'Inversiones',
+}
+
+
+def _safe_name(s, limit=80):
+    """Nombre de archivo seguro (sin caracteres ilegales de ruta)."""
+    s = ''.join(c if c not in '\\/:*?"<>|' else '-' for c in str(s)).strip()
+    s = ' '.join(s.split())
+    return (s[:limit].rstrip() or 'carta')
+
+
+def build_zip(r):
+    """ZIP con un Word por carta, en carpetas por rubro
+    (Bancos/, CxC (Clientes)/, CxP (Proveedores)/, Relacionadas/, ...)."""
+    import zipfile
+    seen = {}
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for letter in r['letters']:
+            rtype = letter.get('type', '')
+            folder = RUBRO_FOLDER.get(rtype, _safe_name(TYPE_LABEL_ES.get(rtype, rtype or 'Otros')))
+            base = _safe_name(f"{letter.get('id', '')} {letter.get('entity', '')}".strip())
+            # evitar colisiones de nombre dentro de la misma carpeta
+            key = (folder, base.lower())
+            seen[key] = seen.get(key, 0) + 1
+            if seen[key] > 1:
+                base = f"{base} ({seen[key]})"
+            zf.writestr(f"{folder}/{base}.docx", build_single_letter_docx(r, letter))
     return buf.getvalue()
 
 
@@ -254,8 +443,14 @@ def build_html(r):
             '<section><h2>Referencias</h2><ul>' + refs + '</ul></section></main></html>')
 
 
-def letter_email_html(r, letter):
-    """HTML de una sola carta para envío por correo (estilos en línea, sin recursos externos)."""
+# Línea gráfica de la firma (misma que los correos de recursos/charla).
+BRAND_LOGO_URL = 'https://recursos.audit-ia.ec/assets/logo-auditconsulting.png'
+BRAND_NAVY = '#0B1E36'
+BRAND_LIME = '#B7CE3B'
+
+
+def _letter_card(r, letter):
+    """Contenido de una carta como tarjeta blanca (sin cabecera/pie de marca)."""
     esc = lambda v: escape(str(v), quote=True)
     firm = firm_name(r['context']['firm'])
     blocks = letter['blocks']
@@ -271,11 +466,66 @@ def letter_email_html(r, letter):
         resp = ('<div style="margin-top:18px;padding:14px;border:1px dashed #94a3b8;border-radius:8px">'
                 f'<p style="margin:0 0 8px;font-weight:bold">{esc(letter["response_title"])}</p>{rl}</div>')
     return (
-        '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1f2937;'
-        'max-width:680px;margin:auto;line-height:1.55">'
-        '<div style="background:#0a2540;color:#fff;padding:14px 18px;border-radius:8px 8px 0 0">'
-        f'<strong>{esc(firm)}</strong></div>'
-        '<div style="padding:18px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">'
+        '<div style="border:1px solid #e2e8f0;border-radius:8px;padding:18px;margin:0 0 18px;'
+        'font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1f2937;line-height:1.55">'
+        f'<p style="margin:0 0 12px;font-size:11px;letter-spacing:1px;color:{BRAND_NAVY};'
+        f'text-transform:uppercase"><strong>{esc(firm)}</strong> &middot; {esc(letter.get("type_label",""))} '
+        f'&mdash; {esc(letter.get("entity",""))}</p>'
         f'{salut}{intro}{items_html}{rest}<div style="margin-top:16px">{sign}</div>{resp}'
-        '</div></div>'
+        '</div>'
     )
+
+
+def email_brand_shell(inner_html, *, subtitle='Confirmaciones de saldos'):
+    """Envuelve el contenido en la línea gráfica de la firma (logo, franja lime,
+    pie), en tablas con estilos en línea para compatibilidad con Outlook."""
+    esc = lambda v: escape(str(v), quote=True)
+    return (
+        '<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        '<title>Confirmaciones de saldos</title></head>'
+        '<body style="margin:0;padding:0;background:#f6f5f1;">'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
+        'bgcolor="#f6f5f1" style="background:#f6f5f1;"><tr><td align="center" style="padding:24px 12px;">'
+        '<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" '
+        "style=\"width:100%;max-width:600px;font-family:'Segoe UI',Arial,sans-serif;color:#1a1a1a;\">"
+        f'<tr><td bgcolor="{BRAND_NAVY}" style="background:{BRAND_NAVY};padding:28px 32px 22px;">'
+        f'<img src="{BRAND_LOGO_URL}" width="190" alt="AuditConsulting Group" '
+        'style="display:block;width:190px;height:auto;border:0;">'
+        f'<p style="margin:18px 0 0;font-size:11px;letter-spacing:2px;color:#cfd7e0;'
+        f'text-transform:uppercase;">{esc(subtitle)}</p></td></tr>'
+        f'<tr><td bgcolor="{BRAND_LIME}" height="6" style="background:{BRAND_LIME};height:6px;'
+        'line-height:6px;font-size:0;">&nbsp;</td></tr>'
+        '<tr><td bgcolor="#ffffff" style="background:#ffffff;padding:28px 28px 22px;">'
+        f'{inner_html}</td></tr>'
+        f'<tr><td bgcolor="{BRAND_NAVY}" style="background:{BRAND_NAVY};padding:22px 32px 26px;">'
+        f'<p style="margin:0 0 12px;padding:12px 16px;background:{BRAND_LIME};color:{BRAND_NAVY};'
+        'font-size:13px;font-weight:600;line-height:1.5;text-align:center;"><strong>AuditConsulting:</strong> '
+        'auditores expertos en finanzas, tributación y automatización avanzada.</p>'
+        '<p style="margin:0 0 10px;font-size:11px;letter-spacing:1px;color:#ffffff;">'
+        '<strong>AUDIT CONSULTING GROUP</strong> &middot; Auditoría &middot; Advisory &middot; '
+        'Automatización inteligente</p>'
+        '<p style="margin:0;font-size:10.5px;line-height:1.6;color:#aab6c4;">Correo generado por AuditBrain '
+        'para el proceso de confirmaciones de saldos. Las respuestas de terceros se dirigen al correo del '
+        'auditor indicado en la solicitud (NIA 505).</p></td></tr>'
+        '</table></td></tr></table></body></html>'
+    )
+
+
+def letter_email_html(r, letter):
+    """Una carta lista para envío por correo, con la línea gráfica de la firma."""
+    return email_brand_shell(_letter_card(r, letter))
+
+
+def letters_email_html(r):
+    """Todas las cartas en un solo correo con marca (para el modo 'un solo correo')."""
+    esc = lambda v: escape(str(v), quote=True)
+    ctx = r['context']
+    encabezado = (
+        f'<p style="margin:0 0 6px;font-size:20px;color:{BRAND_NAVY};font-weight:bold">'
+        'Cartas de confirmación de saldos</p>'
+        f'<p style="margin:0 0 18px;font-size:13px;color:#6b6b66">{esc(ctx.get("client") or "")} '
+        f'&middot; corte {esc(ctx.get("cutoff") or "")} &middot; {len(r["letters"])} cartas</p>'
+    )
+    cards = ''.join(_letter_card(r, l) for l in r['letters'])
+    return email_brand_shell(encabezado + cards)

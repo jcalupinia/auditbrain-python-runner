@@ -238,3 +238,24 @@ describe("API de cuentas de recursos (consola REC)", () => {
     expect(JSON.parse(opts.body)).toEqual({ new_password: "Abcdefgh1", enviar_correo: false });
   });
 });
+
+describe("sriVivoUrl (vista en vivo del robot por MJPEG)", () => {
+  it("arma la URL del endpoint con el permiso en el query string", () => {
+    const url = api.sriVivoUrl("https://motor.test/motor", "tok-123");
+    expect(url).toBe("https://motor.test/motor/sri/vivo?permiso=tok-123");
+  });
+
+  it("tolera la base con o sin sufijo /motor (igual que las demás rutas SRI)", () => {
+    expect(api.sriVivoUrl("https://motor.test", "t")).toBe(
+      "https://motor.test/motor/sri/vivo?permiso=t"
+    );
+    expect(api.sriVivoUrl("https://motor.test/motor/", "t")).toBe(
+      "https://motor.test/motor/sri/vivo?permiso=t"
+    );
+  });
+
+  it("codifica el token para que no rompa el query string", () => {
+    const url = api.sriVivoUrl("https://motor.test/motor", "a b&c=d");
+    expect(url).toBe("https://motor.test/motor/sri/vivo?permiso=a%20b%26c%3Dd");
+  });
+});

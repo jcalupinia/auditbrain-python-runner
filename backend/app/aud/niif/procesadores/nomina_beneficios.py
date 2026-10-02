@@ -525,6 +525,7 @@ CEDULAS = [
     ("11_Fondo_reserva", "Fondo de reserva"), ("12_DBO_actuarial", "Jubilación patronal y desahucio: DBO"),
     ("13_Resultados_ORI", "Costo post-empleo: resultados y ORI"), ("14_Censo_actuarial", "Censo actuarial y desahucio legal"),
     ("15_Conciliacion_GL", "Conciliación nómina–mayor"), ("16_Ajustes", "Ajustes propuestos"), ("17_Problemas", "Problemas encontrados"),
+    ("18_Conclusion", "Indicadores y conclusión"), ("19_Lectura", "Lectura de resultados"),
 ]
 # Dashboard (graficos.panel): población = nómina anual registrada; recalculado vs registrado = solo los PASIVOS
 # laborales de la conciliación nómina–mayor (décimos, vacaciones, fondo de reserva y provisión actuarial), la misma
@@ -541,10 +542,22 @@ PANEL = {
     "composicion": {"rotulo": "Pasivos laborales recalculados por concepto", "hoja": "15_Conciliacion_GL", "etiqueta": "Concepto",
                     "valor": "Recalculado", **_PASIVOS_LABORALES},
     "distribucion": {"rotulo": "Nómina por región", "hoja": "03_Empleados", "etiqueta": "Región", "valor": "Remuneración anual registrada"},
+    # Tablero premium: pasivos laborales de la conciliación nómina–mayor (conceptos fijos), registrado frente a recalculado.
+    "tableros": [
+        {"rotulo": "Pasivos laborales: registrado frente a recalculado", "sub": "USD · lo registrado por el cliente frente a lo recalculado por el auditor.",
+         "unidad": "USD", "hoja": "15_Conciliacion_GL", "etiqueta": "Concepto", "seccion": "Pasivos laborales",
+         "filas": [{"fila": "Décimo tercero por pagar", "rotulo": "Décimo tercero"},
+                   {"fila": "Décimo cuarto por pagar", "rotulo": "Décimo cuarto"},
+                   {"fila": "Provisión de vacaciones", "rotulo": "Vacaciones"},
+                   {"fila": "Fondo de reserva", "rotulo": "Fondo de reserva"},
+                   {"fila": "Provisión jubilación patronal y desahucio (recalculado = informe)", "rotulo": "Jubilación y desahucio"}],
+         "series": [["Registrado", "Detalle registrado"], ["Recalculado", "Recalculado"]]},
+    ],
 }
 
 P = ref("02_Parametros")
 EMP, ACT, TS, NOM, IE, D13, D14, VAC, FR, DBO, ORIH, CEN, CG, AJ = (ref(n) for n, _ in CEDULAS[2:16])
+PRB = ref("17_Problemas")
 _PAR = ["corte", "inicio", "marco", "edicion", "ruta", "sbu", "sbuPago", "sbuD14", "aportePersonal", "aportePatronal", "aporteIece", "aporteSecap", "fondoReserva",
         "diasVacaciones", "aniosVacacionAdicional", "maxDiasAdicionales", "horasMes", "recargoSuplementarias", "recargoExtraordinarias",
         "desahucioPct", "regionPorDefecto", "mesInicioD13", "i13", "mesInicioD14Sierra", "i14s", "mesInicioD14Costa", "i14c",
@@ -755,7 +768,9 @@ def hojas(res: dict) -> list[dict]:
     for i, (x, (rr, rc)) in enumerate(zip(d["conciliacion"], fuentes)):
         r = FILA0 + i
         cg.append([x["concepto"], fx(f"SUM({rr})", x["reg"]), fx(f"SUM({rc})", x["rec"]), fx(_si(PAR[x["clave"]]), x["mayor"]),
-                   fx(f'IF(D{r}="","",B{r}-D{r})', x["dif_mayor"]), fx(f"B{r}-C{r}", x["dif_rec"])])
+                   fx(f'IF(D{r}="","",B{r}-D{r})', x["dif_mayor"]), fx(f"B{r}-C{r}", x["dif_rec"]),
+                   fx(f'IF(OR(ABS(F{r})>=0.005,AND(E{r}<>"",ABS(E{r})>=0.005)),"Alerta","Conforme")',
+                      "Alerta" if (abs(x["dif_rec"]) >= 0.005 or (x["dif_mayor"] is not None and abs(x["dif_mayor"]) >= 0.005)) else "Conforme")])
 
     difs = [_rng(D13, "H", n), _rng(D14, "I", n), _rng(VAC, "L", n), _rng(FR, "G", n), _rng(IE, "K", n), _rng(DBO, "M", na)]
     ajus = [[con_, fx(f"-SUM({rg})", v), deb, cre, "Recalculado − registrado (filas con registro informado)"]
@@ -973,6 +988,8 @@ def hojas(res: dict) -> list[dict]:
                                 "contabilidad; en blanco si falta el mayor."),
             "Registrado − recalculado": ("Resta lo recalculado de lo registrado en el detalle del cliente: positiva significa "
                                          "que el cliente registró más de lo que corresponde."),
+            "Semáforo": ("Estado del concepto: «Alerta» cuando lo registrado no coincide con lo recalculado o el detalle no cuadra "
+                         "con el mayor (posible incumplimiento de la obligación laboral); «Conforme» cuando la conciliación cuadra."),
         },
         "16_Ajustes": {
             "Importe (+ aumenta el pasivo)": (
@@ -980,8 +997,86 @@ def hojas(res: dict) -> list[dict]:
                 "tercero (08), décimo cuarto (09), vacaciones (10), fondo de reserva (11), aporte patronal (07) y provisión "
                 "actuarial frente al informe (12). Positivo significa que hay que aumentar el pasivo."),
         },
+        "18_Conclusion": {
+            "Importe": ("La remuneración registrada y la recalculada, y su diferencia, salen de la hoja 15 (Conciliación "
+                        "nómina–mayor); el ajuste propuesto es el total de la hoja 16 (Ajustes propuestos), sin recalcularlo "
+                        "aquí."),
+            "Porcentaje": ("Divide la diferencia registrado − recalculado para la remuneración registrada (renglones de esta "
+                           "misma hoja): es el peso de la diferencia sobre la nómina; en blanco si no hay remuneración "
+                           "registrada."),
+            "Cantidad": ("Cuenta los conceptos con semáforo «Alerta» en la hoja 15 (Conciliación nómina–mayor) y los problemas "
+                         "listados en la hoja 17 (Problemas encontrados)."),
+            "Estado": ("Semáforo de cada indicador: la diferencia de nómina y el ajuste marcan «Alerta» si superan la "
+                       "tolerancia de la hoja 02, y los conceptos descuadrados o los problemas abiertos piden «Revisar»; "
+                       "«Conforme» cuando todo cuadra."),
+        },
     }
     tot = lambda col, nn, v: suma(col, fin(nn), v)
+
+    # 18 · indicadores y conclusión (semáforo).  Columnas: indicador, importe, porcentaje, cantidad, estado.
+    nprob = len(res["exceptions"])
+    tol, tol_v = PAR["tolerancia"], (pv("tolerancia") or 0.0)
+    n_alertas = sum(1 for x in cg if x[6]["v"] == "Alerta")
+    b18 = lambda kk: f"B{FILA0 + kk}"
+    dd18 = lambda kk: f"D{FILA0 + kk}"
+    rem_reg, dif_rem, aj_pas = k["remuneracionRegistrada"], k["difRemuneracion"], k["ajustePasivos"]
+    con18 = [
+        ["Remuneración registrada (población)", fx(f"{CG}B{FILA0}", k["remuneracionRegistrada"]), None, None, ""],
+        ["Remuneración recalculada (nómina)", fx(f"{CG}C{FILA0}", k["remuneracionRecalculada"]), None, None, ""],
+        ["Diferencia registrado − recalculado (remuneración)", fx(f"{CG}F{FILA0}", k["difRemuneracion"]), None, None,
+         fx(f'IF(ABS({b18(2)})>{tol},"Alerta","Conforme")', "Alerta" if abs(dif_rem) > tol_v else "Conforme")],
+        ["% de la diferencia sobre la remuneración registrada", None, fx(f'IF({b18(0)}=0,"",{b18(2)}/{b18(0)})',
+         None if rem_reg == 0 else dif_rem / rem_reg), None, ""],
+        ["Ajuste propuesto a pasivos laborales (neto; NIC 19 · PYMES Secc. 28)", fx(f"{AJ}B{FILA0 + naj}", k["ajustePasivos"]), None, None,
+         fx(f'IF(ABS({b18(4)})>{tol},"Alerta","Conforme")', "Alerta" if abs(aj_pas) > tol_v else "Conforme")],
+        ["Conceptos de nómina con diferencia (semáforo hoja 15)", None, None,
+         fx(f'COUNTIF({_rng(CG, "G", len(cg))},"Alerta")', n_alertas),
+         fx(f'IF({dd18(5)}>0,"Revisar","Conforme")', "Revisar" if n_alertas > 0 else "Conforme")],
+        ["Problemas encontrados (cantidad)", None, None, fx(f"COUNTA({_rng(PRB, 'A', nprob)})", nprob),
+         fx(f'IF({dd18(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+        ["Conclusión: los beneficios a los empleados se reconocen por devengo según el Código del Trabajo, la NIC 19 y la "
+         "Sección 28; esta prueba no concluye por sí sola el cumplimiento de las NIIF.", None, None, None, ""],
+    ]
+
+    # 19 · lectura causa-efecto: cada frase lee el resultado con su cifra embebida (FIXED) desde el Resumen (hoja 01).
+    R1 = ref("01_Resumen")
+    fr = {kk: FILA0 + i for i, kk in enumerate(res["labels"])}
+    rc = lambda key: f"{R1}B{fr[key]}"
+    lectura = [
+        ["Resultado de la prueba",
+         fx(f'"Las remuneraciones recalculadas suman US$ "&FIXED({rc("remuneracionRecalculada")},2)&", frente a US$ "&'
+            f'FIXED({rc("remuneracionRegistrada")},2)&" registrado en la nómina; la diferencia es de US$ "&'
+            f'FIXED({rc("difRemuneracion")},2)&"."',
+            f'Las remuneraciones recalculadas suman US$ {m(k["remuneracionRecalculada"])}, frente a US$ '
+            f'{m(k["remuneracionRegistrada"])} registrado en la nómina; la diferencia es de US$ {m(k["difRemuneracion"])}.')],
+        ["Ajuste propuesto y su efecto",
+         fx(f'"El ajuste propuesto a los pasivos laborales es de US$ "&FIXED({rc("ajustePasivos")},2)&": "&'
+            f'IF({rc("ajustePasivos")}>=0,"aumenta el pasivo laboral por reconocer.","reduce el pasivo registrado.")',
+            f'El ajuste propuesto a los pasivos laborales es de US$ {m(k["ajustePasivos"])}: '
+            + ("aumenta el pasivo laboral por reconocer." if k["ajustePasivos"] >= 0 else "reduce el pasivo registrado."))],
+        ["Beneficios sociales recalculados",
+         fx(f'"Los beneficios sociales por pagar recalculados son: décimo tercero US$ "&FIXED({rc("d13Recalculado")},2)&", '
+            f'décimo cuarto US$ "&FIXED({rc("d14Recalculado")},2)&" y provisión de vacaciones US$ "&'
+            f'FIXED({rc("vacacionesRecalculadas")},2)&"."',
+            f'Los beneficios sociales por pagar recalculados son: décimo tercero US$ {m(k["d13Recalculado"])}, décimo cuarto '
+            f'US$ {m(k["d14Recalculado"])} y provisión de vacaciones US$ {m(k["vacacionesRecalculadas"])}.')],
+        ["Obligación post-empleo",
+         fx(f'"La obligación post-empleo (jubilación patronal y desahucio) según el informe actuarial es de US$ "&'
+            f'FIXED({rc("dboInforme")},2)&", frente a US$ "&FIXED({rc("provisionActuarialRegistrada")},2)&" provisionado."',
+            f'La obligación post-empleo (jubilación patronal y desahucio) según el informe actuarial es de US$ '
+            f'{m(k["dboInforme"])}, frente a US$ {m(k["provisionActuarialRegistrada"])} provisionado.')],
+        ["Cierre",
+         fx(f'"El desahucio legal referencial de los empleados activos asciende a US$ "&FIXED({rc("desahucioLegalReferencial")},2)&", '
+            f'medido sobre la última remuneración mensual (CT arts. 185 y 95); no reemplaza al DBO del informe actuarial."',
+            f'El desahucio legal referencial de los empleados activos asciende a US$ {m(k["desahucioLegalReferencial"])}, medido '
+            f'sobre la última remuneración mensual (CT arts. 185 y 95); no reemplaza al DBO del informe actuarial.')],
+    ]
+    ex_lectura = {"Detalle": ("Lee en lenguaje corriente el resultado de la prueba y sus hallazgos materiales con la cifra embebida "
+                              "tomada del Resumen (hoja 01): las remuneraciones recalculadas frente a las registradas y su diferencia, "
+                              "el ajuste propuesto a los pasivos laborales y su efecto, los beneficios sociales recalculados, la "
+                              "obligación post-empleo frente a lo provisionado y el desahucio legal referencial. Cada cifra remite por "
+                              "fórmula a la celda del Resumen.")}
+
     return [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=ex["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros,
@@ -1053,12 +1148,16 @@ def hojas(res: dict) -> list[dict]:
              ["TOTAL", "", None, None, None, None, "", tot("H", len(AC), k["desahucioLegalReferencial"])] if AC else None, explica=ex["14_Censo_actuarial"]),
         hoja("15_Conciliacion_GL", "Conciliación nómina–mayor",
              [["Concepto", "t"], ["Detalle registrado", "n"], ["Recalculado", "n"], ["Mayor", "n"], ["Detalle − mayor", "n"],
-              ["Registrado − recalculado", "n"]], cg, explica=ex["15_Conciliacion_GL"]),
+              ["Registrado − recalculado", "n"], ["Semáforo", "t"]], cg, explica=ex["15_Conciliacion_GL"], colores=["Semáforo"]),
         hoja("16_Ajustes", "Ajustes propuestos",
              [["Concepto", "t"], ["Importe (+ aumenta el pasivo)", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]],
              ajus, ["TOTAL", tot("B", naj, k["ajustePasivos"]), "", "", ""], explica=ex["16_Ajustes"]),
         hoja("17_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("18_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con18,
+             explica=ex["18_Conclusion"], colores=["Estado"]),
+        hoja("19_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura, explica=ex_lectura),
     ]
 
 

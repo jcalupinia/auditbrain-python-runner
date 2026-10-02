@@ -91,7 +91,14 @@ export default function RevisionClasificacion({ jobId, onAprobado, soloLectura }
     setAprobando(true);
     setError("");
     try {
-      const job = await api.aprobarOF(jobId);
+      // La generación del Excel corre en segundo plano; el backend responde
+      // al instante con 'running' y acá esperamos a que llegue a 'done'.
+      await api.aprobarOF(jobId);
+      const job = await api.esperarEstadoOF(jobId, ["done"]);
+      if (job.status === "failed") {
+        setError(job.error_message || STRINGS.of_rev_error_aprobar);
+        return;
+      }
       onAprobado?.(job);
     } catch (e) {
       setError(e.message);

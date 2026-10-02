@@ -136,3 +136,109 @@ def test_hojas_y_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "seguros_cobertura" and len(d["program"]) >= 5
     assert m.RUBRO == "SEGUROS" and m.CONTROL in {c["key"] for c in m.CAMPOS[m.PRINCIPAL]}
+
+
+def test_semaforo_cobertura():
+    from backend.app.aud.niif.procesadores.base import NIVEL_COLOR
+    h = next(x for x in m.hojas(correr()) if x["name"] == "06_Cobertura_activo")
+    assert h["colores"] == ["Semáforo"]
+    sem = [c[0] for c in h["cols"]].index("Semáforo")
+    valores = {(fila[sem].get("v") if isinstance(fila[sem], dict) else fila[sem]) for fila in h["rows"]}
+    assert valores <= {"Alerta", "Revisar", "Conforme", ""} and (valores - {""})
+    assert (valores - {""}) <= set(NIVEL_COLOR)
+    assert h["total"][sem] == ""
+
+
+def test_estilos_sumaria_ajustes():
+    """La cédula 13 (Ajustes propuestos y conciliación) lleva estilos de cédula sumaria: una entrada por
+    fila de datos, con el ajuste propuesto como total y las diferencias de cuadre como control."""
+    from backend.app.aud.niif.procesadores import base
+    h = next(x for x in m.hojas(correr()) if x["name"] == "13_Ajustes")
+    est = h["estilos"]
+    assert len(est) == len(h["rows"])                                # exactamente una entrada por fila de datos
+    tipos = {e["tipo"] for e in est if e}
+    assert tipos <= {"titulo", "total", "control"}                   # solo tipos válidos
+    assert "total" in tipos and "control" in tipos
+    conceptos = [f[0] for f in h["rows"]]
+    ajuste = conceptos.index("Ajuste en resultados = −(registrada − recalculada)")
+    cuadre = conceptos.index("Diferencia detalle − mayor")
+    assert base.estilo_fila(h, ajuste).get("tipo") == "total"
+    assert base.estilo_fila(h, cuadre).get("tipo") == "control"
+
+
+def test_lectura():
+    """La cédula 15 lee el resultado y los hallazgos materiales con su cifra embebida por fórmula (FIXED)."""
+    h = next(x for x in m.hojas(correr()) if x["name"] == "15_Lectura")
+    assert h["label"] == "Lectura de resultados"
+    assert [c[0] for c in h["cols"]] == ["Concepto", "Detalle"]
+    assert 3 <= len(h["rows"]) <= 5 and not h.get("total") and not h.get("colores")
+    det = [f[1] for f in h["rows"]]
+    assert all(isinstance(d, dict) and "f" in d for d in det)       # cada Detalle es fórmula, nada pegado
+    assert all("FIXED(" in d["f"] for d in det)                     # la cifra va embebida con FIXED
+    assert "Detalle" in h["explica"] and len(h["explica"]["Detalle"]) >= 40
+
+
+def test_conclusion_estado():
+    """La cédula 12 (existente) lleva ahora la columna «Estado» coloreada por indicador (semáforo)."""
+    from backend.app.aud.niif.procesadores.base import NIVEL_COLOR
+    h = next(x for x in m.hojas(correr()) if x["name"] == "12_Conclusion")
+    cols = [c[0] for c in h["cols"]]
+    assert cols == ["Indicador", "Importe", "Porcentaje", "Cantidad", "Estado"]
+    assert h["colores"] == ["Estado"]
+    assert "Estado" in h["explica"]
+    idx = cols.index("Estado")
+    valores = [fila[idx]["v"] if isinstance(fila[idx], dict) else fila[idx] for fila in h["rows"]]
+    # Cada estado es «» (fila que no aplica) o un nivel coloreable; hay al menos una «Alerta» y una «Revisar».
+    assert set(valores) <= {"Alerta", "Revisar", "Conforme", ""}
+    assert (set(valores) - {""}) <= set(NIVEL_COLOR)
+    assert "Alerta" in valores and "Revisar" in valores
+    # Las filas de totales de referencia y la de conclusión no llevan estado.
+    assert valores[0] == "" and valores[1] == "" and valores[-1] == ""
+    # El ancho de cada fila coincide con el nº de columnas (5).
+    for fila in h["rows"]:
+        assert len(fila) == len(h["cols"])
+
+
+# --------------------------------------------------------------------------- #
+#  F1.2 — Extracción por IA de las pólizas (PDF/escaneado) habilitada          #
+# --------------------------------------------------------------------------- #
+def test_extraccion_datasets_declara_polizas():
+    # La herramienta pide transcribir las pólizas por IA (opt-in); los activos
+    # (anexo numérico de cálculo) siguen siendo Excel/CSV.
+    assert m.EXTRACCION_DATASETS == ("polizas",)
+    assert "polizas" in m.DATASETS and "activos" not in m.EXTRACCION_DATASETS
+
+
+def test_requerimiento_de_polizas_acepta_pdf():
+    reqs = {r["id"]: r for r in m.definicion()["requests"]}
+    pol = reqs["RQ-002"]
+    assert pol.get("dataset") == "polizas"
+    # Alineado al frontend aprobado: .pdf / .xlsx / .csv
+    assert "pdf" in pol["formats"] and "xlsx" in pol["formats"]
+
+
+def test_polizas_se_extraen_por_ia_y_validan():
+    """Una póliza transcrita por IA (chat falso, sin red) pasa la validación real
+    del procesador — prueba que el esquema se deriva de los CAMPOS de pólizas."""
+    import json
+
+    from backend.app.aud.niif.ciclo import extraccion_ia as ex
+
+    class _Resp:
+        def __init__(self, content):
+            self.content = content
+            self.model = "modelo-falso"
+            self.tokens_in = self.tokens_out = None
+
+    filas = [
+        {"id": "POL-01", "aseguradora": "Aseguradora Alfa S.A.", "ramo": "Incendio y líneas aliadas",
+         "vigencia_desde": "2025-07-01", "vigencia_hasta": "2026-07-01", "suma_total": 700000.0,
+         "prima_total": 7300.0, "prima_anticipada": 3640.0, "siniestro": None, "monto_siniestro": None,
+         "siniestro_revelado": None, "tipo_siniestro": None, "cobro_exigible": None},
+    ]
+    chat = lambda messages, system=None: _Resp(json.dumps({"filas": filas}))
+    out = ex.extraer_filas(m.CAMPOS[m.kind("polizas")], "texto de la póliza escaneada",
+                           instrucciones=m.EXTRACCION_INSTRUCCIONES.get("polizas"), chat=chat)
+    assert out["n"] == 1
+    v = m.validar_filas("polizas", out["rows"])
+    assert v["ok"], v["errors"]

@@ -25,7 +25,10 @@ def render_job_ready(*, client_name: str, tool_label: str, download_url: str) ->
     )
 
 
-def _post_to_resend(*, to: str, subject: str, html: str, reply_to: str | None = None) -> dict:
+def _post_to_resend(
+    *, to: str, subject: str, html: str, reply_to: str | None = None,
+    attachments: list[dict] | None = None,
+) -> dict:
     api_key = os.getenv("RESEND_API_KEY", "").strip()
     from_email = os.getenv("RESEND_FROM_EMAIL", "no-reply@auditconsulting.com").strip()
     if not api_key:
@@ -33,6 +36,8 @@ def _post_to_resend(*, to: str, subject: str, html: str, reply_to: str | None = 
     payload = {"from": from_email, "to": [to], "subject": subject, "html": html}
     if reply_to:
         payload["reply_to"] = reply_to
+    if attachments:
+        payload["attachments"] = attachments
     resp = requests.post(
         _RESEND_URL,
         headers={
@@ -48,12 +53,14 @@ def _post_to_resend(*, to: str, subject: str, html: str, reply_to: str | None = 
 
 
 def send_email(
-    *, to: str, subject: str, html: str, reply_to: str | None = None, max_retries: int = 3
+    *, to: str, subject: str, html: str, reply_to: str | None = None, max_retries: int = 3,
+    attachments: list[dict] | None = None,
 ) -> dict | None:
     delay = 1.0
     for attempt in range(1, max_retries + 1):
         try:
-            return _post_to_resend(to=to, subject=subject, html=html, reply_to=reply_to)
+            return _post_to_resend(to=to, subject=subject, html=html, reply_to=reply_to,
+                                   attachments=attachments)
         except Exception as e:  # noqa: BLE001
             log.warning("send_email attempt %d/%d failed: %s", attempt, max_retries, e)
             if attempt < max_retries:

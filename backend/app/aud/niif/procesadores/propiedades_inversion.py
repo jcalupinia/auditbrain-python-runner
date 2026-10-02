@@ -586,6 +586,7 @@ CEDULAS = [
     ("09_Transferencias", "Transferencias"), ("10_Superavit", "Historial del superávit de revaluación"),
     ("11_Alquileres", "Ingresos por alquiler"), ("12_Bajas", "Bajas"),
     ("13_Conciliacion", "Sumaria y conciliación"), ("14_Problemas", "Problemas encontrados"),
+    ("15_Conclusion", "Indicadores y conclusión"), ("16_Lectura", "Lectura de resultados"),
 ]
 PARK = ["corte", "inicio", "marco", "esPymes", "modelo", "vr", "correcto", "umbral", "saldoMayor"]
 PAR = {k: FILA0 + i for i, k in enumerate(PARK)}
@@ -724,6 +725,8 @@ EXPLICA = {
                                    "multiplica por la parte que es propiedad de inversión (hoja 04); en blanco en los demás casos.",
         "Reclasificación": "Trae de la hoja 04 (Clasificación) el importe que sale de propiedades de inversión por uso propio, venta "
                            "o uso mixto; en blanco si no hay reclasificación.",
+        "Semáforo": ("Estado del inmueble: «Alerta» si el ajuste propuesto no es cero (el importe auditado difiere de los libros y "
+                     "hay que ajustar la cuenta), «Conforme» si el ajuste es cero."),
     },
     "09_Transferencias": {
         "¿En el ejercicio?": "Revisa si la fecha del cambio de uso cae entre el inicio y el corte del ejercicio (hoja 02, "
@@ -789,6 +792,17 @@ EXPLICA = {
                    "con el importe en libros de la hoja 03, le suma los ajustes de las hojas 06, 08 y 04, controla que el puente iguale "
                    "la medición auditada de la hoja 08 y calcula el ajuste propuesto (auditado − mayor).",
     },
+    "15_Conclusion": {
+        "Importe": "Trae la cifra de cada indicador de la hoja que la calcula: las propiedades auditadas suman la medición de la hoja 08, "
+                   "el saldo del mayor sale de la hoja 02 (o del detalle si no se informó), el ajuste de valor razonable de la hoja 06 y el "
+                   "deterioro de la hoja 07; el ajuste propuesto es propiedades auditadas menos el saldo del mayor.",
+        "Porcentaje": "Divide el ajuste propuesto para el saldo del mayor (ambos de esta misma hoja): mide qué tan material es el ajuste "
+                      "frente al saldo registrado. Queda en blanco si el saldo del mayor es cero.",
+        "Cantidad": "Cuenta los problemas detectados en la hoja 14 (Problemas encontrados) contando los códigos que se listaron.",
+        "Estado": "Semáforo del indicador: «Alerta» cuando hay ajuste al saldo o deterioro que corregir, «Revisar» cuando hay ajuste de "
+                  "valor razonable o problemas por atender y «Conforme» cuando el indicador no exige acción. En blanco en las filas solo "
+                  "informativas (propiedades auditadas, saldo del mayor y porcentaje).",
+    },
 }
 
 PANEL = {
@@ -797,6 +811,13 @@ PANEL = {
     "registrado": {"rotulo": "Saldo según el mayor", "total": "saldoMayor"},
     "composicion": {"rotulo": "Auditado por medición", "hoja": "08_Medicion", "etiqueta": "Medición", "valor": "Auditado en la cuenta"},
     "distribucion": {"rotulo": "Libros por clasificación", "hoja": "08_Medicion", "etiqueta": "Clasificación", "valor": "Importe en libros"},
+    # Tablero premium (columnas): indicadores fijos de la conclusión (15), serie «Importe» en USD.
+    "tableros": [
+        {"rotulo": "Medición de las propiedades de inversión", "sub": "USD · importe en libros frente al auditado, por inmueble.",
+         "unidad": "USD", "hoja": "08_Medicion", "etiqueta": "Código", "seccion": "Propiedades de inversión (NIC 40 · Secc. 16)",
+         "series": [["Importe en libros", "Importe en libros"], ["Auditado en la cuenta", "Auditado en la cuenta"]],
+         "filas": ["IP-01", "IP-02", "IP-03", "IP-04", "IP-05", "IP-06", "IP-07", "IP-08", "IP-09", "IP-10"]},
+    ],
 }
 
 
@@ -924,7 +945,8 @@ def hojas(res: dict) -> list[dict]:
         med.append([i["id"], fx(f"{CLA}G{r}", i["clase"]), fx(f"{VRZ}C{r}", i["medida"]), fx(f"{INM}Q{r}", i["libros"]),
                     fx(f'IF({CLA}H{r}="No",0,IF(C{r}="Valor razonable",{VRZ}E{r},{MCO}Q{r})*{CLA}K{r})', i["aud"]), fx(f"E{r}-D{r}", i["ajuste"]),
                     fx(_si(f"{VRZ}H{r}"), i["ajVR"]), fx(f'IF({MCO}C{r}="Sí",({MCO}Q{r}-D{r})*{CLA}K{r},"")', i["efCosto"]),
-                    fx(_si(f"{CLA}J{r}"), i["reclas"])])
+                    fx(_si(f"{CLA}J{r}"), i["reclas"]),
+                    fx(f'IF(ABS(F{r})>=0.005,"Alerta","Conforme")', "Alerta" if abs(i["ajuste"]) >= 0.005 else "Conforme")])
         alq.append([i["id"], fx(f"{INM}C{r}", i["uso"]), fx(_si(f"{INM}R{r}"), i["alq"]), fx(_si(f"{INM}S{r}"), i["alqReg"]),
                     fx(f'IF(OR(C{r}="",D{r}=""),"",C{r}-D{r})', i["difAlq"])])
 
@@ -986,6 +1008,11 @@ def hojas(res: dict) -> list[dict]:
         ["Diferencia de control (debe ser 0)", fx(f"{b(6)}-{b(7)}", c["difControl"])],
         ["Ajuste propuesto (auditado − mayor)", fx(f"{b(7)}-{b(0)}", c["ajuste"])],
     ]
+    # Estilo de cédula sumaria del puente: una entrada por fila (None donde no aplique). Los subtotales
+    # (medición auditada por el puente y el ajuste propuesto) van como total; las diferencias que deben
+    # cuadrar (detalle − mayor y diferencia de control) van como control.
+    estilos_conc = [None, None, {"tipo": "control"}, None, None, None, {"tipo": "total"}, None,
+                    {"tipo": "control"}, {"tipo": "total"}]
 
     fr = {k: FILA0 + i for i, k in enumerate(res["labels"])}
     rb = lambda k: f"B{fr[k]}"
@@ -1000,6 +1027,48 @@ def hojas(res: dict) -> list[dict]:
         "resultadoBajas": f"SUM({_rg(BAJ, 'F', nb)})", "difBajas": f"SUM({_rg(BAJ, 'H', nb)})",
     }
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
+
+    # 15 · indicadores y conclusión (con semáforo por indicador).
+    nprob = len(res["exceptions"])
+    PBL = ref("14_Problemas")
+    bc = lambda kk: f"B{FILA0 + kk}"
+    rc = lambda kk: FILA0 + kk
+    conclusion = [
+        ["Propiedades de inversión auditadas", fx(f"SUM({_rg(MED, 'E', ni)})", t["piAuditado"]), None, None, ""],
+        ["Saldo según el mayor", fx(mayor_f, c["mayor"]), None, None, ""],
+        ["Ajuste propuesto (auditado − mayor)", fx(f"{bc(0)}-{bc(1)}", c["ajuste"]), None, None,
+         fx(f'IF(ABS(B{rc(2)})>0.005,"Alerta","Conforme")', "Alerta" if abs(c["ajuste"]) > 0.005 else "Conforme")],
+        ["% del ajuste sobre el saldo del mayor", None,
+         fx(f'IF({bc(1)}=0,"",{bc(2)}/{bc(1)})', None if c["mayor"] == 0 else c["ajuste"] / c["mayor"]), None, ""],
+        ["Ajuste de valor razonable no reconocido (resultados)", fx(f"SUM({_rg(VRZ, 'H', ni)})", t["ajusteVR"]), None, None,
+         fx(f'IF(ABS(B{rc(4)})>0.005,"Revisar","Conforme")', "Revisar" if abs(t["ajusteVR"]) > 0.005 else "Conforme")],
+        ["Deterioro (modelo del costo)", fx(f"SUM({_rg(MCO, 'P', ni)})", t["deterioro"]), None, None,
+         fx(f'IF(B{rc(5)}>0.005,"Alerta","Conforme")', "Alerta" if t["deterioro"] > 0.005 else "Conforme")],
+        ["Problemas detectados", None, None, fx(f"COUNTA({_rg(PBL, 'A', max(nprob, 1))})", nprob),
+         fx(f'IF(D{rc(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+    ]
+
+    # 16 · lectura causa-efecto: el resultado y las variaciones materiales con su cifra embebida (FIXED
+    # respeta los separadores del equipo; el valor de Python va con los del Ecuador, como hace m()).
+    RES = ref("01_Resumen")
+    rl = lambda k: f"{RES}$B${fr[k]}"
+    lectura = [
+        ["Resultado principal",
+         fx(f'"Las propiedades de inversión auditadas suman US$ "&FIXED({rl("piAuditado")},2)&" frente a US$ "&FIXED({rl("saldoMayor")},2)&" según el mayor."',
+            f'Las propiedades de inversión auditadas suman US$ {m(t["piAuditado"])} frente a US$ {m(t["saldoMayor"])} según el mayor.')],
+        ["Ajuste y su efecto",
+         fx(f'"El ajuste propuesto neto asciende a US$ "&FIXED({rl("ajuste")},2)&": es la diferencia entre las propiedades auditadas y el saldo del mayor."',
+            f'El ajuste propuesto neto asciende a US$ {m(t["ajuste"])}: es la diferencia entre las propiedades auditadas y el saldo del mayor.')],
+        ["Valor razonable (hallazgo material)",
+         fx(f'"El ajuste de valor razonable no reconocido en resultados es de US$ "&FIXED({rl("ajusteVR")},2)&" (NIC 40.35; PYMES 16.7)."',
+            f'El ajuste de valor razonable no reconocido en resultados es de US$ {m(t["ajusteVR"])} (NIC 40.35; PYMES 16.7).')],
+        ["Modelo del costo (hallazgo material)",
+         fx(f'"El efecto de la medición al costo (depreciación y deterioro) suma US$ "&FIXED({rl("efectoCosto")},2)&", con un deterioro de US$ "&FIXED({rl("deterioro")},2)&"."',
+            f'El efecto de la medición al costo (depreciación y deterioro) suma US$ {m(t["efectoCosto"])}, con un deterioro de US$ {m(t["deterioro"])}.')],
+        ["Cierre",
+         fx(f'"La reclasificación fuera de propiedades de inversión es de US$ "&FIXED({rl("reclasificacion")},2)&" y el ajuste total propuesto neto queda en US$ "&FIXED({rl("ajuste")},2)&"."',
+            f'La reclasificación fuera de propiedades de inversión es de US$ {m(t["reclasificacion"])} y el ajuste total propuesto neto queda en US$ {m(t["ajuste"])}.')],
+    ]
 
     S = lambda xs: sum(x for x in xs if x is not None)
     return [
@@ -1039,9 +1108,10 @@ def hojas(res: dict) -> list[dict]:
                    _tot("M", ni, t["difDepreciacion"]), None, None, _tot("P", ni, t["deterioro"]), _tot("Q", ni, S(i["medCosto"] for i in its))], explica=EXPLICA["07_Modelo_costo"]),
         hoja("08_Medicion", CEDULAS[7][1],
              [["Código", "t"], ["Clasificación", "t"], ["Medición", "t"], ["Importe en libros", n_], ["Auditado en la cuenta", n_], ["Ajuste", n_],
-              ["Ajuste VR (resultados)", n_], ["Efecto modelo del costo", n_], ["Reclasificación", n_]],
+              ["Ajuste VR (resultados)", n_], ["Efecto modelo del costo", n_], ["Reclasificación", n_], ["Semáforo", "t"]],
              med, ["TOTAL", "", "", _tot("D", ni, t["libros"]), _tot("E", ni, t["piAuditado"]), _tot("F", ni, S(i["ajuste"] for i in its)),
-                   _tot("G", ni, t["ajusteVR"]), _tot("H", ni, t["efectoCosto"]), _tot("I", ni, t["reclasificacion"])], explica=EXPLICA["08_Medicion"]),
+                   _tot("G", ni, t["ajusteVR"]), _tot("H", ni, t["efectoCosto"]), _tot("I", ni, t["reclasificacion"]), ""],
+             explica=EXPLICA["08_Medicion"], colores=["Semáforo"]),
         hoja("09_Transferencias", CEDULAS[8][1],
              [["Código", "t"], ["Cambio de uso", "t"], ["Fecha del cambio", "d"], ["¿En el ejercicio?", "t"], ["Clasificación actual", "t"],
               ["Libros a la fecha", n_], ["VR a la fecha", n_], ["Diferencia VR − libros", n_], ["Superávit de revaluación a la fecha", n_],
@@ -1061,9 +1131,16 @@ def hojas(res: dict) -> list[dict]:
               ["Resultado recalculado", n_], ["Resultado registrado", n_], ["Diferencia", n_]],
              baj, ["TOTAL", "", None, _tot("D", nb, S(x["prod"] for x in bajas)), _tot("E", nb, S(x["lib"] for x in bajas)),
                    _tot("F", nb, t["resultadoBajas"]), None, _tot("H", nb, t["difBajas"])] if nb else None, explica=EXPLICA["12_Bajas"]),
-        hoja("13_Conciliacion", CEDULAS[12][1], [["Concepto", "t"], ["Importe", n_]], conciliacion, explica=EXPLICA["13_Conciliacion"]),
+        hoja("13_Conciliacion", CEDULAS[12][1], [["Concepto", "t"], ["Importe", n_]], conciliacion, explica=EXPLICA["13_Conciliacion"],
+             estilos=estilos_conc),
         hoja("14_Problemas", CEDULAS[13][1], [["Código", "t"], ["Descripción", "t"], ["Importe", n_]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("15_Conclusion", CEDULAS[14][1],
+             [["Indicador", "t"], ["Importe", n_], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
+             explica=EXPLICA["15_Conclusion"], colores=["Estado"]),
+        hoja("16_Lectura", CEDULAS[15][1], [["Concepto", "t"], ["Detalle", "t"]], lectura,
+             explica={"Detalle": "Lee el resultado del rubro y las variaciones o hallazgos materiales con su cifra "
+                                 "tomada del Resumen (hoja 01), redactados como causa-efecto para el lector del papel."}),
     ]
 
 

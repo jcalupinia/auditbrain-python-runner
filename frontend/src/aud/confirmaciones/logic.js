@@ -36,6 +36,22 @@ export const LANGUAGES = [['es', 'Español'], ['en', 'English'], ['fr', 'França
 export const ITEM_FIELDS = ['id', 'type', 'entity', 'contact_name', 'contact_email',
   'contact_address', 'account_ref', 'amount', 'method', 'reference', 'notes'];
 
+// Etiquetas en español para mostrar cada columna en la interfaz (la clave interna
+// no cambia; solo el texto visible).
+export const FIELD_LABEL = {
+  id: 'Código',
+  type: 'Tipo',
+  entity: 'Entidad',
+  contact_name: 'Nombre de contacto',
+  contact_email: 'Correo',
+  contact_address: 'Dirección',
+  account_ref: 'Cuenta / RUC',
+  amount: 'Saldo',
+  method: 'Método',
+  reference: 'N.º de solicitud',
+  notes: 'Observaciones',
+};
+
 export const FIELD_HELP = {
   auditor_email: 'Correo al que responderán los terceros; se imprime en cada carta.',
   response_deadline: 'Fecha límite para la respuesta; no puede ser anterior al corte.',
